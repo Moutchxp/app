@@ -195,6 +195,105 @@ export function motAjout(creeLe: string | null, creeParLibelle: string | null): 
   return `ajoutée ${quand}${qui}`;
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-COULEURS-DATES (08/10/2026) — CE QU'UNE CARTE DIT PAR SA COULEUR ET PAR SA DATE ═══════════════
+
+   DEMANDE D'ARNO, mot pour mot :
+     · « Carte “Clôture” (et “Clôture Monga” une fois validée) : ENTIÈREMENT verte, contour ET fond (vert plein,
+       texte blanc ou lisible), pour bien voir la clôture de l'événement. »
+     · « Cartes “Ouverture” et “Réouverture” : contour ROUGE. »
+     · « Toutes les autres cartes : contour VERT (comme aujourd'hui). »
+     · « Cartes “Ouverture”, “Clôture” et “Réouverture” : leur date (date de la carte) est écrite en GRAS,
+       CENTRÉE dans la carte. Pas de date de création en dessous. »
+     · « Toutes les autres cartes : sous la carte […] la date à laquelle la carte a été CRÉÉE. »
+
+   🔴 CES TROIS RÈGLES SONT **PURES**, ET C'EST POURQUOI ELLES VIVENT ICI. Dire « quelle couleur » et « quelle
+   date » est une décision de DOMAINE — les trois cartes qui bornent une période (ouverture, clôture,
+   réouverture) ne sont pas les autres. La feuille, elle, ne fait que peindre ce que ces fonctions tranchent.
+   Les écrire dans le composant aurait mis la règle hors d'atteinte des épreuves, et l'aurait recopiée trois
+   fois : la carte dérivée d'ouverture, la carte réelle, et la grille.
+
+   ⚠️ LES TROIS CARTES DE BORNE SONT LES MÊMES DES DEUX CÔTÉS, et ce n'est pas une coïncidence : ce sont celles
+   qui disent QUAND une période commence ou s'arrête. Leur date EST leur contenu — d'où le gras au centre — et
+   c'est pour cela qu'elles n'ont pas besoin, en plus, de dire quand on les a saisies.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LES TROIS CARTES QUI BORNENT UNE PÉRIODE : leur date s'écrit en gras, centrée, et rien ne vient sous elles.
+ *
+ * ⚠️ `ouverture` COUVRE LES DEUX FORMES : l'étape d'ouverture enregistrée (accusé Monga, repli de MONGA-2,
+ * ouverture manuelle) ET la carte d'ouverture DÉRIVÉE de `gestion_evenement.ouvert_le`. La seconde n'a de toute
+ * façon aucune date de création à montrer — elle n'est pas une ligne de la table des étapes.
+ */
+export const TYPES_BORNE: readonly TypeEtape[] = ['ouverture', 'cloture', 'reouverture'];
+
+/** La date de cette carte s'écrit-elle en gras au centre (plutôt que sa date de création dessous) ? PUR. */
+export function dateAuCentre(t: TypeEtape): boolean {
+  return TYPES_BORNE.includes(t);
+}
+
+/**
+ * ══ 🔴🔴 LA COULEUR D'UNE CARTE **POSÉE SUR LA FRISE** (Arno, point 2). PUR. ═════════════════════════════════════
+ *
+ * `debut`     — Ouverture, Réouverture : contour ROUGE. Ce sont les cartes d'où le dossier (re)part.
+ * `cloture`   — Clôture : carte ENTIÈREMENT verte, contour et fond.
+ * `ordinaire` — tout le reste : contour VERT, comme avant ce lot.
+ *
+ * 🔴 LE ROUGE NE VEUT PAS DIRE ICI CE QU'IL VEUT DIRE DANS LA GRILLE, et il faut le savoir : dans la grille,
+ * ROUGE = « à poser ». Sur une carte POSÉE, il ne peut pas vouloir dire cela — il dit « une période commence
+ * ici ». Les deux ne se croisent jamais : un carré de la grille n'est pas dans la frise, et réciproquement.
+ *
+ * ⚠️ LA COULEUR NE PORTE JAMAIS L'INFORMATION SEULE : le MOT de la carte (« Ouverture », « Clôture »,
+ * « Réouverture ») est écrit dedans, et la source est lue dans la bulle et au lecteur d'écran.
+ *
+ * ⚠️ CETTE FONCTION NE SAIT RIEN DE « À CONFIRMER », et c'est voulu : l'ambre est un ÉTAT DE LECTURE (ce motif
+ * n'a été vu que quelques fois), pas une sorte de carte. C'est l'écran qui le fait passer devant — voir la note
+ * sur `aConfirmer` dans `FriseAvancement`.
+ */
+export function couleurDeLaCarte(t: TypeEtape): 'debut' | 'cloture' | 'ordinaire' {
+  if (t === 'ouverture' || t === 'reouverture') return 'debut';
+  if (t === 'cloture') return 'cloture';
+  return 'ordinaire';
+}
+
+/** Ce qu'on écrit sous une carte : la mention, et si l'on sait vraiment quand elle a été créée. */
+export interface MentionCreation {
+  mot: string;
+  /** `false` ⇒ on ne sait pas : la mention l'avoue, et l'écran la met en gris au lieu du vert. */
+  connue: boolean;
+}
+
+/**
+ * ══ 🔴🔴 « CRÉÉE LE 08/10/2026 », SOUS LA CARTE (Arno, point 3.b). PUR. ══════════════════════════════════════════
+ *
+ * 🔴 ELLE N'INVENTE JAMAIS DE DATE. Arno : « Vérifie que la date de création de chaque carte est bien
+ * enregistrée. Si elle ne l'est pas pour les anciennes cartes, n'invente pas de date : affiche “date de création
+ * inconnue” en gris. Pas de migration qui fabrique des dates. » Une date fabriquée se lirait comme une mesure.
+ *
+ * 🔴 MESURE DU 08/10/2026 : **0 carte** sur les 162 de la base est concernée — `gestion_monga_etape.cree_le` est
+ * `NOT NULL DEFAULT now()` depuis sa création. La branche « inconnue » n'est donc pas un repli théorique posé
+ * pour la forme : elle couvre le type `string | null` que le dépôt rend, et elle restera juste si une donnée
+ * importée arrivait un jour sans date.
+ *
+ * ⚠️ AUCUN `Date` CONSTRUIT : on découpe la chaîne, exactement comme `motAjout` et `motDateEtape`. Le fuseau du
+ * lecteur ne doit pas décaler d'un jour la date à laquelle quelqu'un a saisi une carte — à 23 h à Paris, un
+ * `Date` rendrait déjà le lendemain.
+ *
+ * ⚠️ L'ANNÉE EN ENTIER, ET NON « le 08/10 » comme `motAjout` : cette mention-ci se lit sur la frise, à côté de
+ * cartes qui peuvent avoir deux ans d'écart. `motAjout`, elle, s'affiche dans une bulle qui dit déjà la date de
+ * l'étape — et elle garde l'heure, que celle-ci n'a pas : on veut savoir QUEL JOUR la carte a été saisie, pas à
+ * quelle minute.
+ */
+export function mentionCreation(creeLe: string | null): MentionCreation {
+  const inconnue: MentionCreation = { mot: 'date de création inconnue', connue: false };
+  if (creeLe === null || creeLe === '') return inconnue;
+  const [jour] = creeLe.split(/[T ]/);
+  const [a, m, j] = jour.split('-');
+  if (a === undefined || m === undefined || j === undefined) return inconnue;
+  if (a.length !== 4 || m.length !== 2 || j.length !== 2) return inconnue;
+  return { mot: `créée le ${j}/${m}/${a}`, connue: true };
+}
+
 /**
  * ══ 🔴🔴 COMBIEN DE DEVIS DANS **SA** RÉFÉRENCE — défaut trouvé à l'écran le 06/10/2026 ═════════════════════════
  *

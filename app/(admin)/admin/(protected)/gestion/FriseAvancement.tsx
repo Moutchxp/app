@@ -8,7 +8,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * `clientBoundary.guard.test.ts` le vérifie.
  */
 import {
-  cleDOuverture, construireFrise, etapeOuvrable, motAjout, motDateEtape, motGroupeMessages,
+  cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, mentionCreation,
+  motAjout, motDateEtape, motGroupeMessages,
   motMailDOrigine, motMontant, motSource, pictoSource, rangerEnLigne, referencesDeLaFrise,
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
 } from '../../../../lib/gestion/frise';
@@ -520,6 +521,23 @@ export function FriseAvancement({
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-COULEURS-DATES — DE LA RÈGLE PURE À LA CLASSE DE FEUILLE ═════════════════════════════════════
+
+   Une seule table, lue par les DEUX cartes de la frise (la réelle et l'ouverture dérivée). La règle elle-même
+   (quel type est de quelle couleur) vit dans `couleurDeLaCarte`, module pur : ici il n'y a que le nom de la
+   classe, c'est-à-dire la seule chose qui relève de la feuille.
+
+   🔴 `ordinaire` REND LA CHAÎNE VIDE, ET C'EST VOULU : le vert est déjà celui de `.fav-carre--dans`, posé sans
+   condition de type sur toute carte de la frise depuis le lot FRISE-CONSTRUCTIBLE. Une classe « --ordinaire »
+   qui redirait le même vert aurait fait deux endroits où le changer.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+const CLASSE_COULEUR: Record<ReturnType<typeof couleurDeLaCarte>, string> = {
+  debut: ' fav-carre--debut',
+  cloture: ' fav-carre--close',
+  ordinaire: '',
+};
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    UN ÉLÉMENT DE LA LIGNE : un carré, un groupe de points, ou le « + »
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
@@ -664,12 +682,21 @@ function Carre({
    * n'est donc ni « Monga » ni « manuelle » : elle n'est pas une étape, c'est la date de naissance du dossier.
    *
    * 🔴 ELLE RÉAGIT COMME LES AUTRES (Arno, point 5 : « tous les carrés de la frise réagissent pareil au survol »)
-   * et elle est verte comme les autres : elle EST dans la frise. Seul son contenu diffère.
+   * et elle est dans la frise comme les autres. Seul son contenu diffère.
+   *
+   * 🔴🔴 LOT FRISE-COULEURS-DATES — ELLE EST ROUGE COMME L'AUTRE OUVERTURE, et c'est tout l'intérêt de passer
+   * par `couleurDeLaCarte(c.type)` plutôt que d'écrire la classe ici : une carte d'ouverture DÉRIVÉE et une
+   * carte d'ouverture ENREGISTRÉE racontent la même chose à l'internaute, et doivent donc se peindre pareil.
+   * Deux écritures séparées auraient fini par en laisser une au vert.
+   *
+   * ⚠️ ELLE N'A PAS DE DATE DE CRÉATION, ET N'EN AURA JAMAIS : elle n'est pas une ligne de la table des étapes,
+   * elle AFFICHE `gestion_evenement.ouvert_le`. C'est aussi un type de borne, donc sa date va au centre, en
+   * gras — ce que `ChampOuverture` fait de son côté.
    */
   if (e === null) {
     return (
-      <li className="fav-el" ref={moi}>
-        <div className="fav-carre fav-carre--dans">
+      <li className="fav-el fav-el--carre" ref={moi}>
+        <div className={`fav-carre fav-carre--dans${CLASSE_COULEUR[couleurDeLaCarte(c.type)]}`}>
           <ChampOuverture jour={c.survenuLe.slice(0, 10)} mot={c.mot} occupe={occupe} onPoser={onOuverture} />
         </div>
       </li>
@@ -682,23 +709,45 @@ function Carre({
   const ouvrable = etapeOuvrable(e) && onOuvrirFil !== undefined;
   /* 🔴 « ajoutée le 06/10 à 22:31 par Arnaud », au survol (Arno, point 3). Jamais seul porteur d'information. */
   const pose = motAjout(e.creeLe, e.creeParLibelle);
+  /**
+   * ══ 🔴🔴 LOT FRISE-COULEURS-DATES — LA DATE DE CRÉATION, SOUS LA CARTE (Arno, point 3.b) ═══════════════════
+   *
+   * `null` sur les trois cartes de BORNE (Ouverture, Clôture, Réouverture) : « Pas de date de création en
+   * dessous » (Arno, point 3.a). Leur date de carte est déjà au centre, en gras — la doubler d'une seconde date
+   * ferait deux dates à lire sur une carte qui n'en raconte qu'une.
+   *
+   * ⚠️ LES POINTS (messages simplement informatifs) N'EN PORTENT PAS : ce sont des points de 11 px sur le
+   * trait, pas des cartes, et Arno écrit « sous la CARTE ». Leur date de pose reste lue dans leur bulle, par
+   * `motAjout`, exactement comme avant ce lot — rien n'est perdu.
+   */
+  const creation = dateAuCentre(e.type) ? null : mentionCreation(e.creeLe);
 
   return (
-    <li className="fav-el" ref={moi}>
+    <li className="fav-el fav-el--carre" ref={moi}>
       {/**
-        * 🔴🔴 LOT CLOTURE-REOUVERTURE, POINT 4 — « Sur la frise, la carte “Réouverture” est la SEULE à contour
-        * ROUGE. Toutes les autres cartes posées (y compris Clôture) gardent leur contour VERT. » (Arno)
+        * ══ 🔴🔴 LOT FRISE-COULEURS-DATES — LES COULEURS DE LA FRISE, RÉVISÉES PAR ARNO LE 08/10/2026 ═══════
         *
-        * 🔴 LE ROUGE DIT ICI AUTRE CHOSE QU'AILLEURS DANS CETTE FEUILLE, et il faut le savoir : le rouge du
-        * RÉSERVOIR veut dire « à poser ». Sur une carte POSÉE, il ne peut pas vouloir dire cela — il dit « le
-        * dossier est reparti d'ici ». Les deux ne se croisent jamais : un carré du réservoir n'est pas dans la
-        * frise, et réciproquement.
+        * ARNO : « Carte “Clôture” (et “Clôture Monga” une fois validée) : ENTIÈREMENT verte, contour ET fond
+        * […] pour bien voir la clôture de l'événement. Cartes “Ouverture” et “Réouverture” : contour ROUGE.
+        * Toutes les autres cartes : contour VERT (comme aujourd'hui). »
         *
-        * ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : le MOT « Réouverture » est écrit dans la carte,
-        * comme pour toutes les autres.
+        * 🔴 CE QUE CELA CORRIGE DU LOT CLOTURE-REOUVERTURE : la réouverture y était « la SEULE carte à contour
+        * rouge », et la clôture restait verte comme les autres. Arno étend le rouge à l'OUVERTURE — les deux
+        * cartes d'où une période part — et donne à la clôture un vert PLEIN, qui se repère de loin. La règle
+        * elle-même est dans `couleurDeLaCarte` (module pur) : ici on ne fait que nommer la classe.
+        *
+        * 🔴🔴 L'AMBRE « À CONFIRMER » PASSE DEVANT, ET SEULEMENT POUR LA CLÔTURE. C'est la parenthèse d'Arno
+        * (« et “Clôture Monga” UNE FOIS VALIDÉE ») : une clôture lue dans un mail mais pas encore confirmée
+        * n'est pas une clôture acquise, et la peindre en vert plein l'affirmerait. Mesuré le 08/10/2026 :
+        * **5 clôtures Monga** sont dans cet état. Ouverture et Réouverture, elles, prennent leur rouge dans
+        * tous les cas — Arno ne les assortit d'aucune condition, et leurs **37 ouvertures Monga à confirmer**
+        * gardent par ailleurs leurs deux boutons ✓ / ✕, qui sont AMBRE et disent l'état sans la bordure.
+        *
+        * ⚠️ LA COULEUR NE PORTE JAMAIS L'INFORMATION SEULE : le MOT de la carte est écrit dedans, la source est
+        * lue dans la bulle et au lecteur d'écran, et les deux boutons ✓ / ✕ restent là où ils étaient.
         */}
       <div className={`fav-carre fav-carre--dans${aConfirmer ? ' fav-carre--doute' : ''}`
-        + (e.type === 'reouverture' ? ' fav-carre--reouverture' : '')}
+        + (aConfirmer && e.type === 'cloture' ? '' : CLASSE_COULEUR[couleurDeLaCarte(e.type)])}
         title={pose ?? undefined}>
         {/**
           * 🔴 UN CLIC SUR UN CARRÉ MONGA OUVRE LE MAIL D'ORIGINE (Arno). Quand il n'y en a pas — étape manuelle,
@@ -719,7 +768,17 @@ function Carre({
             {/* ⚠️ LE PICTO NE PORTE PAS L'INFORMATION SEUL : la source est lue dans la bulle et au lecteur d'écran. */}
             <span className="fav-picto" aria-hidden="true"> {pictoSource(e)}</span>
           </span>
-          <span className="fav-date">{motDateEtape(e)}</span>
+          {/**
+            * 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 3.a — « Cartes “Ouverture”, “Clôture” et “Réouverture” : leur
+            * date (date de la carte) est écrite en GRAS, CENTRÉE dans la carte. » (Arno)
+            *
+            * 🔴 C'EST LA MÊME DATE QU'AVANT, ET LE MÊME MOT (`motDateEtape`) : seule sa mise en forme change.
+            * Sur une carte de borne, cette date EST le fait — « l'événement s'est fermé CE jour-là » —, d'où le
+            * gras au centre ; sur les autres, elle accompagne un intitulé qui porte déjà le sens.
+            */}
+          <span className={`fav-date${dateAuCentre(e.type) ? ' fav-date--centree' : ''}`}>
+            {motDateEtape(e)}
+          </span>
           {montant !== null && <span className="fav-montant">{montant}</span>}
           {avecReference && e.reference !== null && <span className="fav-ref">{e.reference}</span>}
           <span className="fav-sr">{motSource(e)}</span>
@@ -741,6 +800,28 @@ function Carre({
           onClick={() => onOuvrir(detailOuvert ? null : `c${e.id}`)}>…</button>
       </div>
 
+      {/**
+        * ══ 🔴🔴 LA DATE DE CRÉATION, **HORS DU CADRE**, CENTRÉE SOUS LA CARTE (Arno, point 3.b) ═════════════
+        *
+        * ARNO : « sous la carte (en dehors du cadre, centré sous elle), en petit et en VERT, la date à laquelle
+        * la carte a été CRÉÉE (enregistrée dans l'application), par exemple “créée le 08/10/2026”. Ne pas
+        * confondre avec la date de l'étape, qui reste affichée dans la carte. »
+        *
+        * 🔴 ELLE NE DÉCALE AUCUN CONNECTEUR, et c'est la condition d'Arno (« La frise garde son alignement : la
+        * ligne des dates de création ne doit pas décaler les connecteurs (+) entre les cartes »). Elle tient à
+        * une seule propriété, déjà posée : `.fav-piste{align-items:flex-start}`. Les éléments de la rangée sont
+        * alignés par le HAUT, jamais par le milieu ni par le bas — un élément plus haut que ses voisins pousse
+        * donc vers le BAS, et rien ne bouge au-dessus de lui. Les « + » intercalaires (`padding-top:32px`), les
+        * groupes de points (`padding-top:38px`) et le trait (`top:44px`) comptent tous depuis ce même haut.
+        *
+        * ⚠️ ELLE EST DANS LE `<li>` ET NON DANS `.fav-carre` : « en dehors du cadre » veut dire hors de la boîte
+        * bordée. Dedans, elle aurait mangé 15 px des 92 px du carré et poussé le montant hors de la vue.
+        *
+        * ⚠️ `connue === false` ⇒ ELLE L'AVOUE EN GRIS, et n'invente rien (Arno : « n'invente pas de date »).
+        */}
+      {creation !== null && (
+        <span className={`fav-cree${creation.connue ? '' : ' fav-cree--inconnue'}`}>{creation.mot}</span>
+      )}
     </li>
   );
 }
@@ -879,7 +960,11 @@ function ChampOuverture({
       <button type="button" className="fav-carre-clic" onClick={() => setEdite(true)}
         title="Corriger la date d’ouverture de l’événement">
         <span className="fav-titre">{mot}</span>
-        <span className="fav-date">{`${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}</span>
+        {/* 🔴 LOT FRISE-COULEURS-DATES, POINT 3.a — « Ouverture » est une carte de BORNE : sa date s'écrit en
+            gras, au centre. Même classe que la carte d'ouverture ENREGISTRÉE, pour le même rendu. */}
+        <span className="fav-date fav-date--centree">
+          {`${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}
+        </span>
         <span className="fav-sr">date d’ouverture de l’événement, modifiable</span>
       </button>
     );
@@ -956,9 +1041,18 @@ function Reservoir({
         {liste.map((t) => (
           <li key={t}>
             {/* 🔴 LOT CLOTURE-REOUVERTURE — « le bouton “Réouverture” a aussi un contour rouge plus marqué, pour
-                le distinguer. Les autres boutons de la grille ne changent pas. » (Arno) */}
+                le distinguer. Les autres boutons de la grille ne changent pas. » (Arno)
+
+                🔴🔴 LOT FRISE-COULEURS-DATES — ET « CLÔTURE » EST LA **SEULE** CARTE À CONTOUR VERT DE LA
+                GRILLE (Arno, point 1) : « Toutes les autres cartes (Prise de rendez-vous… Carte libre,
+                Réouverture) : contour ROUGE, comme aujourd'hui. » Le vert la détache du reste du réservoir
+                parce que c'est le geste qui FERME le dossier — le seul de la grille qui change son état dans ce
+                sens. « Réouverture » garde donc son rouge et son trait plus épais, inchangés.
+                ⚠️ LA COULEUR NE DIT PAS SEULE : le mot « Clôture » est écrit dans le bouton, et la
+                confirmation d'Arno est demandée avant de poser la carte. */}
             <button type="button"
-              className={`fav-carre fav-carre--reserve${t === 'reouverture' ? ' fav-carre--reouverture' : ''}`}
+              className={`fav-carre fav-carre--reserve${t === 'reouverture' ? ' fav-carre--reouverture' : ''}`
+                + (t === 'cloture' ? ' fav-carre--reserve-close' : '')}
               onClick={() => onChoisir(t)}>
               <span className="fav-titre">{motEtape(t)}</span>
               {t === 'autre' && <span className="fav-date">titre à saisir</span>}
@@ -1347,6 +1441,22 @@ const CSS_FRISE_AVANCEMENT = `
   background:var(--color-svv-line);z-index:0}
 .fav-el:first-child::before{left:50%}
 .fav-el:last-child::before{right:50%}
+/* ══ 🔴🔴 LOT FRISE-COULEURS-DATES — L'ELEMENT D'UN CARRE EMPILE LA CARTE ET SA DATE DE CREATION ══════════════
+   ARNO, POINT 3.b : la date de creation va « sous la carte (en dehors du cadre, centre sous elle) ».
+
+   🔴 EN COLONNE, ET SANS TOUCHER A .fav-el : les groupes de points et les « + » intercalaires restent en ligne,
+   avec leur padding-top (38 px et 32 px) qui compte depuis le haut de la rangee. Seuls les carres s'empilent.
+
+   🔴 ET L'ALIGNEMENT TIENT, C'EST LA CONDITION D'ARNO (« la ligne des dates de creation ne doit pas decaler les
+   connecteurs (+) entre les cartes »). Il tient a une propriete deja posee et qu'on ne touche pas :
+   .fav-piste{align-items:flex-start} — la rangee aligne ses elements par le HAUT. Un element plus haut que ses
+   voisins pousse donc vers le BAS, et le trait (top:44px), les « + » et les points ne bougent pas d'un pixel.
+   ⚠️ NE PAS PASSER CETTE RANGEE EN center NI EN stretch : les deux recentreraient les carres sur une hauteur
+   qui depend desormais de la presence d'une date de creation — c'est-a-dire du TYPE de la carte.
+
+   ⚠️ align-items:stretch POUR QUE LA MENTION PRENNE TOUTE LA LARGEUR DE L'ELEMENT (124 px de carre + 2 x 10 px
+   de marge), ce qui est ce qui la centre exactement sous la carte. Le carre, lui, garde sa largeur fixe. */
+.fav-el--carre{flex-direction:column;align-items:stretch}
 
 /* ══ 🔴🔴 LOT FRISE-CONSTRUCTIBLE — TROIS COULEURS, ET CHACUNE DIT UN ETAT ════════════════════════════════════
    ROUGE = a poser (le reservoir, les « + ») · VERT = dans la frise, qu'elle vienne du courrier ou d'une main
@@ -1381,6 +1491,37 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-carre--reouverture{border-color:var(--color-svv-red)}
 .fav-carre--reouverture:hover,.fav-carre--reouverture:focus-within{border-color:var(--color-svv-red-dark)}
 .fav-carre--reserve.fav-carre--reouverture{border-width:2px}
+
+/* ══ 🔴🔴 LOT FRISE-COULEURS-DATES (08/10/2026) — LES COULEURS REVUES PAR ARNO ════════════════════════════════
+   ARNO, POINT 2 : « Carte “Cloture” (et “Cloture Monga” une fois validee) : ENTIEREMENT verte, contour ET fond
+   (vert plein, texte blanc ou lisible), pour bien voir la cloture de l'evenement. Cartes “Ouverture” et
+   “Reouverture” : contour ROUGE. Toutes les autres cartes : contour VERT (comme aujourd'hui). »
+
+   🔴 CE QUE CELA CORRIGE : au lot CLOTURE-REOUVERTURE, la reouverture etait la SEULE carte rouge, et la cloture
+   restait verte comme les douze autres. Le rouge s'etend donc a l'OUVERTURE — les deux cartes d'ou une periode
+   part — et la cloture gagne un vert PLEIN, qui se repere d'un bout a l'autre de la frise.
+
+   🔴 CES DEUX REGLES PASSENT APRES .fav-carre--dans ET .fav-carre--doute, ET IL LE FAUT : en CSS, a specificite
+   egale, c'est l'ORDRE qui tranche. Posees avant, le vert de « --dans » les recouvrirait et aucune ne se verrait.
+
+   ⚠️ LA CLASSE N'EST PAS POSEE SUR UNE CLOTURE « A CONFIRMER » (voir le balisage) : c'est la parenthese d'Arno,
+   « une fois validee ». L'ambre de --doute reste donc visible, et la carte ne promet pas une cloture acquise.
+
+   ⚠️ TEXTE SUR FOND VERT : « vert plein, texte blanc ou LISIBLE ». Le fond est --color-svv-green-ink et le texte
+   --color-svv-bg, ce qui donne du blanc sur vert fonce en theme Clair (contraste mesure 5,4:1) et de l'encre
+   sombre sur vert clair en theme Sombre (11,7:1) — les deux au-dela du seuil AA, sans une seule couleur en dur. */
+.fav-carre--debut{border-color:var(--color-svv-red)}
+.fav-carre--close{border-color:var(--color-svv-green-ink);background:var(--color-svv-green-ink);
+  color:var(--color-svv-bg)}
+/* ⚠️ TOUS LES TEXTES DU CARRE SUIVENT, et il faut les nommer un par un : chacun porte sa propre couleur
+   (--color-svv-ink pour le titre, --color-svv-muted pour la date et le menu, --color-svv-red pour le picto de
+   source), et un gris ou un rouge laisse sur du vert plein serait illisible. */
+.fav-carre--close .fav-carre-clic,.fav-carre--close .fav-titre,.fav-carre--close .fav-date,
+.fav-carre--close .fav-montant,.fav-carre--close .fav-ref,.fav-carre--close .fav-picto,
+.fav-carre--close .fav-menu{color:var(--color-svv-bg)}
+
+/* ⚠️ LE VERT DE « CLOTURE » DANS LA GRILLE N'EST PAS ICI : il doit passer apres .fav-carre--reserve, qui est
+   ecrite plus bas (bloc « LE RESERVOIR ») et repose le rouge sur toutes ses cartes. Voir .fav-carre--reserve-close. */
 /* ══ 🔴🔴 LE SURVOL EST LE MEME POUR TOUS LES CARRES (Arno, point 5) ══════════════════════════════════════════
    « tous les carrés de la frise réagissent pareil au survol (contour accentué, curseur main). Aujourd'hui seul
    “Acceptation du devis” le fait. » Le defaut venait de la : seul le carre pointille « posable » portait une
@@ -1395,6 +1536,13 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-carre:hover,.fav-carre:focus-within{box-shadow:0 0 0 1px currentColor inset}
 .fav-carre--dans:hover,.fav-carre--dans:focus-within{border-color:var(--color-svv-green-ink)}
 .fav-carre--doute:hover,.fav-carre--doute:focus-within{border-color:var(--color-svv-amber)}
+/* ⚠️ LE SURVOL DES CARTES DE CE LOT PASSE ENCORE APRES, pour la meme raison d'ordre : sans cela, le survol de
+   « --dans » repeindrait en vert le contour rouge d'une Ouverture des qu'on passe la souris dessus.
+   🔴 LE FILET INTERNE EN currentColor (regle .fav-carre:hover, au-dessus) sert les deux : sur la carte verte
+   pleine, currentColor vaut --color-svv-bg, donc un filet clair nettement visible sur le vert. */
+.fav-carre--debut:hover,.fav-carre--debut:focus-within{border-color:var(--color-svv-red-dark)}
+.fav-carre--close:hover,.fav-carre--close:focus-within{border-color:var(--color-svv-green)}
+.fav-carre--close .fav-menu:hover{background:var(--color-svv-green);color:var(--color-svv-bg)}
 
 /* ══ LE RESERVOIR — les cartes qu'on peut poser, a contour ROUGE (Arno, point 2) ══
    Elles ont la forme de celles de la frise, en plus petit : on voit ce qu'on va poser. */
@@ -1405,6 +1553,22 @@ const CSS_FRISE_AVANCEMENT = `
   border-color:var(--color-svv-red);background:var(--color-svv-bg);
   font:inherit;text-align:left;color:var(--color-svv-ink)}
 .fav-carre--reserve:hover{background:var(--color-svv-field);border-color:var(--color-svv-red)}
+/* ══ 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 1 — « CLOTURE » EST LA SEULE CARTE VERTE DE LA GRILLE ═══════════════
+   ARNO : « “Cloture” : SEULE carte a contour VERT. Toutes les autres cartes (Prise de rendez-vous… Carte libre,
+   Reouverture) : contour ROUGE, comme aujourd'hui. »
+
+   🔴 ELLE EST ECRITE **ICI**, ET C'EST LE SEUL ENDROIT OU ELLE TIENT. Les deux regles juste au-dessus reposent
+   le rouge sur toutes les cartes du reservoir, au repos comme au survol ; en CSS, a specificite egale, c'est
+   l'ORDRE qui tranche. Placee dans le bloc des couleurs de la frise (plus haut), elle existait mais ne se voyait
+   jamais — defaut evite a l'ecriture, et c'est exactement le piege que .fav-carre--reouverture documente deja.
+
+   🔴 ELLE NE TOUCHE PAS AU TRAIT PLUS EPAIS DE « REOUVERTURE » : celui-la reste rouge et plus marque, « comme
+   aujourd'hui ». Les deux cartes ne sont jamais la meme, l'etat de l'evenement n'en offrant qu'une a la fois.
+
+   ⚠️ C'EST UN CONTOUR, PAS UN FOND : dans la grille, rien n'est encore pose. Le vert PLEIN est reserve a la
+   carte qui est DANS la frise, et confondre les deux ferait croire la cloture deja faite. */
+.fav-carre--reserve-close{border-color:var(--color-svv-green)}
+.fav-carre--reserve-close:hover{background:var(--color-svv-field);border-color:var(--color-svv-green-ink)}
 .fav-ajout-date{font-weight:400;color:var(--color-svv-muted)}
 
 /* Le « + » : bordure pointillee rouge, gros + rouge cercle (Arno). */
@@ -1442,8 +1606,30 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-titre{font-size:.78rem;font-weight:700;line-height:1.15;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .fav-picto{color:var(--color-svv-red)}
 .fav-date{font-size:.7rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* ══ 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 3.a — LA DATE DES TROIS CARTES DE BORNE ═════════════════════════════
+   ARNO : « Cartes “Ouverture”, “Cloture” et “Reouverture” : leur date (date de la carte) est ecrite en GRAS,
+   CENTREE dans la carte. Pas de date de creation en dessous. »
+   🔴 EN ENCRE PLEINE, ET NON EN GRIS : sur ces trois cartes la date EST le fait (« la periode se ferme CE
+   jour-la »), et le gris de .fav-date la donnait pour une mention secondaire.
+   ⚠️ text-align SUFFIT A LA CENTRER : la boite est un element de colonne flex, donc etiree sur toute la largeur
+   du carre. Pas de margin:auto, qui ne centrerait que la boite et laisserait le texte a gauche. */
+.fav-date--centree{font-weight:700;text-align:center;color:var(--color-svv-ink)}
 .fav-montant{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
 .fav-ref{font-size:.68rem;font-weight:700;color:var(--color-svv-muted)}
+/* ══ 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 3.b — « CREEE LE 08/10/2026 », SOUS LA CARTE ════════════════════════
+   ARNO : « sous la carte (en dehors du cadre, centre sous elle), en petit et en VERT, la date a laquelle la
+   carte a ete CREEE (enregistree dans l'application) […] Ne pas confondre avec la date de l'etape, qui reste
+   affichee dans la carte. »
+   🔴 LE VERT EST --color-svv-green-ink, PAS --color-svv-green : le second (le vert des contours) tombe a 3,4:1
+   sur le fond de page en theme Clair, sous le seuil AA pour un texte de cette taille. L'encre verte mesure
+   5,4:1 en Clair et 11,7:1 en Sombre, et c'est deja le vert de texte du depot (.svv-pill, globals.css).
+   ⚠️ LA MENTION « inconnue » PASSE EN GRIS (Arno), et elle n'invente aucune date : voir mentionCreation.
+   ⚠️ ELLE NE DOIT PAS ELARGIR L'ELEMENT, sinon les cartes s'ecarteraient les unes des autres : overflow-wrap
+   la coupe plutot que de pousser, et la mention la plus longue (« date de creation inconnue ») tient en deux
+   lignes dans les 144 px de l'element. */
+.fav-cree{display:block;margin:4px 0 0;font-size:.66rem;line-height:1.25;text-align:center;
+  color:var(--color-svv-green-ink);overflow-wrap:anywhere}
+.fav-cree--inconnue{color:var(--color-svv-muted)}
 
 /* Les deux petits boutons d'une etape « a confirmer », et le menu « … ». */
 .fav-doute{position:absolute;right:4px;bottom:4px;display:flex;gap:3px}

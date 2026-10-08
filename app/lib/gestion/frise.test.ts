@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  cleDOuverture, construireFrise, etapeOuvrable, jourEnNombre, jourIntercalaire, motAjout,
+  cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, jourEnNombre,
+  jourIntercalaire, mentionCreation, motAjout,
   motDateEtape, motDeLaCase, motDeLaCarte, motGroupeMessages, motMailDOrigine, motMontant, motSource,
-  nombreEnJour, numerosDesEtapes, pictoSource, rangerEnLigne,
+  nombreEnJour, numerosDesEtapes, pictoSource, rangerEnLigne, TYPES_BORNE,
   type EtapeAAfficher,
 } from './frise';
+/* 🔴 LOT FRISE-COULEURS-DATES — les deux listes de types viennent du module, jamais recopiées : une épreuve qui
+   énumère ses propres types ne verrait pas celui qu'on ajoutera demain. */
+import { REPERES, TYPES_AJOUTABLES } from './mongaEtape';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINT 3 — COMMENT LA FRISE SE RANGE ════════════════════════════════════════════════════════
@@ -667,5 +671,91 @@ describe('⑬ la date qu’un « + » intercalaire propose', () => {
         expect(p >= g && p <= dr, `${g} → ${dr} a proposé ${p}`).toBe(true);
       }
     }
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-COULEURS-DATES (08/10/2026) — LA COULEUR ET LA DATE D'UNE CARTE, EN RÈGLES PURES ═════════════
+
+   DEMANDE D'ARNO :
+     · « Carte “Clôture” (et “Clôture Monga” une fois validée) : ENTIÈREMENT verte, contour ET fond […] Cartes
+       “Ouverture” et “Réouverture” : contour ROUGE. Toutes les autres cartes : contour VERT. »
+     · « Cartes “Ouverture”, “Clôture” et “Réouverture” : leur date est écrite en GRAS, CENTRÉE dans la carte.
+       Pas de date de création en dessous. Toutes les autres cartes : sous la carte […] la date à laquelle la
+       carte a été CRÉÉE […] par exemple “créée le 08/10/2026”. »
+     · « Si elle ne l'est pas pour les anciennes cartes, n'invente pas de date : affiche “date de création
+       inconnue” en gris. […] Pas de migration qui fabrique des dates. »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑭ la couleur d’une carte posée sur la frise', () => {
+  /**
+   * 🔴🔴 LES TROIS SORTES, ET ELLES COUVRENT TOUS LES TYPES. L'épreuve ne choisit pas trois exemples : elle
+   * passe sur la liste ENTIÈRE des types, de sorte qu'un type ajouté demain soit forcément classé.
+   */
+  it('🔴🔴 « Ouverture » et « Réouverture » sont les deux cartes de DÉBUT', () => {
+    expect(couleurDeLaCarte('ouverture')).toBe('debut');
+    expect(couleurDeLaCarte('reouverture')).toBe('debut');
+  });
+
+  it('🔴🔴 « Clôture » a sa sorte à elle — la carte entièrement verte', () => {
+    expect(couleurDeLaCarte('cloture')).toBe('cloture');
+  });
+
+  /** 🔴 « Toutes les autres cartes : contour VERT (comme aujourd'hui) » — donc `ordinaire`, et pas une de plus. */
+  it('🔴🔴 tout le reste est ordinaire, et le reste veut dire TOUT le reste', () => {
+    for (const t of TYPES_AJOUTABLES) {
+      if (t === 'ouverture' || t === 'reouverture' || t === 'cloture') continue;
+      expect(couleurDeLaCarte(t), t).toBe('ordinaire');
+    }
+    /* ⚠️ LES REPÈRES AUSSI, même s'ils s'affichent en POINT : la fonction ne doit pas pouvoir rendre `undefined`. */
+    for (const t of REPERES) expect(couleurDeLaCarte(t), t).toBe('ordinaire');
+  });
+
+  /**
+   * 🔴🔴 LES TROIS CARTES DE BORNE SONT LES MÊMES DES DEUX CÔTÉS — couleur particulière ET date au centre. Ce
+   * n'est pas une coïncidence : ce sont celles qui disent QUAND une période commence ou s'arrête.
+   */
+  it('🔴🔴 les cartes à date centrée sont exactement les cartes non ordinaires', () => {
+    expect([...TYPES_BORNE]).toEqual(['ouverture', 'cloture', 'reouverture']);
+    for (const t of [...TYPES_AJOUTABLES, ...REPERES]) {
+      expect(dateAuCentre(t), t).toBe(couleurDeLaCarte(t) !== 'ordinaire');
+    }
+  });
+});
+
+describe('⑮ « créée le … », et l’aveu quand on ne sait pas', () => {
+  /** 🔴 L'EXEMPLE D'ARNO, MOT POUR MOT — avec l'année en entier, parce que la frise mêle plusieurs années. */
+  it('🔴🔴 « créée le 08/10/2026 », exactement', () => {
+    expect(mentionCreation('2026-10-08T22:31:04')).toEqual({ mot: 'créée le 08/10/2026', connue: true });
+    /* ⚠️ L'ESPACE DE POSTGRES COMME LE « T » DE L'ISO : le dépôt rend `cree_le::text`, qui emploie l'espace. */
+    expect(mentionCreation('2026-10-08 22:31:04+02')).toEqual({ mot: 'créée le 08/10/2026', connue: true });
+    /* ⚠️ UN JOUR SEUL SUFFIT : on ne veut que le jour, jamais l'heure. */
+    expect(mentionCreation('2026-01-03')).toEqual({ mot: 'créée le 03/01/2026', connue: true });
+  });
+
+  /**
+   * 🔴🔴 ELLE N'INVENTE JAMAIS DE DATE (Arno : « n'invente pas de date »). Mesuré le 08/10/2026 : **0 carte**
+   * sur les 162 de la base est sans `cree_le` — la colonne est `NOT NULL DEFAULT now()`. Cette branche couvre
+   * le type `string | null` du dépôt, et elle reste juste si une donnée importée arrivait un jour sans date.
+   */
+  it('🔴🔴 sans date, elle l’avoue, et ne fabrique rien', () => {
+    for (const v of [null, '', 'bientot', '2026', '2026-10', '26-10-08', '2026-1-8']) {
+      expect(mentionCreation(v), String(v)).toEqual({ mot: 'date de création inconnue', connue: false });
+    }
+  });
+
+  /** ⚠️ `connue` EST CE QUI DÉCIDE DE LA COULEUR À L'ÉCRAN : vert quand on sait, gris quand on ne sait pas. */
+  it('⚠️ elle dit si la date est connue, et l’écran s’en sert pour le gris', () => {
+    expect(mentionCreation('2026-10-08T00:00:00').connue).toBe(true);
+    expect(mentionCreation(null).connue).toBe(false);
+  });
+
+  /**
+   * ⚠️ AUCUN OBJET DE DATE CONSTRUIT : à 23 h à Paris, il rendrait déjà le lendemain. C'est le même découpage
+   * que `motAjout` et `motDateEtape`, et l'épreuve de pureté du module (⑪) le tient pour tout le fichier.
+   */
+  it('⚠️ elle ne décale rien, quelle que soit l’heure', () => {
+    expect(mentionCreation('2026-10-08T23:59:59').mot).toBe('créée le 08/10/2026');
+    expect(mentionCreation('2026-10-08T00:00:00').mot).toBe('créée le 08/10/2026');
   });
 });

@@ -4,6 +4,8 @@ import {
   cartesDuReservoir, confirmationCarte, etatApresCarte, motEtape,
   TYPES_AJOUTABLES, TYPES_HERITES, TYPES_INFORMATION, TYPES_RESERVOIR,
 } from '../../../../lib/gestion/mongaEtape';
+/* 🔴 LOT FRISE-COULEURS-DATES — la couleur d'une carte posée est désormais une règle PURE : voir la section ⑤. */
+import { couleurDeLaCarte } from '../../../../lib/gestion/frise';
 
 /**
  * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — ON FERME ET ON ROUVRE PAR UNE CARTE, ET PAR RIEN D'AUTRE ════════════════════
@@ -155,18 +157,34 @@ describe('🔴🔴 ④ la confirmation, avant de poser', () => {
 
 describe('🔴🔴 ⑤ les couleurs de la frise', () => {
   /**
-   * 🔴🔴 « LA CARTE “RÉOUVERTURE” EST LA SEULE À CONTOUR ROUGE. Toutes les autres cartes posées (y compris
-   * Clôture) gardent leur contour VERT. » (Arno)
+   * ══ 🔴🔴 CE QUE CETTE SECTION DISAIT, ET POURQUOI ARNO L'A CORRIGÉE LE MÊME JOUR ════════════════════════════
+   *
+   * Elle tenait le point 4 de ce lot : « Sur la frise, la carte “Réouverture” est la SEULE à contour ROUGE.
+   * Toutes les autres cartes posées (y compris Clôture) gardent leur contour VERT. »
+   *
+   * 🔴 LE LOT FRISE-COULEURS-DATES (08/10/2026) REMPLACE CETTE RÈGLE PAR UNE AUTRE, en toutes lettres : « Cartes
+   * “Ouverture” et “Réouverture” : contour ROUGE. Carte “Clôture” […] ENTIÈREMENT verte, contour ET fond. »
+   * Le rouge n'est donc plus réservé à la réouverture, et la clôture n'est plus verte comme les autres.
+   *
+   * 🔴 CE QUI NE CHANGE PAS, ET QUE CETTE SECTION GARDE : la réouverture reste rouge SUR LA FRISE, elle reste
+   * rouge et plus marquée DANS LA GRILLE, et la couleur ne porte jamais l'information seule. Le reste — la
+   * nouvelle règle, pièce par pièce — est éprouvé dans `friseCouleursDates.test.ts`, le fichier du lot qui l'a
+   * décidée : deux fichiers qui tiendraient la même règle finiraient par n'en tenir qu'une moitié chacun.
    */
-  it('🔴🔴 seule la réouverture porte le modificateur rouge, sur la frise', () => {
-    expect(FRISE).toContain("(e.type === 'reouverture' ? ' fav-carre--reouverture' : '')");
-    /* 🔴 ET LES AUTRES GARDENT LEUR VERT : `--dans` est posé sans condition de type. */
+  it('🔴🔴 la réouverture est toujours rouge sur la frise, par la carte de BORNE', () => {
+    /* 🔴 LA RÈGLE EST PURE, ET LA RÉOUVERTURE EST L'UNE DES DEUX CARTES QUI OUVRENT UNE PÉRIODE. */
+    expect(couleurDeLaCarte('reouverture')).toBe('debut');
+    expect(FRISE).toContain("debut: ' fav-carre--debut',");
+    expect(FRISE).toContain('.fav-carre--debut{border-color:var(--color-svv-red)}');
+    /* 🔴 ET LES AUTRES GARDENT LEUR VERT : `--dans` est toujours posé sans condition de type. */
     expect(FRISE).toContain("`fav-carre fav-carre--dans${aConfirmer ? ' fav-carre--doute' : ''}`");
   });
 
   /** 🔴 DANS LA GRILLE, UN TRAIT PLUS ÉPAIS : tous les carrés du réservoir sont déjà rouges (« à poser »). */
   it('🔴 dans la grille, le bouton « Réouverture » a un contour plus marqué', () => {
     expect(FRISE).toContain('.fav-carre--reserve.fav-carre--reouverture{border-width:2px}');
+    /* ⚠️ ET IL EST TOUJOURS POSÉ SUR LA CARTE DE LA GRILLE, c'est-à-dire là où il sert encore. */
+    expect(FRISE).toContain("t === 'reouverture' ? ' fav-carre--reouverture' : ''");
   });
 
   /**
@@ -176,14 +194,18 @@ describe('🔴🔴 ⑤ les couleurs de la frise', () => {
   it('🔴 sa règle vient après le vert de la frise et le rouge du réservoir', () => {
     expect(FRISE.indexOf('.fav-carre--reouverture{'))
       .toBeGreaterThan(FRISE.indexOf('.fav-carre--dans{'));
+    expect(FRISE.indexOf('.fav-carre--debut{'))
+      .toBeGreaterThan(FRISE.indexOf('.fav-carre--dans{'));
   });
 
   /** ⚠️ AUCUNE COULEUR EN DUR : la feuille de ce fichier n'accepte que des jetons, commentaire compris. */
   it('⚠️ elle ne tire que des jetons du thème', () => {
-    const regle = FRISE.match(/\.fav-carre--reouverture\{([^}]*)\}/);
-    expect(regle).not.toBeNull();
-    expect(regle?.[1]).toContain('var(--color-svv-red)');
-    expect(regle?.[1]).not.toMatch(/#[0-9a-f]{3,8}/i);
+    for (const sel of ['.fav-carre--reouverture', '.fav-carre--debut']) {
+      const regle = FRISE.match(new RegExp(`\\${sel}\\{([^}]*)\\}`));
+      expect(regle, sel).not.toBeNull();
+      expect(regle?.[1], sel).toContain('var(--color-svv-red)');
+      expect(regle?.[1], sel).not.toMatch(/#[0-9a-f]{3,8}/i);
+    }
   });
 });
 
