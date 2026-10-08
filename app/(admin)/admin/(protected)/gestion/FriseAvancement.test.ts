@@ -767,7 +767,10 @@ describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 
    */
   it('🔴🔴 la corriger corrige l’ÉVÉNEMENT, et le journalise', () => {
     expect(FRISE).toContain("{ geste: 'ouverture', survenuLe: j }");
-    expect(ROUTE_FRISE).toContain("if (String(corps.geste ?? '') !== 'ouverture')");
+    /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le PATCH porte DEUX gestes désormais (« ouverture » et « ordre ») :
+       le refus de tout autre geste est donc écrit après le second, pas en tête. Le verdict ne change pas : un
+       geste inconnu est toujours refusé, et la correction de la date d'ouverture passe toujours par ici. */
+    expect(ROUTE_FRISE).toContain("if (geste !== 'ouverture') {");
     expect(ROUTE_FRISE).toContain('deplacerOuvertureEvenement(evenementId, jour, auteur)');
     const gestes = readFileSync('app/lib/gestion/gestes.ts', 'utf8');
     const i = gestes.indexOf('export async function deplacerOuvertureEvenement');

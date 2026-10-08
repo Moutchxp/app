@@ -75,6 +75,18 @@ export interface EtapeAAfficher {
   creeLe: string | null;
   /** 🔴 LE TITRE D'UNE CARTE LIBRE (Arno : « un carré LIBRE (titre à saisir) »). `null` partout ailleurs. */
   titre: string | null;
+  /**
+   * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — L'ORDRE DE POSE, ET C'EST LUI QUI RANGE LA FRISE ═══════════════
+   *
+   * ARNO (08/10/2026) : « Une carte ajoutée se place TOUJOURS au bout à droite de la frise. La date saisie à la
+   * main est PUREMENT INFORMATIVE : elle s'affiche dans la carte mais n'a AUCUNE influence sur la place des
+   * cartes entre elles. »
+   *
+   * 🔴 `null` = CARTE D'AVANT LA MIGRATION 321, et elle se range alors comme avant ce lot (date, rang de type,
+   * identifiant). La migration remplit la colonne pour toutes les cartes existantes, dans l'ordre EXACT où
+   * l'écran les montrait : au lendemain de son application, plus aucune carte n'est à `null`.
+   */
+  rangPose: number | null;
 }
 
 /**
@@ -332,6 +344,86 @@ export function motMontant(cents: number | null): string | null {
   return `${euros.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — CE QUI SE DÉPLACE, ET CE QUI EST HORS CHRONOLOGIE. PUR. ══════════════
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴 QUELLES CARTES SE GLISSENT (Arno, point 9) ═══════════════════════════════════════════════════════════════
+ *
+ * « Ouverture, Clôture, Réouverture et Clôture Monga NE se déplacent PAS (l'état de l'événement se lit sur la
+ * frise) ; aucune carte ne peut être glissée avant l'Ouverture. »
+ *
+ * 🔴 LA RAISON EST ÉCRITE DANS SA PHRASE, et elle est juste : depuis le lot ETAT-PAR-LA-FRISE, l'état « ouvert /
+ * clos » se DÉDUIT de l'ordre des cartes de borne. Glisser une Clôture derrière une Réouverture rouvrirait le
+ * dossier d'un geste de souris, sans confirmation et sans trace. Les bornes sont donc fixes.
+ *
+ * ⚠️ `TYPES_BORNE` ET NON UNE LISTE RECOPIÉE : c'est la même liste que les cartes à date centrée et que les
+ * bornes de l'état. Une quatrième borne ajoutée là-bas devient immobile ici, sans qu'on y pense.
+ */
+export function carteDeplacable(c: CaseFrise): boolean {
+  /* ⚠️ L'OUVERTURE DÉRIVÉE NON PLUS : elle n'est pas une ligne de la table, il n'y a aucun rang à lui écrire. */
+  if (c.etape === null) return false;
+  return !TYPES_BORNE.includes(c.type);
+}
+
+/**
+ * ══ 🔴🔴 LA LIGNE « CRÉÉE LE » PASSE À L'ORANGE QUAND LA CARTE N'EST PLUS À SA PLACE (Arno, point 10) ════════════
+ *
+ * « La carte qu'on a déplacée et qui n'est plus à sa place chronologique (selon sa date de création) voit sa
+ * ligne “créée le …” passer de VERT à ORANGE. Si on la remet à sa place chronologique, elle redevient verte.
+ * LES AUTRES CARTES NE CHANGENT PAS DE COULEUR. »
+ *
+ * ═══ 🔴 POURQUOI CE N'EST PAS « COMPARER CHAQUE CARTE À SON VOISIN » ════════════════════════════════════════════
+ *
+ * Soit trois cartes créées le 1er, le 2 et le 3, et l'on glisse la troisième en deuxième place : 1, 3, 2. Deux
+ * cartes sont alors « après une carte plus récente » — la 3 et la 2 —, et une règle de voisinage les peindrait
+ * TOUTES DEUX en orange. Arno dit l'inverse : « les autres cartes ne changent pas de couleur ». Une seule a
+ * bougé, une seule doit le dire.
+ *
+ * 🔴 ON CHERCHE DONC LA PLUS LONGUE SUITE DE CARTES DÉJÀ EN ORDRE DE CRÉATION, et l'on marque exactement celles
+ * qui n'en sont pas. C'est le plus petit ensemble de cartes qu'il faudrait déplacer pour rendre la frise
+ * chronologique — autrement dit, celles qu'on a déplacées. Sur 1, 3, 2 : la suite la plus longue est 1, 2, et
+ * c'est la carte 3 qui s'allume. Exactement celle qu'on a prise.
+ *
+ * ⚠️ LE DÉPARTAGE EST DÉTERMINISTE, et il garde la carte la PLUS ANCIENNE quand deux suites se valent : c'est ce
+ * que fait l'algorithme classique (chaque date remplace la première borne supérieure ou égale). Sur 1, 3, 2, les
+ * suites 1-2 et 1-3 ont la même longueur ; on garde 1-2, et c'est bien la carte avancée de force qui s'allume.
+ *
+ * ⚠️ UNE CARTE SANS DATE DE CRÉATION NE S'ALLUME JAMAIS. On ne sait pas où est sa place : la peindre en orange
+ * serait affirmer qu'elle n'y est pas. Elle est simplement ignorée du calcul — ni gardée, ni marquée.
+ *
+ * ⚠️ `à égalité de date, on ne marque rien` : deux cartes créées le même jour sont dans l'ordre, quel que soit
+ * leur sens. La comparaison est donc « strictement antérieure », jamais « différente ».
+ */
+export function cartesHorsChronologie(cartes: readonly { cle: string; creeLe: string | null }[]): Set<string> {
+  /* Les cartes dont on connaît la date de création, dans l'ordre de la frise. Les autres sont hors du calcul. */
+  const datees = cartes.filter((c) => c.creeLe !== null && c.creeLe !== '');
+  /* `tails[k]` = l'indice, dans `datees`, de la fin de la meilleure suite croissante de longueur k+1. */
+  const tails: number[] = [];
+  /* `parent[i]` = l'élément qui précède `i` dans la suite qui se termine en `i`. */
+  const parent: (number | null)[] = datees.map(() => null);
+  datees.forEach((c, i) => {
+    /* Première borne STRICTEMENT supérieure : deux dates égales restent « en ordre » et ne s'évincent pas. */
+    let bas = 0;
+    let haut = tails.length;
+    while (bas < haut) {
+      const mid = (bas + haut) >> 1;
+      if ((datees[tails[mid]].creeLe as string) <= (c.creeLe as string)) bas = mid + 1; else haut = mid;
+    }
+    parent[i] = bas > 0 ? tails[bas - 1] : null;
+    tails[bas] = i;
+  });
+  /* On remonte la meilleure suite : ce qu'elle contient est à sa place, tout le reste a bougé. */
+  const enPlace = new Set<string>();
+  let k = tails.length === 0 ? null : tails[tails.length - 1];
+  while (k !== null) {
+    enPlace.add(datees[k].cle);
+    k = parent[k];
+  }
+  return new Set(datees.filter((c) => !enPlace.has(c.cle)).map((c) => c.cle));
+}
+
 /**
  * ══ 🔴🔴 CONSTRUIRE LA FRISE. PUR. ═══════════════════════════════════════════════════════════════════════════════
  *
@@ -357,17 +449,48 @@ export function motMontant(cents: number | null): string | null {
  * filtrer — mais il le fait quand même, parce qu'un appelant futur pourrait les lui passer, et qu'une étape
  * écartée réapparue sur la frise serait un démenti silencieux du geste qui l'a écartée.
  */
+/**
+ * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — L'ORDRE DE LA FRISE, ÉCRIT UNE SEULE FOIS. PUR. ══════════════════════
+ *
+ * ARNO (08/10/2026) : « Une carte ajoutée se place TOUJOURS au bout à droite de la frise. […] La date saisie à la
+ * main est PUREMENT INFORMATIVE : elle s'affiche dans la carte mais n'a AUCUNE influence sur la place des cartes
+ * entre elles. »
+ *
+ * ═══ CE QUE L'ORDRE ÉTAIT AVANT CE LOT, ET POURQUOI IL CHANGE ═══════════════════════════════════════════════════
+ *
+ * Il valait : DATE de l'étape, puis — à date égale — RANG DE TYPE, puis identifiant. Une carte « Devis reçu »
+ * datée du 3 septembre posée aujourd'hui se glissait donc au MILIEU de la frise, entre des cartes posées la
+ * semaine dernière. On croyait ranger un dossier, on le réécrivait.
+ *
+ * 🔴 L'ORDRE EST DÉSORMAIS CELUI DE LA POSE (`rang_pose`, migration 321) : ce qu'on vient d'ajouter est à droite,
+ * et la date reste ce qu'elle dit — la date du FAIT, pas sa place dans le récit.
+ *
+ * ═══ ⚠️ LE REPLI, ET POURQUOI IL EST SÛR ════════════════════════════════════════════════════════════════════════
+ *
+ * `rangPose === null` ⇒ la carte se range comme AVANT ce lot (date, rang de type, identifiant). Deux états
+ * seulement sont possibles en vrai, et le comparateur est juste dans les deux :
+ *   · AUCUNE carte n'a de rang (migration 321 non appliquée) ⇒ toutes retombent sur l'ancienne clé, et l'écran
+ *     est EXACTEMENT celui d'avant ;
+ *   · TOUTES en ont un (la migration les remplit dans l'ordre affiché, et la route en pose un à chaque ajout).
+ *
+ * ⚠️ `Number.MAX_SAFE_INTEGER` POUR LES SANS-RANG, et non zéro : dans l'état mixte — qui ne peut survenir que si
+ * l'on ajoutait une carte entre l'`ALTER TABLE` et l'`UPDATE` de la migration, c'est-à-dire à l'intérieur d'une
+ * transaction — la carte neuve se range après les anciennes, ce qui est sa place.
+ */
+export function parOrdreDePose(a: EtapeAAfficher, b: EtapeAAfficher): number {
+  const ra = a.rangPose ?? Number.MAX_SAFE_INTEGER;
+  const rb = b.rangPose ?? Number.MAX_SAFE_INTEGER;
+  if (ra !== rb) return ra - rb;
+  if (a.survenuLe !== b.survenuLe) return a.survenuLe < b.survenuLe ? -1 : 1;
+  return (rangEtape(a.type) - rangEtape(b.type)) || (a.id - b.id);
+}
+
 export function construireFrise(
   etapes: readonly EtapeAAfficher[], ouvertLe?: string | null,
 ): { majeures: CaseFrise[]; reperes: EtapeAAfficher[] } {
   const vives = etapes.filter((e) => e.certitude !== 'ecartee');
-  const reperes = vives.filter((e) => estRepere(e.type))
-    .sort((a, b) => (a.survenuLe === b.survenuLe ? a.id - b.id : (a.survenuLe < b.survenuLe ? -1 : 1)));
-
-  const reelles = vives.filter((e) => !estRepere(e.type))
-    .sort((a, b) => (a.survenuLe === b.survenuLe
-      ? (rangEtape(a.type) - rangEtape(b.type)) || (a.id - b.id)
-      : (a.survenuLe < b.survenuLe ? -1 : 1)));
+  const reperes = [...vives.filter((e) => estRepere(e.type))].sort(parOrdreDePose);
+  const reelles = [...vives.filter((e) => !estRepere(e.type))].sort(parOrdreDePose);
 
   const numeros = numerosDesEtapes(reelles);
   /* 🔴 LE RANG D'UN DEVIS N'A DE SENS QUE DANS SON INTERVENTION : voir `devisParReference`. */
@@ -392,12 +515,19 @@ export function construireFrise(
    */
   if ((ouvertLe ?? null) !== null && !cases.some((c) => c.type === 'ouverture')) {
     /**
-     * ⚠️ ELLE S'INSÈRE À SA PLACE DANS LE TEMPS, PAS D'OFFICE EN TÊTE. Arno, point 3 : « la frise est TOUJOURS
-     * triée par date d'étape ». Un événement ouvert APRÈS l'arrivée du premier mail Monga existe (la référence
-     * vit d'abord chez Monga, l'événement est créé ensuite) : poser l'ouverture devant par principe ferait lire
-     * une ouverture antérieure à des faits qui l'ont précédée.
+     * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — ELLE PASSE EN TÊTE, ET C'EST UN CHANGEMENT ═══════════════════
+     *
+     * ELLE S'INSÉRAIT À SA PLACE DANS LE TEMPS (`cases.findIndex((c) => c.survenuLe > ouvertLe)`), parce que la
+     * frise était « TOUJOURS triée par date d'étape » — la règle d'alors. Elle ne l'est plus : l'ordre est celui
+     * de la POSE, et la date n'y fait rien.
+     *
+     * 🔴 ARNO, POINT 9 : « aucune carte ne peut être glissée avant l'Ouverture ». Si rien ne peut passer devant
+     * elle, elle est la première — il n'y a pas de place à chercher.
+     *
+     * ⚠️ CE QUE CELA CHANGE POUR LE CAS QUI MOTIVAIT L'ANCIENNE RÈGLE (un événement ouvert APRÈS l'arrivée du
+     * premier mail Monga) : son ouverture passe maintenant devant ces mails au lieu de se glisser au milieu. Sa
+     * DATE, elle, ne bouge pas d'un jour — elle est écrite dans la carte, et elle dit toujours la même chose.
      */
-    const i = cases.findIndex((c) => c.survenuLe > (ouvertLe as string));
     const carte: CaseFrise = {
       cle: 'ouverture-evenement',
       type: 'ouverture',
@@ -406,7 +536,7 @@ export function construireFrise(
       sorte: 'ouverture',
       survenuLe: ouvertLe as string,
     };
-    if (i === -1) cases.push(carte); else cases.splice(i, 0, carte);
+    cases.unshift(carte);
   }
 
   return { majeures: cases, reperes };
@@ -596,19 +726,35 @@ export function rangerEnLigne(
   majeures: readonly CaseFrise[], reperes: readonly EtapeAAfficher[], aujourdhui: string,
 ): ElementFrise[] {
   const out: ElementFrise[] = [];
-  const restants = [...reperes].sort((a, b) => (a.survenuLe === b.survenuLe ? a.id - b.id : (a.survenuLe < b.survenuLe ? -1 : 1)));
+  /**
+   * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — LES POINTS SE TISSENT PAR LA POSE, PLUS PAR LA DATE ═════════════
+   *
+   * Les points (messages simplement informatifs) se glissaient ENTRE les carrés par comparaison de DATES. Les
+   * carrés n'étant plus rangés par date, cette comparaison n'avait plus de repère : un point du 14/09 pouvait
+   * tomber avant un carré posé après lui.
+   *
+   * 🔴 CARRÉS ET POINTS SONT POSÉS DANS LA MÊME SUITE, et c'est pourquoi la migration 321 les numérote ENSEMBLE,
+   * dans une seule séquence par événement. Le tissage compare donc des rangs de pose, comme la frise elle-même.
+   *
+   * ⚠️ LE REPLI VAUT ICI AUSSI : sans rang de pose (migration non appliquée), `parOrdreDePose` retombe sur la
+   * date et le tissage est EXACTEMENT celui d'avant ce lot.
+   */
+  const restants = [...reperes].sort(parOrdreDePose);
 
-  /** Les messages dont la date est <= celle de ce carré, retirés de la file. */
-  const avant = (borne: string | null): EtapeAAfficher[] => {
+  /** Les messages posés AVANT ce carré, retirés de la file. `null` = tout ce qui reste. */
+  const avant = (borne: EtapeAAfficher | null): EtapeAAfficher[] => {
     const pris: EtapeAAfficher[] = [];
-    while (restants.length > 0 && (borne === null || restants[0].survenuLe <= borne)) {
+    while (restants.length > 0
+      && (borne === null || parOrdreDePose(restants[0], borne) <= 0)) {
       pris.push(restants.shift() as EtapeAAfficher);
     }
     return pris;
   };
 
   majeures.forEach((c, i) => {
-    const pris = avant(c.survenuLe);
+    /* ⚠️ L'OUVERTURE DÉRIVÉE N'A PAS D'ÉTAPE : rien ne peut être posé « avant » elle, et c'est juste — point 9
+       d'Arno, « aucune carte ne peut être glissée avant l'Ouverture ». */
+    const pris = c.etape === null ? [] : avant(c.etape);
     if (pris.length > 0) out.push({ cle: `pts-avant-${c.cle}`, sorte: 'points', messages: pris });
     out.push({ cle: c.cle, sorte: 'carre', case: c });
 
@@ -622,6 +768,9 @@ export function rangerEnLigne(
       out.push({
         cle: `plus-entre-${c.cle}`,
         sorte: 'plus-entre',
+        /* ⚠️ LA DATE PROPOSÉE RESTE CALCULÉE ENTRE LES DEUX VOISINES, et c'est encore utile : la date est
+           désormais purement informative, mais elle reste une date, et la proposer juste évite de la ressaisir.
+           Elle ne décide plus de RIEN quant à la place — c'est le « + » cliqué qui décide, et il pose au bout. */
         jourPropose: jourIntercalaire(c.survenuLe, suivant.survenuLe, aujourdhui),
       });
     }

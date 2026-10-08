@@ -250,7 +250,9 @@ describe('🔴🔴 ④ la date de création, sous les autres cartes', () => {
      * vérifie toutes les deux : la carte d'ouverture DÉRIVÉE (première occurrence) comme la carte réelle
      * (seconde). « SANS EXCEPTION » (Arno) inclut la première, qui n'en avait pas.
      */
-    const positions = [...FRISE.matchAll(/<li className="fav-el fav-el--carre" ref=\{moi\}>/g)]
+    /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le `<li>` du carré porte maintenant le glisser (data-carte, la
+       classe de saisie, le pointerdown) : on l'ancre donc sur ce qui ne bouge pas, `fav-el--carre`. */
+    const positions = [...FRISE.matchAll(/fav-el fav-el--carre/g)]
       .map((m) => m.index as number);
     expect(positions.length).toBe(2);
     for (const i of positions) {
@@ -270,6 +272,8 @@ describe('🔴🔴 ④ la date de création, sous les autres cartes', () => {
    */
   it('🔴🔴 la ligne est écrite une seule fois, et les deux cartes la rendent', () => {
     expect((FRISE.match(/className=\{`fav-cree\$\{/g) ?? []).length).toBe(1);
+    /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — et le `<li>` du carré, lui aussi, n'est écrit qu'une fois par
+       carte : la dérivée et la réelle, pas une de plus. */
     expect((FRISE.match(/<LigneCreation creation=/g) ?? []).length).toBe(2);
   });
 
@@ -286,7 +290,9 @@ describe('🔴🔴 ④ la date de création, sous les autres cartes', () => {
   /** 🔴🔴 « n'invente pas de date : affiche “date de création inconnue” EN GRIS » (Arno). */
   it('🔴🔴 une date manquante s’avoue, en gris, et rien n’est fabriqué', () => {
     expect(mentionCreation(null)).toEqual({ mot: 'date de création inconnue', connue: false });
-    expect(FRISE).toContain("`fav-cree${creation.connue ? '' : ' fav-cree--inconnue'}`");
+    /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — la classe gagne un troisième état, l'orange du point 10. Le gris
+       de l'aveu, lui, est inchangé, et c'est ce que l'épreuve continue de tenir. */
+    expect(FRISE).toContain("${creation.connue ? '' : ' fav-cree--inconnue'}");
     expect(FEUILLE).toContain('.fav-cree--inconnue{color:var(--color-svv-muted)}');
   });
 
@@ -339,9 +345,12 @@ describe('🔴🔴 ⑤ l’alignement de la frise ne bouge pas d’un pixel', ()
     expect(FEUILLE).toContain('.fav-el--carre{flex-direction:column;align-items:stretch}');
     expect(FEUILLE).toMatch(/\.fav-el\{position:relative;display:flex;align-items:flex-start/);
     expect(FEUILLE).not.toMatch(/\.fav-el\{[^}]*flex-direction:column/);
-    /* 🔴 ET LES DEUX CARTES DE LA FRISE LE PORTENT : la réelle et l'ouverture dérivée. */
-    expect(FRISE).toContain('<li className="fav-el fav-el--carre" ref={moi}>');
-    expect(FRISE.match(/className="fav-el fav-el--carre"/g)?.length).toBe(2);
+    /* 🔴 ET LES DEUX CARTES DE LA FRISE LE PORTENT : la réelle et l'ouverture dérivée.
+       ⚠️ LOT FRISE-ORDRE-POSE-ET-GLISSER — la réelle porte en plus la classe de SAISIE (le carré qu'on tient),
+       d'où le gabarit : on ancre sur le début, qui ne bouge pas. */
+    expect(FRISE).toContain('<li className="fav-el fav-el--carre" ref={moi} data-fixe="oui">');
+    expect(FRISE).toContain('<li className={`fav-el fav-el--carre${glisse ?');
+    expect(FRISE.match(/fav-el fav-el--carre/g)?.length).toBe(2);
   });
 
   /**

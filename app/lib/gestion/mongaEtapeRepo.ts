@@ -11,7 +11,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-import { query } from '../db/client';
+import { query, withTransaction } from '../db/client';
 import {
   etapesDuMailMonga, ouvertureDeRepli, rangsDesDevis,
   type Certitude, type TypeEtape,
@@ -161,19 +161,23 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     source: 'monga' | 'manuelle'; certitude: EtapeEcran['certitude']; statut: 'vif' | 'retire';
     message_id: string | null; message_cle: string | null; fil_id: string | null;
     piece_nom: string | null; cree_par_libelle: string | null;
-    cree_le: string | null; titre: string | null;
+    cree_le: string | null; titre: string | null; rang_pose: string | null;
   }>(
     `SELECT e.id, e.reference, e.type, e.survenu_le::text, e.heure_connue, e.heure_fin,
             e.numero, e.rang, e.montant_cents, e.texte, e.auteur, e.source, e.certitude, e.statut,
             e.message_id, e.message_cle, m.fil_id, e.piece_nom, e.cree_par_libelle,
-            e.cree_le::text, e.titre
+            e.cree_le::text, e.titre, e.rang_pose::text
        FROM gestion_monga_etape e
        LEFT JOIN gestion_message m ON m.id = e.message_id
       WHERE e.statut = 'vif'
         AND (e.evenement_id = $1
              OR e.reference IN (SELECT reference FROM gestion_monga_lien
                                  WHERE evenement_id = $1 AND retire_le IS NULL))
-      ORDER BY e.survenu_le, e.id`, [evenementId]);
+      -- 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — L'ORDRE DE POSE. La date ne departage plus que les cartes d'avant
+      -- la migration 321, que celle-ci remplit toutes. Ce tri n'est qu'un PRE-TRI de confort : c'est le module
+      -- pur (parOrdreDePose) qui fait foi, et l'ecran ne depend pas de l'ordre du SELECT.
+      -- AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit.
+      ORDER BY e.rang_pose NULLS LAST, e.survenu_le, e.id`, [evenementId]);
 
   /**
    * ══ 🔴🔴 LE RANG DES DEVIS SE COMPTE **PAR RÉFÉRENCE**, ET C'EST UN DÉFAUT TROUVÉ À L'ÉCRAN ═════════════════
@@ -223,6 +227,9 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     creeParLibelle: r.cree_par_libelle,
     creeLe: r.cree_le,
     titre: r.titre,
+    /* ⚠️ `numeric` RENDU EN CHAÎNE PAR `pg` : le convertir ici, sinon le comparateur trierait « 10 » avant
+       « 9 ». Même piège que le montant juste au-dessus, et que les identifiants `bigint` du dépôt. */
+    rangPose: r.rang_pose === null ? null : Number(r.rang_pose),
     rangDevis: rangs.get(Number(r.id)) ?? null,
   }));
 }
@@ -241,14 +248,75 @@ export async function ajouterEtapeManuelle(a: {
   parId: number | null;
   parLibelle: string;
 }): Promise<number> {
+  /**
+   * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — LA CARTE NEUVE SE POSE AU BOUT À DROITE ════════════════════════
+   *
+   * ARNO, POINT 1 : « Une carte ajoutée se place TOUJOURS au bout à droite de la frise (juste avant le carré
+   * “+”). » Son rang est donc le plus grand de l'événement, plus un.
+   *
+   * 🔴 LE CALCUL EST DANS LA MÊME REQUÊTE QUE L'INSERTION, et c'est ce qui le rend sûr : lire le maximum puis
+   * insérer en deux temps laisserait deux ajouts simultanés prendre le même rang. Ici, PostgreSQL évalue le
+   * sous-`SELECT` au moment de l'écriture.
+   *
+   * ⚠️ `coalesce(max, 0) + 1` : la première carte d'un événement prend 1. Et le maximum se cherche sur TOUTES
+   * les cartes de l'événement, retirées comprises — une carte rétablie à la main ne doit pas se retrouver avec
+   * le rang d'une autre.
+   */
   const { rows } = await query<{ id: string }>(
     `INSERT INTO gestion_monga_etape
        (evenement_id, type, survenu_le, heure_connue, texte, montant_cents, piece_nom, titre,
-        source, certitude, cree_par, cree_par_libelle)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10) RETURNING id`,
+        source, certitude, cree_par, cree_par_libelle, rang_pose)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10,
+             (SELECT coalesce(max(x.rang_pose), 0) + 1 FROM gestion_monga_etape x
+               WHERE x.evenement_id = $1))
+     RETURNING id`,
     [a.evenementId, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.pieceNom, a.titre,
       a.parId, a.parLibelle]);
   return Number(rows[0].id);
+}
+
+/**
+ * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — ENREGISTRER UN NOUVEL ORDRE (Arno, point 8) ═══════════════════════════
+ *
+ * « Une carte posée peut être saisie par clic maintenu et glissée à une autre place dans la frise ; au
+ * relâchement, sa nouvelle place est enregistrée. »
+ *
+ * 🔴 ON REÇOIT L'ORDRE COMPLET, ET NON « telle carte après telle autre ». Un ordre complet est IDEMPOTENT : le
+ * rejouer deux fois donne le même résultat, et il n'y a pas d'état intermédiaire où deux cartes se disputent une
+ * place. C'est aussi ce qui permet au serveur de VÉRIFIER l'ensemble reçu d'un coup.
+ *
+ * 🔴 ET IL EST REFUSÉ EN BLOC SI L'ENSEMBLE NE CORRESPOND PAS, à la carte près : ni une carte en plus (venue
+ * d'un autre événement), ni une en moins (un écran resté ouvert pendant qu'une carte était retirée ailleurs).
+ * Renuméroter sur un ensemble incomplet aurait écrasé l'ordre des absentes.
+ *
+ * ⚠️ LES GARDES MÉTIER — bornes immobiles, rien avant l'Ouverture — sont posées par la ROUTE, qui connaît les
+ * types et le module pur. Ici on tient l'intégrité de l'ensemble, et c'est une garde de dépôt.
+ *
+ * ⚠️ UNE SEULE TRANSACTION : une renumérotation à moitié écrite laisserait deux cartes au même rang.
+ */
+export async function reordonnerCartes(
+  evenementId: number, ordre: readonly number[], parLibelle: string,
+): Promise<{ ok: true } | { ok: false; motif: string }> {
+  return withTransaction(async (q) => {
+    /* ⚠️ ON LIT AVANT D'ÉCRIRE, ET SOUS VERROU : `withTransaction` commite au retour (db/client.ts), donc un
+       refus rendu après une écriture serait un refus qui a écrit. Piège consigné dans `gestes.ts`. */
+    const { rows } = await q<{ id: string }>(
+      `SELECT id::text FROM gestion_monga_etape
+        WHERE evenement_id = $1 AND statut = 'vif' ORDER BY id FOR UPDATE`, [evenementId]);
+    const vives = new Set(rows.map((r) => Number(r.id)));
+    const recu = new Set(ordre);
+    if (recu.size !== ordre.length) return { ok: false, motif: 'Deux fois la même carte dans l’ordre reçu.' };
+    if (recu.size !== vives.size || [...recu].some((id) => !vives.has(id))) {
+      return { ok: false, motif: 'La frise a changé entre-temps : rechargez-la avant de déplacer une carte.' };
+    }
+    await q(
+      `UPDATE gestion_monga_etape e
+          SET rang_pose = o.n, maj_le = now(), maj_par_libelle = $3
+         FROM unnest($2::bigint[]) WITH ORDINALITY AS o(id, n)
+        WHERE e.id = o.id AND e.evenement_id = $1`,
+      [evenementId, ordre, parLibelle]);
+    return { ok: true };
+  });
 }
 
 /**
@@ -294,6 +362,21 @@ export async function retirerEtapeManuelle(id: number, parLibelle: string): Prom
         SET statut = 'retire', retire_le = now(), retire_par_libelle = $2
       WHERE id = $1 AND source = 'manuelle' AND statut = 'vif'`, [id, parLibelle]);
   return (r.rowCount ?? 0) > 0;
+}
+
+/**
+ * LA DATE ENREGISTRÉE D'UNE ÉTAPE, telle quelle. LECTURE SEULE.
+ *
+ * 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 5 — elle sert au crayon : la date d'une carte de BORNE n'est plus
+ * modifiable, et la route la relit pour la réécrire À L'IDENTIQUE plutôt que de refuser la modification entière
+ * (le texte, lui, reste modifiable). `null` = étape inconnue ou retirée.
+ *
+ * ⚠️ `::text` ET NON UN `Date` : la chaîne repart telle quelle vers l'UPDATE, sans aller-retour de fuseau.
+ */
+export async function dateDeLEtape(id: number): Promise<string | null> {
+  const { rows } = await query<{ survenu_le: string }>(
+    `SELECT survenu_le::text FROM gestion_monga_etape WHERE id = $1 AND statut = 'vif'`, [id]);
+  return rows[0]?.survenu_le ?? null;
 }
 
 /**
@@ -508,3 +591,4 @@ export async function evenementsDuBien(cleBien: string): Promise<{
     urgence: r.urgence,
   }));
 }
+

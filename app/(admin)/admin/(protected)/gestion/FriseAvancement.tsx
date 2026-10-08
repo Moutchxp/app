@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 /**
  * 🔴 DEPUIS LES MODULES **PURS**, JAMAIS DEPUIS LE DÉPÔT. Ce composant vit dans le navigateur : importer
  * `mongaEtapeRepo` le ferait remonter jusqu'à `pg`, donc jusqu'à `dns`, et webpack refuserait de construire
@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
  * `clientBoundary.guard.test.ts` le vérifie.
  */
 import {
+  carteDeplacable, cartesHorsChronologie,
   cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, mentionCreation,
   type MentionCreation,
   motAjout, motDateEtape, motGroupeMessages,
@@ -23,6 +24,9 @@ import {
 import { questionAvantRetrait } from '../../../../lib/gestion/etatParLaFrise';
 /* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE DES MAILS. Arno, B.3 : « même code, pas de second chemin. » */
 import { useDefilementFrise } from './useDefilementFrise';
+/* 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le clic maintenu qui déplace une carte. Même discipline que le
+   défilement : le geste vit dans un crochet, l'arithmétique dans un module PUR (`glisserCarte`). */
+import { useGlisserCarte } from './useGlisserCarte';
 
 /**
  * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LA FRISE D'AVANCEMENT, EN LIGNE ═════════════════════════════════════════════════
@@ -102,6 +106,11 @@ interface Reponse {
  * hiver il écrit DÉJÀ le lendemain. Un formulaire qui propose « demain » par défaut un soir sur deux fabrique des
  * dates fausses sans que personne ne le remarque. On lit donc les champs locaux.
  */
+/** « AAAA-MM-JJ » → « JJ/MM/AAAA ». Pas de `Date` construit : le fuseau du lecteur ne doit rien décaler. */
+function jourFrCourt(jour: string): string {
+  return `${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`;
+}
+
 function aujourdhuiLocal(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -220,6 +229,24 @@ export function FriseAvancement({
   const defilement = useDefilementFrise<HTMLOListElement>(vue);
   const { bords } = defilement;
 
+  /**
+   * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 8 — LE GLISSER, ET CE QU'IL ENREGISTRE ═════════════════════
+   *
+   * ARNO : « au relâchement, sa nouvelle place est enregistrée ».
+   *
+   * 🔴 L'ORDRE COMPLET PART AU SERVEUR, et non « telle carte après telle autre » : c'est idempotent, et la
+   * route peut vérifier l'ensemble d'un coup (bornes immobiles, rien avant l'Ouverture).
+   *
+   * ⚠️ L'OUVERTURE DÉRIVÉE EST RETIRÉE DE L'ENVOI : elle n'est pas une ligne de la table (son identifiant est
+   * `0`, qui n'existe pas en base), et la route refuserait l'ensemble entier à cause d'elle.
+   */
+  const deposer = useCallback((ordre: number[]): void => {
+    void agirRef.current?.(
+      `/api/admin/gestion/evenements/${evenementId}/frise`, 'PATCH',
+      { geste: 'ordre', cartes: ordre.filter((id) => id > 0) });
+  }, [evenementId]);
+  const glisserCarte = useGlisserCarte(defilement.ref, deposer);
+
   const charger = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/gestion/evenements/${evenementId}/frise`, { cache: 'no-store' });
@@ -304,6 +331,13 @@ export function FriseAvancement({
     setFixe(cle);
   }, []);
 
+  /**
+   * ⚠️ UNE RÉFÉRENCE VERS `agir`, ET C'EST UNE NÉCESSITÉ D'ORDRE : le crochet du glisser se déclare AVANT
+   * `agir` (il a besoin de `defilement.ref`), et `deposer` doit pourtant l'appeler. Une référence évite de
+   * remonter `agir` au-dessus — ce qui aurait obligé à déplacer `occupe`, `charger` et `onGeste` avec lui.
+   */
+  const agirRef = useRef<((u: string, m: 'PATCH' | 'DELETE', c?: unknown) => Promise<void>) | null>(null);
+
   const agir = async (url: string, methode: 'PATCH' | 'DELETE', corps?: unknown): Promise<void> => {
     if (occupe) return;
     setOccupe(true);
@@ -331,6 +365,8 @@ export function FriseAvancement({
     }
   };
 
+  agirRef.current = agir;
+
   if (vue.v === 'charge') return <p className="gst-info" role="status">Lecture de la frise…</p>;
   if (vue.v === 'erreur') {
     return (
@@ -352,6 +388,18 @@ export function FriseAvancement({
   const ligne = rangerEnLigne(majeures, reperes, aujourdhui);
   const plusieursRefs = referencesDeLaFrise(etapes).length > 1;
   const cleOuverture = cleDOuverture(majeures);
+  /**
+   * 🔴🔴 POINT 10 — LES CARTES QUI NE SONT PLUS À LEUR PLACE CHRONOLOGIQUE, calculées UNE fois pour la rangée.
+   * La règle (la plus longue suite déjà en ordre de création) vit dans le module pur `cartesHorsChronologie`.
+   *
+   * ⚠️ ELLE PORTE SUR TOUTE LA RANGÉE, carrés ET points confondus : ils sont posés dans la même suite, et un
+   * point glissé au milieu serait aussi « déplacé » qu'un carré. Les points n'affichent pas la mention, mais
+   * les ignorer du calcul aurait fait mentir celui des carrés qui les entourent.
+   */
+  const deplacees = cartesHorsChronologie([
+    ...majeures.filter((c) => c.etape !== null)
+      .map((c) => ({ cle: c.cle, creeLe: (c.etape as EtapeAAfficher).creeLe })),
+  ]);
   /**
    * 🔴 CE QUE L'ON MONTRE, ET OÙ. Une seule bulle à la fois — deux ouvertes feraient lire la mauvaise.
    *
@@ -410,6 +458,8 @@ export function FriseAvancement({
               onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
               onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
               onAjouter={ouvrirReservoir} aujourdhui={aujourdhui}
+              horsChronologie={el.case !== undefined && deplacees.has(el.case.cle)}
+              saisie={glisserCarte.saisie} onSaisir={glisserCarte.commencer}
               onOuverture={(j) => void agir(
                 `/api/admin/gestion/evenements/${evenementId}/frise`, 'PATCH',
                 { geste: 'ouverture', survenuLe: j })}
@@ -567,6 +617,10 @@ function ElementDeLaFrise(p: {
   aujourdhui: string;
   /** Corriger la date d'ouverture de l'événement (Arno, point 1 : « modifiable »). */
   onOuverture: (jour: string) => void;
+  /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — ce qui ne concerne que les carrés traverse sans être lu ici. */
+  horsChronologie?: boolean;
+  saisie?: number | null;
+  onSaisir?: (id: number, ev: ReactPointerEvent) => void;
 }) {
   if (p.el.sorte === 'plus') {
     return (
@@ -660,6 +714,7 @@ function Point({
 function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
   onOuvrirFil, onConfirmer, onMontant, onRetirer, onOuverture,
+  horsChronologie = false, saisie = null, onSaisir,
 }: {
   c: CaseFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
   calerSurUneFois: (cible: HTMLElement | null) => void;
@@ -669,6 +724,12 @@ function Carre({
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
   onOuverture: (jour: string) => void;
+  /** 🔴 POINT 10 — cette carte n'est plus à sa place chronologique : sa ligne « créée le » passe à l'orange. */
+  horsChronologie?: boolean;
+  /** L'identifiant de la carte actuellement saisie au clic maintenu, ou `null`. */
+  saisie?: number | null;
+  /** 🔴 POINT 8 — le clic maintenu commence ici ; le reste du geste vit dans `useGlisserCarte`. */
+  onSaisir?: (id: number, ev: ReactPointerEvent) => void;
 }) {
   const moi = useRef<HTMLLIElement | null>(null);
 
@@ -707,7 +768,7 @@ function Carre({
    */
   if (e === null) {
     return (
-      <li className="fav-el fav-el--carre" ref={moi}>
+      <li className="fav-el fav-el--carre" ref={moi} data-fixe="oui">
         <div className={`fav-carre fav-carre--dans${CLASSE_COULEUR[couleurDeLaCarte(c.type)]}`}>
           <ChampOuverture jour={c.survenuLe.slice(0, 10)} mot={c.mot} occupe={occupe} onPoser={onOuverture} />
         </div>
@@ -757,9 +818,33 @@ function Carre({
    * `motAjout` — rien n'est perdu.
    */
   const creation = mentionCreation(e.creeLe);
+  /* 🔴 POINT 9 — les bornes ne se déplacent pas, et la règle vient du module pur (`carteDeplacable`). */
+  const deplacable = carteDeplacable(c) && onSaisir !== undefined;
+  const glisse = saisie === e.id;
 
   return (
-    <li className="fav-el fav-el--carre" ref={moi}>
+    <li className={`fav-el fav-el--carre${glisse ? ' fav-el--saisie' : ''}`} ref={moi}
+      data-carte={e.id}
+      /* 🔴 POINT 9 — `data-fixe` dit au crochet qu'une borne ne se déplace pas ; il lit la rangée dans le DOM,
+         et doit donc y trouver la règle. La source reste `carteDeplacable`, module pur. */
+      data-fixe={deplacable ? undefined : 'oui'}
+      /**
+       * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 8 — LA CARTE SE SAISIT AU CLIC MAINTENU ══════════════
+       *
+       * 🔴 L'ÉCOUTE EST SUR LE `<li>` ENTIER, et non sur un bouton dédié : « une carte posée peut être saisie
+       * par clic maintenu », sans poignée à viser. Et c'est `pointerdown` — un seul événement pour la souris,
+       * le doigt et le stylet.
+       *
+       * ⚠️ LE CLIC, LE CRAYON ET LE MENU « … » CONTINUENT DE FONCTIONNER : rien n'est intercepté ici. C'est le
+       * SEUIL (220 ms + 6 px, module pur `glisserCarte`) qui décide, et tant qu'il n'est pas franchi la
+       * descente de pointeur n'a strictement aucun effet. Au franchissement, le composant annule le clic qui
+       * suivrait — exactement comme le glisser de la piste le fait déjà depuis `useDefilementFrise`.
+       *
+       * ⚠️ `onPointerDown` SEULEMENT ICI : le déplacement et le relâchement s'écoutent sur la FENÊTRE, parce
+       * qu'un doigt qui sort de la carte ne doit pas abandonner le glisser en cours.
+       */
+      onPointerDown={deplacable ? (ev) => (onSaisir as (i: number, v: ReactPointerEvent) => void)(e.id, ev) : undefined}
+    >
       {/**
         * ══ 🔴🔴 LOT FRISE-COULEURS-DATES — LES COULEURS DE LA FRISE, RÉVISÉES PAR ARNO LE 08/10/2026 ═══════
         *
@@ -799,7 +884,9 @@ function Carre({
           aria-expanded={ouvrable ? undefined : detailOuvert}
           title={ouvrable ? (motMailDOrigine(e) ?? undefined) : 'Voir le détail'}
         >
-          <span className="fav-titre">
+          {/* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 6 — « Le TITRE et la DATE de ces cartes sont tous deux
+              CENTRÉS dans le carré » (Arno). Le titre d'une Clôture était calé à gauche sous une date centrée. */}
+          <span className={`fav-titre${dateAuCentre(e.type) ? ' fav-titre--centree' : ''}`}>
             {c.mot}
             {/* ⚠️ LE PICTO NE PORTE PAS L'INFORMATION SEUL : la source est lue dans la bulle et au lecteur d'écran. */}
             <span className="fav-picto" aria-hidden="true"> {pictoSource(e)}</span>
@@ -855,7 +942,7 @@ function Carre({
         *
         * ⚠️ `connue === false` ⇒ ELLE L'AVOUE EN GRIS, et n'invente rien (Arno : « n'invente pas de date »).
         */}
-      <LigneCreation creation={creation} />
+      <LigneCreation creation={creation} deplacee={horsChronologie} />
     </li>
   );
 }
@@ -871,9 +958,23 @@ function Carre({
  * qu'un endroit où la classe, la couleur et la place sont décidées. Deux balises recopiées auraient fini par
  * diverger d'un pixel ou d'un gris, et c'est exactement ce qu'Arno demande d'éviter.
  */
-function LigneCreation({ creation }: { creation: MentionCreation }) {
+function LigneCreation({ creation, deplacee = false }: {
+  creation: MentionCreation;
+  /**
+   * 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 10 — « la carte qu'on a déplacée et qui n'est plus à sa place
+   * chronologique (selon sa date de création) voit sa ligne “créée le …” passer de VERT à ORANGE. Si on la
+   * remet à sa place chronologique, elle redevient verte. »
+   *
+   * ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : la mention est redite en toutes lettres au lecteur
+   * d'écran, juste à côté. Un orange et un vert ne se distinguent pas pour tout le monde.
+   */
+  deplacee?: boolean;
+}) {
   return (
-    <span className={`fav-cree${creation.connue ? '' : ' fav-cree--inconnue'}`}>{creation.mot}</span>
+    <span className={`fav-cree${creation.connue ? '' : ' fav-cree--inconnue'}${deplacee ? ' fav-cree--deplacee' : ''}`}>
+      {creation.mot}
+      {deplacee && <span className="fav-sr"> — déplacée hors de son ordre de création</span>}
+    </span>
   );
 }
 
@@ -1054,7 +1155,8 @@ function ChampOuverture({
     return (
       <button type="button" className="fav-carre-clic" onClick={() => setEdite(true)}
         title="Corriger la date d’ouverture de l’événement">
-        <span className="fav-titre">{mot}</span>
+        {/* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 6 — titre centré comme la date, sur toutes les bornes. */}
+        <span className="fav-titre fav-titre--centree">{mot}</span>
         {/* 🔴 LOT FRISE-COULEURS-DATES, POINT 3.a — « Ouverture » est une carte de BORNE : sa date s'écrit en
             gras, au centre. Même classe que la carte d'ouverture ENREGISTRÉE, pour le même rendu. */}
         <span className="fav-date fav-date--centree">
@@ -1066,7 +1168,7 @@ function ChampOuverture({
   }
   return (
     <span className="fav-ouverture-edit">
-      <span className="fav-titre">{mot}</span>
+      <span className="fav-titre fav-titre--centree">{mot}</span>
       <input type="date" className="fav-champ fav-champ--mini" value={saisie} aria-label="Date d’ouverture"
         onChange={(ev) => setSaisie(ev.target.value)} />
       <span className="fav-ouverture-gestes">
@@ -1402,14 +1504,40 @@ function AjouterEtape({
         </div>
       )}
 
-      <div className="fav-ajout-ligne">
-        <label className="fav-label" htmlFor="fav-jour">Date</label>
-        <input id="fav-jour" type="date" className="fav-champ" value={jour} required
-          onChange={(e) => setJour(e.target.value)} />
-        <label className="fav-label" htmlFor="fav-heure">Heure</label>
-        <input id="fav-heure" type="time" className="fav-champ" value={heure}
-          onChange={(e) => setHeure(e.target.value)} />
-      </div>
+      {/**
+        * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 5 — PAS DE DATE À SAISIR SUR UNE BORNE ═══════════════
+        *
+        * ARNO : « Aucune date saisissable à la main pour ces cartes : la date inscrite dans la carte est celle
+        * du jour de leur pose, fixée automatiquement. Dans “Ajouter une carte”, quand on choisit Clôture, le
+        * champ date NE S'APPLIQUE PAS (Arno a donné son accord explicite pour CE champ, pour CES cartes
+        * uniquement). »
+        *
+        * 🔴 C'EST LE SEUL ÉLÉMENT QUE CE LOT RETIRE DE L'ÉCRAN, et l'accord porte sur lui, nommément. Le reste
+        * du formulaire — type, titre, montant, texte, pièce jointe — est intact, pour toutes les cartes.
+        *
+        * 🔴 ET LA PHRASE REMPLACE LE CHAMP, elle ne le laisse pas disparaître en silence : un formulaire qui
+        * perd une ligne sans rien dire se lit comme une panne. Elle annonce la date qui sera inscrite.
+        *
+        * ⚠️ LE SERVEUR L'IMPOSE DE TOUTE FAÇON (route de la frise) : ce qui est envoyé dans `survenuLe` est
+        * ignoré pour ces trois types. L'écran ne fait qu'éviter de poser une question dont la réponse ne
+        * servira pas.
+        */}
+      {dateAuCentre(type) ? (
+        <p className="fav-perdu" aria-live="polite">
+          {modifie === null
+            ? `Date fixée automatiquement au jour de la pose — ${jourFrCourt(aujourdhuiLocal())}.`
+            : 'La date de cette carte n’est pas modifiable : elle est celle du jour de sa pose.'}
+        </p>
+      ) : (
+        <div className="fav-ajout-ligne">
+          <label className="fav-label" htmlFor="fav-jour">Date</label>
+          <input id="fav-jour" type="date" className="fav-champ" value={jour} required
+            onChange={(e) => setJour(e.target.value)} />
+          <label className="fav-label" htmlFor="fav-heure">Heure</label>
+          <input id="fav-heure" type="time" className="fav-champ" value={heure}
+            onChange={(e) => setHeure(e.target.value)} />
+        </div>
+      )}
 
       {/**
         * 🔴 LE MONTANT, « pour un devis » (Arno, point 2). Offert sur les trois cartes de devis : un devis refusé
@@ -1731,6 +1859,13 @@ const CSS_FRISE_AVANCEMENT = `
    ⚠️ text-align SUFFIT A LA CENTRER : la boite est un element de colonne flex, donc etiree sur toute la largeur
    du carre. Pas de margin:auto, qui ne centrerait que la boite et laisserait le texte a gauche. */
 .fav-date--centree{font-weight:700;text-align:center;color:var(--color-svv-ink)}
+/* ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 6 — LE TITRE D'UNE BORNE EST CENTRE, COMME SA DATE ═══════════
+   ARNO : « Le TITRE et la DATE de ces cartes sont tous deux CENTRES dans le carre (aujourd'hui sur la Cloture,
+   le titre “Cloture ✎” est cale a gauche alors que la date est centree). »
+   ⚠️ UNE MARGE A DROITE, ET ELLE EST NECESSAIRE : le menu « … » est pose en absolu dans le coin haut droit
+   (20 px de large, 4 px du bord). Sans elle, un titre centre passe DESSOUS et les deux se superposent — mesure
+   faite a l'ecran. La marge decale le centre de 12 px ; sur un carre de 124 px, cela reste lu comme centre. */
+.fav-titre--centree{text-align:center;padding-right:24px}
 .fav-montant{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
 .fav-ref{font-size:.68rem;font-weight:700;color:var(--color-svv-muted)}
 /* ══ 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 3.b — « CREEE LE 08/10/2026 », SOUS LA CARTE ════════════════════════
@@ -1747,6 +1882,27 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-cree{display:block;margin:4px 0 0;font-size:.66rem;line-height:1.25;text-align:center;
   color:var(--color-svv-green-ink);overflow-wrap:anywhere}
 .fav-cree--inconnue{color:var(--color-svv-muted)}
+/* ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 10 — ORANGE QUAND LA CARTE N'EST PLUS A SA PLACE ════════════
+   ARNO : « La carte qu'on a deplacee et qui n'est plus a sa place chronologique (selon sa date de creation)
+   voit sa ligne “creee le …” passer de VERT a ORANGE. Si on la remet a sa place chronologique, elle redevient
+   verte. Les autres cartes ne changent pas de couleur. »
+   🔴 L'AMBRE DU THEME, celle qui dit deja « a confirmer » sur les cartes Monga : c'est la couleur du depot pour
+   « regarde cela de pres », et en inventer une seconde aurait fait deux oranges a distinguer.
+   ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : la mention est redite au lecteur d'ecran, juste a cote. */
+.fav-cree--deplacee{color:var(--color-svv-amber);font-weight:600}
+/* ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 8 — LA CARTE QU'ON TIENT ════════════════════════════════════
+   Elle doit se distinguer pendant qu'on la deplace, sinon on ne sait plus laquelle on a prise.
+   ⚠️ LE CURSEUR « grab » SUR LES SEULES CARTES DEPLACABLES, et « grabbing » pendant le geste : c'est la seule
+   chose qui ANNONCE que la carte se prend. Les bornes gardent la main ordinaire, et c'est juste — elles ne se
+   deplacent pas (point 9).
+   ⚠️ touch-action:none SUR LES SEULES CARTES DEPLACABLES : sans lui, le navigateur tactile interprete le
+   maintien comme un defilement et le glisser ne demarre jamais. Pose sur la piste entiere, il aurait TUE le
+   defilement horizontal au doigt — exactement ce qu'Arno demande de garder.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-el--carre[data-carte]:not([data-fixe]) .fav-carre{cursor:grab;touch-action:none}
+.fav-el--saisie .fav-carre{cursor:grabbing;opacity:.75;
+  box-shadow:0 0 0 2px var(--color-svv-red),0 0 0 5px var(--color-svv-bg)}
+.fav-el--saisie{position:relative;z-index:3}
 
 /* Les deux petits boutons d'une etape « a confirmer », et le menu « … ». */
 .fav-doute{position:absolute;right:4px;bottom:4px;display:flex;gap:3px}

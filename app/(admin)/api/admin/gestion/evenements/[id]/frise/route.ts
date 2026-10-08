@@ -2,8 +2,11 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import {
-  ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement,
+  ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement, reordonnerCartes,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
+/* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : leur date est
+   imposée (point 5) et elles ne se déplacent pas (point 9). La même liste que la frise peint au centre. */
+import { dateAuCentre } from '../../../../../../../lib/gestion/frise';
 import {
   cartesDuReservoir, etatApresCarte, informationsDuReservoir,
   proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION,
@@ -138,7 +141,22 @@ export async function POST(
   if (!TYPES_AJOUTABLES.includes(type) && !TYPES_INFORMATION.includes(type)) {
     return Response.json({ erreur: 'Type d’étape inconnu.' }, { status: 400 });
   }
-  const survenuLe = String(corps.survenuLe ?? '');
+  /**
+   * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 5 — UNE BORNE EST DATÉE DU JOUR DE SA POSE ════════════════
+   *
+   * ARNO : « Aucune date saisissable à la main pour ces cartes : la date inscrite dans la carte est celle du
+   * jour de leur pose, FIXÉE AUTOMATIQUEMENT. »
+   *
+   * 🔴 LE SERVEUR L'IMPOSE, et ne se contente pas de la cacher à l'écran. Depuis le lot ETAT-PAR-LA-FRISE,
+   * l'état « ouvert / clos » se lit sur l'ordre des bornes : une date d'antidate envoyée par un appel qui
+   * oublierait le formulaire pourrait raconter une fermeture qui n'a pas eu lieu ce jour-là. La garde est donc
+   * ici, et ce que le client envoie dans `survenuLe` est simplement IGNORÉ pour ces trois types.
+   *
+   * ⚠️ MIDI, ET NON MINUIT : une carte de borne n'a pas d'heure, et l'ancrer à minuit la fait basculer la veille
+   * pour un lecteur dans un fuseau en retard. Convention du dépôt, déjà retenue pour `ouvert_le`.
+   */
+  const jourDePose = `${new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' })}T12:00`;
+  const survenuLe = dateAuCentre(type) ? jourDePose : String(corps.survenuLe ?? '');
   if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2})?/.test(survenuLe)) {
     return Response.json({ erreur: 'Date d’étape attendue (AAAA-MM-JJ, heure facultative).' }, { status: 400 });
   }
@@ -259,8 +277,75 @@ export async function PATCH(
   if (!Number.isInteger(evenementId) || evenementId <= 0) {
     return Response.json({ erreur: 'Événement inconnu.' }, { status: 400 });
   }
-  const corps = (await request.json().catch(() => ({}))) as { geste?: unknown; survenuLe?: unknown };
-  if (String(corps.geste ?? '') !== 'ouverture') {
+  const corps = (await request.json().catch(() => ({}))) as {
+    geste?: unknown; survenuLe?: unknown; cartes?: unknown;
+  };
+  const geste = String(corps.geste ?? '');
+
+  /**
+   * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 8 — ENREGISTRER L'ORDRE APRÈS UN GLISSER ══════════════════
+   *
+   * ARNO : « Une carte posée peut être saisie par clic maintenu et glissée à une autre place dans la frise ; au
+   * relâchement, sa nouvelle place est enregistrée. »
+   *
+   * 🔴 LES DEUX GARDES DU POINT 9 SONT ICI, ET PAS SEULEMENT À L'ÉCRAN : « Ouverture, Clôture, Réouverture et
+   * Clôture Monga NE se déplacent PAS […] aucune carte ne peut être glissée avant l'Ouverture. » Une règle
+   * tenue par le seul navigateur est contournée par le premier appel qui l'oublie — et celle-ci garde l'ÉTAT de
+   * l'événement, qui se lit sur l'ordre des bornes depuis le lot ETAT-PAR-LA-FRISE.
+   *
+   * 🔴 LA VÉRIFICATION COMPARE LES BORNES AVANT ET APRÈS : leur suite doit être la MÊME, au rang près. C'est la
+   * formulation exacte de « elles ne se déplacent pas », et elle couvre les deux interdits d'un coup — une
+   * borne qui bouge, ou une carte qui passe devant l'Ouverture (l'Ouverture changerait alors de rang).
+   */
+  if (geste === 'ordre') {
+    const brut = Array.isArray(corps.cartes) ? corps.cartes : null;
+    if (brut === null) return Response.json({ erreur: 'Ordre attendu.' }, { status: 400 });
+    const cartes = brut.map((x) => Number(x));
+    if (cartes.some((x) => !Number.isInteger(x) || x <= 0)) {
+      return Response.json({ erreur: 'Ordre illisible.' }, { status: 400 });
+    }
+    try {
+      const auteur = await auteurDeLaRequete(request);
+      const avant = await friseDeLEvenement(evenementId);
+      const parId = new Map(avant.map((e) => [e.id, e]));
+      /**
+       * ══ 🔴🔴 CHAQUE BORNE GARDE SON **RANG EXACT**, et non son ordre relatif ════════════════════════════
+       *
+       * 🔴 DÉFAUT MESURÉ À L'ÉCRAN AVANT DE LIVRER, ET IL FAUT LE DIRE. Le premier jet comparait la SUITE des
+       * bornes (« 465 » avant, « 465 » après) : sur une frise qui n'en porte QU'UNE — le cas ordinaire, une
+       * Clôture et une ouverture dérivée — la suite ne change jamais, quelle que soit la place où on la met.
+       * L'appel de contrôle a donc ramené une Clôture en tête de frise, et la route a répondu « ok ».
+       *
+       * 🔴 ON COMPARE DONC L'INDICE, borne par borne. Cela dit les deux interdits d'Arno d'un seul trait :
+       *   · une borne déplacée change forcément d'indice ;
+       *   · une carte qui TRAVERSE une borne décale cette borne d'un cran — donc change son indice aussi.
+       * Et « rien avant l'Ouverture » en découle : l'Ouverture enregistrée est à l'indice 0 et doit y rester ;
+       * l'Ouverture DÉRIVÉE, elle, n'est pas dans la liste et `construireFrise` la met toujours en tête.
+       *
+       * ⚠️ L'ÉCRAN NE PRODUIT JAMAIS CE CAS (`placesPermises` borne le dépôt entre les deux bornes voisines) :
+       * cette garde ne sert qu'aux appels qui contournent le formulaire. C'est précisément pour eux qu'Arno la
+       * demande côté serveur — l'état de l'événement se lit sur l'ordre des bornes.
+       */
+      const indiceAvant = new Map(avant.map((e, i) => [e.id, i]));
+      const borneDeplacee = cartes.findIndex((id, i) => {
+        const e = parId.get(id);
+        return e !== undefined && dateAuCentre(e.type) && indiceAvant.get(id) !== i;
+      });
+      if (borneDeplacee !== -1) {
+        return Response.json({
+          erreur: 'Ouverture, Clôture et Réouverture ne se déplacent pas : l’état de l’événement se lit sur la frise.',
+        }, { status: 409 });
+      }
+      const issue = await reordonnerCartes(evenementId, cartes, auteur.libelle);
+      if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
+      return Response.json({ etat: 'ok', message: 'Nouvelle place enregistrée.' });
+    } catch (e) {
+      console.error('[gestion/frise] ordre impossible', e);
+      return Response.json({ erreur: 'Enregistrement impossible : erreur interne du serveur.' }, { status: 503 });
+    }
+  }
+
+  if (geste !== 'ouverture') {
     return Response.json({ erreur: 'Geste inconnu.' }, { status: 400 });
   }
   /* ⚠️ UN JOUR, PAS UN INSTANT : une ouverture d'événement n'a pas d'heure, et prétendre le contraire

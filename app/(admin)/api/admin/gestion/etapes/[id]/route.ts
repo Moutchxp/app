@@ -2,12 +2,15 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import {
-  completerMontant, etapePourRetrait, modifierEtapeManuelle, retirerEtapeManuelle, trancherEtape,
+  completerMontant, dateDeLEtape, etapePourRetrait, modifierEtapeManuelle, retirerEtapeManuelle, trancherEtape,
 } from '../../../../../../lib/gestion/mongaEtapeRepo';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — retirer une carte de BORNE change l'état, et l'écran doit l'apprendre. */
 import { etatApresCarteSelonLaFrise, sensDeLaBorne } from '../../../../../../lib/gestion/etatParLaFrise';
 import { evenementOuvertParLaFrise } from '../../../../../../lib/gestion/evenementEtatRepo';
 import { TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape } from '../../../../../../lib/gestion/mongaEtape';
+/* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : le crayon ne touche
+   pas à leur date (point 5), et aucune date déjà enregistrée n'est modifiée (point 7). */
+import { dateAuCentre } from '../../../../../../lib/gestion/frise';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINT 3 — CE QU'ON FAIT D'UNE ÉTAPE ════════════════════════════════════════════════════════
@@ -88,6 +91,20 @@ export async function PATCH(
       if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2})?/.test(survenuLe)) {
         return Response.json({ erreur: 'Date d’étape attendue (AAAA-MM-JJ, heure facultative).' }, { status: 400 });
       }
+      /**
+       * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 5 — LE CRAYON NE CHANGE PAS LA DATE D'UNE BORNE ═══════
+       *
+       * ARNO : « Dans le crayon d'édition de ces cartes, la date n'est pas modifiable ; tout le reste du crayon
+       * et du menu “…” reste en place. »
+       *
+       * 🔴 LA DATE ENREGISTRÉE EST DONC RELUE ET RÉÉCRITE TELLE QUELLE — on ne refuse pas la modification, on
+       * en retire la seule chose qui ne se modifie plus. Refuser aurait aussi bloqué le TEXTE, que le crayon
+       * continue d'offrir.
+       *
+       * ⚠️ AUCUNE DATE DÉJÀ ENREGISTRÉE N'EST TOUCHÉE (Arno, point 7) : c'est exactement ce que fait cette
+       * relecture — la carte repart avec la date qu'elle avait, à la seconde près.
+       */
+      const dateImposee = dateAuCentre(type) ? await dateDeLEtape(etapeId) : null;
       const brut = corps.montantCents;
       const montant = brut === null || brut === undefined ? null : Number(brut);
       if (montant !== null && (!Number.isFinite(montant) || montant < 0)) {
@@ -101,7 +118,9 @@ export async function PATCH(
         return Response.json({ erreur: 'Une carte libre demande un titre.' }, { status: 400 });
       }
       const fait = await modifierEtapeManuelle({
-        id: etapeId, type, survenuLe, heureConnue: corps.heureConnue === true,
+        id: etapeId, type,
+        survenuLe: dateImposee ?? survenuLe,
+        heureConnue: dateImposee === null ? corps.heureConnue === true : false,
         texte: typeof corps.texte === 'string' && corps.texte.trim() !== '' ? corps.texte.trim() : null,
         montantCents: montant, titre: type === 'autre' && titreBrut !== '' ? titreBrut : null,
         parLibelle: auteur.libelle,

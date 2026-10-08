@@ -40,7 +40,12 @@ const etape = (p: Partial<EtapeAAfficher>): EtapeAAfficher => ({
   id: (n += 1), reference: 'MNG-10000', type: 'ouverture', survenuLe: '2026-09-01T00:00:00', heureConnue: false, heureFin: null,
   numero: null, rang: null, montantCents: null, texte: null, auteur: null, source: 'monga',
   certitude: 'fiable', messageId: 1, aEuUnMail: true, filId: 10, creeParLibelle: null,
-  creeLe: null, titre: null, rangDevis: null, ...p,
+  /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `rangPose: null` PAR DÉFAUT, et c'est le cas qui compte ici : il fait
+     retomber le comparateur sur l'ANCIENNE clé (date, rang de type, identifiant). Les épreuves d'ordre
+     chronologique de MONGA-2 et de FRISE-CONSTRUCTIBLE continuent donc de dire ce qu'elles disaient, sans
+     qu'une ligne ait bougé — c'est la preuve que le repli est exact. Les épreuves du rang de POSE, elles, le
+     renseignent explicitement (section ⑯). */
+  creeLe: null, titre: null, rangDevis: null, rangPose: null, ...p,
 });
 
 /** Un jour fixe tenu pour « aujourd'hui » : une épreuve qui lit l'horloge se met à échouer un matin de mai. */
@@ -138,14 +143,24 @@ describe('② 🔴🔴 plus aucune suite imposée — les pointillés ont dispar
   });
 
   /**
-   * ⚠️ ELLE S'INSÈRE À SA PLACE DANS LE TEMPS, PAS D'OFFICE EN TÊTE (Arno, point 3 : « la frise est TOUJOURS
-   * triée par date d'étape »). Un événement créé APRÈS l'arrivée du premier mail Monga existe — la référence vit
-   * d'abord chez Monga.
+   * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER (08/10/2026) — LE VERDICT S'INVERSE ══════════════════════════════
+   *
+   * Cette épreuve s'appelait « une ouverture d'événement postérieure se range après ce qui l'a précédée » et
+   * exigeait `['prise_rdv', 'ouverture']` : la frise était « TOUJOURS triée par date d'étape » (point 3 du lot
+   * FRISE-CONSTRUCTIBLE), et un événement créé APRÈS l'arrivée du premier mail Monga voyait donc son ouverture
+   * se glisser au milieu.
+   *
+   * 🔴 ARNO TRANCHE AUTREMENT, POINT 9 : « aucune carte ne peut être glissée avant l'Ouverture ». Si rien ne
+   * peut passer devant elle, elle est la PREMIÈRE — et l'ordre n'est plus celui des dates de toute façon.
+   *
+   * ⚠️ SA DATE NE BOUGE PAS D'UN JOUR : elle est écrite dans la carte, et l'épreuve le vérifie. Seule sa PLACE
+   * change, ce qui est exactement la demande.
    */
-  it('⚠️ une ouverture d’événement postérieure se range après ce qui l’a précédée', () => {
+  it('🔴🔴 l’ouverture dérivée est TOUJOURS la première, même datée après ce qui la précède', () => {
     const { majeures } = construireFrise(
       [etape({ type: 'prise_rdv', survenuLe: '2026-08-01T00:00:00' })], '2026-09-01T12:00:00');
-    expect(majeures.map((c) => c.type)).toEqual(['prise_rdv', 'ouverture']);
+    expect(majeures.map((c) => c.type)).toEqual(['ouverture', 'prise_rdv']);
+    expect(majeures[0].survenuLe).toBe('2026-09-01T12:00:00');
   });
 
   /**
