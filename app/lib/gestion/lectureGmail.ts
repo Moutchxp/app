@@ -50,6 +50,23 @@ export interface DepsLectureGmail {
 export interface NonLusGmail {
   /** Les échanges (chez NOUS) qui portent au moins un message non lu dans Gmail. */
   fils: Set<number>;
+  /**
+   * ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — LES MESSAGES EUX-MÊMES, ET NON PLUS SEULEMENT LEURS ÉCHANGES ══════════
+   *
+   * ARNO (08/10/2026) : « Un événement est “New” s'il a au moins un mail REÇU (pas envoyé par nous) rattaché à
+   * lui et encore non lu. […] “Non lu” = le même état lu / non lu que la boîte de réception. Réutilise ce calcul,
+   * sans en créer un nouveau. »
+   *
+   * 🔴 LE GRAIN DU FIL NE SUFFISAIT PAS, ET LE GRAIN DU MESSAGE ÉTAIT DÉJÀ LÀ. Cette fonction connaissait déjà
+   * les `Message-ID` non lus un par un — elle les AGRÉGEAIT en échanges à la dernière ligne. On rend désormais
+   * les deux : `fils` pour la boîte (inchangé, au type près), `messages` pour les événements, qui doivent savoir
+   * SI le message non lu est un REÇU et QUAND il est arrivé.
+   *
+   * ⚠️ AUCUN APPEL GMAIL DE PLUS : c'est la même liste, la même rafale d'en-têtes et la même requête en base.
+   * Un second calcul du non-lu aurait fini par ne plus dire la même chose que le gras de la boîte — exactement
+   * ce qu'Arno interdit.
+   */
+  messages: Set<number>;
   /** Combien d'échanges au total — le compteur de la colonne de gauche. */
   total: number;
   complet: boolean;
@@ -57,7 +74,7 @@ export interface NonLusGmail {
   disponible: boolean;
 }
 
-const VIDE: NonLusGmail = { fils: new Set(), total: 0, complet: true, disponible: false };
+const VIDE: NonLusGmail = { fils: new Set(), messages: new Set(), total: 0, complet: true, disponible: false };
 
 /**
  * LES ÉCHANGES NON LUS, vus de Gmail, traduits chez nous.
@@ -74,7 +91,7 @@ export async function nonLusGmail(deps: DepsLectureGmail, plafond = PLAFOND_NON_
   if (!liste.ok) return VIDE;
   const messages = liste.valeur.messages.slice(0, plafond);
   if (messages.length === 0) {
-    return { fils: new Set(), total: 0, complet: liste.valeur.complet, disponible: true };
+    return { fils: new Set(), messages: new Set(), total: 0, complet: liste.valeur.complet, disponible: true };
   }
 
   // ② les en-têtes, par paquets : une rafale de deux cents appels simultanés se ferait étrangler par Gmail.
@@ -87,13 +104,14 @@ export async function nonLusGmail(deps: DepsLectureGmail, plafond = PLAFOND_NON_
     }
   }
   if (cles.length === 0) {
-    return { fils: new Set(), total: 0, complet: liste.valeur.complet && messages.length === liste.valeur.messages.length, disponible: true };
+    return { fils: new Set(), messages: new Set(), total: 0, complet: liste.valeur.complet && messages.length === liste.valeur.messages.length, disponible: true };
   }
 
-  const fils = await filsDeMessageIds(cles);
+  const nos = await nosMessagesDeMessageIds(cles);
   return {
-    fils,
-    total: fils.size,
+    fils: nos.fils,
+    messages: nos.messages,
+    total: nos.fils.size,
     // Tronqué si Gmail en avait d'autres à donner, OU si le plafond a coupé la liste rendue.
     complet: liste.valeur.complet && messages.length === liste.valeur.messages.length,
     disponible: true,
@@ -101,21 +119,30 @@ export async function nonLusGmail(deps: DepsLectureGmail, plafond = PLAFOND_NON_
 }
 
 /**
- * NOS ÉCHANGES, à partir des `Message-ID` de Gmail. UNE requête, quel que soit le nombre de clés.
+ * NOS MESSAGES ET LEURS ÉCHANGES, à partir des `Message-ID` de Gmail. UNE requête, quel que soit le nombre de clés.
  *
  * ⚠️ `gestion_message.message_id` porte le `Message-ID` RFC AVEC ses chevrons selon les cas : on compare donc sur la
  * forme NORMALISÉE des deux côtés, jamais sur la chaîne brute — un chevron de différence ferait rater tout le
  * rapprochement, silencieusement.
+ *
+ * 🔴 LOT FILTRES-EVENEMENTS-NEW — ELLE S'APPELAIT `filsDeMessageIds` ET NE RENDAIT QUE LES FILS. Le `DISTINCT` sur
+ * `fil_id` jetait l'identifiant du message, qui était pourtant déjà lu. On le garde : c'est lui qui permet de dire
+ * si un non-lu est un REÇU, et de quand il date. Une SECONDE requête pour la même réponse aurait été deux vérités.
  */
-async function filsDeMessageIds(cles: readonly string[]): Promise<Set<number>> {
-  const { rows } = await query<{ fil_id: string }>(
-    `SELECT DISTINCT m.fil_id::text AS fil_id
+async function nosMessagesDeMessageIds(
+  cles: readonly string[],
+): Promise<{ fils: Set<number>; messages: Set<number> }> {
+  const { rows } = await query<{ id: string; fil_id: string }>(
+    `SELECT m.id::text, m.fil_id::text AS fil_id
        FROM gestion_message m
       WHERE m.exclu_le IS NULL
         AND btrim(m.message_id, '<>') = ANY($1::text[])`,
     [cles.map((c) => c.replace(/^<|>$/g, ''))],
   );
-  return new Set(rows.map((r) => Number(r.fil_id)));
+  return {
+    fils: new Set(rows.map((r) => Number(r.fil_id))),
+    messages: new Set(rows.map((r) => Number(r.id))),
+  };
 }
 
 /** Ce qu'un marquage rapporte. Chaque refus se répare différemment : on les distingue. */

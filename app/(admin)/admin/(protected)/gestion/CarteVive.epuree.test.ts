@@ -48,6 +48,8 @@ const CARTE = (o: Partial<CarteEvenement> = {}): CarteEvenement => ({
   categorie: null,
   /* 🔴 LOT URGENCE-EVENEMENT — aucun niveau : la capsule est alors GRISE NEUTRE. */
   urgence: null,
+  /* 🔴 LOT FILTRES-EVENEMENTS-NEW — aucun mail reçu non lu : la carte n'est pas « New ». */
+  nbRecusNonLus: 0, nouveauteLe: null,
   bien: {
     cle: '315', adresse: '67 rue de Normandie', commune: 'COURBEVOIE',
     proprietaire: null, locataire: null,

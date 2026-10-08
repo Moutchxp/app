@@ -45,7 +45,9 @@ describe('🔴🔴 ① A — plus aucun geste ne mène à l’écran Événement
    * garde l'étiquette courante, comme avant ce lot.
    */
   it('🔴 le bouton « Plein écran » est le seul chemin, et il est intact', () => {
-    expect(VUE).toContain("onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null })}");
+    /* ⚠️ LOT FILTRES-EVENEMENTS-NEW — le bouton transporte désormais le TRI choisi (`tri: etatUrl.tri`),
+       pour que le choix soit conservé entre les deux écrans. Le chemin, lui, ne change pas. */
+    expect(VUE).toContain("onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null, tri: etatUrl.tri })}");
     expect(VUE).toContain('Plein écran');
   });
 

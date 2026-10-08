@@ -1012,7 +1012,10 @@ describe('⑲ l’état quitte l’écran partagé, sans perdre sa fonction', ()
    * `GestionVue`) : un second composant aurait fini par diverger sur tout le reste du dossier.
    */
   it('🔴🔴 la même carte, deux rendus : partagé sans état, plein écran avec', () => {
-    expect(VUE).toContain('const cartesDe = (partage: boolean) => d.evenements.map((e) => (');
+    /* ⚠️ LOT FILTRES-EVENEMENTS-NEW — `cartesDe` part désormais de la liste RANGÉE (`evenementsRanges`) et non
+       de `d.evenements` : le tri se fait UNE fois, en amont, et les deux listes lisent le même tableau. Ce que ce
+       cas éprouve ne change pas d'un cran : une seule fonction rend les deux écrans. */
+    expect(VUE).toContain('const cartesDe = (partage: boolean) => evenementsRanges.map((e) => (');
     /* 🔴 PLEIN ÉCRAN : `partage` faux, l'état reste. ÉCRAN PARTAGÉ : `partage` vrai, le bouton le remplace. */
     expect(VUE).toContain('<ul className="gst-liste gst-cartes-larges">{cartesDe(false)}</ul>');
     expect(VUE).toContain('<ul className="gst-liste">{cartesDe(true)}</ul>');

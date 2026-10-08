@@ -54,6 +54,8 @@ const CARTE: CarteEvenement = {
   derniereEtape: null, derniereEtapeMonga: null,
   mongaMajLe: null, vuLe: null, mongaRefs: [],
   categorie: null, urgence: null,
+  /* 🔴 LOT FILTRES-EVENEMENTS-NEW — aucun mail reçu non lu : la carte n'est pas « New ». */
+  nbRecusNonLus: 0, nouveauteLe: null,
   bien: { cle: '315', adresse: '28 avenue Marceau', commune: 'PARIS', proprietaire: null, locataire: null },
   nbBiens: 1,
 };

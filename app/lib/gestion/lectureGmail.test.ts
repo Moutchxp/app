@@ -61,7 +61,10 @@ describe('🔴 ① une seule question pour toute la liste', () => {
   it('aucun non-lu → aucun en-tête demandé, et aucune requête en base', async () => {
     const { d, appels } = deps({ messages: [] });
     const r = await nonLusGmail(d);
-    expect(r).toEqual({ fils: new Set(), total: 0, complet: true, disponible: true });
+    /* ⚠️ `messages` S'AJOUTE AU CONTRAT (lot FILTRES-EVENEMENTS-NEW) : la même lecture rend désormais les
+       MESSAGES non lus en plus de leurs échanges, pour que la pastille « New » d'un événement puisse savoir si
+       le non-lu est un REÇU et de quand il date. Vide ici, comme les fils. */
+    expect(r).toEqual({ fils: new Set(), messages: new Set(), total: 0, complet: true, disponible: true });
     expect(appels).toEqual([`lister(${PLAFOND_NON_LUS})`]);
     expect(queryMock).not.toHaveBeenCalled();
   });

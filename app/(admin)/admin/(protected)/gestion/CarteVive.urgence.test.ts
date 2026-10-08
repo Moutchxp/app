@@ -47,6 +47,8 @@ const CARTE = (o: Partial<CarteEvenement> = {}): CarteEvenement => ({
   derniereEtape: null, derniereEtapeMonga: null,
   mongaMajLe: null, vuLe: null, mongaRefs: [],
   categorie: 'travaux', urgence: null,
+  /* 🔴 LOT FILTRES-EVENEMENTS-NEW — aucun mail reçu non lu : la carte n'est pas « New ». */
+  nbRecusNonLus: 0, nouveauteLe: null,
   bien: { cle: '315', adresse: '67 rue de Normandie', commune: 'COURBEVOIE',
     proprietaire: null, locataire: null },
   nbBiens: 1,
@@ -239,7 +241,9 @@ describe('🔴🔴 ② le double-clic ouvre la fiche du bien — sur les DEUX é
     expect(VUE).not.toContain('const ouvrirPleinEcranSurEvenement');
     expect(VUE).not.toContain('onPleinEcranSurEvenement=');
     /* 🔴 ET LE BOUTON « Plein écran » RESTE, lui : c'est désormais le SEUL geste qui y mène. */
-    expect(VUE).toContain("onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null })}");
+    /* ⚠️ LOT FILTRES-EVENEMENTS-NEW — le bouton transporte désormais le TRI choisi (`tri: etatUrl.tri`),
+       pour que le choix soit conservé entre les deux écrans. Le chemin, lui, ne change pas. */
+    expect(VUE).toContain("onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null, tri: etatUrl.tri })}");
   });
 
   /** 🔴🔴 « UN ÉVÉNEMENT SANS BIEN RATTACHÉ N'OUVRE PAS DE FICHE » (Arno), et rien d'autre ne change. */

@@ -139,6 +139,23 @@ export interface CarteEvenement {
    * ⚠️ MÊME TÉMOIN QUE `categorie` (`evenementQualifieDisponible`), puisque c'est la MÊME migration (268).
    */
   urgence: string | null;
+  /**
+   * ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — COMBIEN DE MAILS REÇUS NON LUS CETTE CARTE PORTE ════════════════════════
+   *
+   * ARNO (08/10/2026) : « Un événement est “New” s'il a au moins un mail REÇU (pas envoyé par nous) rattaché à lui
+   * et encore non lu. […] Le statut disparaît dès que tous ces mails ont été ouverts. »
+   *
+   * ⚠️ `0` QUAND GMAIL EST INJOIGNABLE, et c'est le bon repli : sans connexion Google il n'y a AUCUN état de
+   * lecture à lire (règle du lot 5-BOITE-2). Aucune carte n'est alors « New », et l'écran n'invente pas un statut
+   * qu'il ne sait pas calculer — plutôt que de toutes les déclarer neuves.
+   */
+  nbRecusNonLus: number;
+  /**
+   * 🔴 « Date de l'activité “New” = date du mail reçu non lu le plus récent de l'événement » (Arno). `null` =
+   * l'événement n'est PAS « New » : c'est ce champ, et lui seul, qui porte le statut pour le tri comme pour la
+   * pastille (`estNouveau`, module pur `triEvenements`).
+   */
+  nouveauteLe: string | null;
   bien: { cle: string; adresse: string | null; commune: string | null;
     proprietaire: string | null; locataire: string | null } | null;
   nbBiens: number;
@@ -340,6 +357,8 @@ interface CarteDB {
   categorie: string | null;
   /* 🔴 LOT URGENCE-EVENEMENT, POINT 1 — le degré d'urgence, qui peint la capsule de la carte. */
   urgence: string | null;
+  /* 🔴 LOT FILTRES-EVENEMENTS-NEW — les mails REÇUS non lus de cet événement, et la date du plus récent. */
+  nb_recus_non_lus: number; nouveaute_le: string | null;
   bien_cle: string | null; bien_adresse: string | null; bien_commune: string | null;
   bien_proprietaire: string | null; bien_locataire: string | null; nb_biens: number;
 }
@@ -434,6 +453,49 @@ function sqlBienDeLEvenement(avecMessageId: boolean): string {
      ORDER BY c.cle
      LIMIT 1
   ) bi ON true`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — LES MAILS REÇUS NON LUS D'UN ÉVÉNEMENT ═════════════════════════════════
+
+   ARNO (08/10/2026) : « Un événement est “New” s'il a au moins un mail REÇU (pas envoyé par nous) rattaché à lui
+   et encore non lu. […] Date de l'activité “New” = date du mail reçu non lu le plus récent de l'événement. »
+
+   🔴 LES MÊMES MAILS QUE PARTOUT AILLEURS DANS CE MODULE : ceux que l'affectation active rattache à l'événement,
+   soit par leur ÉCHANGE, soit un par un (`message_id`). C'est mot pour mot la jointure de
+   `biensNommesDeLEvenement` et de `sqlBienDeLEvenement` — un troisième rapprochement aurait fini par compter
+   d'autres mails que ceux que la carte affiche.
+
+   🔴 `sens = 'recu'` EST LA MOITIÉ QUI COMPTE : « pas envoyé par nous » (Arno). Un brouillon qu'on vient
+   d'envoyer ne rend pas un dossier neuf, et sans ce filtre toute réponse de notre part l'aurait fait.
+
+   ⚠️ `exclu_le IS NULL` : un mail tenu hors de la file n'existe pas pour l'écran, il ne peut donc pas le rendre
+   neuf. Même condition que les compteurs de la carte.
+
+   ⚠️ AUCUN NON-LU À RAPPROCHER ⇒ LA JOINTURE N'EST MÊME PAS ÉMISE. Sans connexion Google (ou boîte entièrement
+   lue), on rend `0` et `NULL` par une constante : payer un LATERAL pour une liste vide serait payer pour rien.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+function sqlNouveauteDeLEvenement(avecMessageId: boolean, aucunNonLu: boolean, param: string): string {
+  if (aucunNonLu) {
+    return `LEFT JOIN LATERAL (SELECT 0::int AS nb, NULL::timestamptz AS le) nl ON true`;
+  }
+  const jointure = avecMessageId
+    ? `ON (an.message_id IS NOT NULL AND mn.id = an.message_id)
+          OR (an.message_id IS NULL AND mn.fil_id = an.fil_id
+              AND NOT EXISTS (SELECT 1 FROM gestion_affectation a2
+                               WHERE a2.message_id = mn.id AND a2.actif))`
+    : 'ON mn.fil_id = an.fil_id';
+  return `
+  LEFT JOIN LATERAL (
+    SELECT count(DISTINCT mn.id)::int AS nb, max(mn.recu_le) AS le
+      FROM gestion_affectation an
+      JOIN gestion_message mn ${jointure}
+     WHERE an.evenement_id = e.id AND an.actif
+       AND mn.exclu_le IS NULL
+       AND mn.sens = 'recu'
+       AND mn.id = ANY(${param}::bigint[])
+  ) nl ON true`;
 }
 
 /**
@@ -533,6 +595,18 @@ const SQL_DERNIERE_ETAPE_MONGA = sqlDerniereEtape('etm', true);
  */
 export async function lireEvenements(
   ctx: ContexteExpediteurs, limite = PAGE, compteCle: string | null = null,
+  /**
+   * ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — LES MESSAGES NON LUS, VENUS DE GMAIL ════════════════════════════════════
+   *
+   * ARNO : « “Non lu” = le même état lu / non lu que la boîte de réception. Réutilise ce calcul, sans en créer un
+   * nouveau. » Ce calcul est `nonLusGmail`, et il n'est PAS en base : le lu/non lu vit chez Gmail depuis le lot
+   * 5-BOITE-2 (« un seul état, commun à l'équipe »). Il est donc INJECTÉ ici plutôt que recalculé — c'est
+   * `lireEcran` qui le demande, une fois, et le passe.
+   *
+   * ⚠️ LISTE VIDE ⇒ AUCUNE CARTE « NEW », et c'est le repli juste : sans connexion Google il n'y a aucun état de
+   * lecture, et l'écran ne doit pas déclarer tout le monde neuf. La requête ne nomme alors même pas la jointure.
+   */
+  messagesNonLus: readonly number[] = [],
 ): Promise<{ cartes: CarteEvenement[]; total: number }> {
   /**
    * 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — SANS LA MIGRATION 316, AUCUNE REQUÊTE NE NOMME LA TABLE ABSENTE, et
@@ -549,6 +623,9 @@ export async function lireEvenements(
    * témoins pour un seul fait finiraient par se contredire le jour où l'un serait oublié.
    */
   const avecCategorie = await evenementQualifieDisponible();
+  /* ⚠️ DÉDOUBLONNÉE ET BORNÉE AUX ENTIERS : la liste vient d'un rapprochement Gmail, et `= ANY(...)` sur des
+     valeurs répétées ferait travailler la base pour rien. */
+  const nonLus = [...new Set(messagesNonLus.filter((n) => Number.isSafeInteger(n) && n > 0))];
   const { rows } = await query<CarteDB>(
     `WITH ${ctesAttente('$2', '$3', ctx.deplacements, ctx.spam === true, ctx.corbeille === true)},
           messages_deplaces AS (${ctx.deplacements ? CTE_MESSAGES_DEPLACES : 'SELECT NULL::bigint AS evenement_id, NULL::text AS sens, NULL::boolean AS automatique, NULL::timestamptz AS recu_le WHERE false'})
@@ -587,6 +664,9 @@ export async function lireEvenements(
             --    migration, donc meme temoin : avecCategorie. ⚠️ AUCUN ACCENT GRAVE ICI, et des -- d'une ligne :
             --    ce commentaire vit DANS un litteral de gabarit (regle du fichier, cf. triMongaDAbord).
             ${avecCategorie ? 'e.categorie, e.urgence' : 'NULL::text AS categorie, NULL::text AS urgence'},
+            -- 🔴 LOT FILTRES-EVENEMENTS-NEW — le statut « New » : combien de mails RECUS non lus, et le plus recent.
+            coalesce(nl.nb, 0) AS nb_recus_non_lus,
+            to_char(nl.le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS nouveaute_le,
             bi.cle AS bien_cle, bi.adresse AS bien_adresse, bi.commune AS bien_commune,
             bi.proprietaire AS bien_proprietaire, bi.locataire AS bien_locataire,
             coalesce(bi.nb, 0) AS nb_biens
@@ -601,17 +681,24 @@ export async function lireEvenements(
        ${SQL_DERNIERE_ETAPE_MONGA}
        ${SQL_DERNIERE_MAJ_MONGA}
        ${sqlBienDeLEvenement(ctx.deplacements)}
+       ${sqlNouveauteDeLEvenement(ctx.deplacements, nonLus.length === 0, `$${avecVues ? 5 : 4}`)}
       GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude, mg.le,
                etm.type, etm.titre, etm.survenu_le, etm.heure_connue, etm.certitude,
-               bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb
+               bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb,
+               nl.nb, nl.le
       ORDER BY ${triMongaDAbord(avecVues)}(e.traite_le IS NOT NULL) ASC,
                ${ATTEND_CARTE} DESC,
                coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), min(md.recu_le), e.ouvert_le) ASC,
                e.id ASC
       LIMIT $1`,
-    avecVues
-      ? [limite, adressesDe(ctx.partenaires), ctx.adresseGestion, compteCle]
-      : [limite, adressesDe(ctx.partenaires), ctx.adresseGestion],
+    /* ⚠️ LA LISTE DES NON-LUS N'EST PASSÉE QUE SI LA REQUÊTE LA NOMME : quand elle est vide, la jointure est une
+       constante et un quatrième (ou cinquième) paramètre non lié ferait échouer la requête entière. */
+    [
+      ...(avecVues
+        ? [limite, adressesDe(ctx.partenaires), ctx.adresseGestion, compteCle]
+        : [limite, adressesDe(ctx.partenaires), ctx.adresseGestion]),
+      ...(nonLus.length === 0 ? [] : [nonLus]),
+    ],
   );
   const { rows: t } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_evenement`);
   return {
@@ -642,6 +729,10 @@ export async function lireEvenements(
       mongaRefs: r.monga_refs ?? [],
       categorie: r.categorie,
       urgence: r.urgence,
+      nbRecusNonLus: Number(r.nb_recus_non_lus ?? 0),
+      /* ⚠️ `null` QUAND IL N'Y EN A AUCUN : c'est ce champ qui porte le statut « New », et `max()` d'un ensemble
+         vide rend bien `NULL`. Une date par défaut aurait rendu toutes les cartes neuves. */
+      nouveauteLe: r.nouveaute_le,
       bien: r.bien_cle === null ? null : {
         cle: r.bien_cle, adresse: r.bien_adresse, commune: r.bien_commune,
         proprietaire: r.bien_proprietaire, locataire: r.bien_locataire,
@@ -756,6 +847,23 @@ export async function lireToleranceVeille(): Promise<number> {
   }
 }
 
+/**
+ * LES MESSAGES NON LUS, tels que Gmail les connaît. LECTURE SEULE, et silencieuse en cas d'échec.
+ *
+ * 🔴 C'EST LA MÊME FONCTION QUE LA BOÎTE APPELLE (`nonLusGmail`), avec les mêmes dépendances réelles : le gras de
+ * la liste des échanges et la pastille « New » d'un événement ne peuvent donc pas se contredire.
+ */
+async function lireMessagesNonLus(): Promise<number[]> {
+  try {
+    const { depsNonLusGmail, nonLusGmail } = await import('./lectureGmailReel');
+    const nl = await nonLusGmail(depsNonLusGmail());
+    return nl.disponible ? [...nl.messages] : [];
+  } catch (e) {
+    console.error('[gestion/ecran] non-lus Gmail illisibles — aucune carte « New »', e);
+    return [];
+  }
+}
+
 /** L'état complet de l'écran, en une fois. LECTURE SEULE de bout en bout. */
 export async function lireEcran(limite = PAGE, pageFile = 0, compteCle: string | null = null): Promise<EtatEcran> {
   // La fenêtre d'activité ET la liste des partenaires internes viennent de la BASE, jamais du code. Les deux sont lues
@@ -767,10 +875,27 @@ export async function lireEcran(limite = PAGE, pageFile = 0, compteCle: string |
   const ctx: ContexteExpediteurs = {
     partenaires, adresseGestion: config.adresseGestion, deplacements, spam, corbeille,
   };
+  /**
+   * ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — LE NON-LU, DEMANDÉ UNE FOIS, ICI ═══════════════════════════════════════
+   *
+   * ARNO : « “Non lu” = le même état lu / non lu que la boîte de réception. Réutilise ce calcul, sans en créer un
+   * nouveau. » Ce calcul est `nonLusGmail`, et il n'est PAS en base : le lu/non lu vit chez Gmail depuis le lot
+   * 5-BOITE-2. `lireEvenements` ne peut donc pas le lire tout seul — on le lui INJECTE.
+   *
+   * ⚠️ L'IMPORT EST PARESSEUX, ET CE N'EST PAS UN ORNEMENT : `lectureGmailReel` tire le client Google et ses
+   * jetons. Le charger au MODULE ferait payer cette dépendance à tous les appelants de `fileRepo` — y compris les
+   * scripts CLI qui n'ont rien à demander à Gmail.
+   *
+   * ⚠️ UN ÉCHEC SE TAIT, ET REND « AUCUN NON-LU ». Sans connexion Google il n'y a aucun état de lecture à lire
+   * (règle du lot 5-BOITE-2) : aucune carte n'est alors « New ». Faire tomber TOUT l'écran parce que Gmail n'a
+   * pas répondu serait payer une pastille au prix de la page.
+   */
+  const messagesNonLus = await lireMessagesNonLus();
   const [file, evenements, reperes, sansSuite, auto, tolerance, suite, copie] = await Promise.all([
     // 🔴 LOT LISTE-PAGINATION — le rang de page ne concerne QUE la file : les cartes, les repères et les échanges
     //   sans suite ne sont pas paginés, et leur passer un rang les ferait mentir.
-    lireFile(config.fenetreActiviteJours, ctx, limite, pageFile), lireEvenements(ctx, PAGE, compteCle),
+    lireFile(config.fenetreActiviteJours, ctx, limite, pageFile),
+    lireEvenements(ctx, PAGE, compteCle, messagesNonLus),
     lireReperes(), lireSansSuite(),
     lireDernierePasseAuto(), lireToleranceVeille(), lireSuiteDernierePasse(), lireEtatCopie(),
   ]);

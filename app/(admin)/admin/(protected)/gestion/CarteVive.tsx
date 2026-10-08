@@ -19,6 +19,8 @@ import {
 } from '../../../../lib/gestion/evenementQualite';
 /* 🔴 LOT URGENCE-EVENEMENT, POINT 5 — comparer deux noms accents/casse/tirets indifférents. Module PUR. */
 import { normaliserNom } from '../../../../lib/gestion/documentsAuto';
+/* 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — « cet événement est-il New ? ». Module PUR, la MÊME règle que les deux tris. */
+import { estNouveau } from '../../../../lib/gestion/triEvenements';
 /* ══ 🔴🔴 LOT CARTES-EVENEMENT-MEME-GESTE — CE QUE CE FICHIER N'IMPORTE PLUS, ET POURQUOI ═══════════════════════
    La carte dépliée ne montre plus que les infos manquantes et le bouton rouge : avec les blocs de détail sont
    partis leurs composants (`Conversation`, `MenuDiscret`, `ChoisirEvenement`, `DeplacerVers`, `FriseAvancement`,
@@ -373,6 +375,36 @@ export function CarteVive({
                   ⚠️ LE `title` RESTE, ET IL N'EST PLUS UN FILET : c'est une bulle de confort. Le retirer serait
                   un retrait, qu'Arno n'a pas demandé. */}
               <span className="gst-objet gst-objet--entier" title={objet}>{objet}</span>
+              {/**
+                * ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW, POINT 1 — LA PASTILLE « NEW » ═══════════════════════════════
+                *
+                * ARNO (08/10/2026) : « Pastille “New” discrète, d'une couleur tamisée du thème, près du titre de
+                * la carte. Lisible en Clair et en Sombre. »
+                *
+                * 🔴 PRÈS DU TITRE, DANS LA COLONNE DE TEXTE — et non dans celle de droite, où vivent la vignette
+                * d'étape et les deux capsules. C'est le titre qu'on balaie des yeux en cherchant ce qui est
+                * arrivé ; la colonne de droite dit où en est le dossier, pas ce qui est neuf.
+                *
+                * 🔴 LE STATUT VIENT DU MODULE PUR (`estNouveau`), c'est-à-dire de la MÊME règle que les deux
+                * tris. Lire `carte.nbRecusNonLus > 0` ici aurait fait une seconde définition du mot « New », et
+                * c'est elle qui aurait fini par ne plus s'accorder avec l'ordre de la liste.
+                *
+                * ⚠️ LE MOT PORTE L'INFORMATION, LA COULEUR NE FAIT QUE L'APPUYER — règle de tout le module. Le
+                * nombre de mails, lui, est dans la bulle et au lecteur d'écran : la pastille reste « discrète ».
+                */}
+              {estNouveau(carte) && (
+                <span className="gst-neuf"
+                  title={carte.nbRecusNonLus > 1
+                    ? `${carte.nbRecusNonLus} mails reçus non lus sur cet événement`
+                    : 'Un mail reçu non lu sur cet événement'}>
+                  New
+                  <span className="gst-sr-only">
+                    {carte.nbRecusNonLus > 1
+                      ? ` — ${carte.nbRecusNonLus} mails reçus non lus`
+                      : ' — un mail reçu non lu'}
+                  </span>
+                </span>
+              )}
               {/**
                 * ══ 🔴🔴 LOT CARTE-EVENEMENT-EPUREE — CETTE LIGNE A ÉTÉ ÉPURÉE, POINTS 1, 2 ET 5 ═══════════════
                 *

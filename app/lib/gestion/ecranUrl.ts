@@ -267,6 +267,23 @@ export interface EtatEcranUrl {
    */
   filtre?: 'non-lus' | null;
   /**
+   * ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — DANS QUEL ORDRE LES CARTES D'ÉVÉNEMENT SE RANGENT ═══════════════════════
+   *
+   * ARNO (08/10/2026) : « Le choix du bouton est conservé entre l'écran partagé et le plein écran (paramètre
+   * d'adresse &tri=new|urgent). »
+   *
+   * 🔴 IL VAUT SUR LES DEUX ÉCRANS QUI PORTENT DES CARTES, et sur eux seuls : `partage` et `evenements`. C'est ce
+   * qui tient la promesse « conservé entre les deux » — l'adresse change d'écran, le tri la suit.
+   *
+   * ⚠️ `'new'` EST LE DÉFAUT ET NE S'ÉCRIT JAMAIS (`TRI_DEFAUT`) : un défaut écrit dans l'adresse n'est plus un
+   * défaut, et l'adresse nue du module doit rester l'adresse nue du module. Même règle que `filtre` et `etoile`.
+   *
+   * ⚠️ TYPÉ `string | null` ET NON `TriEvenement` : `ecranUrl` est un module PUR SANS AUCUN IMPORT, c'est sa
+   * garantie depuis le lot 5-FUSION. C'est `triValide` (`triEvenements.ts`) qui juge, et lui seul — même partage
+   * que `cible`, que ce fichier rend en texte brut.
+   */
+  tri?: string | null;
+  /**
    * LOT FILTRE-ETOILE — ne montrer que les échanges étoilés. `false` (le défaut) ne s'écrit jamais dans l'adresse.
    *
    * 🔴 IL SE COMBINE, il ne remplace pas. Étoilés ET non lus, étoilés sous « Envoyés », étoilés dans une
@@ -322,6 +339,9 @@ export const ETAT_DEFAUT: EtatEcranUrl = {
   ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null, brouillonOuvert: null,
   fiche: null, bloc: null, evenementVise: null, cible: null,
   filtre: null, etoile: false,
+  /* 🔴 LOT FILTRES-EVENEMENTS-NEW — `null` = le défaut, c'est-à-dire « New » (`TRI_DEFAUT`). Il fait partie du
+     défaut pour que `lireEtatUrl` et `ETAT_DEFAUT` restent comparables champ pour champ. */
+  tri: null,
   /* 🔴 LOT HISTORIQUE-BIEN-3 — le jeton de retour fait partie du défaut, à `null` : sans cela, `lireEtatUrl`
      rendait un champ que `ETAT_DEFAUT` n'avait pas, et les deux cessaient d'être comparables. */
   hdb: null,
@@ -474,6 +494,10 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
      * `non-lus` vaut « tous » — une adresse abîmée doit montrer TOUT, jamais moins.
      */
     filtre: ecran === 'boite' && p.get('filtre') === 'non-lus' ? 'non-lus' : null,
+    /* 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — le tri des cartes, sur les deux écrans qui en portent. Rendu TEL QUEL
+       (borné à `urgent`, la seule valeur qui s'écarte du défaut) : c'est `triValide` qui juge. Une valeur
+       inconnue retombe donc sur « New », jamais sur une erreur. */
+    tri: (ecran === 'partage' || ecran === 'evenements') && p.get('tri') === 'urgent' ? 'urgent' : null,
     // Comme le filtre des non-lus : il ne désigne quelque chose que dans la boîte, et toute autre valeur vaut
     //   « non » — une adresse abîmée doit montrer TOUT, jamais moins.
     etoile: ecran === 'boite' && p.get('etoile') === '1',
@@ -527,6 +551,9 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);
   // Seul `non-lus` s'écrit : « tous » est le défaut, et un défaut écrit dans l'adresse n'est plus un défaut.
   if (e.ecran === 'boite' && e.filtre === 'non-lus') p.set('filtre', 'non-lus');
+  /* 🔴 LOT FILTRES-EVENEMENTS-NEW — seul `urgent` s'écrit : « New » est le défaut, et un défaut écrit dans
+     l'adresse n'est plus un défaut. C'est la même règle que le filtre des non-lus juste au-dessus. */
+  if ((e.ecran === 'partage' || e.ecran === 'evenements') && e.tri === 'urgent') p.set('tri', 'urgent');
   if (e.ecran === 'boite' && e.etoile === true) p.set('etoile', '1');
   const s = p.toString();
   return s === '' ? '' : `?${s}`;
@@ -588,5 +615,11 @@ export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
     && (a.ecran !== 'boite' || memeEtiquette(a.etiquette, b.etiquette))
     && (a.ecran !== 'annuaire' || (a.fiche?.sorte ?? null) === (b.fiche?.sorte ?? null)
       && (a.fiche?.id ?? null) === (b.fiche?.id ?? null))
-    && (a.ecran !== 'historique' || (a.cible ?? null) === (b.cible ?? null));
+    && (a.ecran !== 'historique' || (a.cible ?? null) === (b.cible ?? null))
+    /**
+     * 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — LE TRI COMPTE, et c'est délibéré. Changer de bouton change l'ORDRE de ce
+     * qu'on regarde : empiler une entrée d'historique fait que « Précédent » revient au tri d'avant, ce qu'on
+     * attend d'un bouton qui réorganise la page. C'est l'inverse de `hdb`, qui ne désigne aucun écran.
+     */
+    && ((a.ecran !== 'partage' && a.ecran !== 'evenements') || (a.tri ?? null) === (b.tri ?? null));
 }

@@ -45,6 +45,11 @@ import {
 } from '../../../../lib/gestion/rafraichir';
 import { HistoriqueCible } from './HistoriqueCible';
 import { cibleDepuisTexte, texteCible } from '../../../../lib/gestion/historique';
+/* 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — L'UNIQUE SOURCE DE CALCUL de l'ordre des cartes, partagée par les deux
+   écrans (Arno). Module PUR : aucun import, aucune base. */
+import {
+  motTri, TRIS_EVENEMENT, trierEvenements, triValide, type TriEvenement,
+} from '../../../../lib/gestion/triEvenements';
 import type { ContexteRedactionEcran } from './Redaction';
 /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION — les compteurs de la colonne suivent toute action. Module PUR. */
 import {
@@ -918,6 +923,49 @@ export function GestionVue({ intro }: {
    */
 
   /**
+   * ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW, POINT 2 — LE TRI COURANT, ET LA LISTE RANGÉE ════════════════════════════
+   *
+   * ARNO : « Mêmes règles sur l'écran partagé et sur l'écran Événements en plein écran. UNE SEULE SOURCE DE
+   * CALCUL, partagée par les deux écrans. […] Le choix du bouton est conservé entre l'écran partagé et le plein
+   * écran (paramètre d'adresse &tri=new|urgent). »
+   *
+   * 🔴 LE TRI SE FAIT ICI, UNE FOIS, ET LES DEUX LISTES LISENT LE MÊME TABLEAU. `cartesDe(true)` et
+   * `cartesDe(false)` partent donc du même ordre par construction — il n'y a pas deux endroits où il pourrait
+   * diverger.
+   *
+   * 🔴 « L'ORDRE SE MET À JOUR SANS RECHARGEMENT » (Arno) : le tri est recalculé à CHAQUE rendu, à partir de
+   * `d.evenements`. Lire un mail ou changer une urgence relit l'écran (`charger`), les cartes reviennent avec
+   * leur nouveau statut, et la liste se reclasse au rendu suivant — sans que personne n'ait à l'ordonner.
+   *
+   * ⚠️ AUCUNE CARTE N'EST MASQUÉE, et le compteur reste `d.evenementsTotal` : ce sont des TRIS. `trierEvenements`
+   * rend une COPIE de la même longueur, et c'est éprouvé.
+   */
+  const tri: TriEvenement = triValide(etatUrl.tri ?? undefined);
+  const evenementsRanges = trierEvenements(d.evenements, tri);
+
+  /**
+   * LES DEUX BOUTONS, écrits une seule fois et rendus dans les deux en-têtes.
+   *
+   * 🔴 ILS ÉCRIVENT DANS L'ADRESSE, et non dans un état de composant : c'est ce qui conserve le choix d'un écran
+   * à l'autre (la demande d'Arno), et ce qui le fait survivre au rechargement et au bouton « Précédent ».
+   *
+   * ⚠️ `...etatUrl` ET NON `...ETAT_DEFAUT` : changer de tri ne doit RIEN fermer d'autre — ni l'échange ouvert,
+   * ni l'étiquette choisie. On ne déplace qu'une chose à la fois.
+   */
+  const boutonsDeTri = (
+    <span className="gst-tris" role="group" aria-label="Trier les événements">
+      {TRIS_EVENEMENT.map((t) => (
+        <button key={t} type="button"
+          className={`gst-tri gst-tri--${t}${tri === t ? ' gst-tri--actif' : ''}`}
+          aria-pressed={tri === t}
+          onClick={() => aller({ ...etatUrl, tri: t === 'new' ? null : t })}>
+          {motTri(t)}
+        </button>
+      ))}
+    </span>
+  );
+
+  /**
    * Les cartes, écrites une seule fois : mêmes fonctions dans la colonne et en plein écran.
    *
    * 🔴 UN SEUL ARGUMENT LES SÉPARE (lot VIGNETTE-EVENEMENT, point 1) : dans l'écran PARTAGÉ, le bloc d'état cède
@@ -929,7 +977,7 @@ export function GestionVue({ intro }: {
    * VISÉ, lui, ne peut l'être qu'en plein écran : dans l'écran partagé, `evenementVise` n'est pas lu de l'adresse
    * (`lireEtatUrl`), et la comparaison rend donc toujours faux — aucune carte n'y porte de liseré.
    */
-  const cartesDe = (partage: boolean) => d.evenements.map((e) => (
+  const cartesDe = (partage: boolean) => evenementsRanges.map((e) => (
     <CarteVive key={e.evenementId} carte={e} maintenant={ref}
       partage={partage} onOuvrirBien={ouvrirBienSurEvenement}
       vise={!partage && (etatUrl.evenementVise ?? null) === e.evenementId}
@@ -1384,6 +1432,8 @@ export function GestionVue({ intro }: {
             </button>
             <h2 className="cm-titre" id="gst-titre-ev-plein">
               Événements <span className="gst-compte">{d.evenementsTotal}</span>
+              {/* 🔴 LOT FILTRES-EVENEMENTS-NEW — « à côté du compteur » (Arno), ici comme dans la colonne. */}
+              {boutonsDeTri}
             </h2>
             {troncEv && <p className="cm-note">{troncEv}</p>}
           </ColonneMode>
@@ -1507,11 +1557,17 @@ export function GestionVue({ intro }: {
             <div className="gst-tete-partage-titre">
               <h2 className="gst-titre" id="gst-titre-ev">
                 Événements <span className="gst-compte">{d.evenementsTotal}</span>
+                {/* 🔴 LOT FILTRES-EVENEMENTS-NEW — les MÊMES boutons que le plein écran, au même endroit. */}
+                {boutonsDeTri}
               </h2>
             </div>
             <div className="gst-tete-partage-outils">
+              {/* 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — LE TRI TRAVERSE AVEC NOUS. Arno : « Le choix du bouton est
+                  conservé entre l'écran partagé et le plein écran. » Ce bouton est LA transition entre les deux
+                  (et, depuis le lot CARTES-EVENEMENT-MEME-GESTE, la seule) : sans `tri`, passer en plein écran
+                  rejetait silencieusement la liste dans l'ordre par défaut. Un mot de plus, et la promesse tient. */}
               <button type="button" className="svv-btn svv-btn-outline gst-btn gst-plein"
-                onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null })}>
+                onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null, tri: etatUrl.tri })}>
                 Plein écran
               </button>
             </div>
@@ -1936,6 +1992,30 @@ ${CSS_BOUTON_ROND}
 .gst-tete-partage-titre{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;min-height:23px}
 .gst-tete-partage-titre .gst-titre{margin:0}
 .gst-tete-partage-outils{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px}
+/* ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW, POINT 2 — LES DEUX BOUTONS DE TRI, A COTE DU COMPTEUR ═══════════════════
+   ARNO : « DEUX BOUTONS DE TRI en haut de la colonne et de l'ecran Evenements, a cote du compteur : “New” et
+   “Urgent”. Un seul actif a la fois. »
+   🔴 CE SONT DES TRIS, PAS DES FILTRES, et le dessin doit le dire : ils sont DISCRETS (petits, sans cadre plein)
+   et le compteur reste a cote d'eux, inchange. Des boutons qui ressembleraient a un filtre feraient craindre
+   qu'ils cachent des cartes — ce qu'ils ne font jamais.
+   🔴 aria-pressed DIT LEQUEL EST ACTIF autrement que par la couleur : la regle du module, et la condition pour
+   que « un seul actif a la fois » existe aussi au lecteur d'ecran.
+   ⚠️ 44 px DE CIBLE TACTILE : exigence transverse §15, meme dans un outil discret.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-tris{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;margin-left:.5rem}
+.gst-tri{min-height:44px;padding:4px 12px;font:inherit;font-size:.76rem;font-weight:700;cursor:pointer;
+  border-radius:999px;border:1px solid var(--color-svv-line);
+  background:var(--color-svv-bg);color:var(--color-svv-muted)}
+.gst-tri:hover:not(:disabled){border-color:var(--color-svv-line-strong)}
+/* ⚠️ LE MEME SELECTEUR DE BASE QUE LE SURVOL (.gst-tri:not(:disabled)), et ce n'est pas une coquetterie : le
+   garde §15 de ce fichier exige que tout ce qui reagit au survol reagisse AUSSI au focus clavier, et il compare
+   les deux selecteurs. Ecrire « .gst-tri:focus-visible » aurait laisse passer un survol sans pendant clavier. */
+.gst-tri:not(:disabled):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.gst-tri--actif{border-color:transparent;background:var(--color-svv-field);color:var(--color-svv-ink)}
+/* 🔴 CHACUN PREND LA COULEUR DE CE QU'IL RANGE, et seulement quand il est actif : le bleu de la pastille « New »,
+   le rouge tamise du niveau « Urgent ». C'est ce qui relie le bouton a ce qu'on voit dans la liste. */
+.gst-tri--new.gst-tri--actif{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+.gst-tri--urgent.gst-tri--actif{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 /* « Plein ecran » ferme la rangee, a droite, dans les DEUX colonnes. */
 .gst-tete-partage-outils .gst-plein{margin-left:auto}
 /* Le corps et le pied : memes marges, meme hauteur de pied. */
@@ -2140,6 +2220,19 @@ ${CSS_BOUTON_ROND}
    perdre la fin — un nom de proprietaire tronque ne sert a rien.
    ⚠️ LA REGLE D'ECRAN ETROIT QUI VIVAIT PLUS BAS DISPARAIT AVEC LA TRONCATURE : elle ne faisait que retablir ce
    qui est desormais le comportement de base, a toutes les largeurs. */
+/* ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW, POINT 1 — LA PASTILLE « NEW », PRES DU TITRE ════════════════════════════
+   ARNO : « Pastille “New” discrete, d'une couleur tamisee du theme, pres du titre de la carte. Lisible en Clair
+   et en Sombre. »
+   🔴 LA FAMILLE BLEUE, ET NON LE ROUGE : le rouge est la couleur d'ATTENTION du depot (la mise a jour Monga, le
+   lisere de selection, les refus). « New » n'est pas une alerte — c'est un fait, et il doit se distinguer des
+   trois tons d'urgence qui vivent a dix pixels de la, sur la capsule. Le bleu tamise ne dit rien d'autre que
+   « c'est arrive depuis ».
+   ⚠️ UNE PAIRE DE JETONS DU THEME, qui porte sa variante Sombre : aucune couleur en dur, donc la pastille suit
+   les trois themes sans rien dire d'eux.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-neuf{display:inline-block;margin-left:.4rem;padding:1px 7px;border-radius:999px;vertical-align:middle;
+  font-size:.64rem;font-weight:700;letter-spacing:.04em;line-height:1.5;
+  background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
 .gst-carte-ligne{display:block;font-size:.74rem;line-height:1.3;color:var(--color-svv-muted);
   white-space:normal;overflow-wrap:anywhere}
 .gst-carte-ligne--adresse{color:var(--color-svv-ink)}
