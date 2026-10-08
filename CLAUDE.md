@@ -402,6 +402,34 @@ définitive avant de figer les couleurs dans le code.
   - 🔵 **PROMPT** — prompt à coller à l'agent Claude Code (toujours préciser DANS QUEL TERMINAL).
   - 🟢 **COMMIT** — message de commit à coller dans la boîte de commit de VS Code (Source Control).
 
+### 🔴🔴 INTERDIT — ON NE RETIRE JAMAIS UN ÉLÉMENT D'INTERFACE SANS L'ACCORD D'ARNO POUR CET ÉLÉMENT
+
+> **Ne JAMAIS retirer, masquer, conditionner ou déplacer un élément d'interface ou une fonctionnalité existante
+> sans l'accord explicite d'Arno pour CET élément précis. Un retrait autorisé pour un écran ou un composant ne
+> s'étend JAMAIS à un autre écran ou composant, même partagé. En cas de doute : s'interrompre et demander. Avant
+> chaque commit : comparer le rendu des écrans touchés avec l'état précédent et lister tout élément disparu ;
+> s'il n'est pas explicitement autorisé, le rétablir avant de committer.**
+
+- **Décision d'Arno du 08/10/2026**, lot RETABLIR-MARQUES-EVENEMENT. Elle est en tête des interdits parce qu'elle
+  est la plus facile à enfreindre sans s'en apercevoir : un retrait ne casse aucun test, ne rougit nulle part, et
+  ne se voit que par la personne qui cherche ce qui n'y est plus.
+- **CE QUI LA JUSTIFIE.** Trois lots du 08/10 ont retiré, chacun avec l'accord d'Arno, des blocs de la carte
+  d'événement dépliée. Chaque accord portait sur UN écran ; les composants, eux, sont PARTAGÉS — `LigneVie` est
+  rendue par quatre écrans, `FormulaireCarte` par deux, `FriseAvancement` par deux. Un retrait pris au mot d'un
+  écran et appliqué au composant les vide tous les quatre, et personne ne le voit avant Arno.
+- **UN COMPOSANT PARTAGÉ N'EST PAS UN ÉCRAN.** Avant de retirer quoi que ce soit, chercher **qui d'autre le rend**
+  (`grep` sur le nom du composant ET sur sa classe CSS), et vérifier que l'accord couvre chacun d'eux.
+- **CE QUI EST RETIRÉ DOIT EXISTER AILLEURS, ET ON LE PROUVE AVANT.** Pièce par pièce, fichier et ligne à l'appui.
+  Si une seule n'existe nulle part ailleurs : **ne pas la retirer**, s'interrompre, et le dire. (Précédent :
+  les boutons « À traiter / En cours / Traité », gardés en plein écran au lot CARTES-EVENEMENT-MEME-GESTE pour
+  cette raison exacte.)
+- ⚠️ **UNE ABSENCE N'EST PAS TOUJOURS UN RETRAIT, et l'enquête se fait AVANT de « rétablir ».** Le 08/10, les deux
+  marques orange « événement en cours » de la fiche du bien avaient disparu : les quatre fichiers qui les portent
+  étaient octet pour octet ceux de la veille, et c'est l'ÉVÉNEMENT qui avait été clos (journal n° 43977). Remettre
+  du code là où il n'en manquait pas aurait cassé une règle juste. **Lire le journal et les données avant de
+  toucher au code** ; et laisser derrière soi une épreuve qui distingue les deux cas
+  (`marquesEvenementOuvert.test.ts`).
+
 ### 🔴🔴 INTERDIT — UN ESSAI SUR LE DRIVE N'UTILISE JAMAIS UNE VRAIE PIÈCE
 
 > **Les essais qui déposent, déplacent, renomment ou mettent à la corbeille dans le Drive n'utilisent QUE des
