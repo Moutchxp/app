@@ -124,8 +124,12 @@ describe('🔴🔴 ② la frise : Clôture pleine verte, Ouverture et Réouvertu
     const bloc = FEUILLE.slice(FEUILLE.indexOf('.fav-carre--close .fav-carre-clic'));
     const regle = /^([\s\S]*?)\{([^}]*)\}/.exec(bloc);
     expect(regle).not.toBeNull();
+    /* ⚠️ `fav-menu` A LAISSE SA PLACE A `fav-picto-b` : le menu « … » est descendu dans la rangee de trois
+       pictos du bas (lot FRISE-HORODATAGE-SECONDE-ET-PICTOS, point 7), ou le crayon et le « i » le rejoignent.
+       Le besoin est le MEME — ces trois pictos portent --color-svv-muted, donc illisible sur le vert plein — et
+       une seule classe les couvre maintenant tous les trois. */
     for (const c of ['fav-carre-clic', 'fav-titre', 'fav-date', 'fav-montant', 'fav-ref',
-      'fav-picto', 'fav-menu']) {
+      'fav-picto', 'fav-picto-b']) {
       expect(regle?.[1], c).toContain(`.fav-carre--close .${c}`);
     }
     expect(regle?.[2]).toContain('color:var(--color-svv-bg)');

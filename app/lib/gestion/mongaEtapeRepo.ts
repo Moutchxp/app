@@ -166,7 +166,14 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     `SELECT e.id, e.reference, e.type, e.survenu_le::text, e.heure_connue, e.heure_fin,
             e.numero, e.rang, e.montant_cents, e.texte, e.auteur, e.source, e.certitude, e.statut,
             e.message_id, e.message_cle, m.fil_id, e.piece_nom, e.cree_par_libelle,
-            e.cree_le::text, e.titre, e.rang_pose::text
+            -- LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 1 : l'heure de creation s'affiche a la SECONDE, et
+            -- Arno nomme le fuseau : Europe/Paris. Elle valait e.cree_le::text, qui rend l'horodatage dans le
+            -- fuseau de la SESSION -- Europe/Paris sur ce poste (verifie : SHOW TimeZone), mais UTC sur un
+            -- serveur ordinaire, ce qui aurait decale de deux heures l'heure lue par l'internaute l'ete.
+            -- Le fuseau est donc EXPRIME ICI, la ou la donnee est lue, et jamais recalcule dans le navigateur.
+            -- AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit.
+            to_char(e.cree_le AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') AS cree_le,
+            e.titre, e.rang_pose::text
        FROM gestion_monga_etape e
        LEFT JOIN gestion_message m ON m.id = e.message_id
       WHERE e.statut = 'vif'

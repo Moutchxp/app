@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import {
   carteDeplacable, cartesHorsChronologie,
   cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, mentionCreation,
-  type MentionCreation,
+  parOrdreDePose, type MentionCreation,
   motAjout, motDateEtape, motGroupeMessages,
   motMailDOrigine, motMontant, motSource, pictoSource, rangerEnLigne, referencesDeLaFrise,
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
@@ -184,6 +184,17 @@ export function FriseAvancement({
    * par diverger sur « mail supprimé — étape conservée », comme l'avertit déjà `BulleDetail`.
    */
   const [apercu, setApercu] = useState<string | null>(null);
+  /**
+   * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 7② — LA BULLE DU « i » ══════════════════════════════
+   *
+   * ARNO : « au SURVOL, affichage INSTANTANÉ (sans délai) d'une bulle avec le texte saisi dans le champ
+   * “Texte” de la carte ; si le texte est vide, “i” grisé et bulle “Aucun commentaire” ».
+   *
+   * 🔴 ELLE RETIENT UNE ABSCISSE, et c'est nécessaire : la bulle est rendue HORS de la piste — qui coupe ce
+   * qui dépasse (défaut mesuré au lot FRISE-HORIZONTALE : 132 px de texte tronqués) — et doit donc se replacer
+   * sous le « i » qu'on survole. L'abscisse est lue au survol, dans le repère du cadre.
+   */
+  const [commentaire, setCommentaire] = useState<{ texte: string | null; x: number } | null>(null);
   const [fixe, setFixe] = useState<string | null>(null);
   const ouvert = fixe ?? apercu;
   const [ajout, setAjout] = useState(false);
@@ -412,17 +423,29 @@ export function FriseAvancement({
   const plusieursRefs = referencesDeLaFrise(etapes).length > 1;
   const cleOuverture = cleDOuverture(majeures);
   /**
-   * 🔴🔴 POINT 10 — LES CARTES QUI NE SONT PLUS À LEUR PLACE CHRONOLOGIQUE, calculées UNE fois pour la rangée.
-   * La règle (la plus longue suite déjà en ordre de création) vit dans le module pur `cartesHorsChronologie`.
+   * ══ 🔴🔴 LES CARTES QUI NE SONT PLUS À LEUR PLACE CHRONOLOGIQUE, calculées UNE fois pour la rangée ════════
    *
-   * ⚠️ ELLE PORTE SUR TOUTE LA RANGÉE, carrés ET points confondus : ils sont posés dans la même suite, et un
-   * point glissé au milieu serait aussi « déplacé » qu'un carré. Les points n'affichent pas la mention, mais
-   * les ignorer du calcul aurait fait mentir celui des carrés qui les entourent.
+   * La règle — la plus longue suite déjà en ordre de création — vit dans le module pur
+   * `cartesHorsChronologie`. La RÉFÉRENCE est l'horodatage de création À LA SECONDE (lot
+   * FRISE-HORODATAGE-SECONDE-ET-PICTOS), c'est-à-dire exactement ce que la ligne sous la carte affiche.
+   *
+   * 🔴🔴 CARRÉS **ET** POINTS, MÊLÉS (Arno, point 2) — ET C'EST UNE CORRECTION, PAS UN AJOUT. Le commentaire
+   * qui tenait cette place DISAIT DÉJÀ « elle porte sur toute la rangée, carrés ET points confondus », et
+   * expliquait même pourquoi — mais le code juste en dessous ne mappait que `majeures`, c'est-à-dire les
+   * carrés. Un carré glissé par-dessus un point paraissait donc resté à sa place. Les points n'affichent pas
+   * la mention, mais ils OCCUPENT UN RANG, et les ignorer faisait mentir le calcul de leurs voisins.
+   *
+   * ⚠️ MESURÉ AVANT D'ÉCRIRE, sur les deux événements de la base (08/10/2026) : l'ancienne règle et la nouvelle
+   * donnent EXACTEMENT les mêmes cartes orange — aucune, et `e438` sur l'événement 2. Rien ne change donc à
+   * l'écran aujourd'hui (point 6 d'Arno : « rien ne doit bouger ») ; c'est la règle qui cesse de pouvoir
+   * mentir demain, dès qu'un carré sera glissé par-dessus un point.
+   *
+   * ⚠️ LA SUITE EST CELLE DE LA FRISE, dans l'ordre de POSE (`parOrdreDePose`) : c'est la « place réelle »
+   * qu'Arno demande de comparer à la référence.
    */
-  const deplacees = cartesHorsChronologie([
-    ...majeures.filter((c) => c.etape !== null)
-      .map((c) => ({ cle: c.cle, creeLe: (c.etape as EtapeAAfficher).creeLe })),
-  ]);
+  const deplacees = cartesHorsChronologie(
+    [...etapes].filter((x) => x.certitude !== 'ecartee').sort(parOrdreDePose)
+      .map((x) => ({ cle: `e${x.id}`, creeLe: x.creeLe })));
   /**
    * 🔴 CE QUE L'ON MONTRE, ET OÙ. Une seule bulle à la fois — deux ouvertes feraient lire la mauvaise.
    *
@@ -494,6 +517,16 @@ export function FriseAvancement({
               onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
               onAjouter={ouvrirReservoir} aujourdhui={aujourdhui}
               horsChronologie={el.case !== undefined && deplacees.has(el.case.cle)}
+              onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}
+              onCommentaire={(x, ancre) => {
+                if (x === null || ancre === null) { setCommentaire(null); return; }
+                /* ⚠️ L'ABSCISSE EST CELLE DU CADRE, pas de la page : la bulle y est rendue, et la piste défile
+                   sous elle. La lire ici, au survol, évite d'avoir à la recalculer à chaque défilement. */
+                const cadre = moi.current?.querySelector('.fav-piste-cadre');
+                const r = ancre.getBoundingClientRect();
+                const rc = cadre?.getBoundingClientRect();
+                setCommentaire({ texte: x.texte, x: Math.round(r.left + r.width / 2 - (rc?.left ?? 0)) });
+              }}
               saisie={carteSaisie} onSaisir={saisirLaCarte} onPoignee={saisirParLaPoignee}
               onOuverture={(j) => void agir(
                 `/api/admin/gestion/evenements/${evenementId}/frise`, 'PATCH',
@@ -516,6 +549,19 @@ export function FriseAvancement({
           * et empêcherait de la survoler. Elle se regarde, elle ne se clique pas — le clic, c'est la bulle
           * déployée, qui porte les gestes.
           */}
+        {/**
+          * 🔴🔴 LA BULLE DU « i » — rendue DANS LE CADRE, jamais dans la piste : `overflow-x:auto` force
+          * l'autre axe à `auto`, et tout ce qui dépasse y est COUPÉ (défaut mesuré au lot FRISE-HORIZONTALE).
+          *
+          * ⚠️ `pointer-events:none` EN FEUILLE : une bulle sous la souris masquerait le picto suivant.
+          */}
+        {commentaire !== null && (
+          <div className="fav-commentaire" style={{ left: `${commentaire.x}px` }} role="status">
+            {(commentaire.texte ?? '').trim() === ''
+              ? <span className="fav-commentaire-vide">Aucun commentaire</span>
+              : commentaire.texte}
+          </div>
+        )}
         {detailApercu !== null && (
           <div className="fav-flottante" aria-hidden="true">
             <BulleDetail
@@ -657,6 +703,8 @@ function ElementDeLaFrise(p: {
   saisie?: number | null;
   onSaisir?: (id: number, ev: ReactPointerEvent) => void;
   onPoignee?: (id: number, ev: ReactPointerEvent) => void;
+  onModifier?: (e: EtapeAAfficher) => void;
+  onCommentaire?: (e: EtapeAAfficher | null, ancre: HTMLElement | null) => void;
 }) {
   if (p.el.sorte === 'plus') {
     return (
@@ -755,7 +803,7 @@ function Point({
 function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
   onOuvrirFil, onConfirmer, onMontant, onRetirer, onOuverture,
-  horsChronologie = false, saisie = null, onSaisir, onPoignee,
+  horsChronologie = false, saisie = null, onSaisir, onPoignee, onModifier, onCommentaire,
 }: {
   c: CaseFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
   calerSurUneFois: (cible: HTMLElement | null) => void;
@@ -773,6 +821,10 @@ function Carre({
   onSaisir?: (id: number, ev: ReactPointerEvent) => void;
   /** 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — la poignée ⠿ : elle démarre le glisser SANS délai (Arno). */
   onPoignee?: (id: number, ev: ReactPointerEvent) => void;
+  /** 🔴 LOT HORODATAGE-ET-PICTOS — le crayon du bas : le MÊME formulaire que « Modifier » dans la bulle. */
+  onModifier?: (e: EtapeAAfficher) => void;
+  /** 🔴 LOT HORODATAGE-ET-PICTOS — le « i » : la bulle de commentaire, au survol, sans délai. */
+  onCommentaire?: (e: EtapeAAfficher | null, ancre: HTMLElement | null) => void;
 }) {
   const moi = useRef<HTMLLIElement | null>(null);
 
@@ -829,6 +881,23 @@ function Carre({
           * sont dans ce cas, une par événement sans étape « ouverture » enregistrée.
           */}
         <LigneCreation creation={mentionCreation(null)} />
+        {/**
+          * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 8 — ET POURQUOI CETTE CARTE-CI N'A PAS LA RANGÉE
+          *
+          * ARNO NOMME QUATRE CARTES : « Même rangée de 3 pictos sur Ouverture, Clôture, Réouverture et Clôture
+          * Monga ». Les quatre sont des ÉTAPES enregistrées, et les quatre passent donc par la branche du bas,
+          * qui porte la rangée. L'ouverture DÉRIVÉE, elle, n'est pas une étape : elle affiche
+          * `gestion_evenement.ouvert_le`.
+          *
+          * 🔴 RIEN N'EST RETIRÉ ICI — elle n'a jamais porté ni crayon, ni « … », ni « i ». Et les trois pictos
+          * n'auraient rien à désigner : le crayon ouvrirait une seconde porte vers une date qu'on corrige DÉJÀ
+          * dans la carte, d'un clic (`ChampOuverture`) ; le « i » montrerait un champ « Texte » qui n'existe pas
+          * pour elle ; le « … » ouvrirait un détail d'étape qu'elle n'a pas. Trois boutons qui ne mènent nulle
+          * part se lisent comme une panne.
+          *
+          * ⚠️ QUESTION POSÉE À ARNO, PAS TRANCHÉE ICI : s'il veut la rangée sur cette carte aussi, il faudra
+          * d'abord décider ce que chaque picto y ferait. En attendant, elle garde exactement ses gestes.
+          */}
       </li>
     );
   }
@@ -989,10 +1058,63 @@ function Carre({
           </span>
         )}
 
-        {/* 🔴 LE MENU « … » : détail, montant, modifier/retirer pour une étape manuelle (Arno). */}
-        <button type="button" className="fav-menu" aria-expanded={detailOuvert}
-          aria-label={`Détail de l’étape ${c.mot}`}
-          onClick={() => onOuvrir(detailOuvert ? null : `c${e.id}`)}>…</button>
+        {/**
+          * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 7 — LES TROIS PICTOS, EN BAS, CENTRÉS ═══════
+          *
+          * ARNO : « En bas de chaque carré, une rangée de 3 pictos centrée : ① ✎ crayon = modifier les infos
+          * du carré ; ② “i” = au SURVOL, affichage INSTANTANÉ d'une bulle avec le texte saisi ; ③ “…” = le menu
+          * actuel, inchangé. Le crayon et le “…” sont DÉPLACÉS en bas (accord explicite d'Arno pour ce
+          * déplacement) : aucune de leurs actions n'est retirée ni modifiée. »
+          *
+          * 🔴 ET SUR LES BORNES AUSSI (point 8), avec leur règle intacte : le crayon y ouvre le même formulaire,
+          * où la date reste non modifiable (la route la relit et la réécrit à l'identique).
+          *
+          * ⚠️ LE « … » GARDE EXACTEMENT SON ACTION : ouvrir le détail. Seule sa PLACE change — il quittait le
+          * coin haut droit, qui empêchait de centrer le titre.
+          */}
+        <span className="fav-pictos">
+          {/**
+            * ① LE CRAYON. Il ouvre le formulaire de modification, celui-là même que « Modifier » ouvre depuis
+            * la bulle — aucune seconde porte d'édition.
+            *
+            * ⚠️ IL N'EXISTE QUE SUR UNE ÉTAPE MANUELLE, comme « Modifier » : « les étapes Monga restent non
+            * modifiables » (Arno, lot ATTENTION-ET-MODIFIER), et le dépôt refuse en SQL. Un crayon qu'on ne
+            * devrait pas voir est une invitation à découvrir un refus. Sur une carte Monga la place reste
+            * tenue, pour que les trois pictos ne dansent pas d'une carte à l'autre.
+            */}
+          {e.source === 'manuelle' && onModifier !== undefined ? (
+            <button type="button" className="fav-picto-b" disabled={occupe}
+              aria-label={`Modifier la carte ${c.mot}`} title="Modifier cette carte"
+              onClick={() => onModifier(e)}>✎</button>
+          ) : <span className="fav-picto-b fav-picto-b--vide" aria-hidden="true" />}
+
+          {/**
+            * ② LE « i ». Arno : « au SURVOL, affichage INSTANTANÉ (sans délai) d'une bulle avec le texte saisi
+            * dans le champ “Texte” de la carte ; si le texte est vide, “i” grisé et bulle “Aucun
+            * commentaire” ».
+            *
+            * 🔴 UNE BULLE À NOUS, ET NON L'ATTRIBUT `title` DU NAVIGATEUR : celui-ci attend une seconde avant
+            * de paraître, et « sans délai » est la demande. Elle est rendue hors de la piste, qui coupe ce qui
+            * dépasse — défaut mesuré au lot FRISE-HORIZONTALE (132 px de texte tronqués).
+            *
+            * ⚠️ LE SURVOL **ET** LE FOCUS : une bulle qui ne vient qu'à la souris n'existe pas au clavier ni au
+            * tactile (CLAUDE.md §15). Et le « i » grisé reste ATTEIGNABLE — il dit « aucun commentaire », ce
+            * qui est une information.
+            */}
+          <button type="button"
+            className={`fav-picto-b${(e.texte ?? '').trim() === '' ? ' fav-picto-b--muet' : ''}`}
+            aria-label={`Commentaire de la carte ${c.mot}`}
+            onMouseEnter={(ev) => onCommentaire?.(e, ev.currentTarget)}
+            onMouseLeave={() => onCommentaire?.(null, null)}
+            onFocus={(ev) => onCommentaire?.(e, ev.currentTarget)}
+            onBlur={() => onCommentaire?.(null, null)}
+            onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}>i</button>
+
+          {/* ③ LE MENU « … » : détail, montant, modifier/retirer pour une étape manuelle (Arno). Inchangé. */}
+          <button type="button" className="fav-picto-b" aria-expanded={detailOuvert}
+            aria-label={`Détail de l’étape ${c.mot}`}
+            onClick={() => onOuvrir(detailOuvert ? null : `c${e.id}`)}>…</button>
+        </span>
       </div>
 
       {/**
@@ -1791,7 +1913,10 @@ const CSS_FRISE_AVANCEMENT = `
    Ils promettaient une suite d'etapes que le dossier reel ne suit pas. Les types restent tous posables par le
    reservoir, autant de fois que necessaire : on retire une PROMESSE, pas une possibilite. */
 /* ══ LE CARRE — meme taille pour tous (Arno : environ 120 x 90 px) ══ */
-.fav-carre{position:relative;z-index:1;box-sizing:border-box;width:124px;min-height:92px;
+/* ⚠️ 112 px ET NON 92 DEPUIS LE LOT HORODATAGE-ET-PICTOS : le carre porte une RANGEE DE TROIS PICTOS en bas
+   (20 px + 2 de marge), qu'Arno a demandee. Sans ces 20 px, elle aurait mange le texte d'un titre a deux
+   lignes. Tous les carres gardent la MEME taille, ce qui est la regle depuis le lot FRISE-HORIZONTALE. */
+.fav-carre{position:relative;z-index:1;box-sizing:border-box;width:124px;min-height:112px;
   margin:0 10px;padding:6px 7px;display:flex;flex-direction:column;gap:2px;
   border-radius:10px;border:2px solid var(--color-svv-red);background:var(--color-svv-bg)}
 /* 🔴 UNE CARTE QUI EST DANS LA FRISE : contour VERT (Arno, points 2 et 5), quelle que soit son origine. */
@@ -1835,11 +1960,15 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-carre--close{border-color:var(--color-svv-green-ink);background:var(--color-svv-green-ink);
   color:var(--color-svv-bg)}
 /* ⚠️ TOUS LES TEXTES DU CARRE SUIVENT, et il faut les nommer un par un : chacun porte sa propre couleur
-   (--color-svv-ink pour le titre, --color-svv-muted pour la date et le menu, --color-svv-red pour le picto de
-   source), et un gris ou un rouge laisse sur du vert plein serait illisible. */
+   (--color-svv-ink pour le titre, --color-svv-muted pour la date et les pictos, --color-svv-red pour le picto de
+   source), et un gris ou un rouge laisse sur du vert plein serait illisible.
+   ⚠️ .fav-menu A LAISSE SA PLACE A .fav-picto-b DANS CETTE LISTE, et c'est le meme besoin : le menu
+   « … » est descendu dans la rangee de trois pictos du bas (lot FRISE-HORODATAGE-SECONDE-ET-PICTOS, point 7),
+   ou il est rejoint par le crayon et le « i ». Les trois portent --color-svv-muted ; les trois seraient donc
+   illisibles sur le vert plein si cette liste en oubliait un. */
 .fav-carre--close .fav-carre-clic,.fav-carre--close .fav-titre,.fav-carre--close .fav-date,
 .fav-carre--close .fav-montant,.fav-carre--close .fav-ref,.fav-carre--close .fav-picto,
-.fav-carre--close .fav-menu{color:var(--color-svv-bg)}
+.fav-carre--close .fav-picto-b{color:var(--color-svv-bg)}
 
 /* ⚠️ LE VERT DE « CLOTURE » DANS LA GRILLE N'EST PAS ICI : il doit passer apres .fav-carre--reserve, qui est
    ecrite plus bas (bloc « LE RESERVOIR ») et repose le rouge sur toutes ses cartes. Voir .fav-carre--reserve-close. */
@@ -1863,7 +1992,8 @@ const CSS_FRISE_AVANCEMENT = `
    pleine, currentColor vaut --color-svv-bg, donc un filet clair nettement visible sur le vert. */
 .fav-carre--debut:hover,.fav-carre--debut:focus-within{border-color:var(--color-svv-red-dark)}
 .fav-carre--close:hover,.fav-carre--close:focus-within{border-color:var(--color-svv-green)}
-.fav-carre--close .fav-menu:hover{background:var(--color-svv-green);color:var(--color-svv-bg)}
+.fav-carre--close .fav-picto-b:hover,.fav-carre--close .fav-picto-b:focus-visible{
+  background:var(--color-svv-green);color:var(--color-svv-bg)}
 
 /* ══ LE RESERVOIR — les cartes qu'on peut poser, a contour ROUGE (Arno, point 2) ══
    Elles ont la forme de celles de la frise, en plus petit : on voit ce qu'on va poser. */
@@ -1915,16 +2045,37 @@ const CSS_FRISE_AVANCEMENT = `
   font-size:.86rem;border-width:2px;border-color:var(--color-svv-red);color:var(--color-svv-red)}
 
 /* La date d'ouverture, corrigee sur place dans sa carte. */
-.fav-ouverture-edit{display:flex;flex-direction:column;gap:3px;width:100%}
-.fav-ouverture-gestes{display:flex;gap:3px}
+/* ⚠️ CENTRE LUI AUSSI (point 9) : c'est la MEME carte, juste en cours de correction. Sans cette ligne, le
+   titre et les deux boutons sauteraient a gauche des qu'on clique pour corriger la date. */
+.fav-ouverture-edit{display:flex;flex-direction:column;align-items:center;gap:3px;width:100%;text-align:center}
+.fav-ouverture-gestes{display:flex;justify-content:center;gap:3px}
 .fav-champ--mini{font-size:.72rem;min-height:28px;padding:2px 4px;width:100%;box-sizing:border-box}
 .fav-mini--neutre{border-color:var(--color-svv-line)}
 .fav-mini--neutre:hover{background:var(--color-svv-line);color:var(--color-svv-ink)}
 
 /* Le contenu du carre : nom en haut, date en dessous, picto de source. */
-.fav-carre-clic{display:flex;flex-direction:column;gap:2px;width:100%;padding:0;
-  font:inherit;text-align:left;background:none;border:0;cursor:pointer;color:var(--color-svv-ink)}
-.fav-titre{font-size:.78rem;font-weight:700;line-height:1.15;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 9 — TOUT LE TEXTE DU CARRE EST CENTRE ════════════════
+   ARNO : « Tous les textes du carre au-dessus des pictos (titre, date, montant, autres lignes) sont CENTRES,
+   ligne par ligne. Un titre long passe a la ligne et reste centre, sans etre coupe par les pictos. »
+   🔴 LE CENTRAGE EST POSE UNE FOIS, SUR LE CONTENEUR : chaque ligne en herite, et aucune ne peut etre oubliee.
+   Avant ce lot, seules les bornes centraient leur titre et leur date, par deux modificateurs a part.
+   ⚠️ LE TITRE GARDE UNE GOUTTIERE SYMETRIQUE de 18 px : la poignee ⠿ occupe le coin haut gauche, et un titre
+   centre lui passerait dessous. Symetrique, sinon le centre serait faux de 9 px.
+   ⚠️ flex-grow SUR LE CONTENEUR DE TEXTE : il pousse la rangee de pictos en BAS du carre, quel que soit le
+   nombre de lignes. Sans lui, les pictos remonteraient coller au texte sur une carte courte.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-carre-clic{display:flex;flex-direction:column;gap:2px;width:100%;padding:0;flex:1 1 auto;
+  font:inherit;text-align:center;background:none;border:0;cursor:pointer;color:var(--color-svv-ink)}
+/* ⚠️ LA GOUTTIERE VAUT 11 px, ET ELLE EST MESUREE, PAS ESTIMEE. La poignee occupe x=3 a x=19 dans le carre,
+   le texte du titre commence a x=9 : il faut donc 10 px pour la degager, et 11 pour ne pas la frôler. Elle
+   etait a 18 px au premier jet, et le titre « Intervention » se coupait en « Interventio / n » faute de
+   place (mesure a l'ecran : 70 px de texte disponibles pour 75 px de mot). A 11 px, il en reste 84.
+   ⚠️ break-word ET NON anywhere : avec anywhere, un mot se coupe des qu'il ne tient pas sur la ligne EN
+   COURS ; avec break-word, il descend d'abord a la ligne suivante et ne se coupe que s'il n'y tient pas
+   davantage. Arno demande « un titre long passe a la ligne » — passer a la ligne, pas se couper en deux.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-titre{font-size:.78rem;font-weight:700;line-height:1.15;color:var(--color-svv-ink);
+  overflow-wrap:break-word;padding:0 11px}
 .fav-picto{color:var(--color-svv-red)}
 .fav-date{font-size:.7rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 /* ══ 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 3.a — LA DATE DES TROIS CARTES DE BORNE ═════════════════════════════
@@ -1938,10 +2089,15 @@ const CSS_FRISE_AVANCEMENT = `
 /* ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 6 — LE TITRE D'UNE BORNE EST CENTRE, COMME SA DATE ═══════════
    ARNO : « Le TITRE et la DATE de ces cartes sont tous deux CENTRES dans le carre (aujourd'hui sur la Cloture,
    le titre “Cloture ✎” est cale a gauche alors que la date est centree). »
-   ⚠️ UNE MARGE A DROITE, ET ELLE EST NECESSAIRE : le menu « … » est pose en absolu dans le coin haut droit
-   (20 px de large, 4 px du bord). Sans elle, un titre centre passe DESSOUS et les deux se superposent — mesure
-   faite a l'ecran. La marge decale le centre de 12 px ; sur un carre de 124 px, cela reste lu comme centre. */
-.fav-titre--centree{text-align:center;padding-right:24px}
+   🔴 CE MODIFICATEUR NE GARDE PLUS QUE LE GRAS. Il portait aussi, jusqu'au lot FRISE-HORODATAGE-SECONDE-ET-
+   PICTOS, text-align:center et une marge a droite de 24 px — et ce commentaire disait de la marge qu'elle etait
+   NECESSAIRE, parce que le menu « … » etait pose en absolu dans le coin haut droit (20 px de large, 4 px du
+   bord) et qu'un titre centre lui passait dessous, mesure faite a l'ecran. LE VERDICT A CHANGE PARCE QUE LE
+   DECOR A CHANGE, pas parce que la mesure etait fausse : au point 7, Arno a fait DESCENDRE ce menu dans une
+   rangee de pictos en bas du carre, et le coin haut droit est libre. Le centrage, lui, est devenu le cas
+   GENERAL (point 9) et vit sur le conteneur de texte.
+   ⚠️ NE PAS Y REMETTRE DE CENTRAGE : il y serait a deux endroits, et l'un des deux finirait par mentir. */
+.fav-titre--centree{font-weight:700}
 .fav-montant{font-size:.72rem;font-weight:700;color:var(--color-svv-ink)}
 .fav-ref{font-size:.68rem;font-weight:700;color:var(--color-svv-muted)}
 /* ══ 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 3.b — « CREEE LE 08/10/2026 », SOUS LA CARTE ════════════════════════
@@ -2001,7 +2157,8 @@ const CSS_FRISE_AVANCEMENT = `
   color:var(--color-svv-muted);cursor:grab;touch-action:none}
 .fav-poignee:hover,.fav-poignee:focus-visible{color:var(--color-svv-ink);background:var(--color-svv-line)}
 .fav-el--saisie .fav-poignee{cursor:grabbing;color:var(--color-svv-ink)}
-.fav-titre--poignee{padding-left:18px}
+/* ⚠️ LA GOUTTIERE EST MAINTENANT SYMETRIQUE ET POSEE SUR .fav-titre : ce modificateur n'a plus d'objet, mais
+   la classe reste posee par l'ecran — on la laisse sans regle plutot que de retirer un attribut du balisage. */
 /* ══ 🔴🔴 LE REPERE DE DEPOT — « un repere vertical montre ou il va tomber entre deux carres » (Arno) ═════════
    ⚠️ IL VIT DANS LA PISTE, donc dans le repere du CONTENU : pose dans le cadre, il se serait decale de tout le
    defilement des qu'on approche d'un bord, c'est-a-dire exactement quand on en a besoin.
@@ -2010,15 +2167,50 @@ const CSS_FRISE_AVANCEMENT = `
   background:var(--color-svv-red);pointer-events:none;z-index:5}
 
 /* Les deux petits boutons d'une etape « a confirmer », et le menu « … ». */
-.fav-doute{position:absolute;right:4px;bottom:4px;display:flex;gap:3px}
+/* ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 7 — LA RANGEE DE TROIS PICTOS, EN BAS, CENTREE ═══════
+   ARNO : « En bas de chaque carre, une rangee de 3 pictos centree : ✎ crayon, “i”, “…” ».
+   🔴 DANS LE FLUX, ET NON EN ABSOLU : c'est ce qui garantit qu'elle ne recouvre jamais le texte, quel que soit
+   le nombre de lignes du titre. Le conteneur de texte pousse (flex-grow), la rangee reste en bas.
+   ⚠️ UNE PLACE TENUE MEME QUAND LE CRAYON N'EXISTE PAS (carte Monga, non modifiable) : sans elle, les deux
+   pictos restants se recentreraient et les carres n'auraient plus la meme rangee d'un bout a l'autre.
+   ⚠️ CIBLE TACTILE DE 22 px : une commande qu'on ne peut atteindre qu'a la souris precise n'existe pas sur un
+   telephone (CLAUDE.md §15). */
+.fav-pictos{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:2px;flex:0 0 auto}
+.fav-picto-b{width:22px;height:20px;min-width:22px;padding:0;display:inline-flex;align-items:center;
+  justify-content:center;font:inherit;font-size:.82rem;line-height:1;cursor:pointer;
+  border:0;border-radius:4px;background:none;color:var(--color-svv-muted)}
+.fav-picto-b:hover,.fav-picto-b:focus-visible{background:var(--color-svv-line);color:var(--color-svv-ink)}
+.fav-picto-b:disabled{opacity:.45;cursor:default}
+/* ⚠️ LE « i » GRISE QUAND LA CARTE N'A PAS DE TEXTE (Arno), mais il reste ATTEIGNABLE : sa bulle dit « Aucun
+   commentaire », et c'est une information. Un bouton desactive ne se survole pas au clavier. */
+.fav-picto-b--muet{opacity:.45}
+.fav-picto-b--vide{cursor:default}
+.fav-picto-b--vide:hover{background:none}
+/* ⚠️ LA COULEUR DE CES PICTOS SUR LA CARTE VERTE PLEINE EST POSEE PLUS HAUT, dans la liste groupee de
+   .fav-carre--close : une seule verite par propriete, et c'est la liste qu'un test tient a jour. */
+/* ══ 🔴🔴 LA BULLE DU « i » — INSTANTANEE, ET HORS DE LA PISTE QUI COUPE ══════════════════════════════════════
+   ⚠️ L'ATTRIBUT title AURAIT ATTENDU UNE SECONDE : Arno demande « sans delai ». C'est donc un element a nous.
+   ⚠️ CENTREE SOUS LE PICTO SURVOLE (translateX) : son abscisse est lue au survol, dans le repere du cadre.
+   ⚠️ pointer-events:none — une bulle sous la souris masquerait le picto suivant et empecherait de le survoler. */
+.fav-commentaire{position:absolute;top:100%;z-index:8;transform:translateX(-50%);
+  max-width:22rem;padding:6px 9px;font-size:.76rem;line-height:1.3;white-space:pre-wrap;overflow-wrap:anywhere;
+  color:var(--color-svv-ink);background:var(--color-svv-bg);border:1px solid var(--color-svv-line);
+  border-left:3px solid var(--color-svv-red);border-radius:8px;pointer-events:none;
+  box-shadow:0 0 0 3px var(--color-svv-bg),0 0 0 4px var(--color-svv-line-strong)}
+.fav-commentaire-vide{font-style:italic;color:var(--color-svv-muted)}
+/* ⚠️ LES DEUX BOUTONS « A CONFIRMER » REMONTENT D'UNE RANGEE : la rangee de pictos occupe desormais le bas du
+   carre. Ils ne sont ni retires ni masques — ils se posent juste au-dessus, et gardent leurs deux gestes. */
+.fav-doute{position:absolute;right:4px;bottom:24px;display:flex;gap:3px}
 .fav-mini{width:22px;height:22px;min-width:22px;padding:0;font:inherit;font-size:.72rem;cursor:pointer;
   border-radius:5px;border:1px solid var(--color-svv-amber);background:var(--color-svv-bg);
   color:var(--color-svv-ink);line-height:1}
 .fav-mini:hover{background:var(--color-svv-amber);color:var(--color-svv-bg)}
 .fav-mini:disabled{opacity:.5;cursor:default}
-.fav-menu{position:absolute;right:4px;top:3px;width:20px;height:20px;padding:0;font:inherit;
-  line-height:1;cursor:pointer;border:0;border-radius:4px;background:none;color:var(--color-svv-muted)}
-.fav-menu:hover{background:var(--color-svv-line);color:var(--color-svv-ink)}
+/* ⚠️ LA REGLE .fav-menu ETAIT ICI, ET ELLE EST PARTIE AVEC LE BOUTON : « … » n'est plus pose en absolu dans
+   le coin haut droit, il est le troisieme picto de la rangee du bas (lot FRISE-HORODATAGE-SECONDE-ET-PICTOS,
+   point 7, accord explicite d'Arno pour ce deplacement). SON ACTION EST INTACTE : ouvrir le detail de l'etape.
+   🔴 C'EST LA CLASSE QUI DISPARAIT, PAS LE BOUTON. Une regle de feuille sans balisage qui la porte est du
+   code mort, et du code mort finit par etre lu comme une regle en vigueur. */
 
 /* ══ LES POINTS — sur le trait, entre les carres ══ */
 .fav-el--points{align-self:flex-start;padding-top:38px}

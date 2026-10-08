@@ -292,18 +292,38 @@ export interface MentionCreation {
  * `Date` rendrait déjà le lendemain.
  *
  * ⚠️ L'ANNÉE EN ENTIER, ET NON « le 08/10 » comme `motAjout` : cette mention-ci se lit sur la frise, à côté de
- * cartes qui peuvent avoir deux ans d'écart. `motAjout`, elle, s'affiche dans une bulle qui dit déjà la date de
- * l'étape — et elle garde l'heure, que celle-ci n'a pas : on veut savoir QUEL JOUR la carte a été saisie, pas à
- * quelle minute.
+ * cartes qui peuvent avoir deux ans d'écart.
+ *
+ * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS (08/10/2026) — ET L'HEURE, À LA SECONDE ════════════════════════
+ *
+ * ARNO : « La ligne verte/orange sous chaque carte affiche désormais : “créée le JJ/MM/AAAA · HH:MM:SS”. »
+ *
+ * 🔴 CE N'EST PAS UN ORNEMENT : depuis ce lot, l'horodatage de création À LA SECONDE est la RÉFÉRENCE
+ * chronologique de la frise (`cartesHorsChronologie`). Ce que la ligne montre est donc exactement ce qui décide
+ * de sa couleur — et quand deux cartes sont posées dans la même minute, seule la seconde les départage. Une
+ * mention au jour près aurait laissé l'orange inexplicable.
+ *
+ * ⚠️ L'HEURE EST CELLE DE LA CHAÎNE, SANS AUCUNE CONVERSION ICI. Le fuseau qu'Arno nomme (Europe/Paris) est
+ * appliqué EN SQL, là où la donnée est lue : `to_char(e.cree_le AT TIME ZONE 'Europe/Paris', …)` dans
+ * `mongaEtapeRepo.friseDeLEvenement`. Construire une date ici la relirait dans le fuseau du LECTEUR — deux
+ * heures d'écart en été pour qui n'est pas à Paris. Même règle que `motDateEtape` et `motAjout`.
+ *
+ * ⚠️ LES FRACTIONS DE SECONDE SONT COUPÉES, PAS ARRONDIES : `cree_le` est un `timestamptz(6)`, et un `::text`
+ * rendrait « 22:31:04.136634+02 ». On garde les huit premiers caractères de l'heure, et rien de plus.
+ *
+ * ⚠️ SANS HEURE DANS LA CHAÎNE, ON N'EN INVENTE PAS : la mention s'arrête au jour. Le cas n'existe pas en base
+ * (`cree_le` est `timestamptz NOT NULL`), mais une donnée importée pourrait n'avoir qu'un jour.
  */
 export function mentionCreation(creeLe: string | null): MentionCreation {
   const inconnue: MentionCreation = { mot: 'date de création inconnue', connue: false };
   if (creeLe === null || creeLe === '') return inconnue;
-  const [jour] = creeLe.split(/[T ]/);
+  const [jour, reste] = creeLe.split(/[T ]/);
   const [a, m, j] = jour.split('-');
   if (a === undefined || m === undefined || j === undefined) return inconnue;
   if (a.length !== 4 || m.length !== 2 || j.length !== 2) return inconnue;
-  return { mot: `créée le ${j}/${m}/${a}`, connue: true };
+  const heure = (reste ?? '').slice(0, 8);
+  const quand = /^\d{2}:\d{2}:\d{2}$/.test(heure) ? ` · ${heure}` : '';
+  return { mot: `créée le ${j}/${m}/${a}${quand}`, connue: true };
 }
 
 /**
@@ -393,8 +413,21 @@ export function carteDeplacable(c: CaseFrise): boolean {
  * ⚠️ UNE CARTE SANS DATE DE CRÉATION NE S'ALLUME JAMAIS. On ne sait pas où est sa place : la peindre en orange
  * serait affirmer qu'elle n'y est pas. Elle est simplement ignorée du calcul — ni gardée, ni marquée.
  *
- * ⚠️ `à égalité de date, on ne marque rien` : deux cartes créées le même jour sont dans l'ordre, quel que soit
- * leur sens. La comparaison est donc « strictement antérieure », jamais « différente ».
+ * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS — LA RÉFÉRENCE EST L'HORODATAGE À LA SECONDE ════════════════
+ *
+ * ARNO : « L'ordre chronologique de référence = cet horodatage de création (à la seconde), CARRÉS ET POINTS
+ * MÊLÉS. […] Quand plusieurs cartes existantes ont le même horodatage (ex. import du 06/10/2026), l'ordre
+ * ACTUELLEMENT AFFICHÉ sert de départage. »
+ *
+ * 🔴 LES POINTS ENTRENT DANS LE CALCUL, et c'est un changement : ils en étaient exclus. Ils ne portent pas la
+ * mention — ce sont des points de 11 px — mais ils occupent une place dans la suite, et les ignorer faisait
+ * mentir le calcul des carrés qui les entourent : un carré glissé par-dessus un point paraissait à sa place.
+ *
+ * 🔴 L'ÉGALITÉ NE MARQUE JAMAIS RIEN, et c'est exactement le départage qu'Arno demande. Deux cartes nées dans
+ * la MÊME SECONDE sont « en ordre » quel que soit leur sens : la comparaison est « strictement antérieure »
+ * (`<=` dans la recherche de la suite), jamais « différente ». L'ordre affiché fait donc foi entre elles, sans
+ * qu'aucune ne s'allume. Mesuré le 08/10/2026 : **2 cartes affichées** sont dans ce cas (GES-2026-900001), et
+ * 133 cartes Monga orphelines qu'aucune frise ne montre.
  */
 export function cartesHorsChronologie(cartes: readonly { cle: string; creeLe: string | null }[]): Set<string> {
   /* Les cartes dont on connaît la date de création, dans l'ordre de la frise. Les autres sont hors du calcul. */

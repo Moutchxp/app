@@ -225,12 +225,31 @@ describe('🔴🔴 ③ Ouverture, Clôture, Réouverture : date du jour, centré
     expect(FRISE).toContain('La date de cette carte n’est pas modifiable');
   });
 
-  /** 🔴 B6 — titre ET date centrés. Le titre d'une Clôture était calé à gauche sous une date centrée. */
+  /**
+   * 🔴 B6 — titre ET date centrés. Le titre d'une Clôture était calé à gauche sous une date centrée.
+   *
+   * ══ 🔴🔴 CE QUE CE CAS EXIGEAIT, ET POURQUOI LE VERDICT A CHANGÉ (lot FRISE-HORODATAGE-SECONDE-ET-PICTOS) ══
+   *
+   * IL EXIGEAIT `.fav-titre--centree{text-align:center;padding-right:24px}` et, juste après, la PRÉSENCE de
+   * `.fav-menu{position:absolute;right:4px` — avec ce commentaire : « LA MARGE À DROITE EST NÉCESSAIRE : le
+   * menu “…” est posé en absolu dans ce coin. » C'était exact : sans la marge, un titre centré passait sous le
+   * menu, et les deux se superposaient.
+   *
+   * 🔴 LE DÉCOR A CHANGÉ, PAS LA RÈGLE. Au point 7, Arno a fait DESCENDRE le menu « … » dans une rangée de
+   * pictos en bas du carré (son accord porte nommément sur ce déplacement). Le coin haut droit est donc libre,
+   * la marge n'a plus d'objet, et `.fav-menu` n'est plus posée par le balisage — exiger sa règle de feuille
+   * reviendrait à exiger du code mort. CE QU'ARNO DEMANDAIT RESTE VÉRIFIÉ, et plus largement qu'avant : le
+   * centrage est devenu le cas GÉNÉRAL (point 9) et vit sur le conteneur de texte, d'où chaque ligne l'hérite.
+   */
   it('🔴🔴 le titre d’une borne est centré comme sa date', () => {
     expect(FRISE).toContain("`fav-titre${dateAuCentre(e.type) ? ' fav-titre--centree' : ''}`");
-    expect(FRISE).toContain('.fav-titre--centree{text-align:center;padding-right:24px}');
-    /* ⚠️ LA MARGE À DROITE EST NÉCESSAIRE : le menu « … » est posé en absolu dans ce coin. */
-    expect(FRISE).toContain('.fav-menu{position:absolute;right:4px');
+    /* 🔴 LE CENTRAGE VIENT DU CONTENEUR, UNE FOIS POUR TOUTES LES LIGNES (point 9). */
+    expect(FRISE).toContain('text-align:center;background:none;border:0;cursor:pointer');
+    /* ⚠️ ET LE MODIFICATEUR DE BORNE GARDE CE QUI LUI EST PROPRE : le gras. */
+    expect(FRISE).toContain('.fav-titre--centree{font-weight:700}');
+    /* ⚠️ LE MENU « … » N'EST PLUS DANS LE COIN : il est dans la rangée du bas, et son action est intacte. */
+    expect(FRISE).not.toContain('className="fav-menu"');
+    expect(FRISE).toContain('aria-label={`Détail de l’étape ${c.mot}`}');
   });
 });
 
@@ -515,10 +534,17 @@ describe('🔴🔴 ⑥ le câblage : un rang à la pose, un ordre complet au dé
   it('🔴🔴 la poignée annonce qu’elle se prend, et qu’on la tient', () => {
     expect(FRISE).toContain('cursor:grab;touch-action:none}');
     expect(FRISE).toContain('.fav-el--saisie .fav-poignee{cursor:grabbing');
-    /* ⚠️ ET ELLE NE CHEVAUCHE NI LE TITRE NI LE MENU : le titre recule, le menu tient l'autre coin. */
-    expect(FRISE).toContain('.fav-titre--poignee{padding-left:18px}');
+    /**
+     * ⚠️ ET ELLE NE CHEVAUCHE PAS LE TITRE. CE CAS EXIGEAIT `.fav-titre--poignee{padding-left:18px}` (le titre
+     * reculait d'un côté) et la présence de `.fav-menu{position:absolute;right:4px` (le menu tenait l'autre
+     * coin). Depuis le lot FRISE-HORODATAGE-SECONDE-ET-PICTOS, le titre est CENTRÉ (point 9) : il lui faut donc
+     * une gouttière SYMÉTRIQUE de 11 px — la largeur mesurée de la poignée, 16 px posés à 3 px du bord, moins
+     * les 8 px de retrait du contenu — et le menu, lui, est descendu en bas.
+     * La propriété vérifiée change d'endroit ; ce qu'elle garantit est le même, et plus fort : la poignée a sa
+     * place des DEUX côtés.
+     */
+    expect(FRISE).toContain('padding:0 11px}');
     expect(FRISE).toContain('.fav-poignee{position:absolute;left:3px;top:2px');
-    expect(FRISE).toContain('.fav-menu{position:absolute;right:4px');
   });
 
   /** 🔴🔴 ET ELLE DÉMARRE SANS AUCUN SEUIL — c'est tout l'intérêt d'une poignée. */

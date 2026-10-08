@@ -106,10 +106,21 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
   /**
    * 🔴🔴 LA TAILLE DES CARRÉS EST LA MÊME POUR TOUS (Arno : « même taille pour tous, environ 120 × 90 px »).
    * Un carré qui grandit avec son texte ferait onduler la ligne et casserait l'alignement du trait.
+   *
+   * ══ 🔴🔴 LA HAUTEUR PASSE DE 92 À 112 px, ET C'EST CE QUE CE CAS EXIGEAIT ═══════════════════════
+   *
+   * IL EXIGEAIT `min-height:92px`. CE QU'IL DÉFEND N'A PAS CHANGÉ D'UN POUCE — une seule hauteur pour tous les
+   * carrés — mais le carré porte depuis le lot FRISE-HORODATAGE-SECONDE-ET-PICTOS une RANGÉE DE TROIS PICTOS
+   * en bas (20 px de bouton + 2 de marge), qu'Arno a demandée au point 7. Sans ces vingt pixels, la rangée
+   * aurait mangé la deuxième ligne d'un titre long, c'est-à-dire exactement ce que son point 9 interdit
+   * (« un titre long passe à la ligne et reste centré, sans être coupé par les pictos »).
+   *
+   * ⚠️ ET LA LARGEUR NE BOUGE PAS : la rangée tient dans 124 px (3 × 22 + 2 × 6 d'écart = 78), donc rien ne
+   * pousse la frise en largeur — ce qui aurait décalé tous les connecteurs « + ».
    */
   it('🔴🔴 tous les carrés font la même taille', () => {
     expect(FRISE).toMatch(/\.fav-carre\{[^}]*width:124px/);
-    expect(FRISE).toMatch(/\.fav-carre\{[^}]*min-height:92px/);
+    expect(FRISE).toMatch(/\.fav-carre\{[^}]*min-height:112px/);
   });
 
   /** 🔴 LE TRAIT FIN QUI RELIE LES CARRÉS, et il est décoratif : posé en CSS, jamais dans le balisage. */

@@ -739,12 +739,36 @@ describe('⑭ la couleur d’une carte posée sur la frise', () => {
 });
 
 describe('⑮ « créée le … », et l’aveu quand on ne sait pas', () => {
-  /** 🔴 L'EXEMPLE D'ARNO, MOT POUR MOT — avec l'année en entier, parce que la frise mêle plusieurs années. */
-  it('🔴🔴 « créée le 08/10/2026 », exactement', () => {
-    expect(mentionCreation('2026-10-08T22:31:04')).toEqual({ mot: 'créée le 08/10/2026', connue: true });
-    /* ⚠️ L'ESPACE DE POSTGRES COMME LE « T » DE L'ISO : le dépôt rend `cree_le::text`, qui emploie l'espace. */
-    expect(mentionCreation('2026-10-08 22:31:04+02')).toEqual({ mot: 'créée le 08/10/2026', connue: true });
-    /* ⚠️ UN JOUR SEUL SUFFIT : on ne veut que le jour, jamais l'heure. */
+  /**
+   * 🔴 L'EXEMPLE D'ARNO, MOT POUR MOT — avec l'année en entier, parce que la frise mêle plusieurs années.
+   *
+   * ══ 🔴🔴 CE CAS EXIGEAIT « créée le 08/10/2026 » TOUT COURT, ET LE VERDICT A CHANGÉ ═════════════════
+   *
+   * IL EXIGEAIT L'ABSENCE DE L'HEURE, et son commentaire disait « UN JOUR SEUL SUFFIT : on ne veut que le jour,
+   * jamais l'heure. » C'était la demande du lot FRISE-COULEURS-DATES, mot pour mot : « par exemple “créée le
+   * 08/10/2026” ».
+   *
+   * 🔴 ARNO REVIENT DESSUS AU LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, point 4 : « La ligne verte/orange sous
+   * chaque carte affiche désormais : “créée le JJ/MM/AAAA · HH:MM:SS”. » CE QUI LE MOTIVE EST AU POINT 2 : la
+   * référence chronologique de la frise est désormais cet horodatage À LA SECONDE. Une ligne qui n'affichait
+   * que le jour ne permettait pas de vérifier le vert et l'orange : les trois cartes posées le même jour y
+   * portaient la même mention, et l'ordre qu'elle est censée justifier restait invisible.
+   *
+   * ⚠️ LE SÉPARATEUR EST LE POINT MÉDIAN « · », celui qu'Arno écrit, et non une virgule ni un « à ».
+   */
+  it('🔴🔴 « créée le 08/10/2026 · 22:31:04 », exactement', () => {
+    expect(mentionCreation('2026-10-08T22:31:04')).toEqual({ mot: 'créée le 08/10/2026 · 22:31:04', connue: true });
+    /* ⚠️ L'ESPACE DE POSTGRES COMME LE « T » DE L'ISO : le dépôt rend l'horodatage avec l'espace. */
+    expect(mentionCreation('2026-10-08 22:31:04+02')).toEqual({ mot: 'créée le 08/10/2026 · 22:31:04', connue: true });
+    /* ⚠️ LES FRACTIONS DE SECONDE SONT COUPÉES, PAS ARRONDIES : `cree_le` est un timestamptz(6), et un
+       `::text` rendrait « 22:31:04.136634+02 ». Arno demande LA SECONDE ; les microsecondes ne se lisent pas. */
+    expect(mentionCreation('2026-10-08 22:31:04.136634+02').mot).toBe('créée le 08/10/2026 · 22:31:04');
+    /**
+     * 🔴 ET UN JOUR SEUL RESTE ACCEPTÉ, SANS HEURE INVENTÉE. Aucune carte de la base n'est dans ce cas
+     * (`cree_le` est NOT NULL DEFAULT now(), vérifié le 08/10/2026 sur les 162 lignes), mais le type du dépôt
+     * l'autorise — et « 00:00:00 » affiché pour une heure inconnue serait une heure FAUSSE, précisément ce
+     * qu'Arno interdit depuis le lot FRISE-DATE-CREATION-TOUTES-CARTES (« n'invente rien »).
+     */
     expect(mentionCreation('2026-01-03')).toEqual({ mot: 'créée le 03/01/2026', connue: true });
   });
 
@@ -770,7 +794,14 @@ describe('⑮ « créée le … », et l’aveu quand on ne sait pas', () => {
    * que `motAjout` et `motDateEtape`, et l'épreuve de pureté du module (⑪) le tient pour tout le fichier.
    */
   it('⚠️ elle ne décale rien, quelle que soit l’heure', () => {
-    expect(mentionCreation('2026-10-08T23:59:59').mot).toBe('créée le 08/10/2026');
-    expect(mentionCreation('2026-10-08T00:00:00').mot).toBe('créée le 08/10/2026');
+    expect(mentionCreation('2026-10-08T23:59:59').mot).toBe('créée le 08/10/2026 · 23:59:59');
+    expect(mentionCreation('2026-10-08T00:00:00').mot).toBe('créée le 08/10/2026 · 00:00:00');
+    /**
+     * 🔴🔴 ET L'HEURE AFFICHÉE EST CELLE QUE LE DÉPÔT A ÉCRITE, SANS AUCUN RECALCUL ICI. Le fuseau
+     * demandé par Arno (Europe/Paris) est obtenu EN SQL — `to_char(e.cree_le AT TIME ZONE 'Europe/Paris', …)`,
+     * `mongaEtapeRepo.friseDeLEvenement` —, c'est-à-dire là où la donnée est lue. Construire un `Date` pour
+     * « convertir » rendrait l'heure du NAVIGATEUR : juste à Paris, fausse ailleurs.
+     */
+    expect(mentionCreation('2026-10-08 02:00:00').mot).toBe('créée le 08/10/2026 · 02:00:00');
   });
 });
