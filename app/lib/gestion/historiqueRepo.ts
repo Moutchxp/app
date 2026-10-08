@@ -1079,6 +1079,48 @@ async function evenementsDesFils(filIds: readonly number[]): Promise<Map<number,
 }
 
 /**
+ * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — « CE MAIL PORTE-T-IL UN ÉVÉNEMENT EN COURS ? », POUR TOUS LES ÉCRANS ═══
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (08/10/2026) : « une capsule orange “Événement en cours” sur la PREMIÈRE LIGNE de chaque mail de
+ * l'événement, juste après la capsule verte “Auto” / “Classé”, PARTOUT où ces lignes apparaissent : historique du
+ * bien, boîte de réception et plein écran, recherche, conversation. »
+ *
+ * ═══ 🔴 POURQUOI CETTE FONCTION EXISTE, ET POURQUOI ELLE EST ICI ════════════════════════════════════════════════
+ *
+ * « Partout » met trois dépôts dans le coup : l'historique du bien (ce module), la liste de mails de la boîte
+ * (`boiteRepo`, qui sert AUSSI le plein écran et la recherche — un seul composant de ligne pour toutes les
+ * listes) et la conversation (`carteRepo`). Trois dépôts, et UNE SEULE question à poser.
+ *
+ * 🔴 ELLE NE DÉCIDE RIEN ELLE-MÊME. Elle appelle les DEUX voies déjà écrites — `sqlEvenementsDesFils` (le fil
+ * porte une affectation active) et `sqlEvenementsDesMessages` (le mail tombe dans la fenêtre de l'événement, sur
+ * le même bien) — puis `unirEvenements` et `estEvenementOuvert`. C'est la règle d'Arno du 07/10, au caractère
+ * près, et c'est pour cela que la capsule de la boîte dira EXACTEMENT ce que dit déjà celle de l'historique. La
+ * réécrire côté boîte, c'eût été se donner deux vérités à tenir d'accord — le défaut que ce dépôt a déjà payé.
+ *
+ * ⚠️ DEUX REQUÊTES POUR LA PAGE ENTIÈRE, JAMAIS UNE PAR LIGNE. Même borne que l'historique : les identifiants de
+ * la page, et rien de plus. Elle rend une map VIDE sur une liste vide, sans toucher la base.
+ *
+ * ⚠️ SEULS LES ÉVÉNEMENTS OUVERTS SORTENT, parce que c'est tout ce que la capsule affiche. Les écrans n'ont donc
+ * aucun filtre à refaire — et aucun moyen d'en oublier un.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function evenementsOuvertsDesMails(
+  mails: readonly { messageId: number; filId: number }[],
+): Promise<Map<number, EvenementDeLigne[]>> {
+  const out = new Map<number, EvenementDeLigne[]>();
+  if (mails.length === 0) return out;
+  const parFil = await evenementsDesFils(mails.map((m) => m.filId));
+  const parBien = await evenementsDesMessages(mails.map((m) => m.messageId));
+  for (const m of mails) {
+    const ouverts = unirEvenements(parFil.get(m.filId) ?? [], parBien.get(m.messageId) ?? [])
+      .filter((e) => e.ouvert);
+    if (ouverts.length > 0) out.set(m.messageId, ouverts);
+  }
+  return out;
+}
+
+/**
  * LES DESTINATAIRES d'un mail, lisibles et bornés.
  *
  * 🔴 PAR `adressesDuChamp`, ET PAR RIEN D'AUTRE. Ces colonnes `jsonb` contiennent des OBJETS `{nom, adresse}` : un

@@ -17,6 +17,8 @@ const msg = (o: Partial<MessageDeFil> = {}): MessageDeFil => ({
   recuLe: '2026-09-20T08:00:00Z', objet: 'Chauffage', corps: null, extrait: null,
   automatique: false, pieces: [],
   horsFile: false, motifHorsFile: null,
+  // 🔴 LOT MARQUES-EVENEMENT-EN-COURS — aucun événement en cours par défaut : ces épreuves parlent d'autre chose.
+  evenementsEnCours: 0,
   // 🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU — un mail vivant par defaut : c'est le cas que ces epreuves examinent.
   aLaCorbeille: false,
   // LOT ENVOI-DIAG — vide par défaut : un message dont personne ne s'est plaint est arrivé.

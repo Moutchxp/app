@@ -67,12 +67,22 @@ interface EvenementDuBien {
 }
 
 export function EvenementsDuBien({
-  lotCle, onGeste, onOuvrirFil, evenementVise = null,
+  lotCle, onGeste, onOuvrirFil, onEtatEvenement, evenementVise = null,
 }: {
   /** La clé WIPPIMMO du lot — la même identité que l'historique juste en dessous. */
   lotCle: string;
   onGeste?: (message: string) => void;
   onOuvrirFil?: (filId: number) => void;
+  /**
+   * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — « L'ÉTAT D'UN ÉVÉNEMENT DE CE BIEN VIENT DE CHANGER ».
+   *
+   * Ce bloc relit DÉJÀ sa propre liste ; ce signal sert à ce qu'il ne connaît pas : la bande orange de
+   * l'en-tête de la fiche, et les lignes de mail qui portent la capsule « Événement ouvert ». Arno demande que
+   * la bande « revienne après une réouverture, sans rechargement manuel ».
+   *
+   * ⚠️ ABSENT ⇒ CE BLOC EST CELUI D'AVANT, et il relit quand même sa propre liste.
+   */
+  onEtatEvenement?: () => void;
   /**
    * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — L'ÉVÉNEMENT SUR LEQUEL ON ARRIVE ═════════════════════════════════
    *
@@ -354,6 +364,10 @@ export function EvenementsDuBien({
                   <FriseAvancement
                     evenementId={e.id} compact
                     onGeste={onGeste} onOuvrirFil={onOuvrirFil}
+                    /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — clore ou rouvrir depuis la frise relit CE bloc (son
+                       en-tête dit « en cours » ou « clos ») ET prévient la fiche, qui porte la bande orange et
+                       les lignes de mail. Sans les deux, la moitié de l'écran mentirait jusqu'au rechargement. */
+                    onEtatEvenement={() => { void charger(); onEtatEvenement?.(); }}
                   />
                   {/**
                     * 🔴 « MODIFIER » LES INFORMATIONS DE L'ÉVÉNEMENT (quoi / qui demande / adresse), rapatrié

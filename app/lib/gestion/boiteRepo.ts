@@ -73,6 +73,9 @@ import { interneDuMail } from './interneDuMail';
  * `sqlSortesBien` (statutClassement.ts) pour la mesure.
  */
 import { sqlSortesBien } from './statutClassement';
+/* 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — « ce mail porte-t-il un événement en cours ? », posée à la fonction qui
+   porte la règle d'Arno du 07/10 (les deux voies unies), et non réécrite ici. Voir son encadré. */
+import { evenementsOuvertsDesMails } from './historiqueRepo';
 // LOT LECTURE-HTML-FIL-TROMBONE — la MÊME règle que la conversation pour distinguer une pièce d'un logo de signature.
 import { sqlEstVraiePiece, trierPieces, type PieceATrier } from './lisibilite';
 // 🔴 LOT FENETRES-INDEPENDANTES — la clé d'identité d'une pièce, la MÊME qu'au récapitulatif. Module PUR.
@@ -213,6 +216,16 @@ export interface LigneBoite {
   brouillonEnAttente: boolean;
   /** Référence `GES-…` de la carte si l'échange y est affecté, sinon `null`. */
   reference: string | null;
+  /**
+   * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — COMBIEN D'ÉVÉNEMENTS EN COURS CE MAIL PORTE-T-IL ?
+   *
+   * `0` = aucun, donc aucune capsule. Le NOMBRE et non un booléen, parce que la capsule l'écrit au-delà de un —
+   * exactement comme celle de l'historique du bien, dont elle est la jumelle.
+   *
+   * ⚠️ CE N'EST PAS `reference` : celle-ci nomme la carte du fil, ouverte ou close, et ignore les mails rattachés
+   * au bien dans la fenêtre de l'événement. Voir l'encadré de `evenementsOuvertsDesMails`.
+   */
+  evenementsEnCours: number;
   /** L'échange a-t-il été classé sans suite ? L'écran le DIT : la boîte montre tout, elle n'efface rien. */
   sansSuite: boolean;
   /**
@@ -1397,6 +1410,27 @@ export async function lireBoiteMail(
     ? etoileDeLaLigne(mailsEtoiles.get(filId) ?? [], messageAffiche)
     : (filsEtoilesAnciens.has(filId) ? { duMessage: true, ailleurs: null } : ETOILE_LIGNE_VIDE));
 
+  /**
+   * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LES ÉVÉNEMENTS EN COURS DES MAILS DE LA PAGE ═══════════════════════
+   *
+   * DEMANDE D'ARNO : la capsule orange « Événement en cours » sur la première ligne de chaque mail de
+   * l'événement, « PARTOUT où ces lignes apparaissent » — donc ici aussi, la boîte servant la réception, le
+   * plein écran ET la recherche (un seul composant de ligne pour toutes les listes).
+   *
+   * 🔴 LA QUESTION EST POSÉE À `evenementsOuvertsDesMails` (`historiqueRepo`), ET NON RÉÉCRITE ICI. C'est la
+   * fonction qui porte la règle d'Arno du 07/10 — les deux voies (affectation du fil, fenêtre de l'événement sur
+   * le bien du mail) unies et dédoublonnées. La boîte dit donc EXACTEMENT ce que dit l'historique du bien, par
+   * construction et non par surveillance.
+   *
+   * ⚠️ `reference` NE RÉPONDAIT PAS À LA QUESTION, et c'est pour cela qu'on ne s'en est pas servi : elle nomme la
+   * carte affectée au fil, ouverte ou CLOSE, et elle ignore la seconde voie. Un fil affecté à un événement clos
+   * aurait porté la capsule.
+   *
+   * ⚠️ DEUX REQUÊTES POUR LA PAGE, bornées à ses identifiants — comme le trombone et les étoiles juste au-dessus.
+   */
+  const evtsOuverts = await evenementsOuvertsDesMails(
+    gardees.map((r) => ({ messageId: Number(r.message_id), filId: Number(r.fil_id) })));
+
   const lignes: LigneBoite[] = gardees.map((r) => ({
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans cette conversion, l'écran comparerait des chaînes à des nombres et
       //    les clés React comme les comparaisons d'identifiant mentiraient. Piège connu du dépôt.
@@ -1428,6 +1462,7 @@ export async function lireBoiteMail(
          inventé — c'est ce qui fait que l'aide du menu ne nomme alors AUCUNE boîte. */
       spam: r.est_spam === true,
       reference: r.reference,
+      evenementsEnCours: (evtsOuverts.get(Number(r.message_id)) ?? []).length,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
       // 🔴 LA CAPSULE « Non envoyé », sur la ligne de l'échange concerné. `null` = rien à signaler.
@@ -1496,6 +1531,8 @@ export async function lireBoiteMail(
       piecesAilleurs: 0,
       nbCorbeille: 0,
       reference: null,
+      /* ⚠️ UNE LIGNE FABRIQUÉE N'A PAS DE MAIL EN BASE : aucun événement ne peut la concerner. */
+      evenementsEnCours: 0,
       sansSuite: false,
       nonRemise: null,
       nonEnvoye: e,

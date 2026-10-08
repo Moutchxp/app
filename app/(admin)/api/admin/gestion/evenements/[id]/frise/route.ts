@@ -178,6 +178,20 @@ export async function POST(
       return Response.json({
         etat: 'ok', id: idEtape,
         message: issue.ok ? mot : `Carte posée, mais l’état n’a pas changé : ${issue.motif}`,
+        /**
+         * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — L'ÉCRAN DOIT SAVOIR QUE L'ÉTAT A BOUGÉ ════════════════════
+         *
+         * CONSTAT D'ARNO : il rouvre un événement depuis la frise, et la bande orange de la fiche ne revient
+         * pas. Elle est pourtant juste au-dessus, SUR LA MÊME PAGE — mais rien ne la prévient : la frise relit
+         * la frise, et personne d'autre ne relit quoi que ce soit.
+         *
+         * 🔴 UN CHAMP, ET NON UN MESSAGE À RELIRE. L'écran pourrait deviner en comparant le texte à « Événement
+         * rouvert. » ; une phrase est faite pour être lue par un humain, et elle changera. Ce champ dit le FAIT.
+         *
+         * ⚠️ RENDU SEULEMENT QUAND L'ÉTAT A VRAIMENT CHANGÉ (`issue.ok`) : une carte posée sur un dossier déjà
+         * dans cet état ne doit rien faire relire.
+         */
+        etatEvenement: issue.ok ? etatVoulu : null,
       });
     }
     return Response.json({ etat: 'ok', id: idEtape, message: 'Étape ajoutée.' });

@@ -869,8 +869,16 @@ describe('⑯ l’espace ne se déploie qu’à la demande, et se replie (Arno, 
     /* « Fermer » sur la bulle fixée, et sur le réservoir. */
     expect(FRISE).toContain('<button type="button" className="fav-lien" onClick={onFermer}>Fermer</button>');
     expect(FRISE).toContain('<button type="button" className="fav-btn" onClick={onFermer}>Fermer</button>');
-    /* La validation referme : `onFait` appelle `fermerReservoir`. */
-    expect(FRISE).toContain('onFait={(m) => { onGeste?.(m); fermerReservoir(); void charger(); }}');
+    /**
+     * La validation referme : `onFait` appelle `fermerReservoir`.
+     *
+     * ⚠️ LOT MARQUES-EVENEMENT-EN-COURS — `onFait` REÇOIT DÉSORMAIS UN SECOND ARGUMENT (« l'état de l'événement
+     * a-t-il changé ? »), pour que la fiche du bien relise sa bande orange après une Clôture ou une Réouverture.
+     * La fermeture et le rechargement de la frise, eux, sont inchangés : c'est ce que ces deux lignes gardent.
+     */
+    expect(FRISE).toContain('onFait={(m, etatChange) => {');
+    expect(FRISE).toContain('fermerReservoir();');
+    expect(FRISE).toContain('void charger();');
   });
 
   /**

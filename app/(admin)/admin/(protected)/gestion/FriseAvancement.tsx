@@ -103,7 +103,7 @@ function aujourdhuiLocal(): string {
 }
 
 export function FriseAvancement({
-  evenementId, onGeste, onOuvrirFil, compact = false,
+  evenementId, onGeste, onOuvrirFil, onEtatEvenement, compact = false,
 }: {
   evenementId: number;
   /** Le compte rendu remonte à l'écran qui porte la frise : un seul bandeau par écran, jamais deux. */
@@ -121,6 +121,23 @@ export function FriseAvancement({
    * et le reste — mais il passe désormais par une CARTE, qui porte une date et demeure sur la frise. On ne perd
    * pas un garde-fou, on gagne une trace. La fermeture elle-même emprunte toujours `changerEtatEvenement`.
    */
+  /**
+   * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — « L'ÉTAT DE CET ÉVÉNEMENT VIENT DE CHANGER » ════════════════════
+   *
+   * CONSTAT D'ARNO (08/10/2026) : il rouvre l'événement du bien 315 par la carte « Réouverture », et la bande
+   * orange de la fiche ne revient pas. Elle est pourtant SUR LA MÊME PAGE, quelques centimètres plus haut.
+   *
+   * 🔴 PARCE QUE PERSONNE NE LA PRÉVIENT. La frise relit SA frise (`charger`), et c'est tout : l'en-tête de la
+   * fiche, le bloc « Événements » et les lignes de l'historique gardent ce qu'ils avaient lu en arrivant. Arno
+   * demande que la bande « revienne après une réouverture, SANS rechargement manuel » — il faut donc un signal.
+   *
+   * 🔴 IL NE PART QUE QUAND L'ÉTAT A VRAIMENT CHANGÉ, et la ROUTE le dit (`etatEvenement`). Le faire partir à
+   * chaque carte ferait relire toute la fiche pour un simple « Devis reçu ».
+   *
+   * ⚠️ ABSENT ⇒ RIEN, et la frise est exactement celle d'avant ce lot : c'est ce qui la garde rendable hors de
+   * la fiche du bien.
+   */
+  onEtatEvenement?: () => void;
   /** Dans la fiche du bien, la frise est plus serrée : même contenu, moins de marges. */
   compact?: boolean;
 }) {
@@ -428,7 +445,15 @@ export function FriseAvancement({
               jourDefaut={reservoir?.jour ?? aujourdhui}
               onFermer={fermerReservoir}
               onRetour={modifie === null ? () => { setAjout(false); setTypePose(null); } : undefined}
-              onFait={(m) => { onGeste?.(m); fermerReservoir(); void charger(); }}
+              /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — quand l'état a changé, on prévient la fiche AVANT de relire
+                 la frise : la bande orange, le bloc « Événements » et les lignes de mail se mettent à jour du
+                 même geste, sans rechargement à la main (Arno). */
+              onFait={(m, etatChange) => {
+                onGeste?.(m);
+                if (etatChange === true) onEtatEvenement?.();
+                fermerReservoir();
+                void charger();
+              }}
             />
           ) : (
             <Reservoir
@@ -973,7 +998,13 @@ function AjouterEtape({
    * « Étape / Simple information ».
    */
   modifie: EtapeAAfficher | null;
-  onFermer: () => void; onFait: (message: string) => void;
+  onFermer: () => void;
+  /**
+   * 🔴 LOT MARQUES-EVENEMENT-EN-COURS — `onFait` PORTE DÉSORMAIS DEUX CHOSES : le message, et le fait que la
+   * carte a changé l'ÉTAT de l'événement. Sans le second, la frise ne pourrait pas prévenir la fiche, et la
+   * bande orange resterait absente jusqu'à un rechargement à la main.
+   */
+  onFait: (message: string, etatChange?: boolean) => void;
 }) {
   /**
    * 🔴 « avec en plus le choix “Étape” ou “Simple information” » (Arno). Une étape s'affiche en carré, une
@@ -1101,9 +1132,16 @@ function AjouterEtape({
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...corps, geste: 'modifier' }),
         });
-      const d = (await res.json().catch(() => ({}))) as { etat?: string; message?: string; erreur?: string };
+      const d = (await res.json().catch(() => ({}))) as {
+        etat?: string; message?: string; erreur?: string;
+        /* 🔴 LA ROUTE DIT LE FAIT, et l'écran ne relit pas une phrase pour le deviner. */
+        etatEvenement?: 'traite' | 'en_cours' | null;
+      };
       const defaut = modifie === null ? 'Étape ajoutée.' : 'Étape modifiée.';
-      onFait(d.etat === 'ok' ? (d.message ?? defaut) : (d.erreur ?? 'Enregistrement impossible.'));
+      onFait(
+        d.etat === 'ok' ? (d.message ?? defaut) : (d.erreur ?? 'Enregistrement impossible.'),
+        d.etat === 'ok' && (d.etatEvenement === 'traite' || d.etatEvenement === 'en_cours'),
+      );
     } catch {
       onFait('Enregistrement impossible : le serveur n’a pas répondu.');
     } finally {

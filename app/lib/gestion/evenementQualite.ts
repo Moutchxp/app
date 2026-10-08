@@ -346,3 +346,29 @@ export function noteEvenement(brut: unknown): string | null {
   const n = brut.trim();
   return n === '' ? null : n.slice(0, NOTE_EVENEMENT_MAX);
 }
+
+/**
+ * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LE MOT DE LA CAPSULE « ÉVÉNEMENT EN COURS ». PUR ══════════════════════
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * DEMANDE D'ARNO (08/10/2026) : « une capsule orange "Événement en cours" sur la première ligne de chaque mail de
+ * l'événement, juste après la capsule verte "Auto" / "Classé", PARTOUT où ces lignes apparaissent : historique du
+ * bien, boîte de réception et plein écran, recherche, conversation. »
+ *
+ * 🔴 QUATRE ÉCRANS, UN SEUL MOT, ET C'EST TOUT L'OBJET DE CETTE FONCTION. La capsule existait déjà dans
+ * l'historique du bien, avec SON mot — « Événement ouvert » —, écrit en clair dans le composant. Les trois
+ * nouveaux endroits l'auraient recopié, et le jour où Arno change le mot il faudrait les retrouver tous les
+ * quatre. Il n'est désormais écrit qu'ici.
+ *
+ * ⚠️ LE MOT CHANGE, ET C'EST DEMANDÉ : « Événement ouvert » devient « Événement en cours ». C'est exactement
+ * celui de la bande orange de la fiche du bien (`CartoucheEvenement`), et c'était le défaut à réparer — une même
+ * chose dite de deux façons sur un même écran se lit comme deux choses.
+ *
+ * ⚠️ LE NOMBRE N'EST ÉCRIT QU'AU-DELÀ DE UN, exactement comme la bande : « Événement en cours 1 » se lit comme un
+ * compteur qu'on devrait surveiller, « Événement en cours » comme un fait. Zéro rend `null` — aucune capsule.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function motEvenementEnCours(nb: number): string | null {
+  if (!Number.isFinite(nb) || nb <= 0) return null;
+  return nb > 1 ? `${nb} événements en cours` : 'Événement en cours';
+}

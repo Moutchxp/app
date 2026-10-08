@@ -253,10 +253,23 @@ export function HistoriqueDuBien({
   lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [], onFicheClient,
   cartesLocataires = [],
   evenementOuvertInitial = false, onOuvrirFil, onEcranComplet, jeton = null, onPoserJeton,
+  signalRelire = 0,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
   maintenant: Date;
+  /**
+   * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — « UN ÉVÉNEMENT DE CE BIEN A CHANGÉ D'ÉTAT, REDEMANDE » ═════════════
+   *
+   * Un compteur que le parent fait avancer. Il ne porte aucune donnée : ce bloc ne saurait pas quoi en faire,
+   * parce que l'état d'un événement se lit à DEUX endroits ici — la liste `evenements` (la ligne orange du
+   * moteur) et le champ `evenements` de CHAQUE ligne de mail (les capsules), que seul le serveur sait remplir.
+   *
+   * ⚠️ IL FAUT LES DEUX. Ne redemander que la liste laisserait les capsules des mails sur l'état d'avant ; ne
+   * redemander que les lignes laisserait la ligne orange du moteur. C'est exactement la panne qu'Arno a vue, en
+   * plus petit.
+   */
+  signalRelire?: number;
   /**
    * 🔴 TOUTES LES OCCUPATIONS DU LOGEMENT, PASSÉES COMPRISES — c'est la demande d'Arno : « les anciens locataires
    * sont visibles et sélectionnables, chacun avec sa période ».
@@ -570,7 +583,28 @@ export function HistoriqueDuBien({
       }
     })();
     return () => { vivant = false; };
-  }, [lotCle]);
+    /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — `signalRelire` EST UNE DÉPENDANCE : clore ou rouvrir depuis la frise,
+       plus haut sur la même page, change `ouvert` et donc la ligne orange du moteur. Sans cela elle restait
+       telle qu'au chargement de la fiche. */
+  }, [lotCle, signalRelire]);
+
+  /**
+   * ══ 🔴🔴 ①-ter LE MÊME SIGNAL REDEMANDE AUSSI LES LIGNES DE MAIL ═════════════════════════════════════════════
+   *
+   * Les capsules « Événement en cours » sont portées par CHAQUE ligne (`LigneVie` lit `l.evenements`), remplies
+   * par la route de l'historique. Faire avancer `rechargement` les redemande telles que le serveur les voit —
+   * la même mécanique que « Annuler », et pour la même raison : on ne reconstruit pas de mémoire un état qu'on
+   * n'a aucun moyen de vérifier.
+   *
+   * ⚠️ LE PREMIER PASSAGE NE COMPTE PAS : au montage, les trois effets de page partent déjà. Avancer le
+   * compteur ici ferait une seconde volée de requêtes pour rien, à chaque ouverture de fiche.
+   */
+  const signalVu = useRef(signalRelire);
+  useEffect(() => {
+    if (signalVu.current === signalRelire) return;
+    signalVu.current = signalRelire;
+    setRechargement((n) => n + 1);
+  }, [signalRelire]);
 
   /**
    * ══ 🔴🔴 ①-bis LES CATÉGORIES RANGÉES EN BASE — C'EST ELLES QUI REMPLISSENT « INDÉPENDANT » ═══════════════════

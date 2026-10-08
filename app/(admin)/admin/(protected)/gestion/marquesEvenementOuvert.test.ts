@@ -92,16 +92,21 @@ describe('🔴🔴 ① la capsule orange d’un mail compris dans la période d�
    * 🔴🔴 LE CAS QUI COMPTE : un mail dont l'événement est OUVERT porte sa capsule. C'est l'épreuve qui rougira
    * si quelqu'un la retire — et elle seule peut faire la différence avec une base où tout est clos.
    */
-  it('🔴🔴 un événement OUVERT met la capsule « Événement ouvert » sur le mail', async () => {
+  it('🔴🔴 un événement OUVERT met la capsule « Événement en cours » sur le mail', async () => {
     await monterLigne(LIGNE([evt(1, true)]));
     expect(capsuleEvt()).not.toBeNull();
-    expect(capsuleEvt()?.textContent).toBe('Événement ouvert');
+    /**
+     * ⚠️ LE MOT A CHANGÉ AU LOT MARQUES-EVENEMENT-EN-COURS, SUR DEMANDE D'ARNO : « Événement ouvert » devient
+     * « Événement en cours », celui de la bande de l'en-tête. La MARQUE, elle, est intacte — même place, même
+     * classe, même paire de couleurs : ce que ce fichier protège n'a pas bougé d'un cran.
+     */
+    expect(capsuleEvt()?.textContent).toBe('Événement en cours');
   });
 
   /** 🔴 PLUSIEURS ÉVÉNEMENTS OUVERTS : la capsule les COMPTE, elle ne se répète pas. */
-  it('🔴 deux événements ouverts : « 2 événements ouverts »', async () => {
+  it('🔴 deux événements ouverts : « 2 événements en cours »', async () => {
     await monterLigne(LIGNE([evt(1, true), evt(2, true)]));
-    expect(capsuleEvt()?.textContent).toBe('2 événements ouverts');
+    expect(capsuleEvt()?.textContent).toBe('2 événements en cours');
     expect(container.querySelectorAll('.vdb-capsule--evt')).toHaveLength(1);
   });
 
@@ -207,6 +212,9 @@ describe('🔴🔴 ④ une seule règle « événement ouvert », pour les deux 
     expect(REPO_HISTO).toContain('LE PRÉDICAT EST **CELUI DU CARTOUCHE DE LA FICHE**, AU MOT PRÈS');
     /* ③ ET C'EST L'ÉCRAN QUI NE RETIENT QUE LES OUVERTS, des deux côtés — ligne de mail et ligne du moteur. */
     expect(VIE).toContain('const ouverts = l.evenements.filter((e) => e.ouvert);');
+    /* 🔴 ET LE MOT DE LA CAPSULE VIENT DÉSORMAIS DU MODULE PUR, partagé par les QUATRE écrans du lot
+       MARQUES-EVENEMENT-EN-COURS — il n'est plus écrit dans le composant. */
+    expect(VIE).toContain('motEvenementEnCours(ouverts.length)');
     expect(HISTO).toContain('const evenementOuvert = evenements.find((e) => e.ouvert) ?? null;');
   });
 });

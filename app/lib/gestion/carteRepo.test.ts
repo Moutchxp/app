@@ -33,6 +33,16 @@ vi.mock('./schema', () => ({
    * c'est le SQL qu'une telle base doit recevoir. Le cas « 275 appliquée » est éprouvé à part.
    */
   corbeilleGmailDisponible: async () => false,
+  /**
+   * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LA SONDE QUE LA CAPSULE « Événement en cours » FAIT ENTRER ICI.
+   *
+   * `evenementsOuvertsDesMails` (`historiqueRepo`) la consulte pour savoir si `gestion_affectation.message_id`
+   * existe (migration 234). Absente de cette fabrique, elle faisait tomber l'appel AU MOMENT DE L'APPEL et pas à
+   * l'import — le piège des fabriques `vi.mock` que ce dépôt a déjà payé plusieurs fois.
+   *
+   * ⚠️ `false` EXPRÈS, comme ses voisines : les assertions de ce fichier figent le SQL d'une base SANS la 234.
+   */
+  deplacementsDeMailsDisponibles: async () => false,
 }));
 
 import { lireCarte, lireMessagesDuFil, lirePieceAServir, MAX_MESSAGES } from './carteRepo';
@@ -269,6 +279,16 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
       //   240 px retrouve les 20 px que son AUTEUR lui avait donnés — et qu'une photo, elle, n'est pas touchée.
       './imagesMail', './tailleImageMail', './imagesIntegrees', './lisibilite', './piecesConversation',
       './attente', './partenaires', './schema', './nonRemiseRepo',
+      /**
+       * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — `./historiqueRepo` REJOINT LA LISTE, et il faut dire pourquoi : ce
+       * module LIT la base (il n'est pas pur), mais en lecture seule et sans jamais toucher un octet de pièce ni
+       * fabriquer d'URL signée — ce que les deux assertions suivantes continuent de garantir.
+       *
+       * 🔴 CE QU'IL APPORTE : la réponse à « ce mail porte-t-il un événement en cours ? », posée par la MÊME
+       * fonction que l'historique du bien, la boîte et la recherche. L'écrire ici aurait donné une seconde
+       * vérité à tenir d'accord avec les trois autres écrans.
+       */
+      './historiqueRepo',
     ]);
     expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');

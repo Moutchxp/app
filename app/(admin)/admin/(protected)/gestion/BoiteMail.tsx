@@ -27,6 +27,8 @@ import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import {
   bulleCapsule, capsuleStatut, motCapsule, motMotifHorsGestion, type CapsuleStatut,
 } from '../../../../lib/gestion/statutClassement';
+/* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — le mot de la capsule orange, écrit UNE fois pour les quatre écrans. */
+import { motEvenementEnCours } from '../../../../lib/gestion/evenementQualite';
 /* 🔴🔴 LOT REINTEGRER — la boîte d'origine d'un mail de la corbeille, lue sur ses propres signaux (module PUR). */
 import { boiteOrigine, type BoiteOrigine } from '../../../../lib/gestion/boiteOrigine';
 // 🔴🔴 LOT OPTION-C — le MOT de l'unité comptée, écrit une seule fois pour les deux écrans (module PUR).
@@ -1962,6 +1964,33 @@ export function BoiteMail({
                         {motCapsule(capsuleDeLaLigne(l))}
                       </span>
                     )}
+                    {/**
+                      * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LA CAPSULE ORANGE, JUSTE APRÈS LA VERTE ════════════
+                      *
+                      * DEMANDE D'ARNO : « une capsule orange "Événement en cours" sur la première ligne de chaque
+                      * mail de l'événement, juste après la capsule verte "Auto" / "Classé", PARTOUT où ces lignes
+                      * apparaissent : historique du bien, boîte de réception et plein écran, recherche,
+                      * conversation. » Ce composant est la ligne des TROIS premières (un seul composant de ligne
+                      * pour toutes les listes, lot RECHERCHE-LIGNES) : la poser ici les sert toutes les trois.
+                      *
+                      * 🔴 SA PLACE EST CELLE DE LA CAPSULE DE CLASSEMENT, et non la première ligne au sens du
+                      * HTML. Dans cette liste, les capsules vivent dans le bloc de fin de ligne, à gauche de
+                      * l'heure ; « juste après la verte » s'y lit donc ici, et nulle part ailleurs.
+                      *
+                      * ⚠️ ELLE N'EST PAS CONDITIONNÉE À `l.classement` : un mail peut porter un événement en
+                      * cours sans être rattaché à un bien par un humain (c'est la seconde voie de la règle — la
+                      * fenêtre de l'événement). L'accrocher à la capsule verte l'aurait fait disparaître
+                      * justement là où elle apprend quelque chose.
+                      *
+                      * ⚠️ `?? 0` : une réponse de serveur plus ancienne que ce lot n'a pas le champ. Aucune
+                      * capsule vaut mieux qu'un écran cassé — le patron du module, déjà appliqué à l'étoile.
+                      */}
+                    {motEvenementEnCours(l.evenementsEnCours ?? 0) !== null && (
+                      <span className="bte-capsule bte-capsule--evt"
+                        title="Ce mail relève d'un événement en cours sur le bien">
+                        {motEvenementEnCours(l.evenementsEnCours ?? 0)}
+                      </span>
+                    )}
                   </span>
                   {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait pas
                       si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
@@ -2171,6 +2200,13 @@ ${CSS_BOUTON_ROND}
   background:var(--color-svv-green-soft)}
 /* LOT STATUT-HORS-GESTION — le GRIS : une decision prise, pas un travail en attente. Le MOT est ecrit. */
 .bte-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
+/* 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LA SEULE CAPSULE AMBRE DE LA LISTE, et c'est exprès : la paire
+   amber-soft / amber porte « evenement en cours » partout dans le module (bande de la fiche du bien, capsule de
+   l'historique). Lui donner une autre couleur ici aurait fait dire deux choses a une seule marque.
+   ⚠️ AUCUNE COULEUR EN DUR, et rien de nouveau : ce sont les deux memes jetons que la capsule de l'historique.
+   ⚠️ flex:0 0 auto vient de .bte-capsule : elle ne retrecit jamais, comme les autres. */
+.bte-capsule--evt{color:var(--color-svv-amber);border-color:var(--color-svv-amber-soft);
+  background:var(--color-svv-amber-soft)}
 .bte-filtre-etoile--actif{color:var(--color-svv-red)}
 .bte-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
   color:var(--color-svv-muted);flex:0 1 auto;min-width:0}

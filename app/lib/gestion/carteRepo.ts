@@ -43,6 +43,8 @@ import {
 // LOT ENVOI-DIAG — lecture seule elle aussi (SELECT sur `gestion_non_remise`). Elle rejoint la liste blanche du
 //   garde d'imports de ce fichier pour la même raison que `./schema` : elle ne manipule aucun octet de pièce jointe.
 import { nonRemisesDesMessages, type MentionNonRemise } from './nonRemiseRepo';
+/* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — la MÊME question que l'historique du bien et que la boîte. */
+import { evenementsOuvertsDesMails } from './historiqueRepo';
 
 export interface FilDeCarte {
   filId: number;
@@ -135,6 +137,16 @@ export interface MessageDeFil {
    * lieu d'annoncer « Réintégrer » sur un mail dont on ne sait rien.
    */
   aLaCorbeille: boolean;
+  /**
+   * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — COMBIEN D'ÉVÉNEMENTS EN COURS CE MAIL PORTE-T-IL ?
+   *
+   * DEMANDE D'ARNO : la capsule orange « PARTOUT où ces lignes apparaissent », la conversation nommément.
+   *
+   * ⚠️ CE N'EST PAS `fil.reference` DE L'EN-TÊTE, qui nomme la carte affectée à l'ÉCHANGE — ouverte ou close, et
+   * la même pour tous ses messages. Ici la question se pose MAIL PAR MAIL, parce que la fenêtre de l'événement
+   * est bornée par des dates et que deux messages d'un même fil peuvent tomber de part et d'autre.
+   */
+  evenementsEnCours: number;
   /** Le motif de la règle, en clair. `null` quand le message n'est pas écarté. */
   motifHorsFile: string | null;
   /**
@@ -380,6 +392,10 @@ async function lireMailsDeplaces(
       extrait: r.corps && r.corps.trim() !== '' ? r.corps.slice(0, LONGUEUR_EXTRAIT) : null,
       automatique: r.automatique === true,
       pieces: pieces.get(r.message_id) ?? [],
+      /* ⚠️ LOT MARQUES-EVENEMENT-EN-COURS — un mail DÉPLACÉ vers une carte est montré SEUL, et c'est la carte
+         elle-même qui porte son événement : la capsule de ligne n'a rien à dire ici. Renseigné honnêtement à
+         zéro, jamais deviné — même convention que `horsFile` juste en dessous. */
+      evenementsEnCours: 0,
       horsFile: false, // la requête ci-dessus les exclut déjà (`m.exclu_le IS NULL`)
       /**
        * 🔴 LOT REINTEGRER-PARTOUT-ET-BANDEAU, POINT 1 — `false` ICI, ET C'EST EXACT : ce sont les mails DÉPLACÉS
@@ -852,6 +868,19 @@ export async function lireMessagesDuFil(
   ] as const));
   const parHtml = new Map(htmlDernier);
 
+  /**
+   * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LES ÉVÉNEMENTS EN COURS DE CHAQUE MESSAGE DU FIL ═══════════════════
+   *
+   * 🔴 MÊME FONCTION QUE L'HISTORIQUE DU BIEN ET QUE LA BOÎTE (`evenementsOuvertsDesMails`) : les deux voies
+   * d'Arno unies, la fenêtre de l'événement comprise. La conversation dit donc la même chose que la ligne par
+   * laquelle on y est entré — ce qui est tout l'intérêt de poser la question à un seul endroit.
+   *
+   * ⚠️ DEUX REQUÊTES POUR LE FIL ENTIER, jamais une par message : même borne que les pièces et les avis de
+   * non-remise juste au-dessus.
+   */
+  const evtsOuverts = await evenementsOuvertsDesMails(
+    rows.map((m) => ({ messageId: m.message_id, filId })));
+
   const messages: MessageDeFil[] = rows.map((m) => ({
     messageId: m.message_id,
     messageIdRfc: m.message_id_rfc,
@@ -873,6 +902,7 @@ export async function lireMessagesDuFil(
      * l'endroit d'où l'on a ouvert la conversation. Voir l'encadré de la requête.
      */
     aLaCorbeille: m.a_la_corbeille === true,
+    evenementsEnCours: (evtsOuverts.get(m.message_id) ?? []).length,
     nonRemises: avisParMessage.get(m.message_id) ?? [],
     // `null` (jamais analysé) et `[]` (analysé, personne) ne se confondent pas — c'est tout l'objet de la migration 235.
     destA: adressesDe(m.dest_a),

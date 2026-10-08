@@ -35,6 +35,8 @@ import {
   precisionCartouche, SORTES_BIEN, statutDuMessage, tonCartouche,
   type ActionStatut, type StatutClassement,
 } from '../../../../lib/gestion/statutClassement';
+/* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — le mot de la capsule orange, écrit UNE fois pour les quatre écrans. */
+import { motEvenementEnCours } from '../../../../lib/gestion/evenementQualite';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 // LOT AVIS-LISIBLE — module PUR (aucune base) : lire un avis de non-remise et en isoler le passage humain.
 import { estAvisNonRemise, lireAvis, motifNonRemise, texteHumainAvis } from '../../../../lib/gestion/nonRemise';
@@ -3214,6 +3216,27 @@ export function MessageConversation({
             {motCapsule(capsule)}
           </button>
         )}
+        {/* ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LA CAPSULE ORANGE, JUSTE APRÈS LA VERTE ═══════════════════════
+            DEMANDE D'ARNO : « une capsule orange "Événement en cours" sur la première ligne de chaque mail de
+            l'événement, juste après la capsule verte "Auto" / "Classé", PARTOUT où ces lignes apparaissent :
+            historique du bien, boîte de réception et plein écran, recherche, conversation. »
+
+            🔴 ELLE N'EST PAS UN BOUTON, et c'est la différence avec sa voisine verte. Celle-ci ouvre une fenêtre
+            parce qu'il y a un geste de classement à faire ; celle-ci CONSTATE. Lui donner un clic obligerait à
+            inventer une destination, et la rangée contient déjà tout ce qu'un bouton y coûte.
+
+            ⚠️ ELLE EST DISTINCTE DE LA MENTION « Événement : … » PLUS BAS, et les deux cohabitent : la mention
+            nomme la carte À LAQUELLE CE MAIL EST AFFECTÉ (ouverte ou close) ; la capsule dit qu'un événement du
+            BIEN est en cours sur ce mail — y compris sans affectation, par la fenêtre de l'événement. Rien n'est
+            retiré, et les deux ne répondent pas à la même question.
+
+            ⚠️ `?? 0` : une réponse de serveur plus ancienne que ce lot n'a pas le champ. Patron du module. */}
+        {motEvenementEnCours(message.evenementsEnCours ?? 0) !== null && (
+          <span className="cnv-capsule cnv-capsule--evt"
+            title="Ce mail relève d'un événement en cours sur le bien">
+            {motEvenementEnCours(message.evenementsEnCours ?? 0)}
+          </span>
+        )}
         {/* ══ 🔴🔴 LOT SUIVI-CONVERSATION — « exception : <biens> » ════════════════════════════════════════════
             Demande d'Arno, mot pour mot. Elle se lit À CÔTÉ de la capsule, et non à sa place : la capsule dit
             le STATUT (classé, à classer…), la mention dit SOUS QUELLE RÈGLE — « ce mail-ci, et pas les
@@ -3974,6 +3997,11 @@ export const CSS_CONVERSATION = `
 /* LOT RATTACHER-EN-ECRIVANT — « Interne » : VERT, un etat d'ARRIVEE. Le MOT est toujours ecrit. */
 .cnv-capsule--interne{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .cnv-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
+/* 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LA MEME PAIRE AMBRE QUE L'HISTORIQUE DU BIEN ET QUE LA BOITE.
+   La paire amber-soft / amber porte « evenement en cours » dans tout le module : une autre couleur ici aurait
+   fait dire deux choses a une seule marque. Aucun jeton nouveau. */
+.cnv-capsule--evt{color:var(--color-svv-amber);border-color:var(--color-svv-amber-soft);
+  background:var(--color-svv-amber-soft)}
 /* ══ 🔴 LOT BIEN-RATTACHE — LE CORPS EN MISE EN FORME ══════════════════════════════════════════════════════════
    Le HTML vient d'un TIERS : il faut le BORNER, sinon un mail de syndic large de 900 px pousse toute la
    conversation, et une image de 2 000 px la déborde. On ne le reformate pas — on l'empêche seulement de sortir

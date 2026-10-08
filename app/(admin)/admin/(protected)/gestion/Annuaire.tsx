@@ -531,6 +531,15 @@ export function Annuaire({
                     onVieDuBienPosee={() => setVieDuBienVisee(null)}
                     /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — l'événement visé par le gros bouton de l'écran partagé. */
                     evenementVise={evenementVise}
+                    /**
+                     * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LA BANDE ORANGE SUIT L'ÉTAT, SANS RECHARGEMENT À LA MAIN.
+                     *
+                     * `recharger` est le compteur qui fait redemander la FICHE (`rafraichi`, dépendance de l'effet
+                     * de chargement). Le nombre d'événements ouverts est calculé par le dépôt au même moment que
+                     * le reste de la fiche : le relire est donc le seul geste à faire, et il n'y a pas de second
+                     * calcul à tenir d'accord avec lui.
+                     */
+                    onEtatEvenement={recharger}
                     filtreVie={filtreVie} onFiltreVie={setFiltreVie}
                     onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })} />
                   : <VueLocataire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
@@ -1032,10 +1041,18 @@ function BoutonDepart({ nom, occupationId, modifiable, onDepart }: {
 function VueLot({
   f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onCreer, onDepart,
   poserSurVieDuBien, onVieDuBienPosee, filtreVie, onFiltreVie, jetonHistorique, onPoserJeton,
-  evenementVise,
+  evenementVise, onEtatEvenement,
 }: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
   onEcrire?: (email: string) => void;
+  /**
+   * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — RELIRE LA FICHE QUAND UN ÉVÉNEMENT S'OUVRE OU SE FERME.
+   *
+   * La bande orange de l'en-tête vient de `f.evenementsOuverts`, lu à l'arrivée sur la fiche. Clore ou rouvrir
+   * depuis la frise, plus bas sur la MÊME page, ne la relisait pas : la bande restait absente jusqu'à un
+   * rechargement à la main. C'est exactement ce qu'Arno a constaté.
+   */
+  onEtatEvenement?: () => void;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   gestes: GestesCartes;
@@ -1288,6 +1305,14 @@ function VueLot({
    * historique de baux déplié repoussait tout cela d'un écran, et on le lit une fois par trimestre.
    */
   const [histoLocOuvert, setHistoLocOuvert] = useState(false);
+  /**
+   * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LE SIGNAL « UN ÉVÉNEMENT A CHANGÉ D'ÉTAT », POUR L'HISTORIQUE.
+   *
+   * Un simple compteur : il ne porte aucune information, seulement « redemande tes lignes ». C'est la même
+   * mécanique que `rafraichi` plus haut, et pour la même raison — un identifiant d'événement ne suffirait pas,
+   * puisque deux gestes de suite sur le MÊME événement doivent provoquer deux relectures.
+   */
+  const [signalEvenement, setSignalEvenement] = useState(0);
   const ancreVie = useRef<HTMLDivElement | null>(null);
   /**
    * ⚠️ LA CLÉ DE `VieDuBien` PORTE LE FILTRE : c'est ce qui fait repartir le composant sur le filtre voulu quand
@@ -1544,11 +1569,24 @@ function VueLot({
         * ⚠️ IL NE REND RIEN SUR UN BIEN SANS ÉVÉNEMENT — pas même un conteneur vide. C'est ce qui garde à la
         * fiche son empreinte exacte d'avant ce lot, et c'est éprouvé (`EvenementsDuBien` rend `null`).
         */}
-      <EvenementsDuBien lotCle={f.numero} onOuvrirFil={onOuvrirFil} evenementVise={evenementVise} />
+      {/**
+        * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — CLORE OU ROUVRIR MET LA FICHE ENTIÈRE À JOUR ═══════════════════
+        *
+        * Trois choses dépendent de l'état d'un événement, et elles vivent à trois endroits de cette page : la
+        * BANDE ORANGE de l'en-tête (`f.evenementsOuverts`), la ligne et les CAPSULES de l'historique, et le bloc
+        * « Événements » lui-même. Avant ce lot, un geste dans la frise n'en relisait aucune des deux premières.
+        *
+        * 🔴 UN SEUL SIGNAL, DEUX DESTINATAIRES : `onEtatEvenement` relit la FICHE (donc la bande), et
+        * `signalEvenement` fait redemander ses lignes à l'historique (donc les capsules). Le bloc
+        * « Événements », lui, se relit tout seul — il est le plus proche du geste.
+        */}
+      <EvenementsDuBien lotCle={f.numero} onOuvrirFil={onOuvrirFil} evenementVise={evenementVise}
+        onEtatEvenement={() => { setSignalEvenement((n) => n + 1); onEtatEvenement?.(); }} />
 
       <div ref={ancreVie}>
         <HistoriqueDuBien
           key={filtreVie}
+          signalRelire={signalEvenement}
           lotCle={f.numero}
           maintenant={maintenant}
           occupations={occupationsPourHistorique(f)}

@@ -29,6 +29,8 @@ import {
 import { chargerConfigGestion } from './config';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils } from './nonRemiseRepo';
+/* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — la MÊME question que la liste et l'historique, au même endroit. */
+import { evenementsOuvertsDesMails } from './historiqueRepo';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la règle « vraie pièce », rendue en SQL depuis sa définition UNIQUE.
 import { sqlEstVraiePiece } from './lisibilite';
 import { sqlCleIdentitePiece } from './piecesConversation';
@@ -561,6 +563,19 @@ export async function chercherDansLeCourrier(
     (await import('./brouillonEnAttenteRepo')).filsAvecBrouillonEnAttente(filsDeLaPage),
   ]);
 
+  /**
+   * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — UN RÉSULTAT DE RECHERCHE EST UNE LIGNE DE LISTE ════════════════════
+   *
+   * DEMANDE D'ARNO : la capsule orange « PARTOUT où ces lignes apparaissent », la recherche nommément. C'est la
+   * même règle que pour l'étoile et le trombone juste au-dessus : un résultat et une ligne de boîte montrent le
+   * même échange et ne doivent pas se contredire.
+   *
+   * 🔴 MÊME FONCTION QUE LA LISTE ET QUE L'HISTORIQUE (`evenementsOuvertsDesMails`), donc même réponse. Et sur le
+   * mail TROUVÉ, qui est celui que la ligne affiche — c'est sa date qui décide de la fenêtre de l'événement.
+   */
+  const evtsOuverts = await evenementsOuvertsDesMails(
+    gardees.map((r) => ({ messageId: Number(r.message_id), filId: Number(r.fil_id) })));
+
   return {
     lignes: gardees.map((r) => ({
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans conversion, les clés React et les comparaisons mentiraient.
@@ -606,6 +621,7 @@ export async function chercherDansLeCourrier(
         .filter(([msg]) => msg !== Number(r.message_id))
         .reduce((n, [, liste]) => n + liste.length, 0),
       reference: r.reference,
+      evenementsEnCours: (evtsOuverts.get(Number(r.message_id)) ?? []).length,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
       /**

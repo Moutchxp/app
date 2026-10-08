@@ -24,6 +24,16 @@ vi.mock('./schema', () => ({
   pieceIntegreeDisponible: async () => false,
   // LOT BOITE-INTERNE-CORBEILLE — la 275 n'est pas le sujet de ce fichier : absente, la boîte est celle d'avant.
   corbeilleGmailDisponible: async () => false,
+  /**
+   * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LA SONDE QUE LA CAPSULE « Événement en cours » FAIT ENTRER ICI.
+   *
+   * `evenementsOuvertsDesMails` (`historiqueRepo`) la consulte pour savoir si `gestion_affectation.message_id`
+   * existe (migration 234). Absente de cette fabrique, elle faisait tomber l'appel AU MOMENT DE L'APPEL et pas à
+   * l'import — le piège des fabriques `vi.mock` que ce dépôt a déjà payé plusieurs fois.
+   *
+   * ⚠️ `false` EXPRÈS, comme ses voisines : les assertions de ce fichier figent le SQL d'une base SANS la 234.
+   */
+  deplacementsDeMailsDisponibles: async () => false,
   rechercheTexteDisponible: async () => pleinTexte,
   nonRemiseDisponible: async () => false,
   // LOT ERGO-BOITE-3 — par défaut « migration 263 absente » : les assertions de ce fichier portent donc sur le SQL

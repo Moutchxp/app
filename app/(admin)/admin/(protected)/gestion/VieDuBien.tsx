@@ -18,6 +18,8 @@ import {
   decouperLesPiecesCitees, piecesCiteesAilleurs, type PieceCitable,
 } from '../../../../lib/gestion/piecesCitees';
 import { motCapsule, tonCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
+/* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — le mot de la capsule orange, écrit UNE fois pour les quatre écrans. */
+import { motEvenementEnCours } from '../../../../lib/gestion/evenementQualite';
 // 🔴🔴 LOT CONTACTS-EXTERNES — le mot du rôle instantané, écrit UNE fois dans le module PUR.
 import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
@@ -485,10 +487,18 @@ export function LigneVie({
                 {motCapsule(l.statut as CapsuleStatut)}
               </span>
             )}
-            {ouverts.length > 0 && (
-              <span className="vdb-capsule vdb-capsule--evt">
-                {ouverts.length === 1 ? 'Événement ouvert' : `${ouverts.length} événements ouverts`}
-              </span>
+            {/**
+              * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LE MOT VIENT DU MODULE PUR, ET N'EST PLUS ÉCRIT ICI.
+              *
+              * La capsule ne change ni de place ni de couleur : elle reste juste après celle de statut, dans la
+              * paire AMBRE qu'Arno appelle « orange » et qui porte déjà « événement en cours » sur cette fiche.
+              *
+              * ⚠️ SON MOT, LUI, CHANGE — « Événement ouvert » devient « Événement en cours ». C'est demandé, et
+              * c'est celui de la bande de l'en-tête : une même chose dite de deux façons sur un même écran se lit
+              * comme deux choses. Les trois autres écrans du lot lisent la MÊME fonction.
+              */}
+            {motEvenementEnCours(ouverts.length) !== null && (
+              <span className="vdb-capsule vdb-capsule--evt">{motEvenementEnCours(ouverts.length)}</span>
             )}
             {motDuTrombone !== null && (
               <span className="vdb-trombone" title={motDuTrombone} aria-label={motDuTrombone}>
