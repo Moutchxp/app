@@ -124,12 +124,21 @@ describe('🔴🔴 ② la frise : Clôture pleine verte, Ouverture et Réouvertu
     const bloc = FEUILLE.slice(FEUILLE.indexOf('.fav-carre--close .fav-carre-clic'));
     const regle = /^([\s\S]*?)\{([^}]*)\}/.exec(bloc);
     expect(regle).not.toBeNull();
+    /**
+     * ⚠️ `fav-picto` EST SORTI DE CETTE LISTE AU LOT FRISE-EPURE-ET-BANDE-BIEN : le pictogramme de source
+     * (◆ / ✎) a ete RETIRE du titre, avec l'accord explicite d'Arno, et l'information passe en toutes lettres
+     * dans la bulle du « i ». Sa classe n'existe plus ; la nommer ici exigerait du code mort.
+     *
+     * 🔴 ET CE CAS N'AURAIT PAS ROUGI TOUT SEUL, ce qui vaut d'etre dit : `.fav-carre--close .fav-picto-b`
+     * CONTIENT `.fav-carre--close .fav-picto` comme sous-chaine, donc la boucle passait encore. C'est le piege
+     * des epreuves par `toContain` sur des noms qui se prefixent — ici, corrige a la main.
+     */
     /* ⚠️ `fav-menu` A LAISSE SA PLACE A `fav-picto-b` : le menu « … » est descendu dans la rangee de trois
        pictos du bas (lot FRISE-HORODATAGE-SECONDE-ET-PICTOS, point 7), ou le crayon et le « i » le rejoignent.
        Le besoin est le MEME — ces trois pictos portent --color-svv-muted, donc illisible sur le vert plein — et
        une seule classe les couvre maintenant tous les trois. */
     for (const c of ['fav-carre-clic', 'fav-titre', 'fav-date', 'fav-montant', 'fav-ref',
-      'fav-picto', 'fav-picto-b']) {
+      'fav-picto-b']) {
       expect(regle?.[1], c).toContain(`.fav-carre--close .${c}`);
     }
     expect(regle?.[2]).toContain('color:var(--color-svv-bg)');

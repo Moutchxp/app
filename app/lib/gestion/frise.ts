@@ -301,22 +301,26 @@ export interface MentionCreation {
  * ⚠️ L'ANNÉE EN ENTIER, ET NON « le 08/10 » comme `motAjout` : cette mention-ci se lit sur la frise, à côté de
  * cartes qui peuvent avoir deux ans d'écart.
  *
- * ══ 🔴🔴 LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS (08/10/2026) — ET L'HEURE, À LA SECONDE ════════════════════════
+ * ══ 🔴🔴 L'HEURE A ÉTÉ AFFICHÉE UNE JOURNÉE, PUIS RETIRÉE — ET LE CALCUL, LUI, N'A PAS BOUGÉ ══════════════════
  *
- * ARNO : « La ligne verte/orange sous chaque carte affiche désormais : “créée le JJ/MM/AAAA · HH:MM:SS”. »
+ * AU LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS (08/10/2026), Arno a demandé « créée le JJ/MM/AAAA · HH:MM:SS », et
+ * cette fonction rendait l'heure à la seconde. AU LOT FRISE-EPURE-ET-BANDE-BIEN, le même jour, il revient
+ * dessus : « L'horodatage reste enregistré et utilisé à la seconde près pour l'ordre chronologique et la règle
+ * vert/orange (rien ne change dans le calcul). Mais l'affichage sous chaque carte redevient : “créée le
+ * JJ/MM/AAAA” — sans heure ni secondes. »
  *
- * 🔴 CE N'EST PAS UN ORNEMENT : depuis ce lot, l'horodatage de création À LA SECONDE est la RÉFÉRENCE
- * chronologique de la frise (`cartesHorsChronologie`). Ce que la ligne montre est donc exactement ce qui décide
- * de sa couleur — et quand deux cartes sont posées dans la même minute, seule la seconde les départage. Une
- * mention au jour près aurait laissé l'orange inexplicable.
+ * 🔴 CE SONT DEUX CHOSES DISTINCTES, ET C'EST TOUT L'INTÉRÊT DE LA DÉCISION. La RÉFÉRENCE chronologique
+ * (`cartesHorsChronologie`) continue de lire `creeLe` ENTIER, à la seconde : deux cartes posées dans la même
+ * minute restent départagées, et le vert / l'orange disent toujours la même chose. Seul l'AFFICHAGE s'allège.
+ * Rien dans le dépôt ni dans le calcul ne change — la seconde est lue, elle n'est plus écrite à l'écran.
  *
- * ⚠️ L'HEURE EST CELLE DE LA CHAÎNE, SANS AUCUNE CONVERSION ICI. Le fuseau qu'Arno nomme (Europe/Paris) est
- * appliqué EN SQL, là où la donnée est lue : `to_char(e.cree_le AT TIME ZONE 'Europe/Paris', …)` dans
- * `mongaEtapeRepo.friseDeLEvenement`. Construire une date ici la relirait dans le fuseau du LECTEUR — deux
- * heures d'écart en été pour qui n'est pas à Paris. Même règle que `motDateEtape` et `motAjout`.
+ * ⚠️ CONSÉQUENCE ASSUMÉE : deux cartes posées le même jour portent la même mention alors que leur ordre vient
+ * de leurs secondes. La ligne ne justifie donc plus sa propre couleur à elle seule — c'est le prix de l'épure,
+ * et c'est la décision d'Arno, prise en connaissance de ce qu'il venait de voir à l'écran.
  *
- * ⚠️ LES FRACTIONS DE SECONDE SONT COUPÉES, PAS ARRONDIES : `cree_le` est un `timestamptz(6)`, et un `::text`
- * rendrait « 22:31:04.136634+02 ». On garde les huit premiers caractères de l'heure, et rien de plus.
+ * ⚠️ AUCUNE DATE CONSTRUITE, ICI NON PLUS : on découpe la chaîne. Le fuseau (Europe/Paris) est appliqué EN SQL,
+ * là où la donnée est lue — `to_char(e.cree_le AT TIME ZONE 'Europe/Paris', …)`, `mongaEtapeRepo` —, et cela
+ * reste nécessaire pour le JOUR : à 00 h 30 à Paris, l'UTC est encore la veille.
  *
  * ⚠️ SANS HEURE DANS LA CHAÎNE, ON N'EN INVENTE PAS : la mention s'arrête au jour. Le cas n'existe pas en base
  * (`cree_le` est `timestamptz NOT NULL`), mais une donnée importée pourrait n'avoir qu'un jour.
@@ -324,13 +328,11 @@ export interface MentionCreation {
 export function mentionCreation(creeLe: string | null): MentionCreation {
   const inconnue: MentionCreation = { mot: 'date de création inconnue', connue: false };
   if (creeLe === null || creeLe === '') return inconnue;
-  const [jour, reste] = creeLe.split(/[T ]/);
+  const [jour] = creeLe.split(/[T ]/);
   const [a, m, j] = jour.split('-');
   if (a === undefined || m === undefined || j === undefined) return inconnue;
   if (a.length !== 4 || m.length !== 2 || j.length !== 2) return inconnue;
-  const heure = (reste ?? '').slice(0, 8);
-  const quand = /^\d{2}:\d{2}:\d{2}$/.test(heure) ? ` · ${heure}` : '';
-  return { mot: `créée le ${j}/${m}/${a}${quand}`, connue: true };
+  return { mot: `créée le ${j}/${m}/${a}`, connue: true };
 }
 
 /**
@@ -847,13 +849,29 @@ export function cleDOuverture(majeures: readonly CaseFrise[]): string | null {
 }
 
 /**
- * LE PICTOGRAMME DE SOURCE, en un caractère (Arno : « petit pictogramme de source (Monga / ajoutée à la main) »).
+ * ══ 🔴🔴 D'OÙ VIENT CETTE CARTE, EN TOUTES LETTRES — LOT FRISE-EPURE-ET-BANDE-BIEN (08/10/2026) ═══════════════
  *
- * ⚠️ IL NE PORTE JAMAIS L'INFORMATION SEUL : le mot de la source reste lisible dans la bulle et au lecteur
- * d'écran. Un losange et un crayon ne se distinguent pas en niveaux de gris pour tout le monde.
+ * ARNO, point 2 : « L'information “ajoutée à la main” / “venue de Monga” que portait le ✎ rouge (ou le ◆) n'est
+ * pas perdue : elle s'affiche en tête de la bulle du “i” (ex. “Ajoutée à la main par …” / “Importée de Monga”),
+ * avant le texte. »
+ *
+ * ══ 🔴🔴 CE QUI A ÉTÉ RETIRÉ ICI, ET CE QUI LE REMPLACE ══════════════════════════════════════════════════════
+ *
+ * `pictoSource(e)` VIVAIT À CETTE PLACE : un caractère, `'◆'` pour Monga et `'✎'` pour la main, rendu en rouge
+ * à côté du titre de chaque carte. Son commentaire disait déjà la limite : « IL NE PORTE JAMAIS L'INFORMATION
+ * SEUL […] un losange et un crayon ne se distinguent pas en niveaux de gris pour tout le monde. »
+ *
+ * 🔴 IL EST PARTI AVEC L'ACCORD EXPLICITE D'ARNO POUR CE RETRAIT, et pour une raison qu'il nomme : depuis le lot
+ * FRISE-HORODATAGE-SECONDE-ET-PICTOS, la rangée du bas porte un VRAI crayon de modification. Deux ✎ sur la même
+ * carte, l'un qui informe et l'autre qui agit, c'est une carte qui se contredit.
+ *
+ * 🔴 ET L'INFORMATION N'EST PAS PERDUE, ELLE EST DITE : cette fonction-ci rend la phrase, en tête de la bulle du
+ * « i ». Un mot se lit en niveaux de gris, au lecteur d'écran, et ne demande pas d'avoir appris une légende.
  */
-export function pictoSource(e: EtapeAAfficher): string {
-  return e.source === 'monga' ? '◆' : '✎';
+export function motOrigineCarte(e: EtapeAAfficher): string {
+  if (e.source === 'monga') return 'Importée de Monga';
+  const par = e.creeParLibelle === null || e.creeParLibelle.trim() === '' ? null : e.creeParLibelle.trim();
+  return par === null ? 'Ajoutée à la main' : `Ajoutée à la main par ${par}`;
 }
 
 /**

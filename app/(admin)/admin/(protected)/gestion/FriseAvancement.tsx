@@ -12,7 +12,7 @@ import {
   cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, mentionCreation,
   parOrdreDePose, type MentionCreation,
   motAjout, motDateEtape, motGroupeMessages,
-  motMailDOrigine, motMontant, motSource, pictoSource, rangerEnLigne, referencesDeLaFrise,
+  motMailDOrigine, motMontant, motOrigineCarte, motSource, rangerEnLigne, referencesDeLaFrise,
   /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — le formulaire naît rempli, et son refus s'explique. Deux fonctions
      PURES, éprouvées dans `frise.test.ts` : l'écran ne reformule ni l'un ni l'autre. */
   refusDEnregistrement, valeursDeLaCarte,
@@ -212,7 +212,8 @@ export function FriseAvancement({
    * qui dépasse (défaut mesuré au lot FRISE-HORIZONTALE : 132 px de texte tronqués) — et doit donc se replacer
    * sous le « i » qu'on survole. L'abscisse est lue au survol, dans le repère du cadre.
    */
-  const [commentaire, setCommentaire] = useState<{ texte: string | null; x: number } | null>(null);
+  const [commentaire, setCommentaire] = useState<
+    { origine: string; texte: string | null; x: number } | null>(null);
   /**
    * 🔴 LA BULLE DU « i » SUIT LA MÊME RÈGLE (Arno : « Même comportement pour la bulle du “i” des carrés »).
    * Deux crochets et non un seul : les deux bulles peuvent se succéder sous la souris, et un état partagé
@@ -565,7 +566,12 @@ export function FriseAvancement({
                 const cadre = moi.current?.querySelector('.fav-piste-cadre');
                 const r = ancre.getBoundingClientRect();
                 const rc = cadre?.getBoundingClientRect();
-                setCommentaire({ texte: x.texte, x: Math.round(r.left + r.width / 2 - (rc?.left ?? 0)) });
+                setCommentaire({
+                  /* 🔴 LOT FRISE-EPURE-ET-BANDE-BIEN — l'origine de la carte, qu'un pictogramme disait au prix
+                     d'une légende à connaître. Elle est calculée par le module pur, comme le reste. */
+                  origine: motOrigineCarte(x),
+                  texte: x.texte, x: Math.round(r.left + r.width / 2 - (rc?.left ?? 0)),
+                });
                 bulleTexte.entrerCible(`i${x.id}`);
               }}
               saisie={carteSaisie} onSaisir={saisirLaCarte} onPoignee={saisirParLaPoignee}
@@ -593,9 +599,16 @@ export function FriseAvancement({
         {commentaire !== null && bulleTexte.cible !== null && (
           <div className="fav-commentaire" style={{ left: `${commentaire.x}px` }} role="status"
             onMouseEnter={bulleTexte.entrerBulle} onMouseLeave={bulleTexte.quitterBulle}>
+            {/**
+              * 🔴 L'ORIGINE EN TÊTE, AVANT LE TEXTE (Arno, point 2). Elle remplace le pictogramme retiré du
+              * titre, et elle en dit plus : « Ajoutée à la main par Arnaud » nomme la personne, ce qu'un ✎ ne
+              * pouvait pas faire. Elle s'affiche TOUJOURS — y compris quand la carte n'a pas de commentaire,
+              * où elle est alors la seule chose que la bulle ait à dire, et c'en est une.
+              */}
+            <span className="fav-commentaire-origine">{commentaire.origine}</span>
             {(commentaire.texte ?? '').trim() === ''
               ? <span className="fav-commentaire-vide">Aucun commentaire</span>
-              : commentaire.texte}
+              : <span className="fav-commentaire-texte">{commentaire.texte}</span>}
           </div>
         )}
         {/**
@@ -1120,11 +1133,23 @@ function Carre({
         >
           {/* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 6 — « Le TITRE et la DATE de ces cartes sont tous deux
               CENTRÉS dans le carré » (Arno). Le titre d'une Clôture était calé à gauche sous une date centrée. */}
+          {/**
+            * ══ 🔴🔴 LOT FRISE-EPURE-ET-BANDE-BIEN, POINT 2 — LE PICTO DE SOURCE A QUITTÉ LE TITRE ════════════
+            *
+            * ARNO (accord explicite pour CE retrait) : « RETIRER les doublons du haut du carré : le ✎ rouge à
+            * côté du titre […]. L'information “ajoutée à la main” / “venue de Monga” qu'il portait n'est pas
+            * perdue : elle s'affiche en tête de la bulle du “i”. »
+            *
+            * 🔴 LE DOUBLON ÉTAIT RÉEL ET IL MENTAIT UN PEU : depuis la rangée du bas, une carte manuelle
+            * portait DEUX ✎ — celui-ci, qui informait, et celui du pied, qui ouvre le formulaire. Le même
+            * signe pour « d'où ça vient » et pour « clique ici » ne peut que se lire de travers.
+            *
+            * ⚠️ RIEN N'EST PERDU, ET C'EST VÉRIFIABLE : `motOrigineCarte` ouvre la bulle du « i », et
+            * `motSource` reste lu par le lecteur d'écran juste en dessous, comme avant.
+            */}
           <span className={`fav-titre${dateAuCentre(e.type) ? ' fav-titre--centree' : ''}`
             + (deplacable && onPoignee !== undefined ? ' fav-titre--poignee' : '')}>
             {c.mot}
-            {/* ⚠️ LE PICTO NE PORTE PAS L'INFORMATION SEUL : la source est lue dans la bulle et au lecteur d'écran. */}
-            <span className="fav-picto" aria-hidden="true"> {pictoSource(e)}</span>
           </span>
           {/**
             * 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 3.a — « Cartes “Ouverture”, “Clôture” et “Réouverture” : leur
@@ -2109,7 +2134,7 @@ const CSS_FRISE_AVANCEMENT = `
    ou il est rejoint par le crayon et le « i ». Les trois portent --color-svv-muted ; les trois seraient donc
    illisibles sur le vert plein si cette liste en oubliait un. */
 .fav-carre--close .fav-carre-clic,.fav-carre--close .fav-titre,.fav-carre--close .fav-date,
-.fav-carre--close .fav-montant,.fav-carre--close .fav-ref,.fav-carre--close .fav-picto,
+.fav-carre--close .fav-montant,.fav-carre--close .fav-ref,
 .fav-carre--close .fav-picto-b{color:var(--color-svv-bg)}
 
 /* ⚠️ LE VERT DE « CLOTURE » DANS LA GRILLE N'EST PAS ICI : il doit passer apres .fav-carre--reserve, qui est
@@ -2218,7 +2243,10 @@ const CSS_FRISE_AVANCEMENT = `
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .fav-titre{font-size:.78rem;font-weight:700;line-height:1.15;color:var(--color-svv-ink);
   overflow-wrap:break-word;padding:0 11px}
-.fav-picto{color:var(--color-svv-red)}
+/* ⚠️ LA REGLE .fav-picto ETAIT ICI, ET ELLE EST PARTIE AVEC LE PICTOGRAMME DE SOURCE (lot
+   FRISE-EPURE-ET-BANDE-BIEN, point 2, accord explicite d'Arno pour ce retrait). Une regle de feuille sans
+   balisage qui la porte est du code mort, et du code mort finit par etre lu comme une regle en vigueur.
+   🔴 CE QUE LE PICTOGRAMME DISAIT N'EST PAS PERDU : la bulle du « i » l'ecrit en toutes lettres. */
 .fav-date{font-size:.7rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 /* ══ 🔴🔴 LOT FRISE-COULEURS-DATES, POINT 3.a — LA DATE DES TROIS CARTES DE BORNE ═════════════════════════════
    ARNO : « Cartes “Ouverture”, “Cloture” et “Reouverture” : leur date (date de la carte) est ecrite en GRAS,
@@ -2344,6 +2372,11 @@ const CSS_FRISE_AVANCEMENT = `
   color:var(--color-svv-ink);background:var(--color-svv-bg);border:1px solid var(--color-svv-line);
   border-left:3px solid var(--color-svv-red);border-radius:8px;
   box-shadow:0 0 0 3px var(--color-svv-bg),0 0 0 4px var(--color-svv-line-strong)}
+/* ⚠️ LA BULLE PORTE DEUX LIGNES DEPUIS LE LOT FRISE-EPURE-ET-BANDE-BIEN : l'origine, puis le texte. En
+   colonne, et non separees par un <br> : chacune garde sa couleur et sa taille. */
+.fav-commentaire{display:flex;flex-direction:column;gap:3px}
+.fav-commentaire-origine{font-size:.7rem;font-weight:700;color:var(--color-svv-muted)}
+.fav-commentaire-texte{white-space:pre-wrap}
 .fav-commentaire-vide{font-style:italic;color:var(--color-svv-muted)}
 /* ⚠️ LES DEUX BOUTONS « A CONFIRMER » REMONTENT D'UNE RANGEE : la rangee de pictos occupe desormais le bas du
    carre. Ils ne sont ni retires ni masques — ils se posent juste au-dessus, et gardent leurs deux gestes. */

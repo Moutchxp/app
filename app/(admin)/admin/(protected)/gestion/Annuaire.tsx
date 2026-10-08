@@ -2449,10 +2449,28 @@ export const CSS_ANNUAIRE = `
    --color-svv-amber-soft en fond, --color-svv-amber en texte, la paire deja employee par les replis du module.
    Contraste AA verifie en Clair comme en Sombre. */
 .ann-cartouche{display:flex;align-items:center;justify-content:center;gap:.4rem;width:100%;
+  box-sizing:border-box;
   margin:0 0 .35rem;padding:.4rem .6rem;border-radius:.5rem;cursor:pointer;
   border:1px solid var(--color-svv-amber);background:var(--color-svv-amber-soft);color:var(--color-svv-amber);
   font:inherit;font-size:.8rem;font-weight:700;text-align:center;
   transition:background .15s ease,box-shadow .15s ease,transform .15s ease}
+/* ══ 🔴🔴 LOT FRISE-EPURE-ET-BANDE-BIEN, POINT 3 — DANS UNE CARTE DE BIEN, ELLE S'ALIGNE SUR LES BOUTONS ═══
+   ARNO : « Aujourd'hui la bande deborde : elle est plus large que la carte et depasse de chaque cote. Elle doit
+   avoir EXACTEMENT la meme largeur et le meme alignement que les boutons du pied de carte (“Historique”,
+   “Dossier Drive du lot”) : toute la largeur utile, avec la meme petite marge a gauche et a droite. »
+
+   🔴 MESURE AVANT CORRECTION (08/10/2026, fiche proprietaire-1, carte du lot 315) : carte 274→669,
+   bande 275→668 (393 px), bouton « Historique » 289→654 (365 px). La bande etait donc 28 px plus large que
+   les boutons et collee aux deux bords, par-dessus les coins arrondis — c'est ce qu'on lit comme un debordement.
+
+   ⚠️ 14 px, ET CE N'EST PAS UN CHIFFRE CHOISI : c'est le padding lateral que portent DEJA .ann-carte-faits
+   (11px 14px 8px) et .ann-carte-pied (0 14px 10px). La bande ne s'invente donc pas une marge, elle reprend
+   celle de ses voisines ; le jour ou l'une bouge, il n'y en a qu'une a changer.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit.
+   ⚠️ LA REGLE EST BORNEE A LA CARTE (le selecteur enfant direct) : le meme cartouche sert EN TETE DE LA FICHE,
+   ou il n'est pas dans une carte et doit garder toute la largeur. Toucher la regle de base les aurait decales
+   tous les deux. */
+.ann-carte > .ann-cartouche{width:auto;margin:0 14px .35rem}
 .ann-cartouche:hover{box-shadow:0 2px 6px rgba(22,32,44,.14);transform:translateY(-1px)}
 .ann-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .ann-cartouche-point{font-size:.6rem;line-height:1}

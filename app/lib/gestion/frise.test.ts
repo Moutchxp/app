@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
+  cartesHorsChronologie,
   cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, jourEnNombre,
   jourIntercalaire, mentionCreation, motAjout,
   motDateEtape, motDeLaCase, motDeLaCarte, motGroupeMessages, motMailDOrigine, motMontant, motSource,
-  nombreEnJour, numerosDesEtapes, pictoSource, rangerEnLigne, TYPES_BORNE,
+  motOrigineCarte, nombreEnJour, numerosDesEtapes, rangerEnLigne, TYPES_BORNE,
   type EtapeAAfficher,
 } from './frise';
 /* 🔴 LOT FRISE-COULEURS-DATES — les deux listes de types viennent du module, jamais recopiées : une épreuve qui
@@ -596,10 +597,26 @@ describe('⑩ sur quoi la frise s’ouvre', () => {
   });
 });
 
-describe('⑪ le pictogramme de source', () => {
-  it('🔴 Monga et la main se distinguent', () => {
-    expect(pictoSource(etape({ source: 'monga' }))).toBe('◆');
-    expect(pictoSource(etape({ source: 'manuelle' }))).toBe('✎');
+describe('⑪ d’où vient la carte', () => {
+  /**
+   * ══ 🔴🔴 CE CAS EXIGEAIT UN PICTOGRAMME, IL EXIGE MAINTENANT UNE PHRASE ═══════════════════════════════════
+   *
+   * IL S'APPELAIT « le pictogramme de source » et exigeait `pictoSource` : `'◆'` pour Monga, `'✎'` pour la main.
+   * Ce que ce pictogramme disait valait — mais son propre commentaire en posait la limite : « un losange et un
+   * crayon ne se distinguent pas en niveaux de gris pour tout le monde ».
+   *
+   * 🔴 ARNO LE FAIT RETIRER (lot FRISE-EPURE-ET-BANDE-BIEN, accord explicite pour CE retrait) : depuis que la
+   * rangée du bas porte un VRAI crayon de modification, deux ✎ cohabitaient sur la même carte, l'un qui informe
+   * et l'autre qui agit. L'information passe donc en toutes lettres, en tête de la bulle du « i » — et elle y
+   * dit PLUS qu'avant : qui a posé la carte.
+   */
+  it('🔴🔴 Monga et la main se disent en toutes lettres, et la main se nomme', () => {
+    expect(motOrigineCarte(etape({ source: 'monga' }))).toBe('Importée de Monga');
+    expect(motOrigineCarte(etape({ source: 'manuelle', creeParLibelle: 'Arnaud' })))
+      .toBe('Ajoutée à la main par Arnaud');
+    /* ⚠️ SANS AUTEUR CONNU, ON NE FABRIQUE PAS DE NOM : la carte dit d'où elle vient, et s'arrête là. */
+    expect(motOrigineCarte(etape({ source: 'manuelle', creeParLibelle: null }))).toBe('Ajoutée à la main');
+    expect(motOrigineCarte(etape({ source: 'manuelle', creeParLibelle: '   ' }))).toBe('Ajoutée à la main');
   });
 
   it('🔴 le compteur de messages s’accorde', () => {
@@ -742,34 +759,45 @@ describe('⑮ « créée le … », et l’aveu quand on ne sait pas', () => {
   /**
    * 🔴 L'EXEMPLE D'ARNO, MOT POUR MOT — avec l'année en entier, parce que la frise mêle plusieurs années.
    *
-   * ══ 🔴🔴 CE CAS EXIGEAIT « créée le 08/10/2026 » TOUT COURT, ET LE VERDICT A CHANGÉ ═════════════════
+   * ══ 🔴🔴 L'HEURE A ÉTÉ EXIGÉE ICI UNE JOURNÉE, PUIS RETIRÉE — ET C'EST LA MÊME DÉCISION ═════════════
    *
-   * IL EXIGEAIT L'ABSENCE DE L'HEURE, et son commentaire disait « UN JOUR SEUL SUFFIT : on ne veut que le jour,
-   * jamais l'heure. » C'était la demande du lot FRISE-COULEURS-DATES, mot pour mot : « par exemple “créée le
-   * 08/10/2026” ».
+   * AU LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, ce cas exigeait « créée le 08/10/2026 · 22:31:04 » : Arno
+   * venait de faire de l'horodatage À LA SECONDE la référence chronologique de la frise, et la ligne devait
+   * montrer ce qui décidait de sa couleur.
    *
-   * 🔴 ARNO REVIENT DESSUS AU LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, point 4 : « La ligne verte/orange sous
-   * chaque carte affiche désormais : “créée le JJ/MM/AAAA · HH:MM:SS”. » CE QUI LE MOTIVE EST AU POINT 2 : la
-   * référence chronologique de la frise est désormais cet horodatage À LA SECONDE. Une ligne qui n'affichait
-   * que le jour ne permettait pas de vérifier le vert et l'orange : les trois cartes posées le même jour y
-   * portaient la même mention, et l'ordre qu'elle est censée justifier restait invisible.
+   * 🔴 IL REVIENT DESSUS LE MÊME JOUR (lot FRISE-EPURE-ET-BANDE-BIEN, point 1) : « L'horodatage reste
+   * enregistré et utilisé à la seconde près pour l'ordre chronologique et la règle vert/orange (rien ne change
+   * dans le calcul). Mais l'affichage sous chaque carte redevient : “créée le JJ/MM/AAAA” — sans heure ni
+   * secondes. »
    *
-   * ⚠️ LE SÉPARATEUR EST LE POINT MÉDIAN « · », celui qu'Arno écrit, et non une virgule ni un « à ».
+   * 🔴 CE N'EST PAS UN RETOUR EN ARRIÈRE, C'EST UNE SÉPARATION : le CALCUL lit toujours `creeLe` entier —
+   * éprouvé juste en dessous, et par `cartesHorsChronologie` —, seul l'AFFICHAGE s'allège. La seconde est lue,
+   * elle n'est plus écrite.
    */
-  it('🔴🔴 « créée le 08/10/2026 · 22:31:04 », exactement', () => {
-    expect(mentionCreation('2026-10-08T22:31:04')).toEqual({ mot: 'créée le 08/10/2026 · 22:31:04', connue: true });
+  it('🔴🔴 « créée le 08/10/2026 », sans heure ni secondes', () => {
+    expect(mentionCreation('2026-10-08T22:31:04')).toEqual({ mot: 'créée le 08/10/2026', connue: true });
     /* ⚠️ L'ESPACE DE POSTGRES COMME LE « T » DE L'ISO : le dépôt rend l'horodatage avec l'espace. */
-    expect(mentionCreation('2026-10-08 22:31:04+02')).toEqual({ mot: 'créée le 08/10/2026 · 22:31:04', connue: true });
-    /* ⚠️ LES FRACTIONS DE SECONDE SONT COUPÉES, PAS ARRONDIES : `cree_le` est un timestamptz(6), et un
-       `::text` rendrait « 22:31:04.136634+02 ». Arno demande LA SECONDE ; les microsecondes ne se lisent pas. */
-    expect(mentionCreation('2026-10-08 22:31:04.136634+02').mot).toBe('créée le 08/10/2026 · 22:31:04');
-    /**
-     * 🔴 ET UN JOUR SEUL RESTE ACCEPTÉ, SANS HEURE INVENTÉE. Aucune carte de la base n'est dans ce cas
-     * (`cree_le` est NOT NULL DEFAULT now(), vérifié le 08/10/2026 sur les 162 lignes), mais le type du dépôt
-     * l'autorise — et « 00:00:00 » affiché pour une heure inconnue serait une heure FAUSSE, précisément ce
-     * qu'Arno interdit depuis le lot FRISE-DATE-CREATION-TOUTES-CARTES (« n'invente rien »).
-     */
+    expect(mentionCreation('2026-10-08 22:31:04+02')).toEqual({ mot: 'créée le 08/10/2026', connue: true });
+    /* ⚠️ ET LES FRACTIONS DE SECONDE NE RESSORTENT NULLE PART : un `timestamptz(6)` rendu en texte vaut
+       « 22:31:04.136634+02 », dont il ne doit RIEN rester à l'écran. */
+    expect(mentionCreation('2026-10-08 22:31:04.136634+02').mot).toBe('créée le 08/10/2026');
+    /* 🔴 ET UN JOUR SEUL EST TRAITÉ COMME LES AUTRES : il n'y a plus qu'une seule forme de sortie. */
     expect(mentionCreation('2026-01-03')).toEqual({ mot: 'créée le 03/01/2026', connue: true });
+  });
+
+  /**
+   * 🔴🔴 ET LE CALCUL, LUI, VOIT TOUJOURS LA SECONDE. C'est la moitié de la demande d'Arno, et c'est celle
+   * qu'on casserait sans s'en apercevoir : la mention s'allège, la référence chronologique ne bouge pas. Deux
+   * cartes de la même minute portent donc la même ligne à l'écran et restent TRIÉES par leurs secondes.
+   */
+  it('🔴🔴 la seconde disparaît de l’affichage, jamais du calcul', () => {
+    const tot = { cle: 'a', creeLe: '2026-10-08 22:31:04' };
+    const tard = { cle: 'b', creeLe: '2026-10-08 22:31:59' };
+    /* Les deux portent la même mention… */
+    expect(mentionCreation(tot.creeLe).mot).toBe(mentionCreation(tard.creeLe).mot);
+    /* …et pourtant l'ordre inverse s'allume, parce que la règle lit l'horodatage entier. */
+    expect([...cartesHorsChronologie([tard, tot])]).toEqual(['b']);
+    expect([...cartesHorsChronologie([tot, tard])]).toEqual([]);
   });
 
   /**
@@ -794,14 +822,14 @@ describe('⑮ « créée le … », et l’aveu quand on ne sait pas', () => {
    * que `motAjout` et `motDateEtape`, et l'épreuve de pureté du module (⑪) le tient pour tout le fichier.
    */
   it('⚠️ elle ne décale rien, quelle que soit l’heure', () => {
-    expect(mentionCreation('2026-10-08T23:59:59').mot).toBe('créée le 08/10/2026 · 23:59:59');
-    expect(mentionCreation('2026-10-08T00:00:00').mot).toBe('créée le 08/10/2026 · 00:00:00');
+    expect(mentionCreation('2026-10-08T23:59:59').mot).toBe('créée le 08/10/2026');
+    expect(mentionCreation('2026-10-08T00:00:00').mot).toBe('créée le 08/10/2026');
     /**
-     * 🔴🔴 ET L'HEURE AFFICHÉE EST CELLE QUE LE DÉPÔT A ÉCRITE, SANS AUCUN RECALCUL ICI. Le fuseau
-     * demandé par Arno (Europe/Paris) est obtenu EN SQL — `to_char(e.cree_le AT TIME ZONE 'Europe/Paris', …)`,
-     * `mongaEtapeRepo.friseDeLEvenement` —, c'est-à-dire là où la donnée est lue. Construire un `Date` pour
-     * « convertir » rendrait l'heure du NAVIGATEUR : juste à Paris, fausse ailleurs.
+     * 🔴🔴 ET LE JOUR EST CELUI QUE LE DÉPÔT A ÉCRIT, SANS AUCUN RECALCUL ICI. Le fuseau (Europe/Paris)
+     * est appliqué EN SQL — `to_char(e.cree_le AT TIME ZONE 'Europe/Paris', …)`, `mongaEtapeRepo` —, et cela
+     * reste nécessaire MAINTENANT QUE SEUL LE JOUR S'AFFICHE : à 00 h 30 à Paris, l'UTC est encore la veille,
+     * et la carte porterait la mauvaise DATE, pas seulement la mauvaise heure.
      */
-    expect(mentionCreation('2026-10-08 02:00:00').mot).toBe('créée le 08/10/2026 · 02:00:00');
+    expect(mentionCreation('2026-10-08 02:00:00').mot).toBe('créée le 08/10/2026');
   });
 });
