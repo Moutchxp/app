@@ -98,27 +98,45 @@ describe('🔴🔴 la molette — convertie, puis rendue à la page', () => {
   });
 
   /**
-   * 🔴🔴 L'ÉPREUVE CENTRALE DU POINT B : « convertie en horizontal UNIQUEMENT tant que la frise peut défiler,
-   * puis la page reprend la main » (Arno).
+   * ══ 🔴🔴 LA MOLETTE VERTICALE N'EST PLUS INTERCEPTÉE DU TOUT ═════════════════════════════════════════════════
+   *
+   * ═══ CE QUE CES DEUX CAS EXIGEAIENT, ET POURQUOI C'ÉTAIT JUSTE ═══════════════════════════════════════════════
+   * Ils s'appelaient « la molette verticale est convertie tant qu'il reste du chemin » et « au début, remonter
+   * la molette rend la main à la page ». C'était le point B d'Arno au lot FRISES-REPARATION : « convertie en
+   * horizontal UNIQUEMENT tant que la frise peut défiler, puis la page reprend la main ». La sortie en butée
+   * avait même été écrite exprès pour ne pas piéger le lecteur.
+   *
+   * ═══ 🔴 CE QU'ARNO CONSTATE LE 08/10/2026 ════════════════════════════════════════════════════════════════════
+   * « Quand le curseur est posé sur l'un d'eux, le défilement VERTICAL fait défiler le ruban → la page se
+   * bloque. Voulu : seul le défilement HORIZONTAL déplace le ruban. »
+   *
+   * 🔴 LA SORTIE EN BUTÉE NE SUFFISAIT PAS, ET C'EST LA LEÇON : un ruban de quarante mois porte plusieurs
+   * écrans de défilement. Pour dépasser la frise en lisant la fiche, il fallait d'abord la dérouler
+   * ENTIÈREMENT — et au retour, elle avait perdu l'endroit qu'on regardait. Le garde-fou existait ; il était
+   * simplement placé trop loin.
    */
-  it('🔴🔴 la molette verticale est convertie tant qu’il reste du chemin', () => {
-    expect(defilementMolette({ deltaX: 0, deltaY: 40, shiftKey: false }, LOT237))
-      .toEqual({ dx: 40, prendreLaMain: true });
+  it('🔴🔴 la molette verticale n’est plus prise, où que la frise en soit', () => {
+    /* Au début, au milieu, au bout : toujours rendue à la page. */
+    for (const scrollLeft of [0, 40, 82]) {
+      const etat = { ...LOT237, scrollLeft };
+      expect(defilementMolette({ deltaX: 0, deltaY: 40, shiftKey: false }, etat), `vers le bas, ${scrollLeft}`)
+        .toEqual({ dx: 0, prendreLaMain: false });
+      expect(defilementMolette({ deltaX: 0, deltaY: -40, shiftKey: false }, etat), `vers le haut, ${scrollLeft}`)
+        .toEqual({ dx: 0, prendreLaMain: false });
+    }
   });
 
-  it('🔴🔴 arrivée au bout, elle rend la main à la page', () => {
-    const auBout = { ...LOT237, scrollLeft: 82 };
-    expect(defilementMolette({ deltaX: 0, deltaY: 40, shiftKey: false }, auBout))
+  /**
+   * 🔴 ET LES DEUX GESTES HORIZONTAUX RESTENT, EUX : c'est tout ce que le lot change — ce qui est pris, et ce
+   * qui ne l'est plus. Le trackpad horizontal et Maj+molette sont éprouvés juste au-dessus ; ici on tient le
+   * cas limite qui distingue les deux familles : un `deltaY` dominant AVEC Maj reste horizontal.
+   */
+  it('🔴 Maj + molette reste prise, même quand le geste est franchement vertical', () => {
+    expect(defilementMolette({ deltaX: 0, deltaY: 120, shiftKey: true }, LOT237))
+      .toEqual({ dx: 120, prendreLaMain: true });
+    /* ⚠️ MAIS UN MAJ SANS MOUVEMENT NE PREND RIEN : rien à déplacer, rien à empêcher. */
+    expect(defilementMolette({ deltaX: 0, deltaY: 0, shiftKey: true }, LOT237))
       .toEqual({ dx: 0, prendreLaMain: false });
-  });
-
-  /** 🔴 ET SYMÉTRIQUEMENT AU DÉBUT : remonter la molette au début de la frise fait remonter la PAGE. */
-  it('🔴🔴 au début, remonter la molette rend la main à la page', () => {
-    expect(defilementMolette({ deltaX: 0, deltaY: -40, shiftKey: false }, LOT237))
-      .toEqual({ dx: 0, prendreLaMain: false });
-    /* … mais au milieu, elle fait reculer la frise. */
-    expect(defilementMolette({ deltaX: 0, deltaY: -40, shiftKey: false }, { ...LOT237, scrollLeft: 40 }))
-      .toEqual({ dx: -40, prendreLaMain: true });
   });
 
   /**

@@ -52,16 +52,29 @@ export function peutDefiler(e: EtatDefilement, sens: -1 | 1): boolean {
 }
 
 /**
- * ══ 🔴🔴 LA MOLETTE ══════════════════════════════════════════════════════════════════════════════════════════════
+ * ══ 🔴🔴 LA MOLETTE — SEUL LE GESTE HORIZONTAL DÉPLACE LE RUBAN ══════════════════════════════════════════════════
  *
- * Trois intentions, et une seule règle pour les trois :
- *   · le TRACKPAD horizontal (`deltaX` dominant) — la frise défile, et le navigateur garde son inertie ;
- *   · MAJ + molette — le geste conventionnel du défilement horizontal, toujours pour la frise ;
- *   · la MOLETTE VERTICALE seule — convertie, **mais uniquement tant que la frise peut défiler dans ce sens**.
+ * ARNO (08/10/2026, lot RUBANS-SCROLL-HORIZONTAL…) : « Aujourd'hui, quand le curseur est posé sur l'un d'eux, le
+ * défilement VERTICAL (molette haut/bas, deux doigts haut/bas) fait défiler le ruban → la page se bloque.
+ * Voulu : seul le défilement HORIZONTAL déplace le ruban. Le défilement VERTICAL n'est plus intercepté : il fait
+ * défiler la PAGE ENTIÈRE, même curseur posé sur le ruban. »
  *
- * 🔴 « PUIS LA PAGE REPREND LA MAIN » (Arno). C'est `prendreLaMain: false` : l'appelant n'appelle alors PAS
- * `preventDefault`, et le navigateur fait défiler la page comme partout ailleurs. Sans cette sortie, une frise
- * posée au milieu d'une fiche piège le lecteur — il ne peut plus la dépasser en défilant.
+ * Deux intentions, et elles sont toutes les deux HORIZONTALES :
+ *   · le TRACKPAD horizontal (`deltaX` dominant) — le ruban défile, et le navigateur garde son inertie ;
+ *   · MAJ + molette — le geste conventionnel du défilement horizontal.
+ *
+ * ══ 🔴🔴 CE QUE CETTE FONCTION FAISAIT DE PLUS, ET POURQUOI C'EST RETIRÉ ═════════════════════════════════════════
+ *
+ * Une TROISIÈME branche convertissait la molette VERTICALE en défilement horizontal, « tant que la frise peut
+ * défiler dans ce sens », et ne rendait la main à la page qu'en BUTÉE. L'intention était bonne — faire défiler un
+ * ruban sans trackpad —, et la sortie en butée avait même été écrite exprès pour ne pas piéger le lecteur.
+ *
+ * 🔴 ELLE LE PIÉGEAIT QUAND MÊME, ET C'EST CE QU'ARNO DÉCRIT. Un ruban de quarante mois a plusieurs écrans de
+ * défilement : pour dépasser la frise en lisant la fiche, il fallait d'abord la dérouler ENTIÈREMENT. La page
+ * semblait bloquée — et au retour, le ruban avait perdu l'endroit qu'on regardait, sans qu'on l'ait demandé.
+ *
+ * ⚠️ `peutDefiler` RESTE, ET SERT TOUJOURS : les flèches ‹ › s'allument par elle (`bordsVisibles`). C'est la
+ * CONVERSION qui disparaît, pas la mesure.
  *
  * ⚠️ UN GESTE HORIZONTAL NE REND JAMAIS LA MAIN À LA PAGE, même en butée : la page ne défile pas
  * horizontalement, et lui rendre un geste horizontal ne ferait rien du tout.
@@ -71,11 +84,9 @@ export function defilementMolette(
 ): { dx: number; prendreLaMain: boolean } {
   const horizontal = Math.abs(g.deltaX) > Math.abs(g.deltaY);
   if (horizontal) return { dx: g.deltaX, prendreLaMain: true };
-  if (g.shiftKey) return { dx: g.deltaY, prendreLaMain: true };
-  /* ── LA MOLETTE VERTICALE : convertie tant qu'il reste du chemin de ce côté-là, rendue à la page ensuite. */
-  const sens: -1 | 1 = g.deltaY < 0 ? -1 : 1;
-  if (g.deltaY === 0 || !peutDefiler(e, sens)) return { dx: 0, prendreLaMain: false };
-  return { dx: g.deltaY, prendreLaMain: true };
+  if (g.shiftKey && g.deltaY !== 0) return { dx: g.deltaY, prendreLaMain: true };
+  /* 🔴 LA MOLETTE VERTICALE N'EST PLUS INTERCEPTÉE : la page défile, curseur posé sur le ruban ou non. */
+  return { dx: 0, prendreLaMain: false };
 }
 
 /**

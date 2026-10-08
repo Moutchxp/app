@@ -499,6 +499,25 @@ export function LigneVie({
             <span className="vdb-qui">
               {libelleSens(l.sens)} {(l.deNom ?? '').trim() === '' ? l.de : l.deNom}
             </span>
+            {/**
+              * ══ 🔴🔴 LOT RUBANS-SCROLL…, POINT 2 — LES ÉTIQUETTES PASSENT À DROITE, CONTRE LA DATE ═══════════
+              *
+              * ARNO : « Le bloc d'étiquettes “Auto” · “Événement en cours” · “📎N” est aujourd'hui collé à
+              * gauche, juste après “reçu de …”. Le déplacer à DROITE, juste avant la date/heure du mail […]
+              * dans le même ordre. »
+              *
+              * 🔴 UN GROUPE, ET NON TROIS MARGES. Les trois étiquettes étaient des frères directs de la rangée
+              * flex ; pousser « la dernière » à droite les aurait séparées, et la date aurait gardé la sienne.
+              * Réunies, elles se déplacent ensemble et restent dans L'ORDRE qu'Arno nomme.
+              *
+              * 🔴 C'EST LE GROUPE QUI PORTE `margin-left:auto`, ET LA DATE LA PERD : deux marges automatiques
+              * dans une même rangée se PARTAGENT l'espace libre — les étiquettes se seraient posées au milieu,
+              * à mi-chemin du nom et de la date. Une seule pousse tout le bloc contre la date.
+              *
+              * ⚠️ RIEN N'EST RETIRÉ NI CHANGÉ DANS LES ÉTIQUETTES : mêmes conditions, mêmes mots, mêmes
+              * couleurs, mêmes info-bulles. Seul leur conteneur est neuf.
+              */}
+            <span className="vdb-marques">
             {l.statut !== null && (
               <span className={`vdb-capsule vdb-capsule--${tonCapsule(l.statut as CapsuleStatut)}`}
                 title={l.statutDetail ?? undefined}>
@@ -523,6 +542,7 @@ export function LigneVie({
                 <span aria-hidden="true">📎</span>{vraies.length}
               </span>
             )}
+            </span>
             <span className="vdb-quand">{dateHeureCourte(l.recuLe, maintenant)}</span>
           </span>
           <span className="vdb-objet">Objet : {nettoyerObjet(l.objet ?? '') || '(sans objet)'}</span>
@@ -780,7 +800,13 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-sortir:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .vdb-haut{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;min-width:0}
 .vdb-qui{font-size:.88rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
-.vdb-quand{margin-left:auto;font-size:.76rem;color:var(--color-svv-muted);flex:0 0 auto}
+/* ══ 🔴🔴 LOT RUBANS-SCROLL…, POINT 2 — LES ETIQUETTES CONTRE LA DATE ════════════════════════════════════════
+   Le groupe porte la marge automatique ; la date la PERD, parce que deux marges automatiques se partagent
+   l'espace libre et poseraient les etiquettes a mi-chemin du nom et de la date.
+   ⚠️ IL S'ENROULE AVEC LA RANGEE (flex-wrap herite de .vdb-haut) : sur un ecran etroit, les etiquettes passent
+   a la ligne avec la date plutot que de serrer le nom de l'expediteur. */
+.vdb-marques{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;margin-left:auto;min-width:0}
+.vdb-quand{font-size:.76rem;color:var(--color-svv-muted);flex:0 0 auto}
 .vdb-objet{font-size:.84rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
 /* ══ 🔴🔴 LOT RECHERCHE-MAILS-PAR-ADRESSE, POINT 4 — LES ADRESSES QUI EXPLIQUENT LA CORRESPONDANCE ════════════
    Une rangee de petites pastilles sous l'objet : l'etiquette du role en gris, l'adresse a cote, le morceau

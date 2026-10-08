@@ -3,6 +3,9 @@ import { FUSEAU_AFFICHAGE } from './ecran';
    ce dépôt (« du … au … »). La ligne d'un ancien locataire l'emploie telle quelle, jamais une copie. */
 import { formaterDateIso, periodeOccupation } from './annuaireRecherche';
 import type { PersonneDuMail } from './adressesMessage';
+/* 🔴 LOT RUBANS-SCROLL… — LA définition du dépôt pour « une de nos adresses » (@sansvisavis.com,
+   @criterimmo.fr, et nos adresses nommées). Module PUR : rien de `pg` n'entre par là. */
+import { estAdresseInterne } from './adresseInterne';
 import {
   ecrireFiltres, FILTRES_VIDES, jourValide, libelleInterlocuteur, PAGE_HISTORIQUE, PORTEURS_DE_PIECES_MAX,
   type ChoixPieces, type FiltresHistorique, type Interlocuteur, type LigneHistorique,
@@ -618,11 +621,31 @@ export function motDeuxCompteurs(i: { aEcrit: number; enCopie: number }): string
  * contact du locataire ; BLEU = tiers indépendant ; AUCUNE couleur = nous (agence) ; gris pointillé = non
  * affecté. »
  *
- * 🔴 « NOUS » SE LIT SUR LE SENS DU MAIL, ET NON SUR UNE LISTE D'ADRESSES INTERNES. `sens === 'envoye'` veut dire
- * « nous avons écrit » — c'est déjà le mot que la ligne affiche (`libelleSens`), et c'est la même vérité. Croiser
- * l'expéditeur avec une liste de nos adresses aurait été un second juge pour « qui est des nôtres ? », qui aurait
- * divergé du premier au premier collègue changeant d'adresse. Et il aurait raté le cas d'un mail que nous avons
- * envoyé depuis une adresse que l'annuaire des interlocuteurs ne liste pas sur CE bien.
+ * ══ 🔴🔴 « NOUS » SE LIT SUR LE SENS **ET** SUR NOS DOMAINES — LOT RUBANS-SCROLL… (08/10/2026) ═══════════════════
+ *
+ * CE QUI ÉTAIT ÉCRIT ICI : « “NOUS” SE LIT SUR LE SENS DU MAIL, ET NON SUR UNE LISTE D'ADRESSES INTERNES.
+ * `sens === 'envoye'` veut dire “nous avons écrit” […] Croiser l'expéditeur avec une liste de nos adresses
+ * aurait été un second juge pour “qui est des nôtres ?”, qui aurait divergé du premier au premier collègue
+ * changeant d'adresse. » Le raisonnement tenait — contre un second juge ÉCRIT À PART.
+ *
+ * 🔴 LE DÉFAUT QU'IL A COÛTÉ, CONSTATÉ PAR ARNO SUR LE BIEN 315. Le mail du 17/09 « Sans vis a vis », envoyé par
+ * a.dasilva@sansvisavis.com à gestion@criterimmo.fr, s'affiche « NON AFFECTÉ », bordure grise en pointillés.
+ * Il est REÇU (`sens === 'recu'`, c'est la boîte gestion@ qui le reçoit), donc la première branche ne joue pas ;
+ * et l'adresse d'une collègue n'est évidemment pas une PARTIE du bien, donc la carte des catégories ne la connaît
+ * pas. Résultat : `undefined` ⇒ gris. Mesuré en base : **332 mails de biens** sont dans ce cas, venus de
+ * **8 adresses internes** — et l'écran dit de chacun qu'il reste un geste à faire, alors qu'il n'y en a aucun.
+ *
+ * 🔴 RÈGLE D'ARNO : « toute adresse d'un domaine de l'agence (@sansvisavis.com et @criterimmo.fr) est “nous /
+ * Notre agence”. Un mail dont l'expéditeur est de l'agence s'affiche comme les autres mails de l'agence, jamais
+ * “non affecté”. Un mail interne (agence → agence) idem. »
+ *
+ * ⚠️ ET CE N'EST PAS LE SECOND JUGE QUE L'ANCIEN COMMENTAIRE CRAIGNAIT : `estAdresseInterne` est LA définition
+ * du dépôt (`adresseInterne.ts`), celle que le rattachement, le tri des pièces et le bloc des parties lisent
+ * déjà. C'est justement parce qu'elle existe en UN seul endroit qu'on peut s'y fier ici — un collègue qui change
+ * d'adresse la change là, et les quatre voies suivent ensemble.
+ *
+ * ⚠️ AUCUNE DONNÉE N'EST RÉÉCRITE : la correction est dans le CALCUL D'AFFICHAGE, exactement comme Arno le
+ * demande. Les 332 mails gardent leur rattachement tel quel ; c'est leur couleur qui cesse de mentir.
  *
  * 🔴 « CONTACT DU PROPRIÉTAIRE » PORTE LA MÊME COULEUR QUE LE PROPRIÉTAIRE, et ce n'est pas un raccourci : la
  * carte des catégories range précisément ainsi — un contact rangé côté propriétaire a la catégorie
@@ -630,9 +653,9 @@ export function motDeuxCompteurs(i: { aEcrit: number; enCopie: number }): string
  * les quatre groupes du bloc PARTIES. Une cinquième couleur pour les contacts aurait demandé de les distinguer
  * à l'œil, ce qu'Arno n'a pas demandé — et aurait doublé la légende.
  *
- * ⚠️ UNE ADRESSE INCONNUE DONNE « gris », PAS « nous ». C'est le cas le plus fréquent au départ (90 adresses non
- * affectées sur la base), et le gris POINTILLÉ dit exactement ce qu'il est : il reste un geste à faire. Le
- * confondre avec « aucune couleur » aurait fait passer un tiers inconnu pour un collègue.
+ * ⚠️ UNE ADRESSE INCONNUE **ET EXTERNE** DONNE « gris », PAS « nous ». C'est le cas le plus fréquent au départ
+ * (90 adresses non affectées sur la base), et le gris POINTILLÉ dit exactement ce qu'il est : il reste un geste
+ * à faire. Le confondre avec « aucune couleur » ferait passer un tiers inconnu pour un collègue.
  */
 export type TonMail = TonGroupe | 'nous';
 
@@ -641,7 +664,17 @@ export function tonDeLExpediteur(
   categories: ReadonlyMap<string, CategoriePartie>,
 ): TonMail {
   if (l.sens === 'envoye') return 'nous';
-  const c = categories.get((l.de ?? '').trim().toLowerCase());
+  const adresse = (l.de ?? '').trim().toLowerCase();
+  /**
+   * 🔴 UNE DE NOS ADRESSES ⇒ « nous », MÊME SUR UN MAIL REÇU (règle d'Arno, voir l'encadré).
+   *
+   * ⚠️ L'ADRESSE VIDE EST ÉCARTÉE D'ABORD, ET C'EST INDISPENSABLE : `estAdresseInterne('')` rend `true` — sa
+   * question à elle est « peut-on s'en servir pour désigner une partie ? », et une chaîne vide ne désigne
+   * personne. Sans cette garde, un mail sans expéditeur lisible serait peint « nous », c'est-à-dire affirmé
+   * des nôtres. Le gris, lui, dit la vérité : on ne sait pas.
+   */
+  if (adresse !== '' && estAdresseInterne(adresse)) return 'nous';
+  const c = categories.get(adresse);
   return c === undefined ? 'gris' : TONS_GROUPES[c];
 }
 
