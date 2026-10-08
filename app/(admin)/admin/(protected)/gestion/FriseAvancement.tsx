@@ -26,7 +26,7 @@ import { questionAvantRetrait } from '../../../../lib/gestion/etatParLaFrise';
 import { useDefilementFrise } from './useDefilementFrise';
 /* 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — le clic maintenu qui déplace une carte. Même discipline que le
    défilement : le geste vit dans un crochet, l'arithmétique dans un module PUR (`glisserCarte`). */
-import { useGlisserCarte } from './useGlisserCarte';
+import { useDrapeauGeste, useGlisserCarte } from './useGlisserCarte';
 
 /**
  * ══ 🔴🔴 LOT FRISE-HORIZONTALE — LA FRISE D'AVANCEMENT, EN LIGNE ═════════════════════════════════════════════════
@@ -226,7 +226,13 @@ export function FriseAvancement({
    * ⚠️ `vue` EN TÉMOIN DE RELECTURE : la largeur de la piste change à chaque relecture (une étape confirmée,
    * un montant saisi), et les flèches doivent se remesurer sans qu'on touche la frise.
    */
-  const defilement = useDefilementFrise<HTMLOListElement>(vue);
+  /**
+   * 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — LES DEUX GESTES NE SE DISPUTENT PLUS L'APPUI. `gesteDeCarte` dit à la
+   * piste de ne pas tirer tant qu'une carte est saisie ; c'est la correction du constat d'Arno (« le geste ne
+   * prend pas »). La référence est créée ici parce que les deux crochets doivent la partager.
+   */
+  const drapeauGeste = useDrapeauGeste();
+  const defilement = useDefilementFrise<HTMLOListElement>(vue, drapeauGeste.lire);
   const { bords } = defilement;
 
   /**
@@ -240,12 +246,29 @@ export function FriseAvancement({
    * ⚠️ L'OUVERTURE DÉRIVÉE EST RETIRÉE DE L'ENVOI : elle n'est pas une ligne de la table (son identifiant est
    * `0`, qui n'existe pas en base), et la route refuserait l'ensemble entier à cause d'elle.
    */
+  /**
+   * ══ 🔴🔴 CE QUI PART AU SERVEUR : LA SUITE **COMPLÈTE**, POINTS COMPRIS ════════════════════════════════════
+   *
+   * 🔴 DÉFAUT TROUVÉ À L'ÉCRAN LE 08/10/2026. Le glisser lit la rangée dans le DOM, qui ne contient que les
+   * CARRÉS : les POINTS (messages informatifs) en étaient absents, l'ordre envoyé était incomplet, et le dépôt
+   * le refusait en bloc — à juste titre : renuméroter sur un ensemble partiel écraserait l'ordre des absents.
+   * Résultat, sur toute frise portant un point, AUCUN déplacement n'aboutissait.
+   *
+   * 🔴 ON RECONSTITUE DONC LA SUITE ENTIÈRE AVANT D'ENVOYER : les carrés prennent leur nouvel ordre, les points
+   * gardent leur place (`sequenceReordonnee`, module pur). La règle se relit en une phrase — « j'ai déplacé un
+   * carré, les points n'ont pas bougé ».
+   *
+   * ⚠️ L'OUVERTURE DÉRIVÉE EST RETIRÉE : son identifiant est `0`, qui n'existe pas en base.
+   */
   const deposer = useCallback((ordre: number[]): void => {
     void agirRef.current?.(
       `/api/admin/gestion/evenements/${evenementId}/frise`, 'PATCH',
       { geste: 'ordre', cartes: ordre.filter((id) => id > 0) });
   }, [evenementId]);
-  const glisserCarte = useGlisserCarte(defilement.ref, deposer);
+  const {
+    saisie: carteSaisie, commencer: saisirLaCarte, commencerParLaPoignee: saisirParLaPoignee,
+    repere: poserLeRepere,
+  } = useGlisserCarte(defilement.ref, deposer, drapeauGeste.poser);
 
   const charger = useCallback(async () => {
     try {
@@ -448,6 +471,18 @@ export function FriseAvancement({
           * un seul gestionnaire de défilement écrit ici : « même code, pas de second chemin » (Arno).
           */}
         <ol className="fav-piste" ref={defilement.ref} {...defilement.attaches}>
+          {/**
+            * 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — LE REPÈRE DE DÉPÔT (Arno) : « un repère vertical montre où il va
+            * tomber entre deux carrés ».
+            *
+            * 🔴 IL VIT DANS LA PISTE, ET NON DANS LE CADRE : ses coordonnées sont celles du CONTENU, pas de la
+            * fenêtre. Posé dans le cadre, il se serait décalé de tout le défilement dès qu'on approche d'un bord
+            * — c'est-à-dire exactement quand on en a besoin.
+            *
+            * ⚠️ `aria-hidden` ET MASQUÉ PAR DÉFAUT : c'est un trait, il ne dit rien qu'un lecteur d'écran doive
+            * entendre, et la carte saisie porte déjà sa mention.
+            */}
+          <span className="fav-repere" ref={poserLeRepere} hidden aria-hidden="true" />
           {ligne.map((el) => (
             <ElementDeLaFrise
               key={el.cle} el={el} avecReference={plusieursRefs} occupe={occupe}
@@ -459,7 +494,7 @@ export function FriseAvancement({
               onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
               onAjouter={ouvrirReservoir} aujourdhui={aujourdhui}
               horsChronologie={el.case !== undefined && deplacees.has(el.case.cle)}
-              saisie={glisserCarte.saisie} onSaisir={glisserCarte.commencer}
+              saisie={carteSaisie} onSaisir={saisirLaCarte} onPoignee={saisirParLaPoignee}
               onOuverture={(j) => void agir(
                 `/api/admin/gestion/evenements/${evenementId}/frise`, 'PATCH',
                 { geste: 'ouverture', survenuLe: j })}
@@ -621,6 +656,7 @@ function ElementDeLaFrise(p: {
   horsChronologie?: boolean;
   saisie?: number | null;
   onSaisir?: (id: number, ev: ReactPointerEvent) => void;
+  onPoignee?: (id: number, ev: ReactPointerEvent) => void;
 }) {
   if (p.el.sorte === 'plus') {
     return (
@@ -699,6 +735,11 @@ function Point({
   return (
     <button
       type="button" className={`fav-point fav-point--${m.type}${actif ? ' fav-point--actif' : ''}`}
+      /* 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — LE POINT PORTE SON IDENTIFIANT, ET SE DIT FIXE. L'ordre envoyé au
+         serveur doit être COMPLET : sans les points, le dépôt le refuse en bloc et aucun déplacement
+         n'aboutit (défaut mesuré le 08/10/2026). `data-fixe` dit qu'il ne se déplace pas : un point de 11 px
+         ne se saisit pas, et Arno ne le demande pas. */
+      data-carte={m.id} data-fixe="oui"
       aria-expanded={actif} onClick={onOuvrir}
       onMouseEnter={() => onSurvol(`p${m.id}`)} onMouseLeave={() => onSurvol(null)}
       onFocus={() => onSurvol(`p${m.id}`)} onBlur={() => onSurvol(null)}
@@ -714,7 +755,7 @@ function Point({
 function Carre({
   c, avecReference, occupe, cleOuverture, calerSurUneFois, ouvert, onOuvrir,
   onOuvrirFil, onConfirmer, onMontant, onRetirer, onOuverture,
-  horsChronologie = false, saisie = null, onSaisir,
+  horsChronologie = false, saisie = null, onSaisir, onPoignee,
 }: {
   c: CaseFrise; avecReference: boolean; occupe: boolean; cleOuverture: string | null;
   calerSurUneFois: (cible: HTMLElement | null) => void;
@@ -730,6 +771,8 @@ function Carre({
   saisie?: number | null;
   /** 🔴 POINT 8 — le clic maintenu commence ici ; le reste du geste vit dans `useGlisserCarte`. */
   onSaisir?: (id: number, ev: ReactPointerEvent) => void;
+  /** 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — la poignée ⠿ : elle démarre le glisser SANS délai (Arno). */
+  onPoignee?: (id: number, ev: ReactPointerEvent) => void;
 }) {
   const moi = useRef<HTMLLIElement | null>(null);
 
@@ -871,6 +914,34 @@ function Carre({
         + (aConfirmer && e.type === 'cloture' ? '' : CLASSE_COULEUR[couleurDeLaCarte(e.type)])}
         title={pose ?? undefined}>
         {/**
+          * ══ 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — LA POIGNÉE, ET ELLE DÉMARRE LE GLISSER SUR-LE-CHAMP ════════
+          *
+          * ARNO : « sur chaque carré déplaçable, une petite poignée visible (icône ⠿, discrète, EN HAUT À
+          * GAUCHE du carré, sans chevaucher le titre, le crayon ni le “…”). Au survol : curseur “main
+          * ouverte”, puis “main fermée” pendant le glisser. Saisir la poignée démarre le glisser IMMÉDIATEMENT,
+          * sans délai de maintien. »
+          *
+          * 🔴 C'EST LE CHEMIN SÛR, ET C'EST POURQUOI ELLE EXISTE. Le clic maintenu, lui, doit se distinguer d'un
+          * clic et d'un défilement : il lui faut donc un seuil, et un seuil est une course qu'on peut perdre —
+          * c'est exactement ce qui s'est passé. Une poignée n'a rien à deviner : elle ne sert qu'à cela.
+          *
+          * ⚠️ UN `<button>`, ET NON UNE `<div>` : elle est atteignable au clavier et nommée pour le lecteur
+          * d'écran. Le glisser lui-même reste à la souris — le clavier a l'ordre de pose, qui ne ment pas.
+          *
+          * ⚠️ PAS DE POIGNÉE SUR UNE BORNE NI SUR L'OUVERTURE DÉRIVÉE (Arno) : elles ne se déplacent pas, et
+          * `deplacable` dit déjà laquelle est laquelle — une seconde condition aurait pu diverger.
+          */}
+        {deplacable && onPoignee !== undefined && (
+          <button type="button" className="fav-poignee" aria-label={`Déplacer la carte ${c.mot}`}
+            title="Glisser pour déplacer cette carte"
+            onPointerDown={(ev) => onPoignee(e.id, ev)}
+            /* ⚠️ ELLE N'EST PAS UN BOUTON QUI « FAIT » QUELQUE CHOSE AU CLIC : un clic sec dessus ne doit ni
+               ouvrir la bulle ni rien enregistrer. On arrête donc le clic ici. */
+            onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}>
+            <span aria-hidden="true">⠿</span>
+          </button>
+        )}
+        {/**
           * 🔴 UN CLIC SUR UN CARRÉ MONGA OUVRE LE MAIL D'ORIGINE (Arno). Quand il n'y en a pas — étape manuelle,
           * mail supprimé, étape déduite — le carré ouvre son détail plutôt que de ne rien faire : un carré qui
           * ne réagit pas au clic se lit comme une panne.
@@ -886,7 +957,8 @@ function Carre({
         >
           {/* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 6 — « Le TITRE et la DATE de ces cartes sont tous deux
               CENTRÉS dans le carré » (Arno). Le titre d'une Clôture était calé à gauche sous une date centrée. */}
-          <span className={`fav-titre${dateAuCentre(e.type) ? ' fav-titre--centree' : ''}`}>
+          <span className={`fav-titre${dateAuCentre(e.type) ? ' fav-titre--centree' : ''}`
+            + (deplacable && onPoignee !== undefined ? ' fav-titre--poignee' : '')}>
             {c.mot}
             {/* ⚠️ LE PICTO NE PORTE PAS L'INFORMATION SEUL : la source est lue dans la bulle et au lecteur d'écran. */}
             <span className="fav-picto" aria-hidden="true"> {pictoSource(e)}</span>
@@ -1660,7 +1732,11 @@ const CSS_FRISE_AVANCEMENT = `
    ⚠️ NE PAS LA REMETTRE ICI : posee en feuille, elle s'applique a tout, y compris au continu.
    ⚠️ overscroll-behavior-x: contain — arriver au bout de la frise ne doit pas emporter la page en arriere
    (geste de retour du trackpad). Meme regle que la frise des mails. */
-.fav-piste{list-style:none;margin:0;padding:10px 2px 30px;min-height:132px;box-sizing:border-box;
+/* ⚠️ position:relative DEPUIS LE LOT FRISE-POIGNEE-DE-SAISIE : le repere de depot (.fav-repere) se pose en
+   absolu dans le repere du CONTENU de la piste, celui qui defile. Rien d'autre ne s'en trouve change — les
+   enfants etaient deja tous dans le flux.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-piste{position:relative;list-style:none;margin:0;padding:10px 2px 30px;min-height:132px;box-sizing:border-box;
   display:flex;align-items:flex-start;
   gap:0;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}
 /* ══ 🔴🔴 LOT FRISE-COMPACTE, POINT 4 — LE GRAND CADRE ROUGE, DIAGNOSTIQUE ET REMPLACE ════════════════════════
@@ -1900,9 +1976,38 @@ const CSS_FRISE_AVANCEMENT = `
    defilement horizontal au doigt — exactement ce qu'Arno demande de garder.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .fav-el--carre[data-carte]:not([data-fixe]) .fav-carre{cursor:grab;touch-action:none}
-.fav-el--saisie .fav-carre{cursor:grabbing;opacity:.75;
+.fav-el--saisie .fav-carre{cursor:grabbing;
   box-shadow:0 0 0 2px var(--color-svv-red),0 0 0 5px var(--color-svv-bg)}
-.fav-el--saisie{position:relative;z-index:3}
+/* ⚠️ LE FANTOME EST TRANSPARENT EN ENTIER, ligne « creee le » comprise — defaut vu a l'ecran : l'opacite posee
+   sur le seul carre laissait la mention en pleine encre par-dessus celle de la carte survolee, et les deux
+   dates se chevauchaient, illisibles. Un fantome est un bloc, pas un cadre. */
+.fav-el--saisie{position:relative;z-index:3;opacity:.7}
+/* ══ 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — LA POIGNEE ⠿ ══════════════════════════════════════════════════════════
+   ARNO : « une petite poignee visible (icone ⠿, discrete, en haut a gauche du carre, sans chevaucher le titre,
+   le crayon ni le “…”). Au survol de la poignee : curseur “main ouverte”, puis “main fermee” pendant le
+   glisser. »
+   🔴 EN HAUT A GAUCHE, EN ABSOLU, SYMETRIQUE DU MENU « … » qui occupe le coin droit (right:4px, top:3px) : les
+   deux coins sont ainsi pris, et le titre vit entre eux.
+   ⚠️ LE TITRE RECULE DE 18 px (.fav-titre--poignee) : sans cela il passerait SOUS la poignee. C'est la seule
+   facon de tenir le « sans chevaucher » d'Arno sans retirer une ligne de texte.
+   ⚠️ DISCRETE AU REPOS, FRANCHE AU SURVOL : au repos elle est en gris du theme, pour ne pas crier sur chaque
+   carte ; au survol elle prend l'encre, pour dire qu'elle repond.
+   ⚠️ touch-action:none — sans lui, le navigateur tactile prend le maintien pour un defilement et la poignee ne
+   repond jamais au doigt.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-poignee{position:absolute;left:3px;top:2px;z-index:2;width:16px;height:18px;padding:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  font:inherit;font-size:.82rem;line-height:1;border:0;border-radius:4px;background:none;
+  color:var(--color-svv-muted);cursor:grab;touch-action:none}
+.fav-poignee:hover,.fav-poignee:focus-visible{color:var(--color-svv-ink);background:var(--color-svv-line)}
+.fav-el--saisie .fav-poignee{cursor:grabbing;color:var(--color-svv-ink)}
+.fav-titre--poignee{padding-left:18px}
+/* ══ 🔴🔴 LE REPERE DE DEPOT — « un repere vertical montre ou il va tomber entre deux carres » (Arno) ═════════
+   ⚠️ IL VIT DANS LA PISTE, donc dans le repere du CONTENU : pose dans le cadre, il se serait decale de tout le
+   defilement des qu'on approche d'un bord, c'est-a-dire exactement quand on en a besoin.
+   ⚠️ pointer-events:none — un trait sous la souris volerait les evenements au carre qu'on deplace. */
+.fav-repere{position:absolute;top:6px;bottom:26px;width:3px;border-radius:2px;
+  background:var(--color-svv-red);pointer-events:none;z-index:5}
 
 /* Les deux petits boutons d'une etape « a confirmer », et le menu « … ». */
 .fav-doute{position:absolute;right:4px;bottom:4px;display:flex;gap:3px}

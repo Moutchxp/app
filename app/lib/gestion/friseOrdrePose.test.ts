@@ -5,10 +5,14 @@ import {
   TYPES_BORNE, type CaseFrise, type EtapeAAfficher,
 } from './frise';
 import {
-  glisserDemarre, MAINTIEN_MS, MOUVEMENT_PX, placesPermises, placeVisee, rangeeApresGlisser,
+  glisserAbandonne, glisserSArme, MAINTIEN_MS, MOUVEMENT_PX,
+  placesPermises, placeVisee, rangeeApresGlisser, sequenceReordonnee,
   type CarteGlissable,
 } from './glisserCarte';
 import { rangEtape, TYPES_AJOUTABLES, type TypeEtape } from './mongaEtape';
+/* 🔴 LOT FRISE-POIGNEE-DE-SAISIE — le seuil de l'AUTRE geste, celui qui gagnait la course. L'épreuve le lit
+   là où il vit : une valeur recopiée ici cesserait de dire quoi que ce soit le jour où il changerait. */
+import { SEUIL_GLISSER } from './defilementFrise';
 
 /**
  * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — L'ORDRE EST CELUI DE LA POSE, ET IL SE DÉPLACE À LA SOURIS ═══════════
@@ -238,16 +242,58 @@ const carte = (id: number, centre: number, deplacable = true): CarteGlissable =>
 
 describe('🔴🔴 ④ le glisser : un vrai maintien, et un vrai mouvement', () => {
   /**
-   * 🔴🔴 C8 — « le glisser ne démarre qu'après un VRAI MAINTIEN + MOUVEMENT ». LES DEUX, et c'est ce qui protège
-   * le clic simple, le crayon et le menu « … ».
+   * ══ 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE (08/10/2026) — LE VERDICT S'INVERSE, ET C'EST LA CORRECTION ═════════
+   *
+   * Cette épreuve exigeait `glisserDemarre(220 ms, 6 px) === true` : maintien ET mouvement AU MÊME INSTANT.
+   * C'est précisément ce qui ne prenait pas chez Arno — voir l'encadré de `glisserCarte`. Ce qui produit les
+   * `pointermove`, c'est le MOUVEMENT : quand les 220 ms sont écoulées, la main a déjà dépassé les 4 px du
+   * DÉFILEMENT de la piste, qui a pris la capture du pointeur depuis longtemps (mesuré : t+5 ms).
+   *
+   * 🔴 LE GESTE S'ARME DÉSORMAIS SUR L'IMMOBILITÉ : appuyer et ne pas bouger. Et il est ABANDONNÉ dès que la
+   * main part avant — c'est alors un défilement, et la frise le prend. Les deux gestes sont exclusifs.
    */
-  it('🔴🔴 ni le maintien seul ni le mouvement seul ne déclenchent le glisser', () => {
-    expect(glisserDemarre(MAINTIEN_MS, MOUVEMENT_PX, 0)).toBe(true);
-    /* Un clic ordinaire (120 ms) qui bouge beaucoup : ce n'est pas un glisser. */
-    expect(glisserDemarre(120, 40, 0)).toBe(false);
-    /* Un maintien long mais immobile : on lit une bulle, on ne déplace rien. */
-    expect(glisserDemarre(900, 0, 0)).toBe(false);
-    expect(glisserDemarre(900, MOUVEMENT_PX - 1, MOUVEMENT_PX - 1)).toBe(false);
+  it('🔴🔴 le maintien s’arme sur l’IMMOBILITÉ, jamais sur un mouvement simultané', () => {
+    /* Appuyé et immobile assez longtemps : c'est un clic maintenu. */
+    expect(glisserSArme(MAINTIEN_MS, 0, 0)).toBe(true);
+    expect(glisserSArme(MAINTIEN_MS, MOUVEMENT_PX - 1, MOUVEMENT_PX - 1)).toBe(true);
+    /* Pas encore assez long : rien. */
+    expect(glisserSArme(MAINTIEN_MS - 1, 0, 0)).toBe(false);
+    /* Assez long MAIS la main a déjà filé : ce n'est pas un maintien, c'est un défilement. */
+    expect(glisserSArme(900, MOUVEMENT_PX, 0)).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 ET L'ABANDON EST CE QUI LAISSE SA PLACE AU DÉFILEMENT. Sans lui, le geste de carte resterait en
+   * embuscade et s'armerait au bout de 220 ms EN PLEIN défilement — la frise sauterait sous la main.
+   */
+  it('🔴🔴 bouger avant la fin du maintien rend le geste à la frise', () => {
+    expect(glisserAbandonne(50, MOUVEMENT_PX, 0)).toBe(true);
+    expect(glisserAbandonne(50, 0, MOUVEMENT_PX)).toBe(true);
+    /* Immobile : on n'abandonne pas, on attend. */
+    expect(glisserAbandonne(50, MOUVEMENT_PX - 1, 0)).toBe(false);
+    /* Après l'armement, l'abandon n'a plus cours. */
+    expect(glisserAbandonne(MAINTIEN_MS, 999, 0)).toBe(false);
+  });
+
+  /**
+   * ⚠️ LES DEUX PRÉDICATS SONT EXCLUSIFS, ET C'EST CE QUI REND LE GESTE PRÉVISIBLE : aucun couple (durée,
+   * distance) ne peut à la fois armer et abandonner. Éprouvé sur une grille, pas sur trois exemples choisis.
+   */
+  it('🔴🔴 s’armer et abandonner ne sont jamais vrais ensemble', () => {
+    for (const ms of [0, 50, 219, 220, 500]) {
+      for (const d of [0, 3, 5, 6, 7, 50]) {
+        expect(glisserSArme(ms, d, 0) && glisserAbandonne(ms, d, 0), `${ms}ms ${d}px`).toBe(false);
+      }
+    }
+  });
+
+  /**
+   * 🔴🔴 ET LE SEUIL DE LA CARTE RESTE AU-DESSUS DE CELUI DE LA FRISE (6 px contre 4) : à égalité, un geste
+   * hésitant aurait pu armer les deux. C'est la frise qui doit gagner un mouvement franc, et la carte une
+   * main posée.
+   */
+  it('🔴🔴 le seuil de la carte est plus exigeant que celui du défilement', () => {
+    expect(MOUVEMENT_PX).toBeGreaterThan(SEUIL_GLISSER);
   });
 
   /** ⚠️ LE SEUIL EST AU-DESSUS D'UN CLIC HUMAIN ORDINAIRE (70 à 150 ms), et en dessous du « coincé ». */
@@ -301,6 +347,49 @@ describe('🔴🔴 ④ le glisser : un vrai maintien, et un vrai mouvement', () 
   it('🔴🔴 une borne saisie ne produit aucun ordre', () => {
     const rangee = [carte(1, 100, false), carte(2, 300), carte(3, 500)];
     expect(rangeeApresGlisser(rangee, 1, 900)).toBeNull();
+  });
+
+  /**
+   * ══ 🔴🔴 DÉFAUT TROUVÉ À L'ÉCRAN LE 08/10/2026 — LES POINTS MANQUAIENT À L'ORDRE ENVOYÉ ═══════════════════
+   *
+   * La rangée se lit dans le DOM, qui ne contient que les CARRÉS. Les POINTS (messages informatifs) en étaient
+   * absents : l'ordre envoyé était incomplet, et le dépôt le refusait en bloc — à juste titre. Résultat, sur
+   * toute frise portant ne serait-ce qu'un point, AUCUN déplacement n'aboutissait, et rien ne le disait.
+   * Mesuré sur un événement d'essai portant une « Facture » en point.
+   *
+   * 🔴 LA RÈGLE : les carrés se réordonnent entre eux, chaque point garde sa place ABSOLUE. C'est la seule qui
+   * ne demande pas de deviner à quel carré un point serait « attaché ».
+   */
+  it('🔴🔴 un point garde sa place quand un carré bouge', () => {
+    /* Suite : carte 1, carte 2, POINT 9, carte 3. On déplace la 3 en tête des cartes. */
+    expect(sequenceReordonnee([1, 2, 9, 3], [1, 2, 3], [3, 1, 2])).toEqual([3, 1, 9, 2]);
+  });
+
+  it('🔴🔴 la suite rendue est une PERMUTATION de celle reçue : rien n’est perdu, rien n’est inventé', () => {
+    const suite = [5, 9, 1, 8, 2, 3];
+    const cartes = [5, 1, 2, 3];
+    const apres = sequenceReordonnee(suite, cartes, [3, 5, 1, 2]);
+    expect([...apres].sort((a, b) => a - b)).toEqual([...suite].sort((a, b) => a - b));
+    /* ⚠️ ET LES POINTS N'ONT PAS BOUGÉ D'INDICE : 9 en 1re place, 8 en 3e, comme avant. */
+    expect(apres[1]).toBe(9);
+    expect(apres[3]).toBe(8);
+  });
+
+  it('⚠️ sans aucun point, elle rend exactement le nouvel ordre des cartes', () => {
+    expect(sequenceReordonnee([1, 2, 3], [1, 2, 3], [3, 2, 1])).toEqual([3, 2, 1]);
+  });
+
+  /**
+   * 🔴 ET C'EST LA SUITE COMPLÈTE QUI PART, pas la rangée des seuls carrés. Elle se lit DANS LE DOM : tout ce
+   * qui porte un `data-carte`, dans l'ordre du document — littéralement ce qu'on voit. Aucune liste parallèle
+   * à tenir d'accord avec l'écran.
+   */
+  it('🔴🔴 l’ordre envoyé est la suite complète, points compris', () => {
+    const CROCHET = readFileSync('app/(admin)/admin/(protected)/gestion/useGlisserCarte.ts', 'utf8');
+    expect(CROCHET).toContain("p.querySelectorAll<HTMLElement>('[data-carte]')");
+    expect(CROCHET).toContain('sequenceReordonnee(sequence(), avant, apres.filter((id) => id > 0))');
+    /* 🔴 ET LES POINTS PORTENT LEUR IDENTIFIANT, sans quoi ils manqueraient à cette suite. */
+    expect(FRISE).toContain('data-carte={m.id} data-fixe="oui"');
   });
 
   /** 🔴 ET UNE CARTE POUSSÉE TROP LOIN EST RABOTÉE SUR LA DERNIÈRE PLACE PERMISE, jamais refusée en silence. */
@@ -408,13 +497,84 @@ describe('🔴🔴 ⑥ le câblage : un rang à la pose, un ordre complet au dé
     expect(FRISE).toContain("{ geste: 'ordre', cartes: ordre.filter((id) => id > 0) }");
   });
 
+  /**
+   * ══ 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — LA POIGNÉE, ET LE CONFLIT QU'ELLE CLÔT ════════════════════════════
+   *
+   * ARNO : « sur chaque carré déplaçable, une petite poignée visible (icône ⠿) […] Saisir la poignée démarre
+   * le glisser IMMÉDIATEMENT, sans délai de maintien. »
+   */
+  it('🔴🔴 la poignée existe sur les cartes déplaçables, et sur elles seules', () => {
+    expect(FRISE).toContain('{deplacable && onPoignee !== undefined && (');
+    expect(FRISE).toContain('className="fav-poignee"');
+    expect(FRISE).toContain('<span aria-hidden="true">⠿</span>');
+    /* ⚠️ ELLE EST NOMMÉE POUR LE LECTEUR D'ÉCRAN : un ⠿ seul ne se lit pas. */
+    expect(FRISE).toContain('aria-label={`Déplacer la carte ${c.mot}`}');
+  });
+
+  /** 🔴 « main ouverte » au survol, « main fermée » pendant le glisser (Arno). */
+  it('🔴🔴 la poignée annonce qu’elle se prend, et qu’on la tient', () => {
+    expect(FRISE).toContain('cursor:grab;touch-action:none}');
+    expect(FRISE).toContain('.fav-el--saisie .fav-poignee{cursor:grabbing');
+    /* ⚠️ ET ELLE NE CHEVAUCHE NI LE TITRE NI LE MENU : le titre recule, le menu tient l'autre coin. */
+    expect(FRISE).toContain('.fav-titre--poignee{padding-left:18px}');
+    expect(FRISE).toContain('.fav-poignee{position:absolute;left:3px;top:2px');
+    expect(FRISE).toContain('.fav-menu{position:absolute;right:4px');
+  });
+
+  /** 🔴🔴 ET ELLE DÉMARRE SANS AUCUN SEUIL — c'est tout l'intérêt d'une poignée. */
+  it('🔴🔴 la poignée arme le glisser sur-le-champ, et prend le geste pour elle', () => {
+    const CROCHET = readFileSync('app/(admin)/admin/(protected)/gestion/useGlisserCarte.ts', 'utf8');
+    expect(CROCHET).toContain('const commencerParLaPoignee = useCallback(');
+    /* ⚠️ `stopPropagation` : sans lui, le même appui armerait AUSSI le maintien du carré et le tirage de la
+       piste. La poignée prend le geste pour elle, et c'est sa raison d'être. */
+    expect(CROCHET).toContain('ev.stopPropagation();');
+    /* 🔴 ET AUCUN SEUIL N'EST CONSULTÉ SUR CE CHEMIN : `armer()` est appelé directement. */
+    const i = CROCHET.indexOf('const commencerParLaPoignee');
+    const bloc = CROCHET.slice(i, CROCHET.indexOf('}, [armer]);', i));
+    expect(bloc).toContain('armer();');
+    expect(bloc).not.toContain('glisserSArme');
+  });
+
+  /**
+   * ══ 🔴🔴 LA CAUSE DU CONSTAT D'ARNO EST FERMÉE DES DEUX CÔTÉS ════════════════════════════════════════════
+   *
+   * La piste démarrait son tirage à 4 px sans délai et prenait la capture du pointeur. Tant qu'une carte est
+   * saisie, elle se tait — et c'est une référence PARTAGÉE qui le dit, pas deux états à tenir d'accord.
+   */
+  it('🔴🔴 la piste ne tire plus pendant qu’on déplace une carte', () => {
+    const DEFIL = readFileSync('app/(admin)/admin/(protected)/gestion/useDefilementFrise.ts', 'utf8');
+    expect(DEFIL).toContain('if (gesteDeCarte?.() === true) return;');
+    /* ⚠️ FACULTATIF : la frise des MAILS ne le passe pas, et se comporte exactement comme avant. */
+    expect(DEFIL).toContain('gesteDeCarte?: () => boolean,');
+    /**
+     * 🔴 UN ÉCRIVAIN, UN LECTEUR, ET AUCUNE RÉFÉRENCE QUI VOYAGE. Le drapeau est créé par `useDrapeauGeste`,
+     * qui ne laisse sortir que deux fonctions : le glisser POSE, le défilement LIT. Une référence passée d'un
+     * crochet à l'autre puis mutée est refusée par le compilateur React — et il a raison sur le fond : une
+     * référence qui circule est une référence dont plus personne ne sait qui l'écrit.
+     */
+    expect(FRISE).toContain('const drapeauGeste = useDrapeauGeste();');
+    expect(FRISE).toContain('useDefilementFrise<HTMLOListElement>(vue, drapeauGeste.lire)');
+    expect(FRISE).toContain('useGlisserCarte(defilement.ref, deposer, drapeauGeste.poser)');
+  });
+
+  /** 🔴 LE REPÈRE DE DÉPÔT, ET ÉCHAP QUI ANNULE (Arno). */
+  it('🔴🔴 un repère montre où la carte tombe, et Échap la remet en place', () => {
+    const CROCHET = readFileSync('app/(admin)/admin/(protected)/gestion/useGlisserCarte.ts', 'utf8');
+    expect(FRISE).toContain('<span className="fav-repere" ref={poserLeRepere} hidden aria-hidden="true" />');
+    expect(FRISE).toContain('.fav-repere{position:absolute;');
+    /* ⚠️ DANS LA PISTE, donc dans le repère du CONTENU : posé dans le cadre, il se décalerait du défilement. */
+    expect(FRISE).toContain('.fav-piste{position:relative;');
+    expect(CROCHET).toContain("if (ev.key !== 'Escape' || geste.current === null) return;");
+    /* 🔴 ANNULER N'ENVOIE RIEN : `ranger` remet le fantôme, et le geste est marqué mort. */
+    expect(CROCHET).toContain('geste.current.mort = true;');
+  });
+
   /** 🔴 ET LE DÉFILEMENT RESTE UTILISABLE PENDANT LE GLISSER (exigence d'Arno, point 8). */
   it('🔴🔴 la piste défile toute seule aux bords, et les flèches ne sont pas touchées', () => {
     const CROCHET = readFileSync('app/(admin)/admin/(protected)/gestion/useGlisserCarte.ts', 'utf8');
     expect(CROCHET).toContain('p.scrollLeft -= PAS_PX');
     expect(CROCHET).toContain('p.scrollLeft += PAS_PX');
     /* ⚠️ `touch-action:none` SUR LES SEULES CARTES, jamais sur la piste : sinon le défilement au doigt meurt. */
-    expect(FRISE).toContain('.fav-el--carre[data-carte]:not([data-fixe]) .fav-carre{cursor:grab;touch-action:none}');
     expect(FRISE).not.toMatch(/\.fav-piste\{[^}]*touch-action/);
   });
 });

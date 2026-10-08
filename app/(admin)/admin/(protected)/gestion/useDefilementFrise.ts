@@ -81,7 +81,16 @@ export interface DefilementFrise<T extends HTMLElement> {
   };
 }
 
-export function useDefilementFrise<T extends HTMLElement>(relecture: unknown): DefilementFrise<T> {
+export function useDefilementFrise<T extends HTMLElement>(
+  relecture: unknown,
+  /**
+   * 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — « UNE CARTE EST EN TRAIN D'ÊTRE DÉPLACÉE ». Tant que c'est vrai, la
+   * piste ne se laisse pas tirer : les deux gestes se disputaient le même appui, et celui-ci gagnait toujours.
+   *
+   * ⚠️ FACULTATIF, et la frise des MAILS ne le passe pas : sans lui, ce crochet est EXACTEMENT celui d'avant.
+   */
+  gesteDeCarte?: () => boolean,
+): DefilementFrise<T> {
   const ref = useRef<T | null>(null);
   const [bords, setBords] = useState({ gauche: false, droite: false });
 
@@ -192,6 +201,23 @@ export function useDefilementFrise<T extends HTMLElement>(relecture: unknown): D
     const el = ref.current;
     const t = tire.current;
     if (el === null || t === null) return;
+    /**
+     * ══ 🔴🔴 LOT FRISE-POIGNEE-DE-SAISIE — LA PISTE NE TIRE PAS PENDANT QU'ON DÉPLACE UNE CARTE ═══════════
+     *
+     * CONSTAT D'ARNO (08/10/2026) : « je n'arrive PAS à déplacer les carrés par clic maintenu. »
+     *
+     * 🔴 LA CAUSE ÉTAIT ICI. Ce glisser-ci démarre à 4 px, SANS DÉLAI, et prend la capture du pointeur deux
+     * lignes plus bas. Le glisser de CARTE, lui, demande un maintien : il arrivait toujours après, sur une
+     * frise déjà en train de défiler sous le curseur. Mesuré au mouchard : capture prise à t+5 ms.
+     *
+     * 🔴 LES DEUX GESTES SONT DÉSORMAIS EXCLUSIFS. Dès qu'une carte est saisie — par sa poignée, ou par un
+     * maintien immobile —, la frise cesse de se laisser tirer : c'est le glisser de carte qui la fait défiler
+     * aux bords, et lui seul (`useGlisserCarte`). Arno garde donc ses deux gestes, sans qu'ils se disputent.
+     *
+     * ⚠️ `gesteDeCarte` EST FACULTATIF, et la frise des MAILS ne le passe pas : sans lui, ce crochet se
+     * comporte EXACTEMENT comme avant ce lot. Aucun des deux écrans ne change pour l'autre.
+     */
+    if (gesteDeCarte?.() === true) return;
     const d = e.clientX - t.x;
     if (!t.pris && !glisserCommence(d)) return;
     if (!t.pris) {
@@ -200,6 +226,10 @@ export function useDefilementFrise<T extends HTMLElement>(relecture: unknown): D
     }
     /* 🔴 INSTANTANÉ, SANS DISCUSSION : c'est du continu, et c'est là qu'était la panne. */
     poser(el, t.depart - d);
+    /* ⚠️ `gesteDeCarte` EST UNE RÉFÉRENCE, et elle ne figure PAS dans les dépendances : sa valeur change sans
+       rendu, la lire dans le corps du rappel suffit, et l'y inscrire ferait perdre la mémoïsation (le
+       compilateur React le refuse — « Existing memoization could not be preserved »). */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const finDuGlisser = useCallback((e: React.PointerEvent<T>): void => {
