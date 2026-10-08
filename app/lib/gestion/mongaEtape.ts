@@ -94,12 +94,26 @@ export type TypeEtape =
   | 'assurance'
   | 'expertise'
   | 'relance'
+  /**
+   * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA CARTE QUI ROUVRE UN DOSSIER CLOS ════════════════════════════════════
+   *
+   * ARNO (08/10/2026) : « Ajouter la carte “Réouverture” rouvre un événement clos : statut ouvert, nouvelle
+   * période “Événement ouvert” qui commence à la date de la carte. […] C'est le SEUL moyen de rouvrir un
+   * événement clos. »
+   *
+   * 🔴 UNE ÉTAPE, ET NON UN DRAPEAU. Elle se pose à une DATE, elle reste sur la frise, et c'est elle qui raconte
+   * qu'un dossier qu'on croyait fini est reparti. Un simple retour à « en cours » aurait rouvert sans trace :
+   * on ne saurait plus, six mois après, qu'il y a eu deux périodes.
+   */
+  | 'reouverture'
   | 'autre';
 
 /** Les étapes MAJEURES, celles qui font la colonne vertébrale de la frise. Ordre chronologique attendu. */
 export const ETAPES_MAJEURES: readonly TypeEtape[] = [
   'ouverture', 'prise_rdv', 'rdv_eu_lieu', 'devis_recu', 'devis_refuse', 'devis_accepte',
   'rdv_intervention', 'intervention', 'rapport', 'cloture',
+  /* 🔴 LOT CLOTURE-REOUVERTURE — une réouverture est un fait majeur du dossier, pas un repère. */
+  'reouverture',
 ];
 
 /**
@@ -140,10 +154,34 @@ export const ETAPES_MAJEURES: readonly TypeEtape[] = [
 export const TYPES_RESERVOIR: readonly TypeEtape[] = [
   'prise_rdv', 'rdv_eu_lieu', 'devis_recu', 'devis_refuse', 'devis_accepte',
   'rdv_intervention', 'intervention', 'rapport', 'facture',
-  'assurance', 'expertise', 'relance', 'cloture',
-  /* 🔴 LE CARRÉ LIBRE, EN DERNIER : son titre se saisit, et c'est la seule carte dont le mot ne vient pas du type. */
+  'assurance', 'expertise', 'cloture',
+  /* 🔴 LE CARRÉ LIBRE : son titre se saisit, et c'est la seule carte dont le mot ne vient pas du type. */
   'autre',
+  /**
+   * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — « RÉOUVERTURE », EN DERNIER, JUSTE APRÈS « CARTE LIBRE » (Arno) ════════
+   *
+   * 🔴 ET « RELANCE » A QUITTÉ CETTE LISTE, sur demande expresse d'Arno : « Retire le bouton “Relance” de la
+   * grille “Ajouter une carte”. » Ce n'est PAS un type supprimé — voir `TYPES_HERITES` juste en dessous : les
+   * cartes Relance déjà posées s'affichent, se modifient et se retirent exactement comme avant.
+   */
+  'reouverture',
 ];
+
+/**
+ * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — CE QUI N'EST PLUS PROPOSÉ, MAIS RESTE VALIDE ═══════════════════════════════
+ *
+ * ARNO : « Les cartes “Relance” DÉJÀ posées sur des frises restent affichées telles quelles : aucune donnée
+ * supprimée, aucune modifiée. »
+ *
+ * 🔴 RETIRER UN BOUTON N'EST PAS RETIRER UN TYPE, et c'est toute la raison de cette liste. Les deux routes de la
+ * frise valident le type reçu contre `TYPES_AJOUTABLES` ; si `relance` en sortait, ROUVRIR une carte Relance
+ * existante pour corriger sa date ou son texte serait refusé par le serveur — une carte qu'on peut lire et pas
+ * réparer. Le bouton disparaît de la grille, le type reste accepté.
+ *
+ * ⚠️ ELLE N'EST PAS DANS LE RÉSERVOIR, donc l'écran ne la propose jamais : la grille lit `TYPES_RESERVOIR`, les
+ * routes lisent `TYPES_AJOUTABLES`. Deux questions différentes, deux listes.
+ */
+export const TYPES_HERITES: readonly TypeEtape[] = ['relance'];
 
 /** Les repères discrets : un petit point sur la frise, le contenu au survol. Jamais une étape. */
 export const REPERES: readonly TypeEtape[] =
@@ -164,7 +202,9 @@ export function estRepere(t: TypeEtape): boolean {
  * ⚠️ `commentaire` N'Y EST PAS : un commentaire est ce que MONGA dit, pas ce qu'on ajoute. Pour écrire quelque
  * chose soi-même il y a la carte LIBRE (`autre`), qui porte son titre et son texte.
  */
-export const TYPES_AJOUTABLES: readonly TypeEtape[] = ['ouverture', ...TYPES_RESERVOIR];
+export const TYPES_AJOUTABLES: readonly TypeEtape[] = [
+  'ouverture', ...TYPES_RESERVOIR, ...TYPES_HERITES,
+];
 
 /**
  * ══ 🔴🔴 LOT FRISE-HORIZONTALE — CE QU'ON PEUT POSER EN « SIMPLE INFORMATION » ══════════════════════════════════
@@ -177,7 +217,13 @@ export const TYPES_AJOUTABLES: readonly TypeEtape[] = ['ouverture', ...TYPES_RES
  * ⚠️ `facture` EST DANS LES DEUX LISTES, et c'est voulu : une facture reçue est un repère (c'est ainsi que Monga
  * l'envoie), mais on peut vouloir la poser comme une étape du dossier. Les deux lectures sont légitimes.
  */
-export const TYPES_INFORMATION: readonly TypeEtape[] = ['note', 'facture', 'contact_injoignable', 'relance'];
+/*
+ * 🔴 LOT CLOTURE-REOUVERTURE — « relance » A QUITTÉ CETTE LISTE AUSSI. Arno retire le bouton « Relance » de la
+ * GRILLE, et la grille a deux faces : « Étape (carré) » lit `TYPES_RESERVOIR`, « Simple information (point) »
+ * lit celle-ci. Le laisser ici aurait fait survivre le bouton derrière une bascule — c'est-à-dire ne pas l'avoir
+ * retiré. Le TYPE, lui, reste valide (`TYPES_HERITES`) : les points « Relance » déjà posés sont intacts.
+ */
+export const TYPES_INFORMATION: readonly TypeEtape[] = ['note', 'facture', 'contact_injoignable'];
 
 /**
  * Le rang d'affichage À DATE ÉGALE. Deux étapes du MÊME JOUR se rangent dans l'ordre du dossier, pas au hasard.
@@ -192,6 +238,13 @@ const RANG_ETAPE: Record<TypeEtape, number> = {
   rdv_intervention: 6, intervention: 7, rapport: 8, cloture: 9,
   facture: 10, rappel_devis: 11, contact_injoignable: 12, commentaire: 13,
   assurance: 14, expertise: 15, relance: 16, autre: 17, note: 18,
+  /**
+   * 🔴 LOT CLOTURE-REOUVERTURE — JUSTE APRÈS LA CLÔTURE (9), ET SANS RENUMÉROTER PERSONNE. Une réouverture qui
+   * tombe le MÊME JOUR qu'une clôture se range après elle, ce qui est le seul ordre lisible. Un entier aurait
+   * obligé à décaler les neuf rangs suivants, c'est-à-dire à changer l'ordre d'affichage de toutes les frises
+   * existantes pour une carte qui n'y est pas encore.
+   */
+  reouverture: 9.5,
 };
 
 export function rangEtape(t: TypeEtape): number {
@@ -220,6 +273,7 @@ export function motEtape(t: TypeEtape): string {
     case 'assurance': return 'Passage de l’assurance';
     case 'expertise': return 'Expertise';
     case 'relance': return 'Relance';
+    case 'reouverture': return 'Réouverture';
     /* 🔴 LA CARTE LIBRE. Son mot ne s'affiche que tant qu'aucun titre n'a été saisi — voir `motDeLaCase`. */
     case 'autre': return 'Carte libre';
     case 'note': return 'Note';
@@ -464,18 +518,83 @@ export function rangsDesDevis(
   return out;
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — ON FERME ET ON ROUVRE PAR UNE CARTE, ET PAR RIEN D'AUTRE ══════════════════
+
+   ═══ CE QUI A ÉTÉ RETIRÉ ICI, ET SUR ACCORD EXPRÈS D'ARNO ═══════════════════════════════════════════════════
+   `proposerCloture(etapes, traite)` vivait à cette place. Elle disait « une intervention est signalée réalisée »,
+   et la frise en faisait un lien « Clôturer cet événement ? » qui fermait le dossier EN UN CLIC.
+
+   ARNO (08/10/2026) : « Retire la ligne ou le bouton qui permettait de fermer un événement en un seul clic
+   (ailleurs que par la carte Clôture). » Elle part donc entière : la fonction, le champ que la route rendait,
+   la ligne de la frise, la propriété `onProposerCloture` et le branchement de la fiche du bien.
+
+   🔴 CE QU'ELLE PROTÉGEAIT N'EST PAS PERDU — c'est même renforcé. Elle refusait de fermer automatiquement
+   (« PROPOSITION de clôturer, jamais automatique ») : fermer reste un geste humain, mais il passe désormais par
+   une CARTE, qui porte une date et reste sur la frise. On ne perd pas un garde-fou, on gagne une trace.
+
+   ═══ 🔴🔴 UNE CARTE, UN ÉTAT — ET UNE SEULE DÉCLARATION DE CE LIEN ══════════════════════════════════════════
+   La règle est écrite ICI, dans le module pur, et lue des deux côtés : par l'écran (pour savoir s'il doit
+   demander confirmation) et par la route (pour appliquer l'état). Deux écritures auraient fini par faire poser
+   une carte sans fermer, ou fermer sans carte.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
 /**
- * ══ 🔴 « INTERVENTION RÉALISÉE » OU « MISSION TERMINÉE » ⇒ ON **PROPOSE** DE CLÔTURER ════════════════════════════
+ * L'ÉTAT que poser cette carte impose à l'événement, ou `null` si elle n'en change aucun. PUR.
  *
- * RÈGLE D'ARNO : « PROPOSITION de clôturer l'événement (jamais automatique) ». Pur : la fonction dit s'il y a
- * lieu de proposer, l'écran affiche, et c'est un humain qui clôture.
- *
- * ⚠️ RIEN N'EST PROPOSÉ SI L'ÉVÉNEMENT EST DÉJÀ TRAITÉ : une proposition qui porte sur ce qui est fait apprend à
- * ignorer les propositions.
+ * ⚠️ `'en_cours'` ET NON `'a_traiter'` POUR UNE RÉOUVERTURE : un dossier qu'on rouvre est un dossier qu'on
+ * reprend, pas un dossier qu'on n'a jamais regardé. C'est aussi ce que la contrainte de la base attend d'un
+ * événement sans date de traitement (`gestion_evenement_traite_chk`), et les deux valeurs la satisfont — le choix
+ * est donc de sens, pas de contrainte.
  */
-export function proposerCloture(
-  etapes: readonly { type: TypeEtape; statut: string }[], evenementTraite: boolean,
-): boolean {
-  if (evenementTraite) return false;
-  return etapes.some((e) => e.statut !== 'retire' && (e.type === 'intervention' || e.type === 'cloture'));
+export function etatApresCarte(type: TypeEtape): 'traite' | 'en_cours' | null {
+  if (type === 'cloture') return 'traite';
+  if (type === 'reouverture') return 'en_cours';
+  return null;
+}
+
+/**
+ * LES CARTES QUE LA GRILLE PROPOSE, selon que l'événement est ouvert ou clos. PUR.
+ *
+ * ARNO : « La carte “Clôture” n'est proposée que si l'événement est ouvert. […] La carte “Réouverture” n'est
+ * proposée que si l'événement est clos. »
+ *
+ * 🔴 LES DEUX NE SONT JAMAIS OFFERTES ENSEMBLE, et c'est ce qui rend la grille lisible : à tout instant, le
+ * dossier a UN état, et la grille ne montre que le geste qui a un sens. Proposer les deux aurait obligé à
+ * refuser l'une après coup, par un message.
+ *
+ * ⚠️ TOUTES LES AUTRES CARTES RESTENT, dans leur ordre : on ne filtre que ces deux-là.
+ */
+export function cartesDuReservoir(evenementOuvert: boolean): TypeEtape[] {
+  return TYPES_RESERVOIR.filter((t) => (
+    t === 'cloture' ? evenementOuvert : (t === 'reouverture' ? !evenementOuvert : true)
+  ));
+}
+
+/**
+ * CE QU'ON DEMANDE AVANT DE POSER LA CARTE, ou `null` quand il n'y a rien à demander. PUR.
+ *
+ * 🔴 LES MOTS SONT CEUX D'ARNO, AU CARACTÈRE PRÈS. Une confirmation reformulée est une confirmation qu'on relit
+ * de travers : elle doit dire la CONSÉQUENCE sur le bien, et non répéter le nom du bouton.
+ */
+export interface ConfirmationCarte {
+  question: string;
+  /** Le mot du bouton qui confirme. « Annuler » est l'autre, partout. */
+  valider: string;
+}
+
+export function confirmationCarte(type: TypeEtape): ConfirmationCarte | null {
+  if (type === 'cloture') {
+    return {
+      question: 'Clôturer cet événement ? Le bien n’aura plus d’événement ouvert.',
+      valider: 'Clôturer',
+    };
+  }
+  if (type === 'reouverture') {
+    return {
+      question: 'Rouvrir cet événement ? Le bien redeviendra un bien avec événement ouvert.',
+      valider: 'Rouvrir',
+    };
+  }
+  return null;
 }

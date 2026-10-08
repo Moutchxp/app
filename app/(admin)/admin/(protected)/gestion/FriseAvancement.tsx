@@ -13,6 +13,7 @@ import {
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
 } from '../../../../lib/gestion/frise';
 import {
+  cartesDuReservoir, confirmationCarte,
   estRepere, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
 } from '../../../../lib/gestion/mongaEtape';
 /* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE DES MAILS. Arno, B.3 : « même code, pas de second chemin. » */
@@ -74,7 +75,15 @@ import { useDefilementFrise } from './useDefilementFrise';
 interface Reponse {
   etat?: string;
   etapes?: EtapeAAfficher[];
-  proposerCloture?: boolean;
+  /**
+   * 🔴🔴 LOT CLOTURE-REOUVERTURE — `proposerCloture` A QUITTÉ CE CONTRAT. Il portait la ligne « Clôturer cet
+   * événement ? », qui fermait le dossier EN UN CLIC ; Arno demande de la retirer, et de ne fermer que par une
+   * carte « Clôture ». À sa place, ce que la GRILLE a besoin de savoir : l'événement est-il ouvert ?
+   *
+   * ⚠️ `undefined` (une route d'avant ce lot) VAUT « OUVERT », et c'est le repli le moins trompeur : on propose
+   * alors « Clôture » comme avant, plutôt que « Réouverture » sur un dossier qui ne l'est pas.
+   */
+  ouvert?: boolean;
   passagesEnFiableProposes?: { type: TypeEtape; confirmees: number }[];
   /** 🔴 LOT FRISE-CONSTRUCTIBLE — la date d'ouverture de l'ÉVÉNEMENT : la première carte de la frise. */
   ouvertLe?: string;
@@ -94,15 +103,24 @@ function aujourdhuiLocal(): string {
 }
 
 export function FriseAvancement({
-  evenementId, onGeste, onOuvrirFil, onProposerCloture, compact = false,
+  evenementId, onGeste, onOuvrirFil, compact = false,
 }: {
   evenementId: number;
   /** Le compte rendu remonte à l'écran qui porte la frise : un seul bandeau par écran, jamais deux. */
   onGeste?: (message: string) => void;
   /** Ouvrir le mail d'origine d'une étape Monga. Absent = l'étape n'est pas cliquable. */
   onOuvrirFil?: (filId: number) => void;
-  /** 🔴 PROPOSITION de clôture (Arno : « jamais automatique ») — l'écran parent décide quoi en faire. */
-  onProposerCloture?: () => void;
+  /**
+   * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — `onProposerCloture` A ÉTÉ RETIRÉ ════════════════════════════════════════
+   *
+   * Il portait la ligne « Clôturer cet événement ? » de la frise — la fermeture EN UN CLIC. Arno (08/10/2026) :
+   * « Retire la ligne ou le bouton qui permettait de fermer un événement en un seul clic (ailleurs que par la
+   * carte Clôture). »
+   *
+   * 🔴 CE QU'IL PROTÉGEAIT EST RENFORCÉ, PAS PERDU : fermer restait un geste humain (« jamais automatique »),
+   * et le reste — mais il passe désormais par une CARTE, qui porte une date et demeure sur la frise. On ne perd
+   * pas un garde-fou, on gagne une trace. La fermeture elle-même emprunte toujours `changerEtatEvenement`.
+   */
   /** Dans la fiche du bien, la frise est plus serrée : même contenu, moins de marges. */
   compact?: boolean;
 }) {
@@ -325,15 +343,12 @@ export function FriseAvancement({
       aria-label="Avancement de l’événement">
       <style>{CSS_FRISE_AVANCEMENT}</style>
 
-      {/* ══ LA PROPOSITION DE CLÔTURE — jamais automatique (Arno) ══════════════════════════════════════════ */}
-      {vue.d.proposerCloture === true && onProposerCloture !== undefined && (
-        <p className="fav-proposition" role="status">
-          Une intervention est signalée réalisée.{' '}
-          <button type="button" className="fav-lien" onClick={onProposerCloture}>
-            Clôturer cet événement ?
-          </button>
-        </p>
-      )}
+      {/* ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA PROPOSITION DE CLÔTURE A ÉTÉ RETIRÉE D'ICI ═══════════════════
+          Elle disait « Une intervention est signalée réalisée. Clôturer cet événement ? » et fermait le dossier
+          EN UN CLIC. Arno la retire : on ferme en POSANT une carte « Clôture », qui demande confirmation et
+          reste sur la frise. `.fav-lien` sert encore ailleurs (le détail d'une carte) ; `.fav-proposition`, en
+          revanche, n'avait que cet unique porteur et part avec lui — une règle orpheline finit toujours par
+          être recâblée « parce qu'elle est encore là ». */}
 
       <div className="fav-piste-cadre">
         {/* ⚠️ LES FLÈCHES N'APPARAISSENT QUE S'IL RESTE DU CONTENU CACHÉ (Arno). Une flèche qui ne mène nulle
@@ -418,6 +433,10 @@ export function FriseAvancement({
           ) : (
             <Reservoir
               jour={reservoir?.jour ?? aujourdhui}
+              /* 🔴 LOT CLOTURE-REOUVERTURE — « Clôture » si le dossier est ouvert, « Réouverture » s'il est
+                 clos, jamais les deux (Arno). `undefined` = une route d'avant ce lot : on retombe sur
+                 « ouvert », c'est-à-dire la grille d'avant. */
+              evenementOuvert={vue.d.ouvert !== false}
               onChoisir={(t) => { setTypePose(t); setAjout(true); }}
               onFermer={fermerReservoir}
             />
@@ -641,7 +660,20 @@ function Carre({
 
   return (
     <li className="fav-el" ref={moi}>
-      <div className={`fav-carre fav-carre--dans${aConfirmer ? ' fav-carre--doute' : ''}`}
+      {/**
+        * 🔴🔴 LOT CLOTURE-REOUVERTURE, POINT 4 — « Sur la frise, la carte “Réouverture” est la SEULE à contour
+        * ROUGE. Toutes les autres cartes posées (y compris Clôture) gardent leur contour VERT. » (Arno)
+        *
+        * 🔴 LE ROUGE DIT ICI AUTRE CHOSE QU'AILLEURS DANS CETTE FEUILLE, et il faut le savoir : le rouge du
+        * RÉSERVOIR veut dire « à poser ». Sur une carte POSÉE, il ne peut pas vouloir dire cela — il dit « le
+        * dossier est reparti d'ici ». Les deux ne se croisent jamais : un carré du réservoir n'est pas dans la
+        * frise, et réciproquement.
+        *
+        * ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : le MOT « Réouverture » est écrit dans la carte,
+        * comme pour toutes les autres.
+        */}
+      <div className={`fav-carre fav-carre--dans${aConfirmer ? ' fav-carre--doute' : ''}`
+        + (e.type === 'reouverture' ? ' fav-carre--reouverture' : '')}
         title={pose ?? undefined}>
         {/**
           * 🔴 UN CLIC SUR UN CARRÉ MONGA OUVRE LE MAIL D'ORIGINE (Arno). Quand il n'y en a pas — étape manuelle,
@@ -860,10 +892,19 @@ function ChampOuverture({
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 function Reservoir({
-  jour, onChoisir, onFermer,
-}: { jour: string; onChoisir: (t: TypeEtape) => void; onFermer: () => void }) {
+  jour, onChoisir, onFermer, evenementOuvert,
+}: {
+  jour: string; onChoisir: (t: TypeEtape) => void; onFermer: () => void;
+  /**
+   * 🔴🔴 LOT CLOTURE-REOUVERTURE — L'ÉTAT DÉCIDE DE DEUX CARTES, ET DE DEUX SEULEMENT. Arno : « La carte
+   * “Clôture” n'est proposée que si l'événement est ouvert. […] La carte “Réouverture” n'est proposée que si
+   * l'événement est clos. » C'est `cartesDuReservoir` (module PUR) qui filtre, et la route applique la MÊME
+   * fonction à ce qu'elle annonce — une seule règle, deux lecteurs.
+   */
+  evenementOuvert: boolean;
+}) {
   const [forme, setForme] = useState<'etape' | 'information'>('etape');
-  const liste = forme === 'etape' ? TYPES_RESERVOIR : TYPES_INFORMATION;
+  const liste = forme === 'etape' ? cartesDuReservoir(evenementOuvert) : TYPES_INFORMATION;
   return (
     <>
       <p className="fav-ajout-titre">
@@ -889,7 +930,11 @@ function Reservoir({
       <ul className="fav-reserve-liste">
         {liste.map((t) => (
           <li key={t}>
-            <button type="button" className="fav-carre fav-carre--reserve" onClick={() => onChoisir(t)}>
+            {/* 🔴 LOT CLOTURE-REOUVERTURE — « le bouton “Réouverture” a aussi un contour rouge plus marqué, pour
+                le distinguer. Les autres boutons de la grille ne changent pas. » (Arno) */}
+            <button type="button"
+              className={`fav-carre fav-carre--reserve${t === 'reouverture' ? ' fav-carre--reouverture' : ''}`}
+              onClick={() => onChoisir(t)}>
               <span className="fav-titre">{motEtape(t)}</span>
               {t === 'autre' && <span className="fav-date">titre à saisir</span>}
             </button>
@@ -1002,8 +1047,32 @@ function AjouterEtape({
   const titreManquant = type === 'autre' && titre.trim() === '';
   const montantFaux = montantEnCents() === undefined;
 
+  /**
+   * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA CONFIRMATION, AVANT DE POSER ═════════════════════════════════════════
+   *
+   * ARNO : « Confirmation avant de poser la carte Clôture : “Clôturer cet événement ? Le bien n'aura plus
+   * d'événement ouvert.” avec Annuler / Clôturer. » Et la symétrique pour la réouverture.
+   *
+   * 🔴 DANS LE PANNEAU, ET NON DANS UNE BOÎTE DU NAVIGATEUR. Un `confirm()` bloque la page entière, ne se lit
+   * pas au clavier comme le reste, et ne porte pas les mots d'Arno dans la typographie du module. C'est aussi
+   * la règle de ce dépôt : aucune boîte modale du navigateur.
+   *
+   * 🔴 ELLE N'EST DEMANDÉE QUE SI LA CARTE CHANGE L'ÉTAT DU DOSSIER (`confirmationCarte` rend `null` pour les
+   * douze autres) : une confirmation sur chaque carte s'apprend, et l'on cesse de la lire — c'est précisément
+   * ce qui la rendrait inutile le jour où elle compte.
+   *
+   * ⚠️ ELLE NE S'APPLIQUE PAS À UNE MODIFICATION : corriger la date d'une Clôture déjà posée ne referme rien,
+   * l'état a changé le jour où la carte a été posée. `modifie === null` borne donc la question à l'AJOUT.
+   */
+  const demande = modifie === null ? confirmationCarte(type) : null;
+  const [confirme, setConfirme] = useState(false);
+  /* ⚠️ CHANGER DE TYPE REDEMANDE : sans cela, une confirmation donnée pour une Clôture vaudrait pour la carte
+     suivante, qu'on n'a jamais confirmée. */
+  useEffect(() => { setConfirme(false); }, [type]);
+
   const envoyer = async (): Promise<void> => {
     if (occupe || jour === '' || titreManquant || montantFaux) return;
+    if (demande !== null && !confirme) { setConfirme(true); return; }
     setOccupe(true);
     try {
       /**
@@ -1127,10 +1196,23 @@ function AjouterEtape({
       {titreManquant && <p className="fav-perdu">Une carte libre demande un titre.</p>}
       {montantFaux && <p className="fav-perdu">Le montant ne se lit pas : un nombre, en euros.</p>}
 
+      {/* 🔴 LA QUESTION D'ARNO, MOT POUR MOT, et elle dit la CONSÉQUENCE SUR LE BIEN — pas le nom du bouton. */}
+      {demande !== null && confirme && (
+        <p className="fav-confirme" role="alert">{demande.question}</p>
+      )}
+
       <div className="fav-ajout-ligne">
         <button type="button" className="fav-btn fav-btn--fort"
           disabled={occupe || jour === '' || titreManquant || montantFaux}
-          onClick={() => void envoyer()}>{modifie === null ? 'Valider' : 'Enregistrer'}</button>
+          onClick={() => void envoyer()}>
+          {demande !== null && confirme
+            ? demande.valider
+            : (modifie === null ? 'Valider' : 'Enregistrer')}
+        </button>
+        {/* 🔴 « ANNULER » EST LE PREMIER DES DEUX CHOIX D'ARNO : il revient à la saisie, sans rien poser. */}
+        {demande !== null && confirme && (
+          <button type="button" className="fav-btn" onClick={() => setConfirme(false)}>Annuler</button>
+        )}
         {onRetour !== undefined && (
           <button type="button" className="fav-btn" onClick={onRetour}>Choisir une autre carte</button>
         )}
@@ -1212,7 +1294,8 @@ const CSS_FRISE_AVANCEMENT = `
    une REGION de 1074 x 132 px. Mesure sur lot-237. Le meme defaut existait sur la frise des mails
    (.frs-cadre), pour la meme raison et depuis le meme lot.
    CE QUI LE REMPLACE : un lisere rouge de 3 px sur le bord gauche, pose en ombre interne — l'accent deja
-   employe par .fav-proposition et .fav-bulle dans cette meme feuille. Discret, coherent, et il dit la meme
+   employe par .fav-bulle dans cette meme feuille (et par .fav-proposition jusqu'au lot CLOTURE-REOUVERTURE,
+   qui l'a retiree avec la fermeture en un clic). Discret, coherent, et il dit la meme
    chose : le clavier est DANS cette zone.
    ⚠️ UN CONTOUR TRANSPARENT EST CONSERVE : en mode contraste force, les ombres ne sont pas peintes, et c'est
    le contour que le systeme repeint. Sans lui, l'indicateur disparaitrait pour ceux qui en ont le plus besoin.
@@ -1245,6 +1328,21 @@ const CSS_FRISE_AVANCEMENT = `
 /* 🔴 UNE CARTE QUI EST DANS LA FRISE : contour VERT (Arno, points 2 et 5), quelle que soit son origine. */
 .fav-carre--dans{border-color:var(--color-svv-green);background:var(--color-svv-field)}
 .fav-carre--doute{border-color:var(--color-svv-amber);border-style:solid}
+/* ══ 🔴🔴 LOT CLOTURE-REOUVERTURE, POINT 4 — LA REOUVERTURE EST LA SEULE CARTE ROUGE DE LA FRISE ══════════════
+   ARNO : « Sur la frise, la carte “Reouverture” est la SEULE a contour ROUGE. Toutes les autres cartes posees
+   (y compris Cloture) gardent leur contour VERT. Dans la grille “Ajouter une carte”, le bouton “Reouverture” a
+   aussi un contour rouge plus marque, pour le distinguer. »
+
+   🔴 LA REGLE PASSE APRES .fav-carre--dans ET .fav-carre--reserve, et il le faut : elle doit l'emporter sur le
+   vert de l'une comme sur le rouge fin de l'autre. En CSS, a specificite egale, c'est l'ordre qui tranche.
+   🔴 DANS LA GRILLE, LE TRAIT EST PLUS EPAIS (2 px contre 1) : tous les carres du reservoir sont deja rouges
+   — « ROUGE = a poser » —, donc seule l'EPAISSEUR peut distinguer celui-la. Une autre couleur aurait casse le
+   code du reservoir.
+   ⚠️ LA COULEUR NE PORTE PAS L'INFORMATION SEULE : le mot « Reouverture » est ecrit dans la carte.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.fav-carre--reouverture{border-color:var(--color-svv-red)}
+.fav-carre--reouverture:hover,.fav-carre--reouverture:focus-within{border-color:var(--color-svv-red-dark)}
+.fav-carre--reserve.fav-carre--reouverture{border-width:2px}
 /* ══ 🔴🔴 LE SURVOL EST LE MEME POUR TOUS LES CARRES (Arno, point 5) ══════════════════════════════════════════
    « tous les carrés de la frise réagissent pareil au survol (contour accentué, curseur main). Aujourd'hui seul
    “Acceptation du devis” le fait. » Le defaut venait de la : seul le carre pointille « posable » portait une
@@ -1385,10 +1483,16 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-btn:disabled{color:var(--color-svv-muted);cursor:default}
 .fav-btn--fort{color:var(--color-svv-bg);background:var(--color-svv-red);border-color:var(--color-svv-red)}
 
-.fav-proposition{margin:0 0 8px;padding:6px 8px;font-size:.8rem;color:var(--color-svv-ink);
-  background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);border-radius:6px}
+/* 🔴 LOT CLOTURE-REOUVERTURE — « .fav-proposition » A ETE RETIREE AVEC LA LIGNE « Cloturer cet evenement ? »
+   qu'elle habillait, et qui etait son unique porteur. La proposition de passage en fiable, elle, a toujours la
+   sienne juste en dessous (.fav-fiable) : rien d'autre ne perd son style. */
 .fav-fiable{margin:8px 0 0;padding:6px 8px;font-size:.78rem;color:var(--color-svv-muted);
   background:var(--color-svv-field);border-radius:6px}
+/* ══ 🔴 LOT CLOTURE-REOUVERTURE — LA QUESTION POSEE AVANT DE CLORE OU DE ROUVRIR ══════════════════════════════
+   Elle dit la consequence sur le BIEN, et elle se lit avant de cliquer : d'ou le liseré rouge et le texte en
+   encre pleine. L'attribut role=alert la porte aussi au lecteur d'ecran, au moment ou elle apparait. */
+.fav-confirme{margin:8px 0 0;padding:7px 9px;font-size:.82rem;font-weight:600;color:var(--color-svv-ink);
+  background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);border-radius:6px}
 
 /* ══ LE PANNEAU D'AJOUT — il vit DANS le reservoir, sous la frise (lot FRISE-CONSTRUCTIBLE) ══ */
 .fav-ajout-titre{margin:0 0 7px;font-size:.84rem;font-weight:700;color:var(--color-svv-ink)}

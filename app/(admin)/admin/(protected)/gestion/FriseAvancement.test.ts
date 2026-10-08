@@ -173,14 +173,28 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
     expect(pur).toContain('mail supprimé — étape conservée');
   });
 
-  /** 🔴 LA CLÔTURE EST PROPOSÉE, JAMAIS APPLIQUÉE (Arno : « jamais automatique »). */
-  it('🔴 la clôture est une proposition, et elle passe par la porte existante', () => {
-    expect(FRISE).toContain('Clôturer cet événement ?');
-    expect(FRISE).toContain('onProposerCloture');
-    /* ⚠️ ELLE PASSAIT PAR LA CARTE (`agir({ etat: 'traite' })`) ; la frise a quitté la carte avec le lot
-       CARTES-EVENEMENT-MEME-GESTE, et c'est la FICHE DU BIEN qui porte désormais la proposition — par sa propre
-       porte d'écriture, `ecrire`, qui est la même route et le même journal. */
-    expect(BLOC).toContain("onProposerCloture={() => void ecrire(e.id, { etat: 'traite' }");
+  /**
+   * ══ 🔴🔴 ÉPREUVE RENVERSÉE LE 08/10/2026 — LOT CLOTURE-REOUVERTURE ════════════════════════════════════════
+   *
+   * ELLE EXIGEAIT la ligne « Clôturer cet événement ? » et sa propriété `onProposerCloture` — c'est-à-dire la
+   * fermeture EN UN CLIC. ARNO : « Retire la ligne ou le bouton qui permettait de fermer un événement en un seul
+   * clic (ailleurs que par la carte Clôture). »
+   *
+   * 🔴 CE QU'ELLE PROTÉGEAIT — « la clôture est une PROPOSITION, jamais automatique » — est RENFORCÉ, et c'est
+   * ce que ce cas vérifie désormais : on ferme toujours à la main, mais par une carte qui demande confirmation
+   * et qui RESTE sur la frise. Et la fermeture emprunte toujours `changerEtatEvenement`, la seule fonction du
+   * dépôt qui écrive l'état.
+   */
+  it('🔴🔴 on ne ferme plus en un clic : la clôture passe par une carte, et par la porte existante', () => {
+    /* ⚠️ ON INTERDIT LE CODE, PAS LA MENTION : les encadrés qui expliquent ce retrait nomment forcément la
+       ligne et sa propriété, et ils doivent pouvoir le faire. C'est le RENDU et la PROPRIÉTÉ qu'on bannit. */
+    expect(FRISE).not.toContain('className="fav-proposition"');
+    expect(FRISE).not.toContain('onProposerCloture?:');
+    expect(FRISE).not.toContain('onProposerCloture !== undefined');
+    expect(BLOC).not.toContain('onProposerCloture={');
+    /* 🔴 ET C'EST LA ROUTE DE LA FRISE QUI APPLIQUE L'ÉTAT, par la fonction qui existait déjà. */
+    expect(ROUTE_FRISE).toContain('const issue = await changerEtatEvenement(evenementId, etatVoulu, auteur);');
+    expect(ROUTE_FRISE).toContain('const etatVoulu = etatApresCarte(type);');
   });
 
   /**
@@ -629,8 +643,11 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
 
   /** 🔴 UNE CARTE PAR TYPE, et la liste vient du module pur : deux listes du même ensemble divergent toujours. */
   it('🔴🔴 une carte par type du réservoir, depuis le module pur', () => {
-    expect(FRISE).toContain('const liste = forme === \'etape\' ? TYPES_RESERVOIR : TYPES_INFORMATION;');
-    expect(FRISE).toContain('<button type="button" className="fav-carre fav-carre--reserve"');
+    /* ⚠️ LA LISTE DÉPEND DÉSORMAIS DE L'ÉTAT (lot CLOTURE-REOUVERTURE) : « Clôture » si l'événement est ouvert,
+       « Réouverture » s'il est clos. C'est toujours le module PUR qui la rend — `cartesDuReservoir`. */
+    expect(FRISE).toContain(
+      "const liste = forme === 'etape' ? cartesDuReservoir(evenementOuvert) : TYPES_INFORMATION;");
+    expect(FRISE).toContain('className={`fav-carre fav-carre--reserve${t === \'reouverture\'');
     /* ⚠️ AUCUNE LISTE RECOPIÉE DANS LE COMPOSANT : il n'énumère aucun type en dur. */
     for (const t of RESERVOIR_TYPES) {
       if (t === 'autre') continue;
@@ -767,10 +784,19 @@ describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 
     expect(repo.slice(i, i + 900)).toContain("source = 'manuelle'");
   });
 
-  /** 🔴 ET LA PROPOSITION DE CLÔTURE EST INCHANGÉE (Arno, point 5) : jamais automatique. */
-  it('🔴 la proposition de clôture n’a pas bougé', () => {
-    expect(FRISE).toContain('vue.d.proposerCloture === true');
-    expect(ROUTE_FRISE).toContain('proposerCloture: proposerCloture(etapes, traite)');
+  /**
+   * ⚠️ ÉPREUVE RENVERSÉE — LOT CLOTURE-REOUVERTURE. Elle exigeait que la proposition de clôture « n'ait pas
+   * bougé » ; Arno l'a retirée. Ce que la route rend désormais à sa place est ce dont la GRILLE a besoin :
+   * l'événement est-il ouvert ? C'est la même donnée (`traite`), déjà lue, et aucune requête de plus.
+   */
+  it('🔴🔴 la proposition de clôture a été retirée, et la route dit l’état à la place', () => {
+    expect(FRISE).not.toContain('vue.d.proposerCloture');
+    expect(ROUTE_FRISE).not.toContain('proposerCloture: proposerCloture(etapes, traite)');
+    /* 🔴 ET LA FONCTION PURE ELLE-MÊME A DISPARU : une règle orpheline finit par être recâblée. */
+    expect(readFileSync('app/lib/gestion/mongaEtape.ts', 'utf8'))
+      .not.toContain('export function proposerCloture(');
+    expect(ROUTE_FRISE).toContain('ouvert: !traite,');
+    expect(ROUTE_FRISE).toContain('typesReservoir: cartesDuReservoir(!traite),');
   });
 
   /**
@@ -1743,11 +1769,19 @@ describe('㉕ l’écran partagé est minimaliste (lot EVENEMENT-MINIMALISTE, po
    * 🔴🔴 CE QUI EST RETIRÉ RESTE DISPONIBLE SUR LA FICHE DU BIEN — c'est la condition qu'Arno a posée, et elle
    * est vérifiée pièce par pièce.
    */
-  it('🔴🔴 la frise, la proposition de clôture et le « Modifier » sont sur la fiche du bien', () => {
+  it('🔴🔴 la frise, la clôture et le « Modifier » sont sur la fiche du bien', () => {
     /* ① la frise y était déjà, depuis le lot MONGA-2. */
     expect(BLOC).toContain('<FriseAvancement');
-    /* ② la proposition de clôture : AJOUTÉE par ce lot — ce bloc ne passait pas `onProposerCloture`. */
-    expect(BLOC).toContain('onProposerCloture={() => void ecrire(e.id, { etat: \'traite\' },');
+    /**
+     * ② LA CLÔTURE Y EST TOUJOURS, MAIS ELLE A CHANGÉ DE GESTE (lot CLOTURE-REOUVERTURE). Ce cas exigeait
+     * `onProposerCloture` — le lien « Clôturer cet événement ? », retiré sur demande d'Arno. On ferme désormais
+     * en posant une carte « Clôture » DANS cette même frise, et c'est la route de la frise qui applique l'état.
+     * La promesse de ce cas — « tout ce qui est retiré de l'écran partagé reste disponible sur la fiche » —
+     * tient donc toujours, par un autre chemin.
+     */
+    expect(BLOC).not.toContain('onProposerCloture={');
+    const ROUTE = readFileSync('app/(admin)/api/admin/gestion/evenements/[id]/frise/route.ts', 'utf8');
+    expect(ROUTE).toContain('const etatVoulu = etatApresCarte(type);');
     /* ③ le « Modifier » des informations : AJOUTÉ, et c'est LE MÊME formulaire, importé et non recopié. */
     expect(BLOC).toContain("import { FormulaireCarte } from './CarteVive';");
     expect(BLOC).toContain('Modifier les informations de l’événement');

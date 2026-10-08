@@ -2,8 +2,11 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   commentaireMonga, auteurCommentaire, etapesDuMailMonga, jourISO, motEtape,
-  ouvertureDeRepli, proposerCloture, proposerPassageEnFiable, rangsDesDevis, rangEtape,
+  ouvertureDeRepli, proposerPassageEnFiable, rangsDesDevis, rangEtape,
   estRepere, ETAPES_MAJEURES, TYPES_AJOUTABLES, TYPES_RESERVOIR, CONFIRMATIONS_POUR_PROPOSER,
+  /* 🔴 LOT CLOTURE-REOUVERTURE — `proposerCloture` a été retiré avec la fermeture en un clic ; ce qui le
+     remplace est ci-dessous. */
+  cartesDuReservoir, confirmationCarte, etatApresCarte, TYPES_HERITES, TYPES_INFORMATION,
 } from './mongaEtape';
 
 /**
@@ -261,18 +264,91 @@ describe('⑧ la proposition de passage en fiable (décision d’Arno)', () => {
   });
 });
 
-describe('⑨ la proposition de clôture', () => {
-  /** 🔴 « PROPOSITION de clôturer l'événement (jamais automatique) » — Arno. */
-  it('🔴 proposée sur une intervention ou une clôture reçue', () => {
-    expect(proposerCloture([{ type: 'intervention', statut: 'vif' }], false)).toBe(true);
-    expect(proposerCloture([{ type: 'cloture', statut: 'vif' }], false)).toBe(true);
-    expect(proposerCloture([{ type: 'prise_rdv', statut: 'vif' }], false)).toBe(false);
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 BLOC RÉÉCRIT LE 08/10/2026 — LOT CLOTURE-REOUVERTURE ════════════════════════════════════════════════
+
+   IL ÉPROUVAIT `proposerCloture` — la règle de la ligne « Clôturer cet événement ? », qui fermait le dossier EN
+   UN CLIC. ARNO : « Retire la ligne ou le bouton qui permettait de fermer un événement en un seul clic (ailleurs
+   que par la carte Clôture). » La fonction part avec elle.
+
+   🔴 CE QU'ELLE PROTÉGEAIT — « jamais automatique » — EST RENFORCÉ : fermer reste un geste humain, et il passe
+   désormais par une CARTE qui porte une date, demande confirmation et demeure sur la frise. Ce sont ces règles-là
+   que le bloc éprouve maintenant.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('⑨ clore et rouvrir, par une carte et rien d’autre', () => {
+  /** 🔴🔴 UNE CARTE, UN ÉTAT — la règle lue par l'écran ET par la route, écrite une seule fois. */
+  it('🔴🔴 « Clôture » ferme, « Réouverture » rouvre, et aucune autre carte ne touche à l’état', () => {
+    expect(etatApresCarte('cloture')).toBe('traite');
+    expect(etatApresCarte('reouverture')).toBe('en_cours');
+    for (const t of TYPES_RESERVOIR) {
+      if (t === 'cloture' || t === 'reouverture') continue;
+      expect(etatApresCarte(t), t).toBeNull();
+    }
+    expect(etatApresCarte('ouverture')).toBeNull();
+    expect(etatApresCarte('relance')).toBeNull();
   });
 
-  /** ⚠️ RIEN SUR UN ÉVÉNEMENT DÉJÀ TRAITÉ : une proposition qui porte sur ce qui est fait apprend à les ignorer. */
-  it('⚠️ jamais sur un événement déjà traité, ni sur une étape retirée', () => {
-    expect(proposerCloture([{ type: 'intervention', statut: 'vif' }], true)).toBe(false);
-    expect(proposerCloture([{ type: 'intervention', statut: 'retire' }], false)).toBe(false);
+  /**
+   * 🔴🔴 « La carte “Clôture” n'est proposée que si l'événement est ouvert. […] La carte “Réouverture” n'est
+   * proposée que si l'événement est clos. » (Arno) — et jamais les deux à la fois.
+   */
+  it('🔴🔴 la grille propose Clôture si ouvert, Réouverture si clos — jamais les deux', () => {
+    const ouvert = cartesDuReservoir(true);
+    expect(ouvert).toContain('cloture');
+    expect(ouvert).not.toContain('reouverture');
+    const clos = cartesDuReservoir(false);
+    expect(clos).toContain('reouverture');
+    expect(clos).not.toContain('cloture');
+  });
+
+  /** ⚠️ ET TOUTES LES AUTRES CARTES RESTENT, dans leur ordre : on ne filtre que ces deux-là. */
+  it('⚠️ les douze autres cartes ne bougent pas, et gardent leur ordre', () => {
+    const autres = TYPES_RESERVOIR.filter((t) => t !== 'cloture' && t !== 'reouverture');
+    for (const etat of [true, false]) {
+      expect(cartesDuReservoir(etat).filter((t) => t !== 'cloture' && t !== 'reouverture'), String(etat))
+        .toEqual(autres);
+    }
+  });
+
+  /**
+   * 🔴🔴 LES MOTS DE LA CONFIRMATION SONT CEUX D'ARNO, AU CARACTÈRE PRÈS. Une confirmation reformulée est une
+   * confirmation qu'on relit de travers : elle doit dire la CONSÉQUENCE sur le bien.
+   */
+  it('🔴🔴 chaque carte d’état demande confirmation, avec les mots d’Arno', () => {
+    expect(confirmationCarte('cloture')).toEqual({
+      question: 'Clôturer cet événement ? Le bien n’aura plus d’événement ouvert.',
+      valider: 'Clôturer',
+    });
+    expect(confirmationCarte('reouverture')).toEqual({
+      question: 'Rouvrir cet événement ? Le bien redeviendra un bien avec événement ouvert.',
+      valider: 'Rouvrir',
+    });
+  });
+
+  /**
+   * ⚠️ ET AUCUNE AUTRE N'EN DEMANDE : une confirmation sur chaque carte s'apprend, et l'on cesse de la lire —
+   * ce qui la rendrait inutile le jour où elle compte.
+   */
+  it('⚠️ les autres cartes ne demandent rien', () => {
+    for (const t of TYPES_RESERVOIR) {
+      if (t === 'cloture' || t === 'reouverture') continue;
+      expect(confirmationCarte(t), t).toBeNull();
+    }
+  });
+
+  /**
+   * 🔴🔴 « RELANCE » N'EST PLUS PROPOSÉ, MAIS RESTE VALIDE. Arno : « Les cartes “Relance” DÉJÀ posées sur des
+   * frises restent affichées telles quelles. » Si le type sortait de `TYPES_AJOUTABLES`, les deux routes de la
+   * frise refuseraient de MODIFIER une carte Relance existante — une carte lisible et irréparable.
+   */
+  it('🔴🔴 « relance » quitte la grille, et reste accepté par les routes', () => {
+    expect(TYPES_RESERVOIR).not.toContain('relance');
+    expect(TYPES_INFORMATION).not.toContain('relance');
+    expect(TYPES_HERITES).toContain('relance');
+    expect(TYPES_AJOUTABLES).toContain('relance');
+    /* 🔴 ET SON MOT RESTE, sans quoi les cartes posées s'afficheraient vides. */
+    expect(motEtape('relance')).toBe('Relance');
   });
 });
 
@@ -300,10 +376,12 @@ describe('⑩ les mots et l’ordre', () => {
    * vérifiée à la lettre ci-dessous — c'est elle qui décide ce qu'un collaborateur peut poser.
    */
   it('🔴🔴 le réservoir contient exactement les cartes qu’Arno a nommées', () => {
+    /* ⚠️ AMENDÉ AU LOT CLOTURE-REOUVERTURE : « relance » quitte la grille, « reouverture » arrive EN DERNIER,
+       juste après « Carte libre » (Arno). Les douze autres ne bougent pas, ni de place ni d'ordre. */
     expect([...TYPES_RESERVOIR]).toEqual([
       'prise_rdv', 'rdv_eu_lieu', 'devis_recu', 'devis_refuse', 'devis_accepte',
       'rdv_intervention', 'intervention', 'rapport', 'facture',
-      'assurance', 'expertise', 'relance', 'cloture', 'autre',
+      'assurance', 'expertise', 'cloture', 'autre', 'reouverture',
     ]);
   });
 

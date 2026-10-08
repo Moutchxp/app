@@ -340,14 +340,20 @@ export function EvenementsDuBien({
                   onUrgence={(u) => void ecrire(e.id, { urgence: u },
                     `Événement ${e.reference} — urgence : ${motUrgence(u).toLowerCase()}.`)} />
                 <div className="evb-frise">
+                  {/**
+                    * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — `onProposerCloture` A ÉTÉ DÉBRANCHÉ ═══════════════════
+                    *
+                    * Il portait la ligne « Clôturer cet événement ? » de la frise, qui fermait le dossier EN UN
+                    * CLIC. ARNO (08/10/2026) : « Retire la ligne ou le bouton qui permettait de fermer un
+                    * événement en un seul clic (ailleurs que par la carte Clôture). »
+                    *
+                    * 🔴 LA FERMETURE N'EST PAS PERDUE, ELLE A CHANGÉ DE GESTE : on pose une carte « Clôture »
+                    * dans cette même frise, et c'est la route de la frise qui appelle `changerEtatEvenement` —
+                    * la MÊME fonction que cette ligne employait. Même journal, même réversibilité.
+                    */}
                   <FriseAvancement
                     evenementId={e.id} compact
                     onGeste={onGeste} onOuvrirFil={onOuvrirFil}
-                    /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — la proposition « Clôturer cet événement ? », que
-                       ce bloc ne passait pas : elle n'existait que dans la vue de l'événement, d'où elle vient
-                       d'être retirée pour l'écran partagé. Même porte d'écriture. */
-                    onProposerCloture={() => void ecrire(e.id, { etat: 'traite' },
-                      `Événement ${e.reference} clos depuis la frise d’avancement.`)}
                   />
                   {/**
                     * 🔴 « MODIFIER » LES INFORMATIONS DE L'ÉVÉNEMENT (quoi / qui demande / adresse), rapatrié

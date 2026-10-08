@@ -5,10 +5,13 @@ import {
   ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
 import {
-  proposerCloture, proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION, TYPES_RESERVOIR,
+  cartesDuReservoir, etatApresCarte,
+  proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION,
   type TypeEtape,
 } from '../../../../../../../lib/gestion/mongaEtape';
-import { deplacerOuvertureEvenement } from '../../../../../../../lib/gestion/gestes';
+/* 🔴🔴 LOT CLOTURE-REOUVERTURE — `changerEtatEvenement` est LA fonction de fermeture du dépôt, celle que le
+   lien « Clôturer cet événement ? » employait. On la réutilise, on n'en écrit pas une seconde. */
+import { changerEtatEvenement, deplacerOuvertureEvenement } from '../../../../../../../lib/gestion/gestes';
 import { query } from '../../../../../../../lib/db/client';
 
 /**
@@ -57,13 +60,25 @@ export async function GET(
     return Response.json({
       etat: 'ok',
       etapes,
-      /* 🔴 PROPOSITION, JAMAIS AUTOMATIQUE (Arno) : l'écran affiche, et c'est un humain qui clôture. */
-      proposerCloture: proposerCloture(etapes, traite),
+      /**
+       * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — `proposerCloture` A ÉTÉ RETIRÉ D'ICI ════════════════════════════════
+       *
+       * Ce champ portait la ligne « Clôturer cet événement ? » de la frise, qui fermait le dossier EN UN CLIC.
+       * ARNO : « Retire la ligne ou le bouton qui permettait de fermer un événement en un seul clic. » On ferme
+       * désormais en POSANT une carte « Clôture » — qui passe par le POST ci-dessous.
+       *
+       * 🔴 À SA PLACE, CE QUE LA GRILLE A BESOIN DE SAVOIR : l'événement est-il ouvert ? C'est ce qui décide
+       * laquelle des deux cartes elle propose (`cartesDuReservoir`), et c'est la MÊME donnée que `traite`, déjà
+       * lue deux lignes plus haut — aucune requête de plus.
+       */
+      ouvert: !traite,
       passagesEnFiableProposes: aProposer,
       typesAjoutables: TYPES_AJOUTABLES,
-      /* 🔴 LOT FRISE-CONSTRUCTIBLE — la date d'ouverture de l'événement, et les cartes du réservoir (Arno). */
+      /* 🔴 LOT FRISE-CONSTRUCTIBLE — la date d'ouverture de l'événement, et les cartes du réservoir (Arno).
+         🔴 LOT CLOTURE-REOUVERTURE — le réservoir DÉPEND désormais de l'état : « Clôture » si l'événement est
+         ouvert, « Réouverture » s'il est clos, jamais les deux. C'est le module pur qui tranche. */
       ouvertLe: rows[0].ouvert_le,
-      typesReservoir: TYPES_RESERVOIR,
+      typesReservoir: cartesDuReservoir(!traite),
       typesInformation: TYPES_INFORMATION,
     }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
@@ -138,6 +153,33 @@ export async function POST(
       parId: auteur.id === null ? null : Number(auteur.id),
       parLibelle: auteur.libelle,
     });
+    /**
+     * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA CARTE FERME OU ROUVRE, PAR LE CODE QUI EXISTE DÉJÀ ════════════════
+     *
+     * ARNO : « Ajouter la carte “Clôture” ferme l'événement […] mêmes effets que l'actuelle fermeture en un
+     * clic. RÉUTILISE EXACTEMENT CE CODE DE FERMETURE, SANS CRÉER UN SECOND CHEMIN. »
+     *
+     * 🔴 C'EST DONC `changerEtatEvenement`, ET RIEN D'AUTRE : la seule fonction du dépôt qui écrive
+     * `gestion_evenement.etat`. Elle pose (ou efface) `traite_le`, `traite_par`, et JOURNALISE — exactement ce
+     * que faisait le lien « Clôturer cet événement ? ». Un `UPDATE` écrit ici aurait été le second chemin
+     * qu'Arno interdit, et il aurait perdu le journal au passage.
+     *
+     * ⚠️ APRÈS L'ÉTAPE, ET NON AVANT. La carte est le FAIT ; l'état n'en est que la conséquence. Si l'écriture
+     * de l'état échouait, il resterait une carte « Clôture » sur un événement ouvert — visible, donc réparable
+     * d'un clic. L'inverse (un événement fermé sans carte) serait un dossier clos par personne.
+     *
+     * ⚠️ UN REFUS N'EFFACE PAS LA CARTE, et il est DIT. Le seul refus attendu est « déjà dans cet état » —
+     * l'écran ne propose jamais les deux cartes à la fois, mais deux onglets ouverts le peuvent.
+     */
+    const etatVoulu = etatApresCarte(type);
+    if (etatVoulu !== null) {
+      const issue = await changerEtatEvenement(evenementId, etatVoulu, auteur);
+      const mot = etatVoulu === 'traite' ? 'Événement clôturé.' : 'Événement rouvert.';
+      return Response.json({
+        etat: 'ok', id: idEtape,
+        message: issue.ok ? mot : `Carte posée, mais l’état n’a pas changé : ${issue.motif}`,
+      });
+    }
     return Response.json({ etat: 'ok', id: idEtape, message: 'Étape ajoutée.' });
   } catch (e) {
     console.error('[gestion/frise] ajout impossible', e);
