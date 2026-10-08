@@ -45,7 +45,7 @@ const etape = (p: Partial<EtapeAAfficher>): EtapeAAfficher => ({
   heureFin: null, numero: null, rang: null, montantCents: 65000, texte: null, auteur: null,
   source: 'manuelle', certitude: 'fiable', messageId: null, aEuUnMail: false, filId: null,
   creeParLibelle: 'Arnaud', creeLe: '2026-10-08 21:26:38+02', titre: null, pieceNom: null,
-  rangDevis: null, rangPose: 31, ...p,
+  rangDevis: null, rangPose: 31, poseChoisie: false, ...p,
 });
 
 describe('🔴🔴 ① le formulaire naît rempli — la carte d’Arno, telle qu’elle est en base', () => {

@@ -37,7 +37,7 @@ const etape = (p: Partial<EtapeAAfficher>): EtapeAAfficher => ({
   heureFin: null, numero: null, rang: null, montantCents: null, texte: null, auteur: null,
   source: 'manuelle', certitude: 'fiable', messageId: null, aEuUnMail: false, filId: null,
   creeParLibelle: 'Arnaud', creeLe: '2026-10-08 21:26:38+02', titre: null, pieceNom: null,
-  rangDevis: null, rangPose: 1, ...p,
+  rangDevis: null, rangPose: 1, poseChoisie: false, ...p,
 });
 
 describe('🔴🔴 ① la date de création perd son heure, le calcul la garde', () => {

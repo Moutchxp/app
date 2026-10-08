@@ -94,6 +94,19 @@ export interface EtapeAAfficher {
    * l'écran les montrait : au lendemain de son application, plus aucune carte n'est à `null`.
    */
   rangPose: number | null;
+  /**
+   * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE (08/10/2026) — SA PLACE A ÉTÉ CHOISIE ══════════════════════════════════
+   *
+   * ARNO, point 1 : « Cet emplacement voulu ne doit faire passer AUCUN carré à l'orange : l'orange reste
+   * réservé aux carrés déplacés à la main. »
+   *
+   * 🔴 UNE CARTE INSÉRÉE PORTE L'HORODATAGE LE PLUS RÉCENT ET LA PLACE DU MILIEU : la règle vert/orange, qui
+   * compare l'un à l'autre, la verrait « déplacée » — et ferait passer ses VOISINES à l'orange avec elle,
+   * puisqu'elle casse leur suite croissante. `poseChoisie` la sort de la comparaison : ni marquée, ni repère.
+   *
+   * ⚠️ `false` SANS LA MIGRATION 322, et la frise est alors exactement celle d'avant ce lot.
+   */
+  poseChoisie: boolean;
 }
 
 /**
@@ -438,9 +451,26 @@ export function carteDeplacable(c: CaseFrise): boolean {
  * qu'aucune ne s'allume. Mesuré le 08/10/2026 : **2 cartes affichées** sont dans ce cas (GES-2026-900001), et
  * 133 cartes Monga orphelines qu'aucune frise ne montre.
  */
-export function cartesHorsChronologie(cartes: readonly { cle: string; creeLe: string | null }[]): Set<string> {
-  /* Les cartes dont on connaît la date de création, dans l'ordre de la frise. Les autres sont hors du calcul. */
-  const datees = cartes.filter((c) => c.creeLe !== null && c.creeLe !== '');
+export function cartesHorsChronologie(
+  cartes: readonly { cle: string; creeLe: string | null; poseChoisie?: boolean }[],
+): Set<string> {
+  /**
+   * Les cartes dont on connaît la date de création, dans l'ordre de la frise. Les autres sont hors du calcul.
+   *
+   * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE (08/10/2026) — ET CELLES DONT LA PLACE A ÉTÉ CHOISIE ══════════════════
+   *
+   * ARNO, point 1 : « Cet emplacement voulu ne doit faire passer AUCUN carré à l'orange : l'orange reste
+   * réservé aux carrés déplacés à la main. »
+   *
+   * 🔴 ELLES SORTENT DU CALCUL DES DEUX CÔTÉS, et c'est le « AUCUN carré » qui l'impose. Les écarter du
+   * MARQUAGE seul n'aurait pas suffi : une carte insérée au milieu porte l'horodatage le plus récent, donc
+   * elle CASSE la suite croissante de ses voisines — et ce sont ELLES qui seraient passées à l'orange, sans
+   * avoir bougé. Hors du tableau, elle ne peut plus rien casser ni rien se voir reprocher.
+   *
+   * ⚠️ `poseChoisie` ABSENT VAUT `false` : les appelants qui ne connaissent pas encore ce champ (et la base
+   * sans la migration 322) voient exactement la règle d'avant ce lot.
+   */
+  const datees = cartes.filter((c) => c.creeLe !== null && c.creeLe !== '' && c.poseChoisie !== true);
   /* `tails[k]` = l'indice, dans `datees`, de la fin de la meilleure suite croissante de longueur k+1. */
   const tails: number[] = [];
   /* `parent[i]` = l'élément qui précède `i` dans la suite qui se termine en `i`. */
@@ -676,6 +706,19 @@ export interface ElementFrise {
    * Arno, point 4 : « avec une date proposée entre celles des deux voisins (modifiable) ».
    */
   jourPropose?: string;
+  /**
+   * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE (08/10/2026), POINT 1 — APRÈS QUI CE « + » POSE ══════════════════════
+   *
+   * ARNO : « Un élément créé depuis un “+” intercalaire doit être enregistré EXACTEMENT à cet emplacement. »
+   *
+   * · un NOMBRE — l'identifiant de l'élément que le « + » suit : la carte neuve se glisse juste derrière lui ;
+   * · `'debut'` — ce « + » suit l'OUVERTURE DÉRIVÉE, qui n'est pas une étape et n'a donc pas d'identifiant.
+   *   La carte neuve se pose alors avant tout le reste.
+   *
+   * ⚠️ IL N'EST PORTÉ QUE PAR LES `plus-entre` : le gros « + » rouge de fin n'en a pas, et c'est ce qui le
+   * distingue — « Seul le grand carré rouge “+” de fin ajoute en dernière position » (Arno).
+   */
+  apresId?: number | 'debut';
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -811,9 +854,19 @@ export function rangerEnLigne(
         cle: `plus-entre-${c.cle}`,
         sorte: 'plus-entre',
         /* ⚠️ LA DATE PROPOSÉE RESTE CALCULÉE ENTRE LES DEUX VOISINES, et c'est encore utile : la date est
-           désormais purement informative, mais elle reste une date, et la proposer juste évite de la ressaisir.
-           Elle ne décide plus de RIEN quant à la place — c'est le « + » cliqué qui décide, et il pose au bout. */
+           désormais purement informative, mais elle reste une date, et la proposer juste évite de la ressaisir. */
         jourPropose: jourIntercalaire(c.survenuLe, suivant.survenuLe, aujourdhui),
+        /**
+         * 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 1 — ET IL DIT MAINTENANT OÙ IL EST.
+         *
+         * CE QUI ÉTAIT ÉCRIT ICI : « Elle ne décide plus de RIEN quant à la place — c'est le “+” cliqué qui
+         * décide, ET IL POSE AU BOUT. » C'était exact, et c'était le défaut : une note ajoutée entre deux
+         * carrés atterrissait en fin de frise. Le « + » décidait, mais il ne disait rien de lui-même.
+         *
+         * ⚠️ L'OUVERTURE DÉRIVÉE N'A PAS D'ÉTAPE (elle affiche `gestion_evenement.ouvert_le`) : le « + » qui
+         * la suit ne peut donc nommer personne, et dit « debut » — avant tout le reste.
+         */
+        apresId: c.etape === null ? 'debut' : c.etape.id,
       });
     }
   });
@@ -821,6 +874,31 @@ export function rangerEnLigne(
   /* 🔴 CE QUI EST ARRIVÉ APRÈS LE DERNIER CARRÉ se pose avant le gros « + » : eux aussi ont eu lieu. */
   const apres = avant(null);
   if (apres.length > 0) out.push({ cle: 'pts-fin', sorte: 'points', messages: apres });
+
+  /**
+   * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 2 — UN « + » APRÈS LE DERNIER ÉLÉMENT ════════════════════════════
+   *
+   * ARNO : « Ajouter un “+” intercalaire entre le dernier élément de la frise (dernier carré ou dernier point)
+   * et le grand carré rouge “+”, pour pouvoir poser des notes après la dernière étape en attendant la
+   * suivante. Même style que les autres “+” intercalaires. »
+   *
+   * 🔴 CE QUI ÉTAIT ÉCRIT PLUS HAUT, ET QUI CHANGE : « Il n'y en a pas après le dernier carré : c'est le gros
+   * “+” rouge de fin qui y sert, et deux “+” collés l'un à l'autre n'apprendraient rien de plus. » Les deux
+   * ne font PLUS la même chose depuis le point 3 : le gros « + » ouvre sur « Étape (carré) », l'intercalaire
+   * sur « Simple information (point) ». Celui-ci est donc le chemin court vers une note — ce qu'Arno veut
+   * poser « en attendant la suivante ».
+   *
+   * ⚠️ IL SUIT LE DERNIER ÉLÉMENT, CARRÉ OU POINT (Arno le dit des deux) : on prend le plus grand rang de pose
+   * de la frise, et non la dernière CASE — un point posé après le dernier carré est, lui, le dernier élément.
+   *
+   * ⚠️ AUCUN « + » SUR UNE FRISE SANS AUCUNE ÉTAPE : il n'y a alors rien à suivre, et le gros carré rouge est
+   * déjà la seule chose à faire. Un « + » intercalaire collé à lui n'apprendrait effectivement rien.
+   */
+  const dernier = [...majeures.flatMap((c) => (c.etape === null ? [] : [c.etape])), ...reperes]
+    .sort(parOrdreDePose).at(-1);
+  if (dernier !== undefined) {
+    out.push({ cle: 'plus-entre-fin', sorte: 'plus-entre', jourPropose: aujourdhui, apresId: dernier.id });
+  }
 
   /**
    * 🔴 LE GROS « + » ROUGE FERME TOUJOURS LA MARCHE (Arno, point 1 : « suivi d'un carré “+” rouge »). Sur une

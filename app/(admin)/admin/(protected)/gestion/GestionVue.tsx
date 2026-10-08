@@ -1557,11 +1557,30 @@ export function GestionVue({ intro }: {
             <div className="gst-tete-partage-titre">
               <h2 className="gst-titre" id="gst-titre-ev">
                 Événements <span className="gst-compte">{d.evenementsTotal}</span>
-                {/* 🔴 LOT FILTRES-EVENEMENTS-NEW — les MÊMES boutons que le plein écran, au même endroit. */}
-                {boutonsDeTri}
               </h2>
             </div>
+            {/**
+              * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE…, POINT 5 — « New » ET « Urgent » DESCENDENT D'UNE RANGÉE ═══
+              *
+              * ARNO : « 1re ligne = titre “Événements” + compteur ; 2e ligne = “New” et “Urgent” à gauche,
+              * “Plein écran” à droite, sur la même ligne et à la même hauteur que la ligne “Tous / À classer /
+              * Classés / Hors gestion … Plein écran” du panneau de gauche. »
+              *
+              * 🔴 ILS ÉTAIENT DANS LE `<h2>`, et c'est ce qui cassait la symétrie : la colonne de gauche met
+              * ses filtres dans la rangée des OUTILS (`brc-filtres gst-tete-partage-outils`, `BoiteReception`),
+              * celle-ci les mettait dans son TITRE. Les deux en-têtes avaient donc la même hauteur par
+              * accident — la rangée d'outils de droite ne portait qu'un bouton — et les filtres des deux
+              * colonnes ne se lisaient pas à la même ligne.
+              *
+              * 🔴 LA MÊME CLASSE QUE LA COLONNE DE GAUCHE, ET NON UNE IMITATION : `gst-tete-partage-outils`
+              * porte déjà `min-height:44px` et `.gst-plein{margin-left:auto}`. « Plein écran » part donc à
+              * droite tout seul, et les deux rangées font la même hauteur par construction.
+              *
+              * ⚠️ RIEN N'EST RETIRÉ : ce sont les MÊMES boutons (`boutonsDeTri`), avec le même état, les mêmes
+              * gestes et le même comportement de filtre. Ils changent de ligne, pas de nature.
+              */}
             <div className="gst-tete-partage-outils">
+              {boutonsDeTri}
               {/* 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — LE TRI TRAVERSE AVEC NOUS. Arno : « Le choix du bouton est
                   conservé entre l'écran partagé et le plein écran. » Ce bouton est LA transition entre les deux
                   (et, depuis le lot CARTES-EVENEMENT-MEME-GESTE, la seule) : sans `tri`, passer en plein écran
@@ -1989,7 +2008,13 @@ ${CSS_BOUTON_ROND}
 
 /* L'EN-TETE COMMUN : deux rangees, les memes hauteurs des deux cotes. */
 .gst-tete-partage{display:flex;flex-direction:column;gap:.4rem;margin:0 0 .5rem}
-.gst-tete-partage-titre{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;min-height:23px}
+/* ⚠️ 30 px ET NON 23 : meme raison que le pied ci-dessous, et meme mesure. A gauche, le bouton « relever » de
+   la boite de reception porte la rangee du titre a 30 px ; a droite, « Evenements » + son compteur n'en
+   demandent que 22,5. Les deux tetes faisaient donc 80 et 73, et les deux listes commencaient a 341 et 334 —
+   7 px d'ecart, visibles. On fixe la MEME hauteur des deux cotes plutot que de la laisser au contenu, sinon
+   l'alignement depend de ce que la colonne de gauche contient ce jour-la.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-tete-partage-titre{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;min-height:30px}
 .gst-tete-partage-titre .gst-titre{margin:0}
 .gst-tete-partage-outils{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px}
 /* ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW, POINT 2 — LES DEUX BOUTONS DE TRI, A COTE DU COMPTEUR ═══════════════════

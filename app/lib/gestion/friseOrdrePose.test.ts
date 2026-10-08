@@ -43,7 +43,7 @@ const etape = (p: Partial<EtapeAAfficher>): EtapeAAfficher => ({
   heureFin: null, numero: null, rang: null, montantCents: null, texte: null, auteur: null,
   source: 'manuelle', certitude: 'fiable', messageId: null, aEuUnMail: false, filId: null,
   creeParLibelle: 'Arnaud', creeLe: '2026-09-01T10:00:00', titre: null, pieceNom: null, rangDevis: null,
-  rangPose: null, ...p,
+  poseChoisie: false, rangPose: null, ...p,
 });
 
 const MIGRATION = readFileSync('db/migrations/321_gestion_etape_rang_pose.sql', 'utf8');

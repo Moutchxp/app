@@ -451,7 +451,13 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
    * `estRepere` qui tranche la forme à l'affichage.
    */
   it('🔴🔴 les deux formes sont offertes, par deux listes de types', () => {
-    expect(FRISE).toContain("useState<'etape' | 'information'>('etape')");
+    /* ⚠️ CETTE ÉPREUVE A CHANGÉ D'AVIS, ET IL FAUT DIRE POURQUOI. Elle exigeait
+       `useState<'etape' | 'information'>('etape')` : la forme de départ était écrite en dur, « étape ».
+       Le lot FRISE-PLUS-INTERCALAIRE l'a rendue DEMANDÉE par celui qui ouvre le formulaire — un « + »
+       intercalaire présélectionne « Simple information (point) », le gros « + » rouge reste sur « Étape »
+       (Arno, point 3). Le verdict a donc changé parce que la règle a changé : ce qui est éprouvé
+       maintenant, c'est que les DEUX formes existent toujours et que le défaut vient de `formeDefaut`. */
+    expect(FRISE).toContain("useState<'etape' | 'information'>(formeDefaut)");
     expect(FRISE).toContain('Étape (carré)');
     expect(FRISE).toContain('Simple information (point)');
     /* ⚠️ LA LISTE DES ÉTAPES EST DEVENUE `TYPES_RESERVOIR` (lot FRISE-CONSTRUCTIBLE) : c'est la liste qu'Arno a
@@ -514,7 +520,10 @@ describe('②bis « Modifier » dans la bulle (lot ATTENTION-ET-MODIFIER)', () =
     expect(FRISE).toContain('useState(depart.heure)');
     expect(FRISE).toContain('useState(depart.texte)');
     /* 🔴 ET LE MÊME PANNEAU RESTE LE MÊME PANNEAU : la bascule « Étape / Simple information » y est. */
-    expect(FRISE).toContain("useState<'etape' | 'information'>(depart.forme)");
+    /* ⚠️ LA FORME DE DÉPART PASSE PAR UNE CONDITION (lot FRISE-PLUS-INTERCALAIRE, point 3) : une carte NEUVE
+       prend la forme présélectionnée par le « + » cliqué, une MODIFICATION garde celle de sa carte. C'est la
+       seconde moitié qui compte ici, et elle est intacte. */
+    expect(FRISE).toContain("modifie === null ? formeDefaut : depart.forme);");
   });
 
   /**
@@ -810,7 +819,9 @@ describe('⑬ les « + » intercalaires (Arno, point 4)', () => {
 
   /** 🔴 IL OUVRE LE MÊME RÉSERVOIR, avec la date proposée entre les deux voisines. */
   it('🔴 il ouvre le même réservoir, avec sa date', () => {
-    expect(FRISE).toContain('onClick={() => p.onAjouter(jour)}');
+    /* ⚠️ LE « + » ENVOIE DEUX CHOSES DE PLUS (points 1 à 3) : sa place, et la forme qu'il présélectionne. Ce
+       que ce cas tient — il ouvre le même réservoir, avec SA date — est inchangé. */
+    expect(FRISE).toContain("onClick={() => p.onAjouter(jour, p.el.apresId, 'information')}");
     expect(FRISE).toContain('const jour = p.el.jourPropose ?? p.aujourdhui;');
   });
 });
@@ -934,7 +945,10 @@ describe('⑮ par défaut, une seule rangée (Arno, point 1)', () => {
     expect(readFileSync('app/lib/gestion/survolBulle.ts', 'utf8'))
       .toContain('cible: null, surLaCible: false, surLaBulle: false, fermetureDemandee: false,');
     expect(FRISE).toContain("const [fixe, setFixe] = useState<string | null>(null);");
-    expect(FRISE).toContain('const [reservoir, setReservoir] = useState<{ jour: string } | null>(null);');
+    /* ⚠️ LE RÉSERVOIR RETIENT DEUX CHOSES DE PLUS depuis le lot FRISE-PLUS-INTERCALAIRE (sa place et la forme
+       présélectionnée). Ce que ce cas tient — rien d'ouvert au premier rendu — est inchangé : il part de
+       `null`, et c'est cela qu'on exige. */
+    expect(FRISE).toContain("forme: 'etape' | 'information' } | null>(null);");
     expect(FRISE).toContain('const [ajout, setAjout] = useState(false);');
   });
 

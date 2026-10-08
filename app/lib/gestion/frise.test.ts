@@ -41,6 +41,8 @@ const etape = (p: Partial<EtapeAAfficher>): EtapeAAfficher => ({
   id: (n += 1), reference: 'MNG-10000', type: 'ouverture', survenuLe: '2026-09-01T00:00:00', heureConnue: false, heureFin: null,
   numero: null, rang: null, montantCents: null, texte: null, auteur: null, source: 'monga',
   certitude: 'fiable', messageId: 1, aEuUnMail: true, filId: 10, creeParLibelle: null, pieceNom: null,
+  /* 🔴 LOT FRISE-PLUS-INTERCALAIRE — une carte ORDINAIRE n'a pas de place choisie. */
+  poseChoisie: false,
   /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `rangPose: null` PAR DÉFAUT, et c'est le cas qui compte ici : il fait
      retomber le comparateur sur l'ANCIENNE clé (date, rang de type, identifiant). Les épreuves d'ordre
      chronologique de MONGA-2 et de FRISE-CONSTRUCTIBLE continuent donc de dire ce qu'elles disaient, sans
@@ -484,22 +486,54 @@ describe('⑨ la frise en ligne : carrés, points et « + »', () => {
   });
 
   /**
-   * 🔴🔴 LES « + » INTERCALAIRES (Arno, point 4) : « entre deux carrés consécutifs, un petit “+” encapsulé […]
-   * ouvre le même réservoir, avec une date proposée entre celles des deux voisins ».
+   * 🔴🔴 LES « + » INTERCALAIRES (Arno, point 4 du lot FRISE-CONSTRUCTIBLE) : « entre deux carrés consécutifs,
+   * un petit “+” encapsulé […] ouvre le même réservoir, avec une date proposée entre celles des deux voisins ».
    *
-   * ⚠️ IL Y EN A UN DE MOINS QUE DE CARRÉS : aucun après le dernier, où se trouve le gros « + ». Deux « + »
-   * collés l'un à l'autre n'apprendraient rien de plus.
+   * ══ 🔴🔴 CE CAS EXIGEAIT « PAS APRÈS LE DERNIER », ET ARNO REVIENT DESSUS ═══════════════════════════════
+   *
+   * IL EXIGEAIT UN « + » DE MOINS QUE DE CARRÉS, avec cette raison : « aucun après le dernier, où se trouve
+   * le gros “+”. Deux “+” collés l'un à l'autre n'apprendraient rien de plus. » C'était vrai TANT QUE LES
+   * DEUX FAISAIENT LA MÊME CHOSE.
+   *
+   * 🔴 ILS NE FONT PLUS LA MÊME CHOSE (lot FRISE-PLUS-INTERCALAIRE, points 2 et 3) : le gros « + » rouge
+   * ouvre sur « Étape (carré) », l'intercalaire sur « Simple information (point) ». Arno demande donc le
+   * second après le dernier élément, « pour pouvoir poser des notes après la dernière étape en attendant la
+   * suivante ».
    */
-  it('🔴🔴 un « + » intercalaire entre chaque paire de carrés, et pas après le dernier', () => {
+  it('🔴🔴 un « + » intercalaire entre chaque paire de carrés, ET après le dernier', () => {
     const l = ligne([
       etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' }),
       etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' }),
       etape({ type: 'cloture', survenuLe: '2026-10-05T00:00:00' }),
     ]);
     expect(l.filter((e) => e.sorte === 'carre')).toHaveLength(3);
-    expect(l.filter((e) => e.sorte === 'plus-entre')).toHaveLength(2);
+    expect(l.filter((e) => e.sorte === 'plus-entre')).toHaveLength(3);
     expect(l.map((e) => e.sorte))
-      .toEqual(['carre', 'plus-entre', 'carre', 'plus-entre', 'carre', 'plus']);
+      .toEqual(['carre', 'plus-entre', 'carre', 'plus-entre', 'carre', 'plus-entre', 'plus']);
+  });
+
+  /**
+   * 🔴🔴 ET CHAQUE « + » DIT APRÈS QUI IL POSE (point 1). C'est tout le correctif : avant, aucun ne le disait,
+   * et le dépôt posait au bout quel que soit le « + » cliqué.
+   *
+   * ⚠️ LE PREMIER DIT « debut » : il suit l'OUVERTURE DÉRIVÉE, qui n'est pas une étape et n'a pas
+   * d'identifiant. Ici l'ouverture est une VRAIE étape, donc il nomme son identifiant — les deux cas sont
+   * éprouvés, celui-ci et le suivant.
+   */
+  it('🔴🔴 chaque « + » intercalaire nomme l’élément qu’il suit', () => {
+    const o = etape({ type: 'ouverture', survenuLe: '2026-09-01T00:00:00' });
+    const r = etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' });
+    const l = ligne([o, r]);
+    expect(l.filter((e) => e.sorte === 'plus-entre').map((e) => e.apresId)).toEqual([o.id, r.id]);
+    /* 🔴 ET LE GROS « + » ROUGE N'EN A PAS : c'est ce qui le distingue — lui seul pose en dernière position. */
+    expect(l.find((e) => e.sorte === 'plus')?.apresId).toBeUndefined();
+  });
+
+  /** 🔴 L'OUVERTURE DÉRIVÉE N'EST PAS UNE ÉTAPE : le « + » qui la suit dit « debut », faute d'identifiant. */
+  it('🔴🔴 le « + » qui suit l’ouverture dérivée dit « debut »', () => {
+    const l = ligne([etape({ type: 'prise_rdv', survenuLe: '2026-09-15T00:00:00' })], '2026-09-01T12:00:00');
+    const premier = l.filter((e) => e.sorte === 'plus-entre')[0];
+    expect(premier?.apresId).toBe('debut');
   });
 
   /** 🔴 ET CHACUN PROPOSE UNE DATE ENTRE SES DEUX VOISINES (Arno, point 4). */
@@ -512,10 +546,19 @@ describe('⑨ la frise en ligne : carrés, points et « + »', () => {
     expect(entre?.jourPropose).toBe('2026-09-06');
   });
 
-  /** ⚠️ UN SEUL CARRÉ : aucun intercalaire, il n'y a pas d'« entre ». */
-  it('⚠️ un seul carré ne produit aucun « + » intercalaire', () => {
-    const l = ligne([etape({ type: 'ouverture' })]);
-    expect(l.filter((e) => e.sorte === 'plus-entre')).toHaveLength(0);
+  /**
+   * ⚠️ UN SEUL CARRÉ : plus d'« entre », mais un « + » APRÈS LUI (point 2) — on peut poser une note derrière
+   * la première étape sans attendre la seconde.
+   *
+   * 🔴 ET SUR UNE FRISE SANS AUCUNE ÉTAPE, AUCUN : il n'y a alors rien à suivre, et le gros carré rouge est
+   * déjà la seule chose à faire. C'est le cas que le premier contrôle de ce groupe tient (« au départ :
+   * l'ouverture, puis le “+”, et rien d'autre ») — l'ouverture y est DÉRIVÉE, donc ce n'est pas une étape.
+   */
+  it('⚠️ un seul carré : aucun « entre », mais un « + » après lui', () => {
+    const o = etape({ type: 'ouverture' });
+    const l = ligne([o]);
+    expect(l.filter((e) => e.sorte === 'plus-entre').map((e) => e.apresId)).toEqual([o.id]);
+    expect(l.map((e) => e.sorte)).toEqual(['carre', 'plus-entre', 'plus']);
   });
 
   /**

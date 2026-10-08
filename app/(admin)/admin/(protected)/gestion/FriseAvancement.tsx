@@ -233,7 +233,15 @@ export function FriseAvancement({
    * carré : deux réservoirs ouverts côte à côte, chacun avec sa date, seraient deux formulaires concurrents pour
    * le même geste. Le « + » qui l'ouvre ne fait que lui passer une date de départ.
    */
-  const [reservoir, setReservoir] = useState<{ jour: string } | null>(null);
+  const [reservoir, setReservoir] = useState<
+    /**
+     * 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE (08/10/2026) — LE RÉSERVOIR RETIENT D'OÙ IL A ÉTÉ OUVERT.
+     *
+     * `apresId` : la place demandée (points 1 et 2) — `undefined` pour le gros « + » rouge, qui pose au bout.
+     * `forme`   : la forme présélectionnée (point 3) — « Simple information (point) » depuis un intercalaire,
+     *             « Étape (carré) » depuis le gros « + ». On peut toujours en changer à la main.
+     */
+    { jour: string; apresId?: number | 'debut'; forme: 'etape' | 'information' } | null>(null);
   /**
    * 🔴 LE TYPE CHOISI DANS LE RÉSERVOIR. Le formulaire s'ouvre avec sa carte déjà désignée — c'est ce que
    * « clic sur un carré du réservoir → petit formulaire » veut dire (Arno, point 2).
@@ -403,9 +411,11 @@ export function FriseAvancement({
    * 🔴 IL FERME LA BULLE : « une seule zone ouverte à la fois » (Arno). Deux panneaux déployés l'un sous l'autre
    * rendraient au bloc la hauteur de trois lignes qu'on vient justement de lui retirer.
    */
-  const ouvrirReservoir = useCallback((jour: string): void => {
+  const ouvrirReservoir = useCallback((
+    jour: string, apresId?: number | 'debut', forme: 'etape' | 'information' = 'etape',
+  ): void => {
     setFixe(null); bulle.fermer(); bulleTexte.fermer(); setCommentaire(null);
-    setModifie(null); setTypePose(null); setAjout(false); setReservoir({ jour });
+    setModifie(null); setTypePose(null); setAjout(false); setReservoir({ jour, apresId, forme });
   }, [bulle, bulleTexte]);
 
   /**
@@ -519,7 +529,9 @@ export function FriseAvancement({
    */
   const deplacees = cartesHorsChronologie(
     [...etapes].filter((x) => x.certitude !== 'ecartee').sort(parOrdreDePose)
-      .map((x) => ({ cle: `e${x.id}`, creeLe: x.creeLe })));
+      /* 🔴 LOT FRISE-PLUS-INTERCALAIRE — `poseChoisie` voyage jusqu'ici : une carte posée à un endroit CHOISI
+         sort du calcul, ni marquée ni repère (voir `cartesHorsChronologie`). */
+      .map((x) => ({ cle: `e${x.id}`, creeLe: x.creeLe, poseChoisie: x.poseChoisie })));
   /**
    * 🔴 CE QUE L'ON MONTRE, ET OÙ. Une seule bulle à la fois — deux ouvertes feraient lire la mauvaise.
    *
@@ -743,6 +755,10 @@ export function FriseAvancement({
               key={modifie === null ? 'ajout' : `modif-${modifie.id}`}
               evenementId={evenementId} typeImpose={typePose} modifie={modifie}
               jourDefaut={reservoir?.jour ?? aujourdhui}
+              /* 🔴 LOT FRISE-PLUS-INTERCALAIRE — la place demandée (points 1-2) et la forme présélectionnée
+                 (point 3). Absentes pour le gros « + » rouge : au bout, en carré, comme avant. */
+              insererApres={reservoir?.apresId}
+              formeDefaut={reservoir?.forme ?? 'etape'}
               /* 🔴 POINT 2 — le formulaire dit s'il porte une saisie non enregistrée ; le crayon s'en sert
                  pour demander avant de refermer. Lui seul connaît ses huit champs. */
               onSaisieSale={setSaisieSale}
@@ -761,6 +777,9 @@ export function FriseAvancement({
           ) : (
             <Reservoir
               jour={reservoir?.jour ?? aujourdhui}
+              /* 🔴 POINT 3 — la forme que le « + » cliqué présélectionne : « Simple information » depuis un
+                 intercalaire, « Étape (carré) » depuis le gros « + » rouge. */
+              formeDefaut={reservoir?.forme ?? 'etape'}
               /* 🔴 LOT CLOTURE-REOUVERTURE — « Clôture » si le dossier est ouvert, « Réouverture » s'il est
                  clos, jamais les deux (Arno). `undefined` = une route d'avant ce lot : on retombe sur
                  « ouvert », c'est-à-dire la grille d'avant. */
@@ -868,7 +887,11 @@ function ElementDeLaFrise(p: {
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
   /** Ouvrir le réservoir avec une date de départ — le gros « + » comme les intercalaires. */
-  onAjouter: (jour: string) => void;
+  /**
+   * 🔴 LOT FRISE-PLUS-INTERCALAIRE — le « + » dit SA PLACE et la FORME qu'il présélectionne. Le gros « + »
+   * rouge n'envoie ni l'une ni l'autre : il pose au bout, sur « Étape (carré) », comme avant ce lot.
+   */
+  onAjouter: (jour: string, apresId?: number | 'debut', forme?: 'etape' | 'information') => void;
   aujourdhui: string;
   /** Corriger la date d'ouverture de l'événement (Arno, point 1 : « modifiable »). */
   onOuverture: (jour: string) => void;
@@ -910,7 +933,10 @@ function ElementDeLaFrise(p: {
     const jour = p.el.jourPropose ?? p.aujourdhui;
     return (
       <li className="fav-el fav-el--entre">
-        <button type="button" className="fav-entre" onClick={() => p.onAjouter(jour)}
+        {/* 🔴 POINTS 1 À 3 — il pose À SA PLACE (`apresId`) et ouvre sur « Simple information » : c'est le
+            chemin court vers une note oubliée, et c'est ce qu'Arno vient y chercher. */}
+        <button type="button" className="fav-entre"
+          onClick={() => p.onAjouter(jour, p.el.apresId, 'information')}
           title="Ajouter une étape ou une information oubliée ici"
           aria-label={`Ajouter une étape ou une information au ${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}>
           <span className="fav-entre-rond" aria-hidden="true">+</span>
@@ -1329,8 +1355,9 @@ function Carre({
         * ligne des dates de création ne doit pas décaler les connecteurs (+) entre les cartes »). Elle tient à
         * une seule propriété, déjà posée : `.fav-piste{align-items:flex-start}`. Les éléments de la rangée sont
         * alignés par le HAUT, jamais par le milieu ni par le bas — un élément plus haut que ses voisins pousse
-        * donc vers le BAS, et rien ne bouge au-dessus de lui. Les « + » intercalaires (`padding-top:32px`), les
-        * groupes de points (`padding-top:38px`) et le trait (`top:44px`) comptent tous depuis ce même haut.
+        * donc vers le BAS, et rien ne bouge au-dessus de lui. Les « + » intercalaires, les groupes de points et
+        * le trait comptent tous depuis ce même haut — et depuis le lot FRISE-PLUS-INTERCALAIRE (point 4) ils se
+        * calent sur UNE seule mesure, `--fav-mi-carre`, au lieu de trois nombres écrits à la main.
         *
         * ⚠️ ELLE EST DANS LE `<li>` ET NON DANS `.fav-carre` : « en dehors du cadre » veut dire hors de la boîte
         * bordée. Dedans, elle aurait mangé 15 px des 92 px du carré et poussé le montant hors de la vue.
@@ -1594,9 +1621,21 @@ function ChampOuverture({
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 function Reservoir({
-  jour, onChoisir, onFermer, evenementOuvert,
+  jour, onChoisir, onFermer, evenementOuvert, formeDefaut = 'etape',
 }: {
   jour: string; onChoisir: (t: TypeEtape) => void; onFermer: () => void;
+  /**
+   * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 3 — LA FORME PRÉSÉLECTIONNÉE ═════════════════════════════════
+   *
+   * ARNO : « Quand “Ajouter une carte” s'ouvre depuis un “+” INTERCALAIRE : la forme est présélectionnée sur
+   * “Simple information (point)”. Depuis le grand carré rouge “+” : inchangé. »
+   *
+   * 🔴 C'EST ICI QUE ÇA SE VOIT, ET NON DANS LE FORMULAIRE. La grille s'ouvre AVANT lui : c'est sa bascule
+   * à elle qu'Arno regarde en premier, et c'est elle qui décide quelles cartes sont proposées. Le formulaire
+   * la reçoit aussi — pour le cas où l'on y arrive sans passer par la grille —, mais la régler là seulement
+   * aurait laissé la grille offrir des carrés quand on vient chercher une note.
+   */
+  formeDefaut?: 'etape' | 'information';
   /**
    * 🔴🔴 LOT CLOTURE-REOUVERTURE — L'ÉTAT DÉCIDE DE DEUX CARTES, ET DE DEUX SEULEMENT. Arno : « La carte
    * “Clôture” n'est proposée que si l'événement est ouvert. […] La carte “Réouverture” n'est proposée que si
@@ -1605,7 +1644,7 @@ function Reservoir({
    */
   evenementOuvert: boolean;
 }) {
-  const [forme, setForme] = useState<'etape' | 'information'>('etape');
+  const [forme, setForme] = useState<'etape' | 'information'>(formeDefaut);
   /**
    * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 4 — UN DOSSIER CLOS N'OFFRE QUE « RÉOUVERTURE » ══════════════════════
    *
@@ -1689,6 +1728,7 @@ function Reservoir({
 
 function AjouterEtape({
   evenementId, typeImpose, modifie, jourDefaut, onFermer, onRetour, onFait, onSaisieSale,
+  insererApres, formeDefaut = 'etape',
 }: {
   evenementId: number; typeImpose: TypeEtape | null;
   /**
@@ -1720,6 +1760,14 @@ function AjouterEtape({
    * ⚠️ FACULTATIVE : un appelant qui ne propose pas la bascule n'a pas à connaître cette question.
    */
   onSaisieSale?: (sale: boolean) => void;
+  /** 🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 1 — la place que le « + » cliqué demande. Absente ⇒ au bout. */
+  insererApres?: number | 'debut';
+  /**
+   * 🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 3 — la forme présélectionnée. Arno : « Quand “Ajouter une carte”
+   * s'ouvre depuis un “+” INTERCALAIRE : la forme est présélectionnée sur “Simple information (point)”.
+   * Depuis le grand carré rouge “+” : inchangé. On peut toujours changer de forme à la main. »
+   */
+  formeDefaut?: 'etape' | 'information';
 }) {
   /**
    * ══ 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LES VALEURS DE DÉPART SE DÉRIVENT, ELLES NE S'APPLIQUENT PLUS ════
@@ -1737,7 +1785,14 @@ function AjouterEtape({
    * Il ne porte plus la charge du premier remplissage, seulement celle de suivre la donnée.
    */
   const depart = valeursDeLaCarte(modifie, jourDefaut, typeImpose ?? 'autre');
-  const [forme, setForme] = useState<'etape' | 'information'>(depart.forme);
+  /**
+   * 🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 3 — LA FORME PRÉSÉLECTIONNÉE, POUR UNE CARTE NEUVE SEULEMENT.
+   *
+   * ⚠️ UNE MODIFICATION GARDE LA FORME DE SA CARTE : `valeursDeLaCarte` la lit de l'étape elle-même, et un
+   * carré rouvert pour correction ne doit pas se changer en point parce qu'on a cliqué un « + » auparavant.
+   */
+  const [forme, setForme] = useState<'etape' | 'information'>(
+    modifie === null ? formeDefaut : depart.forme);
   const [type, setType] = useState<TypeEtape>(depart.type);
   /* 🔴 « date (obligatoire, aujourd'hui par défaut) » — ou la date proposée par un « + » intercalaire (Arno). */
   const [jour, setJour] = useState(depart.jour);
@@ -1887,7 +1942,11 @@ function AjouterEtape({
       const res = modifie === null
         ? await fetch(`/api/admin/gestion/evenements/${evenementId}/frise`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...corps, pieceNom: piece.trim() === '' ? null : piece.trim() }),
+          body: JSON.stringify({
+            ...corps, pieceNom: piece.trim() === '' ? null : piece.trim(),
+            /* 🔴 POINT 1 — la place voyage avec la carte. Absente, la route pose au bout : c'est le défaut. */
+            insererApres,
+          }),
         })
         : await fetch(`/api/admin/gestion/etapes/${modifie.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -2155,8 +2214,25 @@ const CSS_FRISE_AVANCEMENT = `
 
 /* Le trait fin qui relie les carres : une bordure posee sur la rangee, derriere les elements. */
 .fav-el{position:relative;display:flex;align-items:flex-start;flex:0 0 auto}
-.fav-el::before{content:'';position:absolute;left:0;right:0;top:44px;height:2px;
-  background:var(--color-svv-line);z-index:0}
+/* ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE (08/10/2026), POINT 4 — LE FIL A MI-HAUTEUR DES CARRES ══════════════════
+   ARNO : « Les “+” intercalaires ET les points d'information sont centres a mi-hauteur des carres, poses SUR
+   le fil chronologique gris clair, lui-meme a mi-hauteur des carres, d'un bout a l'autre de la frise. »
+
+   🔴 TROIS ELEMENTS, UNE SEULE MESURE. Le fil, les « + » et les points etaient cales par TROIS nombres ecrits
+   a la main — 44, 32 et 38 —, accordes a un carre de 92 px (mi-hauteur 46). Le carre est passe a 112 px au lot
+   HORODATAGE-ET-PICTOS, puis a 118 au lot PICTOS-PLUS-GRANDS : les trois nombres sont restes, et le fil s'est
+   retrouve 15 px AU-DESSUS du milieu. C'est ce qu'Arno voit.
+
+   🔴 LA MI-HAUTEUR SE CALCULE DESORMAIS, a partir de la seule hauteur du carre : chacun des trois s'y accroche
+   par un calc(), et le jour ou le carre grandira encore, les trois suivront ensemble. Une mesure recopiee est
+   une mesure qui se desaccorde — celle-ci l'a fait deux fois.
+
+   ⚠️ LA DEMI-TAILLE DE CHAQUE ELEMENT EST RETIREE de son padding : le « + » fait 24 px (donc -12) et un point
+   11 px (donc -5,5). C'est ce qui les pose SUR le fil, centre sur centre, et non suspendus a cote.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-piste{--fav-mi-carre:59px}
+.fav-el::before{content:'';position:absolute;left:0;right:0;top:var(--fav-mi-carre);height:2px;
+  background:var(--color-svv-line);z-index:0;transform:translateY(-1px)}
 .fav-el:first-child::before{left:50%}
 .fav-el:last-child::before{right:50%}
 /* ══ 🔴🔴 LOT FRISE-COULEURS-DATES — L'ELEMENT D'UN CARRE EMPILE LA CARTE ET SA DATE DE CREATION ══════════════
@@ -2168,7 +2244,8 @@ const CSS_FRISE_AVANCEMENT = `
    🔴 ET L'ALIGNEMENT TIENT, C'EST LA CONDITION D'ARNO (« la ligne des dates de creation ne doit pas decaler les
    connecteurs (+) entre les cartes »). Il tient a une propriete deja posee et qu'on ne touche pas :
    .fav-piste{align-items:flex-start} — la rangee aligne ses elements par le HAUT. Un element plus haut que ses
-   voisins pousse donc vers le BAS, et le trait (top:44px), les « + » et les points ne bougent pas d'un pixel.
+   voisins pousse donc vers le BAS, et le trait, les « + » et les points ne bougent pas d'un pixel : ils se
+   calent tous sur --fav-mi-carre, la mi-hauteur du carre (lot FRISE-PLUS-INTERCALAIRE, point 4).
    ⚠️ NE PAS PASSER CETTE RANGEE EN center NI EN stretch : les deux recentreraient les carres sur une hauteur
    qui depend desormais de la presence d'une date de creation — c'est-a-dire du TYPE de la carte.
 
@@ -2311,7 +2388,8 @@ const CSS_FRISE_AVANCEMENT = `
    « un petit “+” encapsulé (petit cercle discret sur le trait, plus marqué au survol) ».
    ⚠️ LE BOUTON FAIT 24 px, LE CERCLE 14 : discret a l'oeil, atteignable au doigt. Une commande qui n'existe
    qu'a la souris precise n'existe pas sur un portable (CLAUDE.md §15). */
-.fav-el--entre{align-self:flex-start;padding-top:32px}
+/* ⚠️ -12 px : la moitie du bouton de 24 px, pour que son CENTRE tombe sur le fil (point 4). */
+.fav-el--entre{align-self:flex-start;padding-top:calc(var(--fav-mi-carre) - 12px)}
 .fav-entre{position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;
   width:24px;height:24px;min-width:24px;padding:0;margin:0 -4px;cursor:pointer;
   border:0;border-radius:50%;background:none}
@@ -2520,7 +2598,8 @@ const CSS_FRISE_AVANCEMENT = `
    code mort, et du code mort finit par etre lu comme une regle en vigueur. */
 
 /* ══ LES POINTS — sur le trait, entre les carres ══ */
-.fav-el--points{align-self:flex-start;padding-top:38px}
+/* ⚠️ -5,5 px : la moitie d'un point de 11 px, meme raison que pour le « + » juste au-dessus (point 4). */
+.fav-el--points{align-self:flex-start;padding-top:calc(var(--fav-mi-carre) - 5.5px)}
 .fav-points{position:relative;z-index:1;display:flex;align-items:center;gap:4px;padding:0 3px}
 .fav-point-boite{position:relative;display:inline-flex}
 .fav-point{width:11px;height:11px;min-width:11px;min-height:11px;padding:0;cursor:pointer;

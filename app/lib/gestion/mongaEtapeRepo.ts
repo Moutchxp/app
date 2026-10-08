@@ -161,7 +161,7 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     source: 'monga' | 'manuelle'; certitude: EtapeEcran['certitude']; statut: 'vif' | 'retire';
     message_id: string | null; message_cle: string | null; fil_id: string | null;
     piece_nom: string | null; cree_par_libelle: string | null;
-    cree_le: string | null; titre: string | null; rang_pose: string | null;
+    cree_le: string | null; titre: string | null; rang_pose: string | null; pose_choisie: boolean;
   }>(
     `SELECT e.id, e.reference, e.type, e.survenu_le::text, e.heure_connue, e.heure_fin,
             e.numero, e.rang, e.montant_cents, e.texte, e.auteur, e.source, e.certitude, e.statut,
@@ -173,7 +173,10 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
             -- Le fuseau est donc EXPRIME ICI, la ou la donnee est lue, et jamais recalcule dans le navigateur.
             -- AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit.
             to_char(e.cree_le AT TIME ZONE 'Europe/Paris', 'YYYY-MM-DD HH24:MI:SS') AS cree_le,
-            e.titre, e.rang_pose::text
+            e.titre, e.rang_pose::text,
+            -- LOT FRISE-PLUS-INTERCALAIRE (migration 322) : cette carte a-t-elle ete posee a un endroit CHOISI ?
+            -- Sa place ne decoule alors pas de son horodatage, et la regle vert/orange la laisse tranquille.
+            e.pose_choisie
        FROM gestion_monga_etape e
        LEFT JOIN gestion_message m ON m.id = e.message_id
       WHERE e.statut = 'vif'
@@ -237,6 +240,7 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     /* ⚠️ `numeric` RENDU EN CHAÎNE PAR `pg` : le convertir ici, sinon le comparateur trierait « 10 » avant
        « 9 ». Même piège que le montant juste au-dessus, et que les identifiants `bigint` du dépôt. */
     rangPose: r.rang_pose === null ? null : Number(r.rang_pose),
+    poseChoisie: r.pose_choisie === true,
     rangDevis: rangs.get(Number(r.id)) ?? null,
   }));
 }
@@ -254,6 +258,18 @@ export async function ajouterEtapeManuelle(a: {
   titre: string | null;
   parId: number | null;
   parLibelle: string;
+  /**
+   * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE (08/10/2026), POINT 1 — OÙ LA CARTE SE POSE ═════════════════════════
+   *
+   * ARNO : « Un élément créé depuis un “+” intercalaire doit être enregistré EXACTEMENT à cet emplacement
+   * (entre les deux éléments qui entourent ce “+”), via rang_pose. Seul le grand carré rouge “+” de fin
+   * ajoute en dernière position. »
+   *
+   * · `undefined` — au BOUT (le gros « + » rouge). C'est le comportement d'avant ce lot, inchangé.
+   * · `'debut'`   — AVANT TOUT, le « + » posé juste après l'Ouverture dérivée, qui n'est pas une étape.
+   * · un nombre   — JUSTE APRÈS cette étape-là.
+   */
+  insererApres?: number | 'debut';
 }): Promise<number> {
   /**
    * ══ 🔴🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — LA CARTE NEUVE SE POSE AU BOUT À DROITE ════════════════════════
@@ -269,16 +285,54 @@ export async function ajouterEtapeManuelle(a: {
    * les cartes de l'événement, retirées comprises — une carte rétablie à la main ne doit pas se retrouver avec
    * le rang d'une autre.
    */
+  /**
+   * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 1 — LE RANG SE CALCULE SELON LE « + » CLIQUÉ ═══════════════════
+   *
+   * CE QUI ÉTAIT ÉCRIT ICI, ET QUI EST LA CAUSE DU DÉFAUT D'ARNO : `coalesce(max(rang_pose), 0) + 1`, dans
+   * TOUS les cas. Quel que soit le « + » cliqué, la carte prenait le dernier rang de l'événement — le
+   * commentaire de `rangerEnLigne` l'assumait même en toutes lettres (« c'est le “+” cliqué qui décide, et il
+   * pose au bout »). Une note ajoutée entre deux carrés atterrissait donc en fin de frise.
+   *
+   * 🔴 TROIS CAS, ET ILS RESTENT TOUS DANS UNE SEULE REQUÊTE. C'est la raison d'être de la forme d'origine, et
+   * elle vaut toujours : lire le rang puis insérer en deux temps laisserait deux ajouts simultanés prendre la
+   * même place. PostgreSQL évalue les sous-`SELECT` au moment de l'écriture.
+   *
+   * 🔴 LE MILIEU ENTRE DEUX RANGS, ET C'EST POUR CELA QUE `rang_pose` EST UN `numeric` : entre 3 et 4 on pose
+   * 3,5 ; entre 3 et 3,5 on pose 3,25. Aucune renumérotation, donc aucune carte voisine réécrite — et les
+   * cartes qu'on n'a pas touchées gardent le rang qu'elles avaient.
+   *
+   * ⚠️ UN REPLI SÛR : si l'étape nommée n'existe plus (un écran resté ouvert pendant qu'elle était retirée),
+   * le `coalesce` final pose au bout. Un ajout ne doit pas échouer parce que son voisin a disparu.
+   */
+  const rangChoisi = a.insererApres === undefined
+    ? 'coalesce(max(x.rang_pose), 0) + 1'
+    : a.insererApres === 'debut'
+      /* ⚠️ LA MOITIÉ DU PLUS PETIT RANG : avant tout, sans toucher à personne. Frise vide ⇒ 1. */
+      ? 'coalesce(min(x.rang_pose) / 2, 1)'
+      : null;
+
+  const sql = rangChoisi !== null
+    ? `(SELECT ${rangChoisi} FROM gestion_monga_etape x WHERE x.evenement_id = $1)`
+    /* ENTRE DEUX : le milieu du rang de l'étape nommée et du rang suivant ; +1 s'il n'y a pas de suivant. */
+    : `(SELECT coalesce(
+           (SELECT CASE WHEN s.suivant IS NULL THEN v.rang + 1 ELSE (v.rang + s.suivant) / 2 END
+              FROM (SELECT rang_pose AS rang FROM gestion_monga_etape
+                     WHERE id = $11 AND evenement_id = $1 AND rang_pose IS NOT NULL) v
+              LEFT JOIN LATERAL (SELECT min(rang_pose) AS suivant FROM gestion_monga_etape
+                                  WHERE evenement_id = $1 AND rang_pose > v.rang) s ON true),
+           (SELECT coalesce(max(x.rang_pose), 0) + 1 FROM gestion_monga_etape x WHERE x.evenement_id = $1)))`;
+
+  const params: unknown[] = [a.evenementId, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents,
+    a.pieceNom, a.titre, a.parId, a.parLibelle];
+  if (rangChoisi === null) params.push(a.insererApres);
+
   const { rows } = await query<{ id: string }>(
     `INSERT INTO gestion_monga_etape
        (evenement_id, type, survenu_le, heure_connue, texte, montant_cents, piece_nom, titre,
-        source, certitude, cree_par, cree_par_libelle, rang_pose)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10,
-             (SELECT coalesce(max(x.rang_pose), 0) + 1 FROM gestion_monga_etape x
-               WHERE x.evenement_id = $1))
+        source, certitude, cree_par, cree_par_libelle, rang_pose, pose_choisie)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10, ${sql}, ${a.insererApres !== undefined})
      RETURNING id`,
-    [a.evenementId, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.pieceNom, a.titre,
-      a.parId, a.parLibelle]);
+    params);
   return Number(rows[0].id);
 }
 

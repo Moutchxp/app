@@ -343,11 +343,29 @@ describe('🔴🔴 ⑤ l’alignement de la frise ne bouge pas d’un pixel', ()
     expect(FEUILLE).not.toMatch(/\.fav-piste\{[^}]*align-items:center/);
   });
 
-  /** 🔴 LES TROIS REPÈRES VERTICAUX N'ONT PAS CHANGÉ D'UN PIXEL — c'est eux qu'on mesure, pas une intention. */
-  it('🔴🔴 le trait, les « + » intercalaires et les points gardent leur hauteur', () => {
-    expect(FEUILLE).toMatch(/\.fav-el::before\{[^}]*top:44px/);
-    expect(FEUILLE).toMatch(/\.fav-el--entre\{[^}]*padding-top:32px/);
-    expect(FEUILLE).toMatch(/\.fav-el--points\{[^}]*padding-top:38px/);
+  /**
+   * 🔴 LES TROIS REPÈRES VERTICAUX SE CALENT SUR UNE SEULE MESURE — c'est eux qu'on mesure, pas une intention.
+   *
+   * ══ 🔴🔴 CE CAS EXIGEAIT TROIS NOMBRES ÉCRITS À LA MAIN, ET C'EST CE QUI A DÉRIVÉ ════════════════════════
+   *
+   * IL EXIGEAIT `top:44px`, `padding-top:32px` et `padding-top:38px`, « n'ont pas changé d'un pixel ». Les
+   * trois étaient accordés à un carré de 92 px (mi-hauteur 46). Le carré est passé à 112 px au lot
+   * HORODATAGE-ET-PICTOS, puis à 118 au lot PICTOS-PLUS-GRANDS — et les trois nombres sont restés. Le fil
+   * s'est donc retrouvé 15 px AU-DESSUS du milieu des carrés : c'est ce qu'Arno voit au point 4.
+   *
+   * 🔴 LE CAS A FAIT EXACTEMENT SON TRAVAIL : il a tenu les trois nombres ensemble, et il aurait rougi si
+   * l'un d'eux avait bougé seul. Ce qu'il ne pouvait pas voir, c'est que les TROIS devaient bouger quand le
+   * carré grandissait. Ils dérivent maintenant de `--fav-mi-carre`, et c'est cette dépendance qu'on tient.
+   */
+  it('🔴🔴 le trait, les « + » et les points se calent sur la mi-hauteur du carré', () => {
+    expect(FEUILLE).toContain('.fav-piste{--fav-mi-carre:59px}');
+    expect(FEUILLE).toMatch(/\.fav-el::before\{[^}]*top:var\(--fav-mi-carre\)/);
+    expect(FEUILLE).toMatch(/\.fav-el--entre\{[^}]*padding-top:calc\(var\(--fav-mi-carre\) - 12px\)/);
+    expect(FEUILLE).toMatch(/\.fav-el--points\{[^}]*padding-top:calc\(var\(--fav-mi-carre\) - 5\.5px\)/);
+    /* 🔴 ET LA MESURE EST BIEN LA MOITIÉ DU CARRÉ : 118 / 2 = 59. Les deux nombres se tiennent. */
+    const h = /\.fav-carre\{[^}]*min-height:(\d+)px/.exec(FEUILLE);
+    const mi = /--fav-mi-carre:(\d+)px/.exec(FEUILLE);
+    expect(Number(mi?.[1])).toBe(Math.round(Number(h?.[1]) / 2));
   });
 
   /**

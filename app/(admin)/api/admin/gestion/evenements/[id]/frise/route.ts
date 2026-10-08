@@ -40,6 +40,16 @@ import { query } from '../../../../../../../lib/db/client';
  */
 export const runtime = 'nodejs';
 
+/**
+ * Où poser la carte, d'après ce que le « + » cliqué a envoyé. PUR, et volontairement tolérant : toute valeur
+ * qu'on ne sait pas lire vaut « au bout », c'est-à-dire le comportement d'avant le lot FRISE-PLUS-INTERCALAIRE.
+ */
+function placeDemandee(brut: unknown): number | 'debut' | undefined {
+  if (brut === 'debut') return 'debut';
+  const n = typeof brut === 'number' ? brut : Number(brut);
+  return Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 export async function GET(
   request: Request, { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
@@ -126,6 +136,8 @@ export async function POST(
   const corps = (await request.json().catch(() => ({}))) as {
     type?: unknown; survenuLe?: unknown; heureConnue?: unknown;
     texte?: unknown; montantCents?: unknown; pieceNom?: unknown; titre?: unknown;
+    /* 🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 1 — d'où vient le « + » cliqué. Voir `placeDemandee` plus bas. */
+    insererApres?: unknown;
   };
   const type = String(corps.type ?? '') as TypeEtape;
   /**
@@ -219,6 +231,22 @@ export async function POST(
       titre: type === 'autre' && titreBrut !== '' ? titreBrut : null,
       parId: auteur.id === null ? null : Number(auteur.id),
       parLibelle: auteur.libelle,
+      /**
+       * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 1 — LA PLACE DEMANDÉE ════════════════════════════════════
+       *
+       * ARNO : « Un élément créé depuis un “+” intercalaire doit être enregistré EXACTEMENT à cet emplacement
+       * […] Seul le grand carré rouge “+” de fin ajoute en dernière position. »
+       *
+       * 🔴 TROIS VALEURS, ET LE DÉFAUT EST L'ANCIEN COMPORTEMENT : absente ⇒ au bout, exactement comme avant
+       * ce lot. Un écran plus ancien, ou un appel écrit à la main, continue donc de poser en fin de frise.
+       *
+       * ⚠️ `'debut'` EST UNE CHAÎNE, ET NON UN `null` : `null` et « champ absent » se ressemblent trop dans
+       * du JSON pour porter deux sens opposés — « tout au début » et « tout à la fin ». Un mot les sépare.
+       *
+       * ⚠️ UN IDENTIFIANT ILLISIBLE RETOMBE SUR « au bout », et le dépôt a le même repli si l'étape nommée
+       * n'existe plus : un ajout ne doit pas échouer parce que son voisin a disparu entre-temps.
+       */
+      insererApres: placeDemandee(corps.insererApres),
     });
 
     /**
