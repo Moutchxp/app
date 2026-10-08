@@ -13,6 +13,8 @@
  */
 import { query } from '../db/client';
 import { sqlEstVraiePiece } from './lisibilite';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit des cartes de borne de la frise, et le tri de la file avec. */
+import { etatAffiche, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import { sqlNomAffiche } from './nomUsageSql';
 import { sqlCleIdentitePiece } from './piecesConversation';
 import { evenementQualifieDisponible, evenementVuDisponible, pieceIntegreeDisponible } from './schema';
@@ -341,7 +343,8 @@ export async function lireSansSuite(limite = 20): Promise<{ lignes: LigneSansSui
 
 interface CarteDB {
   evenement_id: number; reference: string; objet: string; demandeur: string | null; adresse_libre: string | null;
-  etat: string; ouvert_le: string; dernier_echange_le: string | null; nb_fils: number; nb_mails: number; attend: boolean;
+  etat: string; ouvert: boolean;
+  ouvert_le: string; dernier_echange_le: string | null; nb_fils: number; nb_mails: number; attend: boolean;
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise de cet événement. */
   etape_type: TypeEtape | null; etape_titre: string | null; etape_survenu_le: string;
   etape_heure_connue: boolean | null; etape_source: string | null;
@@ -631,7 +634,7 @@ export async function lireEvenements(
           messages_deplaces AS (${ctx.deplacements ? CTE_MESSAGES_DEPLACES : 'SELECT NULL::bigint AS evenement_id, NULL::text AS sens, NULL::boolean AS automatique, NULL::timestamptz AS recu_le WHERE false'})
      SELECT e.id::int AS evenement_id, e.reference, e.objet,
             coalesce(nullif(btrim(e.demandeur_nom), ''), e.demandeur_email) AS demandeur,
-            e.adresse_libre, e.etat,
+            e.adresse_libre, e.etat, ${sqlEvenementOuvertParLaFrise('e')} AS ouvert,
             to_char(e.ouvert_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ouvert_le,
             -- La dernière activité d'une carte, c'est le plus récent de SES échanges ET des mails qu'on y a déplacés.
             to_char(greatest(max(d.recu_le), max(md.recu_le)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier_echange_le,
@@ -686,7 +689,9 @@ export async function lireEvenements(
                etm.type, etm.titre, etm.survenu_le, etm.heure_connue, etm.certitude,
                bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb,
                nl.nb, nl.le
-      ORDER BY ${triMongaDAbord(avecVues)}(e.traite_le IS NOT NULL) ASC,
+      /* 🔴 LOT ETAT-PAR-LA-FRISE — LES OUVERTS D'ABORD, et « ouvert » se lit sur la frise : un evenement dont
+         la carte Cloture a ete retiree remonte desormais dans la file, comme il le doit. */
+      ORDER BY ${triMongaDAbord(avecVues)}NOT ${sqlEvenementOuvertParLaFrise('e')} ASC,
                ${ATTEND_CARTE} DESC,
                coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), min(md.recu_le), e.ouvert_le) ASC,
                e.id ASC
@@ -705,7 +710,9 @@ export async function lireEvenements(
     cartes: rows.map((r) => ({
       evenementId: r.evenement_id, reference: r.reference, objet: r.objet, demandeur: r.demandeur,
       adresseLibre: r.adresse_libre,
-      etat: (r.etat === 'en_cours' || r.etat === 'traite' ? r.etat : 'a_traiter'),
+      /* 🔴 LOT ETAT-PAR-LA-FRISE — « Traité » vient de la frise, les deux autres de la colonne. Une seule
+         fonction assemble les trois, pour toute l'application. */
+      etat: etatAffiche(r.etat, r.ouvert),
       ouvertLe: r.ouvert_le, dernierEchangeLe: r.dernier_echange_le,
       nbFils: r.nb_fils, nbMailsDeplaces: r.nb_mails, attend: r.attend === true,
       derniereEtape: r.etape_type === null ? null : {

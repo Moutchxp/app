@@ -35,6 +35,10 @@ import { adressesRapprochables } from './adresseInterne';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », module PUR. Le
    dépôt ne la réécrit pas : il l'appelle, comme la fiche, l'encart Parties et les capsules de pièces jointes. */
 import { estAncienLocataire, estLocataireEnPlace } from './historiqueBien';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « un evenement ouvert » ne se demande plus a la colonne `etat` : il se DEDUIT
+   des cartes de borne de la frise. Le cartouche orange et les capsules de la fiche lisent donc la meme regle
+   que l'etiquette des mails et que le bloc Evenements. */
+import { sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 
 /**
  * Un instant rendu en ISO-8601 UTC, tel que l'écran l'attend. Même écriture que `carteRepo` et `redactionRepo` :
@@ -1485,7 +1489,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
            JOIN gestion_affectation a ON a.evenement_id = e.id AND a.actif
            JOIN gestion_message m2 ON m2.fil_id = a.fil_id
            JOIN gestion_rattachement r2 ON r2.message_id = m2.id
-          WHERE e.etat <> 'traite' AND r2.cible_sorte = 'lot' AND r2.cible_cle = lo.wippimmo_id
+          WHERE ${sqlEvenementOuvertParLaFrise('e')} AND r2.cible_sorte = 'lot' AND r2.cible_cle = lo.wippimmo_id
             AND r2.statut = 'confirme'
        ) ev ON true
        LEFT JOIN gestion_drive_arbre dr
@@ -1587,7 +1591,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
        JOIN gestion_affectation a ON a.evenement_id = e.id AND a.actif
        JOIN gestion_message m2 ON m2.fil_id = a.fil_id
        JOIN gestion_rattachement r2 ON r2.message_id = m2.id
-      WHERE e.etat <> 'traite' AND r2.cible_sorte = 'lot' AND r2.cible_cle = $1
+      WHERE ${sqlEvenementOuvertParLaFrise('e')} AND r2.cible_sorte = 'lot' AND r2.cible_cle = $1
         AND r2.statut = 'confirme'`, [l.wippimmo_id]);
 
   let idsProprietaires: number[] = l.proprietaire_id === null ? [] : [Number(l.proprietaire_id)];

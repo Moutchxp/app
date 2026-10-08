@@ -15,8 +15,11 @@ import {
 } from '../../../../lib/gestion/frise';
 import {
   cartesDuReservoir, confirmationCarte,
-  estRepere, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
+  estRepere, informationsDuReservoir, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
 } from '../../../../lib/gestion/mongaEtape';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — la question posée avant de retirer une clôture vient du module PUR, comme celle
+   qui précède sa pose. Deux formulations auraient fini par dire deux choses du même geste. */
+import { questionAvantRetrait } from '../../../../lib/gestion/etatParLaFrise';
 /* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE DES MAILS. Arno, B.3 : « même code, pas de second chemin. » */
 import { useDefilementFrise } from './useDefilementFrise';
 
@@ -310,8 +313,15 @@ export function FriseAvancement({
           headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
         }),
       });
-      const d = (await res.json().catch(() => ({}))) as { etat?: string; message?: string; erreur?: string };
+      const d = (await res.json().catch(() => ({}))) as {
+        etat?: string; message?: string; erreur?: string;
+        /* 🔴 LOT ETAT-PAR-LA-FRISE — retirer une carte de BORNE change l'état : la fiche doit le relire. */
+        etatEvenement?: 'traite' | 'en_cours' | null;
+      };
       onGeste?.(d.etat === 'ok' ? (d.message ?? 'Fait.') : (d.erreur ?? 'Geste impossible.'));
+      if (d.etat === 'ok' && (d.etatEvenement === 'traite' || d.etatEvenement === 'en_cours')) {
+        onEtatEvenement?.();
+      }
       if (d.etat === 'ok') await charger();
     } catch {
       onGeste?.('Geste impossible : le serveur n’a pas répondu.');
@@ -495,6 +505,7 @@ export function FriseAvancement({
         <div className="fav-zone" aria-live="polite">
           <BulleDetail
             e={detailFixe} occupe={occupe} onOuvrirFil={onOuvrirFil}
+            question={questionAvantRetrait(detailFixe.type, vue.d.ouvert !== false)}
             onModifier={(x) => { setModifie(x); setTypePose(null); setAjout(true); setFixe(null); }}
             onMontant={(id, cents) => void agir(`/api/admin/gestion/etapes/${id}`, 'PATCH', { geste: 'montant', montantCents: cents })}
             onRetirer={(id) => void agir(`/api/admin/gestion/etapes/${id}`, 'DELETE')}
@@ -834,9 +845,15 @@ function Carre({
  * fini par diverger sur la phrase « mail supprimé — étape conservée ».
  */
 function BulleDetail({
-  e, mot, occupe, onOuvrirFil, onMontant, onRetirer, onModifier, onFermer,
+  e, mot, occupe, question = null, onOuvrirFil, onMontant, onRetirer, onModifier, onFermer,
 }: {
   e: EtapeAAfficher; mot: string; occupe: boolean;
+  /**
+   * 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 2 — LA QUESTION À POSER AVANT DE RETIRER CETTE CARTE, ou `null` quand il
+   * n'y a rien à demander. Elle vient du module PUR (`questionAvantRetrait`), calculée sur la suite des bornes
+   * de la frise : seule une Clôture qui ferme VRAIMENT l'événement la déclenche.
+   */
+  question?: string | null;
   onOuvrirFil?: (filId: number) => void;
   onMontant: (id: number, cents: number | null) => void;
   onRetirer: (id: number) => void;
@@ -850,6 +867,17 @@ function BulleDetail({
   onFermer?: () => void;
 }) {
   const ouvrable = etapeOuvrable(e) && onOuvrirFil !== undefined;
+  /**
+   * ⚠️ LA QUESTION SE REFERME DÈS QU'ON CHANGE DE CARTE : sans cela, un « oui » préparé pour une clôture
+   * vaudrait pour la carte suivante, qu'on n'a jamais confirmée. Même garde qu'à l'ajout (`setConfirme`).
+   *
+   * 🔴 ELLE RETIENT L'IDENTIFIANT DE LA CARTE, ET NON UN BOOLÉEN, et c'est ce qui évite un effet : la question
+   * n'est posée que pour LA carte dont on vient de cliquer « Retirer ». Changer de carte la referme de
+   * lui-même, sans qu'aucun code n'ait à y penser — donc sans le rendu en cascade qu'un `useEffect` qui écrit
+   * un état déclenche (règle React de ce dépôt).
+   */
+  const [demandePour, setDemandePour] = useState<number | null>(null);
+  const demande = demandePour === e.id;
   return (
     <div className="fav-bulle" role="status">
       <p className="fav-bulle-tete">
@@ -888,7 +916,8 @@ function BulleDetail({
           </button>
         )}
         {e.source === 'manuelle' && (
-          <button type="button" className="fav-lien" disabled={occupe} onClick={() => onRetirer(e.id)}>
+          <button type="button" className="fav-lien" disabled={occupe}
+            onClick={() => { if (question === null) { onRetirer(e.id); return; } setDemandePour(e.id); }}>
             Retirer
           </button>
         )}
@@ -897,6 +926,32 @@ function BulleDetail({
           <button type="button" className="fav-lien" onClick={onFermer}>Fermer</button>
         )}
       </p>
+      {/**
+        * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 2 — « SUPPRIMER CETTE CLÔTURE ROUVRIRA L'ÉVÉNEMENT. » ═════════════
+        *
+        * ARNO, mot pour mot : « Supprimer la carte Clôture d'un événement clos le ROUVRE, sans carte
+        * Réouverture. Confirmation avant suppression : “Supprimer cette clôture rouvrira l'événement.”
+        * (Annuler / Supprimer). »
+        *
+        * 🔴 ELLE NE SE POSE QUE SUR UNE CARTE QUI FERME VRAIMENT, et c'est `questionAvantRetrait` (module pur)
+        * qui tranche : une Clôture suivie d'une Réouverture ne ferme rien, et promettre une réouverture là
+        * serait une phrase fausse. Les douze autres cartes se retirent comme avant, sans question — une
+        * confirmation sur chaque geste s'apprend, et l'on cesse de la lire.
+        *
+        * 🔴 DANS LA BULLE, ET NON DANS UNE BOÎTE DU NAVIGATEUR : règle de ce dépôt, et même forme que la
+        * confirmation d'ajout d'une Clôture (lot CLOTURE-REOUVERTURE). Un `confirm()` bloque la page entière et
+        * ne porte pas les mots d'Arno dans la typographie du module.
+        */}
+      {question !== null && demande && (
+        <>
+          <p className="fav-confirme" role="alert">{question}</p>
+          <p className="fav-bulle-gestes">
+            <button type="button" className="fav-lien" onClick={() => setDemandePour(null)}>Annuler</button>
+            <button type="button" className="fav-lien" disabled={occupe}
+              onClick={() => { setDemandePour(null); onRetirer(e.id); }}>Supprimer</button>
+          </p>
+        </>
+      )}
       {/**
         * 🔴 LE MONTANT SE COMPLÈTE À LA MAIN, Y COMPRIS SUR UNE ÉTAPE MONGA (décision d'Arno du 06/10) :
         * l'audit a mesuré qu'il n'est jamais dans le mail — 2 sur 120, et ce sont des phrases humaines.
@@ -1014,7 +1069,20 @@ function Reservoir({
   evenementOuvert: boolean;
 }) {
   const [forme, setForme] = useState<'etape' | 'information'>('etape');
-  const liste = forme === 'etape' ? cartesDuReservoir(evenementOuvert) : TYPES_INFORMATION;
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 4 — UN DOSSIER CLOS N'OFFRE QUE « RÉOUVERTURE » ══════════════════════
+   *
+   * ARNO : « Quand l'événement est clos, la grille “Ajouter une carte” ne propose QUE “Réouverture” : aucune
+   * autre carte ne peut être posée après une Clôture. »
+   *
+   * 🔴 LES DEUX FACES DE LA GRILLE SONT CONCERNÉES : un point « Note » posé après la dernière borne serait
+   * aussi hors période qu'un carré. Les deux listes viennent du module pur, et la route applique la même règle.
+   *
+   * ⚠️ LA BASCULE N'EST PAS RETIRÉE (garde-fou CLAUDE.md) : son second bouton devient INACTIF sur un dossier
+   * clos, et la raison est écrite juste en dessous. Un bouton qu'on retire ne s'explique pas.
+   */
+  const liste = forme === 'etape'
+    ? cartesDuReservoir(evenementOuvert) : informationsDuReservoir(evenementOuvert);
   return (
     <>
       <p className="fav-ajout-titre">
@@ -1032,10 +1100,19 @@ function Reservoir({
           <button type="button" className={`fav-bascule-b${forme === 'etape' ? ' fav-bascule-b--actif' : ''}`}
             aria-pressed={forme === 'etape'} onClick={() => setForme('etape')}>Étape (carré)</button>
           <button type="button" className={`fav-bascule-b${forme === 'information' ? ' fav-bascule-b--actif' : ''}`}
-            aria-pressed={forme === 'information'}
+            aria-pressed={forme === 'information'} disabled={!evenementOuvert}
+            title={evenementOuvert ? undefined : 'Cet événement est clos : rouvrez-le pour poser une information.'}
             onClick={() => setForme('information')}>Simple information (point)</button>
         </span>
       </div>
+
+      {/* 🔴 LOT ETAT-PAR-LA-FRISE, POINT 4 — LA RAISON EST ÉCRITE, et pas seulement subie : une grille qui se
+          réduit à une carte sans rien dire se lit comme une panne. */}
+      {!evenementOuvert && (
+        <p className="fav-perdu">
+          Cet événement est clos : seule une « Réouverture » peut être posée. Elle rend la grille entière.
+        </p>
+      )}
 
       <ul className="fav-reserve-liste">
         {liste.map((t) => (

@@ -6,6 +6,9 @@ import {
 } from '../../../../lib/gestion/mongaEtape';
 /* 🔴 LOT FRISE-COULEURS-DATES — la couleur d'une carte posée est désormais une règle PURE : voir la section ⑤. */
 import { couleurDeLaCarte } from '../../../../lib/gestion/frise';
+/* 🔴 LOT ETAT-PAR-LA-FRISE — le compte rendu d'une carte de borne vient d'une fonction PURE, et l'épreuve la
+   lit là où la route la lit : une phrase recopiée ici serait une seconde vérité. */
+import { motCarteDeBorne } from '../../../../lib/gestion/etatParLaFrise';
 
 /**
  * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — ON FERME ET ON ROUVRE PAR UNE CARTE, ET PAR RIEN D'AUTRE ════════════════════
@@ -62,10 +65,17 @@ describe('🔴🔴 ① la grille : plus de Relance, Réouverture en dernier', ()
     expect(MIGRATION).toContain("'relance'");
   });
 
-  /** 🔴 LA GRILLE LIT LE MODULE PUR, jamais une liste recopiée — et elle dépend désormais de l'état. */
-  it('🔴 la grille lit `cartesDuReservoir`, et rien d’autre', () => {
-    expect(FRISE).toContain(
-      "const liste = forme === 'etape' ? cartesDuReservoir(evenementOuvert) : TYPES_INFORMATION;");
+  /**
+   * 🔴 LA GRILLE LIT LE MODULE PUR, jamais une liste recopiée — et elle dépend de l'état.
+   *
+   * 🔴🔴 LOT ETAT-PAR-LA-FRISE — LES **DEUX** FACES LE LISENT MAINTENANT. Arno (08/10/2026, point 4) : « Quand
+   * l'événement est clos, la grille ne propose QUE “Réouverture” : aucune autre carte ne peut être posée après
+   * une Clôture. » La face « Simple information » n'était pas filtrée du tout ; elle l'est, par la fonction
+   * pure jumelle `informationsDuReservoir`.
+   */
+  it('🔴 la grille lit le module pur, des DEUX côtés', () => {
+    expect(FRISE).toContain("const liste = forme === 'etape'");
+    expect(FRISE).toContain('cartesDuReservoir(evenementOuvert) : informationsDuReservoir(evenementOuvert)');
     expect(FRISE).toContain('evenementOuvert={vue.d.ouvert !== false}');
   });
 });
@@ -77,10 +87,25 @@ describe('🔴🔴 ② clôturer : par la carte, et par le code de fermeture qui
    * `traite_le`, `traite_par`, et JOURNALISE. Un `UPDATE` écrit dans la route aurait été le second chemin, et
    * il aurait perdu le journal.
    */
-  it('🔴🔴 la route appelle `changerEtatEvenement`, et n’écrit aucun état elle-même', () => {
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — IL N'Y A PLUS D'ÉTAT À ÉCRIRE DU TOUT ═══════════════════════
+   *
+   * L'épreuve exigeait que la route REPASSE par `changerEtatEvenement` plutôt que d'écrire l'état elle-même :
+   * un seul chemin d'écriture, celui qui journalise. C'était la bonne exigence tant qu'il y avait une écriture.
+   *
+   * 🔴 LE CONSTAT D'ARNO A MONTRÉ QU'IL NE FALLAIT PAS UNE ÉCRITURE MIEUX RANGÉE, MAIS AUCUNE : il a retiré la
+   * carte Clôture de GES-2026-000001, et l'état écrit est resté. La carte est donc désormais la SEULE écriture,
+   * et l'état se DÉDUIT des cartes de borne à chaque lecture.
+   *
+   * ⚠️ L'EXIGENCE EST PLUS STRICTE QU'AVANT, pas moins : la route ne doit écrire l'état NI directement, NI par
+   * la fonction qui le faisait.
+   */
+  it('🔴🔴 la route n’écrit AUCUN état : ni directement, ni par `changerEtatEvenement`', () => {
     expect(ROUTE).toContain('const etatVoulu = etatApresCarte(type);');
-    expect(ROUTE).toContain('const issue = await changerEtatEvenement(evenementId, etatVoulu, auteur);');
+    expect(ROUTE).not.toContain('changerEtatEvenement(');
     expect(ROUTE).not.toContain('UPDATE gestion_evenement');
+    /* 🔴 ELLE RELIT, et c'est tout : avant la carte, puis après, pour dire si l'état a bougé. */
+    expect(ROUTE).toContain("sqlEvenementOuvertParLaFrise('e')");
   });
 
   /**
@@ -95,10 +120,19 @@ describe('🔴🔴 ② clôturer : par la carte, et par le code de fermeture qui
     expect(iEtat).toBeGreaterThan(iCarte);
   });
 
-  /** 🔴 ET LE COMPTE RENDU DIT CE QUI S'EST PASSÉ, y compris quand l'état n'a pas suivi. */
+  /**
+   * 🔴 ET LE COMPTE RENDU DIT CE QUI S'EST PASSÉ, y compris quand l'état n'a pas changé.
+   *
+   * 🔴🔴 LOT ETAT-PAR-LA-FRISE — IL NE SE DEVINE PLUS DEPUIS LE TYPE POSÉ. Une Clôture datée AVANT une
+   * Réouverture déjà présente ne ferme rien : annoncer « clôturé » dans ce cas serait faux. Le message vient
+   * donc d'une fonction PURE qui compare l'état relu avant et après la carte.
+   */
   it('🔴 le message distingue « clôturé », « rouvert », et un état qui n’a pas changé', () => {
-    expect(ROUTE).toContain("etatVoulu === 'traite' ? 'Événement clôturé.' : 'Événement rouvert.'");
-    expect(ROUTE).toContain('Carte posée, mais l’état n’a pas changé');
+    expect(ROUTE).toContain('motCarteDeBorne(ouvertAvant, ouvertApres)');
+    expect(motCarteDeBorne(true, false)).toBe('Événement clôturé.');
+    expect(motCarteDeBorne(false, true)).toBe('Événement rouvert.');
+    expect(motCarteDeBorne(true, true)).toContain('reste ouvert');
+    expect(motCarteDeBorne(false, false)).toContain('reste clos');
   });
 });
 
@@ -122,9 +156,16 @@ describe('🔴🔴 ③ la fermeture en UN CLIC a été retirée', () => {
    * ⚠️ CE QUE LA ROUTE REND À LA PLACE : l'état, dont la GRILLE a besoin pour choisir entre les deux cartes.
    * C'est la même donnée (`traite`), déjà lue — aucune requête de plus.
    */
-  it('⚠️ la route dit l’état à la place, sans lecture supplémentaire', () => {
-    expect(ROUTE).toContain('ouvert: !traite,');
-    expect(ROUTE).toContain('typesReservoir: cartesDuReservoir(!traite),');
+  /**
+   * ⚠️ LA ROUTE DIT L'ÉTAT À LA PLACE, et c'est ce qui décide de la grille.
+   *
+   * 🔴🔴 LOT ETAT-PAR-LA-FRISE — ELLE LE DEMANDE À LA FRISE, PAS À `traite_le`. Le demander à la colonne, c'était
+   * offrir « Réouverture » sur un dossier dont la carte Clôture n'existe plus : le cas exact d'Arno.
+   */
+  it('⚠️ la route dit l’état, lu sur la frise, et la grille en découle', () => {
+    expect(ROUTE).toContain('const ouvertParLaFrise = rows[0].ouvert;');
+    expect(ROUTE).toContain('ouvert: ouvertParLaFrise,');
+    expect(ROUTE).toContain('typesReservoir: cartesDuReservoir(ouvertParLaFrise),');
   });
 });
 
@@ -280,12 +321,24 @@ describe('🔴🔴 ⑧ rouvrir rétablit tout ce qui dépend d’un événement 
    * ⚠️ C'EST AUSSI LA LEÇON DU LOT RETABLIR-MARQUES-EVENEMENT, le même jour : ces marques avaient « disparu »
    * parce que l'événement avait été clos. Elles reviennent par le même chemin, à l'envers.
    */
-  it('🔴🔴 toutes les conséquences tiennent à une seule écriture : l’état', () => {
-    const GESTES = readFileSync('app/lib/gestion/gestes.ts', 'utf8');
-    expect(GESTES).toContain("traite_le = CASE WHEN $2 = 'traite' THEN now() ELSE NULL END");
-    /* 🔴 LE CARTOUCHE ORANGE ET LES CAPSULES LISENT « non traité », et rien d'autre. */
-    expect(readFileSync('app/lib/gestion/annuaireRepo.ts', 'utf8')).toContain("WHERE e.etat <> 'traite'");
-    expect(readFileSync('app/lib/gestion/historiqueBienRepo.ts', 'utf8'))
-      .toContain("ouvert: r.etat !== 'traite',");
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — LES CONSÉQUENCES TIENNENT À UNE SEULE **LECTURE**, PLUS À UNE ÉCRITURE ═══
+   *
+   * L'épreuve montrait que les six conséquences d'Arno suivaient d'une seule écriture, `etat`. Elles suivent
+   * maintenant d'une seule RÈGLE, lue au même endroit par tous : `sqlEvenementOuvertParLaFrise`. C'est la même
+   * idée — une seule source — portée un cran plus loin : il n'y a même plus de valeur à écrire.
+   */
+  it('🔴🔴 toutes les conséquences tiennent à une seule règle, lue par tous', () => {
+    /* 🔴 LE CARTOUCHE ORANGE, LES CAPSULES ET LE BLOC ÉVÉNEMENTS APPELLENT LA MÊME FONCTION. */
+    for (const f of ['app/lib/gestion/annuaireRepo.ts', 'app/lib/gestion/historiqueBienRepo.ts',
+      'app/lib/gestion/fileRepo.ts', 'app/lib/gestion/recherche.ts', 'app/lib/gestion/mongaRepo.ts',
+      'app/lib/gestion/carteRepo.ts', 'app/lib/gestion/historiqueRepo.ts']) {
+      expect(readFileSync(f, 'utf8'), f).toContain('sqlEvenementOuvertParLaFrise');
+    }
+    /* 🔴 ET AUCUN D'EUX NE GARDE L'ANCIENNE COMPARAISON — une seule laissée en place serait une divergence. */
+    for (const f of ['app/lib/gestion/annuaireRepo.ts', 'app/lib/gestion/historiqueBienRepo.ts',
+      'app/lib/gestion/mongaRepo.ts']) {
+      expect(readFileSync(f, 'utf8'), f).not.toContain("e.etat <> 'traite'");
+    }
   });
 });

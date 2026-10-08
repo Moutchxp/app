@@ -157,8 +157,22 @@ describe('🔴🔴 le filtre arrive par la ROUTE, et pas seulement par les fonct
    */
   it('⚠️ les deux voies de l’étiquette voyagent jusqu’à la base', async () => {
     const sql = (await sqlDe(() => GET_HISTORIQUE(new Request(URL_FILTRE)))).join('\n');
-    expect(sql).toContain('ANY(ARRAY[m.fil_id])');
+    /**
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — LES DEUX VOIES PRENNENT LA MÊME CLÉ, ET LA MÊME BORNE ════
+     *
+     * Elles se corrélaient par deux clés — `m.fil_id` pour le fil, `m.id` pour le bien — et la voie du bien
+     * portait UNE fenêtre écrite en dur (`msg.recu_le >= ev.ouvert_le`). La règle d'Arno (point 5) borne
+     * l'étiquette aux PÉRIODES OUVERTES, qui sont PLUSIEURS : « un mail reçu entre une Clôture et la
+     * Réouverture suivante n'est PAS étiqueté ». Une période se compare à une date de MAIL, donc les deux
+     * voies partent du message.
+     *
+     * 🔴 LE VERDICT NE SE RELÂCHE PAS : il exige toujours que les DEUX voies atteignent la base, et en plus
+     * que la borne des périodes y soit — ce que l'ancienne fenêtre unique ne savait pas dire.
+     */
     expect(sql).toContain('ANY(ARRAY[m.id])');
-    expect(sql).toContain('msg.recu_le >= ev.ouvert_le');
+    expect(sql).toContain('JOIN gestion_affectation af ON af.actif AND af.fil_id = msg.fil_id');
+    expect(sql).toContain('JOIN biens_evt be ON be.cle = r.cible_cle');
+    expect(sql).toContain('msg.recu_le >= svv_p.du');
+    expect(sql).toContain('svv_p.au IS NULL OR msg.recu_le <= svv_p.au');
   });
 });

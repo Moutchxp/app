@@ -3,6 +3,9 @@ import 'server-only';
 import { sqlLiensDuBien } from './rattachement';
 import { query } from '../db/client';
 import { rattachementsDisponibles } from './schema';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » et « clos le » se DÉDUISENT des cartes de borne de la frise, jamais
+   plus de `gestion_evenement.etat` / `traite_le`. C'est dans ce module que se voyait le constat d'Arno. */
+import { sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 
 /**
  * LOT HISTORIQUE-BIEN-1 — LES ÉVÉNEMENTS D'UN BIEN, **AVEC LEURS DATES**. LECTURE SEULE.
@@ -59,13 +62,23 @@ export async function evenementsDuBien(
      n'est nommée nulle part, et la liste revient vide — l'écran n'offre alors simplement aucun événement. */
   if (lotCle.trim() === '' || !(await rattachementsDisponibles())) return { liste: [], tronque: false };
 
+  /**
+   * 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » ET « clos le » VIENNENT DE LA FRISE, PLUS DE LA COLONNE.
+   *
+   * C'est ICI que se voyait le constat d'Arno du 08/10/2026 : GES-2026-000001 s'affichait « clos · clos le
+   * 08/10/2026 » dans le bloc Événements de la fiche du bien 315, alors que sa carte Clôture n'existait plus.
+   *
+   * ⚠️ `closLe` GAGNE AU PASSAGE EN JUSTESSE : `traite_le` portait l'instant du CLIC, jamais la date écrite sur
+   * la carte. La carte Clôture de cet événement était datée du 14/10/2026 ; l'écran disait 08/10.
+   */
   const { rows } = await query<{
-    id: string; reference: string; objet: string; etat: string;
-    ouvert_le: string | null; traite_le: string | null; n: string;
+    id: string; reference: string; objet: string; etat: string; ouvert: boolean;
+    ouvert_le: string | null; clos_le: string | null; n: string;
   }>(
     `SELECT e.id::text, e.reference, e.objet, e.etat,
+            ${sqlEvenementOuvertParLaFrise('e')} AS ouvert,
             to_char(e.ouvert_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ouvert_le,
-            to_char(e.traite_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS traite_le,
+            to_char(${sqlClosLeParLaFrise('e')} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS clos_le,
             count(DISTINCT m2.id)::text AS n
        FROM gestion_evenement e
        JOIN gestion_affectation a ON a.evenement_id = e.id AND a.actif
@@ -74,7 +87,7 @@ export async function evenementsDuBien(
       WHERE r2.cible_sorte = 'lot' AND r2.cible_cle = $1 AND r2.statut = 'confirme' AND r2.piece_id IS NULL
       GROUP BY e.id, e.reference, e.objet, e.etat, e.ouvert_le, e.traite_le
       -- LES OUVERTS D'ABORD, puis du plus récemment ouvert au plus ancien : c'est l'ordre dans lequel on cherche.
-      ORDER BY (e.etat = 'traite') ASC, e.ouvert_le DESC, e.id DESC
+      ORDER BY NOT ${sqlEvenementOuvertParLaFrise('e')}, e.ouvert_le DESC, e.id DESC
       LIMIT $2`,
     [lotCle, EVENEMENTS_DU_BIEN_MAX + 1]);
 
@@ -82,12 +95,11 @@ export async function evenementsDuBien(
     tronque: rows.length > EVENEMENTS_DU_BIEN_MAX,
     liste: rows.slice(0, EVENEMENTS_DU_BIEN_MAX).map((r) => ({
       id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat,
-      ouvert: r.etat !== 'traite',
+      ouvert: r.ouvert,
       ouvertLe: r.ouvert_le,
-      /* ⚠️ « CLOS » SE LIT SUR `traite_le`, PAS SUR L'ÉTAT : un événement peut être marqué traité sans que la date
-         ait été posée (reprises anciennes). `null` se lit « pas de borne haute connue », et `periodeDeLEvenement`
-         retombe alors sur aujourd'hui — plutôt que d'inventer une date de clôture. */
-      closLe: r.traite_le,
+      /* ⚠️ « CLOS » SE LIT SUR LA DERNIÈRE CARTE CLÔTURE, et `null` se lit « pas de borne haute » — la période
+         court alors jusqu'à aujourd'hui (`periodeDeLEvenement`), plutôt que d'inventer une date de clôture. */
+      closLe: r.clos_le,
       nbMails: Number(r.n),
     })),
   };
@@ -155,8 +167,8 @@ export async function evenementsParLocataire(lotCle: string): Promise<EvenementD
   if (cle === '' || !(await rattachementsDisponibles())) return [];
 
   const { rows } = await query<{
-    occ: string; id: string; reference: string; objet: string; etat: string;
-    ouvert_le: string | null; traite_le: string | null; par: string;
+    occ: string; id: string; reference: string; objet: string; etat: string; ouvert: boolean;
+    ouvert_le: string | null; clos_le: string | null; par: string;
   }>(
     `WITH mails AS (
        SELECT DISTINCT r.message_id
@@ -214,8 +226,12 @@ export async function evenementsParLocataire(lotCle: string): Promise<EvenementD
          JOIN mails ON mails.message_id = m.id
      )
      SELECT b.occ::text AS occ, ev.id::text AS id, ev.reference, ev.objet, ev.etat,
+            /* 🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » et « clos le » viennent des cartes de BORNE, comme partout
+               ailleurs. Le sous-ensemble ev porte id et ouvert_le, les deux colonnes dont la regle a besoin.
+               AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+            ${sqlEvenementOuvertParLaFrise('ev')} AS ouvert,
             to_char(ev.ouvert_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ouvert_le,
-            to_char(ev.traite_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS traite_le,
+            to_char(${sqlClosLeParLaFrise('ev')} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS clos_le,
             /* ① l'ouverture tombe dans l'occupation ; ② sinon, c'est une adresse qui l'a rattaché. */
             CASE WHEN ev.ouvert_le::date >= b.entree
                   AND ev.ouvert_le::date <= coalesce(b.sortie, current_date)
@@ -241,9 +257,9 @@ export async function evenementsParLocataire(lotCle: string): Promise<EvenementD
     evenementId: Number(r.id),
     reference: r.reference,
     objet: r.objet,
-    ouvert: r.etat !== 'traite',
+    ouvert: r.ouvert,
     ouvertLe: r.ouvert_le,
-    closLe: r.traite_le,
+    closLe: r.clos_le,
     par: r.par === 'occupation' ? 'occupation' : 'adresse',
   }));
 }

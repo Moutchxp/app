@@ -53,6 +53,17 @@ interface EvenementDuBien {
   etat: string;
   ouvertLe: string;
   traiteLe: string | null;
+  /**
+   * 🔴🔴 LOT ETAT-PAR-LA-FRISE — LA DATE DE LA DERNIÈRE CARTE CLÔTURE, ou `null` si l'événement est ouvert.
+   *
+   * C'est ELLE qu'on affiche, et plus `traiteLe` : sur GES-2026-000001, l'en-tête disait « en cours · … · clos
+   * le 08/10/2026 » après que ce lot eut rendu l'événement à son état réel — la colonne gardait l'instant du
+   * clic d'une fermeture dont la carte n'existe plus. Deux dates qui se contredisent sur la même ligne.
+   *
+   * ⚠️ `traiteLe` RESTE DANS LE CONTRAT, et n'est pas retirée : elle dit QUAND quelqu'un a cliqué, ce qu'aucune
+   * carte ne raconte. Elle n'est simplement plus ce qu'on écrit à côté de « clos ».
+   */
+  closLe: string | null;
   clos: boolean;
   nbEtapes: number;
   derniereEtapeType: TypeEtape | null;
@@ -290,9 +301,9 @@ export function EvenementsDuBien({
                   {/* ⚠️ LES DATES SE DÉCOUPENT, elles ne passent pas par `Date` : le fuseau du lecteur ne doit
                       pas décaler le jour d'ouverture d'un dossier. Même règle que dans `frise.ts`. */}
                   <span>ouvert le {jourFr(e.ouvertLe)}</span>
-                  {e.traiteLe !== null && <>
+                  {e.closLe !== null && <>
                     <span aria-hidden="true"> · </span>
-                    <span>clos le {jourFr(e.traiteLe)}</span>
+                    <span>clos le {jourFr(e.closLe)}</span>
                   </>}
                   {/* 🔴 LA DERNIÈRE ÉTAPE SUR LA LIGNE REPLIÉE — c'est la demande d'Arno pour les clos, et elle
                       sert tout autant sur un en cours qu'on vient de replier. */}

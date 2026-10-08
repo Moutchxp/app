@@ -23,6 +23,12 @@ import {
   affecter, changerEtatEvenement, classerSansSuite, deplacerMessage, detacher, estEtat, listerEvenementsOuverts,
   modifierEvenement, preremplir, remettreMessage, rouvrir, suivreLeMailDeplace, texte,
 } from './gestes';
+/* 🔴 LOT ETAT-PAR-LA-FRISE — l'épreuve lit la règle et le refus AU MÊME ENDROIT que le dépôt : les recopier
+   ici en ferait une seconde vérité, et c'est précisément ce que le lot supprime. */
+import { MOTIF_CLOTURE_PAR_LA_FRISE, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+
+/** Blancs normalisés : on éprouve le SENS d'un SQL émis, jamais sa mise en forme (AGENTS.md). */
+const plat = (t: string): string => t.replace(/\s+/g, ' ');
 
 /**
  * LOT 4b — LES DEUX GESTES. Ce qui est vérifié n'est pas « ça marche » mais les TROIS RÈGLES du module :
@@ -229,10 +235,19 @@ describe('le pré-remplissage ne devine RIEN au-delà du mail', () => {
     expect(await preremplir(5)).toBeNull();
   });
 
-  it('le sélecteur ne propose que des événements OUVERTS (rattacher à une carte traitée n’a pas de sens)', async () => {
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — « OUVERT » NE SE LIT PLUS SUR `traite_le` ═══════════════════
+   *
+   * Le verdict ne bouge pas d'un iota — le sélecteur ne propose que des événements OUVERTS — mais la SOURCE
+   * change : « L'état d'un événement se déduit des cartes de BORNE de sa frise » (Arno). Un dossier dont la
+   * carte Clôture a été retirée redevient proposable, ce qu'il doit être.
+   */
+  it('le sélecteur ne propose que des événements OUVERTS, et « ouvert » vient de la frise', async () => {
     queryMock.mockResolvedValue({ rows: [{ id: 1, reference: 'GES-2026-000001', objet: 'x' }] });
     await listerEvenementsOuverts();
-    expect(sqls()[0]).toContain('WHERE traite_le IS NULL');
+    const q = sqls()[0];
+    expect(q).toContain(`WHERE ${plat(sqlEvenementOuvertParLaFrise('e'))}`);
+    expect(q).not.toContain('WHERE traite_le IS NULL');
   });
 });
 
@@ -320,9 +335,34 @@ describe('LOT 4c — MODIFIER une carte : corriger ce que le pré-remplissage n�
 });
 
 describe('LOT 4c — CHANGER L’ÉTAT d’une carte', () => {
-  it('« traité » pose la date de traitement ET son auteur (la base l’exige : état et date vont ensemble)', async () => {
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — LE VERDICT S'INVERSE, ET C'EST TOUT LE LOT ═══════════════════
+   *
+   * L'épreuve exigeait que « traité » s'écrive ici, avec sa date et son auteur. C'était le SECOND chemin vers
+   * l'état — celui qui a permis au constat d'Arno d'exister : GES-2026-000001 est resté « clos » alors que sa
+   * carte Clôture n'était plus là, parce que l'état avait été écrit ailleurs que sur la frise.
+   *
+   * RÈGLE D'ARNO : « Aucun autre chemin ne doit pouvoir mettre l'état en contradiction avec la frise. »
+   *
+   * 🔴 « TRAITÉ » EST DONC REFUSÉ ICI, ET LE REFUS DIT PAR OÙ PASSER. L'épreuve est aussi stricte qu'avant :
+   * elle exige le refus ET qu'aucune écriture n'ait lieu — un refus qui aurait écrit serait le pire des deux.
+   *
+   * ⚠️ RIEN N'EST RETIRÉ DE L'ÉCRAN (garde-fou CLAUDE.md) : les trois boutons d'`EtatCarte` sont tous là, et
+   * le troisième répond par cette phrase au lieu d'écrire une valeur que plus personne ne lit.
+   */
+  it('🔴🔴 « traité » est REFUSÉ, et le refus dit par où passer — aucune écriture', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ etat: 'en_cours', reference: 'GES-2026-000001' }] }).mockResolvedValue({ rows: [] });
-    expect(await changerEtatEvenement(9, 'traite', ARNO)).toEqual({ ok: true, evenementId: 9 });
+    expect(await changerEtatEvenement(9, 'traite', ARNO))
+      .toEqual({ ok: false, motif: MOTIF_CLOTURE_PAR_LA_FRISE });
+    expect(MOTIF_CLOTURE_PAR_LA_FRISE).toContain('Clôture');
+    /* 🔴 ET PAS UNE SEULE REQUÊTE : le refus précède la transaction, il ne peut donc rien laisser derrière. */
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  /** 🔴 LES DEUX ÉTATS DE TRAVAIL, EUX, S'ÉCRIVENT TOUJOURS : la frise ne sait pas qu'on a commencé à regarder. */
+  it('🔴 « à traiter » et « en cours » restent écrits ici, avec leur journal', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ etat: 'a_traiter', reference: 'GES-2026-000001' }] }).mockResolvedValue({ rows: [] });
+    expect(await changerEtatEvenement(9, 'en_cours', ARNO)).toEqual({ ok: true, evenementId: 9 });
     const maj = sqls().find((s) => s.startsWith('UPDATE gestion_evenement')) ?? '';
     expect(maj).toContain("traite_le = CASE WHEN $2 = 'traite' THEN now() ELSE NULL END");
     expect(maj).toContain('traite_par_libelle');

@@ -90,13 +90,18 @@ describe('🔴🔴 quels événements concernent quel locataire', () => {
   it('🔴 elle rend `occ-<id>`, l’état en booléen et la branche qui a rattaché', async () => {
     queryMock.mockResolvedValue({
       rows: [
+        /* 🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » et « clos le » sont désormais CALCULÉS PAR LA BASE sur les
+           cartes de BORNE de la frise, et arrivent tranchés dans la ligne (`ouvert`, `clos_le`). Le dépôt ne
+           les déduit plus de `etat` / `traite_le`, qui mentaient dès qu'une carte Clôture était retirée. */
         {
           occ: '503', id: '9', reference: 'GES-2026-000009', objet: 'Litige dépôt de garantie',
-          etat: 'en_cours', ouvert_le: '2025-11-11T08:00:00Z', traite_le: null, par: 'adresse',
+          etat: 'en_cours', ouvert: true,
+          ouvert_le: '2025-11-11T08:00:00Z', clos_le: null, par: 'adresse',
         },
         {
           occ: '92', id: '9', reference: 'GES-2026-000009', objet: 'Litige dépôt de garantie',
-          etat: 'traite', ouvert_le: '2025-11-11T08:00:00Z', traite_le: '2026-03-15T08:00:00Z',
+          etat: 'traite', ouvert: false,
+          ouvert_le: '2025-11-11T08:00:00Z', clos_le: '2026-03-15T08:00:00Z',
           par: 'occupation',
         },
       ],

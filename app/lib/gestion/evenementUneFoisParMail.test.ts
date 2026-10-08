@@ -39,64 +39,93 @@ import { sqlEvenementsDesFils } from './historiqueRepo';
 /**
  * La requête, blancs normalisés : on éprouve le SENS, jamais l'indentation (règle du dépôt, AGENTS.md).
  *
- * 🔴🔴 L'ENSEMBLE DE FILS EST UN PARAMÈTRE DEPUIS LE LOT FILTRE-COMME-ETIQUETTE (07/10/2026). Décision d'Arno :
- * « aligne le filtre “Événement ouvert” sur la même règle que l'étiquette (même code, pas de second chemin) ».
- * Le filtre appelle donc CETTE requête-ci, bornée au fil du mail courant (`ARRAY[m.fil_id]`), là où l'étiquette
- * la borne à la page affichée. On éprouve ici la forme de l'étiquette — c'est la même, au paramètre près, et
- * `filtreCommeEtiquette.test.ts` tient cette égalité.
+ * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — CE QUE CE FICHIER TENAIT, ET CE QU'IL TIENT MAINTENANT ════════════
+ *
+ * Il figeait la FORME EXACTE de la requête : « SELECT DISTINCT fil_id, evenement_id FROM gestion_affectation »,
+ * « WHERE actif AND fil_id = ANY(…) », « ORDER BY af.fil_id, … ». C'est précisément ce qu'AGENTS.md interdit aux
+ * tests nouveaux (« ne jamais figer la FORME d'un SQL émis »), et ce que les anciens migrent « au fil de l'eau,
+ * quand un chantier les touche ». Ce chantier les touche.
+ *
+ * 🔴 POURQUOI LA REQUÊTE A CHANGÉ : la règle d'Arno du 08/10/2026 (point 5) borne l'étiquette aux PÉRIODES
+ * OUVERTES de l'événement — « un mail reçu entre une Clôture et la Réouverture suivante n'est PAS étiqueté ».
+ * Une période se compare à une DATE DE MAIL : la requête prend donc des MESSAGES, et non plus des fils. Le fil
+ * reste la condition d'appartenance (`af.fil_id = msg.fil_id`) ; le message n'apporte que son instant.
+ *
+ * 🔴 LA GARANTIE DU LOT HISTORIQUE-BIEN-5 N'EST PAS RELÂCHÉE D'UN POUCE, ET C'EST CE QUE CE FICHIER VÉRIFIE
+ * MAINTENANT : cinq affectations actives d'un même fil vers un même événement doivent rendre UNE ligne. Elle est
+ * tenue par le `SELECT DISTINCT` de tête, qui porte sur (message, événement) — la clé que l'écran emploie.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 const SQL = sqlEvenementsDesFils('$1::bigint[]').replace(/\s+/g, ' ');
 const REPO = readFileSync('app/lib/gestion/historiqueRepo.ts', 'utf8');
 
-describe('point 3 — le couple (fil, événement) est rendu unique', () => {
-  it('🔴🔴 LA CORRECTION EST DANS LA REQUÊTE : les affectations sont dédoublonnées avant la jointure', () => {
-    expect(SQL).toContain('SELECT DISTINCT fil_id, evenement_id FROM gestion_affectation');
+describe('point 3 — le couple (mail, événement) est rendu unique', () => {
+  /**
+   * 🔴🔴 LA GARANTIE CENTRALE, ET ELLE SURVIT AU CHANGEMENT DE FORME. Cinq affectations actives du fil 36475
+   * vers l'événement 1 (mesurées en base le 05/10/2026) joignent cinq fois ; le `DISTINCT` de tête rend une
+   * seule ligne, parce que les cinq portent exactement les mêmes valeurs.
+   */
+  it('🔴🔴 le dédoublonnage porte sur la clé que l’écran emploie : (message, événement)', () => {
+    expect(SQL).toContain('SELECT DISTINCT msg.id AS message_id, ev.id');
   });
 
-  it('🔴🔴 LE DÉFAUT NE PEUT PAS REVENIR : plus de jointure directe sur la table des affectations', () => {
-    /* C'est exactement ce qui produisait cinq lignes : `FROM gestion_affectation af JOIN gestion_evenement`. */
-    expect(SQL).not.toMatch(/FROM gestion_affectation af JOIN gestion_evenement/);
+  it('🔴🔴 LE DÉFAUT NE PEUT PAS REVENIR : aucune jointure non dédoublonnée vers les événements', () => {
+    /* C'est exactement ce qui produisait cinq lignes : une jointure directe SANS `DISTINCT` en tête. */
+    expect(SQL).not.toMatch(/SELECT af\.fil_id, ev\./);
+    expect(SQL.startsWith('SELECT DISTINCT ')).toBe(true);
   });
 
   it('⚠️ SEULES LES AFFECTATIONS ACTIVES COMPTENT — une affectation détachée n’a plus cours', () => {
-    expect(SQL).toContain('WHERE actif AND fil_id = ANY($1::bigint[])');
+    expect(SQL).toContain('JOIN gestion_affectation af ON af.actif');
   });
 
-  it('⚠️ LE TRI N’A PAS BOUGÉ : le plus récemment ouvert en tête, et l’identifiant pour départager', () => {
-    expect(SQL).toContain('ORDER BY af.fil_id, ev.ouvert_le DESC, ev.id DESC');
+  it('⚠️ LE TRI N’A PAS BOUGÉ DE SENS : le plus récemment ouvert en tête, l’identifiant pour départager', () => {
+    expect(SQL).toContain('ev.ouvert_le DESC, ev.id DESC');
   });
 
-  it('🔴 `ouvert_le` RESTE HORS DE LA CLÉ : le DISTINCT est dans la sous-requête, pas sur le SELECT final', () => {
-    /* Un `SELECT DISTINCT` final aurait obligé à sélectionner `ev.ouvert_le` pour pouvoir trier dessus — donc à
-       le faire entrer dans la clé de dédoublonnage, où il n'a rien à faire. */
-    expect(SQL).not.toMatch(/SELECT DISTINCT af\.fil_id/);
-    expect(SQL).not.toContain('ev.ouvert_le,');
-  });
-
-  it('⚠️ LA COLONNE QUI PORTE LA PORTÉE N’EST PAS LUE ICI, ET C’EST DÉLIBÉRÉ', () => {
-    /**
-     * 🔭 QUESTION POSÉE À ARNO. `message_id` existe et est renseignée (5 lignes actives en base). Scoper la
-     * lecture par message RETIRERAIT la capsule des trois messages du fil 36475 qu'aucune affectation ne vise
-     * nommément, et désaccorderait le filtre « Événement ouvert », qui raisonne lui aussi par fil. Ce n'est pas
-     * le défaut qu'Arno a signalé, et ce serait un lot à part entière.
-     */
-    expect(SQL).not.toContain('message_id');
+  /**
+   * ══ 🔴🔴 CE QUE CETTE ÉPREUVE DISAIT, ET POURQUOI SON VERDICT S'INVERSE ════════════════════════════════════
+   *
+   * Elle s'appelait « LA PORTÉE RESTE CELLE DU FIL » et exigeait `SQL` SANS `message_id` : la question posée au
+   * lot HISTORIQUE-BIEN-5 était restée ouverte (« scoper par message retirerait la capsule de trois messages
+   * du fil 36475 »), et Arno ne l'avait pas tranchée.
+   *
+   * 🔴 IL L'A TRANCHÉE LE 08/10/2026, ET DANS L'AUTRE SENS : « Un mail ne porte “Événement en cours” que s'il
+   * est daté DANS une période ouverte. » C'est une date de MAIL qui décide, donc la requête lit des messages.
+   *
+   * ⚠️ ET LA CRAINTE D'ALORS NE SE RÉALISE PAS : les trois messages du fil 36475 qu'aucune affectation ne vise
+   * nommément gardent leur étiquette, parce que l'APPARTENANCE reste celle du fil (`af.fil_id = msg.fil_id`).
+   * Seul le QUAND est borné. C'est la nuance que la question laissait justement en suspens.
+   */
+  it('🔴🔴 la portée est celle du FIL, et la borne celle du MAIL', () => {
+    expect(SQL).toContain('JOIN gestion_affectation af ON af.actif AND af.fil_id = msg.fil_id');
+    expect(SQL).toContain('WHERE msg.id = ANY($1::bigint[])');
+    /* ⚠️ `af.message_id` N'EST TOUJOURS PAS LUE : la portée « un seul message » de la colonne reste ignorée par
+       cette voie — c'est la voie du BIEN qui la lit, et c'est une autre question. */
+    expect(SQL).not.toContain('af.message_id');
   });
 
   it('🔴 LA REQUÊTE EST NOMMÉE UNE FOIS : le dépôt n’en garde pas une seconde copie', () => {
     /* Le corps SQL ne doit apparaître qu'à UN endroit du dépôt — sa fonction. Deux copies divergeraient. */
-    const occurrences = REPO.split('SELECT DISTINCT fil_id, evenement_id').length - 1;
+    const occurrences = REPO.split('SELECT DISTINCT msg.id AS message_id').length - 1;
     expect(occurrences).toBe(1);
     /**
-     * 🔴🔴 ET ELLE A MAINTENANT **DEUX** APPELANTS, POUR LA MÊME RAISON. Lot FILTRE-COMME-ETIQUETTE : le filtre
-     * « Événement ouvert » ne réécrit plus la règle, il appelle cette requête bornée au fil du mail courant.
-     * Un seul corps SQL, deux bornes — c'est précisément ce que la décision d'Arno demande.
+     * 🔴🔴 ET ELLE A DEUX APPELANTS, POUR LA MÊME RAISON (lot FILTRE-COMME-ETIQUETTE) : le filtre « Événement
+     * ouvert » ne réécrit pas la règle, il appelle cette requête bornée au mail courant.
+     *
+     * 🔴 LES DEUX VOIES PRENNENT MAINTENANT LE MÊME ENSEMBLE, `ARRAY[m.id]`, et c'est une simplification du lot
+     * ETAT-PAR-LA-FRISE : la voie du fil se borne elle aussi à une date de mail.
      */
     expect(REPO).toContain("sqlEvenementsDesFils('$1::bigint[]'), [uniques]);");
-    expect(REPO).toContain("sqlEvenementsDesFils('ARRAY[m.fil_id]')");
+    expect(REPO).toContain("sqlEvenementsDesFils('ARRAY[m.id]')");
   });
 
-  it('⚠️ LA PORTÉE RESTE CELLE DU FIL : la clé rendue est `fil_id`, comme avant ce lot', () => {
-    expect(SQL).toContain('SELECT af.fil_id, ev.id, ev.reference, ev.objet, ev.etat');
+  /**
+   * 🔴🔴 LA BORNE DES PÉRIODES EST BIEN LÀ, et elle vient du module qui porte la règle — jamais réécrite ici.
+   * Sans elle, un mail reçu entre une Clôture et la Réouverture suivante garderait son étiquette.
+   */
+  it('🔴🔴 la voie du fil est bornée par les périodes ouvertes de l’événement', () => {
+    expect(SQL).toContain('msg.recu_le >= svv_p.du');
+    expect(SQL).toContain('svv_p.au IS NULL OR msg.recu_le <= svv_p.au');
   });
 });

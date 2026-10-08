@@ -7,6 +7,12 @@ vi.mock('../db/client', () => ({ query: (...args: unknown[]) => queryMock(...arg
 import {
   lireDernierePasseAuto, lireEcran, lireEvenements, lireFile, lireReperes, lireSansSuite, lireToleranceVeille, PAGE,
 } from './fileRepo';
+/* 🔴 LOT ETAT-PAR-LA-FRISE — l'épreuve lit la règle au même endroit que le dépôt : la recopier ici en ferait
+   une seconde vérité, et c'est précisément ce que le lot supprime. */
+import { sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+
+/** Blancs normalisés : on éprouve le SENS d'un SQL émis, jamais sa mise en forme (AGENTS.md). */
+const plat = (t: string): string => t.replace(/\s+/g, ' ');
 
 /**
  * LOT 4d — qui est qui. Par défaut AUCUN partenaire interne : c'est l'état d'avant la migration 233, et les requêtes
@@ -51,7 +57,11 @@ describe('fileRepo — LECTURE SEULE, sans exception', () => {
       // 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — `cles` est la CTE interne de la sous-requête latérale qui
       //   trouve le bien d'un événement (ses parties déclarées UNION les rattachements confirmés de ses mails).
       //   Comme ses voisines, ce n'est pas une table : le verdict de l'épreuve ne change pas d'un iota.
-      const ctes = ['dernier', 'dernier_hors', 'exterieur', 'messages_deplaces', 'lateral', 'cles'];
+      // 🔴 LOT ETAT-PAR-LA-FRISE — `svv_bornes` et `svv_cycles` sont les CTE du pli qui déduit l'état des
+      //   cartes de BORNE de la frise (`etatParLaFrise`). Comme leurs voisines, ce ne sont pas des tables :
+      //   le pli ne lit que `gestion_monga_etape` et `gestion_monga_lien`, et le verdict ne change pas.
+      const ctes = ['dernier', 'dernier_hors', 'exterieur', 'messages_deplaces', 'lateral', 'cles',
+        'svv_bornes', 'svv_cycles'];
       for (const t of tables) expect(ctes.includes(t) || t.startsWith('gestion_')).toBe(true);
     }
   });
@@ -145,10 +155,17 @@ describe('fileRepo — les cartes (colonne de droite)', () => {
     /**
      * ⚠️ `ORDER BY` N'EST PLUS COLLÉ À SON PREMIER CRITÈRE (lot EVENEMENT-MINIMALISTE, point 4) : les mises à
      * jour Monga non vues passent devant, pour CE collaborateur. Ici, `lireEvenements` est appelée SANS clé de
-     * collaborateur — le critère disparaît alors de la requête, et l'ordre est exactement celui d'avant. Le
-     * verdict de l'épreuve ne change pas : c'est bien `traite_le` qui ouvre le tri.
+     * collaborateur — le critère disparaît alors de la requête, et l'ordre est exactement celui d'avant.
+     *
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — CE QUI OUVRE LE TRI A CHANGÉ DE SOURCE ═════════════════
+     *
+     * L'épreuve disait « c'est bien `traite_le` qui ouvre le tri ». Règle d'Arno : « L'état d'un événement se
+     * déduit des cartes de BORNE de sa frise. » Les ouverts passent toujours devant — c'est la MÊME exigence —
+     * mais « ouvert » se lit maintenant sur la frise, et un dossier dont la carte Clôture a été retirée remonte
+     * dans la file, comme il le doit.
      */
-    expect(s).toContain('ORDER BY (e.traite_le IS NOT NULL) ASC');
+    expect(s).toContain(`ORDER BY NOT ${plat(sqlEvenementOuvertParLaFrise('e'))} ASC`);
+    expect(s).not.toContain('ORDER BY (e.traite_le IS NOT NULL)');
     expect(s).toContain('min(d.recu_le) FILTER (WHERE CASE WHEN ex.fil_id IS NOT NULL');
     /* 🔴 ET SANS COLLABORATEUR, AUCUNE TRACE DU CRITÈRE PAR VUE : la liste est celle de tout le monde. */
     expect(s).not.toContain('gestion_evenement_vu');
@@ -157,7 +174,9 @@ describe('fileRepo — les cartes (colonne de droite)', () => {
   it('projette une carte complète et retombe sur « à traiter » si l’état est inattendu', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{
       evenement_id: 9, reference: 'GES-2026-000001', objet: 'Fuite', demandeur: 'Mme M.', adresse_libre: '53 av. des Ternes',
-      etat: 'valeur_inconnue', ouvert_le: '2026-09-01T08:00:00Z', dernier_echange_le: null, nb_fils: 2, attend: false,
+      /* 🔴 LOT ETAT-PAR-LA-FRISE — la ligne porte `ouvert`, calculé par la base sur les cartes de borne. */
+      etat: 'valeur_inconnue', ouvert: true,
+      ouvert_le: '2026-09-01T08:00:00Z', dernier_echange_le: null, nb_fils: 2, attend: false,
     }] }).mockResolvedValueOnce({ rows: [{ n: 1 }] });
     const { cartes } = await lireEvenements(CTX);
     expect(cartes[0].etat).toBe('a_traiter'); // repli sûr : jamais un état inventé à l'écran

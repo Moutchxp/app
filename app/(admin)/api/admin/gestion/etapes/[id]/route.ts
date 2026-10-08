@@ -2,8 +2,11 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import {
-  completerMontant, modifierEtapeManuelle, retirerEtapeManuelle, trancherEtape,
+  completerMontant, etapePourRetrait, modifierEtapeManuelle, retirerEtapeManuelle, trancherEtape,
 } from '../../../../../../lib/gestion/mongaEtapeRepo';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — retirer une carte de BORNE change l'état, et l'écran doit l'apprendre. */
+import { etatApresCarteSelonLaFrise, sensDeLaBorne } from '../../../../../../lib/gestion/etatParLaFrise';
+import { evenementOuvertParLaFrise } from '../../../../../../lib/gestion/evenementEtatRepo';
 import { TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape } from '../../../../../../lib/gestion/mongaEtape';
 
 /**
@@ -130,13 +133,41 @@ export async function DELETE(
   }
   try {
     const auteur = await auteurDeLaRequete(request);
+    /**
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 2 — RETIRER LA CLÔTURE ROUVRE LE DOSSIER ══════════════════════════
+     *
+     * ARNO : « Supprimer la carte Clôture d'un événement clos le ROUVRE, sans carte Réouverture. »
+     *
+     * 🔴 IL N'Y A RIEN À ÉCRIRE POUR CELA, ET C'EST TOUT L'INTÉRÊT DU LOT : l'état se DÉDUIT des cartes de
+     * borne à chaque lecture. Retirer la carte suffit ; aucune ligne de code ne « pense » à rouvrir, donc
+     * aucune ne peut l'oublier. C'est exactement ce qui manquait au constat d'Arno sur GES-2026-000001.
+     *
+     * 🔴 CE QUE LA ROUTE FAIT EN PLUS : elle RELIT l'état avant et après, et le dit à l'écran. Sans ce signal,
+     * la bande orange de la fiche du bien ne reviendrait qu'au rechargement suivant (lot
+     * MARQUES-EVENEMENT-EN-COURS). Deux lectures de plus, et seulement sur une carte de borne.
+     */
+    const avant = await etapePourRetrait(etapeId);
+    const evenementId = avant?.evenementId ?? null;
+    const borne = avant !== null && sensDeLaBorne(avant.type) !== null;
+    const ouvertAvant = borne && evenementId !== null ? await evenementOuvertParLaFrise(evenementId) : null;
+
     const fait = await retirerEtapeManuelle(etapeId, auteur.libelle);
     if (!fait) {
       return Response.json(
         { erreur: 'Retrait impossible : une étape venue de Monga ne se retire pas.' }, { status: 409 });
     }
+
+    const ouvertApres = ouvertAvant === null || evenementId === null
+      ? null : await evenementOuvertParLaFrise(evenementId);
+    const change = ouvertAvant !== null && ouvertApres !== null && ouvertAvant !== ouvertApres;
     /* ⚠️ « RETIRÉE », ET LE MOT LE DIT : elle n'est pas supprimée, elle quitte la frise. */
-    return Response.json({ etat: 'ok', message: 'Étape retirée.' });
+    return Response.json({
+      etat: 'ok',
+      message: change
+        ? (ouvertApres === true ? 'Clôture retirée : l’événement est rouvert.' : 'Étape retirée : l’événement est clos.')
+        : 'Étape retirée.',
+      etatEvenement: change ? etatApresCarteSelonLaFrise(ouvertApres as boolean) : null,
+    });
   } catch (e) {
     console.error('[gestion/etapes] retrait impossible', e);
     return Response.json({ erreur: 'Retrait impossible : erreur interne du serveur.' }, { status: 503 });

@@ -5,6 +5,12 @@ import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { LigneVie } from './VieDuBien';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
+/* 🔴 LOT ETAT-PAR-LA-FRISE — l'épreuve lit LA règle, pas une copie : c'est ce qui rend « le même prédicat des
+   deux côtés » vérifiable plutôt que promis. */
+import { sqlEvenementOuvertParLaFrise } from '../../../../lib/gestion/etatParLaFrise';
+
+/** Blancs normalisés : on éprouve le SENS d'un SQL émis, jamais sa mise en forme (AGENTS.md). */
+const plat = (t: string): string => t.replace(/\s+/g, ' ');
 
 /**
  * ══ 🔴🔴 LOT RETABLIR-MARQUES-EVENEMENT — LES DEUX MARQUES ORANGE « ÉVÉNEMENT EN COURS » ════════════════════════
@@ -199,15 +205,30 @@ describe('🔴🔴 ④ une seule règle « événement ouvert », pour les deux 
    * 🔴🔴 LE MÊME PRÉDICAT DES DEUX CÔTÉS : « un événement NON traité ». S'ils divergeaient, la fiche pourrait
    * annoncer un événement en cours sans qu'aucun mail ne porte sa capsule — ou l'inverse, ce qui est pire.
    */
-  it('🔴🔴 le cartouche et les lignes comptent le même « non traité »', () => {
-    /* ① LE CARTOUCHE : le compte EXCLUT les événements traités, en SQL. */
-    expect(REPO_ANNUAIRE).toContain("WHERE e.etat <> 'traite'");
+  it('🔴🔴 le cartouche et les lignes comptent le même « ouvert »', () => {
     /**
-     * ② LES LIGNES DE MAIL : le même fait, dit à l'endroit où il sert — un drapeau `ouvert` par événement, posé
-     * sur la MÊME comparaison. Le dépôt de l'historique ne FILTRE pas (il rend aussi les événements clos, pour
-     * le sélecteur de période) : il ÉTIQUETTE, et c'est l'écran qui ne garde que les ouverts.
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — LE PRÉDICAT COMMUN A CHANGÉ DE SOURCE ═══════════════════
+     *
+     * Il valait « un événement NON traité », lu sur `gestion_evenement.etat` des deux côtés. Le constat d'Arno
+     * a montré ce que cette colonne vaut : « clos » sur un dossier dont la carte Clôture avait été retirée.
+     *
+     * 🔴 LES DEUX CÔTÉS LISENT MAINTENANT LA MÊME RÈGLE, ET ELLE EST AILLEURS : `sqlEvenementOuvertParLaFrise`,
+     * qui déduit l'état des cartes de BORNE de la frise. L'exigence de cette épreuve — le MÊME prédicat des
+     * deux côtés — est donc tenue plus strictement qu'avant : ce n'est plus « la même comparaison écrite deux
+     * fois », c'est LA MÊME FONCTION, appelée deux fois.
      */
-    expect((REPO_HISTO.match(/ouvert: r\.etat !== 'traite',/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    const REGLE = sqlEvenementOuvertParLaFrise('e');
+    /* ① LE CARTOUCHE : le compte EXCLUT les événements que leur frise dit clos, en SQL. */
+    expect(REPO_ANNUAIRE).toContain('sqlEvenementOuvertParLaFrise');
+    expect(plat(REPO_ANNUAIRE)).not.toContain("WHERE e.etat <> 'traite'");
+    expect(plat(REGLE)).toContain('svv_p.au IS NULL');
+    /**
+     * ② LES LIGNES DE MAIL : le même fait, dit à l'endroit où il sert — un drapeau `ouvert` par événement, que
+     * la BASE rend déjà tranché. Le dépôt de l'historique ne FILTRE pas (il rend aussi les événements clos,
+     * pour le sélecteur de période) : il ÉTIQUETTE, et c'est l'écran qui ne garde que les ouverts.
+     */
+    expect((REPO_HISTO.match(/ouvert: r\.ouvert,/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(REPO_HISTO).not.toContain("r.etat !== 'traite'");
     /* 🔴 ET LE DÉPÔT DE L'HISTORIQUE LE DIT EN TOUTES LETTRES : c'est le prédicat du cartouche, au mot près. */
     expect(REPO_HISTO).toContain('LE PRÉDICAT EST **CELUI DU CARTOUCHE DE LA FICHE**, AU MOT PRÈS');
     /* ③ ET C'EST L'ÉCRAN QUI NE RETIENT QUE LES OUVERTS, des deux côtés — ligne de mail et ligne du moteur. */

@@ -16,6 +16,8 @@ import {
   annuaireDisponible, evenementQualifieDisponible, mongaDisponible,
 } from './schema';
 import { nomBien } from './driveArbre';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — un evenement est ouvert quand sa frise le dit, jamais quand la colonne le dit. */
+import { sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import {
   badgeMonga, casLotsMonga, etapeMonga, finDIntervention, lireEnTeteMonga, lotsPourLAdresseMonga,
   motDerniereEtape, motEncartMonga,
@@ -440,7 +442,8 @@ export async function evenementsOuvertsDesLots(cles: readonly string[]): Promise
             array_agg(DISTINCT l.cle) AS lots
        FROM liens l
        JOIN gestion_evenement e ON e.id = l.evenement_id
-      WHERE e.etat <> 'traite'
+      /* 🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit des cartes de borne de la frise, plus de la colonne. */
+      WHERE ${sqlEvenementOuvertParLaFrise('e')}
       GROUP BY e.id, e.reference, e.objet, e.etat, e.ouvert_le
       ORDER BY e.ouvert_le DESC`, [liste]);
   return rows.map((r) => ({

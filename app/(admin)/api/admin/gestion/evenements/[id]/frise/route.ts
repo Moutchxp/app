@@ -5,13 +5,25 @@ import {
   ajouterEtapeManuelle, decompteConfirmations, friseDeLEvenement,
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
 import {
-  cartesDuReservoir, etatApresCarte,
+  cartesDuReservoir, etatApresCarte, informationsDuReservoir,
   proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION,
   type TypeEtape,
 } from '../../../../../../../lib/gestion/mongaEtape';
-/* 🔴🔴 LOT CLOTURE-REOUVERTURE — `changerEtatEvenement` est LA fonction de fermeture du dépôt, celle que le
-   lien « Clôturer cet événement ? » employait. On la réutilise, on n'en écrit pas une seconde. */
-import { changerEtatEvenement, deplacerOuvertureEvenement } from '../../../../../../../lib/gestion/gestes';
+/**
+ * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — `changerEtatEvenement` N'EST PLUS APPELÉE ICI ═══════════════════════════════
+ *
+ * Au lot CLOTURE-REOUVERTURE, poser une carte « Clôture » posait la carte PUIS écrivait l'état par cette
+ * fonction. Deux écritures pour un fait, et c'est précisément ce que le constat d'Arno du 08/10/2026 a pris en
+ * défaut : il a retiré la carte, et l'état est resté.
+ *
+ * 🔴 IL N'Y A PLUS QU'UNE ÉCRITURE : LA CARTE. L'état se DÉDUIT des cartes de borne à chaque lecture
+ * (`etatParLaFrise`), et il n'y a donc plus rien à tenir d'accord — poser la carte, la retirer, ou corriger sa
+ * date produit le bon état, sans qu'aucun code ne pense à le recalculer.
+ */
+import { deplacerOuvertureEvenement } from '../../../../../../../lib/gestion/gestes';
+import {
+  etatApresCarteSelonLaFrise, motCarteDeBorne, sqlEvenementOuvertParLaFrise,
+} from '../../../../../../../lib/gestion/etatParLaFrise';
 import { query } from '../../../../../../../lib/db/client';
 
 /**
@@ -42,10 +54,18 @@ export async function GET(
      * l'ouverture de l'ÉVÉNEMENT, et sa date est celle-ci. Elle était déjà lue ici (pour `traite_le`) : c'est
      * la même requête, une colonne de plus, aucune lecture ajoutée.
      */
-    const { rows } = await query<{ traite_le: string | null; ouvert_le: string }>(
-      'SELECT traite_le::text, ouvert_le::text FROM gestion_evenement WHERE id = $1', [evenementId]);
+    /**
+     * 🔴🔴 LOT ETAT-PAR-LA-FRISE — « OUVERT ? » SE DEMANDE À LA FRISE, PAS À `traite_le`.
+     *
+     * C'est cette réponse qui décide de la grille (Arno, point 4 : « Quand l'événement est clos, la grille ne
+     * propose QUE “Réouverture” »). La demander à la colonne, c'était offrir « Réouverture » sur un dossier dont
+     * la carte Clôture n'existe plus — le cas exact d'Arno sur GES-2026-000001.
+     */
+    const { rows } = await query<{ ouvert: boolean; ouvert_le: string }>(
+      `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert, e.ouvert_le::text
+         FROM gestion_evenement e WHERE e.id = $1`, [evenementId]);
     if (rows.length === 0) return Response.json({ erreur: 'Événement inconnu.' }, { status: 404 });
-    const traite = rows[0].traite_le !== null;
+    const ouvertParLaFrise = rows[0].ouvert;
 
     /**
      * 🔴 LA PROPOSITION DE PASSAGE EN FIABLE (Arno) : « quand une étape du même type a été confirmée 5 fois sans
@@ -71,15 +91,18 @@ export async function GET(
        * laquelle des deux cartes elle propose (`cartesDuReservoir`), et c'est la MÊME donnée que `traite`, déjà
        * lue deux lignes plus haut — aucune requête de plus.
        */
-      ouvert: !traite,
+      ouvert: ouvertParLaFrise,
       passagesEnFiableProposes: aProposer,
       typesAjoutables: TYPES_AJOUTABLES,
       /* 🔴 LOT FRISE-CONSTRUCTIBLE — la date d'ouverture de l'événement, et les cartes du réservoir (Arno).
          🔴 LOT CLOTURE-REOUVERTURE — le réservoir DÉPEND désormais de l'état : « Clôture » si l'événement est
          ouvert, « Réouverture » s'il est clos, jamais les deux. C'est le module pur qui tranche. */
       ouvertLe: rows[0].ouvert_le,
-      typesReservoir: cartesDuReservoir(!traite),
-      typesInformation: TYPES_INFORMATION,
+      typesReservoir: cartesDuReservoir(ouvertParLaFrise),
+      /* 🔴 LOT ETAT-PAR-LA-FRISE, POINT 4 — LA ROUTE ANNONCE CE QUE LA GRILLE PROPOSE, des DEUX côtés : « aucune
+         autre carte ne peut être posée après une Clôture », et un point n'est pas une exception. Annoncer la
+         liste entière pendant que l'écran n'en montre aucune aurait été deux réponses à la même question. */
+      typesInformation: informationsDuReservoir(ouvertParLaFrise),
     }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/frise] lecture impossible', e);
@@ -141,6 +164,32 @@ export async function POST(
   }
   try {
     const auteur = await auteurDeLaRequete(request);
+
+    /**
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 4 — RIEN NE SE POSE APRÈS UNE CLÔTURE, SAUF UNE RÉOUVERTURE ═══════
+     *
+     * ARNO : « Quand l'événement est clos, la grille “Ajouter une carte” ne propose QUE “Réouverture” : aucune
+     * autre carte ne peut être posée après une Clôture. »
+     *
+     * 🔴 LA GARDE EST ICI, ET PAS SEULEMENT DANS LA GRILLE. Une règle tenue par l'écran seul est contournée par
+     * le premier appel qui l'oublie — deux onglets ouverts suffisent : l'un clôture, l'autre pose encore un
+     * devis sur la grille qu'il affichait avant. C'est la même raison qui met déjà le titre d'une carte libre
+     * ici plutôt que dans le formulaire.
+     *
+     * 🔴 ET C'EST LA **FRISE** QU'ON INTERROGE, jamais la colonne : la grille et la garde répondent donc à la
+     * même question, par la même règle.
+     */
+    const { rows: etatLu } = await query<{ ouvert: boolean }>(
+      `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert FROM gestion_evenement e WHERE e.id = $1`,
+      [evenementId]);
+    if (etatLu.length === 0) return Response.json({ erreur: 'Événement inconnu.' }, { status: 404 });
+    const ouvertAvant = etatLu[0].ouvert;
+    if (!ouvertAvant && type !== 'reouverture') {
+      return Response.json({
+        erreur: 'Cet événement est clos : posez d’abord une carte « Réouverture » pour le reprendre.',
+      }, { status: 409 });
+    }
+
     const idEtape = await ajouterEtapeManuelle({
       evenementId,
       type,
@@ -153,45 +202,33 @@ export async function POST(
       parId: auteur.id === null ? null : Number(auteur.id),
       parLibelle: auteur.libelle,
     });
+
     /**
-     * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA CARTE FERME OU ROUVRE, PAR LE CODE QUI EXISTE DÉJÀ ════════════════
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — LA CARTE EST LA SEULE ÉCRITURE. IL N'Y EN A PLUS DE SECONDE. ═══════════
      *
-     * ARNO : « Ajouter la carte “Clôture” ferme l'événement […] mêmes effets que l'actuelle fermeture en un
-     * clic. RÉUTILISE EXACTEMENT CE CODE DE FERMETURE, SANS CRÉER UN SECOND CHEMIN. »
+     * Au lot CLOTURE-REOUVERTURE, on posait la carte PUIS on écrivait l'état par `changerEtatEvenement`. Deux
+     * écritures pour un fait — et le constat d'Arno du 08/10/2026 a montré ce qu'elles coûtent : il a retiré la
+     * carte, et l'état est resté. Il n'y a donc plus qu'une écriture, la carte ; l'état se DÉDUIT.
      *
-     * 🔴 C'EST DONC `changerEtatEvenement`, ET RIEN D'AUTRE : la seule fonction du dépôt qui écrive
-     * `gestion_evenement.etat`. Elle pose (ou efface) `traite_le`, `traite_par`, et JOURNALISE — exactement ce
-     * que faisait le lien « Clôturer cet événement ? ». Un `UPDATE` écrit ici aurait été le second chemin
-     * qu'Arno interdit, et il aurait perdu le journal au passage.
+     * 🔴 ON RELIT L'ÉTAT APRÈS LA CARTE, et on ne le DEVINE pas depuis le type posé. Une Clôture datée AVANT
+     * une Réouverture déjà présente ne ferme rien — c'est la suite des bornes qui tranche, pas la dernière
+     * carte saisie. Deviner ici aurait réintroduit la contradiction par la porte du message.
      *
-     * ⚠️ APRÈS L'ÉTAPE, ET NON AVANT. La carte est le FAIT ; l'état n'en est que la conséquence. Si l'écriture
-     * de l'état échouait, il resterait une carte « Clôture » sur un événement ouvert — visible, donc réparable
-     * d'un clic. L'inverse (un événement fermé sans carte) serait un dossier clos par personne.
-     *
-     * ⚠️ UN REFUS N'EFFACE PAS LA CARTE, et il est DIT. Le seul refus attendu est « déjà dans cet état » —
-     * l'écran ne propose jamais les deux cartes à la fois, mais deux onglets ouverts le peuvent.
+     * ⚠️ `etatEvenement` SERT À PRÉVENIR LA FICHE (lot MARQUES-EVENEMENT-EN-COURS) : la bande orange, le bloc
+     * « Événements » et les lignes de mail se relisent du même geste. Il n'est rendu que si l'état a VRAIMENT
+     * changé — une carte ordinaire ne doit rien faire relire.
      */
     const etatVoulu = etatApresCarte(type);
     if (etatVoulu !== null) {
-      const issue = await changerEtatEvenement(evenementId, etatVoulu, auteur);
-      const mot = etatVoulu === 'traite' ? 'Événement clôturé.' : 'Événement rouvert.';
+      const { rows: apres } = await query<{ ouvert: boolean }>(
+        `SELECT ${sqlEvenementOuvertParLaFrise('e')} AS ouvert FROM gestion_evenement e WHERE e.id = $1`,
+        [evenementId]);
+      const ouvertApres = apres[0]?.ouvert ?? ouvertAvant;
+      const change = ouvertApres !== ouvertAvant;
       return Response.json({
         etat: 'ok', id: idEtape,
-        message: issue.ok ? mot : `Carte posée, mais l’état n’a pas changé : ${issue.motif}`,
-        /**
-         * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — L'ÉCRAN DOIT SAVOIR QUE L'ÉTAT A BOUGÉ ════════════════════
-         *
-         * CONSTAT D'ARNO : il rouvre un événement depuis la frise, et la bande orange de la fiche ne revient
-         * pas. Elle est pourtant juste au-dessus, SUR LA MÊME PAGE — mais rien ne la prévient : la frise relit
-         * la frise, et personne d'autre ne relit quoi que ce soit.
-         *
-         * 🔴 UN CHAMP, ET NON UN MESSAGE À RELIRE. L'écran pourrait deviner en comparant le texte à « Événement
-         * rouvert. » ; une phrase est faite pour être lue par un humain, et elle changera. Ce champ dit le FAIT.
-         *
-         * ⚠️ RENDU SEULEMENT QUAND L'ÉTAT A VRAIMENT CHANGÉ (`issue.ok`) : une carte posée sur un dossier déjà
-         * dans cet état ne doit rien faire relire.
-         */
-        etatEvenement: issue.ok ? etatVoulu : null,
+        message: motCarteDeBorne(ouvertAvant, ouvertApres),
+        etatEvenement: change ? etatApresCarteSelonLaFrise(ouvertApres) : null,
       });
     }
     return Response.json({ etat: 'ok', id: idEtape, message: 'Étape ajoutée.' });

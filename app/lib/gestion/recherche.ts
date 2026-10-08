@@ -17,6 +17,8 @@
  * salle de bain » dont l'adresse est « 28 avenue Marceau ». C'est le comportement qu'on attend d'un champ de recherche.
  */
 import { query } from '../db/client';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit des cartes de borne de la frise, jamais de la colonne. */
+import { etatAffiche, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 
 export interface EvenementTrouve {
   id: number;
@@ -77,21 +79,22 @@ export async function chercherEvenements(saisie: string, limite = MAX_RESULTATS)
 
   const { rows } = await query<{
     id: number; reference: string; objet: string; demandeur: string | null;
-    adresse_libre: string | null; etat: string; nb_fils: number;
+    adresse_libre: string | null; etat: string; ouvert: boolean; nb_fils: number;
   }>(
     `SELECT e.id::int AS id, e.reference, e.objet,
             coalesce(nullif(btrim(e.demandeur_nom), ''), e.demandeur_email) AS demandeur,
-            e.adresse_libre, e.etat,
+            e.adresse_libre, e.etat, ${sqlEvenementOuvertParLaFrise('e')} AS ouvert,
             (SELECT count(*) FROM gestion_affectation a WHERE a.evenement_id = e.id AND a.actif)::int AS nb_fils
        FROM gestion_evenement e
        ${where}
-      ORDER BY (e.traite_le IS NOT NULL) ASC, e.ouvert_le DESC, e.id DESC
+      -- 🔴 LOT ETAT-PAR-LA-FRISE — les OUVERTS d'abord, et « ouvert » se lit sur les cartes de borne.
+      ORDER BY NOT ${sqlEvenementOuvertParLaFrise('e')} ASC, e.ouvert_le DESC, e.id DESC
       LIMIT $1`,
     [limite, ...mots],
   );
   return rows.map((r) => ({
     id: r.id, reference: r.reference, objet: r.objet, demandeur: r.demandeur, adresseLibre: r.adresse_libre,
-    etat: r.etat === 'en_cours' || r.etat === 'traite' ? r.etat : 'a_traiter',
+    etat: etatAffiche(r.etat, r.ouvert),
     nbFils: r.nb_fils,
   }));
 }

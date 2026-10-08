@@ -566,9 +566,35 @@ export function etatApresCarte(type: TypeEtape): 'traite' | 'en_cours' | null {
  * ⚠️ TOUTES LES AUTRES CARTES RESTENT, dans leur ordre : on ne filtre que ces deux-là.
  */
 export function cartesDuReservoir(evenementOuvert: boolean): TypeEtape[] {
-  return TYPES_RESERVOIR.filter((t) => (
-    t === 'cloture' ? evenementOuvert : (t === 'reouverture' ? !evenementOuvert : true)
-  ));
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE, POINT 4 — UN DOSSIER CLOS N'OFFRE QUE « RÉOUVERTURE » ══════════════════════
+   *
+   * ARNO (08/10/2026) : « Quand l'événement est clos, la grille “Ajouter une carte” ne propose QUE
+   * “Réouverture” : aucune autre carte ne peut être posée après une Clôture. »
+   *
+   * 🔴 CE QUE CELA RÉPARE : la grille d'un dossier clos offrait encore douze cartes. Poser un « Devis reçu »
+   * après la Clôture produisait une carte APRÈS la dernière borne — visible sur la frise, hors de toute
+   * période, et donc invisible partout ailleurs. Pour reprendre un dossier, on le ROUVRE d'abord ; c'est un
+   * geste daté, qui laisse une trace, et c'est exactement ce que la carte « Réouverture » est.
+   *
+   * ⚠️ AUCUN TYPE N'EST PERDU : rouvrir rend la grille entière, à l'instant même. On ne retire pas une
+   * possibilité, on impose un ordre — celui que la frise raconte déjà.
+   */
+  if (!evenementOuvert) return ['reouverture'];
+  return TYPES_RESERVOIR.filter((t) => t !== 'reouverture');
+}
+
+/**
+ * CE QUE LA FACE « SIMPLE INFORMATION » DE LA GRILLE PROPOSE, selon l'état. PUR.
+ *
+ * 🔴 VIDE SUR UN DOSSIER CLOS, pour la raison du point 4 : « aucune autre carte ne peut être posée après une
+ * Clôture » — et un point posé après la dernière borne serait aussi hors période qu'un carré.
+ *
+ * ⚠️ LA BASCULE « Étape / Simple information » N'EST PAS RETIRÉE DE L'ÉCRAN (garde-fou CLAUDE.md) : elle reste
+ * rendue, son second bouton devient inactif, et la raison est écrite à côté.
+ */
+export function informationsDuReservoir(evenementOuvert: boolean): TypeEtape[] {
+  return evenementOuvert ? [...TYPES_INFORMATION] : [];
 }
 
 /**

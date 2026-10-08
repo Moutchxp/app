@@ -15,6 +15,8 @@
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { adresseProposee, nettoyerObjet } from './objet';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit de la frise, et la cloture ne s'ecrit plus a la main. */
+import { MOTIF_CLOTURE_PAR_LA_FRISE, etatDeTravail, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import { deplacementsDeMailsDisponibles, evenementQualifieDisponible } from './schema';
 import {
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les bornes et la note, décidées par le module PUR. */
@@ -670,14 +672,31 @@ export async function deplacerOuvertureEvenement(
 }
 
 /**
- * CHANGE L'ÉTAT d'une carte. « traité » pose la DATE DE TRAITEMENT et le nom de celui qui l'a posée ; revenir en
- * arrière les efface — la base l'EXIGE (`gestion_evenement_traite_chk` : l'état et la date vont ensemble, migration
- * 228). Cette contrainte est une bonne nouvelle : elle rend impossible une carte « traitée » sans date, c'est-à-dire
- * introuvable dans l'historique.
+ * CHANGE L'ÉTAT DE TRAVAIL d'une carte : « à traiter » ou « en cours ».
  *
- * Revenir de « traité » à « en cours » est un geste NORMAL, pas une réparation : un dossier se rouvre.
+ * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — « TRAITÉ » N'EST PLUS UN ÉTAT QU'ON ÉCRIT ICI ═══════════════════════════════════
+ *
+ * CONSTAT D'ARNO (08/10/2026) : GES-2026-000001 restait « clos » alors que sa carte Clôture avait été supprimée.
+ * La cause tenait à ce que l'état vivait en DEUX endroits — la frise, et cette colonne — et que seul le premier
+ * avait changé. Sa règle : « Aucun autre chemin ne doit pouvoir mettre l'état en contradiction avec la frise. »
+ *
+ * 🔴 CETTE FONCTION ÉTAIT L'AUTRE CHEMIN. Elle écrivait `etat = 'traite'` et `traite_le = now()` depuis le
+ * sélecteur à trois boutons de la carte en plein écran, sans qu'aucune carte ne soit posée. Elle REFUSE désormais
+ * « traité », et DIT par où passer : poser une carte « Clôture » sur la frise (ou la retirer pour rouvrir).
+ *
+ * ⚠️ AUCUN BOUTON N'EST RETIRÉ (garde-fou CLAUDE.md) : les trois boutons d'`EtatCarte` sont toujours là, et le
+ * troisième répond maintenant par une phrase qui apprend la règle — au lieu d'écrire une valeur que plus
+ * personne ne lit, et qui mentait. C'est le seul effet visible de ce lot sur un écran, et il est signalé à Arno.
+ *
+ * 🔴 LES DEUX PREMIERS ÉTATS RESTENT ÉCRITS ICI, ET C'EST VOULU : « pas encore regardé » contre « je m'en
+ * occupe » est un fait que la frise ne connaît pas — aucune carte ne dit qu'on a commencé à regarder.
+ *
+ * ⚠️ `traite_le` EST EFFACÉE PAR CE GESTE, et la base l'EXIGE (`gestion_evenement_traite_chk` : l'état et la date
+ * vont ensemble, migration 228). Un événement repassé « en cours » perd donc sa vieille date de traitement —
+ * c'est ce que cette fonction faisait déjà, et la date de clôture qui compte est désormais celle de la carte.
  */
 export async function changerEtatEvenement(evenementId: number, etat: EtatEvenement, auteur: Auteur): Promise<Issue> {
+  if (!etatDeTravail(etat)) return { ok: false, motif: MOTIF_CLOTURE_PAR_LA_FRISE };
   return withTransaction(async (q) => {
     const { rows } = await q<{ etat: string; reference: string }>(
       `SELECT etat, reference FROM gestion_evenement WHERE id = $1 FOR UPDATE`, [evenementId]);
@@ -701,8 +720,10 @@ export async function changerEtatEvenement(evenementId: number, etat: EtatEvenem
 /** Les événements OUVERTS, pour le sélecteur « rattacher à un événement existant ». Les plus récents d'abord. */
 export async function listerEvenementsOuverts(limite = 50): Promise<{ id: number; reference: string; objet: string }[]> {
   const { rows } = await query<{ id: number; reference: string; objet: string }>(
-    `SELECT id::int AS id, reference, objet FROM gestion_evenement
-      WHERE traite_le IS NULL ORDER BY ouvert_le DESC, id DESC LIMIT $1`, [limite]);
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit des cartes de BORNE de la frise. Le selecteur
+       « rattacher a un evenement existant » propose donc exactement ce que les frises disent ouvert. */
+    `SELECT e.id::int AS id, e.reference, e.objet FROM gestion_evenement e
+      WHERE ${sqlEvenementOuvertParLaFrise('e')} ORDER BY e.ouvert_le DESC, e.id DESC LIMIT $1`, [limite]);
   return rows;
 }
 

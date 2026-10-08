@@ -6,7 +6,8 @@ import {
   estRepere, ETAPES_MAJEURES, TYPES_AJOUTABLES, TYPES_RESERVOIR, CONFIRMATIONS_POUR_PROPOSER,
   /* 🔴 LOT CLOTURE-REOUVERTURE — `proposerCloture` a été retiré avec la fermeture en un clic ; ce qui le
      remplace est ci-dessous. */
-  cartesDuReservoir, confirmationCarte, etatApresCarte, TYPES_HERITES, TYPES_INFORMATION,
+  cartesDuReservoir, confirmationCarte, etatApresCarte, informationsDuReservoir,
+  TYPES_HERITES, TYPES_INFORMATION,
 } from './mongaEtape';
 
 /**
@@ -302,13 +303,31 @@ describe('⑨ clore et rouvrir, par une carte et rien d’autre', () => {
     expect(clos).not.toContain('cloture');
   });
 
-  /** ⚠️ ET TOUTES LES AUTRES CARTES RESTENT, dans leur ordre : on ne filtre que ces deux-là. */
-  it('⚠️ les douze autres cartes ne bougent pas, et gardent leur ordre', () => {
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — CE QUE CETTE ÉPREUVE DISAIT, ET POURQUOI ELLE SE SCINDE ═════
+   *
+   * Elle s'appelait « les douze autres cartes ne bougent pas, et gardent leur ordre », et valait pour LES DEUX
+   * états. Arno l'a tranché autrement : « Quand l'événement est clos, la grille “Ajouter une carte” ne propose
+   * QUE “Réouverture” : aucune autre carte ne peut être posée après une Clôture. »
+   *
+   * 🔴 LA GARANTIE EST DONC COUPÉE EN DEUX, ET AUCUNE DES DEUX MOITIÉS N'EST RELÂCHÉE : sur un dossier OUVERT
+   * les douze autres sont toutes là, dans leur ordre ; sur un dossier CLOS il n'y a plus qu'une carte, et
+   * l'épreuve l'exige au singulier.
+   *
+   * ⚠️ AUCUN TYPE N'EST PERDU : rouvrir rend la grille entière à l'instant même, ce que la première moitié
+   * vérifie. On n'a pas retiré une possibilité, on a imposé un ordre.
+   */
+  it('⚠️ sur un dossier OUVERT, les douze autres cartes ne bougent pas et gardent leur ordre', () => {
     const autres = TYPES_RESERVOIR.filter((t) => t !== 'cloture' && t !== 'reouverture');
-    for (const etat of [true, false]) {
-      expect(cartesDuReservoir(etat).filter((t) => t !== 'cloture' && t !== 'reouverture'), String(etat))
-        .toEqual(autres);
-    }
+    expect(cartesDuReservoir(true).filter((t) => t !== 'cloture' && t !== 'reouverture')).toEqual(autres);
+  });
+
+  it('🔴🔴 sur un dossier CLOS, la grille ne propose QUE « Réouverture » — les deux faces', () => {
+    expect(cartesDuReservoir(false)).toEqual(['reouverture']);
+    /* 🔴 LA SECONDE FACE AUSSI : un point « Note » posé après la dernière borne serait aussi hors période
+       qu'un carré. Et elle revient entière dès que le dossier est rouvert. */
+    expect(informationsDuReservoir(false)).toEqual([]);
+    expect(informationsDuReservoir(true)).toEqual([...TYPES_INFORMATION]);
   });
 
   /**

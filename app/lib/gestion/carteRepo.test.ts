@@ -67,6 +67,8 @@ describe('le détail d’une carte', () => {
   const EVENEMENT = {
     evenement_id: 9, reference: 'GES-2026-000009', objet: 'Fuite', demandeur_nom: 'Mme M.',
     demandeur_email: 'm@x.fr', adresse_libre: '28 avenue Marceau', etat: 'en_cours',
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — la ligne porte `ouvert`, calculé par la base sur les cartes de BORNE. */
+    ouvert: true,
     ouvert_le: '2026-09-01T10:00:00Z', ouvert_par: 'arno', traite_le: null, traite_par: null,
   };
 
@@ -268,7 +270,17 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     expect(imports).toEqual([
       // 🔴🔴 LOT CADRE-ISOLE-MAILS — `./cadreMail` est un module PUR (il extrait et filtre les <style> d'en-tête
       //   d'un mail). Il ne nomme ni stockage, ni signature d'URL : il entre donc dans cette liste sans l'ouvrir.
-      '../db/client', './nomUsageSql', './copieDisparueSql', './htmlMail', './cadreMail',
+      '../db/client',
+      /**
+       * 🔴🔴 LOT ETAT-PAR-LA-FRISE — `./etatParLaFrise` REJOINT LA LISTE, pour la MÊME raison que ses voisins :
+       * module PUR (ni base, ni réseau, ni DOM) qui dit « cet événement est-il ouvert ? » en FRAGMENT DE SQL,
+       * et assemble les trois états de la carte. Il ne lit aucun octet et n'ouvre aucun stockage.
+       *
+       * 🔴 SON PASSAGE OBLIGÉ ICI EST CE QUI GARANTIT que la carte dépliée, la file, la recherche et la fiche du
+       * bien disent tous « clos » au même moment : quand la frise le dit, et pas quand une colonne le dit.
+       */
+      './etatParLaFrise',
+      './nomUsageSql', './copieDisparueSql', './htmlMail', './cadreMail',
       // 🔴 LOT FENETRES-INDEPENDANTES — `./piecesConversation` rejoint la liste, pour la MÊME raison que
       //   `./lisibilite` : module PUR qui rend la clé d'identité d'une pièce, en TypeScript et en fragment de
       //   SQL. Son passage obligé ici est ce qui garantit que la liste et le récapitulatif dédoublonnent de la

@@ -65,7 +65,18 @@ describe('« ouvert » n’est défini qu’une fois, et il l’est dans les deu
   it('🔴🔴 ni le filtre ni la projection ne recopient l’état « traité »', () => {
     expect(REPO).not.toContain("etat <> 'traite'");
     expect(REPO).not.toContain("etat !== 'traite'");
-    expect(REPO).toContain('ouvert: estEvenementOuvert(r.etat),');
+    /**
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — LA PROJECTION NE LIT PLUS DU TOUT LA COLONNE ═════════════
+     *
+     * Elle valait `ouvert: estEvenementOuvert(r.etat)` : la règle venait bien du module pur, mais la DONNÉE
+     * venait de `gestion_evenement.etat`. Le constat d'Arno a montré ce que cette donnée vaut — « clos » sur
+     * un dossier dont la carte Clôture avait été retirée.
+     *
+     * 🔴 LA BASE REND MAINTENANT `ouvert` DÉJÀ TRANCHÉ, calculé sur les cartes de BORNE de la frise. Il n'y a
+     * plus rien à lire ni à convertir côté TypeScript — donc plus rien à oublier de convertir.
+     */
+    expect(REPO).toContain('ouvert: r.ouvert });');
+    expect(REPO).not.toContain('estEvenementOuvert(');
     // Et la constante n'est écrite qu'à UN endroit du module pur : sa déclaration.
     expect(PUR.split("= 'traite'").length - 1).toBe(1);
   });
@@ -82,7 +93,7 @@ describe('le filtre est FAIT des deux requêtes de l’étiquette — pas d’un
   it('🔴🔴 les deux voies de l’étiquette sont dans le filtre, caractère pour caractère', () => {
     for (const avecMessageId of [true, false]) {
       const filtre = plat(sqlFiltreEvenementOuvert(avecMessageId));
-      expect(filtre).toContain(plat(sqlEvenementsDesFils('ARRAY[m.fil_id]')));
+      expect(filtre).toContain(plat(sqlEvenementsDesFils('ARRAY[m.id]')));
       expect(filtre).toContain(plat(sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')));
     }
   });
@@ -93,8 +104,9 @@ describe('le filtre est FAIT des deux requêtes de l’étiquette — pas d’un
    * aucune condition de plus, aucune de moins, aucun `etat` oublié en route.
    */
   it('🔴🔴 rien d’autre que l’ensemble de messages ne distingue le filtre de l’étiquette', () => {
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — UNE SEULE BORNE À REMETTRE : les deux voies prennent désormais le même
+       ensemble de MESSAGES, parce que la voie du fil est bornée par la date du mail, elle aussi. */
     const commeLEtiquette = plat(sqlFiltreEvenementOuvert(true))
-      .replaceAll('ARRAY[m.fil_id]', '$1::bigint[]')
       .replaceAll('ARRAY[m.id]', '$1::bigint[]');
     expect(commeLEtiquette).toContain(plat(sqlEvenementsDesFils('$1::bigint[]')));
     expect(commeLEtiquette).toContain(plat(sqlEvenementsDesMessages(true, '$1::bigint[]')));
@@ -109,10 +121,12 @@ describe('le filtre est FAIT des deux requêtes de l’étiquette — pas d’un
     const f = plat(sqlFiltreEvenementOuvert(true));
     expect(f.startsWith('EXISTS (')).toBe(true);
     expect(f).toContain('UNION ALL');
-    expect(f).toContain(`WHERE ${sqlEvenementOuvert('porte')})`);
-    // La voie du bien apporte la fenêtre d'ouverture ; la voie du fil, l'affectation active.
-    expect(f).toContain('msg.recu_le >= ev.ouvert_le');
-    expect(f).toContain('WHERE actif AND fil_id = ANY(ARRAY[m.fil_id])');
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » n'est plus demandé à la colonne : chaque voie le rend déjà,
+       calculé sur les cartes de BORNE. Le filtre ne fait que garder les lignes où il est vrai. */
+    expect(f).toContain('WHERE porte.ouvert)');
+    // La voie du bien apporte la période ; la voie du fil, l'affectation active — et la période aussi.
+    expect(f).toContain('msg.recu_le >= svv_p.du');
+    expect(f).toContain('JOIN gestion_affectation af ON af.actif AND af.fil_id = msg.fil_id');
   });
 
   /**
@@ -120,10 +134,18 @@ describe('le filtre est FAIT des deux requêtes de l’étiquette — pas d’un
    * pour la voie du bien : `m` est la table des messages de la requête porteuse, nommée ainsi dans les CINQ
    * requêtes de cet écran.
    */
-  it('🔴🔴 la borne est le mail courant, par le fil ET par le message', () => {
+  it('🔴🔴 la borne est le mail courant, et c’est la MÊME pour les deux voies', () => {
     const f = sqlFiltreEvenementOuvert(true);
-    expect(f).toContain('ANY(ARRAY[m.fil_id])');
+    /**
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — `m.fil_id` A DISPARU DE LA CORRÉLATION, ET C'EST UN GAIN ═════════════
+     *
+     * Les deux voies se corrélaient par deux clés différentes : `m.fil_id` pour le fil, `m.id` pour le bien.
+     * Depuis que la voie du fil est bornée par la PÉRIODE — donc par une date de mail — elle part du message
+     * elle aussi, et retrouve le fil par `msg.fil_id`. Une seule clé de corrélation, donc un piège d'alias de
+     * moins (voir l'épreuve suivante).
+     */
     expect(f).toContain('ANY(ARRAY[m.id])');
+    expect(f).not.toContain('ARRAY[m.fil_id]');
   });
 
   /**

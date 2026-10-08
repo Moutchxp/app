@@ -40,8 +40,14 @@ export async function GET(request: Request): Promise<Response> {
       const derniere = majeures.length === 0 ? null : majeures[majeures.length - 1];
       return {
         ...e,
-        /* 🔴 `clos` DIT CE QUI SE REPLIE : l'état fait foi, et `traiteLe` le confirme. */
-        clos: e.etat === 'traite' || e.traiteLe !== null,
+        /**
+         * 🔴🔴 LOT ETAT-PAR-LA-FRISE — `clos` DIT CE QUI SE REPLIE, ET C'EST LA FRISE QUI LE DIT.
+         *
+         * Il valait « l'état fait foi, et `traiteLe` le confirme » — deux lectures de la même colonne, et
+         * toutes deux fausses sur GES-2026-000001, dont la carte Clôture avait été retirée. `ouvert` vient
+         * maintenant des cartes de BORNE (`evenementsDuBien`), et il n'y a plus qu'une réponse.
+         */
+        clos: !e.ouvert,
         nbEtapes: etapes.length,
         derniereEtapeType: derniere?.type ?? null,
         derniereEtapeLe: derniere?.survenuLe ?? null,

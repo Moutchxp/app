@@ -37,6 +37,7 @@
     "saisines:envoyer": "tsx app/scripts/saisines-envoyer.ts",
     "demandes:relever": "tsx app/scripts/relever-demandes.ts",
     "gestion:sonder": "tsx app/scripts/sonder-gestion.ts",
+    "gestion:etats": "tsx app/scripts/etats-contradictoires.ts",
     "gestion:relever": "tsx app/scripts/relever-gestion.ts",
     "gestion:etoiles:rattraper": "tsx app/scripts/reconcilier-etoiles.ts",
     "gestion:completer-destinataires": "tsx app/scripts/completer-destinataires-gestion.ts",

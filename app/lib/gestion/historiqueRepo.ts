@@ -37,10 +37,12 @@ import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { libelleCible, type LienAffiche } from './rattachementRepo';
 // 🔴🔴 LOT CONTACTS-EXTERNES — « via Me Martin, avocat » sur la ligne d'un mail de « Vie du bien ».
 import { interventionsDesMessages } from './contactExterneRepo';
-/* 🔴🔴 LOT FILTRE-COMME-ETIQUETTE — « ouvert » vient du module pur, en TypeScript ET en SQL : l'étiquette et le
-   filtre lisent la même constante (décision d'Arno du 07/10/2026 : « même code, pas de second chemin »). */
+/* 🔴🔴 LOT FILTRE-COMME-ETIQUETTE — « ouvert » vient du module pur, et l'étiquette comme le filtre le lisent au
+   même endroit (décision d'Arno du 07/10/2026 : « même code, pas de second chemin »).
+   🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — et cet endroit est désormais `etatParLaFrise` : « ouvert » ne se
+   demande plus à la colonne `etat`, il se DÉDUIT des cartes de borne de la frise. Les périodes avec. */
+import { sqlDansUnePeriodeOuverte, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import {
-  estEvenementOuvert, sqlEvenementOuvert,
   texteCible, CONTACTS_PAR_LOCATAIRE_MAX, INTERLOCUTEURS_MAX, MAILS_DE_LA_FRISE_MAX,
   PORTEURS_DE_PIECES_MAX,
   type EnteteHistorique, type EvenementDeLigne, type FiltresHistorique, type Interlocuteur,
@@ -602,7 +604,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   const gardees = rows.slice(0, f.taille);
   const pieces = await piecesDesMessages(gardees.map((r) => Number(r.message_id)));
   // 🔴 LOT FICHES-ANNUAIRE — les événements des ÉCHANGES de cette page, en UNE requête (jamais une par ligne).
-  const evenements = await evenementsDesFils(gardees.map((r) => Number(r.fil_id)));
+  const evenements = await evenementsDesFils(gardees.map((r) => Number(r.message_id)));
   /**
    * 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 5 — LA SECONDE VOIE : tout mail du BIEN, dans la FENÊTRE de
    * l'événement. Voir l'encadré de `sqlEvenementsDesMessages`. UNE requête pour la page entière.
@@ -658,7 +660,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
          * voie prise à part.
          */
         evenements: unirEvenements(
-          evenements.get(Number(r.fil_id)) ?? [],
+          evenements.get(Number(r.message_id)) ?? [],
           evenementsParBien.get(Number(r.message_id)) ?? [],
         ),
         statut: statuts.get(Number(r.message_id))?.statut ?? null,
@@ -942,25 +944,65 @@ export function sqlEvenementsDesMessages(avecMessageId: boolean, messages: strin
              WHERE aa.actif AND rr.cible_sorte = 'lot' AND rr.statut = 'confirme' AND rr.piece_id IS NULL
                AND btrim(coalesce(rr.cible_cle, '')) <> ''
           )
-          SELECT DISTINCT r.message_id, ev.id, ev.reference, ev.objet, ev.etat, ev.ouvert_le
+          SELECT DISTINCT r.message_id, ev.id, ev.reference, ev.objet,
+                 ${sqlEvenementOuvertParLaFrise('ev')} AS ouvert, ev.ouvert_le
             FROM gestion_rattachement r
             JOIN gestion_message msg ON msg.id = r.message_id
             JOIN biens_evt be ON be.cle = r.cible_cle
             JOIN gestion_evenement ev ON ev.id = be.evenement_id
            WHERE r.message_id = ANY(${messages})
              AND r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
-             AND msg.recu_le >= ev.ouvert_le
-             AND (ev.traite_le IS NULL OR msg.recu_le <= ev.traite_le)
+             AND ${sqlDansUnePeriodeOuverte('ev', 'msg.recu_le')}
            ORDER BY r.message_id, ev.ouvert_le DESC, ev.id DESC`;
 }
 
-export function sqlEvenementsDesFils(fils: string): string {
-  return `SELECT af.fil_id, ev.id, ev.reference, ev.objet, ev.etat
-            FROM (SELECT DISTINCT fil_id, evenement_id
-                    FROM gestion_affectation
-                   WHERE actif AND fil_id = ANY(${fils})) af
+/**
+ * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — LA VOIE DU FIL EST BORNÉE PAR LES PÉRIODES, ELLE AUSSI ══════════════════════════
+ *
+ * RÈGLE D'ARNO (08/10/2026), point 5 : « Un mail ne porte “Événement en cours” (et ne compte dans l'événement)
+ * que s'il est daté DANS une période ouverte. Un mail reçu entre une Clôture et la Réouverture suivante n'est PAS
+ * étiqueté. »
+ *
+ * 🔴 CE QUI CHANGE, ET IL FAUT LE DIRE : jusqu'ici, un mail AFFECTÉ à l'événement gardait son étiquette même hors
+ * fenêtre — « il a été classé là exprès » (lot EVENEMENT-MINIMALISTE). Arno écrit « un mail », sans distinguer la
+ * voie, et il nomme le cas : le trou entre une Clôture et la Réouverture suivante. La voie du fil prend donc la
+ * même borne que la voie du bien.
+ *
+ * ⚠️ SIMULATION CHIFFRÉE AVANT APPLICATION (règle du dépôt), relevée le 08/10/2026 sur TOUTE la base, en
+ * comparant les couples (mail, événement) étiquetés par l'ancienne règle et par la nouvelle :
+ *
+ *   avant : 0 couple étiqueté · après : 12 · GAGNÉS : 12 · PERDUS : 0
+ *
+ * Les douze sont les mails de GES-2026-000001, du 24/09 au 06/10 : l'ancienne règle n'en étiquetait AUCUN,
+ * parce que la colonne disait « traité » — alors que la carte Clôture de cet événement avait été retirée.
+ * C'est exactement le constat d'Arno, mesuré.
+ *
+ * 🔴 ET PERSONNE NE PERD RIEN, ce qui n'allait pas de soi : borner la voie du fil pouvait retirer l'étiquette
+ * à des mails affectés hors période. Mesuré : zéro. Aucun mail de la base ne tombe dans un trou fermé.
+ *
+ * 🔴 L'AFFECTATION RESTE LA CONDITION D'ENTRÉE : c'est elle qui dit que ce fil appartient à ce dossier. La période
+ * ne fait que borner QUAND. Les deux voies continuent donc de dire des choses différentes, et de s'unir.
+ */
+export function sqlEvenementsDesFils(messages: string): string {
+  /**
+   * 🔴 ELLE PREND DÉSORMAIS DES **MESSAGES**, ET NON DES FILS, et c'est la période qui l'exige : la borne se
+   * compare à une DATE DE MAIL. Le fil reste la condition d'appartenance (`af.fil_id = msg.fil_id`) ; le
+   * message n'apporte que son instant. Les deux voies prennent donc le même ensemble, ce qui simplifie aussi
+   * le filtre : une seule expression corrélée, `ARRAY[m.id]`, des deux côtés.
+   *
+   * ⚠️ L'ALIAS INTERNE EST `msg`, ET JAMAIS `m` : les cinq requêtes de l'écran nomment `m` leur table de
+   * messages, et une seconde déclaration de `m` ici MASQUERAIT la première dans le `EXISTS` du filtre — la
+   * corrélation deviendrait une tautologie, sans la moindre erreur de PostgreSQL. Piège déjà payé au lot
+   * FILTRE-COMME-ETIQUETTE, et documenté juste en dessous.
+   */
+  return `SELECT DISTINCT msg.id AS message_id, ev.id, ev.reference, ev.objet,
+                 ${sqlEvenementOuvertParLaFrise('ev')} AS ouvert, ev.ouvert_le
+            FROM gestion_message msg
+            JOIN gestion_affectation af ON af.actif AND af.fil_id = msg.fil_id
             JOIN gestion_evenement ev ON ev.id = af.evenement_id
-           ORDER BY af.fil_id, ev.ouvert_le DESC, ev.id DESC`;
+           WHERE msg.id = ANY(${messages})
+             AND ${sqlDansUnePeriodeOuverte('ev', 'msg.recu_le')}
+           ORDER BY msg.id, ev.ouvert_le DESC, ev.id DESC`;
 }
 
 /**
@@ -1006,13 +1048,16 @@ export function sqlEvenementsDesFils(fils: string): string {
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function sqlFiltreEvenementOuvert(avecMessageId: boolean): string {
+  /* 🔴 LOT ETAT-PAR-LA-FRISE — LES DEUX VOIES PRENNENT LE MÊME ENSEMBLE (`ARRAY[m.id]`), parce que la voie du
+     fil est bornée par la période du mail, elle aussi. Et « ouvert » n'est plus demandé à la colonne : chaque
+     voie le rend déjà, calculé sur les cartes de BORNE de la frise. */
   return `EXISTS (
             SELECT 1 FROM (
-              SELECT vf.etat FROM (${sqlEvenementsDesFils('ARRAY[m.fil_id]')}) vf
+              SELECT vf.ouvert FROM (${sqlEvenementsDesFils('ARRAY[m.id]')}) vf
               UNION ALL
-              SELECT vb.etat FROM (${sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')}) vb
+              SELECT vb.ouvert FROM (${sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')}) vb
             ) porte
-             WHERE ${sqlEvenementOuvert('porte')})`;
+             WHERE porte.ouvert)`;
 }
 
 /**
@@ -1046,33 +1091,37 @@ async function evenementsDesMessages(messageIds: readonly number[]): Promise<Map
   const uniques = [...new Set(messageIds)];
   if (uniques.length === 0) return out;
   const { rows } = await query<{
-    message_id: string; id: string; reference: string; objet: string; etat: string;
+    message_id: string; id: string; reference: string; objet: string; ouvert: boolean;
   }>(sqlEvenementsDesMessages(await deplacementsDeMailsDisponibles(), '$1::bigint[]'), [uniques]);
   for (const r of rows) {
     const cle = Number(r.message_id);
     const liste = out.get(cle) ?? [];
-    liste.push({
-      id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: estEvenementOuvert(r.etat),
-    });
+    liste.push({ id: Number(r.id), reference: r.reference, objet: r.objet, ouvert: r.ouvert });
     out.set(cle, liste);
   }
   return out;
 }
 
-async function evenementsDesFils(filIds: readonly number[]): Promise<Map<number, EvenementDeLigne[]>> {
+/**
+ * La première voie : les événements auxquels le FIL de ce mail est affecté, et dont une période ouverte
+ * contient ce mail.
+ *
+ * 🔴 LOT ETAT-PAR-LA-FRISE — ELLE EST CLÉE PAR MESSAGE, ET NON PLUS PAR FIL. Deux mails d'un même fil peuvent
+ * tomber de part et d'autre d'une clôture : la question « cet événement est-il en cours POUR CE MAIL ? » ne se
+ * répond donc plus à l'échelle du fil. L'appartenance, elle, reste celle du fil.
+ */
+async function evenementsDesFils(messageIds: readonly number[]): Promise<Map<number, EvenementDeLigne[]>> {
   const out = new Map<number, EvenementDeLigne[]>();
-  const uniques = [...new Set(filIds)];
+  const uniques = [...new Set(messageIds)];
   if (uniques.length === 0) return out;
   const { rows } = await query<{
-    fil_id: string; id: string; reference: string; objet: string; etat: string;
+    message_id: string; id: string; reference: string; objet: string; ouvert: boolean;
   }>(
     sqlEvenementsDesFils('$1::bigint[]'), [uniques]);
   for (const r of rows) {
-    const cle = Number(r.fil_id);
+    const cle = Number(r.message_id);
     const liste = out.get(cle) ?? [];
-    liste.push({
-      id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: estEvenementOuvert(r.etat),
-    });
+    liste.push({ id: Number(r.id), reference: r.reference, objet: r.objet, ouvert: r.ouvert });
     out.set(cle, liste);
   }
   return out;
@@ -1110,10 +1159,10 @@ export async function evenementsOuvertsDesMails(
 ): Promise<Map<number, EvenementDeLigne[]>> {
   const out = new Map<number, EvenementDeLigne[]>();
   if (mails.length === 0) return out;
-  const parFil = await evenementsDesFils(mails.map((m) => m.filId));
+  const parFil = await evenementsDesFils(mails.map((m) => m.messageId));
   const parBien = await evenementsDesMessages(mails.map((m) => m.messageId));
   for (const m of mails) {
-    const ouverts = unirEvenements(parFil.get(m.filId) ?? [], parBien.get(m.messageId) ?? [])
+    const ouverts = unirEvenements(parFil.get(m.messageId) ?? [], parBien.get(m.messageId) ?? [])
       .filter((e) => e.ouvert);
     if (ouverts.length > 0) out.set(m.messageId, ouverts);
   }

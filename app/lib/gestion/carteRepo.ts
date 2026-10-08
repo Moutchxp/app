@@ -12,6 +12,8 @@
  * `/api/admin/gestion/pieces/[id]`.
  */
 import { query } from '../db/client';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert », « clos le » et les trois etats de la carte viennent de la frise. */
+import { etatAffiche, sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 // 🔴 LOT FICHE-SAISIE-UNIFORME — une copie supprimée du Drive ne doit plus être servie : elle produirait une
@@ -288,15 +290,20 @@ export async function lireCarte(
   const avecCategorie = await evenementQualifieDisponible();
   const { rows } = await query<{
     evenement_id: number; reference: string; objet: string; demandeur_nom: string | null;
-    demandeur_email: string | null; adresse_libre: string | null; etat: string; ouvert_le: string;
+    demandeur_email: string | null; adresse_libre: string | null; etat: string; ouvert: boolean;
+    ouvert_le: string;
     ouvert_par: string | null; traite_le: string | null; traite_par: string | null; categorie: string | null;
     urgence: string | null;
   }>(
-    `SELECT id::int AS evenement_id, reference, objet, demandeur_nom, demandeur_email, adresse_libre, etat,
-            ${avecCategorie ? 'categorie, urgence' : 'NULL::text AS categorie, NULL::text AS urgence'},
-            ${INSTANT('ouvert_le')} AS ouvert_le, ouvert_par_libelle AS ouvert_par,
-            ${INSTANT('traite_le')} AS traite_le, traite_par_libelle AS traite_par
-       FROM gestion_evenement WHERE id = $1`, [evenementId]);
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » et la date de cloture viennent des cartes de BORNE de la frise.
+       `traite_par` reste la colonne : c'est QUI a cloture la derniere fois par l'ancien geste, et aucune carte
+       ne porte cette information — la taire aurait retire une mention de l'ecran. */
+    `SELECT e.id::int AS evenement_id, e.reference, e.objet, e.demandeur_nom, e.demandeur_email,
+            e.adresse_libre, e.etat, ${sqlEvenementOuvertParLaFrise('e')} AS ouvert,
+            ${avecCategorie ? 'e.categorie, e.urgence' : 'NULL::text AS categorie, NULL::text AS urgence'},
+            ${INSTANT('e.ouvert_le')} AS ouvert_le, e.ouvert_par_libelle AS ouvert_par,
+            ${INSTANT(sqlClosLeParLaFrise('e'))} AS traite_le, e.traite_par_libelle AS traite_par
+       FROM gestion_evenement e WHERE e.id = $1`, [evenementId]);
   const e = rows[0];
   if (!e) return null;
 
@@ -333,7 +340,7 @@ export async function lireCarte(
   return {
     evenementId: e.evenement_id, reference: e.reference, objet: e.objet,
     demandeurNom: e.demandeur_nom, demandeurEmail: e.demandeur_email, adresseLibre: e.adresse_libre,
-    etat: e.etat === 'en_cours' || e.etat === 'traite' ? e.etat : 'a_traiter',
+    etat: etatAffiche(e.etat, e.ouvert),
     categorie: e.categorie,
     urgence: e.urgence,
     ouvertLe: e.ouvert_le, ouvertPar: e.ouvert_par, traiteLe: e.traite_le, traitePar: e.traite_par,

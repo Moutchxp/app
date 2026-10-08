@@ -4,6 +4,12 @@ const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 
 import { chercherEvenements, MAX_RESULTATS, motsDe, normaliser } from './recherche';
+/* 🔴 LOT ETAT-PAR-LA-FRISE — l'épreuve lit la règle au même endroit que le dépôt : une condition recopiée ici
+   serait une seconde vérité, et c'est exactement ce que le lot supprime. */
+import { sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+
+/** Blancs normalisés : on éprouve le SENS d'un SQL émis, jamais sa mise en forme (AGENTS.md). */
+const plat = (t: string): string => t.replace(/\s+/g, ' ');
 
 /**
  * LOT 4d-B1 — la recherche qui sert les TROIS gestes (affecter depuis la file, déplacer un échange, déplacer un mail).
@@ -76,9 +82,20 @@ describe('la requête', () => {
     expect(params().slice(1).every((p) => typeof p === 'string')).toBe(true);
   });
 
-  it('les cartes OUVERTES passent devant les traitées', async () => {
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — « OUVERT » NE SE LIT PLUS SUR `traite_le` ═══════════════════
+   *
+   * L'épreuve figeait `ORDER BY (e.traite_le IS NOT NULL) ASC`. La règle d'Arno : « L'état d'un événement se
+   * déduit des cartes de BORNE de sa frise. » Un événement dont la carte Clôture a été retirée doit donc
+   * remonter dans la recherche — c'est son constat, sur GES-2026-000001.
+   *
+   * ⚠️ LE VERDICT NE SE RELÂCHE PAS, IL CHANGE DE SOURCE : les ouverts passent toujours devant, et c'est la
+   * frise qui dit lesquels. On éprouve le SENS (le tri lit la règle, pas la colonne), pas la forme du SQL.
+   */
+  it('les cartes OUVERTES passent devant les traitées, et « ouvert » vient de la frise', async () => {
     await chercherEvenements('');
-    expect(sql()).toContain('ORDER BY (e.traite_le IS NOT NULL) ASC');
+    expect(sql()).toContain(`ORDER BY NOT ${plat(sqlEvenementOuvertParLaFrise('e'))} ASC`);
+    expect(sql()).not.toContain('ORDER BY (e.traite_le IS NOT NULL)');
   });
 
   it('le nombre de résultats est borné, par un paramètre lié', async () => {
@@ -93,7 +110,10 @@ describe('la requête', () => {
   });
 
   it('un état inconnu retombe sur « à traiter » plutôt que de casser l’écran', async () => {
-    queryMock.mockResolvedValue({ rows: [{ id: 1, reference: 'GES-2026-000001', objet: 'x', demandeur: null, adresse_libre: null, etat: 'zzz', nb_fils: 0 }] });
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — la ligne porte maintenant `ouvert`, calculé par la base sur les cartes de
+       borne. Un événement OUVERT dont l'état stocké est illisible se lit « à traiter », le repli le plus
+       prudent ; s'il était clos, il se lirait « traité » quoi que dise la colonne. */
+    queryMock.mockResolvedValue({ rows: [{ id: 1, reference: 'GES-2026-000001', objet: 'x', demandeur: null, adresse_libre: null, etat: 'zzz', ouvert: true, nb_fils: 0 }] });
     expect((await chercherEvenements(''))[0].etat).toBe('a_traiter');
   });
 });

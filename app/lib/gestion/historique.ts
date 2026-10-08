@@ -486,7 +486,18 @@ export interface EvenementDeLigne {
   id: number;
   reference: string;
   objet: string;
-  etat: string;
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — `etat` A QUITTÉ CETTE LIGNE, ET `ouvert` NE VIENT PLUS DE LUI ════════════
+   *
+   * Il portait la valeur brute de `gestion_evenement.etat`, et `ouvert` n'en était que la lecture
+   * (`etat <> 'traite'`). C'est exactement ce que le constat d'Arno du 08/10/2026 a pris en défaut : la colonne
+   * disait « traité » alors que la frise n'avait plus de carte Clôture.
+   *
+   * 🔴 `ouvert` EST DÉSORMAIS CALCULÉ PAR LA BASE, sur les cartes de BORNE de la frise
+   * (`sqlEvenementOuvertParLaFrise`), et il arrive déjà tranché. Aucun écran ne lisait `etat` sur cette ligne —
+   * tous lisent `ouvert`, qui est la question qu'ils posent vraiment. Le garder aurait laissé une seconde
+   * réponse disponible, et donc utilisable un jour par mégarde.
+   */
   ouvert: boolean;
 }
 

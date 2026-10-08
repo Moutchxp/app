@@ -18,6 +18,8 @@ import {
 } from './mongaEtape';
 /* 🔴 LOT URGENCE-EVENEMENT — la sonde de la migration 268 (`categorie` / `urgence`), celle de tout le module. */
 import { evenementQualifieDisponible } from './schema';
+/* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se deduit des cartes de borne de la frise, jamais de la colonne. */
+import { sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 
 /** Une étape telle que l'écran la reçoit. */
 export interface EtapeEcran {
@@ -295,6 +297,33 @@ export async function retirerEtapeManuelle(id: number, parLibelle: string): Prom
 }
 
 /**
+ * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — CE QU'UNE ÉTAPE PÈSE SUR L'ÉTAT, AVANT D'Y TOUCHER ══════════════════════════════
+ *
+ * ARNO, POINT 2 : « Supprimer la carte Clôture d'un événement clos le ROUVRE, sans carte Réouverture.
+ * Confirmation avant suppression : “Supprimer cette clôture rouvrira l'événement.” »
+ *
+ * 🔴 L'ÉCRAN A BESOIN DE SAVOIR À QUOI IL TOUCHE **AVANT** DE DEMANDER. Il ne peut pas le déduire du seul type :
+ * retirer une Clôture ne rouvre que si c'est elle qui ferme — une Clôture suivie d'une Réouverture ne ferme
+ * rien, et promettre une réouverture là serait une phrase fausse. On rend donc l'événement et son état ACTUEL,
+ * et la route tranche avec la même règle que partout.
+ *
+ * ⚠️ `evenementId` PEUT ÊTRE `null` : une étape Monga rattachée par RÉFÉRENCE n'en porte pas. Elle n'est de
+ * toute façon pas retirable à la main (la garde `source = 'manuelle'` du dépôt la refuse), mais la lecture, elle,
+ * doit pouvoir répondre sans inventer un identifiant.
+ */
+export async function etapePourRetrait(
+  id: number,
+): Promise<{ type: TypeEtape; source: 'monga' | 'manuelle'; evenementId: number | null } | null> {
+  const { rows } = await query<{ type: TypeEtape; source: 'monga' | 'manuelle'; evenement_id: string | null }>(
+    `SELECT type, source, evenement_id::text FROM gestion_monga_etape WHERE id = $1 AND statut = 'vif'`, [id]);
+  if (!rows[0]) return null;
+  return {
+    type: rows[0].type, source: rows[0].source,
+    evenementId: rows[0].evenement_id === null ? null : Number(rows[0].evenement_id),
+  };
+}
+
+/**
  * CONFIRMER OU ÉCARTER une étape « à confirmer » (Arno : deux boutons).
  *
  * ⚠️ UNE ÉTAPE ÉCARTÉE N'EST PAS SUPPRIMÉE : elle passe en `statut = 'retire'` ET `certitude = 'ecartee'`. Les
@@ -413,6 +442,20 @@ export async function biensNommesDeLEvenement(evenementId: number): Promise<{
 
 export async function evenementsDuBien(cleBien: string): Promise<{
   id: number; reference: string; objet: string; etat: string; ouvertLe: string; traiteLe: string | null;
+  /**
+   * 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert ? » se DÉDUIT des cartes de borne, plus de `etat` ni de `traite_le`.
+   * Les deux colonnes restent rendues (l'écran affiche l'avancement et la vieille date), mais c'est CE champ
+   * qui décide de ce qui se replie dans le bloc « Événements » de la fiche du bien.
+   */
+  ouvert: boolean;
+  /**
+   * 🔴🔴 LOT ETAT-PAR-LA-FRISE — LA DATE DE LA DERNIÈRE CARTE CLÔTURE, ou `null` si l'événement est ouvert.
+   *
+   * ⚠️ À NE PAS CONFONDRE AVEC `traiteLe`, qui reste rendue : celle-là portait l'instant du CLIC de fermeture,
+   * et elle survit à une carte retirée — c'est elle qui faisait écrire « clos le 08/10/2026 » sur un dossier
+   * qu'Arno venait de rouvrir en supprimant sa carte.
+   */
+  closLe: string | null;
   mongaRefs: string[];
   /**
    * 🔴 LOT URGENCE-EVENEMENT, POINT 3b — le niveau d'urgence, pour que le sélecteur de la fiche du bien montre
@@ -426,7 +469,8 @@ export async function evenementsDuBien(cleBien: string): Promise<{
      Même témoin que `categorie` partout ailleurs dans le module : c'est la même migration. */
   const avecUrgence = await evenementQualifieDisponible();
   const { rows } = await query<{
-    id: string; reference: string; objet: string; etat: string; ouvert_le: string; traite_le: string | null;
+    id: string; reference: string; objet: string; etat: string; ouvert: boolean;
+    ouvert_le: string; traite_le: string | null; clos_le: string | null;
     monga_refs: string[] | null; urgence: string | null;
   }>(
     `WITH par_partie AS (
@@ -442,7 +486,8 @@ export async function evenementsDuBien(cleBien: string): Promise<{
          WHERE r.cible_sorte = 'lot' AND r.statut = 'confirme' AND r.piece_id IS NULL
            AND r.cible_cle = $1 AND a.actif
      )
-     SELECT e.id, e.reference, e.objet, e.etat, e.ouvert_le::text, e.traite_le::text,
+     SELECT e.id, e.reference, e.objet, e.etat, ${sqlEvenementOuvertParLaFrise('e')} AS ouvert,
+            e.ouvert_le::text, e.traite_le::text, ${sqlClosLeParLaFrise('e')}::text AS clos_le,
             /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — « si l'événement est suivi par Monga (au moins une
                référence MNG reliée) : une vignette MONGA […] avec la référence au survol » (Arno). On rend
                les références reliées, dans l'ordre, et l'écran décide quoi en montrer. */
@@ -455,8 +500,8 @@ export async function evenementsDuBien(cleBien: string): Promise<{
                      UNION SELECT evenement_id FROM par_mail)
       ORDER BY e.ouvert_le DESC`, [cleBien]);
   return rows.map((r) => ({
-    id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat,
-    ouvertLe: r.ouvert_le, traiteLe: r.traite_le,
+    id: Number(r.id), reference: r.reference, objet: r.objet, etat: r.etat, ouvert: r.ouvert,
+    ouvertLe: r.ouvert_le, traiteLe: r.traite_le, closLe: r.clos_le,
     /* ⚠️ `null` DE POSTGRES ⇒ TABLEAU VIDE : l'écran ne doit pas avoir à distinguer « aucune référence » de
        « colonne absente ». Un événement sans Monga est le cas ordinaire, et de très loin. */
     mongaRefs: r.monga_refs ?? [],

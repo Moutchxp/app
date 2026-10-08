@@ -46,6 +46,9 @@ const HISTO = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBi
 const EVTS = readFileSync('app/(admin)/admin/(protected)/gestion/EvenementsDuBien.tsx', 'utf8');
 const FRISE = readFileSync('app/(admin)/admin/(protected)/gestion/FriseAvancement.tsx', 'utf8');
 const ROUTE = readFileSync('app/(admin)/api/admin/gestion/evenements/[id]/frise/route.ts', 'utf8');
+/* 🔴 LOT ETAT-PAR-LA-FRISE — retirer une carte de BORNE change l'état lui aussi : la route des étapes doit
+   donc le dire, exactement comme celle de la frise quand on en POSE une. */
+const ROUTE_ETAPES = readFileSync('app/(admin)/api/admin/gestion/etapes/[id]/route.ts', 'utf8');
 const VIE = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
 const BOITE = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
 const CONV = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
@@ -115,9 +118,34 @@ describe('🔴🔴 ① une OUVERTURE comme une RÉOUVERTURE rendent l’événem
 
 describe('🔴🔴 ② LA CHAÎNE DE RELECTURE — le maillon qui manquait', () => {
   /** ① LA ROUTE DIT SI L'ÉTAT A CHANGÉ. Sans cela, le client devrait le DEVINER d'après le type de carte. */
-  it('🔴🔴 ① la route de la frise rend `etatEvenement` après la carte', () => {
+  /**
+   * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — LE SIGNAL EST LE MÊME, SA SOURCE A CHANGÉ ════════════════
+   *
+   * `etatEvenement` valait `issue.ok ? etatVoulu : null` — l'état VOULU par la carte posée, et le succès de
+   * l'écriture qui le rangeait. Il n'y a plus d'écriture : l'état se DÉDUIT des cartes de borne.
+   *
+   * 🔴 LA ROUTE RELIT DONC L'ÉTAT APRÈS LA CARTE, et ne le DEVINE pas depuis le type posé : une Clôture datée
+   * avant une Réouverture déjà présente ne ferme rien. Annoncer « clôturé » dans ce cas aurait fait relire la
+   * fiche sur une fausse nouvelle — exactement le genre de petit mensonge que ce lot supprime.
+   */
+  it('🔴🔴 ① la route de la frise rend `etatEvenement`, relu APRÈS la carte', () => {
     expect(ROUTE).toContain('etatApresCarte(type)');
-    expect(ROUTE).toContain('etatEvenement: issue.ok ? etatVoulu : null');
+    expect(ROUTE).toContain('const ouvertApres = apres[0]?.ouvert ?? ouvertAvant;');
+    expect(ROUTE).toContain('etatEvenement: change ? etatApresCarteSelonLaFrise(ouvertApres) : null,');
+    /* 🔴 ET PLUS AUCUNE ÉCRITURE D'ÉTAT DANS CETTE ROUTE : la carte est la seule. */
+    expect(ROUTE).not.toContain('changerEtatEvenement(');
+  });
+
+  /**
+   * 🔴🔴 ①bis RETIRER UNE CARTE DE BORNE LE DIT AUSSI (Arno, point 2 : « Supprimer la carte Clôture d'un
+   * événement clos le ROUVRE »). Sans ce signal, la bande orange ne reviendrait qu'au rechargement suivant —
+   * c'est-à-dire le constat d'Arno du lot MARQUES-EVENEMENT-EN-COURS, par la porte d'à côté.
+   */
+  it('🔴🔴 ①bis la route des étapes annonce le changement d’état après un retrait', () => {
+    expect(ROUTE_ETAPES).toContain('const ouvertAvant = borne && evenementId !== null');
+    expect(ROUTE_ETAPES).toContain('etatEvenement: change ? etatApresCarteSelonLaFrise(ouvertApres as boolean) : null,');
+    /* 🔴 ET LA FRISE LE RÉPERCUTE, par le même chemin que l'ajout. */
+    expect(FRISE).toContain("if (d.etat === 'ok' && (d.etatEvenement === 'traite' || d.etatEvenement === 'en_cours')) {");
   });
 
   /**
@@ -220,7 +248,10 @@ describe('🔴🔴 ③ LA CAPSULE ORANGE EST PARTOUT OÙ LA LIGNE D’UN MAIL S�
    */
   it('🔴 `evenementsOuvertsDesMails` unit les deux voies, puis ne garde que les ouverts', () => {
     expect(REPO_HISTO).toContain('export async function evenementsOuvertsDesMails(');
-    expect(REPO_HISTO).toMatch(/unirEvenements\(parFil\.get\(m\.filId\) \?\? \[\], parBien\.get\(m\.messageId\) \?\? \[\]\)\s*\n?\s*\.filter\(\(e\) => e\.ouvert\)/);
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — LES DEUX VOIES SONT CLÉES PAR MESSAGE : deux mails d'un même fil peuvent
+       tomber de part et d'autre d'une clôture, et la question « en cours POUR CE MAIL ? » ne se répond donc
+       plus à l'échelle du fil. Le verdict — unir, puis ne garder que les ouverts — ne bouge pas. */
+    expect(REPO_HISTO).toMatch(/unirEvenements\(parFil\.get\(m\.messageId\) \?\? \[\], parBien\.get\(m\.messageId\) \?\? \[\]\)\s*\n?\s*\.filter\(\(e\) => e\.ouvert\)/);
   });
 
   /**

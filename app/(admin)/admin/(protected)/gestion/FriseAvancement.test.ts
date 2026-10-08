@@ -9,6 +9,10 @@ import { jourFr } from './EvenementsDuBien';
 import { motGroupeMessages } from '../../../../lib/gestion/frise';
 /* 🔴 LOT FRISE-CONSTRUCTIBLE — la liste du réservoir vient du module PUR, jamais recopiée dans une épreuve. */
 import { TYPES_RESERVOIR as RESERVOIR_TYPES } from '../../../../lib/gestion/mongaEtape';
+/* 🔴 LOT ETAT-PAR-LA-FRISE — l'épreuve lit LA règle, là où le dépôt la lit : une condition recopiée ici serait
+   une seconde vérité, et c'est précisément ce que le lot supprime. */
+import { sqlEvenementOuvertParLaFrise } from '../../../../lib/gestion/etatParLaFrise';
+import { sqlEvenementsDesMessages } from '../../../../lib/gestion/historiqueRepo';
 /* 🔴 LOT URGENCE-EVENEMENT, POINT 4 — on éprouve l'adresse PRODUITE et RELUE, et non la forme de son code. */
 import { ecrireEtatUrl, ETAT_DEFAUT, lireEtatUrl } from '../../../../lib/gestion/ecranUrl';
 
@@ -192,8 +196,17 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
     expect(FRISE).not.toContain('onProposerCloture?:');
     expect(FRISE).not.toContain('onProposerCloture !== undefined');
     expect(BLOC).not.toContain('onProposerCloture={');
-    /* 🔴 ET C'EST LA ROUTE DE LA FRISE QUI APPLIQUE L'ÉTAT, par la fonction qui existait déjà. */
-    expect(ROUTE_FRISE).toContain('const issue = await changerEtatEvenement(evenementId, etatVoulu, auteur);');
+    /**
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — LA ROUTE N'APPLIQUE PLUS D'ÉTAT, ELLE LE RELIT ═══════════
+     *
+     * Elle appelait `changerEtatEvenement` : une seconde écriture, à côté de la carte. Le constat d'Arno a
+     * montré ce qu'elle coûte — carte Clôture retirée, état resté « clos ». La carte est désormais la SEULE
+     * écriture, et l'état se DÉDUIT des cartes de borne.
+     *
+     * ⚠️ L'EXIGENCE DU LOT CLOTURE-REOUVERTURE EST TENUE PLUS STRICTEMENT : on ne ferme toujours qu'en posant
+     * une carte, et il n'existe même plus de porte d'écriture à côté d'elle.
+     */
+    expect(ROUTE_FRISE).not.toContain('changerEtatEvenement(');
     expect(ROUTE_FRISE).toContain('const etatVoulu = etatApresCarte(type);');
   });
 
@@ -517,7 +530,12 @@ describe('③ le bloc « Événements » de la fiche du bien', () => {
   it('🔴 la ligne repliée porte le titre, les dates et la dernière étape', () => {
     expect(BLOC).toContain('evb-objet');
     expect(BLOC).toContain('ouvert le {jourFr(e.ouvertLe)}');
-    expect(BLOC).toContain('clos le {jourFr(e.traiteLe)}');
+    /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — LA DATE AFFICHÉE EST CELLE DE LA CARTE CLÔTURE, plus celle du clic.
+       Défaut vu à l'écran le 08/10/2026, juste après avoir rendu GES-2026-000001 à son état réel : l'en-tête
+       écrivait « en cours · ouvert le 23/09/2026 · CLOS LE 08/10/2026 » — deux dates qui se contredisent sur
+       la même ligne, parce que `traiteLe` survit à une carte retirée. `closLe` se tait sur un dossier ouvert. */
+    expect(BLOC).toContain('clos le {jourFr(e.closLe)}');
+    expect(BLOC).toContain('{e.closLe !== null && <>');
     expect(BLOC).toContain('motEtape(e.derniereEtapeType)');
   });
 
@@ -645,8 +663,10 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
   it('🔴🔴 une carte par type du réservoir, depuis le module pur', () => {
     /* ⚠️ LA LISTE DÉPEND DÉSORMAIS DE L'ÉTAT (lot CLOTURE-REOUVERTURE) : « Clôture » si l'événement est ouvert,
        « Réouverture » s'il est clos. C'est toujours le module PUR qui la rend — `cartesDuReservoir`. */
-    expect(FRISE).toContain(
-      "const liste = forme === 'etape' ? cartesDuReservoir(evenementOuvert) : TYPES_INFORMATION;");
+    /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — LES DEUX FACES VIENNENT DU MODULE PUR : la face « Simple information »
+       n'était pas filtrée du tout, et Arno demande qu'un dossier clos ne propose QUE « Réouverture ». */
+    expect(FRISE).toContain("const liste = forme === 'etape'");
+    expect(FRISE).toContain('cartesDuReservoir(evenementOuvert) : informationsDuReservoir(evenementOuvert)');
     expect(FRISE).toContain('className={`fav-carre fav-carre--reserve${t === \'reouverture\'');
     /* ⚠️ AUCUNE LISTE RECOPIÉE DANS LE COMPOSANT : il n'énumère aucun type en dur. */
     for (const t of RESERVOIR_TYPES) {
@@ -671,7 +691,9 @@ describe('⑫ le réservoir (Arno, point 2)', () => {
     const i = FRISE.indexOf('function Reservoir(');
     const bloc = FRISE.slice(i, FRISE.indexOf('\n}\n', i));
     expect(bloc).toContain('Simple information (point)');
-    expect(bloc).toContain('TYPES_INFORMATION');
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — la liste vient de `informationsDuReservoir`, la jumelle pure de
+       `cartesDuReservoir` : elle rend `TYPES_INFORMATION` sur un dossier ouvert, et rien sur un dossier clos. */
+    expect(bloc).toContain('informationsDuReservoir(evenementOuvert)');
   });
 
   /** 🔴🔴 « Échap ou “Fermer” referme le réservoir » (Arno) — les deux, et l'écouteur ne vit que tant qu'il est ouvert. */
@@ -795,8 +817,10 @@ describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 
     /* 🔴 ET LA FONCTION PURE ELLE-MÊME A DISPARU : une règle orpheline finit par être recâblée. */
     expect(readFileSync('app/lib/gestion/mongaEtape.ts', 'utf8'))
       .not.toContain('export function proposerCloture(');
-    expect(ROUTE_FRISE).toContain('ouvert: !traite,');
-    expect(ROUTE_FRISE).toContain('typesReservoir: cartesDuReservoir(!traite),');
+    /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — ET CET ÉTAT SE DEMANDE À LA FRISE, PAS À `traite_le`. Le demander à la
+       colonne, c'était offrir « Réouverture » sur un dossier dont la carte Clôture n'existe plus. */
+    expect(ROUTE_FRISE).toContain('ouvert: ouvertParLaFrise,');
+    expect(ROUTE_FRISE).toContain('typesReservoir: cartesDuReservoir(ouvertParLaFrise),');
   });
 
   /**
@@ -1867,7 +1891,9 @@ describe('㉖ « mis à jour par Monga » : rouge, et en tête (lot EVENEMENT-MI
     expect(REPO_FILE).toContain('function triMongaDAbord(avecVues: boolean): string {');
     expect(REPO_FILE).toContain(
       'const allumee = `(mg.le IS NOT NULL AND (${vue} IS NULL OR mg.le > ${vue}))`;');
-    expect(REPO_FILE).toContain('ORDER BY ${triMongaDAbord(avecVues)}(e.traite_le IS NOT NULL) ASC,');
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — le second critère du tri reste « les ouverts d'abord », mais « ouvert » se
+       lit sur les cartes de BORNE de la frise. Le lien entre l'effet et le tri, lui, n'a pas bougé. */
+    expect(REPO_FILE).toContain('ORDER BY ${triMongaDAbord(avecVues)}NOT ${sqlEvenementOuvertParLaFrise(\'e\')} ASC,');
   });
 
   /**
@@ -1922,7 +1948,9 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
    * aurait RETIRÉ l'étiquette à des mails qui l'avaient — la simulation a mesuré 4 gagnés, 0 perdu.
    */
   it('🔴🔴 les deux voies s’unissent, l’ancienne n’est pas remplacée', () => {
-    expect(REPO_H).toContain('export function sqlEvenementsDesFils(fils: string): string {');
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — la voie du fil prend des MESSAGES : la période se compare à une date de mail.
+       Le fil reste la condition d'appartenance ; le message n'apporte que son instant. */
+    expect(REPO_H).toContain('export function sqlEvenementsDesFils(messages: string): string {');
     expect(REPO_H).toContain('export function sqlEvenementsDesMessages(avecMessageId: boolean, messages: string): string {');
     expect(REPO_H).toContain('evenements: unirEvenements(');
   });
@@ -1934,8 +1962,24 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
     /* ⚠️ L'ALIAS INTERNE S'APPELLE `msg` DEPUIS LE LOT FILTRE-COMME-ETIQUETTE, et non `m` : glissée dans le
        filtre, une seconde déclaration de `m` aurait masqué la table des messages de la requête porteuse et rendu
        la borne `ARRAY[m.id]` tautologique. Voir l'encadré de `sqlFiltreEvenementOuvert`. */
-    expect(bloc).toContain('AND msg.recu_le >= ev.ouvert_le');
-    expect(bloc).toContain('AND (ev.traite_le IS NULL OR msg.recu_le <= ev.traite_le)');
+    /**
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — UNE FENÊTRE EST DEVENUE PLUSIEURS ═══════════════════════
+     *
+     * La borne était écrite en dur, et elle était UNIQUE : de `ev.ouvert_le` à `ev.traite_le`. Elle ne savait
+     * pas dire « ouvert, puis fermé, puis rouvert » — un dossier rouvert repêchait tous les mails de
+     * l'intervalle où il était clos. Arno (point 5) : « Un mail reçu entre une Clôture et la Réouverture
+     * suivante n'est PAS étiqueté. »
+     *
+     * 🔴 LA BORNE EST DONC CELLE DES PÉRIODES, et elle vient du module qui porte la règle — bornes comprises
+     * des deux côtés, comme avant : un mail arrivé le jour même de la clôture appartient encore au dossier
+     * qu'il clôt.
+     */
+    expect(bloc).toContain("${sqlDansUnePeriodeOuverte('ev', 'msg.recu_le')}");
+    expect(bloc).not.toContain('ev.traite_le');
+    /* 🔴 ET LA BORNE EST BIEN CELLE-LÀ DANS LE TEXTE ÉMIS, bornes comprises des deux côtés. */
+    const emis = sqlEvenementsDesMessages(true, '$1::bigint[]').replace(/\s+/g, ' ');
+    expect(emis).toContain('msg.recu_le >= svv_p.du');
+    expect(emis).toContain('svv_p.au IS NULL OR msg.recu_le <= svv_p.au');
     /* 🔴 ET LE BIEN DU MAIL EST CELUI DE L'ÉVÉNEMENT, par les DEUX axes — l'événement 1 n'a aucune partie
        déclarée, son bien ne vient que de ses mails : ne lire qu'un axe n'aurait rien réparé. */
     expect(bloc).toContain('FROM gestion_evenement_partie p');
@@ -1951,7 +1995,18 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
        à la page (`$1::bigint[]`), le filtre au mail courant (`ARRAY[m.id]`). La clé reste le message. */
     expect(REPO_H).toContain('WHERE r.message_id = ANY(${messages})');
     expect(REPO_H).toContain('evenementsParBien.get(Number(r.message_id)) ?? []');
-    expect(REPO_H).toContain('evenements.get(Number(r.fil_id)) ?? []');
+    /**
+     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — LES DEUX VOIES RAISONNENT MAINTENANT PAR MAIL ════════════════════════
+     *
+     * L'ancienne voie restait par fil, et l'épreuve le figeait. Arno (point 5) borne l'étiquette aux périodes
+     * ouvertes : deux mails d'un même fil peuvent tomber de part et d'autre d'une clôture, et la question
+     * « en cours POUR CE MAIL ? » ne se répond donc plus à l'échelle du fil.
+     *
+     * ⚠️ L'APPARTENANCE, ELLE, RESTE CELLE DU FIL (`af.fil_id = msg.fil_id`) : les mails d'un fil affecté
+     * qu'aucune affectation ne vise nommément gardent leur étiquette. Seul le QUAND est borné.
+     */
+    expect(REPO_H).toContain('evenements.get(Number(r.message_id)) ?? []');
+    expect(REPO_H).toContain('af.fil_id = msg.fil_id');
   });
 
   /**
@@ -1994,7 +2049,9 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
     expect(REPO_H).not.toContain('EXISTS (SELECT 1 FROM gestion_affectation af\n');
     expect(REPO_H).not.toContain("WHERE af.fil_id = m.fil_id AND af.actif AND ev.etat <> 'traite')");
     // Le filtre est désormais FAIT des deux requêtes de l'étiquette, bornées au mail courant.
-    expect(REPO_H).toContain("sqlEvenementsDesFils('ARRAY[m.fil_id]')");
+    /* 🔴 LOT ETAT-PAR-LA-FRISE — ET LES DEUX PRENNENT LA MÊME BORNE, `ARRAY[m.id]` : une seule clé de
+       corrélation, donc un piège d'alias de moins. */
+    expect(REPO_H).toContain("sqlEvenementsDesFils('ARRAY[m.id]')");
     expect(REPO_H).toContain("sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')");
   });
 });
