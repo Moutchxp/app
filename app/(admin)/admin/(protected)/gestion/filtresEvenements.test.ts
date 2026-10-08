@@ -181,8 +181,20 @@ describe('🔴🔴 ③ les deux boutons, dans les DEUX en-têtes', () => {
 
   /** 🔴 UN SEUL ACTIF À LA FOIS, et il le dit autrement que par la couleur. */
   it('🔴 un seul actif, et `aria-pressed` le dit', () => {
-    expect(VUE).toContain('aria-pressed={tri === t}');
-    expect(VUE).toContain("className={`gst-tri gst-tri--${t}${tri === t ? ' gst-tri--actif' : ''}`}");
+    /**
+     * ⚠️ CE QUE CETTE ÉPREUVE EXIGEAIT AVANT, ET POURQUOI LE VERDICT A CHANGÉ : `aria-pressed={tri === t}` et
+     * ``className={`gst-tri gst-tri--${t}${tri === t ? ' gst-tri--actif' : ''}`}``, c'est-à-dire un `button`
+     * écrit à la main, avec son dessin à lui. Le lot HARMONIE-BOUTONS-ET-TROMBONE (point 2a) l'a remplacé par
+     * `BoutonPilule`, le format commun aux quatre filtres de la boîte, à ces deux tris et aux trois niveaux
+     * d'urgence — Arno : « Rends ce format commun […] pour que les trois groupes ne divergent plus ».
+     *
+     * 🔴 LA RÈGLE, ELLE, EST LA MÊME, ET ON L'ÉPROUVE DES DEUX CÔTÉS : un seul actif (`actif={tri === t}`,
+     * vrai pour un seul `t`), et `aria-pressed` qui le dit — porté désormais par la pilule, où il est vérifié
+     * pour les trois groupes à la fois plutôt que trois fois séparément.
+     */
+    expect(VUE).toContain('<BoutonPilule key={t} mot={motTri(t)} actif={tri === t}');
+    const PILULE = readFileSync('app/(admin)/admin/(protected)/gestion/BoutonPilule.tsx', 'utf8');
+    expect(PILULE).toContain('aria-pressed={actif}');
   });
 
   /**

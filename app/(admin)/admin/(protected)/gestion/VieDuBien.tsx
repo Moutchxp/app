@@ -518,6 +518,32 @@ export function LigneVie({
               * couleurs, mêmes info-bulles. Seul leur conteneur est neuf.
               */}
             <span className="vdb-marques">
+            {/**
+              * ══ 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 1 — LE TROMBONE OUVRE LE GROUPE ════════════════
+              *
+              * ARNO : « “📎1” · “Auto” · “Événement en cours” · date. Le trombone et son chiffre passent juste à
+              * gauche de la capsule verte “Auto” (ou de la première étiquette présente s'il n'y a pas “Auto”). »
+              *
+              * 🔴 « OU DE LA PREMIÈRE ÉTIQUETTE PRÉSENTE » EST GRATUIT ICI, et c'est pour cela qu'il n'y a aucune
+              * condition à écrire : les trois étiquettes sont des frères dans le même conteneur, chacune rendue
+              * SEULEMENT si elle a lieu d'être. Le trombone posé en premier se retrouve donc collé à celle qui
+              * suit, quelle qu'elle soit — et seul, s'il n'y en a aucune.
+              *
+              * 🔴 LES DEUX AUTRES LISTES L'AVAIENT DÉJÀ : `BoiteReception` et `Conversation` montrent
+              * « 📎 n » puis la capsule (lots LISTE-GMAIL et FIL-APERCU-MINIATURES). Cette rangée-ci était la
+              * dernière à l'écrire dans l'autre sens ; elle rejoint les deux autres, elle n'invente rien.
+              *
+              * ⚠️ LA LIGNE REPLIÉE ET LA LIGNE DÉPLIÉE SONT LA MÊME : cet en-tête (`vdb-haut`) est rendu dans les
+              * deux cas — le dépliage n'ajoute que `vdb-detail` en dessous. Un seul déplacement sert les deux.
+              *
+              * ⚠️ RIEN N'EST RETIRÉ NI CONDITIONNÉ : mêmes conditions d'affichage, mêmes mots, mêmes info-bulles,
+              * mêmes couleurs. Seul l'ordre des frères change.
+              */}
+            {motDuTrombone !== null && (
+              <span className="vdb-trombone" title={motDuTrombone} aria-label={motDuTrombone}>
+                <span aria-hidden="true">📎</span>{vraies.length}
+              </span>
+            )}
             {l.statut !== null && (
               <span className={`vdb-capsule vdb-capsule--${tonCapsule(l.statut as CapsuleStatut)}`}
                 title={l.statutDetail ?? undefined}>
@@ -536,11 +562,6 @@ export function LigneVie({
               */}
             {motEvenementEnCours(ouverts.length) !== null && (
               <span className="vdb-capsule vdb-capsule--evt">{motEvenementEnCours(ouverts.length)}</span>
-            )}
-            {motDuTrombone !== null && (
-              <span className="vdb-trombone" title={motDuTrombone} aria-label={motDuTrombone}>
-                <span aria-hidden="true">📎</span>{vraies.length}
-              </span>
             )}
             </span>
             <span className="vdb-quand">{dateHeureCourte(l.recuLe, maintenant)}</span>

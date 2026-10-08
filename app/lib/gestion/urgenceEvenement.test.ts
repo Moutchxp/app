@@ -286,7 +286,19 @@ describe('🔴🔴 ⑤ un seul sélecteur, pour la carte et pour la fiche du bie
     expect(SEL).toContain('<style>{CSS_SELECTEUR_URGENCE}</style>');
     const feuille = SEL.slice(SEL.indexOf('const CSS_SELECTEUR_URGENCE'));
     expect(feuille).not.toMatch(/#[0-9a-f]{3,8}/i);
-    /* ⚠️ 44 px DE CIBLE TACTILE : exigence transverse §15, et elle n'est pas négociable en mode compact. */
-    expect(feuille).toContain('min-height:44px');
+    /**
+     * ⚠️ 44 px DE CIBLE TACTILE : exigence transverse §15, et elle n'est pas négociable en mode compact.
+     *
+     * ⚠️ CE QUE CETTE LIGNE DISAIT AVANT, ET POURQUOI ELLE A CHANGÉ : elle cherchait `min-height:44px` DANS
+     * cette feuille-ci, parce que `.gurg-voie` y portait son propre dessin. Depuis le lot
+     * HARMONIE-BOUTONS-ET-TROMBONE (point 2b), le dessin des trois boutons est celui, commun, de
+     * `BoutonPilule` — Arno : « Rends ce format commun […] pour que les trois groupes ne divergent plus ».
+     * L'exigence est donc vérifiée LÀ OÙ ELLE VIT MAINTENANT, et on vérifie en plus que cette feuille-ci
+     * l'emporte bien avec elle : une cible tactile tenue dans un fichier que le composant n'injecte pas ne
+     * serait tenue nulle part.
+     */
+    expect(feuille).toContain('${CSS_BOUTON_PILULE}');
+    const PILULE = readFileSync('app/(admin)/admin/(protected)/gestion/BoutonPilule.tsx', 'utf8');
+    expect(PILULE.slice(PILULE.indexOf('export const CSS_BOUTON_PILULE'))).toContain('min-height:44px');
   });
 });

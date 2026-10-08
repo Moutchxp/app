@@ -7,6 +7,14 @@ import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecra
 import { Trombone } from './Trombone';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — le bouton rond, écrit une seule fois (cf. BoutonRond.tsx). */
 import { BoutonRond } from './BoutonRond';
+/**
+ * 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 2 — LE FORMAT DE PILULE, ÉCRIT UNE SEULE FOIS.
+ * Ces quatre boutons sont la RÉFÉRENCE qu'Arno nomme ; ils ne la gardent plus pour eux. `.brc-filtre` a donc
+ * disparu au profit de `.gpil`, que « New »/« Urgent » et les trois niveaux d'urgence portent aussi.
+ * ⚠️ SEULE LA HAUTEUR CHANGE ICI (36 → 44 px, cible tactile du §15) : même forme, mêmes marges, même police,
+ * même graisse, même actif sombre à texte blanc qu'avant. Et la rangée réservait déjà 44 px.
+ */
+import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { bulleCapsuleMessage, motCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 // 🔴🔴 LOT OPTION-C — le MOT de l'unité comptée, écrit une seule fois pour les deux écrans (module PUR).
@@ -301,12 +309,8 @@ export function BoiteReception({
         {/* ⚠️ « Hors gestion » n'apparaît QUE si la migration 266 est appliquée : sans elle, il ne filtrerait
             rien, et une liste vide se lirait « aucun mail hors gestion » — ce qui serait autre chose. */}
         {FILTRES.filter((f) => !f.exigeHorsGestion || (etat.v === 'ok' && etat.horsGestion)).map((f) => (
-          <button key={f.cle} type="button"
-            className={`brc-filtre${filtre === f.cle ? ' brc-filtre--actif' : ''}`}
-            aria-pressed={filtre === f.cle} title={f.aide}
-            onClick={() => setFiltre(f.cle)}>
-            {f.mot}
-          </button>
+          <BoutonPilule key={f.cle} mot={f.mot} aide={f.aide}
+            actif={filtre === f.cle} onClick={() => setFiltre(f.cle)} />
         ))}
         <button type="button" className="svv-btn svv-btn-outline gst-btn gst-plein" onClick={onPleinEcran}>
           Plein écran
@@ -392,6 +396,7 @@ export function BoiteReception({
 }
 
 export const CSS_BOITE_RECEPTION = `
+${CSS_BOUTON_PILULE}
 .brc{display:flex;flex-direction:column;gap:8px;min-width:0}
 .brc-adresse{font-weight:400;font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 /* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 8 — CE QUE LA LISTE NE MONTRE PAS, SUR LA LIGNE DU TITRE ═════
@@ -404,12 +409,16 @@ export const CSS_BOITE_RECEPTION = `
 .brc-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
   color:var(--color-svv-muted);flex:0 1 auto;min-width:0}
 .brc-filtres{display:flex;flex-wrap:wrap;gap:6px}
-.brc-filtre{min-height:36px;padding:.25rem .7rem;font:inherit;font-size:.8rem;color:var(--color-svv-ink);
-  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:999px;cursor:pointer}
-.brc-filtre:hover{background:var(--color-svv-field)}
-.brc-filtre:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-/* L'ACTIF se dit par le MOT (aria-pressed) autant que par la forme : jamais la couleur seule. */
-.brc-filtre--actif{color:var(--color-svv-surface);background:var(--color-svv-ink);border-color:var(--color-svv-ink)}
+/* ══ 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 2 — .brc-filtre A DEMENAGE, IL N'A PAS DISPARU ══════════════
+   CE QUI ETAIT ECRIT ICI : .brc-filtre, .brc-filtre:hover, .brc-filtre:focus-visible et .brc-filtre--actif.
+   C'etait la REFERENCE qu'Arno nomme — et elle ne servait qu'a quatre boutons, pendant que « New »/« Urgent »
+   et les trois niveaux d'urgence se dessinaient chacun de leur cote.
+   Ces regles sont maintenant .gpil, dans BoutonPilule.tsx, injectees en tete de cette feuille. AUCUN bouton
+   n'est retire, aucun ne change de mot ni de geste : ils portent la meme forme, les memes marges, la meme
+   police, la meme graisse et le meme actif sombre a texte blanc.
+   ⚠️ SEULE LA HAUTEUR A BOUGE, 36 -> 44 px : la cible tactile du §15, que les deux autres groupes tenaient
+   deja. La rangee (.gst-tete-partage-outils) reserve 44 px depuis le lot precedent — rien ne se deplace.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
 .brc-liste{display:flex;flex-direction:column;margin:0;padding:0;list-style:none;
   border-top:1px solid var(--color-svv-line)}
 .brc-li{border-bottom:1px solid var(--color-svv-line)}

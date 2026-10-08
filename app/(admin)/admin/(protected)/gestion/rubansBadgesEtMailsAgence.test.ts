@@ -101,12 +101,23 @@ describe('🔴🔴 ② les étiquettes passent à droite, contre la date', () =>
     expect(bloc).toContain('className="vdb-trombone"');
   });
 
-  /** 🔴 DANS L'ORDRE D'ARNO : statut (« Auto »), puis l'événement, puis le trombone. */
+  /**
+   * 🔴 DANS L'ORDRE D'ARNO : le trombone, puis le statut (« Auto »), puis l'événement.
+   *
+   * ⚠️ CETTE ÉPREUVE A CHANGÉ D'AVIS, ET IL FAUT DIRE POURQUOI. Elle exigeait l'ordre INVERSE — statut, puis
+   * événement, puis trombone — qui était celui du lot RUBANS-SCROLL… : à ce moment-là, Arno demandait de
+   * DÉPLACER le bloc à droite « dans le même ordre », et l'ordre d'alors était celui-là.
+   * Le lot HARMONIE-BOUTONS-ET-TROMBONE (point 1) range l'ordre lui-même : « “📎1” · “Auto” · “Événement en
+   * cours” · date. Le trombone et son chiffre passent juste à gauche de la capsule verte “Auto” (ou de la
+   * première étiquette présente s'il n'y a pas “Auto”). » C'est aussi l'ordre que la liste de la boîte
+   * (`BoiteReception`) et le fil (`Conversation`) écrivaient déjà : cette rangée était la dernière à l'écrire
+   * à l'envers. Le verdict change donc parce que la demande a changé, et dans le sens des deux autres écrans.
+   */
   it('🔴🔴 l’ordre est celui qu’Arno écrit', () => {
     const bloc = LIGNE.slice(LIGNE.indexOf('<span className="vdb-marques">'),
       LIGNE.indexOf('<span className="vdb-quand">'));
+    expect(bloc.indexOf('vdb-trombone')).toBeLessThan(bloc.indexOf('tonCapsule'));
     expect(bloc.indexOf('tonCapsule')).toBeLessThan(bloc.indexOf('vdb-capsule--evt'));
-    expect(bloc.indexOf('vdb-capsule--evt')).toBeLessThan(bloc.indexOf('vdb-trombone'));
   });
 
   /**

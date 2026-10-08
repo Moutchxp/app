@@ -28,6 +28,13 @@ import { CarteVive } from './CarteVive';
 import { BarreAnnuaire } from './BarreAnnuaire';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — la feuille du bouton rond, partagée avec la boîte. */
 import { CSS_BOUTON_ROND } from './BoutonRond';
+/**
+ * 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 2a — « New » et « Urgent » portent le format des filtres.
+ * ⚠️ LA FEUILLE EST INJECTÉE ICI AUSSI, et pas seulement par `BoiteReception` : l'écran « Événements » en
+ * plein écran montre les deux boutons SANS monter la boîte de réception. Sans cette ligne, ils y arriveraient
+ * nus — c'est exactement l'accident que `CSS_BOUTON_ROND` a déjà évité deux lignes plus haut.
+ */
+import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
 import { Conversation } from './Conversation';
 // LOT ENVOI-ARRIERE-PLAN — les mails encore en route, et ceux qui ne sont PAS partis.
 import { BandeauEnvois } from './BandeauEnvois';
@@ -954,13 +961,19 @@ export function GestionVue({ intro }: {
    */
   const boutonsDeTri = (
     <span className="gst-tris" role="group" aria-label="Trier les événements">
+      {/**
+        * 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 2a — LE FORMAT DES FILTRES DE LA BOÎTE, SANS COPIE.
+        * Arno : « boutons “New” et “Urgent” → exactement ce format (actif = fond sombre comme “Tous”, inactif
+        * = blanc). Le bleu clair actuel de “New” disparaît au profit de ce format. »
+        * 🔴 PLUS AUCUNE CLASSE DE TON ICI : `.gst-tri--new` et `.gst-tri--urgent` ne peignaient QUE l'actif,
+        * et c'est précisément ce que ce point remplace. L'état actif se dit toujours deux fois — le fond
+        * sombre ET `aria-pressed`, que `BoutonPilule` porte.
+        * ⚠️ LE GESTE NE CHANGE PAS D'UN IOTA : même `aller()`, même `&tri=` dans l'adresse, même « New » qui
+        * s'écrit en retirant le paramètre plutôt qu'en l'écrivant.
+        */}
       {TRIS_EVENEMENT.map((t) => (
-        <button key={t} type="button"
-          className={`gst-tri gst-tri--${t}${tri === t ? ' gst-tri--actif' : ''}`}
-          aria-pressed={tri === t}
-          onClick={() => aller({ ...etatUrl, tri: t === 'new' ? null : t })}>
-          {motTri(t)}
-        </button>
+        <BoutonPilule key={t} mot={motTri(t)} actif={tri === t}
+          onClick={() => aller({ ...etatUrl, tri: t === 'new' ? null : t })} />
       ))}
     </span>
   );
@@ -1932,6 +1945,11 @@ const CSS_GESTION = `
    rotation. Une classe partagee dont la feuille ne l'est pas n'est pas partagee.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 ${CSS_BOUTON_ROND}
+/* 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 2 — la feuille de la pilule, la MEME que celle des filtres de la
+   boite de reception et des trois niveaux d'urgence (cf. BoutonPilule.tsx). Meme raison que le bouton rond
+   juste au-dessus : l'ecran « Evenements » en plein ecran montre « New » et « Urgent » sans monter la boite.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+${CSS_BOUTON_PILULE}
 /* DEUX CÔTÉS au-dessus de 900 px ; UNE colonne en dessous, la file d'abord — par l'ordre du DOM, jamais par un order CSS. */
 /* ── LOT 5-GMAIL : LA PAGE, ET SON EN-TÊTE REPLIÉ EN PLEIN ÉCRAN ───────────────────────────────────────────────── */
 /* ══ 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — LE MODULE N'A PLUS DE PLAFOND DE LARGEUR ════════════════════════════════
@@ -2019,28 +2037,18 @@ ${CSS_BOUTON_ROND}
 .gst-tete-partage-outils{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px}
 /* ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW, POINT 2 — LES DEUX BOUTONS DE TRI, A COTE DU COMPTEUR ═══════════════════
    ARNO : « DEUX BOUTONS DE TRI en haut de la colonne et de l'ecran Evenements, a cote du compteur : “New” et
-   “Urgent”. Un seul actif a la fois. »
-   🔴 CE SONT DES TRIS, PAS DES FILTRES, et le dessin doit le dire : ils sont DISCRETS (petits, sans cadre plein)
-   et le compteur reste a cote d'eux, inchange. Des boutons qui ressembleraient a un filtre feraient craindre
-   qu'ils cachent des cartes — ce qu'ils ne font jamais.
-   🔴 aria-pressed DIT LEQUEL EST ACTIF autrement que par la couleur : la regle du module, et la condition pour
-   que « un seul actif a la fois » existe aussi au lecteur d'ecran.
-   ⚠️ 44 px DE CIBLE TACTILE : exigence transverse §15, meme dans un outil discret.
+   “Urgent”. Un seul actif a la fois. » La RANGEE reste ici ; le DESSIN des deux boutons, non.
+   ══ 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 2a — LE DESSIN EST PARTI DANS BoutonPilule ══════════════════
+   CE QUI ETAIT ECRIT ICI : .gst-tri (44 px, texte estompe sur fond de page, GRAS, 0.76rem), son survol, son
+   focus, .gst-tri--actif (fond field), et les deux tons .gst-tri--new (bleu pale) et .gst-tri--urgent
+   (rouge tamise) qui ne peignaient QUE l'actif.
+   ARNO : « boutons “New” et “Urgent” → exactement ce format (actif = fond sombre comme “Tous”, inactif =
+   blanc). Le bleu clair actuel de “New” disparait au profit de ce format. » Les deux boutons portent donc
+   .gpil, injecte plus haut dans cette meme feuille. AUCUN bouton retire, aucun mot change, aucun geste
+   touche : seul leur dessin rejoint celui de « Tous ».
+   ⚠️ 44 px DE CIBLE TACTILE : l'exigence §15 est tenue par .gpil, qui l'a reprise de ces deux boutons-ci.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
 .gst-tris{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;margin-left:.5rem}
-.gst-tri{min-height:44px;padding:4px 12px;font:inherit;font-size:.76rem;font-weight:700;cursor:pointer;
-  border-radius:999px;border:1px solid var(--color-svv-line);
-  background:var(--color-svv-bg);color:var(--color-svv-muted)}
-.gst-tri:hover:not(:disabled){border-color:var(--color-svv-line-strong)}
-/* ⚠️ LE MEME SELECTEUR DE BASE QUE LE SURVOL (.gst-tri:not(:disabled)), et ce n'est pas une coquetterie : le
-   garde §15 de ce fichier exige que tout ce qui reagit au survol reagisse AUSSI au focus clavier, et il compare
-   les deux selecteurs. Ecrire « .gst-tri:focus-visible » aurait laisse passer un survol sans pendant clavier. */
-.gst-tri:not(:disabled):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.gst-tri--actif{border-color:transparent;background:var(--color-svv-field);color:var(--color-svv-ink)}
-/* 🔴 CHACUN PREND LA COULEUR DE CE QU'IL RANGE, et seulement quand il est actif : le bleu de la pastille « New »,
-   le rouge tamise du niveau « Urgent ». C'est ce qui relie le bouton a ce qu'on voit dans la liste. */
-.gst-tri--new.gst-tri--actif{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
-.gst-tri--urgent.gst-tri--actif{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 /* « Plein ecran » ferme la rangee, a droite, dans les DEUX colonnes. */
 .gst-tete-partage-outils .gst-plein{margin-left:auto}
 /* Le corps et le pied : memes marges, meme hauteur de pied. */

@@ -167,7 +167,12 @@ describe('🔴🔴 ① le sélecteur à trois boutons — hors de la carte, dans
   /** 🔴 LE NIVEAU ACTUEL EST MIS EN ÉVIDENCE, et il le dit aussi au lecteur d'écran (`aria-pressed`). */
   it('🔴 le niveau actuel est mis en évidence, et dit autrement que par la couleur', async () => {
     await monterSelecteur('haute');
-    const actifs = boutonsUrgence().filter((b) => b.className.includes('gurg-voie--active'));
+    /* ⚠️ CETTE ÉPREUVE A CHANGÉ DE MOT, PAS D'AVIS. Elle cherchait `gurg-voie--active`, la classe d'actif que
+       le sélecteur se donnait à lui-même. Depuis le lot HARMONIE-BOUTONS-ET-TROMBONE (point 2b), les trois
+       boutons sont des `BoutonPilule` : c'est la pilule qui porte l'état actif, sous le nom `gpil--actif`, pour
+       les trois groupes de la page à la fois. Ce qui est éprouvé est inchangé — un seul bouton en évidence, le
+       bon, et `aria-pressed` qui le dit autrement que par la couleur. */
+    const actifs = boutonsUrgence().filter((b) => b.className.includes('gpil--actif'));
     expect(actifs).toHaveLength(1);
     expect(actifs[0].textContent).toBe('Intermédiaire');
     expect(actifs[0].getAttribute('aria-pressed')).toBe('true');
@@ -179,7 +184,8 @@ describe('🔴🔴 ① le sélecteur à trois boutons — hors de la carte, dans
    */
   it('🔴🔴 aucun niveau : rien en évidence, et l’absence est écrite', async () => {
     await monterSelecteur(null);
-    expect(boutonsUrgence().filter((b) => b.className.includes('gurg-voie--active'))).toHaveLength(0);
+    /* ⚠️ MÊME RENOMMAGE QUE CI-DESSUS (lot HARMONIE-BOUTONS-ET-TROMBONE) : l'actif s'appelle `gpil--actif`. */
+    expect(boutonsUrgence().filter((b) => b.className.includes('gpil--actif'))).toHaveLength(0);
     expect(container.querySelector('.gurg-absent')?.textContent).toBe('Aucun niveau enregistré');
   });
 
