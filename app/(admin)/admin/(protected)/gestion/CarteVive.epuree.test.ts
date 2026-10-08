@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
-import { CarteVive } from './CarteVive';
+import { CarteVive, FormulaireCarte } from './CarteVive';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 /* 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT — la SOURCE UNIQUE des types, et le calcul de leur ton. */
 import {
@@ -489,36 +489,38 @@ describe('🔴🔴 ⑦ « Type à définir » mène au choix du type', () => {
   });
 
   /**
-   * 🔴🔴 LE GESTE D'ARNO, EN ENTIER : un clic sur « Type à définir » déplie le dossier ET ouvre le formulaire
-   * existant, qui porte le choix du type. Aucun écran nouveau — c'est le formulaire du bouton « Modifier les
-   * informations de l'événement ».
+   * ══ 🔴🔴 ÉPREUVES AMENDÉES LE 08/10/2026 — LOT CARTES-EVENEMENT-MEME-GESTE ════════════════════════════════
+   *
+   * ELLES EXIGEAIENT qu'un clic sur « Type à définir » DÉPLIE le dossier ET y ouvre le formulaire du type. Le
+   * formulaire a quitté la carte avec tous les blocs de détail (« tout ce qui s'y affichait en plus des infos
+   * manquantes et du bouton rouge disparaît », Arno) : il ne vit plus que dans la fiche du bien.
+   *
+   * 🔴 CE QUE L'ANCIENNE RÈGLE PROTÉGEAIT TIENT TOUJOURS, et c'est la moitié qui compte : la capsule n'est pas un
+   * cul-de-sac. Elle DÉPLIE la carte — donc elle montre le bouton rouge, qui mène à la fiche, où le type se
+   * choisit. Et elle ne REFERME jamais un dossier déjà ouvert, ce qui reste tout l'intérêt de l'interception en
+   * phase de CAPTURE : la capsule vit DANS le bouton de titre du repli.
    */
-  it('🔴🔴 un clic sur la capsule ouvre le choix du type', async () => {
+  it('🔴🔴 un clic sur la capsule déplie le dossier, et mène au bouton rouge', async () => {
     await monter(CARTE({ categorie: null }));
     await act(async () => { (capsule() as HTMLElement).click(); });
     await calmer();
-    const select = choixDuType();
-    expect(select).not.toBeNull();
-    /* 🔴 ET IL PROPOSE LES QUATRE TYPES, plus « Type à définir » pour n'en choisir aucun. */
-    const mots = [...(select?.options ?? [])].map((o) => o.textContent);
-    expect(mots).toEqual(['Type à définir', 'Travaux', 'Fuite d’eau', 'Administratif', 'Litige']);
-    /* ⚠️ ET LA VALEUR COURANTE EST BIEN « AUCUN » : on ouvre sur l'état réel, pas sur une proposition. */
-    expect(select?.value).toBe('');
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBeNull();
+    /* 🔴 LE CORPS EST MONTÉ, c'est-à-dire que le dossier est bien ouvert sous la vignette.
+       ⚠️ LE BOUTON ROUGE N'EST PAS ÉPROUVÉ ICI : ce fichier monte la carte SANS `onOuvrirBien`, et le composant
+       écrit alors « L'ouverture de la fiche n'est pas disponible depuis cet écran » plutôt qu'un bouton qui ne
+       mènerait nulle part. Le bouton lui-même est éprouvé dans `CarteVive.test.ts`. */
+    expect(container.querySelector('.gst-corps')).not.toBeNull();
+    /* 🔴 ET LE CHOIX DU TYPE N'EST PLUS DANS LA CARTE : il est sur la fiche du bien. */
+    expect(choixDuType()).toBeNull();
   });
 
-  /**
-   * 🔴🔴 LE CLIC NE REFERME PAS UN DOSSIER DÉJÀ OUVERT, et c'est tout l'intérêt de l'interception en phase de
-   * CAPTURE : la capsule vit dans le bouton de titre du repli, et sans elle le clic aurait basculé le repli —
-   * on aurait fermé la carte au lieu d'ouvrir le choix.
-   */
-  it('🔴🔴 sur une carte déjà dépliée, le clic ouvre le choix sans la refermer', async () => {
+  it('🔴🔴 sur une carte déjà dépliée, le clic ne la referme pas', async () => {
     await monter(CARTE({ categorie: null }));
     await deplier();
     expect(container.querySelector('button[aria-expanded="true"]')).not.toBeNull();
     await act(async () => { (capsule() as HTMLElement).click(); });
     await calmer();
     expect(container.querySelector('button[aria-expanded="true"]'), 'le dossier doit rester ouvert').not.toBeNull();
-    expect(choixDuType()).not.toBeNull();
   });
 
   /**
@@ -530,7 +532,7 @@ describe('🔴🔴 ⑦ « Type à définir » mène au choix du type', () => {
     expect(capsule()?.className).not.toContain('gst-type-capsule--vide');
     await act(async () => { (capsule() as HTMLElement).click(); });
     await calmer();
-    /* Le repli a basculé — et le formulaire ne s'est PAS ouvert tout seul. */
+    /* Le repli a basculé, comme n'importe quel autre point de la vignette. */
     expect(container.querySelector('button[aria-expanded="true"]')).not.toBeNull();
     expect(choixDuType()).toBeNull();
   });
@@ -578,10 +580,27 @@ describe('🔴🔴 ⑧ un type ajouté à la SOURCE paraît partout, sans autre 
     });
   });
 
+  /**
+   * ══ 🔴🔴 ÉPREUVE AMENDÉE — LOT CARTES-EVENEMENT-MEME-GESTE ════════════════════════════════════════════════
+   *
+   * ELLE OUVRAIT LE FORMULAIRE DEPUIS LA CARTE, qui ne le porte plus. Le formulaire, lui, n'a pas bougé d'un
+   * cran : il est toujours `FormulaireCarte`, exporté par `CarteVive` et rendu par la fiche du bien. On le monte
+   * donc DIRECTEMENT — ce qui éprouve exactement la même promesse d'Arno (« un type créé plus tard apparaît
+   * automatiquement dans les listes de choix »), par la porte qui existe.
+   */
   it('🔴🔴 il entre dans la liste de choix du formulaire, sans toucher à l’écran', async () => {
     await avecLeType(async () => {
-      await monter(CARTE({ categorie: null }));
-      await act(async () => { (container.querySelector('.gst-type-capsule') as HTMLElement).click(); });
+      await act(async () => {
+        root.render(createElement(FormulaireCarte, {
+          detail: {
+            evenementId: 1, reference: 'GES-2026-000001', objet: 'x', demandeurNom: null,
+            demandeurEmail: null, adresseLibre: null, etat: 'a_traiter' as const,
+            categorie: null, urgence: null, ouvertLe: '2026-10-01T08:00:00Z', ouvertPar: null,
+            traiteLe: null, traitePar: null, fils: [], mailsDeplaces: [],
+          },
+          occupe: false, onValider: () => {}, onAnnuler: () => {},
+        }));
+      });
       await calmer();
       const champ = [...container.querySelectorAll('label.gst-champ')]
         .find((l) => l.querySelector('.svv-label')?.textContent === 'Type');

@@ -2,9 +2,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 import { CarteVive } from './CarteVive';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 import { NIVEAUX_URGENCE } from '../../../../lib/gestion/evenementQualite';
+/* 🔴 LOT CARTES-EVENEMENT-MEME-GESTE — le sélecteur a quitté la carte : on l'éprouve dans son propre composant. */
+import { SelecteurUrgence } from './SelecteurUrgence';
 
 /**
  * ══ 🔴🔴 LOT URGENCE-EVENEMENT — CE QUE LA CARTE FAIT : LE SÉLECTEUR, LE DOUBLE-CLIC, LES PARTIES ════════════════
@@ -16,14 +19,13 @@ import { NIVEAUX_URGENCE } from '../../../../lib/gestion/evenementQualite';
  *       Urgent, chacun dans sa couleur, le niveau actuel mis en évidence. Le choix est enregistré tout de suite, et
  *       la couleur de la capsule change sans recharger. »
  *
- *   4.  « Le double-clic ne fait PAS la même chose selon l'écran :
- *         A. ÉCRAN PARTAGÉ → ouvre l'écran Événements en plein écran, la liste défilée et CENTRÉE sur l'événement
- *            double-cliqué, cet événement mis en évidence (liseré de sélection) et déplié ;
- *         B. ÉCRAN ÉVÉNEMENTS EN PLEIN ÉCRAN → ouvre la fiche du bien sur cet événement, exactement comme le
- *            bouton rouge (même lien, même code).
- *       Règles communes : simple clic et double-clic proprement distingués (un double-clic ne doit pas d'abord
- *       déplier puis replier la carte) ; un double-clic sur un bouton ou un contrôle interne ne déclenche rien ;
- *       un événement sans bien rattaché n'ouvre pas de fiche (cas B). »
+ *   4.  ⚠️ CE POINT A ÉTÉ REMPLACÉ LE MÊME JOUR par le lot CARTES-EVENEMENT-MEME-GESTE. Il demandait DEUX gestes
+ *       différents (écran partagé → l'écran Événements centré ; plein écran → la fiche du bien) ; Arno tranche
+ *       pour UN SEUL : « RÈGLE UNIQUE […] IDENTIQUE sur les deux écrans. […] DOUBLE-CLIC → ouvre directement la
+ *       fiche du bien sur cet événement. » Et : « Le double-clic de l'écran partagé N'OUVRE PLUS l'écran
+ *       Événements centré. » Les cas ci-dessous disent la règle NEUVE, et nomment celle qu'ils renversent.
+ *       Règles communes, inchangées : simple clic et double-clic proprement distingués ; un double-clic sur un
+ *       contrôle interne ne déclenche rien ; un événement sans bien (ou à plusieurs biens) n'ouvre pas de fiche.
  *
  *   5.  « Quand on déplie la carte, afficher les noms qui n'apparaissent pas dans la carte repliée : le ou les
  *       locataires actuels, et le ou les propriétaires s'ils manquent. […] Si une partie est déjà affichée dans la
@@ -126,15 +128,31 @@ const cliquer = async (cible: Element, fois: number) => {
 };
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   POINT 3a — LE SÉLECTEUR, DANS LA CARTE DÉPLIÉE
+   ══ 🔴🔴 LE SÉLECTEUR D'URGENCE — IL A QUITTÉ LA CARTE (lot CARTES-EVENEMENT-MEME-GESTE) ══════════════════════
+
+   CE QUE CE BLOC EXIGEAIT : « Dans la carte d'événement DÉPLIÉE : un sélecteur à trois boutons » (lot
+   URGENCE-EVENEMENT, point 3a). ARNO REVIENT DESSUS le 08/10/2026 : « le sélecteur d'urgence Normal /
+   Intermédiaire / Urgent (il reste dans la fiche du bien) » fait partie des RETRAITS de la carte dépliée.
+
+   🔴 LA COUVERTURE N'EST PAS PERDUE, ELLE CHANGE DE PORTE. Le composant est le MÊME des deux côtés
+   (`SelecteurUrgence`, importé et jamais recopié) : on l'éprouve donc DIRECTEMENT, ce qui vaut pour la fiche du
+   bien comme pour tout appelant futur. Le câblage de la fiche, lui, est éprouvé par `urgenceEcrans.test.ts`.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('🔴🔴 ① le sélecteur à trois boutons, dans la carte dépliée', () => {
+describe('🔴🔴 ① le sélecteur à trois boutons — hors de la carte, dans son composant partagé', () => {
+  let choisis: string[];
+  const monterSelecteur = async (urgence: string | null, occupe = false) => {
+    choisis = [];
+    await act(async () => {
+      root.render(createElement(SelecteurUrgence, {
+        urgence, occupe, onUrgence: (u: string) => choisis.push(u),
+      }));
+    });
+    await calmer();
+  };
+
   it('🔴🔴 trois boutons, Normal / Intermédiaire / Urgent, chacun dans sa couleur', async () => {
-    await monter(CARTE());
-    /* 🔴 REPLIÉE, IL N'EST PAS LÀ : le corps n'est monté qu'au premier dépliage (patron `BlocRepliable`). */
-    expect(boutonsUrgence()).toHaveLength(0);
-    await deplier();
+    await monterSelecteur(null);
     const b = boutonsUrgence();
     expect(b.map((x) => x.textContent)).toEqual(['Normal', 'Intermédiaire', 'Urgent']);
     expect(b.map((x) => x.className)).toEqual([
@@ -146,9 +164,7 @@ describe('🔴🔴 ① le sélecteur à trois boutons, dans la carte dépliée',
 
   /** 🔴 LE NIVEAU ACTUEL EST MIS EN ÉVIDENCE, et il le dit aussi au lecteur d'écran (`aria-pressed`). */
   it('🔴 le niveau actuel est mis en évidence, et dit autrement que par la couleur', async () => {
-    detailServi = { ...DETAIL_BASE, urgence: 'haute' };
-    await monter(CARTE({ urgence: 'haute' }));
-    await deplier();
+    await monterSelecteur('haute');
     const actifs = boutonsUrgence().filter((b) => b.className.includes('gurg-voie--active'));
     expect(actifs).toHaveLength(1);
     expect(actifs[0].textContent).toBe('Intermédiaire');
@@ -160,127 +176,84 @@ describe('🔴🔴 ① le sélecteur à trois boutons, dans la carte dépliée',
    * lisent comme un chargement en cours.
    */
   it('🔴🔴 aucun niveau : rien en évidence, et l’absence est écrite', async () => {
-    await monter(CARTE({ urgence: null }));
-    await deplier();
+    await monterSelecteur(null);
     expect(boutonsUrgence().filter((b) => b.className.includes('gurg-voie--active'))).toHaveLength(0);
     expect(container.querySelector('.gurg-absent')?.textContent).toBe('Aucun niveau enregistré');
   });
 
-  /**
-   * 🔴🔴 « LE CHOIX EST ENREGISTRÉ TOUT DE SUITE » (Arno) — par la porte qui existait déjà, et par aucune autre.
-   */
+  /** 🔴 IL REMONTE LA CLÉ, ET N'ÉCRIT RIEN LUI-MÊME : c'est l'appelant qui écrit, par sa porte habituelle. */
   it.each(NIVEAUX_URGENCE.map((n) => [n.mot, n.cle] as const))(
-    '🔴🔴 « %s » écrit { urgence: "%s" } par PATCH /evenements/7', async (mot, cle) => {
-      await monter(CARTE());
-      await deplier();
+    '🔴🔴 « %s » remonte « %s », sans toucher au réseau', async (mot, cle) => {
+      await monterSelecteur(null);
       const b = boutonsUrgence().find((x) => x.textContent === mot) as HTMLButtonElement;
       await act(async () => { b.click(); });
       await calmer();
-      const patch = ecritures.filter((e) => e.methode === 'PATCH');
-      expect(patch).toHaveLength(1);
-      expect(patch[0].url).toBe('/api/admin/gestion/evenements/7');
-      expect(patch[0].corps).toEqual({ urgence: cle });
+      expect(choisis).toEqual([cle]);
+      expect(ecritures).toEqual([]);
     });
 
-  /**
-   * 🔴🔴 « LA COULEUR DE LA CAPSULE CHANGE SANS RECHARGER » (Arno). C'est la propriété la plus facile à perdre : il
-   * suffirait que l'écriture ne relise pas la carte, et la capsule garderait sa couleur jusqu'au prochain
-   * rechargement de toute la page.
-   *
-   * 🔴 ON LE PROUVE EN DÉCALANT LA RÉPONSE DE LA ROUTE : avant le clic, la route sert `urgence: null` (capsule
-   * grise) ; après, elle sert `urgence: 'urgent'`. Si la carte se RELIT, la capsule devient rouge — sans qu'aucun
-   * rechargement n'ait eu lieu, puisque le composant n'est jamais remonté.
-   */
-  it('🔴🔴 la capsule change de couleur sans rechargement', async () => {
-    await monter(CARTE({ urgence: null }));
-    await deplier();
-    expect(capsule()?.className).toContain('gst-type-capsule--sans-urgence');
-
-    detailServi = { ...DETAIL_BASE, urgence: 'urgent' };
-    const b = boutonsUrgence().find((x) => x.textContent === 'Urgent') as HTMLButtonElement;
-    await act(async () => { b.click(); });
-    await calmer();
-
-    expect(capsule()?.className).toContain('gst-type-capsule--urg-rouge');
-    expect(capsule()?.className).not.toContain('gst-type-capsule--sans-urgence');
-    /* 🔴 ET LE TEXTE N'A PAS BOUGÉ : c'est le TYPE, pas le niveau. */
-    expect(capsule()?.textContent).toContain('Travaux');
+  /** ⚠️ PENDANT UNE ÉCRITURE, LES TROIS SONT ÉTEINTS — comme partout ailleurs dans le module. */
+  it('⚠️ `occupe` désactive les trois boutons', async () => {
+    await monterSelecteur('normale', true);
+    expect(boutonsUrgence().every((b) => b.disabled)).toBe(true);
   });
 
-  /**
-   * 🔴 IL EST LÀ DANS LES DEUX ÉCRANS. Tout le reste du corps est encadré par `partage ? null :` (l'écran partagé
-   * est une LISTE, accord d'Arno au lot EVENEMENT-MINIMALISTE) : enfermer le sélecteur dans le plein écran
-   * l'aurait rendu absent là où Arno travaille le plus.
-   */
-  it('🔴 il est là dans l’écran partagé aussi', async () => {
-    await monter(CARTE(), { partage: true });
+  /** 🔴🔴 ET IL N'EST PLUS DANS LA CARTE, sur AUCUN des deux écrans. */
+  it.each([true, false])('🔴🔴 la carte dépliée n’en porte plus (partage=%s)', async (partage) => {
+    await monter(CARTE(), { partage, onOuvrirBien: () => {} });
     await deplier();
-    expect(boutonsUrgence()).toHaveLength(3);
-    /* ⚠️ ET LE RESTE DU CORPS EST TOUJOURS ABSENT de l'écran partagé : le lot ne renverse rien de ce choix-là. */
-    expect(container.querySelector('.gst-sous-titre')).toBeNull();
+    expect(boutonsUrgence()).toHaveLength(0);
   });
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   POINT 4 — LE DOUBLE-CLIC, ET IL NE FAIT PAS LA MÊME CHOSE SELON L'ÉCRAN
+   ══ 🔴🔴 LE DOUBLE-CLIC — UN SEUL GESTE, LE MÊME SUR LES DEUX ÉCRANS ═════════════════════════════════════════
+
+   CE QUE CES DEUX BLOCS EXIGEAIENT, et qui est RENVERSÉ : « A. ÉCRAN PARTAGÉ → ouvre l'écran Événements centré ;
+   B. PLEIN ÉCRAN → ouvre la fiche du bien » (lot URGENCE-EVENEMENT, point 4 corrigé). ARNO, le 08/10/2026 :
+   « RÈGLE UNIQUE pour les cartes d'événement, IDENTIQUE sur l'écran partagé et sur l'écran Événements en plein
+   écran. Un seul code partagé, pas deux comportements. […] DOUBLE-CLIC → ouvre directement la fiche du bien sur
+   cet événement (même lien, même code que le bouton rouge). »
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('🔴🔴 ② A — écran PARTAGÉ : le double-clic mène au plein écran, sur cet événement', () => {
-  it('🔴🔴 double-clic → l’écran Événements, centré sur cet événement', async () => {
-    const vus: number[] = [];
-    await monter(CARTE(), { partage: true, onPleinEcranSurEvenement: (id) => vus.push(id) });
-    await cliquer(titre(), 2);
-    expect(vus).toEqual([7]);
-  });
-
-  /** 🔴 ET IL N'OUVRE PAS LA FICHE DU BIEN : c'est le geste de l'AUTRE écran. */
-  it('🔴 il n’ouvre PAS la fiche du bien', async () => {
-    const fiches: string[] = [];
-    await monter(CARTE(), {
-      partage: true, onOuvrirBien: (cle) => fiches.push(cle),
-      onPleinEcranSurEvenement: () => {},
-    });
-    await cliquer(titre(), 2);
-    expect(fiches).toEqual([]);
-  });
-
-  /** ⚠️ SANS LA FONCTION, RIEN NE SE PASSE — et surtout pas une bascule de plus. La carte reste rendable ailleurs. */
-  it('⚠️ sans `onPleinEcranSurEvenement`, le double-clic ne fait rien', async () => {
-    await monter(CARTE(), { partage: true });
-    await cliquer(titre(), 2);
-    expect(container.querySelector('button[aria-expanded="true"]')).toBeNull();
-  });
-});
-
-describe('🔴🔴 ② B — plein écran : le double-clic ouvre la fiche du bien', () => {
-  it('🔴🔴 double-clic → la fiche du bien, sur cet événement', async () => {
+describe('🔴🔴 ② le double-clic ouvre la fiche du bien — sur les DEUX écrans', () => {
+  it.each([true, false])('🔴🔴 double-clic → la fiche du bien (partage=%s)', async (partage) => {
     const fiches: { cle: string; id: number }[] = [];
-    await monter(CARTE(), { onOuvrirBien: (cle, id) => fiches.push({ cle, id }) });
+    await monter(CARTE(), { partage, onOuvrirBien: (cle, id) => fiches.push({ cle, id }) });
     await cliquer(titre(), 2);
     expect(fiches).toEqual([{ cle: '315', id: 7 }]);
   });
 
-  /** 🔴 ET IL NE PART PAS VERS LE PLEIN ÉCRAN : on y est déjà. */
-  it('🔴 il ne redemande pas le plein écran', async () => {
-    const vus: number[] = [];
-    await monter(CARTE(), { onOuvrirBien: () => {}, onPleinEcranSurEvenement: (id) => vus.push(id) });
-    await cliquer(titre(), 2);
-    expect(vus).toEqual([]);
+  /**
+   * 🔴🔴 ET L'ÉCRAN PARTAGÉ NE PART PLUS VERS LE PLEIN ÉCRAN. Arno : « On passe à l'écran Événements UNIQUEMENT
+   * par le bouton “Plein écran” de la colonne Événements. » Le composant n'a même plus de quoi le demander : la
+   * prop `onPleinEcranSurEvenement` a été retirée, et cette épreuve le tient par le texte — sans quoi on pourrait
+   * la remettre sans que rien ne rougisse.
+   */
+  it('🔴🔴 plus aucun chemin du composant ne mène à ?ecran=evenements', () => {
+    const SRC = readFileSync('app/(admin)/admin/(protected)/gestion/CarteVive.tsx', 'utf8');
+    expect(SRC).not.toContain('onPleinEcranSurEvenement');
+    const VUE = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
+    /* ⚠️ ON INTERDIT LA FONCTION ET SON BRANCHEMENT, PAS LA MENTION : le commentaire qui explique ce retrait
+       nomme `ouvrirPleinEcranSurEvenement`, et il doit pouvoir le faire. */
+    expect(VUE).not.toContain('const ouvrirPleinEcranSurEvenement');
+    expect(VUE).not.toContain('onPleinEcranSurEvenement=');
+    /* 🔴 ET LE BOUTON « Plein écran » RESTE, lui : c'est désormais le SEUL geste qui y mène. */
+    expect(VUE).toContain("onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null })}");
   });
 
   /** 🔴🔴 « UN ÉVÉNEMENT SANS BIEN RATTACHÉ N'OUVRE PAS DE FICHE » (Arno), et rien d'autre ne change. */
-  it('🔴🔴 aucun bien : aucune ouverture', async () => {
+  it.each([true, false])('🔴🔴 aucun bien : aucune ouverture (partage=%s)', async (partage) => {
     const fiches: string[] = [];
-    await monter(CARTE({ bien: null, nbBiens: 0 }), { onOuvrirBien: (cle) => fiches.push(cle) });
+    await monter(CARTE({ bien: null, nbBiens: 0 }), { partage, onOuvrirBien: (cle) => fiches.push(cle) });
     await cliquer(titre(), 2);
     expect(fiches).toEqual([]);
   });
 
   /**
-   * ⚠️ PLUSIEURS BIENS : AUCUNE OUVERTURE NON PLUS, ET C'EST DÉLIBÉRÉ. Le bouton rouge ouvre alors un CHOIX du
-   * bien (« petit choix du bien d'abord », lot VIGNETTE-EVENEMENT) ; un double-clic n'a pas d'endroit où le poser,
-   * et en désigner un d'office serait choisir à la place d'Arno, silencieusement, dans le seul cas où la question
-   * se pose. Signalé à Arno plutôt que deviné.
+   * ⚠️ PLUSIEURS BIENS : AUCUNE OUVERTURE NON PLUS — « Événement à plusieurs biens ou sans bien : pas
+   * d'ouverture (comme tu l'as fait) », Arno. Le bouton rouge ouvre alors un CHOIX du bien, et un double-clic
+   * n'a pas d'endroit où le poser.
    */
   it('⚠️ plusieurs biens : aucune ouverture — le choix du bien vit dans le bouton rouge', async () => {
     const fiches: string[] = [];
@@ -302,24 +275,27 @@ describe('🔴🔴 ② B — plein écran : le double-clic ouvre la fiche du bie
 
 describe('🔴🔴 ② règles communes aux deux écrans', () => {
   /** 🔴 LE SIMPLE CLIC CONTINUE DE DÉPLIER, ET N'OUVRE RIEN. */
-  it('🔴 simple clic : il déplie, et n’ouvre aucune fiche', async () => {
+  it.each([true, false])('🔴 simple clic : il déplie, et n’ouvre aucune fiche (partage=%s)', async (partage) => {
     const fiches: string[] = [];
-    const vus: number[] = [];
-    await monter(CARTE(), {
-      onOuvrirBien: (cle) => fiches.push(cle), onPleinEcranSurEvenement: (id) => vus.push(id),
-    });
+    await monter(CARTE(), { partage, onOuvrirBien: (cle) => fiches.push(cle) });
     await cliquer(titre(), 1);
     expect(container.querySelector('button[aria-expanded="true"]')).not.toBeNull();
     expect(fiches).toEqual([]);
-    expect(vus).toEqual([]);
+  });
+
+  /** 🔴 ET UN SECOND SIMPLE CLIC REPLIE LA CARTE (Arno, point 1). */
+  it('🔴 un second simple clic replie la carte', async () => {
+    await monter(CARTE(), { onOuvrirBien: () => {} });
+    await cliquer(titre(), 1);
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBeNull();
+    await cliquer(titre(), 1);
+    expect(container.querySelector('button[aria-expanded="true"]')).toBeNull();
   });
 
   /**
-   * 🔴🔴 « UN DOUBLE-CLIC NE DOIT PAS D'ABORD DÉPLIER PUIS REPLIER LA CARTE » (Arno). C'est le défaut d'un
-   * double-clic naïf : deux clics, deux bascules, la carte revient où elle était et l'on croit que rien n'a marché.
-   *
-   * 🔴 ON REJOUE LE GESTE ENTIER — premier clic, puis second — et l'on exige que la carte soit DÉPLIÉE à la fin.
-   * Le second clic est intercepté en phase de capture : il n'atteint jamais le bouton du repli.
+   * 🔴🔴 « UN DOUBLE-CLIC NE DOIT PAS D'ABORD DÉPLIER PUIS REPLIER LA CARTE » (Arno, règle commune inchangée).
+   * C'est le défaut d'un double-clic naïf : deux clics, deux bascules, la carte revient où elle était et l'on
+   * croit que rien n'a marché. Le second clic est intercepté en phase de capture.
    */
   it('🔴🔴 double-clic : la carte ne revient PAS à son état de départ', async () => {
     await monter(CARTE(), { onOuvrirBien: () => {} });
@@ -330,45 +306,41 @@ describe('🔴🔴 ② règles communes aux deux écrans', () => {
   });
 
   /**
-   * 🔴🔴 « UN DOUBLE-CLIC SUR UN BOUTON OU UN CONTRÔLE À L'INTÉRIEUR DE LA CARTE (sélecteur d'urgence, liens) NE
-   * DÉCLENCHE PAS L'OUVERTURE DE LA FICHE » (Arno). On éprouve le cas qu'il nomme : le sélecteur d'urgence.
+   * 🔴🔴 « UN DOUBLE-CLIC SUR UN BOUTON OU UN CONTRÔLE À L'INTÉRIEUR DE LA CARTE NE DÉCLENCHE RIEN » (Arno). Le
+   * contrôle nommé au lot précédent (le sélecteur d'urgence) a quitté la carte ; on éprouve donc celui qui reste,
+   * et qui est le plus exposé : le gros bouton rouge lui-même.
    */
-  it('🔴🔴 double-clic sur le sélecteur d’urgence : aucune ouverture', async () => {
+  it('🔴🔴 double-clic sur le bouton rouge : il n’ouvre pas DEUX fois', async () => {
     const fiches: string[] = [];
     await monter(CARTE(), { onOuvrirBien: (cle) => fiches.push(cle) });
-    await deplier();
-    const b = boutonsUrgence()[2];
-    await cliquer(b, 2);
-    expect(fiches).toEqual([]);
-  });
-
-  /** 🔴 ET SUR UN BOUTON DE L'ÉCRAN PARTAGÉ non plus : même règle, autre écran. */
-  it('🔴 double-clic sur le gros bouton rouge : pas de saut vers le plein écran', async () => {
-    const vus: number[] = [];
-    await monter(CARTE(), {
-      partage: true, onOuvrirBien: () => {}, onPleinEcranSurEvenement: (id) => vus.push(id),
-    });
     await deplier();
     const gros = container.querySelector('.gst-ouvrir-fiche') as HTMLElement;
     expect(gros).not.toBeNull();
     await cliquer(gros, 2);
-    expect(vus).toEqual([]);
+    /* 🔴 LE BOUTON FAIT SON PROPRE GESTE ; le double-clic de la carte, lui, ne s'ajoute pas. */
+    expect(fiches).toEqual(['315']);
   });
 
   /**
-   * 🔴 LA CAPSULE « Type à définir » GARDE SON CLIC, au simple comme au double : c'est un contrôle interne, et son
-   * geste est d'ouvrir le choix du type — jamais de changer d'écran.
+   * 🔴 LA CAPSULE « Type à définir » GARDE SON CLIC, et il DÉPLIE la carte — jamais elle n'ouvre la fiche.
+   * Son geste a changé de destination avec ce lot : le formulaire qu'elle ouvrait est parti dans la fiche du bien.
    */
-  it('🔴 double-clic sur « Type à définir » : il ouvre le choix du type, et rien d’autre', async () => {
-    const vus: number[] = [];
+  it('🔴 double-clic sur « Type à définir » : il déplie, et n’ouvre pas la fiche', async () => {
+    const fiches: string[] = [];
     detailServi = { ...DETAIL_BASE, categorie: null };
-    await monter(CARTE({ categorie: null }), {
-      partage: true, onOuvrirBien: () => {}, onPleinEcranSurEvenement: (id) => vus.push(id),
-    });
+    await monter(CARTE({ categorie: null }), { onOuvrirBien: (cle) => fiches.push(cle) });
     await cliquer(capsule() as Element, 2);
-    expect(vus).toEqual([]);
+    expect(fiches).toEqual([]);
+    expect(container.querySelector('button[aria-expanded="true"]')).not.toBeNull();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 L'ÉVÉNEMENT VISÉ RESTE UNE FONCTION D'ADRESSE, ET PLUS UN GESTE (lot CARTES-EVENEMENT-MEME-GESTE).
+   Arno : « Le lien &evenement=<id> (carte centrée, liserée, dépliée) peut rester comme fonction d'adresse, mais
+   plus aucun geste ne doit l'appeler par défaut. » Ce que ces cas éprouvent ne change donc pas d'un cran ; ce qui
+   a disparu, c'est le double-clic qui écrivait cette adresse — éprouvé par son absence au bloc ② ci-dessus.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe('🔴🔴 ③ l’événement VISÉ : liseré, déplié, centré', () => {
   it('🔴🔴 il porte le liseré de sélection, et le dit au lecteur d’écran', async () => {
@@ -379,9 +351,11 @@ describe('🔴🔴 ③ l’événement VISÉ : liseré, déplié, centré', () =
   });
 
   it('🔴🔴 il est DÉPLIÉ d’emblée', async () => {
-    await monter(CARTE(), { vise: true });
+    await monter(CARTE(), { vise: true, onOuvrirBien: () => {} });
     expect(container.querySelector('button[aria-expanded="true"]')).not.toBeNull();
-    expect(boutonsUrgence()).toHaveLength(3);
+    /* ⚠️ CE CAS LISAIT LES TROIS BOUTONS D'URGENCE ; ils ont quitté la carte. Ce qu'une carte dépliée montre
+       désormais, c'est le bouton rouge — voir le lot CARTES-EVENEMENT-MEME-GESTE. */
+    expect(container.querySelector('.gst-ouvrir-fiche')).not.toBeNull();
   });
 
   it('🔴🔴 et la liste défile pour le CENTRER', async () => {
@@ -506,11 +480,11 @@ describe('🔴🔴 ④ les parties manquantes, à l’ouverture de la carte', ()
     const sansParties = { ...DETAIL_BASE } as Record<string, unknown>;
     delete sansParties.parties;
     detailServi = sansParties;
-    await monter(CARTE());
+    await monter(CARTE(), { onOuvrirBien: () => {} });
     await deplier();
     expect(container.querySelector('.gst-parties')).toBeNull();
     /* 🔴 ET LE RESTE DE LA CARTE EST BIEN LÀ : la preuve qu'elle n'a pas jeté. */
-    expect(boutonsUrgence()).toHaveLength(3);
+    expect(container.querySelector('.gst-ouvrir-fiche')).not.toBeNull();
   });
 
   /** 🔴 PAS DE NUMÉRO DE LOT INTERNE (Arno) : on n'écrit que des noms et leur rôle. */

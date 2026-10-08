@@ -21,22 +21,41 @@ const VUE = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx',
 const BLOC = readFileSync('app/(admin)/admin/(protected)/gestion/EvenementsDuBien.tsx', 'utf8');
 const REPO = readFileSync('app/lib/gestion/mongaEtapeRepo.ts', 'utf8');
 
-describe('🔴🔴 ① A — l’écran partagé mène au plein écran, sur cet événement', () => {
-  /**
-   * 🔴🔴 L'INTENTION VOYAGE DANS L'ADRESSE, et non dans un état de composant : c'est la condition d'Arno
-   * (« Le lien […] doit marcher aussi en le copiant dans un nouvel onglet »), et la règle de ce fichier depuis
-   * le lot 5-FUSION.
-   */
-  it('🔴🔴 il écrit `?ecran=evenements&evenement=<id>` dans l’adresse', () => {
-    expect(VUE).toContain(
-      "aller({ ...ETAT_DEFAUT, ecran: 'evenements', evenementVise: evenementId });");
-    /* 🔴 ET VOICI L'ADRESSE QUE CELA PRODUIT, pour qu'on la lise ici et pas seulement dans l'écran. */
-    expect(ecrireEtatUrl({ ...ETAT_DEFAUT, ecran: 'evenements', evenementVise: 12 }))
-      .toBe('?ecran=evenements&evenement=12');
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ══ 🔴🔴 BLOC RENVERSÉ LE 08/10/2026 — LOT CARTES-EVENEMENT-MEME-GESTE ═══════════════════════════════════════
+
+   IL EXIGEAIT que l'écran partagé MÈNE au plein écran sur double-clic, en écrivant `?ecran=evenements&evenement=`.
+   ARNO : « Le double-clic de l'écran partagé N'OUVRE PLUS l'écran Événements centré. On passe à l'écran Événements
+   UNIQUEMENT par le bouton “Plein écran” de la colonne Événements. »
+
+   🔴 L'ADRESSE RESTE, LE GESTE PART — et c'est exactement ce que ces deux cas vérifient désormais, chacun d'un
+   côté de la nuance : plus aucun geste ne l'écrit, et le bouton « Plein écran » est le seul chemin.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ① A — plus aucun geste ne mène à l’écran Événements centré', () => {
+  it('🔴🔴 le saut par double-clic a été retiré, fonction et branchement', () => {
+    expect(VUE).not.toContain('const ouvrirPleinEcranSurEvenement');
+    expect(VUE).not.toContain('onPleinEcranSurEvenement=');
+    const CARTE = readFileSync('app/(admin)/admin/(protected)/gestion/CarteVive.tsx', 'utf8');
+    expect(CARTE).not.toContain('onPleinEcranSurEvenement');
   });
 
-  it('🔴 la carte reçoit la fonction, dans les deux écrans', () => {
-    expect(VUE).toContain('onPleinEcranSurEvenement={ouvrirPleinEcranSurEvenement}');
+  /**
+   * 🔴 LE SEUL CHEMIN QUI RESTE, ET IL NE BOUGE PAS : le bouton « Plein écran » de la colonne Événements. Il
+   * garde l'étiquette courante, comme avant ce lot.
+   */
+  it('🔴 le bouton « Plein écran » est le seul chemin, et il est intact', () => {
+    expect(VUE).toContain("onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null })}");
+    expect(VUE).toContain('Plein écran');
+  });
+
+  /**
+   * 🔴 ET L'ADRESSE, ELLE, RESTE VALIDE : « Le lien &evenement=<id> […] peut rester comme fonction d'adresse »
+   * (Arno). On le prouve par ce que `ecrireEtatUrl` produit, et non par le code qui l'appellerait.
+   */
+  it('🔴 `?ecran=evenements&evenement=<id>` reste une adresse valide', () => {
+    expect(ecrireEtatUrl({ ...ETAT_DEFAUT, ecran: 'evenements', evenementVise: 12 }))
+      .toBe('?ecran=evenements&evenement=12');
   });
 });
 

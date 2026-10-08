@@ -229,16 +229,25 @@ describe('🔴🔴 ⑤ sans type : « Type à définir », et un chemin pour le 
    * mécanisme que `BlocRepliable` offre déjà) ET ouvre le formulaire « Modifier les informations de
    * l'événement », qui porte désormais le `<select>` du type.
    */
-  it('🔴🔴 le clic déplie le dossier et ouvre le formulaire existant', () => {
+  /**
+   * ══ 🔴🔴 ÉPREUVE AMENDÉE LE 08/10/2026 — LOT CARTES-EVENEMENT-MEME-GESTE ═══════════════════════════════════
+   *
+   * ELLE EXIGEAIT que le clic sur « Type à définir » DÉPLIE la carte **et** y ouvre le formulaire. Le formulaire
+   * a quitté la carte avec tous les blocs de détail (« tout ce qui s'y affichait en plus des infos manquantes et
+   * du bouton rouge disparaît », Arno) : il ne vit plus que dans la fiche du bien, qui l'IMPORTE d'ici.
+   *
+   * 🔴 CE QUE L'ANCIENNE RÈGLE PROTÉGEAIT TIENT : la capsule n'est pas un cul-de-sac — elle déplie la carte, qui
+   * porte le bouton rouge vers la fiche, où le type se choisit. Et le `<select>` du type est toujours dans LE
+   * formulaire partagé, pas dans une copie.
+   */
+  it('🔴🔴 le clic déplie le dossier, et le choix du type vit dans le formulaire partagé', () => {
     const CARTE = readFileSync('app/(admin)/admin/(protected)/gestion/CarteVive.tsx', 'utf8');
     expect(CARTE).toContain('ouvrirSignal={demandeDeType}');
-    expect(CARTE).toContain('demandeDeType={demandeDeType}');
-    expect(CARTE).toContain('const [edition, setEdition] = useState(demandeDeType > 0);');
-    /* 🔴 ET C'EST LE FORMULAIRE DÉJÀ EN PLACE — celui du bouton « Modifier les informations de l'événement » —
-       qui a gagné le champ, pas un écran de plus. */
+    /* 🔴 LE FORMULAIRE RESTE EXPORTÉ PAR CE FICHIER, et il porte toujours le champ « Type ». */
     expect(CARTE).toContain('export function FormulaireCarte(');
     const formulaire = CARTE.slice(CARTE.indexOf('export function FormulaireCarte('));
     expect(formulaire).toContain('<span className="svv-label">Type</span>');
+    /* 🔴 ET C'EST LA FICHE DU BIEN QUI L'OUVRE DÉSORMAIS — le seul endroit où l'on choisit un type. */
     const BIEN = readFileSync('app/(admin)/admin/(protected)/gestion/EvenementsDuBien.tsx', 'utf8');
     expect(BIEN).toContain('Modifier les informations de l’événement');
     expect(BIEN).toContain("import { FormulaireCarte } from './CarteVive';");

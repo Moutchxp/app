@@ -177,8 +177,10 @@ describe('② la frise : ce qu’Arno a demandé, pièce par pièce', () => {
   it('🔴 la clôture est une proposition, et elle passe par la porte existante', () => {
     expect(FRISE).toContain('Clôturer cet événement ?');
     expect(FRISE).toContain('onProposerCloture');
-    /* 🔴 DANS LA CARTE, elle emprunte `agir({ etat: 'traite' })` — le même journal que le bouton d'état. */
-    expect(CARTE).toContain("onProposerCloture={() => void agir({ etat: 'traite' }");
+    /* ⚠️ ELLE PASSAIT PAR LA CARTE (`agir({ etat: 'traite' })`) ; la frise a quitté la carte avec le lot
+       CARTES-EVENEMENT-MEME-GESTE, et c'est la FICHE DU BIEN qui porte désormais la proposition — par sa propre
+       porte d'écriture, `ecrire`, qui est la même route et le même journal. */
+    expect(BLOC).toContain("onProposerCloture={() => void ecrire(e.id, { etat: 'traite' }");
   });
 
   /**
@@ -772,13 +774,19 @@ describe('⑭ l’ouverture, et ce qu’une carte raconte (Arno, points 1, 3 et 
   });
 
   /**
-   * 🔴🔴 MÊMES RÈGLES DANS LES DEUX ÉCRANS (Arno, point 6) : la vue de l'événement et le bloc « Événements » de
-   * la fiche bien rendent le MÊME composant. Un second rendu aurait fini par diverger sur le réservoir.
+   * ══ 🔴🔴 ÉPREUVE AMENDÉE LE 08/10/2026 — LOT CARTES-EVENEMENT-MEME-GESTE ═══════════════════════════════════
+   *
+   * ELLE EXIGEAIT la frise dans DEUX écrans — la vue de l'événement et la fiche du bien (lot FRISE-COMPACTE,
+   * point 6). La carte dépliée ne porte plus de frise : « tout ce qui s'y affichait en plus des infos manquantes
+   * et du bouton rouge disparaît » (Arno), et la frise a été retrouvée dans la fiche avant d'être retirée.
+   *
+   * 🔴 CE QUE LA RÈGLE PROTÉGEAIT TIENT : la frise reste UN SEUL composant, jamais recopié. Elle n'a plus qu'un
+   * appelant, et l'épreuve vérifie les deux faces.
    */
-  it('🔴🔴 un seul composant pour les deux écrans', () => {
-    for (const [nom, src] of [['CarteVive', CARTE], ['EvenementsDuBien', BLOC]] as const) {
-      expect(src, nom).toContain('<FriseAvancement');
-    }
+  it('🔴🔴 un seul composant, et il n’a plus qu’un appelant : la fiche du bien', () => {
+    expect(BLOC).toContain('<FriseAvancement');
+    expect(CARTE).not.toContain('<FriseAvancement');
+    expect(CARTE).not.toContain("from './FriseAvancement'");
   });
 });
 
@@ -1010,10 +1018,22 @@ describe('⑲ l’état quitte l’écran partagé, sans perdre sa fonction', ()
     expect(VUE).toContain('<ul className="gst-liste">{cartesDe(true)}</ul>');
   });
 
-  /** 🔴🔴 L'UN OU L'AUTRE, JAMAIS LES DEUX, JAMAIS AUCUN : la fonction n'est pas perdue, elle change de place. */
-  it('🔴🔴 l’écran partagé montre le bouton, le plein écran montre l’état', () => {
-    expect(CARTE).toContain('{partage\n        ? <OuvrirLaFicheDuBien');
-    expect(CARTE).toContain(': <EtatCarte etat={d.etat}');
+  /**
+   * ══ 🔴🔴 ÉPREUVE RENVERSÉE LE 08/10/2026 — LOT CARTES-EVENEMENT-MEME-GESTE ═════════════════════════════════
+   *
+   * ELLE EXIGEAIT « L'UN OU L'AUTRE, JAMAIS LES DEUX » : le gros bouton dans l'écran partagé, les trois boutons
+   * d'état en plein écran (lot VIGNETTE-EVENEMENT, point 1). ARNO tranche l'inverse le 08/10/2026 : « RÈGLE
+   * UNIQUE […] IDENTIQUE sur les deux écrans », et le bouton rouge fait partie de ce que la carte dépliée montre
+   * TOUJOURS.
+   *
+   * 🔴 LE BOUTON EST DONC SUR LES DEUX ÉCRANS, sans condition. Les trois boutons d'état, eux, restent en plein
+   * écran SEULEMENT — l'unique exception du lot, parce qu'ils n'existent nulle part ailleurs et qu'Arno demande
+   * de ne pas retirer ce qui serait alors perdu. Voir l'encadré de `CorpsCarte`.
+   */
+  it('🔴🔴 le bouton rouge est sur les deux écrans ; l’état reste l’exception du plein écran', () => {
+    expect(CARTE).toContain('<OuvrirLaFicheDuBien biens={d.biens ?? []}');
+    expect(CARTE).not.toContain('{partage\n        ? <OuvrirLaFicheDuBien');
+    expect(CARTE).toContain('{partage ? null : (\n        <EtatCarte etat={d.etat}');
   });
 
   /**
@@ -1139,8 +1159,11 @@ describe('㉑ la vignette d’un événement', () => {
     /* La vignette vivante est le titre de `CarteVive` : plus aucune capsule dans tout le fichier sauf sur un fil. */
     const titres = CARTE.slice(CARTE.indexOf('<span className="gst-carte-titre'), CARTE.indexOf('</BlocRepliable>'));
     expect(titres).not.toContain('gst-attend');
-    /* ⚠️ ET ELLE SURVIT LÀ OÙ ELLE DIT ENCORE QUELQUE CHOSE : sur un ÉCHANGE. */
-    expect(CARTE).toContain('{fil.attend && <span className="gst-attend">attend une réponse</span>}');
+    /* ⚠️ ET ELLE SURVIT LÀ OÙ ELLE DIT ENCORE QUELQUE CHOSE : sur un ÉCHANGE de la FILE (`GestionVue`).
+       ⚠️ PLUS DANS `CarteVive` : la liste des échanges rattachés a quitté la carte dépliée au lot
+       CARTES-EVENEMENT-MEME-GESTE, et la capsule est partie avec elle. C'est le seul endroit qu'elle perd — la
+       file, qui est l'écran où l'on cherche ce qui attend, la garde intacte. */
+    expect(CARTE).not.toContain('gst-attend');
     expect(VUE).toContain('{fil.attend && <span className="gst-attend">attend une réponse</span>}');
   });
 
@@ -1681,22 +1704,35 @@ describe('㉕ l’écran partagé est minimaliste (lot EVENEMENT-MINIMALISTE, po
    * (alerte de clôture, frise, bloc Quoi / Qui demande / Adresse / Ouvert / Modifier). Il ne reste que la
    * vignette et le gros bouton “Ouvrir la fiche du bien sur cet événement →”. »
    */
-  it('🔴🔴 dans l’écran partagé, le corps s’arrête au gros bouton', () => {
-    expect(CARTE).toContain('{partage ? null : (<>');
-    /* 🔴 ET LE GROS BOUTON, LUI, RESTE — c'est la seule chose qui demeure avec la vignette. */
+  /**
+   * ══ 🔴🔴 ÉPREUVE ÉLARGIE LE 08/10/2026 — LOT CARTES-EVENEMENT-MEME-GESTE ═══════════════════════════════════
+   *
+   * ELLE DISAIT « dans l'écran PARTAGÉ, le corps s'arrête au gros bouton ». Ce n'est plus seulement l'écran
+   * partagé : Arno étend la règle aux DEUX écrans. « SIMPLE CLIC → la carte se déplie et montre UNIQUEMENT : les
+   * informations absentes de la carte repliée ; le bouton rouge. »
+   */
+  it('🔴🔴 sur les DEUX écrans, le corps s’arrête aux infos manquantes et au gros bouton', () => {
     expect(CARTE).toContain('<OuvrirLaFicheDuBien biens={d.biens ?? []}');
+    expect(CARTE).toContain('<PartiesManquantes parties={d.parties}');
+    /* 🔴 ET LE GRAND `{partage ? null : (<>` QUI ENCADRAIT TOUT LE DÉTAIL N'EXISTE PLUS : il n'y a plus de
+       détail à encadrer. */
+    expect(CARTE).not.toContain('{partage ? null : (<>');
   });
 
   /**
-   * 🔴🔴 EN PLEIN ÉCRAN, RIEN NE CHANGE. L'écran partagé est une LISTE — on y choisit un dossier, on ne le
-   * travaille pas. Tout ce qui est retiré de la liste reste là où l'on travaille.
+   * ══ 🔴🔴 ÉPREUVE RENVERSÉE — LE PLEIN ÉCRAN NE « GARDE » PLUS TOUT ════════════════════════════════════════
+   *
+   * ELLE EXIGEAIT que le plein écran conserve la frise, Monga, le résumé et les échanges (« L'écran partagé est
+   * une LISTE — on y choisit un dossier, on ne le travaille pas »). ARNO revient dessus : le plein écran devient
+   * lui aussi une liste, et le dossier se travaille sur la FICHE DU BIEN.
+   *
+   * 🔴 CHAQUE MORCEAU A ÉTÉ RETROUVÉ AILLEURS AVANT D'ÊTRE RETIRÉ — c'est la condition qu'Arno a posée, et elle
+   * est vérifiée pièce par pièce par le cas suivant et par `CarteVive.test.ts`.
    */
-  it('🔴🔴 le plein écran garde tout : frise, Monga, résumé, échanges', () => {
-    const i = CARTE.indexOf('{partage ? null : (<>');
-    const bloc = CARTE.slice(i, CARTE.indexOf('</>)}', i));
+  it('🔴🔴 le plein écran ne garde plus ni frise, ni Monga, ni résumé, ni échanges', () => {
     for (const morceau of ['<h3 className="gst-sous-titre">Avancement</h3>', '<FriseAvancement',
       'className="gst-monga"', '<ResumeCarte detail={d}', 'Échanges rattachés']) {
-      expect(bloc, morceau).toContain(morceau);
+      expect(CARTE, morceau).not.toContain(morceau);
     }
   });
 

@@ -236,15 +236,24 @@ describe('🔴🔴 ④ la porte d’écriture accepte le niveau, et le refuse s�
 
 describe('🔴🔴 ⑤ un seul sélecteur, pour la carte et pour la fiche du bien', () => {
   /**
-   * 🔴🔴 « AU MÊME COMPOSANT » (Arno). Les deux écrans IMPORTENT le même fichier ; aucun des deux ne redessine
-   * trois boutons. Une copie aurait fini par proposer trois niveaux d'un côté et quatre de l'autre.
+   * ══ 🔴🔴 ÉPREUVE AMENDÉE LE 08/10/2026 — LOT CARTES-EVENEMENT-MEME-GESTE ═══════════════════════════════════
+   *
+   * ELLE EXIGEAIT le sélecteur dans DEUX écrans : la carte d'événement ET la fiche du bien (« au même
+   * composant », lot URGENCE-EVENEMENT point 3b). ARNO revient dessus le même jour : « le sélecteur d'urgence
+   * Normal / Intermédiaire / Urgent (il reste dans la fiche du bien) » fait partie des retraits de la carte.
+   *
+   * 🔴 CE QUE L'ANCIENNE RÈGLE PROTÉGEAIT TIENT TOUJOURS, et c'est pour cela qu'elle ne disparaît pas : le
+   * sélecteur reste UN SEUL composant, importé et jamais recopié. Il n'a plus qu'un appelant — la fiche —, et
+   * l'épreuve vérifie désormais les deux faces : il y est, et il n'est plus dans la carte.
    */
-  it('🔴🔴 la carte et la fiche importent le MÊME composant', () => {
-    for (const f of ['CarteVive.tsx', 'EvenementsDuBien.tsx']) {
-      const src = readFileSync(`app/(admin)/admin/(protected)/gestion/${f}`, 'utf8');
-      expect(src, f).toContain("import { SelecteurUrgence } from './SelecteurUrgence';");
-      expect(src, f).toContain('<SelecteurUrgence ');
-    }
+  it('🔴🔴 un seul composant, et il n’a plus qu’un appelant : la fiche du bien', () => {
+    const BIEN = readFileSync('app/(admin)/admin/(protected)/gestion/EvenementsDuBien.tsx', 'utf8');
+    expect(BIEN).toContain("import { SelecteurUrgence } from './SelecteurUrgence';");
+    expect(BIEN).toContain('<SelecteurUrgence ');
+    /* 🔴 ET LA CARTE NE LE REND PLUS, NI NE L'IMPORTE : un import orphelin finit par être recâblé. */
+    const CARTE = readFileSync('app/(admin)/admin/(protected)/gestion/CarteVive.tsx', 'utf8');
+    expect(CARTE).not.toContain("from './SelecteurUrgence'");
+    expect(CARTE).not.toContain('<SelecteurUrgence ');
   });
 
   /** 🔴 LES TROIS BOUTONS VIENNENT DE LA SOURCE UNIQUE, et leur couleur du ton déclaré avec le niveau. */

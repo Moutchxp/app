@@ -2,707 +2,288 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 import { CarteVive } from './CarteVive';
-import type { CarteDetail, MessageDeFil } from '../../../../lib/gestion/carteRepo';
+import type { CarteDetail } from '../../../../lib/gestion/carteRepo';
+import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 
 /**
- * LOT 4c-B — LA CARTE VIVANTE, éprouvée en montant le composant (jsdom + act, sans testing-library).
+ * ══ 🔴🔴 FICHIER RÉÉCRIT LE 08/10/2026 — LOT CARTES-EVENEMENT-MEME-GESTE ════════════════════════════════════════
  *
- * Ce qui est vérifié ici n'est pas l'apparence mais trois promesses faites à Arno :
- *   ① PARESSE : une carte repliée ne lance AUCUNE requête, un échange replié non plus. C'est ce qui rend l'écran
- *      tenable avec des centaines d'échanges — et ça ne se voit que par le compte des appels réseau.
- *   ② LES PIÈCES SONT SERVIES PAR L'APPLICATION : les liens pointent vers /api/…/pieces/<id>, jamais vers MinIO.
- *   ③ LES GESTES DISENT CE QU'ILS FONT : état, correction, détachement — chacun rend un compte rendu, et le
- *      détachement (qui change AUSSI la file) demande la relecture de tout l'écran.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * CE QU'IL ÉPROUVAIT, ET QUI N'EXISTE PLUS DANS CETTE CARTE. Il tenait, depuis le lot 4c-B, trois promesses de la
+ * carte DÉPLIÉE : les pièces servies par l'application, les gestes par échange et par mail (menu « ⋯ », déplacer,
+ * détacher, remettre), et le badge Monga avec sa clôture proposée. Six suites, 41 cas.
+ *
+ * DÉCISION D'ARNO (08/10/2026) : « SIMPLE CLIC → la carte se déplie et montre UNIQUEMENT : les informations
+ * absentes de la carte repliée […] ; le bouton rouge “Ouvrir la fiche du bien sur cet événement →”. […] tout ce
+ * qui s'y affichait en plus disparaît. » La carte n'est plus un dossier, c'est un TREMPLIN vers la fiche du bien.
+ *
+ * ═══ 🔴 OÙ EST PASSÉE LA COUVERTURE, PIÈCE PAR PIÈCE (vérifié, pas supposé) ══════════════════════════════════════
+ *   · les pièces servies par l'application   → `PiecesDeLaConversation.test.ts` ;
+ *   · le menu « ⋯ » d'un échange et d'un mail, « Détacher l'échange », « Déplacer ce mail », « Détacher ce mail »
+ *                                            → `Conversation.statut.test.ts` (cas « le menu garde toutes ses
+ *                                              entrées ») — ces gestes vivent dans `Conversation.tsx`, qui les
+ *                                              rend toujours ;
+ *   · la frise, sa clôture proposée, le formulaire « Modifier » et le choix du type
+ *                                            → `FriseAvancement.test.ts`, côté fiche du bien ;
+ *   · le sélecteur d'urgence                 → `urgenceEvenement.test.ts` et `CarteVive.urgence.test.ts`.
+ *
+ * ⚠️ UNE COUVERTURE EST RÉELLEMENT PERDUE, ET JE LE DIS PLUTÔT QUE DE LA TAIRE : « Déplacer l'échange… » (déplacer
+ * un ÉCHANGE ENTIER vers une autre carte) était rendu par `FilRattache`, qui disparaît avec la carte dépliée. La
+ * CAPACITÉ, elle, demeure — `PanneauAffecter` (« Rattacher à : événement existant »), rendu par `Conversation.tsx`.
+ *
+ * ═══ CE QUE CE FICHIER ÉPROUVE DÉSORMAIS ════════════════════════════════════════════════════════════════════════
+ *   ① PARESSE — une carte repliée ne lance AUCUNE requête ; c'est la promesse du lot 4c, et elle ne bouge pas ;
+ *   ② LE CONTENU DE LA CARTE DÉPLIÉE — les infos manquantes, le bouton rouge, et RIEN d'autre ;
+ *   ③ L'UNIQUE EXCEPTION — les trois boutons d'état, gardés en plein écran parce qu'ils n'existent nulle part
+ *      ailleurs (consigne d'Arno : « ne le retire pas ») ;
+ *   ④ LE CODE MORT est parti avec sa fonction.
+ *
+ * 🔒 Aucun réseau : `fetch` est doublé. Aucune base. Aucun mail ni événement RÉEL n'est touché.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const MAINTENANT = new Date('2026-09-23T12:00:00Z');
 
-const CARTE = {
+const CARTE: CarteEvenement = {
   evenementId: 9, reference: 'GES-2026-000009', objet: 'Fuite salle de bain', demandeur: 'Mme M.',
-  adresseLibre: '28 avenue Marceau', etat: 'a_traiter' as const, ouvertLe: '2026-09-20T12:00:00Z',
+  adresseLibre: '28 avenue Marceau', etat: 'a_traiter', ouvertLe: '2026-09-20T12:00:00Z',
   dernierEchangeLe: '2026-09-22T12:00:00Z', nbFils: 1, nbMailsDeplaces: 0, attend: true,
-  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise. `null` = aucune étape : la
-     vignette montre alors « Ouverture » et la date d'ouverture de l'événement. */
-  derniereEtape: null,
-  /* 🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — aucune étape venue de Monga : pas de capsule. */
-  derniereEtapeMonga: null,
-  /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — l'effet « mis à jour par Monga » est la comparaison de ces deux dates.
-     `null` des deux côtés = aucune étape Monga, jamais vu : rien ne s'allume. */
-  mongaMajLe: null, vuLe: null,
-  /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 1 — les références MNG reliées ; vide = pas suivi par Monga. */
-  mongaRefs: [],
-  /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le type, le bien et ceux qui gravitent autour. */
-  categorie: null, urgence: null, bien: null, nbBiens: 0,
+  derniereEtape: null, derniereEtapeMonga: null,
+  mongaMajLe: null, vuLe: null, mongaRefs: [],
+  categorie: null, urgence: null,
+  bien: { cle: '315', adresse: '28 avenue Marceau', commune: 'PARIS', proprietaire: null, locataire: null },
+  nbBiens: 1,
 };
 
-// Typés d'après le contrat RÉEL des routes : sans ça, un littéral s'infère trop étroitement (`traiteLe: null` de
-//   type `null`) et le jeu d'essai ne pourrait plus exprimer la variante « carte traitée ».
-const DETAIL: CarteDetail = {
+const DETAIL: CarteDetail & { biens: unknown; parties: unknown } = {
   evenementId: 9, reference: 'GES-2026-000009', objet: 'Fuite salle de bain', demandeurNom: 'Mme M.',
   demandeurEmail: 'm@exemple.test', adresseLibre: '28 avenue Marceau', etat: 'a_traiter',
-  /* 🔴 LOT CAPSULE-TYPE-EVENEMENT — le détail porte désormais le TYPE, pour que le formulaire le pré-remplisse. */
-  categorie: null,
-  /* 🔴 LOT URGENCE-EVENEMENT — … et le NIVEAU D'URGENCE, qui peint la capsule et met en évidence le sélecteur. */
-  urgence: null,
+  categorie: null, urgence: null,
   ouvertLe: '2026-09-20T12:00:00Z', ouvertPar: 'arno', traiteLe: null, traitePar: null,
-  fils: [{ filId: 5, objet: 'Fuite salle de bain', interlocuteur: 'Mme M.', dernierLe: '2026-09-22T12:00:00Z', nbMessages: 2, nbPieces: 1, attend: true }],
-  mailsDeplaces: [],
+  fils: [], mailsDeplaces: [],
+  biens: [{ cle: '315', adresse: '28 avenue Marceau', commune: 'PARIS' }],
+  parties: [{ sorte: 'locataire', nom: 'DUPONT Marie' }],
 };
-
-/**
- * LOT 5b — les champs de conversation (extrait, hors-file, destinataires, HTML seul) complètent chaque message. Ils
- * sont posés ICI une fois pour toutes, avec les valeurs du cas ordinaire, pour que les cas de test ne parlent que de
- * ce qu'ils éprouvent.
- */
-const conv = <T extends Partial<MessageDeFil>>(m: T) => ({
-  extrait: typeof m.corps === 'string' ? m.corps.slice(0, 300) : null,
-  horsFile: false, motifHorsFile: null,
-  destA: null, destCc: null, destinatairesFondus: null, htmlSeul: false,
-  ...m,
-}) as MessageDeFil;
-
-const EN_TETE = { filId: 5, objet: 'Fuite salle de bain', etat: 'a_classer' as const, reference: 'GES-2026-000009', evenementId: 9 };
-
-const MESSAGES: MessageDeFil[] = [
-  conv({
-    messageId: 1, sens: 'recu' as const, de: 'locataire@exemple.test', deNom: 'Mme M.', recuLe: '2026-09-21T12:00:00Z',
-    objet: 'Fuite',
-    // Un corps RÉEL : signature avec une référence d'image, puis l'historique cité dessous.
-    corps: 'Bonjour,\n\nIl y a une fuite sous le lavabo. [cid:image001.png@01DA]\n\n> Le 20 septembre, Gestion a écrit :\n> Bonjour, avez-vous constaté quelque chose ?',
-    automatique: false,
-    pieces: [
-      // 🔴 LOT NOM-UNIQUE-DES-PIECES — `nomFichier` est le nom d'USAGE, `nomOrigine` celui reçu. Ici les deux
-      //   sont identiques : aucune de ces pièces n'a été renommée.
-      { pieceId: 7, nomFichier: 'constat.pdf', nomOrigine: 'constat.pdf', typeMime: 'application/pdf', tailleOctets: 120000, disponible: true, motifNonStocke: null, empreinte: 'sha-7' },
-      { pieceId: 8, nomFichier: 'video.mov', nomOrigine: 'video.mov', typeMime: 'video/quicktime', tailleOctets: null, disponible: false, motifNonStocke: 'type refusé', empreinte: null },
-      { pieceId: 9, nomFichier: 'image001.png', nomOrigine: 'image001.png', typeMime: 'image/png', tailleOctets: 3000, disponible: true, motifNonStocke: null, empreinte: 'sha-9' },
-    ],
-  }),
-  conv({
-    messageId: 2, sens: 'envoye' as const, de: 'gestion@criterimmo.fr', deNom: null, recuLe: '2026-09-22T12:00:00Z',
-    objet: 'Re: Fuite', corps: null, automatique: false, pieces: [],
-  }),
-];
 
 let container: HTMLDivElement;
 let root: Root;
 let appels: string[];
 let rapports: { message: string; rechargerTout?: boolean }[];
-let patchs: unknown[];
-let posts: { url: string; corps: unknown }[];
-let PARTIS: { messageId: number; objet: string | null; recuLe: string; reference: string; evenementId: number }[];
-let reponseDetail: typeof DETAIL;
+let detailServi: Record<string, unknown>;
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  appels = []; rapports = []; patchs = []; posts = []; PARTIS = []; reponseDetail = DETAIL;
+  appels = []; rapports = [];
+  detailServi = { ...DETAIL };
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
-    appels.push(`${init?.method ?? 'GET'} ${u}`);
-    if (init?.method === 'PATCH') { patchs.push(JSON.parse(String(init.body))); return ok({ ok: true }); }
-    if (init?.method === 'POST') {
-      // LOT 5-BOITE — ouvrir une conversation la marque LUE pour le collaborateur : c'est un POST de plus, parti
-      //   tout seul, et qui n'a rien à voir avec les gestes éprouvés ici. On le sert et on l'ÉCARTE du relevé,
-      //   plutôt que d'indexer les gestes par leur rang d'arrivée — un rang, ça se décale au premier ajout.
-      if (/\/lecture$/.test(u)) return ok({ etat: 'ok', lu: true, messages: 1 });
-      // 🔴 LOT VIGNETTE-EVENEMENT (point 3) — MÊME RAISON, MÊME TRAITEMENT : déplier une carte, c'est « ouvrir la
-      //   vue de l'événement », et cela éteint l'effet « mis à jour par Monga » pour ce collaborateur. Ce POST
-      //   part tout seul et n'a rien à voir avec les gestes éprouvés ici. L'épreuve de PARESSE, elle, le COMPTE
-      //   explicitement — c'est là qu'il doit être vu.
-      if (/\/evenements\/vus$/.test(u)) return ok({ etat: 'ok', marques: 1 });
-      posts.push({ url: u, corps: JSON.parse(String(init.body)) });
-      return ok({ ok: true, evenementId: 42, reference: 'GES-2026-000042' });
+    appels.push(`${(init?.method ?? 'GET').toUpperCase()} ${u}`);
+    if (/\/evenements\/\d+$/.test(u) && (init?.method ?? 'GET') === 'GET') {
+      return { ok: true, status: 200, json: async () => detailServi } as unknown as Response;
     }
-    if (init?.method === 'DELETE') return ok({ ok: true });
-    // LOT 5b — la réponse porte désormais l'EN-TÊTE de l'échange : la vue conversation est ouverte depuis trois
-    //   endroits et doit savoir seule quoi proposer en haut.
-    if (u.includes('/messages')) return ok({ fil: EN_TETE, messages: MESSAGES, partis: PARTIS });
-    // La RECHERCHE d'événement (lot 4d) : deux cartes, dont celle où l'on se trouve déjà.
-    if (u.includes('/api/admin/gestion/evenements?')) {
-      return ok({ max: 30, evenements: [
-        { id: 42, reference: 'GES-2026-000042', objet: 'Chaudière', demandeur: 'M. D.', adresseLibre: null, etat: 'a_traiter', nbFils: 1 },
-        { id: 9, reference: 'GES-2026-000009', objet: 'Fuite salle de bain', demandeur: 'Mme M.', adresseLibre: null, etat: 'a_traiter', nbFils: 1 },
-      ] });
-    }
-    return ok(reponseDetail);
+    return { ok: true, status: 200, json: async () => ({ ok: true }) } as unknown as Response;
   }) as unknown as typeof fetch;
 });
-const ok = (corps: unknown) => ({ ok: true, status: 200, json: async () => corps } as unknown as Response);
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
-/**
- * Laisse le composant se poser : micro-tâches (promesses des `fetch`) ET macro-tâche (la recherche d'événement est
- * TEMPORISÉE — sans ce tour de boucle, la liste de résultats serait encore vide au moment du clic).
- */
-const calmer = async () => {
-  await act(async () => {
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-    await new Promise((r) => setTimeout(r, 0));
-    for (let i = 0; i < 5; i++) await Promise.resolve();
-  });
-};
-const monter = async () => {
+const calmer = async () => { await act(async () => { await Promise.resolve(); }); };
+
+const monter = async (o: { partage?: boolean } = {}) => {
   await act(async () => {
     root.render(createElement(CarteVive, {
-      carte: CARTE, maintenant: MAINTENANT,
+      carte: CARTE, maintenant: MAINTENANT, onOuvrirBien: () => {}, ...o,
       onGeste: (message: string, options?: { rechargerTout?: boolean }) => rapports.push({ message, ...options }),
     }));
   });
   await calmer();
 };
-const boutons = () => [...container.querySelectorAll('button')] as HTMLButtonElement[];
-const boutonPar = (motif: RegExp) => boutons().find((b) => motif.test(b.textContent ?? ''));
-const cliquer = async (b: HTMLElement | null | undefined) => { await act(async () => { b?.click(); }); await calmer(); };
-const liens = () => [...container.querySelectorAll('a')] as HTMLAnchorElement[];
-/** Le « ⋯ » de l'échange : discret à l'œil, mais parfaitement désignable — par son libellé accessible. */
-const menuDeLEchange = () => container.querySelector('button[aria-label="Actions sur cet échange"]') as HTMLButtonElement | null;
-/** Les RÉSULTATS de la recherche, et eux seuls : le titre de la carte porte aussi sa référence. */
-const resultats = () => [...container.querySelectorAll('.gst-resultats button')] as HTMLButtonElement[];
-const resultatPar = (motif: RegExp) => resultats().find((b) => motif.test(b.textContent ?? ''));
+
+/** Remonte à neuf, pour comparer deux rendus dans un même cas. */
+const remonter = (): void => {
+  act(() => { root.unmount(); });
+  container.innerHTML = '';
+  root = createRoot(container);
+  appels = [];
+};
+
+const titre = (): HTMLElement => container.querySelector('.svv-repli-titre') as HTMLElement;
+const deplier = async () => { await act(async () => { titre().click(); }); await calmer(); };
+const corps = (): string => container.querySelector('.gst-corps')?.textContent ?? '';
 
 describe('① PARESSE — ce qu’on n’ouvre pas ne coûte rien', () => {
   it('une carte repliée n’émet AUCUNE requête', async () => {
     await monter();
     expect(appels).toEqual([]);
-    /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 1 — LA RÉFÉRENCE A QUITTÉ LA CARTE (accord d'Arno) : ce qui prouve
-       que le résumé est déjà là, c'est son OBJET, qui ne vient d'aucune requête. */
-    expect(container.textContent).toContain('Fuite salle de bain');
-    expect(container.textContent).not.toContain('GES-2026-000009');
+    expect(container.querySelector('.gst-corps')).toBeNull();
   });
 
   /**
-   * ══ 🔴🔴 LOT MONGA-2, POINT 4 — LE DÉPLIAGE CHARGE DÉSORMAIS **DEUX** RESSOURCES ═══════════════════════════════
-   *
-   * CETTE ÉPREUVE FIGEAIT LA LISTE EXACTE DES APPELS (`toEqual([…une seule entrée…])`). La carte ouverte porte
-   * maintenant sa FRISE D'AVANCEMENT — « Où elle s'affiche : dans la vue de l'événement » (Arno) — et la frise a
-   * sa propre route.
-   *
-   * 🔴 LE VERDICT DE L'ÉPREUVE EST INTACT, ET C'EST LUI QUI COMPTE : rien ne part AVANT le dépliage, et chaque
-   * ressource n'est demandée QU'UNE FOIS. C'est la paresse du lot 4c, et elle tient toujours — la preuve en est
-   * l'épreuve « replier puis rouvrir ne relance RIEN », juste en dessous, qui n'a pas bougé.
-   *
-   * ⚠️ POURQUOI LA FRISE N'EST PAS DERRIÈRE UN SECOND CLIC. C'est le renseignement qui dit OÙ EN EST le travail,
-   * et le dépôt a déjà tranché cette question pour le badge Monga au lot MONGA-1 : « il doit se lire sans
-   * dérouler la carte ». Un clic de plus pour savoir si l'artisan est passé rendrait la frise inutile.
-   *
-   * ⚠️ ET LE COÛT EST BORNÉ : une requête par carte OUVERTE, jamais par carte listée. Les 443 échanges de la
-   * file n'en déclenchent toujours aucune tant qu'on ne déplie rien.
+   * ⚠️ CE CAS DISAIT « charge son dossier ET sa frise ». La frise a quitté la carte : il ne reste que le dossier,
+   * et le marquage « vu » qui l'accompagne depuis le lot VIGNETTE-EVENEMENT.
    */
-  it('le dépliage de la carte charge son dossier ET sa frise — chacun une seule fois', async () => {
+  it('le dépliage charge le dossier UNE fois, et plus aucune frise', async () => {
     await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
+    await deplier();
     expect(appels.filter((a) => a === 'GET /api/admin/gestion/evenements/9')).toHaveLength(1);
-    expect(appels.filter((a) => a.includes('/frise'))).toHaveLength(1);
-    /**
-     * 🔴 ET RIEN D'AUTRE QUE CES TROIS RESSOURCES.
-     *
-     * ⚠️ LA TROISIÈME EST ARRIVÉE AU LOT VIGNETTE-EVENEMENT (point 3) : déplier une carte, c'est « ouvrir la vue
-     * de l'événement », et Arno demande que cela ÉTEIGNE l'effet « mis à jour par Monga » pour ce
-     * collaborateur. C'est un POST, et il part une seule fois — le verdict de l'épreuve (le coût est borné, et
-     * connu) ne change pas.
-     */
-    expect(appels.filter((a) => a === 'POST /api/admin/gestion/evenements/vus')).toHaveLength(1);
-    expect(appels).toHaveLength(3);
-    expect(container.textContent).toContain('Échanges rattachés');
-  });
-
-  it('les MESSAGES ne partent qu’au dépliage de l’échange, pas à celui de la carte', async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(appels.some((a) => a.includes('/messages'))).toBe(false);
-    await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
-    expect(appels).toContain('GET /api/admin/gestion/fils/5/messages');
+    expect(appels.filter((a) => a.includes('/frise'))).toHaveLength(0);
+    expect(appels.filter((a) => a.includes('/messages'))).toHaveLength(0);
   });
 
   it('replier puis rouvrir ne relance RIEN (le contenu reste monté)', async () => {
     await monter();
-    const titre = () => boutonPar(/Fuite salle de bain/);
-    await cliquer(titre());
-    await cliquer(titre());
-    await cliquer(titre());
-    expect(appels.filter((a) => a === 'GET /api/admin/gestion/evenements/9')).toHaveLength(1);
+    await deplier();
+    const n = appels.length;
+    await deplier();
+    await deplier();
+    expect(appels).toHaveLength(n);
   });
 });
 
-describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
-  /**
-   * LOT 5b — un dépliage de PLUS qu'avant, et c'est voulu : dans la vue conversation, seul le DERNIER message est
-   * ouvert d'emblée (comportement de toutes les messageries). Les tests ci-dessous portent sur le PREMIER message —
-   * ils cliquent donc « Tout déplier ». Rien n'est perdu : tout est là, à un clic.
-   */
-  const ouvrirTout = async () => {
+describe('🔴🔴 ② la carte dépliée : les infos manquantes, le bouton rouge, et RIEN d’autre', () => {
+  it.each([true, false])('🔴 le bouton rouge est là (partage=%s)', async (partage) => {
+    await monter({ partage });
+    await deplier();
+    expect(container.querySelector('.gst-ouvrir-fiche')?.textContent)
+      .toContain('Ouvrir la fiche du bien sur cet événement');
+  });
+
+  it('🔴 les noms absents de la vignette y sont écrits', async () => {
     await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
-    await cliquer(boutonPar(/^Tout déplier$/));
-  };
-
-  /**
-   * ══ ⚠️ RÉÉCRIT PAR LE LOT PIECES-DE-LA-CONVERSATION (30/09/2026) ═══════════════════════════════════════════
-   *
-   * CE QU'IL EXIGEAIT : que la CONSULTATION d'une pièce soit un LIEN, vers `/api/admin/gestion/pieces/7` —
-   *     const piece = liens().find((a) => (a.getAttribute('aria-label') ?? '').includes('constat.pdf'));
-   *     expect(piece?.getAttribute('href')).toBe('/api/admin/gestion/pieces/7');
-   *
-   * POURQUOI C'ÉTAIT VRAI : la vignette ouvrait la pièce dans un NOUVEL ONGLET, donc par un lien.
-   *
-   * POURQUOI ÇA NE VAUT PLUS : Arno a demandé que la visionneuse maison s'ouvre côté courrier, avec les
-   * miniatures de pages, la priorité à la page 1, et « Précédent / Suivant » sur TOUTE la conversation. La
-   * vignette est donc devenue un BOUTON — un lien ne peut pas ouvrir une fenêtre dans la page. Le nouvel onglet
-   * ne savait rien de tout cela, et son lecteur PDF attend le fichier entier avant le premier pixel.
-   *
-   * 🔴 LA PROPRIÉTÉ GARDÉE EST LA MÊME, ET C'EST ELLE QUI COMPTE : aucune URL de stockage ne franchit jamais
-   * l'écran, et la consultation reste possible. On l'éprouve donc sur le GESTE (le bouton existe, nommé) et sur
-   * l'ABSENCE d'URL de stockage — non plus sur la nature HTML de l'élément, qui n'était qu'un moyen.
-   */
-  it('AUCUNE URL de stockage à l’écran, et la consultation d’une pièce est offerte', async () => {
-    await ouvrirTout();
-    // La consultation : un bouton nommé, qui ouvre la visionneuse maison (lot PIECES-DE-LA-CONVERSATION).
-    const voir = boutons().find((b) => (b.getAttribute('aria-label') ?? '').includes('Visualiser constat.pdf'));
-    expect(voir).toBeDefined();
-    /**
-     * 🔒 ET RIEN, NULLE PART, NE POINTE VERS LE STOCKAGE : c'est l'exigence d'Arno, inchangée depuis le lot 4c.
-     *
-     * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — LA SEULE ADRESSE EXTERNE PERMISE ═══════════════════════
-     *
-     * L'assertion interdisait TOUT `https:`. C'était un instrument plus large que la règle qu'il protège — le
-     * commentaire ci-dessus le dit : « aucune URL de STOCKAGE ». Arno a demandé le 04/10/2026 qu'une pièce non
-     * conservée porte « voir dans Gmail » avec un lien ; ce lien est forcément en `https:`.
-     *
-     * 🔴 ON RESSERRE DONC L'ASSERTION SUR SON INTENTION, SANS L'AFFAIBLIR : aucune URL de stockage (hôte, clé
-     * pré-signée), et la SEULE adresse externe tolérée est `mail.google.com`. Un lien vers n'importe quel autre
-     * hôte fait toujours échouer ce test. Élargir à `^https?:` tout court, là, aurait ouvert la porte en grand.
-     */
-    for (const a of liens()) {
-      const href = a.getAttribute('href') ?? '';
-      expect(href).not.toMatch(/minio|amazonaws|X-Amz|blob:|data:/i);
-      if (href.startsWith('http')) expect(href).toMatch(/^https:\/\/mail\.google\.com\//);
-    }
-    // Les octets restent servis par NOTRE route, et par elle seule.
-    expect(liens().some((a) => (a.getAttribute('href') ?? '').startsWith('/api/admin/gestion/pieces/7'))).toBe(true);
-  });
-
-  it('« Télécharger » est un geste distinct de la consultation, sur la même pièce', async () => {
-    await ouvrirTout();
-    expect(liens().some((a) => a.getAttribute('href') === '/api/admin/gestion/pieces/7?telecharger=1')).toBe(true);
+    await deplier();
+    expect(container.querySelector('.gst-parties')?.textContent).toContain('DUPONT Marie');
   });
 
   /**
-   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — LE MOT A CHANGÉ, LA PROPRIÉTÉ GARDÉE EST LA MÊME ═════════
-   *
-   * DEMANDE D'ARNO (04/10/2026) : « affiche sur ces seules pièces “Pièce non récupérée — voir dans Gmail” avec un
-   * lien. » La mention « — non conservée » devient donc « — Pièce non récupérée — voir dans Gmail », et le MOTIF
-   * reste écrit à côté : il dit POURQUOI nous ne l'avons pas gardée, sans quoi on croirait à une panne.
-   *
-   * 🔴 CE QUE CE TEST CONTINUE DE TENIR, ET C'EST L'ESSENTIEL : le NOM de la pièce n'est jamais un lien. Il n'y a
-   * pas d'octets derrière — un lien sur le nom serait un lien mort, et c'est le défaut que ce test ferme depuis
-   * son premier jour.
+   * 🔴🔴 LA LISTE DES RETRAITS, ÉPROUVÉE PAR L'ABSENCE. Chacun de ces blocs était rendu par la carte dépliée avant
+   * ce lot ; chacun a été retrouvé ailleurs avant d'être retiré (voir l'encadré de `CorpsCarte`).
    */
-  it('une pièce NON conservée est dite telle, avec son motif, et SANS lien mort sur son nom', async () => {
-    await ouvrirTout();
-    expect(container.textContent).toContain('video.mov — Pièce non récupérée — voir dans Gmail (type refusé)');
-    expect(liens().some((a) => a.textContent?.includes('video.mov'))).toBe(false);
+  it.each([
+    ['le sélecteur d’urgence', '.gurg'],
+    ['la frise d’avancement', '.fav-frise'],
+    ['le badge Monga', '.gst-monga'],
+    ['le résumé et le formulaire', '.gst-fiche'],
+    ['le menu discret d’un échange', '.gst-coin'],
+  ])('🔴🔴 %s a quitté la carte', async (_mot, selecteur) => {
+    await monter();
+    await deplier();
+    expect(container.querySelector(selecteur)).toBeNull();
   });
 
-  it('la taille est lisible par un humain', async () => {
-    await ouvrirTout();
-    // Le formateur est celui du lot 4c, et lui seul : le lot 5-PJ-A a d'abord introduit un second (« 120 Ko »), que
-    //   ce test a attrapé. Les deux ne doivent jamais coexister dans un même écran.
-    expect(container.textContent).toContain('120 ko');
-  });
-
-  it('le texte du message est rendu TEL QUEL, jamais interprété comme du HTML', async () => {
-    await ouvrirTout();
-    /**
-     * ⚠️ LOT FIL-LECTURE — ON NE VISE PLUS « LE PREMIER CORPS DU DOM ». Depuis ce lot, la conversation s'affiche du
-     * plus RÉCENT au plus ancien : le premier corps rendu n'est plus celui du premier message du jeu d'essai. Ce
-     * test ne porte pas sur l'ordre — il porte sur le fait qu'un texte n'est jamais interprété comme du HTML — donc
-     * il cherche le corps QUI CONTIENT le texte attendu, et vérifie l'échappement sur celui-là.
-     */
-    const corps = [...container.querySelectorAll('.gst-msg-corps')]
-      .find((p) => (p.textContent ?? '').includes('Il y a une fuite sous le lavabo.'));
-    expect(corps).toBeDefined();
-    expect(corps?.innerHTML).not.toContain('<');
-  });
-
-  it('LOT 4d-C — la référence technique d’image ne s’affiche pas', async () => {
-    await ouvrirTout();
-    expect(container.textContent).not.toContain('cid:image001.png');
-    expect(container.textContent).toContain('Il y a une fuite sous le lavabo.');
+  it.each([
+    'Avancement',
+    'Échanges rattachés',
+    'Mails déplacés ici',
+    'Tout l’historique des échanges',
+    'Modifier',
+  ])('🔴🔴 « %s » a quitté la carte', async (mot) => {
+    await monter();
+    await deplier();
+    expect(corps()).not.toContain(mot);
   });
 
   /**
-   * ══ ⚠️ RÉÉCRIT PAR LE LOT LECTURE-HTML-FIL-TROMBONE (29/09/2026) ═══════════════════════════════════════════
-   *
-   * CE QU'IL EXIGEAIT : que l'historique cité soit REPLIÉ derrière « Afficher le message cité ». C'était la
-   * décision du lot 4d-C, et elle avait sa raison — ne pas noyer la réponse sous ce qu'on cite.
-   *
-   * POURQUOI ELLE TOMBE : Arno a demandé le retrait du repli. Le motif est meilleur que celui d'avant — une
-   * conversation se lit d'un bout à l'autre, et ce repli obligeait à CLIQUER pour savoir à quoi on répondait.
-   *
-   * L'EXIGENCE DE FOND NE BOUGE PAS D'UN MOT : la citation n'est jamais perdue, et elle se DISTINGUE du message
-   * neuf. Ce n'est plus un repli qui l'en sépare, c'est un retrait et un filet gris — le style porte ce que
-   * portait l'état, et il n'y a plus rien à ouvrir, fermer, ni retenir entre deux rendus.
+   * 🔴🔴 ET LE MÊME CODE REND LES DEUX ÉCRANS : c'est le cœur du lot (« Un seul code partagé, pas deux
+   * comportements »). On compare ce que la carte dépliée écrit de part et d'autre, aux boutons d'état près —
+   * l'unique exception, éprouvée juste en dessous.
    */
-  it('l’historique cité est VISIBLE, en retrait, et plus rien à déplier', async () => {
-    await ouvrirTout();
-    // 🔴 PLUS DE REPLI : ni l'élément, ni le mot qui l'ouvrait.
-    expect(container.querySelector('.gst-cite')).toBeNull();
-    expect(container.textContent).not.toContain('Afficher le message cité');
-    // …et la citation est là, dans son bloc mis à distance.
-    const cite = container.querySelector('.gst-cite-bloc');
-    expect(cite).not.toBeNull();
-    expect(cite?.textContent).toContain('avez-vous constaté quelque chose ?');
-  });
+  it('🔴🔴 écran partagé et plein écran montrent la même chose, aux boutons d’état près', async () => {
+    await monter({ partage: true });
+    await deplier();
+    const enPartage = corps();
+    remonter();
 
-  it('LOT 4d-C — les images de signature sont rangées à part, repliées, et restent consultables', async () => {
-    await ouvrirTout();
-    expect(container.textContent).toContain('1 image de signature');
-    // Elle ne se mêle pas aux vraies pièces…
-    // LOT 5-PJ-A — les vraies pièces sont une GRILLE de cartes ; les signatures ont la leur, dans le repli.
-    const vraies = [...container.querySelectorAll('.pj-grille')][0];
-    expect(vraies?.textContent).toContain('constat.pdf');
-    expect(vraies?.textContent).not.toContain('image001.png');
-    /**
-     * …mais elle est bien là, SERVIE PAR L'APPLICATION comme les autres — jamais par une URL de stockage, qui est
-     * l'exigence de fond de ce test et qui ne bouge pas.
-     *
-     * 🔴🔴 LOT PIECES-OEIL-DOUBLE-CLIC — CE QU'ON REGARDE A CHANGÉ, PAS CE QU'ON EXIGE. La miniature était un
-     * LIEN (`<a href=…/pieces/9>`) qu'un clic simple ouvrait ; elle est devenue un BOUTON qu'un double-clic ouvre
-     * (décision d'Arno du 03/10/2026). Le lien de TÉLÉCHARGEMENT, lui, n'a pas bougé d'un caractère : c'est donc
-     * sur lui qu'on vérifie désormais que la pièce passe bien par notre route.
-     */
-    expect(liens().some((a) => a.getAttribute('href') === '/api/admin/gestion/pieces/9?telecharger=1')).toBe(true);
-    // ⚠️ ET LA MINIATURE EST BIEN LE BOUTON du nouveau geste, pas un lien oublié en route.
-    const signatures = [...container.querySelectorAll('.pj-grille')][1];
-    expect(signatures?.querySelector('button.pj-apercu')).not.toBeNull();
-  });
+    await monter({ partage: false });
+    await deplier();
+    const enPlein = corps();
 
-  it('un message sans texte le DIT, et le sens de chaque message est dit par un MOT', async () => {
-    await ouvrirTout();
-    expect(container.textContent).toContain('(message sans texte)');
-    expect(container.textContent).toContain('reçu de Mme M.');
-    expect(container.textContent).toContain('nous avons écrit');
+    expect(enPartage).toContain('Ouvrir la fiche du bien sur cet événement');
+    expect(enPartage).toContain('DUPONT Marie');
+    /* 🔴 LE PLEIN ÉCRAN N'AJOUTE QUE LES TROIS BOUTONS D'ÉTAT. */
+    expect(enPlein.replace(/À traiter|En cours|Traité/g, '').trim()).toBe(enPartage.trim());
   });
 });
 
-describe('③ LES GESTES', () => {
+describe('🔴🔴 ③ l’unique exception : les trois boutons d’état, gardés en plein écran', () => {
+  /**
+   * ══ 🔴🔴 POURQUOI CE BLOC SURVIT, ET C'EST UNE CONSIGNE D'ARNO, PAS UN OUBLI ════════════════════════════════
+   *
+   * ARNO (08/10/2026) : « Si l'un n'existe nulle part ailleurs […], ne le retire pas : interromps-toi et dis-le
+   * à Arno. » Les trois boutons « À traiter / En cours / Traité » sont dans ce cas, et les SEULS : la fiche du
+   * bien les a perdus au lot EVENEMENT-MINIMALISTE, dont le commentaire dit « il reste une porte d'écriture :
+   * celle de la vue de l'événement en plein écran ». Les retirer ferait perdre « En cours » et la RÉOUVERTURE
+   * d'un événement traité — la frise ne sait que clore, et seulement quand elle le propose.
+   *
+   * ⚠️ CETTE ÉPREUVE TOMBERA LE JOUR OÙ ARNO TRANCHERA, et c'est exactement ce qu'on lui demande : elle est le
+   * rappel qu'une décision est en attente.
+   */
+  it('🔴🔴 ils sont en plein écran, et PAS dans l’écran partagé', async () => {
+    await monter({ partage: false });
+    await deplier();
+    expect([...container.querySelectorAll('.gst-voie')].map((b) => b.textContent))
+      .toEqual(['À traiter', 'En cours', 'Traité']);
+
+    remonter();
+    await monter({ partage: true });
+    await deplier();
+    expect(container.querySelectorAll('.gst-voie')).toHaveLength(0);
+  });
+
   it('changer l’état envoie un PATCH et rend compte', async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(boutonPar(/^En cours$/));
-    expect(patchs).toEqual([{ etat: 'en_cours' }]);
-    expect(rapports[0].message).toContain('en cours');
-    expect(rapports[0].rechargerTout).toBeUndefined(); // la file n'a pas bougé : inutile de replier tout l'écran
+    await monter({ partage: false });
+    await deplier();
+    const b = [...container.querySelectorAll('.gst-voie')].find((x) => x.textContent === 'En cours');
+    await act(async () => { (b as HTMLElement).click(); });
+    await calmer();
+    expect(appels).toContain('PATCH /api/admin/gestion/evenements/9');
+    expect(rapports.map((r) => r.message)).toContain('Événement GES-2026-000009 : en cours.');
   });
 
   it('l’état DÉJÀ posé n’est pas cliquable — on ne demande pas à la base ce qu’elle sait déjà', async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(boutonPar(/^À traiter$/)?.disabled).toBe(true);
-    expect(boutonPar(/^À traiter$/)?.getAttribute('aria-pressed')).toBe('true');
-  });
-
-  it('corriger le « quoi » envoie les trois champs modifiables, et rafraîchit la carte', async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(boutonPar(/^Modifier$/));
-    const champ = container.querySelector('input') as HTMLInputElement;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-      setter?.call(champ, 'Fuite sous le lavabo');
-      champ.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    await cliquer(boutonPar(/^Enregistrer$/));
-    expect(patchs[0]).toMatchObject({ objet: 'Fuite sous le lavabo', demandeurNom: 'Mme M.', adresseLibre: '28 avenue Marceau' });
-    expect(appels.filter((a) => a === 'GET /api/admin/gestion/evenements/9')).toHaveLength(2); // relecture après le geste
-  });
-
-  it('un « quoi » vidé ne peut pas être enregistré — la carte deviendrait introuvable', async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(boutonPar(/^Modifier$/));
-    const champ = container.querySelector('input') as HTMLInputElement;
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
-      setter?.call(champ, '   ');
-      champ.dispatchEvent(new Event('input', { bubbles: true }));
-    });
-    expect(boutonPar(/^Enregistrer$/)?.disabled).toBe(true);
-  });
-
-  /**
-   * LOT 4d — le gros bouton « Détacher de cet événement » est devenu une entrée du menu « ⋯ » de l'échange (décision
-   * d'Arno : des commandes discrètes, pas des boutons partout). La FONCTION est conservée à l'identique — c'est ce que
-   * ce test vérifie : même appel, même compte rendu, même relecture de tout l'écran.
-   */
-  it('détacher, depuis le menu discret, rend compte ET demande la relecture de tout l’écran', async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(menuDeLEchange());
-    await cliquer(boutonPar(/^Détacher l’échange$/));
-    expect(appels).toContain('DELETE /api/admin/gestion/fils/5/affectation');
-    expect(rapports[0]).toEqual({ message: 'Échange détaché : il est revenu dans la file, avec tous ses messages.', rechargerTout: true });
-  });
-
-  it('l’écran dit que détacher ou déplacer ne supprime rien — c’est la règle du module', async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
-    expect(container.textContent).toContain('ne supprime rien');
+    await monter({ partage: false });
+    await deplier();
+    const b = [...container.querySelectorAll('.gst-voie')].find((x) => x.textContent === 'À traiter');
+    expect((b as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('une carte TRAITÉE affiche sa date de traitement, et reste rouvrable', async () => {
-    reponseDetail = { ...DETAIL, etat: 'traite', traiteLe: '2026-09-23T09:00:00Z', traitePar: 'arno' };
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.textContent).toContain('Traité le');
-    expect(container.textContent).toContain('Rouvrable à tout moment');
-    expect(boutonPar(/^En cours$/)?.disabled).toBe(false);
-  });
-
-  it('une carte SANS échange rattaché le dit, et rappelle qu’un détachement n’est pas une perte', async () => {
-    reponseDetail = { ...DETAIL, fils: [] };
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.textContent).toContain('Aucun échange rattaché');
-  });
-
-  it('un champ non renseigné est DIT non renseigné, jamais laissé en blanc', async () => {
-    reponseDetail = { ...DETAIL, adresseLibre: null };
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.textContent).toContain('non renseignée');
+    detailServi = { ...DETAIL, etat: 'traite', traiteLe: '2026-09-23T09:00:00Z', traitePar: 'arno' };
+    await monter({ partage: false });
+    await deplier();
+    expect(corps()).toContain('Traité le');
+    expect(corps()).toContain('Rouvrable à tout moment');
   });
 });
 
+describe('🔴🔴 ④ le code mort est parti avec sa fonction', () => {
+  const SRC = readFileSync('app/(admin)/admin/(protected)/gestion/CarteVive.tsx', 'utf8');
 
-describe('④ LOT 4d — LE MENU DISCRET ET LE DÉPLACEMENT', () => {
-  const ouvrirCarte = async () => { await monter(); await cliquer(boutonPar(/Fuite salle de bain/)); };
-
-  it('l’échange porte un « ⋯ », pas une rangée de boutons', async () => {
-    await ouvrirCarte();
-    const m = menuDeLEchange();
-    expect(m).not.toBeNull();
-    expect(m?.getAttribute('aria-haspopup')).toBe('menu');
-    expect(m?.getAttribute('aria-expanded')).toBe('false'); // fermé au repos : rien n’encombre
-    // Aucune commande n’est visible tant que le menu est fermé.
-    expect(boutonPar(/Déplacer l’échange/)).toBeUndefined();
-    expect(boutonPar(/Détacher l’échange/)).toBeUndefined();
-  });
-
-  it('il ouvre les deux commandes de l’échange', async () => {
-    await ouvrirCarte();
-    await cliquer(menuDeLEchange());
-    expect(menuDeLEchange()?.getAttribute('aria-expanded')).toBe('true');
-    expect(boutonPar(/^Déplacer l’échange…$/)).toBeDefined();
-    expect(boutonPar(/^Détacher l’échange$/)).toBeDefined();
-  });
-
-  it('« Déplacer… » ouvre la RECHERCHE d’événement, et nomme l’échange déplacé', async () => {
-    await ouvrirCarte();
-    await cliquer(menuDeLEchange());
-    await cliquer(boutonPar(/^Déplacer l’échange…$/));
-    expect(container.textContent).toContain('Déplacer l’échange « Fuite salle de bain » vers');
-    expect(container.querySelector('input[type="search"]')).not.toBeNull();
-    expect(appels).toContain('GET /api/admin/gestion/evenements?q=');
-  });
-
-  it('on ne peut pas déplacer avant d’avoir choisi une destination', async () => {
-    await ouvrirCarte();
-    await cliquer(menuDeLEchange());
-    await cliquer(boutonPar(/^Déplacer l’échange…$/));
-    expect(boutonPar(/^Déplacer$/)?.disabled).toBe(true);
-  });
-
-  it('choisir une carte puis valider RATTACHE AILLEURS, et relit tout l’écran', async () => {
-    await ouvrirCarte();
-    await cliquer(menuDeLEchange());
-    await cliquer(boutonPar(/^Déplacer l’échange…$/));
-    await cliquer(resultatPar(/GES-2026-000042/));
-    await cliquer(boutonPar(/^Déplacer$/));
-    expect(posts[0]).toEqual({ url: '/api/admin/gestion/fils/5/affectation', corps: { evenementId: 42 } });
-    expect(rapports[0]).toMatchObject({ rechargerTout: true });
-    expect(rapports[0].message).toContain('GES-2026-000042');
-  });
-
-  it('la carte où l’on est n’est pas proposée comme destination — s’y déplacer n’a aucun sens', async () => {
-    await ouvrirCarte();
-    await cliquer(menuDeLEchange());
-    await cliquer(boutonPar(/^Déplacer l’échange…$/));
-    expect(resultatPar(/GES-2026-000009/)).toBeUndefined(); // la carte courante
-    expect(resultatPar(/GES-2026-000042/)).toBeDefined();   // une autre
-  });
-
-  it('Échap referme le menu sans rien déclencher', async () => {
-    await ouvrirCarte();
-    await cliquer(menuDeLEchange());
-    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
-    await calmer();
-    expect(menuDeLEchange()?.getAttribute('aria-expanded')).toBe('false');
-    expect(posts).toEqual([]);
-    expect(appels.some((a) => a.startsWith('DELETE'))).toBe(false);
-  });
-});
-
-
-describe('⑤ LOT 4d-B2 — DÉPLACER UN MAIL SEUL', () => {
-  const ouvrirFil = async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
-  };
-  const menusDeMail = () => [...container.querySelectorAll('button[aria-label="Actions sur ce message"]')] as HTMLButtonElement[];
   /**
-   * ⚠️ LOT FIL-LECTURE — LE MENU DU MESSAGE **1**, DÉSIGNÉ PAR SON MESSAGE ET NON PAR SA POSITION.
-   *
-   * Depuis ce lot la conversation s'affiche du plus RÉCENT au plus ancien : `menusDeMail()[0]` désignait le message 1
-   * hier et le message 2 aujourd'hui, et les deux tests qui suivent se sont mis à agir sur le mauvais mail — ce que
-   * leurs assertions ont immédiatement montré (`/messages/2/` au lieu de `/messages/1/`). Viser la POSITION dans une
-   * liste dont l'ordre est un réglage d'écran, c'est écrire un test qui changera de sens sans prévenir. On remonte
-   * donc du corps du message à sa ligne, et de sa ligne à son menu.
+   * 🔴 UN IMPORT ORPHELIN FINIT TOUJOURS PAR ÊTRE RECÂBLÉ « parce qu'il est encore là » — c'est la leçon des
+   * règles de feuille orphelines du lot EVENEMENT-MINIMALISTE, et elle vaut pour les composants.
    */
-  const menuDuMail = (messageId: number): HTMLButtonElement =>
-    container.querySelector(`li[data-message="${messageId}"] button[aria-label="Actions sur ce message"]`) as HTMLButtonElement;
-
-  it('CHAQUE mail porte son « ⋯ », et rien n’est visible tant qu’il est fermé', async () => {
-    await ouvrirFil();
-    expect(menusDeMail()).toHaveLength(2); // un par message affiché
-    expect(boutonPar(/Déplacer ce mail/)).toBeUndefined();
+  it.each([
+    "from './Conversation'",
+    "from './MenuDiscret'",
+    "from './ChoisirEvenement'",
+    "from './FriseAvancement'",
+    "from './SelecteurUrgence'",
+    "from '../../../../lib/gestion/statutClassement'",
+    "from '../../../../lib/gestion/lisibilite'",
+  ])('🔴 `CarteVive` n’importe plus %s', (mort) => {
+    expect(SRC).not.toContain(mort);
   });
 
-  it('le menu d’un mail ouvre ses deux commandes', async () => {
-    await ouvrirFil();
-    await cliquer(menusDeMail()[0]);
-    expect(boutonPar(/^Déplacer ce mail vers un autre événement…$/)).toBeDefined();
-    expect(boutonPar(/^Détacher ce mail$/)).toBeDefined();
-  });
-
-  it('« Déplacer ce mail… » ouvre la MÊME recherche, et rattache le mail choisi', async () => {
-    await ouvrirFil();
-    await cliquer(menuDuMail(1));
-    await cliquer(boutonPar(/^Déplacer ce mail vers un autre événement…$/));
-    expect(container.textContent).toContain('Déplacer ce mail vers');
-    await cliquer(resultatPar(/GES-2026-000042/));
-    await cliquer(boutonPar(/^Déplacer$/));
-    expect(posts[0]).toEqual({ url: '/api/admin/gestion/messages/1/affectation', corps: { evenementId: 42 } });
-    expect(rapports[0].message).toContain('GES-2026-000042');
-    expect(rapports[0].message).toContain('échange d’origine'); // l'écran DIT que rien n'est perdu
-    expect(rapports[0].rechargerTout).toBe(true);
-  });
-
-  it('« Détacher ce mail » le remet dans son échange', async () => {
-    await ouvrirFil();
-    await cliquer(menuDuMail(2));
-    await cliquer(boutonPar(/^Détacher ce mail$/));
-    expect(appels).toContain('DELETE /api/admin/gestion/messages/2/affectation');
-    expect(rapports[0].message).toContain('remis dans son échange');
-  });
-
-  it('l’échange d’origine ANNONCE les mails partis, et les remet d’un clic', async () => {
-    PARTIS = [{ messageId: 9, objet: 'Fuite', recuLe: '2026-09-21T10:00:00Z', reference: 'GES-2026-000042', evenementId: 42 }];
-    await ouvrirFil();
-    expect(container.textContent).toContain('1 mail déplacé vers');
-    expect(container.textContent).toContain('GES-2026-000042');
-    await cliquer(boutonPar(/^Remettre dans son échange$/));
-    expect(appels).toContain('DELETE /api/admin/gestion/messages/9/affectation');
-  });
-
-  it('les mails venus seuls s’affichent dans la carte, en disant d’où ils sortent', async () => {
-    reponseDetail = {
-      ...DETAIL,
-      mailsDeplaces: [{
-        filId: 77, objetDuFil: 'Préavis de départ',
-        message: conv({
-          messageId: 12, sens: 'recu' as const, de: 'locataire@exemple.test', deNom: 'Mme M.',
-          recuLe: '2026-09-21T12:00:00Z', objet: 'Fuite', corps: 'Il y a une fuite.', automatique: false, pieces: [],
-        }),
-      }],
-    };
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.textContent).toContain('Mails déplacés ici');
-    expect(container.textContent).toContain('Venu de l’échange « Préavis de départ »');
-    expect(container.textContent).toContain('Il y a une fuite.');
-  });
-});
-
-/**
- * ══ 🔴🔴 LOT MONGA-1, POINT 4 — LE BADGE DE L'INTERVENTION, ET LA PROPOSITION DE CLORE ═══════════════════════════
- *
- * Arno : « Sur l'événement : un badge “Monga MNG-23987”, la dernière étape […] et le lien “Vers Mission”. Quand un
- * mail “Mission terminée” arrive : une PROPOSITION de clore l'événement (JAMAIS automatique). »
- *
- * 🔴 « JAMAIS AUTOMATIQUE » SE MESURE : aucune requête de clôture ne doit partir au rendu. L'audit n'a trouvé
- * qu'UN SEUL mail « Mission terminée » pour 40 références — une clôture automatique ne fermerait presque rien, et
- * fermerait parfois à tort (une intervention finie chez Monga peut encore attendre une facture chez nous).
- */
-describe('⑥ MONGA — le badge, l’étape, le lien, et la clôture PROPOSÉE', () => {
-  const AVEC_MONGA = (terminee: boolean, etat: CarteDetail['etat'] = 'a_traiter') => ({
-    ...DETAIL,
-    etat,
-    monga: {
-      reference: 'MNG-23987', libelle: 'barre de douche defixer',
-      lienMission: 'https://app.monga.io/missions/view/abc',
-      derniereEtape: terminee ? 'terminee' : 'devis_rappel',
-      derniereEtapeMot: terminee ? 'Mission terminée · 15/09' : 'Devis en attente de validation · 05/10',
-      nbMails: 4, badge: 'Monga MNG-23987', terminee,
-    },
-  });
-
-  it('🔴 le badge, la dernière étape et « Vers Mission » sont sur la carte', async () => {
-    reponseDetail = AVEC_MONGA(false) as unknown as typeof DETAIL;
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.textContent).toContain('Monga MNG-23987');
-    expect(container.textContent).toContain('Devis en attente de validation · 05/10');
-    const lien = liens().find((a) => a.textContent === 'Vers Mission');
-    expect(lien?.href).toBe('https://app.monga.io/missions/view/abc');
-    /* ⚠️ `noreferrer` : on n'annonce pas notre écran interne à Monga. */
-    expect(lien?.rel).toContain('noreferrer');
-  });
-
-  it('⚠️ une carte SANS Monga n’affiche aucun badge — le cas ordinaire, et de très loin', async () => {
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.textContent).not.toContain('Monga');
-    expect(container.querySelector('.gst-monga')).toBeNull();
-  });
-
-  it('🔴🔴 « Mission terminée » PROPOSE de clore — et ne clôt RIEN tout seul', async () => {
-    reponseDetail = AVEC_MONGA(true) as unknown as typeof DETAIL;
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.textContent).toContain('Monga a marqué cette intervention terminée. Clore l’événement ?');
-    // 🔴 LA MESURE DE « JAMAIS AUTOMATIQUE » : aucun PATCH n'est parti du simple fait d'afficher la carte.
-    expect(patchs).toEqual([]);
-  });
-
-  it('le clic clôt par la porte habituelle, et le dit', async () => {
-    reponseDetail = AVEC_MONGA(true) as unknown as typeof DETAIL;
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(boutonPar(/^Clore l’événement$/));
-    expect(patchs).toEqual([{ etat: 'traite' }]);
-    expect(rapports.map((r) => r.message).join(' '))
-      .toContain('clos après « Mission terminée » (Monga)');
-  });
-
-  it('⚠️ une carte DÉJÀ traitée ne propose plus rien : le badge reste, la proposition disparaît', async () => {
-    reponseDetail = AVEC_MONGA(true, 'traite') as unknown as typeof DETAIL;
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.textContent).toContain('Monga MNG-23987');
-    expect(container.textContent).not.toContain('Clore l’événement ?');
-  });
-
-  it('⚠️ une étape qui n’est PAS « Mission terminée » ne propose jamais de clore', async () => {
-    reponseDetail = AVEC_MONGA(false) as unknown as typeof DETAIL;
-    await monter();
-    await cliquer(boutonPar(/Fuite salle de bain/));
-    expect(container.querySelector('.gst-monga')).not.toBeNull();
-    expect(container.textContent).not.toContain('Clore l’événement ?');
+  /**
+   * ⚠️ MAIS `FormulaireCarte` RESTE EXPORTÉ, et il le faut : la fiche du bien l'importe depuis ce fichier
+   * (« le MÊME formulaire, jamais une copie », lot EVENEMENT-MINIMALISTE). Le retirer aurait emporté avec lui le
+   * seul endroit où l'on choisit le TYPE d'un événement.
+   */
+  it('⚠️ `FormulaireCarte` reste exporté pour la fiche du bien', () => {
+    expect(SRC).toContain('export function FormulaireCarte(');
+    const BIEN = readFileSync('app/(admin)/admin/(protected)/gestion/EvenementsDuBien.tsx', 'utf8');
+    expect(BIEN).toContain("import { FormulaireCarte } from './CarteVive';");
   });
 });

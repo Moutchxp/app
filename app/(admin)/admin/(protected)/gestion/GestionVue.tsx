@@ -905,24 +905,17 @@ export function GestionVue({ intro }: {
   };
 
   /**
-   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 (CORRECTION D'ARNO DU 08/10/2026) — LE PLEIN ÉCRAN, SUR CET ÉVÉNEMENT ══
+   * ══ 🔴🔴 LOT CARTES-EVENEMENT-MEME-GESTE — LE SAUT AU PLEIN ÉCRAN PAR DOUBLE-CLIC A ÉTÉ RETIRÉ ══════════════
    *
-   * Arno : « Double-clic sur une carte d'événement [dans l'écran partagé] → ouvre l'écran Événements en plein
-   * écran, la liste défilée et CENTRÉE sur l'événement double-cliqué, cet événement mis en évidence (liseré de
-   * sélection) et déplié. […] Le lien vers l'écran Événements centré doit marcher aussi en le copiant dans un
-   * nouvel onglet : un paramètre dans l'adresse, par exemple &evenement=<id>, que l'écran lit à l'ouverture. »
+   * Il vivait ici (`ouvrirPleinEcranSurEvenement`), posé la veille par le lot URGENCE-EVENEMENT. ARNO revient
+   * dessus le 08/10/2026 : « Le double-clic de l'écran partagé N'OUVRE PLUS l'écran Événements centré. On passe
+   * à l'écran Événements UNIQUEMENT par le bouton “Plein écran” de la colonne Événements. »
    *
-   * 🔴 C'EST DONC L'ADRESSE QUI PORTE L'INTENTION, et non un état de composant : `?ecran=evenements&evenement=12`.
-   * Elle survit au rechargement, au bouton « Précédent », et à un copier-coller vers un collègue — ce qu'Arno
-   * demande en toutes lettres, et ce que la règle de ce fichier impose depuis le lot 5-FUSION.
-   *
-   * ⚠️ `...ETAT_DEFAUT` COMME LES AUTRES SAUTS D'ÉCRAN : on part d'un état propre, sans traîner le fil ouvert ni
-   * la fiche d'où l'on vient. C'est aussi ce qui garantit que l'adresse produite est EXACTEMENT celle qu'un
-   * nouvel onglet relira — sans quoi le lien copié n'ouvrirait pas le même écran que le double-clic.
+   * 🔴 L'ADRESSE, ELLE, RESTE : `?ecran=evenements&evenement=<id>` centre, lisère et déplie toujours la carte —
+   * « peut rester comme fonction d'adresse, mais plus aucun geste ne doit l'appeler par défaut » (Arno). C'est
+   * pourquoi `vise` est toujours calculé ci-dessous : l'écran sait encore lire ce qu'on lui écrit, il ne l'écrit
+   * simplement plus tout seul.
    */
-  const ouvrirPleinEcranSurEvenement = (evenementId: number): void => {
-    aller({ ...ETAT_DEFAUT, ecran: 'evenements', evenementVise: evenementId });
-  };
 
   /**
    * Les cartes, écrites une seule fois : mêmes fonctions dans la colonne et en plein écran.
@@ -939,10 +932,10 @@ export function GestionVue({ intro }: {
   const cartesDe = (partage: boolean) => d.evenements.map((e) => (
     <CarteVive key={e.evenementId} carte={e} maintenant={ref}
       partage={partage} onOuvrirBien={ouvrirBienSurEvenement}
-      onPleinEcranSurEvenement={ouvrirPleinEcranSurEvenement}
       vise={!partage && (etatUrl.evenementVise ?? null) === e.evenementId}
-      /* LOT RATTACHEMENT-2 — la carte est le troisième point d'entrée de l'historique, avec l'annuaire et le bandeau. */
-      onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
+      /* 🔴 LOT CARTES-EVENEMENT-MEME-GESTE — `onHistorique` est RETIRÉ avec le bouton « Tout l'historique des
+         échanges → » qu'il servait : la carte dépliée ne montre plus que les infos manquantes et le bouton
+         rouge. L'écran historique reste atteignable par le bien et par les personnes, comme avant. */
       onGeste={(message, options) => {
         surGeste(message, options);
         // Un détachement change AUSSI la file (l'échange y revient) : là, tout l'écran est relu. Une

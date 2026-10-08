@@ -2,11 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BlocRepliable } from '../permis/BlocRepliable';
-import { ChoisirEvenement } from './ChoisirEvenement';
-import { MenuDiscret } from './MenuDiscret';
-import { Conversation, MessageConversation } from './Conversation';
-import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
-import type { CarteDetail, FilDeCarte, MailParti, MessageDeFil } from '../../../../lib/gestion/carteRepo';
+import type { Rapport } from './gestesMail';
+import type { CarteDetail } from '../../../../lib/gestion/carteRepo';
 /* 🔴 LOT MONGA-1, POINT 4 — le type seul, effacé à la compilation : ce composant vit dans le navigateur. */
 import type { MongaDeLEvenement } from '../../../../lib/gestion/mongaRepo';
 import type { CarteEvenement, DerniereEtapeVignette } from '../../../../lib/gestion/fileRepo';
@@ -20,18 +17,16 @@ import { motEtape } from '../../../../lib/gestion/mongaEtape';
 import {
   categorieValide, motCategorie, motUrgence, MOT_TYPE_A_DEFINIR, tonUrgence, TYPES_EVENEMENT,
 } from '../../../../lib/gestion/evenementQualite';
-/* 🔴🔴 LOT URGENCE-EVENEMENT, POINT 3 — LE MÊME sélecteur que la fiche du bien, importé et jamais recopié. */
-import { SelecteurUrgence } from './SelecteurUrgence';
 /* 🔴 LOT URGENCE-EVENEMENT, POINT 5 — comparer deux noms accents/casse/tirets indifférents. Module PUR. */
 import { normaliserNom } from '../../../../lib/gestion/documentsAuto';
-import type { Cible } from '../../../../lib/gestion/rattachement';
-import {
-  depuis, formaterDateFr, formaterTaille, heureParis, libelleEtat, libelleSens,
-} from '../../../../lib/gestion/ecran';
-/* 🔴🔴 LOT MONGA-2, POINT 4 — la frise d'avancement de l'événement. */
-import { FriseAvancement } from './FriseAvancement';
-import { statutDuMessage } from '../../../../lib/gestion/statutClassement';
-import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
+/* ══ 🔴🔴 LOT CARTES-EVENEMENT-MEME-GESTE — CE QUE CE FICHIER N'IMPORTE PLUS, ET POURQUOI ═══════════════════════
+   La carte dépliée ne montre plus que les infos manquantes et le bouton rouge : avec les blocs de détail sont
+   partis leurs composants (`Conversation`, `MenuDiscret`, `ChoisirEvenement`, `DeplacerVers`, `FriseAvancement`,
+   `SelecteurUrgence`) et les outils qu'eux seuls lisaient (`statutDuMessage`, `corpsLisible`, `trierPieces`,
+   `formaterTaille`, `libelleSens`, `depuis`, et le type `Cible`). Un import orphelin finit toujours par être
+   recâblé « parce qu'il est encore là » — c'est la leçon des règles de feuille orphelines du lot
+   EVENEMENT-MINIMALISTE, et elle vaut pour les imports. */
+import { formaterDateFr, heureParis, libelleEtat } from '../../../../lib/gestion/ecran';
 
 /**
  * LOT 4c — LA CARTE VIVANTE : le côté droit de l'écran cesse d'être une liste pour devenir un dossier qu'on ouvre.
@@ -107,24 +102,9 @@ function estCleAdressable(cle: string): boolean {
   return Number.isSafeInteger(n) && n > 0;
 }
 
-/** Même principe pour les messages d'un échange : on rapporte, on ne décide pas. */
-async function chargerMessages(filId: number): Promise<
-  { v: 'ok'; messages: MessageDeFil[]; partis: MailParti[] } | { v: 'erreur'; m: string }
-> {
-  try {
-    const res = await fetch(`/api/admin/gestion/fils/${filId}/messages`, { cache: 'no-store' });
-    if (!res.ok) return { v: 'erreur', m: res.status === 403 ? 'Droit retiré : reconnectez-vous.' : 'Lecture impossible.' };
-    const data = (await res.json()) as { messages: MessageDeFil[]; partis?: MailParti[] };
-    return { v: 'ok', messages: data.messages, partis: data.partis ?? [] };
-  } catch {
-    return { v: 'erreur', m: 'Lecture impossible : le serveur n’a pas répondu.' };
-  }
-}
-
 
 export function CarteVive({
-  carte, maintenant, onGeste, onHistorique, partage = false, onOuvrirBien,
-  onPleinEcranSurEvenement, vise = false,
+  carte, maintenant, onGeste, partage = false, onOuvrirBien, vise = false,
 }: {
   carte: CarteEvenement;
   maintenant: Date;
@@ -150,29 +130,17 @@ export function CarteVive({
    */
   onOuvrirBien?: (cleBien: string, evenementId: number) => void;
   /**
-   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 (CORRECTION D'ARNO DU 08/10/2026) — LE DOUBLE-CLIC DE L'ÉCRAN PARTAGÉ ══
-   *
-   * ARNO : « ÉCRAN PARTAGÉ : double-clic sur une carte d'événement → ouvre l'écran Événements en plein écran, la
-   * liste défilée et CENTRÉE sur l'événement double-cliqué, cet événement mis en évidence (liseré de sélection) et
-   * déplié. »
-   *
-   * 🔴 ABSENT = AUCUN DOUBLE-CLIC, et la carte est alors celle d'avant ce lot : c'est ce qui la garde rendable hors
-   * de `GestionVue`, exactement comme `onOuvrirBien` et `onHistorique`.
-   */
-  onPleinEcranSurEvenement?: (evenementId: number) => void;
-  /**
    * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 — EST-CE CETTE CARTE QU'ON VIENT VOIR ? L'adresse le dit
    * (`?ecran=evenements&evenement=<id>`), et c'est `GestionVue` qui compare. Vrai ⇒ liseré de sélection, carte
    * DÉPLIÉE, et la liste se défile pour la centrer.
    *
    * ⚠️ `false` PAR DÉFAUT : une vue qui rendrait cette carte sans rien dire garde le comportement d'avant ce lot.
+   *
+   * 🔴🔴 LOT CARTES-EVENEMENT-MEME-GESTE — PLUS AUCUN GESTE NE L'ALLUME. Arno : « Le lien &evenement=<id> (carte
+   * centrée, liserée, dépliée) peut rester comme fonction d'adresse, mais plus aucun geste ne doit l'appeler par
+   * défaut. » Il ne s'allume donc plus que par une adresse écrite ou collée à la main.
    */
   vise?: boolean;
-  /**
-   * LOT RATTACHEMENT-2 — ouvre TOUT l'historique de cette carte : ses échanges affectés ET les mails qui lui ont été
-   * rattachés à la main. Absent = aucun bouton, et la carte est exactement celle d'avant ce lot.
-   */
-  onHistorique?: (cible: Cible) => void;
 }) {
   // Le détail, une fois chargé, fait foi sur le résumé : après une correction du « quoi », le titre replié doit dire
   //   le nouveau libellé sans attendre un rechargement de tout l'écran.
@@ -267,39 +235,41 @@ export function CarteVive({
    * La capsule est un RACCOURCI de souris vers un chemin qui existe déjà, jamais le seul chemin.
    */
   /**
-   * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 4 (CORRECTION D'ARNO DU 08/10/2026) — LE DOUBLE-CLIC ════════════════════
+   * ══ 🔴🔴 LOT CARTES-EVENEMENT-MEME-GESTE — UN SEUL DOUBLE-CLIC, LE MÊME SUR LES DEUX ÉCRANS ═════════════════
    *
-   * ARNO, et les deux gestes NE FONT PAS LA MÊME CHOSE SELON L'ÉCRAN :
-   *   · ÉCRAN PARTAGÉ (`partage`) → « ouvre l'écran Événements en plein écran, la liste défilée et CENTRÉE sur
-   *     l'événement double-cliqué, cet événement mis en évidence et déplié » ;
-   *   · ÉCRAN ÉVÉNEMENTS EN PLEIN ÉCRAN → « ouvre la fiche du bien sur cet événement, exactement comme le bouton
-   *     rouge “Ouvrir la fiche du bien sur cet événement →” (même lien, même code) ».
+   * ═══ CE QUE CETTE RÈGLE REMPLACE, ET IL FAUT LE DIRE ══════════════════════════════════════════════════════
+   * Le lot URGENCE-EVENEMENT (e34bf69d) faisait DEUX gestes différents : dans l'écran partagé, le double-clic
+   * menait à l'écran Événements centré sur la carte ; en plein écran, il ouvrait la fiche du bien. ARNO revient
+   * dessus le 08/10/2026 : « RÈGLE UNIQUE […] IDENTIQUE sur l'écran partagé et sur l'écran Événements en plein
+   * écran. Un seul code partagé, pas deux comportements. […] DOUBLE-CLIC → ouvre directement la fiche du bien sur
+   * cet événement (même lien, même code que le bouton rouge). »
    *
-   * ═══ 🔴🔴 COMMENT LES DEUX GESTES SONT DISTINGUÉS, ET L'ARBITRAGE QUE J'AI PRIS ═══════════════════════════════
+   * 🔴 LE PASSAGE AU PLEIN ÉCRAN NE SE FAIT PLUS QUE PAR LE BOUTON « Plein écran » de la colonne Événements
+   * (Arno, point 3). L'adresse `?ecran=evenements&evenement=<id>` reste valide — carte centrée, liserée,
+   * dépliée —, mais PLUS AUCUN GESTE ne l'appelle : c'est une fonction d'adresse, pas un geste.
    *
-   * ARNO : « un double-clic ne doit pas d'abord déplier puis replier la carte ». C'est le défaut d'un double-clic
-   * NAÏF : deux clics, deux bascules, la carte revient où elle était et l'on croit que rien n'a marché.
+   * ═══ 🔴 COMMENT LES DEUX GESTES SONT DISTINGUÉS ════════════════════════════════════════════════════════════
    *
    * 🔴 ON LIT `e.detail`, LE COMPTEUR DE CLICS DU NAVIGATEUR. Le SECOND clic (`detail >= 2`) est INTERCEPTÉ en
-   * phase de capture : il n'atteint jamais le bouton du repli, donc la seconde bascule N'A PAS LIEU. Le symptôme
-   * qu'Arno décrit est donc impossible : la carte ne revient jamais à son état de départ.
+   * phase de capture : il n'atteint jamais le bouton du repli, donc la seconde bascule N'A PAS LIEU et la carte
+   * ne revient jamais à son état de départ. Le PREMIER clic, lui, bascule normalement — Arno l'accepte en toutes
+   * lettres : « Si le premier clic déplie brièvement la carte avant de partir vers la fiche, c'est acceptable. »
+   * C'est ce qui évite de retarder de ~250 ms le geste le plus fréquent pour servir le plus rare.
    *
-   * ⚠️ CE QUE CELA LAISSE, ET JE NE LE CACHE PAS : le PREMIER clic, lui, bascule normalement. Un double-clic sur
-   * une carte repliée la déplie donc pendant l'instant qui précède le changement d'écran. L'alternative était de
-   * RETARDER toute bascule de ~250 ms le temps de voir venir un second clic — c'est-à-dire taxer le geste le plus
-   * fréquent (déplier une carte, des dizaines de fois par jour) pour servir le plus rare. J'ai refusé ce
-   * marchandage ; il se renverse en un mot d'Arno.
-   *
-   * ⚠️ UN CONTRÔLE INTERNE NE DÉCLENCHE RIEN (Arno) : si le clic vient d'un bouton, d'un lien ou d'un champ AUTRE
-   * que le titre du repli — le sélecteur d'urgence, « Modifier », les liens Monga —, on ne fait rien du tout. Le
-   * titre du repli EST un `<button>` (`svv-repli-titre`), d'où la comparaison explicite : sans elle, le
-   * double-clic ne marcherait nulle part, puisque toute la carte repliée vit dans ce bouton.
+   * ⚠️ UN CONTRÔLE INTERNE NE DÉCLENCHE RIEN : si le clic vient d'un bouton, d'un lien ou d'un champ AUTRE que le
+   * titre du repli — le bouton rouge lui-même, les trois boutons d'état —, on ne fait rien du tout. Le titre du
+   * repli EST un `<button>` (`svv-repli-titre`), d'où la comparaison explicite : sans elle, le double-clic ne
+   * marcherait nulle part, puisque toute la carte repliée vit dans ce bouton.
    */
   const auClic = (e: React.MouseEvent<HTMLLIElement>): void => {
     marquerVu();
     const cible = e.target instanceof Element ? e.target : null;
-    /* 🔴 LA CAPSULE « Type à définir » D'ABORD, et elle garde son clic — y compris au double-clic, où elle rouvre
-       simplement le choix du type au lieu de changer d'écran. C'est un contrôle interne comme un autre. */
+    /**
+     * 🔴 LA CAPSULE « Type à définir » GARDE SON CLIC, ET IL DÉPLIE LA CARTE. Son geste a CHANGÉ de destination
+     * avec ce lot : le formulaire qu'elle ouvrait vivait dans la carte, et il est parti dans la fiche du bien
+     * avec tout le reste. Elle reste un raccourci vers le dossier — jamais un cul-de-sac —, et le choix du type
+     * se fait désormais par « Modifier les informations de l'événement », sur la fiche.
+     */
     if (cible?.closest('.gst-type-capsule--vide') != null) {
       e.stopPropagation();
       e.preventDefault();
@@ -317,22 +287,18 @@ export function CarteVive({
     e.stopPropagation();
     e.preventDefault();
 
-    if (partage) {
-      /* ⚠️ Sans l'appel, rien ne se passe — et surtout pas une bascule de plus. */
-      onPleinEcranSurEvenement?.(carte.evenementId);
-      return;
-    }
     /**
-     * 🔴 PLEIN ÉCRAN : LA FICHE DU BIEN, PAR LE MÊME CHEMIN QUE LE BOUTON ROUGE (`onOuvrirBien`, même clé, même
-     * adresse). La clé est celle du bien UNIQUE de l'événement, et c'est bien la même que celle qu'ouvrirait le
-     * bouton : `biensNommesDeLEvenement` et `sqlBienDeLEvenement` trient tous deux `ORDER BY cle`, donc le premier
-     * de l'un est le premier de l'autre — et quand il n'y en a qu'un, c'est le même.
+     * 🔴 LA FICHE DU BIEN, PAR LE MÊME CHEMIN QUE LE BOUTON ROUGE (`onOuvrirBien`, même clé, même adresse), et
+     * désormais depuis LES DEUX ÉCRANS. La clé est celle du bien UNIQUE de l'événement, et c'est bien la même
+     * que celle qu'ouvrirait le bouton : `biensNommesDeLEvenement` et `sqlBienDeLEvenement` trient tous deux
+     * `ORDER BY cle`, donc le premier de l'un est le premier de l'autre — et quand il n'y en a qu'un, c'est le
+     * même.
      *
      * ⚠️ AUCUN BIEN ⇒ AUCUNE OUVERTURE (Arno, en toutes lettres), et rien d'autre ne change.
      *
-     * ⚠️ PLUSIEURS BIENS ⇒ AUCUNE OUVERTURE NON PLUS, ET C'EST DÉLIBÉRÉ : le bouton rouge ouvre alors un CHOIX du
-     * bien (« petit choix du bien d'abord »), et un double-clic n'a pas d'endroit où le poser. En désigner un
-     * d'office serait choisir à la place d'Arno, silencieusement, dans le seul cas où la question se pose. Signalé.
+     * ⚠️ PLUSIEURS BIENS ⇒ AUCUNE OUVERTURE NON PLUS — « Événement à plusieurs biens ou sans bien : pas
+     * d'ouverture (comme tu l'as fait) », Arno. Le bouton rouge ouvre alors un CHOIX du bien, et un double-clic
+     * n'a pas d'endroit où le poser.
      */
     if (onOuvrirBien === undefined || carte.bien === null || carte.nbBiens !== 1) return;
     if (!estCleAdressable(carte.bien.cle)) return;
@@ -536,10 +502,8 @@ export function CarteVive({
         }
       >
         {() => (
-          <CorpsCarte evenementId={carte.evenementId} maintenant={maintenant} onDetail={setDetail} onGeste={onGeste}
-            onHistorique={onHistorique} partage={partage} onOuvrirBien={onOuvrirBien}
-            /* 🔴 … ET LE MÊME NONCE OUVRE LE FORMULAIRE, où vit le choix du type. Deux effets, un seul geste. */
-            demandeDeType={demandeDeType}
+          <CorpsCarte evenementId={carte.evenementId} onDetail={setDetail} onGeste={onGeste}
+            partage={partage} onOuvrirBien={onOuvrirBien}
             /**
              * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — CE QUE LA CARTE REPLIÉE DIT DÉJÀ, pour ne pas le répéter en
              * dessous. Les deux noms viennent de `LignesDuDossier`, quelques lignes plus haut, et de nulle
@@ -554,17 +518,10 @@ export function CarteVive({
 }
 
 /** Le contenu d'une carte dépliée. Monté au PREMIER dépliage — c'est là, et seulement là, que la requête part. */
-function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, partage, onOuvrirBien,
-  demandeDeType = 0, dejaDits = [] }: {
-  evenementId: number; maintenant: Date; onDetail: (d: CarteDetail) => void; onGeste: Rapport;
-  onHistorique?: (cible: Cible) => void;
+function CorpsCarte({ evenementId, onDetail, onGeste, partage, onOuvrirBien, dejaDits = [] }: {
+  evenementId: number; onDetail: (d: CarteDetail) => void; onGeste: Rapport;
   partage: boolean;
   onOuvrirBien?: (cleBien: string, evenementId: number) => void;
-  /**
-   * 🔴🔴 LOT CAPSULE-TYPE-EVENEMENT, POINT 1 — le nonce du clic sur « Type à définir ». `0` = personne n'a
-   * demandé, et le corps est alors exactement celui d'avant ce lot.
-   */
-  demandeDeType?: number;
   /**
    * 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — les noms que la carte REPLIÉE affiche déjà. Vide = elle n'en affiche
    * aucun, et tout ce qu'on sait du bien se dit alors sous le repli.
@@ -574,17 +531,11 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
   const [etatVue, setEtatVue] = useState<VueCarte>({ v: 'charge' });
   const [occupe, setOccupe] = useState(false);
   /**
-   * 🔴 OUVERT D'EMBLÉE QUAND ON ARRIVE PAR LA CAPSULE. Ce corps n'est MONTÉ qu'au premier dépliage : un clic sur
-   * « Type à définir » déplie et monte en même temps, et l'effet ci-dessous ne verrait donc jamais de CHANGEMENT
-   * de nonce. L'état initial lit le nonce ; l'effet, lui, sert aux clics SUIVANTS, carte déjà dépliée.
+   * 🔴🔴 LOT CARTES-EVENEMENT-MEME-GESTE — L'ÉTAT `edition` ET SON NONCE ONT DISPARU AVEC LEUR FORMULAIRE.
+   * `FormulaireCarte` ne vit plus dans la carte (il est dans la fiche du bien, et ce fichier continue de
+   * l'EXPORTER pour elle) : un état qui n'ouvre plus rien serait un troisième état à tenir pour personne. Le
+   * nonce de la capsule « Type à définir » reste côté `CarteVive`, où il sert encore à DÉPLIER la carte.
    */
-  const [edition, setEdition] = useState(demandeDeType > 0);
-  const dernierTypeDemande = useRef(demandeDeType);
-  useEffect(() => {
-    if (demandeDeType === dernierTypeDemande.current) return;
-    dernierTypeDemande.current = demandeDeType;
-    setEdition(true);
-  }, [demandeDeType]);
 
   /** Relit la carte et POSE l'état. Sert au « Réessayer » et à la relecture qui suit un geste. */
   const lire = useCallback(async () => {
@@ -638,7 +589,6 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
       if (!res.ok || !data.ok) { onGeste(data.erreur ?? 'Modification impossible.'); return; }
       onGeste(succes);
-      setEdition(false);
       await lire();
     } catch {
       onGeste('Modification impossible : le serveur n’a pas répondu.');
@@ -659,229 +609,74 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique, 
 
   const d = etatVue.d;
   /**
-   * ══ 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 4 — LE GROS BOUTON FAIT PARTIE DE SA CAPSULE ═══════════════════
+   * ══ 🔴🔴 LOT CARTES-EVENEMENT-MEME-GESTE — LA CARTE DÉPLIÉE N'EST PLUS QU'UN TREMPLIN ═══════════════════════
    *
-   * Arno : « le bouton rouge flotte aujourd'hui entre deux événements. Intègre-le DANS la capsule dépliée : même
-   * cadre, même fond, aucun vide entre la carte et le bouton, et un écart net avec l'événement suivant. »
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * DÉCISION D'ARNO (08/10/2026), mot pour mot : « SIMPLE CLIC → la carte se déplie et montre UNIQUEMENT : les
+   * informations absentes de la carte repliée […] ; le bouton rouge “Ouvrir la fiche du bien sur cet événement →”,
+   * dans la capsule. » Et : « RETRAITS dans la carte DÉPLIÉE, sur les deux écrans (accord d'Arno, doublon avec la
+   * fiche du bien) : tout ce qui s'y affichait en plus des infos manquantes et du bouton rouge disparaît. »
    *
-   * 🔴 IL ÉTAIT DÉJÀ DANS LE `li` DE SA CARTE — c'est l'HABILLAGE qui le faisait flotter : le corps gardait son
-   * espace du haut, et le bouton était posé dans un `gst-bloc` à lui, encadré et sur un autre fond. Sur l'écran
-   * partagé, où les cartes n'ont plus qu'un filet en bas, cette petite boîte se lisait comme un troisième objet,
-   * entre deux événements. Ce modificateur colle le corps à la carte et rend le cadre du bloc transparent.
+   * ═══ 🔴🔴 CE QUI DISPARAÎT, ET OÙ CHAQUE CHOSE A ÉTÉ RETROUVÉE AVANT D'ÊTRE RETIRÉE ═════════════════════════
    *
-   * ⚠️ EN PLEIN ÉCRAN, RIEN NE CHANGE : là, le corps porte l'état, la frise, le résumé et les échanges — autant
-   * de blocs qui ONT besoin de leur cadre pour se distinguer les uns des autres.
+   * Arno l'exige : « AVANT de retirer : vérifie que chaque élément retiré existe bien dans la fiche du bien sur
+   * cet événement. » Vérification faite, pièce par pièce :
+   *
+   *   · le SÉLECTEUR D'URGENCE          → `EvenementsDuBien` (fiche du bien), en mode compact ;
+   *   · la frise « AVANCEMENT »          → `EvenementsDuBien`, même composant `FriseAvancement` ;
+   *   · « Clôturer cet événement ? »     → `EvenementsDuBien`, qui passe déjà `onProposerCloture` ;
+   *   · « MODIFIER les informations »    → `EvenementsDuBien`, et c'est LE MÊME `FormulaireCarte` (toujours
+   *                                        exporté par ce fichier) — donc le choix du TYPE avec lui ;
+   *   · le RÉSUMÉ (Quoi / Qui demande / Adresse / Ouvert) → les mêmes champs, lisibles et corrigeables, dans ce
+   *                                        formulaire-là ;
+   *   · « Détacher l'échange »           → `Conversation.tsx`, menu d'un échange ;
+   *   · « Déplacer l'échange… »          → `PanneauAffecter` (« Rattacher à : événement existant »), rendu par
+   *                                        `Conversation.tsx` — donc atteignable depuis la boîte ET depuis la
+   *                                        fiche du bien (la frise ouvre un fil) ;
+   *   · « Remettre dans son échange »    → `Conversation.tsx` ;
+   *   · le badge MONGA et « Vers Mission » → `EncartMonga`, depuis le mail qui porte la référence.
+   *
+   * ⚠️ DEUX FONCTIONS PERDENT LEUR SEUL CHEMIN, ET ELLES SONT DITES À ARNO PLUTÔT QUE TUES : « Tout l'historique
+   * des échanges → » DE CET ÉVÉNEMENT (l'écran historique reste, mais plus aucun lien n'émet `cible=carte-<id>`),
+   * et la proposition Monga « Monga a marqué cette intervention terminée. Clore l'événement ? » (la clôture, elle,
+   * reste offerte par la frise de la fiche). Arno a accordé le retrait des « échanges » et des « informations » en
+   * toutes lettres : ces deux-là en font partie.
+   *
+   * ═══ 🔴🔴 LA SEULE CHOSE QUE JE NE RETIRE PAS, ET POURQUOI ══════════════════════════════════════════════════
+   *
+   * ARNO : « Si l'un n'existe nulle part ailleurs […], ne le retire pas : interromps-toi et dis-le à Arno. »
+   *
+   * Les trois boutons « À traiter / En cours / Traité » (`EtatCarte`) sont dans ce cas, et ils sont les SEULS :
+   * la fiche du bien les a perdus au lot EVENEMENT-MINIMALISTE, dont le commentaire dit noir sur blanc « il reste
+   * une porte d'écriture : celle de la vue de l'événement en plein écran ». Les retirer ferait perdre « En cours »
+   * et la RÉOUVERTURE d'un événement traité — la frise ne sait que CLORE, et seulement quand elle le propose.
+   * Ils restent donc ici, en PLEIN ÉCRAN seulement, en attendant un mot d'Arno. C'est l'unique écart entre les
+   * deux écrans, et il tient en une ligne à supprimer.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
   return (
     <div className={`gst-corps${partage ? ' gst-corps--partage' : ''}`}>
       {/**
-        * ══ 🔴🔴 LOT VIGNETTE-EVENEMENT, POINT 1 — L'ÉTAT, OU LE GROS BOUTON : L'UN OU L'AUTRE ══════════════════
-        *
-        * ACCORD D'ARNO : le bloc « À traiter / En cours / Traité » quitte l'ÉCRAN PARTAGÉ. Sa fonction n'est pas
-        * perdue — elle est ajoutée dans l'en-tête de l'événement sur la fiche du bien, et elle reste ici en plein
-        * écran. **Même porte d'écriture** dans les trois endroits : `PATCH /evenements/[id] { etat }`.
-        *
-        * 🔴 À SA PLACE, DANS L'ÉCRAN PARTAGÉ : « un GROS bouton pleine largeur “Ouvrir la fiche du bien sur cet
-        * événement →” » (Arno). C'est le geste qu'on veut faire depuis l'écran partagé — aller au dossier —, et
-        * non celui qu'on y faisait par défaut d'avoir mieux.
+        * 🔴 LE BOUTON ROUGE, SUR LES DEUX ÉCRANS (Arno, point 1). Il ne vivait que dans l'écran partagé ; c'est
+        * désormais le geste principal de la carte dépliée, où qu'elle soit rendue.
         */}
-      {partage
-        ? <OuvrirLaFicheDuBien biens={d.biens ?? []} evenementId={evenementId} onOuvrirBien={onOuvrirBien} />
-        : <EtatCarte etat={d.etat} traiteLe={d.traiteLe} traitePar={d.traitePar} occupe={occupe}
-          onEtat={(e) => void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`)} />}
+      <OuvrirLaFicheDuBien biens={d.biens ?? []} evenementId={evenementId} onOuvrirBien={onOuvrirBien} />
 
       {/**
-        * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 3a — LE SÉLECTEUR D'URGENCE, DANS LA CARTE DÉPLIÉE ════════════════
-        *
-        * ARNO : « Dans la carte d'événement DÉPLIÉE (un clic) : un sélecteur à trois boutons Normal /
-        * Intermédiaire / Urgent, chacun dans sa couleur, le niveau actuel mis en évidence. Le choix est enregistré
-        * tout de suite, et la couleur de la capsule change sans recharger. »
-        *
-        * 🔴 DANS LES DEUX ÉCRANS, ET C'EST POUR CELA QU'IL EST ICI ET NON PLUS BAS. Tout ce qui suit est encadré
-        * par `partage ? null :` (accord d'Arno au lot EVENEMENT-MINIMALISTE : l'écran partagé est une LISTE). Le
-        * sélecteur, lui, est demandé « dans la carte dépliée » sans distinction d'écran — l'enfermer dans le plein
-        * écran l'aurait rendu absent là où Arno travaille le plus.
-        *
-        * 🔴 « SANS RECHARGER » EST TENU PAR `agir`, ET PAR RIEN D'AUTRE : il écrit, puis RELIT cette carte seule
-        * (`lire`), ce qui repose `detail` — donc l'urgence que la capsule du titre lit. Aucun rechargement de
-        * l'écran, et le dossier qu'on est en train de lire ne se replie pas.
-        *
-        * ⚠️ LE MESSAGE NOMME LE NIVEAU, pas seulement la carte : « mis à jour » ne dirait pas ce qui a changé, et
-        * c'est la seule confirmation qu'on a quand on clique un bouton dont l'effet est une couleur.
-        */}
-      <SelecteurUrgence urgence={d.urgence} occupe={occupe}
-        onUrgence={(u) => void agir({ urgence: u },
-          `Événement ${d.reference} — urgence : ${motUrgence(u).toLowerCase()}.`)} />
-
-      {/**
-        * ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 5 — LES PARTIES QUE LA CARTE REPLIÉE NE DIT PAS ═══════════════════
-        *
-        * ARNO : « Quand on déplie la carte, afficher les noms qui n'apparaissent pas dans la carte repliée : le ou
-        * les locataires actuels, et le ou les propriétaires s'ils manquent. […] Si une partie est déjà affichée
-        * dans la carte repliée, elle n'est pas répétée. Pas de numéro de lot interne. »
-        *
-        * 🔴 DANS LES DEUX ÉCRANS, pour la même raison que le sélecteur juste au-dessus : la demande parle de « la
-        * carte dépliée », sans distinguer.
+        * 🔴 LES INFORMATIONS ABSENTES DE LA CARTE REPLIÉE (Arno, point 1), c'est-à-dire les noms que la vignette
+        * ne dit pas : locataires actuels et propriétaires. Calcul des Parties, inchangé depuis le lot
+        * URGENCE-EVENEMENT.
         */}
       <PartiesManquantes parties={d.parties} dejaDits={dejaDits} />
 
       {/**
-        * ══ 🔴🔴 LOT EVENEMENT-MINIMALISTE, POINT 3 — L'ÉCRAN PARTAGÉ S'ARRÊTE ICI ═════════════════════════════
-        *
-        * ACCORD D'ARNO (07/10/2026) : « sous la vignette dépliée, retire le titre “Avancement” et tout ce qui est
-        * en dessous (alerte de clôture, frise, bloc Quoi / Qui demande / Adresse / Ouvert / Modifier). Il ne
-        * reste que la vignette et le gros bouton “Ouvrir la fiche du bien sur cet événement →”. »
-        *
-        * 🔴 RIEN N'EST PERDU, ET C'EST VÉRIFIÉ PIÈCE PAR PIÈCE : la frise est dans le bloc « Événements » de la
-        * fiche du bien depuis le lot MONGA-2 ; la proposition « Clôturer cet événement ? » y est AJOUTÉE par ce
-        * lot (elle n'y passait pas `onProposerCloture`) ; le « Modifier » des informations de l'événement y est
-        * AJOUTÉ aussi, avec le MÊME formulaire que celui-ci — pas une copie. Et le gros bouton mène là en un
-        * clic, déplié sur le bon événement.
-        *
-        * 🔴 EN PLEIN ÉCRAN, RIEN NE CHANGE : tout ce qui suit s'affiche comme avant. L'écran partagé est une
-        * LISTE — on y choisit un dossier, on ne le travaille pas.
+        * 🔴🔴 L'UNIQUE EXCEPTION, EN PLEIN ÉCRAN SEULEMENT — voir l'encadré ci-dessus. `EtatCarte` n'existe nulle
+        * part ailleurs dans l'application, et Arno demande de NE PAS retirer ce qui serait alors perdu.
         */}
-      {partage ? null : (<>
-
-      {/**
-        * ══ 🔴🔴 LOT MONGA-1, POINT 4 — LE BADGE DE L'INTERVENTION, SA DERNIÈRE ÉTAPE, SON LIEN ════════════════
-        *
-        * Arno : « Sur l'événement : un badge “Monga MNG-23987”, la dernière étape (ex. “Devis en attente de
-        * validation · 05/10”), et le lien “Vers Mission”. »
-        *
-        * 🔴 IL EST POSÉ SOUS L'ÉTAT, AVANT LE RÉSUMÉ : c'est le renseignement qui dit OÙ EN EST le travail, et
-        * il doit se lire sans dérouler la carte.
-        *
-        * ⚠️ RIEN DU TOUT SUR UNE CARTE SANS MONGA — le cas ordinaire, et de très loin.
-        */}
-      {(d.monga ?? null) !== null && (
-        <div className="gst-monga" role="note">
-          <p className="gst-monga-tete">
-            <span className="gst-monga-badge">{(d.monga as MongaDeLEvenement).badge}</span>
-            <span className="gst-monga-etape">{(d.monga as MongaDeLEvenement).derniereEtapeMot}</span>
-            {(d.monga as MongaDeLEvenement).lienMission !== null && (
-              /* ⚠️ `noreferrer` : on n'annonce pas notre écran interne à Monga. */
-              <a className="gst-monga-lien" target="_blank" rel="noreferrer"
-                href={(d.monga as MongaDeLEvenement).lienMission ?? '#'}>Vers Mission</a>
-            )}
-          </p>
-          {/**
-            * 🔴🔴 LA PROPOSITION DE CLORE — ET SEULEMENT UNE PROPOSITION (Arno : « jamais automatique »).
-            *
-            * 🔴 LA MESURE QUI LA JUSTIFIE : l'audit n'a trouvé **qu'UN SEUL** mail « Mission terminée » pour
-            * 40 références. Une clôture automatique ne fermerait donc presque rien — et fermerait parfois à
-            * tort, puisqu'une intervention finie chez Monga peut encore attendre une facture ou une reprise
-            * chez nous.
-            *
-            * ⚠️ ELLE PASSE PAR LA PORTE QU'ARNO EMPLOIE DÉJÀ (`onEtat('traite')` du bloc d'état) : même
-            * journal, même réversibilité — rouvrir une carte est un geste normal, pas une réparation.
-            */}
-          {(d.monga as MongaDeLEvenement).terminee && d.etat !== 'traite' && (
-            <p className="gst-monga-clore">
-              <span>Monga a marqué cette intervention terminée. Clore l’événement ?</span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe}
-                onClick={() => void agir({ etat: 'traite' },
-                  `Événement ${d.reference} clos après « Mission terminée » (Monga).`)}>
-                Clore l’événement
-              </button>
-            </p>
-          )}
-        </div>
+      {partage ? null : (
+        <EtatCarte etat={d.etat} traiteLe={d.traiteLe} traitePar={d.traitePar} occupe={occupe}
+          onEtat={(e) => void agir({ etat: e }, `Événement ${d.reference} : ${libelleEtat(e).toLowerCase()}.`)} />
       )}
-
-      {/**
-        * ══ 🔴🔴 LOT MONGA-2, POINT 4 — LA FRISE D'AVANCEMENT, DANS LA VUE DE L'ÉVÉNEMENT ══════════════════════
-        *
-        * Arno : « Où elle s'affiche — dans la vue de l'événement. »
-        *
-        * 🔴 ELLE EST POSÉE SOUS LE BADGE MONGA ET AVANT LE RÉSUMÉ, pour la même raison que le badge lui-même :
-        * c'est ce qui dit OÙ EN EST le travail, et cela doit se lire avant les détails administratifs de la
-        * carte (demandeur, catégorie, note).
-        *
-        * 🔴 ELLE S'AFFICHE MÊME SANS MONGA, et c'est une demande explicite : « Fonctionne aussi pour un
-        * événement SANS Monga (frise entièrement manuelle). » Sur un événement nu, elle montre sa carte
-        * d'ouverture et le « + » rouge — c'est-à-dire un dossier qu'on peut tenir à la main dès le premier jour.
-        *
-        * ⚠️ CETTE PHRASE DISAIT « les sept étapes attendues en pointillé et le bouton “+ Ajouter une étape” »
-        * jusqu'au lot FRISE-CONSTRUCTIBLE : les pointillés ont été supprimés sur accord d'Arno, et le bouton est
-        * devenu le « + ». Rien n'est perdu — tous ces types restent posables par le réservoir, autant de fois
-        * que nécessaire.
-        *
-        * 🔴 LOT FRISE-COMPACTE : c'est LE MÊME composant que dans le bloc « Événements » de la fiche du bien,
-        * donc le même comportement — une seule rangée par défaut, l'espace du bas déployé à la demande seule.
-        * Arno, point 5 : « Même comportement dans la vue de l'événement. » Un second rendu l'aurait trahi.
-        *
-        * ⚠️ LA PROPOSITION DE CLÔTURE PASSE PAR LA PORTE QU'ARNO EMPLOIE DÉJÀ (`agir({ etat: 'traite' })`),
-        * exactement comme celle du badge Monga juste au-dessus : même journal, même réversibilité. Deux chemins
-        * pour clore auraient fini par écrire deux histoires différentes dans le journal.
-        */}
-      <h3 className="gst-sous-titre">Avancement</h3>
-      <FriseAvancement
-        evenementId={evenementId}
-        onGeste={(m) => onGeste(m)}
-        onProposerCloture={() => void agir({ etat: 'traite' },
-          `Événement ${d.reference} clos depuis la frise d’avancement.`)}
-      />
-
-      {edition
-        ? <FormulaireCarte detail={d} occupe={occupe}
-            onValider={(champs) => void agir(champs, `Événement ${d.reference} mis à jour.`)}
-            onAnnuler={() => setEdition(false)} />
-        : <ResumeCarte detail={d} maintenant={maintenant} onModifier={() => setEdition(true)} occupe={occupe} />}
-
-      {/* LOT RATTACHEMENT-2 — TOUT L'HISTORIQUE DE CETTE CARTE, d'un clic : ses échanges affectés et les mails qui
-          lui ont été rattachés à la main, sur une seule frise, avec leurs pièces et le filtre par interlocuteur. */}
-      {onHistorique && (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn gst-histo"
-          onClick={() => onHistorique({ sorte: 'evenement', cle: null, id: evenementId })}>
-          Tout l’historique des échanges →
-        </button>
-      )}
-
-      <h3 className="gst-sous-titre">
-        Échanges rattachés <span className="gst-compte">{d.fils.length}</span>
-      </h3>
-      {d.fils.length === 0 && d.mailsDeplaces.length === 0
-        ? <p className="gst-vide">Aucun échange rattaché. Un échange détaché retourne dans la file, il n’est jamais perdu.</p>
-        : (
-          <ul className="gst-liste">
-            {d.fils.map((f) => (
-              <FilRattache key={f.filId} fil={f} evenementId={evenementId} maintenant={maintenant} onGeste={onGeste} />
-            ))}
-          </ul>
-        )}
-
-      {/* LES MAILS VENUS SEULS — à part, parce que ce ne sont pas des échanges, et en disant d'où ils sortent. */}
-      {d.mailsDeplaces.length > 0 && (
-        <>
-          <h3 className="gst-sous-titre">
-            Mails déplacés ici <span className="gst-compte">{d.mailsDeplaces.length}</span>
-          </h3>
-          <ol className="gst-fil">
-            {d.mailsDeplaces.map((m) => (
-              <li key={m.message.messageId} className="gst-item gst-item--fil">
-                <p className="gst-note">
-                  Venu de l’échange « {m.objetDuFil?.trim() || '(sans objet)'} », qui l’annonce toujours.
-                </p>
-                <ol className="gst-fil">
-                  {/* LOT 5b — la MÊME brique que dans une conversation, ouverte d'emblée : un mail venu seul n'a pas
-                      de fil à parcourir, il n'y a rien à replier. Le geste « Détacher ce mail » est conservé.
-                      LOT 5-STATUT — son cartouche montre SA carte, celle où il a été déplacé, et non celle de son
-                      échange d'origine : il est réellement ailleurs, et dire le contraire ferait croire qu'il suit
-                      son fil. Constat sans bouton : ses gestes à lui sont dans son menu « ⋯ », où ils étaient déjà. */}
-                  <MessageConversation message={m.message} maintenant={maintenant} ouvert onBasculer={() => {}}
-                    statut={statutDuMessage(
-                      { etat: 'a_classer', reference: null, evenementId: null },
-                      { carteDuMail: { reference: d.reference, libelle: d.objet, evenementId: d.evenementId } },
-                    )}
-                    onRemettre={() => void agirSurLeMail(m.message.messageId, null, onGeste)} />
-                </ol>
-              </li>
-            ))}
-          </ol>
-        </>
-      )}
-      </>)}
     </div>
   );
 }
@@ -1259,26 +1054,6 @@ function EtatCarte({ etat, traiteLe, traitePar, occupe, onEtat }: {
   );
 }
 
-/** Ce que porte la carte, en lecture. Un champ vide est DIT vide plutôt que laissé deviner. */
-function ResumeCarte({ detail, maintenant, onModifier, occupe }: {
-  detail: CarteDetail; maintenant: Date; onModifier: () => void; occupe: boolean;
-}) {
-  const demandeur = detail.demandeurNom ?? detail.demandeurEmail;
-  return (
-    <div className="gst-bloc">
-      <dl className="gst-fiche">
-        <dt>Quoi</dt><dd>{detail.objet}</dd>
-        <dt>Qui demande</dt><dd>{demandeur ?? <span className="gst-absent">non renseigné</span>}</dd>
-        <dt>Adresse</dt><dd>{detail.adresseLibre ?? <span className="gst-absent">non renseignée</span>}</dd>
-        <dt>Ouvert</dt>
-        <dd><span title={formaterDateFr(detail.ouvertLe)}>{depuis(detail.ouvertLe, maintenant)}</span>{detail.ouvertPar ? ` par ${detail.ouvertPar}` : ''}</dd>
-      </dl>
-      <div className="gst-actions">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe} onClick={onModifier}>Modifier</button>
-      </div>
-    </div>
-  );
-}
 
 /** La correction à la main. Le pré-remplissage ne propose que ce qui est écrit dans le mail : il fallait pouvoir corriger. */
 /**
@@ -1355,94 +1130,12 @@ export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
 }
 
 /**
- * Un échange rattaché : replié, il ne coûte rien ; déplié, il montre la conversation entière.
- *
- * Ses commandes vivent dans un MENU DISCRET, posé dans le coin — pas dans une rangée de boutons. Le titre d'un
- * `BlocRepliable` EST un bouton : on n'imbrique donc pas le menu dedans (ce serait un bouton dans un bouton, invalide
- * et injouable au clavier), il est son VOISIN, placé dans le coin par le CSS.
- */
-function FilRattache({ fil, evenementId, maintenant, onGeste }: {
-  fil: FilDeCarte; evenementId: number; maintenant: Date; onGeste: Rapport;
-}) {
-  const [deplacer, setDeplacer] = useState(false);
-  return (
-    <li className="gst-item gst-item--fil">
-      <div className="gst-coin">
-        <MenuDiscret titre="Actions sur cet échange" entrees={[
-          { libelle: 'Déplacer l’échange…', onChoisir: () => setDeplacer(true) },
-          { libelle: 'Détacher l’échange', discrete: true, onChoisir: () => void detacherFil(fil.filId, onGeste) },
-        ]} />
-      </div>
-      {deplacer && (
-        <DeplacerVers
-          titre={`Déplacer l’échange « ${fil.objet?.trim() || '(sans objet)'} » vers`}
-          exclure={evenementId}
-          onAnnuler={() => setDeplacer(false)}
-          onValider={async (cible) => {
-            await deplacerFil(fil.filId, cible, onGeste);
-            setDeplacer(false);
-          }} />
-      )}
-      <BlocRepliable
-        titreClasseExtra="gst-repli gst-repli--avec-menu"
-        titre={
-          <span className="gst-carte-titre">
-            <span className="gst-objet">{fil.objet?.trim() || '(sans objet)'}</span>
-            {fil.attend && <span className="gst-attend">attend une réponse</span>}
-            <span className="gst-carte-bas">
-              <span className="gst-qui">{fil.interlocuteur ?? '(expéditeur inconnu)'}</span>
-              <span className="gst-sep" aria-hidden="true">·</span>
-              <span title={formaterDateFr(fil.dernierLe)}>{depuis(fil.dernierLe, maintenant)}</span>
-              <span className="gst-sep" aria-hidden="true">·</span>
-              <span>{fil.nbMessages} message{fil.nbMessages > 1 ? 's' : ''}</span>
-              {fil.nbPieces > 0 && <>
-                <span className="gst-sep" aria-hidden="true">·</span>
-                <span>{fil.nbPieces} pièce{fil.nbPieces > 1 ? 's' : ''} jointe{fil.nbPieces > 1 ? 's' : ''}</span>
-              </>}
-            </span>
-          </span>
-        }
-      >
-        {() => <Conversation filId={fil.filId} maintenant={maintenant} onGeste={onGeste} avecBandeau={false} />}
-      </BlocRepliable>
-    </li>
-  );
-}
-
-/**
- * DÉPLACER = RATTACHER AILLEURS. Le geste existe déjà côté serveur (`affecter`) et il est atomique : l'ancienne
- * affectation est désactivée et la nouvelle créée dans UNE transaction, après une lecture verrouillée — il n'existe
- * aucun instant où l'échange n'a plus de carte. Rien de nouveau n'est écrit ici, seule la manière de le demander change.
- */
-async function deplacerFil(filId: number, evenementId: number, onGeste: Rapport): Promise<void> {
-  try {
-    const res = await fetch(`/api/admin/gestion/fils/${filId}/affectation`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ evenementId }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reference?: string; erreur?: string };
-    if (!res.ok || !data.ok) { onGeste(data.erreur ?? 'Déplacement impossible.'); return; }
-    onGeste(`Échange déplacé vers ${data.reference ?? 'l’événement choisi'}.`, { rechargerTout: true });
-  } catch {
-    onGeste('Déplacement impossible : le serveur n’a pas répondu.');
-  }
-}
-
-/** DÉTACHER : l'échange retourne dans la file. Rien n'est supprimé — il y revient avec tous ses messages. */
-async function detacherFil(filId: number, onGeste: Rapport): Promise<void> {
-  try {
-    const res = await fetch(`/api/admin/gestion/fils/${filId}/affectation`, { method: 'DELETE' });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
-    if (!res.ok || !data.ok) { onGeste(data.erreur ?? 'Détachement impossible.'); return; }
-    onGeste('Échange détaché : il est revenu dans la file, avec tous ses messages.', { rechargerTout: true });
-  } catch {
-    onGeste('Détachement impossible : le serveur n’a pas répondu.');
-  }
-}
-
-
-/**
  * LOT 5b — `CorpsFil`, `Message` et leur ligne de pièce jointe ONT DÉMÉNAGÉ dans `Conversation.tsx`, qui est désormais
- * la SEULE vue conversation du module — utilisée par la carte, par le poste de tri et par la boîte mail.
+ * la SEULE vue conversation du module — utilisée par le poste de tri et par la boîte mail.
+ *
+ * 🔴 LOT CARTES-EVENEMENT-MEME-GESTE — « par la carte » A ÉTÉ RETIRÉ DE CETTE PHRASE, et c'est un fait, pas une
+ * correction de style : la carte dépliée ne porte plus de conversation. Elle ne montre que les informations
+ * absentes de la vignette et le bouton rouge vers la fiche du bien.
  *
  * RIEN N'EST PERDU au passage, et c'est la condition pour que ce déménagement soit acceptable : les gestes par message
  * (déplacer ce mail, le détacher), la liste des mails sortis de l'échange avec leur bouton « Remettre dans son
