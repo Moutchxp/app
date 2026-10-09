@@ -1014,13 +1014,61 @@ function jourLisible(survenuLe: string | null | undefined): string | null {
  * ⚠️ LE MONTANT EN CENTIMES REDEVIENT DES EUROS À VIRGULE, et c'est la forme qu'on saisit en français. Le
  * calcul se fait sur l'entier (`montantCents / 100`) : passer par un flottant afficherait 885,4999999.
  */
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS (09/10/2026) — UNE CARTE DE RENDEZ-VOUS EXIGE SA DATE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ARNO : « À l'ouverture du bloc, les champs Date ET Heure sont VIDES (plus de date proposée pré-remplie pour
+   ces cartes), et le champ Date est cerclé de ROUGE dès l'ouverture […] “Valider” refuse tant que la date est
+   vide. L'heure reste facultative. »
+
+   🔴 POURQUOI CES CARTES-LÀ, ET ELLES SEULES. Une carte de rendez-vous DIT une date : « on se voit le 14 ».
+   La pré-remplir du jour courant, c'est proposer une réponse qui a toutes les chances d'être fausse — et qu'on
+   valide sans la lire. Sur les autres cartes, la date du jour est au contraire le cas ordinaire (un devis reçu
+   aujourd'hui, une facture d'aujourd'hui) : la pré-remplir fait gagner un geste, et elle reste facultative.
+
+   🔴 LA RÈGLE PORTE SUR LE **NOM** DU TYPE, PAS SUR UNE LISTE RECOPIÉE. Arno : « et tout type dont le nom
+   contient “rendez-vous” ». Le jour où un type « Rendez-vous d'expertise » entre au réservoir, il est couvert
+   sans que personne n'ait à y penser — et sans qu'on puisse l'oublier.
+
+   ⚠️ LA COMPARAISON EST INSENSIBLE À L'ACCENT ET À L'APOSTROPHE : « Rendez-vous d'intervention » s'écrit avec
+   une apostrophe typographique (’), et un jour peut-être avec une droite. On normalise des deux côtés.
+*/
+
+/** Le libellé contient-il « rendez-vous » ? Insensible à la casse, aux accents et à la forme de l'apostrophe. */
+function nomDeRendezVous(mot: string): boolean {
+  const propre = mot.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  return propre.includes('rendez-vous');
+}
+
+/** Cette carte exige-t-elle une date ? PUR. */
+export function estCarteRendezVous(t: TypeEtape): boolean {
+  return nomDeRendezVous(motEtape(t));
+}
+
+/**
+ * Les types concernés, calculés et non recopiés — c'est ce que l'écran et les épreuves affichent. PUR.
+ *
+ * ⚠️ IL SE CALCULE À PARTIR DE LA LISTE DES TYPES : une liste écrite à la main aurait vieilli au premier type
+ * ajouté, et c'est précisément ce qu'Arno demande d'éviter (« tout type dont le nom contient rendez-vous »).
+ */
+export function typesRendezVous(tous: readonly TypeEtape[]): TypeEtape[] {
+  return tous.filter(estCarteRendezVous);
+}
+
+/** La mention du champ, et le refus du bouton : LES MÊMES MOTS, écrits une seule fois (Arno). */
+export const MENTION_DATE_RDV = 'Date du rendez-vous obligatoire';
+
 export function valeursDeLaCarte(
   carte: EtapeAAfficher | null, jourDefaut: string, typeDefaut: TypeEtape,
 ): ValeursDeLaCarte {
   if (carte === null) {
+    /* 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — AUCUNE DATE PROPOSÉE POUR UN RENDEZ-VOUS. C'est la moitié
+       la plus importante de la règle : tant qu'une date est pré-remplie, elle se valide sans se lire. */
+    const rdv = estCarteRendezVous(typeDefaut);
     return {
       forme: estRepere(typeDefaut) ? 'information' : 'etape',
-      type: typeDefaut, jour: jourDefaut, heure: '', texte: '', titre: '', montant: '', piece: '',
+      type: typeDefaut, jour: rdv ? '' : jourDefaut, heure: '', texte: '', titre: '', montant: '', piece: '',
     };
   }
   const jour = jourLisible(carte.survenuLe);
@@ -1048,9 +1096,40 @@ export function valeursDeLaCarte(
 export function refusDEnregistrement(v: {
   jour: string; type: TypeEtape; titre: string; montantLisible: boolean;
 }): string | null {
-  if (v.jour === '') return 'La date manque : une carte se range à une date.';
-  if (jourLisible(v.jour) === null) return 'La date ne se lit pas : attendu JJ/MM/AAAA.';
+  /**
+   * ══ 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — LA DATE VIDE N'A PLUS LE MÊME SENS SELON LA CARTE ════════
+   *
+   * CE QUE CETTE LIGNE DISAIT, POUR TOUTES LES CARTES : « La date manque : une carte se range à une date. »
+   *
+   * 🔴 ARNO LA SCINDE EN DEUX (09/10/2026) :
+   *   · carte de RENDEZ-VOUS → la date est OBLIGATOIRE, et le refus porte ses mots à lui ;
+   *   · toutes les autres    → « Date et Heure FACULTATIVES ». Une date laissée vide n'est plus un refus : la
+   *     carte se range au jour du « + » d'où le bloc a été ouvert (`jourAEnregistrer`). Ce n'est pas une date
+   *     inventée — c'est celle que la personne a désignée en cliquant ce « + »-là.
+   */
+  /* ⚠️ ON NE REND PAS `null` TOUT DE SUITE SUR UNE DATE VIDE — défaut trouvé en écrivant l'épreuve : une carte
+     LIBRE sans titre et sans date serait alors passée, parce que le refus du titre vit plus bas. Une date vide
+     n'est plus un refus sur une carte ordinaire ; elle n'est pas pour autant un laissez-passer. */
+  if (v.jour === '') {
+    if (estCarteRendezVous(v.type)) return MENTION_DATE_RDV;
+  } else if (jourLisible(v.jour) === null) {
+    return 'La date ne se lit pas : attendu JJ/MM/AAAA.';
+  }
   if (v.type === 'autre' && v.titre.trim() === '') return 'Une carte libre demande un titre.';
   if (!v.montantLisible) return 'Le montant ne se lit pas : un nombre, en euros.';
   return null;
+}
+
+/**
+ * LE JOUR QUI PART EN BASE. PUR.
+ *
+ * 🔴 `survenu_le` EST `NOT NULL` EN BASE, et une frise RANGE ses cartes par jour : « facultative » ne peut donc
+ * pas vouloir dire « sans date ». Cela veut dire « vous n'avez pas à la saisir » — et la carte se range alors
+ * au jour du « + » d'où le bloc s'est ouvert, qui est déjà le jour que la personne a désigné.
+ *
+ * ⚠️ UNE CARTE DE RENDEZ-VOUS N'ARRIVE JAMAIS ICI AVEC UN JOUR VIDE : `refusDEnregistrement` l'a arrêtée avant.
+ * Le repli vaut pour les autres, et seulement pour elles.
+ */
+export function jourAEnregistrer(jour: string, jourDefaut: string): string {
+  return jour === '' ? jourDefaut : jour;
 }

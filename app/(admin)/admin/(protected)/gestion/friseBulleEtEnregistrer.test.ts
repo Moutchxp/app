@@ -115,12 +115,27 @@ describe('🔴🔴 ① le formulaire naît rempli — la carte d’Arno, telle q
 
 describe('🔴🔴 ② le refus a une phrase — il n’y a plus de bouton gris muet', () => {
   /**
-   * 🔴🔴 LA RÉGRESSION QU'ON FERME : la date manquante était la SEULE des trois conditions sans message. Elle
-   * en a un, et il vient du même endroit que le refus — on ne peut plus ajouter l'un sans l'autre.
+   * ══ 🔴🔴 VERDICT INVERSÉ AU LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS (09/10/2026) ════════════════════════════
+   *
+   * CE QUE CE CAS EXIGEAIT : sur **toute** carte, une date vide refusait l'enregistrement avec
+   * « La date manque : une carte se range à une date. » — c'était la régression que le lot
+   * FRISE-BULLE-ET-ENREGISTRER avait fermée (un refus sans phrase).
+   *
+   * 🔴 POURQUOI LE VERDICT CHANGE. Arno scinde la règle : « cartes de rendez-vous : date OBLIGATOIRE […]
+   * TOUTES LES AUTRES CARTES : Date et Heure FACULTATIVES ». Sur un « Devis reçu », une date vide n'est donc
+   * plus un refus : la carte se range au jour du « + » d'où le bloc s'est ouvert (`jourAEnregistrer`).
+   *
+   * 🔴 CE QUE LE CAS PROTÉGEAIT N'EST PAS PERDU, il a changé de porte : un refus sans phrase reste impossible,
+   * et le cas suivant le montre sur la carte où le refus EXISTE encore — celle d'un rendez-vous.
    */
-  it('🔴🔴 une date vide se dit, au lieu d’éteindre le bouton en silence', () => {
-    expect(refusDEnregistrement({ jour: '', type: 'devis_recu', titre: '', montantLisible: true }))
-      .toBe('La date manque : une carte se range à une date.');
+  it('🔴🔴 une date vide n’est plus un refus sur une carte ordinaire', () => {
+    expect(refusDEnregistrement({ jour: '', type: 'devis_recu', titre: '', montantLisible: true })).toBeNull();
+  });
+
+  /** 🔴🔴 ET SUR UNE CARTE DE RENDEZ-VOUS, LE REFUS EXISTE — avec les mots qu'Arno a écrits. */
+  it('🔴🔴 une date vide refuse un rendez-vous, et le dit', () => {
+    expect(refusDEnregistrement({ jour: '', type: 'prise_rdv', titre: '', montantLisible: true }))
+      .toBe('Date du rendez-vous obligatoire');
   });
 
   /** ⚠️ ET UNE DATE QUI NE SE LIT PAS LE DIT AUTREMENT : ce n'est pas la même erreur, ni le même geste. */

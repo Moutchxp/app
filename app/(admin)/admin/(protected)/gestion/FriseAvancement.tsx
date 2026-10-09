@@ -16,6 +16,8 @@ import {
   /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — le formulaire naît rempli, et son refus s'explique. Deux fonctions
      PURES, éprouvées dans `frise.test.ts` : l'écran ne reformule ni l'un ni l'autre. */
   refusDEnregistrement, valeursDeLaCarte,
+  /* 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — la règle, sa mention et le jour réellement enregistré. */
+  estCarteRendezVous, jourAEnregistrer, MENTION_DATE_RDV,
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
 } from '../../../../lib/gestion/frise';
 import {
@@ -1226,7 +1228,10 @@ function Carre({
           * ne réagit pas au clic se lit comme une panne.
           */}
         <button
-          type="button" className="fav-carre-clic"
+          /* 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS, POINT 3 — le bloc titre+date d'une BORNE se centre
+             aussi en hauteur. Le même juge que le gras et le centrage horizontal (`dateAuCentre`) : une
+             seconde condition écrite ici aurait fini par désigner un autre ensemble de cartes. */
+          type="button" className={`fav-carre-clic${dateAuCentre(e.type) ? ' fav-carre-clic--borne' : ''}`}
           onClick={() => {
             if (ouvrable) { (onOuvrirFil as (f: number) => void)(e.filId as number); return; }
             onOuvrir(detailOuvert ? null : `c${e.id}`);
@@ -1575,7 +1580,7 @@ function ChampOuverture({
 
   if (!edite) {
     return (
-      <button type="button" className="fav-carre-clic" onClick={() => setEdite(true)}
+      <button type="button" className="fav-carre-clic fav-carre-clic--borne" onClick={() => setEdite(true)}
         title="Corriger la date d’ouverture de l’événement">
         {/* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER, POINT 6 — titre centré comme la date, sur toutes les bornes. */}
         <span className="fav-titre fav-titre--centree">{mot}</span>
@@ -1893,6 +1898,34 @@ function AjouterEtape({
   const refus = refusDEnregistrement({
     jour, type, titre, montantLisible: montantEnCents() !== undefined,
   });
+  /**
+   * 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — « dès l'ouverture », et jusqu'à la saisie.
+   *
+   * 🔴 L'ÉTAT SE DÉDUIT, IL NE SE MÉMORISE PAS : un drapeau « on a déjà cliqué Valider » aurait fait attendre
+   * un premier refus avant de montrer le cercle, alors qu'Arno le veut dès l'ouverture. Et il disparaît tout
+   * seul à la première date saisie, sans qu'aucune ligne n'ait à l'éteindre.
+   */
+  const dateManquante = estCarteRendezVous(type) && jour === '';
+
+  /**
+   * ══ 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — « SI ON CHANGE LE TYPE, LA RÈGLE SUIT » (Arno) ═══════════
+   *
+   * Deux sens, et ils ne sont pas symétriques par hasard :
+   *   · vers un RENDEZ-VOUS → la date proposée s'efface, pour qu'on ne valide pas le jour du « + » sans le
+   *     lire. Mais SEULEMENT si elle n'a pas été touchée (elle vaut encore le défaut) : une date qu'on vient
+   *     de saisir ne se jette pas parce qu'on a corrigé le type juste après ;
+   *   · depuis un RENDEZ-VOUS, champ laissé vide → la date proposée revient, puisqu'elle redevient utile.
+   *
+   * ⚠️ EN MODIFICATION, ON NE TOUCHE À RIEN : la carte a sa date, et c'est elle qui fait foi. L'effacer parce
+   * qu'on a ouvert le menu du type serait perdre une donnée saisie — et une carte de rendez-vous existante ne
+   * peut de toute façon pas être vidée (le refus la retient).
+   */
+  const changerDeType = (suivant: TypeEtape): void => {
+    setType(suivant);
+    if (modifie !== null) return;
+    if (estCarteRendezVous(suivant)) { if (jour === jourDefaut) setJour(''); return; }
+    if (jour === '') setJour(jourDefaut);
+  };
 
   /**
    * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA CONFIRMATION, AVANT DE POSER ═════════════════════════════════════════
@@ -1929,7 +1962,10 @@ function AjouterEtape({
        */
       const corps = {
         type,
-        survenuLe: heure === '' ? jour : `${jour}T${heure}`,
+        /* 🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — une date laissée vide (carte ordinaire) se range au jour
+           du « + » d'où le bloc s'est ouvert. Une carte de rendez-vous n'arrive jamais ici sans date : le refus
+           l'a arrêtée avant. */
+        survenuLe: heure === '' ? jourAEnregistrer(jour, jourDefaut) : `${jourAEnregistrer(jour, jourDefaut)}T${heure}`,
         heureConnue: heure !== '',
         texte: texte.trim() === '' ? null : texte.trim(),
         /* ⚠️ LE TITRE N'EST GARDÉ QUE SUR UNE CARTE LIBRE — la route le vérifie aussi, et pour la même raison :
@@ -2001,7 +2037,7 @@ function AjouterEtape({
       <div className="fav-ajout-ligne">
         <label className="fav-label" htmlFor="fav-type">Type</label>
         <select id="fav-type" className="fav-champ" value={type}
-          onChange={(e) => setType(e.target.value as TypeEtape)}>
+          onChange={(e) => changerDeType(e.target.value as TypeEtape)}>
           {listeTypes.map((t) => <option key={t} value={t}>{motEtape(t)}</option>)}
         </select>
       </div>
@@ -2040,13 +2076,26 @@ function AjouterEtape({
             : 'La date de cette carte n’est pas modifiable : elle est celle du jour de sa pose.'}
         </p>
       ) : (
+        /* ══ 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — LA DATE D'UN RENDEZ-VOUS SE VOIT MANQUER ═════════
+            ARNO : « le champ Date est cerclé de ROUGE dès l'ouverture, avec la mention “Date du rendez-vous
+            obligatoire” […] Dès qu'une date est saisie, le cercle rouge disparaît. »
+            🔴 LE CERCLE **ET** LE MOT, jamais l'un sans l'autre : une couleur seule ne dit rien à qui ne la
+            voit pas, et `aria-invalid` + la mention liée par `aria-describedby` la disent au lecteur d'écran.
+            ⚠️ L'HEURE RESTE FACULTATIVE, sur un rendez-vous comme ailleurs (Arno) : on sait souvent le jour
+            avant l'heure, et refuser la carte pour cela ferait perdre l'information qu'on a. */
         <div className="fav-ajout-ligne">
           <label className="fav-label" htmlFor="fav-jour">Date</label>
-          <input id="fav-jour" type="date" className="fav-champ" value={jour} required
+          <input id="fav-jour" type="date"
+            className={`fav-champ${dateManquante ? ' fav-champ--exige' : ''}`}
+            value={jour} required aria-invalid={dateManquante}
+            aria-describedby={dateManquante ? 'fav-jour-exige' : undefined}
             onChange={(e) => setJour(e.target.value)} />
           <label className="fav-label" htmlFor="fav-heure">Heure</label>
           <input id="fav-heure" type="time" className="fav-champ" value={heure}
             onChange={(e) => setHeure(e.target.value)} />
+          {dateManquante && (
+            <span id="fav-jour-exige" className="fav-exige" role="note">{MENTION_DATE_RDV}</span>
+          )}
         </div>
       )}
 
@@ -2421,6 +2470,18 @@ const CSS_FRISE_AVANCEMENT = `
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
 .fav-carre-clic{display:flex;flex-direction:column;gap:2px;width:100%;padding:0;flex:1 1 auto;
   font:inherit;text-align:center;background:none;border:0;cursor:pointer;color:var(--color-svv-ink)}
+/* ══ 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS, POINT 3 — LES BORNES SE CENTRENT AUSSI EN HAUTEUR ══════════
+   ARNO : « Dans ces cartes, le titre et la date sont centres horizontalement ET verticalement au milieu du
+   carre (le bloc titre+date au milieu de la hauteur utile, au-dessus des pictos du bas). »
+   🔴 LE CENTRAGE HORIZONTAL EXISTAIT DEJA (text-align sur le conteneur) ; c'est le VERTICAL qui manquait. Une
+   borne ne porte ni montant, ni reference, ni apercu : son bloc titre+date restait colle en haut, et le bas
+   du carre restait vide au-dessus des pictos.
+   ⚠️ SEULEMENT LES BORNES : sur une carte ordinaire, le titre doit rester en haut, aligne avec ses voisines —
+   c'est ce qui permet de lire une rangee de cartes en diagonale.
+   ⚠️ LA HAUTEUR UTILE EST CELLE DE CE CONTENEUR : la rangee de pictos est son FRERE, pas son enfant (elle vit
+   hors du bouton). Centrer ici, c'est donc centrer AU-DESSUS des pictos, ce qu'Arno demande.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-carre-clic--borne{justify-content:center}
 /* ⚠️ LA GOUTTIERE VAUT 11 px, ET ELLE EST MESUREE, PAS ESTIMEE. La poignee occupe x=3 a x=19 dans le carre,
    le texte du titre commence a x=9 : il faut donc 10 px pour la degager, et 11 pour ne pas la frôler. Elle
    etait a 18 px au premier jet, et le titre « Intervention » se coupait en « Interventio / n » faute de
@@ -2688,6 +2749,16 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-champ{font:inherit;font-size:.82rem;min-height:36px;padding:4px 8px;color:var(--color-svv-ink);
   background:var(--color-svv-bg);border:1px solid var(--color-svv-line);border-radius:6px}
 .fav-champ--texte{flex:1 1 14rem;min-height:48px}
+/* ══ LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — LE CHAMP DATE D'UN RENDEZ-VOUS, TANT QU'IL EST VIDE ═══════════
+   Un cercle ROUGE (le rouge de la marque), doublé d'un halo pour qu'il se voie sur fond clair comme sombre.
+   ⚠️ LA COULEUR NE PORTE JAMAIS L'INFORMATION SEULE : la mention « Date du rendez-vous obligatoire » est
+   ecrite a cote, et aria-invalid + aria-describedby la portent au lecteur d'ecran.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-champ--exige{border-color:var(--color-svv-red);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--color-svv-red) 22%, transparent)}
+.fav-champ--exige:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+/* La mention : elle prend toute la largeur de la ligne, sous les deux champs, et ne les comprime pas. */
+.fav-exige{flex:1 0 100%;font-size:.76rem;font-weight:700;color:var(--color-svv-red)}
 .fav-bascule{display:flex;flex-wrap:wrap;gap:6px}
 .fav-bascule-b{font:inherit;font-size:.78rem;min-height:36px;padding:3px 10px;cursor:pointer;
   color:var(--color-svv-ink);background:var(--color-svv-bg);
