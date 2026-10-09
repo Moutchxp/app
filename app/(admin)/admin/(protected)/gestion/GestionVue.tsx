@@ -1377,6 +1377,13 @@ export function GestionVue({ intro }: {
           onGeste={(m) => surGeste(m)} />
       ) : ecran === 'annuaire' ? (
         <Annuaire
+          /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — le contexte d'écriture, lu une seule fois pour tout
+             l'écran (`/api/admin/gestion/redaction`, au montage), descend jusqu'au bloc « Historique du bien ».
+             C'est la MÊME valeur que reçoit la conversation : il n'y a pas deux lectures, donc pas deux états.
+             ⚠️ `null` tant qu'elle n'est pas revenue (ou si elle échoue) ⇒ aucun bouton de réponse, et les
+             fiches sont exactement celles d'avant ce lot. */
+          redaction={redaction}
+          onGesteMail={(m, o) => { surGeste(m, o); if (o?.rechargerTout) void charger(); }}
           fiche={etatUrl.fiche ?? null}
           /* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 0 — « Historique du bien » arrive avec `&bloc=vie` et la
              fiche se pose sur son historique. ⚠️ `bloc: null` EN CHANGEANT DE FICHE : une fiche ouverte à la main

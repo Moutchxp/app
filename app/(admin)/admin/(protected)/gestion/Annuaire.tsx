@@ -32,6 +32,8 @@ import { categoriesDeLaFiche } from '../../../../lib/gestion/familleDestinataire
  * fois est inoffensif, un style manquant ferait un listing sans mise en forme.
  */
 import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
+/* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — le contexte d'écriture ne fait que TRAVERSER cet écran. */
+import type { ContexteRedactionEcran } from './Redaction';
 /**
  * 🔴🔴 LOT HISTORIQUE-BIEN-1 — « L'HISTORIQUE DU BIEN », AJOUTÉ **EN DERNIER** DANS LA FICHE D'UN LOGEMENT.
  *
@@ -166,7 +168,7 @@ const PHRASE_ANNUAIRE = 'Retrouvez un propriétaire, un locataire ou un ancien l
 
 export function Annuaire({
   fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil, poserSurVie = false,
-  jetonHistorique = null, onPoserJeton, evenementVise = null,
+  jetonHistorique = null, onPoserJeton, evenementVise = null, redaction = null, onGesteMail,
 }: {
   fiche: FicheUrl | null;
   onFiche: (f: FicheUrl | null) => void;
@@ -185,6 +187,17 @@ export function Annuaire({
    * défilement se disputer la page.
    */
   evenementVise?: number | null;
+  /**
+   * ══ 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — DE QUOI RÉPONDRE DEPUIS L'HISTORIQUE D'UN BIEN ════════════
+   *
+   * L'annuaire ne s'en sert pas lui-même : il le TRANSMET au bloc « Historique du bien », qui monte les mails.
+   * La valeur est lue une seule fois par l'écran parent, au montage — la même que reçoit la conversation.
+   *
+   * ⚠️ `null` (le défaut) ⇒ aucun bouton de réponse nulle part, et les fiches sont celles d'avant ce lot.
+   */
+  redaction?: ContexteRedactionEcran | null;
+  /** Le compte rendu d'un geste d'écriture, remonté à l'écran qui sait l'afficher. */
+  onGesteMail?: (message: string, options?: { rechargerTout?: boolean }) => void;
   /** LOT HISTORIQUE-BIEN-3, POINT 4 — le jeton de retour vers « l'historique du bien », lu dans l'adresse. */
   jetonHistorique?: string | null;
   onPoserJeton?: (jeton: string) => void;
@@ -525,6 +538,7 @@ export function Annuaire({
                 : detail.etat === 'lot'
                   ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onEcrire={onEcrire}
                     maintenant={refTemps} onOuvrirFil={onOuvrirFil} gestes={gestes} onCreer={creerEtRattacher}
+                    redaction={redaction} onGesteMail={onGesteMail}
                     poserSurVieDuBien={vieDuBienVisee === detail.data.id}
                     jetonHistorique={jetonHistorique}
                     onPoserJeton={onPoserJeton}
@@ -1068,7 +1082,7 @@ function BoutonDepart({ nom, occupationId, modifiable, onDepart }: {
 function VueLot({
   f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onCreer, onDepart,
   poserSurVieDuBien, onVieDuBienPosee, filtreVie, onFiltreVie, jetonHistorique, onPoserJeton,
-  evenementVise, onEtatEvenement,
+  evenementVise, onEtatEvenement, redaction = null, onGesteMail,
 }: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
   onEcrire?: (email: string) => void;
@@ -1080,6 +1094,9 @@ function VueLot({
    * rechargement à la main. C'est exactement ce qu'Arno a constaté.
    */
   onEtatEvenement?: () => void;
+  /** 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — de quoi écrire, transmis tel quel au bloc « Historique ». */
+  redaction?: ContexteRedactionEcran | null;
+  onGesteMail?: (message: string, options?: { rechargerTout?: boolean }) => void;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   gestes: GestesCartes;
@@ -1632,6 +1649,11 @@ function VueLot({
              dans l'adresse AVANT de partir, et le reprend au retour. Voir l'encadré de `hdb` dans `ecranUrl`. */
           jeton={jetonHistorique ?? null}
           onPoserJeton={onPoserJeton}
+          /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — « il faut pouvoir répondre à CHAQUE mail de
+             l'historique sans quitter la page » (Arno). C'est ce contexte-là, et lui seul, qui fait apparaître
+             les trois boutons sous un mail déplié. */
+          redaction={redaction}
+          onGesteMail={onGesteMail}
           onEcranComplet={onHistorique === undefined
             ? undefined
             : () => onHistorique({ sorte: 'lot', cle: f.numero, id: null })} />

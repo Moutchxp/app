@@ -61,6 +61,8 @@ import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { jourParis } from '../../../../lib/gestion/historiqueBien';
 import { MenuDiscret } from './MenuDiscret';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
+/* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les trois boutons et leurs icônes, partagés avec la vie du bien. */
+import { BoutonsRepondre, IconeVoie } from './BoutonsRepondre';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 // LOT BROUILLONS-GMAIL — la traduction « brouillon en base → brouillon d'éditeur », PURE.
 import { reprendreBrouillon, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
@@ -2374,26 +2376,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
  * LOT 5-FIDÈLE — LES TROIS ICÔNES DU PIED, en SVG EN LIGNE : c'est la convention du dépôt (aucune bibliothèque
  * d'icônes n'y est installée, et en ajouter une pour trois flèches serait une dépendance de plus à suivre).
  *
- * ⚠️ `aria-hidden` : l'icône ne dit rien de plus que le mot écrit à côté. La laisser lisible aux lecteurs d'écran
- * ferait entendre deux fois la même chose.
+ * 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — `IconeVoie` A DÉMÉNAGÉ dans `BoutonsRepondre.tsx`, sans changer
+ * d'un trait : le pied de cette conversation l'importe désormais, et la vie du bien emploie la même. Deux
+ * rangées de boutons jumelles ne peuvent plus diverger d'une icône.
  */
-function IconeVoie({ voie }: { voie: VoieRedaction }) {
-  const commun = { viewBox: '0 0 24 24', width: 18, height: 18, 'aria-hidden': true as const,
-    fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
-  if (voie === 'transferer') {
-    return (
-      <svg {...commun}><path d="M15 7l5 5-5 5" /><path d="M20 12h-9a6 6 0 00-6 6v1" /></svg>
-    );
-  }
-  if (voie === 'repondre_tous') {
-    return (
-      <svg {...commun}><path d="M8 7l-5 5 5 5" /><path d="M13 7l-5 5 5 5" /><path d="M8 12h7a5 5 0 015 5v1" /></svg>
-    );
-  }
-  return (
-    <svg {...commun}><path d="M9 7l-5 5 5 5" /><path d="M4 12h9a6 6 0 016 6v1" /></svg>
-  );
-}
 
 /**
  * LOT 5e — OUVRE UN BROUILLON à partir du DERNIER message de la conversation. C'est celui auquel on répond quand on
@@ -3631,18 +3617,11 @@ export function MessageConversation({
 
               ⚠️ Ils n'apparaissent QUE si la conversation sait rédiger (`onRepondre` fourni) : sans droit d'écriture
               ou sans contexte de rédaction, l'écran est exactement celui d'avant ce lot. */}
-          {onRepondre && (
-            <div className="cnv-repondre" role="group" aria-label="Répondre à ce message">
-              {([['repondre', 'Répondre'], ['repondre_tous', 'Répondre à tous'], ['transferer', 'Transférer']] as const)
-                .map(([voie, mot]) => (
-                  <button key={voie} type="button" className="svv-btn svv-btn-outline gst-btn"
-                    onClick={() => onRepondre(voie)}>
-                    <IconeVoie voie={voie} />
-                    <span>{mot}</span>
-                  </button>
-                ))}
-            </div>
-          )}
+          {/* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — LE MÊME COMPOSANT QUE LA VIE DU BIEN, et c'est le sens
+              exact de la demande d'Arno (« même composant, même format que dans la boîte mail »). Le bloc rendu
+              ici est celui d'hier au caractère près : mêmes classes, mêmes mots, mêmes dessins, même ordre — il a
+              seulement déménagé dans `BoutonsRepondre.tsx` pour que les deux écrans ne puissent plus diverger. */}
+          {onRepondre && <BoutonsRepondre onRepondre={onRepondre} />}
         </div>
       )}
       {/* L'ÉDITEUR, S'IL APPARTIENT À CE MESSAGE. En dernier, après les pièces jointes : on répond sous ce qu'on

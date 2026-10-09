@@ -1,10 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { CSS_PIECES, PiecesJointes } from './PiecesJointes';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-4, POINT 5 — LA MÊME LECTURE QUE LA CONVERSATION, et pas un second chemin :
    la fonction a été DÉPLACÉE dans ce module partagé, elle n'a pas été recopiée. */
 import { chargerCorpsDuMessage } from './chargerCorps';
+/* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les trois boutons « Répondre / Répondre à tous / Transférer »,
+   partagés avec la conversation. La LIGNE les rend ; c'est l'ÉCRAN qui décide s'il sait répondre. */
+import { BoutonsRepondre } from './BoutonsRepondre';
+import type { VoieRedaction } from '../../../../lib/gestion/redaction';
 // 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 5 — « voir dans Gmail » sur une piece non conservee.
 import { lienGmail, COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
 import { dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
@@ -328,11 +332,31 @@ function AdressesDuMail({ l, tonDe }: {
 
 export function LigneVie({
   l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, modifierRattachement,
-  onVisualiser,
+  onVisualiser, repondre, composeur = null,
   destinataires = [], piecesCitables = [], adressesTrouvees = [],
 }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  /**
+   * ══ 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — RÉPONDRE À **CE** MAIL ════════════════════════════════════
+   *
+   * ARNO : « à la fin de chaque mail déplié de l'historique (après les pièces jointes et “Voir la conversation
+   * d'origine →”), les 3 boutons de la boîte mail ».
+   *
+   * 🔴 LA LIGNE REND LE CORPS AVEC LE GESTE, et c'est ce qui rend la citation juste : le corps ENTIER (et son
+   * HTML) n'est chargé qu'ici, au dépliage — la liste, elle, ne reçoit que 240 caractères d'extrait. Laisser
+   * l'appelant citer l'extrait aurait produit des réponses citant un texte coupé au milieu d'un mot.
+   *
+   * ⚠️ ABSENTE ⇒ AUCUN BOUTON, et les quatre écrans qui montent cette ligne ne bougent pas d'un pixel. C'est la
+   * règle de ce fichier pour toute capacité nouvelle, déjà celle de `tonDe`, `sortieDuSuivi` et `onVisualiser`.
+   */
+  repondre?: (voie: VoieRedaction, corps: string | null, html: string | null) => void;
+  /**
+   * 🔴 L'ÉDITEUR, QUAND IL APPARTIENT À CE MAIL — rendu EN DERNIER, après les pièces et la sortie : on répond
+   * sous ce qu'on vient de lire, jamais au milieu. C'est le `piedMessage` de la conversation, même place et
+   * même raison. `null` ⇒ rien n'est rendu.
+   */
+  composeur?: ReactNode;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI », À DROITE DE L'EN-TÊTE DÉPLIÉ ═════════════════
    *
@@ -456,12 +480,23 @@ export function LigneVie({
    * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
   const [corpsEntier, setCorpsEntier] = useState<string | null>(null);
+  /**
+   * 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — LE HTML AUSSI, ET POUR UNE RAISON PRÉCISE. La citation d'une
+   * réponse est produite en DEUX versions par `preparerBrouillon` : du texte, et du HTML. Sans celui-ci, une
+   * image citée repartait en texte échappé — le défaut mesuré au lot IMAGES-INTEGREES, sur les 20 mails dont le
+   * corps texte porte lui-même une balise `<img src="data:…">`. La route le rend DÉJÀ ASSAINI, dans le même
+   * appel : il ne coûte pas un aller-retour de plus.
+   */
+  const [htmlEntier, setHtmlEntier] = useState<string | null>(null);
   useEffect(() => {
     if (!ouvert || corpsEntier !== null) return undefined;
     let vivant = true;
     void (async () => {
       const d = await chargerCorpsDuMessage(l.messageId);
-      if (!vivant || d === undefined || d.texte === null || d.texte.trim() === '') return;
+      if (!vivant || d === undefined) return;
+      /* ⚠️ LE HTML EST GARDÉ MÊME QUAND LE TEXTE MANQUE : un mail en HTML seul se cite quand même. */
+      if (d.html !== null && d.html.trim() !== '') setHtmlEntier(d.html);
+      if (d.texte === null || d.texte.trim() === '') return;
       setCorpsEntier(d.texte);
     })();
     return () => { vivant = false; };
@@ -752,8 +787,26 @@ export function LigneVie({
                 onClick={() => onOuvrirFil(l.filId, l.messageId)}>Voir la conversation d’origine →</button>
             </p>
           )}
+          {/* ══ 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — LES TROIS GESTES, À LA PLACE DEMANDÉE ═══════════
+              « après les pièces jointes et “Voir la conversation d'origine →” » : ils sont donc les DERNIERS
+              du détail, et ils ne paraissent que sur un mail DÉPLIÉ — une rangée de boutons sur chacune des
+              vingt-cinq lignes repliées serait une rangée qu'on finit par cliquer sans le vouloir.
+
+              🔴 LE MÊME COMPOSANT QUE LA CONVERSATION, et c'est le mot d'Arno : « même composant, même format
+              que dans la boîte mail ». Le corps entier part avec le geste (voir l'encadré de `repondre`). */}
+          {repondre !== undefined && (
+            <BoutonsRepondre className="vdb-repondre"
+              etiquette={`Répondre au mail du ${dateHeureCourte(l.recuLe, maintenant)}`}
+              onRepondre={(voie) => repondre(voie, corpsEntier, htmlEntier)} />
+          )}
         </div>
       )}
+      {/* ══ 🔴🔴 L'ÉDITEUR EST **CACHÉ** QUAND LE MAIL EST REPLIÉ, JAMAIS DÉMONTÉ ═══════════════════════════════
+          Le démonter perdrait ce qui n'est pas encore enregistré — le texte frappé depuis la dernière accalmie,
+          une pièce en cours de dépôt, le compte à rebours d'annulation d'un envoi. C'est la règle de la
+          conversation (`piedMessage`, lot BROUILLON-REPONSE-ET-REPERE), et elle vaut mot pour mot ici : on
+          replie un mail pour voir la liste, pas pour jeter sa réponse. */}
+      {composeur !== null && <div hidden={!ouvert}>{composeur}</div>}
     </li>
   );
 }
@@ -909,5 +962,12 @@ export const CSS_VIE_DU_BIEN = `
    margin-top:auto n'a rien a faire ici (la colonne n'a pas de hauteur imposee) ; c'est l'ORDRE dans le JSX
    qui met la sortie en bas, et justify-content qui la met a droite. Sur un telephone elle reste a droite :
    c'est un seul bouton, il ne deborde pas. */
+/* ══ LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — LA RANGEE DES TROIS GESTES, SOUS LE MAIL DEPLIE ═══════════════
+   Meme dessin que dans la conversation (.cnv-repondre) : meme ecart, meme alignement de l'icone et du mot. La
+   REGLE est partagee par le composant ; la FEUILLE, non — chaque ecran porte la sienne, sinon la meme serait
+   injectee deux fois sur l'ecran qui monte les deux.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.vdb-repondre{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.vdb-repondre .gst-btn{display:inline-flex;align-items:center;gap:.4rem}
 .vdb-sortie{margin:0;display:flex;justify-content:flex-end}
 `;

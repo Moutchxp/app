@@ -154,6 +154,16 @@ import {
   famillesDestinataires, fusionnerCategories, type FamilleVue,
 } from '../../../../lib/gestion/familleDestinataire';
 import { COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
+/* ══ 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN (09/10/2026) ══════════════════════════════════════════════════
+   ARNO : « un clic ouvre, DANS la fiche du bien, juste sous ce mail, le MÊME module de rédaction que la boîte
+   mail (copie 4) avec TOUTES ses fonctions […] Réutilise le composant existant, ne le recopie pas. »
+   🔴 C'EST DONC `Redaction`, MONTÉ TEL QUEL — le même que la conversation et que les fenêtres flottantes. Il
+   porte à lui seul le De, le À/Cc/Cci, l'objet, l'éditeur riche, la signature, les pièces (fichier, Drive, lien,
+   Récents), le brouillon automatique, le plein écran, la fermeture et l'envoi. Rien n'en est réécrit ici, et
+   c'est tout l'intérêt : le jour où la boîte gagne une fonction, ce bloc l'a le même jour. */
+import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
+import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+import { classementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8 — UNE CARTE TELLE QUE LA ROUTE LA REND À CE BLOC ══════════════════════════════════
@@ -261,13 +271,14 @@ const ATTENTE_FRAPPE_MS = 250;
  * dans l'infobulle du bouton grisé : deux endroits, un seul texte. Deux phrases jumelles auraient fini par ne
  * plus se ressembler, et le lecteur aurait cru à deux règles.
  */
+
 const MANQUE_CATEGORIE = 'Choisissez une catégorie : elle n’a pas été déduite pour cette adresse.';
 
 export function HistoriqueDuBien({
   lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [], onFicheClient,
   cartesLocataires = [],
   evenementOuvertInitial = false, onOuvrirFil, onEcranComplet, jeton = null, onPoserJeton,
-  signalRelire = 0,
+  signalRelire = 0, redaction = null, onGesteMail,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
@@ -284,6 +295,22 @@ export function HistoriqueDuBien({
    * plus petit.
    */
   signalRelire?: number;
+  /**
+   * ══ 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — DE QUOI ÉCRIRE, OU RIEN DU TOUT ═══════════════════════════
+   *
+   * CONSTAT D'ARNO (09/10/2026) : « dans l'historique d'un bien, un mail ouvert n'offre aucun moyen de répondre.
+   * Il faut pouvoir répondre à CHAQUE mail de l'historique sans quitter la page. »
+   *
+   * Le contexte (droit d'envoi, signature, adresse de gestion, sondes de schéma) est lu UNE FOIS par l'écran
+   * parent, au montage : c'est la MÊME valeur que reçoit la conversation, et il n'y a donc qu'une lecture pour
+   * tout le module.
+   *
+   * ⚠️ `null` (le défaut) ⇒ AUCUN BOUTON DE RÉPONSE, et ce bloc est EXACTEMENT celui d'avant ce lot. Se taire
+   * vaut mieux que proposer un geste dont on ne sait pas s'il aboutira — règle du module.
+   */
+  redaction?: ContexteRedactionEcran | null;
+  /** Le compte rendu d'un geste d'écriture (brouillon enregistré, jeté, envoyé). Absent ⇒ rien n'est annoncé. */
+  onGesteMail?: (message: string, options?: { rechargerTout?: boolean }) => void;
   /**
    * 🔴 TOUTES LES OCCUPATIONS DU LOGEMENT, PASSÉES COMPRISES — c'est la demande d'Arno : « les anciens locataires
    * sont visibles et sélectionnables, chacun avec sa période ».
@@ -1063,6 +1090,100 @@ export function HistoriqueDuBien({
     if (n.has(messageId)) n.delete(messageId); else n.add(messageId);
     return n;
   }), []);
+
+  /* ════════════════════════════════════════════════════════════════════════════════════════════════════════
+     🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — RÉPONDRE SANS QUITTER LA FICHE
+     ════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+  /**
+   * UN SEUL BROUILLON À LA FOIS, ET SOUS QUEL MAIL IL S'OUVRE — la règle de la conversation (`brouillon` +
+   * `brouillonSous`), reprise telle quelle : deux éditeurs ouverts sur une même page sont deux messages non
+   * envoyés dont on oublie le premier.
+   *
+   * ⚠️ LA CLÉ EST LE `messageId`, JAMAIS L'INDEX DE LA LIGNE : la liste se recharge (filtre, page, envoi), et un
+   * index aurait rouvert l'éditeur sous le mail du voisin.
+   */
+  const [reponse, setReponse] = useState<{ messageId: number; brouillon: BrouillonEcran } | null>(null);
+
+  /**
+   * ══ 🔴🔴 OUVRIR LA RÉPONSE SOUS **CE** MAIL — PAR LA MÊME PORTE QUE LA BOÎTE ═══════════════════════════════
+   *
+   * 🔴 TOUTE LA DÉCISION VIT DANS `preparerBrouillon`, LE MODULE PUR, et pas une ligne n'en est réécrite ici :
+   * qui reçoit quoi (Répondre = l'expéditeur, ou son Reply-To s'il en a demandé un ; Répondre à tous =
+   * l'expéditeur + À + Cc, nos adresses retirées ; Transférer = personne, à nous de dire à qui), l'objet
+   * « Re: » / « Tr: », la citation en texte ET en HTML. Une seconde écriture de ces règles ici aurait divergé de
+   * la boîte au premier ajustement — et c'est la réponse d'un client qui serait partie à la mauvaise personne.
+   *
+   * 🔴 LES PIÈCES D'UN TRANSFERT SUIVENT, ET CÔTÉ SERVEUR : c'est le premier enregistrement du brouillon qui les
+   * reprend (`reprendrePiecesDuMessage`, route des brouillons), parce qu'il est le seul moment où l'on sait de
+   * quel message on transfère. Rien à faire ici — et surtout rien à refaire.
+   *
+   * ══ 🔴🔴 CE DONT LA RÉPONSE HÉRITE : LE BIEN, EN VERT ══════════════════════════════════════════════════════
+   *
+   * ARNO : « Le message part déjà rattaché exactement comme le mail auquel il répond […] Le bloc “CLASSER CE
+   * MAIL” affiche cet état en VERT “Rattaché à <lot · adresse>” — pas le choix rouge “Rattacher / Interne”. »
+   *
+   * 🔴 C'EST `classementHerite`, LA MÊME FONCTION QUE LA CONVERSATION. La case verte, le lien « Modifier le
+   * rattachement » et le report du rattachement sur le message envoyé en découlent sans une ligne de plus : le
+   * champ est déjà écrit, et il lit `brouillon.cibles`. Le bien est CELUI DE CETTE FICHE — pas un bien deviné
+   * des destinataires — avec le libellé que la ligne porte déjà.
+   *
+   * ⚠️ L'ÉVÉNEMENT N'EST PAS UNE CIBLE DE CE BROUILLON, ET IL N'A PAS À L'ÊTRE. L'appartenance d'un mail à un
+   * événement est DÉRIVÉE, jamais posée : son fil est affecté à l'événement et sa date tombe dans une période
+   * ouverte (`sqlEvenementsDesFils`). Une réponse part dans le MÊME fil, à l'instant présent : elle entre donc
+   * dans l'événement par la porte de tous les autres mails. Lui poser en plus une cible `evenement` aurait
+   * ajouté un second chemin pour un fait déjà vrai — et deux vérités à tenir d'accord.
+   */
+  const repondreAuMail = useCallback((
+    l: LigneHistorique, voie: VoieRedaction, corps: string | null, html: string | null,
+  ): void => {
+    if (redaction === null) return;
+    const b = preparerBrouillon(voie, {
+      messageId: l.messageId, de: l.de, deNom: l.deNom, objet: l.objet, recuLe: l.recuLe,
+      corps: corps ?? l.extrait,
+      /* ⚠️ `null` ET `[]` NE SE CONFONDENT PAS (migration 235) : « personne en copie » n'est pas « on ne sait
+         pas qui était en copie ». La ligne porte des tableaux VIDES quand elle sait : on les passe tels quels,
+         sinon « Répondre à tous » retomberait sur la liste fondue, qu'il faut relire avant d'envoyer. */
+      destA: l.a, destCc: l.cc, destReplyTo: l.repondreA,
+      destinatairesFondus: l.destinataires.join(', '),
+    }, { adresseGestion: redaction.adresseGestion, signature: redaction.signature },
+    { filId: l.filId, dateLisible: dateHeureComplete(l.recuLe), origineHtml: html });
+    const herite = classementHerite({
+      biens: [{ sorte: 'lot', cle: lotCle, id: null, libelle: l.cibleLibelle }],
+    });
+    setReponse({
+      messageId: l.messageId,
+      brouillon: {
+        ...b, id: null, cibles: herite.cibles, interne: herite.interne, horsGestion: herite.horsGestion,
+      },
+    });
+    /* 🔴 ON DÉPLIE LE MAIL VISÉ : l'éditeur est caché quand son mail est replié, et un bouton dont l'effet est
+       invisible est un bouton cassé (lot REPONSE-VISIBLE). Le geste vient d'un mail DÉJÀ déplié — c'est une
+       ceinture, pas une bretelle. */
+    setDeplie((d) => (d.has(l.messageId) ? d : new Set(d).add(l.messageId)));
+  }, [redaction, lotCle]);
+
+  /** 🔴 L'ÉDITEUR PEUT-IL SEULEMENT S'OUVRIR ? Les deux mêmes conditions que la conversation, pas une de plus. */
+  const peutRepondre = redaction !== null && redaction.schemaPret && redaction.peutEnvoyer;
+
+  /**
+   * 🔴 L'ÉDITEUR SOUS UN MAIL, ÉCRIT UNE SEULE FOIS. Le fil se monte de DEUX façons (groupé par conversation ou
+   * à plat) : deux rendus de l'éditeur auraient fini par diverger d'une propriété, et c'est le montage qu'on
+   * regarde le moins qui aurait gardé l'erreur.
+   */
+  const composeurDuMail = useCallback((l: LigneHistorique): ReactNode => {
+    if (reponse === null || reponse.messageId !== l.messageId || redaction === null) return null;
+    return (
+      <Redaction brouillon={reponse.brouillon} contexte={redaction}
+        onChange={(b) => setReponse((r) => (r === null ? null : { ...r, brouillon: b }))}
+        onFerme={() => setReponse(null)}
+        /* 🔴 ENVOYÉ : on referme, et on RELIT. Le mail parti doit apparaître dans l'historique tout de suite,
+           dans la même conversation et avec sa capsule — « sans rechargement de page » (Arno). `rechargement`
+           est le compteur que ce bloc emploie déjà pour toutes ses relectures : il n'y en a pas un second. */
+        onEnvoye={() => { setReponse(null); setRechargement((n) => n + 1); }}
+        onGeste={(m, o) => onGesteMail?.(m, o)} />
+    );
+  }, [reponse, redaction, onGesteMail]);
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI » ═══════════════════════════════════════════════
@@ -2947,7 +3068,11 @@ export function HistoriqueDuBien({
                       onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                       piecesCitables={piecesParFil}
                       sortieDuSuivi={sortieOfferte}
-                      modifierRattachement={modificationOfferte} />
+                      modifierRattachement={modificationOfferte}
+                      /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les mêmes deux propriétés que le montage
+                         à plat, juste en dessous : un seul comportement pour les deux façons de voir le fil. */
+                      repondre={peutRepondre ? repondreAuMail : undefined}
+                      composeurDe={composeurDuMail} />
                   </section>
                 ))
                 : (
@@ -2957,7 +3082,9 @@ export function HistoriqueDuBien({
                     onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                     piecesCitables={piecesParFil}
                     sortieDuSuivi={sortieOfferte}
-                    modifierRattachement={modificationOfferte} />
+                    modifierRattachement={modificationOfferte}
+                    repondre={peutRepondre ? repondreAuMail : undefined}
+                    composeurDe={composeurDuMail} />
                 )}
 
               <div className="vdb-pages">
@@ -4026,7 +4153,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
 function FilDeMails({
   lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi,
   modifierRattachement,
-  onVisualiser, destinataires, piecesCitables,
+  onVisualiser, destinataires, piecesCitables, repondre, composeurDe,
 }: {
   lignes: readonly LigneHistorique[];
   maintenant: Date;
@@ -4052,6 +4179,16 @@ function FilDeMails({
   destinataires: ReadonlyMap<number, FamilleVue[]>;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les pièces de chaque conversation, par fil. */
   piecesCitables: ReadonlyMap<number, PieceCitable[]>;
+  /**
+   * 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — répondre à CE mail. Le corps entier et son HTML viennent de la
+   * LIGNE (elle seule les charge, au dépliage) ; le bloc, lui, sait à quel bien il appartient.
+   *
+   * ⚠️ ABSENTE ⇒ AUCUN BOUTON. L'écran qui ne sait pas écrire (droit manquant, schéma incomplet, lecture du
+   * contexte en échec) rend exactement la liste d'avant ce lot.
+   */
+  repondre?: (l: LigneHistorique, voie: VoieRedaction, corps: string | null, html: string | null) => void;
+  /** L'éditeur à poser sous CE mail, ou `null`. Rendu par le bloc, qui porte le brouillon. */
+  composeurDe?: (l: LigneHistorique) => ReactNode;
 }) {
   return (
     <ol className="vdb-liste hdb-liste">
@@ -4102,7 +4239,13 @@ function FilDeMails({
               /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les pièces de SA conversation, pour les noms cités. */
               piecesCitables={piecesCitables.get(l.filId) ?? []}
               sortieDuSuivi={sortieDuSuivi(l)}
-              modifierRattachement={modifierRattachement(l)} />
+              modifierRattachement={modifierRattachement(l)}
+              /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les trois boutons de la boîte mail sous ce mail
+                 déplié, et l'éditeur juste en dessous. La ligne ne décide de rien : elle rend ce qu'on lui
+                 donne, et ne rend rien quand on ne lui donne rien. */
+              repondre={repondre === undefined ? undefined
+                : (voie, corps, html) => repondre(l, voie, corps, html)}
+              composeur={composeurDe?.(l) ?? null} />
           </ol>
         </li>
       ))}
