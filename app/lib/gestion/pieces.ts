@@ -157,6 +157,55 @@ export interface PieceAffichee {
   tailleOctets: number | null;
   disponible: boolean;
   motifNonStocke: string | null;
+  /**
+   * 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — cette image était posée DANS le corps du mail. Elle est une pièce
+   * comme les autres (même miniature, même œil, même ⤓, même ▲), et elle le DIT : « intégrée au mail ».
+   *
+   * ⚠️ FACULTATIVE : `undefined`/`null` ⇒ aucune mention, et la carte est celle d'avant ce lot. Sans la
+   * migration 296 (colonne `gestion_piece.integree`), rien ne change nulle part.
+   */
+  integree?: boolean | null;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES (09/10/2026) — CE QU'UNE IMAGE DU CORPS AFFICHE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LA MENTION, écrite UNE fois. Arno : « la mention discrète “intégrée au mail” ».
+ *
+ * 🔴 ELLE DIT D'OÙ VIENT LA PIÈCE, PAS CE QU'ELLE VAUT. Une photo collée dans le corps est une pièce entière :
+ * elle se visualise, se télécharge et se range comme les autres. La mention sert à comprendre pourquoi on la
+ * voit AUSSI dans le corps du mail — sans elle, on croirait à un doublon.
+ */
+export const MENTION_IMAGE_INTEGREE = 'intégrée au mail';
+
+/**
+ * Les libellés de remplacement d'une partie MIME SANS nom de fichier, tels que le dépôt les écrit. Comparés en
+ * minuscules : un fichier réellement nommé « (sans nom).png » garde donc son nom.
+ */
+const SANS_NOM: readonly string[] = ['', '(sans nom)', '(sans titre)'];
+
+/**
+ * LE NOM D'UNE IMAGE INTÉGRÉE : le sien, sinon « Image intégrée N.jpg ». PUR.
+ *
+ * Arno : « son nom (nom d'origine, sinon “Image intégrée 1.jpg”) ».
+ *
+ * 🔴 LE RANG EST CELUI DE L'APPELANT, et il commence à 1 : c'est un numéro qu'on LIT, pas un index. Mesuré sur
+ * la base le 09/10/2026 : **28** images intégrées de plus de 30 Ko arrivent sous le libellé « (sans nom) » —
+ * assez pour que le cas existe, trop peu pour qu'on devine un nom à leur place.
+ *
+ * ⚠️ L'EXTENSION SUIT LE TYPE RÉEL, jamais « .jpg » par défaut : un PNG nommé « .jpg » s'ouvre de travers dans
+ * la moitié des outils, et c'est le nom qu'on retrouvera dans le Drive.
+ */
+export function nomImageIntegree(
+  nomFichier: string | null | undefined, rang: number, typeMime?: string | null,
+): string {
+  const nom = (nomFichier ?? '').trim();
+  if (!SANS_NOM.includes(nom.toLowerCase())) return nom;
+  const sousType = (typeMime ?? '').toLowerCase().split('/')[1]?.split(';')[0]?.trim() ?? '';
+  const ext = sousType === '' ? 'jpg' : (sousType === 'jpeg' ? 'jpg' : sousType);
+  return `Image intégrée ${Math.max(1, Math.trunc(rang))}.${ext}`;
 }
 
 /** Le poids total des pièces RÉELLEMENT disponibles : celles qui entreraient dans l'archive. PUR. */

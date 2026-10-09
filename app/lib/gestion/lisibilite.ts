@@ -304,10 +304,68 @@ export interface PieceATrier {
    * n'est pas une raison de retirer une pièce d'un compteur.
    */
   integree?: boolean | null;
+  /**
+   * ══ 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — LES DIMENSIONS, LE JOUR OÙ ON LES AURA ════════════════════════
+   *
+   * Arno : « une image intégrée compte comme pièce si elle fait au moins 30 Ko **OU** au moins 300 px sur son
+   * plus petit côté ».
+   *
+   * ⚠️ AUCUNE COLONNE NE LES PORTE AUJOURD'HUI (`gestion_piece` n'a ni largeur ni hauteur), et les déduire
+   * demanderait de relire 6 935 objets du stockage — c'est une migration et une passe, pas une ligne de règle.
+   * Elles sont donc FACULTATIVES : absentes, seule la taille décide, et la règle est déjà écrite pour le jour
+   * où elles arriveront. Le chiffre mesuré est dans le rapport du lot : sur 40 images intégrées de moins de
+   * 30 Ko, **3** dépassent 300 px (≈ 520 sur les 6 935) — c'est ce que la moitié « dimensions » rattraperait.
+   */
+  largeurPx?: number | null;
+  hauteurPx?: number | null;
 }
 
 /** Au-delà, une image n'est plus un logo de signature : c'est une photo qu'on a voulu envoyer. */
 export const TAILLE_MAX_SIGNATURE = 10 * 1024;
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES (09/10/2026) — CE QU'EST UNE IMAGE « SIGNIFICATIVE »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO, fil 36640 : une photo INTÉGRÉE au corps s'affiche dans le mail, mais n'apparaît ni dans le
+   compteur « N pièces », ni dans la liste des pièces du message — on ne peut donc pas la ranger dans le Drive.
+
+   🔴 CE N'ÉTAIT PAS UN DÉFAUT, C'ÉTAIT UNE RÈGLE — et c'est important pour comprendre la correction. Le lot
+   ETOILE-SIGNATURES-PIECES (03/10/2026) écarte les images intégrées du compte, sur la demande d'Arno de ce
+   jour-là : « les images intégrées au corps du mail ne sont PAS des pièces jointes ». La règle visait les
+   logos de signature — et elle emportait les photos avec eux.
+
+   🔴 LA NOUVELLE RÈGLE NE L'ANNULE PAS, ELLE LA BORNE : une image intégrée reste écartée, SAUF si elle est
+   significative. « Les petites images sont exclues : logos, icônes de signature (adresse, téléphone…), pixels
+   de suivi, émojis » (Arno) — ce sont exactement celles qui ne passent ni les 30 Ko ni les 300 px.
+
+   ⚠️ ELLE NE S'APPLIQUE QU'AUX IMAGES INTÉGRÉES, et c'est délibéré. Mesuré sur la base le 09/10/2026 :
+   **1 051** images NON intégrées de plus de 30 Ko portent un nom de signature (`image001.png`…) et sont
+   écartées par la règle de NOM. Les faire réapparaître serait un changement qu'Arno n'a pas demandé, sur des
+   pièces dont rien ne dit qu'elles sont dans le corps.
+*/
+
+/** Au moins 30 Ko : la borne d'Arno, en octets. */
+export const TAILLE_IMAGE_SIGNIFICATIVE = 30 * 1024;
+/** Ou au moins 300 px sur le PLUS PETIT côté — une image qu'on a voulu montrer, pas un picto. */
+export const COTE_IMAGE_SIGNIFICATIF = 300;
+
+/**
+ * UNE IMAGE QU'ON A VOULU ENVOYER, par opposition à un ornement. PUR.
+ *
+ * ⚠️ « OU », PAS « ET » (Arno) : une capture de 827 × 414 qui pèse 28 Ko est significative, et une photo de
+ * 200 Ko l'est aussi même si on ignore ses dimensions. Les deux critères se complètent, aucun ne commande.
+ *
+ * ⚠️ UNE TAILLE INCONNUE N'EST PAS UNE PETITE TAILLE : sans octets ni dimensions, on ne conclut RIEN ici, et
+ * c'est la règle d'avant qui tranche. Ne pas savoir n'a jamais été une raison de retirer une pièce.
+ */
+export function estImageSignificative(p: PieceATrier): boolean {
+  const octets = p.tailleOctets ?? 0;
+  if (octets >= TAILLE_IMAGE_SIGNIFICATIVE) return true;
+  const l = p.largeurPx ?? 0;
+  const h = p.hauteurPx ?? 0;
+  return l > 0 && h > 0 && Math.min(l, h) >= COTE_IMAGE_SIGNIFICATIF;
+}
 
 /**
  * ══ 🔴 LES TROIS MORCEAUX DE LA RÈGLE, ÉCRITS UNE SEULE FOIS ════════════════════════════════════════════════════
@@ -359,10 +417,26 @@ export function sqlEstVraiePiece(alias = 'p', avecIntegree = false): string {
    * la rendrait asynchrone pour tous ses appelants. C'est l'appelant qui interroge le schéma et le dit ici —
    * exactement le patron de `sqlNomAffiche`.
    */
-  const integree = avecIntegree ? `coalesce(${alias}.integree, false) OR ` : '';
+  /**
+   * ══ 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — LA MÊME BORNE QU'EN TypeScript, DANS LE MÊME ORDRE ════════════
+   *
+   * Une image INTÉGRÉE est écartée SAUF si elle est significative ; une image NON intégrée garde, au caractère
+   * près, la règle d'avant ce lot (nom de signature ou taille minuscule). Les deux branches sont écrites
+   * séparément exprès : mêler les deux aurait fait réapparaître 1 051 pièces non intégrées que personne n'a
+   * demandé de remettre.
+   *
+   * ⚠️ LES DIMENSIONS N'EXISTENT PAS EN BASE : seule la taille entre ici. Le jour où les colonnes arriveront,
+   * c'est cette expression-ci et `estImageSignificative` qu'il faudra élargir — les deux, ensemble, parce que
+   * l'écran et le SQL doivent toujours compter la même chose.
+   */
+  const significative = `${alias}.taille_octets >= ${TAILLE_IMAGE_SIGNIFICATIVE}`;
+  const integreeEcartee = avecIntegree
+    ? `(coalesce(${alias}.integree, false) AND NOT (${significative})) OR `
+    : '';
+  const pasIntegree = avecIntegree ? `NOT coalesce(${alias}.integree, false) AND ` : '';
   // Une pièce est VRAIE quand elle n'est pas un jumeau macOS, et qu'elle n'est pas une image de signature.
   return `${alias}.nom_fichier NOT LIKE '._%'`
-    + ` AND NOT (${estImage} AND (${integree}${nomDeSignature} OR ${tropPetite}))`;
+    + ` AND NOT (${estImage} AND (${integreeEcartee}(${pasIntegree}(${nomDeSignature} OR ${tropPetite}))))`;
 }
 
 /**
@@ -392,7 +466,15 @@ export function estImageDeSignature(p: PieceATrier): boolean {
    * octets, parce que le mail les désigne par une adresse distante. Les remettre serait une régression qu'Arno
    * n'a pas demandée. L'union n'écarte donc jamais moins qu'avant ce lot : aucune pièce ne RÉAPPARAÎT.
    */
-  if (p.integree === true) return true;
+  /**
+   * 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — UNE IMAGE INTÉGRÉE **SIGNIFICATIVE** EST UNE PIÈCE.
+   *
+   * Et le `return` tranche ici, sans passer par la règle de NOM : sur les 5 020 images intégrées de plus de
+   * 30 Ko de la base, **3 123 portent un nom de signature** (`image001.png` est le nom qu'Outlook donne à une
+   * photo collée dans le corps). Les laisser tomber dans la règle suivante les aurait écartées de nouveau, et
+   * la correction n'aurait rien corrigé.
+   */
+  if (p.integree === true) return !estImageSignificative(p);
   if (NOMS_DE_SIGNATURE.test(nom)) return true;
   return p.tailleOctets !== null && p.tailleOctets > 0 && p.tailleOctets < TAILLE_MAX_SIGNATURE;
 }

@@ -33,6 +33,9 @@ vi.mock('./schema', () => ({
   rattachementsDisponibles: () => Promise.resolve(true),
   nomUsageDisponible: () => Promise.resolve(false),
   depotsDriveDisponibles: () => Promise.resolve(false),
+  /* 🔴 LOT IMAGES-INTEGREES-COMME-PIECES — la lecture des pièces nomme `integree` quand la migration 296 est
+     là. La doublure répond FAUX : ces cas-ci éprouvent le dépôt SANS la colonne, donc la projection d'avant. */
+  pieceIntegreeDisponible: () => Promise.resolve(false),
 }));
 
 import { porteursDePieces } from './historiqueRepo';

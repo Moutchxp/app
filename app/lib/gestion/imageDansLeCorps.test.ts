@@ -96,9 +96,34 @@ describe('🔴🔴 ce que le tri des pièces en fait', () => {
     nomFichier: 'photo.jpg', typeMime: 'image/jpeg', tailleOctets: 2_000_000, ...o,
   });
 
-  /** 🔴🔴 LE CAS QUE LA RÈGLE DE NOM/TAILLE RATAIT : une image de 150 ko posée dans le corps. */
-  it('🔴🔴 une grande image POSÉE DANS LE CORPS n’est pas une pièce jointe', () => {
+  /**
+   * ══ 🔴🔴 VERDICT INVERSÉ AU LOT IMAGES-INTEGREES-COMME-PIECES (09/10/2026) ═════════════════════════════════
+   *
+   * CE QUE CE CAS DISAIT, ET CE QU'IL EXIGEAIT : « une grande image POSÉE DANS LE CORPS n'est pas une pièce
+   * jointe » — `estImageDeSignature` rendait `true` sur une image intégrée de 148 684 o, et `trierPieces` la
+   * sortait du compte. C'était la règle d'Arno du 03/10 (« les images intégrées au corps ne sont PAS des pièces
+   * jointes »), prise au mot.
+   *
+   * 🔴 POURQUOI LE VERDICT CHANGE. Constat d'Arno du 09/10, fil 36640 : une PHOTO intégrée au corps « s'affiche
+   * dans le corps mais n'apparaît ni dans le compteur, ni dans la liste des pièces, et ne peut donc pas être
+   * rangée dans le Drive ». La règle de 03/10 visait les LOGOS de signature ; elle emportait les photos avec
+   * eux. Sa nouvelle borne : « au moins 30 Ko OU au moins 300 px sur le plus petit côté ».
+   *
+   * 148 684 o ≫ 30 Ko : cette image EST désormais une pièce. Le cas est donc retourné, et le cas suivant garde
+   * l'autre moitié — le logo de 4 Ko reste écarté, qui est tout ce que la règle de 03/10 voulait protéger.
+   */
+  it('🔴🔴 une grande image POSÉE DANS LE CORPS est désormais une pièce (≥ 30 Ko)', () => {
     const p = piece({ nomFichier: 'Image (9).jpeg', tailleOctets: 148_684, integree: true });
+    expect(estImageDeSignature(p)).toBe(false);
+    expect(trierPieces([p]).vraies).toHaveLength(1);
+  });
+
+  /**
+   * 🔴🔴 ET CE QUE LA RÈGLE DE 03/10 PROTÉGEAIT TIENT TOUJOURS : un logo de signature posé dans le corps reste
+   * écarté. C'est la moitié qu'il ne fallait surtout pas perdre en inversant la précédente.
+   */
+  it('🔴🔴 une PETITE image posée dans le corps reste écartée', () => {
+    const p = piece({ nomFichier: 'image001.png', tailleOctets: 4_283, integree: true });
     expect(estImageDeSignature(p)).toBe(true);
     expect(trierPieces([p]).vraies).toEqual([]);
   });

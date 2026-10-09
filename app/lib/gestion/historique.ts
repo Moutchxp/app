@@ -296,6 +296,18 @@ export interface PieceHistorique {
   disponible: boolean;
   motifNonStocke: string | null;
   /**
+   * ══ 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — « SES OCTETS SONT AUSSI DANS LE CORPS » ════════════════════════
+   *
+   * 🔴 IL MANQUAIT, ET CELA SE VOYAIT À L'ÉCRAN : le résumé du bien et la liste des pièces d'un mail déplié
+   * lisent cette projection-ci, et `trierPieces` y retombait donc sur la règle de NOM/TAILLE, faute de savoir.
+   * Deux compteurs de la même page ne jugeaient pas par la même règle — et la mention « intégrée au mail » ne
+   * pouvait pas s'afficher du tout, puisque rien ne la portait jusqu'à la carte.
+   *
+   * ⚠️ FACULTATIF : `undefined` (réponse plus ancienne, ou migration 296 absente) ⇒ comportement d'avant, à la
+   * lettre. Ne pas savoir n'a jamais été une raison de retirer une pièce d'un compteur.
+   */
+  integree?: boolean | null;
+  /**
    * ══ 🔴 LOT HISTORIQUE-BIEN-1 — L'EMPREINTE DU CONTENU, POUR LE RÉSUMÉ DES PIÈCES ═════════════════════════════
    *
    * Le bloc « Historique » résume en miniatures toutes les pièces des mails affichés, par `dedoublonnerPieces`

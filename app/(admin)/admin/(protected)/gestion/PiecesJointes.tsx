@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   AIDE_DOUBLE_CLIC, AIDE_OEIL_PIECE, etatArchive, etiquetteType, formaterTaille, lienDocumentEntier,
   sortePiece, tronquerNom,
+  /* 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — la mention, et le nom de repli d'une image sans nom. */
+  MENTION_IMAGE_INTEGREE, nomImageIntegree,
   type PieceAffichee,
 } from '../../../../lib/gestion/pieces';
 /**
@@ -424,10 +426,14 @@ function BlocPieces({
       </div>
 
       <ul className="pj-grille">
-        {dispo.map((p) => (
+        {dispo.map((p, i) => (
           <CartePiece
             key={p.pieceId} piece={p} depot={depotDe(p.pieceId)} indisponible={indisponible}
             emplacements={emplacementsDePiece(p.pieceId)}
+            /* 🔴 LOT IMAGES-INTEGREES-COMME-PIECES — le rang de CETTE image intégrée parmi celles du message :
+               c'est lui qui nomme « Image intégrée 2.png » quand la partie MIME n'avait pas de nom. Compté sur
+               les intégrées SEULES, et dans l'ordre affiché — sinon le numéro sauterait d'une pièce à l'autre. */
+            rangIntegree={dispo.slice(0, i + 1).filter((x) => x.integree === true).length}
             /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — toutes les pièces de ce mail partagent ses destinataires. */
             destinataires={destinataires}
             onVoirDansLeDrive={onVoirDansLeDrive}
@@ -509,9 +515,14 @@ function BlocPieces({
  */
 function CartePiece({
   piece: p, depot, indisponible, onDrive, onVisualiser, emplacements, onVoirDansLeDrive,
-  destinataires = [],
+  destinataires = [], rangIntegree = 1,
 }: {
   piece: PieceAffichee; depot: DepotAffiche | undefined; indisponible: string | null; onDrive: () => void;
+  /**
+   * 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — le RANG de cette image intégrée parmi celles du message, pour
+   * nommer celles qui n'ont pas de nom (« Image intégrée 2.png »). L'appelant le sait, la carte non.
+   */
+  rangIntegree?: number;
   onVisualiser?: (pieceId: number) => void;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties à qui nous avons envoyé ce mail. Vide ⇒ rien n'est rendu. */
   destinataires?: readonly FamilleVue[];
@@ -521,6 +532,9 @@ function CartePiece({
   onVoirDansLeDrive: (e: EmplacementPiece, source: PieceARanger) => void;
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
+  /* 🔴 LOT IMAGES-INTEGREES-COMME-PIECES — le nom à afficher, calculé UNE fois : le titre, le libellé tronqué
+     et l'infobulle doivent dire le même mot. */
+  const nomAffiche = p.integree === true ? nomImageIntegree(p.nomFichier, rangIntegree, p.typeMime) : p.nomFichier;
   const [vignetteMorte, setVignetteMorte] = useState(false);
   const etiquette = etiquetteType(p.nomFichier, p.typeMime);
   const lien = `/api/admin/gestion/pieces/${p.pieceId}`;
@@ -636,8 +650,13 @@ function CartePiece({
       </button>
 
       <div className="pj-pied">
-        <span className="pj-nom" title={p.nomFichier}>{tronquerNom(p.nomFichier)}</span>
+        {/* 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — son nom d'origine, ou « Image intégrée N.ext » quand la
+            partie MIME n'en portait aucun. Le module pur décide ; l'écran n'invente rien. */}
+        <span className="pj-nom" title={nomAffiche}>{tronquerNom(nomAffiche)}</span>
         <span className="pj-taille">{formaterTaille(p.tailleOctets)}</span>
+        {/* 🔴 « intégrée au mail », discrète : elle explique pourquoi on voit AUSSI cette image dans le corps,
+            et elle ne retire rien — la pièce a les mêmes gestes que les autres. */}
+        {p.integree === true && <span className="pj-integree">{MENTION_IMAGE_INTEGREE}</span>}
         {/* 🔴🔴 POINT 1 — la mention d'Arno, mot pour mot, et SEULEMENT sur ces fichiers-là. Elle n'alarme pas :
             elle dit ce que l'application ne fera pas à notre place. */}
         {precaution && <span className="pj-precaution">{MENTION_PRECAUTION}</span>}
@@ -752,6 +771,9 @@ ${CSS_PICTO_DANS_LE_DRIVE}
 
 .pj-pied{display:flex;flex-direction:column;gap:2px;padding:.4rem .5rem 0;min-width:0}
 .pj-nom{font-size:.8rem;color:var(--color-svv-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* LOT IMAGES-INTEGREES-COMME-PIECES — la mention « integree au mail » : discrete, mais ECRITE. Elle ne porte
+   aucune couleur d'alerte : ce n'est pas un avertissement, c'est une provenance. */
+.pj-integree{font-size:.7rem;color:var(--color-svv-muted);font-style:italic}
 .pj-taille{font-size:.74rem;color:var(--color-svv-ink-soft)}
 /* ══ 🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 1 — « Fichier a ouvrir avec precaution » ══════════════
    AMBRE, PAS ROUGE : ce n'est pas une alerte, c'est un RENSEIGNEMENT. Le rouge du module dit « quelque chose ne va

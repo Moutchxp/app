@@ -37,6 +37,8 @@ import { nomsCherchablesAvec } from './nomUsageSql';
 import { nomBien, nomProprietaire } from './driveArbre';
 import {
   deplacementsDeMailsDisponibles, horsGestionDisponible, nomUsageDisponible, rattachementsDisponibles,
+  /* 🔴 LOT IMAGES-INTEGREES-COMME-PIECES — la colonne `integree` (migration 296) n’est NOMMÉE que si elle existe. */
+  pieceIntegreeDisponible,
 } from './schema';
 // LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
 import { capsuleStatut, sqlSortesBien, type CapsuleStatut } from './statutClassement';
@@ -1283,6 +1285,7 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
     message_id: string; id: string; nom_fichier: string; nom_origine: string;
     type_mime: string | null; taille_octets: string | null;
     cle_stockage: string | null; motif_non_stocke: string | null; empreinte: string | null;
+    integree: boolean | null;
   }>(
     /**
      * 🔴 LOT HISTORIQUE-BIEN-1 — `empreinte_sha256` VOYAGE AVEC LA PIÈCE. Le résumé en miniatures du bloc
@@ -1305,7 +1308,8 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
      */
     `SELECT message_id, id, ${await sqlNomAffiche('gestion_piece')} AS nom_fichier,
             nom_fichier AS nom_origine,
-            type_mime, taille_octets::text, cle_stockage, motif_non_stocke, empreinte_sha256 AS empreinte
+            type_mime, taille_octets::text, cle_stockage, motif_non_stocke, empreinte_sha256 AS empreinte,
+            ${await pieceIntegreeDisponible() ? 'integree' : 'NULL::boolean'} AS integree
        FROM gestion_piece WHERE message_id = ANY($1::bigint[]) ORDER BY message_id, id`, [ids]);
   for (const r of rows) {
     const cle = Number(r.message_id);
@@ -1313,6 +1317,9 @@ async function piecesDesMessages(ids: readonly number[]): Promise<Map<number, Pi
       pieceId: Number(r.id), nomFichier: r.nom_fichier, nomOrigine: r.nom_origine, typeMime: r.type_mime,
       tailleOctets: r.taille_octets === null ? null : Number(r.taille_octets),
       disponible: r.cle_stockage !== null, motifNonStocke: r.motif_non_stocke, empreinte: r.empreinte,
+      /* 🔴🔴 LOT IMAGES-INTEGREES-COMME-PIECES — c'est lui qui fait que le résumé du bien et la liste d'un mail
+         déplié jugent par la MÊME règle que le compteur d'en-tête, et que la mention peut s'afficher. */
+      integree: r.integree,
     }]);
   }
   return m;
