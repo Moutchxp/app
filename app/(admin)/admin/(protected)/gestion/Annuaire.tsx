@@ -754,7 +754,34 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
             <span className="ann-fait-mot">Locataire</span>
             {b.locataire === null
               ? <span className="ann-vacant">Vacant</span>
-              : <span className="ann-fait-valeur">{b.locataire}</span>}
+              : (
+                <span className="ann-fait-valeur">
+                  {b.locataire}
+                  {/**
+                    * ══ 🔴🔴 LOT CARTE-BIEN-DATE-ENTREE-LOCATAIRE — DEPUIS QUAND IL EST LÀ ════════════════════
+                    *
+                    * ARNO : « Sous le nom du locataire, ajouter une ligne : “Entré(e) dans les lieux le
+                    * JJ/MM/AAAA” (même bloc vert, texte plus petit et plus discret que le nom). »
+                    *
+                    * 🔴 LA DATE VIENT DE `gestion_annuaire_occupation.entree`, LA SEULE QUI EXISTE — et elle
+                    * est COMPLÈTE : 317 logements occupés, 317 dates (mesuré le 09/10/2026, aucune manquante,
+                    * aucune occupation marquée absente). Aucune autre source n'a été consultée, et surtout
+                    * rien n'est déduit : Arno l'interdit en toutes lettres (« pas de “premier mail reçu” »).
+                    *
+                    * 🔴 SEULEMENT SI LE LOGEMENT EST OCCUPÉ : cette ligne vit DANS la branche « un locataire
+                    * existe ». Un logement vacant affiche « Vacant » et rien d'autre, exactement comme avant.
+                    *
+                    * ⚠️ LA DATE INCONNUE SE DIT, elle ne se tait pas — « Entrée : non renseignée », en gris
+                    * italique, le MÊME dessin que « SURFACE non renseignée » juste au-dessus (`ann-inconnu`).
+                    * Ne rien afficher laisserait croire que la question ne se pose pas.
+                    */}
+                  <span className="ann-entree">
+                    {b.locataireDepuis === null
+                      ? <span className="ann-inconnu">Entrée : non renseignée</span>
+                      : <>Entré(e) dans les lieux le {formaterDateIso(b.locataireDepuis)}</>}
+                  </span>
+                </span>
+              )}
           </span>
           <span className="ann-fait">
             <span className="ann-fait-mot">Mails</span>
@@ -2282,6 +2309,22 @@ export const CSS_ANNUAIRE = `
 .ann-fait--locataire{background:var(--color-svv-green-soft);border-radius:.4rem;margin:.1rem -.35rem;
   padding:.2rem .35rem}
 .ann-fait--locataire .ann-fait-valeur{font-weight:700;color:var(--color-svv-green-ink)}
+/* ══ 🔴🔴 LOT CARTE-BIEN-DATE-ENTREE-LOCATAIRE — « Entre(e) dans les lieux le … », SOUS LE NOM ═══════════════
+   ARNO : « meme bloc vert, texte plus petit et plus discret que le nom. » D'ou le bloc (elle passe a la
+   ligne), la taille reduite et la graisse ORDINAIRE — le nom reste le seul mot en gras du bloc, et c'est lui
+   qu'on cherche des yeux. Sans font-weight:400, elle heriterait du gras de .ann-fait-valeur et ferait
+   deux titres la ou il n'y en a qu'un.
+   🔴🔴 PAS D'OPACITE, ET C'EST MESURE. La premiere ecriture posait opacity:.85 pour « faire discret » : le
+   contraste du texte sur le vert tombait a 3,65:1 en theme Clair (mesure au navigateur le 09/10/2026), sous
+   les 4,5:1 exiges pour un texte de cette taille — et le lot FILTRES-FAMILLES-ET-BOUTONS-ROUGES, la veille,
+   avait justement pose cette borne pour le module. Sans l'opacite : 4,75:1 en Clair, 9,01:1 en Sombre. La
+   discretion est alors portee par la TAILLE (0,74 contre 0,82 rem) et la GRAISSE (400 contre 700), qui ne
+   coutent pas un oeil au lecteur.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.ann-entree{display:block;font-size:.74rem;font-weight:400;color:var(--color-svv-green-ink)}
+/* ⚠️ « non renseignee » GARDE SON GRIS ITALIQUE, celui de « SURFACE non renseignee » : une absence se dit de
+   la meme facon partout dans la carte, sinon on croit a deux sortes d'absence. */
+.ann-entree .ann-inconnu{font-size:.74rem}
 /* « Vacant » est un MOT, jamais une couleur seule : il se lit en noir et blanc. */
 .ann-vacant{font-weight:700;color:var(--color-svv-red)}
 .ann-carte-pied{display:flex;flex-wrap:wrap;gap:.8rem;padding:0 14px 10px;align-items:center}

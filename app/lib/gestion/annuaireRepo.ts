@@ -1459,7 +1459,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien,
             lo.gestion_debut::text, lo.gestion_fin::text,
-            oc.nom AS locataire, oc.locataire_id::text AS locataire_id, oc.entree::text AS locataire_depuis,
+            oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
             coalesce(ma.n, 0)::int AS mails,
             ${INSTANT('ma.dernier')} AS dernier_echange,
             coalesce(ev.n, 0)::int AS evenements,
@@ -1471,6 +1471,22 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
           WHERE o.lot_id = lo.id AND o.sortie IS NULL
           ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1
        ) oc ON true
+       /* ══ LOT CARTE-BIEN-DATE-ENTREE-LOCATAIRE — L'ENTREE DANS LES LIEUX, LA PLUS ANCIENNE ═══════════════
+          ARNO : « Plusieurs locataires actuels avec des dates differentes : afficher la plus ancienne (debut
+          du bail en cours). » C'est donc un MIN, et non la date de la ligne choisie juste au-dessus pour le
+          NOM — celle-la prend la PLUS RECENTE (ORDER BY entree DESC), et c'est la regle d'affichage du nom,
+          posee bien avant ce lot.
+          🔴 DEUX LECTURES PLUTOT QU'UNE, ET C'EST DELIBERE : fondre les deux aurait change, en passant, QUEL
+          NOM s'affiche sur la carte — un element existant, qu'Arno n'a pas demande de toucher. Aujourd'hui
+          cela ne changerait rien (mesure du 09/10/2026 : 317 logements occupes, 317 occupations en cours,
+          JAMAIS deux pour un meme lot), mais le jour ou il y en aurait deux, le nom se mettrait a changer
+          sans que personne ait rien demande.
+          ⚠️ LA MEME PORTE QUE LE NOM : sortie IS NULL, c'est-a-dire l'occupation EN COURS. Un ancien bail ne
+          doit pas remonter une date d'entree — ce serait la plus ancienne de toutes. */
+       LEFT JOIN LATERAL (
+         SELECT min(o2.entree) AS entree FROM gestion_annuaire_occupation o2
+          WHERE o2.lot_id = lo.id AND o2.sortie IS NULL
+       ) en ON true
        LEFT JOIN LATERAL (
          SELECT count(DISTINCT m.id)::int AS n, max(m.recu_le) AS dernier
            FROM gestion_rattachement r
