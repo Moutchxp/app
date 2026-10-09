@@ -995,3 +995,120 @@ describe('🔴🔴 ⑪ les cartes nées d’un déplacement sortent, et rien d�
     expect(code).toContain('AND retire_le IS NULL');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑥ 🔴🔴 LOT PARTIES-GLISSER-DEPOSER-ILLIMITE — UN CONTACT SE DÉPLACE AUTANT DE FOIS QU'ON VEUT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (09/10/2026, fiche lot-176) : « le glisser-déposer ne marche qu'UNE fois ». Sur sa capture, la
+   capsule « Votre CAF » est dans « Locataire(s) actuel(s) » pendant que le bandeau dit « → Tiers indépendant ».
+
+   🔴 LA CAUSE, ET ELLE N'ÉTAIT PAS CELLE QU'ON CROYAIT. Rien n'était perdu côté écran : la capsule reste
+   `draggable`, le gestionnaire reste posé, le bandeau ne bloque rien, et l'écran relit le serveur après chaque
+   geste. C'est le RETRAIT, au dépôt, qui ne regardait que les lignes de la MÊME portée
+   (`coalesce(lot_cle,'') = coalesce($2,'')`). Or `independant` est GLOBAL par construction (la base l'exige) :
+   ranger « Tiers indépendant » depuis un bien laissait donc vivre la ligne posée SUR CE BIEN, et
+   `categorieRetenue` la fait passer devant. Le geste était écrit, et invisible.
+
+   🔴 MESURÉ SUR UN BIEN DE TEST, par cette porte même, AVANT la correction :
+       → locataire   : l'écran voit `locataire`     ✅
+       → independant : l'écran voit `locataire`     ❌
+       → proprietaire: l'écran voit `proprietaire`  ✅
+       → independant : l'écran voit `proprietaire`  ❌
+   Les trois familles portées par le bien marchaient depuis toujours ; seule « Tiers indépendant » était morte,
+   et seulement à partir du premier rangement sur le bien — d'où « ça ne marche qu'une fois ».
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴🔴 ⑥ ranger « tiers indépendant » depuis un bien libère ce bien', () => {
+  /** Les requêtes émises dans l'ordre, avec leurs paramètres liés. */
+  const emises = (): { sql: string; p: unknown[] }[] => [...queryMock.mock.calls, ...txMock.mock.calls]
+    .map((c) => ({ sql: String(c[0]).replace(/\s+/g, ' '), p: (Array.isArray(c[1]) ? c[1] : []) as unknown[] }));
+
+  /**
+   * 🔴🔴 LE SECOND RETRAIT, CELUI QUI MANQUAIT. Il vise la ligne VIVANTE de CE bien, et il est nommé : son motif
+   * se lit en base, et distingue ce retrait d'un simple remplacement.
+   */
+  it('🔴🔴 la ligne posée sur ce bien est retirée, et le dit', async () => {
+    const r = await poserCategorieAlaMain({
+      adresse: 'noreply@emailing.caf.fr', lotCle: '219', categorie: 'independant', auteur: AUTEUR,
+    });
+    expect(r.ok).toBe(true);
+    const liste = emises();
+    expect(liste).toHaveLength(3);
+    /* ① la ligne GLOBALE d'avant (même portée), ②bis celle du BIEN, ② l'insertion. */
+    expect(liste[0].sql).toContain("coalesce(lot_cle, '') = coalesce($2, '')");
+    expect(liste[1].sql).toContain('AND lot_cle = $5');
+    expect(liste[1].p).toContain('219');
+    expect(liste[1].p).toContain('rangée « tiers indépendant » : elle n’est plus une partie de ce bien');
+    expect(liste[2].sql).toContain('INSERT INTO gestion_partie_categorie');
+  });
+
+  /**
+   * 🔴🔴 ET SES IDENTIFIANTS REJOIGNENT `retires` — c'est par eux, et par eux seuls, qu'« Annuler » rouvre les
+   * lignes exactes d'avant le geste. Sans cela, annuler un passage en « Tiers indépendant » aurait laissé le
+   * contact nulle part : sa ligne de bien retirée, et la globale retirée aussi.
+   */
+  it('🔴🔴 « Annuler » pourra rouvrir les deux lignes retirées', async () => {
+    txMock.mockReset();
+    txMock
+      .mockResolvedValueOnce({ rows: [{ id: '14' }] })   // ① la globale d'avant
+      .mockResolvedValueOnce({ rows: [{ id: '1969' }] }) // ①bis celle du bien — la ligne oubliée
+      .mockResolvedValueOnce({ rows: [{ id: '1970' }] }); // ② la nouvelle
+    const r = await poserCategorieAlaMain({
+      adresse: 'noreply@emailing.caf.fr', lotCle: '219', categorie: 'independant', auteur: AUTEUR,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.ok === true && r.retires).toEqual([14, 1969]);
+    expect(r.ok === true && r.id).toBe(1970);
+  });
+
+  /**
+   * ⚠️ LE CONTACT QUITTE LE BIEN **ENTIER**, et c'est pourquoi ce retrait ne filtre PAS sur `locataire_id`. Un
+   * contact rattaché à un ancien locataire nommé resterait sinon affiché dans l'encart Locataire — exactement le
+   * défaut qu'on corrige, déplacé d'un cran.
+   */
+  it('⚠️ il emporte aussi le rattachement à un ancien locataire', async () => {
+    await poserCategorieAlaMain({
+      adresse: 'avocat@fictif.test', lotCle: '219', categorie: 'independant', auteur: AUTEUR,
+    });
+    const surLeBien = emises().find((e) => e.sql.includes('AND lot_cle = $5'));
+    expect(surLeBien).toBeDefined();
+    expect(surLeBien?.sql).not.toContain('locataire_id');
+  });
+
+  /**
+   * 🔴🔴 ET L'INVERSE N'EST PAS FAIT, EXPRÈS — c'est la moitié de la décision, et la moins visible.
+   *
+   * Poser une catégorie DE BIEN ne touche pas la ligne globale : elle concerne les AUTRES biens, la ligne du bien
+   * l'emporte déjà à l'écran (`categorieRetenue`), et c'est ce qui rend « Annuler » exact — annuler ce geste-là
+   * fait réapparaître « Tiers indépendant », c'est-à-dire l'état d'avant, au caractère près.
+   */
+  it('🔴🔴 ranger sur un bien ne retire PAS le rangement global', async () => {
+    await poserCategorieAlaMain({
+      adresse: 'noreply@emailing.caf.fr', lotCle: '219', categorie: 'locataire', auteur: AUTEUR,
+    });
+    const liste = emises();
+    expect(liste).toHaveLength(2);
+    expect(liste.filter((e) => e.sql.includes('UPDATE gestion_partie_categorie'))).toHaveLength(1);
+  });
+
+  /** ⚠️ SANS BIEN D'OÙ LE GESTE PART (un rangement global pur), il n'y a rien à libérer : deux requêtes. */
+  it('⚠️ un rangement global sans bien n’émet pas le second retrait', async () => {
+    await poserCategorieAlaMain({
+      adresse: 'noreply@emailing.caf.fr', lotCle: null, categorie: 'independant', auteur: AUTEUR,
+    });
+    expect(emises()).toHaveLength(2);
+  });
+
+  /**
+   * 🔒 LA PORTÉE RESTE DÉDUITE : la ligne écrite part toujours SANS bien, et le bien d'où le geste est fait ne
+   * sert QU'à retirer. Un `lot_cle` qui s'y glisserait ferait tomber `gestion_partie_categorie_portee_chk`.
+   */
+  it('🔒 la ligne écrite part toujours sans bien', async () => {
+    await poserCategorieAlaMain({
+      adresse: 'noreply@emailing.caf.fr', lotCle: '219', categorie: 'independant', auteur: AUTEUR,
+    });
+    const insert = emises().find((e) => e.sql.includes('INSERT INTO gestion_partie_categorie'));
+    expect(insert?.p[1]).toBeNull();
+  });
+});

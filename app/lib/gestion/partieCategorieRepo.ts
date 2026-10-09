@@ -606,6 +606,41 @@ export async function poserCategorieAlaMain(o: {
     return { ok: false, motif: 'Un contact du propriétaire ou du locataire se range toujours sur un bien.' };
   }
   /**
+   * ══ 🔴🔴 LOT PARTIES-GLISSER-DEPOSER-ILLIMITE — LE BIEN D'OÙ LE GESTE EST FAIT ════════════════════════════════
+   *
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * CONSTAT D'ARNO (09/10/2026, fiche lot-176) : « le glisser-déposer ne marche qu'UNE fois. J'ai déplacé “Votre
+   * CAF” une première fois ; ensuite impossible de le redéplacer. » Sur sa capture, la capsule est dans
+   * « Locataire(s) actuel(s) » pendant que le bandeau dit « Votre CAF → Tiers indépendant ».
+   *
+   * 🔴 LA CAUSE ÉTAIT ICI, ET C'ÉTAIT UN `coalesce` : le retrait ① ne touche QUE les lignes de la MÊME portée
+   * (`coalesce(lot_cle,'') = coalesce($2,'')`). Or `independant` est GLOBAL par construction — la base l'exige
+   * (`gestion_partie_categorie_portee_chk`). Ranger « Tiers indépendant » depuis la fiche d'un bien retirait donc
+   * l'ancienne ligne GLOBALE… et laissait vivre la ligne posée SUR CE BIEN. `categorieRetenue` fait passer le
+   * manuel du bien devant le manuel global : la capsule ne bougeait pas d'un millimètre, et chaque nouvel essai
+   * réécrivait la même ligne globale invisible.
+   *
+   * 🔴 MESURÉ, PAS DÉDUIT. Rejoué sur un bien de TEST par cette porte même, le 09/10/2026 :
+   *     → locataire    : écran voit `locataire`     ✅
+   *     → independant  : écran voit `locataire`     ❌  (la ligne globale est posée, et ne sert à rien)
+   *     → proprietaire : écran voit `proprietaire`  ✅
+   *     → independant  : écran voit `proprietaire`  ❌
+   * Les trois familles portées par le bien marchaient depuis toujours ; SEULE « Tiers indépendant » était morte,
+   * et seulement à partir du moment où le contact avait été rangé une première fois sur le bien.
+   *
+   * 🔴 CE QUE LE CONTEXTE RÉPARE : le geste est fait SUR UN BIEN, même quand la ligne qu'il écrit est globale.
+   * Ranger un contact « tiers indépendant » depuis la fiche d'un bien, c'est dire « il n'est pas une partie de CE
+   * bien » — donc son rangement sur ce bien cède la place. C'est le seul sens que ce geste puisse avoir.
+   *
+   * ⚠️ ET L'INVERSE N'EST **PAS** FAIT, EXPRÈS. Poser une catégorie DE BIEN ne retire pas la ligne globale :
+   *   · elle concerne les AUTRES biens, et un geste fait sur celui-ci n'a pas à les déranger ;
+   *   · la ligne du bien l'emporte déjà (`categorieRetenue`), donc l'écran est juste sans la toucher ;
+   *   · et c'est ce qui rend « Annuler » EXACT : annuler ce geste-là fait réapparaître « Tiers indépendant »,
+   *     c'est-à-dire l'état d'avant, au caractère près. La retirer aurait rendu l'annulation approximative.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const contexte = global ? lotPropre(o.lotCle) : null;
+  /**
    * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — « RATTACHÉ À L'ANCIEN LOCATAIRE, PAS AU BIEN EN GÉNÉRAL » (Arno).
    *
    * 🔴 LE REFUS EST EXPLICITE DANS LES DEUX SENS : un `ancien_locataire` sans personne nommée serait rangé « sur
@@ -647,6 +682,31 @@ export async function poserCategorieAlaMain(o: {
         ? [adresse, lot, o.auteur.id, o.auteur.libelle, motif, locataireId]
         : [adresse, lot, o.auteur.id, o.auteur.libelle, motif]);
     for (const r of anciens) retires.push(Number(r.id));
+
+    /**
+     * ①bis 🔴🔴 LOT PARTIES-GLISSER-DEPOSER-ILLIMITE — ET LE RANGEMENT SUR CE BIEN CÈDE LA PLACE.
+     *
+     * Voir l'encadré du `contexte`, plus haut : sans ce second retrait, « Tiers indépendant » n'avait aucun
+     * effet visible dès que le contact avait déjà été rangé une fois sur le bien.
+     *
+     * ⚠️ SANS FILTRE SUR `locataire_id`, ET C'EST VOULU : la capsule quitte le bien ENTIER. Un contact rattaché
+     * à un ancien locataire nommé le quitte lui aussi — sinon il resterait affiché dans l'encart Locataire,
+     * c'est-à-dire exactement le défaut qu'on corrige, déplacé d'un cran.
+     *
+     * ⚠️ LES IDENTIFIANTS REJOIGNENT `retires` : c'est par eux, et par eux seuls, qu'« Annuler » rouvre les
+     * lignes exactes d'avant le geste au lieu d'en reposer de nouvelles à la main.
+     */
+    if (contexte !== null) {
+      const { rows: surLeBien } = await q<{ id: string }>(
+        `UPDATE gestion_partie_categorie
+            SET retire_le = now(), retire_par = $2, retire_par_libelle = $3,
+                retire_motif = $4
+          WHERE retire_le IS NULL AND adresse = $1 AND lot_cle = $5
+          RETURNING id::text`,
+        [adresse, o.auteur.id, o.auteur.libelle,
+          'rangée « tiers indépendant » : elle n’est plus une partie de ce bien', contexte]);
+      for (const r of surLeBien) retires.push(Number(r.id));
+    }
 
     /* ② PUIS LA NOUVELLE. `origine` est en dur : cette fonction est le geste manuel, et rien d'autre. */
     const { rows } = await q<{ id: string }>(
