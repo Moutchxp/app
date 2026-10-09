@@ -104,9 +104,13 @@ import {
  */
 import {
   AIDE_LOUPE, bulleCompteurRange, motCompteur, phraseMethode, surlignageDe, SURLIGNAGE_VIDE,
+  /* 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE, POINT 2 — l'itinéraire numéroté jusqu'au document. */
+  motEtape, occurrenceChoisie, parcoursDe, PARCOURS_VIDE, type Parcours,
   type Occurrence, type Surlignage,
 } from '../../../../lib/gestion/localisationDrive';
 import {
+  /* 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE, POINT 1 — les niveaux au-dessus du dossier affiché. */
+  ancetresAffiches,
   aplatir, avancer, cheminCourant, cibleDeDepot, cliquerLigne, COLONNES, dateFinder, guidesNiveaux, recadrerMenu,
   retraitLigne,
   dossierDuChemin, fenetreVisible, flecheTri, HAUTEUR_LIGNE, HISTORIQUE_DEPART,
@@ -257,6 +261,31 @@ const DELAI_DEPLIAGE_MS = 220;
  * ⚠️ RIEN DE CE QUI SE PASSE NE CHANGE : c'est un style, et rien qu'un style. La surface de dépôt reste la ligne
  * ENTIÈRE (le retrait est un `padding`, jamais une marge — règle du lot DRIVE-RETOUCHES-1).
  */
+/**
+ * ══ 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE, POINT 2 — LE TÉMOIN D'UNE ÉTAPE ════════════════════════════════
+ *
+ * Arno : « des témoins numérotés (1, 2, 3…) devant chaque ligne à cliquer, du niveau affiché jusqu'au fichier ».
+ *
+ * 🔴 LE NUMÉRO EST DEVANT LE NOM, et non derrière : on le lit comme un itinéraire (« 1, puis 2, puis 3 »), pas
+ * comme une décoration du nom. La pastille 🔎 du repère, elle, reste à sa place, après le nom — les deux ne
+ * disent pas la même chose et ne doivent pas se confondre.
+ *
+ * ⚠️ LE MOT EST TOUJOURS ÉCRIT (infobulle + `aria-label`) : un chiffre dans un rond ne dit pas à quoi il sert, et
+ * un lecteur d'écran n'annoncerait qu'« 2 ». C'est la règle du module, et elle vaut pour ce témoin-ci comme pour
+ * le repère.
+ *
+ * ⚠️ DÉCLARÉ AU NIVEAU DU MODULE, jamais dans le rendu : un composant créé pendant un rendu est remonté à chaque
+ * image (et le compilateur React le refuse).
+ */
+function TemoinEtape({ rang, pas, fichier }: { rang: number; pas: number; fichier: boolean }) {
+  const mot = motEtape(rang, pas, fichier);
+  return (
+    <span className={`sfd-etape${fichier ? ' sfd-etape--but' : ''}`} role="img" title={mot} aria-label={mot}>
+      {rang}
+    </span>
+  );
+}
+
 function styleNiveau(profondeur: number): React.CSSProperties {
   const g = guidesNiveaux(profondeur);
   return {
@@ -959,6 +988,19 @@ export function SelecteurFichierDrive({
   const cleRaccourci = cleDuCalcul({ filId, lots: [...lots], adresses: [...adressesA] });
   const adressesJointes = adressesA.join(',');
   const chemin = cheminCourant(histo);
+  /**
+   * 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE, POINT 1 — LES DEUX NIVEAUX AU-DESSUS, dépliés, au-dessus de la
+   * liste. Ils viennent de la CHAÎNE du dossier, que le listing rend déjà (c'est elle qui fait le fil d'Ariane) :
+   * aucun appel de plus à Google, et aucune devinette.
+   *
+   * ⚠️ « OÙ L'ON EST » NE BOUGE PAS D'UN IOTA. Le fil d'Ariane, « Déposer ici », le lâcher dans le vide et le
+   * droit de joindre continuent de désigner le DOSSIER COURANT — c'est le piège que le lot
+   * PICTO-DRIVE-ARRIVEE-EN-ARBORESCENCE a documenté, et cette bande ne le rouvre pas : elle NAVIGUE, elle ne
+   * déplace pas le point de vue.
+   */
+  const ancetres = ancetresAffiches(chemin);
+  /** De combien les lignes de la liste s'indentent sous la chaîne affichée. 0 quand il n'y a pas de chaîne. */
+  const decalageArbre = ancetres.length === 0 ? 0 : ancetres.length + 1;
   const dossierCourant = chemin.at(-1) ?? null;
   /** 🔴 Les deux parents et le dossier courant. Déplié, le bandeau rend le chemin entier — d'où le 99. */
   const parents = bandeauParents(chemin, cheminEntier ? 99 : undefined);
@@ -4189,8 +4231,10 @@ export function SelecteurFichierDrive({
    * ⚠️ LEUR CHEMIN EST CELUI DU DOSSIER OÙ ON LES A VUS : on connaît leur parent (chaque ligne le porte), et la
    * chaîne de ce parent est celle qu'on est en train d'afficher. On ne redemande donc rien à Google.
    */
-  const surlignage: Surlignage = (() => {
-    if (loupeSur === null || localisation === null) return SURLIGNAGE_VIDE;
+  const surlignageEtOccurrences = (() => {
+    if (loupeSur === null || localisation === null) {
+      return { s: SURLIGNAGE_VIDE, occurrences: [] as Occurrence[], affichees: new Set<string>() };
+    }
     const occurrences: Occurrence[] = [...localisation.occurrences];
     const md5 = (localisation.md5 ?? '').trim();
     if (md5 !== '') {
@@ -4217,7 +4261,33 @@ export function SelecteurFichierDrive({
     const affichees = new Set<string>(lignes.map((l) => l.entree.id));
     const ici = dossierCourant?.id ?? '';
     if (ici !== '') affichees.add(ici);
-    return surlignageDe(occurrences, affichees);
+    /* 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE — LES NIVEAUX PARENTS SONT DES LIGNES, DONC ILS COMPTENT.
+       C'est ce qui débloque le cas mesuré du lot : un document rangé dans une branche VOISINE (sous un frère
+       du dossier courant) n'avait aucun nœud commun avec l'écran, et la loupe ne disait rien. Avec le parent
+       affiché, l'itinéraire a un premier pas — et c'est tout ce qu'il lui fallait. */
+    for (const a of ancetres) affichees.add(a.id);
+    return { s: surlignageDe(occurrences, affichees), occurrences, affichees };
+  })();
+  const surlignage: Surlignage = surlignageEtOccurrences.s;
+  /**
+   * ══ 🔴🔴 L'ITINÉRAIRE NUMÉROTÉ — UN SEUL, VERS L'EMPLACEMENT CHOISI ════════════════════════════════════════
+   *
+   * Arno : « des témoins numérotés (1, 2, 3…) devant chaque ligne à cliquer, du niveau affiché jusqu'au
+   * fichier » ; et, quand le document est connu à deux endroits, « l'emplacement choisi dans le menu, ou le
+   * premier par défaut ».
+   *
+   * 🔴 L'EMPLACEMENT MIS EN ÉVIDENCE PAR L'APPELANT GAGNE : le menu « N emplacements » de la miniature ouvre la
+   * fenêtre sur CELUI qu'on a choisi (`documentEnEvidence`), et c'est donc celui-là qu'on dessine. Sans lui,
+   * le premier — jamais un au hasard.
+   *
+   * ⚠️ LA RÈGLE EST DANS LE MODULE PUR, et le reste du surlignage n'a pas bougé d'un trait : les AUTRES
+   * emplacements gardent leur pastille 🔎, exactement comme avant ce lot.
+   */
+  const parcours: Parcours = (() => {
+    if (loupeSur === null) return PARCOURS_VIDE;
+    const choisie = occurrenceChoisie(
+      surlignageEtOccurrences.occurrences, documentEnEvidence?.driveFileId ?? null);
+    return parcoursDe(choisie, surlignageEtOccurrences.affichees);
   })();
 
   /** Combien de dossiers la fenêtre a déjà lus : c'est l'étendue de la comparaison par empreinte, et on le DIT. */
@@ -5381,6 +5451,52 @@ export function SelecteurFichierDrive({
                 setSelection(SELECTION_VIDE);
                 setMenu({ x: e.clientX, y: e.clientY, entree: null });
               }}>
+              {/* ══ 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE, POINT 1 — LES NIVEAUX AU-DESSUS ════════════════
+                  Arno : « l'arborescence affiche AUSSI les 2 niveaux parents au-dessus du dossier courant,
+                  dépliés, avec indentation […] le dossier courant surligné ». Chaque parent est CLIQUABLE et
+                  remonte à son niveau ; le dossier courant, lui, n'est pas un bouton — on y est déjà.
+
+                  🔴 UNE BANDE, ET NON DES LIGNES DE LA LISTE. Les lignes de la liste portent tout : la sélection,
+                  le glisser, le menu du clic droit, le renommage, la corbeille, la cible de dépôt. Y glisser deux
+                  dossiers qui ne sont PAS dans le listing courant aurait ouvert tous ces gestes sur des objets
+                  venus d'ailleurs — et le premier lâcher malheureux aurait déplacé un dossier entier. La bande ne
+                  sait faire qu'une chose : naviguer. C'est exactement ce qu'Arno demande d'elle.
+
+                  ⚠️ PAS EN CORBEILLE NI DANS « RÉCENTS » : ces deux vues ne sont pas un dossier, elles n'ont donc
+                  pas de parents. Afficher une chaîne au-dessus d'elles désignerait un endroit où l'on n'est pas. */}
+              {!corbeilleOuverte && !montrerRecents && ancetres.length > 0 && (
+                <ol className="sfd-ancetres" aria-label="Niveaux au-dessus du dossier affiché">
+                  {ancetres.map((a, i) => (
+                    <li key={a.id}>
+                      <button type="button" className="sfd-ancetre" style={styleNiveau(i)}
+                        title={`Remonter à « ${a.nom} »`}
+                        onClick={() => remonter(chemin.length - ancetres.length + i)}>
+                        {parcours.rangs.has(a.id) && (
+                          <TemoinEtape rang={parcours.rangs.get(a.id) ?? 1} pas={parcours.pas} fichier={false} />
+                        )}
+                        <span className="sfd-ancetre-triangle" aria-hidden="true">▾</span>
+                        <span aria-hidden="true">📁</span>
+                        <span className="sfd-ancetre-nom">{a.nom}</span>
+                      </button>
+                    </li>
+                  ))}
+                  {/* 🔴 LE DOSSIER COURANT FERME LA CHAÎNE, SURLIGNÉ : c'est « vous êtes ici », et il n'est pas
+                      cliquable — un bouton qui ne mène nulle part est un bouton cassé. */}
+                  <li>
+                    <span className="sfd-ancetre sfd-ancetre--courant" style={styleNiveau(ancetres.length)}
+                      aria-current="location">
+                      {dossierCourant !== null && parcours.rangs.has(dossierCourant.id) && (
+                        <TemoinEtape rang={parcours.rangs.get(dossierCourant.id) ?? 1} pas={parcours.pas}
+                          fichier={false} />
+                      )}
+                      <span className="sfd-ancetre-triangle" aria-hidden="true">▾</span>
+                      <span aria-hidden="true">📂</span>
+                      <span className="sfd-ancetre-nom">{chemin.at(-1)?.nom ?? 'Ce dossier'}</span>
+                    </span>
+                  </li>
+                </ol>
+              )}
+
               {/* ══ 🔴🔴 LOT CORBEILLE-DRIVE-REELLE-ET-SCROLL, POINT 2 — LA CORBEILLE DU DRIVE ═══════════════════
                   Arno : « nom, emplacement d'origine, date de mise à la corbeille, jours restants avant
                   suppression définitive (30 jours). Chaque ligne propose : 👁 aperçu, et “Réintégrer”. Pas de
@@ -5581,7 +5697,10 @@ export function SelecteurFichierDrive({
                             + `${surlignage.reperes.has(f.id) && !surlignage.fichiers.has(f.id) ? ' sfd-ligne--chemin' : ''}`}
                           /* 🔴 L'INDENTATION EST UN PADDING, pas une marge : la ligne garde toute sa largeur, donc
                              toute sa surface de dépôt. Un dossier profond ne doit pas être plus dur à viser. */
-                          style={{ ...grille, ...styleNiveau(profondeur) }}
+                          /* 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE — LE CONTENU S'INDENTE SOUS LA CHAÎNE :
+                             sans ce décalage, les lignes du dossier courant paraîtraient AU MÊME NIVEAU que son
+                             grand-parent, et l'arborescence dirait le contraire de ce qu'elle montre. */
+                          style={{ ...grille, ...styleNiveau(profondeur + decalageArbre) }}
                           title={systeme ? infobulleFichierSysteme(f.nom) : undefined}
                           /* 🔴 SAISISSABLE — c'est ce qui manquait : « je ne peux pas saisir un fichier ou un
                              document pour le glisser-déposer » (Arno). */
@@ -5650,6 +5769,16 @@ export function SelecteurFichierDrive({
                             setMenu({ x: e.clientX, y: e.clientY, entree: f });
                           }}>
                           <span className="sfd-col-nom">
+                            {/* ══ 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE, POINT 2 — LE TÉMOIN DE L'ÉTAPE ══
+                                « des témoins numérotés (1, 2, 3…) DEVANT chaque ligne à cliquer » (Arno) : il est
+                                donc le PREMIER enfant de la colonne du nom, avant même le triangle — exactement
+                                comme dans la bande des niveaux parents, pour que l'itinéraire se lise d'un trait
+                                de haut en bas. Le repère 🔎, lui, reste APRÈS le nom : il ne dit pas la même
+                                chose (« c'est quelque part là-dedans »), et les deux ne doivent pas se confondre. */}
+                            {parcours.rangs.has(f.id) && (
+                              <TemoinEtape rang={parcours.rangs.get(f.id) ?? 1} pas={parcours.pas}
+                                fichier={parcours.fichier === f.id} />
+                            )}
                             {/* 🔴 LE TRIANGLE ▸ : il déplie SUR PLACE, sans quitter la vue. Absent sur un fichier. */}
                             {f.dossier ? (
                               <button type="button" className="sfd-triangle"
@@ -6602,6 +6731,31 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-ligne--choisie.sfd-ligne--trouve,.sfd-ligne--choisie.sfd-ligne--chemin{
   background:color-mix(in srgb, var(--color-svv-red) 16%, transparent)}
 /* LE REPERE LUI-MEME : une pastille ambre a cote du nom, avec son nombre quand il y en a plusieurs. */
+/* ══ LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE — LA CHAINE DES NIVEAUX PARENTS, AU-DESSUS DE LA LISTE ═════════
+   Meme pas d'indentation que les lignes (styleNiveau), meme hauteur, meme police : la chaine et la liste
+   doivent se lire comme un seul arbre, pas comme deux blocs cousus.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.sfd-ancetres{list-style:none;margin:0 0 2px;padding:0}
+.sfd-ancetre{display:flex;align-items:center;gap:.3rem;width:100%;min-height:26px;
+  background:none;border:0;font:inherit;font-size:.82rem;color:var(--color-svv-muted);
+  text-align:left;cursor:pointer;border-radius:.25rem}
+.sfd-ancetre:hover{background:var(--color-svv-field);color:var(--color-svv-ink)}
+.sfd-ancetre:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* LE DOSSIER COURANT : surligne, en encre pleine, et PAS un bouton — on y est deja. */
+.sfd-ancetre--courant{cursor:default;color:var(--color-svv-ink);font-weight:700;
+  background:var(--color-svv-field)}
+.sfd-ancetre--courant:hover{background:var(--color-svv-field)}
+.sfd-ancetre-nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sfd-ancetre-triangle{flex:0 0 auto;color:var(--color-svv-muted);font-size:.7rem}
+/* ══ LE TEMOIN D'ETAPE — un chiffre dans une pastille, DEVANT le nom. ═══════════════════════════════════════
+   Le rouge de la marque, parce que c'est un ITINERAIRE a suivre : il doit se voir du coin de l'oeil, et ne se
+   confond pas avec l'ambre du repere (qui dit « c'est quelque part la-dedans ») ni avec la selection. */
+.sfd-etape{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;
+  min-width:17px;height:17px;padding:0 3px;margin-right:2px;border-radius:999px;
+  background:var(--color-svv-red);color:var(--color-svv-surface);
+  font-size:.64rem;font-weight:800;line-height:1}
+/* LE BOUT DU CHEMIN : le document lui-meme. Plein, plus sombre — on s'arrete la. */
+.sfd-etape--but{background:var(--color-svv-ink)}
 .sfd-repere{display:inline-flex;align-items:center;gap:2px;flex:0 0 auto;margin-left:4px;padding:0 5px;
   border-radius:999px;font-size:.7rem;line-height:1.5;
   color:var(--color-svv-ink);background:color-mix(in srgb, #f0a202 55%, transparent)}

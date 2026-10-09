@@ -183,6 +183,116 @@ export function surlignageDe(
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ②-bis 🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE — LE PARCOURS, CLIC APRÈS CLIC
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   CONSTAT D'ARNO (09/10/2026) : « le bouton loupe doit de nouveau dessiner le parcours clic après clic jusqu'au
+   document : des témoins numérotés (1, 2, 3…) devant chaque ligne à cliquer, du niveau affiché jusqu'au fichier. »
+
+   ═══ 🔴🔴 CE QUE LA MESURE A TROUVÉ, ET QUI N'EST PAS CE QU'ON CROYAIT ═══════════════════════════════════════════
+
+   Rejoué le 09/10/2026 sur la fiche lot-299 (« 1bis Rue Manessier — lot 432 »), pièce « Détail du mouvement
+   VIR INST… » : la loupe appelle bien `/drive/localiser`, qui répond **2 occurrences**, toutes deux dans
+   « Drive › Base de données locative › 00 Arrivée des mails › 2026 › 07 ». Et l'écran n'affiche **AUCUN repère** :
+   `surlignage.reperes` est VIDE.
+
+   🔴 LA RAISON EST DANS `repereDe` : il ne marque QUE les nœuds AFFICHÉS. La fenêtre, elle, montre le dossier du
+   lot 432 et ses cinq sous-dossiers — et le chemin du document ne passe par AUCUN d'eux (il descend par
+   « 00 Arrivée des mails », qui est un FRÈRE de « 2 Biens immobiliers », deux niveaux plus haut). Aucun nœud
+   commun ⇒ aucun repère ⇒ la loupe ne dit rien du tout, alors qu'elle sait exactement où est le document.
+
+   ⚠️ CE N'EST DONC PAS UNE RÉGRESSION D'UN COMMIT, et il faut le dire : la version d'AVANT
+   `49c506f7` (« la loupe ne pose plus qu'UN repère par chemin ») ne peignait pas davantage cette situation — elle
+   surlignait TOUS les ancêtres, mais seulement parmi les lignes affichées, et il n'y en avait aucune ici non plus.
+   Les témoins NUMÉROTÉS, eux, n'ont jamais existé : recherche par `git log -S` sur six graphies, zéro commit.
+   Ce qui a disparu avec `49c506f7`, c'est le surlignage de la CHAÎNE ENTIÈRE ; ce qui n'a jamais existé, c'est
+   l'itinéraire numéroté — et c'est lui qui répond vraiment à la question « par où je clique ? ».
+
+   ═══ 🔴 LA RÈGLE, DONC ═══════════════════════════════════════════════════════════════════════════════════════════
+
+   On numérote la chaîne du document à partir du PREMIER nœud AFFICHÉ, de haut en bas : 1 sur la ligne à cliquer
+   maintenant, 2 sur celle qui apparaîtra ensuite, et ainsi de suite jusqu'au fichier. Les rangs sont calculés sur
+   la chaîne ENTIÈRE, donc ils ne bougent pas quand on déplie : le « 2 » reste le « 2 ».
+
+   ⚠️ ET C'EST POURQUOI LES NIVEAUX PARENTS COMPTENT (point 1 du même lot) : tant que la fenêtre n'affiche que le
+   dossier courant, un document rangé dans une branche voisine n'a aucun nœud commun avec l'écran, et aucun
+   itinéraire ne peut partir. Les deux points de ce lot sont une seule et même chose.
+   ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Un itinéraire : quel nœud porte quel numéro, et où il mène. */
+export interface Parcours {
+  /** Nœud → son rang (1, 2, 3…) le long du chemin, en partant du plus haut niveau AFFICHÉ. */
+  rangs: ReadonlyMap<string, number>;
+  /**
+   * Le fichier au bout, s'il est **AFFICHÉ**. `null` = on ne l'a pas encore atteint à l'écran.
+   *
+   * ⚠️ « AFFICHÉ », ET NON « NUMÉROTÉ » : tous les crans de la chaîne portent un rang dès le premier pas (c'est
+   * ce qui empêche l'itinéraire de se renuméroter en descendant), mais la DESTINATION n'est atteinte que
+   * lorsque sa ligne existe. Confondre les deux ferait écrire « le document est ici » sur une ligne que
+   * personne ne voit.
+   */
+  fichier: string | null;
+  /** Combien de pas en tout, du premier affiché jusqu'au fichier compris. 0 = aucun itinéraire possible. */
+  pas: number;
+}
+
+export const PARCOURS_VIDE: Parcours = { rangs: new Map(), fichier: null, pas: 0 };
+
+/**
+ * ══ 🔴🔴 L'ITINÉRAIRE VERS **UNE** OCCURRENCE. PUR. ═════════════════════════════════════════════════════════════
+ *
+ * 🔴 UNE SEULE, ET C'EST VOULU. Deux itinéraires numérotés côte à côte donneraient deux « 1 » et deux « 2 » dans
+ * le même arbre : on ne saurait plus lequel suivre. Quand le document est connu à plusieurs emplacements,
+ * l'appelant choisit lequel on dessine (le premier par défaut) ; les AUTRES gardent la pastille 🔎 du repère,
+ * qui n'a pas changé d'un trait.
+ *
+ * ⚠️ LES RANGS COUVRENT LA CHAÎNE ENTIÈRE, affichée ou non. Un nœud pas encore à l'écran n'est tout simplement
+ * pas rendu ; mais le jour où il paraît, il porte DÉJÀ son numéro — l'itinéraire ne se renumérote pas sous les
+ * yeux de celui qui le suit.
+ *
+ * ⚠️ `PARCOURS_VIDE` QUAND AUCUN NŒUD N'EST AFFICHÉ : on ne commence pas un itinéraire par un pas qu'on ne peut
+ * pas faire. L'écran dit alors ce qu'il sait autrement (le bandeau « Ce document est ici : … »).
+ */
+export function parcoursDe(
+  o: Occurrence | null | undefined, affichees: ReadonlySet<string>,
+): Parcours {
+  if (o === null || o === undefined || o.id.trim() === '') return PARCOURS_VIDE;
+  /* La chaîne dans le SENS DE LA DESCENTE : la racine d'abord, le fichier en dernier. `chemin` est rangé du
+     parent immédiat vers la racine — on le retourne, et le fichier ferme la marche. */
+  const chaine = [...o.chemin].map((d) => d.id).filter((id) => id.trim() !== '').reverse();
+  chaine.push(o.id);
+  const depart = chaine.findIndex((id) => affichees.has(id));
+  if (depart === -1) return PARCOURS_VIDE;
+  const rangs = new Map<string, number>();
+  for (let i = depart; i < chaine.length; i += 1) rangs.set(chaine[i], i - depart + 1);
+  return { rangs, fichier: affichees.has(o.id) ? o.id : null, pas: chaine.length - depart };
+}
+
+/**
+ * QUELLE OCCURRENCE L'ON DESSINE. PUR.
+ *
+ * Arno : « Si la pièce est connue à 2 emplacements (badge “2”), afficher l'emplacement choisi dans le menu, ou le
+ * premier par défaut. » `choisi` est l'identifiant Drive venu du menu ; absent ou introuvable, c'est le premier.
+ */
+export function occurrenceChoisie(
+  occurrences: readonly Occurrence[], choisi?: string | null,
+): Occurrence | null {
+  if (occurrences.length === 0) return null;
+  const vise = (choisi ?? '').trim();
+  return (vise === '' ? undefined : occurrences.find((o) => o.id === vise)) ?? occurrences[0];
+}
+
+/**
+ * LE MOT D'UN TÉMOIN, écrit pour l'infobulle ET pour le lecteur d'écran — la couleur et le chiffre ne portent
+ * jamais l'information seuls. PUR.
+ */
+export function motEtape(rang: number, pas: number, estLeFichier: boolean): string {
+  if (estLeFichier) return `Étape ${rang} sur ${pas} : le document est ici`;
+  return `Étape ${rang} sur ${pas} : ouvrez ce dossier pour continuer`;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ③ LES MOTS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

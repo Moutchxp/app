@@ -258,6 +258,35 @@ export function memeChemin(a: Chemin, b: Chemin): boolean {
 /** L'identifiant du dossier courant. Chaîne vide = la racine du sélecteur. PUR. */
 export function dossierDuChemin(c: Chemin): string { return c.at(-1)?.id ?? ''; }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE, POINT 1 — LES NIVEAUX AU-DESSUS DE CELUI QU'ON REGARDE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   CONSTAT D'ARNO (09/10/2026) : « le clic sur ▲ ouvre directement le dossier qui contient la pièce (parfait, à
+   garder), mais le panneau de droite ne montre que le contenu de ce dossier. Voulu : l'arborescence affiche AUSSI
+   les 2 niveaux parents au-dessus du dossier courant, dépliés, avec indentation […] le dossier courant surligné. »
+
+   🔴 LES PARENTS SONT DÉJÀ CONNUS, ET C'EST POURQUOI CELA NE COÛTE AUCUN APPEL : le listing rend la CHAÎNE du
+   dossier (`chaine`), et c'est elle qui alimente déjà le fil d'Ariane. On ne redemande rien à Google — on affiche
+   ce que la fenêtre a sous la main depuis toujours.
+
+   ⚠️ DEUX, ET PAS TOUTE LA CHAÎNE : c'est le chiffre qu'Arno écrit. Au-delà, l'indentation mangerait la largeur
+   utile de la liste, et le fil d'Ariane (qui, lui, montre tout) plus « ↑ Remonter à … » restent les chemins vers
+   le haut. Le nombre est NOMMÉ ici : il se change d'un seul endroit.
+*/
+export const NIVEAUX_PARENTS_AFFICHES = 2;
+
+/**
+ * LES N DERNIERS ANCÊTRES DU DOSSIER COURANT, du plus haut au plus proche. PUR.
+ *
+ * ⚠️ LA RACINE DU SÉLECTEUR N'EN EST PAS UN : `chemin` ne porte que les crans RÉELS (le premier est « Google
+ * Drive » quand on y est descendu), et le dossier courant lui-même est écarté — il a sa propre ligne, surlignée.
+ */
+export function ancetresAffiches(c: Chemin, combien: number = NIVEAUX_PARENTS_AFFICHES): Chemin {
+  if (combien <= 0 || c.length <= 1) return [];
+  return c.slice(0, -1).slice(-combien);
+}
+
 /**
  * ══ 🔴🔴 LOT RANGER-ARBRE-2 — RÉÉCRIRE L'ENDROIT OÙ L'ON EST, SANS BOUGER ════════════════════════════════════════
  *

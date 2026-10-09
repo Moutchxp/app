@@ -187,9 +187,25 @@ describe('🔴🔴 le document est surligné', () => {
    * 🔴 LE SURLIGNAGE SUIT LES LIGNES RÉELLEMENT AFFICHÉES : c'est ce qui fait descendre le repère tout seul
    * jusqu'au document quand la branche se déplie, sans qu'on ait à le recalculer pour l'arrivée.
    */
+  /**
+   * ══ 🔴🔴 RETOUCHÉ AU LOT DRIVE-ARBORESCENCE-PARENTS-ET-LOUPE (09/10/2026) ═══════════════════════════════════
+   *
+   * CE QUE CE CAS DISAIT, AU CARACTÈRE PRÈS : `return surlignageDe(occurrences, affichees);`. Le calcul rend
+   * désormais aussi les OCCURRENCES et l'ensemble AFFICHÉ, parce que l'itinéraire numéroté de la loupe en a
+   * besoin et qu'il ne doit pas les recalculer (deux lectures du même ensemble finiraient par diverger).
+   *
+   * 🔴 LE VERDICT N'A PAS CHANGÉ, ET C'EST POURQUOI LE CAS RESTE : ce qu'il garde, c'est que le surlignage se
+   * recale sur les lignes RÉELLEMENT AFFICHÉES. On l'écrit donc par FRAGMENT (l'appel), et non plus par la
+   * forme exacte d'une ligne de retour — conformément à la convention du dépôt.
+   *
+   * 🔴 ET IL EN GARDE UNE DE PLUS : les niveaux parents comptent désormais comme lignes affichées. C'est la
+   * ligne qui répare la loupe dans le cas mesuré sur lot-299 (document dans une branche voisine, aucun nœud
+   * commun avec l'écran, donc aucun repère et aucun itinéraire possible).
+   */
   it('🔴 il se recale sur les lignes affichées', () => {
     expect(vif).toContain('const affichees = new Set<string>(lignes.map((l) => l.entree.id));');
-    expect(vif).toContain('return surlignageDe(occurrences, affichees);');
+    expect(vif).toContain('surlignageDe(occurrences, affichees)');
+    expect(vif).toContain('for (const a of ancetres) affichees.add(a.id);');
   });
 });
 
