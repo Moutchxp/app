@@ -226,6 +226,10 @@ describe('fileRepo — l’écran complet', () => {
     expect(await lireEcran()).toEqual({
       file: [], filsTotal: 0, fenetreJours: 30, filsTropAnciens: 0,
       sansSuite: [], sansSuiteTotal: 0, evenements: [], evenementsTotal: 0,
+      /* 🔴 LOT RACCOURCI-EVENEMENTS — combien d'événements sont EN COURS, pour le raccourci « Événements » de
+         la colonne de la boîte. Il fait partie de l'écran COMPLET au même titre que le total : la vue ne doit
+         pas avoir à le deviner, et c'est tout l'objet de ce cas. */
+      evenementsOuverts: 0,
       messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null, dernierMailLe: null,
       // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE fait partie de l'écran : le taire laisserait la vue deviner,
       //   et c'est exactement ce que le bandeau existe pour empêcher.

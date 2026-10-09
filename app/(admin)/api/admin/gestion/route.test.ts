@@ -42,6 +42,10 @@ describe('/api/admin/gestion — ce qu’elle rend', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       file: [], filsTotal: 0, evenements: [], evenementsTotal: 0,
+      /* 🔴 LOT RACCOURCI-EVENEMENTS — combien d'événements sont EN COURS, pour le raccourci « Événements » de
+         la colonne de la boîte. Il fait partie de l'écran COMPLET au même titre que le total : la vue ne doit
+         pas avoir à le deviner, et c'est tout l'objet de ce cas. */
+      evenementsOuverts: 0,
       messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null, dernierMailLe: null,
       // LOT 4b — la fenêtre d'activité et ce qu'elle tait font partie de l'écran : les taire serait le masquage
       //   silencieux que la migration 232 s'interdit explicitement.

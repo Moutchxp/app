@@ -185,6 +185,17 @@ export interface EtatEcran {
   sansSuiteTotal: number;
   evenements: CarteEvenement[];
   evenementsTotal: number;
+  /**
+   * ══ 🔴🔴 LOT RACCOURCI-EVENEMENTS — COMBIEN SONT ENCORE OUVERTS ════════════════════════════════════════════
+   *
+   * Le raccourci « Événements » de la colonne de la boîte porte ce nombre-là, et non le total : Arno demande
+   * « le compteur des événements EN COURS ». Un total de 37 dont 35 sont clos n'annonce aucun travail.
+   *
+   * 🔴 « OUVERT » SE LIT SUR LA FRISE, par le même SQL que partout ailleurs (`etatParLaFrise`) : la colonne
+   * `etat` ne fait plus foi depuis le lot ETAT-PAR-LA-FRISE, et un second critère ici aurait fini par
+   * compter autre chose que la liste qu'il ouvre.
+   */
+  evenementsOuverts: number;
   messagesCaptures: number;       // TOUS les messages capturés, exclus compris — la preuve que la relève a tourné
   messagesExclus: number;         // tenus hors de la file par une règle (jamais supprimés)
   derniereReleveLe: string | null; // fin de la dernière relève réussie, ou null si aucune n'a jamais tourné
@@ -610,7 +621,7 @@ export async function lireEvenements(
    * lecture, et l'écran ne doit pas déclarer tout le monde neuf. La requête ne nomme alors même pas la jointure.
    */
   messagesNonLus: readonly number[] = [],
-): Promise<{ cartes: CarteEvenement[]; total: number }> {
+): Promise<{ cartes: CarteEvenement[]; total: number; ouverts: number }> {
   /**
    * 🔴 LOT VIGNETTE-EVENEMENT, POINT 3 — SANS LA MIGRATION 316, AUCUNE REQUÊTE NE NOMME LA TABLE ABSENTE, et
    * l'écran est exactement celui d'avant : `vu_le` vaut `null` partout, donc rien ne s'allume (voir `mongaMajLe`).
@@ -705,7 +716,12 @@ export async function lireEvenements(
       ...(nonLus.length === 0 ? [] : [nonLus]),
     ],
   );
-  const { rows: t } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_evenement`);
+  /* 🔴 LOT RACCOURCI-EVENEMENTS — le total ET les ouverts, dans la MÊME lecture : deux requêtes pour deux
+     comptes du même ensemble auraient pu se contredire le temps d'une écriture entre les deux. */
+  const { rows: t } = await query<{ n: number; ouverts: number }>(
+    `SELECT count(*)::int AS n,
+            count(*) FILTER (WHERE ${sqlEvenementOuvertParLaFrise('e')})::int AS ouverts
+       FROM gestion_evenement e`);
   return {
     cartes: rows.map((r) => ({
       evenementId: r.evenement_id, reference: r.reference, objet: r.objet, demandeur: r.demandeur,
@@ -747,6 +763,7 @@ export async function lireEvenements(
       nbBiens: Number(r.nb_biens ?? 0),
     })),
     total: t[0]?.n ?? 0,
+    ouverts: t[0]?.ouverts ?? 0,
   };
 }
 
@@ -919,6 +936,7 @@ export async function lireEcran(limite = PAGE, pageFile = 0, compteCle: string |
     copie,
     sansSuite: sansSuite.lignes, sansSuiteTotal: sansSuite.total,
     evenements: evenements.cartes, evenementsTotal: evenements.total,
+    evenementsOuverts: evenements.ouverts,
     ...reperes,
   };
 }

@@ -26,6 +26,12 @@ import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
 /* 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — le portefeuille en chiffres, tout en haut de l'écran des événements. */
 import { TableauBordEvenements } from './TableauBordEvenements';
+/* 🔴🔴 LOT …-ET-LIGNE-DE-FILTRES — la ligne de filtres et de tris du plein écran Événements, et son module PUR. */
+import { LigneFiltresEvenements } from './LigneFiltresEvenements';
+import {
+  appliquerFiltres, basculer, choisirTri, ecrireLigne, LIGNE_PAR_DEFAUT, ligneParDefaut, lireLigne, trierLigne,
+  type EtatLigne,
+} from '../../../../lib/gestion/ligneFiltresEvenements';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — la barre de recherche de l'annuaire, sur l'accueil. */
 import { BarreAnnuaire } from './BarreAnnuaire';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — la feuille du bouton rond, partagée avec la boîte. */
@@ -195,46 +201,20 @@ export function GestionVue({ intro }: {
    */
   const [nonLus, setNonLus] = useState<{ n: number | null; partiel: boolean }>({ n: null, partiel: false });
   /**
-   * LOT ERGO-BOITE-2 — COMBIEN DE MAILS ATTENDENT UNE DÉCISION DE RATTACHEMENT, pour l'entrée « À rattacher ».
+   * ══ 🔴🔴 LOT RACCOURCI-EVENEMENTS — LE COMPTEUR « À RATTACHER » EST PARTI AVEC SON ENTRÉE ══════════════════
    *
-   * 🔴 C'EST `aTrier` SEUL, PAS `aTrier + sansCandidat`. Première version : la somme des deux, soit 19 108, alors
-   * que la file de tri n'offre à trancher que 3 261 mails. Les 15 847 autres n'ont AUCUN candidat : il n'y a rien à
-   * confirmer ni à rejeter pour eux, seulement un rattachement à inventer à la main, un par un. Les additionner
-   * annonçait six fois le travail réel — Arno l'a vu en comparant au chiffre de la file. Un compteur doit compter
-   * ce qu'un clic permet de faire.
+   * CE QUI VIVAIT ICI : l'état `aRattacher` et la lecture `chargerARattacher`
+   * (`/api/admin/gestion/rattachements?chiffres=1`, au montage), qui alimentaient le nombre de l'entrée
+   * « À rattacher » de la colonne de la boîte. Arno a demandé le retrait de cette entrée (accord explicite),
+   * remplacée par « Événements » ; plus personne ne lisait ce nombre, et la lecture partait quand même à
+   * chaque ouverture de l'écran.
    *
-   * ⚠️ `sansCandidat` N'EST PAS PERDU pour autant : il voyage à côté, sert l'info-bulle de l'entrée, et l'écran de
-   * la file continue de l'afficher en clair et de les lister (onglet « Sans candidat »). Rien n'est masqué ; c'est
-   * l'addition qui était fausse, pas la donnée.
+   * 🔴 CE N'EST PAS UNE FONCTION QUI DISPARAÎT, C'EST UN CHIFFRE SANS LECTEUR. L'écran « À rattacher » garde
+   * ses deux chemins (bouton de la barre d'actions, adresse directe) et affiche LUI-MÊME ses totaux, « à
+   * départager » et « sans candidat », en clair — c'est la même route, lue par celui qui s'en sert.
    *
-   * ⚠️ MÊME SOURCE QUE L'ÉCRAN, toujours : un second calcul donnerait tôt ou tard deux nombres pour une vérité.
-   * `null` = pas encore connu, ou migration 257 absente : on n'affiche alors aucun compteur plutôt qu'un zéro
-   * qu'on n'a pas mesuré.
+   * ⚠️ LA ROUTE N'EST PAS TOUCHÉE : `FileATrier` l'appelle toujours. Seul cet appel-ci, devenu muet, s'arrête.
    */
-  const [aRattacher, setARattacher] = useState<{ aTrancher: number; sansCandidat: number } | null>(null);
-  /**
-   * ⚠️ IL SE CHARGE AU MONTAGE, PAS DANS `charger`. Première version : l'appel vivait dans `charger`, qui ne tourne
-   * QUE sur un geste explicite — les données de l'écran, elles, arrivent par un effet. Le compteur restait donc
-   * vide à l'ouverture, et personne ne l'aurait su sans le regarder. Constaté à l'écran avant livraison.
-   *
-   * ⚠️ ET LES NOMBRES SONT SOUS `data` : la route rend `{ etat, data }` — la forme du module, qui distingue
-   * « migration absente » d'un vrai résultat. Les lire à la racine rendait `undefined`, donc aucun compteur.
-   */
-  const chargerARattacher = useCallback(async () => {
-    try {
-      const res = await fetch('/api/admin/gestion/rattachements?chiffres=1', { cache: 'no-store' });
-      if (!res.ok) { setARattacher(null); return; }
-      const j = (await res.json()) as { etat?: string; data?: { aTrier?: number; sansCandidat?: number } };
-      const c = j.etat === 'ok' ? j.data : undefined;
-      setARattacher(typeof c?.aTrier === 'number'
-        ? { aTrancher: c.aTrier, sansCandidat: c.sansCandidat ?? 0 }
-        : null);
-    } catch {
-      // Un échec laisse le compteur à `null` : l'entrée s'affiche sans nombre, ce qui vaut mieux qu'un écran vide.
-      setARattacher(null);
-    }
-  }, []);
-  useEffect(() => { void chargerARattacher(); }, [chargerARattacher]);
   /**
    * 🔴 STABLE, ET ON NE REMPLACE L'ÉTAT QUE S'IL CHANGE VRAIMENT. Deux pièges se referment ici, et ils s'étaient
    * refermés en test (rendu en boucle, suite bloquée) :
@@ -385,8 +365,10 @@ export function GestionVue({ intro }: {
     // ② CONFIRMATION — la vérité, demandée aux trois sources.
     setVersionComptes((v) => v + 1);
     void chargerBrouillonsTotal();
-    void chargerARattacher();
-  }, [chargerBrouillonsTotal, chargerARattacher]);
+    /* ⚠️ `chargerARattacher()` A DISPARU D'ICI avec le compteur qu'il servait (lot RACCOURCI-EVENEMENTS) :
+       plus personne ne lisait ce nombre, et il se relisait après CHAQUE geste. La route, elle, reste — c'est
+       l'écran « À rattacher » qui l'appelle, pour l'afficher. */
+  }, [chargerBrouillonsTotal]);
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LES COMPTEURS SUIVENT « SORTIR DU SUIVI » ═════════════════════════
@@ -567,11 +549,11 @@ export function GestionVue({ intro }: {
   const charger = useCallback(async () => {
     setPanneau(null);
     setVue({ etat: 'charge' });
-    void chargerARattacher();   // un geste a pu rattacher un mail : le compteur suit
+    /* ⚠️ `chargerARattacher()` A DISPARU D'ICI pour la même raison qu'au-dessus : son compteur n'existe plus. */
     const r = await lire();
     setMaintenant(new Date());
     setVue(r);
-  }, [lire, chargerARattacher]);
+  }, [lire]);
 
   /**
    * ══ LOT ÉCRAN-VIVANT — LE RAFRAÎCHISSEMENT DISCRET ═══════════════════════════════════════════════════════════
@@ -994,11 +976,23 @@ export function GestionVue({ intro }: {
    * ⚠️ LE TRI N'EST PAS TOUCHÉ : on filtre la liste DÉJÀ rangée, donc « New » et « Urgent » gardent leur sens
    * à l'intérieur du filtre.
    */
-  const filtreEvenements = etatUrl.evf ?? null;
-  const ensembleFiltre = filtreEvenements === null ? null : idsParFiltre?.[filtreEvenements] ?? null;
-  const evenementsFiltres = ensembleFiltre === null
-    ? evenementsRanges
-    : evenementsRanges.filter((e) => ensembleFiltre.includes(e.evenementId));
+  /**
+   * ⚠️ CE QUI ÉTAIT ÉCRIT ICI (lot EVENEMENTS-TABLEAU-DE-BORD) : UNE seule clé de filtre, lue telle quelle, et
+   * un bandeau « N événements sur M ✕ » pour en sortir. C'était le minimum pour qu'un chiffre cliquable mène
+   * quelque part, en attendant la ligne de filtres. Elle existe maintenant : les filtres se COMBINENT, et
+   * l'état visible des boutons remplace le bandeau — demande d'Arno, mot pour mot.
+   *
+   * 🔴 LA MÊME CLÉ D'ADRESSE (`&evf=`), QUI PORTE DÉSORMAIS UNE LISTE. Un clic sur un chiffre du tableau de
+   * bord allume donc le bouton correspondant de la ligne, et réciproquement : il n'y a qu'un seul endroit où
+   * l'état est écrit.
+   */
+  const ligne = lireLigne(etatUrl.evf ?? null, etatUrl.tric ?? null, etatUrl.sens ?? null);
+  const evenementsFiltres = trierLigne(appliquerFiltres(evenementsRanges, ligne, idsParFiltre), ligne);
+  /** Poser un état de ligne dans l'adresse — une seule écriture, comme partout ailleurs dans cet écran. */
+  const allerLigne = (suivant: EtatLigne) => aller({
+    ...etatUrl, evf: ecrireLigne(suivant), tric: suivant.tri,
+    sens: suivant.tri === null ? null : suivant.sens, filOuvert: null,
+  });
 
   /**
    * LES DEUX BOUTONS, écrits une seule fois et rendus dans les deux en-têtes.
@@ -1296,9 +1290,16 @@ export function GestionVue({ intro }: {
           <span className="gst-veille-texte">{veille.texte}</span>
           {veille.aide && <span className="gst-veille-aide">{veille.aide}</span>}
         </p>
-      ) : ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && (
+      ) : ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && (
         /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — la ligne ORDINAIRE quitte aussi l'accueil (accord d'Arno).
-           Elle reste dans la colonne de la boîte en plein écran. L'ALERTE, elle, s'affiche partout. */
+           Elle reste dans la colonne de la boîte en plein écran. L'ALERTE, elle, s'affiche partout.
+           🔴🔴 LOT …-ET-LIGNE-DE-FILTRES — elle quitte aussi l'ÉCRAN DES ÉVÉNEMENTS (accord d'Arno) : cet écran
+           porte désormais un tableau de bord et une ligne de filtres, et trois bandeaux gris au-dessus les
+           repoussaient sous la ligne de flottaison. OÙ ELLE RESTE : la colonne de la boîte en plein écran
+           (« Détails relève », `etatDiscret`), l'écran « À rattacher » et l'écran « Historique ».
+           ⚠️ L'ALERTE, ELLE, N'EST PAS TOUCHÉE : « relève arrêtée » s'affiche sur TOUS les écrans, celui-ci
+           compris — c'est la branche du dessus, et masquer une sécurité pour gagner de la place, c'est la
+           retirer. */
         <p className="gst-veille" role="status">{veille.texte}</p>
       )}
       {/* LOT RATTACHEMENT-2 — LE COURRIER EST ARRIVÉ, MAIS SON RATTACHEMENT A ÉCHOUÉ. Une ligne SÉPARÉE de celle de
@@ -1321,7 +1322,8 @@ export function GestionVue({ intro }: {
         </p>
       )}
       {/* Même partage pour la copie : l'arrêt SUBI crie en haut, l'avancement ordinaire descend dans la colonne. */}
-      {copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && (
+      {copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage'
+        && ecran !== 'evenements' && (
         /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — idem : l'avancement ORDINAIRE de la copie quitte l'accueil,
            et reste dans la colonne de la boîte en plein écran. L'ARRÊT SUBI, lui, crie partout. */
         <p className="gst-veille" role="status">{copie.texte}</p>
@@ -1470,9 +1472,14 @@ export function GestionVue({ intro }: {
              rechargement, au « Précédent » et au rafraîchissement automatique de 30 s. */
           etoile={etatUrl.etoile === true}
           onEtoileFiltre={(actif) => aller({ ...etatUrl, etoile: actif, filOuvert: null })}
-          onRattacher={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'a_trier' }); }}
-          aRattacher={aRattacher === null ? null : aRattacher.aTrancher}
-          aRattacherSansCandidat={aRattacher === null ? null : aRattacher.sansCandidat}
+          /**
+           * 🔴🔴 LOT RACCOURCI-EVENEMENTS — « ÉVÉNEMENTS » À LA PLACE EXACTE DE « À RATTACHER » (accord d'Arno).
+           * Le compteur dit les événements EN COURS, pas leur total. L'écran « À rattacher » garde ses deux
+           * chemins : le bouton de la barre d'actions (rendue sur tous les écrans SAUF la boîte) et l'adresse
+           * directe `?ecran=a_trier` — vérifiés avant le retrait, et listés dans `PleinEcranBoite`.
+           */
+          onEvenements={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'evenements' }); }}
+          evenementsOuverts={d.evenementsOuverts}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */
@@ -1526,8 +1533,10 @@ export function GestionVue({ intro }: {
             </button>
             <h2 className="cm-titre" id="gst-titre-ev-plein">
               Événements <span className="gst-compte">{d.evenementsTotal}</span>
-              {/* 🔴 LOT FILTRES-EVENEMENTS-NEW — « à côté du compteur » (Arno), ici comme dans la colonne. */}
-              {boutonsDeTri}
+              {/* ⚠️ `{boutonsDeTri}` A QUITTÉ CE TITRE (lot …-ET-LIGNE-DE-FILTRES) : Arno — « Les boutons
+                  New / Urgent de la colonne de gauche passent dans la ligne ». Ils ne sont ni retirés ni
+                  réécrits : c'est la MÊME variable, rendue en tête de `LigneFiltresEvenements`. Et ils
+                  restent en place dans l'en-tête de l'écran PARTAGÉ, qui n'a pas de ligne de filtres. */}
             </h2>
             {troncEv && <p className="cm-note">{troncEv}</p>}
           </ColonneMode>
@@ -1545,33 +1554,33 @@ export function GestionVue({ intro }: {
             </section>
           )}
           {/**
-            * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LE FILTRE OUVERT PAR UN CHIFFRE SE VOIT, ET SE QUITTE ══
+            * ══ 🔴🔴 LOT …-ET-LIGNE-DE-FILTRES, POINT 3 — LA LIGNE, SOUS LE TABLEAU DE BORD ════════════════════
             *
-            * 🔴 UN FILTRE QUI NE SE VOIT PAS EST UN PIÈGE, et le module vient de le payer : c'est la leçon du
-            * lot FILTRE-NON-LUS-BLOQUANT, où rester enfermé dans « 27 non lus » n'avait aucune sortie visible.
-            * Le bandeau dit COMBIEN de cartes il laisse passer, sur combien, et le ✕ le retire.
+            * CE QUI ÉTAIT ICI : le bandeau provisoire « N événements sur M ✕ », posé au lot
+            * EVENEMENTS-TABLEAU-DE-BORD pour qu'un chiffre cliquable mène quelque part en l'absence de ligne
+            * de filtres. Arno demande expressément de le REMPLACER par « l'état visible des boutons » — c'est
+            * fait : un filtre actif se lit sur le bouton allumé, et se retire en le recliquant.
             *
-            * ⚠️ IL NE S'AFFICHE QUE SI L'ON SAIT EN SORTIR, et seulement quand les ensembles sont arrivés :
-            * entre le chargement de l'écran et la réponse du tableau de bord, la liste est entière — mieux vaut
-            * tout montrer un instant qu'annoncer un filtre qu'on ne peut pas encore appliquer.
+            * 🔴 ELLE EST ICI, ET NON DANS LE TABLEAU DE BORD : « distincte du tableau de bord » (Arno). Deux
+            * cadres, deux rôles — l'un dit ce qu'est le portefeuille, l'autre choisit ce qu'on en regarde.
+            *
+            * ⚠️ « New » ET « Urgent » LUI SONT PASSÉS TELS QUELS (`boutonsDeTri`) : ce sont les deux tris
+            * existants, et Arno écrit « comportement actuel ». Ils ne sont pas réécrits, ils déménagent.
             */}
-          {filtreEvenements !== null && (
-            <p className="gst-filtre-ev" role="status">
-              <span className="gst-filtre-ev-mot">
-                {evenementsFiltres.length} événement{evenementsFiltres.length > 1 ? 's' : ''} sur {d.evenements.length}
-              </span>
-              <button type="button" className="gst-filtre-ev-sortie"
-                aria-label="Retirer le filtre et montrer tous les événements"
-                title="Retirer le filtre et montrer tous les événements"
-                onClick={() => aller({ ...etatUrl, evf: null })}>
-                <span aria-hidden="true">✕</span>
-              </button>
-            </p>
-          )}
+          <LigneFiltresEvenements
+            etat={ligne} ids={idsParFiltre}
+            boutonsNewUrgent={boutonsDeTri}
+            onBasculer={(cle) => allerLigne(basculer(ligne, cle))}
+            onTri={(cle) => allerLigne(choisirTri(ligne, cle))}
+            onReinitialiser={() => allerLigne(LIGNE_PAR_DEFAUT)} />
           {evenementsFiltres.length === 0
-            ? <p className="gst-vide">{filtreEvenements === null
-              ? messageEvenementsVide()
-              : 'Aucun événement ne correspond à ce filtre.'}</p>
+            ? (
+              <p className="gst-vide">
+                {ligneParDefaut(ligne) && d.evenements.length === 0
+                  ? messageEvenementsVide()
+                  : 'Aucun événement ne correspond à ces filtres.'}
+              </p>
+            )
             : <ul className="gst-liste gst-cartes-larges">{cartesDe(false, evenementsFiltres)}</ul>}
         </div>
       ) : filOuvert !== null ? (

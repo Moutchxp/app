@@ -185,11 +185,24 @@ describe('🔴🔴 ③ l’écran passe par une seule porte', () => {
     expect(code).toContain('rafraichirComptes(options?.compteurs, options?.avantEcriture === true);');
   });
 
-  /** 🔴🔴 ET ELLE RELIT LES TROIS SOURCES — la colonne, les brouillons, « À rattacher ». */
-  it('🔴🔴 le rafraîchissement redemande les trois sources', () => {
+  /**
+   * 🔴🔴 ET ELLE RELIT LES SOURCES QUI ONT ENCORE UN LECTEUR — la colonne, les brouillons.
+   *
+   * ⚠️ CE QU'ELLE EXIGEAIT AVANT, ET POURQUOI LA TROISIÈME A DISPARU : `void chargerARattacher();`, qui
+   * relisait le compteur de l'entrée « À rattacher » de la colonne de la boîte. Arno a demandé le RETRAIT de
+   * cette entrée (accord explicite, lot RACCOURCI-EVENEMENTS), remplacée par « Événements ». Plus personne ne
+   * lit ce nombre ; le relire après chaque geste était une requête pour rien.
+   *
+   * 🔒 LA PROPRIÉTÉ GARDÉE EST INTACTE : une seule porte rafraîchit, et elle redemande TOUT ce qui s'affiche.
+   * C'est pour cela que ce cas interdit explicitement le retour de l'appel orphelin — un lot suivant qui
+   * remettrait la lecture sans remettre le compteur recréerait exactement la requête muette qu'on retire.
+   */
+  it('🔴🔴 le rafraîchissement redemande les sources qui s’affichent', () => {
     expect(vue).toContain('setVersionComptes((v) => v + 1);');
     expect(vue).toContain('void chargerBrouillonsTotal();');
-    expect(vue).toContain('void chargerARattacher();');
+    /* ⚠️ ON INTERDIT L'APPEL, PAS LE MOT : les encadrés de `GestionVue` NOMMENT la lecture retirée pour
+       expliquer pourquoi elle l'a été. Chercher le mot nu ferait rougir l'épreuve sur sa propre explication. */
+    expect(vue).not.toContain('void chargerARattacher();');
   });
 
   /**

@@ -19,7 +19,6 @@ import { cleFenetreBrouillon, reprendreBrouillon, type BrouillonEnregistre as Br
 // 🔴🔴 LOT BROUILLONS-APERCU — la fenêtre qui MONTRE un brouillon trouvé, sans l'ouvrir dans l'éditeur.
 import { ApercuBrouillon } from './ApercuBrouillon';
 // `ecran` est un module PUR (aucun import) : le faire venir dans un composant client ne tire pas `pg`.
-import { titreARattacher } from '../../../../lib/gestion/ecran';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 /* 🔴🔴 LOT REINTEGRER — la boîte d'origine d'un mail de la corbeille, et la phrase du bandeau (module PUR). */
 import { bandeauReintegre, boiteOrigine, type BoiteOrigine } from '../../../../lib/gestion/boiteOrigine';
@@ -99,7 +98,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
-  onRattacher, aRattacher = null, aRattacherSansCandidat = null, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -168,19 +167,17 @@ export function PleinEcranBoite({
    *     `GestionVue`) : c'est justement parce que l'ordinaire descend ici que l'exceptionnel se voit ;
    *   · l'icône « Relever et actualiser », rendue à côté du titre de la liste.
    */
-  /** Ouvre la file de rattachement. Absent ⇒ l'entrée n'est pas rendue. */
-  onRattacher?: () => void;
   /**
-   * Combien de mails ATTENDENT UNE DÉCISION — ils ont au moins une proposition à confirmer ou à rejeter. `null` =
-   * pas encore connu : on n'affiche alors aucun nombre. 🔴 Ce n'est PAS le nombre de mails non rattachés (voir
-   * `aRattacherSansCandidat`) : cf. le commentaire de `GestionVue`.
+   * 🔴🔴 LOT RACCOURCI-EVENEMENTS — OUVRE LE PLEIN ÉCRAN DES ÉVÉNEMENTS. Absent ⇒ l'entrée n'est pas rendue.
+   *
+   * CE QUI VIVAIT ICI, ET QUI EST PARTI AVEC L'ACCORD D'ARNO : `onRattacher`, `aRattacher` et
+   * `aRattacherSansCandidat` — l'entrée « À rattacher » de la colonne et son compteur. L'écran de la file
+   * reste atteignable par le bouton de la barre d'actions (écran partagé, événements, annuaire, historique) et
+   * par son adresse directe ; voir l'encadré du balisage, qui liste les deux chemins vérifiés avant le retrait.
    */
-  aRattacher?: number | null;
-  /**
-   * Combien de mails n'ont AUCUN candidat à proposer. Ils ne sont pas dans le compteur — rien ne s'y confirme d'un
-   * clic — mais ils existent, l'info-bulle les nomme, et l'écran de la file les liste. `null`/`0` = on n'en parle pas.
-   */
-  aRattacherSansCandidat?: number | null;
+  onEvenements?: () => void;
+  /** Combien d'événements sont EN COURS. `null` = pas encore connu : on n'affiche alors aucun nombre. */
+  evenementsOuverts?: number | null;
   onAnnuaire?: () => void;
   /** Les lignes d'état ORDINAIRE, en petit. Une alerte ne passe jamais par ici. */
   etatDiscret?: readonly string[] | null;
@@ -958,23 +955,38 @@ export function PleinEcranBoite({
           })}
         </ul>
 
-        {/* ══ LOT ERGO-BOITE — « À RATTACHER », juste sous les entrées de la boîte ═══════════════════════════════
-            C'est l'ancien bouton « À trier », déplacé et renommé : même écran, même fonction. Il est SOUS la boîte
-            et non dedans, parce qu'il ne désigne pas un dossier de courrier mais un travail à faire.
-
-            🔴 LOT ERGO-BOITE-2 — LE COMPTEUR DIT LES MAILS À TRANCHER, et eux seuls. Il affichait la somme
-            « à trancher + sans candidat » : 19 108 pour 3 261 mails réellement décidables. Les mails sans candidat
-            restent atteignables (l'écran de la file les liste et les compte en clair) et l'info-bulle les nomme
-            ici — mais ils ne gonflent plus un nombre qui annonce du travail au clic. */}
-        {onRattacher && (
+        {/**
+          * ══ 🔴🔴 LOT RACCOURCI-EVENEMENTS-ACCUEIL-GESTION — « ÉVÉNEMENTS » PREND LA PLACE DE « À RATTACHER » ══
+          *
+          * ARNO (09/10/2026), accord explicite pour CE retrait : « RETIRER le bouton “À rattacher 16706” de cette
+          * colonne. À SA PLACE EXACTE : un raccourci “Événements” avec le compteur des événements EN COURS. »
+          *
+          * ══ 🔴🔴 CE QUI EST RETIRÉ EXISTE AILLEURS, ET ON LE PROUVE AVANT (règle du dépôt) ════════════════════
+          *
+          * L'écran « À rattacher » (`?ecran=a_trier`) n'est PAS supprimé, et il garde DEUX chemins :
+          *   ① le bouton « À rattacher » de la barre d'actions, en haut de page — `GestionVue`, rendu sur
+          *      l'écran PARTAGÉ, l'écran ÉVÉNEMENTS, l'ANNUAIRE et l'HISTORIQUE (la barre ne s'affiche pas dans
+          *      la boîte depuis le lot ERGO-BOITE-3, et c'est pour cela que la colonne en portait une copie) ;
+          *   ② l'adresse directe `/admin/gestion?ecran=a_trier`, qui se copie, se range en favori et se
+          *      recharge — `ecran` fait toujours foi dans `lireEtatUrl`.
+          * Vérifié à l'écran avant le retrait. Ce qui disparaît ici, c'est la TROISIÈME porte, pas la fonction.
+          *
+          * ⚠️ LE COMPTEUR DIT LES ÉVÉNEMENTS EN COURS (`evenementsOuverts`), pas leur total : un nombre qui
+          * compte des dossiers clos n'annonce aucun travail. Même raison que le compteur « À rattacher » qu'il
+          * remplace, qui disait les mails à trancher et non la file entière.
+          */}
+        {(onEvenements || onAnnuaire) && (
           <ul className="cm-liste cm-liste--apres">
-            <li>
-              <button type="button" className="cm-entree" onClick={() => { onRattacher(); setPanneauMobile('contenu'); }}
-                title={titreARattacher(aRattacher, aRattacherSansCandidat)}>
-                <span className="cm-nom"><span className="cm-texte">À rattacher</span></span>
-                {aRattacher !== null && <span className="gst-compte">{aRattacher}</span>}
-              </button>
-            </li>
+            {onEvenements && (
+              <li>
+                <button type="button" className="cm-entree"
+                  onClick={() => { onEvenements(); setPanneauMobile('contenu'); }}
+                  title="Les événements en cours, en plein écran">
+                  <span className="cm-nom"><span className="cm-texte">Événements</span></span>
+                  {evenementsOuverts !== null && <span className="gst-compte">{evenementsOuverts}</span>}
+                </button>
+              </li>
+            )}
             {onAnnuaire && (
               <li>
                 <button type="button" className="cm-entree" onClick={() => { onAnnuaire(); setPanneauMobile('contenu'); }}>

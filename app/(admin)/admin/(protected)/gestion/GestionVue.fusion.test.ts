@@ -252,15 +252,22 @@ describe('🔴 ② le plein écran de la colonne de gauche ouvre la RÉCEPTION',
     expect(container.querySelector('.gst-bandeau')).toBeNull();
   });
 
-  it('🔴 « À rattacher » et « Annuaire » sont sous les entrées de la boîte', async () => {
+  /**
+   * ⚠️ « À RATTACHER » A CÉDÉ SA PLACE À « ÉVÉNEMENTS » (lot RACCOURCI-EVENEMENTS, accord explicite d'Arno).
+   * Ce que ce cas tient n'a pas changé d'un cran : il y a bien DEUX gestes sous les entrées de la boîte, et
+   * ils viennent APRÈS « Brouillons » parce que ce sont des gestes, pas des dossiers de courrier. L'écran
+   * « À rattacher », lui, garde ses deux chemins — vérifiés dans `GestionVue.rattacher.test.ts`.
+   */
+  it('🔴 « Événements » et « Annuaire » sont sous les entrées de la boîte', async () => {
     window.history.replaceState(null, '', '/admin/gestion');
     await monter();
     const etiqs = [...container.querySelectorAll('.cm-entree')].map((e) => e.textContent ?? '');
-    expect(etiqs.some((t) => t.includes('À rattacher'))).toBe(true);
+    expect(etiqs.some((t) => t.includes('Événements'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Annuaire'))).toBe(true);
+    expect(etiqs.some((t) => t.includes('À rattacher'))).toBe(false);
     // Ils viennent APRÈS « Brouillons » : ce sont des gestes, pas des dossiers de courrier.
     expect(etiqs.findIndex((t) => t.includes('Brouillons')))
-      .toBeLessThan(etiqs.findIndex((t) => t.includes('À rattacher')));
+      .toBeLessThan(etiqs.findIndex((t) => t.includes('Événements')));
   });
 });
 

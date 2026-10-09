@@ -36,7 +36,7 @@ const VUE = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx',
 
 const ecran = (o: Partial<EtatEcran> = {}): EtatEcran => ({
   file: [], filsTotal: 442, fenetreJours: 30, filsTropAnciens: 12,
-  sansSuite: [], sansSuiteTotal: 7, evenements: [], evenementsTotal: 0,
+  sansSuite: [], sansSuiteTotal: 7, evenements: [], evenementsTotal: 0, evenementsOuverts: 0,
   messagesCaptures: 56000, messagesExclus: 40000, derniereReleveLe: '2026-10-09T10:00:00Z',
   dernierMailLe: '2026-10-09T09:42:00Z',
   veille: { derniereLe: '2026-10-09T10:00:00Z', resultat: 'ok', erreur: null, intervalleS: 60, toleranceIntervalles: 10 },

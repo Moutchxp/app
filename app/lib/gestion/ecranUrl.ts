@@ -312,6 +312,19 @@ export interface EtatEcranUrl {
    * SANS AUCUN IMPORT (garantie du lot 5-FUSION). Une clé inconnue ne filtre rien et ne casse rien.
    */
   evf?: string | null;
+  /**
+   * ══ 🔴🔴 LOT RACCOURCI-EVENEMENTS…-ET-LIGNE-DE-FILTRES — LE TRI DE LA LIGNE, ET SON SENS ═══════════════════
+   *
+   * `tric` : `ouverture`, `echange` ou `urgence` — les trois tris de la ligne de filtres. `null` (le défaut) =
+   * aucun, c'est-à-dire l'ordre que « New » / « Urgent » (`tri`) donnent déjà.
+   *
+   * ⚠️ DEUX CLÉS DISTINCTES, ET C'EST VOULU : `tri` est le couple New/Urgent, qu'Arno garde « comportement
+   * actuel » ; `tric` est le tri EXPLICITE de la ligne. Les fondre aurait obligé à réécrire le premier, que la
+   * demande dit expressément de ne pas toucher.
+   */
+  tric?: string | null;
+  /** `asc` ou `desc` (défaut). Recliquer le tri actif inverse le sens. */
+  sens?: string | null;
 }
 
 const SORTES_FICHE: readonly SorteFiche[] = ['proprietaire', 'lot', 'locataire', 'bien'];
@@ -372,6 +385,9 @@ export const ETAT_DEFAUT: EtatEcranUrl = {
      comparables champ pour champ — et c'est cette comparaison qui décide d'empiler une entrée d'historique. */
   tb: false,
   evf: null,
+  /* 🔴 LOT LIGNE-DE-FILTRES — mêmes raisons : `lireEtatUrl` les rend toujours, donc le défaut doit les porter. */
+  tric: null,
+  sens: null,
 };
 
 /**
@@ -533,6 +549,10 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
        et « aucun » — une adresse abîmée doit montrer TOUT, jamais moins. */
     tb: ecran === 'evenements' && p.get('tb') === '1',
     evf: ecran === 'evenements' ? cleFiltreBrute(p.get('evf')) : null,
+    /* 🔴 LOT LIGNE-DE-FILTRES — le tri explicite de la ligne et son sens, bornés à leur FORME ici ; c'est
+       `lireLigne` (module pur de la ligne) qui juge des valeurs, comme `triValide` le fait pour `tri`. */
+    tric: ecran === 'evenements' ? cleFiltreBrute(p.get('tric')) : null,
+    sens: ecran === 'evenements' && p.get('sens') === 'asc' ? 'asc' : null,
   };
 }
 
@@ -546,7 +566,10 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
  */
 function cleFiltreBrute(brut: string | null): string | null {
   const s = (brut ?? '').trim();
-  return s !== '' && s.length <= 40 && /^[a-z_-]+(:[a-z_-]+)?$/.test(s) ? s : null;
+  /* ⚠️ LA VIRGULE EST ADMISE DEPUIS LE LOT LIGNE-DE-FILTRES : `evf` porte désormais une LISTE de clés
+     (« clos,type:travaux,devis-attente »), parce que les filtres de la ligne se combinent. Le plafond passe
+     de 40 à 160 caractères — assez pour tous les boutons allumés à la fois, et borné quand même. */
+  return s !== '' && s.length <= 160 && /^[a-z_:,-]+$/.test(s) ? s : null;
 }
 
 /**
@@ -604,6 +627,10 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
      s'écrit. Replié et sans filtre, l'adresse de l'écran des événements est celle d'avant ce lot. */
   if (e.ecran === 'evenements' && e.tb === true) p.set('tb', '1');
   if (e.ecran === 'evenements' && e.evf != null && e.evf !== '') p.set('evf', e.evf);
+  /* 🔴 LOT LIGNE-DE-FILTRES — même règle : seul ce qui s'écarte du défaut s'écrit. Aucun tri de ligne et sens
+     décroissant, l'adresse de l'écran des événements est celle d'avant ce lot. */
+  if (e.ecran === 'evenements' && e.tric != null && e.tric !== '') p.set('tric', e.tric);
+  if (e.ecran === 'evenements' && e.tric != null && e.sens === 'asc') p.set('sens', 'asc');
   const s = p.toString();
   return s === '' ? '' : `?${s}`;
 }
@@ -700,5 +727,7 @@ export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
      * d'où l'on vient — exactement le défaut que `hdb` évite, et pour la même raison. Il reste dans l'adresse
      * (il s'écrit en `replaceState`), donc un rechargement le conserve : c'est ce qu'Arno demande.
      */
-    && (a.ecran !== 'evenements' || (a.evf ?? null) === (b.evf ?? null));
+    && (a.ecran !== 'evenements'
+      || ((a.evf ?? null) === (b.evf ?? null)
+        && (a.tric ?? null) === (b.tric ?? null) && (a.sens ?? null) === (b.sens ?? null)));
 }

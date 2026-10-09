@@ -165,7 +165,17 @@ describe('🔴🔴 ③ les deux boutons, dans les DEUX en-têtes', () => {
    */
   it('🔴🔴 le même bloc est rendu dans la colonne et en plein écran', () => {
     expect(VUE).toContain('const boutonsDeTri = (');
-    expect((VUE.match(/\{boutonsDeTri\}/g) ?? [])).toHaveLength(2);
+    /**
+     * ⚠️ ON NOMME LES DEUX ENDROITS, au lieu de compter les occurrences du mot. Au lot
+     * …-ET-LIGNE-DE-FILTRES, les deux boutons ont quitté le TITRE de la colonne des événements pour la
+     * LIGNE DE FILTRES (Arno : « Les boutons New / Urgent de la colonne de gauche passent dans la ligne »),
+     * et l'encadré qui l'explique CITE `{boutonsDeTri}` — un comptage en trouvait donc trois.
+     * 🔒 LA PROPRIÉTÉ GARDÉE EST LA MÊME, et mieux dite : un seul bloc, rendu aux deux endroits qui le
+     * montrent — la ligne de filtres du plein écran, et l'en-tête de l'écran partagé.
+     */
+    expect(VUE).toContain('boutonsNewUrgent={boutonsDeTri}');
+    const partage = VUE.slice(VUE.indexOf('id="gst-titre-ev"'));
+    expect(partage).toContain('{boutonsDeTri}');
   });
 
   /** 🔴 À CÔTÉ DU COMPTEUR (Arno), dans les deux titres. */
@@ -257,11 +267,14 @@ describe('🔴🔴 ③ les deux boutons, dans les DEUX en-têtes', () => {
     expect((VUE.match(/\{d\.evenementsTotal\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
     /* 🔴 LE TRI RANGE LA LISTE ENTIÈRE : aucune restriction sur ce chemin-là. */
     expect(VUE).toContain('const evenementsRanges = trierEvenements(d.evenements, tri);');
-    /* 🔴 ET LE SEUL FILTRE EST CELUI DU TABLEAU DE BORD, nommé et réversible. */
-    const filtrages = VUE.match(/evenementsRanges\.filter/g) ?? [];
-    expect(filtrages).toHaveLength(1);
-    expect(VUE).toContain('const evenementsFiltres = ensembleFiltre === null');
-    expect(VUE).toContain('onClick={() => aller({ ...etatUrl, evf: null })}');
+    /**
+     * 🔴 ET LE SEUL FILTRAGE EST CELUI DE LA LIGNE DE FILTRES, nommé et réversible.
+     * ⚠️ IL A CHANGÉ DE FORME au lot …-ET-LIGNE-DE-FILTRES : `evenementsRanges.filter(…)` écrit à la main est
+     * devenu `appliquerFiltres`, le module PUR qui applique les ensembles du tableau de bord. Ce qu'on tient
+     * ici est inchangé — le tri ne masque rien, et ce qui masque porte un nom et se défait.
+     */
+    expect(VUE).toContain('appliquerFiltres(evenementsRanges, ligne, idsParFiltre)');
+    expect(VUE).toContain('onReinitialiser={() => allerLigne(LIGNE_PAR_DEFAUT)}');
   });
 });
 

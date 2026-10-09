@@ -55,10 +55,15 @@ describe('🔴🔴 ① le bloc d’état ne s’affiche plus sur l’accueil', (
 
   /** 🔴 LA LIGNE ORDINAIRE DE RELÈVE ET CELLE DE LA COPIE quittent l'accueil elles aussi. */
   it('🔴 « Relève automatique » et « Copie des pièces » ordinaires quittent l’accueil', () => {
-    expect(VUE).toContain("ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && (\n"
+    /* ⚠️ LA LISTE DES ÉCRANS A GRANDI D'UN (lot …-ET-LIGNE-DE-FILTRES, accord d'Arno) : les deux lignes
+       ORDINAIRES quittent aussi l'ÉCRAN DES ÉVÉNEMENTS, qui porte désormais un tableau de bord et une ligne
+       de filtres — trois bandeaux gris au-dessus les repoussaient sous la ligne de flottaison. CE QUE CE CAS
+       TIENT N'A PAS BOUGÉ : elles quittent l'ACCUEIL, et c'est bien `ecran !== 'partage'` qu'on lit encore. */
+    expect(VUE).toContain("ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' "
+      + "&& ecran !== 'evenements' && (\n"
       + '        /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1');
     expect(VUE).toContain("copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' "
-      + "&& ecran !== 'partage' && (");
+      + "&& ecran !== 'partage'\n        && ecran !== 'evenements' && (");
   });
 
   /**

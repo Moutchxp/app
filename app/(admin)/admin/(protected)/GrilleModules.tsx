@@ -87,7 +87,16 @@ function TuileSortable({ tuile, reduce }: { tuile: LienMenu; reduce: boolean }) 
     <li ref={setNodeRef} style={style} className={`svv-grille-item${isDragging ? ' svv-grille-item--drag' : ''}`}>
       {/* Le <Link> EST la carte (géométrie d'origine). La poignée est SŒUR (jamais imbriquée : <button> dans <a>
           serait invalide) et HORS FLUX (position:absolute, coin) → aucune colonne ne pousse le contenu. */}
-      <Link href={tuile.slug} className="svv-grille-lien">
+      {/* 🔴🔴 LOT RACCOURCI-EVENEMENTS-ACCUEIL-GESTION, POINT 2 — LA TUILE VISE L'ACCUEIL DU MODULE.
+          CONSTAT D'ARNO : cliquer la tuile « Gestion » ouvrait la BOÎTE MAIL en plein écran, et non l'écran
+          partagé. CAUSE EXACTE : ce `href` lisait `tuile.slug` — la racine `/admin/gestion` —, c'est-à-dire
+          l'adresse NUE du module, qui rend `ETAT_DEFAUT` (« la boîte, sur Réception », décision du 27/09).
+          Le lot ACCUEIL-GESTION avait pourtant posé la bonne destination dans `menuAdmin` (`accueil`,
+          `URL_ACCUEIL_GESTION` = `?ecran=partage`) et la barre latérale la lisait déjà
+          (`Sidebar.tsx:87`) — la grille, elle, ne l'a jamais lue. Deux portes, une seule branchée.
+          ⚠️ `?? tuile.slug` : TOUS LES AUTRES MODULES N'ONT PAS D'`accueil`, et mènent donc à leur racine,
+          exactement comme avant. Et `slug` reste la clé de rangement des tuiles — seule la destination change. */}
+      <Link href={tuile.accueil ?? tuile.slug} className="svv-grille-lien">
         <span className="svv-grille-titre">{tuile.libelle}</span>
         <DescriptionTuile tuile={tuile} />
       </Link>
@@ -114,7 +123,10 @@ function TuileSortable({ tuile, reduce }: { tuile: LienMenu; reduce: boolean }) 
 function TuileStatique({ tuile, poigneeInactive = false }: { tuile: LienMenu; poigneeInactive?: boolean }) {
   return (
     <li className="svv-grille-item">
-      <Link href={tuile.slug} className="svv-grille-lien">
+      {/* 🔴 MÊME DESTINATION QUE LA TUILE MOBILE (lot RACCOURCI-EVENEMENTS-ACCUEIL-GESTION, point 2) : ce rendu
+          est celui du serveur et du premier rendu client, et deux destinations pour une même tuile feraient
+          changer la cible une fois la page montée. */}
+      <Link href={tuile.accueil ?? tuile.slug} className="svv-grille-lien">
         <span className="svv-grille-titre">{tuile.libelle}</span>
         <DescriptionTuile tuile={tuile} />
       </Link>
