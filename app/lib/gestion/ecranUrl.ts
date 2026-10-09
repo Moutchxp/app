@@ -290,6 +290,28 @@ export interface EtatEcranUrl {
    * recherche : ce sont des restrictions qui s'additionnent, comme les cases du panneau avancé.
    */
   etoile?: boolean;
+  /**
+   * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LE TABLEAU DE BORD EST-IL DÉPLIÉ ? ════════════════════════════════
+   *
+   * ARNO : « Clic sur la ligne ou ▾ → déplié ; ▴ → replié. État mémorisé dans l'URL. »
+   *
+   * ⚠️ REPLIÉ EST LE DÉFAUT ET NE S'ÉCRIT JAMAIS : l'adresse nue du module doit rester l'adresse nue du module.
+   * Même règle que `tri`, `filtre` et `etoile`.
+   */
+  tb?: boolean;
+  /**
+   * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LE FILTRE OUVERT PAR UN CHIFFRE DU TABLEAU DE BORD ═══════════════
+   *
+   * ARNO : « Chaque chiffre du point a), d), e) est CLIQUABLE et applique le filtre correspondant. »
+   *
+   * 🔴 C'EST UNE CLÉ, PAS UN PRÉDICAT : `encours`, `urgence:urgent`, `devis-attente`… Le tableau de bord rend,
+   * pour chaque clé, LA LISTE des événements qu'il a comptés (voir `IdsParFiltre`) — de sorte que le chiffre
+   * et la liste qu'il ouvre ne peuvent pas diverger.
+   *
+   * ⚠️ TYPÉ `string | null`, ET BORNÉ À UNE FORME, pas à une liste de valeurs : `ecranUrl` est un module PUR
+   * SANS AUCUN IMPORT (garantie du lot 5-FUSION). Une clé inconnue ne filtre rien et ne casse rien.
+   */
+  evf?: string | null;
 }
 
 const SORTES_FICHE: readonly SorteFiche[] = ['proprietaire', 'lot', 'locataire', 'bien'];
@@ -345,6 +367,11 @@ export const ETAT_DEFAUT: EtatEcranUrl = {
   /* 🔴 LOT HISTORIQUE-BIEN-3 — le jeton de retour fait partie du défaut, à `null` : sans cela, `lireEtatUrl`
      rendait un champ que `ETAT_DEFAUT` n'avait pas, et les deux cessaient d'être comparables. */
   hdb: null,
+  /* 🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — même raison, pour les deux champs du tableau de bord : replié, sans
+     filtre. `lireEtatUrl` les rend toujours, donc le défaut doit les porter, sinon les deux cessent d'être
+     comparables champ pour champ — et c'est cette comparaison qui décide d'empiler une entrée d'historique. */
+  tb: false,
+  evf: null,
 };
 
 /**
@@ -501,7 +528,25 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
     // Comme le filtre des non-lus : il ne désigne quelque chose que dans la boîte, et toute autre valeur vaut
     //   « non » — une adresse abîmée doit montrer TOUT, jamais moins.
     etoile: ecran === 'boite' && p.get('etoile') === '1',
+    /* 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — le tableau de bord déplié, et le filtre qu'un de ses chiffres a
+       ouvert. Les deux ne désignent quelque chose QUE sur l'écran des événements ; ailleurs, ils valent « non »
+       et « aucun » — une adresse abîmée doit montrer TOUT, jamais moins. */
+    tb: ecran === 'evenements' && p.get('tb') === '1',
+    evf: ecran === 'evenements' ? cleFiltreBrute(p.get('evf')) : null,
   };
+}
+
+/**
+ * La clé de filtre portée par une adresse, BORNÉE À SA FORME et sans plus d'interprétation : lettres, chiffres,
+ * tiret, souligné, et un seul deux-points (`urgence:urgent`). Toute autre chose vaut `null`.
+ *
+ * ⚠️ ON BORNE LA FORME, PAS LA LISTE DES VALEURS : ce fichier doit rester SANS AUCUN IMPORT (lot 5-FUSION), et
+ * la liste des filtres vit dans le tableau de bord. Une clé inconnue traversera donc — et ne filtrera rien,
+ * parce que l'écran ne trouvera aucun ensemble à ce nom. C'est exactement le traitement de `cible`.
+ */
+function cleFiltreBrute(brut: string | null): string | null {
+  const s = (brut ?? '').trim();
+  return s !== '' && s.length <= 40 && /^[a-z_-]+(:[a-z_-]+)?$/.test(s) ? s : null;
 }
 
 /**
@@ -555,6 +600,10 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
      l'adresse n'est plus un défaut. C'est la même règle que le filtre des non-lus juste au-dessus. */
   if ((e.ecran === 'partage' || e.ecran === 'evenements') && e.tri === 'urgent') p.set('tri', 'urgent');
   if (e.ecran === 'boite' && e.etoile === true) p.set('etoile', '1');
+  /* 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — même règle que les trois ci-dessus : seul ce qui s'écarte du défaut
+     s'écrit. Replié et sans filtre, l'adresse de l'écran des événements est celle d'avant ce lot. */
+  if (e.ecran === 'evenements' && e.tb === true) p.set('tb', '1');
+  if (e.ecran === 'evenements' && e.evf != null && e.evf !== '') p.set('evf', e.evf);
   const s = p.toString();
   return s === '' ? '' : `?${s}`;
 }
@@ -639,5 +688,17 @@ export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
      * jamais égaux, et chaque rendu empilerait une entrée.
      */
     && (a.ecran !== 'boite'
-      || ((a.filtre ?? null) === (b.filtre ?? null) && (a.etoile === true) === (b.etoile === true)));
+      || ((a.filtre ?? null) === (b.filtre ?? null) && (a.etoile === true) === (b.etoile === true)))
+    /**
+     * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LE FILTRE COMPTE, LE REPLI NON ════════════════════════════════
+     *
+     * 🔴 `evf` CHANGE CE QU'ON REGARDE — la liste passe de tous les événements à quatre. C'est le même
+     * raisonnement que le tri et que le filtre des non-lus : reculer doit rendre la liste d'avant.
+     *
+     * ⚠️ `tb` NE COMPTE PAS, ET C'EST DÉLIBÉRÉ : déplier un panneau ne change pas l'écran qu'on regarde. Lui
+     * donner une entrée d'historique ferait que « Précédent » replie le tableau de bord au lieu de ramener là
+     * d'où l'on vient — exactement le défaut que `hdb` évite, et pour la même raison. Il reste dans l'adresse
+     * (il s'écrit en `replaceState`), donc un rechargement le conserve : c'est ce qu'Arno demande.
+     */
+    && (a.ecran !== 'evenements' || (a.evf ?? null) === (b.evf ?? null));
 }

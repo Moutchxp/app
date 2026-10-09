@@ -1170,9 +1170,13 @@ describe('⑲ l’état quitte l’écran partagé, sans perdre sa fonction', ()
     /* ⚠️ LOT FILTRES-EVENEMENTS-NEW — `cartesDe` part désormais de la liste RANGÉE (`evenementsRanges`) et non
        de `d.evenements` : le tri se fait UNE fois, en amont, et les deux listes lisent le même tableau. Ce que ce
        cas éprouve ne change pas d'un cran : une seule fonction rend les deux écrans. */
-    expect(VUE).toContain('const cartesDe = (partage: boolean) => evenementsRanges.map((e) => (');
+    /* ⚠️ LOT EVENEMENTS-TABLEAU-DE-BORD — `cartesDe` prend une LISTE en second argument, dont le défaut reste
+       `evenementsRanges`. L'écran des événements lui passe la liste restreinte par un chiffre du tableau de
+       bord. Ce que ce cas éprouve ne change pas d'un cran : une seule fonction rend les deux écrans. */
+    expect(VUE).toContain(
+      'const cartesDe = (partage: boolean, liste: readonly CarteEvenement[] = evenementsRanges) => liste.map((e) => (');
     /* 🔴 PLEIN ÉCRAN : `partage` faux, l'état reste. ÉCRAN PARTAGÉ : `partage` vrai, le bouton le remplace. */
-    expect(VUE).toContain('<ul className="gst-liste gst-cartes-larges">{cartesDe(false)}</ul>');
+    expect(VUE).toContain('{cartesDe(false, evenementsFiltres)}</ul>');
     expect(VUE).toContain('<ul className="gst-liste">{cartesDe(true)}</ul>');
   });
 

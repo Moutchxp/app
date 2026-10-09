@@ -203,7 +203,12 @@ describe('🔴🔴 ③ les deux boutons, dans les DEUX en-têtes', () => {
    */
   it('🔴🔴 le tri se fait une fois, et les deux listes lisent le même tableau', () => {
     expect(VUE).toContain('const evenementsRanges = trierEvenements(d.evenements, tri);');
-    expect(VUE).toContain('const cartesDe = (partage: boolean) => evenementsRanges.map((e) => (');
+    /* ⚠️ `cartesDe` A GAGNÉ UN SECOND ARGUMENT (lot EVENEMENTS-TABLEAU-DE-BORD) : la liste à rendre, dont le
+       DÉFAUT reste `evenementsRanges`. L'écran des événements lui passe la liste restreinte par un chiffre du
+       tableau de bord ; l'écran partagé ne lui passe rien, et rend donc exactement ce qu'il rendait. Ce que ce
+       cas tient — le tri se fait UNE fois, en amont, et une seule fonction rend les deux listes — est intact. */
+    expect(VUE).toContain(
+      'const cartesDe = (partage: boolean, liste: readonly CarteEvenement[] = evenementsRanges) => liste.map((e) => (');
     expect((VUE.match(/trierEvenements\(/g) ?? [])).toHaveLength(1);
   });
 
@@ -235,11 +240,28 @@ describe('🔴🔴 ③ les deux boutons, dans les DEUX en-têtes', () => {
 
   /**
    * 🔴🔴 CE SONT DES TRIS : « aucune carte n'est masquée, le compteur reste le nombre total d'événements ».
-   * Les deux listes restent donc branchées sur `d.evenementsTotal`, et aucune n'est filtrée.
+   * Les deux listes restent donc branchées sur `d.evenementsTotal`.
+   *
+   * ⚠️ CE QUE CETTE ÉPREUVE INTERDISAIT AVANT, ET POURQUOI ELLE NE PEUT PLUS : elle écrivait
+   * `expect(VUE).not.toContain('evenementsRanges.filter')` — aucun filtrage de la liste, nulle part. C'était
+   * le bon garde tant que le TRI était la seule chose qui touchait aux cartes. Le lot
+   * EVENEMENTS-TABLEAU-DE-BORD en ajoute un VRAI, demandé en toutes lettres par Arno (« Chaque chiffre […] est
+   * CLIQUABLE et applique le filtre correspondant »), et la formulation d'alors l'interdirait.
+   *
+   * 🔒 LA PROPRIÉTÉ GARDÉE NE BOUGE PAS, ET ELLE EST MÊME PLUS PRÉCISE : ce que le TRI fait de la liste reste
+   * un rangement complet (`trierEvenements(d.evenements, tri)` — tout entre, tout sort), et le seul filtrage
+   * qui existe est celui du tableau de bord, qui porte son nom, se voit dans un bandeau et se retire d'un clic.
+   * Un filtrage muet rouvrirait exactement le défaut que cette épreuve existe pour empêcher.
    */
-  it('🔴🔴 le compteur reste le total, et aucune liste n’est filtrée', () => {
+  it('🔴🔴 le compteur reste le total, et le tri ne masque rien', () => {
     expect((VUE.match(/\{d\.evenementsTotal\}/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect(VUE).not.toContain('evenementsRanges.filter');
+    /* 🔴 LE TRI RANGE LA LISTE ENTIÈRE : aucune restriction sur ce chemin-là. */
+    expect(VUE).toContain('const evenementsRanges = trierEvenements(d.evenements, tri);');
+    /* 🔴 ET LE SEUL FILTRE EST CELUI DU TABLEAU DE BORD, nommé et réversible. */
+    const filtrages = VUE.match(/evenementsRanges\.filter/g) ?? [];
+    expect(filtrages).toHaveLength(1);
+    expect(VUE).toContain('const evenementsFiltres = ensembleFiltre === null');
+    expect(VUE).toContain('onClick={() => aller({ ...etatUrl, evf: null })}');
   });
 });
 

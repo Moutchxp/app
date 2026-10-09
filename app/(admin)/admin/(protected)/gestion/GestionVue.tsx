@@ -24,6 +24,8 @@ import { BarrePages, CSS_BARRE_PAGES } from './BarrePages';
 import { PAR_PAGE } from '../../../../lib/gestion/pagination';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
+/* 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — le portefeuille en chiffres, tout en haut de l'écran des événements. */
+import { TableauBordEvenements } from './TableauBordEvenements';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 3 — la barre de recherche de l'annuaire, sur l'accueil. */
 import { BarreAnnuaire } from './BarreAnnuaire';
 /* 🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — la feuille du bouton rond, partagée avec la boîte. */
@@ -149,6 +151,12 @@ export function GestionVue({ intro }: {
    */
   const [ecrireA, setEcrireA] = useState<string | null>(null);
   const consommerEcrireA = useCallback(() => setEcrireA(null), []);
+  /**
+   * 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — les ensembles d'événements que chaque chiffre du tableau de bord a
+   * comptés, remontés par lui une fois lus. `null` = pas encore lus : la liste reste alors ENTIÈRE, jamais
+   * vide. Voir `evenementsFiltres`.
+   */
+  const [idsParFiltre, setIdsParFiltre] = useState<Record<string, number[]> | null>(null);
   const [comptesBoite, setComptesBoite] = useState<
     {
       lisibles: number; automatiques: number; envoyes: number; reception: number; corbeille: number | null;
@@ -972,6 +980,25 @@ export function GestionVue({ intro }: {
    */
   const tri: TriEvenement = triValide(etatUrl.tri ?? undefined);
   const evenementsRanges = trierEvenements(d.evenements, tri);
+  /**
+   * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LA LISTE RESTREINTE PAR UN CHIFFRE DU TABLEAU DE BORD ═══════════
+   *
+   * 🔴 ON FILTRE PAR IDENTIFIANTS, et non en recalculant le prédicat ici. C'est la seule façon que le chiffre
+   * affiché (« 4 devis en attente ») et la liste qu'il ouvre disent la MÊME chose : l'ensemble est celui que
+   * le serveur a compté, et le chiffre en est la taille. Deux calculs auraient fini par différer d'un.
+   *
+   * ⚠️ TANT QUE LES ENSEMBLES NE SONT PAS ARRIVÉS, LA LISTE EST ENTIÈRE : `null` se lit « je ne sais pas
+   * encore », jamais « rien ne correspond ». Afficher une liste vide pendant la lecture ferait croire que le
+   * filtre n'a rien trouvé.
+   *
+   * ⚠️ LE TRI N'EST PAS TOUCHÉ : on filtre la liste DÉJÀ rangée, donc « New » et « Urgent » gardent leur sens
+   * à l'intérieur du filtre.
+   */
+  const filtreEvenements = etatUrl.evf ?? null;
+  const ensembleFiltre = filtreEvenements === null ? null : idsParFiltre?.[filtreEvenements] ?? null;
+  const evenementsFiltres = ensembleFiltre === null
+    ? evenementsRanges
+    : evenementsRanges.filter((e) => ensembleFiltre.includes(e.evenementId));
 
   /**
    * LES DEUX BOUTONS, écrits une seule fois et rendus dans les deux en-têtes.
@@ -1013,7 +1040,7 @@ export function GestionVue({ intro }: {
    * VISÉ, lui, ne peut l'être qu'en plein écran : dans l'écran partagé, `evenementVise` n'est pas lu de l'adresse
    * (`lireEtatUrl`), et la comparaison rend donc toujours faux — aucune carte n'y porte de liseré.
    */
-  const cartesDe = (partage: boolean) => evenementsRanges.map((e) => (
+  const cartesDe = (partage: boolean, liste: readonly CarteEvenement[] = evenementsRanges) => liste.map((e) => (
     <CarteVive key={e.evenementId} carte={e} maintenant={ref}
       partage={partage} onOuvrirBien={ouvrirBienSurEvenement}
       vise={!partage && (etatUrl.evenementVise ?? null) === e.evenementId}
@@ -1469,6 +1496,26 @@ export function GestionVue({ intro }: {
         /* ÉVÉNEMENTS EN PLEIN ÉCRAN — les MÊMES cartes, avec toutes leurs fonctions : rien n'est retiré, la largeur
            disponible sert seulement à en montrer deux de front au lieu d'une. */
         <div className="pe">
+          {/**
+            * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — TOUT EN HAUT, AU-DESSUS DE TOUT LE RESTE ════════════════
+            *
+            * ARNO : « il se place TOUT EN HAUT de l'écran, AU-DESSUS de la ligne de filtres, séparé
+            * visuellement ». Il est donc le premier enfant de l'écran, dans son propre cadre.
+            *
+            * ⚠️ LA « LIGNE DE FILTRES » N'EXISTE PAS DANS CE DÉPÔT — vérifié, et dit à Arno. Voir l'encadré de
+            * `TableauBordEvenements` : les chiffres posent leur filtre dans l'adresse (`&evf=`), et le bandeau
+            * juste au-dessus de la liste dit lequel est actif. Le jour où la ligne existera, elle lira la même
+            * clé.
+            *
+            * ⚠️ IL SE MONTE MÊME REPLIÉ, et il le faut : c'est lui qui rapporte les ensembles d'identifiants
+            * dont la liste a besoin pour s'appliquer un filtre venu de l'adresse.
+            */}
+          <TableauBordEvenements
+            ouvert={etatUrl.tb === true}
+            onOuvrir={(v) => aller({ ...etatUrl, tb: v })}
+            filtre={etatUrl.evf ?? null}
+            onFiltre={(cle) => aller({ ...etatUrl, evf: cle, filOuvert: null })}
+            onDonnees={(tb) => setIdsParFiltre(tb.idsParFiltre)} />
           {/* LOT 5-FUSION-B — la colonne du mode prend la place des liens de modules. ⚠️ Elle ne contient QUE ce que
               la colonne des cartes portait déjà : son titre, son compteur, la mention de troncature, et le retour.
               La colonne des cartes n'a JAMAIS eu de recherche ni de filtre (la recherche d'événement, elle, vit dans
@@ -1497,9 +1544,35 @@ export function GestionVue({ intro }: {
                 onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
             </section>
           )}
-          {d.evenements.length === 0
-            ? <p className="gst-vide">{messageEvenementsVide()}</p>
-            : <ul className="gst-liste gst-cartes-larges">{cartesDe(false)}</ul>}
+          {/**
+            * ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LE FILTRE OUVERT PAR UN CHIFFRE SE VOIT, ET SE QUITTE ══
+            *
+            * 🔴 UN FILTRE QUI NE SE VOIT PAS EST UN PIÈGE, et le module vient de le payer : c'est la leçon du
+            * lot FILTRE-NON-LUS-BLOQUANT, où rester enfermé dans « 27 non lus » n'avait aucune sortie visible.
+            * Le bandeau dit COMBIEN de cartes il laisse passer, sur combien, et le ✕ le retire.
+            *
+            * ⚠️ IL NE S'AFFICHE QUE SI L'ON SAIT EN SORTIR, et seulement quand les ensembles sont arrivés :
+            * entre le chargement de l'écran et la réponse du tableau de bord, la liste est entière — mieux vaut
+            * tout montrer un instant qu'annoncer un filtre qu'on ne peut pas encore appliquer.
+            */}
+          {filtreEvenements !== null && (
+            <p className="gst-filtre-ev" role="status">
+              <span className="gst-filtre-ev-mot">
+                {evenementsFiltres.length} événement{evenementsFiltres.length > 1 ? 's' : ''} sur {d.evenements.length}
+              </span>
+              <button type="button" className="gst-filtre-ev-sortie"
+                aria-label="Retirer le filtre et montrer tous les événements"
+                title="Retirer le filtre et montrer tous les événements"
+                onClick={() => aller({ ...etatUrl, evf: null })}>
+                <span aria-hidden="true">✕</span>
+              </button>
+            </p>
+          )}
+          {evenementsFiltres.length === 0
+            ? <p className="gst-vide">{filtreEvenements === null
+              ? messageEvenementsVide()
+              : 'Aucun événement ne correspond à ce filtre.'}</p>
+            : <ul className="gst-liste gst-cartes-larges">{cartesDe(false, evenementsFiltres)}</ul>}
         </div>
       ) : filOuvert !== null ? (
         <section className="gst-col">
@@ -2305,6 +2378,21 @@ ${CSS_BOUTON_PILULE}
 .gst-info,.gst-vide,.gst-tronc{font-size:.85rem;color:var(--color-svv-muted);line-height:1.5;margin:0 0 .5rem}
 .gst-vide{background:var(--color-svv-surface);border:1px dashed var(--color-svv-line-strong);border-radius:10px;padding:14px 16px}
 .gst-erreur{font-size:.9rem;font-weight:600;color:var(--color-svv-red);margin:0 0 .6rem}
+/* ══ 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — LE BANDEAU DU FILTRE OUVERT PAR UN CHIFFRE ════════════════════════
+   Meme dessin que le repere « Non lus uniquement ✕ » de la boite (lot FILTRE-NON-LUS-BLOQUANT) : un filtre se
+   voit et se quitte de la meme facon dans tout le module, sinon chaque ecran apprend le sien.
+   ⚠️ 44 px DE CIBLE TACTILE POUR LE ✕ (exigence §15), tenus par un rectangle invisible.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-filtre-ev{display:flex;align-items:center;gap:.4rem;margin:0 0 8px;padding:4px 10px;
+  border:1px solid var(--color-svv-amber-soft);border-radius:8px;background:var(--color-svv-amber-soft);
+  color:var(--color-svv-amber);font-size:.78rem;font-weight:700}
+.gst-filtre-ev-sortie{position:relative;display:inline-flex;align-items:center;justify-content:center;
+  min-width:24px;min-height:24px;padding:0;font:inherit;font-size:.9rem;line-height:1;cursor:pointer;
+  color:inherit;background:transparent;border:0;border-radius:6px}
+.gst-filtre-ev-sortie::after{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;
+  transform:translate(-50%,-50%)}
+.gst-filtre-ev-sortie:hover:not(:disabled){background:var(--color-svv-field)}
+.gst-filtre-ev-sortie:not(:disabled):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .gst-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;align-items:stretch;gap:8px}
 /* Cible tactile confortable ; tout casse en fin de ligne → jamais de débordement horizontal, même sur un objet sans espace. */
 .gst-item{min-height:44px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;overflow-wrap:anywhere}
