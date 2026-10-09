@@ -806,7 +806,7 @@ export function LigneVie({
           une pièce en cours de dépôt, le compte à rebours d'annulation d'un envoi. C'est la règle de la
           conversation (`piedMessage`, lot BROUILLON-REPONSE-ET-REPERE), et elle vaut mot pour mot ici : on
           replie un mail pour voir la liste, pas pour jeter sa réponse. */}
-      {composeur !== null && <div hidden={!ouvert}>{composeur}</div>}
+      {composeur !== null && <div className="vdb-composeur" hidden={!ouvert}>{composeur}</div>}
     </li>
   );
 }
@@ -825,7 +825,16 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-filtre:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .vdb-recherche{flex:1 1 13rem;min-width:0;min-height:36px;font-size:.85rem}
 .vdb-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
-.vdb-item{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;
+/* ══ 🔴🔴 LOT MARGE-COMPOSEUR-HISTORIQUE — LES MARGES INTERIEURES DE LA CAPSULE, ECRITES UNE SEULE FOIS ══════
+   CONSTAT D'ARNO (09/10/2026) : « le module de reponse colle au lisere vert gauche de la capsule, alors que le
+   contenu du mail recu juste au-dessus est decale par une marge interieure. »
+   🔴 LA CAUSE : le detail du mail porte son retrait dans SON padding (10px 12px 12px 26px), et le composeur est
+   son FRERE, pas son enfant — il n'en heritait donc rien. Deux blocs du meme interieur, deux retraits.
+   🔴 LA REGLE : deux proprietes personnalisees, posees sur la CAPSULE, et tout ce qui vit dedans les lit. Une
+   valeur recopiee aurait diverge au premier ajustement — et c'est exactement ce qui vient d'arriver.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.vdb-item{--vdb-marge-g:26px;--vdb-marge-d:12px;
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;
   box-shadow:0 1px 2px rgba(22,32,44,.05);overflow:hidden}
 .svv-adm-root[data-theme='dark'] .vdb-item{box-shadow:0 1px 2px rgba(0,0,0,.3)}
 @media (prefers-color-scheme:dark){
@@ -833,7 +842,11 @@ export const CSS_VIE_DU_BIEN = `
 }
 /* LE TRIANGLE EST LE VOISIN DE LA LIGNE, jamais son enfant : un bouton dans un bouton est du HTML invalide. */
 .vdb-rangee{display:flex;align-items:stretch;min-width:0}
-.vdb-triangle{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:26px;
+/* ⚠️ LA LARGEUR DU TRIANGLE **EST** LA MARGE GAUCHE, et c'est pour cela qu'elle lit la meme variable : le
+   retrait du detail vaut exactement la colonne du triangle, pour que le texte du mail tombe sous le texte de
+   la rangee. Deux chiffres ecrits separement se seraient decolles au premier ajustement — c'est deja ce qui
+   est arrive au composeur (lot MARGE-COMPOSEUR-HISTORIQUE). */
+.vdb-triangle{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:var(--vdb-marge-g);
   background:none;border:0;padding:0;margin:0;cursor:pointer;color:var(--color-svv-red)}
 .vdb-triangle svg{transition:transform .15s ease}
 .vdb-triangle--ouvert svg{transform:rotate(90deg)}
@@ -921,8 +934,14 @@ export const CSS_VIE_DU_BIEN = `
   border-color:var(--color-svv-amber-soft)}
 /* LE TROMBONE : NOIR (encre) quand la piece est dans CE mail. Son infobulle dit laquelle des deux situations. */
 .vdb-trombone{font-size:.76rem;font-weight:600;color:var(--color-svv-ink);flex:0 0 auto}
-.vdb-detail{border-top:1px solid var(--color-svv-line);padding:10px 12px 12px 26px;
+.vdb-detail{border-top:1px solid var(--color-svv-line);
+  padding:10px var(--vdb-marge-d) 12px var(--vdb-marge-g);
   display:flex;flex-direction:column;gap:.5rem;background:var(--color-svv-field)}
+/* ══ LOT MARGE-COMPOSEUR-HISTORIQUE — LE COMPOSEUR PREND LES MEMES, ET PAR LA MEME SOURCE ═══════════════════
+   Les memes deux variables, lues sur la capsule : le bord gauche de l'editeur, de ses champs, du bloc
+   « Classer ce mail » et de ses boutons tombe donc au pixel sur celui du texte du mail et de ses pieces.
+   ⚠️ RIEN D'AUTRE NE CHANGE : pas de fond, pas de filet, pas de hauteur — seulement le retrait. */
+.vdb-composeur{padding:0 var(--vdb-marge-d) 12px var(--vdb-marge-g)}
 /* ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — DE / A / CC / CCI, AVEC LEURS PASTILLES ════════════════════════════
    DEMANDE D'ARNO : « “A :” liste TOUS les destinataires, A LA SUITE SUR LA MEME LIGNE (retour a la ligne propre
    si c'est long) ». D'ou un conteneur en flex qui passe a la ligne ENTRE deux destinataires, et un
