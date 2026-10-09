@@ -391,6 +391,16 @@ describe('🔴 le compteur du titre suit le filtre', () => {
      * CETTE ÉPREUVE N'A PAS BOUGÉ D'UN POUCE : c'est toujours `nombreDeLaListe` — le compte du SERVEUR, qui
      * connaît le filtre — qui est lu, et jamais celui de l'étiquette.
      */
-    expect(src).toContain('<span className="gst-compte">{motConversations(nombreDeLaListe)}</span>');
+    /**
+     * ══ 🔴🔴 RETOUCHÉ PAR LE LOT FILTRE-NON-LUS-BLOQUANT — LE MÊME NOMBRE, ET SON DÉNOMINATEUR ════════════════
+     *
+     * Arno (09/10/2026) : « Le compteur d'en-tête dit “27 non lus sur 10281 conversations” […], pas seulement
+     * “27 conversations”. » Le titre choisit donc entre deux mots — mais 🔒 LA PROPRIÉTÉ GARDÉE PAR CETTE
+     * ÉPREUVE N'A TOUJOURS PAS BOUGÉ : dans les DEUX branches, le nombre affiché est `nombreDeLaListe`, celui
+     * du SERVEUR qui connaît le filtre, et jamais celui de l'étiquette. `total` n'apparaît que comme
+     * DÉNOMINATEUR — le « sur 10281 » —, ce qui est précisément son rôle : dire la taille du dossier.
+     */
+    expect(src).toContain('? motNonLusSur(nombreDeLaListe, total ?? null)');
+    expect(src).toContain(': motConversations(nombreDeLaListe)}');
   });
 });

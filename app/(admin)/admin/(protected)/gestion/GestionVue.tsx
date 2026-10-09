@@ -796,8 +796,31 @@ export function GestionVue({ intro }: {
         }
       } catch { /* étiquettes sans nombre : voir l'encadré */ }
     })();
-    return () => { annule = true; };
-  }, [ecran, versionComptes]);
+    /**
+     * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT, POINT 1 — UNE LECTURE ABANDONNÉE DOIT POUVOIR ÊTRE REPRISE ═════════
+     *
+     * CONSTAT D'ARNO : « la colonne de gauche perd des informations : le total de Réception disparaît, les
+     * compteurs d'Envoyés, Courrier automatique, À classer, Spam disparaissent, et l'entrée Corbeille
+     * disparaît complètement. »
+     *
+     * 🔴 CE N'EST PAS LE FILTRE — mesuré : un chargement direct de `?filtre=non-lus` rend une colonne
+     * COMPLÈTE. C'est `comptesBoite` resté `null`, et les sept nombres en dépendent tous.
+     *
+     * 🔴 ET VOICI COMMENT IL POUVAIT LE RESTER POUR DE BON. La référence est posée AVANT la requête (garde
+     * d'unicité), et un échec ne la remet pas en arrière — c'est voulu, pour ne pas réessayer en boucle. Mais
+     * la MÊME règle s'appliquait à une lecture seulement ABANDONNÉE : changer d'écran pendant les ~124 ms que
+     * prend la route (mesuré) déclenche ce nettoyage, la réponse est jetée… et la version est déjà consommée.
+     * Au retour, l'effet se tait, et la colonne n'a plus de nombres jusqu'au prochain rechargement complet.
+     *
+     * ⚠️ UN ABANDON N'EST PAS UN ÉCHEC, et c'est toute la distinction : personne n'a répondu « non », on a
+     * simplement cessé d'écouter. On rend donc la version, et seulement dans ce cas — un échec, lui, continue
+     * de ne pas réessayer, exactement comme avant ce lot.
+     */
+    return () => {
+      annule = true;
+      if (comptesCharges.current === versionComptes && comptesBoite === null) comptesCharges.current = -1;
+    };
+  }, [ecran, versionComptes, comptesBoite]);
 
   /** Un geste = un appel, un compte rendu, un rechargement. Jamais un silence, succès comme échec. */
   const agir = useCallback(async (url: string, methode: 'POST' | 'DELETE', succes: string, corps?: unknown) => {
@@ -1386,7 +1409,18 @@ export function GestionVue({ intro }: {
           corbeilleDisponible={comptesBoite?.corbeille !== null && comptesBoite?.corbeille !== undefined}
           peutEcrire={redaction?.peutEnvoyer === true}
           piecesDisponibles={redaction?.piecesDisponibles === true}
-          onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
+          /**
+           * 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — UNE ENTRÉE DE COLONNE ÉCRIT L'ÉTAT ENTIER, EN UNE FOIS.
+           * L'étiquette ET le sélecteur « non lus » ET l'étoile partent dans le MÊME `aller()`. Deux appels
+           * successifs partiraient du même instantané `etatUrl` et le second écraserait le premier — c'est le
+           * défaut qui faisait perdre l'étiquette quand un filtre l'accompagnait.
+           * ⚠️ `f ?? null` : une entrée qui ne dit rien demande la liste COMPLÈTE. C'est la règle d'Arno pour
+           * « Réception », et elle vaut pour toutes les entrées — aucune ne doit enfermer dans un filtre.
+           */
+          onEtiquette={(e, f) => {
+            setPanneau(null);
+            aller({ ...etatUrl, etiquette: e, filtre: f ?? null, etoile: false, filOuvert: null });
+          }}
           /* LOT BROUILLONS-GMAIL — un brouillon de réponse voyage avec l'échange : la conversation sait alors
              lequel rouvrir, et sous quel message le poser. Absent ⇒ comportement d'avant ce lot. */
           onOuvrir={(id, messageId, brouillonId) => aller({
@@ -1792,11 +1826,29 @@ export function etiquettesDeLEcran(
      * geste « Supprimer » n'existe pas non plus, et une corbeille qu'on ne peut pas remplir n'a rien à faire dans
      * le sommaire. `undefined` = réponse d'API plus ancienne que ce lot : même traitement.
      */
-    ...(comptes?.corbeille === null || comptes?.corbeille === undefined
+    /**
+     * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — « ON NE SAIT PAS ENCORE » N'EST PAS « IL N'Y EN A PAS » ═══════════
+     *
+     * CE QUI ÉTAIT ÉCRIT : `comptes?.corbeille === null || comptes?.corbeille === undefined ? [] : …`. Le `?.`
+     * confondait DEUX situations que rien ne distinguait ensuite :
+     *   · `comptes === null` — les compteurs ne sont pas encore arrivés (ou leur lecture s'est perdue) ;
+     *   · `comptes.corbeille == null` — la route a répondu, et elle dit qu'il n'y a pas de corbeille
+     *     (migration 251/275 absente). C'est LE cas que le retrait vise, et il est conservé tel quel.
+     * Dans le premier, l'entrée disparaissait de la colonne alors que PERSONNE n'avait dit qu'elle n'existait
+     * pas — c'est exactement ce qu'Arno a vu : « l'entrée Corbeille disparaît complètement ».
+     *
+     * 🔴 TANT QU'ON NE SAIT PAS, L'ENTRÉE RESTE, SANS SON NOMBRE. C'est la règle que ce fichier écrit déjà pour
+     * toutes les autres : « `null` = on ne sait pas encore — un état d'attente, pendant lequel l'entrée RESTE,
+     * sans son nombre ». La Corbeille en était la seule exception, et elle l'était par accident.
+     *
+     * ⚠️ LE RETRAIT VOULU N'EST PAS TOUCHÉ : réponse reçue et corbeille absente ⇒ l'entrée part, pour la raison
+     * écrite en 2026-09-29 (une corbeille qu'on ne peut pas remplir n'a rien à faire dans le sommaire).
+     */
+    ...(comptes !== null && (comptes.corbeille === null || comptes.corbeille === undefined)
       ? []
       : [{
         etiquette: { sorte: 'corbeille' as const, evenementId: null },
-        libelle: 'Corbeille', compte: comptes.corbeille,
+        libelle: 'Corbeille', compte: comptes?.corbeille ?? null,
       }]),
     /**
      * ⚠️ « Sans suite » VIENT APRÈS, et n'est PAS retirée. Arno a donné l'ordre des entrées qu'il regarde ; il a

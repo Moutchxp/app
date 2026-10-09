@@ -43,3 +43,25 @@ export function motMailsRecus(n: number): string {
 export function motConversations(n: number): string {
   return n === 1 ? '1 conversation' : `${n} conversations`;
 }
+
+/**
+ * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — CE QU'ON MONTRE, ET SUR COMBIEN. PUR ═════════════════════════════════════
+ *
+ * ARNO (09/10/2026) : « Le compteur d'en-tête dit “27 non lus sur 10281 conversations” (ou équivalent juste), pas
+ * seulement “27 conversations”. »
+ *
+ * 🔴 C'EST LA MÊME MALADIE QUE L'OPTION C, UN CRAN PLUS LOIN. « 27 conversations » au-dessus d'un dossier qui en
+ * annonce 10 281 ne ment pas, mais ne dit pas qu'on regarde une PARTIE : on croit que la boîte a fondu. Le
+ * dénominateur est ce qui transforme un nombre inquiétant en une information.
+ *
+ * ⚠️ `total === null` ⇒ ON S'ARRÊTE À CE QU'ON SAIT (« 27 non lus »), plutôt que d'inventer un dénominateur. Un
+ * « sur 0 » ou un « sur ? » serait pire que le nombre nu — c'est la règle de tout le module : une étiquette sans
+ * nombre vaut mieux qu'un faux.
+ *
+ * ⚠️ LE TOTAL EST CELUI DU DOSSIER, pas celui de la page : il vient de la colonne de gauche, qui l'a compté sans
+ * filtre. C'est l'appelant qui le fournit — ce module ne sait pas compter, il sait écrire.
+ */
+export function motNonLusSur(nonLus: number, total: number | null): string {
+  const gauche = nonLus === 1 ? '1 non lu' : `${nonLus} non lus`;
+  return total === null ? gauche : `${gauche} sur ${motConversations(total)}`;
+}

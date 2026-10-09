@@ -32,7 +32,7 @@ import { motEvenementEnCours } from '../../../../lib/gestion/evenementQualite';
 /* 🔴🔴 LOT REINTEGRER — la boîte d'origine d'un mail de la corbeille, lue sur ses propres signaux (module PUR). */
 import { boiteOrigine, type BoiteOrigine } from '../../../../lib/gestion/boiteOrigine';
 // 🔴🔴 LOT OPTION-C — le MOT de l'unité comptée, écrit une seule fois pour les deux écrans (module PUR).
-import { motConversations } from '../../../../lib/gestion/uniteListe';
+import { motConversations, motNonLusSur } from '../../../../lib/gestion/uniteListe';
 
 /**
  * 🔴 LOT STATUT-HORS-GESTION — LE STATUT D'UNE LIGNE DE LISTE, calculé EN UN SEUL ENDROIT.
@@ -271,8 +271,35 @@ type Etat =
       automatiquesIci: number | null;
       brouillons: { lignes: BrouillonTrouveEcran[]; tronque: boolean };
       nonLus: Set<number>; nonLusTotal: number | null; nonLusPartiel: boolean;
+      /**
+       * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — DE QUELLE QUESTION CET ÉTAT EST-IL LA RÉPONSE ════════════════════
+       *
+       * L'empreinte de la lecture qui a produit ces lignes : étiquette, sélecteur « non lus », étoile,
+       * recherche. Posée par `premiere`, portée telle quelle par les pages suivantes (elles parcourent la même
+       * liste), et comparée à la question COURANTE avant de remonter quoi que ce soit au parent.
+       *
+       * 🔴 POURQUOI ELLE EST NÉCESSAIRE, ET CE QU'ELLE A RATTRAPÉ. Un clic sur une entrée change l'étiquette ET
+       * le filtre en UN seul rendu. Pendant ce rendu, `etat` est encore celui de la liste PRÉCÉDENTE : les
+       * conditions lues sur les propriétés (« pas de filtre, pas d'étoile ») sont déjà vraies, alors que les
+       * nombres, eux, sont encore ceux de l'ancienne liste. Mesuré le 09/10/2026 : entrer dans « non lus » puis
+       * cliquer « À classer » écrivait **27** comme total de « À classer » dans la colonne — et l'y laissait.
+       * Comparer des drapeaux ne suffit pas ; il faut comparer la QUESTION à laquelle l'état répond.
+       */
+      pour: string;
     }
   | { v: 'erreur'; m: string };
+
+/**
+ * L'empreinte d'une lecture : ce qui, s'il change, rend les nombres d'un état caducs. PURE.
+ *
+ * ⚠️ `auto` N'EN FAIT PAS PARTIE, et c'est voulu : l'interrupteur du courrier automatique change le nombre de
+ * LIGNES, pas le dossier qu'on regarde — et la colonne, elle, compte le dossier.
+ */
+function empreinteLecture(
+  e: Etiquette, filtre: 'non-lus' | null, etoile: boolean, cherche: boolean,
+): string {
+  return `${e.sorte}:${e.evenementId ?? 0}|${filtre ?? ''}|${etoile ? 'e' : ''}|${cherche ? 'c' : ''}`;
+}
 
 /**
  * Va chercher une page — de la LISTE, ou des RÉSULTATS quand un critère est posé. Une seule fonction pour les deux :
@@ -387,7 +414,7 @@ export function BoiteMail({
   dense = false, onNonLus, onTotalEtiquette, marquage, onActionLigne, onGeste: onGesteLigne,
   corbeille = false, peutEcrire = false, piecesDisponibles = false,
   versionDonnees = 0, versionStatuts = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
-  etoile = false, onEtoileFiltre, selection, retourAuDossier = 0,
+  onFiltre, etoile = false, onEtoileFiltre, selection, retourAuDossier = 0,
 }: {
   /**
    * ══ 🔴 LOT MESSAGE-CLIQUÉ — ON OUVRE L'ÉCHANGE **ET** LE MESSAGE DE LA LIGNE ══════════════════════════════════
@@ -540,6 +567,20 @@ export function BoiteMail({
    * rafraîchissement automatique de 30 s et l'icône « Relever et actualiser » le respectent d'eux-mêmes.
    */
   filtre?: 'non-lus' | null;
+  /**
+   * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT, POINT 2 — DE QUOI SORTIR DU FILTRE DEPUIS LA LISTE ════════════════════
+   *
+   * Arno : « Quand le filtre non-lus est actif, un repère visible au-dessus de la liste : “Non lus uniquement
+   * ✕” — le ✕ revient à la liste complète. »
+   *
+   * 🔴 LE REPÈRE EST AU-DESSUS DE LA LISTE, et non dans la colonne, parce que c'est la LISTE qui ment quand on
+   * ne voit pas le filtre : 27 lignes sous un dossier qui en annonce 10 281 se lisent comme une boîte vide, et
+   * l'on cherche ailleurs. La sortie doit être là où naît le doute.
+   *
+   * ⚠️ ABSENT ⇒ AUCUN REPÈRE, et la liste est exactement celle d'avant ce lot : c'est le cas de l'écran
+   * partagé, qui n'a pas d'adresse où inscrire le choix. Même règle que `onEtoileFiltre` juste en dessous.
+   */
+  onFiltre?: (f: 'non-lus' | null) => void;
   /**
    * LOT FILTRE-ETOILE — ne montrer que les échanges étoilés. Il entre dans la CLÉ de rechargement, donc le
    * rafraîchissement automatique de 30 s et « Relever et actualiser » le respectent d'eux-mêmes — et un échange
@@ -931,6 +972,8 @@ export function BoiteMail({
       automatiquesIci: r.automatiquesIci ?? null,
       brouillons: r.brouillons ?? { lignes: [], tronque: false },
       nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null, nonLusPartiel: r.nonLusPartiel === true,
+      /* 🔴 L'EMPREINTE EST POSÉE ICI, avec les arguments de CETTE lecture : voir le champ `pour`. */
+      pour: empreinteLecture(e, f, et, critereActif(c)),
     });
     /**
      * 🔴 LA PREMIÈRE PAGE EST RANGÉE, ET LES SUIVANTES SONT DEMANDÉES D'AVANCE. C'est ici que le préchargement
@@ -1031,7 +1074,28 @@ export function BoiteMail({
    * ⚠️ IL NE REMONTE QUE SUR UN ÉTAT `ok` : pendant le chargement ou après une erreur, la liste ne sait rien, et
    * annoncer `null` ferait clignoter le compteur de la colonne à chaque relecture.
    */
-  const totalAffiche = etat.v === 'ok' ? etat.total : undefined;
+  /**
+   * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — UN TOTAL FILTRÉ N'EST PAS LE TOTAL DU DOSSIER ═══════════════════════
+   *
+   * VU À L'ÉCRAN le 09/10/2026 : entrer dans « non lus », puis cliquer « À classer » — et l'entrée « À classer »
+   * de la colonne passait de 10 377 à **27**. Le nombre des non-lus de Réception venait d'être écrit comme
+   * total d'un autre dossier, et il y restait.
+   *
+   * 🔴 LA CAUSE : `etat.total` est compté PAR LE SERVEUR AVEC LES FILTRES de la liste (étiquette, « non lus »,
+   * étoile, recherche — voir `sqlCompteBoite`). C'est exactement ce qu'il faut pour le titre de la liste, et
+   * exactement ce qu'il ne faut pas pour la colonne, dont les nombres annoncent des DOSSIERS ENTIERS. Remonter
+   * l'un à la place de l'autre fait dire à la colonne une vérité d'un autre écran.
+   *
+   * 🔴 ON NE REMONTE DONC QUE CE QUI EST COMPARABLE : la liste nue de l'étiquette. Dès qu'un filtre la
+   * restreint, on se TAIT — `undefined`, qui veut dire « je n'ai rien à dire », et la colonne garde le nombre
+   * qu'elle a compté elle-même, sans filtre.
+   *
+   * ⚠️ SE TAIRE N'EST PAS ANNONCER `null` : `null` effacerait le compteur. C'est la même distinction que
+   * l'encadré ci-dessus (« il ne remonte que sur un état `ok` ») — l'ignorance se dit en ne disant rien.
+   */
+  const questionCourante = empreinteLecture(etiquette, filtre, etoile, cherche);
+  const totalAffiche = etat.v === 'ok' && etat.pour === questionCourante
+    && filtre === null && !etoile && !cherche ? etat.total : undefined;
   useEffect(() => {
     if (onTotalEtiquette === undefined || totalAffiche === undefined) return;
     onTotalEtiquette(etiquette.sorte, totalAffiche);
@@ -1340,8 +1404,18 @@ export function BoiteMail({
 
             ⚠️ « Brouillons » NE PASSE PAS PAR CETTE LISTE (il est servi depuis `gestion_brouillon`, voir le
             prédicat `AND false` de `sqlEtiquette`) : aucun brouillon ne sera jamais appelé « conversation » ici. */}
+        {/* ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — SOUS FILTRE, LE COMPTEUR DIT AUSSI SUR COMBIEN ═══════════════
+            ARNO : « Le compteur d'en-tête dit “27 non lus sur 10281 conversations” (ou équivalent juste), pas
+            seulement “27 conversations”. » Le mot est écrit dans `uniteListe`, avec les deux autres, et non ici :
+            trois libellés recopiés dans trois composants finissent par compter trois choses différentes.
+            ⚠️ LE DÉNOMINATEUR EST CELUI DU DOSSIER (`total`, venu de la colonne de gauche, compté SANS filtre),
+            jamais `nombreDeLaListe` — qui est justement le nombre filtré. */}
         {!cherche && nombreDeLaListe !== null && (
-          <span className="gst-compte">{motConversations(nombreDeLaListe)}</span>
+          <span className="gst-compte">
+            {filtre === 'non-lus'
+              ? motNonLusSur(nombreDeLaListe, total ?? null)
+              : motConversations(nombreDeLaListe)}
+          </span>
         )}
         {/* ══ LOT ERGO-BOITE — UNE SEULE ICÔNE À LA PLACE DE DEUX BOUTONS ═══════════════════════════════════════
             « Relever maintenant » et « Rafraîchir » faisaient deux choses qu'on veut toujours ensemble : aller
@@ -1584,6 +1658,27 @@ export function BoiteMail({
           n'existerait que pour séparer se décalerait du contenu au premier ajustement de marge.
           ⚠️ ELLE EST AU-DESSUS DE TOUT CE QUE LA LISTE PEUT DIRE (mode réduit, courrier automatique masqué,
           brouillons trouvés) : c'est le repère de position, il doit être à la même place sur tous les écrans. */}
+      {/* ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT, POINT 2 — « Non lus uniquement ✕ », AU-DESSUS DE LA LISTE ═══════
+          ARNO : « Quand le filtre non-lus est actif, un repère visible au-dessus de la liste : “Non lus
+          uniquement ✕” — le ✕ revient à la liste complète. »
+          🔴 IL EST ICI, ENTRE LA BARRE DE PAGINATION ET LES LIGNES, parce que c'est là qu'on lit le nombre de
+          lignes et qu'on se demande où sont passées les autres. Un filtre qui se voit n'enferme personne.
+          🔴 LE ✕ EST UN VRAI BOUTON NOMMÉ, jamais un signe seul : « Revenir à la liste complète » est porté par
+          `aria-label` et par l'info-bulle. Un ✕ nu n'existe pas pour un lecteur d'écran.
+          ⚠️ LE MOT « Non lus uniquement » EST ÉCRIT, et la couleur ne fait que l'appuyer : règle de tout le
+          module. Et il ne s'affiche QUE si l'on sait en sortir (`onFiltre`) — un repère sans issue serait pire
+          que pas de repère. */}
+      {filtre === 'non-lus' && onFiltre && (
+        <p className="bte-repere-filtre" role="status">
+          <span className="bte-repere-mot">Non lus uniquement</span>
+          <button type="button" className="bte-repere-sortie"
+            aria-label="Revenir à la liste complète" title="Revenir à la liste complète"
+            onClick={() => onFiltre(null)}>
+            <span aria-hidden="true">✕</span>
+          </button>
+        </p>
+      )}
+
       {rendreBarre('haut')}
 
       {/* EN RECHERCHE : combien de résultats la règle du courrier automatique écarte. Même phrase, même bouton. */}
@@ -2208,6 +2303,23 @@ ${CSS_BOUTON_ROND}
 .bte-capsule--evt{color:var(--color-svv-amber);border-color:var(--color-svv-amber-soft);
   background:var(--color-svv-amber-soft)}
 .bte-filtre-etoile--actif{color:var(--color-svv-red)}
+/* ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — LE REPERE « Non lus uniquement ✕ » ════════════════════════════════════
+   Une bande discrete mais franche entre la recherche et la liste : elle doit se voir sans voler la place des
+   lignes. Les jetons ambres sont ceux que le module emploie deja pour « un etat temporaire qui attend qu'on en
+   sorte » (capsule d'evenement en cours) — c'est exactement ce qu'est un filtre actif.
+   ⚠️ 44 px DE CIBLE TACTILE POUR LE ✕ (exigence §15), tenus par un rectangle invisible comme les boutons de
+   l'en-tete partage : le signe reste petit, la zone de clic non.
+   ⚠️ AUCUNE COULEUR EN DUR, ET AUCUN ACCENT GRAVE : ce bloc vit DANS un litteral de gabarit. */
+.bte-repere-filtre{display:flex;align-items:center;gap:.4rem;margin:8px 0 0;padding:4px 10px;
+  border:1px solid var(--color-svv-amber-soft);border-radius:8px;background:var(--color-svv-amber-soft);
+  color:var(--color-svv-amber);font-size:.78rem;font-weight:700}
+.bte-repere-sortie{position:relative;display:inline-flex;align-items:center;justify-content:center;
+  min-width:24px;min-height:24px;padding:0;font:inherit;font-size:.9rem;line-height:1;cursor:pointer;
+  color:inherit;background:transparent;border:0;border-radius:6px}
+.bte-repere-sortie::after{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;
+  transform:translate(-50%,-50%)}
+.bte-repere-sortie:hover:not(:disabled){background:var(--color-svv-field)}
+.bte-repere-sortie:not(:disabled):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .bte-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
   color:var(--color-svv-muted);flex:0 1 auto;min-width:0}
 .bte-marque{display:inline-flex;align-items:center;gap:.25rem}

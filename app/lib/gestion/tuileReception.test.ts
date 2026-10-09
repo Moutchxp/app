@@ -41,23 +41,37 @@ describe('🔴🔴 ① cliquer une entrée de la colonne', () => {
    * finiraient par ne plus faire la même chose — c'est exactement ce qui vient d'être réparé ailleurs dans ce lot.
    */
   it('🔴🔴 les quatre boutons appellent `allerAuDossier`', () => {
-    expect(PLEIN).toContain('const allerAuDossier = (e: Etiquette): void => {');
-    expect(PLEIN.match(/allerAuDossier\(e\.etiquette\)/g) ?? []).toHaveLength(4);
+    /* ⚠️ LA SIGNATURE A GAGNÉ UN SECOND ARGUMENT (lot FILTRE-NON-LUS-BLOQUANT) : le sélecteur « non lus » avec
+       lequel on veut ouvrir le dossier, `null` par défaut — c'est-à-dire la liste complète. Ce que ce cas
+       tient — les quatre boutons passent par LA MÊME porte — n'a pas changé. */
+    expect(PLEIN).toContain("const allerAuDossier = (e: Etiquette, f: 'non-lus' | null = null): void => {");
+    expect(PLEIN.match(/allerAuDossier\(e\.etiquette[,)]/g) ?? []).toHaveLength(4);
   });
 
   /** 🔴 ET CE GESTE FAIT LES TROIS CHOSES : l'étiquette, la sortie de recherche, et le panneau mobile. */
   it('🔴 il va au dossier, quitte la recherche, et bascule le panneau mobile', () => {
-    const i = PLEIN.indexOf('const allerAuDossier');
+    const i = PLEIN.indexOf('  const allerAuDossier = (e: Etiquette');
     const bloc = PLEIN.slice(i, i + 260);
-    expect(bloc).toContain('onEtiquette(e);');
+    /* ⚠️ `onEtiquette(e, f)` ET NON `onEtiquette(e)` : l'étiquette ET l'état d'ouverture partent ensemble, dans
+       un seul `aller()`. Deux appels successifs partaient du même instantané d'URL et le second écrasait le
+       premier — voir l'encadré de `allerAuDossier`. */
+    expect(bloc).toContain('onEtiquette(e, f);');
     expect(bloc).toContain('setRetourAuDossier((n) => n + 1);');
     expect(bloc).toContain("setPanneauMobile('contenu');");
   });
 
-  /** 🔴 LES DEUX SÉLECTEURS GARDENT LEUR FILTRE : « N non lus » filtre, le total le retire. */
-  it('🔴🔴 « N non lus » filtre, le total rend la liste entière', () => {
-    expect(PLEIN).toContain("onClick={() => { allerAuDossier(e.etiquette); onFiltre('non-lus'); }}");
-    expect(PLEIN).toContain('onClick={() => { allerAuDossier(e.etiquette); onFiltre(null); }}');
+  /**
+   * 🔴 LES DEUX SÉLECTEURS GARDENT LEUR FILTRE : « N non lus » filtre, le total le retire.
+   *
+   * ⚠️ CE QUE CE CAS EXIGEAIT AVANT, ET POURQUOI IL A CHANGÉ : deux appels enchaînés,
+   * `allerAuDossier(e.etiquette); onFiltre('non-lus');`. Le lot FILTRE-NON-LUS-BLOQUANT les a fondus en un
+   * seul (le second écrasait l'étiquette du premier), et a fait de « N non lus » une BASCULE — Arno :
+   * « 2e clic sur le même lien = retour à la liste complète ». Les deux promesses tenues ici sont les mêmes :
+   * un sélecteur qui filtre, un total qui rend la liste entière.
+   */
+  it('🔴🔴 « N non lus » bascule, le total rend la liste entière', () => {
+    expect(PLEIN).toContain("onClick={() => allerAuDossier(e.etiquette, filtre === 'non-lus' ? null : 'non-lus')}");
+    expect(PLEIN).toContain('onClick={() => allerAuDossier(e.etiquette, null)}');
   });
 });
 

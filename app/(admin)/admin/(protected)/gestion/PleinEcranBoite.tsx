@@ -105,7 +105,20 @@ export function PleinEcranBoite({
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
-  onEtiquette: (e: Etiquette) => void;
+  /**
+   * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — ALLER À UN DOSSIER DIT AUSSI DANS QUEL ÉTAT ON L'OUVRE ═══════════════
+   *
+   * Le second argument est le sélecteur « non lus » que l'on veut EN ARRIVANT. Absent ⇒ `null`, c'est-à-dire la
+   * liste entière : c'est le cas de toutes les entrées de la colonne, et c'est exactement ce qu'Arno demande
+   * (« Clic sur “Réception” = toujours la liste COMPLÈTE »).
+   *
+   * 🔴 POURQUOI UN SEUL APPEL, ET NON `onEtiquette(e)` PUIS `onFiltre(f)`. C'était l'écriture d'avant, et elle
+   * portait un défaut silencieux : les deux fonctions appellent `aller({ ...etatUrl, … })` avec LE MÊME
+   * instantané d'état. Le second appel écrasait donc le premier — l'étiquette choisie était perdue dès qu'un
+   * filtre l'accompagnait. Cela ne se voyait pas tant que « N non lus » n'était cliqué que depuis Réception,
+   * déjà ouverte. Un seul appel, un seul état écrit.
+   */
+  onEtiquette: (e: Etiquette, filtre?: 'non-lus' | null) => void;
   filOuvert: number | null;
   /**
    * LOT MESSAGE-CLIQUÉ — QUEL MESSAGE de l'échange ouvert on venait lire. Vient de l'adresse (`?fil=…&message=…`) et
@@ -285,9 +298,27 @@ export function PleinEcranBoite({
    * ne change pas l'étiquette. C'est précisément ce cas-là qui ne marchait pas.
    */
   const [retourAuDossier, setRetourAuDossier] = useState(0);
-  /** Le geste complet d'une entrée de colonne : on va au dossier, et l'on quitte la recherche. */
-  const allerAuDossier = (e: Etiquette): void => {
-    onEtiquette(e);
+  /**
+   * Le geste complet d'une entrée de colonne : on va au dossier, et l'on quitte la recherche.
+   *
+   * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT, POINT 1 — LA CAUSE EXACTE ÉTAIT ICI ═══════════════════════════════════
+   *
+   * CONSTAT D'ARNO (09/10/2026) : « Clic sur “27 non lus” → la liste ne montre que les 27 (normal). MAIS
+   * ensuite : clic sur “Réception” → il ne se passe RIEN, on reste bloqué sur les 27 non lus. »
+   *
+   * 🔴 CE GESTE NE TOUCHAIT PAS AU FILTRE. Il changeait l'étiquette et demandait « montre-moi le dossier » —
+   * mais `filtre=non-lus` restait dans l'adresse. Or l'étiquette, elle, ne changeait pas non plus : on était
+   * DÉJÀ sur Réception. Résultat : un clic qui n'écrit rien de nouveau, donc un écran qui ne bouge pas. Ce
+   * n'était pas une entrée morte, c'était une entrée qui n'avait rien à dire.
+   *
+   * 🔴 LE FILTRE PART DONC AVEC LE DOSSIER, par défaut et pour toutes les entrées. Une entrée de colonne
+   * promet un dossier entier ; elle doit le tenir quel que soit l'état où l'on se trouvait.
+   *
+   * ⚠️ L'ÉTOILE AUSSI, et c'est la même promesse : Arno demande que « chaque entrée puisse être quittée en
+   * cliquant une autre entrée », l'étoile comprise. Elle est rendue par le même `aller()`, en un seul écrit.
+   */
+  const allerAuDossier = (e: Etiquette, f: 'non-lus' | null = null): void => {
+    onEtiquette(e, f);
     setRetourAuDossier((n) => n + 1);
     setPanneauMobile('contenu');
   };
@@ -873,17 +904,28 @@ export function PleinEcranBoite({
                       <span className="cm-nom"><span className="cm-texte">{e.libelle}</span></span>
                     </button>
                     <span className="cm-sels">
+                      {/**
+                        * 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT, POINT 2 — « N non lus » EST UNE BASCULE.
+                        * Arno : « 1er clic = n'afficher que les non lus ; 2e clic sur le même lien = retour à
+                        * la liste complète. » Un lien qui ne sait qu'entrer quelque part est un piège : il faut
+                        * deviner par où l'on sort. Le même geste fait les deux, et `aria-pressed` dit lequel
+                        * des deux on va déclencher.
+                        */}
                       <button type="button"
                         className={`cm-sel${filtre === 'non-lus' ? ' cm-sel--actif' : ''}`}
                         aria-pressed={filtre === 'non-lus'}
-                        onClick={() => { allerAuDossier(e.etiquette); onFiltre('non-lus'); }}>
+                        title={filtre === 'non-lus'
+                          ? 'Revenir à la liste complète'
+                          : 'N’afficher que les échanges non lus'}
+                        onClick={() => allerAuDossier(e.etiquette, filtre === 'non-lus' ? null : 'non-lus')}>
                         {e.nonLusPartiel ? 'au moins ' : ''}{nonLus} non lu{nonLus > 1 ? 's' : ''}
                       </button>
                       {e.compte !== null && (
                         <button type="button"
                           className={`cm-sel cm-sel--total${filtre === null ? ' cm-sel--actif' : ''}`}
                           aria-pressed={filtre === null}
-                          onClick={() => { allerAuDossier(e.etiquette); onFiltre(null); }}>
+                          title="Afficher la liste complète"
+                          onClick={() => allerAuDossier(e.etiquette, null)}>
                           {e.compte}
                         </button>
                       )}
@@ -1168,6 +1210,10 @@ export function PleinEcranBoite({
               /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 3 — cliquer un dossier sort de la recherche. */
               retourAuDossier={retourAuDossier}
               onRelever={onRelever} releveEnCours={releveEnCours} filtre={filtre}
+              /* 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — de quoi sortir du filtre DEPUIS la liste (le repère « ✕ »).
+                 C'est le même `onFiltre` que les sélecteurs de la colonne : une seule porte de sortie, écrite
+                 une fois. Absent ⇒ aucun repère, et la liste est celle d'avant ce lot. */
+              onFiltre={onFiltre}
               etoile={etoile} onEtoileFiltre={onEtoileFiltre}
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus}
               onTotalEtiquette={onTotalEtiquette} marquage={marquage}

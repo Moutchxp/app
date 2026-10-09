@@ -621,5 +621,23 @@ export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
      * qu'on regarde : empiler une entrée d'historique fait que « Précédent » revient au tri d'avant, ce qu'on
      * attend d'un bouton qui réorganise la page. C'est l'inverse de `hdb`, qui ne désigne aucun écran.
      */
-    && ((a.ecran !== 'partage' && a.ecran !== 'evenements') || (a.tri ?? null) === (b.tri ?? null));
+    && ((a.ecran !== 'partage' && a.ecran !== 'evenements') || (a.tri ?? null) === (b.tri ?? null))
+    /**
+     * ══ 🔴🔴 LOT FILTRE-NON-LUS-BLOQUANT — LE SÉLECTEUR « non lus » ET L'ÉTOILE COMPTENT AUSSI ═════════════════
+     *
+     * ARNO (09/10/2026) : « Le bouton Précédent du navigateur fonctionne (retour de non-lus vers liste
+     * complète). » Il ne le pouvait pas : `filtre` et `etoile` ne figuraient pas dans cette comparaison, donc
+     * passer en « non lus » était tenu pour LE MÊME état et s'écrivait en `replaceState`. Aucune entrée
+     * d'historique n'était empilée — « Précédent » sautait par-dessus, jusqu'à l'écran d'avant.
+     *
+     * 🔴 C'EST EXACTEMENT LE RAISONNEMENT DU TRI, deux lignes plus haut, et il vaut à plus forte raison ici : le
+     * tri change l'ORDRE de ce qu'on regarde, le filtre change CE QU'ON REGARDE. Si reculer doit rendre le tri
+     * d'avant, il doit rendre la liste d'avant.
+     *
+     * ⚠️ `=== true` DES DEUX CÔTÉS : `etoile` est facultatif, et `undefined` doit valoir `false` — sans quoi un
+     * état venu de l'adresse (où l'absence est la règle) et un état construit en mémoire ne se compareraient
+     * jamais égaux, et chaque rendu empilerait une entrée.
+     */
+    && (a.ecran !== 'boite'
+      || ((a.filtre ?? null) === (b.filtre ?? null) && (a.etoile === true) === (b.etoile === true)));
 }
