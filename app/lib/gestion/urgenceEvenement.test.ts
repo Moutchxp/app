@@ -289,16 +289,34 @@ describe('🔴🔴 ⑤ un seul sélecteur, pour la carte et pour la fiche du bie
     /**
      * ⚠️ 44 px DE CIBLE TACTILE : exigence transverse §15, et elle n'est pas négociable en mode compact.
      *
-     * ⚠️ CE QUE CETTE LIGNE DISAIT AVANT, ET POURQUOI ELLE A CHANGÉ : elle cherchait `min-height:44px` DANS
-     * cette feuille-ci, parce que `.gurg-voie` y portait son propre dessin. Depuis le lot
-     * HARMONIE-BOUTONS-ET-TROMBONE (point 2b), le dessin des trois boutons est celui, commun, de
-     * `BoutonPilule` — Arno : « Rends ce format commun […] pour que les trois groupes ne divergent plus ».
-     * L'exigence est donc vérifiée LÀ OÙ ELLE VIT MAINTENANT, et on vérifie en plus que cette feuille-ci
-     * l'emporte bien avec elle : une cible tactile tenue dans un fichier que le composant n'injecte pas ne
-     * serait tenue nulle part.
+     * ⚠️ CE QUE CETTE LIGNE DISAIT AVANT, ET POURQUOI ELLE A CHANGÉ — DEUX FOIS.
+     *   ① Elle cherchait `min-height:44px` DANS cette feuille-ci, parce que `.gurg-voie` y portait son propre
+     *      dessin. Depuis le lot HARMONIE-BOUTONS-ET-TROMBONE (point 2b), le dessin des trois boutons est
+     *      celui, commun, de `BoutonPilule`. L'exigence se vérifie donc LÀ OÙ ELLE VIT, et on vérifie en plus
+     *      que cette feuille-ci l'emporte bien avec elle : une cible tactile tenue dans un fichier que le
+     *      composant n'injecte pas ne serait tenue nulle part.
+     *   ② Elle cherchait ensuite `min-height:44px` dans `BoutonPilule`. Le lot
+     *      BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX (point 1) a SÉPARÉ les deux grandeurs qu'un seul `min-height`
+     *      confondait — Arno : « hauteur VISIBLE 32 px […] La zone CLIQUABLE reste d'au moins 44 px de haut
+     *      (marge invisible autour du bouton visible), pour respecter la cible tactile du §15 ».
+     *
+     * 🔴 ON ÉPROUVE DONC LES DEUX, ET C'EST LE CŒUR DE CE CAS : la hauteur visible (32 px) ET la zone
+     * cliquable (44 px). Vérifier la seule hauteur visible laisserait passer un bouton de 32 px sans zone
+     * étendue — un bouton joli et intouchable au doigt, exactement ce que le §15 interdit. Vérifier la seule
+     * zone cliquable laisserait revenir le bouton de 44 px que ce lot vient d'aplatir.
      */
     expect(feuille).toContain('${CSS_BOUTON_PILULE}');
     const PILULE = readFileSync('app/(admin)/admin/(protected)/gestion/BoutonPilule.tsx', 'utf8');
-    expect(PILULE.slice(PILULE.indexOf('export const CSS_BOUTON_PILULE'))).toContain('min-height:44px');
+    const DESSIN = PILULE.slice(PILULE.indexOf('export const CSS_BOUTON_PILULE'));
+    /* ① la hauteur VISIBLE, celle qu'Arno a demandée */
+    expect(DESSIN).toContain('min-height:32px');
+    /* ② la zone CLIQUABLE, invisible, centrée sur le bouton — et au moins 44 px */
+    const cible = /\.gpil::after\{[^}]*height:(\d+)px/.exec(DESSIN);
+    expect(cible, 'la pilule doit porter sa cible tactile en ::after').not.toBeNull();
+    expect(Number(cible?.[1])).toBeGreaterThanOrEqual(44);
+    /* ⚠️ ET ELLE EST BIEN CENTRÉE : sans cela, les 44 px déborderaient d'un seul côté. */
+    expect(DESSIN).toContain('top:50%;height:44px;transform:translateY(-50%)');
+    /* ⚠️ LE ::after N'EST PAS POSITIONNABLE SANS SON RÉFÉRENT : `position:relative` sur le bouton. */
+    expect(DESSIN).toContain('.gpil{position:relative;');
   });
 });

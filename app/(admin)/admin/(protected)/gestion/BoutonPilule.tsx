@@ -84,8 +84,28 @@ export function BoutonPilule({ mot, actif, onClick, aide, occupe = false, classe
  * vit DANS un litteral gabarit, qu'un seul terminerait (piege TS1005, consigne quinze fois dans ce depot).
  */
 export const CSS_BOUTON_PILULE = `
-.gpil{min-height:44px;padding:.25rem .7rem;font:inherit;font-size:.8rem;color:var(--color-svv-ink);
-  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:999px;cursor:pointer}
+/* ══ 🔴🔴 LOT BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX, POINT 1 — 32 px QU'ON VOIT, 44 px QU'ON TOUCHE ══════════════
+   ARNO (09/10/2026) : « Fini la pilule : coins arrondis a 8 px (meme rayon que le bouton “Plein ecran”),
+   hauteur VISIBLE 32 px, marges interieures horizontales conservees. La zone CLIQUABLE reste d'au moins 44 px
+   de haut (marge invisible autour du bouton visible), pour respecter la cible tactile du §15. »
+   🔴 LES DEUX EXIGENCES NE SE CONTREDISENT PLUS, ET C'EST TOUT L'OBJET DE CE BLOC. Jusqu'ici la cible tactile
+   etait tenue en GROSSISSANT le bouton (min-height:44px) : le dessin payait l'accessibilite. Le ::after la
+   tient sans rien dessiner — un rectangle transparent de 44 px, centre sur le bouton, qui recoit le clic
+   parce qu'il appartient au bouton. Le doigt touche 44, l'oeil voit 32.
+   ⚠️ LE RECTANGLE NE DEBORDE QUE VERTICALEMENT (left:0;right:0) : deux boutons voisins d'une meme rangee ne
+   peuvent donc pas se voler un clic, quel que soit l'ecart horizontal entre eux. C'est l'ecart VERTICAL, lui,
+   qui compte quand la rangee se replie sur un telephone — d'ou les 12 px de row-gap poses par les trois
+   rangees qui montent ces boutons (sans quoi deux lignes de 32 px espacees de 6 px auraient des zones de clic
+   qui se chevauchent).
+   ⚠️ 8 px ET NON .6rem : « Plein ecran » arrondissait a 9,6 px (.gst-btn). Arno ecrit 8 px ET « meme rayon que
+   Plein ecran » : les deux boutons passent donc a 8, plutot que de laisser 1,6 px d'ecart sur une rangee dont
+   ce lot demande justement l'homogeneite.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gpil{position:relative;min-height:32px;padding:.25rem .7rem;font:inherit;font-size:.8rem;
+  color:var(--color-svv-ink);
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:8px;cursor:pointer}
+/* LA CIBLE TACTILE : invisible, sans fond ni bordure, et elle ne deplace rien (position absolue). */
+.gpil::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
 .gpil:hover:not(:disabled){background:var(--color-svv-field)}
 /* ⚠️ LE MEME SELECTEUR DE BASE QUE LE SURVOL (.gpil:not(:disabled)), et ce n'est pas une coquetterie : le garde
    §15 de GestionVue.parts.test.ts retire « :hover » du selecteur et exige de trouver son pendant au clavier,

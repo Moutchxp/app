@@ -55,7 +55,11 @@ describe('① les mêmes trois rangées, des deux côtés', () => {
     for (const [nom, src] of [['colonne des mails', BRC], ['colonne des événements', VUE]] as const) {
       expect(src, nom).toContain('gst-btn gst-plein');
     }
-    expect(FEUILLE).toContain('.gst-tete-partage-outils .gst-plein{margin-left:auto}');
+    /* ⚠️ LA RÈGLE A GAGNÉ DES DÉCLARATIONS, ELLE N'A PAS CHANGÉ DE SENS : le lot
+       BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX y a ajouté la hauteur visible de 32 px et le rayon de 8 px pour que
+       la seconde rangée soit homogène. Ce que ce cas tient — « poussé à droite » — est la marge automatique,
+       et c'est elle qu'on vérifie, sans figer le reste de la déclaration. */
+    expect(FEUILLE).toContain('.gst-tete-partage-outils .gst-plein{margin-left:auto;');
   });
 });
 
@@ -79,9 +83,29 @@ describe('② même largeur, même hauteur visible, défilement indépendant', (
     expect(regle).not.toMatch(/grid-template-columns:[^;]*(px|%|minmax)/);
   });
 
+  /**
+   * ⚠️ CE QUE CES TROIS CAS EXIGEAIENT AVANT, ET POURQUOI LE VERDICT A CHANGÉ (lot
+   * BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX, point 2). Ils figeaient l'EMPILEMENT EN FLEX :
+   *   `.gst-deux > .gst-col{display:flex;flex-direction:column;min-height:0}`,
+   *   `.gst-deux .gst-corps-partage{flex:1 1 auto;min-height:0;height:max(22rem,52vh);overflow-y:auto}`,
+   *   `.gst-deux .gst-pied-partage{margin-top:auto}`.
+   * Chaque colonne empilait alors ses quatre rangées POUR ELLE-MÊME : à 1512 px cela tombait juste, mais à
+   * 1000 px le titre de gauche passait sur deux lignes et les deux listes commençaient à 62 px d'écart.
+   * Arno : « écart 0 px attendu […] en plein écran de fenêtre comme en largeur réduite. »
+   *
+   * 🔴 LES DEUX COLONNES PARTAGENT DÉSORMAIS LES MÊMES LIGNES DE GRILLE (subgrid) : chaque rangée prend la
+   * hauteur du plus grand des deux côtés, à toute largeur. CE QUE CES CAS PROTÈGENT N'A PAS CHANGÉ — colonnes
+   * à la même hauteur, corps à hauteur fixe qui défile seul, pied de même hauteur en bas — et c'est cela
+   * qu'ils éprouvent maintenant, dans la forme que la grille leur donne.
+   */
   it('🔴🔴 les colonnes s’étirent à la même hauteur, et c’est la GRILLE qui l’impose', () => {
-    expect(FEUILLE).toMatch(/@media \(min-width:901px\)\{[\s\S]*\.gst-deux\{align-items:stretch\}/);
-    expect(FEUILLE).toMatch(/\.gst-deux > \.gst-col\{display:flex;flex-direction:column;min-height:0\}/);
+    expect(FEUILLE).toMatch(/@media \(min-width:901px\)\{[\s\S]*\.gst-deux\{align-items:stretch;/);
+    /* 🔴 LES QUATRE RANGÉES SONT CELLES DU PARENT, et les deux colonnes les relaient. */
+    expect(FEUILLE).toContain('.gst-deux{align-items:stretch;row-gap:0;grid-template-rows:auto auto 1fr auto}');
+    expect(FEUILLE).toContain('.gst-deux > .gst-col{grid-row:1 / span 4;display:grid;grid-template-rows:subgrid;min-height:0}');
+    /* ⚠️ LA CHAÎNE EST COMPLÈTE : sans ces deux relais, la gauche empilerait tout dans une seule rangée. */
+    expect(FEUILLE).toContain('.gst-deux > .gst-col > .brc{grid-row:1 / span 4;display:grid;grid-template-rows:subgrid;');
+    expect(FEUILLE).toContain('.gst-deux .gst-tete-partage{grid-row:1 / span 2;display:grid;grid-template-rows:subgrid;');
   });
 
   it('🔴🔴 le CORPS a une hauteur FIXE et commune, et défile pour lui-même', () => {
@@ -90,12 +114,13 @@ describe('② même largeur, même hauteur visible, défilement indépendant', (
      * que celle des mails, et les deux pieds ne s'aligneraient plus — ce qui est précisément le défaut à
      * corriger. `max()` donne un plancher : sur un écran bas, la liste reste utilisable.
      */
-    expect(FEUILLE).toContain('.gst-deux .gst-corps-partage{flex:1 1 auto;min-height:0;'
-      + 'height:max(22rem,52vh);overflow-y:auto}');
+    expect(FEUILLE).toContain('.gst-deux .gst-corps-partage{min-height:0;'
+      + 'height:max(22rem,52vh);overflow-y:auto;margin-top:.5rem}');
   });
 
   it('🔴 le PIED reste en bas, et fait la même hauteur des deux côtés', () => {
-    expect(FEUILLE).toContain('.gst-deux .gst-pied-partage{margin-top:auto}');
+    /* ⚠️ IL N'A PLUS BESOIN D'ÊTRE POUSSÉ : il EST la dernière rangée de la grille, des deux côtés. */
+    expect(FEUILLE).toContain('.gst-deux .gst-pied-partage{margin-top:8px}');
     /* ⚠️ 48 px, mesuré : un bouton de 44 px dans une rangée centrée en occupe 48. 44 laissait 4 px d'écart. */
     expect(FEUILLE).toMatch(/\.gst-pied-partage\{[^}]*min-height:48px/);
   });

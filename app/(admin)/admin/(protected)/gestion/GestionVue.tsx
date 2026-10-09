@@ -2032,9 +2032,45 @@ ${CSS_BOUTON_PILULE}
    7 px d'ecart, visibles. On fixe la MEME hauteur des deux cotes plutot que de la laisser au contenu, sinon
    l'alignement depend de ce que la colonne de gauche contient ce jour-la.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
-.gst-tete-partage-titre{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;min-height:30px}
-.gst-tete-partage-titre .gst-titre{margin:0}
-.gst-tete-partage-outils{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px}
+/* ⚠️ PAS DE align-content ICI, ET C'EST MESURE. La cale par defaut ETIRE la ligne unique sur toute la hauteur
+   de la rangee : les deux titres font alors exactement la meme hauteur, et leurs compteurs tombent au meme
+   pixel (256,59 des deux cotes a 1512 px). Essaye avec flex-start : la ligne de droite se replie sur ses
+   22,5 px naturels pendant que celle de gauche en fait 30 (son bouton rond), et le compteur de droite remonte
+   de 3,75 px. La rangee des outils, elle, est calee en bas — leurs situations ne sont pas les memes, et c'est
+   la mesure qui a tranche dans les deux cas. */
+.gst-tete-partage-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:30px}
+/* ══ 🔴🔴 LOT BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX, POINT 2 — LE COMPTEUR A LA MEME HAUTEUR DES DEUX COTES ═════
+   ARNO : « titre + compteur(s) a la meme hauteur des deux cotes (meme hauteur de ligne, meme alignement
+   vertical du texte) ».
+   🔴 CE QUI CLOCHAIT, MESURE : la pastille du compteur etait a 256,6 px a gauche et 252,8 a droite — 3,8 px
+   d'ecart, sur la ligne meme qu'on compare d'un coup d'oeil. La cause n'etait pas la RANGEE (deja a la meme
+   hauteur depuis le lot precedent) mais l'INTERIEUR du titre : il se disposait en ligne, a la MAJUSCULE DE
+   BASE, et le bouton rond « relever » de la boite de reception, haut de 30 px et cale au milieu, abaissait la
+   ligne de base de tout ce qui le suivait. A droite, rien ne l'abaissait.
+   🔴 LE TITRE SE DISPOSE DONC EN RANGEE CENTREE : texte, adresse, compteur et bouton rond sont centres
+   verticalement sur les 30 px, des deux cotes, quoi que le titre contienne ce jour-la. Un calage qui depend du
+   contenu de la colonne de gauche n'est pas un calage.
+   ⚠️ RIEN N'EST RETIRE : memes elements, meme ordre, meme place a 0,5 rem les uns des autres. Seule la regle
+   de calage change (ligne de base -> centre).
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-tete-partage-titre .gst-titre{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-width:0}
+/* ⚠️ LE ROW-GAP PASSE A 12 px, ET LE COLUMN-GAP NE BOUGE PAS (6 px) : sur une seule ligne, rien ne change.
+   Repliee sur un telephone, deux lignes de boutons de 32 px espacees de 6 px auraient des zones de clic de
+   44 px qui se CHEVAUCHENT — 12 px les separent exactement. Voir l'encadre du ::after dans BoutonPilule. */
+/* ══ 🔴🔴 LOT BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX — LA RANGEE SUIT LA HAUTEUR VISIBLE, PAS LA TACTILE ═════════
+   CE QUI ETAIT ECRIT ICI : min-height:44px. C'etait la cible tactile du §15, reservee par la RANGEE parce que
+   les boutons la portaient dans leur propre hauteur. Depuis le point 1, ils ne font plus que 32 px visibles
+   et tiennent leurs 44 px par un rectangle invisible : la rangee n'a plus a reserver 12 px de vide. Elle
+   epouse donc ses boutons.
+   🔴 ET C'EST CE QUI PERMET A « Plein ecran » D'ETRE SUR LA MEME LIGNE DES DEUX COTES. Mesure a 1000 px : les
+   filtres de gauche se replient sur deux lignes, « Plein ecran » tombe sur la seconde (363 px) ; a droite, ou
+   il est seul, il restait centre dans une rangee etiree a la meme hauteur (341 px) — 22 px d'ecart.
+   align-content:flex-end cale les lignes EN BAS : le bouton solitaire de droite rejoint la derniere ligne de
+   gauche, a tout moment. Sans slack dans la rangee, « en bas » et « au centre » sont la meme chose quand il
+   n'y a qu'une ligne — rien ne bouge sur large.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-tete-partage-outils{display:flex;flex-wrap:wrap;align-items:center;align-content:flex-end;gap:12px 6px;
+  min-height:32px}
 /* ══ 🔴🔴 LOT FILTRES-EVENEMENTS-NEW, POINT 2 — LES DEUX BOUTONS DE TRI, A COTE DU COMPTEUR ═══════════════════
    ARNO : « DEUX BOUTONS DE TRI en haut de la colonne et de l'ecran Evenements, a cote du compteur : “New” et
    “Urgent”. Un seul actif a la fois. » La RANGEE reste ici ; le DESSIN des deux boutons, non.
@@ -2048,26 +2084,95 @@ ${CSS_BOUTON_PILULE}
    touche : seul leur dessin rejoint celui de « Tous ».
    ⚠️ 44 px DE CIBLE TACTILE : l'exigence §15 est tenue par .gpil, qui l'a reprise de ces deux boutons-ci.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
-.gst-tris{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;margin-left:.5rem}
+.gst-tris{display:inline-flex;flex-wrap:wrap;align-items:center;gap:12px 4px;margin-left:.5rem}
 /* « Plein ecran » ferme la rangee, a droite, dans les DEUX colonnes. */
-.gst-tete-partage-outils .gst-plein{margin-left:auto}
+/* ══ 🔴🔴 LOT BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX, POINT 1 — IL PREND LA HAUTEUR VISIBLE DES AUTRES ═══════════
+   ARNO : « Le bouton “Plein ecran” des deux panneaux prend la meme hauteur visible (32 px) pour que la 2e
+   ligne soit homogene. » Il faisait 44 px pleins (.gst-btn), a cote de boutons qui n'en font plus que 32.
+   🔴 ET IL GARDE SA CIBLE TACTILE, par le MEME moyen que les pilules : un rectangle transparent de 44 px.
+   Perdre 12 px de zone cliquable sur le seul bouton qui change d'ecran aurait ete le pire endroit ou le faire.
+   ⚠️ LA REGLE EST SCOPEE A LA RANGEE DE L'EN-TETE : .gst-btn sert a des dizaines de boutons ailleurs dans le
+   module, et la demande ne parle que de ces deux-la.
+   ⚠️ 8 px DE RAYON, comme les pilules : c'est le chiffre qu'Arno ecrit, et .gst-btn arrondissait a 9,6.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+/* ⚠️ LA MARGE INTERIEURE VERTICALE PASSE A .25rem, L'HORIZONTALE NE BOUGE PAS (1rem, de .gst-btn) : mesure a
+   l'ecran, min-height:32px seul laissait le bouton a 33,2 px, parce qu'un minimum ne RABAISSE rien — ses
+   8,8 px de marge haute et basse, sa ligne de texte et son liseret le portaient deja au-dessus. Arno demande
+   32 px visibles et « marges interieures horizontales conservees » : c'est exactement ce que fait cette ligne. */
+.gst-tete-partage-outils .gst-plein{margin-left:auto;position:relative;min-height:32px;border-radius:8px;
+  padding-top:.25rem;padding-bottom:.25rem}
+.gst-tete-partage-outils .gst-plein::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px;
+  transform:translateY(-50%)}
 /* Le corps et le pied : memes marges, meme hauteur de pied. */
-.gst-corps-partage{min-width:0}
+/* ══ 🔴🔴 LOT BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX, POINT 2 — LE SEPARATEUR, UNE SEULE FOIS, POUR LES DEUX ═════
+   ARNO : « Separateur sous l'en-tete : meme epaisseur, meme position des deux cotes. Le PREMIER mail de la
+   boite de reception et la PREMIERE capsule d'evenement commencent exactement a la meme hauteur. »
+   🔴 CE QUI CLOCHAIT, MESURE : le filet existait A GAUCHE SEULEMENT — il etait porte par .brc-liste
+   (border-top), dans la feuille de la boite de reception. La colonne des evenements n'en avait aucun, et ses
+   cartes commencaient donc 1 px plus haut : 342 a gauche contre 341 a droite.
+   🔴 IL EST DONC PORTE PAR LE CORPS LUI-MEME, le conteneur que les DEUX colonnes partagent. Meme epaisseur et
+   meme position ne sont plus une coincidence a verifier : c'est la meme declaration, une seule fois, et le
+   jour ou elle change elle change des deux cotes.
+   ⚠️ RIEN N'EST RETIRE A GAUCHE : le filet de .brc-liste est remplace par celui-ci, a la meme place (le haut
+   de la liste EST le haut du corps), de la meme epaisseur et du meme jeton. L'oeil ne voit aucune difference
+   a gauche ; la droite, elle, gagne le filet qui lui manquait.
+   ⚠️ ET IL NE DEFILE PAS AVEC LA LISTE : pose sur le conteneur a defilement, il reste colle sous l'en-tete —
+   ce qu'un filet pose sur la liste ne faisait pas.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gst-corps-partage{min-width:0;border-top:1px solid var(--color-svv-line)}
 /* ⚠️ 48 px ET NON 44 : un bouton de 44 px pose dans une rangee alignee au centre occupe 48 px avec son liset.
    Mesure a l'ecran : le pied de gauche faisait 48 et celui de droite 44, et les deux colonnes se terminaient a
    4 px l'une de l'autre. On fixe donc la MEME hauteur des deux cotes plutot que de la laisser au contenu. */
 .gst-pied-partage{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:48px;margin-top:8px}
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX, POINT 2 — LES QUATRE RANGEES SONT CELLES DE LA GRILLE
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ARNO : « Ligne 1 : titre + compteur(s) a la meme hauteur des deux cotes. Ligne 2 : boutons-filtres a gauche,
+   “Plein ecran” a droite, sur exactement la meme ligne horizontale des deux cotes. […] ecart 0 px attendu […]
+   en plein ecran de fenetre comme EN LARGEUR REDUITE. »
+
+   ══ 🔴🔴 CE QUI CLOCHAIT, ET POURQUOI « MEME HAUTEUR MINIMALE » NE SUFFISAIT PAS ═══════════════════════════
+
+   Chaque colonne empilait ses quatre rangees POUR ELLE-MEME, en flex. A 1512 px cela tombait juste, parce que
+   les deux titres tenaient sur une ligne et les deux rangees d'outils aussi. MESURE A 1000 px : le titre de
+   gauche — « Boite de reception » + l'adresse + « 17087 mails recus » + le bouton rond — passait a DEUX
+   lignes (60,5 px contre 30), ses outils aussi (76 contre 44), et les deux listes commencaient a 404 et 342.
+   62 px d'ecart. Un min-height est un PLANCHER : il ne peut pas faire descendre la colonne d'en face.
+
+   🔴 LES DEUX COLONNES PARTAGENT DONC LES MEMES LIGNES DE GRILLE (subgrid), au lieu de se ressembler par
+   accident. La hauteur de chaque rangee est celle du plus grand des deux cotes, quelle que soit la largeur et
+   quel que soit le contenu du jour : titre contre titre, outils contre outils, corps contre corps, pied
+   contre pied. Il n'y a plus rien a « verifier » — l'alignement est ce que la grille EST.
+
+   ⚠️ LA CHAINE DOIT ETRE COMPLETE : la colonne de gauche delegue son contenu a BoiteReception, dont le
+   .brc s'intercale entre la colonne et ses rangees. Il est donc subgrid lui aussi, sinon la gauche
+   empilerait ses rangees dans UNE seule ligne de la grille et tout l'etage s'ecroulerait. Idem pour
+   .gst-tete-partage, qui porte les deux rangees d'en-tete a lui seul.
+
+   ⚠️ LES ECARTS DE RANGEE REDEVIENNENT DES MARGES : en subgrid, l'espace entre deux rangees vient du
+   row-gap du PARENT, qui vaut 24 px ici (l'ecart entre les deux colonnes) et ruinerait l'en-tete. On le met
+   donc a zero SUR LARGE, et les deux respirations d'avant sont rendues par des marges — 0,4 rem sous le
+   titre, 0,5 rem sous l'en-tete : exactement les valeurs que .gst-tete-partage portait en gap et en
+   margin. En dessous de 901 px, les colonnes s'empilent et le row-gap de 24 px reprend son office.
+
+   ⚠️ RIEN N'EST RETIRE NI MASQUE : aucune rangee ne disparait, aucune ne se rogne. Une rangee plus courte que
+   sa voisine est simplement ETIREE — c'est de l'espace vide, pas du contenu coupe.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
 @media (min-width:901px){
   /* Les deux colonnes font la meme hauteur : c'est la grille qui l'impose, pas leur contenu. */
-  .gst-deux{align-items:stretch}
-  .gst-deux > .gst-col{display:flex;flex-direction:column;min-height:0}
-  /* La colonne de gauche delegue son contenu a BoiteReception : il doit s'etirer comme son hote. */
-  .gst-deux > .gst-col > .brc{flex:1 1 auto;display:flex;flex-direction:column;min-height:0;gap:0}
+  .gst-deux{align-items:stretch;row-gap:0;grid-template-rows:auto auto 1fr auto}
+  .gst-deux > .gst-col{grid-row:1 / span 4;display:grid;grid-template-rows:subgrid;min-height:0}
+  /* La colonne de gauche delegue son contenu a BoiteReception : il relaie les memes rangees. */
+  .gst-deux > .gst-col > .brc{grid-row:1 / span 4;display:grid;grid-template-rows:subgrid;min-height:0;gap:0}
+  /* ① L'EN-TETE OCCUPE LES DEUX PREMIERES RANGEES, et les relaie a son tour. */
+  .gst-deux .gst-tete-partage{grid-row:1 / span 2;display:grid;grid-template-rows:subgrid;gap:0;margin:0}
+  .gst-deux .gst-tete-partage-titre{margin-bottom:.4rem}
   /* ② LA HAUTEUR VISIBLE COMMUNE. max() donne un plancher : sur un ecran bas, la liste reste utilisable. */
-  .gst-deux .gst-corps-partage{flex:1 1 auto;min-height:0;height:max(22rem,52vh);overflow-y:auto}
-  /* ③ LE PIED RESTE EN BAS, meme quand le corps ne se remplit pas. */
-  .gst-deux .gst-pied-partage{margin-top:auto}
+  .gst-deux .gst-corps-partage{min-height:0;height:max(22rem,52vh);overflow-y:auto;margin-top:.5rem}
+  /* ③ LE PIED EST SA PROPRE RANGEE, la derniere : il n'a plus besoin d'etre pousse en bas. */
+  .gst-deux .gst-pied-partage{margin-top:8px}
 }
 
 /* ══ ① LE MEME RYTHME DE LIGNE DANS LES DEUX LISTES ════════════════════════════════════════════════════════════

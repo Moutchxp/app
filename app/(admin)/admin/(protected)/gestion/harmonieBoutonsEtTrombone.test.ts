@@ -104,7 +104,10 @@ describe('🔴🔴 ② un seul format de boutons-filtres', () => {
    * dessins d'avant.
    */
   it('🔴🔴 la pilule est déclarée une seule fois, dans son fichier', () => {
-    expect(FEUILLE_PILULE).toContain('.gpil{min-height:44px;padding:.25rem .7rem;font:inherit;font-size:.8rem;');
+    /* ⚠️ LE DÉBUT DE LA DÉCLARATION A CHANGÉ (lot BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX) : `min-height:44px` est
+       devenu `position:relative;min-height:32px` — 32 px qu'on voit, 44 qu'on touche, par le ::after. Ce que
+       ce cas tient est inchangé : la déclaration existe, et elle est UNIQUE dans le dépôt. */
+    expect(FEUILLE_PILULE).toContain('.gpil{position:relative;min-height:32px;padding:.25rem .7rem;font:inherit;font-size:.8rem;');
     for (const [nom, source] of [['BoiteReception', BOITE], ['GestionVue', VUE], ['SelecteurUrgence', URGENCE]] as const) {
       expect((source.match(/\.gpil\{/g) ?? []).length, nom).toBe(0);
     }
@@ -144,14 +147,20 @@ describe('🔴🔴 ② un seul format de boutons-filtres', () => {
   it('🔴 le format reprend la référence, attribut par attribut', () => {
     /* forme, marges, police, taille, graisse (celle du texte courant : aucune déclaration de poids) */
     expect(FEUILLE_PILULE).toContain('padding:.25rem .7rem;font:inherit;font-size:.8rem');
-    expect(FEUILLE_PILULE).toContain('border-radius:999px');
+    /* ⚠️ 8 px ET NON 999 px : la pilule est devenue un bouton plat au lot BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX
+       (« Fini la pilule : coins arrondis à 8 px, même rayon que le bouton “Plein écran” »). Le NOM `.gpil`
+       reste — le renommer aurait été un lot de renommage là où il n'y avait qu'un rayon à changer. */
+    expect(FEUILLE_PILULE).toContain('border-radius:8px');
     expect(FEUILLE_PILULE).not.toContain('font-weight');
     /* inactif : fond blanc, bordure grise, texte d'encre */
     expect(FEUILLE_PILULE).toContain('color:var(--color-svv-ink);\n  background:var(--color-svv-surface);border:1px solid var(--color-svv-line)');
     /* actif : fond sombre, texte blanc */
     expect(FEUILLE_PILULE).toContain('.gpil--actif{color:var(--color-svv-surface);background:var(--color-svv-ink);border-color:var(--color-svv-ink)}');
-    /* la hauteur commune, et le §15 */
-    expect(FEUILLE_PILULE).toContain('min-height:44px');
+    /* la hauteur commune, et le §15 — DEUX grandeurs depuis le lot BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX :
+       32 px visibles, 44 px cliquables. Le détail de la cible tactile est éprouvé dans
+       `app/lib/gestion/urgenceEvenement.test.ts`, qui est l'épreuve que ce point-là a nommée. */
+    expect(FEUILLE_PILULE).toContain('min-height:32px');
+    expect(FEUILLE_PILULE).toContain('.gpil::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px');
   });
 
   /**

@@ -202,8 +202,16 @@ describe('🔴🔴 ⑤ l’en-tête du panneau « Événements »', () => {
   it('🔴🔴 les deux panneaux partagent la rangée, sa hauteur et sa marge', () => {
     const gauche = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteReception.tsx', 'utf8');
     expect(gauche).toContain('gst-tete-partage-outils');
-    expect(VUE).toContain('.gst-tete-partage-outils{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px}');
-    expect(VUE).toContain('.gst-tete-partage-outils .gst-plein{margin-left:auto}');
+    /* ⚠️ DEUX CHANGEMENTS DU LOT BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX, ET LEURS RAISONS.
+       ① Le gap s'écrit en deux valeurs, `12px 6px` : la colonne reste à 6 px — rien ne bouge sur une seule
+          ligne — et la RANGÉE passe à 12 px pour que deux lignes de boutons repliés n'aient pas des zones de
+          clic de 44 px qui se chevauchent.
+       ② La hauteur minimale passe de 44 à 32 px : elle réservait la cible tactile du §15, que les boutons
+          portent désormais par un rectangle invisible. La rangée épouse donc ses boutons — et c'est ce qui
+          permet à « Plein écran » d'être sur la même ligne des deux côtés (`align-content:flex-end`).
+       Ce que ce cas tient reste le même : les deux panneaux partagent LA MÊME déclaration de rangée. */
+    expect(VUE).toContain('.gst-tete-partage-outils{display:flex;flex-wrap:wrap;align-items:center;align-content:flex-end;gap:12px 6px;\n  min-height:32px}');
+    expect(VUE).toContain('.gst-tete-partage-outils .gst-plein{margin-left:auto;');
   });
 
   /**
@@ -215,7 +223,11 @@ describe('🔴🔴 ⑤ l’en-tête du panneau « Événements »', () => {
    * exactement le défaut qu'Arno voyait — deux rangées justes et deux têtes inégales.
    */
   it('🔴🔴 les deux rangées de l’en-tête ont une hauteur fixée, titre compris', () => {
-    expect(VUE).toContain('.gst-tete-partage-titre{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;min-height:30px}');
+    /* ⚠️ `align-items` EST PASSÉ DE `baseline` À `center` (lot BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX) : la
+       hauteur fixée de 30 px — ce que ce cas tient — n'a pas bougé, mais le calage sur la ligne de base
+       laissait la pastille du compteur 3,8 px plus bas à gauche qu'à droite, parce que le bouton rond
+       « relever » y abaissait la ligne de base. Mesuré, puis corrigé des deux côtés. */
+    expect(VUE).toContain('.gst-tete-partage-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:30px}');
     /* ⚠️ ET LE COMMENTAIRE DIT LA MESURE : sans elle, le prochain passage remettra 23 px « pour faire serré ». */
     expect(VUE).toContain('Les deux tetes faisaient donc 80 et 73');
   });

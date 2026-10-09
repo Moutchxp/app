@@ -117,8 +117,11 @@ ${CSS_BOUTON_PILULE}
 .gurg--compact{margin:6px 0 0;gap:.35rem}
 .gurg-legende{font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
   color:var(--color-svv-muted)}
-/* ⚠️ ELLES SE REPLIENT AU LIEU DE DEBORDER : exigence transverse mobile (§15). */
-.gurg-voies{display:flex;flex-wrap:wrap;gap:4px;min-width:0}
+/* ⚠️ ELLES SE REPLIENT AU LIEU DE DEBORDER : exigence transverse mobile (§15).
+   ⚠️ ROW-GAP 12 px, COLUMN-GAP 4 px (lot BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX) : sur une seule ligne rien ne
+   change ; repliees, deux lignes de boutons de 32 px espacees de 4 px auraient des zones de clic de 44 px qui
+   se chevauchent, et c'est justement sur un telephone que la cible tactile compte. */
+.gurg-voies{display:flex;flex-wrap:wrap;gap:12px 4px;min-width:0}
 /* ══ 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 2b — LE DESSIN VIENT DE .gpil, LA COULEUR RESTE ICI ═════════
    CE QUI ETAIT ECRIT ICI, ET QUI A DEMENAGE DANS BoutonPilule : .gurg-voie (44 px, 0.78rem, GRAS, texte
    estompe sur fond de page), son survol, son focus, son etat desactive, et la reduction de taille du mode

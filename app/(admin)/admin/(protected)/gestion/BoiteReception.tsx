@@ -408,7 +408,10 @@ ${CSS_BOUTON_PILULE}
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
 .brc-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
   color:var(--color-svv-muted);flex:0 1 auto;min-width:0}
-.brc-filtres{display:flex;flex-wrap:wrap;gap:6px}
+/* ⚠️ ROW-GAP 12 px, COLUMN-GAP 6 px (lot BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX) : sur une seule ligne rien ne
+   change ; repliee sur un telephone, deux lignes de boutons de 32 px espacees de 6 px auraient des zones de
+   clic de 44 px qui se chevauchent. Voir l'encadre du ::after dans BoutonPilule. */
+.brc-filtres{display:flex;flex-wrap:wrap;gap:12px 6px}
 /* ══ 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 2 — .brc-filtre A DEMENAGE, IL N'A PAS DISPARU ══════════════
    CE QUI ETAIT ECRIT ICI : .brc-filtre, .brc-filtre:hover, .brc-filtre:focus-visible et .brc-filtre--actif.
    C'etait la REFERENCE qu'Arno nomme — et elle ne servait qu'a quatre boutons, pendant que « New »/« Urgent »
@@ -419,8 +422,15 @@ ${CSS_BOUTON_PILULE}
    ⚠️ SEULE LA HAUTEUR A BOUGE, 36 -> 44 px : la cible tactile du §15, que les deux autres groupes tenaient
    deja. La rangee (.gst-tete-partage-outils) reserve 44 px depuis le lot precedent — rien ne se deplace.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
-.brc-liste{display:flex;flex-direction:column;margin:0;padding:0;list-style:none;
-  border-top:1px solid var(--color-svv-line)}
+/* ══ 🔴🔴 LOT BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX, POINT 2 — LE FILET DU HAUT A DEMENAGE, IL N'A PAS DISPARU ══
+   CE QUI ETAIT ECRIT ICI : border-top:1px solid var(--color-svv-line) sur .brc-liste. Il n'existait QUE de ce
+   cote : la colonne des evenements n'avait aucun filet, et ses cartes commencaient 1 px plus haut que les
+   mails (341 contre 342). Arno demande « meme epaisseur, meme position des deux cotes ».
+   Il est maintenant pose sur .gst-corps-partage (feuille de GestionVue), le conteneur que les DEUX colonnes
+   partagent : meme place (le haut de la liste EST le haut du corps), meme epaisseur, meme jeton — et une
+   seule declaration a maintenir au lieu de deux a comparer. Rien n'est retire a l'ecran.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.brc-liste{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
 .brc-li{border-bottom:1px solid var(--color-svv-line)}
 .brc-ligne{display:flex;flex-direction:column;gap:2px;width:100%;min-height:44px;padding:8px 4px;text-align:left;
   font:inherit;color:inherit;background:none;border:0;cursor:pointer;min-width:0}
