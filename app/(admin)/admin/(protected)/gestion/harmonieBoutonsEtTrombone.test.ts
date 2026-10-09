@@ -154,8 +154,13 @@ describe('🔴🔴 ② un seul format de boutons-filtres', () => {
     expect(FEUILLE_PILULE).not.toContain('font-weight');
     /* inactif : fond blanc, bordure grise, texte d'encre */
     expect(FEUILLE_PILULE).toContain('color:var(--color-svv-ink);\n  background:var(--color-svv-surface);border:1px solid var(--color-svv-line)');
-    /* actif : fond sombre, texte blanc */
-    expect(FEUILLE_PILULE).toContain('.gpil--actif{color:var(--color-svv-surface);background:var(--color-svv-ink);border-color:var(--color-svv-ink)}');
+    /**
+     * ⚠️ L'ACTIF N'EST PLUS SOMBRE, IL EST ROUGE (lot FILTRES-FAMILLES-ET-BOUTONS-ROUGES, point 3) : Arno —
+     * « Partout dans ce format commun, l'état actif passe du noir actuel au rouge de la marque, texte
+     * blanc. » 🔒 CE QUE CE CAS TIENT N'A PAS BOUGÉ : l'actif est un FOND PLEIN à texte inversé, écrit avec
+     * des jetons pour que les deux thèmes suivent — seul le jeton de fond change.
+     */
+    expect(FEUILLE_PILULE).toContain('.gpil--actif{color:var(--color-svv-surface);background:var(--color-svv-red);border-color:var(--color-svv-red)}');
     /* la hauteur commune, et le §15 — DEUX grandeurs depuis le lot BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX :
        32 px visibles, 44 px cliquables. Le détail de la cible tactile est éprouvé dans
        `app/lib/gestion/urgenceEvenement.test.ts`, qui est l'épreuve que ce point-là a nommée. */
@@ -175,9 +180,16 @@ describe('🔴🔴 ② un seul format de boutons-filtres', () => {
   it('🔴🔴 l’actif de l’urgence reprend les teintes des cartes, en fond plein', () => {
     const feuille = URGENCE.slice(URGENCE.indexOf('const CSS_SELECTEUR_URGENCE'));
     expect(feuille).toContain('.gurg-voie.gpil--actif{border-color:transparent;color:var(--color-svv-surface)}');
-    expect(feuille).toContain('.gurg-voie--vert.gpil--actif{background:var(--color-svv-green-ink)}');
-    expect(feuille).toContain('.gurg-voie--orange.gpil--actif{background:var(--color-svv-orange)}');
-    expect(feuille).toContain('.gurg-voie--rouge.gpil--actif{background:var(--color-svv-red-dark)}');
+    /* ⚠️ CHAQUE TON REPREND SON FOND AU SURVOL ET AU FOCUS (lot FILTRES-FAMILLES-ET-BOUTONS-ROUGES) : le
+       survol de l'actif commun est passé au rouge et il est PLUS SPÉCIFIQUE que ces trois règles — survoler
+       « Normal » actif l'aurait fait virer au rouge, c'est-à-dire la fin de l'exception. 🔒 Les trois teintes
+       elles-mêmes n'ont pas bougé d'un jeton. */
+    expect(feuille).toContain('.gurg-voie--vert.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-green-ink);');
+    expect(feuille).toContain('.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-orange);');
+    expect(feuille).toContain('.gurg-voie--rouge.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-red-dark);');
+    for (const ton of ['vert', 'orange', 'rouge']) {
+      expect(feuille, ton).toContain(`.gurg-voie--${ton}.gpil--actif:hover:not(:disabled),`);
+    }
     /* 🔴 LES MÊMES TROIS JETONS, CÔTÉ CARTE — si l'une des deux listes bougeait seule, ce cas le dirait. */
     expect(VUE).toContain('.gst-type-capsule--urg-vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}');
     expect(VUE).toContain('.gst-type-capsule--urg-orange{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}');
@@ -190,8 +202,21 @@ describe('🔴🔴 ② un seul format de boutons-filtres', () => {
    * C'est la règle de tout le module — aucune couleur en dur — et ici elle a une conséquence visible.
    */
   it('🔴 aucune couleur en dur, ni dans la pilule ni dans l’exception', () => {
-    expect(FEUILLE_PILULE).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
-    expect(URGENCE.slice(URGENCE.indexOf('const CSS_SELECTEUR_URGENCE'))).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
+    /**
+     * ⚠️ ON CHERCHE DANS LES RÈGLES, PAS DANS LES COMMENTAIRES — et il a fallu le dire au lot
+     * FILTRES-FAMILLES-ET-BOUTONS-ROUGES : l'encadré du survol de l'actif CITE les deux valeurs mesurées
+     * (`#850302` en Clair, `#ff8a8a` en Sombre) pour que le lecteur sache ce que le jeton vaut. Faire rougir
+     * l'épreuve sur son propre commentaire aurait poussé à retirer l'explication plutôt que la faute.
+     * 🔒 LA PROPRIÉTÉ GARDÉE EST MÊME PLUS STRICTE : une couleur en dur ne peut plus se cacher derrière un
+     * commentaire qui la contient.
+     */
+    const sansCommentaires = (t: string): string => t.replace(/\/\*[\s\S]*?\*\//g, ' ');
+    expect(sansCommentaires(FEUILLE_PILULE)).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
+    expect(sansCommentaires(URGENCE.slice(URGENCE.indexOf('const CSS_SELECTEUR_URGENCE'))))
+      .not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
+    /* ⚠️ ET LE DÉCAPAGE N'A PAS TOUT EMPORTÉ : sans cette ligne, une expression trop gourmande ferait passer
+       le cas pour toujours, en ne prouvant plus rien. */
+    expect(sansCommentaires(FEUILLE_PILULE)).toContain('.gpil--actif{');
   });
 
   /**
@@ -200,8 +225,12 @@ describe('🔴🔴 ② un seul format de boutons-filtres', () => {
    * passer un survol sans pendant clavier, et la feuille de la pilule est injectée DANS celle de GestionVue.
    */
   it('⚠️ le survol de la pilule a son pendant clavier, au caractère près', () => {
-    expect(FEUILLE_PILULE).toContain('.gpil:hover:not(:disabled){');
+    /* ⚠️ LE SÉLECTEUR DU SURVOL A GAGNÉ `:not(.gpil--actif)` (lot FILTRES-FAMILLES-ET-BOUTONS-ROUGES,
+       point 2) : il repeignait l'actif en gris pâle sous un texte blanc. Le pendant clavier, lui, est
+       toujours là — et l'actif a désormais SES DEUX règles, survol ET focus, écrites ensemble. */
+    expect(FEUILLE_PILULE).toContain('.gpil:hover:not(:disabled):not(.gpil--actif){');
     expect(FEUILLE_PILULE).toContain('.gpil:not(:disabled):focus-visible{');
+    expect(FEUILLE_PILULE).toContain('.gpil--actif:hover:not(:disabled),\n.gpil--actif:not(:disabled):focus-visible{');
   });
 
   /**

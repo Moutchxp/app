@@ -56,58 +56,71 @@ export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReiniti
     );
   };
 
+  /**
+   * ══ 🔴🔴 LOT FILTRES-FAMILLES-ET-BOUTONS-ROUGES, POINT 1 — UNE FAMILLE EST UN GROUPE ENCADRÉ ═══════════════
+   *
+   * ARNO : « Chaque famille devient un GROUPE ENCADRÉ : un cadre léger (fond très légèrement teinté + bordure
+   * fine, coins 8 px) qui contient son étiquette en petites capitales et ses boutons ; espacement net entre
+   * deux groupes. […] Un groupe ne se coupe jamais en deux sur deux lignes. »
+   *
+   * 🔴 LE CADRE FAIT LE TRAVAIL QUE LE FILET NE FAISAIT PAS. Un trait vertical entre deux groupes disparaît
+   * dès que la ligne se replie : à la deuxième ligne, il ne sépare plus rien, et les familles se confondent.
+   * Un cadre, lui, accompagne son groupe où qu'il aille — c'est ce qui rend la règle « un groupe ne se coupe
+   * jamais » tenable par construction plutôt que par surveillance.
+   *
+   * ⚠️ L'ÉTIQUETTE EST DANS LE CADRE, et « TYPE » en gagne une (elle manquait) : une famille sans nom oblige
+   * à deviner ce que ses boutons ont en commun.
+   */
+  const famille = (nom: string, contenu: React.ReactNode, deplus = '') => (
+    <div className={`lfe-fam${deplus}`} role="group" aria-label={nom}>
+      <span className="lfe-mot">{nom}</span>
+      <span className="lfe-boutons">{contenu}</span>
+    </div>
+  );
+
   return (
     <div className="lfe" role="group" aria-label="Filtrer et trier les événements">
       <style>{CSS_LIGNE_FILTRES}</style>
 
-      {/* ① ET ② — LES DEUX TRIS EXISTANTS, EN TÊTE, INCHANGÉS. */}
-      <span className="lfe-groupe lfe-groupe--new">{boutonsNewUrgent}</span>
+      {/* ① ET ② — LES DEUX TRIS EXISTANTS, EN TÊTE, INCHANGÉS. Arno les nomme « PRIORITÉ ». */}
+      {famille('Priorité', boutonsNewUrgent)}
 
       {/* ⑥ L'ÉTAT — trois choix exclusifs, « En cours » allumé par défaut (et il se VOIT, voir le module pur). */}
-      <span className="lfe-groupe" role="group" aria-label="État">
-        {/* ⚠️ LE GROUPE EST NOMMÉ À L'ÉCRAN, et pas seulement pour le lecteur d'écran : « Tous » existe DEUX
-            fois sur cette ligne (l'état et Monga), et vu à l'écran, deux boutons sombres portant le même mot
-            ne disent pas à quoi ils répondent. Le mot du groupe lève l'ambiguïté en trois caractères. */}
-        <span className="lfe-mot">État</span>
-        {ETATS.map((e) => bouton(e.cle, e.mot, etat.etat === e.cle))}
-      </span>
+      {famille('État', ETATS.map((e) => bouton(e.cle, e.mot, etat.etat === e.cle)))}
 
       {/* ③ LE TYPE — choix multiples, en union. Les quatre types de la base, dans leur ordre. */}
-      <span className="lfe-groupe" role="group" aria-label="Type">
-        {TYPES_EVENEMENT.map((t) => bouton(cleFiltreType(t.cle), t.mot, etat.types.includes(cleFiltreType(t.cle))))}
-      </span>
+      {famille('Type',
+        TYPES_EVENEMENT.map((t) => bouton(cleFiltreType(t.cle), t.mot, etat.types.includes(cleFiltreType(t.cle)))))}
 
       {/* ④ MONGA — trois choix exclusifs. */}
-      <span className="lfe-groupe" role="group" aria-label="Monga">
-        <span className="lfe-mot">Monga</span>
-        {MONGAS.map((m) => bouton(m.cle, m.mot, etat.monga === m.cle))}
-      </span>
+      {famille('Monga', MONGAS.map((m) => bouton(m.cle, m.mot, etat.monga === m.cle)))}
 
       {/* ⑤ ⑦ ⑧ LES INTERRUPTEURS — indépendants, combinables. */}
-      <span className="lfe-groupe" role="group" aria-label="Points d’attention">
-        {INTERRUPTEURS.map((i) => bouton(i.cle, i.mot, etat.interrupteurs.includes(i.cle)))}
-      </span>
+      {famille('À surveiller',
+        INTERRUPTEURS.map((i) => bouton(i.cle, i.mot, etat.interrupteurs.includes(i.cle))))}
 
-      {/* ⑨ ⑩ ⑪ LES TRIS — un seul actif, la flèche dit le sens, recliquer l'inverse. */}
-      <span className="lfe-groupe lfe-groupe--tris" role="group" aria-label="Trier">
-        <span className="lfe-mot">Trier</span>
-        {TRIS_LIGNE.map((t) => {
-          const actif = etat.tri === t.cle;
-          return (
-            <button key={t.cle} type="button" className={`gpil${actif ? ' gpil--actif' : ''}`}
-              aria-pressed={actif}
-              title={actif
-                ? `Inverser l’ordre (${etat.sens === 'desc' ? 'décroissant' : 'croissant'})`
-                : `Trier par ${t.mot.toLowerCase()}`}
-              onClick={() => onTri(t.cle)}>
-              {t.mot}
-              {/* 🔴 LA FLÈCHE N'EST RENDUE QUE SUR LE TRI ACTIF : trois flèches côte à côte feraient croire à
-                  trois tris simultanés, alors qu'« un seul actif à la fois » est la règle. */}
-              {actif && <span className="lfe-fleche" aria-hidden="true">{etat.sens === 'desc' ? '↓' : '↑'}</span>}
-            </button>
-          );
-        })}
-      </span>
+      {/**
+        * ⑨ ⑩ ⑪ LES TRIS — un seul actif, la flèche dit le sens, recliquer l'inverse.
+        * 🔴 « TRIER » EST VISUELLEMENT À PART (Arno) : `lfe-fam--tris` le pousse à droite et lui donne un fond
+        * neutre. Ce n'est pas un filtre — il ne cache rien —, et le confondre avec les familles de gauche
+        * ferait craindre qu'il masque des cartes.
+        */}
+      {famille('Trier', TRIS_LIGNE.map((t) => {
+        const actif = etat.tri === t.cle;
+        return (
+          <button key={t.cle} type="button" className={`gpil${actif ? ' gpil--actif' : ''}`}
+            aria-pressed={actif}
+            title={actif
+              ? `Inverser l’ordre (${etat.sens === 'desc' ? 'décroissant' : 'croissant'})`
+              : `Trier par ${t.mot.toLowerCase()}`}
+            onClick={() => onTri(t.cle)}>
+            {t.mot}
+            {/* 🔴 LA FLÈCHE N'EST RENDUE QUE SUR LE TRI ACTIF : trois flèches côte à côte feraient croire à
+                trois tris simultanés, alors qu'« un seul actif à la fois » est la règle. */}
+            {actif && <span className="lfe-fleche" aria-hidden="true">{etat.sens === 'desc' ? '↓' : '↑'}</span>}
+          </button>
+        );
+      }), ' lfe-fam--tris')}
 
       {/**
         * ⚠️ « RÉINITIALISER » N'APPARAÎT QUE S'IL Y A QUELQUE CHOSE À DÉFAIRE (Arno : « quand un filtre ou tri
@@ -132,18 +145,30 @@ export function LigneFiltresEvenements({ etat, ids, onBasculer, onTri, onReiniti
  */
 const CSS_LIGNE_FILTRES = `
 /* ⚠️ ELLE SE REPLIE, ELLE NE DEBORDE PAS : exigence transverse §15. Pas de defilement horizontal — sur un
-   telephone, les groupes passent les uns sous les autres, dans leur ordre. */
-.lfe{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:0 0 12px;padding:8px 10px;
-  border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface)}
-/* Chaque groupe reste SOLIDAIRE : ses boutons se replient ensemble, jamais coupes au milieu. */
-.lfe-groupe{display:inline-flex;flex-wrap:wrap;align-items:center;gap:12px 4px;min-width:0}
-/* ⚠️ UN FILET ENTRE LES GROUPES, et non une marge plus grande : a la deuxieme ligne, une marge ne separe plus
-   rien, tandis que le filet suit chaque groupe. Il disparait sur le premier, qui n'a rien a sa gauche. */
-.lfe-groupe + .lfe-groupe{padding-left:14px;border-left:1px solid var(--color-svv-line)}
-.lfe-mot{font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--color-svv-muted);margin-right:.2rem}
+   telephone, les familles passent les unes sous les autres, dans leur ordre.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit DANS un litteral de gabarit (piege TS1005 du depot). */
+.lfe{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px;margin:0 0 12px}
+/* ══ 🔴🔴 UNE FAMILLE EST UN CADRE, ET LE CADRE NE SE COUPE JAMAIS ═════════════════════════════════════════
+   Fond tres legerement teinte, bordure fine, coins 8 px : assez pour se voir, pas assez pour crier.
+   🔴 C'EST LA BOITE QUI SE REPLIE, PAS SES BOUTONS : la famille est un element de la rangee exterieure, donc
+   elle passe A LA LIGNE D'UN BLOC. Avant ce lot, les boutons etaient des freres directs de la rangee et
+   pouvaient se separer au milieu d'un groupe — c'est exactement le defaut qu'Arno decrit.
+   ⚠️ LES BOUTONS, EUX, PEUVENT SE REPLIER A L'INTERIEUR du cadre : sur un telephone, une famille de quatre
+   boutons ne tient pas sur une ligne, et l'interdire la ferait deborder de l'ecran. */
+.lfe-fam{display:flex;flex-wrap:wrap;align-items:center;gap:8px 6px;min-width:0;
+  padding:6px 10px 7px;border:1px solid var(--color-svv-line);border-radius:8px;
+  background:var(--color-svv-field)}
+.lfe-boutons{display:inline-flex;flex-wrap:wrap;align-items:center;gap:12px 4px;min-width:0}
+/* 🔴 « TRIER » EST A PART (Arno) : pousse a droite, et sur un fond neutre — ce n'est pas un filtre, il ne
+   cache aucune carte, et le confondre avec les familles de gauche ferait craindre qu'il en masque. */
+.lfe-fam--tris{margin-left:auto;background:var(--color-svv-surface);
+  border-color:var(--color-svv-line-strong)}
+.lfe-mot{font-size:.68rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--color-svv-muted);white-space:nowrap}
 /* LE COMPTEUR SUR LE BOUTON : plus petit que le mot, et il herite de la couleur de l'etat actif. */
 .lfe-n{margin-left:.35rem;font-size:.72rem;font-weight:700;opacity:.75}
 .lfe-fleche{margin-left:.25rem;font-weight:700}
-.lfe-reinit{margin-left:auto}
+/* ⚠️ « Reinitialiser » RESTE UN BOUTON NU, hors famille : il n'appartient a aucune, et l'encadrer en ferait
+   une famille d'un seul element. Il se cale en bas de la rangee, a cote du cadre « TRIER ». */
+.lfe-reinit{align-self:center}
 `;

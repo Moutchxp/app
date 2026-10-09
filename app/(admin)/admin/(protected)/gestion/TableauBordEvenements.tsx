@@ -348,16 +348,34 @@ const CSS_TABLEAU_BORD = `
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:8px;cursor:pointer}
 /* La cible tactile de 44 px, invisible : meme moyen que .gpil (lot BOUTONS-PLATS-ET-SYMETRIE-PANNEAUX). */
 .tbe-chiffre::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
-.tbe-chiffre:hover:not(:disabled){background:var(--color-svv-field)}
+/* ══ 🔴🔴 LOT FILTRES-FAMILLES-ET-BOUTONS-ROUGES, POINTS 2 ET 3 — LE MEME TRAITEMENT QUE .gpil ═══════════════
+   Ces chiffres sont le MEME FORMAT que les boutons-filtres (meme hauteur, meme rayon, meme actif), copie ici
+   parce qu'ils portent en plus un nombre. Ils avaient donc le MEME defaut : le survol repeignait aussi
+   l'actif en gris pale sous un texte blanc. Et ils prennent le MEME rouge de marque.
+   ⚠️ LE JOUR OU CE BLOC ET .gpil DIVERGERONT, c'est ici qu'il faudra regarder : deux ecritures pour un meme
+   dessin, c'est la dette que ce lot paie une seconde fois. Elles sont voisines et commentees pour cela. */
+.tbe-chiffre:hover:not(:disabled):not(.tbe-chiffre--actif){background:var(--color-svv-field)}
 .tbe-chiffre:not(:disabled):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.tbe-chiffre--actif{color:var(--color-svv-surface);background:var(--color-svv-ink);
-  border-color:var(--color-svv-ink)}
+.tbe-chiffre--actif{color:var(--color-svv-surface);background:var(--color-svv-red);
+  border-color:var(--color-svv-red)}
+.tbe-chiffre--actif:hover:not(:disabled),
+.tbe-chiffre--actif:not(:disabled):focus-visible{background:var(--color-svv-red-dark);
+  border-color:var(--color-svv-red-dark);color:var(--color-svv-surface)}
 .tbe-n{font-weight:700;font-size:.9rem}
 .tbe-mot{color:inherit}
 /* LES TROIS TONS DE L'URGENCE, les memes jetons que les capsules des cartes (.gst-type-capsule--urg-*). */
-.tbe-ton--normale .tbe-chiffre--actif{background:var(--color-svv-green-ink);border-color:transparent}
-.tbe-ton--haute .tbe-chiffre--actif{background:var(--color-svv-orange);border-color:transparent}
-.tbe-ton--urgent .tbe-chiffre--actif{background:var(--color-svv-red-dark);border-color:transparent}
+/* ⚠️ L'EXCEPTION DES TONS D'URGENCE VAUT ICI AUSSI (point 3 d'Arno) : ces trois-la gardent leur couleur de
+   sens, y compris au survol — sans quoi « Normal » deviendrait rouge en le survolant, ce qui serait le
+   contraire de ce que le bouton dit. La regle de survol generique ci-dessus est donc annulee pour eux. */
+.tbe-ton--normale .tbe-chiffre--actif,
+.tbe-ton--normale .tbe-chiffre--actif:hover:not(:disabled){background:var(--color-svv-green-ink);
+  border-color:transparent}
+.tbe-ton--haute .tbe-chiffre--actif,
+.tbe-ton--haute .tbe-chiffre--actif:hover:not(:disabled){background:var(--color-svv-orange);
+  border-color:transparent}
+.tbe-ton--urgent .tbe-chiffre--actif,
+.tbe-ton--urgent .tbe-chiffre--actif:hover:not(:disabled){background:var(--color-svv-red-dark);
+  border-color:transparent}
 .tbe-ton--normale .tbe-n{color:var(--color-svv-green-ink)}
 .tbe-ton--haute .tbe-n{color:var(--color-svv-orange)}
 .tbe-ton--urgent .tbe-n{color:var(--color-svv-red-dark)}

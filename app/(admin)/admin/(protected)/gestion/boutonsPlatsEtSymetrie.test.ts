@@ -84,16 +84,30 @@ describe('🔴🔴 ① 32 px qu’on voit, 44 px qu’on touche', () => {
    * l'urgence sont intactes, et l'actif commun reste le fond sombre à texte clair.
    */
   it('⚠️ couleurs et états inchangés', () => {
-    expect(DESSIN).toContain('.gpil--actif{color:var(--color-svv-surface);background:var(--color-svv-ink);'
-      + 'border-color:var(--color-svv-ink)}');
+    /**
+     * ⚠️ L'ACTIF EST PASSÉ DU SOMBRE AU ROUGE DE LA MARQUE (lot FILTRES-FAMILLES-ET-BOUTONS-ROUGES, point 3,
+     * demande d'Arno). 🔒 CE QUE CE CAS TIENT EST INTACT : l'actif reste un FOND PLEIN à texte inversé, la
+     * police et la graisse ne bougent pas, et les trois tons de l'urgence gardent leur exception.
+     */
+    expect(DESSIN).toContain('.gpil--actif{color:var(--color-svv-surface);background:var(--color-svv-red);'
+      + 'border-color:var(--color-svv-red)}');
     expect(DESSIN).toContain('font:inherit;font-size:.8rem');
     expect(DESSIN).not.toContain('font-weight');
     const feuille = URGENCE.slice(URGENCE.indexOf('const CSS_SELECTEUR_URGENCE'));
-    expect(feuille).toContain('.gurg-voie--vert.gpil--actif{background:var(--color-svv-green-ink)}');
-    expect(feuille).toContain('.gurg-voie--orange.gpil--actif{background:var(--color-svv-orange)}');
-    expect(feuille).toContain('.gurg-voie--rouge.gpil--actif{background:var(--color-svv-red-dark)}');
-    /* 🔴 ET AUCUNE COULEUR EN DUR : le thème Sombre suit sans qu'on lui dise rien. */
-    expect(DESSIN).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
+    /* ⚠️ CHAQUE TON REPREND SON FOND AU SURVOL ET AU FOCUS (lot FILTRES-FAMILLES-ET-BOUTONS-ROUGES) : le
+       survol de l'actif commun est passé au rouge et il est PLUS SPÉCIFIQUE que ces trois règles — survoler
+       « Normal » actif l'aurait fait virer au rouge, c'est-à-dire la fin de l'exception. 🔒 Les trois teintes
+       elles-mêmes n'ont pas bougé d'un jeton. */
+    expect(feuille).toContain('.gurg-voie--vert.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-green-ink);');
+    expect(feuille).toContain('.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-orange);');
+    expect(feuille).toContain('.gurg-voie--rouge.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-red-dark);');
+    for (const ton of ['vert', 'orange', 'rouge']) {
+      expect(feuille, ton).toContain(`.gurg-voie--${ton}.gpil--actif:hover:not(:disabled),`);
+    }
+    /* 🔴 ET AUCUNE COULEUR EN DUR : le thème Sombre suit sans qu'on lui dise rien.
+       ⚠️ LES COMMENTAIRES SONT RETIRÉS AVANT DE CHERCHER : l'encadré du survol de l'actif cite les deux
+       valeurs mesurées, et faire rougir l'épreuve sur son explication pousserait à retirer l'explication. */
+    expect(DESSIN.replace(/\/\*[\s\S]*?\*\//g, ' ')).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(/i);
   });
 });
 

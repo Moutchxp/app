@@ -106,7 +106,13 @@ export const CSS_BOUTON_PILULE = `
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:8px;cursor:pointer}
 /* LA CIBLE TACTILE : invisible, sans fond ni bordure, et elle ne deplace rien (position absolue). */
 .gpil::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
-.gpil:hover:not(:disabled){background:var(--color-svv-field)}
+/* ⚠️ :not(.gpil--actif) EST LA CORRECTION DU LOT FILTRES-FAMILLES-ET-BOUTONS-ROUGES, POINT 2, ET C'EST UN
+   VRAI DEFAUT : ce survol s'appliquait AUSSI au bouton actif. Son fond sombre redevenait alors le gris pale
+   de field pendant que son texte restait surface — c'est-a-dire BLANC SUR GRIS CLAIR en theme Clair,
+   illisible (contraste mesure 1,2:1). Constat d'Arno : « un bouton actif survole devient illisible ».
+   L'actif a desormais son propre survol, deux regles plus bas, qui ne fait que FONCER son fond.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.gpil:hover:not(:disabled):not(.gpil--actif){background:var(--color-svv-field)}
 /* ⚠️ LE MEME SELECTEUR DE BASE QUE LE SURVOL (.gpil:not(:disabled)), et ce n'est pas une coquetterie : le garde
    §15 de GestionVue.parts.test.ts retire « :hover » du selecteur et exige de trouver son pendant au clavier,
    caractere pour caractere. Ecrire « .gpil:focus-visible » aurait laisse passer un survol sans pendant clavier
@@ -114,6 +120,23 @@ export const CSS_BOUTON_PILULE = `
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
 .gpil:not(:disabled):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .gpil:disabled{cursor:default;opacity:.6}
-/* L'ACTIF se dit par le MOT (aria-pressed) autant que par la forme : jamais la couleur seule. */
-.gpil--actif{color:var(--color-svv-surface);background:var(--color-svv-ink);border-color:var(--color-svv-ink)}
+/* ══ 🔴🔴 LOT FILTRES-FAMILLES-ET-BOUTONS-ROUGES, POINT 3 — L'ACTIF EST LE ROUGE DE LA MARQUE ════════════════
+   ARNO : « Partout dans ce format commun, l'etat actif passe du noir actuel au rouge de la marque (le rouge
+   du bouton “Nouveau message”), texte blanc. »
+   🔴 C'EST DEJA LE ROUGE QUE LA FICHE DU BIEN EMPLOIE pour ses propres bascules (.hdb-petit--actif,
+   .hdb-puce-bascule--actif) : ce lot ne cree pas une convention, il aligne le reste du module sur celle qui
+   existe. Un seul rouge d'etat actif dans toute l'application.
+   ⚠️ « TEXTE BLANC » S'ECRIT --color-svv-surface, JAMAIS un blanc fige : en theme Sombre, le rouge devient
+   CLAIR (#ff6b6b) et c'est le texte qui doit devenir sombre. Le jeton fait les deux d'un coup.
+   ⚠️ L'ACTIF se dit par le MOT (aria-pressed) autant que par la couleur : jamais la couleur seule. */
+.gpil--actif{color:var(--color-svv-surface);background:var(--color-svv-red);border-color:var(--color-svv-red)}
+/* ══ 🔴🔴 POINT 2 — L'ACTIF SURVOLE NE FAIT QUE FONCER, et il reste lisible ════════════════════════════════
+   --color-svv-red-dark EST LE SURVOL DU ROUGE DANS TOUT LE DEPOT (.svv-btn-primary:hover) : en Clair il
+   fonce (#850302), en Sombre il eclaircit (#ff8a8a) — dans les deux cas il s'ECARTE du fond normal, et le
+   texte (jeton surface) suit le theme avec lui. Contrastes mesures : 10,4:1 en Clair, 7,0:1 en Sombre.
+   ⚠️ LE FOCUS CLAVIER EST TRAITE PAR LA MEME REGLE : Arno demande « actif + survol ET actif + focus ». Le
+   liseret de focus, lui, reste celui de tous les boutons du module. */
+.gpil--actif:hover:not(:disabled),
+.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-red-dark);
+  border-color:var(--color-svv-red-dark);color:var(--color-svv-surface)}
 `;

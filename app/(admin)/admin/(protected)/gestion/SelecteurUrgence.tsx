@@ -144,9 +144,26 @@ ${CSS_BOUTON_PILULE}
    est dit ici pour qu'on sache qu'il a ete paye sciemment.
    ⚠️ LE MOT RESTE ECRIT DANS LE BOUTON : la couleur ne porte jamais seule l'information.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+/* ══ 🔴🔴 LOT FILTRES-FAMILLES-ET-BOUTONS-ROUGES — L'EXCEPTION TIENT AUSSI AU SURVOL ════════════════════════
+   Le point 3 fait passer l'actif commun (.gpil--actif) au ROUGE de la marque, et lui donne un survol qui
+   fonce ce rouge. Or ce survol est PLUS SPECIFIQUE que les trois tons ci-dessous : survoler « Normal » actif
+   l'aurait fait virer au rouge — exactement l'inverse de ce que le bouton dit, et la fin de l'exception
+   qu'Arno a demandee au lot precedent. Chaque ton REPREND donc son fond au survol et au focus.
+   ⚠️ TROUVE EN MESURANT, ET NON EN RELISANT : c'est la mesure des contrastes qui a montre le rouge apparaitre
+   sous le curseur sur un bouton vert.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
 .gurg-voie.gpil--actif{border-color:transparent;color:var(--color-svv-surface)}
-.gurg-voie--vert.gpil--actif{background:var(--color-svv-green-ink)}
-.gurg-voie--orange.gpil--actif{background:var(--color-svv-orange)}
-.gurg-voie--rouge.gpil--actif{background:var(--color-svv-red-dark)}
+.gurg-voie--vert.gpil--actif,
+.gurg-voie--vert.gpil--actif:hover:not(:disabled),
+.gurg-voie--vert.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-green-ink);
+  border-color:transparent}
+.gurg-voie--orange.gpil--actif,
+.gurg-voie--orange.gpil--actif:hover:not(:disabled),
+.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-orange);
+  border-color:transparent}
+.gurg-voie--rouge.gpil--actif,
+.gurg-voie--rouge.gpil--actif:hover:not(:disabled),
+.gurg-voie--rouge.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-red-dark);
+  border-color:transparent}
 .gurg-absent{font-size:.74rem;color:var(--color-svv-muted)}
 `;

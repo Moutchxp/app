@@ -4380,9 +4380,16 @@ ${CSS_PIECES}
 .hdb-petit{height:var(--hdb-h);padding:0 .7rem;border:0;background:var(--color-svv-surface);font:inherit;
   font-size:.78rem;color:var(--color-svv-muted);cursor:pointer;white-space:nowrap}
 .hdb-segs .hdb-petit+.hdb-petit{border-left:1px solid var(--color-svv-line)}
-.hdb-petit:hover{color:var(--color-svv-ink)}
+/* ⚠️ :not(.hdb-petit--actif) — LOT FILTRES-FAMILLES-ET-BOUTONS-ROUGES, POINT 2. Ce survol posait
+   color:ink SUR TOUS les segments, l'actif compris : le texte du bouton rouge virait au bleu-nuit sur son
+   fond rouge, soit un contraste de 1,9:1 — illisible, et c'est le meme defaut qu'Arno a constate sur les
+   pilules. L'actif a desormais son propre survol, juste en dessous, qui ne fait que FONCER son fond.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
+.hdb-petit:hover:not(.hdb-petit--actif){color:var(--color-svv-ink)}
 .hdb-petit:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .hdb-petit--actif{background:var(--color-svv-red);color:var(--color-svv-surface);font-weight:700}
+.hdb-petit--actif:hover,
+.hdb-petit--actif:focus-visible{background:var(--color-svv-red-dark);color:var(--color-svv-surface)}
 /* L'ORDRE est un bouton seul : il porte donc son propre cadre arrondi, a la MEME hauteur. */
 .hdb-petit--large{border-radius:999px;border:1px solid var(--color-svv-line-strong)}
 .hdb-petit--large:hover{border-color:var(--color-svv-line-strong-hover)}
@@ -4391,12 +4398,18 @@ ${CSS_PIECES}
 .hdb-puce-bascule{height:var(--hdb-h);padding:0 .8rem;border-radius:999px;
   border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);font:inherit;
   font-size:.78rem;color:var(--color-svv-muted);cursor:pointer;white-space:nowrap}
-.hdb-puce-bascule:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong-hover)}
+/* ⚠️ MEME CORRECTION QUE CI-DESSUS (point 2) : sans :not(), la puce ALLUMEE prenait color:ink sur son fond
+   rouge au survol. */
+.hdb-puce-bascule:hover:not(.hdb-puce-bascule--actif){color:var(--color-svv-ink);
+  border-color:var(--color-svv-line-strong-hover)}
 .hdb-puce-bascule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* LA PUCE BASCULE ALLUMEE EST UNE SELECTION COMME LES AUTRES : elle passe donc au rouge, et non a l'ambre.
    Un second ton pour un meme etat aurait oblige a apprendre deux codes pour une seule idee. */
 .hdb-puce-bascule--actif{background:var(--color-svv-red);border-color:var(--color-svv-red);
   color:var(--color-svv-surface);font-weight:700}
+.hdb-puce-bascule--actif:hover,
+.hdb-puce-bascule--actif:focus-visible{background:var(--color-svv-red-dark);
+  border-color:var(--color-svv-red-dark);color:var(--color-svv-surface)}
 /* LA BASCULE A CASE garde la MEME hauteur que ses voisins : sans cela, la rangee se decale d'un pixel. */
 .hdb-bascule{display:inline-flex;align-items:center;gap:.4rem;height:var(--hdb-h);padding:0 .2rem;
   font-size:.78rem;color:var(--color-svv-ink);cursor:pointer;white-space:nowrap}
