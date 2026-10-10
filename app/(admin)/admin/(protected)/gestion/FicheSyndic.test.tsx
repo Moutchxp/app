@@ -3738,7 +3738,9 @@ describe('LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE', () => {
 
   it('la mention grise « · 3 adresses sur la même parcelle ▸ » ; TOUTES les adresses de la copropriété sont interrogées (plusieurs parcelles)', async () => {
     await ouvrir96();
-    expect(mention()?.textContent).toBe('· 3 adresses sur la même parcelle ▸');
+    // LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — CE QU'IL DISAIT AVANT : « · 3 adresses … » (la prise ailleurs comptait). N = les PROPOSABLES ; la prise
+    // ailleurs est dite à part, en gris.
+    expect(mention()?.textContent).toBe('· 2 adresses sur la même parcelle (+ 1 déjà rattachée ailleurs) ▸');
     const q = appels.find((x) => x.url.startsWith('/api/admin/gestion/coproprietes/parcelle'))?.url ?? '';
     expect(JSON.parse(decodeURIComponent(q.split('a=')[1])).map((x: { libelle: string }) => x.libelle)).toEqual(['12 rue X', '3 av Y']);
     expect(document.querySelector('.fsy-parcelle-liste')).toBeNull();
@@ -3750,7 +3752,8 @@ describe('LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE', () => {
     expect(document.querySelector('.fsy-parcelle-liste')?.classList.contains('fsy-suivis-liste')).toBe(true);
     expect(lignes()).toEqual([
       ['12 bis rue X, 92400 Courbevoie', true],
-      ['5 rue Prise, 92400 Courbevoie — déjà la copropriété rattachée à AUTRE / Lyon', false],
+      // LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — CE QU'IL DISAIT AVANT : « — déjà la copropriété rattachée à AUTRE / Lyon ».
+      ['5 rue Prise, 92400 Courbevoie — déjà rattachée à une autre copropriété — AUTRE / Lyon', false],
       ['5 av Y, 92400 Courbevoie', true],
     ]);
     expect(document.querySelector('.fsy-adresse-prise')?.textContent).toContain('5 rue Prise');
@@ -3763,7 +3766,8 @@ describe('LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE', () => {
     await cliquer(boutonDansOuNull([...document.querySelectorAll('.fsy-parcelle-liste li')][0], 'Rattacher') as Element);
     await calmer();
     expect((document.querySelector('#fsy-bloc-1 .fsy-autres-adresses') as HTMLElement).textContent).toBe('· 2 autres adresses ▸');
-    expect(mention()?.textContent).toBe('· 2 adresses sur la même parcelle ▾');
+    // LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — CE QU'IL DISAIT AVANT : « · 2 adresses … ▾ » (la prise ailleurs comptait).
+    expect(mention()?.textContent).toBe('· 1 adresse sur la même parcelle (+ 1 déjà rattachée ailleurs) ▾');
     await cliquer(document.querySelector('.fsy-lots-ligne') as Element);
     const lots = [...document.querySelectorAll('.fsy-lot')].map((l) => `${l.querySelector('strong')?.textContent}${l.querySelector('.fsy-pastille-attente') ? ' (attente)' : ''}`);
     expect(lots).toEqual(['lot 101', 'lot 121 (attente)', 'lot 301']);
@@ -3791,5 +3795,174 @@ describe('LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE', () => {
     await calmer();
     expect(mention()).toBeNull();
     expect(document.body.textContent).not.toContain('sur la même parcelle');
+  });
+});
+
+/**
+ * ══ LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES ═══════════════════════════════════════════════════════════════════
+ * Le bien est au 80 rue de Normandie (sans syndic). La parcelle de 80 rue de Normandie porte 82 rue de Normandie
+ * (libre) et 5 rue Prise (copropriété d'AUTRE / Lyon) ; celle de 9 rue Voisine porte 11 rue Voisine (libre).
+ */
+describe('LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES', () => {
+  const N80 = { cle: '80 rue de normandie', libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie' };
+  const CONNUS = [
+    { ...N80, lots: [{ id: 801, numero: '801', adresse: '80 rue de Normandie', commune: 'COURBEVOIE', proprietaires: [] }], syndic: null },
+    { cle: '5 rue prise', libelle: '5 rue Prise', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: { id: 7, nom: 'AUTRE', ville: 'Lyon' } },
+  ];
+  let parcelles: Record<string, string[]> = {};
+  const demandes = (): string[][] => appels.filter((x) => x.url.startsWith('/api/admin/gestion/coproprietes/parcelle'))
+    .map((x) => (JSON.parse(decodeURIComponent(x.url.split('a=')[1])) as Array<{ libelle: string; codePostal: string; commune: string }>).map((a) => `${a.libelle}|${a.codePostal}|${a.commune}`));
+  const servir = (): void => {
+    parcelles = { '80 rue de Normandie': ['82 rue de Normandie', '5 rue Prise'], '9 rue Voisine': ['11 rue Voisine'] };
+    API_ADRESSE['9 rue'] = [{ name: '9 rue Voisine', postcode: '92400', city: 'Courbevoie' }];
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null }); return rep({ ok: true, id: 97 }); }
+      if (url.startsWith('/api/admin/gestion/coproprietes/parcelle?a=')) {
+        appels.push({ url, methode: m, corps: null });
+        const les = (JSON.parse(decodeURIComponent(url.split('a=')[1])) as Array<{ libelle: string }>).map((x) => x.libelle);
+        const sortie = [...new Set(les.flatMap((l) => parcelles[l] ?? []))].filter((x) => !les.includes(x));
+        return rep({ etat: 'ok', parcelles: ['P'], adresses: sortie.map((libelle) => ({ libelle, codePostal: '92400', commune: 'Courbevoie' })) });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: CONNUS });
+      if (url.startsWith('/api/admin/gestion/coproprietes/contacts')) return rep({ etat: 'ok', contacts: [] });
+      if (url.startsWith('/api/admin/gestion/syndics?q=')) return rep({ etat: 'ok', disponible: true, syndics: [] });
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  /** Un NOUVEAU syndic, créé depuis le bien : rien n'est enregistré. */
+  const creerDepuisLeBien = async (): Promise<ReturnType<typeof vi.fn>> => {
+    servir();
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    const onFerme = vi.fn();
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: null, onFerme, immeubleDepart: { libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie' } })); });
+    await attendre(250);
+    await cliquer(bouton('Créer un nouveau syndic'));
+    await calmer();
+    await taper(champ('Nom du cabinet *'), '_TEST Normandie');
+    await taper(champ('Adresse (rue) *'), '1 rue _TEST');
+    await taper(champ('Code postal *'), '92400');
+    await taper(champ('Ville *'), 'Courbevoie');
+    return onFerme;
+  };
+  const plus = (): HTMLButtonElement => document.querySelector('#fsy-bloc-1 .fsy-plus-adresse') as HTMLButtonElement;
+  const mention = (): HTMLButtonElement | null => document.querySelector('#fsy-bloc-1 .fsy-parcelle-mention');
+  const ecritures = (): unknown[] => appels.filter((x) => x.methode !== 'GET');
+
+  it('AVANT tout enregistrement : la fiche d’un NOUVEAU syndic, depuis le bien, interroge la parcelle et propose aussitôt', async () => {
+    await creerDepuisLeBien();
+    expect(ecritures()).toEqual([]);
+    expect(demandes()[0]).toEqual(['80 rue de Normandie|92400|Courbevoie']);
+    expect(mention()?.textContent).toBe('· 1 adresse sur la même parcelle (+ 1 déjà rattachée ailleurs) ▸');
+  });
+
+  it('une adresse CHOISIE dans l’autocomplétion du « + » apporte sa parcelle aussitôt (sans Valider) ; une saisie libre prend la ville de la copropriété', async () => {
+    await creerDepuisLeBien();
+    await cliquer(plus());
+    await taper(document.querySelector('input[aria-label="Autre adresse de la copropriété"]') as HTMLInputElement, '9 rue');
+    await attendre(300);
+    await cliquer([...document.querySelectorAll('.fsy-ajout-adresse .fsy-proposition')].find((b) => b.textContent === '9 rue Voisine, 92400 Courbevoie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-ajout-adresse'), 'Ajouter'));
+    await calmer();
+    expect(demandes().at(-1)).toEqual(['80 rue de Normandie|92400|Courbevoie', '9 rue Voisine|92400|Courbevoie']);
+    await cliquer(mention() as Element);
+    expect([...document.querySelectorAll('.fsy-parcelle-liste li')].map((l) => l.querySelector('span')?.textContent?.split(' — ')[0]))
+      .toEqual(['82 rue de Normandie, 92400 Courbevoie', '5 rue Prise, 92400 Courbevoie', '11 rue Voisine, 92400 Courbevoie']);
+    // saisie libre (sans code postal ni ville) : ceux de la copropriété
+    await cliquer(plus());
+    await taper(document.querySelector('input[aria-label="Autre adresse de la copropriété"]') as HTMLInputElement, '7 impasse Libre');
+    await cliquer(boutonDans(document.querySelector('.fsy-ajout-adresse'), 'Ajouter'));
+    await calmer();
+    expect(demandes().at(-1)?.at(-1)).toBe('7 impasse Libre|92400|Courbevoie');
+    expect(ecritures()).toEqual([]);
+  });
+
+  it('le « + » PULSE quand des propositions attendent ; il s’arrête à l’ouverture de la liste ; une proposition NOUVELLE le relance ; un clic sur « + » l’arrête', async () => {
+    await creerDepuisLeBien();
+    expect(plus().classList.contains('fsy-plus-adresse--pulse')).toBe(true);
+    await cliquer(mention() as Element);
+    expect(plus().classList.contains('fsy-plus-adresse--pulse')).toBe(false);
+    await cliquer(mention() as Element); // repliée : toujours vue
+    expect(plus().classList.contains('fsy-plus-adresse--pulse')).toBe(false);
+    // une adresse ajoutée apporte une proposition nouvelle (11 rue Voisine)
+    await cliquer(plus());
+    await taper(document.querySelector('input[aria-label="Autre adresse de la copropriété"]') as HTMLInputElement, '9 rue');
+    await attendre(300);
+    await cliquer([...document.querySelectorAll('.fsy-ajout-adresse .fsy-proposition')][0]);
+    await cliquer(boutonDans(document.querySelector('.fsy-ajout-adresse'), 'Ajouter'));
+    await calmer();
+    expect(plus().classList.contains('fsy-plus-adresse--pulse')).toBe(true);
+    await cliquer(plus());
+    expect(plus().classList.contains('fsy-plus-adresse--pulse')).toBe(false);
+  });
+
+  it('la feuille : 2 pulsations amples (×2,5, 0,8 s), puis une douce toutes les 2 s ; en surimpression ; moins d’animations : un « + » rempli', async () => {
+    await creerDepuisLeBien();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
+    expect(css).toContain('@keyframes fsy-pulse-ample{from{transform:scale(1);opacity:.55}to{transform:scale(2.5);opacity:0}}');
+    expect(css).toContain('animation:fsy-pulse-ample .8s ease-out 0s 2, fsy-pulse-douce 2s ease-in-out 1.6s infinite');
+    expect(css).toMatch(/\.fsy-plus-adresse--pulse::before\{content:"";position:absolute;inset:-1px;[^}]*pointer-events:none/);
+    expect(css).toContain('@media (prefers-reduced-motion: reduce){ .fsy-plus-adresse--pulse::before{animation:none;display:none} .fsy-plus-adresse--pulse{background:var(--color-svv-red);color:var(--color-svv-surface)}}');
+  });
+
+  it('ALERTE au Valider : propositions non traitées ⇒ le pied le dit ; « Voir les adresses » déplie et fait défiler ; « Valider quand même » enregistre', async () => {
+    const vu = vi.fn();
+    const avant = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = vu;
+    try {
+      const onFerme = await creerDepuisLeBien();
+      await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+      const a = document.querySelector('.fsy-alerte-parcelle') as HTMLElement;
+      expect(a.querySelector('.fsy-question')?.textContent).toBe('Cette copropriété possède peut-être d’autres adresses postales : 1 adresse sur la même parcelle cadastrale n’a pas été associée.');
+      expect([...a.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Voir les adresses', 'Valider quand même']);
+      expect(ecritures()).toEqual([]);
+      await cliquer(boutonDans(a, 'Voir les adresses'));
+      await attendre(10);
+      expect(document.querySelector('.fsy-alerte-parcelle')).toBeNull();
+      expect(document.querySelector('.fsy-parcelle-liste')).not.toBeNull();
+      expect(vu.mock.contexts).toContain(document.querySelector('.fsy-parcelle-liste'));
+      await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+      await cliquer(boutonDans(document.querySelector('.fsy-alerte-parcelle'), 'Valider quand même'));
+      expect(appels.filter((x) => x.methode === 'POST')).toHaveLength(1);
+      expect(onFerme).toHaveBeenCalledTimes(1);
+    } finally { Element.prototype.scrollIntoView = avant; }
+  });
+
+  it('PAS d’alerte si une adresse a été rattachée pendant la session', async () => {
+    const onFerme = await creerDepuisLeBien();
+    parcelles['80 rue de Normandie'] = ['82 rue de Normandie', '84 rue de Normandie', '5 rue Prise'];
+    await cliquer(plus()); // relit rien ; on rattache par la liste
+    await cliquer(boutonDans(document.querySelector('.fsy-ajout-adresse'), 'Annuler'));
+    await cliquer(mention() as Element);
+    await cliquer([...document.querySelectorAll('.fsy-parcelle-liste button')].find((b) => b.textContent === 'Rattacher') as Element);
+    await calmer();
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(document.querySelector('.fsy-alerte-parcelle')).toBeNull();
+    expect(appels.filter((x) => x.methode === 'POST')).toHaveLength(1);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('PAS d’alerte ni de pulsation s’il ne reste que des adresses GRISÉES (prises ailleurs) — exclues du compteur', async () => {
+    servir();
+    parcelles['80 rue de Normandie'] = ['5 rue Prise'];
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    const onFerme = vi.fn();
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: null, onFerme, immeubleDepart: { libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie' } })); });
+    await attendre(250);
+    await cliquer(bouton('Créer un nouveau syndic'));
+    await calmer();
+    expect(mention()?.textContent).toBe('· 1 adresse de la parcelle déjà rattachée ailleurs ▸');
+    expect(plus().classList.contains('fsy-plus-adresse--pulse')).toBe(false);
+    await taper(champ('Nom du cabinet *'), '_TEST Normandie');
+    await taper(champ('Adresse (rue) *'), '1 rue _TEST');
+    await taper(champ('Code postal *'), '92400');
+    await taper(champ('Ville *'), 'Courbevoie');
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(document.querySelector('.fsy-alerte-parcelle')).toBeNull();
+    expect(onFerme).toHaveBeenCalledTimes(1);
   });
 });

@@ -200,7 +200,17 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
    * 🔴 Un contact en cours de modification NON validé ⇒ on demande d'abord « Valider aussi les modifications du
    * contact … ? » (`questionContact`), puis `validerAvec` reprend avec ou sans lui.
    */
-  const valider = async (): Promise<void> => {
+  /**
+   * LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — des adresses de la même parcelle restent PROPOSABLES et aucune n'a été
+   * rattachée pendant cette session : le pied le dit d'abord (jamais bloquant) — « Voir les adresses » / « Valider
+   * quand même ».
+   */
+  const [parcelle, setParcelle] = useState<{ proposables: number; rattachee: boolean }>({ proposables: 0, rattachee: false });
+  const [alerteParcelle, setAlerteParcelle] = useState(false);
+  const [voirParcelle, setVoirParcelle] = useState(0);
+  const valider = async (malgreParcelle = false): Promise<void> => {
+    if (!malgreParcelle && parcelle.proposables > 0 && !parcelle.rattachee) { setAlerteParcelle(true); return; }
+    setAlerteParcelle(false);
     if (contactEnCours) { setQuestionContact(true); return; }
     await validerAvec(form);
   };
@@ -344,6 +354,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
               ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart} adresseBien={adresseBien}
+              onParcelle={setParcelle} voirParcelle={voirParcelle}
               retrait={blocRetrait} />
           )}
         </div>
@@ -351,7 +362,17 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         {/* ══ LE PIED, TOUJOURS VISIBLE — hors de la zone qui défile ══ */}
         <div className="fsy-pied">
           {erreur !== null && <p className="fsy-alerte fsy-pied-alerte" role="alert">{erreur}</p>}
-          {avertServeur !== null ? (
+          {alerteParcelle ? (
+            <div className="fsy-boutons fsy-alerte-parcelle" role="group" aria-label="Adresses de la parcelle non associées">
+              <span className="fsy-question">
+                Cette copropriété possède peut-être d’autres adresses postales : {parcelle.proposables === 1
+                  ? '1 adresse sur la même parcelle cadastrale n’a pas été associée.'
+                  : `${parcelle.proposables} adresses sur la même parcelle cadastrale n’ont pas été associées.`}
+              </span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setAlerteParcelle(false); setVoirParcelle((n) => n + 1); }}>Voir les adresses</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void valider(true)}>Valider quand même</button>
+            </div>
+          ) : avertServeur !== null ? (
             <div className="fsy-boutons fsy-avert-serveur" role="group" aria-label="Coordonnées déjà utilisées">
               <span className="fsy-question fsy-alerte-coord-texte">
                 {avertServeur.lignes.map((l, i) => <span key={i}>{l}</span>)}
@@ -632,7 +653,11 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
 function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente,
-  ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null, adresseBien = null }: {
+  ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null, adresseBien = null, onParcelle, voirParcelle = 0 }: {
+  /** LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — l'état des propositions de la parcelle, pour l'alerte du Valider. */
+  onParcelle?: (e: { proposables: number; rattachee: boolean }) => void;
+  /** Incrémenté par « Voir les adresses » : déplie la liste des propositions et y fait défiler. */
+  voirParcelle?: number;
   /** LOT COPRO-PLUSIEURS-ADRESSES — l'adresse propre du bien, si c'est une adresse secondaire de sa copropriété. */
   adresseBien?: ImmeubleSaisi | null;
   form: SyndicForm; setForm: (f: SyndicForm) => void; fiche: Fiche | null; syndicId: number | null;
@@ -695,34 +720,78 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
    * Ce ne sont que des propositions : « Rattacher » ajoute l'adresse comme un « + » ; une adresse prise ailleurs est
    * grisée, avec la raison. Relu dès que les adresses de la copropriété changent (une adresse retirée redevient proposable).
    */
+  /*
+   * LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — les adresses de la copropriété TELLES QU'À L'ÉCRAN (enregistrées ou
+   * non) : la principale, puis chaque secondaire. Une adresse saisie librement (sans code postal ni ville) prend ceux de
+   * la principale — sinon le serveur ne pouvait pas la situer, et elle n'apportait sa parcelle qu'après réouverture.
+   */
+  const lieuDe = (libelle: string, cp: string, commune: string): { codePostal: string; commune: string } => {
+    const c = connus.find((x) => x.cle === cleImmeuble(libelle));
+    return { codePostal: c?.codePostal ?? cp ?? '', commune: c?.commune ?? commune ?? '' };
+  };
+  const lieuPrincipal = coproDuBien === null ? { codePostal: '', commune: '' } : lieuDe(coproDuBien.libelle, coproDuBien.codePostal, coproDuBien.commune);
   const adressesCopro: AdresseSaisie[] = coproDuBien === null ? [] : [
-    { libelle: coproDuBien.libelle, codePostal: connus.find((x) => x.cle === cleImmeuble(coproDuBien.libelle))?.codePostal ?? coproDuBien.codePostal,
-      commune: connus.find((x) => x.cle === cleImmeuble(coproDuBien.libelle))?.commune ?? coproDuBien.commune },
-    ...(coproDuBien.adresses ?? []).map((a) => ({ libelle: a.libelle, codePostal: connus.find((x) => x.cle === cleImmeuble(a.libelle))?.codePostal ?? a.codePostal,
-      commune: connus.find((x) => x.cle === cleImmeuble(a.libelle))?.commune ?? a.commune })),
+    { libelle: coproDuBien.libelle, ...lieuPrincipal },
+    ...(coproDuBien.adresses ?? []).map((a) => {
+      const l = lieuDe(a.libelle, a.codePostal, a.commune);
+      return { libelle: a.libelle, ...(l.codePostal === '' && l.commune === '' ? lieuPrincipal : l) };
+    }),
   ];
   const signatureCopro = JSON.stringify(adressesCopro);
   const [surParcelle, setSurParcelle] = useState<AdresseSaisie[]>([]);
   const [parcelleOuverte, setParcelleOuverte] = useState(false);
   useEffect(() => {
     if (adressesCopro.length === 0) { setSurParcelle([]); return; }
-    let vivant = true;
-    void fetch(`/api/admin/gestion/coproprietes/parcelle?a=${encodeURIComponent(signatureCopro)}`, { cache: 'no-store' })
+    // Une seule demande vivante : la réponse d'un état DÉPASSÉ des adresses n'écrase jamais celle de l'état courant.
+    const ctrl = new AbortController();
+    void fetch(`/api/admin/gestion/coproprietes/parcelle?a=${encodeURIComponent(signatureCopro)}`, { cache: 'no-store', signal: ctrl.signal })
       .then((r) => r.json() as Promise<{ etat?: string; adresses?: AdresseSaisie[] }>)
-      .then((j) => { if (vivant && j.etat === 'ok') setSurParcelle(j.adresses ?? []); })
+      .then((j) => { if (!ctrl.signal.aborted && j.etat === 'ok') setSurParcelle(j.adresses ?? []); })
       .catch(() => { /* aucune proposition : rien ne change */ });
-    return () => { vivant = false; };
+    return () => { ctrl.abort(); };
   }, [signatureCopro]); // eslint-disable-line react-hooks/exhaustive-deps
   const clesCopro = new Set(adressesCopro.map((a) => cleImmeuble(a.libelle)));
-  const propositions = coproDuBien === null ? [] : surParcelle.filter((a) => !clesCopro.has(cleImmeuble(a.libelle))).map((a) => {
-    const m = conflitAdresse(a, cleImmeuble(coproDuBien.libelle), form.immeubles, connus);
-    const affichee = adresseImmeuble(a.libelle, a.codePostal, a.commune);
-    return { a, affichee, raison: m === null ? null : m.replace(`${affichee} `, '').replace(/^est /, '').replace(/\.$/, '') };
-  });
+  /**
+   * LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — une adresse déjà prise reste dans la liste, grisée, sans bouton, avec
+   * « déjà rattachée à une autre copropriété — SYNDIC / Ville » ; elle ne compte ni dans le N ni dans l'alerte du Valider.
+   */
+  const raisonPrise = (a: AdresseSaisie): string | null => {
+    if (coproDuBien === null || conflitAdresse(a, cleImmeuble(coproDuBien.libelle), form.immeubles, connus) === null) return null;
+    const k = cleImmeuble(a.libelle);
+    const c = connus.find((x) => x.cle === k);
+    const ici = form.immeubles.some((im) => cleImmeuble(im.libelle) === k || (im.adresses ?? []).some((x) => cleImmeuble(x.libelle) === k));
+    const syndic = ici ? nomAvecVille(form.nom, form.ville) : c?.syndic ? nomAvecVille(c.syndic.nom, c.syndic.ville) : null;
+    return `déjà rattachée à une autre copropriété${syndic ? ` — ${syndic}` : ''}`;
+  };
+  const propositions = coproDuBien === null ? [] : surParcelle.filter((a) => !clesCopro.has(cleImmeuble(a.libelle))).map((a) => ({
+    a, affichee: adresseImmeuble(a.libelle, a.codePostal, a.commune), raison: raisonPrise(a) }));
+  const proposables = propositions.filter((p) => p.raison === null);
+  const prisesAilleurs = propositions.length - proposables.length;
+  /** Une adresse rattachée PENDANT cette session de la fiche (par « Rattacher » ou par le « + ») : pas d'alerte au Valider. */
+  const [rattacheeIci, setRattacheeIci] = useState(false);
   const rattacher = (a: AdresseSaisie): void => {
     if (coproDuBien === null) return;
+    setRattacheeIci(true);
     setForm({ ...form, immeubles: form.immeubles.map((x) => (x === coproDuBien ? { ...x, adresses: [...(x.adresses ?? []), { libelle: a.libelle, codePostal: a.codePostal, commune: a.commune }] } : x)) });
   };
+  /*
+   * LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — LE « + » PULSE tant qu'il y a des propositions NON VUES : deux
+   * pulsations amples, puis une douce et lente ; vues dès que la liste est dépliée ou le « + » cliqué. Une proposition
+   * NOUVELLE (une adresse ajoutée apporte sa parcelle) relance la pulsation.
+   */
+  const [vues, setVues] = useState<ReadonlySet<string>>(new Set());
+  const pulse = proposables.some((p) => !vues.has(cleImmeuble(p.a.libelle)));
+  const marquerVues = (): void => setVues(new Set([...vues, ...proposables.map((p) => cleImmeuble(p.a.libelle))]));
+  // Le pied (alerte au Valider) connaît les propositions non traitées ; « Voir les adresses » déplie et fait défiler.
+  useEffect(() => { onParcelle?.({ proposables: proposables.length, rattachee: rattacheeIci }); },
+    [proposables.length, rattacheeIci]); // eslint-disable-line react-hooks/exhaustive-deps
+  const listeParcelle = useRef<HTMLUListElement | null>(null);
+  useEffect(() => {
+    if (voirParcelle === 0) return;
+    setParcelleOuverte(true);
+    marquerVues();
+    setTimeout(() => listeParcelle.current?.scrollIntoView?.({ block: 'nearest' }), 0);
+  }, [voirParcelle]); // eslint-disable-line react-hooks/exhaustive-deps
   const [lotsOuverts, setLotsOuverts] = useState(false);
   const groupes = lotsDuPortefeuille(form.immeubles, connus, adresseDuBien !== null ? cleDepart : null,
     new Set((fiche?.coproprietes ?? []).flatMap((c) => [c.cle, ...(c.adresses ?? []).map((a) => a.cle)])));
@@ -750,8 +819,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         {/* LOT COPRO-PLUSIEURS-ADRESSES — le « + » discret, et la mention grise des autres adresses. */}
         {coproDuBien !== null && (
           <>
-            <button type="button" className="fsy-plus-adresse" title="Ajouter une autre adresse à cette copropriété"
-              aria-label="Ajouter une autre adresse à cette copropriété" onClick={() => { setAjoutAdresse(true); setSaisieAdresse({ libelle: '', codePostal: '', commune: '' }); setRefusAdresse(null); }}>+</button>
+            <button type="button" className={`fsy-plus-adresse${pulse ? ' fsy-plus-adresse--pulse' : ''}`} title="Ajouter une autre adresse à cette copropriété"
+              aria-label="Ajouter une autre adresse à cette copropriété" onClick={() => { marquerVues(); setAjoutAdresse(true); setSaisieAdresse({ libelle: '', codePostal: '', commune: '' }); setRefusAdresse(null); }}>+</button>
             {autresAdresses.length > 0 && (
               <button type="button" className="fsy-autres-adresses" aria-expanded={adressesOuvertes} onClick={() => setAdressesOuvertes(!adressesOuvertes)}>
                 · {autresAdresses.length === 1 ? '1 autre adresse' : `${autresAdresses.length} autres adresses`} {adressesOuvertes ? '▾' : '▸'}
@@ -759,8 +828,14 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
             )}
             {/* LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — la mention grise des propositions de la parcelle. */}
             {propositions.length > 0 && (
-              <button type="button" className="fsy-autres-adresses fsy-parcelle-mention" aria-expanded={parcelleOuverte} onClick={() => setParcelleOuverte(!parcelleOuverte)}>
-                · {propositions.length === 1 ? '1 adresse sur la même parcelle' : `${propositions.length} adresses sur la même parcelle`} {parcelleOuverte ? '▾' : '▸'}
+              /* LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — N = les adresses PROPOSABLES ; les prises ailleurs en gris. */
+              <button type="button" className="fsy-autres-adresses fsy-parcelle-mention" aria-expanded={parcelleOuverte}
+                onClick={() => { if (!parcelleOuverte) marquerVues(); setParcelleOuverte(!parcelleOuverte); }}>
+                · {proposables.length > 0
+                  ? `${proposables.length === 1 ? '1 adresse' : `${proposables.length} adresses`} sur la même parcelle`
+                  : `${prisesAilleurs === 1 ? '1 adresse' : `${prisesAilleurs} adresses`} de la parcelle déjà rattachée${prisesAilleurs > 1 ? 's' : ''} ailleurs`}
+                {proposables.length > 0 && prisesAilleurs > 0 && <span className="fsy-prises-ailleurs"> (+ {prisesAilleurs} déjà rattachée{prisesAilleurs > 1 ? 's' : ''} ailleurs)</span>}
+                {' '}{parcelleOuverte ? '▾' : '▸'}
               </button>
             )}
           </>
@@ -774,11 +849,12 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
             if (m !== null) { setRefusAdresse(m); return; }
             setForm({ ...form, immeubles: form.immeubles.map((x) => (x === coproDuBien
               ? { ...x, adresses: [...(x.adresses ?? []), { libelle: saisieAdresse.libelle.trim(), codePostal: saisieAdresse.codePostal, commune: saisieAdresse.commune }] } : x)) });
+            setRattacheeIci(true);
             setAjoutAdresse(false);
           }} />
       )}
       {coproDuBien !== null && parcelleOuverte && propositions.length > 0 && (
-        <ul className="fsy-suivis-liste fsy-parcelle-liste" aria-label="Adresses sur la même parcelle">
+        <ul className="fsy-suivis-liste fsy-parcelle-liste" aria-label="Adresses sur la même parcelle" ref={listeParcelle}>
           {propositions.map((p) => (
             <li key={cleImmeuble(p.a.libelle)} className={`fsy-adresse-copro${p.raison !== null ? ' fsy-adresse-prise' : ''}`}>
               <span>{p.affichee}{p.raison !== null && <span className="fsy-discret"> — {p.raison}</span>}</span>
@@ -2299,6 +2375,18 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 /* la cible tactile du §15, invisible */
 .fsy-plus-adresse::after{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
 .fsy-plus-adresse:hover,.fsy-plus-adresse:focus-visible{background:var(--color-svv-red-soft)}
+/* LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — le « + » PULSE quand des propositions attendent : un halo rouge
+   transparent en SURIMPRESSION (::before, position absolue : rien ne bouge autour), deux pulsations amples (~2,5 fois
+   le bouton, 0,8 s chacune), puis une douce et lente toutes les 2 s. Moins d'animations : pas de halo, un « + » rempli. */
+@keyframes fsy-pulse-ample{from{transform:scale(1);opacity:.55}to{transform:scale(2.5);opacity:0}}
+@keyframes fsy-pulse-douce{0%{transform:scale(1);opacity:0}30%{opacity:.28}100%{transform:scale(1.7);opacity:0}}
+.fsy-plus-adresse--pulse::before{content:"";position:absolute;inset:-1px;border-radius:50%;pointer-events:none;
+  background:color-mix(in srgb, var(--color-svv-red) 45%, transparent);
+  animation:fsy-pulse-ample .8s ease-out 0s 2, fsy-pulse-douce 2s ease-in-out 1.6s infinite}
+@media (prefers-reduced-motion: reduce){
+  .fsy-plus-adresse--pulse::before{animation:none;display:none}
+  .fsy-plus-adresse--pulse{background:var(--color-svv-red);color:var(--color-svv-surface)}}
+.fsy-prises-ailleurs{color:var(--color-svv-muted)}
 .fsy-autres-adresses{margin-left:.35rem;padding:0;border:0;background:transparent;color:var(--color-svv-muted);font:inherit;font-size:.8rem;
   font-weight:400;text-transform:none;letter-spacing:normal;cursor:pointer}
 .fsy-autres-adresses:hover,.fsy-autres-adresses:focus-visible{color:var(--color-svv-ink);text-decoration:underline}
