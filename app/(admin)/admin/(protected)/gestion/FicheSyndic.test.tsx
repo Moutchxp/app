@@ -32,6 +32,20 @@ const IMMEUBLES = [
     lots: [{ id: 2, numero: '201', adresse: '25 rue Edith Cavell', commune: 'Courbevoie' }, { id: 3, numero: '202', adresse: '25 rue Edith Cavell', commune: 'Courbevoie' }] },
 ];
 
+/** LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — un syndic _TEST, 2 copropriétés, 3 contacts : un commun, un par immeuble. */
+const FICHE_20 = {
+  ...FICHE, id: 20, nom: '_TEST Grand Cabinet',
+  contacts: [
+    { id: 31, titre: 'Service comptabilité', prenom: 'Paul', nom: 'Commun', tousImmeubles: true, immeubles: [], coordonnees: [] },
+    { id: 32, titre: 'Responsable de copropriété', prenom: 'Marie', nom: 'Douze', tousImmeubles: false, immeubles: ['12 rue x'], coordonnees: [] },
+    { id: 33, titre: 'Responsable de copropriété', prenom: 'Yves', nom: 'Trois', tousImmeubles: false, immeubles: ['3 av y'], coordonnees: [] },
+  ],
+  coproprietes: [
+    { id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10',
+      lots: [{ id: 1, numero: '101', adresse: '12 rue X', commune: 'Courbevoie' }] },
+    { id: 7, cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+  ],
+};
 let appels: Array<{ url: string; methode: string; corps: unknown }> = [];
 /** L'API Adresse en panne (pour éprouver le repli sur la BAN locale). */
 let apiEnPanne = false;
@@ -62,6 +76,8 @@ beforeEach(() => {
       return rep({ etat: 'ok', adresses: url.includes('7%20rue%20test') ? [{ cle: '7 rue test', libelle: '7 Rue Test', codePostal: '92400', commune: 'Courbevoie' }] : [] });
     }
     if (url === '/api/admin/gestion/syndics/11' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE });
+    if (url === '/api/admin/gestion/syndics/20' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE_20 });
+    if (url === '/api/admin/gestion/syndics/20') return rep({ ok: true, id: 20 });
     if (url === '/api/admin/gestion/syndics/14' && (init?.method ?? 'GET') === 'GET') {
       return rep({ etat: 'ok', fiche: { ...FICHE, id: 14, adresse: '8 Rue Denfert Rochereau', codePostal: null, ville: null } });
     }
@@ -548,5 +564,129 @@ describe('LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS', () => {
     expect(ligneTel.lastElementChild?.className).toBe('fsy-action');
     const ligneEmail = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ') as HTMLElement;
     expect(ligneEmail.lastElementChild?.className).toContain('fsy-action');
+  });
+});
+
+describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel immeuble', () => {
+  type Corps = { contacts: Array<{ nom: string; tousImmeubles: boolean; immeubles: string[] }> };
+  const put = (): Corps => appels.find((x) => x.methode === 'PUT')?.corps as Corps;
+  const pied = (): Element | null => document.querySelector('.fsy-pied');
+  const depuisUnBien = async (): Promise<void> => {
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 20, onFerme: vi.fn(),
+        immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+  };
+  const noms = (zone: Element | null): string[] => [...(zone?.querySelectorAll(':scope > button.fsy-contact-replie, :scope > .fsy-contact-replie') ?? [])]
+    .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
+  const copro = (i: number): HTMLElement => document.querySelectorAll('.fsy-copro')[i] as HTMLElement;
+
+  it('depuis un BIEN : « Contacts pour cet immeuble » en tête (affectés + communs), le reste replié sous « Autres contacts du cabinet »', async () => {
+    await depuisUnBien();
+    expect(document.body.textContent).toContain('Catalogue des contacts');
+    expect(document.body.textContent).toContain('Contacts pour cet immeuble');
+    const tete = [...document.querySelectorAll('.fsy-corps button.fsy-contact-replie')].filter((b) => b.closest('details') === null)
+      .map((b) => b.querySelector('.fsy-contact-nom')?.textContent);
+    expect(tete).toEqual(['Paul COMMUN', 'Marie DOUZE']);
+    const autres = document.querySelector('details.fsy-autres') as HTMLDetailsElement;
+    expect(autres.open).toBe(false);
+    expect(autres.querySelector('summary')?.textContent).toBe('Autres contacts du cabinet (1)');
+    expect(noms(autres.querySelector('.fsy-bloc'))).toEqual(['Yves TROIS']);
+  });
+
+  it('sans bien (écran « Syndics ») : tout le catalogue, sans section « pour cet immeuble »', async () => {
+    await ouvrir(vi.fn(), 20);
+    expect(document.body.textContent).not.toContain('Contacts pour cet immeuble');
+    expect(document.querySelector('details.fsy-autres')).toBeNull();
+  });
+
+  it('contact ouvert : « Immeubles suivis : Tous les immeubles » ou la liste des copropriétés', async () => {
+    await ouvrir(vi.fn(), 20);
+    const lignes = [...document.querySelectorAll('button.fsy-contact-replie')];
+    await cliquer(lignes[0]);
+    await cliquer([...document.querySelectorAll('button.fsy-contact-replie')][0]);
+    const suivis = [...document.querySelectorAll('.fsy-suivis')].map((p) => p.textContent);
+    expect(suivis).toEqual(['Immeubles suivis : Tous les immeubles', 'Immeubles suivis : 12 rue X, 92400 Courbevoie']);
+  });
+
+  it('affecter un contact à DEUX copropriétés, puis à « Tous les immeubles », par les cases', async () => {
+    await ouvrir(vi.fn(), 20);
+    await cliquer([...document.querySelectorAll('button.fsy-contact-replie')][1]); // Marie DOUZE
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    const cases = (): HTMLInputElement[] => [...document.querySelectorAll('.fsy-suivis-edit input[type="checkbox"]')] as HTMLInputElement[];
+    expect(cases().map((c) => [c.checked, c.disabled])).toEqual([[false, false], [true, false], [false, false]]);
+    await cliquer(cases()[2]); // + 3 av Y
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
+    expect(document.querySelector('.fsy-contact-ouvert .fsy-suivis')?.textContent)
+      .toBe('Immeubles suivis : 12 rue X, 92400 Courbevoie · 3 av Y, 92400 Courbevoie');
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await cliquer(cases()[0]); // tous les immeubles
+    expect(cases().slice(1).every((c) => c.disabled && c.checked)).toBe(true);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect(put().contacts[1]).toMatchObject({ nom: 'Douze', tousImmeubles: true, immeubles: [] });
+  });
+
+  it('la copropriété repliée : « 12 rue X, 92400 Courbevoie · 2 contacts · 1 bien en gestion » ; dépliée : ses contacts, « commun » marqué', async () => {
+    await ouvrir(vi.fn(), 20);
+    expect(copro(0).querySelector('.fsy-copro-tete')?.textContent).toBe('12 rue X, 92400 Courbevoie2 contacts · 1 bien en gestion▸');
+    await cliquer(copro(0).querySelector('.fsy-copro-tete') as Element);
+    const lignes = [...copro(0).querySelectorAll('.fsy-copro-contacts .fsy-contact-coord')].map((l) => l.textContent);
+    expect(lignes).toEqual(['Paul COMMUN · Service comptabilitécommun', 'Marie DOUZE · Responsable de copropriétéRetirer']);
+  });
+
+  it('RETIRER une affectation depuis la copropriété : le contact reste au catalogue', async () => {
+    await ouvrir(vi.fn(), 20);
+    await cliquer(copro(0).querySelector('.fsy-copro-tete') as Element);
+    await cliquer(copro(0).querySelector('button[aria-label="Retirer l’affectation de Marie DOUZE"]') as Element);
+    expect(copro(0).querySelector('.fsy-copro-tete')?.textContent).toContain('1 contact · 1 bien en gestion');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect(put().contacts.map((c) => [c.nom, c.tousImmeubles, c.immeubles])).toEqual([
+      ['Commun', true, []], ['Douze', false, []], ['Trois', false, ['3 av y']],
+    ]);
+  });
+
+  it('« + Affecter un contact » : la liste du catalogue à cocher', async () => {
+    await ouvrir(vi.fn(), 20);
+    await cliquer(copro(1).querySelector('.fsy-copro-tete') as Element);
+    await cliquer(boutonDans(copro(1), '+ Affecter un contact'));
+    const cases = [...copro(1).querySelectorAll('.fsy-affecter label')].map((l) => l.textContent);
+    expect(cases).toEqual(['Marie DOUZE · Responsable de copropriété']);
+    await cliquer(copro(1).querySelector('.fsy-affecter input') as Element);
+    await cliquer(boutonDans(copro(1), 'Affecter'));
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect(put().contacts[1].immeubles).toEqual(['12 rue x', '3 av y']);
+  });
+
+  it('« Créer un nouveau contact » depuis une copropriété : créé dans le catalogue ET affecté à cet immeuble', async () => {
+    await ouvrir(vi.fn(), 20);
+    await cliquer(copro(1).querySelector('.fsy-copro-tete') as Element);
+    await cliquer(boutonDans(copro(1), 'Créer un nouveau contact'));
+    const bloc = document.querySelector('.fsy-contact-edit') as HTMLElement;
+    expect(bloc.querySelector('legend')?.textContent).toBe('Nouveau contact');
+    const cases = [...bloc.querySelectorAll('.fsy-suivis-edit input')] as HTMLInputElement[];
+    expect(cases.map((c) => c.checked)).toEqual([false, false, true]);
+  });
+
+  it('un contact créé DEPUIS UN BIEN suit cet immeuble par défaut ; SANS bien, « Tous les immeubles »', async () => {
+    await depuisUnBien();
+    await cliquer(bouton('+ Ajouter un contact'));
+    let cases = [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
+    expect(cases.map((c) => c.checked)).toEqual([false, true, false]);
+    act(() => { root.unmount(); });
+    root = createRoot(container);
+    await ouvrir(vi.fn(), 20);
+    await cliquer(bouton('+ Ajouter un contact'));
+    cases = [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
+    expect(cases[0].checked).toBe(true);
+  });
+
+  it('RETIRER une copropriété : elle sort aussi des contacts qui la suivaient', async () => {
+    await ouvrir(vi.fn(), 20);
+    await cliquer(boutonDans(copro(1), 'Retirer'));
+    await cliquer(bouton('Oui, retirer'));
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect(put().contacts[2]).toMatchObject({ nom: 'Trois', tousImmeubles: false, immeubles: [] });
   });
 });

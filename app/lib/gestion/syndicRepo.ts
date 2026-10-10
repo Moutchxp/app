@@ -26,10 +26,11 @@ import {
  * ⚠️ PAS DE `import 'server-only'` ICI — convention du module (voir `contactExterneRepo.ts`).
  */
 
-/** Les migrations 324 ET 325 sont-elles appliquées ? Sans elles, l'écran le dit et n'offre aucun geste. */
+/** Les migrations 324, 325 ET 326 sont-elles appliquées ? Sans elles, l'écran le dit et n'offre aucun geste. */
 export async function syndicsDisponibles(): Promise<boolean> {
   const { rows } = await query<{ ok: boolean }>(
     `SELECT to_regclass('public.gestion_syndic_coordonnee') IS NOT NULL
+        AND to_regclass('public.gestion_syndic_contact_copropriete') IS NOT NULL
         AND EXISTS (SELECT 1 FROM information_schema.columns
                      WHERE table_schema = 'public' AND table_name = 'gestion_syndic' AND column_name = 'supprime_le') AS ok`);
   return rows[0]?.ok === true;
@@ -136,9 +137,19 @@ export async function ficheSyndic(id: number): Promise<FicheSyndic | null> {
   const s = rows[0];
   if (s === undefined) return null;
 
-  const { rows: contacts } = await query<{ id: string; titre: string | null; prenom: string | null; nom: string | null }>(
-    `SELECT id::text, titre, prenom, nom FROM gestion_syndic_contact
+  const { rows: contacts } = await query<{
+    id: string; titre: string | null; prenom: string | null; nom: string | null; tous_immeubles: boolean;
+  }>(
+    `SELECT id::text, titre, prenom, nom, tous_immeubles FROM gestion_syndic_contact
       WHERE syndic_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [id]);
+  // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les affectations EN COURS des contacts de ce syndic.
+  const { rows: affectations } = await query<{ contact_id: string; cle: string }>(
+    `SELECT a.contact_id::text, c.cle_immeuble AS cle
+       FROM gestion_syndic_contact_copropriete a
+       JOIN gestion_syndic_contact ct ON ct.id = a.contact_id
+       JOIN gestion_copropriete c ON c.id = a.copropriete_id
+      WHERE ct.syndic_id = $1 AND ct.retire_le IS NULL AND a.retire_le IS NULL
+      ORDER BY a.id`, [id]);
   const { rows: coords } = await query<{ id: string; contact_id: string; sorte: 'email' | 'telephone'; libelle: string | null; valeur: string }>(
     `SELECT k.id::text, k.contact_id::text, k.sorte, k.libelle, k.valeur
        FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact c ON c.id = k.contact_id
@@ -158,6 +169,8 @@ export async function ficheSyndic(id: number): Promise<FicheSyndic | null> {
     creeLe: s.cree_le, creeParLibelle: s.cree_par_libelle, majLe: s.maj_le, majParLibelle: s.maj_par_libelle,
     contacts: contacts.map((c) => ({
       id: Number(c.id), titre: c.titre, prenom: c.prenom, nom: c.nom,
+      tousImmeubles: c.tous_immeubles !== false,
+      immeubles: c.tous_immeubles !== false ? [] : affectations.filter((a) => a.contact_id === c.id).map((a) => a.cle),
       coordonnees: coords.filter((k) => k.contact_id === c.id)
         .map((k) => ({ id: Number(k.id), sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })),
     })),
@@ -214,8 +227,9 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
         [syndicId, ...champs, auteur.id, auteur.libelle]);
     }
 
-    await enregistrerContacts(q, syndicId, saisie, auteur);
+    // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés D'ABORD : les affectations des contacts les désignent.
     await enregistrerCoproprietes(q, syndicId, saisie, auteur);
+    await enregistrerContacts(q, syndicId, saisie, auteur);
     return { ok: true, id: syndicId };
   });
 }
@@ -231,15 +245,17 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
       contactId = c.id;
       gardes.add(contactId);
       await q(
-        `UPDATE gestion_syndic_contact SET titre = $2, prenom = $3, nom = $4, rang = $5, maj_le = now(), maj_par_libelle = $6
-          WHERE id = $1`, [contactId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle]);
+        `UPDATE gestion_syndic_contact SET titre = $2, prenom = $3, nom = $4, rang = $5, maj_le = now(), maj_par_libelle = $6,
+                tous_immeubles = $7
+          WHERE id = $1`, [contactId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle, c.tousImmeubles]);
     } else {
       const { rows } = await q<{ id: string }>(
-        `INSERT INTO gestion_syndic_contact (syndic_id, titre, prenom, nom, rang, cree_par_libelle)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id::text`,
-        [syndicId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle]);
+        `INSERT INTO gestion_syndic_contact (syndic_id, titre, prenom, nom, rang, cree_par_libelle, tous_immeubles)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id::text`,
+        [syndicId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle, c.tousImmeubles]);
       contactId = Number(rows[0]?.id);
     }
+    await enregistrerAffectations(q, contactId, c.tousImmeubles ? [] : c.immeubles, c.tousImmeubles, auteur);
     // Les coordonnées de ce contact : même règle (mise à jour / insertion / retrait).
     const { rows: kx } = await q<{ id: string }>(
       `SELECT id::text FROM gestion_syndic_coordonnee WHERE contact_id = $1 AND retire_le IS NULL`, [contactId]);
@@ -264,6 +280,37 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
   if (retires.length > 0) {
     await q(`UPDATE gestion_syndic_contact SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])`,
       [retires, auteur.libelle]);
+    await q(
+      `UPDATE gestion_syndic_contact_copropriete SET retire_le = now(), retire_par_libelle = $2, retire_motif = 'contact retiré'
+        WHERE contact_id = ANY($1::bigint[]) AND retire_le IS NULL`, [retires, auteur.libelle]);
+  }
+}
+
+/**
+ * ══ 🔴 LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — LES IMMEUBLES QUE SUIT UN CONTACT ═════════════════════════════════════
+ * Les affectations EN COURS du contact sont comparées à celles voulues (clés des copropriétés) : les manquantes sont
+ * créées (avec l'auteur), celles qui ne sont plus voulues RETIRÉES (`retire_le`, motif). Rien n'est effacé.
+ * « Tous les immeubles » ⇒ aucune affectation individuelle (celles qui existaient sont retirées, motif dit).
+ */
+async function enregistrerAffectations(q: RequeteTx, contactId: number, cles: readonly string[], tous: boolean, auteur: Auteur): Promise<void> {
+  const { rows: voulues } = await q<{ id: string }>(
+    `SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = ANY($1::text[])`, [[...cles]]);
+  const idsVoulus = new Set(voulues.map((r) => r.id));
+  const { rows: enCours } = await q<{ id: string; copropriete_id: string }>(
+    `SELECT id::text, copropriete_id::text FROM gestion_syndic_contact_copropriete
+      WHERE contact_id = $1 AND retire_le IS NULL FOR UPDATE`, [contactId]);
+  const deja = new Set(enCours.map((r) => r.copropriete_id));
+  const aRetirer = enCours.filter((r) => !idsVoulus.has(r.copropriete_id)).map((r) => r.id);
+  if (aRetirer.length > 0) {
+    await q(
+      `UPDATE gestion_syndic_contact_copropriete SET retire_le = now(), retire_par_libelle = $2, retire_motif = $3
+        WHERE id = ANY($1::bigint[])`, [aRetirer, auteur.libelle, tous ? 'tous les immeubles' : 'retrait de l’affectation']);
+  }
+  for (const id of idsVoulus) {
+    if (deja.has(id)) continue;
+    await q(
+      `INSERT INTO gestion_syndic_contact_copropriete (contact_id, copropriete_id, affecte_par, affecte_par_libelle)
+       VALUES ($1, $2, $3, $4)`, [contactId, id, auteur.id, auteur.libelle]);
   }
 }
 
@@ -294,6 +341,8 @@ async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: S
     await q(
       `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = $4 WHERE id = $1`,
       [l.lien_id, auteur.id, auteur.libelle, aMoi ? 'retrait' : 'changement de syndic']);
+    // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — et les contacts du syndic qui PERD l'immeuble cessent de le suivre.
+    await retirerAffectationsDeLaCopro(q, Number(l.syndic_id), l.copro_id, aMoi ? 'copropriété retirée du syndic' : 'changement de syndic', auteur);
   }
   // ③ ouvrir les liens qui manquent.
   const dejaAMoi = new Set(enCours.filter((l) => Number(l.syndic_id) === syndicId && voulues.has(l.cle)).map((l) => l.cle));
@@ -304,6 +353,15 @@ async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: S
        SELECT id, $2, $3, $4 FROM gestion_copropriete WHERE cle_immeuble = $1`,
       [cle, syndicId, auteur.id, auteur.libelle]);
   }
+}
+
+/** Les affectations EN COURS des contacts d'un syndic à une copropriété : retirées (historisées), jamais effacées. */
+async function retirerAffectationsDeLaCopro(q: RequeteTx, syndicId: number, coproId: string, motif: string, auteur: Auteur): Promise<void> {
+  await q(
+    `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $3, retire_motif = $4
+       FROM gestion_syndic_contact c
+      WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.copropriete_id = $2 AND a.retire_le IS NULL`,
+    [syndicId, coproId, auteur.libelle, motif]);
 }
 
 /**
@@ -337,6 +395,9 @@ Promise<{ ok: true; coproprietes: number } | { ok: false; motif: string }> {
         `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'suppression du syndic'
           WHERE id = ANY($1::bigint[])`, [liens.map((l) => l.id), auteur.id, auteur.libelle]);
     }
+    await q(
+      `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $2, retire_motif = 'suppression du syndic'
+         FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.retire_le IS NULL`, [id, auteur.libelle]);
     await q(`UPDATE gestion_syndic_contact SET retire_le = now(), retire_par_libelle = $2 WHERE syndic_id = $1 AND retire_le IS NULL`,
       [id, auteur.libelle]);
     await q(`UPDATE gestion_syndic SET supprime_le = now(), supprime_par = $2, supprime_par_libelle = $3 WHERE id = $1`,

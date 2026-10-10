@@ -3,8 +3,8 @@ import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
-  formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, libellesDe, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  formaterTelephone, formulaireModifie, formulaireVide, contactVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
+  PERSONNALISE, saisieTelephone, libellesDe, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -109,7 +109,7 @@ describe('les règles pures', () => {
       id: 3, nom: 'Cab', adresse: '1 rue A', codePostal: '75001', ville: 'Paris', telephone: '0100000000', telephone2: '0200000000',
       email: 'c@cab.fr', note: null,
       creeLe: '2026-10-10', creeParLibelle: 'arno', majLe: null, majParLibelle: null,
-      contacts: [{ id: 4, titre: 'Gardienne', prenom: 'Léa', nom: null,
+      contacts: [{ id: 4, titre: 'Gardienne', prenom: 'Léa', nom: null, tousImmeubles: true, immeubles: [],
         coordonnees: [{ id: 5, sorte: 'telephone', libelle: 'Portable', valeur: '0613861877' }] }],
       coproprietes: [{ id: 6, cle: 'x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] }],
       historique: [],
@@ -154,6 +154,7 @@ describe('l\'adresse du syndic est OBLIGATOIRE — rue, code postal (5 chiffres)
 
 describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — les règles d\'un contact en modification', () => {
   const base = { cle: 'k1', id: 4, titreChoix: 'Responsable de copropriété', titreLibre: '', prenom: 'Marie', nom: 'Dupont',
+    tousImmeubles: true, immeubles: [] as string[],
     coordonnees: [{ cle: 'c1', id: 5, sorte: 'telephone' as const, choix: 'Portable', libre: '', valeur: '06 13 86 18 77' }] };
   it('« Modifier » devient « Valider » dès qu\'un champ change — et pas pour un simple reformatage', () => {
     expect(contactModifie(base, copieContact(base))).toBe(false);
@@ -228,7 +229,7 @@ describe('LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS — les libellés selon le ty
     const f = versFormulaire({
       id: 1, nom: 'X', adresse: null, codePostal: null, ville: null, telephone: null, telephone2: null, email: null, note: null,
       creeLe: '', creeParLibelle: '', majLe: null, majParLibelle: null, historique: [], coproprietes: [],
-      contacts: [{ id: 2, titre: null, prenom: 'A', nom: 'B', coordonnees: [
+      contacts: [{ id: 2, titre: null, prenom: 'A', nom: 'B', tousImmeubles: true, immeubles: [], coordonnees: [
         { id: 3, sorte: 'email', libelle: 'Ligne directe', valeur: 'a@b.fr' },
         { id: 4, sorte: 'telephone', libelle: 'Ligne directe', valeur: '0100000000' },
         { id: 5, sorte: 'email', libelle: 'Email direct', valeur: 'c@d.fr' },
@@ -238,6 +239,39 @@ describe('LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS — les libellés selon le ty
       [PERSONNALISE, 'Ligne directe'], ['Ligne directe', ''], ['Email direct', ''],
     ]);
     expect(versSaisie(f).contacts[0].coordonnees.map((k) => k.libelle)).toEqual(['Ligne directe', 'Ligne directe', 'Email direct']);
+  });
+});
+
+describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — qui suit quel immeuble', () => {
+  const copros = [im('12 rue X'), im('3 av Y')];
+  it('contact créé depuis un BIEN : cet immeuble seul ; sans bien (ou immeuble hors fiche) : « Tous les immeubles »', () => {
+    expect(suiviParDefaut(cleImmeuble('12 rue X'), copros)).toEqual({ tousImmeubles: false, immeubles: ['12 rue x'] });
+    expect(suiviParDefaut(null, copros)).toEqual({ tousImmeubles: true, immeubles: [] });
+    expect(suiviParDefaut(cleImmeuble('99 rue Z'), copros)).toEqual({ tousImmeubles: true, immeubles: [] });
+  });
+  it('la saisie : un contact ne suit que des copropriétés DE CE SYNDIC ; « tous » ⇒ aucune liste ; absent ⇒ tous', () => {
+    const v = validerSyndic({ ...ADR, nom: 'Cab', immeubles: copros, contacts: [
+      { nom: 'A', tousImmeubles: false, immeubles: ['12 RUE X', '99 rue Z'] },
+      { nom: 'B', tousImmeubles: true, immeubles: ['3 av Y'] },
+      { nom: 'C' },
+    ] });
+    expect(v.ok && v.syndic.contacts.map((c) => [c.tousImmeubles, c.immeubles])).toEqual([
+      [false, ['12 rue x']], [true, []], [true, []],
+    ]);
+  });
+  it('affecter / retirer une affectation ; un contact « commun » n\'est pas touché ; « suit » cet immeuble ?', () => {
+    const c = { ...contactVide({ tousImmeubles: false, immeubles: ['12 rue x'] }), nom: 'A' };
+    expect(affecter(c, '3 av y', true).immeubles).toEqual(['12 rue x', '3 av y']);
+    expect(affecter(c, '12 rue x', false).immeubles).toEqual([]);
+    const commun = contactVide();
+    expect(affecter(commun, '3 av y', false)).toBe(commun);
+    expect(suitImmeuble(commun, 'nimporte')).toBe(true);
+    expect(suitImmeuble(c, '3 av y')).toBe(false);
+    expect(contactModifie(c, affecter(c, '3 av y', true))).toBe(true);
+  });
+  it('« 2 contacts · 1 bien en gestion »', () => {
+    expect([motContacts(0), motContacts(1), motContacts(2)]).toEqual(['aucun contact', '1 contact', '2 contacts']);
+    expect([motBiens(0), motBiens(1), motBiens(3)]).toEqual(['aucun bien en gestion', '1 bien en gestion', '3 biens en gestion']);
   });
 });
 
@@ -392,6 +426,49 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(l[0].lots.map((x) => x.numero)).toEqual(['101', '102']);
   });
 
+  it('AFFECTATIONS : un contact qui suit un immeuble précis reçoit son affectation (tous_immeubles = faux, auteur)', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [(sql) => (sql.includes('INSERT INTO gestion_syndic ') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('INSERT INTO gestion_syndic_contact ') ? { rows: [{ id: '21' }] } : undefined),
+      (sql) => (sql.includes('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = ANY') ? { rows: [{ id: '41' }] } : undefined)];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', immeubles: [im('12 rue X')], contacts: [{ nom: 'A', tousImmeubles: false, immeubles: ['12 rue X'] }] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(null, v.syndic, auteur);
+    const i = appels.findIndex((a) => a.sql.includes('INSERT INTO gestion_copropriete_syndic'));
+    const j = appels.findIndex((a) => a.sql.includes('INSERT INTO gestion_syndic_contact '));
+    expect(i).toBeLessThan(j); // les copropriétés D'ABORD
+    expect(appels[j].params[6]).toBe(false);
+    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_syndic_contact_copropriete'))?.params).toEqual([21, '41', 7, 'arno']);
+  });
+
+  it('AFFECTATIONS : passer à « tous les immeubles » RETIRE les affectations (historisées), jamais effacées', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_syndic_contact WHERE syndic_id = $1 AND retire_le IS NULL FOR UPDATE') ? { rows: [{ id: '21' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_syndic_contact_copropriete') && sql.includes('FOR UPDATE') ? { rows: [{ id: '51', copropriete_id: '41' }] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', immeubles: [im('12 rue X')], contacts: [{ id: 21, nom: 'A', tousImmeubles: true }] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    const r = appels.find((a) => a.sql.includes('UPDATE gestion_syndic_contact_copropriete SET retire_le = now()') && a.params[0] instanceof Array);
+    expect(r?.params).toEqual([['51'], 'arno', 'tous les immeubles']);
+  });
+
+  it('AFFECTATIONS : une copropriété qui QUITTE le syndic retire les affectations de ses contacts', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('FOR UPDATE OF cs') ? { rows: [{ lien_id: '32', copro_id: '42', cle: cleImmeuble('ancien'), syndic_id: '11' }] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', immeubles: [] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    const r = appels.find((a) => norm(a.sql).includes('UPDATE gestion_syndic_contact_copropriete a SET retire_le = now()'));
+    expect(r?.params).toEqual([11, '42', 'arno', 'copropriété retirée du syndic']);
+    expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
+  });
+
   it('le dépôt ne contient aucun DELETE', () => {
     expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toMatch(/DELETE FROM/i);
   });
@@ -407,6 +484,14 @@ describe('les migrations 324 et 325 — ajout uniquement', () => {
     }
     expect(code).not.toMatch(/\bDROP\b|\bRENAME\b|ALTER TABLE/i);
     expect(norm(code)).toContain('CREATE UNIQUE INDEX IF NOT EXISTS gestion_copropriete_syndic_en_cours ON gestion_copropriete_syndic (copropriete_id) WHERE fin IS NULL');
+  });
+  it('326 : la colonne « tous les immeubles » (défaut VRAI) et la table d\'affectations historisée — rien d\'autre', () => {
+    const code = norm(lire('326_gestion_syndic_contact_copropriete.sql'));
+    expect(code).toContain('ALTER TABLE gestion_syndic_contact ADD COLUMN IF NOT EXISTS tous_immeubles boolean NOT NULL DEFAULT true;');
+    expect(code).toContain('CREATE TABLE IF NOT EXISTS gestion_syndic_contact_copropriete (');
+    expect(code).toContain('CREATE UNIQUE INDEX IF NOT EXISTS gestion_syndic_contact_copropriete_en_cours ON gestion_syndic_contact_copropriete (contact_id, copropriete_id) WHERE retire_le IS NULL;');
+    expect(code).not.toMatch(/\bDROP\b|\bRENAME\b|\bUPDATE\b|\bDELETE\b/i);
+    expect(code.match(/ALTER TABLE/g)?.length).toBe(1);
   });
   it('325 : uniquement des ADD COLUMN', () => {
     const lignes = lire('325_gestion_syndic_finitions.sql').split('\n').map((l) => l.trim()).filter((l) => l !== '');
@@ -484,7 +569,10 @@ describe('les écrans', () => {
     const src = lire('FicheSyndic.tsx');
     // LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — CE QU'IL DISAIT AVANT : 'Valider ce contact' (devenu « Valider » du contact).
     expect(src).not.toMatch(/>\s*Retirer ce contact\s*</); // le lien a disparu (accord d'Arno) ; seul un commentaire le cite
-    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Autres contacts', 'Ajouter un second numéro de standard',
+    // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — CE QU'IL DISAIT AVANT : 'Autres contacts' (titre de la section), devenu
+    // « Catalogue des contacts » ; « Autres contacts du cabinet » nomme désormais le reste du catalogue, ouvert depuis un bien.
+    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Catalogue des contacts', 'Autres contacts du cabinet',
+      'Contacts pour cet immeuble', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
       'Biens qui recevront ce syndic', 'déjà rattachée à', 'Oui, la prendre', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
       'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
       expect(src).toContain(mot);

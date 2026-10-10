@@ -36,6 +36,12 @@ export function libellesDe(sorte: SorteCoordonnee): readonly string[] {
 export interface CoordonneeSaisie { id?: number | null; sorte: SorteCoordonnee; libelle: string; valeur: string }
 export interface ContactSaisi {
   id?: number | null; titre: string; prenom: string; nom: string; coordonnees: CoordonneeSaisie[];
+  /**
+   * LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le contact suit TOUS les immeubles du syndic (vrai), ou seulement ceux de
+   * `immeubles` (les CLÉS des copropriétés, `cleImmeuble`). Absent (ancienne forme) ⇒ tous les immeubles.
+   */
+  tousImmeubles: boolean;
+  immeubles: string[];
 }
 /** Un immeuble rattaché : son libellé (l'« Immeuble » de l'export, ou une adresse de la BAN), et sa commune. */
 export interface ImmeubleSaisi { libelle: string; codePostal: string; commune: string }
@@ -74,6 +80,8 @@ export interface FicheSyndic {
   contacts: Array<{
     id: number; titre: string | null; prenom: string | null; nom: string | null;
     coordonnees: Array<{ id: number; sorte: SorteCoordonnee; libelle: string | null; valeur: string }>;
+    /** LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — tous les immeubles, ou les clés des copropriétés suivies. */
+    tousImmeubles: boolean; immeubles: string[];
   }>;
   /** Les copropriétés EN COURS, chacune avec ses lots. */
   coproprietes: Array<{
@@ -241,6 +249,10 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     }
     const contact: ContactSaisi = {
       id: entierOuNull(c.id), titre: texte(c.titre), prenom: texte(c.prenom), nom: texte(c.nom), coordonnees,
+      tousImmeubles: c.tousImmeubles !== false,
+      immeubles: Array.isArray(c.immeubles)
+        ? [...new Set(c.immeubles.map((x) => cleImmeuble(typeof x === 'string' ? x : '')).filter((x) => x !== ''))].slice(0, 300)
+        : [],
     };
     if (!contactNomme(contact) && coordonnees.length === 0) continue; // un contact ajouté puis laissé vide : ignoré
     if (!contactNomme(contact)) return { ok: false, motif: 'Chaque contact doit avoir au moins un nom ou un titre.' };
@@ -257,6 +269,10 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     vus.add(cle);
     immeubles.push({ libelle, codePostal: texte(o.codePostal), commune: texte(o.commune) });
   }
+
+  // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — un contact ne suit que des copropriétés DE CE SYNDIC : une copropriété
+  // retirée de la fiche disparaît aussi des contacts qui la suivaient. « Tous les immeubles » ⇒ aucune liste.
+  for (const c of contacts) c.immeubles = c.tousImmeubles ? [] : c.immeubles.filter((k) => vus.has(k));
 
   // Deux standards au plus ; le second remonte si le premier est vide.
   const tels = [b.telephone, b.telephone2].map((t) => chiffresTelephone(texte(t))).filter((t) => t !== '' && t !== '+');
@@ -356,6 +372,8 @@ export interface CoordonneeForm { cle: string; id: number | null; sorte: SorteCo
 export interface ContactForm {
   cle: string; id: number | null; titreChoix: string; titreLibre: string; prenom: string; nom: string;
   coordonnees: CoordonneeForm[];
+  /** LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — « Tous les immeubles », ou les clés des copropriétés suivies. */
+  tousImmeubles: boolean; immeubles: string[];
 }
 export interface SyndicForm {
   nom: string; adresse: string; codePostal: string; ville: string;
@@ -387,8 +405,28 @@ export function formulaireVide(immeubleDepart?: ImmeubleSaisi | null): SyndicFor
 }
 
 /** Un contact NOUVEAU (il s'ouvre EN MODIFICATION). */
-export function contactVide(): ContactForm {
-  return { cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', coordonnees: [] };
+export function contactVide(suivi?: { tousImmeubles: boolean; immeubles: string[] }): ContactForm {
+  return {
+    cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', coordonnees: [],
+    tousImmeubles: suivi?.tousImmeubles ?? true, immeubles: suivi?.immeubles ?? [],
+  };
+}
+
+/**
+ * LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — CE QUE SUIT UN CONTACT NOUVEAU. PUR.
+ * Créé depuis un BIEN dont l'immeuble est une copropriété de la fiche ⇒ cette copropriété seule (case modifiable) ;
+ * créé sans bien (écran « Syndics ») ⇒ « Tous les immeubles ».
+ */
+export function suiviParDefaut(cleDepart: string | null, immeubles: readonly ImmeubleSaisi[]): { tousImmeubles: boolean; immeubles: string[] } {
+  if (cleDepart !== null && cleDepart !== '' && immeubles.some((i) => cleImmeuble(i.libelle) === cleDepart)) {
+    return { tousImmeubles: false, immeubles: [cleDepart] };
+  }
+  return { tousImmeubles: true, immeubles: [] };
+}
+
+/** Ce contact suit-il cet immeuble (directement, ou parce qu'il suit tous les immeubles) ? PUR. */
+export function suitImmeuble(c: { tousImmeubles: boolean; immeubles: readonly string[] }, cle: string): boolean {
+  return c.tousImmeubles || c.immeubles.includes(cle);
 }
 
 export function coordonneeVide(sorte: SorteCoordonnee): CoordonneeForm {
@@ -406,6 +444,7 @@ export function versFormulaire(f: FicheSyndic): SyndicForm {
       const t = choixDe(c.titre, TITRES_CONTACT);
       return {
         cle: cleLocale(), id: c.id, titreChoix: t.choix, titreLibre: t.libre, prenom: c.prenom ?? '', nom: c.nom ?? '',
+        tousImmeubles: c.tousImmeubles !== false, immeubles: [...(c.immeubles ?? [])],
         coordonnees: c.coordonnees.map((k) => {
           const l = choixDe(k.libelle, libellesDe(k.sorte));
           return {
@@ -427,6 +466,7 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
     email: f.email, note: f.note,
     contacts: f.contacts.map((c) => ({
       id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom,
+      tousImmeubles: c.tousImmeubles, immeubles: c.tousImmeubles ? [] : [...c.immeubles],
       coordonnees: c.coordonnees.map((k) => ({
         id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
         valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur,
@@ -443,12 +483,18 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
 // « Valider » du pied de la fenêtre qui enregistre en base — comme pour tout le reste de la fiche.
 
 /** Le contact en cours de modification : lequel, son brouillon, et s'il est nouveau. */
-export interface EditionContact { cle: string; brouillon: ContactForm; nouveau: boolean }
+export interface EditionContact {
+  cle: string; brouillon: ContactForm; nouveau: boolean;
+  /** Le point de départ d'un NOUVEAU contact (déjà affecté à l'immeuble du bien) : « rien n'a changé » se mesure
+   *  depuis lui, et non depuis un contact vide. */
+  depart?: ContactForm;
+}
 
 /** Ce qu'un contact dit de lui, sans sa clé d'écran ni l'ordre de ses champs vides. PUR. */
 function signatureContact(c: ContactForm): string {
   return JSON.stringify({
     titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom.trim(), nom: c.nom.trim(),
+    suivi: c.tousImmeubles ? 'tous' : [...c.immeubles].sort(),
     coordonnees: c.coordonnees.map((k) => ({
       sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
       valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur.trim(),
@@ -480,7 +526,14 @@ export function appliquerBrouillon(f: SyndicForm, e: EditionContact): SyndicForm
 
 /** Une copie indépendante d'un contact, pour en faire un brouillon. PUR. */
 export function copieContact(c: ContactForm): ContactForm {
-  return { ...c, coordonnees: c.coordonnees.map((k) => ({ ...k })) };
+  return { ...c, coordonnees: c.coordonnees.map((k) => ({ ...k })), immeubles: [...c.immeubles] };
+}
+
+/** Une affectation retirée/ajoutée depuis une copropriété : le contact suit (ou ne suit plus) cet immeuble. PUR. */
+export function affecter(c: ContactForm, cle: string, suivre: boolean): ContactForm {
+  if (c.tousImmeubles) return c; // un contact « commun » suit tout : rien à affecter un par un
+  const sans = c.immeubles.filter((x) => x !== cle);
+  return { ...c, immeubles: suivre ? [...sans, cle] : sans };
 }
 
 /** Le formulaire a-t-il bougé depuis son ouverture ? PUR. */
@@ -547,4 +600,14 @@ export function casserPrenom(brut: string): string {
 /** NOM : tout en MAJUSCULES, accents conservés (« lefèvre » → « LEFÈVRE », « dupont-martin » → « DUPONT-MARTIN »). PUR. */
 export function casserNom(brut: string): string {
   return brut.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
+}
+
+/** « aucun contact », « 1 contact », « 2 contacts ». PUR. */
+export function motContacts(n: number): string {
+  return n === 0 ? 'aucun contact' : n === 1 ? '1 contact' : `${n} contacts`;
+}
+
+/** « aucun bien en gestion », « 1 bien en gestion », « 3 biens en gestion ». PUR. */
+export function motBiens(n: number): string {
+  return n === 0 ? 'aucun bien en gestion' : n === 1 ? '1 bien en gestion' : `${n} biens en gestion`;
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  affecter, motBiens, motContacts, suiviParDefaut, suitImmeuble,
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
@@ -98,7 +99,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
 
   useEffect(() => { if (idInitial !== null) void charger(idInitial); }, [idInitial, charger]);
 
-  const origineEdition = edition === null || edition.nouveau ? null : (form.contacts.find((c) => c.cle === edition.cle) ?? null);
+  const origineEdition = edition === null ? null
+    : edition.nouveau ? (edition.depart ?? null) : (form.contacts.find((c) => c.cle === edition.cle) ?? null);
+  /** LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — l'immeuble du bien depuis lequel on a ouvert la fiche (sinon `null`). */
+  const cleDepart = immeubleDepart !== null && immeubleDepart.libelle.trim() !== '' ? cleImmeuble(immeubleDepart.libelle) : null;
   const contactEnCours = edition !== null && contactModifie(origineEdition, edition.brouillon);
   const modifie = mode === 'edition' && (formulaireModifie(initial, form) || contactEnCours);
 
@@ -208,7 +212,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
-              ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} />
+              ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart} />
           )}
         </div>
 
@@ -427,7 +431,7 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
 function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente,
-  ouverts, setOuverts, edition, setEdition }: {
+  ouverts, setOuverts, edition, setEdition, cleDepart }: {
   form: SyndicForm; setForm: (f: SyndicForm) => void; fiche: Fiche | null; syndicId: number | null;
   onEcrire?: (email: string) => void; connus: ImmeubleConnu[];
   suppression: boolean; setSuppression: (v: boolean) => void; envoi: boolean; onSupprimer: () => void;
@@ -435,7 +439,23 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   tente: boolean;
   ouverts: string[]; setOuverts: (o: string[]) => void;
   edition: EtatEdition | null; setEdition: (e: EtatEdition | null) => void;
+  cleDepart: string | null;
 }) {
+  /** Les copropriétés de la fiche, avec leur adresse complète : pour « Immeubles suivis » et les cases à cocher. */
+  const adresses = form.immeubles.map((im) => {
+    const c = connus.find((x) => x.cle === cleImmeuble(im.libelle));
+    return { cle: cleImmeuble(im.libelle), adresse: adresseImmeuble(im.libelle, c?.codePostal ?? im.codePostal, c?.commune ?? im.commune) };
+  });
+  const origineEdition = edition === null ? null
+    : edition.nouveau ? (edition.depart ?? null) : (form.contacts.find((c) => c.cle === edition.cle) ?? null);
+  const contactEnCours = edition !== null && contactModifie(origineEdition, edition.brouillon) ? nomAffiche(edition.brouillon) : null;
+  /** « Créer un nouveau contact » depuis une copropriété : il naît dans le catalogue, affecté à CET immeuble. */
+  const creerContactPour = (cle: string): string | null => {
+    if (contactEnCours !== null) return contactEnCours;
+    const c = contactVide({ tousImmeubles: false, immeubles: [cle] });
+    setEdition({ cle: c.cle, brouillon: c, nouveau: true, depart: copieContact(c) });
+    return null;
+  };
   const manques = tente ? adresseManquante(form) : [];
   const majTel = (i: number, v: string): void =>
     setForm({ ...form, telephones: form.telephones.map((t, j) => (j === i ? saisieTelephone(t, v) : t)) });
@@ -496,11 +516,19 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       {/* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — « AUTRES CONTACTS », sous les coordonnées générales.
           🔴 LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — chaque contact : replié, ouvert en lecture, en modification. */}
       <SectionContacts form={form} setForm={setForm} onEcrire={onEcrire}
-        ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} />
+        ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition}
+        cleDepart={cleDepart} adresses={adresses} />
 
       <h3 className="fsy-sous-titre">Copropriétés</h3>
       <EditionCopros immeubles={form.immeubles} connus={connus} syndicId={syndicId}
-        onChange={(l) => setForm({ ...form, immeubles: l })} />
+        /* LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — une copropriété retirée sort aussi des contacts qui la suivaient. */
+        onChange={(l) => {
+          const restent = new Set(l.map((i) => cleImmeuble(i.libelle)));
+          setForm({ ...form, immeubles: l, contacts: form.contacts.map((c) => ({ ...c, immeubles: c.immeubles.filter((k) => restent.has(k)) })) });
+        }}
+        contacts={form.contacts} onContacts={(cs) => setForm({ ...form, contacts: cs })}
+        enModification={edition?.nouveau === false ? edition.cle : null}
+        onCreerContact={creerContactPour} />
 
       {/* 🔴 LA LISTE DES BIENS, SOUS LES YEUX AVANT DE VALIDER. */}
       <details className="fsy-biens" open={a.lots.length <= 12}>
@@ -617,20 +645,33 @@ function SelectChoix({ libelle, choix, libre, options, onChange }: {
  */
 type Action = { genre: 'ouvrir' | 'modifier'; cle: string } | { genre: 'ajouter' };
 
-function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition }: {
+/**
+ * ══ 🔴 LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — LE CATALOGUE DES CONTACTS ════════════════════════════════════════════
+ * « AUTRES CONTACTS » devient « CATALOGUE DES CONTACTS » : les mêmes trois états, et en plus « Immeubles suivis ».
+ * Ouverte DEPUIS UN BIEN, la fiche met en tête « Contacts pour cet immeuble » (affectés + communs) ; le reste du
+ * catalogue est replié dessous, sous « Autres contacts du cabinet ». Un contact créé depuis un bien suit par défaut
+ * l'immeuble de ce bien ; créé sans bien, « Tous les immeubles » (`suiviParDefaut`).
+ */
+function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition, cleDepart, adresses }: {
   form: SyndicForm; setForm: (f: SyndicForm) => void; onEcrire?: (email: string) => void;
   ouverts: string[]; setOuverts: (o: string[]) => void;
   edition: EtatEdition | null; setEdition: (e: EtatEdition | null) => void;
+  cleDepart: string | null; adresses: Array<{ cle: string; adresse: string }>;
 }) {
   /** Une action demandée pendant qu'un AUTRE contact a des modifications non enregistrées. */
   const [enAttente, setEnAttente] = useState<Action | null>(null);
   const [aSupprimer, setASupprimer] = useState<string | null>(null);
-  const origine = (e: EtatEdition): ContactForm | null => (e.nouveau ? null : (form.contacts.find((c) => c.cle === e.cle) ?? null));
+  const [autresOuverts, setAutresOuverts] = useState(false);
+  const origine = (e: EtatEdition): ContactForm | null => (e.nouveau ? (e.depart ?? null) : (form.contacts.find((c) => c.cle === e.cle) ?? null));
   const enCours = edition !== null && contactModifie(origine(edition), edition.brouillon);
 
   const executer = (a: Action): void => {
     setASupprimer(null);
-    if (a.genre === 'ajouter') { const c = contactVide(); setEdition({ cle: c.cle, brouillon: c, nouveau: true }); return; }
+    if (a.genre === 'ajouter') {
+      const c = contactVide(suiviParDefaut(cleDepart, form.immeubles));
+      setEdition({ cle: c.cle, brouillon: c, nouveau: true, depart: copieContact(c) });
+      return;
+    }
     const c = form.contacts.find((x) => x.cle === a.cle);
     if (c === undefined) return;
     if (!ouverts.includes(a.cle)) setOuverts([...ouverts, a.cle]);
@@ -664,9 +705,32 @@ function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition
     </div>
   ) : null);
 
+  const rendre = (c: ContactForm) => (edition !== null && edition.cle === c.cle ? (
+    <ContactEnModification key={c.cle} e={edition} origine={c} onEcrire={onEcrire} adresses={adresses}
+      onChange={(b) => setEdition({ ...edition, brouillon: b })}
+      onAnnuler={() => setEdition(null)} onValider={() => valider(edition)}
+      onSupprimer={() => setASupprimer(c.cle)} confirmation={confirmerSuppression(c)} />
+  ) : ouverts.includes(c.cle) ? (
+    <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
+      onModifier={() => demander({ genre: 'modifier', cle: c.cle })} onSupprimer={() => setASupprimer(c.cle)}
+      confirmation={confirmerSuppression(c)} />
+  ) : (
+    <button key={c.cle} type="button" className="fsy-contact-replie" aria-expanded={false}
+      onClick={() => demander({ genre: 'ouvrir', cle: c.cle })}>
+      <EnteteContact c={c} />
+      <span className="fsy-fleche" aria-hidden="true">▸</span>
+    </button>
+  ));
+
+  // Depuis un BIEN dont l'immeuble est une copropriété de la fiche : ses contacts en tête, le reste replié dessous.
+  const parImmeuble = cleDepart !== null && adresses.some((a) => a.cle === cleDepart);
+  const pourCetImmeuble = parImmeuble ? form.contacts.filter((c) => suitImmeuble(c, cleDepart as string)) : form.contacts;
+  const autres = parImmeuble ? form.contacts.filter((c) => !suitImmeuble(c, cleDepart as string)) : [];
+  const autresActifs = autresOuverts || autres.some((c) => edition?.cle === c.cle);
+
   return (
     <>
-      <h3 className="fsy-sous-titre">Autres contacts</h3>
+      <h3 className="fsy-sous-titre">Catalogue des contacts</h3>
       {enAttente !== null && edition !== null && (
         <div className="fsy-alerte fsy-confirmer" role="group" aria-label="Abandonner les modifications du contact ?">
           <span>Abandonner les modifications ({nomAffiche(edition.brouillon)}) ?</span>
@@ -676,33 +740,34 @@ function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition
           }}>Oui, abandonner</button>
         </div>
       )}
-      {form.contacts.length === 0 && edition?.nouveau !== true && <p className="fsy-discret">Aucun autre contact.</p>}
-      {form.contacts.map((c) => (edition !== null && edition.cle === c.cle ? (
-        <ContactEnModification key={c.cle} e={edition} origine={c} onEcrire={onEcrire}
-          onChange={(b) => setEdition({ ...edition, brouillon: b })}
-          onAnnuler={() => setEdition(null)} onValider={() => valider(edition)}
-          onSupprimer={() => setASupprimer(c.cle)} confirmation={confirmerSuppression(c)} />
-      ) : ouverts.includes(c.cle) ? (
-        <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} onFermer={() => fermer(c.cle)}
-          onModifier={() => demander({ genre: 'modifier', cle: c.cle })} onSupprimer={() => setASupprimer(c.cle)}
-          confirmation={confirmerSuppression(c)} />
-      ) : (
-        <button key={c.cle} type="button" className="fsy-contact-replie" aria-expanded={false}
-          onClick={() => demander({ genre: 'ouvrir', cle: c.cle })}>
-          <EnteteContact c={c} />
-          <span className="fsy-fleche" aria-hidden="true">▸</span>
-        </button>
-      )))}
+      {parImmeuble && <p className="fsy-sous-sous-titre">Contacts pour cet immeuble</p>}
+      {pourCetImmeuble.length === 0 && edition?.nouveau !== true && (
+        <p className="fsy-discret">{parImmeuble ? 'Aucun contact pour cet immeuble.' : 'Aucun contact.'}</p>
+      )}
+      {pourCetImmeuble.map(rendre)}
       {edition !== null && edition.nouveau && (
-        <ContactEnModification e={edition} origine={null} onEcrire={onEcrire}
+        <ContactEnModification e={edition} origine={edition.depart ?? null} onEcrire={onEcrire} adresses={adresses}
           onChange={(b) => setEdition({ ...edition, brouillon: b })}
           onAnnuler={() => setEdition(null)} onValider={() => valider(edition)} />
       )}
       <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
         + Ajouter un contact
       </button>
+      {parImmeuble && autres.length > 0 && (
+        <details className="fsy-autres" open={autresActifs} onToggle={(e) => setAutresOuverts((e.target as HTMLDetailsElement).open)}>
+          <summary>Autres contacts du cabinet ({autres.length})</summary>
+          <div className="fsy-bloc">{autres.map(rendre)}</div>
+        </details>
+      )}
     </>
   );
+}
+
+/** « Tous les immeubles », ou la liste des copropriétés suivies (adresse complète). */
+function motImmeublesSuivis(c: ContactForm, adresses: Array<{ cle: string; adresse: string }>): string {
+  if (c.tousImmeubles) return 'Tous les immeubles';
+  const l = adresses.filter((a) => c.immeubles.includes(a.cle)).map((a) => a.adresse);
+  return l.length === 0 ? 'aucun immeuble' : l.join(' · ');
 }
 
 /**
@@ -721,9 +786,9 @@ function EnteteContact({ c }: { c: ContactForm }) {
 }
 
 /** ② OUVERT EN LECTURE — aucune saisie ; une ligne par téléphone et par e-mail, l'action au bout. */
-function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation }: {
+function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses }: {
   c: ContactForm; onEcrire?: (email: string) => void; onFermer: () => void; onModifier: () => void; onSupprimer: () => void;
-  confirmation: React.ReactNode;
+  confirmation: React.ReactNode; adresses: Array<{ cle: string; adresse: string }>;
 }) {
   const libelle = (k: CoordonneeForm): string => valeurDuChoix(k.choix, k.libre);
   const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
@@ -753,6 +818,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
           <ActionEcrire email={k.valeur} onEcrire={onEcrire} />
         </div>
       ))}
+      <p className="fsy-suivis"><span className="fsy-discret">Immeubles suivis :</span> {motImmeublesSuivis(c, adresses)}</p>
       {confirmation ?? (
         <div className="fsy-boutons fsy-boutons--contact">
           <button type="button" className="fsy-lien-bouton fsy-pousse-gauche" onClick={onSupprimer}>Supprimer ce contact</button>
@@ -765,10 +831,10 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
 }
 
 /** ③ EN MODIFICATION — des champs ; « Modifier » devient « Valider » dès qu'un champ change. */
-function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onSupprimer, confirmation, onEcrire }: {
+function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onSupprimer, confirmation, onEcrire, adresses }: {
   e: EtatEdition; origine: ContactForm | null; onChange: (c: ContactForm) => void;
   onAnnuler: () => void; onValider: () => void; onSupprimer?: () => void; confirmation?: React.ReactNode;
-  onEcrire?: (email: string) => void;
+  onEcrire?: (email: string) => void; adresses: Array<{ cle: string; adresse: string }>;
 }) {
   const c = e.brouillon;
   /** Les champs RETOUCHÉS : seuls ceux-là reçoivent la casse en quittant le champ (un nom existant qu'on ne fait que
@@ -827,6 +893,24 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
         <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('telephone')}>+ téléphone</button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('email')}>+ e-mail</button>
       </div>
+      {/* 🔴 LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — « Immeubles suivis » : « Tous les immeubles », ou les copropriétés
+          cochées une à une (celles du syndic). */}
+      <fieldset className="fsy-suivis-edit">
+        <legend>Immeubles suivis</legend>
+        <label className="fsy-case">
+          <input type="checkbox" checked={c.tousImmeubles}
+            onChange={(ev) => onChange({ ...c, tousImmeubles: ev.target.checked, immeubles: ev.target.checked ? [] : c.immeubles })} />
+          <span>Tous les immeubles</span>
+        </label>
+        {adresses.map((a) => (
+          <label key={a.cle} className="fsy-case">
+            <input type="checkbox" disabled={c.tousImmeubles} checked={c.tousImmeubles || c.immeubles.includes(a.cle)}
+              onChange={(ev) => onChange(affecter(c, a.cle, ev.target.checked))} />
+            <span>{a.adresse}</span>
+          </label>
+        ))}
+        {adresses.length === 0 && <p className="fsy-discret fsy-sans-marge">Ajoutez une copropriété pour affecter ce contact à un immeuble.</p>}
+      </fieldset>
       {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
       {confirmation ?? (abandon ? (
         <div className="fsy-confirmer fsy-confirmer--contact" role="group" aria-label="Abandonner les modifications ?">
@@ -854,9 +938,18 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
 
 interface Suggestion { cle: string; libelle: string; codePostal: string; commune: string; nbBiens: number; syndic: { id: number; nom: string } | null }
 
-function EditionCopros({ immeubles, connus, syndicId, onChange }: {
+function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onContacts, enModification, onCreerContact }: {
   immeubles: ImmeubleSaisi[]; connus: ImmeubleConnu[]; syndicId: number | null; onChange: (l: ImmeubleSaisi[]) => void;
+  /** LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, pour afficher et modifier les affectations par immeuble. */
+  contacts: ContactForm[]; onContacts: (c: ContactForm[]) => void;
+  /** Le contact EXISTANT en cours de modification (ses affectations se règlent dans son bloc, pas ici). */
+  enModification: string | null;
+  /** Crée un contact affecté à cet immeuble ; rend le nom du contact qui bloque, s'il y en a un. */
+  onCreerContact: (cle: string) => string | null;
 }) {
+  const [deplie, setDeplie] = useState<string | null>(null);
+  const [aCocher, setACocher] = useState<string[] | null>(null);
+  const [bloque, setBloque] = useState<string | null>(null);
   const [saisie, setSaisie] = useState('');
   const [ban, setBan] = useState<AdresseBan[]>([]);
   const [aRetirer, setARetirer] = useState<string | null>(null);
@@ -914,12 +1007,21 @@ function EditionCopros({ immeubles, connus, syndicId, onChange }: {
           {immeubles.map((im) => {
             const c = parCle.get(cleImmeuble(im.libelle));
             const affiche = adresseImmeuble(im.libelle, c?.codePostal ?? im.codePostal, c?.commune ?? im.commune);
+            const cle = cleImmeuble(im.libelle);
+            const suivent = contacts.filter((x) => suitImmeuble(x, cle));
+            const ouvert = deplie === cle;
+            const libres = contacts.filter((x) => !suitImmeuble(x, cle) && x.cle !== enModification);
             return (
-              <li key={cleImmeuble(im.libelle)} className="fsy-copro">
-                <span className="fsy-copro-adresse">
-                  <span>{affiche}</span>
-                  <span className="fsy-discret">{motBiensEnGestion(c?.lots.length ?? 0)}</span>
-                </span>
+              <li key={cle} className="fsy-copro">
+                {/* « 25 rue Edith Cavell, 92400 Courbevoie · 2 contacts · 1 bien en gestion » ; un clic la déplie. */}
+                <button type="button" className="fsy-copro-tete" aria-expanded={ouvert}
+                  onClick={() => { setDeplie(ouvert ? null : cle); setACocher(null); setBloque(null); }}>
+                  <span className="fsy-copro-adresse">
+                    <span>{affiche}</span>
+                    <span className="fsy-discret">{motContacts(suivent.length)} · {motBiens(c?.lots.length ?? 0)}</span>
+                  </span>
+                  <span className="fsy-fleche" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
+                </button>
                 {aRetirer === im.libelle ? (
                   <span className="fsy-confirmer" role="group" aria-label="Confirmer le retrait">
                     <span>Retirer ? Le lien passe en historique.</span>
@@ -930,7 +1032,58 @@ function EditionCopros({ immeubles, connus, syndicId, onChange }: {
                 ) : (
                   <button type="button" className="fsy-lien-bouton" onClick={() => setARetirer(im.libelle)}>Retirer</button>
                 )}
+                {ouvert && (
+                  <div className="fsy-copro-contacts">
+                    {suivent.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun contact pour cet immeuble.</p>}
+                    {suivent.map((x) => (
+                      <div key={x.cle} className="fsy-contact-coord">
+                        <span className="fsy-coord-gauche">
+                          <strong>{nomAffiche(x)}</strong>
+                          {valeurDuChoix(x.titreChoix, x.titreLibre) !== '' && prenomNom(x.prenom, x.nom) !== '' && (
+                            <span className="fsy-discret"> · {valeurDuChoix(x.titreChoix, x.titreLibre)}</span>
+                          )}
+                        </span>
+                        {x.tousImmeubles
+                          ? <span className="fsy-commun" title="Ce contact suit tous les immeubles du syndic">commun</span>
+                          : x.cle === enModification
+                            ? <span className="fsy-discret">en modification</span>
+                            : <button type="button" className="fsy-lien-bouton fsy-action"
+                                aria-label={`Retirer l’affectation de ${nomAffiche(x)}`}
+                                onClick={() => onContacts(contacts.map((y) => (y.cle === x.cle ? affecter(y, cle, false) : y)))}>Retirer</button>}
+                      </div>
+                    ))}
+                    {aCocher !== null ? (
+                      <div className="fsy-affecter" role="group" aria-label="Affecter des contacts du catalogue">
+                        {libres.length === 0 && <p className="fsy-discret fsy-sans-marge">Tous les contacts du catalogue suivent déjà cet immeuble.</p>}
+                        {libres.map((x) => (
+                          <label key={x.cle} className="fsy-case">
+                            <input type="checkbox" checked={aCocher.includes(x.cle)}
+                              onChange={(ev) => setACocher(ev.target.checked ? [...aCocher, x.cle] : aCocher.filter((k) => k !== x.cle))} />
+                            <span>{nomAffiche(x)}{valeurDuChoix(x.titreChoix, x.titreLibre) && prenomNom(x.prenom, x.nom) ? ` · ${valeurDuChoix(x.titreChoix, x.titreLibre)}` : ''}</span>
+                          </label>
+                        ))}
+                        <div className="fsy-boutons fsy-boutons--contact">
+                          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setACocher(null)}>Annuler</button>
+                          <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" disabled={aCocher.length === 0}
+                            onClick={() => { onContacts(contacts.map((y) => (aCocher.includes(y.cle) ? affecter(y, cle, true) : y))); setACocher(null); }}>
+                            Affecter
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="fsy-ligne-ajouts">
+                        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setACocher([])}>+ Affecter un contact</button>
+                        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn"
+                          onClick={() => setBloque(onCreerContact(cle))}>Créer un nouveau contact</button>
+                      </div>
+                    )}
+                    {bloque !== null && (
+                      <p className="fsy-alerte" role="alert">Terminez d’abord la modification en cours du contact {bloque} (Valider ou Annuler).</p>
+                    )}
+                  </div>
+                )}
               </li>
+
             );
           })}
         </ul>
@@ -1054,6 +1207,18 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-ligne-ajouts{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
 .fsy-pousse{margin-left:auto}
 .fsy-copro{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:5px 10px;border-radius:8px;background:var(--color-svv-field)}
+.fsy-copro-tete{flex:1 1 16rem;min-width:0;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
+  border:0;background:transparent;color:var(--color-svv-ink);font:inherit;text-align:left;cursor:pointer;padding:0}
+.fsy-copro-contacts{flex:1 1 100%;display:flex;flex-direction:column;gap:.3rem;padding:.3rem 0 .2rem;border-top:1px solid var(--color-svv-line)}
+.fsy-commun{margin-left:auto;padding:0 .45rem;border-radius:999px;border:1px solid var(--color-svv-line-strong);font-size:.72rem;color:var(--color-svv-muted)}
+.fsy-affecter{display:flex;flex-direction:column;gap:.25rem}
+.fsy-case{display:flex;align-items:center;gap:.45rem;min-height:32px;font-size:.88rem;cursor:pointer}
+.fsy-case input{width:18px;height:18px}
+.fsy-suivis{margin:.1rem 0 0;font-size:.86rem;padding-left:.2rem}
+.fsy-suivis-edit{border:1px dashed var(--color-svv-line);border-radius:8px;padding:4px 10px 6px;margin:0;display:flex;flex-direction:column;gap:.1rem}
+.fsy-suivis-edit legend{font-size:.78rem;color:var(--color-svv-muted);padding:0 .3rem}
+.fsy-sous-sous-titre{margin:.1rem 0 0;font-size:.82rem;font-weight:700}
+.fsy-autres summary{cursor:pointer;font-size:.84rem;font-weight:700;color:var(--color-svv-muted);min-height:32px}
 .fsy-copro-adresse{display:flex;flex-direction:column;min-width:0;font-size:.9rem}
 .fsy-confirmer{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;font-size:.84rem}
 .fsy-proposition{width:100%;min-height:40px;display:flex;flex-direction:column;align-items:flex-start;gap:.05rem;text-align:left;
