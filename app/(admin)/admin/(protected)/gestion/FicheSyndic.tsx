@@ -587,7 +587,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           <div className="fsy-cadre-tete">
             <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-ajout">
               {/* LOT SYNDIC-TITRES-COPROPRIETE — « Ajouter un contact à cet immeuble » devient : */}
-              {adresseDuBien !== null ? 'Ajouter un contact syndic à cette copropriété' : 'Ajouter un contact au cabinet'}
+              {/* LOT SYNDIC-TITRE-NOUVEAU-CONTACT-COPRO — avant : « Ajouter un contact syndic à cette copropriété ». */}
+              {adresseDuBien !== null ? 'Ajouter un nouveau contact à cette copropriété' : 'Ajouter un contact au cabinet'}
             </h3>
             <button type="button" className="fsy-lien-bouton fsy-fermer-ajout" onClick={() => setEdition(null)}
               aria-label="Fermer l’ajout de contact sans rien rattacher ni créer">× Fermer</button>
