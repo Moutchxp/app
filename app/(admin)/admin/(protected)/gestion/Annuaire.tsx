@@ -84,6 +84,8 @@ import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature des coordonnées, partagée par tous les écrans de l'annuaire.
 import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 import { pastillesBien } from '../../../../lib/gestion/pastillesBien';
+// LOT ANNUAIRE-SYNDICS — le bouton syndic des cartes de bien, et le composeur qu'il peut ouvrir.
+import { BoutonSyndic, EcrireDepuisGestion } from './BoutonSyndic';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -452,6 +454,7 @@ export function Annuaire({
   }, [envoyer, recharger]);
 
   return (
+    <EcrireDepuisGestion.Provider value={onEcrire}>
     <div className="ann">
       <style>{CSS_ANNUAIRE}</style>
       <style>{CSS_VIE_DU_BIEN}</style>
@@ -576,6 +579,7 @@ export function Annuaire({
         <BarreAnnuaire onFiche={onFiche} focusAuMontage />
       )}
     </div>
+    </EcrireDepuisGestion.Provider>
   );
 }
 
@@ -758,6 +762,8 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
       </button>
       {/* 🔴 JUSTE AU-DESSUS DES FAITS de la carte (là où était la ligne SURFACE), sur toute la largeur. */}
       <CartoucheEvenement nb={b.evenementsOuverts} onOuvrir={() => onEvenements(b.id)} />
+      {/* 🔴 LOT ANNUAIRE-SYNDICS — À LA PLACE DE LA LIGNE SURFACE : « Coordonnées syndic » ou « Créer le syndic ». */}
+      <BoutonSyndic immeuble={b.immeuble} />
       <div className="ann-carte-faits">
           {/* 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA LIGNE « SURFACE » EST RETIRÉE, avec l'accord explicite
               d'Arno pour CETTE ligne : la surface monte dans l'en-tête (pastille « 63 m² », quand elle est connue). */}
@@ -1391,6 +1397,8 @@ function VueLot({
           la page sur la « vie du bien » filtrée sur les échanges qui portent un événement ouvert. */}
       <CartoucheEvenement nb={f.evenementsOuverts}
         onOuvrir={() => { onFiltreVie('evenement'); ancreVie.current?.scrollIntoView({ block: 'start' }); }} />
+      {/* 🔴 LOT ANNUAIRE-SYNDICS — depuis la fiche du bien : la copropriété du bien est pré-remplie. */}
+      <BoutonSyndic immeuble={f.immeuble} />
 
       <section className="ann-bloc">
         <div className="ann-personne">
@@ -2080,6 +2088,9 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
         : <button type="button" className="ann-carte-corps" onClick={() => ouvrir('lot', o.lotId as number)}>
           {corps}
         </button>}
+      {/* 🔴 LOT ANNUAIRE-SYNDICS — le bouton syndic, juste sous les faits : il ne peut pas vivre DANS le bouton de
+          la carte (un bouton dans un bouton est du HTML invalide). Seulement pour un lot de l'annuaire. */}
+      {o.lotId !== null && <BoutonSyndic immeuble={o.immeuble} />}
       {/* 🔴 LOT FICHES-RETOUCHES — MÊME PIED QUE LA CARTE DE BIEN : deux boutons de même largeur, et
           « Historique » au-dessus quand le lot est dans l'annuaire. Deux cartes qui montrent le même objet ne
           peuvent pas se présenter de deux façons — on réapprendrait à lire d'un écran à l'autre. */}

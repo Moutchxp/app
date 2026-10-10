@@ -98,7 +98,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -178,6 +178,8 @@ export function PleinEcranBoite({
   onEvenements?: () => void;
   /** Combien d'événements sont EN COURS. `null` = pas encore connu : on n'affiche alors aucun nombre. */
   evenementsOuverts?: number | null;
+  /** LOT ANNUAIRE-SYNDICS — ouvre l'écran « Syndics ». Absent ⇒ aucune entrée. */
+  onSyndics?: () => void;
   onAnnuaire?: () => void;
   /** Les lignes d'état ORDINAIRE, en petit. Une alerte ne passe jamais par ici. */
   etatDiscret?: readonly string[] | null;
@@ -984,6 +986,16 @@ export function PleinEcranBoite({
                   title="Les événements en cours, en plein écran">
                   <span className="cm-nom"><span className="cm-texte">Événements</span></span>
                   {evenementsOuverts !== null && <span className="gst-compte">{evenementsOuverts}</span>}
+                </button>
+              </li>
+            )}
+            {/* 🔴 LOT ANNUAIRE-SYNDICS — « Syndics », SOUS « Événements », comme demandé. Une entrée AJOUTÉE : celles
+                qui existaient gardent leur ordre et leur place. */}
+            {onSyndics && (
+              <li>
+                <button type="button" className="cm-entree" onClick={() => { onSyndics(); setPanneauMobile('contenu'); }}
+                  title="L’annuaire des syndics de copropriété">
+                  <span className="cm-nom"><span className="cm-texte">Syndics</span></span>
                 </button>
               </li>
             )}

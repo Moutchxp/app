@@ -777,6 +777,8 @@ export interface BienDuProprietaire {
   numero: string;
   adresse: string | null; commune: string | null; codePostal: string | null;
   nature: string | null; typeBien: string | null;
+  /** LOT ANNUAIRE-SYNDICS — l'« Immeuble » WIPPIMMO : la clé de sa copropriété, donc de son syndic. */
+  immeuble?: string | null;
   /** 🔴 TOUJOURS `null` AUJOURD'HUI : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
   surfaceM2: number | null;
   debut: string | null;
@@ -931,6 +933,8 @@ export interface LogementDuLocataire {
   numero: string;
   adresse: string | null; commune: string | null; codePostal: string | null;
   nature: string | null; typeBien: string | null;
+  /** LOT ANNUAIRE-SYNDICS — l'« Immeuble » WIPPIMMO : la clé de sa copropriété, donc de son syndic. */
+  immeuble?: string | null;
   /** 🔴 TOUJOURS `null` : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
   surfaceM2: number | null;
   entree: string | null; sortie: string | null; encours: boolean; horsGestion: boolean;
@@ -1454,10 +1458,11 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
   const { rows } = await query<{
     id: string; wippimmo_id: string; adresse: string | null; commune: string | null; code_postal: string | null;
     nature: string | null; type_bien: string | null; gestion_debut: string | null; gestion_fin: string | null;
+    immeuble: string | null;
     locataire: string | null; locataire_id: string | null; locataire_depuis: string | null;
     mails: number; dernier_echange: string | null; evenements: number; drive_id: string | null;
   }>(
-    `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien,
+    `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             lo.gestion_debut::text, lo.gestion_fin::text,
             oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
             coalesce(ma.n, 0)::int AS mails,
@@ -1517,7 +1522,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
   return rows.map((l) => ({
     id: Number(l.id), numero: l.wippimmo_id,
     adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
-    nature: l.nature, typeBien: l.type_bien,
+    nature: l.nature, typeBien: l.type_bien, immeuble: l.immeuble,
     surfaceM2: null,
     debut: l.gestion_debut, fin: l.gestion_fin,
     locataire: l.locataire, locataireId: l.locataire_id === null ? null : Number(l.locataire_id),
@@ -1690,13 +1695,13 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
    */
   const { rows: occ } = await query<{
     lot_id: string | null; numero: string; adresse: string | null; commune: string | null;
-    code_postal: string | null; nature: string | null; type_bien: string | null;
+    code_postal: string | null; nature: string | null; type_bien: string | null; immeuble: string | null;
     entree: string | null; sortie: string | null;
     proprietaire_id: string | null; proprietaire_nom: string | null;
     mails: number; dernier_echange: string | null; drive_id: string | null;
   }>(
     `SELECT o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero, lo.adresse, lo.commune,
-            lo.code_postal, lo.nature, lo.type_bien,
+            lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             o.entree::text, o.sortie::text,
             pr.id::text AS proprietaire_id, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
             coalesce(ma.n, 0)::int AS mails,
@@ -1750,7 +1755,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
       logements: occ.map((o) => ({
         lotId: o.lot_id === null ? null : Number(o.lot_id),
         numero: o.numero, adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
-        nature: o.nature, typeBien: o.type_bien, surfaceM2: null,
+        nature: o.nature, typeBien: o.type_bien, immeuble: o.immeuble, surfaceM2: null,
         entree: o.entree, sortie: o.sortie, encours: estLocataireEnPlace(o), horsGestion: o.lot_id === null,
         proprietaireId: o.proprietaire_id === null ? null : Number(o.proprietaire_id),
         proprietaireNom: o.proprietaire_nom,

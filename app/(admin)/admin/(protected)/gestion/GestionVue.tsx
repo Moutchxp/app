@@ -51,6 +51,7 @@ import { BoiteReception } from './BoiteReception';
 import { ColonneMode } from './ColonneMode';
 import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 import { Annuaire } from './Annuaire';
+import { EcranSyndics } from './EcranSyndics';
 import { FileATrier } from './FileATrier';
 import { etatSuite } from '../../../../lib/gestion/suiteReleve';
 import { etatCopie } from '../../../../lib/gestion/copieArretee';
@@ -1344,7 +1345,15 @@ export function GestionVue({ intro }: {
       {/* LOT RATTACHEMENT-2 — L'HISTORIQUE D'UNE CIBLE. Atteint par un clic depuis l'annuaire, depuis une étiquette du
           bandeau « Rattaché à » d'un mail, ou depuis une carte d'événement. Sans cible lisible dans l'adresse, on
           n'affiche pas un écran vide : on revient à l'écran partagé, comme pour toute valeur illisible. */}
-      {ecran === 'historique' ? (
+      {ecran === 'syndics' ? (
+        /* 🔴🔴 LOT ANNUAIRE-SYNDICS — L'ÉCRAN « SYNDICS ». Le composant ne sait rien de cet écran : il reçoit son
+           retour et le composeur, et la future tuile Location le posera tel quel. */
+        <EcranSyndics
+          retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button>}
+          onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
+            ? (email) => { setEcrireA(email); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }
+            : undefined} />
+      ) : ecran === 'historique' ? (
         cibleHistorique !== null ? (
           <HistoriqueCible cible={cibleHistorique} maintenant={ref}
             /* ⚠️ « ← » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte : s'en remettre à
@@ -1487,6 +1496,8 @@ export function GestionVue({ intro }: {
            */
           onEvenements={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'evenements' }); }}
           evenementsOuverts={d.evenementsOuverts}
+          /* 🔴 LOT ANNUAIRE-SYNDICS — l'entrée « Syndics », juste sous « Événements ». */
+          onSyndics={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'syndics' }); }}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */

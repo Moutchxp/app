@@ -32,7 +32,8 @@
  * ⚠️ `historique` PORTE UNE CIBLE (`&cible=lot-282`), sans laquelle il ne désigne rien : une adresse
  * `?ecran=historique` nue rend un écran sans cible, que la vue traite comme toute valeur illisible.
  */
-export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire' | 'a_trier' | 'historique';
+// LOT ANNUAIRE-SYNDICS — `syndics` : l'écran « Syndics », sous « Événements » dans la colonne de gauche.
+export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire' | 'a_trier' | 'historique' | 'syndics';
 
 /**
  * Les étiquettes de la boîte. `carte` est la seule à porter un identifiant : les autres sont des vues fixes.
@@ -419,7 +420,7 @@ export const ETAT_ACCUEIL_GESTION: EtatEcranUrl = {
 export const URL_ACCUEIL_GESTION = `/admin/gestion${ecrireEtatUrl(ETAT_ACCUEIL_GESTION)}`;
 
 
-const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
+const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique', 'syndics'];
 const SORTES_FIXES: readonly SorteEtiquette[] = [
   'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons', 'spam',
   // 🔴🔴 LOT DOSSIER-A-CLASSER — le dossier des mails qui portent la pastille rouge. Voir l'encadré de la sorte :
