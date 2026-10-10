@@ -1428,3 +1428,31 @@ describe('LOT SYNDIC-TITRES-COPROPRIETE — « copropriété » depuis un bien, 
     expect(titreAjout()).toBe('Ajouter un contact au cabinet');
   });
 });
+
+describe('LOT SYNDIC-BOUTON-AJOUT-CENTRE', () => {
+  const plus = (): HTMLButtonElement | undefined => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === '+ Ajouter un contact') as HTMLButtonElement | undefined;
+  const verifier = async (): Promise<void> => {
+    const b = plus() as HTMLButtonElement;
+    expect(b.parentElement?.className).toBe('fsy-ajout-centre');
+    expect(b.className).toBe('svv-btn svv-btn-outline gst-btn fsy-ajout'); // taille et style inchangés
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-ajout-centre{display:flex;justify-content:center}');
+    await cliquer(b);
+    expect(plus()).toBeUndefined();
+    expect(document.querySelector('.fsy-ajout-centre')).toBeNull();
+    await cliquer(document.querySelector('.fsy-fermer-ajout') as Element);
+    expect(plus()?.parentElement?.className).toBe('fsy-ajout-centre');
+  };
+  it('centré en bas du bloc 1 depuis un bien ; masqué pendant l’ajout, de retour centré après', async () => {
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 20, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    expect(document.querySelector('section[aria-labelledby="fsy-bloc-1"]')?.contains(plus() as Node)).toBe(true);
+    await verifier();
+  });
+  it('… et depuis l’écran « Syndics »', async () => {
+    await ouvrir(vi.fn(), 20);
+    await verifier();
+  });
+});

@@ -914,9 +914,12 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
      ferme : × Fermer, Annuler, Valider, ou « Ajouter à cette copropriété ».
      LOT SYNDIC-BLOC-AJOUT-CONTACT : le bouton est DÉPLACÉ en bas du bloc 1, sous la liste des contacts. */
   const bouton = edition?.nouveau !== true ? (
-    <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
-      + Ajouter un contact
-    </button>
+    /* LOT SYNDIC-BOUTON-AJOUT-CENTRE — centré sur sa ligne ; taille, style et comportement inchangés. */
+    <div className="fsy-ajout-centre">
+      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
+        + Ajouter un contact
+      </button>
+    </div>
   ) : null;
   return { liste, bouton, ajout };
 }
@@ -1436,6 +1439,7 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-proposition:hover,.fsy-proposition:focus-visible{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
 .fsy-proposition-adresse{font-size:.9rem}
 .fsy-ajout{align-self:flex-start}
+.fsy-ajout-centre{display:flex;justify-content:center}
 .fsy-biens summary,.fsy-historique summary{cursor:pointer;font-size:.84rem;font-weight:700;color:var(--color-svv-muted);min-height:28px}
 .fsy-historique ul{margin:.25rem 0 0;padding-left:1.1rem;font-size:.84rem}
 .fsy-trace{margin:0}
