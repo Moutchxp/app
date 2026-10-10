@@ -170,6 +170,11 @@ export interface DerniereEtapeVignette {
   titre: string | null;
   survenuLe: string;
   heureConnue: boolean;
+  /**
+   * 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT (migration 323) — `false` = date non saisie : la miniature n'en écrit
+   * aucune, comme le carré de la frise. Facultatif : absent ⇒ connue (toutes les cartes d'avant ce lot).
+   */
+  jourConnu?: boolean;
   source: 'monga' | 'manuelle';
   certitude: 'fiable' | 'a_confirmer' | 'confirmee' | 'ecartee';
 }
@@ -358,7 +363,7 @@ interface CarteDB {
   ouvert_le: string; dernier_echange_le: string | null; nb_fils: number; nb_mails: number; attend: boolean;
   /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape de la frise de cet événement. */
   etape_type: TypeEtape | null; etape_titre: string | null; etape_survenu_le: string;
-  etape_heure_connue: boolean | null; etape_source: string | null;
+  etape_heure_connue: boolean | null; etape_jour_connu?: boolean | null; etape_source: string | null;
   etape_certitude: DerniereEtapeVignette['certitude'] | null;
   /* 🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — la dernière étape VENUE DE MONGA (`source` y vaut forcément
      « monga » : la jointure l'impose, et la recopier ferait une colonne qui ne peut rien dire d'autre). */
@@ -584,7 +589,7 @@ const SQL_DERNIERE_MAJ_MONGA = `
 function sqlDerniereEtape(alias: string, mongaSeulement: boolean): string {
   return `
   LEFT JOIN LATERAL (
-    SELECT x.type, x.titre, x.survenu_le, x.heure_connue, x.source, x.certitude
+    SELECT x.type, x.titre, x.survenu_le, x.heure_connue, x.jour_connu, x.source, x.certitude
       FROM gestion_monga_etape x
      WHERE x.statut = 'vif'
        AND x.type NOT IN ('facture','rappel_devis','contact_injoignable','commentaire','note')
@@ -656,7 +661,8 @@ export async function lireEvenements(
             /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — la dernière carte d'étape, pour la miniature de la vignette. */
             et.type AS etape_type, et.titre AS etape_titre,
             to_char(et.survenu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS etape_survenu_le,
-            et.heure_connue AS etape_heure_connue, et.source AS etape_source, et.certitude AS etape_certitude,
+            et.heure_connue AS etape_heure_connue, et.jour_connu AS etape_jour_connu,
+            et.source AS etape_source, et.certitude AS etape_certitude,
             /* 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — la dernière étape VENUE DE MONGA : la capsule verte. */
             etm.type AS etapem_type, etm.titre AS etapem_titre,
             to_char(etm.survenu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS etapem_survenu_le,
@@ -696,7 +702,7 @@ export async function lireEvenements(
        ${SQL_DERNIERE_MAJ_MONGA}
        ${sqlBienDeLEvenement(ctx.deplacements)}
        ${sqlNouveauteDeLEvenement(ctx.deplacements, nonLus.length === 0, `$${avecVues ? 5 : 4}`)}
-      GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.source, et.certitude, mg.le,
+      GROUP BY e.id, et.type, et.titre, et.survenu_le, et.heure_connue, et.jour_connu, et.source, et.certitude, mg.le,
                etm.type, etm.titre, etm.survenu_le, etm.heure_connue, etm.certitude,
                bi.cle, bi.adresse, bi.commune, bi.proprietaire, bi.locataire, bi.nb,
                nl.nb, nl.le
@@ -734,6 +740,7 @@ export async function lireEvenements(
       derniereEtape: r.etape_type === null ? null : {
         type: r.etape_type, titre: r.etape_titre, survenuLe: r.etape_survenu_le,
         heureConnue: r.etape_heure_connue === true,
+        jourConnu: r.etape_jour_connu !== false,
         source: r.etape_source === 'monga' ? 'monga' : 'manuelle',
         certitude: r.etape_certitude ?? 'fiable',
       },

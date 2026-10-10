@@ -1369,7 +1369,10 @@ describe('㉑ la vignette d’un événement', () => {
    */
   it('⚠️ ni le doute ni la source ne se disent par la couleur seule', () => {
     expect(CARTE).toContain('{doute && <span className="gst-mini-doute">à confirmer</span>}');
-    expect(CARTE).toContain("`dernière étape : ${mot} du ${date}, ${deMonga ? 'venue de Monga' : 'posée à la main'}`");
+    /* ⚠️ CE QU'ELLE DISAIT AVANT : « dernière étape : ${mot} du ${date}, … », toujours datée. Depuis le lot
+       FRISE-DATE-VIDE-PAR-DEFAUT, une carte validée sans date n'en donne aucune (« du … » tombe) ; la SOURCE,
+       elle, est toujours dite — et c'est ce que ce cas tient. */
+    expect(CARTE).toContain("`dernière étape : ${mot}${sansDate ? '' : ` du ${date}`}, ${deMonga ? 'venue de Monga' : 'posée à la main'}`");
   });
 
   /**

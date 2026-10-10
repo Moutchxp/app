@@ -11,13 +11,15 @@ import {
   carteDeplacable, cartesHorsChronologie,
   cleDOuverture, construireFrise, couleurDeLaCarte, dateAuCentre, etapeOuvrable, mentionCreation,
   parOrdreDePose, type MentionCreation,
-  motAjout, motDateEtape, motGroupeMessages,
+  motAjout, motGroupeMessages,
   motMailDOrigine, motMontant, motOrigineCarte, motSource, rangerEnLigne, referencesDeLaFrise,
   /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — le formulaire naît rempli, et son refus s'explique. Deux fonctions
      PURES, éprouvées dans `frise.test.ts` : l'écran ne reformule ni l'un ni l'autre. */
   refusDEnregistrement, valeursDeLaCarte,
   /* 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — la règle, sa mention et le jour réellement enregistré. */
   estCarteRendezVous, jourAEnregistrer, MENTION_DATE_RDV,
+  /* 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — la date affichée, ou rien si elle n'a pas été saisie. */
+  dateAffichee,
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
 } from '../../../../lib/gestion/frise';
 import {
@@ -778,7 +780,6 @@ export function FriseAvancement({
             />
           ) : (
             <Reservoir
-              jour={reservoir?.jour ?? aujourdhui}
               /* 🔴 POINT 3 — la forme que le « + » cliqué présélectionne : « Simple information » depuis un
                  intercalaire, « Étape (carré) » depuis le gros « + » rouge. */
               formeDefaut={reservoir?.forme ?? 'etape'}
@@ -996,9 +997,12 @@ function Point({
       aria-expanded={actif} onClick={onOuvrir}
       onMouseEnter={() => onSurvol(`p${m.id}`)} onMouseLeave={() => onSurvol(null)}
       onFocus={() => onSurvol(`p${m.id}`)} onBlur={() => onSurvol(null)}
-      title={`${motEtape(m.type)} · ${motDateEtape(m)}`}
+      /* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — un point sans date saisie se nomme, il ne se date pas. */
+      title={dateAffichee(m) === null ? motEtape(m.type) : `${motEtape(m.type)} · ${dateAffichee(m)}`}
     >
-      <span className="fav-sr">{motEtape(m.type)} du {motDateEtape(m)}</span>
+      <span className="fav-sr">
+        {dateAffichee(m) === null ? motEtape(m.type) : `${motEtape(m.type)} du ${dateAffichee(m)}`}
+      </span>
     </button>
   );
 }
@@ -1267,9 +1271,15 @@ function Carre({
             * Sur une carte de borne, cette date EST le fait — « l'événement s'est fermé CE jour-là » —, d'où le
             * gras au centre ; sur les autres, elle accompagne un intitulé qui porte déjà le sens.
             */}
-          <span className={`fav-date${dateAuCentre(e.type) ? ' fav-date--centree' : ''}`}>
-            {motDateEtape(e)}
-          </span>
+          {/* 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — « Une carte validée sans date n'affiche AUCUNE date dans le
+              carré (pas de date inventée) » (Arno). Rien n'est rendu, pas même un tiret : un « — » se lirait
+              comme une date manquante par erreur, alors que c'est une date qu'on a choisi de ne pas donner. La
+              ligne verte « créée le … » sous le carré, elle, ne change pas. */}
+          {dateAffichee(e) !== null && (
+            <span className={`fav-date${dateAuCentre(e.type) ? ' fav-date--centree' : ''}`}>
+              {dateAffichee(e)}
+            </span>
+          )}
           {montant !== null && <span className="fav-montant">{montant}</span>}
           {avecReference && e.reference !== null && <span className="fav-ref">{e.reference}</span>}
           <span className="fav-sr">{motSource(e)}</span>
@@ -1449,7 +1459,8 @@ function BulleDetail({
   return (
     <div className="fav-bulle" role="status">
       <p className="fav-bulle-tete">
-        {mot} · {motDateEtape(e)} · {motSource(e)}
+        {/* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — même règle que le carré : pas de date saisie, pas de date écrite. */}
+        {mot}{dateAffichee(e) !== null && <> · {dateAffichee(e)}</>} · {motSource(e)}
         {e.auteur !== null && <> · {e.auteur}</>}
       </p>
       {/**
@@ -1626,9 +1637,9 @@ function ChampOuverture({
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 function Reservoir({
-  jour, onChoisir, onFermer, evenementOuvert, formeDefaut = 'etape',
+  onChoisir, onFermer, evenementOuvert, formeDefaut = 'etape',
 }: {
-  jour: string; onChoisir: (t: TypeEtape) => void; onFermer: () => void;
+  onChoisir: (t: TypeEtape) => void; onFermer: () => void;
   /**
    * ══ 🔴🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 3 — LA FORME PRÉSÉLECTIONNÉE ═════════════════════════════════
    *
@@ -1668,11 +1679,13 @@ function Reservoir({
     <>
       <p className="fav-ajout-titre">
         Ajouter une carte
-        {/* 🔴 LA DATE PROPOSÉE SE LIT AVANT DE CHOISIR : un « + » intercalaire en propose une autre qu'un « + »
-            de fin, et le savoir change ce qu'on vient poser. Elle reste modifiable dans le formulaire. */}
-        <span className="fav-ajout-date">
-          {` — date proposée : ${jour.slice(8, 10)}/${jour.slice(5, 7)}/${jour.slice(0, 4)}`}
-        </span>
+        {/* ══ 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — LE LIBELLÉ « — date proposée : JJ/MM/AAAA » EST RETIRÉ ══════
+            ARNO, nommément pour CET élément : « plus de “date proposée” pré-remplie, y compris le libellé
+            “— date proposée : JJ/MM/AAAA” du bloc “Ajouter une carte” s'il ne sert plus qu'à ça ».
+            🔴 IL NE SERVAIT QU'À ÇA, VÉRIFIÉ : son seul contenu était le jour du « + », et ce jour n'est plus
+            proposé nulle part — ni dans le champ (vide à l'ouverture), ni sur la carte (aucune date affichée si
+            on n'en saisit pas). L'annoncer aurait promis une date que le formulaire ne pose plus. Sa classe CSS
+            `.fav-ajout-date` n'avait pas d'autre porteur ; elle part avec lui. */}
       </p>
 
       <div className="fav-ajout-ligne">
@@ -1920,12 +1933,18 @@ function AjouterEtape({
    * qu'on a ouvert le menu du type serait perdre une donnée saisie — et une carte de rendez-vous existante ne
    * peut de toute façon pas être vidée (le refus la retient).
    */
-  const changerDeType = (suivant: TypeEtape): void => {
-    setType(suivant);
-    if (modifie !== null) return;
-    if (estCarteRendezVous(suivant)) { if (jour === jourDefaut) setJour(''); return; }
-    if (jour === '') setJour(jourDefaut);
-  };
+  /* ══ 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — LES DEUX SENS CI-DESSUS N'ONT PLUS D'OBJET ═══════════════════════
+     Ils géraient une date PROPOSÉE : l'effacer en allant vers un rendez-vous, la rendre en le quittant. Il n'y
+     en a plus (Arno : Date ET Heure vides à l'ouverture, pour toutes les cartes). Le champ garde donc ce que la
+     personne y a mis, quel que soit le type — et c'est la seule chose qu'il doit garder. La règle du rendez-vous
+     suit toujours le type : le cercle et le refus se DÉDUISENT de `type` et `jour` (`dateManquante`, `refus`). */
+  const changerDeType = (suivant: TypeEtape): void => { setType(suivant); };
+  /**
+   * 🔴 LE JOUR DE REPLI d'une carte validée sans date — celui qui la RANGE, jamais celui qu'elle affiche.
+   * À l'ajout : le jour du « + » (`jourDefaut`). En MODIFICATION : le jour que la carte porte déjà, pour
+   * qu'enregistrer une carte sans date ne la déplace pas au jour où on l'a rouverte (« aucune date réécrite »).
+   */
+  const jourRepli = modifie === null ? jourDefaut : (modifie.survenuLe.slice(0, 10) || jourDefaut);
 
   /**
    * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA CONFIRMATION, AVANT DE POSER ═════════════════════════════════════════
@@ -1965,8 +1984,11 @@ function AjouterEtape({
         /* 🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — une date laissée vide (carte ordinaire) se range au jour
            du « + » d'où le bloc s'est ouvert. Une carte de rendez-vous n'arrive jamais ici sans date : le refus
            l'a arrêtée avant. */
-        survenuLe: heure === '' ? jourAEnregistrer(jour, jourDefaut) : `${jourAEnregistrer(jour, jourDefaut)}T${heure}`,
+        survenuLe: heure === '' ? jourAEnregistrer(jour, jourRepli) : `${jourAEnregistrer(jour, jourRepli)}T${heure}`,
         heureConnue: heure !== '',
+        /* 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — LE JOUR A-T-IL ÉTÉ SAISI ? `false` = le jour envoyé n'est que le
+           repli : il range la carte, et son carré n'affiche aucune date (migration 323). */
+        jourConnu: jour !== '',
         texte: texte.trim() === '' ? null : texte.trim(),
         /* ⚠️ LE TITRE N'EST GARDÉ QUE SUR UNE CARTE LIBRE — la route le vérifie aussi, et pour la même raison :
            ailleurs, le mot de la carte vient du TYPE, écrit une seule fois dans `motEtape`. */
@@ -2423,7 +2445,6 @@ const CSS_FRISE_AVANCEMENT = `
    carte qui est DANS la frise, et confondre les deux ferait croire la cloture deja faite. */
 .fav-carre--reserve-close{border-color:var(--color-svv-green)}
 .fav-carre--reserve-close:hover{background:var(--color-svv-field);border-color:var(--color-svv-green-ink)}
-.fav-ajout-date{font-weight:400;color:var(--color-svv-muted)}
 
 /* Le « + » : bordure pointillee rouge, gros + rouge cercle (Arno). */
 .fav-carre--plus{align-items:center;justify-content:center;cursor:pointer;

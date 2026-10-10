@@ -10,7 +10,7 @@ import { evenementOuvertParLaFrise } from '../../../../../../lib/gestion/eveneme
 import { TYPES_AJOUTABLES, TYPES_INFORMATION, type TypeEtape } from '../../../../../../lib/gestion/mongaEtape';
 /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : le crayon ne touche
    pas à leur date (point 5), et aucune date déjà enregistrée n'est modifiée (point 7). */
-import { dateAuCentre } from '../../../../../../lib/gestion/frise';
+import { dateAuCentre, estCarteRendezVous, MENTION_DATE_RDV } from '../../../../../../lib/gestion/frise';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINT 3 — CE QU'ON FAIT D'UNE ÉTAPE ════════════════════════════════════════════════════════
@@ -39,7 +39,7 @@ export async function PATCH(
     return Response.json({ erreur: 'Étape inconnue.' }, { status: 400 });
   }
   const corps = (await request.json().catch(() => ({}))) as {
-    geste?: unknown; type?: unknown; survenuLe?: unknown; heureConnue?: unknown;
+    geste?: unknown; type?: unknown; survenuLe?: unknown; heureConnue?: unknown; jourConnu?: unknown;
     texte?: unknown; montantCents?: unknown; titre?: unknown; pieceNom?: unknown;
   };
   const geste = String(corps.geste ?? '');
@@ -105,6 +105,12 @@ export async function PATCH(
        * relecture — la carte repart avec la date qu'elle avait, à la seconde près.
        */
       const dateImposee = dateAuCentre(type) ? await dateDeLEtape(etapeId) : null;
+      /* 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — MÊME RÈGLE QU'À L'AJOUT (route de la frise) : `jourConnu: false` =
+         date laissée vide, absent ⇒ connue ; une borne a toujours la sienne ; un rendez-vous ne s'en passe pas. */
+      const jourConnu = dateImposee !== null ? true : corps.jourConnu !== false;
+      if (!jourConnu && estCarteRendezVous(type)) {
+        return Response.json({ erreur: MENTION_DATE_RDV }, { status: 400 });
+      }
       const brut = corps.montantCents;
       const montant = brut === null || brut === undefined ? null : Number(brut);
       if (montant !== null && (!Number.isFinite(montant) || montant < 0)) {
@@ -121,6 +127,7 @@ export async function PATCH(
         id: etapeId, type,
         survenuLe: dateImposee ?? survenuLe,
         heureConnue: dateImposee === null ? corps.heureConnue === true : false,
+        jourConnu,
         texte: typeof corps.texte === 'string' && corps.texte.trim() !== '' ? corps.texte.trim() : null,
         montantCents: montant, titre: type === 'autre' && titreBrut !== '' ? titreBrut : null,
         /* 🔴 LOT FRISE-BULLE-ET-ENREGISTRER — le nom de la pièce suit le même chemin que le texte : vide ⇒ null,

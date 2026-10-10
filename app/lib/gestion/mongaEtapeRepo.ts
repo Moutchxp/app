@@ -28,6 +28,8 @@ export interface EtapeEcran {
   type: TypeEtape;
   survenuLe: string;
   heureConnue: boolean;
+  /** 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT (migration 323) — `false` = date non saisie : `survenuLe` n'est qu'un repli. */
+  jourConnu: boolean;
   heureFin: string | null;
   numero: string | null;
   rang: number | null;
@@ -156,14 +158,14 @@ export async function poserOuvertureDeRepli(reference: string): Promise<boolean>
 export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran[]> {
   const { rows } = await query<{
     id: string; reference: string | null; type: TypeEtape; survenu_le: string;
-    heure_connue: boolean; heure_fin: string | null; numero: string | null; rang: number | null;
+    heure_connue: boolean; jour_connu: boolean; heure_fin: string | null; numero: string | null; rang: number | null;
     montant_cents: string | null; texte: string | null; auteur: string | null;
     source: 'monga' | 'manuelle'; certitude: EtapeEcran['certitude']; statut: 'vif' | 'retire';
     message_id: string | null; message_cle: string | null; fil_id: string | null;
     piece_nom: string | null; cree_par_libelle: string | null;
     cree_le: string | null; titre: string | null; rang_pose: string | null; pose_choisie: boolean;
   }>(
-    `SELECT e.id, e.reference, e.type, e.survenu_le::text, e.heure_connue, e.heure_fin,
+    `SELECT e.id, e.reference, e.type, e.survenu_le::text, e.heure_connue, e.jour_connu, e.heure_fin,
             e.numero, e.rang, e.montant_cents, e.texte, e.auteur, e.source, e.certitude, e.statut,
             e.message_id, e.message_cle, m.fil_id, e.piece_nom, e.cree_par_libelle,
             -- LOT FRISE-HORODATAGE-SECONDE-ET-PICTOS, POINT 1 : l'heure de creation s'affiche a la SECONDE, et
@@ -219,6 +221,8 @@ export async function friseDeLEvenement(evenementId: number): Promise<EtapeEcran
     type: r.type,
     survenuLe: r.survenu_le,
     heureConnue: r.heure_connue,
+    /* ⚠️ `!== false` : une base sans la migration 323 ne rend pas la colonne — sa date reste alors affichée. */
+    jourConnu: r.jour_connu !== false,
     heureFin: r.heure_fin,
     numero: r.numero,
     rang: r.rang,
@@ -251,6 +255,11 @@ export async function ajouterEtapeManuelle(a: {
   type: TypeEtape;
   survenuLe: string;
   heureConnue: boolean;
+  /**
+   * 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — la date a-t-elle été SAISIE ? `false` = `survenuLe` est le jour de repli
+   * (celui du « + ») : il range la carte, et l'écran n'affiche aucune date (migration 323).
+   */
+  jourConnu: boolean;
   texte: string | null;
   montantCents: number | null;
   pieceNom: string | null;
@@ -317,20 +326,21 @@ export async function ajouterEtapeManuelle(a: {
     : `(SELECT coalesce(
            (SELECT CASE WHEN s.suivant IS NULL THEN v.rang + 1 ELSE (v.rang + s.suivant) / 2 END
               FROM (SELECT rang_pose AS rang FROM gestion_monga_etape
-                     WHERE id = $11 AND evenement_id = $1 AND rang_pose IS NOT NULL) v
+                     WHERE id = $12 AND evenement_id = $1 AND rang_pose IS NOT NULL) v
               LEFT JOIN LATERAL (SELECT min(rang_pose) AS suivant FROM gestion_monga_etape
                                   WHERE evenement_id = $1 AND rang_pose > v.rang) s ON true),
            (SELECT coalesce(max(x.rang_pose), 0) + 1 FROM gestion_monga_etape x WHERE x.evenement_id = $1)))`;
 
+  /* ⚠️ `jour_connu` EST LE ONZIÈME PARAMÈTRE, et l'étape nommée par un « + » intercalaire passe donc en $12. */
   const params: unknown[] = [a.evenementId, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents,
-    a.pieceNom, a.titre, a.parId, a.parLibelle];
+    a.pieceNom, a.titre, a.parId, a.parLibelle, a.jourConnu];
   if (rangChoisi === null) params.push(a.insererApres);
 
   const { rows } = await query<{ id: string }>(
     `INSERT INTO gestion_monga_etape
        (evenement_id, type, survenu_le, heure_connue, texte, montant_cents, piece_nom, titre,
-        source, certitude, cree_par, cree_par_libelle, rang_pose, pose_choisie)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10, ${sql}, ${a.insererApres !== undefined})
+        source, certitude, cree_par, cree_par_libelle, rang_pose, pose_choisie, jour_connu)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manuelle','fiable',$9,$10, ${sql}, ${a.insererApres !== undefined}, $11)
      RETURNING id`,
     params);
   return Number(rows[0].id);
@@ -391,6 +401,8 @@ export async function reordonnerCartes(
  */
 export async function modifierEtapeManuelle(a: {
   id: number; type: TypeEtape; survenuLe: string; heureConnue: boolean;
+  /** 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — `false` = la date a été laissée vide : `survenuLe` n'est qu'un repli. */
+  jourConnu: boolean;
   texte: string | null; montantCents: number | null; titre: string | null;
   /**
    * 🔴🔴 LOT FRISE-BULLE-ET-ENREGISTRER — LE NOM DE LA PIÈCE S'ENREGISTRE ENFIN. Arno demande que le formulaire
@@ -409,9 +421,10 @@ export async function modifierEtapeManuelle(a: {
   const r = await query(
     `UPDATE gestion_monga_etape
         SET type = $2, survenu_le = $3, heure_connue = $4, texte = $5, montant_cents = $6, titre = $7,
-            piece_nom = $8, maj_le = now(), maj_par_libelle = $9
+            piece_nom = $8, maj_le = now(), maj_par_libelle = $9, jour_connu = $10
       WHERE id = $1 AND source = 'manuelle' AND statut = 'vif'`,
-    [a.id, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.titre, a.pieceNom, a.parLibelle]);
+    [a.id, a.type, a.survenuLe, a.heureConnue, a.texte, a.montantCents, a.titre, a.pieceNom, a.parLibelle,
+      a.jourConnu]);
   return (r.rowCount ?? 0) > 0;
 }
 

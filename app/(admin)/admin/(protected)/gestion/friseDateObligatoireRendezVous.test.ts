@@ -61,10 +61,13 @@ describe('🔴🔴 ① ce que le formulaire propose à l’ouverture', () => {
   });
 
   /** 🔴 ET LE PRÉREMPLISSAGE DES AUTRES NE BOUGE PAS D'UN IOTA (point 2). */
-  it('🔴 une carte ordinaire garde la date proposée', () => {
-    expect(valeursDeLaCarte(null, '2026-10-09', 'devis_recu').jour).toBe('2026-10-09');
-    expect(valeursDeLaCarte(null, '2026-10-09', 'facture').jour).toBe('2026-10-09');
-    expect(valeursDeLaCarte(null, '2026-10-09', 'autre').jour).toBe('2026-10-09');
+  /* ⚠️ CE CAS DISAIT : « une carte ordinaire GARDE la date proposée » ('2026-10-09'). INVERSÉ le 10/10/2026 par
+     le lot FRISE-DATE-VIDE-PAR-DEFAUT : Arno a retiré la date proposée de TOUTES les cartes. Ce qui distingue
+     encore le rendez-vous n'est plus le champ vide, c'est l'OBLIGATION (refus + cercle rouge, cas plus bas). */
+  it('🔴 une carte ordinaire s’ouvre AUSSI sans date', () => {
+    expect(valeursDeLaCarte(null, '2026-10-09', 'devis_recu').jour).toBe('');
+    expect(valeursDeLaCarte(null, '2026-10-09', 'facture').jour).toBe('');
+    expect(valeursDeLaCarte(null, '2026-10-09', 'autre').jour).toBe('');
   });
 
   /**
@@ -143,12 +146,15 @@ describe('🔴 ① ce que l’écran en fait', () => {
   });
 
   /** 🔴🔴 « SI ON CHANGE LE TYPE, LA RÈGLE SUIT » — dans les deux sens, et sans jeter une date saisie. */
-  it('🔴🔴 changer de type efface ou rend la date proposée', () => {
+  /* ⚠️ CE CAS DISAIT : « changer de type EFFACE OU REND la date proposée » — vers un rendez-vous on effaçait le
+     jour du « + », en le quittant on le rendait. INVERSÉ le 10/10/2026 (lot FRISE-DATE-VIDE-PAR-DEFAUT) : il
+     n'y a plus de date proposée à effacer ni à rendre. Le champ garde ce que la personne y a mis ; la règle du
+     rendez-vous suit toujours le type, parce qu'elle se DÉDUIT de `type` et `jour`. */
+  it('🔴🔴 changer de type ne touche plus à la date — la règle, elle, suit le type', () => {
     expect(FAV).toContain('onChange={(e) => changerDeType(e.target.value as TypeEtape)}');
-    expect(FAV).toContain("if (estCarteRendezVous(suivant)) { if (jour === jourDefaut) setJour(''); return; }");
-    expect(FAV).toContain("if (jour === '') setJour(jourDefaut);");
-    /* ⚠️ EN MODIFICATION, ON NE TOUCHE À RIEN : la carte a sa date, et c'est elle qui fait foi. */
-    expect(FAV).toContain('if (modifie !== null) return;');
+    expect(FAV).toContain('const changerDeType = (suivant: TypeEtape): void => { setType(suivant); };');
+    expect(FAV).not.toContain("setJour(jourDefaut)");
+    expect(FAV).toContain("const dateManquante = estCarteRendezVous(type) && jour === '';");
   });
 });
 

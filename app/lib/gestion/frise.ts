@@ -52,6 +52,15 @@ export interface EtapeAAfficher {
   type: TypeEtape;
   survenuLe: string;
   heureConnue: boolean;
+  /**
+   * 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT (migration 323) — `false` = la date n'a PAS été saisie : `survenuLe` porte
+   * le jour de repli (celui du « + »), qui range la carte mais ne s'affiche jamais. Arno : « Une carte validée
+   * sans date n'affiche aucune date dans le carré (pas de date inventée). »
+   *
+   * ⚠️ FACULTATIF, ET L'ABSENCE VAUT `true` : c'est le défaut de la colonne, et c'est le cas de toutes les cartes
+   * d'avant ce lot (« aucune date réécrite »). Seul `false` fait taire la date — d'où les tests `=== false`.
+   */
+  jourConnu?: boolean;
   heureFin: string | null;
   numero: string | null;
   rang: number | null;
@@ -666,6 +675,17 @@ export function motDateEtape(e: EtapeAAfficher): string {
   return e.heureFin === null ? `${date} à ${debut}` : `${date} de ${debut} à ${e.heureFin}`;
 }
 
+/**
+ * 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — LA DATE À AFFICHER, OU RIEN. PUR.
+ *
+ * `null` quand la date n'a pas été saisie : le jour enregistré n'est alors qu'un repli de rangement, et l'écrire
+ * serait inventer une date (Arno). Tout ce qui MONTRE la date d'une carte passe par ici — le carré, le point,
+ * la bulle —, pour qu'aucun de ces endroits ne laisse filer le repli par un chemin oublié.
+ */
+export function dateAffichee(e: EtapeAAfficher): string | null {
+  return e.jourConnu === false ? null : motDateEtape(e);
+}
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ══ 🔴🔴 LOT FRISE-HORIZONTALE — CE QUE LA DISPOSITION EN LIGNE AJOUTE. PUR. ═══════════════════════════════════
 
@@ -1026,6 +1046,8 @@ function jourLisible(survenuLe: string | null | undefined): string | null {
    La pré-remplir du jour courant, c'est proposer une réponse qui a toutes les chances d'être fausse — et qu'on
    valide sans la lire. Sur les autres cartes, la date du jour est au contraire le cas ordinaire (un devis reçu
    aujourd'hui, une facture d'aujourd'hui) : la pré-remplir fait gagner un geste, et elle reste facultative.
+   ⚠️ DÉPASSÉ LE 10/10/2026 (lot FRISE-DATE-VIDE-PAR-DEFAUT) : Arno a retiré la date proposée de TOUTES les
+   cartes. Ce qui distingue encore le rendez-vous, c'est l'OBLIGATION — le cercle rouge et le refus.
 
    🔴 LA RÈGLE PORTE SUR LE **NOM** DU TYPE, PAS SUR UNE LISTE RECOPIÉE. Arno : « et tout type dont le nom
    contient “rendez-vous” ». Le jour où un type « Rendez-vous d'expertise » entre au réservoir, il est couvert
@@ -1063,19 +1085,27 @@ export function valeursDeLaCarte(
   carte: EtapeAAfficher | null, jourDefaut: string, typeDefaut: TypeEtape,
 ): ValeursDeLaCarte {
   if (carte === null) {
-    /* 🔴🔴 LOT FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS — AUCUNE DATE PROPOSÉE POUR UN RENDEZ-VOUS. C'est la moitié
-       la plus importante de la règle : tant qu'une date est pré-remplie, elle se valide sans se lire. */
-    const rdv = estCarteRendezVous(typeDefaut);
+    /* ══ 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT (10/10/2026) — PLUS AUCUNE DATE PROPOSÉE, POUR AUCUNE CARTE ══════
+       CE QUI ÉTAIT ÉCRIT ICI : `jour: rdv ? '' : jourDefaut` — vide pour un rendez-vous seulement (lot
+       FRISE-DATE-OBLIGATOIRE-RENDEZ-VOUS), le jour du « + » pour toutes les autres.
+       ARNO : « Pour TOUTES les cartes à date facultative […] à l'ouverture du bloc “Ajouter — …”, les champs
+       Date ET Heure sont VIDES (plus de “date proposée” pré-remplie). » Le rendez-vous garde sa règle — vide ET
+       obligatoire — et c'est `refusDEnregistrement` qui la tient, pas ce préremplissage.
+       ⚠️ `jourDefaut` NE DISPARAÎT PAS : il reste le jour de REPLI qui range une carte validée sans date
+       (`jourAEnregistrer`). Il ne s'écrit simplement plus dans le champ — ni, désormais, sur la carte. */
     return {
       forme: estRepere(typeDefaut) ? 'information' : 'etape',
-      type: typeDefaut, jour: rdv ? '' : jourDefaut, heure: '', texte: '', titre: '', montant: '', piece: '',
+      type: typeDefaut, jour: '', heure: '', texte: '', titre: '', montant: '', piece: '',
     };
   }
-  const jour = jourLisible(carte.survenuLe);
+  /* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — EN MODIFICATION, « ses valeurs actuelles » (Arno) : une carte validée
+     sans date ROUVRE sans date. Pré-remplir le jour de repli la ferait dater au premier enregistrement, sans
+     que personne l'ait décidé. */
+  const jour = carte.jourConnu === false ? null : jourLisible(carte.survenuLe);
   return {
     forme: estRepere(carte.type) ? 'information' : 'etape',
     type: carte.type,
-    jour: jour ?? jourDefaut,
+    jour: carte.jourConnu === false ? '' : (jour ?? jourDefaut),
     /* ⚠️ L'HEURE NE SE LIT QUE SI LE JOUR S'EST LU : sur une chaîne illisible, les positions 11 à 16 ne veulent
        rien dire, et « 26:10 » dans un champ `time` s'affiche vide — le piège qu'on vient de fermer. */
     heure: jour !== null && carte.heureConnue ? carte.survenuLe.slice(11, 16) : '',
@@ -1129,6 +1159,9 @@ export function refusDEnregistrement(v: {
  *
  * ⚠️ UNE CARTE DE RENDEZ-VOUS N'ARRIVE JAMAIS ICI AVEC UN JOUR VIDE : `refusDEnregistrement` l'a arrêtée avant.
  * Le repli vaut pour les autres, et seulement pour elles.
+ *
+ * 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — LE REPLI RANGE, IL NE S'AFFICHE PLUS. Il part en base accompagné de
+ * `jour_connu = false` (migration 323) : la carte se range à ce jour-là, mais son carré n'écrit aucune date.
  */
 export function jourAEnregistrer(jour: string, jourDefaut: string): string {
   return jour === '' ? jourDefaut : jour;

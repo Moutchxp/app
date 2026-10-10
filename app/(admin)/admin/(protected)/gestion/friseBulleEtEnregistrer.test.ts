@@ -98,10 +98,13 @@ describe('🔴🔴 ① le formulaire naît rempli — la carte d’Arno, telle q
   });
 
   /** ⚠️ UNE CARTE NEUVE PART DU JOUR PROPOSÉ et de rien d'autre : le formulaire d'ajout n'hérite de personne. */
-  it('⚠️ sans carte, le formulaire est vierge et daté du jour proposé', () => {
+  /* ⚠️ CE CAS DISAIT : « vierge et DATÉ DU JOUR PROPOSÉ » (jour: '2026-10-08'). INVERSÉ le 10/10/2026 par le lot
+     FRISE-DATE-VIDE-PAR-DEFAUT — Arno : « les champs Date ET Heure sont VIDES (plus de date proposée) ». Le jour
+     du « + » ne sert plus qu'au repli de rangement (`jourAEnregistrer`), jamais au champ. */
+  it('⚠️ sans carte, le formulaire est vierge — date comprise', () => {
     const v = valeursDeLaCarte(null, '2026-10-08', 'facture');
     expect(v).toEqual({
-      forme: 'information', type: 'facture', jour: '2026-10-08',
+      forme: 'information', type: 'facture', jour: '',
       heure: '', texte: '', titre: '', montant: '', piece: '',
     });
   });

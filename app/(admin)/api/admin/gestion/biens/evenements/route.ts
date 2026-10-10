@@ -50,7 +50,9 @@ export async function GET(request: Request): Promise<Response> {
         clos: !e.ouvert,
         nbEtapes: etapes.length,
         derniereEtapeType: derniere?.type ?? null,
-        derniereEtapeLe: derniere?.survenuLe ?? null,
+        /* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — une dernière carte validée SANS date n'en donne aucune : `null`, et
+           l'écran écrit alors « dernière étape : Devis reçu » sans « le … ». Son jour n'est qu'un repli. */
+        derniereEtapeLe: derniere === null || derniere.jourConnu === false ? null : derniere.survenuLe,
       };
     }));
     return Response.json(

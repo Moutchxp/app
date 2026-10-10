@@ -6,7 +6,7 @@ import {
 } from '../../../../../../../lib/gestion/mongaEtapeRepo';
 /* 🔴 LOT FRISE-ORDRE-POSE-ET-GLISSER — `dateAuCentre` dit quelles cartes sont des BORNES : leur date est
    imposée (point 5) et elles ne se déplacent pas (point 9). La même liste que la frise peint au centre. */
-import { dateAuCentre } from '../../../../../../../lib/gestion/frise';
+import { dateAuCentre, estCarteRendezVous, MENTION_DATE_RDV } from '../../../../../../../lib/gestion/frise';
 import {
   cartesDuReservoir, etatApresCarte, informationsDuReservoir,
   proposerPassageEnFiable, TYPES_AJOUTABLES, TYPES_INFORMATION,
@@ -134,7 +134,7 @@ export async function POST(
     return Response.json({ erreur: 'Événement inconnu.' }, { status: 400 });
   }
   const corps = (await request.json().catch(() => ({}))) as {
-    type?: unknown; survenuLe?: unknown; heureConnue?: unknown;
+    type?: unknown; survenuLe?: unknown; heureConnue?: unknown; jourConnu?: unknown;
     texte?: unknown; montantCents?: unknown; pieceNom?: unknown; titre?: unknown;
     /* 🔴 LOT FRISE-PLUS-INTERCALAIRE, POINT 1 — d'où vient le « + » cliqué. Voir `placeDemandee` plus bas. */
     insererApres?: unknown;
@@ -171,6 +171,18 @@ export async function POST(
   const survenuLe = dateAuCentre(type) ? jourDePose : String(corps.survenuLe ?? '');
   if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2})?/.test(survenuLe)) {
     return Response.json({ erreur: 'Date d’étape attendue (AAAA-MM-JJ, heure facultative).' }, { status: 400 });
+  }
+  /**
+   * ══ 🔴🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — LA DATE A-T-ELLE ÉTÉ SAISIE ? ═══════════════════════════════════════
+   *
+   * `jourConnu: false` = le formulaire a laissé la date vide : `survenuLe` n'est que le jour de repli, qui range
+   * la carte sans s'afficher (migration 323). ABSENT ⇒ `true` : un appelant d'avant ce lot dit une date connue.
+   * Une BORNE a toujours sa date (celle de sa pose, imposée ici). Et un RENDEZ-VOUS sans date est refusé ici
+   * autant qu'à l'écran — la règle de cc8ab57e, que le premier appel qui oublierait le formulaire contournerait.
+   */
+  const jourConnu = dateAuCentre(type) ? true : corps.jourConnu !== false;
+  if (!jourConnu && estCarteRendezVous(type)) {
+    return Response.json({ erreur: MENTION_DATE_RDV }, { status: 400 });
   }
   const montant = corps.montantCents === null || corps.montantCents === undefined
     ? null : Number(corps.montantCents);
@@ -225,6 +237,7 @@ export async function POST(
       type,
       survenuLe,
       heureConnue: corps.heureConnue === true,
+      jourConnu,
       texte: typeof corps.texte === 'string' && corps.texte.trim() !== '' ? corps.texte.trim() : null,
       montantCents: montant,
       pieceNom: typeof corps.pieceNom === 'string' && corps.pieceNom !== '' ? corps.pieceNom : null,

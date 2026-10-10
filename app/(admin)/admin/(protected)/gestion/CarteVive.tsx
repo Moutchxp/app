@@ -939,7 +939,10 @@ function MiniatureEtape({ etape: brut, ouvertLe, misAJourLe = null }: {
       ? etape.titre.trim() : motEtape(etape.type));
   /* ⚠️ ET LA DATE RÉSISTE AUSSI À UNE CHAÎNE ABSENTE : une carte sans `ouvertLe` ne doit pas davantage jeter. */
   const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);
-  const date = quand.length === 10
+  /* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — une carte validée SANS date n'en montre aucune, ici comme sur la frise
+     dont cette miniature est le résumé : son jour enregistré n'est qu'un repli de rangement. Rien, pas « — ». */
+  const sansDate = etape !== null && etape.jourConnu === false;
+  const date = sansDate ? '' : quand.length === 10
     ? `${quand.slice(8, 10)}/${quand.slice(5, 7)}/${quand.slice(0, 4)}` : '—';
   const doute = etape !== null && etape.certitude === 'a_confirmer';
   const deMonga = etape !== null && etape.source === 'monga';
@@ -951,7 +954,7 @@ function MiniatureEtape({ etape: brut, ouvertLe, misAJourLe = null }: {
         {/* ⚠️ LE PICTO NE PORTE PAS L'INFORMATION SEUL : la source est dite juste après, au lecteur d'écran. */}
         {deMonga && <span className="gst-mini-picto" aria-hidden="true"> ◆</span>}
       </span>
-      <span className="gst-mini-date">{date}</span>
+      {!sansDate && <span className="gst-mini-date">{date}</span>}
       {doute && <span className="gst-mini-doute">à confirmer</span>}
       {/**
         * 🔴 LE BADGE « Mis à jour par Monga · <heure> » (Arno). Il porte l'HEURE, et non la date : l'effet ne
@@ -968,7 +971,7 @@ function MiniatureEtape({ etape: brut, ouvertLe, misAJourLe = null }: {
       <span className="gst-sr-only">
         {etape === null
           ? `dernière étape : aucune, ouverture du ${date}`
-          : `dernière étape : ${mot} du ${date}, ${deMonga ? 'venue de Monga' : 'posée à la main'}`}
+          : `dernière étape : ${mot}${sansDate ? '' : ` du ${date}`}, ${deMonga ? 'venue de Monga' : 'posée à la main'}`}
         {misAJourLe !== null && ` — mis à jour par Monga à ${heureParis(misAJourLe)}`}
       </span>
     </span>
