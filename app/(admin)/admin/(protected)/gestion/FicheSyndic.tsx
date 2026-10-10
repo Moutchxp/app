@@ -545,7 +545,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
 
       {/* 🔴 LOT SYNDIC-MODALE-DEUX-BLOCS — « Contacts de cet immeuble » (depuis un bien) ou « Contacts du cabinet » (au
           lieu de « AUTRES CONTACTS ») ; mêmes tuiles, mêmes trois états. Un contact ajouté dans le bloc 2 apparaît ICI. */}
-      <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contacts de cet immeuble' : 'Contacts du cabinet'}</h4>
+      {/* LOT SYNDIC-TITRES-COPROPRIETE — « Contacts de cet immeuble » devient « Contacts de cette copropriété ». */}
+      <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contacts de cette copropriété' : 'Contacts du cabinet'}</h4>
       {contacts.liste}
       {contacts.bouton}
       </section>
@@ -557,7 +558,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         <section className="fsy-cadre fsy-cadre--ajout" aria-labelledby="fsy-bloc-ajout">
           <div className="fsy-cadre-tete">
             <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-ajout">
-              {adresseDuBien !== null ? 'Ajouter un contact à cet immeuble' : 'Ajouter un contact au cabinet'}
+              {/* LOT SYNDIC-TITRES-COPROPRIETE — « Ajouter un contact à cet immeuble » devient : */}
+              {adresseDuBien !== null ? 'Ajouter un contact syndic à cette copropriété' : 'Ajouter un contact au cabinet'}
             </h3>
             <button type="button" className="fsy-lien-bouton fsy-fermer-ajout" onClick={() => setEdition(null)}
               aria-label="Fermer l’ajout de contact sans rien rattacher ni créer">× Fermer</button>
