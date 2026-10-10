@@ -832,6 +832,14 @@ function numeroDe(libelle: string): number {
 }
 
 /**
+ * LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — des copropriétés (adresse complète) par NOM DE VOIE (sans le
+ * numéro, sans accents), puis par numéro croissant : l'ordre des sous-cadres du portefeuille. PUR.
+ */
+export function trierParVoie<T extends { adresse: string }>(l: readonly T[]): T[] {
+  return [...l].sort((a, b) => voieSansNumero(a.adresse).localeCompare(voieSansNumero(b.adresse), 'fr') || numeroDe(a.adresse) - numeroDe(b.adresse));
+}
+
+/**
  * TOUS LES LOTS DU PORTEFEUILLE RATTACHÉS À CE SYNDIC, regroupés par adresse d'immeuble. PUR.
  * Ordre des groupes : la copropriété du bien ouvert d'abord (`cleDepart`), puis les autres par nom de voie (sans le
  * numéro, sans accents), puis par numéro croissant. Dans un groupe : par premier propriétaire, puis par numéro de lot.

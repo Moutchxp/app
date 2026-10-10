@@ -8,7 +8,7 @@ import {
   affecter, motBiens, motContacts, suiviParDefaut, suitImmeuble,
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
-  adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -881,6 +881,30 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   /** Une action demandée pendant qu'un AUTRE contact a des modifications non enregistrées. */
   const [enAttente, setEnAttente] = useState<Action | null>(null);
   const [aSupprimer, setASupprimer] = useState<string | null>(null);
+  /**
+   * ══ 🔴 LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — L'ARRIVÉE D'UN CONTACT ══════════════════════════════
+   * ARNO : un contact qui vient d'entrer dans « Contacts de cette copropriété » (« Ajouter à cette copropriété » du
+   * catalogue, ou « Valider » d'un nouveau contact) y apparaît sur le fond ROSE des tuiles du catalogue, puis passe
+   * PROGRESSIVEMENT au gris normal en 3 s. Ce n'est qu'un ÉTAT D'ÉCRAN : il naît au geste et meurt avec la fiche —
+   * il ne se rejoue donc ni à la réouverture, ni au « Valider » de la fiche (qui la ferme).
+   * La classe vit 3 s (le temps du fondu CSS), puis le minuteur la retire. Moins d'animations demandées : pas de
+   * fondu, le rose tient 3 s puis le retrait de la classe rend le gris d'un coup (règle @media de la feuille).
+   */
+  const [arrives, setArrives] = useState<string[]>([]);
+  const [derniereArrivee, setDerniereArrivee] = useState<{ cle: string; n: number } | null>(null);
+  const minuteurs = useRef<ReturnType<typeof setTimeout>[]>([]);
+  useEffect(() => () => { minuteurs.current.forEach(clearTimeout); }, []);
+  const marquerArrivee = (cle: string): void => {
+    setArrives((l) => (l.includes(cle) ? l : [...l, cle]));
+    setDerniereArrivee((d) => ({ cle, n: (d?.n ?? 0) + 1 }));
+    minuteurs.current.push(setTimeout(() => setArrives((l) => l.filter((x) => x !== cle)), DUREE_ARRIVEE_MS));
+  };
+  // La liste défile, s'il le faut, pour que la tuile arrivée soit visible AU DÉBUT du fondu.
+  useEffect(() => {
+    if (derniereArrivee === null || typeof document === 'undefined') return;
+    const el = document.querySelector(`[data-cle-arrivee="${derniereArrivee.cle}"]`) as HTMLElement | null;
+    el?.scrollIntoView?.({ block: 'nearest' });
+  }, [derniereArrivee]);
   const origine = (e: EtatEdition): ContactForm | null => (e.nouveau ? (e.depart ?? null) : (form.contacts.find((c) => c.cle === e.cle) ?? null));
   const enCours = edition !== null && contactModifie(origine(edition), edition.brouillon);
 
@@ -923,6 +947,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   };
   const valider = (e: EtatEdition): void => {
     setForm(appliquerBrouillon(form, e));
+    if (e.nouveau && parImmeuble && suitImmeuble(e.brouillon, cleDepart as string)) marquerArrivee(e.cle);
     // Un contact existant revient OUVERT EN LECTURE ; un nouveau s'affiche REPLIÉ.
     if (!e.nouveau && !ouverts.includes(e.cle)) setOuverts([...ouverts, e.cle]);
     setEdition(null);
@@ -943,12 +968,13 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
       onSupprimer={() => setASupprimer(c.cle)} confirmation={confirmerSuppression(c)} />
   ) : ouverts.includes(c.cle) ? (
     <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
+      arrivee={arrives.includes(c.cle)} copropriteDuBien={parImmeuble ? cleDepart : null}
       onModifier={() => demander({ genre: 'modifier', cle: c.cle })} onSupprimer={() => setASupprimer(c.cle)}
       onDetacher={parImmeuble ? () => detacherDeLaCopro(c.cle) : undefined}
       confirmation={confirmerSuppression(c)} />
   ) : (
-    <button key={c.cle} type="button" className="fsy-contact-replie" aria-expanded={false}
-      onClick={() => demander({ genre: 'ouvrir', cle: c.cle })}>
+    <button key={c.cle} type="button" className={`fsy-contact-replie${arrives.includes(c.cle) ? ' fsy-arrivee' : ''}`} aria-expanded={false}
+      data-cle-arrivee={c.cle} onClick={() => demander({ genre: 'ouvrir', cle: c.cle })}>
       <EnteteContact c={c} />
       <span className="fsy-fleche" aria-hidden="true">▸</span>
     </button>
@@ -964,6 +990,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     if (!parImmeuble) return;
     setForm({ ...form, contacts: form.contacts.map((c) => (c.cle === cle ? affecter(c, cleDepart as string, true) : c)) });
     setEdition(null);
+    marquerArrivee(cle);
   };
 
   const avecCatalogue = edition !== null && edition.nouveau && parImmeuble && catalogue.length > 0
@@ -1072,6 +1099,39 @@ function suitSeulement(c: ContactForm | undefined, cle: string): boolean {
   return c !== undefined && !c.tousImmeubles && c.immeubles.length === 1 && c.immeubles[0] === cle;
 }
 
+/** LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — durée du fondu rose → gris d'un contact arrivé. */
+const DUREE_ARRIVEE_MS = 3000;
+
+/**
+ * LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — LES COPROPRIÉTÉS SUIVIES, REPLIÉES (tuile dépliée en lecture).
+ * Depuis un bien : « Autres copropriétés du portefeuille suivies (N) », SANS celle du bien ouvert ; depuis l'écran
+ * Syndics : « Copropriétés suivies (N) ». Repliée par défaut ; dépliée : une copropriété par ligne, par nom de voie.
+ * N = 0 : une phrase, non dépliable.
+ */
+function CoprosSuivies({ c, adresses, copropriteDuBien }: {
+  c: ContactForm; adresses: Array<{ cle: string; adresse: string }>; copropriteDuBien: string | null;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const l = trierParVoie(adresses.filter((a) => c.immeubles.includes(a.cle) && a.cle !== copropriteDuBien));
+  if (l.length === 0) {
+    return <p className="fsy-suivis fsy-discret">{copropriteDuBien !== null ? 'Aucune autre copropriété suivie' : 'Aucune copropriété suivie'}</p>;
+  }
+  const mot = copropriteDuBien !== null ? 'Autres copropriétés du portefeuille suivies' : 'Copropriétés suivies';
+  return (
+    <div className="fsy-suivis-repli">
+      <button type="button" className="fsy-suivis-tete" aria-expanded={ouvert} onClick={() => setOuvert(!ouvert)}>
+        <span>{mot} ({l.length})</span>
+        <span className="fsy-fleche" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
+      </button>
+      {ouvert && (
+        <ul className="fsy-suivis-liste">
+          {l.map((a) => <li key={a.cle}>{a.adresse}</li>)}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** « Tous les immeubles », ou la liste des copropriétés suivies (adresse complète). */
 function motImmeublesSuivis(c: ContactForm, adresses: Array<{ cle: string; adresse: string }>): string {
   const l = adresses.filter((a) => c.immeubles.includes(a.cle)).map((a) => a.adresse);
@@ -1095,9 +1155,13 @@ function EnteteContact({ c }: { c: ContactForm }) {
 }
 
 /** ② OUVERT EN LECTURE — aucune saisie ; une ligne par téléphone et par e-mail, l'action au bout. */
-function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses, onDetacher }: {
+function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses, onDetacher, arrivee = false, copropriteDuBien = null }: {
   c: ContactForm; onEcrire?: (email: string) => void; onFermer: () => void; onModifier: () => void; onSupprimer: () => void;
   confirmation: React.ReactNode; adresses: Array<{ cle: string; adresse: string }>;
+  /** LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — vient d'arriver dans la liste : fond rose qui s'efface. */
+  arrivee?: boolean;
+  /** Fiche ouverte DEPUIS UN BIEN de cette copropriété : elle est retirée de « Autres copropriétés … suivies ». */
+  copropriteDuBien?: string | null;
   /** Fiche ouverte DEPUIS UN BIEN : « Détacher de la copropriété » remplace « Supprimer ce contact » (accord d'Arno). */
   onDetacher?: () => void;
 }) {
@@ -1105,7 +1169,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
   const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
   const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '');
   return (
-    <div className="fsy-contact-ouvert">
+    <div className={`fsy-contact-ouvert${arrivee ? ' fsy-arrivee' : ''}`} data-cle-arrivee={c.cle}>
       <button type="button" className="fsy-contact-tete-btn" aria-expanded={true} onClick={onFermer} title="Fermer">
         <EnteteContact c={c} />
         <span className="fsy-fleche" aria-hidden="true">▾</span>
@@ -1129,7 +1193,10 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
           <ActionEcrire email={k.valeur} onEcrire={onEcrire} />
         </div>
       ))}
-      <p className="fsy-suivis"><span className="fsy-discret">Immeubles suivis :</span> {motImmeublesSuivis(c, adresses)}</p>
+      {/* LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES (accord d'Arno pour ce repli) — CE QU'IL Y AVAIT : la
+          ligne « Immeubles suivis : A · B · C ». Elle devient une petite ligne REPLIÉE, une copropriété par ligne une
+          fois dépliée. */}
+      <CoprosSuivies c={c} adresses={adresses} copropriteDuBien={copropriteDuBien} />
       {confirmation ?? (
         <div className="fsy-boutons fsy-boutons--contact">
           {/* LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE — depuis un bien, un BOUTON « Détacher de la copropriété », même place,
@@ -1588,6 +1655,24 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
    opacite (le jeton --color-svv-syndic-texte a sa variante Sombre : le texte --color-svv-ink reste contraste) ; un peu
    plus fonce au survol. Les tuiles deja rattachees restent grises. */
 .fsy-catalogue-liste .fsy-tuile-catalogue{background:color-mix(in srgb, var(--color-svv-syndic-texte) 10%, transparent)}
+/* LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — un contact ARRIVE dans « Contacts de cette copropriete » : le
+   rose des tuiles du catalogue (meme jeton, 10 %), puis le gris normal en 3 s, en douceur. Le theme Sombre suit par
+   les jetons. Moins d'animations : aucun fondu, le rose tient jusqu'au retrait de la classe (3 s), puis le gris. */
+@keyframes fsy-arrivee{
+  from{background-color:color-mix(in srgb, var(--color-svv-syndic-texte) 10%, transparent)}
+  to{background-color:var(--color-svv-field)}}
+.fsy-contact-replie.fsy-arrivee,.fsy-contact-ouvert.fsy-arrivee{animation:fsy-arrivee 3s ease-out forwards}
+@media (prefers-reduced-motion: reduce){
+  .fsy-contact-replie.fsy-arrivee,.fsy-contact-ouvert.fsy-arrivee{animation:none;
+    background-color:color-mix(in srgb, var(--color-svv-syndic-texte) 10%, transparent)}}
+/* LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — « Copropriétes suivies (N) » : une petite ligne depliable. */
+.fsy-suivis-repli{display:flex;flex-direction:column;gap:.1rem;padding-left:.2rem}
+.fsy-suivis-tete{position:relative;display:inline-flex;align-items:center;gap:.35rem;align-self:flex-start;min-height:32px;padding:0;border:0;
+  background:transparent;color:var(--color-svv-muted);font:inherit;font-size:.86rem;cursor:pointer;text-align:left}
+.fsy-suivis-tete:hover,.fsy-suivis-tete:focus-visible{color:var(--color-svv-ink);text-decoration:underline}
+/* la cible tactile du §15 : 44 px qu'on touche, 32 px qu'on voit (comme les pilules). */
+.fsy-suivis-tete::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
+.fsy-suivis-liste{list-style:none;margin:0;padding:0 0 0 .8rem;display:flex;flex-direction:column;gap:.1rem;font-size:.86rem;overflow-wrap:anywhere}
 .fsy-catalogue-liste .fsy-tuile-catalogue:hover{background:color-mix(in srgb, var(--color-svv-syndic-texte) 16%, transparent)}
 .fsy-copro-adresse{display:flex;flex-direction:column;min-width:0;font-size:.9rem}
 .fsy-confirmer{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;font-size:.84rem}
