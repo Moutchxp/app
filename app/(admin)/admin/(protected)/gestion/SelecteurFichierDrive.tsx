@@ -1147,7 +1147,12 @@ export function SelecteurFichierDrive({
     const ctrl = new AbortController();
     enVol.current = ctrl;
     setErreur(null);
+    /* ⚠️ LE NŒUD AUSSI, PAS SEULEMENT L'ÉTAT (lot DRIVE-DEFILEMENT-BLOQUE). Remettre l'état à zéro sans remettre
+       la barre laissait la fenêtre virtualisée rendre le HAUT d'une liste dont la barre était restée EN BAS : zone
+       vide. Le défaut se cachait tant que le dossier suivant était plus court — le navigateur bornait alors la
+       barre tout seul — et réapparaissait dès qu'il était long. */
     setScrollTop(0);
+    if (scene.current !== null) scene.current.scrollTop = 0;
     const connu = cache.current.get(dossierId);
     // ① CE QU'ON SAIT DÉJÀ, TOUT DE SUITE. ② Puis la vérité, en silence.
     if (connu !== undefined) setVue({ v: 'ok', ...connu });
@@ -3705,7 +3710,26 @@ export function SelecteurFichierDrive({
     } catch { /* pas de stockage : l'arbre vit seulement tant que la fenêtre est ouverte, et c'est déjà l'essentiel */ }
   }, [ouverts, signature]);
 
-  /** Le défilement suit la sélection au clavier : une ligne choisie hors de l'écran ne sert à rien. */
+  /**
+   * Le défilement suit la sélection au clavier : une ligne choisie hors de l'écran ne sert à rien.
+   *
+   * ══ 🔴🔴 LOT DRIVE-DEFILEMENT-BLOQUE — LA RÉCIDIVE ÉTAIT ICI ══════════════════════════════════════════════════
+   *
+   * 🔴 CE QUI MANQUAIT, ET CE QUE ÇA DONNAIT À L'ÉCRAN. Cet effet posait le `scrollTop` du NŒUD sans toucher à
+   * l'ÉTAT (`setScrollTop`) — et MESURÉ dans cette fenêtre, poser `scrollTop` à la main ne déclenche AUCUN
+   * événement `scroll` (compté : 0). L'état restait donc à 0, `fenetreVisible` continuait de rendre les ~37
+   * premières lignes, et la barre descendait DEVANT UNE ZONE VIDE. Au clavier — le seul moyen raisonnable de
+   * parcourir 1 054 lignes — on sortait des lignes rendues dès la 37e : rien ne bougeait plus à l'écran, ce qui
+   * se lit exactement comme « le défilement est bloqué ».
+   *
+   * 🔴 POURQUOI b080c42d N'AVAIT PAS SUFFI. Ce commit (lot CORBEILLE-DRIVE-REELLE-ET-SCROLL, point 3) a posé la
+   * règle — nœud ET état, l'état relu APRÈS écriture — mais il ne l'a appliquée QU'À L'ARRIVÉE (ligne ~1934).
+   * Les autres endroits qui font défiler sont restés comme avant. Une règle vraie appliquée à un seul appelant
+   * n'est pas une règle : c'est une réparation.
+   *
+   * ⚠️ ON RELIT CE QUE LE NAVIGATEUR A FAIT, pour la raison exacte de l'encadré de l'arrivée : il BORNE la valeur
+   * au contenu du moment, et deviner la borne reviendrait à recopier sa règle.
+   */
   useEffect(() => {
     const id = selection.ids.at(-1);
     if (id === undefined || scene.current === null) return;
@@ -3713,10 +3737,19 @@ export function SelecteurFichierDrive({
     if (i < 0) return;
     const haut = i * HAUTEUR_LIGNE;
     const el = scene.current;
+    /* 🔴 JAMAIS AU-DELÀ DU HAUT DE LA LIGNE (`Math.min`). Sans cette borne, une zone plus basse qu'une ligne
+       (jsdom, où elle mesure 0 — ou une fenêtre écrasée) faisait osciller la cible : MESURÉ, ligne 2 (haut 56),
+       hauteur 0 → barre posée à 84 (bas de la ligne), puis « la ligne est au-dessus » → 56, puis 84… Tant que
+       l'effet n'écrivait que le nœud, cela ne se voyait pas ; dès qu'il écrit l'ÉTAT, chaque pas relance un
+       rendu, et le rendu relance l'effet — boucle sans fin : la suite entière ne finissait plus (les 14 cas de
+       la loupe figés, workers à 100 % jusqu'à l'épuisement de la mémoire). Bornée, la cible se stabilise au
+       premier pas, et un état identique n'est plus réécrit. Une zone assez haute n'est pas concernée : le bas
+       aligné y est toujours au-dessus du haut de la ligne. */
     if (haut < el.scrollTop) el.scrollTop = haut;
     else if (haut + HAUTEUR_LIGNE > el.scrollTop + el.clientHeight) {
-      el.scrollTop = haut + HAUTEUR_LIGNE - el.clientHeight;
-    }
+      el.scrollTop = Math.min(haut, haut + HAUTEUR_LIGNE - el.clientHeight);
+    } else return;
+    setScrollTop(el.scrollTop);
   }, [selection, ordre]);
 
   /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -4289,6 +4322,42 @@ export function SelecteurFichierDrive({
       surlignageEtOccurrences.occurrences, documentEnEvidence?.driveFileId ?? null);
     return parcoursDe(choisie, surlignageEtOccurrences.affichees);
   })();
+
+  /**
+   * ══ 🔴🔴 LOT DRIVE-DEFILEMENT-BLOQUE — LA LOUPE AMÈNE SA LIGNE SOUS LES YEUX ═══════════════════════════════
+   *
+   * ARNO : « La loupe, quand elle déplie jusqu'au document, fait défiler la liste pour que la ligne visée soit
+   * visible. »
+   *
+   * 🔴 C'EST LA VRAIE RÉPONSE AU « DÉFILEMENT BLOQUÉ », et la mesure le dit : une fois la branche dépliée, la
+   * liste fait **1 054 lignes / 28 940 px**, soit **290 crans de molette** pour atteindre le bas. Rien n'est
+   * bloqué — mais sans un moyen d'y SAUTER, c'est indiscernable d'un blocage. La loupe sait exactement où est
+   * le document : c'est à elle de nous y conduire.
+   *
+   * 🔴 ON CALCULE, ON N'APPELLE PAS `scrollIntoView` : la liste est VIRTUALISÉE, et la ligne visée n'existe pas
+   * encore dans le document tant qu'on n'a pas défilé jusqu'à elle. C'est le même calcul que l'arrivée en
+   * arborescence (`defilementPourCentrer`), et c'est exprès : deux façons de viser une ligne finiraient par
+   * viser deux lignes différentes.
+   *
+   * ⚠️ UNE SEULE FOIS PAR CIBLE, ET LA MAIN GARDE LE DERNIER MOT : la clé est la ligne visée. Tant qu'elle ne
+   * change pas, on ne touche plus au défilement — sans quoi chaque dépliage de branche aurait ramené la vue en
+   * arrière pendant qu'on explore, ce qui EST le défaut qu'Arno décrit.
+   */
+  const cibleLoupeVue = useRef<string>('');
+  useEffect(() => {
+    const el = scene.current;
+    if (el === null || loupeSur === null) { cibleLoupeVue.current = ''; return; }
+    /* La ligne la plus profonde de l'itinéraire qui soit RÉELLEMENT dans la liste : c'est là qu'on veut être. */
+    const vise = [...parcours.rangs.entries()]
+      .filter(([id]) => ordre.includes(id))
+      .sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    if (vise === null || vise === cibleLoupeVue.current) return;
+    cibleLoupeVue.current = vise;
+    const i = ordre.indexOf(vise);
+    if (i < 0) return;
+    el.scrollTop = defilementPourCentrer(i, ordre.length, el.clientHeight, HAUTEUR_LIGNE);
+    setScrollTop(el.scrollTop);
+  }, [loupeSur, parcours, ordre]);
 
   /** Combien de dossiers la fenêtre a déjà lus : c'est l'étendue de la comparaison par empreinte, et on le DIT. */
   const dossiersLus = listesParDossier().length;
@@ -5435,7 +5504,19 @@ export function SelecteurFichierDrive({
                 un trou — le lâcher y valait abandon, et la pièce revenait sans explication.
                 ⚠️ LES LIGNES ARRÊTENT LEUR ÉVÉNEMENT (`stopPropagation` dans `survolerCible` et `deposerSur`) :
                 ce gestionnaire ne voit donc QUE le vide, jamais un lâcher déjà traité au-dessus d'une ligne. */}
+            {/* ══ 🔴🔴 LOT DRIVE-DEFILEMENT-BLOQUE — LA LISTE SE PARCOURT AUSSI AU CLAVIER ═══════════════════
+                ARNO : « les deux panneaux défilent […] à la molette, au trackpad, à la barre de défilement ET AU
+                CLAVIER, jusqu'au DERNIER élément ».
+                🔴 MESURÉ AVANT : `tabIndex` valait −1, donc la zone n'était pas focalisable, donc Fin, Début et
+                Page suiv. NE FAISAIENT RIEN — c'est le navigateur qui fait défiler une zone, et il ne le fait
+                que si elle peut recevoir le focus. Sur une liste de 1 054 lignes, c'était le seul moyen
+                d'atteindre le bas sans 290 crans de molette.
+                ⚠️ LES FLÈCHES, ELLES, MARCHAIENT DÉJÀ : elles sont traitées par le raccourci de la fenêtre, qui
+                déplace la SÉLECTION — un autre chemin, qui avait son propre défaut (voir l'effet de sélection).
+                ⚠️ UN ARRÊT DE TABULATION DE PLUS, ET IL EST ASSUMÉ : c'est le prix du clavier, et la zone se
+                NOMME (`aria-label`) pour qu'on sache où l'on vient d'arriver. */}
             <div className={`sfd-lignes${survole === dossierCourant?.id ? ' sfd-lignes--vise' : ''}`}
+              tabIndex={0} aria-label="Contenu du dossier — liste défilante"
               ref={scene} onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
               onDragEnter={depotDansLeVide === null ? undefined
                 : (e) => survolerCible(e, { ...depotDansLeVide, ouvrable: false })}
