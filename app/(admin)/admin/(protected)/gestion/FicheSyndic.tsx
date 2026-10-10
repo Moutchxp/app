@@ -689,6 +689,40 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   const [refusAdresse, setRefusAdresse] = useState<string | null>(null);
   const [adressesOuvertes, setAdressesOuvertes] = useState(false);
   const [aRetirerAdresse, setARetirerAdresse] = useState<string | null>(null);
+  /*
+   * ══ LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — LES AUTRES ADRESSES DE LA MÊME PARCELLE ══ lues à part (BAN et
+   * cadastre LOCAUX), pour TOUTES les adresses de la copropriété (plusieurs parcelles si elle en couvre plusieurs).
+   * Ce ne sont que des propositions : « Rattacher » ajoute l'adresse comme un « + » ; une adresse prise ailleurs est
+   * grisée, avec la raison. Relu dès que les adresses de la copropriété changent (une adresse retirée redevient proposable).
+   */
+  const adressesCopro: AdresseSaisie[] = coproDuBien === null ? [] : [
+    { libelle: coproDuBien.libelle, codePostal: connus.find((x) => x.cle === cleImmeuble(coproDuBien.libelle))?.codePostal ?? coproDuBien.codePostal,
+      commune: connus.find((x) => x.cle === cleImmeuble(coproDuBien.libelle))?.commune ?? coproDuBien.commune },
+    ...(coproDuBien.adresses ?? []).map((a) => ({ libelle: a.libelle, codePostal: connus.find((x) => x.cle === cleImmeuble(a.libelle))?.codePostal ?? a.codePostal,
+      commune: connus.find((x) => x.cle === cleImmeuble(a.libelle))?.commune ?? a.commune })),
+  ];
+  const signatureCopro = JSON.stringify(adressesCopro);
+  const [surParcelle, setSurParcelle] = useState<AdresseSaisie[]>([]);
+  const [parcelleOuverte, setParcelleOuverte] = useState(false);
+  useEffect(() => {
+    if (adressesCopro.length === 0) { setSurParcelle([]); return; }
+    let vivant = true;
+    void fetch(`/api/admin/gestion/coproprietes/parcelle?a=${encodeURIComponent(signatureCopro)}`, { cache: 'no-store' })
+      .then((r) => r.json() as Promise<{ etat?: string; adresses?: AdresseSaisie[] }>)
+      .then((j) => { if (vivant && j.etat === 'ok') setSurParcelle(j.adresses ?? []); })
+      .catch(() => { /* aucune proposition : rien ne change */ });
+    return () => { vivant = false; };
+  }, [signatureCopro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const clesCopro = new Set(adressesCopro.map((a) => cleImmeuble(a.libelle)));
+  const propositions = coproDuBien === null ? [] : surParcelle.filter((a) => !clesCopro.has(cleImmeuble(a.libelle))).map((a) => {
+    const m = conflitAdresse(a, cleImmeuble(coproDuBien.libelle), form.immeubles, connus);
+    const affichee = adresseImmeuble(a.libelle, a.codePostal, a.commune);
+    return { a, affichee, raison: m === null ? null : m.replace(`${affichee} `, '').replace(/^est /, '').replace(/\.$/, '') };
+  });
+  const rattacher = (a: AdresseSaisie): void => {
+    if (coproDuBien === null) return;
+    setForm({ ...form, immeubles: form.immeubles.map((x) => (x === coproDuBien ? { ...x, adresses: [...(x.adresses ?? []), { libelle: a.libelle, codePostal: a.codePostal, commune: a.commune }] } : x)) });
+  };
   const [lotsOuverts, setLotsOuverts] = useState(false);
   const groupes = lotsDuPortefeuille(form.immeubles, connus, adresseDuBien !== null ? cleDepart : null,
     new Set((fiche?.coproprietes ?? []).flatMap((c) => [c.cle, ...(c.adresses ?? []).map((a) => a.cle)])));
@@ -723,6 +757,12 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
                 · {autresAdresses.length === 1 ? '1 autre adresse' : `${autresAdresses.length} autres adresses`} {adressesOuvertes ? '▾' : '▸'}
               </button>
             )}
+            {/* LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — la mention grise des propositions de la parcelle. */}
+            {propositions.length > 0 && (
+              <button type="button" className="fsy-autres-adresses fsy-parcelle-mention" aria-expanded={parcelleOuverte} onClick={() => setParcelleOuverte(!parcelleOuverte)}>
+                · {propositions.length === 1 ? '1 adresse sur la même parcelle' : `${propositions.length} adresses sur la même parcelle`} {parcelleOuverte ? '▾' : '▸'}
+              </button>
+            )}
           </>
         )}
       </h3>
@@ -736,6 +776,18 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
               ? { ...x, adresses: [...(x.adresses ?? []), { libelle: saisieAdresse.libelle.trim(), codePostal: saisieAdresse.codePostal, commune: saisieAdresse.commune }] } : x)) });
             setAjoutAdresse(false);
           }} />
+      )}
+      {coproDuBien !== null && parcelleOuverte && propositions.length > 0 && (
+        <ul className="fsy-suivis-liste fsy-parcelle-liste" aria-label="Adresses sur la même parcelle">
+          {propositions.map((p) => (
+            <li key={cleImmeuble(p.a.libelle)} className={`fsy-adresse-copro${p.raison !== null ? ' fsy-adresse-prise' : ''}`}>
+              <span>{p.affichee}{p.raison !== null && <span className="fsy-discret"> — {p.raison}</span>}</span>
+              {p.raison === null && (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => rattacher(p.a)}>Rattacher</button>
+              )}
+            </li>
+          ))}
+        </ul>
       )}
       {coproDuBien !== null && adressesOuvertes && autresAdresses.length > 0 && (
         <ul className="fsy-suivis-liste fsy-adresses-copro" aria-label="Autres adresses de cette copropriété">
@@ -2251,6 +2303,8 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
   font-weight:400;text-transform:none;letter-spacing:normal;cursor:pointer}
 .fsy-autres-adresses:hover,.fsy-autres-adresses:focus-visible{color:var(--color-svv-ink);text-decoration:underline}
 .fsy-adresse-copro{display:flex;align-items:center;justify-content:space-between;gap:.4rem}
+/* LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — une adresse deja prise ailleurs : grisee, sans bouton, avec sa raison. */
+.fsy-adresse-prise{color:var(--color-svv-muted)}
 .fsy-ajout-adresse{display:flex;flex-direction:column;gap:.3rem;margin:.1rem 0 .3rem}
 .fsy-ajout-adresse input{flex:1 1 12rem;min-width:0;min-height:36px;padding:5px 9px;border-radius:8px;border:1px solid var(--color-svv-line-strong);
   background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit}

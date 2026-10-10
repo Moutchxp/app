@@ -560,9 +560,25 @@ async function enregistrerAdressesSecondaires(q: RequeteTx, saisie: SyndicSaisi,
     const { rows: enCours } = await q<{ id: string; cle: string }>(
       `SELECT id::text, cle_immeuble AS cle FROM gestion_copropriete_adresse WHERE copropriete_id = $1 AND retire_le IS NULL FOR UPDATE`, [coproId]);
     const voulues = new Map(im.adresses.map((a) => [cleImmeuble(a.libelle), a]));
-    const aRetirer = enCours.filter((r) => !voulues.has(r.cle)).map((r) => r.id);
+    const retirees = enCours.filter((r) => !voulues.has(r.cle));
+    const aRetirer = retirees.map((r) => r.id);
     if (aRetirer.length > 0) {
       await q(`UPDATE gestion_copropriete_adresse SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])`, [aRetirer, auteur.libelle]);
+      // LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — ARNO : « écris une ligne de journal par lot, comme pour “Supprimer ce
+      // syndic de cette résidence” » : chaque lot du portefeuille à l'adresse retirée perd ce syndic.
+      const parCle = await lotsParImmeuble();
+      const syndic = nomAvecVille(saisie.nom, nul(saisie.ville));
+      const copro = adresseImmeuble(im.libelle, im.codePostal || null, im.commune || null);
+      for (const r of retirees) {
+        const g = parCle.get(r.cle);
+        const adresse = adresseImmeuble(g?.libelle ?? r.cle, g?.codePostal ?? null, g?.commune ?? null);
+        for (const lot of g?.lots ?? []) {
+          await q(
+            `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle)
+             VALUES ('annuaire_lot', $1, 'syndic_retire', $2, $3, $4, $5)`,
+            [lot.id, syndic, `Syndic ${syndic} retiré de l’adresse ${adresse} (retirée de la copropriété ${copro})`, auteur.id, auteur.libelle]);
+        }
+      }
     }
     const deja = new Set(enCours.map((r) => r.cle));
     for (const [cle, a] of voulues) {

@@ -1379,6 +1379,7 @@ describe('LOT COPRO-PLUSIEURS-ADRESSES — pur', () => {
 });
 
 describe('LOT COPRO-PLUSIEURS-ADRESSES — serveur', () => {
+  beforeEach(() => { appels.length = 0; reponses = []; });
   it('conflit AVANT écriture : adresse déjà la copropriété d’un autre syndic, ou l’adresse d’une autre copropriété', async () => {
     const { enregistrerSyndic } = await import('./syndicRepo');
     reponses = [
@@ -1484,5 +1485,68 @@ describe('LOT COPRO-PLUSIEURS-ADRESSES — serveur', () => {
     expect(sql).toContain('copropriete_id bigint NOT NULL REFERENCES gestion_copropriete(id)');
     expect(sql).toContain('ON gestion_copropriete_adresse (cle_immeuble) WHERE retire_le IS NULL');
     expect(sql).not.toMatch(/\bUPDATE\b|\bDELETE\b|\bDROP\b|ALTER TABLE/i);
+  });
+});
+
+describe('LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — serveur', () => {
+  beforeEach(() => { appels.length = 0; reponses = []; });
+  it('adressesDeLaParcelle : point BAN, parcelle la plus proche (≤ 3 m, point INLINÉ dans le KNN), puis ses adresses — les entrées exclues, Paris en clair', async () => {
+    const { adressesDeLaParcelle, TOLERANCE_PARCELLE_M } = await import('./parcelleRepo');
+    expect(TOLERANCE_PARCELLE_M).toBe(3);
+    reponses = [
+      (sql) => (sql.includes('FROM c JOIN adresse_ban b ON b.numero = c.numero') ? { rows: [{ cle: '15 rue carle hebert', x: 1, y: 2 }, { cle: '10 avenue victoria', x: 3, y: 4 }] } : undefined),
+      (sql) => (sql.includes('FROM parcelle') && sql.includes('ORDER BY geom <-> ST_SetSRID(ST_MakePoint($1, $2), 2154) LIMIT 1') ? { rows: [{ fid: 11, id: '92026000AH0371' }] } : undefined),
+      (sql) => (sql.includes('CROSS JOIN LATERAL') ? { rows: [
+        { numero: 17, suffixe: null, nom_voie: 'Rue Carle Hébert', nom_commune: 'Courbevoie', insee: '92026', fid: 11 },
+        { numero: 15, suffixe: null, nom_voie: 'Rue Carle Hébert', nom_commune: 'Courbevoie', insee: '92026', fid: 11 },
+        { numero: 6, suffixe: null, nom_voie: 'Rue Saint-Martin', nom_commune: 'Paris 4e Arrondissement', insee: '75104', fid: 11 },
+      ] } : undefined),
+    ];
+    const r = await adressesDeLaParcelle([
+      { libelle: '15 rue Carle Hebert', codePostal: '92400', commune: 'Courbevoie' },
+      { libelle: '10 avenue Victoria', codePostal: '75004', commune: 'Paris' },
+      { libelle: 'rue sans numéro', codePostal: '92400', commune: 'Courbevoie' },
+      { libelle: '3 rue sans commune', codePostal: '', commune: '' },
+    ]);
+    expect(r.parcelles).toEqual(['92026000AH0371']);
+    expect(r.adresses).toEqual([
+      { cle: '6 rue saint martin', libelle: '6 Rue Saint-Martin', codePostal: '75004', commune: 'Paris', parcelle: '92026000AH0371' },
+      { cle: '17 rue carle hebert', libelle: '17 Rue Carle Hébert', codePostal: '75004', commune: 'Courbevoie', parcelle: '92026000AH0371' },
+    ].sort((x, y) => x.libelle.localeCompare(y.libelle, 'fr', { numeric: true })));
+    const points = appels.find((x) => x.sql.includes('FROM c JOIN adresse_ban b'));
+    expect(points?.params.slice(0, 2)).toEqual([['15 rue carle hebert', '10 avenue victoria'], [15, 10]]);
+    expect(appels.filter((x) => x.sql.includes('ORDER BY geom <-> ST_SetSRID(ST_MakePoint($1, $2), 2154)')).map((x) => x.params)).toEqual([[1, 2, 3], [3, 4, 3]]);
+    expect(norm(appels.find((x) => x.sql.includes('CROSS JOIN LATERAL'))?.sql ?? '')).toContain('WHERE p.fid = ANY($1::int[]) AND plus_proche.fid = p.fid');
+    expect(appels.some((x) => /^\s*(INSERT|UPDATE|DELETE)/i.test(x.sql))).toBe(false);
+  });
+
+  it('rien d’identifiable (aucune adresse exploitable, ou aucun point) : aucune proposition, aucune requête spatiale', async () => {
+    const { adressesDeLaParcelle } = await import('./parcelleRepo');
+    expect(await adressesDeLaParcelle([{ libelle: 'sans numéro', codePostal: '', commune: '' }])).toEqual({ parcelles: [], adresses: [] });
+    expect(appels).toEqual([]);
+    reponses = [(sql) => (sql.includes('FROM c JOIN adresse_ban b') ? { rows: [] } : undefined)];
+    expect(await adressesDeLaParcelle([{ libelle: '1 rue X', codePostal: '92400', commune: 'Courbevoie' }])).toEqual({ parcelles: [], adresses: [] });
+    expect(appels.some((x) => x.sql.includes('FROM parcelle'))).toBe(false);
+  });
+
+  it('RETRAIT d’une adresse secondaire : une ligne de journal PAR LOT de cette adresse (comme « Supprimer ce syndic de cette résidence »)', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1') ? { rows: [{ id: '77' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_adresse WHERE copropriete_id = $1 AND retire_le IS NULL FOR UPDATE') ? { rows: [{ id: '5', cle: '3 av y' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_annuaire_lot lo') ? { rows: [
+        { id: '301', numero: '301', immeuble: '3 av Y', adresse: '3 av Y', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+        { id: '302', numero: '302', immeuble: '3 av Y', adresse: '3 av Y', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+        { id: '101', numero: '101', immeuble: '12 rue X', adresse: '12 rue X', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+      ] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', ville: 'Paris', immeubles: [{ libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', adresses: [] }] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    const j = appels.filter((x) => x.sql.includes('INSERT INTO gestion_journal'));
+    expect(j.map((x) => x.params)).toEqual([301, 302].map((id) => [id, 'Cab / Paris',
+      'Syndic Cab / Paris retiré de l’adresse 3 av Y, 92400 Courbevoie (retirée de la copropriété 12 rue X, 92400 Courbevoie)', 7, 'arno']));
+    expect(norm(j[0].sql)).toContain("VALUES ('annuaire_lot', $1, 'syndic_retire', $2, $3, $4, $5)");
   });
 });

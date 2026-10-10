@@ -3673,3 +3673,123 @@ describe('LOT COPRO-PLUSIEURS-ADRESSES', () => {
     expect(mention()).toBeNull();
   });
 });
+
+/**
+ * ══ LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE ════════════════════════════════════════════════════════════════════
+ * La copropriété 12 rue X (adresse secondaire 3 av Y) du syndic _TEST 96. La parcelle de 12 rue X porte aussi 12 bis
+ * rue X (libre, lot 121) et 5 rue Prise (copropriété d'AUTRE / Lyon) ; celle de 3 av Y porte aussi 5 av Y (libre).
+ */
+describe('LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE', () => {
+  const lot = (id: number, numero: string, adresse: string) => ({ id, numero, adresse, commune: 'COURBEVOIE', proprietaires: [] as string[] });
+  const MOI = { id: 96, nom: '_TEST Parcelle', ville: 'Paris' };
+  const P = { cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' };
+  const CONNUS = [
+    { ...P, lots: [lot(101, '101', '12 rue X')], syndic: MOI, secondaires: [{ cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' }] },
+    { cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', lots: [lot(301, '301', '3 av Y')], syndic: MOI, principale: P },
+    { cle: '12 bis rue x', libelle: '12 bis rue X', codePostal: '92400', commune: 'Courbevoie', lots: [lot(121, '121', '12 bis rue X')], syndic: null },
+    { cle: '5 rue prise', libelle: '5 rue Prise', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: { id: 7, nom: 'AUTRE', ville: 'Lyon' } },
+  ];
+  const FICHE_96 = {
+    ...FICHE, id: 96, nom: '_TEST Parcelle', ville: 'Paris', contacts: [],
+    coproprietes: [{ id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10',
+      lots: [lot(101, '101', '12 rue X'), lot(301, '301', '3 av Y')], adresses: [{ cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' }] }],
+  };
+  const a = (libelle: string) => ({ libelle, codePostal: '92400', commune: 'Courbevoie' });
+  /** La « parcelle » : ce que le serveur rendrait pour ces adresses (les entrées elles-mêmes exclues). */
+  let rien = false;
+  const parcelle = (entrees: Array<{ libelle: string }>): Array<{ libelle: string }> => {
+    if (rien) return [];
+    const les = entrees.map((e) => e.libelle);
+    const sortie = [...(les.includes('12 rue X') ? ['12 bis rue X', '5 rue Prise', '3 av Y'] : []), ...(les.includes('3 av Y') ? ['5 av Y', '12 rue X'] : [])];
+    return [...new Set(sortie)].filter((x) => !les.includes(x)).map(a);
+  };
+  const servir = (): void => {
+    rien = false;
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null }); return rep({ ok: true, id: 96 }); }
+      if (url.startsWith('/api/admin/gestion/coproprietes/parcelle?a=')) {
+        appels.push({ url, methode: m, corps: null });
+        return rep({ etat: 'ok', parcelles: ['X'], adresses: parcelle(JSON.parse(decodeURIComponent(url.split('a=')[1]))) });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: CONNUS });
+      if (url.startsWith('/api/admin/gestion/syndics/96')) return rep({ etat: 'ok', fiche: FICHE_96 });
+      if (url.startsWith('/api/admin/gestion/coproprietes/contacts')) return rep({ etat: 'ok', contacts: [] });
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const ouvrir96 = async (): Promise<void> => {
+    servir();
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 96, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+  };
+  const mention = (): HTMLButtonElement | null => document.querySelector('#fsy-bloc-1 .fsy-parcelle-mention');
+  const lignes = (): Array<[string, boolean]> => [...document.querySelectorAll('.fsy-parcelle-liste li')]
+    .map((l) => [l.querySelector('span')?.textContent ?? '', boutonDansOuNull(l, 'Rattacher') !== null]);
+  const boutonDansOuNull = (zone: Element, t: string): Element | null => [...zone.querySelectorAll('button')].find((b) => b.textContent === t) ?? null;
+  const put = (): { immeubles: Array<{ libelle: string; adresses?: Array<{ libelle: string }> }> } =>
+    appels.filter((x) => x.methode === 'PUT').at(-1)?.corps as { immeubles: Array<{ libelle: string; adresses?: Array<{ libelle: string }> }> };
+
+  it('la mention grise « · 3 adresses sur la même parcelle ▸ » ; TOUTES les adresses de la copropriété sont interrogées (plusieurs parcelles)', async () => {
+    await ouvrir96();
+    expect(mention()?.textContent).toBe('· 3 adresses sur la même parcelle ▸');
+    const q = appels.find((x) => x.url.startsWith('/api/admin/gestion/coproprietes/parcelle'))?.url ?? '';
+    expect(JSON.parse(decodeURIComponent(q.split('a=')[1])).map((x: { libelle: string }) => x.libelle)).toEqual(['12 rue X', '3 av Y']);
+    expect(document.querySelector('.fsy-parcelle-liste')).toBeNull();
+  });
+
+  it('dépliée (fond blanc) : « Rattacher » pour une adresse libre ; prise ailleurs : grisée, sans bouton, avec la raison', async () => {
+    await ouvrir96();
+    await cliquer(mention() as Element);
+    expect(document.querySelector('.fsy-parcelle-liste')?.classList.contains('fsy-suivis-liste')).toBe(true);
+    expect(lignes()).toEqual([
+      ['12 bis rue X, 92400 Courbevoie', true],
+      ['5 rue Prise, 92400 Courbevoie — déjà la copropriété rattachée à AUTRE / Lyon', false],
+      ['5 av Y, 92400 Courbevoie', true],
+    ]);
+    expect(document.querySelector('.fsy-adresse-prise')?.textContent).toContain('5 rue Prise');
+  });
+
+  it('« Rattacher » : l’adresse devient secondaire (rien d’automatique avant le clic), ses lots arrivent « en attente » ; au Valider, propagée', async () => {
+    await ouvrir96();
+    expect(appels.filter((x) => x.methode !== 'GET')).toEqual([]);
+    await cliquer(mention() as Element);
+    await cliquer(boutonDansOuNull([...document.querySelectorAll('.fsy-parcelle-liste li')][0], 'Rattacher') as Element);
+    await calmer();
+    expect((document.querySelector('#fsy-bloc-1 .fsy-autres-adresses') as HTMLElement).textContent).toBe('· 2 autres adresses ▸');
+    expect(mention()?.textContent).toBe('· 2 adresses sur la même parcelle ▾');
+    await cliquer(document.querySelector('.fsy-lots-ligne') as Element);
+    const lots = [...document.querySelectorAll('.fsy-lot')].map((l) => `${l.querySelector('strong')?.textContent}${l.querySelector('.fsy-pastille-attente') ? ' (attente)' : ''}`);
+    expect(lots).toEqual(['lot 101', 'lot 121 (attente)', 'lot 301']);
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(put().immeubles[0].adresses?.map((x) => x.libelle)).toEqual(['3 av Y', '12 bis rue X']);
+  });
+
+  it('une adresse RETIRÉE (par le « × ») redevient proposable', async () => {
+    await ouvrir96();
+    await cliquer(document.querySelector('#fsy-bloc-1 .fsy-autres-adresses:not(.fsy-parcelle-mention)') as Element);
+    await cliquer(document.querySelector('.fsy-retirer-adresse') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-adresses-copro .fsy-confirmer'), 'Oui'));
+    await calmer();
+    await cliquer(mention() as Element);
+    expect(lignes().map(([l, b]) => [l.split(' — ')[0], b])).toEqual([
+      ['12 bis rue X, 92400 Courbevoie', true], ['5 rue Prise, 92400 Courbevoie', false], ['3 av Y, 92400 Courbevoie', true]]);
+  });
+
+  it('rien à proposer : pas de mention', async () => {
+    servir();
+    rien = true;
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 96, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    expect(mention()).toBeNull();
+    expect(document.body.textContent).not.toContain('sur la même parcelle');
+  });
+});
