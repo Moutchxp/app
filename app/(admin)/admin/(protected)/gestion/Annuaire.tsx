@@ -85,7 +85,7 @@ import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 import { pastillesBien } from '../../../../lib/gestion/pastillesBien';
 // LOT ANNUAIRE-SYNDICS — le bouton syndic des cartes de bien, et le composeur qu'il peut ouvrir.
-import { BoutonSyndic, EcrireDepuisGestion } from './BoutonSyndic';
+import { BoutonSyndic, EcrireDepuisGestion, PastilleConflitParcelle } from './BoutonSyndic';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -775,6 +775,8 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
           </span>
         </span>
       </button>
+      {/* LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — sous l'en-tête : « ⚠ Conflit possible … » (s'il y a lieu). */}
+      <PastilleConflitParcelle immeuble={b.immeuble} />
       {/* 🔴 JUSTE AU-DESSUS DES FAITS de la carte (là où était la ligne SURFACE), sur toute la largeur. */}
       <CartoucheEvenement nb={b.evenementsOuverts} onOuvrir={() => onEvenements(b.id)} />
       {/* 🔴 LOT ANNUAIRE-SYNDICS — À LA PLACE DE LA LIGNE SURFACE : « Coordonnées syndic » ou « Créer le syndic ». */}
@@ -1414,6 +1416,7 @@ function VueLot({
       <CartoucheEvenement nb={f.evenementsOuverts}
         onOuvrir={() => { onFiltreVie('evenement'); ancreVie.current?.scrollIntoView({ block: 'start' }); }} />
       {/* 🔴 LOT ANNUAIRE-SYNDICS — depuis la fiche du bien : la copropriété du bien est pré-remplie. */}
+      <PastilleConflitParcelle immeuble={f.immeuble} />
       <BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />
 
       <section className="ann-bloc">

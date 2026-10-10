@@ -1550,3 +1550,97 @@ describe('LOT COPRO-ADRESSES-SUGGEREES-PAR-PARCELLE — serveur', () => {
     expect(norm(j[0].sql)).toContain("VALUES ('annuaire_lot', $1, 'syndic_retire', $2, $3, $4, $5)");
   });
 });
+
+describe('LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — serveur', () => {
+  beforeEach(() => { appels.length = 0; reponses = []; });
+  it('la saisie : copropriétés alertées (clés) et conflits confirmés (immeuble, autre adresse, parcelle)', () => {
+    const v = validerSyndic({ ...ADR, nom: 'S', alerteParcelle: ['37 Avenue Marceau', ' '],
+      conflitsParcelle: [{ immeuble: '37 avenue Marceau', autre: '80 rue de Normandie', parcelle: '92026000AB0001' }, { immeuble: '', autre: 'x' }, 'n’importe quoi'] });
+    expect(v.ok && v.syndic.alerteParcelle).toEqual(['37 avenue marceau']);
+    expect(v.ok && v.syndic.conflitsParcelle).toEqual([{ immeuble: '37 avenue Marceau', autre: '80 rue de Normandie', parcelle: '92026000AB0001' }]);
+    const w = validerSyndic({ ...ADR, nom: 'S' });
+    expect(w.ok && ('alerteParcelle' in w.syndic || 'conflitsParcelle' in w.syndic)).toBe(false);
+  });
+
+  it('à l’enregistrement : l’alerte est marquée (une fois) ; un conflit noté seulement si l’autre copropriété a un AUTRE syndic', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1') ? { rows: [{ id: '41' }] } : undefined),
+      (sql) => (sql.includes('cs.syndic_id::text AS syndic FROM gestion_copropriete c') ? { rows: [{ id: '42', syndic: '70' }] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'S', immeubles: [{ libelle: '37 avenue Marceau' }], alerteParcelle: ['37 avenue Marceau'],
+      conflitsParcelle: [{ immeuble: '37 avenue Marceau', autre: '80 rue de Normandie', parcelle: 'P1' }] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    expect(appels.find((a) => a.sql.includes('SET alerte_parcelle_le = now()'))?.params).toEqual([['37 avenue marceau'], 'arno']);
+    expect(norm(appels.find((a) => a.sql.includes('SET alerte_parcelle_le = now()'))?.sql ?? '')).toContain('AND alerte_parcelle_le IS NULL');
+    const ins = appels.find((a) => a.sql.includes('INSERT INTO gestion_copropriete_conflit'));
+    expect(ins?.params).toEqual(['41', 11, '42', '70', 'P1', 7, 'arno']);
+    expect(norm(ins?.sql ?? '')).toContain('WHERE NOT EXISTS (SELECT 1 FROM gestion_copropriete_conflit WHERE verifie_le IS NULL');
+    // l'autre copropriété est à CE syndic : pas de conflit
+    appels.length = 0;
+    reponses[2] = (sql) => (sql.includes('cs.syndic_id::text AS syndic FROM gestion_copropriete c') ? { rows: [{ id: '42', syndic: '11' }] } : undefined);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    expect(appels.some((a) => a.sql.includes('INSERT INTO gestion_copropriete_conflit'))).toBe(false);
+  });
+
+  it('les conflits EN COURS : non vérifiés, les deux syndics d’alors toujours en place, adresses non regroupées', async () => {
+    const { conflitsEnCours } = await import('./syndicRepo');
+    reponses = [(sql) => (sql.includes('FROM gestion_copropriete_conflit k') ? { rows: [
+      { id: '5', parcelle: 'P1', cle_a: '37 avenue marceau', lib_a: '37 avenue Marceau', cp_a: '92400', com_a: 'Courbevoie', sa: '72', nom_a: 'NEUF', ville_a: null,
+        cle_b: '80 rue de normandie', lib_b: '80 rue de Normandie', cp_b: '92400', com_b: 'Courbevoie', sb: '70', nom_b: 'TEST ARNAUD', ville_b: 'Asnieres Sur Seine' },
+    ] } : undefined)];
+    expect(await conflitsEnCours()).toEqual([{ id: 5, parcelle: 'P1', coproprietes: [
+      { cle: '37 avenue marceau', adresse: '37 avenue Marceau, 92400 Courbevoie', syndic: { id: 72, nom: 'NEUF', ville: null } },
+      { cle: '80 rue de normandie', adresse: '80 rue de Normandie, 92400 Courbevoie', syndic: { id: 70, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine' } }] }]);
+    const sql = norm(appels[0].sql);
+    expect(sql).toContain('la.copropriete_id = ca.id AND la.fin IS NULL AND la.syndic_id = k.syndic_a'); // un syndic change ⇒ éteint
+    expect(sql).toContain('lb.copropriete_id = cb.id AND lb.fin IS NULL AND lb.syndic_id = k.syndic_b');
+    expect(sql).toContain('WHERE k.verifie_le IS NULL AND k.syndic_a <> k.syndic_b');
+    expect(sql).toContain('AND NOT EXISTS (SELECT 1 FROM gestion_copropriete_adresse x WHERE x.retire_le IS NULL'); // regroupées ⇒ éteint
+  });
+
+  it('« Vérifié, pas d’erreur » : marqué vérifié (qui, quand), jamais effacé ; déjà vérifié ⇒ refus', async () => {
+    const { verifierConflit } = await import('./syndicRepo');
+    reponses = [(sql) => (sql.includes('UPDATE gestion_copropriete_conflit SET verifie_le') ? { rows: [], rowCount: 1 } as never : undefined)];
+    expect(await verifierConflit(5, auteur)).toEqual({ ok: true });
+    expect(appels[0].params).toEqual([5, 7, 'arno']);
+    expect(norm(appels[0].sql)).toContain('WHERE id = $1 AND verifie_le IS NULL');
+    reponses = [];
+    expect(await verifierConflit(5, auteur)).toEqual({ ok: false, motif: 'Ce conflit n’existe pas ou a déjà été vérifié.' });
+    expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
+  });
+
+  it('immeublesConnus : l’alerte déjà montrée et les conflits suivent la copropriété — sur son adresse principale ET ses secondaires', async () => {
+    const { immeublesConnus } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('LEFT JOIN gestion_copropriete_syndic cs') ? { rows: [
+        { cle: '80 rue de normandie', libelle: '80 rue de Normandie', code_postal: '92400', commune: 'Courbevoie', syndic_id: '70', syndic_nom: 'A', syndic_ville: null, alerte_parcelle: true },
+      ] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id') && sql.includes('ORDER BY a.id')
+        ? { rows: [{ id: '1', cle: '74 rue de normandie', libelle: '74 rue de Normandie', code_postal: null, commune: null, copro_id: '8', copro_cle: '80 rue de normandie' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_conflit k') ? { rows: [
+        { id: '5', parcelle: 'P', cle_a: '80 rue de normandie', lib_a: '80 rue de Normandie', cp_a: null, com_a: null, sa: '70', nom_a: 'A', ville_a: null,
+          cle_b: '1 rue x', lib_b: '1 rue X', cp_b: null, com_b: null, sb: '71', nom_b: 'B', ville_b: null },
+      ] } : undefined),
+    ];
+    const l = await immeublesConnus();
+    for (const k of ['80 rue de normandie', '74 rue de normandie']) {
+      const e = l.find((x) => x.cle === k);
+      expect(e?.alerteParcelle).toBe(true);
+      expect(e?.conflits?.map((c) => c.id)).toEqual([5]);
+    }
+  });
+
+  it('MIGRATION 336 : colonnes d’AJOUT, seule écriture = les copropriétés existantes qui ont déjà des propositions (auteur « migration ») ; table des conflits', () => {
+    const sql = norm(readFileSync(join(__dirname, '../../../db/migrations/336_gestion_copropriete_alerte_et_conflits_parcelle.sql'), 'utf8')
+      .split('\n').filter((l) => !l.startsWith('--')).join('\n'));
+    expect(sql).toContain('ADD COLUMN IF NOT EXISTS alerte_parcelle_le timestamptz');
+    expect(sql).toContain("UPDATE gestion_copropriete c SET alerte_parcelle_le = now(), alerte_parcelle_par_libelle = 'migration' FROM avec_propositions x WHERE c.id = x.copro AND c.alerte_parcelle_le IS NULL");
+    expect(sql.match(/\bUPDATE\b/g)).toHaveLength(1);
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS gestion_copropriete_conflit (');
+    expect(sql).toContain('ST_DWithin(q.geom, pts.geom, 3)'); // même règle que l'application
+    expect(sql).not.toMatch(/\bDELETE\b|\bDROP\b/i);
+  });
+});

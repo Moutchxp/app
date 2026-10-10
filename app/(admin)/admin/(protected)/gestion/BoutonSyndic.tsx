@@ -4,7 +4,7 @@ import { createContext, useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cleImmeuble, nomAvecVille } from '../../../../lib/gestion/syndics';
 import { FicheSyndic } from './FicheSyndic';
-import { useImmeublesSyndics } from './useImmeublesSyndics';
+import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LE BOUTON SYNDIC DE LA CARTE D'UN BIEN ═══════════════════════════
@@ -93,4 +93,75 @@ export const CSS_BOUTON_SYNDIC = `
 .ann-carte-bouton.bsy--connu,.ann-carte-bouton.bsy--connu:hover,.svv-adm-root .ann-carte-bouton.bsy--connu:hover{
   background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte);border-color:var(--color-svv-syndic-bord)}
 .ann-carte-bouton.bsy--connu:hover{filter:brightness(.97)}
+`;
+
+/**
+ * ══ LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — LA PASTILLE « CONFLIT POSSIBLE » D'UNE CARTE DE BIEN ══════
+ * Deux copropriétés de deux syndics sur une même parcelle, confirmées distinctes à la main : la carte de chacun de leurs
+ * lots porte, sous l'en-tête, « ⚠ Conflit possible : 2 syndics sur une même parcelle — à vérifier ». Un clic ouvre le
+ * panneau (les deux copropriétés et leurs syndics) et « Vérifié, pas d'erreur » (accord d'Arno pour ce masquage, qu'il
+ * déclenche lui-même : historisé). Elle disparaît d'elle-même si un syndic change ou si les adresses sont regroupées.
+ */
+export function PastilleConflitParcelle({ immeuble }: { immeuble: string | null | undefined }) {
+  const etat = useImmeublesSyndics();
+  const [ouvert, setOuvert] = useState(false);
+  const [envoi, setEnvoi] = useState(false);
+  const [erreur, setErreur] = useState<string | null>(null);
+  if (etat === null || !etat.disponible) return null;
+  const cle = cleImmeuble(immeuble);
+  const conflits = cle === '' ? [] : (etat.immeubles.find((i) => i.cle === cle)?.conflits ?? []);
+  if (conflits.length === 0) return null;
+  const verifier = async (id: number): Promise<void> => {
+    setEnvoi(true); setErreur(null);
+    try {
+      const r = await fetch(`/api/admin/gestion/coproprietes/conflits/${id}/verifier`, { method: 'POST' });
+      const j = (await r.json()) as { ok?: boolean; erreur?: string };
+      if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Enregistrement impossible.'); return; }
+      await rafraichirImmeubles();
+      setOuvert(false);
+    } catch {
+      setErreur('Enregistrement impossible : le serveur n’a pas répondu.');
+    } finally {
+      setEnvoi(false);
+    }
+  };
+  return (
+    <span className="bsy-conflit-ligne">
+      <style>{CSS_PASTILLE_CONFLIT}</style>
+      <button type="button" className="bsy-conflit" aria-expanded={ouvert} onClick={() => setOuvert(!ouvert)}>
+        ⚠ Conflit possible : 2 syndics sur une même parcelle — à vérifier
+      </button>
+      {ouvert && (
+        <span className="bsy-conflit-panneau" role="group" aria-label="Conflit possible sur la parcelle">
+          {conflits.map((k) => (
+            <span key={k.id} className="bsy-conflit-cas">
+              <ul>
+                {k.coproprietes.map((c) => <li key={c.cle}><strong>{c.adresse}</strong> — {nomAvecVille(c.syndic.nom, c.syndic.ville)}</li>)}
+              </ul>
+              {k.parcelle && <span className="bsy-conflit-parcelle">Parcelle {k.parcelle}</span>}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn bsy-conflit-ok" disabled={envoi} onClick={() => void verifier(k.id)}>
+                Vérifié, pas d’erreur
+              </button>
+            </span>
+          ))}
+          {erreur !== null && <span className="bsy-conflit-erreur" role="alert">{erreur}</span>}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/* Jetons --color-svv-orange* : la meme famille que la pastille « en attente de validation ». AUCUN ACCENT GRAVE ici. */
+export const CSS_PASTILLE_CONFLIT = `
+.bsy-conflit-ligne{display:flex;flex-direction:column;align-items:stretch;gap:.3rem;padding:0 14px;margin:.4rem 0}
+.bsy-conflit{align-self:flex-start;min-height:32px;padding:.2rem .6rem;border-radius:999px;border:1px solid var(--color-svv-orange);
+  background:var(--color-svv-orange-soft);color:var(--color-svv-orange);font:inherit;font-size:.78rem;font-weight:600;cursor:pointer;text-align:left}
+.bsy-conflit:hover,.bsy-conflit:focus-visible{filter:brightness(.97)}
+.bsy-conflit-panneau{display:flex;flex-direction:column;gap:.4rem;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-line);
+  background:var(--color-svv-surface);font-size:.84rem}
+.bsy-conflit-cas{display:flex;flex-direction:column;gap:.3rem}
+.bsy-conflit-cas ul{margin:0;padding-left:1.1rem}
+.bsy-conflit-parcelle{color:var(--color-svv-muted);font-size:.78rem}
+.bsy-conflit-ok{align-self:flex-start}
+.bsy-conflit-erreur{color:var(--color-svv-red);font-size:.8rem}
 `;

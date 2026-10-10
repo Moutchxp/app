@@ -3832,9 +3832,11 @@ describe('LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES', () => {
       return (avant as typeof fetch)(url, init);
     }));
   };
-  /** Un NOUVEAU syndic, créé depuis le bien : rien n'est enregistré. */
-  const creerDepuisLeBien = async (): Promise<ReturnType<typeof vi.fn>> => {
+  /** Un NOUVEAU syndic, créé depuis le bien : rien n'est enregistré. `sansConflit` : la parcelle ne porte que des
+   *  adresses libres (LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — 5 rue Prise, d'un AUTRE syndic, ouvre désormais l'étape « conflit possible »). */
+  const creerDepuisLeBien = async (sansConflit = false): Promise<ReturnType<typeof vi.fn>> => {
     servir();
+    if (sansConflit) parcelles['80 rue de Normandie'] = ['82 rue de Normandie'];
     const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
     await act(async () => { await rafraichirImmeubles(); });
     const onFerme = vi.fn();
@@ -3913,7 +3915,9 @@ describe('LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES', () => {
     const avant = Element.prototype.scrollIntoView;
     Element.prototype.scrollIntoView = vu;
     try {
-      const onFerme = await creerDepuisLeBien();
+      // LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — CE QU'IL DISAIT AVANT : la parcelle portait aussi 5 rue Prise (AUTRE / Lyon) ; elle ouvre désormais
+      // l'étape « conflit possible ». L'alerte s'éprouve ici sur une parcelle sans conflit.
+      const onFerme = await creerDepuisLeBien(true);
       await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
       const a = document.querySelector('.fsy-alerte-parcelle') as HTMLElement;
       expect(a.querySelector('.fsy-question')?.textContent).toBe('Cette copropriété possède peut-être d’autres adresses postales : 1 adresse sur la même parcelle cadastrale n’a pas été associée.');
@@ -3924,16 +3928,20 @@ describe('LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES', () => {
       expect(document.querySelector('.fsy-alerte-parcelle')).toBeNull();
       expect(document.querySelector('.fsy-parcelle-liste')).not.toBeNull();
       expect(vu.mock.contexts).toContain(document.querySelector('.fsy-parcelle-liste'));
+      // LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — CE QU'IL DISAIT AVANT : l'alerte revenait au Valider suivant,
+      // puis « Valider quand même ». Elle n'est montrée qu'UNE fois : le Valider suivant enregistre, et la copropriété
+      // est marquée alertée.
       await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
-      await cliquer(boutonDans(document.querySelector('.fsy-alerte-parcelle'), 'Valider quand même'));
+      expect(document.querySelector('.fsy-alerte-parcelle')).toBeNull();
       expect(appels.filter((x) => x.methode === 'POST')).toHaveLength(1);
+      expect((appels.find((x) => x.methode === 'POST')?.corps as { alerteParcelle?: string[] }).alerteParcelle).toEqual(['80 rue de normandie']);
       expect(onFerme).toHaveBeenCalledTimes(1);
     } finally { Element.prototype.scrollIntoView = avant; }
   });
 
   it('PAS d’alerte si une adresse a été rattachée pendant la session', async () => {
-    const onFerme = await creerDepuisLeBien();
-    parcelles['80 rue de Normandie'] = ['82 rue de Normandie', '84 rue de Normandie', '5 rue Prise'];
+    // LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — CE QU'IL DISAIT AVANT : creerDepuisLeBien() (avec 5 rue Prise, désormais un conflit possible).
+    const onFerme = await creerDepuisLeBien(true);
     await cliquer(plus()); // relit rien ; on rattache par la liste
     await cliquer(boutonDans(document.querySelector('.fsy-ajout-adresse'), 'Annuler'));
     await cliquer(mention() as Element);
@@ -3945,7 +3953,9 @@ describe('LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES', () => {
     expect(onFerme).toHaveBeenCalledTimes(1);
   });
 
-  it('PAS d’alerte ni de pulsation s’il ne reste que des adresses GRISÉES (prises ailleurs) — exclues du compteur', async () => {
+  // LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — CE QU'IL DISAIT AVANT : Valider enregistrait aussitôt. L'adresse grisée est à un AUTRE syndic (AUTRE /
+  // Lyon) : c'est un conflit possible, qui s'annonce AVANT d'enregistrer. Toujours ni alerte « autres adresses », ni pulsation.
+  it('PAS d’alerte ni de pulsation s’il ne reste que des adresses GRISÉES (prises ailleurs) — exclues du compteur ; le conflit s’annonce', async () => {
     servir();
     parcelles['80 rue de Normandie'] = ['5 rue Prise'];
     const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
@@ -3963,6 +3973,237 @@ describe('LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES', () => {
     await taper(champ('Ville *'), 'Courbevoie');
     await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
     expect(document.querySelector('.fsy-alerte-parcelle')).toBeNull();
+    expect(document.querySelector('.fsy-conflit-parcelle')).not.toBeNull();
+    expect(onFerme).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ══ LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS ══════════════════════════════════════════════════════════
+ * Le bien est au 37 avenue Marceau (sans syndic). Sur sa parcelle : 80 rue de Normandie (copropriété de TEST ARNAUD, 70)
+ * et, selon le cas, 39 avenue Marceau (copropriété d'AUTRE / Lyon, 71) ou 41 avenue Marceau (libre).
+ */
+describe('LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS', () => {
+  const ARNAUD = { id: 70, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine' };
+  const AUTRE = { id: 71, nom: 'AUTRE', ville: 'Lyon' };
+  const lot = (id: number, a: string) => ({ id, numero: String(id), adresse: a, commune: 'COURBEVOIE', proprietaires: [] as string[] });
+  let connus: unknown[] = [];
+  let parcelle: string[] = [];
+  let syndics: unknown[] = [];
+  const FICHE_70 = { ...FICHE, id: 70, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine', contacts: [],
+    coproprietes: [{ id: 8, cle: '80 rue de normandie', libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [], adresses: [] }] };
+  const servir = (o: { connus?: unknown[]; parcelle?: string[]; syndics?: unknown[] } = {}): void => {
+    connus = o.connus ?? [
+      { cle: '37 avenue marceau', libelle: '37 avenue Marceau', codePostal: '92400', commune: 'Courbevoie', lots: [lot(370, '37 avenue Marceau')], syndic: null },
+      { cle: '80 rue de normandie', libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: ARNAUD },
+      { cle: '39 avenue marceau', libelle: '39 avenue Marceau', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: AUTRE },
+    ];
+    parcelle = o.parcelle ?? ['80 rue de Normandie'];
+    syndics = o.syndics ?? [];
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null }); return rep({ ok: true, id: 99 }); }
+      if (url.startsWith('/api/admin/gestion/coproprietes/parcelle?a=')) {
+        const les = (JSON.parse(decodeURIComponent(url.split('a=')[1])) as Array<{ libelle: string }>).map((x) => x.libelle);
+        return rep({ etat: 'ok', parcelles: ['92026000AB0001'], adresses: parcelle.filter((x) => !les.includes(x))
+          .map((libelle) => ({ libelle, codePostal: '92400', commune: 'Courbevoie', parcelle: '92026000AB0001' })) });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: connus });
+      if (url.startsWith('/api/admin/gestion/syndics/70')) return rep({ etat: 'ok', fiche: FICHE_70 });
+      if (url.startsWith('/api/admin/gestion/syndics?q=')) return rep({ etat: 'ok', disponible: true, syndics });
+      if (url.startsWith('/api/admin/gestion/coproprietes/contacts')) return rep({ etat: 'ok', contacts: [] });
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const BIEN = { libelle: '37 avenue Marceau', codePostal: '92400', commune: 'Courbevoie' };
+  const monter = async (): Promise<ReturnType<typeof vi.fn>> => {
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    const onFerme = vi.fn();
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: null, onFerme, immeubleDepart: BIEN })); });
+    await attendre(250);
+    return onFerme;
+  };
+  const creerNouveau = async (): Promise<ReturnType<typeof vi.fn>> => {
+    const onFerme = await monter();
+    await cliquer(bouton('Créer un nouveau syndic'));
+    await calmer();
+    await taper(champ('Nom du cabinet *'), '_TEST Marceau');
+    await taper(champ('Adresse (rue) *'), '1 rue _TEST');
+    await taper(champ('Code postal *'), '92400');
+    await taper(champ('Ville *'), 'Courbevoie');
+    return onFerme;
+  };
+  const pied = (): Element => document.querySelector('.fsy-pied') as Element;
+  const valider = async (): Promise<void> => { await cliquer(boutonDans(pied(), 'Valider')); };
+  const ecritures = () => appels.filter((x) => x.methode !== 'GET');
+
+  it('CONFLIT, premier niveau : encadré orange, le texte, et « Rattacher à TEST ARNAUD » / « Annuler » / « Continuer avec un autre syndic »', async () => {
+    servir();
+    await creerNouveau();
+    await valider();
+    const c = document.querySelector('.fsy-conflit-parcelle') as HTMLElement;
+    expect(c.querySelector('.fsy-question')?.textContent).toBe('Attention : l’adresse 37 avenue Marceau, 92400 Courbevoie semble appartenir à la même parcelle que '
+      + '80 rue de Normandie, déjà rattachée au syndic TEST ARNAUD / Asnieres Sur Seine. Vérifiez qu’il ne s’agit pas d’une erreur d’adresse ou de la même copropriété.');
+    expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Rattacher à TEST ARNAUD', 'Annuler', 'Continuer avec un autre syndic']);
+    expect(ecritures()).toEqual([]);
+    await cliquer(boutonDans(c, 'Annuler'));
+    expect(document.querySelector('.fsy-conflit-parcelle')).toBeNull();
+    expect(ecritures()).toEqual([]);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-conflit-parcelle{padding:6px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft)');
+  });
+
+  it('plusieurs syndics trouvés : un « Rattacher à … » par syndic', async () => {
+    servir({ parcelle: ['80 rue de Normandie', '39 avenue Marceau'] });
+    await creerNouveau();
+    await valider();
+    const c = document.querySelector('.fsy-conflit-parcelle') as HTMLElement;
+    expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Rattacher à TEST ARNAUD', 'Rattacher à AUTRE', 'Annuler', 'Continuer avec un autre syndic']);
+    expect(c.querySelector('.fsy-question')?.textContent).toContain('80 rue de Normandie, déjà rattachée au syndic TEST ARNAUD / Asnieres Sur Seine et que 39 avenue Marceau, déjà rattachée au syndic AUTRE / Lyon.');
+  });
+
+  it('« Rattacher à TEST ARNAUD » : l’adresse du bien devient une adresse SECONDAIRE de sa copropriété (PUT de CE syndic) ; rien d’autre n’est créé', async () => {
+    servir();
+    const onFerme = await creerNouveau();
+    await valider();
+    await cliquer(boutonDans(document.querySelector('.fsy-conflit-parcelle'), 'Rattacher à TEST ARNAUD'));
+    await calmer();
+    const put = ecritures();
+    expect(put.map((x) => [x.methode, x.url])).toEqual([['PUT', '/api/admin/gestion/syndics/70']]);
+    expect((put[0].corps as { immeubles: Array<{ libelle: string; adresses?: unknown[] }> }).immeubles).toEqual([
+      { libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie', adresses: [{ libelle: '37 avenue Marceau', codePostal: '92400', commune: 'Courbevoie' }] }]);
     expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('« Continuer avec un autre syndic » ⇒ deuxième confirmation : « Non, revenir » ramène au premier niveau ; « Oui, je confirme » enregistre et note le conflit', async () => {
+    servir({ parcelle: ['80 rue de Normandie', '41 avenue Marceau'] });
+    const onFerme = await creerNouveau();
+    await valider();
+    await cliquer(boutonDans(document.querySelector('.fsy-conflit-parcelle'), 'Continuer avec un autre syndic'));
+    let c = document.querySelector('.fsy-conflit-parcelle') as HTMLElement;
+    expect(c.querySelector('.fsy-question')?.textContent).toBe('Confirmez-vous que 37 avenue Marceau est une copropriété distincte, avec un syndic différent ?');
+    expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Non, revenir', 'Oui, je confirme']);
+    await cliquer(boutonDans(c, 'Non, revenir'));
+    expect(document.querySelector('.fsy-conflit-parcelle .fsy-question')?.textContent).toContain('Attention :');
+    await cliquer(boutonDans(document.querySelector('.fsy-conflit-parcelle'), 'Continuer avec un autre syndic'));
+    c = document.querySelector('.fsy-conflit-parcelle') as HTMLElement;
+    await cliquer(boutonDans(c, 'Oui, je confirme'));
+    // reste une adresse libre (41) : l'alerte « autres adresses » vient ensuite, une fois
+    expect(document.querySelector('.fsy-alerte-parcelle')).not.toBeNull();
+    await cliquer(boutonDans(document.querySelector('.fsy-alerte-parcelle'), 'Valider quand même'));
+    const post = appels.find((x) => x.methode === 'POST')?.corps as { conflitsParcelle?: unknown; alerteParcelle?: string[] };
+    expect(post.conflitsParcelle).toEqual([{ immeuble: '37 avenue Marceau', autre: '80 rue de Normandie', parcelle: '92026000AB0001' }]);
+    expect(post.alerteParcelle).toEqual(['37 avenue marceau']);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('MÊME SYNDIC : « la rattacher à cette copropriété ? » — Oui regroupe (adresse secondaire) ; Non crée une copropriété distincte', async () => {
+    for (const reponse of ['Oui', 'Non'] as const) {
+      appels = [];
+      await act(async () => { root.render(null); });
+      servir({ connus: [
+        { cle: '37 avenue marceau', libelle: '37 avenue Marceau', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: null },
+        { cle: '80 rue de normandie', libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: ARNAUD, alerteParcelle: true },
+      ], syndics: [{ id: 70, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine', email: null, telephone: null, nbCoproprietes: 1, nbBiens: 0 }] });
+      await monter();
+      await cliquer(bouton('Rattacher cet immeuble à ce syndic'));
+      await calmer();
+      await valider();
+      const m = document.querySelector('.fsy-meme-syndic') as HTMLElement;
+      expect(m.querySelector('.fsy-question')?.textContent).toBe('Cette adresse est sur la même parcelle qu’une copropriété de ce syndic : la rattacher à cette copropriété ? (80 rue de Normandie)');
+      expect(document.querySelector('.fsy-conflit-parcelle')).toBeNull(); // pas de conflit : même syndic
+      await cliquer(boutonDans(m, reponse));
+      await calmer();
+      const put = appels.find((x) => x.methode === 'PUT')?.corps as { immeubles: Array<{ libelle: string; adresses?: Array<{ libelle: string }> }> };
+      expect(put.immeubles.map((im) => [im.libelle, (im.adresses ?? []).map((a) => a.libelle)])).toEqual(reponse === 'Oui'
+        ? [['80 rue de Normandie', ['37 avenue Marceau']]]
+        : [['80 rue de Normandie', []], ['37 avenue Marceau', []]]);
+    }
+  });
+
+  it('ALERTE UNIQUE : copropriété DÉJÀ alertée ⇒ pas d’alerte, même avec des propositions ; la pulsation reste', async () => {
+    servir({ connus: [
+      { cle: '37 avenue marceau', libelle: '37 avenue Marceau', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: null, alerteParcelle: true },
+    ], parcelle: ['41 avenue Marceau'] });
+    const onFerme = await creerNouveau();
+    expect(document.querySelector('#fsy-bloc-1 .fsy-plus-adresse')?.classList.contains('fsy-plus-adresse--pulse')).toBe(true);
+    await valider();
+    expect(document.querySelector('.fsy-alerte-parcelle')).toBeNull();
+    const post = appels.find((x) => x.methode === 'POST')?.corps as { alerteParcelle?: unknown };
+    expect(post.alerteParcelle).toBeUndefined();
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('ALERTE UNIQUE : la copropriété déjà rattachée à CE syndic (réouverture) ⇒ pas d’alerte', async () => {
+    servir({ connus: [{ cle: '80 rue de normandie', libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: ARNAUD }],
+      parcelle: ['82 rue de Normandie'] });
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    const onFerme = vi.fn();
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 70, onFerme, immeubleDepart: { libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie' } })); });
+    await calmer();
+    await taper(champ('Nom du cabinet *'), 'TEST ARNAUD bis');
+    await valider();
+    expect(document.querySelector('.fsy-alerte-parcelle')).toBeNull();
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — la pastille des cartes', () => {
+  const CONFLIT = { id: 5, parcelle: '92026000AB0001', coproprietes: [
+    { cle: '37 avenue marceau', adresse: '37 avenue Marceau, 92400 Courbevoie', syndic: { id: 72, nom: '_TEST NEUF', ville: 'Paris' } },
+    { cle: '80 rue de normandie', adresse: '80 rue de Normandie, 92400 Courbevoie', syndic: { id: 70, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine' } },
+  ] };
+  let verifie = false;
+  const servir = (): void => {
+    verifie = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown, ok = true) => ({ ok, json: async () => j });
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: null }); verifie = true; return rep({ ok: true }); }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) {
+        const k = verifie ? {} : { conflits: [CONFLIT] };
+        return rep({ etat: 'ok', disponible: true, immeubles: [
+          { cle: '37 avenue marceau', libelle: '37 avenue Marceau', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: { id: 72, nom: '_TEST NEUF', ville: 'Paris' }, ...k },
+          { cle: '80 rue de normandie', libelle: '80 rue de Normandie', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: { id: 70, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine' }, ...k },
+          { cle: '9 rue tranquille', libelle: '9 rue Tranquille', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: null },
+        ] });
+      }
+      return rep({});
+    }));
+  };
+  const monter = async (): Promise<void> => {
+    servir();
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    const { PastilleConflitParcelle } = await import('./BoutonSyndic');
+    await act(async () => {
+      root.render(createElement('div', null,
+        createElement('div', { className: 'carte-a' }, createElement(PastilleConflitParcelle, { immeuble: '37 avenue Marceau' })),
+        createElement('div', { className: 'carte-b' }, createElement(PastilleConflitParcelle, { immeuble: '80 rue de Normandie' })),
+        createElement('div', { className: 'carte-c' }, createElement(PastilleConflitParcelle, { immeuble: '9 rue Tranquille' }))));
+    });
+    await calmer();
+  };
+
+  it('sur les DEUX cartes concernées (et pas ailleurs) : « ⚠ Conflit possible : 2 syndics sur une même parcelle — à vérifier »', async () => {
+    await monter();
+    for (const c of ['.carte-a', '.carte-b']) expect(document.querySelector(`${c} .bsy-conflit`)?.textContent).toBe('⚠ Conflit possible : 2 syndics sur une même parcelle — à vérifier');
+    expect(document.querySelector('.carte-c .bsy-conflit')).toBeNull();
+  });
+
+  it('le panneau : les deux copropriétés et leurs syndics ; « Vérifié, pas d’erreur » enregistre et la pastille disparaît (des deux cartes)', async () => {
+    await monter();
+    await cliquer(document.querySelector('.carte-a .bsy-conflit') as Element);
+    const p = document.querySelector('.carte-a .bsy-conflit-panneau') as HTMLElement;
+    expect([...p.querySelectorAll('li')].map((l) => l.textContent)).toEqual([
+      '37 avenue Marceau, 92400 Courbevoie — _TEST NEUF / Paris', '80 rue de Normandie, 92400 Courbevoie — TEST ARNAUD / Asnieres Sur Seine']);
+    await cliquer(boutonDans(p, 'Vérifié, pas d’erreur'));
+    await calmer();
+    expect(appels.map((x) => [x.methode, x.url])).toEqual([['POST', '/api/admin/gestion/coproprietes/conflits/5/verifier']]);
+    expect(document.querySelector('.bsy-conflit')).toBeNull();
   });
 });

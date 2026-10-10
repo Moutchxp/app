@@ -205,20 +205,80 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
    * rattachée pendant cette session : le pied le dit d'abord (jamais bloquant) — « Voir les adresses » / « Valider
    * quand même ».
    */
-  const [parcelle, setParcelle] = useState<{ proposables: number; rattachee: boolean }>({ proposables: 0, rattachee: false });
+  const [parcelle, setParcelle] = useState<RapportParcelle>(RAPPORT_VIDE);
   const [alerteParcelle, setAlerteParcelle] = useState(false);
   const [voirParcelle, setVoirParcelle] = useState(0);
-  const valider = async (malgreParcelle = false): Promise<void> => {
-    if (!malgreParcelle && parcelle.proposables > 0 && !parcelle.rattachee) { setAlerteParcelle(true); return; }
+  /*
+   * ══ LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — LES ÉTAPES DU VALIDER ═══════════════════════════════════
+   *   ① conflit possible (une autre adresse de la parcelle est à un AUTRE syndic) : « Rattacher à … » / « Annuler » /
+   *     « Continuer avec un autre syndic », puis « Confirmez-vous … ? » — seul « Oui, je confirme » enregistre (et le
+   *     conflit est noté). Jamais interdit.
+   *   ② même syndic : « la rattacher à cette copropriété ? » Oui (regroupe) / Non (copropriété distincte).
+   *   ③ l'alerte « autres adresses postales », UNE seule fois par copropriété (marquée à l'enregistrement).
+   */
+  const [etapeParcelle, setEtapeParcelle] = useState<null | 'conflit' | 'conflit2' | 'meme'>(null);
+  const [conflitConfirme, setConflitConfirme] = useState(false);
+  const [memeTraite, setMemeTraite] = useState(false);
+  const [alerteVue, setAlerteVue] = useState(false);
+  const valider = async (passe: { parcelle?: boolean; conflit?: boolean; meme?: boolean } = {}, f: SyndicForm = form): Promise<void> => {
     setAlerteParcelle(false);
+    if (!passe.conflit && !conflitConfirme && parcelle.conflits.length > 0) { setEtapeParcelle('conflit'); return; }
+    if (!passe.meme && !memeTraite && parcelle.memeSyndic.length > 0) { setEtapeParcelle('meme'); return; }
+    setEtapeParcelle(null);
+    if (!passe.parcelle && !alerteVue && parcelle.alerteDue && parcelle.proposables > 0 && !parcelle.rattachee) {
+      setAlerteParcelle(true); setAlerteVue(true); return;
+    }
     if (contactEnCours) { setQuestionContact(true); return; }
-    await validerAvec(form);
+    await validerAvec(f, false, { conflit: passe.conflit === true || conflitConfirme });
+  };
+  /** « Rattacher à SYNDIC » : l'adresse du bien devient une adresse SECONDAIRE de la copropriété existante de ce
+   *  syndic (son « Valider », par la même porte) ; la fiche en cours n'enregistre rien et se ferme. */
+  const rattacherAuSyndic = async (c: ConflitPossible): Promise<void> => {
+    if (parcelle.bien === null) return;
+    setEnvoi(true); setErreur(null);
+    try {
+      const r = await fetch(`/api/admin/gestion/syndics/${c.syndic.id}`, { cache: 'no-store' });
+      const j = (await r.json()) as { etat?: string; fiche?: Fiche };
+      if (!r.ok || j.etat !== 'ok' || !j.fiche) { setErreur('Lecture du syndic impossible.'); return; }
+      const f = versFormulaire(j.fiche);
+      const b = parcelle.bien;
+      const g = { ...f, immeubles: f.immeubles.map((im) => (cleImmeuble(im.libelle) === c.coproCle
+        ? { ...im, adresses: [...(im.adresses ?? []), { libelle: b.libelle, codePostal: b.codePostal, commune: b.commune }] } : im)) };
+      const w = await fetch(`/api/admin/gestion/syndics/${c.syndic.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(versSaisie(g)) });
+      const k = (await w.json()) as { ok?: boolean; erreur?: string };
+      if (!w.ok || k.ok !== true) { setErreur(k.erreur ?? 'Rattachement impossible.'); return; }
+      await rafraichirImmeubles();
+      onFerme();
+    } catch {
+      setErreur('Rattachement impossible : le serveur n’a pas répondu.');
+    } finally {
+      setEnvoi(false);
+    }
+  };
+  /** Même syndic, « Oui » : la copropriété du bien rejoint l'autre (ses adresses deviennent secondaires, ses contacts
+   *  la suivent), puis l'enregistrement continue. */
+  const regrouper = (): void => {
+    const cible = parcelle.memeSyndic[0];
+    const bienCle = parcelle.coproCle;
+    const bienIm = form.immeubles.find((im) => cleImmeuble(im.libelle) === bienCle);
+    if (cible === undefined || bienCle === null || bienIm === undefined) return;
+    const cleCible = cleImmeuble(cible.coproLibelle);
+    const g: SyndicForm = {
+      ...form,
+      immeubles: form.immeubles.filter((im) => im !== bienIm).map((im) => (cleImmeuble(im.libelle) === cleCible
+        ? { ...im, adresses: [...(im.adresses ?? []), { libelle: bienIm.libelle, codePostal: bienIm.codePostal, commune: bienIm.commune }, ...(bienIm.adresses ?? [])] } : im)),
+      contacts: form.contacts.map((c) => (c.immeubles.includes(bienCle)
+        ? { ...c, immeubles: [...new Set(c.immeubles.map((k) => (k === bienCle ? cleCible : k)))] } : c)),
+    };
+    setForm(g); setMemeTraite(true);
+    void valider({ meme: true }, g);
   };
 
   /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — le serveur a renvoyé des coordonnées déjà utilisées, NON confirmées
    *  (un chemin qui n'est pas passé par le « Valider » d'un contact) : on les montre, et on confirme ou on revient. */
-  const [avertServeur, setAvertServeur] = useState<{ lignes: string[]; f: SyndicForm } | null>(null);
-  const validerAvec = async (f: SyndicForm, confirme = false): Promise<void> => {
+  const [avertServeur, setAvertServeur] = useState<{ lignes: string[]; f: SyndicForm; conflit?: boolean } | null>(null);
+  const validerAvec = async (f: SyndicForm, confirme = false, ctx: { conflit?: boolean } = {}): Promise<void> => {
     setAvertServeur(null);
     setQuestionContact(false);
     setEdition(null);
@@ -236,10 +296,18 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       const r = await fetch(syndicId === null ? '/api/admin/gestion/syndics' : `/api/admin/gestion/syndics/${syndicId}`, {
         method: syndicId === null ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(confirme ? { ...versSaisie(f), confirmeDoublons: true } : versSaisie(f)),
+        body: JSON.stringify({
+          ...versSaisie(f), ...(confirme ? { confirmeDoublons: true } : {}),
+          // LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — l'alerte montrée (plus jamais pour cette copropriété) ;
+          // les conflits confirmés (la pastille des deux cartes).
+          ...(alerteVue && parcelle.coproCle !== null ? { alerteParcelle: [parcelle.coproCle] } : {}),
+          ...((ctx.conflit === true || conflitConfirme) && parcelle.coproCle !== null && parcelle.bien !== null
+            ? { conflitsParcelle: parcelle.conflits.map((k) => ({ immeuble: (f.immeubles.find((im) => cleImmeuble(im.libelle) === parcelle.coproCle)?.libelle ?? parcelle.bien?.libelle ?? ''), autre: k.autre, parcelle: k.parcelle })) }
+            : {}),
+        }),
       });
       const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string; avertissement?: string[] };
-      if (Array.isArray(j.avertissement) && j.avertissement.length > 0 && !confirme) { setAvertServeur({ lignes: j.avertissement, f }); return; }
+      if (Array.isArray(j.avertissement) && j.avertissement.length > 0 && !confirme) { setAvertServeur({ lignes: j.avertissement, f, conflit: ctx.conflit === true }); return; }
       if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Enregistrement impossible.'); return; }
       await rafraichirImmeubles();
       onFerme();
@@ -370,7 +438,36 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
                   : `${parcelle.proposables} adresses sur la même parcelle cadastrale n’ont pas été associées.`}
               </span>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setAlerteParcelle(false); setVoirParcelle((n) => n + 1); }}>Voir les adresses</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void valider(true)}>Valider quand même</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void valider({ parcelle: true, conflit: conflitConfirme, meme: memeTraite })}>Valider quand même</button>
+            </div>
+          ) : etapeParcelle === 'conflit' && parcelle.bien !== null ? (
+            <div className="fsy-boutons fsy-conflit-parcelle" role="group" aria-label="Conflit possible sur la parcelle">
+              <span className="fsy-question">
+                Attention : l’adresse {parcelle.bien.affichee} semble appartenir à la même parcelle que{' '}
+                {parcelle.conflits.map((k, i) => `${i > 0 ? (i === parcelle.conflits.length - 1 ? ' et que ' : ', que ') : ''}${k.autre}, déjà rattachée au syndic ${nomAvecVille(k.syndic.nom, k.syndic.ville)}`).join('')}.
+                {' '}Vérifiez qu’il ne s’agit pas d’une erreur d’adresse ou de la même copropriété.
+              </span>
+              {[...new Map(parcelle.conflits.map((k) => [k.syndic.id, k])).values()].map((k) => (
+                <button key={k.syndic.id} type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi}
+                  onClick={() => void rattacherAuSyndic(k)}>Rattacher à {k.syndic.nom}</button>
+              ))}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapeParcelle(null)}>Annuler</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEtapeParcelle('conflit2')}>Continuer avec un autre syndic</button>
+            </div>
+          ) : etapeParcelle === 'conflit2' && parcelle.bien !== null ? (
+            <div className="fsy-boutons fsy-conflit-parcelle" role="group" aria-label="Confirmer une copropriété distincte">
+              <span className="fsy-question">Confirmez-vous que {parcelle.bien.libelle} est une copropriété distincte, avec un syndic différent ?</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapeParcelle('conflit')}>Non, revenir</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setConflitConfirme(true); void valider({ conflit: true }); }}>Oui, je confirme</button>
+            </div>
+          ) : etapeParcelle === 'meme' && parcelle.memeSyndic.length > 0 ? (
+            <div className="fsy-boutons fsy-meme-syndic" role="group" aria-label="Même parcelle qu’une copropriété de ce syndic">
+              <span className="fsy-question">
+                Cette adresse est sur la même parcelle qu’une copropriété de ce syndic : la rattacher à cette copropriété ?
+                <span className="fsy-discret"> ({parcelle.memeSyndic[0].coproLibelle})</span>
+              </span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setMemeTraite(true); void valider({ meme: true, conflit: conflitConfirme }); }}>Non</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={regrouper}>Oui</button>
             </div>
           ) : avertServeur !== null ? (
             <div className="fsy-boutons fsy-avert-serveur" role="group" aria-label="Coordonnées déjà utilisées">
@@ -379,7 +476,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
                 <span>Enregistrer quand même ?</span>
               </span>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAvertServeur(null)}>Revenir</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void validerAvec(avertServeur.f, true)}>Enregistrer quand même</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void validerAvec(avertServeur.f, true, { conflit: avertServeur.conflit })}>Enregistrer quand même</button>
             </div>
           ) : questionContact && edition !== null ? (
             <div className="fsy-boutons" role="group" aria-label="Enregistrer les modifications de ce contact ?" ref={bandeau}>
@@ -428,6 +525,16 @@ function questionDuContact(e: EtatEdition): string {
   if (e.nouveau) return nom !== '' ? `Enregistrer le nouveau contact ${nom} ?` : 'Enregistrer le nouveau contact ?';
   return `Enregistrer les modifications de ${nom !== '' ? nom : 'ce contact'} ?`;
 }
+
+/** LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — une autre adresse de la parcelle, à un AUTRE syndic. */
+interface ConflitPossible { autre: string; affichee: string; syndic: { id: number; nom: string; ville: string | null }; coproCle: string; parcelle: string }
+/** Ce que l'écran sait de la parcelle de la copropriété du bien, pour les étapes du Valider. */
+interface RapportParcelle {
+  proposables: number; rattachee: boolean; alerteDue: boolean; coproCle: string | null;
+  conflits: ConflitPossible[]; memeSyndic: Array<{ coproLibelle: string; affichee: string }>;
+  bien: { libelle: string; codePostal: string; commune: string; affichee: string } | null;
+}
+const RAPPORT_VIDE: RapportParcelle = { proposables: 0, rattachee: false, alerteDue: false, coproCle: null, conflits: [], memeSyndic: [], bien: null };
 
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
 
@@ -655,7 +762,7 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
 function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente,
   ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null, adresseBien = null, onParcelle, voirParcelle = 0 }: {
   /** LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — l'état des propositions de la parcelle, pour l'alerte du Valider. */
-  onParcelle?: (e: { proposables: number; rattachee: boolean }) => void;
+  onParcelle?: (e: RapportParcelle) => void;
   /** Incrémenté par « Voir les adresses » : déplie la liste des propositions et y fait défiler. */
   voirParcelle?: number;
   /** LOT COPRO-PLUSIEURS-ADRESSES — l'adresse propre du bien, si c'est une adresse secondaire de sa copropriété. */
@@ -782,9 +889,39 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   const [vues, setVues] = useState<ReadonlySet<string>>(new Set());
   const pulse = proposables.some((p) => !vues.has(cleImmeuble(p.a.libelle)));
   const marquerVues = (): void => setVues(new Set([...vues, ...proposables.map((p) => cleImmeuble(p.a.libelle))]));
-  // Le pied (alerte au Valider) connaît les propositions non traitées ; « Voir les adresses » déplie et fait défiler.
-  useEffect(() => { onParcelle?.({ proposables: proposables.length, rattachee: rattacheeIci }); },
-    [proposables.length, rattacheeIci]); // eslint-disable-line react-hooks/exhaustive-deps
+  /*
+   * LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — ce que le pied doit savoir au Valider :
+   *   · l'alerte « autres adresses » n'est DUE qu'au premier rattachement de la copropriété du bien à un syndic, et si
+   *     elle n'a jamais été montrée pour elle ;
+   *   · les adresses de la parcelle tenues par une copropriété d'un AUTRE syndic ⇒ conflit possible ;
+   *   · celles d'une autre copropriété de CE syndic ⇒ simple proposition de regroupement.
+   */
+  const nouvelleCopro = coproDuBien !== null && !(fiche?.coproprietes ?? []).some((c) => c.cle === cleImmeuble(coproDuBien.libelle));
+  const dejaAlertee = coproDuBien !== null && connus.find((x) => x.cle === cleImmeuble(coproDuBien.libelle))?.alerteParcelle === true;
+  const conflitsParcelle: ConflitPossible[] = [];
+  const memeSyndic: Array<{ coproLibelle: string; affichee: string }> = [];
+  for (const p of propositions) {
+    if (p.raison === null || coproDuBien === null) continue;
+    const k = cleImmeuble(p.a.libelle);
+    const ici = form.immeubles.find((im) => im !== coproDuBien && (cleImmeuble(im.libelle) === k || (im.adresses ?? []).some((x) => cleImmeuble(x.libelle) === k)));
+    if (ici !== undefined) { memeSyndic.push({ coproLibelle: ici.libelle, affichee: p.affichee }); continue; }
+    const c = connus.find((x) => x.cle === k);
+    if (c?.syndic && c.syndic.id !== syndicId) {
+      conflitsParcelle.push({ autre: p.a.libelle, affichee: p.affichee, syndic: { id: c.syndic.id, nom: c.syndic.nom, ville: c.syndic.ville ?? null },
+        coproCle: c.principale?.cle ?? c.cle, parcelle: (p.a as AdresseSaisie & { parcelle?: string }).parcelle ?? '' });
+    }
+  }
+  const bienLibelle = adresseBien !== null && adresseBien.libelle.trim() !== '' ? adresseBien : coproDuBien;
+  const rapport: RapportParcelle = {
+    proposables: proposables.length, rattachee: rattacheeIci, alerteDue: nouvelleCopro && !dejaAlertee,
+    coproCle: coproDuBien === null ? null : cleImmeuble(coproDuBien.libelle),
+    conflits: nouvelleCopro ? conflitsParcelle : [], memeSyndic: nouvelleCopro ? memeSyndic : [],
+    bien: bienLibelle === null ? null : { libelle: bienLibelle.libelle, codePostal: lieuDe(bienLibelle.libelle, bienLibelle.codePostal, bienLibelle.commune).codePostal,
+      commune: lieuDe(bienLibelle.libelle, bienLibelle.codePostal, bienLibelle.commune).commune, affichee: adresseAffichee ?? adresseDuBien ?? '' },
+  };
+  const signatureRapport = JSON.stringify(rapport);
+  // Le pied (alertes au Valider) connaît tout cela ; « Voir les adresses » déplie et fait défiler.
+  useEffect(() => { onParcelle?.(rapport); }, [signatureRapport]); // eslint-disable-line react-hooks/exhaustive-deps
   const listeParcelle = useRef<HTMLUListElement | null>(null);
   useEffect(() => {
     if (voirParcelle === 0) return;
@@ -2387,6 +2524,8 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
   .fsy-plus-adresse--pulse::before{animation:none;display:none}
   .fsy-plus-adresse--pulse{background:var(--color-svv-red);color:var(--color-svv-surface)}}
 .fsy-prises-ailleurs{color:var(--color-svv-muted)}
+/* LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — le conflit possible : un encadre ORANGE dans le pied. */
+.fsy-conflit-parcelle{padding:6px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink)}
 .fsy-autres-adresses{margin-left:.35rem;padding:0;border:0;background:transparent;color:var(--color-svv-muted);font:inherit;font-size:.8rem;
   font-weight:400;text-transform:none;letter-spacing:normal;cursor:pointer}
 .fsy-autres-adresses:hover,.fsy-autres-adresses:focus-visible{color:var(--color-svv-ink);text-decoration:underline}

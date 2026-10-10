@@ -5,7 +5,7 @@ import type { Auteur } from './gestes';
 import {
   civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
   cleCoordonnee, cleTelephone, lignesDoublonCoordonnee, quiPorte, type Civilite, type CoordonneeConnue, type CoordonneeSaisie,
-  type ProprietaireCoordonnee, type AdresseConnue,
+  type ProprietaireCoordonnee, type AdresseConnue, type ConflitParcelle,
   adresseImmeuble, cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
   type SyndicResume, type SyndicSaisi,
 } from './syndics';
@@ -101,6 +101,72 @@ async function adressesSecondaires(q: RequeteTx | typeof query = query): Promise
 }
 
 /**
+ * ══ LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — LES CONFLITS DE PARCELLE EN COURS ══ non vérifiés, dont les
+ * DEUX copropriétés ont encore le syndic d'alors (l'un change ⇒ le conflit s'éteint), et dont les adresses n'ont pas été
+ * regroupées (aucune n'est devenue une adresse secondaire de l'autre). LECTURE SEULE.
+ */
+export async function conflitsEnCours(): Promise<ConflitParcelle[]> {
+  const { rows } = await query<{
+    id: string; parcelle: string | null;
+    cle_a: string; lib_a: string; cp_a: string | null; com_a: string | null; sa: string; nom_a: string; ville_a: string | null;
+    cle_b: string; lib_b: string; cp_b: string | null; com_b: string | null; sb: string; nom_b: string; ville_b: string | null;
+  }>(
+    `SELECT k.id::text, k.parcelle,
+            ca.cle_immeuble AS cle_a, ca.libelle AS lib_a, ca.code_postal AS cp_a, ca.commune AS com_a, sa.id::text AS sa, sa.nom AS nom_a, sa.ville AS ville_a,
+            cb.cle_immeuble AS cle_b, cb.libelle AS lib_b, cb.code_postal AS cp_b, cb.commune AS com_b, sb.id::text AS sb, sb.nom AS nom_b, sb.ville AS ville_b
+       FROM gestion_copropriete_conflit k
+       JOIN gestion_copropriete ca ON ca.id = k.copropriete_a
+       JOIN gestion_copropriete cb ON cb.id = k.copropriete_b
+       JOIN gestion_copropriete_syndic la ON la.copropriete_id = ca.id AND la.fin IS NULL AND la.syndic_id = k.syndic_a
+       JOIN gestion_copropriete_syndic lb ON lb.copropriete_id = cb.id AND lb.fin IS NULL AND lb.syndic_id = k.syndic_b
+       JOIN gestion_syndic sa ON sa.id = k.syndic_a AND sa.supprime_le IS NULL
+       JOIN gestion_syndic sb ON sb.id = k.syndic_b AND sb.supprime_le IS NULL
+      WHERE k.verifie_le IS NULL AND k.syndic_a <> k.syndic_b
+        AND NOT EXISTS (SELECT 1 FROM gestion_copropriete_adresse x WHERE x.retire_le IS NULL
+                         AND ((x.copropriete_id = cb.id AND x.cle_immeuble = ca.cle_immeuble) OR (x.copropriete_id = ca.id AND x.cle_immeuble = cb.cle_immeuble)))
+      ORDER BY k.id`);
+  return rows.map((r) => ({ id: Number(r.id), parcelle: r.parcelle, coproprietes: [
+    { cle: r.cle_a, adresse: adresseImmeuble(r.lib_a, r.cp_a, r.com_a), syndic: { id: Number(r.sa), nom: r.nom_a, ville: r.ville_a } },
+    { cle: r.cle_b, adresse: adresseImmeuble(r.lib_b, r.cp_b, r.com_b), syndic: { id: Number(r.sb), nom: r.nom_b, ville: r.ville_b } },
+  ] }));
+}
+
+/** « Vérifié, pas d'erreur » : le conflit est marqué vérifié (qui, quand) ; la pastille disparaît. Jamais effacé. */
+export async function verifierConflit(id: number, auteur: Auteur): Promise<{ ok: true } | { ok: false; motif: string }> {
+  const { rowCount } = await query(
+    `UPDATE gestion_copropriete_conflit SET verifie_le = now(), verifie_par = $2, verifie_par_libelle = $3 WHERE id = $1 AND verifie_le IS NULL`,
+    [id, auteur.id, auteur.libelle]);
+  return (rowCount ?? 0) > 0 ? { ok: true } : { ok: false, motif: 'Ce conflit n’existe pas ou a déjà été vérifié.' };
+}
+
+/**
+ * LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — APRÈS l'enregistrement, dans la même transaction : ① l'alerte
+ * « autres adresses » montrée ⇒ la copropriété est marquée (une seule fois) ; ② chaque conflit confirmé ⇒ une ligne
+ * (les deux copropriétés et leurs syndics à cet instant), si l'autre copropriété a bien un AUTRE syndic.
+ */
+async function enregistrerParcelle(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur): Promise<void> {
+  if ((saisie.alerteParcelle ?? []).length > 0) {
+    await q(`UPDATE gestion_copropriete SET alerte_parcelle_le = now(), alerte_parcelle_par_libelle = $2
+              WHERE cle_immeuble = ANY($1::text[]) AND alerte_parcelle_le IS NULL`, [saisie.alerteParcelle, auteur.libelle]);
+  }
+  for (const k of saisie.conflitsParcelle ?? []) {
+    const { rows: a } = await q<{ id: string }>(`SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1`, [cleImmeuble(k.immeuble)]);
+    const { rows: b } = await q<{ id: string; syndic: string }>(
+      `SELECT c.id::text, cs.syndic_id::text AS syndic FROM gestion_copropriete c
+         JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL
+        WHERE c.cle_immeuble = $1 OR c.id = (SELECT x.copropriete_id FROM gestion_copropriete_adresse x WHERE x.cle_immeuble = $1 AND x.retire_le IS NULL)
+        LIMIT 1`, [cleImmeuble(k.autre)]);
+    if (a[0] === undefined || b[0] === undefined || Number(b[0].syndic) === syndicId || a[0].id === b[0].id) continue;
+    await q(
+      `INSERT INTO gestion_copropriete_conflit (copropriete_a, syndic_a, copropriete_b, syndic_b, parcelle, cree_par, cree_par_libelle)
+       SELECT $1, $2, $3, $4, $5, $6, $7
+        WHERE NOT EXISTS (SELECT 1 FROM gestion_copropriete_conflit WHERE verifie_le IS NULL
+                           AND ((copropriete_a = $1 AND copropriete_b = $3) OR (copropriete_a = $3 AND copropriete_b = $1)))`,
+      [a[0].id, syndicId, b[0].id, b[0].syndic, k.parcelle || null, auteur.id, auteur.libelle]);
+  }
+}
+
+/**
  * TOUS LES IMMEUBLES CONNUS — ceux de l'annuaire (avec leurs lots) et ceux déjà déclarés comme copropriété —
  * avec leur syndic EN COURS. Sert à la fois au bouton de la carte bien, à l'auto-complétion et à l'aperçu.
  */
@@ -108,10 +174,10 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
   const parCle = await lotsParImmeuble();
   const { rows } = await query<{
     cle: string; libelle: string; code_postal: string | null; commune: string | null;
-    syndic_id: string | null; syndic_nom: string | null; syndic_ville: string | null;
+    syndic_id: string | null; syndic_nom: string | null; syndic_ville: string | null; alerte_parcelle: boolean;
   }>(
     `SELECT c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune, s.id::text AS syndic_id, s.nom AS syndic_nom,
-            s.ville AS syndic_ville
+            s.ville AS syndic_ville, c.alerte_parcelle_le IS NOT NULL AS alerte_parcelle
        FROM gestion_copropriete c
        LEFT JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL
        LEFT JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL`);
@@ -124,13 +190,21 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
   for (const a of secondaires) parCopro.set(a.coproCle, [...(parCopro.get(a.coproCle) ?? []), { cle: a.cle, libelle: a.libelle, codePostal: a.codePostal, commune: a.commune }]);
   const syndicDu = (r: { syndic_id: string | null; syndic_nom: string | null; syndic_ville: string | null } | undefined) =>
     (r?.syndic_id ? { id: Number(r.syndic_id), nom: r.syndic_nom ?? '', ville: r.syndic_ville } : null);
+  // LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — les conflits EN COURS, rangés par copropriété (clé principale).
+  const conflits = await conflitsEnCours();
+  const conflitsDe = (coproCle: string): ConflitParcelle[] => conflits.filter((k) => k.coproprietes.some((c) => c.cle === coproCle));
+  const extras = (coproCle: string): Pick<ImmeubleConnu, 'alerteParcelle' | 'conflits'> => {
+    const k = conflitsDe(coproCle);
+    return { ...(syndicDe.get(coproCle)?.alerte_parcelle ? { alerteParcelle: true } : {}), ...(k.length > 0 ? { conflits: k } : {}) };
+  };
   const decrire = (cle: string, base: Omit<ImmeubleConnu, 'syndic' | 'principale' | 'secondaires'>): ImmeubleConnu => {
     const sec = secondaireDe.get(cle);
     if (sec !== undefined) {
       const p = syndicDe.get(sec.coproCle);
-      return { ...base, syndic: syndicDu(p), principale: { cle: sec.coproCle, libelle: p?.libelle ?? sec.coproCle, codePostal: p?.code_postal ?? null, commune: p?.commune ?? null } };
+      return { ...base, syndic: syndicDu(p), principale: { cle: sec.coproCle, libelle: p?.libelle ?? sec.coproCle, codePostal: p?.code_postal ?? null, commune: p?.commune ?? null },
+        ...extras(sec.coproCle) };
     }
-    return { ...base, syndic: syndicDu(syndicDe.get(cle)), ...(parCopro.has(cle) ? { secondaires: parCopro.get(cle) } : {}) };
+    return { ...base, syndic: syndicDu(syndicDe.get(cle)), ...(parCopro.has(cle) ? { secondaires: parCopro.get(cle) } : {}), ...extras(cle) };
   };
   const out: ImmeubleConnu[] = [];
   for (const [cle, g] of parCle) {
@@ -340,6 +414,7 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
     if (saisie.noteBien) await enregistrerNoteBien(q, syndicId, saisie.noteBien.lotId, saisie.noteBien.texte, auteur);
     // LOT COPRO-CONTACTS-IMMEUBLE — le carnet de l'immeuble voyage avec la fiche, mais ne dépend PAS du syndic.
     if (saisie.contactsImmeuble) await enregistrerContactsImmeuble(q, saisie.contactsImmeuble, auteur);
+    await enregistrerParcelle(q, syndicId, saisie, auteur);
     return { ok: true, id: syndicId };
   });
 }

@@ -73,6 +73,12 @@ export interface SyndicSaisi {
   /** LOT COPRO-CONTACTS-IMMEUBLE — la liste ENTIÈRE des contacts de l'immeuble du bien (absents ⇒ retirés). Absente ⇒
    *  rien n'y touche (la liste n'a pas été lue). */
   contactsImmeuble?: { immeuble: string; contacts: ContactImmeubleSaisi[] } | null;
+  /** LOT COPRO-PARCELLE-ALERTE-UNIQUE — les copropriétés (clés) pour lesquelles l'alerte « autres adresses » a été
+   *  montrée : elle ne le sera plus. */
+  alerteParcelle?: string[];
+  /** LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — confirmées distinctes malgré une autre copropriété, d'un
+   *  AUTRE syndic, sur la même parcelle : (la copropriété de la saisie, l'autre adresse, la parcelle). */
+  conflitsParcelle?: Array<{ immeuble: string; autre: string; parcelle: string }>;
   /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — l'écran a fait CONFIRMER les e-mails / téléphones déjà utilisés.
    *  Absent : le serveur renvoie l'avertissement et n'écrit rien. */
   confirmeDoublons?: boolean;
@@ -109,6 +115,16 @@ export interface ImmeubleConnu {
   principale?: AdresseConnue | null;
   /** LOT COPRO-PLUSIEURS-ADRESSES — pour une copropriété, ses adresses SECONDAIRES en cours. */
   secondaires?: AdresseConnue[];
+  /** LOT COPRO-PARCELLE-ALERTE-UNIQUE — l'alerte « autres adresses postales » a déjà été montrée pour sa copropriété. */
+  alerteParcelle?: boolean;
+  /** LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — les conflits EN COURS de sa copropriété. */
+  conflits?: ConflitParcelle[];
+}
+
+/** LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — deux copropriétés, de deux syndics, sur une même parcelle. */
+export interface ConflitParcelle {
+  id: number; parcelle: string | null;
+  coproprietes: Array<{ cle: string; adresse: string; syndic: { id: number; nom: string; ville: string | null } }>;
 }
 
 /** Une adresse proposée par la Base Adresse Nationale LOCALE (table `adresse_ban`), hors portefeuille. */
@@ -468,6 +484,11 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
       noteBien,
       ...(contactsImmeuble !== null ? { contactsImmeuble } : {}),
       ...(b.confirmeDoublons === true ? { confirmeDoublons: true } : {}),
+      ...(Array.isArray(b.alerteParcelle) ? { alerteParcelle: b.alerteParcelle.slice(0, 30).map((x) => cleImmeuble(texte(x))).filter((x) => x !== '') } : {}),
+      ...(Array.isArray(b.conflitsParcelle) ? { conflitsParcelle: b.conflitsParcelle.slice(0, 30)
+        .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
+        .map((x) => ({ immeuble: texte(x.immeuble), autre: texte(x.autre), parcelle: texte(x.parcelle) }))
+        .filter((x) => cleImmeuble(x.immeuble) !== '' && cleImmeuble(x.autre) !== '') } : {}),
       nom, adresse: texte(b.adresse), codePostal: texte(b.codePostal), ville: texte(b.ville),
       telephone: tels[0] ?? '', telephone2: tels[1] ?? '',
       email, note: texte(b.note, BORNE_NOTE), contacts, immeubles,
