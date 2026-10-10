@@ -709,6 +709,20 @@ function CartoucheEvenement({ nb, onOuvrir }: { nb: number; onOuvrir: () => void
 }
 
 /**
+ * ══ 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — LA RÉFÉRENCE WIPPIMMO, EN BAS, PETITE ET GRISE ═════════════════
+ *
+ * ARNO : « Retirer la pastille “lot 219” de l'en-tête. La référence reste disponible en bas de la carte, petite et
+ * grise : “Réf. Wipimo 219” (même règle sur la carte locataire et la fiche du bien). »
+ *
+ * ⚠️ RIEN NE DÉPENDAIT DE LA PASTILLE (vérifié le 10/10/2026) : la recherche de l'annuaire interroge la base par le
+ * numéro, jamais le texte affiché ; aucun lien ne la visait ; seul un test lisait le mot « lot » dans la source.
+ * Le logiciel s'écrit WIPPIMMO dans tout le module : c'est cette graphie qui est affichée.
+ */
+function RefWippimmo({ numero }: { numero: string }) {
+  return <span className="ann-carte-ref">Réf. Wippimmo {numero}</span>;
+}
+
+/**
  * ══ 🔴🔴 UNE CARTE DE BIEN ════════════════════════════════════════════════════════════════════════════════════
  *
  * Arno : « les BIENS en gestion […] sous forme de CARTES cliquables : adresse, lot, type, surface ou “non
@@ -754,8 +768,9 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
         <span className="ann-carte-tete">
           <span className="ann-carte-titre">{titreLogement(b.adresse, b.commune)}</span>
           <span className="ann-carte-sous">
-            <span className="ann-etiq">lot {b.numero}</span>
-            {/* 🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — type, pièces, surface, étage : `pastillesBien`. */}
+            {/* 🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — type, pièces, surface, étage : `pastillesBien`.
+                🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — la pastille « lot N » a QUITTÉ l'en-tête (accord d'Arno) :
+                la référence est écrite en bas de la carte, petite et grise (« Réf. Wippimmo N »). */}
             {pastillesBien(b).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
           </span>
         </span>
@@ -858,6 +873,7 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
           )}
         </span>
       </span>
+      <RefWippimmo numero={b.numero} />
     </li>
   );
 }
@@ -1380,10 +1396,10 @@ function VueLot({
           <h3 className="ann-tete-nom">{titreLogement(f.adresse, f.commune)}</h3>
           <p className="ann-tete-sous">
             <span className="ann-role-capsule">Bien</span>
-            <span className="ann-etiq">lot {f.numero}</span>
             {pastillesBien(f).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
           </p>
+          <RefWippimmo numero={f.numero} />
         </div>
         <div className="ann-tete-actions">
           {f.driveDossierId !== null && (
@@ -2052,7 +2068,6 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
           {o.lotId === null ? `Lot n° ${o.numero}` : titreLogement(o.adresse, o.commune)}
         </span>
         <span className="ann-carte-sous">
-          <span className="ann-etiq">lot {o.numero}</span>
           {pastillesBien(o).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
           {o.horsGestion && <span className="ann-etiq ann-etiq--absent">hors gestion</span>}
         </span>
@@ -2118,6 +2133,7 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
           )}
         </span>
       </span>
+      <RefWippimmo numero={o.numero} />
     </li>
   );
 }
@@ -2485,6 +2501,9 @@ export const CSS_ANNUAIRE = `
   width:100%;min-height:36px;padding:.35rem .5rem;font-size:.78rem;line-height:1.15;
   text-decoration:none;overflow-wrap:anywhere}
 .ann-carte-bouton--large{width:100%}
+/* LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — la reference WIPPIMMO, en bas, petite et grise. */
+.ann-carte-ref{display:block;padding:0 14px 8px;margin-top:-6px;font-size:.7rem;color:var(--color-svv-muted);text-align:right}
+.ann-tete-mots .ann-carte-ref{padding:0;margin:.25rem 0 0;text-align:left}
 /* L'absence de dossier Drive se DIT, a la place du bouton, et reste centree sur la meme ligne de base. */
 .ann-carte-sans{display:inline-flex;align-items:center;justify-content:center;text-align:center;
   min-height:36px;font-size:.76rem}

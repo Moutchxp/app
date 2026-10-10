@@ -46,7 +46,12 @@ beforeEach(() => {
       return rep({ etat: 'ok', adresses: url.includes('7%20rue%20test') ? [{ cle: '7 rue test', libelle: '7 Rue Test', codePostal: '92400', commune: 'Courbevoie' }] : [] });
     }
     if (url === '/api/admin/gestion/syndics/11' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE });
+    if (url === '/api/admin/gestion/syndics/12' && (init?.method ?? 'GET') === 'GET') {
+      return rep({ etat: 'ok', fiche: { ...FICHE, id: 12, codePostal: null, ville: null } });
+    }
+    if (url.startsWith('/api/admin/gestion/syndics/communes')) return rep({ etat: 'ok', communes: url.endsWith('92400') ? ['Courbevoie'] : [] });
     if (url === '/api/admin/gestion/syndics/11') return rep({ ok: true, id: 11, coproprietes: 1 });
+    if (url === '/api/admin/gestion/syndics' && init?.method === 'POST') return rep({ ok: true, id: 13 });
     if (url.startsWith('/api/admin/gestion/syndics')) return rep({ etat: 'ok', disponible: true, syndics: [] });
     return rep({});
   }));
@@ -74,8 +79,8 @@ const champ = (label: string): HTMLInputElement => {
   return i as HTMLInputElement;
 };
 
-async function ouvrir(onFerme = vi.fn()): Promise<ReturnType<typeof vi.fn>> {
-  await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 11, onFerme })); });
+async function ouvrir(onFerme = vi.fn(), syndicId: number | null = 11, onEcrire?: (e: string) => void): Promise<ReturnType<typeof vi.fn>> {
+  await act(async () => { root.render(createElement(FicheSyndic, { syndicId, onFerme, onEcrire })); });
   await calmer();
   return onFerme;
 }
@@ -114,7 +119,7 @@ describe('les contacts — repliés, « Modifier », « Valider ce contact »', 
     await ouvrir();
     const ligne = document.querySelector('.fsy-contact-replie')?.textContent ?? '';
     expect(ligne).toContain('Responsable de copropriété');
-    expect(ligne).toContain('Léa Durand');
+    expect(ligne).toContain('Léa DURAND');
     expect(ligne).toContain('06 13 86 18 77');
     await cliquer(bouton('Modifier'));
     expect(document.querySelector('.fsy-contact-edit')).not.toBeNull();
@@ -207,5 +212,62 @@ describe('le bouton de la carte bien', () => {
     expect(inconnu.textContent).toBe('Créer le syndic');
     expect(inconnu.className).not.toContain('bsy--connu');
     expect(connu.closest('.bsy-ligne')).not.toBeNull();
+  });
+});
+
+describe('LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — coordonnées générales, autres contacts, adresse obligatoire', () => {
+  it('la ligne en DOUBLON sous l\'e-mail a disparu ; « Écrire depuis gestion@ » est au bout du champ, « Appeler » au bout du numéro', async () => {
+    await ouvrir(vi.fn(), 11, vi.fn());
+    expect(document.querySelector('.fsy-liens')).toBeNull();
+    const ligneEmail = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ');
+    expect(ligneEmail?.textContent).toContain('Écrire depuis gestion@');
+    const ligneTel = (document.querySelector('input[aria-label="Téléphone standard"]') as HTMLElement).closest('.fsy-ligne-tel');
+    const appeler = [...(ligneTel?.querySelectorAll('a') ?? [])].find((a) => a.textContent === 'Appeler');
+    expect(appeler?.getAttribute('href')).toBe('tel:0100000000');
+  });
+
+  it('un e-mail invalide n\'a pas de lien ; un numéro incomplet n\'a pas d\'« Appeler »', async () => {
+    await ouvrir(vi.fn(), 11, vi.fn());
+    await taper(document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLInputElement, 'pas-un-mail');
+    expect(document.querySelector('.fsy-ligne-champ')?.textContent).not.toContain('Écrire');
+    await taper(document.querySelector('input[aria-label="Téléphone standard"]') as HTMLInputElement, '01 23');
+    expect(document.querySelector('.fsy-ligne-tel')?.textContent).not.toContain('Appeler');
+  });
+
+  it('« AUTRES CONTACTS » : titre · Prénom NOM, puis le numéro avec « Appeler » sur sa ligne', async () => {
+    await ouvrir(vi.fn(), 11, vi.fn());
+    const titres = [...document.querySelectorAll('.fsy-sous-titre')].map((h) => h.textContent);
+    expect(titres).toContain('Autres contacts');
+    const replie = document.querySelector('.fsy-contact-replie') as HTMLElement;
+    expect(replie.querySelector('.fsy-contact-ligne')?.textContent).toBe('Responsable de copropriété · Léa DURAND');
+    const coord = replie.querySelector('.fsy-contact-coord')?.textContent ?? '';
+    expect(coord).toContain('06 13 86 18 77');
+    expect(coord).toContain('Appeler');
+  });
+
+  it('« Valider » REFUSE sans adresse complète : message près du bouton, champs vides cerclés, rien n\'est envoyé', async () => {
+    const onFerme = await ouvrir(vi.fn(), null);
+    await cliquer(bouton('Créer un nouveau syndic'));
+    await taper(champ('Nom du cabinet *'), '_TEST Cabinet');
+    await cliquer(bouton('Valider'));
+    expect(appels.some((a) => a.methode === 'POST')).toBe(false);
+    expect(onFerme).not.toHaveBeenCalled();
+    expect(document.querySelector('.fsy-pied')?.textContent).toContain('Complétez l’adresse du syndic');
+    expect(document.querySelectorAll('.fsy-champ--manque')).toHaveLength(3);
+    await taper(champ('Adresse (rue) *'), '1 rue _TEST');
+    await taper(champ('Code postal *'), '92400');
+    await cliquer(bouton('Courbevoie'));
+    expect(champ('Ville *').value).toBe('Courbevoie');
+    await cliquer(bouton('Valider'));
+    expect(appels.find((a) => a.methode === 'POST')?.corps).toMatchObject({ adresse: '1 rue _TEST', codePostal: '92400', ville: 'Courbevoie' });
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('un syndic EXISTANT sans code postal ni ville reste consultable ; l\'obligation vaut à la prochaine modification', async () => {
+    const onFerme = await ouvrir(vi.fn(), 12);
+    expect(document.body.textContent).toContain('Complétez code postal et ville');
+    await cliquer(bouton('Valider'));
+    expect(appels.some((a) => a.methode === 'PUT')).toBe(false);
+    expect(onFerme).toHaveBeenCalledTimes(1);
   });
 });

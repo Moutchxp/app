@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, adresseManquante, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -28,6 +28,8 @@ vi.mock('../db/client', () => ({
 const norm = (s: string): string => s.replace(/\s+/g, ' ');
 const auteur = { id: 7, libelle: 'arno' };
 const im = (libelle: string, codePostal = '', commune = '') => ({ libelle, codePostal, commune });
+/** LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — rue, code postal et ville sont désormais obligatoires. */
+const ADR = { adresse: '1 rue _TEST', codePostal: '75001', ville: 'Paris' };
 
 describe('les règles pures', () => {
   it('la clé d\'un immeuble est sa forme normalisée (casse, accents, ponctuation)', () => {
@@ -36,32 +38,32 @@ describe('les règles pures', () => {
   });
 
   it('le nom du cabinet est obligatoire', () => {
-    expect(validerSyndic({ nom: '  ' })).toEqual({ ok: false, motif: 'Le nom du cabinet est obligatoire.' });
+    expect(validerSyndic({ ...ADR, nom: '  ' })).toEqual({ ok: false, motif: 'Le nom du cabinet est obligatoire.' });
   });
 
   it('un contact a au moins un nom, un prénom ou un titre ; un contact vide est ignoré', () => {
-    expect(validerSyndic({ nom: 'Cab', contacts: [{ coordonnees: [{ sorte: 'telephone', valeur: '01' }] }] }).ok).toBe(false);
-    const v = validerSyndic({ nom: 'Cab', contacts: [{}, { titre: 'Service comptabilité' }] });
+    expect(validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ coordonnees: [{ sorte: 'telephone', valeur: '01' }] }] }).ok).toBe(false);
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{}, { titre: 'Service comptabilité' }] });
     expect(v.ok && v.syndic.contacts.length).toBe(1);
   });
 
   it('des coordonnées illimitées, vides ignorées, e-mail vérifié, téléphone enregistré EN CHIFFRES', () => {
-    const v = validerSyndic({ nom: 'Cab', contacts: [{ nom: 'Durand', coordonnees: [
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ nom: 'Durand', coordonnees: [
       { sorte: 'email', libelle: 'Ligne directe', valeur: 'a@b.fr' },
       { sorte: 'telephone', libelle: 'Portable', valeur: '06 13 86 18 77' },
       { sorte: 'telephone', libelle: '', valeur: '   ' },
     ] }] });
     expect(v.ok && v.syndic.contacts[0].coordonnees.map((k) => k.valeur)).toEqual(['a@b.fr', '0613861877']);
-    expect(validerSyndic({ nom: 'Cab', contacts: [{ nom: 'D', coordonnees: [{ sorte: 'email', valeur: 'pas-un-mail' }] }] }).ok).toBe(false);
+    expect(validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ nom: 'D', coordonnees: [{ sorte: 'email', valeur: 'pas-un-mail' }] }] }).ok).toBe(false);
   });
 
   it('deux standards au plus, en chiffres ; le second remonte si le premier est vide', () => {
-    const v = validerSyndic({ nom: 'Cab', telephone: '', telephone2: '+33 6 13 86 18 77' });
+    const v = validerSyndic({ ...ADR, nom: 'Cab', telephone: '', telephone2: '+33 6 13 86 18 77' });
     expect(v.ok && [v.syndic.telephone, v.syndic.telephone2]).toEqual(['+33613861877', '']);
   });
 
   it('les immeubles sont dédoublonnés par leur clé, avec code postal et commune ; l\'ancienne forme texte passe', () => {
-    const v = validerSyndic({ nom: 'Cab', immeubles: [im('12 rue X', '92400', 'Courbevoie'), '12 RUE X', '', im('3 av Y')] });
+    const v = validerSyndic({ ...ADR, nom: 'Cab', immeubles: [im('12 rue X', '92400', 'Courbevoie'), '12 RUE X', '', im('3 av Y')] });
     expect(v.ok && v.syndic.immeubles).toEqual([im('12 rue X', '92400', 'Courbevoie'), im('3 av Y')]);
   });
 
@@ -131,6 +133,24 @@ describe('les règles pures', () => {
   });
 });
 
+describe('l\'adresse du syndic est OBLIGATOIRE — rue, code postal (5 chiffres), ville', () => {
+  it('le serveur refuse une saisie sans rue, sans code postal à 5 chiffres ou sans ville', () => {
+    for (const manque of [{ adresse: '' }, { codePostal: '9240' }, { codePostal: '' }, { ville: ' ' }]) {
+      expect(validerSyndic({ ...ADR, nom: 'Cab', ...manque })).toEqual({ ok: false, motif: MOTIF_ADRESSE_INCOMPLETE });
+    }
+    expect(validerSyndic({ ...ADR, nom: 'Cab' }).ok).toBe(true);
+  });
+  it('l\'écran sait QUEL champ manque (pour le cercler de rouge)', () => {
+    expect(adresseManquante({ adresse: '', codePostal: '92400', ville: '' })).toEqual(['adresse', 'ville']);
+    expect(adresseManquante({ adresse: '1 rue', codePostal: 'abcde', ville: 'X' })).toEqual(['codePostal']);
+    expect(adresseManquante(ADR)).toEqual([]);
+  });
+  it('« Prénom NOM »', () => {
+    expect(prenomNom('Léa', 'Durand')).toBe('Léa DURAND');
+    expect(prenomNom('', 'durand')).toBe('DURAND');
+  });
+});
+
 describe('les téléphones — par paires, à l\'affichage ET à la saisie', () => {
   it('« 06 13 86 18 77 », « +33 6 13 86 18 77 », et pendant la frappe', () => {
     expect(formaterTelephone('0613861877')).toBe('06 13 86 18 77');
@@ -197,7 +217,7 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
         { lien_id: '32', copro_id: '42', cle: cleImmeuble('ancien immeuble'), syndic_id: '11' },
       ] } : undefined),
     ];
-    const v = validerSyndic({ nom: 'Cabinet TEST', immeubles: [im('3 av Y')] });
+    const v = validerSyndic({ ...ADR, nom: 'Cabinet TEST', immeubles: [im('3 av Y')] });
     if (!v.ok) throw new Error(v.motif);
     await enregistrerSyndic(11, v.syndic, auteur);
     const fermetures = appels.filter((a) => a.sql.includes('UPDATE gestion_copropriete_syndic SET fin = now()'));
@@ -207,7 +227,7 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
 
   it('un syndic inexistant OU SUPPRIMÉ est refusé AVANT toute écriture', async () => {
     const { enregistrerSyndic } = await import('./syndicRepo');
-    const v = validerSyndic({ nom: 'X' });
+    const v = validerSyndic({ ...ADR, nom: 'X' });
     if (!v.ok) throw new Error(v.motif);
     expect(await enregistrerSyndic(404, v.syndic, auteur)).toEqual({ ok: false, motif: 'Ce syndic n’existe pas.' });
     expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
@@ -372,7 +392,7 @@ describe('les écrans', () => {
 
   it('contacts repliés, « Valider ce contact », « Modifier » ; second standard ; liste des biens ; suppression confirmée', () => {
     const src = lire('FicheSyndic.tsx');
-    for (const mot of ['Valider ce contact', '>Modifier<', '+ Ajouter un contact', 'Ajouter un second numéro de standard',
+    for (const mot of ['Valider ce contact', '>Modifier<', '+ Ajouter un contact', 'Autres contacts', 'Ajouter un second numéro de standard',
       'Biens qui recevront ce syndic', 'déjà rattachée à', 'Oui, la prendre', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
       'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
       expect(src).toContain(mot);

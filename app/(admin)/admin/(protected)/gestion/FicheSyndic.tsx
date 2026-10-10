@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  adresseImmeuble, apercuPropagation, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, LIBELLES_COORDONNEE,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -63,6 +63,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [envoi, setEnvoi] = useState(false);
   const [abandon, setAbandon] = useState(false);
   const [suppression, setSuppression] = useState(false);
+  /** Un « Valider » a été refusé pour une adresse incomplète : les champs vides se cerclent de rouge. */
+  const [tente, setTente] = useState(false);
   const boite = useRef<HTMLDivElement | null>(null);
   const immeubles = useImmeublesSyndics();
 
@@ -112,11 +114,14 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
 
   /** VALIDER — enregistre puis ferme. Rien n'a bougé ⇒ on ferme simplement. */
   const valider = async (): Promise<void> => {
-    if (form.nom.trim() === '') { setErreur('Le nom du cabinet est obligatoire.'); return; }
+    // Rien n'a bougé sur un syndic existant ⇒ on ferme : un syndic ancien sans adresse complète reste CONSULTABLE.
+    if (syndicId !== null && !modifie) { onFerme(); return; }
+    if (form.nom.trim() === '') { setTente(true); setErreur('Le nom du cabinet est obligatoire.'); return; }
+    // 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — rue, code postal (5 chiffres) et ville obligatoires.
+    if (adresseManquante(form).length > 0) { setTente(true); setErreur(MOTIF_ADRESSE_INCOMPLETE); return; }
     const sansNom = form.contacts.find((c) => !contactNomme({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom })
       && c.coordonnees.some((k) => k.valeur.trim() !== ''));
     if (sansNom) { setErreur('Chaque contact doit avoir au moins un nom ou un titre.'); return; }
-    if (syndicId !== null && !modifie) { onFerme(); return; }
     setEnvoi(true); setErreur(null);
     try {
       const r = await fetch(syndicId === null ? '/api/admin/gestion/syndics' : `/api/admin/gestion/syndics/${syndicId}`, {
@@ -175,7 +180,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           {mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression}
-              envoi={envoi} onSupprimer={() => void supprimer()} />
+              envoi={envoi} onSupprimer={() => void supprimer()} tente={tente} />
           )}
         </div>
 
@@ -259,30 +264,119 @@ function Recherche({ immeubleDepart, onRattacher, onCreer }: {
 
 // ══ LES LIENS : e-mail (mailto + composeur), téléphone (tel) ══════════════════════════════════════════════════════
 
-function LienEmail({ email, onEcrire }: { email: string; onEcrire?: (email: string) => void }) {
-  if (!emailPlausible(email)) return <span>{email}</span>;
-  return (
-    <span className="fsy-coord">
-      <a href={`mailto:${email}`}>{email}</a>
-      {onEcrire && (
-        <button type="button" className="fsy-lien-bouton" onClick={() => onEcrire(email)}
-          title="Écrire depuis gestion@ avec le composeur de l’application">Écrire depuis gestion@</button>
-      )}
-    </span>
-  );
-}
-
 function LienTel({ tel }: { tel: string }) {
   return <a href={lienTelephone(tel)}>{formaterTelephone(tel)}</a>;
 }
 
+/**
+ * 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — LES LIENS D'ACTION, À DROITE, SUR LA MÊME LIGNE.
+ * « Écrire depuis gestion@ » n'apparaît que pour un e-mail valide ; sans composeur disponible, c'est un `mailto:`.
+ * « Appeler » n'apparaît que pour un numéro complet (10 chiffres au moins).
+ */
+function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: string) => void }) {
+  const e = email.trim();
+  if (!emailPlausible(e)) return null;
+  return onEcrire
+    ? <button type="button" className="fsy-lien-bouton fsy-action" onClick={() => onEcrire(e)}
+        title="Écrire depuis gestion@ avec le composeur de l’application">Écrire depuis gestion@</button>
+    : <a className="fsy-action" href={`mailto:${e}`}>Écrire</a>;
+}
+
+function ActionAppeler({ tel }: { tel: string }) {
+  if (tel.replace(/\D/g, '').length < 10) return null;
+  return <a className="fsy-action" href={lienTelephone(tel)}>Appeler</a>;
+}
+
+/** La RUE du syndic, avec les adresses de la BAN LOCALE ; un choix remplit rue, code postal et ville. */
+function ChampRue({ form, setForm, manque }: { form: SyndicForm; setForm: (f: SyndicForm) => void; manque: boolean }) {
+  const [ban, setBan] = useState<AdresseBan[]>([]);
+  const [ouvert, setOuvert] = useState(false);
+  useEffect(() => {
+    if (!ouvert || form.adresse.trim().length < 5) { setBan([]); return; }
+    let vivant = true;
+    const t = setTimeout(() => {
+      void fetch(`/api/admin/gestion/syndics/adresses?q=${encodeURIComponent(form.adresse)}`, { cache: 'no-store' })
+        .then((r) => r.json() as Promise<{ adresses?: AdresseBan[] }>)
+        .then((j) => { if (vivant) setBan(j.adresses ?? []); })
+        .catch(() => { if (vivant) setBan([]); });
+    }, 250);
+    return () => { vivant = false; clearTimeout(t); };
+  }, [form.adresse, ouvert]);
+  return (
+    <div className="fsy-bloc fsy-bloc--serre">
+      <label className={`fsy-champ${manque ? ' fsy-champ--manque' : ''}`}>
+        <span>Adresse (rue) *</span>
+        <input type="text" value={form.adresse} aria-invalid={manque} autoComplete="off"
+          onChange={(e) => { setOuvert(true); setForm({ ...form, adresse: e.target.value }); }} />
+      </label>
+      {ouvert && ban.length > 0 && (
+        <ul className="fsy-liste" aria-label="Adresses de la Base Adresse Nationale locale">
+          {ban.map((b) => (
+            <li key={b.cle}>
+              <button type="button" className="fsy-proposition" onClick={() => {
+                setForm({ ...form, adresse: b.libelle, codePostal: b.codePostal ?? form.codePostal, ville: b.commune });
+                setOuvert(false); setBan([]);
+              }}>
+                <span className="fsy-proposition-adresse">{adresseImmeuble(b.libelle, b.codePostal, b.commune)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Le CODE POSTAL (5 chiffres) et la VILLE ; le code postal propose la ou les villes connues de l'application. */
+function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: (f: SyndicForm) => void; manques: ChampAdresse[] }) {
+  const [villes, setVilles] = useState<string[]>([]);
+  useEffect(() => {
+    if (!/^\d{5}$/.test(form.codePostal)) { setVilles([]); return; }
+    let vivant = true;
+    void fetch(`/api/admin/gestion/syndics/communes?cp=${form.codePostal}`, { cache: 'no-store' })
+      .then((r) => r.json() as Promise<{ communes?: string[] }>)
+      .then((j) => { if (vivant) setVilles(j.communes ?? []); })
+      .catch(() => { if (vivant) setVilles([]); });
+    return () => { vivant = false; };
+  }, [form.codePostal]);
+  const propositions = villes.filter((v) => v !== form.ville.trim());
+  return (
+    <>
+      <div className="fsy-duo">
+        <label className={`fsy-champ fsy-champ--cp${manques.includes('codePostal') ? ' fsy-champ--manque' : ''}`}>
+          <span>Code postal *</span>
+          <input type="text" inputMode="numeric" maxLength={5} value={form.codePostal} aria-invalid={manques.includes('codePostal')}
+            onChange={(e) => setForm({ ...form, codePostal: e.target.value.replace(/\D/g, '').slice(0, 5) })} />
+        </label>
+        <label className={`fsy-champ${manques.includes('ville') ? ' fsy-champ--manque' : ''}`}>
+          <span>Ville *</span>
+          <input type="text" value={form.ville} aria-invalid={manques.includes('ville')}
+            onChange={(e) => setForm({ ...form, ville: e.target.value })} />
+        </label>
+      </div>
+      {propositions.length > 0 && (
+        <p className="fsy-villes">
+          <span className="fsy-discret">Ville pour {form.codePostal} :</span>
+          {propositions.map((v) => (
+            <button key={v} type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn"
+              onClick={() => setForm({ ...form, ville: v })}>{v}</button>
+          ))}
+        </p>
+      )}
+    </>
+  );
+}
+
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
-function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer }: {
+function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente }: {
   form: SyndicForm; setForm: (f: SyndicForm) => void; fiche: Fiche | null; syndicId: number | null;
   onEcrire?: (email: string) => void; connus: ImmeubleConnu[];
   suppression: boolean; setSuppression: (v: boolean) => void; envoi: boolean; onSupprimer: () => void;
+  /** Vrai après un « Valider » refusé : les champs d'adresse vides se cerclent de rouge. */
+  tente: boolean;
 }) {
+  const manques = tente ? adresseManquante(form) : [];
   const majContact = (cle: string, c: ContactForm): void =>
     setForm({ ...form, contacts: form.contacts.map((x) => (x.cle === cle ? c : x)) });
   const majTel = (i: number, v: string): void =>
@@ -297,25 +391,16 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
 
   return (
     <div className="fsy-bloc">
-      <label className="fsy-champ">
+      {/* 🔴 UN SYNDIC EXISTANT SANS ADRESSE COMPLÈTE reste consultable ; l'obligation vaut à la prochaine modification. */}
+      {fiche !== null && adresseManquante(fiche).length > 0 && (
+        <p className="fsy-alerte">Complétez code postal et ville{fiche.adresse ? '' : ', et la rue'} : ils sont obligatoires pour enregistrer une modification.</p>
+      )}
+      <label className={`fsy-champ${tente && form.nom.trim() === '' ? ' fsy-champ--manque' : ''}`}>
         <span>Nom du cabinet *</span>
         <input type="text" value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} />
       </label>
-      <label className="fsy-champ">
-        <span>Adresse (rue)</span>
-        <input type="text" value={form.adresse} onChange={(e) => setForm({ ...form, adresse: e.target.value })} />
-      </label>
-      <div className="fsy-duo">
-        <label className="fsy-champ fsy-champ--cp">
-          <span>Code postal</span>
-          <input type="text" inputMode="numeric" maxLength={5} value={form.codePostal}
-            onChange={(e) => setForm({ ...form, codePostal: e.target.value.replace(/\D/g, '').slice(0, 5) })} />
-        </label>
-        <label className="fsy-champ">
-          <span>Ville</span>
-          <input type="text" value={form.ville} onChange={(e) => setForm({ ...form, ville: e.target.value })} />
-        </label>
-      </div>
+      <ChampRue form={form} setForm={setForm} manque={manques.includes('adresse')} />
+      <ChampsCpVille form={form} setForm={setForm} manques={manques} />
 
       <div className="fsy-champ fsy-champ--groupe">
         <span>Téléphone standard</span>
@@ -323,6 +408,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           <span key={i} className="fsy-ligne-tel">
             <input type="tel" inputMode="tel" aria-label={i === 0 ? 'Téléphone standard' : 'Second téléphone standard'}
               value={t} onChange={(e) => majTel(i, e.target.value)} placeholder="01 23 45 67 89" />
+            <ActionAppeler tel={t} />
             {(form.telephones.length > 1 || t.trim() !== '') && (
               <button type="button" className="fsy-mini" aria-label={`Retirer ce numéro${t ? ` (${t})` : ''}`} onClick={() => retirerTel(i)}>×</button>
             )}
@@ -333,26 +419,29 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           </span>
         ))}
       </div>
-      <label className="fsy-champ">
-        <span>E-mail générique</span>
-        <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-      </label>
-      {(emailPlausible(form.email) || form.telephones.some((t) => t.replace(/\D/g, '').length >= 10)) && (
-        <p className="fsy-liens">
-          {form.telephones.filter((t) => t.replace(/\D/g, '').length >= 10).map((t) => <LienTel key={t} tel={t} />)}
-          {emailPlausible(form.email) && <LienEmail email={form.email.trim()} onEcrire={onEcrire} />}
-        </p>
-      )}
+      {/* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — LA LIGNE EN DOUBLON (numéros et e-mail répétés sous ce champ)
+          EST RETIRÉE, avec l'accord d'Arno pour CE doublon : « Appeler » est au bout de chaque numéro, et « Écrire
+          depuis gestion@ » au bout du champ, sur la même ligne. */}
+      <div className="fsy-champ">
+        <span id="fsy-email-generique">E-mail générique</span>
+        <span className="fsy-ligne-champ">
+          <input type="email" aria-labelledby="fsy-email-generique" value={form.email}
+            onChange={(e) => setForm({ ...form, email: e.target.value })} />
+          <ActionEcrire email={form.email} onEcrire={onEcrire} />
+        </span>
+      </div>
       <label className="fsy-champ">
         <span>Note</span>
         <textarea rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
       </label>
 
-      <h3 className="fsy-sous-titre">Contacts</h3>
+      {/* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — « AUTRES CONTACTS », sous les coordonnées générales. */}
+      <h3 className="fsy-sous-titre">Autres contacts</h3>
+      {form.contacts.length === 0 && <p className="fsy-discret">Aucun autre contact.</p>}
       {form.contacts.map((c) => (c.replie ? (
         <ContactReplie key={c.cle} c={c} onEcrire={onEcrire} onModifier={() => majContact(c.cle, { ...c, replie: false })} />
       ) : (
-        <EditionContact key={c.cle} c={c} onChange={(n) => majContact(c.cle, n)}
+        <EditionContact key={c.cle} c={c} onEcrire={onEcrire} onChange={(n) => majContact(c.cle, n)}
           onRetirer={() => setForm({ ...form, contacts: form.contacts.filter((x) => x.cle !== c.cle) })} />
       )))}
       <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout"
@@ -430,24 +519,40 @@ function jour(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
 }
 
-// ══ UN CONTACT REPLIÉ — « titre · prénom nom · e-mails · téléphones » + Modifier ══════════════════════════════════
+// ══ UN CONTACT REPLIÉ ═══════════════════════════════════════════════════════════════════════════════════════════
+// 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — « titre · Prénom NOM », puis EN DESSOUS chaque téléphone (par paires,
+// « Appeler » au bout) et chaque e-mail (« Écrire depuis gestion@ » au bout de la MÊME ligne). « Modifier » le déplie.
 
 function ContactReplie({ c, onModifier, onEcrire }: { c: ContactForm; onModifier: () => void; onEcrire?: (email: string) => void }) {
   const titre = valeurDuChoix(c.titreChoix, c.titreLibre);
-  const nom = [c.prenom, c.nom].map((x) => x.trim()).filter((x) => x !== '').join(' ');
-  const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '');
+  const nom = prenomNom(c.prenom, c.nom);
   const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
-  const morceaux: React.ReactNode[] = [];
-  if (titre !== '') morceaux.push(<span key="t" className="fsy-discret">{titre}</span>);
-  if (nom !== '') morceaux.push(<strong key="n">{nom}</strong>);
-  if (emails.length > 0) morceaux.push(<span key="e">{emails.map((k, i) => <span key={k.cle}>{i > 0 && ', '}<LienEmail email={k.valeur.trim()} onEcrire={onEcrire} /></span>)}</span>);
-  if (tels.length > 0) morceaux.push(<span key="p">{tels.map((k, i) => <span key={k.cle}>{i > 0 && ', '}<LienTel tel={k.valeur} /></span>)}</span>);
+  const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '');
+  const libelle = (k: CoordonneeForm): string => valeurDuChoix(k.choix, k.libre);
   return (
     <div className="fsy-contact-replie">
-      <span className="fsy-contact-ligne">
-        {morceaux.map((m, i) => <span key={i}>{i > 0 && <span className="fsy-point"> · </span>}{m}</span>)}
-      </span>
-      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onModifier}>Modifier</button>
+      <div className="fsy-contact-tete">
+        <span className="fsy-contact-ligne">
+          {titre !== '' && <span className="fsy-discret">{titre}</span>}
+          {titre !== '' && nom !== '' && <span className="fsy-point"> · </span>}
+          {nom !== '' && <strong>{nom}</strong>}
+        </span>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onModifier}>Modifier</button>
+      </div>
+      {tels.map((k) => (
+        <div key={k.cle} className="fsy-contact-coord">
+          {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} :</span>}
+          <LienTel tel={k.valeur} />
+          <ActionAppeler tel={k.valeur} />
+        </div>
+      ))}
+      {emails.map((k) => (
+        <div key={k.cle} className="fsy-contact-coord">
+          {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} :</span>}
+          <a href={`mailto:${k.valeur.trim()}`}>{k.valeur.trim()}</a>
+          <ActionEcrire email={k.valeur} onEcrire={onEcrire} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -476,7 +581,9 @@ function SelectChoix({ libelle, choix, libre, options, onChange }: {
   );
 }
 
-function EditionContact({ c, onChange, onRetirer }: { c: ContactForm; onChange: (c: ContactForm) => void; onRetirer: () => void }) {
+function EditionContact({ c, onChange, onRetirer, onEcrire }: {
+  c: ContactForm; onChange: (c: ContactForm) => void; onRetirer: () => void; onEcrire?: (email: string) => void;
+}) {
   const [refus, setRefus] = useState<string | null>(null);
   const majCoord = (cle: string, k: CoordonneeForm): void =>
     onChange({ ...c, coordonnees: c.coordonnees.map((x) => (x.cle === cle ? k : x)) });
@@ -505,11 +612,15 @@ function EditionContact({ c, onChange, onRetirer }: { c: ContactForm; onChange: 
         <div key={k.cle} className="fsy-duo fsy-coord-edit">
           <SelectChoix libelle="Libellé" choix={k.choix} libre={k.libre} options={LIBELLES_COORDONNEE}
             onChange={(choix, libre) => majCoord(k.cle, { ...k, choix, libre })} />
-          <label className="fsy-champ fsy-champ--large">
+          <div className="fsy-champ fsy-champ--large">
             <span>{k.sorte === 'email' ? 'E-mail' : 'Téléphone'}</span>
-            <input type={k.sorte === 'email' ? 'email' : 'tel'} value={k.valeur}
-              onChange={(e) => majCoord(k.cle, { ...k, valeur: k.sorte === 'telephone' ? saisieTelephone(k.valeur, e.target.value) : e.target.value })} />
-          </label>
+            <span className="fsy-ligne-champ">
+              <input type={k.sorte === 'email' ? 'email' : 'tel'} value={k.valeur}
+                aria-label={k.sorte === 'email' ? 'E-mail du contact' : 'Téléphone du contact'}
+                onChange={(e) => majCoord(k.cle, { ...k, valeur: k.sorte === 'telephone' ? saisieTelephone(k.valeur, e.target.value) : e.target.value })} />
+              {k.sorte === 'email' ? <ActionEcrire email={k.valeur} onEcrire={onEcrire} /> : <ActionAppeler tel={k.valeur} />}
+            </span>
+          </div>
           <button type="button" className="fsy-mini" aria-label="Retirer cette coordonnée"
             onClick={() => onChange({ ...c, coordonnees: c.coordonnees.filter((x) => x.cle !== k.cle) })}>×</button>
         </div>
@@ -684,19 +795,27 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-duo > .fsy-champ--large{flex:2 1 13rem}
 .fsy-champ--groupe{gap:.3rem}
 .fsy-ligne-tel{display:flex;align-items:center;gap:.35rem}
-.fsy-ligne-tel input{flex:1 1 auto}
+.fsy-ligne-tel input{flex:0 1 14rem;min-width:0}
 .fsy-mini{flex:0 0 auto;min-width:36px;min-height:36px;border-radius:8px;border:1px solid var(--color-svv-line-strong);
   background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;line-height:1;cursor:pointer;align-self:flex-end}
 .fsy-mini:hover,.fsy-mini:focus-visible{background:var(--color-svv-field)}
 .fsy-mini-btn{min-height:34px;padding:.25rem .65rem;font-size:.82rem}
-.fsy-liens{margin:0;display:flex;flex-wrap:wrap;gap:.3rem 1rem;font-size:.86rem}
+.fsy-ligne-champ{display:flex;align-items:center;gap:.6rem;min-width:0}
+.fsy-ligne-champ input{flex:0 1 20rem;min-width:0}
+.fsy-action{flex:0 0 auto;font-size:.82rem;white-space:nowrap}
+.fsy-bloc--serre{gap:.3rem}
+.fsy-champ--manque input{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
+.fsy-champ--manque > span:first-child{color:var(--color-svv-red)}
+.fsy-villes{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:.35rem}
+.fsy-contact-tete{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+.fsy-contact-coord{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;font-size:.86rem;padding-left:.2rem}
 .fsy-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.3rem}
 .fsy-liste--serree{gap:.1rem;font-size:.86rem}
 .fsy-coord{display:inline-flex;flex-wrap:wrap;gap:.4rem;align-items:baseline}
 .fsy-lien-bouton{border:0;background:transparent;color:var(--color-svv-red);font:inherit;font-size:.82rem;text-decoration:underline;cursor:pointer;min-height:32px;padding:0 .2rem}
 .fsy-resultat{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:6px 10px;border-radius:8px;background:var(--color-svv-field)}
 .fsy-resultat-nom{display:flex;flex-direction:column;min-width:0}
-.fsy-contact-replie{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:6px 10px;border-radius:8px;
+.fsy-contact-replie{display:flex;flex-direction:column;gap:.2rem;padding:6px 10px;border-radius:8px;
   background:var(--color-svv-field);font-size:.88rem}
 .fsy-contact-ligne{min-width:0;overflow-wrap:anywhere}
 .fsy-point{color:var(--color-svv-muted)}

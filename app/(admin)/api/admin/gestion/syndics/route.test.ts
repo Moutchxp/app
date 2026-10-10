@@ -43,7 +43,7 @@ describe('/api/admin/gestion/syndics', () => {
 
   it('POST valide : création par la seule porte, avec l\'auteur de la SESSION', async () => {
     const { POST } = await import('./route');
-    const r = await POST(requete('/api/admin/gestion/syndics', { nom: 'Cabinet TEST', immeubles: ['12 rue X'], auteur: 'pirate' }));
+    const r = await POST(requete('/api/admin/gestion/syndics', { nom: 'Cabinet TEST', adresse: '1 rue A', codePostal: '75001', ville: 'Paris', immeubles: ['12 rue X'], auteur: 'pirate' }));
     expect(await r.json()).toEqual({ ok: true, id: 11 });
     expect(enregistrerSyndic.mock.calls[0][0]).toBeNull();
     expect(enregistrerSyndic.mock.calls[0][1]).toMatchObject({ nom: 'Cabinet TEST', immeubles: [{ libelle: '12 rue X', codePostal: '', commune: '' }] });
@@ -53,7 +53,7 @@ describe('/api/admin/gestion/syndics', () => {
   it('PUT /[id] : modification par la même porte ; GET /[id] inconnu → 404', async () => {
     const { PUT, GET } = await import('./[id]/route');
     const params = (id: string) => ({ params: Promise.resolve({ id }) });
-    await PUT(requete('/api/admin/gestion/syndics/11', { nom: 'Cabinet TEST' }, 'PUT'), params('11'));
+    await PUT(requete('/api/admin/gestion/syndics/11', { nom: 'Cabinet TEST', adresse: '1 rue A', codePostal: '75001', ville: 'Paris' }, 'PUT'), params('11'));
     expect(enregistrerSyndic.mock.calls[0][0]).toBe(11);
     expect((await GET(requete('/api/admin/gestion/syndics/5'), params('5'))).status).toBe(404);
     expect((await GET(requete('/api/admin/gestion/syndics/abc'), params('abc'))).status).toBe(422);

@@ -165,6 +165,30 @@ export function emailPlausible(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 
+/**
+ * ══ 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — L'ADRESSE DU SYNDIC EST OBLIGATOIRE ══════════════════════════════
+ * ARNO : « “Adresse (rue)”, “Code postal” et “Ville” sont OBLIGATOIRES. Code postal : 5 chiffres. Syndics existants
+ * sans code postal/ville : ils restent consultables ; l'obligation s'applique à la prochaine modification. »
+ * La règle vit ICI, lue par l'écran (champ cerclé, message) ET par le serveur (`validerSyndic`) : un navigateur
+ * qui contournerait l'écran ne la contourne pas.
+ */
+export type ChampAdresse = 'adresse' | 'codePostal' | 'ville';
+export const MOTIF_ADRESSE_INCOMPLETE = 'Complétez l’adresse du syndic : rue, code postal (5 chiffres) et ville.';
+
+/** Les champs d'adresse manquants ou invalides, dans l'ordre de l'écran. PUR. */
+export function adresseManquante(f: { adresse?: string | null; codePostal?: string | null; ville?: string | null }): ChampAdresse[] {
+  const out: ChampAdresse[] = [];
+  if ((f.adresse ?? '').trim() === '') out.push('adresse');
+  if (!/^\d{5}$/.test((f.codePostal ?? '').trim())) out.push('codePostal');
+  if ((f.ville ?? '').trim() === '') out.push('ville');
+  return out;
+}
+
+/** « Prénom NOM » : le nom de famille en capitales, comme dans le reste de l'annuaire. PUR. */
+export function prenomNom(prenom: string | null | undefined, nom: string | null | undefined): string {
+  return [(prenom ?? '').trim(), (nom ?? '').trim().toUpperCase()].filter((x) => x !== '').join(' ');
+}
+
 /** Un nom ou un titre suffit à un contact. PUR. */
 export function contactNomme(c: { titre?: string; prenom?: string; nom?: string }): boolean {
   return [c.titre, c.prenom, c.nom].some((x) => (x ?? '').trim() !== '');
@@ -185,6 +209,9 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
   if (nom === '') return { ok: false, motif: 'Le nom du cabinet est obligatoire.' };
   const email = texte(b.email);
   if (email !== '' && !emailPlausible(email)) return { ok: false, motif: `E-mail du cabinet illisible : « ${email} ».` };
+  if (adresseManquante({ adresse: texte(b.adresse), codePostal: texte(b.codePostal), ville: texte(b.ville) }).length > 0) {
+    return { ok: false, motif: MOTIF_ADRESSE_INCOMPLETE };
+  }
 
   const contactsBruts = Array.isArray(b.contacts) ? b.contacts.slice(0, 100) : [];
   const contacts: ContactSaisi[] = [];

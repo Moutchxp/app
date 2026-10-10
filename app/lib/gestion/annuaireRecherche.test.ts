@@ -299,7 +299,9 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
      (`pastillesBien`), où elle s'affiche dès qu'elle est connue. */
   it('🔴 une carte de bien dit adresse, lot, type, surface (en-tête), locataire, mails, dernier échange, événements, Drive', () => {
     const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
-    for (const mot of ['lot ', 'pastillesBien(b)', 'Locataire', 'Mails', 'Dernier échange', 'Événements ouverts']) {
+    /* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — CE QU'IL DISAIT AVANT : 'lot ' (la pastille « lot N » de l'en-tête).
+       Elle quitte l'en-tête avec l'accord d'Arno ; la référence est écrite en bas de la carte (`RefWippimmo`). */
+    for (const mot of ['<RefWippimmo numero={b.numero} />', 'pastillesBien(b)', 'Locataire', 'Mails', 'Dernier échange', 'Événements ouverts']) {
       expect(carte).toContain(mot);
     }
     // « Vacant » est un MOT, jamais une couleur seule.
@@ -377,7 +379,9 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
   /** 🔴 L'EN-TÊTE DU BIEN porte les cinq choses qu'Arno a énumérées, et le dossier Drive en action. */
   it('🔴 l’en-tête du bien : adresse, lot, type, surface, propriétaire, dossier Drive', () => {
     const vue = src.slice(src.indexOf('function VueLot'), src.indexOf('function grouperParPeriode'));
-    for (const mot of ['ann-tete-nom', 'lot {f.numero}', 'Surface', 'Propriétaire', 'Dossier Drive']) {
+    /* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — CE QU'IL DISAIT AVANT : 'lot {f.numero}' (la pastille de l'en-tête).
+       Retirée avec l'accord d'Arno ; la référence reste écrite sous l'en-tête, petite et grise. */
+    for (const mot of ['ann-tete-nom', '<RefWippimmo numero={f.numero} />', 'Surface', 'Propriétaire', 'Dossier Drive']) {
       expect(vue).toContain(mot);
     }
     // 🔴 LA SURFACE N'EST PAS DEVINÉE DEPUIS LE TYPE : aucune colonne n'existe, on écrit le fait.

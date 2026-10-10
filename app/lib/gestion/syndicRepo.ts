@@ -398,3 +398,38 @@ export async function adressesBanLocale(saisie: string, max = 6): Promise<Adress
     return { cle: cleImmeuble(libelle), libelle, codePostal: r.code_postal, commune: r.nom_commune };
   });
 }
+
+/**
+ * ══ 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — LA VILLE PROPOSÉE À PARTIR DU CODE POSTAL ═════════════════════════
+ *
+ * ARNO : « Bonus : saisir le code postal propose la ville (BAN locale). »
+ *
+ * ⚠️ LA BAN LOCALE (`adresse_ban`) NE PORTE PAS DE CODE POSTAL — mesuré : aucune colonne. On lit donc ce que
+ * l'application connaît DÉJÀ, sans aucun appel réseau : ① Paris (750xx et 75116 → « Paris ») ; ② les communes de NOS
+ * lots qui portent ce code postal ; ③ l'annuaire des mairies DILA déjà importé (`dila_import`). La liste est une
+ * PROPOSITION : la ville reste un champ libre.
+ */
+export async function communesDuCodePostal(cp: string): Promise<string[]> {
+  const c = cp.trim();
+  if (!/^\d{5}$/.test(c)) return [];
+  if (/^75(0\d\d|116)$/.test(c)) return ['Paris'];
+  const { rows } = await query<{ commune: string }>(
+    `SELECT commune FROM (
+       SELECT lo.commune, 1 AS rang FROM gestion_annuaire_lot lo
+        WHERE lo.code_postal = $1 AND coalesce(btrim(lo.commune), '') <> ''
+       UNION ALL
+       SELECT d.adresse_commune, 2 FROM dila_import d
+        WHERE d.adresse_code_postal = $1 AND coalesce(btrim(d.adresse_commune), '') <> ''
+     ) x
+     GROUP BY commune ORDER BY min(rang), count(*) DESC LIMIT 12`, [c]);
+  const vus = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    const lisible = communeLisible(r.commune);
+    const cle = normaliserTexte(lisible);
+    if (vus.has(cle)) continue;
+    vus.add(cle);
+    out.push(lisible);
+  }
+  return out;
+}
