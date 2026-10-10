@@ -294,9 +294,12 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
   });
 
   /** 🔴 LA CARTE D'UN BIEN porte les huit faits qu'Arno a énumérés, chacun avec son mot. */
-  it('🔴 une carte de bien dit adresse, lot, type, surface, locataire, mails, dernier échange, événements, Drive', () => {
+  /* 🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — CE QU'IL DISAIT AVANT : le mot 'Surface' (la ligne du corps de la
+     carte). Elle est retirée avec l'accord d'Arno : la surface monte dans les pastilles de l'en-tête
+     (`pastillesBien`), où elle s'affiche dès qu'elle est connue. */
+  it('🔴 une carte de bien dit adresse, lot, type, surface (en-tête), locataire, mails, dernier échange, événements, Drive', () => {
     const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
-    for (const mot of ['lot ', 'Surface', 'Locataire', 'Mails', 'Dernier échange', 'Événements ouverts']) {
+    for (const mot of ['lot ', 'pastillesBien(b)', 'Locataire', 'Mails', 'Dernier échange', 'Événements ouverts']) {
       expect(carte).toContain(mot);
     }
     // « Vacant » est un MOT, jamais une couleur seule.

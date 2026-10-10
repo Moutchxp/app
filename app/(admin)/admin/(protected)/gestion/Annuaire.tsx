@@ -83,6 +83,7 @@ import {
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature des coordonnées, partagée par tous les écrans de l'annuaire.
 import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffichage';
+import { pastillesBien } from '../../../../lib/gestion/pastillesBien';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -714,8 +715,9 @@ function CartoucheEvenement({ nb, onOuvrir }: { nb: number; onOuvrir: () => void
  * (`stopPropagation`). Un bouton dans un bouton serait du HTML invalide : le lien du Drive est donc un vrai
  * `<a>`, posé À CÔTÉ du bouton dans le flux, et la carte est une grille — pas une imbrication.
  *
- * ⚠️ « SURFACE : NON RENSEIGNÉE » EST UN FAIT, PAS UN TROU. Mesuré le 29/09/2026 : aucune colonne de surface
- * n'existe dans le schéma. On ne la déduit pas du type (« Type 2 » ne dit pas des mètres carrés).
+ * ⚠️ LA SURFACE N'EST PLUS UNE LIGNE DU CORPS (lot ANNUAIRE-SYNDICS-ET-ENTETE-BIEN, accord d'Arno) : elle est une
+ * pastille de l'en-tête, qui n'apparaît que lorsqu'elle est connue (`pastillesBien`). Mesuré le 10/10/2026 : aucune
+ * colonne de surface n'existe encore. On ne la déduit pas du type (« Type 2 » ne dit pas des mètres carrés).
  */
 function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
   b: BienDuProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
@@ -749,20 +751,16 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
           <span className="ann-carte-titre">{titreLogement(b.adresse, b.commune)}</span>
           <span className="ann-carte-sous">
             <span className="ann-etiq">lot {b.numero}</span>
-            {b.nature && <span className="ann-etiq">{b.nature}</span>}
-            {b.typeBien && <span className="ann-etiq">{b.typeBien}</span>}
+            {/* 🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — type, pièces, surface, étage : `pastillesBien`. */}
+            {pastillesBien(b).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
           </span>
         </span>
       </button>
-      {/* 🔴 JUSTE AU-DESSUS DE LA LIGNE SURFACE, sur toute la largeur — la place demandée par Arno. */}
+      {/* 🔴 JUSTE AU-DESSUS DES FAITS de la carte (là où était la ligne SURFACE), sur toute la largeur. */}
       <CartoucheEvenement nb={b.evenementsOuverts} onOuvrir={() => onEvenements(b.id)} />
       <div className="ann-carte-faits">
-          <span className="ann-fait">
-            <span className="ann-fait-mot">Surface</span>
-            {b.surfaceM2 === null
-              ? <span className="ann-inconnu">non renseignée</span>
-              : <span>{b.surfaceM2} m²</span>}
-          </span>
+          {/* 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA LIGNE « SURFACE » EST RETIRÉE, avec l'accord explicite
+              d'Arno pour CETTE ligne : la surface monte dans l'en-tête (pastille « 63 m² », quand elle est connue). */}
           {/* 🔴 LE LOCATAIRE EN PLACE EST MIS EN VALEUR : c'est ce qu'on cherche sur une carte de bien. */}
           <span className={`ann-fait${b.locataire !== null ? ' ann-fait--locataire' : ''}`}>
             <span className="ann-fait-mot">Locataire</span>
@@ -1377,8 +1375,7 @@ function VueLot({
           <p className="ann-tete-sous">
             <span className="ann-role-capsule">Bien</span>
             <span className="ann-etiq">lot {f.numero}</span>
-            {f.nature && <span className="ann-etiq">{f.nature}</span>}
-            {f.typeBien && <span className="ann-etiq">{f.typeBien}</span>}
+            {pastillesBien(f).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
           </p>
         </div>
@@ -2048,8 +2045,7 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
         </span>
         <span className="ann-carte-sous">
           <span className="ann-etiq">lot {o.numero}</span>
-          {o.nature && <span className="ann-etiq">{o.nature}</span>}
-          {o.typeBien && <span className="ann-etiq">{o.typeBien}</span>}
+          {pastillesBien(o).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
           {o.horsGestion && <span className="ann-etiq ann-etiq--absent">hors gestion</span>}
         </span>
       </span>
@@ -2058,10 +2054,8 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
           <span className="ann-fait-mot">Occupation</span>
           <span className="ann-fait-valeur">{periodeOccupation(o.entree, o.sortie)}</span>
         </span>
-        <span className="ann-fait">
-          <span className="ann-fait-mot">Surface</span>
-          {o.surfaceM2 === null ? <span className="ann-inconnu">non renseignée</span> : <span>{o.surfaceM2} m²</span>}
-        </span>
+        {/* 🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — la ligne « SURFACE » est retirée ici aussi (accord d'Arno pour la
+            ligne SURFACE du corps de la carte d'un bien) : la surface monte dans l'en-tête. */}
         <span className="ann-fait">
           <span className="ann-fait-mot">Propriétaire</span>
           {o.proprietaireNom === null || o.proprietaireNom === ''

@@ -843,9 +843,13 @@ describe('🔴 des cartes de même taille, et des boutons collés en bas', () =>
 describe('🔴 le cartouche « Événement en cours »', () => {
   const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
 
-  it('🔴 il est JUSTE AU-DESSUS de la ligne SURFACE, sur toute la largeur', () => {
+  /* 🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — CE QU'IL DISAIT AVANT : « juste au-dessus de la ligne SURFACE »
+     (`indexOf('Surface')`). La ligne SURFACE est retirée du corps de la carte, avec l'accord d'Arno ; le cartouche
+     reste à sa place, juste au-dessus des faits de la carte. */
+  it('🔴 il est JUSTE AU-DESSUS des faits de la carte (là où était la ligne SURFACE), sur toute la largeur', () => {
     const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
-    expect(carte.indexOf('<CartoucheEvenement')).toBeLessThan(carte.indexOf('Surface'));
+    expect(carte.indexOf('<CartoucheEvenement')).toBeGreaterThan(-1);
+    expect(carte.indexOf('<CartoucheEvenement')).toBeLessThan(carte.indexOf('className="ann-carte-faits"'));
     expect(src).toContain('.ann-cartouche{display:flex;align-items:center;justify-content:center;gap:.4rem;');
     expect(src).toContain('width:100%;');
   });
