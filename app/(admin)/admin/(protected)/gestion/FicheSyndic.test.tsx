@@ -2476,11 +2476,22 @@ describe('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE', () => {
     expect(ecritures()).toEqual([]);
   });
 
-  it('la CONFIRMATION nomme le syndic, la copropriété et les lots ; « Annuler » n’écrit rien', async () => {
+  // LOT SYNDIC-RETRAIT-RESIDENCE-MESSAGE-SIMPLE — CE QU'IL DISAIT AVANT : une seule phrase « Retirer … de la copropriété
+  // 12 rue X, 92400 Courbevoie ? Lots concernés : lot 373, lot 406. Le syndic, ses autres copropriétés et son catalogue
+  // de contacts sont conservés. » — désormais trois lignes, sans « Lots concernés » (accord d'Arno).
+  it('la CONFIRMATION en trois lignes (gras / adresse / gris), sans « Lots concernés » ; « Annuler » n’écrit rien', async () => {
     await ouvrir50('12 rue X');
     await cliquer(gros() as Element);
-    expect(confirmation()?.querySelector('p')?.textContent).toBe('Retirer _TEST ANCIEN / Asnieres Sur Seine de la copropriété 12 rue X, 92400 Courbevoie ? '
-      + 'Lots concernés : lot 373, lot 406. Le syndic, ses autres copropriétés et son catalogue de contacts sont conservés.');
+    const p = [...(confirmation()?.querySelectorAll('p') ?? [])];
+    expect(p.map((x) => x.textContent)).toEqual([
+      'Détacher _TEST ANCIEN / Asnieres Sur Seine de cette copropriété ?',
+      '12 rue X, 92400 Courbevoie',
+      'Le syndic et ses contacts restent enregistrés dans la base des syndics.',
+    ]);
+    expect(p[0].querySelector('strong')?.textContent).toBe(p[0].textContent); // ligne 1 en gras
+    expect(p[2].className).toContain('fsy-discret'); // ligne 3 en gris
+    expect(confirmation()?.textContent).not.toContain('Lots concernés');
+    expect(confirmation()?.textContent).not.toMatch(/lot \d/);
     expect([...(confirmation()?.querySelectorAll('button') ?? [])].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, retirer de cette résidence']);
     await cliquer(boutonDans(confirmation(), 'Annuler'));
     expect(confirmation()).toBeNull();

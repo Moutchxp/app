@@ -253,16 +253,15 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       setEnvoi(false);
     }
   };
-  const lotsDuBien = coproDuBien === null ? []
-    : [...coproDuBien.lots].sort((a, b) => a.numero.localeCompare(b.numero, 'fr', { numeric: true })).map((l) => `lot ${l.numero}`);
   const blocRetrait = coproDuBien === null || fiche === null ? null : retrait ? (
     <div className="fsy-retrait-confirmer" role="group" aria-label="Confirmer le retrait du syndic de cette résidence">
-      <p>
-        Retirer <strong>{nomAvecVille(fiche.nom, fiche.ville)}</strong> de la copropriété{' '}
-        <strong>{adresseImmeuble(coproDuBien.libelle, coproDuBien.codePostal, coproDuBien.commune)}</strong> ?{' '}
-        Lots concernés : {lotsDuBien.length === 0 ? 'aucun' : lotsDuBien.join(', ')}.{' '}
-        Le syndic, ses autres copropriétés et son catalogue de contacts sont conservés.
-      </p>
+      {/* LOT SYNDIC-RETRAIT-RESIDENCE-MESSAGE-SIMPLE — CE QU'IL Y AVAIT : « Retirer X de la copropriété A ? Lots
+          concernés : lot …. Le syndic, ses autres copropriétés et son catalogue de contacts sont conservés. » Trois lignes
+          plus simples ; « Lots concernés » retiré du message (accord d'Arno) — le comportement, lui, est inchangé : TOUS
+          les lots du portefeuille de cette copropriété perdent ce syndic. */}
+      <p className="fsy-retrait-question"><strong>Détacher {nomAvecVille(fiche.nom, fiche.ville)} de cette copropriété ?</strong></p>
+      <p className="fsy-retrait-adresse">{adresseImmeuble(coproDuBien.libelle, coproDuBien.codePostal, coproDuBien.commune)}</p>
+      <p className="fsy-retrait-note fsy-discret">Le syndic et ses contacts restent enregistrés dans la base des syndics.</p>
       <div className="fsy-boutons">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRetrait(false)} disabled={envoi}>Annuler</button>
         <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void retirer()} disabled={envoi}>Oui, retirer de cette résidence</button>
@@ -1941,7 +1940,7 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
   background:var(--color-svv-surface);color:var(--color-svv-red);font:inherit;font-size:.95rem;font-weight:700;cursor:pointer;text-align:center}
 .fsy-retrait:hover:not(:disabled),.fsy-retrait:not(:disabled):focus-visible{background:var(--color-svv-red-soft)}
 .fsy-retrait:not(:disabled):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.fsy-retrait-confirmer{display:flex;flex-direction:column;gap:.5rem;padding:10px 12px;border-radius:10px;
+.fsy-retrait-confirmer{display:flex;flex-direction:column;gap:.3rem;padding:10px 12px;border-radius:10px;
   border:2px solid var(--color-svv-red);background:var(--color-svv-surface);font-size:.9rem}
 .fsy-retrait-confirmer p{margin:0;overflow-wrap:anywhere}
 .fsy-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}
