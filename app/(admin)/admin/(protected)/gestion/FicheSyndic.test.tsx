@@ -1308,14 +1308,14 @@ describe('LOT SYNDIC-BLOC-AJOUT-CONTACT — l’ajout d’un contact a son propr
   };
   const depuisSyndics = async (): Promise<ReturnType<typeof vi.fn>> => { servir22(); return ouvrir(vi.fn(), 22); };
 
-  it('depuis un BIEN : bloc 1, puis « Ajouter un nouveau contact à cette copropriété » (pendant l’ajout seulement), puis le bloc 2', async () => {
+  it('depuis un BIEN : bloc 1, puis « Ajouter un contact syndic à cette copropriété » (pendant l’ajout seulement), puis « Gérer ce syndic »', async () => {
     await depuisLeBien();
     expect(bloc('fsy-bloc-ajout')).toBeNull();
     await cliquer(plus() as Element);
     const ordre = [bloc('fsy-bloc-1'), bloc('fsy-bloc-ajout'), bloc('fsy-bloc-2')] as HTMLElement[];
     expect(ordre.every((b) => b !== null)).toBe(true);
     for (let i = 1; i < 3; i++) expect(ordre[i - 1].compareDocumentPosition(ordre[i])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(titre('fsy-bloc-ajout')).toBe('Ajouter un nouveau contact à cette copropriété'); // avant : « Ajouter un contact syndic à cette copropriété »
+    expect(titre('fsy-bloc-ajout')).toBe('Ajouter un contact syndic à cette copropriété'); // avant : « … à cet immeuble »
     expect(bloc('fsy-bloc-ajout')?.className).toContain('fsy-cadre');
     expect(bloc('fsy-bloc-ajout')?.querySelector('.fsy-cadre-titre')?.className).toContain('fsy-sous-titre');
   });
@@ -1395,14 +1395,14 @@ describe('LOT SYNDIC-TITRES-COPROPRIETE — « copropriété » depuis un bien, 
   const intertitre = (): string => document.querySelector('section[aria-labelledby="fsy-bloc-1"] h4.fsy-sous-titre')?.textContent ?? '';
   const plus = (): HTMLButtonElement => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === '+ Ajouter un contact') as HTMLButtonElement;
 
-  it('depuis un BIEN : « Contacts de cette copropriété » et « Ajouter un nouveau contact à cette copropriété », mêmes styles', async () => {
+  it('depuis un BIEN : « Contacts de cette copropriété » et « Ajouter un contact syndic à cette copropriété », mêmes styles', async () => {
     await act(async () => {
       root.render(createElement(FicheSyndic, { syndicId: 20, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
     });
     await calmer();
     expect(intertitre()).toBe('Contacts de cette copropriété');
     await cliquer(plus());
-    expect(titreAjout()).toBe('Ajouter un nouveau contact à cette copropriété'); // LOT SYNDIC-TITRE-NOUVEAU-CONTACT-COPRO
+    expect(titreAjout()).toBe('Ajouter un contact syndic à cette copropriété');
     expect(document.querySelector('section[aria-labelledby="fsy-bloc-ajout"] .fsy-cadre-titre')?.className).toContain('fsy-sous-titre');
   });
 
@@ -1992,24 +1992,5 @@ describe('LOT SYNDIC-CATALOGUE-TUILES-ROSES', () => {
     for (const sel of ['.fsy-catalogue input[type="search"]', '.fsy-catalogue-titre', '.fsy-contact-edit', '.fsy-catalogue']) {
       expect(document.querySelector(sel)?.classList.contains('fsy-tuile-catalogue')).toBe(false);
     }
-  });
-});
-
-describe('LOT SYNDIC-TITRE-NOUVEAU-CONTACT-COPRO', () => {
-  const titreAjout = (): Element | null => document.querySelector('section[aria-labelledby="fsy-bloc-ajout"] .fsy-cadre-titre');
-  const plus = (): HTMLButtonElement => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === '+ Ajouter un contact') as HTMLButtonElement;
-  it('depuis un bien : « Ajouter un nouveau contact à cette copropriété », même style (petites capitales grises)', async () => {
-    await act(async () => {
-      root.render(createElement(FicheSyndic, { syndicId: 20, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
-    });
-    await calmer();
-    await cliquer(plus());
-    expect(titreAjout()?.textContent).toBe('Ajouter un nouveau contact à cette copropriété');
-    expect(titreAjout()?.className).toBe('fsy-sous-titre fsy-cadre-titre');
-  });
-  it('sans bien (écran « Syndics ») : « Ajouter un contact au cabinet », inchangé', async () => {
-    await ouvrir(vi.fn(), 20);
-    await cliquer(plus());
-    expect(titreAjout()?.textContent).toBe('Ajouter un contact au cabinet');
   });
 });

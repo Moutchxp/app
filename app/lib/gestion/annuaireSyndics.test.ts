@@ -821,7 +821,7 @@ describe('les écrans', () => {
     expect(src).not.toMatch(/>\s*(Catalogue des contacts\s*<|Contacts pour cet immeuble|Autres contacts du cabinet)/);
     expect(src).toContain('Catalogue des contacts du syndic');
     // LOT SYNDIC-MODALE-DEUX-BLOCS — « Autres contacts » devient « Contacts de cet immeuble » / « Contacts du cabinet ».
-    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Contacts de cette copropriété', 'Contacts du cabinet', 'Ajouter un nouveau contact à cette copropriété',
+    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Contacts de cette copropriété', 'Contacts du cabinet', 'Ajouter un contact syndic à cette copropriété',
       'Gérer ce syndic', 'Coordonnées et contacts du cabinet', 'Syndic de l’immeuble · ', 'Catalogue',
       'Ajouter à cette copropriété', 'Déjà rattaché à :', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
       // LOT SYNDIC-BLOC-PORTEFEUILLE — CE QU'IL DISAIT AVANT : 'Biens qui recevront ce syndic', 'déjà rattachée à',
