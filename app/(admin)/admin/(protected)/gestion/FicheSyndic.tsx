@@ -538,7 +538,6 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition}
         cleDepart={cleDepart} adresses={adresses} />
 
-      <h3 className="fsy-sous-titre">Copropriétés</h3>
       <EditionCopros immeubles={form.immeubles} connus={connus} syndicId={syndicId}
         /* LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — une copropriété retirée sort aussi des contacts qui la suivaient. */
         onChange={(l) => {
@@ -624,7 +623,8 @@ function jour(iso: string): string {
  * largeur (vide au départ ; filtre à chaque lettre — prénom, nom, titre, téléphone, e-mail ; sans accents ni casse),
  * puis TOUTES les tuiles, par ordre alphabétique du nom puis du prénom (`trierParNom`). La liste montre 5 tuiles au
  * plus et défile EN ELLE-MÊME au-delà (`.fsy-catalogue-liste`), pas la fiche. Une tuile dépliée : coordonnées en
- * lecture seule (libellés, Copier), « Déjà rattaché à : », « Sélectionner pour cet immeuble ».
+ * lecture seule (libellés, Copier), « Déjà rattaché à : », « Ajouter à cette copropriété » (lot
+ * SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT — c'était « Sélectionner pour cet immeuble » ; comportement inchangé).
  *
  * ⚠️ « NOTE » : un contact de syndic n'a pas de champ note (seul le cabinet en a une) — rien à afficher.
  */
@@ -677,7 +677,7 @@ function Catalogue({ contacts, adresses, onSelectionner }: {
             <div className="fsy-boutons fsy-boutons--contact">
               <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => replier(c.cle)}>Annuler</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => onSelectionner(c.cle)}>
-                Sélectionner pour cet immeuble
+                Ajouter à cette copropriété
               </button>
             </div>
           </div>
@@ -860,9 +860,14 @@ function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition
             rattacheA={parImmeuble ? adresses.filter((a) => edition.brouillon.immeubles.includes(a.cle)).map((a) => a.adresse).join(' · ') : undefined} />
         </>
       )}
-      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
-        + Ajouter un contact
-      </button>
+      {/* 🔴 LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT — UN SEUL CONTACT EN CRÉATION À LA FOIS (accord d'Arno pour
+          ce masquage) : tant que le bloc d'ajout est ouvert (Catalogue et/ou Nouveau contact), pas de « + Ajouter un
+          contact ». Il revient dès que le bloc se ferme : Annuler, Valider, ou « Ajouter à cette copropriété ». */}
+      {edition?.nouveau !== true && (
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
+          + Ajouter un contact
+        </button>
+      )}
     </>
   );
 }
@@ -1066,6 +1071,8 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
   onCreerContact: (cle: string) => string | null;
 }) {
   const [deplie, setDeplie] = useState<string | null>(null);
+  /** La liste des copropriétés déjà rattachées : repliée à l'ouverture de la fiche. */
+  const [listeOuverte, setListeOuverte] = useState(false);
   const [aCocher, setACocher] = useState<string[] | null>(null);
   const [bloque, setBloque] = useState<string | null>(null);
   const [saisie, setSaisie] = useState('');
@@ -1119,8 +1126,23 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
 
   return (
     <div className="fsy-bloc">
-      {immeubles.length === 0 && <p className="fsy-discret">Aucune copropriété.</p>}
-      {immeubles.length > 0 && (
+      {/* 🔴 LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT — LA LISTE DES COPROPRIÉTÉS DÉJÀ RATTACHÉES TIENT EN UNE LIGNE,
+          repliée à l'ouverture de la fiche, au format des lignes repliées (fond gris clair, ▸ à droite). Un clic la
+          déplie juste dessous, telle qu'avant ; un nouveau clic la replie. Aucune copropriété : « (0) », non dépliable.
+          ⚠️ « + Ajouter une copropriété » reste visible SOUS la ligne : il n'est pas une copropriété « déjà rattachée »,
+          et son masquage n'a pas été demandé. */}
+      {immeubles.length === 0 ? (
+        <div className="fsy-copros-ligne fsy-copros-ligne--vide">
+          <strong>Copropriétés déjà rattachées à ce syndic (0)</strong>
+        </div>
+      ) : (
+        <button type="button" className="fsy-copros-ligne" aria-expanded={listeOuverte}
+          onClick={() => setListeOuverte(!listeOuverte)}>
+          <strong>Copropriétés déjà rattachées à ce syndic ({immeubles.length})</strong>
+          <span className="fsy-fleche" aria-hidden="true">{listeOuverte ? '▾' : '▸'}</span>
+        </button>
+      )}
+      {immeubles.length > 0 && listeOuverte && (
         <ul className="fsy-liste">
           {immeubles.map((im) => {
             const c = parCle.get(cleImmeuble(im.libelle));
@@ -1306,10 +1328,11 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-lien-bouton{border:0;background:transparent;color:var(--color-svv-red);font:inherit;font-size:.82rem;text-decoration:underline;cursor:pointer;min-height:32px;padding:0 .2rem}
 .fsy-resultat{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:6px 10px;border-radius:8px;background:var(--color-svv-field)}
 .fsy-resultat-nom{display:flex;flex-direction:column;min-width:0}
-.fsy-contact-replie,.fsy-contact-tete-btn{width:100%;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
+.fsy-contact-replie,.fsy-contact-tete-btn,.fsy-copros-ligne{width:100%;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
   padding:6px 10px;border-radius:8px;border:1px solid transparent;background:var(--color-svv-field);color:var(--color-svv-ink);
   font:inherit;font-size:.88rem;text-align:left;cursor:pointer}
-.fsy-contact-replie:hover,.fsy-contact-replie:focus-visible,.fsy-contact-tete-btn:hover,.fsy-contact-tete-btn:focus-visible{
+.fsy-contact-replie:hover,.fsy-contact-replie:focus-visible,.fsy-contact-tete-btn:hover,.fsy-contact-tete-btn:focus-visible,
+button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
   border-color:var(--color-svv-line-strong)}
 .fsy-contact-tete-btn{background:transparent;padding:2px 0;min-height:32px}
 .fsy-contact-ouvert{display:flex;flex-direction:column;gap:.25rem;padding:6px 10px 8px;border-radius:8px;background:var(--color-svv-field)}
@@ -1325,6 +1348,8 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-ligne-ajouts{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
 .fsy-pousse{margin-left:auto}
 .fsy-copro{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:5px 10px;border-radius:8px;background:var(--color-svv-field)}
+.fsy-copros-ligne{margin-top:.35rem}
+.fsy-copros-ligne--vide{cursor:default}
 .fsy-copro-tete{flex:1 1 16rem;min-width:0;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
   border:0;background:transparent;color:var(--color-svv-ink);font:inherit;text-align:left;cursor:pointer;padding:0}
 .fsy-copro-contacts{flex:1 1 100%;display:flex;flex-direction:column;gap:.3rem;padding:.3rem 0 .2rem;border-top:1px solid var(--color-svv-line)}

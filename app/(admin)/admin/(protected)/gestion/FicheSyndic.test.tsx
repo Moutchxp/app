@@ -125,6 +125,11 @@ const boutonDans = (zone: Element | null, texte: string): HTMLButtonElement => {
   if (!b) throw new Error(`bouton introuvable dans la zone : ${texte}`);
   return b as HTMLButtonElement;
 };
+/** LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT — la liste des copropriétés est repliée à l'ouverture : on la déplie. */
+const deplierCopros = async (): Promise<void> => {
+  const l = document.querySelector('button.fsy-copros-ligne') as HTMLButtonElement | null;
+  if (l !== null && l.getAttribute('aria-expanded') === 'false') { await act(async () => { l.click(); }); }
+};
 const champ = (label: string): HTMLInputElement => {
   const l = [...document.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === label);
   const i = l?.querySelector('input');
@@ -185,11 +190,13 @@ describe('les téléphones du standard', () => {
 describe('les copropriétés — adresse complète, auto-complétion, reprise confirmée', () => {
   it('une copropriété s\'affiche « 12 rue X, 92400 Courbevoie »', async () => {
     await ouvrir();
+    await deplierCopros();
     expect(document.querySelector('.fsy-copro')?.textContent).toContain('12 rue X, 92400 Courbevoie');
   });
 
   it('dès 2 caractères : le portefeuille, avec « N biens en gestion » et « déjà rattachée à … » ; la prise se confirme', async () => {
     await ouvrir();
+    await deplierCopros();
     await taper(champ('+ Ajouter une copropriété (immeuble)'), '25');
     const prop = [...document.querySelectorAll('.fsy-proposition')].map((p) => p.textContent ?? '');
     expect(prop[0]).toContain('25 rue Edith Cavell, 92400 Courbevoie');
@@ -643,6 +650,7 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
 
   it('la copropriété repliée : « 12 rue X, 92400 Courbevoie · 2 contacts · 1 bien en gestion » ; dépliée : ses contacts, « commun » marqué', async () => {
     await ouvrir(vi.fn(), 20);
+    await deplierCopros();
     expect(copro(0).querySelector('.fsy-copro-tete')?.textContent).toBe('12 rue X, 92400 Courbevoie2 contacts · 1 bien en gestion▸');
     await cliquer(copro(0).querySelector('.fsy-copro-tete') as Element);
     const lignes = [...copro(0).querySelectorAll('.fsy-copro-contacts .fsy-contact-coord')].map((l) => l.textContent);
@@ -651,6 +659,7 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
 
   it('RETIRER une affectation depuis la copropriété : le contact reste au catalogue', async () => {
     await ouvrir(vi.fn(), 20);
+    await deplierCopros();
     await cliquer(copro(0).querySelector('.fsy-copro-tete') as Element);
     await cliquer(copro(0).querySelector('button[aria-label="Retirer l’affectation de Marie DOUZE"]') as Element);
     expect(copro(0).querySelector('.fsy-copro-tete')?.textContent).toContain('1 contact · 1 bien en gestion');
@@ -662,6 +671,7 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
 
   it('« + Affecter un contact » : la liste du catalogue à cocher', async () => {
     await ouvrir(vi.fn(), 20);
+    await deplierCopros();
     await cliquer(copro(1).querySelector('.fsy-copro-tete') as Element);
     await cliquer(boutonDans(copro(1), '+ Affecter un contact'));
     const cases = [...copro(1).querySelectorAll('.fsy-affecter label')].map((l) => l.textContent);
@@ -674,6 +684,7 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
 
   it('« Créer un nouveau contact » depuis une copropriété : créé dans le catalogue ET affecté à cet immeuble', async () => {
     await ouvrir(vi.fn(), 20);
+    await deplierCopros();
     await cliquer(copro(1).querySelector('.fsy-copro-tete') as Element);
     await cliquer(boutonDans(copro(1), 'Créer un nouveau contact'));
     const bloc = document.querySelector('.fsy-contact-edit') as HTMLElement;
@@ -700,6 +711,7 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
 
   it('RETIRER une copropriété : elle sort aussi des contacts qui la suivaient', async () => {
     await ouvrir(vi.fn(), 20);
+    await deplierCopros();
     await cliquer(boutonDans(copro(1), 'Retirer'));
     await cliquer(bouton('Oui, retirer'));
     await cliquer(boutonDans(pied(), 'Valider'));
@@ -809,7 +821,7 @@ describe('LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — Catalogue ouvert, puis N
     expect([...fiche.querySelectorAll('.fsy-contact-coord')].map((l) => l.textContent)).toEqual([
       'Ligne directe : 06 11 22 33 44Copier', 'Email direct : elodie@test.invalidCopier']);
     expect(fiche.querySelector('.fsy-suivis')?.textContent).toBe('Déjà rattaché à : 3 av Y, 92400 Courbevoie');
-    await cliquer(boutonDans(fiche, 'Sélectionner pour cet immeuble'));
+    await cliquer(boutonDans(fiche, 'Ajouter à cette copropriété'));
     expect(catalogue()).toBeNull();
     expect(document.querySelector('.fsy-contact-edit')).toBeNull();
     expect(affiches()).toContain('Élodie ÉTÉ');
@@ -909,10 +921,10 @@ describe('LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — replier une tuile du catalog
     expect(onFerme).toHaveBeenCalledTimes(1);
   };
 
-  it('« Annuler » est À GAUCHE de « Sélectionner pour cet immeuble », au style des Annuler blancs', async () => {
+  it('« Annuler » est À GAUCHE de « Ajouter à cette copropriété », au style des Annuler blancs', async () => {
     await preparer();
     const boutons = [...(ouverte()?.querySelectorAll('.fsy-boutons button') ?? [])] as HTMLButtonElement[];
-    expect(boutons.map((b) => b.textContent?.trim())).toEqual(['Annuler', 'Sélectionner pour cet immeuble']);
+    expect(boutons.map((b) => b.textContent?.trim())).toEqual(['Annuler', 'Ajouter à cette copropriété']);
     expect(boutons[0].className).toContain('svv-btn-outline');
   });
 
@@ -944,7 +956,7 @@ describe('LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — replier une tuile du catalog
 
   it('Échap DANS la tuile = Annuler, SANS fermer la fiche ; le focus revient sur la tuile', async () => {
     const onFerme = await preparer();
-    const bouton0 = boutonDans(ouverte(), 'Sélectionner pour cet immeuble');
+    const bouton0 = boutonDans(ouverte(), 'Ajouter à cette copropriété');
     await act(async () => { bouton0.focus(); bouton0.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     await attendre(10);
     expect(ouverte()).toBeNull();
@@ -962,9 +974,9 @@ describe('LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — replier une tuile du catalog
     expect(onFerme).toHaveBeenCalledTimes(1);
   });
 
-  it('« Sélectionner pour cet immeuble » fonctionne toujours', async () => {
+  it('« Ajouter à cette copropriété » fonctionne toujours', async () => {
     await preparer();
-    await cliquer(boutonDans(ouverte(), 'Sélectionner pour cet immeuble'));
+    await cliquer(boutonDans(ouverte(), 'Ajouter à cette copropriété'));
     expect(affiches()).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Anne ABEL']);
     await cliquer(boutonDans(pied(), 'Valider'));
     const put = appels.find((x) => x.methode === 'PUT')?.corps as { contacts: Array<{ prenom: string; nom: string; immeubles: string[] }> };
@@ -1088,5 +1100,104 @@ describe('LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE', () => {
     await ouvrir();
     expect(document.querySelector('.fsy-corps textarea')).toBeNull();
     expect(bouton('+ note')).toBeTruthy();
+  });
+});
+
+describe('LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT', () => {
+  const ligne = (): HTMLElement | null => document.querySelector('.fsy-copros-ligne');
+  const plusContact = (): HTMLButtonElement | undefined =>
+    [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === '+ Ajouter un contact') as HTMLButtonElement | undefined;
+  const servir22 = (): void => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/gestion/syndics/22' && (init?.method ?? 'GET') === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche: FICHE_22 }) };
+      if (url === '/api/admin/gestion/syndics/22') { appels.push({ url, methode: init?.method ?? 'GET', corps: JSON.parse(String(init?.body)) }); return { ok: true, json: async () => ({ ok: true, id: 22 }) }; }
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const depuisLeBien22 = async (): Promise<void> => {
+    servir22();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 22, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+  };
+
+  it('le bouton du catalogue s\'appelle « Ajouter à cette copropriété »', async () => {
+    await depuisLeBien22();
+    await cliquer(plusContact() as Element);
+    await cliquer(document.querySelector('.fsy-catalogue button.fsy-contact-replie') as Element);
+    const boutons = [...(document.querySelector('.fsy-catalogue .fsy-contact-ouvert')?.querySelectorAll('.fsy-boutons button') ?? [])].map((b) => b.textContent?.trim());
+    expect(boutons).toEqual(['Annuler', 'Ajouter à cette copropriété']);
+    expect(document.body.textContent).not.toContain('Sélectionner pour cet immeuble');
+  });
+
+  it('COPROPRIÉTÉS : une ligne repliée à l\'ouverture « … (N) ▸ » ; un clic déplie, un autre replie', async () => {
+    await ouvrir(vi.fn(), 20);
+    expect(ligne()?.tagName).toBe('BUTTON');
+    expect(ligne()?.textContent).toBe('Copropriétés déjà rattachées à ce syndic (2)▸');
+    expect(ligne()?.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelectorAll('.fsy-copro')).toHaveLength(0);
+    // le titre « Copropriétés » a laissé place à la ligne
+    expect([...document.querySelectorAll('.fsy-sous-titre')].map((h) => h.textContent)).not.toContain('Copropriétés');
+    await cliquer(ligne() as Element);
+    expect(ligne()?.textContent).toBe('Copropriétés déjà rattachées à ce syndic (2)▾');
+    expect(document.querySelectorAll('.fsy-copro')).toHaveLength(2);
+    // le dépliage d'UNE copropriété est inchangé
+    await cliquer(document.querySelector('.fsy-copro .fsy-copro-tete') as Element);
+    expect(document.querySelector('.fsy-copro-contacts')).not.toBeNull();
+    await cliquer(ligne() as Element);
+    expect(document.querySelectorAll('.fsy-copro')).toHaveLength(0);
+  });
+
+  it('COPROPRIÉTÉS : même format que les lignes repliées (même règle de style) ; « + Ajouter une copropriété » reste visible', async () => {
+    await ouvrir(vi.fn(), 20);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-contact-replie,.fsy-contact-tete-btn,.fsy-copros-ligne{width:100%;min-height:40px;');
+    expect(champ('+ Ajouter une copropriété (immeuble)')).toBeTruthy();
+  });
+
+  it('COPROPRIÉTÉS : aucune → « (0) », non dépliable', async () => {
+    await ouvrir(vi.fn(), null);
+    await cliquer(bouton('Créer un nouveau syndic'));
+    expect(ligne()?.tagName).toBe('DIV');
+    expect(ligne()?.textContent).toBe('Copropriétés déjà rattachées à ce syndic (0)');
+  });
+
+  it('« + Ajouter un contact » ABSENT pendant la création, de retour après Annuler', async () => {
+    await ouvrir(vi.fn(), 20);
+    await cliquer(plusContact() as Element);
+    expect(plusContact()).toBeUndefined();
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Annuler'));
+    expect(plusContact()).toBeDefined();
+  });
+
+  it('… de retour après Valider du nouveau contact', async () => {
+    await ouvrir(vi.fn(), 20);
+    await cliquer(plusContact() as Element);
+    const bloc = document.querySelector('.fsy-contact-edit') as HTMLElement;
+    const nom = [...bloc.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
+    await taper(nom, 'Neuf');
+    await cliquer(boutonDans(bloc, 'Valider'));
+    expect(plusContact()).toBeDefined();
+  });
+
+  it('… de retour après « Ajouter à cette copropriété » (depuis un bien, Catalogue + Nouveau contact ouverts)', async () => {
+    await depuisLeBien22();
+    await cliquer(plusContact() as Element);
+    expect(document.querySelector('.fsy-catalogue')).not.toBeNull();
+    expect(plusContact()).toBeUndefined();
+    await cliquer(document.querySelector('.fsy-catalogue button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-catalogue .fsy-contact-ouvert'), 'Ajouter à cette copropriété'));
+    expect(document.querySelector('.fsy-catalogue')).toBeNull();
+    expect(plusContact()).toBeDefined();
+  });
+
+  it('… même règle depuis l\'écran « Syndics » (sans bien)', async () => {
+    servir22();
+    await ouvrir(vi.fn(), 22);
+    await cliquer(plusContact() as Element);
+    expect(document.querySelector('.fsy-catalogue')).toBeNull();
+    expect(plusContact()).toBeUndefined();
   });
 });
