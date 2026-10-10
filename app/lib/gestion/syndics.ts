@@ -2,14 +2,17 @@ import { normaliserTexte } from './annuaire';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN, COMMIT 2 — L'ANNUAIRE DES SYNDICS : LES RÈGLES PURES ═══════════════
+ * (complété au lot FICHE-SYNDIC-FINITIONS : téléphones par paires, adresse avec code postal et ville, 2ᵉ standard,
+ * contacts repliés, copropriétés « 25 rue Edith Cavell, 92400 Courbevoie ».)
  *
  * Module PUR et client-safe : la fiche syndic (écran) et le dépôt (base) lisent les mêmes types et la même
  * validation. Aucune E/S ici.
  *
- * LE MODÈLE (migration 324) : un SYNDIC → plusieurs COPROPRIÉTÉS → plusieurs LOTS. Une copropriété est désignée par
- * la clé de son immeuble : la colonne « Immeuble » de l'export WIPPIMMO, normalisée par `normaliserTexte`. Un lot
- * appartient à une copropriété quand son immeuble normalisé vaut cette clé — il n'y a pas de table de liens lot ↔
- * copropriété, et c'est voulu : un lot ajouté par un ré-import futur reçoit son syndic sans qu'on le lui pose.
+ * LE MODÈLE (migrations 324 et 325) : un SYNDIC → plusieurs COPROPRIÉTÉS → plusieurs LOTS. Une copropriété est
+ * désignée par la clé de son immeuble : la colonne « Immeuble » de l'export WIPPIMMO, normalisée par
+ * `normaliserTexte`. Un lot appartient à une copropriété quand son immeuble normalisé vaut cette clé — il n'y a pas
+ * de table de liens lot ↔ copropriété, et c'est voulu : un lot ajouté par un ré-import futur reçoit son syndic sans
+ * qu'on le lui pose.
  */
 
 export type SorteCoordonnee = 'email' | 'telephone';
@@ -23,11 +26,15 @@ export interface CoordonneeSaisie { id?: number | null; sorte: SorteCoordonnee; 
 export interface ContactSaisi {
   id?: number | null; titre: string; prenom: string; nom: string; coordonnees: CoordonneeSaisie[];
 }
+/** Un immeuble rattaché : son libellé (l'« Immeuble » de l'export, ou une adresse de la BAN), et sa commune. */
+export interface ImmeubleSaisi { libelle: string; codePostal: string; commune: string }
 export interface SyndicSaisi {
-  nom: string; adresse: string; telephone: string; email: string; note: string;
+  nom: string; adresse: string; codePostal: string; ville: string;
+  /** Les numéros sont enregistrés en CHIFFRES (un « + » en tête s'il y en a un) — jamais avec leurs espaces. */
+  telephone: string; telephone2: string;
+  email: string; note: string;
   contacts: ContactSaisi[];
-  /** Les immeubles rattachés, par leur libellé (l'« Immeuble » de l'export, tel qu'affiché). */
-  immeubles: string[];
+  immeubles: ImmeubleSaisi[];
 }
 
 /** Un lot d'une copropriété, tel que l'écran le montre avant de confirmer. */
@@ -35,9 +42,12 @@ export interface LotDeCopropriete { id: number; numero: string; adresse: string 
 
 /** Un immeuble connu : de l'annuaire (ses lots) et/ou déjà déclaré comme copropriété ; avec son syndic en cours. */
 export interface ImmeubleConnu {
-  cle: string; libelle: string; lots: LotDeCopropriete[];
+  cle: string; libelle: string; codePostal: string | null; commune: string | null; lots: LotDeCopropriete[];
   syndic: { id: number; nom: string } | null;
 }
+
+/** Une adresse proposée par la Base Adresse Nationale LOCALE (table `adresse_ban`), hors portefeuille. */
+export interface AdresseBan { cle: string; libelle: string; codePostal: string | null; commune: string }
 
 export interface SyndicResume {
   id: number; nom: string; email: string | null; telephone: string | null;
@@ -47,14 +57,18 @@ export interface SyndicResume {
 }
 
 export interface FicheSyndic {
-  id: number; nom: string; adresse: string | null; telephone: string | null; email: string | null; note: string | null;
+  id: number; nom: string; adresse: string | null; codePostal: string | null; ville: string | null;
+  telephone: string | null; telephone2: string | null; email: string | null; note: string | null;
   creeLe: string; creeParLibelle: string; majLe: string | null; majParLibelle: string | null;
   contacts: Array<{
     id: number; titre: string | null; prenom: string | null; nom: string | null;
     coordonnees: Array<{ id: number; sorte: SorteCoordonnee; libelle: string | null; valeur: string }>;
   }>;
   /** Les copropriétés EN COURS, chacune avec ses lots. */
-  coproprietes: Array<{ id: number; cle: string; libelle: string; debut: string; lots: LotDeCopropriete[] }>;
+  coproprietes: Array<{
+    id: number; cle: string; libelle: string; codePostal: string | null; commune: string | null; debut: string;
+    lots: LotDeCopropriete[];
+  }>;
   /** Les liens FERMÉS : l'historique, jamais effacé. */
   historique: Array<{ libelle: string; debut: string; fin: string; motif: string | null }>;
 }
@@ -63,6 +77,81 @@ export interface FicheSyndic {
 export function cleImmeuble(libelle: string | null | undefined): string {
   return normaliserTexte(libelle);
 }
+
+// ══ LES TÉLÉPHONES — « 06 13 86 18 77 », « +33 6 13 86 18 77 » ═════════════════════════════════════════════════
+
+/** Les CHIFFRES d'un numéro, avec son « + » de tête s'il en a un ; « 0033… » devient « +33… ». PUR. */
+export function chiffresTelephone(brut: string | null | undefined): string {
+  const t = (brut ?? '').trim();
+  const plus = t.startsWith('+');
+  let d = t.replace(/\D/g, '');
+  if (!plus && d.startsWith('00') && d.length > 2) return `+${d.slice(2)}`;
+  if (plus) d = `+${d}`;
+  return d;
+}
+
+/**
+ * LE NUMÉRO LISIBLE, PAR PAIRES. PUR — et valable pendant la frappe (un numéro incomplet se groupe aussi).
+ *   « 0613861877 »   → « 06 13 86 18 77 »
+ *   « +33613861877 » → « +33 6 13 86 18 77 »
+ * Un autre indicatif (« +32… ») garde « +32 » puis des paires.
+ */
+export function formaterTelephone(brut: string | null | undefined): string {
+  const d = chiffresTelephone(brut);
+  const paires = (s: string): string => (s.match(/.{1,2}/g) ?? []).join(' ');
+  if (d.startsWith('+33')) {
+    const reste = d.slice(3);
+    if (reste === '') return '+33';
+    return `+33 ${reste.slice(0, 1)}${reste.length > 1 ? ` ${paires(reste.slice(1))}` : ''}`;
+  }
+  if (d.startsWith('+')) {
+    const reste = d.slice(3);
+    return reste === '' ? d : `${d.slice(0, 3)} ${paires(reste)}`;
+  }
+  return paires(d);
+}
+
+/**
+ * LA FRAPPE DANS UN CHAMP TÉLÉPHONE : le texte tapé → le texte affiché, mis en paires. PUR.
+ * ⚠️ EFFACER UN ESPACE EFFACE LE CHIFFRE D'AVANT : sans cela, la mise en paires remettrait aussitôt l'espace
+ * qu'on vient de retirer, et la touche ← Retour arrière semblerait bloquée sur chaque espace.
+ */
+export function saisieTelephone(ancien: string, nouveau: string): string {
+  const a = chiffresTelephone(ancien);
+  const n = chiffresTelephone(nouveau);
+  if (n === a && nouveau.length < ancien.length) return formaterTelephone(a.slice(0, -1));
+  return formaterTelephone(nouveau);
+}
+
+/** Le lien `tel:` d'un numéro. PUR. */
+export function lienTelephone(brut: string): string {
+  return `tel:${chiffresTelephone(brut)}`;
+}
+
+// ══ LES ADRESSES — « 25 rue Edith Cavell, 92400 Courbevoie » ═══════════════════════════════════════════════════
+
+/**
+ * L'ADRESSE COMPLÈTE D'UN IMMEUBLE. PUR.
+ * ⚠️ Certains « Immeuble » WIPPIMMO portent déjà leur code postal (« 12 rue X 92400 ») : on ne le répète pas.
+ */
+export function adresseImmeuble(libelle: string, codePostal: string | null | undefined, commune: string | null | undefined): string {
+  const l = libelle.trim();
+  const cp = (codePostal ?? '').trim();
+  const c = (commune ?? '').trim();
+  const dejaCp = cp !== '' && l.includes(cp);
+  const dejaCommune = c !== '' && normaliserTexte(l).includes(normaliserTexte(c));
+  const suite = [dejaCp ? '' : cp, dejaCommune ? '' : c].filter((x) => x !== '').join(' ');
+  return suite === '' ? l : `${l}, ${suite}`;
+}
+
+/** Une commune affichée en casse de titre quand elle arrive EN MAJUSCULES (« COURBEVOIE » → « Courbevoie »). PUR. */
+export function communeLisible(c: string | null | undefined): string {
+  const t = (c ?? '').trim();
+  if (t === '' || t !== t.toUpperCase()) return t;
+  return t.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_, a: string, b: string) => a + b.toUpperCase());
+}
+
+// ══ LA VALIDATION ════════════════════════════════════════════════════════════════════════════════════════════════
 
 const BORNE_TEXTE = 500;
 const BORNE_NOTE = 5000;
@@ -76,12 +165,18 @@ export function emailPlausible(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 
+/** Un nom ou un titre suffit à un contact. PUR. */
+export function contactNomme(c: { titre?: string; prenom?: string; nom?: string }): boolean {
+  return [c.titre, c.prenom, c.nom].some((x) => (x ?? '').trim() !== '');
+}
+
 /**
  * LA SAISIE REÇUE, VÉRIFIÉE ET MISE EN FORME. PUR.
  *
  * Règles : le NOM du cabinet est obligatoire ; un contact a au moins un nom, un prénom ou un titre ; une coordonnée
  * vide est ignorée (une ligne ajoutée puis laissée vide n'est pas une erreur) ; un e-mail doit ressembler à un
- * e-mail. Les immeubles sont dédoublonnés par leur CLÉ.
+ * e-mail ; un téléphone s'enregistre en chiffres. Les immeubles sont dédoublonnés par leur CLÉ ; un immeuble reçu
+ * en simple texte (ancienne forme) est accepté, sans code postal ni commune.
  */
 export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } | { ok: false; motif: string } {
   if (typeof brut !== 'object' || brut === null) return { ok: false, motif: 'Saisie illisible.' };
@@ -100,36 +195,40 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     for (const kb of (Array.isArray(c.coordonnees) ? c.coordonnees.slice(0, 50) : [])) {
       if (typeof kb !== 'object' || kb === null) continue;
       const k = kb as Record<string, unknown>;
-      const valeur = texte(k.valeur);
-      if (valeur === '') continue;
       const sorte: SorteCoordonnee = k.sorte === 'email' ? 'email' : 'telephone';
+      const valeur = sorte === 'telephone' ? chiffresTelephone(texte(k.valeur)) : texte(k.valeur);
+      if (valeur === '' || valeur === '+') continue;
       if (sorte === 'email' && !emailPlausible(valeur)) return { ok: false, motif: `E-mail illisible : « ${valeur} ».` };
       coordonnees.push({ id: entierOuNull(k.id), sorte, libelle: texte(k.libelle), valeur });
     }
     const contact: ContactSaisi = {
       id: entierOuNull(c.id), titre: texte(c.titre), prenom: texte(c.prenom), nom: texte(c.nom), coordonnees,
     };
-    const vide = contact.titre === '' && contact.prenom === '' && contact.nom === '';
-    if (vide && coordonnees.length === 0) continue; // un contact ajouté puis laissé vide : ignoré
-    if (vide) return { ok: false, motif: 'Chaque contact doit avoir au moins un nom ou un titre.' };
+    if (!contactNomme(contact) && coordonnees.length === 0) continue; // un contact ajouté puis laissé vide : ignoré
+    if (!contactNomme(contact)) return { ok: false, motif: 'Chaque contact doit avoir au moins un nom ou un titre.' };
     contacts.push(contact);
   }
 
   const vus = new Set<string>();
-  const immeubles: string[] = [];
+  const immeubles: ImmeubleSaisi[] = [];
   for (const ib of (Array.isArray(b.immeubles) ? b.immeubles.slice(0, 300) : [])) {
-    const libelle = texte(ib);
+    const o: Record<string, unknown> = typeof ib === 'object' && ib !== null ? ib as Record<string, unknown> : { libelle: ib };
+    const libelle = texte(o.libelle);
     const cle = cleImmeuble(libelle);
     if (cle === '' || vus.has(cle)) continue;
     vus.add(cle);
-    immeubles.push(libelle);
+    immeubles.push({ libelle, codePostal: texte(o.codePostal), commune: texte(o.commune) });
   }
+
+  // Deux standards au plus ; le second remonte si le premier est vide.
+  const tels = [b.telephone, b.telephone2].map((t) => chiffresTelephone(texte(t))).filter((t) => t !== '' && t !== '+');
 
   return {
     ok: true,
     syndic: {
-      nom, adresse: texte(b.adresse), telephone: texte(b.telephone), email, note: texte(b.note, BORNE_NOTE),
-      contacts, immeubles,
+      nom, adresse: texte(b.adresse), codePostal: texte(b.codePostal), ville: texte(b.ville),
+      telephone: tels[0] ?? '', telephone2: tels[1] ?? '',
+      email, note: texte(b.note, BORNE_NOTE), contacts, immeubles,
     },
   };
 }
@@ -139,11 +238,13 @@ function entierOuNull(v: unknown): number | null {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
+// ══ L'APERÇU, LA RECHERCHE ═══════════════════════════════════════════════════════════════════════════════════════
+
 /**
- * LES BIENS QUI RECEVRONT CE SYNDIC — ce que l'écran montre AVANT de confirmer. PUR.
+ * LES BIENS QUI RECEVRONT CE SYNDIC — ce que l'écran montre AVANT de valider. PUR.
  * Tous les lots des immeubles saisis ; et, pour chaque immeuble déjà géré par un AUTRE syndic, ce changement.
  */
-export function apercuPropagation(immeubles: readonly string[], connus: readonly ImmeubleConnu[], syndicId: number | null): {
+export function apercuPropagation(immeubles: readonly ImmeubleSaisi[], connus: readonly ImmeubleConnu[], syndicId: number | null): {
   lots: Array<LotDeCopropriete & { immeuble: string }>;
   changements: Array<{ immeuble: string; ancien: string }>;
   sansLot: string[];
@@ -152,9 +253,9 @@ export function apercuPropagation(immeubles: readonly string[], connus: readonly
   const lots: Array<LotDeCopropriete & { immeuble: string }> = [];
   const changements: Array<{ immeuble: string; ancien: string }> = [];
   const sansLot: string[] = [];
-  for (const libelle of immeubles) {
-    const i = parCle.get(cleImmeuble(libelle));
-    if (i === undefined || i.lots.length === 0) sansLot.push(libelle);
+  for (const im of immeubles) {
+    const i = parCle.get(cleImmeuble(im.libelle));
+    if (i === undefined || i.lots.length === 0) sansLot.push(im.libelle);
     if (i === undefined) continue;
     for (const l of i.lots) lots.push({ ...l, immeuble: i.libelle });
     if (i.syndic !== null && i.syndic.id !== syndicId) changements.push({ immeuble: i.libelle, ancien: i.syndic.nom });
@@ -162,11 +263,27 @@ export function apercuPropagation(immeubles: readonly string[], connus: readonly
   return { lots, changements, sansLot };
 }
 
-/** Les immeubles qui répondent à une saisie (auto-complétion). PUR. */
-export function immeublesQuiRepondent(q: string, connus: readonly ImmeubleConnu[], max = 12): ImmeubleConnu[] {
+/** Le seuil de l'auto-complétion : « dès 2-3 caractères ». */
+export const MINIMUM_AUTOCOMPLETION = 2;
+
+/** Les immeubles du PORTEFEUILLE qui répondent à une saisie (auto-complétion). PUR. */
+export function immeublesQuiRepondent(q: string, connus: readonly ImmeubleConnu[], max = 8): ImmeubleConnu[] {
   const n = normaliserTexte(q);
-  if (n === '') return [];
-  return connus.filter((i) => i.cle.includes(n)).slice(0, max);
+  if (n.length < MINIMUM_AUTOCOMPLETION) return [];
+  const mots = n.split(' ');
+  return connus
+    .filter((i) => i.lots.length > 0)
+    .filter((i) => {
+      const cible = normaliserTexte(`${i.libelle} ${i.codePostal ?? ''} ${i.commune ?? ''}`);
+      return mots.every((m) => cible.includes(m));
+    })
+    .slice(0, max);
+}
+
+/** « 1 bien en gestion à cette adresse », « 3 biens… », « aucun bien… ». PUR. */
+export function motBiensEnGestion(n: number): string {
+  if (n === 0) return 'aucun bien en gestion à cette adresse';
+  return n === 1 ? '1 bien en gestion à cette adresse' : `${n} biens en gestion à cette adresse`;
 }
 
 /** Les syndics qui répondent à une recherche (nom, e-mail, domaine). PUR. */
@@ -182,16 +299,34 @@ export function nomDuContact(c: { titre?: string | null; prenom?: string | null;
   return nom !== '' ? nom : (c.titre ?? '').trim();
 }
 
+/**
+ * LA LIGNE D'UN CONTACT REPLIÉ : « titre · prénom nom · e-mails · téléphones ». PUR.
+ * Chaque morceau absent est omis — jamais de « · · ».
+ */
+export function ligneContact(c: { titre: string; prenom: string; nom: string; emails: string[]; telephones: string[] }): string {
+  const nom = [c.prenom, c.nom].map((x) => x.trim()).filter((x) => x !== '').join(' ');
+  return [c.titre.trim(), nom, c.emails.join(', '), c.telephones.map(formaterTelephone).join(', ')]
+    .filter((x) => x !== '').join(' · ');
+}
+
 // ══ LE FORMULAIRE DE LA FICHE — ses états, et le passage fiche ⇄ formulaire ⇄ saisie. PUR. ══════════════════════
 
 /** Le choix « Personnalisé » d'une liste (titre ou libellé) : il ouvre un champ libre. */
 export const PERSONNALISE = 'Personnalisé';
 
 export interface CoordonneeForm { cle: string; id: number | null; sorte: SorteCoordonnee; choix: string; libre: string; valeur: string }
-export interface ContactForm { cle: string; id: number | null; titreChoix: string; titreLibre: string; prenom: string; nom: string; coordonnees: CoordonneeForm[] }
+export interface ContactForm {
+  cle: string; id: number | null; titreChoix: string; titreLibre: string; prenom: string; nom: string;
+  coordonnees: CoordonneeForm[];
+  /** Replié en une ligne (« Valider ce contact ») ou déplié pour la saisie. */
+  replie: boolean;
+}
 export interface SyndicForm {
-  nom: string; adresse: string; telephone: string; email: string; note: string;
-  contacts: ContactForm[]; immeubles: string[];
+  nom: string; adresse: string; codePostal: string; ville: string;
+  /** Un ou deux standards ; le « + » en ajoute un second, deux au plus. */
+  telephones: string[];
+  email: string; note: string;
+  contacts: ContactForm[]; immeubles: ImmeubleSaisi[];
 }
 
 let compteur = 0;
@@ -210,51 +345,69 @@ export function valeurDuChoix(choix: string, libre: string): string {
   return choix === PERSONNALISE ? libre.trim() : choix.trim();
 }
 
-export function formulaireVide(immeubleDepart?: string | null): SyndicForm {
-  const i = (immeubleDepart ?? '').trim();
-  return { nom: '', adresse: '', telephone: '', email: '', note: '', contacts: [], immeubles: i === '' ? [] : [i] };
+export function formulaireVide(immeubleDepart?: ImmeubleSaisi | null): SyndicForm {
+  const i = immeubleDepart && immeubleDepart.libelle.trim() !== '' ? [immeubleDepart] : [];
+  return { nom: '', adresse: '', codePostal: '', ville: '', telephones: [''], email: '', note: '', contacts: [], immeubles: i };
 }
 
+/** Un contact NOUVEAU s'ouvre déplié. */
 export function contactVide(): ContactForm {
-  return { cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', coordonnees: [] };
+  return { cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', coordonnees: [], replie: false };
 }
 
 export function coordonneeVide(sorte: SorteCoordonnee): CoordonneeForm {
   return { cle: cleLocale(), id: null, sorte, choix: '', libre: '', valeur: '' };
 }
 
-/** La fiche lue → le formulaire de modification, pré-rempli. PUR. */
+/** La fiche lue → le formulaire, pré-rempli ; les contacts existants arrivent REPLIÉS. PUR. */
 export function versFormulaire(f: FicheSyndic): SyndicForm {
+  const tels = [f.telephone, f.telephone2].filter((t): t is string => (t ?? '').trim() !== '').map(formaterTelephone);
   return {
-    nom: f.nom, adresse: f.adresse ?? '', telephone: f.telephone ?? '', email: f.email ?? '', note: f.note ?? '',
+    nom: f.nom, adresse: f.adresse ?? '', codePostal: f.codePostal ?? '', ville: f.ville ?? '',
+    telephones: tels.length === 0 ? [''] : tels,
+    email: f.email ?? '', note: f.note ?? '',
     contacts: f.contacts.map((c) => {
       const t = choixDe(c.titre, TITRES_CONTACT);
       return {
         cle: cleLocale(), id: c.id, titreChoix: t.choix, titreLibre: t.libre, prenom: c.prenom ?? '', nom: c.nom ?? '',
+        replie: true,
         coordonnees: c.coordonnees.map((k) => {
           const l = choixDe(k.libelle, LIBELLES_COORDONNEE);
-          return { cle: cleLocale(), id: k.id, sorte: k.sorte, choix: l.choix, libre: l.libre, valeur: k.valeur };
+          return {
+            cle: cleLocale(), id: k.id, sorte: k.sorte, choix: l.choix, libre: l.libre,
+            valeur: k.sorte === 'telephone' ? formaterTelephone(k.valeur) : k.valeur,
+          };
         }),
       };
     }),
-    immeubles: f.coproprietes.map((c) => c.libelle),
+    immeubles: f.coproprietes.map((c) => ({ libelle: c.libelle, codePostal: c.codePostal ?? '', commune: c.commune ?? '' })),
   };
 }
 
-/** Le formulaire → la saisie envoyée au serveur (qui la re-valide). PUR. */
+/** Le formulaire → la saisie envoyée au serveur (qui la re-valide et ne garde que les chiffres). PUR. */
 export function versSaisie(f: SyndicForm): SyndicSaisi {
   return {
-    nom: f.nom, adresse: f.adresse, telephone: f.telephone, email: f.email, note: f.note,
+    nom: f.nom, adresse: f.adresse, codePostal: f.codePostal, ville: f.ville,
+    telephone: chiffresTelephone(f.telephones[0]), telephone2: chiffresTelephone(f.telephones[1]),
+    email: f.email, note: f.note,
     contacts: f.contacts.map((c) => ({
       id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom,
-      coordonnees: c.coordonnees.map((k) => ({ id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre), valeur: k.valeur })),
+      coordonnees: c.coordonnees.map((k) => ({
+        id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
+        valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur,
+      })),
     })),
     immeubles: f.immeubles,
   };
 }
 
+/** Le formulaire a-t-il bougé depuis son ouverture ? (Les replis de contacts ne comptent pas.) PUR. */
+export function formulaireModifie(avant: SyndicForm, apres: SyndicForm): boolean {
+  return JSON.stringify(versSaisie(avant)) !== JSON.stringify(versSaisie(apres));
+}
+
 /** Les copropriétés qui seront RETIRÉES par cet enregistrement (en cours avant, absentes après). PUR. */
-export function coproprietesRetirees(avant: readonly string[], apres: readonly string[]): string[] {
-  const garde = new Set(apres.map(cleImmeuble));
-  return avant.filter((l) => !garde.has(cleImmeuble(l)));
+export function coproprietesRetirees(avant: readonly ImmeubleSaisi[], apres: readonly ImmeubleSaisi[]): string[] {
+  const garde = new Set(apres.map((i) => cleImmeuble(i.libelle)));
+  return avant.filter((i) => !garde.has(cleImmeuble(i.libelle))).map((i) => i.libelle);
 }

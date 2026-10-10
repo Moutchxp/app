@@ -54,6 +54,11 @@
   --color-svv-sarcelle-soft: #e0f4f3;        /* fond pâle de la capsule sarcelle (texte = --color-svv-sarcelle) */
   --color-svv-rose: #a3246a;                 /* famille ROSE — texte/accent d'une capsule tamisée (5,95:1 sur rose-soft) */
   --color-svv-rose-soft: #fce8f1;            /* fond pâle de la capsule rose (texte = --color-svv-rose) */
+  /* LOT FICHE-SYNDIC-FINITIONS — le bouton « syndic connu » des cartes de bien : rose franc, pas rouge.
+     Texte 6,71:1 sur son fond (AA). */
+  --color-svv-syndic-fond: #fce7f3;
+  --color-svv-syndic-bord: #f9a8d4;
+  --color-svv-syndic-texte: #9d174d;
   /* ══ 🔴🔴 LOT URGENCE-EVENEMENT, POINT 1 — LA FAMILLE ORANGE DU NIVEAU « INTERMÉDIAIRE » ══════════════════════
      ARNO (08/10/2026) : « Intermédiaire → orange (crée la paire de jetons orange si elle manque, avec sa variante
      Sombre) ». Elle manquait, et ce n'est PAS un doublon d'AMBRE — il faut le dire, parce que la question se pose :
@@ -288,6 +293,9 @@
   --color-svv-sarcelle-soft: #113333;
   --color-svv-rose: #f08fbe;
   --color-svv-rose-soft: #3a1b2b;
+  --color-svv-syndic-fond: #4a1d35;          /* LOT FICHE-SYNDIC-FINITIONS — texte 7,63:1 sur ce fond */
+  --color-svv-syndic-bord: #9d3a6c;
+  --color-svv-syndic-texte: #f9a8d4;
   /* LOT URGENCE-EVENEMENT — variante SOMBRE de la famille ORANGE, mesurée : 8,10:1. */
   --color-svv-orange: #ffb066;
   --color-svv-orange-soft: #3a2410;
@@ -337,6 +345,9 @@
     --color-svv-sarcelle-soft: #113333;
     --color-svv-rose: #f08fbe;
     --color-svv-rose-soft: #3a1b2b;
+    --color-svv-syndic-fond: #4a1d35;          /* LOT FICHE-SYNDIC-FINITIONS — texte 7,63:1 sur ce fond */
+    --color-svv-syndic-bord: #9d3a6c;
+    --color-svv-syndic-texte: #f9a8d4;
     /* LOT URGENCE-EVENEMENT — identiques au bloc [data-theme='dark']. */
     --color-svv-orange: #ffb066;
     --color-svv-orange-soft: #3a2410;

@@ -2,20 +2,22 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { normaliserTexte } from './annuaire';
 import type { Auteur } from './gestes';
 import {
-  cleImmeuble, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete, type SyndicResume, type SyndicSaisi,
+  cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
+  type SyndicResume, type SyndicSaisi,
 } from './syndics';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN, COMMIT 2 — LE DÉPÔT DE L'ANNUAIRE DES SYNDICS ══════════════════════
+ * (complété au lot FICHE-SYNDIC-FINITIONS : code postal et ville, 2ᵉ standard, suppression, BAN locale.)
  *
- * Lit et écrit les cinq tables de la migration 324. Les règles (validation, aperçu) vivent dans `syndics.ts`.
+ * Lit et écrit les tables des migrations 324 et 325. Les règles (validation, aperçu) vivent dans `syndics.ts`.
  *
- * 🔴 UNE SEULE PORTE D'ÉCRITURE : `enregistrerSyndic`. Créer, modifier, ajouter ou retirer une copropriété,
- * ajouter ou retirer un contact — tout passe par elle, dans UNE transaction. Deux chemins pour la même écriture
- * finiraient par diverger, et c'est celui qu'on regarde le moins qui garderait l'erreur.
+ * 🔴 DEUX PORTES D'ÉCRITURE, ET DEUX SEULEMENT : `enregistrerSyndic` (créer, modifier, rattacher ou retirer une
+ * copropriété, un contact, une coordonnée) et `supprimerSyndic`. Chacune tient dans UNE transaction.
  *
  * 🔴 RIEN N'EST EFFACÉ. Un immeuble retiré, ou repris par un autre syndic, FERME son lien (`fin`) ; un contact ou
- * une coordonnée retirés reçoivent `retire_le`. Aucun DELETE dans ce module.
+ * une coordonnée retirés reçoivent `retire_le` ; un syndic supprimé reçoit `supprime_le` et sort des listes.
+ * Aucun DELETE dans ce module.
  *
  * ⚠️ LE LIEN LOT ↔ COPROPRIÉTÉ SE CALCULE ICI, en JavaScript, par `normaliserTexte` — la MÊME fonction que celle qui
  * écrit la clé. Le refaire en SQL donnerait deux normalisations, et un jour deux réponses. À cette échelle
@@ -24,25 +26,34 @@ import {
  * ⚠️ PAS DE `import 'server-only'` ICI — convention du module (voir `contactExterneRepo.ts`).
  */
 
-/** La migration 324 est-elle appliquée ? Sans elle, l'écran le dit et n'offre aucun geste. */
+/** Les migrations 324 ET 325 sont-elles appliquées ? Sans elles, l'écran le dit et n'offre aucun geste. */
 export async function syndicsDisponibles(): Promise<boolean> {
   const { rows } = await query<{ ok: boolean }>(
-    `SELECT to_regclass('public.gestion_syndic_coordonnee') IS NOT NULL AS ok`);
+    `SELECT to_regclass('public.gestion_syndic_coordonnee') IS NOT NULL
+        AND EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema = 'public' AND table_name = 'gestion_syndic' AND column_name = 'supprime_le') AS ok`);
   return rows[0]?.ok === true;
 }
 
-/** Les lots de l'annuaire, groupés par la clé de leur immeuble. */
-async function lotsParImmeuble(): Promise<Map<string, { libelle: string; lots: LotDeCopropriete[] }>> {
-  const { rows } = await query<{ id: string; numero: string; immeuble: string | null; adresse: string | null; commune: string | null }>(
-    `SELECT id::text, wippimmo_id AS numero, immeuble, adresse, commune
+interface GroupeImmeuble { libelle: string; codePostal: string | null; commune: string | null; lots: LotDeCopropriete[] }
+
+/** Les lots de l'annuaire, groupés par la clé de leur immeuble — avec le code postal et la commune de leurs lots. */
+async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
+  const { rows } = await query<{
+    id: string; numero: string; immeuble: string | null; adresse: string | null; commune: string | null; code_postal: string | null;
+  }>(
+    `SELECT id::text, wippimmo_id AS numero, immeuble, adresse, commune, code_postal
        FROM gestion_annuaire_lot
       WHERE absent_le IS NULL
       ORDER BY immeuble, wippimmo_id`);
-  const m = new Map<string, { libelle: string; lots: LotDeCopropriete[] }>();
+  const m = new Map<string, GroupeImmeuble>();
   for (const r of rows) {
     const cle = cleImmeuble(r.immeuble);
     if (cle === '') continue;
-    const g = m.get(cle) ?? { libelle: (r.immeuble ?? '').trim(), lots: [] };
+    const g = m.get(cle) ?? { libelle: (r.immeuble ?? '').trim(), codePostal: null, commune: null, lots: [] };
+    // Le premier lot qui connaît son code postal et sa commune les donne à l'immeuble.
+    if (g.codePostal === null && (r.code_postal ?? '').trim() !== '') g.codePostal = (r.code_postal ?? '').trim();
+    if (g.commune === null && (r.commune ?? '').trim() !== '') g.commune = communeLisible(r.commune);
     g.lots.push({ id: Number(r.id), numero: r.numero, adresse: r.adresse, commune: r.commune });
     m.set(cle, g);
   }
@@ -55,32 +66,35 @@ async function lotsParImmeuble(): Promise<Map<string, { libelle: string; lots: L
  */
 export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
   const parCle = await lotsParImmeuble();
-  const { rows } = await query<{ cle: string; libelle: string; syndic_id: string | null; syndic_nom: string | null }>(
-    `SELECT c.cle_immeuble AS cle, c.libelle, s.id::text AS syndic_id, s.nom AS syndic_nom
+  const { rows } = await query<{
+    cle: string; libelle: string; code_postal: string | null; commune: string | null;
+    syndic_id: string | null; syndic_nom: string | null;
+  }>(
+    `SELECT c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune, s.id::text AS syndic_id, s.nom AS syndic_nom
        FROM gestion_copropriete c
        LEFT JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL
-       LEFT JOIN gestion_syndic s ON s.id = cs.syndic_id`);
+       LEFT JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL`);
   const syndicDe = new Map(rows.map((r) => [r.cle, r]));
   const out: ImmeubleConnu[] = [];
   for (const [cle, g] of parCle) {
     const s = syndicDe.get(cle);
     out.push({
-      cle, libelle: g.libelle, lots: g.lots,
-      syndic: s?.syndic_id ? { id: Number(s.syndic_id), nom: s.syndic_nom ?? '' } : null,
+      cle, libelle: g.libelle, codePostal: g.codePostal ?? s?.code_postal ?? null, commune: g.commune ?? s?.commune ?? null,
+      lots: g.lots, syndic: s?.syndic_id ? { id: Number(s.syndic_id), nom: s.syndic_nom ?? '' } : null,
     });
   }
-  // Les copropriétés déclarées sans lot dans l'annuaire (saisies à la main) : elles existent aussi.
+  // Les copropriétés déclarées sans lot dans l'annuaire (BAN, ou saisies à la main) : elles existent aussi.
   for (const r of rows) {
     if (parCle.has(r.cle)) continue;
     out.push({
-      cle: r.cle, libelle: r.libelle, lots: [],
+      cle: r.cle, libelle: r.libelle, codePostal: r.code_postal, commune: r.commune, lots: [],
       syndic: r.syndic_id ? { id: Number(r.syndic_id), nom: r.syndic_nom ?? '' } : null,
     });
   }
   return out.sort((a, b) => a.libelle.localeCompare(b.libelle, 'fr'));
 }
 
-/** La liste des syndics : nom, nombre de copropriétés en cours, nombre de biens, et de quoi chercher. */
+/** La liste des syndics (non supprimés) : nom, nombre de copropriétés en cours, nombre de biens, et de quoi chercher. */
 export async function listerSyndics(): Promise<SyndicResume[]> {
   const parCle = await lotsParImmeuble();
   const { rows } = await query<{
@@ -94,6 +108,7 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
                JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id AND k.retire_le IS NULL
               WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND k.sorte = 'email') AS emails
        FROM gestion_syndic s
+      WHERE s.supprime_le IS NULL
       ORDER BY lower(s.nom), s.id`);
   return rows.map((r) => {
     const cles = r.cles ?? [];
@@ -108,14 +123,16 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
   });
 }
 
-/** La fiche complète d'un syndic, ou `null`. */
+/** La fiche complète d'un syndic, ou `null` (inconnu ou supprimé). */
 export async function ficheSyndic(id: number): Promise<FicheSyndic | null> {
   const { rows } = await query<{
-    id: string; nom: string; adresse: string | null; telephone: string | null; email: string | null; note: string | null;
+    id: string; nom: string; adresse: string | null; code_postal: string | null; ville: string | null;
+    telephone: string | null; telephone_2: string | null; email: string | null; note: string | null;
     cree_le: string; cree_par_libelle: string; maj_le: string | null; maj_par_libelle: string | null;
   }>(
-    `SELECT id::text, nom, adresse, telephone, email, note, cree_le::text, cree_par_libelle, maj_le::text, maj_par_libelle
-       FROM gestion_syndic WHERE id = $1`, [id]);
+    `SELECT id::text, nom, adresse, code_postal, ville, telephone, telephone_2, email, note,
+            cree_le::text, cree_par_libelle, maj_le::text, maj_par_libelle
+       FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL`, [id]);
   const s = rows[0];
   if (s === undefined) return null;
 
@@ -127,24 +144,30 @@ export async function ficheSyndic(id: number): Promise<FicheSyndic | null> {
        FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact c ON c.id = k.contact_id
       WHERE c.syndic_id = $1 AND c.retire_le IS NULL AND k.retire_le IS NULL ORDER BY k.rang, k.id`, [id]);
   const { rows: liens } = await query<{
-    id: string; cle: string; libelle: string; debut: string; fin: string | null; fin_motif: string | null;
+    id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null;
+    debut: string; fin: string | null; fin_motif: string | null;
   }>(
-    `SELECT c.id::text, c.cle_immeuble AS cle, c.libelle, cs.debut::text, cs.fin::text, cs.fin_motif
+    `SELECT c.id::text, c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune, cs.debut::text, cs.fin::text, cs.fin_motif
        FROM gestion_copropriete_syndic cs JOIN gestion_copropriete c ON c.id = cs.copropriete_id
       WHERE cs.syndic_id = $1 ORDER BY cs.fin IS NOT NULL, c.libelle, cs.debut DESC`, [id]);
   const parCle = await lotsParImmeuble();
 
   return {
-    id: Number(s.id), nom: s.nom, adresse: s.adresse, telephone: s.telephone, email: s.email, note: s.note,
+    id: Number(s.id), nom: s.nom, adresse: s.adresse, codePostal: s.code_postal, ville: s.ville,
+    telephone: s.telephone, telephone2: s.telephone_2, email: s.email, note: s.note,
     creeLe: s.cree_le, creeParLibelle: s.cree_par_libelle, majLe: s.maj_le, majParLibelle: s.maj_par_libelle,
     contacts: contacts.map((c) => ({
       id: Number(c.id), titre: c.titre, prenom: c.prenom, nom: c.nom,
       coordonnees: coords.filter((k) => k.contact_id === c.id)
         .map((k) => ({ id: Number(k.id), sorte: k.sorte, libelle: k.libelle, valeur: k.valeur })),
     })),
-    coproprietes: liens.filter((l) => l.fin === null).map((l) => ({
-      id: Number(l.id), cle: l.cle, libelle: l.libelle, debut: l.debut, lots: parCle.get(l.cle)?.lots ?? [],
-    })),
+    coproprietes: liens.filter((l) => l.fin === null).map((l) => {
+      const g = parCle.get(l.cle);
+      return {
+        id: Number(l.id), cle: l.cle, libelle: l.libelle, debut: l.debut, lots: g?.lots ?? [],
+        codePostal: g?.codePostal ?? l.code_postal, commune: g?.commune ?? l.commune,
+      };
+    }),
     historique: liens.filter((l) => l.fin !== null)
       .map((l) => ({ libelle: l.libelle, debut: l.debut, fin: l.fin as string, motif: l.fin_motif })),
   };
@@ -153,7 +176,7 @@ export async function ficheSyndic(id: number): Promise<FicheSyndic | null> {
 const nul = (v: string): string | null => (v.trim() === '' ? null : v.trim());
 
 /**
- * 🔴 LA SEULE PORTE D'ÉCRITURE. `id === null` ⇒ création. Rend l'identifiant du syndic.
+ * 🔴 LA PORTE D'ÉCRITURE DE LA FICHE. `id === null` ⇒ création. Rend l'identifiant du syndic.
  *
  * Dans UNE transaction :
  *   ① le syndic (insertion, ou mise à jour avec auteur et date) ;
@@ -163,28 +186,32 @@ const nul = (v: string): string | null => (v.trim() === '' ? null : v.trim());
  *      ce lien-là est FERMÉ (« changement de syndic ») avant d'ouvrir le nouveau ; les immeubles de ce syndic
  *      absents de la saisie sont FERMÉS (« retrait »). Jamais d'effacement.
  *
- * ⚠️ LES REFUS SE DÉCIDENT AVANT TOUTE ÉCRITURE (syndic inexistant) — `withTransaction` COMMIT au retour normal, et
- * un refus rendu après un UPDATE écrirait quand même (piège consigné du dépôt).
+ * ⚠️ LES REFUS SE DÉCIDENT AVANT TOUTE ÉCRITURE (syndic inexistant ou supprimé) — `withTransaction` COMMIT au retour
+ * normal, et un refus rendu après un UPDATE écrirait quand même (piège consigné du dépôt).
  */
 export async function enregistrerSyndic(id: number | null, saisie: SyndicSaisi, auteur: Auteur):
 Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
   return withTransaction(async (q) => {
     let syndicId: number;
+    const champs = [saisie.nom, nul(saisie.adresse), nul(saisie.codePostal), nul(saisie.ville),
+      nul(saisie.telephone), nul(saisie.telephone2), nul(saisie.email), nul(saisie.note)];
     if (id === null) {
       const { rows } = await q<{ id: string }>(
-        `INSERT INTO gestion_syndic (nom, adresse, telephone, email, note, cree_par, cree_par_libelle)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id::text`,
-        [saisie.nom, nul(saisie.adresse), nul(saisie.telephone), nul(saisie.email), nul(saisie.note), auteur.id, auteur.libelle]);
+        `INSERT INTO gestion_syndic (nom, adresse, code_postal, ville, telephone, telephone_2, email, note,
+                                     cree_par, cree_par_libelle)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id::text`,
+        [...champs, auteur.id, auteur.libelle]);
       syndicId = Number(rows[0]?.id);
     } else {
-      const { rows: existe } = await q<{ id: string }>(`SELECT id::text FROM gestion_syndic WHERE id = $1 FOR UPDATE`, [id]);
+      const { rows: existe } = await q<{ id: string }>(
+        `SELECT id::text FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE`, [id]);
       if (existe.length === 0) return { ok: false, motif: 'Ce syndic n’existe pas.' };
       syndicId = id;
       await q(
-        `UPDATE gestion_syndic SET nom = $2, adresse = $3, telephone = $4, email = $5, note = $6,
-                maj_le = now(), maj_par = $7, maj_par_libelle = $8
+        `UPDATE gestion_syndic SET nom = $2, adresse = $3, code_postal = $4, ville = $5, telephone = $6, telephone_2 = $7,
+                email = $8, note = $9, maj_le = now(), maj_par = $10, maj_par_libelle = $11
           WHERE id = $1`,
-        [syndicId, saisie.nom, nul(saisie.adresse), nul(saisie.telephone), nul(saisie.email), nul(saisie.note), auteur.id, auteur.libelle]);
+        [syndicId, ...champs, auteur.id, auteur.libelle]);
     }
 
     await enregistrerContacts(q, syndicId, saisie, auteur);
@@ -241,12 +268,17 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
 }
 
 async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur): Promise<void> {
-  const voulues = new Map(saisie.immeubles.map((l) => [cleImmeuble(l), l]));
-  // ① déclarer les immeubles qui ne le sont pas encore (le libellé du premier qui l'a déclaré est gardé).
-  for (const [cle, libelle] of voulues) {
+  const voulues = new Map(saisie.immeubles.map((i) => [cleImmeuble(i.libelle), i]));
+  // ① déclarer les immeubles qui ne le sont pas encore (le libellé du premier qui l'a déclaré est gardé) ; un code
+  //    postal ou une commune connus complètent une copropriété qui n'en avait pas — jamais n'écrasent.
+  for (const [cle, i] of voulues) {
     await q(
-      `INSERT INTO gestion_copropriete (cle_immeuble, libelle, cree_par, cree_par_libelle)
-       VALUES ($1, $2, $3, $4) ON CONFLICT (cle_immeuble) DO NOTHING`, [cle, libelle, auteur.id, auteur.libelle]);
+      `INSERT INTO gestion_copropriete (cle_immeuble, libelle, code_postal, commune, cree_par, cree_par_libelle)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (cle_immeuble) DO UPDATE
+          SET code_postal = coalesce(gestion_copropriete.code_postal, EXCLUDED.code_postal),
+              commune = coalesce(gestion_copropriete.commune, EXCLUDED.commune)`,
+      [cle, i.libelle, nul(i.codePostal), nul(i.commune), auteur.id, auteur.libelle]);
   }
   // ② les liens EN COURS des immeubles voulus, et ceux de ce syndic — verrouillés avant d'écrire.
   const { rows: enCours } = await q<{ lien_id: string; copro_id: string; cle: string; syndic_id: string }>(
@@ -272,4 +304,97 @@ async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: S
        SELECT id, $2, $3, $4 FROM gestion_copropriete WHERE cle_immeuble = $1`,
       [cle, syndicId, auteur.id, auteur.libelle]);
   }
+}
+
+/**
+ * ══ 🔴 LOT FICHE-SYNDIC-FINITIONS — SUPPRIMER UN SYNDIC ═════════════════════════════════════════════════════════
+ *
+ * ARNO : « La suppression retire le syndic, ses contacts et ses liens de copropriété (les biens repassent en “Créer
+ * le syndic”). Trace dans le journal (qui, quand). »
+ *
+ * Dans UNE transaction, et SANS DELETE : le syndic reçoit `supprime_le` (qui, quand) et sort de toutes les listes ;
+ * ses contacts reçoivent `retire_le` ; ses liens de copropriété EN COURS sont FERMÉS (« suppression du syndic »).
+ * Une ligne va dans `gestion_journal` (entité « annuaire », action « suppression_syndic ») avec le nom du cabinet
+ * et le nombre de copropriétés et de biens qu'il gérait.
+ *
+ * ⚠️ Le refus (inconnu ou déjà supprimé) se décide AVANT toute écriture.
+ */
+export async function supprimerSyndic(id: number, auteur: Auteur):
+Promise<{ ok: true; coproprietes: number } | { ok: false; motif: string }> {
+  const parCle = await lotsParImmeuble();
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ nom: string }>(
+      `SELECT nom FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE`, [id]);
+    const s = rows[0];
+    if (s === undefined) return { ok: false, motif: 'Ce syndic n’existe pas ou a déjà été supprimé.' };
+    const { rows: liens } = await q<{ id: string; cle: string }>(
+      `SELECT cs.id::text, c.cle_immeuble AS cle FROM gestion_copropriete_syndic cs
+         JOIN gestion_copropriete c ON c.id = cs.copropriete_id
+        WHERE cs.syndic_id = $1 AND cs.fin IS NULL FOR UPDATE OF cs`, [id]);
+    const nbBiens = liens.reduce((n, l) => n + (parCle.get(l.cle)?.lots.length ?? 0), 0);
+    if (liens.length > 0) {
+      await q(
+        `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'suppression du syndic'
+          WHERE id = ANY($1::bigint[])`, [liens.map((l) => l.id), auteur.id, auteur.libelle]);
+    }
+    await q(`UPDATE gestion_syndic_contact SET retire_le = now(), retire_par_libelle = $2 WHERE syndic_id = $1 AND retire_le IS NULL`,
+      [id, auteur.libelle]);
+    await q(`UPDATE gestion_syndic SET supprime_le = now(), supprime_par = $2, supprime_par_libelle = $3 WHERE id = $1`,
+      [id, auteur.id, auteur.libelle]);
+    await q(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle)
+       VALUES ('annuaire', $1, 'suppression_syndic', $2, $3, $4, $5)`,
+      [id, s.nom, `syndic supprimé — ${liens.length} copropriété(s), ${nbBiens} bien(s) repassent sans syndic`,
+        auteur.id, auteur.libelle]);
+    return { ok: true, coproprietes: liens.length };
+  });
+}
+
+/**
+ * ══ 🔴 LOT FICHE-SYNDIC-FINITIONS — UNE ADRESSE HORS PORTEFEUILLE, DEPUIS LA BAN LOCALE ═════════════════════════
+ *
+ * ARNO : « Si l'adresse n'est pas dans le portefeuille : la proposer aussi depuis la base d'adresses déjà présente
+ * dans l'application (BAN locale, si elle couvre la commune) ; n'appelle AUCUN service en ligne nouveau. »
+ *
+ * 🔴 LA SOURCE : la table `adresse_ban` de la base PostgreSQL locale (≈ 558 000 adresses, 137 communes d'Île-de-France,
+ * Paris compris). Aucun appel réseau.
+ *
+ * ⚠️ `adresse_ban` NE PORTE PAS DE CODE POSTAL. Il est déduit, dans cet ordre : ① Paris (INSEE 751xx → 750xx) ;
+ * ② le code postal le plus fréquent de NOS lots dans cette commune ; ③ celui de la mairie dans l'annuaire DILA déjà
+ * importé (`dila_import`). Sinon, l'adresse est proposée sans code postal — jamais avec un code inventé.
+ *
+ * ⚠️ IL FAUT UN NUMÉRO ET AU MOINS TROIS LETTRES DE VOIE : une copropriété est un immeuble, pas une rue, et une voie
+ * seule rendrait des centaines de numéros. Mesuré le 10/10/2026 : ≈ 120 ms (recherche normalisée sans index).
+ */
+export async function adressesBanLocale(saisie: string, max = 6): Promise<AdresseBan[]> {
+  const n = normaliserTexte(saisie);
+  const m = /^(\d{1,4})\s*(bis|ter|quater|[a-z])?\s+(.{3,})$/.exec(n);
+  if (m === null) return [];
+  const numero = Number(m[1]);
+  const suffixe = m[2] ?? null;
+  const voie = m[3].trim();
+  const { rows } = await query<{
+    numero: number; suffixe: string | null; nom_voie: string; nom_commune: string; code_postal: string | null;
+  }>(
+    `SELECT DISTINCT ON (b.numero, coalesce(b.suffixe, ''), b.nom_voie, b.insee_commune)
+            b.numero, b.suffixe, b.nom_voie, b.nom_commune,
+            CASE WHEN b.insee_commune ~ '^751[0-2][0-9]$' THEN '750' || substr(b.insee_commune, 4, 2)
+                 ELSE coalesce(
+                   (SELECT lo.code_postal FROM gestion_annuaire_lot lo
+                     WHERE lo.code_postal ~ '^[0-9]{5}$'
+                       AND lower(unaccent(lo.commune)) = lower(unaccent(b.nom_commune))
+                     GROUP BY lo.code_postal ORDER BY count(*) DESC LIMIT 1),
+                   (SELECT d.adresse_code_postal FROM dila_import d
+                     WHERE d.code_insee_commune = b.insee_commune AND d.adresse_code_postal ~ '^[0-9]{5}$' LIMIT 1))
+            END AS code_postal
+       FROM adresse_ban b
+      WHERE b.numero = $1
+        AND ($2::text IS NULL OR lower(coalesce(b.suffixe, '')) LIKE $2 || '%')
+        AND regexp_replace(lower(unaccent(b.nom_voie)), '[^a-z0-9]+', ' ', 'g') LIKE '%' || $3 || '%'
+      LIMIT $4`,
+    [numero, suffixe, voie, max]);
+  return rows.map((r) => {
+    const libelle = [String(r.numero), r.suffixe ?? '', r.nom_voie].filter((x) => x !== '').join(' ');
+    return { cle: cleImmeuble(libelle), libelle, codePostal: r.code_postal, commune: r.nom_commune };
+  });
 }

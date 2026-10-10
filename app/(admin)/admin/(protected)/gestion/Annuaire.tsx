@@ -1398,7 +1398,7 @@ function VueLot({
       <CartoucheEvenement nb={f.evenementsOuverts}
         onOuvrir={() => { onFiltreVie('evenement'); ancreVie.current?.scrollIntoView({ block: 'start' }); }} />
       {/* 🔴 LOT ANNUAIRE-SYNDICS — depuis la fiche du bien : la copropriété du bien est pré-remplie. */}
-      <BoutonSyndic immeuble={f.immeuble} />
+      <BoutonSyndic immeuble={f.immeuble} dansLaFiche />
 
       <section className="ann-bloc">
         <div className="ann-personne">

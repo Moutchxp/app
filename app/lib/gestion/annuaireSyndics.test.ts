@@ -2,14 +2,15 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  apercuPropagation, choixDe, cleImmeuble, coproprietesRetirees, immeublesQuiRepondent, PERSONNALISE,
-  syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie, type FicheSyndic, type ImmeubleConnu,
-  type SyndicResume,
+  adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
+  formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
+  PERSONNALISE, saisieTelephone, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
 /**
- * LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN, COMMIT 2 — l'annuaire des syndics : règles pures, dépôt (requêtes et
- * paramètres liés, base simulée), routes, migration 324, et garanties sur les écrans.
+ * LOTS ANNUAIRE-SYNDICS-ET-ENTETE-BIEN (commit 2) et FICHE-SYNDIC-FINITIONS — l'annuaire des syndics : règles pures,
+ * dépôt (requêtes et paramètres liés, base simulée), migrations 324-325, et garanties sur les écrans.
  */
 
 const appels: Array<{ sql: string; params: unknown[] }> = [];
@@ -26,6 +27,7 @@ vi.mock('../db/client', () => ({
 
 const norm = (s: string): string => s.replace(/\s+/g, ' ');
 const auteur = { id: 7, libelle: 'arno' };
+const im = (libelle: string, codePostal = '', commune = '') => ({ libelle, codePostal, commune });
 
 describe('les règles pures', () => {
   it('la clé d\'un immeuble est sa forme normalisée (casse, accents, ponctuation)', () => {
@@ -43,40 +45,53 @@ describe('les règles pures', () => {
     expect(v.ok && v.syndic.contacts.length).toBe(1);
   });
 
-  it('des coordonnées illimitées, vides ignorées, e-mail vérifié', () => {
+  it('des coordonnées illimitées, vides ignorées, e-mail vérifié, téléphone enregistré EN CHIFFRES', () => {
     const v = validerSyndic({ nom: 'Cab', contacts: [{ nom: 'Durand', coordonnees: [
       { sorte: 'email', libelle: 'Ligne directe', valeur: 'a@b.fr' },
-      { sorte: 'telephone', libelle: 'Portable', valeur: '06 00' },
+      { sorte: 'telephone', libelle: 'Portable', valeur: '06 13 86 18 77' },
       { sorte: 'telephone', libelle: '', valeur: '   ' },
     ] }] });
-    expect(v.ok && v.syndic.contacts[0].coordonnees.map((k) => k.sorte)).toEqual(['email', 'telephone']);
+    expect(v.ok && v.syndic.contacts[0].coordonnees.map((k) => k.valeur)).toEqual(['a@b.fr', '0613861877']);
     expect(validerSyndic({ nom: 'Cab', contacts: [{ nom: 'D', coordonnees: [{ sorte: 'email', valeur: 'pas-un-mail' }] }] }).ok).toBe(false);
   });
 
-  it('les immeubles sont dédoublonnés par leur clé', () => {
-    const v = validerSyndic({ nom: 'Cab', immeubles: ['12 rue X', '12 RUE X', '', '3 av Y'] });
-    expect(v.ok && v.syndic.immeubles).toEqual(['12 rue X', '3 av Y']);
+  it('deux standards au plus, en chiffres ; le second remonte si le premier est vide', () => {
+    const v = validerSyndic({ nom: 'Cab', telephone: '', telephone2: '+33 6 13 86 18 77' });
+    expect(v.ok && [v.syndic.telephone, v.syndic.telephone2]).toEqual(['+33613861877', '']);
+  });
+
+  it('les immeubles sont dédoublonnés par leur clé, avec code postal et commune ; l\'ancienne forme texte passe', () => {
+    const v = validerSyndic({ nom: 'Cab', immeubles: [im('12 rue X', '92400', 'Courbevoie'), '12 RUE X', '', im('3 av Y')] });
+    expect(v.ok && v.syndic.immeubles).toEqual([im('12 rue X', '92400', 'Courbevoie'), im('3 av Y')]);
   });
 
   const connus: ImmeubleConnu[] = [
-    { cle: cleImmeuble('12 rue X'), libelle: '12 rue X', syndic: null,
+    { cle: cleImmeuble('12 rue X'), libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', syndic: null,
       lots: [{ id: 1, numero: '101', adresse: '12 rue X', commune: 'Paris' }, { id: 2, numero: '102', adresse: '12 rue X', commune: 'Paris' }] },
-    { cle: cleImmeuble('3 av Y'), libelle: '3 av Y', syndic: { id: 9, nom: 'Autre' },
+    { cle: cleImmeuble('3 av Y'), libelle: '3 av Y', codePostal: '69001', commune: 'Lyon', syndic: { id: 9, nom: 'Autre' },
       lots: [{ id: 3, numero: '201', adresse: '3 av Y', commune: 'Lyon' }] },
+    { cle: cleImmeuble('8 rue Sans Lot'), libelle: '8 rue Sans Lot', codePostal: null, commune: null, syndic: null, lots: [] },
   ];
 
   it('AVANT VALIDATION : la liste des biens qui recevront ce syndic, et les changements de syndic', () => {
-    const a = apercuPropagation(['12 rue x', '3 av Y', 'immeuble inconnu'], connus, 5);
+    const a = apercuPropagation([im('12 rue x'), im('3 av Y'), im('immeuble inconnu')], connus, 5);
     expect(a.lots.map((l) => l.numero)).toEqual(['101', '102', '201']);
     expect(a.changements).toEqual([{ immeuble: '3 av Y', ancien: 'Autre' }]);
     expect(a.sansLot).toEqual(['immeuble inconnu']);
-    // Le syndic qui gère déjà l'immeuble n'est pas un « changement ».
-    expect(apercuPropagation(['3 av Y'], connus, 9).changements).toEqual([]);
+    expect(apercuPropagation([im('3 av Y')], connus, 9).changements).toEqual([]);
   });
 
-  it('auto-complétion sur les immeubles connus, recherche de syndic par nom / e-mail / domaine', () => {
-    expect(immeublesQuiRepondent('rue x', connus).map((i) => i.libelle)).toEqual(['12 rue X']);
-    expect(immeublesQuiRepondent('', connus)).toEqual([]);
+  it('auto-complétion DÈS 2 CARACTÈRES, sur le portefeuille seulement (immeubles qui ont des lots), par mots', () => {
+    expect(immeublesQuiRepondent('1', connus)).toEqual([]);
+    expect(immeublesQuiRepondent('12', connus).map((i) => i.libelle)).toEqual(['12 rue X']);
+    expect(immeublesQuiRepondent('courbevoie 12', connus).map((i) => i.libelle)).toEqual(['12 rue X']);
+    expect(immeublesQuiRepondent('sans lot', connus)).toEqual([]);
+    expect(motBiensEnGestion(0)).toBe('aucun bien en gestion à cette adresse');
+    expect(motBiensEnGestion(1)).toBe('1 bien en gestion à cette adresse');
+    expect(motBiensEnGestion(3)).toBe('3 biens en gestion à cette adresse');
+  });
+
+  it('recherche de syndic par nom / e-mail / domaine', () => {
     const s: SyndicResume[] = [
       { id: 1, nom: 'Citya', email: null, telephone: null, nbCoproprietes: 0, nbBiens: 0, cherchable: 'citya agence citya com' },
       { id: 2, nom: 'Foncia', email: null, telephone: null, nbCoproprietes: 0, nbBiens: 0, cherchable: 'foncia foncia fr' },
@@ -89,50 +104,100 @@ describe('les règles pures', () => {
     expect(choixDe('Responsable de copropriété', ['Responsable de copropriété'])).toEqual({ choix: 'Responsable de copropriété', libre: '' });
     expect(choixDe('Gardienne', ['Responsable de copropriété'])).toEqual({ choix: PERSONNALISE, libre: 'Gardienne' });
     const fiche: FicheSyndic = {
-      id: 3, nom: 'Cab', adresse: null, telephone: '01', email: 'c@cab.fr', note: null,
+      id: 3, nom: 'Cab', adresse: '1 rue A', codePostal: '75001', ville: 'Paris', telephone: '0100000000', telephone2: '0200000000',
+      email: 'c@cab.fr', note: null,
       creeLe: '2026-10-10', creeParLibelle: 'arno', majLe: null, majParLibelle: null,
       contacts: [{ id: 4, titre: 'Gardienne', prenom: 'Léa', nom: null,
-        coordonnees: [{ id: 5, sorte: 'telephone', libelle: 'Portable', valeur: '06' }] }],
-      coproprietes: [{ id: 6, cle: 'x', libelle: '12 rue X', debut: '2026-10-10', lots: [] }], historique: [],
+        coordonnees: [{ id: 5, sorte: 'telephone', libelle: 'Portable', valeur: '0613861877' }] }],
+      coproprietes: [{ id: 6, cle: 'x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] }],
+      historique: [],
     };
-    const s = versSaisie(versFormulaire(fiche));
+    const f = versFormulaire(fiche);
+    expect(f.telephones).toEqual(['01 00 00 00 00', '02 00 00 00 00']);
+    expect(f.contacts[0].replie).toBe(true);
+    expect(f.contacts[0].coordonnees[0].valeur).toBe('06 13 86 18 77');
+    const s = versSaisie(f);
+    expect([s.telephone, s.telephone2, s.codePostal, s.ville]).toEqual(['0100000000', '0200000000', '75001', 'Paris']);
     expect(s.contacts[0]).toMatchObject({ id: 4, titre: 'Gardienne', prenom: 'Léa' });
-    expect(s.contacts[0].coordonnees[0]).toMatchObject({ id: 5, libelle: 'Portable', valeur: '06' });
-    expect(s.immeubles).toEqual(['12 rue X']);
-    expect(coproprietesRetirees(['12 rue X', '3 av Y'], ['12 RUE X'])).toEqual(['3 av Y']);
+    expect(s.contacts[0].coordonnees[0]).toMatchObject({ id: 5, libelle: 'Portable', valeur: '0613861877' });
+    expect(s.immeubles).toEqual([im('12 rue X', '92400', 'Courbevoie')]);
+    expect(coproprietesRetirees([im('12 rue X'), im('3 av Y')], [im('12 RUE X')])).toEqual(['3 av Y']);
+  });
+
+  it('« des modifications en cours » : rien ne bouge ⇒ non ; replier un contact n\'est pas une modification', () => {
+    const a = formulaireVide(null);
+    expect(formulaireModifie(a, { ...a })).toBe(false);
+    expect(formulaireModifie(a, { ...a, nom: 'X' })).toBe(true);
   });
 });
 
-describe('le dépôt — une seule porte d\'écriture, rien n\'est effacé', () => {
+describe('les téléphones — par paires, à l\'affichage ET à la saisie', () => {
+  it('« 06 13 86 18 77 », « +33 6 13 86 18 77 », et pendant la frappe', () => {
+    expect(formaterTelephone('0613861877')).toBe('06 13 86 18 77');
+    expect(formaterTelephone('06.13.86.18.77')).toBe('06 13 86 18 77');
+    expect(formaterTelephone('+33613861877')).toBe('+33 6 13 86 18 77');
+    expect(formaterTelephone('0033613861877')).toBe('+33 6 13 86 18 77');
+    expect(formaterTelephone('061')).toBe('06 1');
+    expect(formaterTelephone('+336')).toBe('+33 6');
+    expect(formaterTelephone('+3361')).toBe('+33 6 1');
+    expect(chiffresTelephone('+33 6 13 86 18 77')).toBe('+33613861877');
+  });
+  it('effacer un espace efface le chiffre d\'avant (sinon la touche semblerait bloquée)', () => {
+    expect(saisieTelephone('06 13', '06 1')).toBe('06 1');
+    expect(saisieTelephone('06 13 ', '06 13')).toBe('06 1');
+    expect(saisieTelephone('06 1', '06 13')).toBe('06 13');
+  });
+  it('la ligne d\'un contact replié : titre · prénom nom · e-mails · téléphones, sans « · · »', () => {
+    expect(ligneContact({ titre: 'Responsable de copropriété', prenom: 'Léa', nom: 'Durand', emails: ['l@d.fr'], telephones: ['0613861877'] }))
+      .toBe('Responsable de copropriété · Léa Durand · l@d.fr · 06 13 86 18 77');
+    expect(ligneContact({ titre: '', prenom: '', nom: 'Durand', emails: [], telephones: [] })).toBe('Durand');
+  });
+});
+
+describe('les adresses — « 25 rue Edith Cavell, 92400 Courbevoie »', () => {
+  it('rue, code postal, commune ; jamais un code postal ou une commune répétés', () => {
+    expect(adresseImmeuble('25 rue Edith Cavell', '92400', 'Courbevoie')).toBe('25 rue Edith Cavell, 92400 Courbevoie');
+    expect(adresseImmeuble('25 rue Edith Cavell 92400 Courbevoie', '92400', 'Courbevoie')).toBe('25 rue Edith Cavell 92400 Courbevoie');
+    expect(adresseImmeuble('25 rue Edith Cavell', null, null)).toBe('25 rue Edith Cavell');
+    expect(communeLisible('COURBEVOIE')).toBe('Courbevoie');
+    expect(communeLisible('LEVALLOIS-PERRET')).toBe('Levallois-Perret');
+    expect(communeLisible('Courbevoie')).toBe('Courbevoie');
+  });
+});
+
+describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
   beforeEach(() => { appels.length = 0; reponses = []; });
 
-  it('création : syndic, contact, coordonnée, copropriété déclarée et lien ouvert, avec l\'auteur de la session', async () => {
+  it('création : syndic (adresse, CP, ville, deux standards), contact, coordonnée, copropriété et lien, auteur de la session', async () => {
     const { enregistrerSyndic } = await import('./syndicRepo');
     reponses = [(sql) => (sql.includes('INSERT INTO gestion_syndic ') ? { rows: [{ id: '11' }] } : undefined),
       (sql) => (sql.includes('INSERT INTO gestion_syndic_contact') ? { rows: [{ id: '21' }] } : undefined)];
-    const v = validerSyndic({ nom: 'Cabinet TEST', email: 'x@test.fr',
+    const v = validerSyndic({ nom: 'Cabinet TEST', adresse: '1 rue A', codePostal: '75001', ville: 'Paris',
+      telephone: '01 00 00 00 00', telephone2: '02 00 00 00 00', email: 'x@test.fr',
       contacts: [{ titre: 'Responsable de copropriété', nom: 'Durand', coordonnees: [{ sorte: 'email', libelle: 'Ligne directe', valeur: 'd@test.fr' }] }],
-      immeubles: ['12 rue X'] });
+      immeubles: [im('12 rue X', '92400', 'Courbevoie')] });
     if (!v.ok) throw new Error(v.motif);
     expect(await enregistrerSyndic(null, v.syndic, auteur)).toEqual({ ok: true, id: 11 });
     const sqls = appels.map((a) => norm(a.sql));
-    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_syndic '))?.params).toEqual(['Cabinet TEST', null, null, 'x@test.fr', null, 7, 'arno']);
+    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_syndic '))?.params)
+      .toEqual(['Cabinet TEST', '1 rue A', '75001', 'Paris', '0100000000', '0200000000', 'x@test.fr', null, 7, 'arno']);
     expect(sqls.some((s) => s.includes('INSERT INTO gestion_syndic_coordonnee'))).toBe(true);
-    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_copropriete '))?.params).toEqual([cleImmeuble('12 rue X'), '12 rue X', 7, 'arno']);
-    expect(sqls.some((s) => s.includes('ON CONFLICT (cle_immeuble) DO NOTHING'))).toBe(true);
+    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_copropriete '))?.params)
+      .toEqual([cleImmeuble('12 rue X'), '12 rue X', '92400', 'Courbevoie', 7, 'arno']);
+    expect(sqls.some((s) => s.includes('ON CONFLICT (cle_immeuble) DO UPDATE SET code_postal = coalesce(gestion_copropriete.code_postal'))).toBe(true);
     expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_copropriete_syndic'))?.params).toEqual([cleImmeuble('12 rue X'), 11, 7, 'arno']);
   });
 
   it('un immeuble repris d\'un AUTRE syndic : son lien est FERMÉ (« changement de syndic »), jamais effacé', async () => {
     const { enregistrerSyndic } = await import('./syndicRepo');
     reponses = [
-      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
       (sql) => (sql.includes('FOR UPDATE OF cs') ? { rows: [
         { lien_id: '31', copro_id: '41', cle: cleImmeuble('3 av Y'), syndic_id: '99' },
         { lien_id: '32', copro_id: '42', cle: cleImmeuble('ancien immeuble'), syndic_id: '11' },
       ] } : undefined),
     ];
-    const v = validerSyndic({ nom: 'Cabinet TEST', immeubles: ['3 av Y'] });
+    const v = validerSyndic({ nom: 'Cabinet TEST', immeubles: [im('3 av Y')] });
     if (!v.ok) throw new Error(v.motif);
     await enregistrerSyndic(11, v.syndic, auteur);
     const fermetures = appels.filter((a) => a.sql.includes('UPDATE gestion_copropriete_syndic SET fin = now()'));
@@ -140,7 +205,7 @@ describe('le dépôt — une seule porte d\'écriture, rien n\'est effacé', () 
     expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
   });
 
-  it('un syndic inexistant est refusé AVANT toute écriture', async () => {
+  it('un syndic inexistant OU SUPPRIMÉ est refusé AVANT toute écriture', async () => {
     const { enregistrerSyndic } = await import('./syndicRepo');
     const v = validerSyndic({ nom: 'X' });
     if (!v.ok) throw new Error(v.motif);
@@ -148,22 +213,73 @@ describe('le dépôt — une seule porte d\'écriture, rien n\'est effacé', () 
     expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
   });
 
-  it('les lots d\'une copropriété se lisent par leur immeuble normalisé', async () => {
+  it('SUPPRIMER : liens fermés (« suppression du syndic »), contacts retirés, supprime_le, ligne au journal — aucun DELETE', async () => {
+    const { supprimerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_annuaire_lot') ? { rows: [
+        { id: '1', numero: '101', immeuble: '12 rue X', adresse: '12 rue X', commune: 'Paris', code_postal: '75001' },
+        { id: '2', numero: '102', immeuble: '12 rue X', adresse: '12 rue X', commune: 'Paris', code_postal: '75001' },
+      ] } : undefined),
+      (sql) => (sql.includes('SELECT nom FROM gestion_syndic') ? { rows: [{ nom: 'Cabinet TEST' }] } : undefined),
+      (sql) => (sql.includes('FOR UPDATE OF cs') ? { rows: [{ id: '31', cle: cleImmeuble('12 rue X') }] } : undefined),
+    ];
+    expect(await supprimerSyndic(11, auteur)).toEqual({ ok: true, coproprietes: 1 });
+    const sqls = appels.map((a) => norm(a.sql));
+    expect(sqls.some((s) => s.includes("fin_motif = 'suppression du syndic'"))).toBe(true);
+    expect(sqls.some((s) => s.includes('UPDATE gestion_syndic_contact SET retire_le = now()'))).toBe(true);
+    expect(sqls.some((s) => s.includes('UPDATE gestion_syndic SET supprime_le = now()'))).toBe(true);
+    const journal = appels.find((a) => a.sql.includes('INSERT INTO gestion_journal'));
+    expect(norm(journal?.sql ?? '')).toContain("VALUES ('annuaire', $1, 'suppression_syndic'");
+    expect(journal?.params).toEqual([11, 'Cabinet TEST', 'syndic supprimé — 1 copropriété(s), 2 bien(s) repassent sans syndic', 7, 'arno']);
+    expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
+  });
+
+  it('SUPPRIMER un syndic inconnu ou déjà supprimé : refusé avant toute écriture', async () => {
+    const { supprimerSyndic } = await import('./syndicRepo');
+    expect((await supprimerSyndic(404, auteur)).ok).toBe(false);
+    expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
+  });
+
+  it('les listes et la fiche ignorent les syndics supprimés', () => {
+    const src = norm(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8'));
+    expect(src).toContain('FROM gestion_syndic s WHERE s.supprime_le IS NULL');
+    expect(src).toContain('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL');
+  });
+
+  it('la BAN LOCALE : un numéro et une voie, paramètres liés, code postal déduit (Paris, nos lots, DILA) — aucun réseau', async () => {
+    const { adressesBanLocale } = await import('./syndicRepo');
+    expect(await adressesBanLocale('rue edith')).toEqual([]);
+    expect(appels).toEqual([]);
+    reponses = [(sql) => (sql.includes('FROM adresse_ban') ? { rows: [
+      { numero: 25, suffixe: null, nom_voie: 'Rue Edith Cavell', nom_commune: 'Courbevoie', code_postal: '92400' },
+    ] } : undefined)];
+    const r = await adressesBanLocale('25 rue Édith Cav');
+    expect(appels[0].params).toEqual([25, null, 'rue edith cav', 6]);
+    expect(r).toEqual([{ cle: cleImmeuble('25 Rue Edith Cavell'), libelle: '25 Rue Edith Cavell', codePostal: '92400', commune: 'Courbevoie' }]);
+    const sql = norm(appels[0].sql);
+    expect(sql).toContain("'750' || substr(b.insee_commune, 4, 2)");
+    expect(sql).toContain('FROM gestion_annuaire_lot lo');
+    expect(sql).toContain('FROM dila_import d');
+    const src = readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8');
+    expect(src).not.toMatch(/fetch\(|https?:\/\//);
+  });
+
+  it('les lots d\'une copropriété se lisent par leur immeuble normalisé, avec leur code postal et leur commune', async () => {
     const { immeublesConnus } = await import('./syndicRepo');
     reponses = [
       (sql) => (sql.includes('FROM gestion_annuaire_lot') ? { rows: [
-        { id: '1', numero: '101', immeuble: '12 Rue X', adresse: '12 rue X', commune: 'Paris' },
-        { id: '2', numero: '102', immeuble: '12 rue x', adresse: '12 rue X', commune: 'Paris' },
-        { id: '3', numero: '103', immeuble: null, adresse: '5 rue Z', commune: 'Paris' },
+        { id: '1', numero: '101', immeuble: '12 Rue X', adresse: '12 rue X', commune: 'COURBEVOIE', code_postal: '92400' },
+        { id: '2', numero: '102', immeuble: '12 rue x', adresse: '12 rue X', commune: 'COURBEVOIE', code_postal: '92400' },
+        { id: '3', numero: '103', immeuble: null, adresse: '5 rue Z', commune: 'Paris', code_postal: null },
       ] } : undefined),
       (sql) => (sql.includes('FROM gestion_copropriete c') ? { rows: [
-        { cle: cleImmeuble('12 rue X'), libelle: '12 rue X', syndic_id: '11', syndic_nom: 'Cab' },
+        { cle: cleImmeuble('12 rue X'), libelle: '12 rue X', code_postal: null, commune: null, syndic_id: '11', syndic_nom: 'Cab' },
       ] } : undefined),
     ];
     const l = await immeublesConnus();
     expect(l).toHaveLength(1);
+    expect(l[0]).toMatchObject({ codePostal: '92400', commune: 'Courbevoie', syndic: { id: 11, nom: 'Cab' } });
     expect(l[0].lots.map((x) => x.numero)).toEqual(['101', '102']);
-    expect(l[0].syndic).toEqual({ id: 11, nom: 'Cab' });
   });
 
   it('le dépôt ne contient aucun DELETE', () => {
@@ -171,17 +287,21 @@ describe('le dépôt — une seule porte d\'écriture, rien n\'est effacé', () 
   });
 });
 
-describe('la migration 324 — ajout uniquement', () => {
-  const sql = readFileSync(join(__dirname, '../../../db/migrations/324_gestion_annuaire_syndics.sql'), 'utf8');
-  const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
-  it('cinq tables, aucune suppression ni renommage', () => {
+describe('les migrations 324 et 325 — ajout uniquement', () => {
+  const lire = (f: string): string => readFileSync(join(__dirname, `../../../db/migrations/${f}`), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
+  it('324 : cinq tables, aucune suppression ni renommage ; un seul syndic EN COURS par immeuble', () => {
+    const code = lire('324_gestion_annuaire_syndics.sql');
     for (const t of ['gestion_syndic ', 'gestion_copropriete ', 'gestion_copropriete_syndic ', 'gestion_syndic_contact ', 'gestion_syndic_coordonnee ']) {
       expect(code).toContain(`CREATE TABLE IF NOT EXISTS ${t}`);
     }
     expect(code).not.toMatch(/\bDROP\b|\bRENAME\b|ALTER TABLE/i);
-  });
-  it('un seul syndic EN COURS par immeuble ; l\'historique se ferme par « fin »', () => {
     expect(norm(code)).toContain('CREATE UNIQUE INDEX IF NOT EXISTS gestion_copropriete_syndic_en_cours ON gestion_copropriete_syndic (copropriete_id) WHERE fin IS NULL');
+  });
+  it('325 : uniquement des ADD COLUMN', () => {
+    const lignes = lire('325_gestion_syndic_finitions.sql').split('\n').map((l) => l.trim()).filter((l) => l !== '');
+    expect(lignes.length).toBe(8);
+    for (const l of lignes) expect(l).toMatch(/^ALTER TABLE gestion_(syndic|copropriete) ADD COLUMN IF NOT EXISTS \w+ (text|timestamptz|bigint);$/);
   });
 });
 
@@ -189,12 +309,29 @@ describe('les écrans', () => {
   const g = join(__dirname, '../../(admin)/admin/(protected)/gestion');
   const lire = (f: string): string => readFileSync(join(g, f), 'utf8');
 
-  it('le bouton : « Coordonnées syndic » sur fond rose transparent, sinon « Créer le syndic » sur fond blanc, pleine largeur', () => {
+  it('le bouton : le NOM du syndic (tronqué « … », entier au survol), sinon « Créer le syndic »', () => {
     const src = lire('BoutonSyndic.tsx');
-    expect(src).toContain("'Coordonnées syndic' : 'Créer le syndic'");
-    expect(src).toContain('ann-carte-bouton ann-carte-bouton--large bsy');
-    expect(src).toContain('color-mix(in srgb, var(--color-svv-rose) 14%, transparent)');
-    expect(src).toContain('.ann-carte-bouton.bsy{background:var(--color-svv-surface)}');
+    expect(src).toContain("{syndic !== null ? syndic.nom : 'Créer le syndic'}");
+    expect(src).toContain('title={syndic !== null ? `Syndic : ${syndic.nom}`');
+    expect(src).toContain('text-overflow:ellipsis;white-space:nowrap');
+  });
+
+  it('le bouton a EXACTEMENT le format de « Historique » : même classe, même retrait de 14 px que le pied de carte', () => {
+    const src = lire('BoutonSyndic.tsx');
+    expect(src).toContain('svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large bsy');
+    expect(src).toContain('.bsy-ligne{display:flex;flex-direction:column;align-items:stretch;padding:0 14px;');
+    expect(lire('Annuaire.tsx')).toContain('.ann-carte-pied{display:flex;flex-direction:column;gap:.4rem;padding:0 14px 12px;');
+    expect(lire('Annuaire.tsx')).toContain('<BoutonSyndic immeuble={f.immeuble} dansLaFiche />');
+  });
+
+  it('rose franc par des jetons, en Clair ET en Sombre ; « Créer le syndic » reste blanc', () => {
+    const src = lire('BoutonSyndic.tsx');
+    expect(src).toContain('background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte);border-color:var(--color-svv-syndic-bord)');
+    expect(src).toContain('.ann-carte-bouton.bsy{background:var(--color-svv-surface)');
+    const css = readFileSync(join(__dirname, '../../globals.css'), 'utf8');
+    expect(css.match(/--color-svv-syndic-fond:/g)?.length).toBe(3); // Clair, Sombre, Sombre « système »
+    expect(css).toContain('--color-svv-syndic-texte: #9d174d;');
+    expect(css.match(/--color-svv-syndic-texte: #f9a8d4;/g)?.length).toBe(2);
   });
 
   it('dans la carte du bien, À LA PLACE de la ligne SURFACE (entre le cartouche et les faits)', () => {
@@ -203,7 +340,6 @@ describe('les écrans', () => {
     const i = carte.indexOf('<BoutonSyndic immeuble={b.immeuble} />');
     expect(i).toBeGreaterThan(carte.indexOf('<CartoucheEvenement'));
     expect(i).toBeLessThan(carte.indexOf('className="ann-carte-faits"'));
-    expect(src).toContain('<BoutonSyndic immeuble={f.immeuble} />');
     expect(src).toContain('{o.lotId !== null && <BoutonSyndic immeuble={o.immeuble} />}');
   });
 
@@ -217,13 +353,31 @@ describe('les écrans', () => {
     expect(an).toBeGreaterThan(sy);
   });
 
-  it('la fiche montre la liste des biens AVANT d\'enregistrer, et la modale se rend dans la racine du thème', () => {
+  it('la fiche : pied hors de la zone qui défile, Annuler / Valider, abandon confirmé, croix = Annuler', () => {
     const src = lire('FicheSyndic.tsx');
-    expect(src).toContain('Biens qui recevront ce syndic');
-    expect(src).toContain('Confirmer et enregistrer');
-    expect(src).toContain('Rattacher cet immeuble à ce syndic');
-    expect(src).toContain('Créer un nouveau syndic');
-    expect(src).toContain('Retirer ? Le lien passe en historique.');
-    expect(lire('BoutonSyndic.tsx')).toContain("document.querySelector('.svv-adm-root') ?? document.body");
+    expect(src.indexOf('className="fsy-corps"')).toBeLessThan(src.indexOf('className="fsy-pied"'));
+    expect(src).toContain('.fsy-corps{flex:1 1 auto;min-height:0;overflow-y:auto;');
+    expect(src).toContain('.fsy-pied{flex:0 0 auto;');
+    expect(src).toContain('Abandonner les modifications ?');
+    expect(src).toContain('aria-label="Annuler et fermer" onClick={annuler}');
+    expect(src).toContain("{envoi ? 'Enregistrement…' : 'Valider'}");
+  });
+
+  it('la fiche est COMPACTE : aucune base flex sur un champ hors d\'une rangée (elle devenait une hauteur)', () => {
+    const src = lire('FicheSyndic.tsx');
+    const regle = src.slice(src.indexOf('.fsy-champ{'), src.indexOf('}', src.indexOf('.fsy-champ{')));
+    expect(regle).not.toMatch(/flex:/);
+    expect(src).toContain('.fsy-duo > .fsy-champ{flex:1 1 11rem}');
+  });
+
+  it('contacts repliés, « Valider ce contact », « Modifier » ; second standard ; liste des biens ; suppression confirmée', () => {
+    const src = lire('FicheSyndic.tsx');
+    for (const mot of ['Valider ce contact', '>Modifier<', '+ Ajouter un contact', 'Ajouter un second numéro de standard',
+      'Biens qui recevront ce syndic', 'déjà rattachée à', 'Oui, la prendre', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
+      'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
+      expect(src).toContain(mot);
+    }
+    expect(src).toContain('/api/admin/gestion/syndics/adresses?q=');
+    expect(src).not.toContain('api-adresse.data.gouv.fr');
   });
 });

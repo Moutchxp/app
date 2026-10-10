@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  * serveur, l'auteur vient de la session, et la création comme la modification passent par la MÊME porte.
  */
 const enregistrerSyndic = vi.fn();
+const supprimerSyndic = vi.fn();
+const adressesBanLocale = vi.fn(async () => [{ cle: '25 rue edith cavell', libelle: '25 Rue Edith Cavell', codePostal: '92400', commune: 'Courbevoie' }]);
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerCompteActif: vi.fn(async () => null) }));
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: vi.fn(async () => ({ id: 7, libelle: 'arno' })) }));
 vi.mock('../../../../../lib/gestion/syndicRepo', () => ({
@@ -14,6 +16,8 @@ vi.mock('../../../../../lib/gestion/syndicRepo', () => ({
     { id: 2, nom: 'Foncia', email: null, telephone: null, nbCoproprietes: 1, nbBiens: 1, cherchable: 'foncia' },
   ]),
   enregistrerSyndic: (...a: unknown[]) => enregistrerSyndic(...a),
+  supprimerSyndic: (...a: unknown[]) => supprimerSyndic(...a),
+  adressesBanLocale: (...a: unknown[]) => adressesBanLocale(...(a as [])),
   ficheSyndic: vi.fn(async (id: number) => (id === 1 ? { id: 1, nom: 'Citya' } : null)),
   immeublesConnus: vi.fn(async () => []),
 }));
@@ -42,7 +46,7 @@ describe('/api/admin/gestion/syndics', () => {
     const r = await POST(requete('/api/admin/gestion/syndics', { nom: 'Cabinet TEST', immeubles: ['12 rue X'], auteur: 'pirate' }));
     expect(await r.json()).toEqual({ ok: true, id: 11 });
     expect(enregistrerSyndic.mock.calls[0][0]).toBeNull();
-    expect(enregistrerSyndic.mock.calls[0][1]).toMatchObject({ nom: 'Cabinet TEST', immeubles: ['12 rue X'] });
+    expect(enregistrerSyndic.mock.calls[0][1]).toMatchObject({ nom: 'Cabinet TEST', immeubles: [{ libelle: '12 rue X', codePostal: '', commune: '' }] });
     expect(enregistrerSyndic.mock.calls[0][2]).toEqual({ id: 7, libelle: 'arno' });
   });
 
@@ -53,5 +57,22 @@ describe('/api/admin/gestion/syndics', () => {
     expect(enregistrerSyndic.mock.calls[0][0]).toBe(11);
     expect((await GET(requete('/api/admin/gestion/syndics/5'), params('5'))).status).toBe(404);
     expect((await GET(requete('/api/admin/gestion/syndics/abc'), params('abc'))).status).toBe(422);
+  });
+
+  it('DELETE /[id] : « Supprimer ce syndic » par la porte dédiée, avec l\'auteur de la session', async () => {
+    supprimerSyndic.mockResolvedValue({ ok: true, coproprietes: 2 });
+    const { DELETE } = await import('./[id]/route');
+    const r = await DELETE(requete('/api/admin/gestion/syndics/11', undefined), { params: Promise.resolve({ id: '11' }) });
+    expect(await r.json()).toEqual({ ok: true, coproprietes: 2 });
+    expect(supprimerSyndic).toHaveBeenCalledWith(11, { id: 7, libelle: 'arno' });
+    supprimerSyndic.mockResolvedValue({ ok: false, motif: 'Ce syndic n’existe pas ou a déjà été supprimé.' });
+    expect((await DELETE(requete('/api/admin/gestion/syndics/12', undefined), { params: Promise.resolve({ id: '12' }) })).status).toBe(404);
+  });
+
+  it('GET /adresses : la BAN LOCALE, la saisie transmise telle quelle (bornée)', async () => {
+    const { GET } = await import('./adresses/route');
+    const j = await (await GET(requete('/api/admin/gestion/syndics/adresses?q=25%20rue%20edith'))).json();
+    expect(j.adresses[0].libelle).toBe('25 Rue Edith Cavell');
+    expect(adressesBanLocale).toHaveBeenCalledWith('25 rue edith');
   });
 });

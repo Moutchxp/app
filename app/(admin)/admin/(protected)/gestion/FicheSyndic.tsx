@@ -2,40 +2,53 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  apercuPropagation, cleImmeuble, contactVide, coordonneeVide, coproprietesRetirees, formulaireVide,
-  immeublesQuiRepondent, LIBELLES_COORDONNEE, nomDuContact, PERSONNALISE, TITRES_CONTACT, versFormulaire, versSaisie,
-  type ContactForm, type CoordonneeForm, type FicheSyndic as Fiche, type SorteCoordonnee, type SyndicForm,
-  type SyndicResume,
+  adresseImmeuble, apercuPropagation, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, LIBELLES_COORDONNEE,
+  lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
+  TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
+  type AdresseBan, type ContactForm, type CoordonneeForm, type FicheSyndic as Fiche, type ImmeubleConnu,
+  type ImmeubleSaisi, type SorteCoordonnee, type SyndicForm, type SyndicResume,
 } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA FICHE SYNDIC (UN SEUL COMPOSANT, RÉUTILISABLE TEL QUEL) ═══════════
  *
- * ARNO : « Modale / fiche syndic (un seul composant, réutilisable tel quel dans la future tuile Location). »
- *
  * Elle s'ouvre de trois façons, et c'est toujours elle :
- *   · depuis la carte d'un bien dont l'immeuble a un syndic   → `syndicId` connu : LECTURE, puis « Modifier » ;
+ *   · depuis la carte d'un bien dont l'immeuble a un syndic   → `syndicId` connu : la fiche, pré-remplie ;
  *   · depuis la carte d'un bien sans syndic                   → `syndicId` nul + `immeubleDepart` : RECHERCHE d'un
  *     syndic existant (« Rattacher cet immeuble à ce syndic »), sinon « Créer un nouveau syndic » ;
  *   · depuis l'écran « Syndics »                              → l'un ou l'autre, sans immeuble de départ.
  *
- * 🔴 RIEN NE S'ENREGISTRE SANS LA LISTE DES BIENS. « AVANT VALIDATION : afficher la liste des biens qui recevront ce
- * syndic → l'utilisateur confirme → propagation. » L'étape CONFIRMATION montre tous les lots des copropriétés
- * rattachées, les immeubles qui changent de syndic, et ceux qui seront retirés (le lien passe en historique).
+ * ══ 🔴🔴 LOT FICHE-SYNDIC-FINITIONS — CE QU'ARNO A DEMANDÉ, ET OÙ C'EST ══════════════════════════════════════════
  *
- * 🔴 UNE SEULE ÉCRITURE : la fiche entière part en un PUT (ou un POST pour une création), et le serveur la
- * re-valide. Ce qui manque est retiré ou fermé, jamais effacé.
+ *   ① COMPACTE. Les grands vides venaient de `flex:1 1 12rem` posé sur CHAQUE champ : dans une colonne flex, cette
+ *     base devient une HAUTEUR de 12rem. La base ne vit plus que dans les rangées (`.fsy-duo`).
+ *   ② LE PIED EST TOUJOURS VISIBLE : la fenêtre est une colonne (en-tête / corps qui défile / pied), et le pied est
+ *     HORS de la zone qui défile. « Annuler » ferme sans enregistrer (confirmation si quelque chose a bougé) ;
+ *     « Valider » enregistre PUIS ferme. La croix, Échap et le clic sur le voile = Annuler.
+ *   ③ « Valider ce contact » replie le contact en une ligne (titre · prénom nom · e-mails · téléphones) ; « Modifier »
+ *     le rouvre ; « + Ajouter un contact » ouvre un bloc déplié. Les contacts existants arrivent repliés.
+ *   ④ DEUX STANDARDS AU PLUS (« + »), chacun retirable ; tous les numéros s'affichent et se tapent par paires.
+ *   ⑤ ADRESSE = rue + code postal + ville ; les copropriétés se lisent « 25 rue Edith Cavell, 92400 Courbevoie ».
+ *   ⑥ AUTO-COMPLÉTION dès 2 caractères : le PORTEFEUILLE d'abord (« N bien(s) en gestion à cette adresse »), puis
+ *     la BAN LOCALE (« aucun bien en gestion à cette adresse »). Une copropriété d'un autre syndic est signalée et ne
+ *     se prend qu'après confirmation (l'ancien lien passe en historique).
+ *   ⑦ « Supprimer ce syndic », discret, en bas : confirmation qui liste les biens qui le perdront.
  *
- * MOBILE : la modale prend tout l'écran sous 640 px, les champs passent à 16 px (iOS ne zoome pas), cibles ≥ 44 px.
+ * 🔴 RIEN NE S'ENREGISTRE SANS QUE LA LISTE DES BIENS SOIT SOUS LES YEUX : « Biens qui recevront ce syndic » est
+ * affichée en permanence sous les copropriétés, avec les changements de syndic et les retraits — c'est elle qui
+ * tient la règle « afficher la liste des biens AVANT validation », sans étape de plus.
+ *
+ * MOBILE : plein écran sous 640 px, champs à 16 px (iOS ne zoome pas), cibles ≥ 44 px.
  */
-type Mode = 'chargement' | 'recherche' | 'lecture' | 'edition' | 'confirmation' | 'erreur';
+type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
 export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire }: {
   /** `null` = aucun syndic encore : on commence par chercher un syndic existant. */
   syndicId: number | null;
-  /** L'« Immeuble » WIPPIMMO du bien depuis lequel on vient : pré-rempli comme copropriété. */
-  immeubleDepart?: string | null;
+  /** L'immeuble du bien depuis lequel on vient : pré-rempli comme copropriété. */
+  immeubleDepart?: ImmeubleSaisi | null;
   onFerme: () => void;
   /** Écrire depuis gestion@ par le composeur existant. Absent ⇒ le lien `mailto:` suffit. */
   onEcrire?: (email: string) => void;
@@ -44,8 +57,12 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [mode, setMode] = useState<Mode>(idInitial === null ? 'recherche' : 'chargement');
   const [fiche, setFiche] = useState<Fiche | null>(null);
   const [form, setForm] = useState<SyndicForm>(() => formulaireVide(immeubleDepart));
+  /** Le formulaire tel qu'il était à l'ouverture : ce qui permet de dire « des modifications sont en cours ». */
+  const [initial, setInitial] = useState<SyndicForm>(() => formulaireVide(null));
   const [erreur, setErreur] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  const [abandon, setAbandon] = useState(false);
+  const [suppression, setSuppression] = useState(false);
   const boite = useRef<HTMLDivElement | null>(null);
   const immeubles = useImmeublesSyndics();
 
@@ -56,7 +73,9 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       const j = (await r.json()) as { etat?: string; fiche?: Fiche; message?: string };
       if (!r.ok || j.etat !== 'ok' || !j.fiche) { setErreur(j.message ?? 'Lecture impossible.'); setMode('erreur'); return null; }
       setFiche(j.fiche);
-      setMode('lecture');
+      const f = versFormulaire(j.fiche);
+      setForm(f); setInitial(f);
+      setMode('edition');
       return j.fiche;
     } catch {
       setErreur('Lecture impossible : le serveur n’a pas répondu.'); setMode('erreur'); return null;
@@ -65,27 +84,39 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
 
   useEffect(() => { if (idInitial !== null) void charger(idInitial); }, [idInitial, charger]);
 
-  // Échap ferme, où que soit le focus (même règle que les autres modales du module).
-  useEffect(() => {
-    const auClavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } };
-    document.addEventListener('keydown', auClavier, true);
-    boite.current?.focus();
-    return () => document.removeEventListener('keydown', auClavier, true);
-  }, [onFerme]);
+  const modifie = mode === 'edition' && formulaireModifie(initial, form);
 
-  /** « Rattacher cet immeuble à ce syndic » : on ouvre SA fiche en modification, l'immeuble déjà ajouté. */
+  /** ANNULER — la croix, Échap et le voile y mènent aussi. Des modifications en cours ⇒ on demande d'abord. */
+  const annuler = useCallback((): void => {
+    if (modifie && !abandon) { setAbandon(true); return; }
+    onFerme();
+  }, [modifie, abandon, onFerme]);
+
+  useEffect(() => {
+    const auClavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopPropagation(); annuler(); } };
+    document.addEventListener('keydown', auClavier, true);
+    return () => document.removeEventListener('keydown', auClavier, true);
+  }, [annuler]);
+  useEffect(() => { boite.current?.focus(); }, []);
+
+  /** « Rattacher cet immeuble à ce syndic » : SA fiche s'ouvre, l'immeuble déjà ajouté (et donc à valider). */
   const rattacherA = async (id: number): Promise<void> => {
     setSyndicId(id);
     const f = await charger(id);
-    if (f === null) return;
+    if (f === null || immeubleDepart === null || immeubleDepart.libelle.trim() === '') return;
     const base = versFormulaire(f);
-    const i = (immeubleDepart ?? '').trim();
-    if (i !== '' && !base.immeubles.some((x) => cleImmeuble(x) === cleImmeuble(i))) base.immeubles.push(i);
-    setForm(base);
-    setMode('edition');
+    if (!base.immeubles.some((x) => cleImmeuble(x.libelle) === cleImmeuble(immeubleDepart.libelle))) {
+      setForm({ ...base, immeubles: [...base.immeubles, immeubleDepart] });
+    }
   };
 
-  const enregistrer = async (): Promise<void> => {
+  /** VALIDER — enregistre puis ferme. Rien n'a bougé ⇒ on ferme simplement. */
+  const valider = async (): Promise<void> => {
+    if (form.nom.trim() === '') { setErreur('Le nom du cabinet est obligatoire.'); return; }
+    const sansNom = form.contacts.find((c) => !contactNomme({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom })
+      && c.coordonnees.some((k) => k.valeur.trim() !== ''));
+    if (sansNom) { setErreur('Chaque contact doit avoir au moins un nom ou un titre.'); return; }
+    if (syndicId !== null && !modifie) { onFerme(); return; }
     setEnvoi(true); setErreur(null);
     try {
       const r = await fetch(syndicId === null ? '/api/admin/gestion/syndics' : `/api/admin/gestion/syndics/${syndicId}`, {
@@ -94,58 +125,80 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         body: JSON.stringify(versSaisie(form)),
       });
       const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string };
-      if (!r.ok || j.ok !== true || typeof j.id !== 'number') { setErreur(j.erreur ?? 'Enregistrement impossible.'); setMode('edition'); return; }
-      setSyndicId(j.id);
+      if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Enregistrement impossible.'); return; }
       await rafraichirImmeubles();
-      await charger(j.id);
+      onFerme();
     } catch {
-      setErreur('Enregistrement impossible : le serveur n’a pas répondu.'); setMode('edition');
+      setErreur('Enregistrement impossible : le serveur n’a pas répondu.');
+    } finally {
+      setEnvoi(false);
+    }
+  };
+
+  const supprimer = async (): Promise<void> => {
+    if (syndicId === null) return;
+    setEnvoi(true); setErreur(null);
+    try {
+      const r = await fetch(`/api/admin/gestion/syndics/${syndicId}`, { method: 'DELETE' });
+      const j = (await r.json()) as { ok?: boolean; erreur?: string };
+      if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Suppression impossible.'); return; }
+      await rafraichirImmeubles();
+      onFerme();
+    } catch {
+      setErreur('Suppression impossible : le serveur n’a pas répondu.');
     } finally {
       setEnvoi(false);
     }
   };
 
   const titre = mode === 'recherche' ? 'Syndic de la copropriété'
-    : syndicId === null ? 'Créer un syndic'
-      : mode === 'lecture' && fiche ? fiche.nom : 'Modifier le syndic';
+    : syndicId === null ? 'Créer un syndic' : (fiche?.nom ?? 'Syndic');
 
   return (
-    <div className="fsy-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFerme(); }}>
+    <div className="fsy-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) annuler(); }}>
       <style>{CSS_FICHE_SYNDIC}</style>
       <div className="fsy" role="dialog" aria-modal="true" aria-labelledby="fsy-titre" tabIndex={-1} ref={boite}>
         <div className="fsy-tete">
           <h2 className="fsy-titre" id="fsy-titre">{titre}</h2>
-          <button type="button" className="fsy-croix" aria-label="Fermer" onClick={onFerme}>×</button>
+          <button type="button" className="fsy-croix" aria-label="Annuler et fermer" onClick={annuler}>×</button>
         </div>
-        {immeubles !== null && !immeubles.disponible && (
-          <p className="fsy-alerte">L’annuaire des syndics n’est pas encore installé (migration 324).</p>
-        )}
-        {erreur !== null && <p className="fsy-alerte" role="alert">{erreur}</p>}
 
-        {mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
-        {mode === 'erreur' && (
-          <div className="fsy-boutons"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>Fermer</button></div>
-        )}
-        {mode === 'recherche' && (
-          <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)}
-            onCreer={() => { setForm(formulaireVide(immeubleDepart)); setMode('edition'); }} />
-        )}
-        {mode === 'lecture' && fiche !== null && (
-          <Lecture fiche={fiche} onEcrire={onEcrire}
-            onModifier={() => { setForm(versFormulaire(fiche)); setErreur(null); setMode('edition'); }} />
-        )}
-        {mode === 'edition' && (
-          <Edition form={form} setForm={setForm}
-            onAnnuler={() => { setErreur(null); if (fiche !== null && syndicId !== null) setMode('lecture'); else onFerme(); }}
-            onSuite={() => {
-              if (form.nom.trim() === '') { setErreur('Le nom du cabinet est obligatoire.'); return; }
-              setErreur(null); setMode('confirmation');
-            }} />
-        )}
-        {mode === 'confirmation' && (
-          <Confirmation form={form} avant={fiche?.coproprietes.map((c) => c.libelle) ?? []} syndicId={syndicId}
-            envoi={envoi} onRetour={() => setMode('edition')} onConfirmer={() => void enregistrer()} />
-        )}
+        <div className="fsy-corps">
+          {immeubles !== null && !immeubles.disponible && (
+            <p className="fsy-alerte">L’annuaire des syndics n’est pas encore installé (migrations 324-325).</p>
+          )}
+          {mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
+          {mode === 'recherche' && (
+            <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)}
+              onCreer={() => { setForm(formulaireVide(immeubleDepart)); setInitial(formulaireVide(null)); setMode('edition'); }} />
+          )}
+          {mode === 'edition' && (
+            <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
+              connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression}
+              envoi={envoi} onSupprimer={() => void supprimer()} />
+          )}
+        </div>
+
+        {/* ══ LE PIED, TOUJOURS VISIBLE — hors de la zone qui défile ══ */}
+        <div className="fsy-pied">
+          {erreur !== null && <p className="fsy-alerte fsy-pied-alerte" role="alert">{erreur}</p>}
+          {abandon ? (
+            <div className="fsy-boutons" role="group" aria-label="Abandonner les modifications ?">
+              <span className="fsy-question">Abandonner les modifications ?</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAbandon(false)}>Non, continuer</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onFerme}>Oui, abandonner</button>
+            </div>
+          ) : (
+            <div className="fsy-boutons">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={annuler} disabled={envoi}>Annuler</button>
+              {mode === 'edition' && (
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void valider()} disabled={envoi}>
+                  {envoi ? 'Enregistrement…' : 'Valider'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -154,7 +207,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
 
 function Recherche({ immeubleDepart, onRattacher, onCreer }: {
-  immeubleDepart: string | null; onRattacher: (id: number) => void; onCreer: () => void;
+  immeubleDepart: ImmeubleSaisi | null; onRattacher: (id: number) => void; onCreer: () => void;
 }) {
   const [q, setQ] = useState('');
   const [liste, setListe] = useState<SyndicResume[] | null>(null);
@@ -168,11 +221,13 @@ function Recherche({ immeubleDepart, onRattacher, onCreer }: {
     }, 200);
     return () => { vivant = false; clearTimeout(t); };
   }, [q]);
-  const i = (immeubleDepart ?? '').trim();
+  const i = immeubleDepart?.libelle.trim() ?? '';
   return (
     <div className="fsy-bloc">
-      {i !== '' ? (
-        <p className="fsy-discret">Immeuble : <strong>{i}</strong> — aucun syndic connu pour cette copropriété.</p>
+      {i !== '' && immeubleDepart !== null ? (
+        <p className="fsy-discret">
+          Immeuble : <strong>{adresseImmeuble(i, immeubleDepart.codePostal, immeubleDepart.commune)}</strong> — aucun syndic connu.
+        </p>
       ) : immeubleDepart !== null && (
         <p className="fsy-discret">Ce bien n’a pas d’« Immeuble » dans l’export WIPPIMMO : il ne recevra un syndic que par son immeuble.</p>
       )}
@@ -183,7 +238,7 @@ function Recherche({ immeubleDepart, onRattacher, onCreer }: {
       {liste === null ? <p className="fsy-discret">Recherche…</p> : liste.length === 0 ? (
         <p className="fsy-discret">Aucun syndic {q.trim() === '' ? 'enregistré pour l’instant' : 'ne répond à cette recherche'}.</p>
       ) : (
-        <ul className="fsy-resultats">
+        <ul className="fsy-liste">
           {liste.map((s) => (
             <li key={s.id} className="fsy-resultat">
               <span className="fsy-resultat-nom">
@@ -197,16 +252,15 @@ function Recherche({ immeubleDepart, onRattacher, onCreer }: {
           ))}
         </ul>
       )}
-      <div className="fsy-boutons">
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onCreer}>Créer un nouveau syndic</button>
-      </div>
+      <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-ajout" onClick={onCreer}>Créer un nouveau syndic</button>
     </div>
   );
 }
 
-// ══ LECTURE — LES COORDONNÉES CLIQUABLES ═════════════════════════════════════════════════════════════════════════
+// ══ LES LIENS : e-mail (mailto + composeur), téléphone (tel) ══════════════════════════════════════════════════════
 
 function LienEmail({ email, onEcrire }: { email: string; onEcrire?: (email: string) => void }) {
+  if (!emailPlausible(email)) return <span>{email}</span>;
   return (
     <span className="fsy-coord">
       <a href={`mailto:${email}`}>{email}</a>
@@ -218,66 +272,155 @@ function LienEmail({ email, onEcrire }: { email: string; onEcrire?: (email: stri
   );
 }
 
-function lienTel(v: string): string { return `tel:${v.replace(/[^\d+]/g, '')}`; }
+function LienTel({ tel }: { tel: string }) {
+  return <a href={lienTelephone(tel)}>{formaterTelephone(tel)}</a>;
+}
 
-function Lecture({ fiche: f, onModifier, onEcrire }: { fiche: Fiche; onModifier: () => void; onEcrire?: (email: string) => void }) {
-  const nbBiens = f.coproprietes.reduce((n, c) => n + c.lots.length, 0);
+// ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
+
+function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer }: {
+  form: SyndicForm; setForm: (f: SyndicForm) => void; fiche: Fiche | null; syndicId: number | null;
+  onEcrire?: (email: string) => void; connus: ImmeubleConnu[];
+  suppression: boolean; setSuppression: (v: boolean) => void; envoi: boolean; onSupprimer: () => void;
+}) {
+  const majContact = (cle: string, c: ContactForm): void =>
+    setForm({ ...form, contacts: form.contacts.map((x) => (x.cle === cle ? c : x)) });
+  const majTel = (i: number, v: string): void =>
+    setForm({ ...form, telephones: form.telephones.map((t, j) => (j === i ? saisieTelephone(t, v) : t)) });
+  const retirerTel = (i: number): void => {
+    const reste = form.telephones.filter((_, j) => j !== i);
+    setForm({ ...form, telephones: reste.length === 0 ? [''] : reste });
+  };
+  const a = apercuPropagation(form.immeubles, connus, syndicId);
+  const retirees = coproprietesRetirees(fiche === null ? [] : versFormulaire(fiche).immeubles, form.immeubles);
+  const biensPerdus = fiche?.coproprietes.flatMap((c) => c.lots.map((l) => ({ ...l, immeuble: adresseImmeuble(c.libelle, c.codePostal, c.commune) }))) ?? [];
+
   return (
     <div className="fsy-bloc">
-      <dl className="fsy-champs">
-        {f.adresse && <><dt>Adresse</dt><dd>{f.adresse}</dd></>}
-        {f.telephone && <><dt>Standard</dt><dd><a href={lienTel(f.telephone)}>{f.telephone}</a></dd></>}
-        {f.email && <><dt>E-mail</dt><dd><LienEmail email={f.email} onEcrire={onEcrire} /></dd></>}
-        {f.note && <><dt>Note</dt><dd className="fsy-note">{f.note}</dd></>}
-      </dl>
+      <label className="fsy-champ">
+        <span>Nom du cabinet *</span>
+        <input type="text" value={form.nom} onChange={(e) => setForm({ ...form, nom: e.target.value })} />
+      </label>
+      <label className="fsy-champ">
+        <span>Adresse (rue)</span>
+        <input type="text" value={form.adresse} onChange={(e) => setForm({ ...form, adresse: e.target.value })} />
+      </label>
+      <div className="fsy-duo">
+        <label className="fsy-champ fsy-champ--cp">
+          <span>Code postal</span>
+          <input type="text" inputMode="numeric" maxLength={5} value={form.codePostal}
+            onChange={(e) => setForm({ ...form, codePostal: e.target.value.replace(/\D/g, '').slice(0, 5) })} />
+        </label>
+        <label className="fsy-champ">
+          <span>Ville</span>
+          <input type="text" value={form.ville} onChange={(e) => setForm({ ...form, ville: e.target.value })} />
+        </label>
+      </div>
+
+      <div className="fsy-champ fsy-champ--groupe">
+        <span>Téléphone standard</span>
+        {form.telephones.map((t, i) => (
+          <span key={i} className="fsy-ligne-tel">
+            <input type="tel" inputMode="tel" aria-label={i === 0 ? 'Téléphone standard' : 'Second téléphone standard'}
+              value={t} onChange={(e) => majTel(i, e.target.value)} placeholder="01 23 45 67 89" />
+            {(form.telephones.length > 1 || t.trim() !== '') && (
+              <button type="button" className="fsy-mini" aria-label={`Retirer ce numéro${t ? ` (${t})` : ''}`} onClick={() => retirerTel(i)}>×</button>
+            )}
+            {i === 0 && form.telephones.length < 2 && (
+              <button type="button" className="fsy-mini" aria-label="Ajouter un second numéro de standard" title="Ajouter un second numéro"
+                onClick={() => setForm({ ...form, telephones: [...form.telephones, ''] })}>+</button>
+            )}
+          </span>
+        ))}
+      </div>
+      <label className="fsy-champ">
+        <span>E-mail générique</span>
+        <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+      </label>
+      {(emailPlausible(form.email) || form.telephones.some((t) => t.replace(/\D/g, '').length >= 10)) && (
+        <p className="fsy-liens">
+          {form.telephones.filter((t) => t.replace(/\D/g, '').length >= 10).map((t) => <LienTel key={t} tel={t} />)}
+          {emailPlausible(form.email) && <LienEmail email={form.email.trim()} onEcrire={onEcrire} />}
+        </p>
+      )}
+      <label className="fsy-champ">
+        <span>Note</span>
+        <textarea rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+      </label>
 
       <h3 className="fsy-sous-titre">Contacts</h3>
-      {f.contacts.length === 0 ? <p className="fsy-discret">Aucun contact.</p> : (
-        <ul className="fsy-contacts">
-          {f.contacts.map((c) => (
-            <li key={c.id} className="fsy-contact">
-              <strong>{nomDuContact(c)}</strong>
-              {c.titre && nomDuContact(c) !== c.titre && <span className="fsy-discret"> — {c.titre}</span>}
-              <ul className="fsy-coords">
-                {c.coordonnees.map((k) => (
-                  <li key={k.id}>
-                    {k.libelle && <span className="fsy-libelle">{k.libelle} : </span>}
-                    {k.sorte === 'email' ? <LienEmail email={k.valeur} onEcrire={onEcrire} /> : <a href={lienTel(k.valeur)}>{k.valeur}</a>}
-                  </li>
-                ))}
-              </ul>
-            </li>
-          ))}
-        </ul>
+      {form.contacts.map((c) => (c.replie ? (
+        <ContactReplie key={c.cle} c={c} onEcrire={onEcrire} onModifier={() => majContact(c.cle, { ...c, replie: false })} />
+      ) : (
+        <EditionContact key={c.cle} c={c} onChange={(n) => majContact(c.cle, n)}
+          onRetirer={() => setForm({ ...form, contacts: form.contacts.filter((x) => x.cle !== c.cle) })} />
+      )))}
+      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout"
+        onClick={() => setForm({ ...form, contacts: [...form.contacts, contactVide()] })}>+ Ajouter un contact</button>
+
+      <h3 className="fsy-sous-titre">Copropriétés</h3>
+      <EditionCopros immeubles={form.immeubles} connus={connus} syndicId={syndicId}
+        onChange={(l) => setForm({ ...form, immeubles: l })} />
+
+      {/* 🔴 LA LISTE DES BIENS, SOUS LES YEUX AVANT DE VALIDER. */}
+      <details className="fsy-biens" open={a.lots.length <= 12}>
+        <summary>Biens qui recevront ce syndic ({a.lots.length})</summary>
+        {a.lots.length === 0 ? <p className="fsy-discret">Aucun bien en gestion dans ces immeubles.</p> : (
+          <ul className="fsy-liste fsy-liste--serree">
+            {a.lots.map((l) => (
+              <li key={l.id}><strong>lot {l.numero}</strong> — {[l.adresse, l.commune].filter((x) => x).join(', ') || l.immeuble}</li>
+            ))}
+          </ul>
+        )}
+      </details>
+      {a.changements.length > 0 && (
+        <div className="fsy-alerte">
+          Changement de syndic à la validation :
+          <ul>{a.changements.map((x) => <li key={x.immeuble}>{x.immeuble} — aujourd’hui {x.ancien} (le lien passera en historique)</li>)}</ul>
+        </div>
+      )}
+      {retirees.length > 0 && (
+        <div className="fsy-alerte">
+          Copropriétés retirées à la validation (le lien passe en historique, rien n’est effacé) :
+          <ul>{retirees.map((l) => <li key={l}>{l}</li>)}</ul>
+        </div>
       )}
 
-      <h3 className="fsy-sous-titre">Copropriétés ({f.coproprietes.length}) · {nbBiens} bien{nbBiens > 1 ? 's' : ''}</h3>
-      {f.coproprietes.length === 0 ? <p className="fsy-discret">Aucune copropriété rattachée.</p> : (
-        <ul className="fsy-copros">
-          {f.coproprietes.map((c) => (
-            <li key={c.id}>
-              <strong>{c.libelle}</strong>
-              <span className="fsy-discret"> — {c.lots.length === 0 ? 'aucun bien en gestion' : c.lots.map((l) => `lot ${l.numero}`).join(', ')}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-      {f.historique.length > 0 && (
+      {fiche !== null && fiche.historique.length > 0 && (
         <details className="fsy-historique">
-          <summary>Historique ({f.historique.length})</summary>
+          <summary>Historique des copropriétés ({fiche.historique.length})</summary>
           <ul>
-            {f.historique.map((h, i) => (
+            {fiche.historique.map((h, i) => (
               <li key={i}>{h.libelle} — du {jour(h.debut)} au {jour(h.fin)}{h.motif ? ` (${h.motif})` : ''}</li>
             ))}
           </ul>
         </details>
       )}
-      <p className="fsy-discret fsy-pied">
-        Créé le {jour(f.creeLe)} par {f.creeParLibelle}{f.majLe ? ` · modifié le ${jour(f.majLe)} par ${f.majParLibelle ?? '—'}` : ''}
-      </p>
-      <div className="fsy-boutons">
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onModifier}>Modifier</button>
-      </div>
+      {fiche !== null && (
+        <p className="fsy-discret fsy-trace">
+          Créé le {jour(fiche.creeLe)} par {fiche.creeParLibelle}
+          {fiche.majLe ? ` · modifié le ${jour(fiche.majLe)} par ${fiche.majParLibelle ?? '—'}` : ''}
+        </p>
+      )}
+
+      {/* ══ 🔴 « SUPPRIMER CE SYNDIC » — discret, en bas, avec la liste des biens qui le perdront ══ */}
+      {fiche !== null && syndicId !== null && (suppression ? (
+        <div className="fsy-supprimer" role="group" aria-label="Confirmer la suppression du syndic">
+          <p><strong>Supprimer « {fiche.nom} » ?</strong> Ses contacts et ses liens de copropriété sont retirés ;
+            {biensPerdus.length === 0 ? ' aucun bien ne le perd.' : biensPerdus.length === 1 ? ' 1 bien perdra ce syndic :' : ` ${biensPerdus.length} biens perdront ce syndic :`}</p>
+          {biensPerdus.length > 0 && (
+            <ul className="fsy-liste fsy-liste--serree">
+              {biensPerdus.map((l) => <li key={l.id}><strong>lot {l.numero}</strong> — {l.immeuble}</li>)}
+            </ul>
+          )}
+          <div className="fsy-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(false)} disabled={envoi}>Non, garder</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onSupprimer} disabled={envoi}>Oui, supprimer ce syndic</button>
+          </div>
+        </div>
+      ) : (
+        <button type="button" className="fsy-lien-bouton fsy-supprimer-lien" onClick={() => setSuppression(true)}>Supprimer ce syndic</button>
+      ))}
     </div>
   );
 }
@@ -287,47 +430,24 @@ function jour(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
 }
 
-// ══ MODIFICATION ════════════════════════════════════════════════════════════════════════════════════════════════
+// ══ UN CONTACT REPLIÉ — « titre · prénom nom · e-mails · téléphones » + Modifier ══════════════════════════════════
 
-function Edition({ form, setForm, onAnnuler, onSuite }: {
-  form: SyndicForm; setForm: (f: SyndicForm) => void; onAnnuler: () => void; onSuite: () => void;
-}) {
-  const champ = (k: 'nom' | 'adresse' | 'telephone' | 'email', libelle: string, type = 'text') => (
-    <label className="fsy-champ">
-      <span>{libelle}</span>
-      <input type={type} value={form[k]} onChange={(e) => setForm({ ...form, [k]: e.target.value })} />
-    </label>
-  );
-  const majContact = (cle: string, c: ContactForm): void =>
-    setForm({ ...form, contacts: form.contacts.map((x) => (x.cle === cle ? c : x)) });
+function ContactReplie({ c, onModifier, onEcrire }: { c: ContactForm; onModifier: () => void; onEcrire?: (email: string) => void }) {
+  const titre = valeurDuChoix(c.titreChoix, c.titreLibre);
+  const nom = [c.prenom, c.nom].map((x) => x.trim()).filter((x) => x !== '').join(' ');
+  const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '');
+  const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
+  const morceaux: React.ReactNode[] = [];
+  if (titre !== '') morceaux.push(<span key="t" className="fsy-discret">{titre}</span>);
+  if (nom !== '') morceaux.push(<strong key="n">{nom}</strong>);
+  if (emails.length > 0) morceaux.push(<span key="e">{emails.map((k, i) => <span key={k.cle}>{i > 0 && ', '}<LienEmail email={k.valeur.trim()} onEcrire={onEcrire} /></span>)}</span>);
+  if (tels.length > 0) morceaux.push(<span key="p">{tels.map((k, i) => <span key={k.cle}>{i > 0 && ', '}<LienTel tel={k.valeur} /></span>)}</span>);
   return (
-    <div className="fsy-bloc">
-      {champ('nom', 'Nom du cabinet *')}
-      {champ('adresse', 'Adresse')}
-      <div className="fsy-duo">
-        {champ('telephone', 'Téléphone standard', 'tel')}
-        {champ('email', 'E-mail générique', 'email')}
-      </div>
-      <label className="fsy-champ">
-        <span>Note</span>
-        <textarea rows={3} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
-      </label>
-
-      <h3 className="fsy-sous-titre">Contacts</h3>
-      {form.contacts.map((c) => (
-        <EditionContact key={c.cle} c={c} onChange={(n) => majContact(c.cle, n)}
-          onRetirer={() => setForm({ ...form, contacts: form.contacts.filter((x) => x.cle !== c.cle) })} />
-      ))}
-      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout"
-        onClick={() => setForm({ ...form, contacts: [...form.contacts, contactVide()] })}>+ Ajouter un contact</button>
-
-      <h3 className="fsy-sous-titre">Copropriétés</h3>
-      <EditionCopros immeubles={form.immeubles} onChange={(l) => setForm({ ...form, immeubles: l })} />
-
-      <div className="fsy-boutons">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler}>Annuler</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onSuite}>Vérifier et enregistrer</button>
-      </div>
+    <div className="fsy-contact-replie">
+      <span className="fsy-contact-ligne">
+        {morceaux.map((m, i) => <span key={i}>{i > 0 && <span className="fsy-point"> · </span>}{m}</span>)}
+      </span>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onModifier}>Modifier</button>
     </div>
   );
 }
@@ -337,7 +457,7 @@ function SelectChoix({ libelle, choix, libre, options, onChange }: {
   onChange: (choix: string, libre: string) => void;
 }) {
   return (
-    <span className="fsy-choix">
+    <>
       <label className="fsy-champ">
         <span>{libelle}</span>
         <select value={choix} onChange={(e) => onChange(e.target.value, libre)}>
@@ -352,19 +472,29 @@ function SelectChoix({ libelle, choix, libre, options, onChange }: {
           <input type="text" value={libre} onChange={(e) => onChange(choix, e.target.value)} />
         </label>
       )}
-    </span>
+    </>
   );
 }
 
 function EditionContact({ c, onChange, onRetirer }: { c: ContactForm; onChange: (c: ContactForm) => void; onRetirer: () => void }) {
+  const [refus, setRefus] = useState<string | null>(null);
   const majCoord = (cle: string, k: CoordonneeForm): void =>
     onChange({ ...c, coordonnees: c.coordonnees.map((x) => (x.cle === cle ? k : x)) });
   const ajouter = (sorte: SorteCoordonnee): void => onChange({ ...c, coordonnees: [...c.coordonnees, coordonneeVide(sorte)] });
+  const validerContact = (): void => {
+    if (!contactNomme({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom })) {
+      setRefus('Un nom ou un titre, au moins.'); return;
+    }
+    setRefus(null);
+    onChange({ ...c, replie: true });
+  };
   return (
     <fieldset className="fsy-contact-edit">
-      <legend>{nomDuContact({ titre: c.titreChoix === PERSONNALISE ? c.titreLibre : c.titreChoix, prenom: c.prenom, nom: c.nom }) || 'Nouveau contact'}</legend>
-      <SelectChoix libelle="Titre" choix={c.titreChoix} libre={c.titreLibre} options={TITRES_CONTACT}
-        onChange={(choix, libre) => onChange({ ...c, titreChoix: choix, titreLibre: libre })} />
+      <legend>{nomDuContact({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom }) || 'Nouveau contact'}</legend>
+      <div className="fsy-duo">
+        <SelectChoix libelle="Titre" choix={c.titreChoix} libre={c.titreLibre} options={TITRES_CONTACT}
+          onChange={(choix, libre) => onChange({ ...c, titreChoix: choix, titreLibre: libre })} />
+      </div>
       <div className="fsy-duo">
         <label className="fsy-champ"><span>Prénom</span>
           <input type="text" value={c.prenom} onChange={(e) => onChange({ ...c, prenom: e.target.value })} /></label>
@@ -372,185 +502,231 @@ function EditionContact({ c, onChange, onRetirer }: { c: ContactForm; onChange: 
           <input type="text" value={c.nom} onChange={(e) => onChange({ ...c, nom: e.target.value })} /></label>
       </div>
       {c.coordonnees.map((k) => (
-        <div key={k.cle} className="fsy-coord-edit">
+        <div key={k.cle} className="fsy-duo fsy-coord-edit">
           <SelectChoix libelle="Libellé" choix={k.choix} libre={k.libre} options={LIBELLES_COORDONNEE}
             onChange={(choix, libre) => majCoord(k.cle, { ...k, choix, libre })} />
           <label className="fsy-champ fsy-champ--large">
             <span>{k.sorte === 'email' ? 'E-mail' : 'Téléphone'}</span>
             <input type={k.sorte === 'email' ? 'email' : 'tel'} value={k.valeur}
-              onChange={(e) => majCoord(k.cle, { ...k, valeur: e.target.value })} />
+              onChange={(e) => majCoord(k.cle, { ...k, valeur: k.sorte === 'telephone' ? saisieTelephone(k.valeur, e.target.value) : e.target.value })} />
           </label>
-          <button type="button" className="fsy-lien-bouton" onClick={() => onChange({ ...c, coordonnees: c.coordonnees.filter((x) => x.cle !== k.cle) })}>
-            Retirer
-          </button>
+          <button type="button" className="fsy-mini" aria-label="Retirer cette coordonnée"
+            onClick={() => onChange({ ...c, coordonnees: c.coordonnees.filter((x) => x.cle !== k.cle) })}>×</button>
         </div>
       ))}
+      {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
       <div className="fsy-ligne-ajouts">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => ajouter('email')}>+ e-mail</button>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => ajouter('telephone')}>+ téléphone</button>
-        <button type="button" className="fsy-lien-bouton fsy-retirer-contact" onClick={onRetirer}>Retirer ce contact</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('email')}>+ e-mail</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('telephone')}>+ téléphone</button>
+        <button type="button" className="fsy-lien-bouton" onClick={onRetirer}>Retirer ce contact</button>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn fsy-pousse" onClick={validerContact}>Valider ce contact</button>
       </div>
     </fieldset>
   );
 }
 
-function EditionCopros({ immeubles, onChange }: { immeubles: string[]; onChange: (l: string[]) => void }) {
-  const connus = useImmeublesSyndics();
+// ══ LES COPROPRIÉTÉS — liste, auto-complétion (portefeuille puis BAN locale), confirmation de reprise ══════════════
+
+interface Suggestion { cle: string; libelle: string; codePostal: string; commune: string; nbBiens: number; syndic: { id: number; nom: string } | null }
+
+function EditionCopros({ immeubles, connus, syndicId, onChange }: {
+  immeubles: ImmeubleSaisi[]; connus: ImmeubleConnu[]; syndicId: number | null; onChange: (l: ImmeubleSaisi[]) => void;
+}) {
   const [saisie, setSaisie] = useState('');
+  const [ban, setBan] = useState<AdresseBan[]>([]);
   const [aRetirer, setARetirer] = useState<string | null>(null);
-  const propositions = useMemo(
-    () => immeublesQuiRepondent(saisie, connus?.immeubles ?? [])
-      .filter((i) => !immeubles.some((x) => cleImmeuble(x) === i.cle)),
-    [saisie, connus, immeubles]);
-  const ajouter = (libelle: string): void => {
-    const l = libelle.trim();
-    if (l === '' || immeubles.some((x) => cleImmeuble(x) === cleImmeuble(l))) { setSaisie(''); return; }
-    onChange([...immeubles, l]); setSaisie('');
+  const [aPrendre, setAPrendre] = useState<Suggestion | null>(null);
+  const parCle = useMemo(() => new Map(connus.map((i) => [i.cle, i])), [connus]);
+  const dejaLa = useMemo(() => new Set(immeubles.map((i) => cleImmeuble(i.libelle))), [immeubles]);
+
+  // La BAN LOCALE (aucun service en ligne) — seulement quand un numéro et une voie sont tapés.
+  useEffect(() => {
+    if (saisie.trim().length < MINIMUM_AUTOCOMPLETION) { setBan([]); return; }
+    let vivant = true;
+    const t = setTimeout(() => {
+      void fetch(`/api/admin/gestion/syndics/adresses?q=${encodeURIComponent(saisie)}`, { cache: 'no-store' })
+        .then((r) => r.json() as Promise<{ adresses?: AdresseBan[] }>)
+        .then((j) => { if (vivant) setBan(j.adresses ?? []); })
+        .catch(() => { if (vivant) setBan([]); });
+    }, 250);
+    return () => { vivant = false; clearTimeout(t); };
+  }, [saisie]);
+
+  const suggestions: Suggestion[] = useMemo(() => {
+    const out: Suggestion[] = immeublesQuiRepondent(saisie, connus).map((i) => ({
+      cle: i.cle, libelle: i.libelle, codePostal: i.codePostal ?? '', commune: i.commune ?? '', nbBiens: i.lots.length, syndic: i.syndic,
+    }));
+    const vues = new Set(out.map((s) => s.cle));
+    for (const b of ban) {
+      if (vues.has(b.cle)) continue;
+      vues.add(b.cle);
+      const connu = parCle.get(b.cle);
+      out.push({
+        cle: b.cle, libelle: connu?.libelle ?? b.libelle, codePostal: connu?.codePostal ?? b.codePostal ?? '',
+        commune: connu?.commune ?? b.commune, nbBiens: connu?.lots.length ?? 0, syndic: connu?.syndic ?? null,
+      });
+    }
+    return out.filter((s) => !dejaLa.has(s.cle));
+  }, [saisie, connus, ban, parCle, dejaLa]);
+
+  const ajouter = (s: Suggestion): void => {
+    onChange([...immeubles, { libelle: s.libelle, codePostal: s.codePostal, commune: s.commune }]);
+    setSaisie(''); setBan([]); setAPrendre(null);
   };
+  /** Une copropriété d'un AUTRE syndic ne se prend qu'après confirmation. */
+  const choisir = (s: Suggestion): void => {
+    if (s.syndic !== null && s.syndic.id !== syndicId) { setAPrendre(s); return; }
+    ajouter(s);
+  };
+
   return (
     <div className="fsy-bloc">
       {immeubles.length === 0 && <p className="fsy-discret">Aucune copropriété.</p>}
-      <ul className="fsy-copros">
-        {immeubles.map((l) => (
-          <li key={cleImmeuble(l)} className="fsy-copro-edit">
-            <span>{l}</span>
-            {aRetirer === l ? (
-              <span className="fsy-confirmer-retrait" role="group" aria-label="Confirmer le retrait">
-                <span>Retirer ? Le lien passe en historique.</span>
-                <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => { onChange(immeubles.filter((x) => x !== l)); setARetirer(null); }}>Oui, retirer</button>
-                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setARetirer(null)}>Non</button>
-              </span>
-            ) : (
-              <button type="button" className="fsy-lien-bouton" onClick={() => setARetirer(l)}>Retirer</button>
-            )}
-          </li>
-        ))}
-      </ul>
+      {immeubles.length > 0 && (
+        <ul className="fsy-liste">
+          {immeubles.map((im) => {
+            const c = parCle.get(cleImmeuble(im.libelle));
+            const affiche = adresseImmeuble(im.libelle, c?.codePostal ?? im.codePostal, c?.commune ?? im.commune);
+            return (
+              <li key={cleImmeuble(im.libelle)} className="fsy-copro">
+                <span className="fsy-copro-adresse">
+                  <span>{affiche}</span>
+                  <span className="fsy-discret">{motBiensEnGestion(c?.lots.length ?? 0)}</span>
+                </span>
+                {aRetirer === im.libelle ? (
+                  <span className="fsy-confirmer" role="group" aria-label="Confirmer le retrait">
+                    <span>Retirer ? Le lien passe en historique.</span>
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn"
+                      onClick={() => { onChange(immeubles.filter((x) => x.libelle !== im.libelle)); setARetirer(null); }}>Oui, retirer</button>
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setARetirer(null)}>Non</button>
+                  </span>
+                ) : (
+                  <button type="button" className="fsy-lien-bouton" onClick={() => setARetirer(im.libelle)}>Retirer</button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       <label className="fsy-champ">
         <span>+ Ajouter une copropriété (immeuble)</span>
-        <input type="text" value={saisie} onChange={(e) => setSaisie(e.target.value)} placeholder="ex. 12 rue …"
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); ajouter(saisie); } }} />
+        <input type="text" value={saisie} onChange={(e) => { setSaisie(e.target.value); setAPrendre(null); }}
+          placeholder="ex. 25 rue Edith Cavell" autoComplete="off" />
       </label>
-      {propositions.length > 0 && (
-        <ul className="fsy-propositions" aria-label="Immeubles connus de l’annuaire">
-          {propositions.map((i) => (
-            <li key={i.cle}>
-              <button type="button" className="fsy-proposition" onClick={() => ajouter(i.libelle)}>
-                {i.libelle}
-                <span className="fsy-discret"> — {i.lots.length} bien{i.lots.length > 1 ? 's' : ''}{i.syndic ? ` · syndic : ${i.syndic.nom}` : ''}</span>
+      {aPrendre !== null && (
+        <div className="fsy-alerte" role="group" aria-label="Confirmer la reprise de la copropriété">
+          <p className="fsy-sans-marge">
+            <strong>{adresseImmeuble(aPrendre.libelle, aPrendre.codePostal, aPrendre.commune)}</strong> est déjà rattachée à
+            {' '}<strong>{aPrendre.syndic?.nom}</strong>. La prendre ? L’ancien lien passera en historique.
+          </p>
+          <div className="fsy-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setAPrendre(null)}>Non</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => ajouter(aPrendre)}>Oui, la prendre</button>
+          </div>
+        </div>
+      )}
+      {aPrendre === null && suggestions.length > 0 && (
+        <ul className="fsy-liste" aria-label="Adresses proposées">
+          {suggestions.map((s) => (
+            <li key={s.cle}>
+              <button type="button" className="fsy-proposition" onClick={() => choisir(s)}>
+                <span className="fsy-proposition-adresse">{adresseImmeuble(s.libelle, s.codePostal, s.commune)}</span>
+                <span className="fsy-discret">
+                  {motBiensEnGestion(s.nbBiens)}
+                  {s.syndic !== null && s.syndic.id !== syndicId && <> · <strong>déjà rattachée à {s.syndic.nom}</strong></>}
+                  {s.syndic !== null && s.syndic.id === syndicId && ' · déjà rattachée à ce syndic'}
+                </span>
               </button>
             </li>
           ))}
         </ul>
       )}
-      {saisie.trim() !== '' && (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => ajouter(saisie)}>
-          Ajouter « {saisie.trim()} »
+      {aPrendre === null && saisie.trim() !== '' && !dejaLa.has(cleImmeuble(saisie)) && (
+        <button type="button" className="fsy-lien-bouton fsy-ajout"
+          onClick={() => choisir({ cle: cleImmeuble(saisie), libelle: saisie.trim(), codePostal: '', commune: '', nbBiens: 0, syndic: parCle.get(cleImmeuble(saisie))?.syndic ?? null })}>
+          Ajouter « {saisie.trim()} » tel quel
         </button>
       )}
     </div>
   );
 }
 
-// ══ CONFIRMATION — LES BIENS QUI RECEVRONT CE SYNDIC ═════════════════════════════════════════════════════════════
-
-function Confirmation({ form, avant, syndicId, envoi, onRetour, onConfirmer }: {
-  form: SyndicForm; avant: string[]; syndicId: number | null; envoi: boolean; onRetour: () => void; onConfirmer: () => void;
-}) {
-  const connus = useImmeublesSyndics();
-  const a = apercuPropagation(form.immeubles, connus?.immeubles ?? [], syndicId);
-  const retirees = coproprietesRetirees(avant, form.immeubles);
-  return (
-    <div className="fsy-bloc">
-      <p><strong>{form.nom}</strong> sera le syndic de {form.immeubles.length} copropriété{form.immeubles.length > 1 ? 's' : ''}.</p>
-      <h3 className="fsy-sous-titre">Biens qui recevront ce syndic ({a.lots.length})</h3>
-      {a.lots.length === 0 ? <p className="fsy-discret">Aucun bien en gestion dans ces immeubles.</p> : (
-        <ul className="fsy-biens">
-          {a.lots.map((l) => (
-            <li key={l.id}><strong>lot {l.numero}</strong> — {[l.adresse, l.commune].filter((x) => x).join(', ') || l.immeuble}</li>
-          ))}
-        </ul>
-      )}
-      {a.changements.length > 0 && (
-        <div className="fsy-alerte">
-          Changement de syndic :
-          <ul>{a.changements.map((c) => <li key={c.immeuble}>{c.immeuble} — aujourd’hui géré par {c.ancien} (le lien passe en historique)</li>)}</ul>
-        </div>
-      )}
-      {retirees.length > 0 && (
-        <div className="fsy-alerte">
-          Copropriétés retirées de ce syndic (le lien passe en historique, rien n’est effacé) :
-          <ul>{retirees.map((l) => <li key={l}>{l}</li>)}</ul>
-        </div>
-      )}
-      {a.sansLot.length > 0 && (
-        <p className="fsy-discret">Sans bien en gestion aujourd’hui : {a.sansLot.join(' · ')}</p>
-      )}
-      <div className="fsy-boutons">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRetour} disabled={envoi}>← Revenir</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onConfirmer} disabled={envoi}>
-          {envoi ? 'Enregistrement…' : 'Confirmer et enregistrer'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ⚠️ AUCUN ACCENT GRAVE DANS CE LITTERAL : il le fermerait. Jetons --color-svv-* uniquement. */
+/* ⚠️ AUCUN ACCENT GRAVE DANS CE LITTERAL : il le fermerait. Jetons --color-svv-* uniquement.
+   🔴 COMPACTE : un seul pas d'espacement (.45rem) entre tous les blocs ; AUCUNE base flex sur un champ hors d'une
+   rangee .fsy-duo — dans une colonne, une base devient une hauteur (c'etait le grand vide constate par Arno). */
 export const CSS_FICHE_SYNDIC = `
 .fsy-voile{position:fixed;inset:0;z-index:72;display:flex;align-items:center;justify-content:center;padding:16px;
   background:rgba(17,19,24,.45);text-align:left}
-.fsy{width:min(44rem,100%);max-height:92vh;overflow:auto;display:flex;flex-direction:column;gap:.7rem;padding:16px;
+.fsy{width:min(44rem,100%);max-height:92vh;display:flex;flex-direction:column;overflow:hidden;
   border-radius:12px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);color:var(--color-svv-ink);
   box-shadow:0 12px 40px rgba(17,19,24,.25)}
 .fsy:focus{outline:none}
-.fsy-tete{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
-.fsy-titre{margin:0;font-size:1.05rem;font-weight:700}
-.fsy-croix{min-width:44px;min-height:44px;border:0;background:transparent;font-size:1.4rem;color:var(--color-svv-muted);cursor:pointer}
-.fsy-bloc{display:flex;flex-direction:column;gap:.6rem}
-.fsy-sous-titre{margin:.4rem 0 0;font-size:.85rem;font-weight:700;color:var(--color-svv-muted);text-transform:uppercase;letter-spacing:.03em}
-.fsy-discret{color:var(--color-svv-muted);font-size:.82rem}
-.fsy-alerte{padding:8px 10px;border-radius:8px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);font-size:.85rem}
-.fsy-alerte ul{margin:.3rem 0 0;padding-left:1.1rem}
-.fsy-champ{display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;color:var(--color-svv-muted);min-width:0;flex:1 1 12rem}
-.fsy-champ input,.fsy-champ select,.fsy-champ textarea{min-height:40px;padding:6px 9px;border-radius:8px;border:1px solid var(--color-svv-line-strong);
-  background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-size:.95rem}
-.fsy-duo{display:flex;flex-wrap:wrap;gap:.6rem}
-.fsy-choix{display:flex;flex-wrap:wrap;gap:.6rem;flex:1 1 14rem}
-.fsy-champs{display:grid;grid-template-columns:7rem 1fr;gap:.35rem .7rem;margin:0;font-size:.9rem}
-.fsy-champs dt{font-weight:700;color:var(--color-svv-muted)}
-.fsy-champs dd{margin:0;min-width:0;overflow-wrap:anywhere}
-.fsy-note{white-space:pre-wrap}
-.fsy-contacts,.fsy-copros,.fsy-biens,.fsy-resultats,.fsy-propositions,.fsy-coords{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem}
-.fsy-contact{padding:8px 10px;border-radius:8px;background:var(--color-svv-field)}
-.fsy-coords{margin-top:.25rem;font-size:.88rem}
-.fsy-libelle{color:var(--color-svv-muted)}
-.fsy-coord{display:inline-flex;flex-wrap:wrap;gap:.5rem;align-items:baseline}
+.fsy-tete{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:8px 8px 6px 16px;
+  border-bottom:1px solid var(--color-svv-line)}
+.fsy-titre{margin:0;font-size:1.05rem;font-weight:700;min-width:0;overflow-wrap:anywhere}
+.fsy-croix{flex:0 0 auto;min-width:44px;min-height:44px;border:0;background:transparent;font-size:1.4rem;color:var(--color-svv-muted);cursor:pointer}
+.fsy-corps{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 16px 12px}
+.fsy-pied{flex:0 0 auto;display:flex;flex-direction:column;gap:.4rem;padding:10px 16px;border-top:1px solid var(--color-svv-line);
+  background:var(--color-svv-surface)}
+.fsy-bloc{display:flex;flex-direction:column;gap:.45rem}
+.fsy-sous-titre{margin:.35rem 0 0;font-size:.78rem;font-weight:700;color:var(--color-svv-muted);text-transform:uppercase;letter-spacing:.03em}
+.fsy-discret{color:var(--color-svv-muted);font-size:.8rem}
+.fsy-alerte{margin:0;padding:6px 10px;border-radius:8px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);font-size:.84rem}
+.fsy-alerte ul{margin:.25rem 0 0;padding-left:1.1rem}
+.fsy-sans-marge{margin:0}
+.fsy-champ{display:flex;flex-direction:column;gap:.15rem;font-size:.78rem;color:var(--color-svv-muted);min-width:0}
+.fsy-champ input,.fsy-champ select,.fsy-champ textarea{min-height:36px;padding:5px 9px;border-radius:8px;border:1px solid var(--color-svv-line-strong);
+  background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-size:.92rem;box-sizing:border-box;width:100%}
+.fsy-champ textarea{min-height:0;resize:vertical}
+.fsy-duo{display:flex;flex-wrap:wrap;gap:.45rem}
+.fsy-duo > .fsy-champ{flex:1 1 11rem}
+.fsy-duo > .fsy-champ--cp{flex:0 0 7rem}
+.fsy-duo > .fsy-champ--large{flex:2 1 13rem}
+.fsy-champ--groupe{gap:.3rem}
+.fsy-ligne-tel{display:flex;align-items:center;gap:.35rem}
+.fsy-ligne-tel input{flex:1 1 auto}
+.fsy-mini{flex:0 0 auto;min-width:36px;min-height:36px;border-radius:8px;border:1px solid var(--color-svv-line-strong);
+  background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;line-height:1;cursor:pointer;align-self:flex-end}
+.fsy-mini:hover,.fsy-mini:focus-visible{background:var(--color-svv-field)}
+.fsy-mini-btn{min-height:34px;padding:.25rem .65rem;font-size:.82rem}
+.fsy-liens{margin:0;display:flex;flex-wrap:wrap;gap:.3rem 1rem;font-size:.86rem}
+.fsy-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.3rem}
+.fsy-liste--serree{gap:.1rem;font-size:.86rem}
+.fsy-coord{display:inline-flex;flex-wrap:wrap;gap:.4rem;align-items:baseline}
 .fsy-lien-bouton{border:0;background:transparent;color:var(--color-svv-red);font:inherit;font-size:.82rem;text-decoration:underline;cursor:pointer;min-height:32px;padding:0 .2rem}
-.fsy-resultat{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;padding:8px 10px;border-radius:8px;background:var(--color-svv-field)}
+.fsy-resultat{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:6px 10px;border-radius:8px;background:var(--color-svv-field)}
 .fsy-resultat-nom{display:flex;flex-direction:column;min-width:0}
-.fsy-contact-edit{border:1px solid var(--color-svv-line);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:.5rem;margin:0}
-.fsy-contact-edit legend{font-weight:700;font-size:.85rem;padding:0 .3rem}
-.fsy-coord-edit{display:flex;flex-wrap:wrap;align-items:flex-end;gap:.5rem}
-.fsy-champ--large{flex:2 1 14rem}
-.fsy-ligne-ajouts{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
-.fsy-retirer-contact{margin-left:auto}
-.fsy-copro-edit{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;padding:6px 10px;border-radius:8px;background:var(--color-svv-field)}
-.fsy-confirmer-retrait{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;font-size:.85rem}
-.fsy-proposition{width:100%;min-height:40px;text-align:left;border:1px solid var(--color-svv-line);border-radius:8px;background:var(--color-svv-surface);
-  color:var(--color-svv-ink);font:inherit;padding:6px 10px;cursor:pointer}
-.fsy-proposition:hover,.fsy-proposition:focus-visible{border-color:var(--color-svv-line-strong)}
+.fsy-contact-replie{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:6px 10px;border-radius:8px;
+  background:var(--color-svv-field);font-size:.88rem}
+.fsy-contact-ligne{min-width:0;overflow-wrap:anywhere}
+.fsy-point{color:var(--color-svv-muted)}
+.fsy-contact-edit{border:1px solid var(--color-svv-line);border-radius:10px;padding:6px 10px 8px;display:flex;flex-direction:column;gap:.45rem;margin:0}
+.fsy-contact-edit legend{font-weight:700;font-size:.84rem;padding:0 .3rem}
+.fsy-coord-edit{align-items:flex-end}
+.fsy-ligne-ajouts{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.fsy-pousse{margin-left:auto}
+.fsy-copro{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:5px 10px;border-radius:8px;background:var(--color-svv-field)}
+.fsy-copro-adresse{display:flex;flex-direction:column;min-width:0;font-size:.9rem}
+.fsy-confirmer{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;font-size:.84rem}
+.fsy-proposition{width:100%;min-height:40px;display:flex;flex-direction:column;align-items:flex-start;gap:.05rem;text-align:left;
+  border:1px solid var(--color-svv-line);border-radius:8px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;padding:5px 10px;cursor:pointer}
+.fsy-proposition:hover,.fsy-proposition:focus-visible{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
+.fsy-proposition-adresse{font-size:.9rem}
 .fsy-ajout{align-self:flex-start}
-.fsy-historique summary{cursor:pointer;font-size:.85rem;color:var(--color-svv-muted)}
-.fsy-historique ul{margin:.3rem 0 0;padding-left:1.1rem;font-size:.85rem}
-.fsy-pied{margin:0}
-.fsy-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+.fsy-biens summary,.fsy-historique summary{cursor:pointer;font-size:.84rem;font-weight:700;color:var(--color-svv-muted);min-height:28px}
+.fsy-historique ul{margin:.25rem 0 0;padding-left:1.1rem;font-size:.84rem}
+.fsy-trace{margin:0}
+.fsy-supprimer{display:flex;flex-direction:column;gap:.4rem;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-red);font-size:.86rem}
+.fsy-supprimer p{margin:0}
+.fsy-supprimer-lien{align-self:flex-start;color:var(--color-svv-muted)}
+.fsy-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}
+.fsy-question{margin-right:auto;font-weight:700;font-size:.9rem}
+.fsy-pied-alerte{font-size:.84rem}
 @media (max-width:640px){
   .fsy-voile{padding:0}
   .fsy{width:100%;max-height:none;height:100%;border-radius:0}
-  .fsy-champ input,.fsy-champ select,.fsy-champ textarea{font-size:16px}
-  .fsy-champs{grid-template-columns:1fr}
+  .fsy-champ input,.fsy-champ select,.fsy-champ textarea{font-size:16px;min-height:44px}
   .fsy-boutons .gst-btn{flex:1 1 auto;min-height:44px}
+  .fsy-mini{min-width:44px;min-height:44px}
 }
 `;
