@@ -611,3 +611,28 @@ export function motContacts(n: number): string {
 export function motBiens(n: number): string {
   return n === 0 ? 'aucun bien en gestion' : n === 1 ? '1 bien en gestion' : `${n} biens en gestion`;
 }
+
+// ══ LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT ══════════════════════════════════════════════════════════════════════
+
+/** Le catalogue trié par NOM (puis prénom ; un contact sans nom se range à son titre). PUR. */
+export function trierParNom(contacts: readonly ContactForm[]): ContactForm[] {
+  const cle = (c: ContactForm): string =>
+    normaliserTexte(`${c.nom.trim() || valeurDuChoix(c.titreChoix, c.titreLibre)} ${c.prenom}`);
+  return [...contacts].sort((a, b) => cle(a).localeCompare(cle(b), 'fr'));
+}
+
+/**
+ * Le filtre du catalogue, à chaque lettre : prénom, nom, titre, téléphone, e-mail — sans accents ni casse. PUR.
+ * Un numéro se cherche aussi par ses chiffres seuls (« 0613 » trouve « 06 13 86 18 77 »).
+ */
+export function filtrerCatalogue(contacts: readonly ContactForm[], q: string): ContactForm[] {
+  const n = normaliserTexte(q);
+  if (n === '') return [...contacts];
+  const chiffres = q.replace(/\D/g, '');
+  return contacts.filter((c) => {
+    const texte = normaliserTexte([c.prenom, c.nom, valeurDuChoix(c.titreChoix, c.titreLibre),
+      ...c.coordonnees.map((k) => k.valeur)].join(' '));
+    if (n.split(' ').every((m) => texte.includes(m))) return true;
+    return chiffres.length >= 2 && c.coordonnees.some((k) => k.sorte === 'telephone' && k.valeur.replace(/\D/g, '').includes(chiffres));
+  });
+}

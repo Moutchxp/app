@@ -46,6 +46,16 @@ const FICHE_20 = {
     { id: 7, cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
   ],
 };
+/** LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT — 4 contacts _TEST aux affectations variées (un accentué, avec coordonnées). */
+const FICHE_21 = {
+  ...FICHE_20, id: 21, nom: '_TEST Cabinet Catalogue',
+  contacts: [
+    ...FICHE_20.contacts,
+    { id: 34, titre: 'Service comptabilité', prenom: 'Élodie', nom: 'Été', tousImmeubles: false, immeubles: ['3 av y'],
+      coordonnees: [{ id: 41, sorte: 'telephone', libelle: 'Ligne directe', valeur: '0611223344' },
+        { id: 42, sorte: 'email', libelle: 'Email direct', valeur: 'elodie@test.invalid' }] },
+  ],
+};
 let appels: Array<{ url: string; methode: string; corps: unknown }> = [];
 /** L'API Adresse en panne (pour éprouver le repli sur la BAN locale). */
 let apiEnPanne = false;
@@ -77,6 +87,8 @@ beforeEach(() => {
     }
     if (url === '/api/admin/gestion/syndics/11' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE });
     if (url === '/api/admin/gestion/syndics/20' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE_20 });
+    if (url === '/api/admin/gestion/syndics/21' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE_21 });
+    if (url === '/api/admin/gestion/syndics/21') return rep({ ok: true, id: 21 });
     if (url === '/api/admin/gestion/syndics/20') return rep({ ok: true, id: 20 });
     if (url === '/api/admin/gestion/syndics/14' && (init?.method ?? 'GET') === 'GET') {
       return rep({ etat: 'ok', fiche: { ...FICHE, id: 14, adresse: '8 Rue Denfert Rochereau', codePostal: null, ville: null } });
@@ -582,23 +594,23 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
   const copro = (i: number): HTMLElement => document.querySelectorAll('.fsy-copro')[i] as HTMLElement;
 
-  it('depuis un BIEN : « Contacts pour cet immeuble » en tête (affectés + communs), le reste replié sous « Autres contacts du cabinet »', async () => {
+  /* LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT — CE QU'IL DISAIT AVANT : « Catalogue des contacts » en titre, le
+     sous-titre « Contacts pour cet immeuble », et un bloc replié « Autres contacts du cabinet ». Arno corrige : le titre
+     redevient « Autres contacts », qui n'affiche QUE les contacts de l'immeuble du bien ; les autres → « Catalogue ». */
+  it('depuis un BIEN : « Autres contacts » n\'affiche QUE les contacts de cet immeuble (affectés + communs)', async () => {
     await depuisUnBien();
-    expect(document.body.textContent).toContain('Catalogue des contacts');
-    expect(document.body.textContent).toContain('Contacts pour cet immeuble');
-    const tete = [...document.querySelectorAll('.fsy-corps button.fsy-contact-replie')].filter((b) => b.closest('details') === null)
-      .map((b) => b.querySelector('.fsy-contact-nom')?.textContent);
-    expect(tete).toEqual(['Paul COMMUN', 'Marie DOUZE']);
-    const autres = document.querySelector('details.fsy-autres') as HTMLDetailsElement;
-    expect(autres.open).toBe(false);
-    expect(autres.querySelector('summary')?.textContent).toBe('Autres contacts du cabinet (1)');
-    expect(noms(autres.querySelector('.fsy-bloc'))).toEqual(['Yves TROIS']);
+    expect([...document.querySelectorAll('.fsy-sous-titre')].map((h) => h.textContent)).toContain('Autres contacts');
+    expect(document.body.textContent).not.toContain('Contacts pour cet immeuble');
+    expect(document.body.textContent).not.toContain('Catalogue des contacts');
+    expect(document.querySelector('details.fsy-autres')).toBeNull();
+    const affiches = [...document.querySelectorAll('.fsy-corps button.fsy-contact-replie')].map((b) => b.querySelector('.fsy-contact-nom')?.textContent);
+    expect(affiches).toEqual(['Paul COMMUN', 'Marie DOUZE']);
   });
 
-  it('sans bien (écran « Syndics ») : tout le catalogue, sans section « pour cet immeuble »', async () => {
+  it('sans bien (écran « Syndics ») : inchangé, TOUS les contacts', async () => {
     await ouvrir(vi.fn(), 20);
-    expect(document.body.textContent).not.toContain('Contacts pour cet immeuble');
-    expect(document.querySelector('details.fsy-autres')).toBeNull();
+    const affiches = [...document.querySelectorAll('.fsy-corps button.fsy-contact-replie')].map((b) => b.querySelector('.fsy-contact-nom')?.textContent);
+    expect(affiches).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Yves TROIS']);
   });
 
   it('contact ouvert : « Immeubles suivis : Tous les immeubles » ou la liste des copropriétés', async () => {
@@ -688,5 +700,124 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     await cliquer(bouton('Oui, retirer'));
     await cliquer(boutonDans(pied(), 'Valider'));
     expect(put().contacts[2]).toMatchObject({ nom: 'Trois', tousImmeubles: false, immeubles: [] });
+  });
+});
+
+describe('LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT — le Catalogue en haut de « Nouveau contact »', () => {
+  type Corps = { contacts: Array<{ nom: string; tousImmeubles: boolean; immeubles: string[] }> };
+  const pied = (): Element | null => document.querySelector('.fsy-pied');
+  const depuisLeBien = async (id: number, libelle = '12 rue X'): Promise<ReturnType<typeof vi.fn>> => {
+    const onFerme = vi.fn();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: id, onFerme, immeubleDepart: { libelle, codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    return onFerme;
+  };
+  const catalogue = (): HTMLElement | null => document.querySelector('.fsy-contact-edit .fsy-catalogue');
+  const ouvrirCatalogue = async (): Promise<void> => {
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(catalogue()?.querySelector('.fsy-catalogue-tete') as Element);
+  };
+  const resultats = (): string[] => [...(catalogue()?.querySelectorAll('button.fsy-contact-replie, .fsy-contact-tete-btn') ?? [])]
+    .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
+  const affiches = (): string[] => [...document.querySelectorAll('.fsy-corps > .fsy-bloc > button.fsy-contact-replie')]
+    .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
+
+  it('« Catalogue ▸ (2) » en haut du nouveau contact ; déplié : recherche vide et TOUS les résultats, triés par NOM', async () => {
+    await depuisLeBien(21);
+    await cliquer(bouton('+ Ajouter un contact'));
+    const tete = catalogue()?.querySelector('.fsy-catalogue-tete');
+    expect(tete?.textContent).toBe('Catalogue▸(2)');
+    expect(catalogue()?.compareDocumentPosition(document.querySelector('.fsy-contact-edit .fsy-suivis-edit') as Node)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    await cliquer(tete as Element);
+    expect((catalogue()?.querySelector('input[type="search"]') as HTMLInputElement).value).toBe('');
+    expect(resultats()).toEqual(['Élodie ÉTÉ', 'Yves TROIS']);
+  });
+
+  it('le résultat a le format d\'une ligne repliée : « Prénom NOM » en gras, titre à droite, ▸', async () => {
+    await depuisLeBien(21);
+    await ouvrirCatalogue();
+    const ligne = catalogue()?.querySelector('button.fsy-contact-replie') as HTMLElement;
+    expect(ligne.querySelector('strong.fsy-contact-nom')?.textContent).toBe('Élodie ÉTÉ');
+    expect(ligne.querySelector('.fsy-contact-titre')?.textContent).toBe('Service comptabilité');
+    expect(ligne.textContent?.endsWith('▸')).toBe(true);
+  });
+
+  it('le filtre, à chaque lettre, sans accents ni casse ; par téléphone et e-mail ; « Aucun contact »', async () => {
+    await depuisLeBien(21);
+    await ouvrirCatalogue();
+    const champ = catalogue()?.querySelector('input[type="search"]') as HTMLInputElement;
+    await taper(champ, 'e');
+    expect(resultats()).toEqual(['Élodie ÉTÉ', 'Yves TROIS']);
+    await taper(champ, 'ete'); // trouve « Été » ET « copropriété » (titre d'Yves) : les accents ne comptent pas
+    expect(resultats()).toEqual(['Élodie ÉTÉ', 'Yves TROIS']);
+    await taper(champ, 'elodie ete');
+    expect(resultats()).toEqual(['Élodie ÉTÉ']);
+    await taper(champ, 'TROIS');
+    expect(resultats()).toEqual(['Yves TROIS']);
+    await taper(champ, '06 11 22');
+    expect(resultats()).toEqual(['Élodie ÉTÉ']);
+    await taper(champ, 'elodie@');
+    expect(resultats()).toEqual(['Élodie ÉTÉ']);
+    await taper(champ, 'zzz');
+    expect(resultats()).toEqual([]);
+    expect(catalogue()?.textContent).toContain('Aucun contact');
+  });
+
+  it('un résultat déplié : coordonnées en LECTURE SEULE (libellés, Copier) et « Déjà rattaché à : »', async () => {
+    await depuisLeBien(21);
+    await ouvrirCatalogue();
+    await cliquer(catalogue()?.querySelector('button.fsy-contact-replie') as Element);
+    const fiche = catalogue()?.querySelector('.fsy-contact-ouvert') as HTMLElement;
+    expect(fiche.querySelectorAll('input')).toHaveLength(0);
+    expect([...fiche.querySelectorAll('.fsy-contact-coord')].map((l) => l.textContent)).toEqual([
+      'Ligne directe : 06 11 22 33 44Copier', 'Email direct : elodie@test.invalidCopier',
+    ]);
+    expect(fiche.querySelector('.fsy-suivis')?.textContent).toBe('Déjà rattaché à : 3 av Y, 92400 Courbevoie');
+    expect(boutonDans(fiche, 'Sélectionner pour cet immeuble')).toBeTruthy();
+  });
+
+  it('SÉLECTIONNER : le contact passe dans « Autres contacts », le formulaire se referme ; Valider AJOUTE l\'affectation, garde les anciennes', async () => {
+    await depuisLeBien(21);
+    await ouvrirCatalogue();
+    await cliquer(catalogue()?.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(catalogue()?.querySelector('.fsy-contact-ouvert') as Element, 'Sélectionner pour cet immeuble'));
+    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
+    expect(affiches()).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Élodie ÉTÉ']);
+    await cliquer(boutonDans(pied(), 'Valider'));
+    const put = appels.find((x) => x.methode === 'PUT')?.corps as Corps;
+    expect(put.contacts.find((c) => c.nom === 'Été')).toMatchObject({ tousImmeubles: false, immeubles: ['3 av y', '12 rue x'] });
+    expect(put.contacts.find((c) => c.nom === 'Trois')).toMatchObject({ immeubles: ['3 av y'] });
+  });
+
+  it('SÉLECTIONNER puis « Annuler » la fiche : rien n\'est écrit', async () => {
+    const onFerme = await depuisLeBien(21);
+    await ouvrirCatalogue();
+    await cliquer(catalogue()?.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(catalogue()?.querySelector('.fsy-contact-ouvert') as Element, 'Sélectionner pour cet immeuble'));
+    await cliquer(boutonDans(pied(), 'Annuler'));
+    expect(pied()?.textContent).toContain('Abandonner les modifications ?');
+    await cliquer(boutonDans(pied(), 'Oui, abandonner'));
+    expect(onFerme).toHaveBeenCalledTimes(1);
+    expect(appels.some((x) => x.methode === 'PUT' || x.methode === 'POST')).toBe(false);
+  });
+
+  it('la ligne Catalogue est ABSENTE quand il n\'y a rien à proposer, et sans bien', async () => {
+    await depuisLeBien(11); // un seul contact, « Tous les immeubles » : déjà affiché
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(catalogue()).toBeNull();
+    act(() => { root.unmount(); });
+    root = createRoot(container);
+    await ouvrir(vi.fn(), 21); // écran « Syndics » : tous les contacts sont déjà dans « Autres contacts »
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(catalogue()).toBeNull();
+  });
+
+  it('le reste du « Nouveau contact » est inchangé : l\'immeuble du bien coché par défaut', async () => {
+    await depuisLeBien(21);
+    await cliquer(bouton('+ Ajouter un contact'));
+    const cases = [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
+    expect(cases.map((c) => c.checked)).toEqual([false, true, false]);
   });
 });

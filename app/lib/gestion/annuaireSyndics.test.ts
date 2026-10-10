@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, contactVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, libellesDe, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -272,6 +272,33 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — qui suit quel immeuble', () =>
   it('« 2 contacts · 1 bien en gestion »', () => {
     expect([motContacts(0), motContacts(1), motContacts(2)]).toEqual(['aucun contact', '1 contact', '2 contacts']);
     expect([motBiens(0), motBiens(1), motBiens(3)]).toEqual(['aucun bien en gestion', '1 bien en gestion', '3 biens en gestion']);
+  });
+});
+
+describe('LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT — tri et filtre du catalogue', () => {
+  const c = (prenom: string, nom: string, titre = '', tel = '', email = '') => ({
+    ...contactVide(), prenom, nom, titreChoix: titre,
+    coordonnees: [
+      ...(tel ? [{ cle: 't', id: null, sorte: 'telephone' as const, choix: '', libre: '', valeur: tel }] : []),
+      ...(email ? [{ cle: 'e', id: null, sorte: 'email' as const, choix: '', libre: '', valeur: email }] : []),
+    ],
+  });
+  const liste = [c('Yves', 'Trois'), c('Élodie', 'Été', 'Service comptabilité', '06 11 22 33 44', 'elodie@x.fr'), c('', '', 'Responsable de copropriété')];
+  it('trié par NOM (accents ignorés) ; un contact sans nom se range à son titre', () => {
+    expect(trierParNom(liste).map((x) => x.nom || x.titreChoix)).toEqual(['Été', 'Responsable de copropriété', 'Trois']);
+  });
+  it('filtre : prénom, nom, titre, téléphone (chiffres ou paires), e-mail ; sans accents ni casse ; vide ⇒ tout', () => {
+    expect(filtrerCatalogue(liste, '').length).toBe(3);
+    expect(filtrerCatalogue(liste, 'ELODIE').map((x) => x.nom)).toEqual(['Été']);
+    // « ete » trouve « Été » ET « copropriété » : la preuve que les accents ne comptent pas.
+    expect(filtrerCatalogue(liste, 'ete').map((x) => x.nom || x.titreChoix)).toEqual(['Été', 'Responsable de copropriété']);
+    expect(filtrerCatalogue(liste, 'elodie ete').map((x) => x.nom)).toEqual(['Été']);
+    expect(filtrerCatalogue(liste, 'compta').map((x) => x.nom)).toEqual(['Été']);
+    expect(filtrerCatalogue(liste, '0611').map((x) => x.nom)).toEqual(['Été']);
+    expect(filtrerCatalogue(liste, '06 11 22').map((x) => x.nom)).toEqual(['Été']);
+    expect(filtrerCatalogue(liste, 'x.fr').map((x) => x.nom)).toEqual(['Été']);
+    expect(filtrerCatalogue(liste, 'responsable').map((x) => x.titreChoix)).toEqual(['Responsable de copropriété']);
+    expect(filtrerCatalogue(liste, 'zzz')).toEqual([]);
   });
 });
 
@@ -569,10 +596,11 @@ describe('les écrans', () => {
     const src = lire('FicheSyndic.tsx');
     // LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — CE QU'IL DISAIT AVANT : 'Valider ce contact' (devenu « Valider » du contact).
     expect(src).not.toMatch(/>\s*Retirer ce contact\s*</); // le lien a disparu (accord d'Arno) ; seul un commentaire le cite
-    // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — CE QU'IL DISAIT AVANT : 'Autres contacts' (titre de la section), devenu
-    // « Catalogue des contacts » ; « Autres contacts du cabinet » nomme désormais le reste du catalogue, ouvert depuis un bien.
-    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Catalogue des contacts', 'Autres contacts du cabinet',
-      'Contacts pour cet immeuble', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
+    // LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT — CE QU'IL DISAIT AVANT : 'Catalogue des contacts', 'Autres contacts du
+    // cabinet', 'Contacts pour cet immeuble'. Le titre redevient « Autres contacts » ; le reste passe dans le « Catalogue ».
+    expect(src).not.toMatch(/>\s*(Catalogue des contacts|Contacts pour cet immeuble|Autres contacts du cabinet)/);
+    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Autres contacts', 'Catalogue',
+      'Sélectionner pour cet immeuble', 'Déjà rattaché à :', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
       'Biens qui recevront ce syndic', 'déjà rattachée à', 'Oui, la prendre', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
       'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
       expect(src).toContain(mot);
