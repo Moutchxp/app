@@ -658,3 +658,14 @@ export function nomAvecVille(nom: string, ville: string | null | undefined): str
   if (fin !== '' && (normaliserTexte(n) === fin || normaliserTexte(n).endsWith(` ${fin}`))) return n;
   return `${n} / ${v}`;
 }
+
+/**
+ * ══ LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE — DÉTACHER UN CONTACT DE CETTE COPROPRIÉTÉ. PUR. ══════════════════════════
+ * Seule l'affectation à CET immeuble est retirée : le contact reste au catalogue et garde ses autres copropriétés.
+ * Un contact « Tous les immeubles » devient rattaché EXPLICITEMENT à toutes les AUTRES copropriétés du syndic, sauf
+ * celle-ci : il ne suit donc plus automatiquement les copropriétés futures (c'est la demande d'Arno).
+ */
+export function detacher(c: ContactForm, cle: string, toutesLesCles: readonly string[]): ContactForm {
+  if (c.tousImmeubles) return { ...c, tousImmeubles: false, immeubles: toutesLesCles.filter((k) => k !== cle) };
+  return affecter(c, cle, false);
+}

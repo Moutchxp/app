@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  nomAvecVille, filtrerCatalogue, trierParNom,
+  detacher, nomAvecVille, filtrerCatalogue, trierParNom,
   affecter, motBiens, motContacts, suiviParDefaut, suitImmeuble,
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
@@ -819,6 +819,18 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     executer(a);
   };
   const fermer = (cle: string): void => setOuverts(ouverts.filter((x) => x !== cle));
+  /**
+   * LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE — « Détacher de la copropriété » : seule l'affectation à l'immeuble du bien
+   * est retirée (`detacher`) ; le contact quitte « Contacts de cette copropriété » et redevient sélectionnable dans le
+   * Catalogue. « Valider » de la fiche enregistre (affectation historisée, jamais effacée), « Annuler » défait tout.
+   */
+  const detacherDeLaCopro = (cle: string): void => {
+    if (cleDepart === null) return;
+    const toutes = adresses.map((a) => a.cle);
+    setForm({ ...form, contacts: form.contacts.map((c) => (c.cle === cle ? detacher(c, cleDepart, toutes) : c)) });
+    setOuverts(ouverts.filter((x) => x !== cle));
+    if (edition?.cle === cle) setEdition(null);
+  };
   const supprimer = (cle: string): void => {
     setForm({ ...form, contacts: form.contacts.filter((c) => c.cle !== cle) });
     setOuverts(ouverts.filter((x) => x !== cle));
@@ -848,6 +860,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   ) : ouverts.includes(c.cle) ? (
     <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
       onModifier={() => demander({ genre: 'modifier', cle: c.cle })} onSupprimer={() => setASupprimer(c.cle)}
+      onDetacher={parImmeuble ? () => detacherDeLaCopro(c.cle) : undefined}
       confirmation={confirmerSuppression(c)} />
   ) : (
     <button key={c.cle} type="button" className="fsy-contact-replie" aria-expanded={false}
@@ -953,9 +966,11 @@ function EnteteContact({ c }: { c: ContactForm }) {
 }
 
 /** ② OUVERT EN LECTURE — aucune saisie ; une ligne par téléphone et par e-mail, l'action au bout. */
-function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses }: {
+function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses, onDetacher }: {
   c: ContactForm; onEcrire?: (email: string) => void; onFermer: () => void; onModifier: () => void; onSupprimer: () => void;
   confirmation: React.ReactNode; adresses: Array<{ cle: string; adresse: string }>;
+  /** Fiche ouverte DEPUIS UN BIEN : « Détacher de la copropriété » remplace « Supprimer ce contact » (accord d'Arno). */
+  onDetacher?: () => void;
 }) {
   const libelle = (k: CoordonneeForm): string => valeurDuChoix(k.choix, k.libre);
   const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
@@ -988,7 +1003,16 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
       <p className="fsy-suivis"><span className="fsy-discret">Immeubles suivis :</span> {motImmeublesSuivis(c, adresses)}</p>
       {confirmation ?? (
         <div className="fsy-boutons fsy-boutons--contact">
-          <button type="button" className="fsy-lien-bouton fsy-pousse-gauche" onClick={onSupprimer}>Supprimer ce contact</button>
+          {/* LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE — depuis un bien, un BOUTON « Détacher de la copropriété », même place,
+              même gabarit que « Fermer » / « Modifier », texte rouge de la marque. Depuis l'écran « Syndics », la
+              suppression d'un contact du cabinet reste « Supprimer ce contact », inchangée. */}
+          {onDetacher ? (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-detacher fsy-pousse-gauche" onClick={onDetacher}>
+              Détacher de la copropriété
+            </button>
+          ) : (
+            <button type="button" className="fsy-lien-bouton fsy-pousse-gauche" onClick={onSupprimer}>Supprimer ce contact</button>
+          )}
           <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onFermer}>Fermer</button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onModifier}>Modifier</button>
         </div>
@@ -1391,6 +1415,7 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-fleche{flex:0 0 auto;color:var(--color-svv-muted)}
 .fsy-boutons--contact{gap:6px;margin-top:.2rem}
 .fsy-pousse-gauche{margin-right:auto}
+.gst-btn.fsy-detacher{color:var(--color-svv-red)}
 .fsy-confirmer--contact{justify-content:flex-end;margin-top:.2rem}
 .fsy-contact-ligne{min-width:0;overflow-wrap:anywhere}
 .fsy-point{color:var(--color-svv-muted)}

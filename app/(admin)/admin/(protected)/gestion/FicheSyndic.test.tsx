@@ -1456,3 +1456,111 @@ describe('LOT SYNDIC-BOUTON-AJOUT-CENTRE', () => {
     await verifier();
   });
 });
+
+describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE', () => {
+  type Corps = { contacts: Array<{ prenom: string; nom: string; tousImmeubles: boolean; immeubles: string[] }> };
+  /** Marie suit les DEUX copropriétés ; Paul suit « Tous les immeubles ». */
+  const FICHE_24 = { ...FICHE_22, id: 24, contacts: FICHE_22.contacts.map((c) => (c.id === 32 ? { ...c, immeubles: ['12 rue x', '3 av y'] } : c)) };
+  const pied = (): Element | null => document.querySelector('.fsy-pied');
+  const bloc1 = (): HTMLElement => document.querySelector('section[aria-labelledby="fsy-bloc-1"]') as HTMLElement;
+  const noms1 = (): string[] => [...bloc1().querySelectorAll(':scope > button.fsy-contact-replie, :scope > .fsy-contact-ouvert .fsy-contact-tete-btn')]
+    .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
+  const put = (): Corps => appels.find((x) => x.methode === 'PUT')?.corps as Corps;
+  const servir = (fiche: unknown, id: number): void => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === `/api/admin/gestion/syndics/${id}` && (init?.method ?? 'GET') === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche }) };
+      if (url === `/api/admin/gestion/syndics/${id}`) { appels.push({ url, methode: init?.method ?? 'GET', corps: JSON.parse(String(init?.body)) }); return { ok: true, json: async () => ({ ok: true, id }) }; }
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const depuisLeBien = async (): Promise<ReturnType<typeof vi.fn>> => {
+    servir(FICHE_24, 24);
+    const onFerme = vi.fn();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 24, onFerme, immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    return onFerme;
+  };
+  const ouvrirContact = async (nom: string): Promise<HTMLElement> => {
+    const b = [...bloc1().querySelectorAll(':scope > button.fsy-contact-replie')].find((x) => x.querySelector('.fsy-contact-nom')?.textContent === nom) as Element;
+    await cliquer(b);
+    return bloc1().querySelector('.fsy-contact-ouvert') as HTMLElement;
+  };
+  const detacherLe = async (nom: string): Promise<void> => {
+    const o = await ouvrirContact(nom);
+    await cliquer(boutonDans(o, 'Détacher de la copropriété'));
+  };
+
+  it('le BOUTON « Détacher de la copropriété » remplace « Supprimer ce contact » : à gauche, gabarit de « Fermer », texte rouge', async () => {
+    await depuisLeBien();
+    const o = await ouvrirContact('Marie DOUZE');
+    const boutons = [...o.querySelectorAll('.fsy-boutons button')] as HTMLButtonElement[];
+    expect(boutons.map((b) => b.textContent?.trim())).toEqual(['Détacher de la copropriété', 'Fermer', 'Modifier']);
+    expect(boutons[0].className).toBe('svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-detacher fsy-pousse-gauche');
+    expect(boutons[1].className).toBe('svv-btn svv-btn-outline gst-btn fsy-mini-btn');
+    expect(o.textContent).not.toContain('Supprimer ce contact');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.gst-btn.fsy-detacher{color:var(--color-svv-red)}');
+  });
+
+  it('après détachement : absent de « Contacts de cette copropriété », présent au Catalogue, compteur à jour', async () => {
+    await depuisLeBien();
+    expect(noms1()).toEqual(['Paul COMMUN', 'Marie DOUZE']);
+    await detacherLe('Marie DOUZE');
+    expect(noms1()).toEqual(['Paul COMMUN']);
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(document.querySelector('.fsy-catalogue-titre')?.textContent).toBe('Catalogue des contacts du syndic (7)');
+    expect([...document.querySelectorAll('.fsy-catalogue button.fsy-contact-replie .fsy-contact-nom')].map((x) => x.textContent)).toContain('Marie DOUZE');
+  });
+
+  it('Valider : seule l’affectation à CETTE copropriété est retirée ; ses autres restent ; toujours au catalogue', async () => {
+    await depuisLeBien();
+    await detacherLe('Marie DOUZE');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    const c = put().contacts;
+    expect(c.find((x) => x.nom === 'Douze')).toMatchObject({ tousImmeubles: false, immeubles: ['3 av y'] });
+    expect(c.find((x) => x.nom === 'Trois')).toMatchObject({ immeubles: ['3 av y'] });
+    expect(c).toHaveLength(FICHE_24.contacts.length);
+  });
+
+  it('Annuler : rien n’est écrit', async () => {
+    const onFerme = await depuisLeBien();
+    await detacherLe('Marie DOUZE');
+    await cliquer(boutonDans(pied(), 'Annuler'));
+    expect(pied()?.textContent).toContain('Abandonner les modifications ?');
+    await cliquer(boutonDans(pied(), 'Oui, abandonner'));
+    expect(onFerme).toHaveBeenCalledTimes(1);
+    expect(appels.some((x) => x.methode === 'PUT')).toBe(false);
+  });
+
+  it('« Tous les immeubles » : le détacher le rattache EXPLICITEMENT à toutes les AUTRES copropriétés', async () => {
+    await depuisLeBien();
+    await detacherLe('Paul COMMUN');
+    expect(noms1()).toEqual(['Marie DOUZE']);
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect(put().contacts.find((x) => x.nom === 'Commun')).toMatchObject({ tousImmeubles: false, immeubles: ['3 av y'] });
+  });
+
+  it('rattacher de nouveau par le Catalogue, « Ajouter à cette copropriété »', async () => {
+    await depuisLeBien();
+    await detacherLe('Marie DOUZE');
+    await cliquer(bouton('+ Ajouter un contact'));
+    await taper(document.querySelector('.fsy-catalogue input[type="search"]') as HTMLInputElement, 'douze');
+    await cliquer(document.querySelector('.fsy-catalogue button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-catalogue .fsy-contact-ouvert'), 'Ajouter à cette copropriété'));
+    expect(noms1()).toEqual(['Paul COMMUN', 'Marie DOUZE']);
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect(put().contacts.find((x) => x.nom === 'Douze')?.immeubles.sort()).toEqual(['12 rue x', '3 av y']);
+  });
+
+  it('écran « Syndics » (sans bien) : « Supprimer ce contact » inchangé, pas de « Détacher »', async () => {
+    servir(FICHE_24, 24);
+    await ouvrir(vi.fn(), 24);
+    const o = await ouvrirContact('Marie DOUZE');
+    expect([...o.querySelectorAll('button')].some((b) => b.textContent?.includes('Détacher'))).toBe(false);
+    const sup = [...o.querySelectorAll('button')].find((b) => b.textContent === 'Supprimer ce contact') as HTMLButtonElement;
+    expect(sup.className).toBe('fsy-lien-bouton fsy-pousse-gauche');
+  });
+});

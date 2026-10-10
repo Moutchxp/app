@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, contactVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, detacher, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -325,6 +325,15 @@ describe('LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville »', () => {
     const v = validerSyndic({ ...ADR, nom: 'FONCIA' });
     expect(v.ok && v.syndic.nom).toBe('FONCIA');
     expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toMatch(/nomAvecVille/);
+  });
+});
+
+describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE — detacher (pur)', () => {
+  it('retire SEULEMENT cet immeuble ; « Tous les immeubles » ⇒ toutes les AUTRES, explicitement', () => {
+    const c = { ...contactVide({ tousImmeubles: false, immeubles: ['a', 'b'] }), nom: 'X' };
+    expect(detacher(c, 'a', ['a', 'b', 'c'])).toMatchObject({ tousImmeubles: false, immeubles: ['b'] });
+    const tous = { ...contactVide(), nom: 'T' };
+    expect(detacher(tous, 'a', ['a', 'b', 'c'])).toMatchObject({ tousImmeubles: false, immeubles: ['b', 'c'] });
   });
 });
 
