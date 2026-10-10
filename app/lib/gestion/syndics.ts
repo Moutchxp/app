@@ -61,6 +61,23 @@ export interface SyndicSaisi {
   immeubles: ImmeubleSaisi[];
   /** LOT SYNDIC-NOTE-PAR-BIEN — la note du couple (ce lot, ce syndic), saisie depuis un bien. Absente ⇒ rien n'y touche. */
   noteBien?: { lotId: number; texte: string } | null;
+  /** LOT COPRO-CONTACTS-IMMEUBLE — la liste ENTIÈRE des contacts de l'immeuble du bien (absents ⇒ retirés). Absente ⇒
+   *  rien n'y touche (la liste n'a pas été lue). */
+  contactsImmeuble?: { immeuble: string; contacts: ContactImmeubleSaisi[] } | null;
+}
+
+/** LOT COPRO-CONTACTS-IMMEUBLE — les catégories d'un contact d'immeuble, en base. */
+export type CategorieImmeuble = 'gardien' | 'conseil_syndical' | 'personnalise';
+/** LOT COPRO-CONTACTS-IMMEUBLE — un contact PROPRE à l'immeuble (gardien, conseil syndical…), indépendant du syndic. */
+export interface ContactImmeubleSaisi {
+  id: number | null; categorie: CategorieImmeuble; libelle: string; civilite: Civilite | null;
+  prenom: string; nom: string; note: string; coordonnees: CoordonneeSaisie[];
+}
+/** LOT COPRO-CONTACTS-IMMEUBLE — tel que le serveur le relit. */
+export interface ContactImmeubleLu {
+  id: number; categorie: CategorieImmeuble; libelle: string | null; civilite: Civilite | null;
+  prenom: string | null; nom: string | null; note: string | null;
+  coordonnees: Array<{ id: number; sorte: SorteCoordonnee; libelle: string | null; valeur: string }>;
 }
 
 /** Un lot d'une copropriété, tel que l'écran le montre avant de confirmer. */
@@ -355,10 +372,62 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     noteBien = { lotId, texte: texte(nb.texte, BORNE_NOTE) };
   }
 
+  // LOT COPRO-CONTACTS-IMMEUBLE — les contacts de l'immeuble : une catégorie, un libellé si « Personnalisé » ; doublons
+  // (même NOM + prénom, même e-mail) refusés DANS CET IMMEUBLE seulement.
+  let contactsImmeuble: { immeuble: string; contacts: ContactImmeubleSaisi[] } | null = null;
+  if (typeof b.contactsImmeuble === 'object' && b.contactsImmeuble !== null) {
+    const ci = b.contactsImmeuble as Record<string, unknown>;
+    const immeuble = texte(ci.immeuble);
+    if (cleImmeuble(immeuble) === '') return { ok: false, motif: 'Contacts de l’immeuble : immeuble non désigné.' };
+    const liste: ContactImmeubleSaisi[] = [];
+    for (const cb of (Array.isArray(ci.contacts) ? ci.contacts.slice(0, 100) : [])) {
+      if (typeof cb !== 'object' || cb === null) continue;
+      const c = cb as Record<string, unknown>;
+      const categorie = c.categorie === 'gardien' || c.categorie === 'conseil_syndical' || c.categorie === 'personnalise' ? c.categorie : null;
+      if (categorie === null) return { ok: false, motif: 'Contact de l’immeuble : choisissez une catégorie (Gardien, Conseil syndical ou Personnalisé).' };
+      const libelle = categorie === 'personnalise' ? texte(c.libelle) : '';
+      if (categorie === 'personnalise' && libelle === '') {
+        return { ok: false, motif: 'Contact de l’immeuble : précisez le libellé personnalisé (Habitant, Femme de ménage…).' };
+      }
+      const civilite = civiliteLue(c.civilite);
+      if (civilite === undefined) return { ok: false, motif: `Civilité inconnue : « ${texte(c.civilite)} » (M. ou Mme).` };
+      const coordonnees: CoordonneeSaisie[] = [];
+      const vus = new Set<string>();
+      for (const kb of (Array.isArray(c.coordonnees) ? c.coordonnees.slice(0, 50) : [])) {
+        if (typeof kb !== 'object' || kb === null) continue;
+        const k = kb as Record<string, unknown>;
+        const sorte: SorteCoordonnee = k.sorte === 'email' ? 'email' : 'telephone';
+        const valeur = sorte === 'telephone' ? chiffresTelephone(texte(k.valeur)) : texte(k.valeur);
+        if (valeur === '' || valeur === '+') continue;
+        if (sorte === 'email' && !emailPlausible(valeur)) return { ok: false, motif: `E-mail illisible : « ${valeur} ».` };
+        if (sorte === 'email') { if (vus.has(cleEmail(valeur))) continue; vus.add(cleEmail(valeur)); }
+        coordonnees.push({ id: entierOuNull(k.id), sorte, libelle: texte(k.libelle), valeur });
+      }
+      liste.push({ id: entierOuNull(c.id), categorie, libelle, civilite, prenom: texte(c.prenom), nom: texte(c.nom),
+        note: texte(c.note, BORNE_NOTE), coordonnees });
+    }
+    const noms = new Set<string>();
+    const emails = new Set<string>();
+    for (const c of liste) {
+      const n = cleNom(c.prenom, c.nom);
+      if (n !== '') {
+        if (noms.has(n)) return { ok: false, motif: `Deux contacts de cet immeuble portent le même nom : ${prenomNom(c.prenom, c.nom)}.` };
+        noms.add(n);
+      }
+      for (const k of c.coordonnees.filter((x) => x.sorte === 'email')) {
+        const e = cleEmail(k.valeur);
+        if (emails.has(e)) return { ok: false, motif: `L’adresse e-mail ${e} est déjà celle d’un autre contact de cet immeuble.` };
+        emails.add(e);
+      }
+    }
+    contactsImmeuble = { immeuble, contacts: liste };
+  }
+
   return {
     ok: true,
     syndic: {
       noteBien,
+      ...(contactsImmeuble !== null ? { contactsImmeuble } : {}),
       nom, adresse: texte(b.adresse), codePostal: texte(b.codePostal), ville: texte(b.ville),
       telephone: tels[0] ?? '', telephone2: tels[1] ?? '',
       email, note: texte(b.note, BORNE_NOTE), contacts, immeubles,
@@ -491,6 +560,8 @@ export interface ContactForm {
   tousImmeubles: boolean; immeubles: string[];
   /** LOT SYNDIC-CONTACT-PARTI — un ancien contact « réintégré au catalogue » dans cette saisie (pas encore enregistré). */
   reintegre?: boolean;
+  /** LOT COPRO-CONTACTS-IMMEUBLE — la note d'un contact d'IMMEUBLE (les contacts de syndic n'en ont pas). */
+  note?: string;
 }
 export interface SyndicForm {
   nom: string; adresse: string; codePostal: string; ville: string;
@@ -504,6 +575,9 @@ export interface SyndicForm {
   partis?: ContactForm[];
   /** LOT SYNDIC-CONTACT-PARTI — les anciens contacts déjà partis (lecture seule, « Réintégrer au catalogue »). */
   anciens?: AncienContact[];
+  /** LOT COPRO-CONTACTS-IMMEUBLE — les contacts de l'immeuble du bien, une fois lus (`null`/absent : pas lus, rien
+   *  n'est envoyé). La catégorie vit dans `titreChoix` (« Gardien », « Conseil syndical », « Personnalisé » + libre). */
+  immeubleContacts?: { libelle: string; contacts: ContactForm[] } | null;
 }
 
 let compteur = 0;
@@ -613,6 +687,17 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
     ],
     immeubles: f.immeubles,
     noteBien: f.lotNote !== null ? { lotId: f.lotNote, texte: f.noteBien } : null,
+    ...(f.immeubleContacts ? { contactsImmeuble: {
+      immeuble: f.immeubleContacts.libelle,
+      contacts: f.immeubleContacts.contacts.map((c) => ({
+        id: c.id, categorie: categorieDe(c.titreChoix), libelle: c.titreChoix === PERSONNALISE ? c.titreLibre.trim() : '',
+        civilite: c.civilite ?? null, prenom: c.prenom, nom: c.nom, note: c.note ?? '',
+        coordonnees: c.coordonnees.map((k) => ({
+          id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
+          valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur,
+        })),
+      })) as ContactImmeubleSaisi[],
+    } } : {}),
   };
 }
 
@@ -628,12 +713,15 @@ export interface EditionContact {
   /** Le point de départ d'un NOUVEAU contact (déjà affecté à l'immeuble du bien) : « rien n'a changé » se mesure
    *  depuis lui, et non depuis un contact vide. */
   depart?: ContactForm;
+  /** LOT COPRO-CONTACTS-IMMEUBLE — le brouillon est un contact de l'IMMEUBLE (et non du syndic). */
+  immeuble?: boolean;
 }
 
 /** Ce qu'un contact dit de lui, sans sa clé d'écran ni l'ordre de ses champs vides. PUR. */
 function signatureContact(c: ContactForm): string {
   return JSON.stringify({
     titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom.trim(), nom: c.nom.trim(), civilite: c.civilite ?? null,
+    note: (c.note ?? '').trim(),
     suivi: [...c.immeubles].sort(),
     coordonnees: c.coordonnees.map((k) => ({
       sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
@@ -709,6 +797,39 @@ export function boutonDepart(c: ContactForm): string {
   return c.civilite === 'M.' ? 'Oui, il ne travaille plus ici' : c.civilite === 'Mme' ? 'Oui, elle ne travaille plus ici' : 'Oui, ne travaille plus ici';
 }
 
+// ══ LOT COPRO-CONTACTS-IMMEUBLE — LE CARNET DE L'IMMEUBLE ═══════════════════════════════════════════════════════════
+
+/** Les catégories, telles que l'écran les montre (pilules) ; « Personnalisé » ouvre un champ libre. */
+export const CATEGORIES_IMMEUBLE = ['Gardien', 'Conseil syndical', 'Personnalisé'] as const;
+
+/** Le choix de l'écran → la catégorie en base (`''` : aucune choisie — refusé par la validation). PUR. */
+export function categorieDe(choix: string): CategorieImmeuble | '' {
+  return choix === 'Gardien' ? 'gardien' : choix === 'Conseil syndical' ? 'conseil_syndical' : choix === PERSONNALISE ? 'personnalise' : '';
+}
+
+/** Les contacts de l'immeuble relus → leurs tuiles (la catégorie dans `titreChoix`, le libellé libre dans `titreLibre`). PUR. */
+export function versFormulaireImmeuble(lus: readonly ContactImmeubleLu[]): ContactForm[] {
+  return lus.map((c) => ({
+    cle: cleLocale(), id: c.id,
+    titreChoix: c.categorie === 'gardien' ? 'Gardien' : c.categorie === 'conseil_syndical' ? 'Conseil syndical' : PERSONNALISE,
+    titreLibre: c.categorie === 'personnalise' ? (c.libelle ?? '') : '',
+    prenom: c.prenom ?? '', nom: c.nom ?? '', civilite: civiliteLue(c.civilite) ?? null, note: c.note ?? '',
+    tousImmeubles: false, immeubles: [],
+    coordonnees: c.coordonnees.map((k) => {
+      const l = choixDe(k.libelle, libellesDe(k.sorte));
+      return { cle: cleLocale(), id: k.id, sorte: k.sorte, choix: l.choix, libre: l.libre,
+        valeur: k.sorte === 'telephone' ? formaterTelephone(k.valeur) : k.valeur };
+    }),
+  }));
+}
+
+/** Ce qui manque pour VALIDER un contact d'immeuble (`null` : rien) : une catégorie, et un libellé si « Personnalisé ». PUR. */
+export function refusContactImmeuble(c: ContactForm): string | null {
+  if (categorieDe(c.titreChoix) === '') return 'Choisissez une catégorie : Gardien, Conseil syndical ou Personnalisé.';
+  if (c.titreChoix === PERSONNALISE && c.titreLibre.trim() === '') return 'Précisez le libellé personnalisé (Habitant, Femme de ménage…).';
+  return null;
+}
+
 // ══ LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES ════════════════════════════════════════════════════════════════
 
 /** Ce qui MANQUE réellement à un contact : une ligne ouverte mais laissée vide compte comme absente. PUR. */
@@ -738,6 +859,12 @@ export function telephoneComplet(v: string): boolean {
 
 /** Le contact en modification, VALIDÉ dans la fiche (remplacé, ou ajouté s'il est nouveau). PUR. */
 export function appliquerBrouillon(f: SyndicForm, e: EditionContact): SyndicForm {
+  if (e.immeuble === true) {
+    if (!f.immeubleContacts) return f;
+    const l = f.immeubleContacts.contacts;
+    return { ...f, immeubleContacts: { ...f.immeubleContacts,
+      contacts: e.nouveau ? [...l, e.brouillon] : l.map((c) => (c.cle === e.cle ? e.brouillon : c)) } };
+  }
   return e.nouveau
     ? { ...f, contacts: [...f.contacts, e.brouillon] }
     : { ...f, contacts: f.contacts.map((c) => (c.cle === e.cle ? e.brouillon : c)) };

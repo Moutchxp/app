@@ -8,6 +8,7 @@ import {
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
   civiliteLue, formuleAppel, prenomNomCivil, type Civilite,
   marquerParti, reintegrer, phraseDepart, boutonDepart,
+  versFormulaireImmeuble, refusContactImmeuble, categorieDe,
 } from './syndics';
 
 /**
@@ -459,6 +460,57 @@ describe('LOT SYNDIC-CONTACT-PARTI — « ne travaille plus ici » (pur)', () =>
     expect(versSaisie(g).contacts).toEqual([{ id: 99, titre: 'Service comptabilité', prenom: 'Jean', nom: 'Ancien', civilite: null, tousImmeubles: false, immeubles: [],
       coordonnees: [{ id: null, sorte: 'email', libelle: '', valeur: 'jean@x.fr' }, { id: null, sorte: 'telephone', libelle: 'Portable', valeur: '0611223344' }], reintegre: true }]);
     expect(reintegrer(f, 7)).toBe(f);
+  });
+});
+
+describe('LOT COPRO-CONTACTS-IMMEUBLE — le carnet de l’immeuble (pur)', () => {
+  const ci = (o: Record<string, unknown>) => ({ categorie: 'gardien', prenom: 'Paul', nom: 'Loge', ...o });
+  it('validation : trois catégories ; « personnalise » exige un libellé ; une catégorie est obligatoire ; l’immeuble aussi', () => {
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contactsImmeuble: { immeuble: '12 rue X', contacts: [
+      ci({ id: 5 }), ci({ categorie: 'conseil_syndical', prenom: 'A', nom: 'B', libelle: 'ignoré' }),
+      ci({ categorie: 'personnalise', libelle: ' Habitant ', prenom: 'C', nom: 'D', civilite: 'Mme', note: 'n',
+        coordonnees: [{ sorte: 'telephone', valeur: '06 11 22 33 44' }, { sorte: 'email', valeur: 'c@d.fr' }, { sorte: 'email', valeur: ' C@D.fr' }] }),
+    ] } });
+    expect(v.ok && v.syndic.contactsImmeuble).toEqual({ immeuble: '12 rue X', contacts: [
+      { id: 5, categorie: 'gardien', libelle: '', civilite: null, prenom: 'Paul', nom: 'Loge', note: '', coordonnees: [] },
+      { id: null, categorie: 'conseil_syndical', libelle: '', civilite: null, prenom: 'A', nom: 'B', note: '', coordonnees: [] },
+      { id: null, categorie: 'personnalise', libelle: 'Habitant', civilite: 'Mme', prenom: 'C', nom: 'D', note: 'n',
+        coordonnees: [{ id: null, sorte: 'telephone', libelle: '', valeur: '0611223344' }, { id: null, sorte: 'email', libelle: '', valeur: 'c@d.fr' }] },
+    ] });
+    const refus = (contacts: unknown[], immeuble = '12 rue X') => {
+      const r = validerSyndic({ ...ADR, nom: 'Cab', contactsImmeuble: { immeuble, contacts } });
+      return r.ok ? null : r.motif;
+    };
+    expect(refus([ci({ categorie: 'personnalise', libelle: ' ' })])).toBe('Contact de l’immeuble : précisez le libellé personnalisé (Habitant, Femme de ménage…).');
+    expect(refus([ci({ categorie: '' })])).toBe('Contact de l’immeuble : choisissez une catégorie (Gardien, Conseil syndical ou Personnalisé).');
+    expect(refus([], ' ')).toBe('Contact de l’immeuble : immeuble non désigné.'.replace('Contact de l’immeuble', 'Contacts de l’immeuble'));
+    expect(validerSyndic({ ...ADR, nom: 'Cab' }).ok && 'contactsImmeuble' in (validerSyndic({ ...ADR, nom: 'Cab' }) as { syndic: object }).syndic).toBe(false);
+  });
+  it('anti-doublon DANS CET IMMEUBLE (nom, e-mail) ; un homonyme d’un contact du SYNDIC ne gêne pas', () => {
+    const r = (contacts: unknown[]) => { const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ prenom: 'Paul', nom: 'Loge' }], contactsImmeuble: { immeuble: '12 rue X', contacts } }); return v.ok ? 'ok' : v.motif; };
+    expect(r([ci({})])).toBe('ok');
+    expect(r([ci({}), ci({ prenom: 'paul', nom: 'LOGE', categorie: 'conseil_syndical' })])).toBe('Deux contacts de cet immeuble portent le même nom : paul LOGE.');
+    expect(r([ci({ coordonnees: [{ sorte: 'email', valeur: 'x@y.fr' }] }), ci({ prenom: 'Z', coordonnees: [{ sorte: 'email', valeur: 'X@Y.FR' }] })]))
+      .toBe('L’adresse e-mail x@y.fr est déjà celle d’un autre contact de cet immeuble.');
+  });
+  it('formulaire ⇄ saisie : catégorie dans titreChoix, libellé libre, note ; la saisie ne part que si le carnet a été lu', () => {
+    const lus = [{ id: 9, categorie: 'personnalise' as const, libelle: 'Femme de ménage', civilite: 'Mme' as const, prenom: 'Eve', nom: 'Net', note: 'mardi',
+      coordonnees: [{ id: 3, sorte: 'telephone' as const, libelle: null, valeur: '0611223344' }] }];
+    const contacts = versFormulaireImmeuble(lus);
+    expect(contacts[0]).toMatchObject({ id: 9, titreChoix: PERSONNALISE, titreLibre: 'Femme de ménage', civilite: 'Mme', note: 'mardi' });
+    const f = { ...formulaireVide(), nom: 'S', immeubleContacts: { libelle: '12 rue X', contacts } };
+    expect(versSaisie(f).contactsImmeuble).toEqual({ immeuble: '12 rue X', contacts: [{ id: 9, categorie: 'personnalise', libelle: 'Femme de ménage',
+      civilite: 'Mme', prenom: 'Eve', nom: 'Net', note: 'mardi', coordonnees: [{ id: 3, sorte: 'telephone', libelle: '', valeur: '0611223344' }] }] });
+    expect('contactsImmeuble' in versSaisie({ ...f, immeubleContacts: null })).toBe(false);
+    expect([categorieDe('Gardien'), categorieDe('Conseil syndical'), categorieDe(PERSONNALISE), categorieDe('')]).toEqual(['gardien', 'conseil_syndical', 'personnalise', '']);
+    expect(refusContactImmeuble({ ...contacts[0], titreLibre: ' ' })).toBe('Précisez le libellé personnalisé (Habitant, Femme de ménage…).');
+    expect(refusContactImmeuble({ ...contacts[0], titreChoix: '' })).toBe('Choisissez une catégorie : Gardien, Conseil syndical ou Personnalisé.');
+    expect(refusContactImmeuble(contacts[0])).toBeNull();
+    // Un brouillon de l'immeuble va dans le carnet, jamais dans les contacts du syndic.
+    const g = appliquerBrouillon(f, { cle: 'k', brouillon: { ...contactVide(), cle: 'k', nom: 'Neuf', titreChoix: 'Gardien' }, nouveau: true, immeuble: true });
+    expect(g.contacts).toEqual([]);
+    expect(g.immeubleContacts?.contacts.map((c) => c.nom)).toEqual(['Net', 'Neuf']);
+    expect(contactModifie(contacts[0], { ...contacts[0], note: 'jeudi' })).toBe(true);
   });
 });
 
@@ -923,6 +975,70 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
       expect(sql).toContain(`ADD COLUMN IF NOT EXISTS ${c}`);
     }
     expect(sql).not.toMatch(/\bDEFAULT\b|\bUPDATE\b|\bDELETE\b|\bDROP\b|NOT NULL/i);
+  });
+
+  it('CARNET DE L’IMMEUBLE : écrit DANS la transaction de la fiche — mis à jour, inséré, les absents RETIRÉS (historisés) ; rien d’effacé', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1') ? { rows: [{ id: '77' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_contact WHERE copropriete_id = $1') ? { rows: [{ id: '501' }, { id: '502' }] } : undefined),
+      (sql) => (sql.includes('INSERT INTO gestion_copropriete_contact (') ? { rows: [{ id: '503' }] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contactsImmeuble: { immeuble: '12 rue X', contacts: [
+      { id: 501, categorie: 'gardien', prenom: 'Paul', nom: 'Loge', note: 'loge' },
+      { categorie: 'personnalise', libelle: 'Habitant', prenom: 'Anne', nom: 'Neuve', coordonnees: [{ sorte: 'email', valeur: 'a@n.fr' }] },
+    ] } });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_copropriete (cle_immeuble, libelle, cree_par, cree_par_libelle)'))?.params)
+      .toEqual(['12 rue x', '12 rue X', 7, 'arno']);
+    expect(appels.find((a) => a.sql.includes('UPDATE gestion_copropriete_contact SET categorie'))?.params)
+      .toEqual([501, 'gardien', null, null, 'Paul', 'Loge', 'loge', 0, 'arno']);
+    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_copropriete_contact ('))?.params)
+      .toEqual(['77', 'personnalise', 'Habitant', null, 'Anne', 'Neuve', null, 1, 7, 'arno']);
+    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_copropriete_contact_coordonnee'))?.params).toEqual([503, 'email', null, 'a@n.fr', 0]);
+    expect(appels.find((a) => a.sql.includes('UPDATE gestion_copropriete_contact SET retire_le = now()'))?.params).toEqual([[502], 'arno']);
+    expect(appels.some((a) => /\bDELETE\b/i.test(a.sql) || a.sql.includes('gestion_journal'))).toBe(false);
+  });
+
+  it('CARNET DE L’IMMEUBLE : absent de la saisie (non lu) ⇒ rien n’y touche ; et ni le retrait du syndic ni sa suppression ne le touchent', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [(sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined)];
+    const v = validerSyndic({ ...ADR, nom: 'Cab' });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    expect(appels.some((a) => a.sql.includes('gestion_copropriete_contact'))).toBe(false);
+    const src = readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8');
+    const corps = (nom: string): string => src.slice(src.indexOf(`export async function ${nom}`), src.indexOf('\n}\n', src.indexOf(`export async function ${nom}`)));
+    expect(corps('retirerDeLaCopropriete')).not.toContain('gestion_copropriete_contact');
+    expect(corps('supprimerSyndic')).not.toContain('gestion_copropriete_contact');
+  });
+
+  it('CARNET DE L’IMMEUBLE : la lecture — en cours seulement, par la clé de l’immeuble, avec ses coordonnées en cours', async () => {
+    const { contactsDeLImmeuble } = await import('./contactsImmeubleRepo');
+    reponses = [(sql) => (sql.includes('FROM gestion_copropriete_contact ct') ? { rows: [
+      { id: '501', categorie: 'gardien', libelle: null, civilite: 'M.', prenom: 'Paul', nom: 'Loge', note: null, coordonnees: [{ id: '601', sorte: 'telephone', libelle: null, valeur: '0611223344' }] },
+    ] } : undefined)];
+    expect(await contactsDeLImmeuble('12, Rue X')).toEqual([{ id: 501, categorie: 'gardien', libelle: null, civilite: 'M.', prenom: 'Paul', nom: 'Loge', note: null,
+      coordonnees: [{ id: 601, sorte: 'telephone', libelle: null, valeur: '0611223344' }] }]);
+    const a = appels.find((x) => x.sql.includes('FROM gestion_copropriete_contact ct'));
+    expect(a?.params).toEqual(['12 rue x']);
+    expect(norm(a?.sql ?? '')).toContain('WHERE c.cle_immeuble = $1 AND ct.retire_le IS NULL');
+    expect(norm(a?.sql ?? '')).toContain('WHERE k.contact_id = ct.id AND k.retire_le IS NULL');
+    expect(await contactsDeLImmeuble('  ')).toEqual([]);
+  });
+
+  it('MIGRATION 333 : deux tables d’AJOUT, rattachées à la copropriété (jamais au syndic), retrait historisé ; aucune donnée réécrite', () => {
+    const sql = norm(readFileSync(join(__dirname, '../../../db/migrations/333_gestion_copropriete_contacts_immeuble.sql'), 'utf8')
+      .split('\n').filter((l) => !l.startsWith('--')).join('\n'));
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS gestion_copropriete_contact (');
+    expect(sql).toContain('copropriete_id bigint NOT NULL REFERENCES gestion_copropriete(id)');
+    expect(sql).toContain("categorie text NOT NULL CHECK (categorie IN ('gardien', 'conseil_syndical', 'personnalise'))");
+    expect(sql).toContain("CHECK (categorie <> 'personnalise' OR btrim(coalesce(libelle, '')) <> '')");
+    expect(sql).toContain('retire_le timestamptz');
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS gestion_copropriete_contact_coordonnee (');
+    expect(sql).not.toMatch(/syndic_id|\bUPDATE\b|\bDELETE\b|\bDROP\b|ALTER TABLE/i);
   });
 
   it('CIVILITÉ : écrite à la création et à la modification (M., Mme, ou NULL) ; relue par la fiche', async () => {

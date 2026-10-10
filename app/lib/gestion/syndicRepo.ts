@@ -1,5 +1,6 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { normaliserTexte } from './annuaire';
+import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import type { Auteur } from './gestes';
 import {
   civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
@@ -297,6 +298,8 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
     await enregistrerCoproprietes(q, syndicId, saisie, auteur);
     await enregistrerContacts(q, syndicId, saisie, auteur);
     if (saisie.noteBien) await enregistrerNoteBien(q, syndicId, saisie.noteBien.lotId, saisie.noteBien.texte, auteur);
+    // LOT COPRO-CONTACTS-IMMEUBLE — le carnet de l'immeuble voyage avec la fiche, mais ne dépend PAS du syndic.
+    if (saisie.contactsImmeuble) await enregistrerContactsImmeuble(q, saisie.contactsImmeuble, auteur);
     return { ok: true, id: syndicId };
   });
 }

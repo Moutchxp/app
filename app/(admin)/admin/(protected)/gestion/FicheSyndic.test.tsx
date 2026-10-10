@@ -74,7 +74,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  appels = []; apiEnPanne = false; passerAlerteCoord = true;
+  appels = []; apiEnPanne = false; passerAlerteCoord = true; passerChoixAjout = true;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     appels.push({ url, methode: init?.method ?? 'GET', corps: init?.body ? JSON.parse(String(init.body)) : null });
     const rep = (j: unknown) => ({ ok: true, json: async () => j });
@@ -122,9 +122,21 @@ const bouton = (texte: string): HTMLButtonElement => {
  * elles, ne changent pas. Les épreuves de l'avertissement coupent ce passage (`passerAlerteCoord = false`).
  */
 let passerAlerteCoord = true;
+/**
+ * LOT COPRO-CONTACTS-IMMEUBLE — depuis un bien, « + Ajouter un contact » propose désormais un CHOIX (① contact du
+ * syndic / ② habitant ou gardien de l'immeuble). Les épreuves écrites avant lui éprouvent ①, inchangé : par défaut,
+ * `cliquer` choisit ① à leur place (l'étape de clic supplémentaire) ; leurs attentes ne changent pas. Les épreuves du
+ * choix coupent ce passage (`passerChoixAjout = false`).
+ */
+let passerChoixAjout = true;
 const cliquer = async (el: Element): Promise<void> => {
   const valideUnContact = (el as HTMLElement).textContent?.trim() === 'Valider' && el.closest('.fsy-contact-edit') !== null;
+  const ajoute = (el as HTMLElement).textContent?.trim() === '+ Ajouter un contact';
   await act(async () => { (el as HTMLElement).click(); }); await calmer();
+  if (ajoute && passerChoixAjout) {
+    const un = [...document.querySelectorAll('.fsy-choix-ajout button')].find((x) => x.textContent?.trim() === 'Contact du syndic de copropriété') as HTMLElement | undefined;
+    if (un) { await act(async () => { un.click(); }); await calmer(); }
+  }
   if (!passerAlerteCoord || !valideUnContact) return;
   const b = [...document.querySelectorAll('.fsy-alerte-coord button')].find((x) => x.textContent === 'Valider quand même') as HTMLElement | undefined;
   if (b) { await act(async () => { b.click(); }); await calmer(); }
@@ -3088,5 +3100,254 @@ describe('LOT SYNDIC-TITRE-APRES-RETRAIT', () => {
     await cliquer(document.querySelector('button.bsy') as Element);
     await attendre(250);
     expect(titre()).toBe('Syndic de la copropriété');
+  });
+});
+
+/**
+ * ══ LOT COPRO-CONTACTS-IMMEUBLE ══════════════════════════════════════════════════════════════════════════════════
+ * Syndic _TEST 80 ; copropriétés 12 rue X (le bien) et 3 av Y ; au syndic, Léa DURAND (12 rue X). Le carnet de 12 rue X
+ * est servi par la route des contacts d'immeuble (vide, ou un gardien).
+ */
+describe('LOT COPRO-CONTACTS-IMMEUBLE', () => {
+  type CI = { id: number | null; categorie: string; libelle: string; civilite: string | null; prenom: string; nom: string; note: string; coordonnees: Array<{ sorte: string; valeur: string }> };
+  type Corps = { contactsImmeuble?: { immeuble: string; contacts: CI[] }; contacts: Array<{ nom: string }> };
+  const FICHE_80 = {
+    ...FICHE, id: 80, nom: '_TEST Carnet', ville: 'Paris',
+    contacts: [{ id: 4, titre: 'Responsable de copropriété', prenom: 'Léa', nom: 'Durand', civilite: null, tousImmeubles: false, immeubles: ['12 rue x'],
+      coordonnees: [{ id: 5, sorte: 'telephone', libelle: 'Portable', valeur: '0613861877' }] }],
+    coproprietes: [
+      { id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+      { id: 7, cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+    ],
+  };
+  const GARDIEN = { id: 501, categorie: 'gardien', libelle: null, civilite: 'M.', prenom: 'Paul', nom: 'Loge', note: 'Loge au rez-de-chaussée',
+    coordonnees: [{ id: 601, sorte: 'telephone', libelle: null, valeur: '0611223344' }, { id: 602, sorte: 'email', libelle: null, valeur: 'loge@test.invalid' }] };
+  let carnet: unknown[] = [];
+  const servir80 = (): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null }); return rep({ ok: true, id: 80 }); }
+      if (url.startsWith('/api/admin/gestion/coproprietes/contacts?immeuble=')) {
+        appels.push({ url, methode: m, corps: null });
+        return rep({ etat: 'ok', contacts: decodeURIComponent(url.split('=')[1]) === '12 rue X' ? carnet : [] });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: [] });
+      if (url.startsWith('/api/admin/gestion/syndics/80')) return rep({ etat: 'ok', fiche: FICHE_80 });
+      if (url.startsWith('/api/admin/gestion/syndics/doublons')) return rep({ emails: [], noms: [] });
+      return rep({});
+    }));
+  };
+  const ouvrir80 = async (bien: boolean, contenu: unknown[] = []): Promise<ReturnType<typeof vi.fn>> => {
+    carnet = contenu;
+    servir80();
+    const onFerme = vi.fn();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 80, onFerme,
+        immeubleDepart: bien ? { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } : null }));
+    });
+    await calmer();
+    return onFerme;
+  };
+  const choix = (): HTMLElement | null => document.querySelector('.fsy-choix-ajout');
+  const blocImmeuble = (): HTMLElement | null => document.querySelector('section[aria-labelledby="fsy-bloc-ajout-immeuble"]');
+  const edit = (): HTMLElement => document.querySelector('.fsy-contact-edit') as HTMLElement;
+  const champC = (label: string): HTMLInputElement => [...edit().querySelectorAll('label')]
+    .find((x) => x.querySelector('span')?.textContent === label)?.querySelector('input, textarea') as HTMLInputElement;
+  const tuilesImmeuble = (): string[] => [...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] > .fsy-contact-immeuble')]
+    .map((t) => `${t.querySelector('.fsy-contact-nom')?.textContent ?? ''}|${t.querySelector('.fsy-contact-titre')?.textContent ?? ''}`);
+  const put = (): Corps | undefined => appels.filter((a) => a.methode === 'PUT').at(-1)?.corps as Corps | undefined;
+  const ouvrirAjoutImmeuble = async (): Promise<void> => {
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(bouton('Habitant / gardien de l’immeuble'));
+  };
+  const valider = async (): Promise<void> => { await cliquer(boutonDans(edit(), 'Valider')); };
+  beforeEach(() => { passerChoixAjout = false; });
+
+  it('le CHOIX : deux gros boutons côte à côte et « Annuler », rien d’ouvert ; Annuler remet « + Ajouter un contact »', async () => {
+    await ouvrir80(true);
+    await cliquer(bouton('+ Ajouter un contact'));
+    const c = choix() as HTMLElement;
+    expect([...c.querySelectorAll('.fsy-choix-ajout-boutons button')].map((b) => b.textContent))
+      .toEqual(['Contact du syndic de copropriété', 'Habitant / gardien de l’immeuble']);
+    expect(boutonDans(c, 'Annuler')).toBeTruthy();
+    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
+    expect(document.querySelector('.fsy-catalogue')).toBeNull();
+    await cliquer(boutonDans(c, 'Annuler'));
+    expect(choix()).toBeNull();
+    expect(bouton('+ Ajouter un contact')).toBeTruthy();
+  });
+
+  it('① : EXACTEMENT l’ajout d’aujourd’hui — « Ajouter un contact syndic à cette copropriété », Nouveau contact', async () => {
+    await ouvrir80(true);
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(bouton('Contact du syndic de copropriété'));
+    expect(document.querySelector('#fsy-bloc-ajout')?.textContent).toBe('Ajouter un contact syndic à cette copropriété');
+    expect(edit().querySelector('legend')?.textContent).toBe('Nouveau contact');
+    expect(edit().querySelector('[aria-label="Catégorie"]')).toBeNull();
+    expect(blocImmeuble()).toBeNull();
+  });
+
+  it('écran SYNDICS : pas de choix — « + Ajouter un contact » ouvre directement le contact du cabinet ; pas de carnet', async () => {
+    await ouvrir80(false);
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(choix()).toBeNull();
+    expect(document.querySelector('#fsy-bloc-ajout')?.textContent).toBe('Ajouter un contact au cabinet');
+    expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/coproprietes/contacts'))).toBe(false);
+  });
+
+  it('② : le bloc « Ajouter un contact de l’immeuble » — catégorie (3 pilules), civilité, prénom, nom, + téléphone, + e-mail, note, « Sera rattaché à », sans catalogue', async () => {
+    await ouvrir80(true);
+    await ouvrirAjoutImmeuble();
+    const b = blocImmeuble() as HTMLElement;
+    expect(b.querySelector('#fsy-bloc-ajout-immeuble')?.textContent).toBe('Ajouter un contact de l’immeuble');
+    expect(boutonDans(b, '× Fermer')).toBeTruthy();
+    expect(b.querySelector('.fsy-catalogue')).toBeNull();
+    expect(b.querySelector('legend')?.textContent).toBe('Nouveau contact de l’immeuble');
+    expect([...b.querySelectorAll('[aria-label="Catégorie"] button')].map((x) => x.textContent)).toEqual(['Gardien', 'Conseil syndical', 'Personnalisé']);
+    expect([...b.querySelectorAll('[aria-label="Civilité"] button')].map((x) => x.textContent)).toEqual(['M.', 'Mme']);
+    for (const l of ['Prénom', 'Nom', 'Note']) expect(champC(l)).toBeTruthy();
+    expect(boutonDans(b, '+ téléphone')).toBeTruthy();
+    expect(boutonDans(b, '+ e-mail')).toBeTruthy();
+    expect(b.querySelector('.fsy-suivis')?.textContent).toBe('Sera rattaché à : 12 rue X, 92400 Courbevoie');
+    expect([...b.querySelectorAll('.fsy-boutons--contact button')].map((x) => x.textContent)).toEqual(['Annuler', 'Valider']);
+    expect(b.textContent).not.toContain('Immeubles suivis');
+    await cliquer(boutonDans(b, '× Fermer'));
+    expect(blocImmeuble()).toBeNull();
+  });
+
+  for (const [categorie, libre, attendu, base] of [
+    ['Gardien', '', 'Gardien', 'gardien'], ['Conseil syndical', '', 'Conseil syndical', 'conseil_syndical'], ['Personnalisé', 'Habitant', 'Habitant', 'personnalise'],
+  ] as const) {
+    it(`CRÉATION « ${categorie} » : la tuile dans « Habitants et gardien de l’immeuble », puis enregistrée au Valider de la fiche`, async () => {
+      passerAlerteCoord = true;
+      await ouvrir80(true);
+      expect(document.body.textContent).not.toContain('Habitants et gardien de l’immeuble'); // vide ⇒ masquée
+      await ouvrirAjoutImmeuble();
+      await cliquer(boutonDans(edit().querySelector('[aria-label="Catégorie"]'), categorie));
+      if (libre) await taper(champC('Libellé personnalisé *'), libre);
+      await cliquer(boutonDans(edit().querySelector('[aria-label="Civilité"]'), 'Mme'));
+      await taper(champC('Prénom'), 'Anne');
+      await taper(champC('Nom'), 'Neuve');
+      await valider();
+      expect(blocImmeuble()).toBeNull();
+      expect(document.querySelector('section[aria-labelledby="fsy-bloc-1"] .fsy-sous-titre--immeuble')?.textContent).toBe('Habitants et gardien de l’immeuble');
+      expect(tuilesImmeuble()).toEqual([`Mme Anne NEUVE|${attendu}`]);
+      await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+      expect(put()?.contactsImmeuble).toEqual({ immeuble: '12 rue X', contacts: [
+        { id: null, categorie: base, libelle: libre, civilite: 'Mme', prenom: 'Anne', nom: 'Neuve', note: '', coordonnees: [] }] });
+      expect(put()?.contacts.map((c) => c.nom)).toEqual(['Durand']); // le syndic n'a rien reçu
+    });
+  }
+
+  it('« Personnalisé » SANS libellé : refusé ; sans catégorie : refusé', async () => {
+    await ouvrir80(true);
+    await ouvrirAjoutImmeuble();
+    await taper(champC('Nom'), 'Neuve');
+    await valider();
+    expect(edit().querySelector('.fsy-alerte[role="alert"]')?.textContent).toBe('Choisissez une catégorie : Gardien, Conseil syndical ou Personnalisé.');
+    await cliquer(boutonDans(edit().querySelector('[aria-label="Catégorie"]'), 'Personnalisé'));
+    await valider();
+    expect(edit().querySelector('.fsy-alerte[role="alert"]')?.textContent).toBe('Précisez le libellé personnalisé (Habitant, Femme de ménage…).');
+    expect(blocImmeuble()).not.toBeNull();
+    expect(tuilesImmeuble()).toEqual([]);
+  });
+
+  it('la liste lue du serveur : intertitre, tuile « M. Paul LOGE | Gardien » ; dépliée : coordonnées, note, Retirer / Fermer / Modifier — sans actions du syndic', async () => {
+    await ouvrir80(true, [GARDIEN]);
+    expect(tuilesImmeuble()).toEqual(['M. Paul LOGE|Gardien']);
+    const titres = [...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] h4')].map((h) => h.textContent);
+    expect(titres).toEqual(['Contacts de cette copropriété', 'Habitants et gardien de l’immeuble']);
+    await cliquer(document.querySelector('button.fsy-contact-immeuble') as Element);
+    const o = document.querySelector('.fsy-contact-ouvert.fsy-contact-immeuble') as HTMLElement;
+    expect(o.textContent).toContain('06 11 22 33 44');
+    expect(o.textContent).toContain('loge@test.invalid');
+    expect(o.querySelector('.fsy-note-contact')?.textContent).toBe('Note : Loge au rez-de-chaussée');
+    expect([...o.querySelectorAll('.fsy-boutons button')].map((b) => b.textContent)).toEqual(['Retirer de l’immeuble', 'Fermer', 'Modifier']);
+    expect(o.textContent).not.toMatch(/Détacher|Ne travaille plus|Supprimer ce contact|copropriétés suivies/i);
+  });
+
+  it('MODIFICATION puis RETRAIT : « Retirer Paul LOGE de l’immeuble ? » Non / Oui ; au Valider, la liste envoyée sans lui (le serveur le retire, historisé)', async () => {
+    await ouvrir80(true, [GARDIEN]);
+    await cliquer(document.querySelector('button.fsy-contact-immeuble') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert.fsy-contact-immeuble'), 'Modifier'));
+    expect(edit().querySelector('.fsy-suivis')?.textContent).toBe('Rattaché à : 12 rue X, 92400 Courbevoie');
+    const note = champC('Note') as unknown as HTMLTextAreaElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(note, 'Loge côté cour');
+      note.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await valider();
+    let o = document.querySelector('.fsy-contact-ouvert.fsy-contact-immeuble') as HTMLElement;
+    expect(o.querySelector('.fsy-note-contact')?.textContent).toBe('Note : Loge côté cour');
+    await cliquer(boutonDans(o, 'Retirer de l’immeuble'));
+    expect(o.querySelector('.fsy-confirmer span')?.textContent).toBe('Retirer Paul LOGE de l’immeuble ?');
+    await cliquer(boutonDans(o, 'Non'));
+    expect(tuilesImmeuble()).toEqual(['M. Paul LOGE|Gardien']);
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(put()?.contactsImmeuble?.contacts.map((c) => [c.id, c.note])).toEqual([[501, 'Loge côté cour']]);
+    appels = [];
+    await act(async () => { root.render(null); });
+    await ouvrir80(true, [GARDIEN]);
+    await cliquer(document.querySelector('button.fsy-contact-immeuble') as Element);
+    o = document.querySelector('.fsy-contact-ouvert.fsy-contact-immeuble') as HTMLElement;
+    await cliquer(boutonDans(o, 'Retirer de l’immeuble'));
+    await cliquer(boutonDans(o, 'Oui'));
+    expect(tuilesImmeuble()).toEqual([]);
+    expect(document.body.textContent).not.toContain('Habitants et gardien de l’immeuble');
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(put()?.contactsImmeuble).toEqual({ immeuble: '12 rue X', contacts: [] });
+  });
+
+  it('ANTI-DOUBLON dans le MÊME IMMEUBLE seulement : même nom qu’un contact de l’immeuble ⇒ bloqué ; même nom qu’un contact du SYNDIC ⇒ accepté', async () => {
+    passerAlerteCoord = true;
+    await ouvrir80(true, [GARDIEN]);
+    await ouvrirAjoutImmeuble();
+    await cliquer(boutonDans(edit().querySelector('[aria-label="Catégorie"]'), 'Conseil syndical'));
+    await taper(champC('Prénom'), 'paul');
+    await taper(champC('Nom'), 'LOGE');
+    await valider();
+    expect(edit().querySelector('.fsy-doublon')?.textContent).toBe('Ce contact existe déjà dans cet immeuble : Paul LOGE · Gardien');
+    expect(blocImmeuble()).not.toBeNull();
+    await taper(champC('Prénom'), 'Léa');
+    await taper(champC('Nom'), 'Durand');
+    // En quittant le champ, la vérification est relancée (comme à l'écran) : plus de doublon dans cet immeuble.
+    await act(async () => { champC('Nom').dispatchEvent(new FocusEvent('focusout', { bubbles: true })); });
+    await calmer();
+    expect(edit().querySelector('.fsy-doublon')).toBeNull();
+    await valider();
+    expect(blocImmeuble()).toBeNull();
+    expect(tuilesImmeuble()).toEqual(['M. Paul LOGE|Gardien', 'Léa DURAND|Conseil syndical']);
+  });
+
+  it('ALERTE coordonnées et ARRIVÉE rose : mêmes mécanismes', async () => {
+    passerAlerteCoord = false;
+    await ouvrir80(true);
+    await ouvrirAjoutImmeuble();
+    await cliquer(boutonDans(edit().querySelector('[aria-label="Catégorie"]'), 'Gardien'));
+    await taper(champC('Nom'), 'Loge');
+    await valider();
+    expect(document.querySelector('.fsy-alerte-coord span')?.textContent).toBe('Ni téléphone ni e-mail pour LOGE. Valider quand même ?');
+    await cliquer(bouton('Valider quand même'));
+    const t = document.querySelector('button.fsy-contact-immeuble') as HTMLElement;
+    expect(t.classList.contains('fsy-arrivee')).toBe(true);
+  });
+
+  it('le bandeau de la fiche : un contact d’immeuble en modification ⇒ « Enregistrer les modifications de Paul LOGE ? » — Oui', async () => {
+    await ouvrir80(true, [GARDIEN]);
+    await cliquer(document.querySelector('button.fsy-contact-immeuble') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert.fsy-contact-immeuble'), 'Modifier'));
+    await taper(champC('Nom'), 'Loges');
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(document.querySelector('.fsy-pied .fsy-question')?.textContent).toBe('Enregistrer les modifications de Paul LOGES ?');
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Oui'));
+    expect(put()?.contactsImmeuble?.contacts.map((c) => [c.id, c.nom])).toEqual([[501, 'Loges']]);
+  });
+
+  it('le carnet lu n’est pas une modification : Valider sans rien toucher ferme sans écrire', async () => {
+    const onFerme = await ouvrir80(true, [GARDIEN]);
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(appels.filter((a) => a.methode !== 'GET')).toEqual([]);
+    expect(onFerme).toHaveBeenCalledTimes(1);
   });
 });

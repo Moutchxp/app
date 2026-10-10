@@ -9,7 +9,8 @@ import {
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie,
-  marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, alerteCoordonnees, coordonneesManquantes, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, alerteCoordonnees, coordonneesManquantes,
+  CATEGORIES_IMMEUBLE, refusContactImmeuble, versFormulaireImmeuble, type ContactImmeubleLu, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -115,9 +116,31 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   useEffect(() => { if (idInitial !== null) void charger(idInitial); }, [idInitial, charger]);
 
   const origineEdition = edition === null ? null
-    : edition.nouveau ? (edition.depart ?? null) : (form.contacts.find((c) => c.cle === edition.cle) ?? null);
+    : edition.nouveau ? (edition.depart ?? null)
+      : ((edition.immeuble === true ? (form.immeubleContacts?.contacts ?? []) : form.contacts).find((c) => c.cle === edition.cle) ?? null);
   /** LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — l'immeuble du bien depuis lequel on a ouvert la fiche (sinon `null`). */
   const cleDepart = immeubleDepart !== null && immeubleDepart.libelle.trim() !== '' ? cleImmeuble(immeubleDepart.libelle) : null;
+  /**
+   * ══ LOT COPRO-CONTACTS-IMMEUBLE — LE CARNET DE L'IMMEUBLE DU BIEN, LU À PART ══ (il ne dépend pas du syndic). Une
+   * fois lu, il entre dans le formulaire ET dans son état initial (il n'est donc pas « une modification »), et voyage
+   * avec la saisie. Non lu (erreur) : rien n'est envoyé — jamais une liste vide qui retirerait tout.
+   */
+  const libelleDepart = immeubleDepart?.libelle.trim() ?? '';
+  const carnetLu = form.immeubleContacts != null;
+  useEffect(() => {
+    if (mode !== 'edition' || libelleDepart === '' || carnetLu) return;
+    let vivant = true;
+    void fetch(`/api/admin/gestion/coproprietes/contacts?immeuble=${encodeURIComponent(libelleDepart)}`, { cache: 'no-store' })
+      .then((r) => r.json() as Promise<{ etat?: string; contacts?: ContactImmeubleLu[] }>)
+      .then((j) => {
+        if (!vivant || j.etat !== 'ok' || !Array.isArray(j.contacts)) return;
+        const carnet = { libelle: libelleDepart, contacts: versFormulaireImmeuble(j.contacts) };
+        setForm((f) => (f.immeubleContacts ? f : { ...f, immeubleContacts: carnet }));
+        setInitial((f) => (f.immeubleContacts ? f : { ...f, immeubleContacts: carnet }));
+      })
+      .catch(() => { /* le carnet n'est simplement pas proposé */ });
+    return () => { vivant = false; };
+  }, [mode, libelleDepart, carnetLu]);
   const contactEnCours = edition !== null && contactModifie(origineEdition, edition.brouillon);
   const modifie = mode === 'edition' && (formulaireModifie(initial, form) || contactEnCours);
 
@@ -564,7 +587,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
     return { cle: cleImmeuble(im.libelle), adresse: adresseImmeuble(im.libelle, c?.codePostal ?? im.codePostal, c?.commune ?? im.commune) };
   });
   const origineEdition = edition === null ? null
-    : edition.nouveau ? (edition.depart ?? null) : (form.contacts.find((c) => c.cle === edition.cle) ?? null);
+    : edition.nouveau ? (edition.depart ?? null)
+      : ((edition.immeuble === true ? (form.immeubleContacts?.contacts ?? []) : form.contacts).find((c) => c.cle === edition.cle) ?? null);
   const contactEnCours = edition !== null && contactModifie(origineEdition, edition.brouillon) ? nomAffiche(edition.brouillon) : null;
   /** « Créer un nouveau contact » depuis une copropriété : il naît dans le catalogue, affecté à CET immeuble. */
   const creerContactPour = (cle: string): string | null => {
@@ -679,6 +703,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       {/* LOT SYNDIC-TITRES-COPROPRIETE — « Contacts de cet immeuble » devient « Contacts de cette copropriété ». */}
       <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contacts de cette copropriété' : 'Contacts du cabinet'}</h4>
       {contacts.liste}
+      {/* LOT COPRO-CONTACTS-IMMEUBLE — la liste séparée du carnet de l'immeuble (absente s'il est vide). */}
+      {contacts.listeImmeuble}
       {contacts.bouton}
       </section>
 
@@ -696,6 +722,18 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
               aria-label="Fermer l’ajout de contact sans rien rattacher ni créer">× Fermer</button>
           </div>
           {contacts.ajout}
+        </section>
+      )}
+      {/* LOT COPRO-CONTACTS-IMMEUBLE — le bloc « Ajouter un contact de l'immeuble » : même cadre, même « × Fermer »,
+          PAS de catalogue. */}
+      {contacts.ajoutImmeuble !== null && (
+        <section className="fsy-cadre fsy-cadre--ajout fsy-cadre--ajout-immeuble" aria-labelledby="fsy-bloc-ajout-immeuble">
+          <div className="fsy-cadre-tete">
+            <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-ajout-immeuble">Ajouter un contact de l’immeuble</h3>
+            <button type="button" className="fsy-lien-bouton fsy-fermer-ajout" onClick={() => setEdition(null)}
+              aria-label="Fermer l’ajout de contact de l’immeuble sans rien créer">× Fermer</button>
+          </div>
+          {contacts.ajoutImmeuble}
         </section>
       )}
 
@@ -958,7 +996,7 @@ function SelectChoix({ libelle, choix, libre, options, onChange }: {
  * ⚠️ « VALIDER » D'UN CONTACT LE REPORTE DANS LA FICHE ; c'est « Valider » du pied qui enregistre en base, comme pour
  * tout le reste de la fiche. Sans quoi « Annuler » la fenêtre ne pourrait plus défaire un contact déjà écrit.
  */
-type Action = { genre: 'ouvrir' | 'modifier'; cle: string } | { genre: 'ajouter' };
+type Action = { genre: 'ouvrir' | 'modifier'; cle: string; immeuble?: boolean } | { genre: 'ajouter' } | { genre: 'ajouterImmeuble' };
 
 /**
  * ══ 🔴 « AUTRES CONTACTS » — LOT SYNDIC-CONTACTS-PAR-COPROPRIETE, corrigé au lot SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT
@@ -982,10 +1020,12 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   cleDepart: string | null; adresses: Array<{ cle: string; adresse: string }>;
   /** LOT SYNDIC-CONTACTS-ANTI-DOUBLON — pour chercher les doublons dans les AUTRES syndics. */
   syndicId: number | null;
-}): { liste: React.ReactNode; bouton: React.ReactNode; ajout: React.ReactNode | null } {
+}): { liste: React.ReactNode; bouton: React.ReactNode; ajout: React.ReactNode | null; listeImmeuble: React.ReactNode | null; ajoutImmeuble: React.ReactNode | null } {
   /** Une action demandée pendant qu'un AUTRE contact a des modifications non enregistrées. */
   const [enAttente, setEnAttente] = useState<Action | null>(null);
   const [aSupprimer, setASupprimer] = useState<string | null>(null);
+  /** LOT COPRO-CONTACTS-IMMEUBLE — le choix ① / ② affiché à la place de « + Ajouter un contact ». */
+  const [choixAjout, setChoixAjout] = useState(false);
   /**
    * ══ 🔴 LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — L'ARRIVÉE D'UN CONTACT ══════════════════════════════
    * ARNO : un contact qui vient d'entrer dans « Contacts de cette copropriété » (« Ajouter à cette copropriété » du
@@ -1010,7 +1050,10 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     const el = document.querySelector(`[data-cle-arrivee="${derniereArrivee.cle}"]`) as HTMLElement | null;
     el?.scrollIntoView?.({ block: 'nearest' });
   }, [derniereArrivee]);
-  const origine = (e: EtatEdition): ContactForm | null => (e.nouveau ? (e.depart ?? null) : (form.contacts.find((c) => c.cle === e.cle) ?? null));
+  /** LOT COPRO-CONTACTS-IMMEUBLE — le carnet de l'immeuble du bien (vide tant qu'il n'est pas lu). */
+  const carnet = form.immeubleContacts?.contacts ?? [];
+  const origine = (e: EtatEdition): ContactForm | null => (e.nouveau ? (e.depart ?? null)
+    : ((e.immeuble === true ? carnet : form.contacts).find((c) => c.cle === e.cle) ?? null));
   const enCours = edition !== null && contactModifie(origine(edition), edition.brouillon);
 
   const executer = (a: Action): void => {
@@ -1020,14 +1063,20 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
       setEdition({ cle: c.cle, brouillon: c, nouveau: true, depart: copieContact(c) });
       return;
     }
-    const c = form.contacts.find((x) => x.cle === a.cle);
+    if (a.genre === 'ajouterImmeuble') {
+      const c = contactVide();
+      setEdition({ cle: c.cle, brouillon: c, nouveau: true, depart: copieContact(c), immeuble: true });
+      return;
+    }
+    const c = (a.immeuble === true ? carnet : form.contacts).find((x) => x.cle === a.cle);
     if (c === undefined) return;
     if (!ouverts.includes(a.cle)) setOuverts([...ouverts, a.cle]);
-    setEdition(a.genre === 'modifier' ? { cle: a.cle, brouillon: copieContact(c), nouveau: false } : (edition?.cle === a.cle ? edition : null));
+    setEdition(a.genre === 'modifier' ? { cle: a.cle, brouillon: copieContact(c), nouveau: false, ...(a.immeuble === true ? { immeuble: true } : {}) }
+      : (edition?.cle === a.cle ? edition : null));
   };
   /** Toute action passe par ici : une modification non enregistrée d'un AUTRE contact demande confirmation. */
   const demander = (a: Action): void => {
-    const autre = edition !== null && (a.genre === 'ajouter' || edition.cle !== a.cle);
+    const autre = edition !== null && (a.genre === 'ajouter' || a.genre === 'ajouterImmeuble' || edition.cle !== a.cle);
     if (autre && enCours) { setEnAttente(a); return; }
     executer(a);
   };
@@ -1059,7 +1108,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   };
   const valider = (e: EtatEdition): void => {
     setForm(appliquerBrouillon(form, e));
-    if (e.nouveau && parImmeuble && suitImmeuble(e.brouillon, cleDepart as string)) marquerArrivee(e.cle);
+    if (e.nouveau && parImmeuble && (e.immeuble === true || suitImmeuble(e.brouillon, cleDepart as string))) marquerArrivee(e.cle);
     // Un contact existant revient OUVERT EN LECTURE ; un nouveau s'affiche REPLIÉ.
     if (!e.nouveau && !ouverts.includes(e.cle)) setOuverts([...ouverts, e.cle]);
     setEdition(null);
@@ -1176,7 +1225,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
    * ② « Nouveau contact », en sous-cadre : la création complète, inchangée (lot SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT :
    *    depuis un bien, rattaché QU'À l'immeuble du bien, « Sera rattaché à : … » à la place des cases).
    */
-  const ajout = edition !== null && edition.nouveau ? (
+  const ajout = edition !== null && edition.nouveau && edition.immeuble !== true ? (
     <>
       {avecCatalogue && (
         <div className="fsy-sous-cadre">
@@ -1196,15 +1245,89 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
      masquage) : tant que le bloc d'ajout est ouvert, pas de « + Ajouter un contact ». Il revient dès que le bloc se
      ferme : × Fermer, Annuler, Valider, ou « Ajouter à cette copropriété ».
      LOT SYNDIC-BLOC-AJOUT-CONTACT : le bouton est DÉPLACÉ en bas du bloc 1, sous la liste des contacts. */
+  /*
+   * ══ 🔴 LOT COPRO-CONTACTS-IMMEUBLE — LE CHOIX PRÉALABLE (fiche ouverte DEPUIS UN BIEN) ══════════════════════════
+   * « + Ajouter un contact » laisse place à deux gros boutons : ① « Contact du syndic de copropriété » — EXACTEMENT
+   * l'ajout d'aujourd'hui ; ② « Habitant / gardien de l'immeuble » — le carnet de l'immeuble. « Annuler » remet le
+   * bouton. Depuis l'écran « Syndics » : pas de choix, comportement inchangé.
+   */
   const bouton = edition?.nouveau !== true ? (
     /* LOT SYNDIC-BOUTON-AJOUT-CENTRE — centré sur sa ligne ; taille, style et comportement inchangés. */
-    <div className="fsy-ajout-centre">
-      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
-        + Ajouter un contact
-      </button>
+    parImmeuble && choixAjout ? (
+      <div className="fsy-choix-ajout" role="group" aria-label="Quel contact ajouter ?">
+        <div className="fsy-choix-ajout-boutons">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-choix" onClick={() => { setChoixAjout(false); demander({ genre: 'ajouter' }); }}>
+            Contact du syndic de copropriété
+          </button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-choix" disabled={form.immeubleContacts == null}
+            title={form.immeubleContacts == null ? 'Les contacts de l’immeuble n’ont pas pu être lus' : undefined}
+            onClick={() => { setChoixAjout(false); demander({ genre: 'ajouterImmeuble' }); }}>
+            Habitant / gardien de l’immeuble
+          </button>
+        </div>
+        <button type="button" className="fsy-lien-bouton fsy-choix-annuler" onClick={() => setChoixAjout(false)}>Annuler</button>
+      </div>
+    ) : (
+      <div className="fsy-ajout-centre">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout"
+          onClick={() => (parImmeuble ? setChoixAjout(true) : demander({ genre: 'ajouter' }))}>
+          + Ajouter un contact
+        </button>
+      </div>
+    )
+  ) : null;
+
+  /*
+   * ══ LOT COPRO-CONTACTS-IMMEUBLE — « HABITANTS ET GARDIEN DE L'IMMEUBLE » ══ une liste séparée, sous les contacts de
+   * la copropriété, visible seulement si elle a au moins un contact. Mêmes tuiles, mêmes trois états ; dans la tuile
+   * dépliée : « Retirer de l'immeuble » (et ni « Détacher », ni « Ne travaille plus ici » : actions du syndic).
+   */
+  const retirerDeLImmeuble = (cle: string): void => {
+    if (!form.immeubleContacts) return;
+    setForm({ ...form, immeubleContacts: { ...form.immeubleContacts, contacts: carnet.filter((c) => c.cle !== cle) } });
+    setOuverts(ouverts.filter((x) => x !== cle));
+    if (edition?.cle === cle) setEdition(null);
+  };
+  /** L'anti-doublon de l'immeuble : même NOM + prénom, ou même e-mail, DANS CET IMMEUBLE seulement. */
+  const verifierImmeuble = async (b: ContactForm): Promise<VerifDoublon> => {
+    const loc = doublonsLocaux(b, carnet.filter((x) => x.cle !== b.cle));
+    const dire = (d: ContactForm): DoublonTrouve => ({
+      message: `Ce contact existe déjà dans cet immeuble : ${[prenomNom(d.prenom, d.nom), valeurDuChoix(d.titreChoix, d.titreLibre)].filter((x) => x !== '').join(' · ')}`,
+      emails: emailsDe(d),
+    });
+    return { email: loc.email !== null ? dire(loc.email) : null, nom: loc.nom !== null ? dire(loc.nom) : null, avertissement: null };
+  };
+  const adresseImmeubleDuBien = adresses.find((a) => a.cle === cleDepart)?.adresse ?? '';
+  const rendreImmeuble = (c: ContactForm) => (edition !== null && edition.cle === c.cle ? (
+    <ContactEnModification key={c.cle} e={edition} origine={c} onEcrire={onEcrire} adresses={adresses}
+      onChange={(b) => setEdition({ ...edition, brouillon: b })} immeuble={adresseImmeubleDuBien}
+      onAnnuler={() => setEdition(null)} onValider={() => valider(edition)} verifier={verifierImmeuble} />
+  ) : ouverts.includes(c.cle) ? (
+    <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
+      arrivee={arrives.includes(c.cle)} onRetirerImmeuble={() => retirerDeLImmeuble(c.cle)}
+      onModifier={() => demander({ genre: 'modifier', cle: c.cle, immeuble: true })} onSupprimer={() => undefined}
+      confirmation={null} />
+  ) : (
+    <button key={c.cle} type="button" className={`fsy-contact-replie fsy-contact-immeuble${arrives.includes(c.cle) ? ' fsy-arrivee' : ''}`}
+      aria-expanded={false} data-cle-arrivee={c.cle} onClick={() => demander({ genre: 'ouvrir', cle: c.cle, immeuble: true })}>
+      <EnteteContact c={c} />
+      <span className="fsy-fleche" aria-hidden="true">▸</span>
+    </button>
+  ));
+  const listeImmeuble = parImmeuble && carnet.length > 0 ? (
+    <>
+      <h4 className="fsy-sous-titre fsy-sous-titre--immeuble">Habitants et gardien de l’immeuble</h4>
+      {carnet.map(rendreImmeuble)}
+    </>
+  ) : null;
+  const ajoutImmeuble = edition !== null && edition.nouveau && edition.immeuble === true ? (
+    <div className="fsy-sous-cadre">
+      <ContactEnModification e={edition} origine={edition.depart ?? null} onEcrire={onEcrire} adresses={adresses}
+        onChange={(b) => setEdition({ ...edition, brouillon: b })} immeuble={adresseImmeubleDuBien}
+        onAnnuler={() => setEdition(null)} onValider={() => valider(edition)} verifier={verifierImmeuble} />
     </div>
   ) : null;
-  return { liste, bouton, ajout };
+  return { liste, bouton, ajout, listeImmeuble, ajoutImmeuble };
 }
 
 /** LOT SYNDIC-CONTACTS-ANTI-DOUBLON — un doublon trouvé, et ce que l'écran en dit. */
@@ -1338,7 +1461,9 @@ function EnteteContact({ c }: { c: ContactForm }) {
 
 /** ② OUVERT EN LECTURE — aucune saisie ; une ligne par téléphone et par e-mail, l'action au bout. */
 function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses, onDetacher, arrivee = false, copropriteDuBien = null,
-  onParti, questionParti = { question: '', annonce: '', coproprietes: [] }, ouiParti = '' }: {
+  onParti, questionParti = { question: '', annonce: '', coproprietes: [] }, ouiParti = '', onRetirerImmeuble }: {
+  /** LOT COPRO-CONTACTS-IMMEUBLE — un contact de l'IMMEUBLE : « Retirer de l'immeuble » remplace les actions du syndic. */
+  onRetirerImmeuble?: () => void;
   /** LOT SYNDIC-CONTACT-PARTI — « Ne travaille plus ici » (absent pour un contact jamais enregistré), sa question et
    *  son bouton de confirmation. */
   onParti?: () => void; questionParti?: { question: string; annonce: string; coproprietes: string[] }; ouiParti?: string;
@@ -1355,6 +1480,53 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
   const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
   const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '');
   const [depart, setDepart] = useState(false);
+  const [retrait, setRetrait] = useState(false);
+  if (onRetirerImmeuble) {
+    const qui = prenomNom(c.prenom, c.nom) || valeurDuChoix(c.titreChoix, c.titreLibre) || 'ce contact';
+    return (
+      <div className={`fsy-contact-ouvert fsy-contact-immeuble${arrivee ? ' fsy-arrivee' : ''}`} data-cle-arrivee={c.cle}>
+        <button type="button" className="fsy-contact-tete-btn" aria-expanded={true} onClick={onFermer} title="Fermer">
+          <EnteteContact c={c} />
+          <span className="fsy-fleche" aria-hidden="true">▾</span>
+        </button>
+        {tels.length === 0 && emails.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun téléphone ni e-mail.</p>}
+        {tels.map((k) => (
+          <div key={k.cle} className="fsy-contact-coord">
+            <span className="fsy-coord-gauche">
+              {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
+              {telephoneComplet(k.valeur) ? <a href={lienTelephone(k.valeur)}>{formaterTelephone(k.valeur)}</a> : <span>{formaterTelephone(k.valeur)}</span>}
+            </span>
+            <ActionCopier tel={k.valeur} />
+          </div>
+        ))}
+        {emails.map((k) => (
+          <div key={k.cle} className="fsy-contact-coord">
+            <span className="fsy-coord-gauche">
+              {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
+              <span>{k.valeur.trim()}</span>
+            </span>
+            <ActionEcrire email={k.valeur} onEcrire={onEcrire} />
+          </div>
+        ))}
+        {(c.note ?? '').trim() !== '' && <p className="fsy-suivis fsy-note-contact"><span className="fsy-discret">Note :</span> {(c.note ?? '').trim()}</p>}
+        {retrait ? (
+          <div className="fsy-confirmer fsy-confirmer--contact" role="group" aria-label="Confirmer le retrait de l’immeuble">
+            <span>Retirer {qui} de l’immeuble ?</span>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setRetrait(false)}>Non</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => { setRetrait(false); onRetirerImmeuble(); }}>Oui</button>
+          </div>
+        ) : (
+          <div className="fsy-boutons fsy-boutons--contact">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-detacher fsy-pousse-gauche" onClick={() => setRetrait(true)}>
+              Retirer de l’immeuble
+            </button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onFermer}>Fermer</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onModifier}>Modifier</button>
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div className={`fsy-contact-ouvert${arrivee ? ' fsy-arrivee' : ''}`} data-cle-arrivee={c.cle}>
       <button type="button" className="fsy-contact-tete-btn" aria-expanded={true} onClick={onFermer} title="Fermer">
@@ -1426,7 +1598,10 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
 
 /** ③ EN MODIFICATION — des champs ; « Modifier » devient « Valider » dès qu'un champ change. */
 function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onSupprimer, confirmation, onEcrire, adresses,
-  rattacheA, verifier, onVoir }: {
+  rattacheA, verifier, onVoir, immeuble }: {
+  /** LOT COPRO-CONTACTS-IMMEUBLE — un contact de l'IMMEUBLE (l'adresse de la copropriété) : catégorie en pilules,
+   *  note, « Sera rattaché à : … » ; ni titre, ni « Immeubles suivis ». */
+  immeuble?: string;
   e: EtatEdition; origine: ContactForm | null; onChange: (c: ContactForm) => void;
   onAnnuler: () => void; onValider: () => void; onSupprimer?: () => void; confirmation?: React.ReactNode;
   onEcrire?: (email: string) => void; adresses: Array<{ cle: string; adresse: string }>;
@@ -1488,6 +1663,8 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
     setACompleter(sorte);
   };
   const valider = async (malgreManque = false): Promise<void> => {
+    const refusImmeuble = immeuble !== undefined ? refusContactImmeuble(c) : null;
+    if (refusImmeuble !== null) { setRefus(refusImmeuble); return; }
     if (!contactNomme({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom })) {
       setRefus('Indiquez au moins un prénom, un nom ou un titre.'); return;
     }
@@ -1504,11 +1681,32 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
   const annuler = (): void => { if (change) { setAbandon(true); return; } onAnnuler(); };
   return (
     <fieldset className="fsy-contact-edit" ref={bloc}>
-      <legend>{e.nouveau ? 'Nouveau contact' : nomAffiche(origine ?? c)}</legend>
+      <legend>{e.nouveau ? (immeuble !== undefined ? 'Nouveau contact de l’immeuble' : 'Nouveau contact') : nomAffiche(origine ?? c)}</legend>
+      {immeuble !== undefined ? (
+        /* LOT COPRO-CONTACTS-IMMEUBLE — la CATÉGORIE : trois pilules ; « Personnalisé » ouvre un libellé libre obligatoire. */
+        <div className="fsy-duo">
+          <div className="fsy-champ fsy-champ--civilite" role="group" aria-label="Catégorie">
+            <style>{CSS_BOUTON_PILULE}</style>
+            <span>Catégorie *</span>
+            <span className="fsy-civilites">
+              {CATEGORIES_IMMEUBLE.map((v) => (
+                <BoutonPilule key={v} mot={v} actif={c.titreChoix === v}
+                  onClick={() => onChange({ ...c, titreChoix: v, titreLibre: v === PERSONNALISE ? c.titreLibre : '' })} />
+              ))}
+            </span>
+          </div>
+          {c.titreChoix === PERSONNALISE && (
+            <label className="fsy-champ"><span>Libellé personnalisé *</span>
+              <input type="text" value={c.titreLibre} placeholder="Habitant, Femme de ménage…"
+                onChange={(ev) => onChange({ ...c, titreLibre: ev.target.value })} /></label>
+          )}
+        </div>
+      ) : (
       <div className="fsy-duo">
         <SelectChoix libelle="Titre" choix={c.titreChoix} libre={c.titreLibre} options={TITRES_CONTACT}
           onChange={(choix, libre) => onChange({ ...c, titreChoix: choix, titreLibre: libre })} />
       </div>
+      )}
       <div className="fsy-duo fsy-duo--civilite">
         {/* LOT SYNDIC-CONTACT-CIVILITE — à GAUCHE de Prénom et Nom, sur leur ligne : deux bascules « M. » / « Mme ».
             Un clic choisit, un clic sur l'actif revient à vide. Jamais obligatoire. Les pilules de l'app (actif rouge). */}
@@ -1574,7 +1772,14 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
           cases, « Tous les immeubles » + TOUTES les copropriétés du syndic. Désormais une ligne REPLIÉE « Immeubles
           suivis (N) ▸ » ; dépliée, SEULEMENT les copropriétés que ce contact suit, cochées : décocher le détache (au
           Valider, historisé). On rattache à un autre immeuble par le Catalogue, depuis le bien concerné. */}
-      {rattacheA !== undefined && e.nouveau ? (
+      {immeuble !== undefined ? (
+        <>
+          {/* LOT COPRO-CONTACTS-IMMEUBLE — la note du contact, puis l'immeuble auquel il est (ou sera) rattaché. */}
+          <label className="fsy-champ"><span>Note</span>
+            <textarea rows={2} value={c.note ?? ''} onChange={(ev) => onChange({ ...c, note: ev.target.value })} /></label>
+          <p className="fsy-suivis"><span className="fsy-discret">{e.nouveau ? 'Sera rattaché à :' : 'Rattaché à :'}</span> {immeuble}</p>
+        </>
+      ) : rattacheA !== undefined && e.nouveau ? (
         <p className="fsy-suivis"><span className="fsy-discret">Sera rattaché à :</span> {rattacheA}</p>
       ) : (
         <ImmeublesSuivisEdit c={c} origine={origine} adresses={adresses} onChange={onChange} />
@@ -1832,6 +2037,11 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-alerte-coord{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem .6rem;padding:6px 10px;
   border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.84rem}
 .fsy-alerte-coord-boutons{display:flex;gap:6px;margin-left:auto}
+.fsy-choix-ajout{display:flex;flex-direction:column;align-items:center;gap:.3rem}
+/* LOT COPRO-CONTACTS-IMMEUBLE — le choix : deux GROS boutons cote a cote (l'un sous l'autre sur un ecran etroit). */
+.fsy-choix-ajout-boutons{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;width:100%}
+.fsy-choix{flex:1 1 13rem;min-height:52px;font-weight:700}
+.fsy-sous-titre--immeuble{margin-top:.6rem}
 .fsy-ancien{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.2rem .6rem}
 .gst-btn.fsy-detacher{color:var(--color-svv-red)}
 /* LOT SYNDIC-CONTACTS-ANTI-DOUBLON — doublon bloquant en rouge, avertissement en orange (paire d'alerte existante). */
