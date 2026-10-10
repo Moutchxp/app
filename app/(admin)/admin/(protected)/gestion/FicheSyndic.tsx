@@ -274,7 +274,9 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   /** « Créer un nouveau syndic » : le formulaire vide (l'immeuble du bien pré-rempli). */
   const creer = (): void => { setForm(formulaireVide(immeubleDepart, lotDepart)); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); };
 
-  const titre = mode === 'recherche' ? 'Syndic de la copropriété'
+  // LOT SYNDIC-TITRE-APRES-RETRAIT — juste après « Supprimer ce syndic de cette résidence » (l'hôte passe l'ancien
+  // syndic), la recherche s'intitule « Rattacher un nouveau syndic de copropriété » ; par tout autre chemin, inchangé.
+  const titre = mode === 'recherche' ? (ancienSyndicId !== null ? 'Rattacher un nouveau syndic de copropriété' : 'Syndic de la copropriété')
     // LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville » : le nom affiché, calculé ; jamais réécrit en base.
     : syndicId === null ? 'Créer un syndic' : (fiche !== null ? nomAvecVille(fiche.nom, fiche.ville) : 'Syndic');
 

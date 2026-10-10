@@ -2528,8 +2528,9 @@ describe('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE', () => {
     await cliquer(gros() as Element);
     await cliquer(bouton('Oui, retirer de cette résidence'));
     await attendre(250);
-    // Le formulaire existant : « Syndic de la copropriété », la recherche, « Créer un nouveau syndic ».
-    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Syndic de la copropriété');
+    // Le formulaire existant : la recherche, « Créer un nouveau syndic ».
+    // LOT SYNDIC-TITRE-APRES-RETRAIT — CE QU'IL DISAIT AVANT : titre « Syndic de la copropriété ».
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Rattacher un nouveau syndic de copropriété');
     expect(document.body.textContent).toContain('Chercher un syndic existant');
     expect(bouton('Créer un nouveau syndic')).toBeTruthy();
     expect(gros()).toBeNull();
@@ -3016,5 +3017,76 @@ describe('LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES', () => {
     await ouvrir();
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
     expect(css).toContain('border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft)');
+  });
+});
+
+/** LOT SYNDIC-TITRE-APRES-RETRAIT — le titre de la recherche selon le chemin. */
+describe('LOT SYNDIC-TITRE-APRES-RETRAIT', () => {
+  let retire = false;
+  const servir = (): void => {
+    retire = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: null }); if (url.endsWith('/retirer-copropriete')) retire = true; return rep({ ok: true, lots: 1 }); }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) {
+        return rep({ etat: 'ok', disponible: true, immeubles: [{ cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', lots: [],
+          syndic: retire ? null : { id: 70, nom: '_TEST TITRE', ville: 'Paris' } }] });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics/70')) {
+        return rep({ etat: 'ok', fiche: { ...FICHE, id: 70, nom: '_TEST TITRE', ville: 'Paris', contacts: [],
+          coproprietes: [{ id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] }] } });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics?q=')) return rep({ etat: 'ok', disponible: true, syndics: [] });
+      return rep({});
+    }));
+  };
+  const monter = async (): Promise<void> => {
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    await act(async () => { root.render(createElement(BoutonSyndic, { immeuble: '12 rue X', lotId: 5 })); });
+    await calmer();
+  };
+  const titre = (): string => document.querySelector('#fsy-titre')?.textContent ?? '';
+
+  it('juste après le retrait : « Rattacher un nouveau syndic de copropriété » ; le reste identique (Créer en tête, Annuler)', async () => {
+    servir();
+    await monter();
+    await cliquer(document.querySelector('button.bsy') as Element);
+    expect(titre()).toBe('_TEST TITRE / Paris');
+    await cliquer(document.querySelector('button.fsy-retrait') as Element);
+    await cliquer(bouton('Oui, retirer de cette résidence'));
+    await attendre(250);
+    expect(titre()).toBe('Rattacher un nouveau syndic de copropriété');
+    expect([...document.querySelectorAll('.fsy-tete button')].map((b) => b.textContent)).toEqual(['Créer un nouveau syndic', '×']);
+    expect(boutonDans(document.querySelector('.fsy-pied'), 'Annuler')).toBeTruthy();
+  });
+
+  it('fermée puis rouverte par la carte du bien : le titre normal « Syndic de la copropriété »', async () => {
+    servir();
+    await monter();
+    await cliquer(document.querySelector('button.bsy') as Element);
+    await cliquer(document.querySelector('button.fsy-retrait') as Element);
+    await cliquer(bouton('Oui, retirer de cette résidence'));
+    await attendre(250);
+    await cliquer(bouton('×'));
+    expect(document.querySelector('.fsy')).toBeNull();
+    expect(document.querySelector('.bsy-mot')?.textContent).toBe('Créer le syndic');
+    await cliquer(document.querySelector('button.bsy') as Element);
+    await attendre(250);
+    expect(titre()).toBe('Syndic de la copropriété');
+  });
+
+  it('par « Créer le syndic » d’une carte de bien : « Syndic de la copropriété »', async () => {
+    servir();
+    retire = true; // la copropriété n'a pas de syndic : la carte dit « Créer le syndic »
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    await act(async () => { root.render(createElement(BoutonSyndic, { immeuble: '12 rue X', lotId: 5 })); });
+    await calmer();
+    expect(document.querySelector('.bsy-mot')?.textContent).toBe('Créer le syndic');
+    await cliquer(document.querySelector('button.bsy') as Element);
+    await attendre(250);
+    expect(titre()).toBe('Syndic de la copropriété');
   });
 });
