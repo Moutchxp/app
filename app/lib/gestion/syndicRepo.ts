@@ -3,7 +3,7 @@ import { normaliserTexte } from './annuaire';
 import type { Auteur } from './gestes';
 import {
   civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
-  cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
+  adresseImmeuble, cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
   type SyndicResume, type SyndicSaisi,
 } from './syndics';
 
@@ -438,6 +438,53 @@ async function retirerAffectationsDeLaCopro(q: RequeteTx, syndicId: number, copr
        FROM gestion_syndic_contact c
       WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.copropriete_id = $2 AND a.retire_le IS NULL`,
     [syndicId, coproId, auteur.libelle, motif]);
+}
+
+/**
+ * ══ 🔴 LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — RETIRER UN SYNDIC D'UNE SEULE COPROPRIÉTÉ ═══════════════════════════════
+ *
+ * ARNO : « détacher un syndic d'une résidence sans rien détruire, puis en choisir ou créer un autre ». Dans UNE
+ * transaction, sans DELETE :
+ *   a. le lien copropriété ↔ syndic EN COURS est FERMÉ (motif « retrait de la résidence ») : les lots du portefeuille
+ *      de cet immeuble n'ont plus ce syndic — c'est par l'immeuble qu'un lot connaît son syndic ;
+ *   b. les affectations des contacts de ce syndic à CETTE copropriété sont retirées (historisées) ; les contacts
+ *      restent au catalogue avec leurs autres copropriétés ;
+ *   c. les notes « par bien » (lot, syndic) ne sont PAS touchées : elles restent en base, simplement plus affichées ;
+ *   d. le syndic n'est JAMAIS supprimé, même sans plus aucune copropriété ;
+ *   e. une ligne de journal PAR LOT (entité « annuaire_lot », action « syndic_retire »).
+ * ⚠️ Les refus (syndic inconnu, copropriété non rattachée) se décident AVANT toute écriture.
+ */
+export async function retirerDeLaCopropriete(syndicId: number, immeuble: string, auteur: Auteur):
+Promise<{ ok: true; lots: number } | { ok: false; motif: string }> {
+  const cle = cleImmeuble(immeuble);
+  if (cle === '') return { ok: false, motif: 'Copropriété non désignée.' };
+  const parCle = await lotsParImmeuble();
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ nom: string; ville: string | null }>(
+      `SELECT nom, ville FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE`, [syndicId]);
+    const s = rows[0];
+    if (s === undefined) return { ok: false, motif: 'Ce syndic n’existe pas ou a été supprimé.' };
+    const { rows: liens } = await q<{ lien_id: string; copro_id: string; libelle: string; code_postal: string | null; commune: string | null }>(
+      `SELECT cs.id::text AS lien_id, c.id::text AS copro_id, c.libelle, c.code_postal, c.commune
+         FROM gestion_copropriete_syndic cs JOIN gestion_copropriete c ON c.id = cs.copropriete_id
+        WHERE cs.syndic_id = $1 AND c.cle_immeuble = $2 AND cs.fin IS NULL FOR UPDATE OF cs`, [syndicId, cle]);
+    const l = liens[0];
+    if (l === undefined) return { ok: false, motif: 'Cette copropriété n’est pas (ou plus) rattachée à ce syndic.' };
+    await q(
+      `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'retrait de la résidence'
+        WHERE id = $1`, [l.lien_id, auteur.id, auteur.libelle]);
+    await retirerAffectationsDeLaCopro(q, syndicId, l.copro_id, 'syndic retiré de la copropriété', auteur);
+    const g = parCle.get(cle);
+    const syndic = nomAvecVille(s.nom, s.ville);
+    const adresse = adresseImmeuble(l.libelle, g?.codePostal ?? l.code_postal, g?.commune ?? l.commune);
+    for (const lot of g?.lots ?? []) {
+      await q(
+        `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle)
+         VALUES ('annuaire_lot', $1, 'syndic_retire', $2, $3, $4, $5)`,
+        [lot.id, syndic, `Syndic ${syndic} retiré de la copropriété ${adresse}`, auteur.id, auteur.libelle]);
+    }
+    return { ok: true, lots: g?.lots.length ?? 0 };
+  });
 }
 
 /**

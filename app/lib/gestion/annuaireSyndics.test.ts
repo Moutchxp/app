@@ -774,6 +774,51 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(sql).toContain('WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL AND p2.supprime_le IS NULL');
   });
 
+  /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le syndic 11, la copropriété 42 (« 15 rue Carle Hebert »), ses lots 406 et 373. */
+  const retraitPossible = (): Array<(sql: string) => { rows: unknown[] } | undefined> => [
+    (sql) => (sql.includes('FROM gestion_annuaire_lot lo') ? { rows: [
+      { id: '406', numero: '406', immeuble: '15 rue Carle Hebert', adresse: '15 rue Carle Hebert', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+      { id: '373', numero: '373', immeuble: '15 rue Carle Hebert', adresse: '15 rue Carle Hebert', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+      { id: '500', numero: '500', immeuble: '3 av Ailleurs', adresse: '3 av Ailleurs', commune: 'PUTEAUX', code_postal: '92800', proprietaires: null },
+    ] } : undefined),
+    (sql) => (sql.includes('SELECT nom, ville FROM gestion_syndic WHERE id = $1') ? { rows: [{ nom: 'TEST', ville: 'Asnieres Sur Seine' }] } : undefined),
+    (sql) => (sql.includes('FOR UPDATE OF cs') ? { rows: [{ lien_id: '31', copro_id: '42', libelle: '15 rue Carle Hebert', code_postal: '92400', commune: 'Courbevoie' }] } : undefined),
+  ];
+
+  it('RETRAIT DE LA RÉSIDENCE : lien fermé, affectations de CETTE copropriété retirées, une ligne de journal par lot ; rien d’effacé, syndic gardé', async () => {
+    const { retirerDeLaCopropriete } = await import('./syndicRepo');
+    reponses = retraitPossible();
+    expect(await retirerDeLaCopropriete(11, '15 rue Carle Hebert', auteur)).toEqual({ ok: true, lots: 2 });
+    const lien = appels.find((a) => norm(a.sql).includes('UPDATE gestion_copropriete_syndic SET fin = now()'));
+    expect(norm(lien?.sql ?? '')).toContain("fin_motif = 'retrait de la résidence' WHERE id = $1");
+    expect(lien?.params).toEqual(['31', 7, 'arno']);
+    expect(appels.find((a) => a.sql.includes('FOR UPDATE OF cs'))?.params).toEqual([11, '15 rue carle hebert']);
+    const aff = appels.find((a) => norm(a.sql).includes('UPDATE gestion_syndic_contact_copropriete a SET retire_le = now()'));
+    expect(aff?.params).toEqual([11, '42', 'arno', 'syndic retiré de la copropriété']);
+    const journal = appels.filter((a) => a.sql.includes('INSERT INTO gestion_journal'));
+    expect(journal.map((a) => a.params)).toEqual([
+      [406, 'TEST / Asnieres Sur Seine', 'Syndic TEST / Asnieres Sur Seine retiré de la copropriété 15 rue Carle Hebert, 92400 Courbevoie', 7, 'arno'],
+      [373, 'TEST / Asnieres Sur Seine', 'Syndic TEST / Asnieres Sur Seine retiré de la copropriété 15 rue Carle Hebert, 92400 Courbevoie', 7, 'arno'],
+    ]);
+    expect(norm(journal[0].sql)).toContain("VALUES ('annuaire_lot', $1, 'syndic_retire', $2, $3, $4, $5)");
+    expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
+    expect(appels.some((a) => a.sql.includes('supprime_le = now()'))).toBe(false); // le syndic n'est JAMAIS supprimé
+    expect(appels.some((a) => /UPDATE gestion_syndic_contact SET|UPDATE gestion_syndic_coordonnee/.test(a.sql))).toBe(false); // catalogue intact
+    expect(appels.some((a) => a.sql.includes('gestion_syndic_note_bien'))).toBe(false); // notes par bien gardées
+  });
+
+  it('RETRAIT DE LA RÉSIDENCE : syndic inconnu ou copropriété non rattachée ⇒ refus AVANT toute écriture', async () => {
+    const { retirerDeLaCopropriete } = await import('./syndicRepo');
+    reponses = retraitPossible().slice(0, 2);
+    expect(await retirerDeLaCopropriete(11, '99 rue Z', auteur)).toEqual({ ok: false, motif: 'Cette copropriété n’est pas (ou plus) rattachée à ce syndic.' });
+    expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
+    appels.length = 0;
+    reponses = [retraitPossible()[0]];
+    expect(await retirerDeLaCopropriete(11, '15 rue Carle Hebert', auteur)).toEqual({ ok: false, motif: 'Ce syndic n’existe pas ou a été supprimé.' });
+    expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
+    expect(await retirerDeLaCopropriete(11, '  ', auteur)).toEqual({ ok: false, motif: 'Copropriété non désignée.' });
+  });
+
   it('CIVILITÉ : écrite à la création et à la modification (M., Mme, ou NULL) ; relue par la fiche', async () => {
     const { enregistrerSyndic, ficheSyndic } = await import('./syndicRepo');
     reponses = [

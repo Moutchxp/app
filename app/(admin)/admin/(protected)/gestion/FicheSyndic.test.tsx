@@ -2364,3 +2364,145 @@ describe('LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES', () => {
     expect(document.querySelector('.fsy-contact-edit .fsy-suivis-edit legend')?.textContent).toBe('Immeubles suivis');
   });
 });
+
+/**
+ * ══ LOT SYNDIC-RETIRER-DE-LA-RESIDENCE ═══════════════════════════════════════════════════════════════════════════
+ * Un syndic _TEST (50), deux copropriétés : 12 rue X (le bien, lots 406 et 373) et 3 av Y. Un autre syndic (51).
+ */
+describe('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE', () => {
+  const FICHE_50 = {
+    ...FICHE, id: 50, nom: '_TEST ANCIEN', ville: 'Asnieres Sur Seine',
+    contacts: [{ id: 81, titre: null, prenom: 'Léa', nom: 'Deux', civilite: null, tousImmeubles: false, immeubles: ['12 rue x', '3 av y'], coordonnees: [] }],
+    coproprietes: [
+      { id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10',
+        lots: [{ id: 406, numero: '406', adresse: '12 rue X', commune: 'COURBEVOIE' }, { id: 373, numero: '373', adresse: '12 rue X', commune: 'COURBEVOIE' }] },
+      { id: 7, cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+    ],
+  };
+  let retire = false;
+  const SYNDICS = [
+    { id: 50, nom: '_TEST ANCIEN', ville: 'Asnieres Sur Seine', email: null, telephone: null, nbCoproprietes: 1, nbBiens: 0 },
+    { id: 51, nom: '_TEST AUTRE', ville: 'Paris', email: null, telephone: null, nbCoproprietes: 0, nbBiens: 0 },
+  ];
+  const servir50 = (): void => {
+    retire = false;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (m !== 'GET') {
+        appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null });
+        if (url === '/api/admin/gestion/syndics/50/retirer-copropriete') { retire = true; return rep({ ok: true, lots: 2 }); }
+        return rep({ ok: true, id: 50 });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) {
+        return rep({ etat: 'ok', disponible: true, immeubles: [{ cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', lots: [],
+          syndic: retire ? null : { id: 50, nom: '_TEST ANCIEN', ville: 'Asnieres Sur Seine' } }] });
+      }
+      if (url.startsWith('/api/admin/gestion/syndics/50')) return rep({ etat: 'ok', fiche: FICHE_50 });
+      if (url.startsWith('/api/admin/gestion/syndics?q=')) {
+        const q = decodeURIComponent(url.split('q=')[1] ?? '').toLowerCase();
+        return rep({ etat: 'ok', disponible: true, syndics: SYNDICS.filter((s) => s.nom.toLowerCase().includes(q)) });
+      }
+      return rep({});
+    }));
+  };
+  const ouvrir50 = async (bien: string | null, props: Record<string, unknown> = {}): Promise<void> => {
+    servir50();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 50, onFerme: vi.fn(),
+        immeubleDepart: bien === null ? null : { libelle: bien, codePostal: '92400', commune: 'Courbevoie' }, ...props }));
+    });
+    await calmer();
+  };
+  const gros = (): HTMLButtonElement | null => document.querySelector('button.fsy-retrait');
+  const confirmation = (): HTMLElement | null => document.querySelector('.fsy-retrait-confirmer');
+  const ecritures = (): typeof appels => appels.filter((a) => a.methode !== 'GET');
+
+  it('DEPUIS UN BIEN : le gros bouton, sous « Syndic & portefeuille de gestion », au-dessus de « Créé le … » ; le lien « Supprimer ce syndic » reste dessous', async () => {
+    await ouvrir50('12 rue X');
+    const b = gros() as HTMLButtonElement;
+    expect(b.textContent).toBe('Supprimer ce syndic de cette résidence');
+    const bloc2 = document.querySelector('section[aria-labelledby="fsy-bloc-2"]') as Element;
+    expect(bloc2.compareDocumentPosition(b)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(b.compareDocumentPosition(document.querySelector('.fsy-trace') as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(b.compareDocumentPosition(bouton('Supprimer ce syndic'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-retrait{width:100%;min-height:52px;');
+    expect(css).toMatch(/\.fsy-retrait\{[^}]*border:2px solid var\(--color-svv-red\);\s*background:var\(--color-svv-surface\);color:var\(--color-svv-red\)/);
+  });
+
+  it('DEPUIS L’ÉCRAN SYNDICS : pas de gros bouton ; depuis un bien dont la copropriété n’est pas (encore) à ce syndic : non plus', async () => {
+    await ouvrir50(null);
+    expect(gros()).toBeNull();
+    expect(bouton('Supprimer ce syndic')).toBeTruthy();
+    await act(async () => { root.render(null); });
+    await ouvrir50('8 rue Z');
+    expect(gros()).toBeNull();
+  });
+
+  it('modifications non validées : le bandeau le dit d’abord, pas de confirmation', async () => {
+    await ouvrir50('12 rue X');
+    await taper(champ('Nom du cabinet *'), '_TEST ANCIEN modifié');
+    await cliquer(gros() as Element);
+    expect(document.querySelector('.fsy-pied-alerte')?.textContent).toBe('Validez ou abandonnez vos modifications avant de retirer ce syndic');
+    expect(confirmation()).toBeNull();
+    expect(ecritures()).toEqual([]);
+  });
+
+  it('la CONFIRMATION nomme le syndic, la copropriété et les lots ; « Annuler » n’écrit rien', async () => {
+    await ouvrir50('12 rue X');
+    await cliquer(gros() as Element);
+    expect(confirmation()?.querySelector('p')?.textContent).toBe('Retirer _TEST ANCIEN / Asnieres Sur Seine de la copropriété 12 rue X, 92400 Courbevoie ? '
+      + 'Lots concernés : lot 373, lot 406. Le syndic, ses autres copropriétés et son catalogue de contacts sont conservés.');
+    expect([...(confirmation()?.querySelectorAll('button') ?? [])].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, retirer de cette résidence']);
+    await cliquer(boutonDans(confirmation(), 'Annuler'));
+    expect(confirmation()).toBeNull();
+    expect(gros()).not.toBeNull();
+    expect(ecritures()).toEqual([]);
+  });
+
+  it('« Oui » : POST du retrait de CETTE copropriété, puis l’enchaînement (sans hôte : la fiche se ferme)', async () => {
+    const onFerme = vi.fn();
+    const enchaine = vi.fn();
+    await ouvrir50('12 rue X', { onFerme, onRetireDeLaResidence: enchaine });
+    await cliquer(gros() as Element);
+    await cliquer(bouton('Oui, retirer de cette résidence'));
+    expect(ecritures()).toEqual([{ url: '/api/admin/gestion/syndics/50/retirer-copropriete', methode: 'POST', corps: { immeuble: '12 rue X' } }]);
+    expect(enchaine).toHaveBeenCalledWith(50);
+    expect(onFerme).not.toHaveBeenCalled();
+    await act(async () => { root.render(null); });
+    appels = [];
+    const ferme = vi.fn();
+    await ouvrir50('12 rue X', { onFerme: ferme });
+    await cliquer(gros() as Element);
+    await cliquer(bouton('Oui, retirer de cette résidence'));
+    expect(ferme).toHaveBeenCalledTimes(1);
+  });
+
+  it('ENCHAÎNEMENT depuis la carte du bien : la fiche se ferme, le formulaire EXISTANT de choix s’ouvre ; l’ancien syndic n’est pas en tête mais reste trouvable ; fermer sans choisir ⇒ « Créer le syndic »', async () => {
+    servir50();
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    await act(async () => { root.render(createElement(BoutonSyndic, { immeuble: '12 rue X', lotId: 406 })); });
+    await calmer();
+    expect(document.querySelector('.bsy-mot')?.textContent).toBe('_TEST ANCIEN / Asnieres Sur Seine');
+    await cliquer(document.querySelector('button.bsy') as Element);
+    await cliquer(gros() as Element);
+    await cliquer(bouton('Oui, retirer de cette résidence'));
+    await attendre(250);
+    // Le formulaire existant : « Syndic de la copropriété », la recherche, « Créer un nouveau syndic ».
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Syndic de la copropriété');
+    expect(document.body.textContent).toContain('Chercher un syndic existant');
+    expect(bouton('Créer un nouveau syndic')).toBeTruthy();
+    expect(gros()).toBeNull();
+    const noms = (): string[] => [...document.querySelectorAll('.fsy-resultat strong')].map((x) => x.textContent ?? '');
+    expect(noms()).toEqual(['_TEST AUTRE / Paris', '_TEST ANCIEN / Asnieres Sur Seine']);
+    const recherche = [...document.querySelectorAll('input[type="search"]')].at(-1) as HTMLInputElement;
+    await taper(recherche, 'ancien');
+    await attendre(250);
+    expect(noms()).toEqual(['_TEST ANCIEN / Asnieres Sur Seine']);
+    await cliquer(bouton('×'));
+    expect(document.querySelector('.fsy')).toBeNull();
+    expect(document.querySelector('.bsy-mot')?.textContent).toBe('Créer le syndic');
+  });
+});

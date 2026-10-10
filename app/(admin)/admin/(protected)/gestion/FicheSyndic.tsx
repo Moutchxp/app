@@ -53,7 +53,8 @@ import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
  */
 type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
-export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null }: {
+export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null,
+  onRetireDeLaResidence, ancienSyndicId = null }: {
   /** `null` = aucun syndic encore : on commence par chercher un syndic existant. */
   syndicId: number | null;
   /** L'immeuble du bien depuis lequel on vient : pré-rempli comme copropriété. */
@@ -63,6 +64,11 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   onEcrire?: (email: string) => void;
   /** LOT SYNDIC-NOTE-PAR-BIEN — le lot depuis lequel la fiche est ouverte : sa note (couple lot, syndic). */
   lotDepart?: number | null;
+  /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — après le retrait, l'écran hôte enchaîne (choix d'un autre syndic). Absent :
+   *  la fiche se ferme simplement. */
+  onRetireDeLaResidence?: (ancienSyndicId: number) => void;
+  /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le syndic qu'on vient de retirer : jamais proposé en tête de la recherche. */
+  ancienSyndicId?: number | null;
 }) {
   const [syndicId, setSyndicId] = useState<number | null>(idInitial);
   const [mode, setMode] = useState<Mode>(idInitial === null ? 'recherche' : 'chargement');
@@ -74,6 +80,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [envoi, setEnvoi] = useState(false);
   const [abandon, setAbandon] = useState(false);
   const [suppression, setSuppression] = useState(false);
+  /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — la confirmation « Retirer … de la copropriété … ? » est affichée. */
+  const [retrait, setRetrait] = useState(false);
   /** Un « Valider » a été refusé pour une adresse incomplète : les champs vides se cerclent de rouge. */
   const [tente, setTente] = useState(false);
   /**
@@ -198,6 +206,55 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     }
   };
 
+  /**
+   * ══ 🔴 LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — « SUPPRIMER CE SYNDIC DE CETTE RÉSIDENCE » ═══════════════════════════
+   * DEPUIS UN BIEN seulement, et seulement si sa copropriété est ENREGISTRÉE chez ce syndic (une copropriété encore
+   * « en attente de validation » n'a pas de lien à fermer). Des modifications en cours ⇒ le bandeau le dit d'abord ;
+   * sinon une confirmation, puis le retrait est enregistré AUSSITÔT (fermé, historisé, rien d'effacé), et l'écran hôte
+   * enchaîne sur le choix d'un autre syndic pour ce bien.
+   */
+  const coproDuBien = mode === 'edition' && syndicId !== null && fiche !== null && cleDepart !== null
+    ? (fiche.coproprietes.find((c) => c.cle === cleDepart) ?? null) : null;
+  const demanderRetrait = (): void => {
+    if (modifie) { setErreur('Validez ou abandonnez vos modifications avant de retirer ce syndic'); return; }
+    setErreur(null); setRetrait(true);
+  };
+  const retirer = async (): Promise<void> => {
+    if (syndicId === null || coproDuBien === null) return;
+    setEnvoi(true); setErreur(null);
+    try {
+      const r = await fetch(`/api/admin/gestion/syndics/${syndicId}/retirer-copropriete`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ immeuble: coproDuBien.libelle }),
+      });
+      const j = (await r.json()) as { ok?: boolean; erreur?: string };
+      if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Retrait impossible.'); return; }
+      await rafraichirImmeubles();
+      if (onRetireDeLaResidence) onRetireDeLaResidence(syndicId); else onFerme();
+    } catch {
+      setErreur('Retrait impossible : le serveur n’a pas répondu.');
+    } finally {
+      setEnvoi(false);
+    }
+  };
+  const lotsDuBien = coproDuBien === null ? []
+    : [...coproDuBien.lots].sort((a, b) => a.numero.localeCompare(b.numero, 'fr', { numeric: true })).map((l) => `lot ${l.numero}`);
+  const blocRetrait = coproDuBien === null || fiche === null ? null : retrait ? (
+    <div className="fsy-retrait-confirmer" role="group" aria-label="Confirmer le retrait du syndic de cette résidence">
+      <p>
+        Retirer <strong>{nomAvecVille(fiche.nom, fiche.ville)}</strong> de la copropriété{' '}
+        <strong>{adresseImmeuble(coproDuBien.libelle, coproDuBien.codePostal, coproDuBien.commune)}</strong> ?{' '}
+        Lots concernés : {lotsDuBien.length === 0 ? 'aucun' : lotsDuBien.join(', ')}.{' '}
+        Le syndic, ses autres copropriétés et son catalogue de contacts sont conservés.
+      </p>
+      <div className="fsy-boutons">
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRetrait(false)} disabled={envoi}>Annuler</button>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void retirer()} disabled={envoi}>Oui, retirer de cette résidence</button>
+      </div>
+    </div>
+  ) : (
+    <button type="button" className="fsy-retrait" onClick={demanderRetrait}>Supprimer ce syndic de cette résidence</button>
+  );
+
   const titre = mode === 'recherche' ? 'Syndic de la copropriété'
     // LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville » : le nom affiché, calculé ; jamais réécrit en base.
     : syndicId === null ? 'Créer un syndic' : (fiche !== null ? nomAvecVille(fiche.nom, fiche.ville) : 'Syndic');
@@ -218,14 +275,15 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           )}
           {mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
           {mode === 'recherche' && (
-            <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)}
+            <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)} ancienSyndicId={ancienSyndicId}
               onCreer={() => { setForm(formulaireVide(immeubleDepart, lotDepart)); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); }} />
           )}
           {mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
-              ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart} />
+              ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart}
+              retrait={blocRetrait} />
           )}
         </div>
 
@@ -271,8 +329,11 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
 
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
 
-function Recherche({ immeubleDepart, onRattacher, onCreer }: {
+function Recherche({ immeubleDepart, onRattacher, onCreer, ancienSyndicId = null }: {
   immeubleDepart: ImmeubleSaisi | null; onRattacher: (id: number) => void; onCreer: () => void;
+  /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le syndic qu'on vient de retirer de cette copropriété : sans recherche, il
+   *  passe en FIN de liste (jamais proposé en tête) ; une recherche le trouve comme les autres. */
+  ancienSyndicId?: number | null;
 }) {
   const [q, setQ] = useState('');
   const [liste, setListe] = useState<SyndicResume[] | null>(null);
@@ -304,7 +365,8 @@ function Recherche({ immeubleDepart, onRattacher, onCreer }: {
         <p className="fsy-discret">Aucun syndic {q.trim() === '' ? 'enregistré pour l’instant' : 'ne répond à cette recherche'}.</p>
       ) : (
         <ul className="fsy-liste">
-          {liste.map((s) => (
+          {(ancienSyndicId !== null && q.trim() === ''
+            ? [...liste.filter((s) => s.id !== ancienSyndicId), ...liste.filter((s) => s.id === ancienSyndicId)] : liste).map((s) => (
             <li key={s.id} className="fsy-resultat">
               <span className="fsy-resultat-nom">
                 <strong>{nomAvecVille(s.nom, s.ville)}</strong>
@@ -446,8 +508,10 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
 function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente,
-  ouverts, setOuverts, edition, setEdition, cleDepart }: {
+  ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null }: {
   form: SyndicForm; setForm: (f: SyndicForm) => void; fiche: Fiche | null; syndicId: number | null;
+  /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le gros bouton (ou sa confirmation), sous le bloc 2, depuis un bien. */
+  retrait?: React.ReactNode;
   onEcrire?: (email: string) => void; connus: ImmeubleConnu[];
   suppression: boolean; setSuppression: (v: boolean) => void; envoi: boolean; onSupprimer: () => void;
   /** Vrai après un « Valider » refusé : les champs d'adresse vides se cerclent de rouge. */
@@ -677,6 +741,9 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         </div>
       )}
       </section>
+
+      {/* LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — sous « Syndic & portefeuille de gestion », au-dessus de « Créé le … ». */}
+      {retrait}
 
       {fiche !== null && fiche.historique.length > 0 && (
         <details className="fsy-historique">
@@ -1688,6 +1755,14 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-supprimer{display:flex;flex-direction:column;gap:.4rem;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-red);font-size:.86rem}
 .fsy-supprimer p{margin:0}
 .fsy-supprimer-lien{align-self:flex-start;color:var(--color-svv-muted)}
+/* LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le GROS bouton : pleine largeur, fond blanc, bord et texte rouge de la marque. */
+.fsy-retrait{width:100%;min-height:52px;padding:10px 14px;border-radius:10px;border:2px solid var(--color-svv-red);
+  background:var(--color-svv-surface);color:var(--color-svv-red);font:inherit;font-size:.95rem;font-weight:700;cursor:pointer;text-align:center}
+.fsy-retrait:hover:not(:disabled),.fsy-retrait:not(:disabled):focus-visible{background:var(--color-svv-red-soft)}
+.fsy-retrait:not(:disabled):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.fsy-retrait-confirmer{display:flex;flex-direction:column;gap:.5rem;padding:10px 12px;border-radius:10px;
+  border:2px solid var(--color-svv-red);background:var(--color-svv-surface);font-size:.9rem}
+.fsy-retrait-confirmer p{margin:0;overflow-wrap:anywhere}
 .fsy-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px}
 .fsy-question{margin-right:auto;font-weight:700;font-size:.9rem}
 .fsy-pied-alerte{font-size:.84rem}

@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const enregistrerSyndic = vi.fn();
 const supprimerSyndic = vi.fn();
+const retirerDeLaCopropriete = vi.fn(async () => ({ ok: true, lots: 2 }));
 const doublonsAilleurs = vi.fn(async () => ({ emails: [], noms: [{ prenom: 'Jean', nom: 'NEUF', titre: null, syndicId: 9, syndicNom: 'AUTRE', syndicVille: 'Lyon' }] }));
 const adressesBanLocale = vi.fn(async () => [{ cle: '25 rue edith cavell', libelle: '25 Rue Edith Cavell', codePostal: '92400', commune: 'Courbevoie' }]);
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerCompteActif: vi.fn(async () => null) }));
@@ -18,6 +19,7 @@ vi.mock('../../../../../lib/gestion/syndicRepo', () => ({
   ]),
   enregistrerSyndic: (...a: unknown[]) => enregistrerSyndic(...a),
   supprimerSyndic: (...a: unknown[]) => supprimerSyndic(...a),
+  retirerDeLaCopropriete: (...a: unknown[]) => retirerDeLaCopropriete(...(a as [])),
   adressesBanLocale: (...a: unknown[]) => adressesBanLocale(...(a as [])),
   doublonsAilleurs: (...a: unknown[]) => doublonsAilleurs(...(a as [])),
   ficheSyndic: vi.fn(async (id: number) => (id === 1 ? { id: 1, nom: 'Citya' } : null)),
@@ -94,5 +96,18 @@ describe('/api/admin/gestion/syndics', () => {
     expect(repo.ficheSyndic).toHaveBeenLastCalledWith(1, 101);
     await GET(requete('/api/admin/gestion/syndics/1'), { params: Promise.resolve({ id: '1' }) });
     expect(repo.ficheSyndic).toHaveBeenLastCalledWith(1, null);
+  });
+
+  it('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — POST /[id]/retirer-copropriete : immeuble obligatoire ; sinon la seule porte, avec l’auteur de la SESSION', async () => {
+    const { POST } = await import('./[id]/retirer-copropriete/route');
+    const params = (id: string) => ({ params: Promise.resolve({ id }) });
+    expect((await POST(requete('/api/admin/gestion/syndics/11/retirer-copropriete', { immeuble: ' ' }), params('11'))).status).toBe(422);
+    expect((await POST(requete('/api/admin/gestion/syndics/x/retirer-copropriete', { immeuble: '12 rue X' }), params('x'))).status).toBe(422);
+    expect(retirerDeLaCopropriete).not.toHaveBeenCalled();
+    const r = await POST(requete('/api/admin/gestion/syndics/11/retirer-copropriete', { immeuble: '12 rue X', auteur: 'pirate' }), params('11'));
+    expect(await r.json()).toEqual({ ok: true, lots: 2 });
+    expect(retirerDeLaCopropriete).toHaveBeenCalledWith(11, '12 rue X', { id: 7, libelle: 'arno' });
+    retirerDeLaCopropriete.mockResolvedValueOnce({ ok: false, motif: 'non' } as never);
+    expect((await POST(requete('/api/admin/gestion/syndics/11/retirer-copropriete', { immeuble: '12 rue X' }), params('11'))).status).toBe(404);
   });
 });

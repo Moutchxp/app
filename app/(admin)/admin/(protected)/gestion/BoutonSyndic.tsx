@@ -42,6 +42,9 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
   const etat = useImmeublesSyndics();
   const onEcrire = useContext(EcrireDepuisGestion);
   const [ouvert, setOuvert] = useState(false);
+  /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le syndic vient d'être retiré de la copropriété de ce bien : la fiche
+   *  s'est fermée, et le formulaire EXISTANT de choix ou de création d'un syndic s'ouvre aussitôt pour ce bien. */
+  const [apresRetrait, setApresRetrait] = useState<number | null>(null);
   if (etat === null || !etat.disponible) return null;
   const cle = cleImmeuble(immeuble);
   const connu = cle === '' ? undefined : etat.immeubles.find((i) => i.cle === cle);
@@ -62,10 +65,12 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
       {/* ⚠️ DANS UN PORTAIL : la carte peut porter une transformation (survol), qui piégerait un « position:fixed ».
           Et le portail vise `.svv-adm-root`, pas `body` : c'est là que vivent les couleurs du thème Sombre. */}
       {ouvert && typeof document !== 'undefined' && createPortal(
-        <FicheSyndic syndicId={syndic?.id ?? null} lotDepart={lotId}
+        <FicheSyndic key={apresRetrait === null ? 'fiche' : `apres-retrait-${apresRetrait}`}
+          syndicId={apresRetrait !== null ? null : (syndic?.id ?? null)} lotDepart={lotId}
           immeubleDepart={{ libelle, codePostal: connu?.codePostal ?? '', commune: connu?.commune ?? '' }}
-          onFerme={() => setOuvert(false)}
-          onEcrire={onEcrire === undefined ? undefined : (email) => { setOuvert(false); onEcrire(email); }} />,
+          onFerme={() => { setOuvert(false); setApresRetrait(null); }}
+          onRetireDeLaResidence={(ancien) => setApresRetrait(ancien)} ancienSyndicId={apresRetrait}
+          onEcrire={onEcrire === undefined ? undefined : (email) => { setOuvert(false); setApresRetrait(null); onEcrire(email); }} />,
         document.querySelector('.svv-adm-root') ?? document.body,
       )}
     </span>
