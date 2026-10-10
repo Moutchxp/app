@@ -1770,12 +1770,13 @@ describe('LOT SYNDIC-BLOC-PORTEFEUILLE — « Syndic & portefeuille de gestion �
     await cliquer(ligneLots() as Element);
     const g = groupes();
     expect(g.map((x) => x.adresse)).toEqual(['12 rue X, 92400 Courbevoie', '3 av Y, 92400 Courbevoie', '8 rue Abel, 92400 Courbevoie']);
+    // LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — CE QU'IL DISAIT AVANT : propriétaires nus à droite, « propriétaire non
+    // renseigné » en minuscule. Désormais « Propriétaire(s) : … » sur la 2e ligne ; « Propriétaire non renseigné ».
     expect(g[0].lots).toEqual([
-      'lot 9 — 12 rue X, COURBEVOIEMme ABEL · M. JULLIEN',
-      'lot 101 — 12 rue X, COURBEVOIEM. ZOLA',
-      'lot 100 — 12 rue X, COURBEVOIEpropriétaire non renseigné',
+      'lot 9 — 12 rue X, COURBEVOIEPropriétaires : Mme ABEL · M. JULLIEN',
+      'lot 101 — 12 rue X, COURBEVOIEPropriétaire : M. ZOLA',
+      'lot 100 — 12 rue X, COURBEVOIEPropriétaire non renseigné',
     ]);
-    expect(document.querySelector('.fsy-lot-proprios.fsy-discret')?.textContent).toBe('propriétaire non renseigné');
   });
 
   it('ORDRE depuis l’écran « Syndics » : toutes les adresses par voie puis numéro', async () => {
@@ -1784,21 +1785,33 @@ describe('LOT SYNDIC-BLOC-PORTEFEUILLE — « Syndic & portefeuille de gestion �
     expect(groupes().map((x) => x.adresse)).toEqual(['3 av Y, 92400 Courbevoie', '8 rue Abel, 92400 Courbevoie', '12 rue X, 92400 Courbevoie']);
   });
 
-  it('plusieurs propriétaires à droite, sans « … » ; passage à la ligne autorisé', async () => {
+  // LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — CE QU'IL DISAIT AVANT : « plusieurs propriétaires à droite » (colonne de
+  // droite, margin-left:auto). Désormais sous le lot, à gauche, préfixés « Propriétaires : ».
+  it('plusieurs propriétaires : « Propriétaires : A · B », sous le lot, à gauche, sans « … »', async () => {
     await ouvrirDepuis('12 rue X');
     await cliquer(ligneLots() as Element);
     const p = [...document.querySelectorAll('.fsy-lot-proprios')].map((x) => x.textContent);
-    expect(p).toContain('Mme ABEL · M. JULLIEN');
+    expect(p).toContain('Propriétaires : Mme ABEL · M. JULLIEN');
+    expect(p).toContain('Propriétaire : M. ZOLA');
     expect(p.join('')).not.toContain('…');
-    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
-    expect(css).toContain('.fsy-lot-proprios{margin-left:auto;text-align:right;overflow-wrap:anywhere;');
   });
 
-  it('« au Valider » et PROPAGATION : un nouveau syndic créé depuis un bien liste ses lots en attente, puis les enregistre', async () => {
+  // LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — CE QU'IL DISAIT AVANT : la mention grise « · au Valider ». Désormais la
+  // pastille orange « en attente de validation », après l'adresse, avec son info-bulle.
+  it('« en attente de validation » et PROPAGATION : un nouveau syndic créé depuis un bien liste ses lots en attente, puis les enregistre', async () => {
     await ouvrirDepuis('8 rue Abel', null);
     await cliquer(bouton('Créer un nouveau syndic'));
     await cliquer(ligneLots() as Element);
-    expect(groupes()).toEqual([{ adresse: '8 rue Abel, 92400 Courbevoie', lots: ['lot 301 — 8 rue Abel, COURBEVOIE · au ValiderM. MARTIN'] }]);
+    expect(groupes()).toEqual([{ adresse: '8 rue Abel, 92400 Courbevoie',
+      lots: ['lot 301 — 8 rue Abel, COURBEVOIE en attente de validationPropriétaire : M. MARTIN'] }]);
+    const pastille = document.querySelector('.fsy-lot-ligne1 .fsy-pastille-attente') as HTMLElement;
+    expect(pastille.textContent).toBe('en attente de validation');
+    expect(pastille.title).toBe('Ce lot recevra ce syndic quand vous cliquerez sur Valider');
+    expect(pastille.parentElement?.textContent).toBe('lot 301 — 8 rue Abel, COURBEVOIE en attente de validation'); // après l'adresse
+    expect(pastille.nextSibling).toBeNull();
+    expect(document.querySelector('.fsy-lots')?.textContent).not.toContain('au Valider');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toMatch(/\.fsy-pastille-attente\{[^}]*border-radius:999px;background:var\(--color-svv-orange-soft\);\s*color:var\(--color-svv-orange\)/);
     await taper(champ('Nom du cabinet *'), '_TEST Nouveau');
     await taper(champ('Adresse (rue) *'), '1 rue _TEST');
     await taper(champ('Code postal *'), '92400');
@@ -1807,10 +1820,51 @@ describe('LOT SYNDIC-BLOC-PORTEFEUILLE — « Syndic & portefeuille de gestion �
     expect((appels.find((a) => a.methode === 'POST')?.corps as { immeubles: Array<{ libelle: string }> }).immeubles.map((i) => i.libelle)).toEqual(['8 rue Abel']);
   });
 
-  it('les copropriétés déjà enregistrées ne portent pas « au Valider »', async () => {
+  it('les copropriétés déjà enregistrées ne portent ni « au Valider » ni la pastille d’attente', async () => {
     await ouvrirDepuis('12 rue X');
     await cliquer(ligneLots() as Element);
     expect(document.body.textContent).not.toContain('au Valider');
+    expect(document.querySelector('.fsy-pastille-attente')).toBeNull();
+  });
+
+  it('LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — DEUX LIGNES par lot : le lot, puis le(s) propriétaire(s) dessous, à gauche, en petit gris', async () => {
+    await ouvrirDepuis('12 rue X');
+    await cliquer(ligneLots() as Element);
+    for (const li of document.querySelectorAll('.fsy-lot')) {
+      expect([...li.children].map((x) => x.className)).toEqual(['fsy-lot-ligne1', 'fsy-lot-proprios']);
+      expect(li.children[0].querySelector('strong')?.textContent).toMatch(/^lot \d+$/);
+    }
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-lot{display:flex;flex-direction:column;align-items:flex-start;');
+    expect(css).toContain('.fsy-lot + .fsy-lot{margin-top:'); // un petit espace entre deux lots
+    const regle = css.match(/\.fsy-lot-proprios\{[^}]*\}/)?.[0] ?? '';
+    expect(regle).toContain('text-align:left');
+    expect(regle).toContain('color:var(--color-svv-muted)');
+    expect(regle).toContain('overflow-wrap:anywhere');
+    expect(regle).not.toMatch(/margin-left:auto|text-overflow|ellipsis|nowrap/);
+  });
+
+  it('LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — un nom très long : rendu EN ENTIER, tel qu’en base, sans troncature', async () => {
+    const LONG = 'M. JULLIEN - GARRIDO Jean-Baptiste Maximilien de la Tour d’Auvergne et Consorts Indivision';
+    const avant = IMM[0].lots[2].proprietaires;
+    IMM[0].lots[2].proprietaires = [LONG, 'mme petit'];
+    try {
+      await ouvrirDepuis('12 rue X');
+      await cliquer(ligneLots() as Element);
+      const p = [...document.querySelectorAll('.fsy-lot-proprios')].map((x) => x.textContent);
+      expect(p).toContain(`Propriétaires : ${LONG} · mme petit`); // casse et texte d'origine, intacts
+      expect(p.join('')).not.toContain('…');
+      const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+      expect(css.match(/\.fsy-lot-proprios\{[^}]*\}/)?.[0]).toContain('white-space:normal');
+    } finally { IMM[0].lots[2].proprietaires = avant; }
+  });
+
+  it('LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — aucun propriétaire : « Propriétaire non renseigné » en gris, sur la 2e ligne', async () => {
+    await ouvrirDepuis('12 rue X');
+    await cliquer(ligneLots() as Element);
+    const li = [...document.querySelectorAll('.fsy-lot')].find((x) => x.querySelector('strong')?.textContent === 'lot 100') as HTMLElement;
+    expect(li.children[1].className).toBe('fsy-lot-proprios');
+    expect(li.children[1].textContent).toBe('Propriétaire non renseigné');
   });
 });
 

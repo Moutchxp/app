@@ -881,7 +881,9 @@ describe('les écrans', () => {
       'Ajouter à cette copropriété', 'Déjà rattaché à :', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
       // LOT SYNDIC-BLOC-PORTEFEUILLE — CE QU'IL DISAIT AVANT : 'Biens qui recevront ce syndic', 'déjà rattachée à',
       // 'Oui, la prendre' (le champ d'ajout d'une copropriété, retiré, et la liste remplacée par les lots du portefeuille).
-      'Lots du portefeuille liés à ce syndic', 'au Valider', 'propriétaire non renseigné', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
+      // LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — CE QU'IL DISAIT AVANT : 'au Valider', 'propriétaire non renseigné'.
+      'Lots du portefeuille liés à ce syndic', 'en attente de validation', 'Ce lot recevra ce syndic quand vous cliquerez sur Valider',
+      'Propriétaire non renseigné', "'Propriétaires' : 'Propriétaire'", 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
       'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
       expect(src).toContain(mot);
     }

@@ -612,7 +612,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
 
       {/* ══ 🔴 LOT SYNDIC-BLOC-PORTEFEUILLE — « LOTS DU PORTEFEUILLE LIÉS À CE SYNDIC (N) », au format de la ligne des
           copropriétés, repliée par défaut. Elle remplace « Biens qui recevront ce syndic » et en garde l'information :
-          un lot qui ne recevra ce syndic qu'au « Valider » porte la mention grise « au Valider ». Groupés par immeuble
+          un lot qui ne recevra ce syndic qu'au « Valider » porte la pastille orange « en attente de validation » (LOT
+          SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE ; avant : la mention grise « au Valider », incomprise). Groupés par immeuble
           (la copropriété du bien d'abord, puis par nom de voie et numéro) ; dans un groupe, par premier propriétaire. */}
       {lots.length === 0 ? (
         <div className="fsy-copros-ligne fsy-copros-ligne--vide fsy-lots-ligne">
@@ -637,17 +638,26 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
                 <span className="fsy-lots-nombre">{g.lots.length === 1 ? '1 lot' : `${g.lots.length} lots`}</span>
               </div>
               <ul className="fsy-liste fsy-liste--serree">
-                {g.lots.map((l) => (
-                  <li key={l.id} className="fsy-lot">
-                    <span className="fsy-lot-gauche">
-                      <strong>lot {l.numero}</strong> — {[l.adresse, l.commune].filter((x) => x).join(', ')}
-                      {l.aValider && <span className="fsy-discret"> · au Valider</span>}
-                    </span>
-                    {(l.proprietaires ?? []).length > 0
-                      ? <span className="fsy-lot-proprios">{(l.proprietaires ?? []).join(' · ')}</span>
-                      : <span className="fsy-lot-proprios fsy-discret">propriétaire non renseigné</span>}
-                  </li>
-                ))}
+                {/* LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — DEUX LIGNES par lot : ① « lot N » — adresse, pastille éventuelle ;
+                    ② dessous, à gauche, les propriétaires tels qu'en base (aucune réécriture), petit et gris. Retour à la
+                    ligne naturel : jamais de « … », jamais de colonne de droite (un long nom cassait la ligne du lot 406). */}
+                {g.lots.map((l) => {
+                  const proprios = l.proprietaires ?? [];
+                  return (
+                    <li key={l.id} className="fsy-lot">
+                      <span className="fsy-lot-ligne1">
+                        <strong>lot {l.numero}</strong> — {[l.adresse, l.commune].filter((x) => x).join(', ')}
+                        {l.aValider && (
+                          <> <span className="fsy-pastille-attente" title="Ce lot recevra ce syndic quand vous cliquerez sur Valider">en attente de validation</span></>
+                        )}
+                      </span>
+                      <span className="fsy-lot-proprios">
+                        {proprios.length === 0 ? 'Propriétaire non renseigné'
+                          : `${proprios.length > 1 ? 'Propriétaires' : 'Propriétaire'} : ${proprios.join(' · ')}`}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}
@@ -1507,8 +1517,9 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-pousse{margin-left:auto}
 .fsy-copro{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:5px 10px;border-radius:8px;background:var(--color-svv-field)}
 .fsy-copros-ligne{margin-top:.35rem}
-/* LOT SYNDIC-BLOC-PORTEFEUILLE — les lots du portefeuille : une adresse en tete de groupe ; le lot a gauche, ses
-   proprietaires a droite (passage a la ligne s'il le faut, jamais de troncature). */
+/* LOT SYNDIC-BLOC-PORTEFEUILLE — les lots du portefeuille : une adresse en tete de groupe.
+   LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — chaque lot sur DEUX lignes (le lot, puis ses proprietaires dessous, a
+   gauche, petit et gris) ; passage a la ligne naturel, jamais de troncature, jamais de colonne de droite. */
 .fsy-lots{display:flex;flex-direction:column;gap:.6rem}
 /* LOT SYNDIC-NOTE-PAR-BIEN-ET-GROUPES-COPROS — une copropriete = un sous-cadre blanc, borde, arrondi. */
 .fsy-lots-groupe{display:flex;flex-direction:column;gap:.3rem;padding:6px 10px 8px;border:1px solid var(--color-svv-line);border-radius:10px;
@@ -1520,9 +1531,12 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
   font-size:.72rem;color:var(--color-svv-muted);white-space:nowrap}
 .fsy-note-cabinet{margin:0;padding:6px 9px;border-radius:8px;background:var(--color-svv-field);color:var(--color-svv-ink);
   font-size:.92rem;white-space:pre-wrap}
-.fsy-lot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:.15rem .8rem}
-.fsy-lot-gauche{min-width:0;overflow-wrap:anywhere}
-.fsy-lot-proprios{margin-left:auto;text-align:right;overflow-wrap:anywhere;font-size:.84rem}
+.fsy-lot{display:flex;flex-direction:column;align-items:flex-start;gap:.05rem;min-width:0}
+.fsy-lot + .fsy-lot{margin-top:.3rem}
+.fsy-lot-ligne1{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.fsy-lot-proprios{min-width:0;max-width:100%;overflow-wrap:anywhere;white-space:normal;text-align:left;font-size:.8rem;color:var(--color-svv-muted)}
+.fsy-pastille-attente{display:inline-block;padding:0 .45rem;border-radius:999px;background:var(--color-svv-orange-soft);
+  color:var(--color-svv-orange);border:1px solid var(--color-svv-orange);font-size:.72rem;font-weight:600;white-space:nowrap;cursor:help}
 /* LOT SYNDIC-MODALE-DEUX-BLOCS — deux cadres arrondis, un fond à peine différent de la modale, un espace net entre eux. */
 .fsy-deux-blocs{gap:1rem}
 .fsy-cadre{display:flex;flex-direction:column;gap:.45rem;padding:10px 12px 12px;border:1px solid var(--color-svv-line);border-radius:12px;
