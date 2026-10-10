@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, LIBELLES_COORDONNEE,
@@ -11,6 +12,7 @@ import {
   type ImmeubleSaisi, type SorteCoordonnee, type SyndicForm, type SyndicResume,
 } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
+import { chercherAdresses } from './adressesSyndic';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA FICHE SYNDIC (UN SEUL COMPOSANT, RÉUTILISABLE TEL QUEL) ═══════════
@@ -324,35 +326,46 @@ function ActionAppeler({ tel }: { tel: string }) {
   return <a className="fsy-action" href={lienTelephone(tel)}>Appeler</a>;
 }
 
-/** La RUE du syndic, avec les adresses de la BAN LOCALE ; un choix remplit rue, code postal et ville. */
+/**
+ * ══ 🔴 LA RUE DU SYNDIC — un choix remplit rue, code postal ET ville ═══════════════════════════════════════════════
+ *
+ * LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS. La CAUSE de « aucune suggestion pour 8 Rue Denfert Rochereau » :
+ * la rue d'un syndic déjà enregistré arrive PRÉ-REMPLIE, et l'ancien champ ne cherchait qu'APRÈS une frappe
+ * (`ouvert` à faux au montage, et l'effet sortait aussitôt). Rien n'était demandé — le journal du serveur ne porte
+ * aucune requête d'adresse. Le champ cherche donc aussi DÈS QU'ON Y ENTRE, s'il porte déjà 3 caractères.
+ *
+ * La source : l'API Adresse (la même que les fiches de l'annuaire), puis la BAN locale en repli (`chercherAdresses`).
+ * Les trois champs restent modifiables à la main.
+ */
 function ChampRue({ form, setForm, manque }: { form: SyndicForm; setForm: (f: SyndicForm) => void; manque: boolean }) {
-  const [ban, setBan] = useState<AdresseBan[]>([]);
+  const [propositions, setPropositions] = useState<AdresseBan[]>([]);
   const [ouvert, setOuvert] = useState(false);
   useEffect(() => {
-    if (!ouvert || form.adresse.trim().length < 5) { setBan([]); return; }
-    let vivant = true;
+    if (!ouvert || form.adresse.trim().length < MINIMUM_ADRESSE) { setPropositions([]); return; }
+    const ctrl = new AbortController();
     const t = setTimeout(() => {
-      void fetch(`/api/admin/gestion/syndics/adresses?q=${encodeURIComponent(form.adresse)}`, { cache: 'no-store' })
-        .then((r) => r.json() as Promise<{ adresses?: AdresseBan[] }>)
-        .then((j) => { if (vivant) setBan(j.adresses ?? []); })
-        .catch(() => { if (vivant) setBan([]); });
+      void chercherAdresses(form.adresse, ctrl.signal)
+        .then((r) => setPropositions(r.adresses))
+        .catch(() => { if (!ctrl.signal.aborted) setPropositions([]); });
     }, 250);
-    return () => { vivant = false; clearTimeout(t); };
+    return () => { ctrl.abort(); clearTimeout(t); };
   }, [form.adresse, ouvert]);
   return (
-    <div className="fsy-bloc fsy-bloc--serre">
+    <div className="fsy-bloc fsy-bloc--serre"
+      onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOuvert(false); }}>
       <label className={`fsy-champ${manque ? ' fsy-champ--manque' : ''}`}>
         <span>Adresse (rue) *</span>
         <input type="text" value={form.adresse} aria-invalid={manque} autoComplete="off"
+          onFocus={() => setOuvert(true)}
           onChange={(e) => { setOuvert(true); setForm({ ...form, adresse: e.target.value }); }} />
       </label>
-      {ouvert && ban.length > 0 && (
-        <ul className="fsy-liste" aria-label="Adresses de la Base Adresse Nationale locale">
-          {ban.map((b) => (
-            <li key={b.cle}>
-              <button type="button" className="fsy-proposition" onClick={() => {
+      {ouvert && propositions.length > 0 && (
+        <ul className="fsy-liste" aria-label="Adresses proposées">
+          {propositions.map((b, i) => (
+            <li key={`${i}-${b.cle}-${b.commune}`}>
+              <button type="button" className="fsy-proposition" onMouseDown={(e) => e.preventDefault()} onClick={() => {
                 setForm({ ...form, adresse: b.libelle, codePostal: b.codePostal ?? form.codePostal, ville: b.commune });
-                setOuvert(false); setBan([]);
+                setOuvert(false); setPropositions([]);
               }}>
                 <span className="fsy-proposition-adresse">{adresseImmeuble(b.libelle, b.codePostal, b.commune)}</span>
               </button>
@@ -744,6 +757,9 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
   onEcrire?: (email: string) => void;
 }) {
   const c = e.brouillon;
+  /** Les champs RETOUCHÉS : seuls ceux-là reçoivent la casse en quittant le champ (un nom existant qu'on ne fait que
+   *  traverser au clavier n'est pas réécrit). */
+  const touches = useRef(new Set<'prenom' | 'nom'>());
   const [refus, setRefus] = useState<string | null>(null);
   const [abandon, setAbandon] = useState(false);
   const change = contactModifie(origine, c);
@@ -766,10 +782,15 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
           onChange={(choix, libre) => onChange({ ...c, titreChoix: choix, titreLibre: libre })} />
       </div>
       <div className="fsy-duo">
+        {/* 🔴 LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — la casse se met EN QUITTANT le champ, jamais pendant la
+            frappe : « jean-pierre » → « Jean-Pierre », « lefèvre » → « LEFÈVRE ». Rien n'est réécrit en base hors d'une
+            modification : un contact existant garde sa casse tant qu'on ne touche pas à son champ. */}
         <label className="fsy-champ"><span>Prénom</span>
-          <input type="text" value={c.prenom} onChange={(ev) => onChange({ ...c, prenom: ev.target.value })} /></label>
+          <input type="text" value={c.prenom} onChange={(ev) => { touches.current.add('prenom'); onChange({ ...c, prenom: ev.target.value }); }}
+            onBlur={() => { const v = casserPrenom(c.prenom); if (touches.current.has('prenom') && v !== c.prenom) onChange({ ...c, prenom: v }); }} /></label>
         <label className="fsy-champ"><span>Nom</span>
-          <input type="text" value={c.nom} onChange={(ev) => onChange({ ...c, nom: ev.target.value })} /></label>
+          <input type="text" value={c.nom} onChange={(ev) => { touches.current.add('nom'); onChange({ ...c, nom: ev.target.value }); }}
+            onBlur={() => { const v = casserNom(c.nom); if (touches.current.has('nom') && v !== c.nom) onChange({ ...c, nom: v }); }} /></label>
       </div>
       {c.coordonnees.map((k) => (
         <div key={k.cle} className="fsy-duo fsy-coord-edit">
@@ -829,17 +850,17 @@ function EditionCopros({ immeubles, connus, syndicId, onChange }: {
   const parCle = useMemo(() => new Map(connus.map((i) => [i.cle, i])), [connus]);
   const dejaLa = useMemo(() => new Set(immeubles.map((i) => cleImmeuble(i.libelle))), [immeubles]);
 
-  // La BAN LOCALE (aucun service en ligne) — seulement quand un numéro et une voie sont tapés.
+  // 🔴 LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — hors portefeuille : l'API Adresse (la même que les fiches),
+  // la BAN locale en repli. Les immeubles du PORTEFEUILLE restent proposés en premier (`suggestions`, plus bas).
   useEffect(() => {
-    if (saisie.trim().length < MINIMUM_AUTOCOMPLETION) { setBan([]); return; }
-    let vivant = true;
+    if (saisie.trim().length < MINIMUM_ADRESSE) { setBan([]); return; }
+    const ctrl = new AbortController();
     const t = setTimeout(() => {
-      void fetch(`/api/admin/gestion/syndics/adresses?q=${encodeURIComponent(saisie)}`, { cache: 'no-store' })
-        .then((r) => r.json() as Promise<{ adresses?: AdresseBan[] }>)
-        .then((j) => { if (vivant) setBan(j.adresses ?? []); })
-        .catch(() => { if (vivant) setBan([]); });
+      void chercherAdresses(saisie, ctrl.signal)
+        .then((r) => setBan(r.adresses))
+        .catch(() => { if (!ctrl.signal.aborted) setBan([]); });
     }, 250);
-    return () => { vivant = false; clearTimeout(t); };
+    return () => { ctrl.abort(); clearTimeout(t); };
   }, [saisie]);
 
   const suggestions: Suggestion[] = useMemo(() => {
@@ -848,8 +869,10 @@ function EditionCopros({ immeubles, connus, syndicId, onChange }: {
     }));
     const vues = new Set(out.map((s) => s.cle));
     for (const b of ban) {
-      if (vues.has(b.cle)) continue;
-      vues.add(b.cle);
+      // Une adresse du portefeuille déjà proposée n'est pas répétée ; deux villes pour la même rue, si.
+      const connu0 = parCle.get(b.cle);
+      if (connu0 !== undefined && connu0.lots.length > 0 ? vues.has(b.cle) : vues.has(`${b.cle}|${b.commune}`)) continue;
+      vues.add(`${b.cle}|${b.commune}`);
       const connu = parCle.get(b.cle);
       out.push({
         cle: b.cle, libelle: connu?.libelle ?? b.libelle, codePostal: connu?.codePostal ?? b.codePostal ?? '',
@@ -917,8 +940,8 @@ function EditionCopros({ immeubles, connus, syndicId, onChange }: {
       )}
       {aPrendre === null && suggestions.length > 0 && (
         <ul className="fsy-liste" aria-label="Adresses proposées">
-          {suggestions.map((s) => (
-            <li key={s.cle}>
+          {suggestions.map((s, i) => (
+            <li key={`${i}-${s.cle}-${s.commune}`}>
               <button type="button" className="fsy-proposition" onClick={() => choisir(s)}>
                 <span className="fsy-proposition-adresse">{adresseImmeuble(s.libelle, s.codePostal, s.commune)}</span>
                 <span className="fsy-discret">

@@ -482,3 +482,58 @@ export function coproprietesRetirees(avant: readonly ImmeubleSaisi[], apres: rea
   const garde = new Set(apres.map((i) => cleImmeuble(i.libelle)));
   return avant.filter((i) => !garde.has(cleImmeuble(i.libelle))).map((i) => i.libelle);
 }
+
+// ══ LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS ══════════════════════════════════════════════════════════════════
+
+/**
+ * L'ADRESSE DU SYNDIC ET LES COPROPRIÉTÉS HORS PORTEFEUILLE passent par la MÊME source que la saisie d'adresse des
+ * fiches : l'API Adresse (api-adresse.data.gouv.fr), déjà utilisée par `ChampAdresseBan`. Pas de nouveau service.
+ * La BAN LOCALE (`/api/admin/gestion/syndics/adresses`) reste le REPLI quand l'API ne répond pas.
+ */
+export const URL_API_ADRESSE = 'https://api-adresse.data.gouv.fr/search/';
+/** « Dès 3 caractères ». */
+export const MINIMUM_ADRESSE = 3;
+
+/** L'adresse de recherche (7 résultats, auto-complétion). PUR. */
+export function urlApiAdresse(q: string): string {
+  return `${URL_API_ADRESSE}?q=${encodeURIComponent(q.trim())}&limit=7&autocomplete=1`;
+}
+
+/**
+ * Une réponse de l'API Adresse → des adresses « rue / code postal / ville ». PUR.
+ * `name` = numéro + voie (« 8 Rue Denfert-Rochereau »), `postcode`, `city` (« Boulogne-Billancourt »). Une
+ * proposition sans voie ni commune est écartée ; les doublons (même clé ET même commune) aussi.
+ */
+export function adressesDepuisApi(reponse: unknown): AdresseBan[] {
+  const features = (reponse as { features?: Array<{ properties?: Record<string, unknown> }> } | null)?.features ?? [];
+  const vus = new Set<string>();
+  const out: AdresseBan[] = [];
+  for (const f of features) {
+    const p = f.properties ?? {};
+    const libelle = typeof p.name === 'string' ? p.name.trim() : '';
+    const commune = typeof p.city === 'string' ? p.city.trim() : '';
+    const cp = typeof p.postcode === 'string' && /^\d{5}$/.test(p.postcode.trim()) ? p.postcode.trim() : null;
+    if (libelle === '' || commune === '') continue;
+    const cle = cleImmeuble(libelle);
+    const marque = `${cle}|${normaliserTexte(commune)}`;
+    if (vus.has(marque)) continue;
+    vus.add(marque);
+    out.push({ cle, libelle, codePostal: cp, commune });
+  }
+  return out;
+}
+
+/**
+ * PRÉNOM : la première lettre de chaque partie en majuscule, le reste en minuscules, accents conservés.
+ * « jean-pierre » → « Jean-Pierre », « MARIE CLAIRE » → « Marie Claire », « éLODIE » → « Élodie ». PUR.
+ * Les séparateurs gardés : espace, trait d'union, apostrophe.
+ */
+export function casserPrenom(brut: string): string {
+  return brut.trim().replace(/\s+/g, ' ').toLocaleLowerCase('fr-FR')
+    .replace(/(^|[\s'’-])(\p{L})/gu, (_, sep: string, l: string) => sep + l.toLocaleUpperCase('fr-FR'));
+}
+
+/** NOM : tout en MAJUSCULES, accents conservés (« lefèvre » → « LEFÈVRE », « dupont-martin » → « DUPONT-MARTIN »). PUR. */
+export function casserNom(brut: string): string {
+  return brut.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
+}

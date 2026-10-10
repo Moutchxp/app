@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -179,6 +179,43 @@ describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — les règles d\'un contact en
     const copie = copieContact(base);
     copie.coordonnees[0].valeur = 'X';
     expect(base.coordonnees[0].valeur).toBe('06 13 86 18 77');
+  });
+});
+
+describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — la réponse de l\'API Adresse, la casse des noms', () => {
+  it('une réponse de l\'API → rue / code postal / ville ; écarte l\'incomplet et les doublons', () => {
+    const r = adressesDepuisApi({ features: [
+      { properties: { name: '8 Rue Denfert-Rochereau', postcode: '92100', city: 'Boulogne-Billancourt' } },
+      { properties: { name: '8 Rue Denfert-Rochereau', postcode: '92100', city: 'Boulogne-Billancourt' } },
+      { properties: { name: '8 Avenue Denfert-Rochereau', postcode: '75014', city: 'Paris' } },
+      { properties: { name: '8 Rue Denfert-Rochereau', postcode: '69004', city: 'Lyon' } },
+      { properties: { name: '', postcode: '75001', city: 'Paris' } },
+      { properties: { name: 'Lieu-dit', city: 'Quelque Part' } },
+    ] });
+    expect(r.map((a) => `${a.libelle}, ${a.codePostal ?? '—'} ${a.commune}`)).toEqual([
+      '8 Rue Denfert-Rochereau, 92100 Boulogne-Billancourt', '8 Avenue Denfert-Rochereau, 75014 Paris',
+      '8 Rue Denfert-Rochereau, 69004 Lyon', 'Lieu-dit, — Quelque Part',
+    ]);
+    expect(adressesDepuisApi(null)).toEqual([]);
+    expect(urlApiAdresse(' 8 Rue Denfert ')).toBe('https://api-adresse.data.gouv.fr/search/?q=8%20Rue%20Denfert&limit=7&autocomplete=1');
+  });
+  it('prénom : « jean-pierre » → « Jean-Pierre », « MARIE CLAIRE » → « Marie Claire », accents conservés', () => {
+    expect(casserPrenom('jean-pierre')).toBe('Jean-Pierre');
+    expect(casserPrenom('MARIE CLAIRE')).toBe('Marie Claire');
+    expect(casserPrenom('éLODIE')).toBe('Élodie');
+    expect(casserPrenom("  anne-marie  d'arc ")).toBe("Anne-Marie D'Arc");
+  });
+  it('nom : tout en MAJUSCULES, accents conservés', () => {
+    expect(casserNom('dupont-martin')).toBe('DUPONT-MARTIN');
+    expect(casserNom('lefèvre')).toBe('LEFÈVRE');
+    expect(casserNom(' de  la fontaine ')).toBe('DE LA FONTAINE');
+  });
+  it('la fiche syndic passe par l\'API Adresse avec la BAN locale en repli, et ne réécrit aucun contact à la lecture', () => {
+    const client = readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/adressesSyndic.ts'), 'utf8');
+    expect(client).toContain('fetch(urlApiAdresse(q)');
+    expect(client).toContain('/api/admin/gestion/syndics/adresses?q=');
+    expect(readFileSync(join(__dirname, 'syndics.ts'), 'utf8')).toContain("export const URL_API_ADRESSE = 'https://api-adresse.data.gouv.fr/search/';");
+    expect(readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/ChampAdresseBan.tsx'), 'utf8')).toContain('https://api-adresse.data.gouv.fr/search/');
   });
 });
 
@@ -430,7 +467,8 @@ describe('les écrans', () => {
       'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
       expect(src).toContain(mot);
     }
-    expect(src).toContain('/api/admin/gestion/syndics/adresses?q=');
-    expect(src).not.toContain('api-adresse.data.gouv.fr');
+    // LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — CE QU'IL DISAIT AVANT : la fiche appelait la BAN locale seule et
+    // jamais l'API en ligne. Arno demande la source des fiches (API Adresse), la BAN locale en repli : `chercherAdresses`.
+    expect(src).toContain('chercherAdresses(');
   });
 });

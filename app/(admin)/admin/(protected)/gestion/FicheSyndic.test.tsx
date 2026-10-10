@@ -33,19 +33,38 @@ const IMMEUBLES = [
 ];
 
 let appels: Array<{ url: string; methode: string; corps: unknown }> = [];
+/** L'API Adresse en panne (pour éprouver le repli sur la BAN locale). */
+let apiEnPanne = false;
+/** Ce que rend l'API Adresse, selon la saisie : de vraies formes de réponse (name / postcode / city). */
+const API_ADRESSE: Record<string, Array<{ name: string; postcode: string; city: string }>> = {
+  '8 Rue Denfert Rochereau': [
+    { name: '8 Rue Denfert-Rochereau', postcode: '92100', city: 'Boulogne-Billancourt' },
+    { name: '8 Rue Denfert-Rochereau', postcode: '69004', city: 'Lyon' },
+    { name: '8 Avenue Denfert-Rochereau', postcode: '75014', city: 'Paris' },
+  ],
+  '7 rue test': [{ name: '7 Rue Test', postcode: '92400', city: 'Courbevoie' }],
+};
 let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  appels = [];
+  appels = []; apiEnPanne = false;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     appels.push({ url, methode: init?.method ?? 'GET', corps: init?.body ? JSON.parse(String(init.body)) : null });
     const rep = (j: unknown) => ({ ok: true, json: async () => j });
+    if (url.startsWith('https://api-adresse.data.gouv.fr/search/')) {
+      if (apiEnPanne) throw new TypeError('Failed to fetch');
+      const q = new URL(url).searchParams.get('q') ?? '';
+      return rep({ features: (API_ADRESSE[q] ?? []).map((properties) => ({ properties })) });
+    }
     if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: IMMEUBLES });
     if (url.startsWith('/api/admin/gestion/syndics/adresses')) {
       return rep({ etat: 'ok', adresses: url.includes('7%20rue%20test') ? [{ cle: '7 rue test', libelle: '7 Rue Test', codePostal: '92400', commune: 'Courbevoie' }] : [] });
     }
     if (url === '/api/admin/gestion/syndics/11' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE });
+    if (url === '/api/admin/gestion/syndics/14' && (init?.method ?? 'GET') === 'GET') {
+      return rep({ etat: 'ok', fiche: { ...FICHE, id: 14, adresse: '8 Rue Denfert Rochereau', codePostal: null, ville: null } });
+    }
     if (url === '/api/admin/gestion/syndics/12' && (init?.method ?? 'GET') === 'GET') {
       return rep({ etat: 'ok', fiche: { ...FICHE, id: 12, codePostal: null, ville: null } });
     }
@@ -155,15 +174,17 @@ describe('les copropriétés — adresse complète, auto-complétion, reprise co
     expect(document.body.textContent).toContain('Changement de syndic à la validation');
   });
 
-  it('hors portefeuille : la BAN LOCALE, « aucun bien en gestion à cette adresse »', async () => {
+  /* LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — CE QU'IL DISAIT AVANT : « la BAN LOCALE » et « aucun appel à
+     data.gouv.fr ». Arno demande désormais la MÊME source que les fiches (l'API Adresse), la BAN locale en repli. */
+  it('hors portefeuille : l\'API Adresse, « aucun bien en gestion à cette adresse »', async () => {
     await ouvrir();
     await taper(champ('+ Ajouter une copropriété (immeuble)'), '7 rue test');
     await attendre(300);
-    expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/syndics/adresses?q=7%20rue%20test'))).toBe(true);
+    expect(appels.some((a) => a.url.startsWith('https://api-adresse.data.gouv.fr/search/?q=7%20rue%20test'))).toBe(true);
     const prop = [...document.querySelectorAll('.fsy-proposition')].map((p) => p.textContent ?? '');
     expect(prop.join()).toContain('7 Rue Test, 92400 Courbevoie');
     expect(prop.join()).toContain('aucun bien en gestion à cette adresse');
-    expect(appels.some((a) => a.url.includes('data.gouv.fr'))).toBe(false);
+    expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/syndics/adresses'))).toBe(false);
   });
 });
 
@@ -368,5 +389,95 @@ describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — replié, ouvert en lecture, 
     await cliquer(boutonDans(pied(), 'Oui, valider aussi'));
     expect((appels.find((x) => x.methode === 'PUT')?.corps as { contacts: Array<{ nom: string }> }).contacts[0].nom).toBe('Bernard');
     expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
+  const rue = (): HTMLInputElement => champ('Adresse (rue) *');
+  const propositions = (): string[] => [...document.querySelectorAll('.fsy-proposition')].map((p) => p.textContent ?? '');
+
+  it('LA CAUSE : une rue DÉJÀ ENREGISTRÉE (« 8 Rue Denfert Rochereau ») propose des adresses dès qu\'on entre dans le champ', async () => {
+    await ouvrir(vi.fn(), 14);
+    expect(rue().value).toBe('8 Rue Denfert Rochereau');
+    await act(async () => { rue().focus(); });
+    await attendre(300);
+    expect(appels.some((a) => a.url.startsWith('https://api-adresse.data.gouv.fr/search/?q=8%20Rue%20Denfert%20Rochereau'))).toBe(true);
+    expect(propositions()).toEqual([
+      '8 Rue Denfert-Rochereau, 92100 Boulogne-Billancourt',
+      '8 Rue Denfert-Rochereau, 69004 Lyon',
+      '8 Avenue Denfert-Rochereau, 75014 Paris',
+    ]);
+  });
+
+  it('un clic remplit les TROIS champs (rue, code postal, ville), qui restent modifiables', async () => {
+    await ouvrir(vi.fn(), 14);
+    await act(async () => { rue().focus(); });
+    await attendre(300);
+    await cliquer(document.querySelector('.fsy-proposition') as Element);
+    expect([rue().value, champ('Code postal *').value, champ('Ville *').value]).toEqual(['8 Rue Denfert-Rochereau', '92100', 'Boulogne-Billancourt']);
+    await taper(champ('Ville *'), 'Boulogne');
+    expect(champ('Ville *').value).toBe('Boulogne');
+  });
+
+  it('une adresse de PARIS et une HORS ÎLE-DE-FRANCE sont proposées avec leur code postal', async () => {
+    await ouvrir(vi.fn(), 14);
+    await act(async () => { rue().focus(); });
+    await attendre(300);
+    await cliquer([...document.querySelectorAll('.fsy-proposition')][2]);
+    expect([champ('Code postal *').value, champ('Ville *').value]).toEqual(['75014', 'Paris']);
+    await act(async () => { rue().focus(); });
+    await taper(rue(), '8 Rue Denfert Rochereau');
+    await attendre(300);
+    await cliquer([...document.querySelectorAll('.fsy-proposition')][1]);
+    expect([champ('Code postal *').value, champ('Ville *').value]).toEqual(['69004', 'Lyon']);
+  });
+
+  it('dès 3 caractères seulement, en tapant', async () => {
+    await ouvrir(vi.fn(), null);
+    await cliquer(bouton('Créer un nouveau syndic'));
+    await taper(rue(), '8 ');
+    await attendre(300);
+    expect(appels.some((a) => a.url.startsWith('https://api-adresse.data.gouv.fr'))).toBe(false);
+    await taper(rue(), '8 Rue Denfert Rochereau');
+    await attendre(300);
+    expect(propositions()[0]).toBe('8 Rue Denfert-Rochereau, 92100 Boulogne-Billancourt');
+  });
+
+  it('l\'API en panne : REPLI sur la BAN locale', async () => {
+    apiEnPanne = true;
+    await ouvrir();
+    await taper(champ('+ Ajouter une copropriété (immeuble)'), '7 rue test');
+    await attendre(300);
+    expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/syndics/adresses?q=7%20rue%20test'))).toBe(true);
+    expect(propositions().join()).toContain('7 Rue Test, 92400 Courbevoie');
+  });
+
+  it('la casse des noms EN QUITTANT le champ : « jean-pierre » → « Jean-Pierre », « lefèvre » → « LEFÈVRE »', async () => {
+    await ouvrir();
+    await cliquer(bouton('+ Ajouter un contact'));
+    const bloc = document.querySelector('.fsy-contact-edit') as HTMLElement;
+    const champC = (l: string): HTMLInputElement => [...bloc.querySelectorAll('label')]
+      .find((x) => x.querySelector('span')?.textContent === l)?.querySelector('input') as HTMLInputElement;
+    await act(async () => { champC('Prénom').focus(); });
+    await taper(champC('Prénom'), 'jean-pierre');
+    expect(champC('Prénom').value).toBe('jean-pierre'); // pas pendant la frappe
+    await act(async () => { champC('Nom').focus(); });
+    expect(champC('Prénom').value).toBe('Jean-Pierre');
+    await taper(champC('Nom'), 'lefèvre');
+    await act(async () => { champC('Prénom').focus(); });
+    expect(champC('Nom').value).toBe('LEFÈVRE');
+    await cliquer([...bloc.querySelectorAll('button')].find((b) => b.textContent === 'Valider') as Element);
+    const ligne = [...document.querySelectorAll('button.fsy-contact-replie')].map((l) => l.textContent);
+    expect(ligne).toContain('Jean-Pierre LEFÈVRE▸');
+  });
+
+  it('un nom existant qu\'on ne fait que TRAVERSER n\'est pas réécrit', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer([...document.querySelectorAll('.fsy-contact-ouvert button')].find((b) => b.textContent === 'Modifier') as Element);
+    const bloc = document.querySelector('.fsy-contact-edit') as HTMLElement;
+    const nom = [...bloc.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
+    await act(async () => { nom.focus(); nom.blur(); });
+    expect(nom.value).toBe('Durand');
   });
 });
