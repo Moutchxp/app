@@ -9,7 +9,7 @@ import {
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie,
-  marquerParti, reintegrer, phraseDepart, boutonDepart, type AncienContact, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -1081,7 +1081,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
       arrivee={arrives.includes(c.cle)} copropriteDuBien={parImmeuble ? cleDepart : null}
       onParti={c.id !== null ? () => partir(c.cle) : undefined}
-      questionParti={phraseDepart(c, nomAvecVille(form.nom, form.ville), adresses)} ouiParti={boutonDepart(c)}
+      questionParti={departEnLignes(c, nomAvecVille(form.nom, form.ville), adresses)} ouiParti={boutonDepart(c)}
       onModifier={() => demander({ genre: 'modifier', cle: c.cle })} onSupprimer={() => setASupprimer(c.cle)}
       onDetacher={parImmeuble ? () => detacherDeLaCopro(c.cle) : undefined}
       confirmation={confirmerSuppression(c)} />
@@ -1337,10 +1337,10 @@ function EnteteContact({ c }: { c: ContactForm }) {
 
 /** ② OUVERT EN LECTURE — aucune saisie ; une ligne par téléphone et par e-mail, l'action au bout. */
 function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses, onDetacher, arrivee = false, copropriteDuBien = null,
-  onParti, questionParti = '', ouiParti = '' }: {
+  onParti, questionParti = { question: '', annonce: '', coproprietes: [] }, ouiParti = '' }: {
   /** LOT SYNDIC-CONTACT-PARTI — « Ne travaille plus ici » (absent pour un contact jamais enregistré), sa question et
    *  son bouton de confirmation. */
-  onParti?: () => void; questionParti?: string; ouiParti?: string;
+  onParti?: () => void; questionParti?: { question: string; annonce: string; coproprietes: string[] }; ouiParti?: string;
   c: ContactForm; onEcrire?: (email: string) => void; onFermer: () => void; onModifier: () => void; onSupprimer: () => void;
   confirmation: React.ReactNode; adresses: Array<{ cle: string; adresse: string }>;
   /** LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — vient d'arriver dans la liste : fond rose qui s'efface. */
@@ -1385,10 +1385,17 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
       <CoprosSuivies c={c} adresses={adresses} copropriteDuBien={copropriteDuBien} />
       {confirmation ?? (depart && onParti ? (
         /* LOT SYNDIC-CONTACT-PARTI — la confirmation, DANS la tuile. */
-        <div className="fsy-confirmer fsy-confirmer--contact fsy-parti-confirmer" role="group" aria-label="Confirmer le départ du contact">
-          <span>{questionParti}</span>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setDepart(false)}>Annuler</button>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => { setDepart(false); onParti(); }}>{ouiParti}</button>
+        <div className="fsy-parti-confirmer" role="group" aria-label="Confirmer le départ du contact">
+          {/* LOT SYNDIC-CONFIRMATION-DEPART-UNE-COPRO-PAR-LIGNE — la question, l'annonce, puis UNE copropriété par ligne. */}
+          <p className="fsy-parti-question">{questionParti.question}</p>
+          <p className="fsy-parti-annonce">{questionParti.annonce}</p>
+          {questionParti.coproprietes.length > 0 && (
+            <ul className="fsy-parti-copros">{questionParti.coproprietes.map((a) => <li key={a}>{a}</li>)}</ul>
+          )}
+          <div className="fsy-confirmer fsy-confirmer--contact">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setDepart(false)}>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => { setDepart(false); onParti(); }}>{ouiParti}</button>
+          </div>
         </div>
       ) : (
         <div className="fsy-boutons fsy-boutons--contact">
@@ -1780,6 +1787,11 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-pousse-gauche{margin-right:auto}
 /* LOT SYNDIC-CONTACT-PARTI — « Ne travaille plus ici » : petit bouton blanc, texte gris fonce. */
 .fsy-parti,.fsy-parti:hover{background:var(--color-svv-surface);color:var(--color-svv-gray)}
+.fsy-parti-confirmer{display:flex;flex-direction:column;gap:.15rem;font-size:.84rem;margin-top:.2rem}
+.fsy-parti-confirmer p{margin:0;overflow-wrap:anywhere}
+/* LOT SYNDIC-CONFIRMATION-DEPART-UNE-COPRO-PAR-LIGNE — une copropriete par ligne : puces discretes, en retrait. */
+.fsy-parti-copros{margin:.05rem 0 .2rem;padding-left:1.4rem;list-style:disc;overflow-wrap:anywhere}
+.fsy-parti-copros li::marker{color:var(--color-svv-muted)}
 .fsy-ancien{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.2rem .6rem}
 .gst-btn.fsy-detacher{color:var(--color-svv-red)}
 /* LOT SYNDIC-CONTACTS-ANTI-DOUBLON — doublon bloquant en rouge, avertissement en orange (paire d'alerte existante). */

@@ -681,16 +681,27 @@ export function reintegrer(f: SyndicForm, id: number): SyndicForm {
 }
 
 /**
- * La question de la confirmation : « M. Mathis BERCIER ne travaille plus chez SYNDIC / Ville ? Il sera retiré du
- * catalogue et de ses 3 copropriétés : A · B · C. » Le pronom suit la CIVILITÉ saisie (M. ⇒ Il, Mme ⇒ Elle) ; sans
- * civilité, on ne devine pas : « Ce contact sera retiré … ». PUR.
+ * La confirmation du départ, EN LIGNES (LOT SYNDIC-CONFIRMATION-DEPART-UNE-COPRO-PAR-LIGNE) :
+ *   question    « M. Mathis BERCIER ne travaille plus chez SYNDIC / Ville ? »
+ *   annonce     « Il sera retiré du catalogue et de ses 2 copropriétés : » / « … de sa copropriété : » /
+ *               « Il sera retiré du catalogue. » (aucune)
+ *   copropriétés une par ligne, par nom de voie.
+ * Le pronom suit la CIVILITÉ saisie (M. ⇒ Il, Mme ⇒ Elle) ; sans civilité, on ne devine pas : « Ce contact ». PUR.
  */
-export function phraseDepart(c: ContactForm, syndic: string, adresses: readonly { cle: string; adresse: string }[]): string {
+export function departEnLignes(c: ContactForm, syndic: string, adresses: readonly { cle: string; adresse: string }[]):
+{ question: string; annonce: string; coproprietes: string[] } {
   const nom = prenomNomCivil(c.civilite, c.prenom, c.nom) || valeurDuChoix(c.titreChoix, c.titreLibre) || 'Ce contact';
   const sujet = c.civilite === 'M.' ? 'Il' : c.civilite === 'Mme' ? 'Elle' : 'Ce contact';
   const l = trierParVoie(adresses.filter((a) => c.immeubles.includes(a.cle))).map((a) => a.adresse);
-  const suite = l.length === 0 ? '.' : l.length === 1 ? ` et de sa copropriété : ${l[0]}.` : ` et de ses ${l.length} copropriétés : ${l.join(' · ')}.`;
-  return `${nom} ne travaille plus chez ${syndic} ? ${sujet} sera retiré${c.civilite === 'Mme' ? 'e' : ''} du catalogue${suite}`;
+  const base = `${sujet} sera retiré${c.civilite === 'Mme' ? 'e' : ''} du catalogue`;
+  const annonce = l.length === 0 ? `${base}.` : l.length === 1 ? `${base} et de sa copropriété :` : `${base} et de ses ${l.length} copropriétés :`;
+  return { question: `${nom} ne travaille plus chez ${syndic} ?`, annonce, coproprietes: l };
+}
+
+/** La même confirmation, d'un seul tenant (copropriétés séparées par « · »). PUR. */
+export function phraseDepart(c: ContactForm, syndic: string, adresses: readonly { cle: string; adresse: string }[]): string {
+  const d = departEnLignes(c, syndic, adresses);
+  return `${d.question} ${d.annonce}${d.coproprietes.length === 0 ? '' : ` ${d.coproprietes.join(' · ')}.`}`;
 }
 
 /** Le bouton de confirmation : « Oui, il ne travaille plus ici » / « Oui, elle … » / « Oui, ne travaille plus ici ». PUR. */

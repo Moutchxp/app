@@ -2697,6 +2697,11 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     return [...document.querySelectorAll('.fsy-contact-ouvert')].find((o) => o.querySelector('.fsy-contact-nom')?.textContent === nom) as HTMLElement;
   };
   const put = (): Corps | undefined => appels.find((a) => a.methode === 'PUT')?.corps as Corps | undefined;
+  const lignesDepart = (c: Element): { question: string; annonce: string; copros: string[] } => ({
+    question: c.querySelector('.fsy-parti-question')?.textContent ?? '',
+    annonce: c.querySelector('.fsy-parti-annonce')?.textContent ?? '',
+    copros: [...c.querySelectorAll('.fsy-parti-copros li')].map((x) => x.textContent ?? ''),
+  });
   const PHRASE = 'M. Mathis BERCIER ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ? Il sera retiré du catalogue et de ses 3 copropriétés : '
     + '15 rue Carle Hebert, 92400 Courbevoie · 12 rue des Pavillons, 92800 Puteaux · 25 rue Edith Cavell, 92400 Courbevoie.';
 
@@ -2728,12 +2733,48 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     const o = await deplier('M. Mathis BERCIER');
     await cliquer(boutonDans(o, 'Ne travaille plus ici'));
     const c = o.querySelector('.fsy-parti-confirmer') as HTMLElement;
-    expect(c.querySelector('span')?.textContent).toBe(PHRASE);
+    // LOT SYNDIC-CONFIRMATION-DEPART-UNE-COPRO-PAR-LIGNE — CE QU'IL DISAIT AVANT : la phrase d'un seul tenant (PHRASE),
+    // copropriétés séparées par « · ». Même texte, désormais en lignes.
+    expect(lignesDepart(c)).toEqual({
+      question: 'M. Mathis BERCIER ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ?',
+      annonce: 'Il sera retiré du catalogue et de ses 3 copropriétés :',
+      copros: ['15 rue Carle Hebert, 92400 Courbevoie', '12 rue des Pavillons, 92800 Puteaux', '25 rue Edith Cavell, 92400 Courbevoie'],
+    });
+    expect(`${lignesDepart(c).question} ${lignesDepart(c).annonce} ${lignesDepart(c).copros.join(' · ')}.`).toBe(PHRASE); // même texte
     expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, il ne travaille plus ici']);
+    expect(c.querySelector('ul.fsy-parti-copros')?.compareDocumentPosition(c.querySelector('button') as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     await cliquer(boutonDans(c, 'Annuler'));
     expect(o.querySelector('.fsy-parti-confirmer')).toBeNull();
     expect(tuiles()).toEqual(['M. Mathis BERCIER', 'Mme Léa UNE']);
     expect(appels.filter((a) => a.methode !== 'GET')).toEqual([]);
+  });
+
+  it('LOT SYNDIC-CONFIRMATION-DEPART-UNE-COPRO-PAR-LIGNE — UNE copropriété : « sa copropriété : » puis une ligne ; AUCUNE : « … du catalogue. » sans liste', async () => {
+    await ouvrir60(null);
+    let o = await deplier('Mme Léa UNE');
+    await cliquer(boutonDans(o, 'Ne travaille plus ici'));
+    let c = o.querySelector('.fsy-parti-confirmer') as HTMLElement;
+    expect(lignesDepart(c)).toEqual({ question: 'Mme Léa UNE ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ?',
+      annonce: 'Elle sera retirée du catalogue et de sa copropriété :', copros: ['25 rue Edith Cavell, 92400 Courbevoie'] });
+    expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, elle ne travaille plus ici']);
+    await act(async () => { root.render(null); });
+    servir60({ ...FICHE_60, contacts: [{ ...FICHE_60.contacts[1], civilite: null, immeubles: [] }] });
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 60, onFerme: vi.fn() })); });
+    await calmer();
+    o = await deplier('Léa UNE');
+    await cliquer(boutonDans(o, 'Ne travaille plus ici'));
+    c = o.querySelector('.fsy-parti-confirmer') as HTMLElement;
+    expect(lignesDepart(c)).toEqual({ question: 'Léa UNE ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ?',
+      annonce: 'Ce contact sera retiré du catalogue.', copros: [] });
+    expect(c.querySelector('ul')).toBeNull();
+    expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, ne travaille plus ici']);
+  });
+
+  it('la liste : puces discrètes, en retrait', async () => {
+    await ouvrir60(null);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-parti-copros{margin:.05rem 0 .2rem;padding-left:1.4rem;list-style:disc;');
+    expect(css).toContain('.fsy-parti-copros li::marker{color:var(--color-svv-muted)}');
   });
 
   it('« Oui » : il quitte la liste aussitôt ; au « Valider » de la fiche, il part (parti, sans coordonnées ni copropriétés), les autres restent', async () => {
