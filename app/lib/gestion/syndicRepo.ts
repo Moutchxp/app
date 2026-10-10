@@ -2,6 +2,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { normaliserTexte } from './annuaire';
 import type { Auteur } from './gestes';
 import {
+  cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
   cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
   type SyndicResume, type SyndicSaisi,
 } from './syndics';
@@ -208,6 +209,17 @@ const nul = (v: string): string | null => (v.trim() === '' ? null : v.trim());
 export async function enregistrerSyndic(id: number | null, saisie: SyndicSaisi, auteur: Auteur):
 Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
   return withTransaction(async (q) => {
+    // 🔴 LOT SYNDIC-CONTACTS-ANTI-DOUBLON — LE FILET SERVEUR, AVANT TOUTE ÉCRITURE (piège withTransaction) : un e-mail
+    // de la saisie déjà porté par un contact d'un AUTRE syndic est refusé. (Les doublons DANS la saisie — même syndic —
+    // sont refusés par `validerSyndic`.) L'index de la migration 327 tient la même règle en base.
+    const emails = [...new Set(saisie.contacts.flatMap((c) => c.coordonnees.filter((k) => k.sorte === 'email').map((k) => cleEmail(k.valeur))))];
+    if (emails.length > 0) {
+      const pris = (await contactsAilleurs(q, id)).find((c) => c.emails.some((e) => emails.includes(e)));
+      if (pris !== undefined) {
+        const e = pris.emails.find((x) => emails.includes(x)) as string;
+        return { ok: false, motif: `L’adresse e-mail ${e} appartient déjà à ${[pris.prenom, (pris.nom ?? '').toUpperCase()].filter((x) => x).join(' ')} (${nomAvecVille(pris.syndicNom, pris.syndicVille)}).` };
+      }
+    }
     let syndicId: number;
     const champs = [saisie.nom, nul(saisie.adresse), nul(saisie.codePostal), nul(saisie.ville),
       nul(saisie.telephone), nul(saisie.telephone2), nul(saisie.email), nul(saisie.note)];
@@ -283,6 +295,8 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
   if (retires.length > 0) {
     await q(`UPDATE gestion_syndic_contact SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])`,
       [retires, auteur.libelle]);
+    // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — ses coordonnées partent avec lui : son e-mail redevient libre (index 327).
+    await q(`UPDATE gestion_syndic_coordonnee SET retire_le = now() WHERE contact_id = ANY($1::bigint[]) AND retire_le IS NULL`, [retires]);
     await q(
       `UPDATE gestion_syndic_contact_copropriete SET retire_le = now(), retire_par_libelle = $2, retire_motif = 'contact retiré'
         WHERE contact_id = ANY($1::bigint[]) AND retire_le IS NULL`, [retires, auteur.libelle]);
@@ -401,6 +415,9 @@ Promise<{ ok: true; coproprietes: number } | { ok: false; motif: string }> {
     await q(
       `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $2, retire_motif = 'suppression du syndic'
          FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.retire_le IS NULL`, [id, auteur.libelle]);
+    await q(
+      `UPDATE gestion_syndic_coordonnee k SET retire_le = now() FROM gestion_syndic_contact c
+        WHERE k.contact_id = c.id AND c.syndic_id = $1 AND c.retire_le IS NULL AND k.retire_le IS NULL`, [id]);
     await q(`UPDATE gestion_syndic_contact SET retire_le = now(), retire_par_libelle = $2 WHERE syndic_id = $1 AND retire_le IS NULL`,
       [id, auteur.libelle]);
     await q(`UPDATE gestion_syndic SET supprime_le = now(), supprime_par = $2, supprime_par_libelle = $3 WHERE id = $1`,
@@ -496,4 +513,40 @@ export async function communesDuCodePostal(cp: string): Promise<string[]> {
     out.push(lisible);
   }
   return out;
+}
+
+/**
+ * ══ 🔴 LOT SYNDIC-CONTACTS-ANTI-DOUBLON — LES CONTACTS DES AUTRES SYNDICS ══════════════════════════════════════════
+ * Les contacts vivants des syndics non supprimés, SAUF ceux du syndic `syndicId` (dont le formulaire fait foi), avec
+ * leurs e-mails déjà normalisés (`cleEmail`). La comparaison se fait en JavaScript, avec les MÊMES fonctions que
+ * l'écran (`cleNom`, `cleEmail`) : une seule normalisation, donc une seule réponse.
+ */
+async function contactsAilleurs(q: RequeteTx | typeof query, syndicId: number | null):
+Promise<Array<ContactAilleurs & { emails: string[] }>> {
+  const { rows } = await (q as typeof query)<{
+    prenom: string | null; nom: string | null; titre: string | null; syndic_id: string; syndic_nom: string; syndic_ville: string | null;
+    emails: string[] | null;
+  }>(
+    `SELECT c.prenom, c.nom, c.titre, s.id::text AS syndic_id, s.nom AS syndic_nom, s.ville AS syndic_ville,
+            (SELECT array_agg(k.valeur) FROM gestion_syndic_coordonnee k
+              WHERE k.contact_id = c.id AND k.sorte = 'email' AND k.retire_le IS NULL) AS emails
+       FROM gestion_syndic_contact c JOIN gestion_syndic s ON s.id = c.syndic_id
+      WHERE c.retire_le IS NULL AND s.supprime_le IS NULL AND ($1::bigint IS NULL OR s.id <> $1)`, [syndicId]);
+  return rows.map((r) => ({
+    prenom: r.prenom, nom: r.nom, titre: r.titre, syndicId: Number(r.syndic_id), syndicNom: r.syndic_nom, syndicVille: r.syndic_ville,
+    emails: (r.emails ?? []).map(cleEmail),
+  }));
+}
+
+/** Les doublons d'un contact dans les AUTRES syndics : par e-mail (bloquant), par Prénom + NOM (avertissement). */
+export async function doublonsAilleurs(syndicId: number | null, prenom: string, nom: string, emails: readonly string[]):
+Promise<{ emails: ContactAilleurs[]; noms: ContactAilleurs[] }> {
+  const autres = await contactsAilleurs(query, syndicId);
+  const mes = new Set(emails.map(cleEmail).filter((e) => e !== ''));
+  const n = cleNom(prenom, nom);
+  const sans = ({ emails: _e, ...c }: ContactAilleurs & { emails: string[] }): ContactAilleurs => c;
+  return {
+    emails: mes.size === 0 ? [] : autres.filter((c) => c.emails.some((e) => mes.has(e))).map(sans),
+    noms: n === '' ? [] : autres.filter((c) => cleNom(c.prenom, c.nom) === n).map(sans),
+  };
 }

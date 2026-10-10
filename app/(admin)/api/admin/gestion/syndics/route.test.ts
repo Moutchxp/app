@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
  */
 const enregistrerSyndic = vi.fn();
 const supprimerSyndic = vi.fn();
+const doublonsAilleurs = vi.fn(async () => ({ emails: [], noms: [{ prenom: 'Jean', nom: 'NEUF', titre: null, syndicId: 9, syndicNom: 'AUTRE', syndicVille: 'Lyon' }] }));
 const adressesBanLocale = vi.fn(async () => [{ cle: '25 rue edith cavell', libelle: '25 Rue Edith Cavell', codePostal: '92400', commune: 'Courbevoie' }]);
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerCompteActif: vi.fn(async () => null) }));
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: vi.fn(async () => ({ id: 7, libelle: 'arno' })) }));
@@ -18,6 +19,7 @@ vi.mock('../../../../../lib/gestion/syndicRepo', () => ({
   enregistrerSyndic: (...a: unknown[]) => enregistrerSyndic(...a),
   supprimerSyndic: (...a: unknown[]) => supprimerSyndic(...a),
   adressesBanLocale: (...a: unknown[]) => adressesBanLocale(...(a as [])),
+  doublonsAilleurs: (...a: unknown[]) => doublonsAilleurs(...(a as [])),
   ficheSyndic: vi.fn(async (id: number) => (id === 1 ? { id: 1, nom: 'Citya' } : null)),
   immeublesConnus: vi.fn(async () => []),
 }));
@@ -74,5 +76,14 @@ describe('/api/admin/gestion/syndics', () => {
     const j = await (await GET(requete('/api/admin/gestion/syndics/adresses?q=25%20rue%20edith'))).json();
     expect(j.adresses[0].libelle).toBe('25 Rue Edith Cavell');
     expect(adressesBanLocale).toHaveBeenCalledWith('25 rue edith');
+  });
+
+  it('GET /doublons : le syndic exclu, les e-mails en liste, le reste transmis tel quel (LOT SYNDIC-CONTACTS-ANTI-DOUBLON)', async () => {
+    const { GET } = await import('./doublons/route');
+    const j = await (await GET(requete('/api/admin/gestion/syndics/doublons?syndic=22&prenom=Jean&nom=Neuf&emails=a%40b.fr,c%40d.fr'))).json();
+    expect(doublonsAilleurs).toHaveBeenCalledWith(22, 'Jean', 'Neuf', ['a@b.fr', 'c@d.fr']);
+    expect(j.noms[0].syndicNom).toBe('AUTRE');
+    await GET(requete('/api/admin/gestion/syndics/doublons?syndic=&prenom=&nom=&emails='));
+    expect(doublonsAilleurs).toHaveBeenLastCalledWith(null, '', '', []);
   });
 });

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, contactVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, detacher, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, cleNom, cleEmail, doublonsLocaux, motDoublon, detacher, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -324,7 +324,11 @@ describe('LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville »', () => {
   it('le champ « Nom du cabinet » n\'est jamais réécrit : la saisie garde le nom seul', () => {
     const v = validerSyndic({ ...ADR, nom: 'FONCIA' });
     expect(v.ok && v.syndic.nom).toBe('FONCIA');
-    expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toMatch(/nomAvecVille/);
+    // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — CE QU'IL DISAIT AVANT : `nomAvecVille` absent du dépôt. Il y sert désormais au
+    // MESSAGE de refus d'un e-mail déjà pris ; la garde porte donc sur ce qui s'écrit : le nom saisi, seul.
+    const repo = readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8');
+    expect(repo).toContain('const champs = [saisie.nom,');
+    expect(repo).not.toMatch(/champs = \[nomAvecVille/);
   });
 });
 
@@ -334,6 +338,42 @@ describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE — detacher (pur)', () => {
     expect(detacher(c, 'a', ['a', 'b', 'c'])).toMatchObject({ tousImmeubles: false, immeubles: ['b'] });
     const tous = { ...contactVide(), nom: 'T' };
     expect(detacher(tous, 'a', ['a', 'b', 'c'])).toMatchObject({ tousImmeubles: false, immeubles: ['b', 'c'] });
+  });
+});
+
+describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — les règles', () => {
+  it('nom : sans accents, sans casse, espaces et tirets ignorés', () => {
+    expect(cleNom('Mathis', 'BERCIER')).toBe(cleNom('mathis', 'Bercier'));
+    expect(cleNom('Jean-Pierre', 'Dupont')).toBe(cleNom('jean pierre', 'DUPONT'));
+    expect(cleNom('Élodie', 'ÉTÉ')).toBe(cleNom('elodie', 'ete'));
+    expect(cleNom('', '')).toBe('');
+  });
+  it('e-mail : en minuscules, sans espaces', () => {
+    expect(cleEmail(' Mathis.Bercier@Test.FR ')).toBe('mathis.bercier@test.fr');
+  });
+  it('doublons dans le syndic (le formulaire fait foi) : par e-mail, par nom', () => {
+    const a = { ...contactVide(), prenom: 'Mathis', nom: 'BERCIER', coordonnees: [{ cle: 'e', id: null, sorte: 'email' as const, choix: '', libre: '', valeur: 'm@b.fr' }] };
+    const b = { ...contactVide(), prenom: 'mathis', nom: 'bercier' };
+    const c = { ...contactVide(), prenom: 'X', nom: 'Y', coordonnees: [{ cle: 'f', id: null, sorte: 'email' as const, choix: '', libre: '', valeur: ' M@B.FR' }] };
+    expect(doublonsLocaux(b, [a]).nom).toBe(a);
+    expect(doublonsLocaux(c, [a]).email).toBe(a);
+    expect(doublonsLocaux(c, [b])).toEqual({ email: null, nom: null });
+  });
+  it('le serveur refuse le même Prénom + NOM et le même e-mail dans UN syndic ; dédoublonne un e-mail répété sur un contact', () => {
+    expect(validerSyndic({ ...ADR, nom: 'S', contacts: [{ prenom: 'Mathis', nom: 'BERCIER' }, { prenom: 'mathis', nom: 'Bercier' }] }))
+      .toEqual({ ok: false, motif: 'Deux contacts de ce syndic portent le même nom : mathis BERCIER.' });
+    const v = validerSyndic({ ...ADR, nom: 'S', contacts: [
+      { nom: 'A', coordonnees: [{ sorte: 'email', valeur: 'x@y.fr' }] }, { nom: 'B', coordonnees: [{ sorte: 'email', valeur: 'X@Y.FR' }] }] });
+    expect(v.ok).toBe(false);
+    const w = validerSyndic({ ...ADR, nom: 'S', contacts: [{ nom: 'A', coordonnees: [{ sorte: 'email', valeur: 'x@y.fr' }, { sorte: 'email', valeur: 'X@y.fr' }] }] });
+    expect(w.ok && w.syndic.contacts[0].coordonnees).toHaveLength(1);
+    // un contact sans nom (titre seul) n'est pas comparé par nom
+    expect(validerSyndic({ ...ADR, nom: 'S', contacts: [{ titre: 'Service comptabilité' }, { titre: 'Service comptabilité' }] }).ok).toBe(true);
+  });
+  it('« Ce contact existe déjà : Prénom NOM · titre · NOM / Ville »', () => {
+    expect(motDoublon({ prenom: 'Mathis', nom: 'Bercier', titre: 'Service comptabilité' }, 'TEST ARNAUD / Asnieres Sur Seine'))
+      .toBe('Ce contact existe déjà : Mathis BERCIER · Service comptabilité · TEST ARNAUD / Asnieres Sur Seine');
+    expect(motDoublon({ prenom: 'Mathis', nom: 'Bercier', titre: null }, 'S')).toBe('Ce contact existe déjà : Mathis BERCIER · S');
   });
 });
 
@@ -531,6 +571,37 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
   });
 
+  it('ANTI-DOUBLON : un e-mail déjà porté par un contact d’un AUTRE syndic est refusé AVANT toute écriture', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [(sql) => (sql.includes('FROM gestion_syndic_contact c JOIN gestion_syndic s') ? { rows: [
+      { prenom: 'Mathis', nom: 'BERCIER', titre: null, syndic_id: '9', syndic_nom: 'AUTRE', syndic_ville: 'Lyon', emails: [' M@B.fr'] },
+    ] } : undefined)];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ nom: 'X', coordonnees: [{ sorte: 'email', valeur: 'm@b.FR' }] }] });
+    if (!v.ok) throw new Error(v.motif);
+    expect(await enregistrerSyndic(11, v.syndic, auteur))
+      .toEqual({ ok: false, motif: 'L’adresse e-mail m@b.fr appartient déjà à Mathis BERCIER (AUTRE / Lyon).' });
+    expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
+    expect(appels[0].params).toEqual([11]); // les contacts des AUTRES syndics seulement
+  });
+
+  it('ANTI-DOUBLON : doublonsAilleurs — e-mail (bloquant) et nom (avertissement), normalisés', async () => {
+    const { doublonsAilleurs } = await import('./syndicRepo');
+    reponses = [(sql) => (sql.includes('FROM gestion_syndic_contact c JOIN gestion_syndic s') ? { rows: [
+      { prenom: 'Mathis', nom: 'BERCIER', titre: 'Compta', syndic_id: '9', syndic_nom: 'AUTRE', syndic_ville: 'Lyon', emails: ['m@b.fr'] },
+      { prenom: 'Jean-Pierre', nom: 'Dupont', titre: null, syndic_id: '8', syndic_nom: 'TIERS', syndic_ville: null, emails: null },
+    ] } : undefined)];
+    const r = await doublonsAilleurs(11, 'jean pierre', 'DUPONT', [' M@B.FR']);
+    expect(r.emails.map((c) => c.nom)).toEqual(['BERCIER']);
+    expect(r.noms.map((c) => c.syndicNom)).toEqual(['TIERS']);
+    expect('emails' in r.emails[0]).toBe(false);
+  });
+
+  it('ANTI-DOUBLON : un contact retiré libère ses coordonnées (son e-mail redevient disponible)', () => {
+    const src = norm(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8'));
+    expect(src).toContain('UPDATE gestion_syndic_coordonnee SET retire_le = now() WHERE contact_id = ANY($1::bigint[]) AND retire_le IS NULL');
+    expect(src).toContain('UPDATE gestion_syndic_coordonnee k SET retire_le = now() FROM gestion_syndic_contact c');
+  });
+
   it('le dépôt ne contient aucun DELETE', () => {
     expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toMatch(/DELETE FROM/i);
   });
@@ -554,6 +625,10 @@ describe('les migrations 324 et 325 — ajout uniquement', () => {
     expect(code).toContain('CREATE UNIQUE INDEX IF NOT EXISTS gestion_syndic_contact_copropriete_en_cours ON gestion_syndic_contact_copropriete (contact_id, copropriete_id) WHERE retire_le IS NULL;');
     expect(code).not.toMatch(/\bDROP\b|\bRENAME\b|\bUPDATE\b|\bDELETE\b/i);
     expect(code.match(/ALTER TABLE/g)?.length).toBe(1);
+  });
+  it('327 : un index d’unicité sur l’e-mail normalisé des coordonnées non retirées — rien d’autre', () => {
+    const code = norm(lire('327_gestion_syndic_email_unique.sql')).trim();
+    expect(code).toBe("CREATE UNIQUE INDEX IF NOT EXISTS gestion_syndic_coordonnee_email_unique ON gestion_syndic_coordonnee (lower(regexp_replace(valeur, '\\s+', '', 'g'))) WHERE sorte = 'email' AND retire_le IS NULL;");
   });
   it('325 : uniquement des ADD COLUMN', () => {
     const lignes = lire('325_gestion_syndic_finitions.sql').split('\n').map((l) => l.trim()).filter((l) => l !== '');

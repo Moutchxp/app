@@ -273,6 +273,31 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     immeubles.push({ libelle, codePostal: texte(o.codePostal), commune: texte(o.commune) });
   }
 
+  // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — dans UN syndic, deux contacts ne portent pas le même Prénom + NOM, et une
+  // adresse e-mail n'appartient qu'à UN contact (le même e-mail répété sur un contact est simplement dédoublonné).
+  const vusNoms = new Map<string, ContactSaisi>();
+  const vusEmails = new Map<string, ContactSaisi>();
+  for (const c of contacts) {
+    const n = cleNom(c.prenom, c.nom);
+    if (n !== '') {
+      const deja = vusNoms.get(n);
+      if (deja !== undefined) return { ok: false, motif: `Deux contacts de ce syndic portent le même nom : ${prenomNom(c.prenom, c.nom)}.` };
+      vusNoms.set(n, c);
+    }
+    const propres = new Set<string>();
+    c.coordonnees = c.coordonnees.filter((k) => {
+      if (k.sorte !== 'email') return true;
+      const e = cleEmail(k.valeur);
+      if (propres.has(e)) return false;
+      propres.add(e);
+      return true;
+    });
+    for (const e of propres) {
+      if (vusEmails.has(e)) return { ok: false, motif: `L’adresse e-mail ${e} figure sur deux contacts : elle ne peut appartenir qu’à un seul.` };
+      vusEmails.set(e, c);
+    }
+  }
+
   // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — un contact ne suit que des copropriétés DE CE SYNDIC : une copropriété
   // retirée de la fiche disparaît aussi des contacts qui la suivaient. « Tous les immeubles » ⇒ aucune liste.
   for (const c of contacts) c.immeubles = c.tousImmeubles ? [] : c.immeubles.filter((k) => vus.has(k));
@@ -668,4 +693,46 @@ export function nomAvecVille(nom: string, ville: string | null | undefined): str
 export function detacher(c: ContactForm, cle: string, toutesLesCles: readonly string[]): ContactForm {
   if (c.tousImmeubles) return { ...c, tousImmeubles: false, immeubles: toutesLesCles.filter((k) => k !== cle) };
   return affecter(c, cle, false);
+}
+
+// ══ LOT SYNDIC-CONTACTS-ANTI-DOUBLON ════════════════════════════════════════════════════════════════════════════════
+//
+// RÈGLES (Arno) — comparaison sans accents, sans casse, espaces et tirets ignorés :
+//   a. une adresse e-mail n'appartient qu'à UN contact de syndic, tous syndics confondus (bloquant) ;
+//   b. dans un même syndic, deux contacts n'ont pas le même Prénom + NOM (bloquant) ;
+//   c. même Prénom + NOM dans un AUTRE syndic : simple avertissement (le contact a pu changer de cabinet).
+
+/** La clé d'un nom : « Jean-Pierre DUPONT » = « jean pierre dupont » = « JEANPIERRE Dupont ». '' si aucun nom. PUR. */
+export function cleNom(prenom: string | null | undefined, nom: string | null | undefined): string {
+  return normaliserTexte(`${prenom ?? ''} ${nom ?? ''}`).replace(/ /g, '');
+}
+
+/** La clé d'un e-mail : en minuscules, sans espaces. PUR. */
+export function cleEmail(v: string | null | undefined): string {
+  return (v ?? '').toLowerCase().replace(/\s+/g, '');
+}
+
+/** Les e-mails (clés) d'un contact du formulaire. PUR. */
+export function emailsDe(c: ContactForm): string[] {
+  return c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '').map((k) => cleEmail(k.valeur));
+}
+
+/** Les doublons d'un contact parmi les AUTRES contacts du même syndic (le formulaire fait foi). PUR. */
+export function doublonsLocaux(c: ContactForm, autres: readonly ContactForm[]): { email: ContactForm | null; nom: ContactForm | null } {
+  const mesEmails = new Set(emailsDe(c));
+  const n = cleNom(c.prenom, c.nom);
+  return {
+    email: mesEmails.size === 0 ? null : (autres.find((a) => emailsDe(a).some((e) => mesEmails.has(e))) ?? null),
+    nom: n === '' ? null : (autres.find((a) => cleNom(a.prenom, a.nom) === n) ?? null),
+  };
+}
+
+/** Un contact trouvé AILLEURS (un autre syndic), tel que le serveur le décrit. */
+export interface ContactAilleurs {
+  prenom: string | null; nom: string | null; titre: string | null; syndicId: number; syndicNom: string; syndicVille: string | null;
+}
+
+/** « Ce contact existe déjà : Prénom NOM · titre · NOM / Ville » — sans morceau vide. PUR. */
+export function motDoublon(c: { prenom?: string | null; nom?: string | null; titre?: string | null }, syndic: string): string {
+  return `Ce contact existe déjà : ${[prenomNom(c.prenom, c.nom), (c.titre ?? '').trim(), syndic].filter((x) => x !== '').join(' · ')}`;
 }

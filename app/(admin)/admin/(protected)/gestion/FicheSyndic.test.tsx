@@ -426,7 +426,8 @@ describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — replié, ouvert en lecture, 
     await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
     await taper(champContact('Nom'), 'Bernard');
     await cliquer(boutonDans(pied(), 'Valider'));
-    expect(pied()?.textContent).toContain('Valider aussi les modifications du contact Léa BERNARD ?');
+    // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — CE QU'IL DISAIT AVANT : « … du contact Léa BERNARD ? ».
+    expect(pied()?.textContent).toContain('Valider aussi les modifications de Léa BERNARD ?');
     expect(appels.some((x) => x.methode === 'PUT')).toBe(false);
     await cliquer(boutonDans(pied(), 'Oui, valider aussi'));
     expect((appels.find((x) => x.methode === 'PUT')?.corps as { contacts: Array<{ nom: string }> }).contacts[0].nom).toBe('Bernard');
@@ -1562,5 +1563,137 @@ describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE', () => {
     expect([...o.querySelectorAll('button')].some((b) => b.textContent?.includes('Détacher'))).toBe(false);
     const sup = [...o.querySelectorAll('button')].find((b) => b.textContent === 'Supprimer ce contact') as HTMLButtonElement;
     expect(sup.className).toBe('fsy-lien-bouton fsy-pousse-gauche');
+  });
+});
+
+describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
+  let ailleurs: { emails: unknown[]; noms: unknown[] } = { emails: [], noms: [] };
+  const servir22 = (): void => {
+    ailleurs = { emails: [], noms: [] };
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('/api/admin/gestion/syndics/doublons')) { appels.push({ url, methode: 'GET', corps: null }); return { ok: true, json: async () => ({ etat: 'ok', ...ailleurs }) }; }
+      if (url === '/api/admin/gestion/syndics/22' && (init?.method ?? 'GET') === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche: FICHE_22 }) };
+      if (url === '/api/admin/gestion/syndics/22') { appels.push({ url, methode: init?.method ?? 'GET', corps: JSON.parse(String(init?.body)) }); return { ok: true, json: async () => ({ ok: true, id: 22 }) }; }
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const depuisLeBien = async (): Promise<void> => {
+    servir22();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 22, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+  };
+  const depuisSyndics = async (): Promise<void> => { servir22(); await ouvrir(vi.fn(), 22); };
+  const bloc = (): HTMLElement => document.querySelector('.fsy-contact-edit') as HTMLElement;
+  const champC = (l: string): HTMLInputElement => [...bloc().querySelectorAll('label')]
+    .find((x) => x.querySelector('span')?.textContent === l)?.querySelector('input') as HTMLInputElement;
+  const quitter = async (el: HTMLInputElement): Promise<void> => { await act(async () => { el.focus(); el.blur(); }); await calmer(); };
+  const valider = (): HTMLButtonElement => boutonDans(bloc(), 'Valider');
+  const nouveauAvecEmail = async (email: string): Promise<HTMLInputElement> => {
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(boutonDans(bloc(), '+ e-mail'));
+    const champ = bloc().querySelector('input[aria-label="E-mail du contact"]') as HTMLInputElement;
+    await taper(champ, email);
+    await quitter(champ);
+    return champ;
+  };
+  const rouge = (): string[] => [...bloc().querySelectorAll('.fsy-doublon')].map((p) => p.textContent ?? '');
+
+  it('E-MAIL en double DANS ce syndic (casse, espaces) : message rouge sous le champ, Valider désactivé', async () => {
+    await depuisSyndics();
+    const champ = await nouveauAvecEmail(' ELODIE@test.invalid');
+    expect(rouge()).toEqual(['Ce contact existe déjà : Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris']);
+    expect(champ.closest('.fsy-coord-edit')?.querySelector('.fsy-doublon')).not.toBeNull();
+    expect(valider().disabled).toBe(true);
+  });
+
+  it('E-MAIL en double dans un AUTRE syndic : bloquant aussi, avec « NOM / Ville » de l’autre syndic', async () => {
+    await depuisSyndics();
+    ailleurs = { emails: [{ prenom: 'Mathis', nom: 'BERCIER', titre: 'Service comptabilité', syndicId: 9, syndicNom: '_TEST AUTRE', syndicVille: 'Lyon' }], noms: [] };
+    await nouveauAvecEmail('mathis@ailleurs.invalid');
+    expect(appels.some((a) => a.url.includes('/doublons?syndic=22&') && a.url.includes('mathis%40ailleurs.invalid'))).toBe(true);
+    expect(rouge()).toEqual(['Ce contact existe déjà : Mathis BERCIER · Service comptabilité · _TEST AUTRE / Lyon']);
+    expect(valider().disabled).toBe(true);
+  });
+
+  it('NOM en double dans ce syndic (accents, casse, tirets) : bloqué ; déjà dans la copropriété ⇒ « déjà rattaché à cette copropriété »', async () => {
+    await depuisLeBien();
+    await cliquer(bouton('+ Ajouter un contact'));
+    await taper(champC('Prénom'), 'MARIE');
+    await taper(champC('Nom'), 'douze');
+    await quitter(champC('Nom'));
+    expect(rouge()).toEqual(['Ce contact existe déjà : Marie DOUZE · Responsable de copropriété · _TEST Cabinet Sept / Paris — déjà rattaché à cette copropriété']);
+    expect(bloc().textContent).not.toContain('Voir dans le catalogue');
+    expect(valider().disabled).toBe(true);
+  });
+
+  it('NOM en double encore au Catalogue : « Voir dans le catalogue » fait défiler et déplie sa tuile', async () => {
+    await depuisLeBien();
+    await cliquer(bouton('+ Ajouter un contact'));
+    await taper(document.querySelector('.fsy-catalogue input[type="search"]') as HTMLInputElement, 'abel');
+    await taper(champC('Prénom'), 'Elodie');
+    await taper(champC('Nom'), 'ete');
+    await quitter(champC('Nom'));
+    expect(rouge()[0]).toBe('Ce contact existe déjà : Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris · Voir dans le catalogue');
+    await cliquer(boutonDans(bloc(), 'Voir dans le catalogue'));
+    await attendre(10);
+    expect((document.querySelector('.fsy-catalogue input[type="search"]') as HTMLInputElement).value).toBe('');
+    const ouverte = document.querySelector('.fsy-catalogue .fsy-contact-ouvert') as HTMLElement;
+    expect(ouverte.getAttribute('data-cle-ouverte')).not.toBeNull();
+    expect(ouverte.querySelector('.fsy-contact-nom')?.textContent).toBe('Élodie ÉTÉ');
+    expect(boutonDans(ouverte, 'Ajouter à cette copropriété')).toBeTruthy();
+  });
+
+  it('NOM identique dans un AUTRE syndic : simple avertissement orange, Valider reste possible', async () => {
+    await depuisSyndics();
+    ailleurs = { emails: [], noms: [{ prenom: 'Jean', nom: 'NEUF', titre: null, syndicId: 9, syndicNom: '_TEST AUTRE', syndicVille: 'Lyon' }] };
+    await cliquer(bouton('+ Ajouter un contact'));
+    await taper(champC('Prénom'), 'Jean');
+    await taper(champC('Nom'), 'Neuf');
+    await quitter(champC('Nom'));
+    expect(rouge()).toEqual([]);
+    expect(bloc().querySelector('.fsy-avertissement')?.textContent).toBe('Un contact du même nom existe chez _TEST AUTRE / Lyon');
+    expect(valider().disabled).toBe(false);
+    await cliquer(valider());
+    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
+  });
+
+  it('au VALIDER du contact, la vérification est refaite et bloque', async () => {
+    await depuisSyndics();
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(boutonDans(bloc(), '+ e-mail'));
+    await act(async () => {
+      const champ = bloc().querySelector('input[aria-label="E-mail du contact"]') as HTMLInputElement;
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      set?.call(champ, 'elodie@test.invalid'); champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await taper(champC('Nom'), 'Autre'); // pas de « blur » sur l'e-mail
+    await cliquer(valider());
+    expect(document.querySelector('.fsy-contact-edit')).not.toBeNull();
+    expect(rouge()[0]).toContain('Élodie ÉTÉ');
+  });
+
+  it('MODIFICATION d’un contact existant vers un e-mail déjà pris : bloquée', async () => {
+    await depuisSyndics();
+    const marie = [...document.querySelectorAll('button.fsy-contact-replie')].find((b) => b.textContent?.includes('Marie DOUZE')) as Element;
+    await cliquer(marie);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await cliquer(boutonDans(bloc(), '+ e-mail'));
+    const champ = bloc().querySelector('input[aria-label="E-mail du contact"]') as HTMLInputElement;
+    await taper(champ, 'Elodie@Test.invalid');
+    await quitter(champ);
+    expect(rouge()[0]).toBe('Ce contact existe déjà : Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris');
+    expect(valider().disabled).toBe(true);
+  });
+
+  it('le contact lui-même n’est pas son propre doublon (modification sans changement de nom)', async () => {
+    await depuisSyndics();
+    const marie = [...document.querySelectorAll('button.fsy-contact-replie')].find((b) => b.textContent?.includes('Marie DOUZE')) as Element;
+    await cliquer(marie);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await quitter(champC('Nom'));
+    expect(rouge()).toEqual([]);
   });
 });
