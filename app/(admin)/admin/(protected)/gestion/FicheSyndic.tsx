@@ -9,7 +9,7 @@ import {
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie,
-  marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, alerteCoordonnees, coordonneesManquantes, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -1463,19 +1463,46 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
   const majCoord = (cle: string, k: CoordonneeForm): void =>
     onChange({ ...c, coordonnees: c.coordonnees.map((x) => (x.cle === cle ? k : x)) });
   const ajouter = (sorte: SorteCoordonnee): void => onChange({ ...c, coordonnees: [...c.coordonnees, coordonneeVide(sorte)] });
-  const valider = async (): Promise<void> => {
+  /**
+   * ══ LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES ══ au « Valider » du contact, APRÈS l'anti-doublon : sans
+   * téléphone et/ou sans e-mail RÉELLEMENT remplis, un avertissement orange (jamais bloquant) — « Compléter » met le
+   * curseur dans le champ manquant (en ouvrant sa ligne s'il n'y en a pas), « Valider quand même » valide.
+   */
+  const [alerte, setAlerte] = useState<string | null>(null);
+  const [aCompleter, setACompleter] = useState<SorteCoordonnee | null>(null);
+  const bloc = useRef<HTMLFieldSetElement | null>(null);
+  useEffect(() => {
+    if (aCompleter === null) return;
+    const vides = [...(bloc.current?.querySelectorAll<HTMLInputElement>(
+      `input[aria-label="${aCompleter === 'email' ? 'E-mail du contact' : 'Téléphone du contact'}"]`) ?? [])]
+      .filter((i) => i.value.trim() === '');
+    if (vides.length > 0) { vides[0].focus(); setACompleter(null); }
+  }, [aCompleter, c.coordonnees]);
+  const completer = (): void => {
+    const m = coordonneesManquantes(c);
+    const sorte: SorteCoordonnee = m.telephone ? 'telephone' : 'email';
+    setAlerte(null);
+    const vide = c.coordonnees.some((k) => k.sorte === sorte && k.valeur.trim() === '');
+    if (!vide) ajouter(sorte);
+    setACompleter(sorte);
+  };
+  const valider = async (malgreManque = false): Promise<void> => {
     if (!contactNomme({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom })) {
       setRefus('Indiquez au moins un prénom, un nom ou un titre.'); return;
     }
     setRefus(null);
-    // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — vérifié de nouveau au Valider : un doublon bloquant arrête ici.
+    // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — vérifié de nouveau au Valider : un doublon bloquant arrête ici (et
+    // l'avertissement des coordonnées n'apparaît pas).
     const v = await lancer(c);
-    if (v !== null && (v.email !== null || v.nom !== null)) return;
+    if (v !== null && (v.email !== null || v.nom !== null)) { setAlerte(null); return; }
+    const a = malgreManque ? null : alerteCoordonnees(c);
+    if (a !== null) { setAlerte(a); return; }
+    setAlerte(null);
     onValider();
   };
   const annuler = (): void => { if (change) { setAbandon(true); return; } onAnnuler(); };
   return (
-    <fieldset className="fsy-contact-edit">
+    <fieldset className="fsy-contact-edit" ref={bloc}>
       <legend>{e.nouveau ? 'Nouveau contact' : nomAffiche(origine ?? c)}</legend>
       <div className="fsy-duo">
         <SelectChoix libelle="Titre" choix={c.titreChoix} libre={c.titreLibre} options={TITRES_CONTACT}
@@ -1552,6 +1579,15 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
         <ImmeublesSuivisEdit c={c} origine={origine} adresses={adresses} onChange={onChange} />
       )}
       {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
+      {alerte !== null && (
+        <div className="fsy-alerte-coord" role="alert">
+          <span>{alerte}</span>
+          <span className="fsy-alerte-coord-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={completer}>Compléter</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => void valider(true)}>Valider quand même</button>
+          </span>
+        </div>
+      )}
       {confirmation ?? (abandon ? (
         <div className="fsy-confirmer fsy-confirmer--contact" role="group" aria-label="Abandonner les modifications ?">
           <span>Abandonner les modifications ?</span>
@@ -1792,6 +1828,9 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 /* LOT SYNDIC-CONFIRMATION-DEPART-UNE-COPRO-PAR-LIGNE — une copropriete par ligne : puces discretes, en retrait. */
 .fsy-parti-copros{margin:.05rem 0 .2rem;padding-left:1.4rem;list-style:disc;overflow-wrap:anywhere}
 .fsy-parti-copros li::marker{color:var(--color-svv-muted)}
+.fsy-alerte-coord{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem .6rem;padding:6px 10px;
+  border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.84rem}
+.fsy-alerte-coord-boutons{display:flex;gap:6px;margin-left:auto}
 .fsy-ancien{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.2rem .6rem}
 .gst-btn.fsy-detacher{color:var(--color-svv-red)}
 /* LOT SYNDIC-CONTACTS-ANTI-DOUBLON — doublon bloquant en rouge, avertissement en orange (paire d'alerte existante). */

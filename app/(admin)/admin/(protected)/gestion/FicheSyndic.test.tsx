@@ -74,7 +74,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  appels = []; apiEnPanne = false;
+  appels = []; apiEnPanne = false; passerAlerteCoord = true;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     appels.push({ url, methode: init?.method ?? 'GET', corps: init?.body ? JSON.parse(String(init.body)) : null });
     const rep = (j: unknown) => ({ ok: true, json: async () => j });
@@ -115,7 +115,20 @@ const bouton = (texte: string): HTMLButtonElement => {
   if (!b) throw new Error(`bouton introuvable : ${texte}`);
   return b as HTMLButtonElement;
 };
-const cliquer = async (el: Element): Promise<void> => { await act(async () => { (el as HTMLElement).click(); }); await calmer(); };
+/**
+ * LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES — le « Valider » d'un contact SANS téléphone ou SANS e-mail ouvre
+ * désormais un avertissement (jamais bloquant). Les épreuves écrites avant lui valident des contacts sans coordonnées
+ * pour éprouver AUTRE CHOSE : par défaut, `cliquer` répond donc « Valider quand même » à leur place — leurs attentes,
+ * elles, ne changent pas. Les épreuves de l'avertissement coupent ce passage (`passerAlerteCoord = false`).
+ */
+let passerAlerteCoord = true;
+const cliquer = async (el: Element): Promise<void> => {
+  const valideUnContact = (el as HTMLElement).textContent?.trim() === 'Valider' && el.closest('.fsy-contact-edit') !== null;
+  await act(async () => { (el as HTMLElement).click(); }); await calmer();
+  if (!passerAlerteCoord || !valideUnContact) return;
+  const b = [...document.querySelectorAll('.fsy-alerte-coord button')].find((x) => x.textContent === 'Valider quand même') as HTMLElement | undefined;
+  if (b) { await act(async () => { b.click(); }); await calmer(); }
+};
 const taper = async (el: HTMLInputElement, v: string): Promise<void> => {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
   await act(async () => { setter?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
@@ -2868,5 +2881,129 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     expect(document.querySelector('#fsy-titre')?.textContent).toBe('Créer un syndic');
     expect(document.querySelector('.fsy-creer-tete')).toBeNull(); // seulement à l'étape de recherche
     expect(document.body.textContent).toContain('9 rue Neuve');
+  });
+});
+
+/**
+ * ══ LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES ═════════════════════════════════════════════════════════════
+ * Fiche 11 : Léa DURAND, un téléphone, aucun e-mail. Ici, `cliquer` ne répond PAS à l'avertissement.
+ */
+describe('LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES', () => {
+  beforeEach(() => { passerAlerteCoord = false; });
+  const edit = (): HTMLElement => document.querySelector('.fsy-contact-edit') as HTMLElement;
+  const champC = (label: string): HTMLInputElement => [...edit().querySelectorAll('label')]
+    .find((x) => x.querySelector('span')?.textContent === label)?.querySelector('input') as HTMLInputElement;
+  const tels = (): HTMLInputElement[] => [...edit().querySelectorAll('input[aria-label="Téléphone du contact"]')] as HTMLInputElement[];
+  const mails = (): HTMLInputElement[] => [...edit().querySelectorAll('input[aria-label="E-mail du contact"]')] as HTMLInputElement[];
+  const alerte = (): HTMLElement | null => document.querySelector('.fsy-contact-edit .fsy-alerte-coord');
+  const nouveau = async (prenom: string, nom: string, coord: { tel?: string; mail?: string } = {}): Promise<void> => {
+    await ouvrir();
+    await cliquer(bouton('+ Ajouter un contact'));
+    if (prenom) await taper(champC('Prénom'), prenom);
+    if (nom) await taper(champC('Nom'), nom);
+    if (coord.tel !== undefined) { await cliquer(boutonDans(edit(), '+ téléphone')); await taper(tels()[0], coord.tel); }
+    if (coord.mail !== undefined) { await cliquer(boutonDans(edit(), '+ e-mail')); await taper(mails()[0], coord.mail); }
+  };
+  const valider = async (): Promise<void> => { await cliquer(boutonDans(edit(), 'Valider')); };
+  const noms = (): string[] => [...document.querySelectorAll('button.fsy-contact-replie .fsy-contact-nom')].map((x) => x.textContent ?? '');
+
+  for (const [cas, coord, attendu] of [
+    ['sans e-mail', { tel: '06 11 22 33 44' }, 'Aucune adresse e-mail pour Anne NEUVE. Valider quand même ?'],
+    ['sans téléphone', { mail: 'anne@test.invalid' }, 'Aucun numéro de téléphone pour Anne NEUVE. Valider quand même ?'],
+    ['sans les deux', {}, 'Ni téléphone ni e-mail pour Anne NEUVE. Valider quand même ?'],
+  ] as const) {
+    it(`NOUVEAU CONTACT ${cas} : l'avertissement orange, au-dessus des boutons, « Compléter » / « Valider quand même »`, async () => {
+      await nouveau('Anne', 'Neuve', coord);
+      await valider();
+      const a = alerte() as HTMLElement;
+      expect(a.querySelector('span')?.textContent).toBe(attendu);
+      expect([...a.querySelectorAll('button')].map((b) => [b.textContent, b.className.includes('svv-btn-primary') ? 'rouge' : 'blanc']))
+        .toEqual([['Compléter', 'blanc'], ['Valider quand même', 'rouge']]);
+      expect(a.compareDocumentPosition(edit().querySelector('.fsy-boutons--contact') as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+      expect(noms()).toEqual(['Léa DURAND']); // pas encore validé
+    });
+  }
+
+  it('sans nom : « … pour ce contact. »', async () => {
+    await ouvrir();
+    await cliquer(bouton('+ Ajouter un contact'));
+    const select = edit().querySelector('select') as HTMLSelectElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, 'Service comptabilité');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await valider();
+    expect(alerte()?.querySelector('span')?.textContent).toBe('Ni téléphone ni e-mail pour ce contact. Valider quand même ?');
+  });
+
+  it('une ligne « + téléphone » ouverte mais VIDE compte comme absente', async () => {
+    await nouveau('Anne', 'Neuve', { mail: 'anne@test.invalid' });
+    await cliquer(boutonDans(edit(), '+ téléphone'));
+    expect(tels()).toHaveLength(1);
+    await valider();
+    expect(alerte()?.querySelector('span')?.textContent).toBe('Aucun numéro de téléphone pour Anne NEUVE. Valider quand même ?');
+  });
+
+  it('« Compléter » sans ligne : ouvre « + téléphone » et y met le curseur ; avec une ligne vide : le curseur y va, sans en ouvrir une autre', async () => {
+    await nouveau('Anne', 'Neuve', { mail: 'anne@test.invalid' });
+    await valider();
+    await cliquer(boutonDans(alerte(), 'Compléter'));
+    expect(alerte()).toBeNull();
+    expect(tels()).toHaveLength(1);
+    expect(document.activeElement).toBe(tels()[0]);
+    await act(async () => { (document.activeElement as HTMLElement).blur(); });
+    await valider();
+    await cliquer(boutonDans(alerte(), 'Compléter'));
+    expect(tels()).toHaveLength(1);
+    expect(document.activeElement).toBe(tels()[0]);
+  });
+
+  it('« Compléter » quand seul l’e-mail manque : le curseur dans un champ E-mail', async () => {
+    await nouveau('Anne', 'Neuve', { tel: '06 11 22 33 44' });
+    await valider();
+    await cliquer(boutonDans(alerte(), 'Compléter'));
+    expect(mails()).toHaveLength(1);
+    expect(document.activeElement).toBe(mails()[0]);
+  });
+
+  it('« Valider quand même » : le contact est validé comme aujourd’hui (rien n’est obligatoire)', async () => {
+    await nouveau('Anne', 'Neuve');
+    await valider();
+    await cliquer(boutonDans(alerte(), 'Valider quand même'));
+    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
+    expect(noms()).toEqual(['Léa DURAND', 'Anne NEUVE']);
+  });
+
+  it('un contact COMPLET (téléphone ET e-mail) passe directement, sans avertissement', async () => {
+    await nouveau('Anne', 'Neuve', { tel: '06 11 22 33 44', mail: 'anne@test.invalid' });
+    await valider();
+    expect(document.querySelector('.fsy-alerte-coord')).toBeNull();
+    expect(noms()).toEqual(['Léa DURAND', 'Anne NEUVE']);
+  });
+
+  it('EN MODIFICATION : Léa (téléphone seul) → « Aucune adresse e-mail pour Léa BERNARD. Valider quand même ? »', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await taper(champC('Nom'), 'Bernard');
+    await valider();
+    expect(alerte()?.querySelector('span')?.textContent).toBe('Aucune adresse e-mail pour Léa BERNARD. Valider quand même ?');
+    await cliquer(boutonDans(alerte(), 'Valider quand même'));
+    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
+    expect(document.querySelector('.fsy-contact-ouvert .fsy-contact-nom')?.textContent).toBe('Léa BERNARD');
+  });
+
+  it('l’ANTI-DOUBLON passe AVANT : un doublon bloquant ⇒ pas d’avertissement des coordonnées', async () => {
+    await nouveau('Léa', 'Durand');
+    await valider();
+    expect(document.querySelector('.fsy-contact-edit .fsy-doublon')?.textContent).toContain('Ce contact existe déjà');
+    expect(alerte()).toBeNull();
+    expect(noms()).toEqual(['Léa DURAND']);
+  });
+
+  it('la feuille : encadré orange clair (jetons orange)', async () => {
+    await ouvrir();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
+    expect(css).toContain('border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft)');
   });
 });

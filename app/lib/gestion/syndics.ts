@@ -709,6 +709,28 @@ export function boutonDepart(c: ContactForm): string {
   return c.civilite === 'M.' ? 'Oui, il ne travaille plus ici' : c.civilite === 'Mme' ? 'Oui, elle ne travaille plus ici' : 'Oui, ne travaille plus ici';
 }
 
+// ══ LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES ════════════════════════════════════════════════════════════════
+
+/** Ce qui MANQUE réellement à un contact : une ligne ouverte mais laissée vide compte comme absente. PUR. */
+export function coordonneesManquantes(c: ContactForm): { telephone: boolean; email: boolean } {
+  const rempli = (sorte: SorteCoordonnee): boolean => c.coordonnees.some((k) => k.sorte === sorte
+    && (sorte === 'telephone' ? chiffresTelephone(k.valeur).replace('+', '') !== '' : k.valeur.trim() !== ''));
+  return { telephone: !rempli('telephone'), email: !rempli('email') };
+}
+
+/**
+ * L'avertissement (jamais bloquant) : « Aucun numéro de téléphone pour Prénom NOM. Valider quand même ? »,
+ * « Aucune adresse e-mail pour … », « Ni téléphone ni e-mail pour … » ; « pour ce contact » sans nom. `null` : rien ne
+ * manque. PUR.
+ */
+export function alerteCoordonnees(c: ContactForm): string | null {
+  const m = coordonneesManquantes(c);
+  if (!m.telephone && !m.email) return null;
+  const qui = prenomNom(c.prenom, c.nom) || 'ce contact';
+  const debut = m.telephone && m.email ? 'Ni téléphone ni e-mail' : m.telephone ? 'Aucun numéro de téléphone' : 'Aucune adresse e-mail';
+  return `${debut} pour ${qui}. Valider quand même ?`;
+}
+
 /** Un numéro complet (10 chiffres au moins) — seul celui-là reçoit « Appeler ». PUR. */
 export function telephoneComplet(v: string): boolean {
   return chiffresTelephone(v).replace('+', '').length >= 10;
