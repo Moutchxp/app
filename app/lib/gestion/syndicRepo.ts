@@ -2,7 +2,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { normaliserTexte } from './annuaire';
 import type { Auteur } from './gestes';
 import {
-  cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
+  civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
   cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
   type SyndicResume, type SyndicSaisi,
 } from './syndics';
@@ -165,9 +165,9 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
   if (s === undefined) return null;
 
   const { rows: contacts } = await query<{
-    id: string; titre: string | null; prenom: string | null; nom: string | null; tous_immeubles: boolean;
+    id: string; titre: string | null; prenom: string | null; nom: string | null; tous_immeubles: boolean; civilite: string | null;
   }>(
-    `SELECT id::text, titre, prenom, nom, tous_immeubles FROM gestion_syndic_contact
+    `SELECT id::text, titre, prenom, nom, tous_immeubles, civilite FROM gestion_syndic_contact
       WHERE syndic_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [id]);
   // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les affectations EN COURS des contacts de ce syndic.
   const { rows: affectations } = await query<{ contact_id: string; cle: string }>(
@@ -202,7 +202,7 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
     telephone: s.telephone, telephone2: s.telephone_2, email: s.email, note: s.note,
     creeLe: s.cree_le, creeParLibelle: s.cree_par_libelle, majLe: s.maj_le, majParLibelle: s.maj_par_libelle,
     contacts: contacts.map((c) => ({
-      id: Number(c.id), titre: c.titre, prenom: c.prenom, nom: c.nom,
+      id: Number(c.id), titre: c.titre, prenom: c.prenom, nom: c.nom, civilite: civiliteLue(c.civilite) ?? null,
       tousImmeubles: c.tous_immeubles !== false,
       immeubles: c.tous_immeubles !== false ? [] : affectations.filter((a) => a.contact_id === c.id).map((a) => a.cle),
       coordonnees: coords.filter((k) => k.contact_id === c.id)
@@ -318,13 +318,13 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
       gardes.add(contactId);
       await q(
         `UPDATE gestion_syndic_contact SET titre = $2, prenom = $3, nom = $4, rang = $5, maj_le = now(), maj_par_libelle = $6,
-                tous_immeubles = $7
-          WHERE id = $1`, [contactId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle, c.tousImmeubles]);
+                tous_immeubles = $7, civilite = $8
+          WHERE id = $1`, [contactId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle, c.tousImmeubles, c.civilite ?? null]);
     } else {
       const { rows } = await q<{ id: string }>(
-        `INSERT INTO gestion_syndic_contact (syndic_id, titre, prenom, nom, rang, cree_par_libelle, tous_immeubles)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id::text`,
-        [syndicId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle, c.tousImmeubles]);
+        `INSERT INTO gestion_syndic_contact (syndic_id, titre, prenom, nom, rang, cree_par_libelle, tous_immeubles, civilite)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id::text`,
+        [syndicId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle, c.tousImmeubles, c.civilite ?? null]);
       contactId = Number(rows[0]?.id);
     }
     // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — toujours des affectations explicites (`tous_immeubles` est écrit à faux).

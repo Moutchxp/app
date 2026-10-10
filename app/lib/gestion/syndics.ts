@@ -36,6 +36,8 @@ export function libellesDe(sorte: SorteCoordonnee): readonly string[] {
 export interface CoordonneeSaisie { id?: number | null; sorte: SorteCoordonnee; libelle: string; valeur: string }
 export interface ContactSaisi {
   id?: number | null; titre: string; prenom: string; nom: string; coordonnees: CoordonneeSaisie[];
+  /** LOT SYNDIC-CONTACT-CIVILITE — « M. », « Mme », ou rien (facultative). */
+  civilite?: Civilite | null;
   /**
    * LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés que suit le contact : `immeubles` (les CLÉS, `cleImmeuble`).
    * LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — `tousImmeubles` vrai n'est plus qu'un RACCOURCI de saisie : la validation le
@@ -89,6 +91,8 @@ export interface FicheSyndic {
   creeLe: string; creeParLibelle: string; majLe: string | null; majParLibelle: string | null;
   contacts: Array<{
     id: number; titre: string | null; prenom: string | null; nom: string | null;
+    /** LOT SYNDIC-CONTACT-CIVILITE — « M. », « Mme », ou `null` (non renseignée). */
+    civilite?: Civilite | null;
     coordonnees: Array<{ id: number; sorte: SorteCoordonnee; libelle: string | null; valeur: string }>;
     /** Les clés des copropriétés suivies (LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES : le marqueur n'est plus jamais vrai). */
     tousImmeubles: boolean; immeubles: string[];
@@ -259,8 +263,10 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
       if (sorte === 'email' && !emailPlausible(valeur)) return { ok: false, motif: `E-mail illisible : « ${valeur} ».` };
       coordonnees.push({ id: entierOuNull(k.id), sorte, libelle: texte(k.libelle), valeur });
     }
+    const civilite = civiliteLue(c.civilite);
+    if (civilite === undefined) return { ok: false, motif: `Civilité inconnue : « ${texte(c.civilite)} » (M. ou Mme).` };
     const contact: ContactSaisi = {
-      id: entierOuNull(c.id), titre: texte(c.titre), prenom: texte(c.prenom), nom: texte(c.nom), coordonnees,
+      id: entierOuNull(c.id), titre: texte(c.titre), prenom: texte(c.prenom), nom: texte(c.nom), coordonnees, civilite,
       // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — « tous » n'est plus un suivi automatique : demandé (ancienne forme), il se
       // traduit plus bas en affectations EXPLICITES aux copropriétés ACTUELLES ; absent, aucune copropriété.
       tousImmeubles: c.tousImmeubles === true,
@@ -401,6 +407,40 @@ export function syndicsQuiRepondent(q: string, syndics: readonly SyndicResume[])
   return syndics.filter((s) => s.cherchable.includes(n));
 }
 
+// ══ LOT SYNDIC-CONTACT-CIVILITE ═══════════════════════════════════════════════════════════════════════════════════
+// ARNO : « une CIVILITÉ facultative sur les contacts de syndic, pour la future rédaction automatique des mails ».
+// Deux valeurs, ou rien. Elle s'affiche devant « Prénom NOM » dans les tuiles ; l'anti-doublon l'IGNORE (`cleNom`
+// ne lit que le prénom et le nom : « M. Mathis BERCIER » et « Mathis BERCIER » sont le même contact).
+
+export const CIVILITES = ['M.', 'Mme'] as const;
+export type Civilite = (typeof CIVILITES)[number];
+
+/** Une civilité reçue : l'une des deux, sinon `null` (vide ou absente). Une autre valeur ⇒ `undefined` (refusée). PUR. */
+export function civiliteLue(v: unknown): Civilite | null | undefined {
+  if (v === null || v === undefined) return null;
+  const t = typeof v === 'string' ? v.trim() : String(v);
+  if (t === '') return null;
+  return (CIVILITES as readonly string[]).includes(t) ? (t as Civilite) : undefined;
+}
+
+/** « M. Prénom NOM » quand la civilité est renseignée ET qu'il y a un nom ; sinon « Prénom NOM » (ou vide). PUR. */
+export function prenomNomCivil(civilite: Civilite | null | undefined, prenom: string | null | undefined, nom: string | null | undefined): string {
+  const n = prenomNom(prenom, nom);
+  return n !== '' && civilite ? `${civilite} ${n}` : n;
+}
+
+/**
+ * LA FORMULE D'APPEL d'un mail — préparée pour la rédaction automatique, branchée nulle part pour l'instant. PUR.
+ *   M. ⇒ « Monsieur NOM » ; Mme ⇒ « Madame NOM » ; pas de civilité ⇒ « Madame, Monsieur ».
+ * Le NOM s'écrit en capitales, comme partout dans la fiche. Civilité connue mais nom vide ⇒ « Monsieur » / « Madame ».
+ */
+export function formuleAppel(civilite: Civilite | null | undefined, nom: string | null | undefined): string {
+  if (civilite !== 'M.' && civilite !== 'Mme') return 'Madame, Monsieur';
+  const appel = civilite === 'M.' ? 'Monsieur' : 'Madame';
+  const n = (nom ?? '').trim().toUpperCase();
+  return n === '' ? appel : `${appel} ${n}`;
+}
+
 /** « Prénom Nom », ou le titre quand il n'y a pas de nom. PUR. */
 export function nomDuContact(c: { titre?: string | null; prenom?: string | null; nom?: string | null }): string {
   const nom = [c.prenom, c.nom].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(' ');
@@ -425,6 +465,8 @@ export const PERSONNALISE = 'Personnalisé';
 export interface CoordonneeForm { cle: string; id: number | null; sorte: SorteCoordonnee; choix: string; libre: string; valeur: string }
 export interface ContactForm {
   cle: string; id: number | null; titreChoix: string; titreLibre: string; prenom: string; nom: string;
+  /** LOT SYNDIC-CONTACT-CIVILITE — « M. », « Mme », ou `null` (aucun bouton actif). */
+  civilite: Civilite | null;
   coordonnees: CoordonneeForm[];
   /** Les clés des copropriétés suivies ; `tousImmeubles` reste faux (LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES). */
   tousImmeubles: boolean; immeubles: string[];
@@ -463,7 +505,7 @@ export function formulaireVide(immeubleDepart?: ImmeubleSaisi | null, lotNote: n
 /** Un contact NOUVEAU (il s'ouvre EN MODIFICATION). */
 export function contactVide(suivi?: { tousImmeubles: boolean; immeubles: string[] }): ContactForm {
   return {
-    cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', coordonnees: [],
+    cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', civilite: null, coordonnees: [],
     tousImmeubles: false, immeubles: suivi?.immeubles ?? [],
   };
 }
@@ -502,6 +544,7 @@ export function versFormulaire(f: FicheSyndic, lotNote: number | null = null): S
       const t = choixDe(c.titre, TITRES_CONTACT);
       return {
         cle: cleLocale(), id: c.id, titreChoix: t.choix, titreLibre: t.libre, prenom: c.prenom ?? '', nom: c.nom ?? '',
+        civilite: civiliteLue(c.civilite) ?? null,
         // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — un ancien « tous » (non encore converti) se lit comme les copropriétés
         // ACTUELLES, explicitement : c'est exactement ce que fait la migration 329.
         tousImmeubles: false,
@@ -527,7 +570,7 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
     telephone: chiffresTelephone(f.telephones[0]), telephone2: chiffresTelephone(f.telephones[1]),
     email: f.email, note: f.note,
     contacts: f.contacts.map((c) => ({
-      id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom,
+      id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom, civilite: c.civilite ?? null,
       tousImmeubles: false, immeubles: [...c.immeubles],
       coordonnees: c.coordonnees.map((k) => ({
         id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
@@ -556,7 +599,7 @@ export interface EditionContact {
 /** Ce qu'un contact dit de lui, sans sa clé d'écran ni l'ordre de ses champs vides. PUR. */
 function signatureContact(c: ContactForm): string {
   return JSON.stringify({
-    titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom.trim(), nom: c.nom.trim(),
+    titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom.trim(), nom: c.nom.trim(), civilite: c.civilite ?? null,
     suivi: [...c.immeubles].sort(),
     coordonnees: c.coordonnees.map((k) => ({
       sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),

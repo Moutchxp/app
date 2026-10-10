@@ -2065,3 +2065,149 @@ describe('LOT SYNDIC-CATALOGUE-TUILES-ROSES', () => {
     }
   });
 });
+
+/**
+ * ══ LOT SYNDIC-CONTACT-CIVILITE ══════════════════════════════════════════════════════════════════════════════════
+ * Un syndic _TEST, une copropriété ; Mathis (M.) et Jo (sans civilité) la suivent ; Léa (Mme) n'est qu'au catalogue.
+ */
+describe('LOT SYNDIC-CONTACT-CIVILITE — saisie et affichage', () => {
+  type Corps = { contacts: Array<{ id?: number | null; prenom: string; nom: string; civilite: string | null }> };
+  const FICHE_30 = {
+    ...FICHE, id: 30, nom: '_TEST Cabinet Civilité',
+    contacts: [
+      { id: 61, titre: 'Responsable de copropriété', prenom: 'Mathis', nom: 'Bercier', civilite: 'M.', tousImmeubles: false, immeubles: ['12 rue x'], coordonnees: [] },
+      { id: 62, titre: 'Service comptabilité', prenom: 'Léa', nom: 'Durand', civilite: 'Mme', tousImmeubles: false, immeubles: [], coordonnees: [] },
+      { id: 63, titre: null, prenom: 'Jo', nom: 'Sans', civilite: null, tousImmeubles: false, immeubles: ['12 rue x'], coordonnees: [] },
+    ],
+  };
+  const servir30 = (): void => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      if (url === '/api/admin/gestion/syndics/30' && m === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche: FICHE_30 }) };
+      if (url === '/api/admin/gestion/syndics/30') { appels.push({ url, methode: m, corps: JSON.parse(String(init?.body)) }); return { ok: true, json: async () => ({ ok: true, id: 30 }) }; }
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const ouvrir30 = async (depuisLeBien: boolean): Promise<void> => {
+    servir30();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 30, onFerme: vi.fn(),
+        immeubleDepart: depuisLeBien ? { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } : null }));
+    });
+    await calmer();
+  };
+  const edit = (): HTMLElement => document.querySelector('.fsy-contact-edit') as HTMLElement;
+  const civ = (mot: string): HTMLButtonElement => boutonDans(edit().querySelector('[aria-label="Civilité"]'), mot);
+  const pressees = (): string[] => [...edit().querySelectorAll('[aria-label="Civilité"] button')]
+    .filter((b) => b.getAttribute('aria-pressed') === 'true').map((b) => b.textContent ?? '');
+  const champC = (label: string): HTMLInputElement => {
+    const l = [...edit().querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === label);
+    return l?.querySelector('input') as HTMLInputElement;
+  };
+  const corps = (): Corps => appels.filter((a) => a.methode === 'PUT').at(-1)?.corps as Corps;
+  const noms = (sel: string): string[] => [...document.querySelectorAll(sel)].map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
+  const modifier = async (nom: string): Promise<void> => {
+    const t = [...document.querySelectorAll('button.fsy-contact-replie')].find((b) => b.querySelector('.fsy-contact-nom')?.textContent === nom);
+    await cliquer(t as Element);
+    const ouvert = [...document.querySelectorAll('.fsy-contact-ouvert')].find((o) => o.querySelector('.fsy-contact-nom')?.textContent === nom);
+    await cliquer(boutonDans(ouvert as Element, 'Modifier'));
+  };
+  const valider = async (): Promise<void> => {
+    await cliquer(boutonDans(edit(), 'Valider'));
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+  };
+
+  it('le champ « Civilité » : à GAUCHE de Prénom et Nom sur leur ligne, sous le Titre ; deux pilules, aucune active', async () => {
+    await ouvrir30(false);
+    await cliquer(bouton('+ Ajouter un contact'));
+    const ligne = edit().querySelector('.fsy-duo--civilite') as HTMLElement;
+    expect([...ligne.children].map((x) => x.querySelector(':scope > span')?.textContent)).toEqual(['Civilité', 'Prénom', 'Nom']);
+    const titre = [...edit().querySelectorAll('.fsy-duo')].findIndex((d) => d.textContent?.includes('Titre'));
+    expect(titre).toBeLessThan([...edit().querySelectorAll('.fsy-duo')].indexOf(ligne));
+    expect([...ligne.querySelectorAll('button')].map((b) => [b.textContent, b.className, b.getAttribute('aria-pressed')]))
+      .toEqual([['M.', 'gpil', 'false'], ['Mme', 'gpil', 'false']]);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.gpil--actif{color:var(--color-svv-surface);background:var(--color-svv-red)');
+  });
+
+  it('un clic choisit, un clic sur l’autre bascule, un clic sur l’actif revient à VIDE', async () => {
+    await ouvrir30(false);
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(civ('M.'));
+    expect(pressees()).toEqual(['M.']);
+    expect(civ('M.').className).toBe('gpil gpil--actif');
+    await cliquer(civ('Mme'));
+    expect(pressees()).toEqual(['Mme']);
+    await cliquer(civ('Mme'));
+    expect(pressees()).toEqual([]);
+  });
+
+  for (const [choix, attendu] of [['M.', 'M.'], ['Mme', 'Mme'], [null, null]] as const) {
+    it(`CRÉATION ${choix ?? 'sans civilité'} : enregistrée « ${attendu ?? 'null'} » ; jamais obligatoire`, async () => {
+      await ouvrir30(false);
+      await cliquer(bouton('+ Ajouter un contact'));
+      if (choix !== null) await cliquer(civ(choix));
+      await taper(champC('Prénom'), 'Anne');
+      await taper(champC('Nom'), 'Neuve');
+      await valider();
+      const c = corps().contacts.find((x) => x.nom === 'Neuve');
+      expect(c?.civilite).toBe(attendu);
+      expect(c?.id ?? null).toBeNull();
+    });
+  }
+
+  it('MODIFICATION : ajouter une civilité (Jo), en changer (Mathis), la retirer (Léa)', async () => {
+    await ouvrir30(false);
+    await modifier('Jo SANS');
+    expect(pressees()).toEqual([]);
+    await cliquer(civ('M.'));
+    await cliquer(boutonDans(edit(), 'Valider'));
+    await modifier('M. Mathis BERCIER');
+    expect(pressees()).toEqual(['M.']);
+    await cliquer(civ('Mme'));
+    await cliquer(boutonDans(edit(), 'Valider'));
+    await modifier('Mme Léa DURAND');
+    await cliquer(civ('Mme'));
+    await valider();
+    expect(corps().contacts.map((c) => [c.id, c.civilite])).toEqual([[61, 'Mme'], [62, null], [63, 'M.']]);
+  });
+
+  it('une civilité changée suffit à rendre le contact « modifié » (« Valider » apparaît)', async () => {
+    await ouvrir30(false);
+    await modifier('Jo SANS');
+    const valide = (): boolean => [...edit().querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Valider' && !b.disabled);
+    expect(valide()).toBe(false);
+    await cliquer(civ('Mme'));
+    expect(valide()).toBe(true);
+  });
+
+  it('AFFICHAGE — « Contacts de cette copropriété » (depuis un bien) : « M. Mathis BERCIER », « Jo SANS »', async () => {
+    await ouvrir30(true);
+    expect(noms('section[aria-labelledby="fsy-bloc-1"] > button.fsy-contact-replie')).toEqual(['M. Mathis BERCIER', 'Jo SANS']);
+  });
+
+  it('AFFICHAGE — Catalogue : « Mme Léa DURAND », repliée puis dépliée', async () => {
+    await ouvrir30(true);
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(noms('.fsy-catalogue-liste > button.fsy-contact-replie')).toEqual(['Mme Léa DURAND']);
+    await cliquer(document.querySelector('.fsy-catalogue-liste > button.fsy-contact-replie') as Element);
+    expect(document.querySelector('.fsy-catalogue-liste .fsy-contact-tete-btn .fsy-contact-nom')?.textContent).toBe('Mme Léa DURAND');
+  });
+
+  it('AFFICHAGE — écran « Syndics » : chaque tuile, et la tuile DÉPLIÉE en lecture', async () => {
+    await ouvrir30(false);
+    expect(noms('button.fsy-contact-replie')).toEqual(['M. Mathis BERCIER', 'Mme Léa DURAND', 'Jo SANS']);
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    expect(document.querySelector('.fsy-contact-ouvert .fsy-contact-nom')?.textContent).toBe('M. Mathis BERCIER');
+    expect(document.querySelector('.fsy-contact-ouvert .fsy-contact-titre')?.textContent).toBe('Responsable de copropriété');
+  });
+
+  it('AFFICHAGE — le panneau d’une copropriété (bloc 2) nomme aussi « M. Mathis BERCIER »', async () => {
+    await ouvrir30(false);
+    await deplierCopros();
+    await cliquer(document.querySelector('.fsy-copro button[aria-expanded]') as Element);
+    const l = [...document.querySelectorAll('.fsy-copro-contacts .fsy-coord-gauche strong')].map((x) => x.textContent);
+    expect(l).toEqual(['M. Mathis BERCIER', 'Jo SANS']);
+  });
+});

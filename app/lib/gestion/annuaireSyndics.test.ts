@@ -6,6 +6,7 @@ import {
   formaterTelephone, formulaireModifie, formulaireVide, contactVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
   PERSONNALISE, saisieTelephone, lotsDuPortefeuille, cleNom, cleEmail, doublonsLocaux, motDoublon, detacher, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
+  civiliteLue, formuleAppel, prenomNomCivil, type Civilite,
 } from './syndics';
 
 /**
@@ -154,7 +155,7 @@ describe('l\'adresse du syndic est OBLIGATOIRE — rue, code postal (5 chiffres)
 
 describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — les règles d\'un contact en modification', () => {
   const base = { cle: 'k1', id: 4, titreChoix: 'Responsable de copropriété', titreLibre: '', prenom: 'Marie', nom: 'Dupont',
-    tousImmeubles: true, immeubles: [] as string[],
+    civilite: null as Civilite | null, tousImmeubles: true, immeubles: [] as string[],
     coordonnees: [{ cle: 'c1', id: 5, sorte: 'telephone' as const, choix: 'Portable', libre: '', valeur: '06 13 86 18 77' }] };
   it('« Modifier » devient « Valider » dès qu\'un champ change — et pas pour un simple reformatage', () => {
     expect(contactModifie(base, copieContact(base))).toBe(false);
@@ -356,6 +357,62 @@ describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE — detacher (pur)', () => {
     const c = { ...contactVide({ tousImmeubles: false, immeubles: ['a', 'b'] }), nom: 'X' };
     expect(detacher(c, 'a', ['a', 'b', 'c'])).toMatchObject({ tousImmeubles: false, immeubles: ['b'] });
     expect(detacher(c, 'z', ['a', 'b', 'c'])).toMatchObject({ immeubles: ['a', 'b'] });
+  });
+});
+
+describe('LOT SYNDIC-CONTACT-CIVILITE — la civilité (pur)', () => {
+  it('formule d’appel : M. ⇒ « Monsieur NOM », Mme ⇒ « Madame NOM », vide ⇒ « Madame, Monsieur »', () => {
+    expect(formuleAppel('M.', 'Bercier')).toBe('Monsieur BERCIER');
+    expect(formuleAppel('Mme', ' Durand ')).toBe('Madame DURAND');
+    expect(formuleAppel(null, 'Bercier')).toBe('Madame, Monsieur');
+    expect(formuleAppel(undefined, null)).toBe('Madame, Monsieur');
+    expect(formuleAppel('M.', '')).toBe('Monsieur');
+    expect(formuleAppel('Mme', null)).toBe('Madame');
+  });
+  it('formule d’appel : branchée NULLE PART pour l’instant (aucun envoi)', () => {
+    const src = readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/FicheSyndic.tsx'), 'utf8');
+    expect(src).not.toContain('formuleAppel');
+    expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toContain('formuleAppel');
+  });
+  it('affichage : « M. Mathis BERCIER », « Mme Léa DURAND » ; sans civilité comme avant ; sans nom, rien à préfixer', () => {
+    expect(prenomNomCivil('M.', 'Mathis', 'Bercier')).toBe('M. Mathis BERCIER');
+    expect(prenomNomCivil('Mme', 'Léa', 'Durand')).toBe('Mme Léa DURAND');
+    expect(prenomNomCivil(null, 'Mathis', 'Bercier')).toBe('Mathis BERCIER');
+    expect(prenomNomCivil('M.', '', '')).toBe('');
+  });
+  it('lecture : « M. », « Mme », vide ⇒ null ; toute autre valeur ⇒ refusée', () => {
+    expect([civiliteLue('M.'), civiliteLue(' Mme '), civiliteLue(''), civiliteLue(null), civiliteLue(undefined)]).toEqual(['M.', 'Mme', null, null, null]);
+    expect(civiliteLue('Mlle')).toBeUndefined();
+    expect(civiliteLue('Monsieur')).toBeUndefined();
+  });
+  it('validation : M., Mme et sans civilité acceptés ; une autre valeur refusée avec un motif', () => {
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ nom: 'A', civilite: 'M.' }, { nom: 'B', civilite: 'Mme' }, { nom: 'C' }, { nom: 'D', civilite: '' }] });
+    expect(v.ok && v.syndic.contacts.map((c) => c.civilite)).toEqual(['M.', 'Mme', null, null]);
+    expect(validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ nom: 'A', civilite: 'Mlle' }] }))
+      .toEqual({ ok: false, motif: 'Civilité inconnue : « Mlle » (M. ou Mme).' });
+  });
+  it('formulaire : contact vide sans civilité ; aller-retour fiche ⇄ formulaire ⇄ saisie ; changer la civilité = modifié', () => {
+    expect(contactVide().civilite).toBeNull();
+    const fiche = { id: 1, nom: 'S', adresse: null, codePostal: null, ville: null, telephone: null, telephone2: null, email: null, note: null,
+      creeLe: '', creeParLibelle: '', majLe: null, majParLibelle: null, noteBien: null, coproprietes: [], historique: [],
+      contacts: [{ id: 3, titre: null, prenom: 'Mathis', nom: 'BERCIER', civilite: 'M.' as const, tousImmeubles: false, immeubles: [], coordonnees: [] }] } as unknown as FicheSyndic;
+    const f = versFormulaire(fiche);
+    expect(f.contacts[0].civilite).toBe('M.');
+    expect(versSaisie(f).contacts[0].civilite).toBe('M.');
+    const c = f.contacts[0];
+    expect(contactModifie(c, { ...c, civilite: 'Mme' })).toBe(true);
+    expect(contactModifie(c, { ...c, civilite: null })).toBe(true);
+    expect(contactModifie(c, { ...c })).toBe(false);
+    expect(versSaisie({ ...f, contacts: [{ ...c, civilite: null }] }).contacts[0].civilite).toBeNull();
+  });
+  it('l’anti-doublon IGNORE la civilité : « M. Mathis BERCIER » = « Mathis BERCIER »', () => {
+    const a = { ...contactVide(), civilite: 'M.' as const, prenom: 'Mathis', nom: 'BERCIER' };
+    const b = { ...contactVide(), civilite: null, prenom: 'mathis', nom: 'bercier' };
+    const c = { ...contactVide(), civilite: 'Mme' as const, prenom: 'Mathis', nom: 'Bercier' };
+    expect(doublonsLocaux(b, [a]).nom).toBe(a);
+    expect(doublonsLocaux(c, [a]).nom).toBe(a);
+    expect(validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ prenom: 'Mathis', nom: 'BERCIER', civilite: 'M.' }, { prenom: 'Mathis', nom: 'Bercier' }] }))
+      .toEqual({ ok: false, motif: 'Deux contacts de ce syndic portent le même nom : Mathis BERCIER.' });
   });
 });
 
@@ -648,6 +705,13 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(sql).toContain('AND NOT EXISTS'); // idempotente : rien n'est recréé
     expect(sql).toContain("SET tous_immeubles = false, maj_le = now(), maj_par_libelle = 'migration' WHERE tous_immeubles");
     expect(sql).toContain('ALTER TABLE gestion_syndic_contact ALTER COLUMN tous_immeubles SET DEFAULT false');
+  });
+
+  it('MIGRATION 330 : une colonne civilité d’AJOUT (nullable, sans défaut, M. ou Mme), idempotente ; aucun contact réécrit', () => {
+    const sql = norm(readFileSync(join(__dirname, '../../../db/migrations/330_gestion_syndic_contact_civilite.sql'), 'utf8')
+      .split('\n').filter((l) => !l.startsWith('--')).join('\n'));
+    expect(sql).toContain("ADD COLUMN IF NOT EXISTS civilite text CONSTRAINT gestion_syndic_contact_civilite_valeurs CHECK (civilite IN ('M.', 'Mme'))");
+    expect(sql).not.toMatch(/\bDEFAULT\b|\bUPDATE\b|\bDELETE\b|\bDROP\b|NOT NULL/i);
     expect(sql).not.toMatch(/\b(DELETE|DROP|TRUNCATE)\b/i);
   });
 
@@ -708,6 +772,37 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     const sql = norm(appels.find((a) => a.sql.includes('FROM gestion_annuaire_lot lo'))?.sql ?? '');
     expect(sql).toContain('FROM gestion_annuaire_proprietaire p WHERE p.id = lo.proprietaire_id AND p.supprime_le IS NULL');
     expect(sql).toContain('WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL AND p2.supprime_le IS NULL');
+  });
+
+  it('CIVILITÉ : écrite à la création et à la modification (M., Mme, ou NULL) ; relue par la fiche', async () => {
+    const { enregistrerSyndic, ficheSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_syndic_contact WHERE syndic_id = $1 AND retire_le IS NULL FOR UPDATE') ? { rows: [{ id: '21' }, { id: '22' }] } : undefined),
+      (sql) => (sql.includes('INSERT INTO gestion_syndic_contact ') ? { rows: [{ id: '23' }] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [
+      { id: 21, nom: 'A', civilite: 'Mme' }, // modification : on en change
+      { id: 22, nom: 'B' },                   // modification : on la retire
+      { nom: 'C', civilite: 'M.' },           // création
+    ] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    const maj = appels.filter((a) => a.sql.includes('UPDATE gestion_syndic_contact SET titre'));
+    expect(norm(maj[0].sql)).toContain('civilite = $8');
+    expect(maj.map((a) => [a.params[0], a.params[7]])).toEqual([[21, 'Mme'], [22, null]]);
+    const ins = appels.find((a) => a.sql.includes('INSERT INTO gestion_syndic_contact '));
+    expect(norm(ins?.sql ?? '')).toContain('tous_immeubles, civilite)');
+    expect(ins?.params[7]).toBe('M.');
+    appels.length = 0;
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL') ? { rows: [{ id: '11', nom: 'S', cree_le: '', cree_par_libelle: 'x' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_syndic_contact') && sql.includes('civilite') ? { rows: [
+        { id: '21', titre: null, prenom: 'Léa', nom: 'X', tous_immeubles: false, civilite: 'Mme' },
+        { id: '22', titre: null, prenom: 'Jo', nom: 'Y', tous_immeubles: false, civilite: null },
+      ] } : undefined),
+    ];
+    expect((await ficheSyndic(11))?.contacts.map((c) => c.civilite)).toEqual(['Mme', null]);
   });
 
   it('NOTE PAR BIEN : la fiche lue pour un lot porte la note du couple (lot, syndic), et elle seule', async () => {

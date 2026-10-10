@@ -8,7 +8,7 @@ import {
   affecter, motBiens, motContacts, suiviParDefaut, suitImmeuble,
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
-  adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -18,6 +18,7 @@ import {
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
 import { chercherAdresses } from './adressesSyndic';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
+import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA FICHE SYNDIC (UN SEUL COMPOSANT, RÉUTILISABLE TEL QUEL) ═══════════
@@ -1082,7 +1083,8 @@ function motImmeublesSuivis(c: ContactForm, adresses: Array<{ cle: string; adres
  * FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS). Sans nom, le titre seul, en gras, à gauche.
  */
 function EnteteContact({ c }: { c: ContactForm }) {
-  const nom = prenomNom(c.prenom, c.nom);
+  // LOT SYNDIC-CONTACT-CIVILITE — « M. Mathis BERCIER » quand la civilité est renseignée, sinon comme avant.
+  const nom = prenomNomCivil(c.civilite, c.prenom, c.nom);
   const titre = valeurDuChoix(c.titreChoix, c.titreLibre);
   return (
     <span className="fsy-contact-ligne">
@@ -1206,7 +1208,19 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
         <SelectChoix libelle="Titre" choix={c.titreChoix} libre={c.titreLibre} options={TITRES_CONTACT}
           onChange={(choix, libre) => onChange({ ...c, titreChoix: choix, titreLibre: libre })} />
       </div>
-      <div className="fsy-duo">
+      <div className="fsy-duo fsy-duo--civilite">
+        {/* LOT SYNDIC-CONTACT-CIVILITE — à GAUCHE de Prénom et Nom, sur leur ligne : deux bascules « M. » / « Mme ».
+            Un clic choisit, un clic sur l'actif revient à vide. Jamais obligatoire. Les pilules de l'app (actif rouge). */}
+        <div className="fsy-champ fsy-champ--civilite" role="group" aria-label="Civilité">
+          <style>{CSS_BOUTON_PILULE}</style>
+          <span>Civilité</span>
+          <span className="fsy-civilites">
+            {CIVILITES.map((v) => (
+              <BoutonPilule key={v} mot={v} actif={c.civilite === v}
+                onClick={() => onChange({ ...c, civilite: c.civilite === v ? null : v })} />
+            ))}
+          </span>
+        </div>
         {/* 🔴 LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — la casse se met EN QUITTANT le champ, jamais pendant la
             frappe : « jean-pierre » → « Jean-Pierre », « lefèvre » → « LEFÈVRE ». Rien n'est réécrit en base hors d'une
             modification : un contact existant garde sa casse tant qu'on ne touche pas à son champ. */}
@@ -1377,7 +1391,7 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
                     {suivent.map((x) => (
                       <div key={x.cle} className="fsy-contact-coord">
                         <span className="fsy-coord-gauche">
-                          <strong>{nomAffiche(x)}</strong>
+                          <strong>{prenomNomCivil(x.civilite, x.prenom, x.nom) || nomAffiche(x)}</strong>
                           {valeurDuChoix(x.titreChoix, x.titreLibre) !== '' && prenomNom(x.prenom, x.nom) !== '' && (
                             <span className="fsy-discret"> · {valeurDuChoix(x.titreChoix, x.titreLibre)}</span>
                           )}
@@ -1398,7 +1412,7 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
                           <label key={x.cle} className="fsy-case">
                             <input type="checkbox" checked={aCocher.includes(x.cle)}
                               onChange={(ev) => setACocher(ev.target.checked ? [...aCocher, x.cle] : aCocher.filter((k) => k !== x.cle))} />
-                            <span>{nomAffiche(x)}{valeurDuChoix(x.titreChoix, x.titreLibre) && prenomNom(x.prenom, x.nom) ? ` · ${valeurDuChoix(x.titreChoix, x.titreLibre)}` : ''}</span>
+                            <span>{prenomNomCivil(x.civilite, x.prenom, x.nom) || nomAffiche(x)}{valeurDuChoix(x.titreChoix, x.titreLibre) && prenomNom(x.prenom, x.nom) ? ` · ${valeurDuChoix(x.titreChoix, x.titreLibre)}` : ''}</span>
                           </label>
                         ))}
                         <div className="fsy-boutons fsy-boutons--contact">
@@ -1464,6 +1478,9 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-champ textarea{min-height:0;resize:vertical}
 .fsy-duo{display:flex;flex-wrap:wrap;gap:.45rem}
 .fsy-duo > .fsy-champ{flex:1 1 11rem}
+/* LOT SYNDIC-CONTACT-CIVILITE — le petit champ a gauche de Prenom/Nom : sa largeur, pas celle d'un champ texte. */
+.fsy-duo > .fsy-champ.fsy-champ--civilite{flex:0 0 auto}
+.fsy-civilites{display:flex;gap:.3rem;align-items:center;min-height:36px}
 .fsy-duo > .fsy-champ--cp{flex:0 0 7rem}
 .fsy-duo > .fsy-champ--large{flex:2 1 13rem}
 .fsy-champ--groupe{gap:.3rem}
