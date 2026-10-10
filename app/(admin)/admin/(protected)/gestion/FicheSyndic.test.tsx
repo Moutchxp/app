@@ -1509,8 +1509,12 @@ describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE', () => {
     await depuisLeBien();
     const o = await ouvrirContact('Marie DOUZE');
     const boutons = [...o.querySelectorAll('.fsy-boutons button')] as HTMLButtonElement[];
-    expect(boutons.map((b) => b.textContent?.trim())).toEqual(['Détacher de la copropriété', 'Fermer', 'Modifier']);
-    expect(boutons[0].className).toBe('svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-detacher fsy-pousse-gauche');
+    // LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT — CE QU'IL DISAIT AVANT : trois boutons, « Détacher » portant le
+    // retrait à gauche. « Ne travaille plus ici » s'ajoute À CÔTÉ ; c'est lui qui porte désormais le retrait.
+    expect(boutons.map((b) => b.textContent?.trim())).toEqual(['Détacher de la copropriété', 'Ne travaille plus ici', 'Fermer', 'Modifier']);
+    expect(boutons[0].className).toBe('svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-detacher');
+    expect(boutons[1].className).toBe('svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-parti fsy-pousse-gauche');
+    boutons.splice(1, 1);
     expect(boutons[1].className).toBe('svv-btn svv-btn-outline gst-btn fsy-mini-btn');
     expect(o.textContent).not.toContain('Supprimer ce contact');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
@@ -1573,7 +1577,10 @@ describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE', () => {
     const o = await ouvrirContact('Marie DOUZE');
     expect([...o.querySelectorAll('button')].some((b) => b.textContent?.includes('Détacher'))).toBe(false);
     const sup = [...o.querySelectorAll('button')].find((b) => b.textContent === 'Supprimer ce contact') as HTMLButtonElement;
-    expect(sup.className).toBe('fsy-lien-bouton fsy-pousse-gauche');
+    // LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT — CE QU'IL DISAIT AVANT : 'fsy-lien-bouton fsy-pousse-gauche'. Le
+    // lien est inchangé ; le retrait à gauche passe à « Ne travaille plus ici », posé juste après lui.
+    expect(sup.className).toBe('fsy-lien-bouton');
+    expect((sup.nextElementSibling as HTMLElement).textContent).toBe('Ne travaille plus ici');
   });
 });
 
@@ -2636,3 +2643,189 @@ function servirFiche(fiche: unknown): void {
     return (avant as typeof fetch)(url, init);
   }));
 }
+
+/**
+ * ══ LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT ═════════════════════════════════════════════════════════════
+ * Syndic _TEST 60 : trois copropriétés ; M. Mathis BERCIER les suit toutes, Léa la seule 25 rue Edith Cavell ;
+ * un ancien contact, Jean ANCIEN, parti le 10/10/2026.
+ */
+describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
+  type Corps = { contacts: Array<{ id?: number | null; nom: string; parti?: boolean; reintegre?: boolean; immeubles: string[]; coordonnees: unknown[] }> };
+  const copro = (id: number, libelle: string, cp: string, commune: string) =>
+    ({ id, cle: libelle.toLowerCase(), libelle, codePostal: cp, commune, debut: '2026-10-10', lots: [] });
+  const FICHE_60 = {
+    ...FICHE, id: 60, nom: '_TEST ARNAUD', ville: 'Asnieres Sur Seine',
+    contacts: [
+      { id: 91, titre: 'Responsable de copropriété', prenom: 'Mathis', nom: 'Bercier', civilite: 'M.', tousImmeubles: false,
+        immeubles: ['12 rue des pavillons', '15 rue carle hebert', '25 rue edith cavell'],
+        coordonnees: [{ id: 95, sorte: 'email', libelle: null, valeur: 'mathis@test.invalid' }] },
+      { id: 92, titre: null, prenom: 'Léa', nom: 'Une', civilite: 'Mme', tousImmeubles: false, immeubles: ['25 rue edith cavell'], coordonnees: [] },
+    ],
+    coproprietes: [copro(6, '12 rue des Pavillons', '92800', 'Puteaux'), copro(7, '15 rue Carle Hebert', '92400', 'Courbevoie'),
+      copro(8, '25 rue Edith Cavell', '92400', 'Courbevoie')],
+    anciens: [{ id: 99, titre: 'Service comptabilité', prenom: 'Jean', nom: 'Ancien', civilite: null, partiLe: '2026-10-10T08:00:00Z',
+      coordonnees: [{ sorte: 'email', libelle: null, valeur: 'jean@test.invalid' }] }],
+  };
+  const SYNDICS_20 = Array.from({ length: 20 }, (_, i) => ({ id: 100 + i, nom: `_TEST Syndic ${String(i + 1).padStart(2, '0')}`, ville: 'Paris',
+    email: null, telephone: null, nbCoproprietes: 1, nbBiens: 0 }));
+  const servir60 = (fiche: unknown = FICHE_60): void => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null }); return rep({ ok: true, id: 60 }); }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: [] });
+      if (url.startsWith('/api/admin/gestion/syndics/60')) return rep({ etat: 'ok', fiche });
+      if (url.startsWith('/api/admin/gestion/syndics?q=')) return rep({ etat: 'ok', disponible: true, syndics: SYNDICS_20 });
+      if (url.startsWith('/api/admin/gestion/syndics/doublons')) return rep({ emails: [], noms: [] });
+      return rep({});
+    }));
+  };
+  const ouvrir60 = async (bien: string | null, onFerme = vi.fn()): Promise<ReturnType<typeof vi.fn>> => {
+    servir60();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 60, onFerme,
+        immeubleDepart: bien === null ? null : { libelle: bien, codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    return onFerme;
+  };
+  const tuiles = (): string[] => [...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] > button.fsy-contact-replie, section[aria-labelledby="fsy-bloc-1"] > .fsy-contact-ouvert')]
+    .map((t) => t.querySelector('.fsy-contact-nom')?.textContent ?? '');
+  const deplier = async (nom: string): Promise<HTMLElement> => {
+    const t = [...document.querySelectorAll('button.fsy-contact-replie')].find((b) => b.querySelector('.fsy-contact-nom')?.textContent === nom) as Element;
+    await cliquer(t);
+    return [...document.querySelectorAll('.fsy-contact-ouvert')].find((o) => o.querySelector('.fsy-contact-nom')?.textContent === nom) as HTMLElement;
+  };
+  const put = (): Corps | undefined => appels.find((a) => a.methode === 'PUT')?.corps as Corps | undefined;
+  const PHRASE = 'M. Mathis BERCIER ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ? Il sera retiré du catalogue et de ses 3 copropriétés : '
+    + '15 rue Carle Hebert, 92400 Courbevoie · 12 rue des Pavillons, 92800 Puteaux · 25 rue Edith Cavell, 92400 Courbevoie.';
+
+  it('le bouton « Ne travaille plus ici » : dans la tuile dépliée, depuis un bien (à côté de « Détacher ») comme depuis Syndics (à côté de « Supprimer ce contact »)', async () => {
+    await ouvrir60('25 rue Edith Cavell');
+    let o = await deplier('M. Mathis BERCIER');
+    expect([...o.querySelectorAll('.fsy-boutons button')].map((b) => b.textContent)).toEqual(['Détacher de la copropriété', 'Ne travaille plus ici', 'Fermer', 'Modifier']);
+    await act(async () => { root.render(null); });
+    await ouvrir60(null);
+    o = await deplier('M. Mathis BERCIER');
+    expect([...o.querySelectorAll('.fsy-boutons button')].map((b) => b.textContent)).toEqual(['Supprimer ce contact', 'Ne travaille plus ici', 'Fermer', 'Modifier']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-parti,.fsy-parti:hover{background:var(--color-svv-surface);color:var(--color-svv-gray)}');
+  });
+
+  it('pas de bouton pour un contact jamais enregistré (rien à quitter)', async () => {
+    await ouvrir60(null);
+    await cliquer(bouton('+ Ajouter un contact'));
+    const champC = (label: string): HTMLInputElement => [...(document.querySelector('.fsy-contact-edit')?.querySelectorAll('label') ?? [])]
+      .find((x) => x.querySelector('span')?.textContent === label)?.querySelector('input') as HTMLInputElement;
+    await taper(champC('Nom'), 'Neuf');
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
+    const o = await deplier('NEUF');
+    expect(o.textContent).not.toContain('Ne travaille plus ici');
+  });
+
+  it('la confirmation DANS la tuile, avec ses copropriétés ; « Annuler » n’écrit rien et ne retire rien', async () => {
+    await ouvrir60(null);
+    const o = await deplier('M. Mathis BERCIER');
+    await cliquer(boutonDans(o, 'Ne travaille plus ici'));
+    const c = o.querySelector('.fsy-parti-confirmer') as HTMLElement;
+    expect(c.querySelector('span')?.textContent).toBe(PHRASE);
+    expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, il ne travaille plus ici']);
+    await cliquer(boutonDans(c, 'Annuler'));
+    expect(o.querySelector('.fsy-parti-confirmer')).toBeNull();
+    expect(tuiles()).toEqual(['M. Mathis BERCIER', 'Mme Léa UNE']);
+    expect(appels.filter((a) => a.methode !== 'GET')).toEqual([]);
+  });
+
+  it('« Oui » : il quitte la liste aussitôt ; au « Valider » de la fiche, il part (parti, sans coordonnées ni copropriétés), les autres restent', async () => {
+    const onFerme = await ouvrir60(null);
+    const o = await deplier('M. Mathis BERCIER');
+    await cliquer(boutonDans(o, 'Ne travaille plus ici'));
+    await cliquer(bouton('Oui, il ne travaille plus ici'));
+    expect(tuiles()).toEqual(['Mme Léa UNE']);
+    expect(appels.filter((a) => a.methode !== 'GET')).toEqual([]); // rien avant le Valider
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(put()?.contacts.map((c) => [c.id, c.nom, c.parti ?? false, c.immeubles, c.coordonnees])).toEqual([
+      [92, 'Une', false, ['25 rue edith cavell'], []],
+      [91, 'Bercier', true, [], []],
+    ]);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('« Oui » puis « Annuler » la fiche : TOUT est annulé, rien n’est écrit', async () => {
+    const onFerme = await ouvrir60(null);
+    const o = await deplier('M. Mathis BERCIER');
+    await cliquer(boutonDans(o, 'Ne travaille plus ici'));
+    await cliquer(bouton('Oui, il ne travaille plus ici'));
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Annuler'));
+    expect(document.querySelector('.fsy-pied')?.textContent).toContain('Abandonner les modifications ?');
+    await cliquer(bouton('Oui, abandonner'));
+    expect(onFerme).toHaveBeenCalledTimes(1);
+    expect(appels.filter((a) => a.methode !== 'GET')).toEqual([]);
+  });
+
+  it('depuis un bien : après « Oui », absent de « Contacts de cette copropriété » ET du Catalogue', async () => {
+    await ouvrir60('25 rue Edith Cavell');
+    const o = await deplier('M. Mathis BERCIER');
+    await cliquer(boutonDans(o, 'Ne travaille plus ici'));
+    await cliquer(bouton('Oui, il ne travaille plus ici'));
+    expect(tuiles()).toEqual(['Mme Léa UNE']);
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(document.querySelector('.fsy-catalogue-liste')?.textContent ?? '').not.toContain('BERCIER');
+  });
+
+  it('« Anciens contacts (1) ▸ » en bas de la liste (écran Syndics), repliée ; dépliée : nom, titre, « parti le 10/10/2026 » ; absente depuis un bien', async () => {
+    await ouvrir60(null);
+    const l = document.querySelector('.fsy-anciens') as HTMLElement;
+    const derniereTuile = [...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] > button.fsy-contact-replie')].at(-1) as Element;
+    expect(derniereTuile.compareDocumentPosition(l)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(l.querySelector('.fsy-suivis-tete')?.textContent).toBe('Anciens contacts (1)▸');
+    expect(l.querySelector('.fsy-ancien')).toBeNull();
+    await cliquer(l.querySelector('.fsy-suivis-tete') as Element);
+    const a = l.querySelector('.fsy-ancien') as HTMLElement;
+    expect(a.querySelector('span')?.textContent).toBe('Jean ANCIEN · Service comptabilité · parti le 10/10/2026');
+    expect([...a.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Réintégrer au catalogue']);
+    expect(a.querySelector('input')).toBeNull(); // lecture seule
+    await act(async () => { root.render(null); });
+    await ouvrir60('25 rue Edith Cavell');
+    expect(document.querySelector('.fsy-anciens')).toBeNull();
+  });
+
+  it('N = 0 : pas de ligne « Anciens contacts »', async () => {
+    servir60({ ...FICHE_60, anciens: [] });
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 60, onFerme: vi.fn() })); });
+    await calmer();
+    expect(document.querySelector('.fsy-anciens')).toBeNull();
+    expect(document.body.textContent).not.toContain('Anciens contacts');
+  });
+
+  it('« Réintégrer au catalogue » : il revient dans la liste (sans copropriété) ; au Valider, réintégré avec ses coordonnées', async () => {
+    await ouvrir60(null);
+    await cliquer(document.querySelector('.fsy-anciens .fsy-suivis-tete') as Element);
+    await cliquer(bouton('Réintégrer au catalogue'));
+    expect(document.querySelector('.fsy-anciens')).toBeNull();
+    expect(tuiles()).toEqual(['M. Mathis BERCIER', 'Mme Léa UNE', 'Jean ANCIEN']);
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    const c = put()?.contacts.find((x) => x.id === 99);
+    expect(c).toMatchObject({ nom: 'Ancien', reintegre: true, immeubles: [], coordonnees: [{ id: null, sorte: 'email', libelle: '', valeur: 'jean@test.invalid' }] });
+  });
+
+  it('« Créer un nouveau syndic » dans la ligne de TITRE, juste à gauche de ×, HORS de la zone qui défile — 20 syndics ; comportement inchangé', async () => {
+    servir60();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: null, onFerme: vi.fn(), immeubleDepart: { libelle: '9 rue Neuve', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await attendre(250);
+    expect(document.querySelectorAll('.fsy-resultat')).toHaveLength(20);
+    const tete = document.querySelector('.fsy-tete') as HTMLElement;
+    const b = [...tete.querySelectorAll('button')].map((x) => [x.textContent, x.className]);
+    expect(b).toEqual([['Créer un nouveau syndic', 'svv-btn svv-btn-primary gst-btn fsy-creer-tete'], ['×', 'fsy-croix']]);
+    expect(document.querySelector('.fsy-corps')?.textContent).not.toContain('Créer un nouveau syndic');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-tete-actions{flex:0 0 auto;display:flex;align-items:center;gap:.35rem;margin-left:auto}');
+    expect(css).toContain('.fsy-tete{flex-wrap:wrap}');
+    await cliquer(bouton('Créer un nouveau syndic'));
+    expect(document.querySelector('#fsy-titre')?.textContent).toBe('Créer un syndic');
+    expect(document.querySelector('.fsy-creer-tete')).toBeNull(); // seulement à l'étape de recherche
+    expect(document.body.textContent).toContain('9 rue Neuve');
+  });
+});

@@ -8,7 +8,8 @@ import {
   affecter, motBiens, motContacts, suiviParDefaut, suitImmeuble,
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
-  adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie,
+  marquerParti, reintegrer, phraseDepart, boutonDepart, type AncienContact, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -271,6 +272,9 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     <button type="button" className="fsy-retrait" onClick={demanderRetrait}>Supprimer ce syndic de cette résidence</button>
   );
 
+  /** « Créer un nouveau syndic » : le formulaire vide (l'immeuble du bien pré-rempli). */
+  const creer = (): void => { setForm(formulaireVide(immeubleDepart, lotDepart)); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); };
+
   const titre = mode === 'recherche' ? 'Syndic de la copropriété'
     // LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville » : le nom affiché, calculé ; jamais réécrit en base.
     : syndicId === null ? 'Créer un syndic' : (fiche !== null ? nomAvecVille(fiche.nom, fiche.ville) : 'Syndic');
@@ -282,7 +286,15 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       <div className="fsy" role="dialog" aria-modal="true" aria-labelledby="fsy-titre" tabIndex={-1} ref={boite}>
         <div className="fsy-tete">
           <h2 className="fsy-titre" id="fsy-titre">{titre}</h2>
-          <button type="button" className="fsy-croix" aria-label="Annuler et fermer" onClick={annuler}>×</button>
+          {/* 🔴 LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT (accord d'Arno pour ce déplacement) — CE QU'IL Y AVAIT :
+              « Créer un nouveau syndic » sous la liste des résultats (hors de vue d'une longue liste). Il est dans la
+              ligne de TITRE, fixe, juste à gauche de la croix ; seule la liste défile. Comportement inchangé. */}
+          <span className="fsy-tete-actions">
+            {mode === 'recherche' && (
+              <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-creer-tete" onClick={creer}>Créer un nouveau syndic</button>
+            )}
+            <button type="button" className="fsy-croix" aria-label="Annuler et fermer" onClick={annuler}>×</button>
+          </span>
         </div>
 
         <div className="fsy-corps">
@@ -291,8 +303,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           )}
           {mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
           {mode === 'recherche' && (
-            <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)} ancienSyndicId={ancienSyndicId}
-              onCreer={() => { setForm(formulaireVide(immeubleDepart, lotDepart)); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); }} />
+            <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)} ancienSyndicId={ancienSyndicId} />
           )}
           {mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
@@ -356,8 +367,8 @@ function questionDuContact(e: EtatEdition): string {
 
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
 
-function Recherche({ immeubleDepart, onRattacher, onCreer, ancienSyndicId = null }: {
-  immeubleDepart: ImmeubleSaisi | null; onRattacher: (id: number) => void; onCreer: () => void;
+function Recherche({ immeubleDepart, onRattacher, ancienSyndicId = null }: {
+  immeubleDepart: ImmeubleSaisi | null; onRattacher: (id: number) => void;
   /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le syndic qu'on vient de retirer de cette copropriété : sans recherche, il
    *  passe en FIN de liste (jamais proposé en tête) ; une recherche le trouve comme les autres. */
   ancienSyndicId?: number | null;
@@ -406,7 +417,6 @@ function Recherche({ immeubleDepart, onRattacher, onCreer, ancienSyndicId = null
           ))}
         </ul>
       )}
-      <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-ajout" onClick={onCreer}>Créer un nouveau syndic</button>
     </div>
   );
 }
@@ -1033,6 +1043,13 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     setOuverts(ouverts.filter((x) => x !== cle));
     if (edition?.cle === cle) setEdition(null);
   };
+  /** LOT SYNDIC-CONTACT-PARTI — « Oui, il ne travaille plus ici » : le contact quitte le catalogue de la saisie
+   *  (et donc toutes les listes) ; enregistré au « Valider » de la fiche, défait par son « Annuler ». */
+  const partir = (cle: string): void => {
+    setForm(marquerParti(form, cle));
+    setOuverts(ouverts.filter((x) => x !== cle));
+    if (edition?.cle === cle) setEdition(null);
+  };
   const supprimer = (cle: string): void => {
     setForm({ ...form, contacts: form.contacts.filter((c) => c.cle !== cle) });
     setOuverts(ouverts.filter((x) => x !== cle));
@@ -1063,6 +1080,8 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   ) : ouverts.includes(c.cle) ? (
     <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
       arrivee={arrives.includes(c.cle)} copropriteDuBien={parImmeuble ? cleDepart : null}
+      onParti={c.id !== null ? () => partir(c.cle) : undefined}
+      questionParti={phraseDepart(c, nomAvecVille(form.nom, form.ville), adresses)} ouiParti={boutonDepart(c)}
       onModifier={() => demander({ genre: 'modifier', cle: c.cle })} onSupprimer={() => setASupprimer(c.cle)}
       onDetacher={parImmeuble ? () => detacherDeLaCopro(c.cle) : undefined}
       confirmation={confirmerSuppression(c)} />
@@ -1144,6 +1163,10 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
         <p className="fsy-discret">{parImmeuble ? 'Aucun contact pour cet immeuble.' : 'Aucun contact.'}</p>
       )}
       {affiches.map(rendre)}
+      {/* LOT SYNDIC-CONTACT-PARTI — écran « Syndics » : les anciens contacts, repliés, en bas de la liste (N = 0 : rien). */}
+      {!parImmeuble && (form.anciens ?? []).length > 0 && (
+        <AnciensContacts anciens={form.anciens ?? []} onReintegrer={(id) => setForm(reintegrer(form, id))} />
+      )}
     </>
   );
   /**
@@ -1227,6 +1250,36 @@ function ImmeublesSuivisEdit({ c, origine, adresses, onChange }: {
   );
 }
 
+/**
+ * LOT SYNDIC-CONTACT-PARTI — « ANCIENS CONTACTS (N) » (écran « Syndics »), replié par défaut. Déplié : nom, titre et
+ * « parti le … », en lecture seule, et « Réintégrer au catalogue » (sans copropriété ; enregistré au Valider).
+ */
+function AnciensContacts({ anciens, onReintegrer }: { anciens: AncienContact[]; onReintegrer: (id: number) => void }) {
+  const [ouvert, setOuvert] = useState(false);
+  return (
+    <div className="fsy-suivis-repli fsy-anciens">
+      <button type="button" className="fsy-suivis-tete" aria-expanded={ouvert} onClick={() => setOuvert(!ouvert)}>
+        <span>Anciens contacts ({anciens.length})</span>
+        <span className="fsy-fleche" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
+      </button>
+      {ouvert && (
+        <ul className="fsy-suivis-liste">
+          {anciens.map((a) => (
+            <li key={a.id} className="fsy-ancien">
+              <span>
+                <strong>{prenomNomCivil(a.civilite, a.prenom, a.nom) || (a.titre ?? '').trim() || 'Contact'}</strong>
+                {(a.titre ?? '').trim() !== '' && prenomNom(a.prenom, a.nom) !== '' && <span className="fsy-discret"> · {(a.titre ?? '').trim()}</span>}
+                <span className="fsy-discret"> · parti le {jour(a.partiLe)}</span>
+              </span>
+              <button type="button" className="fsy-lien-bouton fsy-action" onClick={() => onReintegrer(a.id)}>Réintégrer au catalogue</button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — durée du fondu rose → gris d'un contact arrivé. */
 const DUREE_ARRIVEE_MS = 3000;
 
@@ -1283,7 +1336,11 @@ function EnteteContact({ c }: { c: ContactForm }) {
 }
 
 /** ② OUVERT EN LECTURE — aucune saisie ; une ligne par téléphone et par e-mail, l'action au bout. */
-function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses, onDetacher, arrivee = false, copropriteDuBien = null }: {
+function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation, adresses, onDetacher, arrivee = false, copropriteDuBien = null,
+  onParti, questionParti = '', ouiParti = '' }: {
+  /** LOT SYNDIC-CONTACT-PARTI — « Ne travaille plus ici » (absent pour un contact jamais enregistré), sa question et
+   *  son bouton de confirmation. */
+  onParti?: () => void; questionParti?: string; ouiParti?: string;
   c: ContactForm; onEcrire?: (email: string) => void; onFermer: () => void; onModifier: () => void; onSupprimer: () => void;
   confirmation: React.ReactNode; adresses: Array<{ cle: string; adresse: string }>;
   /** LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — vient d'arriver dans la liste : fond rose qui s'efface. */
@@ -1296,6 +1353,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
   const libelle = (k: CoordonneeForm): string => valeurDuChoix(k.choix, k.libre);
   const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
   const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '');
+  const [depart, setDepart] = useState(false);
   return (
     <div className={`fsy-contact-ouvert${arrivee ? ' fsy-arrivee' : ''}`} data-cle-arrivee={c.cle}>
       <button type="button" className="fsy-contact-tete-btn" aria-expanded={true} onClick={onFermer} title="Fermer">
@@ -1325,22 +1383,35 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
           ligne « Immeubles suivis : A · B · C ». Elle devient une petite ligne REPLIÉE, une copropriété par ligne une
           fois dépliée. */}
       <CoprosSuivies c={c} adresses={adresses} copropriteDuBien={copropriteDuBien} />
-      {confirmation ?? (
+      {confirmation ?? (depart && onParti ? (
+        /* LOT SYNDIC-CONTACT-PARTI — la confirmation, DANS la tuile. */
+        <div className="fsy-confirmer fsy-confirmer--contact fsy-parti-confirmer" role="group" aria-label="Confirmer le départ du contact">
+          <span>{questionParti}</span>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setDepart(false)}>Annuler</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => { setDepart(false); onParti(); }}>{ouiParti}</button>
+        </div>
+      ) : (
         <div className="fsy-boutons fsy-boutons--contact">
           {/* LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE — depuis un bien, un BOUTON « Détacher de la copropriété », même place,
               même gabarit que « Fermer » / « Modifier », texte rouge de la marque. Depuis l'écran « Syndics », la
               suppression d'un contact du cabinet reste « Supprimer ce contact », inchangée. */}
           {onDetacher ? (
-            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-detacher fsy-pousse-gauche" onClick={onDetacher}>
+            <button type="button" className={`svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-detacher${onParti ? '' : ' fsy-pousse-gauche'}`} onClick={onDetacher}>
               Détacher de la copropriété
             </button>
           ) : (
-            <button type="button" className="fsy-lien-bouton fsy-pousse-gauche" onClick={onSupprimer}>Supprimer ce contact</button>
+            <button type="button" className={`fsy-lien-bouton${onParti ? '' : ' fsy-pousse-gauche'}`} onClick={onSupprimer}>Supprimer ce contact</button>
+          )}
+          {/* LOT SYNDIC-CONTACT-PARTI — « Ne travaille plus ici » : petit bouton blanc, texte gris foncé, À CÔTÉ. */}
+          {onParti && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-parti fsy-pousse-gauche" onClick={() => setDepart(true)}>
+              Ne travaille plus ici
+            </button>
           )}
           <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onFermer}>Fermer</button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onModifier}>Modifier</button>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -1641,6 +1712,14 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-tete{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:8px 8px 6px 16px;
   border-bottom:1px solid var(--color-svv-line)}
 .fsy-titre{margin:0;font-size:1.05rem;font-weight:700;min-width:0;overflow-wrap:anywhere}
+/* LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT — « Creer un nouveau syndic » + la croix : un bloc qui ne se
+   comprime pas ; le titre, lui, passe a la ligne. Jamais de chevauchement (flex, aucun positionnement absolu). */
+.fsy-tete-actions{flex:0 0 auto;display:flex;align-items:center;gap:.35rem;margin-left:auto}
+/* Sur un ecran etroit, la ligne de titre se replie : le titre garde au moins 10rem, sinon les boutons passent dessous,
+   a droite. */
+.fsy-tete{flex-wrap:wrap}
+.fsy-tete > .fsy-titre{flex:1 1 10rem}
+.fsy-creer-tete{min-height:34px;padding:.25rem .7rem;font-size:.82rem;white-space:nowrap}
 .fsy-croix{flex:0 0 auto;min-width:44px;min-height:44px;border:0;background:transparent;font-size:1.4rem;color:var(--color-svv-muted);cursor:pointer}
 .fsy-corps{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 16px 12px}
 .fsy-pied{flex:0 0 auto;display:flex;flex-direction:column;gap:.4rem;padding:10px 16px;border-top:1px solid var(--color-svv-line);
@@ -1699,6 +1778,9 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-fleche{flex:0 0 auto;color:var(--color-svv-muted)}
 .fsy-boutons--contact{gap:6px;margin-top:.2rem}
 .fsy-pousse-gauche{margin-right:auto}
+/* LOT SYNDIC-CONTACT-PARTI — « Ne travaille plus ici » : petit bouton blanc, texte gris fonce. */
+.fsy-parti,.fsy-parti:hover{background:var(--color-svv-surface);color:var(--color-svv-gray)}
+.fsy-ancien{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.2rem .6rem}
 .gst-btn.fsy-detacher{color:var(--color-svv-red)}
 /* LOT SYNDIC-CONTACTS-ANTI-DOUBLON — doublon bloquant en rouge, avertissement en orange (paire d'alerte existante). */
 .fsy-doublon{flex:1 1 100%;margin:0;font-size:.84rem;color:var(--color-svv-red)}

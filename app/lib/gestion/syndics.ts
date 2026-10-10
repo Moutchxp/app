@@ -38,6 +38,10 @@ export interface ContactSaisi {
   id?: number | null; titre: string; prenom: string; nom: string; coordonnees: CoordonneeSaisie[];
   /** LOT SYNDIC-CONTACT-CIVILITE — « M. », « Mme », ou rien (facultative). */
   civilite?: Civilite | null;
+  /** LOT SYNDIC-CONTACT-PARTI — « ne travaille plus ici » : ce contact EXISTANT quitte le catalogue à l'enregistrement. */
+  parti?: boolean;
+  /** LOT SYNDIC-CONTACT-PARTI — un ancien contact (« parti ») revient au catalogue, sans copropriété. */
+  reintegre?: boolean;
   /**
    * LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés que suit le contact : `immeubles` (les CLÉS, `cleImmeuble`).
    * LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — `tousImmeubles` vrai n'est plus qu'un RACCOURCI de saisie : la validation le
@@ -106,6 +110,15 @@ export interface FicheSyndic {
   historique: Array<{ libelle: string; debut: string; fin: string; motif: string | null }>;
   /** LOT SYNDIC-NOTE-PAR-BIEN — la note du couple (lot demandé, ce syndic), si la fiche est lue pour un bien. */
   noteBien?: string | null;
+  /** LOT SYNDIC-CONTACT-PARTI — les anciens contacts (« ne travaille plus ici »), avec les coordonnées qu'ils avaient. */
+  anciens?: AncienContact[];
+}
+
+/** LOT SYNDIC-CONTACT-PARTI — un contact parti : en lecture seule, avec la date de son départ. */
+export interface AncienContact {
+  id: number; titre: string | null; prenom: string | null; nom: string | null; civilite?: Civilite | null;
+  partiLe: string;
+  coordonnees: Array<{ sorte: SorteCoordonnee; libelle: string | null; valeur: string }>;
 }
 
 /** La clé d'un immeuble. PUR. */
@@ -265,12 +278,17 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     }
     const civilite = civiliteLue(c.civilite);
     if (civilite === undefined) return { ok: false, motif: `Civilité inconnue : « ${texte(c.civilite)} » (M. ou Mme).` };
+    // LOT SYNDIC-CONTACT-PARTI — un départ ne vaut que pour un contact EXISTANT ; il n'emporte ni coordonnées ni
+    // affectations (le serveur ferme les siennes) et n'entre pas dans les contrôles de doublons.
+    const parti = c.parti === true && entierOuNull(c.id) !== null;
     const contact: ContactSaisi = {
-      id: entierOuNull(c.id), titre: texte(c.titre), prenom: texte(c.prenom), nom: texte(c.nom), coordonnees, civilite,
+      id: entierOuNull(c.id), titre: texte(c.titre), prenom: texte(c.prenom), nom: texte(c.nom),
+      coordonnees: parti ? [] : coordonnees, civilite,
+      ...(parti ? { parti: true } : {}), ...(c.reintegre === true && !parti ? { reintegre: true } : {}),
       // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — « tous » n'est plus un suivi automatique : demandé (ancienne forme), il se
       // traduit plus bas en affectations EXPLICITES aux copropriétés ACTUELLES ; absent, aucune copropriété.
       tousImmeubles: c.tousImmeubles === true,
-      immeubles: Array.isArray(c.immeubles)
+      immeubles: !parti && Array.isArray(c.immeubles)
         ? [...new Set(c.immeubles.map((x) => cleImmeuble(typeof x === 'string' ? x : '')).filter((x) => x !== ''))].slice(0, 300)
         : [],
     };
@@ -295,6 +313,7 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
   const vusNoms = new Map<string, ContactSaisi>();
   const vusEmails = new Map<string, ContactSaisi>();
   for (const c of contacts) {
+    if (c.parti === true) continue; // LOT SYNDIC-CONTACT-PARTI — un contact qui part libère son nom et son e-mail
     const n = cleNom(c.prenom, c.nom);
     if (n !== '') {
       const deja = vusNoms.get(n);
@@ -470,6 +489,8 @@ export interface ContactForm {
   coordonnees: CoordonneeForm[];
   /** Les clés des copropriétés suivies ; `tousImmeubles` reste faux (LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES). */
   tousImmeubles: boolean; immeubles: string[];
+  /** LOT SYNDIC-CONTACT-PARTI — un ancien contact « réintégré au catalogue » dans cette saisie (pas encore enregistré). */
+  reintegre?: boolean;
 }
 export interface SyndicForm {
   nom: string; adresse: string; codePostal: string; ville: string;
@@ -479,6 +500,10 @@ export interface SyndicForm {
   contacts: ContactForm[]; immeubles: ImmeubleSaisi[];
   /** LOT SYNDIC-NOTE-PAR-BIEN — le bien depuis lequel la fiche est ouverte (`null` sans bien), et SA note. */
   lotNote: number | null; noteBien: string;
+  /** LOT SYNDIC-CONTACT-PARTI — les contacts marqués « ne travaille plus ici » dans cette saisie (partent au Valider). */
+  partis?: ContactForm[];
+  /** LOT SYNDIC-CONTACT-PARTI — les anciens contacts déjà partis (lecture seule, « Réintégrer au catalogue »). */
+  anciens?: AncienContact[];
 }
 
 let compteur = 0;
@@ -560,6 +585,7 @@ export function versFormulaire(f: FicheSyndic, lotNote: number | null = null): S
     }),
     immeubles: f.coproprietes.map((c) => ({ libelle: c.libelle, codePostal: c.codePostal ?? '', commune: c.commune ?? '' })),
     lotNote, noteBien: lotNote !== null ? (f.noteBien ?? '') : '',
+    partis: [], anciens: [...(f.anciens ?? [])],
   };
 }
 
@@ -569,14 +595,22 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
     nom: f.nom, adresse: f.adresse, codePostal: f.codePostal, ville: f.ville,
     telephone: chiffresTelephone(f.telephones[0]), telephone2: chiffresTelephone(f.telephones[1]),
     email: f.email, note: f.note,
-    contacts: f.contacts.map((c) => ({
-      id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom, civilite: c.civilite ?? null,
-      tousImmeubles: false, immeubles: [...c.immeubles],
-      coordonnees: c.coordonnees.map((k) => ({
-        id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
-        valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur,
+    contacts: [
+      ...f.contacts.map((c) => ({
+        id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom, civilite: c.civilite ?? null,
+        tousImmeubles: false, immeubles: [...c.immeubles],
+        coordonnees: c.coordonnees.map((k) => ({
+          id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
+          valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur,
+        })),
+        ...(c.reintegre === true ? { reintegre: true } : {}),
       })),
-    })),
+      // LOT SYNDIC-CONTACT-PARTI — les départs voyagent avec la saisie, sans coordonnées ni affectations.
+      ...(f.partis ?? []).map((c) => ({
+        id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom, civilite: c.civilite ?? null,
+        tousImmeubles: false, immeubles: [], coordonnees: [], parti: true,
+      })),
+    ],
     immeubles: f.immeubles,
     noteBien: f.lotNote !== null ? { lotId: f.lotNote, texte: f.noteBien } : null,
   };
@@ -616,6 +650,52 @@ export function contactModifie(origine: ContactForm | null, brouillon: ContactFo
 /** Le nom à afficher : « Prénom NOM », sinon le titre, sinon « ce contact ». PUR. */
 export function nomAffiche(c: ContactForm): string {
   return prenomNom(c.prenom, c.nom) || valeurDuChoix(c.titreChoix, c.titreLibre) || 'ce contact';
+}
+
+// ══ LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT — « NE TRAVAILLE PLUS ICI » ════════════════════════════════════
+
+/** Le contact quitte le catalogue de la saisie : il passe dans `partis` (enregistré au Valider). Un contact jamais
+ *  enregistré (sans identifiant) n'a rien à quitter : il n'est pas concerné. PUR. */
+export function marquerParti(f: SyndicForm, cle: string): SyndicForm {
+  const c = f.contacts.find((x) => x.cle === cle);
+  if (c === undefined || c.id === null) return f;
+  return { ...f, contacts: f.contacts.filter((x) => x.cle !== cle), partis: [...(f.partis ?? []), c] };
+}
+
+/** « Réintégrer au catalogue » : l'ancien contact revient dans la saisie, SANS copropriété, avec ses coordonnées
+ *  d'alors (recréées à l'enregistrement — l'anti-doublon s'y applique comme à une saisie). PUR. */
+export function reintegrer(f: SyndicForm, id: number): SyndicForm {
+  const a = (f.anciens ?? []).find((x) => x.id === id);
+  if (a === undefined) return f;
+  const t = choixDe(a.titre, TITRES_CONTACT);
+  const c: ContactForm = {
+    cle: cleLocale(), id: a.id, titreChoix: t.choix, titreLibre: t.libre, prenom: a.prenom ?? '', nom: a.nom ?? '',
+    civilite: civiliteLue(a.civilite) ?? null, tousImmeubles: false, immeubles: [], reintegre: true,
+    coordonnees: a.coordonnees.map((k) => {
+      const l = choixDe(k.libelle, libellesDe(k.sorte));
+      return { cle: cleLocale(), id: null, sorte: k.sorte, choix: l.choix, libre: l.libre,
+        valeur: k.sorte === 'telephone' ? formaterTelephone(k.valeur) : k.valeur };
+    }),
+  };
+  return { ...f, anciens: (f.anciens ?? []).filter((x) => x.id !== id), contacts: [...f.contacts, c] };
+}
+
+/**
+ * La question de la confirmation : « M. Mathis BERCIER ne travaille plus chez SYNDIC / Ville ? Il sera retiré du
+ * catalogue et de ses 3 copropriétés : A · B · C. » Le pronom suit la CIVILITÉ saisie (M. ⇒ Il, Mme ⇒ Elle) ; sans
+ * civilité, on ne devine pas : « Ce contact sera retiré … ». PUR.
+ */
+export function phraseDepart(c: ContactForm, syndic: string, adresses: readonly { cle: string; adresse: string }[]): string {
+  const nom = prenomNomCivil(c.civilite, c.prenom, c.nom) || valeurDuChoix(c.titreChoix, c.titreLibre) || 'Ce contact';
+  const sujet = c.civilite === 'M.' ? 'Il' : c.civilite === 'Mme' ? 'Elle' : 'Ce contact';
+  const l = trierParVoie(adresses.filter((a) => c.immeubles.includes(a.cle))).map((a) => a.adresse);
+  const suite = l.length === 0 ? '.' : l.length === 1 ? ` et de sa copropriété : ${l[0]}.` : ` et de ses ${l.length} copropriétés : ${l.join(' · ')}.`;
+  return `${nom} ne travaille plus chez ${syndic} ? ${sujet} sera retiré${c.civilite === 'Mme' ? 'e' : ''} du catalogue${suite}`;
+}
+
+/** Le bouton de confirmation : « Oui, il ne travaille plus ici » / « Oui, elle … » / « Oui, ne travaille plus ici ». PUR. */
+export function boutonDepart(c: ContactForm): string {
+  return c.civilite === 'M.' ? 'Oui, il ne travaille plus ici' : c.civilite === 'Mme' ? 'Oui, elle ne travaille plus ici' : 'Oui, ne travaille plus ici';
 }
 
 /** Un numéro complet (10 chiffres au moins) — seul celui-là reçoit « Appeler ». PUR. */

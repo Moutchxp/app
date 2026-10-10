@@ -130,7 +130,7 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
               WHERE cs.syndic_id = s.id AND cs.fin IS NULL) AS cles,
             (SELECT array_agg(k.valeur) FROM gestion_syndic_contact ct
                JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id AND k.retire_le IS NULL
-              WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND k.sorte = 'email') AS emails
+              WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND ct.parti_le IS NULL AND k.sorte = 'email') AS emails
        FROM gestion_syndic s
       WHERE s.supprime_le IS NULL
       ORDER BY lower(s.nom), s.id`);
@@ -168,7 +168,18 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
     id: string; titre: string | null; prenom: string | null; nom: string | null; tous_immeubles: boolean; civilite: string | null;
   }>(
     `SELECT id::text, titre, prenom, nom, tous_immeubles, civilite FROM gestion_syndic_contact
-      WHERE syndic_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [id]);
+      WHERE syndic_id = $1 AND retire_le IS NULL AND parti_le IS NULL ORDER BY rang, id`, [id]);
+  // LOT SYNDIC-CONTACT-PARTI — les anciens contacts (« ne travaille plus ici »), avec les coordonnées qu'ils avaient :
+  // celles retirées À L'INSTANT de leur départ (même horodatage de transaction).
+  const { rows: anciens } = await query<{
+    id: string; titre: string | null; prenom: string | null; nom: string | null; civilite: string | null; parti_le: string;
+    coordonnees: Array<{ sorte: 'email' | 'telephone'; libelle: string | null; valeur: string }> | null;
+  }>(
+    `SELECT c.id::text, c.titre, c.prenom, c.nom, c.civilite, c.parti_le::text,
+            (SELECT json_agg(json_build_object('sorte', k.sorte, 'libelle', k.libelle, 'valeur', k.valeur) ORDER BY k.rang, k.id)
+               FROM gestion_syndic_coordonnee k WHERE k.contact_id = c.id AND k.retire_le = c.parti_le) AS coordonnees
+       FROM gestion_syndic_contact c
+      WHERE c.syndic_id = $1 AND c.retire_le IS NULL AND c.parti_le IS NOT NULL ORDER BY c.parti_le DESC, c.id`, [id]);
   // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les affectations EN COURS des contacts de ce syndic.
   const { rows: affectations } = await query<{ contact_id: string; cle: string }>(
     `SELECT a.contact_id::text, c.cle_immeuble AS cle
@@ -180,7 +191,7 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
   const { rows: coords } = await query<{ id: string; contact_id: string; sorte: 'email' | 'telephone'; libelle: string | null; valeur: string }>(
     `SELECT k.id::text, k.contact_id::text, k.sorte, k.libelle, k.valeur
        FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact c ON c.id = k.contact_id
-      WHERE c.syndic_id = $1 AND c.retire_le IS NULL AND k.retire_le IS NULL ORDER BY k.rang, k.id`, [id]);
+      WHERE c.syndic_id = $1 AND c.retire_le IS NULL AND c.parti_le IS NULL AND k.retire_le IS NULL ORDER BY k.rang, k.id`, [id]);
   const { rows: liens } = await query<{
     id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null;
     debut: string; fin: string | null; fin_motif: string | null;
@@ -198,6 +209,10 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
 
   return {
     noteBien,
+    anciens: anciens.map((a) => ({
+      id: Number(a.id), titre: a.titre, prenom: a.prenom, nom: a.nom, civilite: civiliteLue(a.civilite) ?? null,
+      partiLe: a.parti_le, coordonnees: a.coordonnees ?? [],
+    })),
     id: Number(s.id), nom: s.nom, adresse: s.adresse, codePostal: s.code_postal, ville: s.ville,
     telephone: s.telephone, telephone2: s.telephone_2, email: s.email, note: s.note,
     creeLe: s.cree_le, creeParLibelle: s.cree_par_libelle, majLe: s.maj_le, majParLibelle: s.maj_par_libelle,
@@ -242,7 +257,8 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
     // 🔴 LOT SYNDIC-CONTACTS-ANTI-DOUBLON — LE FILET SERVEUR, AVANT TOUTE ÉCRITURE (piège withTransaction) : un e-mail
     // de la saisie déjà porté par un contact d'un AUTRE syndic est refusé. (Les doublons DANS la saisie — même syndic —
     // sont refusés par `validerSyndic`.) L'index de la migration 327 tient la même règle en base.
-    const emails = [...new Set(saisie.contacts.flatMap((c) => c.coordonnees.filter((k) => k.sorte === 'email').map((k) => cleEmail(k.valeur))))];
+    const emails = [...new Set(saisie.contacts.filter((c) => c.parti !== true)
+      .flatMap((c) => c.coordonnees.filter((k) => k.sorte === 'email').map((k) => cleEmail(k.valeur))))];
     if (emails.length > 0) {
       const pris = (await contactsAilleurs(q, id)).find((c) => c.emails.some((e) => emails.includes(e)));
       if (pris !== undefined) {
@@ -307,13 +323,42 @@ async function enregistrerNoteBien(q: RequeteTx, syndicId: number, lotId: number
 }
 
 async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur): Promise<void> {
-  const { rows: existants } = await q<{ id: string }>(
-    `SELECT id::text FROM gestion_syndic_contact WHERE syndic_id = $1 AND retire_le IS NULL FOR UPDATE`, [syndicId]);
-  const ids = new Set(existants.map((r) => Number(r.id)));
+  // LOT SYNDIC-CONTACT-PARTI — le catalogue = les contacts NI retirés NI partis ; les partis sont lus à part (pour une
+  // réintégration) et ne sont jamais « retirés » parce qu'absents de la saisie.
+  const { rows: existants } = await q<{ id: string; parti: boolean }>(
+    `SELECT id::text, parti_le IS NOT NULL AS parti FROM gestion_syndic_contact WHERE syndic_id = $1 AND retire_le IS NULL FOR UPDATE`, [syndicId]);
+  const ids = new Set(existants.filter((r) => !r.parti).map((r) => Number(r.id)));
+  const partis = new Set(existants.filter((r) => r.parti).map((r) => Number(r.id)));
   const gardes = new Set<number>();
   for (const [rang, c] of saisie.contacts.entries()) {
     let contactId: number;
-    if (c.id != null && ids.has(c.id)) {
+    if (c.parti === true) {
+      // ══ LOT SYNDIC-CONTACT-PARTI — « NE TRAVAILLE PLUS ICI » ══ marqué parti (qui, quand), JAMAIS effacé ; ses
+      // affectations FERMÉES (historisées) ; ses coordonnées RETIRÉES au même instant — elles restent en base, et son
+      // e-mail redevient libre (index 327). Un identifiant inconnu de ce syndic : rien.
+      if (c.id == null || !ids.has(c.id)) continue;
+      gardes.add(c.id);
+      await q(`UPDATE gestion_syndic_contact SET parti_le = now(), parti_par = $2, parti_par_libelle = $3 WHERE id = $1`,
+        [c.id, auteur.id, auteur.libelle]);
+      await q(`UPDATE gestion_syndic_coordonnee SET retire_le = now() WHERE contact_id = $1 AND retire_le IS NULL`, [c.id]);
+      await q(
+        `UPDATE gestion_syndic_contact_copropriete SET retire_le = now(), retire_par_libelle = $2, retire_motif = 'contact parti'
+          WHERE contact_id = $1 AND retire_le IS NULL`, [c.id, auteur.libelle]);
+      continue;
+    }
+    if (c.reintegre === true && c.id != null && partis.has(c.id)) {
+      // ══ LOT SYNDIC-CONTACT-PARTI — « RÉINTÉGRER AU CATALOGUE » ══ le départ est défait (trace : reintegre_le) ; il
+      // revient SANS copropriété ; ses coordonnées sont RECRÉÉES plus bas (les anciennes lignes restent en historique).
+      contactId = c.id;
+      gardes.add(contactId);
+      await q(
+        `UPDATE gestion_syndic_contact SET parti_le = NULL, parti_par = NULL, parti_par_libelle = NULL,
+                reintegre_le = now(), reintegre_par_libelle = $2 WHERE id = $1`, [contactId, auteur.libelle]);
+      await q(
+        `UPDATE gestion_syndic_contact SET titre = $2, prenom = $3, nom = $4, rang = $5, maj_le = now(), maj_par_libelle = $6,
+                tous_immeubles = $7, civilite = $8
+          WHERE id = $1`, [contactId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle, c.tousImmeubles, c.civilite ?? null]);
+    } else if (c.id != null && ids.has(c.id)) {
       contactId = c.id;
       gardes.add(contactId);
       await q(
@@ -637,7 +682,7 @@ Promise<Array<ContactAilleurs & { emails: string[] }>> {
             (SELECT array_agg(k.valeur) FROM gestion_syndic_coordonnee k
               WHERE k.contact_id = c.id AND k.sorte = 'email' AND k.retire_le IS NULL) AS emails
        FROM gestion_syndic_contact c JOIN gestion_syndic s ON s.id = c.syndic_id
-      WHERE c.retire_le IS NULL AND s.supprime_le IS NULL AND ($1::bigint IS NULL OR s.id <> $1)`, [syndicId]);
+      WHERE c.retire_le IS NULL AND c.parti_le IS NULL AND s.supprime_le IS NULL AND ($1::bigint IS NULL OR s.id <> $1)`, [syndicId]);
   return rows.map((r) => ({
     prenom: r.prenom, nom: r.nom, titre: r.titre, syndicId: Number(r.syndic_id), syndicNom: r.syndic_nom, syndicVille: r.syndic_ville,
     emails: (r.emails ?? []).map(cleEmail),

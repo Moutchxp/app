@@ -7,6 +7,7 @@ import {
   PERSONNALISE, saisieTelephone, lotsDuPortefeuille, cleNom, cleEmail, doublonsLocaux, motDoublon, detacher, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
   civiliteLue, formuleAppel, prenomNomCivil, type Civilite,
+  marquerParti, reintegrer, phraseDepart, boutonDepart,
 } from './syndics';
 
 /**
@@ -416,6 +417,51 @@ describe('LOT SYNDIC-CONTACT-CIVILITE — la civilité (pur)', () => {
   });
 });
 
+describe('LOT SYNDIC-CONTACT-PARTI — « ne travaille plus ici » (pur)', () => {
+  const ADRS = [
+    { cle: '25 rue edith cavell', adresse: '25 rue Edith Cavell, 92400 Courbevoie' },
+    { cle: '12 rue des pavillons', adresse: '12 rue des Pavillons, 92800 Puteaux' },
+    { cle: '15 rue carle hebert', adresse: '15 rue Carle Hebert, 92400 Courbevoie' },
+  ];
+  const mathis = { ...contactVide(), id: 21, prenom: 'Mathis', nom: 'Bercier', civilite: 'M.' as const, immeubles: ADRS.map((a) => a.cle) };
+  it('la question : nom avec civilité, syndic « NOM / Ville », copropriétés par voie ; le pronom suit la civilité, sinon « Ce contact »', () => {
+    expect(phraseDepart(mathis, 'TEST ARNAUD / Asnieres Sur Seine', ADRS)).toBe('M. Mathis BERCIER ne travaille plus chez TEST ARNAUD / Asnieres Sur Seine ? '
+      + 'Il sera retiré du catalogue et de ses 3 copropriétés : 15 rue Carle Hebert, 92400 Courbevoie · 12 rue des Pavillons, 92800 Puteaux · 25 rue Edith Cavell, 92400 Courbevoie.');
+    expect(phraseDepart({ ...mathis, civilite: 'Mme', prenom: 'Léa', immeubles: ['12 rue des pavillons'] }, 'S', ADRS))
+      .toBe('Mme Léa BERCIER ne travaille plus chez S ? Elle sera retirée du catalogue et de sa copropriété : 12 rue des Pavillons, 92800 Puteaux.');
+    expect(phraseDepart({ ...mathis, civilite: null, immeubles: [] }, 'S', ADRS)).toBe('Mathis BERCIER ne travaille plus chez S ? Ce contact sera retiré du catalogue.');
+    expect([boutonDepart(mathis), boutonDepart({ ...mathis, civilite: 'Mme' }), boutonDepart({ ...mathis, civilite: null })])
+      .toEqual(['Oui, il ne travaille plus ici', 'Oui, elle ne travaille plus ici', 'Oui, ne travaille plus ici']);
+  });
+  it('marquerParti : le contact quitte la liste et part dans la saisie SANS coordonnées ni copropriétés ; un contact non enregistré : rien', () => {
+    const f = { ...formulaireVide(), nom: 'S', contacts: [{ ...mathis, coordonnees: [{ cle: 'e', id: 5, sorte: 'email' as const, choix: '', libre: '', valeur: 'm@b.fr' }] }] };
+    const g = marquerParti(f, f.contacts[0].cle);
+    expect(g.contacts).toEqual([]);
+    expect(versSaisie(g).contacts).toEqual([{ id: 21, titre: '', prenom: 'Mathis', nom: 'Bercier', civilite: 'M.', tousImmeubles: false, immeubles: [], coordonnees: [], parti: true }]);
+    expect(formulaireModifie(f, g)).toBe(true);
+    const neuf = { ...f, contacts: [{ ...contactVide(), nom: 'Neuf' }] };
+    expect(marquerParti(neuf, neuf.contacts[0].cle)).toBe(neuf);
+  });
+  it('validation : un départ libère nom et e-mail (même personne recréée dans la même saisie) ; un départ sans identifiant n’en est pas un', () => {
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [
+      { id: 21, prenom: 'Mathis', nom: 'Bercier', parti: true, coordonnees: [{ sorte: 'email', valeur: 'm@b.fr' }], immeubles: ['x'] },
+      { prenom: 'Mathis', nom: 'BERCIER', coordonnees: [{ sorte: 'email', valeur: 'm@b.fr' }] },
+    ] });
+    expect(v.ok && v.syndic.contacts.map((c) => [c.id, c.parti ?? false, c.coordonnees.length, c.immeubles.length])).toEqual([[21, true, 0, 0], [null, false, 1, 0]]);
+    const w = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ nom: 'X', parti: true }] });
+    expect(w.ok && w.syndic.contacts[0].parti).toBeUndefined();
+  });
+  it('réintégrer : l’ancien revient au catalogue de la saisie, SANS copropriété, avec ses coordonnées recréées (sans identifiant)', () => {
+    const f = { ...formulaireVide(), nom: 'S', anciens: [{ id: 99, titre: 'Service comptabilité', prenom: 'Jean', nom: 'Ancien', civilite: null,
+      partiLe: '2026-10-10T08:00:00Z', coordonnees: [{ sorte: 'email' as const, libelle: null, valeur: 'jean@x.fr' }, { sorte: 'telephone' as const, libelle: 'Portable', valeur: '0611223344' }] }] };
+    const g = reintegrer(f, 99);
+    expect(g.anciens).toEqual([]);
+    expect(versSaisie(g).contacts).toEqual([{ id: 99, titre: 'Service comptabilité', prenom: 'Jean', nom: 'Ancien', civilite: null, tousImmeubles: false, immeubles: [],
+      coordonnees: [{ id: null, sorte: 'email', libelle: '', valeur: 'jean@x.fr' }, { id: null, sorte: 'telephone', libelle: 'Portable', valeur: '0611223344' }], reintegre: true }]);
+    expect(reintegrer(f, 7)).toBe(f);
+  });
+});
+
 describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — les règles', () => {
   it('nom : sans accents, sans casse, espaces et tirets ignorés', () => {
     expect(cleNom('Mathis', 'BERCIER')).toBe(cleNom('mathis', 'Bercier'));
@@ -817,6 +863,66 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(await retirerDeLaCopropriete(11, '15 rue Carle Hebert', auteur)).toEqual({ ok: false, motif: 'Ce syndic n’existe pas ou a été supprimé.' });
     expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
     expect(await retirerDeLaCopropriete(11, '  ', auteur)).toEqual({ ok: false, motif: 'Copropriété non désignée.' });
+  });
+
+  it('PARTI : marqué (qui, quand), coordonnées retirées (e-mail libéré), affectations fermées ; jamais retiré ni effacé', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('parti_le IS NOT NULL AS parti FROM gestion_syndic_contact') ? { rows: [{ id: '21', parti: false }, { id: '22', parti: false }] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ id: 22, nom: 'Reste' }, { id: 21, nom: 'Bercier', parti: true }] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    const parti = appels.find((a) => a.sql.includes('SET parti_le = now()'));
+    expect(parti?.params).toEqual([21, 7, 'arno']);
+    expect(appels.find((a) => norm(a.sql) === 'UPDATE gestion_syndic_coordonnee SET retire_le = now() WHERE contact_id = $1 AND retire_le IS NULL')?.params).toEqual([21]);
+    expect(appels.find((a) => a.sql.includes("retire_motif = 'contact parti'"))?.params).toEqual([21, 'arno']);
+    expect(appels.some((a) => a.sql.includes('UPDATE gestion_syndic_contact SET retire_le = now()'))).toBe(false); // ni « Reste » ni lui retirés
+    expect(appels.some((a) => a.sql.includes('UPDATE gestion_syndic_contact SET titre') && a.params[0] === 21)).toBe(false);
+    expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
+  });
+
+  it('RÉINTÉGRÉ : le départ est défait (trace reintegre_le), contact mis à jour, coordonnées RECRÉÉES ; un parti absent de la saisie n’est jamais retiré', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('parti_le IS NOT NULL AS parti FROM gestion_syndic_contact') ? { rows: [{ id: '22', parti: true }, { id: '23', parti: true }] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ id: 22, nom: 'Ancien', reintegre: true, coordonnees: [{ sorte: 'email', valeur: 'jean@x.fr' }] }] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    expect(norm(appels.find((a) => a.sql.includes('SET parti_le = NULL'))?.sql ?? '')).toContain('reintegre_le = now(), reintegre_par_libelle = $2 WHERE id = $1');
+    expect(appels.find((a) => a.sql.includes('SET parti_le = NULL'))?.params).toEqual([22, 'arno']);
+    expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_syndic_coordonnee'))?.params).toEqual([22, 'email', null, 'jean@x.fr', 0]);
+    expect(appels.some((a) => a.sql.includes('INSERT INTO gestion_syndic_contact '))).toBe(false);
+    expect(appels.some((a) => a.sql.includes('UPDATE gestion_syndic_contact SET retire_le = now()'))).toBe(false); // 23 reste « parti »
+  });
+
+  it('PARTI : la fiche les lit à part (« anciens », avec les coordonnées retirées à leur départ) ; l’anti-doublon et la recherche les ignorent', async () => {
+    const src = norm(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8'));
+    expect(src).toContain('WHERE syndic_id = $1 AND retire_le IS NULL AND parti_le IS NULL ORDER BY rang, id');
+    expect(src).toContain('WHERE k.contact_id = c.id AND k.retire_le = c.parti_le');
+    expect(src).toContain('WHERE c.retire_le IS NULL AND c.parti_le IS NULL AND s.supprime_le IS NULL'); // contactsAilleurs
+    expect(src).toContain('ct.retire_le IS NULL AND ct.parti_le IS NULL AND k.sorte'); // recherche des syndics
+    const { ficheSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL') ? { rows: [{ id: '11', nom: 'S', cree_le: '', cree_par_libelle: 'x' }] } : undefined),
+      (sql) => (sql.includes('parti_le IS NOT NULL ORDER BY c.parti_le DESC') ? { rows: [
+        { id: '99', titre: null, prenom: 'Jean', nom: 'Ancien', civilite: 'M.', parti_le: '2026-10-10 10:00:00+02', coordonnees: [{ sorte: 'email', libelle: null, valeur: 'jean@x.fr' }] },
+      ] } : undefined),
+    ];
+    expect((await ficheSyndic(11))?.anciens).toEqual([{ id: 99, titre: null, prenom: 'Jean', nom: 'Ancien', civilite: 'M.', partiLe: '2026-10-10 10:00:00+02',
+      coordonnees: [{ sorte: 'email', libelle: null, valeur: 'jean@x.fr' }] }]);
+  });
+
+  it('MIGRATION 332 : cinq colonnes d’AJOUT, nullables, sans défaut ; aucun contact réécrit', () => {
+    const sql = norm(readFileSync(join(__dirname, '../../../db/migrations/332_gestion_syndic_contact_parti.sql'), 'utf8')
+      .split('\n').filter((l) => !l.startsWith('--')).join('\n'));
+    for (const c of ['parti_le timestamptz', 'parti_par bigint', 'parti_par_libelle text', 'reintegre_le timestamptz', 'reintegre_par_libelle text']) {
+      expect(sql).toContain(`ADD COLUMN IF NOT EXISTS ${c}`);
+    }
+    expect(sql).not.toMatch(/\bDEFAULT\b|\bUPDATE\b|\bDELETE\b|\bDROP\b|NOT NULL/i);
   });
 
   it('CIVILITÉ : écrite à la création et à la modification (M., Mme, ou NULL) ; relue par la fiche', async () => {
