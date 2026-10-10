@@ -19,8 +19,19 @@ export type SorteCoordonnee = 'email' | 'telephone';
 
 /** Les titres proposés ; « Personnalisé » ouvre un champ libre. */
 export const TITRES_CONTACT = ['Responsable de copropriété', 'Service comptabilité'] as const;
-/** Les libellés proposés pour une coordonnée ; « Personnalisé » ouvre un champ libre. */
+/** Les libellés proposés pour un TÉLÉPHONE ; « Personnalisé » ouvre un champ libre. */
 export const LIBELLES_COORDONNEE = ['Ligne directe', 'Portable', 'Standard'] as const;
+/**
+ * LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS — les libellés proposés pour un E-MAIL (« Ligne directe / Portable /
+ * Standard » quittent ce menu, avec l'accord d'Arno). Un e-mail déjà enregistré avec un ancien libellé téléphonique
+ * n'est PAS réécrit : il s'ouvre sous « Personnalisé… », avec son texte, modifiable (`choixDe`).
+ */
+export const LIBELLES_EMAIL = ['Email direct', 'Email service'] as const;
+
+/** Le menu des libellés d'une coordonnée, selon qu'elle est un téléphone ou un e-mail. PUR. */
+export function libellesDe(sorte: SorteCoordonnee): readonly string[] {
+  return sorte === 'email' ? LIBELLES_EMAIL : LIBELLES_COORDONNEE;
+}
 
 export interface CoordonneeSaisie { id?: number | null; sorte: SorteCoordonnee; libelle: string; valeur: string }
 export interface ContactSaisi {
@@ -396,7 +407,7 @@ export function versFormulaire(f: FicheSyndic): SyndicForm {
       return {
         cle: cleLocale(), id: c.id, titreChoix: t.choix, titreLibre: t.libre, prenom: c.prenom ?? '', nom: c.nom ?? '',
         coordonnees: c.coordonnees.map((k) => {
-          const l = choixDe(k.libelle, LIBELLES_COORDONNEE);
+          const l = choixDe(k.libelle, libellesDe(k.sorte));
           return {
             cle: cleLocale(), id: k.id, sorte: k.sorte, choix: l.choix, libre: l.libre,
             valeur: k.sorte === 'telephone' ? formaterTelephone(k.valeur) : k.valeur,

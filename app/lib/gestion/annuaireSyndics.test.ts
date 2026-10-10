@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, libellesDe, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -165,7 +165,7 @@ describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — les règles d\'un contact en
     expect(contactModifie(null, { ...base, titreChoix: '', prenom: '', nom: '', coordonnees: [] })).toBe(false);
     expect(contactModifie(null, { ...base, titreChoix: '', prenom: 'X', nom: '', coordonnees: [] })).toBe(true);
   });
-  it('« Supprimer Marie DUPONT ? » ; Appeler seulement pour un numéro complet', () => {
+  it('« Supprimer Marie DUPONT ? » ; « Copier » seulement pour un numéro complet', () => {
     expect(nomAffiche(base)).toBe('Marie DUPONT');
     expect(nomAffiche({ ...base, prenom: '', nom: '' })).toBe('Responsable de copropriété');
     expect(telephoneComplet('06 13 86 18 77')).toBe(true);
@@ -216,6 +216,28 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — la réponse de l\'AP
     expect(client).toContain('/api/admin/gestion/syndics/adresses?q=');
     expect(readFileSync(join(__dirname, 'syndics.ts'), 'utf8')).toContain("export const URL_API_ADRESSE = 'https://api-adresse.data.gouv.fr/search/';");
     expect(readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/ChampAdresseBan.tsx'), 'utf8')).toContain('https://api-adresse.data.gouv.fr/search/');
+  });
+});
+
+describe('LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS — les libellés selon le type', () => {
+  it('e-mail : Email direct / Email service ; téléphone : Ligne directe / Portable / Standard', () => {
+    expect(libellesDe('email')).toEqual(['Email direct', 'Email service']);
+    expect(libellesDe('telephone')).toEqual(['Ligne directe', 'Portable', 'Standard']);
+  });
+  it('un e-mail à l\'ancien libellé « Ligne directe » s\'ouvre en « Personnalisé » + son texte ; la saisie le rend tel quel', () => {
+    const f = versFormulaire({
+      id: 1, nom: 'X', adresse: null, codePostal: null, ville: null, telephone: null, telephone2: null, email: null, note: null,
+      creeLe: '', creeParLibelle: '', majLe: null, majParLibelle: null, historique: [], coproprietes: [],
+      contacts: [{ id: 2, titre: null, prenom: 'A', nom: 'B', coordonnees: [
+        { id: 3, sorte: 'email', libelle: 'Ligne directe', valeur: 'a@b.fr' },
+        { id: 4, sorte: 'telephone', libelle: 'Ligne directe', valeur: '0100000000' },
+        { id: 5, sorte: 'email', libelle: 'Email direct', valeur: 'c@d.fr' },
+      ] }],
+    });
+    expect(f.contacts[0].coordonnees.map((k) => [k.choix, k.libre])).toEqual([
+      [PERSONNALISE, 'Ligne directe'], ['Ligne directe', ''], ['Email direct', ''],
+    ]);
+    expect(versSaisie(f).contacts[0].coordonnees.map((k) => k.libelle)).toEqual(['Ligne directe', 'Ligne directe', 'Email direct']);
   });
 });
 

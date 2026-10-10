@@ -222,22 +222,24 @@ describe('le bouton de la carte bien', () => {
 });
 
 describe('LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — coordonnées générales, autres contacts, adresse obligatoire', () => {
-  it('la ligne en DOUBLON sous l\'e-mail a disparu ; « Écrire depuis gestion@ » est au bout du champ, « Appeler » au bout du numéro', async () => {
+  /* LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS — CE QU'IL DISAIT AVANT : un lien « Appeler » (tel:) au bout du numéro.
+     « Copier » le remplace (accord d'Arno). */
+  it('la ligne en DOUBLON sous l\'e-mail a disparu ; « Écrire depuis gestion@ » est au bout du champ, « Copier » au bout du numéro', async () => {
     await ouvrir(vi.fn(), 11, vi.fn());
     expect(document.querySelector('.fsy-liens')).toBeNull();
     const ligneEmail = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ');
     expect(ligneEmail?.textContent).toContain('Écrire depuis gestion@');
     const ligneTel = (document.querySelector('input[aria-label="Téléphone standard"]') as HTMLElement).closest('.fsy-ligne-tel');
-    const appeler = [...(ligneTel?.querySelectorAll('a') ?? [])].find((a) => a.textContent === 'Appeler');
-    expect(appeler?.getAttribute('href')).toBe('tel:0100000000');
+    expect(ligneTel?.querySelector('.fsy-action .bcp')?.textContent).toBe('Copier');
+    expect(ligneTel?.textContent).not.toContain('Appeler');
   });
 
-  it('un e-mail invalide n\'a pas de lien ; un numéro incomplet n\'a pas d\'« Appeler »', async () => {
+  it('un e-mail invalide n\'a pas de lien ; un numéro incomplet n\'a pas de « Copier »', async () => {
     await ouvrir(vi.fn(), 11, vi.fn());
     await taper(document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLInputElement, 'pas-un-mail');
     expect(document.querySelector('.fsy-ligne-champ')?.textContent).not.toContain('Écrire');
     await taper(document.querySelector('input[aria-label="Téléphone standard"]') as HTMLInputElement, '01 23');
-    expect(document.querySelector('.fsy-ligne-tel')?.textContent).not.toContain('Appeler');
+    expect(document.querySelector('.fsy-ligne-tel .bcp')).toBeNull();
   });
 
   it('« Valider » REFUSE sans adresse complète : message près du bouton, champs vides cerclés, rien n\'est envoyé', async () => {
@@ -278,18 +280,22 @@ describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — replié, ouvert en lecture, 
   it('① REPLIÉ : « Prénom NOM · Titre » sur une ligne cliquable, avec ▸, SANS bouton « Modifier »', async () => {
     await ouvrir();
     const ligne = document.querySelector('button.fsy-contact-replie') as HTMLButtonElement;
-    expect(ligne.textContent).toBe('Léa DURAND · Responsable de copropriété▸');
+    // LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS — CE QU'IL DISAIT AVANT : « Léa DURAND · Responsable… » (titre collé au nom).
+    // Le nom est à gauche, le titre à DROITE, juste avant la flèche.
+    expect(ligne.querySelector('.fsy-contact-nom')?.textContent).toBe('Léa DURAND');
+    expect(ligne.querySelector('.fsy-contact-titre')?.textContent).toBe('Responsable de copropriété');
+    expect(ligne.textContent).toBe('Léa DURANDResponsable de copropriété▸');
     expect(ligne.querySelector('strong')?.textContent).toBe('Léa DURAND');
     expect(ligne.querySelector('button')).toBeNull();
   });
 
-  it('② un clic l\'OUVRE EN LECTURE : une ligne par téléphone, « Appeler » au bout ; Modifier / Supprimer / Fermer ; l\'en-tête le referme', async () => {
+  it('② un clic l\'OUVRE EN LECTURE : une ligne par téléphone, « Copier » à droite ; Modifier / Supprimer / Fermer ; l\'en-tête le referme', async () => {
     await ouvrir();
     await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
     const ouvert = document.querySelector('.fsy-contact-ouvert') as HTMLElement;
     expect(ouvert.querySelectorAll('input')).toHaveLength(0);
     const tel = ouvert.querySelector('.fsy-contact-coord')?.textContent ?? '';
-    expect(tel).toBe('Portable :06 13 86 18 77Appeler');
+    expect(tel).toBe('Portable : 06 13 86 18 77Copier');
     for (const t of ['Modifier', 'Supprimer ce contact', 'Fermer']) expect(boutonDans(ouvert, t)).toBeTruthy();
     await cliquer(ouvert.querySelector('.fsy-contact-tete-btn') as Element);
     expect(document.querySelector('.fsy-contact-ouvert')).toBeNull();
@@ -469,6 +475,7 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
     await cliquer([...bloc.querySelectorAll('button')].find((b) => b.textContent === 'Valider') as Element);
     const ligne = [...document.querySelectorAll('button.fsy-contact-replie')].map((l) => l.textContent);
     expect(ligne).toContain('Jean-Pierre LEFÈVRE▸');
+    // (sans titre : le nom seul, à gauche)
   });
 
   it('un nom existant qu\'on ne fait que TRAVERSER n\'est pas réécrit', async () => {
@@ -479,5 +486,67 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
     const nom = [...bloc.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
     await act(async () => { nom.focus(); nom.blur(); });
     expect(nom.value).toBe('Durand');
+  });
+});
+
+describe('LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS', () => {
+  const optionsDe = (select: HTMLSelectElement): string[] => [...select.options].map((o) => o.textContent ?? '');
+  const ouvrirEnModification = async (): Promise<HTMLElement> => {
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer([...document.querySelectorAll('.fsy-contact-ouvert button')].find((b) => b.textContent === 'Modifier') as Element);
+    return document.querySelector('.fsy-contact-edit') as HTMLElement;
+  };
+
+  it('le menu « Libellé » d\'un E-MAIL : Email direct / Email service / Personnalisé… ; celui d\'un TÉLÉPHONE est inchangé', async () => {
+    await ouvrir();
+    const bloc = await ouvrirEnModification();
+    await cliquer([...bloc.querySelectorAll('button')].find((b) => b.textContent === '+ e-mail') as Element);
+    const lignes = [...bloc.querySelectorAll('.fsy-coord-edit')];
+    const menuTel = lignes[0].querySelector('select') as HTMLSelectElement;
+    const menuEmail = lignes[1].querySelector('select') as HTMLSelectElement;
+    expect(optionsDe(menuTel)).toEqual(['—', 'Ligne directe', 'Portable', 'Standard', 'Personnalisé…']);
+    expect(optionsDe(menuEmail)).toEqual(['—', 'Email direct', 'Email service', 'Personnalisé…']);
+  });
+
+  it('un e-mail ENREGISTRÉ avec un ancien libellé téléphonique s\'ouvre sous « Personnalisé… », avec son texte, sans réécriture', async () => {
+    const ancien = { ...FICHE, id: 15, contacts: [{ ...FICHE.contacts[0],
+      coordonnees: [{ id: 7, sorte: 'email', libelle: 'Ligne directe', valeur: 'lea@test.invalid' }] }] };
+    const fetchAvant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (url === '/api/admin/gestion/syndics/15'
+      ? { ok: true, json: async () => ({ etat: 'ok', fiche: ancien }) } : (fetchAvant as typeof fetch)(url, init))));
+    await ouvrir(vi.fn(), 15);
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    expect(document.querySelector('.fsy-contact-ouvert .fsy-contact-coord')?.textContent).toContain('Ligne directe : lea@test.invalid');
+    await cliquer([...document.querySelectorAll('.fsy-contact-ouvert button')].find((b) => b.textContent === 'Modifier') as Element);
+    const ligne = document.querySelector('.fsy-coord-edit') as HTMLElement;
+    expect((ligne.querySelector('select') as HTMLSelectElement).value).toBe('Personnalisé');
+    const libre = [...ligne.querySelectorAll('label')].find((l) => l.textContent?.startsWith('Libellé personnalisé'))?.querySelector('input') as HTMLInputElement;
+    expect(libre.value).toBe('Ligne directe');
+    expect(boutonDans(document.querySelector('.fsy-contact-edit'), 'Modifier').disabled).toBe(true); // rien n'a changé
+  });
+
+  it('« Copier » copie le numéro AU FORMAT PAR PAIRES et dit « Copié » ; le numéro reste cliquable (tel:)', async () => {
+    const ecrire = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText: ecrire }, configurable: true });
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    const ligne = document.querySelector('.fsy-contact-ouvert .fsy-contact-coord') as HTMLElement;
+    expect(ligne.querySelector('a')?.getAttribute('href')).toBe('tel:0613861877');
+    await cliquer(ligne.querySelector('.bcp') as Element);
+    expect(ecrire).toHaveBeenCalledWith('06 13 86 18 77');
+    expect(ligne.querySelector('.bcp')?.textContent).toBe('Copié');
+  });
+
+  it('les actions de droite sont dans une colonne alignée : chaque ligne pousse son action au bord droit', async () => {
+    await ouvrir(vi.fn(), 11, vi.fn());
+    // ⚠️ jsdom ne calcule aucune géométrie (getBoundingClientRect y vaut 0) : l'alignement est tenu par la feuille de
+    // style — ligne en `justify-content:space-between`, action en `margin-left:auto` — et par la structure.
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-action{flex:0 0 auto;margin-left:auto;');
+    expect(css).toContain('.fsy-contact-coord{display:flex;align-items:center;justify-content:space-between;');
+    const ligneTel = (document.querySelector('input[aria-label="Téléphone standard"]') as HTMLElement).closest('.fsy-ligne-tel') as HTMLElement;
+    expect(ligneTel.lastElementChild?.className).toBe('fsy-action');
+    const ligneEmail = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ') as HTMLElement;
+    expect(ligneEmail.lastElementChild?.className).toContain('fsy-action');
   });
 });

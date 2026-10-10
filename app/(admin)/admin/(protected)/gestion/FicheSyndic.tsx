@@ -5,7 +5,7 @@ import {
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
-  emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, LIBELLES_COORDONNEE,
+  emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
   type AdresseBan, type ContactForm, type CoordonneeForm, type FicheSyndic as Fiche, type ImmeubleConnu,
@@ -13,6 +13,7 @@ import {
 } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
 import { chercherAdresses } from './adressesSyndic';
+import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA FICHE SYNDIC (UN SEUL COMPOSANT, RÉUTILISABLE TEL QUEL) ═══════════
@@ -187,6 +188,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   return (
     <div className="fsy-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) annuler(); }}>
       <style>{CSS_FICHE_SYNDIC}</style>
+      <style>{CSS_BOUTON_COPIER}</style>
       <div className="fsy" role="dialog" aria-modal="true" aria-labelledby="fsy-titre" tabIndex={-1} ref={boite}>
         <div className="fsy-tete">
           <h2 className="fsy-titre" id="fsy-titre">{titre}</h2>
@@ -310,7 +312,7 @@ function LienTel({ tel }: { tel: string }) {
 /**
  * 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — LES LIENS D'ACTION, À DROITE, SUR LA MÊME LIGNE.
  * « Écrire depuis gestion@ » n'apparaît que pour un e-mail valide ; sans composeur disponible, c'est un `mailto:`.
- * « Appeler » n'apparaît que pour un numéro complet (10 chiffres au moins).
+ * « Copier » (qui a remplacé « Appeler ») n'apparaît que pour un numéro complet (10 chiffres au moins).
  */
 function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: string) => void }) {
   const e = email.trim();
@@ -321,9 +323,14 @@ function ActionEcrire({ email, onEcrire }: { email: string; onEcrire?: (email: s
     : <a className="fsy-action" href={`mailto:${e}`}>Écrire</a>;
 }
 
-function ActionAppeler({ tel }: { tel: string }) {
-  if (tel.replace(/\D/g, '').length < 10) return null;
-  return <a className="fsy-action" href={lienTelephone(tel)}>Appeler</a>;
+/**
+ * 🔴 LOT FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS — « COPIER » REMPLACE « APPELER » (accord d'Arno). Il copie le numéro
+ * AU FORMAT PAR PAIRES et dit « Copié » ; c'est le bouton du module (`BoutonCopier`), avec son repli quand le
+ * presse-papiers refuse. Seulement pour un numéro complet. Le numéro lui-même reste cliquable (tel:) en lecture.
+ */
+function ActionCopier({ tel }: { tel: string }) {
+  if (!telephoneComplet(tel)) return null;
+  return <span className="fsy-action"><BoutonCopier valeur={formaterTelephone(tel)} quoi={`le numéro ${formaterTelephone(tel)}`} /></span>;
 }
 
 /**
@@ -459,7 +466,6 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           <span key={i} className="fsy-ligne-tel">
             <input type="tel" inputMode="tel" aria-label={i === 0 ? 'Téléphone standard' : 'Second téléphone standard'}
               value={t} onChange={(e) => majTel(i, e.target.value)} placeholder="01 23 45 67 89" />
-            <ActionAppeler tel={t} />
             {(form.telephones.length > 1 || t.trim() !== '') && (
               <button type="button" className="fsy-mini" aria-label={`Retirer ce numéro${t ? ` (${t})` : ''}`} onClick={() => retirerTel(i)}>×</button>
             )}
@@ -467,11 +473,12 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
               <button type="button" className="fsy-mini" aria-label="Ajouter un second numéro de standard" title="Ajouter un second numéro"
                 onClick={() => setForm({ ...form, telephones: [...form.telephones, ''] })}>+</button>
             )}
+            <ActionCopier tel={t} />
           </span>
         ))}
       </div>
       {/* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — LA LIGNE EN DOUBLON (numéros et e-mail répétés sous ce champ)
-          EST RETIRÉE, avec l'accord d'Arno pour CE doublon : « Appeler » est au bout de chaque numéro, et « Écrire
+          EST RETIRÉE, avec l'accord d'Arno pour CE doublon : « Copier » est au bout de chaque numéro, et « Écrire
           depuis gestion@ » au bout du champ, sur la même ligne. */}
       <div className="fsy-champ">
         <span id="fsy-email-generique">E-mail générique</span>
@@ -594,7 +601,7 @@ function SelectChoix({ libelle, choix, libre, options, onChange }: {
  * de vrais boutons. Chaque contact a TROIS ÉTATS. »
  *
  *   ① REPLIÉ — une ligne « Prénom NOM · Titre » ; un clic n'importe où (ou sur ▸) l'OUVRE.
- *   ② OUVERT EN LECTURE — une ligne par téléphone (« Appeler » au bout) et par e-mail (« Écrire depuis gestion@ »
+ *   ② OUVERT EN LECTURE — une ligne par téléphone (« Copier » à droite) et par e-mail (« Écrire depuis gestion@ »
  *      au bout) ; « Modifier », « Supprimer ce contact » (confirmé), « Fermer » ; un clic sur l'en-tête le FERME.
  *   ③ EN MODIFICATION — des champs ; « Annuler » (« Abandonner les modifications ? » si quelque chose a bougé) ;
  *      « Modifier » devient « Valider » (plein, rouge) dès qu'un champ change ; « Supprimer ce contact » reste.
@@ -698,14 +705,17 @@ function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition
   );
 }
 
-/** « Prénom NOM » en gras · « Titre » en gris (le titre seul, en gras, quand il n'y a pas de nom). */
+/**
+ * « Prénom NOM » en gras, À GAUCHE ; le TITRE en gris, À DROITE, juste avant la flèche (lot
+ * FICHE-SYNDIC-LIBELLES-ET-ALIGNEMENTS). Sans nom, le titre seul, en gras, à gauche.
+ */
 function EnteteContact({ c }: { c: ContactForm }) {
   const nom = prenomNom(c.prenom, c.nom);
   const titre = valeurDuChoix(c.titreChoix, c.titreLibre);
   return (
     <span className="fsy-contact-ligne">
-      {nom !== '' ? <strong>{nom}</strong> : <strong>{titre}</strong>}
-      {nom !== '' && titre !== '' && <><span className="fsy-point"> · </span><span className="fsy-discret">{titre}</span></>}
+      <strong className="fsy-contact-nom">{nom !== '' ? nom : titre}</strong>
+      {nom !== '' && titre !== '' && <span className="fsy-contact-titre">{titre}</span>}
     </span>
   );
 }
@@ -727,15 +737,19 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
       {tels.length === 0 && emails.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun téléphone ni e-mail.</p>}
       {tels.map((k) => (
         <div key={k.cle} className="fsy-contact-coord">
-          {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} :</span>}
-          <span>{formaterTelephone(k.valeur)}</span>
-          {telephoneComplet(k.valeur) && <ActionAppeler tel={k.valeur} />}
+          <span className="fsy-coord-gauche">
+            {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
+            {telephoneComplet(k.valeur) ? <a href={lienTelephone(k.valeur)}>{formaterTelephone(k.valeur)}</a> : <span>{formaterTelephone(k.valeur)}</span>}
+          </span>
+          <ActionCopier tel={k.valeur} />
         </div>
       ))}
       {emails.map((k) => (
         <div key={k.cle} className="fsy-contact-coord">
-          {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} :</span>}
-          <span>{k.valeur.trim()}</span>
+          <span className="fsy-coord-gauche">
+            {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} : </span>}
+            <span>{k.valeur.trim()}</span>
+          </span>
           <ActionEcrire email={k.valeur} onEcrire={onEcrire} />
         </div>
       ))}
@@ -794,7 +808,7 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
       </div>
       {c.coordonnees.map((k) => (
         <div key={k.cle} className="fsy-duo fsy-coord-edit">
-          <SelectChoix libelle="Libellé" choix={k.choix} libre={k.libre} options={LIBELLES_COORDONNEE}
+          <SelectChoix libelle="Libellé" choix={k.choix} libre={k.libre} options={libellesDe(k.sorte)}
             onChange={(choix, libre) => majCoord(k.cle, { ...k, choix, libre })} />
           <div className="fsy-champ fsy-champ--large">
             <span>{k.sorte === 'email' ? 'E-mail' : 'Téléphone'}</span>
@@ -802,7 +816,7 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
               <input type={k.sorte === 'email' ? 'email' : 'tel'} value={k.valeur}
                 aria-label={k.sorte === 'email' ? 'E-mail du contact' : 'Téléphone du contact'}
                 onChange={(ev) => majCoord(k.cle, { ...k, valeur: k.sorte === 'telephone' ? saisieTelephone(k.valeur, ev.target.value) : ev.target.value })} />
-              {k.sorte === 'email' ? <ActionEcrire email={k.valeur} onEcrire={onEcrire} /> : <ActionAppeler tel={k.valeur} />}
+              {k.sorte === 'email' ? <ActionEcrire email={k.valeur} onEcrire={onEcrire} /> : <ActionCopier tel={k.valeur} />}
             </span>
           </div>
           <button type="button" className="fsy-mini" aria-label="Retirer cette coordonnée"
@@ -1004,13 +1018,17 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-mini-btn{min-height:34px;padding:.25rem .65rem;font-size:.82rem}
 .fsy-ligne-champ{display:flex;align-items:center;gap:.6rem;min-width:0}
 .fsy-ligne-champ input{flex:0 1 20rem;min-width:0}
-.fsy-action{flex:0 0 auto;font-size:.82rem;white-space:nowrap}
+.fsy-action{flex:0 0 auto;margin-left:auto;font-size:.82rem;white-space:nowrap}
 .fsy-bloc--serre{gap:.3rem}
 .fsy-champ--manque input{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
 .fsy-champ--manque > span:first-child{color:var(--color-svv-red)}
 .fsy-villes{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:.35rem}
 .fsy-contact-tete{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
-.fsy-contact-coord{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;font-size:.86rem;padding-left:.2rem}
+.fsy-contact-coord{display:flex;align-items:center;justify-content:space-between;gap:.5rem;font-size:.86rem;padding-left:.2rem;min-height:32px}
+.fsy-coord-gauche{min-width:0;overflow-wrap:anywhere}
+.fsy-contact-ligne{flex:1 1 auto;min-width:0;display:flex;align-items:baseline;justify-content:space-between;gap:.6rem}
+.fsy-contact-nom{min-width:0;overflow-wrap:anywhere}
+.fsy-contact-titre{margin-left:auto;text-align:right;color:var(--color-svv-muted);font-size:.84rem}
 .fsy-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.3rem}
 .fsy-liste--serree{gap:.1rem;font-size:.86rem}
 .fsy-coord{display:inline-flex;flex-wrap:wrap;gap:.4rem;align-items:baseline}
