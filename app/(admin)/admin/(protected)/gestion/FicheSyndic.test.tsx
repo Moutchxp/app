@@ -404,16 +404,17 @@ describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — replié, ouvert en lecture, 
     expect(bloc()?.querySelector('legend')?.textContent).toBe('Nouveau contact');
   });
 
-  it('« Valider » la FICHE pendant une modification non validée : « Valider aussi les modifications du contact … ? »', async () => {
+  // LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — CE QU'IL DISAIT AVANT : « Valider aussi les modifications de Léa BERNARD ? », bouton « Oui, valider aussi ».
+  it('« Valider » la FICHE pendant une modification non validée : « Enregistrer les modifications de … ? » — Oui', async () => {
     const onFerme = await ouvrir();
     await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
     await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
     await taper(champContact('Nom'), 'Bernard');
     await cliquer(boutonDans(pied(), 'Valider'));
     // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — CE QU'IL DISAIT AVANT : « … du contact Léa BERNARD ? ».
-    expect(pied()?.textContent).toContain('Valider aussi les modifications de Léa BERNARD ?');
+    expect(pied()?.textContent).toContain('Enregistrer les modifications de Léa BERNARD ?');
     expect(appels.some((x) => x.methode === 'PUT')).toBe(false);
-    await cliquer(boutonDans(pied(), 'Oui, valider aussi'));
+    await cliquer(boutonDans(pied(), 'Oui'));
     expect((appels.find((x) => x.methode === 'PUT')?.corps as { contacts: Array<{ nom: string }> }).contacts[0].nom).toBe('Bernard');
     expect(onFerme).toHaveBeenCalledTimes(1);
   });
@@ -622,32 +623,29 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     expect(suivis).toEqual(['Copropriétés suivies (2)▸', 'Copropriétés suivies (1)▸']);
   });
 
-  it('affecter un contact à DEUX copropriétés, puis à « Tous les immeubles », par les cases', async () => {
+  // LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — CE QU'IL DISAIT AVANT : « affecter un contact à DEUX copropriétés, puis à « Tous les immeubles », par les
+  // cases » (toutes les copropriétés du syndic + « Tous les immeubles »). En modification, seules les copropriétés
+  // SUIVIES s'affichent : on ne peut plus qu'en détacher (on rattache par le Catalogue, depuis le bien).
+  it('détacher un contact d’une copropriété par SA case, en modification ; la case décochée reste, pour la recocher', async () => {
     await ouvrir(vi.fn(), 20);
     await cliquer([...document.querySelectorAll('button.fsy-contact-replie')][1]); // Marie DOUZE
     await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
-    const cases = (): HTMLInputElement[] => [...document.querySelectorAll('.fsy-suivis-edit input[type="checkbox"]')] as HTMLInputElement[];
-    expect(cases().map((c) => [c.checked, c.disabled])).toEqual([[false, false], [true, false], [false, false]]);
-    await cliquer(cases()[2]); // + 3 av Y
-    await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
-    // LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — CE QU'IL DISAIT AVANT : « Immeubles suivis : 12 rue X … · 3 av Y … ».
-    await cliquer(document.querySelector('.fsy-contact-ouvert .fsy-suivis-tete') as Element);
-    expect([...document.querySelectorAll('.fsy-contact-ouvert .fsy-suivis-liste li')].map((x) => x.textContent))
-      .toEqual(['3 av Y, 92400 Courbevoie', '12 rue X, 92400 Courbevoie']);
-    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
-    // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : cocher « Tous les immeubles » désactivait les autres
-    // cases et enregistrait tousImmeubles = vrai. C'est désormais un RACCOURCI sur les copropriétés ACTUELLES.
-    expect(cases()[0].checked).toBe(true); // les deux copropriétés actuelles sont cochées ⇒ « tous » apparaît coché
-    await cliquer(cases()[0]); // décoche tout
-    expect(cases().map((c) => c.checked)).toEqual([false, false, false]);
-    await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
-    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
-    expect(cases().map((c) => c.checked)).toEqual([false, false, false]);
-    await cliquer(cases()[0]); // recoche tout
-    expect(cases().map((c) => [c.checked, c.disabled])).toEqual([[true, false], [true, false], [true, false]]);
+    const tete = (): HTMLButtonElement => document.querySelector('.fsy-contact-edit .fsy-suivis-tete') as HTMLButtonElement;
+    const cases = (): HTMLInputElement[] => [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-liste input[type="checkbox"]')] as HTMLInputElement[];
+    expect(tete().textContent).toBe('Immeubles suivis (1)▸');
+    expect(cases()).toEqual([]);
+    await cliquer(tete());
+    expect(cases().map((c) => [c.checked, c.parentElement?.textContent])).toEqual([[true, '12 rue X, 92400 Courbevoie']]);
+    expect(document.querySelector('.fsy-contact-edit')?.textContent).not.toContain('Tous les immeubles');
+    await cliquer(cases()[0]);
+    expect(cases().map((c) => c.checked)).toEqual([false]);
+    expect(tete().textContent).toBe('Immeubles suivis (0)▾');
+    await cliquer(cases()[0]);
+    expect(cases().map((c) => c.checked)).toEqual([true]);
+    await cliquer(cases()[0]);
     await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
     await cliquer(boutonDans(pied(), 'Valider'));
-    expect(put().contacts[1]).toMatchObject({ nom: 'Douze', tousImmeubles: false, immeubles: ['12 rue x', '3 av y'] });
+    expect(put().contacts[1]).toMatchObject({ id: 32, nom: 'Douze', tousImmeubles: false, immeubles: [] });
   });
 
   // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : Paul marqué « commun » (sans « Retirer »). Plus de contact
@@ -694,8 +692,11 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     await cliquer(boutonDans(copro(1), 'Créer un nouveau contact'));
     const bloc = document.querySelector('.fsy-contact-edit') as HTMLElement;
     expect(bloc.querySelector('legend')?.textContent).toBe('Nouveau contact');
-    const cases = [...bloc.querySelectorAll('.fsy-suivis-edit input')] as HTMLInputElement[];
-    expect(cases.map((c) => c.checked)).toEqual([false, false, true]);
+    // LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — CE QU'IL DISAIT AVANT : les trois cases, la troisième (3 av Y) cochée.
+    await cliquer(bloc.querySelector('.fsy-suivis-tete') as Element);
+    expect(bloc.querySelector('.fsy-suivis-tete')?.textContent).toBe('Immeubles suivis (1)▾');
+    const cases = [...bloc.querySelectorAll('.fsy-suivis-liste input')] as HTMLInputElement[];
+    expect(cases.map((c) => [c.checked, c.parentElement?.textContent])).toEqual([[true, '3 av Y, 92400 Courbevoie']]);
   });
 
   // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : sans bien, « Tous les immeubles » coché par défaut.
@@ -706,13 +707,13 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     // Depuis un bien, les cases cèdent la place à « Sera rattaché à : … » (accord d'Arno).
     expect(document.querySelector('.fsy-contact-edit .fsy-suivis-edit')).toBeNull();
     expect(document.querySelector('.fsy-contact-edit .fsy-suivis')?.textContent).toBe('Sera rattaché à : 12 rue X, 92400 Courbevoie');
-    let cases: HTMLInputElement[];
     act(() => { root.unmount(); });
     root = createRoot(container);
     await ouvrir(vi.fn(), 20);
     await cliquer(bouton('+ Ajouter un contact'));
-    cases = [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
-    expect(cases.map((c) => c.checked)).toEqual([false, false, false]);
+    // LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — CE QU'IL DISAIT AVANT : trois cases, aucune cochée.
+    expect(document.querySelector('.fsy-contact-edit .fsy-suivis')?.textContent).toBe('Aucun immeuble suivi');
+    expect(document.querySelector('.fsy-contact-edit .fsy-suivis-tete')).toBeNull();
   });
 
   it('RETIRER une copropriété : elle sort aussi des contacts qui la suivaient', async () => {
@@ -859,8 +860,12 @@ describe('LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — Catalogue ouvert, puis N
     expect(put.contacts.find((c) => c.nom === 'Neuf')).toMatchObject({ tousImmeubles: false, immeubles: ['12 rue x'] });
   });
 
+  // LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — CE QU'IL DISAIT AVANT : Marie (1 immeuble) recevait 2 immeubles de plus par les cases (4 cases). En
+  // modification on ne rattache plus : Marie suit déjà 3 immeubles, les 3 s'affichent, et on en détache un.
   it('un contact rattaché à 3 immeubles (aucune limite), et « Immeubles suivis » CONSERVÉ en modification', async () => {
-    const trois = { ...FICHE_22, id: 23, coproprietes: [...FICHE_22.coproprietes,
+    const trois = { ...FICHE_22, id: 23,
+      contacts: FICHE_22.contacts.map((c) => (c.id === 32 ? { ...c, immeubles: ['12 rue x', '3 av y', '7 bd z'] } : c)),
+      coproprietes: [...FICHE_22.coproprietes,
       { id: 8, cle: '7 bd z', libelle: '7 bd Z', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] }] };
     const avant = globalThis.fetch;
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -872,25 +877,26 @@ describe('LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — Catalogue ouvert, puis N
     const marie = [...document.querySelectorAll('button.fsy-contact-replie')].find((b) => b.textContent?.includes('Marie DOUZE')) as Element;
     await cliquer(marie);
     await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
-    const cases = (): HTMLInputElement[] => [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
-    expect(cases()).toHaveLength(4);
-    await cliquer(cases()[2]);
-    await cliquer(cases()[3]);
+    await cliquer(document.querySelector('.fsy-contact-edit .fsy-suivis-tete') as Element);
+    const cases = (): HTMLInputElement[] => [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-liste input')] as HTMLInputElement[];
+    expect(cases().map((c) => [c.checked, c.parentElement?.textContent])).toEqual([
+      [true, '3 av Y, 92400 Courbevoie'], [true, '7 bd Z, 92400 Courbevoie'], [true, '12 rue X, 92400 Courbevoie']]);
+    await cliquer(cases()[1]); // 7 bd Z
     await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
     await cliquer(boutonDans(pied(), 'Valider'));
     const put = appels.find((x) => x.methode === 'PUT')?.corps as Corps;
-    expect(put.contacts.find((c) => c.nom === 'Douze')?.immeubles).toEqual(['12 rue x', '3 av y', '7 bd z']);
+    expect(put.contacts.find((c) => c.nom === 'Douze')?.immeubles).toEqual(['12 rue x', '3 av y']);
   });
 
   // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : « Tous les immeubles » coché par défaut.
-  it('écran « Syndics » (sans bien) : pas de Catalogue, les cases, AUCUNE cochée par défaut', async () => {
+  // LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — CE QU'IL DISAIT AVANT : « les cases, AUCUNE cochée par défaut » (3 cases).
+  it('écran « Syndics » (sans bien) : pas de Catalogue ; « Aucun immeuble suivi » pour un nouveau contact', async () => {
     avecFiche22();
     await ouvrir(vi.fn(), 22);
     await cliquer(bouton('+ Ajouter un contact'));
     expect(catalogue()).toBeNull();
-    const cases = [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
-    expect(cases.length).toBe(3);
-    expect(cases.map((c) => c.checked)).toEqual([false, false, false]);
+    expect(document.querySelector('.fsy-contact-edit .fsy-suivis')?.textContent).toBe('Aucun immeuble suivi');
+    expect(document.querySelectorAll('.fsy-contact-edit input[type="checkbox"]')).toHaveLength(0);
   });
 });
 
@@ -2352,7 +2358,8 @@ describe('LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES', () => {
       .toEqual(['3 av Y, 92400 Courbevoie', '8 rue Abel, 92400 Courbevoie', '12 rue X, 92400 Courbevoie']);
   });
 
-  it('INCHANGÉS : les cases « Immeubles suivis » en modification ; « Déjà rattaché à » dans le catalogue', async () => {
+  // LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — CE QU'IL DISAIT AVANT : les cases « Immeubles suivis » (cadre et légende) en modification.
+  it('INCHANGÉ : « Déjà rattaché à » dans le catalogue ; en modification, « Immeubles suivis (N) » replié', async () => {
     await ouvrir40(true);
     await cliquer(bouton('+ Ajouter un contact'));
     await cliquer(document.querySelector('.fsy-catalogue-liste > button.fsy-contact-replie') as Element);
@@ -2361,7 +2368,7 @@ describe('LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES', () => {
     await ouvrir40(false);
     await cliquer(tuile('Bob SEUL') as Element);
     await cliquer(boutonDans(tuile('Bob SEUL') as Element, 'Modifier'));
-    expect(document.querySelector('.fsy-contact-edit .fsy-suivis-edit legend')?.textContent).toBe('Immeubles suivis');
+    expect(document.querySelector('.fsy-contact-edit .fsy-suivis-tete')?.textContent).toBe('Immeubles suivis (1)▸');
   });
 });
 
@@ -2506,3 +2513,126 @@ describe('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE', () => {
     expect(document.querySelector('.bsy-mot')?.textContent).toBe('Créer le syndic');
   });
 });
+
+/**
+ * ══ LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS ═════════════════════════════════════════════════════
+ * Fiche 11 : le cabinet « _TEST Cabinet », une copropriété (12 rue X), Léa DURAND qui la suit.
+ */
+describe('LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS', () => {
+  type Corps = { nom: string; contacts: Array<{ id?: number | null; prenom: string; nom: string; immeubles: string[] }> };
+  const pied = (): Element | null => document.querySelector('.fsy-pied');
+  const bandeau = (): HTMLElement | null => document.querySelector('.fsy-pied [role="group"][aria-label="Enregistrer les modifications de ce contact ?"]');
+  const put = (): Corps | undefined => appels.find((x) => x.methode === 'PUT')?.corps as Corps | undefined;
+  const champC = (label: string): HTMLInputElement => [...(document.querySelector('.fsy-contact-edit')?.querySelectorAll('label') ?? [])]
+    .find((x) => x.querySelector('span')?.textContent === label)?.querySelector('input') as HTMLInputElement;
+  /** Léa en modification (nom → Bernard), ET le nom du cabinet changé, puis « Valider » de la fiche. */
+  const leaModifiee = async (onFerme = vi.fn()): Promise<ReturnType<typeof vi.fn>> => {
+    await ouvrir(onFerme);
+    await taper(champ('Nom du cabinet *'), '_TEST Cabinet bis');
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await taper(champC('Nom'), 'Bernard');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    return onFerme;
+  };
+
+  it('le bandeau : « Enregistrer les modifications de Léa BERNARD ? », DEUX boutons « Non » (blanc) et « Oui » (rouge), plus de « Revenir »', async () => {
+    await leaModifiee();
+    const b = bandeau() as HTMLElement;
+    expect(b.querySelector('.fsy-question')?.textContent).toBe('Enregistrer les modifications de Léa BERNARD ?');
+    expect([...b.querySelectorAll('button')].map((x) => [x.textContent, x.className.includes('svv-btn-primary') ? 'rouge' : 'blanc']))
+      .toEqual([['Non', 'blanc'], ['Oui', 'rouge']]);
+    expect(pied()?.textContent).not.toContain('Revenir');
+    expect(pied()?.textContent).not.toContain('Valider aussi');
+    expect(put()).toBeUndefined();
+  });
+
+  it('« Non » : les modifications de CE contact sont abandonnées, le reste de la fiche est enregistré, puis la fiche se ferme', async () => {
+    const onFerme = await leaModifiee();
+    await cliquer(boutonDans(bandeau(), 'Non'));
+    expect(put()?.nom).toBe('_TEST Cabinet bis');
+    expect(put()?.contacts.map((c) => [c.id, c.nom])).toEqual([[4, 'Durand']]);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('« Oui » : le contact ET le reste de la fiche sont enregistrés, puis la fiche se ferme', async () => {
+    const onFerme = await leaModifiee();
+    await cliquer(boutonDans(bandeau(), 'Oui'));
+    expect(put()?.nom).toBe('_TEST Cabinet bis');
+    expect(put()?.contacts.map((c) => [c.id, c.nom])).toEqual([[4, 'Bernard']]);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('Échap referme le bandeau SANS RIEN FAIRE : fiche ouverte, contact toujours en modification, rien d’enregistré', async () => {
+    const onFerme = await leaModifiee();
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(bandeau()).toBeNull();
+    expect(pied()?.textContent).not.toContain('Abandonner les modifications ?');
+    expect(champC('Nom').value).toBe('Bernard');
+    expect(put()).toBeUndefined();
+    expect(onFerme).not.toHaveBeenCalled();
+  });
+
+  it('un clic HORS du bandeau le referme sans rien faire ; un clic DEDANS le laisse', async () => {
+    const onFerme = await leaModifiee();
+    await act(async () => { bandeau()?.querySelector('.fsy-question')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(bandeau()).not.toBeNull();
+    await act(async () => { document.querySelector('.fsy-corps')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(bandeau()).toBeNull();
+    expect(put()).toBeUndefined();
+    expect(onFerme).not.toHaveBeenCalled();
+  });
+
+  it('NOUVEAU CONTACT : « Enregistrer le nouveau contact Anne NEUVE ? » — Non : le reste seul ; Oui : le contact aussi', async () => {
+    for (const reponse of ['Non', 'Oui'] as const) {
+      appels = [];
+      await act(async () => { root.render(null); });
+      await ouvrir();
+      await taper(champ('Nom du cabinet *'), '_TEST Cabinet ter');
+      await cliquer(bouton('+ Ajouter un contact'));
+      await taper(champC('Prénom'), 'Anne');
+      await taper(champC('Nom'), 'Neuve');
+      await cliquer(boutonDans(pied(), 'Valider'));
+      expect(bandeau()?.querySelector('.fsy-question')?.textContent).toBe('Enregistrer le nouveau contact Anne NEUVE ?');
+      expect([...(bandeau()?.querySelectorAll('button') ?? [])].map((x) => x.textContent)).toEqual(['Non', 'Oui']);
+      await cliquer(boutonDans(bandeau(), reponse));
+      expect(put()?.nom).toBe('_TEST Cabinet ter');
+      expect(put()?.contacts.map((c) => c.nom)).toEqual(reponse === 'Non' ? ['Durand'] : ['Durand', 'Neuve']);
+    }
+  });
+
+  it('en modification : « Immeubles suivis (1) ▸ » replié ; contenu déplié sur FOND BLANC, petit cadre arrondi, en retrait (lecture aussi)', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    const tete = document.querySelector('.fsy-contact-edit .fsy-suivis-tete') as HTMLButtonElement;
+    expect(tete.textContent).toBe('Immeubles suivis (1)▸');
+    expect(tete.getAttribute('aria-expanded')).toBe('false');
+    expect(document.querySelector('.fsy-contact-edit .fsy-suivis-liste')).toBeNull();
+    await cliquer(tete);
+    expect(document.querySelector('.fsy-contact-edit .fsy-suivis-liste')).not.toBeNull();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
+    const regle = css.match(/\.fsy-suivis-liste\{[^}]*\}/)?.[0] ?? '';
+    expect(regle).toContain('background:var(--color-svv-surface)');
+    expect(regle).toContain('border:1px solid var(--color-svv-line)');
+    expect(regle).toContain('border-radius:8px');
+    expect(regle).toMatch(/margin:[^;]*\.6rem/); // en retrait
+  });
+
+  it('N = 0 pour un contact EXISTANT : « Aucun immeuble suivi », non dépliable', async () => {
+    servirFiche({ ...FICHE, contacts: [{ ...FICHE.contacts[0], immeubles: [] }] });
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    expect(document.querySelector('.fsy-contact-edit .fsy-suivis')?.textContent).toBe('Aucun immeuble suivi');
+    expect(document.querySelector('.fsy-contact-edit .fsy-suivis-tete')).toBeNull();
+  });
+});
+
+function servirFiche(fiche: unknown): void {
+  const avant = globalThis.fetch;
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === '/api/admin/gestion/syndics/11' && (init?.method ?? 'GET') === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche }) };
+    return (avant as typeof fetch)(url, init);
+  }));
+}

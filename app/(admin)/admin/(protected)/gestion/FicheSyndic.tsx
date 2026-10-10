@@ -132,11 +132,27 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       // LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — Échap DANS une tuile dépliée du catalogue la replie (son propre
       // gestionnaire), SANS fermer la fiche : on la laisse passer.
       if ((e.target as Element | null)?.closest?.('[data-echap-local]')) return;
-      e.stopPropagation(); annuler();
+      e.stopPropagation();
+      // LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — Échap referme d'abord le bandeau « Enregistrer … ? »,
+      // sans rien faire d'autre.
+      if (questionContact) { setQuestionContact(false); return; }
+      annuler();
     };
     document.addEventListener('keydown', auClavier, true);
     return () => document.removeEventListener('keydown', auClavier, true);
-  }, [annuler]);
+  }, [annuler, questionContact]);
+  /** Un clic (appui) HORS du bandeau « Enregistrer … ? » le referme sans rien faire. `pointerdown`/`mousedown` et non
+   *  `click` : le clic qui a OUVERT le bandeau ne peut pas le refermer aussitôt. */
+  const bandeau = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!questionContact) return;
+    const dehors = (e: Event): void => {
+      if (bandeau.current !== null && !bandeau.current.contains(e.target as Node)) setQuestionContact(false);
+    };
+    document.addEventListener('mousedown', dehors, true);
+    document.addEventListener('touchstart', dehors, true);
+    return () => { document.removeEventListener('mousedown', dehors, true); document.removeEventListener('touchstart', dehors, true); };
+  }, [questionContact]);
   useEffect(() => { boite.current?.focus(); }, []);
 
   /** « Rattacher cet immeuble à ce syndic » : SA fiche s'ouvre, l'immeuble déjà ajouté (et donc à valider). */
@@ -291,19 +307,20 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         <div className="fsy-pied">
           {erreur !== null && <p className="fsy-alerte fsy-pied-alerte" role="alert">{erreur}</p>}
           {questionContact && edition !== null ? (
-            <div className="fsy-boutons" role="group" aria-label="Valider aussi les modifications de ce contact ?">
-              {/* LOT SYNDIC-CONTACTS-ANTI-DOUBLON — « … du contact ce contact ? » corrigé : « de Prénom NOM ? » ou
-                  « de ce contact ? » quand le nom n'est pas connu. */}
-              <span className="fsy-question">Valider aussi les modifications de {prenomNom(edition.brouillon.prenom, edition.brouillon.nom) || 'ce contact'} ?</span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setQuestionContact(false)}>Revenir</button>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void validerAvec(form)}>Non, sans ce contact</button>
+            <div className="fsy-boutons" role="group" aria-label="Enregistrer les modifications de ce contact ?" ref={bandeau}>
+              {/* 🔴 LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS (accord d'Arno) — CE QU'IL Y AVAIT :
+                  « Valider aussi les modifications de … ? » et trois boutons (Revenir / Non, sans ce contact / Oui,
+                  valider aussi). Désormais un oui ou un non : « Non » abandonne CE contact et enregistre le reste ;
+                  « Oui » enregistre tout. « Revenir » n'existe plus : Échap ou un clic hors du bandeau le referme. */}
+              <span className="fsy-question">{questionDuContact(edition)}</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void validerAvec(form)}>Non</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => {
                 const b = edition.brouillon;
                 if (!contactNomme({ titre: valeurDuChoix(b.titreChoix, b.titreLibre), prenom: b.prenom, nom: b.nom })) {
                   setQuestionContact(false); setErreur('Le contact en cours n’a ni prénom, ni nom, ni titre : complétez-le ou annulez-le.'); return;
                 }
                 void validerAvec(appliquerBrouillon(form, edition));
-              }}>Oui, valider aussi</button>
+              }}>Oui</button>
             </div>
           ) : abandon ? (
             <div className="fsy-boutons" role="group" aria-label="Abandonner les modifications ?">
@@ -325,6 +342,16 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       </div>
     </div>
   );
+}
+
+/**
+ * LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — la question du bandeau : « Enregistrer les modifications
+ * de Augustin JOREL ? » pour un contact existant, « Enregistrer le nouveau contact Prénom NOM ? » pour un nouveau.
+ */
+function questionDuContact(e: EtatEdition): string {
+  const nom = prenomNom(e.brouillon.prenom, e.brouillon.nom);
+  if (e.nouveau) return nom !== '' ? `Enregistrer le nouveau contact ${nom} ?` : 'Enregistrer le nouveau contact ?';
+  return `Enregistrer les modifications de ${nom !== '' ? nom : 'ce contact'} ?`;
 }
 
 // ══ ÉTAPE 1 — CHERCHER UN SYNDIC EXISTANT ═══════════════════════════════════════════════════════════════════════
@@ -1166,6 +1193,40 @@ function suitSeulement(c: ContactForm | undefined, cle: string): boolean {
   return c !== undefined && !c.tousImmeubles && c.immeubles.length === 1 && c.immeubles[0] === cle;
 }
 
+/**
+ * LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — « IMMEUBLES SUIVIS (N) » EN MODIFICATION D'UN CONTACT.
+ * Les lignes : les copropriétés que le contact suivait en ouvrant la modification (et celles cochées depuis), et
+ * elles seules — une décochée RESTE affichée, pour pouvoir la recocher. N = celles cochées à l'instant. Aucune ligne ⇒
+ * « Aucun immeuble suivi », non dépliable. Repliée par défaut.
+ */
+function ImmeublesSuivisEdit({ c, origine, adresses, onChange }: {
+  c: ContactForm; origine: ContactForm | null; adresses: Array<{ cle: string; adresse: string }>; onChange: (c: ContactForm) => void;
+}) {
+  const [ouvert, setOuvert] = useState(false);
+  const lignes = trierParVoie(adresses.filter((a) => c.immeubles.includes(a.cle) || (origine?.immeubles ?? []).includes(a.cle)));
+  if (lignes.length === 0) return <p className="fsy-suivis fsy-discret">Aucun immeuble suivi</p>;
+  const n = lignes.filter((a) => c.immeubles.includes(a.cle)).length;
+  return (
+    <div className="fsy-suivis-repli fsy-suivis-edit-repli">
+      <button type="button" className="fsy-suivis-tete" aria-expanded={ouvert} onClick={() => setOuvert(!ouvert)}>
+        <span>Immeubles suivis ({n})</span>
+        <span className="fsy-fleche" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
+      </button>
+      {ouvert && (
+        <div className="fsy-suivis-liste" role="group" aria-label="Immeubles suivis">
+          {lignes.map((a) => (
+            <label key={a.cle} className="fsy-case">
+              <input type="checkbox" checked={c.immeubles.includes(a.cle)}
+                onChange={(ev) => onChange(affecter(c, a.cle, ev.target.checked))} />
+              <span>{a.adresse}</span>
+            </label>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** LOT SYNDIC-CONTACT-ARRIVEE-ROSE-ET-COPROS-REPLIEES — durée du fondu rose → gris d'un contact arrivé. */
 const DUREE_ARRIVEE_MS = 3000;
 
@@ -1403,30 +1464,14 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
         <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('telephone')}>+ téléphone</button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('email')}>+ e-mail</button>
       </div>
-      {/* 🔴 LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — « Immeubles suivis » : « Tous les immeubles », ou les copropriétés
-          cochées une à une (celles du syndic). */}
+      {/* 🔴 LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS (accord d'Arno) — CE QU'IL Y AVAIT : un cadre de
+          cases, « Tous les immeubles » + TOUTES les copropriétés du syndic. Désormais une ligne REPLIÉE « Immeubles
+          suivis (N) ▸ » ; dépliée, SEULEMENT les copropriétés que ce contact suit, cochées : décocher le détache (au
+          Valider, historisé). On rattache à un autre immeuble par le Catalogue, depuis le bien concerné. */}
       {rattacheA !== undefined && e.nouveau ? (
         <p className="fsy-suivis"><span className="fsy-discret">Sera rattaché à :</span> {rattacheA}</p>
       ) : (
-      <fieldset className="fsy-suivis-edit">
-        <legend>Immeubles suivis</legend>
-        <label className="fsy-case">
-          {/* LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — un RACCOURCI : cocher coche d'un coup toutes les copropriétés ACTUELLES du
-              syndic (affectations explicites) ; décocher les décoche. Il ne s'étend JAMAIS aux copropriétés rattachées
-              plus tard : une nouvelle copropriété part avec une liste de contacts vide. */}
-          <input type="checkbox" checked={adresses.length > 0 && adresses.every((a) => c.immeubles.includes(a.cle))}
-            onChange={(ev) => onChange({ ...c, tousImmeubles: false, immeubles: ev.target.checked ? adresses.map((a) => a.cle) : [] })} />
-          <span>Tous les immeubles</span>
-        </label>
-        {adresses.map((a) => (
-          <label key={a.cle} className="fsy-case">
-            <input type="checkbox" checked={c.immeubles.includes(a.cle)}
-              onChange={(ev) => onChange(affecter(c, a.cle, ev.target.checked))} />
-            <span>{a.adresse}</span>
-          </label>
-        ))}
-        {adresses.length === 0 && <p className="fsy-discret fsy-sans-marge">Ajoutez une copropriété pour affecter ce contact à un immeuble.</p>}
-      </fieldset>
+        <ImmeublesSuivisEdit c={c} origine={origine} adresses={adresses} onChange={onChange} />
       )}
       {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
       {confirmation ?? (abandon ? (
@@ -1739,7 +1784,10 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-suivis-tete:hover,.fsy-suivis-tete:focus-visible{color:var(--color-svv-ink);text-decoration:underline}
 /* la cible tactile du §15 : 44 px qu'on touche, 32 px qu'on voit (comme les pilules). */
 .fsy-suivis-tete::after{content:"";position:absolute;left:0;right:0;top:50%;height:44px;transform:translateY(-50%)}
-.fsy-suivis-liste{list-style:none;margin:0;padding:0 0 0 .8rem;display:flex;flex-direction:column;gap:.1rem;font-size:.86rem;overflow-wrap:anywhere}
+/* LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS — le contenu deplie sur FOND BLANC, dans un petit cadre
+   arrondi a bord fin, en retrait : il se detache nettement des tuiles grises autour (lecture et modification). */
+.fsy-suivis-liste{list-style:none;margin:.15rem 0 .1rem .6rem;padding:5px 9px;display:flex;flex-direction:column;gap:.15rem;
+  font-size:.86rem;overflow-wrap:anywhere;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:8px}
 .fsy-catalogue-liste .fsy-tuile-catalogue:hover{background:color-mix(in srgb, var(--color-svv-syndic-texte) 16%, transparent)}
 .fsy-copro-adresse{display:flex;flex-direction:column;min-width:0;font-size:.9rem}
 .fsy-confirmer{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;font-size:.84rem}
