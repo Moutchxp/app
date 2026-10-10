@@ -345,8 +345,6 @@ export interface CoordonneeForm { cle: string; id: number | null; sorte: SorteCo
 export interface ContactForm {
   cle: string; id: number | null; titreChoix: string; titreLibre: string; prenom: string; nom: string;
   coordonnees: CoordonneeForm[];
-  /** Replié en une ligne (« Valider ce contact ») ou déplié pour la saisie. */
-  replie: boolean;
 }
 export interface SyndicForm {
   nom: string; adresse: string; codePostal: string; ville: string;
@@ -377,9 +375,9 @@ export function formulaireVide(immeubleDepart?: ImmeubleSaisi | null): SyndicFor
   return { nom: '', adresse: '', codePostal: '', ville: '', telephones: [''], email: '', note: '', contacts: [], immeubles: i };
 }
 
-/** Un contact NOUVEAU s'ouvre déplié. */
+/** Un contact NOUVEAU (il s'ouvre EN MODIFICATION). */
 export function contactVide(): ContactForm {
-  return { cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', coordonnees: [], replie: false };
+  return { cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', coordonnees: [] };
 }
 
 export function coordonneeVide(sorte: SorteCoordonnee): CoordonneeForm {
@@ -397,7 +395,6 @@ export function versFormulaire(f: FicheSyndic): SyndicForm {
       const t = choixDe(c.titre, TITRES_CONTACT);
       return {
         cle: cleLocale(), id: c.id, titreChoix: t.choix, titreLibre: t.libre, prenom: c.prenom ?? '', nom: c.nom ?? '',
-        replie: true,
         coordonnees: c.coordonnees.map((k) => {
           const l = choixDe(k.libelle, LIBELLES_COORDONNEE);
           return {
@@ -428,7 +425,54 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
   };
 }
 
-/** Le formulaire a-t-il bougé depuis son ouverture ? (Les replis de contacts ne comptent pas.) PUR. */
+// ══ LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — UN CONTACT : REPLIÉ, OUVERT EN LECTURE, EN MODIFICATION ══════════════
+//
+// L'état d'un contact (replié / ouvert / en modification) est un état d'ÉCRAN : il ne voyage pas avec les données.
+// En modification, l'écran travaille sur un BROUILLON du contact ; « Valider » le reporte dans la fiche, et c'est le
+// « Valider » du pied de la fenêtre qui enregistre en base — comme pour tout le reste de la fiche.
+
+/** Le contact en cours de modification : lequel, son brouillon, et s'il est nouveau. */
+export interface EditionContact { cle: string; brouillon: ContactForm; nouveau: boolean }
+
+/** Ce qu'un contact dit de lui, sans sa clé d'écran ni l'ordre de ses champs vides. PUR. */
+function signatureContact(c: ContactForm): string {
+  return JSON.stringify({
+    titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom.trim(), nom: c.nom.trim(),
+    coordonnees: c.coordonnees.map((k) => ({
+      sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
+      valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur.trim(),
+    })),
+  });
+}
+
+/** Le brouillon diffère-t-il du contact d'origine ? Un NOUVEAU contact est « modifié » dès qu'un champ est rempli. PUR. */
+export function contactModifie(origine: ContactForm | null, brouillon: ContactForm): boolean {
+  return signatureContact(origine ?? contactVide()) !== signatureContact(brouillon);
+}
+
+/** Le nom à afficher : « Prénom NOM », sinon le titre, sinon « ce contact ». PUR. */
+export function nomAffiche(c: ContactForm): string {
+  return prenomNom(c.prenom, c.nom) || valeurDuChoix(c.titreChoix, c.titreLibre) || 'ce contact';
+}
+
+/** Un numéro complet (10 chiffres au moins) — seul celui-là reçoit « Appeler ». PUR. */
+export function telephoneComplet(v: string): boolean {
+  return chiffresTelephone(v).replace('+', '').length >= 10;
+}
+
+/** Le contact en modification, VALIDÉ dans la fiche (remplacé, ou ajouté s'il est nouveau). PUR. */
+export function appliquerBrouillon(f: SyndicForm, e: EditionContact): SyndicForm {
+  return e.nouveau
+    ? { ...f, contacts: [...f.contacts, e.brouillon] }
+    : { ...f, contacts: f.contacts.map((c) => (c.cle === e.cle ? e.brouillon : c)) };
+}
+
+/** Une copie indépendante d'un contact, pour en faire un brouillon. PUR. */
+export function copieContact(c: ContactForm): ContactForm {
+  return { ...c, coordonnees: c.coordonnees.map((k) => ({ ...k })) };
+}
+
+/** Le formulaire a-t-il bougé depuis son ouverture ? PUR. */
 export function formulaireModifie(avant: SyndicForm, apres: SyndicForm): boolean {
   return JSON.stringify(versSaisie(avant)) !== JSON.stringify(versSaisie(apres));
 }

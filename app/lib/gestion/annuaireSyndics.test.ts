@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, adresseManquante, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -116,7 +116,8 @@ describe('les règles pures', () => {
     };
     const f = versFormulaire(fiche);
     expect(f.telephones).toEqual(['01 00 00 00 00', '02 00 00 00 00']);
-    expect(f.contacts[0].replie).toBe(true);
+    // LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — « replié / ouvert / en modification » est un état d'ÉCRAN, plus une donnée.
+    expect('replie' in f.contacts[0]).toBe(false);
     expect(f.contacts[0].coordonnees[0].valeur).toBe('06 13 86 18 77');
     const s = versSaisie(f);
     expect([s.telephone, s.telephone2, s.codePostal, s.ville]).toEqual(['0100000000', '0200000000', '75001', 'Paris']);
@@ -148,6 +149,36 @@ describe('l\'adresse du syndic est OBLIGATOIRE — rue, code postal (5 chiffres)
   it('« Prénom NOM »', () => {
     expect(prenomNom('Léa', 'Durand')).toBe('Léa DURAND');
     expect(prenomNom('', 'durand')).toBe('DURAND');
+  });
+});
+
+describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — les règles d\'un contact en modification', () => {
+  const base = { cle: 'k1', id: 4, titreChoix: 'Responsable de copropriété', titreLibre: '', prenom: 'Marie', nom: 'Dupont',
+    coordonnees: [{ cle: 'c1', id: 5, sorte: 'telephone' as const, choix: 'Portable', libre: '', valeur: '06 13 86 18 77' }] };
+  it('« Modifier » devient « Valider » dès qu\'un champ change — et pas pour un simple reformatage', () => {
+    expect(contactModifie(base, copieContact(base))).toBe(false);
+    expect(contactModifie(base, { ...base, nom: 'Durand' })).toBe(true);
+    expect(contactModifie(base, { ...base, coordonnees: [{ ...base.coordonnees[0], valeur: '0613861877' }] })).toBe(false);
+    expect(contactModifie(base, { ...base, coordonnees: [] })).toBe(true);
+  });
+  it('un NOUVEAU contact est « modifié » dès qu\'un champ est rempli', () => {
+    expect(contactModifie(null, { ...base, titreChoix: '', prenom: '', nom: '', coordonnees: [] })).toBe(false);
+    expect(contactModifie(null, { ...base, titreChoix: '', prenom: 'X', nom: '', coordonnees: [] })).toBe(true);
+  });
+  it('« Supprimer Marie DUPONT ? » ; Appeler seulement pour un numéro complet', () => {
+    expect(nomAffiche(base)).toBe('Marie DUPONT');
+    expect(nomAffiche({ ...base, prenom: '', nom: '' })).toBe('Responsable de copropriété');
+    expect(telephoneComplet('06 13 86 18 77')).toBe(true);
+    expect(telephoneComplet('+33 6 13 86 18 77')).toBe(true);
+    expect(telephoneComplet('06 13')).toBe(false);
+  });
+  it('« Valider » reporte le brouillon dans la fiche : remplacé, ou ajouté s\'il est nouveau ; la copie est indépendante', () => {
+    const f = { ...formulaireVide(null), contacts: [base] };
+    expect(appliquerBrouillon(f, { cle: 'k1', brouillon: { ...base, nom: 'Durand' }, nouveau: false }).contacts.map((c) => c.nom)).toEqual(['Durand']);
+    expect(appliquerBrouillon(f, { cle: 'k2', brouillon: { ...base, cle: 'k2', nom: 'Neuf' }, nouveau: true }).contacts.map((c) => c.nom)).toEqual(['Dupont', 'Neuf']);
+    const copie = copieContact(base);
+    copie.coordonnees[0].valeur = 'X';
+    expect(base.coordonnees[0].valeur).toBe('06 13 86 18 77');
   });
 });
 
@@ -392,7 +423,9 @@ describe('les écrans', () => {
 
   it('contacts repliés, « Valider ce contact », « Modifier » ; second standard ; liste des biens ; suppression confirmée', () => {
     const src = lire('FicheSyndic.tsx');
-    for (const mot of ['Valider ce contact', '>Modifier<', '+ Ajouter un contact', 'Autres contacts', 'Ajouter un second numéro de standard',
+    // LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — CE QU'IL DISAIT AVANT : 'Valider ce contact' (devenu « Valider » du contact).
+    expect(src).not.toMatch(/>\s*Retirer ce contact\s*</); // le lien a disparu (accord d'Arno) ; seul un commentaire le cite
+    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Autres contacts', 'Ajouter un second numéro de standard',
       'Biens qui recevront ce syndic', 'déjà rattachée à', 'Oui, la prendre', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
       'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
       expect(src).toContain(mot);

@@ -72,6 +72,12 @@ const taper = async (el: HTMLInputElement, v: string): Promise<void> => {
   await act(async () => { setter?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
   await calmer();
 };
+/** Un bouton par son texte exact, DANS une zone (le pied et un contact ont chacun leur « Valider »). */
+const boutonDans = (zone: Element | null, texte: string): HTMLButtonElement => {
+  const b = [...(zone?.querySelectorAll('button') ?? [])].find((x) => x.textContent?.trim() === texte);
+  if (!b) throw new Error(`bouton introuvable dans la zone : ${texte}`);
+  return b as HTMLButtonElement;
+};
 const champ = (label: string): HTMLInputElement => {
   const l = [...document.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === label);
   const i = l?.querySelector('input');
@@ -111,27 +117,6 @@ describe('la fiche syndic — Annuler / Valider, pied toujours là', () => {
     const put = appels.find((a) => a.methode === 'PUT');
     expect(put?.corps).toMatchObject({ nom: '_TEST Cabinet 2', telephone: '0100000000', telephone2: '' });
     expect(onFerme).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('les contacts — repliés, « Modifier », « Valider ce contact »', () => {
-  it('un contact existant arrive replié en une ligne ; Modifier le rouvre ; Valider ce contact le replie', async () => {
-    await ouvrir();
-    const ligne = document.querySelector('.fsy-contact-replie')?.textContent ?? '';
-    expect(ligne).toContain('Responsable de copropriété');
-    expect(ligne).toContain('Léa DURAND');
-    expect(ligne).toContain('06 13 86 18 77');
-    await cliquer(bouton('Modifier'));
-    expect(document.querySelector('.fsy-contact-edit')).not.toBeNull();
-    await cliquer(bouton('Valider ce contact'));
-    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
-    expect(document.querySelector('.fsy-contact-replie')).not.toBeNull();
-  });
-
-  it('« + Ajouter un contact » ouvre un bloc DÉPLIÉ', async () => {
-    await ouvrir();
-    await cliquer(bouton('+ Ajouter un contact'));
-    expect(document.querySelectorAll('.fsy-contact-edit')).toHaveLength(1);
   });
 });
 
@@ -234,17 +219,6 @@ describe('LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — coordonnées générales, a
     expect(document.querySelector('.fsy-ligne-tel')?.textContent).not.toContain('Appeler');
   });
 
-  it('« AUTRES CONTACTS » : titre · Prénom NOM, puis le numéro avec « Appeler » sur sa ligne', async () => {
-    await ouvrir(vi.fn(), 11, vi.fn());
-    const titres = [...document.querySelectorAll('.fsy-sous-titre')].map((h) => h.textContent);
-    expect(titres).toContain('Autres contacts');
-    const replie = document.querySelector('.fsy-contact-replie') as HTMLElement;
-    expect(replie.querySelector('.fsy-contact-ligne')?.textContent).toBe('Responsable de copropriété · Léa DURAND');
-    const coord = replie.querySelector('.fsy-contact-coord')?.textContent ?? '';
-    expect(coord).toContain('06 13 86 18 77');
-    expect(coord).toContain('Appeler');
-  });
-
   it('« Valider » REFUSE sans adresse complète : message près du bouton, champs vides cerclés, rien n\'est envoyé', async () => {
     const onFerme = await ouvrir(vi.fn(), null);
     await cliquer(bouton('Créer un nouveau syndic'));
@@ -268,6 +242,131 @@ describe('LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — coordonnées générales, a
     expect(document.body.textContent).toContain('Complétez code postal et ville');
     await cliquer(bouton('Valider'));
     expect(appels.some((a) => a.methode === 'PUT')).toBe(false);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — replié, ouvert en lecture, en modification', () => {
+  const pied = (): Element | null => document.querySelector('.fsy-pied');
+  const bloc = (): Element | null => document.querySelector('.fsy-contact-edit');
+  const champContact = (label: string): HTMLInputElement => {
+    const l = [...(bloc()?.querySelectorAll('label') ?? [])].find((x) => x.querySelector('span')?.textContent === label);
+    return l?.querySelector('input') as HTMLInputElement;
+  };
+
+  it('① REPLIÉ : « Prénom NOM · Titre » sur une ligne cliquable, avec ▸, SANS bouton « Modifier »', async () => {
+    await ouvrir();
+    const ligne = document.querySelector('button.fsy-contact-replie') as HTMLButtonElement;
+    expect(ligne.textContent).toBe('Léa DURAND · Responsable de copropriété▸');
+    expect(ligne.querySelector('strong')?.textContent).toBe('Léa DURAND');
+    expect(ligne.querySelector('button')).toBeNull();
+  });
+
+  it('② un clic l\'OUVRE EN LECTURE : une ligne par téléphone, « Appeler » au bout ; Modifier / Supprimer / Fermer ; l\'en-tête le referme', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    const ouvert = document.querySelector('.fsy-contact-ouvert') as HTMLElement;
+    expect(ouvert.querySelectorAll('input')).toHaveLength(0);
+    const tel = ouvert.querySelector('.fsy-contact-coord')?.textContent ?? '';
+    expect(tel).toBe('Portable :06 13 86 18 77Appeler');
+    for (const t of ['Modifier', 'Supprimer ce contact', 'Fermer']) expect(boutonDans(ouvert, t)).toBeTruthy();
+    await cliquer(ouvert.querySelector('.fsy-contact-tete-btn') as Element);
+    expect(document.querySelector('.fsy-contact-ouvert')).toBeNull();
+    expect(document.querySelector('button.fsy-contact-replie')).not.toBeNull();
+  });
+
+  it('③ « Modifier » : des champs ; le bouton « Modifier » DEVIENT « Valider » dès qu\'un champ change ; Valider revient en lecture', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    expect(boutonDans(bloc(), 'Modifier').disabled).toBe(true);
+    await taper(champContact('Nom'), 'Martin');
+    const v = boutonDans(bloc(), 'Valider');
+    expect(v.className).toContain('svv-btn-primary');
+    await cliquer(v);
+    expect(bloc()).toBeNull();
+    expect(document.querySelector('.fsy-contact-ouvert .fsy-contact-tete-btn')?.textContent).toContain('Léa MARTIN');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    const put = appels.find((x) => x.methode === 'PUT')?.corps as { contacts: Array<{ nom: string }> };
+    expect(put.contacts[0].nom).toBe('Martin');
+  });
+
+  it('« Annuler » une modification : « Abandonner les modifications ? », puis retour en lecture, inchangé', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await taper(champContact('Prénom'), 'Zoé');
+    await cliquer(boutonDans(bloc(), 'Annuler'));
+    expect(bloc()?.textContent).toContain('Abandonner les modifications ?');
+    await cliquer(boutonDans(bloc(), 'Oui, abandonner'));
+    expect(bloc()).toBeNull();
+    expect(document.querySelector('.fsy-contact-ouvert')?.textContent).toContain('Léa DURAND');
+  });
+
+  it('« Annuler » sans changement revient en lecture SANS confirmation', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await cliquer(boutonDans(bloc(), 'Annuler'));
+    expect(bloc()).toBeNull();
+    expect(document.querySelector('.fsy-contact-ouvert')).not.toBeNull();
+  });
+
+  it('« Supprimer ce contact » : « Supprimer Léa DURAND ? » → retiré de la fiche (enregistré par Valider)', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Supprimer ce contact'));
+    expect(document.body.textContent).toContain('Supprimer Léa DURAND ?');
+    await cliquer(bouton('Oui, supprimer'));
+    expect(document.querySelector('.fsy-contact-ouvert, .fsy-contact-replie')).toBeNull();
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect((appels.find((x) => x.methode === 'PUT')?.corps as { contacts: unknown[] }).contacts).toEqual([]);
+  });
+
+  it('NOUVEAU CONTACT : en modification, « Nouveau contact », sans « Retirer ce contact » ; refus sans nom ni titre ; Annuler le retire', async () => {
+    await ouvrir();
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(bloc()?.querySelector('legend')?.textContent).toBe('Nouveau contact');
+    expect(document.body.textContent).not.toContain('Retirer ce contact');
+    await cliquer(boutonDans(bloc(), 'Valider'));
+    expect(bloc()?.textContent).toContain('Indiquez au moins un prénom, un nom ou un titre.');
+    await cliquer(boutonDans(bloc(), 'Annuler'));
+    expect(bloc()).toBeNull();
+    expect(document.querySelectorAll('button.fsy-contact-replie')).toHaveLength(1);
+  });
+
+  it('NOUVEAU CONTACT validé : il s\'affiche REPLIÉ dans la liste', async () => {
+    await ouvrir();
+    await cliquer(bouton('+ Ajouter un contact'));
+    await taper(champContact('Prénom'), 'Marie');
+    await taper(champContact('Nom'), 'Dupont');
+    await cliquer(boutonDans(bloc(), 'Valider'));
+    const lignes = [...document.querySelectorAll('button.fsy-contact-replie')].map((l) => l.querySelector('strong')?.textContent);
+    expect(lignes).toEqual(['Léa DURAND', 'Marie DUPONT']);
+  });
+
+  it('UN SEUL contact en modification : en ouvrir un autre pendant une modification non enregistrée demande d\'abandonner', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await taper(champContact('Prénom'), 'Zoé');
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(document.body.textContent).toContain('Abandonner les modifications (Zoé DURAND) ?');
+    expect(document.querySelectorAll('.fsy-contact-edit')).toHaveLength(1);
+    await cliquer(bouton('Oui, abandonner'));
+    expect(bloc()?.querySelector('legend')?.textContent).toBe('Nouveau contact');
+  });
+
+  it('« Valider » la FICHE pendant une modification non validée : « Valider aussi les modifications du contact … ? »', async () => {
+    const onFerme = await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    await taper(champContact('Nom'), 'Bernard');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect(pied()?.textContent).toContain('Valider aussi les modifications du contact Léa BERNARD ?');
+    expect(appels.some((x) => x.methode === 'PUT')).toBe(false);
+    await cliquer(boutonDans(pied(), 'Oui, valider aussi'));
+    expect((appels.find((x) => x.methode === 'PUT')?.corps as { contacts: Array<{ nom: string }> }).contacts[0].nom).toBe('Bernard');
     expect(onFerme).toHaveBeenCalledTimes(1);
   });
 });

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, LIBELLES_COORDONNEE,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
@@ -65,6 +66,14 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [suppression, setSuppression] = useState(false);
   /** Un « Valider » a été refusé pour une adresse incomplète : les champs vides se cerclent de rouge. */
   const [tente, setTente] = useState(false);
+  /**
+   * 🔴 LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — l'état des contacts vit ICI, et non dans la section : le PIED doit
+   * savoir qu'un contact est en cours de modification (« Valider aussi les modifications du contact … ? »), et
+   * « Annuler » doit le compter comme une modification en cours.
+   */
+  const [ouverts, setOuverts] = useState<string[]>([]);
+  const [edition, setEdition] = useState<EtatEdition | null>(null);
+  const [questionContact, setQuestionContact] = useState(false);
   const boite = useRef<HTMLDivElement | null>(null);
   const immeubles = useImmeublesSyndics();
 
@@ -86,7 +95,9 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
 
   useEffect(() => { if (idInitial !== null) void charger(idInitial); }, [idInitial, charger]);
 
-  const modifie = mode === 'edition' && formulaireModifie(initial, form);
+  const origineEdition = edition === null || edition.nouveau ? null : (form.contacts.find((c) => c.cle === edition.cle) ?? null);
+  const contactEnCours = edition !== null && contactModifie(origineEdition, edition.brouillon);
+  const modifie = mode === 'edition' && (formulaireModifie(initial, form) || contactEnCours);
 
   /** ANNULER — la croix, Échap et le voile y mènent aussi. Des modifications en cours ⇒ on demande d'abord. */
   const annuler = useCallback((): void => {
@@ -112,14 +123,26 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     }
   };
 
-  /** VALIDER — enregistre puis ferme. Rien n'a bougé ⇒ on ferme simplement. */
+  /**
+   * VALIDER — enregistre puis ferme. Rien n'a bougé ⇒ on ferme simplement.
+   * 🔴 Un contact en cours de modification NON validé ⇒ on demande d'abord « Valider aussi les modifications du
+   * contact … ? » (`questionContact`), puis `validerAvec` reprend avec ou sans lui.
+   */
   const valider = async (): Promise<void> => {
+    if (contactEnCours) { setQuestionContact(true); return; }
+    await validerAvec(form);
+  };
+
+  const validerAvec = async (f: SyndicForm): Promise<void> => {
+    setQuestionContact(false);
+    setEdition(null);
     // Rien n'a bougé sur un syndic existant ⇒ on ferme : un syndic ancien sans adresse complète reste CONSULTABLE.
-    if (syndicId !== null && !modifie) { onFerme(); return; }
-    if (form.nom.trim() === '') { setTente(true); setErreur('Le nom du cabinet est obligatoire.'); return; }
+    if (syndicId !== null && !formulaireModifie(initial, f)) { onFerme(); return; }
+    if (f !== form) setForm(f);
+    if (f.nom.trim() === '') { setTente(true); setErreur('Le nom du cabinet est obligatoire.'); return; }
     // 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — rue, code postal (5 chiffres) et ville obligatoires.
-    if (adresseManquante(form).length > 0) { setTente(true); setErreur(MOTIF_ADRESSE_INCOMPLETE); return; }
-    const sansNom = form.contacts.find((c) => !contactNomme({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom })
+    if (adresseManquante(f).length > 0) { setTente(true); setErreur(MOTIF_ADRESSE_INCOMPLETE); return; }
+    const sansNom = f.contacts.find((c) => !contactNomme({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom })
       && c.coordonnees.some((k) => k.valeur.trim() !== ''));
     if (sansNom) { setErreur('Chaque contact doit avoir au moins un nom ou un titre.'); return; }
     setEnvoi(true); setErreur(null);
@@ -127,7 +150,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       const r = await fetch(syndicId === null ? '/api/admin/gestion/syndics' : `/api/admin/gestion/syndics/${syndicId}`, {
         method: syndicId === null ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(versSaisie(form)),
+        body: JSON.stringify(versSaisie(f)),
       });
       const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string };
       if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Enregistrement impossible.'); return; }
@@ -180,14 +203,28 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           {mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression}
-              envoi={envoi} onSupprimer={() => void supprimer()} tente={tente} />
+              envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
+              ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} />
           )}
         </div>
 
         {/* ══ LE PIED, TOUJOURS VISIBLE — hors de la zone qui défile ══ */}
         <div className="fsy-pied">
           {erreur !== null && <p className="fsy-alerte fsy-pied-alerte" role="alert">{erreur}</p>}
-          {abandon ? (
+          {questionContact && edition !== null ? (
+            <div className="fsy-boutons" role="group" aria-label="Valider aussi les modifications du contact ?">
+              <span className="fsy-question">Valider aussi les modifications du contact {nomAffiche(edition.brouillon)} ?</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setQuestionContact(false)}>Revenir</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void validerAvec(form)}>Non, sans ce contact</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => {
+                const b = edition.brouillon;
+                if (!contactNomme({ titre: valeurDuChoix(b.titreChoix, b.titreLibre), prenom: b.prenom, nom: b.nom })) {
+                  setQuestionContact(false); setErreur('Le contact en cours n’a ni prénom, ni nom, ni titre : complétez-le ou annulez-le.'); return;
+                }
+                void validerAvec(appliquerBrouillon(form, edition));
+              }}>Oui, valider aussi</button>
+            </div>
+          ) : abandon ? (
             <div className="fsy-boutons" role="group" aria-label="Abandonner les modifications ?">
               <span className="fsy-question">Abandonner les modifications ?</span>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAbandon(false)}>Non, continuer</button>
@@ -369,16 +406,17 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
 
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
-function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente }: {
+function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente,
+  ouverts, setOuverts, edition, setEdition }: {
   form: SyndicForm; setForm: (f: SyndicForm) => void; fiche: Fiche | null; syndicId: number | null;
   onEcrire?: (email: string) => void; connus: ImmeubleConnu[];
   suppression: boolean; setSuppression: (v: boolean) => void; envoi: boolean; onSupprimer: () => void;
   /** Vrai après un « Valider » refusé : les champs d'adresse vides se cerclent de rouge. */
   tente: boolean;
+  ouverts: string[]; setOuverts: (o: string[]) => void;
+  edition: EtatEdition | null; setEdition: (e: EtatEdition | null) => void;
 }) {
   const manques = tente ? adresseManquante(form) : [];
-  const majContact = (cle: string, c: ContactForm): void =>
-    setForm({ ...form, contacts: form.contacts.map((x) => (x.cle === cle ? c : x)) });
   const majTel = (i: number, v: string): void =>
     setForm({ ...form, telephones: form.telephones.map((t, j) => (j === i ? saisieTelephone(t, v) : t)) });
   const retirerTel = (i: number): void => {
@@ -435,17 +473,10 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         <textarea rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
       </label>
 
-      {/* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — « AUTRES CONTACTS », sous les coordonnées générales. */}
-      <h3 className="fsy-sous-titre">Autres contacts</h3>
-      {form.contacts.length === 0 && <p className="fsy-discret">Aucun autre contact.</p>}
-      {form.contacts.map((c) => (c.replie ? (
-        <ContactReplie key={c.cle} c={c} onEcrire={onEcrire} onModifier={() => majContact(c.cle, { ...c, replie: false })} />
-      ) : (
-        <EditionContact key={c.cle} c={c} onEcrire={onEcrire} onChange={(n) => majContact(c.cle, n)}
-          onRetirer={() => setForm({ ...form, contacts: form.contacts.filter((x) => x.cle !== c.cle) })} />
-      )))}
-      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout"
-        onClick={() => setForm({ ...form, contacts: [...form.contacts, contactVide()] })}>+ Ajouter un contact</button>
+      {/* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — « AUTRES CONTACTS », sous les coordonnées générales.
+          🔴 LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — chaque contact : replié, ouvert en lecture, en modification. */}
+      <SectionContacts form={form} setForm={setForm} onEcrire={onEcrire}
+        ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} />
 
       <h3 className="fsy-sous-titre">Copropriétés</h3>
       <EditionCopros immeubles={form.immeubles} connus={connus} syndicId={syndicId}
@@ -519,44 +550,6 @@ function jour(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
 }
 
-// ══ UN CONTACT REPLIÉ ═══════════════════════════════════════════════════════════════════════════════════════════
-// 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — « titre · Prénom NOM », puis EN DESSOUS chaque téléphone (par paires,
-// « Appeler » au bout) et chaque e-mail (« Écrire depuis gestion@ » au bout de la MÊME ligne). « Modifier » le déplie.
-
-function ContactReplie({ c, onModifier, onEcrire }: { c: ContactForm; onModifier: () => void; onEcrire?: (email: string) => void }) {
-  const titre = valeurDuChoix(c.titreChoix, c.titreLibre);
-  const nom = prenomNom(c.prenom, c.nom);
-  const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
-  const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '');
-  const libelle = (k: CoordonneeForm): string => valeurDuChoix(k.choix, k.libre);
-  return (
-    <div className="fsy-contact-replie">
-      <div className="fsy-contact-tete">
-        <span className="fsy-contact-ligne">
-          {titre !== '' && <span className="fsy-discret">{titre}</span>}
-          {titre !== '' && nom !== '' && <span className="fsy-point"> · </span>}
-          {nom !== '' && <strong>{nom}</strong>}
-        </span>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onModifier}>Modifier</button>
-      </div>
-      {tels.map((k) => (
-        <div key={k.cle} className="fsy-contact-coord">
-          {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} :</span>}
-          <LienTel tel={k.valeur} />
-          <ActionAppeler tel={k.valeur} />
-        </div>
-      ))}
-      {emails.map((k) => (
-        <div key={k.cle} className="fsy-contact-coord">
-          {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} :</span>}
-          <a href={`mailto:${k.valeur.trim()}`}>{k.valeur.trim()}</a>
-          <ActionEcrire email={k.valeur} onEcrire={onEcrire} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function SelectChoix({ libelle, choix, libre, options, onChange }: {
   libelle: string; choix: string; libre: string; options: readonly string[];
   onChange: (choix: string, libre: string) => void;
@@ -581,32 +574,202 @@ function SelectChoix({ libelle, choix, libre, options, onChange }: {
   );
 }
 
-function EditionContact({ c, onChange, onRetirer, onEcrire }: {
-  c: ContactForm; onChange: (c: ContactForm) => void; onRetirer: () => void; onEcrire?: (email: string) => void;
+/**
+ * ══ 🔴🔴 LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — LES « AUTRES CONTACTS » ═══════════════════════════════════════════
+ *
+ * ARNO : « On ne peut pas ouvrir un contact replié ; le bloc “Nouveau contact” a un lien “Retirer ce contact” au lieu
+ * de vrais boutons. Chaque contact a TROIS ÉTATS. »
+ *
+ *   ① REPLIÉ — une ligne « Prénom NOM · Titre » ; un clic n'importe où (ou sur ▸) l'OUVRE.
+ *   ② OUVERT EN LECTURE — une ligne par téléphone (« Appeler » au bout) et par e-mail (« Écrire depuis gestion@ »
+ *      au bout) ; « Modifier », « Supprimer ce contact » (confirmé), « Fermer » ; un clic sur l'en-tête le FERME.
+ *   ③ EN MODIFICATION — des champs ; « Annuler » (« Abandonner les modifications ? » si quelque chose a bougé) ;
+ *      « Modifier » devient « Valider » (plein, rouge) dès qu'un champ change ; « Supprimer ce contact » reste.
+ *
+ * NOUVEAU CONTACT : directement EN MODIFICATION ; « Annuler » le retire sans rien créer ; « Valider » l'ajoute,
+ * REPLIÉ. Le lien « Retirer ce contact » a disparu (accord d'Arno). « Valider » refuse sans prénom, nom ni titre.
+ *
+ * 🔴 UN SEUL CONTACT EN MODIFICATION À LA FOIS : en ouvrir un autre pendant une modification non enregistrée demande
+ * « Abandonner les modifications ? ».
+ *
+ * ⚠️ « VALIDER » D'UN CONTACT LE REPORTE DANS LA FICHE ; c'est « Valider » du pied qui enregistre en base, comme pour
+ * tout le reste de la fiche. Sans quoi « Annuler » la fenêtre ne pourrait plus défaire un contact déjà écrit.
+ */
+type Action = { genre: 'ouvrir' | 'modifier'; cle: string } | { genre: 'ajouter' };
+
+function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition }: {
+  form: SyndicForm; setForm: (f: SyndicForm) => void; onEcrire?: (email: string) => void;
+  ouverts: string[]; setOuverts: (o: string[]) => void;
+  edition: EtatEdition | null; setEdition: (e: EtatEdition | null) => void;
 }) {
+  /** Une action demandée pendant qu'un AUTRE contact a des modifications non enregistrées. */
+  const [enAttente, setEnAttente] = useState<Action | null>(null);
+  const [aSupprimer, setASupprimer] = useState<string | null>(null);
+  const origine = (e: EtatEdition): ContactForm | null => (e.nouveau ? null : (form.contacts.find((c) => c.cle === e.cle) ?? null));
+  const enCours = edition !== null && contactModifie(origine(edition), edition.brouillon);
+
+  const executer = (a: Action): void => {
+    setASupprimer(null);
+    if (a.genre === 'ajouter') { const c = contactVide(); setEdition({ cle: c.cle, brouillon: c, nouveau: true }); return; }
+    const c = form.contacts.find((x) => x.cle === a.cle);
+    if (c === undefined) return;
+    if (!ouverts.includes(a.cle)) setOuverts([...ouverts, a.cle]);
+    setEdition(a.genre === 'modifier' ? { cle: a.cle, brouillon: copieContact(c), nouveau: false } : (edition?.cle === a.cle ? edition : null));
+  };
+  /** Toute action passe par ici : une modification non enregistrée d'un AUTRE contact demande confirmation. */
+  const demander = (a: Action): void => {
+    const autre = edition !== null && (a.genre === 'ajouter' || edition.cle !== a.cle);
+    if (autre && enCours) { setEnAttente(a); return; }
+    executer(a);
+  };
+  const fermer = (cle: string): void => setOuverts(ouverts.filter((x) => x !== cle));
+  const supprimer = (cle: string): void => {
+    setForm({ ...form, contacts: form.contacts.filter((c) => c.cle !== cle) });
+    setOuverts(ouverts.filter((x) => x !== cle));
+    if (edition?.cle === cle) setEdition(null);
+    setASupprimer(null);
+  };
+  const valider = (e: EtatEdition): void => {
+    setForm(appliquerBrouillon(form, e));
+    // Un contact existant revient OUVERT EN LECTURE ; un nouveau s'affiche REPLIÉ.
+    if (!e.nouveau && !ouverts.includes(e.cle)) setOuverts([...ouverts, e.cle]);
+    setEdition(null);
+  };
+
+  const confirmerSuppression = (c: ContactForm) => (aSupprimer === c.cle ? (
+    <div className="fsy-confirmer fsy-confirmer--contact" role="group" aria-label="Confirmer la suppression du contact">
+      <span>Supprimer {nomAffiche(c)} ?</span>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setASupprimer(null)}>Non</button>
+      <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => supprimer(c.cle)}>Oui, supprimer</button>
+    </div>
+  ) : null);
+
+  return (
+    <>
+      <h3 className="fsy-sous-titre">Autres contacts</h3>
+      {enAttente !== null && edition !== null && (
+        <div className="fsy-alerte fsy-confirmer" role="group" aria-label="Abandonner les modifications du contact ?">
+          <span>Abandonner les modifications ({nomAffiche(edition.brouillon)}) ?</span>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setEnAttente(null)}>Non</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => {
+            const a = enAttente; setEnAttente(null); setEdition(null); executer(a);
+          }}>Oui, abandonner</button>
+        </div>
+      )}
+      {form.contacts.length === 0 && edition?.nouveau !== true && <p className="fsy-discret">Aucun autre contact.</p>}
+      {form.contacts.map((c) => (edition !== null && edition.cle === c.cle ? (
+        <ContactEnModification key={c.cle} e={edition} origine={c} onEcrire={onEcrire}
+          onChange={(b) => setEdition({ ...edition, brouillon: b })}
+          onAnnuler={() => setEdition(null)} onValider={() => valider(edition)}
+          onSupprimer={() => setASupprimer(c.cle)} confirmation={confirmerSuppression(c)} />
+      ) : ouverts.includes(c.cle) ? (
+        <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} onFermer={() => fermer(c.cle)}
+          onModifier={() => demander({ genre: 'modifier', cle: c.cle })} onSupprimer={() => setASupprimer(c.cle)}
+          confirmation={confirmerSuppression(c)} />
+      ) : (
+        <button key={c.cle} type="button" className="fsy-contact-replie" aria-expanded={false}
+          onClick={() => demander({ genre: 'ouvrir', cle: c.cle })}>
+          <EnteteContact c={c} />
+          <span className="fsy-fleche" aria-hidden="true">▸</span>
+        </button>
+      )))}
+      {edition !== null && edition.nouveau && (
+        <ContactEnModification e={edition} origine={null} onEcrire={onEcrire}
+          onChange={(b) => setEdition({ ...edition, brouillon: b })}
+          onAnnuler={() => setEdition(null)} onValider={() => valider(edition)} />
+      )}
+      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
+        + Ajouter un contact
+      </button>
+    </>
+  );
+}
+
+/** « Prénom NOM » en gras · « Titre » en gris (le titre seul, en gras, quand il n'y a pas de nom). */
+function EnteteContact({ c }: { c: ContactForm }) {
+  const nom = prenomNom(c.prenom, c.nom);
+  const titre = valeurDuChoix(c.titreChoix, c.titreLibre);
+  return (
+    <span className="fsy-contact-ligne">
+      {nom !== '' ? <strong>{nom}</strong> : <strong>{titre}</strong>}
+      {nom !== '' && titre !== '' && <><span className="fsy-point"> · </span><span className="fsy-discret">{titre}</span></>}
+    </span>
+  );
+}
+
+/** ② OUVERT EN LECTURE — aucune saisie ; une ligne par téléphone et par e-mail, l'action au bout. */
+function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirmation }: {
+  c: ContactForm; onEcrire?: (email: string) => void; onFermer: () => void; onModifier: () => void; onSupprimer: () => void;
+  confirmation: React.ReactNode;
+}) {
+  const libelle = (k: CoordonneeForm): string => valeurDuChoix(k.choix, k.libre);
+  const tels = c.coordonnees.filter((k) => k.sorte === 'telephone' && k.valeur.trim() !== '');
+  const emails = c.coordonnees.filter((k) => k.sorte === 'email' && k.valeur.trim() !== '');
+  return (
+    <div className="fsy-contact-ouvert">
+      <button type="button" className="fsy-contact-tete-btn" aria-expanded={true} onClick={onFermer} title="Fermer">
+        <EnteteContact c={c} />
+        <span className="fsy-fleche" aria-hidden="true">▾</span>
+      </button>
+      {tels.length === 0 && emails.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun téléphone ni e-mail.</p>}
+      {tels.map((k) => (
+        <div key={k.cle} className="fsy-contact-coord">
+          {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} :</span>}
+          <span>{formaterTelephone(k.valeur)}</span>
+          {telephoneComplet(k.valeur) && <ActionAppeler tel={k.valeur} />}
+        </div>
+      ))}
+      {emails.map((k) => (
+        <div key={k.cle} className="fsy-contact-coord">
+          {libelle(k) !== '' && <span className="fsy-discret">{libelle(k)} :</span>}
+          <span>{k.valeur.trim()}</span>
+          <ActionEcrire email={k.valeur} onEcrire={onEcrire} />
+        </div>
+      ))}
+      {confirmation ?? (
+        <div className="fsy-boutons fsy-boutons--contact">
+          <button type="button" className="fsy-lien-bouton fsy-pousse-gauche" onClick={onSupprimer}>Supprimer ce contact</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onFermer}>Fermer</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onModifier}>Modifier</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** ③ EN MODIFICATION — des champs ; « Modifier » devient « Valider » dès qu'un champ change. */
+function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onSupprimer, confirmation, onEcrire }: {
+  e: EtatEdition; origine: ContactForm | null; onChange: (c: ContactForm) => void;
+  onAnnuler: () => void; onValider: () => void; onSupprimer?: () => void; confirmation?: React.ReactNode;
+  onEcrire?: (email: string) => void;
+}) {
+  const c = e.brouillon;
   const [refus, setRefus] = useState<string | null>(null);
+  const [abandon, setAbandon] = useState(false);
+  const change = contactModifie(origine, c);
   const majCoord = (cle: string, k: CoordonneeForm): void =>
     onChange({ ...c, coordonnees: c.coordonnees.map((x) => (x.cle === cle ? k : x)) });
   const ajouter = (sorte: SorteCoordonnee): void => onChange({ ...c, coordonnees: [...c.coordonnees, coordonneeVide(sorte)] });
-  const validerContact = (): void => {
+  const valider = (): void => {
     if (!contactNomme({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom })) {
-      setRefus('Un nom ou un titre, au moins.'); return;
+      setRefus('Indiquez au moins un prénom, un nom ou un titre.'); return;
     }
     setRefus(null);
-    onChange({ ...c, replie: true });
+    onValider();
   };
+  const annuler = (): void => { if (change) { setAbandon(true); return; } onAnnuler(); };
   return (
     <fieldset className="fsy-contact-edit">
-      <legend>{nomDuContact({ titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom }) || 'Nouveau contact'}</legend>
+      <legend>{e.nouveau ? 'Nouveau contact' : nomAffiche(origine ?? c)}</legend>
       <div className="fsy-duo">
         <SelectChoix libelle="Titre" choix={c.titreChoix} libre={c.titreLibre} options={TITRES_CONTACT}
           onChange={(choix, libre) => onChange({ ...c, titreChoix: choix, titreLibre: libre })} />
       </div>
       <div className="fsy-duo">
         <label className="fsy-champ"><span>Prénom</span>
-          <input type="text" value={c.prenom} onChange={(e) => onChange({ ...c, prenom: e.target.value })} /></label>
+          <input type="text" value={c.prenom} onChange={(ev) => onChange({ ...c, prenom: ev.target.value })} /></label>
         <label className="fsy-champ"><span>Nom</span>
-          <input type="text" value={c.nom} onChange={(e) => onChange({ ...c, nom: e.target.value })} /></label>
+          <input type="text" value={c.nom} onChange={(ev) => onChange({ ...c, nom: ev.target.value })} /></label>
       </div>
       {c.coordonnees.map((k) => (
         <div key={k.cle} className="fsy-duo fsy-coord-edit">
@@ -617,7 +780,7 @@ function EditionContact({ c, onChange, onRetirer, onEcrire }: {
             <span className="fsy-ligne-champ">
               <input type={k.sorte === 'email' ? 'email' : 'tel'} value={k.valeur}
                 aria-label={k.sorte === 'email' ? 'E-mail du contact' : 'Téléphone du contact'}
-                onChange={(e) => majCoord(k.cle, { ...k, valeur: k.sorte === 'telephone' ? saisieTelephone(k.valeur, e.target.value) : e.target.value })} />
+                onChange={(ev) => majCoord(k.cle, { ...k, valeur: k.sorte === 'telephone' ? saisieTelephone(k.valeur, ev.target.value) : ev.target.value })} />
               {k.sorte === 'email' ? <ActionEcrire email={k.valeur} onEcrire={onEcrire} /> : <ActionAppeler tel={k.valeur} />}
             </span>
           </div>
@@ -625,13 +788,29 @@ function EditionContact({ c, onChange, onRetirer, onEcrire }: {
             onClick={() => onChange({ ...c, coordonnees: c.coordonnees.filter((x) => x.cle !== k.cle) })}>×</button>
         </div>
       ))}
-      {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
       <div className="fsy-ligne-ajouts">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('email')}>+ e-mail</button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('telephone')}>+ téléphone</button>
-        <button type="button" className="fsy-lien-bouton" onClick={onRetirer}>Retirer ce contact</button>
-        <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn fsy-pousse" onClick={validerContact}>Valider ce contact</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => ajouter('email')}>+ e-mail</button>
       </div>
+      {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
+      {confirmation ?? (abandon ? (
+        <div className="fsy-confirmer fsy-confirmer--contact" role="group" aria-label="Abandonner les modifications ?">
+          <span>Abandonner les modifications ?</span>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setAbandon(false)}>Non</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => { setAbandon(false); onAnnuler(); }}>Oui, abandonner</button>
+        </div>
+      ) : (
+        <div className="fsy-boutons fsy-boutons--contact">
+          {onSupprimer && <button type="button" className="fsy-lien-bouton fsy-pousse-gauche" onClick={onSupprimer}>Supprimer ce contact</button>}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={annuler}>Annuler</button>
+          {e.nouveau || change ? (
+            <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={valider}>Valider</button>
+          ) : (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" disabled aria-disabled="true"
+              title="Changez un champ : le bouton devient « Valider »">Modifier</button>
+          )}
+        </div>
+      ))}
     </fieldset>
   );
 }
@@ -815,8 +994,17 @@ export const CSS_FICHE_SYNDIC = `
 .fsy-lien-bouton{border:0;background:transparent;color:var(--color-svv-red);font:inherit;font-size:.82rem;text-decoration:underline;cursor:pointer;min-height:32px;padding:0 .2rem}
 .fsy-resultat{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:6px 10px;border-radius:8px;background:var(--color-svv-field)}
 .fsy-resultat-nom{display:flex;flex-direction:column;min-width:0}
-.fsy-contact-replie{display:flex;flex-direction:column;gap:.2rem;padding:6px 10px;border-radius:8px;
-  background:var(--color-svv-field);font-size:.88rem}
+.fsy-contact-replie,.fsy-contact-tete-btn{width:100%;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
+  padding:6px 10px;border-radius:8px;border:1px solid transparent;background:var(--color-svv-field);color:var(--color-svv-ink);
+  font:inherit;font-size:.88rem;text-align:left;cursor:pointer}
+.fsy-contact-replie:hover,.fsy-contact-replie:focus-visible,.fsy-contact-tete-btn:hover,.fsy-contact-tete-btn:focus-visible{
+  border-color:var(--color-svv-line-strong)}
+.fsy-contact-tete-btn{background:transparent;padding:2px 0;min-height:32px}
+.fsy-contact-ouvert{display:flex;flex-direction:column;gap:.25rem;padding:6px 10px 8px;border-radius:8px;background:var(--color-svv-field)}
+.fsy-fleche{flex:0 0 auto;color:var(--color-svv-muted)}
+.fsy-boutons--contact{gap:6px;margin-top:.2rem}
+.fsy-pousse-gauche{margin-right:auto}
+.fsy-confirmer--contact{justify-content:flex-end;margin-top:.2rem}
 .fsy-contact-ligne{min-width:0;overflow-wrap:anywhere}
 .fsy-point{color:var(--color-svv-muted)}
 .fsy-contact-edit{border:1px solid var(--color-svv-line);border-radius:10px;padding:6px 10px 8px;display:flex;flex-direction:column;gap:.45rem;margin:0}
