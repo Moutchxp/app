@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, contactVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -302,6 +302,32 @@ describe('LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT — tri et filtre du catalog
   });
 });
 
+describe('LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville »', () => {
+  it('le nom du cabinet + « / » + la ville, telle qu\'enregistrée', () => {
+    expect(nomAvecVille('TEST ARNAUD', 'Asnieres Sur Seine')).toBe('TEST ARNAUD / Asnieres Sur Seine');
+    expect(nomAvecVille('FONCIA', 'Courbevoie')).toBe('FONCIA / Courbevoie');
+  });
+  it('sans ville : le nom seul, sans « / »', () => {
+    expect(nomAvecVille('FONCIA', null)).toBe('FONCIA');
+    expect(nomAvecVille('FONCIA', '  ')).toBe('FONCIA');
+  });
+  it('le nom finit déjà par la ville : pas de doublon (accents, casse, ponctuation ignorés)', () => {
+    expect(nomAvecVille('Foncia Courbevoie', 'COURBEVOIE')).toBe('Foncia Courbevoie');
+    expect(nomAvecVille('Citya Asnières-sur-Seine', 'Asnieres Sur Seine')).toBe('Citya Asnières-sur-Seine');
+    expect(nomAvecVille('Lyonnaise de gestion', 'Lyon')).toBe('Lyonnaise de gestion / Lyon');
+  });
+  it('la mention de propagation avant enregistrement nomme l\'ancien syndic « NOM / Ville »', () => {
+    const connus: ImmeubleConnu[] = [{ cle: '3 av y', libelle: '3 av Y', codePostal: null, commune: null, lots: [],
+      syndic: { id: 9, nom: 'FONCIA', ville: 'Lyon' } }];
+    expect(apercuPropagation([im('3 av Y')], connus, 5).changements).toEqual([{ immeuble: '3 av Y', ancien: 'FONCIA / Lyon' }]);
+  });
+  it('le champ « Nom du cabinet » n\'est jamais réécrit : la saisie garde le nom seul', () => {
+    const v = validerSyndic({ ...ADR, nom: 'FONCIA' });
+    expect(v.ok && v.syndic.nom).toBe('FONCIA');
+    expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toMatch(/nomAvecVille/);
+  });
+});
+
 describe('les téléphones — par paires, à l\'affichage ET à la saisie', () => {
   it('« 06 13 86 18 77 », « +33 6 13 86 18 77 », et pendant la frappe', () => {
     expect(formaterTelephone('0613861877')).toBe('06 13 86 18 77');
@@ -531,11 +557,14 @@ describe('les écrans', () => {
   const g = join(__dirname, '../../(admin)/admin/(protected)/gestion');
   const lire = (f: string): string => readFileSync(join(g, f), 'utf8');
 
-  it('le bouton : le NOM du syndic (tronqué « … », entier au survol), sinon « Créer le syndic »', () => {
+  /* LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — CE QU'IL DISAIT AVANT : le nom seul, TRONQUÉ par « … » (ellipsis). Arno :
+     « NOM / Ville », et « JAMAIS tronqué par des … » : le nom passe à la ligne. */
+  it('le bouton : « NOM / Ville », jamais tronqué (il passe à la ligne), sinon « Créer le syndic »', () => {
     const src = lire('BoutonSyndic.tsx');
-    expect(src).toContain("{syndic !== null ? syndic.nom : 'Créer le syndic'}");
-    expect(src).toContain('title={syndic !== null ? `Syndic : ${syndic.nom}`');
-    expect(src).toContain('text-overflow:ellipsis;white-space:nowrap');
+    expect(src).toContain('const nom = syndic !== null ? nomAvecVille(syndic.nom, syndic.ville)');
+    expect(src).toContain("{syndic !== null ? nom : 'Créer le syndic'}");
+    expect(src).not.toContain('text-overflow:ellipsis');
+    expect(src).toContain('.bsy-mot{display:block;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;');
   });
 
   it('le bouton a EXACTEMENT le format de « Historique » : même classe, même retrait de 14 px que le pied de carte', () => {

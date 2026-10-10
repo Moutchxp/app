@@ -28,7 +28,7 @@ const IMMEUBLES = [
   { cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', syndic: { id: 11, nom: '_TEST Cabinet' },
     lots: [{ id: 1, numero: '101', adresse: '12 rue X', commune: 'Courbevoie' }] },
   { cle: '25 rue edith cavell', libelle: '25 rue Edith Cavell', codePostal: '92400', commune: 'Courbevoie',
-    syndic: { id: 99, nom: '_TEST Autre Syndic' },
+    syndic: { id: 99, nom: '_TEST Autre Syndic', ville: 'Courbevoie' },
     lots: [{ id: 2, numero: '201', adresse: '25 rue Edith Cavell', commune: 'Courbevoie' }, { id: 3, numero: '202', adresse: '25 rue Edith Cavell', commune: 'Courbevoie' }] },
 ];
 
@@ -194,7 +194,7 @@ describe('les copropriétés — adresse complète, auto-complétion, reprise co
     const prop = [...document.querySelectorAll('.fsy-proposition')].map((p) => p.textContent ?? '');
     expect(prop[0]).toContain('25 rue Edith Cavell, 92400 Courbevoie');
     expect(prop[0]).toContain('2 biens en gestion à cette adresse');
-    expect(prop[0]).toContain('déjà rattachée à _TEST Autre Syndic');
+    expect(prop[0]).toContain('déjà rattachée à _TEST Autre Syndic / Courbevoie');
     await cliquer(document.querySelector('.fsy-proposition') as Element);
     expect(document.body.textContent).toContain('La prendre ?');
     await cliquer(bouton('Oui, la prendre'));
@@ -239,8 +239,9 @@ describe('le bouton de la carte bien', () => {
     });
     await calmer();
     const [connu, inconnu] = [...container.querySelectorAll('button.bsy')] as HTMLButtonElement[];
-    expect(connu.textContent).toBe('_TEST Autre Syndic');
-    expect(connu.title).toBe('Syndic : _TEST Autre Syndic');
+    // LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — CE QU'IL DISAIT AVANT : « _TEST Autre Syndic » (le nom seul).
+    expect(connu.textContent).toBe('_TEST Autre Syndic / Courbevoie');
+    expect(connu.title).toBe('Syndic : _TEST Autre Syndic / Courbevoie');
     expect(connu.className).toContain('bsy--connu');
     expect(connu.querySelector('.bsy-mot')).not.toBeNull();
     expect(inconnu.textContent).toBe('Créer le syndic');
@@ -968,5 +969,124 @@ describe('LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — replier une tuile du catalog
     await cliquer(boutonDans(pied(), 'Valider'));
     const put = appels.find((x) => x.methode === 'PUT')?.corps as { contacts: Array<{ prenom: string; nom: string; immeubles: string[] }> };
     expect(put.contacts.find((c) => c.prenom === 'Anne')?.immeubles).toEqual(['3 av y', '12 rue x']);
+  });
+});
+
+describe('LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE', () => {
+  const titre = (): string => document.querySelector('#fsy-titre')?.textContent ?? '';
+  const servir = (routes: Record<string, unknown>): void => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null }); return { ok: true, json: async () => ({ ok: true, id: 11 }) }; }
+      for (const [debut, rep] of Object.entries(routes)) {
+        if (url.startsWith(debut)) return { ok: true, json: async () => (typeof rep === 'function' ? (rep as () => unknown)() : rep) };
+      }
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+
+  it('le TITRE de la modale : « NOM / Ville » ; le champ « Nom du cabinet » garde le nom seul', async () => {
+    await ouvrir();
+    expect(titre()).toBe('_TEST Cabinet / Paris');
+    expect(champ('Nom du cabinet *').value).toBe('_TEST Cabinet');
+  });
+
+  it('syndic SANS ville : le nom seul, sans « / »', async () => {
+    await ouvrir(vi.fn(), 12); // FICHE sans code postal ni ville
+    expect(titre()).toBe('_TEST Cabinet');
+  });
+
+  it('ville modifiée puis Valider : la ville part au serveur, et le titre est « NOM / nouvelle ville » à la réouverture', async () => {
+    let ville = 'Paris';
+    servir({ '/api/admin/gestion/syndics/11': () => ({ etat: 'ok', fiche: { ...FICHE, ville } }) });
+    const onFerme = await ouvrir();
+    await taper(champ('Ville *'), 'Lyon');
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect((appels.find((a) => a.methode === 'PUT')?.corps as { ville: string; nom: string })).toMatchObject({ ville: 'Lyon', nom: '_TEST Cabinet' });
+    expect(onFerme).toHaveBeenCalledTimes(1);
+    ville = 'Lyon';
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrir();
+    expect(titre()).toBe('_TEST Cabinet / Lyon');
+  });
+
+  it('le BOUTON ROSE : « NOM / Ville » en entier, long texte SANS troncature ; il suit la ville après Valider', async () => {
+    const long = '_TEST Cabinet de gestion immobilière et syndic de copropriété des Hauts-de-Seine';
+    let ville = 'Asnieres Sur Seine';
+    servir({ '/api/admin/gestion/syndics/immeubles': () => ({ etat: 'ok', disponible: true, immeubles: [
+      { cle: '9 rue long', libelle: '9 rue Long', codePostal: '92600', commune: 'Asnières', lots: [], syndic: { id: 50, nom: long, ville } },
+    ] }) });
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    await act(async () => { root.render(createElement(BoutonSyndic, { immeuble: '9 rue Long' })); });
+    await calmer();
+    const b = container.querySelector('button.bsy') as HTMLButtonElement;
+    expect(b.textContent).toBe(`${long} / Asnieres Sur Seine`);
+    expect(b.textContent).not.toContain('…');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).not.toContain('text-overflow:ellipsis');
+    ville = 'Gennevilliers';
+    await act(async () => { await rafraichirImmeubles(); }); // ce que fait « Valider » de la fiche
+    await calmer();
+    expect((container.querySelector('button.bsy') as HTMLButtonElement).textContent).toBe(`${long} / Gennevilliers`);
+  });
+
+  it('deux syndics de MÊME NOM dans deux villes : distincts dans l\'écran « Syndics » et dans l\'autocomplétion d\'un bien', async () => {
+    const deux = { etat: 'ok', disponible: true, syndics: [
+      { id: 61, nom: '_TEST FONCIA', ville: 'Courbevoie', email: null, telephone: null, nbCoproprietes: 1, nbBiens: 2, cherchable: '' },
+      { id: 62, nom: '_TEST FONCIA', ville: 'Lyon', email: null, telephone: null, nbCoproprietes: 0, nbBiens: 0, cherchable: '' },
+      { id: 63, nom: '_TEST SANS VILLE', ville: null, email: null, telephone: null, nbCoproprietes: 0, nbBiens: 0, cherchable: '' },
+    ] };
+    servir({ '/api/admin/gestion/syndics?q=': deux });
+    const { EcranSyndics } = await import('./EcranSyndics');
+    await act(async () => { root.render(createElement(EcranSyndics, {})); });
+    await attendre(300);
+    expect([...container.querySelectorAll('.esy-nom')].map((x) => x.textContent))
+      .toEqual(['_TEST FONCIA / Courbevoie', '_TEST FONCIA / Lyon', '_TEST SANS VILLE']);
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: null, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await attendre(300);
+    expect([...document.querySelectorAll('.fsy-resultat-nom strong')].map((x) => x.textContent))
+      .toEqual(['_TEST FONCIA / Courbevoie', '_TEST FONCIA / Lyon', '_TEST SANS VILLE']);
+  });
+
+  it('NOTE VIDE : le bloc « Note » est masqué ; « + note » ouvre le champ vide, le curseur dedans', async () => {
+    await ouvrir(); // FICHE.note === null
+    const libelles = (): string[] => [...document.querySelectorAll('.fsy-corps label > span')].map((x) => x.textContent ?? '');
+    expect(libelles()).not.toContain('Note');
+    const plus = bouton('+ note');
+    expect(plus.className).toContain('fsy-mini-btn');
+    await cliquer(plus);
+    expect(libelles()).toContain('Note');
+    const zone = document.querySelector('.fsy-corps textarea') as HTMLTextAreaElement;
+    expect(zone.value).toBe('');
+    expect(document.activeElement).toBe(zone);
+  });
+
+  it('NOTE PLEINE : le bloc s\'affiche comme avant, sans « + note »', async () => {
+    servir({ '/api/admin/gestion/syndics/11': { etat: 'ok', fiche: { ...FICHE, note: 'Gardien le matin' } } });
+    await ouvrir();
+    expect((document.querySelector('.fsy-corps textarea') as HTMLTextAreaElement).value).toBe('Gardien le matin');
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent === '+ note')).toBe(false);
+  });
+
+  it('une note VIDÉE puis Valider : le bloc disparaît à la réouverture', async () => {
+    let note: string | null = 'Gardien le matin';
+    servir({ '/api/admin/gestion/syndics/11': () => ({ etat: 'ok', fiche: { ...FICHE, note } }) });
+    await ouvrir();
+    const zone = document.querySelector('.fsy-corps textarea') as HTMLTextAreaElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    await act(async () => { setter?.call(zone, ''); zone.dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(document.querySelector('.fsy-corps textarea')).not.toBeNull(); // pas pendant la saisie
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect((appels.find((a) => a.methode === 'PUT')?.corps as { note: string }).note).toBe('');
+    note = null;
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await ouvrir();
+    expect(document.querySelector('.fsy-corps textarea')).toBeNull();
+    expect(bouton('+ note')).toBeTruthy();
   });
 });

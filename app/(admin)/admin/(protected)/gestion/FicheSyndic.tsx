@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  filtrerCatalogue, trierParNom,
+  nomAvecVille, filtrerCatalogue, trierParNom,
   affecter, motBiens, motContacts, suiviParDefaut, suitImmeuble,
   casserNom, casserPrenom, MINIMUM_ADRESSE,
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
@@ -194,7 +194,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   };
 
   const titre = mode === 'recherche' ? 'Syndic de la copropriété'
-    : syndicId === null ? 'Créer un syndic' : (fiche?.nom ?? 'Syndic');
+    // LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville » : le nom affiché, calculé ; jamais réécrit en base.
+    : syndicId === null ? 'Créer un syndic' : (fiche !== null ? nomAvecVille(fiche.nom, fiche.ville) : 'Syndic');
 
   return (
     <div className="fsy-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) annuler(); }}>
@@ -299,7 +300,7 @@ function Recherche({ immeubleDepart, onRattacher, onCreer }: {
           {liste.map((s) => (
             <li key={s.id} className="fsy-resultat">
               <span className="fsy-resultat-nom">
-                <strong>{s.nom}</strong>
+                <strong>{nomAvecVille(s.nom, s.ville)}</strong>
                 <span className="fsy-discret">{s.nbCoproprietes} copropriété{s.nbCoproprietes > 1 ? 's' : ''} · {s.nbBiens} bien{s.nbBiens > 1 ? 's' : ''}{s.email ? ` · ${s.email}` : ''}</span>
               </span>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onRattacher(s.id)}>
@@ -464,6 +465,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
     return null;
   };
   const manques = tente ? adresseManquante(form) : [];
+  const [noteOuverte, setNoteOuverte] = useState(false);
   const majTel = (i: number, v: string): void =>
     setForm({ ...form, telephones: form.telephones.map((t, j) => (j === i ? saisieTelephone(t, v) : t)) });
   const retirerTel = (i: number): void => {
@@ -515,10 +517,20 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           <ActionEcrire email={form.email} onEcrire={onEcrire} />
         </span>
       </div>
-      <label className="fsy-champ">
-        <span>Note</span>
-        <textarea rows={2} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
-      </label>
+      {/* 🔴 LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — UNE NOTE VIDE NE S'AFFICHE PAS (accord d'Arno pour ce masquage) : à sa
+          place, « + note », au style de « + téléphone ». Un clic ouvre le champ vide, le curseur dedans. Une note
+          vidée puis validée disparaît à la réouverture (on relit `form.note` à l'ouverture). */}
+      {noteOuverte || form.note.trim() !== '' ? (
+        <label className="fsy-champ">
+          <span>Note</span>
+          <textarea rows={2} value={form.note} autoFocus={noteOuverte && form.note === ''}
+            /* ⚠️ Une note qu'on EFFACE reste à l'écran le temps de la saisie (sinon le champ disparaîtrait sous le
+               curseur) ; elle ne se masque qu'à la réouverture de la fiche. */
+            onChange={(e) => { setNoteOuverte(true); setForm({ ...form, note: e.target.value }); }} />
+        </label>
+      ) : (
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-ajout" onClick={() => setNoteOuverte(true)}>+ note</button>
+      )}
 
       {/* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — « AUTRES CONTACTS », sous les coordonnées générales.
           🔴 LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — chaque contact : replié, ouvert en lecture, en modification. */}
@@ -581,7 +593,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       {/* ══ 🔴 « SUPPRIMER CE SYNDIC » — discret, en bas, avec la liste des biens qui le perdront ══ */}
       {fiche !== null && syndicId !== null && (suppression ? (
         <div className="fsy-supprimer" role="group" aria-label="Confirmer la suppression du syndic">
-          <p><strong>Supprimer « {fiche.nom} » ?</strong> Ses contacts et ses liens de copropriété sont retirés ;
+          <p><strong>Supprimer « {nomAvecVille(fiche.nom, fiche.ville)} » ?</strong> Ses contacts et ses liens de copropriété sont retirés ;
             {biensPerdus.length === 0 ? ' aucun bien ne le perd.' : biensPerdus.length === 1 ? ' 1 bien perdra ce syndic :' : ` ${biensPerdus.length} biens perdront ce syndic :`}</p>
           {biensPerdus.length > 0 && (
             <ul className="fsy-liste fsy-liste--serree">
@@ -1042,7 +1054,7 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
 
 // ══ LES COPROPRIÉTÉS — liste, auto-complétion (portefeuille puis BAN locale), confirmation de reprise ══════════════
 
-interface Suggestion { cle: string; libelle: string; codePostal: string; commune: string; nbBiens: number; syndic: { id: number; nom: string } | null }
+interface Suggestion { cle: string; libelle: string; codePostal: string; commune: string; nbBiens: number; syndic: { id: number; nom: string; ville?: string | null } | null }
 
 function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onContacts, enModification, onCreerContact }: {
   immeubles: ImmeubleSaisi[]; connus: ImmeubleConnu[]; syndicId: number | null; onChange: (l: ImmeubleSaisi[]) => void;
@@ -1203,7 +1215,7 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
         <div className="fsy-alerte" role="group" aria-label="Confirmer la reprise de la copropriété">
           <p className="fsy-sans-marge">
             <strong>{adresseImmeuble(aPrendre.libelle, aPrendre.codePostal, aPrendre.commune)}</strong> est déjà rattachée à
-            {' '}<strong>{aPrendre.syndic?.nom}</strong>. La prendre ? L’ancien lien passera en historique.
+            {' '}<strong>{aPrendre.syndic !== null ? nomAvecVille(aPrendre.syndic.nom, aPrendre.syndic.ville) : ''}</strong>. La prendre ? L’ancien lien passera en historique.
           </p>
           <div className="fsy-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setAPrendre(null)}>Non</button>
@@ -1219,7 +1231,7 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
                 <span className="fsy-proposition-adresse">{adresseImmeuble(s.libelle, s.codePostal, s.commune)}</span>
                 <span className="fsy-discret">
                   {motBiensEnGestion(s.nbBiens)}
-                  {s.syndic !== null && s.syndic.id !== syndicId && <> · <strong>déjà rattachée à {s.syndic.nom}</strong></>}
+                  {s.syndic !== null && s.syndic.id !== syndicId && <> · <strong>déjà rattachée à {nomAvecVille(s.syndic.nom, s.syndic.ville)}</strong></>}
                   {s.syndic !== null && s.syndic.id === syndicId && ' · déjà rattachée à ce syndic'}
                 </span>
               </button>

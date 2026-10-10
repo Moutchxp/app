@@ -2,7 +2,7 @@
 
 import { createPortal } from 'react-dom';
 import { useEffect, useState } from 'react';
-import type { SyndicResume } from '../../../../lib/gestion/syndics';
+import { nomAvecVille, type SyndicResume } from '../../../../lib/gestion/syndics';
 import { FicheSyndic } from './FicheSyndic';
 import { rafraichirImmeubles } from './useImmeublesSyndics';
 
@@ -63,7 +63,8 @@ export function EcranSyndics({ onEcrire, retour = null }: {
           {liste.map((s) => (
             <li key={s.id}>
               <button type="button" className="esy-ligne" onClick={() => setOuvert({ id: s.id })}>
-                <span className="esy-nom">{s.nom}</span>
+                {/* LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville » : deux Foncia se distinguent. */}
+                <span className="esy-nom">{nomAvecVille(s.nom, s.ville)}</span>
                 <span className="esy-chiffres">
                   {s.nbCoproprietes} copropriété{s.nbCoproprietes > 1 ? 's' : ''} · {s.nbBiens} bien{s.nbBiens > 1 ? 's' : ''}
                 </span>

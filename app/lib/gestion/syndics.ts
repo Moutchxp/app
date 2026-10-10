@@ -60,7 +60,8 @@ export interface LotDeCopropriete { id: number; numero: string; adresse: string 
 /** Un immeuble connu : de l'annuaire (ses lots) et/ou déjà déclaré comme copropriété ; avec son syndic en cours. */
 export interface ImmeubleConnu {
   cle: string; libelle: string; codePostal: string | null; commune: string | null; lots: LotDeCopropriete[];
-  syndic: { id: number; nom: string } | null;
+  /** LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — la ville du syndic sert à l'afficher « NOM / Ville » (`nomAvecVille`). */
+  syndic: { id: number; nom: string; ville?: string | null } | null;
 }
 
 /** Une adresse proposée par la Base Adresse Nationale LOCALE (table `adresse_ban`), hors portefeuille. */
@@ -68,6 +69,8 @@ export interface AdresseBan { cle: string; libelle: string; codePostal: string |
 
 export interface SyndicResume {
   id: number; nom: string; email: string | null; telephone: string | null;
+  /** LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — la ville de son adresse : deux Foncia se distinguent par elle. */
+  ville?: string | null;
   nbCoproprietes: number; nbBiens: number;
   /** Tout ce qu'on peut chercher : nom, e-mails (génériques et des contacts), domaines. Déjà normalisé. */
   cherchable: string;
@@ -312,7 +315,7 @@ export function apercuPropagation(immeubles: readonly ImmeubleSaisi[], connus: r
     if (i === undefined || i.lots.length === 0) sansLot.push(im.libelle);
     if (i === undefined) continue;
     for (const l of i.lots) lots.push({ ...l, immeuble: i.libelle });
-    if (i.syndic !== null && i.syndic.id !== syndicId) changements.push({ immeuble: i.libelle, ancien: i.syndic.nom });
+    if (i.syndic !== null && i.syndic.id !== syndicId) changements.push({ immeuble: i.libelle, ancien: nomAvecVille(i.syndic.nom, i.syndic.ville) });
   }
   return { lots, changements, sansLot };
 }
@@ -635,4 +638,23 @@ export function filtrerCatalogue(contacts: readonly ContactForm[], q: string): C
     if (n.split(' ').every((m) => texte.includes(m))) return true;
     return chiffres.length >= 2 && c.coordonnees.some((k) => k.sorte === 'telephone' && k.valeur.replace(/\D/g, '').includes(chiffres));
   });
+}
+
+// ══ LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * LE NOM AFFICHÉ D'UN SYNDIC : « NOM / Ville ». PUR — un affichage CALCULÉ : le champ « Nom du cabinet » n'est jamais
+ * réécrit en base, et la saisie garde le nom seul.
+ *
+ * ARNO : « Les gros cabinets (Foncia, Citya…) portent le même nom dans des communes différentes : un syndic s'identifie
+ * par son NOM + la VILLE de son adresse postale. » La ville est prise telle qu'elle est enregistrée. Sans ville : le
+ * nom seul, sans « / ». Si le nom finit déjà par la ville (accents, casse et ponctuation ignorés) : pas de doublon.
+ */
+export function nomAvecVille(nom: string, ville: string | null | undefined): string {
+  const n = nom.trim();
+  const v = (ville ?? '').trim();
+  if (v === '') return n;
+  const fin = normaliserTexte(v);
+  if (fin !== '' && (normaliserTexte(n) === fin || normaliserTexte(n).endsWith(` ${fin}`))) return n;
+  return `${n} / ${v}`;
 }

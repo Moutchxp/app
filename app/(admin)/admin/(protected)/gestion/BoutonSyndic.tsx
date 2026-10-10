@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { cleImmeuble } from '../../../../lib/gestion/syndics';
+import { cleImmeuble, nomAvecVille } from '../../../../lib/gestion/syndics';
 import { FicheSyndic } from './FicheSyndic';
 import { useImmeublesSyndics } from './useImmeublesSyndics';
 
@@ -44,16 +44,18 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false }: {
   const cle = cleImmeuble(immeuble);
   const connu = cle === '' ? undefined : etat.immeubles.find((i) => i.cle === cle);
   const syndic = connu?.syndic ?? null;
+  /** LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville », calculé ; JAMAIS tronqué (il passe à la ligne). */
+  const nom = syndic !== null ? nomAvecVille(syndic.nom, syndic.ville) : '';
   const libelle = (immeuble ?? '').trim();
   return (
     <span className={`bsy-ligne${dansLaFiche ? ' bsy-ligne--fiche' : ''}`}>
       <style>{CSS_BOUTON_SYNDIC}</style>
       <button type="button"
         className={`svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large bsy${syndic !== null ? ' bsy--connu' : ''}`}
-        title={syndic !== null ? `Syndic : ${syndic.nom}` : 'Aucun syndic connu pour cet immeuble'}
-        aria-label={syndic !== null ? `Syndic : ${syndic.nom} — ouvrir sa fiche` : 'Créer le syndic'}
+        title={syndic !== null ? `Syndic : ${nom}` : 'Aucun syndic connu pour cet immeuble'}
+        aria-label={syndic !== null ? `Syndic : ${nom} — ouvrir sa fiche` : 'Créer le syndic'}
         onClick={() => setOuvert(true)}>
-        <span className="bsy-mot">{syndic !== null ? syndic.nom : 'Créer le syndic'}</span>
+        <span className="bsy-mot">{syndic !== null ? nom : 'Créer le syndic'}</span>
       </button>
       {/* ⚠️ DANS UN PORTAIL : la carte peut porter une transformation (survol), qui piégerait un « position:fixed ».
           Et le portail vise `.svv-adm-root`, pas `body` : c'est là que vivent les couleurs du thème Sombre. */}
@@ -74,7 +76,8 @@ export const CSS_BOUTON_SYNDIC = `
 .bsy-ligne{display:flex;flex-direction:column;align-items:stretch;padding:0 14px;margin:0 0 .4rem;box-sizing:border-box}
 .bsy-ligne--fiche{padding:0;margin:0 0 .6rem}
 .ann-carte-bouton.bsy{background:var(--color-svv-surface);min-width:0}
-.bsy-mot{display:block;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal}
+/* LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « jamais tronqué par des … » : le nom passe à la ligne (il était coupé). */
+.bsy-mot{display:block;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:center}
 .ann-carte-bouton.bsy--connu,.ann-carte-bouton.bsy--connu:hover,.svv-adm-root .ann-carte-bouton.bsy--connu:hover{
   background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte);border-color:var(--color-svv-syndic-bord)}
 .ann-carte-bouton.bsy--connu:hover{filter:brightness(.97)}

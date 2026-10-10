@@ -69,9 +69,10 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
   const parCle = await lotsParImmeuble();
   const { rows } = await query<{
     cle: string; libelle: string; code_postal: string | null; commune: string | null;
-    syndic_id: string | null; syndic_nom: string | null;
+    syndic_id: string | null; syndic_nom: string | null; syndic_ville: string | null;
   }>(
-    `SELECT c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune, s.id::text AS syndic_id, s.nom AS syndic_nom
+    `SELECT c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune, s.id::text AS syndic_id, s.nom AS syndic_nom,
+            s.ville AS syndic_ville
        FROM gestion_copropriete c
        LEFT JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL
        LEFT JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL`);
@@ -81,7 +82,7 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
     const s = syndicDe.get(cle);
     out.push({
       cle, libelle: g.libelle, codePostal: g.codePostal ?? s?.code_postal ?? null, commune: g.commune ?? s?.commune ?? null,
-      lots: g.lots, syndic: s?.syndic_id ? { id: Number(s.syndic_id), nom: s.syndic_nom ?? '' } : null,
+      lots: g.lots, syndic: s?.syndic_id ? { id: Number(s.syndic_id), nom: s.syndic_nom ?? '', ville: s.syndic_ville } : null,
     });
   }
   // Les copropriétés déclarées sans lot dans l'annuaire (BAN, ou saisies à la main) : elles existent aussi.
@@ -89,7 +90,7 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
     if (parCle.has(r.cle)) continue;
     out.push({
       cle: r.cle, libelle: r.libelle, codePostal: r.code_postal, commune: r.commune, lots: [],
-      syndic: r.syndic_id ? { id: Number(r.syndic_id), nom: r.syndic_nom ?? '' } : null,
+      syndic: r.syndic_id ? { id: Number(r.syndic_id), nom: r.syndic_nom ?? '', ville: r.syndic_ville } : null,
     });
   }
   return out.sort((a, b) => a.libelle.localeCompare(b.libelle, 'fr'));
@@ -99,9 +100,10 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
 export async function listerSyndics(): Promise<SyndicResume[]> {
   const parCle = await lotsParImmeuble();
   const { rows } = await query<{
-    id: string; nom: string; email: string | null; telephone: string | null; cles: string[] | null; emails: string[] | null;
+    id: string; nom: string; email: string | null; telephone: string | null; ville: string | null;
+    cles: string[] | null; emails: string[] | null;
   }>(
-    `SELECT s.id::text, s.nom, s.email, s.telephone,
+    `SELECT s.id::text, s.nom, s.email, s.telephone, s.ville,
             (SELECT array_agg(c.cle_immeuble) FROM gestion_copropriete_syndic cs
                JOIN gestion_copropriete c ON c.id = cs.copropriete_id
               WHERE cs.syndic_id = s.id AND cs.fin IS NULL) AS cles,
@@ -117,9 +119,10 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
     const emails = [r.email ?? '', ...(r.emails ?? [])].filter((x) => x !== '');
     const domaines = emails.map((e) => e.split('@')[1] ?? '');
     return {
-      id: Number(r.id), nom: r.nom, email: r.email, telephone: r.telephone,
+      id: Number(r.id), nom: r.nom, email: r.email, telephone: r.telephone, ville: r.ville,
       nbCoproprietes: cles.length, nbBiens,
-      cherchable: normaliserTexte([r.nom, ...emails, ...domaines].join(' ')),
+      // LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — la ville se cherche aussi : « foncia courbevoie ».
+      cherchable: normaliserTexte([r.nom, r.ville ?? '', ...emails, ...domaines].join(' ')),
     };
   });
 }
