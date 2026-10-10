@@ -1063,7 +1063,6 @@ function suitSeulement(c: ContactForm | undefined, cle: string): boolean {
 
 /** « Tous les immeubles », ou la liste des copropriétés suivies (adresse complète). */
 function motImmeublesSuivis(c: ContactForm, adresses: Array<{ cle: string; adresse: string }>): string {
-  if (c.tousImmeubles) return 'Tous les immeubles';
   const l = adresses.filter((a) => c.immeubles.includes(a.cle)).map((a) => a.adresse);
   return l.length === 0 ? 'aucun immeuble' : l.join(' · ');
 }
@@ -1254,13 +1253,16 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
       <fieldset className="fsy-suivis-edit">
         <legend>Immeubles suivis</legend>
         <label className="fsy-case">
-          <input type="checkbox" checked={c.tousImmeubles}
-            onChange={(ev) => onChange({ ...c, tousImmeubles: ev.target.checked, immeubles: ev.target.checked ? [] : c.immeubles })} />
+          {/* LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — un RACCOURCI : cocher coche d'un coup toutes les copropriétés ACTUELLES du
+              syndic (affectations explicites) ; décocher les décoche. Il ne s'étend JAMAIS aux copropriétés rattachées
+              plus tard : une nouvelle copropriété part avec une liste de contacts vide. */}
+          <input type="checkbox" checked={adresses.length > 0 && adresses.every((a) => c.immeubles.includes(a.cle))}
+            onChange={(ev) => onChange({ ...c, tousImmeubles: false, immeubles: ev.target.checked ? adresses.map((a) => a.cle) : [] })} />
           <span>Tous les immeubles</span>
         </label>
         {adresses.map((a) => (
           <label key={a.cle} className="fsy-case">
-            <input type="checkbox" disabled={c.tousImmeubles} checked={c.tousImmeubles || c.immeubles.includes(a.cle)}
+            <input type="checkbox" checked={c.immeubles.includes(a.cle)}
               onChange={(ev) => onChange(affecter(c, a.cle, ev.target.checked))} />
             <span>{a.adresse}</span>
           </label>
@@ -1370,13 +1372,13 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
                             <span className="fsy-discret"> · {valeurDuChoix(x.titreChoix, x.titreLibre)}</span>
                           )}
                         </span>
-                        {x.tousImmeubles
-                          ? <span className="fsy-commun" title="Ce contact suit tous les immeubles du syndic">commun</span>
-                          : x.cle === enModification
-                            ? <span className="fsy-discret">en modification</span>
-                            : <button type="button" className="fsy-lien-bouton fsy-action"
-                                aria-label={`Retirer l’affectation de ${nomAffiche(x)}`}
-                                onClick={() => onContacts(contacts.map((y) => (y.cle === x.cle ? affecter(y, cle, false) : y)))}>Retirer</button>}
+                        {/* LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — plus de contact « commun » : chaque contact affiché ici l'est
+                            par SON affectation, et se retire de la même façon. */}
+                        {x.cle === enModification
+                          ? <span className="fsy-discret">en modification</span>
+                          : <button type="button" className="fsy-lien-bouton fsy-action"
+                              aria-label={`Retirer l’affectation de ${nomAffiche(x)}`}
+                              onClick={() => onContacts(contacts.map((y) => (y.cle === x.cle ? affecter(y, cle, false) : y)))}>Retirer</button>}
                       </div>
                     ))}
                     {aCocher !== null ? (
@@ -1538,7 +1540,6 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-copro-tete{flex:1 1 16rem;min-width:0;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
   border:0;background:transparent;color:var(--color-svv-ink);font:inherit;text-align:left;cursor:pointer;padding:0}
 .fsy-copro-contacts{flex:1 1 100%;display:flex;flex-direction:column;gap:.3rem;padding:.3rem 0 .2rem;border-top:1px solid var(--color-svv-line)}
-.fsy-commun{margin-left:auto;padding:0 .45rem;border-radius:999px;border:1px solid var(--color-svv-line-strong);font-size:.72rem;color:var(--color-svv-muted)}
 .fsy-affecter{display:flex;flex-direction:column;gap:.25rem}
 .fsy-case{display:flex;align-items:center;gap:.45rem;min-height:32px;font-size:.88rem;cursor:pointer}
 .fsy-case input{width:18px;height:18px}

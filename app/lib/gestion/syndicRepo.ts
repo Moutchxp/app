@@ -327,7 +327,8 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
         [syndicId, nul(c.titre), nul(c.prenom), nul(c.nom), rang, auteur.libelle, c.tousImmeubles]);
       contactId = Number(rows[0]?.id);
     }
-    await enregistrerAffectations(q, contactId, c.tousImmeubles ? [] : c.immeubles, c.tousImmeubles, auteur);
+    // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — toujours des affectations explicites (`tous_immeubles` est écrit à faux).
+    await enregistrerAffectations(q, contactId, c.immeubles, auteur);
     // Les coordonnées de ce contact : même règle (mise à jour / insertion / retrait).
     const { rows: kx } = await q<{ id: string }>(
       `SELECT id::text FROM gestion_syndic_coordonnee WHERE contact_id = $1 AND retire_le IS NULL`, [contactId]);
@@ -364,9 +365,10 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
  * ══ 🔴 LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — LES IMMEUBLES QUE SUIT UN CONTACT ═════════════════════════════════════
  * Les affectations EN COURS du contact sont comparées à celles voulues (clés des copropriétés) : les manquantes sont
  * créées (avec l'auteur), celles qui ne sont plus voulues RETIRÉES (`retire_le`, motif). Rien n'est effacé.
- * « Tous les immeubles » ⇒ aucune affectation individuelle (celles qui existaient sont retirées, motif dit).
+ * LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — il n'y a plus de « Tous les immeubles » implicite : un contact ne suit QUE ses
+ * affectations. La case « Tous les immeubles » de l'écran coche les copropriétés ACTUELLES, qui arrivent ici en clés.
  */
-async function enregistrerAffectations(q: RequeteTx, contactId: number, cles: readonly string[], tous: boolean, auteur: Auteur): Promise<void> {
+async function enregistrerAffectations(q: RequeteTx, contactId: number, cles: readonly string[], auteur: Auteur): Promise<void> {
   const { rows: voulues } = await q<{ id: string }>(
     `SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = ANY($1::text[])`, [[...cles]]);
   const idsVoulus = new Set(voulues.map((r) => r.id));
@@ -378,7 +380,7 @@ async function enregistrerAffectations(q: RequeteTx, contactId: number, cles: re
   if (aRetirer.length > 0) {
     await q(
       `UPDATE gestion_syndic_contact_copropriete SET retire_le = now(), retire_par_libelle = $2, retire_motif = $3
-        WHERE id = ANY($1::bigint[])`, [aRetirer, auteur.libelle, tous ? 'tous les immeubles' : 'retrait de l’affectation']);
+        WHERE id = ANY($1::bigint[])`, [aRetirer, auteur.libelle, 'retrait de l’affectation']);
   }
   for (const id of idsVoulus) {
     if (deja.has(id)) continue;

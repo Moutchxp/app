@@ -18,7 +18,9 @@ import { BoutonSyndic } from './BoutonSyndic';
 const FICHE = {
   id: 11, nom: '_TEST Cabinet', adresse: '1 rue A', codePostal: '75001', ville: 'Paris', telephone: '0100000000', telephone2: null,
   email: 'standard@test.invalid', note: null, creeLe: '2026-10-10T10:00:00Z', creeParLibelle: 'arno', majLe: null, majParLibelle: null,
-  contacts: [{ id: 4, titre: 'Responsable de copropriété', prenom: 'Léa', nom: 'Durand',
+  // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — Léa est rattachée EXPLICITEMENT à sa copropriété (il n'y a plus de « tous »
+  // implicite quand le marqueur est absent).
+  contacts: [{ id: 4, titre: 'Responsable de copropriété', prenom: 'Léa', nom: 'Durand', tousImmeubles: false, immeubles: ['12 rue x'],
     coordonnees: [{ id: 5, sorte: 'telephone', libelle: 'Portable', valeur: '0613861877' }] }],
   coproprietes: [{ id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10',
     lots: [{ id: 1, numero: '101', adresse: '12 rue X', commune: 'Courbevoie' }] }],
@@ -613,7 +615,9 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     await cliquer(lignes[0]);
     await cliquer([...document.querySelectorAll('button.fsy-contact-replie')][0]);
     const suivis = [...document.querySelectorAll('.fsy-suivis')].map((p) => p.textContent);
-    expect(suivis).toEqual(['Immeubles suivis : Tous les immeubles', 'Immeubles suivis : 12 rue X, 92400 Courbevoie']);
+    // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : « Tous les immeubles » pour Paul (contact « commun »).
+    // Un ancien « tous » se lit désormais comme les copropriétés ACTUELLES, explicitement (comme le convertit la 329).
+    expect(suivis).toEqual(['Immeubles suivis : 12 rue X, 92400 Courbevoie · 3 av Y, 92400 Courbevoie', 'Immeubles suivis : 12 rue X, 92400 Courbevoie']);
   });
 
   it('affecter un contact à DEUX copropriétés, puis à « Tous les immeubles », par les cases', async () => {
@@ -627,20 +631,31 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     expect(document.querySelector('.fsy-contact-ouvert .fsy-suivis')?.textContent)
       .toBe('Immeubles suivis : 12 rue X, 92400 Courbevoie · 3 av Y, 92400 Courbevoie');
     await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
-    await cliquer(cases()[0]); // tous les immeubles
-    expect(cases().slice(1).every((c) => c.disabled && c.checked)).toBe(true);
+    // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : cocher « Tous les immeubles » désactivait les autres
+    // cases et enregistrait tousImmeubles = vrai. C'est désormais un RACCOURCI sur les copropriétés ACTUELLES.
+    expect(cases()[0].checked).toBe(true); // les deux copropriétés actuelles sont cochées ⇒ « tous » apparaît coché
+    await cliquer(cases()[0]); // décoche tout
+    expect(cases().map((c) => c.checked)).toEqual([false, false, false]);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
+    expect(cases().map((c) => c.checked)).toEqual([false, false, false]);
+    await cliquer(cases()[0]); // recoche tout
+    expect(cases().map((c) => [c.checked, c.disabled])).toEqual([[true, false], [true, false], [true, false]]);
     await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Valider'));
     await cliquer(boutonDans(pied(), 'Valider'));
-    expect(put().contacts[1]).toMatchObject({ nom: 'Douze', tousImmeubles: true, immeubles: [] });
+    expect(put().contacts[1]).toMatchObject({ nom: 'Douze', tousImmeubles: false, immeubles: ['12 rue x', '3 av y'] });
   });
 
-  it('la copropriété repliée : « 12 rue X, 92400 Courbevoie · 2 contacts · 1 bien en gestion » ; dépliée : ses contacts, « commun » marqué', async () => {
+  // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : Paul marqué « commun » (sans « Retirer »). Plus de contact
+  // commun : Paul est là par SON affectation, et se retire comme les autres.
+  it('la copropriété repliée : « 12 rue X, 92400 Courbevoie · 2 contacts · 1 bien en gestion » ; dépliée : ses contacts, chacun retirable', async () => {
     await ouvrir(vi.fn(), 20);
     await deplierCopros();
     expect(copro(0).querySelector('.fsy-copro-tete')?.textContent).toBe('12 rue X, 92400 Courbevoie2 contacts · 1 bien en gestion▸');
     await cliquer(copro(0).querySelector('.fsy-copro-tete') as Element);
     const lignes = [...copro(0).querySelectorAll('.fsy-copro-contacts .fsy-contact-coord')].map((l) => l.textContent);
-    expect(lignes).toEqual(['Paul COMMUN · Service comptabilitécommun', 'Marie DOUZE · Responsable de copropriétéRetirer']);
+    expect(lignes).toEqual(['Paul COMMUN · Service comptabilitéRetirer', 'Marie DOUZE · Responsable de copropriétéRetirer']);
+    expect(copro(0).querySelector('.fsy-commun')).toBeNull();
   });
 
   it('RETIRER une affectation depuis la copropriété : le contact reste au catalogue', async () => {
@@ -651,7 +666,7 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     expect(copro(0).querySelector('.fsy-copro-tete')?.textContent).toContain('1 contact · 1 bien en gestion');
     await cliquer(boutonDans(pied(), 'Valider'));
     expect(put().contacts.map((c) => [c.nom, c.tousImmeubles, c.immeubles])).toEqual([
-      ['Commun', true, []], ['Douze', false, []], ['Trois', false, ['3 av y']],
+      ['Commun', false, ['12 rue x', '3 av y']], ['Douze', false, []], ['Trois', false, ['3 av y']], // avant : Commun « tous »
     ]);
   });
 
@@ -679,7 +694,8 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     expect(cases.map((c) => c.checked)).toEqual([false, false, true]);
   });
 
-  it('un contact créé DEPUIS UN BIEN suit cet immeuble par défaut ; SANS bien, « Tous les immeubles »', async () => {
+  // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : sans bien, « Tous les immeubles » coché par défaut.
+  it('un contact créé DEPUIS UN BIEN suit cet immeuble par défaut ; SANS bien, AUCUNE copropriété', async () => {
     await depuisUnBien();
     await cliquer(bouton('+ Ajouter un contact'));
     // LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — CE QU'IL DISAIT AVANT : les cases, celle de l'immeuble du bien cochée.
@@ -692,7 +708,7 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     await ouvrir(vi.fn(), 20);
     await cliquer(bouton('+ Ajouter un contact'));
     cases = [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
-    expect(cases[0].checked).toBe(true);
+    expect(cases.map((c) => c.checked)).toEqual([false, false, false]);
   });
 
   it('RETIRER une copropriété : elle sort aussi des contacts qui la suivaient', async () => {
@@ -862,14 +878,15 @@ describe('LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — Catalogue ouvert, puis N
     expect(put.contacts.find((c) => c.nom === 'Douze')?.immeubles).toEqual(['12 rue x', '3 av y', '7 bd z']);
   });
 
-  it('écran « Syndics » (sans bien) inchangé : pas de Catalogue, « Tous les immeubles » coché et les cases', async () => {
+  // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — CE QU'IL DISAIT AVANT : « Tous les immeubles » coché par défaut.
+  it('écran « Syndics » (sans bien) : pas de Catalogue, les cases, AUCUNE cochée par défaut', async () => {
     avecFiche22();
     await ouvrir(vi.fn(), 22);
     await cliquer(bouton('+ Ajouter un contact'));
     expect(catalogue()).toBeNull();
     const cases = [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
     expect(cases.length).toBe(3);
-    expect(cases[0].checked).toBe(true);
+    expect(cases.map((c) => c.checked)).toEqual([false, false, false]);
   });
 });
 

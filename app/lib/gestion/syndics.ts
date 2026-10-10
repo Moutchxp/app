@@ -37,8 +37,9 @@ export interface CoordonneeSaisie { id?: number | null; sorte: SorteCoordonnee; 
 export interface ContactSaisi {
   id?: number | null; titre: string; prenom: string; nom: string; coordonnees: CoordonneeSaisie[];
   /**
-   * LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le contact suit TOUS les immeubles du syndic (vrai), ou seulement ceux de
-   * `immeubles` (les CLÉS des copropriétés, `cleImmeuble`). Absent (ancienne forme) ⇒ tous les immeubles.
+   * LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés que suit le contact : `immeubles` (les CLÉS, `cleImmeuble`).
+   * LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — `tousImmeubles` vrai n'est plus qu'un RACCOURCI de saisie : la validation le
+   * remplace par les copropriétés ACTUELLES de la saisie, explicitement, et le remet à faux. Absent ⇒ aucune.
    */
   tousImmeubles: boolean;
   immeubles: string[];
@@ -89,7 +90,7 @@ export interface FicheSyndic {
   contacts: Array<{
     id: number; titre: string | null; prenom: string | null; nom: string | null;
     coordonnees: Array<{ id: number; sorte: SorteCoordonnee; libelle: string | null; valeur: string }>;
-    /** LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — tous les immeubles, ou les clés des copropriétés suivies. */
+    /** Les clés des copropriétés suivies (LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES : le marqueur n'est plus jamais vrai). */
     tousImmeubles: boolean; immeubles: string[];
   }>;
   /** Les copropriétés EN COURS, chacune avec ses lots. */
@@ -260,7 +261,9 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     }
     const contact: ContactSaisi = {
       id: entierOuNull(c.id), titre: texte(c.titre), prenom: texte(c.prenom), nom: texte(c.nom), coordonnees,
-      tousImmeubles: c.tousImmeubles !== false,
+      // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — « tous » n'est plus un suivi automatique : demandé (ancienne forme), il se
+      // traduit plus bas en affectations EXPLICITES aux copropriétés ACTUELLES ; absent, aucune copropriété.
+      tousImmeubles: c.tousImmeubles === true,
       immeubles: Array.isArray(c.immeubles)
         ? [...new Set(c.immeubles.map((x) => cleImmeuble(typeof x === 'string' ? x : '')).filter((x) => x !== ''))].slice(0, 300)
         : [],
@@ -308,7 +311,12 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
 
   // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — un contact ne suit que des copropriétés DE CE SYNDIC : une copropriété
   // retirée de la fiche disparaît aussi des contacts qui la suivaient. « Tous les immeubles » ⇒ aucune liste.
-  for (const c of contacts) c.immeubles = c.tousImmeubles ? [] : c.immeubles.filter((k) => vus.has(k));
+  // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — « tous » ⇒ les copropriétés de CETTE saisie, explicitement ; puis le marqueur
+  // tombe : le serveur n'écrit plus jamais « tous les immeubles » (une copropriété rattachée plus tard part VIDE).
+  for (const c of contacts) {
+    c.immeubles = c.tousImmeubles ? [...vus] : c.immeubles.filter((k) => vus.has(k));
+    c.tousImmeubles = false;
+  }
 
   // Deux standards au plus ; le second remonte si le premier est vide.
   const tels = [b.telephone, b.telephone2].map((t) => chiffresTelephone(texte(t))).filter((t) => t !== '' && t !== '+');
@@ -418,7 +426,7 @@ export interface CoordonneeForm { cle: string; id: number | null; sorte: SorteCo
 export interface ContactForm {
   cle: string; id: number | null; titreChoix: string; titreLibre: string; prenom: string; nom: string;
   coordonnees: CoordonneeForm[];
-  /** LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — « Tous les immeubles », ou les clés des copropriétés suivies. */
+  /** Les clés des copropriétés suivies ; `tousImmeubles` reste faux (LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES). */
   tousImmeubles: boolean; immeubles: string[];
 }
 export interface SyndicForm {
@@ -456,25 +464,27 @@ export function formulaireVide(immeubleDepart?: ImmeubleSaisi | null, lotNote: n
 export function contactVide(suivi?: { tousImmeubles: boolean; immeubles: string[] }): ContactForm {
   return {
     cle: cleLocale(), id: null, titreChoix: '', titreLibre: '', prenom: '', nom: '', coordonnees: [],
-    tousImmeubles: suivi?.tousImmeubles ?? true, immeubles: suivi?.immeubles ?? [],
+    tousImmeubles: false, immeubles: suivi?.immeubles ?? [],
   };
 }
 
 /**
  * LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — CE QUE SUIT UN CONTACT NOUVEAU. PUR.
  * Créé depuis un BIEN dont l'immeuble est une copropriété de la fiche ⇒ cette copropriété seule (case modifiable) ;
- * créé sans bien (écran « Syndics ») ⇒ « Tous les immeubles ».
+ * créé sans bien (écran « Syndics ») ⇒ aucune (LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES).
  */
 export function suiviParDefaut(cleDepart: string | null, immeubles: readonly ImmeubleSaisi[]): { tousImmeubles: boolean; immeubles: string[] } {
   if (cleDepart !== null && cleDepart !== '' && immeubles.some((i) => cleImmeuble(i.libelle) === cleDepart)) {
     return { tousImmeubles: false, immeubles: [cleDepart] };
   }
-  return { tousImmeubles: true, immeubles: [] };
+  // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — sans bien (écran « Syndics ») : AUCUNE copropriété par défaut (on peut cocher).
+  return { tousImmeubles: false, immeubles: [] };
 }
 
-/** Ce contact suit-il cet immeuble (directement, ou parce qu'il suit tous les immeubles) ? PUR. */
+/** Ce contact suit-il cet immeuble ? PUR. */
 export function suitImmeuble(c: { tousImmeubles: boolean; immeubles: readonly string[] }, cle: string): boolean {
-  return c.tousImmeubles || c.immeubles.includes(cle);
+  // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — un contact ne suit QUE les copropriétés de ses affectations, nulle part ailleurs.
+  return c.immeubles.includes(cle);
 }
 
 export function coordonneeVide(sorte: SorteCoordonnee): CoordonneeForm {
@@ -492,7 +502,10 @@ export function versFormulaire(f: FicheSyndic, lotNote: number | null = null): S
       const t = choixDe(c.titre, TITRES_CONTACT);
       return {
         cle: cleLocale(), id: c.id, titreChoix: t.choix, titreLibre: t.libre, prenom: c.prenom ?? '', nom: c.nom ?? '',
-        tousImmeubles: c.tousImmeubles !== false, immeubles: [...(c.immeubles ?? [])],
+        // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — un ancien « tous » (non encore converti) se lit comme les copropriétés
+        // ACTUELLES, explicitement : c'est exactement ce que fait la migration 329.
+        tousImmeubles: false,
+        immeubles: c.tousImmeubles === true ? f.coproprietes.map((x) => x.cle) : [...(c.immeubles ?? [])],
         coordonnees: c.coordonnees.map((k) => {
           const l = choixDe(k.libelle, libellesDe(k.sorte));
           return {
@@ -515,7 +528,7 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
     email: f.email, note: f.note,
     contacts: f.contacts.map((c) => ({
       id: c.id, titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom, nom: c.nom,
-      tousImmeubles: c.tousImmeubles, immeubles: c.tousImmeubles ? [] : [...c.immeubles],
+      tousImmeubles: false, immeubles: [...c.immeubles],
       coordonnees: c.coordonnees.map((k) => ({
         id: k.id, sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
         valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur,
@@ -544,7 +557,7 @@ export interface EditionContact {
 function signatureContact(c: ContactForm): string {
   return JSON.stringify({
     titre: valeurDuChoix(c.titreChoix, c.titreLibre), prenom: c.prenom.trim(), nom: c.nom.trim(),
-    suivi: c.tousImmeubles ? 'tous' : [...c.immeubles].sort(),
+    suivi: [...c.immeubles].sort(),
     coordonnees: c.coordonnees.map((k) => ({
       sorte: k.sorte, libelle: valeurDuChoix(k.choix, k.libre),
       valeur: k.sorte === 'telephone' ? chiffresTelephone(k.valeur) : k.valeur.trim(),
@@ -581,7 +594,6 @@ export function copieContact(c: ContactForm): ContactForm {
 
 /** Une affectation retirée/ajoutée depuis une copropriété : le contact suit (ou ne suit plus) cet immeuble. PUR. */
 export function affecter(c: ContactForm, cle: string, suivre: boolean): ContactForm {
-  if (c.tousImmeubles) return c; // un contact « commun » suit tout : rien à affecter un par un
   const sans = c.immeubles.filter((x) => x !== cle);
   return { ...c, immeubles: suivre ? [...sans, cle] : sans };
 }
@@ -712,8 +724,8 @@ export function nomAvecVille(nom: string, ville: string | null | undefined): str
  * Un contact « Tous les immeubles » devient rattaché EXPLICITEMENT à toutes les AUTRES copropriétés du syndic, sauf
  * celle-ci : il ne suit donc plus automatiquement les copropriétés futures (c'est la demande d'Arno).
  */
-export function detacher(c: ContactForm, cle: string, toutesLesCles: readonly string[]): ContactForm {
-  if (c.tousImmeubles) return { ...c, tousImmeubles: false, immeubles: toutesLesCles.filter((k) => k !== cle) };
+export function detacher(c: ContactForm, cle: string, _toutesLesCles: readonly string[] = []): ContactForm {
+  // LOT SYNDIC-FIN-TOUS-LES-IMMEUBLES — plus de contact « commun » : détacher = retirer CETTE affectation, et rien d'autre.
   return affecter(c, cle, false);
 }
 
