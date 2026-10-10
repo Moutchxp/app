@@ -755,7 +755,8 @@ describe('LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — Catalogue ouvert, puis N
   it('« + Ajouter un contact » : le Catalogue OUVERT d\'office (« Catalogue (6) »), PUIS le bloc « Nouveau contact »', async () => {
     await depuisLeBien(22);
     await cliquer(bouton('+ Ajouter un contact'));
-    expect(catalogue()?.querySelector('.fsy-catalogue-titre')?.textContent).toBe('Catalogue (6)');
+    // LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — CE QU'IL DISAIT AVANT : « Catalogue (6) ».
+    expect(catalogue()?.querySelector('.fsy-catalogue-titre')?.textContent).toBe('Catalogue des contacts du syndic (6)');
     expect(catalogue()?.querySelector('button[aria-expanded="false"].fsy-catalogue-tete')).toBeNull();
     const nouveau = document.querySelector('.fsy-contact-edit') as HTMLElement;
     expect(nouveau.querySelector('legend')?.textContent).toBe('Nouveau contact');
@@ -870,5 +871,102 @@ describe('LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — Catalogue ouvert, puis N
     const cases = [...document.querySelectorAll('.fsy-contact-edit .fsy-suivis-edit input')] as HTMLInputElement[];
     expect(cases.length).toBe(3);
     expect(cases[0].checked).toBe(true);
+  });
+});
+
+describe('LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — replier une tuile du catalogue sans rien rattacher', () => {
+  const pied = (): Element | null => document.querySelector('.fsy-pied');
+  const catalogue = (): HTMLElement | null => document.querySelector('.fsy-catalogue');
+  const ouverte = (): HTMLElement | null => catalogue()?.querySelector('.fsy-contact-ouvert') ?? null;
+  const tuile = (nom: string): HTMLElement => [...(catalogue()?.querySelectorAll('button.fsy-contact-replie') ?? [])]
+    .find((b) => b.querySelector('.fsy-contact-nom')?.textContent === nom) as HTMLElement;
+  const affiches = (): string[] => [...document.querySelectorAll('.fsy-corps > .fsy-bloc > button.fsy-contact-replie')]
+    .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
+  const preparer = async (): Promise<ReturnType<typeof vi.fn>> => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/gestion/syndics/22' && (init?.method ?? 'GET') === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche: FICHE_22 }) };
+      if (url === '/api/admin/gestion/syndics/22') { appels.push({ url, methode: init?.method ?? 'GET', corps: JSON.parse(String(init?.body)) }); return { ok: true, json: async () => ({ ok: true, id: 22 }) }; }
+      return (avant as typeof fetch)(url, init);
+    }));
+    const onFerme = vi.fn();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 22, onFerme, immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    await cliquer(bouton('+ Ajouter un contact'));
+    await taper(catalogue()?.querySelector('input[type="search"]') as HTMLInputElement, 'abel');
+    await cliquer(tuile('Anne ABEL'));
+    return onFerme;
+  };
+  /** Rien n'a été rattaché : « Autres contacts » inchangé, et « Valider » ferme sans rien écrire. */
+  const rienEcrit = async (onFerme: ReturnType<typeof vi.fn>): Promise<void> => {
+    expect(affiches()).toEqual(['Paul COMMUN', 'Marie DOUZE']);
+    await cliquer(document.querySelector('.fsy-contact-edit') ? boutonDans(document.querySelector('.fsy-contact-edit'), 'Annuler') : bouton('Annuler'));
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect(appels.some((x) => x.methode === 'PUT')).toBe(false);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  };
+
+  it('« Annuler » est À GAUCHE de « Sélectionner pour cet immeuble », au style des Annuler blancs', async () => {
+    await preparer();
+    const boutons = [...(ouverte()?.querySelectorAll('.fsy-boutons button') ?? [])] as HTMLButtonElement[];
+    expect(boutons.map((b) => b.textContent?.trim())).toEqual(['Annuler', 'Sélectionner pour cet immeuble']);
+    expect(boutons[0].className).toContain('svv-btn-outline');
+  });
+
+  it('« Annuler » replie la tuile, ne rattache rien, garde la recherche', async () => {
+    const onFerme = await preparer();
+    await cliquer(boutonDans(ouverte(), 'Annuler'));
+    expect(ouverte()).toBeNull();
+    expect((catalogue()?.querySelector('input[type="search"]') as HTMLInputElement).value).toBe('abel');
+    expect([...(catalogue()?.querySelectorAll('button.fsy-contact-replie') ?? [])].map((b) => b.querySelector('.fsy-contact-nom')?.textContent))
+      .toEqual(['Anne ABEL', 'Bruno ABEL']);
+    await rienEcrit(onFerme);
+  });
+
+  it('le ▾ de l\'en-tête replie aussi la tuile', async () => {
+    const onFerme = await preparer();
+    await cliquer(ouverte()?.querySelector('.fsy-contact-tete-btn') as Element);
+    expect(ouverte()).toBeNull();
+    await rienEcrit(onFerme);
+  });
+
+  it('cliquer une AUTRE tuile replie la précédente : une seule dépliée à la fois', async () => {
+    const onFerme = await preparer();
+    await cliquer(tuile('Bruno ABEL'));
+    const ouvertes = [...(catalogue()?.querySelectorAll('.fsy-contact-ouvert') ?? [])];
+    expect(ouvertes).toHaveLength(1);
+    expect(ouvertes[0].querySelector('.fsy-contact-nom')?.textContent).toBe('Bruno ABEL');
+    await rienEcrit(onFerme);
+  });
+
+  it('Échap DANS la tuile = Annuler, SANS fermer la fiche ; le focus revient sur la tuile', async () => {
+    const onFerme = await preparer();
+    const bouton0 = boutonDans(ouverte(), 'Sélectionner pour cet immeuble');
+    await act(async () => { bouton0.focus(); bouton0.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    await attendre(10);
+    expect(ouverte()).toBeNull();
+    expect(onFerme).not.toHaveBeenCalled();
+    expect(document.querySelector('.fsy')).not.toBeNull();
+    expect((document.activeElement as HTMLElement | null)?.querySelector('.fsy-contact-nom')?.textContent).toBe('Anne ABEL');
+    await rienEcrit(onFerme);
+  });
+
+  it('Échap HORS d\'une tuile ferme toujours la fiche (comportement inchangé)', async () => {
+    const onFerme = await preparer();
+    await cliquer(boutonDans(ouverte(), 'Annuler'));
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-edit'), 'Annuler'));
+    await act(async () => { document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('« Sélectionner pour cet immeuble » fonctionne toujours', async () => {
+    await preparer();
+    await cliquer(boutonDans(ouverte(), 'Sélectionner pour cet immeuble'));
+    expect(affiches()).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Anne ABEL']);
+    await cliquer(boutonDans(pied(), 'Valider'));
+    const put = appels.find((x) => x.methode === 'PUT')?.corps as { contacts: Array<{ prenom: string; nom: string; immeubles: string[] }> };
+    expect(put.contacts.find((c) => c.prenom === 'Anne')?.immeubles).toEqual(['3 av y', '12 rue x']);
   });
 });

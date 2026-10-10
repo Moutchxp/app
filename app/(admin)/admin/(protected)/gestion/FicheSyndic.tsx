@@ -114,7 +114,13 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   }, [modifie, abandon, onFerme]);
 
   useEffect(() => {
-    const auClavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') { e.stopPropagation(); annuler(); } };
+    const auClavier = (e: KeyboardEvent): void => {
+      if (e.key !== 'Escape') return;
+      // LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — Échap DANS une tuile dépliée du catalogue la replie (son propre
+      // gestionnaire), SANS fermer la fiche : on la laisse passer.
+      if ((e.target as Element | null)?.closest?.('[data-echap-local]')) return;
+      e.stopPropagation(); annuler();
+    };
     document.addEventListener('keydown', auClavier, true);
     return () => document.removeEventListener('keydown', auClavier, true);
   }, [annuler]);
@@ -614,19 +620,31 @@ function Catalogue({ contacts, adresses, onSelectionner }: {
   contacts: ContactForm[]; adresses: Array<{ cle: string; adresse: string }>; onSelectionner: (cle: string) => void;
 }) {
   const [q, setQ] = useState('');
+  /** Une seule tuile dépliée à la fois : en déplier une autre replie la précédente. */
   const [deplie, setDeplie] = useState<string | null>(null);
   const resultats = filtrerCatalogue(contacts, q);
+  const liste = useRef<HTMLDivElement | null>(null);
+  /**
+   * LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — « Annuler », ▾ et Échap REPLIENT la tuile : rien n'est rattaché, rien
+   * n'est écrit, la recherche reste telle quelle. Le focus revient sur la tuile repliée (sinon il tomberait sur la page).
+   */
+  const replier = (cle: string): void => {
+    setDeplie(null);
+    setTimeout(() => (liste.current?.querySelector(`[data-cle="${cle}"]`) as HTMLElement | null)?.focus(), 0);
+  };
   const libelle = (k: CoordonneeForm): string => valeurDuChoix(k.choix, k.libre);
   return (
     <section className="fsy-catalogue" aria-label="Catalogue des contacts du syndic">
-      <p className="fsy-catalogue-titre">Catalogue <span className="fsy-discret">({contacts.length})</span></p>
+      {/* LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — « Catalogue (N) » devient « Catalogue des contacts du syndic (N) ». */}
+      <p className="fsy-catalogue-titre">Catalogue des contacts du syndic <span className="fsy-discret">({contacts.length})</span></p>
       <input type="search" className="fsy-catalogue-recherche" aria-label="Rechercher dans le catalogue" value={q}
         onChange={(ev) => setQ(ev.target.value)} placeholder="Rechercher : nom, titre, téléphone, e-mail…" />
-      <div className="fsy-catalogue-liste">
+      <div className="fsy-catalogue-liste" ref={liste}>
         {resultats.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun contact</p>}
         {resultats.map((c) => (deplie === c.cle ? (
-          <div key={c.cle} className="fsy-contact-ouvert">
-            <button type="button" className="fsy-contact-tete-btn" aria-expanded={true} onClick={() => setDeplie(null)}>
+          <div key={c.cle} className="fsy-contact-ouvert" data-echap-local=""
+            onKeyDown={(ev) => { if (ev.key === 'Escape') { ev.preventDefault(); replier(c.cle); } }}>
+            <button type="button" className="fsy-contact-tete-btn" aria-expanded={true} onClick={() => replier(c.cle)}>
               <EnteteContact c={c} />
               <span className="fsy-fleche" aria-hidden="true">▾</span>
             </button>
@@ -645,13 +663,14 @@ function Catalogue({ contacts, adresses, onSelectionner }: {
             {c.coordonnees.every((k) => k.valeur.trim() === '') && <p className="fsy-discret fsy-sans-marge">Aucun téléphone ni e-mail.</p>}
             <p className="fsy-suivis"><span className="fsy-discret">Déjà rattaché à :</span> {motImmeublesSuivis(c, adresses)}</p>
             <div className="fsy-boutons fsy-boutons--contact">
+              <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => replier(c.cle)}>Annuler</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => onSelectionner(c.cle)}>
                 Sélectionner pour cet immeuble
               </button>
             </div>
           </div>
         ) : (
-          <button key={c.cle} type="button" className="fsy-contact-replie" aria-expanded={false} onClick={() => setDeplie(c.cle)}>
+          <button key={c.cle} type="button" className="fsy-contact-replie" aria-expanded={false} data-cle={c.cle} onClick={() => setDeplie(c.cle)}>
             <EnteteContact c={c} />
             <span className="fsy-fleche" aria-hidden="true">▸</span>
           </button>

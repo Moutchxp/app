@@ -598,7 +598,10 @@ describe('les écrans', () => {
     expect(src).not.toMatch(/>\s*Retirer ce contact\s*</); // le lien a disparu (accord d'Arno) ; seul un commentaire le cite
     // LOT SYNDIC-CATALOGUE-DANS-NOUVEAU-CONTACT — CE QU'IL DISAIT AVANT : 'Catalogue des contacts', 'Autres contacts du
     // cabinet', 'Contacts pour cet immeuble'. Le titre redevient « Autres contacts » ; le reste passe dans le « Catalogue ».
-    expect(src).not.toMatch(/>\s*(Catalogue des contacts|Contacts pour cet immeuble|Autres contacts du cabinet)/);
+    // (LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE : « Catalogue des contacts DU SYNDIC » est le nouveau titre du bloc
+    //  Catalogue, voulu par Arno ; seul l'ancien titre de SECTION, exact, reste interdit.)
+    expect(src).not.toMatch(/>\s*(Catalogue des contacts\s*<|Contacts pour cet immeuble|Autres contacts du cabinet)/);
+    expect(src).toContain('Catalogue des contacts du syndic');
     for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Autres contacts', 'Catalogue',
       'Sélectionner pour cet immeuble', 'Déjà rattaché à :', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
       'Biens qui recevront ce syndic', 'déjà rattachée à', 'Oui, la prendre', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
