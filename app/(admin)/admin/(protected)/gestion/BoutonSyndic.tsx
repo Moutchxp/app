@@ -32,8 +32,10 @@ import { useImmeublesSyndics } from './useImmeublesSyndics';
 /** Le composeur « écrire depuis gestion@ », fourni par l'écran qui le possède (l'Annuaire). */
 export const EcrireDepuisGestion = createContext<((email: string) => void) | undefined>(undefined);
 
-export function BoutonSyndic({ immeuble, dansLaFiche = false }: {
+export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
   immeuble: string | null | undefined;
+  /** LOT SYNDIC-NOTE-PAR-BIEN — le lot de la carte : la fiche syndic y lit et y écrit la note de CE bien. */
+  lotId?: number | null;
   /** Vrai dans la fiche du bien : pas de carte autour, donc pas de retrait. */
   dansLaFiche?: boolean;
 }) {
@@ -60,7 +62,7 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false }: {
       {/* ⚠️ DANS UN PORTAIL : la carte peut porter une transformation (survol), qui piégerait un « position:fixed ».
           Et le portail vise `.svv-adm-root`, pas `body` : c'est là que vivent les couleurs du thème Sombre. */}
       {ouvert && typeof document !== 'undefined' && createPortal(
-        <FicheSyndic syndicId={syndic?.id ?? null}
+        <FicheSyndic syndicId={syndic?.id ?? null} lotDepart={lotId}
           immeubleDepart={{ libelle, codePostal: connu?.codePostal ?? '', commune: connu?.commune ?? '' }}
           onFerme={() => setOuvert(false)}
           onEcrire={onEcrire === undefined ? undefined : (email) => { setOuvert(false); onEcrire(email); }} />,

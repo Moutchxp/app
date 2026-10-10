@@ -86,4 +86,13 @@ describe('/api/admin/gestion/syndics', () => {
     await GET(requete('/api/admin/gestion/syndics/doublons?syndic=&prenom=&nom=&emails='));
     expect(doublonsAilleurs).toHaveBeenLastCalledWith(null, '', '', []);
   });
+
+  it('GET /[id]?lot=N : la fiche lue POUR UN BIEN (note de ce couple) — LOT SYNDIC-NOTE-PAR-BIEN', async () => {
+    const repo = await import('../../../../../lib/gestion/syndicRepo');
+    const { GET } = await import('./[id]/route');
+    await GET(requete('/api/admin/gestion/syndics/1?lot=101'), { params: Promise.resolve({ id: '1' }) });
+    expect(repo.ficheSyndic).toHaveBeenLastCalledWith(1, 101);
+    await GET(requete('/api/admin/gestion/syndics/1'), { params: Promise.resolve({ id: '1' }) });
+    expect(repo.ficheSyndic).toHaveBeenLastCalledWith(1, null);
+  });
 });

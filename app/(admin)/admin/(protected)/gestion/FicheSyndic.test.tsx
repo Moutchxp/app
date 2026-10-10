@@ -1796,3 +1796,153 @@ describe('LOT SYNDIC-BLOC-PORTEFEUILLE — « Syndic & portefeuille de gestion �
     expect(document.body.textContent).not.toContain('au Valider');
   });
 });
+
+describe('LOT SYNDIC-NOTE-PAR-BIEN-ET-GROUPES-COPROS', () => {
+  type Corps = { note: string; noteBien: { lotId: number; texte: string } | null };
+  /** Le « serveur » : une note par couple (lot, syndic), et la note générale du cabinet. */
+  let notes: Record<string, string> = {};
+  let noteCabinet: string | null = null;
+  const IMM = [
+    { cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', syndic: { id: 30, nom: '_TEST Notes', ville: 'Paris' },
+      lots: [{ id: 101, numero: '101', adresse: '12 rue X', commune: 'COURBEVOIE', proprietaires: ['M. A'], triProprietaire: 'a' },
+        { id: 102, numero: '102', adresse: '12 rue X', commune: 'COURBEVOIE', proprietaires: ['M. B'], triProprietaire: 'b' }] },
+    { cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', syndic: { id: 30, nom: '_TEST Notes', ville: 'Paris' },
+      lots: [{ id: 201, numero: '201', adresse: '3 av Y', commune: 'COURBEVOIE', proprietaires: ['M. C'], triProprietaire: 'c' }] },
+  ];
+  const fiche30 = (lot: string | null) => ({
+    ...FICHE, id: 30, nom: '_TEST Notes', note: noteCabinet,
+    coproprietes: [
+      { id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+      { id: 7, cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+    ],
+    noteBien: lot === null ? null : (notes[lot] ?? null),
+  });
+  const servir = async (): Promise<void> => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return { ok: true, json: async () => ({ etat: 'ok', disponible: true, immeubles: IMM }) };
+      if (url.startsWith('/api/admin/gestion/syndics/30') && m === 'GET') {
+        appels.push({ url, methode: m, corps: null });
+        return { ok: true, json: async () => ({ etat: 'ok', fiche: fiche30(new URL(`http://x${url}`).searchParams.get('lot')) }) };
+      }
+      if (url === '/api/admin/gestion/syndics/30') {
+        const c = JSON.parse(String(init?.body)) as Corps;
+        appels.push({ url, methode: m, corps: c });
+        if (c.noteBien) notes[String(c.noteBien.lotId)] = c.noteBien.texte; // ce que fait le serveur pour CE couple
+        noteCabinet = c.note === '' ? null : c.note;
+        return { ok: true, json: async () => ({ ok: true, id: 30 }) };
+      }
+      return (avant as typeof fetch)(url, init);
+    }));
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+  };
+  const ouvrirBien = async (lot: number | null, libelle: string | null = '12 rue X'): Promise<ReturnType<typeof vi.fn>> => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    const onFerme = vi.fn();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 30, onFerme, lotDepart: lot,
+        immeubleDepart: libelle === null ? null : { libelle, codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    return onFerme;
+  };
+  const libelles = (): string[] => [...document.querySelectorAll('.fsy-corps .fsy-champ > span')].map((x) => x.textContent ?? '');
+  const zoneNote = (): HTMLTextAreaElement | null => {
+    const l = [...document.querySelectorAll('.fsy-corps label')].find((x) => x.querySelector('span')?.textContent === 'Note pour ce bien');
+    return (l?.querySelector('textarea') as HTMLTextAreaElement | undefined) ?? null;
+  };
+  const ecrire = async (z: HTMLTextAreaElement, v: string): Promise<void> => {
+    const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    await act(async () => { set?.call(z, v); z.dispatchEvent(new Event('input', { bubbles: true })); });
+  };
+  const pied = (): Element | null => document.querySelector('.fsy-pied');
+  beforeEach(async () => { notes = {}; noteCabinet = null; await servir(); });
+
+  it('depuis un bien : la fiche est lue POUR CE LOT, « Note pour ce bien » VIDE par défaut (« + note »)', async () => {
+    await ouvrirBien(101);
+    expect(appels.some((a) => a.url === '/api/admin/gestion/syndics/30?lot=101')).toBe(true);
+    expect(zoneNote()).toBeNull();
+    await cliquer(bouton('+ note'));
+    expect(zoneNote()?.value).toBe('');
+    expect(libelles()).toContain('Note pour ce bien');
+    expect(libelles()).not.toContain('Note');
+  });
+
+  it('note écrite sur le bien A, INVISIBLE sur le bien B du même syndic ; relue sur A', async () => {
+    await ouvrirBien(101);
+    await cliquer(bouton('+ note'));
+    await ecrire(zoneNote() as HTMLTextAreaElement, 'Clé chez la gardienne');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect((appels.find((a) => a.methode === 'PUT')?.corps as Corps).noteBien).toEqual({ lotId: 101, texte: 'Clé chez la gardienne' });
+    await ouvrirBien(102);
+    expect(zoneNote()).toBeNull(); // bien B : rien
+    expect(document.body.textContent).not.toContain('Clé chez la gardienne');
+    await ouvrirBien(101);
+    expect(zoneNote()?.value).toBe('Clé chez la gardienne');
+  });
+
+  it('Annuler : la note du bien n’est pas écrite', async () => {
+    const onFerme = await ouvrirBien(101);
+    await cliquer(bouton('+ note'));
+    await ecrire(zoneNote() as HTMLTextAreaElement, 'Brouillon');
+    await cliquer(boutonDans(pied(), 'Annuler'));
+    expect(pied()?.textContent).toContain('Abandonner les modifications ?');
+    await cliquer(boutonDans(pied(), 'Oui, abandonner'));
+    expect(onFerme).toHaveBeenCalledTimes(1);
+    expect(appels.some((a) => a.methode === 'PUT')).toBe(false);
+    expect(notes['101']).toBeUndefined();
+  });
+
+  it('note générale du cabinet : LECTURE SEULE « Note du cabinet » depuis un bien (si non vide), ÉDITABLE « Note » depuis Syndics', async () => {
+    noteCabinet = 'Appeler le matin';
+    await ouvrirBien(101);
+    expect(libelles()).toContain('Note du cabinet');
+    expect(document.querySelector('.fsy-note-cabinet')?.textContent).toBe('Appeler le matin');
+    expect([...document.querySelectorAll('.fsy-corps textarea')].some((t) => (t as HTMLTextAreaElement).value === 'Appeler le matin')).toBe(false);
+    await cliquer(bouton('+ note'));
+    await ecrire(zoneNote() as HTMLTextAreaElement, 'Note A');
+    await cliquer(boutonDans(pied(), 'Valider'));
+    expect((appels.find((a) => a.methode === 'PUT')?.corps as Corps).note).toBe('Appeler le matin'); // inchangée
+    await ouvrirBien(null, null); // écran « Syndics »
+    expect(libelles()).not.toContain('Note du cabinet');
+    expect(libelles()).not.toContain('Note pour ce bien');
+    const l = [...document.querySelectorAll('.fsy-corps label')].find((x) => x.querySelector('span')?.textContent === 'Note');
+    expect((l?.querySelector('textarea') as HTMLTextAreaElement).value).toBe('Appeler le matin');
+  });
+
+  it('note du cabinet VIDE : pas de « Note du cabinet » depuis un bien', async () => {
+    await ouvrirBien(101);
+    expect(libelles()).not.toContain('Note du cabinet');
+  });
+
+  it('SOUS-CADRES : un par copropriété, en-tête adresse + nombre de lots, pastille « copropriété de ce bien » sur la première', async () => {
+    await ouvrirBien(101);
+    await cliquer(document.querySelector('.fsy-lots-ligne') as Element);
+    const g = [...document.querySelectorAll('.fsy-lots-groupe')];
+    expect(g.map((x) => x.querySelector('.fsy-lots-adresse')?.textContent)).toEqual(['12 rue X, 92400 Courbevoie', '3 av Y, 92400 Courbevoie']);
+    expect(g.map((x) => x.querySelector('.fsy-lots-nombre')?.textContent)).toEqual(['2 lots', '1 lot']);
+    expect(g[0].querySelector('.fsy-pastille')?.textContent).toBe('copropriété de ce bien');
+    expect(g[1].querySelector('.fsy-pastille')).toBeNull();
+    expect(g[0].querySelector('.fsy-lots-tete')?.nextElementSibling?.querySelectorAll('.fsy-lot')).toHaveLength(2);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-lots-groupe{display:flex;flex-direction:column;gap:.3rem;padding:6px 10px 8px;border:1px solid var(--color-svv-line);border-radius:10px;');
+    expect(css).toContain('.fsy-lots-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;padding-bottom:.3rem;border-bottom:1px solid var(--color-svv-line)}');
+  });
+
+  it('SOUS-CADRES depuis l’écran « Syndics » : pas de pastille', async () => {
+    await ouvrirBien(null, null);
+    await cliquer(document.querySelector('.fsy-lots-ligne') as Element);
+    expect(document.querySelector('.fsy-pastille')).toBeNull();
+  });
+
+  it('le bouton rose d’une carte transmet son LOT à la fiche', async () => {
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(BoutonSyndic, { immeuble: '12 rue X', lotId: 102 })); });
+    await calmer();
+    await cliquer(container.querySelector('button.bsy') as Element);
+    await calmer();
+    expect(appels.some((a) => a.url === '/api/admin/gestion/syndics/30?lot=102')).toBe(true);
+  });
+});

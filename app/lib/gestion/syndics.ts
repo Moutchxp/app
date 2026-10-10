@@ -52,6 +52,8 @@ export interface SyndicSaisi {
   email: string; note: string;
   contacts: ContactSaisi[];
   immeubles: ImmeubleSaisi[];
+  /** LOT SYNDIC-NOTE-PAR-BIEN — la note du couple (ce lot, ce syndic), saisie depuis un bien. Absente ⇒ rien n'y touche. */
+  noteBien?: { lotId: number; texte: string } | null;
 }
 
 /** Un lot d'une copropriété, tel que l'écran le montre avant de confirmer. */
@@ -97,6 +99,8 @@ export interface FicheSyndic {
   }>;
   /** Les liens FERMÉS : l'historique, jamais effacé. */
   historique: Array<{ libelle: string; debut: string; fin: string; motif: string | null }>;
+  /** LOT SYNDIC-NOTE-PAR-BIEN — la note du couple (lot demandé, ce syndic), si la fiche est lue pour un bien. */
+  noteBien?: string | null;
 }
 
 /** La clé d'un immeuble. PUR. */
@@ -309,9 +313,19 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
   // Deux standards au plus ; le second remonte si le premier est vide.
   const tels = [b.telephone, b.telephone2].map((t) => chiffresTelephone(texte(t))).filter((t) => t !== '' && t !== '+');
 
+  // LOT SYNDIC-NOTE-PAR-BIEN — la note d'UN bien : un lot désigné et un texte (vide = la note est retirée).
+  let noteBien: { lotId: number; texte: string } | null = null;
+  if (typeof b.noteBien === 'object' && b.noteBien !== null) {
+    const nb = b.noteBien as Record<string, unknown>;
+    const lotId = entierOuNull(nb.lotId);
+    if (lotId === null) return { ok: false, motif: 'Note du bien : bien non désigné.' };
+    noteBien = { lotId, texte: texte(nb.texte, BORNE_NOTE) };
+  }
+
   return {
     ok: true,
     syndic: {
+      noteBien,
       nom, adresse: texte(b.adresse), codePostal: texte(b.codePostal), ville: texte(b.ville),
       telephone: tels[0] ?? '', telephone2: tels[1] ?? '',
       email, note: texte(b.note, BORNE_NOTE), contacts, immeubles,
@@ -413,6 +427,8 @@ export interface SyndicForm {
   telephones: string[];
   email: string; note: string;
   contacts: ContactForm[]; immeubles: ImmeubleSaisi[];
+  /** LOT SYNDIC-NOTE-PAR-BIEN — le bien depuis lequel la fiche est ouverte (`null` sans bien), et SA note. */
+  lotNote: number | null; noteBien: string;
 }
 
 let compteur = 0;
@@ -431,9 +447,9 @@ export function valeurDuChoix(choix: string, libre: string): string {
   return choix === PERSONNALISE ? libre.trim() : choix.trim();
 }
 
-export function formulaireVide(immeubleDepart?: ImmeubleSaisi | null): SyndicForm {
+export function formulaireVide(immeubleDepart?: ImmeubleSaisi | null, lotNote: number | null = null): SyndicForm {
   const i = immeubleDepart && immeubleDepart.libelle.trim() !== '' ? [immeubleDepart] : [];
-  return { nom: '', adresse: '', codePostal: '', ville: '', telephones: [''], email: '', note: '', contacts: [], immeubles: i };
+  return { nom: '', adresse: '', codePostal: '', ville: '', telephones: [''], email: '', note: '', contacts: [], immeubles: i, lotNote, noteBien: '' };
 }
 
 /** Un contact NOUVEAU (il s'ouvre EN MODIFICATION). */
@@ -466,7 +482,7 @@ export function coordonneeVide(sorte: SorteCoordonnee): CoordonneeForm {
 }
 
 /** La fiche lue → le formulaire, pré-rempli ; les contacts existants arrivent REPLIÉS. PUR. */
-export function versFormulaire(f: FicheSyndic): SyndicForm {
+export function versFormulaire(f: FicheSyndic, lotNote: number | null = null): SyndicForm {
   const tels = [f.telephone, f.telephone2].filter((t): t is string => (t ?? '').trim() !== '').map(formaterTelephone);
   return {
     nom: f.nom, adresse: f.adresse ?? '', codePostal: f.codePostal ?? '', ville: f.ville ?? '',
@@ -487,6 +503,7 @@ export function versFormulaire(f: FicheSyndic): SyndicForm {
       };
     }),
     immeubles: f.coproprietes.map((c) => ({ libelle: c.libelle, codePostal: c.codePostal ?? '', commune: c.commune ?? '' })),
+    lotNote, noteBien: lotNote !== null ? (f.noteBien ?? '') : '',
   };
 }
 
@@ -505,6 +522,7 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
       })),
     })),
     immeubles: f.immeubles,
+    noteBien: f.lotNote !== null ? { lotId: f.lotNote, texte: f.noteBien } : null,
   };
 }
 

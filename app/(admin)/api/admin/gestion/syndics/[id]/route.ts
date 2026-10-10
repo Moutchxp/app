@@ -35,7 +35,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return Response.json({ etat: 'erreur', message: 'Annuaire des syndics non installé (migration 324).' },
         { status: 409, headers: ENTETES });
     }
-    const fiche = await ficheSyndic(id);
+    // LOT SYNDIC-NOTE-PAR-BIEN — `?lot=N` : la fiche lue DEPUIS UN BIEN porte la note de ce couple (lot, syndic).
+    const lot = identifiant(new URL(request.url).searchParams.get('lot') ?? '');
+    const fiche = await ficheSyndic(id, lot);
     if (fiche === null) return Response.json({ etat: 'erreur', message: 'Ce syndic n’existe pas.' }, { status: 404, headers: ENTETES });
     return Response.json({ etat: 'ok', fiche }, { headers: ENTETES });
   } catch (e) {

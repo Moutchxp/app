@@ -32,6 +32,7 @@ export async function syndicsDisponibles(): Promise<boolean> {
   const { rows } = await query<{ ok: boolean }>(
     `SELECT to_regclass('public.gestion_syndic_coordonnee') IS NOT NULL
         AND to_regclass('public.gestion_syndic_contact_copropriete') IS NOT NULL
+        AND to_regclass('public.gestion_syndic_note_bien') IS NOT NULL
         AND EXISTS (SELECT 1 FROM information_schema.columns
                      WHERE table_schema = 'public' AND table_name = 'gestion_syndic' AND column_name = 'supprime_le') AS ok`);
   return rows[0]?.ok === true;
@@ -147,8 +148,11 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
   });
 }
 
-/** La fiche complète d'un syndic, ou `null` (inconnu ou supprimé). */
-export async function ficheSyndic(id: number): Promise<FicheSyndic | null> {
+/**
+ * La fiche complète d'un syndic, ou `null` (inconnu ou supprimé).
+ * LOT SYNDIC-NOTE-PAR-BIEN — avec `lotId`, elle porte aussi la note du couple (ce lot, ce syndic), et elle seule.
+ */
+export async function ficheSyndic(id: number, lotId: number | null = null): Promise<FicheSyndic | null> {
   const { rows } = await query<{
     id: string; nom: string; adresse: string | null; code_postal: string | null; ville: string | null;
     telephone: string | null; telephone_2: string | null; email: string | null; note: string | null;
@@ -185,8 +189,15 @@ export async function ficheSyndic(id: number): Promise<FicheSyndic | null> {
        FROM gestion_copropriete_syndic cs JOIN gestion_copropriete c ON c.id = cs.copropriete_id
       WHERE cs.syndic_id = $1 ORDER BY cs.fin IS NOT NULL, c.libelle, cs.debut DESC`, [id]);
   const parCle = await lotsParImmeuble();
+  let noteBien: string | null = null;
+  if (lotId !== null) {
+    const { rows: nb } = await query<{ texte: string }>(
+      `SELECT texte FROM gestion_syndic_note_bien WHERE lot_id = $1 AND syndic_id = $2 AND fin IS NULL`, [lotId, id]);
+    noteBien = nb[0]?.texte ?? null;
+  }
 
   return {
+    noteBien,
     id: Number(s.id), nom: s.nom, adresse: s.adresse, codePostal: s.code_postal, ville: s.ville,
     telephone: s.telephone, telephone2: s.telephone_2, email: s.email, note: s.note,
     creeLe: s.cree_le, creeParLibelle: s.cree_par_libelle, majLe: s.maj_le, majParLibelle: s.maj_par_libelle,
@@ -239,6 +250,11 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
         return { ok: false, motif: `L’adresse e-mail ${e} appartient déjà à ${[pris.prenom, (pris.nom ?? '').toUpperCase()].filter((x) => x).join(' ')} (${nomAvecVille(pris.syndicNom, pris.syndicVille)}).` };
       }
     }
+    // LOT SYNDIC-NOTE-PAR-BIEN — le bien de la note doit exister : refus AVANT toute écriture.
+    if (saisie.noteBien) {
+      const { rows: lot } = await q<{ id: string }>(`SELECT id::text FROM gestion_annuaire_lot WHERE id = $1`, [saisie.noteBien.lotId]);
+      if (lot.length === 0) return { ok: false, motif: 'Note du bien : ce bien n’existe pas.' };
+    }
     let syndicId: number;
     const champs = [saisie.nom, nul(saisie.adresse), nul(saisie.codePostal), nul(saisie.ville),
       nul(saisie.telephone), nul(saisie.telephone2), nul(saisie.email), nul(saisie.note)];
@@ -264,8 +280,30 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
     // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés D'ABORD : les affectations des contacts les désignent.
     await enregistrerCoproprietes(q, syndicId, saisie, auteur);
     await enregistrerContacts(q, syndicId, saisie, auteur);
+    if (saisie.noteBien) await enregistrerNoteBien(q, syndicId, saisie.noteBien.lotId, saisie.noteBien.texte, auteur);
     return { ok: true, id: syndicId };
   });
+}
+
+/**
+ * ══ 🔴 LOT SYNDIC-NOTE-PAR-BIEN — LA NOTE DU COUPLE (lot, syndic), HISTORISÉE ═══════════════════════════════════════
+ * Inchangée ⇒ rien. Modifiée ⇒ la ligne en cours est FERMÉE (`fin`, qui) et une nouvelle ouverte. Vidée ⇒ la ligne en
+ * cours est fermée, aucune n'est ouverte. Jamais d'effacement ; la note générale du cabinet n'est pas touchée.
+ */
+async function enregistrerNoteBien(q: RequeteTx, syndicId: number, lotId: number, texte: string, auteur: Auteur): Promise<void> {
+  const t = texte.trim();
+  const { rows } = await q<{ id: string; texte: string }>(
+    `SELECT id::text, texte FROM gestion_syndic_note_bien WHERE lot_id = $1 AND syndic_id = $2 AND fin IS NULL FOR UPDATE`, [lotId, syndicId]);
+  const enCours = rows[0];
+  if ((enCours?.texte ?? '') === t) return;
+  if (enCours !== undefined) {
+    await q(`UPDATE gestion_syndic_note_bien SET fin = now(), fin_par = $2, fin_par_libelle = $3 WHERE id = $1`,
+      [enCours.id, auteur.id, auteur.libelle]);
+  }
+  if (t !== '') {
+    await q(`INSERT INTO gestion_syndic_note_bien (lot_id, syndic_id, texte, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4, $5)`,
+      [lotId, syndicId, t, auteur.id, auteur.libelle]);
+  }
 }
 
 async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur): Promise<void> {

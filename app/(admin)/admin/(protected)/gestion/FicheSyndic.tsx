@@ -52,7 +52,7 @@ import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
  */
 type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
-export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire }: {
+export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null }: {
   /** `null` = aucun syndic encore : on commence par chercher un syndic existant. */
   syndicId: number | null;
   /** L'immeuble du bien depuis lequel on vient : pré-rempli comme copropriété. */
@@ -60,11 +60,13 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   onFerme: () => void;
   /** Écrire depuis gestion@ par le composeur existant. Absent ⇒ le lien `mailto:` suffit. */
   onEcrire?: (email: string) => void;
+  /** LOT SYNDIC-NOTE-PAR-BIEN — le lot depuis lequel la fiche est ouverte : sa note (couple lot, syndic). */
+  lotDepart?: number | null;
 }) {
   const [syndicId, setSyndicId] = useState<number | null>(idInitial);
   const [mode, setMode] = useState<Mode>(idInitial === null ? 'recherche' : 'chargement');
   const [fiche, setFiche] = useState<Fiche | null>(null);
-  const [form, setForm] = useState<SyndicForm>(() => formulaireVide(immeubleDepart));
+  const [form, setForm] = useState<SyndicForm>(() => formulaireVide(immeubleDepart, lotDepart));
   /** Le formulaire tel qu'il était à l'ouverture : ce qui permet de dire « des modifications sont en cours ». */
   const [initial, setInitial] = useState<SyndicForm>(() => formulaireVide(null));
   const [erreur, setErreur] = useState<string | null>(null);
@@ -87,11 +89,11 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const charger = useCallback(async (id: number): Promise<Fiche | null> => {
     setMode('chargement');
     try {
-      const r = await fetch(`/api/admin/gestion/syndics/${id}`, { cache: 'no-store' });
+      const r = await fetch(`/api/admin/gestion/syndics/${id}${lotDepart !== null ? `?lot=${lotDepart}` : ''}`, { cache: 'no-store' });
       const j = (await r.json()) as { etat?: string; fiche?: Fiche; message?: string };
       if (!r.ok || j.etat !== 'ok' || !j.fiche) { setErreur(j.message ?? 'Lecture impossible.'); setMode('erreur'); return null; }
       setFiche(j.fiche);
-      const f = versFormulaire(j.fiche);
+      const f = versFormulaire(j.fiche, lotDepart);
       setForm(f); setInitial(f);
       setMode('edition');
       return j.fiche;
@@ -133,7 +135,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     setSyndicId(id);
     const f = await charger(id);
     if (f === null || immeubleDepart === null || immeubleDepart.libelle.trim() === '') return;
-    const base = versFormulaire(f);
+    const base = versFormulaire(f, lotDepart);
     if (!base.immeubles.some((x) => cleImmeuble(x.libelle) === cleImmeuble(immeubleDepart.libelle))) {
       setForm({ ...base, immeubles: [...base.immeubles, immeubleDepart] });
     }
@@ -216,7 +218,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           {mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
           {mode === 'recherche' && (
             <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)}
-              onCreer={() => { setForm(formulaireVide(immeubleDepart)); setInitial(formulaireVide(null)); setMode('edition'); }} />
+              onCreer={() => { setForm(formulaireVide(immeubleDepart, lotDepart)); setInitial(formulaireVide(null, lotDepart)); setMode('edition'); }} />
           )}
           {mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
@@ -539,7 +541,25 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       {/* 🔴 LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — UNE NOTE VIDE NE S'AFFICHE PAS (accord d'Arno pour ce masquage) : à sa
           place, « + note », au style de « + téléphone ». Un clic ouvre le champ vide, le curseur dedans. Une note
           vidée puis validée disparaît à la réouverture (on relit `form.note` à l'ouverture). */}
-      {noteOuverte || form.note.trim() !== '' ? (
+      {/* ══ 🔴 LOT SYNDIC-NOTE-PAR-BIEN — DEPUIS UN BIEN, la note est CELLE DE CE BIEN (couple lot, syndic) : « Note pour ce
+          bien », vide par défaut, enregistrée au « Valider ». La note générale du cabinet ne s'y édite pas : elle est
+          montrée en LECTURE SEULE sous « Note du cabinet », si elle n'est pas vide, et reste éditable depuis l'écran
+          « Syndics ». Sans bien : « Note », la note du cabinet, comme avant. */}
+      {form.lotNote !== null && form.note.trim() !== '' && (
+        <div className="fsy-champ">
+          <span>Note du cabinet</span>
+          <p className="fsy-note-cabinet">{form.note}</p>
+        </div>
+      )}
+      {form.lotNote !== null ? (noteOuverte || form.noteBien.trim() !== '' ? (
+        <label className="fsy-champ">
+          <span>Note pour ce bien</span>
+          <textarea rows={2} value={form.noteBien} autoFocus={noteOuverte && form.noteBien === ''}
+            onChange={(e) => { setNoteOuverte(true); setForm({ ...form, noteBien: e.target.value }); }} />
+        </label>
+      ) : (
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-ajout" onClick={() => setNoteOuverte(true)}>+ note</button>
+      )) : noteOuverte || form.note.trim() !== '' ? (
         <label className="fsy-champ">
           <span>Note</span>
           <textarea rows={2} value={form.note} autoFocus={noteOuverte && form.note === ''}
@@ -606,9 +626,16 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       )}
       {lotsOuverts && lots.length > 0 && (
         <div className="fsy-lots">
+          {/* 🔴 LOT SYNDIC-NOTE-PAR-BIEN-ET-GROUPES-COPROS — chaque copropriété est un SOUS-CADRE : en-tête (adresse en gras
+              foncé, nombre de lots à droite, pastille « copropriété de ce bien » pour la première depuis un bien), un
+              trait fin, puis les lignes de lots, inchangées. */}
           {groupes.map((g) => (
             <div key={g.cle} className="fsy-lots-groupe">
-              <p className="fsy-lots-adresse">{g.adresse}</p>
+              <div className="fsy-lots-tete">
+                <span className="fsy-lots-adresse">{g.adresse}</span>
+                {adresseDuBien !== null && g.cle === cleDepart && <span className="fsy-pastille">copropriété de ce bien</span>}
+                <span className="fsy-lots-nombre">{g.lots.length === 1 ? '1 lot' : `${g.lots.length} lots`}</span>
+              </div>
               <ul className="fsy-liste fsy-liste--serree">
                 {g.lots.map((l) => (
                   <li key={l.id} className="fsy-lot">
@@ -1480,8 +1507,17 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-copros-ligne{margin-top:.35rem}
 /* LOT SYNDIC-BLOC-PORTEFEUILLE — les lots du portefeuille : une adresse en tete de groupe ; le lot a gauche, ses
    proprietaires a droite (passage a la ligne s'il le faut, jamais de troncature). */
-.fsy-lots{display:flex;flex-direction:column;gap:.5rem}
-.fsy-lots-adresse{margin:0;font-size:.8rem;font-weight:700;color:var(--color-svv-muted)}
+.fsy-lots{display:flex;flex-direction:column;gap:.6rem}
+/* LOT SYNDIC-NOTE-PAR-BIEN-ET-GROUPES-COPROS — une copropriete = un sous-cadre blanc, borde, arrondi. */
+.fsy-lots-groupe{display:flex;flex-direction:column;gap:.3rem;padding:6px 10px 8px;border:1px solid var(--color-svv-line);border-radius:10px;
+  background:var(--color-svv-surface)}
+.fsy-lots-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;padding-bottom:.3rem;border-bottom:1px solid var(--color-svv-line)}
+.fsy-lots-adresse{font-size:.88rem;font-weight:700;color:var(--color-svv-ink);min-width:0;overflow-wrap:anywhere}
+.fsy-lots-nombre{margin-left:auto;font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
+.fsy-pastille{padding:0 .45rem;border-radius:999px;background:var(--color-svv-field);border:1px solid var(--color-svv-line);
+  font-size:.72rem;color:var(--color-svv-muted);white-space:nowrap}
+.fsy-note-cabinet{margin:0;padding:6px 9px;border-radius:8px;background:var(--color-svv-field);color:var(--color-svv-ink);
+  font-size:.92rem;white-space:pre-wrap}
 .fsy-lot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:.15rem .8rem}
 .fsy-lot-gauche{min-width:0;overflow-wrap:anywhere}
 .fsy-lot-proprios{margin-left:auto;text-align:right;overflow-wrap:anywhere;font-size:.84rem}

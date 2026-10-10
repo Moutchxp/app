@@ -400,6 +400,22 @@ describe('LOT SYNDIC-BLOC-PORTEFEUILLE — lotsDuPortefeuille (pur)', () => {
   });
 });
 
+describe('LOT SYNDIC-NOTE-PAR-BIEN — la note de CE bien dans la saisie', () => {
+  it('la saisie porte { lotId, texte } ; un lot non désigné est refusé ; sans note de bien, rien', () => {
+    const v = validerSyndic({ ...ADR, nom: 'S', noteBien: { lotId: 101, texte: '  Clé chez la gardienne ' } });
+    expect(v.ok && v.syndic.noteBien).toEqual({ lotId: 101, texte: 'Clé chez la gardienne' });
+    expect(validerSyndic({ ...ADR, nom: 'S', noteBien: { lotId: 'x', texte: 'a' } }).ok).toBe(false);
+    const w = validerSyndic({ ...ADR, nom: 'S' });
+    expect(w.ok && w.syndic.noteBien).toBeNull();
+  });
+  it('le formulaire : depuis un bien, la note du bien voyage avec son lot ; sans bien, aucune', () => {
+    const f = { ...formulaireVide(null, 101), noteBien: 'A' };
+    expect(versSaisie(f).noteBien).toEqual({ lotId: 101, texte: 'A' });
+    expect(versSaisie(formulaireVide(null)).noteBien).toBeNull();
+    expect(formulaireModifie(formulaireVide(null, 101), f)).toBe(true);
+  });
+});
+
 describe('les téléphones — par paires, à l\'affichage ET à la saisie', () => {
   it('« 06 13 86 18 77 », « +33 6 13 86 18 77 », et pendant la frappe', () => {
     expect(formaterTelephone('0613861877')).toBe('06 13 86 18 77');
@@ -639,6 +655,49 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(sql).toContain('WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL AND p2.supprime_le IS NULL');
   });
 
+  it('NOTE PAR BIEN : la fiche lue pour un lot porte la note du couple (lot, syndic), et elle seule', async () => {
+    const { ficheSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL') ? { rows: [{ id: '11', nom: 'S', cree_le: '', cree_par_libelle: 'x' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_syndic_note_bien') ? { rows: [{ texte: 'Note du bien A' }] } : undefined),
+    ];
+    expect((await ficheSyndic(11, 101))?.noteBien).toBe('Note du bien A');
+    expect(appels.find((a) => a.sql.includes('FROM gestion_syndic_note_bien'))?.params).toEqual([101, 11]);
+    appels.length = 0;
+    expect((await ficheSyndic(11))?.noteBien).toBeNull();
+    expect(appels.some((a) => a.sql.includes('gestion_syndic_note_bien'))).toBe(false);
+  });
+
+  it('NOTE PAR BIEN : modifiée ⇒ ancienne FERMÉE + nouvelle ; vidée ⇒ fermée seulement ; inchangée ⇒ rien', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    const enregistrer = async (texte: string, enCours: string | null): Promise<string[]> => {
+      appels.length = 0;
+      reponses = [
+        (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+        (sql) => (sql.includes('FROM gestion_annuaire_lot WHERE id = $1') ? { rows: [{ id: '101' }] } : undefined),
+        (sql) => (sql.includes('FROM gestion_syndic_note_bien') && sql.includes('FOR UPDATE') ? { rows: enCours === null ? [] : [{ id: '5', texte: enCours }] } : undefined),
+      ];
+      const v = validerSyndic({ ...ADR, nom: 'S', noteBien: { lotId: 101, texte } });
+      if (!v.ok) throw new Error(v.motif);
+      await enregistrerSyndic(11, v.syndic, auteur);
+      return appels.filter((a) => /gestion_syndic_note_bien/.test(a.sql) && /^\s*(INSERT|UPDATE)/.test(a.sql)).map((a) => norm(a.sql).trim().split(' ').slice(0, 3).join(' '));
+    };
+    expect(await enregistrer('B', 'A')).toEqual(['UPDATE gestion_syndic_note_bien SET', 'INSERT INTO gestion_syndic_note_bien']);
+    expect(await enregistrer('', 'A')).toEqual(['UPDATE gestion_syndic_note_bien SET']);
+    expect(await enregistrer('A', 'A')).toEqual([]);
+    expect(await enregistrer('Neuve', null)).toEqual(['INSERT INTO gestion_syndic_note_bien']);
+    // la note générale du cabinet n'est pas touchée : le champ « note » vaut ce que porte la saisie (ici vide → null)
+    expect(appels.some((a) => /DELETE/i.test(a.sql))).toBe(false);
+  });
+
+  it('NOTE PAR BIEN : un bien inexistant est refusé AVANT toute écriture', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    const v = validerSyndic({ ...ADR, nom: 'S', noteBien: { lotId: 999, texte: 'x' } });
+    if (!v.ok) throw new Error(v.motif);
+    expect(await enregistrerSyndic(11, v.syndic, auteur)).toEqual({ ok: false, motif: 'Note du bien : ce bien n’existe pas.' });
+    expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
+  });
+
   it('le dépôt ne contient aucun DELETE', () => {
     expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toMatch(/DELETE FROM/i);
   });
@@ -667,6 +726,14 @@ describe('les migrations 324 et 325 — ajout uniquement', () => {
     const code = norm(lire('327_gestion_syndic_email_unique.sql')).trim();
     expect(code).toBe("CREATE UNIQUE INDEX IF NOT EXISTS gestion_syndic_coordonnee_email_unique ON gestion_syndic_coordonnee (lower(regexp_replace(valeur, '\\s+', '', 'g'))) WHERE sorte = 'email' AND retire_le IS NULL;");
   });
+  it('328 : une table de notes par (lot, syndic), historisée (fin), une seule en cours — ajout uniquement', () => {
+    const code = norm(lire('328_gestion_syndic_note_bien.sql'));
+    expect(code).toContain('CREATE TABLE IF NOT EXISTS gestion_syndic_note_bien (');
+    expect(code).toContain('lot_id bigint NOT NULL REFERENCES gestion_annuaire_lot(id)');
+    expect(code).toContain('syndic_id bigint NOT NULL REFERENCES gestion_syndic(id)');
+    expect(code).toContain('CREATE UNIQUE INDEX IF NOT EXISTS gestion_syndic_note_bien_en_cours ON gestion_syndic_note_bien (lot_id, syndic_id) WHERE fin IS NULL;');
+    expect(code).not.toMatch(/\bDROP\b|\bRENAME\b|ALTER TABLE|\bUPDATE\b|\bDELETE\b|INSERT/i);
+  });
   it('325 : uniquement des ADD COLUMN', () => {
     const lignes = lire('325_gestion_syndic_finitions.sql').split('\n').map((l) => l.trim()).filter((l) => l !== '');
     expect(lignes.length).toBe(8);
@@ -688,12 +755,13 @@ describe('les écrans', () => {
     expect(src).toContain('.bsy-mot{display:block;min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere;');
   });
 
+  // (LOT SYNDIC-NOTE-PAR-BIEN : le bouton reçoit aussi le lot de la carte — `lotId` — pour la note de CE bien.)
   it('le bouton a EXACTEMENT le format de « Historique » : même classe, même retrait de 14 px que le pied de carte', () => {
     const src = lire('BoutonSyndic.tsx');
     expect(src).toContain('svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large bsy');
     expect(src).toContain('.bsy-ligne{display:flex;flex-direction:column;align-items:stretch;padding:0 14px;');
     expect(lire('Annuaire.tsx')).toContain('.ann-carte-pied{display:flex;flex-direction:column;gap:.4rem;padding:0 14px 12px;');
-    expect(lire('Annuaire.tsx')).toContain('<BoutonSyndic immeuble={f.immeuble} dansLaFiche />');
+    expect(lire('Annuaire.tsx')).toContain('<BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />');
   });
 
   it('rose franc par des jetons, en Clair ET en Sombre ; « Créer le syndic » reste blanc', () => {
@@ -709,10 +777,10 @@ describe('les écrans', () => {
   it('dans la carte du bien, À LA PLACE de la ligne SURFACE (entre le cartouche et les faits)', () => {
     const src = lire('Annuaire.tsx');
     const carte = src.slice(src.indexOf('function CarteBien'), src.indexOf('function VueProprietaire'));
-    const i = carte.indexOf('<BoutonSyndic immeuble={b.immeuble} />');
+    const i = carte.indexOf('<BoutonSyndic immeuble={b.immeuble} lotId={b.id} />');
     expect(i).toBeGreaterThan(carte.indexOf('<CartoucheEvenement'));
     expect(i).toBeLessThan(carte.indexOf('className="ann-carte-faits"'));
-    expect(src).toContain('{o.lotId !== null && <BoutonSyndic immeuble={o.immeuble} />}');
+    expect(src).toContain('{o.lotId !== null && <BoutonSyndic immeuble={o.immeuble} lotId={o.lotId} />}');
   });
 
   it('l\'entrée « Syndics » est SOUS « Événements », et « Annuaire » garde sa place après', () => {
