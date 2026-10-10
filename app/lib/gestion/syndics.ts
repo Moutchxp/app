@@ -64,6 +64,9 @@ export interface SyndicSaisi {
   /** LOT COPRO-CONTACTS-IMMEUBLE — la liste ENTIÈRE des contacts de l'immeuble du bien (absents ⇒ retirés). Absente ⇒
    *  rien n'y touche (la liste n'a pas été lue). */
   contactsImmeuble?: { immeuble: string; contacts: ContactImmeubleSaisi[] } | null;
+  /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — l'écran a fait CONFIRMER les e-mails / téléphones déjà utilisés.
+   *  Absent : le serveur renvoie l'avertissement et n'écrit rien. */
+  confirmeDoublons?: boolean;
 }
 
 /** LOT COPRO-CONTACTS-IMMEUBLE — les catégories d'un contact d'immeuble, en base. */
@@ -325,10 +328,12 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     immeubles.push({ libelle, codePostal: texte(o.codePostal), commune: texte(o.commune) });
   }
 
-  // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — dans UN syndic, deux contacts ne portent pas le même Prénom + NOM, et une
-  // adresse e-mail n'appartient qu'à UN contact (le même e-mail répété sur un contact est simplement dédoublonné).
+  // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — dans UN syndic, deux contacts ne portent pas le même Prénom + NOM (BLOQUANT) ; le
+  // même e-mail répété sur un contact est simplement dédoublonné.
+  // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL Y AVAIT : « une adresse e-mail n'appartient qu'à UN
+  // contact » (refus). Décision d'Arno : un e-mail (ou un téléphone) déjà utilisé n'est plus qu'un AVERTISSEMENT,
+  // confirmé à l'écran — le serveur le contrôle à l'enregistrement (`confirmeDoublons`).
   const vusNoms = new Map<string, ContactSaisi>();
-  const vusEmails = new Map<string, ContactSaisi>();
   for (const c of contacts) {
     if (c.parti === true) continue; // LOT SYNDIC-CONTACT-PARTI — un contact qui part libère son nom et son e-mail
     const n = cleNom(c.prenom, c.nom);
@@ -345,10 +350,6 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
       propres.add(e);
       return true;
     });
-    for (const e of propres) {
-      if (vusEmails.has(e)) return { ok: false, motif: `L’adresse e-mail ${e} figure sur deux contacts : elle ne peut appartenir qu’à un seul.` };
-      vusEmails.set(e, c);
-    }
   }
 
   // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — un contact ne suit que des copropriétés DE CE SYNDIC : une copropriété
@@ -407,18 +408,13 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
         note: texte(c.note, BORNE_NOTE), coordonnees });
     }
     const noms = new Set<string>();
-    const emails = new Set<string>();
     for (const c of liste) {
       const n = cleNom(c.prenom, c.nom);
       if (n !== '') {
         if (noms.has(n)) return { ok: false, motif: `Deux contacts de cet immeuble portent le même nom : ${prenomNom(c.prenom, c.nom)}.` };
         noms.add(n);
       }
-      for (const k of c.coordonnees.filter((x) => x.sorte === 'email')) {
-        const e = cleEmail(k.valeur);
-        if (emails.has(e)) return { ok: false, motif: `L’adresse e-mail ${e} est déjà celle d’un autre contact de cet immeuble.` };
-        emails.add(e);
-      }
+      // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — un e-mail partagé n'est plus un refus (avertissement confirmé).
     }
     contactsImmeuble = { immeuble, contacts: liste };
   }
@@ -428,6 +424,7 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     syndic: {
       noteBien,
       ...(contactsImmeuble !== null ? { contactsImmeuble } : {}),
+      ...(b.confirmeDoublons === true ? { confirmeDoublons: true } : {}),
       nom, adresse: texte(b.adresse), codePostal: texte(b.codePostal), ville: texte(b.ville),
       telephone: tels[0] ?? '', telephone2: tels[1] ?? '',
       email, note: texte(b.note, BORNE_NOTE), contacts, immeubles,
@@ -562,6 +559,8 @@ export interface ContactForm {
   reintegre?: boolean;
   /** LOT COPRO-CONTACTS-IMMEUBLE — la note d'un contact d'IMMEUBLE (les contacts de syndic n'en ont pas). */
   note?: string;
+  /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — « Valider quand même » malgré un e-mail / téléphone déjà utilisé. */
+  doublonsConfirmes?: boolean;
 }
 export interface SyndicForm {
   nom: string; adresse: string; codePostal: string; ville: string;
@@ -687,6 +686,7 @@ export function versSaisie(f: SyndicForm): SyndicSaisi {
     ],
     immeubles: f.immeubles,
     noteBien: f.lotNote !== null ? { lotId: f.lotNote, texte: f.noteBien } : null,
+    ...([...f.contacts, ...(f.immeubleContacts?.contacts ?? [])].some((c) => c.doublonsConfirmes === true) ? { confirmeDoublons: true } : {}),
     ...(f.immeubleContacts ? { contactsImmeuble: {
       immeuble: f.immeubleContacts.libelle,
       contacts: f.immeubleContacts.contacts.map((c) => ({
@@ -830,6 +830,73 @@ export function refusContactImmeuble(c: ContactForm): string | null {
   return null;
 }
 
+// ══ LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — UNE COORDONNÉE DÉJÀ UTILISÉE ════════════════════════════════════
+
+/** Un téléphone réduit à ses chiffres, l'indicatif français ramené au 0 : « 07 60 20 10 10 » = « +33 7 60 20 10 10 ». PUR. */
+export function cleTelephone(v: string | null | undefined): string {
+  let d = chiffresTelephone(v);
+  if (d.startsWith('+33')) d = `0${d.slice(3)}`;
+  return d.replace('+', '');
+}
+
+/** La clé de comparaison d'une coordonnée : e-mail en minuscules sans espaces ; téléphone par ses chiffres. PUR. */
+export function cleCoordonnee(sorte: SorteCoordonnee, valeur: string | null | undefined): string {
+  return sorte === 'email' ? cleEmail(valeur ?? '') : cleTelephone(valeur);
+}
+
+/** Qui porte déjà une coordonnée : un contact de SYNDIC, ou un contact d'IMMEUBLE. */
+export type ProprietaireCoordonnee =
+  | { genre: 'syndic'; contactId: number | null; civilite: Civilite | null; prenom: string | null; nom: string | null; titre: string | null;
+      syndicId: number | null; syndicNom: string; syndicVille: string | null; coproprietes: string[] }
+  | { genre: 'immeuble'; contactId: number | null; civilite: Civilite | null; prenom: string | null; nom: string | null; categorie: string;
+      immeubleCle: string; immeubleAdresse: string };
+/** Une coordonnée connue : sa sorte, sa clé de comparaison, son propriétaire (et, côté formulaire, la clé d'écran). */
+export interface CoordonneeConnue { sorte: SorteCoordonnee; cle: string; proprietaire: ProprietaireCoordonnee; cleForm?: string }
+
+/** « M. Arnaud JOREL · Responsable de copropriété · SYNDIC / Ville (déjà rattaché à cette copropriété) » ou, pour un
+ *  contact d'immeuble, « M. Paul LOGE · Gardien · 12 rue X, 92400 Courbevoie ». PUR. */
+export function quiPorte(p: ProprietaireCoordonnee, cleDepart: string | null = null): string {
+  const nom = prenomNomCivil(p.civilite, p.prenom, p.nom);
+  if (p.genre === 'immeuble') return [nom, p.categorie, p.immeubleAdresse].filter((x) => x.trim() !== '').join(' · ');
+  const base = [nom, (p.titre ?? '').trim(), nomAvecVille(p.syndicNom, p.syndicVille)].filter((x) => x.trim() !== '').join(' · ');
+  return cleDepart !== null && p.coproprietes.includes(cleDepart) ? `${base} (déjà rattaché à cette copropriété)` : base;
+}
+
+/** Les lignes d'un avertissement : une phrase pour un seul propriétaire, sinon l'annonce puis un propriétaire par ligne. PUR. */
+export function lignesDoublonCoordonnee(sorte: SorteCoordonnee, valeur: string, proprietaires: readonly string[]): string[] {
+  const debut = sorte === 'email' ? `L’adresse e-mail ${valeur.trim()} est déjà utilisée par` : `Le numéro ${formaterTelephone(valeur)} est déjà utilisé par`;
+  return proprietaires.length === 1 ? [`${debut} ${proprietaires[0]}.`] : [`${debut} :`, ...proprietaires];
+}
+
+/** Les coordonnées connues d'une liste de contacts du FORMULAIRE (qui fait foi pour ce syndic et cet immeuble). PUR. */
+export function coordonneesDuFormulaire(contacts: readonly ContactForm[],
+  cadre: { genre: 'syndic'; syndicId: number | null; syndicNom: string; syndicVille: string | null }
+    | { genre: 'immeuble'; immeubleCle: string; immeubleAdresse: string }): CoordonneeConnue[] {
+  return contacts.flatMap((c) => c.coordonnees.filter((k) => cleCoordonnee(k.sorte, k.valeur) !== '').map((k): CoordonneeConnue => {
+    const commun = { contactId: c.id, civilite: c.civilite ?? null, prenom: c.prenom, nom: c.nom };
+    const proprietaire: ProprietaireCoordonnee = cadre.genre === 'syndic'
+      ? { genre: 'syndic', ...commun, titre: valeurDuChoix(c.titreChoix, c.titreLibre), syndicId: cadre.syndicId, syndicNom: cadre.syndicNom,
+          syndicVille: cadre.syndicVille, coproprietes: [...c.immeubles] }
+      : { genre: 'immeuble', ...commun, categorie: valeurDuChoix(c.titreChoix, c.titreLibre), immeubleCle: cadre.immeubleCle, immeubleAdresse: cadre.immeubleAdresse };
+    return { sorte: k.sorte, cle: cleCoordonnee(k.sorte, k.valeur), proprietaire, cleForm: c.cle };
+  }));
+}
+
+/** Pour chaque coordonnée REMPLIE du contact, ses autres porteurs : les lignes de l'avertissement. PUR. */
+export function avertissementsCoordonnees(c: ContactForm, connues: readonly CoordonneeConnue[], cleDepart: string | null = null):
+Array<{ cleCoord: string; lignes: string[] }> {
+  const out: Array<{ cleCoord: string; lignes: string[] }> = [];
+  for (const k of c.coordonnees) {
+    const cle = cleCoordonnee(k.sorte, k.valeur);
+    if (cle === '') continue;
+    const vus = new Set<string>();
+    const qui = connues.filter((x) => x.sorte === k.sorte && x.cle === cle && x.cleForm !== c.cle).map((x) => quiPorte(x.proprietaire, cleDepart))
+      .filter((q) => (vus.has(q) ? false : (vus.add(q), true)));
+    if (qui.length > 0) out.push({ cleCoord: k.cle, lignes: lignesDoublonCoordonnee(k.sorte, k.valeur, qui) });
+  }
+  return out;
+}
+
 // ══ LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES ════════════════════════════════════════════════════════════════
 
 /** Ce qui MANQUE réellement à un contact : une ligne ouverte mais laissée vide compte comme absente. PUR. */
@@ -850,6 +917,12 @@ export function alerteCoordonnees(c: ContactForm): string | null {
   const qui = prenomNom(c.prenom, c.nom) || 'ce contact';
   const debut = m.telephone && m.email ? 'Ni téléphone ni e-mail' : m.telephone ? 'Aucun numéro de téléphone' : 'Aucune adresse e-mail';
   return `${debut} pour ${qui}. Valider quand même ?`;
+}
+
+/** Le manque seul, sans la question (pour le regrouper avec un doublon) : « Aucune adresse e-mail pour … ». PUR. */
+export function phraseManque(c: ContactForm): string | null {
+  const a = alerteCoordonnees(c);
+  return a === null ? null : a.replace(/ Valider quand même \?$/, '');
 }
 
 /** Un numéro complet (10 chiffres au moins) — seul celui-là reçoit « Appeler ». PUR. */

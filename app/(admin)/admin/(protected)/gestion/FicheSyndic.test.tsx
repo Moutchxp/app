@@ -621,7 +621,8 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
     await depuisUnBien();
     // LOT SYNDIC-MODALE-DEUX-BLOCS — CE QU'IL DISAIT AVANT : « Autres contacts », devenu « Contacts de cet immeuble ».
     // LOT SYNDIC-TITRES-COPROPRIETE — CE QU'IL DISAIT AVANT : « Contacts de cet immeuble ».
-    expect([...document.querySelectorAll('.fsy-sous-titre')].map((h) => h.textContent)).toContain('Contacts de cette copropriété');
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « Contacts de cette copropriété ».
+    expect([...document.querySelectorAll('.fsy-sous-titre')].map((h) => h.textContent)).toContain('Contact(s) syndic de cette copropriété');
     expect(document.body.textContent).not.toContain('Contacts pour cet immeuble');
     expect(document.body.textContent).not.toContain('Catalogue des contacts');
     expect(document.querySelector('details.fsy-autres')).toBeNull();
@@ -1291,7 +1292,8 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
     expect(dans(1, document.querySelector('input[aria-labelledby="fsy-email-generique"]'))).toBe(true);
     expect(dans(1, bouton('+ note'))).toBe(true);
     const sousTitre = bloc(1).querySelector('h4.fsy-sous-titre') as HTMLElement;
-    expect(sousTitre.textContent).toBe('Contacts de cette copropriété'); // avant : « Contacts de cet immeuble »
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « Contacts de cette copropriété ».
+    expect(sousTitre.textContent).toBe('Contact(s) syndic de cette copropriété'); // avant : « Contacts de cet immeuble »
     expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE']);
     expect(champ('Nom du cabinet *').compareDocumentPosition(sousTitre)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     // LOT SYNDIC-BLOC-AJOUT-CONTACT — CE QU'IL DISAIT AVANT : « + Ajouter un contact » en tête du BLOC 2. Il est
@@ -1452,7 +1454,8 @@ describe('LOT SYNDIC-TITRES-COPROPRIETE — « copropriété » depuis un bien, 
       root.render(createElement(FicheSyndic, { syndicId: 20, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
     });
     await calmer();
-    expect(intertitre()).toBe('Contacts de cette copropriété');
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « Contacts de cette copropriété ».
+    expect(intertitre()).toBe('Contact(s) syndic de cette copropriété');
     await cliquer(plus());
     expect(titreAjout()).toBe('Ajouter un contact syndic à cette copropriété');
     expect(document.querySelector('section[aria-labelledby="fsy-bloc-ajout"] .fsy-cadre-titre')?.className).toContain('fsy-sous-titre');
@@ -1610,7 +1613,7 @@ describe('LOT SYNDIC-DETACHER-DE-LA-COPROPRIETE', () => {
 });
 
 describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
-  let ailleurs: { emails: unknown[]; noms: unknown[] } = { emails: [], noms: [] };
+  let ailleurs: { emails: unknown[]; noms: unknown[]; coordonnees?: unknown[] } = { emails: [], noms: [] };
   const servir22 = (): void => {
     ailleurs = { emails: [], noms: [] };
     const avant = globalThis.fetch;
@@ -1643,22 +1646,46 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
     return champ;
   };
   const rouge = (): string[] => [...bloc().querySelectorAll('.fsy-doublon')].map((p) => p.textContent ?? '');
+  /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — les avertissements ORANGE sous les coordonnées, ligne par ligne. */
+  const orange = (): string[][] => [...bloc().querySelectorAll('.fsy-doublon-coord')].map((p) => [...p.querySelectorAll('span')].map((x) => x.textContent ?? ''));
 
-  it('E-MAIL en double DANS ce syndic (casse, espaces) : message rouge sous le champ, Valider désactivé', async () => {
+  // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « message rouge sous le champ, Valider désactivé » (« Ce contact existe déjà : … »).
+  it('E-MAIL en double DANS ce syndic (casse, espaces) : avertissement ORANGE précis sous le champ, Valider ACTIF', async () => {
     await depuisSyndics();
     const champ = await nouveauAvecEmail(' ELODIE@test.invalid');
-    expect(rouge()).toEqual(['Ce contact existe déjà : Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris']);
-    expect(champ.closest('.fsy-coord-edit')?.querySelector('.fsy-doublon')).not.toBeNull();
-    expect(valider().disabled).toBe(true);
+    expect(orange()).toEqual([['L’adresse e-mail ELODIE@test.invalid est déjà utilisée par Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris.']]);
+    expect(champ.closest('.fsy-coord-edit')?.querySelector('.fsy-doublon-coord')).not.toBeNull();
+    expect(rouge()).toEqual([]);
+    expect(valider().disabled).toBe(false);
   });
 
-  it('E-MAIL en double dans un AUTRE syndic : bloquant aussi, avec « NOM / Ville » de l’autre syndic', async () => {
+  // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « bloquant aussi » (message rouge, Valider désactivé).
+  it('E-MAIL en double dans un AUTRE syndic : avertissement orange, avec civilité, titre et « NOM / Ville » ; Valider actif', async () => {
     await depuisSyndics();
-    ailleurs = { emails: [{ prenom: 'Mathis', nom: 'BERCIER', titre: 'Service comptabilité', syndicId: 9, syndicNom: '_TEST AUTRE', syndicVille: 'Lyon' }], noms: [] };
+    ailleurs = { emails: [], noms: [], coordonnees: [{ sorte: 'email', cle: 'mathis@ailleurs.invalid', proprietaire: { genre: 'syndic', contactId: 9,
+      civilite: 'M.', prenom: 'Mathis', nom: 'BERCIER', titre: 'Service comptabilité', syndicId: 9, syndicNom: '_TEST AUTRE', syndicVille: 'Lyon', coproprietes: [] } }] };
     await nouveauAvecEmail('mathis@ailleurs.invalid');
     expect(appels.some((a) => a.url.includes('/doublons?syndic=22&') && a.url.includes('mathis%40ailleurs.invalid'))).toBe(true);
-    expect(rouge()).toEqual(['Ce contact existe déjà : Mathis BERCIER · Service comptabilité · _TEST AUTRE / Lyon']);
-    expect(valider().disabled).toBe(true);
+    expect(orange()).toEqual([['L’adresse e-mail mathis@ailleurs.invalid est déjà utilisée par M. Mathis BERCIER · Service comptabilité · _TEST AUTRE / Lyon.']]);
+    expect(valider().disabled).toBe(false);
+  });
+
+  it('TÉLÉPHONE en double (« +33 7… » contre « 07 … ») ; PLUSIEURS porteurs (un syndic, un gardien) : une ligne par porteur', async () => {
+    await depuisSyndics();
+    ailleurs = { emails: [], noms: [], coordonnees: [
+      { sorte: 'telephone', cle: '0760201010', proprietaire: { genre: 'syndic', contactId: 9, civilite: 'M.', prenom: 'Mathis', nom: 'BERCIER',
+        titre: 'Service comptabilité', syndicId: 9, syndicNom: 'TEST ARNAUD', syndicVille: 'Asnieres Sur Seine', coproprietes: [] } },
+      { sorte: 'telephone', cle: '0760201010', proprietaire: { genre: 'immeuble', contactId: 5, civilite: null, prenom: 'Paul', nom: 'Loge',
+        categorie: 'Gardien', immeubleCle: '3 av y', immeubleAdresse: '3 av Y, 92400 Courbevoie' } },
+    ] };
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(boutonDans(bloc(), '+ téléphone'));
+    const champ = bloc().querySelector('input[aria-label="Téléphone du contact"]') as HTMLInputElement;
+    await taper(champ, '+33 7 60 20 10 10');
+    await quitter(champ);
+    expect(appels.some((a) => a.url.includes('telephones=0760201010'))).toBe(true); // envoyé normalisé
+    expect(orange()).toEqual([['Le numéro +33 7 60 20 10 10 est déjà utilisé par :',
+      'M. Mathis BERCIER · Service comptabilité · TEST ARNAUD / Asnieres Sur Seine', 'Paul LOGE · Gardien · 3 av Y, 92400 Courbevoie']]);
   });
 
   it('NOM en double dans ce syndic (accents, casse, tirets) : bloqué ; déjà dans la copropriété ⇒ « déjà rattaché à cette copropriété »', async () => {
@@ -1667,7 +1694,9 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
     await taper(champC('Prénom'), 'MARIE');
     await taper(champC('Nom'), 'douze');
     await quitter(champC('Nom'));
-    expect(rouge()).toEqual(['Ce contact existe déjà : Marie DOUZE · Responsable de copropriété · _TEST Cabinet Sept / Paris — déjà rattaché à cette copropriété']);
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « Ce contact existe déjà : Marie DOUZE · Responsable de copropriété · _TEST Cabinet
+    // Sept / Paris — déjà rattaché à cette copropriété ». Toujours BLOQUANT ; texte précis.
+    expect(rouge()).toEqual(['Un contact nommé Marie DOUZE existe déjà chez _TEST Cabinet Sept / Paris.']);
     expect(bloc().textContent).not.toContain('Voir dans le catalogue');
     expect(valider().disabled).toBe(true);
   });
@@ -1679,7 +1708,8 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
     await taper(champC('Prénom'), 'Elodie');
     await taper(champC('Nom'), 'ete');
     await quitter(champC('Nom'));
-    expect(rouge()[0]).toBe('Ce contact existe déjà : Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris · Voir dans le catalogue');
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « Ce contact existe déjà : Élodie ÉTÉ · Service comptabilité · … · Voir dans le catalogue ».
+    expect(rouge()[0]).toBe('Un contact nommé Élodie ÉTÉ existe déjà chez _TEST Cabinet Sept / Paris. · Voir dans le catalogue');
     await cliquer(boutonDans(bloc(), 'Voir dans le catalogue'));
     await attendre(10);
     expect((document.querySelector('.fsy-catalogue input[type="search"]') as HTMLInputElement).value).toBe('');
@@ -1703,7 +1733,10 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
     expect(document.querySelector('.fsy-contact-edit')).toBeNull();
   });
 
-  it('au VALIDER du contact, la vérification est refaite et bloque', async () => {
+  // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « au VALIDER du contact, la vérification est refaite et BLOQUE ». Elle est
+  // refaite, et donne un encadré orange (regroupé avec le manque de téléphone) : « Corriger » / « Valider quand même ».
+  it('au VALIDER du contact : encadré orange regroupé (doublon + manque), « Corriger » met le curseur, puis « Valider quand même » ⇒ confirmé', async () => {
+    passerAlerteCoord = false;
     await depuisSyndics();
     await cliquer(bouton('+ Ajouter un contact'));
     await cliquer(boutonDans(bloc(), '+ e-mail'));
@@ -1714,11 +1747,24 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
     });
     await taper(champC('Nom'), 'Autre'); // pas de « blur » sur l'e-mail
     await cliquer(valider());
-    expect(document.querySelector('.fsy-contact-edit')).not.toBeNull();
-    expect(rouge()[0]).toContain('Élodie ÉTÉ');
+    const a = bloc().querySelector('.fsy-alerte-coord') as HTMLElement;
+    expect([...a.querySelectorAll('.fsy-alerte-coord-texte > span')].map((x) => x.textContent)).toEqual([
+      'L’adresse e-mail elodie@test.invalid est déjà utilisée par Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris.',
+      'Aucun numéro de téléphone pour AUTRE.', 'Valider quand même ?']);
+    expect([...a.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Corriger', 'Valider quand même']);
+    await cliquer(boutonDans(a, 'Corriger'));
+    expect(bloc().querySelector('.fsy-alerte-coord')).toBeNull();
+    expect(document.activeElement).toBe(bloc().querySelector('input[aria-label="E-mail du contact"]'));
+    await cliquer(valider());
+    await cliquer(boutonDans(bloc().querySelector('.fsy-alerte-coord'), 'Valider quand même'));
+    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    const corps = appels.find((x) => x.methode === 'PUT')?.corps as { confirmeDoublons?: boolean; contacts: Array<{ nom: string }> };
+    expect(corps.confirmeDoublons).toBe(true);
+    expect(corps.contacts.map((c) => c.nom)).toContain('Autre');
   });
 
-  it('MODIFICATION d’un contact existant vers un e-mail déjà pris : bloquée', async () => {
+  it('MODIFICATION d’un contact existant vers un e-mail déjà pris : avertissement, plus blocage', async () => {
     await depuisSyndics();
     const marie = [...document.querySelectorAll('button.fsy-contact-replie')].find((b) => b.textContent?.includes('Marie DOUZE')) as Element;
     await cliquer(marie);
@@ -1727,8 +1773,9 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
     const champ = bloc().querySelector('input[aria-label="E-mail du contact"]') as HTMLInputElement;
     await taper(champ, 'Elodie@Test.invalid');
     await quitter(champ);
-    expect(rouge()[0]).toBe('Ce contact existe déjà : Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris');
-    expect(valider().disabled).toBe(true);
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : bloquée (« Ce contact existe déjà : … », Valider désactivé).
+    expect(orange()).toEqual([['L’adresse e-mail Elodie@Test.invalid est déjà utilisée par Élodie ÉTÉ · Service comptabilité · _TEST Cabinet Sept / Paris.']]);
+    expect(valider().disabled).toBe(false);
   });
 
   it('le contact lui-même n’est pas son propre doublon (modification sans changement de nom)', async () => {
@@ -3020,7 +3067,8 @@ describe('LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES', () => {
   it('l’ANTI-DOUBLON passe AVANT : un doublon bloquant ⇒ pas d’avertissement des coordonnées', async () => {
     await nouveau('Léa', 'Durand');
     await valider();
-    expect(document.querySelector('.fsy-contact-edit .fsy-doublon')?.textContent).toContain('Ce contact existe déjà');
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « Ce contact existe déjà … ».
+    expect(document.querySelector('.fsy-contact-edit .fsy-doublon')?.textContent).toContain('Un contact nommé Léa DURAND existe déjà chez');
     expect(alerte()).toBeNull();
     expect(noms()).toEqual(['Léa DURAND']);
   });
@@ -3257,7 +3305,8 @@ describe('LOT COPRO-CONTACTS-IMMEUBLE', () => {
     await ouvrir80(true, [GARDIEN]);
     expect(tuilesImmeuble()).toEqual(['M. Paul LOGE|Gardien']);
     const titres = [...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] h4')].map((h) => h.textContent);
-    expect(titres).toEqual(['Contacts de cette copropriété', 'Habitants et gardien de l’immeuble']);
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « Contacts de cette copropriété ».
+    expect(titres).toEqual(['Contact(s) syndic de cette copropriété', 'Habitants et gardien de l’immeuble']);
     await cliquer(document.querySelector('button.fsy-contact-immeuble') as Element);
     const o = document.querySelector('.fsy-contact-ouvert.fsy-contact-immeuble') as HTMLElement;
     expect(o.textContent).toContain('06 11 22 33 44');
@@ -3307,7 +3356,8 @@ describe('LOT COPRO-CONTACTS-IMMEUBLE', () => {
     await taper(champC('Prénom'), 'paul');
     await taper(champC('Nom'), 'LOGE');
     await valider();
-    expect(edit().querySelector('.fsy-doublon')?.textContent).toBe('Ce contact existe déjà dans cet immeuble : Paul LOGE · Gardien');
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « Ce contact existe déjà dans cet immeuble : Paul LOGE · Gardien ».
+    expect(edit().querySelector('.fsy-doublon')?.textContent).toBe('Un contact nommé Paul LOGE existe déjà dans l’immeuble 12 rue X, 92400 Courbevoie.');
     expect(blocImmeuble()).not.toBeNull();
     await taper(champC('Prénom'), 'Léa');
     await taper(champC('Nom'), 'Durand');
@@ -3349,5 +3399,110 @@ describe('LOT COPRO-CONTACTS-IMMEUBLE', () => {
     await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
     expect(appels.filter((a) => a.methode !== 'GET')).toEqual([]);
     expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * ══ LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — entre carnets, et la confirmation exigée par le serveur ══════════
+ * Syndic _TEST 90, depuis le bien 12 rue X : Léa DURAND (syndic, 06 13 86 18 77) ; au carnet, M. Paul LOGE (gardien,
+ * loge@test.invalid).
+ */
+describe('LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — entre carnets', () => {
+  const FICHE_90 = {
+    ...FICHE, id: 90, nom: '_TEST Doublons', ville: 'Paris',
+    contacts: [{ id: 4, titre: 'Responsable de copropriété', prenom: 'Léa', nom: 'Durand', civilite: null, tousImmeubles: false, immeubles: ['12 rue x'],
+      coordonnees: [{ id: 5, sorte: 'telephone', libelle: 'Portable', valeur: '0613861877' }] }],
+  };
+  const LOGE = { id: 501, categorie: 'gardien', libelle: null, civilite: 'M.', prenom: 'Paul', nom: 'Loge', note: null,
+    coordonnees: [{ id: 602, sorte: 'email', libelle: null, valeur: 'loge@test.invalid' }] };
+  let reponsePut: { status: number; corps: unknown } = { status: 200, corps: { ok: true, id: 90 } };
+  const servir = (): void => {
+    reponsePut = { status: 200, corps: { ok: true, id: 90 } };
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      if (m !== 'GET') {
+        appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null });
+        const r = reponsePut; reponsePut = { status: 200, corps: { ok: true, id: 90 } };
+        return { ok: r.status < 300, status: r.status, json: async () => r.corps };
+      }
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (url.startsWith('/api/admin/gestion/coproprietes/contacts')) return rep({ etat: 'ok', contacts: [LOGE] });
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: [] });
+      if (url.startsWith('/api/admin/gestion/syndics/90')) return rep({ etat: 'ok', fiche: FICHE_90 });
+      if (url.startsWith('/api/admin/gestion/syndics/doublons')) {
+        // ce que la base sait : LES DEUX carnets — l'écran les remplace par le formulaire pour CE syndic et CET immeuble
+        return rep({ emails: [], noms: [], coordonnees: [
+          { sorte: 'email', cle: 'loge@test.invalid', proprietaire: { genre: 'immeuble', contactId: 501, civilite: 'M.', prenom: 'Paul', nom: 'Loge',
+            categorie: 'Gardien', immeubleCle: '12 rue x', immeubleAdresse: 'périmé' } },
+        ] });
+      }
+      return rep({});
+    }));
+  };
+  const ouvrir90 = async (): Promise<void> => {
+    servir();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 90, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+  };
+  const edit = (): HTMLElement => document.querySelector('.fsy-contact-edit') as HTMLElement;
+  const orange = (): string[][] => [...edit().querySelectorAll('.fsy-doublon-coord')].map((p) => [...p.querySelectorAll('span')].map((x) => x.textContent ?? ''));
+  const saisir = async (sorte: 'telephone' | 'email', v: string): Promise<void> => {
+    await cliquer(boutonDans(edit(), sorte === 'email' ? '+ e-mail' : '+ téléphone'));
+    const champ = edit().querySelector(`input[aria-label="${sorte === 'email' ? 'E-mail' : 'Téléphone'} du contact"]`) as HTMLInputElement;
+    await taper(champ, v);
+    await act(async () => { champ.focus(); champ.blur(); });
+    await calmer();
+  };
+
+  it('contact SYNDIC avec l’e-mail du GARDIEN : « … par M. Paul LOGE · Gardien · 12 rue X, 92400 Courbevoie. »', async () => {
+    await ouvrir90();
+    await cliquer(bouton('+ Ajouter un contact')); // ① par défaut
+    await saisir('email', 'Loge@Test.invalid');
+    expect(orange()).toEqual([['L’adresse e-mail Loge@Test.invalid est déjà utilisée par M. Paul LOGE · Gardien · 12 rue X, 92400 Courbevoie.']]);
+  });
+
+  it('contact d’IMMEUBLE avec le téléphone d’un contact du SYNDIC rattaché à cette copropriété : « (déjà rattaché à cette copropriété) »', async () => {
+    passerChoixAjout = false;
+    await ouvrir90();
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(bouton('Habitant / gardien de l’immeuble'));
+    await saisir('telephone', '06.13.86.18.77');
+    expect(orange()).toEqual([['Le numéro 06 13 86 18 77 est déjà utilisé par Léa DURAND · Responsable de copropriété · _TEST Doublons / Paris (déjà rattaché à cette copropriété).']]);
+  });
+
+  it('le SERVEUR exige la confirmation : sans elle, 409 et ses lignes dans le pied ; « Enregistrer quand même » renvoie avec la confirmation', async () => {
+    const onFerme = vi.fn();
+    servir();
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 90, onFerme })); });
+    await calmer();
+    await taper(champ('Nom du cabinet *'), '_TEST Doublons bis');
+    reponsePut = { status: 409, corps: { erreur: 'x', avertissement: ['L’adresse e-mail a@b.fr est déjà utilisée par :', 'A', 'B'] } };
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    const g = document.querySelector('.fsy-avert-serveur') as HTMLElement;
+    expect([...g.querySelectorAll('.fsy-alerte-coord-texte > span')].map((x) => x.textContent))
+      .toEqual(['L’adresse e-mail a@b.fr est déjà utilisée par :', 'A', 'B', 'Enregistrer quand même ?']);
+    expect(onFerme).not.toHaveBeenCalled();
+    expect((appels.filter((a) => a.methode === 'PUT')[0].corps as { confirmeDoublons?: boolean }).confirmeDoublons).toBeUndefined();
+    await cliquer(boutonDans(g, 'Enregistrer quand même'));
+    const puts = appels.filter((a) => a.methode === 'PUT');
+    expect(puts).toHaveLength(2);
+    expect((puts[1].corps as { confirmeDoublons?: boolean }).confirmeDoublons).toBe(true);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('« Revenir » : rien n’est renvoyé, la fiche reste ouverte', async () => {
+    const onFerme = vi.fn();
+    servir();
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 90, onFerme })); });
+    await calmer();
+    await taper(champ('Nom du cabinet *'), '_TEST Doublons ter');
+    reponsePut = { status: 409, corps: { erreur: 'x', avertissement: ['Le numéro 07 60 20 10 10 est déjà utilisé par A.'] } };
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    await cliquer(boutonDans(document.querySelector('.fsy-avert-serveur'), 'Revenir'));
+    expect(document.querySelector('.fsy-avert-serveur')).toBeNull();
+    expect(appels.filter((a) => a.methode === 'PUT')).toHaveLength(1);
+    expect(onFerme).not.toHaveBeenCalled();
   });
 });

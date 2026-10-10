@@ -49,7 +49,8 @@ export async function POST(request: Request): Promise<Response> {
         { status: 409, headers: ENTETES });
     }
     const issue = await enregistrerSyndic(null, v.syndic, await auteurDeLaRequete(request));
-    if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — des coordonnées déjà utilisées, non confirmées : les lignes suivent.
+    if (!issue.ok) return Response.json({ erreur: issue.motif, ...(issue.avertissement ? { avertissement: issue.avertissement } : {}) }, { status: 409, headers: ENTETES });
     return Response.json({ ok: true, id: issue.id }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/syndics] création impossible', e);

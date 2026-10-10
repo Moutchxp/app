@@ -83,10 +83,11 @@ describe('/api/admin/gestion/syndics', () => {
   it('GET /doublons : le syndic exclu, les e-mails en liste, le reste transmis tel quel (LOT SYNDIC-CONTACTS-ANTI-DOUBLON)', async () => {
     const { GET } = await import('./doublons/route');
     const j = await (await GET(requete('/api/admin/gestion/syndics/doublons?syndic=22&prenom=Jean&nom=Neuf&emails=a%40b.fr,c%40d.fr'))).json();
-    expect(doublonsAilleurs).toHaveBeenCalledWith(22, 'Jean', 'Neuf', ['a@b.fr', 'c@d.fr']);
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : quatre arguments (sans les téléphones).
+    expect(doublonsAilleurs).toHaveBeenCalledWith(22, 'Jean', 'Neuf', ['a@b.fr', 'c@d.fr'], []);
     expect(j.noms[0].syndicNom).toBe('AUTRE');
-    await GET(requete('/api/admin/gestion/syndics/doublons?syndic=&prenom=&nom=&emails='));
-    expect(doublonsAilleurs).toHaveBeenLastCalledWith(null, '', '', []);
+    await GET(requete('/api/admin/gestion/syndics/doublons?syndic=&prenom=&nom=&emails=&telephones=0760201010,%2B33760201010'));
+    expect(doublonsAilleurs).toHaveBeenLastCalledWith(null, '', '', [], ['0760201010', '+33760201010']);
   });
 
   it('GET /[id]?lot=N : la fiche lue POUR UN BIEN (note de ce couple) — LOT SYNDIC-NOTE-PAR-BIEN', async () => {
@@ -109,5 +110,20 @@ describe('/api/admin/gestion/syndics', () => {
     expect(retirerDeLaCopropriete).toHaveBeenCalledWith(11, '12 rue X', { id: 7, libelle: 'arno' });
     retirerDeLaCopropriete.mockResolvedValueOnce({ ok: false, motif: 'non' } as never);
     expect((await POST(requete('/api/admin/gestion/syndics/11/retirer-copropriete', { immeuble: '12 rue X' }), params('11'))).status).toBe(404);
+  });
+
+  it('LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — coordonnées déjà utilisées non confirmées : 409 avec les lignes (PUT et POST)', async () => {
+    const lignes = ['L’adresse e-mail m@b.fr est déjà utilisée par M. Mathis BERCIER · AUTRE / Lyon.'];
+    enregistrerSyndic.mockResolvedValue({ ok: false, motif: lignes.join(' '), avertissement: lignes });
+    const { PUT } = await import('./[id]/route');
+    const r = await PUT(requete('/api/admin/gestion/syndics/11', { nom: 'Cabinet TEST', adresse: '1 rue A', codePostal: '75001', ville: 'Paris' }, 'PUT'),
+      { params: Promise.resolve({ id: '11' }) });
+    expect(r.status).toBe(409);
+    expect(await r.json()).toEqual({ erreur: lignes[0], avertissement: lignes });
+    const { POST } = await import('./route');
+    const p = await POST(requete('/api/admin/gestion/syndics', { nom: 'Cabinet TEST', adresse: '1 rue A', codePostal: '75001', ville: 'Paris', confirmeDoublons: true }));
+    expect(p.status).toBe(409);
+    expect((await p.json()).avertissement).toEqual(lignes);
+    expect(enregistrerSyndic.mock.calls.at(-1)?.[1]).toMatchObject({ confirmeDoublons: true });
   });
 });

@@ -486,12 +486,12 @@ describe('LOT COPRO-CONTACTS-IMMEUBLE — le carnet de l’immeuble (pur)', () =
     expect(refus([], ' ')).toBe('Contact de l’immeuble : immeuble non désigné.'.replace('Contact de l’immeuble', 'Contacts de l’immeuble'));
     expect(validerSyndic({ ...ADR, nom: 'Cab' }).ok && 'contactsImmeuble' in (validerSyndic({ ...ADR, nom: 'Cab' }) as { syndic: object }).syndic).toBe(false);
   });
-  it('anti-doublon DANS CET IMMEUBLE (nom, e-mail) ; un homonyme d’un contact du SYNDIC ne gêne pas', () => {
+  it('anti-doublon DANS CET IMMEUBLE (nom ; l’e-mail n’est plus qu’un avertissement) ; un homonyme d’un contact du SYNDIC ne gêne pas', () => {
     const r = (contacts: unknown[]) => { const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ prenom: 'Paul', nom: 'Loge' }], contactsImmeuble: { immeuble: '12 rue X', contacts } }); return v.ok ? 'ok' : v.motif; };
     expect(r([ci({})])).toBe('ok');
     expect(r([ci({}), ci({ prenom: 'paul', nom: 'LOGE', categorie: 'conseil_syndical' })])).toBe('Deux contacts de cet immeuble portent le même nom : paul LOGE.');
-    expect(r([ci({ coordonnees: [{ sorte: 'email', valeur: 'x@y.fr' }] }), ci({ prenom: 'Z', coordonnees: [{ sorte: 'email', valeur: 'X@Y.FR' }] })]))
-      .toBe('L’adresse e-mail x@y.fr est déjà celle d’un autre contact de cet immeuble.');
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : le même e-mail dans l'immeuble était refusé ; désormais un avertissement.
+    expect(r([ci({ coordonnees: [{ sorte: 'email', valeur: 'x@y.fr' }] }), ci({ prenom: 'Z', coordonnees: [{ sorte: 'email', valeur: 'X@Y.FR' }] })])).toBe('ok');
   });
   it('formulaire ⇄ saisie : catégorie dans titreChoix, libellé libre, note ; la saisie ne part que si le carnet a été lu', () => {
     const lus = [{ id: 9, categorie: 'personnalise' as const, libelle: 'Femme de ménage', civilite: 'Mme' as const, prenom: 'Eve', nom: 'Net', note: 'mardi',
@@ -532,12 +532,14 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — les règles', () => {
     expect(doublonsLocaux(c, [a]).email).toBe(a);
     expect(doublonsLocaux(c, [b])).toEqual({ email: null, nom: null });
   });
-  it('le serveur refuse le même Prénom + NOM et le même e-mail dans UN syndic ; dédoublonne un e-mail répété sur un contact', () => {
+  // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : « refuse le même Prénom + NOM ET le même e-mail dans UN syndic ». Le même
+  // e-mail n'est plus refusé par la validation : c'est un avertissement, contrôlé à l'enregistrement.
+  it('le serveur refuse le même Prénom + NOM dans UN syndic (le même e-mail passe la validation) ; dédoublonne un e-mail répété sur un contact', () => {
     expect(validerSyndic({ ...ADR, nom: 'S', contacts: [{ prenom: 'Mathis', nom: 'BERCIER' }, { prenom: 'mathis', nom: 'Bercier' }] }))
       .toEqual({ ok: false, motif: 'Deux contacts de ce syndic portent le même nom : mathis BERCIER.' });
     const v = validerSyndic({ ...ADR, nom: 'S', contacts: [
       { nom: 'A', coordonnees: [{ sorte: 'email', valeur: 'x@y.fr' }] }, { nom: 'B', coordonnees: [{ sorte: 'email', valeur: 'X@Y.FR' }] }] });
-    expect(v.ok).toBe(false);
+    expect(v.ok).toBe(true);
     const w = validerSyndic({ ...ADR, nom: 'S', contacts: [{ nom: 'A', coordonnees: [{ sorte: 'email', valeur: 'x@y.fr' }, { sorte: 'email', valeur: 'X@y.fr' }] }] });
     expect(w.ok && w.syndic.contacts[0].coordonnees).toHaveLength(1);
     // un contact sans nom (titre seul) n'est pas comparé par nom
@@ -827,17 +829,65 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
   });
 
-  it('ANTI-DOUBLON : un e-mail déjà porté par un contact d’un AUTRE syndic est refusé AVANT toute écriture', async () => {
+  // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : un e-mail déjà porté par un contact d'un AUTRE syndic était REFUSÉ (« appartient
+  // déjà à … »). Désormais : sans confirmation, l'AVERTISSEMENT revient et rien n'est écrit ; avec, l'enregistrement passe.
+  /** Les coordonnées actives des deux carnets : Mathis (syndic 9) porte m@b.fr et 07 60 20 10 10 ; Paul (gardien,
+   *  immeuble 3 av Y) porte aussi 07 60 20 10 10 ; Léa (syndic 11, celui qu'on enregistre) porte lea@x.fr. */
+  const CONNUES = (sql: string) => (sql.includes('FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact ct') ? { rows: [
+    { coord_id: '1', sorte: 'email', valeur: ' M@B.fr', contact_id: '21', civilite: 'M.', prenom: 'Mathis', nom: 'BERCIER', titre: 'Service comptabilité',
+      syndic_id: '9', syndic_nom: 'AUTRE', syndic_ville: 'Lyon', copros: null },
+    { coord_id: '2', sorte: 'telephone', valeur: '0760201010', contact_id: '21', civilite: 'M.', prenom: 'Mathis', nom: 'BERCIER', titre: 'Service comptabilité',
+      syndic_id: '9', syndic_nom: 'AUTRE', syndic_ville: 'Lyon', copros: null },
+    { coord_id: '3', sorte: 'email', valeur: 'lea@x.fr', contact_id: '30', civilite: null, prenom: 'Léa', nom: 'DURAND', titre: null,
+      syndic_id: '11', syndic_nom: 'Cab', syndic_ville: 'Paris', copros: null },
+  ] } : sql.includes('FROM gestion_copropriete_contact_coordonnee k') ? { rows: [
+    { coord_id: '7', sorte: 'telephone', valeur: '+33760201010', contact_id: '501', civilite: 'M.', prenom: 'Paul', nom: 'Loge', categorie: 'gardien', libelle: null,
+      cle: '3 av y', immeuble: '3 av Y', code_postal: '92400', commune: 'Courbevoie' },
+  ] } : undefined);
+
+  it('DOUBLON E-MAIL (autre syndic) : sans confirmation, l’avertissement revient et RIEN n’est écrit ; avec, l’enregistrement passe', async () => {
     const { enregistrerSyndic } = await import('./syndicRepo');
-    reponses = [(sql) => (sql.includes('FROM gestion_syndic_contact c JOIN gestion_syndic s') ? { rows: [
-      { prenom: 'Mathis', nom: 'BERCIER', titre: null, syndic_id: '9', syndic_nom: 'AUTRE', syndic_ville: 'Lyon', emails: [' M@B.fr'] },
-    ] } : undefined)];
-    const v = validerSyndic({ ...ADR, nom: 'Cab', contacts: [{ nom: 'X', coordonnees: [{ sorte: 'email', valeur: 'm@b.FR' }] }] });
+    reponses = [CONNUES, (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined)];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', ville: 'Paris', contacts: [{ nom: 'X', coordonnees: [{ sorte: 'email', valeur: 'm@b.FR' }] }] });
     if (!v.ok) throw new Error(v.motif);
-    expect(await enregistrerSyndic(11, v.syndic, auteur))
-      .toEqual({ ok: false, motif: 'L’adresse e-mail m@b.fr appartient déjà à Mathis BERCIER (AUTRE / Lyon).' });
+    const r = await enregistrerSyndic(11, v.syndic, auteur);
+    expect(r).toEqual({ ok: false, avertissement: ['L’adresse e-mail m@b.FR est déjà utilisée par M. Mathis BERCIER · Service comptabilité · AUTRE / Lyon.'],
+      motif: 'L’adresse e-mail m@b.FR est déjà utilisée par M. Mathis BERCIER · Service comptabilité · AUTRE / Lyon.' });
     expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
-    expect(appels[0].params).toEqual([11]); // les contacts des AUTRES syndics seulement
+    appels.length = 0;
+    const w = validerSyndic({ ...ADR, nom: 'Cab', ville: 'Paris', confirmeDoublons: true, contacts: [{ nom: 'X', coordonnees: [{ sorte: 'email', valeur: 'm@b.FR' }] }] });
+    if (!w.ok) throw new Error(w.motif);
+    expect(w.syndic.confirmeDoublons).toBe(true);
+    expect((await enregistrerSyndic(11, w.syndic, auteur)).ok).toBe(true);
+    expect(appels.some((a) => a.sql.includes('INSERT INTO gestion_syndic_coordonnee'))).toBe(true);
+  });
+
+  it('DOUBLON TÉLÉPHONE, formats différents et +33, PLUSIEURS porteurs (un syndic ET un gardien) : une ligne par porteur', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [CONNUES, (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined)];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', ville: 'Paris', contacts: [{ nom: 'X', coordonnees: [{ sorte: 'telephone', valeur: '07 60 20 10 10' }] }] });
+    if (!v.ok) throw new Error(v.motif);
+    const r = await enregistrerSyndic(11, v.syndic, auteur);
+    expect(!r.ok && r.avertissement).toEqual(['Le numéro 07 60 20 10 10 est déjà utilisé par :',
+      'M. Mathis BERCIER · Service comptabilité · AUTRE / Lyon', 'M. Paul LOGE · Gardien · 3 av Y, 92400 Courbevoie']);
+  });
+
+  it('DOUBLON entre deux contacts de LA SAISIE (même syndic) et avec le carnet de l’immeuble ; une coordonnée INCHANGÉE n’est pas redemandée', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [CONNUES, (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined)];
+    // Léa garde son e-mail (coordonnée 3, inchangée) ; un NOUVEAU contact prend le même : avertissement pour lui seul.
+    const v = validerSyndic({ ...ADR, nom: 'Cab', ville: 'Paris', contacts: [
+      { id: 30, prenom: 'Léa', nom: 'DURAND', coordonnees: [{ id: 3, sorte: 'email', valeur: 'lea@x.fr' }] },
+      { nom: 'Neuf', coordonnees: [{ sorte: 'email', valeur: 'LEA@x.fr' }] },
+    ], contactsImmeuble: { immeuble: '12 rue X', contacts: [{ categorie: 'gardien', nom: 'Garde', coordonnees: [{ sorte: 'email', valeur: 'lea@x.fr' }] }] } });
+    if (!v.ok) throw new Error(v.motif);
+    const r = await enregistrerSyndic(11, v.syndic, auteur);
+    expect(!r.ok && r.avertissement).toEqual(['L’adresse e-mail LEA@x.fr est déjà utilisée par :', 'Léa DURAND · Cab / Paris', 'GARDE · Gardien · 12 rue X']);
+    // Rien de nouveau : Léa seule, inchangée ⇒ rien à confirmer.
+    appels.length = 0;
+    const w = validerSyndic({ ...ADR, nom: 'Cab', ville: 'Paris', contacts: [{ id: 30, prenom: 'Léa', nom: 'DURAND', coordonnees: [{ id: 3, sorte: 'email', valeur: 'lea@x.fr' }] }] });
+    if (!w.ok) throw new Error(w.motif);
+    expect((await enregistrerSyndic(11, w.syndic, auteur)).ok).toBe(true);
   });
 
   it('ANTI-DOUBLON : doublonsAilleurs — e-mail (bloquant) et nom (avertissement), normalisés', async () => {
@@ -1008,7 +1058,9 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     const v = validerSyndic({ ...ADR, nom: 'Cab' });
     if (!v.ok) throw new Error(v.motif);
     await enregistrerSyndic(11, v.syndic, auteur);
-    expect(appels.some((a) => a.sql.includes('gestion_copropriete_contact'))).toBe(false);
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL DISAIT AVANT : aucune requête sur ces tables. Le contrôle des doublons les LIT désormais ; aucune
+    // écriture, en revanche.
+    expect(appels.some((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql) && a.sql.includes('gestion_copropriete_contact'))).toBe(false);
     const src = readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8');
     const corps = (nom: string): string => src.slice(src.indexOf(`export async function ${nom}`), src.indexOf('\n}\n', src.indexOf(`export async function ${nom}`)));
     expect(corps('retirerDeLaCopropriete')).not.toContain('gestion_copropriete_contact');
@@ -1252,5 +1304,31 @@ describe('les écrans', () => {
     // LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — CE QU'IL DISAIT AVANT : la fiche appelait la BAN locale seule et
     // jamais l'API en ligne. Arno demande la source des fiches (API Adresse), la BAN locale en repli : `chercherAdresses`.
     expect(src).toContain('chercherAdresses(');
+  });
+});
+
+describe('LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — la normalisation et les phrases (pur)', () => {
+  it('téléphone : réduit à ses chiffres, +33 / 0033 ramenés au 0 ; e-mail : minuscules sans espaces', async () => {
+    const { cleTelephone, cleCoordonnee } = await import('./syndics');
+    expect(['07 60 20 10 10', '0760201010', '+33 7 60 20 10 10', '0033 7 60 20 10 10', '07.60.20.10.10'].map(cleTelephone)).toEqual(Array(5).fill('0760201010'));
+    expect(cleCoordonnee('email', ' Arnaud.Jorel@Gmail.com ')).toBe('arnaud.jorel@gmail.com');
+    expect(cleTelephone('')).toBe('');
+  });
+  it('les phrases : « déjà utilisée par … (déjà rattaché à cette copropriété) », une ligne par porteur s’ils sont plusieurs', async () => {
+    const { quiPorte, lignesDoublonCoordonnee } = await import('./syndics');
+    const arnaud = { genre: 'syndic' as const, contactId: 1, civilite: 'M.' as const, prenom: 'Arnaud', nom: 'Jorel', titre: 'Responsable de copropriété',
+      syndicId: 2, syndicNom: 'TEST ARNAUD', syndicVille: 'Asnieres Sur Seine', coproprietes: ['15 rue carle hebert'] };
+    expect(lignesDoublonCoordonnee('email', 'arnaud.jorel@gmail.com', [quiPorte(arnaud, '15 rue carle hebert')])).toEqual([
+      'L’adresse e-mail arnaud.jorel@gmail.com est déjà utilisée par M. Arnaud JOREL · Responsable de copropriété · TEST ARNAUD / Asnieres Sur Seine (déjà rattaché à cette copropriété).']);
+    expect(lignesDoublonCoordonnee('telephone', '0760201010', [quiPorte({ ...arnaud, prenom: 'Mathis', nom: 'Bercier', titre: 'Service comptabilité' })])).toEqual([
+      'Le numéro 07 60 20 10 10 est déjà utilisé par M. Mathis BERCIER · Service comptabilité · TEST ARNAUD / Asnieres Sur Seine.']);
+    expect(lignesDoublonCoordonnee('telephone', '0760201010', ['A', 'B'])).toEqual(['Le numéro 07 60 20 10 10 est déjà utilisé par :', 'A', 'B']);
+    expect(quiPorte({ genre: 'immeuble', contactId: 5, civilite: null, prenom: 'Paul', nom: 'Loge', categorie: 'Gardien', immeubleCle: 'x', immeubleAdresse: '12 rue X, 92400 Courbevoie' }))
+      .toBe('Paul LOGE · Gardien · 12 rue X, 92400 Courbevoie');
+  });
+  it('MIGRATION 334 : seul l’index d’unicité de la 327 est retiré ; aucune donnée touchée', () => {
+    const sql = norm(readFileSync(join(__dirname, '../../../db/migrations/334_gestion_syndic_email_non_unique.sql'), 'utf8')
+      .split('\n').filter((l) => !l.startsWith('--')).join('\n')).trim();
+    expect(sql).toBe('DROP INDEX IF EXISTS gestion_syndic_coordonnee_email_unique;');
   });
 });

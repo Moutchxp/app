@@ -62,6 +62,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       return Response.json({ erreur: 'Annuaire des syndics non installé (migration 324).' }, { status: 409, headers: ENTETES });
     }
     const issue = await enregistrerSyndic(id, v.syndic, await auteurDeLaRequete(request));
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — des coordonnées déjà utilisées, non confirmées : 409 + les lignes.
+    if (!issue.ok && issue.avertissement) return Response.json({ erreur: issue.motif, avertissement: issue.avertissement }, { status: 409, headers: ENTETES });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 404, headers: ENTETES });
     return Response.json({ ok: true, id: issue.id }, { headers: ENTETES });
   } catch (e) {

@@ -10,7 +10,8 @@ import {
   appliquerBrouillon, contactModifie, copieContact, nomAffiche, telephoneComplet, type EditionContact as EtatEdition,
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie,
   marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, alerteCoordonnees, coordonneesManquantes,
-  CATEGORIES_IMMEUBLE, refusContactImmeuble, versFormulaireImmeuble, type ContactImmeubleLu, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  CATEGORIES_IMMEUBLE, refusContactImmeuble, versFormulaireImmeuble, type ContactImmeubleLu,
+  avertissementsCoordonnees, cleTelephone, coordonneesDuFormulaire, phraseManque, type CoordonneeConnue, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -200,7 +201,11 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     await validerAvec(form);
   };
 
-  const validerAvec = async (f: SyndicForm): Promise<void> => {
+  /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — le serveur a renvoyé des coordonnées déjà utilisées, NON confirmées
+   *  (un chemin qui n'est pas passé par le « Valider » d'un contact) : on les montre, et on confirme ou on revient. */
+  const [avertServeur, setAvertServeur] = useState<{ lignes: string[]; f: SyndicForm } | null>(null);
+  const validerAvec = async (f: SyndicForm, confirme = false): Promise<void> => {
+    setAvertServeur(null);
     setQuestionContact(false);
     setEdition(null);
     // Rien n'a bougé sur un syndic existant ⇒ on ferme : un syndic ancien sans adresse complète reste CONSULTABLE.
@@ -217,9 +222,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       const r = await fetch(syndicId === null ? '/api/admin/gestion/syndics' : `/api/admin/gestion/syndics/${syndicId}`, {
         method: syndicId === null ? 'POST' : 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(versSaisie(f)),
+        body: JSON.stringify(confirme ? { ...versSaisie(f), confirmeDoublons: true } : versSaisie(f)),
       });
-      const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string };
+      const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string; avertissement?: string[] };
+      if (Array.isArray(j.avertissement) && j.avertissement.length > 0 && !confirme) { setAvertServeur({ lignes: j.avertissement, f }); return; }
       if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Enregistrement impossible.'); return; }
       await rafraichirImmeubles();
       onFerme();
@@ -341,7 +347,16 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         {/* ══ LE PIED, TOUJOURS VISIBLE — hors de la zone qui défile ══ */}
         <div className="fsy-pied">
           {erreur !== null && <p className="fsy-alerte fsy-pied-alerte" role="alert">{erreur}</p>}
-          {questionContact && edition !== null ? (
+          {avertServeur !== null ? (
+            <div className="fsy-boutons fsy-avert-serveur" role="group" aria-label="Coordonnées déjà utilisées">
+              <span className="fsy-question fsy-alerte-coord-texte">
+                {avertServeur.lignes.map((l, i) => <span key={i}>{l}</span>)}
+                <span>Enregistrer quand même ?</span>
+              </span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAvertServeur(null)}>Revenir</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void validerAvec(avertServeur.f, true)}>Enregistrer quand même</button>
+            </div>
+          ) : questionContact && edition !== null ? (
             <div className="fsy-boutons" role="group" aria-label="Enregistrer les modifications de ce contact ?" ref={bandeau}>
               {/* 🔴 LOT SYNDIC-CONTACT-VALIDATION-SIMPLE-ET-IMMEUBLES-SUIVIS (accord d'Arno) — CE QU'IL Y AVAIT :
                   « Valider aussi les modifications de … ? » et trois boutons (Revenir / Non, sans ce contact / Oui,
@@ -701,7 +716,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       {/* 🔴 LOT SYNDIC-MODALE-DEUX-BLOCS — « Contacts de cet immeuble » (depuis un bien) ou « Contacts du cabinet » (au
           lieu de « AUTRES CONTACTS ») ; mêmes tuiles, mêmes trois états. Un contact ajouté dans le bloc 2 apparaît ICI. */}
       {/* LOT SYNDIC-TITRES-COPROPRIETE — « Contacts de cet immeuble » devient « Contacts de cette copropriété ». */}
-      <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contacts de cette copropriété' : 'Contacts du cabinet'}</h4>
+      {/* LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — « Contacts de cette copropriété » devient : */}
+      <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contact(s) syndic de cette copropriété' : 'Contacts du cabinet'}</h4>
       {contacts.liste}
       {/* LOT COPRO-CONTACTS-IMMEUBLE — la liste séparée du carnet de l'immeuble (absente s'il est vide). */}
       {contacts.listeImmeuble}
@@ -1125,7 +1141,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   const rendre = (c: ContactForm) => (edition !== null && edition.cle === c.cle ? (
     <ContactEnModification key={c.cle} e={edition} origine={c} onEcrire={onEcrire} adresses={adresses}
       onChange={(b) => setEdition({ ...edition, brouillon: b })}
-      onAnnuler={() => setEdition(null)} onValider={() => valider(edition)} verifier={verifierContact}
+      onAnnuler={() => setEdition(null)} onValider={(p) => valider(p ? { ...edition, brouillon: { ...edition.brouillon, ...p } } : edition)} verifier={verifierContact}
       onSupprimer={() => setASupprimer(c.cle)} confirmation={confirmerSuppression(c)} />
   ) : ouverts.includes(c.cle) ? (
     <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
@@ -1167,33 +1183,50 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
    * « Voir dans le catalogue » ; un doublon déjà dans « Contacts de cette copropriété » le dit.
    */
   const [aDeplier, setADeplier] = useState<{ cle: string; n: number } | null>(null);
+  /**
+   * ══ LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — QUI PORTE DÉJÀ CES E-MAILS / TÉLÉPHONES ══ dans LES DEUX carnets
+   * (tous les syndics, tous les immeubles). Le serveur répond pour ce qui est enregistré ; pour CE syndic et CET
+   * immeuble, c'est le FORMULAIRE qui fait foi (contacts pas encore enregistrés, coordonnées modifiées).
+   */
+  const interroger = async (b: ContactForm, avecNom: boolean): Promise<{ noms: ContactAilleurs[]; coordonnees: CoordonneeConnue[] }> => {
+    const mes = emailsDe(b);
+    const tels = b.coordonnees.filter((k) => k.sorte === 'telephone').map((k) => cleTelephone(k.valeur)).filter((t) => t !== '');
+    if (mes.length + tels.length === 0 && (!avecNom || (b.nom.trim() === '' && b.prenom.trim() === ''))) return { noms: [], coordonnees: [] };
+    try {
+      const u = `/api/admin/gestion/syndics/doublons?syndic=${syndicId ?? ''}&prenom=${encodeURIComponent(avecNom ? b.prenom : '')}`
+        + `&nom=${encodeURIComponent(avecNom ? b.nom : '')}&emails=${encodeURIComponent(mes.join(','))}&telephones=${encodeURIComponent(tels.join(','))}`;
+      const j = (await (await fetch(u, { cache: 'no-store' })).json()) as { noms?: ContactAilleurs[]; coordonnees?: CoordonneeConnue[] };
+      return { noms: j.noms ?? [], coordonnees: j.coordonnees ?? [] };
+    } catch { return { noms: [], coordonnees: [] }; } // le serveur contrôle de nouveau à l'enregistrement
+  };
+  const adresseDuBienIci = adresses.find((a) => a.cle === cleDepart)?.adresse ?? '';
+  const doublonsCoordonnees = (b: ContactForm, serveur: readonly CoordonneeConnue[]): Array<{ cleCoord: string; lignes: string[] }> => {
+    const exterieures = serveur.filter((k) => !(k.proprietaire.genre === 'syndic' && syndicId !== null && k.proprietaire.syndicId === syndicId)
+      && !(k.proprietaire.genre === 'immeuble' && form.immeubleContacts != null && k.proprietaire.immeubleCle === cleDepart));
+    const locales = [
+      ...coordonneesDuFormulaire(form.contacts, { genre: 'syndic', syndicId, syndicNom: form.nom, syndicVille: form.ville }),
+      ...(cleDepart !== null ? coordonneesDuFormulaire(carnet, { genre: 'immeuble', immeubleCle: cleDepart, immeubleAdresse: adresseDuBienIci }) : []),
+    ];
+    return avertissementsCoordonnees(b, [...exterieures, ...locales], parImmeuble ? cleDepart : null);
+  };
   const verifierContact = async (b: ContactForm): Promise<VerifDoublon> => {
     const loc = doublonsLocaux(b, form.contacts.filter((x) => x.cle !== b.cle));
     const syndicAffiche = nomAvecVille(form.nom, form.ville);
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL Y AVAIT : « Ce contact existe déjà : … » (+ « — déjà
+    // rattaché à cette copropriété »). Le nom en double reste BLOQUANT ; le texte dit précisément où.
     const dire = (d: ContactForm): DoublonTrouve => ({
-      message: motDoublon({ prenom: d.prenom, nom: d.nom, titre: valeurDuChoix(d.titreChoix, d.titreLibre) }, syndicAffiche)
-        + (parImmeuble && suitImmeuble(d, cleDepart as string) ? ' — déjà rattaché à cette copropriété' : ''),
+      message: `Un contact nommé ${prenomNom(d.prenom, d.nom)} existe déjà chez ${syndicAffiche}.`,
       voirCle: parImmeuble && avecCatalogue && !suitImmeuble(d, cleDepart as string) ? d.cle : undefined,
       emails: emailsDe(d),
     });
-    let ailleurs: { emails: ContactAilleurs[]; noms: ContactAilleurs[] } = { emails: [], noms: [] };
-    const mes = emailsDe(b);
-    if (mes.length > 0 || b.nom.trim() !== '' || b.prenom.trim() !== '') {
-      try {
-        const u = `/api/admin/gestion/syndics/doublons?syndic=${syndicId ?? ''}&prenom=${encodeURIComponent(b.prenom)}`
-          + `&nom=${encodeURIComponent(b.nom)}&emails=${encodeURIComponent(mes.join(','))}`;
-        const j = (await (await fetch(u, { cache: 'no-store' })).json()) as { emails?: ContactAilleurs[]; noms?: ContactAilleurs[] };
-        ailleurs = { emails: j.emails ?? [], noms: j.noms ?? [] };
-      } catch { /* le serveur refusera de toute façon un e-mail déjà pris, au Valider de la fiche */ }
-    }
-    const autreEmail = ailleurs.emails[0];
+    const ailleurs = await interroger(b, true);
     const autreNom = ailleurs.noms[0];
     return {
-      email: loc.email !== null ? dire(loc.email)
-        : autreEmail !== undefined ? { message: motDoublon(autreEmail, nomAvecVille(autreEmail.syndicNom, autreEmail.syndicVille)), emails: mes } : null,
+      email: null,
       nom: loc.nom !== null ? dire(loc.nom) : null,
       avertissement: loc.nom === null && autreNom !== undefined
         ? `Un contact du même nom existe chez ${nomAvecVille(autreNom.syndicNom, autreNom.syndicVille)}` : null,
+      coordonnees: doublonsCoordonnees(b, ailleurs.coordonnees),
     };
   };
   const voir = (cle: string): void => setADeplier({ cle, n: (aDeplier?.n ?? 0) + 1 });
@@ -1235,7 +1268,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
       <div className="fsy-sous-cadre">
         <ContactEnModification e={edition} origine={edition.depart ?? null} onEcrire={onEcrire} adresses={adresses}
           onChange={(b) => setEdition({ ...edition, brouillon: b })}
-          onAnnuler={() => setEdition(null)} onValider={() => valider(edition)}
+          onAnnuler={() => setEdition(null)} onValider={(p) => valider(p ? { ...edition, brouillon: { ...edition.brouillon, ...p } } : edition)}
           verifier={verifierContact} onVoir={voir}
           rattacheA={parImmeuble ? adresses.filter((a) => edition.brouillon.immeubles.includes(a.cle)).map((a) => a.adresse).join(' · ') : undefined} />
       </div>
@@ -1288,20 +1321,22 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     setOuverts(ouverts.filter((x) => x !== cle));
     if (edition?.cle === cle) setEdition(null);
   };
-  /** L'anti-doublon de l'immeuble : même NOM + prénom, ou même e-mail, DANS CET IMMEUBLE seulement. */
+  /** L'anti-doublon de l'immeuble : même NOM + prénom DANS CET IMMEUBLE seulement (bloquant) ; e-mails et téléphones
+   *  déjà utilisés, dans les deux carnets : avertissement (LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT). */
   const verifierImmeuble = async (b: ContactForm): Promise<VerifDoublon> => {
     const loc = doublonsLocaux(b, carnet.filter((x) => x.cle !== b.cle));
-    const dire = (d: ContactForm): DoublonTrouve => ({
-      message: `Ce contact existe déjà dans cet immeuble : ${[prenomNom(d.prenom, d.nom), valeurDuChoix(d.titreChoix, d.titreLibre)].filter((x) => x !== '').join(' · ')}`,
-      emails: emailsDe(d),
-    });
-    return { email: loc.email !== null ? dire(loc.email) : null, nom: loc.nom !== null ? dire(loc.nom) : null, avertissement: null };
+    const ailleurs = await interroger(b, false);
+    return {
+      email: null, avertissement: null,
+      nom: loc.nom !== null ? { message: `Un contact nommé ${prenomNom(loc.nom.prenom, loc.nom.nom)} existe déjà dans l’immeuble ${adresseDuBienIci}.`, emails: [] } : null,
+      coordonnees: doublonsCoordonnees(b, ailleurs.coordonnees),
+    };
   };
   const adresseImmeubleDuBien = adresses.find((a) => a.cle === cleDepart)?.adresse ?? '';
   const rendreImmeuble = (c: ContactForm) => (edition !== null && edition.cle === c.cle ? (
     <ContactEnModification key={c.cle} e={edition} origine={c} onEcrire={onEcrire} adresses={adresses}
       onChange={(b) => setEdition({ ...edition, brouillon: b })} immeuble={adresseImmeubleDuBien}
-      onAnnuler={() => setEdition(null)} onValider={() => valider(edition)} verifier={verifierImmeuble} />
+      onAnnuler={() => setEdition(null)} onValider={(p) => valider(p ? { ...edition, brouillon: { ...edition.brouillon, ...p } } : edition)} verifier={verifierImmeuble} />
   ) : ouverts.includes(c.cle) ? (
     <ContactOuvert key={c.cle} c={c} onEcrire={onEcrire} adresses={adresses} onFermer={() => fermer(c.cle)}
       arrivee={arrives.includes(c.cle)} onRetirerImmeuble={() => retirerDeLImmeuble(c.cle)}
@@ -1324,7 +1359,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     <div className="fsy-sous-cadre">
       <ContactEnModification e={edition} origine={edition.depart ?? null} onEcrire={onEcrire} adresses={adresses}
         onChange={(b) => setEdition({ ...edition, brouillon: b })} immeuble={adresseImmeubleDuBien}
-        onAnnuler={() => setEdition(null)} onValider={() => valider(edition)} verifier={verifierImmeuble} />
+        onAnnuler={() => setEdition(null)} onValider={(p) => valider(p ? { ...edition, brouillon: { ...edition.brouillon, ...p } } : edition)} verifier={verifierImmeuble} />
     </div>
   ) : null;
   return { liste, bouton, ajout, listeImmeuble, ajoutImmeuble };
@@ -1332,7 +1367,12 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
 
 /** LOT SYNDIC-CONTACTS-ANTI-DOUBLON — un doublon trouvé, et ce que l'écran en dit. */
 interface DoublonTrouve { message: string; voirCle?: string; emails: string[] }
-interface VerifDoublon { email: DoublonTrouve | null; nom: DoublonTrouve | null; avertissement: string | null }
+interface VerifDoublon {
+  email: DoublonTrouve | null; nom: DoublonTrouve | null; avertissement: string | null;
+  /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — chaque e-mail / téléphone DÉJÀ UTILISÉ : les lignes de l'avertissement
+   *  (orange, NON bloquant), rattachées à la coordonnée (clé d'écran). */
+  coordonnees?: Array<{ cleCoord: string; lignes: string[] }>;
+}
 
 /** Ce contact (nouveau) ne suit-il QUE cet immeuble ? C'est le cas d'un ajout depuis le bien — et non depuis une
  *  autre copropriété, où le Catalogue du bien n'aurait rien à faire. */
@@ -1603,7 +1643,9 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
    *  note, « Sera rattaché à : … » ; ni titre, ni « Immeubles suivis ». */
   immeuble?: string;
   e: EtatEdition; origine: ContactForm | null; onChange: (c: ContactForm) => void;
-  onAnnuler: () => void; onValider: () => void; onSupprimer?: () => void; confirmation?: React.ReactNode;
+  onAnnuler: () => void; onSupprimer?: () => void; confirmation?: React.ReactNode;
+  /** Valide le brouillon ; `patch` s'y applique d'abord (LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT : doublons confirmés). */
+  onValider: (patch?: Partial<ContactForm>) => void;
   onEcrire?: (email: string) => void; adresses: Array<{ cle: string; adresse: string }>;
   /** LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — création DEPUIS UN BIEN : l'immeuble imposé, dit en lecture à la
    *  place des cases « Immeubles suivis ». Absent ⇒ les cases, comme avant. */
@@ -1615,7 +1657,8 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
 }) {
   const c = e.brouillon;
   const [verif, setVerif] = useState<VerifDoublon | null>(null);
-  const bloque = verif !== null && (verif.email !== null || verif.nom !== null);
+  // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — seul un NOM en double bloque encore « Valider » (plus un e-mail).
+  const bloque = verif !== null && verif.nom !== null;
   const lancer = async (cc: ContactForm): Promise<VerifDoublon | null> => {
     if (!verifier) return null;
     const v = await verifier(cc);
@@ -1644,7 +1687,11 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
    * téléphone et/ou sans e-mail RÉELLEMENT remplis, un avertissement orange (jamais bloquant) — « Compléter » met le
    * curseur dans le champ manquant (en ouvrant sa ligne s'il n'y en a pas), « Valider quand même » valide.
    */
-  const [alerte, setAlerte] = useState<string | null>(null);
+  /**
+   * L'encadré orange du « Valider » : les lignes (doublons de coordonnées, puis manque), et la coordonnée à « Corriger »
+   * (LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT) — sans doublon, « Compléter » comme avant.
+   */
+  const [alerte, setAlerte] = useState<{ lignes: string[]; corriger: string | null; doublons: boolean } | null>(null);
   const [aCompleter, setACompleter] = useState<SorteCoordonnee | null>(null);
   const bloc = useRef<HTMLFieldSetElement | null>(null);
   useEffect(() => {
@@ -1654,6 +1701,11 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
       .filter((i) => i.value.trim() === '');
     if (vides.length > 0) { vides[0].focus(); setACompleter(null); }
   }, [aCompleter, c.coordonnees]);
+  /** « Corriger » : le curseur dans le champ de la coordonnée en double. */
+  const corriger = (cleCoord: string): void => {
+    setAlerte(null);
+    bloc.current?.querySelector<HTMLInputElement>(`[data-cle-coord="${cleCoord}"] input[aria-label$="du contact"]`)?.focus();
+  };
   const completer = (): void => {
     const m = coordonneesManquantes(c);
     const sorte: SorteCoordonnee = m.telephone ? 'telephone' : 'email';
@@ -1669,12 +1721,21 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
       setRefus('Indiquez au moins un prénom, un nom ou un titre.'); return;
     }
     setRefus(null);
-    // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — vérifié de nouveau au Valider : un doublon bloquant arrête ici (et
-    // l'avertissement des coordonnées n'apparaît pas).
+    // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — vérifié de nouveau au Valider : un NOM en double arrête ici (et les
+    // avertissements n'apparaissent pas).
     const v = await lancer(c);
-    if (v !== null && (v.email !== null || v.nom !== null)) { setAlerte(null); return; }
-    const a = malgreManque ? null : alerteCoordonnees(c);
-    if (a !== null) { setAlerte(a); return; }
+    if (v !== null && v.nom !== null) { setAlerte(null); return; }
+    // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — un e-mail / téléphone déjà utilisé : un AVERTISSEMENT, regroupé
+    // avec celui des coordonnées manquantes ; « Valider quand même » confirme (le serveur en exige la preuve).
+    const doublons = v?.coordonnees ?? [];
+    if (malgreManque) { setAlerte(null); onValider(doublons.length > 0 || alerte?.doublons === true ? { doublonsConfirmes: true } : undefined); return; }
+    const manque = alerteCoordonnees(c);
+    if (doublons.length > 0) {
+      const m = phraseManque(c);
+      setAlerte({ lignes: [...doublons.flatMap((d) => d.lignes), ...(m !== null ? [m] : []), 'Valider quand même ?'], corriger: doublons[0].cleCoord, doublons: true });
+      return;
+    }
+    if (manque !== null) { setAlerte({ lignes: [manque], corriger: null, doublons: false }); return; }
     setAlerte(null);
     onValider();
   };
@@ -1744,7 +1805,7 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
       {verif?.nom && <Doublon d={verif.nom} />}
       {verif?.avertissement && <p className="fsy-alerte fsy-avertissement">{verif.avertissement}</p>}
       {c.coordonnees.map((k) => (
-        <div key={k.cle} className="fsy-duo fsy-coord-edit">
+        <div key={k.cle} className="fsy-duo fsy-coord-edit" data-cle-coord={k.cle}>
           <SelectChoix libelle="Libellé" choix={k.choix} libre={k.libre} options={libellesDe(k.sorte)}
             onChange={(choix, libre) => majCoord(k.cle, { ...k, choix, libre })} />
           <div className="fsy-champ fsy-champ--large">
@@ -1753,15 +1814,20 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
               <input type={k.sorte === 'email' ? 'email' : 'tel'} value={k.valeur}
                 aria-label={k.sorte === 'email' ? 'E-mail du contact' : 'Téléphone du contact'}
                 onChange={(ev) => majCoord(k.cle, { ...k, valeur: k.sorte === 'telephone' ? saisieTelephone(k.valeur, ev.target.value) : ev.target.value })}
-                onBlur={k.sorte === 'email' ? () => { void lancer(c); } : undefined} />
+                onBlur={() => { void lancer(c); }} />
               {k.sorte === 'email' ? <ActionEcrire email={k.valeur} onEcrire={onEcrire} /> : <ActionCopier tel={k.valeur} />}
             </span>
           </div>
           <button type="button" className="fsy-mini" aria-label="Retirer cette coordonnée"
             onClick={() => onChange({ ...c, coordonnees: c.coordonnees.filter((x) => x.cle !== k.cle) })}>×</button>
-          {/* LOT SYNDIC-CONTACTS-ANTI-DOUBLON — sous le champ e-mail en double. */}
-          {k.sorte === 'email' && verif?.email && k.valeur.trim() !== ''
-            && (verif.email.emails.includes(cleEmail(k.valeur))) && <Doublon d={verif.email} />}
+          {/* LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL Y AVAIT : sous un e-mail en double, un message
+              ROUGE et bloquant. Désormais, sous l'e-mail OU le téléphone déjà utilisé, un avertissement ORANGE précis
+              (un porteur par ligne s'ils sont plusieurs), dès qu'on quitte le champ. */}
+          {(verif?.coordonnees ?? []).filter((d) => d.cleCoord === k.cle).map((d) => (
+            <p key={d.cleCoord} className="fsy-alerte fsy-avertissement fsy-doublon-coord">
+              {d.lignes.map((l, i) => <span key={i}>{l}</span>)}
+            </p>
+          ))}
         </div>
       ))}
       <div className="fsy-ligne-ajouts">
@@ -1787,9 +1853,11 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
       {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
       {alerte !== null && (
         <div className="fsy-alerte-coord" role="alert">
-          <span>{alerte}</span>
+          <span className="fsy-alerte-coord-texte">{alerte.lignes.map((l, i) => <span key={i}>{l}</span>)}</span>
           <span className="fsy-alerte-coord-boutons">
-            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={completer}>Compléter</button>
+            {alerte.corriger !== null
+              ? <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => corriger(alerte.corriger as string)}>Corriger</button>
+              : <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={completer}>Compléter</button>}
             <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => void valider(true)}>Valider quand même</button>
           </span>
         </div>
@@ -2037,6 +2105,10 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-alerte-coord{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.35rem .6rem;padding:6px 10px;
   border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.84rem}
 .fsy-alerte-coord-boutons{display:flex;gap:6px;margin-left:auto}
+/* LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — une ligne par phrase (et par porteur d'une meme coordonnee). */
+.fsy-alerte-coord-texte{display:flex;flex-direction:column;gap:.1rem;min-width:0;overflow-wrap:anywhere}
+.fsy-doublon-coord{display:flex;flex-direction:column;gap:.1rem;overflow-wrap:anywhere;background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
+.fsy-coord-edit > .fsy-doublon-coord{flex:1 1 100%}
 .fsy-choix-ajout{display:flex;flex-direction:column;align-items:center;gap:.3rem}
 /* LOT COPRO-CONTACTS-IMMEUBLE — le choix : deux GROS boutons cote a cote (l'un sous l'autre sur un ecran etroit). */
 .fsy-choix-ajout-boutons{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;width:100%}

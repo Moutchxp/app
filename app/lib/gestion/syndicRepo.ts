@@ -4,6 +4,8 @@ import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import type { Auteur } from './gestes';
 import {
   civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
+  cleCoordonnee, cleTelephone, lignesDoublonCoordonnee, quiPorte, type Civilite, type CoordonneeConnue, type CoordonneeSaisie,
+  type ProprietaireCoordonnee,
   adresseImmeuble, cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
   type SyndicResume, type SyndicSaisi,
 } from './syndics';
@@ -253,19 +255,15 @@ const nul = (v: string): string | null => (v.trim() === '' ? null : v.trim());
  * normal, et un refus rendu après un UPDATE écrirait quand même (piège consigné du dépôt).
  */
 export async function enregistrerSyndic(id: number | null, saisie: SyndicSaisi, auteur: Auteur):
-Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
+Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: string[] }> {
   return withTransaction(async (q) => {
-    // 🔴 LOT SYNDIC-CONTACTS-ANTI-DOUBLON — LE FILET SERVEUR, AVANT TOUTE ÉCRITURE (piège withTransaction) : un e-mail
-    // de la saisie déjà porté par un contact d'un AUTRE syndic est refusé. (Les doublons DANS la saisie — même syndic —
-    // sont refusés par `validerSyndic`.) L'index de la migration 327 tient la même règle en base.
-    const emails = [...new Set(saisie.contacts.filter((c) => c.parti !== true)
-      .flatMap((c) => c.coordonnees.filter((k) => k.sorte === 'email').map((k) => cleEmail(k.valeur))))];
-    if (emails.length > 0) {
-      const pris = (await contactsAilleurs(q, id)).find((c) => c.emails.some((e) => emails.includes(e)));
-      if (pris !== undefined) {
-        const e = pris.emails.find((x) => emails.includes(x)) as string;
-        return { ok: false, motif: `L’adresse e-mail ${e} appartient déjà à ${[pris.prenom, (pris.nom ?? '').toUpperCase()].filter((x) => x).join(' ')} (${nomAvecVille(pris.syndicNom, pris.syndicVille)}).` };
-      }
+    // 🔴 LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL Y AVAIT : un e-mail déjà porté par un contact d'un AUTRE
+    // syndic était REFUSÉ (et l'index 327 le refusait en base). Décision d'Arno : un e-mail ou un téléphone déjà utilisé
+    // n'est plus qu'un AVERTISSEMENT. Sans confirmation explicite de l'écran (`confirmeDoublons`), le serveur le renvoie
+    // et N'ÉCRIT RIEN — décidé AVANT toute écriture (piège withTransaction).
+    if (saisie.confirmeDoublons !== true) {
+      const lignes = await doublonsDeLaSaisie(q, id, saisie);
+      if (lignes.length > 0) return { ok: false, motif: lignes.join(' '), avertissement: lignes };
     }
     // LOT SYNDIC-NOTE-PAR-BIEN — le bien de la note doit exister : refus AVANT toute écriture.
     if (saisie.noteBien) {
@@ -693,14 +691,104 @@ Promise<Array<ContactAilleurs & { emails: string[] }>> {
 }
 
 /** Les doublons d'un contact dans les AUTRES syndics : par e-mail (bloquant), par Prénom + NOM (avertissement). */
-export async function doublonsAilleurs(syndicId: number | null, prenom: string, nom: string, emails: readonly string[]):
-Promise<{ emails: ContactAilleurs[]; noms: ContactAilleurs[] }> {
+export async function doublonsAilleurs(syndicId: number | null, prenom: string, nom: string, emails: readonly string[],
+  telephones: readonly string[] = []):
+Promise<{ emails: ContactAilleurs[]; noms: ContactAilleurs[]; coordonnees: CoordonneeConnue[] }> {
   const autres = await contactsAilleurs(query, syndicId);
   const mes = new Set(emails.map(cleEmail).filter((e) => e !== ''));
+  const tels = new Set(telephones.map(cleTelephone).filter((t) => t !== ''));
   const n = cleNom(prenom, nom);
   const sans = ({ emails: _e, ...c }: ContactAilleurs & { emails: string[] }): ContactAilleurs => c;
+  // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — les porteurs, dans LES DEUX carnets (syndics et immeubles), de ces
+  // e-mails et téléphones : l'écran en fait un avertissement précis (et non plus un blocage).
+  const connues = mes.size + tels.size === 0 ? [] : (await coordonneesConnues(query))
+    .filter((k) => (k.sorte === 'email' ? mes.has(k.cle) : tels.has(k.cle)));
   return {
     emails: mes.size === 0 ? [] : autres.filter((c) => c.emails.some((e) => mes.has(e))).map(sans),
     noms: n === '' ? [] : autres.filter((c) => cleNom(c.prenom, c.nom) === n).map(sans),
+    coordonnees: connues.map(({ coordId: _k, ...c }) => c),
   };
+}
+
+/**
+ * ══ LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — TOUTES LES COORDONNÉES ACTIVES DES DEUX CARNETS ══════════════════
+ * Contacts de syndic (ni retirés, ni partis, syndic non supprimé) et contacts d'immeuble (non retirés), avec qui les
+ * porte. Les clés de comparaison sont calculées ici, par la MÊME normalisation que l'écran. LECTURE SEULE.
+ */
+async function coordonneesConnues(q: RequeteTx | typeof query): Promise<Array<CoordonneeConnue & { coordId: number }>> {
+  const { rows: s } = await (q as typeof query)<{
+    coord_id: string; sorte: 'email' | 'telephone'; valeur: string; contact_id: string; civilite: string | null; prenom: string | null;
+    nom: string | null; titre: string | null; syndic_id: string; syndic_nom: string; syndic_ville: string | null; copros: string[] | null;
+  }>(
+    `SELECT k.id::text AS coord_id, k.sorte, k.valeur, ct.id::text AS contact_id, ct.civilite, ct.prenom, ct.nom, ct.titre,
+            s.id::text AS syndic_id, s.nom AS syndic_nom, s.ville AS syndic_ville,
+            (SELECT array_agg(c.cle_immeuble) FROM gestion_syndic_contact_copropriete a JOIN gestion_copropriete c ON c.id = a.copropriete_id
+              WHERE a.contact_id = ct.id AND a.retire_le IS NULL) AS copros
+       FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact ct ON ct.id = k.contact_id JOIN gestion_syndic s ON s.id = ct.syndic_id
+      WHERE k.retire_le IS NULL AND ct.retire_le IS NULL AND ct.parti_le IS NULL AND s.supprime_le IS NULL`);
+  const { rows: i } = await (q as typeof query)<{
+    coord_id: string; sorte: 'email' | 'telephone'; valeur: string; contact_id: string; civilite: string | null; prenom: string | null;
+    nom: string | null; categorie: string; libelle: string | null; cle: string; immeuble: string; code_postal: string | null; commune: string | null;
+  }>(
+    `SELECT k.id::text AS coord_id, k.sorte, k.valeur, ct.id::text AS contact_id, ct.civilite, ct.prenom, ct.nom, ct.categorie, ct.libelle,
+            c.cle_immeuble AS cle, c.libelle AS immeuble, c.code_postal, c.commune
+       FROM gestion_copropriete_contact_coordonnee k JOIN gestion_copropriete_contact ct ON ct.id = k.contact_id
+       JOIN gestion_copropriete c ON c.id = ct.copropriete_id
+      WHERE k.retire_le IS NULL AND ct.retire_le IS NULL`);
+  const categorie = (c: string, l: string | null): string => (c === 'gardien' ? 'Gardien' : c === 'conseil_syndical' ? 'Conseil syndical' : (l ?? '').trim());
+  return [
+    ...s.map((r): CoordonneeConnue & { coordId: number } => ({
+      coordId: Number(r.coord_id), sorte: r.sorte, cle: cleCoordonnee(r.sorte, r.valeur),
+      proprietaire: { genre: 'syndic', contactId: Number(r.contact_id), civilite: civiliteLue(r.civilite) ?? null, prenom: r.prenom, nom: r.nom,
+        titre: r.titre, syndicId: Number(r.syndic_id), syndicNom: r.syndic_nom, syndicVille: r.syndic_ville, coproprietes: r.copros ?? [] },
+    })),
+    ...i.map((r): CoordonneeConnue & { coordId: number } => ({
+      coordId: Number(r.coord_id), sorte: r.sorte, cle: cleCoordonnee(r.sorte, r.valeur),
+      proprietaire: { genre: 'immeuble', contactId: Number(r.contact_id), civilite: civiliteLue(r.civilite) ?? null, prenom: r.prenom, nom: r.nom,
+        categorie: categorie(r.categorie, r.libelle), immeubleCle: r.cle, immeubleAdresse: adresseImmeuble(r.immeuble, r.code_postal, r.commune) },
+    })),
+  ].filter((k) => k.cle !== '');
+}
+
+/**
+ * LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — LE CONTRÔLE SERVEUR. Les coordonnées NOUVELLES ou MODIFIÉES de la saisie
+ * (une coordonnée déjà enregistrée telle quelle a déjà été confirmée) qui sont déjà portées par un AUTRE contact —
+ * d'un autre syndic, d'un autre immeuble, ou d'un autre contact de la saisie elle-même (le formulaire fait foi pour ce
+ * syndic et pour cet immeuble). Rend les lignes de l'avertissement ; vide : rien à confirmer.
+ */
+async function doublonsDeLaSaisie(q: RequeteTx, id: number | null, saisie: SyndicSaisi): Promise<string[]> {
+  const connues = await coordonneesConnues(q);
+  const cleCarnet = saisie.contactsImmeuble ? cleImmeuble(saisie.contactsImmeuble.immeuble) : null;
+  const dansLaSaisie = (p: ProprietaireCoordonnee): boolean =>
+    (p.genre === 'syndic' && id !== null && p.syndicId === id) || (p.genre === 'immeuble' && cleCarnet !== null && p.immeubleCle === cleCarnet);
+  const externes = connues.filter((k) => !dansLaSaisie(k.proprietaire));
+  const deja = new Map(connues.filter((k) => dansLaSaisie(k.proprietaire)).map((k) => [`${k.proprietaire.genre}:${k.coordId}`, k.cle]));
+  type Porteur = { genre: 'syndic' | 'immeuble'; rang: number; contact: { id?: number | null; civilite?: Civilite | null; prenom: string; nom: string; coordonnees: CoordonneeSaisie[] }; p: ProprietaireCoordonnee };
+  const porteurs: Porteur[] = [
+    ...saisie.contacts.filter((c) => c.parti !== true).map((c, rang): Porteur => ({ genre: 'syndic', rang, contact: c, p: {
+      genre: 'syndic', contactId: c.id ?? null, civilite: c.civilite ?? null, prenom: c.prenom, nom: c.nom, titre: c.titre,
+      syndicId: id, syndicNom: saisie.nom, syndicVille: nul(saisie.ville), coproprietes: c.immeubles } })),
+    ...(saisie.contactsImmeuble?.contacts ?? []).map((c, rang): Porteur => ({ genre: 'immeuble', rang, contact: c, p: {
+      genre: 'immeuble', contactId: c.id, civilite: c.civilite, prenom: c.prenom, nom: c.nom,
+      categorie: c.categorie === 'gardien' ? 'Gardien' : c.categorie === 'conseil_syndical' ? 'Conseil syndical' : c.libelle,
+      immeubleCle: cleCarnet ?? '', immeubleAdresse: saisie.contactsImmeuble?.immeuble ?? '' } })),
+  ];
+  const lignes: string[] = [];
+  const dites = new Set<string>();
+  for (const moi of porteurs) {
+    for (const k of moi.contact.coordonnees) {
+      const cle = cleCoordonnee(k.sorte, k.valeur);
+      if (cle === '' || dites.has(`${k.sorte}:${cle}`)) continue;
+      if (k.id != null && deja.get(`${moi.genre}:${k.id}`) === cle) continue; // inchangée : déjà confirmée
+      const autres = [
+        ...externes.filter((x) => x.sorte === k.sorte && x.cle === cle).map((x) => quiPorte(x.proprietaire)),
+        ...porteurs.filter((o) => o !== moi && o.contact.coordonnees.some((y) => y.sorte === k.sorte && cleCoordonnee(y.sorte, y.valeur) === cle))
+          .map((o) => quiPorte(o.p)),
+      ].filter((v, j, t) => t.indexOf(v) === j);
+      if (autres.length === 0) continue;
+      dites.add(`${k.sorte}:${cle}`);
+      lignes.push(...lignesDoublonCoordonnee(k.sorte, k.valeur, autres));
+    }
+  }
+  return lignes;
 }
