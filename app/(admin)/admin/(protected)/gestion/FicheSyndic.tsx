@@ -547,11 +547,27 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           lieu de « AUTRES CONTACTS ») ; mêmes tuiles, mêmes trois états. Un contact ajouté dans le bloc 2 apparaît ICI. */}
       <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contacts de cet immeuble' : 'Contacts du cabinet'}</h4>
       {contacts.liste}
+      {contacts.bouton}
       </section>
+
+      {/* ══ 🔴🔴 LOT SYNDIC-BLOC-AJOUT-CONTACT — LE BLOC D'AJOUT, SON PROPRE CADRE, entre le bloc 1 et « Gérer ce syndic »,
+          et SEULEMENT pendant un ajout. « × Fermer » le ferme sans rien rattacher ni créer. Après « Ajouter à cette
+          copropriété » ou « Valider » du nouveau contact, il se ferme et le contact apparaît dans la liste du bloc 1. */}
+      {contacts.ajout !== null && (
+        <section className="fsy-cadre fsy-cadre--ajout" aria-labelledby="fsy-bloc-ajout">
+          <div className="fsy-cadre-tete">
+            <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-ajout">
+              {adresseDuBien !== null ? 'Ajouter un contact à cet immeuble' : 'Ajouter un contact au cabinet'}
+            </h3>
+            <button type="button" className="fsy-lien-bouton fsy-fermer-ajout" onClick={() => setEdition(null)}
+              aria-label="Fermer l’ajout de contact sans rien rattacher ni créer">× Fermer</button>
+          </div>
+          {contacts.ajout}
+        </section>
+      )}
 
       <section className="fsy-cadre" aria-labelledby="fsy-bloc-2">
       <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-2">Gérer ce syndic</h3>
-      {contacts.ajout}
 
       <EditionCopros immeubles={form.immeubles} connus={connus} syndicId={syndicId}
         /* LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — une copropriété retirée sort aussi des contacts qui la suivaient. */
@@ -775,7 +791,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   ouverts: string[]; setOuverts: (o: string[]) => void;
   edition: EtatEdition | null; setEdition: (e: EtatEdition | null) => void;
   cleDepart: string | null; adresses: Array<{ cle: string; adresse: string }>;
-}): { liste: React.ReactNode; ajout: React.ReactNode } {
+}): { liste: React.ReactNode; bouton: React.ReactNode; ajout: React.ReactNode | null } {
   /** Une action demandée pendant qu'un AUTRE contact a des modifications non enregistrées. */
   const [enAttente, setEnAttente] = useState<Action | null>(null);
   const [aSupprimer, setASupprimer] = useState<string | null>(null);
@@ -868,34 +884,39 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
       {affiches.map(rendre)}
     </>
   );
-  const ajout = (
+  const avecCatalogue = edition !== null && edition.nouveau && parImmeuble && catalogue.length > 0
+    && suitSeulement(edition.depart, cleDepart as string);
+  /**
+   * LE CONTENU DU BLOC D'AJOUT (lot SYNDIC-BLOC-AJOUT-CONTACT) — `null` hors ajout : le bloc n'existe pas alors.
+   * ① « Catalogue des contacts du syndic (N) », en sous-cadre, s'il a quelque chose à proposer ;
+   * ② « Nouveau contact », en sous-cadre : la création complète, inchangée (lot SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT :
+   *    depuis un bien, rattaché QU'À l'immeuble du bien, « Sera rattaché à : … » à la place des cases).
+   */
+  const ajout = edition !== null && edition.nouveau ? (
     <>
-      {/* ══ 🔴 LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — DEUX BLOCS L'UN SOUS L'AUTRE, depuis un bien :
-          « Catalogue (N) » OUVERT d'office (s'il a quelque chose à proposer), puis « Nouveau contact ». Le nouveau
-          contact n'est rattaché QU'À l'immeuble du bien : ses cases « Immeubles suivis » cèdent la place à
-          « Sera rattaché à : … » (accord d'Arno pour CE formulaire ; elles restent en modification d'un contact). */}
-      {edition !== null && edition.nouveau && (
-        <>
-          {parImmeuble && catalogue.length > 0 && suitSeulement(edition.depart, cleDepart as string) && (
-            <Catalogue contacts={catalogue} adresses={adresses} onSelectionner={selectionner} />
-          )}
-          <ContactEnModification e={edition} origine={edition.depart ?? null} onEcrire={onEcrire} adresses={adresses}
-            onChange={(b) => setEdition({ ...edition, brouillon: b })}
-            onAnnuler={() => setEdition(null)} onValider={() => valider(edition)}
-            rattacheA={parImmeuble ? adresses.filter((a) => edition.brouillon.immeubles.includes(a.cle)).map((a) => a.adresse).join(' · ') : undefined} />
-        </>
+      {avecCatalogue && (
+        <div className="fsy-sous-cadre">
+          <Catalogue contacts={catalogue} adresses={adresses} onSelectionner={selectionner} />
+        </div>
       )}
-      {/* 🔴 LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT — UN SEUL CONTACT EN CRÉATION À LA FOIS (accord d'Arno pour
-          ce masquage) : tant que le bloc d'ajout est ouvert (Catalogue et/ou Nouveau contact), pas de « + Ajouter un
-          contact ». Il revient dès que le bloc se ferme : Annuler, Valider, ou « Ajouter à cette copropriété ». */}
-      {edition?.nouveau !== true && (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
-          + Ajouter un contact
-        </button>
-      )}
+      <div className="fsy-sous-cadre">
+        <ContactEnModification e={edition} origine={edition.depart ?? null} onEcrire={onEcrire} adresses={adresses}
+          onChange={(b) => setEdition({ ...edition, brouillon: b })}
+          onAnnuler={() => setEdition(null)} onValider={() => valider(edition)}
+          rattacheA={parImmeuble ? adresses.filter((a) => edition.brouillon.immeubles.includes(a.cle)).map((a) => a.adresse).join(' · ') : undefined} />
+      </div>
     </>
-  );
-  return { liste, ajout };
+  ) : null;
+  /* 🔴 LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT — UN SEUL CONTACT EN CRÉATION À LA FOIS (accord d'Arno pour ce
+     masquage) : tant que le bloc d'ajout est ouvert, pas de « + Ajouter un contact ». Il revient dès que le bloc se
+     ferme : × Fermer, Annuler, Valider, ou « Ajouter à cette copropriété ».
+     LOT SYNDIC-BLOC-AJOUT-CONTACT : le bouton est DÉPLACÉ en bas du bloc 1, sous la liste des contacts. */
+  const bouton = edition?.nouveau !== true ? (
+    <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-ajout" onClick={() => demander({ genre: 'ajouter' })}>
+      + Ajouter un contact
+    </button>
+  ) : null;
+  return { liste, bouton, ajout };
 }
 
 /** Ce contact (nouveau) ne suit-il QUE cet immeuble ? C'est le cas d'un ajout depuis le bien — et non depuis une
@@ -1380,6 +1401,14 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-cadre{display:flex;flex-direction:column;gap:.45rem;padding:10px 12px 12px;border:1px solid var(--color-svv-line);border-radius:12px;
   background:color-mix(in srgb, var(--color-svv-field) 45%, var(--color-svv-surface))}
 .fsy-cadre-titre{margin:0 0 .1rem}
+/* LOT SYNDIC-BLOC-AJOUT-CONTACT — le titre du bloc d'ajout et son « × Fermer » sur une ligne ; deux sous-cadres. */
+.fsy-cadre-tete{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem}
+.fsy-fermer-ajout{flex:0 0 auto;color:var(--color-svv-muted);text-decoration:none}
+.fsy-sous-cadre{display:flex;flex-direction:column;gap:.35rem;padding:8px 10px;border-radius:10px;border:1px solid var(--color-svv-line);
+  background:var(--color-svv-surface)}
+.fsy-sous-cadre > .fsy-catalogue{border:0;padding:0}
+.fsy-sous-cadre > .fsy-contact-edit{border:0;padding:0}
+.fsy-sous-cadre > .fsy-contact-edit > legend{padding:0;margin-bottom:.2rem;font-size:.82rem;font-weight:700}
 .fsy-copros-ligne--vide{cursor:default}
 .fsy-copro-tete{flex:1 1 16rem;min-width:0;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
   border:0;background:transparent;color:var(--color-svv-ink);font:inherit;text-align:left;cursor:pointer;padding:0}

@@ -1256,8 +1256,12 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
     expect(sousTitre.textContent).toBe('Contacts de cet immeuble');
     expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE']);
     expect(champ('Nom du cabinet *').compareDocumentPosition(sousTitre)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    // BLOC 2 : + Ajouter un contact, copropriétés repliées, + Ajouter une copropriété, Biens qui recevront ce syndic
-    const ordre = [bouton('+ Ajouter un contact'), document.querySelector('.fsy-copros-ligne'),
+    // LOT SYNDIC-BLOC-AJOUT-CONTACT — CE QU'IL DISAIT AVANT : « + Ajouter un contact » en tête du BLOC 2. Il est
+    // DÉPLACÉ en bas du bloc 1, sous la liste des contacts.
+    expect(dans(1, bouton('+ Ajouter un contact'))).toBe(true);
+    expect(sousTitre.compareDocumentPosition(bouton('+ Ajouter un contact'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // BLOC 2 : copropriétés repliées, + Ajouter une copropriété, Biens qui recevront ce syndic
+    const ordre = [document.querySelector('.fsy-copros-ligne'),
       champ('+ Ajouter une copropriété (immeuble)'), document.querySelector('details.fsy-biens')] as Element[];
     for (const el of ordre) expect(dans(2, el)).toBe(true);
     for (let i = 1; i < ordre.length; i++) expect(ordre[i - 1].compareDocumentPosition(ordre[i])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
@@ -1266,12 +1270,16 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
     expect(bouton('Supprimer ce syndic')).toBeTruthy();
   });
 
-  it('le bloc d’ajout (Catalogue + Nouveau contact) s’ouvre DANS le bloc 2', async () => {
+  /* LOT SYNDIC-BLOC-AJOUT-CONTACT — CE QU'IL DISAIT AVANT : le bloc d'ajout s'ouvrait DANS le bloc 2. Il a désormais
+     SON PROPRE cadre, entre le bloc 1 et « Gérer ce syndic ». */
+  it('le bloc d’ajout (Catalogue + Nouveau contact) s’ouvre dans SON PROPRE cadre, ni dans le bloc 1 ni dans le bloc 2', async () => {
     await depuisLeBien();
     await cliquer(bouton('+ Ajouter un contact'));
-    expect(dans(2, document.querySelector('.fsy-catalogue'))).toBe(true);
-    expect(dans(2, document.querySelector('.fsy-contact-edit'))).toBe(true);
+    const ajout = document.querySelector('section[aria-labelledby="fsy-bloc-ajout"]') as HTMLElement;
+    expect(ajout.contains(document.querySelector('.fsy-catalogue'))).toBe(true);
+    expect(ajout.contains(document.querySelector('.fsy-contact-edit'))).toBe(true);
     expect(dans(1, document.querySelector('.fsy-catalogue'))).toBe(false);
+    expect(dans(2, document.querySelector('.fsy-catalogue'))).toBe(false);
   });
 
   it('un contact AJOUTÉ (catalogue ou création) apparaît aussitôt dans la liste du BLOC 1', async () => {
@@ -1286,5 +1294,112 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
     await taper(nom, 'Neuf');
     await cliquer(boutonDans(edit, 'Valider'));
     expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Anne ABEL', 'NEUF']); // le nom s'affiche en capitales
+  });
+});
+
+describe('LOT SYNDIC-BLOC-AJOUT-CONTACT — l’ajout d’un contact a son propre bloc', () => {
+  const bloc = (id: string): HTMLElement | null => document.querySelector(`section[aria-labelledby="${id}"]`);
+  const titre = (id: string): string => bloc(id)?.querySelector('.fsy-cadre-titre')?.textContent ?? '';
+  const plus = (): HTMLButtonElement | undefined => [...document.querySelectorAll('button')].find((b) => b.textContent?.trim() === '+ Ajouter un contact') as HTMLButtonElement | undefined;
+  const noms1 = (): string[] => [...(bloc('fsy-bloc-1')?.querySelectorAll(':scope > button.fsy-contact-replie') ?? [])]
+    .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
+  const servir22 = (): void => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/gestion/syndics/22' && (init?.method ?? 'GET') === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche: FICHE_22 }) };
+      if (url === '/api/admin/gestion/syndics/22') { appels.push({ url, methode: init?.method ?? 'GET', corps: JSON.parse(String(init?.body)) }); return { ok: true, json: async () => ({ ok: true, id: 22 }) }; }
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const depuisLeBien = async (): Promise<ReturnType<typeof vi.fn>> => {
+    servir22();
+    const onFerme = vi.fn();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 22, onFerme, immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    return onFerme;
+  };
+  const depuisSyndics = async (): Promise<ReturnType<typeof vi.fn>> => { servir22(); return ouvrir(vi.fn(), 22); };
+
+  it('depuis un BIEN : bloc 1, puis « Ajouter un contact à cet immeuble » (pendant l’ajout seulement), puis « Gérer ce syndic »', async () => {
+    await depuisLeBien();
+    expect(bloc('fsy-bloc-ajout')).toBeNull();
+    await cliquer(plus() as Element);
+    const ordre = [bloc('fsy-bloc-1'), bloc('fsy-bloc-ajout'), bloc('fsy-bloc-2')] as HTMLElement[];
+    expect(ordre.every((b) => b !== null)).toBe(true);
+    for (let i = 1; i < 3; i++) expect(ordre[i - 1].compareDocumentPosition(ordre[i])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(titre('fsy-bloc-ajout')).toBe('Ajouter un contact à cet immeuble');
+    expect(bloc('fsy-bloc-ajout')?.className).toContain('fsy-cadre');
+    expect(bloc('fsy-bloc-ajout')?.querySelector('.fsy-cadre-titre')?.className).toContain('fsy-sous-titre');
+  });
+
+  it('depuis l’écran « Syndics » : « Ajouter un contact au cabinet », sans catalogue', async () => {
+    await depuisSyndics();
+    await cliquer(plus() as Element);
+    expect(titre('fsy-bloc-ajout')).toBe('Ajouter un contact au cabinet');
+    expect(bloc('fsy-bloc-ajout')?.querySelector('.fsy-catalogue')).toBeNull();
+    expect(bloc('fsy-bloc-ajout')?.querySelectorAll('.fsy-sous-cadre')).toHaveLength(1);
+  });
+
+  it('« + Ajouter un contact » est DANS le bloc 1, sous la liste, et MASQUÉ pendant l’ajout', async () => {
+    await depuisLeBien();
+    expect(bloc('fsy-bloc-1')?.contains(plus() as Node)).toBe(true);
+    expect(bloc('fsy-bloc-2')?.contains(plus() as Node)).toBe(false);
+    await cliquer(plus() as Element);
+    expect(plus()).toBeUndefined();
+  });
+
+  it('les deux sous-cadres, dans l’ordre, chacun avec son intertitre : Catalogue, puis Nouveau contact', async () => {
+    await depuisLeBien();
+    await cliquer(plus() as Element);
+    const sc = [...(bloc('fsy-bloc-ajout')?.querySelectorAll(':scope > .fsy-sous-cadre') ?? [])];
+    expect(sc).toHaveLength(2);
+    expect(sc[0].querySelector('.fsy-catalogue-titre')?.textContent).toBe('Catalogue des contacts du syndic (6)');
+    expect(sc[1].querySelector('legend')?.textContent).toBe('Nouveau contact');
+  });
+
+  it('« × Fermer » ferme tout le bloc sans rien rattacher ni créer ; le bouton réapparaît', async () => {
+    const onFerme = await depuisLeBien();
+    await cliquer(plus() as Element);
+    const edit = document.querySelector('.fsy-contact-edit') as HTMLElement;
+    const nom = [...edit.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
+    await taper(nom, 'Pas créé');
+    const fermer = bloc('fsy-bloc-ajout')?.querySelector('.fsy-fermer-ajout') as HTMLButtonElement;
+    expect(fermer.textContent).toBe('× Fermer');
+    expect(fermer.closest('.fsy-cadre-tete')).not.toBeNull();
+    await cliquer(fermer);
+    expect(bloc('fsy-bloc-ajout')).toBeNull();
+    expect(plus()).toBeDefined();
+    expect(noms1()).toEqual(['Paul COMMUN', 'Marie DOUZE']);
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(appels.some((x) => x.methode === 'PUT' || x.methode === 'POST')).toBe(false);
+    expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('catalogue VIDE : le bloc d’ajout n’a que « Nouveau contact »', async () => {
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 11, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    await cliquer(plus() as Element);
+    expect(bloc('fsy-bloc-ajout')?.querySelector('.fsy-catalogue')).toBeNull();
+    expect(bloc('fsy-bloc-ajout')?.querySelector('legend')?.textContent).toBe('Nouveau contact');
+  });
+
+  it('ajout par le CATALOGUE, puis par CRÉATION : chaque fois le bloc se ferme et le contact apparaît dans le bloc 1', async () => {
+    await depuisLeBien();
+    await cliquer(plus() as Element);
+    await cliquer(document.querySelector('.fsy-catalogue button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-catalogue .fsy-contact-ouvert'), 'Ajouter à cette copropriété'));
+    expect(bloc('fsy-bloc-ajout')).toBeNull();
+    expect(noms1()).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Anne ABEL']);
+    await cliquer(plus() as Element);
+    const edit = document.querySelector('.fsy-contact-edit') as HTMLElement;
+    const nom = [...edit.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
+    await taper(nom, 'Neuf');
+    await cliquer(boutonDans(edit, 'Valider'));
+    expect(bloc('fsy-bloc-ajout')).toBeNull();
+    expect(noms1()).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Anne ABEL', 'NEUF']);
   });
 });
