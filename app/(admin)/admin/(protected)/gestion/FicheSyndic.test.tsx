@@ -1946,3 +1946,51 @@ describe('LOT SYNDIC-NOTE-PAR-BIEN-ET-GROUPES-COPROS', () => {
     expect(appels.some((a) => a.url === '/api/admin/gestion/syndics/30?lot=102')).toBe(true);
   });
 });
+
+describe('LOT SYNDIC-CATALOGUE-TUILES-ROSES', () => {
+  const ROSE = '.fsy-catalogue-liste .fsy-tuile-catalogue{background:color-mix(in srgb, var(--color-svv-syndic-texte) 10%, transparent)}';
+  const servir22 = (): void => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/gestion/syndics/22' && (init?.method ?? 'GET') === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche: FICHE_22 }) };
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const ouvrirAjout = async (): Promise<void> => {
+    servir22();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 22, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+    await cliquer(bouton('+ Ajouter un contact'));
+  };
+  const tuilesCatalogue = (): Element[] => [...document.querySelectorAll('.fsy-catalogue-liste > .fsy-contact-replie, .fsy-catalogue-liste > .fsy-contact-ouvert')];
+
+  it('dès l’ouverture, SANS recherche : toutes les tuiles du catalogue sont roses ; règle de style et survol présents', async () => {
+    await ouvrirAjout();
+    const t = tuilesCatalogue();
+    expect(t.length).toBe(6);
+    expect(t.every((x) => x.classList.contains('fsy-tuile-catalogue'))).toBe(true);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain(ROSE);
+    expect(css).toContain('.fsy-catalogue-liste .fsy-tuile-catalogue:hover{background:color-mix(in srgb, var(--color-svv-syndic-texte) 16%, transparent)}');
+  });
+
+  it('PENDANT la recherche et une fois DÉPLIÉE : toujours rose', async () => {
+    await ouvrirAjout();
+    await taper(document.querySelector('.fsy-catalogue input[type="search"]') as HTMLInputElement, 'abel');
+    expect(tuilesCatalogue().every((x) => x.classList.contains('fsy-tuile-catalogue'))).toBe(true);
+    await cliquer(document.querySelector('.fsy-catalogue-liste > .fsy-contact-replie') as Element);
+    expect(document.querySelector('.fsy-catalogue-liste > .fsy-contact-ouvert')?.classList.contains('fsy-tuile-catalogue')).toBe(true);
+  });
+
+  it('les tuiles « Contacts de cette copropriété », le champ de recherche, le titre et « Nouveau contact » ne sont PAS roses', async () => {
+    await ouvrirAjout();
+    const rattaches = [...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] .fsy-contact-replie')];
+    expect(rattaches.length).toBe(2);
+    expect(rattaches.some((x) => x.classList.contains('fsy-tuile-catalogue'))).toBe(false);
+    for (const sel of ['.fsy-catalogue input[type="search"]', '.fsy-catalogue-titre', '.fsy-contact-edit', '.fsy-catalogue']) {
+      expect(document.querySelector(sel)?.classList.contains('fsy-tuile-catalogue')).toBe(false);
+    }
+  });
+});

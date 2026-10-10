@@ -759,7 +759,7 @@ function Catalogue({ contacts, adresses, onSelectionner, aDeplier = null }: {
       <div className="fsy-catalogue-liste" ref={liste}>
         {resultats.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun contact</p>}
         {resultats.map((c) => (deplie === c.cle ? (
-          <div key={c.cle} className="fsy-contact-ouvert" data-echap-local="" data-cle-ouverte={c.cle}
+          <div key={c.cle} className="fsy-contact-ouvert fsy-tuile-catalogue" data-echap-local="" data-cle-ouverte={c.cle}
             onKeyDown={(ev) => { if (ev.key === 'Escape') { ev.preventDefault(); replier(c.cle); } }}>
             <button type="button" className="fsy-contact-tete-btn" aria-expanded={true} onClick={() => replier(c.cle)}>
               <EnteteContact c={c} />
@@ -787,7 +787,7 @@ function Catalogue({ contacts, adresses, onSelectionner, aDeplier = null }: {
             </div>
           </div>
         ) : (
-          <button key={c.cle} type="button" className="fsy-contact-replie" aria-expanded={false} data-cle={c.cle} onClick={() => setDeplie(c.cle)}>
+          <button key={c.cle} type="button" className="fsy-contact-replie fsy-tuile-catalogue" aria-expanded={false} data-cle={c.cle} onClick={() => setDeplie(c.cle)}>
             <EnteteContact c={c} />
             <span className="fsy-fleche" aria-hidden="true">▸</span>
           </button>
@@ -1552,6 +1552,11 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 /* 5 TUILES AU PLUS (40 px chacune + 4 intervalles de .3rem) ; au-delà, la LISTE défile, pas la fiche. */
 .fsy-catalogue-liste{display:flex;flex-direction:column;gap:.3rem;max-height:calc(5 * 40px + 4 * .3rem);overflow-y:auto;overscroll-behavior:contain}
 .fsy-catalogue-liste > .fsy-contact-replie{flex:0 0 40px;min-height:40px;max-height:40px}
+/* LOT SYNDIC-CATALOGUE-TUILES-ROSES — les tuiles du CATALOGUE (« a ajouter ») sur le rose des boutons syndic, a faible
+   opacite (le jeton --color-svv-syndic-texte a sa variante Sombre : le texte --color-svv-ink reste contraste) ; un peu
+   plus fonce au survol. Les tuiles deja rattachees restent grises. */
+.fsy-catalogue-liste .fsy-tuile-catalogue{background:color-mix(in srgb, var(--color-svv-syndic-texte) 10%, transparent)}
+.fsy-catalogue-liste .fsy-tuile-catalogue:hover{background:color-mix(in srgb, var(--color-svv-syndic-texte) 16%, transparent)}
 .fsy-copro-adresse{display:flex;flex-direction:column;min-width:0;font-size:.9rem}
 .fsy-confirmer{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;font-size:.84rem}
 .fsy-proposition{width:100%;min-height:40px;display:flex;flex-direction:column;align-items:flex-start;gap:.05rem;text-align:left;
