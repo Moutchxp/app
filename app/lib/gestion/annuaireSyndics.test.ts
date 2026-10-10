@@ -631,7 +631,9 @@ describe('les écrans', () => {
     //  Catalogue, voulu par Arno ; seul l'ancien titre de SECTION, exact, reste interdit.)
     expect(src).not.toMatch(/>\s*(Catalogue des contacts\s*<|Contacts pour cet immeuble|Autres contacts du cabinet)/);
     expect(src).toContain('Catalogue des contacts du syndic');
-    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Autres contacts', 'Catalogue',
+    // LOT SYNDIC-MODALE-DEUX-BLOCS — « Autres contacts » devient « Contacts de cet immeuble » / « Contacts du cabinet ».
+    for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Contacts de cet immeuble', 'Contacts du cabinet',
+      'Gérer ce syndic', 'Coordonnées et contacts du cabinet', 'Syndic de l’immeuble · ', 'Catalogue',
       'Ajouter à cette copropriété', 'Déjà rattaché à :', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
       'Biens qui recevront ce syndic', 'déjà rattachée à', 'Oui, la prendre', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
       'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {

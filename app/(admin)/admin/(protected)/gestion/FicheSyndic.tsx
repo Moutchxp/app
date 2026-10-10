@@ -466,6 +466,9 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   };
   const manques = tente ? adresseManquante(form) : [];
   const [noteOuverte, setNoteOuverte] = useState(false);
+  /** LOT SYNDIC-MODALE-DEUX-BLOCS — depuis un bien dont l'immeuble est une copropriété de la fiche ? Et laquelle. */
+  const adresseDuBien = cleDepart !== null ? (adresses.find((x) => x.cle === cleDepart)?.adresse ?? null) : null;
+  const contacts = useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition, cleDepart, adresses });
   const majTel = (i: number, v: string): void =>
     setForm({ ...form, telephones: form.telephones.map((t, j) => (j === i ? saisieTelephone(t, v) : t)) });
   const retirerTel = (i: number): void => {
@@ -477,7 +480,15 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   const biensPerdus = fiche?.coproprietes.flatMap((c) => c.lots.map((l) => ({ ...l, immeuble: adresseImmeuble(c.libelle, c.codePostal, c.commune) }))) ?? [];
 
   return (
-    <div className="fsy-bloc">
+    <div className="fsy-bloc fsy-deux-blocs">
+      {/* ══ 🔴🔴 LOT SYNDIC-MODALE-DEUX-BLOCS — DEUX BLOCS ENCADRÉS, L'UN SOUS L'AUTRE, SANS RIEN RETIRER ══════════════
+          ARNO : « la fiche syndic est peu claire ». BLOC 1 = ce qui est déjà validé pour cet immeuble (coordonnées du
+          cabinet + ses contacts) ; BLOC 2 = « Gérer ce syndic » (ajouter un contact, copropriétés, propagation).
+          L'historique, la trace et « Supprimer ce syndic » restent en dessous, comme avant. */}
+      <section className="fsy-cadre" aria-labelledby="fsy-bloc-1">
+      <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-1">
+        {adresseDuBien !== null ? `Syndic de l’immeuble · ${adresseDuBien}` : 'Coordonnées et contacts du cabinet'}
+      </h3>
       {/* 🔴 UN SYNDIC EXISTANT SANS ADRESSE COMPLÈTE reste consultable ; l'obligation vaut à la prochaine modification. */}
       {fiche !== null && adresseManquante(fiche).length > 0 && (
         <p className="fsy-alerte">Complétez code postal et ville{fiche.adresse ? '' : ', et la rue'} : ils sont obligatoires pour enregistrer une modification.</p>
@@ -532,11 +543,15 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn fsy-ajout" onClick={() => setNoteOuverte(true)}>+ note</button>
       )}
 
-      {/* 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — « AUTRES CONTACTS », sous les coordonnées générales.
-          🔴 LOT FICHE-SYNDIC-CONTACTS-TROIS-ETATS — chaque contact : replié, ouvert en lecture, en modification. */}
-      <SectionContacts form={form} setForm={setForm} onEcrire={onEcrire}
-        ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition}
-        cleDepart={cleDepart} adresses={adresses} />
+      {/* 🔴 LOT SYNDIC-MODALE-DEUX-BLOCS — « Contacts de cet immeuble » (depuis un bien) ou « Contacts du cabinet » (au
+          lieu de « AUTRES CONTACTS ») ; mêmes tuiles, mêmes trois états. Un contact ajouté dans le bloc 2 apparaît ICI. */}
+      <h4 className="fsy-sous-titre">{adresseDuBien !== null ? 'Contacts de cet immeuble' : 'Contacts du cabinet'}</h4>
+      {contacts.liste}
+      </section>
+
+      <section className="fsy-cadre" aria-labelledby="fsy-bloc-2">
+      <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-2">Gérer ce syndic</h3>
+      {contacts.ajout}
 
       <EditionCopros immeubles={form.immeubles} connus={connus} syndicId={syndicId}
         /* LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — une copropriété retirée sort aussi des contacts qui la suivaient. */
@@ -571,6 +586,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           <ul>{retirees.map((l) => <li key={l}>{l}</li>)}</ul>
         </div>
       )}
+      </section>
 
       {fiche !== null && fiche.historique.length > 0 && (
         <details className="fsy-historique">
@@ -748,12 +764,18 @@ type Action = { genre: 'ouvrir' | 'modifier'; cle: string } | { genre: 'ajouter'
  * « Nouveau contact ». Ouverte sans bien (écran « Syndics ») : tous les contacts, comme avant.
  * Un contact créé depuis un bien suit par défaut l'immeuble de ce bien ; créé sans bien, « Tous les immeubles ».
  */
-function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition, cleDepart, adresses }: {
+/**
+ * ══ 🔴 LOT SYNDIC-MODALE-DEUX-BLOCS — LES CONTACTS EN DEUX MORCEAUX ═════════════════════════════════════════════════
+ * La LISTE (« Contacts de cet immeuble » / « Contacts du cabinet ») vit dans le BLOC 1 ; l'AJOUT (« + Ajouter un
+ * contact », Catalogue, Nouveau contact) dans le BLOC 2. Les deux partagent le MÊME état (contact en cours, abandon,
+ * sélection) : c'est un crochet qui les rend tous deux, et non deux composants qui se contrediraient.
+ */
+function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition, cleDepart, adresses }: {
   form: SyndicForm; setForm: (f: SyndicForm) => void; onEcrire?: (email: string) => void;
   ouverts: string[]; setOuverts: (o: string[]) => void;
   edition: EtatEdition | null; setEdition: (e: EtatEdition | null) => void;
   cleDepart: string | null; adresses: Array<{ cle: string; adresse: string }>;
-}) {
+}): { liste: React.ReactNode; ajout: React.ReactNode } {
   /** Une action demandée pendant qu'un AUTRE contact a des modifications non enregistrées. */
   const [enAttente, setEnAttente] = useState<Action | null>(null);
   const [aSupprimer, setASupprimer] = useState<string | null>(null);
@@ -829,9 +851,8 @@ function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition
     setEdition(null);
   };
 
-  return (
+  const liste = (
     <>
-      <h3 className="fsy-sous-titre">Autres contacts</h3>
       {enAttente !== null && edition !== null && (
         <div className="fsy-alerte fsy-confirmer" role="group" aria-label="Abandonner les modifications du contact ?">
           <span>Abandonner les modifications ({nomAffiche(edition.brouillon)}) ?</span>
@@ -841,10 +862,14 @@ function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition
           }}>Oui, abandonner</button>
         </div>
       )}
-      {affiches.length === 0 && edition?.nouveau !== true && (
+      {affiches.length === 0 && (
         <p className="fsy-discret">{parImmeuble ? 'Aucun contact pour cet immeuble.' : 'Aucun contact.'}</p>
       )}
       {affiches.map(rendre)}
+    </>
+  );
+  const ajout = (
+    <>
       {/* ══ 🔴 LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — DEUX BLOCS L'UN SOUS L'AUTRE, depuis un bien :
           « Catalogue (N) » OUVERT d'office (s'il a quelque chose à proposer), puis « Nouveau contact ». Le nouveau
           contact n'est rattaché QU'À l'immeuble du bien : ses cases « Immeubles suivis » cèdent la place à
@@ -870,6 +895,7 @@ function SectionContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition
       )}
     </>
   );
+  return { liste, ajout };
 }
 
 /** Ce contact (nouveau) ne suit-il QUE cet immeuble ? C'est le cas d'un ajout depuis le bien — et non depuis une
@@ -1349,6 +1375,11 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-pousse{margin-left:auto}
 .fsy-copro{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:5px 10px;border-radius:8px;background:var(--color-svv-field)}
 .fsy-copros-ligne{margin-top:.35rem}
+/* LOT SYNDIC-MODALE-DEUX-BLOCS — deux cadres arrondis, un fond à peine différent de la modale, un espace net entre eux. */
+.fsy-deux-blocs{gap:1rem}
+.fsy-cadre{display:flex;flex-direction:column;gap:.45rem;padding:10px 12px 12px;border:1px solid var(--color-svv-line);border-radius:12px;
+  background:color-mix(in srgb, var(--color-svv-field) 45%, var(--color-svv-surface))}
+.fsy-cadre-titre{margin:0 0 .1rem}
 .fsy-copros-ligne--vide{cursor:default}
 .fsy-copro-tete{flex:1 1 16rem;min-width:0;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;
   border:0;background:transparent;color:var(--color-svv-ink);font:inherit;text-align:left;cursor:pointer;padding:0}

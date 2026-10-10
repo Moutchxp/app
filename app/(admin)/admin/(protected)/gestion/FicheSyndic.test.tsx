@@ -607,7 +607,8 @@ describe('LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — le catalogue, et qui suit quel
      redevient « Autres contacts », qui n'affiche QUE les contacts de l'immeuble du bien ; les autres → « Catalogue ». */
   it('depuis un BIEN : « Autres contacts » n\'affiche QUE les contacts de cet immeuble (affectés + communs)', async () => {
     await depuisUnBien();
-    expect([...document.querySelectorAll('.fsy-sous-titre')].map((h) => h.textContent)).toContain('Autres contacts');
+    // LOT SYNDIC-MODALE-DEUX-BLOCS — CE QU'IL DISAIT AVANT : « Autres contacts », devenu « Contacts de cet immeuble ».
+    expect([...document.querySelectorAll('.fsy-sous-titre')].map((h) => h.textContent)).toContain('Contacts de cet immeuble');
     expect(document.body.textContent).not.toContain('Contacts pour cet immeuble');
     expect(document.body.textContent).not.toContain('Catalogue des contacts');
     expect(document.querySelector('details.fsy-autres')).toBeNull();
@@ -762,7 +763,7 @@ describe('LOT SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT — Catalogue ouvert, puis N
   const catalogue = (): HTMLElement | null => document.querySelector('.fsy-catalogue');
   const tuiles = (): string[] => [...(catalogue()?.querySelectorAll('.fsy-catalogue-liste > button.fsy-contact-replie, .fsy-catalogue-liste .fsy-contact-tete-btn') ?? [])]
     .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
-  const affiches = (): string[] => [...document.querySelectorAll('.fsy-corps > .fsy-bloc > button.fsy-contact-replie')]
+  const affiches = (): string[] => [...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] > button.fsy-contact-replie')]
     .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
 
   it('« + Ajouter un contact » : le Catalogue OUVERT d\'office (« Catalogue (6) »), PUIS le bloc « Nouveau contact »', async () => {
@@ -893,7 +894,7 @@ describe('LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — replier une tuile du catalog
   const ouverte = (): HTMLElement | null => catalogue()?.querySelector('.fsy-contact-ouvert') ?? null;
   const tuile = (nom: string): HTMLElement => [...(catalogue()?.querySelectorAll('button.fsy-contact-replie') ?? [])]
     .find((b) => b.querySelector('.fsy-contact-nom')?.textContent === nom) as HTMLElement;
-  const affiches = (): string[] => [...document.querySelectorAll('.fsy-corps > .fsy-bloc > button.fsy-contact-replie')]
+  const affiches = (): string[] => [...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] > button.fsy-contact-replie')]
     .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
   const preparer = async (): Promise<ReturnType<typeof vi.fn>> => {
     const avant = globalThis.fetch;
@@ -1199,5 +1200,91 @@ describe('LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT', () => {
     await cliquer(plusContact() as Element);
     expect(document.querySelector('.fsy-catalogue')).toBeNull();
     expect(plusContact()).toBeUndefined();
+  });
+});
+
+describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'autre', () => {
+  const bloc = (n: 1 | 2): HTMLElement => document.querySelector(`section[aria-labelledby="fsy-bloc-${n}"]`) as HTMLElement;
+  const titre = (n: 1 | 2): string => bloc(n).querySelector('.fsy-cadre-titre')?.textContent ?? '';
+  const servir22 = (): void => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === '/api/admin/gestion/syndics/22' && (init?.method ?? 'GET') === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche: FICHE_22 }) };
+      if (url === '/api/admin/gestion/syndics/22') { appels.push({ url, methode: init?.method ?? 'GET', corps: JSON.parse(String(init?.body)) }); return { ok: true, json: async () => ({ ok: true, id: 22 }) }; }
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const depuisLeBien = async (): Promise<void> => {
+    servir22();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId: 22, onFerme: vi.fn(), immeubleDepart: { libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+  };
+  const dans = (n: 1 | 2, el: Element | null): boolean => el !== null && bloc(n).contains(el);
+  const noms = (n: 1 | 2): string[] => [...bloc(n).querySelectorAll(':scope > button.fsy-contact-replie')]
+    .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
+
+  it('depuis un BIEN : « Syndic de l’immeuble · adresse » puis « Gérer ce syndic », dans cet ordre, encadrés', async () => {
+    await depuisLeBien();
+    expect(titre(1)).toBe('Syndic de l’immeuble · 12 rue X, 92400 Courbevoie');
+    expect(titre(2)).toBe('Gérer ce syndic');
+    expect(bloc(1).compareDocumentPosition(bloc(2))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(bloc(1).className).toBe('fsy-cadre');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-cadre{display:flex;flex-direction:column;gap:.45rem;padding:10px 12px 12px;border:1px solid var(--color-svv-line);border-radius:12px;');
+    expect(css).toContain('.fsy-deux-blocs{gap:1rem}');
+    expect(bloc(1).querySelector('.fsy-cadre-titre')?.className).toContain('fsy-sous-titre');
+  });
+
+  it('depuis l’écran « Syndics » : « Coordonnées et contacts du cabinet » et « Contacts du cabinet » (tous)', async () => {
+    await ouvrir(vi.fn(), 20);
+    expect(titre(1)).toBe('Coordonnées et contacts du cabinet');
+    expect(titre(2)).toBe('Gérer ce syndic');
+    expect([...bloc(1).querySelectorAll('h4.fsy-sous-titre')].map((h) => h.textContent)).toEqual(['Contacts du cabinet']);
+    expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Yves TROIS']);
+  });
+
+  it('chaque élément dans le bon bloc, dans l’ordre demandé', async () => {
+    await depuisLeBien();
+    // BLOC 1 : coordonnées du cabinet, note, puis « Contacts de cet immeuble »
+    for (const l of ['Nom du cabinet *', 'Adresse (rue) *', 'Code postal *', 'Ville *']) expect(dans(1, champ(l))).toBe(true);
+    expect(dans(1, document.querySelector('input[aria-label="Téléphone standard"]'))).toBe(true);
+    expect(dans(1, document.querySelector('input[aria-labelledby="fsy-email-generique"]'))).toBe(true);
+    expect(dans(1, bouton('+ note'))).toBe(true);
+    const sousTitre = bloc(1).querySelector('h4.fsy-sous-titre') as HTMLElement;
+    expect(sousTitre.textContent).toBe('Contacts de cet immeuble');
+    expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE']);
+    expect(champ('Nom du cabinet *').compareDocumentPosition(sousTitre)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // BLOC 2 : + Ajouter un contact, copropriétés repliées, + Ajouter une copropriété, Biens qui recevront ce syndic
+    const ordre = [bouton('+ Ajouter un contact'), document.querySelector('.fsy-copros-ligne'),
+      champ('+ Ajouter une copropriété (immeuble)'), document.querySelector('details.fsy-biens')] as Element[];
+    for (const el of ordre) expect(dans(2, el)).toBe(true);
+    for (let i = 1; i < ordre.length; i++) expect(ordre[i - 1].compareDocumentPosition(ordre[i])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    // rien n'est retiré : historique / trace / suppression restent sous les deux blocs
+    expect(bloc(2).compareDocumentPosition(document.querySelector('.fsy-trace') as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(bouton('Supprimer ce syndic')).toBeTruthy();
+  });
+
+  it('le bloc d’ajout (Catalogue + Nouveau contact) s’ouvre DANS le bloc 2', async () => {
+    await depuisLeBien();
+    await cliquer(bouton('+ Ajouter un contact'));
+    expect(dans(2, document.querySelector('.fsy-catalogue'))).toBe(true);
+    expect(dans(2, document.querySelector('.fsy-contact-edit'))).toBe(true);
+    expect(dans(1, document.querySelector('.fsy-catalogue'))).toBe(false);
+  });
+
+  it('un contact AJOUTÉ (catalogue ou création) apparaît aussitôt dans la liste du BLOC 1', async () => {
+    await depuisLeBien();
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(document.querySelector('.fsy-catalogue button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-catalogue .fsy-contact-ouvert'), 'Ajouter à cette copropriété'));
+    expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Anne ABEL']);
+    await cliquer(bouton('+ Ajouter un contact'));
+    const edit = document.querySelector('.fsy-contact-edit') as HTMLElement;
+    const nom = [...edit.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
+    await taper(nom, 'Neuf');
+    await cliquer(boutonDans(edit, 'Valider'));
+    expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Anne ABEL', 'NEUF']); // le nom s'affiche en capitales
   });
 });
