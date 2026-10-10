@@ -67,7 +67,12 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
       {ouvert && typeof document !== 'undefined' && createPortal(
         <FicheSyndic key={apresRetrait === null ? 'fiche' : `apres-retrait-${apresRetrait}`}
           syndicId={apresRetrait !== null ? null : (syndic?.id ?? null)} lotDepart={lotId}
-          immeubleDepart={{ libelle, codePostal: connu?.codePostal ?? '', commune: connu?.commune ?? '' }}
+          /* LOT COPRO-PLUSIEURS-ADRESSES — un bien à une adresse SECONDAIRE ouvre la fiche sur SA copropriété (l'adresse
+             principale : contacts, carnet, rattachement) ; son adresse propre est celle qu'affiche le bloc 1. */
+          immeubleDepart={connu?.principale
+            ? { libelle: connu.principale.libelle, codePostal: connu.principale.codePostal ?? '', commune: connu.principale.commune ?? '' }
+            : { libelle, codePostal: connu?.codePostal ?? '', commune: connu?.commune ?? '' }}
+          adresseBien={connu?.principale ? { libelle, codePostal: connu?.codePostal ?? '', commune: connu?.commune ?? '' } : null}
           onFerme={() => { setOuvert(false); setApresRetrait(null); }}
           onRetireDeLaResidence={(ancien) => setApresRetrait(ancien)} ancienSyndicId={apresRetrait}
           onEcrire={onEcrire === undefined ? undefined : (email) => { setOuvert(false); setApresRetrait(null); onEcrire(email); }} />,

@@ -1266,7 +1266,9 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
 
   it('depuis un BIEN : « Syndic de l’immeuble · adresse » puis « Syndic & portefeuille de gestion », dans cet ordre, encadrés', async () => {
     await depuisLeBien();
-    expect(titre(1)).toBe('Syndic de l’immeuble · 12 rue X, 92400 Courbevoie');
+    // LOT COPRO-PLUSIEURS-ADRESSES — CE QU'IL DISAIT AVANT : le titre seul. Le petit « + » (ajouter une autre adresse)
+    // le suit désormais, dans la même ligne.
+    expect(titre(1)).toBe('Syndic de l’immeuble · 12 rue X, 92400 Courbevoie+');
     expect(titre(2)).toBe('Syndic & portefeuille de gestion'); // avant : « Gérer ce syndic »
     expect(bloc(1).compareDocumentPosition(bloc(2))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(bloc(1).className).toBe('fsy-cadre');
@@ -3504,5 +3506,170 @@ describe('LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — entre carnets', () =>
     expect(document.querySelector('.fsy-avert-serveur')).toBeNull();
     expect(appels.filter((a) => a.methode === 'PUT')).toHaveLength(1);
     expect(onFerme).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * ══ LOT COPRO-PLUSIEURS-ADRESSES ═════════════════════════════════════════════════════════════════════════════════
+ * Syndic _TEST 95 : la copropriété 12 rue X (lot 101) a une adresse secondaire 3 av Y (lots 301, 302). Ailleurs :
+ * 9 bd W (lot 901) n'est à personne ; 5 rue Prise est la copropriété d'AUTRE / Lyon ; 7 rue Sec est l'adresse
+ * secondaire de la copropriété 1 rue Autre (AUTRE / Lyon).
+ */
+describe('LOT COPRO-PLUSIEURS-ADRESSES', () => {
+  const lot = (id: number, numero: string, adresse: string) => ({ id, numero, adresse, commune: 'COURBEVOIE', proprietaires: [] as string[] });
+  const AUTRE = { id: 7, nom: 'AUTRE', ville: 'Lyon' };
+  const MOI = { id: 95, nom: '_TEST Multi', ville: 'Paris' };
+  const P = { cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie' };
+  const CONNUS = [
+    { ...P, lots: [lot(101, '101', '12 rue X')], syndic: MOI, secondaires: [{ cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' }] },
+    { cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', lots: [lot(301, '301', '3 av Y'), lot(302, '302', '3 av Y')], syndic: MOI, principale: P },
+    { cle: '9 bd w', libelle: '9 bd W', codePostal: '92400', commune: 'Courbevoie', lots: [lot(901, '901', '9 bd W')], syndic: null },
+    { cle: '5 rue prise', libelle: '5 rue Prise', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: AUTRE },
+    { cle: '7 rue sec', libelle: '7 rue Sec', codePostal: '92400', commune: 'Courbevoie', lots: [], syndic: AUTRE,
+      principale: { cle: '1 rue autre', libelle: '1 rue Autre', codePostal: '92400', commune: 'Courbevoie' } },
+  ];
+  const FICHE_95 = {
+    ...FICHE, id: 95, nom: '_TEST Multi', ville: 'Paris',
+    contacts: [{ id: 4, titre: 'Responsable de copropriété', prenom: 'Léa', nom: 'Durand', civilite: null, tousImmeubles: false, immeubles: ['12 rue x'],
+      coordonnees: [{ id: 5, sorte: 'telephone', libelle: 'Portable', valeur: '0613861877' }, { id: 6, sorte: 'email', libelle: null, valeur: 'lea@test.invalid' }] }],
+    coproprietes: [{ id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10',
+      lots: [lot(101, '101', '12 rue X'), lot(301, '301', '3 av Y'), lot(302, '302', '3 av Y')],
+      adresses: [{ cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' }] }],
+  };
+  const servir = (): void => {
+    API_ADRESSE['9 bd'] = [{ name: '9 bd W', postcode: '92400', city: 'Courbevoie' }];
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      const rep = (j: unknown) => ({ ok: true, json: async () => j });
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: init?.body ? JSON.parse(String(init.body)) : null }); return rep({ ok: true, id: 95 }); }
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: CONNUS });
+      if (url.startsWith('/api/admin/gestion/syndics/95')) return rep({ etat: 'ok', fiche: FICHE_95 });
+      if (url.startsWith('/api/admin/gestion/coproprietes/contacts')) { appels.push({ url, methode: m, corps: null }); return rep({ etat: 'ok', contacts: [] }); }
+      if (url.startsWith('/api/admin/gestion/syndics/doublons')) return rep({ emails: [], noms: [], coordonnees: [] });
+      return (avant as typeof fetch)(url, init);
+    }));
+  };
+  const monterCarte = async (immeuble: string): Promise<void> => {
+    servir();
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+    await act(async () => { root.render(createElement(BoutonSyndic, { immeuble, lotId: 101 })); });
+    await calmer();
+    await cliquer(document.querySelector('button.bsy') as Element);
+    await calmer();
+  };
+  const titre = (): HTMLElement => document.querySelector('#fsy-bloc-1') as HTMLElement;
+  const plus = (): HTMLButtonElement | null => document.querySelector('#fsy-bloc-1 .fsy-plus-adresse');
+  const mention = (): HTMLButtonElement | null => document.querySelector('#fsy-bloc-1 .fsy-autres-adresses');
+  const lignes = (): Array<[string, boolean]> => [...document.querySelectorAll('.fsy-adresses-copro li')]
+    .map((l) => [l.querySelector('span')?.textContent ?? '', l.querySelector('.fsy-retirer-adresse') !== null]);
+  const put = (): { immeubles: Array<{ libelle: string; adresses?: Array<{ libelle: string }> }> } =>
+    appels.filter((a) => a.methode === 'PUT').at(-1)?.corps as { immeubles: Array<{ libelle: string; adresses?: Array<{ libelle: string }> }> };
+  const groupesLots = async (): Promise<Array<{ tete: string; lots: string[] }>> => {
+    if (!document.querySelector('.fsy-lots')) await cliquer(document.querySelector('.fsy-lots-ligne') as Element);
+    return [...document.querySelectorAll('.fsy-lots-groupe')].map((g) => ({
+      tete: g.querySelector('.fsy-lots-adresse')?.textContent ?? '',
+      lots: [...g.querySelectorAll('.fsy-lot')].map((l) => `${l.querySelector('strong')?.textContent}${l.querySelector('.fsy-pastille-attente') ? ' (attente)' : ''}`),
+    }));
+  };
+
+  it('le « + » rouge cerclé, après l’adresse du titre, avec son info-bulle ; « · 1 autre adresse ▸ » repliée', async () => {
+    await monterCarte('12 rue X');
+    const p = plus() as HTMLButtonElement;
+    expect(p.textContent).toBe('+');
+    expect(p.title).toBe('Ajouter une autre adresse à cette copropriété');
+    expect(titre().firstChild?.textContent).toBe('Syndic de l’immeuble · 12 rue X, 92400 Courbevoie');
+    expect(mention()?.textContent).toBe('· 1 autre adresse ▸');
+    expect(document.querySelector('.fsy-adresses-copro')).toBeNull();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toMatch(/\.fsy-plus-adresse\{[^}]*width:20px;height:20px;[^}]*border-radius:50%;border:1px solid var\(--color-svv-red\)/);
+  });
+
+  it('dépliée : une adresse par ligne, sur fond blanc, avec « × » ; repliée au second clic', async () => {
+    await monterCarte('12 rue X');
+    await cliquer(mention() as Element);
+    expect(mention()?.textContent).toBe('· 1 autre adresse ▾');
+    expect(lignes()).toEqual([['3 av Y, 92400 Courbevoie', true]]);
+    expect(document.querySelector('.fsy-adresses-copro')?.classList.contains('fsy-suivis-liste')).toBe(true); // fond blanc, cadre fin
+    await cliquer(mention() as Element);
+    expect(document.querySelector('.fsy-adresses-copro')).toBeNull();
+  });
+
+  it('un bien à une adresse SECONDAIRE : elle s’affiche ; la principale est dans la liste, SANS croix ; contacts et carnet partagés', async () => {
+    await monterCarte('3 av Y');
+    expect(document.querySelector('.bsy') && titre().firstChild?.textContent).toBe('Syndic de l’immeuble · 3 av Y, 92400 Courbevoie');
+    await cliquer(mention() as Element);
+    expect(lignes()).toEqual([['12 rue X, 92400 Courbevoie', false]]);
+    // la copropriété est la même : ses contacts (Léa suit 12 rue X) et son carnet (lu par l'adresse principale)
+    expect([...document.querySelectorAll('section[aria-labelledby="fsy-bloc-1"] > button.fsy-contact-replie .fsy-contact-nom')].map((x) => x.textContent))
+      .toEqual(['Léa DURAND']);
+    expect(appels.find((a) => a.url.startsWith('/api/admin/gestion/coproprietes/contacts'))?.url).toBe('/api/admin/gestion/coproprietes/contacts?immeuble=12%20rue%20X');
+  });
+
+  it('AJOUT avec l’autocomplétion : « Ajouter » ⇒ la mention compte 2 autres adresses ; ses lots arrivent « en attente » ; au Valider, l’adresse part', async () => {
+    await monterCarte('12 rue X');
+    await cliquer(plus() as Element);
+    const champ = document.querySelector('input[aria-label="Autre adresse de la copropriété"]') as HTMLInputElement;
+    await taper(champ, '9 bd');
+    await attendre(300);
+    await cliquer([...document.querySelectorAll('.fsy-ajout-adresse .fsy-proposition')].find((b) => b.textContent === '9 bd W, 92400 Courbevoie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-ajout-adresse'), 'Ajouter'));
+    expect(document.querySelector('.fsy-ajout-adresse')).toBeNull();
+    expect(mention()?.textContent).toBe('· 2 autres adresses ▸');
+    expect(await groupesLots()).toEqual([{ tete: '12 rue X, 92400 Courbevoie · 3 av Y, 92400 Courbevoie · 9 bd W, 92400 Courbevoie',
+      lots: ['lot 101', 'lot 301', 'lot 302', 'lot 901 (attente)'] }]);
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(put().immeubles[0]).toMatchObject({ libelle: '12 rue X', adresses: [{ libelle: '3 av Y' }, { libelle: '9 bd W', codePostal: '92400', commune: 'Courbevoie' }] });
+  });
+
+  for (const [saisie, message] of [
+    ['5 rue Prise', '5 rue Prise est déjà la copropriété rattachée à AUTRE / Lyon.'],
+    ['7 rue Sec', '7 rue Sec est déjà une adresse de la copropriété 1 rue Autre, 92400 Courbevoie (rattachée à AUTRE / Lyon).'],
+    ['3 av Y', '3 av Y est déjà une adresse de cette copropriété.'],
+  ] as const) {
+    it(`adresse déjà prise (« ${saisie} ») : message précis, RIEN n’est ajouté`, async () => {
+      await monterCarte('12 rue X');
+      await cliquer(plus() as Element);
+      await taper(document.querySelector('input[aria-label="Autre adresse de la copropriété"]') as HTMLInputElement, saisie);
+      await cliquer(boutonDans(document.querySelector('.fsy-ajout-adresse'), 'Ajouter'));
+      expect(document.querySelector('.fsy-ajout-adresse .fsy-alerte')?.textContent).toBe(message);
+      expect(mention()?.textContent).toBe('· 1 autre adresse ▸');
+      await cliquer(boutonDans(document.querySelector('.fsy-ajout-adresse'), 'Annuler'));
+      expect(document.querySelector('.fsy-ajout-adresse')).toBeNull();
+    });
+  }
+
+  it('RETRAIT d’une adresse secondaire : confirmation qui liste ses lots ; Non garde, Oui retire ; ses lots quittent le portefeuille ; au Valider, liste vide', async () => {
+    await monterCarte('12 rue X');
+    await cliquer(mention() as Element);
+    await cliquer(document.querySelector('.fsy-retirer-adresse') as Element);
+    const c = document.querySelector('.fsy-adresses-copro .fsy-confirmer') as HTMLElement;
+    expect(c.querySelector('span')?.textContent).toBe('Retirer cette adresse de la copropriété ? lot 301, lot 302 perdront ce syndic.');
+    await cliquer(boutonDans(c, 'Non'));
+    expect(lignes()).toEqual([['3 av Y, 92400 Courbevoie', true]]);
+    await cliquer(document.querySelector('.fsy-retirer-adresse') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-adresses-copro .fsy-confirmer'), 'Oui'));
+    expect(mention()).toBeNull();
+    expect(await groupesLots()).toEqual([{ tete: '12 rue X, 92400 Courbevoie', lots: ['lot 101'] }]);
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect(put().immeubles[0].adresses).toEqual([]);
+  });
+
+  it('« Copropriétés déjà rattachées » : une ligne par copropriété, « + 1 adresse » en gris, biens de toutes ses adresses', async () => {
+    await monterCarte('12 rue X');
+    await deplierCopros();
+    const l = document.querySelector('.fsy-copro .fsy-copro-adresse') as HTMLElement;
+    expect(l.querySelector('.fsy-plus-adresses')?.textContent).toBe(' + 1 adresse');
+    expect(l.textContent).toContain('3 biens en gestion');
+    expect(document.querySelectorAll('.fsy-copro')).toHaveLength(1);
+  });
+
+  it('écran SYNDICS (sans bien) : pas de « + »', async () => {
+    servir();
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 95, onFerme: vi.fn() })); });
+    await calmer();
+    expect(plus()).toBeNull();
+    expect(mention()).toBeNull();
   });
 });

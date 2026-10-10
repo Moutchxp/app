@@ -11,7 +11,8 @@ import {
   adresseImmeuble, adresseManquante, apercuPropagation, MOTIF_ADRESSE_INCOMPLETE, prenomNom, prenomNomCivil, CIVILITES, trierParVoie,
   marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, alerteCoordonnees, coordonneesManquantes,
   CATEGORIES_IMMEUBLE, refusContactImmeuble, versFormulaireImmeuble, type ContactImmeubleLu,
-  avertissementsCoordonnees, cleTelephone, coordonneesDuFormulaire, phraseManque, type CoordonneeConnue, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  avertissementsCoordonnees, cleTelephone, coordonneesDuFormulaire, phraseManque, type CoordonneeConnue,
+  conflitAdresse, type AdresseSaisie, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -57,7 +58,10 @@ import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
 type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
 export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null,
-  onRetireDeLaResidence, ancienSyndicId = null }: {
+  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null }: {
+  /** LOT COPRO-PLUSIEURS-ADRESSES — l'adresse PROPRE du bien quand elle est une adresse SECONDAIRE de la copropriété
+   *  (`immeubleDepart` est alors l'adresse principale) : c'est elle que le bloc 1 affiche. */
+  adresseBien?: ImmeubleSaisi | null;
   /** `null` = aucun syndic encore : on commence par chercher un syndic existant. */
   syndicId: number | null;
   /** L'immeuble du bien depuis lequel on vient : pré-rempli comme copropriété. */
@@ -339,7 +343,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
-              ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart}
+              ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart} adresseBien={adresseBien}
               retrait={blocRetrait} />
           )}
         </div>
@@ -491,6 +495,50 @@ function ActionCopier({ tel }: { tel: string }) {
 }
 
 /**
+ * ══ LOT COPRO-PLUSIEURS-ADRESSES — LA PETITE LIGNE « AUTRE ADRESSE » ══ l'autocomplétion existante (API Adresse, puis
+ * BAN locale en repli — `chercherAdresses`), « Ajouter » / « Annuler ». Un refus (adresse déjà prise) se dit dessous.
+ */
+function ChampAdresseCopro({ saisie, onSaisie, onAjouter, onAnnuler, refus }: {
+  saisie: AdresseSaisie; onSaisie: (a: AdresseSaisie) => void; onAjouter: () => void; onAnnuler: () => void; refus: string | null;
+}) {
+  const [propositions, setPropositions] = useState<AdresseBan[]>([]);
+  const [ouvert, setOuvert] = useState(true);
+  useEffect(() => {
+    if (!ouvert || saisie.libelle.trim().length < MINIMUM_ADRESSE) { setPropositions([]); return; }
+    const ctrl = new AbortController();
+    const t = setTimeout(() => {
+      void chercherAdresses(saisie.libelle, ctrl.signal)
+        .then((r) => setPropositions(r.adresses))
+        .catch(() => { if (!ctrl.signal.aborted) setPropositions([]); });
+    }, 250);
+    return () => { ctrl.abort(); clearTimeout(t); };
+  }, [saisie.libelle, ouvert]);
+  return (
+    <div className="fsy-ajout-adresse" role="group" aria-label="Ajouter une autre adresse à cette copropriété">
+      <div className="fsy-ligne-champ">
+        <input type="text" value={saisie.libelle} autoFocus autoComplete="off" aria-label="Autre adresse de la copropriété"
+          placeholder="ex. 3 avenue Y" onChange={(e) => { setOuvert(true); onSaisie({ libelle: e.target.value, codePostal: '', commune: '' }); }} />
+        <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={onAnnuler}>Annuler</button>
+        <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" disabled={saisie.libelle.trim() === ''} onClick={onAjouter}>Ajouter</button>
+      </div>
+      {ouvert && propositions.length > 0 && (
+        <ul className="fsy-liste" aria-label="Adresses proposées">
+          {propositions.map((b, i) => (
+            <li key={`${i}-${b.cle}-${b.commune}`}>
+              <button type="button" className="fsy-proposition" onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { onSaisie({ libelle: b.libelle, codePostal: b.codePostal ?? '', commune: b.commune }); setOuvert(false); }}>
+                {adresseImmeuble(b.libelle, b.codePostal, b.commune)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {refus !== null && <p className="fsy-alerte" role="alert">{refus}</p>}
+    </div>
+  );
+}
+
+/**
  * ══ 🔴 LA RUE DU SYNDIC — un choix remplit rue, code postal ET ville ═══════════════════════════════════════════════
  *
  * LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS. La CAUSE de « aucune suggestion pour 8 Rue Denfert Rochereau » :
@@ -584,7 +632,9 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
 function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente,
-  ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null }: {
+  ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null, adresseBien = null }: {
+  /** LOT COPRO-PLUSIEURS-ADRESSES — l'adresse propre du bien, si c'est une adresse secondaire de sa copropriété. */
+  adresseBien?: ImmeubleSaisi | null;
   form: SyndicForm; setForm: (f: SyndicForm) => void; fiche: Fiche | null; syndicId: number | null;
   /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le gros bouton (ou sa confirmation), sous le bloc 2, depuis un bien. */
   retrait?: React.ReactNode;
@@ -616,9 +666,32 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   const [noteOuverte, setNoteOuverte] = useState(false);
   /** LOT SYNDIC-MODALE-DEUX-BLOCS — depuis un bien dont l'immeuble est une copropriété de la fiche ? Et laquelle. */
   const adresseDuBien = cleDepart !== null ? (adresses.find((x) => x.cle === cleDepart)?.adresse ?? null) : null;
+  /*
+   * ══ LOT COPRO-PLUSIEURS-ADRESSES — LES ADRESSES DE LA COPROPRIÉTÉ DU BIEN ══ seule celle du bien s'affiche ; les
+   * autres (la principale si le bien est à une adresse secondaire, puis les secondaires) se déplient sous la mention
+   * grise. Ajouts et retraits vont dans le formulaire : enregistrés au « Valider ».
+   */
+  const coproDuBien = adresseDuBien !== null ? (form.immeubles.find((x) => cleImmeuble(x.libelle) === cleDepart) ?? null) : null;
+  const cleBien = adresseBien !== null && adresseBien.libelle.trim() !== '' ? cleImmeuble(adresseBien.libelle) : cleDepart;
+  const lotsDe = (cle: string): string[] => (connus.find((x) => x.cle === cle)?.lots ?? []).map((l) => l.numero);
+  const toutesAdresses = coproDuBien === null ? [] : [
+    { cle: cleImmeuble(coproDuBien.libelle), affichee: adresseDuBien as string, secondaire: false, lots: lotsDe(cleImmeuble(coproDuBien.libelle)) },
+    ...(coproDuBien.adresses ?? []).map((a) => {
+      const k = cleImmeuble(a.libelle);
+      const c = connus.find((x) => x.cle === k);
+      return { cle: k, affichee: adresseImmeuble(a.libelle, c?.codePostal ?? a.codePostal, c?.commune ?? a.commune), secondaire: true, lots: lotsDe(k) };
+    }),
+  ];
+  const adresseAffichee = toutesAdresses.find((a) => a.cle === cleBien)?.affichee ?? null;
+  const autresAdresses = toutesAdresses.filter((a) => a.cle !== cleBien);
+  const [ajoutAdresse, setAjoutAdresse] = useState(false);
+  const [saisieAdresse, setSaisieAdresse] = useState<AdresseSaisie>({ libelle: '', codePostal: '', commune: '' });
+  const [refusAdresse, setRefusAdresse] = useState<string | null>(null);
+  const [adressesOuvertes, setAdressesOuvertes] = useState(false);
+  const [aRetirerAdresse, setARetirerAdresse] = useState<string | null>(null);
   const [lotsOuverts, setLotsOuverts] = useState(false);
   const groupes = lotsDuPortefeuille(form.immeubles, connus, adresseDuBien !== null ? cleDepart : null,
-    new Set((fiche?.coproprietes ?? []).map((c) => c.cle)));
+    new Set((fiche?.coproprietes ?? []).flatMap((c) => [c.cle, ...(c.adresses ?? []).map((a) => a.cle)])));
   const lots = groupes.flatMap((g) => g.lots);
   const contacts = useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition, cleDepart, adresses, syndicId });
   const majTel = (i: number, v: string): void =>
@@ -639,8 +712,58 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
           L'historique, la trace et « Supprimer ce syndic » restent en dessous, comme avant. */}
       <section className="fsy-cadre" aria-labelledby="fsy-bloc-1">
       <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-1">
-        {adresseDuBien !== null ? `Syndic de l’immeuble · ${adresseDuBien}` : 'Coordonnées et contacts du cabinet'}
+        {adresseDuBien !== null ? `Syndic de l’immeuble · ${adresseAffichee ?? adresseDuBien}` : 'Coordonnées et contacts du cabinet'}
+        {/* LOT COPRO-PLUSIEURS-ADRESSES — le « + » discret, et la mention grise des autres adresses. */}
+        {coproDuBien !== null && (
+          <>
+            <button type="button" className="fsy-plus-adresse" title="Ajouter une autre adresse à cette copropriété"
+              aria-label="Ajouter une autre adresse à cette copropriété" onClick={() => { setAjoutAdresse(true); setSaisieAdresse({ libelle: '', codePostal: '', commune: '' }); setRefusAdresse(null); }}>+</button>
+            {autresAdresses.length > 0 && (
+              <button type="button" className="fsy-autres-adresses" aria-expanded={adressesOuvertes} onClick={() => setAdressesOuvertes(!adressesOuvertes)}>
+                · {autresAdresses.length === 1 ? '1 autre adresse' : `${autresAdresses.length} autres adresses`} {adressesOuvertes ? '▾' : '▸'}
+              </button>
+            )}
+          </>
+        )}
       </h3>
+      {coproDuBien !== null && ajoutAdresse && (
+        <ChampAdresseCopro saisie={saisieAdresse} onSaisie={(a) => { setSaisieAdresse(a); setRefusAdresse(null); }} refus={refusAdresse}
+          onAnnuler={() => { setAjoutAdresse(false); setRefusAdresse(null); }}
+          onAjouter={() => {
+            const m = conflitAdresse(saisieAdresse, cleImmeuble(coproDuBien.libelle), form.immeubles, connus);
+            if (m !== null) { setRefusAdresse(m); return; }
+            setForm({ ...form, immeubles: form.immeubles.map((x) => (x === coproDuBien
+              ? { ...x, adresses: [...(x.adresses ?? []), { libelle: saisieAdresse.libelle.trim(), codePostal: saisieAdresse.codePostal, commune: saisieAdresse.commune }] } : x)) });
+            setAjoutAdresse(false);
+          }} />
+      )}
+      {coproDuBien !== null && adressesOuvertes && autresAdresses.length > 0 && (
+        <ul className="fsy-suivis-liste fsy-adresses-copro" aria-label="Autres adresses de cette copropriété">
+          {autresAdresses.map((a) => (
+            <li key={a.cle} className="fsy-adresse-copro">
+              {aRetirerAdresse === a.cle ? (
+                <span className="fsy-confirmer" role="group" aria-label="Confirmer le retrait de l’adresse">
+                  <span>Retirer cette adresse de la copropriété ?{a.lots.length > 0 ? ` ${a.lots.map((l) => `lot ${l}`).join(', ')} ${a.lots.length > 1 ? 'perdront' : 'perdra'} ce syndic.` : ''}</span>
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setARetirerAdresse(null)}>Non</button>
+                  <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => {
+                    setForm({ ...form, immeubles: form.immeubles.map((x) => (x === coproDuBien
+                      ? { ...x, adresses: (x.adresses ?? []).filter((y) => cleImmeuble(y.libelle) !== a.cle) } : x)) });
+                    setARetirerAdresse(null);
+                  }}>Oui</button>
+                </span>
+              ) : (
+                <>
+                  <span>{a.affichee}</span>
+                  {a.secondaire && (
+                    <button type="button" className="fsy-mini fsy-retirer-adresse" aria-label={`Retirer ${a.affichee} de la copropriété`}
+                      onClick={() => setARetirerAdresse(a.cle)}>×</button>
+                  )}
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {/* 🔴 UN SYNDIC EXISTANT SANS ADRESSE COMPLÈTE reste consultable ; l'obligation vaut à la prochaine modification. */}
       {fiche !== null && adresseManquante(fiche).length > 0 && (
         <p className="fsy-alerte">Complétez code postal et ville{fiche.adresse ? '' : ', et la rue'} : ils sont obligatoires pour enregistrer une modification.</p>
@@ -1937,8 +2060,12 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
                 <button type="button" className="fsy-copro-tete" aria-expanded={ouvert}
                   onClick={() => { setDeplie(ouvert ? null : cle); setACocher(null); setBloque(null); }}>
                   <span className="fsy-copro-adresse">
-                    <span>{affiche}</span>
-                    <span className="fsy-discret">{motContacts(suivent.length)} · {motBiens(c?.lots.length ?? 0)}</span>
+                    <span>{affiche}{(im.adresses ?? []).length > 0 && (
+                      /* LOT COPRO-PLUSIEURS-ADRESSES — ses autres adresses, en gris. */
+                      <span className="fsy-discret fsy-plus-adresses"> + {(im.adresses ?? []).length === 1 ? '1 adresse' : `${(im.adresses ?? []).length} adresses`}</span>
+                    )}</span>
+                    <span className="fsy-discret">{motContacts(suivent.length)} · {motBiens((c?.lots.length ?? 0)
+                      + (im.adresses ?? []).reduce((n, a) => n + (parCle.get(cleImmeuble(a.libelle))?.lots.length ?? 0), 0))}</span>
                   </span>
                   <span className="fsy-fleche" aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
                 </button>
@@ -2114,6 +2241,19 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-choix-ajout-boutons{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;width:100%}
 .fsy-choix{flex:1 1 13rem;min-height:52px;font-weight:700}
 .fsy-sous-titre--immeuble{margin-top:.6rem}
+.fsy-plus-adresse{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:.4rem;padding:0;
+  vertical-align:middle;border-radius:50%;border:1px solid var(--color-svv-red);background:var(--color-svv-surface);color:var(--color-svv-red);
+  font:inherit;font-size:.95rem;font-weight:700;line-height:1;cursor:pointer;position:relative}
+/* la cible tactile du §15, invisible */
+.fsy-plus-adresse::after{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
+.fsy-plus-adresse:hover,.fsy-plus-adresse:focus-visible{background:var(--color-svv-red-soft)}
+.fsy-autres-adresses{margin-left:.35rem;padding:0;border:0;background:transparent;color:var(--color-svv-muted);font:inherit;font-size:.8rem;
+  font-weight:400;text-transform:none;letter-spacing:normal;cursor:pointer}
+.fsy-autres-adresses:hover,.fsy-autres-adresses:focus-visible{color:var(--color-svv-ink);text-decoration:underline}
+.fsy-adresse-copro{display:flex;align-items:center;justify-content:space-between;gap:.4rem}
+.fsy-ajout-adresse{display:flex;flex-direction:column;gap:.3rem;margin:.1rem 0 .3rem}
+.fsy-ajout-adresse input{flex:1 1 12rem;min-width:0;min-height:36px;padding:5px 9px;border-radius:8px;border:1px solid var(--color-svv-line-strong);
+  background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit}
 .fsy-ancien{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.2rem .6rem}
 .gst-btn.fsy-detacher{color:var(--color-svv-red)}
 /* LOT SYNDIC-CONTACTS-ANTI-DOUBLON — doublon bloquant en rouge, avertissement en orange (paire d'alerte existante). */

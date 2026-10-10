@@ -25,7 +25,8 @@ export async function contactsDeLImmeuble(immeuble: string): Promise<ContactImme
             (SELECT json_agg(json_build_object('id', k.id, 'sorte', k.sorte, 'libelle', k.libelle, 'valeur', k.valeur) ORDER BY k.rang, k.id)
                FROM gestion_copropriete_contact_coordonnee k WHERE k.contact_id = ct.id AND k.retire_le IS NULL) AS coordonnees
        FROM gestion_copropriete_contact ct JOIN gestion_copropriete c ON c.id = ct.copropriete_id
-      WHERE c.cle_immeuble = $1 AND ct.retire_le IS NULL
+      WHERE ct.retire_le IS NULL
+        AND (c.cle_immeuble = $1 OR c.id = (SELECT a.copropriete_id FROM gestion_copropriete_adresse a WHERE a.cle_immeuble = $1 AND a.retire_le IS NULL))
       ORDER BY ct.rang, ct.id`, [cle]);
   return rows.map((r) => ({
     id: Number(r.id), categorie: r.categorie, libelle: r.libelle, civilite: civiliteLue(r.civilite) ?? null,
@@ -40,7 +41,11 @@ export async function contactsDeLImmeuble(immeuble: string): Promise<ContactImme
  */
 export async function enregistrerContactsImmeuble(q: RequeteTx, saisie: NonNullable<SyndicSaisi['contactsImmeuble']>,
   auteur: Auteur): Promise<void> {
-  const cle = cleImmeuble(saisie.immeuble);
+  // LOT COPRO-PLUSIEURS-ADRESSES — une adresse SECONDAIRE désigne sa copropriété (le carnet est partagé).
+  const { rows: sec } = await q<{ cle: string }>(
+    `SELECT c.cle_immeuble AS cle FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id
+      WHERE a.cle_immeuble = $1 AND a.retire_le IS NULL`, [cleImmeuble(saisie.immeuble)]);
+  const cle = sec[0]?.cle ?? cleImmeuble(saisie.immeuble);
   await q(
     `INSERT INTO gestion_copropriete (cle_immeuble, libelle, cree_par, cree_par_libelle) VALUES ($1, $2, $3, $4)
      ON CONFLICT (cle_immeuble) DO NOTHING`, [cle, saisie.immeuble.trim(), auteur.id, auteur.libelle]);

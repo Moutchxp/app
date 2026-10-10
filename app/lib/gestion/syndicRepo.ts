@@ -5,7 +5,7 @@ import type { Auteur } from './gestes';
 import {
   civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
   cleCoordonnee, cleTelephone, lignesDoublonCoordonnee, quiPorte, type Civilite, type CoordonneeConnue, type CoordonneeSaisie,
-  type ProprietaireCoordonnee,
+  type ProprietaireCoordonnee, type AdresseConnue,
   adresseImmeuble, cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
   type SyndicResume, type SyndicSaisi,
 } from './syndics';
@@ -86,6 +86,21 @@ async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
 }
 
 /**
+ * ══ LOT COPRO-PLUSIEURS-ADRESSES — LES ADRESSES SECONDAIRES EN COURS ══ avec la copropriété (adresse principale) à
+ * laquelle chacune appartient. LECTURE SEULE.
+ */
+async function adressesSecondaires(q: RequeteTx | typeof query = query): Promise<Array<AdresseConnue & { coproId: number; coproCle: string; adresseId: number }>> {
+  const { rows } = await (q as typeof query)<{
+    id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null; copro_id: string; copro_cle: string;
+  }>(
+    `SELECT a.id::text, a.cle_immeuble AS cle, a.libelle, a.code_postal, a.commune, c.id::text AS copro_id, c.cle_immeuble AS copro_cle
+       FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id
+      WHERE a.retire_le IS NULL ORDER BY a.id`);
+  return rows.map((r) => ({ cle: r.cle, libelle: r.libelle, codePostal: r.code_postal, commune: r.commune,
+    coproId: Number(r.copro_id), coproCle: r.copro_cle, adresseId: Number(r.id) }));
+}
+
+/**
  * TOUS LES IMMEUBLES CONNUS — ceux de l'annuaire (avec leurs lots) et ceux déjà déclarés comme copropriété —
  * avec leur syndic EN COURS. Sert à la fois au bouton de la carte bien, à l'auto-complétion et à l'aperçu.
  */
@@ -101,21 +116,36 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
        LEFT JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL
        LEFT JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL`);
   const syndicDe = new Map(rows.map((r) => [r.cle, r]));
+  // LOT COPRO-PLUSIEURS-ADRESSES — une adresse SECONDAIRE en cours appartient à sa copropriété : même syndic, et la
+  // copropriété (principale) est dite. Elle l'emporte sur une copropriété homonyme orpheline.
+  const secondaires = await adressesSecondaires();
+  const secondaireDe = new Map(secondaires.map((a) => [a.cle, a]));
+  const parCopro = new Map<string, AdresseConnue[]>();
+  for (const a of secondaires) parCopro.set(a.coproCle, [...(parCopro.get(a.coproCle) ?? []), { cle: a.cle, libelle: a.libelle, codePostal: a.codePostal, commune: a.commune }]);
+  const syndicDu = (r: { syndic_id: string | null; syndic_nom: string | null; syndic_ville: string | null } | undefined) =>
+    (r?.syndic_id ? { id: Number(r.syndic_id), nom: r.syndic_nom ?? '', ville: r.syndic_ville } : null);
+  const decrire = (cle: string, base: Omit<ImmeubleConnu, 'syndic' | 'principale' | 'secondaires'>): ImmeubleConnu => {
+    const sec = secondaireDe.get(cle);
+    if (sec !== undefined) {
+      const p = syndicDe.get(sec.coproCle);
+      return { ...base, syndic: syndicDu(p), principale: { cle: sec.coproCle, libelle: p?.libelle ?? sec.coproCle, codePostal: p?.code_postal ?? null, commune: p?.commune ?? null } };
+    }
+    return { ...base, syndic: syndicDu(syndicDe.get(cle)), ...(parCopro.has(cle) ? { secondaires: parCopro.get(cle) } : {}) };
+  };
   const out: ImmeubleConnu[] = [];
   for (const [cle, g] of parCle) {
     const s = syndicDe.get(cle);
-    out.push({
-      cle, libelle: g.libelle, codePostal: g.codePostal ?? s?.code_postal ?? null, commune: g.commune ?? s?.commune ?? null,
-      lots: g.lots, syndic: s?.syndic_id ? { id: Number(s.syndic_id), nom: s.syndic_nom ?? '', ville: s.syndic_ville } : null,
-    });
+    out.push(decrire(cle, { cle, libelle: g.libelle, codePostal: g.codePostal ?? s?.code_postal ?? null, commune: g.commune ?? s?.commune ?? null, lots: g.lots }));
   }
   // Les copropriétés déclarées sans lot dans l'annuaire (BAN, ou saisies à la main) : elles existent aussi.
   for (const r of rows) {
     if (parCle.has(r.cle)) continue;
-    out.push({
-      cle: r.cle, libelle: r.libelle, codePostal: r.code_postal, commune: r.commune, lots: [],
-      syndic: r.syndic_id ? { id: Number(r.syndic_id), nom: r.syndic_nom ?? '', ville: r.syndic_ville } : null,
-    });
+    out.push(decrire(r.cle, { cle: r.cle, libelle: r.libelle, codePostal: r.code_postal, commune: r.commune, lots: [] }));
+  }
+  // … et les adresses secondaires sans lot ni copropriété homonyme.
+  for (const a of secondaires) {
+    if (parCle.has(a.cle) || syndicDe.has(a.cle)) continue;
+    out.push(decrire(a.cle, { cle: a.cle, libelle: a.libelle, codePostal: a.codePostal, commune: a.commune, lots: [] }));
   }
   return out.sort((a, b) => a.libelle.localeCompare(b.libelle, 'fr'));
 }
@@ -123,6 +153,7 @@ export async function immeublesConnus(): Promise<ImmeubleConnu[]> {
 /** La liste des syndics (non supprimés) : nom, nombre de copropriétés en cours, nombre de biens, et de quoi chercher. */
 export async function listerSyndics(): Promise<SyndicResume[]> {
   const parCle = await lotsParImmeuble();
+  const secondairesListe = await adressesSecondaires();
   const { rows } = await query<{
     id: string; nom: string; email: string | null; telephone: string | null; ville: string | null;
     cles: string[] | null; emails: string[] | null;
@@ -139,7 +170,9 @@ export async function listerSyndics(): Promise<SyndicResume[]> {
       ORDER BY lower(s.nom), s.id`);
   return rows.map((r) => {
     const cles = r.cles ?? [];
-    const nbBiens = cles.reduce((n, c) => n + (parCle.get(c)?.lots.length ?? 0), 0);
+    // LOT COPRO-PLUSIEURS-ADRESSES — les biens de toutes les adresses de ses copropriétés.
+    const toutes = [...cles, ...secondairesListe.filter((a) => cles.includes(a.coproCle)).map((a) => a.cle)];
+    const nbBiens = toutes.reduce((n, c) => n + (parCle.get(c)?.lots.length ?? 0), 0);
     const emails = [r.email ?? '', ...(r.emails ?? [])].filter((x) => x !== '');
     const domaines = emails.map((e) => e.split('@')[1] ?? '');
     return {
@@ -203,6 +236,7 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
        FROM gestion_copropriete_syndic cs JOIN gestion_copropriete c ON c.id = cs.copropriete_id
       WHERE cs.syndic_id = $1 ORDER BY cs.fin IS NOT NULL, c.libelle, cs.debut DESC`, [id]);
   const parCle = await lotsParImmeuble();
+  const secondaires = await adressesSecondaires();
   let noteBien: string | null = null;
   if (lotId !== null) {
     const { rows: nb } = await query<{ texte: string }>(
@@ -228,9 +262,13 @@ export async function ficheSyndic(id: number, lotId: number | null = null): Prom
     })),
     coproprietes: liens.filter((l) => l.fin === null).map((l) => {
       const g = parCle.get(l.cle);
+      // LOT COPRO-PLUSIEURS-ADRESSES — ses adresses secondaires, et leurs lots avec les siens.
+      const adresses = secondaires.filter((a) => a.coproCle === l.cle).map((a) => ({
+        cle: a.cle, libelle: a.libelle, codePostal: parCle.get(a.cle)?.codePostal ?? a.codePostal, commune: parCle.get(a.cle)?.commune ?? a.commune }));
       return {
-        id: Number(l.id), cle: l.cle, libelle: l.libelle, debut: l.debut, lots: g?.lots ?? [],
-        codePostal: g?.codePostal ?? l.code_postal, commune: g?.commune ?? l.commune,
+        id: Number(l.id), cle: l.cle, libelle: l.libelle, debut: l.debut,
+        lots: [...(g?.lots ?? []), ...adresses.flatMap((a) => parCle.get(a.cle)?.lots ?? [])],
+        codePostal: g?.codePostal ?? l.code_postal, commune: g?.commune ?? l.commune, adresses,
       };
     }),
     historique: liens.filter((l) => l.fin !== null)
@@ -265,6 +303,9 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
       const lignes = await doublonsDeLaSaisie(q, id, saisie);
       if (lignes.length > 0) return { ok: false, motif: lignes.join(' '), avertissement: lignes };
     }
+    // LOT COPRO-PLUSIEURS-ADRESSES — une adresse secondaire déjà prise ailleurs : refus, AVANT toute écriture.
+    const conflit = await conflitAdressesSecondaires(q, saisie);
+    if (conflit !== null) return { ok: false, motif: conflit };
     // LOT SYNDIC-NOTE-PAR-BIEN — le bien de la note doit exister : refus AVANT toute écriture.
     if (saisie.noteBien) {
       const { rows: lot } = await q<{ id: string }>(`SELECT id::text FROM gestion_annuaire_lot WHERE id = $1`, [saisie.noteBien.lotId]);
@@ -294,6 +335,7 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
 
     // LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — les copropriétés D'ABORD : les affectations des contacts les désignent.
     await enregistrerCoproprietes(q, syndicId, saisie, auteur);
+    await enregistrerAdressesSecondaires(q, saisie, auteur);
     await enregistrerContacts(q, syndicId, saisie, auteur);
     if (saisie.noteBien) await enregistrerNoteBien(q, syndicId, saisie.noteBien.lotId, saisie.noteBien.texte, auteur);
     // LOT COPRO-CONTACTS-IMMEUBLE — le carnet de l'immeuble voyage avec la fiche, mais ne dépend PAS du syndic.
@@ -477,6 +519,61 @@ async function enregistrerCoproprietes(q: RequeteTx, syndicId: number, saisie: S
   }
 }
 
+/**
+ * ══ LOT COPRO-PLUSIEURS-ADRESSES — LE CONTRÔLE SERVEUR ══ chaque adresse secondaire de la saisie ne doit être ni la
+ * copropriété (principale) d'un AUTRE immeuble rattaché à un syndic, ni l'adresse secondaire en cours d'une AUTRE
+ * copropriété. Rend le motif du refus, en clair ; `null` : rien ne s'y oppose.
+ */
+async function conflitAdressesSecondaires(q: RequeteTx, saisie: SyndicSaisi): Promise<string | null> {
+  const voulues = saisie.immeubles.flatMap((im) => (im.adresses ?? []).map((a) => ({ a, copro: cleImmeuble(im.libelle), cle: cleImmeuble(a.libelle) })));
+  if (voulues.length === 0) return null;
+  const cles = voulues.map((v) => v.cle);
+  const { rows: principales } = await q<{ cle: string; syndic_nom: string; syndic_ville: string | null }>(
+    `SELECT c.cle_immeuble AS cle, s.nom AS syndic_nom, s.ville AS syndic_ville
+       FROM gestion_copropriete c JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL
+       JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL
+      WHERE c.cle_immeuble = ANY($1::text[])`, [cles]);
+  const { rows: ailleurs } = await q<{ cle: string; copro_cle: string; copro_libelle: string; code_postal: string | null; commune: string | null }>(
+    `SELECT a.cle_immeuble AS cle, c.cle_immeuble AS copro_cle, c.libelle AS copro_libelle, c.code_postal, c.commune
+       FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id
+      WHERE a.retire_le IS NULL AND a.cle_immeuble = ANY($1::text[])`, [cles]);
+  for (const v of voulues) {
+    const affichee = adresseImmeuble(v.a.libelle, v.a.codePostal, v.a.commune);
+    const p = principales.find((r) => r.cle === v.cle);
+    if (p !== undefined && v.cle !== v.copro) return `${affichee} est déjà la copropriété rattachée à ${nomAvecVille(p.syndic_nom, p.syndic_ville)}.`;
+    const a = ailleurs.find((r) => r.cle === v.cle && r.copro_cle !== v.copro);
+    if (a !== undefined) return `${affichee} est déjà une adresse de la copropriété ${adresseImmeuble(a.copro_libelle, a.code_postal, a.commune)}.`;
+  }
+  return null;
+}
+
+/**
+ * LOT COPRO-PLUSIEURS-ADRESSES — les adresses secondaires de CHAQUE copropriété de la saisie qui les porte (`adresses`
+ * présent) : les nouvelles sont ajoutées (qui, quand), les absentes RETIRÉES (`retire_le`, qui) — jamais effacées.
+ */
+async function enregistrerAdressesSecondaires(q: RequeteTx, saisie: SyndicSaisi, auteur: Auteur): Promise<void> {
+  for (const im of saisie.immeubles) {
+    if (im.adresses === undefined) continue;
+    const { rows: c } = await q<{ id: string }>(`SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1`, [cleImmeuble(im.libelle)]);
+    const coproId = c[0]?.id;
+    if (coproId === undefined) continue;
+    const { rows: enCours } = await q<{ id: string; cle: string }>(
+      `SELECT id::text, cle_immeuble AS cle FROM gestion_copropriete_adresse WHERE copropriete_id = $1 AND retire_le IS NULL FOR UPDATE`, [coproId]);
+    const voulues = new Map(im.adresses.map((a) => [cleImmeuble(a.libelle), a]));
+    const aRetirer = enCours.filter((r) => !voulues.has(r.cle)).map((r) => r.id);
+    if (aRetirer.length > 0) {
+      await q(`UPDATE gestion_copropriete_adresse SET retire_le = now(), retire_par_libelle = $2 WHERE id = ANY($1::bigint[])`, [aRetirer, auteur.libelle]);
+    }
+    const deja = new Set(enCours.map((r) => r.cle));
+    for (const [cle, a] of voulues) {
+      if (deja.has(cle)) continue;
+      await q(
+        `INSERT INTO gestion_copropriete_adresse (copropriete_id, cle_immeuble, libelle, code_postal, commune, cree_par, cree_par_libelle)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`, [coproId, cle, a.libelle.trim(), nul(a.codePostal), nul(a.commune), auteur.id, auteur.libelle]);
+    }
+  }
+}
+
 /** Les affectations EN COURS des contacts d'un syndic à une copropriété : retirées (historisées), jamais effacées. */
 async function retirerAffectationsDeLaCopro(q: RequeteTx, syndicId: number, coproId: string, motif: string, auteur: Auteur): Promise<void> {
   await q(
@@ -523,13 +620,16 @@ Promise<{ ok: true; lots: number } | { ok: false; motif: string }> {
     const g = parCle.get(cle);
     const syndic = nomAvecVille(s.nom, s.ville);
     const adresse = adresseImmeuble(l.libelle, g?.codePostal ?? l.code_postal, g?.commune ?? l.commune);
-    for (const lot of g?.lots ?? []) {
+    // LOT COPRO-PLUSIEURS-ADRESSES — les lots de TOUTES les adresses de la copropriété perdent ce syndic.
+    const autres = (await adressesSecondaires(q)).filter((a) => a.coproCle === cle).flatMap((a) => parCle.get(a.cle)?.lots ?? []);
+    const tous = [...(g?.lots ?? []), ...autres];
+    for (const lot of tous) {
       await q(
         `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle)
          VALUES ('annuaire_lot', $1, 'syndic_retire', $2, $3, $4, $5)`,
         [lot.id, syndic, `Syndic ${syndic} retiré de la copropriété ${adresse}`, auteur.id, auteur.libelle]);
     }
-    return { ok: true, lots: g?.lots.length ?? 0 };
+    return { ok: true, lots: tous.length };
   });
 }
 

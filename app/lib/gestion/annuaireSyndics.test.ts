@@ -126,7 +126,9 @@ describe('les règles pures', () => {
     expect([s.telephone, s.telephone2, s.codePostal, s.ville]).toEqual(['0100000000', '0200000000', '75001', 'Paris']);
     expect(s.contacts[0]).toMatchObject({ id: 4, titre: 'Gardienne', prenom: 'Léa' });
     expect(s.contacts[0].coordonnees[0]).toMatchObject({ id: 5, libelle: 'Portable', valeur: '0613861877' });
-    expect(s.immeubles).toEqual([im('12 rue X', '92400', 'Courbevoie')]);
+    // LOT COPRO-PLUSIEURS-ADRESSES — CE QU'IL DISAIT AVANT : la copropriété seule ; elle porte désormais ses adresses
+    // secondaires (ici aucune : la liste entière, vide).
+    expect(s.immeubles).toEqual([{ ...im('12 rue X', '92400', 'Courbevoie'), adresses: [] }]);
     expect(coproprietesRetirees([im('12 rue X'), im('3 av Y')], [im('12 RUE X')])).toEqual(['3 av Y']);
   });
 
@@ -1076,7 +1078,9 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
       coordonnees: [{ id: 601, sorte: 'telephone', libelle: null, valeur: '0611223344' }] }]);
     const a = appels.find((x) => x.sql.includes('FROM gestion_copropriete_contact ct'));
     expect(a?.params).toEqual(['12 rue x']);
-    expect(norm(a?.sql ?? '')).toContain('WHERE c.cle_immeuble = $1 AND ct.retire_le IS NULL');
+    // LOT COPRO-PLUSIEURS-ADRESSES — CE QU'IL DISAIT AVANT : « WHERE c.cle_immeuble = $1 AND ct.retire_le IS NULL ». La
+    // clé peut aussi être une adresse SECONDAIRE de la copropriété (le carnet est partagé).
+    expect(norm(a?.sql ?? '')).toContain('WHERE ct.retire_le IS NULL AND (c.cle_immeuble = $1 OR c.id = (SELECT a.copropriete_id FROM gestion_copropriete_adresse a WHERE a.cle_immeuble = $1 AND a.retire_le IS NULL))');
     expect(norm(a?.sql ?? '')).toContain('WHERE k.contact_id = ct.id AND k.retire_le IS NULL');
     expect(await contactsDeLImmeuble('  ')).toEqual([]);
   });
@@ -1330,5 +1334,155 @@ describe('LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — la normalisation et l
     const sql = norm(readFileSync(join(__dirname, '../../../db/migrations/334_gestion_syndic_email_non_unique.sql'), 'utf8')
       .split('\n').filter((l) => !l.startsWith('--')).join('\n')).trim();
     expect(sql).toBe('DROP INDEX IF EXISTS gestion_syndic_coordonnee_email_unique;');
+  });
+});
+
+describe('LOT COPRO-PLUSIEURS-ADRESSES — pur', () => {
+  const lot = (id: number, numero: string) => ({ id, numero, adresse: null, commune: null });
+  it('validation : adresses secondaires dédoublonnées, jamais la principale ; une adresse sur deux copropriétés de la saisie : refus', async () => {
+    const v = validerSyndic({ ...ADR, nom: 'S', immeubles: [{ libelle: '12 rue X', adresses: [{ libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' },
+      { libelle: '3 AV Y' }, { libelle: '12 rue x' }, { libelle: ' ' }] }, { libelle: '8 rue Z' }] });
+    expect(v.ok && v.syndic.immeubles).toEqual([
+      { libelle: '12 rue X', codePostal: '', commune: '', adresses: [{ libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' }] },
+      { libelle: '8 rue Z', codePostal: '', commune: '' }]);
+    expect(validerSyndic({ ...ADR, nom: 'S', immeubles: [{ libelle: '12 rue X', adresses: [{ libelle: '8 rue Z' }] }, { libelle: '8 rue Z' }] }))
+      .toEqual({ ok: false, motif: '8 rue Z figure deux fois dans les copropriétés de ce syndic.' });
+  });
+  it('conflitAdresse : copropriété d’un autre syndic, adresse d’une autre copropriété, déjà ici ; libre ⇒ null', async () => {
+    const { conflitAdresse } = await import('./syndics');
+    const connus: ImmeubleConnu[] = [
+      { cle: '5 rue prise', libelle: '5 rue Prise', codePostal: null, commune: null, lots: [], syndic: { id: 7, nom: 'AUTRE', ville: 'Lyon' } },
+      { cle: '7 rue sec', libelle: '7 rue Sec', codePostal: null, commune: null, lots: [], syndic: null,
+        principale: { cle: '1 rue autre', libelle: '1 rue Autre', codePostal: '92400', commune: 'Courbevoie' } },
+      { cle: '9 rue libre', libelle: '9 rue Libre', codePostal: null, commune: null, lots: [], syndic: null },
+    ];
+    const ims = [{ libelle: '12 rue X', codePostal: '', commune: '', adresses: [{ libelle: '3 av Y', codePostal: '', commune: '' }] }, im('8 rue Z')];
+    const a = (libelle: string) => ({ libelle, codePostal: '92400', commune: 'Courbevoie' });
+    expect(conflitAdresse(a('5 rue Prise'), '12 rue x', ims, connus)).toBe('5 rue Prise, 92400 Courbevoie est déjà la copropriété rattachée à AUTRE / Lyon.');
+    expect(conflitAdresse(a('7 rue Sec'), '12 rue x', ims, connus)).toBe('7 rue Sec, 92400 Courbevoie est déjà une adresse de la copropriété 1 rue Autre, 92400 Courbevoie.');
+    expect(conflitAdresse(a('3 av Y'), '12 rue x', ims, connus)).toBe('3 av Y, 92400 Courbevoie est déjà une adresse de cette copropriété.');
+    expect(conflitAdresse(a('8 rue Z'), '12 rue x', ims, connus)).toBe('8 rue Z, 92400 Courbevoie figure déjà dans les copropriétés de ce syndic.');
+    expect(conflitAdresse(a('9 rue Libre'), '12 rue x', ims, connus)).toBeNull();
+  });
+  it('lotsDuPortefeuille : un groupe par copropriété, lots de TOUTES ses adresses, adresses dans l’en-tête ; une adresse non enregistrée ⇒ « en attente »', () => {
+    const connus: ImmeubleConnu[] = [
+      { cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', lots: [lot(1, '101')], syndic: null },
+      { cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', lots: [lot(3, '301')], syndic: null },
+      { cle: '9 bd w', libelle: '9 bd W', codePostal: '92400', commune: 'Courbevoie', lots: [lot(9, '901')], syndic: null },
+    ];
+    const g = lotsDuPortefeuille([{ libelle: '12 rue X', codePostal: '', commune: '', adresses: [{ libelle: '3 av Y', codePostal: '', commune: '' }, { libelle: '9 bd W', codePostal: '', commune: '' }] }],
+      connus, '12 rue x', new Set(['12 rue x', '3 av y']));
+    expect(g).toHaveLength(1);
+    expect(g[0].adresse).toBe('12 rue X, 92400 Courbevoie · 3 av Y, 92400 Courbevoie · 9 bd W, 92400 Courbevoie');
+    expect(g[0].lots.map((l) => [l.numero, l.aValider])).toEqual([['101', false], ['301', false], ['901', true]]);
+  });
+});
+
+describe('LOT COPRO-PLUSIEURS-ADRESSES — serveur', () => {
+  it('conflit AVANT écriture : adresse déjà la copropriété d’un autre syndic, ou l’adresse d’une autre copropriété', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_copropriete c JOIN gestion_copropriete_syndic cs ON cs.copropriete_id = c.id AND cs.fin IS NULL')
+        ? { rows: [{ cle: '5 rue prise', syndic_nom: 'AUTRE', syndic_ville: 'Lyon' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_adresse a JOIN gestion_copropriete c') && sql.includes('a.cle_immeuble = ANY')
+        ? { rows: [{ cle: '7 rue sec', copro_cle: '1 rue autre', copro_libelle: '1 rue Autre', code_postal: '92400', commune: 'Courbevoie' }] } : undefined),
+    ];
+    for (const [adresse, motif] of [
+      ['5 rue Prise', '5 rue Prise, 92400 Courbevoie est déjà la copropriété rattachée à AUTRE / Lyon.'],
+      ['7 rue Sec', '7 rue Sec, 92400 Courbevoie est déjà une adresse de la copropriété 1 rue Autre, 92400 Courbevoie.'],
+    ]) {
+      appels.length = 0;
+      const v = validerSyndic({ ...ADR, nom: 'Cab', immeubles: [{ libelle: '12 rue X', adresses: [{ libelle: adresse, codePostal: '92400', commune: 'Courbevoie' }] }] });
+      if (!v.ok) throw new Error(v.motif);
+      expect(await enregistrerSyndic(11, v.syndic, auteur)).toEqual({ ok: false, motif });
+      expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
+    }
+  });
+
+  it('synchronisation : les nouvelles adresses ajoutées (qui, quand), les absentes RETIRÉES (historisées) ; `adresses` absent ⇒ on n’y touche pas', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE') ? { rows: [{ id: '11' }] } : undefined),
+      (sql) => (sql.includes('SELECT id::text FROM gestion_copropriete WHERE cle_immeuble = $1') ? { rows: [{ id: '77' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_adresse WHERE copropriete_id = $1 AND retire_le IS NULL FOR UPDATE')
+        ? { rows: [{ id: '5', cle: '3 av y' }, { id: '6', cle: '4 av y' }] } : undefined),
+    ];
+    const v = validerSyndic({ ...ADR, nom: 'Cab', immeubles: [{ libelle: '12 rue X', adresses: [{ libelle: '3 av Y' }, { libelle: '9 bd W', codePostal: '92400', commune: 'Courbevoie' }] }] });
+    if (!v.ok) throw new Error(v.motif);
+    await enregistrerSyndic(11, v.syndic, auteur);
+    expect(appels.find((a) => a.sql.includes('UPDATE gestion_copropriete_adresse SET retire_le = now()'))?.params).toEqual([['6'], 'arno']);
+    expect(appels.filter((a) => a.sql.includes('INSERT INTO gestion_copropriete_adresse')).map((a) => a.params))
+      .toEqual([['77', '9 bd w', '9 bd W', '92400', 'Courbevoie', 7, 'arno']]);
+    expect(appels.some((a) => /\bDELETE\b/i.test(a.sql) || a.sql.includes('gestion_journal'))).toBe(false);
+    appels.length = 0;
+    const w = validerSyndic({ ...ADR, nom: 'Cab', immeubles: [{ libelle: '12 rue X' }] });
+    if (!w.ok) throw new Error(w.motif);
+    await enregistrerSyndic(11, w.syndic, auteur);
+    expect(appels.some((a) => a.sql.includes('gestion_copropriete_adresse') && /^\s*(INSERT|UPDATE)/i.test(a.sql))).toBe(false);
+  });
+
+  it('immeublesConnus : une adresse secondaire a le syndic de SA copropriété et la dit ; la copropriété liste ses adresses', async () => {
+    const { immeublesConnus } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_annuaire_lot lo') ? { rows: [
+        { id: '301', numero: '301', immeuble: '3 av Y', adresse: '3 av Y', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+      ] } : undefined),
+      (sql) => (sql.includes('LEFT JOIN gestion_copropriete_syndic cs') ? { rows: [
+        { cle: '12 rue x', libelle: '12 rue X', code_postal: '92400', commune: 'Courbevoie', syndic_id: '11', syndic_nom: 'Cab', syndic_ville: 'Paris' },
+      ] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id') && sql.includes('ORDER BY a.id')
+        ? { rows: [{ id: '5', cle: '3 av y', libelle: '3 av Y', code_postal: '92400', commune: 'Courbevoie', copro_id: '77', copro_cle: '12 rue x' }] } : undefined),
+    ];
+    const l = await immeublesConnus();
+    const sec = l.find((x) => x.cle === '3 av y');
+    expect(sec).toMatchObject({ syndic: { id: 11, nom: 'Cab', ville: 'Paris' }, principale: { cle: '12 rue x', libelle: '12 rue X' } });
+    expect(sec?.lots.map((x) => x.numero)).toEqual(['301']);
+    expect(l.find((x) => x.cle === '12 rue x')?.secondaires).toEqual([{ cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' }]);
+  });
+
+  it('la fiche : la copropriété porte ses adresses secondaires, et ses lots comprennent les leurs', async () => {
+    const { ficheSyndic } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL') ? { rows: [{ id: '11', nom: 'S', cree_le: '', cree_par_libelle: 'x' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_annuaire_lot lo') ? { rows: [
+        { id: '101', numero: '101', immeuble: '12 rue X', adresse: '12 rue X', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+        { id: '301', numero: '301', immeuble: '3 av Y', adresse: '3 av Y', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+      ] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_syndic cs JOIN gestion_copropriete c ON c.id = cs.copropriete_id') && sql.includes('cs.fin_motif')
+        ? { rows: [{ id: '77', cle: '12 rue x', libelle: '12 rue X', code_postal: '92400', commune: 'Courbevoie', debut: '2026-10-10', fin: null, fin_motif: null }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id') && sql.includes('ORDER BY a.id')
+        ? { rows: [{ id: '5', cle: '3 av y', libelle: '3 av Y', code_postal: null, commune: null, copro_id: '77', copro_cle: '12 rue x' }] } : undefined),
+    ];
+    const f = await ficheSyndic(11);
+    expect(f?.coproprietes[0].adresses).toEqual([{ cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' }]);
+    expect(f?.coproprietes[0].lots.map((l) => l.numero)).toEqual(['101', '301']);
+    expect(versFormulaire(f as FicheSyndic).immeubles[0].adresses).toEqual([{ libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie' }]);
+  });
+
+  it('« Supprimer ce syndic de cette résidence » : les lots de TOUTES les adresses de la copropriété perdent le syndic (une ligne de journal chacun)', async () => {
+    const { retirerDeLaCopropriete } = await import('./syndicRepo');
+    reponses = [
+      (sql) => (sql.includes('FROM gestion_annuaire_lot lo') ? { rows: [
+        { id: '101', numero: '101', immeuble: '12 rue X', adresse: '12 rue X', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+        { id: '301', numero: '301', immeuble: '3 av Y', adresse: '3 av Y', commune: 'COURBEVOIE', code_postal: '92400', proprietaires: null },
+      ] } : undefined),
+      (sql) => (sql.includes('SELECT nom, ville FROM gestion_syndic WHERE id = $1') ? { rows: [{ nom: 'S', ville: null }] } : undefined),
+      (sql) => (sql.includes('FOR UPDATE OF cs') ? { rows: [{ lien_id: '31', copro_id: '77', libelle: '12 rue X', code_postal: '92400', commune: 'Courbevoie' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id') && sql.includes('ORDER BY a.id')
+        ? { rows: [{ id: '5', cle: '3 av y', libelle: '3 av Y', code_postal: null, commune: null, copro_id: '77', copro_cle: '12 rue x' }] } : undefined),
+    ];
+    expect(await retirerDeLaCopropriete(11, '12 rue X', auteur)).toEqual({ ok: true, lots: 2 });
+    expect(appels.filter((a) => a.sql.includes('INSERT INTO gestion_journal')).map((a) => a.params[0])).toEqual([101, 301]);
+    // les adresses secondaires appartiennent à la COPROPRIÉTÉ : le retrait du syndic ne les retire pas
+    expect(appels.some((a) => a.sql.includes('UPDATE gestion_copropriete_adresse'))).toBe(false);
+  });
+
+  it('MIGRATION 335 : une table d’AJOUT, une adresse en cours n’appartient qu’à une copropriété ; retrait historisé ; aucune donnée réécrite', () => {
+    const sql = norm(readFileSync(join(__dirname, '../../../db/migrations/335_gestion_copropriete_adresses.sql'), 'utf8')
+      .split('\n').filter((l) => !l.startsWith('--')).join('\n'));
+    expect(sql).toContain('CREATE TABLE IF NOT EXISTS gestion_copropriete_adresse (');
+    expect(sql).toContain('copropriete_id bigint NOT NULL REFERENCES gestion_copropriete(id)');
+    expect(sql).toContain('ON gestion_copropriete_adresse (cle_immeuble) WHERE retire_le IS NULL');
+    expect(sql).not.toMatch(/\bUPDATE\b|\bDELETE\b|\bDROP\b|ALTER TABLE/i);
   });
 });

@@ -51,7 +51,16 @@ export interface ContactSaisi {
   immeubles: string[];
 }
 /** Un immeuble rattaché : son libellé (l'« Immeuble » de l'export, ou une adresse de la BAN), et sa commune. */
-export interface ImmeubleSaisi { libelle: string; codePostal: string; commune: string }
+export interface ImmeubleSaisi {
+  libelle: string; codePostal: string; commune: string;
+  /** LOT COPRO-PLUSIEURS-ADRESSES — les adresses SECONDAIRES de cette copropriété (la principale est `libelle`).
+   *  Absent : on n'y touche pas ; liste (même vide) : c'est la liste entière (les absentes sont retirées). */
+  adresses?: AdresseSaisie[];
+}
+/** LOT COPRO-PLUSIEURS-ADRESSES — une adresse (rue, code postal, ville). */
+export interface AdresseSaisie { libelle: string; codePostal: string; commune: string }
+/** LOT COPRO-PLUSIEURS-ADRESSES — une adresse connue, avec sa clé. */
+export interface AdresseConnue { cle: string; libelle: string; codePostal: string | null; commune: string | null }
 export interface SyndicSaisi {
   nom: string; adresse: string; codePostal: string; ville: string;
   /** Les numéros sont enregistrés en CHIFFRES (un « + » en tête s'il y en a un) — jamais avec leurs espaces. */
@@ -95,6 +104,11 @@ export interface ImmeubleConnu {
   cle: string; libelle: string; codePostal: string | null; commune: string | null; lots: LotDeCopropriete[];
   /** LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — la ville du syndic sert à l'afficher « NOM / Ville » (`nomAvecVille`). */
   syndic: { id: number; nom: string; ville?: string | null } | null;
+  /** LOT COPRO-PLUSIEURS-ADRESSES — cet immeuble est une adresse SECONDAIRE : la copropriété (son adresse principale)
+   *  à laquelle il appartient ; son syndic est alors celui de cette copropriété. */
+  principale?: AdresseConnue | null;
+  /** LOT COPRO-PLUSIEURS-ADRESSES — pour une copropriété, ses adresses SECONDAIRES en cours. */
+  secondaires?: AdresseConnue[];
 }
 
 /** Une adresse proposée par la Base Adresse Nationale LOCALE (table `adresse_ban`), hors portefeuille. */
@@ -125,6 +139,8 @@ export interface FicheSyndic {
   coproprietes: Array<{
     id: number; cle: string; libelle: string; codePostal: string | null; commune: string | null; debut: string;
     lots: LotDeCopropriete[];
+    /** LOT COPRO-PLUSIEURS-ADRESSES — ses adresses secondaires en cours (ses `lots` comprennent les leurs). */
+    adresses?: AdresseConnue[];
   }>;
   /** Les liens FERMÉS : l'historique, jamais effacé. */
   historique: Array<{ libelle: string; debut: string; fin: string; motif: string | null }>;
@@ -325,7 +341,34 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
     const cle = cleImmeuble(libelle);
     if (cle === '' || vus.has(cle)) continue;
     vus.add(cle);
-    immeubles.push({ libelle, codePostal: texte(o.codePostal), commune: texte(o.commune) });
+    // LOT COPRO-PLUSIEURS-ADRESSES — ses adresses secondaires : dédoublonnées, jamais égales à la principale.
+    let adresses: AdresseSaisie[] | undefined;
+    if (Array.isArray(o.adresses)) {
+      adresses = [];
+      const vuesIci = new Set<string>([cle]);
+      for (const ab of o.adresses.slice(0, 30)) {
+        if (typeof ab !== 'object' || ab === null) continue;
+        const a = ab as Record<string, unknown>;
+        const l = texte(a.libelle);
+        const k = cleImmeuble(l);
+        if (k === '' || vuesIci.has(k)) continue;
+        vuesIci.add(k);
+        adresses.push({ libelle: l, codePostal: texte(a.codePostal), commune: texte(a.commune) });
+      }
+    }
+    immeubles.push({ libelle, codePostal: texte(o.codePostal), commune: texte(o.commune), ...(adresses !== undefined ? { adresses } : {}) });
+  }
+  // Une adresse secondaire ne peut pas être aussi une copropriété (ou l'adresse d'une autre) de la même saisie.
+  {
+    const toutes = new Map<string, string>();
+    for (const im of immeubles) {
+      for (const a of [{ libelle: im.libelle }, ...(im.adresses ?? [])]) {
+        const k = cleImmeuble(a.libelle);
+        const deja = toutes.get(k);
+        if (deja !== undefined && deja !== im.libelle) return { ok: false, motif: `${a.libelle} figure deux fois dans les copropriétés de ce syndic.` };
+        toutes.set(k, im.libelle);
+      }
+    }
   }
 
   // LOT SYNDIC-CONTACTS-ANTI-DOUBLON — dans UN syndic, deux contacts ne portent pas le même Prénom + NOM (BLOQUANT) ; le
@@ -656,7 +699,9 @@ export function versFormulaire(f: FicheSyndic, lotNote: number | null = null): S
         }),
       };
     }),
-    immeubles: f.coproprietes.map((c) => ({ libelle: c.libelle, codePostal: c.codePostal ?? '', commune: c.commune ?? '' })),
+    immeubles: f.coproprietes.map((c) => ({ libelle: c.libelle, codePostal: c.codePostal ?? '', commune: c.commune ?? '',
+      // LOT COPRO-PLUSIEURS-ADRESSES — ses adresses secondaires, telles qu'enregistrées.
+      adresses: (c.adresses ?? []).map((a) => ({ libelle: a.libelle, codePostal: a.codePostal ?? '', commune: a.commune ?? '' })) })),
     lotNote, noteBien: lotNote !== null ? (f.noteBien ?? '') : '',
     partis: [], anciens: [...(f.anciens ?? [])],
   };
@@ -1135,6 +1180,34 @@ export interface LotDuPortefeuille extends LotDeCopropriete {
 }
 export interface GroupeDeLots { cle: string; adresse: string; lots: LotDuPortefeuille[] }
 
+/**
+ * LOT COPRO-PLUSIEURS-ADRESSES — UNE ADRESSE N'APPARTIENT QU'À UNE COPROPRIÉTÉ. `null` : on peut l'ajouter à la
+ * copropriété `cleCopro` ; sinon, ce qui l'en empêche, en clair. PUR.
+ *   · déjà une copropriété (autre) rattachée à un syndic  ⇒ « … est déjà la copropriété rattachée à SYNDIC / Ville. »
+ *   · déjà l'adresse secondaire d'une autre copropriété   ⇒ « … est déjà une adresse de la copropriété … »
+ *   · déjà une copropriété (ou une adresse) de CETTE saisie ⇒ « … figure déjà dans les copropriétés de ce syndic. »
+ */
+export function conflitAdresse(a: AdresseSaisie, cleCopro: string, immeubles: readonly ImmeubleSaisi[], connus: readonly ImmeubleConnu[]): string | null {
+  const k = cleImmeuble(a.libelle);
+  const affichee = adresseImmeuble(a.libelle, a.codePostal, a.commune);
+  if (k === '') return 'Adresse illisible.';
+  for (const im of immeubles) {
+    const cim = cleImmeuble(im.libelle);
+    if (cim === cleCopro) {
+      if (k === cim || (im.adresses ?? []).some((x) => cleImmeuble(x.libelle) === k)) return `${affichee} est déjà une adresse de cette copropriété.`;
+      continue;
+    }
+    if (k === cim || (im.adresses ?? []).some((x) => cleImmeuble(x.libelle) === k)) return `${affichee} figure déjà dans les copropriétés de ce syndic.`;
+  }
+  const c = connus.find((x) => x.cle === k);
+  if (c?.principale && c.principale.cle !== cleCopro) {
+    const p = adresseImmeuble(c.principale.libelle, c.principale.codePostal, c.principale.commune);
+    return `${affichee} est déjà une adresse de la copropriété ${p}${c.syndic ? ` (rattachée à ${nomAvecVille(c.syndic.nom, c.syndic.ville)})` : ''}.`;
+  }
+  if (c && !c.principale && c.syndic) return `${affichee} est déjà la copropriété rattachée à ${nomAvecVille(c.syndic.nom, c.syndic.ville)}.`;
+  return null;
+}
+
 /** La voie d'un immeuble sans son numéro (« 12 bis rue des Pavillons » → « rue des pavillons »), pour le tri. PUR. */
 function voieSansNumero(libelle: string): string {
   return normaliserTexte(libelle).replace(/^\d+\s*(bis|ter|quater|[a-z](?=\s))?\s*/, '');
@@ -1169,13 +1242,20 @@ export function lotsDuPortefeuille(immeubles: readonly ImmeubleSaisi[], connus: 
     if (vus.has(cle)) continue;
     vus.add(cle);
     const i = parCle.get(cle);
-    if (i === undefined || i.lots.length === 0) continue;
-    const aValider = !dejaRattachees.has(cle);
-    const lots = [...i.lots].sort((a, b) =>
+    // LOT COPRO-PLUSIEURS-ADRESSES — les lots de la copropriété sont ceux de TOUTES ses adresses ; ceux d'une adresse
+    // pas encore enregistrée ne recevront ce syndic qu'au « Valider ».
+    const secondaires = (im.adresses ?? []).map((a) => ({ a, cle: cleImmeuble(a.libelle) }));
+    const brut = [
+      ...(i?.lots ?? []).map((l) => ({ ...l, aValider: !dejaRattachees.has(cle) })),
+      ...secondaires.flatMap((x) => (parCle.get(x.cle)?.lots ?? []).map((l) => ({ ...l, aValider: !dejaRattachees.has(x.cle) }))),
+    ];
+    if (brut.length === 0) continue;
+    const lots = brut.sort((a, b) =>
       (a.triProprietaire ?? '\uffff').localeCompare(b.triProprietaire ?? '\uffff', 'fr')
-      || a.numero.localeCompare(b.numero, 'fr', { numeric: true }))
-      .map((l) => ({ ...l, aValider }));
-    groupes.push({ cle, libelle: i.libelle, adresse: adresseImmeuble(i.libelle, i.codePostal ?? im.codePostal, i.commune ?? im.commune), lots });
+      || a.numero.localeCompare(b.numero, 'fr', { numeric: true }));
+    const principale = adresseImmeuble(i?.libelle ?? im.libelle, i?.codePostal ?? im.codePostal, i?.commune ?? im.commune);
+    const autres = secondaires.map((x) => adresseImmeuble(x.a.libelle, parCle.get(x.cle)?.codePostal ?? x.a.codePostal, parCle.get(x.cle)?.commune ?? x.a.commune));
+    groupes.push({ cle, libelle: i?.libelle ?? im.libelle, adresse: [principale, ...autres].join(' · '), lots });
   }
   groupes.sort((a, b) => {
     if (a.cle === cleDepart) return -1;
