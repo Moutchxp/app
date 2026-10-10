@@ -194,32 +194,14 @@ describe('les copropriétés — adresse complète, auto-complétion, reprise co
     expect(document.querySelector('.fsy-copro')?.textContent).toContain('12 rue X, 92400 Courbevoie');
   });
 
-  it('dès 2 caractères : le portefeuille, avec « N biens en gestion » et « déjà rattachée à … » ; la prise se confirme', async () => {
+  /* LOT SYNDIC-BLOC-PORTEFEUILLE — CE QU'ILS DISAIENT AVANT (deux tests) : le champ « + Ajouter une copropriété
+     (immeuble) » proposait le portefeuille (« N biens en gestion », « déjà rattachée à … » et reprise confirmée) puis
+     l'API Adresse. Le champ est RETIRÉ avec l'accord d'Arno ; la source d'adresses reste éprouvée sur le champ « rue ». */
+  it('le champ « + Ajouter une copropriété » n’existe plus dans la fiche', async () => {
     await ouvrir();
     await deplierCopros();
-    await taper(champ('+ Ajouter une copropriété (immeuble)'), '25');
-    const prop = [...document.querySelectorAll('.fsy-proposition')].map((p) => p.textContent ?? '');
-    expect(prop[0]).toContain('25 rue Edith Cavell, 92400 Courbevoie');
-    expect(prop[0]).toContain('2 biens en gestion à cette adresse');
-    expect(prop[0]).toContain('déjà rattachée à _TEST Autre Syndic / Courbevoie');
-    await cliquer(document.querySelector('.fsy-proposition') as Element);
-    expect(document.body.textContent).toContain('La prendre ?');
-    await cliquer(bouton('Oui, la prendre'));
-    expect([...document.querySelectorAll('.fsy-copro')].map((c) => c.textContent).join()).toContain('25 rue Edith Cavell, 92400 Courbevoie');
-    expect(document.body.textContent).toContain('Changement de syndic à la validation');
-  });
-
-  /* LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — CE QU'IL DISAIT AVANT : « la BAN LOCALE » et « aucun appel à
-     data.gouv.fr ». Arno demande désormais la MÊME source que les fiches (l'API Adresse), la BAN locale en repli. */
-  it('hors portefeuille : l\'API Adresse, « aucun bien en gestion à cette adresse »', async () => {
-    await ouvrir();
-    await taper(champ('+ Ajouter une copropriété (immeuble)'), '7 rue test');
-    await attendre(300);
-    expect(appels.some((a) => a.url.startsWith('https://api-adresse.data.gouv.fr/search/?q=7%20rue%20test'))).toBe(true);
-    const prop = [...document.querySelectorAll('.fsy-proposition')].map((p) => p.textContent ?? '');
-    expect(prop.join()).toContain('7 Rue Test, 92400 Courbevoie');
-    expect(prop.join()).toContain('aucun bien en gestion à cette adresse');
-    expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/syndics/adresses'))).toBe(false);
+    expect([...document.querySelectorAll('label > span')].some((x) => x.textContent === '+ Ajouter une copropriété (immeuble)')).toBe(false);
+    expect(document.querySelector('.fsy-proposition')).toBeNull();
   });
 });
 
@@ -486,10 +468,11 @@ describe('LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS', () => {
     expect(propositions()[0]).toBe('8 Rue Denfert-Rochereau, 92100 Boulogne-Billancourt');
   });
 
-  it('l\'API en panne : REPLI sur la BAN locale', async () => {
+  // LOT SYNDIC-BLOC-PORTEFEUILLE — CE QU'IL DISAIT AVANT : le repli éprouvé sur « + Ajouter une copropriété » (retiré).
+  it('l\'API en panne : REPLI sur la BAN locale (champ « Adresse (rue) »)', async () => {
     apiEnPanne = true;
     await ouvrir();
-    await taper(champ('+ Ajouter une copropriété (immeuble)'), '7 rue test');
+    await taper(champ('Adresse (rue) *'), '7 rue test');
     await attendre(300);
     expect(appels.some((a) => a.url.startsWith('/api/admin/gestion/syndics/adresses?q=7%20rue%20test'))).toBe(true);
     expect(propositions().join()).toContain('7 Rue Test, 92400 Courbevoie');
@@ -1153,11 +1136,12 @@ describe('LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT', () => {
     expect(document.querySelectorAll('.fsy-copro')).toHaveLength(0);
   });
 
-  it('COPROPRIÉTÉS : même format que les lignes repliées (même règle de style) ; « + Ajouter une copropriété » reste visible', async () => {
+  // LOT SYNDIC-BLOC-PORTEFEUILLE — CE QU'IL DISAIT AVANT : « + Ajouter une copropriété » reste visible. Il est retiré.
+  it('COPROPRIÉTÉS : même format que les lignes repliées (même règle de style) ; plus de « + Ajouter une copropriété »', async () => {
     await ouvrir(vi.fn(), 20);
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.fsy-contact-replie,.fsy-contact-tete-btn,.fsy-copros-ligne{width:100%;min-height:40px;');
-    expect(champ('+ Ajouter une copropriété (immeuble)')).toBeTruthy();
+    expect([...document.querySelectorAll('label > span')].some((x) => x.textContent === '+ Ajouter une copropriété (immeuble)')).toBe(false);
   });
 
   it('COPROPRIÉTÉS : aucune → « (0) », non dépliable', async () => {
@@ -1227,10 +1211,10 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
   const noms = (n: 1 | 2): string[] => [...bloc(n).querySelectorAll(':scope > button.fsy-contact-replie')]
     .map((b) => b.querySelector('.fsy-contact-nom')?.textContent ?? '');
 
-  it('depuis un BIEN : « Syndic de l’immeuble · adresse » puis « Gérer ce syndic », dans cet ordre, encadrés', async () => {
+  it('depuis un BIEN : « Syndic de l’immeuble · adresse » puis « Syndic & portefeuille de gestion », dans cet ordre, encadrés', async () => {
     await depuisLeBien();
     expect(titre(1)).toBe('Syndic de l’immeuble · 12 rue X, 92400 Courbevoie');
-    expect(titre(2)).toBe('Gérer ce syndic');
+    expect(titre(2)).toBe('Syndic & portefeuille de gestion'); // avant : « Gérer ce syndic »
     expect(bloc(1).compareDocumentPosition(bloc(2))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(bloc(1).className).toBe('fsy-cadre');
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
@@ -1242,7 +1226,7 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
   it('depuis l’écran « Syndics » : « Coordonnées et contacts du cabinet » et « Contacts du cabinet » (tous)', async () => {
     await ouvrir(vi.fn(), 20);
     expect(titre(1)).toBe('Coordonnées et contacts du cabinet');
-    expect(titre(2)).toBe('Gérer ce syndic');
+    expect(titre(2)).toBe('Syndic & portefeuille de gestion'); // avant : « Gérer ce syndic »
     expect([...bloc(1).querySelectorAll('h4.fsy-sous-titre')].map((h) => h.textContent)).toEqual(['Contacts du cabinet']);
     expect(noms(1)).toEqual(['Paul COMMUN', 'Marie DOUZE', 'Yves TROIS']);
   });
@@ -1262,9 +1246,9 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
     // DÉPLACÉ en bas du bloc 1, sous la liste des contacts.
     expect(dans(1, bouton('+ Ajouter un contact'))).toBe(true);
     expect(sousTitre.compareDocumentPosition(bouton('+ Ajouter un contact'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    // BLOC 2 : copropriétés repliées, + Ajouter une copropriété, Biens qui recevront ce syndic
-    const ordre = [document.querySelector('.fsy-copros-ligne'),
-      champ('+ Ajouter une copropriété (immeuble)'), document.querySelector('details.fsy-biens')] as Element[];
+    // BLOC 2 — LOT SYNDIC-BLOC-PORTEFEUILLE, CE QU'IL DISAIT AVANT : copropriétés, « + Ajouter une copropriété », « Biens
+    // qui recevront ce syndic ». Désormais : copropriétés, puis « Lots du portefeuille liés à ce syndic ».
+    const ordre = [document.querySelector('.fsy-copros-ligne:not(.fsy-lots-ligne)'), document.querySelector('.fsy-lots-ligne')] as Element[];
     for (const el of ordre) expect(dans(2, el)).toBe(true);
     for (let i = 1; i < ordre.length; i++) expect(ordre[i - 1].compareDocumentPosition(ordre[i])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     // rien n'est retiré : historique / trace / suppression restent sous les deux blocs
@@ -1695,5 +1679,120 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — à la saisie', () => {
     await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Modifier'));
     await quitter(champC('Nom'));
     expect(rouge()).toEqual([]);
+  });
+});
+
+describe('LOT SYNDIC-BLOC-PORTEFEUILLE — « Syndic & portefeuille de gestion »', () => {
+  const lot = (id: number, numero: string, adresse: string, proprietaires: string[]) => ({
+    id, numero, adresse, commune: 'COURBEVOIE', proprietaires, triProprietaire: proprietaires[0] ? proprietaires[0].replace(/^(M\.|Mme)\s+/, '').toLowerCase() : undefined,
+  });
+  const IMM = [
+    { cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', syndic: { id: 20, nom: '_TEST Grand Cabinet', ville: 'Paris' },
+      lots: [lot(1, '101', '12 rue X', ['M. ZOLA']), lot(4, '9', '12 rue X', ['Mme ABEL', 'M. JULLIEN']), lot(5, '100', '12 rue X', [])] },
+    { cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', syndic: { id: 20, nom: '_TEST Grand Cabinet', ville: 'Paris' },
+      lots: [lot(2, '201', '3 av Y', ['M. DUPONT'])] },
+    { cle: '8 rue abel', libelle: '8 rue Abel', codePostal: '92400', commune: 'Courbevoie', syndic: null,
+      lots: [lot(3, '301', '8 rue Abel', ['M. MARTIN'])] },
+  ];
+  const FICHE_25 = { ...FICHE_20, id: 25, coproprietes: [
+    { id: 6, cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+    { id: 7, cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+    { id: 9, cle: '8 rue abel', libelle: '8 rue Abel', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] },
+  ] };
+  const servir = async (): Promise<void> => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const m = init?.method ?? 'GET';
+      if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return { ok: true, json: async () => ({ etat: 'ok', disponible: true, immeubles: IMM }) };
+      if (url === '/api/admin/gestion/syndics/25' && m === 'GET') return { ok: true, json: async () => ({ etat: 'ok', fiche: FICHE_25 }) };
+      if (m !== 'GET') { appels.push({ url, methode: m, corps: JSON.parse(String(init?.body)) }); return { ok: true, json: async () => ({ ok: true, id: 25 }) }; }
+      return (avant as typeof fetch)(url, init);
+    }));
+    const { rafraichirImmeubles } = await import('./useImmeublesSyndics');
+    await act(async () => { await rafraichirImmeubles(); });
+  };
+  const ouvrirDepuis = async (libelle: string | null, syndicId: number | null = 25): Promise<void> => {
+    await servir();
+    await act(async () => {
+      root.render(createElement(FicheSyndic, { syndicId, onFerme: vi.fn(),
+        immeubleDepart: libelle === null ? null : { libelle, codePostal: '92400', commune: 'Courbevoie' } }));
+    });
+    await calmer();
+  };
+  const ligneLots = (): HTMLElement | null => document.querySelector('.fsy-lots-ligne');
+  const groupes = (): Array<{ adresse: string; lots: string[] }> => [...document.querySelectorAll('.fsy-lots-groupe')].map((g) => ({
+    adresse: g.querySelector('.fsy-lots-adresse')?.textContent ?? '',
+    lots: [...g.querySelectorAll('.fsy-lot')].map((l) => l.textContent ?? ''),
+  }));
+
+  it('titre « Syndic & portefeuille de gestion » ; « + Ajouter une copropriété » absent ; « Biens qui recevront » remplacé', async () => {
+    await ouvrirDepuis('12 rue X');
+    expect(document.querySelector('section[aria-labelledby="fsy-bloc-2"] .fsy-cadre-titre')?.textContent).toBe('Syndic & portefeuille de gestion');
+    expect([...document.querySelectorAll('label > span')].some((x) => x.textContent === '+ Ajouter une copropriété (immeuble)')).toBe(false);
+    expect(document.querySelector('details.fsy-biens')).toBeNull();
+    expect(document.body.textContent).not.toContain('Biens qui recevront ce syndic');
+  });
+
+  it('la ligne « Lots du portefeuille liés à ce syndic (N) » : sous les copropriétés, même format, repliée, puis dépliée et repliée', async () => {
+    await ouvrirDepuis('12 rue X');
+    const l = ligneLots() as HTMLElement;
+    expect(l.tagName).toBe('BUTTON');
+    expect(l.className).toContain('fsy-copros-ligne');
+    expect(l.textContent).toBe('Lots du portefeuille liés à ce syndic (5)▸');
+    expect(document.querySelector('.fsy-copros-ligne')?.compareDocumentPosition(l)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(document.querySelector('.fsy-lots')).toBeNull();
+    await cliquer(l);
+    expect(ligneLots()?.textContent).toBe('Lots du portefeuille liés à ce syndic (5)▾');
+    expect(document.querySelector('.fsy-lots')).not.toBeNull();
+    await cliquer(ligneLots() as Element);
+    expect(document.querySelector('.fsy-lots')).toBeNull();
+  });
+
+  it('ORDRE depuis un bien : sa copropriété d’abord, puis par voie (sans numéro) ; dans un groupe, par premier propriétaire puis numéro', async () => {
+    await ouvrirDepuis('12 rue X');
+    await cliquer(ligneLots() as Element);
+    const g = groupes();
+    expect(g.map((x) => x.adresse)).toEqual(['12 rue X, 92400 Courbevoie', '3 av Y, 92400 Courbevoie', '8 rue Abel, 92400 Courbevoie']);
+    expect(g[0].lots).toEqual([
+      'lot 9 — 12 rue X, COURBEVOIEMme ABEL · M. JULLIEN',
+      'lot 101 — 12 rue X, COURBEVOIEM. ZOLA',
+      'lot 100 — 12 rue X, COURBEVOIEpropriétaire non renseigné',
+    ]);
+    expect(document.querySelector('.fsy-lot-proprios.fsy-discret')?.textContent).toBe('propriétaire non renseigné');
+  });
+
+  it('ORDRE depuis l’écran « Syndics » : toutes les adresses par voie puis numéro', async () => {
+    await ouvrirDepuis(null);
+    await cliquer(ligneLots() as Element);
+    expect(groupes().map((x) => x.adresse)).toEqual(['3 av Y, 92400 Courbevoie', '8 rue Abel, 92400 Courbevoie', '12 rue X, 92400 Courbevoie']);
+  });
+
+  it('plusieurs propriétaires à droite, sans « … » ; passage à la ligne autorisé', async () => {
+    await ouvrirDepuis('12 rue X');
+    await cliquer(ligneLots() as Element);
+    const p = [...document.querySelectorAll('.fsy-lot-proprios')].map((x) => x.textContent);
+    expect(p).toContain('Mme ABEL · M. JULLIEN');
+    expect(p.join('')).not.toContain('…');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-lot-proprios{margin-left:auto;text-align:right;overflow-wrap:anywhere;');
+  });
+
+  it('« au Valider » et PROPAGATION : un nouveau syndic créé depuis un bien liste ses lots en attente, puis les enregistre', async () => {
+    await ouvrirDepuis('8 rue Abel', null);
+    await cliquer(bouton('Créer un nouveau syndic'));
+    await cliquer(ligneLots() as Element);
+    expect(groupes()).toEqual([{ adresse: '8 rue Abel, 92400 Courbevoie', lots: ['lot 301 — 8 rue Abel, COURBEVOIE · au ValiderM. MARTIN'] }]);
+    await taper(champ('Nom du cabinet *'), '_TEST Nouveau');
+    await taper(champ('Adresse (rue) *'), '1 rue _TEST');
+    await taper(champ('Code postal *'), '92400');
+    await taper(champ('Ville *'), 'Courbevoie');
+    await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    expect((appels.find((a) => a.methode === 'POST')?.corps as { immeubles: Array<{ libelle: string }> }).immeubles.map((i) => i.libelle)).toEqual(['8 rue Abel']);
+  });
+
+  it('les copropriétés déjà enregistrées ne portent pas « au Valider »', async () => {
+    await ouvrirDepuis('12 rue X');
+    await cliquer(ligneLots() as Element);
+    expect(document.body.textContent).not.toContain('au Valider');
   });
 });

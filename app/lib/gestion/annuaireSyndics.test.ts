@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   adresseImmeuble, apercuPropagation, chiffresTelephone, choixDe, cleImmeuble, communeLisible, coproprietesRetirees,
   formaterTelephone, formulaireModifie, formulaireVide, contactVide, immeublesQuiRepondent, ligneContact, motBiensEnGestion,
-  PERSONNALISE, saisieTelephone, cleNom, cleEmail, doublonsLocaux, motDoublon, detacher, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
+  PERSONNALISE, saisieTelephone, lotsDuPortefeuille, cleNom, cleEmail, doublonsLocaux, motDoublon, detacher, nomAvecVille, libellesDe, trierParNom, filtrerCatalogue, suiviParDefaut, suitImmeuble, affecter, motContacts, motBiens, adressesDepuisApi, urlApiAdresse, casserPrenom, casserNom, adresseManquante, contactModifie, copieContact, nomAffiche, telephoneComplet, appliquerBrouillon, MOTIF_ADRESSE_INCOMPLETE, prenomNom, syndicsQuiRepondent, validerSyndic, versFormulaire, versSaisie,
   type FicheSyndic, type ImmeubleConnu, type SyndicResume,
 } from './syndics';
 
@@ -377,6 +377,29 @@ describe('LOT SYNDIC-CONTACTS-ANTI-DOUBLON — les règles', () => {
   });
 });
 
+describe('LOT SYNDIC-BLOC-PORTEFEUILLE — lotsDuPortefeuille (pur)', () => {
+  const l = (id: number, numero: string, tri?: string) => ({ id, numero, adresse: null, commune: null, proprietaires: tri ? [tri.toUpperCase()] : [], triProprietaire: tri });
+  const connus: ImmeubleConnu[] = [
+    { cle: '12 rue x', libelle: '12 rue X', codePostal: '92400', commune: 'Courbevoie', syndic: null, lots: [l(1, '101', 'zola'), l(2, '9', 'abel'), l(3, '100')] },
+    { cle: '3 av y', libelle: '3 av Y', codePostal: null, commune: null, syndic: null, lots: [l(4, '201', 'dupont')] },
+    { cle: '10 av y', libelle: '10 av Y', codePostal: null, commune: null, syndic: null, lots: [l(5, '7', 'dupont')] },
+    { cle: '8 rue elan', libelle: '8 rue Élan', codePostal: null, commune: null, syndic: null, lots: [l(6, '1')] },
+    { cle: '5 rue vide', libelle: '5 rue Vide', codePostal: null, commune: null, syndic: null, lots: [] },
+  ];
+  const tous = [im('12 rue X'), im('3 av Y'), im('10 av Y'), im('8 rue Élan'), im('5 rue Vide')];
+  it('copropriété du bien d’abord, puis par voie sans numéro (accents ignorés), puis par numéro ; une copropriété sans lot ne fait pas de groupe', () => {
+    expect(lotsDuPortefeuille(tous, connus, '12 rue x', new Set()).map((g) => g.cle)).toEqual(['12 rue x', '3 av y', '10 av y', '8 rue elan']);
+    expect(lotsDuPortefeuille(tous, connus, null, new Set()).map((g) => g.cle)).toEqual(['3 av y', '10 av y', '8 rue elan', '12 rue x']);
+  });
+  it('dans un groupe : par premier propriétaire, puis numéro (numérique) ; sans propriétaire à la fin', () => {
+    expect(lotsDuPortefeuille([im('12 rue X')], connus, null, new Set())[0].lots.map((x) => x.numero)).toEqual(['9', '101', '100']);
+  });
+  it('« au Valider » seulement pour une copropriété pas encore enregistrée chez ce syndic', () => {
+    const g = lotsDuPortefeuille([im('12 rue X'), im('3 av Y')], connus, null, new Set(['12 rue x']));
+    expect(g.map((x) => [x.cle, x.lots.every((y) => y.aValider)])).toEqual([['3 av y', true], ['12 rue x', false]]);
+  });
+});
+
 describe('les téléphones — par paires, à l\'affichage ET à la saisie', () => {
   it('« 06 13 86 18 77 », « +33 6 13 86 18 77 », et pendant la frappe', () => {
     expect(formaterTelephone('0613861877')).toBe('06 13 86 18 77');
@@ -602,6 +625,20 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(src).toContain('UPDATE gestion_syndic_coordonnee k SET retire_le = now() FROM gestion_syndic_contact c');
   });
 
+  it('PORTEFEUILLE : chaque lot porte ses propriétaires (« M. JULLIEN ») et la clé de tri du premier', async () => {
+    const { immeublesConnus } = await import('./syndicRepo');
+    reponses = [(sql) => (sql.includes('FROM gestion_annuaire_lot lo') ? { rows: [
+      { id: '1', numero: '62', immeuble: '12 rue X', adresse: '12 rue des Pavillons', commune: 'PUTEAUX', code_postal: '92800',
+        proprietaires: [{ affiche: 'M. JULLIEN', tri: 'jullien' }, { affiche: 'Mme X', tri: 'x' }] },
+      { id: '2', numero: '63', immeuble: '12 rue X', adresse: '12 rue des Pavillons', commune: 'PUTEAUX', code_postal: '92800', proprietaires: null },
+    ] } : undefined)];
+    const [i] = await immeublesConnus();
+    expect(i.lots.map((x) => [x.numero, x.proprietaires, x.triProprietaire])).toEqual([['62', ['M. JULLIEN', 'Mme X'], 'jullien'], ['63', [], undefined]]);
+    const sql = norm(appels.find((a) => a.sql.includes('FROM gestion_annuaire_lot lo'))?.sql ?? '');
+    expect(sql).toContain('FROM gestion_annuaire_proprietaire p WHERE p.id = lo.proprietaire_id AND p.supprime_le IS NULL');
+    expect(sql).toContain('WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL AND p2.supprime_le IS NULL');
+  });
+
   it('le dépôt ne contient aucun DELETE', () => {
     expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toMatch(/DELETE FROM/i);
   });
@@ -719,7 +756,9 @@ describe('les écrans', () => {
     for (const mot of ['Supprimer ce contact', 'Nouveau contact', '+ Ajouter un contact', 'Contacts de cette copropriété', 'Contacts du cabinet', 'Ajouter un contact syndic à cette copropriété',
       'Gérer ce syndic', 'Coordonnées et contacts du cabinet', 'Syndic de l’immeuble · ', 'Catalogue',
       'Ajouter à cette copropriété', 'Déjà rattaché à :', 'Immeubles suivis', 'Tous les immeubles', '+ Affecter un contact', 'Créer un nouveau contact', 'commun', 'Ajouter un second numéro de standard',
-      'Biens qui recevront ce syndic', 'déjà rattachée à', 'Oui, la prendre', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
+      // LOT SYNDIC-BLOC-PORTEFEUILLE — CE QU'IL DISAIT AVANT : 'Biens qui recevront ce syndic', 'déjà rattachée à',
+      // 'Oui, la prendre' (le champ d'ajout d'une copropriété, retiré, et la liste remplacée par les lots du portefeuille).
+      'Lots du portefeuille liés à ce syndic', 'au Valider', 'propriétaire non renseigné', 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
       'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
       expect(src).toContain(mot);
     }

@@ -43,11 +43,26 @@ interface GroupeImmeuble { libelle: string; codePostal: string | null; commune: 
 async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
   const { rows } = await query<{
     id: string; numero: string; immeuble: string | null; adresse: string | null; commune: string | null; code_postal: string | null;
+    proprietaires: Array<{ affiche: string; tri: string }> | null;
   }>(
-    `SELECT id::text, wippimmo_id AS numero, immeuble, adresse, commune, code_postal
-       FROM gestion_annuaire_lot
-      WHERE absent_le IS NULL
-      ORDER BY immeuble, wippimmo_id`);
+    /* LOT SYNDIC-BLOC-PORTEFEUILLE — les PROPRIÉTAIRES de chaque lot (« M. JULLIEN ») : le propriétaire de l'import puis
+       les copropriétaires ajoutés à la main (lien en cours), cartes non supprimées. LECTURE SEULE. */
+    `SELECT lo.id::text, lo.wippimmo_id AS numero, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
+            (SELECT json_agg(json_build_object('affiche', t.affiche, 'tri', t.tri) ORDER BY t.r, t.id)
+               FROM (SELECT 0 AS r, p.id, btrim(coalesce(p.civilite, '') || ' ' || upper(coalesce(nullif(btrim(p.nom), ''), p.nom_complet, ''))) AS affiche,
+                            lower(coalesce(nullif(btrim(p.nom), ''), p.nom_complet, '')) AS tri
+                       FROM gestion_annuaire_proprietaire p WHERE p.id = lo.proprietaire_id AND p.supprime_le IS NULL
+                     UNION ALL
+                     SELECT 1 + coalesce(lp.rang, 0), p2.id,
+                            btrim(coalesce(p2.civilite, '') || ' ' || upper(coalesce(nullif(btrim(p2.nom), ''), p2.nom_complet, ''))),
+                            lower(coalesce(nullif(btrim(p2.nom), ''), p2.nom_complet, ''))
+                       FROM gestion_annuaire_lot_proprietaire lp JOIN gestion_annuaire_proprietaire p2 ON p2.id = lp.proprietaire_id
+                      WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL AND p2.supprime_le IS NULL
+                        AND p2.id IS DISTINCT FROM lo.proprietaire_id) t
+              WHERE t.affiche <> '') AS proprietaires
+       FROM gestion_annuaire_lot lo
+      WHERE lo.absent_le IS NULL
+      ORDER BY lo.immeuble, lo.wippimmo_id`);
   const m = new Map<string, GroupeImmeuble>();
   for (const r of rows) {
     const cle = cleImmeuble(r.immeuble);
@@ -56,7 +71,11 @@ async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
     // Le premier lot qui connaît son code postal et sa commune les donne à l'immeuble.
     if (g.codePostal === null && (r.code_postal ?? '').trim() !== '') g.codePostal = (r.code_postal ?? '').trim();
     if (g.commune === null && (r.commune ?? '').trim() !== '') g.commune = communeLisible(r.commune);
-    g.lots.push({ id: Number(r.id), numero: r.numero, adresse: r.adresse, commune: r.commune });
+    const proprios = r.proprietaires ?? [];
+    g.lots.push({
+      id: Number(r.id), numero: r.numero, adresse: r.adresse, commune: r.commune,
+      proprietaires: proprios.map((x) => x.affiche), triProprietaire: proprios[0] ? normaliserTexte(proprios[0].tri) : undefined,
+    });
     m.set(cle, g);
   }
   return m;

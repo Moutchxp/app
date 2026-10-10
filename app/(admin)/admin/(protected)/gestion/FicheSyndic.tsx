@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  lotsDuPortefeuille,
   cleEmail, doublonsLocaux, emailsDe, motDoublon, type ContactAilleurs,
   detacher, nomAvecVille, filtrerCatalogue, trierParNom,
   affecter, motBiens, motContacts, suiviParDefaut, suitImmeuble,
@@ -471,6 +472,10 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   const [noteOuverte, setNoteOuverte] = useState(false);
   /** LOT SYNDIC-MODALE-DEUX-BLOCS — depuis un bien dont l'immeuble est une copropriété de la fiche ? Et laquelle. */
   const adresseDuBien = cleDepart !== null ? (adresses.find((x) => x.cle === cleDepart)?.adresse ?? null) : null;
+  const [lotsOuverts, setLotsOuverts] = useState(false);
+  const groupes = lotsDuPortefeuille(form.immeubles, connus, adresseDuBien !== null ? cleDepart : null,
+    new Set((fiche?.coproprietes ?? []).map((c) => c.cle)));
+  const lots = groupes.flatMap((g) => g.lots);
   const contacts = useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, setEdition, cleDepart, adresses, syndicId });
   const majTel = (i: number, v: string): void =>
     setForm({ ...form, telephones: form.telephones.map((t, j) => (j === i ? saisieTelephone(t, v) : t)) });
@@ -572,7 +577,8 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       )}
 
       <section className="fsy-cadre" aria-labelledby="fsy-bloc-2">
-      <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-2">Gérer ce syndic</h3>
+      {/* LOT SYNDIC-BLOC-PORTEFEUILLE — « Gérer ce syndic » devient « Syndic & portefeuille de gestion ». */}
+      <h3 className="fsy-sous-titre fsy-cadre-titre" id="fsy-bloc-2">Syndic &amp; portefeuille de gestion</h3>
 
       <EditionCopros immeubles={form.immeubles} connus={connus} syndicId={syndicId}
         /* LOT SYNDIC-CONTACTS-PAR-COPROPRIETE — une copropriété retirée sort aussi des contacts qui la suivaient. */
@@ -584,17 +590,42 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         enModification={edition?.nouveau === false ? edition.cle : null}
         onCreerContact={creerContactPour} />
 
-      {/* 🔴 LA LISTE DES BIENS, SOUS LES YEUX AVANT DE VALIDER. */}
-      <details className="fsy-biens" open={a.lots.length <= 12}>
-        <summary>Biens qui recevront ce syndic ({a.lots.length})</summary>
-        {a.lots.length === 0 ? <p className="fsy-discret">Aucun bien en gestion dans ces immeubles.</p> : (
-          <ul className="fsy-liste fsy-liste--serree">
-            {a.lots.map((l) => (
-              <li key={l.id}><strong>lot {l.numero}</strong> — {[l.adresse, l.commune].filter((x) => x).join(', ') || l.immeuble}</li>
-            ))}
-          </ul>
-        )}
-      </details>
+      {/* ══ 🔴 LOT SYNDIC-BLOC-PORTEFEUILLE — « LOTS DU PORTEFEUILLE LIÉS À CE SYNDIC (N) », au format de la ligne des
+          copropriétés, repliée par défaut. Elle remplace « Biens qui recevront ce syndic » et en garde l'information :
+          un lot qui ne recevra ce syndic qu'au « Valider » porte la mention grise « au Valider ». Groupés par immeuble
+          (la copropriété du bien d'abord, puis par nom de voie et numéro) ; dans un groupe, par premier propriétaire. */}
+      {lots.length === 0 ? (
+        <div className="fsy-copros-ligne fsy-copros-ligne--vide fsy-lots-ligne">
+          <strong>Lots du portefeuille liés à ce syndic (0)</strong>
+        </div>
+      ) : (
+        <button type="button" className="fsy-copros-ligne fsy-lots-ligne" aria-expanded={lotsOuverts} onClick={() => setLotsOuverts(!lotsOuverts)}>
+          <strong>Lots du portefeuille liés à ce syndic ({lots.length})</strong>
+          <span className="fsy-fleche" aria-hidden="true">{lotsOuverts ? '▾' : '▸'}</span>
+        </button>
+      )}
+      {lotsOuverts && lots.length > 0 && (
+        <div className="fsy-lots">
+          {groupes.map((g) => (
+            <div key={g.cle} className="fsy-lots-groupe">
+              <p className="fsy-lots-adresse">{g.adresse}</p>
+              <ul className="fsy-liste fsy-liste--serree">
+                {g.lots.map((l) => (
+                  <li key={l.id} className="fsy-lot">
+                    <span className="fsy-lot-gauche">
+                      <strong>lot {l.numero}</strong> — {[l.adresse, l.commune].filter((x) => x).join(', ')}
+                      {l.aValider && <span className="fsy-discret"> · au Valider</span>}
+                    </span>
+                    {(l.proprietaires ?? []).length > 0
+                      ? <span className="fsy-lot-proprios">{(l.proprietaires ?? []).join(' · ')}</span>
+                      : <span className="fsy-lot-proprios fsy-discret">propriétaire non renseigné</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      )}
       {a.changements.length > 0 && (
         <div className="fsy-alerte">
           Changement de syndic à la validation :
@@ -1236,7 +1267,6 @@ function ContactEnModification({ e, origine, onChange, onAnnuler, onValider, onS
 
 // ══ LES COPROPRIÉTÉS — liste, auto-complétion (portefeuille puis BAN locale), confirmation de reprise ══════════════
 
-interface Suggestion { cle: string; libelle: string; codePostal: string; commune: string; nbBiens: number; syndic: { id: number; nom: string; ville?: string | null } | null }
 
 function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onContacts, enModification, onCreerContact }: {
   immeubles: ImmeubleSaisi[]; connus: ImmeubleConnu[]; syndicId: number | null; onChange: (l: ImmeubleSaisi[]) => void;
@@ -1252,62 +1282,15 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
   const [listeOuverte, setListeOuverte] = useState(false);
   const [aCocher, setACocher] = useState<string[] | null>(null);
   const [bloque, setBloque] = useState<string | null>(null);
-  const [saisie, setSaisie] = useState('');
-  const [ban, setBan] = useState<AdresseBan[]>([]);
   const [aRetirer, setARetirer] = useState<string | null>(null);
-  const [aPrendre, setAPrendre] = useState<Suggestion | null>(null);
   const parCle = useMemo(() => new Map(connus.map((i) => [i.cle, i])), [connus]);
-  const dejaLa = useMemo(() => new Set(immeubles.map((i) => cleImmeuble(i.libelle))), [immeubles]);
 
-  // 🔴 LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — hors portefeuille : l'API Adresse (la même que les fiches),
-  // la BAN locale en repli. Les immeubles du PORTEFEUILLE restent proposés en premier (`suggestions`, plus bas).
-  useEffect(() => {
-    if (saisie.trim().length < MINIMUM_ADRESSE) { setBan([]); return; }
-    const ctrl = new AbortController();
-    const t = setTimeout(() => {
-      void chercherAdresses(saisie, ctrl.signal)
-        .then((r) => setBan(r.adresses))
-        .catch(() => { if (!ctrl.signal.aborted) setBan([]); });
-    }, 250);
-    return () => { ctrl.abort(); clearTimeout(t); };
-  }, [saisie]);
-
-  const suggestions: Suggestion[] = useMemo(() => {
-    const out: Suggestion[] = immeublesQuiRepondent(saisie, connus).map((i) => ({
-      cle: i.cle, libelle: i.libelle, codePostal: i.codePostal ?? '', commune: i.commune ?? '', nbBiens: i.lots.length, syndic: i.syndic,
-    }));
-    const vues = new Set(out.map((s) => s.cle));
-    for (const b of ban) {
-      // Une adresse du portefeuille déjà proposée n'est pas répétée ; deux villes pour la même rue, si.
-      const connu0 = parCle.get(b.cle);
-      if (connu0 !== undefined && connu0.lots.length > 0 ? vues.has(b.cle) : vues.has(`${b.cle}|${b.commune}`)) continue;
-      vues.add(`${b.cle}|${b.commune}`);
-      const connu = parCle.get(b.cle);
-      out.push({
-        cle: b.cle, libelle: connu?.libelle ?? b.libelle, codePostal: connu?.codePostal ?? b.codePostal ?? '',
-        commune: connu?.commune ?? b.commune, nbBiens: connu?.lots.length ?? 0, syndic: connu?.syndic ?? null,
-      });
-    }
-    return out.filter((s) => !dejaLa.has(s.cle));
-  }, [saisie, connus, ban, parCle, dejaLa]);
-
-  const ajouter = (s: Suggestion): void => {
-    onChange([...immeubles, { libelle: s.libelle, codePostal: s.codePostal, commune: s.commune }]);
-    setSaisie(''); setBan([]); setAPrendre(null);
-  };
-  /** Une copropriété d'un AUTRE syndic ne se prend qu'après confirmation. */
-  const choisir = (s: Suggestion): void => {
-    if (s.syndic !== null && s.syndic.id !== syndicId) { setAPrendre(s); return; }
-    ajouter(s);
-  };
 
   return (
     <div className="fsy-bloc">
       {/* 🔴 LOT SYNDIC-LIBELLES-COPROS-REPLIEES-UN-CONTACT — LA LISTE DES COPROPRIÉTÉS DÉJÀ RATTACHÉES TIENT EN UNE LIGNE,
           repliée à l'ouverture de la fiche, au format des lignes repliées (fond gris clair, ▸ à droite). Un clic la
-          déplie juste dessous, telle qu'avant ; un nouveau clic la replie. Aucune copropriété : « (0) », non dépliable.
-          ⚠️ « + Ajouter une copropriété » reste visible SOUS la ligne : il n'est pas une copropriété « déjà rattachée »,
-          et son masquage n'a pas été demandé. */}
+          déplie juste dessous, telle qu'avant ; un nouveau clic la replie. Aucune copropriété : « (0) », non dépliable. */}
       {immeubles.length === 0 ? (
         <div className="fsy-copros-ligne fsy-copros-ligne--vide">
           <strong>Copropriétés déjà rattachées à ce syndic (0)</strong>
@@ -1405,45 +1388,10 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
           })}
         </ul>
       )}
-      <label className="fsy-champ">
-        <span>+ Ajouter une copropriété (immeuble)</span>
-        <input type="text" value={saisie} onChange={(e) => { setSaisie(e.target.value); setAPrendre(null); }}
-          placeholder="ex. 25 rue Edith Cavell" autoComplete="off" />
-      </label>
-      {aPrendre !== null && (
-        <div className="fsy-alerte" role="group" aria-label="Confirmer la reprise de la copropriété">
-          <p className="fsy-sans-marge">
-            <strong>{adresseImmeuble(aPrendre.libelle, aPrendre.codePostal, aPrendre.commune)}</strong> est déjà rattachée à
-            {' '}<strong>{aPrendre.syndic !== null ? nomAvecVille(aPrendre.syndic.nom, aPrendre.syndic.ville) : ''}</strong>. La prendre ? L’ancien lien passera en historique.
-          </p>
-          <div className="fsy-boutons">
-            <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setAPrendre(null)}>Non</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => ajouter(aPrendre)}>Oui, la prendre</button>
-          </div>
-        </div>
-      )}
-      {aPrendre === null && suggestions.length > 0 && (
-        <ul className="fsy-liste" aria-label="Adresses proposées">
-          {suggestions.map((s, i) => (
-            <li key={`${i}-${s.cle}-${s.commune}`}>
-              <button type="button" className="fsy-proposition" onClick={() => choisir(s)}>
-                <span className="fsy-proposition-adresse">{adresseImmeuble(s.libelle, s.codePostal, s.commune)}</span>
-                <span className="fsy-discret">
-                  {motBiensEnGestion(s.nbBiens)}
-                  {s.syndic !== null && s.syndic.id !== syndicId && <> · <strong>déjà rattachée à {nomAvecVille(s.syndic.nom, s.syndic.ville)}</strong></>}
-                  {s.syndic !== null && s.syndic.id === syndicId && ' · déjà rattachée à ce syndic'}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {aPrendre === null && saisie.trim() !== '' && !dejaLa.has(cleImmeuble(saisie)) && (
-        <button type="button" className="fsy-lien-bouton fsy-ajout"
-          onClick={() => choisir({ cle: cleImmeuble(saisie), libelle: saisie.trim(), codePostal: '', commune: '', nbBiens: 0, syndic: parCle.get(cleImmeuble(saisie))?.syndic ?? null })}>
-          Ajouter « {saisie.trim()} » tel quel
-        </button>
-      )}
+      {/* 🔴 LOT SYNDIC-BLOC-PORTEFEUILLE — « + Ajouter une copropriété (immeuble) » est RETIRÉ de la fiche (accord d'Arno),
+          avec ses propositions et la confirmation de reprise. Une copropriété se rattache toujours quand on choisit ce
+          syndic sur un bien (« Rattacher cet immeuble à ce syndic », immeuble du bien pré-rempli) ; le serveur
+          (`enregistrerSyndic`) est inchangé. */}
     </div>
   );
 }
@@ -1530,6 +1478,13 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-pousse{margin-left:auto}
 .fsy-copro{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.45rem;padding:5px 10px;border-radius:8px;background:var(--color-svv-field)}
 .fsy-copros-ligne{margin-top:.35rem}
+/* LOT SYNDIC-BLOC-PORTEFEUILLE — les lots du portefeuille : une adresse en tete de groupe ; le lot a gauche, ses
+   proprietaires a droite (passage a la ligne s'il le faut, jamais de troncature). */
+.fsy-lots{display:flex;flex-direction:column;gap:.5rem}
+.fsy-lots-adresse{margin:0;font-size:.8rem;font-weight:700;color:var(--color-svv-muted)}
+.fsy-lot{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:.15rem .8rem}
+.fsy-lot-gauche{min-width:0;overflow-wrap:anywhere}
+.fsy-lot-proprios{margin-left:auto;text-align:right;overflow-wrap:anywhere;font-size:.84rem}
 /* LOT SYNDIC-MODALE-DEUX-BLOCS — deux cadres arrondis, un fond à peine différent de la modale, un espace net entre eux. */
 .fsy-deux-blocs{gap:1rem}
 .fsy-cadre{display:flex;flex-direction:column;gap:.45rem;padding:10px 12px 12px;border:1px solid var(--color-svv-line);border-radius:12px;

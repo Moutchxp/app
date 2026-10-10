@@ -55,7 +55,11 @@ export interface SyndicSaisi {
 }
 
 /** Un lot d'une copropriété, tel que l'écran le montre avant de confirmer. */
-export interface LotDeCopropriete { id: number; numero: string; adresse: string | null; commune: string | null }
+export interface LotDeCopropriete {
+  id: number; numero: string; adresse: string | null; commune: string | null;
+  /** LOT SYNDIC-BLOC-PORTEFEUILLE — ses propriétaires (« M. JULLIEN »), et la clé de tri du premier (son nom). */
+  proprietaires?: string[]; triProprietaire?: string;
+}
 
 /** Un immeuble connu : de l'annuaire (ses lots) et/ou déjà déclaré comme copropriété ; avec son syndic en cours. */
 export interface ImmeubleConnu {
@@ -735,4 +739,54 @@ export interface ContactAilleurs {
 /** « Ce contact existe déjà : Prénom NOM · titre · NOM / Ville » — sans morceau vide. PUR. */
 export function motDoublon(c: { prenom?: string | null; nom?: string | null; titre?: string | null }, syndic: string): string {
   return `Ce contact existe déjà : ${[prenomNom(c.prenom, c.nom), (c.titre ?? '').trim(), syndic].filter((x) => x !== '').join(' · ')}`;
+}
+
+// ══ LOT SYNDIC-BLOC-PORTEFEUILLE — « LOTS DU PORTEFEUILLE LIÉS À CE SYNDIC » ══════════════════════════════════════════
+
+export interface LotDuPortefeuille extends LotDeCopropriete {
+  /** Vrai si ce lot ne recevra ce syndic qu'au « Valider » (sa copropriété n'est pas encore enregistrée chez lui). */
+  aValider: boolean;
+}
+export interface GroupeDeLots { cle: string; adresse: string; lots: LotDuPortefeuille[] }
+
+/** La voie d'un immeuble sans son numéro (« 12 bis rue des Pavillons » → « rue des pavillons »), pour le tri. PUR. */
+function voieSansNumero(libelle: string): string {
+  return normaliserTexte(libelle).replace(/^\d+\s*(bis|ter|quater|[a-z](?=\s))?\s*/, '');
+}
+function numeroDe(libelle: string): number {
+  const m = /^\s*(\d+)/.exec(libelle);
+  return m === null ? Number.MAX_SAFE_INTEGER : Number(m[1]);
+}
+
+/**
+ * TOUS LES LOTS DU PORTEFEUILLE RATTACHÉS À CE SYNDIC, regroupés par adresse d'immeuble. PUR.
+ * Ordre des groupes : la copropriété du bien ouvert d'abord (`cleDepart`), puis les autres par nom de voie (sans le
+ * numéro, sans accents), puis par numéro croissant. Dans un groupe : par premier propriétaire, puis par numéro de lot.
+ * `dejaRattachees` = les copropriétés déjà enregistrées chez ce syndic : les autres ne le recevront qu'au « Valider ».
+ * Une copropriété sans lot en gestion ne fait pas de groupe.
+ */
+export function lotsDuPortefeuille(immeubles: readonly ImmeubleSaisi[], connus: readonly ImmeubleConnu[], cleDepart: string | null,
+  dejaRattachees: ReadonlySet<string>): GroupeDeLots[] {
+  const parCle = new Map(connus.map((i) => [i.cle, i]));
+  const vus = new Set<string>();
+  const groupes: Array<GroupeDeLots & { libelle: string }> = [];
+  for (const im of immeubles) {
+    const cle = cleImmeuble(im.libelle);
+    if (vus.has(cle)) continue;
+    vus.add(cle);
+    const i = parCle.get(cle);
+    if (i === undefined || i.lots.length === 0) continue;
+    const aValider = !dejaRattachees.has(cle);
+    const lots = [...i.lots].sort((a, b) =>
+      (a.triProprietaire ?? '\uffff').localeCompare(b.triProprietaire ?? '\uffff', 'fr')
+      || a.numero.localeCompare(b.numero, 'fr', { numeric: true }))
+      .map((l) => ({ ...l, aValider }));
+    groupes.push({ cle, libelle: i.libelle, adresse: adresseImmeuble(i.libelle, i.codePostal ?? im.codePostal, i.commune ?? im.commune), lots });
+  }
+  groupes.sort((a, b) => {
+    if (a.cle === cleDepart) return -1;
+    if (b.cle === cleDepart) return 1;
+    return voieSansNumero(a.libelle).localeCompare(voieSansNumero(b.libelle), 'fr') || numeroDe(a.libelle) - numeroDe(b.libelle);
+  });
+  return groupes.map(({ libelle: _l, ...g }) => g);
 }
