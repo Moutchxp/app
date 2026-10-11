@@ -62,9 +62,19 @@ describe('preparerMailSyndic — depuis une fiche bien', () => {
       expect((await preparerMailSyndic(40, 176, [a]))?.corps.split('\n')[0]).toBe('Bonjour Madame, Monsieur,');
     }
   });
-  it('⚠️ l’e-mail générique PRIME même s’il est aussi l’adresse d’un contact ⇒ « Bonjour Madame, Monsieur, »', async () => {
+  it('🔴🔴 LOT FORMULE-CONTACT-PRIME — l’e-mail général AUSSI porté par un contact avec civilité ⇒ c’est le CONTACT qui compte', async () => {
+    // CE QU'IL DISAIT AVANT (lot MAIL-SYNDIC-PREREMPLI) : « l'e-mail générique prime » ⇒ « Bonjour Madame, Monsieur, ».
+    //   Décision d'Arno du 11/10/2026 : le contact l'emporte. (Cas réel : arnaud.jorel@gmail.com, e-mail général du
+    //   syndic TEST ARNAUD ET adresse du contact Arnaud JOREL, M.)
     ficheSyndic.mockResolvedValue({ ...FICHE, email: 'm.bercier@criterimmo.fr' });
-    expect((await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr']))?.corps.split('\n')[0]).toBe('Bonjour Madame, Monsieur,');
+    const p = await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr']);
+    expect(p?.corps.split('\n')[0]).toBe('Bonjour Monsieur BERCIER,');
+    expect(p?.civilites['m.bercier@criterimmo.fr']).toEqual({ civilite: 'M.', nom: 'Bercier' });
+  });
+  it('une adresse qui n’est QUE l’e-mail général ⇒ toujours « Bonjour Madame, Monsieur, », et absente de la table', async () => {
+    const p = await preparerMailSyndic(40, 176, ['contact@criterimmo.fr']);
+    expect(p?.corps.split('\n')[0]).toBe('Bonjour Madame, Monsieur,');
+    expect(p?.civilites['contact@criterimmo.fr']).toBeUndefined();
   });
   it('un contact du CARNET de l’immeuble ⇒ sa civilité compte aussi', async () => {
     expect((await preparerMailSyndic(40, 176, ['gardienne@x.fr']))?.corps.split('\n')[0]).toBe('Bonjour Madame PETIT,');

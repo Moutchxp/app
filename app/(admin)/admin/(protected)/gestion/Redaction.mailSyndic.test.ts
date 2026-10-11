@@ -205,3 +205,57 @@ describe('🔴🔴 rien n’est enregistré ni envoyé tant qu’Arno n’a rien
     expect(requetes.filter((r) => r.methode !== 'GET')).toEqual([]);
   });
 });
+
+describe('🔴🔴 LOT FORMULE-CONTACT-PRIME — la formule ne dépend QUE de « À » ; Cc et Cci ne la changent jamais', () => {
+  const CIV = {
+    'arnaud.jorel@gmail.com': { civilite: 'M.' as const, nom: 'JOREL' },
+    'f@x.fr': { civilite: 'Mme' as const, nom: 'Durand' },
+    'h@x.fr': { civilite: 'M.' as const, nom: 'Martin' },
+  };
+  const ouvrir = async () => {
+    const b = brouillon(pret(null, null));
+    const corps = b.corps.replace(/^[^\n]*/, 'Bonjour Monsieur JOREL,');
+    await monter({ ...b, a: ['arnaud.jorel@gmail.com'], corps, corpsHtml: (b.corpsHtml ?? '').replace(/^<p>[^<]*<\/p>/, '<p>Bonjour Monsieur JOREL,</p>'),
+      appel: { formule: 'Bonjour Monsieur JOREL,', civilites: CIV } } as BrouillonEcran);
+  };
+  const champ = (l: string) => container.querySelector(`[data-champ="${l}"] input.red-saisie`) as HTMLInputElement;
+  const ajouter = async (l: string, adresse: string) => {
+    if (champ(l) === null) {
+      await act(async () => { (container.querySelector(`[data-bascule="${l}"]`) as HTMLButtonElement).click(); });
+      await calmer();
+    }
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(champ(l), adresse);
+      champ(l).dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { champ(l).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+    await calmer();
+  };
+  const retirer = async (l: string, adresse: string) => {
+    await act(async () => { (container.querySelector(`[data-champ="${l}"] button[aria-label="Retirer ${adresse}"]`) as HTMLButtonElement).click(); });
+    await calmer();
+  };
+
+  it('🔴 un contact connu avec civilité seul en À : « Bonjour Monsieur JOREL, »', async () => {
+    await ouvrir();
+    expect(lignesAffichees()[0]).toBe('Bonjour Monsieur JOREL,');
+  });
+  it('🔴 ajouter puis retirer des contacts connus en Cc et en Cci : la formule NE BOUGE PAS', async () => {
+    await ouvrir();
+    await ajouter('Cc', 'f@x.fr');
+    await ajouter('Cci', 'h@x.fr');
+    expect([courant.cc, courant.cci]).toEqual([['f@x.fr'], ['h@x.fr']]);
+    expect(lignesAffichees()[0]).toBe('Bonjour Monsieur JOREL,');
+    expect(courant.corps.split('\n')[0]).toBe('Bonjour Monsieur JOREL,');
+    await retirer('Cc', 'f@x.fr');
+    await retirer('Cci', 'h@x.fr');
+    expect(lignesAffichees()[0]).toBe('Bonjour Monsieur JOREL,');
+  });
+  it('…mais ajouter ou retirer en À la recalcule (même fonction qu’à l’ouverture)', async () => {
+    await ouvrir();
+    await ajouter('À', 'f@x.fr');
+    expect(lignesAffichees()[0]).toBe('Bonjour Madame, Monsieur,');
+    await retirer('À', 'f@x.fr');
+    expect(lignesAffichees()[0]).toBe('Bonjour Monsieur JOREL,');
+  });
+});

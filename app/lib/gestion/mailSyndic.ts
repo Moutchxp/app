@@ -306,12 +306,27 @@ export interface AppelAuto {
   civilites: Record<string, { civilite: Civilite | null; nom: string | null }>;
 }
 
-/** La formule d'appel pour ces destinataires en « À », d'après les civilités connues. PUR. */
-export function formulePour(a: readonly string[], civilites: AppelAuto['civilites']): string {
-  return formuleAppelDestinataires(a.map((x) => {
+/**
+ * Les destinataires en « À » tels que la formule les lit : un contact connu (sa civilité, son nom), ou `null` — une
+ * adresse qui n'est celle d'aucun contact (l'e-mail général d'un syndic, une adresse inconnue). PUR.
+ *
+ * ══ 🔴🔴 LOT FORMULE-CONTACT-PRIME-ET-PUCES-COLOREES — LE CONTACT L'EMPORTE (décision d'Arno du 11/10/2026) ══════════
+ * Une adresse à la fois e-mail général d'un syndic ET adresse d'un contact EN COURS est lue comme ce contact :
+ * « Bonjour Monsieur JOREL, ». CE QU'IL FAISAIT AVANT (lot MAIL-SYNDIC-PREREMPLI) : l'e-mail général primait à
+ * l'ouverture (« Madame, Monsieur »), mais le recalcul sur « À » trouvait le contact — la même adresse donnait deux
+ * formules selon le chemin. Désormais l'ouverture (serveur, `preremplirDemande`) et le recalcul passent tous par
+ * `formulePour` : une seule fonction, une seule table de civilités. Cc et Cci n'y entrent jamais.
+ */
+export function destinatairesAppel(a: readonly string[], civilites: AppelAuto['civilites']): DestinataireAppel[] {
+  return a.map((x) => {
     const c = civilites[x.trim().toLowerCase()];
     return c === undefined ? null : { civilite: c.civilite, nom: c.nom };
-  }));
+  });
+}
+
+/** La formule d'appel pour ces destinataires en « À », d'après les civilités connues. PUR. */
+export function formulePour(a: readonly string[], civilites: AppelAuto['civilites']): string {
+  return formuleAppelDestinataires(destinatairesAppel(a, civilites));
 }
 
 /** Ce que le brouillon gagne à l'ouverture depuis une fiche (champs d'écran, jamais enregistrés tels quels). */
@@ -384,9 +399,16 @@ export async function preremplirDemande<B extends { objet: string; corps: string
   }
   if (s !== null && typeof s.objet === 'string' && typeof s.corps === 'string') {
     Object.assign(civilites, (s.civilites ?? {}) as AppelAuto['civilites']);
+    /* LOT FORMULE-CONTACT-PRIME — la formule d'OUVERTURE est celle du RECALCUL : `formulePour` sur la table complète
+       (contacts du syndic et du carnet, et les personnes du bien), pour le seul « À ». Le serveur l'a déjà calculée
+       de la même façon ; on la reprend ici pour que les personnes du bien comptent aussi. */
+    const a = ((base as { a?: readonly string[] }).a ?? [demande.email]).filter((x) => x.trim() !== '');
+    const [premiere, ...suite] = s.corps.split('\n');
+    const formule = formulePour(a, civilites);
+    const corps = formule === premiere ? s.corps : [formule, ...suite].join('\n');
     const rempli = brouillonMailSyndic(
-      { objet: s.objet, surlignage: (s.surlignage as [number, number] | null) ?? null, corps: s.corps }, signature);
-    out = { ...out, ...rempli, appel: { formule: s.corps.split('\n')[0], civilites } };
+      { objet: s.objet, surlignage: (s.surlignage as [number, number] | null) ?? null, corps }, signature);
+    out = { ...out, ...rempli, appel: { formule, civilites } };
   }
   return out;
 }

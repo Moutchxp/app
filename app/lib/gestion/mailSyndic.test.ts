@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   brouillonMailSyndic, civiliteDeTexte, corpsMailSyndic, etageLisible, formuleAppelDestinataires, ligneLocataire,
-  formulePour, lignesVersHtml, objetMailSyndic, descriptionDuBien, preremplirDemande, nomDuCompte, surlignageObjet,
+  destinatairesAppel, formulePour, lignesVersHtml, objetMailSyndic, descriptionDuBien, preremplirDemande, nomDuCompte, surlignageObjet,
   suivreSurlignage, type DonneesMailSyndic,
 } from './mailSyndic';
 
@@ -306,5 +306,35 @@ describe('la formule recalculée sur les destinataires en « À »', () => {
     expect(formulePour(['h@x.fr', 'f@x.fr'], C)).toBe('Bonjour Madame, Monsieur,');
     expect(formulePour(['f@x.fr', 'f2@x.fr'], C)).toBe('Bonjour Mesdames,');
     expect(formulePour(['h@x.fr', 'inconnu@x.fr'], C)).toBe('Bonjour Madame, Monsieur,');
+  });
+});
+
+describe('🔴🔴 LOT FORMULE-CONTACT-PRIME-ET-PUCES-COLOREES — une seule fonction, à l’ouverture comme au recalcul', () => {
+  const C = { 'arnaud.jorel@gmail.com': { civilite: 'M.' as const, nom: 'JOREL' }, 'f@x.fr': { civilite: 'Mme' as const, nom: 'Durand' } };
+  it('🔴 un contact connu AVEC civilité, seul en À ⇒ « Bonjour Monsieur NOM, » / « Bonjour Madame NOM, »', () => {
+    expect(formulePour(['arnaud.jorel@gmail.com'], C)).toBe('Bonjour Monsieur JOREL,');
+    expect(formulePour(['F@x.fr'], C)).toBe('Bonjour Madame DURAND,');
+    expect(destinatairesAppel(['arnaud.jorel@gmail.com', 'inconnu@x.fr'], C)).toEqual([{ civilite: 'M.', nom: 'JOREL' }, null]);
+  });
+  const SYNDIC = (corps: string) => ({ etat: 'ok', objet: 'Arnaud JOREL / C', surlignage: [0, 12], corps,
+    civilites: { 'arnaud.jorel@gmail.com': { civilite: 'M.', nom: 'JOREL' } } });
+  const routeur = (s: unknown, b: unknown) => vi.fn(async (u: string) => new Response(JSON.stringify(u.includes('/syndics/') ? s : b)));
+  it('🔴 à l’OUVERTURE : arnaud.jorel@gmail.com seul en À ⇒ « Bonjour Monsieur JOREL, » — la formule que le recalcul donnerait', async () => {
+    const BASE = { a: ['arnaud.jorel@gmail.com'], objet: '', corps: '\n\nSIG', corpsHtml: null as string | null, cibles: [] as unknown[] };
+    const b = await preremplirDemande({ email: 'arnaud.jorel@gmail.com', contexte: { syndicId: 2, lotId: null } }, BASE, {},
+      routeur(SYNDIC('Bonjour Monsieur JOREL,\n\n\n'), null));
+    expect(b.corps.split('\n')[0]).toBe('Bonjour Monsieur JOREL,');
+    expect(b.appel?.formule).toBe('Bonjour Monsieur JOREL,');
+    expect(b.appel && formulePour(['arnaud.jorel@gmail.com'], b.appel.civilites)).toBe(b.appel?.formule);
+  });
+  it('la formule d’ouverture est RECALCULÉE sur la table complète (personnes du bien comprises) : jamais deux résultats', async () => {
+    const BIEN = { etat: 'ok', groupes: [{ cle: 'clients', titre: 'C', lignes: [
+      { adresse: 'p@x.fr', nom: 'DUPONT Jean', role: 'Propriétaire', ton: 'proprietaire', propre: true, civilite: 'M.', nomFamille: 'DUPONT' }] }] };
+    const BASE = { a: ['p@x.fr'], objet: '', corps: '', corpsHtml: null as string | null, cibles: [] as unknown[] };
+    const b = await preremplirDemande({ email: 'p@x.fr', contexte: { syndicId: 2, lotId: 176 } }, BASE, {},
+      routeur(SYNDIC('Bonjour Madame, Monsieur,\n\n\nLe Cabinet…\n\n\n'), BIEN));
+    expect(b.corps.split('\n').slice(0, 4)).toEqual(['Bonjour Monsieur DUPONT,', '', '', 'Le Cabinet…']);
+    expect(b.corpsHtml?.startsWith('<p>Bonjour Monsieur DUPONT,</p>')).toBe(true);
+    expect(b.appel?.formule).toBe('Bonjour Monsieur DUPONT,');
   });
 });
