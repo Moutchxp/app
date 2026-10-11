@@ -134,6 +134,8 @@ import {
    rechargement » (Arno). Le récapitulatif des pièces s'abonne au même signal que les cartes du mail. */
 import { ecouterPiecesDrive } from '../../../../lib/gestion/signalPieceDrive';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
+/* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — le cartouche rouge « Suivi modifié en one shot » et sa modale. */
+import { PastilleOneShot } from './PastilleOneShot';
 
 /**
  * LOT 5b — LA VUE CONVERSATION. UNE SEULE, utilisée partout où l'on ouvre un échange : depuis la boîte mail, depuis le
@@ -3118,7 +3120,12 @@ export function MessageConversation({
           onBasculer();
         }}>
         {/* Le SENS est dit par un MOT (« reçu de » / « envoyé à ») : il reste lisible en niveaux de gris. */}
-        <span className="cnv-qui">{libelleSens(message.sens)} {qui}</span>
+        {/* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — « juste après “reçu de …” » (Arno). DANS la même rangée que le
+            nom : la ligne est une colonne, une voisine y serait descendue seule. Son clic est arrêté avant la ligne
+            (qui est un bouton) : il ouvre la modale sans plier la carte. Rien si aucune modification. */}
+        <span className="cnv-qui">{libelleSens(message.sens)} {qui}
+          <PastilleOneShot messageId={message.messageId} classe="cnv-capsule cnv-oneshot" />
+        </span>
         {/* LOT FIL-LECTURE — L'OBJET DE CE MESSAGE, à côté de l'expéditeur. Dans un échange où l'objet a changé en
             route (« Re: … » devenu autre chose), la ligne repliée ne disait plus de quoi elle parlait. */}
         <span className="cnv-objet">
@@ -4083,6 +4090,7 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
 /* LOT BARRE-STATUT — le MEME vert que la capsule d'une ligne : le lien parle de la meme question qu'elle. */
 .cnv-statut-bouton--vert{color:var(--color-svv-green-ink)}
 .cnv-qui{font-weight:700;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.cnv-oneshot{margin-left:.45rem;vertical-align:middle}
 .cnv-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .cnv-hors{font-size:.75rem;font-weight:700;color:var(--color-svv-muted)}
 /* ══ 🔴 LOT BROUILLONS-GMAIL — « Brouillon », EN ROUGE, comme dans Gmail ════════════════════════════════════════

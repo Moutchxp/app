@@ -75,6 +75,8 @@ import { Trombone } from './Trombone';
 import { Oeil } from './Oeil';
 import { AIDE_OEIL } from '../../../../lib/gestion/apercuBrouillon';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
+/* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — le cartouche rouge « Suivi modifié en one shot » et sa modale. */
+import { PastilleOneShot } from './PastilleOneShot';
 
 /**
  * LOT 5a — LA BOÎTE MAIL. Le second mode du module : tout le courrier, du plus récent au plus ancien, comme on lit sa
@@ -2086,6 +2088,11 @@ export function BoiteMail({
                         {motEvenementEnCours(l.evenementsEnCours ?? 0)}
                       </span>
                     )}
+                    {/* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — dans cette liste la ligne ne dit pas « reçu de » et ses
+                        capsules vivent dans le bloc de fin : la pastille s'y pose, après « Événement en cours »
+                        (même raisonnement que la capsule orange). Elle porte sur le mail que la ligne MONTRE. Pas
+                        de ligne fabriquée (`filId` négatif) : elle ne désigne aucun mail. */}
+                    {l.filId > 0 && <PastilleOneShot messageId={l.messageAffiche} classe="bte-capsule" />}
                   </span>
                   {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait pas
                       si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}

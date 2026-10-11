@@ -38,6 +38,8 @@ import type { PersonneDuMail } from '../../../../lib/gestion/adressesMessage';
 import {
   MOT_MODIFIER_LE_RATTACHEMENT, MOT_SORTIR_DU_SUIVI,
 } from '../../../../lib/gestion/sortirDuSuivi';
+/* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — le cartouche rouge « Suivi modifié en one shot » et sa modale. */
+import { PastilleOneShot } from './PastilleOneShot';
 
 /**
  * LOT FICHES-ANNUAIRE (étape B) — « LA VIE DU BIEN » : TOUS SES MAILS, DANS LA FICHE.
@@ -546,6 +548,9 @@ export function LigneVie({
             <span className="vdb-qui">
               {libelleSens(l.sens)} {(l.deNom ?? '').trim() === '' ? l.de : l.deNom}
             </span>
+            {/* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — « juste après “reçu de …” » (Arno). Rien si ce mail ne porte
+                aucune modification « ce mail uniquement » en vigueur ; « ×N » s'il en porte plusieurs. */}
+            <PastilleOneShot messageId={l.messageId} classe="vdb-capsule" />
             {/**
               * ══ 🔴🔴 LOT RUBANS-SCROLL…, POINT 2 — LES ÉTIQUETTES PASSENT À DROITE, CONTRE LA DATE ═══════════
               *
