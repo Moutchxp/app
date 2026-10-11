@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
-import { oneShotDesMessages } from '../../../../../lib/gestion/suiviOneShotRepo';
+import { oneShotDetaille } from '../../../../../lib/gestion/suiviOneShotRepo';
 
 /**
  * ══ 🔴🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — LES MODIFICATIONS « CE MAIL UNIQUEMENT » DES MAILS AFFICHÉS ═══════
@@ -30,8 +30,10 @@ export async function GET(request: Request): Promise<Response> {
   const ids = idsDepuisTexte(new URL(request.url).searchParams.get('messages'));
   if (ids.length === 0) return Response.json({ etat: 'ok', parMail: {} }, { headers: ENTETES });
   try {
-    const carte = await oneShotDesMessages(ids);
-    return Response.json({ etat: 'ok', parMail: Object.fromEntries(carte) }, { headers: ENTETES });
+    const { modifications, gestes } = await oneShotDetaille(ids);
+    /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — `gestes` s'ajoute : l'avant / après structuré de chaque geste. */
+    return Response.json({ etat: 'ok', parMail: Object.fromEntries(modifications), gestes: Object.fromEntries(gestes) },
+      { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/one-shot] lecture impossible', e);
     return Response.json({ etat: 'erreur' }, { status: 503, headers: ENTETES });

@@ -2,8 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
-import { AIDE_PASTILLE_REPERE, type ComparatifRepere } from '../../../../lib/gestion/repereFenetre';
-import { ModaleChangementSuivi, type MailDuRepere } from './ModaleChangementSuivi';
+import { AIDE_PASTILLE_REPERE, motMailsCouverts, titreModaleChangement } from '../../../../lib/gestion/repereFenetre';
+import { PHRASE_SUITE, SUFFIXE_SUITE } from '../../../../lib/gestion/avantApres';
+import type { Classement } from '../../../../lib/gestion/periodesConversation';
+/* 🔴🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — le « i » ouvre la fenêtre en deux colonnes, commune avec la pastille. */
+import { ModaleAvantApres } from './ModaleAvantApres';
+
+/** Le mail qui ouvre le changement, pour la ligne « Sur le mail » de la fenêtre. */
+export interface MailDuRepere {
+  de: string;
+  deNom: string | null;
+  recuLe: string;
+  objet: string | null;
+}
 
 /**
  * ══ 🔴🔴 LOT ACCOLADE-PARTOUT — L'ACCOLADE ROUGE D'UN CHANGEMENT DE SUIVI RÉCURRENT, LE MODÈLE UNIQUE ═════════════════
@@ -19,14 +30,14 @@ import { ModaleChangementSuivi, type MailDuRepere } from './ModaleChangementSuiv
  * ⚠️ IL EST UN `<li>` ET MESURE SON VOISIN : posé dans une liste de mails (`ol`/`ul`), ses deux bras longent le mail
  * d'à côté jusqu'à mi-hauteur. Au-dessus du mail (`dessus`) le voisin est le SUIVANT, en dessous le PRÉCÉDENT.
  */
-export function AccoladeSuivi({ cote, libelle, parLibelle, le, comparatif: c, mail, nbMails }: {
+export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, nbMails }: {
   cote: 'dessus' | 'dessous';
   /** Ce qui suit « À partir d'ici : » — « aucun bien », « 25 rue Edith Cavell… », « suivi aussi par ce bien »… */
   libelle: string;
   parLibelle: string | null;
   le: string | null;
   /** L'avant / après du « i ». `null` = on ne sait pas le composer : la pastille ne s'affiche pas. */
-  comparatif: ComparatifRepere | null;
+  detail: { avant: Classement | null; interneEchangeAvant: boolean; apres: Classement } | null;
   /** Le mail qui ouvre la fenêtre, pour le pied de la modale. */
   mail: MailDuRepere | null;
   nbMails: number;
@@ -75,7 +86,14 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, comparatif: c, ma
         )}
         {/* ⚠️ LA MODALE EST RENDUE DANS LA LIGNE, mais son voile est `position:fixed` : centrée sur l'ÉCRAN. */}
         {c !== null && ouverte && (
-          <ModaleChangementSuivi comparatif={c} mail={mail} nbMails={nbMails}
+          <ModaleAvantApres titre={titreModaleChangement(le === null ? null : dateHeureComplete(le))}
+            gestes={[{ ...c, recalcule: false, par: parLibelle, le }]}
+            suffixeApres={SUFFIXE_SUITE} phrase={PHRASE_SUITE}
+            /* Gardées de la fenêtre d'avant : de quel mail on parle, et combien de mails la fenêtre couvre. */
+            complements={[
+              ...(mail === null ? [] : [`Sur le mail : ${mail.deNom ?? mail.de} · ${dateHeureComplete(mail.recuLe)} · ${mail.objet ?? '(sans objet)'}`]),
+              `Portée : ${motMailsCouverts(nbMails)}`,
+            ]}
             onFermer={() => setOuverte(false)} />
         )}
       </span>
@@ -119,7 +137,7 @@ export const CSS_ACCOLADE_SUIVI = `
 .cnv-repere-qui{font-size:.72rem;color:var(--color-svv-red);opacity:.75}
 /* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — LA PASTILLE "i" EST UN BOUTON, et elle OUVRE une fenetre.
    Meme dessin que la pastille des biens (.ifb-pastille), au rouge du repere pres : c'est la meme promesse ("il y a
-   plus a lire ici"), donc le meme objet a l'oeil. Elle n'est plus une bulle au survol : voir ModaleChangementSuivi. */
+   plus a lire ici"), donc le meme objet a l'oeil. Elle n'est plus une bulle au survol : voir ModaleAvantApres. */
 .cnv-repere-i{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;
   margin:0 0 0 .1rem;font:inherit;font-size:.68rem;font-weight:700;font-style:italic;line-height:1;
   color:var(--color-svv-red);background:transparent;border:1px solid var(--color-svv-red);border-radius:50%;

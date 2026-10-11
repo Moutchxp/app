@@ -285,7 +285,8 @@ describe('🔴 ③ ce que l’écran dessine', () => {
   it('🔴🔴 la pastille est un bouton, et le clic ouvre la modale', () => {
     expect(src).toContain('<button type="button" className="cnv-repere-i" aria-haspopup="dialog"');
     expect(src).toContain('onClick={() => setOuverte(true)}');
-    expect(src).toContain('<ModaleChangementSuivi comparatif={c} mail={mail} nbMails={nbMails}');
+    /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — la fenêtre du « i » est désormais la fenêtre en deux colonnes. */
+    expect(src).toContain('<ModaleAvantApres titre={titreModaleChangement(le === null ? null : dateHeureComplete(le))}');
     expect(src).toContain('{c !== null && ouverte && (');
   });
 
@@ -439,6 +440,7 @@ describe('🔴🔴 la marque « Interne » de l’échange est le repli du statu
       + readFileSync('app/(admin)/admin/(protected)/gestion/AccoladeSuivi.tsx', 'utf8');
     expect(cnv).toContain('interneDeLEchange={interne === true}');
     expect((cnv.match(/interneDeLEchange=\{interne === true\}/g) ?? []).length).toBe(2);
-    expect(cnv).toContain('periodeId: r.id, interneDeLEchange,');
+    /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — elle passe à l'avant structuré de la fenêtre en deux colonnes. */
+    expect(cnv).toContain('interneEchangeAvant: interneDeLEchange');
   });
 });

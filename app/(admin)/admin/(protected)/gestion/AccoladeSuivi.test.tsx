@@ -37,8 +37,7 @@ describe('① la vue conversation est inchangée', () => {
     await act(async () => {
       racine.render(createElement(AccoladeSuivi, {
         cote: 'dessus', libelle: 'aucun bien', parLibelle: 'a.jorel@sansvisavis.com', le: '2026-10-02T19:39:00Z',
-        comparatif: { avant: null, apres: { statut: 'À classer', biens: 'aucun bien', personnes: 'aucune personne nommée' },
-          choix: 'ce mail et la conversation à venir', qui: 'a.jorel@sansvisavis.com', quand: '2026-10-02T19:39:00Z' },
+        detail: { avant: null, interneEchangeAvant: false, apres: { sorte: 'biens', biens: [] } },
         mail: null, nbMails: 2,
       }));
     });
@@ -64,7 +63,7 @@ const LIGNES = [ligne(3, 20, '2026-03-15T09:00:00Z'), ligne(2, 20, '2026-02-15T0
 const accolade = (filId: number, depuisMessageId: number, recuLe: string, sens: 'ajout' | 'retrait') => ({
   filId, depuisMessageId, recuLe, sens,
   libelle: sens === 'ajout' ? 'suivi aussi par ce bien' : 'sorti du suivi de ce bien',
-  parLibelle: 'a.jorel@sansvisavis.com', le: '2026-10-01T10:00:00Z', comparatif: null, nbMails: 2,
+  parLibelle: 'a.jorel@sansvisavis.com', le: '2026-10-01T10:00:00Z', detail: null, nbMails: 2,
   mail: { de: 'x@fictif.test', deNom: 'X', recuLe, objet: 'o' },
 });
 

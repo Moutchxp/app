@@ -1,6 +1,5 @@
-import {
-  comparatifRepere, etatDuClassement, nbMailsCouverts, CHOIX_SUITE, type ComparatifRepere,
-} from './repereFenetre';
+import { nbMailsCouverts } from './repereFenetre';
+import { classementsDuRepere } from './avantApres';
 import { projeter, type Classement, type Periode } from './periodesConversation';
 
 /**
@@ -27,7 +26,11 @@ export interface AccoladeDuBien {
   libelle: string;
   parLibelle: string | null;
   le: string | null;
-  comparatif: ComparatifRepere | null;
+  /**
+   * 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — l'avant (fenêtre du mail précédent) et l'après de ce changement, pour la
+   * fenêtre en deux colonnes du « i ». `null` = on ne sait pas les composer : la pastille ne s'affiche pas.
+   */
+  detail: { avant: Classement | null; interneEchangeAvant: boolean; apres: Classement } | null;
   nbMails: number;
 }
 
@@ -62,9 +65,10 @@ export function accoladesDuBienDansLeFil(o: {
       libelle: apres ? LIBELLE_AJOUT : LIBELLE_RETRAIT,
       parLibelle: p.parLibelle ?? null,
       le: p.le ?? null,
-      comparatif: comparatifRepere({
-        mails: o.mails, periodes: o.periodes, periodeId: p.id, interneDeLEchange: o.interneDeLEchange === true,
-      }),
+      detail: (() => {
+        const c = classementsDuRepere({ mails: o.mails, periodes: o.periodes, periodeId: p.id });
+        return c === null ? null : { ...c, interneEchangeAvant: o.interneDeLEchange === true };
+      })(),
       nbMails: nbMailsCouverts({ mails: o.mails, periodes: o.periodes, periodeId: p.id }),
     });
   }
@@ -94,11 +98,7 @@ export function accoladeInterneSuite(o: {
   return {
     filId: o.filId, depuisMessageId: depuis, sens: o.sens ?? 'retrait', libelle: o.libelle,
     parLibelle: o.parLibelle, le: o.le,
-    comparatif: {
-      avant: avant === undefined ? null : etatDuClassement(avant),
-      apres: etatDuClassement({ sorte: 'interne', biens: [] }),
-      choix: CHOIX_SUITE, qui: o.parLibelle, quand: o.le,
-    },
+    detail: { avant: avant ?? null, interneEchangeAvant: false, apres: { sorte: 'interne', biens: [] } },
     nbMails: premiers.length,
   };
 }

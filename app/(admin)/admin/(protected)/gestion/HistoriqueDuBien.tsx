@@ -4220,7 +4220,7 @@ function FilDeMails({
         /* 🔴 LOT ACCOLADE-PARTOUT — LE MÊME DESSIN QUE LA VUE CONVERSATION (`AccoladeSuivi`), libellé adapté au bien. */
         ? <AccoladeSuivi key={`acc-${el.accolade.filId}-${el.accolade.depuisMessageId}-${el.accolade.sens}`}
           cote={el.cote} libelle={el.accolade.libelle} parLibelle={el.accolade.parLibelle} le={el.accolade.le}
-          comparatif={el.accolade.comparatif} mail={el.accolade.mail} nbMails={el.accolade.nbMails} />
+          detail={el.accolade.detail} mail={el.accolade.mail} nbMails={el.accolade.nbMails} />
         : ((l: LigneHistorique) => (
         /**
          * ══ 🔴🔴 LA BARRE DE COULEUR EST PORTÉE PAR L'ENVELOPPE, PAS PAR `LigneVie` (lot HISTORIQUE-BIEN-2) ═══

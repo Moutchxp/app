@@ -37,6 +37,19 @@ let root: Root;
 let appels: string[];
 let reponse: Record<string, unknown>;
 
+/**
+ * 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — le geste STRUCTURÉ qui a produit les deux modifications ci-dessus : le
+ * suivi de fond (lot 12, locataire Nevine Abdellatif) remplacé, pour ce mail seul, par le lot 24.
+ */
+const GESTE = {
+  avant: { sorte: 'biens', biens: [{ cle: '12', libelle: '25 rue Edith Cavell — lot 12' }],
+    personnes: [{ sorte: 'locataire', cle: 'L1', libelle: 'Nevine Abdellatif' }] },
+  interneEchangeAvant: false,
+  apres: { sorte: 'biens', biens: [{ cle: '24', libelle: '15 rue Carle Hebert — lot 24' }] },
+  recalcule: false, par: 'Arnaud Jorel', le: '2026-10-11T16:12:00Z',
+};
+let gestes: Record<string, unknown[]> = {};
+
 async function attendre(): Promise<void> {
   await act(async () => { await new Promise((r) => setTimeout(r, 5)); });
 }
@@ -45,9 +58,15 @@ beforeEach(() => {
   viderMemoireOneShot();
   appels = [];
   reponse = { 2: DEUX };
+  gestes = { 2: [GESTE] };
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     appels.push(String(url));
-    return new Response(JSON.stringify({ etat: 'ok', parMail: reponse }), { status: 200 });
+    if (String(url).includes('/biens/lignes')) {
+      return new Response(JSON.stringify({ etat: 'ok', lignes: {
+        '12': '25 rue Edith Cavell, 92400 COURBEVOIE — lot 12', '24': '15 rue Carle Hebert, 92400 COURBEVOIE — lot 24',
+      } }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ etat: 'ok', parMail: reponse, gestes }), { status: 200 });
   }));
   racine = document.createElement('div');
   racine.className = 'svv-adm-root';
@@ -104,18 +123,21 @@ describe('PastilleOneShot', () => {
     await attendre();
     act(() => { (racine.querySelector('.svv-oneshot') as HTMLElement).click(); });
     expect(plier).not.toHaveBeenCalled();
+    await attendre();
     const modale = document.querySelector('[role="dialog"]') as HTMLElement;
     expect(modale).not.toBeNull();
     expect(modale.querySelector('h2')?.textContent).toBe('Suivi modifié pour ce mail uniquement');
-    const lignes = [...modale.querySelectorAll('.osm-modif')].map((li) => li.textContent);
-    expect(lignes).toEqual([
-      'Suivi de fond : rattaché à 25 rue Edith Cavell (lot 12), partie LOCATAIRE Nevine Abdellatif'
-        + 'Modifié pour ce mail : sorti du suivi de 25 rue Edith Cavell (lot 12)'
-        + 'Par Arnaud Jorel, le 11/10/2026 à 18:12',
-      'Suivi de fond : rattaché à 25 rue Edith Cavell (lot 12), partie LOCATAIRE Nevine Abdellatif'
-        + 'Modifié pour ce mail : rattaché aussi à 15 rue Carle Hebert (lot 24)'
-        + 'Par Arnaud Jorel, le 11/10/2026 à 18:12',
-    ]);
+    /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — deux colonnes, une ligne par bien (adresse, CP ville, lot). */
+    const avant = modale.querySelector('.maa-col--avant') as HTMLElement;
+    const apres = modale.querySelector('.maa-col--apres') as HTMLElement;
+    expect(avant.querySelector('.maa-col-titre')?.textContent).toBe('AVANT — suivi de fond');
+    expect(apres.querySelector('.maa-col-titre')?.textContent).toBe('APRÈS — ce mail uniquement');
+    expect([...avant.querySelectorAll('.maa-bien')].map((b) => b.textContent)).toEqual(['25 rue Edith Cavell, 92400 COURBEVOIE — lot 12']);
+    expect(avant.querySelector('.maa-parties')?.textContent).toBe('Parties : Nevine Abdellatif (locataire)');
+    /* 🔴 À DROITE : l'ajouté porte un « + » vert, le retiré est barré. */
+    expect(apres.querySelector('.maa-bien--ajoute')?.textContent).toBe('+15 rue Carle Hebert, 92400 COURBEVOIE — lot 24');
+    expect(apres.querySelector('.maa-bien--retire')?.textContent).toBe('25 rue Edith Cavell, 92400 COURBEVOIE — lot 12 (retiré)');
+    expect(modale.querySelector('.maa-qui')?.textContent).toBe('Par Arnaud Jorel, le 11/10/2026 à 18:12');
     expect(modale.textContent).toContain(
       'Les autres mails de cette conversation et de cet expéditeur suivent toujours le suivi de fond.');
     /* 🔴 AUCUNE ACTION DE MODIFICATION : un seul bouton, « Fermer ». */
@@ -127,13 +149,14 @@ describe('PastilleOneShot', () => {
   });
 
   it('🔴 LOT TRACE-ONE-SHOT — sans photo, la mention discrète « (suivi de fond recalculé aujourd’hui) » ; avec photo, rien', async () => {
-    reponse = { 2: [{ ...DEUX[0], fondRecalcule: true }, { ...DEUX[1], fondRecalcule: false }] };
+    /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — la mention vit désormais dans le titre de la colonne AVANT. */
+    gestes = { 2: [{ ...GESTE, recalcule: true }, { ...GESTE, recalcule: false }] };
     rendre(() => {});
     await attendre();
     act(() => { (racine.querySelector('.svv-oneshot') as HTMLElement).click(); });
-    const lignes = [...document.querySelectorAll('[role="dialog"] .osm-modif')];
-    expect(lignes[0].querySelector('.osm-recalcule')?.textContent).toBe(' (suivi de fond recalculé aujourd’hui)');
-    expect(lignes[1].querySelector('.osm-recalcule')).toBeNull();
+    const titres = [...document.querySelectorAll('[role="dialog"] .maa-col--avant .maa-col-titre')];
+    expect(titres[0].querySelector('.maa-recalcule')?.textContent).toBe(' (recalculé aujourd’hui)');
+    expect(titres[1].querySelector('.maa-recalcule')).toBeNull();
   });
 
   it('④ Échap ferme la modale', async () => {

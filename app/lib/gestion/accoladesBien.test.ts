@@ -18,8 +18,9 @@ describe('une accolade seulement si la période concerne CE bien', () => {
     expect(a).toHaveLength(1);
     expect(a[0]).toMatchObject({ depuisMessageId: 3, sens: 'ajout', libelle: 'suivi aussi par ce bien', parLibelle: 'a.jorel@sansvisavis.com' });
     expect(LIBELLE_AJOUT).toBe('suivi aussi par ce bien');
-    /* Le « i » : l'avant / après de la vue conversation, la portée « la suite ». */
-    expect(a[0].comparatif?.choix).toBe('ce mail et la conversation à venir');
+    /* Le « i » : l'avant (fenêtre du mail précédent) et l'après, structurés pour la fenêtre en deux colonnes. */
+    expect(a[0].detail?.avant?.biens.map((b) => b.cle)).toEqual(['A']);
+    expect(a[0].detail?.apres.biens.map((b) => b.cle)).toEqual(['A', 'B']);
     expect(a[0].nbMails).toBe(3);
   });
   it('🔴 retrait : « sorti du suivi de ce bien »', () => {
@@ -48,8 +49,8 @@ describe('la marque « Interne » posée « pour la suite »', () => {
     const a = accoladeInterneSuite({ filId: 9, mails, periodes: [periode(1, 1, ['A'])], marques: [5, 3, 4],
       parLibelle: 'x', le: '2026-10-11T10:00:00Z', libelle: 'Interne' });
     expect(a).toMatchObject({ depuisMessageId: 3, libelle: 'Interne', nbMails: 3 });
-    expect(a?.comparatif?.apres.statut).toBe('Interne');
-    expect(a?.comparatif?.avant?.biens).toBe('bien A');
+    expect(a?.detail?.apres.sorte).toBe('interne');
+    expect(a?.detail?.avant?.biens.map((b) => b.libelle)).toEqual(['bien A']);
   });
   it('rien si le geste commence au premier mail du fil', () => {
     expect(accoladeInterneSuite({ filId: 9, mails, periodes: [], marques: [1, 2], parLibelle: null, le: null, libelle: 'Interne' })).toBeNull();

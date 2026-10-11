@@ -119,12 +119,12 @@ import {
  */
 import { interneDuMail } from '../../../../lib/gestion/interneDuMail';
 import {
-  comparatifRepere, coteDuRepere, nbMailsCouverts,
+  coteDuRepere, nbMailsCouverts,
 } from '../../../../lib/gestion/repereFenetre';
 /* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — la pastille « i » du repère ouvre cette fenêtre, au clic. */
-import { type MailDuRepere } from './ModaleChangementSuivi';
+import { classementsDuRepere } from '../../../../lib/gestion/avantApres';
 /* 🔴 LOT ACCOLADE-PARTOUT — l'accolade rouge, modèle unique, partagée avec l'historique du bien. */
-import { AccoladeSuivi, CSS_ACCOLADE_SUIVI } from './AccoladeSuivi';
+import { AccoladeSuivi, CSS_ACCOLADE_SUIVI, type MailDuRepere } from './AccoladeSuivi';
 import { accoladeInterneSuite } from '../../../../lib/gestion/accoladesBien';
 /* 🔴 LA PASTILLE « i » DES BIENS, employée telle quelle avec un autre contenu : voir son encadré `lignes`. */
 import { InfoBien, CSS_INFO_BIEN } from './InfoBien';
@@ -1915,7 +1915,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           {coteDuRepere(ordre) === 'dessus' && accoladesInterne
             .filter((a) => a.depuisMessageId === m.messageId)
             .map((a) => <AccoladeSuivi key={`int-${a.le ?? ''}-${a.depuisMessageId}`} cote="dessus" libelle={a.libelle}
-              parLibelle={a.parLibelle} le={a.le} comparatif={a.comparatif} mail={m} nbMails={a.nbMails} />)}
+              parLibelle={a.parLibelle} le={a.le} detail={a.detail} mail={m} nbMails={a.nbMails} />)}
           {coteDuRepere(ordre) === 'dessus' && reperes
             .filter((r) => r.avantMessageId === m.messageId)
             .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessus"
@@ -2162,7 +2162,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           {coteDuRepere(ordre) === 'dessous' && accoladesInterne
             .filter((a) => a.depuisMessageId === m.messageId)
             .map((a) => <AccoladeSuivi key={`int-${a.le ?? ''}-${a.depuisMessageId}`} cote="dessous" libelle={a.libelle}
-              parLibelle={a.parLibelle} le={a.le} comparatif={a.comparatif} mail={m} nbMails={a.nbMails} />)}
+              parLibelle={a.parLibelle} le={a.le} detail={a.detail} mail={m} nbMails={a.nbMails} />)}
           {coteDuRepere(ordre) === 'dessous' && reperes
             .filter((r) => r.avantMessageId === m.messageId)
             .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessous"
@@ -2548,10 +2548,10 @@ function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
    * 🔴🔴 CE QUE LA PASTILLE EXPLIQUE : un AVANT / APRÈS, composé par le module PUR. `null` = on ne sait pas
    * (migration 290 absente, ou fenêtre introuvable) : la pastille ne s'affiche alors pas du tout.
    */
-  const c = suivi === null ? null
-    : comparatifRepere({
-      mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id, interneDeLEchange,
-    });
+  /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — l'avant et l'après STRUCTURÉS (une ligne par bien dans la fenêtre). */
+  const deuxCotes = suivi === null ? null
+    : classementsDuRepere({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
+  const c = deuxCotes === null ? null : { ...deuxCotes, interneEchangeAvant: interneDeLEchange };
   /** 🔴 LA PORTÉE DE LA FENÊTRE, comptée sur les mails de l'échange. Module pur, aucune requête. */
   const nbMails = suivi === null ? 0
     : nbMailsCouverts({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
@@ -2559,7 +2559,7 @@ function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
      JSX, mêmes classes, même feuille. Cette ligne n'en fait plus que la donnée. */
   return (
     <AccoladeSuivi cote={cote} libelle={r.versQuoi} parLibelle={r.parLibelle} le={r.le}
-      comparatif={c} mail={mail} nbMails={nbMails} />
+      detail={c} mail={mail} nbMails={nbMails} />
   );
 }
 

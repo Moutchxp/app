@@ -8,6 +8,7 @@ import {
   sortieEstUnGeste, type ModificationOneShot, type PhotoFond,
 } from './suiviOneShot';
 import { photoDuFondEnBase, traceOneShotDisponible } from './traceOneShotRepo';
+import type { GesteAvantApres } from './avantApres';
 import type { Auteur } from './gestes';
 
 /**
@@ -54,11 +55,24 @@ const ISO = `'YYYY-MM-DD"T"HH24:MI:SS"Z"'`;
 const NOM = `nullif(btrim(coalesce(u.prenom, '') || ' ' || coalesce(u.nom, '')), '')`;
 
 export async function oneShotDesMessages(messageIds: readonly number[]): Promise<Map<number, ModificationOneShot[]>> {
+  return (await oneShotDetaille(messageIds)).modifications;
+}
+
+/**
+ * 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — les mêmes traces, avec, pour chaque GESTE qui a produit au moins une
+ * modification, son avant et son après STRUCTURÉS (la fenêtre en deux colonnes en a besoin : une ligne par bien).
+ */
+export async function oneShotDetaille(messageIds: readonly number[]): Promise<{
+  modifications: Map<number, ModificationOneShot[]>; gestes: Map<number, GesteAvantApres[]>;
+}> {
   const parMail = new Map<number, ModificationOneShot[]>();
+  const gestes = new Map<number, GesteAvantApres[]>();
   const ids = [...new Set(messageIds.filter((n) => Number.isSafeInteger(n) && n > 0))];
-  if (ids.length === 0) return parMail;
-  const ajouter = (m: number, l: ModificationOneShot[]): void => {
-    if (l.length > 0) parMail.set(m, [...(parMail.get(m) ?? []), ...l]);
+  if (ids.length === 0) return { modifications: parMail, gestes };
+  const ajouter = (m: number, l: ModificationOneShot[], geste?: GesteAvantApres): void => {
+    if (l.length === 0) return;
+    parMail.set(m, [...(parMail.get(m) ?? []), ...l]);
+    if (geste !== undefined) gestes.set(m, [...(gestes.get(m) ?? []), geste]);
   };
 
   try {
@@ -153,14 +167,26 @@ export async function oneShotDesMessages(messageIds: readonly number[]): Promise
       ajouter(m, modificationsDeLException({
         fond: f.classement, exception: ex, interneDeLEchange: f.interneEchange, fondRecalcule: f.recalcule,
         par: r.nom ?? r.libelle, le: r.le,
-      }));
+      }), {
+        avant: f.classement ?? null, interneEchangeAvant: f.interneEchange, apres: ex,
+        recalcule: f.recalcule, par: r.nom ?? r.libelle, le: r.le,
+      });
     }
     for (const r of sorties) {
       const m = Number(r.message_id);
+      const f = fondDe(m, r.fil_id, r.photo);
+      /* L'AVANT montre le bien sorti même si la fenêtre ne le portait pas (lien posé à la main) ; l'APRÈS, sans lui. */
+      const cle = r.cle ?? '';
+      const libelle = r.libelle ?? `lot ${cle}`;
+      const base: Classement = f.classement?.sorte === 'biens' ? f.classement : { sorte: 'biens', biens: [] };
+      const avant: Classement = base.biens.some((b) => b.cle === cle) ? base
+        : { ...base, biens: [...base.biens, { cle, libelle }] };
       ajouter(m, [modificationDeLaSortie({
-        bienLibelle: r.libelle ?? (r.cle === null ? '' : `lot ${r.cle}`),
-        motif: r.motif, par: r.nom ?? r.par ?? '', le: r.le, fond: fondDe(m, r.fil_id, r.photo),
-      })]);
+        bienLibelle: libelle, motif: r.motif, par: r.nom ?? r.par ?? '', le: r.le, fond: f,
+      })], {
+        avant, interneEchangeAvant: f.interneEchange, apres: { ...avant, biens: avant.biens.filter((b) => b.cle !== cle) },
+        recalcule: f.recalcule, par: r.nom ?? r.par ?? '', le: r.le,
+      });
     }
     for (const [sorte, liste] of [['interne', internes], ['hors_gestion', horsGestion]] as const) {
       for (const r of liste) {
@@ -169,12 +195,15 @@ export async function oneShotDesMessages(messageIds: readonly number[]): Promise
         ajouter(m, modificationDeMarque({
           sorte, fond: f.classement, interneEchange: f.interneEchange, fondRecalcule: f.recalcule,
           par: r.nom ?? r.par, le: r.le,
-        }));
+        }), {
+          avant: f.classement ?? null, interneEchangeAvant: f.interneEchange, apres: { sorte, biens: [] },
+          recalcule: f.recalcule, par: r.nom ?? r.par, le: r.le,
+        });
       }
     }
   } catch (e) {
     console.error('[gestion/one-shot] lecture impossible', e);
-    return new Map();
+    return { modifications: new Map(), gestes: new Map() };
   }
-  return parMail;
+  return { modifications: parMail, gestes };
 }
