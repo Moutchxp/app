@@ -110,9 +110,11 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [questionContact, setQuestionContact] = useState(false);
   const boite = useRef<HTMLDivElement | null>(null);
   const immeubles = useImmeublesSyndics();
-  /** LOT MAIL-SYNDIC-PREREMPLI — l'adresse cliquée part avec ce syndic et ce bien (un syndic pas encore créé : seule). */
+  /** LOT MAIL-SYNDIC-PREREMPLI — l'adresse cliquée part avec ce syndic et ce bien. Un syndic pas encore créé : le bien
+   *  seul (LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS), et rien du tout hors d'une fiche bien. */
   const ecrire = useMemo(() => (onEcrire === undefined ? undefined
-    : (email: string) => onEcrire(email, syndicId === null ? undefined : { syndicId, lotId: lotDepart })),
+    : (email: string) => onEcrire(email, syndicId !== null ? { syndicId, lotId: lotDepart }
+      : lotDepart !== null ? { lotId: lotDepart } : undefined)),
   [onEcrire, syndicId, lotDepart]);
 
   const charger = useCallback(async (id: number): Promise<Fiche | null> => {

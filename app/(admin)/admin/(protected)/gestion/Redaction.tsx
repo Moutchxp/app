@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 /* 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — la confirmation sort du DOM de l'éditeur : aucun conteneur à défilement,
    aucun `transform` d'ancêtre ne peut plus la rogner. Voir l'encadré de `FenetreConfirmation`. */
 import { createPortal } from 'react-dom';
@@ -18,6 +18,8 @@ import { PARENT_PIECES_CONVERSATION } from '../../../../lib/gestion/piecesConver
 // LOT REDACTION-GMAIL — le corps en texte mis en forme, et le nettoyage du HTML collé (module PUR, partagé serveur).
 import { CSS_EDITEUR_RICHE, EditeurRiche, type ApiEditeur } from './EditeurRiche';
 import { htmlVersTexte, texteVersHtml } from '../../../../lib/gestion/htmlMail';
+import { formulePour, type AppelAuto } from '../../../../lib/gestion/mailSyndic';
+import { filtrerSuggestions, type GroupeSuggestions, type SuggestionAdresse } from '../../../../lib/gestion/suggestionsBien';
 import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
 } from './SelecteurFichierDrive';
@@ -166,6 +168,13 @@ export interface BrouillonEcran extends Brouillon {
    * Absent ⇒ rien ne change.
    */
   selectionObjet?: [number, number] | null;
+  /**
+   * 🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — les adresses liées au bien d'où l'on écrit, en trois groupes,
+   * proposées dès qu'on clique dans À, Cc ou Cci. Champ d'écran : jamais enregistré. Absent ⇒ rien ne change.
+   */
+  suggestionsBien?: GroupeSuggestions[] | null;
+  /** La formule d'appel écrite en tête du corps, et de quoi la recalculer quand « À » change. Absent ⇒ rien. */
+  appel?: AppelAuto | null;
 }
 
 /**
@@ -196,7 +205,7 @@ export interface BrouillonEcran extends Brouillon {
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function ChampDestinataires({
-  libelle, valeurs, onChange, suggestions, onChercher, autoFocus = false, actions,
+  libelle, valeurs, onChange, suggestions, onChercher, autoFocus = false, actions, propositions = null, dejaPresentes,
 }: {
   libelle: string;
   valeurs: string[];
@@ -204,6 +213,17 @@ export function ChampDestinataires({
   suggestions: { adresse: string; nom: string | null }[];
   onChercher: (q: string) => void;
   autoFocus?: boolean;
+  /**
+   * ══ 🔴🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — LES ADRESSES DU BIEN, DÈS LE CLIC ════════════════════
+   * Quand on écrit depuis une fiche bien, la liste s'ouvre DÈS QU'ON CLIQUE dans le champ (sans rien taper), avec
+   * les adresses du bien en trois groupes titrés. Taper filtre (nom ou adresse, sans accents ni casse) ; une adresse
+   * déjà dans À, Cc ou Cci n'est plus proposée ; une adresse libre reste possible. Les suggestions d'avant (les
+   * correspondants déjà vus) restent, sous un dernier intertitre.
+   * `null` (le défaut) ⇒ le champ se comporte EXACTEMENT comme avant ce lot.
+   */
+  propositions?: readonly GroupeSuggestions[] | null;
+  /** Les adresses déjà présentes dans À, Cc ET Cci (une adresse en Cc n'est plus proposée en À). Défaut : ce champ. */
+  dejaPresentes?: readonly string[];
   /**
    * 🔴 LOT BROUILLONS-GMAIL — CE QUI SE RANGE DANS LE CHAMP, À DROITE : les boutons « Cc » et « Cci » du champ
    * « À ». Ils vivaient SOUS le champ, en lien « Ajouter Cc / Cci » ; c'est un déplacement, pas un ajout — la
@@ -224,10 +244,22 @@ export function ChampDestinataires({
   const [noms, setNoms] = useState<Record<string, string>>({});
   const id = `dest-${libelle.toLowerCase().replace(/[^a-z]/g, '')}`;
 
-  const ouverte = suggestions.length > 0 && saisie.trim().length >= 2 && !repliee;
+  /** LOT MAIL-DEPUIS-BIEN — le champ a-t-il le focus ? La liste du bien s'ouvre au clic et se referme en sortant. */
+  const [focus, setFocus] = useState(false);
+  const presentes = dejaPresentes ?? valeurs;
+  const groupes = propositions === null ? [] : filtrerSuggestions(propositions, saisie, presentes);
+  const lignesBien: SuggestionAdresse[] = groupes.flatMap((g) => g.lignes);
+  /* Les correspondants d'avant, SOUS les groupes du bien : sans ceux que le bien propose déjà, ni ceux déjà ajoutés. */
+  const dejaVues = new Set([...lignesBien.map((l) => l.adresse), ...presentes.map((x) => x.trim().toLowerCase())]);
+  const autres = propositions === null ? suggestions
+    : (saisie.trim().length >= 2 ? suggestions.filter((x) => !dejaVues.has(x.adresse.trim().toLowerCase())) : []);
+  const items: { adresse: string; nom: string | null }[] = [...lignesBien, ...autres];
+  const ouverte = propositions === null
+    ? suggestions.length > 0 && saisie.trim().length >= 2 && !repliee
+    : focus && !repliee && items.length > 0;
   // Borné à CHAQUE rendu : la liste change pendant qu'on la parcourt (les suggestions arrivent du serveur), et un
   //   indice resté au-delà de la fin désignerait une proposition qui n'existe plus.
-  const enAvant = ouverte && avance >= 0 && avance < suggestions.length ? avance : -1;
+  const enAvant = ouverte && avance >= 0 && avance < items.length ? avance : -1;
 
   const ajouter = (brut: string, nom?: string | null) => {
     const nouvelles = decouperAdresses(brut);
@@ -285,7 +317,7 @@ export function ChampDestinataires({
             // ⚠️ « Entrée » AJOUTE UNE ADRESSE — il n'envoie RIEN. `preventDefault` empêche toute soumission.
             if (e.key === 'Enter') {
               e.preventDefault();
-              const choisie = enAvant >= 0 ? suggestions[enAvant] : null;
+              const choisie = enAvant >= 0 ? items[enAvant] : null;
               if (choisie) ajouter(choisie.adresse, choisie.nom);
               else ajouter(saisie);
               return;
@@ -295,32 +327,86 @@ export function ChampDestinataires({
               //   qu'une flèche tenue ne ramène pas silencieusement sur la première ligne.
               e.preventDefault();
               const pas = e.key === 'ArrowDown' ? 1 : -1;
-              const dernier = suggestions.length - 1;
+              const dernier = items.length - 1;
               setAvance(Math.min(dernier, Math.max(0, (enAvant < 0 ? -1 : enAvant) + pas)));
               return;
             }
             if (e.key === 'Escape' && ouverte) { e.preventDefault(); setRepliee(true); setAvance(-1); return; }
             if (e.key === 'Backspace' && saisie === '' && valeurs.length > 0) onChange(valeurs.slice(0, -1));
           }}
-          onBlur={() => ajouter(saisie)} />
+          onFocus={() => { setFocus(true); setRepliee(false); }}
+          onClick={() => { setFocus(true); setRepliee(false); }}
+          onBlur={() => { setFocus(false); ajouter(saisie); }} />
         {actions !== undefined && <span className="red-champ-actions">{actions}</span>}
       </div>
-      {ouverte && (
+      {ouverte && propositions === null && (
         <ul className="red-suggestions" id={`${id}-liste`} role="listbox">
-          {suggestions.map((s, i) => (
-            <li key={s.adresse} role="presentation">
+          {suggestions.map((x, i) => (
+            <li key={x.adresse} role="presentation">
               {/* 🔴 `onMouseDown` : on ANNULE le comportement par défaut (le focus reste dans le champ, donc `onBlur`
                   ne valide plus le texte à moitié tapé) ET on choisit TOUT DE SUITE. Les deux, pas l'un ou l'autre —
                   cf. l'encadré en tête de fichier. `onClick` sert les chemins sans souris ; il est sans effet une
                   seconde fois, l'adresse étant déjà entrée. */}
               <button type="button" id={`${id}-s${i}`} role="option" aria-selected={i === enAvant}
                 className={`red-suggestion${i === enAvant ? ' red-suggestion--avance' : ''}`}
-                onMouseDown={(e) => { e.preventDefault(); ajouter(s.adresse, s.nom); }}
-                onClick={() => ajouter(s.adresse, s.nom)}>
-                {s.nom ? `${s.nom} — ` : ''}{s.adresse}
+                onMouseDown={(e) => { e.preventDefault(); ajouter(x.adresse, x.nom); }}
+                onClick={() => ajouter(x.adresse, x.nom)}>
+                {x.nom ? `${x.nom} — ` : ''}{x.adresse}
               </button>
             </li>
           ))}
+        </ul>
+      )}
+      {/* ══ 🔴🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — LES ADRESSES DU BIEN, PAR GROUPE ═══════════════
+          Un intertitre par groupe (clients, immeuble, autres), puis les correspondants d'avant. Chaque ligne : la
+          pastille de la couleur de sa partie (PLEINE pour l'e-mail propre, en CONTOUR pour un e-mail rattaché, avec
+          « rattaché » en gris), le nom, le rôle et l'adresse. Mêmes gestes qu'avant : clic ou Entrée, Échap. */}
+      {ouverte && propositions !== null && (
+        <ul className="red-suggestions red-suggestions--bien" id={`${id}-liste`} role="listbox" aria-label={`Adresses proposées pour ${libelle}`}>
+          {groupes.map((g) => (
+            <Fragment key={g.cle}>
+              <li role="presentation" className="red-sugg-titre">{g.titre}</li>
+              {g.lignes.map((l) => {
+                const i = lignesBien.indexOf(l);
+                return (
+                  <li key={`${g.cle}-${l.adresse}`} role="presentation">
+                    <button type="button" id={`${id}-s${i}`} role="option" aria-selected={i === enAvant}
+                      className={`red-suggestion red-suggestion--bien${i === enAvant ? ' red-suggestion--avance' : ''}`}
+                      data-groupe={g.cle}
+                      onMouseDown={(e) => { e.preventDefault(); ajouter(l.adresse, l.nom); }}
+                      onClick={() => ajouter(l.adresse, l.nom)}>
+                      <span className={`red-sugg-pastille red-sugg-pastille--${l.ton}${l.propre ? '' : ' red-sugg-pastille--contour'}`}
+                        aria-hidden="true" />
+                      <span className="red-sugg-texte">
+                        <span className="red-sugg-nom">{l.nom ?? l.adresse}</span>
+                        <span className="red-sugg-role">
+                          {l.role}
+                          {!l.propre && <span className="red-sugg-rattache"> · rattaché</span>}
+                        </span>
+                        {l.nom !== null && <span className="red-sugg-adresse">{l.adresse}</span>}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </Fragment>
+          ))}
+          {autres.length > 0 && (
+            <li role="presentation" className="red-sugg-titre">Autres correspondants</li>
+          )}
+          {autres.map((x, k) => {
+            const i = lignesBien.length + k;
+            return (
+              <li key={`corr-${x.adresse}`} role="presentation">
+                <button type="button" id={`${id}-s${i}`} role="option" aria-selected={i === enAvant}
+                  className={`red-suggestion${i === enAvant ? ' red-suggestion--avance' : ''}`}
+                  onMouseDown={(e) => { e.preventDefault(); ajouter(x.adresse, x.nom); }}
+                  onClick={() => ajouter(x.adresse, x.nom)}>
+                  {x.nom ? `${x.nom} — ` : ''}{x.adresse}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
@@ -653,6 +739,28 @@ export function Redaction({
   }, [appel]);
 
   const modifier = (p: Partial<BrouillonEcran>) => onChange({ ...brouillon, ...p });
+
+  /** LOT MAIL-DEPUIS-BIEN — les adresses déjà présentes dans À, Cc et Cci : aucune n'est reproposée. */
+  const presentes = [...brouillon.a, ...brouillon.cc, ...brouillon.cci];
+
+  /**
+   * ══ 🔴🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — « À » CHANGE, LA FORMULE D'APPEL SUIT ═══════════════
+   * Selon la civilité des destinataires en À SEULEMENT (Cc et Cci n'y entrent pas). La première ligne du message
+   * n'est réécrite que si elle est encore la formule calculée : une formule retouchée à la main reste telle quelle.
+   * ⚠️ UN SEUL CHANGEMENT pour les destinataires ET le corps : deux `onChange` successifs partiraient du même
+   * brouillon, et le second effacerait le premier.
+   */
+  const modifierA = (a: string[]): void => {
+    const appel = brouillon.appel;
+    if (appel && editeur.current) {
+      const nouvelle = formulePour(a, appel.civilites);
+      if (nouvelle !== appel.formule) {
+        const v = editeur.current.remplacerPremiereLigne(appel.formule, nouvelle);
+        if (v !== null) { modifier({ a, corpsHtml: v.html, corps: v.texte, appel: { ...appel, formule: nouvelle } }); return; }
+      }
+    }
+    modifier({ a });
+  };
 
   /* ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — LA MODALE « RATTACHER CE MAIL À… » ═════════════════════════════════════
      Demande d'Arno : « dès qu'une adresse est VALIDÉE dans À, Cc ou Cci […] une modale s'ouvre au centre de
@@ -1598,8 +1706,9 @@ export function Redaction({
           y poser le curseur obligeait à en sortir avant d'écrire. Il le garde là où il est vide et où il faut
           commencer — un transfert, un message neuf. Pour une réponse, c'est le corps qui prend le curseur (voir
           l'encadré de l'effet d'ouverture). */}
-      <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={(a) => modifier({ a })}
+      <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={modifierA}
         suggestions={suggestions} onChercher={chercherCorrespondants}
+        propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes}
         /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — `calerAVue` COUPE AUSSI LE CURSEUR. Voir l'encadré
            du champ MESSAGE, plus bas : prendre le focus, c'est faire défiler. */
         autoFocus={calerAVue && brouillon.a.length === 0
@@ -1619,11 +1728,13 @@ export function Redaction({
           qu'il faut les remplir. Leurs deux boutons sont maintenant DANS le champ « À », à droite (voir plus haut). */}
       {afficheCc && (
         <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })}
-          suggestions={suggestions} onChercher={chercherCorrespondants} />
+          suggestions={suggestions} onChercher={chercherCorrespondants}
+          propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} />
       )}
       {afficheCci && (
         <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })}
-          suggestions={suggestions} onChercher={chercherCorrespondants} />
+          suggestions={suggestions} onChercher={chercherCorrespondants}
+          propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} />
       )}
 
       {brouillon.destinatairesApproximatifs && (
@@ -2192,6 +2303,30 @@ const CSS_REDACTION = `
 /* La proposition mise en avant AU CLAVIER. Elle se distingue par une bordure ET un fond, pas par la seule teinte :
    au clavier comme au doigt, il faut voir OÙ l'on est sans avoir à comparer deux nuances de gris. */
 .red-suggestion--avance{border-color:var(--color-svv-red);background:var(--color-svv-field);font-weight:600}
+/* LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS : les adresses du bien, par groupe, sous un intertitre. La liste
+   est plus haute que celle des correspondants : trois groupes doivent pouvoir se lire sans tout faire defiler. */
+.red-suggestions--bien{max-height:min(55vh,360px)}
+.red-sugg-titre{margin:.45rem 0 .1rem;padding:0 .2rem;font-size:.7rem;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--color-svv-muted)}
+.red-sugg-titre:first-child{margin-top:.1rem}
+.red-suggestion--bien{display:flex;align-items:center;gap:.6rem}
+.red-suggestion--bien.red-suggestion--avance{font-weight:inherit}
+.red-suggestion--bien.red-suggestion--avance .red-sugg-nom{font-weight:700}
+/* La pastille : PLEINE pour l'e-mail propre d'un client, en CONTOUR (meme couleur) pour un e-mail rattache. Les
+   tons sont ceux des parties, deja definis pour les deux themes : rien n'est a redefinir en Sombre. */
+.red-sugg-pastille{flex:0 0 auto;width:12px;height:12px;border-radius:50%;box-sizing:border-box;
+  border:2px solid var(--red-sugg-ton);background:var(--red-sugg-ton)}
+.red-sugg-pastille--contour{background:transparent}
+.red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-red)}
+.red-sugg-pastille--locataire{--red-sugg-ton:var(--color-svv-green)}
+.red-sugg-pastille--ancien_locataire{--red-sugg-ton:var(--color-svv-violet)}
+.red-sugg-pastille--syndic,.red-sugg-pastille--immeuble{--red-sugg-ton:var(--color-svv-syndic-texte)}
+.red-sugg-pastille--neutre{--red-sugg-ton:var(--color-svv-muted)}
+.red-sugg-texte{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:.5rem;row-gap:0;min-width:0}
+.red-sugg-nom{color:var(--color-svv-ink);font-weight:600;overflow-wrap:anywhere}
+.red-sugg-role{color:var(--color-svv-muted);font-size:.78rem}
+.red-sugg-rattache{color:var(--color-svv-muted);font-style:italic}
+.red-sugg-adresse{flex-basis:100%;color:var(--color-svv-muted);font-size:.78rem;overflow-wrap:anywhere}
 .red-avertit{color:var(--color-svv-red);font-weight:600}
 /* 🔴🔴 LOT CLASSER-AVANT-ENVOI — LA LIGNE ROUGE SOUS LE BOUTON, et l'enveloppe qui porte son infobulle.
    L'enveloppe est un simple inline-flex : elle ne change RIEN a la mise en page de la barre du bas, elle

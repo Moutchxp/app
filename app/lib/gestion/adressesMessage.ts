@@ -23,7 +23,12 @@ import { normaliserEmail } from './annuaire';
 //   le bloc des parties (`indicesParEmail`), qui ne la connaissait pas.
 import { estAdresseInterne } from './adresseInterne';
 
-export type RoleAdresse = 'expediteur' | 'destinataire' | 'copie' | 'repondre_a' | 'transfere';
+/**
+ * ⚠️ `copie_cachee` (LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS, migration 338) : le Cci d'un mail que NOUS
+ * envoyons, écrit par `envoiPartiesRepo` à partir de l'envoi. `releverAdresses` ne le relève JAMAIS sur un mail reçu
+ * (voir son encadré) : on ne le connaît que pour nos propres envois.
+ */
+export type RoleAdresse = 'expediteur' | 'destinataire' | 'copie' | 'repondre_a' | 'transfere' | 'copie_cachee';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — LES TROIS RÔLES QUI FONT « PARTICIPER » À UN MAIL ═════════════════════
@@ -58,7 +63,10 @@ export type RoleAdresse = 'expediteur' | 'destinataire' | 'copie' | 'repondre_a'
 export const ROLE_EXPEDITEUR: RoleAdresse = 'expediteur';
 
 /** « EN COPIE » au sens de l'écran : les rôles par lesquels on REÇOIT un mail — le À comme le Cc. */
-export const ROLES_RECEPTION: readonly RoleAdresse[] = ['destinataire', 'copie'];
+/* 🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — ET LE Cci D'UN MAIL QUE NOUS AVONS ENVOYÉ : la personne l'a reçu,
+   et Arno demande que le mail soit rattaché à « toute partie dont une adresse figure dans À, Cc ou Cci ». Seuls nos
+   envois portent ce rôle (migration 338) : aucun compteur existant ne bouge. */
+export const ROLES_RECEPTION: readonly RoleAdresse[] = ['destinataire', 'copie', 'copie_cachee'];
 
 /**
  * 🔴 ET LE FILTRE EST EXACTEMENT LEUR UNION — par construction, et non par surveillance. C'est ce qui rend la

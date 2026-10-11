@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   brouillonMailSyndic, civiliteDeTexte, corpsMailSyndic, etageLisible, formuleAppelDestinataires, ligneLocataire,
-  lignesVersHtml, objetMailSyndic, phraseDuBien, preremplirDemande, selectionObjet, type DonneesMailSyndic,
+  formulePour, lignesVersHtml, objetMailSyndic, phraseDuBien, preremplirDemande, selectionObjet, type DonneesMailSyndic,
 } from './mailSyndic';
 
 /**
@@ -189,29 +189,67 @@ describe('ce que l’éditeur reçoit', () => {
 });
 
 describe('la demande d’écriture → le brouillon', () => {
-  const BASE = { a: ['x@y.fr'], objet: '', corps: '\n\nSIG', corpsHtml: null as string | null };
+  const BASE = { a: ['x@y.fr'], objet: '', corps: '\n\nSIG', corpsHtml: null as string | null, cibles: [] as unknown[] };
+  const rep = (corps: unknown, status = 200) => new Response(JSON.stringify(corps), { status });
+  const SYNDIC = { etat: 'ok', objet: 'XXXXXXXX / C / résidence R', selection: [0, 8], corps: 'Bonjour Madame, Monsieur,\n\n\n',
+    civilites: { 'm.b@c.fr': { civilite: 'M.', nom: 'Bercier' } } };
+  const BIEN = { etat: 'ok', cible: { sorte: 'lot', cle: '219', id: 176, libelle: '25 rue X — lot 219', categorie: 'logement' },
+    groupes: [{ cle: 'clients', titre: 'Clients de l’agence', lignes: [
+      { adresse: 'p@x.fr', nom: 'DUPONT Jean', role: 'Propriétaire', ton: 'proprietaire', propre: true, civilite: 'M.', nomFamille: 'DUPONT' },
+    ] }] };
+  const routeur = (s: unknown, b: unknown) => vi.fn(async (u: string) => (u.includes('/syndics/') ? rep(s) : rep(b)));
+
   it('une adresse seule : le message adressé, exactement comme avant (aucune lecture)', async () => {
     const lire = vi.fn();
     expect(await preremplirDemande('x@y.fr', BASE, {}, lire)).toBe(BASE);
     expect(lire).not.toHaveBeenCalled();
   });
-  it('avec son syndic et son bien : la route est lue (lot, adresse), objet et corps posés', async () => {
-    const lire = vi.fn(async (_u: string) => new Response(JSON.stringify({
-      etat: 'ok', objet: 'XXXXXXXX / C / résidence R', selection: [0, 8], corps: 'Bonjour,\n\n\n',
-    }), { status: 200 }));
-    const b = await preremplirDemande({ email: 'x@y.fr', syndic: { syndicId: 40, lotId: 176 } }, BASE, { texte: 'SIG' }, lire);
-    expect(lire.mock.calls[0][0]).toBe('/api/admin/gestion/syndics/40/mail?a=x%40y.fr&lot=176');
-    expect(b).toMatchObject({ a: ['x@y.fr'], objet: 'XXXXXXXX / C / résidence R', corps: 'Bonjour,\n\n\nSIG', selectionObjet: [0, 8] });
+  it('depuis une fiche syndic ouverte d’un bien : les DEUX lectures (syndic, bien), objet et corps posés', async () => {
+    const lire = routeur(SYNDIC, BIEN);
+    const b = await preremplirDemande({ email: 'x@y.fr', contexte: { syndicId: 40, lotId: 176 } }, BASE, { texte: 'SIG' }, lire);
+    expect(lire.mock.calls.map((c) => c[0]).sort()).toEqual([
+      '/api/admin/gestion/biens/176/ecrire', '/api/admin/gestion/syndics/40/mail?a=x%40y.fr&lot=176']);
+    expect(b).toMatchObject({ a: ['x@y.fr'], objet: 'XXXXXXXX / C / résidence R', corps: 'Bonjour Madame, Monsieur,\n\n\nSIG', selectionObjet: [0, 8] });
+    // Le bien d'origine est pré-coché, les adresses du bien sont là, et la formule sait se recalculer.
+    expect(b.cibles).toEqual([{ sorte: 'lot', cle: '219', id: 176, libelle: '25 rue X — lot 219', categorie: 'logement' }]);
+    expect(b.suggestionsBien).toEqual(BIEN.groupes);
+    expect(b.appel).toEqual({ formule: 'Bonjour Madame, Monsieur,', civilites: {
+      'p@x.fr': { civilite: 'M.', nom: 'DUPONT' }, 'm.b@c.fr': { civilite: 'M.', nom: 'Bercier' } } });
   });
-  it('depuis l’écran « Syndics » (pas de bien) : pas de paramètre « lot »', async () => {
-    const lire = vi.fn(async (_u: string) => new Response(JSON.stringify({ etat: 'ok', objet: 'XXXXXXXX / C', selection: [0, 8], corps: 'B,\n\n\n' })));
-    await preremplirDemande({ email: 'x@y.fr', syndic: { syndicId: 40, lotId: null } }, BASE, {}, lire);
-    expect(lire.mock.calls[0][0]).toBe('/api/admin/gestion/syndics/40/mail?a=x%40y.fr');
+  it('depuis l’écran « Syndics » (pas de bien) : la seule lecture du syndic, sans « lot »', async () => {
+    const lire = routeur({ ...SYNDIC, objet: 'XXXXXXXX / C' }, BIEN);
+    const b = await preremplirDemande({ email: 'x@y.fr', contexte: { syndicId: 40, lotId: null } }, BASE, {}, lire);
+    expect(lire.mock.calls.map((c) => c[0])).toEqual(['/api/admin/gestion/syndics/40/mail?a=x%40y.fr']);
+    expect(b.cibles).toEqual([]);
+    expect(b.suggestionsBien).toBeUndefined();
+  });
+  it('depuis une carte CLIENT de la fiche bien (pas de syndic) : bien pré-coché et adresses proposées, corps intact', async () => {
+    const lire = routeur(SYNDIC, BIEN);
+    const b = await preremplirDemande({ email: 'p@x.fr', contexte: { lotId: 176 } }, BASE, {}, lire);
+    expect(lire.mock.calls.map((c) => c[0])).toEqual(['/api/admin/gestion/biens/176/ecrire']);
+    expect(b).toMatchObject({ objet: '', corps: '\n\nSIG', cibles: [{ cle: '219' }] });
+    expect(b.appel).toBeUndefined();
+  });
+  it('un bien déjà classé par ailleurs n’est pas remplacé', async () => {
+    const b = await preremplirDemande({ email: 'p@x.fr', contexte: { lotId: 176 } },
+      { ...BASE, cibles: [{ sorte: 'evenement' }] }, {}, routeur(SYNDIC, BIEN));
+    expect(b.cibles).toEqual([{ sorte: 'evenement' }]);
   });
   it('lecture impossible (refus ou panne) : le message s’ouvre adressé, sans pré-remplissage', async () => {
-    expect(await preremplirDemande({ email: 'x@y.fr', syndic: { syndicId: 40, lotId: 1 } }, BASE, {},
-      async () => new Response(JSON.stringify({ etat: 'erreur' }), { status: 503 }))).toBe(BASE);
-    expect(await preremplirDemande({ email: 'x@y.fr', syndic: { syndicId: 40, lotId: 1 } }, BASE, {},
-      async () => { throw new Error('réseau'); })).toBe(BASE);
+    expect(await preremplirDemande({ email: 'x@y.fr', contexte: { syndicId: 40, lotId: 1 } }, BASE, {},
+      async () => rep({ etat: 'erreur' }, 503))).toEqual(BASE);
+    expect(await preremplirDemande({ email: 'x@y.fr', contexte: { syndicId: 40, lotId: 1 } }, BASE, {},
+      async () => { throw new Error('réseau'); })).toEqual(BASE);
+  });
+});
+
+describe('la formule recalculée sur les destinataires en « À »', () => {
+  const C = { 'h@x.fr': { civilite: 'M.' as const, nom: 'Martin' }, 'f@x.fr': { civilite: 'Mme' as const, nom: 'Durand' },
+    'f2@x.fr': { civilite: 'Mme' as const, nom: 'Petit' } };
+  it('d’après les civilités connues ; une adresse inconnue rend la formule neutre ; la casse ne compte pas', () => {
+    expect(formulePour(['H@x.fr'], C)).toBe('Bonjour Monsieur MARTIN,');
+    expect(formulePour(['h@x.fr', 'f@x.fr'], C)).toBe('Bonjour Madame, Monsieur,');
+    expect(formulePour(['f@x.fr', 'f2@x.fr'], C)).toBe('Bonjour Mesdames,');
+    expect(formulePour(['h@x.fr', 'inconnu@x.fr'], C)).toBe('Bonjour Madame, Monsieur,');
   });
 });

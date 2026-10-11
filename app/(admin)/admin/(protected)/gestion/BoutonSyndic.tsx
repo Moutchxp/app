@@ -76,7 +76,7 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
           adresseBien={connu?.principale ? { libelle, codePostal: connu?.codePostal ?? '', commune: connu?.commune ?? '' } : null}
           onFerme={() => { setOuvert(false); setApresRetrait(null); }}
           onRetireDeLaResidence={(ancien) => setApresRetrait(ancien)} ancienSyndicId={apresRetrait}
-          onEcrire={onEcrire === undefined ? undefined : (email, syndic) => { setOuvert(false); setApresRetrait(null); onEcrire(email, syndic); }} />,
+          onEcrire={onEcrire === undefined ? undefined : (email, contexte) => { setOuvert(false); setApresRetrait(null); onEcrire(email, contexte); }} />,
         document.querySelector('.svv-adm-root') ?? document.body,
       )}
     </span>

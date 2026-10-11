@@ -121,7 +121,7 @@ export async function enregistrerCiblesEnvoi(o: {
  * ⚠️ LA FENÊTRE EST ÉTROITE ET ASYMÉTRIQUE : de 2 minutes AVANT (l'horloge du serveur de mail n'est pas la nôtre)
  * à 2 heures APRÈS (la relève passe toutes les minutes, mais une panne peut la retarder).
  */
-const SQL_MESSAGE_DE_L_ENVOI = `(
+export const SQL_MESSAGE_DE_L_ENVOI = `(
   SELECT CASE WHEN count(*) = 1 THEN min(m.id) END
     FROM gestion_message m
    WHERE m.sens = 'envoye'

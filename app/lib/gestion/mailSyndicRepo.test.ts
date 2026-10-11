@@ -86,7 +86,10 @@ describe('preparerMailSyndic — depuis une fiche bien', () => {
 describe('preparerMailSyndic — hors fiche bien, et les refus', () => {
   it('écran « Syndics » (pas de bien) : objet sans résidence, formule seule, aucune lecture du bien', async () => {
     const p = await preparerMailSyndic(40, null, ['m.bercier@criterimmo.fr']);
-    expect(p).toEqual({ objet: 'XXXXXXXX / Cabinet Criterimmo', selection: [0, 8], corps: 'Bonjour Monsieur BERCIER,\n\n\n' });
+    expect(p).toMatchObject({ objet: 'XXXXXXXX / Cabinet Criterimmo', selection: [0, 8], corps: 'Bonjour Monsieur BERCIER,\n\n\n' });
+    // LOT MAIL-DEPUIS-BIEN — la civilité des contacts connus voyage, pour recalculer la formule (le générique n'y est pas).
+    expect(p?.civilites).toEqual({
+      'm.bercier@criterimmo.fr': { civilite: 'M.', nom: 'Bercier' }, 'l.durand@criterimmo.fr': { civilite: null, nom: 'Durand' } });
     expect(ficheLot).not.toHaveBeenCalled();
     expect(contactsDeLImmeuble).not.toHaveBeenCalled();
   });

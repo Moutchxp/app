@@ -258,6 +258,13 @@ export function EditeurRiche({
        * on obtient des mails truffés d'URL nues parce que retaper le libellé est une corvée.
        */
       texteSelectionne: () => (selection.current?.toString() ?? '').trim(),
+      remplacerPremiereLigne: (ancien: string, nouveau: string) => {
+        const premier = zone.current?.firstElementChild ?? null;
+        if (premier === null || (premier.textContent ?? '').trim() !== ancien.trim()) return null;
+        premier.textContent = nouveau;
+        const html = zone.current === null ? '' : htmlSansMarques(zone.current);
+        return { html, texte: htmlVersTexte(html) };
+      },
     });
   }, [agir, onPret, placerLeCurseurAuDebut]);
 
@@ -420,6 +427,13 @@ export interface ApiEditeur {
   curseurAuDebut: () => void;
   /** Le texte actuellement sélectionné, pour pré-remplir le libellé d'un lien. Vide s'il n'y a pas de sélection. */
   texteSelectionne: () => string;
+  /**
+   * 🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — LA FORMULE D'APPEL SE RECALCULE. Remplace le texte de la
+   * PREMIÈRE ligne du message par `nouveau`, SEULEMENT si elle vaut encore `ancien` (une formule retouchée à la main
+   * n'est jamais réécrite). Rend le corps qui en résulte, SANS le signaler par `onChange` : l'appelant l'enregistre
+   * dans le MÊME changement que les destinataires, pour qu'aucun des deux n'écrase l'autre. `null` = rien remplacé.
+   */
+  remplacerPremiereLigne: (ancien: string, nouveau: string) => ValeurCorps | null;
 }
 
 export const CSS_EDITEUR_RICHE = `

@@ -758,6 +758,15 @@ export function envoiCiblesDisponibles(): Promise<boolean> {
 }
 
 /**
+ * 🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — la migration 338 est-elle appliquée ? Elle porte les PARTIES
+ * des destinataires d'un envoi (À, Cc, Cci) : `gestion_envoi.parties_demandees` et les colonnes `partie_externe`,
+ * `syndic_id`, `syndic_contact_id`, `copropriete_contact_id` de `gestion_message_adresse`, arrivées ensemble.
+ */
+export function envoiPartiesDisponibles(): Promise<boolean> {
+  return memoiser('envoi.parties_demandees', () => colonneExiste('gestion_envoi', 'parties_demandees'));
+}
+
+/**
  * 🔴 LOT RATTACHER-EN-ECRIVANT — la migration 283 est-elle appliquée ? Elle porte « INTERNE » choisi pendant
  * l'écriture d'un message NEUF, dont l'échange n'existe pas encore.
  *

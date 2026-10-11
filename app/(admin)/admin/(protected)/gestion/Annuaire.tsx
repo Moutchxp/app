@@ -1108,7 +1108,7 @@ function VueLot({
   evenementVise, onEtatEvenement, redaction = null, onGesteMail,
 }: {
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
-  onEcrire?: (email: string) => void;
+  onEcrire?: EcrireDepuisGestionFn;
   /**
    * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — RELIRE LA FICHE QUAND UN ÉVÉNEMENT S'OUVRE OU SE FERME.
    *
@@ -1353,7 +1353,9 @@ function VueLot({
     /* « Changer de côté » et « Passer en tiers indépendant » : un RANGEMENT, par la porte du rangement. */
     onRanger: (adresse: string, categorie: 'proprietaire' | 'locataire' | 'independant') =>
       gesteDeCarte({ cible: `lot-${f.numero}`, adresse, categorie }),
-    onEcrire,
+    /* 🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — écrire à un client DEPUIS LA FICHE DU BIEN : le bien voyage
+       avec l'adresse (bien pré-coché, adresses du bien proposées dans À / Cc / Cci). */
+    onEcrire: onEcrire === undefined ? undefined : (email: string) => onEcrire(email, { lotId: f.id }),
   };
 
   /**

@@ -24,14 +24,18 @@ import { formuleAppel, type Civilite } from './syndics';
 
 // ══ D'OÙ L'ON ÉCRIT ════════════════════════════════════════════════════════════════════════════════════════════════
 
-/** Le syndic dont on a cliqué une adresse, et le bien d'où l'on vient (`null` = écran « Syndics »). */
-export interface ContexteEcritureSyndic { syndicId: number; lotId: number | null }
+/**
+ * D'où vient l'adresse cliquée : le bien d'où l'on écrit (`null` = d'aucun bien, écran « Syndics ») et, depuis une
+ * fiche syndic, ce syndic. LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS : le bien voyage aussi depuis une carte
+ * client de la fiche bien, sans syndic.
+ */
+export interface ContexteEcriture { lotId: number | null; syndicId?: number }
 
-/** « Écrire depuis gestion@ » : l'adresse cliquée, et — depuis une fiche syndic — de quoi pré-remplir le message. */
-export type EcrireDepuisGestionFn = (email: string, syndic?: ContexteEcritureSyndic) => void;
+/** « Écrire depuis gestion@ » : l'adresse cliquée, et ce qu'on sait d'où l'on vient. */
+export type EcrireDepuisGestionFn = (email: string, contexte?: ContexteEcriture) => void;
 
-/** Ce que l'écran transmet à la boîte : une adresse seule (comme avant ce lot), ou une adresse et son syndic. */
-export type DemandeEcriture = string | { email: string; syndic: ContexteEcritureSyndic };
+/** Ce que l'écran transmet à la boîte : une adresse seule (comme avant), ou une adresse et son contexte. */
+export type DemandeEcriture = string | { email: string; contexte: ContexteEcriture };
 
 // ══ LA FORMULE D'APPEL, SELON LES DESTINATAIRES EN « À » ═══════════════════════════════════════════════════════════
 
@@ -237,25 +241,86 @@ export function brouillonMailSyndic(
   };
 }
 
+/** La formule écrite en tête du corps, et la civilité des contacts connus : de quoi la recalculer quand « À » change. */
+export interface AppelAuto {
+  /** La formule telle qu'elle est écrite (la première ligne du corps). */
+  formule: string;
+  /** adresse (minuscules) → civilité et nom de famille d'un contact connu. Absente = adresse non-contact. */
+  civilites: Record<string, { civilite: Civilite | null; nom: string | null }>;
+}
+
+/** La formule d'appel pour ces destinataires en « À », d'après les civilités connues. PUR. */
+export function formulePour(a: readonly string[], civilites: AppelAuto['civilites']): string {
+  return formuleAppelDestinataires(a.map((x) => {
+    const c = civilites[x.trim().toLowerCase()];
+    return c === undefined ? null : { civilite: c.civilite, nom: c.nom };
+  }));
+}
+
+/** Ce que le brouillon gagne à l'ouverture depuis une fiche (champs d'écran, jamais enregistrés tels quels). */
+export interface Prerempli<G> {
+  selectionObjet?: [number, number] | null;
+  /** Le bien d'origine, pré-coché dans le classement (même chemin que les biens cochés avant l'envoi). */
+  cibles?: Array<{ sorte: 'lot'; cle: string | null; id: number | null; libelle: string; categorie?: 'logement' | 'parking' | 'cave' }>;
+  /** Les adresses liées au bien, proposées dans À / Cc / Cci. */
+  suggestionsBien?: G[] | null;
+  appel?: AppelAuto | null;
+}
+
+const lireJson = async (
+  lire: (url: string, init?: RequestInit) => Promise<Response>, url: string,
+): Promise<Record<string, unknown> | null> => {
+  try {
+    const res = await lire(url, { cache: 'no-store' });
+    const j = (await res.json()) as Record<string, unknown>;
+    return res.ok && j.etat === 'ok' ? j : null;
+  } catch {
+    return null;
+  }
+};
+
 /**
  * LA DEMANDE D'ÉCRITURE → LE BROUILLON À OUVRIR. `base` est le « Nouveau message » adressé, tel qu'il s'ouvrait
- * avant ce lot. Une adresse seule le rend tel quel ; une adresse avec son syndic le pré-remplit par la route (lecture
- * seule). Lecture impossible ⇒ `base`, inchangé : on n'ouvre jamais un message vide d'adresse pour une panne.
+ * avant ces lots. Une adresse seule le rend tel quel. Avec un contexte, deux lectures (en lecture seule, en parallèle) :
+ *   · depuis une fiche SYNDIC : objet, formule d'appel et corps pré-remplis (lot MAIL-SYNDIC-PREREMPLI) ;
+ *   · depuis une fiche BIEN : le bien d'origine pré-coché et les adresses du bien proposées (lot
+ *     MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS).
+ * Une lecture impossible n'empêche jamais d'écrire : ce qu'elle aurait apporté manque, le reste est là.
  */
-export async function preremplirDemande<B extends { objet: string; corps: string; corpsHtml?: string | null }>(
+export async function preremplirDemande<B extends { objet: string; corps: string; corpsHtml?: string | null; cibles?: unknown[] }, G = unknown>(
   demande: DemandeEcriture, base: B, signature: { texte?: string | null; html?: string | null },
   lire: (url: string, init?: RequestInit) => Promise<Response> = fetch,
-): Promise<B & { selectionObjet?: [number, number] | null }> {
-  if (typeof demande === 'string') return base;
-  const { syndicId, lotId } = demande.syndic;
+): Promise<B & Prerempli<G>> {
+  if (typeof demande === 'string') return base as B & Prerempli<G>;
+  const { syndicId, lotId } = demande.contexte;
   const params = new URLSearchParams({ a: demande.email });
   if (lotId !== null) params.set('lot', String(lotId));
-  try {
-    const res = await lire(`/api/admin/gestion/syndics/${syndicId}/mail?${params.toString()}`, { cache: 'no-store' });
-    const j = (await res.json()) as { etat?: string; objet?: unknown; selection?: [number, number] | null; corps?: unknown };
-    if (!res.ok || j.etat !== 'ok' || typeof j.objet !== 'string' || typeof j.corps !== 'string') return base;
-    return { ...base, ...brouillonMailSyndic({ objet: j.objet, selection: j.selection ?? null, corps: j.corps }, signature) };
-  } catch {
-    return base;
+  const [s, b] = await Promise.all([
+    syndicId === undefined ? null : lireJson(lire, `/api/admin/gestion/syndics/${syndicId}/mail?${params.toString()}`),
+    lotId === null ? null : lireJson(lire, `/api/admin/gestion/biens/${lotId}/ecrire`),
+  ]);
+  // ⚠️ `B` est le brouillon de l'écran : ses champs d'écran (`cibles`, `suggestionsBien`, `appel`) sont ceux-ci.
+  let out = { ...base } as B & Prerempli<G>;
+  const civilites: AppelAuto['civilites'] = {};
+  if (b !== null && Array.isArray(b.groupes)) {
+    out.suggestionsBien = b.groupes as G[];
+    for (const g of b.groupes as Array<{ lignes?: Array<{ adresse: string; ton: string; civilite: Civilite | null; nomFamille: string | null }> }>) {
+      for (const l of g.lignes ?? []) {
+        // Une adresse sans personne derrière (e-mail général du syndic, « autre adresse ») n'est pas un contact.
+        if (l.ton === 'neutre' || (l.civilite === null && l.nomFamille === null)) continue;
+        civilites[l.adresse.trim().toLowerCase()] = { civilite: l.civilite, nom: l.nomFamille };
+      }
+    }
+    const cible = b.cible as { cle: string; id: number; libelle: string; categorie?: 'logement' | 'parking' | 'cave' } | undefined;
+    if (cible !== undefined && (base.cibles ?? []).length === 0) {
+      out.cibles = [{ sorte: 'lot', cle: cible.cle, id: cible.id, libelle: cible.libelle, categorie: cible.categorie }];
+    }
   }
+  if (s !== null && typeof s.objet === 'string' && typeof s.corps === 'string') {
+    Object.assign(civilites, (s.civilites ?? {}) as AppelAuto['civilites']);
+    const rempli = brouillonMailSyndic(
+      { objet: s.objet, selection: (s.selection as [number, number] | null) ?? null, corps: s.corps }, signature);
+    out = { ...out, ...rempli, appel: { formule: s.corps.split('\n')[0], civilites } };
+  }
+  return out;
 }

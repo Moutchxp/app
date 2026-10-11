@@ -1352,9 +1352,9 @@ export function GestionVue({ intro }: {
         <EcranSyndics
           retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button>}
           onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
-            ? (email, syndic) => {
-              /* LOT MAIL-SYNDIC-PREREMPLI — le syndic voyage avec l'adresse : le message s'ouvre pré-rempli. */
-              setEcrireA(syndic === undefined ? email : { email, syndic });
+            ? (email, contexte) => {
+              /* LOT MAIL-SYNDIC-PREREMPLI — le syndic (et le bien) voyagent avec l'adresse : le message s'ouvre pré-rempli. */
+              setEcrireA(contexte === undefined ? email : { email, contexte });
               aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null });
             }
             : undefined} />
@@ -1436,9 +1436,9 @@ export function GestionVue({ intro }: {
           onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
           /* Écrire à quelqu'un trouvé dans l'annuaire : on part dans la boîte, où vit le SEUL écran d'écriture. */
           onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
-            ? (email, syndic) => {
-              /* LOT MAIL-SYNDIC-PREREMPLI — depuis une fiche syndic ouverte d'une fiche bien : le bien voyage aussi. */
-              setEcrireA(syndic === undefined ? email : { email, syndic });
+            ? (email, contexte) => {
+              /* LOT MAIL-SYNDIC-PREREMPLI / MAIL-DEPUIS-BIEN — le syndic et le bien d'où l'on écrit voyagent avec l'adresse. */
+              setEcrireA(contexte === undefined ? email : { email, contexte });
               aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null });
             }
             : undefined} />

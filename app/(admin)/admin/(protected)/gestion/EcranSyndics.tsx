@@ -77,7 +77,7 @@ export function EcranSyndics({ onEcrire, retour = null }: {
       )}
       {ouvert !== null && typeof document !== 'undefined' && createPortal(
         <FicheSyndic syndicId={ouvert.id} onFerme={fermer}
-          onEcrire={onEcrire === undefined ? undefined : (email, syndic) => { fermer(); onEcrire(email, syndic); }} />,
+          onEcrire={onEcrire === undefined ? undefined : (email, contexte) => { fermer(); onEcrire(email, contexte); }} />,
         document.querySelector('.svv-adm-root') ?? document.body,
       )}
     </section>

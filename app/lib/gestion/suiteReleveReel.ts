@@ -135,6 +135,16 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
       journal?.(`suite : ${posesEnvoi} bien(s) choisi(s) avant l’envoi, rattaché(s) au message maintenant capturé`);
     }
     /**
+     * 🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — ET LES PARTIES DE SES DESTINATAIRES (À, Cc, Cci) : clients,
+     * contacts du syndic, carnet de l'immeuble. Même raison, même moment, même garde (sans la migration 338 : 0, sans
+     * une requête de plus qu'une sonde). Voir `envoiPartiesRepo`.
+     */
+    const { appliquerPartiesEnAttente } = await import('./envoiPartiesRepo');
+    const partiesEnvoi = await appliquerPartiesEnAttente();
+    if (partiesEnvoi > 0) {
+      journal?.(`suite : destinataires de ${partiesEnvoi} envoi(s) reconnus (clients, syndic, immeuble), Cci compris`);
+    }
+    /**
      * ⚠️ ET « INTERNE » DEMANDÉ SUR UN MESSAGE NEUF, pour la même raison et au même moment : l'échange n'existait
      * pas quand on a coché la case, il existe maintenant. Sans la migration 283, la fonction rend 0 sans rien
      * demander à la base.

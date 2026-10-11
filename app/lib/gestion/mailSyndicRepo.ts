@@ -1,7 +1,7 @@
 import { ficheLot, type PersonneAnnuaire } from './annuaireRepo';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { ficheSyndic } from './syndicRepo';
-import { adresseImmeuble, communeLisible } from './syndics';
+import { adresseImmeuble, communeLisible, type Civilite } from './syndics';
 import {
   corpsMailSyndic, objetMailSyndic, selectionObjet, type DestinataireAppel, type LocataireDuMail,
 } from './mailSyndic';
@@ -20,6 +20,11 @@ export interface MailSyndicPrepare {
   selection: [number, number] | null;
   /** Le corps en texte brut, SANS la signature (l'écran l'ajoute dessous). */
   corps: string;
+  /**
+   * LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — la civilité de chaque contact connu (syndic et carnet), par
+   * adresse : la formule d'appel se recalcule quand « À » change. L'e-mail générique n'y figure pas (non-contact).
+   */
+  civilites: Record<string, { civilite: Civilite | null; nom: string | null }>;
 }
 
 const egal = (a: string, b: string): boolean => a.trim().toLowerCase() === b.trim().toLowerCase();
@@ -71,5 +76,13 @@ export async function preparerMailSyndic(syndicId: number, lotId: number | null,
       locataires: lot.occupants.filter((p) => !p.archive).map(locataireDuMail),
     },
   });
-  return { objet, selection: selectionObjet(objet), corps };
+  const civilites: MailSyndicPrepare['civilites'] = {};
+  for (const c of connus) {
+    for (const k of c.coordonnees) {
+      const adr = k.valeur.trim().toLowerCase();
+      if (k.sorte !== 'email' || adr === '' || egal(adr, fiche.email ?? '') || civilites[adr] !== undefined) continue;
+      civilites[adr] = { civilite: c.civilite ?? null, nom: c.nom };
+    }
+  }
+  return { objet, selection: selectionObjet(objet), corps, civilites };
 }
