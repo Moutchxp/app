@@ -964,15 +964,41 @@ Array<{ cleCoord: string; lignes: string[] }> {
 }
 
 // ══ LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — LE TEXTE DE LA FERMETURE DÉFINITIVE ══════════════════════════════
+// LOT SYNDIC-FERMETURE-ALERTE-MISE-EN-FORME — CE QU'IL Y AVAIT : `texteFermeture`, trois phrases aux seuls chiffres.
+// Désormais le DÉTAIL : une ligne par copropriété (avec ses lots), une ligne par contact.
 
-/** Les trois phrases de la première confirmation, avec les VRAIS chiffres (copropriétés, lots, contacts). PUR. */
-export function texteFermeture(syndic: string, nbCopros: number, nbLots: number, nbContacts: number): string[] {
-  const copros = nbCopros === 0 ? 'Il n’est rattaché à aucune copropriété' : nbCopros === 1 ? 'Il sera détaché de sa copropriété' : `Il sera détaché de ses ${nbCopros} copropriétés`;
-  const lots = nbLots === 0 ? 'aucun lot du portefeuille n’est concerné' : nbLots === 1 ? 'le lot du portefeuille concerné n’aura plus de syndic'
-    : `les ${nbLots} lots du portefeuille concernés n’auront plus de syndic`;
-  const contacts = nbContacts === 0 ? 'Son catalogue ne contient aucun contact.' : nbContacts === 1 ? 'Son catalogue de 1 contact sera supprimé.'
-    : `Son catalogue de ${nbContacts} contacts sera supprimé.`;
-  return [`Vous êtes sur le point de supprimer définitivement le syndic ${syndic}.`, `${copros} et ${lots}.`, contacts];
+/** Ce que la première confirmation de fermeture énumère. */
+export interface ResumeFermeture {
+  titre: string;
+  coproprietes: Array<{ adresse: string; lots: string; secondaires: string | null }>;
+  /** « Les 4 lots concernés n’auront plus de syndic. » */
+  phraseLots: string;
+  /** « M. Augustin JOREL · Responsable de copropriété ». */
+  contacts: string[];
+}
+
+/** « 1 lot du portefeuille », « 3 lots du portefeuille », « aucun lot du portefeuille ». PUR. */
+function libelleLotsFermeture(n: number): string {
+  return n === 0 ? 'aucun lot du portefeuille' : n === 1 ? '1 lot du portefeuille' : `${n} lots du portefeuille`;
+}
+
+/** Le détail de la fermeture définitive d'un syndic, tiré de sa fiche. PUR. */
+export function resumeFermeture(fiche: Pick<FicheSyndic, 'nom' | 'ville' | 'coproprietes' | 'contacts'>): ResumeFermeture {
+  const lotsVus = new Set<number>();
+  const coproprietes = fiche.coproprietes.map((c) => {
+    for (const l of c.lots) lotsVus.add(l.id);
+    const n = (c.adresses ?? []).length;
+    return { adresse: adresseImmeuble(c.libelle, c.codePostal, c.commune), lots: libelleLotsFermeture(c.lots.length),
+      secondaires: n === 0 ? null : n === 1 ? '+ 1 adresse' : `+ ${n} adresses` };
+  });
+  const total = lotsVus.size;
+  const phraseLots = total === 0 ? 'Aucun lot du portefeuille n’est concerné.' : total === 1 ? 'Le lot concerné n’aura plus de syndic.'
+    : `Les ${total} lots concernés n’auront plus de syndic.`;
+  const contacts = fiche.contacts.map((c) => {
+    const morceaux = [prenomNomCivil(c.civilite, c.prenom, c.nom), (c.titre ?? '').trim()].filter((x) => x !== '');
+    return morceaux.length > 0 ? morceaux.join(' · ') : 'Contact sans nom';
+  });
+  return { titre: `Fermeture définitive du syndic ${nomAvecVille(fiche.nom, fiche.ville)}`, coproprietes, phraseLots, contacts };
 }
 
 // ══ LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES ════════════════════════════════════════════════════════════════

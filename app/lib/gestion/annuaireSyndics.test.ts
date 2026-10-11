@@ -1655,14 +1655,35 @@ describe('LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — serveur', () =
   });
 });
 
-describe('LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — le texte de la fermeture (pur)', () => {
-  it('les vrais chiffres, singulier et pluriel, et les cas « aucun »', async () => {
-    const { texteFermeture } = await import('./syndics');
-    expect(texteFermeture('TEST ARNAUD / Asnieres Sur Seine', 5, 9, 4)).toEqual([
-      'Vous êtes sur le point de supprimer définitivement le syndic TEST ARNAUD / Asnieres Sur Seine.',
-      'Il sera détaché de ses 5 copropriétés et les 9 lots du portefeuille concernés n’auront plus de syndic.',
-      'Son catalogue de 4 contacts sera supprimé.']);
-    expect(texteFermeture('S', 1, 1, 1).slice(1)).toEqual(['Il sera détaché de sa copropriété et le lot du portefeuille concerné n’aura plus de syndic.', 'Son catalogue de 1 contact sera supprimé.']);
-    expect(texteFermeture('S', 0, 0, 0).slice(1)).toEqual(['Il n’est rattaché à aucune copropriété et aucun lot du portefeuille n’est concerné.', 'Son catalogue ne contient aucun contact.']);
+describe('LOT SYNDIC-FERMETURE-ALERTE-MISE-EN-FORME — le détail de la fermeture (pur)', () => {
+  // CE QU'IL DISAIT AVANT (LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE) : `texteFermeture`, trois phrases aux seuls chiffres.
+  const copro = (id: number, libelle: string, lots: number[], adresses = 0) => ({ id, cle: libelle.toLowerCase(), libelle, codePostal: '92400',
+    commune: 'Courbevoie', debut: '2026-10-10', lots: lots.map((l) => ({ id: l, numero: String(l), adresse: libelle, commune: 'Courbevoie' })),
+    adresses: Array.from({ length: adresses }, (_, i) => ({ cle: `${i} b`, libelle: `${i} b`, codePostal: '92400', commune: 'Courbevoie' })) });
+  const contact = (id: number, civilite: 'M.' | 'Mme' | null, prenom: string | null, nom: string | null, titre: string | null) => ({
+    id, civilite, prenom, nom, titre, coordonnees: [], tousImmeubles: false, immeubles: [] });
+
+  it('une ligne par copropriété avec ses lots et ses adresses secondaires ; une par contact ; les lots comptés une fois', async () => {
+    const { resumeFermeture } = await import('./syndics');
+    expect(resumeFermeture({ nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine',
+      coproprietes: [copro(1, '25 rue Edith Cavell', [10]), copro(2, '3 av Y', [11, 12, 13], 2), copro(3, '9 rue Z', [], 1)],
+      contacts: [contact(1, 'M.', 'Augustin', 'Jorel', 'Responsable de copropriété'), contact(2, null, null, null, 'Service comptabilité'),
+        contact(3, 'Mme', 'Léa', 'Durand', null), contact(4, null, null, null, null)] })).toEqual({
+      titre: 'Fermeture définitive du syndic TEST ARNAUD / Asnieres Sur Seine',
+      coproprietes: [
+        { adresse: '25 rue Edith Cavell, 92400 Courbevoie', lots: '1 lot du portefeuille', secondaires: null },
+        { adresse: '3 av Y, 92400 Courbevoie', lots: '3 lots du portefeuille', secondaires: '+ 2 adresses' },
+        { adresse: '9 rue Z, 92400 Courbevoie', lots: 'aucun lot du portefeuille', secondaires: '+ 1 adresse' },
+      ],
+      phraseLots: 'Les 4 lots concernés n’auront plus de syndic.',
+      contacts: ['M. Augustin JOREL · Responsable de copropriété', 'Service comptabilité', 'Mme Léa DURAND', 'Contact sans nom'],
+    });
+  });
+
+  it('singulier et vide', async () => {
+    const { resumeFermeture } = await import('./syndics');
+    expect(resumeFermeture({ nom: 'S', ville: null, coproprietes: [copro(1, 'A', [5])], contacts: [] }).phraseLots).toBe('Le lot concerné n’aura plus de syndic.');
+    expect(resumeFermeture({ nom: 'S', ville: null, coproprietes: [], contacts: [] })).toEqual({
+      titre: 'Fermeture définitive du syndic S', coproprietes: [], phraseLots: 'Aucun lot du portefeuille n’est concerné.', contacts: [] });
   });
 });

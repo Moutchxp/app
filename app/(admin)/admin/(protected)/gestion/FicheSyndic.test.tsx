@@ -58,6 +58,25 @@ const FICHE_21 = {
         { id: 42, sorte: 'email', libelle: 'Email direct', valeur: 'elodie@test.invalid' }] },
   ],
 };
+/** LOT SYNDIC-FERMETURE-ALERTE-MISE-EN-FORME — 7 copropriétés (une à 2 adresses secondaires) et 7 contacts : les listes défilent. */
+const FICHE_40 = {
+  ...FICHE, id: 40, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine',
+  contacts: [
+    { id: 61, civilite: 'M.', titre: 'Responsable de copropriété', prenom: 'Augustin', nom: 'Jorel', tousImmeubles: false, immeubles: [], coordonnees: [] },
+    { id: 62, civilite: null, titre: 'Service comptabilité', prenom: null, nom: null, tousImmeubles: false, immeubles: [], coordonnees: [] },
+    ...[3, 4, 5, 6, 7].map((n) => ({ id: 60 + n, civilite: 'Mme', titre: null, prenom: 'Contact', nom: `N${n}`, tousImmeubles: false, immeubles: [], coordonnees: [] })),
+  ],
+  coproprietes: [
+    { id: 71, cle: '25 rue edith cavell', libelle: '25 rue Edith Cavell', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10',
+      lots: [{ id: 1, numero: '101', adresse: '25 rue Edith Cavell', commune: 'Courbevoie' }] },
+    { id: 72, cle: '3 av y', libelle: '3 av Y', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10',
+      lots: [{ id: 2, numero: '201', adresse: '3 av Y', commune: 'Courbevoie' }, { id: 3, numero: '202', adresse: '5 av Y', commune: 'Courbevoie' }],
+      adresses: [{ cle: '5 av y', libelle: '5 av Y', codePostal: '92400', commune: 'Courbevoie' }, { cle: '7 av y', libelle: '7 av Y', codePostal: '92400', commune: 'Courbevoie' }] },
+    ...[3, 4, 5, 6, 7].map((n) => ({ id: 70 + n, cle: `${n} rue z`, libelle: `${n} rue Z`, codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: [] })),
+  ],
+};
+/** Le même syndic, sans copropriété ni contact. */
+const FICHE_41 = { ...FICHE_40, id: 41, contacts: [], coproprietes: [] };
 let appels: Array<{ url: string; methode: string; corps: unknown }> = [];
 /** L'API Adresse en panne (pour éprouver le repli sur la BAN locale). */
 let apiEnPanne = false;
@@ -90,6 +109,8 @@ beforeEach(() => {
     if (url === '/api/admin/gestion/syndics/11' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE });
     if (url === '/api/admin/gestion/syndics/20' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE_20 });
     if (url === '/api/admin/gestion/syndics/21' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE_21 });
+    if (url === '/api/admin/gestion/syndics/40' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE_40 });
+    if (url === '/api/admin/gestion/syndics/41' && (init?.method ?? 'GET') === 'GET') return rep({ etat: 'ok', fiche: FICHE_41 });
     if (url === '/api/admin/gestion/syndics/21') return rep({ ok: true, id: 21 });
     if (url === '/api/admin/gestion/syndics/20') return rep({ ok: true, id: 20 });
     if (url === '/api/admin/gestion/syndics/14' && (init?.method ?? 'GET') === 'GET') {
@@ -236,21 +257,36 @@ describe('supprimer ce syndic', () => {
   // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL DISAIT AVANT : lien « Supprimer ce syndic », UNE confirmation qui listait les biens (« 1 bien
   // perdra ce syndic : lot 101 »), « Oui, supprimer ce syndic ». Désormais « … pour cause de fermeture définitive » et
   // DEUX confirmations (les vrais chiffres, puis « Confirmez-vous … ? »), au triangle jaune.
+  // LOT SYNDIC-FERMETURE-ALERTE-MISE-EN-FORME — CE QU'IL DISAIT AVANT : trois phrases aux seuls chiffres (« Il sera détaché
+  // de sa copropriété et le lot du portefeuille concerné n’aura plus de syndic. »), triangle de 48 px. Désormais le
+  // détail : titre, une ligne par copropriété et par contact, triangle de 96 px.
   const encadre = (): HTMLElement => document.querySelector('.fsy-fermeture') as HTMLElement;
-  const textes = (): string[] => [...encadre().querySelectorAll('.fsy-fermeture-texte > p')].map((p) => p.textContent ?? '');
+  const textes = (): string[] => [...encadre().querySelectorAll('.fsy-fermeture-texte p')].map((p) => p.textContent ?? '');
   const boutons = (): string[] => [...encadre().querySelectorAll('button')].map((b) => b.textContent ?? '');
+  const partie = (nom: string): HTMLElement => encadre().querySelector(`section[aria-label="${nom}"]`) as HTMLElement;
+  const lignes = (nom: string): string[] => [...partie(nom).querySelectorAll('li')].map((x) => x.textContent ?? '');
+  const fermer = async (id: number | null = 11): Promise<void> => {
+    await ouvrir(vi.fn(), id);
+    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
+  };
 
-  it('lien « Supprimer ce syndic pour cause de fermeture définitive » → 1re confirmation (vrais chiffres) → 2e → « Oui, supprimer définitivement » : DELETE aussitôt, puis la fiche se ferme', async () => {
+  it('lien « Supprimer ce syndic pour cause de fermeture définitive » → 1re confirmation (le détail) → 2e → « Oui, supprimer définitivement » : DELETE aussitôt, puis la fiche se ferme', async () => {
     const onFerme = await ouvrir();
     await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
     expect(textes()).toEqual([
-      'Vous êtes sur le point de supprimer définitivement le syndic _TEST Cabinet / Paris.',
-      'Il sera détaché de sa copropriété et le lot du portefeuille concerné n’aura plus de syndic.',
-      'Son catalogue de 1 contact sera supprimé.',
+      'Fermeture définitive du syndic _TEST Cabinet / Paris',
+      'Cette action va :',
+      'Copropriétés détachées (1)',
+      'Le lot concerné n’aura plus de syndic.',
+      'Contacts supprimés (1)',
+      'Ces contacts seront également effacés de l’application.',
+      'Le gardien et les habitants des immeubles (carnet de l’immeuble) ne sont pas touchés.',
     ]);
+    expect(lignes('Copropriétés détachées')).toEqual(['12 rue X, 92400 Courbevoie — 1 lot du portefeuille']);
+    expect(lignes('Contacts supprimés')).toEqual(['Léa DURAND · Responsable de copropriété']);
     expect(boutons()).toEqual(['Annuler', 'Continuer']);
     await cliquer(boutonDans(encadre(), 'Continuer'));
-    expect(textes()).toEqual(['Confirmez-vous la fermeture définitive de _TEST Cabinet / Paris ? Cette action ne peut pas être annulée depuis l’application.']);
+    expect(textes()).toEqual(['Confirmez-vous la fermeture définitive de _TEST Cabinet / Paris\u00a0? Cette action ne peut pas être annulée depuis l’application.']);
     expect(boutons()).toEqual(['Non, revenir', 'Oui, supprimer définitivement']);
     expect(boutonDans(encadre(), 'Oui, supprimer définitivement').className).toContain('svv-btn-primary');
     expect(appels.some((a) => a.methode === 'DELETE')).toBe(false);
@@ -260,24 +296,74 @@ describe('supprimer ce syndic', () => {
     expect(onFerme).toHaveBeenCalledTimes(1);
   });
 
-  it('le GROS triangle jaune au point d’exclamation rouge (SVG inline, 48 px), à gauche du texte', async () => {
-    await ouvrir();
-    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
-    const svg = encadre().firstElementChild as SVGElement;
-    expect(svg.tagName.toLowerCase()).toBe('svg');
-    expect([svg.getAttribute('width'), svg.getAttribute('height'), svg.getAttribute('aria-label')]).toEqual(['48', '48', 'Attention']);
-    expect(svg.querySelector('.fsy-triangle-fond')).not.toBeNull();
-    expect(svg.querySelectorAll('.fsy-triangle-signe')).toHaveLength(2);
+  it('le GROS triangle jaune au point d’exclamation rouge (SVG inline, 96 px), en haut à gauche, aux deux confirmations', async () => {
+    await fermer();
+    for (const etape of ['1re', '2e']) {
+      const svg = encadre().firstElementChild as SVGElement;
+      expect(svg.tagName.toLowerCase(), etape).toBe('svg');
+      expect([svg.getAttribute('width'), svg.getAttribute('height'), svg.getAttribute('aria-label')]).toEqual(['96', '96', 'Attention']);
+      expect(svg.querySelector('.fsy-triangle-fond')).not.toBeNull();
+      expect(svg.querySelectorAll('.fsy-triangle-signe')).toHaveLength(2);
+      expect(svg.nextElementSibling?.className).toBe('fsy-fermeture-texte');
+      if (etape === '1re') await cliquer(boutonDans(encadre(), 'Continuer'));
+    }
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.fsy-triangle-fond{fill:#f5c400;stroke:var(--color-svv-ink);');
     expect(css).toContain('.fsy-triangle-signe{fill:var(--color-svv-red)}');
+    expect(css).toContain('.fsy-triangle{width:96px;height:96px}');
   });
 
-  it('les vrais chiffres, au pluriel : 2 copropriétés, 3 contacts', async () => {
-    await ouvrir(vi.fn(), 20);
-    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
-    expect(textes().slice(1)).toEqual(['Il sera détaché de ses 2 copropriétés et le lot du portefeuille concerné n’aura plus de syndic.',
-      'Son catalogue de 3 contacts sera supprimé.']);
+  it('l’encadré : fond rouge très pâle et bord rouge fin (jetons des deux thèmes), coins arrondis, boutons en bas à droite', async () => {
+    await fermer();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('grid-template-columns:96px minmax(0,1fr)');
+    expect(css).toContain('border-radius:12px;border:1px solid var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-ink)');
+    expect(css).toContain('.fsy-fermeture-boutons{grid-column:1 / -1}');
+    expect(css).toContain('.fsy-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end');
+    expect(encadre().lastElementChild?.className).toBe('fsy-boutons fsy-fermeture-boutons');
+    expect(css).toContain('.fsy-fermeture-sous-titre{font-variant-caps:all-small-caps;');
+    expect(encadre().querySelector('.fsy-fermeture-titre')?.textContent).toBe('Fermeture définitive du syndic _TEST Cabinet / Paris');
+  });
+
+  it('une ligne par copropriété (avec ses lots et « + N adresses » en gris), une ligne par contact (« M. Augustin JOREL · Responsable de copropriété »)', async () => {
+    await fermer(40);
+    expect(encadre().querySelector('.fsy-fermeture-titre')?.textContent).toBe('Fermeture définitive du syndic TEST ARNAUD / Asnieres Sur Seine');
+    expect(partie('Copropriétés détachées').querySelector('.fsy-fermeture-sous-titre')?.textContent).toBe('Copropriétés détachées (7)');
+    expect(lignes('Copropriétés détachées')).toEqual([
+      '25 rue Edith Cavell, 92400 Courbevoie — 1 lot du portefeuille',
+      '3 av Y, 92400 Courbevoie — 2 lots du portefeuille + 2 adresses',
+      ...[3, 4, 5, 6, 7].map((n) => `${n} rue Z, 92400 Courbevoie — aucun lot du portefeuille`),
+    ]);
+    expect(partie('Copropriétés détachées').querySelector('li:nth-child(2) .fsy-fermeture-gris')?.textContent).toBe(' + 2 adresses');
+    expect(textes()).toContain('Les 3 lots concernés n’auront plus de syndic.');
+    expect(partie('Contacts supprimés').querySelector('.fsy-fermeture-sous-titre')?.textContent).toBe('Contacts supprimés (7)');
+    expect(lignes('Contacts supprimés')).toEqual(['M. Augustin JOREL · Responsable de copropriété', 'Service comptabilité',
+      ...[3, 4, 5, 6, 7].map((n) => `Mme Contact N${n}`)]);
+  });
+
+  it('au-delà de 6 lignes, chaque liste défile seule (hauteur bornée à 6 lignes)', async () => {
+    await fermer(40);
+    for (const nom of ['Copropriétés détachées', 'Contacts supprimés']) {
+      const ul = partie(nom).querySelector('ul') as HTMLElement;
+      expect(ul.className).toBe('fsy-fermeture-liste');
+      expect(ul.children).toHaveLength(7);
+    }
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-fermeture-liste{margin:0;padding-left:1.1rem;list-style:disc;line-height:1.5;max-height:calc(6 * 1.5em);overflow-y:auto;');
+  });
+
+  it('listes vides : « Aucune copropriété rattachée », « Aucun contact »', async () => {
+    await fermer(41);
+    expect(partie('Copropriétés détachées').querySelector('ul')).toBeNull();
+    expect(partie('Contacts supprimés').querySelector('ul')).toBeNull();
+    expect(textes()).toEqual([
+      'Fermeture définitive du syndic TEST ARNAUD / Asnieres Sur Seine',
+      'Cette action va :',
+      'Copropriétés détachées (0)', 'Aucune copropriété rattachée', 'Aucun lot du portefeuille n’est concerné.',
+      'Contacts supprimés (0)', 'Aucun contact',
+      'Le gardien et les habitants des immeubles (carnet de l’immeuble) ne sont pas touchés.',
+    ]);
+    expect(boutons()).toEqual(['Annuler', 'Continuer']);
   });
 
   it('« Annuler » puis « Non, revenir » n’écrivent rien', async () => {
@@ -2567,7 +2653,8 @@ describe('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE', () => {
     await ouvrir50('12 rue X');
     const b = gros() as HTMLButtonElement;
     // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL DISAIT AVANT : « Supprimer ce syndic de cette résidence ».
-    expect(b.textContent).toBe('Détacher / remplacer ce syndic de cette résidence');
+    // LOT SYNDIC-FERMETURE-ALERTE-MISE-EN-FORME — CE QU'IL DISAIT AVANT : « Détacher / remplacer ce syndic de cette résidence ».
+    expect(b.textContent).toBe('Détacher / remplacer le syndic de cette résidence');
     const bloc2 = document.querySelector('section[aria-labelledby="fsy-bloc-2"]') as Element;
     expect(bloc2.compareDocumentPosition(b)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(b.compareDocumentPosition(document.querySelector('.fsy-trace') as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);

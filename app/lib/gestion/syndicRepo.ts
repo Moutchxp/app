@@ -742,7 +742,7 @@ Promise<{ ok: true; coproprietes: number } | { ok: false; motif: string }> {
   const parCle = await lotsParImmeuble();
   // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — « fermeture définitive » : le motif est écrit partout (liens,
   // affectations, contacts, syndic) ; les lots de TOUTES les adresses des copropriétés (secondaires comprises) ont
-  // chacun leur ligne de journal, comme pour « Détacher / remplacer ce syndic de cette résidence ».
+  // chacun leur ligne de journal, comme pour « Détacher / remplacer le syndic de cette résidence ».
   const MOTIF = 'fermeture définitive';
   const secondaires = await adressesSecondaires();
   return withTransaction(async (q) => {

@@ -12,7 +12,7 @@ import {
   marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, alerteCoordonnees, coordonneesManquantes,
   CATEGORIES_IMMEUBLE, refusContactImmeuble, versFormulaireImmeuble, type ContactImmeubleLu,
   avertissementsCoordonnees, cleTelephone, coordonneesDuFormulaire, phraseManque, type CoordonneeConnue,
-  conflitAdresse, type AdresseSaisie, texteFermeture, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  conflitAdresse, type AdresseSaisie, resumeFermeture, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -386,7 +386,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     </div>
   ) : (
     /* LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL Y AVAIT : « Supprimer ce syndic de cette résidence ». */
-    <button type="button" className="fsy-retrait" onClick={demanderRetrait}>Détacher / remplacer ce syndic de cette résidence</button>
+    <button type="button" className="fsy-retrait" onClick={demanderRetrait}>Détacher / remplacer le syndic de cette résidence</button>
   );
 
   /** « Créer un nouveau syndic » : le formulaire vide (l'immeuble du bien pré-rempli). */
@@ -636,7 +636,7 @@ function ActionCopier({ tel }: { tel: string }) {
  */
 function TriangleAlerte() {
   return (
-    <svg className="fsy-triangle" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Attention">
+    <svg className="fsy-triangle" width="96" height="96" viewBox="0 0 48 48" role="img" aria-label="Attention">
       <path d="M24 4 L45 42 H3 Z" className="fsy-triangle-fond" strokeLinejoin="round" />
       <rect x="21.5" y="15" width="5" height="16" rx="2" className="fsy-triangle-signe" />
       <circle cx="24" cy="36.5" r="2.8" className="fsy-triangle-signe" />
@@ -1268,26 +1268,58 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       {/* 🔴 LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL Y AVAIT : le lien « Supprimer ce syndic » et UNE
           confirmation qui listait les biens. Désormais « … pour cause de fermeture définitive » et DEUX confirmations,
           dans un encadré d'alerte au GROS triangle jaune : les vrais chiffres, puis « Confirmez-vous … ? ». */}
+      {/* LOT SYNDIC-FERMETURE-ALERTE-MISE-EN-FORME — CE QU'IL Y AVAIT : triangle de 48 px et trois phrases aux seuls
+          chiffres. Désormais triangle de 96 px, titre, une ligne par copropriété (avec ses lots) et par contact, listes qui
+          défilent seules au-delà de 6 lignes, boutons en bas à droite de l'encadré. */}
       {fiche !== null && syndicId !== null && (suppression !== 0 ? (
-        <div className="fsy-supprimer fsy-fermeture" role="group" aria-label="Confirmer la suppression définitive du syndic">
+        <div className="fsy-fermeture" role="group" aria-label="Confirmer la suppression définitive du syndic">
           <TriangleAlerte />
           <div className="fsy-fermeture-texte">
+            {suppression === 1 ? (() => {
+              const r = resumeFermeture(fiche);
+              return (
+                <>
+                  <p className="fsy-fermeture-titre">{r.titre}</p>
+                  <p>Cette action va :</p>
+                  <section className="fsy-fermeture-partie" aria-label="Copropriétés détachées">
+                    <p className="fsy-fermeture-sous-titre">Copropriétés détachées ({r.coproprietes.length})</p>
+                    {r.coproprietes.length === 0 ? <p className="fsy-fermeture-vide">Aucune copropriété rattachée</p> : (
+                      <ul className="fsy-fermeture-liste">
+                        {r.coproprietes.map((c, i) => (
+                          <li key={i}>{c.adresse} — {c.lots}{c.secondaires !== null && <span className="fsy-fermeture-gris"> {c.secondaires}</span>}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <p>{r.phraseLots}</p>
+                  </section>
+                  <section className="fsy-fermeture-partie" aria-label="Contacts supprimés">
+                    <p className="fsy-fermeture-sous-titre">Contacts supprimés ({r.contacts.length})</p>
+                    {r.contacts.length === 0 ? <p className="fsy-fermeture-vide">Aucun contact</p> : (
+                      <>
+                        <ul className="fsy-fermeture-liste">
+                          {r.contacts.map((c, i) => <li key={i}>{c}</li>)}
+                        </ul>
+                        <p>Ces contacts seront également effacés de l’application.</p>
+                      </>
+                    )}
+                  </section>
+                  <p className="fsy-fermeture-gris">Le gardien et les habitants des immeubles (carnet de l’immeuble) ne sont pas touchés.</p>
+                </>
+              );
+            })() : (
+              <p><strong>Confirmez-vous la fermeture définitive de {nomAvecVille(fiche.nom, fiche.ville)} ?</strong> Cette action ne peut pas être annulée depuis l’application.</p>
+            )}
+          </div>
+          <div className="fsy-boutons fsy-fermeture-boutons">
             {suppression === 1 ? (
               <>
-                {texteFermeture(nomAvecVille(fiche.nom, fiche.ville), fiche.coproprietes.length, biensPerdus.length, fiche.contacts.length)
-                  .map((l, i) => <p key={i}>{i === 0 ? <strong>{l}</strong> : l}</p>)}
-                <div className="fsy-boutons">
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(0)} disabled={envoi}>Annuler</button>
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(2)} disabled={envoi}>Continuer</button>
-                </div>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(0)} disabled={envoi}>Annuler</button>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(2)} disabled={envoi}>Continuer</button>
               </>
             ) : (
               <>
-                <p><strong>Confirmez-vous la fermeture définitive de {nomAvecVille(fiche.nom, fiche.ville)} ?</strong> Cette action ne peut pas être annulée depuis l’application.</p>
-                <div className="fsy-boutons">
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(1)} disabled={envoi}>Non, revenir</button>
-                  <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onSupprimer} disabled={envoi}>Oui, supprimer définitivement</button>
-                </div>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(1)} disabled={envoi}>Non, revenir</button>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onSupprimer} disabled={envoi}>Oui, supprimer définitivement</button>
               </>
             )}
           </div>
@@ -2672,13 +2704,21 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-biens summary,.fsy-historique summary{cursor:pointer;font-size:.84rem;font-weight:700;color:var(--color-svv-muted);min-height:28px}
 .fsy-historique ul{margin:.25rem 0 0;padding-left:1.1rem;font-size:.84rem}
 .fsy-trace{margin:0}
-.fsy-supprimer{display:flex;flex-direction:column;gap:.4rem;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-red);font-size:.86rem}
-.fsy-supprimer p{margin:0}
 .fsy-supprimer-lien{align-self:flex-start;color:var(--color-svv-muted)}
 /* LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — l'encadre d'alerte de la fermeture : le triangle a gauche, le texte a droite. */
-.fsy-fermeture{flex-direction:row;align-items:flex-start;gap:.8rem}
-.fsy-fermeture-texte{display:flex;flex-direction:column;gap:.4rem;min-width:0;flex:1 1 auto}
-.fsy-triangle{flex:0 0 48px;width:48px;height:48px}
+.fsy-fermeture{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:start;column-gap:1.1rem;row-gap:1rem;padding:16px 18px;border-radius:12px;border:1px solid var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-ink);font-size:.88rem}
+.fsy-fermeture p{margin:0}
+.fsy-fermeture-texte{display:flex;flex-direction:column;gap:.7rem;min-width:0}
+.fsy-fermeture-titre{font-weight:700;font-size:1.05rem;line-height:1.3}
+.fsy-fermeture-partie{display:flex;flex-direction:column;gap:.35rem}
+.fsy-fermeture-sous-titre{font-variant-caps:all-small-caps;letter-spacing:.06em;font-weight:600;font-size:.95rem;color:var(--color-svv-muted)}
+.fsy-fermeture-liste{margin:0;padding-left:1.1rem;list-style:disc;line-height:1.5;max-height:calc(6 * 1.5em);overflow-y:auto;overscroll-behavior:contain}
+.fsy-fermeture-liste li::marker{color:var(--color-svv-muted)}
+.fsy-fermeture-gris,.fsy-fermeture-vide{color:var(--color-svv-muted)}
+.fsy-fermeture-vide{font-style:italic}
+.fsy-fermeture-boutons{grid-column:1 / -1}
+.fsy-triangle{width:96px;height:96px}
+@media (max-width:420px){.fsy-fermeture{grid-template-columns:minmax(0,1fr)}}
 .fsy-triangle-fond{fill:#f5c400;stroke:var(--color-svv-ink);stroke-width:1.5}
 .fsy-triangle-signe{fill:var(--color-svv-red)}
 /* LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le GROS bouton : pleine largeur, fond blanc, bord et texte rouge de la marque. */
