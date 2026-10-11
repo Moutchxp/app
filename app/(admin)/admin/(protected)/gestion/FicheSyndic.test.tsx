@@ -4472,3 +4472,37 @@ describe('LOT SYNDIC-FERMETURE-TEXTE-ET-CONTACTS-LIBERES — à l’écran', () 
     expect(noms()).toEqual(['Léa DURAND']);
   });
 });
+
+describe('LOT MAIL-SYNDIC-PREREMPLI — « Écrire depuis gestion@ » emporte le syndic et le bien d’où l’on écrit', () => {
+  const ouvrirAvecLot = async (lot: number | null, onEcrire: (e: string, sy?: unknown) => void): Promise<void> => {
+    const avant = globalThis.fetch;
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => (
+      url === '/api/admin/gestion/syndics/11?lot=176'
+        ? { ok: true, status: 200, json: async () => ({ etat: 'ok', fiche: FICHE }) }
+        : (avant as typeof fetch)(url, init))));
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 11, onFerme: vi.fn(), lotDepart: lot, onEcrire })); });
+    await calmer();
+  };
+  const ecrireGenerique = (): HTMLButtonElement => {
+    const ligne = (document.querySelector('input[aria-labelledby="fsy-email-generique"]') as HTMLElement).closest('.fsy-ligne-champ');
+    return boutonDans(ligne, 'Écrire depuis gestion@');
+  };
+
+  it('depuis une fiche bien : l’adresse cliquée, le syndic et le lot partent ensemble (rien n’est écrit ni envoyé)', async () => {
+    const onEcrire = vi.fn((_e: string, _sy?: unknown) => {});
+    await ouvrirAvecLot(176, onEcrire);
+    await cliquer(ecrireGenerique());
+    expect(onEcrire).toHaveBeenCalledWith('standard@test.invalid', { syndicId: 11, lotId: 176 });
+    const ecritures = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls
+      .filter(([, init]) => ((init as RequestInit | undefined)?.method ?? 'GET') !== 'GET');
+    expect(ecritures).toEqual([]);
+  });
+
+  it('depuis l’écran « Syndics » (aucun bien) : le syndic part sans lot', async () => {
+    const onEcrire = vi.fn((_e: string, _sy?: unknown) => {});
+    await ouvrirAvecLot(null, onEcrire);
+    await cliquer(ecrireGenerique());
+    expect(onEcrire).toHaveBeenCalledWith('standard@test.invalid', { syndicId: 11, lotId: null });
+  });
+});

@@ -373,10 +373,18 @@ describe('LOT SYNDIC-CONTACT-CIVILITE — la civilité (pur)', () => {
     expect(formuleAppel('M.', '')).toBe('Monsieur');
     expect(formuleAppel('Mme', null)).toBe('Madame');
   });
-  it('formule d’appel : branchée NULLE PART pour l’instant (aucun envoi)', () => {
+  /* LOT MAIL-SYNDIC-PREREMPLI — CE QU'IL DISAIT AVANT : « formule d'appel : branchée NULLE PART pour l'instant (aucun
+     envoi) ». Elle est désormais branchée — par le seul module du mail pré-rempli (`mailSyndic.ts`), qui n'envoie
+     rien : la fiche et le dépôt des syndics ne la connaissent toujours pas, et aucun chemin d'envoi ne l'importe. */
+  it('formule d’appel : branchée UNIQUEMENT dans le mail pré-rempli, qui n’envoie rien', () => {
     const src = readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/FicheSyndic.tsx'), 'utf8');
     expect(src).not.toContain('formuleAppel');
     expect(readFileSync(join(__dirname, 'syndicRepo.ts'), 'utf8')).not.toContain('formuleAppel');
+    const mail = readFileSync(join(__dirname, 'mailSyndic.ts'), 'utf8');
+    expect(mail).toContain('formuleAppel(');
+    for (const f of ['mailSyndic.ts', 'mailSyndicRepo.ts']) {
+      expect(readFileSync(join(__dirname, f), 'utf8')).not.toMatch(/envoyer|envoiGmail|envoiReel|fileEnvoi|INSERT|UPDATE|DELETE/);
+    }
   });
   it('affichage : « M. Mathis BERCIER », « Mme Léa DURAND » ; sans civilité comme avant ; sans nom, rien à préfixer', () => {
     expect(prenomNomCivil('M.', 'Mathis', 'Bercier')).toBe('M. Mathis BERCIER');

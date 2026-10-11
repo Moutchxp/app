@@ -13,6 +13,7 @@ import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './R
 // LOT REDACTION-GMAIL — les fenêtres flottantes qui encadrent CE MÊME éditeur (jamais un second).
 import { FenetresRedaction, useFenetresRedaction } from './FenetresRedaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+import { preremplirDemande, type DemandeEcriture } from '../../../../lib/gestion/mailSyndic';
 // La traduction « brouillon en base → brouillon d'éditeur », PURE et éprouvée sans écran.
 import { cleFenetreBrouillon, reprendreBrouillon, type BrouillonEnregistre as BrouillonLu }
   from '../../../../lib/gestion/brouillonReprise';
@@ -154,7 +155,7 @@ export function PleinEcranBoite({
    * d'envoi. Un écran d'écriture qui existerait en deux exemplaires divergerait au premier réglage (signature,
    * délai d'annulation, pièces jointes).
    */
-  ecrireA?: string | null;
+  ecrireA?: DemandeEcriture | null;
   /** Prévient l'écran parent que l'adresse a été consommée : sans quoi revenir ici rouvrirait le même brouillon. */
   onEcrireAConsomme?: () => void;
   /**
@@ -408,14 +409,26 @@ export function PleinEcranBoite({
    * rouvrirait un brouillon vide adressé à la même personne, sans qu'on comprenne pourquoi.
    */
   useEffect(() => {
-    if (ecrireA === null || ecrireA === '') return;
+    if (ecrireA === null || ecrireA === undefined) return;
+    const email = typeof ecrireA === 'string' ? ecrireA : ecrireA.email;
+    if (email === '') return;
     if (!(redaction?.schemaPret && redaction.peutEnvoyer)) { onEcrireAConsomme?.(); return; }
-    ouvrirRedaction(`nouveau:${ecrireA}`, {
+    const adresse: BrouillonEcran = {
       ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
-      a: [ecrireA],
+      a: [email],
       id: null,
-    });
+    };
     onEcrireAConsomme?.();
+    if (typeof ecrireA === 'string') { ouvrirRedaction(`nouveau:${email}`, adresse); return; }
+    /**
+     * ══ 🔴🔴 LOT MAIL-SYNDIC-PREREMPLI — DEPUIS UNE FICHE SYNDIC : LE MÊME « Nouveau message », DÉJÀ ÉCRIT ══════════
+     * L'objet, la formule d'appel et le corps sont LUS AU CLIC (route en lecture seule) puis posés dans le brouillon,
+     * signature dessous. Rien n'est envoyé ; aucun brouillon n'est enregistré tant qu'Arno n'a rien modifié (le
+     * pré-rempli EST l'étalon de `brouillonTouche`). Lecture impossible ⇒ le message s'ouvre simplement adressé,
+     * exactement comme avant ce lot.
+     */
+    void preremplirDemande(ecrireA, adresse, { texte: redaction.signature, html: redaction.signatureHtml })
+      .then((b) => ouvrirRedaction(`nouveau:${email}:${Date.now()}`, b));
   }, [ecrireA, redaction, onFermerFil, onEcrireAConsomme]);
 
   /**

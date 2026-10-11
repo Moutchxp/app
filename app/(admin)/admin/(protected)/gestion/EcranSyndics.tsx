@@ -3,6 +3,7 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useState } from 'react';
 import { nomAvecVille, type SyndicResume } from '../../../../lib/gestion/syndics';
+import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 import { FicheSyndic } from './FicheSyndic';
 import { rafraichirImmeubles } from './useImmeublesSyndics';
 
@@ -17,7 +18,7 @@ import { rafraichirImmeubles } from './useImmeublesSyndics';
  * un, le composeur où écrire (`onEcrire`) et le retour. C'est ce qui permet de le poser tel quel ailleurs.
  */
 export function EcranSyndics({ onEcrire, retour = null }: {
-  onEcrire?: (email: string) => void;
+  onEcrire?: EcrireDepuisGestionFn;
   /** Un bouton de retour à poser en tête, fourni par l'écran hôte. */
   retour?: React.ReactNode;
 }) {
@@ -76,7 +77,7 @@ export function EcranSyndics({ onEcrire, retour = null }: {
       )}
       {ouvert !== null && typeof document !== 'undefined' && createPortal(
         <FicheSyndic syndicId={ouvert.id} onFerme={fermer}
-          onEcrire={onEcrire === undefined ? undefined : (email) => { fermer(); onEcrire(email); }} />,
+          onEcrire={onEcrire === undefined ? undefined : (email, syndic) => { fermer(); onEcrire(email, syndic); }} />,
         document.querySelector('.svv-adm-root') ?? document.body,
       )}
     </section>

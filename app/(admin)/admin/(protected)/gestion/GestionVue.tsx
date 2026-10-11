@@ -13,6 +13,7 @@ import {
 import { decisionRetour, lireMemoire, memoirePour } from '../../../../lib/gestion/retourEcran';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » change le classement d'un mail : les compteurs suivent. */
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
+import type { DemandeEcriture } from '../../../../lib/gestion/mailSyndic';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — de quoi relire l'état rangé derrière le jeton de retour. Le module
    est PUR : l'importer ici ne tire ni `pg` ni React. */
 import { CLE_RETOUR_BIEN, etatRetourDepuisBrut } from '../../../../lib/gestion/historiqueBien';
@@ -156,7 +157,7 @@ export function GestionVue({ intro }: {
    * effet de `PleinEcranBoite`, un rappel recréé à chaque rendu relancerait l'effet en boucle — le défaut déjà
    * mesuré au lot 5-BOITE (`onNonLus`), et dont le seul symptôme visible est un écran qui rame.
    */
-  const [ecrireA, setEcrireA] = useState<string | null>(null);
+  const [ecrireA, setEcrireA] = useState<DemandeEcriture | null>(null);
   const consommerEcrireA = useCallback(() => setEcrireA(null), []);
   /**
    * 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — les ensembles d'événements que chaque chiffre du tableau de bord a
@@ -1351,7 +1352,11 @@ export function GestionVue({ intro }: {
         <EcranSyndics
           retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button>}
           onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
-            ? (email) => { setEcrireA(email); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }
+            ? (email, syndic) => {
+              /* LOT MAIL-SYNDIC-PREREMPLI — le syndic voyage avec l'adresse : le message s'ouvre pré-rempli. */
+              setEcrireA(syndic === undefined ? email : { email, syndic });
+              aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null });
+            }
             : undefined} />
       ) : ecran === 'historique' ? (
         cibleHistorique !== null ? (
@@ -1431,8 +1436,9 @@ export function GestionVue({ intro }: {
           onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
           /* Écrire à quelqu'un trouvé dans l'annuaire : on part dans la boîte, où vit le SEUL écran d'écriture. */
           onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
-            ? (email) => {
-              setEcrireA(email);
+            ? (email, syndic) => {
+              /* LOT MAIL-SYNDIC-PREREMPLI — depuis une fiche syndic ouverte d'une fiche bien : le bien voyage aussi. */
+              setEcrireA(syndic === undefined ? email : { email, syndic });
               aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null });
             }
             : undefined} />

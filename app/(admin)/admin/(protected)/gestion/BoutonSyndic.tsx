@@ -3,6 +3,7 @@
 import { createContext, useContext, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { cleImmeuble, nomAvecVille } from '../../../../lib/gestion/syndics';
+import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 import { FicheSyndic } from './FicheSyndic';
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
 
@@ -30,7 +31,7 @@ import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics'
  */
 
 /** Le composeur « écrire depuis gestion@ », fourni par l'écran qui le possède (l'Annuaire). */
-export const EcrireDepuisGestion = createContext<((email: string) => void) | undefined>(undefined);
+export const EcrireDepuisGestion = createContext<EcrireDepuisGestionFn | undefined>(undefined);
 
 export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
   immeuble: string | null | undefined;
@@ -75,7 +76,7 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
           adresseBien={connu?.principale ? { libelle, codePostal: connu?.codePostal ?? '', commune: connu?.commune ?? '' } : null}
           onFerme={() => { setOuvert(false); setApresRetrait(null); }}
           onRetireDeLaResidence={(ancien) => setApresRetrait(ancien)} ancienSyndicId={apresRetrait}
-          onEcrire={onEcrire === undefined ? undefined : (email) => { setOuvert(false); setApresRetrait(null); onEcrire(email); }} />,
+          onEcrire={onEcrire === undefined ? undefined : (email, syndic) => { setOuvert(false); setApresRetrait(null); onEcrire(email, syndic); }} />,
         document.querySelector('.svv-adm-root') ?? document.body,
       )}
     </span>

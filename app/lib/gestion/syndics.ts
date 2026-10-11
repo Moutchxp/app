@@ -579,7 +579,8 @@ export function prenomNomCivil(civilite: Civilite | null | undefined, prenom: st
 }
 
 /**
- * LA FORMULE D'APPEL d'un mail — préparée pour la rédaction automatique, branchée nulle part pour l'instant. PUR.
+ * LA FORMULE D'APPEL d'un mail, pour UN destinataire. PUR. Branchée par le lot MAIL-SYNDIC-PREREMPLI
+ * (`formuleAppelDestinataires`, mailSyndic.ts), qui la reprend telle quelle pour un seul homme ou une seule femme.
  *   M. ⇒ « Monsieur NOM » ; Mme ⇒ « Madame NOM » ; pas de civilité ⇒ « Madame, Monsieur ».
  * Le NOM s'écrit en capitales, comme partout dans la fiche. Civilité connue mais nom vide ⇒ « Monsieur » / « Madame ».
  */

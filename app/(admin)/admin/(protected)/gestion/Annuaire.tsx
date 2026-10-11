@@ -86,6 +86,7 @@ import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffic
 import { pastillesBien } from '../../../../lib/gestion/pastillesBien';
 // LOT ANNUAIRE-SYNDICS — le bouton syndic des cartes de bien, et le composeur qu'il peut ouvrir.
 import { BoutonSyndic, EcrireDepuisGestion, PastilleConflitParcelle } from './BoutonSyndic';
+import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -212,7 +213,7 @@ export function Annuaire({
   /** Ouvre l'échange d'un mail de la « vie du bien ». Absent = la ligne reste lisible, sans ce chemin. */
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   /** Ouvre « Nouveau message » de la tuile avec ce destinataire. Absent = le lien `mailto:` du système. */
-  onEcrire?: (email: string) => void;
+  onEcrire?: EcrireDepuisGestionFn;
   /**
    * LOT RATTACHEMENT-2 — ouvre TOUT l'historique des échanges d'un logement ou d'un propriétaire. Absent = le bouton
    * ne s'affiche pas : la fiche reste exactement celle du lot ANNUAIRE-1.

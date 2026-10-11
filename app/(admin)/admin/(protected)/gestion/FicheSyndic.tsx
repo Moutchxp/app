@@ -20,6 +20,7 @@ import {
   type ImmeubleSaisi, type SorteCoordonnee, type SyndicForm, type SyndicResume,
 } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
+import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 import { chercherAdresses } from './adressesSyndic';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
@@ -67,8 +68,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   /** L'immeuble du bien depuis lequel on vient : pré-rempli comme copropriété. */
   immeubleDepart?: ImmeubleSaisi | null;
   onFerme: () => void;
-  /** Écrire depuis gestion@ par le composeur existant. Absent ⇒ le lien `mailto:` suffit. */
-  onEcrire?: (email: string) => void;
+  /** Écrire depuis gestion@ par le composeur existant. Absent ⇒ le lien `mailto:` suffit.
+   *  LOT MAIL-SYNDIC-PREREMPLI — le syndic et le bien d'où l'on vient voyagent avec l'adresse : le message s'ouvre
+   *  pré-rempli (objet, formule d'appel, corps). */
+  onEcrire?: EcrireDepuisGestionFn;
   /** LOT SYNDIC-NOTE-PAR-BIEN — le lot depuis lequel la fiche est ouverte : sa note (couple lot, syndic). */
   lotDepart?: number | null;
   /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — après le retrait, l'écran hôte enchaîne (choix d'un autre syndic). Absent :
@@ -107,6 +110,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [questionContact, setQuestionContact] = useState(false);
   const boite = useRef<HTMLDivElement | null>(null);
   const immeubles = useImmeublesSyndics();
+  /** LOT MAIL-SYNDIC-PREREMPLI — l'adresse cliquée part avec ce syndic et ce bien (un syndic pas encore créé : seule). */
+  const ecrire = useMemo(() => (onEcrire === undefined ? undefined
+    : (email: string) => onEcrire(email, syndicId === null ? undefined : { syndicId, lotId: lotDepart })),
+  [onEcrire, syndicId, lotDepart]);
 
   const charger = useCallback(async (id: number): Promise<Fiche | null> => {
     setMode('chargement');
@@ -425,7 +432,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
             <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)} ancienSyndicId={ancienSyndicId} />
           )}
           {mode === 'edition' && (
-            <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
+            <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={ecrire}
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression} demanderSuppression={demanderSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
               ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart} adresseBien={adresseBien}

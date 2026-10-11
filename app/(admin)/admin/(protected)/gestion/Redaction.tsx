@@ -158,7 +158,15 @@ type Etat =
  * l'écart avec « ce que l'éditeur a pré-rempli » est nul, et la règle, prise au mot, l'abandonnerait pour l'avoir
  * seulement REGARDÉ. Absent ou faux ⇒ comportement d'avant, mot pour mot.
  */
-export interface BrouillonEcran extends Brouillon { id: number | null; repris?: boolean }
+export interface BrouillonEcran extends Brouillon {
+  id: number | null; repris?: boolean;
+  /**
+   * 🔴 LOT MAIL-SYNDIC-PREREMPLI — la plage de l'OBJET à sélectionner à l'ouverture (« XXXXXXXX ») : le curseur se
+   * pose dans l'objet, et la première frappe remplace le texte à compléter. Un geste d'OUVERTURE, jamais rejoué.
+   * Absent ⇒ rien ne change.
+   */
+  selectionObjet?: [number, number] | null;
+}
 
 /**
  * UN CHAMP DE DESTINATAIRES. Autant d'adresses que voulu, chacune en PASTILLE retirable — et le « × » est visible en
@@ -781,6 +789,23 @@ export function Redaction({
    * l'éditeur et effacerait ce qu'on est en train d'écrire.
    */
   const cleCorps = `${brouillon.voie}:${brouillon.id ?? 'neuf'}:${brouillon.repondALeMessageId ?? 0}`;
+
+  /**
+   * 🔴 LOT MAIL-SYNDIC-PREREMPLI — « À l'ouverture, le curseur est dans l'objet avec XXXXXXXX sélectionné. »
+   * Une seule fois par brouillon (sa clé), et jamais dans une fenêtre réduite : prendre le curseur, c'est la montrer.
+   */
+  const champObjet = useRef<HTMLInputElement | null>(null);
+  const selectionFaite = useRef<string | null>(null);
+  useEffect(() => {
+    const plage = brouillon.selectionObjet;
+    if (!plage || reduite || selectionFaite.current === cleCorps) return;
+    const champ = champObjet.current;
+    if (champ === null) return;
+    selectionFaite.current = cleCorps;
+    champ.focus();
+    champ.setSelectionRange(plage[0], plage[1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- geste d'ouverture : seule la clé du brouillon le relance.
+  }, [cleCorps, reduite]);
   const corpsInitialHtml = useMemo(() => {
     if ((brouillon.corpsHtml ?? '').trim() !== '') return brouillon.corpsHtml as string;
     const sig = (contexte.signatureHtml ?? '').trim();
@@ -1608,7 +1633,7 @@ export function Redaction({
       <div className="red-champ">
         <label className="red-label" htmlFor="red-objet">Objet</label>
         {/* ⚠️ « Entrée » ici ne doit RIEN envoyer : le champ n'est pas dans un formulaire, et rien n'écoute la touche. */}
-        <input id="red-objet" className="red-saisie red-saisie--pleine" value={brouillon.objet} maxLength={500}
+        <input id="red-objet" ref={champObjet} className="red-saisie red-saisie--pleine" value={brouillon.objet} maxLength={500}
           onChange={(e) => modifier({ objet: e.target.value })} />
       </div>
 
