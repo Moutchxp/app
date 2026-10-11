@@ -1130,13 +1130,37 @@ export function Redaction({
    * ⚠️ UN SEUL CHANGEMENT pour les destinataires ET le corps : deux `onChange` successifs partiraient du même
    * brouillon, et le second effacerait le premier.
    */
+  /**
+   * ══ 🔴🔴 LOT FORMULE-APPEL-RECALCUL-AU-RETRAIT — LA FORMULE SUIT LE CHAMP « À », EN TEMPS RÉEL ═══════════════════════
+   * CE QU'IL FAISAIT AVANT : le recalcul vivait ICI, au seul changement de « À » par ce champ, et il remplaçait la
+   * première ligne À CONDITION qu'elle soit mot pour mot la formule mémorisée (`appel.formule`). Au moindre écart (une
+   * première ligne retouchée, des espaces différents), le remplacement était REFUSÉ EN SILENCE — et la formule
+   * mémorisée n'était plus jamais mise à jour : le calcul restait figé, à l'ajout comme au retrait, sans rien dire.
+   * DÉSORMAIS : TOUT changement de « À » passe par ici (suggestion, saisie, collage, « × », Retour arrière — c'est le
+   * seul `onChange` du champ), et la formule est recalculée DANS LA MÊME mise à jour (un effet séparé aurait pu
+   * écraser, ou être écrasé par, l'effet qui recalcule les biens rattachés : deux `onChange` partis du même brouillon).
+   * On remplace la première ligne RÉELLEMENT présente, comparée à la formule mémorisée sans tenir compte des espaces.
+   * Une première ligne modifiée à la main n'est jamais écrasée : la mention « Formule d'appel modifiée à la main —
+   * rétablir l'automatique » apparaît sous « À ». Cc et Cci n'y entrent jamais.
+   */
+  const sansEspaces = (t: string): string => t.replace(/\s+/g, ' ').trim();
+  const premiereLigneDuCorps = (brouillon.corps ?? '').split('\n')[0] ?? '';
+  const formuleALaMain = brouillon.appel != null
+    && sansEspaces(premiereLigneDuCorps) !== sansEspaces(brouillon.appel.formule);
+  /** La première ligne remplacée par `nouvelle` (le reste du corps intact), à fondre dans UNE mise à jour. */
+  const avecFormule = (nouvelle: string): Partial<BrouillonEcran> | null => {
+    const appel = brouillon.appel;
+    if (!appel || editeur.current === null) return null;
+    const v = editeur.current.remplacerPremiereLigne(premiereLigneDuCorps, nouvelle);
+    return v === null ? null : { corpsHtml: v.html, corps: v.texte, appel: { ...appel, formule: nouvelle } };
+  };
   const modifierA = (a: string[]): void => {
     const appel = brouillon.appel;
-    if (appel && editeur.current) {
+    if (appel && !formuleALaMain) {
       const nouvelle = formulePour(a, appel.civilites);
-      if (nouvelle !== appel.formule) {
-        const v = editeur.current.remplacerPremiereLigne(appel.formule, nouvelle);
-        if (v !== null) { modifier({ a, corpsHtml: v.html, corps: v.texte, appel: { ...appel, formule: nouvelle } }); return; }
+      if (sansEspaces(nouvelle) !== sansEspaces(appel.formule)) {
+        const maj = avecFormule(nouvelle);
+        if (maj !== null) { modifier({ a, ...maj }); return; }
       }
     }
     modifier({ a });
@@ -2139,6 +2163,19 @@ export function Redaction({
               onMouseDown={(e) => e.preventDefault()} onClick={() => basculerCopie('Cci')}>Cci</button>
           </>
         )} />
+      {formuleALaMain && (
+        <p className="red-formule-main">
+          Formule d’appel modifiée à la main —{' '}
+          <button type="button" className="gst-lien-bouton red-formule-retablir"
+            onClick={() => {
+              if (!brouillon.appel) return;
+              const maj = avecFormule(formulePour(brouillon.a, brouillon.appel.civilites));
+              if (maj !== null) modifier(maj);
+            }}>
+            rétablir l’automatique
+          </button>
+        </p>
+      )}
 
       {/* Cc et Cci REPLIÉS par défaut : neuf messages sur dix n'en ont pas, et deux champs vides de plus font croire
           qu'il faut les remplir. Leurs deux boutons sont maintenant DANS le champ « À », à droite (voir plus haut). */}
@@ -2832,6 +2869,8 @@ const CSS_REDACTION = `
 /* ⚠️ flex:0 0 auto : la liste est une colonne flexible — sans lui, l'intertitre était écrasé à 2 px (mesuré dans Chrome). */
 .red-sugg-sous-titre{flex:0 0 auto;padding:4px 10px 0;font-size:.72rem;line-height:1.3;color:var(--color-svv-muted);
   font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.red-formule-main{margin:-2px 0 2px;font-size:.75rem;color:var(--color-svv-muted)}
+.red-formule-retablir{font-size:.75rem}
 .red-avertit-manuel{margin:8px 0;padding:10px 12px;border:1.5px solid var(--color-svv-orange);border-radius:.6rem;
   background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.9rem}
 .red-avertit-manuel-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 6px}

@@ -314,3 +314,87 @@ describe('🔴 LOT OBJET-CARTOUCHE-NOM-SELON-PROFIL-GESTION, POINT 1 — un clic
     expect(surligne()).toBe('Arnaud JOREL');
   });
 });
+
+describe('🔴🔴 LOT FORMULE-APPEL-RECALCUL-AU-RETRAIT — la formule suit « À » en temps réel, ajouts ET retraits', () => {
+  const CIV = {
+    'arnaud.jorel@gmail.com': { civilite: 'M.' as const, nom: 'JOREL' },
+    'f@x.fr': { civilite: 'Mme' as const, nom: 'Durand' },
+    'thibaut@x.fr': { civilite: null, nom: 'HIRSCH' },
+  };
+  const SUITE = ['', '', 'Le Cabinet Criterimmo assure la gestion locative d’un bien.', '', 'Service Gestion'];
+  const ouvrir = async () => {
+    const lignes = ['Bonjour Monsieur JOREL,', ...SUITE];
+    await monter({ ...brouillon(pret(null, null)), a: ['arnaud.jorel@gmail.com'], corps: lignes.join('\n'),
+      corpsHtml: lignes.map((l) => (l === '' ? '<p><br /></p>' : `<p>${l}</p>`)).join(''),
+      appel: { formule: 'Bonjour Monsieur JOREL,', civilites: CIV } } as BrouillonEcran);
+  };
+  const champA = () => container.querySelector('[data-champ="À"] input.red-saisie') as HTMLInputElement;
+  const ajouter = async (adresse: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(champA(), adresse);
+      champA().dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { champA().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+    await calmer();
+  };
+  const retirer = async (adresse: string) => {
+    await act(async () => { (container.querySelector(`[data-champ="À"] button[aria-label="Retirer ${adresse}"]`) as HTMLButtonElement).click(); });
+    await calmer();
+  };
+  const premiere = () => lignesAffichees()[0];
+
+  it('🔴 1 homme, + 1 femme, − la femme, − tout : JOREL → Madame, Monsieur → JOREL → Madame, Monsieur ; le reste du corps intact', async () => {
+    await ouvrir();
+    expect(premiere()).toBe('Bonjour Monsieur JOREL,');
+    await ajouter('f@x.fr');
+    expect(premiere()).toBe('Bonjour Madame, Monsieur,');
+    await retirer('f@x.fr');
+    expect(premiere()).toBe('Bonjour Monsieur JOREL,');
+    await retirer('arnaud.jorel@gmail.com');
+    expect(courant.a).toEqual([]);
+    expect(premiere()).toBe('Bonjour Madame, Monsieur,');
+    expect(lignesAffichees().slice(1)).toEqual(SUITE);
+    // La version TEXTE (htmlVersTexte, inchangée) fond deux lignes vides en une ; l'éditeur, lui, les garde (ci-dessus).
+    expect(courant.corps).toContain('Le Cabinet Criterimmo assure la gestion locative d\u2019un bien.');
+    expect(courant.corps.trimEnd().endsWith('Service Gestion')).toBe(true);
+  });
+  it('retrait par Retour arrière au clavier', async () => {
+    await ouvrir();
+    await ajouter('f@x.fr');
+    await act(async () => { champA().dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true, cancelable: true })); });
+    await calmer();
+    expect(courant.a).toEqual(['arnaud.jorel@gmail.com']);
+    expect(premiere()).toBe('Bonjour Monsieur JOREL,');
+  });
+  it('un contact SANS civilité seul en À (cas HIRSCH Thibaut) : « Madame, Monsieur », et le retour fonctionne', async () => {
+    await ouvrir();
+    await ajouter('thibaut@x.fr');
+    await retirer('arnaud.jorel@gmail.com');
+    expect(premiere()).toBe('Bonjour Madame, Monsieur,');
+    await ajouter('arnaud.jorel@gmail.com');
+    await retirer('thibaut@x.fr');
+    expect(premiere()).toBe('Bonjour Monsieur JOREL,');
+  });
+  it('🔴 1re ligne modifiée à la main : jamais écrasée, la mention apparaît ; « rétablir l’automatique » la remet', async () => {
+    await ouvrir();
+    // La personne retouche la première ligne (ce que l'éditeur remonte : le corps change, la formule mémorisée non).
+    const lignes = ['Bonjour Monsieur le Directeur,', ...SUITE];
+    await act(async () => {
+      const p = container.querySelector('.red-corps-riche [contenteditable] p') as HTMLElement;
+      p.textContent = lignes[0];
+      courant = { ...courant, corps: lignes.join('\n') };
+    });
+    await monter(courant);
+    expect(container.querySelector('.red-formule-main')?.textContent).toBe('Formule d’appel modifiée à la main — rétablir l’automatique');
+    await ajouter('f@x.fr');
+    expect(courant.corps.split('\n')[0]).toBe('Bonjour Monsieur le Directeur,');      // jamais écrasée
+    await act(async () => { (container.querySelector('.red-formule-retablir') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(courant.corps.split('\n')[0]).toBe('Bonjour Madame, Monsieur,');
+    expect(container.querySelector('.red-formule-main')).toBeNull();
+  });
+  it('sans formule automatique (message ordinaire) : aucune mention, rien ne bouge', async () => {
+    await monter({ ...brouillon(pret(null, null)), appel: undefined } as BrouillonEcran);
+    expect(container.querySelector('.red-formule-main')).toBeNull();
+  });
+});
