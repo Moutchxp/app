@@ -16,6 +16,8 @@ import { POSITIONS_PORTEE, positionActive, type PositionPortee } from '../../../
  * 3 px et ombre dure vers le bas couleur du texte, poignée blanche au centre), un repère gris de 12 px à chaque
  * position, glissement avec léger rebond ; libellés EXACTEMENT centrés sous leur repère (≈ 140 px, retour à la ligne
  * permis), sans numéro, 16 px ; le libellé actif en rouge gras sur pastille rouge très pâle.
+ * 🔴 LOT PILULE-AFFINEE-ET-ACCOLADE-ENVELOPPANTE (Arno, 12/10/2026) — traits affinés : piste ~52 px et pilule ~92 × 40 px,
+ * contours 2 px, ombre 3 px adoucie, repères 10 px, poignée en traits de 2 px. Les mesures ci-dessus sont celles d'origine.
  *
  * 🔴 ACCESSIBILITÉ (Arno : « role="radiogroup" / aria-checked conservés ou ajoutés ») : les quatre libellés sont les
  * boutons radio d'un groupe ; un seul est dans l'ordre de tabulation (celui qui est choisi), ←/→ (et ↑/↓) changent de
@@ -29,10 +31,11 @@ import { POSITIONS_PORTEE, positionActive, type PositionPortee } from '../../../
 
 /**
  * Le retrait des positions extrêmes depuis le bord EXTÉRIEUR de la piste, en px. ⚠️ Il doit valoir au moins la
- * demi-largeur du curseur (52 px) pour que la pilule tienne dans la piste aux deux bouts (Arno) : 60 px.
+ * demi-largeur du curseur (46 px) pour que la pilule tienne dans la piste aux deux bouts (Arno) : 54 px (lot
+ * PILULE-AFFINEE : piste de 52 px, pilule de 92 × 40 px — 60 px pour l'ancienne pilule de 104 px).
  * Sur petit écran, la feuille le réduit avec le curseur (`--gpo-retrait`) : la souris le relit là, jamais en double.
  */
-const RETRAIT_PX = 60;
+const RETRAIT_PX = 54;
 const retraitDe = (e: Element): number => {
   const v = Number.parseFloat(getComputedStyle(e).getPropertyValue('--gpo-retrait'));
   return Number.isFinite(v) ? v : RETRAIT_PX;
@@ -100,10 +103,11 @@ export function GlissierePortee({ position, modification, onChoisir }: {
           {/* 🔴 LOT PILULE-TROIS-TRAITS — LA POIGNÉE : trois traits verticaux blancs, celui du milieu plus grand (18 px,
               12 px sur les côtés), 3 px d'épaisseur, bouts arrondis, 5 px d'écart. En SVG : net, identique dans les
               deux thèmes, et réduit avec la pilule sur téléphone. */}
-          <svg className="gpo-poignee" viewBox="0 0 19 18" width="19" height="18" aria-hidden="true" focusable="false">
-            <rect x="0" y="3" width="3" height="12" rx="1.5" />
-            <rect x="8" y="0" width="3" height="18" rx="1.5" />
-            <rect x="16" y="3" width="3" height="12" rx="1.5" />
+          {/* 🔴 LOT PILULE-AFFINEE (Arno) — traits de 2 px, hauteurs 10 / 15 / 10 px, toujours 5 px d'écart. */}
+          <svg className="gpo-poignee" viewBox="0 0 16 15" width="16" height="15" aria-hidden="true" focusable="false">
+            <rect x="0" y="2.5" width="2" height="10" rx="1" />
+            <rect x="7" y="0" width="2" height="15" rx="1" />
+            <rect x="14" y="2.5" width="2" height="10" rx="1" />
           </svg>
         </div>
       </div>
@@ -146,18 +150,20 @@ export function GlissierePortee({ position, modification, onChoisir }: {
    pourcentages se lisent sur la largeur du bloc qui contient (la piste, ou la rangee des libelles : meme largeur). */
 export const CSS_GLISSIERE_PORTEE = `
 .gpo{--gpo-retrait:${RETRAIT_PX}px;display:flex;flex-direction:column;gap:10px;min-width:0;padding:6px 0 0}
-.gpo-piste{position:relative;height:64px;box-sizing:border-box;border:3px solid var(--color-svv-ink);
+/* LOT PILULE-AFFINEE-ET-ACCOLADE-ENVELOPPANTE (Arno) : moins « playschool » — contours 2 px, ombre 3 px adoucie (70 %),
+   piste 52 px, pilule 92 x 40 px, reperes 10 px. Couleurs, rebond, libelles et comportement inchanges. */
+.gpo-piste{position:relative;height:52px;box-sizing:border-box;border:2px solid var(--color-svv-ink);
   border-radius:999px;background:var(--color-svv-field);touch-action:none;cursor:pointer}
-.gpo-cran{position:absolute;top:50%;width:12px;height:12px;border-radius:50%;
-  left:calc(var(--gpo-retrait) - 3px + var(--gpo-x) * (100% + 6px - 2 * var(--gpo-retrait)));
+.gpo-cran{position:absolute;top:50%;width:10px;height:10px;border-radius:50%;
+  left:calc(var(--gpo-retrait) - 2px + var(--gpo-x) * (100% + 4px - 2 * var(--gpo-retrait)));
   transform:translate(-50%,-50%);background:var(--color-svv-line-strong-hover)}
 .gpo-cran--grise{opacity:.45}
-.gpo-curseur{position:absolute;top:50%;width:104px;height:50px;box-sizing:border-box;border-radius:999px;
-  left:calc(var(--gpo-retrait) - 3px + var(--gpo-x) * (100% + 6px - 2 * var(--gpo-retrait)));
-  transform:translate(-50%,calc(-50% - 2px));background:var(--color-svv-red);border:3px solid var(--color-svv-ink);
-  box-shadow:0 5px 0 var(--color-svv-ink);cursor:grab;transition:left .42s cubic-bezier(.34,1.56,.64,1)}
+.gpo-curseur{position:absolute;top:50%;width:92px;height:40px;box-sizing:border-box;border-radius:999px;
+  left:calc(var(--gpo-retrait) - 2px + var(--gpo-x) * (100% + 4px - 2 * var(--gpo-retrait)));
+  transform:translate(-50%,calc(-50% - 1.5px));background:var(--color-svv-red);border:2px solid var(--color-svv-ink);
+  box-shadow:0 3px 0 color-mix(in srgb, var(--color-svv-ink) 70%, transparent);cursor:grab;transition:left .42s cubic-bezier(.34,1.56,.64,1)}
 .gpo-curseur:active{cursor:grabbing}
-.gpo-poignee{position:absolute;top:50%;left:50%;width:19px;height:18px;transform:translate(-50%,-50%);
+.gpo-poignee{position:absolute;top:50%;left:50%;width:16px;height:15px;transform:translate(-50%,-50%);
   fill:#fff;display:block}
 @media (prefers-reduced-motion:reduce){.gpo-curseur{transition:none}}
 .gpo-libelles{display:grid;min-width:0}
@@ -174,9 +180,9 @@ export const CSS_GLISSIERE_PORTEE = `
    Toute la conversation dessous) : chacun dispose ainsi de deux intervalles. Le curseur et son retrait raccourcissent
    pour garder de la place entre les reperes, la pilule tenant toujours dans la piste. */
 @media (max-width:560px){
-  .gpo{--gpo-retrait:46px}
-  .gpo-curseur{width:80px;height:42px}
-  .gpo-poignee{width:15px;height:14px}
+  .gpo{--gpo-retrait:42px}
+  .gpo-curseur{width:72px;height:32px}
+  .gpo-poignee{width:13px;height:12px}
   .gpo-libelle{--gpo-l:min(140px, calc((100% - 2 * var(--gpo-retrait)) * 2 / 3 - 6px))}
   .gpo-libelle:nth-child(even){grid-area:2/1}
 }

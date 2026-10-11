@@ -394,9 +394,9 @@ describe('la glissière « pilule »', () => {
     expect(container.querySelectorAll('.gpo-piste .gpo-cran')).toHaveLength(4);
     const traits = [...container.querySelectorAll('.gpo-curseur svg.gpo-poignee rect')];
     expect(traits.map((r) => [r.getAttribute('width'), r.getAttribute('height'), r.getAttribute('rx')]))
-      .toEqual([['3', '12', '1.5'], ['3', '18', '1.5'], ['3', '12', '1.5']]);
-    /* 5 px d'écart entre deux traits : 0 → 3, puis 8 → 11, puis 16. */
-    expect(traits.map((r) => r.getAttribute('x'))).toEqual(['0', '8', '16']);
+      .toEqual([['2', '10', '1'], ['2', '15', '1'], ['2', '10', '1']]);
+    /* 🔴 LOT PILULE-AFFINEE — 5 px d'écart entre deux traits de 2 px : 0 → 2, puis 7 → 9, puis 14. */
+    expect(traits.map((r) => r.getAttribute('x'))).toEqual(['0', '7', '14']);
     expect(container.querySelector('.gpo-curseur .gpo-losange')).toBeNull();
   });
 

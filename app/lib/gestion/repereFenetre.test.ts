@@ -196,9 +196,15 @@ describe('🔴 ③ ce que l’écran dessine', () => {
     expect(src).not.toContain('.cnv-repere::before,.cnv-repere::after');
   });
 
-  /** 🔴 LE BRAS FAIT LA MOITIÉ DE LA HAUTEUR MESURÉE DU MAIL, jamais une valeur figée. */
-  it('🔴🔴 le bras fait la moitié de la hauteur MESURÉE du mail', () => {
-    expect(src).toContain('height:calc(var(--cnv-repere-h) / 2)');
+  /**
+   * 🔴 LE BRAS SUIT LA HAUTEUR MESURÉE DU MAIL, jamais une valeur figée. Depuis le lot PILULE-AFFINEE-ET-ACCOLADE-
+   * ENVELOPPANTE (Arno) : « un peu au-dessus de la moitié du mail » (0,6), et 9 px HORS du cadre (4 px sur téléphone).
+   */
+  it('🔴🔴 le bras suit la hauteur MESURÉE du mail, un peu au-delà de la moitié, hors du cadre', () => {
+    expect(src).toContain('height:calc(var(--cnv-repere-h) * var(--cnv-repere-part))');
+    expect(src).toContain('--cnv-repere-deborde:9px;--cnv-repere-part:.6}');
+    expect(src).toContain('.cnv-repere-bras--gauche::before{left:calc(-1 * var(--cnv-repere-deborde))}');
+    expect(src).toContain('@media (max-width:640px){.cnv-repere{--cnv-repere-deborde:4px}}');
     expect(src).toContain('new ResizeObserver(mesurer)');
     /* ⚠️ ET IL NE PÈSE RIEN DANS LA MISE EN PAGE : hauteur zéro, le tracé déborde par le ::before. */
     expect(src).toContain('.cnv-repere-bras{position:relative;height:0;min-width:0}');
@@ -240,8 +246,9 @@ describe('🔴 ③ ce que l’écran dessine', () => {
     expect(src).toContain('border-top-color:var(--color-svv-red)}');
     expect(src).toContain('border-bottom-color:var(--color-svv-red)}');
     /* 🔴 LES DEUX BRANCHES EN PORTENT UNE, chacune centrée sur son propre trait. */
-    expect(src).toContain('.cnv-repere-bras--gauche::after{left:-4.5px}');
-    expect(src).toContain('.cnv-repere-bras--droite::after{right:-4.5px}');
+    /* 🔴 LOT PILULE-AFFINEE-ET-ACCOLADE-ENVELOPPANTE — la pointe suit le retour, hors du cadre du mail. */
+    expect(src).toContain('.cnv-repere-bras--gauche::after{left:calc(-4.5px - var(--cnv-repere-deborde))}');
+    expect(src).toContain('.cnv-repere-bras--droite::after{right:calc(-4.5px - var(--cnv-repere-deborde))}');
   });
 
   /**
@@ -250,8 +257,8 @@ describe('🔴 ③ ce que l’écran dessine', () => {
    * c'est précisément celle qu'une retouche à la main casserait sans que rien ne la rattrape.
    */
   it('⚠️ la pointe est posée sur la fin du trait, demi-flèche retirée', () => {
-    expect(src).toContain('top:calc(var(--cnv-repere-h) / 2 - 5px)');
-    expect(src).toContain('bottom:calc(var(--cnv-repere-h) / 2 - 5px)');
+    expect(src).toContain('top:calc(var(--cnv-repere-h) * var(--cnv-repere-part) - 5px)');
+    expect(src).toContain('bottom:calc(var(--cnv-repere-h) * var(--cnv-repere-part) - 5px)');
     expect(src).toContain('.cnv-repere-bras::after{content:"";position:absolute;width:0;height:0;'
       + 'border:5px solid transparent}');
   });

@@ -134,7 +134,7 @@ export const CSS_ACCOLADE_SUIVI = `
 /* 🔴 LE REPERE SE SERRE : il remplace un trait de 1 px, il ne vient pas s'ajouter a lui. Les marges d'avant
    (.6rem / .4rem) creusaient un trou la ou il n'y avait qu'une ligne. */
 .cnv-repere{position:relative;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
-  margin:.1rem 0;padding:0;list-style:none;--cnv-repere-h:0px}
+  margin:.1rem 0;padding:0;list-style:none;--cnv-repere-h:0px;--cnv-repere-deborde:9px;--cnv-repere-part:.6}
 .cnv-repere-phrase{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:.2rem .5rem;
   padding:0 .6rem;text-align:center;min-width:0}
 /* 🔴 LA PHRASE EST ROUGE, et le reste de la mention la suit en plus discret : c'est une seule information. */
@@ -155,7 +155,19 @@ export const CSS_ACCOLADE_SUIVI = `
 /* Les bras : hauteur zero dans la grille, le trace vit dans leur ::before. */
 .cnv-repere-bras{position:relative;height:0;min-width:0}
 .cnv-repere-bras::before{content:"";position:absolute;left:0;right:0;
-  height:calc(var(--cnv-repere-h) / 2);border:0 solid var(--color-svv-red)}
+  height:calc(var(--cnv-repere-h) * var(--cnv-repere-part));border:0 solid var(--color-svv-red)}
+/* ══ 🔴🔴 LOT PILULE-AFFINEE-ET-ACCOLADE-ENVELOPPANTE — L'ACCOLADE PORTE LE MAIL COMME UN BERCEAU ══════════════════
+   Demande d'Arno (12/10/2026) : « Les deux retours verticaux passent legerement A L'EXTERIEUR du cadre du mail,
+   environ 8 a 10 px a gauche et a droite. Ils remontent le long de ses flancs, et les fleches pointent un peu
+   au-dessus de la moitie du mail. Ne pas decaler ni retrecir le cadre du mail. Rien n'est rogne, y compris sur
+   telephone (reduire le debord a ~4 px si la place manque). »
+   🔴 LE CADRE DU MAIL NE BOUGE PAS : seul le trace du bras deborde (left / right negatifs du ::before), la ligne
+   de l'accolade garde la largeur du mail. La partie horizontale s'allonge d'autant et rejoint le retour par son
+   arrondi. --cnv-repere-part : la part de la hauteur du mail que longe le retour (0,6 = un peu au-dessus de la
+   moitie). Un seul dessin, partout ou l'accolade apparait (conversation, historique, Interne, entree, sortie). */
+.cnv-repere-bras--gauche::before{left:calc(-1 * var(--cnv-repere-deborde))}
+.cnv-repere-bras--droite::before{right:calc(-1 * var(--cnv-repere-deborde))}
+@media (max-width:640px){.cnv-repere{--cnv-repere-deborde:4px}}
 /* AU-DESSUS DU MAIL : le trait part de la phrase et DESCEND le long du mail. */
 .cnv-repere--dessus .cnv-repere-bras::before{top:0;border-top-width:1px}
 .cnv-repere--dessus .cnv-repere-bras--gauche::before{border-left-width:1px;border-top-left-radius:10px}
@@ -198,10 +210,10 @@ export const CSS_ACCOLADE_SUIVI = `
    couleur en dur.
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
 .cnv-repere-bras::after{content:"";position:absolute;width:0;height:0;border:5px solid transparent}
-.cnv-repere--mesure.cnv-repere--dessus .cnv-repere-bras::after{top:calc(var(--cnv-repere-h) / 2 - 5px);
+.cnv-repere--mesure.cnv-repere--dessus .cnv-repere-bras::after{top:calc(var(--cnv-repere-h) * var(--cnv-repere-part) - 5px);
   border-top-color:var(--color-svv-red)}
-.cnv-repere--mesure.cnv-repere--dessous .cnv-repere-bras::after{bottom:calc(var(--cnv-repere-h) / 2 - 5px);
+.cnv-repere--mesure.cnv-repere--dessous .cnv-repere-bras::after{bottom:calc(var(--cnv-repere-h) * var(--cnv-repere-part) - 5px);
   border-bottom-color:var(--color-svv-red)}
-.cnv-repere-bras--gauche::after{left:-4.5px}
-.cnv-repere-bras--droite::after{right:-4.5px}
+.cnv-repere-bras--gauche::after{left:calc(-4.5px - var(--cnv-repere-deborde))}
+.cnv-repere-bras--droite::after{right:calc(-4.5px - var(--cnv-repere-deborde))}
 `;
