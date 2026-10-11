@@ -21,6 +21,9 @@ import { htmlVersTexte, texteVersHtml } from '../../../../lib/gestion/htmlMail';
 import { formulePour, suivreSurlignage, type AppelAuto } from '../../../../lib/gestion/mailSyndic';
 import { filtrerSuggestions, type GroupeSuggestions, type SuggestionAdresse } from '../../../../lib/gestion/suggestionsBien';
 import {
+  classesPuce, cleAdresse, famillesDesSuggestions, infobullePuce, type FamillesConnues,
+} from '../../../../lib/gestion/familleAdresse';
+import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
 } from './SelecteurFichierDrive';
 import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
@@ -220,8 +223,14 @@ export interface BrouillonEcran extends Brouillon {
  */
 export function ChampDestinataires({
   libelle, valeurs, onChange, suggestions, onChercher, autoFocus = false, actions, propositions = null, dejaPresentes,
-  actif, onActiver, onDesactiver, onQuitter, refSaisie,
+  actif, onActiver, onDesactiver, onQuitter, refSaisie, familles,
 }: {
+  /**
+   * 🔴 LOT FORMULE-CONTACT-PRIME-ET-PUCES-COLOREES — la famille de chaque adresse (clé : adresse en minuscules), lue par
+   * le composeur : la puce prend le fond teinté de sa famille (propre plein, rattaché pâle à contour), une adresse
+   * inconnue un fond neutre à contour gris pointillé. Absent ⇒ les puces d'avant.
+   */
+  familles?: FamillesConnues;
   /**
    * ══ 🔴🔴 LOT COMPOSEUR-CC-CCI-REFERMABLES-ET-SUGGESTIONS — LA LISTE PILOTÉE PAR LE COMPOSEUR ══════════════════════
    * ARNO : « une seule liste ouverte à la fois » ; elle se ferme sur un clic hors de la liste et du champ (y compris
@@ -324,7 +333,8 @@ export function ChampDestinataires({
 
   /** Ce qu'on affiche dans la pastille : le nom s'il est connu, l'adresse sinon. L'adresse reste dans l'infobulle. */
   const libelleDe = (a: string) => noms[a] ?? a;
-  const infobulleDe = (a: string) => (adresseValide(a) ? a : `Adresse incorrecte : ${a}`);
+  const familleDe = (a: string) => familles?.[cleAdresse(a)];
+  const infobulleDe = (a: string) => (adresseValide(a) ? infobullePuce(a, familleDe(a)) : `Adresse incorrecte : ${a}`);
 
   return (
     <div className="red-champ" data-champ={libelle}>
@@ -344,7 +354,7 @@ export function ChampDestinataires({
             ⚠️ RENDUS EN DERNIER DANS LE DOM, mais poussés à droite par la mise en page : au clavier, on traverse
             d'abord la saisie (ce qu'on vient faire), et seulement ensuite ces deux boutons. */}
         {valeurs.map((a) => (
-          <span key={a} className={`red-pastille${adresseValide(a) ? '' : ' red-pastille--fautive'}`}
+          <span key={a} className={`red-pastille${adresseValide(a) ? classesPuce(familleDe(a)) : ' red-pastille--fautive'}`}
             title={infobulleDe(a)}>
             <span className="red-pastille-texte">{libelleDe(a)}</span>
             {/* Le « × » est un VRAI bouton, de 44 px, avec un libellé accessible : « retirer » doit se dire. */}
@@ -713,6 +723,42 @@ export function Redaction({
   });
   const [citationOuverte, setCitationOuverte] = useState(false);
   const [suggestions, setSuggestions] = useState<{ adresse: string; nom: string | null }[]>([]);
+  /**
+   * ══ 🔴🔴 LOT FORMULE-CONTACT-PRIME-ET-PUCES-COLOREES — LA FAMILLE DE CHAQUE ADRESSE DE À / Cc / Cci ═════════════════
+   * Connue d'emblée pour les adresses que la fiche bien propose (même couleur que dans la liste) ; les autres sont
+   * lues au serveur (`/adresses/familles`, lecture seule), une fois chacune, quel que soit le chemin d'ajout — une
+   * adresse connue tapée à la main est colorée elle aussi. Tant qu'une adresse n'est pas lue, sa puce reste neutre.
+   */
+  const [familles, setFamilles] = useState<FamillesConnues>(() => famillesDesSuggestions(brouillon.suggestionsBien));
+  const famillesDemandees = useRef(new Set<string>(Object.keys(famillesDesSuggestions(brouillon.suggestionsBien))));
+  const lotOuvert = brouillon.depuisLeBien
+    ? ((brouillon.cibles ?? []) as Array<{ sorte?: string; id?: number | null }>).find((c) => c.sorte === 'lot')?.id ?? null
+    : null;
+  const adressesDesChamps = [...brouillon.a, ...brouillon.cc, ...brouillon.cci].map(cleAdresse).filter((x) => x.includes('@'));
+  const cleAdressesDesChamps = adressesDesChamps.join(',');
+  useEffect(() => {
+    const manque = [...new Set(adressesDesChamps)].filter((x) => !famillesDemandees.current.has(x));
+    if (manque.length === 0) return undefined;
+    const t = setTimeout(() => {
+      for (const x of manque) famillesDemandees.current.add(x);
+      const params = new URLSearchParams();
+      for (const x of manque) params.append('a', x);
+      if (lotOuvert !== null) params.set('lot', String(lotOuvert));
+      void (async () => {
+        try {
+          const res = await fetch(`/api/admin/gestion/adresses/familles?${params.toString()}`, { cache: 'no-store' });
+          const d = (await res.json()) as { familles?: FamillesConnues };
+          if (!res.ok || d.familles === undefined || typeof d.familles !== 'object') throw new Error('illisible');
+          setFamilles((f) => ({ ...f, ...d.familles }));
+        } catch {
+          // Une couleur est un CONFORT : en cas d'échec, la puce reste neutre et l'adresse pourra être relue.
+          for (const x of manque) famillesDemandees.current.delete(x);
+        }
+      })();
+    }, 150);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des adresses suffit.
+  }, [cleAdressesDesChamps, lotOuvert]);
   const [reste, setReste] = useState(0);
   /** LOT 5-PJ-ENVOI — combien de pièces sont jointes, remonté par la zone des pièces (pour le bouton d'envoi). */
   const [piecesJointes, setPiecesJointes] = useState(0);
@@ -1864,7 +1910,7 @@ export function Redaction({
           y poser le curseur obligeait à en sortir avant d'écrire. Il le garde là où il est vide et où il faut
           commencer — un transfert, un message neuf. Pour une réponse, c'est le corps qui prend le curseur (voir
           l'encadré de l'effet d'ouverture). */}
-      <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={modifierA}
+      <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={modifierA} familles={familles}
         suggestions={suggestions} onChercher={chercherCorrespondants}
         propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('À')}
         /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — `calerAVue` COUPE AUSSI LE CURSEUR. Voir l'encadré
@@ -1889,13 +1935,13 @@ export function Redaction({
       {/* Cc et Cci REPLIÉS par défaut : neuf messages sur dix n'en ont pas, et deux champs vides de plus font croire
           qu'il faut les remplir. Leurs deux boutons sont maintenant DANS le champ « À », à droite (voir plus haut). */}
       {afficheCc && (
-        <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })}
+        <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })} familles={familles}
           suggestions={suggestions} onChercher={chercherCorrespondants}
           propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('Cc')}
           refSaisie={saisieCc} onQuitter={(v) => { if (v.length === 0) setAfficheCc(false); }} />
       )}
       {afficheCci && (
-        <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })}
+        <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })} familles={familles}
           suggestions={suggestions} onChercher={chercherCorrespondants}
           propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('Cci')}
           refSaisie={saisieCci} onQuitter={(v) => { if (v.length === 0) setAfficheCci(false); }} />
@@ -2476,6 +2522,23 @@ const CSS_REDACTION = `
 /* Une adresse fautive est dite par un MOT dans son infobulle ET par une bordure : jamais par la seule couleur. */
 .red-pastille--fautive{border-color:var(--color-svv-red);border-style:dashed;color:var(--color-svv-red)}
 .red-pastille-texte{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* LOT FORMULE-CONTACT-PRIME-ET-PUCES-COLOREES — la puce teintée de sa FAMILLE, les mêmes jetons que les pastilles de la
+   liste. Seul le FOND est teinté : le texte reste l'encre (contraste AA éprouvé en Clair et en Sombre). E-mail
+   rattaché : fond plus pâle et contour de la couleur. Adresse inconnue : fond de surface, contour gris pointillé. */
+.red-pastille--proprietaire{--red-puce-ton:var(--color-svv-red)}
+.red-pastille--locataire{--red-puce-ton:var(--color-svv-green)}
+.red-pastille--ancien_locataire{--red-puce-ton:var(--color-svv-violet)}
+/* Le rose du syndic est DÉJÀ un pastel en Clair (#f9a8d4) : à la dose commune, la puce paraissait blanche (mesuré dans
+   Chrome). Il prend une dose plus forte — le contraste reste éprouvé par le test, en Clair comme en Sombre. */
+.red-pastille--syndic,.red-pastille--immeuble{--red-puce-ton:var(--color-svv-syndic-bord);--red-puce-dose:50%;--red-puce-dose-pale:22%}
+.red-pastille--neutre{--red-puce-ton:var(--color-svv-muted)}
+.red-pastille--famille{background:color-mix(in srgb,var(--red-puce-ton) var(--red-puce-dose,20%),var(--color-svv-surface));
+  border-color:color-mix(in srgb,var(--red-puce-ton) var(--red-puce-dose,20%),var(--color-svv-surface));color:var(--color-svv-ink)}
+.red-pastille--famille.red-pastille--rattache{background:color-mix(in srgb,var(--red-puce-ton) var(--red-puce-dose-pale,8%),var(--color-svv-surface));
+  border-color:var(--red-puce-ton)}
+.red-pastille--inconnue{background:var(--color-svv-surface);border:1px dashed var(--color-svv-muted);color:var(--color-svv-ink)}
+.red-pastille--famille .red-retirer,.red-pastille--inconnue .red-retirer{color:var(--color-svv-ink)}
+.red-pastille--famille .red-retirer:hover,.red-pastille--inconnue .red-retirer:hover{color:var(--color-svv-red)}
 /* Le « × » est visible EN PERMANENCE, jamais au survol : au doigt, le survol n'existe pas. */
 .red-retirer{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;margin:-10px 0;
   padding:0;font-size:1.1rem;line-height:1;color:var(--color-svv-muted);background:transparent;border:0;cursor:pointer}
