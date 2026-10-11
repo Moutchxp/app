@@ -47,7 +47,7 @@ import {
 import { annulerLaLevee, defaireLaDecisionDeSuivi } from './annulationLevee';
 /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — les mots du mode ponctuel, écrits dans le module PUR. */
 import {
-  BANDEAU_MODIFICATION_PONCTUELLE, MOT_MODIFICATION_PONCTUELLE_FAITE, MOT_VALIDER_CE_MAIL_UNIQUEMENT,
+  MOT_VALIDER_CE_MAIL_UNIQUEMENT,
   SECONDES_ANNULER_SORTIE,
 } from '../../../../lib/gestion/sortirDuSuivi';
 import {
@@ -69,6 +69,12 @@ import { ChoisirEvenement } from './ChoisirEvenement';
 import { CSS_LISTE_BIENS, PartiesSurDeuxLignes } from './ListeBiensACocher';
 import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
+/* 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la portée en quatre positions (module PUR) et sa glissière. */
+import {
+  definitionDe, modificationEnCours, motApresValidation, motBoutonFinal, motConfirmationConversation,
+  positionSuivante, MOT_CONFIRMER_CONVERSATION, QUESTION_RETOUR_ORIGINE, type PositionPortee,
+} from '../../../../lib/gestion/porteeSuivi';
+import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
 import type { EvenementDuMail } from '../../../../lib/gestion/evenementQualite';
 
 /**
@@ -373,6 +379,15 @@ export function RattachementsDuFil({
    * ⚠️ `null` ⇒ RIEN À DÉFAIRE : aucune trace, ou le délai est passé. Le geste est alors acquis, comme partout.
    */
   const [ponctuelFait, setPonctuelFait] = useState<TraceSuivi | null>(null);
+  /**
+   * 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — LA PORTÉE CHOISIE SUR LA GLISSIÈRE (porte ponctuelle), la question
+   * du retour à « Origine », la clé qui remet le menu à son état d'ouverture, et la portée du dernier geste (pour dire
+   * ce qui vient d'être fait au-dessus de l'« Annuler »).
+   */
+  const [positionVoulue, setPosition] = useState<PositionPortee>('origine');
+  const [demandeOrigine, setDemandeOrigine] = useState(false);
+  const [cleMenu, setCleMenu] = useState(0);
+  const [choixFait, setChoixFait] = useState<ChoixSuivi>('mail');
   useEffect(() => {
     if (ponctuelFait === null) return undefined;
     const t = setTimeout(() => setPonctuelFait(null), SECONDES_ANNULER_SORTIE * 1000);
@@ -568,6 +583,18 @@ export function RattachementsDuFil({
    */
   const jourDuMailDeLaFenetre = fiche?.enTete?.recuLe == null
     ? null : jourParis(new Date(fiche.enTete.recuLe));
+
+  /**
+   * 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — Y A-T-IL UNE MODIFICATION ? Une case cochée ou décochée, un bien
+   * ajouté, un événement à lier ou à créer. Dès la première, la glissière passe AUTOMATIQUEMENT de ① à ② ; sans plus
+   * aucune, elle revient à ① et grise les trois autres (module pur `positionSuivante`).
+   */
+  const modification = modificationEnCours({ avant: clesDuMail, apres: selection, evenementVoulu: evtVoulu !== null });
+  /* ⚠️ CALCULÉE AU RENDU, jamais recopiée par un effet : la position affichée découle de la position voulue et de
+     l'existence d'une modification — elle ne peut donc jamais les contredire. */
+  const position = positionSuivante(positionVoulue, modification);
+  /* Plus aucune modification : la position voulue repart de ①, pour que la PROCHAINE modification ramène bien sur ②. */
+  if (!modification && positionVoulue !== 'origine') setPosition('origine');
 
   /**
    * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — L'ÉVÉNEMENT DÉJÀ POSÉ SUR CE MAIL, et la migration 268.
@@ -924,7 +951,7 @@ export function RattachementsDuFil({
       await ecrireLEvenementVoulu(fraiche, voulus);
       /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — la sortie, quelques secondes, et seulement dans cette porte :
          ailleurs la fenêtre se referme au geste, et un « Annuler » rendu dedans disparaîtrait avec elle. */
-      if (ponctuel) setPonctuelFait(d.trace ?? null);
+      if (ponctuel) { setChoixFait(choix); setPonctuelFait(d.trace ?? null); setPosition('origine'); }
       /* 🔴🔴 POINT 2 — APRÈS L'ÉCRITURE, ET JAMAIS AVANT : la marque est déjà levée par `rattacher()`. Ce qui
          reste à faire est d'offrir la SORTIE, avec les deux moitiés qu'elle devra défaire. */
       if (leveeConfirmee !== null && leveeConfirmee.length > 0 && ajoutes.length > 0) {
@@ -957,6 +984,77 @@ export function RattachementsDuFil({
     ? 'Cochez la confirmation ci-dessus pour reclasser toute la conversation.'
     : null;
 
+  /**
+   * ══ 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — LA PORTÉE, LA DÉFINITION, LE BOUTON FINAL (porte ponctuelle) ══
+   *
+   * 🔴 ① SANS MODIFICATION : « Valider le maintien du suivi actuel » ferme sans rien écrire.
+   * 🔴 ②③④ : « Valider la modification du suivi » écrit par LA porte existante (`ecrire` → `/api/admin/gestion/suivi`),
+   *    avec la fenêtre de la position : `mail` (exception + photo « avant », lot TRACE-ONE-SHOT), `suite` (la période,
+   *    son accolade et son point d'information, inchangés), `conversation` (projection : ajouts posés, retraits en
+   *    « sorti du suivi », restaurables). Tout est historisé par cette porte.
+   * 🔴 ① AVEC DES MODIFICATIONS : la question « Revenir au suivi d'origine ? », et rien ne bouge sans un « Oui ».
+   */
+  const choisirPosition = (p: PositionPortee): void => {
+    if (p === 'origine' && modification) { setDemandeOrigine(true); return; }
+    setPosition(p);
+    setConfirme(false);
+  };
+  const revenirALOrigine = (): void => {
+    setSelection(clesDuMail);
+    setEvtVoulu(null);
+    setPanneauEvt('aucun');
+    /* Le menu (propositions, recherche, biens ajoutés) repart de son état d'ouverture. */
+    setCleMenu((n) => n + 1);
+    setDemandeOrigine(false);
+    setConfirme(false);
+    setPosition('origine');
+  };
+  const validerLaPortee = (): void => {
+    if (!modification) { onFerme(); return; }
+    const choix = definitionDe(position).choix;
+    if (choix === null || (position === 'conversation' && !confirme)) return;
+    void ecrire((selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle })), choix);
+  };
+  const blocPortee = (
+    <div className="rdf-portee">
+      <style>{CSS_GLISSIERE_PORTEE}</style>
+      <p className="rdf-suivi-titre">Portée du suivi</p>
+      <GlissierePortee position={position} modification={modification} onChoisir={choisirPosition} />
+      {demandeOrigine && (
+        <div className="rdf-portee-question" role="alertdialog" aria-label={QUESTION_RETOUR_ORIGINE}>
+          <p className="rdf-portee-question-mot">{QUESTION_RETOUR_ORIGINE}</p>
+          <div className="rdf-evt-boutons">
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={revenirALOrigine}>Oui</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setDemandeOrigine(false)}>
+              Non
+            </button>
+          </div>
+        </div>
+      )}
+      {/* 🔴 LA DÉFINITION DE LA POSITION, mot pour mot (Arno). */}
+      <p className={`rdf-portee-definition rdf-portee-definition--${position}`} role="note">
+        {definitionDe(position).definition}
+      </p>
+      {/* 🔴 ④ — LA CONFIRMATION AVANT VALIDATION, avec le nombre de mails mis à jour. */}
+      {position === 'conversation' && modification && suivi !== null && mailId !== null && (
+        <div className="rdf-alerte" role="status">
+          <span className="rdf-alerte-texte">
+            {motConfirmationConversation({ mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId })}
+          </span>
+          <label className="rdf-choix">
+            <input type="checkbox" checked={confirme} onChange={() => setConfirme((v) => !v)} />
+            <span>{MOT_CONFIRMER_CONVERSATION}</span>
+          </label>
+        </div>
+      )}
+      <button type="button" className="svv-btn svv-btn-primary gst-btn rdf-valider-portee"
+        disabled={modification && position === 'conversation' && !confirme}
+        onClick={validerLaPortee}>
+        {motBoutonFinal(modification)}
+      </button>
+    </div>
+  );
+
   return (
     <div className="mrt-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFerme(); }}>
       <style>{CSS_MODIFIER_RATTACHEMENT}</style>
@@ -986,16 +1084,16 @@ export function RattachementsDuFil({
             Il est EN HAUT, avant tout le reste, et non près du bouton : on doit savoir ce que la fenêtre fait
             AVANT de commencer à cocher, pas au moment de valider. `role="note"` : un lecteur d'écran l'annonce
             comme une remarque, sans voler le focus. */}
-        {ponctuel && (
-          <p className="rdf-bandeau-ponctuel" role="note">{BANDEAU_MODIFICATION_PONCTUELLE}</p>
-        )}
+        {/* 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — CE BANDEAU A DÉMÉNAGÉ, MOT POUR MOT : c'est désormais la
+            définition de ② « One shot », sous la glissière (Arno : « ② texte actuel »). En haut, il aurait démenti
+            ③ et ④. Les deux autres portes ne l'ont jamais affiché. */}
         {/* ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — LA SORTIE, QUELQUES SECONDES ═════════════════════════
             Arno : « “Annuler” quelques secondes après, qui rétablit exactement l'état d'avant. »
             🔴 ELLE NE RÉÉCRIT RIEN : elle défait la décision de suivi, et la projection ramène les liens
             d'elle-même. Un second chemin de restauration aurait divergé au premier ajustement. */}
         {ponctuelFait !== null && (
           <div className="rdf-ponctuel-fait" role="status">
-            <span className="rdf-ponctuel-mot">{MOT_MODIFICATION_PONCTUELLE_FAITE}</span>
+            <span className="rdf-ponctuel-mot">{motApresValidation(choixFait)}</span>
             <button type="button" className="svv-btn svv-btn-outline gst-btn"
               onClick={() => void (async () => {
                 const trace = ponctuelFait;
@@ -1152,8 +1250,11 @@ export function RattachementsDuFil({
         )}
 
         {mailId !== null && panneau !== 'aucun' && (
-          <MenuRattachementBien messageId={mailId} filId={filId}
+          <MenuRattachementBien key={cleMenu} messageId={mailId} filId={filId}
             preCoches={clesDuMail}
+            /* 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — en porte ponctuelle, la validation est la glissière et
+               le bouton final de cette fenêtre (dans le pied) : la rangée du menu n'est pas rendue. */
+            sansBoutons={ponctuel}
             libellesConnus={libellesConnus}
             /**
              * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA SÉLECTION EST TENUE ICI.
@@ -1185,7 +1286,7 @@ export function RattachementsDuFil({
             aussiAValider={evtVoulu !== null}
             /* 🔴🔴 EN PONCTUEL, LA FENÊTRE EST `'mail'` ET NE PEUT PAS ÊTRE AUTRE CHOSE — ce n'est pas l'état
                d'un bouton qu'on lit, c'est une constante : un état se change, une constante non. */
-            onValider={(voulus) => ecrire(voulus, ponctuel ? 'mail' : choixSuivi)}
+            onValider={(voulus) => ecrire(voulus, choixSuivi)}
             onFerme={() => { setPanneau('aucun'); setSelection(null); setConfirme(false); }}
             onGeste={onGeste}
             onChange={async () => { await charger(); }}
@@ -1400,9 +1501,12 @@ export function RattachementsDuFil({
                 {/* ⚠️ `rdf-bilan`, PAS `rdf-resume` : ce dernier est déjà le dépliant « Voir le détail par mail »
                     de chaque bien. Deux sens pour une classe, c'est un style qu'on croit changer ici et qui
                     bouge là-bas. */}
+                {!ponctuel && (
                 <p className="rdf-detail rdf-bilan" role="status">
                   {resumeModificationBiens({ avant: clesDuMail, apres: selection ?? clesDuMail })}
                 </p>
+                )}
+                {ponctuel && blocPortee}
                 {/* ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — LES DEUX ACTIONS SECONDAIRES DU PIED ══════════
                     ACCORD D'ARNO : « “Classer sans suite” et “Classer dans une carte” deviennent deux actions
                     secondaires en pied de fenêtre, même effet qu'aujourd'hui, par le même code. »
@@ -1997,6 +2101,16 @@ export const CSS_RATTACHEMENTS_FIL = `
 /* ══ LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — « MODIFIER LE RATTACHEMENT » ══════════════════════════════════
    AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit. Couleurs : jetons seulement. */
 .rdf--ponctuel{position:relative}
+/* La portee : la glissiere, sa definition, le bouton final pleine largeur. */
+.rdf-portee{display:flex;flex-direction:column;gap:8px;margin-top:6px;padding:10px 12px;
+  border:2px solid var(--color-svv-line-strong);border-radius:.7rem;background:var(--color-svv-surface);min-width:0}
+.rdf-portee-definition{margin:0;padding:8px 10px;border-radius:0 .5rem .5rem 0;border-left:3px solid var(--color-svv-red);
+  background:var(--color-svv-field);font-size:.82rem;line-height:1.45;color:var(--color-svv-ink)}
+.rdf-portee-definition--origine{border-left-color:var(--color-svv-line-strong)}
+.rdf-portee-question{padding:8px 10px;border:1px solid var(--color-svv-amber);border-radius:.5rem;
+  background:var(--color-svv-amber-soft)}
+.rdf-portee-question-mot{margin:0;font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
+.rdf-valider-portee{width:100%;justify-content:center;min-height:48px;font-size:.95rem;font-weight:700}
 .rdf-croix{position:absolute;top:8px;right:8px;display:inline-flex;align-items:center;justify-content:center;
   min-width:36px;min-height:36px;padding:0;font:inherit;font-size:1.4rem;line-height:1;color:var(--color-svv-muted);
   background:transparent;border:0;border-radius:50%;cursor:pointer}

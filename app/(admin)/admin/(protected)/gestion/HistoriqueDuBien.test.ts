@@ -6425,17 +6425,21 @@ describe('⑳ 🔴🔴 « Modifier le rattachement », et la trame de toute la l
    * 🔴🔴 IL OUVRE **LA** FENÊTRE, EN MODE PONCTUEL : le bandeau d'Arno et le mot de validation le prouvent, et
    * les trois options de suivi n'y sont pas. Aucune copie de fenêtre n'a été écrite.
    */
-  it('🔴🔴 il ouvre la fenêtre en mode PONCTUEL : bandeau, pas d’options de suivi', async () => {
+  /**
+   * 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS (11/10/2026) — la fenêtre ponctuelle porte désormais la portée en
+   * quatre positions (Arno : « l'endroit unique pour choisir la portée du suivi d'un mail ») ; le bandeau est devenu
+   * la définition de ② « One shot ». Les radios des autres portes n'y sont toujours pas.
+   */
+  it('🔴🔴 il ouvre la fenêtre en mode PONCTUEL : la glissière à quatre positions, pas les radios de suivi', async () => {
     await monter();
     await cliquer(hote.querySelector('#hdb-mail-1 button') ?? undefined);
     await cliquer(boutonModifier(1));
     const d = hote.querySelector('.rdf[role="dialog"]');
     expect(d).not.toBeNull();
-    expect(hote.querySelector('.rdf-bandeau-ponctuel')?.textContent).toBe(BANDEAU_MODIFICATION_PONCTUELLE);
+    expect(d?.className).toContain('rdf--ponctuel');
     expect(hote.querySelector('.rdf-suivi')).toBeNull();
-    for (const mot of ['Ce mail et la conversation à venir', 'Toute la conversation']) {
-      expect(d?.textContent, mot).not.toContain(mot);
-    }
+    expect(hote.querySelector('.rdf[role="dialog"] [role="slider"]')?.getAttribute('aria-valuetext')).toBe('Origine');
+    expect(BANDEAU_MODIFICATION_PONCTUELLE).toContain('Modification ponctuelle');
   });
 
   /** ⚠️ ET « Sortir du suivi » GARDE SA CONFIRMATION : le second bouton n'a rien changé au premier. */

@@ -774,28 +774,32 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
     await calmer();
   };
 
-  it('🔴🔴 AUCUNE des trois options de suivi n’est affichée', async () => {
+  /**
+   * ══ 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS (11/10/2026) — LA RÈGLE DE CETTE PORTE CHANGE, À LA DEMANDE
+   * D'ARNO : elle « devient l'endroit unique pour choisir la portée du suivi d'un mail » (Origine, One shot, Ce mail +
+   * futurs échanges, Toute la conversation). Les épreuves qui figeaient « aucune option de suivi » et le bouton
+   * « Valider pour ce mail uniquement » sont réécrites sur la nouvelle règle ; celles de la glissière elle-même vivent
+   * dans `ModifierRattachementQuatrePositions.test.tsx`.
+   */
+  it('🔴🔴 la portée est la glissière à quatre positions — jamais les trois radios des autres portes', async () => {
     await monterPonctuel();
     expect(container.querySelector('.rdf-suivi')).toBeNull();
-    for (const mot of ['Ce mail uniquement', 'Ce mail et la conversation à venir', 'Toute la conversation']) {
-      expect(container.textContent, mot).not.toContain(mot);
-    }
-    /* ⚠️ ET PAS DAVANTAGE L'ENCADRÉ D'EXCEPTION : il explique un choix, et il n'y a plus de choix. */
+    expect(container.querySelector('[role="slider"]')).not.toBeNull();
+    /* ⚠️ L'ENCADRÉ D'EXCEPTION DES AUTRES PORTES n'est pas repris : chaque position a sa propre définition. */
     expect(container.textContent).not.toContain(ENCADRE_EXCEPTION_CE_MAIL);
   });
 
-  it('🔴🔴 LE BANDEAU D’ARNO EST EN HAUT, mot pour mot', async () => {
+  it('🔴🔴 LE TEXTE DU BANDEAU EST LA DÉFINITION DE ② « One shot », mot pour mot', async () => {
     await monterPonctuel();
-    const b = container.querySelector('.rdf-bandeau-ponctuel');
-    expect(b?.textContent).toBe(BANDEAU_MODIFICATION_PONCTUELLE);
-    /* 🔴 EN HAUT VEUT DIRE AVANT LE RESTE : on doit savoir ce que la fenêtre fait avant de commencer à cocher. */
-    const html = (container.querySelector('[role="dialog"]') as HTMLElement).innerHTML;
-    expect(html.indexOf('rdf-bandeau-ponctuel')).toBeLessThan(html.indexOf('rdf-suivi-carte'));
+    expect(container.querySelector('.rdf-bandeau-ponctuel')).toBeNull();
+    await cocher(container.querySelector('.rdf-suivi-carte input.rdf-garde') as HTMLInputElement);
+    expect(container.querySelector('.rdf-portee-definition')?.textContent).toBe(BANDEAU_MODIFICATION_PONCTUELLE);
   });
 
-  it('🔴🔴 LE BOUTON DIT LA PORTÉE : « Valider pour ce mail uniquement »', async () => {
+  it('🔴🔴 LE BOUTON FINAL remplace « Valider pour ce mail uniquement »', async () => {
     await monterPonctuel();
-    expect(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT))).toBeDefined();
+    expect(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT))).toBeUndefined();
+    expect(bouton(/^Valider le maintien du suivi actuel$/)).toBeDefined();
     expect(bouton(/^Valider le suivi$/)).toBeUndefined();
   });
 
@@ -818,7 +822,7 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
     await monterPonctuel();
     const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
     await cocher(cases.find((c) => !c.checked) as HTMLInputElement);
-    await cliquer(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT)) as Element);
+    await cliquer(bouton(/^Valider la modification du suivi$/) as Element);
     expect(ecritures).toHaveLength(1);
     expect(ecritures[0].url).toContain('/api/admin/gestion/suivi');
     const corps = ecritures[0].corps as { choix: string; messageId: number };
@@ -852,7 +856,7 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
     await monterPonctuel();
     const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
     await cocher(cases.find((c) => !c.checked) as HTMLInputElement);
-    await cliquer(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT)) as Element);
+    await cliquer(bouton(/^Valider la modification du suivi$/) as Element);
     const sortie = container.querySelector('.rdf-ponctuel-fait');
     expect(sortie).not.toBeNull();
     expect(sortie?.textContent).toContain(MOT_MODIFICATION_PONCTUELLE_FAITE);
@@ -874,9 +878,10 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
    * précisément pour cela que la constante doit être écrite : un état se change, une constante non, et la règle
    * d'Arno (« elle ne concerne QUE ce mail ») doit tenir là où elle est écrite, pas par ricochet.
    */
-  it('🔴🔴 la fenêtre écrite est la CONSTANTE `mail`, jamais l’état du choix', () => {
+  it('🔴🔴 la fenêtre écrite est celle de la POSITION de la glissière, lue dans le module pur', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
-    expect(src).toContain("onValider={(voulus) => ecrire(voulus, ponctuel ? 'mail' : choixSuivi)}");
+    expect(src).toContain('const choix = definitionDe(position).choix;');
+    expect(src).toContain('sansBoutons={ponctuel}');
   });
 
   /**
@@ -924,7 +929,7 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
     await monterPonctuel();
     /* On DÉCOCHE le bien : c'est le geste de l'essai réel. */
     await cocher(container.querySelector('.rdf-suivi-carte input.rdf-garde') as HTMLInputElement);
-    await cliquer(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT)) as Element);
+    await cliquer(bouton(/^Valider la modification du suivi$/) as Element);
     const corps = ecritures[0].corps as {
       classement: { biens: unknown[]; personnes?: { sorte: string; cle: string }[] };
     };

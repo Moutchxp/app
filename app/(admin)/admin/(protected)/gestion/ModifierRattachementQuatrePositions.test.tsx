@@ -171,3 +171,105 @@ describe('la croix', () => {
     expect(ecritures).toEqual([]);
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ⑤ ⑥ LA GLISSIÈRE À QUATRE POSITIONS ET LE BOUTON FINAL
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+const curseur = () => container.querySelector('[role="slider"]') as HTMLElement;
+const libelle = (m: RegExp) => [...container.querySelectorAll('.gpo-libelle')].find((b) => m.test(b.textContent ?? '')) as HTMLButtonElement;
+const definition = () => container.querySelector('.rdf-portee-definition')?.textContent ?? '';
+const decocher = async () => cliquer(container.querySelector('.rdf-suivi-carte input.rdf-garde') as Element);
+const touche = async (key: string) => { await act(async () => { curseur().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); }); await calmer(); };
+
+describe('⑤ la glissière', () => {
+  it('🔴 sans modification : ① Origine, ②③④ grisées et non sélectionnables (clic ni clavier)', async () => {
+    await monter();
+    expect(curseur().getAttribute('aria-valuetext')).toBe('Origine');
+    expect(libelle(/One shot/).disabled).toBe(true);
+    expect(libelle(/Ce mail \+ futurs échanges/).disabled).toBe(true);
+    expect(libelle(/Toute la conversation/).disabled).toBe(true);
+    await touche('ArrowRight');
+    expect(curseur().getAttribute('aria-valuetext')).toBe('Origine');
+    expect(definition()).toBe('Le suivi reste tel qu’il était. Aucune modification n’est enregistrée.');
+    expect(bouton(/^Valider le maintien du suivi actuel$/)).toBeDefined();
+  });
+
+  it('🔴 la première modification passe AUTOMATIQUEMENT sur ② One shot, et rend ②③④ sélectionnables', async () => {
+    await monter();
+    await decocher();
+    expect(curseur().getAttribute('aria-valuetext')).toBe('One shot');
+    expect(libelle(/Toute la conversation/).disabled).toBe(false);
+    expect(definition()).toBe('Modification ponctuelle : elle ne concerne QUE ce mail. Aucun autre mail, aucune conversation et aucun suivi ne sont modifiés.');
+    expect(bouton(/^Valider la modification du suivi$/)).toBeDefined();
+  });
+
+  it('les définitions suivent la position ; les flèches du clavier déplacent le curseur', async () => {
+    await monter();
+    await decocher();
+    await touche('ArrowRight');
+    expect(curseur().getAttribute('aria-valuetext')).toBe('Ce mail + futurs échanges');
+    expect(definition()).toContain('À partir de ce mail, et pour tous les prochains échanges');
+    await cliquer(libelle(/Toute la conversation/));
+    expect(curseur().getAttribute('aria-valuetext')).toBe('Toute la conversation');
+    expect(definition()).toContain('anciens mails compris');
+    await touche('ArrowLeft');
+    expect(curseur().getAttribute('aria-valuetext')).toBe('Ce mail + futurs échanges');
+  });
+
+  it('🔴 revenir sur ① avec des modifications : la question, puis tout revient à l’état d’ouverture', async () => {
+    await monter();
+    await decocher();
+    await cliquer(libelle(/Origine/));
+    expect(container.querySelector('.rdf-portee-question')?.textContent).toContain('Revenir au suivi d’origine ? Vos modifications seront abandonnées');
+    await cliquer(bouton(/^Non$/) as Element);
+    expect(curseur().getAttribute('aria-valuetext')).toBe('One shot');
+    expect((container.querySelector('.rdf-suivi-carte input.rdf-garde') as HTMLInputElement).checked).toBe(false);
+    await cliquer(libelle(/Origine/));
+    await cliquer(bouton(/^Oui$/) as Element);
+    expect(curseur().getAttribute('aria-valuetext')).toBe('Origine');
+    expect((container.querySelector('.rdf-suivi-carte input.rdf-garde') as HTMLInputElement).checked).toBe(true);
+    expect(libelle(/One shot/).disabled).toBe(true);
+    expect(ecritures).toEqual([]);
+  });
+});
+
+describe('⑥ le bouton final et ce qu’il écrit', () => {
+  const suivis = () => ecritures.filter((e) => e.url.includes('/api/admin/gestion/suivi'));
+  it('🔴 aucune modification : « Valider le maintien du suivi actuel » ferme sans rien écrire', async () => {
+    await monter();
+    await cliquer(bouton(/^Valider le maintien du suivi actuel$/) as Element);
+    expect(ferme).toBe(1);
+    expect(ecritures).toEqual([]);
+  });
+
+  it('🔴 ② One shot : l’exception « ce mail uniquement », seule', async () => {
+    await monter();
+    await decocher();
+    await cliquer(bouton(/^Valider la modification du suivi$/) as Element);
+    expect(suivis()).toHaveLength(1);
+    expect(suivis()[0].corps).toMatchObject({ filId: 77, messageId: MAIL, choix: 'mail', classement: { sorte: 'biens', biens: [] } });
+    expect(container.querySelector('.rdf-ponctuel-fait')?.textContent).toContain('Aucun autre mail, aucune période de suivi n’a bougé');
+  });
+
+  it('🔴 ③ Ce mail + futurs échanges : la fenêtre « la suite », par la même porte (son accolade et son point d’information viennent de la période, inchangés)', async () => {
+    await monter();
+    await decocher();
+    await cliquer(libelle(/Ce mail \+ futurs échanges/));
+    await cliquer(bouton(/^Valider la modification du suivi$/) as Element);
+    expect(suivis()).toHaveLength(1);
+    expect(suivis()[0].corps).toMatchObject({ messageId: MAIL, choix: 'suite' });
+  });
+
+  it('🔴 ④ Toute la conversation : la confirmation avec le nombre, puis `conversation`', async () => {
+    await monter();
+    await decocher();
+    await cliquer(libelle(/Toute la conversation/));
+    expect(container.querySelector('.rdf-alerte')?.textContent).toContain('12 mails de cette conversation seront mis à jour.');
+    expect((bouton(/^Valider la modification du suivi$/) as HTMLButtonElement).disabled).toBe(true);
+    await cliquer(container.querySelector('.rdf-alerte input[type="checkbox"]') as Element);
+    await cliquer(bouton(/^Valider la modification du suivi$/) as Element);
+    expect(suivis()).toHaveLength(1);
+    expect(suivis()[0].corps).toMatchObject({ messageId: MAIL, choix: 'conversation' });
+  });
+});

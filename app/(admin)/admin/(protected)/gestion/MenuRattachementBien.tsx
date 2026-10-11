@@ -43,8 +43,13 @@ export function MenuRattachementBien({
   messageId, filId, onFerme, onGeste, onChange, onHorsGestion, ponctuel = false,
   preCoches = null, pied, onValider, motValider, validationBloquee = null, onSelection, libellesConnus,
   aussiAValider = false,
-  cochesImposees, onCochesChange,
+  cochesImposees, onCochesChange, sansBoutons = false,
 }: {
+  /**
+   * 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la rangée « Valider / Annuler » n'est pas rendue : la fenêtre
+   * appelante valide elle-même, par sa glissière et son bouton final (posés dans `pied`). Absent ⇒ comme avant.
+   */
+  sansBoutons?: boolean;
   messageId: number;
   filId: number | null;
   onFerme: () => void;
@@ -452,6 +457,7 @@ export function MenuRattachementBien({
         </fieldset>
       )}
 
+      {!sansBoutons && (
       <div className="mrb-boutons">
         <button type="button" className="svv-btn svv-btn-primary gst-btn"
           disabled={fige || !aFaire || validationBloquee !== null}
@@ -475,6 +481,8 @@ export function MenuRattachementBien({
           </span>
         )}
       </div>
+
+      )}
 
       {/* 🔴 LE MOTIF DU BLOCAGE SE LIT : un bouton grisé sans raison est un bouton cassé. */}
       {validationBloquee !== null && <p className="gst-info" role="status">{validationBloquee}</p>}
