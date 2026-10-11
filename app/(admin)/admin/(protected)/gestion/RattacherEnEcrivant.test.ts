@@ -895,3 +895,32 @@ describe('🔴🔴 les biens repliés ne sont ni comptés ni cochés tant qu’o
     expect(container.textContent).toContain('1 bien(s) coché(s) sur 6 affiché(s)');
   });
 });
+
+describe('🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — un bien rattaché SANS client destinataire est dit « manuel »', () => {
+  const monterAvec = async (o: { clesClients: Set<string> | null; clesDeBase?: Set<string> }) => {
+    cibles = [{ sorte: 'lot', cle: '432', id: 432, libelle: '1bis rue Manessier — lot 432' },
+      { sorte: 'lot', cle: '219', id: null, libelle: '25 rue Edith Cavell — lot 219' }];
+    await act(async () => {
+      root.render(createElement(RattacherEnEcrivant, {
+        destinataires: ['artisan@ailleurs.fr'], objet: 'Devis', corps: '', pieces: [], cibles,
+        clesClients: o.clesClients, clesDeBase: o.clesDeBase ?? null,
+        onChange: (c) => { cibles = c; }, onFerme: () => { ferme += 1; },
+      }));
+    });
+    await calmer();
+  };
+  const motifs = () => [...container.querySelectorAll('.rec-bien .rec-motif')].map((m) => m.textContent);
+  it('aucun client de ce bien parmi les destinataires : « ajouté manuellement — aucun client de ce bien dans les destinataires »', async () => {
+    await monterAvec({ clesClients: new Set(), clesDeBase: new Set(['219']) });
+    expect(motifs()).toEqual([
+      'ajouté manuellement — aucun client de ce bien dans les destinataires',
+      'déjà rattaché — décochez pour le retirer',                      // le bien de BASE n'est jamais « manuel »
+    ]);
+  });
+  it('un client du bien est destinataire, ou les adresses ne sont pas encore lues : la mention d’avant', async () => {
+    await monterAvec({ clesClients: new Set(['432']), clesDeBase: new Set(['219']) });
+    expect(motifs()[0]).toBe('déjà rattaché — décochez pour le retirer');
+    await monterAvec({ clesClients: null });
+    expect(motifs()).toEqual(['déjà rattaché — décochez pour le retirer', 'déjà rattaché — décochez pour le retirer']);
+  });
+});

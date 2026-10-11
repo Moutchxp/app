@@ -122,3 +122,120 @@ export function fusionnerSuggestions(
     return { cle: cleGroupe, titre, lignes } as GroupeSuggestions;
   });
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — UN BIEN RATTACHÉ PAR UN CLIENT SUIT SES ADRESSES
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   BUG D'ARNO (11/10/2026) : un multipropriétaire tapé, un de ses biens choisi, son adresse retirée, puis un propriétaire
+   à bien unique tapé ⇒ « Rattaché — 2 logements » : le bien du premier (1bis rue Manessier, lot 432) était RESTÉ,
+   alors que plus aucune de ses adresses n'était dans le mail. CAUSE : la liste des biens rattachés était ACCUMULÉE —
+   seul l'ajout d'office savait d'où il venait ; un bien coché à la main (ligne « Rattacher ce mail à : » ou modale)
+   n'avait aucune origine, et rien ne le retirait.
+   RÈGLE : chaque bien du brouillon garde son ORIGINE, et l'ensemble est RECALCULÉ à partir des adresses présentes :
+     · `client`  — amené par une adresse client : il reste TANT QU'au moins une adresse de propriétaire ou de locataire
+                   de ce bien est dans À, Cc ou Cci ; la dernière retirée, il part ;
+     · `manuel`  — ajouté par le moteur de recherche sans client de ce bien dans les destinataires : il reste, mais il
+                   est SIGNALÉ (modale, avertissement à l'envoi) et ne part que confirmé (`manuelConfirme`) ;
+     · `a_determiner` — ajouté avant que les biens des adresses soient lus : tranché dès qu'ils le sont ;
+     · absente — le bien de BASE (fiche ouverte, réponse héritée, « Écrire depuis gestion@ ») : il ne dépend pas des
+                   adresses.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export type OrigineCible = 'client' | 'manuel' | 'a_determiner';
+
+/** Ce que ces règles lisent d'une cible du brouillon (une `CibleBrouillon`, avec ses champs d'origine). */
+export interface CibleAvecOrigine {
+  sorte: string;
+  cle: string | null;
+  origine?: OrigineCible;
+  /** Bien ajouté à la main, sans client destinataire, que l'on a CONFIRMÉ à l'envoi (« Envoyer quand même »). */
+  manuelConfirme?: boolean;
+}
+
+/** Les adresses présentes qui sont celles d'un propriétaire ou d'un locataire de CE bien. PUR. */
+export function clientsDuBien(cleBien: string, adresses: readonly string[], biens: BiensDesClients): string[] {
+  return [...new Set(adresses.map(cle))].filter((a) => (biens[a] ?? []).some((b) => b.cle === cleBien));
+}
+
+/** Les clés de tous les biens dont un client est destinataire ; `null` tant qu'une adresse présente n'est pas lue. PUR. */
+export function clesDesClientsPresents(adresses: readonly string[], biens: BiensDesClients): Set<string> | null {
+  const out = new Set<string>();
+  for (const a of new Set(adresses.map(cle))) {
+    const l = biens[a];
+    if (l === undefined) return null;
+    for (const b of l) out.add(b.cle);
+  }
+  return out;
+}
+
+/**
+ * L'ORIGINE DES CIBLES APRÈS UN CHANGEMENT (modale, « Classer ce mail ») : une cible déjà connue garde la sienne ; une
+ * cible NOUVELLE est `client` si un client de ce bien est destinataire, `manuel` sinon, `a_determiner` tant que les
+ * biens des adresses ne sont pas lus. Les cibles « événement » passent telles quelles. PUR.
+ */
+export function marquerOrigines<T extends CibleAvecOrigine>(
+  avant: readonly CibleAvecOrigine[], apres: readonly T[], adresses: readonly string[], biens: BiensDesClients,
+): T[] {
+  const connues = new Map(avant.filter((c) => c.sorte === 'lot').map((c) => [c.cle ?? '', c]));
+  const clients = clesDesClientsPresents(adresses, biens);
+  return apres.map((c) => {
+    if (c.sorte !== 'lot') return c;
+    const vieille = connues.get(c.cle ?? '');
+    if (vieille !== undefined) {
+      return { ...c, ...(vieille.origine !== undefined ? { origine: vieille.origine } : {}),
+        ...(vieille.manuelConfirme === true ? { manuelConfirme: true } : {}) };
+    }
+    const origine: OrigineCible = clients === null ? 'a_determiner' : clients.has(c.cle ?? '') ? 'client' : 'manuel';
+    return { ...c, origine };
+  });
+}
+
+/**
+ * LE RECALCUL, À PARTIR DES ADRESSES PRÉSENTES. PUR.
+ *   · `a_determiner` devient `client` ou `manuel` dès que les biens des adresses sont lus ;
+ *   · une cible `client` SANS AUCUN client présent est RETIRÉE (tant qu'une adresse présente n'est pas lue : on attend) ;
+ *   · une cible `manuel` sans client présent reste, et figure dans `manuelsSansClient` (à signaler, à confirmer).
+ * Rend `change` = la liste a bougé (à réécrire dans le brouillon).
+ */
+export function recalculerCibles<T extends CibleAvecOrigine>(
+  cibles: readonly T[], adresses: readonly string[], biens: BiensDesClients,
+): { cibles: T[]; retirees: T[]; manuelsSansClient: T[]; change: boolean } {
+  const tousLus = clesDesClientsPresents(adresses, biens) !== null;
+  const out: T[] = [];
+  const retirees: T[] = [];
+  const manuelsSansClient: T[] = [];
+  let change = false;
+  for (const c of cibles) {
+    if (c.sorte !== 'lot' || c.origine === undefined) { out.push(c); continue; }
+    const presents = clientsDuBien(c.cle ?? '', adresses, biens);
+    let origine = c.origine;
+    if (origine === 'a_determiner' && (presents.length > 0 || tousLus)) {
+      origine = presents.length > 0 ? 'client' : 'manuel';
+      change = true;
+    }
+    const v = (origine === c.origine ? c : { ...c, origine }) as T;
+    if (origine === 'client' && presents.length === 0 && tousLus) { retirees.push(v); change = true; continue; }
+    if (origine === 'manuel' && presents.length === 0) manuelsSansClient.push(v);
+    out.push(v);
+  }
+  return { cibles: out, retirees, manuelsSansClient, change };
+}
+
+/**
+ * ══ LE FILET DE L'ENVOI (serveur) ══ Ce qui sera VRAIMENT rattaché : les biens de base ; un bien `client` ou
+ * `a_determiner` seulement si un client de ce bien est destinataire ; un bien `manuel` s'il a un client destinataire
+ * OU s'il a été confirmé. Jamais un bien sans adresse correspondante, sauf ajout manuel confirmé. PUR.
+ */
+export function ciblesAPoserALEnvoi<T extends CibleAvecOrigine>(
+  cibles: readonly T[], destinataires: readonly string[], biens: BiensDesClients,
+): { gardees: T[]; ecartees: T[] } {
+  const gardees: T[] = [];
+  const ecartees: T[] = [];
+  for (const c of cibles) {
+    if (c.sorte !== 'lot' || c.origine === undefined) { gardees.push(c); continue; }
+    const presents = clientsDuBien(c.cle ?? '', destinataires, biens);
+    if (presents.length > 0 || (c.origine === 'manuel' && c.manuelConfirme === true)) gardees.push(c);
+    else ecartees.push(c);
+  }
+  return { gardees, ecartees };
+}

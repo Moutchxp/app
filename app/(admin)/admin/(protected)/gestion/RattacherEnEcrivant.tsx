@@ -75,10 +75,18 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 }
 
 export function RattacherEnEcrivant({
-  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null,
+  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null,
   piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
   onSelection, onChange, onFerme,
 }: {
+  /**
+   * 🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — les clés des biens dont un propriétaire ou un locataire est
+   * destinataire. Un bien coché HORS de cet ensemble est dit « ajouté manuellement — aucun client de ce bien dans les
+   * destinataires ». `null` (biens des adresses pas encore lus, ou mail reçu) ⇒ les mentions d'avant.
+   */
+  clesClients?: ReadonlySet<string> | null;
+  /** Les biens de BASE (fiche ouverte, réponse héritée) : ils ne dépendent pas des adresses, jamais « manuels ». */
+  clesDeBase?: ReadonlySet<string> | null;
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA MÊME MODALE AU-DESSUS D'UN MAIL REÇU ════════════════════════════
    *
@@ -745,9 +753,11 @@ export function RattacherEnEcrivant({
                     <InfoBien cle={a.cle ?? ''} titre={titre(a.cle ?? '')} surLaLigne={titre(a.cle ?? '')} />
                   </label>
                   <p className="rec-motif">
-                    {origine === 'recherche'
-                      ? 'ajouté à la main depuis la recherche'
-                      : 'déjà rattaché — décochez pour le retirer'}
+                    {clesClients !== null && !clesClients.has(a.cle ?? '') && !(clesDeBase?.has(a.cle ?? '') ?? false)
+                      ? 'ajouté manuellement — aucun client de ce bien dans les destinataires'
+                      : origine === 'recherche'
+                        ? 'ajouté à la main depuis la recherche'
+                        : 'déjà rattaché — décochez pour le retirer'}
                   </p>
                 </li>
               ))}

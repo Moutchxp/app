@@ -30,6 +30,8 @@ import { lancerPasseEnFond } from '../../../../../lib/gestion/travailleurEnvoiRe
 import { pretAEnvoyer } from '../../../../../lib/gestion/redaction';
 // 🔴 LOT CLASSER-AVANT-ENVOI — le garde « ce mail est-il classé ? », module PUR partagé avec l'écran.
 import { refusSiNonClasse } from '../../../../../lib/gestion/classementAvantEnvoi';
+import { biensDesClients } from '../../../../../lib/gestion/biensDesClientsRepo';
+import { ciblesAPoserALEnvoi, type OrigineCible } from '../../../../../lib/gestion/contexteClients';
 
 /**
  * /api/admin/gestion/envois (lot 5e) — ENVOYER un message au nom de gestion@criterimmo.fr.
@@ -87,7 +89,10 @@ export async function GET(request: Request): Promise<Response> {
 const SORTES_CLASSEMENT: readonly string[] = SORTES_RATTACHEMENT_PERMISES;
 const CIBLES_MAX = 20;
 
-export function ciblesDemandees(brut: unknown): { sorte: string; cle: string | null; id: number | null; libelle: string }[] {
+export function ciblesDemandees(brut: unknown): {
+  sorte: string; cle: string | null; id: number | null; libelle: string;
+  origine?: OrigineCible; manuelConfirme?: boolean;
+}[] {
   if (!Array.isArray(brut)) return [];
   return brut
     .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null)
@@ -96,9 +101,28 @@ export function ciblesDemandees(brut: unknown): { sorte: string; cle: string | n
       cle: typeof c.cle === 'string' && c.cle.trim() !== '' ? c.cle.trim().slice(0, 200) : null,
       id: Number.isSafeInteger(c.id) && (c.id as number) > 0 ? (c.id as number) : null,
       libelle: typeof c.libelle === 'string' ? c.libelle.slice(0, 300) : '',
+      // 🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — l'origine du bien, lue STRICTEMENT (liste fermée) ; absente =
+      //   bien de base. Elle ne sert qu'au filet ci-dessous, jamais à écrire.
+      ...(c.origine === 'client' || c.origine === 'manuel' || c.origine === 'a_determiner' ? { origine: c.origine as OrigineCible } : {}),
+      ...(c.manuelConfirme === true ? { manuelConfirme: true } : {}),
     }))
     .filter((c) => SORTES_CLASSEMENT.includes(c.sorte) && (c.cle !== null || c.id !== null))
     .slice(0, CIBLES_MAX);
+}
+
+/**
+ * ══ 🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — LE FILET DE L'ENVOI, CÔTÉ SERVEUR ══════════════════════════════════
+ * Juste avant l'envoi, la cohérence est RECALCULÉE ici, où l'écran ne peut pas être contourné : un bien amené par une
+ * adresse cliente (`client`, `a_determiner`) n'est gardé que si un propriétaire ou un locataire de CE bien est parmi
+ * À, Cc et Cci (biens des destinataires relus par `biensDesClients`, lecture seule) ; un bien ajouté à la main
+ * (`manuel`) ne part que confirmé (ou avec un client destinataire). Les biens de base (sans origine) passent. Le mail
+ * n'est jamais rattaché à un bien sans adresse correspondante, sauf ajout manuel confirmé.
+ */
+export async function ciblesCoherentes<T extends ReturnType<typeof ciblesDemandees>[number]>(
+  cibles: readonly T[], destinataires: readonly string[],
+): Promise<{ gardees: T[]; ecartees: T[] }> {
+  if (!cibles.some((c) => c.sorte === 'lot' && c.origine !== undefined)) return { gardees: [...cibles], ecartees: [] };
+  return ciblesAPoserALEnvoi(cibles, destinataires, await biensDesClients(destinataires));
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -154,6 +178,14 @@ export async function POST(request: Request): Promise<Response> {
      */
     horsGestion: corps.horsGestion === true,
   };
+  {
+    const { gardees, ecartees } = await ciblesCoherentes(demande.cibles, [...demande.a, ...demande.cc, ...demande.cci]);
+    if (ecartees.length > 0) {
+      console.warn('[gestion/envois] %d bien(s) écarté(s) du rattachement : aucune adresse correspondante (%s)',
+        ecartees.length, ecartees.map((c) => c.cle).join(', '));
+    }
+    demande.cibles = gardees;
+  }
 
   /**
    * ══ 🔴🔴 LOT ENVOI-ARRIERE-PLAN — LA FILE, QUAND LA BASE SAIT LA TENIR ═══════════════════════════════════════

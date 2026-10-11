@@ -27,6 +27,11 @@ const BIENS: Record<string, BienClient[]> = {
   'un.bien@x.fr': [bien(501, '501', 'locataire', 'ROI Léa')],
   'trois.biens@x.fr': [bien(601, '601', 'proprietaire'), bien(602, '602', 'proprietaire'), bien(603, '603', 'proprietaire')],
   'deux.familles@x.fr': [bien(701, '701', 'locataire', 'MARTIN Paul'), bien(702, '702', 'proprietaire', 'MARTIN Paul')],
+  // LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — le scénario d'Arno : un multipropriétaire, un propriétaire à bien unique.
+  'multi@x.fr': [bien(432, '432', 'proprietaire', 'JULLIEN'), bien(433, '433', 'proprietaire', 'JULLIEN')],
+  'seul@x.fr': [bien(900, '900', 'proprietaire', 'SEUL')],
+  'loc1@x.fr': [bien(950, '950', 'locataire', 'A')],
+  'loc2@x.fr': [bien(950, '950', 'locataire', 'B')],
 };
 const listeDu = (id: number) => rangerSuggestions({
   clients: [{ adresse: `client.${id}@x.fr`, nom: `Client ${id}`, role: 'Propriétaire', ton: 'proprietaire', propre: true, civilite: null, nomFamille: null }],
@@ -208,5 +213,97 @@ describe('🔴 à l’envoi, les biens du contexte partent avec le mail (la port
     expect(envoi, 'POST /envois').toBeDefined();
     const corps = JSON.parse(String(envoi?.corps)) as { cibles: Array<{ sorte: string; cle: string; id: number }> };
     expect(corps.cibles.map((c) => [c.sorte, c.cle, c.id])).toEqual([['lot', '501', 501], ['lot', '603', 603]]);
+  });
+});
+
+describe('🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — le scénario d’Arno, exactement', () => {
+  const retirer = async (a: string) => { await cliquer(container.querySelector(`button[aria-label="Retirer ${a}"]`) as Element); };
+  /** Le texte VISIBLE du bloc « Classer ce mail » (sans les feuilles de style). */
+  const texteClasser = () => [...container.querySelectorAll('[class^="ccl"], [class*=" ccl"]')]
+    .map((e) => e.textContent ?? '').join(' ').replace(/\s+/g, ' ');
+  it('🔴 multipropriétaire, 1 bien coché, adresse retirée, propriétaire à 1 bien ajouté : « 1 logement », SEULEMENT le sien', async () => {
+    await monter(NOUVEAU);
+    await taper('multi@x.fr');
+    await cliquer(cases()[0].el);                                     // 1bis rue Manessier, lot 432
+    expect(cibles()).toEqual(['432']);
+    await retirer('multi@x.fr');
+    expect(cibles()).toEqual([]);                                     // le bien part AVEC l'adresse
+    await taper('seul@x.fr');
+    expect(cibles()).toEqual(['900']);
+    expect(texteClasser()).toMatch(/Rattaché\s*—?\s*1 logement(?!s)/);
+    expect(texteClasser()).not.toContain('432');
+  });
+  it('remettre l’adresse : bien unique ⇒ d’office ; plusieurs biens ⇒ à choisir de nouveau (rien de coché d’avance)', async () => {
+    await monter(NOUVEAU);
+    await taper('seul@x.fr');
+    await retirer('seul@x.fr');
+    expect(cibles()).toEqual([]);
+    await taper('seul@x.fr');
+    expect(cibles()).toEqual(['900']);
+    await taper('multi@x.fr');
+    await cliquer(cases()[1].el);
+    await retirer('multi@x.fr');
+    await taper('multi@x.fr');
+    expect(cibles()).toEqual(['900']);
+    expect(cases().map((c) => c.coche)).toEqual([false, false]);
+  });
+  it('deux clients du MÊME bien : retirer l’un garde le bien ; retirer le second le retire', async () => {
+    await monter(NOUVEAU);
+    await taper('loc1@x.fr');
+    await taper('loc2@x.fr');
+    expect(cibles()).toEqual(['950']);
+    await retirer('loc1@x.fr');
+    expect(cibles()).toEqual(['950']);
+    await retirer('loc2@x.fr');
+    expect(cibles()).toEqual([]);
+  });
+  it('un bien d’office DÉCOCHÉ à la main ne revient pas tant que son client reste', async () => {
+    await monter(NOUVEAU);
+    await taper('seul@x.fr');
+    await act(async () => { courant = { ...courant, cibles: [] }; root.render(createElement(Redaction, {
+      brouillon: courant, contexte: CONTEXTE, lotFiche: null, onChange: (n: BrouillonEcran) => { courant = n; },
+      onFerme: () => {}, onEnvoye: () => {}, onGeste: () => {} } as never)); });
+    await laisser();
+    expect(cibles()).toEqual([]);
+  });
+  it('🔴 un bien AJOUTÉ À LA MAIN (moteur de recherche) sans client : il reste, et l’envoi demande confirmation', async () => {
+    await monter({ ...NOUVEAU, objet: 'Devis', cibles: [] } as BrouillonEcran);
+    await taper('artisan@ailleurs.fr');
+    // Ce que la modale rend après une recherche : un bien sans origine, marqué au passage par le composeur.
+    const rendre = (b: BrouillonEcran) => root.render(createElement(Redaction, {
+      brouillon: b, contexte: CONTEXTE, lotFiche: null, onChange: (n: BrouillonEcran) => { courant = n; rendre(n); },
+      onFerme: () => {}, onEnvoye: () => {}, onGeste: () => {} } as never));
+    const { marquerOrigines } = await import('../../../../lib/gestion/contexteClients');
+    await act(async () => { courant = { ...courant, cibles: marquerOrigines([], [{ sorte: 'lot', cle: '432', id: 432, libelle: '1bis rue Manessier, 92130 ISSY — lot 432' }],
+      courant.a, { 'artisan@ailleurs.fr': [] }) } as BrouillonEcran; rendre(courant); });
+    await laisser();
+    expect(cibles()).toEqual(['432']);                                // il reste (motif c : un mail à un artisan)
+    const envoyer = () => [...container.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Envoyer') as HTMLButtonElement;
+    await act(async () => { envoyer().click(); });
+    await calmer();
+    const alerte = container.querySelector('.red-avertit-manuel');
+    expect(alerte?.textContent).toContain('Ce mail sera rattaché à 1bis rue Manessier, 92130 ISSY — lot 432 alors qu’aucun propriétaire ni locataire de ce bien n’est destinataire. Confirmer ?');
+    expect(appels.some((x) => x.url.includes('/envois'))).toBe(false);    // rien n'est parti
+    // « Retirer ce bien » le sort ; on le remet, puis « Envoyer quand même » le confirme et envoie.
+    await cliquer([...container.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Retirer ce bien') as Element);
+    expect(cibles()).toEqual([]);
+    await act(async () => { courant = { ...courant, cibles: [{ sorte: 'lot', cle: '432', id: 432, libelle: '1bis rue Manessier — lot 432', origine: 'manuel' }] } as BrouillonEcran; rendre(courant); });
+    await laisser();
+    await act(async () => { envoyer().click(); });
+    await calmer();
+    await cliquer([...container.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Envoyer quand même') as Element);
+    await act(async () => { vi.advanceTimersByTime(8000); });
+    await calmer();
+    const envoi = appels.find((x) => x.url.includes('/envois') && x.methode === 'POST');
+    expect(JSON.parse(String(envoi?.corps)).cibles).toEqual([
+      { sorte: 'lot', cle: '432', id: 432, libelle: '1bis rue Manessier — lot 432', origine: 'manuel', manuelConfirme: true }]);
+  });
+  it('🔴 depuis une fiche bien : le bien de la fiche reste, même sans aucun de ses clients destinataire', async () => {
+    await monter({ ...NOUVEAU, voie: 'repondre', a: [], filId: 10, repondALeMessageId: 77, objet: 'Re: X',
+      cibles: [{ sorte: 'lot', cle: '219', id: null, libelle: 'lot 219' }] } as unknown as BrouillonEcran, 176);
+    await taper('seul@x.fr');
+    await retirer('seul@x.fr');
+    expect(cibles()).toEqual(['219']);
+    expect(texteClasser()).toMatch(/Rattaché/);
   });
 });

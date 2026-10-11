@@ -74,3 +74,40 @@ describe('les suggestions de plusieurs biens, regroupées', () => {
     expect(g[1].lignes.map((l) => `${l.bien}:${l.adresse}`)).toEqual(['A:s1@x.fr', 'B:s2@x.fr']);
   });
 });
+
+import { ciblesAPoserALEnvoi, marquerOrigines, recalculerCibles, clesDesClientsPresents } from './contexteClients';
+
+describe('🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — l’origine, le recalcul, le filet de l’envoi', () => {
+  const B2 = { ...BIENS, 'seul@x.fr': [b('9', 'proprietaire')], 'loc2@x.fr': [b('1', 'locataire')] };
+  const lot = (cle: string, origine?: 'client' | 'manuel' | 'a_determiner', manuelConfirme?: boolean) =>
+    ({ sorte: 'lot', cle, ...(origine ? { origine } : {}), ...(manuelConfirme ? { manuelConfirme } : {}) });
+  it('marquer : déjà connue ⇒ sa propre origine ; nouvelle ⇒ client / manuel / à déterminer ; événement intact', () => {
+    expect(marquerOrigines([lot('2', 'client')], [lot('2'), lot('1'), lot('99'), { sorte: 'evenement', cle: 'E' }],
+      ['trois@x.fr', 'un@x.fr'], B2)).toEqual([lot('2', 'client'), lot('1', 'client'), lot('99', 'manuel'), { sorte: 'evenement', cle: 'E' }]);
+    expect(marquerOrigines([], [lot('1')], ['un@x.fr', 'pas-lu@x.fr'], B2)).toEqual([lot('1', 'a_determiner')]);
+  });
+  it('🔴 recalculer : le bien d’un client parti est RETIRÉ ; base et événement restent ; manuel signalé', () => {
+    const r = recalculerCibles([lot('2', 'client'), lot('9', 'client'), lot('219'), lot('77', 'manuel')], ['seul@x.fr'], B2);
+    expect(r.cibles.map((c) => c.cle)).toEqual(['9', '219', '77']);
+    expect(r.retirees.map((c) => c.cle)).toEqual(['2']);
+    expect(r.manuelsSansClient.map((c) => c.cle)).toEqual(['77']);
+    expect(r.change).toBe(true);
+  });
+  it('deux clients du même bien : il reste tant qu’il en reste un', () => {
+    expect(recalculerCibles([lot('1', 'client')], ['loc2@x.fr'], B2).cibles.map((c) => c.cle)).toEqual(['1']);
+    expect(recalculerCibles([lot('1', 'client')], [], B2).cibles).toEqual([]);
+  });
+  it('une adresse présente pas encore lue : on ATTEND (rien n’est retiré), et « à déterminer » se tranche à la lecture', () => {
+    expect(recalculerCibles([lot('2', 'client')], ['pas-lu@x.fr'], B2).cibles.map((c) => c.cle)).toEqual(['2']);
+    expect(recalculerCibles([lot('1', 'a_determiner')], ['un@x.fr'], B2).cibles).toEqual([lot('1', 'client')]);
+    expect(recalculerCibles([lot('55', 'a_determiner')], ['un@x.fr'], B2).cibles).toEqual([lot('55', 'manuel')]);
+    expect(clesDesClientsPresents(['pas-lu@x.fr'], B2)).toBeNull();
+  });
+  it('🔴 le filet de l’envoi : jamais un bien sans adresse correspondante, sauf ajout manuel CONFIRMÉ ; la base passe', () => {
+    const { gardees, ecartees } = ciblesAPoserALEnvoi(
+      [lot('2', 'client'), lot('9', 'client'), lot('77', 'manuel'), lot('78', 'manuel', true), lot('55', 'a_determiner'), lot('219')],
+      ['seul@x.fr'], B2);
+    expect(gardees.map((c) => c.cle)).toEqual(['9', '78', '219']);
+    expect(ecartees.map((c) => c.cle)).toEqual(['2', '77', '55']);
+  });
+});

@@ -24,8 +24,8 @@ import {
   classesPuce, cleAdresse, famillesDesSuggestions, infobullePuce, type FamillesConnues,
 } from '../../../../lib/gestion/familleAdresse';
 import {
-  biensAutomatiques, clesDuContexte, clientsAChoisir, familleDuClient, fusionnerSuggestions,
-  type BienClient, type BiensDesClients,
+  biensAutomatiques, clesDesClientsPresents, clesDuContexte, clientsAChoisir, clientsDuBien, familleDuClient,
+  fusionnerSuggestions, marquerOrigines, recalculerCibles, type BienClient, type BiensDesClients,
 } from '../../../../lib/gestion/contexteClients';
 import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
@@ -863,8 +863,8 @@ export function Redaction({
    */
   const [biensClients, setBiensClients] = useState<BiensDesClients>({});
   const biensDemandes = useRef(new Set<string>());
-  const autoPar = useRef(new Map<string, string>());       // clé du bien → adresse qui l'a amené d'office
   const refusesAuto = useRef(new Set<string>());            // « adresse|clé » : ajout d'office défait à la main
+  const clientsPrecedents = useRef(new Set<string>());      // les biens « client » du dernier recalcul
   const contexteFiche = lotFiche !== null || brouillon.depuisLeBien === true;
   useEffect(() => {
     const manque = [...new Set(adressesDesChamps)].filter((x) => !biensDemandes.current.has(x));
@@ -889,46 +889,54 @@ export function Redaction({
   const contexteCles = clesDuContexte((brouillon.cibles ?? []) as Array<{ sorte: string; cle: string | null }>);
   const cleContexte = [...contexteCles].sort().join(',');
   const cleBiensClients = Object.keys(biensClients).sort().join(',');
-  /** Ajouts et retraits d'office, rapprochés des cibles à chaque changement des champs ou des cibles. */
+  const cleOrigines = ((brouillon.cibles ?? []) as CibleBrouillon[])
+    .map((c) => `${c.sorte}:${c.cle ?? ''}:${c.origine ?? ''}:${c.manuelConfirme === true ? 1 : 0}`).join(',');
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — LES BIENS RATTACHÉS SONT RECALCULÉS, JAMAIS ACCUMULÉS ══════════
+   * À chaque changement des champs, des cibles ou des biens lus : `recalculerCibles` retire tout bien `client` dont
+   * plus aucun propriétaire ni locataire n'est destinataire (le compteur « Rattaché — N logements » et la modale
+   * suivent : ils lisent les mêmes cibles), tranche les `a_determiner`, puis les clients à bien unique amènent leur
+   * bien d'office. CE QU'IL FAISAIT AVANT : seul l'ajout d'office savait d'où il venait ; un bien coché à la main
+   * restait après le départ de son client (bug d'Arno : 1bis rue Manessier, lot 432).
+   * Un bien d'office décoché à la main ne revient pas tant que son client reste ; client retiré puis remis : la règle
+   * habituelle rejoue (bien unique d'office, plusieurs biens à choisir).
+   */
   useEffect(() => {
-    const cibles = [...((brouillon.cibles ?? []) as CibleBrouillon[])];
-    const presentes = new Set(adressesDesChamps);
-    let change = false;
-    // ① Un bien amené d'office et retiré ailleurs (« Classer ce mail ») : c'est un refus, il ne revient pas.
-    for (const [cleBien, adresse] of [...autoPar.current]) {
-      if (!contexteCles.has(cleBien)) { autoPar.current.delete(cleBien); refusesAuto.current.add(`${adresse}|${cleBien}`); }
+    const presentes = [...new Set(adressesDesChamps)];
+    for (const r of [...refusesAuto.current]) if (!presentes.includes(r.split('|')[0])) refusesAuto.current.delete(r);
+    for (const cleBien of clientsPrecedents.current) {
+      if (contexteCles.has(cleBien)) continue;           // décoché à la main alors qu'un client est là : un refus
+      for (const a of clientsDuBien(cleBien, presentes, biensClients)) refusesAuto.current.add(`${a}|${cleBien}`);
     }
-    // ② L'adresse qui avait amené un bien n'est plus là : le bien sort du contexte.
-    for (const [cleBien, adresse] of [...autoPar.current]) {
-      if (presentes.has(adresse)) continue;
-      autoPar.current.delete(cleBien);
-      const i = cibles.findIndex((c) => c.sorte === 'lot' && c.cle === cleBien);
-      if (i >= 0) { cibles.splice(i, 1); change = true; }
-    }
-    // ③ Un client à bien unique : son bien entre d'office (hors fiche bien, hors « Interne » / « hors gestion »).
+    const r = recalculerCibles((brouillon.cibles ?? []) as CibleBrouillon[], presentes, biensClients);
+    const cibles = [...r.cibles];
+    let change = r.change;
+    let ajout = false;
     if (!contexteFiche && brouillon.interne !== true && brouillon.horsGestion !== true) {
-      const dejaLa = clesDuContexte(cibles);
-      for (const { bien, adresse } of biensAutomatiques([...presentes], biensClients, dejaLa, refusesAuto.current)) {
-        cibles.push({ sorte: 'lot', cle: bien.cle, id: bien.lotId, libelle: bien.libelle, categorie: bien.categorie });
-        autoPar.current.set(bien.cle, adresse);
-        change = true;
+      for (const { bien } of biensAutomatiques(presentes, biensClients, clesDuContexte(cibles), refusesAuto.current)) {
+        cibles.push({ sorte: 'lot', cle: bien.cle, id: bien.lotId, libelle: bien.libelle, categorie: bien.categorie, origine: 'client' });
+        change = true; ajout = true;
       }
     }
-    if (change) modifier({ cibles, interne: false, horsGestion: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- les clés (adresses, cibles, biens lus) suffisent.
-  }, [cleAdressesDesChamps, cleContexte, cleBiensClients, contexteFiche]);
+    clientsPrecedents.current = new Set(cibles.filter((c) => c.sorte === 'lot' && c.origine === 'client').map((c) => c.cle ?? ''));
+    if (change) modifier(ajout ? { cibles, interne: false, horsGestion: false } : { cibles });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- les clés (adresses, cibles et origines, biens lus) suffisent.
+  }, [cleAdressesDesChamps, cleContexte, cleOrigines, cleBiensClients, contexteFiche]);
   /** Cocher / décocher un bien d'un client à plusieurs biens (la ligne « Rattacher ce mail à : »). */
   const basculerBienClient = (b: BienClient): void => {
     const cibles = (brouillon.cibles ?? []) as CibleBrouillon[];
     if (contexteCles.has(b.cle)) {
-      const adresse = autoPar.current.get(b.cle);
-      if (adresse !== undefined) { autoPar.current.delete(b.cle); refusesAuto.current.add(`${adresse}|${b.cle}`); }
       modifier({ cibles: cibles.filter((c) => !(c.sorte === 'lot' && c.cle === b.cle)) });
       return;
     }
-    modifier({ cibles: [...cibles, { sorte: 'lot', cle: b.cle, id: b.lotId, libelle: b.libelle, categorie: b.categorie }],
+    modifier({ cibles: [...cibles, { sorte: 'lot', cle: b.cle, id: b.lotId, libelle: b.libelle, categorie: b.categorie, origine: 'client' }],
       interne: false, horsGestion: false });
   };
+  /** Les biens ajoutés à la main SANS client destinataire, pas encore confirmés : à signaler avant l'envoi. */
+  const manuelsAConfirmer = recalculerCibles((brouillon.cibles ?? []) as CibleBrouillon[], adressesDesChamps, biensClients)
+    .manuelsSansClient.filter((c) => c.manuelConfirme !== true);
+  const clesClientsPresents = clesDesClientsPresents(adressesDesChamps, biensClients);
+  const [confirmationManuels, setConfirmationManuels] = useState(false);
   const aChoisir = clientsAChoisir(adressesDesChamps, biensClients);
   /** Les familles affichées : la lecture générale, celles des biens du contexte, puis l'aspect des CLIENTS. */
   const famillesAffichees: FamillesConnues = (() => {
@@ -2323,6 +2331,9 @@ export function Redaction({
             : brouillon.corps.split(contexte.signature).join(' ')}
           pieces={[]}
           cibles={brouillon.cibles ?? []}
+          clesClients={clesClientsPresents}
+          clesDeBase={new Set(((brouillon.cibles ?? []) as CibleBrouillon[])
+            .filter((c) => c.sorte === 'lot' && c.origine === undefined).map((c) => c.cle ?? ''))}
           onChange={(cibles) => {
             // 🔴 COCHER UN BIEN LÈVE « INTERNE » : les deux réponses s'excluent (voir l'encadré de la modale).
             //   Les deux champs partent DANS LE MÊME appel : deux `modifier` successifs perdraient le premier,
@@ -2331,7 +2342,11 @@ export function Redaction({
             //   réponses s'excluent, et il n'y a jamais deux cases vertes.
             const unBien = cibles.some((c) => c.sorte === 'lot');
             onChange({
-              ...brouillon, cibles,
+              ...brouillon,
+              /* 🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — chaque bien garde (ou reçoit) son origine : client d'un
+                 destinataire, ou ajout manuel. C'est elle qui décide s'il suit les adresses. */
+              cibles: marquerOrigines((brouillon.cibles ?? []) as CibleBrouillon[], cibles as CibleBrouillon[],
+                adressesDesChamps, biensClients),
               interne: unBien ? false : interneVoulu,
               horsGestion: unBien ? false : brouillon.horsGestion === true,
             });
@@ -2503,6 +2518,42 @@ export function Redaction({
           }} />
       )}
 
+      {/* ══ 🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — L'AVERTISSEMENT ORANGE, AVANT L'ENVOI ═══════════════════
+          Un bien ajouté à la main par le moteur de recherche, sans aucun propriétaire ni locataire de ce bien parmi
+          les destinataires (un mail à un artisan au sujet d'un bien) : la possibilité reste, mais elle se CONFIRME.
+          « Retirer ce bien » le sort du rattachement ; « Envoyer quand même » le confirme et lance l'envoi. */}
+      {confirmationManuels && manuelsAConfirmer.length > 0 && (
+        <div className="red-avertit-manuel" role="alertdialog" aria-label="Confirmer le rattachement">
+          {manuelsAConfirmer.map((c) => (
+            <p key={c.cle ?? ''} className="red-avertit-manuel-ligne">
+              <span>Ce mail sera rattaché à <strong>{(c as CibleBrouillon).libelle}</strong> alors qu’aucun propriétaire ni
+                locataire de ce bien n’est destinataire. Confirmer ?</span>
+              <button type="button" className="svv-btn gst-btn red-avertit-manuel-retirer"
+                onClick={() => modifier({ cibles: ((brouillon.cibles ?? []) as CibleBrouillon[])
+                  .filter((x) => !(x.sorte === 'lot' && x.cle === c.cle)) })}>
+                Retirer ce bien
+              </button>
+            </p>
+          ))}
+          <div className="red-avertit-manuel-actions">
+            <button type="button" className="svv-btn svv-btn-primary gst-btn"
+              onClick={() => {
+                const confirmes = new Set(manuelsAConfirmer.map((c) => c.cle ?? ''));
+                modifier({ cibles: ((brouillon.cibles ?? []) as CibleBrouillon[])
+                  .map((x) => (x.sorte === 'lot' && confirmes.has(x.cle ?? '') ? { ...x, manuelConfirme: true } : x)) });
+                setConfirmationManuels(false);
+                setEtat({
+                  v: 'compte_a_rebours', clicLe: new Date(),
+                  cle: `${brouillon.id ?? 'x'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                });
+              }}>
+              Envoyer quand même
+            </button>
+            <button type="button" className="svv-btn gst-btn" onClick={() => setConfirmationManuels(false)}>Annuler</button>
+          </div>
+        </div>
+      )}
+
       <div className="gst-actions red-bas">
         {/* 🔴 LE SEUL CHEMIN D'ENVOI : ce clic, et lui seul. Il n'envoie même pas tout de suite — il ouvre la fenêtre
             d'annulation. Aucun `type="submit"`, aucun formulaire : « Entrée » ne peut pas déclencher cela.
@@ -2534,6 +2585,9 @@ export function Redaction({
             aria-describedby={envoiRefuse ? 'red-non-classe' : undefined}
             onClick={() => {
               if (!peutEnvoyer) { setEnvoiRefuse(true); return; }
+              // 🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — un bien ajouté à la main sans client destinataire se
+              //   CONFIRME avant de partir (avertissement orange, plus haut).
+              if (manuelsAConfirmer.length > 0) { setConfirmationManuels(true); return; }
               setEtat({
                 v: 'compte_a_rebours', clicLe: new Date(),
                 cle: `${brouillon.id ?? 'x'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
@@ -2779,6 +2833,10 @@ const CSS_REDACTION = `
 /* ⚠️ flex:0 0 auto : la liste est une colonne flexible — sans lui, l'intertitre était écrasé à 2 px (mesuré dans Chrome). */
 .red-sugg-sous-titre{flex:0 0 auto;padding:4px 10px 0;font-size:.72rem;line-height:1.3;color:var(--color-svv-muted);
   font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.red-avertit-manuel{margin:8px 0;padding:10px 12px;border:1.5px solid var(--color-svv-orange);border-radius:.6rem;
+  background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.9rem}
+.red-avertit-manuel-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 6px}
+.red-avertit-manuel-actions{display:flex;flex-wrap:wrap;gap:8px}
 .red-rattacher-clients{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:2px 0 4px;font-size:.85rem;
   color:var(--color-svv-ink)}
 .red-rattacher-titre{font-weight:600;color:var(--color-svv-muted)}

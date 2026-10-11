@@ -146,6 +146,15 @@ export interface CibleBrouillon {
   id: number | null;
   libelle: string;
   /**
+   * 🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — D'OÙ VIENT CE BIEN (voir `contexteClients.ts`) : `client` (amené par
+   * une adresse de propriétaire ou de locataire — il suit ses adresses), `manuel` (moteur de recherche, sans client
+   * destinataire — signalé, confirmé à l'envoi), `a_determiner` (biens des adresses pas encore lus). Absente = bien
+   * de BASE (fiche ouverte, réponse héritée) : il ne dépend pas des adresses.
+   */
+  origine?: 'client' | 'manuel' | 'a_determiner';
+  /** Bien `manuel` confirmé à l'envoi (« Envoyer quand même »). */
+  manuelConfirme?: boolean;
+  /**
    * 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA CATÉGORIE DU LOT, pour que la case verte écrive « 1 logement +
    * 1 parking » au lieu d'une adresse déjà écrite juste à côté.
    *
