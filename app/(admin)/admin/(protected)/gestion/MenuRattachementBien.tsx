@@ -43,8 +43,10 @@ export function MenuRattachementBien({
   messageId, filId, onFerme, onGeste, onChange, onHorsGestion, ponctuel = false,
   preCoches = null, pied, onValider, motValider, validationBloquee = null, onSelection, libellesConnus,
   aussiAValider = false,
-  cochesImposees, onCochesChange, sansBoutons = false, propositionsElargies = false,
+  cochesImposees, onCochesChange, sansBoutons = false, propositionsElargies = false, propositionsRepliables = false,
 }: {
+  /** 🔴 LOT GLISSIERE-PILULE — le bloc « Propositions » porte la croix qui le replie (« Modifier le rattachement »). */
+  propositionsRepliables?: boolean;
   /**
    * 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — « Modifier le rattachement » : les propositions élargies (autres biens du
    * propriétaire des biens rattachés, biens des adresses du mail). Absent ⇒ les propositions du moteur seules.
@@ -439,7 +441,7 @@ export function MenuRattachementBien({
         replies={replies} autresDeplies={autresDeplies} onBasculerAutres={() => setAutresDeplies((v) => !v)}
         saisie={saisie} onSaisie={setSaisie} champ={champ} recherche={recherche}
         clesEnHaut={clesEnHaut} onBasculerResultat={basculerResultat}
-        aLaDateDuMail={dateMail !== null} />
+        aLaDateDuMail={dateMail !== null} repliable={propositionsRepliables} />
 
       {/* ══ ③ UNE SEULE VALIDATION POUR LES DEUX ZONES ═══════════════════════════════════════════════════════
           🔴🔴 EN AJOUT PONCTUEL, IL N'Y A PAS DE PORTÉE À CHOISIR : « ponctuel » VEUT DIRE ce mail, et rien

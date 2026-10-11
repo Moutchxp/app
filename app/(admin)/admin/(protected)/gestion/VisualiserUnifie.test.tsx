@@ -784,7 +784,7 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
   it('🔴🔴 la portée est la glissière à quatre positions — jamais les trois radios des autres portes', async () => {
     await monterPonctuel();
     expect(container.querySelector('.rdf-suivi')).toBeNull();
-    expect(container.querySelector('[role="slider"]')).not.toBeNull();
+    expect(container.querySelector('[role="radiogroup"]')).not.toBeNull();
     /* ⚠️ L'ENCADRÉ D'EXCEPTION DES AUTRES PORTES n'est pas repris : chaque position a sa propre définition. */
     expect(container.textContent).not.toContain(ENCADRE_EXCEPTION_CE_MAIL);
   });

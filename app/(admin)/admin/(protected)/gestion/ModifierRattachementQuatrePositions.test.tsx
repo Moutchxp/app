@@ -194,21 +194,23 @@ describe('la croix', () => {
    ⑤ ⑥ LA GLISSIÈRE À QUATRE POSITIONS ET LE BOUTON FINAL
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-const curseur = () => container.querySelector('[role="slider"]') as HTMLElement;
+/* 🔴 LOT GLISSIERE-PILULE — la glissière est un groupe de boutons radio : la position choisie est le radio coché. */
+const groupe = () => container.querySelector('[role="radiogroup"]') as HTMLElement;
+const choisi = () => container.querySelector('[role="radiogroup"] [role="radio"][aria-checked="true"]')?.textContent ?? null;
 const libelle = (m: RegExp) => [...container.querySelectorAll('.gpo-libelle')].find((b) => m.test(b.textContent ?? '')) as HTMLButtonElement;
 const definition = () => container.querySelector('.rdf-portee-definition')?.textContent ?? '';
 const decocher = async () => cliquer(container.querySelector('.rdf-suivi-carte input.rdf-garde') as Element);
-const touche = async (key: string) => { await act(async () => { curseur().dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); }); await calmer(); };
+const touche = async (key: string) => { await act(async () => { (groupe().querySelector('[role="radio"][aria-checked="true"]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); }); await calmer(); };
 
 describe('⑤ la glissière', () => {
   it('🔴 sans modification : ① Origine, ②③④ grisées et non sélectionnables (clic ni clavier)', async () => {
     await monter();
-    expect(curseur().getAttribute('aria-valuetext')).toBe('Origine');
+    expect(choisi()).toBe('Origine');
     expect(libelle(/One shot/).disabled).toBe(true);
     expect(libelle(/Ce mail \+ futurs échanges/).disabled).toBe(true);
     expect(libelle(/Toute la conversation/).disabled).toBe(true);
     await touche('ArrowRight');
-    expect(curseur().getAttribute('aria-valuetext')).toBe('Origine');
+    expect(choisi()).toBe('Origine');
     expect(definition()).toBe('Le suivi reste tel qu’il était. Aucune modification n’est enregistrée.');
     expect(bouton(/^Valider le maintien du suivi actuel$/)).toBeDefined();
   });
@@ -216,7 +218,7 @@ describe('⑤ la glissière', () => {
   it('🔴 la première modification passe AUTOMATIQUEMENT sur ② One shot, et rend ②③④ sélectionnables', async () => {
     await monter();
     await decocher();
-    expect(curseur().getAttribute('aria-valuetext')).toBe('One shot');
+    expect(choisi()).toBe('One shot');
     expect(libelle(/Toute la conversation/).disabled).toBe(false);
     expect(definition()).toBe('Modification ponctuelle : elle ne concerne QUE ce mail. Aucun autre mail, aucune conversation et aucun suivi ne sont modifiés.');
     expect(bouton(/^Valider la modification du suivi$/)).toBeDefined();
@@ -226,13 +228,13 @@ describe('⑤ la glissière', () => {
     await monter();
     await decocher();
     await touche('ArrowRight');
-    expect(curseur().getAttribute('aria-valuetext')).toBe('Ce mail + futurs échanges');
+    expect(choisi()).toBe('Ce mail + futurs échanges');
     expect(definition()).toContain('À partir de ce mail, et pour tous les prochains échanges');
     await cliquer(libelle(/Toute la conversation/));
-    expect(curseur().getAttribute('aria-valuetext')).toBe('Toute la conversation');
+    expect(choisi()).toBe('Toute la conversation');
     expect(definition()).toContain('anciens mails compris');
     await touche('ArrowLeft');
-    expect(curseur().getAttribute('aria-valuetext')).toBe('Ce mail + futurs échanges');
+    expect(choisi()).toBe('Ce mail + futurs échanges');
   });
 
   it('🔴 revenir sur ① avec des modifications : la question, puis tout revient à l’état d’ouverture', async () => {
@@ -241,11 +243,11 @@ describe('⑤ la glissière', () => {
     await cliquer(libelle(/Origine/));
     expect(container.querySelector('.rdf-portee-question')?.textContent).toContain('Revenir au suivi d’origine ? Vos modifications seront abandonnées');
     await cliquer(bouton(/^Non$/) as Element);
-    expect(curseur().getAttribute('aria-valuetext')).toBe('One shot');
+    expect(choisi()).toBe('One shot');
     expect((container.querySelector('.rdf-suivi-carte input.rdf-garde') as HTMLInputElement).checked).toBe(false);
     await cliquer(libelle(/Origine/));
     await cliquer(bouton(/^Oui$/) as Element);
-    expect(curseur().getAttribute('aria-valuetext')).toBe('Origine');
+    expect(choisi()).toBe('Origine');
     expect((container.querySelector('.rdf-suivi-carte input.rdf-garde') as HTMLInputElement).checked).toBe(true);
     expect(libelle(/One shot/).disabled).toBe(true);
     expect(ecritures).toEqual([]);
@@ -345,5 +347,77 @@ describe('une ouverture = une fenêtre neuve', () => {
     expect(h).toContain('<RattachementsDuFil key={aModifier.messageId}');
     const r = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
     expect(r).toContain('<MenuRattachementBien key={`${mailId}-${cleMenu}`}');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT GLISSIERE-PILULE — LE DESSIN « PILULE » ET LES PROPOSITIONS REPLIABLES
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('la glissière « pilule »', () => {
+  it('🔴 quatre boutons radio d’un groupe, libellés sans numéro, dans l’ordre ; le choisi seul est tabulable', async () => {
+    await monter();
+    const radios = [...container.querySelectorAll('[role="radiogroup"] [role="radio"]')] as HTMLButtonElement[];
+    expect(radios.map((r) => r.textContent)).toEqual(['Origine', 'One shot', 'Ce mail + futurs échanges', 'Toute la conversation']);
+    expect(container.querySelector('[role="radiogroup"]')?.textContent).not.toMatch(/[①②③④]/);
+    expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false']);
+    expect(radios.map((r) => r.tabIndex)).toEqual([0, -1, -1, -1]);
+    /* Le dessin : une piste, quatre repères, un curseur avec son losange. */
+    expect(container.querySelectorAll('.gpo-piste .gpo-cran')).toHaveLength(4);
+    expect(container.querySelector('.gpo-curseur .gpo-losange')).not.toBeNull();
+  });
+
+  it('🔴 au clavier, le focus suit la position choisie', async () => {
+    await monter();
+    await decocher();
+    await touche('ArrowRight');
+    expect(choisi()).toBe('Ce mail + futurs échanges');
+    expect(document.activeElement?.textContent).toBe('Ce mail + futurs échanges');
+    await touche('End');
+    expect(choisi()).toBe('Toute la conversation');
+    await touche('Home');
+    /* ⚠️ Origine avec des modifications : la question d'abord — la glissière DEMANDE, elle ne décide pas. */
+    expect(container.querySelector('.rdf-portee-question')).not.toBeNull();
+  });
+
+  it('🔴 le curseur est placé par la variable de position (0 → 1) et suit le choix', async () => {
+    await monter();
+    const x = () => (container.querySelector('.gpo-curseur') as HTMLElement).style.getPropertyValue('--gpo-x');
+    expect(x()).toBe('0');
+    await decocher();
+    expect(Number(x())).toBeCloseTo(1 / 3);
+    await cliquer(libelle(/Toute la conversation/));
+    expect(x()).toBe('1');
+  });
+});
+
+describe('le bloc « Propositions » repliable', () => {
+  it('🔴 ouvert par défaut, une croix réelle ; repliée : une ligne, la sélection conservée, rouvert à l’identique', async () => {
+    CONTEXTE.biens = MEME_PROPRIO;
+    await monter();
+    const croix = container.querySelector('button[aria-label="Replier les propositions"]') as HTMLButtonElement;
+    expect(croix).not.toBeNull();
+    expect(croix.textContent).toBe('×');
+    /* On coche une proposition, puis on replie. */
+    await cliquer(container.querySelector('.rec-biens .rec-bien input[type="checkbox"]') as Element);
+    expect(container.querySelector('.rec-compte')?.textContent).toBe('1 bien(s) coché(s) sur 4 affiché(s).');
+    await cliquer(croix);
+    expect(container.querySelector('.rec-replie-ligne')?.textContent).toBe('Propositions — 4 biens · 1 coché');
+    expect(container.querySelectorAll('.rec-biens .rec-bien')).toHaveLength(0);
+    /* Rien ne disparaît : « Sélectionner tous les biens » et le moteur de recherche restent là. */
+    expect(bouton(/^(Sélectionner|Désélectionner) tous les biens$/)).toBeDefined();
+    expect(container.querySelector('.rec-saisie')).not.toBeNull();
+    expect(document.activeElement?.textContent).toContain('Afficher');
+    /* Rouvrir : les quatre cartes, la case toujours cochée. */
+    await cliquer(bouton(/Afficher/) as Element);
+    expect(container.querySelectorAll('.rec-biens .rec-bien')).toHaveLength(4);
+    expect(container.querySelector('.rec-compte')?.textContent).toBe('1 bien(s) coché(s) sur 4 affiché(s).');
+    expect((container.querySelector('.rec-biens .rec-bien input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
+    expect(ecritures).toEqual([]);
+  });
+
+  it('🔴 aucune proposition : rien ne change, pas de croix', async () => {
+    await monter();
+    expect(container.querySelector('button[aria-label="Replier les propositions"]')).toBeNull();
   });
 });

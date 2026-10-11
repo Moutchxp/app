@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import { grouperResultats, messageAucunBien, motRaison } from '../../../../lib/gestion/rechercheBien';
 import { deuxLignesParties, ligneCompacteDuBien } from '../../../../lib/gestion/classementBoutons';
 import { AUCUNE_PROPOSITION } from '../../../../lib/gestion/classementAvantEnvoi';
@@ -76,6 +76,14 @@ export function useRechercheBiens(saisie: string, date: string | null = null): E
 /** 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — le nombre de cartes de propositions visibles d'emblée (Arno : 8). */
 export const PROPOSITIONS_VISIBLES = 8;
 
+/**
+ * 🔴 LOT GLISSIERE-PILULE — la ligne du bloc « Propositions » replié : « Propositions — 4 biens · 0 coché ». PUR.
+ * ⚠️ Elle compte TOUTES les propositions (affichées ou sous « voir les autres ») : replié, rien n'est « affiché ».
+ */
+export function ligneRepliee(nbBiens: number, nbCoches: number): string {
+  return `Propositions — ${nbBiens} bien${nbBiens > 1 ? 's' : ''} · ${nbCoches} coché${nbCoches > 1 ? 's' : ''}`;
+}
+
 /** Une carte de la liste « Propositions ». */
 export interface BienACocher {
   cle: string;
@@ -88,8 +96,13 @@ export interface BienACocher {
 export function ListeBiensACocher({
   afficherPropositions = true, lignes, titre, selection, onBasculer, clesVisibles, toutesCochees, onToutBasculer,
   replies = 0, autresDeplies = false, onBasculerAutres, saisie, onSaisie, champ, recherche, clesEnHaut,
-  onBasculerResultat, aLaDateDuMail = false,
+  onBasculerResultat, aLaDateDuMail = false, repliable = false,
 }: {
+  /**
+   * 🔴 LOT GLISSIERE-PILULE (Arno, 11/10/2026) — une croix « × » en haut à droite replie le bloc « Propositions » sur une
+   * seule ligne, qui le rouvre à l'identique. Absent ⇒ pas de croix (les autres fenêtres sont inchangées).
+   */
+  repliable?: boolean;
   /** `false` = le moteur n'est pas installé sur cette base : seule la recherche est montrée. */
   afficherPropositions?: boolean;
   /** Les cartes du haut, DANS L'ORDRE où elles doivent paraître. */
@@ -135,13 +148,109 @@ export function ListeBiensACocher({
    * C'est alors la PHRASE qui remplace le compteur — jamais « 0 bien(s) coché(s) sur 0 affiché(s) ».
    */
   const aucuneProposition = lignes.length === 0;
+  /**
+   * 🔴 LOT GLISSIERE-PILULE — OUVERT PAR DÉFAUT. Replier ne décoche rien, n'efface rien : la sélection est tenue par la
+   * fenêtre, et « voir les autres » garde son état. Sans proposition, pas de croix : rien ne change.
+   * ⚠️ « SÉLECTIONNER TOUS LES BIENS » RESTE SUR LA LIGNE REPLIÉE (aucun contrôle ne disparaît, règle d'Arno).
+   */
+  const [replie, setReplie] = useState(false);
+  /* Le focus suit le geste : replié → « Afficher » ; rouvert → la croix. Jamais au premier rendu. */
+  const boutonAfficher = useRef<HTMLButtonElement | null>(null);
+  const boutonReplier = useRef<HTMLButtonElement | null>(null);
+  const replieGeste = useRef(false);
+  useEffect(() => {
+    if (!replieGeste.current) return;
+    replieGeste.current = false;
+    (replie ? boutonAfficher : boutonReplier).current?.focus();
+  }, [replie]);
+  /* ══ 🔴🔴 LE MOTEUR DE RECHERCHE, TOUJOURS VISIBLE (demande d'Arno) — le même, bloc replié ou non. ══ */
+  const moteur = (
+    <section className="rec-carte rec-recherche" aria-label="Moteur de recherche">
+      <p className="rec-carte-titre">Moteur de recherche</p>
+      <label className="rec-champ">
+        {/* 🔴 LA LÉGENDE EST AU-DESSUS DU CHAMP, jamais dans le champ. */}
+        <span className="rec-legende">
+          Adresse, n° de lot, nom (propriétaire ou locataire), téléphone ou e-mail — tous les mots, dans
+          n’importe quel ordre
+        </span>
+        <input ref={champ}
+          className="rec-saisie" type="search" value={saisie} autoComplete="off" maxLength={120}
+          placeholder="ex. « 28 marceau », « 421 », « MARTY », « 06 03 05 07 03 »"
+          onChange={(e) => onSaisie(e.target.value)} />
+      </label>
+
+      {recherche.v === 'cherche' && <p className="rec-vide" role="status">Recherche…</p>}
+      {recherche.v === 'erreur' && (
+        <p className="rec-vide" role="alert">La recherche n’a pas répondu. Réessayez.</p>
+      )}
+      {recherche.v === 'ok' && !recherche.resultats.disponible && (
+        <p className="rec-vide">Annuaire des biens pas encore installé sur cette base.</p>
+      )}
+      {recherche.v === 'ok' && recherche.resultats.disponible && recherche.resultats.lignes.length === 0 && (
+        // 🔴 ON DIT CE QU'ON A CHERCHÉ : « aucun résultat » tout court se lit comme une panne.
+        <p className="rec-vide">{messageAucunBien(saisie)}</p>
+      )}
+
+      {recherche.v === 'ok' && recherche.resultats.lignes.length > 0 && (
+        <ZoneDefilante className="rec-resultats" enfants={<>
+          {grouperResultats(recherche.resultats.lignes).map((g) => (
+            <section key={g.sorte} className="rec-groupe">
+              {/* Les deux groupes titrés du moteur : « Par adresse », puis « Par nom ou coordonnée ». */}
+              <p className="rec-groupe-titre">{g.titre}</p>
+              <ul className="rec-lignes">
+                {g.biens.map((b) => (
+                  <LigneBienCompacte key={b.cle} bien={b} coche={selection.has(b.cle)} titre={titre(b.cle)}
+                    /* 🔴 « déjà dans la sélection » : ce bien est DÉJÀ montré plus haut. Les deux cases n'en font
+                       qu'une, et le compteur ne le compte qu'une fois. */
+                    dejaEnHaut={clesEnHaut.has(b.cle)} aLaDateDuMail={aLaDateDuMail}
+                    onBasculer={() => onBasculerResultat(b)} />
+                ))}
+              </ul>
+            </section>
+          ))}
+        </>} />
+      )}
+      {recherche.v === 'ok' && recherche.resultats.tronque && (
+        <p className="rec-vide">Seuls les premiers biens sont affichés — précisez votre recherche.</p>
+      )}
+    </section>
+  );
+  const peutReplier = repliable && !aucuneProposition;
+  const lienTous = clesVisibles.length > 0 && (
+    <button type="button" className="gst-lien-bouton" onClick={onToutBasculer}>
+      {toutesCochees ? 'Désélectionner tous les biens' : 'Sélectionner tous les biens'}
+    </button>
+  );
+  if (afficherPropositions && peutReplier && replie) {
+    return (
+      <>
+        <section className="rec-carte rec-carte--repliee" aria-label="Biens proposés">
+          <p className="rec-replie-ligne">{ligneRepliee(lignes.length, lignes.filter((b) => selection.has(b.cle)).length)}</p>
+          <div className="rec-replie-actions">
+            {lienTous}
+            <button type="button" className="rec-replie-afficher" aria-expanded="false" ref={boutonAfficher}
+              onClick={() => { replieGeste.current = true; setReplie(false); }}>
+              Afficher <span aria-hidden="true">▾</span>
+            </button>
+          </div>
+        </section>
+        {moteur}
+      </>
+    );
+  }
   return (
     <>
       {afficherPropositions && (
         /* 🔴 LOT CLASSER-DEUX-BOUTONS — LES PROPOSITIONS SONT UNE CARTE, la recherche en est une autre :
            « chaque categorie a sa place » (demande d'Arno). */
-        <section className="rec-carte" aria-label="Biens proposés">
+        <section className={`rec-carte${peutReplier ? ' rec-carte--repliable' : ''}`} aria-label="Biens proposés">
           <p className="rec-carte-titre">Propositions</p>
+          {peutReplier && (
+            <button type="button" className="rec-replier" aria-label="Replier les propositions" aria-expanded="true"
+              ref={boutonReplier} onClick={() => { replieGeste.current = true; setReplie(true); }}>
+              <span aria-hidden="true">×</span>
+            </button>
+          )}
           <div className="rec-barre">
             {/* 🔴 LE COMPTEUR : des biens DISTINCTS (un ensemble), sur ce qui est AFFICHÉ. */}
             {aucuneProposition
@@ -154,11 +263,7 @@ export function ListeBiensACocher({
             {/* 🔴 UN SEUL LIEN QUI BASCULE, sur les propositions ET les résultats affichés. Il disparaît avec les
                 cases : « tout sélectionner » sur rien ne veut rien dire. */}
             {/* ⚠️ IL RESTE TANT QU'IL Y A QUELQUE CHOSE À COCHER, résultats de recherche compris — même carte vide. */}
-            {clesVisibles.length > 0 && (
-              <button type="button" className="gst-lien-bouton" onClick={onToutBasculer}>
-                {toutesCochees ? 'Désélectionner tous les biens' : 'Sélectionner tous les biens'}
-              </button>
-            )}
+            {lienTous}
           </div>
 
           {/* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la zone DIT ce qu'elle cache en dessous. */}
@@ -198,56 +303,7 @@ export function ListeBiensACocher({
         </section>
       )}
 
-      {/* ══ 🔴🔴 LE MOTEUR DE RECHERCHE, TOUJOURS VISIBLE (demande d'Arno) ═════════════════════════════════════ */}
-      <section className="rec-carte rec-recherche" aria-label="Moteur de recherche">
-        <p className="rec-carte-titre">Moteur de recherche</p>
-        <label className="rec-champ">
-          {/* 🔴 LA LÉGENDE EST AU-DESSUS DU CHAMP, jamais dans le champ. */}
-          <span className="rec-legende">
-            Adresse, n° de lot, nom (propriétaire ou locataire), téléphone ou e-mail — tous les mots, dans
-            n’importe quel ordre
-          </span>
-          <input ref={champ}
-            className="rec-saisie" type="search" value={saisie} autoComplete="off" maxLength={120}
-            placeholder="ex. « 28 marceau », « 421 », « MARTY », « 06 03 05 07 03 »"
-            onChange={(e) => onSaisie(e.target.value)} />
-        </label>
-
-        {recherche.v === 'cherche' && <p className="rec-vide" role="status">Recherche…</p>}
-        {recherche.v === 'erreur' && (
-          <p className="rec-vide" role="alert">La recherche n’a pas répondu. Réessayez.</p>
-        )}
-        {recherche.v === 'ok' && !recherche.resultats.disponible && (
-          <p className="rec-vide">Annuaire des biens pas encore installé sur cette base.</p>
-        )}
-        {recherche.v === 'ok' && recherche.resultats.disponible && recherche.resultats.lignes.length === 0 && (
-          // 🔴 ON DIT CE QU'ON A CHERCHÉ : « aucun résultat » tout court se lit comme une panne.
-          <p className="rec-vide">{messageAucunBien(saisie)}</p>
-        )}
-
-        {recherche.v === 'ok' && recherche.resultats.lignes.length > 0 && (
-          <ZoneDefilante className="rec-resultats" enfants={<>
-            {grouperResultats(recherche.resultats.lignes).map((g) => (
-              <section key={g.sorte} className="rec-groupe">
-                {/* Les deux groupes titrés du moteur : « Par adresse », puis « Par nom ou coordonnée ». */}
-                <p className="rec-groupe-titre">{g.titre}</p>
-                <ul className="rec-lignes">
-                  {g.biens.map((b) => (
-                    <LigneBienCompacte key={b.cle} bien={b} coche={selection.has(b.cle)} titre={titre(b.cle)}
-                      /* 🔴 « déjà dans la sélection » : ce bien est DÉJÀ montré plus haut. Les deux cases n'en font
-                         qu'une, et le compteur ne le compte qu'une fois. */
-                      dejaEnHaut={clesEnHaut.has(b.cle)} aLaDateDuMail={aLaDateDuMail}
-                      onBasculer={() => onBasculerResultat(b)} />
-                  ))}
-                </ul>
-              </section>
-            ))}
-          </>} />
-        )}
-        {recherche.v === 'ok' && recherche.resultats.tronque && (
-          <p className="rec-vide">Seuls les premiers biens sont affichés — précisez votre recherche.</p>
-        )}
-      </section>
+      {moteur}
     </>
   );
 }
@@ -350,6 +406,23 @@ export const CSS_LISTE_BIENS = `
 .rec-choix{display:flex;align-items:flex-start;gap:.5rem;min-height:32px;cursor:pointer}
 .rec-bien-nom{font-weight:600;overflow-wrap:anywhere}
 .rec-motif{margin:.2rem 0 0 1.6rem;font-size:.76rem;font-style:italic;color:var(--color-svv-muted)}
+
+/* LOT GLISSIERE-PILULE — la croix qui replie les propositions, et la ligne repliee. Cibles tactiles >= 32 px. */
+.rec-carte--repliable{position:relative}
+.rec-carte--repliable>.rec-carte-titre{padding-right:40px}
+.rec-replier{position:absolute;top:4px;right:4px;width:34px;height:34px;display:flex;align-items:center;
+  justify-content:center;padding:0;font:inherit;font-size:1.3rem;line-height:1;color:var(--color-svv-muted);
+  background:transparent;border:0;border-radius:.5rem;cursor:pointer}
+.rec-replier:hover,.rec-replier:focus-visible{color:var(--color-svv-ink);background:var(--color-svv-field)}
+.rec-replier:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+.rec-carte--repliee{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem}
+.rec-replie-ligne{margin:0;font-size:.84rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.rec-replie-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem}
+.rec-replie-afficher{min-height:32px;padding:.2rem .6rem;font:inherit;font-size:.8rem;font-weight:600;
+  color:var(--color-svv-ink);background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
+  border-radius:999px;cursor:pointer}
+.rec-replie-afficher:hover{border-color:var(--color-svv-line-strong-hover)}
+.rec-replie-afficher:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 
 /* ══ LE MOTEUR DE RECHERCHE ════════════════════════════════════════════════════════════════════════════════ */
 .rec-champ{display:flex;flex-direction:column;gap:.25rem;min-width:0}

@@ -6438,7 +6438,7 @@ describe('⑳ 🔴🔴 « Modifier le rattachement », et la trame de toute la l
     expect(d).not.toBeNull();
     expect(d?.className).toContain('rdf--ponctuel');
     expect(hote.querySelector('.rdf-suivi')).toBeNull();
-    expect(hote.querySelector('.rdf[role="dialog"] [role="slider"]')?.getAttribute('aria-valuetext')).toBe('Origine');
+    expect(hote.querySelector('.rdf[role="dialog"] [role="radiogroup"] [role="radio"][aria-checked="true"]')?.textContent).toBe('Origine');
     expect(BANDEAU_MODIFICATION_PONCTUELLE).toContain('Modification ponctuelle');
   });
 

@@ -1257,6 +1257,9 @@ export function RattachementsDuFil({
             /* 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — en porte ponctuelle, la validation est la glissière et
                le bouton final de cette fenêtre (dans le pied) : la rangée du menu n'est pas rendue. */
             sansBoutons={ponctuel}
+            /* 🔴 LOT GLISSIERE-PILULE — dans « Modifier le rattachement » (porte ponctuelle), le bloc « Propositions »
+               se replie par sa croix (Arno). Les autres portes n'ont pas la croix. */
+            propositionsRepliables={ponctuel}
             libellesConnus={libellesConnus}
             /**
              * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA SÉLECTION EST TENUE ICI.
