@@ -1,5 +1,6 @@
 import { BANDEAU_MODIFICATION_PONCTUELLE, MOT_MODIFICATION_PONCTUELLE_FAITE } from './sortirDuSuivi';
 import type { ChoixSuivi, ExceptionMail } from './periodesConversation';
+import { motBiensRattaches } from './changementsSuivi';
 
 /**
  * ══ 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — LA PORTÉE DU SUIVI D'UN MAIL, EN QUATRE POSITIONS. Module PUR ══
@@ -36,7 +37,8 @@ export const POSITIONS_PORTEE: readonly DefinitionPosition[] = [
   },
   {
     cle: 'suite', libelle: 'Ce mail + futurs échanges', choix: 'suite',
-    definition: 'À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi appliquera '
+    /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — « appliquera » devient « rattachera » (Arno). */
+    definition: 'À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi rattachera '
       + 'les biens choisis ci-dessus. Les mails plus anciens ne changent pas.',
   },
   {
@@ -49,6 +51,17 @@ export const POSITIONS_PORTEE: readonly DefinitionPosition[] = [
 
 export function definitionDe(p: PositionPortee): DefinitionPosition {
   return POSITIONS_PORTEE.find((x) => x.cle === p) as DefinitionPosition;
+}
+
+/**
+ * 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — LA DÉFINITION AFFICHÉE, avec le nombre de biens cochés au bout de sa
+ * 2ᵉ phrase pour ③ (Arno) : « … Les mails plus anciens ne changent pas — 2 biens rattachés. », mis à jour en direct.
+ * Les autres positions sont dites telles quelles (④ n'emploie pas « appliquera » : inchangée). PUR.
+ */
+export function definitionAffichee(p: PositionPortee, nbCoches: number): string {
+  const d = definitionDe(p).definition;
+  if (p !== 'suite') return d;
+  return `${d.replace(/\.$/, '')} — ${motBiensRattaches(nbCoches)}.`;
 }
 
 /**

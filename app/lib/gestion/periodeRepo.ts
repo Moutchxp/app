@@ -24,6 +24,7 @@ import {
   marquerInterneDesMessages, annulerInterneDesMessages, declarerNonInterneDesMessages,
 } from './interneMessageRepo';
 import { MOTIF_INTERNE_PAR_SUIVI } from './interneDuMail';
+import type { PeriodeAncienne } from './changementsSuivi';
 /**
  * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — le motif que `rattacher()` écrit quand il lève la marque d'un mail
  * auquel on vient de rattacher un bien. L'annulation doit le reconnaître : c'est lui, et non celui de la
@@ -154,6 +155,43 @@ export async function suiviDuFil(filId: number): Promise<SuiviDuFil> {
     //   empêcher de lire le courrier — l'écran se comporte alors comme avant ce lot.
     console.error('[gestion/periodes] lecture impossible (fil=%d)', filId, e);
     return VIDE;
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — LES FENÊTRES REFERMÉES D'UN FIL (LECTURE SEULE) ═════════════
+ *
+ * L'« avant » d'un changement posé sur un mail qui portait déjà une fenêtre est la fenêtre que ce geste a refermée ;
+ * et la fenêtre du « i » mentionne les autres changements du même mail (Arno). Elles sont en base, datées et signées
+ * (jamais supprimées) : on les relit, rien de plus.
+ *
+ * ⚠️ BORNÉE AUX 200 PLUS RÉCENTES et SILENCIEUSE en cas d'échec : c'est un complément d'affichage, l'accolade reste
+ * posée sans lui (son « avant » retombe alors sur la fenêtre du mail précédent, la règle d'avant ce lot).
+ */
+export async function periodesRefermeesDuFil(filId: number): Promise<PeriodeAncienne[]> {
+  if (!(await periodesDisponibles())) return [];
+  try {
+    const { rows } = await query<{
+      id: string; depuis_message_id: string; sorte: string; cree_par_libelle: string; cree_le: string;
+      remplacee_le: string; biens: { cle: string; libelle: string }[] | null;
+    }>(
+      `SELECT p.id::text, p.depuis_message_id::text, p.sorte, p.cree_par_libelle,
+              to_char(p.cree_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS cree_le,
+              to_char(p.remplacee_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS remplacee_le,
+              (SELECT json_agg(json_build_object('cle', b.cible_cle, 'libelle', b.cible_libelle))
+                 FROM gestion_fil_periode_bien b WHERE b.periode_id = p.id) AS biens
+         FROM gestion_fil_periode p
+        WHERE p.fil_id = $1 AND p.remplacee_le IS NOT NULL
+        ORDER BY p.id DESC
+        LIMIT 200`, [filId]);
+    return rows.map((r) => ({
+      id: Number(r.id), depuisMessageId: Number(r.depuis_message_id),
+      classement: classementDe(r.sorte, r.biens),
+      parLibelle: r.cree_par_libelle, le: r.cree_le, remplaceeLe: r.remplacee_le,
+    }));
+  } catch (e) {
+    console.error('[gestion/periodes] fenêtres refermées illisibles (fil=%d)', filId, e);
+    return [];
   }
 }
 

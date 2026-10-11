@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
-  annulerClassement, filRattache, mailsDuFil, poserClassement, suiviDuFil,
+  annulerClassement, filRattache, mailsDuFil, periodesRefermeesDuFil, poserClassement, suiviDuFil,
   type TraceClassement,
 } from '../../../../../lib/gestion/periodeRepo';
 // 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — « cet expéditeur est-il connu des fiches ? » (règle ② d'Arno).
@@ -174,18 +174,21 @@ export async function GET(request: Request): Promise<Response> {
   const messageId = entier(url.searchParams.get('message'));
   try {
     /**
-     * 🔴 QUATRE LECTURES EN PARALLÈLE, et non l'une après l'autre : elles sont indépendantes, et cette route
+     * 🔴 CINQ LECTURES EN PARALLÈLE, et non l'une après l'autre : elles sont indépendantes, et cette route
      * s'exécute à CHAQUE ouverture de la modale. Les enchaîner se verrait à l'écran.
      */
-    const [suivi, mails, rattachee, expediteurConnu] = await Promise.all([
+    const [suivi, mails, rattachee, expediteurConnu, anciennes] = await Promise.all([
       suiviDuFil(filId),
       mailsDuFil(filId),
       // 🔴 « DÉJÀ RATTACHÉE » : au moins un rattachement VALIDÉ, en plus des périodes et des exceptions.
       filRattache(filId),
       messageId === null ? Promise.resolve(false) : expediteurConnuDesFiches(messageId),
+      /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — les fenêtres refermées : l'« avant » d'un changement et les
+         autres changements du même mail (fenêtre du « i »). Lecture seule, silencieuse en cas d'échec. */
+      periodesRefermeesDuFil(filId),
     ]);
     return Response.json(
-      { etat: 'ok', ...suivi, mails, rattachee, expediteurConnu }, { headers: ENTETES });
+      { etat: 'ok', ...suivi, mails, rattachee, expediteurConnu, anciennes }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/suivi] lecture impossible (fil=%d)', filId, e);
     return Response.json({ erreur: 'Lecture impossible : la base n’a pas répondu.' },

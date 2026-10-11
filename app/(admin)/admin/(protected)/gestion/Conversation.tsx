@@ -97,8 +97,12 @@ import { estAdresseInterne } from '../../../../lib/gestion/adresseInterne';
 import { classementHerite, type ClassementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴🔴 LOT SUIVI-CONVERSATION — les repères de période dans le fil. Décidés dans un module PUR.
 import {
-  motClassement, reperesDuFil, type ExceptionMail, type Periode, type RepereFil,
+  motClassement, type ExceptionMail, type Periode, type RepereFil,
 } from '../../../../lib/gestion/periodesConversation';
+/* 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — quels changements portent une accolade, et leur avant / après. */
+import {
+  changementDeLaPeriode, changementsDuFil, lignesAutresChangements, type PeriodeAncienne,
+} from '../../../../lib/gestion/changementsSuivi';
 /* 🔴🔴 LOT BROUILLON-REPONSE-ET-REPERE — les mots du picto « brouillon en attente », écrits une seule fois. */
 import {
   AIDE_BROUILLON_EN_ATTENTE, AIDE_CORBEILLE_MESSAGE, AIDE_OUVRIR_BROUILLON, BANDEAU_MESSAGE_CORBEILLE,
@@ -121,8 +125,6 @@ import { interneDuMail } from '../../../../lib/gestion/interneDuMail';
 import {
   coteDuRepere, nbMailsCouverts,
 } from '../../../../lib/gestion/repereFenetre';
-/* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — la pastille « i » du repère ouvre cette fenêtre, au clic. */
-import { classementsDuRepere } from '../../../../lib/gestion/avantApres';
 /* 🔴 LOT ACCOLADE-PARTOUT — l'accolade rouge, modèle unique, partagée avec l'historique du bien. */
 import { AccoladeSuivi, CSS_ACCOLADE_SUIVI, type MailDuRepere } from './AccoladeSuivi';
 import { accoladeInterneSuite } from '../../../../lib/gestion/accoladesBien';
@@ -625,6 +627,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const [suivi, setSuivi] = useState<{
     periodes: Periode[]; exceptions: ExceptionMail[]; mails: number[];
+    /** 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR — les fenêtres refermées (« avant » d'un changement, autres changements). */
+    anciennes?: PeriodeAncienne[];
   } | null>(null);
   /* ══ 🔴🔴 LOT PIECES-DE-LA-CONVERSATION — LE RÉCAPITULATIF, LA VISIONNEUSE, LE RANGEMENT ═══════════════════════
      Les trois vivent ICI, au niveau de la conversation, et pas dans le bloc de pièces d'un message : le tour de
@@ -891,9 +895,13 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       const res = await fetch(`/api/admin/gestion/suivi?fil=${fil}`, { cache: 'no-store' });
       const d = (await res.json()) as {
         etat?: string; periodes?: Periode[]; exceptions?: ExceptionMail[]; mails?: number[];
+        anciennes?: PeriodeAncienne[];
       };
       setSuivi(d.etat !== 'ok' ? null
-        : { periodes: d.periodes ?? [], exceptions: d.exceptions ?? [], mails: d.mails ?? [] });
+        : {
+          periodes: d.periodes ?? [], exceptions: d.exceptions ?? [], mails: d.mails ?? [],
+          anciennes: d.anciennes ?? [],
+        });
     } catch {
       setSuivi(null);
     }
@@ -1686,7 +1694,17 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * 🔴 LOT SUIVI-CONVERSATION — LES REPÈRES, décidés par le module PUR. `suivi === null` (migration 290 absente
    * ou lecture en échec) ⇒ aucune ligne, et le fil est exactement celui d'avant ce lot.
    */
-  const reperes = suivi === null ? [] : reperesDuFil(suivi.mails, suivi.periodes);
+  /**
+   * 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — `changementsDuFil` remplace `reperesDuFil` : il garde toutes ses
+   * accolades et ajoute celles d'un CHANGEMENT posé sur le premier mail (« Ce mail + futurs échanges » sur le premier
+   * mail, ou « Toute la conversation ») — elles manquaient (fil 16502). Même forme de repère qu'avant.
+   */
+  const reperes: RepereFil[] = suivi === null ? [] : changementsDuFil({
+    mails: suivi.mails, periodes: suivi.periodes, anciennes: suivi.anciennes,
+  }).map((c) => ({
+    id: c.periode.id, avantMessageId: c.depuisMessageId, versQuoi: motClassement(c.apres),
+    parLibelle: c.periode.parLibelle ?? null, le: c.periode.le ?? null,
+  }));
   /**
    * ══ 🔴🔴 LOT ACCOLADE-PARTOUT — LA MARQUE « INTERNE » POSÉE « POUR LA SUITE » A SON ACCOLADE, ELLE AUSSI ═══════════════
    * Décision d'Arno : l'accolade est le modèle unique d'un changement de suivi récurrent, « portée ③, et la marque
@@ -1904,7 +1922,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 
               ⚠️ ELLE SE POSE AVANT LE MAIL QUI OUVRE LA PÉRIODE, et seulement là : c'est la définition d'une
               période (« à partir de ce mail, inclus »). La décision — quelles lignes, et laquelle sauter —
-              vient du module PUR (`reperesDuFil`), qui écarte celle du premier mail : « À partir d'ici » en
+              vient du module PUR (`changementsDuFil`, qui reprend `reperesDuFil` et y ajoute, depuis le lot
+              ACCOLADE-AU-MAIL-DECLENCHEUR, le CHANGEMENT posé sur le premier mail), qui écarte celle du premier mail : « À partir d'ici » en
               tête de conversation ne sépare rien.
 
               ══ 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — ET LE CÔTÉ SUIT LE TRI ═══════════════════════
@@ -2524,7 +2543,7 @@ function ouvrirRedaction(
  */
 function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
   repere: RepereFil;
-  suivi: { mails: number[]; periodes: Periode[]; exceptions: ExceptionMail[] } | null;
+  suivi: { mails: number[]; periodes: Periode[]; exceptions: ExceptionMail[]; anciennes?: PeriodeAncienne[] } | null;
   cote: 'dessus' | 'dessous';
   /**
    * ══ 🔴🔴 LA MARQUE « INTERNE » DE L'ÉCHANGE — CORRECTION DU 04/10/2026 ════════════════════════════════════════
@@ -2549,9 +2568,13 @@ function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
    * (migration 290 absente, ou fenêtre introuvable) : la pastille ne s'affiche alors pas du tout.
    */
   /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — l'avant et l'après STRUCTURÉS (une ligne par bien dans la fenêtre). */
-  const deuxCotes = suivi === null ? null
-    : classementsDuRepere({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
-  const c = deuxCotes === null ? null : { ...deuxCotes, interneEchangeAvant: interneDeLEchange };
+  /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR — l'avant est la fenêtre que ce geste a REMPLACÉE sur ce mail, s'il y en a une
+     (sinon celle du mail précédent) ; les autres changements du même mail sont dits dans la fenêtre. */
+  const changement = suivi === null ? null : changementDeLaPeriode({
+    mails: suivi.mails, periodes: suivi.periodes, anciennes: suivi.anciennes, periodeId: r.id,
+  });
+  const c = changement === null ? null
+    : { avant: changement.avant, apres: changement.apres, interneEchangeAvant: interneDeLEchange };
   /** 🔴 LA PORTÉE DE LA FENÊTRE, comptée sur les mails de l'échange. Module pur, aucune requête. */
   const nbMails = suivi === null ? 0
     : nbMailsCouverts({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
@@ -2559,7 +2582,8 @@ function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
      JSX, mêmes classes, même feuille. Cette ligne n'en fait plus que la donnée. */
   return (
     <AccoladeSuivi cote={cote} libelle={r.versQuoi} parLibelle={r.parLibelle} le={r.le}
-      detail={c} mail={mail} nbMails={nbMails} />
+      detail={c} mail={mail} nbMails={nbMails}
+      autres={changement === null ? [] : lignesAutresChangements(changement.autres, dateHeureComplete)} />
   );
 }
 

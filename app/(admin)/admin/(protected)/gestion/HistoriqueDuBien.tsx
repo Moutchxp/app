@@ -31,6 +31,7 @@ import { RattachementsDuFil } from './RattachementsDuFil';
    fait entrer ou sortir CE bien. Le type vient du dépôt en `import type` : rien de `pg` n'entre dans le paquet client. */
 import { AccoladeSuivi, CSS_ACCOLADE_SUIVI } from './AccoladeSuivi';
 import { accoladesDeLaPage, placerAccolades } from '../../../../lib/gestion/accoladesBien';
+import { lignesAutresChangements } from '../../../../lib/gestion/changementsSuivi';
 import type { AccoladeAffichee } from '../../../../lib/gestion/accoladesBienRepo';
 import type { MailDeLaFrise } from '../../../../lib/gestion/friseBien';
 import type { PieceCitable } from '../../../../lib/gestion/piecesCitees';
@@ -4220,7 +4221,9 @@ function FilDeMails({
         /* 🔴 LOT ACCOLADE-PARTOUT — LE MÊME DESSIN QUE LA VUE CONVERSATION (`AccoladeSuivi`), libellé adapté au bien. */
         ? <AccoladeSuivi key={`acc-${el.accolade.filId}-${el.accolade.depuisMessageId}-${el.accolade.sens}`}
           cote={el.cote} libelle={el.accolade.libelle} parLibelle={el.accolade.parLibelle} le={el.accolade.le}
-          detail={el.accolade.detail} mail={el.accolade.mail} nbMails={el.accolade.nbMails} />
+          detail={el.accolade.detail} mail={el.accolade.mail} nbMails={el.accolade.nbMails}
+          /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR — les autres changements du même mail, dans la fenêtre du « i ». */
+          autres={lignesAutresChangements(el.accolade.autres ?? [], dateHeureComplete)} />
         : ((l: LigneHistorique) => (
         /**
          * ══ 🔴🔴 LA BARRE DE COULEUR EST PORTÉE PAR L'ENVELOPPE, PAS PAR `LigneVie` (lot HISTORIQUE-BIEN-2) ═══

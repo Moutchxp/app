@@ -23,22 +23,33 @@ describe('une accolade seulement si la période concerne CE bien', () => {
     expect(a[0].detail?.apres.biens.map((b) => b.cle)).toEqual(['A', 'B']);
     expect(a[0].nbMails).toBe(3);
   });
+  /* La fenêtre initiale de ces cas est celle de la REPRISE des données : elle n'est pas un changement. */
+  const reprise = (id: number, depuis: number, biens: string[]) => periode(id, depuis, biens, 'reprise des périodes');
   it('🔴 retrait : « sorti du suivi de ce bien »', () => {
-    const a = accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [periode(1, 1, ['A', 'B']), periode(2, 4, ['A'])], cle: 'B' });
+    const a = accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [reprise(1, 1, ['A', 'B']), periode(2, 4, ['A'])], cle: 'B' });
     expect(a.map((x) => [x.depuisMessageId, x.libelle])).toEqual([[4, 'sorti du suivi de ce bien']]);
     expect(LIBELLE_RETRAIT).toBe('sorti du suivi de ce bien');
   });
-  it('🔴 absente si la période ne change rien pour ce bien', () => {
-    expect(accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [periode(1, 1, ['A']), periode(2, 3, ['A', 'B'])], cle: 'A' })).toEqual([]);
-    expect(accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [periode(1, 1, ['A']), periode(2, 3, ['C'])], cle: 'Z' })).toEqual([]);
+  /**
+   * 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — RÈGLE CHANGÉE PAR ARNO (12/10/2026) : un bien qui RESTE suivi a
+   * désormais son accolade, « suivi modifié — N biens rattachés ». Seul un bien étranger au changement n'en a pas.
+   */
+  it('🔴 le bien qui reste suivi : « suivi modifié — N biens rattachés » ; un bien étranger : rien', () => {
+    const a = accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [reprise(1, 1, ['A']), periode(2, 3, ['A', 'B'])], cle: 'A' });
+    expect(a.map((x) => [x.depuisMessageId, x.sens, x.libelle])).toEqual([[3, 'modif', 'suivi modifié — 2 biens rattachés']]);
+    expect(accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [reprise(1, 1, ['A']), periode(2, 3, ['C'])], cle: 'Z' })).toEqual([]);
   });
-  it('jamais pour la fenêtre du premier mail (elle ne sépare rien)', () => {
-    expect(accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [periode(1, 1, ['B'])], cle: 'B' })).toEqual([]);
+  it('la fenêtre initiale de la reprise, au premier mail, ne porte aucune accolade', () => {
+    expect(accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [reprise(1, 1, ['B'])], cle: 'B' })).toEqual([]);
+  });
+  it('🔴 un CHANGEMENT posé sur le premier mail (geste) a son accolade, au premier mail', () => {
+    const a = accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [periode(1, 1, ['B'])], cle: 'B' });
+    expect(a.map((x) => [x.depuisMessageId, x.sens])).toEqual([[1, 'ajout']]);
   });
   it('🔴 plusieurs périodes successives : une accolade par changement, dans l’ordre chronologique', () => {
     const a = accoladesDuBienDansLeFil({
       filId: 9, mails,
-      periodes: [periode(4, 5, ['B']), periode(1, 1, ['A']), periode(3, 4, []), periode(2, 2, ['B'])], cle: 'B',
+      periodes: [periode(4, 5, ['B']), periode(1, 1, ['A'], 'reprise des périodes'), periode(3, 4, []), periode(2, 2, ['B'])], cle: 'B',
     });
     expect(a.map((x) => [x.depuisMessageId, x.sens])).toEqual([[2, 'ajout'], [4, 'retrait'], [5, 'ajout']]);
   });

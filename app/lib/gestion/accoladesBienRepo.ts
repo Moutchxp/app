@@ -1,5 +1,5 @@
 import { query } from '../db/client';
-import { mailsDuFil, suiviDuFil } from './periodeRepo';
+import { mailsDuFil, periodesRefermeesDuFil, suiviDuFil } from './periodeRepo';
 import { MOTIF_DETACHE_PAR_INTERNE } from './interneDetache';
 import {
   accoladeInterneSuite, accoladesDuBienDansLeFil, LIBELLE_RETRAIT, type AccoladeDuBien,
@@ -28,8 +28,11 @@ export async function accoladesDuBien(cle: string, filIds: readonly number[]): P
       `SELECT DISTINCT p.fil_id::text
          FROM gestion_fil_periode p
         WHERE p.fil_id = ANY($1::bigint[]) AND p.remplacee_le IS NULL
-          AND p.depuis_message_id <> (SELECT m.id FROM gestion_message m WHERE m.fil_id = p.fil_id
-                                       ORDER BY m.recu_le, m.id LIMIT 1)`, [fils]);
+          /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR — ou une fenêtre du premier mail posée par un GESTE (pas la reprise) :
+             « Ce mail + futurs échanges » sur le premier mail, ou « Toute la conversation ». Voir estUnGeste. */
+          AND (p.depuis_message_id <> (SELECT m.id FROM gestion_message m WHERE m.fil_id = p.fil_id
+                                        ORDER BY m.recu_le, m.id LIMIT 1)
+               OR lower(btrim(p.cree_par_libelle)) NOT LIKE 'reprise%')`, [fils]);
     /* Les marques « Interne » posées « pour la suite » (portée enregistrée depuis la 342), vivantes. */
     const { rows: avec342 } = await query<{ n: number }>(
       `SELECT count(*)::int AS n FROM information_schema.columns
@@ -51,9 +54,12 @@ export async function accoladesDuBien(cle: string, filIds: readonly number[]): P
     for (const fil of aLire) {
       const { periodes } = await suiviDuFil(fil);
       const mails = await mailsDuFil(fil);
+      const anciennes = await periodesRefermeesDuFil(fil);
       const { rows: ie } = await query<{ n: number }>(
         'SELECT count(*)::int AS n FROM gestion_fil_interne WHERE fil_id = $1 AND retire_le IS NULL', [fil]);
-      out.push(...accoladesDuBienDansLeFil({ filId: fil, mails, periodes, cle, interneDeLEchange: (ie[0]?.n ?? 0) > 0 }));
+      out.push(...accoladesDuBienDansLeFil({
+        filId: fil, mails, periodes, anciennes, cle, interneDeLEchange: (ie[0]?.n ?? 0) > 0,
+      }));
       for (const g of internes.filter((x) => Number(x.fil_id) === fil)) {
         const a = accoladeInterneSuite({
           filId: fil, mails, periodes, marques: g.ids.map(Number), parLibelle: g.par, le: g.pose,

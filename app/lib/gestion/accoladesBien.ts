@@ -1,6 +1,6 @@
 import { nbMailsCouverts } from './repereFenetre';
-import { classementsDuRepere } from './avantApres';
 import { projeter, type Classement, type Periode } from './periodesConversation';
+import { changementsDuFil, libelleSuiviModifie, type PeriodeAncienne } from './changementsSuivi';
 
 /**
  * ══ 🔴🔴 LOT ACCOLADE-PARTOUT — LES ACCOLADES D'UN BIEN, DANS SON HISTORIQUE. Module PUR ════════════════════════════
@@ -18,11 +18,21 @@ import { projeter, type Classement, type Periode } from './periodesConversation'
 export const LIBELLE_AJOUT = 'suivi aussi par ce bien';
 export const LIBELLE_RETRAIT = 'sorti du suivi de ce bien';
 
+/**
+ * ══ 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — LA RÈGLE S'ÉLARGIT (Arno, 12/10/2026) ═══════════════════════════
+ * « TOUT changement de portée “Ce mail + futurs échanges” (et “Toute la conversation”) affiche l'accolade complète,
+ * ancrée au mail déclencheur, dans l'historique de CHAQUE bien concerné (avant ou après), que le bien entre, sorte ou
+ * reste suivi. Quand le bien reste suivi : “À partir d'ici : suivi modifié — N biens rattachés”. »
+ * L'ancienne règle (« seulement si CE bien entre ou sort ») taisait le cas du 25 rue Edith Cavell, resté suivi.
+ * Les changements sont ceux de `changementsDuFil` (le premier mail compris quand c'est un geste).
+ */
+
 export interface AccoladeDuBien {
   filId: number;
   /** Le mail À PARTIR duquel le changement vaut. */
   depuisMessageId: number;
-  sens: 'ajout' | 'retrait';
+  /** 🔴 `modif` : le bien RESTE suivi, le changement porte sur les autres biens (« suivi modifié — N biens rattachés »). */
+  sens: 'ajout' | 'retrait' | 'modif';
   libelle: string;
   parLibelle: string | null;
   le: string | null;
@@ -32,6 +42,8 @@ export interface AccoladeDuBien {
    */
   detail: { avant: Classement | null; interneEchangeAvant: boolean; apres: Classement } | null;
   nbMails: number;
+  /** 🔴 Les autres changements posés sur ce même mail, pour la fenêtre du « i » (Arno). */
+  autres?: PeriodeAncienne[];
 }
 
 const contient = (c: Classement | null | undefined, cle: string): boolean =>
@@ -42,34 +54,28 @@ export function accoladesDuBienDansLeFil(o: {
   filId: number;
   mails: readonly number[];
   periodes: readonly Periode[];
+  /** Les fenêtres refermées : l'« avant » d'un changement et les autres changements du même mail. */
+  anciennes?: readonly PeriodeAncienne[];
   cle: string;
   interneDeLEchange?: boolean;
 }): AccoladeDuBien[] {
-  const rang = new Map(o.mails.map((m, i) => [m, i]));
-  const tri = [...o.periodes]
-    .filter((p) => (rang.get(p.depuisMessageId) ?? -1) >= 0)
-    .sort((a, b) => (rang.get(a.depuisMessageId) as number) - (rang.get(b.depuisMessageId) as number));
   const out: AccoladeDuBien[] = [];
-  for (const p of tri) {
-    const r = rang.get(p.depuisMessageId) as number;
-    if (r <= 0) continue;
-    /* L'AVANT : la dernière fenêtre qui commence STRICTEMENT avant ce mail (même règle que `comparatifRepere`). */
-    const avant = tri.filter((x) => x.id !== p.id && (rang.get(x.depuisMessageId) as number) < r).at(-1) ?? null;
-    const dedans = contient(avant?.classement, o.cle);
-    const apres = contient(p.classement, o.cle);
-    if (dedans === apres) continue;
+  for (const c of changementsDuFil({ mails: o.mails, periodes: o.periodes, anciennes: o.anciennes })) {
+    const dedans = contient(c.avant, o.cle);
+    const apres = contient(c.apres, o.cle);
+    /* 🔴 CE BIEN N'EST CONCERNÉ NI AVANT NI APRÈS : l'accolade n'a rien à faire dans SON historique. */
+    if (!dedans && !apres) continue;
+    const sens: AccoladeDuBien['sens'] = dedans === apres ? 'modif' : (apres ? 'ajout' : 'retrait');
     out.push({
       filId: o.filId,
-      depuisMessageId: p.depuisMessageId,
-      sens: apres ? 'ajout' : 'retrait',
-      libelle: apres ? LIBELLE_AJOUT : LIBELLE_RETRAIT,
-      parLibelle: p.parLibelle ?? null,
-      le: p.le ?? null,
-      detail: (() => {
-        const c = classementsDuRepere({ mails: o.mails, periodes: o.periodes, periodeId: p.id });
-        return c === null ? null : { ...c, interneEchangeAvant: o.interneDeLEchange === true };
-      })(),
-      nbMails: nbMailsCouverts({ mails: o.mails, periodes: o.periodes, periodeId: p.id }),
+      depuisMessageId: c.depuisMessageId,
+      sens,
+      libelle: sens === 'ajout' ? LIBELLE_AJOUT : sens === 'retrait' ? LIBELLE_RETRAIT : libelleSuiviModifie(c.apres),
+      parLibelle: c.periode.parLibelle ?? null,
+      le: c.periode.le ?? null,
+      detail: { avant: c.avant, apres: c.apres, interneEchangeAvant: o.interneDeLEchange === true },
+      nbMails: nbMailsCouverts({ mails: o.mails, periodes: o.periodes, periodeId: c.periode.id }),
+      autres: c.autres,
     });
   }
   return out;

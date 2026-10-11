@@ -477,7 +477,8 @@ export const TITRE_BIENS_DU_MAIL = 'Bien(s) rattaché(s) à ce mail';
  * 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — le titre du bloc des biens suivis, dans « Modifier le
  * rattachement ». Il remplace le compteur « 1 bien rattaché à ce mail » (Arno, mot pour mot).
  */
-export const TITRE_BIENS_SUIVIS = 'Biens actuellement suivi(s) dans cette conversation';
+/** 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — « (Suivi de fond) » à droite, même ligne, même style (Arno). */
+export const TITRE_BIENS_SUIVIS = 'Biens actuellement suivi(s) dans cette conversation (Suivi de fond)';
 export const AUCUN_BIEN_DU_MAIL = 'Aucun bien rattaché à ce mail';
 
 /**

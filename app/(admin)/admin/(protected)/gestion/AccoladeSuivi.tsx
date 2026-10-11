@@ -30,7 +30,7 @@ export interface MailDuRepere {
  * ⚠️ IL EST UN `<li>` ET MESURE SON VOISIN : posé dans une liste de mails (`ol`/`ul`), ses deux bras longent le mail
  * d'à côté jusqu'à mi-hauteur. Au-dessus du mail (`dessus`) le voisin est le SUIVANT, en dessous le PRÉCÉDENT.
  */
-export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, nbMails }: {
+export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, nbMails, autres = [] }: {
   cote: 'dessus' | 'dessous';
   /** Ce qui suit « À partir d'ici : » — « aucun bien », « 25 rue Edith Cavell… », « suivi aussi par ce bien »… */
   libelle: string;
@@ -41,6 +41,11 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, 
   /** Le mail qui ouvre la fenêtre, pour le pied de la modale. */
   mail: MailDuRepere | null;
   nbMails: number;
+  /**
+   * 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — « Si deux changements portent sur le même mail, affiche le plus
+   * récent et mentionne l'existence de l'autre dans la fenêtre du “i” » (Arno) : une ligne par autre changement.
+   */
+  autres?: readonly string[];
 }) {
   const li = useRef<HTMLLIElement | null>(null);
   const [hauteur, setHauteur] = useState(0);
@@ -93,6 +98,7 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, 
             complements={[
               ...(mail === null ? [] : [`Sur le mail : ${mail.deNom ?? mail.de} · ${dateHeureComplete(mail.recuLe)} · ${mail.objet ?? '(sans objet)'}`]),
               `Portée : ${motMailsCouverts(nbMails)}`,
+              ...autres,
             ]}
             onFermer={() => setOuverte(false)} />
         )}
