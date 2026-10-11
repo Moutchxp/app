@@ -53,7 +53,7 @@ import {
   aideModifierLeRattachement,
 } from '../../../../lib/gestion/sortirDuSuivi';
 import { MailsSortisDuSuivi } from './MailsSortisDuSuivi';
-import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
+import { annoncerClassement, ecouterClassement } from '../../../../lib/gestion/signalClassement';
 /* ⚠️ LE MÊME COMPTE QUE LE TROMBONE DE LA LIGNE : les « ._ » et les images de signature ne sont pas des pièces. */
 import { trierPieces } from '../../../../lib/gestion/lisibilite';
 import type { PersonneDuMail } from '../../../../lib/gestion/adressesMessage';
@@ -1098,6 +1098,13 @@ export function HistoriqueDuBien({
    */
   const [accolades, setAccolades] = useState<AccoladeAffichee[]>([]);
   const filsDeLaPage = [...new Set(lignes.map((l) => l.filId))].join(',');
+  /**
+   * 🔴🔴 LOT ACCOLADE-TOUJOURS-VRAIE — LES ACCOLADES SE RELISENT APRÈS CHAQUE GESTE. Défaut constaté sur le fil 16502 :
+   * elles n'étaient relues que si la liste des conversations de la page changeait ; un changement annulé à 01:09
+   * restait donc affiché (« 2 biens rattachés », figé à 01:08) jusqu'au rechargement de la page.
+   */
+  const [versionAccolades, setVersionAccolades] = useState(0);
+  useEffect(() => ecouterClassement(() => setVersionAccolades((n) => n + 1)), []);
   useEffect(() => {
     if (filsDeLaPage === '') return undefined;
     let vivant = true;
@@ -1110,7 +1117,7 @@ export function HistoriqueDuBien({
       } catch { if (vivant) setAccolades([]); }
     })();
     return () => { vivant = false; };
-  }, [lotCle, filsDeLaPage]);
+  }, [lotCle, filsDeLaPage, versionAccolades]);
   const accoladesVisibles = accoladesDeLaPage({
     lignes, accolades, premierePage: page === 0, dernierePage: etat.v === 'ok' && etat.suite !== true,
   });
@@ -4223,7 +4230,8 @@ function FilDeMails({
           cote={el.cote} libelle={el.accolade.libelle} parLibelle={el.accolade.parLibelle} le={el.accolade.le}
           detail={el.accolade.detail} mail={el.accolade.mail} nbMails={el.accolade.nbMails}
           /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR — les autres changements du même mail, dans la fenêtre du « i ». */
-          autres={lignesAutresChangements(el.accolade.autres ?? [], dateHeureComplete)} />
+          autres={lignesAutresChangements(el.accolade.autres ?? [], dateHeureComplete)}
+          compteMailId={el.accolade.compteMailId} />
         : ((l: LigneHistorique) => (
         /**
          * ══ 🔴🔴 LA BARRE DE COULEUR EST PORTÉE PAR L'ENVELOPPE, PAS PAR `LigneVie` (lot HISTORIQUE-BIEN-2) ═══

@@ -143,6 +143,7 @@ import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 import { PastilleOneShot } from './PastilleOneShot';
 /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
 import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
+import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 
 /**
  * LOT 5b — LA VUE CONVERSATION. UNE SEULE, utilisée partout où l'on ouvre un échange : depuis la boîte mail, depuis le
@@ -909,6 +910,17 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     }
   }, []);
   useEffect(() => { void chargerSuivi(filId); }, [filId, chargerSuivi]);
+  /**
+   * 🔴🔴 LOT ACCOLADE-TOUJOURS-VRAIE — APRÈS CHAQUE VALIDATION OU ANNULATION (signal de classement, émis par la fenêtre
+   * de rattachement), les fenêtres et les marques de CET échange sont relues : une accolade annulée disparaît, une
+   * accolade posée apparaît, sans recharger la page. Un signal sans échange désigné (`filId` nul) vaut pour tous.
+   */
+  useEffect(() => ecouterClassement((s) => {
+    if (s.filId !== null && s.filId !== filId) return;
+    void chargerSuivi(filId);
+    void chargerInterne(filId);
+    void chargerInterneDesMails(cleMessages === '' ? [] : cleMessages.split(',').map(Number));
+  }), [filId, chargerSuivi, chargerInterne, chargerInterneDesMails, cleMessages]);
 
   /**
    * LOT 5-BOITE-3 — la voie demandée depuis la liste, appliquée UNE FOIS la conversation chargée : le brouillon se

@@ -97,7 +97,7 @@ describe('🔴 le même calcul que la fenêtre « Bien(s) rattaché(s) à ce mai
     expect(src).toContain("sqlLiensDuBien('r')");
     expect(src).not.toContain('avecPropositions');
     expect(src).toContain('JOIN gestion_annuaire_lot lo ON lo.wippimmo_id = r.cible_cle');
-    expect(src).toContain('count(DISTINCT r.cible_cle)');
+    expect(src).toContain('array_agg(DISTINCT r.cible_cle)');
     expect(src).toContain('r.message_id = ANY($1::bigint[])');
   });
 });
@@ -150,5 +150,37 @@ describe('🔴🔴 LOT BULLE-BIENS-RATTACHES — la bulle du compteur', () => {
     await calmer();
     expect(laBulle()).toBeNull();
     expect(appels.some((u) => u.includes('detail='))).toBe(false);
+  });
+});
+
+describe('🔴🔴 LOT ACCOLADE-TOUJOURS-VRAIE — le chiffre de l’accolade est le compteur, en direct', () => {
+  it('« suivi de fond modifié — N » suit le compteur du mail déclencheur, et se relit après un geste', async () => {
+    const { AccoladeSuivi } = await import('./AccoladeSuivi');
+    reponse = { 26116: 2 };
+    await act(async () => {
+      root.render(createElement('ul', null, createElement(AccoladeSuivi, {
+        cote: 'dessus', libelle: 'suivi de fond modifié — 2 biens rattachés', parLibelle: 'a.jorel@sansvisavis.com',
+        le: '2026-10-11T23:08:04Z', detail: null, mail: null, nbMails: 2, compteMailId: 26116,
+      })));
+    });
+    await calmer();
+    const mot = () => container.querySelector('.cnv-repere-mot')?.textContent;
+    expect(mot()).toBe('À partir d’ici : suivi de fond modifié — 2 biens rattachés');
+    /* L'annulation de 01:09 : le serveur ne compte plus qu'un bien ; le geste est annoncé. */
+    reponse = { 26116: 1 };
+    await act(async () => { annoncerClassement({ messageId: 26116, filId: 16502 }); });
+    await calmer();
+    expect(mot()).toBe('À partir d’ici : suivi de fond modifié — 1 bien rattaché');
+  });
+});
+
+describe('🔴 les accolades se relisent après chaque geste', () => {
+  it('l’historique du bien et la vue conversation écoutent le signal de classement', () => {
+    const h = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
+    expect(h).toContain('useEffect(() => ecouterClassement(() => setVersionAccolades((n) => n + 1)), []);');
+    expect(h).toContain('}, [lotCle, filsDeLaPage, versionAccolades]);');
+    const c = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+    expect(c).toContain('useEffect(() => ecouterClassement((s) => {');
+    expect(c).toContain('void chargerSuivi(filId);\n    void chargerInterne(filId);');
   });
 });

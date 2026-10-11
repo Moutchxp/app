@@ -1,6 +1,6 @@
 import { nbMailsCouverts } from './repereFenetre';
 import { projeter, type Classement, type Periode } from './periodesConversation';
-import { changementsDuFil, libelleSuiviModifie, type PeriodeAncienne } from './changementsSuivi';
+import { changementsDuFil, libelleSuiviModifie, motBiensRattaches, type PeriodeAncienne } from './changementsSuivi';
 
 /**
  * ══ 🔴🔴 LOT ACCOLADE-PARTOUT — LES ACCOLADES D'UN BIEN, DANS SON HISTORIQUE. Module PUR ════════════════════════════
@@ -44,7 +44,27 @@ export interface AccoladeDuBien {
   nbMails: number;
   /** 🔴 Les autres changements posés sur ce même mail, pour la fenêtre du « i » (Arno). */
   autres?: PeriodeAncienne[];
+  /**
+   * 🔴🔴 LOT ACCOLADE-TOUJOURS-VRAIE — pour « suivi de fond modifié — N biens rattachés » : le mail dont on compte, EN
+   * DIRECT à l'écran, les biens rattachés (le même compteur que sous la date). Absent pour les autres libellés.
+   */
+  compteMailId?: number;
 }
+
+/**
+ * ══ 🔴🔴 LOT ACCOLADE-TOUJOURS-VRAIE — RÈGLE ABSOLUE (Arno, 12/10/2026) ═════════════════════════════════════════════════
+ * « Le texte d'une accolade dit TOUJOURS la réalité actuelle de ce qu'il annonce. Jamais un chiffre figé au moment de
+ * la pose, jamais une période annulée ou remplacée présentée comme en vigueur. »
+ *   · seules les fenêtres VIVANTES portent une accolade (une fenêtre annulée ou remplacée est refermée en base) ;
+ *   · « N biens rattachés » est le nombre de biens RÉELLEMENT rattachés au mail déclencheur aujourd'hui — le même
+ *     calcul que le compteur sous la date et que la fenêtre « Bien(s) rattaché(s) à ce mail » ;
+ *   · une accolade qui ne correspond plus à rien de réel disparaît : « suivi aussi par ce bien » exige que le bien SOIT
+ *     rattaché au mail déclencheur, « sorti du suivi de ce bien » qu'il NE le soit PAS, « suivi de fond modifié » qu'il
+ *     le soit.
+ * `rattachesParMail` porte cette réalité (lue par `clesBiensParMail`). Absente, le calcul retombe sur les fenêtres
+ * seules (épreuves pures d'avant ce lot).
+ */
+export type RattachesParMail = ReadonlyMap<number, ReadonlySet<string>>;
 
 const contient = (c: Classement | null | undefined, cle: string): boolean =>
   c !== null && c !== undefined && c.sorte === 'biens' && c.biens.some((b) => b.cle === cle);
@@ -58,6 +78,8 @@ export function accoladesDuBienDansLeFil(o: {
   anciennes?: readonly PeriodeAncienne[];
   cle: string;
   interneDeLEchange?: boolean;
+  /** 🔴 LOT ACCOLADE-TOUJOURS-VRAIE — les biens réellement rattachés aux mails, aujourd'hui. */
+  rattachesParMail?: RattachesParMail;
 }): AccoladeDuBien[] {
   const out: AccoladeDuBien[] = [];
   for (const c of changementsDuFil({ mails: o.mails, periodes: o.periodes, anciennes: o.anciennes })) {
@@ -66,11 +88,19 @@ export function accoladesDuBienDansLeFil(o: {
     /* 🔴 CE BIEN N'EST CONCERNÉ NI AVANT NI APRÈS : l'accolade n'a rien à faire dans SON historique. */
     if (!dedans && !apres) continue;
     const sens: AccoladeDuBien['sens'] = dedans === apres ? 'modif' : (apres ? 'ajout' : 'retrait');
+    /* 🔴 LA RÉALITÉ D'AUJOURD'HUI, quand on la connaît : l'accolade disparaît si elle ne dit plus rien de vrai. */
+    const reels = o.rattachesParMail?.get(c.depuisMessageId);
+    if (reels !== undefined) {
+      const rattacheMaintenant = reels.has(o.cle);
+      if ((sens === 'retrait') === rattacheMaintenant) continue;
+    }
     out.push({
       filId: o.filId,
       depuisMessageId: c.depuisMessageId,
       sens,
-      libelle: sens === 'ajout' ? LIBELLE_AJOUT : sens === 'retrait' ? LIBELLE_RETRAIT : libelleSuiviModifie(c.apres),
+      libelle: sens === 'ajout' ? LIBELLE_AJOUT : sens === 'retrait' ? LIBELLE_RETRAIT
+        : (reels !== undefined ? `suivi de fond modifié — ${motBiensRattaches(reels.size)}` : libelleSuiviModifie(c.apres)),
+      ...(sens === 'modif' ? { compteMailId: c.depuisMessageId } : {}),
       parLibelle: c.periode.parLibelle ?? null,
       le: c.periode.le ?? null,
       detail: { avant: c.avant, apres: c.apres, interneEchangeAvant: o.interneDeLEchange === true },

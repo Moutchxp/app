@@ -21,17 +21,27 @@ import type { BienDeLaBulle } from './bulleBiensMail';
 export const PLAFOND_COMPTE_BIENS = 500;
 
 export async function comptesBiensParMail(messageIds: readonly number[]): Promise<Map<number, number>> {
+  const cles = await clesBiensParMail(messageIds);
+  return new Map([...cles].map(([id, s]) => [id, s.size]));
+}
+
+/**
+ * 🔴🔴 LOT ACCOLADE-TOUJOURS-VRAIE — LES BIENS RÉELLEMENT RATTACHÉS À CHAQUE MAIL, AUJOURD'HUI. LECTURE SEULE.
+ * La source UNIQUE du compteur sous la date, du chiffre des accolades et de ce qu'elles annoncent (entrée, sortie) :
+ * le même fragment que la fenêtre « Bien(s) rattaché(s) à ce mail ». Un mail absent de la base rend un ensemble vide.
+ */
+export async function clesBiensParMail(messageIds: readonly number[]): Promise<Map<number, Set<string>>> {
   const ids = [...new Set(messageIds.filter((n) => Number.isSafeInteger(n) && n > 0))].slice(0, PLAFOND_COMPTE_BIENS);
-  const out = new Map<number, number>();
+  const out = new Map<number, Set<string>>();
   if (ids.length === 0 || !(await rattachementsDisponibles())) return out;
-  const { rows } = await query<{ message_id: string; n: number }>(
-    `SELECT r.message_id::text, count(DISTINCT r.cible_cle)::int AS n
+  const { rows } = await query<{ message_id: string; cles: string[] }>(
+    `SELECT r.message_id::text, array_agg(DISTINCT r.cible_cle) AS cles
        FROM gestion_rattachement r
        JOIN gestion_annuaire_lot lo ON lo.wippimmo_id = r.cible_cle
       WHERE r.message_id = ANY($1::bigint[]) AND ${sqlLiensDuBien('r')}
       GROUP BY r.message_id`, [ids]);
-  for (const id of ids) out.set(id, 0);
-  for (const r of rows) out.set(Number(r.message_id), r.n);
+  for (const id of ids) out.set(id, new Set());
+  for (const r of rows) out.set(Number(r.message_id), new Set(r.cles));
   return out;
 }
 

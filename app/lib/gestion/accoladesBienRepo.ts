@@ -1,5 +1,6 @@
 import { query } from '../db/client';
 import { mailsDuFil, periodesRefermeesDuFil, suiviDuFil } from './periodeRepo';
+import { clesBiensParMail } from './compteBiensMailRepo';
 import { MOTIF_DETACHE_PAR_INTERNE } from './interneDetache';
 import {
   accoladeInterneSuite, accoladesDuBienDansLeFil, LIBELLE_RETRAIT, type AccoladeDuBien,
@@ -55,10 +56,13 @@ export async function accoladesDuBien(cle: string, filIds: readonly number[]): P
       const { periodes } = await suiviDuFil(fil);
       const mails = await mailsDuFil(fil);
       const anciennes = await periodesRefermeesDuFil(fil);
+      /* 🔴 LOT ACCOLADE-TOUJOURS-VRAIE — la réalité d'aujourd'hui : les biens rattachés aux mails déclencheurs (ceux qui
+         ouvrent une fenêtre vivante ; borne de 500 sans risque, un échange n'en a jamais autant). */
+      const rattachesParMail = await clesBiensParMail(periodes.map((p) => p.depuisMessageId));
       const { rows: ie } = await query<{ n: number }>(
         'SELECT count(*)::int AS n FROM gestion_fil_interne WHERE fil_id = $1 AND retire_le IS NULL', [fil]);
       out.push(...accoladesDuBienDansLeFil({
-        filId: fil, mails, periodes, anciennes, cle, interneDeLEchange: (ie[0]?.n ?? 0) > 0,
+        filId: fil, mails, periodes, anciennes, cle, interneDeLEchange: (ie[0]?.n ?? 0) > 0, rattachesParMail,
       }));
       for (const g of internes.filter((x) => Number(x.fil_id) === fil)) {
         const a = accoladeInterneSuite({

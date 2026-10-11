@@ -7,6 +7,8 @@ import { PHRASE_SUITE, SUFFIXE_SUITE } from '../../../../lib/gestion/avantApres'
 import type { Classement } from '../../../../lib/gestion/periodesConversation';
 /* 🔴🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — le « i » ouvre la fenêtre en deux colonnes, commune avec la pastille. */
 import { ModaleAvantApres } from './ModaleAvantApres';
+import { useBiensRattaches } from './CompteurBiensMail';
+import { motBiensRattaches } from '../../../../lib/gestion/changementsSuivi';
 
 /** Le mail qui ouvre le changement, pour la ligne « Sur le mail » de la fenêtre. */
 export interface MailDuRepere {
@@ -30,7 +32,7 @@ export interface MailDuRepere {
  * ⚠️ IL EST UN `<li>` ET MESURE SON VOISIN : posé dans une liste de mails (`ol`/`ul`), ses deux bras longent le mail
  * d'à côté jusqu'à mi-hauteur. Au-dessus du mail (`dessus`) le voisin est le SUIVANT, en dessous le PRÉCÉDENT.
  */
-export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, nbMails, autres = [] }: {
+export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, nbMails, autres = [], compteMailId }: {
   cote: 'dessus' | 'dessous';
   /** Ce qui suit « À partir d'ici : » — « aucun bien », « 25 rue Edith Cavell… », « suivi aussi par ce bien »… */
   libelle: string;
@@ -46,7 +48,16 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, 
    * récent et mentionne l'existence de l'autre dans la fenêtre du “i” » (Arno) : une ligne par autre changement.
    */
   autres?: readonly string[];
+  /**
+   * 🔴🔴 LOT ACCOLADE-TOUJOURS-VRAIE — « suivi de fond modifié — N biens rattachés » : N est lu EN DIRECT, par le même
+   * compteur que celui sous la date (`useBiensRattaches`), relu après chaque geste. Tant qu'il n'est pas connu, le
+   * libellé rendu par le serveur (calculé à la lecture, sur les mêmes liens) s'affiche.
+   */
+  compteMailId?: number;
 }) {
+  const nEnDirect = useBiensRattaches(compteMailId);
+  const libelleVrai = compteMailId !== undefined && nEnDirect !== null
+    ? `suivi de fond modifié — ${motBiensRattaches(nEnDirect)}` : libelle;
   const li = useRef<HTMLLIElement | null>(null);
   const [hauteur, setHauteur] = useState(0);
   const [ouverte, setOuverte] = useState(false);
@@ -73,7 +84,7 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, 
       {/* LES DEUX BRAS DU CADRE — un seul trait chacun, sans coupure à l'angle, une flèche au bout (voir la feuille). */}
       <span className="cnv-repere-bras cnv-repere-bras--gauche" aria-hidden="true" />
       <span className="cnv-repere-phrase">
-        <span className="cnv-repere-mot">À partir d’ici : {libelle}</span>
+        <span className="cnv-repere-mot">À partir d’ici : {libelleVrai}</span>
         {(parLibelle !== null || le !== null) && (
           <span className="cnv-repere-qui">
             {le !== null && dateHeureComplete(le)}
