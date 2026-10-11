@@ -168,7 +168,7 @@ describe('b. client lié à PLUSIEURS biens (propriétaire)', () => {
     await monter(NOUVEAU);
     await taper('trois.biens@x.fr');
     expect(puce('trois.biens@x.fr')?.className).toBe('red-pastille red-pastille--famille red-pastille--proprietaire red-pastille--a-choisir');
-    expect(puce('trois.biens@x.fr')?.title).toBe('DUPONT Jean · Propriétaire — lié à 3 biens — choisissez le bien ci-dessous — trois.biens@x.fr');
+    expect(puce('trois.biens@x.fr')?.title).toBe('DUPONT Jean · Propriétaire — lié à 3 biens, aucun rattaché — choisissez avec « Rattacher » — trois.biens@x.fr');
     expect(pulse()).toBe(boutonRattacher());
     expect(mention()).toBe('3 propositions en attente');
     expect(infobulle()).toBe('Biens à choisir pour Jean DUPONT (3) — cliquer pour choisir');
@@ -408,8 +408,12 @@ describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — le scénario
   it('🔴 1 bien coché à la main, « Sélectionner tous », Valider : 6 biens, origine client ; « Rattaché — 6 logements » ; modale rouverte : 6 cochés', async () => {
     await monter(NOUVEAU);
     await taper('c.jullien@sansvisavis.com');
-    await ouvrirModale();                                        // la recherche se lance sur l'adresse du client
-    expect((container.querySelector('.rec input[type="search"], .rec input[type="text"]') as HTMLInputElement).value).toBe('c.jullien@sansvisavis.com');
+    await ouvrirModale();
+    /* LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — les biens en attente sont DANS les propositions, décochés,
+       avec leur motif : la recherche n'est plus lancée sur l'adresse du client. */
+    expect((container.querySelector('.rec input[type="search"], .rec input[type="text"]') as HTMLInputElement).value).toBe('');
+    expect([...container.querySelectorAll('.rec-motif')].filter((m) => /^propriétaire de ce bien/.test(m.textContent ?? ''))).toHaveLength(6);
+    expect([...container.querySelectorAll('.rec input[type="checkbox"]')].filter((i) => (i as HTMLInputElement).checked)).toHaveLength(0);
     await cliquer(caseDe('432 rue des Tests'));
     await cliquer(bouton(/^Sélectionner tous les biens$/));
     expect(bouton(/^Valider/).textContent).toBe('Valider — 6 bien(s)');

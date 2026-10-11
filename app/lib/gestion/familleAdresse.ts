@@ -61,6 +61,11 @@ export function infobullePuce(adresse: string, f: FamilleAdresse | null | undefi
   if (f === undefined) return adresse;
   if (f === null) return `${adresse} — adresse extérieure, inconnue de notre système`;
   const qui = [f.nom ?? '', f.role].filter((x) => x.trim() !== '').join(' · ');
-  if (f.aChoisir === true) return `${qui} — lié à ${f.nbBiens ?? 2} biens — choisissez le bien ci-dessous — ${adresse}`;
+  /* LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — « ci-dessous » désignait la ligne « Rattacher ce mail à : »,
+     retirée (lot RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE) : le choix se fait par le bouton « Rattacher ». */
+  if (f.aChoisir === true) {
+    const n = f.nbBiens ?? 2;
+    return `${qui} — lié à ${n} bien${n > 1 ? 's' : ''}, aucun rattaché — choisissez avec « Rattacher » — ${adresse}`;
+  }
   return `${qui}${f.propre ? '' : ' (e-mail rattaché)'} — ${adresse}`;
 }

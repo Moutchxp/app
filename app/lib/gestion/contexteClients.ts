@@ -1,4 +1,4 @@
-import type { FamilleAdresse } from './familleAdresse';
+import type { FamilleAdresse, FamillesConnues } from './familleAdresse';
 import type { GroupeSuggestions, SuggestionAdresse, TonSuggestion } from './suggestionsBien';
 
 /**
@@ -15,7 +15,18 @@ import type { GroupeSuggestions, SuggestionAdresse, TonSuggestion } from './sugg
  * Ce module ne lit rien : il reçoit les biens de chaque client (`/adresses/biens`, lecture seule) et les cibles.
  */
 
-/** Un bien du portefeuille où l'adresse est l'e-mail d'un client. */
+/**
+ * LE LIEN D'UNE ADRESSE AVEC UN BIEN (lot PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES : toutes les familles, plus
+ * seulement les clients) :
+ *   · `proprietaire`, `locataire`, `ancien_locataire` — l'e-mail propre d'une partie du bien ;
+ *   · `rattache` — un e-mail rattaché à une partie du bien (carte de contact) ;
+ *   · `syndic_contact` — un contact du syndic qui suit la copropriété du bien ;
+ *   · `syndic` — l'e-mail général du syndic de la copropriété du bien ;
+ *   · `immeuble` — le carnet de la copropriété du bien (gardien, conseil syndical, habitants).
+ */
+export type LienBien = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'rattache' | 'syndic_contact' | 'syndic' | 'immeuble';
+
+/** Un bien du portefeuille lié à une adresse (un client, ou un contact du bien ou de son immeuble). */
 export interface BienClient {
   lotId: number;
   /** La clé WIPPIMMO : la cible de rattachement. */
@@ -23,10 +34,29 @@ export interface BienClient {
   /** « 25 rue Edith Cavell, 92400 COURBEVOIE — lot 219 ». */
   libelle: string;
   categorie: 'logement' | 'parking' | 'cave';
-  /** Le rôle du client DANS CE BIEN. */
-  role: 'proprietaire' | 'locataire' | 'ancien_locataire';
-  /** Le nom du client tel que l'annuaire le porte. */
+  /** Le lien de l'adresse avec CE bien. */
+  role: LienBien;
+  /** Le nom de la personne (ou du syndic) tel que l'annuaire le porte. */
   nom: string | null;
+}
+
+/** Un lien de CLIENT (l'e-mail propre d'une partie du bien) : c'est lui qui donne sa couleur à la puce. PUR. */
+export const estLienClient = (r: LienBien): r is 'proprietaire' | 'locataire' | 'ancien_locataire' =>
+  r === 'proprietaire' || r === 'locataire' || r === 'ancien_locataire';
+
+/** Le motif d'une proposition « en attente » dans la modale : pourquoi ce bien est proposé. PUR. */
+export function motifDuLien(b: Pick<BienClient, 'role' | 'nom'>): string {
+  const qui = (b.nom ?? '').trim() === '' ? '' : ` — ${prenomNom(b.nom as string)}`;
+  switch (b.role) {
+    case 'proprietaire': return `propriétaire de ce bien${qui}`;
+    case 'locataire': return `locataire de ce bien${qui}`;
+    case 'ancien_locataire': return `ancien locataire de ce bien${qui}`;
+    case 'rattache': return 'e-mail rattaché à une partie de ce bien';
+    case 'syndic_contact': return `contact du syndic, suit la copropriété de ce bien${qui}`;
+    case 'syndic': return `e-mail général du syndic de la copropriété de ce bien${qui}`;
+    case 'immeuble': return `contact de l’immeuble de ce bien${qui}`;
+    default: return '';
+  }
 }
 
 /** adresse (minuscules) → ses biens. `[]` = pas un client. Absente = pas encore lue. */
@@ -75,25 +105,86 @@ export function clientsAChoisir(adresses: readonly string[], biens: BiensDesClie
 }
 
 /**
- * L'ASPECT D'UNE PUCE DE CLIENT. `null` = ce n'est pas un client (la famille ordinaire décide, inchangée). PUR.
- *   · un de ses biens est dans le contexte ⇒ TRAME PLEINE, de la couleur de son rôle dans CE bien (propriétaire
- *     d'abord s'il est coché dans plusieurs rôles) ;
- *   · plusieurs biens, aucun dans le contexte ⇒ CONTOUR PLEIN (« à choisir »), couleur propriétaire s'il l'est
- *     quelque part, sinon celle de son premier rôle ;
- *   · un seul bien (pas encore ajouté : l'instant d'avant l'ajout automatique, ou ajout défait) ⇒ trame pleine.
+ * L'ASPECT D'UNE PUCE LIÉE À DES BIENS. `null` = adresse liée à aucun bien (la famille ordinaire décide, inchangée).
+ * PUR.
+ *
+ * ══ 🔴🔴 LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — UNE RÈGLE UNIQUE, POUR TOUTES LES FAMILLES ══════════
+ * INCOHÉRENCE D'ARNO (11/10/2026) : « Arnaud JOREL » (arnaud.jorel@gmail.com, contact et e-mail général du syndic
+ * TEST ARNAUD) s'affichait à TRAME PLEINE rose alors qu'aucun bien n'était rattaché. CAUSE : seuls les CLIENTS
+ * (propriétaire, locataire) avaient des biens ; toute autre famille prenait la trame pleine d'office, et un client à
+ * bien unique la prenait aussi avant même d'être rattaché.
+ * RÈGLE : TRAME PLEINE ⇔ au moins un bien lié à l'adresse est dans le contexte (rattaché) ; sinon CONTOUR plein de la
+ * couleur de la famille (« à choisir »).
+ *   · client (e-mail propre d'une partie) : la couleur de son rôle dans le bien coché (propriétaire d'abord), sinon
+ *     propriétaire s'il l'est quelque part, sinon son premier rôle ;
+ *   · autre famille (contact du syndic, e-mail général, carnet de l'immeuble, e-mail rattaché) : la famille LUE
+ *     (`base`) garde sa couleur et son rôle ; sans elle (pas encore lue), `null`.
  */
 export function familleDuClient(
-  adresse: string, biens: BiensDesClients, contexte: ReadonlySet<string>,
+  adresse: string, biens: BiensDesClients, contexte: ReadonlySet<string>, base?: FamilleAdresse | null,
 ): (FamilleAdresse & { aChoisir: boolean; nbBiens: number }) | null {
   const liste = biens[cle(adresse)] ?? [];
   if (liste.length === 0) return null;
-  const ordre: Record<BienClient['role'], number> = { proprietaire: 0, locataire: 1, ancien_locataire: 2 };
+  const aChoisir = !liste.some((b) => contexte.has(b.cle));
+  const clients = liste.filter((b) => estLienClient(b.role));
+  if (clients.length === 0) {
+    if (base === undefined || base === null) return null;
+    return { ...base, aChoisir, nbBiens: liste.length };
+  }
+  const ordre: Record<string, number> = { proprietaire: 0, locataire: 1, ancien_locataire: 2 };
   const parRole = (l: readonly BienClient[]) => [...l].sort((x, y) => ordre[x.role] - ordre[y.role]);
-  const coches = parRole(liste.filter((b) => contexte.has(b.cle)));
-  const retenu = coches[0] ?? parRole(liste)[0];
-  const aChoisir = coches.length === 0 && liste.length > 1;
+  const retenu = parRole(clients.filter((b) => contexte.has(b.cle)))[0] ?? parRole(clients)[0];
   const role = retenu.role === 'proprietaire' ? 'Propriétaire' : retenu.role === 'locataire' ? 'Locataire' : 'Ancien locataire';
   return { ton: retenu.role as TonSuggestion, propre: true, nom: retenu.nom, role, aChoisir, nbBiens: liste.length };
+}
+
+/**
+ * LES ADRESSES QUI ATTENDENT UN CHOIX (le bouton « Rattacher » pulse pour elles) : liées à au moins un bien, aucun dans
+ * le contexte, dans l'ordre des champs, sans doublon. Une adresse dont le bien unique va entrer d'office (`auto`, non
+ * refusé) n'attend pas : c'est l'instant d'avant l'ajout automatique. PUR.
+ */
+export function adressesEnAttente(
+  adresses: readonly string[], biens: BiensDesClients, contexte: ReadonlySet<string>,
+  auto: { actif: boolean; refuses: ReadonlySet<string> },
+): Array<{ adresse: string; biens: BienClient[] }> {
+  const vus = new Set<string>();
+  const out: Array<{ adresse: string; biens: BienClient[] }> = [];
+  for (const brut of adresses) {
+    const a = cle(brut);
+    if (vus.has(a)) continue;
+    vus.add(a);
+    const liste = biens[a] ?? [];
+    if (liste.length === 0 || liste.some((b) => contexte.has(b.cle))) continue;
+    if (auto.actif && liste.length === 1 && !auto.refuses.has(`${a}|${liste[0].cle}`)) continue;
+    out.push({ adresse: a, biens: liste });
+  }
+  return out;
+}
+
+/**
+ * LES FAMILLES AFFICHÉES PAR LES PUCES. PUR.
+ *   · une adresse que propose la liste d'un bien DU CONTEXTE (`duContexte` : le bien de la fiche, les biens rattachés)
+ *     est liée à un bien rattaché : sa famille de cette liste, d'emblée, sans attendre de lecture ;
+ *   · sinon, l'aspect décidé par ses biens (`familleDuClient`) ; liée à aucun bien : sa famille lue, inchangée ;
+ *   · ⚠️ tant que les biens d'une adresse connue ne sont pas lus, sa puce reste NEUTRE (absente) : jamais une trame
+ *     pleine sur la foi d'une famille dont on ne sait pas encore si un de ses biens est rattaché.
+ */
+export function famillesDesPuces(
+  familles: FamillesConnues, adresses: readonly string[], biens: BiensDesClients, contexte: ReadonlySet<string>,
+  duContexte: Readonly<Record<string, FamilleAdresse>> = {},
+): FamillesConnues {
+  const out: FamillesConnues = { ...familles };
+  for (const brut of adresses) {
+    const a = cle(brut);
+    if (duContexte[a] !== undefined) { out[a] = duContexte[a]; continue; }
+    if (biens[a] === undefined) {
+      if (out[a] !== undefined && out[a] !== null) delete out[a];
+      continue;
+    }
+    const f = familleDuClient(a, biens, contexte, familles[a]);
+    if (f !== null) out[a] = f;
+  }
+  return out;
 }
 
 /**

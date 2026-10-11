@@ -24,8 +24,8 @@ import {
   classesPuce, cleAdresse, famillesDesSuggestions, infobullePuce, type FamillesConnues,
 } from '../../../../lib/gestion/familleAdresse';
 import {
-  biensAutomatiques, clesDesClientsPresents, clesDuContexte, clientsAChoisir, clientsDuBien, familleDuClient,
-  attenteDuBouton, fusionnerSuggestions, marquerOrigines, recalculerCibles, type BiensDesClients,
+  biensAutomatiques, clesDesClientsPresents, clesDuContexte, clientsDuBien, adressesEnAttente, famillesDesPuces,
+  attenteDuBouton, fusionnerSuggestions, marquerOrigines, motifDuLien, recalculerCibles, type BiensDesClients,
 } from '../../../../lib/gestion/contexteClients';
 import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
@@ -928,15 +928,29 @@ export function Redaction({
     .manuelsSansClient.filter((c) => c.manuelConfirme !== true);
   const clesClientsPresents = clesDesClientsPresents(adressesDesChamps, biensClients);
   const [confirmationManuels, setConfirmationManuels] = useState(false);
-  const aChoisir = clientsAChoisir(adressesDesChamps, biensClients);
+  /**
+   * ══ 🔴🔴 LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — CE QUI EST « RATTACHÉ », POUR LES PUCES ═══════════
+   * Les biens cibles du brouillon, plus le bien de la fiche ouverte (le contexte de base, même s'il n'est pas — ou
+   * pas encore — parmi les cibles).
+   */
+  const contexteAspect = new Set([
+    ...contexteCles,
+    ...(lotOuvert === null ? [] : Object.values(biensClients).flat().filter((b) => b.lotId === lotOuvert).map((b) => b.cle)),
+  ]);
   /**
    * ══ 🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — DES BIENS ATTENDENT UN CHOIX ═══════════════════════════════
-   * Un client à plusieurs biens dont AUCUN n'est encore dans le contexte « attend » : le bouton de rattachement pulse,
-   * avec « N biens à choisir pour Prénom NOM ». La pulsation s'arrête à l'ouverture de la modale (les clients en
-   * attente à cet instant sont « vus »), ou quand plus personne n'attend (bien coché, adresse retirée). Elle reprend
-   * pour un client NOUVEAU — une adresse retirée puis remise compte comme nouvelle.
+   * Une adresse liée à des biens dont AUCUN n'est encore dans le contexte « attend » : le bouton de rattachement pulse,
+   * avec « N propositions en attente ». La pulsation s'arrête à l'ouverture de la modale (les adresses en attente à
+   * cet instant sont « vues ») ou à sa fermeture (un bien d'office qu'on vient d'y décocher ne fait pas repulser), ou
+   * quand plus personne n'attend (bien coché, adresse retirée). Elle reprend pour une adresse NOUVELLE — une adresse
+   * retirée puis remise compte comme nouvelle.
+   * LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES : toutes les familles (contact ou e-mail général du syndic,
+   * carnet de l'immeuble, e-mail rattaché, ancien locataire), et dès UN bien non rattaché — sauf l'instant où un bien
+   * unique va entrer d'office.
    */
-  const enAttente = aChoisir.filter((c) => !c.biens.some((b) => contexteCles.has(b.cle)));
+  const ajoutOfficeActif = !contexteFiche && brouillon.interne !== true && brouillon.horsGestion !== true;
+  const enAttente = adressesEnAttente(adressesDesChamps, biensClients, contexteAspect,
+    { actif: ajoutOfficeActif, refuses: refusesAuto.current });
   const [vusALaModale, setVusALaModale] = useState<ReadonlySet<string>>(new Set());
   useEffect(() => {
     const presentes = new Set(adressesDesChamps);
@@ -944,15 +958,15 @@ export function Redaction({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des adresses suffit.
   }, [cleAdressesDesChamps]);
   const mentionAChoisir = enAttente.some((c) => !vusALaModale.has(c.adresse)) ? attenteDuBouton(enAttente) : null;
-  /** Les familles affichées : la lecture générale, celles des biens du contexte, puis l'aspect des CLIENTS. */
-  const famillesAffichees: FamillesConnues = (() => {
-    const out: FamillesConnues = { ...familles, ...famillesDesBiens };
-    for (const a of adressesDesChamps) {
-      const f = familleDuClient(a, biensClients, contexteCles);
-      if (f !== null) out[a] = f;
-    }
-    return out;
-  })();
+  /**
+   * Les familles affichées : la lecture générale, celles des biens du contexte, puis l'aspect décidé par les BIENS de
+   * chaque adresse (`famillesDesPuces`) — TRAME PLEINE ⇔ un de ses biens est rattaché, pour toutes les familles.
+   */
+  const famillesAffichees: FamillesConnues = famillesDesPuces(
+    { ...familles, ...famillesDesBiens }, adressesDesChamps, biensClients, contexteAspect,
+    // Les listes des biens DU CONTEXTE ACTUEL (pas celles d'un bien décoché depuis) : leurs adresses sont liées à un
+    // bien rattaché.
+    famillesDesSuggestions(propositionsBien));
   const [reste, setReste] = useState(0);
   /** LOT 5-PJ-ENVOI — combien de pièces sont jointes, remonté par la zone des pièces (pour le bouton d'envoi). */
   const [piecesJointes, setPiecesJointes] = useState(0);
@@ -1182,6 +1196,22 @@ export function Redaction({
    * disparaissent ensemble — la seconde n'existait que pour contenir la première.
    */
   const [rattacherOuvert, setRattacherOuvert] = useState(false);
+  /**
+   * LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — À LA FERMETURE DE LA MODALE, ce qui attend encore a été VU :
+   * un bien d'office qu'on vient d'y décocher ne fait pas repulser le bouton (la puce, elle, reste en contour). Calculé
+   * ICI, après l'effet du recalcul des cibles (déclaré plus haut, donc joué avant) : les refus qu'il vient de noter
+   * sont lus frais.
+   */
+  const modaleEtaitOuverte = useRef(false);
+  useEffect(() => {
+    if (modaleEtaitOuverte.current && !rattacherOuvert) {
+      const encore = adressesEnAttente(adressesDesChamps, biensClients, contexteAspect,
+        { actif: ajoutOfficeActif, refuses: refusesAuto.current });
+      if (encore.length > 0) setVusALaModale((v) => new Set([...v, ...encore.map((c) => c.adresse)]));
+    }
+    modaleEtaitOuverte.current = rattacherOuvert;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seul le passage ouvert → fermé compte.
+  }, [rattacherOuvert]);
   /**
    * ══ 🔴🔴 LOT CLASSER-DEUX-BOUTONS — « INTERNE » A QUITTÉ L'ÉTAT REACT POUR LE BROUILLON ══════════════════
    *
@@ -2361,7 +2391,10 @@ export function Redaction({
           pieces={[]}
           cibles={brouillon.cibles ?? []}
           clesClients={clesClientsPresents}
-          clientsEnAttente={enAttente.map((c) => ({ adresse: c.adresse, cles: c.biens.map((b) => b.cle) }))}
+          clientsEnAttente={enAttente.map((c) => ({
+            adresse: c.adresse, cles: c.biens.map((b) => b.cle),
+            biens: c.biens.map((b) => ({ cle: b.cle, lotId: b.lotId, libelle: b.libelle, categorie: b.categorie, motif: motifDuLien(b) })),
+          }))}
           clesDeBase={new Set(((brouillon.cibles ?? []) as CibleBrouillon[])
             .filter((c) => c.sorte === 'lot' && c.origine === undefined).map((c) => c.cle ?? ''))}
           onChange={(cibles) => {

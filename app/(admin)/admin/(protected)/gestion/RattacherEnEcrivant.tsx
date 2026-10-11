@@ -88,13 +88,18 @@ export function RattacherEnEcrivant({
   /** Les biens de BASE (fiche ouverte, réponse héritée) : ils ne dépendent pas des adresses, jamais « manuels ». */
   clesDeBase?: ReadonlySet<string> | null;
   /**
-   * 🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — les clients à plusieurs biens qui ATTENDENT un choix (le bouton
-   * pulsait pour eux). Si les propositions du moteur ne couvrent pas leurs biens — le moteur n'emploie jamais une de
-   * nos propres adresses comme clé (cas e) —, le MOTEUR DE RECHERCHE de cette fenêtre est lancé sur l'adresse du
-   * premier d'entre eux : ses biens s'affichent avec toutes leurs informations, à cocher. Une fois, et seulement si
-   * l'on n'a encore rien tapé. Vide ⇒ rien ne change.
+   * 🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — les adresses dont les biens ATTENDENT un choix (le bouton pulsait
+   * pour elles).
+   * LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES : toutes les familles (contact ou e-mail général du syndic,
+   * carnet de l'immeuble, e-mail rattaché, clients). Chacun de leurs biens que le moteur ne propose pas est AJOUTÉ aux
+   * propositions, DÉCOCHÉ, avec son motif (« contact du syndic, suit la copropriété de ce bien — … ») et les deux lignes
+   * propriétaire / locataire de sa fiche. CE QU'IL Y AVAIT AVANT : le moteur de recherche était lancé sur l'adresse du
+   * premier client en attente — il ne trouvait rien pour un contact d'immeuble (aucune partie ne porte son e-mail).
    */
-  clientsEnAttente?: ReadonlyArray<{ adresse: string; cles: readonly string[] }>;
+  clientsEnAttente?: ReadonlyArray<{
+    adresse: string; cles: readonly string[];
+    biens?: ReadonlyArray<{ cle: string; lotId: number; libelle: string; categorie?: CategorieBien; motif: string }>;
+  }>;
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA MÊME MODALE AU-DESSUS D'UN MAIL REÇU ════════════════════════════
    *
@@ -269,15 +274,19 @@ export function RattacherEnEcrivant({
    */
   const [fiches, setFiches] = useState<Record<string, FicheCourte>>({});
   const fichesDemandees = useRef(new Set<string>());
-  const rechercheAmorcee = useRef(false);
-  useEffect(() => {
-    if (rechercheAmorcee.current || etat.v !== 'ok' || saisie !== '') return;
-    const proposes = new Set(etat.contexte.biens.map((b) => b.cle));
-    const aCouvrir = clientsEnAttente.find((c) => c.cles.some((k) => !proposes.has(k)));
-    rechercheAmorcee.current = true;
-    if (aCouvrir !== undefined) setSaisie(aCouvrir.adresse);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- une seule fois, au premier chargement réussi.
-  }, [etat.v]);
+  /**
+   * Les biens EN ATTENTE, figés à l'ouverture (la liste ne bouge pas sous le doigt pendant qu'on coche) : chaque bien
+   * une fois, dans l'ordre des adresses.
+   */
+  const [enAttente] = useState(() => {
+    const out: Array<{ cle: string; id: number; libelle: string; categorie?: CategorieBien; motif: string }> = [];
+    for (const c of clientsEnAttente) {
+      for (const b of c.biens ?? []) {
+        if (!out.some((x) => x.cle === b.cle)) out.push({ cle: b.cle, id: b.lotId, libelle: b.libelle, categorie: b.categorie, motif: b.motif });
+      }
+    }
+    return out;
+  });
 
   const charger = useCallback(async () => {
     // ⚠️ ON NE REVIENT PAS À « Lecture des biens possibles… » quand on a déjà quelque chose à montrer : ce
@@ -377,7 +386,7 @@ export function RattacherEnEcrivant({
   const proposesAffiches = (contexte?.biens ?? []).filter(
     (b) => b.replie !== true || autresDeplies || (coches?.has(b.cle) ?? false));
   /** Les biens montrés SOUS les propositions : trouvés à la recherche, ou déjà rattachés et non proposés. */
-  const horsPropositions: { cible: CibleBrouillon; origine: 'recherche' | 'deja' }[] = [
+  const horsPropositions: { cible: CibleBrouillon; origine: 'recherche' | 'deja' | 'attente'; motif?: string }[] = [
     ...ajoutes.filter((a) => !clesProposees.has(a.cle ?? ''))
       .map((a) => ({ cible: a, origine: 'recherche' as const })),
     ...cibles
@@ -385,6 +394,15 @@ export function RattacherEnEcrivant({
         && !clesProposees.has(c.cle ?? '')
         && !ajoutes.some((a) => (a.cle ?? '') === (c.cle ?? '')))
       .map((c) => ({ cible: c, origine: 'deja' as const })),
+    // LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — les biens en attente que le moteur ne propose pas.
+    ...enAttente
+      .filter((b) => !clesProposees.has(b.cle)
+        && !ajoutes.some((a) => (a.cle ?? '') === b.cle)
+        && !cibles.some((c) => c.sorte === 'lot' && (c.cle ?? '') === b.cle))
+      .map((b) => ({
+        cible: { sorte: 'lot' as const, cle: b.cle, id: b.id, libelle: b.libelle, ...(b.categorie ? { categorie: b.categorie } : {}) },
+        origine: 'attente' as const, motif: b.motif,
+      })),
   ];
   /**
    * Tous les biens montrés : ceux du moteur, puis les autres. C'est la liste que le compteur compte.
@@ -649,6 +667,8 @@ export function RattacherEnEcrivant({
       });
     }
     for (const a of ajoutes) parCle.set(a.cle ?? '', { libelle: a.libelle, id: a.id, categorie: a.categorie });
+    // LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — un bien en attente coché se décrit aussi.
+    for (const b of enAttente) if (!parCle.has(b.cle)) parCle.set(b.cle, { libelle: b.libelle, id: b.id, categorie: b.categorie });
     // 🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — un résultat de recherche AFFICHÉ et coché se décrit aussi.
     for (const b of recherche.v === 'ok' ? recherche.resultats.lignes : []) {
       if (!parCle.has(b.cle)) { const n = cibleDuResultat(b); parCle.set(b.cle, { libelle: n.libelle, id: null, categorie: n.categorie }); }
@@ -817,7 +837,7 @@ export function RattacherEnEcrivant({
                   </button>
                 </li>
               )}
-              {horsPropositions.map(({ cible: a, origine }) => (
+              {horsPropositions.map(({ cible: a, origine, motif }) => (
                 <li key={`hors-${a.cle}`} className="rec-bien">
                   <label className="rec-choix">
                     <input type="checkbox" checked={selection.has(a.cle ?? '')}
@@ -830,7 +850,9 @@ export function RattacherEnEcrivant({
                   </label>
                   {fiches[a.cle ?? ''] !== undefined && <PartiesSurDeuxLignes parties={fiches[a.cle ?? ''].parties} />}
                   <p className="rec-motif">
-                    {clesClients !== null && !clesClients.has(a.cle ?? '') && !(clesDeBase?.has(a.cle ?? '') ?? false)
+                    {origine === 'attente'
+                      ? motif
+                      : clesClients !== null && !clesClients.has(a.cle ?? '') && !(clesDeBase?.has(a.cle ?? '') ?? false)
                       ? 'ajouté manuellement — aucun client de ce bien dans les destinataires'
                       : origine === 'recherche'
                         ? 'ajouté à la main depuis la recherche'

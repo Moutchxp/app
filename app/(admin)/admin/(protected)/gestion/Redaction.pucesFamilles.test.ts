@@ -46,6 +46,11 @@ beforeEach(() => {
   appels = [];
   vi.stubGlobal('fetch', vi.fn(async (u: unknown) => {
     const url = String(u);
+    // Liées à aucun bien (`[]`) : la famille décide, telle quelle (lot PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES).
+    if (url.includes('/adresses/biens')) {
+      const voulues = new URL(`http://x${url}`).searchParams.getAll('a');
+      return new Response(JSON.stringify({ etat: 'ok', biens: Object.fromEntries(voulues.map((a) => [a, []])) }));
+    }
     if (url.includes('/adresses/familles')) {
       appels.push(url);
       const voulues = new URL(`http://x${url}`).searchParams.getAll('a');

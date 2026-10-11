@@ -54,6 +54,11 @@ beforeEach(() => {
     const url = String(u);
     appels.push(url);
     if (url.includes('/biens/176/ecrire')) return new Response(JSON.stringify({ etat: 'ok', groupes: GROUPES }));
+    // Liées à aucun bien (`[]`) : la famille décide, telle quelle (lot PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES).
+    if (url.includes('/adresses/biens')) {
+      const voulues = new URL(`http://x${url}`).searchParams.getAll('a');
+      return new Response(JSON.stringify({ etat: 'ok', biens: Object.fromEntries(voulues.map((a) => [a, []])) }));
+    }
     if (url.includes('/adresses/familles')) {
       const voulues = new URL(`http://x${url}`).searchParams.getAll('a');
       return new Response(JSON.stringify({ etat: 'ok', familles: Object.fromEntries(voulues.map((a) => [a, null])) }));

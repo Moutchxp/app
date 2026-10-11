@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  biensAutomatiques, clesDuContexte, clientsAChoisir, familleDuClient, fusionnerSuggestions, type BienClient,
+  adressesEnAttente, biensAutomatiques, clesDuContexte, clientsAChoisir, familleDuClient, famillesDesPuces, fusionnerSuggestions,
+  motifDuLien, type BienClient,
 } from './contexteClients';
 import { rangerSuggestions } from './suggestionsBien';
 import { classesPuce, infobullePuce } from './familleAdresse';
@@ -36,11 +37,13 @@ describe('b. plusieurs biens : à choisir', () => {
 
 describe('l’aspect de la puce : trame pleine, contour plein (« à choisir »), et la couleur', () => {
   it('🔴 les trois aspects lisibles par la classe ; l’inconnue et le rattaché inchangés', () => {
-    const plein = familleDuClient('un@x.fr', BIENS, new Set());
+    // LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — un bien unique NON rattaché : contour, plus trame pleine.
+    expect(classesPuce(familleDuClient('un@x.fr', BIENS, new Set()))).toBe(' red-pastille--famille red-pastille--locataire red-pastille--a-choisir');
+    const plein = familleDuClient('un@x.fr', BIENS, new Set(['1']));
     expect(classesPuce(plein)).toBe(' red-pastille--famille red-pastille--locataire');
     const aChoisir = familleDuClient('trois@x.fr', BIENS, new Set());
     expect(classesPuce(aChoisir)).toBe(' red-pastille--famille red-pastille--proprietaire red-pastille--a-choisir');
-    expect(infobullePuce('trois@x.fr', aChoisir)).toBe('X · Propriétaire — lié à 3 biens — choisissez le bien ci-dessous — trois@x.fr');
+    expect(infobullePuce('trois@x.fr', aChoisir)).toBe('X · Propriétaire — lié à 3 biens, aucun rattaché — choisissez avec « Rattacher » — trois@x.fr');
     expect(classesPuce(familleDuClient('trois@x.fr', BIENS, new Set(['3'])))).toBe(' red-pastille--famille red-pastille--proprietaire');
     expect(classesPuce(null)).toBe(' red-pastille--inconnue');
     expect(classesPuce({ ton: 'locataire', propre: false, nom: null, role: 'Garant' })).toBe(' red-pastille--famille red-pastille--locataire red-pastille--rattache');
@@ -109,5 +112,44 @@ describe('🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — l’origine, le 
       ['seul@x.fr'], B2);
     expect(gardees.map((c) => c.cle)).toEqual(['9', '78', '219']);
     expect(ecartees.map((c) => c.cle)).toEqual(['2', '77', '55']);
+  });
+});
+
+describe('🔴🔴 LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — INVARIANT : aucune trame pleine sans bien rattaché', () => {
+  const TONS = ['proprietaire', 'locataire', 'ancien_locataire', 'syndic', 'immeuble', 'neutre'] as const;
+  const LIENS: BienClient['role'][] = ['proprietaire', 'locataire', 'ancien_locataire', 'rattache', 'syndic_contact', 'syndic', 'immeuble'];
+  it('toute famille (ton × propre/rattaché) × tout lien × 1 ou 3 biens : contour sans bien rattaché, trame pleine avec', () => {
+    for (const ton of TONS) for (const propre of [true, false]) for (const lien of LIENS) for (const n of [1, 3]) {
+      const a = 'a@x.fr';
+      const biens = { [a]: Array.from({ length: n }, (_x, i) => b(String(10 + i), lien)) };
+      const familles = { [a]: { ton, propre, nom: null, role: 'R' } };
+      const vide = famillesDesPuces(familles, [a], biens, new Set());
+      expect(classesPuce(vide[a]), `${ton}/${propre}/${lien}/${n}`).toContain('red-pastille--a-choisir');
+      const coche = famillesDesPuces(familles, [a], biens, new Set(['10']));
+      expect(classesPuce(coche[a]), `${ton}/${propre}/${lien}/${n}`).not.toContain('a-choisir');
+      expect(classesPuce(coche[a])).toContain('red-pastille--famille');
+    }
+  });
+  it('biens pas encore lus : neutre (jamais une trame pleine sur la foi de la famille) ; liée à aucun bien : la famille telle quelle', () => {
+    const f = { 'a@x.fr': { ton: 'syndic' as const, propre: true, nom: null, role: 'Syndic' } };
+    expect(famillesDesPuces(f, ['a@x.fr'], {}, new Set())['a@x.fr']).toBeUndefined();
+    expect(classesPuce(famillesDesPuces(f, ['a@x.fr'], { 'a@x.fr': [] }, new Set())['a@x.fr'])).toBe(' red-pastille--famille red-pastille--syndic');
+  });
+  it('une adresse de la liste d’un bien DU CONTEXTE : sa famille d’emblée', () => {
+    const duContexte = { 'g@x.fr': { ton: 'immeuble' as const, propre: true, nom: null, role: 'Gardien' } };
+    expect(famillesDesPuces({}, ['g@x.fr'], {}, new Set(), duContexte)['g@x.fr']).toEqual(duContexte['g@x.fr']);
+  });
+  it('en attente : dès UN bien non rattaché, sauf l’instant de l’ajout d’office ; un refus d’office attend', () => {
+    const biens = { 'u@x.fr': [b('1', 'immeuble')], 'm@x.fr': [b('2', 'syndic'), b('3', 'syndic')], 'r@x.fr': [] };
+    const adresses = ['u@x.fr', 'm@x.fr', 'r@x.fr'];
+    expect(adressesEnAttente(adresses, biens, new Set(), { actif: true, refuses: new Set() }).map((x) => x.adresse)).toEqual(['m@x.fr']);
+    expect(adressesEnAttente(adresses, biens, new Set(), { actif: false, refuses: new Set() }).map((x) => x.adresse)).toEqual(['u@x.fr', 'm@x.fr']);
+    expect(adressesEnAttente(adresses, biens, new Set(), { actif: true, refuses: new Set(['u@x.fr|1']) }).map((x) => x.adresse)).toEqual(['u@x.fr', 'm@x.fr']);
+    expect(adressesEnAttente(adresses, biens, new Set(['3']), { actif: false, refuses: new Set() }).map((x) => x.adresse)).toEqual(['u@x.fr']);
+  });
+  it('le motif de chaque lien', () => {
+    expect(motifDuLien({ role: 'syndic_contact', nom: 'JOREL Arnaud' })).toBe('contact du syndic, suit la copropriété de ce bien — Arnaud JOREL');
+    expect(motifDuLien({ role: 'rattache', nom: null })).toBe('e-mail rattaché à une partie de ce bien');
+    expect(motifDuLien({ role: 'immeuble', nom: null })).toBe('contact de l’immeuble de ce bien');
   });
 });
