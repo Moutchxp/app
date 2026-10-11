@@ -64,10 +64,14 @@ beforeEach(() => {
     if (sql.includes('gestion_copropriete_syndic')) return { rows: [{ cle: '25 rue edith cavell', syndic_id: '3' }] };
     if (sql.includes('gestion_drive_arbre')) return { rows: [{ nom: '25 rue Edith Cavell — lot 219' }] };
     if (sql.includes('gestion_message_adresse')) {
+      // Déjà triées par la requête : le dernier échange d'abord.
       return { rows: [
-        { adresse: 'jean@x.fr', brute: 'Jean <jean@x.fr>', n: '9' },
-        { adresse: 'inconnu@y.fr', brute: 'Sara Y <inconnu@y.fr>', n: '4' },
-        { adresse: 'tiers@x.fr', brute: null, n: '1' },
+        { adresse: 'tiers@x.fr', brute: null, n: '1', dernier: '2026-10-10' },
+        { adresse: 'jean@x.fr', brute: 'Jean <jean@x.fr>', n: '9', dernier: '2026-10-01' },
+        { adresse: 'mailer-daemon@googlemail.com', brute: 'Mail Delivery Subsystem <mailer-daemon@googlemail.com>', n: '3', dernier: '2026-09-30' },
+        { adresse: 'noreply@banque.fr', brute: null, n: '2', dernier: '2026-09-20' },
+        { adresse: 'client.autre.bien@z.fr', brute: '"Paul Ailleurs" <client.autre.bien@z.fr>', n: '1', dernier: '2026-09-15' },
+        { adresse: 'inconnu@y.fr', brute: 'Sara Y <inconnu@y.fr>', n: '4', dernier: '2026-08-01' },
       ] };
     }
     return { rows: [] };
@@ -103,13 +107,23 @@ describe('ecrireDepuisLeBien — les trois groupes, dans l’ordre d’Arno', ()
       'cs@x.fr|immeuble|pleine|Conseil syndical',
     ]]);
   });
-  it('③ AUTRES : vues dans les mails du bien, sans partie, et jamais une adresse déjà proposée plus haut', async () => {
+  it('🔴 ③ AUTRES : TOUTES les adresses de l’historique (même avec une partie ailleurs), le dernier échange d’abord, sans doublon de ①/② ni adresse technique', async () => {
     expect((await lignes())?.[2]).toEqual(['autres', [
-      'inconnu@y.fr|neutre|pleine|vue dans 4 mails du bien',
       'tiers@x.fr|neutre|pleine|vue dans 1 mail du bien',
+      'client.autre.bien@z.fr|neutre|pleine|vue dans 1 mail du bien',
+      'inconnu@y.fr|neutre|pleine|vue dans 4 mails du bien',
     ]]);
-    const sql = String(query.mock.calls.find((c) => String(c[0]).includes('gestion_message_adresse'))?.[0]).replace(/\s+/g, ' ');
-    expect(sql).toContain('a.interne = false AND a.partie IS NULL AND a.partie_externe IS NULL');
+    const g = (await ecrireDepuisLeBien(176))?.groupes[2].lignes ?? [];
+    expect(g.find((l) => l.adresse === 'client.autre.bien@z.fr')?.nom).toBe('Paul Ailleurs');   // le nom des mails
+    const appel = query.mock.calls.find((c) => String(c[0]).includes('gestion_message_adresse'));
+    const sql = String(appel?.[0]).replace(/\s+/g, ' ');
+    expect(sql).toContain('WHERE r.cible_cle = $1');                       // le bien de la FICHE, même si le mail en a plusieurs
+    expect(sql).toContain('sorti_le IS NULL');                             // les mails sortis du suivi de ce bien n'y sont pas
+    expect(sql).toContain('a.interne = false');                            // ni nos adresses (gestion@)
+    expect(sql).toContain("a.role IN ('expediteur', 'destinataire', 'copie')");
+    expect(sql).toContain('ORDER BY max(m.recu_le) DESC');
+    expect(sql).not.toContain('a.partie IS NULL');                         // CE QU'IL FAISAIT AVANT : sans partie seulement
+    expect(appel?.[1]).toEqual(['219']);
   });
   it('la cible « bien » pré-cochée : le lot d’origine, avec son adresse', async () => {
     expect((await ecrireDepuisLeBien(176))?.cible).toEqual({

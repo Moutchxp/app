@@ -557,8 +557,19 @@ export function FenetreConfirmation({ question, annuler, confirmer, echec = null
 
 export function Redaction({
   brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
-  reduite = false, calerAVue = true, calage = 'start', appel = 0,
+  reduite = false, calerAVue = true, calage = 'start', appel = 0, lotFiche = null,
 }: {
+  /**
+   * ══ 🔴🔴 LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN — LE BIEN DE LA FICHE OUVERTE ══════════════════════════════
+   * ARNO : depuis la fiche d'un bien, un clic dans À, Cc ou Cci propose les contacts de l'historique de CE bien, avec
+   * les mêmes mécaniques que « Écrire depuis gestion@ ». Le composeur qui reçoit l'identifiant du bien
+   * (`gestion_annuaire_lot.id`) lit la liste lui-même (route `/biens/[id]/ecrire`, lecture seule) : clients,
+   * immeuble, autres contacts de l'historique. Tout composeur ouvert depuis une fiche bien en hérite par cette seule
+   * propriété. Absent ⇒ rien ne change (Réception, Envoyés…). Une liste déjà portée par le brouillon prime.
+   * ⚠️ Rien d'autre ne bouge : ni l'objet, ni la citation, ni la signature, ni la formule d'appel (aucune n'est
+   * ajoutée à une réponse).
+   */
+  lotFiche?: number | null;
   brouillon: BrouillonEcran;
   contexte: ContexteRedactionEcran;
   onChange: (b: BrouillonEcran) => void;
@@ -731,9 +742,31 @@ export function Redaction({
    */
   const [familles, setFamilles] = useState<FamillesConnues>(() => famillesDesSuggestions(brouillon.suggestionsBien));
   const famillesDemandees = useRef(new Set<string>(Object.keys(famillesDesSuggestions(brouillon.suggestionsBien))));
-  const lotOuvert = brouillon.depuisLeBien
+  const lotOuvert = lotFiche ?? (brouillon.depuisLeBien
     ? ((brouillon.cibles ?? []) as Array<{ sorte?: string; id?: number | null }>).find((c) => c.sorte === 'lot')?.id ?? null
-    : null;
+    : null);
+  /** LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN — la liste du bien de la fiche, lue une fois par composeur. */
+  const [groupesFiche, setGroupesFiche] = useState<GroupeSuggestions[] | null>(null);
+  const aDejaSaListe = (brouillon.suggestionsBien ?? null) !== null;
+  useEffect(() => {
+    if (lotFiche === null || aDejaSaListe) return undefined;
+    let vivant = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/gestion/biens/${lotFiche}/ecrire`, { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; groupes?: GroupeSuggestions[] };
+        if (!vivant || !res.ok || d.etat !== 'ok' || !Array.isArray(d.groupes)) return;
+        const groupes = d.groupes;
+        setGroupesFiche(groupes);
+        // Les couleurs des puces : celles de la liste (la famille la plus proche du bien), sans attendre de lecture.
+        const duBien = famillesDesSuggestions(groupes);
+        for (const k of Object.keys(duBien)) famillesDemandees.current.add(k);
+        setFamilles((f) => ({ ...f, ...duBien }));
+      } catch { /* une liste de suggestions est un confort : sans elle, on écrit comme avant */ }
+    })();
+    return () => { vivant = false; };
+  }, [lotFiche, aDejaSaListe]);
+  const propositionsBien: readonly GroupeSuggestions[] | null = brouillon.suggestionsBien ?? groupesFiche;
   const adressesDesChamps = [...brouillon.a, ...brouillon.cc, ...brouillon.cci].map(cleAdresse).filter((x) => x.includes('@'));
   const cleAdressesDesChamps = adressesDesChamps.join(',');
   useEffect(() => {
@@ -749,7 +782,14 @@ export function Redaction({
           const res = await fetch(`/api/admin/gestion/adresses/familles?${params.toString()}`, { cache: 'no-store' });
           const d = (await res.json()) as { familles?: FamillesConnues };
           if (!res.ok || d.familles === undefined || typeof d.familles !== 'object') throw new Error('illisible');
-          setFamilles((f) => ({ ...f, ...d.familles }));
+          /* Une famille DÉJÀ CONNUE (celle de la liste du bien, la plus proche) n'est jamais écrasée par une lecture
+             arrivée après elle ; seule une adresse inconnue ou pas encore lue prend la réponse du serveur. */
+          const lues = d.familles;
+          setFamilles((f) => {
+            const n = { ...f };
+            for (const [k, v] of Object.entries(lues)) if ((n[k] ?? null) === null) n[k] = v;
+            return n;
+          });
         } catch {
           // Une couleur est un CONFORT : en cas d'échec, la puce reste neutre et l'adresse pourra être relue.
           for (const x of manque) famillesDemandees.current.delete(x);
@@ -1926,7 +1966,7 @@ export function Redaction({
           l'encadré de l'effet d'ouverture). */}
       <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={modifierA} familles={familles}
         suggestions={suggestions} onChercher={chercherCorrespondants}
-        propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('À')}
+        propositions={propositionsBien} dejaPresentes={presentes} {...pilotage('À')}
         /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — `calerAVue` COUPE AUSSI LE CURSEUR. Voir l'encadré
            du champ MESSAGE, plus bas : prendre le focus, c'est faire défiler. */
         autoFocus={calerAVue && brouillon.a.length === 0
@@ -1951,13 +1991,13 @@ export function Redaction({
       {afficheCc && (
         <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })} familles={familles}
           suggestions={suggestions} onChercher={chercherCorrespondants}
-          propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('Cc')}
+          propositions={propositionsBien} dejaPresentes={presentes} {...pilotage('Cc')}
           refSaisie={saisieCc} onQuitter={(v) => { if (v.length === 0) setAfficheCc(false); }} />
       )}
       {afficheCci && (
         <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })} familles={familles}
           suggestions={suggestions} onChercher={chercherCorrespondants}
-          propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('Cci')}
+          propositions={propositionsBien} dejaPresentes={presentes} {...pilotage('Cci')}
           refSaisie={saisieCci} onQuitter={(v) => { if (v.length === 0) setAfficheCci(false); }} />
       )}
 

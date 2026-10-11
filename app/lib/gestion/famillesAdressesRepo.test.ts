@@ -69,6 +69,12 @@ describe('famillesDesAdresses', () => {
     expect(f['vieux@x.fr']).toEqual({ ton: 'ancien_locataire', propre: false, nom: null, role: 'Contact d’un ancien locataire' });
     expect(f['mixte@x.fr']?.ton).toBe('proprietaire');
   });
+  it('une adresse DE L’AGENCE n’est pas « inconnue » : grise, « Adresse de l’agence » — mais un client de nos domaines garde sa famille', async () => {
+    query.mockResolvedValue({ rows: [{ adresse: 'c.client@sansvisavis.com', sujet: 'proprietaire', nom: 'JULLIEN Cédric', en_place: false }] });
+    const f = await famillesDesAdresses(['administration@sansvisavis.com', 'c.client@sansvisavis.com'], null);
+    expect(f['administration@sansvisavis.com']).toEqual({ ton: 'neutre', propre: true, nom: null, role: 'Adresse de l’agence' });
+    expect(f['c.client@sansvisavis.com']?.ton).toBe('proprietaire');
+  });
   it('lecture BORNÉE aux adresses demandées (paramètre lié), rien sans adresse', async () => {
     await famillesDesAdresses(['proprio@x.fr'], null);
     expect(query.mock.calls[0][1]).toEqual([['proprio@x.fr']]);

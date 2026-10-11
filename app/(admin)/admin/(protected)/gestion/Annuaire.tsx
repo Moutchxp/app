@@ -1659,6 +1659,8 @@ function VueLot({
           key={filtreVie}
           signalRelire={signalEvenement}
           lotCle={f.numero}
+          /* 🔴 LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN — les réponses de l'historique proposent les contacts du bien. */
+          lotId={f.id}
           maintenant={maintenant}
           occupations={occupationsPourHistorique(f)}
           categories={categoriesDeLaFiche(f)}

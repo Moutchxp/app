@@ -6,9 +6,9 @@ import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { civiliteDeTexte } from './mailSyndic';
 import { lireCartesDuBien, lireCategoriesDuBien } from './partieCategorieRepo';
 import { sqlLiensDuBien } from './rattachement';
-import { envoiPartiesDisponibles } from './schema';
 import { ficheSyndic } from './syndicRepo';
 import { cleImmeuble } from './syndics';
+import { estAdresseSansReponse } from './typologie';
 import { rangerSuggestions, type GroupeSuggestions, type SuggestionAdresse, type TonSuggestion } from './suggestionsBien';
 
 /**
@@ -143,29 +143,41 @@ export async function ecrireDepuisLeBien(lotId: number): Promise<EcrireDepuisLeB
     }
   }
 
-  // ── ③ AUTRES ADRESSES LIÉES AU BIEN — vues dans ses mails, sans aucune partie ─────────────────────────────────────
-  // ⚠️ `partie_externe` n'est nommée que si la migration 338 est là (règle du module : une colonne absente ferait
-  //   tomber toute la lecture).
-  const sansExterne = (await envoiPartiesDisponibles()) ? 'AND a.partie_externe IS NULL' : '';
-  const { rows: vues } = await query<{ adresse: string; brute: string | null; n: string }>(
-    `SELECT a.adresse, (array_agg(a.adresse_brute ORDER BY m.recu_le DESC))[1] AS brute, count(DISTINCT a.message_id)::text AS n
+  // ── ③ AUTRES CONTACTS DE L'HISTORIQUE DU BIEN ──────────────────────────────────────────────────────────────────────
+  /*
+   * ══ 🔴🔴 LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN — TOUTES LES ADRESSES DE L'HISTORIQUE ═════════════════════
+   * ARNO : toutes les adresses qui apparaissent dans les mails de l'historique de CE bien (expéditeurs, À, Cc), même
+   * sans partie, sauf celles déjà proposées en ① ou ② (`rangerSuggestions` les retire). CE QU'IL FAISAIT AVANT : seules
+   * les adresses SANS partie y entraient, triées par nombre de mails.
+   *   · l'historique, c'est `sqlLiensDuBien` sur la clé de CE bien : un mail rattaché à plusieurs biens compte pour le
+   *     bien de la fiche ouverte ; un mail « sorti du suivi » de ce bien n'y est plus ;
+   *   · exclues : nos adresses (`interne`, dont gestion@) et les adresses techniques (`estAdresseSansReponse` :
+   *     noreply, mailer-daemon — « Mail Delivery Subsystem » —, postmaster, notifications…) ;
+   *   · tri : le dernier échange d'abord ; le nom est celui que les mails affichent, le plus récent.
+   */
+  const { rows: vues } = await query<{ adresse: string; brute: string | null; n: string; dernier: string | null }>(
+    `SELECT a.adresse,
+            (array_agg(a.adresse_brute ORDER BY m.recu_le DESC) FILTER (WHERE a.adresse_brute IS NOT NULL))[1] AS brute,
+            count(DISTINCT a.message_id)::text AS n, max(m.recu_le)::text AS dernier
        FROM gestion_rattachement r
        JOIN gestion_message_adresse a ON a.message_id = r.message_id
        JOIN gestion_message m ON m.id = a.message_id
       WHERE r.cible_cle = $1 AND ${sqlLiensDuBien('r')}
-        AND a.interne = false AND a.partie IS NULL ${sansExterne}
+        AND a.interne = false
         AND a.role IN ('expediteur', 'destinataire', 'copie')
       GROUP BY a.adresse
-      ORDER BY count(DISTINCT a.message_id) DESC, a.adresse
-      LIMIT 60`, [f.numero]);
-  const autres: SuggestionAdresse[] = vues.map((v) => {
-    const nom = /^\s*"?([^"<]+?)"?\s*</.exec(v.brute ?? '')?.[1]?.trim() ?? null;
-    const n = Number(v.n);
-    return {
-      adresse: v.adresse, nom: nom === '' ? null : nom, role: `vue dans ${n} mail${n > 1 ? 's' : ''} du bien`, ton: 'neutre',
-      propre: true, civilite: null, nomFamille: null,
-    };
-  });
+      ORDER BY max(m.recu_le) DESC NULLS LAST, a.adresse
+      LIMIT 400`, [f.numero]);
+  const autres: SuggestionAdresse[] = vues
+    .filter((v) => v.adresse.includes('@') && !estAdresseSansReponse(v.adresse))
+    .map((v) => {
+      const nom = /^\s*"?([^"<]+?)"?\s*</.exec(v.brute ?? '')?.[1]?.trim() ?? null;
+      const n = Number(v.n);
+      return {
+        adresse: v.adresse, nom: nom === '' ? null : nom, role: `vue dans ${n} mail${n > 1 ? 's' : ''} du bien`, ton: 'neutre',
+        propre: true, civilite: null, nomFamille: null,
+      };
+    });
 
   // Le dossier Drive du bien : son identifiant vient de la fiche, son nom de l'arbre (simple attente d'affichage).
   let dossierDrive: EcrireDepuisLeBien['dossierDrive'] = null;

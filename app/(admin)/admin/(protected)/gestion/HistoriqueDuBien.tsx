@@ -276,10 +276,16 @@ export function HistoriqueDuBien({
   lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [], onFicheClient,
   cartesLocataires = [],
   evenementOuvertInitial = false, onOuvrirFil, onEcranComplet, jeton = null, onPoserJeton,
-  signalRelire = 0, redaction = null, onGesteMail,
+  signalRelire = 0, redaction = null, onGesteMail, lotId = null,
 }: {
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
+  /**
+   * 🔴 LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN — l'identifiant interne du bien de la fiche
+   * (`gestion_annuaire_lot.id`) : Répondre, Répondre à tous et Transférer proposent alors, dans À / Cc / Cci, les
+   * contacts de l'historique de CE bien (`Redaction`, propriété `lotFiche`). Absent ⇒ les composeurs d'avant.
+   */
+  lotId?: number | null;
   maintenant: Date;
   /**
    * ══ 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — « UN ÉVÉNEMENT DE CE BIEN A CHANGÉ D'ÉTAT, REDEMANDE » ═════════════
@@ -1182,7 +1188,7 @@ export function HistoriqueDuBien({
   const composeurDuMail = useCallback((l: LigneHistorique): ReactNode => {
     if (reponse === null || reponse.messageId !== l.messageId || redaction === null) return null;
     return (
-      <Redaction brouillon={reponse.brouillon} contexte={redaction}
+      <Redaction brouillon={reponse.brouillon} contexte={redaction} lotFiche={lotId}
         onChange={(b) => setReponse((r) => (r === null ? null : { ...r, brouillon: b }))}
         onFerme={() => setReponse(null)}
         /* 🔴 ENVOYÉ : on referme, et on RELIT. Le mail parti doit apparaître dans l'historique tout de suite,
@@ -1191,7 +1197,7 @@ export function HistoriqueDuBien({
         onEnvoye={() => { setReponse(null); setRechargement((n) => n + 1); }}
         onGeste={(m, o) => onGesteMail?.(m, o)} />
     );
-  }, [reponse, redaction, onGesteMail]);
+  }, [reponse, redaction, onGesteMail, lotId]);
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI » ═══════════════════════════════════════════════

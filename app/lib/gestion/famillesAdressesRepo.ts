@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { estAdresseInterne } from './adresseInterne';
 import { lireContactExterne } from './contactExterneRepo';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { chargerAdressesExternes } from './envoiPartiesRepo';
@@ -82,6 +83,11 @@ export async function famillesDesAdresses(adresses: readonly string[], lotId: nu
     const c = await lireContactExterne(a);
     if (c !== null) poser(a, { ton: 'neutre', propre: true, nom: c.nom ?? null, role: c.type ? `Contact externe · ${c.type}` : 'Contact externe' });
   }
+
+  /* ⑥ Une adresse DE L'AGENCE (nos domaines, nos adresses) n'est pas « inconnue de notre système » : grise, dite telle.
+     En DERNIER seulement — un client qui écrit depuis une adresse de nos domaines garde sa couleur, trouvée plus haut.
+     (Constaté dans Chrome : administration@sansvisavis.com, en Cc d'un « Répondre à tous », s'affichait « extérieure ».) */
+  for (const a of reste()) if (estAdresseInterne(a, [])) poser(a, { ton: 'neutre', propre: true, nom: null, role: 'Adresse de l’agence' });
 
   for (const a of voulues) if (out[a] === undefined) out[a] = null;
   return out;
