@@ -512,13 +512,29 @@ export function RattacherEnEcrivant({
     dejaPlace.current = true;
     champRecherche.current?.focus();
   }, [aucuneProposition, contexte]);
-  const toutBasculer = () => setCoches((l) => {
-    const v = new Set(l ?? []);
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — COCHER EN MASSE, C'EST COCHER ═══════════════════════════
+   * BUG D'ARNO (11/10/2026) : 1 bien coché à la main, puis « Sélectionner tous les biens » sur 6 résultats de recherche,
+   * puis « Valider — 6 bien(s) » ⇒ « Rattaché — 1 logement ». CAUSE : ce lien cochait les résultats de recherche
+   * (leurs CLÉS) sans les ranger dans `ajoutes`, comme le fait le clic case par case (`basculerResultat`) ; à la
+   * validation, une clé cochée qu'on ne savait pas décrire était ÉCARTÉE en silence (`filter(parCle.has)`).
+   * Désormais le lien range les résultats qu'il coche, exactement comme la case ; la validation sait aussi décrire un
+   * résultat affiché ; et un écart restant est DIT (`erreurValidation`), jamais avalé.
+   */
+  const toutBasculer = () => {
     const visibles = clesVisibles();
-    if (visibles.every((c) => v.has(c))) for (const c of visibles) v.delete(c);
-    else for (const c of visibles) v.add(c);
-    return v;
-  });
+    const tousCoches = visibles.every((c) => selection.has(c));
+    if (!tousCoches && recherche.v === 'ok') {
+      const aRanger = recherche.resultats.lignes.filter((b) => !selection.has(b.cle));
+      for (const b of aRanger) rangerResultat(b);
+    }
+    setCoches((l) => {
+      const v = new Set(l ?? []);
+      if (tousCoches) for (const c of visibles) v.delete(c);
+      else for (const c of visibles) v.add(c);
+      return v;
+    });
+  };
 
   /**
    * ══ LA RECHERCHE, DIFFÉRÉE DE 250 ms ═══════════════════════════════════════════════════════════════════════
@@ -558,19 +574,23 @@ export function RattacherEnEcrivant({
    * ⚠️ DÉCOCHER UN RÉSULTAT NE LE RETIRE PAS DE LA LISTE : il reste visible, décoché, comme une proposition.
    * L'effacer ferait disparaître sous le doigt la ligne qu'on vient de toucher.
    */
-  const basculerResultat = (b: BienTrouve) => {
+  /** Un résultat de recherche devient une cible connue de cette fenêtre (une fois). Partagé : case ET « tous ». */
+  const cibleDuResultat = (b: BienTrouve): CibleBrouillon => ({
     // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA CATÉGORIE EST POSÉE ICI, là où la nature du lot est connue. L'écran
     //   qui affichera la case verte, lui, ne connaît ni l'annuaire ni les natures : il place et peint.
-    const n: CibleBrouillon = {
-      sorte: 'lot', cle: b.cle, id: null, libelle: b.libelle,
-      categorie: categorieDuBien({ nature: b.nature, typeBien: b.typeBien }),
-    };
-    if (!ajoutes.some((x) => memeCibleBrouillon(x, n))
-      && !(contexte?.biens ?? []).some((x) => x.cle === b.cle)) {
-      setAjoutes((a) => [...a, n]);
-    }
+    sorte: 'lot', cle: b.cle, id: null, libelle: b.libelle,
+    categorie: categorieDuBien({ nature: b.nature, typeBien: b.typeBien }),
+  });
+  const rangerResultat = (b: BienTrouve): void => {
+    const n = cibleDuResultat(b);
+    if ((contexte?.biens ?? []).some((x) => x.cle === b.cle)) return;
+    setAjoutes((a) => (a.some((x) => memeCibleBrouillon(x, n)) ? a : [...a, n]));
+  };
+  const basculerResultat = (b: BienTrouve) => {
+    rangerResultat(b);
     basculer(b.cle);
   };
+  const [erreurValidation, setErreurValidation] = useState<string | null>(null);
 
   const valider = () => {
     // ⚠️ GARDE DE DERNIER RECOURS : le bouton est déjà désactivé, mais un bouton désactivé ne protège pas d'un
@@ -598,6 +618,18 @@ export function RattacherEnEcrivant({
       });
     }
     for (const a of ajoutes) parCle.set(a.cle ?? '', { libelle: a.libelle, id: a.id, categorie: a.categorie });
+    // 🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — un résultat de recherche AFFICHÉ et coché se décrit aussi.
+    for (const b of recherche.v === 'ok' ? recherche.resultats.lignes : []) {
+      if (!parCle.has(b.cle)) { const n = cibleDuResultat(b); parCle.set(b.cle, { libelle: n.libelle, id: null, categorie: n.categorie }); }
+    }
+    // 🔴 LE GARDE-FOU : « Valider — N bien(s) » rattache EXACTEMENT les N biens cochés, ou le DIT et ne ferme pas.
+    const manquants = [...selection].filter((c) => !parCle.has(c));
+    if (manquants.length > 0) {
+      setErreurValidation(`${manquants.length} bien(s) coché(s) n’ont pas pu être retenus (lot${manquants.length > 1 ? 's' : ''} `
+        + `${manquants.join(', ')}) : rien n’a été validé. Relancez la recherche puis validez à nouveau.`);
+      return;
+    }
+    setErreurValidation(null);
     const retenues: CibleBrouillon[] = [...selection]
       .filter((c) => parCle.has(c))
       .map((c) => ({
@@ -858,6 +890,7 @@ export function RattacherEnEcrivant({
         <div className="mrt-pied rec-pied">
           {/* 🔴 LOT SUIVI-CONVERSATION — LE MOTIF DU BLOCAGE SE LIT, il ne se survole pas : au doigt, une
               infobulle n'existe pas (exigence transverse du dépôt). */}
+          {erreurValidation !== null && <p className="rec-bloque" role="alert">{erreurValidation}</p>}
           {validationBloquee !== null && (
             <p className="rec-bloque" role="status">{validationBloquee}</p>
           )}

@@ -32,7 +32,10 @@ const BIENS: Record<string, BienClient[]> = {
   'seul@x.fr': [bien(900, '900', 'proprietaire', 'SEUL')],
   'loc1@x.fr': [bien(950, '950', 'locataire', 'A')],
   'loc2@x.fr': [bien(950, '950', 'locataire', 'B')],
+  // LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — un client de NOTRE domaine : le moteur ne le prend pas comme clé.
+  'c.jullien@sansvisavis.com': ['432', '494', '373', '219', '224', '58'].map((k) => bien(Number(k), k, 'proprietaire', 'JULLIEN - GARRIDO Cédric')),
 };
+const HORS_MOTEUR = new Set(['c.jullien@sansvisavis.com']);
 const listeDu = (id: number) => rangerSuggestions({
   clients: [{ adresse: `client.${id}@x.fr`, nom: `Client ${id}`, role: 'Propriétaire', ton: 'proprietaire', propre: true, civilite: null, nomFamille: null }],
   immeuble: [{ adresse: `syndic.${id}@x.fr`, nom: `Syndic ${id}`, role: 'Syndic — e-mail général', ton: 'syndic', propre: true, civilite: null, nomFamille: null }],
@@ -54,12 +57,20 @@ beforeEach(() => {
     if (url.includes('/adresses/familles')) return new Response(JSON.stringify({ etat: 'ok', familles: Object.fromEntries(q.map((a) => [a, null])) }));
     if (url.includes('/gestion/classement') && init?.method === 'POST') {
       const dest = (JSON.parse(String(init.body)) as { destinataires?: string[] }).destinataires ?? [];
-      const biens = [...new Map(dest.flatMap((a) => BIENS[a] ?? []).map((x) => [x.cle, x])).values()].map((x) => ({
+      const biens = [...new Map(dest.filter((a) => !HORS_MOTEUR.has(a)).flatMap((a) => BIENS[a] ?? []).map((x) => [x.cle, x])).values()].map((x) => ({
         cle: x.cle, libelle: x.libelle, adresse: `${x.cle} rue des Tests`, commune: 'PARIS', typeBien: 'Appartement', nature: 'Appartement',
         caracteristiques: [], adresseComplete: `${x.cle} rue des Tests, 75000 PARIS`, parties: [], recommande: false,
         motif: 'un des biens du propriétaire', cas: 'b', certitude: 'a_trancher', dejaRattache: false,
       }));
       return new Response(JSON.stringify({ etat: 'ok', contexte: { biens, examen: { issue: 'a_trancher', motif: '' }, proprietaire: null, interneDabord: false, disponible: true } }));
+    }
+    if (url.includes('/gestion/biens?q=')) {
+      // Le moteur de RECHERCHE de la modale (chercherBiens) : les biens dont l'e-mail cherché est celui d'une partie.
+      const q2 = decodeURIComponent(/q=([^&]*)/.exec(url)?.[1] ?? '');
+      const lignes = (BIENS[q2] ?? []).map((x) => ({ cle: x.cle, lotId: x.lotId, libelle: x.libelle, adresse: `${x.cle} rue des Tests, 75000 PARIS`,
+        adresseVoie: `${x.cle} rue des Tests`, commune: 'PARIS', nature: 'Appartement', typeBien: 'Type 2', parties: [],
+        raisons: [{ sorte: 'email_proprietaire', detail: x.nom ?? '' }] }));
+      return new Response(JSON.stringify({ etat: 'ok', lignes, tronque: false, disponible: true }));
     }
     const m = /\/biens\/(\d+)\/ecrire/.exec(url);
     if (m) return new Response(JSON.stringify({ etat: 'ok', cible: { cle: m[1], libelle: `${m[1]} rue des Tests, 75000 PARIS — lot ${m[1]}` }, groupes: listeDu(Number(m[1])) }));
@@ -380,5 +391,39 @@ describe('🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — le bouton puls
     await taper('un.bien@x.fr');
     expect(pulse()).toBeNull();
     expect(mention()).toBeNull();
+  });
+});
+
+describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — le scénario d’Arno, de bout en bout dans le composeur', () => {
+  const texteClasser = () => [...container.querySelectorAll('[class^="ccl"], [class*=" ccl"]')]
+    .map((e) => e.textContent ?? '').join(' ').replace(/\s+/g, ' ');
+  const caseDe = (rue: string) => [...container.querySelectorAll('.rec input[type="checkbox"]')]
+    .find((i) => (i.closest('li, label')?.textContent ?? '').includes(rue)) as HTMLInputElement;
+  const bouton = (re: RegExp) => [...container.querySelectorAll('button')].find((b) => re.test(b.textContent?.trim() ?? '')) as HTMLButtonElement;
+  const origines = () => ((courant.cibles ?? []) as Array<{ cle: string; origine?: string }>).map((c) => `${c.cle}:${c.origine ?? 'base'}`).sort();
+  it('🔴 1 bien coché à la main, « Sélectionner tous », Valider : 6 biens, origine client ; « Rattaché — 6 logements » ; modale rouverte : 6 cochés', async () => {
+    await monter(NOUVEAU);
+    await taper('c.jullien@sansvisavis.com');
+    await ouvrirModale();                                        // la recherche se lance sur l'adresse du client
+    expect((container.querySelector('.rec input[type="search"], .rec input[type="text"]') as HTMLInputElement).value).toBe('c.jullien@sansvisavis.com');
+    await cliquer(caseDe('432 rue des Tests'));
+    await cliquer(bouton(/^Sélectionner tous les biens$/));
+    expect(bouton(/^Valider/).textContent).toBe('Valider — 6 bien(s)');
+    await cliquer(bouton(/^Valider/));
+    expect(origines()).toEqual(['219:client', '224:client', '373:client', '432:client', '494:client', '58:client']);
+    expect(texteClasser()).toMatch(/Rattaché\s*—?\s*6 logements/);
+    await ouvrirModale();
+    expect([...container.querySelectorAll('.rec input[type="checkbox"]')].filter((i) => (i as HTMLInputElement).checked)).toHaveLength(6);
+  });
+  it('retirer l’adresse : SEULS les biens de cette adresse partent (le bien d’un autre client reste)', async () => {
+    await monter(NOUVEAU);
+    await taper('seul@x.fr');
+    await taper('c.jullien@sansvisavis.com');
+    await ouvrirModale();
+    await cliquer(bouton(/^Sélectionner tous les biens$/));
+    await cliquer(bouton(/^Valider/));
+    expect(cibles().sort()).toEqual(['219', '224', '373', '432', '494', '58', '900']);
+    await cliquer(container.querySelector('button[aria-label="Retirer c.jullien@sansvisavis.com"]') as Element);
+    expect(cibles()).toEqual(['900']);
   });
 });

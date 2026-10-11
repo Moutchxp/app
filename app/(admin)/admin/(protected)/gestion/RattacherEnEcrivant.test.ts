@@ -924,3 +924,84 @@ describe('🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — un bien rattaché SA
     expect(motifs()).toEqual(['déjà rattaché — décochez pour le retirer', 'déjà rattaché — décochez pour le retirer']);
   });
 });
+
+describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — « Valider — N bien(s) » rattache EXACTEMENT les N biens cochés', () => {
+  const trouve = (cle: string, rue: string) => ({
+    cle, lotId: Number(cle), libelle: `${rue}, 92000 VILLE — lot ${cle}`, adresse: `${rue}, 92000 VILLE`, adresseVoie: rue,
+    commune: 'VILLE', nature: 'Appartement', typeBien: 'Type 2', parties: [],
+    raisons: [{ sorte: 'email_proprietaire', detail: 'JULLIEN - GARRIDO Cédric' }],
+  });
+  const SIX = [trouve('432', '1bis Rue Manessier'), trouve('494', '2 Rue Mars et Roty'), trouve('373', '15 rue Carle Hebert'),
+    trouve('219', '25 rue Edith Cavell'), trouve('224', '31 rue Camille Pelletan'), trouve('58', '155 avenue Paul Vaillant Couturier')];
+  const chercher = async (q: string) => {
+    const champ = container.querySelector('.rec input[type="search"], .rec input[type="text"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(champ, q);
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    await calmer();
+  };
+  const caseDe = (rue: string) => [...container.querySelectorAll('input[type="checkbox"]')]
+    .find((i) => (i.closest('li, label')?.textContent ?? '').includes(rue)) as HTMLInputElement;
+  const valider = async () => { await cliquer(boutonPar(/^Valider/)); };
+  const lots = () => cibles.filter((c) => c.sorte === 'lot').map((c) => c.cle).sort();
+
+  it('🔴 le scénario d’Arno : 1 bien coché à la main, « Sélectionner tous les biens » sur les 6 résultats, Valider ⇒ les 6', async () => {
+    biensTrouves = SIX;
+    await monter(['c.jullien@sansvisavis.com']);
+    await chercher('c.jullien@sansvisavis.com');
+    await cliquer(caseDe('1bis Rue Manessier'));
+    await cliquer(boutonPar(/^Sélectionner tous les biens$/));
+    expect(container.querySelector('.rec-compte')?.textContent).toBe('6 bien(s) coché(s) sur 6 affiché(s).');
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — 6 bien(s)');
+    await valider();
+    expect(lots()).toEqual(['219', '224', '373', '432', '494', '58']);
+    expect(ferme).toBe(1);
+  });
+  it('rouverte avec les cibles validées : les 6 sont là, cochés', async () => {
+    biensTrouves = SIX;
+    cibles = SIX.map((b) => ({ sorte: 'lot' as const, cle: b.cle, id: null, libelle: b.libelle }));
+    await act(async () => {
+      root.render(createElement(RattacherEnEcrivant, {
+        destinataires: ['c.jullien@sansvisavis.com'], objet: '', corps: '', pieces: [], cibles,
+        onChange: (c) => { cibles = c; }, onFerme: () => { ferme += 1; },
+      }));
+    });
+    await calmer();
+    expect(cases().filter((c) => c.checked)).toHaveLength(6);
+  });
+  it('un seul bien coché dans les résultats : il est retenu', async () => {
+    biensTrouves = SIX;
+    await monter(['c.jullien@sansvisavis.com']);
+    await chercher('c.jullien@sansvisavis.com');
+    await cliquer(caseDe('15 rue Carle Hebert'));
+    await valider();
+    expect(lots()).toEqual(['373']);
+  });
+  it('« Désélectionner tous les biens » : aucun bien', async () => {
+    biensTrouves = SIX;
+    await monter(['c.jullien@sansvisavis.com']);
+    await chercher('c.jullien@sansvisavis.com');
+    await cliquer(boutonPar(/^Sélectionner tous les biens$/));
+    await cliquer(boutonPar(/^Désélectionner tous les biens$/));
+    expect(boutonPar(/^Valider/).textContent).toBe('Valider — aucun bien');
+    await valider();
+    expect(lots()).toEqual([]);
+  });
+  it('🔴 garde-fou : une clé cochée qu’on ne sait pas décrire ⇒ message clair, RIEN n’est validé, la fenêtre reste', async () => {
+    await act(async () => {
+      root.render(createElement(RattacherEnEcrivant, {
+        destinataires: ['x@y.fr'], objet: '', corps: '', pieces: [], cibles: [], selectionInitiale: ['999'],
+        onChange: (c) => { cibles = c; }, onFerme: () => { ferme += 1; },
+      }));
+    });
+    await calmer();
+    cibles = [{ sorte: 'lot', cle: 'inchangé', id: null, libelle: 'x' }];
+    await valider();
+    expect(container.querySelector('.rec-bloque[role="alert"]')?.textContent)
+      .toBe('1 bien(s) coché(s) n’ont pas pu être retenus (lot 999) : rien n’a été validé. Relancez la recherche puis validez à nouveau.');
+    expect(cibles[0].cle).toBe('inchangé');
+    expect(ferme).toBe(0);
+  });
+});
