@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 /* 🔴🔴 LOT BROUILLON-APERCU-SUPPRESSION — la confirmation sort du DOM de l'éditeur : aucun conteneur à défilement,
    aucun `transform` d'ancêtre ne peut plus la rogner. Voir l'encadré de `FenetreConfirmation`. */
 import { createPortal } from 'react-dom';
@@ -266,6 +266,15 @@ export function ChampDestinataires({
   //   envoie) ; le nom ne sert qu'à l'affichage — « Arno Jorel » se relit, « a.jorel@… » se déchiffre.
   const [noms, setNoms] = useState<Record<string, string>>({});
   const id = `dest-${libelle.toLowerCase().replace(/[^a-z]/g, '')}`;
+  /* LOT COMPOSEUR-FERMETURE-SUGGESTIONS-PARTOUT — la saisie, tenue ici ET transmise au composeur (`refSaisie`) : le
+     libellé y pose le curseur lui-même (cf. son `onClick`), sans passer par l'id — deux composeurs ouverts ensemble
+     portent les mêmes. */
+  const saisieLocale = useRef<HTMLInputElement | null>(null);
+  const poserSaisie = useCallback((el: HTMLInputElement | null): void => {
+    saisieLocale.current = el;
+    if (typeof refSaisie === 'function') refSaisie(el);
+    else if (refSaisie) (refSaisie as React.MutableRefObject<HTMLInputElement | null>).current = el;
+  }, [refSaisie]);
 
   /** LOT MAIL-DEPUIS-BIEN — le champ a-t-il le focus ? La liste du bien s'ouvre au clic et se referme en sortant. */
   const [focus, setFocus] = useState(false);
@@ -312,7 +321,15 @@ export function ChampDestinataires({
 
   return (
     <div className="red-champ" data-champ={libelle}>
-      <label className="red-label" htmlFor={id}>{libelle}</label>
+      {/* ══ 🔴 LOT COMPOSEUR-FERMETURE-SUGGESTIONS-PARTOUT — LE LIBELLÉ FERME LA LISTE ════════════════════════════
+          Un clic sur un `<label for>` est RENVOYÉ par le navigateur à la saisie qu'il désigne, sous forme de clic :
+          ce clic rouvrait la liste que le clic sur le libellé venait de fermer (mesuré dans Chrome, application
+          réelle). Piloté, le libellé garde son rôle — il pose le curseur dans le champ — mais ne rouvre rien :
+          `mousedown` annulé (le focus reste où il est, rien n'est validé en route), clic renvoyé annulé, curseur posé
+          à la main. Hors pilotage : le comportement natif d'avant. */}
+      <label className="red-label" htmlFor={id}
+        onMouseDown={pilote ? (e) => e.preventDefault() : undefined}
+        onClick={pilote ? (e) => { e.preventDefault(); saisieLocale.current?.focus(); } : undefined}>{libelle}</label>
       <div className="red-pastilles">
         {/* ══ 🔴 LOT BROUILLONS-GMAIL — « Cc » ET « Cci » SONT DANS LE CHAMP, à droite, comme dans Gmail ═════════
             Ils vivaient sous le champ, en lien « Ajouter Cc / Cci ». C'est un DÉPLACEMENT : la fonction est la
@@ -330,7 +347,7 @@ export function ChampDestinataires({
             </button>
           </span>
         ))}
-        <input id={id} ref={refSaisie} className="red-saisie" type="text" inputMode="email" autoComplete="off" autoFocus={autoFocus}
+        <input id={id} ref={poserSaisie} className="red-saisie" type="text" inputMode="email" autoComplete="off" autoFocus={autoFocus}
           value={saisie}
           role="combobox" aria-expanded={ouverte} aria-controls={`${id}-liste`} aria-autocomplete="list"
           aria-activedescendant={enAvant >= 0 ? `${id}-s${enAvant}` : undefined}
@@ -647,19 +664,39 @@ export function Redaction({
    * clique hors de SON champ ; refermer une ligne Cc / Cci restée VIDE si l'on clique hors d'elle — c'est le cas
    * « on retire sa dernière adresse puis on clique ailleurs », où le champ n'a plus le focus à perdre.
    * ⚠️ Les boutons « Cc » / « Cci » sont exclus de la seconde règle : c'est leur propre clic qui ouvre ou referme.
+   *
+   * ══ 🔴🔴 LOT COMPOSEUR-FERMETURE-SUGGESTIONS-PARTOUT — « DEDANS », C'EST LA SAISIE ET LA LISTE, RIEN D'AUTRE ══════════
+   * DÉFAUT CONSTATÉ PAR ARNO (« Écrire depuis gestion@ », 25 rue Edith Cavell) : une adresse validée dans Cc ou Cci,
+   * la liste ne se fermait plus au clic ailleurs. LA CAUSE, mesurée dans Chrome sur l'application réelle : la liste
+   * ne se fermait que si l'on cliquait hors du BLOC entier du champ (`[data-champ]` : libellé, puces, rangée, saisie,
+   * liste). Un clic sur son libellé la rouvrait même (le libellé renvoie un clic à la saisie) ; un clic sur une puce
+   * ou dans la rangée ne la fermait que PAR RICOCHET, si la saisie perdait le focus — ce qui n'arrive pas toujours.
+   * Et une puce n'existe qu'une fois une adresse validée : d'où « dès qu'au moins une adresse ».
+   * LA RÈGLE : la liste se ferme sur TOUT appui hors de la saisie en cours et hors de la liste — libellés, puces
+   * (y compris celles du champ), rangée, objet, corps, barre d'outils, barre de titre, marges, « Cc » / « Cci », et
+   * hors de la fenêtre. Fermer ne retire jamais une adresse.
+   *   · `pointerdown` ET `mousedown` : un appui dont le `pointerdown` est annulé (doigt, stylet, composant tiers)
+   *     n'émet pas de `mousedown` du tout. Les deux gestes sont idempotents ;
+   *   · `useLayoutEffect` : l'écouteur est à jour DÈS le rendu qui ouvre la liste, pas après le dessin.
    */
-  useEffect(() => {
-    const surClic = (e: MouseEvent): void => {
+  useLayoutEffect(() => {
+    const surClic = (e: Event): void => {
       const cible = e.target as Element | null;
-      const dans = (champ: string): boolean =>
-        !!cible && !!racine.current?.querySelector(`[data-champ="${champ}"]`)?.contains(cible);
-      if (listeDe !== null && !dans(listeDe)) setListeDe(null);
+      const bloc = (champ: string): Element | null => racine.current?.querySelector(`[data-champ="${champ}"]`) ?? null;
+      const dans = (champ: string): boolean => !!cible && !!bloc(champ)?.contains(cible);
+      const dansSaisieOuListe = (champ: string): boolean => !!cible
+        && [...(bloc(champ)?.querySelectorAll('input.red-saisie, [role="listbox"]') ?? [])].some((el) => el.contains(cible));
+      if (listeDe !== null && !dansSaisieOuListe(listeDe)) setListeDe(null);
       const surBascule = (quoi: string): boolean => !!cible?.closest?.(`[data-bascule="${quoi}"]`);
       if (afficheCc && brouillon.cc.length === 0 && !dans('Cc') && !surBascule('Cc')) setAfficheCc(false);
       if (afficheCci && brouillon.cci.length === 0 && !dans('Cci') && !surBascule('Cci')) setAfficheCci(false);
     };
+    document.addEventListener('pointerdown', surClic, true);
     document.addEventListener('mousedown', surClic, true);
-    return () => document.removeEventListener('mousedown', surClic, true);
+    return () => {
+      document.removeEventListener('pointerdown', surClic, true);
+      document.removeEventListener('mousedown', surClic, true);
+    };
   }, [listeDe, afficheCc, afficheCci, brouillon.cc.length, brouillon.cci.length]);
   /** Ce que chaque champ reçoit pour que la liste soit pilotée par le composeur. */
   const pilotage = (champ: 'À' | 'Cc' | 'Cci') => ({
