@@ -7,6 +7,7 @@ import {
 } from './EtapeContactExterne';
 // 🔴🔴 LOT DEFILEMENT-MODALES — la feuille de l'autre modale, éprouvée par les mêmes règles.
 import { CSS_RATTACHER_EN_ECRIVANT } from './RattacherEnEcrivant';
+import { CSS_LISTE_BIENS } from './ListeBiensACocher';
 // 🔴 LES MOTS D'ARNO SONT CITÉS, JAMAIS RECOPIÉS : un test qui recopie une phrase ne surveille plus rien.
 import {
   BIEN_UNIQUEMENT, BIEN_UNIQUEMENT_AIDE, LIEN_ANCIENS_LOCATAIRES, TITRE_ETAPE2, TITRE_SUIVI,
@@ -624,7 +625,8 @@ describe('🔴🔴 le défilement de la modale « Rattacher ce mail à… »', (
   });
 
   it('🔴🔴 aucune capsule ne défile — seules les DEUX listes longues autorisées par Arno', () => {
-    const quiDefilent = CSS_RATTACHER_EN_ECRIVANT.replace(/\/\*[\s\S]*?\*\//g, '')
+    /* 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — la modale monte SA feuille et celle du composant partagé (les listes). */
+    const quiDefilent = (CSS_RATTACHER_EN_ECRIVANT + CSS_LISTE_BIENS).replace(/\/\*[\s\S]*?\*\//g, '')
       .split('}').map((b) => b.trim())
       .filter((b) => b.includes('{') && /overflow-y:\s*(auto|scroll)/.test(b.slice(b.indexOf('{'))))
       .map((b) => b.slice(0, b.indexOf('{')).trim());
@@ -638,7 +640,7 @@ describe('🔴🔴 le défilement de la modale « Rattacher ce mail à… »', (
    */
   it('🔴🔴 en bout des deux listes, la molette rend la main à la modale', () => {
     for (const c of ['.rec-biens', '.rec-resultats']) {
-      const regle = reglesDe(CSS_RATTACHER_EN_ECRIVANT, c)[0];
+      const regle = reglesDe(CSS_LISTE_BIENS, c)[0];
       expect(regle, `${c} doit laisser passer la molette`).toContain('overscroll-behavior:auto');
       expect(regle).not.toContain('overscroll-behavior:contain');
     }

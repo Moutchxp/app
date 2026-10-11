@@ -118,9 +118,18 @@ import { deuxLignesParties } from './classementBoutons';
 describe('🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — les parties sur deux lignes', () => {
   it('un propriétaire, deux locataires ; plusieurs propriétaires ; vacant ; propriétaire inconnu', () => {
     expect(deuxLignesParties([{ role: 'proprietaire', nom: 'JULLIEN - GARRIDO Cédric' }, { role: 'locataire', nom: 'A' }, { role: 'locataire', nom: 'B' }]))
-      .toEqual({ libelleProprietaires: 'Propriétaire', proprietaires: 'JULLIEN - GARRIDO Cédric', libelleLocataires: 'Locataires', locataires: 'A · B' });
+      .toEqual({ libelleProprietaires: 'Propriétaire', proprietaires: 'JULLIEN - GARRIDO Cédric', libelleLocataires: 'Locataires', precisionLocataires: null, locataires: 'A · B' });
     expect(deuxLignesParties([{ role: 'proprietaire', nom: 'X' }, { role: 'proprietaire', nom: 'Y' }]))
-      .toEqual({ libelleProprietaires: 'Propriétaires', proprietaires: 'X · Y', libelleLocataires: 'Locataire', locataires: 'Vacant' });
+      .toEqual({ libelleProprietaires: 'Propriétaires', proprietaires: 'X · Y', libelleLocataires: 'Locataire', precisionLocataires: null, locataires: 'Vacant' });
     expect(deuxLignesParties([]).proprietaires).toBe('(propriétaire inconnu)');
+  });
+  it('🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — « LOCATAIRE (à la date du mail) », ou « Vacant à cette date »', () => {
+    const l = deuxLignesParties([{ role: 'proprietaire', nom: 'X' }, { role: 'locataire', nom: 'Nevine Abdellatif' }],
+      { aLaDateDuMail: true });
+    expect(l).toEqual({ libelleProprietaires: 'Propriétaire', proprietaires: 'X', libelleLocataires: 'Locataire',
+      precisionLocataires: '(à la date du mail)', locataires: 'Nevine Abdellatif' });
+    const v = deuxLignesParties([{ role: 'proprietaire', nom: 'X' }], { aLaDateDuMail: true });
+    expect(v.locataires).toBe('Vacant à cette date');
+    expect(v.precisionLocataires).toBe('(à la date du mail)');
   });
 });

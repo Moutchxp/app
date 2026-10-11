@@ -229,7 +229,10 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
     expect(container.textContent).not.toContain(ZONE_DEJA_RATTACHES);
     /* 🔴 LA DÉCISION SE PREND SUR LA CARTE, là où le bien est décrit. */
     expect(container.querySelectorAll('.rdf-item input.rdf-garde')).toHaveLength(1);
-    expect(container.querySelector('.mrb-zone--b')?.textContent).toContain(ZONE_AUTRES_PROPOSES);
+    /* 🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — les propositions sont la carte « Propositions » du composant partagé
+       (celui de « Rattacher ce mail à… ») ; l'ancien titre de zone n'est plus écrit nulle part. */
+    expect(container.querySelector('.rec-carte')?.textContent).toContain('Propositions');
+    expect(container.textContent).not.toContain(ZONE_AUTRES_PROPOSES);
     // le moteur de recherche, sur TOUS les biens de la base
     expect(container.querySelector('input[type="search"]')).not.toBeNull();
     // c) l'encadré, mot pour mot celui d'Arno
@@ -243,7 +246,7 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
    */
   it('🔴🔴 aucune proposition pré-cochée dans la zone (b)', async () => {
     await ouvrir();
-    const cases = [...container.querySelectorAll('.mrb-zone--b input[type="checkbox"]')] as HTMLInputElement[];
+    const cases = [...container.querySelectorAll('.rec-biens input[type="checkbox"]')] as HTMLInputElement[];
     expect(cases.length).toBeGreaterThan(0);
     expect(cases.filter((c) => c.checked)).toHaveLength(0);
   });
@@ -251,15 +254,16 @@ describe('🔴🔴 ② le grand bouton ouvre les deux zones, dans la même fenê
   /** 🔴🔴 ET UN BIEN DÉJÀ RATTACHÉ N'EST PAS DANS (b) : il est dans (a), avec son ✕. */
   it('🔴🔴 un bien déjà rattaché n’apparaît pas dans « Autres biens proposés »', async () => {
     await ouvrir();
-    const b = container.querySelector('.mrb-zone--b')?.textContent ?? '';
+    const b = container.querySelector('.rec-biens')?.textContent ?? '';
     expect(b).not.toContain('2 rue Fictive');
     /* 🔴🔴 IL EST SUR SA CARTE, EN HAUT, avec sa case — la zone qui le répétait a disparu (point 3). */
     const carte = container.querySelector('.rdf-item')?.textContent ?? '';
     expect(carte).toContain('2 rue Fictive');
     /* ⚠️ ET IL N'EST PLUS ANNONCÉ « À trancher » : le fait l'emporte sur l'estimation du moteur (décision
-       d'Arno). La pastille reste là où elle informe — sur un bien qu'on PEUT ajouter, en zone (b). */
+       d'Arno). 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — la pastille a aussi quitté les propositions : elle était un
+       élément du modèle B, supprimé (le motif en italique dit pourquoi un bien est proposé). */
     expect(carte).not.toContain('À trancher');
-    expect(b).toContain('À trancher');
+    expect(b).not.toContain('À trancher');
   });
 
   /**
@@ -801,7 +805,7 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
     expect(bouton(new RegExp(MOT_MODIFIER_BIENS_DU_MAIL))).toBeUndefined();
     /* Les cartes du haut, le moteur de recherche, et la ligne « Événement rattaché » : rien n'est retiré. */
     expect(container.querySelector('.rdf-item')).not.toBeNull();
-    expect(container.textContent).toContain('Chercher un autre bien');
+    expect(container.textContent).toContain('Moteur de recherche');
     expect(container.querySelector('.rdf-evt')).not.toBeNull();
   });
 

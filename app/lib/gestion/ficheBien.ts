@@ -171,64 +171,6 @@ export function periodeOccupation(depuis: string | null | undefined, jusqua: str
   return d !== null ? `depuis le ${d}` : `jusqu’au ${f}`;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   LES GROUPES DE PROPRIÉTAIRES
-   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
-
-/** Ce qu'il faut savoir d'un bien pour le grouper. Volontairement minimal : ce module ne connaît pas la base. */
-export interface BienGroupable {
-  cle: string;
-  parties: readonly PersonneFiche[];
-}
-
-export interface GroupeProprietaire<T extends BienGroupable> {
-  /** La clé du propriétaire, ou `''` quand le bien n'en a aucun à l'annuaire. */
-  cle: string;
-  /**
-   * 🔴 LES PERSONNES DU GROUPE — une CARTE par personne. L'annuaire ne porte aujourd'hui qu'un enregistrement par
-   * propriétaire, même pour une indivision (« MOTTAIS GRAINDORGE Didier et Sandrine » est UNE ligne, mesuré le
-   * 28/09/2026 : 81 lots sur 365 ont un nom de ce genre). On rend donc une carte par ENREGISTREMENT, et on ne
-   * découpe JAMAIS le nom en deux : « Didier et Sandrine » partagent un téléphone et deux adresses e-mail, et
-   * deviner laquelle est à qui fabriquerait deux fiches fausses au lieu d'une fiche vraie.
-   */
-  personnes: PersonneFiche[];
-  biens: T[];
-}
-
-/**
- * 🔴 LES BIENS PROPOSÉS, GROUPÉS PAR PROPRIÉTAIRE. PUR.
- *
- * Demande d'Arno : « s'il y a plusieurs propriétaires candidats (plusieurs biens de propriétaires différents), un
- * bloc propriétaire par groupe de biens ». C'est le cas d'un mail qui cite deux logements de deux bailleurs :
- * poser un seul bandeau « propriétaire » en tête ferait croire que les deux biens sont à la même personne.
- *
- * ⚠️ L'ORDRE DES GROUPES SUIT L'ORDRE DES BIENS, qui est déjà celui de la certitude (le plus sûr en tête). Trier
- * par nom de propriétaire remonterait un bailleur secondaire au-dessus du bien quasi certain.
- */
-export function groupesParProprietaire<T extends BienGroupable>(
-  biens: readonly T[],
-): GroupeProprietaire<T>[] {
-  const groupes: GroupeProprietaire<T>[] = [];
-  const index = new Map<string, GroupeProprietaire<T>>();
-
-  for (const b of biens) {
-    const proprios = b.parties.filter((p) => p.role === 'proprietaire');
-    // Un bien sans propriétaire connu forme son propre groupe, sous la clé vide : on ne le range pas ailleurs.
-    const cle = proprios.map((p) => p.cle).join('|');
-    const deja = index.get(cle);
-    if (deja !== undefined) { deja.biens.push(b); continue; }
-    const g: GroupeProprietaire<T> = { cle, personnes: [...proprios], biens: [b] };
-    index.set(cle, g);
-    groupes.push(g);
-  }
-  return groupes;
-}
-
-/** Les locataires d'un bien, à la date du mail. Vide = vacant, et l'écran le DIT. PUR. */
-export function locatairesDuBien(b: BienGroupable): PersonneFiche[] {
-  return b.parties.filter((p) => p.role === 'locataire');
-}
-
 /**
  * LE LIEN « appeler » d'un numéro de téléphone, ou `null` si le numéro n'en est pas un. PUR.
  *

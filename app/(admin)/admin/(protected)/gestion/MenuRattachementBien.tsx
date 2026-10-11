@@ -2,16 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { planClassement } from '../../../../lib/gestion/gesteClassement';
-import { groupesParProprietaire } from '../../../../lib/gestion/ficheBien';
-import { grouperResultats, messageAucunBien, motRaison, sansLesProposes } from '../../../../lib/gestion/rechercheBien';
-import {
-  ColonneBien, ColonneLocataires, CartePersonne, EnTeteCarteBien, CSS_PROPOSITIONS_BIENS,
-} from './PropositionsDeBiens';
-import { CSS_BOUTON_COPIER } from './BoutonCopier';
+/* 🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — LE SEUL COMPOSANT DE CHOIX DE BIENS : celui de « Rattacher ce mail à… ».
+   Les grandes cartes à deux colonnes (pastille de certitude, blocs e-mail + Copier, ligne récapitulative) sont
+   supprimées, sur décision d'Arno. Seule différence admise : les locataires à la date du mail. */
+import { CSS_LISTE_BIENS, ListeBiensACocher, useRechercheBiens } from './ListeBiensACocher';
+import { CSS_INFO_BIEN } from './InfoBien';
+import { CSS_ZONE_DEFILANTE } from './ZoneDefilante';
+import { titresDistincts } from '../../../../lib/gestion/titreBien';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — le motif qui fait d'un lien un AJOUT PONCTUEL. Voir son encadré. */
-import {
-  MOTIF_AJOUT_PONCTUEL, ZONE_AUTRES_PROPOSES, ZONE_DEJA_RATTACHES,
-} from '../../../../lib/gestion/ficheRattachement';
+import { MOTIF_AJOUT_PONCTUEL } from '../../../../lib/gestion/ficheRattachement';
 import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
 import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
 
@@ -169,9 +168,15 @@ export function MenuRattachementBien({
 
   // ── LA RECHERCHE ────────────────────────────────────────────────────────────────────────────────────────────
   const [saisie, setSaisie] = useState('');
-  const [resultats, setResultats] = useState<{ lignes: BienTrouve[]; tronque: boolean } | null>(null);
-  const [cherche, setCherche] = useState(false);
   const champ = useRef<HTMLInputElement | null>(null);
+  /**
+   * 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — LES RÉSULTATS COCHÉS REJOIGNENT LA LISTE DU HAUT, comme dans « Rattacher ce
+   * mail à… » : on ne coche pas un résultat pour le voir disparaître à la recherche suivante. Décocher ne le retire pas
+   * de la liste (la ligne qu'on vient de toucher ne s'efface pas sous le doigt).
+   */
+  const [ajoutes, setAjoutes] = useState<BienTrouve[]>([]);
+  /** 🔴 « voir les autres » : au-delà de cinq propositions, les suivantes sont à un clic (règle du modèle A). */
+  const [autresDeplies, setAutresDeplies] = useState(false);
 
   /**
    * ══ 🔴🔴 LA PRÉ-COCHE SE SUIT PAR SON CONTENU, JAMAIS PAR L'IDENTITÉ DU TABLEAU ══════════════════════════════
@@ -237,48 +242,65 @@ export function MenuRattachementBien({
   const dateMail = contexte?.dateMail ?? null;
 
   /**
-   * LA RECHERCHE, TEMPORISÉE (250 ms) : on interroge quand la frappe s'arrête, pas à chaque lettre.
-   *
-   * ⚠️ `annule` COUVRE LES DEUX CAS : composant démonté, et réponse PÉRIMÉE — une réponse lente à « vic » ne doit
-   * pas écraser les résultats de « victor hugo ». C'est la même précaution que dans `ChoisirEvenement`.
+   * LA RECHERCHE, TEMPORISÉE (250 ms) — le crochet partagé. 🔴 `dateMail` : les parties des résultats sont celles À LA
+   * DATE DU MAIL (« LOCATAIRE (à la date du mail) »), la seule différence admise avec « Rattacher ce mail à… ».
    */
-  useEffect(() => {
-    if (saisie.trim().length < 2) { setResultats(null); return undefined; }
-    let annule = false;
-    setCherche(true);
-    const minuteur = setTimeout(() => {
-      void (async () => {
-        try {
-          const p = new URLSearchParams({ q: saisie });
-          if (dateMail !== null) p.set('date', dateMail);
-          const res = await fetch(`/api/admin/gestion/biens?${p}`, { cache: 'no-store' });
-          const d = (await res.json()) as { etat?: string; lignes?: BienTrouve[]; tronque?: boolean };
-          if (annule) return;
-          setResultats(d.etat === 'ok' ? { lignes: d.lignes ?? [], tronque: d.tronque === true } : { lignes: [], tronque: false });
-        } catch {
-          if (!annule) setResultats({ lignes: [], tronque: false });
-        } finally {
-          if (!annule) setCherche(false);
-        }
-      })();
-    }, 250);
-    return () => { annule = true; clearTimeout(minuteur); setCherche(false); };
-  }, [saisie, dateMail]);
+  const recherche = useRechercheBiens(saisie, dateMail);
+  const lignesTrouvees: BienTrouve[] = recherche.v === 'ok' ? recherche.resultats.lignes : [];
 
   /**
-   * 🔴 UN BIEN DÉJÀ PROPOSÉ N'EST PAS RÉPÉTÉ EN BAS : deux cases pour un bien, c'est une case oubliée.
-   *
-   * ⚠️ ET UN BIEN DÉJÀ RATTACHÉ NON PLUS, depuis le lot FENETRE-BIENS-LIBELLES-ET-VIDEOS : il est dans la zone
-   * (a), et le retrouver plus bas avec une case cochée ferait deux endroits pour un seul état.
+   * ══ 🔴🔴 LES CARTES DU HAUT, DANS L'ORDRE DU MODÈLE A ══════════════════════════════════════════════════════════
+   * Les propositions de l'automatisation (sauf les biens déjà rattachés, qui ont leur carte au-dessus), puis les
+   * résultats de recherche cochés. Un bien replié n'est montré que déplié ou coché — ce qui est coché est visible,
+   * toujours. Puis les cochés à l'ouverture en tête : rien ne saute sous le doigt pendant qu'on coche.
    */
-  const trouves = sansLesProposes(resultats?.lignes ?? [],
-    [...propositions.map((b) => b.cle), ...clesDeja]);
-  /** …puis rangés en deux groupes titrés. Le tri et la règle « jamais deux fois » vivent dans le module PUR. */
-  const groupes = grouperResultats(trouves);
+  const clesProposees = new Set(propositions.map((b) => b.cle));
+  const proposesAffiches = propositions.filter((b) => b.replie !== true || autresDeplies || coches.includes(b.cle));
+  const replies = propositions.filter((b) => b.replie === true).length;
+  const ajoutesAffiches = ajoutes.filter((a) => !clesProposees.has(a.cle) && !clesDeja.has(a.cle));
+  const cochesALOuverture = useRef<ReadonlySet<string> | null>(null);
+  if (cochesALOuverture.current === null && etat.v !== 'charge') cochesALOuverture.current = new Set(coches);
+  const lignesHaut = [
+    ...proposesAffiches.map((b) => ({ cle: b.cle, parties: b.parties, motif: b.motif })),
+    ...ajoutesAffiches.map((b) => ({ cle: b.cle, parties: b.parties, motif: 'ajouté à la main depuis la recherche' })),
+  ].map((l, i) => ({ l, i, c: (cochesALOuverture.current?.has(l.cle) ?? false) ? 0 : 1 }))
+    .sort((x, y) => x.c - y.c || x.i - y.i).map((x) => x.l);
+
+  /** 🔴 LES TITRES (« adresse — nature · type »), calculés UNE fois sur toutes les listes : deux homonymes se départagent. */
+  const parTitre = new Map(titresDistincts([
+    ...propositions.map((b) => ({ cle: b.cle, adresse: [b.adresse ?? '', b.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
+      nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null })),
+    ...[...ajoutes, ...lignesTrouvees.filter((b) => !ajoutes.some((a) => a.cle === b.cle))].map((b) => ({
+      cle: b.cle, adresse: [b.adresseVoie ?? '', b.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
+      nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null })),
+  ]).map((x) => [x.cle, x.titre]));
+
+  /**
+   * 🔴 CE QUI EST À L'ÉCRAN AVEC UNE CASE : les cartes des biens déjà rattachés (au-dessus, dans la fenêtre), les cartes
+   * du haut et les résultats. C'est ce que le compteur compte et ce que « Sélectionner tous les biens » touche — un
+   * même bien n'y est qu'une fois (ensemble).
+   */
+  const clesVisibles = [...new Set([...clesDeja, ...lignesHaut.map((l) => l.cle), ...lignesTrouvees.map((b) => b.cle)])]
+    .filter((c) => c !== '');
+  const toutesCochees = clesVisibles.length > 0 && clesVisibles.every((c) => coches.includes(c));
+  /** Les biens déjà montrés plus haut : leur résultat dit « déjà dans la sélection » (une case, pas deux biens). */
+  const clesEnHaut = new Set([...clesDeja, ...lignesHaut.map((l) => l.cle)]);
 
   /** 🔴 L'APPELANT SUIT LA SÉLECTION EN DIRECT : c'est de là que viennent sa phrase, son alerte et son compteur. */
   const basculer = (cle: string): void =>
     poserCoches(coches.includes(cle) ? coches.filter((x) => x !== cle) : [...coches, cle]);
+  /** Un résultat coché rejoint la liste du haut (une fois) ; sa case est la même que celle du haut. */
+  const rangerResultat = (b: BienTrouve): void => {
+    if (clesProposees.has(b.cle) || clesDeja.has(b.cle)) return;
+    setAjoutes((a) => (a.some((x) => x.cle === b.cle) ? a : [...a, b]));
+  };
+  const basculerResultat = (b: BienTrouve): void => { rangerResultat(b); basculer(b.cle); };
+  /** « Sélectionner / Désélectionner tous les biens » : sur ce qui est visible, et rien d'autre. */
+  const toutBasculer = (): void => {
+    if (toutesCochees) { poserCoches(coches.filter((c) => !clesVisibles.includes(c))); return; }
+    for (const b of lignesTrouvees) if (!coches.includes(b.cle)) rangerResultat(b);
+    poserCoches([...new Set([...coches, ...clesVisibles])]);
+  };
 
   /** Le plan des DEUX zones réunies : c'est lui qui écrit la phrase, jamais un compte fait à la main. */
   const plan = planClassement({
@@ -299,7 +321,8 @@ export function MenuRattachementBien({
    */
   const libelleDe = (cle: string): string =>
     propositions.find((b) => b.cle === cle)?.libelle
-    ?? (resultats?.lignes ?? []).find((b) => b.cle === cle)?.libelle
+    ?? ajoutes.find((b) => b.cle === cle)?.libelle
+    ?? lignesTrouvees.find((b) => b.cle === cle)?.libelle
     ?? libellesConnus?.[cle]
     ?? cle;
 
@@ -372,8 +395,11 @@ export function MenuRattachementBien({
 
   return (
     <div className="mrb">
-      <style>{CSS_PROPOSITIONS_BIENS}</style>
-      <style>{CSS_BOUTON_COPIER}</style>
+      {/* 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — les feuilles du composant partagé, de sa pastille « i » et de sa zone
+          défilante : celles que monte « Rattacher ce mail à… ». Rien d'autre ne dessine les biens ici. */}
+      <style>{CSS_LISTE_BIENS}</style>
+      <style>{CSS_INFO_BIEN}</style>
+      <style>{CSS_ZONE_DEFILANTE}</style>
       <style>{CSS_MENU_RATTACHEMENT}</style>
 
       {etat.v === 'charge' && <p className="gst-info" role="status">Lecture des biens possibles…</p>}
@@ -385,73 +411,22 @@ export function MenuRattachementBien({
       {/* ══ ① LES PROPOSITIONS DE L'AUTOMATISATION — absentes s'il n'y en a aucune ═════════════════════════════
           🔴🔴 SAUF LES BIENS DÉJÀ RATTACHÉS (Arno) : ils sont au-dessus, sur les CARTES de la fenêtre, avec leur
           case ; les montrer une seconde fois ici ferait croire qu'il reste quelque chose à décider à leur sujet. */}
-      {propositions.length > 0 && (
-        <section className="mrb-zone mrb-zone--b" aria-label="Autres biens proposés">
-          <p className="mrb-titre mrb-titre--zone">
-            {preCoches === null
-              ? (propositions.length === 1 ? 'Une proposition de l’automatisation' : `${propositions.length} propositions de l’automatisation`)
-              : (propositions.length === 1 ? ZONE_AUTRES_PROPOSES : `${ZONE_AUTRES_PROPOSES} — ${propositions.length}`)}
-            {contexte?.examen && <span className="pdb-examen"> — {contexte.examen.motif}</span>}
-          </p>
-          {groupesParProprietaire(propositions).map((g, i) => (
-            <section className="pdb-groupe" key={g.cle === '' ? `sans-${i}` : g.cle}>
-              <div className="pdb-proprios">
-                <p className="pdb-groupe-titre">{g.personnes.length > 1 ? 'Propriétaires' : 'Propriétaire'}</p>
-                {g.personnes.length === 0
-                  ? <p className="pdb-vide">Aucun propriétaire à l’annuaire pour ce bien.</p>
-                  : <ul className="pdb-cartes">
-                    {g.personnes.map((p) => <CartePersonne key={`${p.role}|${p.cle}`} personne={p} />)}
-                  </ul>}
-              </div>
-              <ul className="pdb-liste">
-                {g.biens.map((b) => (
-                  <li key={b.cle} className="pdb-item">
-                    {/* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 1 — l'en-tête coiffe la carte entière. */}
-                    <EnTeteCarteBien bien={b} coche={coches.includes(b.cle)} fige={fige}
-                      onBasculer={() => basculer(b.cle)} />
-                    <div className="pdb-deux">
-                      <ColonneBien bien={b} />
-                      <ColonneLocataires bien={b} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
-        </section>
+      {/* ══ 🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — LES DEUX ZONES SONT LE COMPOSANT PARTAGÉ ═══════════════════════
+          « Propositions » puis « Moteur de recherche », exactement comme dans « Rattacher ce mail à… ». Les biens DÉJÀ
+          rattachés n'y sont pas répétés : ils ont leur carte, avec sa case, au-dessus dans la fenêtre (Arno). */}
+      {/* ⚠️ LE MOTIF DU MOTEUR (« examen ») RESTE LU : il coiffait la zone des propositions, et rien de la liste
+          d'Arno ne demande de le retirer. */}
+      {contexte?.examen && contexte.examen.motif.trim() !== '' && propositions.length > 0 && (
+        <p className="mrb-examen">{contexte.examen.motif}</p>
       )}
-
-      {/* ══ ② LA RECHERCHE LIBRE — pour ajouter ce que l'automatisation n'a pas vu ════════════════════════════ */}
-      <p className="mrb-titre">Chercher un autre bien</p>
-      <label className="mrb-champ">
-        <span className="svv-label">Adresse, nom (propriétaire ou locataire, même passé), téléphone ou e-mail</span>
-        <input ref={champ} className="mrb-saisie" type="search" value={saisie} autoComplete="off" maxLength={120}
-          placeholder="ex. « 4 victor hugo », « MARTY », « 06 03 05 07 03 », « nom@exemple.fr »"
-          onChange={(e) => setSaisie(e.target.value)} />
-      </label>
-
-      {cherche && <p className="gst-info" role="status">Recherche…</p>}
-      {!cherche && resultats !== null && trouves.length === 0 && (
-        // 🔴 ON DIT CE QU'ON A CHERCHÉ : « aucun résultat » tout court se lit comme une panne.
-        <p className="pdb-vide">{messageAucunBien(saisie)}</p>
-      )}
-
-      {/* 🔴 LES DEUX GROUPES TITRÉS, DEMANDÉS PAR ARNO : « Par adresse », puis « Par nom ou coordonnée ». Un bien
-          qui répond aux deux n'est que dans le premier — `grouperResultats` s'en charge, pas cet écran. */}
-      {groupes.map((g) => (
-        <section className="mrb-groupe" key={g.sorte}>
-          <p className="mrb-titre mrb-titre--groupe">{g.titre}</p>
-          <ul className="pdb-liste mrb-resultats">
-            {g.biens.map((b) => (
-              <LigneResultat key={b.cle} bien={b} coche={coches.includes(b.cle)} fige={fige}
-                onBasculer={() => basculer(b.cle)} />
-            ))}
-          </ul>
-        </section>
-      ))}
-      {resultats?.tronque && (
-        <p className="pdb-vide">Seuls les premiers biens sont affichés — précisez votre recherche.</p>
-      )}
+      <ListeBiensACocher afficherPropositions={etat.v === 'ok'} lignes={lignesHaut}
+        titre={(cle) => parTitre.get(cle) ?? libelleDe(cle)}
+        selection={new Set(coches)} onBasculer={basculer}
+        clesVisibles={clesVisibles} toutesCochees={toutesCochees} onToutBasculer={toutBasculer}
+        replies={replies} autresDeplies={autresDeplies} onBasculerAutres={() => setAutresDeplies((v) => !v)}
+        saisie={saisie} onSaisie={setSaisie} champ={champ} recherche={recherche}
+        clesEnHaut={clesEnHaut} onBasculerResultat={basculerResultat}
+        aLaDateDuMail={dateMail !== null} />
 
       {/* ══ ③ UNE SEULE VALIDATION POUR LES DEUX ZONES ═══════════════════════════════════════════════════════
           🔴🔴 EN AJOUT PONCTUEL, IL N'Y A PAS DE PORTÉE À CHOISIR : « ponctuel » VEUT DIRE ce mail, et rien
@@ -464,7 +439,7 @@ export function MenuRattachementBien({
         </p>
       ) : (
         <fieldset className="mrb-portee">
-          <legend className="pdb-groupe-titre">Portée</legend>
+          <legend className="mrb-legende">Portée</legend>
           <label className="mrb-choix">
             <input type="radio" name="mrb-portee" checked={portee === 'mail'} onChange={() => setPortee('mail')} />
             <span>Ce mail uniquement</span>
@@ -477,7 +452,7 @@ export function MenuRattachementBien({
         </fieldset>
       )}
 
-      <div className="pdb-boutons">
+      <div className="mrb-boutons">
         <button type="button" className="svv-btn svv-btn-primary gst-btn"
           disabled={fige || !aFaire || validationBloquee !== null}
           onClick={() => void valider()}>
@@ -495,7 +470,7 @@ export function MenuRattachementBien({
         {/* ⚠️ EN MODE DÉLÉGUÉ, LA PHRASE EST CELLE DE L'APPELANT : lui seul sait ce que « valider » va écrire.
             Ce menu dirait « rattaché », et ce serait faux — c'est une exception de suivi qu'il pose. */}
         {onValider === undefined && (
-          <span className="pdb-resume" role="status">
+          <span className="mrb-resume" role="status">
             {aFaire ? plan.resume : 'Aucun bien coché : rien ne sera rattaché.'}
           </span>
         )}
@@ -508,76 +483,17 @@ export function MenuRattachementBien({
   );
 }
 
-/**
- * UNE LIGNE DE RÉSULTAT DE RECHERCHE — le MÊME rendu que les propositions du haut : c'est le même objet, un bien,
- * il doit se reconnaître d'une zone à l'autre.
- *
- * 🔴 LA RAISON DE LA CORRESPONDANCE RESTE SUR LA LIGNE, même sous un titre de groupe : le titre dit PAR QUELLE
- * VOIE le bien est arrivé (adresse, ou nom/coordonnée), la raison dit LAQUELLE exactement — « locataire passé
- * DUPONT » n'est pas « téléphone de MARS AVENIR », et c'est ce détail qui fait trancher.
- */
-function LigneResultat({ bien: b, coche, fige, onBasculer }: {
-  bien: BienTrouve; coche: boolean; fige: boolean; onBasculer: () => void;
-}) {
-  const commun = {
-    cle: b.cle, libelle: b.libelle, adresse: null, commune: null, typeBien: b.typeBien,
-    // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la nature voyage avec le résultat : c'est elle qui décide de la catégorie.
-    nature: b.nature ?? null,
-    adresseComplete: b.adresse, parties: b.parties, recommande: false, dejaRattache: false,
-    cas: 'd' as const, certitude: 'a_trancher' as const,
-    // ⚠️ LOT PROPOSITIONS-PAR-LE-CONTENU — un résultat de recherche n'est jamais replié : on l'a demandé.
-    replie: false,
-  };
-  const bienDetaille = {
-    ...commun,
-    caracteristiques: [
-      ...(b.nature ? [{ libelle: 'Nature', valeur: b.nature }] : []),
-      ...(b.typeBien ? [{ libelle: 'Type', valeur: b.typeBien }] : []),
-    ],
-    motif: `trouvé par ${b.raisons.map(motRaison).join(' · ')}`,
-  };
-  return (
-    <li className="pdb-item">
-      {/* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 1 — l'en-tête coiffe la carte entière : c'est lui qui
-          donne à l'œil le point d'entrée de chaque résultat, là où douze biens formaient un tableau continu. */}
-      <EnTeteCarteBien bien={bienDetaille} coche={coche} fige={fige} onBasculer={onBasculer} />
-      <div className="pdb-deux">
-        <ColonneBien bien={bienDetaille} />
-        <ColonneLocataires bien={{ ...commun, caracteristiques: [], motif: '' }} />
-      </div>
-      {/* 🔴 LA SOUS-LIGNE DEMANDÉE PAR ARNO, sur UNE ligne : « Propriétaire : … · Locataire : … ». Les deux
-          colonnes donnent le détail ; celle-ci donne le couple d'un coup d'œil, pour trancher sans lire.
-          « vacant » est une réponse — un blanc n'en est pas une. */}
-      <p className="mrb-couple">
-        <span className="pdb-role">Propriétaire :</span>{' '}
-        {b.parties.find((p) => p.role === 'proprietaire')?.nom ?? '(inconnu)'}
-        <span className="pdb-sep" aria-hidden="true"> · </span>
-        <span className="pdb-role">Locataire :</span>{' '}
-        {b.parties.filter((p) => p.role === 'locataire').map((p) => p.nom).join(', ')
-          || 'vacant à cette date'}
-      </p>
-    </li>
-  );
-}
-
 export const CSS_MENU_RATTACHEMENT = `
 /* Le menu est le VOISIN IMMEDIAT de la ligne qui l'ouvre : un panneau qui s'ouvre en bas de page apparait hors
    du regard. Un liseré à gauche le rattache visuellement à sa ligne. */
 .mrb{margin:6px 0 10px;padding:8px 10px;border:1px solid var(--color-svv-line);border-left:3px solid
   var(--color-svv-line-strong);border-radius:.6rem;background:var(--color-svv-field);min-width:0}
-.mrb-titre{margin:.4rem 0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+/* La legende de la portee : petites capitales grises, comme les titres de carte. */
+.mrb-legende{margin:0 0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
   color:var(--color-svv-muted)}
-.mrb-titre:first-child{margin-top:0}
-.mrb-champ{display:flex;flex-direction:column;gap:.2rem;min-width:0}
-.mrb-saisie{min-height:40px;padding:.3rem .5rem;font:inherit;font-size:.9rem;color:var(--color-svv-ink);
-  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.4rem;min-width:0}
-.mrb-saisie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-/* Le titre d'un groupe de résultats : il porte le MOT (« Par adresse »), jamais une couleur seule. */
-.mrb-groupe{margin-top:8px;min-width:0}
-.mrb-titre--groupe{margin:.2rem 0 0;color:var(--color-svv-ink)}
-.mrb-resultats{margin-top:4px;border-top:1px solid var(--color-svv-line)}
-.mrb-resultats .pdb-item{border-top:0}
-.mrb-couple{margin:0;padding:0 10px 8px;font-size:.8rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.mrb-boutons{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px}
+.mrb-resume{font-size:.78rem;color:var(--color-svv-muted)}
+.mrb-examen{margin:0 0 .4rem;font-size:.78rem;color:var(--color-svv-muted)}
 .mrb-portee{margin:8px 0;padding:6px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem;min-width:0}
 /* 🔴 L'ajout ponctuel n'a pas de portee a choisir : on l'ECRIT. Meme encadre, ton de note. */
 .mrb-ponctuel{margin:8px 0;padding:6px 10px;border:1px dashed var(--color-svv-line-strong);border-radius:.6rem;
@@ -586,34 +502,4 @@ export const CSS_MENU_RATTACHEMENT = `
   cursor:pointer}
 .mrb-choix--inactif{color:var(--color-svv-muted);cursor:default}
 
-/* ══ 🔴🔴 LOT FENETRE-BIENS-LIBELLES-ET-VIDEOS — DEUX ZONES NETTEMENT SEPAREES ════════════════════════════════
-   Demande d'Arno : « titres distincts, separateur ou fond different, espacement », lisibles en Clair et en Sombre.
-   Les trois sont la : un FOND propre a chaque zone, un LISERE de couleur sur son bord gauche, et un ecart franc
-   entre les deux. Le fond seul ne suffirait pas en Sombre, ou les aplats se ressemblent.
-
-   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot, vu 12 fois).
-   🔴 AUCUNE COULEUR EN DUR : tout vient des jetons, qui basculent seuls d'un theme a l'autre. */
-.mrb-zone{margin:10px 0;padding:8px 10px;border-radius:.6rem;background:var(--color-svv-surface);
-  border:1px solid var(--color-svv-line);min-width:0}
-/* (a) CE QUI EST : un fait, ecrit en base. Le rouge de la maison le marque. */
-.mrb-zone--a{border-left:3px solid var(--color-svv-red)}
-/* (b) CE QU'ON PROPOSE : une estimation. Un liseré neutre, pour qu'on ne confonde pas les deux d'un coup d'oeil. */
-.mrb-zone--b{border-left:3px solid var(--color-svv-line-strong)}
-.mrb-titre--zone{margin-top:0;color:var(--color-svv-ink)}
-.mrb-deja{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;list-style:none}
-.mrb-deja-item{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-height:36px;padding:4px 6px;
-  border-radius:.4rem;background:var(--color-svv-field);min-width:0}
-.mrb-deja-nom{flex:1 1 12rem;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
-/* Un bien retire reste LA, barre : le mot et le trait disent la meme chose, et « Remettre » le ramene. */
-.mrb-deja-item--retire .mrb-deja-nom{text-decoration:line-through;color:var(--color-svv-muted);font-weight:400}
-.mrb-deja-mot{font-size:.7rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;
-  color:var(--color-svv-muted)}
-/* La croix : cible tactile pleine, jamais un caractere seul perdu au bout d'une ligne. */
-.mrb-croix{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;
-  flex:0 0 auto;font:inherit;font-size:.9rem;line-height:1;color:var(--color-svv-muted);background:transparent;
-  border:1px solid var(--color-svv-line-strong);border-radius:.4rem;cursor:pointer}
-.mrb-croix:hover{color:var(--color-svv-red);border-color:var(--color-svv-red)}
-.mrb-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.mrb-croix:disabled{opacity:.5;cursor:default}
-@media (pointer:coarse){.mrb-croix{width:44px;height:44px}}
 `;

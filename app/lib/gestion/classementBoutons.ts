@@ -131,16 +131,27 @@ export interface DeuxLignesParties {
   libelleProprietaires: string;
   proprietaires: string;
   libelleLocataires: string;
+  /** « (à la date du mail) » pour un mail dont on montre les locataires de l'époque ; `null` sinon. */
+  precisionLocataires: string | null;
   locataires: string;
 }
-export function deuxLignesParties(parties: readonly { role: string; nom: string }[]): DeuxLignesParties {
+export function deuxLignesParties(
+  parties: readonly { role: string; nom: string }[],
+  /**
+   * 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — « Modifier le rattachement » d'un mail : les locataires sont ceux À LA
+   * DATE DU MAIL (Arno : « LOCATAIRE (à la date du mail) », ou « Vacant à cette date »). Absent ⇒ comme avant.
+   */
+  o: { aLaDateDuMail?: boolean } = {},
+): DeuxLignesParties {
   const noms = (role: string) => parties.filter((p) => p.role === role).map((p) => p.nom.trim()).filter((n) => n !== '');
   const proprios = noms('proprietaire');
   const locataires = noms('locataire');
+  const date = o.aLaDateDuMail === true;
   return {
     libelleProprietaires: proprios.length > 1 ? 'Propriétaires' : 'Propriétaire',
     proprietaires: proprios.length === 0 ? '(propriétaire inconnu)' : proprios.join(' · '),
     libelleLocataires: locataires.length > 1 ? 'Locataires' : 'Locataire',
-    locataires: locataires.length === 0 ? 'Vacant' : locataires.join(' · '),
+    precisionLocataires: date ? '(à la date du mail)' : null,
+    locataires: locataires.length === 0 ? (date ? 'Vacant à cette date' : 'Vacant') : locataires.join(' · '),
   };
 }

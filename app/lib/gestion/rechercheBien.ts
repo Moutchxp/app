@@ -178,16 +178,3 @@ export function messageAucunBien(brut: string): string {
     : `Aucun bien trouvé pour « ${q} ». On peut chercher par adresse (même partielle), par nom de propriétaire ou `
       + 'de locataire (même passé), par téléphone ou par e-mail.';
 }
-
-/**
- * LES BIENS DÉJÀ PROPOSÉS PAR L'AUTOMATISATION NE SONT PAS RÉPÉTÉS DANS LES RÉSULTATS. PUR.
- *
- * 🔴 POURQUOI. La même ligne deux fois, à deux endroits de la même fenêtre, avec deux cases à cocher : on en coche
- * une, l'autre reste vide, et l'on ne sait plus laquelle compte. Demande d'Arno, et c'est la bonne.
- */
-export function sansLesProposes<T extends { cle: string }>(
-  resultats: readonly T[], clesProposees: readonly string[],
-): T[] {
-  const deja = new Set(clesProposees);
-  return resultats.filter((r) => !deja.has(r.cle));
-}

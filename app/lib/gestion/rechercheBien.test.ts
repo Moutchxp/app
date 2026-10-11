@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   classerResultats, grouperResultats, messageAucunBien, motRaison, rangDuBien, rangRaison, raisonsTriees,
-  sansLesProposes, titreGroupe, type RaisonCorrespondance,
+  titreGroupe, type RaisonCorrespondance,
 } from './rechercheBien';
 
 /**
@@ -70,17 +70,6 @@ describe('🔴 ② chaque résultat DIT pourquoi il est là', () => {
       r('telephone_proprietaire', 'X'), r('adresse'), r('telephone_proprietaire', 'X'), r('locataire', 'D'),
     ]);
     expect(t.map((x) => x.sorte)).toEqual(['adresse', 'locataire', 'telephone_proprietaire']);
-  });
-});
-
-describe('🔴 ③ un bien déjà proposé n’est pas répété', () => {
-  it('il disparaît des résultats de recherche', () => {
-    const l = sansLesProposes([{ cle: '445' }, { cle: '446' }, { cle: '447' }], ['446']);
-    expect(l.map((x) => x.cle)).toEqual(['445', '447']);
-  });
-
-  it('sans proposition, tout est gardé', () => {
-    expect(sansLesProposes([{ cle: '445' }], []).map((x) => x.cle)).toEqual(['445']);
   });
 });
 

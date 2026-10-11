@@ -2,19 +2,24 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync, existsSync } from 'node:fs';
 import { MenuRattachementBien } from './MenuRattachementBien';
 
 /**
  * 🔴 LOT BIEN-RATTACHE — LE MENU DE RATTACHEMENT, ÉPROUVÉ À L'ÉCRAN.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * Ce qui est protégé ici, demande par demande :
- *   ③a les PROPOSITIONS de l'automatisation sont EN HAUT — et la zone disparaît s'il n'y en a aucune ;
- *   ③b la RECHERCHE LIBRE est en dessous, et ses résultats sont des BIENS, jamais des personnes ;
- *       un bien déjà proposé n'est pas répété ; « aucun bien trouvé » dit ce qu'on a cherché ;
- *   ③b′ 🔴 LES RÉSULTATS SONT RANGÉS EN DEUX GROUPES TITRÉS — « Par adresse », puis « Par nom ou coordonnée » —
- *       et un bien qui répond aux deux n'est QUE dans le premier ;
+ * 🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE (11/10/2026) — CE MENU REND LE COMPOSANT PARTAGÉ DE « Rattacher ce mail à… »
+ * (`ListeBiensACocher`) : cartes compactes, compteur, « Sélectionner tous les biens », « i », motif, « déjà dans la
+ * sélection ». Les grandes cartes du modèle B (pastille « À trancher », colonnes, blocs e-mail + Copier, ligne
+ * récapitulative) sont supprimées. Seule différence admise : « LOCATAIRE (à la date du mail) ».
+ *
+ * Ce qui est protégé ici :
+ *   ③a les PROPOSITIONS de l'automatisation sont EN HAUT, avec leur motif ;
+ *   ③b la RECHERCHE LIBRE est en dessous, ses résultats sont des BIENS, avec la DATE DU MAIL ;
+ *   ③b′ les résultats sont rangés en DEUX GROUPES TITRÉS — et un bien qui répond aux deux n'est que dans le premier ;
  *   ③c UNE SEULE VALIDATION pour les deux zones, avec la portée et « Hors gestion » ;
+ *   ③d le compteur et « Sélectionner / Désélectionner tous les biens » ;
  *   🔴 RIEN n'est écrit avant « Rattacher ».
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
@@ -28,16 +33,16 @@ let resultats: { lignes: unknown[]; tronque?: boolean };
 
 const partie = (role: string, nom: string) => ({ role, cle: nom, nom, emails: [], telephones: [] });
 const propose = (cle: string, o: Record<string, unknown> = {}) => ({
-  cle, libelle: `4 rue Alpha, 92000 VILLE — lot ${cle}`, adresse: '4 rue Alpha', commune: 'VILLE',
-  typeBien: 'Type 2', adresseComplete: '4 rue Alpha, 92000 VILLE',
+  cle, libelle: `4 rue Alpha, 92000 VILLE — lot ${cle}`, adresse: `${cle} rue Alpha`, commune: 'VILLE',
+  nature: 'Appartement', typeBien: 'Type 2', adresseComplete: '4 rue Alpha, 92000 VILLE',
   caracteristiques: [{ libelle: 'Nature', valeur: 'Appartement' }],
   parties: [partie('proprietaire', 'BAILLEUR A'), partie('locataire', 'LOCATAIRE A')],
-  recommande: false, dejaRattache: false,
+  recommande: false, dejaRattache: false, replie: false,
   motif: 'un des 2 biens de BAILLEUR A', cas: 'c', certitude: 'a_trancher', ...o,
 });
 const trouve = (cle: string, o: Record<string, unknown> = {}) => ({
-  cle, libelle: `9 rue Beta, 92000 VILLE — lot ${cle}`, adresse: '9 rue Beta, 92000 VILLE',
-  nature: 'Appartement', typeBien: 'Studio',
+  cle, lotId: Number(cle), libelle: `9 rue Beta, 92000 VILLE — lot ${cle}`, adresse: '9 rue Beta, 92000 VILLE',
+  adresseVoie: `${cle} rue Beta`, commune: 'VILLE', nature: 'Appartement', typeBien: 'Studio',
   parties: [partie('proprietaire', 'BAILLEUR B'), partie('locataire', 'LOCATAIRE B')],
   raisons: [{ sorte: 'adresse', detail: '' }], ...o,
 });
@@ -86,7 +91,9 @@ const cliquer = async (e: Element | null | undefined) => {
   await act(async () => { (e as HTMLElement | undefined)?.click(); }); await calmer();
 };
 const cases = () => [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
-const champ = () => container.querySelector('.mrb-saisie') as HTMLInputElement;
+const casesDuHaut = () => [...container.querySelectorAll('.rec-biens input[type="checkbox"]')] as HTMLInputElement[];
+const casesResultats = () => [...container.querySelectorAll('.rec-resultats input[type="checkbox"]')] as HTMLInputElement[];
+const champ = () => container.querySelector('.rec-saisie') as HTMLInputElement;
 const taper = async (t: string) => {
   await act(async () => {
     const c = champ();
@@ -101,41 +108,76 @@ const taper = async (t: string) => {
 const ecritures = () => appels.filter((a) => a.methode !== 'GET');
 /** Tous les résultats de recherche, tous groupes confondus. */
 const zoneResultats = () =>
-  [...container.querySelectorAll('.mrb-resultats')].map((e) => e.textContent ?? '').join(' ');
+  [...container.querySelectorAll('.rec-resultats')].map((e) => e.textContent ?? '').join(' ');
 /** Les titres des groupes, dans l'ordre où ils s'affichent. */
 const titresGroupes = () =>
-  [...container.querySelectorAll('.mrb-titre--groupe')].map((e) => e.textContent ?? '');
+  [...container.querySelectorAll('.rec-groupe-titre')].map((e) => e.textContent ?? '');
+const compteur = () => container.querySelector('.rec-compte')?.textContent ?? '';
+
+describe('🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — un seul composant, plus aucune trace du modèle B', () => {
+  const dossier = 'app/(admin)/admin/(protected)/gestion';
+  it('les deux fenêtres rendent LE MÊME composant de choix de biens', () => {
+    const a = readFileSync(`${dossier}/RattacherEnEcrivant.tsx`, 'utf8');
+    const b = readFileSync(`${dossier}/MenuRattachementBien.tsx`, 'utf8');
+    for (const s of [a, b]) {
+      expect(s).toContain("import { CSS_LISTE_BIENS, ListeBiensACocher, useRechercheBiens } from './ListeBiensACocher';");
+      expect(s.match(/<ListeBiensACocher /g)).toHaveLength(1);
+      expect(s).toContain('<style>{CSS_LISTE_BIENS}</style>');
+    }
+  });
+  it('🔴 plus aucune trace du modèle B dans le code', () => {
+    expect(existsSync(`${dossier}/PropositionsDeBiens.tsx`)).toBe(false);
+    const b = readFileSync(`${dossier}/MenuRattachementBien.tsx`, 'utf8');
+    for (const trace of ['EnTeteCarteBien', 'ColonneBien', 'ColonneLocataires', 'CartePersonne', 'CSS_PROPOSITIONS_BIENS',
+      'CSS_BOUTON_COPIER', 'LigneResultat', 'mrb-couple', 'pdb-', 'À trancher', 'Chercher un autre bien', 'mrb-resultats']) {
+      expect(b).not.toContain(trace);
+    }
+    /* Un seul endroit dessine une ligne de résultat de recherche de biens dans toute l'application. */
+    const a = readFileSync(`${dossier}/RattacherEnEcrivant.tsx`, 'utf8');
+    expect(a).not.toContain('function LigneBienCompacte');
+    expect(readFileSync(`${dossier}/ListeBiensACocher.tsx`, 'utf8')).toContain('function LigneBienCompacte');
+  });
+});
 
 describe('🔴 ③a les propositions de l’automatisation, EN HAUT', () => {
   it('elles sont affichées, avec leur motif, avant la recherche', async () => {
     await monter();
-    expect(container.textContent).toContain('2 propositions de l’automatisation');
+    expect(container.textContent).toContain('Propositions');
     expect(container.textContent).toContain('un des 2 biens de BAILLEUR A');
     const html = container.innerHTML;
-    expect(html.indexOf('propositions de l’automatisation')).toBeLessThan(html.indexOf('Chercher un autre bien'));
+    expect(html.indexOf('Propositions')).toBeLessThan(html.indexOf('Moteur de recherche'));
   });
 
-  it('chaque proposition garde sa fiche : propriétaire, locataire, certitude', async () => {
+  it('chaque proposition porte ses parties sur deux lignes — LOCATAIRE à la date du mail — et sa pastille « i »', async () => {
     await monter();
-    expect(container.querySelector('.pdb-proprios')?.textContent).toContain('BAILLEUR A');
-    expect(container.querySelector('.pdb-col--loc')?.textContent).toContain('LOCATAIRE A');
-    expect(container.textContent).toContain('À trancher');
+    const carte = container.querySelector('.rec-bien')?.textContent ?? '';
+    expect(carte).toContain('BAILLEUR A');
+    expect(carte).toContain('Locataire (à la date du mail) LOCATAIRE A');
+    expect(container.querySelectorAll('.rec-bien .ifb-bouton, .rec-bien button').length).toBeGreaterThan(0);
+    /* 🔴 Plus de pastille « À trancher », plus de colonnes. */
+    expect(container.textContent).not.toContain('À trancher');
+    expect(container.querySelector('.pdb-col--loc')).toBeNull();
   });
 
-  it('🔴 AUCUNE proposition ⇒ la zone ne s’affiche PAS du tout', async () => {
+  it('🔴 « Vacant à cette date » quand personne n’occupait le bien au jour du mail', async () => {
+    contexte = { ...contexte, biens: [propose('445', { parties: [partie('proprietaire', 'BAILLEUR A')] })] };
+    await monter();
+    expect(container.querySelector('.rec-bien')?.textContent).toContain('Vacant à cette date');
+  });
+
+  it('🔴 AUCUNE proposition ⇒ la phrase d’Arno, et la recherche reste', async () => {
     contexte = { ...contexte, biens: [] };
     await monter();
-    expect(container.textContent).not.toContain('de l’automatisation');
-    // …mais la recherche, elle, reste : c'est par elle qu'on rattachera.
-    expect(container.textContent).toContain('Chercher un autre bien');
+    expect(container.querySelector('.rec-aucune')).not.toBeNull();
+    expect(container.textContent).toContain('Moteur de recherche');
   });
 
   it('la pré-coche vient du moteur, et se décoche sans revenir', async () => {
     contexte = { ...contexte, biens: [propose('445', { recommande: true }), propose('446')] };
     await monter();
-    expect(cases().map((c) => c.checked)).toEqual([true, false]);
-    await cliquer(cases()[0]);
-    expect(cases().map((c) => c.checked)).toEqual([false, false]);
+    expect(casesDuHaut().map((c) => c.checked)).toEqual([true, false]);
+    await cliquer(casesDuHaut()[0]);
+    expect(casesDuHaut().map((c) => c.checked)).toEqual([false, false]);
   });
 });
 
@@ -154,24 +196,28 @@ describe('🔴 ③b la recherche libre : des BIENS, et rien que des biens', () =
     expect(r?.url).toContain('date=2026-08-13');
   });
 
-  it('chaque résultat est un BIEN, avec sa raison de correspondance en clair', async () => {
+  it('chaque résultat est un BIEN, compact, avec sa raison et LOCATAIRE (à la date du mail)', async () => {
     resultats = { lignes: [trouve('999')] };
     await monter();
     await taper('9 rue beta');
     const bloc = zoneResultats();
-    expect(bloc).toContain('9 rue Beta, 92000 VILLE');
-    expect(bloc).toContain('lot 999');
+    expect(bloc).toContain('999 rue Beta, VILLE');
     expect(bloc).toContain('trouvé par adresse');
     expect(bloc).toContain('BAILLEUR B');
-    expect(bloc).toContain('LOCATAIRE B');
+    expect(bloc).toContain('Locataire (à la date du mail) LOCATAIRE B');
+    expect(container.querySelectorAll('.rec-resultats .rec-ligne')).toHaveLength(1);
   });
 
-  it('🔴 un bien DÉJÀ PROPOSÉ n’est pas répété dans les résultats', async () => {
+  it('🔴 un bien DÉJÀ PROPOSÉ n’est pas un second bien : il dit « déjà dans la sélection »', async () => {
     resultats = { lignes: [trouve('445'), trouve('999')] };
     await monter();
     await taper('rue');
-    expect(zoneResultats()).toContain('lot 999');
-    expect(zoneResultats()).not.toContain('lot 445');
+    const lignes = [...container.querySelectorAll('.rec-resultats .rec-ligne')];
+    expect(lignes[0].textContent).toContain('déjà dans la sélection');
+    expect(lignes[1].textContent).not.toContain('déjà dans la sélection');
+    /* Une seule case pour ce bien : cocher l'une coche l'autre. */
+    await cliquer(casesResultats()[0]);
+    expect(casesDuHaut()[0].checked).toBe(true);
   });
 
   it('🔴 aucun résultat ⇒ on DIT ce qu’on a cherché, jamais « aucun résultat » tout court', async () => {
@@ -194,23 +240,15 @@ describe('🔴 ③b′ les résultats, en DEUX GROUPES TITRÉS', () => {
   const parNom = (cle: string, detail = 'RUELLAN Océane et Victor Hugo') =>
     trouve(cle, { raisons: [{ sorte: 'locataire', detail }] });
 
-  it('🔴 « Par adresse » est affiché EN PREMIER, « Par nom ou coordonnée » ensuite', async () => {
+  it('🔴 « Par adresse » EN PREMIER, « Par nom ou coordonnée » ensuite, chaque bien sous le bon titre', async () => {
     resultats = { lignes: [parNom('998'), trouve('999')] };
     await monter();
     await taper('victor hugo');
     expect(titresGroupes()).toEqual(['Par adresse', 'Par nom ou coordonnée']);
-    const html = container.innerHTML;
-    expect(html.indexOf('Par adresse')).toBeLessThan(html.indexOf('Par nom ou coordonnée'));
-  });
-
-  it('chaque bien est SOUS le bon titre', async () => {
-    resultats = { lignes: [parNom('998'), trouve('999')] };
-    await monter();
-    await taper('victor hugo');
-    const zones = [...container.querySelectorAll('.mrb-resultats')].map((e) => e.textContent ?? '');
-    expect(zones[0]).toContain('lot 999');
-    expect(zones[0]).not.toContain('lot 998');
-    expect(zones[1]).toContain('lot 998');
+    const groupes = [...container.querySelectorAll('.rec-groupe')].map((e) => e.textContent ?? '');
+    expect(groupes[0]).toContain('999 rue Beta');
+    expect(groupes[0]).not.toContain('998 rue Beta');
+    expect(groupes[1]).toContain('998 rue Beta');
   });
 
   it('🔴 un bien trouvé PAR L’ADRESSE ET PAR UN NOM n’apparaît QUE dans le premier groupe', async () => {
@@ -222,41 +260,18 @@ describe('🔴 ③b′ les résultats, en DEUX GROUPES TITRÉS', () => {
     await monter();
     await taper('dupont beta');
     expect(titresGroupes()).toEqual(['Par adresse']);
-    // Une seule case à cocher pour ce bien : deux cases pour un même bien, c'est une case qu'on oublie.
-    expect(zoneResultats().match(/lot 999/g)).toHaveLength(1);
-    // …et il garde SES DEUX raisons : le titre dit par quelle voie, la raison dit laquelle.
+    expect(zoneResultats().match(/999 rue Beta/g)).toHaveLength(1);
     expect(zoneResultats()).toContain('trouvé par adresse · locataire DUPONT Jean');
   });
 
-  it('🔴 un groupe VIDE n’est pas titré — sinon un titre suivi de rien se lit comme une panne', async () => {
-    resultats = { lignes: [parNom('998')] };
-    await monter();
-    await taper('victor hugo');
-    expect(titresGroupes()).toEqual(['Par nom ou coordonnée']);
-  });
-
-  it('🔴 le cas réel « victor hugo » : aucune adresse en gestion, le résultat est SOUS « Par nom »', async () => {
-    // Vérifié sur la base le 28/09/2026 : aucun lot en gestion n’est rue Victor Hugo. Le seul résultat est un
-    // lot rue Lyautey, dont la locataire s’appelle Victor Hugo — le titre du groupe l’explique d’un coup d’œil.
-    resultats = { lignes: [parNom('30')] };
-    await monter();
-    await taper('victor hugo');
-    expect(titresGroupes()).toEqual(['Par nom ou coordonnée']);
-    expect(zoneResultats()).toContain('trouvé par locataire RUELLAN Océane et Victor Hugo');
-  });
-
-  it('un bien trouvé par TÉLÉPHONE est un résultat « par nom ou coordonnée »', async () => {
+  it('un bien trouvé par TÉLÉPHONE est « par nom ou coordonnée » ; par N° DE LOT, « par adresse »', async () => {
     resultats = { lignes: [trouve('999', { raisons: [{ sorte: 'telephone_proprietaire', detail: 'BAILLEUR B' }] })] };
     await monter();
     await taper('06 69 14 28 07');
     expect(titresGroupes()).toEqual(['Par nom ou coordonnée']);
     expect(zoneResultats()).toContain('trouvé par téléphone de BAILLEUR B');
-  });
-
-  it('un bien trouvé par son N° DE LOT reste « par adresse » : le lot désigne le bien, pas une personne', async () => {
-    resultats = { lignes: [trouve('999', { raisons: [{ sorte: 'lot', detail: '' }] })] };
-    await monter();
-    await taper('999');
+    resultats = { lignes: [trouve('997', { raisons: [{ sorte: 'lot', detail: '' }] })] };
+    await taper('997');
     expect(titresGroupes()).toEqual(['Par adresse']);
     expect(zoneResultats()).toContain('trouvé par n° de lot');
   });
@@ -265,10 +280,8 @@ describe('🔴 ③b′ les résultats, en DEUX GROUPES TITRÉS', () => {
     resultats = { lignes: [parNom('998'), trouve('999')] };
     await monter();
     await taper('victor hugo');
-    const c = cases();
-    // Les deux dernières cases sont les deux résultats, un par groupe.
-    await cliquer(c[c.length - 2]);
-    await cliquer(c[c.length - 1]);
+    await cliquer(casesResultats()[0]);
+    await cliquer(casesResultats()[1]);
     await cliquer(boutonPar(/^Rattacher$/));
     const posts = ecritures().filter((a) => a.methode === 'POST');
     expect(posts.map((p) => (p.corps as { cible: { cle: string } }).cible.cle).sort()).toEqual(['998', '999']);
@@ -279,18 +292,19 @@ describe('🔴 ③c une seule validation pour les DEUX zones', () => {
   it('rien n’est écrit tant qu’on n’a pas validé', async () => {
     resultats = { lignes: [trouve('999')] };
     await monter();
-    await cliquer(cases()[0]);
+    await cliquer(casesDuHaut()[0]);
     await taper('rue');
-    await cliquer(cases()[cases().length - 1]);
+    await cliquer(casesResultats()[0]);
     expect(ecritures()).toEqual([]);
   });
 
-  it('🔴 une proposition ET un résultat de recherche se valident ENSEMBLE', async () => {
+  it('🔴 une proposition ET un résultat de recherche se valident ENSEMBLE ; le résultat coché rejoint les cartes du haut', async () => {
     resultats = { lignes: [trouve('999')] };
     await monter();
-    await cliquer(cases()[0]);            // la proposition 445
+    await cliquer(casesDuHaut()[0]);            // la proposition 445
     await taper('rue');
-    await cliquer(cases()[cases().length - 1]);   // le résultat 999
+    await cliquer(casesResultats()[0]);         // le résultat 999
+    expect(container.querySelector('.rec-biens')?.textContent).toContain('ajouté à la main depuis la recherche');
     await cliquer(boutonPar(/^Rattacher$/));
 
     const posts = ecritures().filter((a) => a.methode === 'POST');
@@ -316,7 +330,7 @@ describe('🔴 ③c une seule validation pour les DEUX zones', () => {
 
   it('🔴 « toute la conversation » DEMANDE au serveur les mails sans classement manuel', async () => {
     await monter();
-    await cliquer(cases()[0]);
+    await cliquer(casesDuHaut()[0]);
     const radios = [...container.querySelectorAll('input[name="mrb-portee"]')] as HTMLInputElement[];
     await cliquer(radios[1]);
     await cliquer(boutonPar(/^Rattacher$/));
@@ -330,5 +344,50 @@ describe('🔴 ③c une seule validation pour les DEUX zones', () => {
     await monter({ onHorsGestion: () => ouvert.push('ok') });
     await cliquer(boutonPar(/Hors gestion/));
     expect(ouvert).toEqual(['ok']);
+  });
+});
+
+describe('🔴 ③d le compteur et « Sélectionner / Désélectionner tous les biens » (comme « Rattacher ce mail à… »)', () => {
+  it('« N bien(s) coché(s) sur M affiché(s) », résultats compris, un bien compté une fois', async () => {
+    resultats = { lignes: [trouve('445'), trouve('999')] };
+    await monter();
+    expect(compteur()).toBe('0 bien(s) coché(s) sur 2 affiché(s).');
+    await cliquer(casesDuHaut()[0]);
+    expect(compteur()).toBe('1 bien(s) coché(s) sur 2 affiché(s).');
+    await taper('rue');
+    expect(compteur()).toBe('1 bien(s) coché(s) sur 3 affiché(s).');
+  });
+
+  it('« Sélectionner tous les biens » coche tout ce qui est visible, puis devient « Désélectionner »', async () => {
+    resultats = { lignes: [trouve('999')] };
+    await monter();
+    await taper('rue');
+    await cliquer(boutonPar(/^Sélectionner tous les biens$/));
+    expect(cases().every((c) => c.checked)).toBe(true);
+    expect(compteur()).toBe('3 bien(s) coché(s) sur 3 affiché(s).');
+    expect(boutonPar(/^Désélectionner tous les biens$/)).toBeDefined();
+    await cliquer(boutonPar(/^Rattacher$/));
+    expect(ecritures().filter((a) => a.methode === 'POST')
+      .map((p) => (p.corps as { cible: { cle: string } }).cible.cle).sort()).toEqual(['445', '446', '999']);
+  });
+
+  it('🔴 en mode commandé (Modifier le rattachement) : les biens déjà rattachés comptent, la validation reçoit la liste', async () => {
+    const recu: { voulue: readonly { cle: string }[] | null } = { voulue: null };
+    let coches: readonly string[] = ['445'];
+    const remonter = async () => monter({
+      preCoches: ['445'], cochesImposees: coches,
+      onCochesChange: (c: readonly string[]) => { coches = c; },
+      onValider: async (v: readonly { cle: string }[]) => { recu.voulue = v; },
+      motValider: 'Valider pour ce mail uniquement',
+    });
+    await remonter();
+    /* 445 est déjà rattaché : sa carte est au-dessus, il n'est pas répété ici — mais il compte. */
+    expect(container.querySelector('.rec-biens')?.textContent).not.toContain('445 rue Alpha');
+    expect(compteur()).toBe('1 bien(s) coché(s) sur 2 affiché(s).');
+    await cliquer(casesDuHaut()[0]);
+    await remonter();
+    expect(coches).toEqual(['445', '446']);
+    await cliquer(boutonPar(/^Valider pour ce mail uniquement$/));
+    expect((recu.voulue ?? []).map((x) => x.cle)).toEqual(['445', '446']);
   });
 });

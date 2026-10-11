@@ -625,8 +625,11 @@ export const MOT_CHANGER_REGLE_SUIVI =
  * voit pas à l'écran une fois le geste fait — elle se voit trois mails plus loin.
  */
 /**
- * Le titre de la zone des propositions du panneau. Écrit ici, lu par l'écran — jamais recopié d'un composant à
- * l'autre.
+ * L'ANCIEN titre de la zone des propositions du panneau (modèle B). 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE : la zone
+ * est devenue la carte « Propositions » du composant partagé, et ce titre n'est plus écrit à l'écran.
+ *
+ * 🔴 IL RESTE EXPORTÉ POUR UNE SEULE RAISON — la même que `ZONE_DEJA_RATTACHES` plus bas : une épreuve vérifie
+ * qu'il n'apparaît PLUS à l'écran.
  */
 export const ZONE_AUTRES_PROPOSES = 'Autres biens proposés';
 

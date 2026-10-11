@@ -1655,7 +1655,7 @@ function CartePersonne({ personne }: { personne: PersonneRattachement }) {
                 attribution — on dit le TYPE, ce qui est vrai, au lieu du numéro de colonne, qui ne parlait
                 qu'à celui qui avait lu l'export. */}
             {lignesParType(contacts).map(({ contact: c, titre }) => (
-              /* ⚠️ MÊME RAISON QUE DANS `PropositionsDeBiens` : la note vit HORS de la ligne, qui garde son
+              /* ⚠️ MÊME RAISON QUE DANS `CartesPersonnes` : la note vit HORS de la ligne, qui garde son
                  `nowrap` — sans quoi une adresse longue repousserait « Copier » à la ligne suivante. */
               <li key={`${c.sorte}|${c.valeur}`} className="rdf-contact-bloc">
                 <span className="rdf-contact">

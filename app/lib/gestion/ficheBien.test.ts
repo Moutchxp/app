@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  adresseComplete, caracteristiquesDuLot, dateFr, groupesParProprietaire, lienTelephone, locatairesDuBien,
+  adresseComplete, caracteristiquesDuLot, dateFr, lienTelephone,
   periodeOccupation, titreCarte, valeurVide, type LotFiche, type PersonneFiche,
 } from './ficheBien';
 
@@ -101,96 +101,6 @@ describe('les dates, écrites à la française', () => {
     expect(periodeOccupation('2024-07-31', '2026-09-12')).toBe('du 31/07/2024 au 12/09/2026');
     expect(periodeOccupation(null, '2026-09-12')).toBe('jusqu’au 12/09/2026');
     expect(periodeOccupation(null, null)).toBeNull();
-  });
-});
-
-describe('🔴 ③ ④ les groupes de propriétaires', () => {
-  const bien = (cle: string, proprio: string, locataires: string[] = []) => ({
-    cle,
-    parties: [
-      personne('proprietaire', proprio, { nom: `BAILLEUR ${proprio}` }),
-      ...locataires.map((l) => personne('locataire', l)),
-    ],
-  });
-
-  it('un seul propriétaire ⇒ un seul bloc, qui porte tous ses biens', () => {
-    const g = groupesParProprietaire([bien('1', 'P1'), bien('2', 'P1'), bien('3', 'P1')]);
-    expect(g).toHaveLength(1);
-    expect(g[0].biens.map((b) => b.cle)).toEqual(['1', '2', '3']);
-    expect(g[0].personnes.map((p) => p.nom)).toEqual(['BAILLEUR P1']);
-  });
-
-  it('🔴 DEUX propriétaires ⇒ DEUX blocs : un seul bandeau ferait croire au même bailleur', () => {
-    const g = groupesParProprietaire([bien('1', 'P1'), bien('2', 'P2'), bien('3', 'P1')]);
-    expect(g).toHaveLength(2);
-    expect(g[0].biens.map((b) => b.cle)).toEqual(['1', '3']);
-    expect(g[1].biens.map((b) => b.cle)).toEqual(['2']);
-  });
-
-  it('🔴 l’ordre des groupes suit celui des biens — donc la certitude, pas l’alphabet', () => {
-    const g = groupesParProprietaire([bien('1', 'ZZZ'), bien('2', 'AAA')]);
-    expect(g.map((x) => x.cle)).toEqual(['ZZZ', 'AAA']);
-  });
-
-  it('un bien SANS propriétaire connu forme son propre groupe : on ne le range pas ailleurs', () => {
-    const g = groupesParProprietaire([bien('1', 'P1'), { cle: '2', parties: [] }]);
-    expect(g).toHaveLength(2);
-    expect(g[1].cle).toBe('');
-    expect(g[1].personnes).toEqual([]);
-  });
-
-  /**
-   * 🔴 L'INDIVISION. L'annuaire ne porte qu'UN enregistrement, même quand le nom en désigne deux
-   * (« MOTTAIS GRAINDORGE Didier et Sandrine » : 81 lots sur 365 sont dans ce cas, mesuré le 28/09/2026).
-   * On rend donc UNE carte, avec TOUS ses contacts — deux e-mails, un téléphone. Découper le nom fabriquerait
-   * deux fiches fausses au lieu d'une vraie, et attribuerait au hasard un e-mail à l'un des deux.
-   */
-  it('🔴 une indivision reste UNE carte, avec tous ses contacts', () => {
-    const indivision = personne('proprietaire', 'P9', {
-      nom: 'MOTTAIS GRAINDORGE Didier et Sandrine',
-      // LOT FICHES-RETOUCHES — `affichage` ajoute : la forme LUE par l'ecran (« 06 00 00 00 00 »), distincte de
-      // la forme canonique qui, elle, sert aux comparaisons. Les deux voyagent ensemble.
-      // LOT ANNOTATIONS-TEL — `note` et `typeAnnotation` ajoutés : ce qui traînait à côté du numéro, et le type
-      // qu'il impose. `null` ici : ces coordonnées de fiction n'ont pas d'annotation.
-      emails: [
-        { valeur: 'didier@x.fr', affichage: 'didier@x.fr', libelle: 'Email 1', note: null, typeAnnotation: null },
-        { valeur: 'sandrine@x.fr', affichage: 'sandrine@x.fr', libelle: 'Email 2', note: null, typeAnnotation: null },
-      ],
-      telephones: [{ valeur: '+33600000000', affichage: '06 00 00 00 00', libelle: 'Mobile',
-        note: null, typeAnnotation: null }],
-    });
-    const g = groupesParProprietaire([{ cle: '1', parties: [indivision] }]);
-    expect(g[0].personnes).toHaveLength(1);
-    /**
-     * 🔴 LOT CONTACTS-ET-EVENEMENT — ET CHAQUE ADRESSE PORTE LE LIBELLÉ DE SA COLONNE. C'est tout ce que l'export
-     * permet de dire : il ne relie aucune des deux à Didier ou à Sandrine.
-     */
-    expect(g[0].personnes[0].emails.map((e) => `${e.libelle} : ${e.valeur}`))
-      .toEqual(['Email 1 : didier@x.fr', 'Email 2 : sandrine@x.fr']);
-  });
-
-  it('si l’annuaire porte VRAIMENT deux enregistrements, deux cartes sont rendues', () => {
-    const b = {
-      cle: '1',
-      parties: [personne('proprietaire', 'A', { nom: 'DUPONT Jean' }),
-        personne('proprietaire', 'B', { nom: 'DUPONT Marie' })],
-    };
-    const g = groupesParProprietaire([b]);
-    expect(g[0].personnes.map((p) => p.nom)).toEqual(['DUPONT Jean', 'DUPONT Marie']);
-  });
-});
-
-describe('🔴 ⑤ les locataires à la date du mail', () => {
-  it('rend TOUS les locataires — une colocation, un couple, ils existent tous les deux', () => {
-    const b = {
-      cle: '1',
-      parties: [personne('proprietaire', 'P1'), personne('locataire', 'L1'), personne('locataire', 'L2')],
-    };
-    expect(locatairesDuBien(b).map((p) => p.cle)).toEqual(['L1', 'L2']);
-  });
-
-  it('aucun locataire ⇒ liste vide, et c’est à l’écran de dire « vacant »', () => {
-    expect(locatairesDuBien({ cle: '1', parties: [personne('proprietaire', 'P1')] })).toEqual([]);
   });
 });
 

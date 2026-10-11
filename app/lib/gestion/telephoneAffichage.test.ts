@@ -360,7 +360,6 @@ describe('🔴 le numéro affiché par l’app l’est partout de la même faço
        fois, et deux écritures d'une même règle finissent toujours par diverger. */
     for (const f of [
       'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx',
-      'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
     ]) {
       const src = readFileSync(f, 'utf8');
       expect(src, f).toContain('lienAppel(c.affichage)');
@@ -457,7 +456,7 @@ describe('🔴 les tuiles de contact : titre | valeur | Copier', () => {
    * contact concernées. » Cherchées une par une, elles étaient QUATRE :
    *   · `CartesPersonnes` — les cartes de propriétaires et d'occupants (fiches propriétaire, bien, locataire) ;
    *   · `Annuaire` (BlocOccupant) — l'historique des locataires, sur la fiche du bien ;
-   *   · `PropositionsDeBiens` — le bloc des parties, dans la modale de classement ;
+   *   · `PropositionsDeBiens` — le bloc des parties, dans la modale de classement (supprimé le 11/10/2026, modèle B) ;
    *   · `RattachementsDuFil` — le bandeau « Rattaché à » de la modale Visualiser / Modifier.
    * Les quatre passent désormais par `lignesParType`, et les quatre collent leur « Copier » à droite.
    */
@@ -465,7 +464,6 @@ describe('🔴 les tuiles de contact : titre | valeur | Copier', () => {
     for (const f of [
       'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx',
       'app/(admin)/admin/(protected)/gestion/Annuaire.tsx',
-      'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
       'app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx',
     ]) {
       expect(readFileSync(f, 'utf8'), f).toContain('lignesParType');
@@ -474,12 +472,9 @@ describe('🔴 les tuiles de contact : titre | valeur | Copier', () => {
 
   /** 🔴 « COPIER » COLLÉ AU BORD DROIT, et la valeur tronquée plutôt que repliée — dans les quatre. */
   it('🔴 « Copier » est collé à droite, et la valeur est tronquée, jamais repliée', () => {
-    const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
-    expect(props).toContain('.pdb-contact>.bcp{flex:0 0 auto;margin-left:auto}');
-    expect(props).toContain('white-space:nowrap;overflow:hidden;text-overflow:ellipsis');
+    /* 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE (11/10/2026) — la tuile de `PropositionsDeBiens` (blocs e-mail + Copier
+       des grandes cartes du modèle B) est SUPPRIMÉE sur décision d'Arno : elle sort de ces listes. */
     // 🔴 PLUS DE `flex-wrap` : c'est lui qui faisait passer « Copier » à la ligne sous une adresse longue.
-    expect(props).toContain('.pdb-contact{display:flex;flex-wrap:nowrap');
-
     const rdf = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
     expect(rdf).toContain('.rdf-contact>.bcp{flex:0 0 auto;margin-left:auto}');
     expect(rdf).toContain('.rdf-contact{display:flex;flex-wrap:nowrap');
@@ -489,7 +484,6 @@ describe('🔴 les tuiles de contact : titre | valeur | Copier', () => {
   /** ⚠️ LA CELLULE DE TITRE EXISTE MÊME VIDE : sans elle, la valeur remonterait d'une colonne. */
   it('🔴 la cellule de titre est rendue même quand le groupe est déjà titré', () => {
     for (const f of [
-      'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
       'app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx',
     ]) {
       const src = readFileSync(f, 'utf8');
@@ -502,8 +496,6 @@ describe('🔴 les tuiles de contact : titre | valeur | Copier', () => {
     const rdf = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
     expect(rdf).toContain("title={c.sorte === 'email' ? c.valeur : c.affichage}");
     expect(rdf).toContain('<BoutonCopier valeur={c.affichage}');
-    const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
-    expect(props).toContain("title={c.sorte === 'email' ? c.valeur : c.affichage}");
   });
 });
 
@@ -667,15 +659,11 @@ describe('🔴 la note grise arrive jusqu’aux quatre tuiles', () => {
        de moins à tenir, et la règle protégée est la même. */
     for (const f of [
       'app/(admin)/admin/(protected)/gestion/CartesPersonnes.tsx',
-      'app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx',
       'app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx',
     ]) {
       expect(readFileSync(f, 'utf8'), f).toContain('c.note !== null');
     }
     // Les deux tuiles à une seule ligne gardent leur `nowrap` : la note est sortie de la ligne.
-    const props = readFileSync('app/(admin)/admin/(protected)/gestion/PropositionsDeBiens.tsx', 'utf8');
-    expect(props).toContain('.pdb-contact{display:flex;flex-wrap:nowrap');
-    expect(props).toContain('pdb-contact-bloc');
     const rdf = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
     expect(rdf).toContain('.rdf-contact{display:flex;flex-wrap:nowrap');
     expect(rdf).toContain('rdf-contact-bloc');

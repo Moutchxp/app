@@ -4,18 +4,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { memeCibleBrouillon, type CibleBrouillon } from '../../../../lib/gestion/redaction';
 import type { ContexteRedaction } from '../../../../lib/gestion/classementBien';
 // 🔴 LE MOTEUR DE RECHERCHE DE BIENS, TEL QU'IL EXISTE : mêmes groupes, mêmes raisons, même route.
-import { grouperResultats, messageAucunBien, motRaison } from '../../../../lib/gestion/rechercheBien';
-import { deuxLignesParties, ligneCompacteDuBien } from '../../../../lib/gestion/classementBoutons';
-// 🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — la phrase d'Arno quand le moteur ne trouve rien. Module PUR.
-import { AUCUNE_PROPOSITION } from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la catégorie d'un lot, posée là où la nature est connue. Module PUR.
 import { categorieDuBien, type CategorieBien } from '../../../../lib/gestion/categorieBien';
 // 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
-import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
+import { CSS_INFO_BIEN } from './InfoBien';
 // 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la pastille qui annonce le contenu en dessous d'une liste.
-import { CSS_ZONE_DEFILANTE, ZoneDefilante } from './ZoneDefilante';
-import type { BienTrouve, ResultatsBiens } from '../../../../lib/gestion/rechercheBienRepo';
+import { CSS_ZONE_DEFILANTE } from './ZoneDefilante';
+/* 🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — les cartes et le moteur de recherche vivent dans LE composant partagé :
+   « Modifier le rattachement » rend exactement le même. Cette fenêtre garde sa logique (brouillon, pré-coche). */
+import { CSS_LISTE_BIENS, ListeBiensACocher, useRechercheBiens } from './ListeBiensACocher';
+import type { BienTrouve } from '../../../../lib/gestion/rechercheBienRepo';
 
 /**
  * ══ 🔴🔴 LOT RATTACHER-EN-ECRIVANT — « RATTACHER CE MAIL À… », PENDANT QU'ON L'ÉCRIT ═══════════════════════════
@@ -252,12 +251,8 @@ export function RattacherEnEcrivant({
   const [saisie, setSaisie] = useState('');
   /** 🔴 LE CHAMP DE RECHERCHE : quand il n'y a aucune proposition, c'est là que va le curseur (voir plus bas). */
   const champRecherche = useRef<HTMLInputElement | null>(null);
-  const [recherche, setRecherche] = useState<
-    | { v: 'repos' }
-    | { v: 'cherche' }
-    | { v: 'ok'; resultats: ResultatsBiens }
-    | { v: 'erreur' }
-  >({ v: 'repos' });
+  /* 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — la recherche différée (250 ms, deux caractères) est le crochet partagé. */
+  const recherche = useRechercheBiens(saisie);
   /** Les biens ajoutés à la main : ils ne viennent pas du moteur, mais ils se cochent et se valident pareil. */
   const [ajoutes, setAjoutes] = useState<CibleBrouillon[]>([]);
   /**
@@ -605,36 +600,6 @@ export function RattacherEnEcrivant({
   };
 
   /**
-   * ══ LA RECHERCHE, DIFFÉRÉE DE 250 ms ═══════════════════════════════════════════════════════════════════════
-   *
-   * ⚠️ LE MÊME DÉLAI QUE PARTOUT DANS LE MODULE : chercher à chaque lettre ferait une requête par caractère, et
-   * la base répondrait à des questions que personne n'a fini de poser.
-   *
-   * ⚠️ DEUX CARACTÈRES AU MINIMUM, comme l'annuaire : une seule lettre rend la moitié du fichier.
-   */
-  useEffect(() => {
-    const t = saisie.trim();
-    if (t.length < 2) { setRecherche({ v: 'repos' }); return undefined; }
-    setRecherche({ v: 'cherche' });
-    let vivant = true;
-    const minuteur = setTimeout(() => {
-      void (async () => {
-        try {
-          const res = await fetch(`/api/admin/gestion/biens?q=${encodeURIComponent(t)}`, { cache: 'no-store' });
-          const d = (await res.json()) as { etat?: string } & Partial<ResultatsBiens>;
-          if (!vivant) return;
-          if (d.etat === 'ok') {
-            setRecherche({ v: 'ok', resultats: {
-              lignes: d.lignes ?? [], tronque: d.tronque === true, disponible: d.disponible !== false,
-            } });
-          } else setRecherche({ v: 'erreur' });
-        } catch { if (vivant) setRecherche({ v: 'erreur' }); }
-      })();
-    }, 250);
-    return () => { vivant = false; clearTimeout(minuteur); };
-  }, [saisie]);
-
-  /**
    * 🔴 UN RÉSULTAT COCHÉ REJOINT LA LISTE DU HAUT, et le compteur bouge. Demande d'Arno, mot pour mot. Il entre
    * donc dans `ajoutes` — la même liste que les biens trouvés à la main avant ce lot — et se coche d'office :
    * on ne coche pas un résultat pour ne pas le prendre.
@@ -732,6 +697,7 @@ export function RattacherEnEcrivant({
           ne peut compter sur aucune feuille montée par l'écran qui l'ouvre. */}
       <style>{CSS_INFO_BIEN}</style>
       <style>{CSS_ZONE_DEFILANTE}</style>
+      <style>{CSS_LISTE_BIENS}</style>
       <div className="mrt rec" role="dialog" aria-modal="true" aria-labelledby="rec-titre"
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); fermerSansRien(); } }}>
         {/* 🔴 LA CROIX EST UNE SORTIE NOMMÉE (demande d'Arno) : elle remplace le bouton « Ignorer » du pied, qui
@@ -775,177 +741,37 @@ export function RattacherEnEcrivant({
           </p>
         )}
 
-        {contexte?.disponible && (
-          /* 🔴 LOT CLASSER-DEUX-BOUTONS — LES PROPOSITIONS SONT UNE CARTE, la recherche en est une autre :
-             « chaque categorie a sa place » (demande d'Arno). Sans cette separation, les deux listes de cases a
-             cocher se confondaient en une seule, et l'on ne savait plus ce qui venait de l'automatisation. */
-          <section className="rec-carte" aria-label="Biens proposés">
-            <p className="rec-carte-titre">Propositions</p>
-            <div className="rec-barre">
-              {/* ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — LE COMPTEUR, ET CE QU'IL COMPTE ═══════════════════════
-                  ① DES BIENS DISTINCTS, par construction : `selection` est un ENSEMBLE. Un bien qui figure à la
-                     fois dans les propositions et dans les résultats n'y entre qu'une fois, quel que soit
-                     l'endroit où on l'a coché.
-                  ② SUR CE QUI EST AFFICHÉ, et non plus « sur N proposé(s) ». Constaté à l'écran : la bascule
-                     cochant désormais aussi les résultats de recherche, on lisait « 3 bien(s) coché(s) sur
-                     1 proposé(s) » — une phrase qui compte deux choses différentes de part et d'autre de
-                     « sur ». Les deux nombres parlent maintenant du même ensemble : celui qu'on voit. */}
-              {/* ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — QUAND IL N'Y A RIEN, ON LE DIT ═══════
-                  DEMANDE D'ARNO (01/10/2026) : « Aucune proposition disponible pour ce mail. Utilise le moteur
-                  de recherche ci-dessous pour sélectionner le ou les biens en relation avec ce mail. »
-
-                  🔴 ET SURTOUT : PAS DE « 0 bien(s) coché(s) sur 0 affiché(s) ». Ce compteur-là ne comptait
-                  rien ; il donnait à une fenêtre vide l'air d'une fenêtre pleine, et laissait chercher des cases
-                  qui n'existaient pas. Une phrase qui dit QUOI FAIRE vaut mieux qu'un nombre qui dit zéro. */}
-              {aucuneProposition
-                ? <p className="rec-compte rec-aucune" role="status">{AUCUNE_PROPOSITION}</p>
-                : (
-                  <p className="rec-compte" role="status">
-                    {`${selection.size} bien(s) coché(s) sur ${clesVisibles().length} affiché(s).`}
-                  </p>
-                )}
-              {/* 🔴 UN SEUL LIEN QUI BASCULE, et il porte sur les propositions ET sur les résultats affichés.
-                  ⚠️ IL DISPARAÎT AVEC LES CASES : « tout sélectionner » sur rien ne veut rien dire. */}
-              {!aucuneProposition && (
-                <button type="button" className="gst-lien-bouton" onClick={toutBasculer}>
-                  {toutesCochees ? 'Désélectionner tous les biens' : 'Sélectionner tous les biens'}
-                </button>
-              )}
-            </div>
-
-            {/* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la zone DIT ce qu'elle cache en dessous. */}
-            <ZoneDefilante className="rec-biens" as="ul" enfants={<>
-              {/* 🔴 LA MÊME LISTE QUE CELLE QUE LE COMPTEUR COMPTE (`proposesAffiches`) : avant ce lot, le rendu
-                  filtrait les repliés et le compte ne les filtrait pas. Une seule liste, un seul verdict. */}
-              {/* 🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — UNE SEULE LISTE, DANS L'ORDRE DE `lignesAffichees` : les
-                  propositions du moteur et les autres biens (déjà rattachés, trouvés à la recherche, biens des adresses
-                  présentes) mêlés, cochés en tête puis regroupés par adresse. */}
-              {lignesAffichees.map((l) => {
-                if ('moteur' in l) {
-                  const b = l.moteur;
-                  return (
-                <li key={b.cle} className="rec-bien">
-                  <label className="rec-choix">
-                    <input type="checkbox" checked={selection.has(b.cle)} onChange={() => basculer(b.cle)} />
-                    {/* 🔴 LOT MODALE-RATTACHER-PROPRE — LE TITRE, SANS NUMÉRO DE LOT : « adresse — qualité ». */}
-                    <span className="rec-bien-nom">{titre(b.cle)}</span>
-                    {/* ⚠️ LA PASTILLE EST DANS LE LABEL, et elle NE COCHE PAS : voir `InfoBien`.
-                        ⚠️ `surLaLigne` PORTE LES PARTIES, écrites juste dessous dans `rec-parties`. */}
-                    <InfoBien cle={b.cle} titre={titre(b.cle)}
-                      surLaLigne={`${titre(b.cle)} ${b.parties.map((p) => p.nom).join(' ')}`} />
-                  </label>
-                  {/* 🔴 LE MOTIF EST ÉCRIT EN CLAIR, TOUJOURS (« locataire de ce bien », « propriétaire »…) : on
-                      doit savoir POURQUOI ce bien est proposé, et pourquoi sa case est cochée, sans rouvrir le
-                      code. C'est la règle du lot AFFECTATION-PAR-BIEN, et elle vaut ici à l'identique. */}
-                  {/* 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — les parties sur DEUX lignes, comme toutes les cartes de
-                      cette fenêtre ; le motif reste, dessous, en italique gris. */}
-                  <PartiesSurDeuxLignes parties={b.parties} />
-                  <p className="rec-motif">{b.motif}</p>
-                </li>);
-                }
-                const { cible: a, origine, motif } = l.hors;
-                return (
-                <li key={`hors-${a.cle}`} className="rec-bien">
-                  <label className="rec-choix">
-                    <input type="checkbox" checked={selection.has(a.cle ?? '')}
-                      onChange={() => basculer(a.cle ?? '')} />
-                    <span className="rec-bien-nom">{titre(a.cle ?? '')}</span>
-                    {/* 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — les parties sont écrites dessous dès que la fiche
-                        est lue : `surLaLigne` les porte alors, comme pour les propositions. */}
-                    <InfoBien cle={a.cle ?? ''} titre={titre(a.cle ?? '')}
-                      surLaLigne={`${titre(a.cle ?? '')} ${(fiches[a.cle ?? '']?.parties ?? []).map((p) => p.nom).join(' ')}`} />
-                  </label>
-                  {fiches[a.cle ?? ''] !== undefined && <PartiesSurDeuxLignes parties={fiches[a.cle ?? ''].parties} />}
-                  <p className="rec-motif">
-                    {origine === 'attente'
-                      ? motif
-                      : clesClients !== null && !clesClients.has(a.cle ?? '') && !(clesDeBase?.has(a.cle ?? '') ?? false)
-                      ? 'ajouté manuellement — aucun client de ce bien dans les destinataires'
-                      : origine === 'recherche'
-                        ? 'ajouté à la main depuis la recherche'
-                        : 'déjà rattaché — décochez pour le retirer'}
-                  </p>
-                </li>);
-              })}
-              {/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUI EST COCHÉ EST VISIBLE, TOUJOURS ══════════════
-                  Deux sources ici, et la SECONDE est le correctif du défaut d'Arno (« le compteur reste bloqué
-                  à 1 ») : les biens DÉJÀ RATTACHÉS que le moteur ne propose pas. Ils étaient cochés sans case —
-                  comptés par le bouton, introuvables dans la liste, hors d'atteinte de « Tout désélectionner ».
-
-                  🔴 LE MOTIF DIT D'OÙ CHACUN VIENT : « ajouté à la main depuis la recherche » n'est pas « déjà
-                  rattaché à ce mail », et c'est précisément ce qu'on a besoin de savoir avant de décocher. */}
-              {/* ══ 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — « VOIR LES AUTRES » ═══════════════════════════════
-                  Demande d'Arno : « Plus de 5 biens → les 5 plus pertinents, plus “voir les autres”. » Les
-                  douze lots d'un bailleur noieraient la proposition au lieu de l'éclairer ; ils ne sont pas
-                  perdus pour autant, ils sont à un clic. */}
-              {replies > 0 && (
-                <li className="rec-bien rec-autres">
-                  <button type="button" className="gst-lien-bouton"
-                    onClick={() => setAutresDeplies((v) => !v)}>
-                    {autresDeplies ? 'masquer les autres biens' : `voir les autres (${replies})`}
-                  </button>
-                </li>
-              )}
-            </>} />
-          </section>
+        {/* ══ 🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — LES DEUX CARTES SONT LE COMPOSANT PARTAGÉ ═════════════════════
+            « Propositions » (compteur, « Sélectionner tous », cases, « i », parties, motif, « voir les autres ») puis
+            « Moteur de recherche ». Les lignes sont celles de `lignesAffichees` — cochés en tête, puis par adresse —
+            et le motif de chacune est décidé ICI, parce que lui seul dépend de ce que la fenêtre sait du brouillon. */}
+        {/* ⚠️ UN SEUL ÉLÉMENT, TOUJOURS RENDU : pendant la lecture, seule la recherche est montrée (comme avant ce
+            lot), et le champ ne doit pas être remonté — on perdrait le curseur — quand les propositions arrivent. */}
+        {(
+          <ListeBiensACocher afficherPropositions={contexte?.disponible === true}
+            lignes={lignesAffichees.map((l) => {
+              if ('moteur' in l) return { cle: l.cle, parties: l.moteur.parties, motif: l.moteur.motif };
+              const { cible: a, origine, motif } = l.hors;
+              const c = a.cle ?? '';
+              return {
+                cle: c,
+                // 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — les parties dès que la fiche est lue.
+                parties: fiches[c]?.parties ?? null,
+                motif: origine === 'attente'
+                  ? (motif ?? '')
+                  : clesClients !== null && !clesClients.has(c) && !(clesDeBase?.has(c) ?? false)
+                    ? 'ajouté manuellement — aucun client de ce bien dans les destinataires'
+                    : origine === 'recherche'
+                      ? 'ajouté à la main depuis la recherche'
+                      : 'déjà rattaché — décochez pour le retirer',
+              };
+            })}
+            titre={titre} selection={selection} onBasculer={basculer}
+            clesVisibles={clesVisibles()} toutesCochees={toutesCochees} onToutBasculer={toutBasculer}
+            replies={replies} autresDeplies={autresDeplies} onBasculerAutres={() => setAutresDeplies((v) => !v)}
+            saisie={saisie} onSaisie={setSaisie} champ={champRecherche} recherche={recherche}
+            clesEnHaut={clesEnHaut} onBasculerResultat={basculerResultat} />
         )}
-
-        {/* ══ 🔴🔴 LE MOTEUR DE RECHERCHE, TOUJOURS VISIBLE (demande d'Arno) ═══════════════════════════════════
-            Il était derrière un lien qui ouvrait une SECONDE fenêtre par-dessus celle-ci : on perdait de vue les
-            propositions au moment précis où l'on cherchait ce qu'elles n'avaient pas trouvé. */}
-        <section className="rec-carte rec-recherche" aria-label="Moteur de recherche">
-          <p className="rec-carte-titre">Moteur de recherche</p>
-          <label className="rec-champ">
-            {/* 🔴 LA LÉGENDE EST AU-DESSUS DU CHAMP, jamais dans le champ : un texte d'aide qui disparaît à la
-                première lettre n'aide qu'avant qu'on en ait besoin. */}
-            <span className="rec-legende">
-              Adresse, n° de lot, nom (propriétaire ou locataire), téléphone ou e-mail — tous les mots, dans
-              n’importe quel ordre
-            </span>
-            <input ref={champRecherche}
-              className="rec-saisie" type="search" value={saisie} autoComplete="off" maxLength={120}
-              placeholder="ex. « 28 marceau », « 421 », « MARTY », « 06 03 05 07 03 »"
-              onChange={(e) => setSaisie(e.target.value)} />
-          </label>
-
-          {recherche.v === 'cherche' && <p className="rec-vide" role="status">Recherche…</p>}
-          {recherche.v === 'erreur' && (
-            <p className="rec-vide" role="alert">La recherche n’a pas répondu. Réessayez.</p>
-          )}
-          {recherche.v === 'ok' && !recherche.resultats.disponible && (
-            <p className="rec-vide">Annuaire des biens pas encore installé sur cette base.</p>
-          )}
-          {recherche.v === 'ok' && recherche.resultats.disponible && recherche.resultats.lignes.length === 0 && (
-            // 🔴 ON DIT CE QU'ON A CHERCHÉ : « aucun résultat » tout court se lit comme une panne.
-            <p className="rec-vide">{messageAucunBien(saisie)}</p>
-          )}
-
-          {/* 🔴 LA MÊME ZONE, pour les résultats : Arno nomme les deux listes. */}
-          {recherche.v === 'ok' && recherche.resultats.lignes.length > 0 && (
-            <ZoneDefilante className="rec-resultats" enfants={<>
-              {grouperResultats(recherche.resultats.lignes).map((g) => (
-                <section key={g.sorte} className="rec-groupe">
-                  {/* Les deux groupes titrés du moteur : « Par adresse », puis « Par nom ou coordonnée ». */}
-                  <p className="rec-groupe-titre">{g.titre}</p>
-                  <ul className="rec-lignes">
-                    {g.biens.map((b) => (
-                      <LigneBienCompacte key={b.cle} bien={b} coche={selection.has(b.cle)}
-                        titre={titre(b.cle)}
-                        /* 🔴🔴 LOT MODALE-RATTACHER-PROPRE — « déjà dans la sélection » (demande d'Arno) : ce
-                           bien est DÉJÀ montré en haut. La mention dit que les deux cases n'en font qu'une,
-                           et le compteur ne le compte qu'une fois. */
-                        dejaEnHaut={clesEnHaut.has(b.cle)}
-                        onBasculer={() => basculerResultat(b)} />
-                    ))}
-                  </ul>
-                </section>
-              ))}
-            </>} />
-          )}
-          {recherche.v === 'ok' && recherche.resultats.tronque && (
-            <p className="rec-vide">Seuls les premiers biens sont affichés — précisez votre recherche.</p>
-          )}
-        </section>
 
         {/* ══ 🔴 LE PIED NE PORTE PLUS QU'UNE DÉCISION ═════════════════════════════════════════════════════════
             CE QU'IL Y AVAIT, ET QUI A ÉTÉ RETIRÉ SUR DEMANDE D'ARNO :
@@ -986,46 +812,6 @@ export function RattacherEnEcrivant({
   );
 }
 
-/**
- * ══ 🔴 UNE LIGNE DE RÉSULTAT, COMPACTE ════════════════════════════════════════════════════════════════════════
- *
- * Demande d'Arno : « adresse — lot · type | PROPRIÉTAIRE(S) nom(s) | LOCATAIRE nom ou “Vacant” », avec une case.
- *
- * 🔴 COMPACTE, ET PAS UNE CARTE À DEUX COLONNES comme celle du panneau de rattachement : ici la recherche vit
- * SOUS les propositions, dans une modale. Des cartes hautes repousseraient les propositions hors de l'écran, au
- * moment précis où l'on compare les deux.
- *
- * ⚠️ LA MISE EN FORME EST DÉCIDÉE DANS LE MODULE PUR (`ligneCompacteDuBien`) : « Vacant », les co-propriétaires,
- * le type accolé au libellé. Cet écran place et peint, il ne décide pas.
- */
-function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, onBasculer }: {
-  bien: BienTrouve; coche: boolean; titre: string; dejaEnHaut: boolean; onBasculer: () => void;
-}) {
-  const l = ligneCompacteDuBien(b, titre);
-  return (
-    <li className={`rec-ligne${dejaEnHaut ? ' rec-ligne--deja' : ''}`}>
-      <label className="rec-ligne-choix">
-        <input type="checkbox" checked={coche} onChange={onBasculer} />
-        <span className="rec-ligne-corps">
-          <span className="rec-ligne-titre">
-            {l.titre}
-            {/* ⚠️ `surLaLigne` PORTE AUSSI LES PARTIES, qui sont écrites juste dessous : la fenêtre ne répétera
-                donc ni le propriétaire ni le locataire — mais gardera la DATE D'ENTRÉE, qui n'est pas là. */}
-            <InfoBien cle={b.cle} titre={l.titre} surLaLigne={`${l.titre} ${l.proprietaires} ${l.locataire}`} />
-          </span>
-          {/* 🔴🔴 « déjà dans la sélection » : la même case, vue d'un autre endroit — jamais un second bien. */}
-          {dejaEnHaut && <span className="rec-ligne-deja">déjà dans la sélection</span>}
-          {/* 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — DEUX lignes (propriétaire, locataire) au lieu de « | » :
-              les mêmes que toutes les cartes de cette fenêtre. */}
-          <PartiesSurDeuxLignes parties={b.parties} dansUneLigne />
-          {/* Pourquoi cette ligne répond : c'est ce qui permet de comprendre un résultat surprenant. */}
-          <span className="rec-ligne-motif">trouvé par {b.raisons.map(motRaison).join(' · ')}</span>
-        </span>
-      </label>
-    </li>
-  );
-}
-
 /** Ce que la fenêtre retient de la fiche d'un bien déjà rattaché : son titre et ses parties d'aujourd'hui. */
 interface FicheCourte {
   adresse: string | null; commune: string | null; nature: string | null; typeBien: string | null;
@@ -1043,30 +829,6 @@ export function ficheCourte(d: Record<string, unknown>): FicheCourte {
       ...personnes(d.occupants).filter((p) => p.archive !== true).map((p) => ({ role: 'locataire' as const, nom: nom(p) })),
     ].filter((p) => p.nom !== ''),
   };
-}
-
-/**
- * ══ 🔴🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — LES PARTIES SUR DEUX LIGNES, POUR TOUTES LES CARTES ═══════════════════
- * « PROPRIÉTAIRE » (petites capitales grises) puis le ou les propriétaires séparés par « · » ; « LOCATAIRE » puis le
- * ou les locataires, ou « Vacant ». Le style des résultats de recherche ; les noms longs passent à la ligne, jamais de
- * « … ». La mise en forme est décidée dans le module pur (`deuxLignesParties`).
- */
-function PartiesSurDeuxLignes({ parties, dansUneLigne = false }: {
-  parties: readonly { role: string; nom: string }[];
-  /** Dans une ligne de résultat (déjà décalée par sa case) : pas de retrait supplémentaire. */
-  dansUneLigne?: boolean;
-}) {
-  const l = deuxLignesParties(parties);
-  return (
-    <span className={`rec-deux-lignes${dansUneLigne ? '' : ' rec-deux-lignes--carte'}`}>
-      <span className="rec-ligne-parties">
-        <span className="rec-ligne-role">{l.libelleProprietaires}</span>{' '}{l.proprietaires}
-      </span>
-      <span className="rec-ligne-parties">
-        <span className="rec-ligne-role">{l.libelleLocataires}</span>{' '}{l.locataires}
-      </span>
-    </span>
-  );
 }
 
 export const CSS_RATTACHER_EN_ECRIVANT = `
@@ -1112,83 +874,9 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 .rec-interne-dabord{margin:0 0 .5rem;padding:6px 10px;border-radius:.5rem;font-size:.82rem;
   color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 
-/* ══ LES CARTES : c'est elles qui donnent le relief, et qui separent les categories ═════════════════════════ */
-.rec-carte{margin:0 0 10px;padding:10px 12px;background:var(--color-svv-surface);
-  border:1px solid var(--color-svv-line);border-radius:.7rem;box-shadow:0 1px 3px rgba(0,0,0,.06);min-width:0}
-.rec-carte-titre{margin:0 0 .4rem;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--color-svv-muted)}
-
-.rec-barre{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.5rem;
-  margin:0 0 .4rem}
-.rec-compte{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
-/* ══ 🔴🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — LA PHRASE QUI REMPLACE LE COMPTEUR A ZERO ════════════════
-   Elle prend toute la largeur (le lien « Selectionner tous les biens » n'est plus la pour partager la ligne) et
-   se lit comme une consigne, pas comme une note de bas de page : meme taille que le reste de la carte, et la
-   couleur du texte ordinaire plutot que le gris des compteurs. */
-.rec-aucune{flex:1 1 100%;font-size:.84rem;line-height:1.45;color:var(--color-svv-ink)}
-/* ══ 🔴 LOT DEFILEMENT-MODALES — EXCEPTION N° 1, ET ELLE EST JUSTIFIEE ════════════════════════════════════════
-   Arno autorise deux zones qui defilent a l'interieur du corps : « les listes longues deja validees (liste des
-   propositions, avec sa pastille "voir les suivants", et resultats de recherche) ».
-
-   POURQUOI CELLE-CI RESTE : un mail peut porter 76 propositions (constat du lot URGENT-VERIF-SUIVI-ET-76-BIENS).
-   Sans hauteur bornee, elles pousseraient le moteur de recherche et le pied hors de l'ecran, et l'on ne pourrait
-   plus ni chercher ni valider sans avoir fait defiler toute la liste.
-
-   🔴 overscroll-behavior:auto, ECRIT EXPLICITEMENT, et c'est la demande d'Arno : en bout de liste, la molette
-   PASSE a la modale au lieu d'etre avalee. C'est la valeur par defaut, mais l'ecrire la met a l'abri — une seule
-   ligne contain heritee ailleurs a deja suffi a bloquer toutes les capsules de l'etape 2.
-   ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un litteral de gabarit. */
-.rec-biens{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;
-  max-height:34vh;overflow-y:auto;overscroll-behavior:auto}
-.rec-bien{padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem}
-/* CIBLE TACTILE : la ligne entiere est cliquable, et la case ne descend pas sous 44 px de hauteur totale. */
-.rec-choix{display:flex;align-items:flex-start;gap:.5rem;min-height:32px;cursor:pointer}
-.rec-bien-nom{font-weight:600;overflow-wrap:anywhere}
-.rec-motif{margin:.2rem 0 0 1.6rem;font-size:.76rem;font-style:italic;color:var(--color-svv-muted)}
-
-/* ══ LE MOTEUR DE RECHERCHE ════════════════════════════════════════════════════════════════════════════════ */
-.rec-champ{display:flex;flex-direction:column;gap:.25rem;min-width:0}
-/* LA LEGENDE EST AU-DESSUS DU CHAMP, jamais dedans : un texte d'aide qui disparait a la premiere lettre n'aide
-   qu'avant qu'on en ait besoin. */
-.rec-legende{font-size:.75rem;color:var(--color-svv-muted);line-height:1.35}
-.rec-saisie{min-height:40px;padding:.35rem .55rem;font:inherit;font-size:.9rem;color:var(--color-svv-ink);
-  background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:.45rem;
-  min-width:0;width:100%}
-.rec-saisie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.rec-vide{margin:.4rem 0 0;font-size:.8rem;color:var(--color-svv-muted)}
-/* ══ 🔴 LOT DEFILEMENT-MODALES — EXCEPTION N° 2, justifiee elle aussi ════════════════════════════════════════
-   DEFILEMENT INTERNE (demande d'Arno) : la recherche ne pousse jamais les propositions hors de l'ecran. Une
-   recherche large rend des dizaines de biens ; sans hauteur bornee, la liste des propositions deja cochees
-   disparaitrait vers le bas des qu'on tape trois lettres.
-   🔴 overscroll-behavior:auto, pour la meme raison que la liste du dessus : en bout de resultats, la molette
-   rend la main a la modale. */
-.rec-resultats{margin-top:.4rem;max-height:30vh;overflow-y:auto;overscroll-behavior:auto}
-.rec-groupe+.rec-groupe{margin-top:.5rem}
-.rec-groupe-titre{margin:0 0 .25rem;font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
-  color:var(--color-svv-ink)}
-.rec-lignes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
-.rec-ligne{border-radius:.45rem}
-.rec-ligne:hover{background:var(--color-svv-field)}
-/* 🔴🔴 LOT MODALE-RATTACHER-PROPRE — UN RESULTAT DEJA MONTRE EN HAUT. Il garde sa case (cocher ici ou la-haut
-   revient au meme), mais il DIT qu'il n'est pas un second bien. Le liseret n'est qu'un renfort : c'est le MOT
-   qui porte l'information, regle du module depuis la premiere capsule. */
-.rec-ligne--deja{border-left:3px solid var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
-.rec-ligne-deja{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
-  color:var(--color-svv-green-ink)}
-.rec-ligne-choix{display:flex;align-items:flex-start;gap:.5rem;padding:5px 6px;min-height:40px;cursor:pointer;
-  min-width:0}
-.rec-ligne-corps{display:flex;flex-direction:column;gap:1px;min-width:0}
-/* VALEURS FONCEES, LIBELLES GRIS (demande d'Arno) : la hierarchie se lit sans couleur supplementaire. */
-.rec-ligne-titre{display:inline-flex;align-items:center;flex-wrap:wrap;font-size:.84rem;font-weight:600;
-  color:var(--color-svv-ink);overflow-wrap:anywhere}
-.rec-ligne-parties{font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
-.rec-ligne-role{font-weight:700;font-size:.66rem;text-transform:uppercase;letter-spacing:.03em;
-  color:var(--color-svv-muted)}
-.rec-ligne-sep{color:var(--color-svv-muted)}
-.rec-deux-lignes{display:flex;flex-direction:column;gap:1px;min-width:0}
-.rec-deux-lignes--carte{margin:.25rem 0 0 1.6rem}
-.rec-ligne-motif{font-size:.72rem;font-style:italic;color:var(--color-svv-muted)}
-
+/* ══ 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — LES CARTES, LE COMPTEUR, LES LIGNES ET LE MOTEUR DE RECHERCHE ONT
+   DEMENAGE dans CSS_LISTE_BIENS (ListeBiensACocher.tsx), sans retouche : la fenetre « Modifier le rattachement »
+   monte la meme feuille, ce qui la rend identique a celle-ci. Ne restent ici que le voile, le cadre et le pied. */
 .rec-note{font-size:.78rem;color:var(--color-svv-muted)}
 /* 🔴 LE PIED NE DEFILE PAS : il est hors du corps, donc toujours visible — c'est tout l'objet du point 3. */
 .rec-pied{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;margin-top:.8rem;flex:0 0 auto}

@@ -1057,8 +1057,9 @@ describe('🔴🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — chaque carte montre
     expect(ligne.textContent).not.toContain('|');
   });
   it('les noms longs passent à la ligne, jamais de « … »', async () => {
-    const { CSS_RATTACHER_EN_ECRIVANT } = await import('./RattacherEnEcrivant');
-    expect(CSS_RATTACHER_EN_ECRIVANT).toContain('.rec-ligne-parties{font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere}');
-    expect(CSS_RATTACHER_EN_ECRIVANT).not.toMatch(/\.rec-ligne-parties\{[^}]*(ellipsis|nowrap)/);
+    /* 🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — la règle a déménagé, sans retouche, dans le composant partagé. */
+    const { CSS_LISTE_BIENS } = await import('./ListeBiensACocher');
+    expect(CSS_LISTE_BIENS).toContain('.rec-ligne-parties{font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere}');
+    expect(CSS_LISTE_BIENS).not.toMatch(/\.rec-ligne-parties\{[^}]*(ellipsis|nowrap)/);
   });
 });
