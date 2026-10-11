@@ -127,7 +127,9 @@ const basculerDansLaModale = async (...cles: string[]) => {
   await cliquer([...container.querySelectorAll('button')].find((b) => /^Valider/.test(b.textContent?.trim() ?? '')) as Element);
 };
 const pulse = () => container.querySelector('.ccl-case--pulse');
-const mention = () => container.querySelector('.ccl-case-a-choisir')?.textContent ?? null;
+/** LOT BOUTON-RATTACHER-TAILLE-ORIGINE — le sous-titre du bouton qui pulse, et son info-bulle (qui attend). */
+const mention = () => container.querySelector('.ccl-case--pulse .ccl-case-detail--une-ligne')?.textContent ?? null;
+const infobulle = () => container.querySelector('.ccl-case--pulse')?.getAttribute('title') ?? null;
 const titresListe = async (champ = 'À') => {
   await cliquer(saisie(champ));
   const t = [...ligne(champ).querySelectorAll('.red-sugg-titre, .red-sugg-sous-titre')].map((x) => `${x.className.includes('sous') ? '  ' : ''}${x.textContent}`);
@@ -168,7 +170,8 @@ describe('b. client lié à PLUSIEURS biens (propriétaire)', () => {
     expect(puce('trois.biens@x.fr')?.className).toBe('red-pastille red-pastille--famille red-pastille--proprietaire red-pastille--a-choisir');
     expect(puce('trois.biens@x.fr')?.title).toBe('DUPONT Jean · Propriétaire — lié à 3 biens — choisissez le bien ci-dessous — trois.biens@x.fr');
     expect(pulse()).toBe(boutonRattacher());
-    expect(mention()).toBe('3 biens à choisir pour Jean DUPONT');
+    expect(mention()).toBe('3 propositions en attente');
+    expect(infobulle()).toBe('Biens à choisir pour Jean DUPONT (3) — cliquer pour choisir');
     expect(cibles()).toEqual([]);
     expect(await titresListe()).toEqual([]);
     await ouvrirModale();
@@ -280,7 +283,7 @@ describe('🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — le scénario d�
     await retirer('multi@x.fr');
     await taper('multi@x.fr');
     expect(cibles()).toEqual(['900']);
-    expect(mention()).toBe('2 biens à choisir pour JULLIEN');           // à choisir de nouveau : rien de coché d'avance
+    expect(mention()).toBe('2 propositions en attente');               // à choisir de nouveau : rien de coché d'avance
   });
   it('deux clients du MÊME bien : retirer l’un garde le bien ; retirer le second le retire', async () => {
     await monter(NOUVEAU);
@@ -378,13 +381,14 @@ describe('🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — le bouton puls
     expect(pulse()).toBeNull();
     await taper('deux.familles@x.fr');
     expect(pulse()).not.toBeNull();
-    expect(mention()).toBe('2 biens à choisir pour Paul MARTIN');
+    expect(mention()).toBe('2 propositions en attente');
+    expect(infobulle()).toBe('Biens à choisir pour Paul MARTIN (2) — cliquer pour choisir');
     await ouvrirModale();
     await cliquer(container.querySelector('.rec-croix') as Element);
     expect(pulse()).toBeNull();                                       // vu à la modale : il n'attend plus
     await taper('multi@x.fr');                                       // un nouveau client en attente : elle reprend
     expect(pulse()).not.toBeNull();
-    expect(mention()).toBe('4 biens à choisir');                      // plusieurs clients : le total
+    expect(mention()).toBe('4 propositions en attente');              // plusieurs clients : le total
   });
   it('client à UN seul bien : aucune pulsation', async () => {
     await monter(NOUVEAU);

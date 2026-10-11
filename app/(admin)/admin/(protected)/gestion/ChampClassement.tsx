@@ -48,12 +48,14 @@ export function ChampClassement({
   compact = false, titre = 'Classer ce mail', aChoisir = null,
 }: {
   /**
-   * ══ 🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE ═══════════════════════════════════════════════════════════════
+   * ══ 🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE + LOT BOUTON-RATTACHER-TAILLE-ORIGINE ═══════════════════════════
    * Une adresse saisie amène des biens À CHOISIR (client lié à plusieurs biens, aucun coché) : le bouton qui ouvre la
-   * modale (« Rattacher », ou la case verte « Rattaché ») PULSE, et porte cette mention sous son libellé
-   * (« 6 biens à choisir pour Cédric JULLIEN »). `null` (le défaut) ⇒ le bouton d'avant, immobile.
+   * modale (« Rattacher », ou la case verte « Rattaché ») PULSE. Son sous-titre est REMPLACÉ par `detail`
+   * (« 6 propositions en attente »), sur UNE ligne coupée par « … » : le bouton garde exactement sa taille d'origine,
+   * aligné sur « Interne ». Le nom des clients en attente est dans l'info-bulle (`infobulle`). `null` (le défaut) ⇒
+   * le bouton d'avant, immobile, avec son sous-titre d'origine.
    */
-  aChoisir?: string | null;
+  aChoisir?: { detail: string; infobulle: string } | null;
   cibles: readonly CibleBrouillon[];
   /** « Interne » a-t-il été choisi pour ce brouillon ? */
   interne: boolean;
@@ -232,10 +234,11 @@ export function ChampClassement({
                  autres cases vertes n'ont rien à rouvrir : un clic les DÉFAIT (voir plus bas). */
               <button type="button" className={`ccl-case ccl-case--verte ccl-case--pleine${classeAnimee}${aChoisir !== null ? ' ccl-case--pulse' : ''}`}
                 onClick={onRattacher} disabled={onRattacher === undefined}
-                title="Revoir ou modifier les biens rattachés">
+                title={aChoisir !== null ? aChoisir.infobulle : 'Revoir ou modifier les biens rattachés'}>
                 <span className="ccl-case-mot">Rattaché</span>
-                <span className="ccl-case-detail">{resume}</span>
-                {aChoisir !== null && <span className="ccl-case-a-choisir">{aChoisir}</span>}
+                {aChoisir !== null
+                  ? <span className="ccl-case-detail ccl-case-detail--une-ligne">{aChoisir.detail}</span>
+                  : <span className="ccl-case-detail">{resume}</span>}
               </button>
             )}
             {/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — « INTERNE » ET « HORS GESTION » SONT CLIQUABLES ═══════
@@ -296,10 +299,12 @@ export function ChampClassement({
           <button type="button"
             className={`ccl-case ccl-case--rouge${enScission ? ' ccl-case--rebondit' : ''}${
               cote === 'droite' ? ' ccl-case--reparait' : ''}${aChoisir !== null ? ' ccl-case--pulse' : ''}`}
-            onClick={onRattacher} disabled={onRattacher === undefined} title={motifRattacher}>
+            onClick={onRattacher} disabled={onRattacher === undefined}
+            title={aChoisir !== null ? aChoisir.infobulle : motifRattacher}>
             <span className="ccl-case-mot">Rattacher</span>
-            <span className="ccl-case-detail">à un logement</span>
-            {aChoisir !== null && <span className="ccl-case-a-choisir">{aChoisir}</span>}
+            {aChoisir !== null
+              ? <span className="ccl-case-detail ccl-case-detail--une-ligne">{aChoisir.detail}</span>
+              : <span className="ccl-case-detail">à un logement</span>}
           </button>
           {/* ⚠️ LE CLIC NE FAIT QU'UNE CHOSE : poser le choix. L'animation se déclenche toute seule, en voyant
               l'état passer de « rien » à une case verte — même mécanisme que « Valider » dans la modale. */}
@@ -407,7 +412,9 @@ export const CSS_CHAMP_CLASSEMENT = `
   0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ccl-pulse) 60%, transparent)}
   100%{box-shadow:0 0 0 14px color-mix(in srgb, var(--ccl-pulse) 0%, transparent)}
 }
-.ccl-case-a-choisir{font-size:.72rem;font-weight:600;line-height:1.25;overflow-wrap:anywhere}
+/* LOT BOUTON-RATTACHER-TAILLE-ORIGINE — pendant la pulsation, le sous-titre REMPLACE l'original : meme police, meme
+   taille, UNE ligne coupee par des points de suspension ; le bouton ne grandit jamais. */
+.ccl-case-detail--une-ligne{display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (prefers-reduced-motion: reduce){
   .ccl-case--pulse{animation:none}
   .ccl-case--pulse::after{animation:none;box-shadow:0 0 0 3px var(--ccl-pulse)}

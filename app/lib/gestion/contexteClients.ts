@@ -255,13 +255,24 @@ export function prenomNom(nomComplet: string): string {
 }
 
 /**
- * La mention du bouton qui pulse : « 6 biens à choisir pour Cédric JULLIEN » (un client), « 9 biens à choisir »
- * (plusieurs clients ; chaque bien compté une fois). PUR.
+ * ══ LOT BOUTON-RATTACHER-TAILLE-ORIGINE — CE QUE PORTE LE BOUTON QUI PULSE ══ (remplace la mention à trois lignes du lot
+ * RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE, qui agrandissait le bouton)
+ *   · `detail` — le sous-titre, sur une ligne : « 6 propositions en attente », « 1 proposition en attente » (le total
+ *     des biens proposés en attente, chacun compté une fois) ;
+ *   · `infobulle` — qui attend : « Biens à choisir pour Cédric JULLIEN - GARRIDO (6) », plusieurs clients séparés
+ *     par « ; ». Rien en attente ⇒ `null`. PUR.
  */
-export function motBiensAChoisir(enAttente: ReadonlyArray<{ adresse: string; biens: readonly BienClient[] }>): string | null {
+export function attenteDuBouton(
+  enAttente: ReadonlyArray<{ adresse: string; biens: readonly BienClient[] }>,
+): { detail: string; infobulle: string } | null {
   if (enAttente.length === 0) return null;
   const n = new Set(enAttente.flatMap((c) => c.biens.map((b) => b.cle))).size;
-  if (enAttente.length > 1) return `${n} biens à choisir`;
-  const nom = enAttente[0].biens.find((b) => (b.nom ?? '').trim() !== '')?.nom ?? null;
-  return nom === null ? `${n} biens à choisir pour ${enAttente[0].adresse}` : `${n} biens à choisir pour ${prenomNom(nom)}`;
+  const qui = enAttente.map((c) => {
+    const nom = c.biens.find((b) => (b.nom ?? '').trim() !== '')?.nom ?? null;
+    return `${nom === null ? c.adresse : prenomNom(nom)} (${c.biens.length})`;
+  });
+  return {
+    detail: `${n} proposition${n > 1 ? 's' : ''} en attente`,
+    infobulle: `Biens à choisir pour ${qui.join(' ; ')} — cliquer pour choisir`,
+  };
 }

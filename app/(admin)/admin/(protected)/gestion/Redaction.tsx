@@ -25,7 +25,7 @@ import {
 } from '../../../../lib/gestion/familleAdresse';
 import {
   biensAutomatiques, clesDesClientsPresents, clesDuContexte, clientsAChoisir, clientsDuBien, familleDuClient,
-  fusionnerSuggestions, marquerOrigines, motBiensAChoisir, recalculerCibles, type BiensDesClients,
+  attenteDuBouton, fusionnerSuggestions, marquerOrigines, recalculerCibles, type BiensDesClients,
 } from '../../../../lib/gestion/contexteClients';
 import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
@@ -943,7 +943,7 @@ export function Redaction({
     if ([...vusALaModale].some((a) => !presentes.has(a))) setVusALaModale(new Set([...vusALaModale].filter((a) => presentes.has(a))));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des adresses suffit.
   }, [cleAdressesDesChamps]);
-  const mentionAChoisir = enAttente.some((c) => !vusALaModale.has(c.adresse)) ? motBiensAChoisir(enAttente) : null;
+  const mentionAChoisir = enAttente.some((c) => !vusALaModale.has(c.adresse)) ? attenteDuBouton(enAttente) : null;
   /** Les familles affichées : la lecture générale, celles des biens du contexte, puis l'aspect des CLIENTS. */
   const famillesAffichees: FamillesConnues = (() => {
     const out: FamillesConnues = { ...familles, ...famillesDesBiens };
