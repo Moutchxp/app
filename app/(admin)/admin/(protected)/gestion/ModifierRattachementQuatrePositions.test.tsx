@@ -142,13 +142,34 @@ describe('① le bloc « Biens actuellement suivi(s) dans cette conversation »'
     expect(d.textContent).toContain('Voir le détail par mail');
   });
 
-  it('🔴 la capsule EXPÉDITEUR, à côté de la partie qui a écrit — y compris sur la ligne repliée', async () => {
-    await monter();
+  /**
+   * 🔴🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — UN SEUL CARTOUCHE, QUI NOMME (cas d'Arno : mail de
+   * Valentin TALHOUARN, locataire en couple « YOUENOU et TALHOUARN Marine et Valentin »).
+   */
+  const avecExpediteur = async (de: string, deNom: string | null, emailLocataire: string) => {
+    const tete = FICHE.enTete;
+    const loc = FICHE.biens[0].personnes[1];
+    const emails = loc.emails;
+    FICHE.enTete = { ...tete, de, deNom } as typeof tete;
+    loc.emails = [{ libelle: 'Email 2', valeur: emailLocataire, affichage: emailLocataire, note: null }];
+    try { await monter(); } finally { FICHE.enTete = tete; loc.emails = emails; }
+  };
+  it('🔴 « Expéditeur : Valentin TALHOUARN », sur la ligne LOCATAIRE seulement — plus rien sur la ligne repliable', async () => {
+    await avecExpediteur('valentin.talhouarn@gmail.com', 'Valentin TALHOUARN', 'Valentin.Talhouarn@gmail.com');
     const carte = container.querySelector('.rdf-suivi-carte') as HTMLElement;
     const lignes = [...carte.querySelectorAll('.rec-deux-lignes .rec-ligne-parties')];
-    expect(lignes[0].querySelector('.rec-expediteur')?.textContent).toBe('Expéditeur');
-    expect(lignes[1].querySelector('.rec-expediteur')).toBeNull();
-    expect(carte.querySelector('summary .rec-expediteur')?.textContent).toBe('Expéditeur');
+    expect(lignes[0].querySelector('.rec-expediteur')).toBeNull();
+    expect(lignes[1].querySelector('.rec-expediteur')?.textContent).toBe('Expéditeur : Valentin TALHOUARN');
+    expect(carte.querySelector('summary .rec-expediteur')).toBeNull();
+    expect(carte.querySelectorAll('.rec-expediteur')).toHaveLength(1);
+  });
+  it('🔴 sans nom dans l’en-tête : l’adresse e-mail', async () => {
+    await avecExpediteur('valentin.talhouarn@gmail.com', null, 'valentin.talhouarn@gmail.com');
+    expect(container.querySelector('.rdf-suivi-carte .rec-expediteur')?.textContent).toBe('Expéditeur : valentin.talhouarn@gmail.com');
+  });
+  it('🔴 l’expéditeur n’est aucune partie du bien : pas de cartouche', async () => {
+    await avecExpediteur('gestion@sansvisavis.com', 'Gestion CRITERIMMO', 'valentin.talhouarn@gmail.com');
+    expect(container.querySelector('.rdf-suivi-carte .rec-expediteur')).toBeNull();
   });
 
   it('🔴 « Ouvrir le Drive du bien » et « Historique du bien » ne sont plus dans cette modale', async () => {
@@ -419,5 +440,29 @@ describe('le bloc « Propositions » repliable', () => {
   it('🔴 aucune proposition : rien ne change, pas de croix', async () => {
     await monter();
     expect(container.querySelector('button[aria-label="Replier les propositions"]')).toBeNull();
+  });
+});
+
+describe('🔴🔴 la trame verte = case cochée', () => {
+  it('bien suivi : vert coché d’office, la trame part au décochage et revient au recochage', async () => {
+    await monter();
+    const carte = () => container.querySelector('.rdf-suivi-carte') as HTMLElement;
+    expect(carte().classList.contains('rec-bien--coche')).toBe(true);
+    await decocher();
+    expect(carte().classList.contains('rec-bien--coche')).toBe(false);
+    await decocher();
+    expect(carte().classList.contains('rec-bien--coche')).toBe(true);
+    expect(ecritures).toEqual([]);
+  });
+  it('proposition : verte cochée, plus verte décochée', async () => {
+    CONTEXTE.biens = MEME_PROPRIO;
+    await monter();
+    const prop = () => container.querySelector('.rec-biens .rec-bien') as HTMLElement;
+    expect(prop().classList.contains('rec-bien--coche')).toBe(false);
+    await cliquer(prop().querySelector('input[type="checkbox"]') as Element);
+    expect(prop().classList.contains('rec-bien--coche')).toBe(true);
+    await cliquer(prop().querySelector('input[type="checkbox"]') as Element);
+    expect(prop().classList.contains('rec-bien--coche')).toBe(false);
+    expect(ecritures).toEqual([]);
   });
 });

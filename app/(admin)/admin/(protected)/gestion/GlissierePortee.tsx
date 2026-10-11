@@ -12,7 +12,7 @@ import { POSITIONS_PORTEE, positionActive, type PositionPortee } from '../../../
  *
  * ══ 🔴🔴 LOT GLISSIERE-PILULE — LE DESSIN « PILULE » (Arno, 11/10/2026) ════════════════════════════════════════════
  * Comportement INCHANGÉ (mêmes positions, même ordre, même logique) ; seul le dessin change : grosse piste arrondie
- * (~64 px, fond gris très clair, contour 3 px couleur du texte), curseur en pilule rouge (#FA5252, ~104 × 50 px, contour
+ * (~64 px, fond gris très clair, contour 3 px couleur du texte), curseur en pilule rouge (~104 × 50 px, contour
  * 3 px et ombre dure vers le bas couleur du texte, petit losange blanc au centre), un repère gris de 12 px à chaque
  * position, glissement avec léger rebond ; libellés EXACTEMENT centrés sous leur repère (≈ 140 px, retour à la ligne
  * permis), sans numéro, 16 px ; le libellé actif en rouge gras sur pastille rouge très pâle.
@@ -131,8 +131,10 @@ export function GlissierePortee({ position, modification, onChoisir }: {
   );
 }
 
-/* ⚠️ AUCUN ACCENT GRAVE DANS CE LITTERAL. Couleurs : jetons seulement (Clair et Sombre), SAUF le rouge du curseur
-   (#FA5252, demande d'Arno) et son losange blanc, qui font partie du curseur dans les deux themes.
+/* ⚠️ AUCUN ACCENT GRAVE DANS CE LITTERAL. Couleurs : jetons seulement (Clair et Sombre), SAUF le losange blanc du
+   curseur. LOT PILULE-ROUGE-MAISON : le curseur prend NOTRE rouge, celui du bouton « Valider la
+   modification du suivi » (.svv-btn-primary), par la meme variable --color-svv-red ; plus de #FA5252. Le losange
+   blanc fait partie du curseur dans les deux themes.
    LA GEOMETRIE : une position i est a  retrait + x * (largeur - 2 * retrait), x = i / 3 (variable --gpo-x). Les
    pourcentages se lisent sur la largeur du bloc qui contient (la piste, ou la rangee des libelles : meme largeur). */
 export const CSS_GLISSIERE_PORTEE = `
@@ -145,7 +147,7 @@ export const CSS_GLISSIERE_PORTEE = `
 .gpo-cran--grise{opacity:.45}
 .gpo-curseur{position:absolute;top:50%;width:104px;height:50px;box-sizing:border-box;border-radius:999px;
   left:calc(var(--gpo-retrait) - 3px + var(--gpo-x) * (100% + 6px - 2 * var(--gpo-retrait)));
-  transform:translate(-50%,calc(-50% - 2px));background:#FA5252;border:3px solid var(--color-svv-ink);
+  transform:translate(-50%,calc(-50% - 2px));background:var(--color-svv-red);border:3px solid var(--color-svv-ink);
   box-shadow:0 5px 0 var(--color-svv-ink);cursor:grab;transition:left .42s cubic-bezier(.34,1.56,.64,1)}
 .gpo-curseur:active{cursor:grabbing}
 .gpo-losange{position:absolute;top:50%;left:50%;width:10px;height:10px;background:#fff;

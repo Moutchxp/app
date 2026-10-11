@@ -7,6 +7,7 @@ import { AUCUNE_PROPOSITION } from '../../../../lib/gestion/classementAvantEnvoi
 import { InfoBien } from './InfoBien';
 import { ZoneDefilante } from './ZoneDefilante';
 import type { BienTrouve, ResultatsBiens } from '../../../../lib/gestion/rechercheBienRepo';
+import { MOT_EXPEDITEUR, roleExpediteur, type ExpediteurDuMail } from '../../../../lib/gestion/expediteurDuMail';
 
 /**
  * ══ 🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — LE SEUL COMPOSANT DE CHOIX DE BIENS DE L'APPLICATION ═══════════════════
@@ -88,7 +89,7 @@ export function ligneRepliee(nbBiens: number, nbCoches: number): string {
 export interface BienACocher {
   cle: string;
   /** `null` = pas encore connues (fiche en cours de lecture) : les deux lignes ne sont pas écrites. */
-  parties: readonly { role: string; nom: string }[] | null;
+  parties: readonly { role: string; nom: string; emails?: readonly { valeur: string }[] }[] | null;
   /** Pourquoi ce bien est là : « locataire de ce bien », « déjà rattaché — décochez pour le retirer »… */
   motif: string;
 }
@@ -96,8 +97,15 @@ export interface BienACocher {
 export function ListeBiensACocher({
   afficherPropositions = true, lignes, titre, selection, onBasculer, clesVisibles, toutesCochees, onToutBasculer,
   replies = 0, autresDeplies = false, onBasculerAutres, saisie, onSaisie, champ, recherche, clesEnHaut,
-  onBasculerResultat, aLaDateDuMail = false, repliable = false,
+  onBasculerResultat, aLaDateDuMail = false, repliable = false, expediteurMail = null, trameCochee = false,
 }: {
+  /**
+   * 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — l'expéditeur du mail affiché : « Expéditeur : … » se pose
+   * sur la ligne de la partie qui porte son adresse, dans les propositions comme dans les résultats. Absent ⇒ aucun.
+   */
+  expediteurMail?: ExpediteurDuMail | null;
+  /** 🔴 MÊME LOT — une carte (proposition ou résultat) dont la case est cochée prend la trame verte. Absent ⇒ comme avant. */
+  trameCochee?: boolean;
   /**
    * 🔴 LOT GLISSIERE-PILULE (Arno, 11/10/2026) — une croix « × » en haut à droite replie le bloc « Propositions » sur une
    * seule ligne, qui le rouvre à l'identique. Absent ⇒ pas de croix (les autres fenêtres sont inchangées).
@@ -203,6 +211,7 @@ export function ListeBiensACocher({
                     /* 🔴 « déjà dans la sélection » : ce bien est DÉJÀ montré plus haut. Les deux cases n'en font
                        qu'une, et le compteur ne le compte qu'une fois. */
                     dejaEnHaut={clesEnHaut.has(b.cle)} aLaDateDuMail={aLaDateDuMail}
+                    expediteurMail={expediteurMail} trameCochee={trameCochee}
                     onBasculer={() => onBasculerResultat(b)} />
                 ))}
               </ul>
@@ -269,7 +278,7 @@ export function ListeBiensACocher({
           {/* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la zone DIT ce qu'elle cache en dessous. */}
           <ul className="rec-biens">
             {affichees.map((b) => (
-              <li key={b.cle} className="rec-bien">
+              <li key={b.cle} className={`rec-bien${trameCochee && selection.has(b.cle) ? ' rec-bien--coche' : ''}`}>
                 <label className="rec-choix">
                   <input type="checkbox" checked={selection.has(b.cle)} onChange={() => onBasculer(b.cle)} />
                   {/* 🔴 LE TITRE, SANS NUMÉRO DE LOT : « adresse — qualité ». */}
@@ -278,7 +287,10 @@ export function ListeBiensACocher({
                   <InfoBien cle={b.cle} titre={titre(b.cle)}
                     surLaLigne={`${titre(b.cle)} ${(b.parties ?? []).map((p) => p.nom).join(' ')}`} />
                 </label>
-                {b.parties !== null && <PartiesSurDeuxLignes parties={b.parties} aLaDateDuMail={aLaDateDuMail} />}
+                {b.parties !== null && (
+                  <PartiesSurDeuxLignes parties={b.parties} aLaDateDuMail={aLaDateDuMail}
+                    expediteur={roleExpediteur(b.parties, expediteurMail)} nomExpediteur={expediteurMail?.nom ?? null} />
+                )}
                 {/* 🔴 LE MOTIF EST ÉCRIT EN CLAIR, TOUJOURS : pourquoi ce bien est là, pourquoi sa case est cochée. */}
                 <p className="rec-motif">{b.motif}</p>
               </li>
@@ -314,8 +326,11 @@ export function ListeBiensACocher({
  * « adresse — nature · type », PROPRIÉTAIRE, LOCATAIRE, puis « trouvé par … ». ⚠️ La mise en forme est décidée dans
  * le module pur (`ligneCompacteDuBien`) : cet écran place et peint.
  */
-function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, onBasculer }: {
+function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, onBasculer, expediteurMail = null,
+  trameCochee = false }: {
   bien: BienTrouve; coche: boolean; titre: string; dejaEnHaut: boolean; aLaDateDuMail: boolean; onBasculer: () => void;
+  expediteurMail?: ExpediteurDuMail | null;
+  trameCochee?: boolean;
 }) {
   const l = ligneCompacteDuBien(b, titre);
   /**
@@ -327,7 +342,7 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, o
    */
   const dejaCoche = dejaEnHaut && coche;
   return (
-    <li className={`rec-ligne${dejaCoche ? ' rec-ligne--deja' : ''}`}>
+    <li className={`rec-ligne${dejaCoche ? ' rec-ligne--deja' : ''}${trameCochee && coche ? ' rec-ligne--coche' : ''}`}>
       <label className="rec-ligne-choix">
         <input type="checkbox" checked={coche} onChange={onBasculer} />
         <span className="rec-ligne-corps">
@@ -338,7 +353,8 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, o
           </span>
           {/* 🔴 « déjà dans la sélection » : la même case, vue d'un autre endroit — jamais un second bien. */}
           {dejaCoche && <span className="rec-ligne-deja">déjà dans la sélection</span>}
-          <PartiesSurDeuxLignes parties={b.parties} dansUneLigne aLaDateDuMail={aLaDateDuMail} />
+          <PartiesSurDeuxLignes parties={b.parties} dansUneLigne aLaDateDuMail={aLaDateDuMail}
+            expediteur={roleExpediteur(b.parties, expediteurMail)} nomExpediteur={expediteurMail?.nom ?? null} />
           {/* Pourquoi cette ligne répond : c'est ce qui permet de comprendre un résultat surprenant. */}
           <span className="rec-ligne-motif">trouvé par {b.raisons.map(motRaison).join(' · ')}</span>
         </span>
@@ -354,7 +370,9 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, o
  * 🔴 `aLaDateDuMail` : « LOCATAIRE (à la date du mail) », et « Vacant à cette date ». La précision est hors des
  * petites capitales : c'est une phrase, pas un intitulé.
  */
-export function PartiesSurDeuxLignes({ parties, dansUneLigne = false, aLaDateDuMail = false, expediteur = null }: {
+export function PartiesSurDeuxLignes({
+  parties, dansUneLigne = false, aLaDateDuMail = false, expediteur = null, nomExpediteur = null,
+}: {
   parties: readonly { role: string; nom: string }[];
   /** Dans une ligne de résultat (déjà décalée par sa case) : pas de retrait supplémentaire. */
   dansUneLigne?: boolean;
@@ -364,9 +382,21 @@ export function PartiesSurDeuxLignes({ parties, dansUneLigne = false, aLaDateDuM
    * se pose sur SA ligne (Arno). `null` = aucune des deux (le cas des listes de recherche).
    */
   expediteur?: 'proprietaire' | 'locataire' | null;
+  /**
+   * 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — QUI a écrit : « Expéditeur : Valentin TALHOUARN ». Collé à
+   * un couple, le mot seul ne le disait pas (Arno). `null` ⇒ le mot seul, comme avant.
+   */
+  nomExpediteur?: string | null;
 }) {
   const l = deuxLignesParties(parties, { aLaDateDuMail });
-  const capsule = <span className="rec-expediteur">Expéditeur</span>;
+  const capsule = (
+    <span className="rec-expediteur">
+      {MOT_EXPEDITEUR}
+      {nomExpediteur !== null && nomExpediteur.trim() !== '' && (
+        <span className="rec-expediteur-nom"> : {nomExpediteur}</span>
+      )}
+    </span>
+  );
   return (
     <span className={`rec-deux-lignes${dansUneLigne ? '' : ' rec-deux-lignes--carte'}`}>
       <span className="rec-ligne-parties">
@@ -459,7 +489,14 @@ export const CSS_LISTE_BIENS = `
 /* LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la capsule « Expediteur », meme dessin que celle de la fiche. */
 .rec-expediteur{display:inline-block;padding:0 .4rem;border-radius:999px;font-size:.62rem;font-weight:700;
   letter-spacing:.03em;text-transform:uppercase;color:var(--color-svv-red);border:1px solid var(--color-svv-red);
-  white-space:nowrap;vertical-align:1px}
+  white-space:nowrap;vertical-align:1px;max-width:100%}
+.rec-expediteur-nom{text-transform:none;letter-spacing:0;white-space:normal;overflow-wrap:anywhere}
+/* LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — LA TRAME VERTE = CASE COCHEE (Arno). Le meme vert que la
+   trame « deja dans la selection » (.rec-ligne--deja) ; le texte garde ses couleurs (encre et gris lisibles sur ce
+   fond, Clair comme Sombre). Elle suit la case, et rien d'autre. */
+.rec-bien--coche{background:var(--color-svv-green-soft)}
+.rec-ligne--coche{background:var(--color-svv-green-soft)}
+.rec-ligne--coche:hover{background:var(--color-svv-green-soft)}
 .rec-deux-lignes{display:flex;flex-direction:column;gap:1px;min-width:0}
 .rec-deux-lignes--carte{margin:.25rem 0 0 1.6rem}
 .rec-ligne-motif{font-size:.72rem;font-style:italic;color:var(--color-svv-muted)}

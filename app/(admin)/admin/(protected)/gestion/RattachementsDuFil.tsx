@@ -75,6 +75,7 @@ import {
   positionSuivante, MOT_CONFIRMER_CONVERSATION, QUESTION_RETOUR_ORIGINE, type PositionPortee,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
+import { expediteurDuMail, roleExpediteur, type ExpediteurDuMail } from '../../../../lib/gestion/expediteurDuMail';
 import type { EvenementDuMail } from '../../../../lib/gestion/evenementQualite';
 
 /**
@@ -542,6 +543,11 @@ export function RattachementsDuFil({
    * le serveur a désigné comme le plus récent, c'est-à-dire celui que la ligne de liste affiche.
    */
   const mailId = messageId ?? fiche?.enTete?.messageId ?? null;
+  /**
+   * 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — L'EXPÉDITEUR DU MAIL AFFICHÉ (`enTete`, celui dont la fenêtre
+   * parle) : le cartouche « Expéditeur : … » des biens suivis, des propositions et des résultats vient de lui seul.
+   */
+  const expediteurMail = expediteurDuMail(fiche?.enTete?.de, fiche?.enTete?.deNom);
   /**
    * 🔴🔴 LES BIENS QUE CETTE FENÊTRE MONTRE : ceux qui sont rattachés OFFICIELLEMENT à ce mail — lien vivant et
    * CONFIRMÉ, jamais une proposition. C'est `biensDuMail`, et il n'y a plus de second chemin : c'est pour cela
@@ -1194,7 +1200,7 @@ export function RattachementsDuFil({
             <ul className="rdf-suivis-liste">
               {biens.map((b) => (
                 <CarteBienSuivi key={b.cle} bien={b} titre={titresSuivis.get(b.cle) ?? b.adresseComplete}
-                  ponctuel={b.ponctuel}
+                  ponctuel={b.ponctuel} expediteurMail={expediteurMail}
                   garde={panneau === 'aucun' ? undefined : (selection ?? clesDuMail).includes(b.cle)}
                   onGarder={panneau === 'aucun' ? undefined : () => setSelection((avant) => {
                     const courant = avant ?? clesDuMail;
@@ -1260,6 +1266,8 @@ export function RattachementsDuFil({
             /* 🔴 LOT GLISSIERE-PILULE — dans « Modifier le rattachement » (porte ponctuelle), le bloc « Propositions »
                se replie par sa croix (Arno). Les autres portes n'ont pas la croix. */
             propositionsRepliables={ponctuel}
+            /* 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — le cartouche nommé et la trame verte « coché ». */
+            expediteurMail={expediteurMail} trameCochee
             libellesConnus={libellesConnus}
             /**
              * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — LA SÉLECTION EST TENUE ICI.
@@ -1821,8 +1829,10 @@ function CorpsDuBien({ bien, liens, onModifier }: {
  * 🔴 SEULS « Ouvrir le Drive du bien » ET « Historique du bien » N'Y SONT PAS (accord d'Arno, pour cette modale) : ils
  * restent sur la carte des deux autres portes et ailleurs dans l'application.
  */
-function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponctuel = false }: {
+function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponctuel = false, expediteurMail = null }: {
   bien: BienRattache;
+  /** 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — l'expéditeur du mail affiché. */
+  expediteurMail?: ExpediteurDuMail | null;
   /** « ajout ponctuel » (voir `MOTIF_AJOUT_PONCTUEL`). */
   ponctuel?: boolean;
   titre: string;
@@ -1836,14 +1846,18 @@ function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponct
   const retire = avecCase && garde === false;
   const proprios = bien.personnes.filter((p) => p.role === 'proprietaire');
   const locataires = bien.personnes.filter((p) => p.role === 'locataire');
-  const expediteur: 'proprietaire' | 'locataire' | null = proprios.some((p) => p.expediteur) ? 'proprietaire'
-    : locataires.some((p) => p.expediteur) ? 'locataire' : null;
-  const capsule = <span className="rec-expediteur">Expéditeur</span>;
+  /**
+   * 🔴🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — LA PARTIE QUI A ENVOYÉ CE MAIL : celle dont l'annuaire
+   * porte l'adresse De:. Aucune ⇒ pas de cartouche sur ce bien (Arno). ⚠️ UN SEUL CARTOUCHE PAR BIEN, sur la ligne de
+   * cette partie : celui de la ligne repliable « ▶ … » est retiré (demande d'Arno).
+   */
+  const expediteur = roleExpediteur(bien.personnes, expediteurMail);
+  const coche = avecCase && garde === true;
   const motif = !avecCase ? 'rattaché à ce mail'
     : garde ? 'déjà rattaché — décochez pour le retirer'
       : 'décoché : ce mail sortira du suivi de ce bien à la validation (restaurable)';
   return (
-    <li className={`rec-bien rdf-suivi-carte${retire ? ' rdf-suivi-carte--retire' : ''}`}>
+    <li className={`rec-bien rdf-suivi-carte${retire ? ' rdf-suivi-carte--retire' : ''}${coche ? ' rec-bien--coche' : ''}`}>
       <label className="rec-choix">
         {avecCase && (
           <input type="checkbox" className="rdf-garde" checked={garde} onChange={onGarder}
@@ -1854,13 +1868,15 @@ function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponct
         {/* 🔴 « SERA RETIRÉ » EST ÉCRIT, jamais seulement grisé. */}
         {retire && <span className="rdf-sera-retire">sera retiré</span>}
       </label>
-      <PartiesSurDeuxLignes parties={bien.personnes} aLaDateDuMail expediteur={expediteur} />
+      <PartiesSurDeuxLignes parties={bien.personnes} aLaDateDuMail expediteur={expediteur}
+        nomExpediteur={expediteurMail?.nom ?? null} />
       <p className="rec-motif">{motif}</p>
       <details className="rdf-suivi-detail">
         <summary className="rdf-suivi-resume">
           {proprios.length === 0 ? 'Aucun propriétaire connu' : proprios.map((p) => p.nom).join(' · ')}
-          {expediteur === 'proprietaire' && <> {capsule}</>}
-          {expediteur === 'locataire' && <> · {locataires.filter((p) => p.expediteur).map((p) => p.nom).join(' · ')} {capsule}</>}
+          {/* 🔴 PLUS DE CARTOUCHE ICI (Arno) : il est sur la ligne de la partie, juste au-dessus. Le nom du locataire
+              qui a écrit reste écrit sur la ligne, comme avant. */}
+          {expediteur === 'locataire' && <> · {locataires.filter((p) => roleExpediteur([p], expediteurMail) !== null).map((p) => p.nom).join(' · ')}</>}
         </summary>
         <div className="rdf-suivi-corps">
           <p className="rdf-detail rdf-caract">
