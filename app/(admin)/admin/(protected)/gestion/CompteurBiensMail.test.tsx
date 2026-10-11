@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
-import { DateEtBiens, viderMemoireBiensRattaches } from './CompteurBiensMail';
+import { DateEtBiens, viderMemoireBiensRattaches, viderMemoireBulleBiens } from './CompteurBiensMail';
 import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
 
 /**
@@ -19,11 +19,18 @@ let reponse: Record<string, number>;
 
 beforeEach(() => {
   viderMemoireBiensRattaches();
+  viderMemoireBulleBiens();
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   appels = [];
   reponse = { 1: 1, 2: 3, 3: 0 };
   global.fetch = vi.fn(async (url: string | URL | Request) => {
     appels.push(String(url));
+    if (String(url).includes('detail=')) {
+      return { ok: true, json: async () => ({ etat: 'ok', biens: [
+        { cle: '219', adresse: '25 rue Edith Cavell', codePostal: '92400', commune: 'COURBEVOIE', nature: 'Appartement meublé', typeBien: 'Type 2', proprietaire: 'JULLIEN - GARRIDO Cédric' },
+        { cle: '373', adresse: '15 rue Carle Hebert', codePostal: '92400', commune: 'COURBEVOIE', nature: null, typeBien: null, proprietaire: 'JULLIEN - GARRIDO Cédric' },
+      ] }) } as unknown as Response;
+    }
     return { ok: true, json: async () => ({ etat: 'ok', parMail: reponse }) } as unknown as Response;
   }) as unknown as typeof fetch;
 });
@@ -38,6 +45,7 @@ const monter = async (ids: number[]) => {
   await calmer();
 };
 const textes = () => [...container.querySelectorAll('.cbm-pile')].map((p) => p.textContent);
+const svv = () => { let r = document.querySelector('.svv-adm-root'); if (r === null) { r = document.createElement('div'); r.className = 'svv-adm-root'; document.body.appendChild(r); } return r; };
 
 describe('🔴 le nombre de biens sous la date', () => {
   it('UNE requête pour toute la liste ; la date reste telle quelle, le nombre juste dessous', async () => {
@@ -48,7 +56,7 @@ describe('🔴 le nombre de biens sous la date', () => {
     /* La date est le premier enfant, intact ; le compteur vient dessous. */
     const pile = container.querySelector('.cbm-pile') as HTMLElement;
     expect(pile.firstElementChild?.className).toBe('vdb-quand');
-    expect(pile.lastElementChild?.className).toBe('cbm-biens');
+    expect(pile.lastElementChild?.classList.contains('cbm-biens')).toBe(true);
   });
 
   it('⚠️ tant qu’on ne sait pas, rien n’est écrit (jamais un « aucun » provisoire)', async () => {
@@ -91,5 +99,56 @@ describe('🔴 le même calcul que la fenêtre « Bien(s) rattaché(s) à ce mai
     expect(src).toContain('JOIN gestion_annuaire_lot lo ON lo.wippimmo_id = r.cible_cle');
     expect(src).toContain('count(DISTINCT r.cible_cle)');
     expect(src).toContain('r.message_id = ANY($1::bigint[])');
+  });
+});
+
+describe('🔴🔴 LOT BULLE-BIENS-RATTACHES — la bulle du compteur', () => {
+  const declencheur = (i = 0) => container.querySelectorAll('.cbm-biens')[i] as HTMLElement;
+  const laBulle = () => document.querySelector('.cbm-bulle') as HTMLElement | null;
+  it('au survol : une ligne par bien, propriétaire à droite ; le détail est lu UNE fois, puis gardé', async () => {
+    svv();
+    await monter([2]);
+    expect(declencheur().getAttribute('role')).toBe('button');
+    expect(declencheur().tabIndex).toBe(0);
+    await act(async () => { declencheur().dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    await calmer();
+    const lignes = [...(laBulle()?.querySelectorAll('.cbm-bulle-ligne') ?? [])];
+    expect(lignes.map((l) => l.querySelector('.cbm-bulle-bien')?.textContent)).toEqual([
+      '25 rue Edith Cavell, 92400 COURBEVOIE — Appartement meublé · Type 2 — lot 219',
+      '15 rue Carle Hebert, 92400 COURBEVOIE — type non renseigné — lot 373',
+    ]);
+    expect(lignes[0].querySelector('.cbm-bulle-proprio')?.textContent).toBe('JULLIEN - GARRIDO Cédric');
+    /* 🔴 dans la racine de l'administration (thème), jamais sous la ligne */
+    expect(laBulle()?.closest('.svv-adm-root')).not.toBeNull();
+    expect(container.contains(laBulle())).toBe(false);
+    /* Refermer puis rouvrir : aucune seconde lecture. */
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    await calmer();
+    expect(laBulle()).toBeNull();
+    await act(async () => { declencheur().focus(); });
+    await calmer();
+    expect(laBulle()).not.toBeNull();
+    expect(appels.filter((u) => u.includes('detail=2'))).toHaveLength(1);
+  });
+  it('au toucher / clic : la bulle s’ouvre et la ligne ne se plie pas', async () => {
+    svv();
+    const ligne = vi.fn();
+    await act(async () => {
+      root.render(createElement('button', { type: 'button', onClick: ligne },
+        createElement(DateEtBiens, { messageId: 2, date: createElement('span', null, 'date') })));
+    });
+    await calmer();
+    await act(async () => { declencheur().click(); });
+    await calmer();
+    expect(laBulle()).not.toBeNull();
+    expect(ligne).not.toHaveBeenCalled();
+  });
+  it('« aucun bien rattaché » : pas de bulle', async () => {
+    await monter([3]);
+    expect(declencheur().getAttribute('role')).toBeNull();
+    await act(async () => { declencheur().dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    await calmer();
+    expect(laBulle()).toBeNull();
+    expect(appels.some((u) => u.includes('detail='))).toBe(false);
   });
 });

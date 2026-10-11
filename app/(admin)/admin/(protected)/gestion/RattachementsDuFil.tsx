@@ -71,7 +71,7 @@ import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
 /* 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la portée en quatre positions (module PUR) et sa glissière. */
 import {
-  definitionAffichee, definitionDe, modificationEnCours, motApresValidation, motBoutonFinal, motConfirmationConversation,
+  definitionDe, modificationEnCours, morceauxDefinition, motApresValidation, motBoutonFinal, motConfirmationConversation,
   positionSuivante, MOT_CONFIRMER_CONVERSATION, QUESTION_RETOUR_ORIGINE, type PositionPortee,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
@@ -1045,7 +1045,9 @@ export function RattachementsDuFil({
       {/* 🔴 LA DÉFINITION DE LA POSITION, mot pour mot (Arno). */}
       <p className={`rdf-portee-definition rdf-portee-definition--${position}`} role="note">
         {/* 🔴 ③ porte le nombre de biens cochés, en direct (lot ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES). */}
-        {definitionAffichee(position, new Set(selection ?? clesDuMail).size)}
+        {/* 🔴 LOT BULLE-BIENS-RATTACHES — « suivi de fond » en gras dans ③ (Arno). */}
+        {morceauxDefinition(position, new Set(selection ?? clesDuMail).size)
+          .map((m, i) => (m.fort ? <strong key={i}>{m.texte}</strong> : <span key={i}>{m.texte}</span>))}
       </p>
       {/* 🔴 ④ — LA CONFIRMATION AVANT VALIDATION, avec le nombre de mails mis à jour. */}
       {position === 'conversation' && modification && suivi !== null && mailId !== null && (

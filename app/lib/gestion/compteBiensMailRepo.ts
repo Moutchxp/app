@@ -1,6 +1,7 @@
 import { query } from '../db/client';
 import { sqlLiensDuBien } from './rattachement';
 import { rattachementsDisponibles } from './schema';
+import type { BienDeLaBulle } from './bulleBiensMail';
 
 /**
  * ══ 🔴🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N BIENS RATTACHÉS » SOUS LA DATE DE CHAQUE MAIL. LECTURE SEULE ══
@@ -32,4 +33,29 @@ export async function comptesBiensParMail(messageIds: readonly number[]): Promis
   for (const id of ids) out.set(id, 0);
   for (const r of rows) out.set(Number(r.message_id), r.n);
   return out;
+}
+
+/**
+ * ══ 🔴🔴 LOT BULLE-BIENS-RATTACHES — LES BIENS D'UN MAIL, POUR LA BULLE DE SON COMPTEUR. LECTURE SEULE ════════════════
+ * LE MÊME ENSEMBLE que `comptesBiensParMail` (même fragment, même jointure sur l'annuaire) : la bulle liste exactement
+ * les biens que le compteur compte, et que la fenêtre « Bien(s) rattaché(s) à ce mail » montre. Lue au premier survol.
+ * Rangés par adresse.
+ */
+export async function biensDeLaBulle(messageId: number): Promise<BienDeLaBulle[]> {
+  if (!Number.isSafeInteger(messageId) || messageId <= 0 || !(await rattachementsDisponibles())) return [];
+  const { rows } = await query<{
+    cle: string; adresse: string | null; code_postal: string | null; commune: string | null;
+    nature: string | null; type_bien: string | null; proprietaire: string | null;
+  }>(
+    `SELECT DISTINCT lo.wippimmo_id AS cle, lo.adresse, lo.code_postal, lo.commune, lo.nature, lo.type_bien,
+            pr.nom_complet AS proprietaire
+       FROM gestion_rattachement r
+       JOIN gestion_annuaire_lot lo ON lo.wippimmo_id = r.cible_cle
+       LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
+      WHERE r.message_id = $1 AND ${sqlLiensDuBien('r')}
+      ORDER BY lo.adresse, lo.wippimmo_id`, [messageId]);
+  return rows.map((r) => ({
+    cle: r.cle, adresse: r.adresse, codePostal: r.code_postal, commune: r.commune,
+    nature: r.nature, typeBien: r.type_bien, proprietaire: r.proprietaire,
+  }));
 }

@@ -17,7 +17,7 @@ describe('les quatre positions, de gauche à droite, et leurs définitions mot p
     expect(definitionDe('origine').definition).toBe('Le suivi reste tel qu’il était. Aucune modification n’est enregistrée.');
     expect(definitionDe('one_shot').definition).toBe(BANDEAU_MODIFICATION_PONCTUELLE);
     expect(definitionDe('one_shot').definition).toBe('Modification ponctuelle : elle ne concerne QUE ce mail. Aucun autre mail, aucune conversation et aucun suivi ne sont modifiés.');
-    expect(definitionDe('suite').definition).toBe('À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi rattachera les biens choisis ci-dessus. Les mails plus anciens ne changent pas.');
+    expect(definitionDe('suite').definition).toBe('À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi de fond rattachera les biens choisis ci-dessus. Les mails plus anciens ne changent pas.');
     expect(definitionDe('conversation').definition).toBe('Les biens choisis ci-dessus s’appliquent à toute la conversation, anciens mails compris. Sur les anciens mails, les biens ajoutés sont ajoutés et les biens retirés passent en « sorti du suivi » (restaurable), jamais effacés.');
     expect(QUESTION_RETOUR_ORIGINE).toBe('Revenir au suivi d’origine ? Vos modifications seront abandonnées');
   });

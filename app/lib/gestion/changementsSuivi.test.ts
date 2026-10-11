@@ -97,7 +97,7 @@ describe('🔴 les libellés de la fenêtre « Bien(s) rattaché(s) à ce mail �
     expect(libelleSuiviModifie(biens('219'))).toBe('suivi de fond modifié — 1 bien rattaché');
   });
   it('③ « rattachera », et le nombre de biens cochés au bout de la 2ᵉ phrase', () => {
-    expect(definitionAffichee('suite', 2)).toBe('À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi rattachera les biens choisis ci-dessus. Les mails plus anciens ne changent pas — 2 biens rattachés.');
+    expect(definitionAffichee('suite', 2)).toBe('À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi de fond rattachera les biens choisis ci-dessus. Les mails plus anciens ne changent pas — 2 biens rattachés.');
     expect(definitionAffichee('suite', 0)).toMatch(/ne changent pas — aucun bien rattaché\.$/);
     /* ④ n'emploie pas « appliquera » : inchangée (condition d'Arno). */
     expect(definitionAffichee('conversation', 3)).not.toContain('rattaché');

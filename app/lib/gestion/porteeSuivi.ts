@@ -38,7 +38,8 @@ export const POSITIONS_PORTEE: readonly DefinitionPosition[] = [
   {
     cle: 'suite', libelle: 'Ce mail + futurs échanges', choix: 'suite',
     /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — « appliquera » devient « rattachera » (Arno). */
-    definition: 'À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi rattachera '
+    /* 🔴 LOT BULLE-BIENS-RATTACHES — « le suivi » devient « le suivi de fond » (en gras à l'écran : MOT_FORT_SUITE). */
+    definition: 'À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi de fond rattachera '
       + 'les biens choisis ci-dessus. Les mails plus anciens ne changent pas.',
   },
   {
@@ -58,6 +59,24 @@ export function definitionDe(p: PositionPortee): DefinitionPosition {
  * 2ᵉ phrase pour ③ (Arno) : « … Les mails plus anciens ne changent pas — 2 biens rattachés. », mis à jour en direct.
  * Les autres positions sont dites telles quelles (④ n'emploie pas « appliquera » : inchangée). PUR.
  */
+/** 🔴 LOT BULLE-BIENS-RATTACHES — les mots de la définition ③ écrits en GRAS (Arno). */
+export const MOT_FORT_SUITE = 'suivi de fond';
+
+/**
+ * La définition affichée, découpée pour l'écran : le morceau `fort` est en gras (« suivi de fond » pour ③, rien pour
+ * les autres positions). PUR.
+ */
+export function morceauxDefinition(p: PositionPortee, nbCoches: number): { texte: string; fort: boolean }[] {
+  const d = definitionAffichee(p, nbCoches);
+  const i = p === 'suite' ? d.indexOf(MOT_FORT_SUITE) : -1;
+  if (i < 0) return [{ texte: d, fort: false }];
+  return [
+    { texte: d.slice(0, i), fort: false },
+    { texte: MOT_FORT_SUITE, fort: true },
+    { texte: d.slice(i + MOT_FORT_SUITE.length), fort: false },
+  ].filter((m) => m.texte !== '');
+}
+
 export function definitionAffichee(p: PositionPortee, nbCoches: number): string {
   const d = definitionDe(p).definition;
   if (p !== 'suite') return d;
