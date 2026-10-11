@@ -259,3 +259,58 @@ describe('🔴🔴 LOT FORMULE-CONTACT-PRIME — la formule ne dépend QUE de «
     expect(lignesAffichees()[0]).toBe('Bonjour Monsieur JOREL,');
   });
 });
+
+describe('🔴 LOT OBJET-CARTOUCHE-NOM-SELON-PROFIL-GESTION, POINT 1 — un clic sur le cartouche le retire, le nom reste', () => {
+  const RECT = { left: 10, right: 100, top: 0, bottom: 20, width: 90, height: 20, x: 10, y: 0, toJSON: () => ({}) } as DOMRect;
+  const poserRect = () => {
+    const nom = container.querySelector('.red-objet-nom') as HTMLElement;
+    nom.getBoundingClientRect = () => RECT;
+  };
+  const souris = async (type: string, x: number) => {
+    await act(async () => { objetDe().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 10 })); });
+    await calmer();
+  };
+  it('survol du nom : « Cliquer pour valider le nom » ; ailleurs : aucune info-bulle', async () => {
+    await monter(brouillon(pret(BIEN, 'R')));
+    poserRect();
+    await souris('mousemove', 50);
+    expect(objetDe().title).toBe('Cliquer pour valider le nom');
+    await souris('mousemove', 300);
+    expect(objetDe().getAttribute('title')).toBeNull();
+  });
+  it('🔴 clic sur le cartouche : il disparaît ; le nom et l’objet restent intacts ; rien n’est enregistré', async () => {
+    await monter(brouillon(pret(BIEN, 'R')));
+    poserRect();
+    const avant = courant.objet;
+    await souris('mousedown', 50);
+    await act(async () => { objetDe().click(); });
+    await calmer();
+    expect(surligne()).toBeNull();
+    expect(container.querySelector('.red-objet-miroir')).toBeNull();
+    expect(objetDe().classList.contains('red-objet--surligne')).toBe(false);
+    expect(objetDe().value).toBe(avant);
+    expect(courant.objet).toBe('Arnaud JOREL / Cabinet Criterimmo / résidence R');
+    expect(objetDe().selectionStart).toBe(objetDe().selectionEnd);                   // rien de sélectionné
+    await act(async () => { vi.advanceTimersByTime(6000); });
+    await calmer();
+    expect(requetes.filter((r) => r.methode !== 'GET')).toEqual([]);
+  });
+  it('le cartouche ne revient pas, même en modifiant l’objet (y compris le nom)', async () => {
+    await monter(brouillon(pret(BIEN, 'R')));
+    poserRect();
+    await souris('mousedown', 50);
+    await act(async () => { objetDe().click(); });
+    await calmer();
+    await taperDansObjet('Arnaud J. / Cabinet Criterimmo / résidence R — suite');
+    expect(surligne()).toBeNull();
+    expect(container.querySelector('.red-objet-miroir')).toBeNull();
+  });
+  it('un clic AILLEURS dans l’objet ne retire pas le cartouche', async () => {
+    await monter(brouillon(pret(BIEN, 'R')));
+    poserRect();
+    await souris('mousedown', 300);
+    await act(async () => { objetDe().click(); });
+    await calmer();
+    expect(surligne()).toBe('Arnaud JOREL');
+  });
+});

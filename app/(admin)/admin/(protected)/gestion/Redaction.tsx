@@ -1095,6 +1095,20 @@ export function Redaction({
    */
   const champObjet = useRef<HTMLInputElement | null>(null);
   const miroirObjet = useRef<HTMLDivElement | null>(null);
+  /**
+   * ══ 🔴 LOT OBJET-CARTOUCHE-NOM-SELON-PROFIL-GESTION, POINT 1 — EFFACER LE CARTOUCHE EN UN CLIC ════════════════════
+   * Un clic sur le nom surligné retire le CARTOUCHE seulement : le nom reste écrit, l'objet prend un aspect uniforme, le
+   * curseur va où l'on a cliqué (le navigateur le pose ; rien n'est sélectionné, rien n'est effacé). Le cartouche ne
+   * revient plus dans cette fenêtre, même si l'on modifie l'objet. État d'ÉCRAN : rien n'est enregistré pour autant
+   * (un clic n'est pas une modification du brouillon). Au survol du nom : « Cliquer pour valider le nom ».
+   */
+  const [cartoucheValide, setCartoucheValide] = useState(false);
+  const [surLeCartouche, setSurLeCartouche] = useState(false);
+  const clicSurLeCartouche = useRef(false);
+  const dansLeCartouche = (x: number, y: number): boolean => {
+    const r = miroirObjet.current?.querySelector('.red-objet-nom')?.getBoundingClientRect();
+    return r !== undefined && r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+  };
   const ouvertureFaite = useRef(false);
   /** Le surlignage est dessiné SOUS le champ (`miroirObjet`) : il défile avec lui. */
   const calerMiroir = (): void => {
@@ -1960,11 +1974,21 @@ export function Redaction({
             saisie, le curseur et la sélection, son propre texte rendu transparent. Les deux défilent ensemble.
             Sans surlignage (message ordinaire, nom effacé) : le champ d'avant, tel quel. */}
         {(() => {
-          const plage = brouillon.surlignageObjet ?? null;
+          const plage = cartoucheValide ? null : (brouillon.surlignageObjet ?? null);
           const champ = (
             <input id="red-objet" ref={champObjet}
               className={`red-saisie red-saisie--pleine${plage !== null ? ' red-objet--surligne' : ''}`}
               value={brouillon.objet} maxLength={500}
+              title={plage !== null && surLeCartouche ? 'Cliquer pour valider le nom' : undefined}
+              onMouseMove={plage === null ? undefined : (e) => setSurLeCartouche(dansLeCartouche(e.clientX, e.clientY))}
+              onMouseLeave={plage === null ? undefined : () => setSurLeCartouche(false)}
+              onMouseDown={plage === null ? undefined : (e) => { clicSurLeCartouche.current = dansLeCartouche(e.clientX, e.clientY); }}
+              onClick={() => {
+                if (!clicSurLeCartouche.current) return;
+                clicSurLeCartouche.current = false;
+                setCartoucheValide(true);
+                setSurLeCartouche(false);
+              }}
               onChange={(e) => {
                 const objet = e.target.value;
                 if (brouillon.surlignageObjet === undefined) { modifier({ objet }); return; }
@@ -1972,15 +1996,19 @@ export function Redaction({
               }}
               onScroll={calerMiroir} onSelect={calerMiroir} onKeyUp={calerMiroir} />
           );
-          if (plage === null) return champ;
-          const [d, f] = plage;
+          /* ⚠️ LE CADRE EST TOUJOURS LÀ, et le champ toujours à la même place dedans : avec ou sans cartouche, c'est le
+             MÊME élément. CE QU'IL FAISAIT AVANT (mesuré dans Chrome) : sans cartouche, le champ était rendu seul ; le
+             retirer d'un clic recréait l'élément, qui perdait le focus — le curseur n'était pas posé là où l'on avait
+             cliqué. */
           return (
             <div className="red-objet-cadre">
-              <div ref={miroirObjet} className="red-objet-miroir" aria-hidden="true">
-                {brouillon.objet.slice(0, d)}
-                <mark className="red-objet-nom">{brouillon.objet.slice(d, f)}</mark>
-                {brouillon.objet.slice(f)}
-              </div>
+              {plage !== null && (
+                <div ref={miroirObjet} className="red-objet-miroir" aria-hidden="true">
+                  {brouillon.objet.slice(0, plage[0])}
+                  <mark className="red-objet-nom">{brouillon.objet.slice(plage[0], plage[1])}</mark>
+                  {brouillon.objet.slice(plage[1])}
+                </div>
+              )}
               {champ}
             </div>
           );
