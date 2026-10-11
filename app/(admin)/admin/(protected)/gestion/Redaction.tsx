@@ -2553,7 +2553,7 @@ const CSS_REDACTION = `
 /* LOT FORMULE-CONTACT-PRIME-ET-PUCES-COLOREES — la puce teintée de sa FAMILLE, les mêmes jetons que les pastilles de la
    liste. Seul le FOND est teinté : le texte reste l'encre (contraste AA éprouvé en Clair et en Sombre). E-mail
    rattaché : fond plus pâle et contour de la couleur. Adresse inconnue : fond de surface, contour gris pointillé. */
-.red-pastille--proprietaire{--red-puce-ton:var(--color-svv-red)}
+.red-pastille--proprietaire{--red-puce-ton:var(--color-svv-proprio)}
 .red-pastille--locataire{--red-puce-ton:var(--color-svv-green)}
 .red-pastille--ancien_locataire{--red-puce-ton:var(--color-svv-violet)}
 /* Le rose du syndic est DÉJÀ un pastel en Clair (#f9a8d4) : à la dose commune, la puce paraissait blanche (mesuré dans
@@ -2564,6 +2564,11 @@ const CSS_REDACTION = `
   border-color:color-mix(in srgb,var(--red-puce-ton) var(--red-puce-dose,20%),var(--color-svv-surface));color:var(--color-svv-ink)}
 .red-pastille--famille.red-pastille--rattache{background:color-mix(in srgb,var(--red-puce-ton) var(--red-puce-dose-pale,8%),var(--color-svv-surface));
   border-color:var(--red-puce-ton)}
+/* LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — le PROPRIÉTAIRE a sa propre trame : le rouge dilué dans le blanc tirait vers
+   le saumon (Arno). Rouge pur, plus franc, en Clair comme en Sombre ; les autres familles ne bougent pas. */
+.red-pastille--famille.red-pastille--proprietaire{background:var(--color-svv-proprio-trame);border-color:var(--color-svv-proprio-trame)}
+.red-pastille--famille.red-pastille--proprietaire.red-pastille--rattache{background:var(--color-svv-proprio-trame-pale);
+  border-color:var(--color-svv-proprio)}
 .red-pastille--inconnue{background:var(--color-svv-surface);border:1px dashed var(--color-svv-muted);color:var(--color-svv-ink)}
 .red-pastille--famille .red-retirer,.red-pastille--inconnue .red-retirer{color:var(--color-svv-ink)}
 .red-pastille--famille .red-retirer:hover,.red-pastille--inconnue .red-retirer:hover{color:var(--color-svv-red)}
@@ -2622,7 +2627,8 @@ const CSS_REDACTION = `
 .red-sugg-pastille{flex:0 0 auto;width:12px;height:12px;border-radius:50%;box-sizing:border-box;
   border:2px solid var(--red-sugg-ton);background:var(--red-sugg-ton)}
 .red-sugg-pastille--contour{background:transparent}
-.red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-red)}
+/* LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — le rouge propriétaire PUR (0°, sans jaune), le même que la puce. */
+.red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-proprio)}
 .red-sugg-pastille--locataire{--red-sugg-ton:var(--color-svv-green)}
 .red-sugg-pastille--ancien_locataire{--red-sugg-ton:var(--color-svv-violet)}
 /* LOT SUGGESTIONS-COULEUR-IMMEUBLE-ROSE : le ROSE des boutons du syndic sur les cartes de bien (jeton syndic-bord :

@@ -218,7 +218,9 @@ describe('LOT SUGGESTIONS-COULEUR-IMMEUBLE-ROSE — chaque partie sa couleur, le
     new RegExp(`\\.red-sugg-pastille--${classe}[^{]*\\{--red-sugg-ton:var\\((--[a-z-]+)\\)\\}`).exec(css)?.[1];
 
   it('🔴 propriétaire rouge, locataire vert, ancien locataire violet, IMMEUBLE ROSE (le jeton des boutons du syndic), autres gris', () => {
-    expect(tonDe('proprietaire')).toBe('--color-svv-red');
+    // LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — CE QU'IL DISAIT AVANT : '--color-svv-red'. Le rouge propriétaire a désormais
+    //   son jeton (rouge PUR, sans jaune), le même que la trame des puces ; il reste le seul rouge des pastilles.
+    expect(tonDe('proprietaire')).toBe('--color-svv-proprio');
     expect(tonDe('locataire')).toBe('--color-svv-green');
     expect(tonDe('ancien_locataire')).toBe('--color-svv-violet');
     expect(tonDe('syndic')).toBe('--color-svv-syndic-bord');
@@ -229,7 +231,10 @@ describe('LOT SUGGESTIONS-COULEUR-IMMEUBLE-ROSE — chaque partie sa couleur, le
   });
   it('🔴 le rouge est réservé aux propriétaires, et le rose à l’immeuble : aucune autre pastille ne les emprunte', () => {
     const regles = css.match(/\.red-sugg-pastille--[a-z_,.\-]+\{--red-sugg-ton:var\(--[a-z-]+\)\}/g) ?? [];
-    expect(regles.filter((r) => r.includes('--color-svv-red)'))).toEqual(['.red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-red)}']);
+    // LOT PROFIL-GESTION — CE QU'IL DISAIT AVANT : la seule règle portant '--color-svv-red)' était celle du propriétaire.
+    //   Le propriétaire a désormais son jeton ; la règle reste la même : AUCUNE autre pastille n'emprunte un rouge.
+    expect(regles.filter((r) => r.includes('--color-svv-red)'))).toEqual([]);
+    expect(regles.filter((r) => r.includes('--color-svv-proprio)'))).toEqual(['.red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-proprio)}']);
     expect(regles.filter((r) => r.includes('syndic'))).toEqual(['.red-sugg-pastille--syndic,.red-sugg-pastille--immeuble{--red-sugg-ton:var(--color-svv-syndic-bord)}']);
     expect(css).not.toMatch(/red-sugg[^{]*\{[^}]*--color-svv-syndic-texte/);
   });

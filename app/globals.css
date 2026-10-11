@@ -17,6 +17,12 @@
   --color-svv-red: #a30402; /* échantillonné sur le bandeau/bouton rouge du firmware */
   --color-svv-red-dark: #850302; /* ~15 % plus sombre pour le hover */
   --color-svv-red-soft: #fbeceb; /* pendant ROUGE de green-soft : fond de pastille « vis-à-vis » (texte = red-dark) */
+  /* LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — le rouge PROPRIÉTAIRE des puces et pastilles d'adresses (rédaction).
+     Arno : la trame tirait vers le saumon (le rouge de marque dilué dans le blanc). Teinte rouge PURE (0°), sans jaune ;
+     nettement distincte du rose « immeuble » et du violet « ancien locataire ». Texte et × à l'encre : AA éprouvé. */
+  --color-svv-proprio: #d91a1a;              /* pastille de la liste, contour d'un e-mail rattaché */
+  --color-svv-proprio-trame: #ffc2c2;        /* fond de la puce, e-mail propre */
+  --color-svv-proprio-trame-pale: #ffe3e3;   /* fond de la puce, e-mail rattaché */
   --color-svv-ink: #16202c;
   --color-svv-gray: #454545;
   --color-svv-muted: #5c6573;
@@ -278,6 +284,9 @@
   --color-svv-red: #ff6b6b;
   --color-svv-red-dark: #ff8a8a;
   --color-svv-red-soft: #3a1e21;
+  --color-svv-proprio: #ff5c5c;
+  --color-svv-proprio-trame: #6e1e1e;
+  --color-svv-proprio-trame-pale: #3b1b1b;
   --color-svv-red-raised: #ff9a9a;           /* rouge d'ALERTE sur la surface surélevée (.svv-repli-titre--surface) en SOMBRE : plus clair que --color-svv-red (#ff6b6b) pour tenir AA (≈ 4,8:1) sur le fond #37455a ; appliqué SEULEMENT à ces sous-lignes (règle scopée plus bas) */
   --color-svv-green: #4ade80;
   --color-svv-green-soft: #16301f;
@@ -330,6 +339,9 @@
     --color-svv-red: #ff6b6b;
     --color-svv-red-dark: #ff8a8a;
     --color-svv-red-soft: #3a1e21;
+    --color-svv-proprio: #ff5c5c;
+    --color-svv-proprio-trame: #6e1e1e;
+    --color-svv-proprio-trame-pale: #3b1b1b;
     --color-svv-red-raised: #ff9a9a;           /* identique au bloc [data-theme='dark'] */
     --color-svv-green: #4ade80;
     --color-svv-green-soft: #16301f;

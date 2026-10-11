@@ -78,7 +78,7 @@ const doseDe = (ton: string, pale: boolean): number => {
   return m ? Number(m[1]) : doseCommune(pale);
 };
 const TONS: Record<string, string> = {
-  proprietaire: 'color-svv-red', locataire: 'color-svv-green', ancien_locataire: 'color-svv-violet',
+  proprietaire: 'color-svv-proprio', locataire: 'color-svv-green', ancien_locataire: 'color-svv-violet',
   syndic: 'color-svv-syndic-bord', immeuble: 'color-svv-syndic-bord', neutre: 'color-svv-muted',
 };
 
@@ -95,12 +95,44 @@ describe('🔴 contraste AA : le texte (encre) et le « × » sur chaque fond, e
     it(`${nom} : chaque famille, propre et rattachée, et l’inconnue ≥ 4,5:1`, () => {
       const encre = rgb(t['color-svv-ink']);
       for (const [ton, jeton] of Object.entries(TONS)) {
-        for (const pct of [doseDe(ton, false), doseDe(ton, true)]) {
-          const c = contraste(encre, melange(t[jeton], pct, t['color-svv-surface']));
-          expect(c, `${nom} ${ton} ${pct}%`).toBeGreaterThanOrEqual(4.5);
-        }
+        const fonds = ton === 'proprietaire'
+          ? [rgb(t['color-svv-proprio-trame']), rgb(t['color-svv-proprio-trame-pale'])]   // trame dédiée (lot PROFIL-GESTION)
+          : [doseDe(ton, false), doseDe(ton, true)].map((pct) => melange(t[jeton], pct, t['color-svv-surface']));
+        for (const fond of fonds) expect(contraste(encre, fond), `${nom} ${ton}`).toBeGreaterThanOrEqual(4.5);
       }
       expect(contraste(encre, rgb(t['color-svv-surface']))).toBeGreaterThanOrEqual(4.5);
     });
   }
+});
+
+// ── 🔴 LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — LE ROUGE PROPRIÉTAIRE : PUR, FRANC, DISTINCT DU ROSE ET DU VIOLET ─────
+const teinte = (c: number[]): number => {
+  const [r, g, b] = c.map((v) => v / 255);
+  const max = Math.max(r, g, b); const min = Math.min(r, g, b); const d = max - min;
+  if (d === 0) return 0;
+  const h = max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return (h * 60 + 360) % 360;
+};
+const ecart = (a: number, b: number): number => { const x = Math.abs(a - b) % 360; return x > 180 ? 360 - x : x; };
+describe('🔴 la trame propriétaire : rouge pur (sans jaune), distincte du rose immeuble et du violet', () => {
+  for (const [nom, t] of [['Clair', CLAIR], ['Sombre', SOMBRE]] as const) {
+    it(`${nom} : teinte 0° (vert = bleu), et à plus de 25° du rose et du violet`, () => {
+      for (const j of ['color-svv-proprio', 'color-svv-proprio-trame', 'color-svv-proprio-trame-pale']) {
+        const [, g, b] = rgb(t[j]);
+        expect(g, `${nom} ${j} : pas de jaune`).toBe(b);
+        expect(teinte(rgb(t[j]))).toBe(0);
+      }
+      const rose = melange(t['color-svv-syndic-bord'], doseDe('syndic', false), t['color-svv-surface']);
+      const violet = melange(t['color-svv-violet'], doseDe('ancien_locataire', false), t['color-svv-surface']);
+      expect(ecart(teinte(rgb(t['color-svv-proprio-trame'])), teinte(rose))).toBeGreaterThan(25);
+      expect(ecart(teinte(rgb(t['color-svv-proprio-trame'])), teinte(violet))).toBeGreaterThan(25);
+    });
+  }
+  it('les autres familles ne bougent pas : vert, violet, rose, gris gardent leur jeton et leur dose', () => {
+    expect(redaction).toContain('.red-pastille--locataire{--red-puce-ton:var(--color-svv-green)}');
+    expect(redaction).toContain('.red-pastille--ancien_locataire{--red-puce-ton:var(--color-svv-violet)}');
+    expect(redaction).toContain('.red-pastille--syndic,.red-pastille--immeuble{--red-puce-ton:var(--color-svv-syndic-bord);--red-puce-dose:50%;--red-puce-dose-pale:22%}');
+    expect(redaction).toContain('.red-pastille--neutre{--red-puce-ton:var(--color-svv-muted)}');
+    expect(redaction).toContain('.red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-proprio)}');
+  });
 });
