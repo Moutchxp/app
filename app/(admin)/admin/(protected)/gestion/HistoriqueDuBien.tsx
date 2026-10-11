@@ -27,6 +27,11 @@ import { CSS_FRISE_DU_BIEN, FriseDuBien } from './FriseDuBien';
 /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — LA fenêtre des biens d'un mail, montée en mode PONCTUEL. Le même
    composant que « Visualiser / Modifier » et « Classer » : aucune copie, aucune seconde fenêtre à corriger. */
 import { RattachementsDuFil } from './RattachementsDuFil';
+/* 🔴🔴 LOT ACCOLADE-PARTOUT — l'accolade rouge de la vue conversation, posée dans l'historique quand un suivi récurrent
+   fait entrer ou sortir CE bien. Le type vient du dépôt en `import type` : rien de `pg` n'entre dans le paquet client. */
+import { AccoladeSuivi, CSS_ACCOLADE_SUIVI } from './AccoladeSuivi';
+import { accoladesDeLaPage, placerAccolades } from '../../../../lib/gestion/accoladesBien';
+import type { AccoladeAffichee } from '../../../../lib/gestion/accoladesBienRepo';
 import type { MailDeLaFrise } from '../../../../lib/gestion/friseBien';
 import type { PieceCitable } from '../../../../lib/gestion/piecesCitees';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — LA VISIONNEUSE MAISON, IMPORTÉE ET NON RECOPIÉE. C'est le composant que
@@ -1085,6 +1090,29 @@ export function HistoriqueDuBien({
     return [...recap.pieces, ...duFil.filter((p) => !vues.has(p.pieceId))];
   }, [recap.pieces, lignes, reglages.ordre]);
   const conversations = useMemo(() => grouperParConversation(lignes), [lignes]);
+
+  /**
+   * ══ 🔴🔴 LOT ACCOLADE-PARTOUT — LES ACCOLADES DES CONVERSATIONS DE CETTE PAGE (lecture seule) ══════════════════════
+   * Une seule requête par page, pour toutes ses conversations. ⚠️ Silencieuse : sans réponse, aucune accolade.
+   */
+  const [accolades, setAccolades] = useState<AccoladeAffichee[]>([]);
+  const filsDeLaPage = [...new Set(lignes.map((l) => l.filId))].join(',');
+  useEffect(() => {
+    if (filsDeLaPage === '') return undefined;
+    let vivant = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/gestion/historique/accolades?cible=lot-${encodeURIComponent(lotCle)}`
+          + `&fils=${filsDeLaPage}`, { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; accolades?: AccoladeAffichee[] };
+        if (vivant) setAccolades(d.etat === 'ok' && Array.isArray(d.accolades) ? d.accolades : []);
+      } catch { if (vivant) setAccolades([]); }
+    })();
+    return () => { vivant = false; };
+  }, [lotCle, filsDeLaPage]);
+  const accoladesVisibles = accoladesDeLaPage({
+    lignes, accolades, premierePage: page === 0, dernierePage: etat.v === 'ok' && etat.suite !== true,
+  });
 
   /**
    * ⚠️ « TOUT REMETTRE À PLAT » EFFACE AUSSI LA SAISIE, et c'est précisément ce qu'un oubli aurait laissé derrière
@@ -3046,6 +3074,7 @@ export function HistoriqueDuBien({
                       <span className="gst-compte">{c.lignes.length}</span>
                     </h5>
                     <FilDeMails lignes={c.lignes} maintenant={maintenant} deplie={deplie}
+                      accolades={accoladesVisibles.filter((a) => a.filId === c.filId)}
                       categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                       onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                       onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
@@ -3060,6 +3089,7 @@ export function HistoriqueDuBien({
                 ))
                 : (
                   <FilDeMails lignes={lignes} maintenant={maintenant} deplie={deplie}
+                    accolades={accoladesVisibles}
                     categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
                     onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                     onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
@@ -4142,9 +4172,11 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
 function FilDeMails({
   lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi, ancienContact,
   modifierRattachement,
-  onVisualiser, destinataires, piecesCitables, repondre, composeurDe,
+  onVisualiser, destinataires, piecesCitables, repondre, composeurDe, accolades = [],
 }: {
   lignes: readonly LigneHistorique[];
+  /** 🔴 LOT ACCOLADE-PARTOUT — les accolades à poser entre les mails, à leur place dans le temps. */
+  accolades?: readonly AccoladeAffichee[];
   maintenant: Date;
   deplie: ReadonlySet<number>;
   /** Pour la BARRE DE COULEUR : la catégorie retenue de chaque adresse, clé en minuscules. */
@@ -4183,7 +4215,13 @@ function FilDeMails({
 }) {
   return (
     <ol className="vdb-liste hdb-liste">
-      {lignes.map((l) => (
+      {accolades.length > 0 && <style>{CSS_ACCOLADE_SUIVI}</style>}
+      {placerAccolades(lignes, accolades).map((el) => (el.sorte === 'accolade'
+        /* 🔴 LOT ACCOLADE-PARTOUT — LE MÊME DESSIN QUE LA VUE CONVERSATION (`AccoladeSuivi`), libellé adapté au bien. */
+        ? <AccoladeSuivi key={`acc-${el.accolade.filId}-${el.accolade.depuisMessageId}-${el.accolade.sens}`}
+          cote={el.cote} libelle={el.accolade.libelle} parLibelle={el.accolade.parLibelle} le={el.accolade.le}
+          comparatif={el.accolade.comparatif} mail={el.accolade.mail} nbMails={el.accolade.nbMails} />
+        : ((l: LigneHistorique) => (
         /**
          * ══ 🔴🔴 LA BARRE DE COULEUR EST PORTÉE PAR L'ENVELOPPE, PAS PAR `LigneVie` (lot HISTORIQUE-BIEN-2) ═══
          *
@@ -4240,7 +4278,7 @@ function FilDeMails({
               composeur={composeurDe?.(l) ?? null} />
           </ol>
         </li>
-      ))}
+      ))(el.ligne)))}
     </ol>
   );
 }

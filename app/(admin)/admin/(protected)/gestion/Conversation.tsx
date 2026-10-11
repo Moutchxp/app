@@ -119,10 +119,13 @@ import {
  */
 import { interneDuMail } from '../../../../lib/gestion/interneDuMail';
 import {
-  AIDE_PASTILLE_REPERE, comparatifRepere, coteDuRepere, nbMailsCouverts,
+  comparatifRepere, coteDuRepere, nbMailsCouverts,
 } from '../../../../lib/gestion/repereFenetre';
 /* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — la pastille « i » du repère ouvre cette fenêtre, au clic. */
-import { ModaleChangementSuivi, type MailDuRepere } from './ModaleChangementSuivi';
+import { type MailDuRepere } from './ModaleChangementSuivi';
+/* 🔴 LOT ACCOLADE-PARTOUT — l'accolade rouge, modèle unique, partagée avec l'historique du bien. */
+import { AccoladeSuivi, CSS_ACCOLADE_SUIVI } from './AccoladeSuivi';
+import { accoladeInterneSuite } from '../../../../lib/gestion/accoladesBien';
 /* 🔴 LA PASTILLE « i » DES BIENS, employée telle quelle avec un autre contenu : voir son encadré `lignes`. */
 import { InfoBien, CSS_INFO_BIEN } from './InfoBien';
 /* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — le statut « deja dans le Drive » des pieces de l'echange, et ou
@@ -604,7 +607,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * et c'est alors la marque d'échange qui répond ; une entrée présente avec `vivante: false` veut dire « non »,
    * et le repli ne la contredit pas. Les deux ne se confondent jamais.
    */
-  const [interneParMail, setInterneParMail] = useState<ReadonlyMap<number, { vivante: boolean }>>(new Map());
+  const [interneParMail, setInterneParMail] = useState<ReadonlyMap<number, {
+    vivante: boolean;
+    /* 🔴 LOT ACCOLADE-PARTOUT — la portée, la date et l'auteur de la marque : de quoi poser l'accolade « pour la suite ». */
+    portee?: string | null; poseLe?: string | null; posePar?: string | null;
+  }>>(new Map());
   /**
    * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LES PÉRIODES DE CETTE CONVERSATION ═══════════════════════════════════════
    *
@@ -848,10 +855,14 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     if (ids.length === 0) { setInterneParMail(new Map()); return; }
     try {
       const res = await fetch(`/api/admin/gestion/interne?messages=${ids.join(',')}`, { cache: 'no-store' });
-      const d = (await res.json()) as { etat?: string; data?: Record<string, { vivante?: boolean }> };
+      const d = (await res.json()) as { etat?: string; data?: Record<string, {
+        vivante?: boolean; portee?: string | null; poseLe?: string | null; posePar?: string | null;
+      }> };
       if (d.etat !== 'ok') { setInterneParMail(new Map()); return; }
       setInterneParMail(new Map(Object.entries(d.data ?? {})
-        .map(([k, v]) => [Number(k), { vivante: v?.vivante === true }])));
+        .map(([k, v]) => [Number(k), {
+          vivante: v?.vivante === true, portee: v?.portee ?? null, poseLe: v?.poseLe ?? null, posePar: v?.posePar ?? null,
+        }])));
     } catch { setInterneParMail(new Map()); }
   }, []);
 
@@ -1676,6 +1687,28 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * ou lecture en échec) ⇒ aucune ligne, et le fil est exactement celui d'avant ce lot.
    */
   const reperes = suivi === null ? [] : reperesDuFil(suivi.mails, suivi.periodes);
+  /**
+   * ══ 🔴🔴 LOT ACCOLADE-PARTOUT — LA MARQUE « INTERNE » POSÉE « POUR LA SUITE » A SON ACCOLADE, ELLE AUSSI ═══════════════
+   * Décision d'Arno : l'accolade est le modèle unique d'un changement de suivi récurrent, « portée ③, et la marque
+   * Interne / Hors gestion posée “pour la suite” ». Un geste = les marques vivantes de portée `suite` posées au même
+   * instant ; l'accolade se pose avant le premier de ces mails (jamais le premier du fil : elle ne séparerait rien).
+   * ⚠️ « Hors gestion » n'a pas de portée « la suite » (seulement ce mail ou toute la conversation) : rien à poser.
+   */
+  const accoladesInterne = (() => {
+    if (suivi === null) return [];
+    const gestes = new Map<string, { marques: number[]; par: string | null; le: string | null }>();
+    for (const [id, v] of interneParMail) {
+      if (!v.vivante || v.portee !== 'suite') continue;
+      const k = `${v.poseLe ?? ''}|${v.posePar ?? ''}`;
+      const g = gestes.get(k) ?? { marques: [], par: v.posePar ?? null, le: v.poseLe ?? null };
+      g.marques.push(id);
+      gestes.set(k, g);
+    }
+    return [...gestes.values()].map((g) => accoladeInterneSuite({
+      filId, mails: suivi.mails, periodes: suivi.periodes, marques: g.marques, parLibelle: g.par, le: g.le,
+      libelle: 'Interne', sens: 'ajout',
+    })).filter((a): a is NonNullable<typeof a> => a !== null);
+  })();
   /** Le mot d'une exception, pour l'en-tête du mail qui la porte. `null` = ce mail n'en porte pas. */
   const exceptionDe = (messageId: number): string | null => {
     const e = suivi?.exceptions.find((x) => x.messageId === messageId);
@@ -1879,6 +1912,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               « avant » veut dire PLUS TARD : relevé à l'écran sur le fil 3490, le repère de la fenêtre du mail
               57368 (01/10 12:46) paraissait entre le 03/10 14:31 et lui, donc rattaché au mauvais mail.
               Il se pose désormais du côté qui PRÉCÈDE CHRONOLOGIQUEMENT (`coteDuRepere`). */}
+          {coteDuRepere(ordre) === 'dessus' && accoladesInterne
+            .filter((a) => a.depuisMessageId === m.messageId)
+            .map((a) => <AccoladeSuivi key={`int-${a.le ?? ''}-${a.depuisMessageId}`} cote="dessus" libelle={a.libelle}
+              parLibelle={a.parLibelle} le={a.le} comparatif={a.comparatif} mail={m} nbMails={a.nbMails} />)}
           {coteDuRepere(ordre) === 'dessus' && reperes
             .filter((r) => r.avantMessageId === m.messageId)
             .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessus"
@@ -2122,6 +2159,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             ) : null} />
           {/* 🔴🔴 EN ORDRE « PLUS RÉCENT D'ABORD », CE QUI PRÉCÈDE CHRONOLOGIQUEMENT EST EN DESSOUS. Voir
               l'encadré du côté opposé, et `coteDuRepere`. */}
+          {coteDuRepere(ordre) === 'dessous' && accoladesInterne
+            .filter((a) => a.depuisMessageId === m.messageId)
+            .map((a) => <AccoladeSuivi key={`int-${a.le ?? ''}-${a.depuisMessageId}`} cote="dessous" libelle={a.libelle}
+              parLibelle={a.parLibelle} le={a.le} comparatif={a.comparatif} mail={m} nbMails={a.nbMails} />)}
           {coteDuRepere(ordre) === 'dessous' && reperes
             .filter((r) => r.avantMessageId === m.messageId)
             .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessous"
@@ -2503,95 +2544,22 @@ function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
    */
   mail: MailDuRepere | null;
 }) {
-  const li = useRef<HTMLLIElement | null>(null);
-  const [hauteur, setHauteur] = useState(0);
-  const [ouverte, setOuverte] = useState(false);
-
-  /**
-   * 🔴 LA HAUTEUR DU MAIL VOISIN, MESURÉE. Au-dessus du mail, le voisin est le SUIVANT ; en dessous, le
-   * PRÉCÉDENT. On ne devine pas : on lit ce que le navigateur a disposé.
-   */
-  useEffect(() => {
-    const noeud = li.current;
-    if (noeud === null || typeof ResizeObserver !== 'function') return undefined;
-    const voisin = (cote === 'dessus' ? noeud.nextElementSibling : noeud.previousElementSibling) as HTMLElement | null;
-    if (voisin === null) return undefined;
-    const mesurer = (): void => setHauteur(voisin.getBoundingClientRect().height);
-    mesurer();
-    const obs = new ResizeObserver(mesurer);
-    obs.observe(voisin);
-    return () => obs.disconnect();
-  }, [cote]);
-
   /**
    * 🔴🔴 CE QUE LA PASTILLE EXPLIQUE : un AVANT / APRÈS, composé par le module PUR. `null` = on ne sait pas
-   * (migration 290 absente, ou fenêtre introuvable) : la pastille ne s'affiche alors pas du tout, plutôt que
-   * d'ouvrir une fenêtre vide.
-   *
-   * 🔴 MÊME SOURCE QU'AVANT, mot pour mot la demande d'Arno (« données identiques à celles de la bulle actuelle »).
-   * Seule la MISE EN FORME a changé de maison : la bulle composait ses lignes ici, la modale les demande à
-   * `lignesComparatif` — qui lit le MÊME comparatif.
+   * (migration 290 absente, ou fenêtre introuvable) : la pastille ne s'affiche alors pas du tout.
    */
   const c = suivi === null ? null
     : comparatifRepere({
       mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id, interneDeLEchange,
     });
-
   /** 🔴 LA PORTÉE DE LA FENÊTRE, comptée sur les mails de l'échange. Module pur, aucune requête. */
   const nbMails = suivi === null ? 0
     : nbMailsCouverts({ mails: suivi.mails, periodes: suivi.periodes, periodeId: r.id });
-
+  /* 🔴 LOT ACCOLADE-PARTOUT — LE DESSIN VIT DÉSORMAIS DANS `AccoladeSuivi`, partagé avec l'historique du bien : même
+     JSX, mêmes classes, même feuille. Cette ligne n'en fait plus que la donnée. */
   return (
-    <li className={`cnv-repere cnv-repere--${cote}${hauteur > 0 ? ' cnv-repere--mesure' : ''}`} ref={li}
-      style={{ ['--cnv-repere-h' as string]: `${Math.round(hauteur)}px` }}>
-      {/* 🔴🔴 LES DEUX BRAS DU CADRE — UN SEUL TRAIT CHACUN, SANS COUPURE À L'ANGLE.
-          Chaque bras est UNE boîte qui porte deux bordures (l'horizontale et la verticale) et un rayon sur
-          l'angle qui les joint : le trait est donc continu par construction, et arrondi. Deux traits séparés
-          laissaient un décroché d'un pixel au coin — c'est le défaut qu'Arno a vu.
-
-          🔴 ET CHACUN PORTE, AU BOUT, UNE PETITE FLÈCHE ROUGE (lot RENOMMER-PARTOUT-ET-FINITIONS, point 3). Elle
-          est dessinée par le `::after` du bras, et pointe dans le sens où la branche va — donc toujours vers le
-          mail concerné. Elle s'inverse avec le tri sans rien savoir du tri : voir la feuille.
-
-          ⚠️ `cnv-repere--mesure` N'EST PAS DÉCORATIF : tant que le `ResizeObserver` n'a pas mesuré le mail voisin
-          — et pour toujours s'il n'y a pas de voisin — la hauteur vaut 0, la branche ne se voit pas, et une flèche
-          posée là flotterait seule à côté de la phrase. Elle n'apparaît donc qu'avec sa branche. */}
-      <span className="cnv-repere-bras cnv-repere-bras--gauche" aria-hidden="true" />
-      <span className="cnv-repere-phrase">
-        <span className="cnv-repere-mot">À partir d’ici : {r.versQuoi}</span>
-        {(r.parLibelle !== null || r.le !== null) && (
-          <span className="cnv-repere-qui">
-            {r.le !== null && dateHeureComplete(r.le)}
-            {r.le !== null && r.parLibelle !== null ? ' · ' : ''}
-            {r.parLibelle}
-          </span>
-        )}
-        {/* ══ 🔴🔴 LA PASTILLE, AU BOUT DE LA PHRASE — ELLE OUVRE AU CLIC, PLUS AU SURVOL ═══════════════════════
-            Arno : « la pastille s'ouvre au CLIC (et à Entrée ou Espace au clavier), plus au survol. Bulle “Voir le
-            détail du changement” au survol seulement. »
-
-            🔴 UN VRAI `<button>`, ET C'EST TOUT CE QU'IL FAUT POUR LE CLAVIER : Entrée et Espace déclenchent
-            nativement son `onClick`. Un `onKeyDown` de plus l'aurait ouvert DEUX fois sur Entrée — le navigateur
-            émet le clic, et le gestionnaire aurait tiré en même temps.
-
-            🔴 LE SURVOL NE FAIT PLUS QU'UNE CHOSE : dire ce que le clic va ouvrir (`title`). Le même mot sert de
-            nom au bouton (`aria-label`), pour qui ne voit pas la bulle. */}
-        {c !== null && (
-          <button type="button" className="cnv-repere-i" aria-haspopup="dialog" aria-expanded={ouverte}
-            title={AIDE_PASTILLE_REPERE} aria-label={AIDE_PASTILLE_REPERE}
-            onClick={() => setOuverte(true)}>
-            <span aria-hidden="true">i</span>
-          </button>
-        )}
-        {/* ⚠️ LA MODALE EST RENDUE DANS LA LIGNE, mais son voile est `position:fixed` : elle est donc centrée sur
-            l'ÉCRAN, et aucun conteneur de la conversation ne peut la rogner. */}
-        {c !== null && ouverte && (
-          <ModaleChangementSuivi comparatif={c} mail={mail} nbMails={nbMails}
-            onFermer={() => setOuverte(false)} />
-        )}
-      </span>
-      <span className="cnv-repere-bras cnv-repere-bras--droite" aria-hidden="true" />
-    </li>
+    <AccoladeSuivi cote={cote} libelle={r.versQuoi} parLibelle={r.parLibelle} le={r.le}
+      comparatif={c} mail={mail} nbMails={nbMails} />
   );
 }
 
@@ -3775,37 +3743,7 @@ export const CSS_CONVERSATION = `
 /* ══ 🔴🔴 LOT SUIVI-CONVERSATION — LE REPERE DE PERIODE, ET LA MENTION D'EXCEPTION ═════════════════════════════
    « une fine ligne de separation » (Arno) : fine, donc, et grise — elle separe, elle n'alerte pas. Le MOT porte
    l'information ; le trait n'est qu'un renfort, regle du module depuis la premiere capsule. */
-/* ══ 🔴🔴 LE REPERE ENCADRE SON MAIL — UN SEUL TRAIT PAR COTE, ANGLES ARRONDIS ═══════════════════════════════════
-   Demande d'Arno (lot VISUALISER-MAIL-ET-REPERE-FENETRE, puis BROUILLON-REPONSE-ET-REPERE) : « phrase en ROUGE,
-   CENTREE ; de chaque cote part un lisere rouge fin, qui longe le mail concerne et s'arrete a MI-HAUTEUR de la
-   ligne de ce mail », et « lisere CONTINU, sans coupure aux angles, avec des angles ARRONDIS ».
-
-   🔴 CHAQUE BRAS EST UNE SEULE BOITE, et c'est ce qui supprime la coupure. Elle porte DEUX bordures — celle du
-   haut (ou du bas) et celle du cote — plus un rayon sur l'angle qui les joint : le trait est continu PAR
-   CONSTRUCTION, et arrondi. La version d'avant dessinait quatre traits independants, et il restait un decroche
-   d'un pixel au coin, visible a l'oeil.
-
-   🔴 LES BRAS NE PESENT RIEN DANS LA MISE EN PAGE : hauteur zero, et c'est leur ::before qui deborde. Sans cela,
-   une boite de la moitie de la hauteur d'un mail deplie ferait une ligne de repere haute de plusieurs centimetres.
-
-   ⚠️ LE SENS SUIT LE COTE : au-dessus du mail le trait DESCEND (bordure du haut, boite vers le bas), en dessous
-   il MONTE. Un seul dessin aurait encadre le mauvais mail dans l'un des deux tris.
-
-   ⚠️ --cnv-repere-h PORTE LA HAUTEUR MESUREE DU MAIL (voir le ResizeObserver de LigneRepere) : un mail deplie
-   fait dix fois la hauteur d'un mail replie, et une valeur figee aurait trace un trait trop court ou debordant.
-
-   ⚠️ COULEUR : var(--color-svv-red), un JETON — lisible en Clair comme en Sombre, jamais une couleur en dur.
-   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
-/* 🔴 LE REPERE SE SERRE : il remplace un trait de 1 px, il ne vient pas s'ajouter a lui. Les marges d'avant
-   (.6rem / .4rem) creusaient un trou la ou il n'y avait qu'une ligne. */
-.cnv-repere{position:relative;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
-  margin:.1rem 0;padding:0;list-style:none;--cnv-repere-h:0px}
-.cnv-repere-phrase{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:center;gap:.2rem .5rem;
-  padding:0 .6rem;text-align:center;min-width:0}
-/* 🔴 LA PHRASE EST ROUGE, et le reste de la mention la suit en plus discret : c'est une seule information. */
-.cnv-repere-mot{font-size:.76rem;font-weight:700;letter-spacing:.01em;color:var(--color-svv-red);
-  overflow-wrap:anywhere}
-.cnv-repere-qui{font-size:.72rem;color:var(--color-svv-red);opacity:.75}
+${CSS_ACCOLADE_SUIVI}
 /* ══ 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — LA GRANDE CORBEILLE DU BLOC D'EN-TETE ═══════════════════
    Demande d'Arno : « a DROITE, une grande icone corbeille qui occupe toute la hauteur du bloc » et « ne deplace
    pas les autres elements du bloc ».
@@ -3904,69 +3842,6 @@ export const CSS_CONVERSATION = `
   border-radius:0 .5rem .5rem 0;border-left:3px solid var(--color-svv-red);background:var(--color-svv-field)}
 .cnv-jete-mot{font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
 .cnv-jete-qui{font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
-/* 🔴🔴 LOT REPERE-INTEGRE-ET-MODALE-AVANT-APRES — LA PASTILLE "i" EST UN BOUTON, et elle OUVRE une fenetre.
-   Meme dessin que la pastille des biens (.ifb-pastille), au rouge du repere pres : c'est la meme promesse ("il y a
-   plus a lire ici"), donc le meme objet a l'oeil. Elle n'est plus une bulle au survol : voir ModaleChangementSuivi. */
-.cnv-repere-i{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;padding:0;
-  margin:0 0 0 .1rem;font:inherit;font-size:.68rem;font-weight:700;font-style:italic;line-height:1;
-  color:var(--color-svv-red);background:transparent;border:1px solid var(--color-svv-red);border-radius:50%;
-  cursor:pointer;flex:0 0 auto;opacity:.8}
-.cnv-repere-i:hover{opacity:1}
-.cnv-repere-i:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;opacity:1}
-/* ⚠️ CIBLE TACTILE : 24 px au doigt, comme partout dans le module. */
-@media (pointer:coarse){.cnv-repere-i{width:24px;height:24px;font-size:.78rem}}
-/* Les bras : hauteur zero dans la grille, le trace vit dans leur ::before. */
-.cnv-repere-bras{position:relative;height:0;min-width:0}
-.cnv-repere-bras::before{content:"";position:absolute;left:0;right:0;
-  height:calc(var(--cnv-repere-h) / 2);border:0 solid var(--color-svv-red)}
-/* AU-DESSUS DU MAIL : le trait part de la phrase et DESCEND le long du mail. */
-.cnv-repere--dessus .cnv-repere-bras::before{top:0;border-top-width:1px}
-.cnv-repere--dessus .cnv-repere-bras--gauche::before{border-left-width:1px;border-top-left-radius:10px}
-.cnv-repere--dessus .cnv-repere-bras--droite::before{border-right-width:1px;border-top-right-radius:10px}
-/* EN DESSOUS DU MAIL : le trait part de la phrase et MONTE le long du mail. */
-.cnv-repere--dessous .cnv-repere-bras::before{bottom:0;border-bottom-width:1px}
-.cnv-repere--dessous .cnv-repere-bras--gauche::before{border-left-width:1px;border-bottom-left-radius:10px}
-.cnv-repere--dessous .cnv-repere-bras--droite::before{border-right-width:1px;border-bottom-right-radius:10px}
-/* ══ 🔴🔴 LOT RENOMMER-PARTOUT-ET-FINITIONS, POINT 3 — UNE PETITE FLECHE AU BOUT DE CHAQUE BRANCHE ═════════════
-   Demande d'Arno (04/10/2026) : « tout reste identique. Ajoute seulement une petite fleche rouge a l'extremite de
-   chaque branche (gauche et droite), qui pointe vers le cote de la conversation concerne par le changement. Les
-   fleches suivent l'ordre d'affichage : elles s'inversent avec Plus recent d'abord / Plus ancien d'abord. »
-
-   🔴 LES FLECHES NE CONNAISSENT PAS LE TRI, ET C'EST TOUT L'INTERET. Elles pendent des memes variantes --dessus /
-   --dessous que le trace, et c'est deja coteDuRepere(ordre) qui decide de ce cote : l'inversion est donc acquise
-   PAR CONSTRUCTION. Une seconde regle qui aurait relu l'ordre d'affichage aurait fait une deuxieme verite a tenir,
-   et le point 4 de ce meme lot dit assez ce que deux verites coutent (la modale disait le contraire de la liste).
-
-   🔴 LA FLECHE POINTE DANS LE SENS OU LA BRANCHE VA : vers le BAS quand le repere est au-dessus du mail (sa
-   branche descend le long de ce mail), vers le HAUT quand il est en dessous. C'est donc toujours le mail concerne
-   par le changement qu'elle designe, dans les deux tris, sans cas particulier.
-
-   LE DESSIN : le triangle CSS — une boite de taille nulle, quatre bordures transparentes, une seule coloree. Le
-   ::before du bras portant deja le trace de la branche, c'est son ::after qui porte la pointe.
-
-   ⚠️ LA POINTE TOMBE EXACTEMENT AU BOUT DU TRAIT. Un triangle de bordure a son sommet au CENTRE de la boite, pas
-   sur son bord : la boite commence donc 5 px (sa demi-taille) avant la mi-hauteur du mail. Sans ce retrait, la
-   fleche depassait la branche de 5 px.
-   ⚠️ ELLE EST CENTREE SUR LE TRAIT D'1 PX : -4,5 px, soit la demi-largeur du triangle moins la demi-bordure. A
-   gauche on compte depuis le bord gauche du bras, a droite depuis son bord droit — d'ou les deux regles.
-
-   ⚠️ ET CE CENTRAGE DEBORDE DE 4,5 PX DE CHAQUE COTE DE LA COLONNE, c'est assume et c'est mesure. Un trait pose
-   sur le bord d'une boite ne peut pas porter une pointe SYMETRIQUE sans la depasser d'une demi-largeur : la seule
-   autre facon etait de rentrer la fleche de 5 px, et a l'ecran elle se lit alors comme un fanion accroche a cote
-   du trait, plus comme une pointe. Mesure sur le fil 3490 (fleche seule, retiree puis remise) : la colonne passe
-   de 1232 a 1237 px de contenu, et la PAGE ne defile pas pour autant (scrollWidth = clientWidth = 1512). En
-   largeur telephone, le debordement mesure est le MEME avec et sans la fleche : elle n'en ajoute aucun.
-   ⚠️ ELLE N'APPARAIT QU'AVEC SA BRANCHE (.cnv-repere--mesure) : voir le commentaire du JSX.
-   ⚠️ COULEUR : var(--color-svv-red), le MEME jeton que le trace — lisible en Clair comme en Sombre, jamais une
-   couleur en dur.
-   ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit (piege TS1005 du depot). */
-.cnv-repere-bras::after{content:"";position:absolute;width:0;height:0;border:5px solid transparent}
-.cnv-repere--mesure.cnv-repere--dessus .cnv-repere-bras::after{top:calc(var(--cnv-repere-h) / 2 - 5px);
-  border-top-color:var(--color-svv-red)}
-.cnv-repere--mesure.cnv-repere--dessous .cnv-repere-bras::after{bottom:calc(var(--cnv-repere-h) / 2 - 5px);
-  border-bottom-color:var(--color-svv-red)}
-.cnv-repere-bras--gauche::after{left:-4.5px}
-.cnv-repere-bras--droite::after{right:-4.5px}
 /* La mention d'exception : discrete, a cote de la capsule, et jamais a sa place — ce sont deux informations. */
 .cnv-exception{display:inline-flex;align-items:center;min-height:22px;padding:.05rem .4rem;border-radius:999px;
   font-size:.7rem;font-weight:700;color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong);

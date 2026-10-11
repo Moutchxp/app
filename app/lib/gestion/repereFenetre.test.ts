@@ -157,7 +157,10 @@ describe('🔴🔴 ② le comparatif avant / après', () => {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 describe('🔴 ③ ce que l’écran dessine', () => {
-  const src = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+  /* 🔴 LOT ACCOLADE-PARTOUT — le dessin de l'accolade a quitté `Conversation.tsx` pour `AccoladeSuivi.tsx` (partagé avec
+     l'historique du bien), sans un caractère de différence : les mêmes assertions portent sur les deux sources réunies. */
+  const src = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8')
+    + readFileSync('app/(admin)/admin/(protected)/gestion/AccoladeSuivi.tsx', 'utf8');
 
   /** 🔴🔴 LES DEUX CÔTÉS SONT RENDUS, chacun du bon côté du message. C'est le correctif, dans le JSX. */
   it('🔴🔴 le repère est rendu avant OU après le message, selon le tri', () => {
@@ -432,7 +435,8 @@ describe('🔴🔴 la marque « Interne » de l’échange est le repli du statu
    * bandeau, la capsule du mail et cette modale.
    */
   it('🔒 la conversation passe sa propre marque, sans requête de plus', () => {
-    const cnv = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+    const cnv = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8')
+      + readFileSync('app/(admin)/admin/(protected)/gestion/AccoladeSuivi.tsx', 'utf8');
     expect(cnv).toContain('interneDeLEchange={interne === true}');
     expect((cnv.match(/interneDeLEchange=\{interne === true\}/g) ?? []).length).toBe(2);
     expect(cnv).toContain('periodeId: r.id, interneDeLEchange,');

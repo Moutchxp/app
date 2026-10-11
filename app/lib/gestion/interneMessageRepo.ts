@@ -48,6 +48,8 @@ export interface MarqueInterneMessage {
   vivante: boolean;
   poseLe: string;
   posePar: string;
+  /** 🔴 LOT ACCOLADE-PARTOUT — la portée choisie au geste (migration 342) ; `null` = inconnue, ou 342 absente. */
+  portee?: 'mail' | 'suite' | 'conversation' | null;
 }
 
 export type IssueInterneMessage = { ok: true; nb: number } | { ok: false; motif: string };
@@ -83,8 +85,10 @@ export async function lireInterneDesMessages(
   const ids = idsPropres(messageIds);
   if (ids.length === 0 || !(await interneDuMessageDisponible())) return m;
 
+  /* 🔴 LOT ACCOLADE-PARTOUT — la portée n'est NOMMÉE que si la 342 est là (sinon la requête est celle d'avant). */
+  const avecPortee = await traceOneShotDisponible();
   const { rows } = await query<{
-    message_id: string; vivante: boolean; pose_le: string; pose_par: string;
+    message_id: string; vivante: boolean; pose_le: string; pose_par: string; portee?: string | null;
   }>(
     /* 🔴 LA PLUS RÉCENTE PAR MAIL, vivante ou non : c'est elle qui dit l'état d'aujourd'hui. `DISTINCT ON` évite
        de rendre tout l'historique pour trente lignes de liste. */
@@ -92,7 +96,7 @@ export async function lireInterneDesMessages(
             message_id::text,
             (retire_le IS NULL) AS vivante,
             to_char(pose_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS pose_le,
-            pose_par_libelle AS pose_par
+            pose_par_libelle AS pose_par${avecPortee ? ', portee' : ''}
        FROM gestion_message_interne
       WHERE message_id = ANY($1::bigint[])
       ORDER BY message_id, pose_le DESC, id DESC`, [ids]);
@@ -101,6 +105,7 @@ export async function lireInterneDesMessages(
   for (const r of rows) {
     m.set(Number(r.message_id), {
       messageId: Number(r.message_id), vivante: r.vivante === true, poseLe: r.pose_le, posePar: r.pose_par,
+      ...(avecPortee ? { portee: r.portee === 'mail' || r.portee === 'suite' || r.portee === 'conversation' ? r.portee : null } : {}),
     });
   }
   return m;
