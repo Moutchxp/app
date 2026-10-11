@@ -24,6 +24,10 @@ import {
   classesPuce, cleAdresse, famillesDesSuggestions, infobullePuce, type FamillesConnues,
 } from '../../../../lib/gestion/familleAdresse';
 import {
+  biensAutomatiques, clesDuContexte, clientsAChoisir, familleDuClient, fusionnerSuggestions,
+  type BienClient, type BiensDesClients,
+} from '../../../../lib/gestion/contexteClients';
+import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
 } from './SelecteurFichierDrive';
 import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
@@ -32,7 +36,7 @@ import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcr
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, motsJeterBrouillon, pretAEnvoyer, secondesRestantes,
-  type Brouillon, brouillonTouche} from '../../../../lib/gestion/redaction';
+  type Brouillon, type CibleBrouillon, brouillonTouche} from '../../../../lib/gestion/redaction';
 // 🔴🔴 LOT CLASSER-AVANT-ENVOI — « classé ou non » est une DÉCISION, prise dans un module PUR et partagée mot
 //   pour mot avec le serveur. L'écran grise un bouton ; le serveur, lui, refuse.
 import { classementExigePour, classementFait, MOTIF_NON_CLASSE }
@@ -297,6 +301,7 @@ export function ChampDestinataires({
   const presentes = dejaPresentes ?? valeurs;
   const groupes = propositions === null ? [] : filtrerSuggestions(propositions, saisie, presentes);
   const lignesBien: SuggestionAdresse[] = groupes.flatMap((g) => g.lignes);
+  const plusieursBiens = new Set(lignesBien.map((l) => l.bien).filter((b) => b !== undefined)).size > 1;
   /* Les correspondants d'avant, SOUS les groupes du bien : sans ceux que le bien propose déjà, ni ceux déjà ajoutés. */
   const dejaVues = new Set([...lignesBien.map((l) => l.adresse), ...presentes.map((x) => x.trim().toLowerCase())]);
   const autres = propositions === null ? suggestions
@@ -442,10 +447,16 @@ export function ChampDestinataires({
           {groupes.map((g) => (
             <Fragment key={g.cle}>
               <li role="presentation" className="red-sugg-titre">{g.titre}</li>
-              {g.lignes.map((l) => {
+              {g.lignes.map((l, k) => {
                 const i = lignesBien.indexOf(l);
+                /* LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — plusieurs biens dans le contexte : un petit intertitre
+                   gris par bien, dans chaque groupe, au premier de ses lignes. */
+                const sousTitre = plusieursBiens && l.bien !== undefined && (k === 0 || g.lignes[k - 1].bien !== l.bien)
+                  ? l.bien : null;
                 return (
-                  <li key={`${g.cle}-${l.adresse}`} role="presentation">
+                  <Fragment key={`${g.cle}-${l.adresse}`}>
+                  {sousTitre !== null && <li role="presentation" className="red-sugg-sous-titre">{sousTitre}</li>}
+                  <li role="presentation">
                     <button type="button" id={`${id}-s${i}`} role="option" aria-selected={i === enAvant}
                       className={`red-suggestion red-suggestion--bien${i === enAvant ? ' red-suggestion--avance' : ''}`}
                       data-groupe={g.cle}
@@ -463,6 +474,7 @@ export function ChampDestinataires({
                       </span>
                     </button>
                   </li>
+                  </Fragment>
                 );
               })}
             </Fragment>
@@ -745,28 +757,67 @@ export function Redaction({
   const lotOuvert = lotFiche ?? (brouillon.depuisLeBien
     ? ((brouillon.cibles ?? []) as Array<{ sorte?: string; id?: number | null }>).find((c) => c.sorte === 'lot')?.id ?? null
     : null);
-  /** LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN — la liste du bien de la fiche, lue une fois par composeur. */
-  const [groupesFiche, setGroupesFiche] = useState<GroupeSuggestions[] | null>(null);
-  const aDejaSaListe = (brouillon.suggestionsBien ?? null) !== null;
+  /**
+   * ══ 🔴🔴 LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN + LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT ═════════════
+   * LES BIENS DU CONTEXTE, ET LEURS ADRESSES PROPOSÉES. Le contexte = le bien de la fiche ouverte (`lotFiche`), plus
+   * les biens CIBLES du brouillon (cochés à la main, ou amenés d'office par un client à bien unique). Les adresses de
+   * chaque bien sont lues une fois (`/biens/[id]/ecrire`, lecture seule) puis regroupées (`fusionnerSuggestions`) :
+   * les groupes ① ② ③ restent, avec un intertitre gris par bien s'il y en a plus d'un.
+   */
+  /** Les familles données par les listes des biens du contexte : elles priment sur la lecture générale. */
+  const [famillesDesBiens, setFamillesDesBiens] = useState<FamillesConnues>({});
+  const [listesParLot, setListesParLot] = useState<Record<number, { cle: string; libelle: string; groupes: GroupeSuggestions[] }>>({});
+  const listesDemandees = useRef(new Set<number>());
+  const ciblesLots = ((brouillon.cibles ?? []) as Array<{ sorte?: string; cle?: string | null; id?: number | null; libelle?: string }>)
+    .filter((c) => c.sorte === 'lot');
+  /* ⚠️ La liste que le brouillon porte déjà (« Écrire depuis gestion@ ») EST celle du bien d'origine — le bien de la
+     fiche, premier des cibles : on ne la relit pas, on ne lit que les biens AJOUTÉS au contexte. */
+  const dejaPortee = (brouillon.suggestionsBien ?? null) !== null
+    ? new Set([lotFiche, ciblesLots[0]?.id].filter((x): x is number => typeof x === 'number')) : new Set<number>();
+  const lotsDuContexte: number[] = [...new Set([
+    ...(lotFiche !== null ? [lotFiche] : []),
+    ...ciblesLots.map((c) => c.id).filter((x): x is number => typeof x === 'number' && x > 0),
+  ])].filter((id) => !dejaPortee.has(id));
+  const cleLotsDuContexte = lotsDuContexte.join(',');
   useEffect(() => {
-    if (lotFiche === null || aDejaSaListe) return undefined;
+    const manque = lotsDuContexte.filter((id) => !listesDemandees.current.has(id));
+    if (manque.length === 0) return undefined;
+    for (const id of manque) listesDemandees.current.add(id);
     let vivant = true;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/admin/gestion/biens/${lotFiche}/ecrire`, { cache: 'no-store' });
-        const d = (await res.json()) as { etat?: string; groupes?: GroupeSuggestions[] };
-        if (!vivant || !res.ok || d.etat !== 'ok' || !Array.isArray(d.groupes)) return;
-        const groupes = d.groupes;
-        setGroupesFiche(groupes);
-        // Les couleurs des puces : celles de la liste (la famille la plus proche du bien), sans attendre de lecture.
-        const duBien = famillesDesSuggestions(groupes);
-        for (const k of Object.keys(duBien)) famillesDemandees.current.add(k);
-        setFamilles((f) => ({ ...f, ...duBien }));
-      } catch { /* une liste de suggestions est un confort : sans elle, on écrit comme avant */ }
-    })();
+    for (const id of manque) {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/admin/gestion/biens/${id}/ecrire`, { cache: 'no-store' });
+          const d = (await res.json()) as { etat?: string; groupes?: GroupeSuggestions[]; cible?: { cle?: string; libelle?: string } };
+          if (!vivant || !res.ok || d.etat !== 'ok' || !Array.isArray(d.groupes)) { listesDemandees.current.delete(id); return; }
+          const groupes = d.groupes;
+          setListesParLot((m) => ({ ...m, [id]: { cle: d.cible?.cle ?? String(id), libelle: d.cible?.libelle ?? `Lot ${id}`, groupes } }));
+          // Les couleurs des puces : celles de la liste (la famille la plus proche du bien), sans attendre de lecture.
+          const duBien = famillesDesSuggestions(groupes);
+          for (const k of Object.keys(duBien)) famillesDemandees.current.add(k);
+          setFamillesDesBiens((f) => ({ ...duBien, ...f }));   // le premier bien du contexte garde la main
+        } catch { listesDemandees.current.delete(id); /* une liste de suggestions est un confort */ }
+      })();
+    }
     return () => { vivant = false; };
-  }, [lotFiche, aDejaSaListe]);
-  const propositionsBien: readonly GroupeSuggestions[] | null = brouillon.suggestionsBien ?? groupesFiche;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des lots suffit.
+  }, [cleLotsDuContexte]);
+  /** La liste proposée : celle que le brouillon porte (« Écrire depuis gestion@ »), puis celles des biens du contexte. */
+  const propositionsBien: readonly GroupeSuggestions[] | null = (() => {
+    const parBien: Array<{ cle: string; libelle: string; groupes: readonly GroupeSuggestions[] }> = [];
+    const base = brouillon.suggestionsBien ?? null;
+    if (base !== null) {
+      const c0 = ciblesLots[0];
+      parBien.push({ cle: c0?.cle ?? '', libelle: c0?.libelle ?? '', groupes: base });
+    }
+    for (const id of lotsDuContexte) {
+      const l = listesParLot[id];
+      if (l === undefined || parBien.some((x) => x.cle !== '' && x.cle === l.cle)) continue;
+      parBien.push(l);
+    }
+    if (base !== null && parBien.length === 1) return base;
+    return fusionnerSuggestions(parBien);
+  })();
   const adressesDesChamps = [...brouillon.a, ...brouillon.cc, ...brouillon.cci].map(cleAdresse).filter((x) => x.includes('@'));
   const cleAdressesDesChamps = adressesDesChamps.join(',');
   useEffect(() => {
@@ -799,6 +850,95 @@ export function Redaction({
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des adresses suffit.
   }, [cleAdressesDesChamps, lotOuvert]);
+
+  /**
+   * ══ 🔴🔴 LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — LE BIEN RETROUVÉ PAR LES CLIENTS TAPÉS ═════════════════════
+   * Chaque adresse de À / Cc / Cci est lue une fois (`/adresses/biens`, lecture seule) : les biens du portefeuille où
+   * elle est l'e-mail d'un propriétaire ou d'un locataire (actuel ou ancien).
+   *   a. un seul bien ⇒ il entre d'office dans les CIBLES (le mécanisme des biens cochés avant l'envoi) — sauf depuis
+   *      une fiche bien (le bien de la fiche est le contexte), et sauf un mail classé « Interne » ou « hors gestion » ;
+   *   b. plusieurs biens ⇒ la ligne « Rattacher ce mail à : » les propose à cocher.
+   * Retirer l'adresse retire le bien qu'elle avait amené d'office ; décocher un bien amené d'office ne le fait pas
+   * revenir. Rien n'est écrit en base : seules les cibles du brouillon changent, comme au bloc « Classer ce mail ».
+   */
+  const [biensClients, setBiensClients] = useState<BiensDesClients>({});
+  const biensDemandes = useRef(new Set<string>());
+  const autoPar = useRef(new Map<string, string>());       // clé du bien → adresse qui l'a amené d'office
+  const refusesAuto = useRef(new Set<string>());            // « adresse|clé » : ajout d'office défait à la main
+  const contexteFiche = lotFiche !== null || brouillon.depuisLeBien === true;
+  useEffect(() => {
+    const manque = [...new Set(adressesDesChamps)].filter((x) => !biensDemandes.current.has(x));
+    if (manque.length === 0) return undefined;
+    const t = setTimeout(() => {
+      for (const x of manque) biensDemandes.current.add(x);
+      const params = new URLSearchParams();
+      for (const x of manque) params.append('a', x);
+      void (async () => {
+        try {
+          const res = await fetch(`/api/admin/gestion/adresses/biens?${params.toString()}`, { cache: 'no-store' });
+          const d = (await res.json()) as { biens?: BiensDesClients };
+          if (!res.ok || d.biens === undefined || typeof d.biens !== 'object') throw new Error('illisible');
+          const lus = d.biens;
+          setBiensClients((b) => ({ ...b, ...lus }));
+        } catch { for (const x of manque) biensDemandes.current.delete(x); }
+      })();
+    }, 150);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des adresses suffit.
+  }, [cleAdressesDesChamps]);
+  const contexteCles = clesDuContexte((brouillon.cibles ?? []) as Array<{ sorte: string; cle: string | null }>);
+  const cleContexte = [...contexteCles].sort().join(',');
+  const cleBiensClients = Object.keys(biensClients).sort().join(',');
+  /** Ajouts et retraits d'office, rapprochés des cibles à chaque changement des champs ou des cibles. */
+  useEffect(() => {
+    const cibles = [...((brouillon.cibles ?? []) as CibleBrouillon[])];
+    const presentes = new Set(adressesDesChamps);
+    let change = false;
+    // ① Un bien amené d'office et retiré ailleurs (« Classer ce mail ») : c'est un refus, il ne revient pas.
+    for (const [cleBien, adresse] of [...autoPar.current]) {
+      if (!contexteCles.has(cleBien)) { autoPar.current.delete(cleBien); refusesAuto.current.add(`${adresse}|${cleBien}`); }
+    }
+    // ② L'adresse qui avait amené un bien n'est plus là : le bien sort du contexte.
+    for (const [cleBien, adresse] of [...autoPar.current]) {
+      if (presentes.has(adresse)) continue;
+      autoPar.current.delete(cleBien);
+      const i = cibles.findIndex((c) => c.sorte === 'lot' && c.cle === cleBien);
+      if (i >= 0) { cibles.splice(i, 1); change = true; }
+    }
+    // ③ Un client à bien unique : son bien entre d'office (hors fiche bien, hors « Interne » / « hors gestion »).
+    if (!contexteFiche && brouillon.interne !== true && brouillon.horsGestion !== true) {
+      const dejaLa = clesDuContexte(cibles);
+      for (const { bien, adresse } of biensAutomatiques([...presentes], biensClients, dejaLa, refusesAuto.current)) {
+        cibles.push({ sorte: 'lot', cle: bien.cle, id: bien.lotId, libelle: bien.libelle, categorie: bien.categorie });
+        autoPar.current.set(bien.cle, adresse);
+        change = true;
+      }
+    }
+    if (change) modifier({ cibles, interne: false, horsGestion: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- les clés (adresses, cibles, biens lus) suffisent.
+  }, [cleAdressesDesChamps, cleContexte, cleBiensClients, contexteFiche]);
+  /** Cocher / décocher un bien d'un client à plusieurs biens (la ligne « Rattacher ce mail à : »). */
+  const basculerBienClient = (b: BienClient): void => {
+    const cibles = (brouillon.cibles ?? []) as CibleBrouillon[];
+    if (contexteCles.has(b.cle)) {
+      const adresse = autoPar.current.get(b.cle);
+      if (adresse !== undefined) { autoPar.current.delete(b.cle); refusesAuto.current.add(`${adresse}|${b.cle}`); }
+      modifier({ cibles: cibles.filter((c) => !(c.sorte === 'lot' && c.cle === b.cle)) });
+      return;
+    }
+    modifier({ cibles: [...cibles, { sorte: 'lot', cle: b.cle, id: b.lotId, libelle: b.libelle, categorie: b.categorie }],
+      interne: false, horsGestion: false });
+  };
+  const aChoisir = clientsAChoisir(adressesDesChamps, biensClients);
+  /** Les familles affichées : la lecture générale, celles des biens du contexte, puis l'aspect des CLIENTS. */
+  const famillesAffichees: FamillesConnues = (() => {
+    const out: FamillesConnues = { ...familles, ...famillesDesBiens };
+    for (const a of adressesDesChamps) {
+      const f = familleDuClient(a, biensClients, contexteCles);
+      if (f !== null) out[a] = f;
+    }
+    return out;
+  })();
   const [reste, setReste] = useState(0);
   /** LOT 5-PJ-ENVOI — combien de pièces sont jointes, remonté par la zone des pièces (pour le bouton d'envoi). */
   const [piecesJointes, setPiecesJointes] = useState(0);
@@ -1964,7 +2104,7 @@ export function Redaction({
           y poser le curseur obligeait à en sortir avant d'écrire. Il le garde là où il est vide et où il faut
           commencer — un transfert, un message neuf. Pour une réponse, c'est le corps qui prend le curseur (voir
           l'encadré de l'effet d'ouverture). */}
-      <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={modifierA} familles={familles}
+      <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={modifierA} familles={famillesAffichees}
         suggestions={suggestions} onChercher={chercherCorrespondants}
         propositions={propositionsBien} dejaPresentes={presentes} {...pilotage('À')}
         /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — `calerAVue` COUPE AUSSI LE CURSEUR. Voir l'encadré
@@ -1989,16 +2129,39 @@ export function Redaction({
       {/* Cc et Cci REPLIÉS par défaut : neuf messages sur dix n'en ont pas, et deux champs vides de plus font croire
           qu'il faut les remplir. Leurs deux boutons sont maintenant DANS le champ « À », à droite (voir plus haut). */}
       {afficheCc && (
-        <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })} familles={familles}
+        <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })} familles={famillesAffichees}
           suggestions={suggestions} onChercher={chercherCorrespondants}
           propositions={propositionsBien} dejaPresentes={presentes} {...pilotage('Cc')}
           refSaisie={saisieCc} onQuitter={(v) => { if (v.length === 0) setAfficheCc(false); }} />
       )}
       {afficheCci && (
-        <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })} familles={familles}
+        <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })} familles={famillesAffichees}
           suggestions={suggestions} onChercher={chercherCorrespondants}
           propositions={propositionsBien} dejaPresentes={presentes} {...pilotage('Cci')}
           refSaisie={saisieCci} onQuitter={(v) => { if (v.length === 0) setAfficheCci(false); }} />
+      )}
+
+      {/* ══ 🔴🔴 LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — « RATTACHER CE MAIL À : » ═════════════════════════
+          Un client lié à PLUSIEURS biens : ses biens, à cocher (un ou plusieurs). Cocher = la même porte que le bloc
+          « Classer ce mail » (les cibles du brouillon) : le mail envoyé leur sera rattaché, et leurs adresses sont
+          proposées dans À / Cc / Cci. Compacte : une ligne de cases qui passe à la ligne. */}
+      {aChoisir.length > 0 && (
+        <div className="red-rattacher-clients" role="group" aria-label="Rattacher ce mail à">
+          <span className="red-rattacher-titre">Rattacher ce mail à :</span>
+          {aChoisir.map((c) => (
+            <div key={c.adresse} className="red-rattacher-client">
+              {aChoisir.length > 1 && (
+                <span className="red-rattacher-qui">{c.biens.find((b) => b.nom)?.nom ?? c.adresse} :</span>
+              )}
+              {c.biens.map((b) => (
+                <label key={`${c.adresse}|${b.cle}`} className="red-rattacher-bien">
+                  <input type="checkbox" checked={contexteCles.has(b.cle)} onChange={() => basculerBienClient(b)} />
+                  <span>{b.libelle}</span>
+                </label>
+              ))}
+            </div>
+          ))}
+        </div>
       )}
 
       {brouillon.destinatairesApproximatifs && (
@@ -2609,6 +2772,21 @@ const CSS_REDACTION = `
 .red-pastille--famille.red-pastille--proprietaire{background:var(--color-svv-proprio-trame);border-color:var(--color-svv-proprio-trame)}
 .red-pastille--famille.red-pastille--proprietaire.red-pastille--rattache{background:var(--color-svv-proprio-trame-pale);
   border-color:var(--color-svv-proprio)}
+/* LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — client lié à PLUSIEURS biens, aucun encore choisi : fond de surface
+   (blanc en Clair), CONTOUR PLEIN de sa couleur — ni la trame pleine (bien connu), ni le pâle à contour (e-mail
+   rattaché), ni le pointillé (inconnue). Texte à l'encre. */
+.red-pastille--famille.red-pastille--a-choisir{background:var(--color-svv-surface);border:1.5px solid var(--red-puce-ton)}
+/* ⚠️ flex:0 0 auto : la liste est une colonne flexible — sans lui, l'intertitre était écrasé à 2 px (mesuré dans Chrome). */
+.red-sugg-sous-titre{flex:0 0 auto;padding:4px 10px 0;font-size:.72rem;line-height:1.3;color:var(--color-svv-muted);
+  font-style:italic;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.red-rattacher-clients{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:2px 0 4px;font-size:.85rem;
+  color:var(--color-svv-ink)}
+.red-rattacher-titre{font-weight:600;color:var(--color-svv-muted)}
+.red-rattacher-client{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px}
+.red-rattacher-qui{font-weight:600}
+.red-rattacher-bien{display:inline-flex;align-items:center;gap:6px;min-height:36px;cursor:pointer}
+.red-rattacher-bien input{width:18px;height:18px;accent-color:var(--color-svv-red)}
+.red-rattacher-bien input:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .red-pastille--inconnue{background:var(--color-svv-surface);border:1px dashed var(--color-svv-muted);color:var(--color-svv-ink)}
 .red-pastille--famille .red-retirer,.red-pastille--inconnue .red-retirer{color:var(--color-svv-ink)}
 .red-pastille--famille .red-retirer:hover,.red-pastille--inconnue .red-retirer:hover{color:var(--color-svv-red)}

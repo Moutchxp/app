@@ -44,6 +44,11 @@ export const PLAFOND_BIENS = 40;
 export interface BienTrouve {
   /** La clé WIPPIMMO du lot : c'est elle, la cible de rattachement. */
   cle: string;
+  /**
+   * LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — l'identifiant INTERNE du lot (`gestion_annuaire_lot.id`), déjà lu
+   * par la requête : c'est par lui que la rédaction demande les adresses du bien (`/biens/[id]/ecrire`). AJOUTÉ.
+   */
+  lotId: number;
   libelle: string;
   adresse: string;
   /**
@@ -185,6 +190,7 @@ export async function chercherBiens(
     const adresse = adresseComplete({ adresse: r.adresse, codePostal: r.code_postal, commune: r.commune });
     return {
       cle: r.cle,
+      lotId: Number(r.lot_id),
       adresse,
       libelle: adresse === '' ? `Lot ${r.cle}` : `${adresse} — lot ${r.cle}`,
       adresseVoie: r.adresse, commune: r.commune,

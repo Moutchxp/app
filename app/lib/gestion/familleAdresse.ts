@@ -19,6 +19,12 @@ export interface FamilleAdresse {
   nom: string | null;
   /** Le rôle en clair, pour l'info-bulle : « Propriétaire », « Gestionnaire · TEST ARNAUD », « Gardien »… */
   role: string;
+  /**
+   * LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — client lié à PLUSIEURS biens, aucun encore choisi : contour plein
+   * de sa couleur sur fond blanc, et l'info-bulle invite à choisir (`nbBiens`). Absent ⇒ l'aspect ordinaire.
+   */
+  aChoisir?: boolean;
+  nbBiens?: number;
 }
 
 /** Ce que l'écran sait d'une adresse : sa famille, `null` = inconnue de notre système, absente = pas encore lue. */
@@ -46,6 +52,7 @@ export function famillesDesSuggestions(groupes: readonly GroupeSuggestions[] | n
 export function classesPuce(f: FamilleAdresse | null | undefined): string {
   if (f === undefined) return '';
   if (f === null) return ' red-pastille--inconnue';
+  if (f.aChoisir === true) return ` red-pastille--famille red-pastille--${f.ton} red-pastille--a-choisir`;
   return ` red-pastille--famille red-pastille--${f.ton}${f.propre ? '' : ' red-pastille--rattache'}`;
 }
 
@@ -54,5 +61,6 @@ export function infobullePuce(adresse: string, f: FamilleAdresse | null | undefi
   if (f === undefined) return adresse;
   if (f === null) return `${adresse} — adresse extérieure, inconnue de notre système`;
   const qui = [f.nom ?? '', f.role].filter((x) => x.trim() !== '').join(' · ');
+  if (f.aChoisir === true) return `${qui} — lié à ${f.nbBiens ?? 2} biens — choisissez le bien ci-dessous — ${adresse}`;
   return `${qui}${f.propre ? '' : ' (e-mail rattaché)'} — ${adresse}`;
 }

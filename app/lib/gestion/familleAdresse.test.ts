@@ -136,3 +136,16 @@ describe('🔴 la trame propriétaire : rouge pur (sans jaune), distincte du ros
     expect(redaction).toContain('.red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-proprio)}');
   });
 });
+
+describe('🔴 LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — « à choisir » : fond de surface, contour plein, texte à l’encre', () => {
+  const regle = '.red-pastille--famille.red-pastille--a-choisir{background:var(--color-svv-surface);border:1.5px solid var(--red-puce-ton)}';
+  it('la règle existe, et vient APRÈS la trame propriétaire (même poids : la dernière gagne)', () => {
+    expect(redaction).toContain(regle);
+    expect(redaction.indexOf(regle)).toBeGreaterThan(redaction.indexOf('.red-pastille--famille.red-pastille--proprietaire{'));
+  });
+  for (const [nom, t] of [['Clair', CLAIR], ['Sombre', SOMBRE]] as const) {
+    it(`${nom} : l’encre sur la surface ≥ 4,5:1`, () => {
+      expect(contraste(rgb(t['color-svv-ink']), rgb(t['color-svv-surface']))).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+});

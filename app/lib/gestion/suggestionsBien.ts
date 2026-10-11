@@ -32,6 +32,11 @@ export interface SuggestionAdresse {
   /** Pour la formule d'appel : la civilité et le nom de famille, quand on les connaît. */
   civilite: Civilite | null;
   nomFamille: string | null;
+  /**
+   * LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — le libellé du bien qui propose cette adresse, quand la liste en
+   * regroupe PLUSIEURS : il sert d'intertitre gris dans chaque groupe. Absent ⇒ un seul bien, aucun intertitre.
+   */
+  bien?: string;
 }
 
 export type CleGroupeSuggestions = 'clients' | 'immeuble' | 'autres';
