@@ -112,3 +112,15 @@ describe('🔴 la ligne compacte d’un résultat de recherche', () => {
     expect(bien({ parties: [] }).proprietaires).toBe('(propriétaire inconnu)');
   });
 });
+
+import { deuxLignesParties } from './classementBoutons';
+
+describe('🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — les parties sur deux lignes', () => {
+  it('un propriétaire, deux locataires ; plusieurs propriétaires ; vacant ; propriétaire inconnu', () => {
+    expect(deuxLignesParties([{ role: 'proprietaire', nom: 'JULLIEN - GARRIDO Cédric' }, { role: 'locataire', nom: 'A' }, { role: 'locataire', nom: 'B' }]))
+      .toEqual({ libelleProprietaires: 'Propriétaire', proprietaires: 'JULLIEN - GARRIDO Cédric', libelleLocataires: 'Locataires', locataires: 'A · B' });
+    expect(deuxLignesParties([{ role: 'proprietaire', nom: 'X' }, { role: 'proprietaire', nom: 'Y' }]))
+      .toEqual({ libelleProprietaires: 'Propriétaires', proprietaires: 'X · Y', libelleLocataires: 'Locataire', locataires: 'Vacant' });
+    expect(deuxLignesParties([]).proprietaires).toBe('(propriétaire inconnu)');
+  });
+});

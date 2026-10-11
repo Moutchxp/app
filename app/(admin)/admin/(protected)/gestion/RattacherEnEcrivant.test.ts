@@ -353,7 +353,11 @@ describe('🔴🔴 ⑤bis un bien déjà retenu que le moteur ne propose pas', (
     contexte = { ...contexte, biens: [BIEN('100', false, 'un des 3 biens')] };
     await monter();
     expect(cases()).toHaveLength(2);
-    expect(container.textContent).toContain('9 rue Ancienne — lot Z9');
+    // LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — CE QU'IL DISAIT AVANT : le titre était le libellé enregistré
+    //   (« 9 rue Ancienne — lot Z9 »). Il vient désormais de la FICHE du bien (lue comme la pastille « i » la lit) :
+    //   le faux serveur rend ici celle du 28 av. Marceau, avec ses parties sur deux lignes.
+    expect(container.textContent).toContain('28 av. Marceau, COURBEVOIE');
+    expect(container.textContent).toContain('Propriétaire GARREAU Gabrielle');
     // Le motif distingue les deux sources : on ne décoche pas à l'aveugle.
     expect(container.textContent).toContain('déjà rattaché');
     expect(boutonPar(/Valider/).textContent).toContain('1 bien(s)');
@@ -1003,5 +1007,57 @@ describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — « Valider �
       .toBe('1 bien(s) coché(s) n’ont pas pu être retenus (lot 999) : rien n’a été validé. Relancez la recherche puis validez à nouveau.');
     expect(cibles[0].cle).toBe('inchangé');
     expect(ferme).toBe(0);
+  });
+});
+
+describe('🔴🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — chaque carte montre ses parties sur DEUX lignes', () => {
+  const lignesDe = (li: Element) => [...li.querySelectorAll('.rec-deux-lignes .rec-ligne-parties')].map((e) => e.textContent);
+  const carteDe = (texte: string) => [...container.querySelectorAll('.rec-bien, .rec-ligne')].find((l) => (l.textContent ?? '').includes(texte)) as Element;
+  it('🔴 un bien DÉJÀ RATTACHÉ : titre de la carte, PROPRIÉTAIRE / LOCATAIRE sur deux lignes, la mention dessous', async () => {
+    ficheLot = { ...ficheLot, adresse: '31 rue Camille Pelletan', commune: 'LEVALLOIS PERRET', nature: 'Appartement', typeBien: 'Type 2',
+      proprietaires: [{ nom: 'JULLIEN - GARRIDO', prenom: 'Cédric' }], occupants: [{ nom: 'DUPOND', prenom: 'Léa' }] };
+    cibles = [{ sorte: 'lot', cle: '224', id: null, libelle: '31 rue Camille Pelletan, 92300 LEVALLOIS PERRET — lot 224' }];
+    await monter(['x@y.fr']);
+    const carte = carteDe('31 rue Camille Pelletan');
+    expect(carte.querySelector('.rec-bien-nom')?.textContent).toBe('31 rue Camille Pelletan, LEVALLOIS PERRET — Appartement · Type 2');
+    expect(lignesDe(carte)).toEqual(['Propriétaire JULLIEN - GARRIDO Cédric', 'Locataire DUPOND Léa']);
+    expect(carte.querySelector('.rec-deux-lignes + .rec-motif')?.textContent).toBe('déjà rattaché — décochez pour le retirer');
+  });
+  it('plusieurs propriétaires : « · » entre eux ; bien VACANT ; propriétaire archivé écarté', async () => {
+    ficheLot = { ...ficheLot, proprietaires: [{ nom: 'MARS AVENIR' }, { nom: 'JULLIEN - GARRIDO', prenom: 'Cédric' }, { nom: 'ANCIEN', archive: true }], occupants: [] };
+    cibles = [{ sorte: 'lot', cle: '494', id: null, libelle: '2 Rue Mars et Roty — lot 494' }];
+    await monter(['x@y.fr']);
+    expect(lignesDe(carteDe('Propriétaires'))).toEqual(['Propriétaires MARS AVENIR · JULLIEN - GARRIDO Cédric', 'Locataire Vacant']);
+  });
+  it('une PROPOSITION du moteur : les deux mêmes lignes, puis son motif', async () => {
+    contexte = { ...contexte, biens: [{ ...BIEN('61', false, 'un des 3 biens'), parties: [
+      { role: 'proprietaire', cle: 'P1', nom: 'MARTY Jean-François', emails: [], telephones: [] },
+      { role: 'locataire', cle: 'L1', nom: 'ROI Nathan', emails: [], telephones: [] },
+      { role: 'locataire', cle: 'L2', nom: 'ROI Léa', emails: [], telephones: [] }] }] };
+    await monter(['x@y.fr']);
+    const carte = container.querySelector('.rec-bien') as Element;
+    expect(lignesDe(carte)).toEqual(['Propriétaire MARTY Jean-François', 'Locataires ROI Nathan · ROI Léa']);
+    expect(carte.querySelector('.rec-deux-lignes + .rec-motif')?.textContent).toBe('un des 3 biens');
+  });
+  it('une carte de RÉSULTAT de recherche : deux lignes au lieu de « | »', async () => {
+    biensTrouves = [{ cle: '432', lotId: 299, libelle: '1bis Rue Manessier — lot 432', adresse: '1bis Rue Manessier, 94130 NOGENT', adresseVoie: '1bis Rue Manessier',
+      commune: 'Nogent-sur-Marne', nature: 'Appartement', typeBien: 'Type 3', raisons: [{ sorte: 'adresse', detail: '' }],
+      parties: [{ role: 'proprietaire', cle: 'P', nom: 'JULLIEN - GARRIDO Cédric', emails: [], telephones: [] }] }];
+    await monter(['x@y.fr']);
+    const champ = container.querySelector('.rec input[type="search"], .rec input[type="text"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(champ, 'Manessier');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
+    await calmer();
+    const ligne = container.querySelector('.rec-ligne') as Element;
+    expect(lignesDe(ligne)).toEqual(['Propriétaire JULLIEN - GARRIDO Cédric', 'Locataire Vacant']);
+    expect(ligne.textContent).not.toContain('|');
+  });
+  it('les noms longs passent à la ligne, jamais de « … »', async () => {
+    const { CSS_RATTACHER_EN_ECRIVANT } = await import('./RattacherEnEcrivant');
+    expect(CSS_RATTACHER_EN_ECRIVANT).toContain('.rec-ligne-parties{font-size:.76rem;color:var(--color-svv-ink);overflow-wrap:anywhere}');
+    expect(CSS_RATTACHER_EN_ECRIVANT).not.toMatch(/\.rec-ligne-parties\{[^}]*(ellipsis|nowrap)/);
   });
 });

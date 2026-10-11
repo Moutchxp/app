@@ -120,3 +120,27 @@ export function ligneCompacteDuBien(b: {
     locataire: locataires.length === 0 ? 'Vacant' : locataires.join(', '),
   };
 }
+
+/**
+ * ══ 🔴🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — LES PARTIES D'UN BIEN, SUR DEUX LIGNES ══════════════════════════════
+ * Demande d'Arno : chaque bien de la modale « Rattacher ce mail à… » (propositions, biens déjà rattachés, résultats de
+ * recherche) montre ses parties sur deux lignes — « PROPRIÉTAIRE » puis le ou les propriétaires séparés par « · » ;
+ * « LOCATAIRE » puis le ou les locataires, ou « Vacant ». Mêmes libellés que la ligne compacte (pluriel dès deux). PUR.
+ */
+export interface DeuxLignesParties {
+  libelleProprietaires: string;
+  proprietaires: string;
+  libelleLocataires: string;
+  locataires: string;
+}
+export function deuxLignesParties(parties: readonly { role: string; nom: string }[]): DeuxLignesParties {
+  const noms = (role: string) => parties.filter((p) => p.role === role).map((p) => p.nom.trim()).filter((n) => n !== '');
+  const proprios = noms('proprietaire');
+  const locataires = noms('locataire');
+  return {
+    libelleProprietaires: proprios.length > 1 ? 'Propriétaires' : 'Propriétaire',
+    proprietaires: proprios.length === 0 ? '(propriétaire inconnu)' : proprios.join(' · '),
+    libelleLocataires: locataires.length > 1 ? 'Locataires' : 'Locataire',
+    locataires: locataires.length === 0 ? 'Vacant' : locataires.join(' · '),
+  };
+}

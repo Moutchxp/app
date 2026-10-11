@@ -781,15 +781,16 @@ export function Redaction({
   const cleLotsDuContexte = lotsDuContexte.join(',');
   useEffect(() => {
     const manque = lotsDuContexte.filter((id) => !listesDemandees.current.has(id));
-    if (manque.length === 0) return undefined;
+    if (manque.length === 0) return;
     for (const id of manque) listesDemandees.current.add(id);
-    let vivant = true;
+    /* ⚠️ AUCUNE GARDE « vivant » (lot MODALE-BIEN-DEJA-RATTACHE-PARTIES) : en mode strict, React remonte l'effet, et
+       la garde jetait la seule réponse d'une liste déjà marquée demandée. */
     for (const id of manque) {
       void (async () => {
         try {
           const res = await fetch(`/api/admin/gestion/biens/${id}/ecrire`, { cache: 'no-store' });
           const d = (await res.json()) as { etat?: string; groupes?: GroupeSuggestions[]; cible?: { cle?: string; libelle?: string } };
-          if (!vivant || !res.ok || d.etat !== 'ok' || !Array.isArray(d.groupes)) { listesDemandees.current.delete(id); return; }
+          if (!res.ok || d.etat !== 'ok' || !Array.isArray(d.groupes)) { listesDemandees.current.delete(id); return; }
           const groupes = d.groupes;
           setListesParLot((m) => ({ ...m, [id]: { cle: d.cible?.cle ?? String(id), libelle: d.cible?.libelle ?? `Lot ${id}`, groupes } }));
           // Les couleurs des puces : celles de la liste (la famille la plus proche du bien), sans attendre de lecture.
@@ -799,7 +800,6 @@ export function Redaction({
         } catch { listesDemandees.current.delete(id); /* une liste de suggestions est un confort */ }
       })();
     }
-    return () => { vivant = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des lots suffit.
   }, [cleLotsDuContexte]);
   /** La liste proposée : celle que le brouillon porte (« Écrire depuis gestion@ »), puis celles des biens du contexte. */

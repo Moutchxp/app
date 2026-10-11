@@ -5,7 +5,7 @@ import { memeCibleBrouillon, type CibleBrouillon } from '../../../../lib/gestion
 import type { ContexteRedaction } from '../../../../lib/gestion/classementBien';
 // 🔴 LE MOTEUR DE RECHERCHE DE BIENS, TEL QU'IL EXISTE : mêmes groupes, mêmes raisons, même route.
 import { grouperResultats, messageAucunBien, motRaison } from '../../../../lib/gestion/rechercheBien';
-import { ligneCompacteDuBien } from '../../../../lib/gestion/classementBoutons';
+import { deuxLignesParties, ligneCompacteDuBien } from '../../../../lib/gestion/classementBoutons';
 // 🔴 LOT AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE — la phrase d'Arno quand le moteur ne trouve rien. Module PUR.
 import { AUCUNE_PROPOSITION } from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la catégorie d'un lot, posée là où la nature est connue. Module PUR.
@@ -261,6 +261,14 @@ export function RattacherEnEcrivant({
    * il se calcule bien avant le rendu. Un crochet déclaré plus bas serait lu après son premier usage.
    */
   const [autresDeplies, setAutresDeplies] = useState(false);
+  /**
+   * ══ 🔴🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — CE QU'ON SAIT D'UN BIEN DÉJÀ RATTACHÉ ══════════════════════════════
+   * Un bien déjà rattaché (ou ajouté à la main) que le moteur ne propose pas n'arrive ici qu'avec sa clé et son
+   * libellé. Sa fiche est lue — LECTURE SEULE, par la route que la pastille « i » emploie déjà
+   * (`/annuaire?lotCle=`) — pour lui donner le même titre et les mêmes deux lignes de parties que les autres cartes.
+   */
+  const [fiches, setFiches] = useState<Record<string, FicheCourte>>({});
+  const fichesDemandees = useRef(new Set<string>());
   const rechercheAmorcee = useRef(false);
   useEffect(() => {
     if (rechercheAmorcee.current || etat.v !== 'ok' || saisie !== '') return;
@@ -399,6 +407,25 @@ export function RattacherEnEcrivant({
    * ⚠️ `horsPropositions` N'EST JAMAIS REPLIÉ : ce sont les biens DÉJÀ rattachés et ceux qu'on vient de trouver à
    * la recherche. Les cacher ferait exactement le défaut que ce bloc répare — une case cochée sans case.
    */
+  const clesHors = horsPropositions.map((x) => x.cible.cle ?? '').filter((c) => c !== '');
+  useEffect(() => {
+    /* ⚠️ AUCUNE GARDE « vivant » : en mode strict, React monte, démonte puis remonte l'effet — la garde jetait la
+       SEULE réponse (la clé, déjà demandée, n'était jamais relue) : la carte restait sans parties (mesuré dans
+       Chrome). Poser un état après démontage est sans effet en React 19. */
+    for (const c of clesHors.filter((x) => !fichesDemandees.current.has(x))) {
+      fichesDemandees.current.add(c);
+      void (async () => {
+        try {
+          const res = await fetch(`/api/admin/gestion/annuaire?lotCle=${encodeURIComponent(c)}`, { cache: 'no-store' });
+          const d = (await res.json()) as { etat?: string; data?: Record<string, unknown> };
+          if (!res.ok || d.etat !== 'ok' || d.data === undefined) { fichesDemandees.current.delete(c); return; }
+          const f = ficheCourte(d.data);
+          setFiches((m) => ({ ...m, [c]: f }));
+        } catch { fichesDemandees.current.delete(c); }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la liste des clés suffit.
+  }, [clesHors.join(',')]);
   const tous: { cle: string; libelle: string }[] = [
     ...proposesAffiches.map((b) => ({ cle: b.cle, libelle: b.libelle })),
     ...horsPropositions.map((x) => ({ cle: x.cible.cle ?? '', libelle: x.cible.libelle })),
@@ -425,10 +452,14 @@ export function RattacherEnEcrivant({
       cle: b.cle, adresse: [b.adresse ?? '', b.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
       nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null,
     })),
-    ...horsPropositions.map((x) => ({
-      cle: x.cible.cle ?? '', adresse: x.cible.libelle, nature: null, typeBien: null,
-      immeuble: null as string | null,
-    })),
+    ...horsPropositions.map((x) => {
+      // 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — la fiche lue donne le titre habituel (adresse — nature · type).
+      const f = fiches[x.cible.cle ?? ''];
+      return f === undefined
+        ? { cle: x.cible.cle ?? '', adresse: x.cible.libelle, nature: null, typeBien: null, immeuble: null as string | null }
+        : { cle: x.cible.cle ?? '', adresse: [f.adresse ?? '', f.commune ?? ''].filter((y) => y.trim() !== '').join(', '),
+          nature: f.nature, typeBien: f.typeBien, immeuble: null as string | null };
+    }),
     ...(recherche.v === 'ok' ? recherche.resultats.lignes : []).map((b) => ({
       cle: b.cle, adresse: [b.adresseVoie ?? '', b.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
       nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null,
@@ -761,16 +792,10 @@ export function RattacherEnEcrivant({
                   {/* 🔴 LE MOTIF EST ÉCRIT EN CLAIR, TOUJOURS (« locataire de ce bien », « propriétaire »…) : on
                       doit savoir POURQUOI ce bien est proposé, et pourquoi sa case est cochée, sans rouvrir le
                       code. C'est la règle du lot AFFECTATION-PAR-BIEN, et elle vaut ici à l'identique. */}
+                  {/* 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — les parties sur DEUX lignes, comme toutes les cartes de
+                      cette fenêtre ; le motif reste, dessous, en italique gris. */}
+                  <PartiesSurDeuxLignes parties={b.parties} />
                   <p className="rec-motif">{b.motif}</p>
-                  <ul className="rec-parties">
-                    {b.parties.length === 0 && <li className="rec-partie">aucune partie connue aujourd’hui</li>}
-                    {b.parties.map((p) => (
-                      <li key={`${p.role}|${p.cle}`} className="rec-partie">
-                        <span className="rec-role">{p.role === 'proprietaire' ? 'propriétaire' : 'locataire'}</span>
-                        {' '}{p.nom}
-                      </li>
-                    ))}
-                  </ul>
                 </li>
               ))}
               {/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUI EST COCHÉ EST VISIBLE, TOUJOURS ══════════════
@@ -798,9 +823,12 @@ export function RattacherEnEcrivant({
                     <input type="checkbox" checked={selection.has(a.cle ?? '')}
                       onChange={() => basculer(a.cle ?? '')} />
                     <span className="rec-bien-nom">{titre(a.cle ?? '')}</span>
-                    {/* ⚠️ ICI LA LIGNE N'AFFICHE QUE LE TITRE : aucune partie n'est écrite dessous. */}
-                    <InfoBien cle={a.cle ?? ''} titre={titre(a.cle ?? '')} surLaLigne={titre(a.cle ?? '')} />
+                    {/* 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — les parties sont écrites dessous dès que la fiche
+                        est lue : `surLaLigne` les porte alors, comme pour les propositions. */}
+                    <InfoBien cle={a.cle ?? ''} titre={titre(a.cle ?? '')}
+                      surLaLigne={`${titre(a.cle ?? '')} ${(fiches[a.cle ?? '']?.parties ?? []).map((p) => p.nom).join(' ')}`} />
                   </label>
+                  {fiches[a.cle ?? ''] !== undefined && <PartiesSurDeuxLignes parties={fiches[a.cle ?? ''].parties} />}
                   <p className="rec-motif">
                     {clesClients !== null && !clesClients.has(a.cle ?? '') && !(clesDeBase?.has(a.cle ?? '') ?? false)
                       ? 'ajouté manuellement — aucun client de ce bien dans les destinataires'
@@ -939,18 +967,57 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, onBasculer }: {
           </span>
           {/* 🔴🔴 « déjà dans la sélection » : la même case, vue d'un autre endroit — jamais un second bien. */}
           {dejaEnHaut && <span className="rec-ligne-deja">déjà dans la sélection</span>}
-          <span className="rec-ligne-parties">
-            <span className="rec-ligne-role">{b.parties.filter((p) => p.role === 'proprietaire').length > 1
-              ? 'Propriétaires' : 'Propriétaire'}</span>
-            {' '}{l.proprietaires}
-            <span className="rec-ligne-sep" aria-hidden="true"> | </span>
-            <span className="rec-ligne-role">Locataire</span>{' '}{l.locataire}
-          </span>
+          {/* 🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — DEUX lignes (propriétaire, locataire) au lieu de « | » :
+              les mêmes que toutes les cartes de cette fenêtre. */}
+          <PartiesSurDeuxLignes parties={b.parties} dansUneLigne />
           {/* Pourquoi cette ligne répond : c'est ce qui permet de comprendre un résultat surprenant. */}
           <span className="rec-ligne-motif">trouvé par {b.raisons.map(motRaison).join(' · ')}</span>
         </span>
       </label>
     </li>
+  );
+}
+
+/** Ce que la fenêtre retient de la fiche d'un bien déjà rattaché : son titre et ses parties d'aujourd'hui. */
+interface FicheCourte {
+  adresse: string | null; commune: string | null; nature: string | null; typeBien: string | null;
+  parties: { role: 'proprietaire' | 'locataire'; nom: string }[];
+}
+/** La fiche de l'annuaire → ce qu'il faut à la carte : propriétaires non archivés, occupants actuels. PUR. */
+export function ficheCourte(d: Record<string, unknown>): FicheCourte {
+  const texte = (x: unknown): string | null => (typeof x === 'string' && x.trim() !== '' ? x : null);
+  const personnes = (x: unknown) => (Array.isArray(x) ? x : []) as Array<{ nom?: unknown; prenom?: unknown; archive?: unknown }>;
+  const nom = (p: { nom?: unknown; prenom?: unknown }) => [texte(p.nom) ?? '', texte(p.prenom) ?? ''].filter((y) => y !== '').join(' ');
+  return {
+    adresse: texte(d.adresse), commune: texte(d.commune), nature: texte(d.nature), typeBien: texte(d.typeBien),
+    parties: [
+      ...personnes(d.proprietaires).filter((p) => p.archive !== true).map((p) => ({ role: 'proprietaire' as const, nom: nom(p) })),
+      ...personnes(d.occupants).filter((p) => p.archive !== true).map((p) => ({ role: 'locataire' as const, nom: nom(p) })),
+    ].filter((p) => p.nom !== ''),
+  };
+}
+
+/**
+ * ══ 🔴🔴 LOT MODALE-BIEN-DEJA-RATTACHE-PARTIES — LES PARTIES SUR DEUX LIGNES, POUR TOUTES LES CARTES ═══════════════════
+ * « PROPRIÉTAIRE » (petites capitales grises) puis le ou les propriétaires séparés par « · » ; « LOCATAIRE » puis le
+ * ou les locataires, ou « Vacant ». Le style des résultats de recherche ; les noms longs passent à la ligne, jamais de
+ * « … ». La mise en forme est décidée dans le module pur (`deuxLignesParties`).
+ */
+function PartiesSurDeuxLignes({ parties, dansUneLigne = false }: {
+  parties: readonly { role: string; nom: string }[];
+  /** Dans une ligne de résultat (déjà décalée par sa case) : pas de retrait supplémentaire. */
+  dansUneLigne?: boolean;
+}) {
+  const l = deuxLignesParties(parties);
+  return (
+    <span className={`rec-deux-lignes${dansUneLigne ? '' : ' rec-deux-lignes--carte'}`}>
+      <span className="rec-ligne-parties">
+        <span className="rec-ligne-role">{l.libelleProprietaires}</span>{' '}{l.proprietaires}
+      </span>
+      <span className="rec-ligne-parties">
+        <span className="rec-ligne-role">{l.libelleLocataires}</span>{' '}{l.locataires}
+      </span>
+    </span>
   );
 }
 
@@ -1030,8 +1097,6 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 .rec-choix{display:flex;align-items:flex-start;gap:.5rem;min-height:32px;cursor:pointer}
 .rec-bien-nom{font-weight:600;overflow-wrap:anywhere}
 .rec-motif{margin:.2rem 0 0 1.6rem;font-size:.76rem;font-style:italic;color:var(--color-svv-muted)}
-.rec-parties{list-style:none;margin:.2rem 0 0 1.6rem;padding:0;font-size:.78rem;color:var(--color-svv-muted)}
-.rec-role{font-weight:700;font-size:.68rem;text-transform:uppercase;letter-spacing:.02em}
 
 /* ══ LE MOTEUR DE RECHERCHE ════════════════════════════════════════════════════════════════════════════════ */
 .rec-champ{display:flex;flex-direction:column;gap:.25rem;min-width:0}
@@ -1072,6 +1137,8 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 .rec-ligne-role{font-weight:700;font-size:.66rem;text-transform:uppercase;letter-spacing:.03em;
   color:var(--color-svv-muted)}
 .rec-ligne-sep{color:var(--color-svv-muted)}
+.rec-deux-lignes{display:flex;flex-direction:column;gap:1px;min-width:0}
+.rec-deux-lignes--carte{margin:.25rem 0 0 1.6rem}
 .rec-ligne-motif{font-size:.72rem;font-style:italic;color:var(--color-svv-muted)}
 
 .rec-note{font-size:.78rem;color:var(--color-svv-muted)}
