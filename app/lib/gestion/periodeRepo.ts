@@ -627,8 +627,9 @@ export async function annulerClassement(o: {
             AND cree_le > now() - interval '2 minutes'
           ORDER BY id`, [mails, MOTIF_POSE_PAR_SUIVI]);
       for (const r of rows) {
+        // LOT HISTORIQUE-SORTIE-PAR-BIEN — un AJOUT de la fenêtre qu'on annule aussitôt : retirable pour de bon.
         await changerStatut({
-          lienId: Number(r.id), statut: 'retire', auteur: o.auteur, motif: MOTIF_RETIRE_PAR_SUIVI,
+          lienId: Number(r.id), statut: 'retire', auteur: o.auteur, motif: MOTIF_RETIRE_PAR_SUIVI, annulationAjout: true,
         });
       }
       await retirerInterventionsSansBien(mails, o.auteur);

@@ -415,9 +415,12 @@ définitive avant de figer les couleurs dans le code.
 - **L'historique d'un bien = ses mails rattachés non « sortis du suivi »**, lus par `sqlLiensDuBien` et rien d'autre :
   jamais une jointure obligatoire sur un contact, une partie ou un syndic ACTIF. Un contact disparu s'affiche avec le
   nom et l'adresse du mail, et la mention grise « ancien contact ».
-- **Le verrou est EN BASE (migration 339)** : ni DELETE ni TRUNCATE sur les mails, les rattachements, les adresses de
-  mail et les pièces ; pas de retrait automatique d'un lien confirmé ; plus de cascade. Un lot qui croit devoir
-  supprimer un mail se trompe de geste : il marque (« Sortir du suivi »), il n'efface pas.
+- **Enrichir est toujours permis ; retirer se fait bien par bien** : « Sortir du suivi » marque le couple (mail, bien)
+  — statut `sorti`, restaurable — et ne touche jamais les autres biens du même mail. Tout geste qui retirait un bien
+  confirmé passe par `changerStatut`, qui le convertit en sortie du suivi de ce bien seul, après la question d'Arno.
+- **Le verrou est EN BASE (migrations 339-340)** : ni DELETE ni TRUNCATE sur les mails, les rattachements, les adresses
+  de mail et les pièces ; un lien confirmé ne change de statut QUE par les fonctions dédiées (aucune exception, même
+  humaine) ; plus de cascade. Un lot qui croit devoir supprimer un mail se trompe de geste : il marque, il n'efface pas.
 
 ### 🔴🔴 INTERDIT — ON NE RETIRE JAMAIS UN ÉLÉMENT D'INTERFACE SANS L'ACCORD D'ARNO POUR CET ÉLÉMENT
 

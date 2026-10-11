@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmerSortieDesBiens } from './confirmerSortieSuivi';
 import { useEffect, useRef, useState } from 'react';
 /**
  * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — les mots et le délai de « Marquer interne détachera :
@@ -316,6 +317,9 @@ export function EncartRattachement({
   };
 
   const changer = async (lien: LienAffiche, statut: Statut, dit: string): Promise<void> => {
+    /* 🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN — retirer un BIEN confirmé, c'est l'en sortir du suivi : on le demande d'abord. */
+    if (lien.cible.sorte === 'lot' && lien.statut === 'confirme' && statut !== 'confirme'
+        && !(await confirmerSortieDesBiens([lien.libelle]))) return;
     const fait = await agir({ lienId: lien.id, statut }, 'PATCH', dit);
     if (!fait) return;
     setDefaits((m) => {
@@ -797,6 +801,10 @@ export function EncartRattachement({
     const presentes = new Set(biensRattaches.map((c) => c.cle ?? ''));
     const aPoser = [...voulues].filter((c) => !presentes.has(c));
     const aRetirer = vivants.filter((l) => l.cible.sorte === 'lot' && !voulues.has(l.cible.cle ?? ''));
+    /* 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — un bien décoché sort le mail du suivi de CE bien (restaurable) :
+       on le demande d'abord, avec la phrase d'Arno. */
+    const aSortir = aRetirer.filter((l) => l.statut === 'confirme').map((l) => l.libelle);
+    if (aSortir.length > 0 && !(await confirmerSortieDesBiens(aSortir))) return;
     for (const l of aRetirer) {
       await agir({ lienId: l.id, statut: 'retire' }, 'PATCH', `Rattachement retiré : ${l.libelle}`);
     }
@@ -1465,6 +1473,11 @@ export function EncartRattachement({
                           onChange={() => setConfirme((v) => !v)} />
                         <span>Je confirme le reclassement de toute la conversation.</span>
                       </label>
+                      {/* 🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN — ce qui arrive aux biens qui ne sont plus cochés, dit avant. */}
+                      <span className="ert-alerte-texte">
+                        Les biens ajoutés le sont à toute la conversation. Un bien retiré : chaque mail sort du suivi de
+                        ce bien seulement — il restera dans les autres historiques et pourra être restauré.
+                      </span>
                     </p>
                   )}
                 </fieldset>

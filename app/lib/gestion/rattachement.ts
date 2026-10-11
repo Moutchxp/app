@@ -379,7 +379,8 @@ export function libelleIssue(i: Issue): string {
 
 /** Les statuts d'un lien VIVANT — ceux que l'index d'unicité surveille, et que le bandeau affiche. */
 export const STATUTS_VIVANTS = ['propose', 'confirme'] as const;
-export type Statut = 'propose' | 'confirme' | 'rejete' | 'retire';
+/** LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — `sorti` : « sorti du suivi » de CE bien, restaurable (migration 340). */
+export type Statut = 'propose' | 'confirme' | 'rejete' | 'retire' | 'sorti';
 
 /** Un statut est-il vivant ? PUR. */
 export function estVivant(s: Statut): boolean {

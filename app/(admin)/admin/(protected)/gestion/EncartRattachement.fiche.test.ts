@@ -269,6 +269,10 @@ describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la 
     await cliquer(container.querySelector('.ccl-case--verte'));
     await cliquer(container.querySelector('.rec-biens input[type="checkbox"]'));
     await cliquer(boutonPar(/^Valider — aucun bien$/));
+    /* LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — décocher un bien confirmé sort le mail du suivi de ce bien : la
+       question d'Arno est posée d'abord, et on y répond « Sortir du suivi ». */
+    expect(document.querySelector('.red-conf-question')?.textContent).toContain('Il restera dans les autres historiques et pourra être restauré.');
+    await cliquer([...document.querySelectorAll('.red-conf button')].find((b) => b.textContent === 'Sortir du suivi'));
     const patch = appels.find((a) => a.methode === 'PATCH' && a.url.includes('/rattachements'));
     expect(patch?.corps).toMatchObject({ lienId: 1, statut: 'retire' });
     // …et aucune suppression n'est jamais émise.
@@ -289,6 +293,10 @@ describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la 
     await cliquer(container.querySelector('.ccl-case--verte'));
     await cliquer(container.querySelector('.rec-biens input[type="checkbox"]'));
     await cliquer(boutonPar(/^Valider — aucun bien$/));
+    /* LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — décocher un bien confirmé sort le mail du suivi de ce bien : la
+       question d'Arno est posée d'abord, et on y répond « Sortir du suivi ». */
+    expect(document.querySelector('.red-conf-question')?.textContent).toContain('Il restera dans les autres historiques et pourra être restauré.');
+    await cliquer([...document.querySelectorAll('.red-conf button')].find((b) => b.textContent === 'Sortir du suivi'));
     expect(appels.find((a) => a.methode === 'PATCH')?.corps).toMatchObject({ statut: 'retire' });
 
     // ⚠️ LE PARENT REND LA VÉRITÉ : le lien retiré, la conversation recharge et ne le passe plus.

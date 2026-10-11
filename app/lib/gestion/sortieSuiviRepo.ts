@@ -8,9 +8,10 @@ import type { Auteur } from './gestes';
  * RÈGLE D'ARNO (11/10/2026) : « Un mail entré dans l'historique d'un bien n'en sort JAMAIS, sauf par le bouton
  * “Sortir du suivi”, utilisé mail par mail et restaurable. »
  *
- * 🔴 ON MARQUE, ON N'EFFACE PAS. Les liens confirmés du mail vers CE bien reçoivent `sorti_le` (qui, quand, motif) :
- * le lien reste, son statut reste « confirme », ses pièces restent. L'historique du bien ne lit que les liens sans
- * `sorti_le` (`sqlLiensDuBien`). « Restaurer » efface la marque : le mail revient exactement tel qu'il était.
+ * 🔴 ON MARQUE, ON N'EFFACE PAS. Le lien du mail vers CE bien passe au statut « sorti » (migration 340), avec qui, quand
+ * et pourquoi (`sorti_*`) : la ligne reste, ses pièces restent, et les liens du même mail vers d'AUTRES biens ne sont
+ * jamais touchés. L'historique ne lit que les liens « confirme » (`sqlLiensDuBien`). « Restaurer » rend le lien
+ * « confirme » : le mail revient dans CE bien, exactement tel qu'il était.
  *
  * 🔴 TOUS LES LIENS DU MAIL VERS CE BIEN, QUELLE QUE SOIT LEUR ORIGINE (à la main, moteur, suivi de conversation) —
  * c'est ce que l'ancien geste (une exception de suivi) ne faisait pas : il laissait les liens posés à la main.
@@ -23,6 +24,58 @@ import type { Auteur } from './gestes';
 
 export type IssueSortie = { ok: true; liens: number } | { ok: false; motif: string };
 
+/** La transaction de l'appelant (`withTransaction`) : les gestes dédiés s'écrivent DANS le geste qui les déclenche. */
+type Tx = Parameters<Parameters<typeof withTransaction>[0]>[0];
+
+/**
+ * 🔴 LE RÉGLAGE DE SESSION QUE LA BASE EXIGE (migrations 339-340) pour qu'un lien CONFIRMÉ change de statut, local à
+ * la transaction. Seules les fonctions de ce module — et `changerStatut` / `rattacher` qui les appellent — le posent.
+ */
+export async function autoriserGesteDedie(q: Tx): Promise<void> {
+  await q(`SELECT set_config('svav.sortie_suivi', 'on', true)`);
+}
+
+/**
+ * SORTIR DU SUIVI UN LIEN DE BIEN CONFIRMÉ, dans la transaction de l'appelant. Le lien passe au statut « sorti » pour CE
+ * bien seul (la ligne du couple mail, bien) : il reste en base, restaurable. Rend `true` s'il a été marqué.
+ */
+export async function sortirLeLien(q: Tx, lienId: number, auteur: Auteur, motif: string | null): Promise<boolean> {
+  await autoriserGesteDedie(q);
+  const { rows } = await q<{ id: string; message_id: string; cible_cle: string }>(
+    `UPDATE gestion_rattachement
+        SET statut = 'sorti', statut_le = now(), statut_par = $2, statut_par_libelle = $3, statut_motif = $4,
+            sorti_le = now(), sorti_par = $2, sorti_par_libelle = $3, sorti_motif = $4
+      WHERE id = $1 AND statut = 'confirme' AND cible_sorte = 'lot'
+      RETURNING id::text, message_id::text, cible_cle`,
+    [lienId, auteur.id, auteur.libelle, motif]);
+  for (const r of rows) {
+    await q(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+       VALUES ('rattachement', $1, 'sortir_du_suivi', 'confirme', 'sorti', $2, $3, $4)`,
+      [Number(r.id), `mail ${r.message_id} · lot ${r.cible_cle}${motif ? ` · ${motif}` : ''}`, auteur.id, auteur.libelle]);
+  }
+  return rows.length > 0;
+}
+
+/** RESTAURER UN LIEN SORTI DU SUIVI, dans la transaction de l'appelant : il redevient « confirme », tel qu'il était. */
+export async function restaurerLeLien(q: Tx, lienId: number, auteur: Auteur, motif: string | null = null): Promise<boolean> {
+  await autoriserGesteDedie(q);
+  const { rows } = await q<{ id: string; message_id: string; cible_cle: string }>(
+    `UPDATE gestion_rattachement
+        SET statut = 'confirme', statut_le = now(), statut_par = $2, statut_par_libelle = $3, statut_motif = $4,
+            sorti_le = NULL, sorti_par = NULL, sorti_par_libelle = NULL, sorti_motif = NULL
+      WHERE id = $1 AND statut = 'sorti'
+      RETURNING id::text, message_id::text, cible_cle`,
+    [lienId, auteur.id, auteur.libelle, motif]);
+  for (const r of rows) {
+    await q(
+      `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+       VALUES ('rattachement', $1, 'restaurer_dans_le_suivi', 'sorti', 'confirme', $2, $3, $4)`,
+      [Number(r.id), `mail ${r.message_id} · lot ${r.cible_cle}`, auteur.id, auteur.libelle]);
+  }
+  return rows.length > 0;
+}
+
 async function marquer(o: {
   messageId: number; lotCle: string; auteur: Auteur; sortir: boolean; motif?: string | null;
 }): Promise<IssueSortie> {
@@ -30,33 +83,25 @@ async function marquer(o: {
   if (!Number.isSafeInteger(o.messageId) || o.messageId <= 0 || cle === '') return { ok: false, motif: 'Mail ou bien non désigné.' };
   const libelle = (o.auteur.libelle ?? '').trim();
   if (libelle === '') return { ok: false, motif: 'Auteur inconnu.' };
+  const auteur = { id: o.auteur.id, libelle };
   return withTransaction<IssueSortie>(async (q) => {
-    await q(`SELECT set_config('svav.sortie_suivi', 'on', true)`);
+    // ⚠️ LE COUPLE (MAIL, CE BIEN) SEULEMENT : les liens du même mail vers d'AUTRES biens ne sont jamais lus ici.
     const { rows } = await q<{ id: string }>(
-      o.sortir
-        ? `UPDATE gestion_rattachement
-              SET sorti_le = now(), sorti_par = $3, sorti_par_libelle = $4, sorti_motif = $5
-            WHERE message_id = $1 AND cible_sorte = 'lot' AND cible_cle = $2 AND statut = 'confirme'
-              AND piece_id IS NULL AND sorti_le IS NULL
-            RETURNING id::text`
-        : `UPDATE gestion_rattachement
-              SET sorti_le = NULL, sorti_par = NULL, sorti_par_libelle = NULL, sorti_motif = NULL
-            WHERE message_id = $1 AND cible_sorte = 'lot' AND cible_cle = $2 AND statut = 'confirme'
-              AND piece_id IS NULL AND sorti_le IS NOT NULL
-            RETURNING id::text`,
-      o.sortir ? [o.messageId, cle, o.auteur.id, libelle, o.motif ?? null] : [o.messageId, cle]);
-    if (rows.length === 0) {
+      `SELECT id::text FROM gestion_rattachement
+        WHERE message_id = $1 AND cible_sorte = 'lot' AND cible_cle = $2 AND piece_id IS NULL AND statut = $3
+        FOR UPDATE`,
+      [o.messageId, cle, o.sortir ? 'confirme' : 'sorti']);
+    let faits = 0;
+    for (const r of rows) {
+      const fait = o.sortir
+        ? await sortirLeLien(q, Number(r.id), auteur, o.motif ?? null)
+        : await restaurerLeLien(q, Number(r.id), auteur);
+      if (fait) faits += 1;
+    }
+    if (faits === 0) {
       return { ok: false, motif: o.sortir ? 'Ce mail n’est pas (ou plus) dans le suivi de ce bien.' : 'Ce mail n’est pas sorti du suivi de ce bien.' };
     }
-    for (const r of rows) {
-      await q(
-        `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
-         VALUES ('rattachement', $1, $2, $3, $4, $5, $6, $7)`,
-        [Number(r.id), o.sortir ? 'sortir_du_suivi' : 'restaurer_dans_le_suivi', o.sortir ? 'suivi' : 'sorti du suivi',
-          o.sortir ? 'sorti du suivi' : 'suivi', `mail ${o.messageId} · lot ${cle}${o.motif ? ` · ${o.motif}` : ''}`,
-          o.auteur.id, libelle]);
-    }
-    return { ok: true, liens: rows.length };
+    return { ok: true, liens: faits };
   });
 }
 
@@ -90,12 +135,11 @@ export async function mailsSortisDuSuivi(lotCle: string): Promise<MailSorti[]> {
             r.sorti_par_libelle AS sorti_par, r.sorti_motif AS motif
        FROM gestion_rattachement r
        JOIN gestion_message m ON m.id = r.message_id
-      WHERE r.cible_sorte = 'lot' AND r.cible_cle = $1 AND r.statut = 'confirme' AND r.piece_id IS NULL
-        AND r.sorti_le IS NOT NULL
+      WHERE r.cible_sorte = 'lot' AND r.cible_cle = $1 AND r.statut = 'sorti' AND r.piece_id IS NULL
         -- ⚠️ Un mail qui porte AUSSI un lien vivant vers ce bien est encore dans l'historique : il n'est pas « sorti ».
         AND NOT EXISTS (SELECT 1 FROM gestion_rattachement v
                          WHERE v.message_id = r.message_id AND v.cible_sorte = 'lot' AND v.cible_cle = $1
-                           AND v.statut = 'confirme' AND v.piece_id IS NULL AND v.sorti_le IS NULL)
+                           AND v.statut = 'confirme' AND v.piece_id IS NULL)
       ORDER BY m.id, r.sorti_le DESC`, [cle]);
   return rows.map((r) => ({
     messageId: Number(r.message_id), objet: r.objet, de: r.de, deNom: r.de_nom, recuLe: r.recu_le,

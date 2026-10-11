@@ -1132,6 +1132,19 @@ export async function rattacher(o: {
     }
 
     /**
+     * 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — RATTACHER UN BIEN DONT CE MAIL AVAIT ÉTÉ SORTI DU SUIVI, C'EST
+     * L'Y RESTAURER. On rend son lien « confirme » au lieu d'en poser un second : une seule ligne par couple (mail,
+     * bien), et la ligne repliée « Mails sortis du suivi » ne le montre plus. Ajouter n'est jamais bloqué.
+     */
+    const { rows: sortis } = await q<{ id: string }>(
+      `SELECT id FROM gestion_rattachement WHERE ${OU_IDENTITE} AND statut = 'sorti' ORDER BY id DESC LIMIT 1`, id);
+    if (sortis.length > 0) {
+      const { restaurerLeLien } = await import('./sortieSuiviRepo');
+      await restaurerLeLien(q, Number(sortis[0].id), o.auteur, o.motif ?? null);
+      return { ok: true, id: Number(sortis[0].id) };
+    }
+
+    /**
      * ══ 🔴🔴 LOT MONGA-1, POINT 2 — POURQUOI UN LIEN « AUTO » **SIGNE SON STATUT** ═══════════════════════════
      *
      * 🔴 LE PIÈGE, TROUVÉ AVANT D'ÉCRIRE UNE LIGNE. `retirerLiensPerimes` (plus haut dans ce fichier) retire
@@ -1222,6 +1235,13 @@ async function chargerLibellesDe(c: Cible): Promise<string> {
  */
 export async function changerStatut(o: {
   lienId: number; statut: Statut; auteur: Auteur; motif?: string | null;
+  /**
+   * 🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — « ANNULER » UN AJOUT QU'ON VIENT DE FAIRE (Monga, Interne,
+   * suivi de conversation). Un lien confirmé il y a moins de 15 minutes n'a jamais vraiment été dans l'historique :
+   * il peut être retiré pour de bon. Plus ancien, il passe « sorti du suivi » comme tout le reste. La base tient la
+   * même borne (migration 340).
+   */
+  annulationAjout?: boolean;
 }): Promise<IssueGeste> {
   if (!(await rattachementsDisponibles())) {
     return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 257).' };
@@ -1242,14 +1262,51 @@ export async function changerStatut(o: {
   const issue = await withTransaction<IssueGeste>(async (q) => {
     const { rows } = await q<{
       statut: string; cible_sorte: string; cible_cle: string | null; cible_id: string | null;
-      message_id: string;
+      message_id: string; recent: boolean;
     }>(
-      `SELECT statut, cible_sorte, cible_cle, cible_id, message_id::text
+      `SELECT statut, cible_sorte, cible_cle, cible_id, message_id::text,
+              coalesce(statut_le, cree_le) > now() - interval '15 minutes' AS recent
          FROM gestion_rattachement WHERE id = $1 FOR UPDATE`,
       [o.lienId]);
     if (rows.length === 0) return { ok: false, motif: 'Ce rattachement n’existe pas.' };
     const avant = rows[0].statut as Statut;
     if (avant === o.statut) return { ok: false, motif: `Ce rattachement est déjà « ${o.statut} ».` };
+    const cible = cibleCourte({
+      sorte: rows[0].cible_sorte as Cible['sorte'], cle: rows[0].cible_cle,
+      id: rows[0].cible_id === null ? null : Number(rows[0].cible_id),
+    });
+
+    /**
+     * ══ 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — UN LIEN DE BIEN CONFIRMÉ NE SE RETIRE PLUS : IL SORT DU
+     * SUIVI DE CE BIEN, ET DE LUI SEUL ═════════════════════════════════════════════════════════════════════════
+     * DÉCISION D'ARNO (11/10/2026) : les six gestes qui retiraient un mail d'un historique (« Valider le classement »
+     * avec un bien décoché, « Remplacer par », « Toute la conversation », « Interne », « Annuler » de Monga, la
+     * projection d'une fenêtre) restent, mais tout retrait devient un « Sortir du suivi » POUR CE BIEN : statut
+     * « sorti », restaurable, historisé. Les autres biens du mail ne sont jamais lus ici — le geste porte sur UNE
+     * ligne, celle du couple (mail, bien).
+     * ⚠️ SEULE EXCEPTION : l'annulation immédiate d'un AJOUT (`annulationAjout`, moins de 15 minutes) — retirer ce
+     * qu'on vient d'ajouter ne retire rien de l'historique d'avant.
+     * ⚠️ ET PLUS DE CASCADE sur les interventions : sortir un mail d'UN bien ne touche à rien d'autre.
+     */
+    if (avant === 'confirme' && o.statut !== 'confirme' && rows[0].cible_sorte === 'lot'
+        && !(o.annulationAjout === true && rows[0].recent === true)) {
+      const { sortirLeLien } = await import('./sortieSuiviRepo');
+      const fait = await sortirLeLien(q, o.lienId, o.auteur, o.motif ?? null);
+      return fait ? { ok: true, id: o.lienId } : { ok: false, motif: 'Ce mail n’a pas pu être sorti du suivi de ce bien.' };
+    }
+    /* Un lien sorti du suivi ne se « retire » pas une seconde fois : il ne peut qu'être restauré. */
+    if (avant === 'sorti') {
+      if (o.statut !== 'confirme') return { ok: false, motif: 'Ce mail est déjà sorti du suivi de ce bien.' };
+      const { restaurerLeLien } = await import('./sortieSuiviRepo');
+      const fait = await restaurerLeLien(q, o.lienId, o.auteur, o.motif ?? null);
+      return fait ? { ok: true, id: o.lienId } : { ok: false, motif: 'Ce mail n’a pas pu être restauré dans ce bien.' };
+    }
+    /* Un lien CONFIRMÉ (personne, événement, ou ajout de bien qu'on annule aussitôt) ne change de statut que par la
+       fonction dédiée : la base l'exige (migration 340). Le « retiré » d'une personne reste un marquage restaurable. */
+    if (avant === 'confirme') {
+      const { autoriserGesteDedie } = await import('./sortieSuiviRepo');
+      await autoriserGesteDedie(q);
+    }
 
     await q(
       `UPDATE gestion_rattachement
@@ -1257,13 +1314,10 @@ export async function changerStatut(o: {
         WHERE id = $1`,
       [o.lienId, o.statut, o.auteur.id, o.auteur.libelle, o.motif ?? null]);
 
-    const cible = cibleCourte({
-      sorte: rows[0].cible_sorte as Cible['sorte'], cle: rows[0].cible_cle,
-      id: rows[0].cible_id === null ? null : Number(rows[0].cible_id),
-    });
     await journaliser(q, o.lienId, ACTION_DU_STATUT[o.statut], o.auteur,
       `${ACTION_DU_STATUT[o.statut]} : ${cible}`, avant, o.statut);
     // 🔴 ON NOTE, ON N'AGIT PAS ENCORE : la cascade lit la table que cette transaction est en train d'écrire.
+    //   ⚠️ Elle ne vise plus que des PROPOSITIONS d'intervention (lot HISTORIQUE-SORTIE-PAR-BIEN) : jamais un lien confirmé.
     if (rows[0].cible_sorte === 'lot' && (o.statut === 'retire' || o.statut === 'rejete')) {
       cascade = { messageId: Number(rows[0].message_id) };
     }
@@ -1284,6 +1338,7 @@ export async function changerStatut(o: {
 /** Le mot du journal pour chaque statut d'arrivée. Écrit en français : le journal se relit sans le code. */
 const ACTION_DU_STATUT: Record<Statut, string> = {
   confirme: 'confirmer', rejete: 'rejeter', retire: 'retirer', propose: 'remettre en proposition',
+  sorti: 'sortir_du_suivi',
 };
 
 /** Les chiffres de l'état des rattachements, pour les rapports. LECTURE SEULE. */

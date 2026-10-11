@@ -871,6 +871,10 @@ export async function poserInterventions(o: {
        * mail-là, ce que la fenêtre ne fait pas.
        */
       if (o.parLeSuivi === true && !l.parLeSuivi) continue;
+      /* 🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN — le « retiré » d'une intervention (lien mail ↔ partie) est un MARQUAGE
+         restaurable, jamais un effacement ; la base n'accepte de défaire un lien confirmé que par la porte dédiée. */
+      const { autoriserGesteDedie } = await import('./sortieSuiviRepo');
+      await autoriserGesteDedie(q);
       await q(
         `UPDATE gestion_rattachement
             SET statut = 'retire', statut_le = now(), statut_par = $2, statut_par_libelle = $3, statut_motif = $4
@@ -912,6 +916,9 @@ async function journaliser(
  * bien parce qu'une cascade n'a pas abouti serait pire que la lacune qu'elle comble. Même discipline que
  * `leverHorsGestionApresRattachement` dans `rattachementRepo.ts`.
  */
+/* 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — LA CASCADE NE TOUCHE PLUS QUE DES PROPOSITIONS. Une intervention
+   CONFIRMÉE (un lien mail ↔ partie) ne se retire plus en silence parce qu'un bien a quitté le mail : sortir un mail
+   du suivi d'UN bien ne touche à rien d'autre (règle d'Arno). Les propositions, elles, ne sont dans aucun historique. */
 export async function retirerInterventionsSansBien(
   messageIds: readonly number[], auteur: Auteur,
 ): Promise<number> {
@@ -923,7 +930,7 @@ export async function retirerInterventionsSansBien(
       `UPDATE gestion_rattachement r
           SET statut = 'retire', statut_le = now(), statut_par = $2, statut_par_libelle = $3, statut_motif = $4
         WHERE r.message_id = ANY($1::bigint[])
-          AND r.regle = $5 AND r.statut IN ('propose', 'confirme')
+          AND r.regle = $5 AND r.statut = 'propose'
           AND NOT EXISTS (
             SELECT 1 FROM gestion_rattachement b
              WHERE b.message_id = r.message_id AND b.cible_sorte = 'lot'

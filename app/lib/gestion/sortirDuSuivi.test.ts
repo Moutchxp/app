@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   adresseDuBien, aideSortirDuSuivi, classementEnVigueurSansLeBien, classementSansLeBien, lotsApresSortie,
-  motConfirmationSortie, motMailSorti, MOT_SORTIR_DU_SUIVI, SECONDES_ANNULER_SORTIE, suitCeBien,
+  motConfirmationSortie, motMailSorti, motSortieDesBiens, MOT_SORTIR_DU_SUIVI, SECONDES_ANNULER_SORTIE, suitCeBien,
 } from './sortirDuSuivi';
 import type { Classement } from './periodesConversation';
 import { capsuleDuMessage, motCapsule } from './statutClassement';
@@ -216,5 +216,17 @@ describe('🔴🔴 ④ ce que l’écran dit avant, et après', () => {
   it('🔴 « Annuler » dure moins longtemps que la garde du dépôt (2 minutes)', () => {
     expect(SECONDES_ANNULER_SORTIE).toBeGreaterThan(0);
     expect(SECONDES_ANNULER_SORTIE).toBeLessThan(120);
+  });
+});
+
+describe('🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — la question des six gestes', () => {
+  it('« Sortir ce mail du suivi de <adresse du bien> ? Il restera dans les autres historiques et pourra être restauré. »', () => {
+    expect(motSortieDesBiens(['25 rue Edith Cavell, COURBEVOIE — lot 219']))
+      .toBe('Sortir ce mail du suivi de 25 rue Edith Cavell, COURBEVOIE ? Il restera dans les autres historiques et pourra être restauré.');
+  });
+  it('plusieurs biens : leurs adresses à la suite, sans doublon ; aucun : rien à demander', () => {
+    expect(motSortieDesBiens(['1 rue A — lot 1', '2 rue B — lot 2', '1 rue A — lot 1']))
+      .toBe('Sortir ce mail du suivi de 1 rue A, de 2 rue B ? Il restera dans les autres historiques et pourra être restauré.');
+    expect(motSortieDesBiens([])).toBeNull();
   });
 });

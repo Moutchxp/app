@@ -724,9 +724,31 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
     await cliquer(cases()[0]);
     expect(resume()).toContain('retiré');
     await cliquer(valider());
+    /* LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — la question d'Arno d'abord, et RIEN n'est écrit avant la réponse. */
+    expect(document.querySelector('.red-conf-question')?.textContent)
+      .toMatch(/^Sortir ce mail du suivi de .+ \? Il restera dans les autres historiques et pourra être restauré\.$/);
+    expect(ecritures().filter((a) => a.methode === 'PATCH')).toEqual([]);
+    await cliquer([...document.querySelectorAll('.red-conf button')].find((b) => b.textContent === 'Sortir du suivi'));
     const ecrits = ecritures();
     expect(ecrits.filter((a) => a.methode === 'PATCH')).toHaveLength(1);
     expect(ecrits.filter((a) => a.methode === 'DELETE')).toEqual([]);
+  });
+
+  it('LOT HISTORIQUE-SORTIE-PAR-BIEN — « Annuler » la question : rien n’est écrit, le bien reste', async () => {
+    rattachementsDuFil = {
+      etat: 'ok',
+      data: [{
+        id: 77, messageId: 900, pieceId: null, cible: { sorte: 'lot', cle: '445', id: 445 },
+        libelle: 'Lot 445', origine: 'automatique', statut: 'confirme', confiance: null, regle: 'adresse',
+        motif: null, adresses: [], parUnHumain: false, creeLe: null, creePar: null, statutLe: null, statutPar: null,
+      }],
+    };
+    await ouvrir(CONTEXTE());
+    await cliquer(cases()[0]);
+    await cliquer(valider());
+    await cliquer([...document.querySelectorAll('.red-conf button')].find((b) => b.textContent === 'Annuler'));
+    expect(ecritures().filter((a) => a.methode === 'PATCH' || a.methode === 'POST')).toEqual([]);
+    expect(document.querySelector('.red-conf')).toBeNull();
   });
 
   it('aucun bien coché et rien à retirer : la validation est INACTIVE, et on le dit', async () => {

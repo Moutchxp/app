@@ -285,26 +285,42 @@ règle de lecture est `sqlLiensDuBien` (`app/lib/gestion/rattachement.ts`) : lie
 ACTIF. Le nom et l'adresse affichés viennent du MAIL ; un contact supprimé ou parti porte la mention grise « ancien
 contact » (`anciensContactsRepo.ts`) et une pastille grise, sauf couleur mémorisée.
 
-**② « SORTIR DU SUIVI » MARQUE, N'EFFACE PAS** (`app/lib/gestion/sortieSuiviRepo.ts`, route
-`/api/admin/gestion/historique/sortis`) : colonnes `sorti_le`, `sorti_par`, `sorti_par_libelle`, `sorti_motif` sur les
-liens du mail vers CE bien ; « Restaurer » les efface, à tout moment. Chaque geste est au journal. Ligne repliée
-« Mails sortis du suivi (N) ▸ » en bas de l'historique.
+**② ENRICHIR EST TOUJOURS PERMIS ; RETIRER SE FAIT BIEN PAR BIEN** (précision d'Arno du 11/10/2026). Rattacher après
+coup un mail à d'autres biens reste toujours possible : le verrou ne bloque jamais un ajout (nouveau bien coché, « Toute
+la conversation », héritage automatique de la relève). Retirer n'est possible que par « Sortir du suivi », et seulement
+pour le bien DEPUIS LEQUEL on agit : la marque est le statut **`sorti`** de la ligne du couple (mail, bien) — jamais le
+mail lui-même —, avec `sorti_le`, `sorti_par`, `sorti_par_libelle`, `sorti_motif`. Les autres biens du même mail ne sont
+jamais touchés ; « Restaurer » ne restaure que ce bien-là. Fonctions dédiées : `app/lib/gestion/sortieSuiviRepo.ts`
+(route `/api/admin/gestion/historique/sortis`), ligne repliée « Mails sortis du suivi (N) ▸ » avec « Restaurer » en bas
+de l'historique. Chaque geste est au journal.
 
-**③ VERROU EN BASE (migration 339)** — il tient même face à un vieux processus ou à un script :
+**③ LES SIX GESTES QUI RETIRAIENT UN MAIL D'UN BIEN** (« Valider le classement » avec un bien décoché, « Remplacer
+par », « Toute la conversation », la case « Interne », « Annuler » de Monga, et le « Retirer » d'un ancien lien de
+personne) passent tous par `changerStatut` (`rattachementRepo.ts`), qui convertit tout retrait d'un lien de bien
+CONFIRMÉ en « sorti du suivi » de ce bien seul, après la question « Sortir ce mail du suivi de <adresse du bien> ? Il
+restera dans les autres historiques et pourra être restauré. » (`confirmerSortieSuivi.tsx`). Un lien de personne est
+marqué « retiré » (restaurable). Seule l'annulation immédiate d'un AJOUT (moins de 15 minutes) retire pour de bon : ce
+lien n'avait jamais été dans l'historique. Re-cocher un bien sorti le RESTAURE (une seule ligne par couple). Les
+propositions du moteur s'écartent toujours : elles ne sont dans aucun historique.
+
+**④ VERROU EN BASE (migrations 339 et 340)** — il tient même face à un vieux processus ou à un script :
 - aucun `DELETE` ni `TRUNCATE` sur `gestion_message`, `gestion_rattachement`, `gestion_message_adresse`,
-  `gestion_piece` (hors bases jetables d'épreuve `gestion_jetable` / `svav_test*`) ;
-- l'identité d'un rattachement (mail, pièce, cible) ne se modifie pas ; un lien confirmé ne se défait pas
-  automatiquement (`statut_par` NULL) ; la marque « sorti du suivi » ne se pose que par la fonction dédiée (réglage de
-  session `svav.sortie_suivi`) ;
-- une partie reconnue sur une adresse de mail ne s'efface pas (un recalcul garde la reconnaissance mémorisée) ;
-- plus aucun `ON DELETE CASCADE` vers ces quatre tables.
+  `gestion_piece` (hors bases jetables d'épreuve `gestion_jetable` / `svav_test*`) ; plus aucun `ON DELETE CASCADE`
+  vers ces quatre tables ;
+- l'identité d'un rattachement (mail, pièce, cible) ne se modifie pas ;
+- un lien CONFIRMÉ ne change de statut QUE sous le réglage de session `svav.sortie_suivi`, posé par les seules
+  fonctions dédiées — **aucune exception « auteur humain »** (340) ; un lien de bien confirmé ne sort que vers `sorti`
+  (sauf annulation d'un ajout de moins de 15 minutes) ; un lien `sorti` ne redevient que `confirme` ;
+- une partie reconnue sur une adresse de mail ne s'efface pas (un recalcul garde la reconnaissance mémorisée).
 
-**④ LE MOTEUR AUTOMATIQUE NE RETIRE NI NE RÉTROGRADE UN LIEN CONFIRMÉ** (`retirerLiensPerimes`, `ecrireLienMoteur`,
-`projeterLeFil` sans auteur) : un changement dans l'annuaire ne fait plus quitter l'historique à aucun mail.
+**⑤ LE MOTEUR AUTOMATIQUE NE RETIRE NI NE RÉTROGRADE UN LIEN CONFIRMÉ** (`retirerLiensPerimes`, `ecrireLienMoteur`,
+`projeterLeFil` sans auteur) ; la cascade des interventions ne touche plus que des propositions. Les scripts manuels qui
+écrivaient en direct (`retirer-documents-des-biens`, `reprendre-fenetre-gagne`) échouent avec un message clair ;
+`reparer-mails-contraires-aux-regles` passe par `changerStatut`.
 
-**⑤ EN SUSPENS (décision d'Arno attendue)** : six gestes MANUELS existants défont encore un lien confirmé (« Retirer »,
-« Valider le classement » avec un bien décoché, « Remplacer par », « Toute la conversation », la case « Interne »,
-« Annuler » de Monga). Ils n'ont pas été modifiés ; le verrou les laisse passer parce qu'ils portent un auteur.
+**⑥ À CONNAÎTRE (pas modifié)** : au 11/10/2026, 8 892 pièces de 4 511 mails suivis (6,2 Go) n'existent plus que sur
+le Drive (vidées de MinIO par `vider-stockage`). Les mettre à la corbeille du Drive les rendrait illisibles. Décision
+d'Arno attendue sur une copie locale.
 
 ### Notes de traçabilité
 - Chemin absolu des fichiers TS = `…/sansvisavis/app/app/lib/…` (dossier `app/` imbriqué) ; les chemins

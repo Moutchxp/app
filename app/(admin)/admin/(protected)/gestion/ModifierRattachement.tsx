@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { confirmerSortieDesBiens } from './confirmerSortieSuivi';
 import { ChoisirCible, CSS_CHOISIR_CIBLE, type CibleChoisie } from './ChoisirCible';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 import { memeCible } from '../../../../lib/gestion/rattachement';
@@ -58,28 +59,36 @@ export function ModifierRattachement({ lien, messageId, onFait, onAnnuler, onGes
     setOccupe(true);
     setErreur(null);
     try {
-      // ① L'ANCIEN PASSE À « RETIRÉ ». Jamais supprimé : il reste dans la table, daté et signé, et « Remettre » le
-      //    ramène. Le motif dit POURQUOI, pour qui relira le journal dans six mois.
-      const retrait = await fetch('/api/admin/gestion/rattachements', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lienId: lien.id, statut: 'retire', motif: `remplacé par ${cible.libelle}` }),
-      });
-      const dr = (await retrait.json()) as { ok?: boolean; erreur?: string };
-      if (!retrait.ok || dr.ok !== true) { setErreur(dr.erreur ?? 'Le retrait n’a pas abouti.'); return; }
+      /**
+       * 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — DÉCISION D'ARNO : « on AJOUTE le nouveau bien ; l'ancien
+       * passe en “sorti du suivi” pour lui seul. » CE QU'IL FAISAIT AVANT : il retirait l'ancien d'abord, puis posait
+       * le nouveau. L'ordre s'inverse : un échec au milieu laisse un mail rattaché aux DEUX biens, jamais à aucun.
+       * Un ancien lien de BIEN confirmé : on demande d'abord, avec la phrase d'Arno.
+       */
+      const bienConfirme = lien.cible.sorte === 'lot' && lien.statut === 'confirme';
+      if (bienConfirme && !(await confirmerSortieDesBiens([lien.libelle]))) return;
 
-      // ② LE NOUVEAU EST POSÉ À LA MAIN. La route lui donne origine « manuel » et statut « confirmé », et
-      //    journalise — c'est exactement le geste de « + Rattacher à… », avec un motif qui dit d'où il vient.
+      // ① LE NOUVEAU EST POSÉ À LA MAIN, d'abord. Origine « manuel », statut « confirmé », journalisé.
       const pose = await fetch('/api/admin/gestion/rattachements', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messageId, cible: cible.cible, motif: `remplace ${lien.libelle}` }),
       });
       const dp = (await pose.json()) as { ok?: boolean; erreur?: string };
-      if (!pose.ok || dp.ok !== true) {
-        // Le retrait, lui, a eu lieu : on le DIT, plutôt que de laisser croire que rien n'a bougé.
-        setErreur(`${dp.erreur ?? 'Le nouveau rattachement n’a pas pu être posé.'} L’ancien a été retiré : ` +
-          'servez-vous de « Remettre » pour revenir en arrière.');
+      if (!pose.ok || dp.ok !== true) { setErreur(dp.erreur ?? 'Le nouveau rattachement n’a pas pu être posé : rien n’a changé.'); return; }
+
+      // ② L'ANCIEN : « sorti du suivi » de son bien seul (un bien), ou « retiré » restaurable (une personne). Le serveur
+      //    en décide (`changerStatut`) ; rien n'est jamais supprimé.
+      const retrait = await fetch('/api/admin/gestion/rattachements', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lienId: lien.id, statut: 'retire', motif: `remplacé par ${cible.libelle}` }),
+      });
+      const dr = (await retrait.json()) as { ok?: boolean; erreur?: string };
+      if (!retrait.ok || dr.ok !== true) {
+        // Le nouveau, lui, est posé : on le DIT, plutôt que de laisser croire que rien n'a bougé.
+        setErreur(`${dr.erreur ?? 'L’ancien rattachement n’a pas pu être sorti du suivi.'} Le nouveau est posé : `
+          + 'le mail est pour l’instant rattaché aux deux.');
         await onFait();
         return;
       }
@@ -201,6 +210,8 @@ export function motStatut(s: string): string {
   if (s === 'propose') return 'proposé, à trancher';
   if (s === 'retire') return 'retiré';
   if (s === 'rejete') return 'rejeté';
+  // LOT HISTORIQUE-SORTIE-PAR-BIEN — le mail est sorti du suivi de CE bien ; le lien reste, et se restaure.
+  if (s === 'sorti') return 'sorti du suivi (restaurable)';
   return s;
 }
 

@@ -411,7 +411,10 @@ describe('🔴 « Modifier » un rattachement : comprendre, puis remplacer', () 
    * 🔴 REMPLACER = RETIRER PUIS POSER, DANS CET ORDRE. L'ancien n'est jamais supprimé : il passe au statut
    * « retiré », reste consultable et se remet d'un clic. Le nouveau est posé à la main, donc confirmé.
    */
-  it('valider retire l’ancien PUIS pose le nouveau, avec un motif qui dit pourquoi', async () => {
+  /* LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — CE QU'IL DISAIT AVANT : « valider retire l'ancien PUIS pose le
+     nouveau ». Décision d'Arno : on AJOUTE le nouveau bien, puis l'ancien sort du suivi de son bien seul (après la
+     question « Sortir ce mail du suivi de … ? »). Un échec au milieu laisse le mail rattaché aux deux, jamais à aucun. */
+  it('valider POSE le nouveau PUIS retire l’ancien (une personne : marqué « retiré », sans question), avec un motif', async () => {
     await ouvrirModale();
     await cliquer(boutonPar(/Choisir une autre cible/));
     /**
@@ -433,14 +436,16 @@ describe('🔴 « Modifier » un rattachement : comprendre, puis remplacer', () 
     const valider = () => boutonPar(/^Valider la modification$/) as HTMLButtonElement;
     expect(valider().disabled).toBe(false);
     await cliquer(valider());
+    // Un lien de PERSONNE ne fait sortir le mail d'aucun historique de bien : aucune question.
+    expect(document.querySelector('.red-conf-question')).toBeNull();
 
     expect(ecritures).toHaveLength(2);
-    expect(ecritures[0].methode).toBe('PATCH');
-    expect(ecritures[0].corps).toMatchObject({ lienId: 77, statut: 'retire' });
-    expect(String(ecritures[0].corps.motif)).toContain('4 rue X');
-    expect(ecritures[1].methode).toBe('POST');
-    expect(ecritures[1].corps).toMatchObject({ messageId: 13, cible: { sorte: 'lot', cle: 'LOT-4RUEX' } });
-    expect(String(ecritures[1].corps.motif)).toContain('DENIS Philippe');
+    expect(ecritures[0].methode).toBe('POST');
+    expect(ecritures[0].corps).toMatchObject({ messageId: 13, cible: { sorte: 'lot', cle: 'LOT-4RUEX' } });
+    expect(String(ecritures[0].corps.motif)).toContain('DENIS Philippe');
+    expect(ecritures[1].methode).toBe('PATCH');
+    expect(ecritures[1].corps).toMatchObject({ lienId: 77, statut: 'retire' });
+    expect(String(ecritures[1].corps.motif)).toContain('4 rue X');
   });
 });
 

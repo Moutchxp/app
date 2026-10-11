@@ -36,6 +36,7 @@
  * avec elle, il l'a — et il laisse un « Annuler » derrière lui.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+import { motSortieDesBiens } from './sortirDuSuivi';
 
 /**
  * 🔴 LE MOTIF ÉCRIT EN BASE SUR CHAQUE LIEN RETIRÉ. Il dit QUI a décidé et POURQUOI, et il se relit dans le journal
@@ -65,9 +66,12 @@ export interface BienDetache { lienId: number; libelle: string }
  * rattaché : comportement actuel inchangé, SANS MESSAGE. » Une boîte de confirmation vide serait un geste de plus
  * pour rien, sur le cas le plus fréquent.
  */
+/* 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — CE QU'ELLE DISAIT AVANT : « Marquer interne détachera : <liste> ».
+   « Interne » ne détache plus aucun bien : il sort le mail du suivi de chacun d'eux, restaurable (décision d'Arno), et la
+   question est celle des six gestes, mot pour mot. */
 export function messageDetachement(biens: readonly BienDetache[]): string | null {
   if (biens.length === 0) return null;
-  return `Marquer interne détachera : ${biens.map((b) => b.libelle).join(', ')}`;
+  return motSortieDesBiens(biens.map((b) => b.libelle));
 }
 
 /**
@@ -78,7 +82,8 @@ export function messageDetachement(biens: readonly BienDetache[]): string | null
  */
 export function motApresDetachement(nb: number): string {
   if (nb === 0) return 'Mail marqué « interne ».';
-  return `Mail marqué « interne » · ${nb} bien${nb > 1 ? 's' : ''} détaché${nb > 1 ? 's' : ''}.`;
+  // LOT HISTORIQUE-SORTIE-PAR-BIEN — CE QU'ELLE DISAIT AVANT : « · N bien(s) détaché(s) ».
+  return `Mail marqué « interne » · sorti du suivi de ${nb} bien${nb > 1 ? 's' : ''} (restaurable).`;
 }
 
 /**

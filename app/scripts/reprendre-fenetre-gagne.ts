@@ -136,4 +136,23 @@ async function main(): Promise<void> {
   if (ecart !== faits) process.exit(1);
 }
 
-void main().then(() => process.exit(0), (e) => { console.error(e); process.exit(1); });
+/**
+ * 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — CE SCRIPT ÉCRIT EN DIRECT SUR DES LIENS CONFIRMÉS, CE QUE LA BASE
+ * REFUSE DEPUIS LES MIGRATIONS 339-340 (« historique inaltérable », docs/INVARIANTS_SVAV.md §14) : un mail ne quitte
+ * l'historique d'un bien que par « Sortir du suivi ». Il n'est pas supprimé ; s'il bute sur ce verrou, il le DIT, et
+ * rien n'est écrit (sa transaction est annulée).
+ */
+function motifDuRefus(e: unknown): string | null {
+  const m = e instanceof Error ? e.message : String(e);
+  return m.includes('Historique inaltérable')
+    ? '🔴 REFUSÉ PAR LA BASE — historique inaltérable (migrations 339-340) : un rattachement confirmé ne quitte '
+      + 'l’historique d’un bien que par « Sortir du suivi », bien par bien. RIEN n’a été écrit. '
+      + `Détail : ${m}`
+    : null;
+}
+
+void main().then(() => process.exit(0), (e) => {
+  const refus = motifDuRefus(e);
+  console.error(refus ?? e);
+  process.exit(1);
+});

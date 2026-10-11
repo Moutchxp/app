@@ -263,3 +263,16 @@ export const MOT_VALIDER_CE_MAIL_UNIQUEMENT = 'Valider pour ce mail uniquement';
 /** Ce qu'on dit après le geste, au-dessus de l'« Annuler ». */
 export const MOT_MODIFICATION_PONCTUELLE_FAITE =
   'Rattachement de ce mail modifié. Aucun autre mail, aucune période de suivi n’a bougé.';
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — LA QUESTION DES SIX GESTES QUI SORTENT UN MAIL D'UN BIEN ══════
+ * ARNO (11/10/2026), mot pour mot : « Sortir ce mail du suivi de <adresse du bien> ? Il restera dans les autres
+ * historiques et pourra être restauré. » Posée avant « Valider le classement » (bien décoché), « Remplacer par »,
+ * « Marquer interne », quand le geste ferait quitter l'historique d'un bien à un mail confirmé.
+ * Plusieurs biens : leurs adresses à la suite (« de A, de B »). Aucune : `null` (rien à demander). PUR.
+ */
+export function motSortieDesBiens(libellesDesBiens: readonly string[]): string | null {
+  const adresses = [...new Set(libellesDesBiens.map((l) => adresseDuBien(l)).filter((a) => a.trim() !== ''))];
+  if (adresses.length === 0) return null;
+  return `Sortir ce mail du suivi de ${adresses.join(', de ')} ? Il restera dans les autres historiques et pourra être restauré.`;
+}

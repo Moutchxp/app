@@ -67,45 +67,92 @@ describe('② le code ne fait plus sortir un mail tout seul', () => {
 
 // ③ « Sortir du suivi », sur une base simulée ────────────────────────────────────────────────────────────────────
 const appels: { sql: string; v: unknown[] }[] = [];
-let lignesMaj: { id: string }[] = [];
+let trouves: { id: string }[] = [];
 vi.mock('../db/client', () => ({
   query: vi.fn(),
   withTransaction: async (f: (q: (s: string, v?: unknown[]) => Promise<{ rows: unknown[] }>) => Promise<unknown>) =>
     f(async (s: string, v: unknown[] = []) => {
       appels.push({ sql: sql(s), v });
-      return { rows: s.includes('UPDATE gestion_rattachement') ? lignesMaj : [] };
+      if (s.includes('FOR UPDATE')) return { rows: trouves };
+      if (s.includes('UPDATE gestion_rattachement')) return { rows: trouves.map((t) => ({ ...t, message_id: '42', cible_cle: '219' })) };
+      return { rows: [] };
     }),
 }));
 const { sortirDuSuivi, restaurerDansLeSuivi } = await import('./sortieSuiviRepo');
 
-describe('③ « Sortir du suivi » marque, n’efface rien, et se restaure', () => {
-  beforeEach(() => { appels.length = 0; lignesMaj = [{ id: '7' }]; });
+/* LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — CE QU'ILS DISAIENT AVANT : la sortie posait `sorti_le` en laissant le
+   statut « confirme ». Elle pose désormais le STATUT « sorti » sur la ligne du couple (mail, bien) — migration 340. */
+describe('③ « Sortir du suivi » marque le COUPLE (mail, bien), n’efface rien, et se restaure', () => {
+  beforeEach(() => { appels.length = 0; trouves = [{ id: '7' }]; });
   const A = { id: 1, libelle: 'a.jorel@sansvisavis.com' };
 
-  it('pose d’abord le réglage de session exigé par la base, puis marque les liens confirmés du mail vers CE bien', async () => {
+  it('ne lit que les liens de CE bien, pose le réglage de session exigé par la base, puis le statut « sorti »', async () => {
     expect(await sortirDuSuivi({ messageId: 42, lotCle: '219', auteur: A, motif: 'doublon' })).toEqual({ ok: true, liens: 1 });
-    expect(appels[0].sql).toContain("set_config('svav.sortie_suivi', 'on', true)");
-    const maj = appels.find((x) => x.sql.includes('UPDATE gestion_rattachement'));
-    expect(maj?.sql).toContain('SET sorti_le = now(), sorti_par = $3, sorti_par_libelle = $4, sorti_motif = $5');
-    expect(maj?.sql).toContain("cible_sorte = 'lot' AND cible_cle = $2 AND statut = 'confirme' AND piece_id IS NULL AND sorti_le IS NULL");
-    expect(maj?.v).toEqual([42, '219', 1, 'a.jorel@sansvisavis.com', 'doublon']);
+    const lecture = appels.find((x) => x.sql.includes('FOR UPDATE'));
+    expect(lecture?.sql).toContain("message_id = $1 AND cible_sorte = 'lot' AND cible_cle = $2 AND piece_id IS NULL AND statut = $3");
+    expect(lecture?.v).toEqual([42, '219', 'confirme']);
+    expect(appels.some((x) => x.sql.includes("set_config('svav.sortie_suivi', 'on', true)"))).toBe(true);
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE gestion_rattachement'));
+    expect(maj?.sql).toContain("SET statut = 'sorti'");
+    expect(maj?.sql).toContain("WHERE id = $1 AND statut = 'confirme' AND cible_sorte = 'lot'");
     expect(appels.some((x) => /DELETE|statut = 'retire'/.test(x.sql))).toBe(false);
   });
   it('historisé au journal (date, auteur), une ligne par lien', async () => {
     await sortirDuSuivi({ messageId: 42, lotCle: '219', auteur: A });
     const j = appels.find((x) => x.sql.includes('INSERT INTO gestion_journal'));
-    expect(j?.v.slice(0, 2)).toEqual([7, 'sortir_du_suivi']);
-    expect(j?.v.slice(-2)).toEqual([1, 'a.jorel@sansvisavis.com']);
+    expect(j?.sql).toContain("'sortir_du_suivi', 'confirme', 'sorti'");
+    expect(j?.v).toEqual([7, 'mail 42 · lot 219', 1, 'a.jorel@sansvisavis.com']);
   });
-  it('« Restaurer » lève la marque, à tout moment', async () => {
+  it('« Restaurer » rend « confirme » au lien sorti de CE bien, à tout moment', async () => {
     expect(await restaurerDansLeSuivi({ messageId: 42, lotCle: '219', auteur: A })).toEqual({ ok: true, liens: 1 });
-    const maj = appels.find((x) => x.sql.includes('UPDATE gestion_rattachement'));
-    expect(maj?.sql).toContain('SET sorti_le = NULL');
-    expect(appels.find((x) => x.sql.includes('INSERT INTO gestion_journal'))?.v[1]).toBe('restaurer_dans_le_suivi');
+    expect(appels.find((x) => x.sql.includes('FOR UPDATE'))?.v).toEqual([42, '219', 'sorti']);
+    const maj = appels.find((x) => x.sql.startsWith('UPDATE gestion_rattachement'));
+    expect(maj?.sql).toContain("SET statut = 'confirme'");
+    expect(maj?.sql).toContain('sorti_le = NULL');
   });
   it('rien à marquer (déjà sorti, autre bien) : refus dit, rien au journal', async () => {
-    lignesMaj = [];
+    trouves = [];
     expect(await sortirDuSuivi({ messageId: 42, lotCle: '219', auteur: A })).toMatchObject({ ok: false });
     expect(appels.some((x) => x.sql.includes('gestion_journal'))).toBe(false);
+  });
+});
+
+describe('④ LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — le verrou resserré et les six gestes', () => {
+  const M340 = sql(readFileSync(join(ici, '../../../db/migrations/340_gestion_sortie_suivi_par_bien.sql'), 'utf8'));
+  const corps340 = M340.slice(M340.indexOf('CREATE OR REPLACE FUNCTION gestion_rattachement_verrou'));
+  it('« sorti » est un statut du lien de BIEN (le couple mail, bien), daté', () => {
+    expect(M340).toContain("CHECK (statut IN ('propose', 'confirme', 'rejete', 'retire', 'sorti'))");
+    expect(M340).toContain("CHECK (statut <> 'sorti' OR (cible_sorte = 'lot' AND sorti_le IS NOT NULL))");
+  });
+  it('🔴 plus d’exception « auteur humain » : un lien confirmé ne change de statut que par la fonction dédiée', () => {
+    expect(corps340).not.toContain('statut_par IS NULL');
+    expect(corps340).toContain("IF OLD.statut = 'confirme' AND NEW.statut <> 'confirme' THEN IF NOT dediee THEN");
+    expect(corps340).toContain("IF OLD.cible_sorte = 'lot' AND NEW.statut <> 'sorti'");
+  });
+  it('un AJOUT n’est jamais bloqué : aucune règle ne refuse de passer à « confirme »', () => {
+    expect(corps340).toContain("IF OLD.statut = 'sorti' AND NEW.statut NOT IN ('sorti', 'confirme')");
+    expect(corps340).not.toMatch(/NEW\.statut = 'confirme'[^;]*RAISE/);
+  });
+  it('les six gestes passent par `changerStatut`, qui convertit tout retrait d’un bien confirmé en « sorti du suivi »', () => {
+    const ratt = sql(lire('rattachementRepo.ts'));
+    expect(ratt).toContain("if (avant === 'confirme' && o.statut !== 'confirme' && rows[0].cible_sorte === 'lot' && !(o.annulationAjout === true && rows[0].recent === true))");
+    expect(ratt).toContain('await sortirLeLien(q, o.lienId, o.auteur, o.motif ?? null)');
+    // rattacher : re-cocher un bien sorti le RESTAURE (une seule ligne par couple)
+    expect(ratt).toContain("WHERE ${OU_IDENTITE} AND statut = 'sorti' ORDER BY id DESC LIMIT 1");
+  });
+  it('les annulations d’AJOUT (Monga, Interne levé, suivi) le disent ; « Interne » relit les « sortis » pour « Annuler »', () => {
+    expect(lire('mongaClassement.ts')).toContain('annulationAjout: true');
+    expect(lire('interneRepo.ts')).toContain('annulationAjout: true');
+    expect(lire('periodeRepo.ts')).toContain('annulationAjout: true');
+    expect(lire('interneRepo.ts')).toContain("statut IN ('retire', 'sorti') AND coalesce(statut_motif, '') = $2");
+  });
+  it('la cascade des interventions ne touche plus qu’aux PROPOSITIONS', () => {
+    expect(sql(lire('contactExterneRepo.ts'))).toContain("AND r.regle = $5 AND r.statut = 'propose'");
+  });
+  it('les écrans demandent avant de sortir un mail d’un bien (phrase d’Arno)', () => {
+    const G = join(ici, '../../(admin)/admin/(protected)/gestion');
+    for (const f of ['ClasserMail.tsx', 'ModifierRattachement.tsx', 'EncartRattachement.tsx']) {
+      expect(readFileSync(join(G, f), 'utf8'), f).toContain('confirmerSortieDesBiens(');
+    }
   });
 });

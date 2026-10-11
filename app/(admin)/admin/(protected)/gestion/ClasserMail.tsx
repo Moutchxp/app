@@ -1,5 +1,6 @@
 'use client';
 
+import { confirmerSortieDesBiens } from './confirmerSortieSuivi';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CSS_MODIFIER_RATTACHEMENT } from './ModifierRattachement';
 // LOT STATUT-PAR-MAIL — le plan de la validation est un module PUR, éprouvé sans écran ni base.
@@ -237,6 +238,13 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
    */
   const valider = async () => {
     if (plan === null || !aFaire) return;
+    /* 🔴🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — un bien décoché ne se retire plus : le mail sort du suivi de
+       CE bien (restaurable), et on le demande d'abord, avec la phrase d'Arno. Aucun bien décoché : aucune question. */
+    if (plan.aRetirer.length > 0 && etat.v === 'ok') {
+      const ok = await confirmerSortieDesBiens(etat.existants.filter((l) => plan.aRetirer.includes(l.id))
+        .map((l) => etat.contexte.biens.find((b) => b.cle === l.cle)?.libelle ?? `lot ${l.cle}`));
+      if (!ok) return;
+    }
     setEnvoi({ en_cours: true, message: null });
     let faits = 0;
     const ratés: string[] = [];
@@ -276,6 +284,7 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
       try {
         const res = await fetch('/api/admin/gestion/rattachements', {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          // ⚠️ « retire » demandé, « sorti du suivi » de ce bien appliqué par le serveur (`changerStatut`).
           body: JSON.stringify({ lienId: id, statut: 'retire', motif: 'décoché lors du classement du mail' }),
         });
         if (res.ok) faits += 1;

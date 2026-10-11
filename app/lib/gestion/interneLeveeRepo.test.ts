@@ -213,8 +213,10 @@ describe('🔴🔴 ③ l’« Annuler » défait les DEUX moitiés', () => {
     queryMock.mockResolvedValue({ rows: [{ id: '4242' }] });
     const n = await retirerBiensApresAnnulationLevee([4242], AUTEUR);
     expect(n).toBe(1);
+    // LOT HISTORIQUE-SORTIE-PAR-BIEN — CE QU'IL DISAIT AVANT : sans `annulationAjout`. Le retrait d'un AJOUT qu'on annule
+    //   aussitôt le dit désormais : c'est ce qui l'autorise à retirer pour de bon (sinon : « sorti du suivi »).
     expect(changerStatutMock).toHaveBeenCalledWith({
-      lienId: 4242, statut: 'retire', auteur: AUTEUR, motif: MOTIF_RATTACHEMENT_ANNULE,
+      lienId: 4242, statut: 'retire', auteur: AUTEUR, motif: MOTIF_RATTACHEMENT_ANNULE, annulationAjout: true,
     });
   });
 

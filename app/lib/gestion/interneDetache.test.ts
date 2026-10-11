@@ -37,15 +37,18 @@ describe('🔴🔴 ① le message de confirmation, mot pour mot', () => {
    * savoir LESQUELS. C'est tout l'objet de la confirmation — et c'est aussi ce qui autorise ce geste à toucher un
    * lien posé à la main, la même raison que « Toute la conversation ».
    */
-  it('🔴🔴 « Marquer interne détachera : <liste des biens> »', () => {
+  /* LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — CE QU'IL DISAIT AVANT : « Marquer interne détachera : 19 Rue
+     Diderot, Issy-les-Moulineaux — lot 478 ». « Interne » sort désormais le mail du suivi de chaque bien (restaurable),
+     et pose la question des six gestes, mot pour mot (décision d'Arno). */
+  it('🔴🔴 « Sortir ce mail du suivi de <adresse> ? Il restera dans les autres historiques et pourra être restauré. »', () => {
     expect(messageDetachement([bien(1, '19 Rue Diderot, Issy-les-Moulineaux — lot 478')]))
-      .toBe('Marquer interne détachera : 19 Rue Diderot, Issy-les-Moulineaux — lot 478');
+      .toBe('Sortir ce mail du suivi de 19 Rue Diderot, Issy-les-Moulineaux ? Il restera dans les autres historiques et pourra être restauré.');
   });
 
   /** 🔴 UN MAIL MULTI-BIENS LES NOMME TOUS, séparés par des virgules — cas d'Arno. */
   it('🔴 plusieurs biens, tous nommés', () => {
-    expect(messageDetachement([bien(1, 'lot 478'), bien(2, 'lot 479'), bien(3, 'lot 480')]))
-      .toBe('Marquer interne détachera : lot 478, lot 479, lot 480');
+    expect(messageDetachement([bien(1, '1 rue A — lot 478'), bien(2, '2 rue B — lot 479'), bien(3, '3 rue C — lot 480')]))
+      .toBe('Sortir ce mail du suivi de 1 rue A, de 2 rue B, de 3 rue C ? Il restera dans les autres historiques et pourra être restauré.');
   });
 
   /**
@@ -60,8 +63,9 @@ describe('🔴🔴 ① le message de confirmation, mot pour mot', () => {
 describe('🔴 ② les comptes rendus, après le geste et après l’annulation', () => {
   it('🔴 le compte rendu dit le nombre, au singulier comme au pluriel', () => {
     expect(motApresDetachement(0)).toBe('Mail marqué « interne ».');
-    expect(motApresDetachement(1)).toBe('Mail marqué « interne » · 1 bien détaché.');
-    expect(motApresDetachement(3)).toBe('Mail marqué « interne » · 3 biens détachés.');
+    // LOT HISTORIQUE-SORTIE-PAR-BIEN — CE QU'IL DISAIT AVANT : « · 1 bien détaché. » / « · 3 biens détachés. »
+    expect(motApresDetachement(1)).toBe('Mail marqué « interne » · sorti du suivi de 1 bien (restaurable).');
+    expect(motApresDetachement(3)).toBe('Mail marqué « interne » · sorti du suivi de 3 biens (restaurable).');
   });
 
   it('🔴 l’annulation aussi', () => {
@@ -148,7 +152,9 @@ describe('🔴🔴 ④ par la porte existante, et traçé', () => {
    */
   it('🔴🔴 « Annuler » ne remet que les liens portant CE motif', () => {
     expect(MOTIF_DETACHE_PAR_INTERNE).toBe('détaché en marquant le mail « interne »');
-    expect(REPO).toContain("WHERE id = ANY($1::bigint[]) AND statut = 'retire' AND coalesce(statut_motif, '') = $2");
+    // LOT HISTORIQUE-SORTIE-PAR-BIEN — CE QU'IL DISAIT AVANT : « statut = 'retire' ». « Interne » sort désormais le mail du
+    //   suivi (statut « sorti ») ; « Annuler » relit les deux, celui d'avant compris.
+    expect(REPO).toContain("WHERE id = ANY($1::bigint[]) AND statut IN ('retire', 'sorti') AND coalesce(statut_motif, '') = $2");
     expect(REPO).toContain('[ids, MOTIF_DETACHE_PAR_INTERNE]');
     expect(REPO).toContain('motif: MOTIF_REMIS_APRES_ANNULATION');
     expect(MOTIF_REMIS_APRES_ANNULATION).toContain('remis');

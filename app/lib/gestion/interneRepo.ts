@@ -353,8 +353,10 @@ export async function remettreBiensDetaches(
     const { changerStatut } = await import('./rattachementRepo');
     const { rows } = await query<{ id: string; message_id: string }>(
       `SELECT id::text, message_id::text FROM gestion_rattachement
-        WHERE id = ANY($1::bigint[]) AND statut = 'retire' AND coalesce(statut_motif, '') = $2
+        WHERE id = ANY($1::bigint[]) AND statut IN ('retire', 'sorti') AND coalesce(statut_motif, '') = $2
         ORDER BY id`, [ids, MOTIF_DETACHE_PAR_INTERNE]);
+    /* ⚠️ LOT HISTORIQUE-SORTIE-PAR-BIEN — « sorti » : depuis ce lot, « Interne » ne retire plus un bien, il sort le mail
+       du suivi de ce bien (restaurable). « retire » reste lu pour les marquages faits avant. */
     let remis = 0;
     const mails = new Set<number>();
     for (const r of rows) {
@@ -633,8 +635,9 @@ export async function retirerBiensApresAnnulationLevee(
         ORDER BY id`, [ids]);
     let retires = 0;
     for (const r of rows) {
+      // LOT HISTORIQUE-SORTIE-PAR-BIEN — un AJOUT qu'on annule aussitôt : retirable pour de bon (voir `changerStatut`).
       const issue = await changerStatut({
-        lienId: Number(r.id), statut: 'retire', auteur, motif: MOTIF_RATTACHEMENT_ANNULE,
+        lienId: Number(r.id), statut: 'retire', auteur, motif: MOTIF_RATTACHEMENT_ANNULE, annulationAjout: true,
       });
       if (issue.ok) retires += 1;
     }

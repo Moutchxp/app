@@ -695,6 +695,10 @@ export async function delierLaReference(o: {
       statut: l.nee ? 'retire' : 'propose',
       auteur: o.auteur,
       motif: o.motif ?? `lien Monga ${o.reference} annulé`,
+      /* 🔴 LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — DÉCISION D'ARNO : « Annuler » défait ce qui vient d'être fait.
+         Un AJOUT récent (moins de 15 minutes) se retire pour de bon ; un lien de bien confirmé plus ancien passe
+         « sorti du suivi » pour ce bien seul (restaurable) — `changerStatut` en décide. */
+      annulationAjout: true,
     });
     if (!issue.ok) continue;
     if (l.nee) liensRetires += 1; else liensRendus += 1;
