@@ -2343,7 +2343,11 @@ const CSS_REDACTION = `
 .red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-red)}
 .red-sugg-pastille--locataire{--red-sugg-ton:var(--color-svv-green)}
 .red-sugg-pastille--ancien_locataire{--red-sugg-ton:var(--color-svv-violet)}
-.red-sugg-pastille--syndic,.red-sugg-pastille--immeuble{--red-sugg-ton:var(--color-svv-syndic-texte)}
+/* LOT SUGGESTIONS-COULEUR-IMMEUBLE-ROSE : le ROSE des boutons du syndic sur les cartes de bien (jeton syndic-bord :
+   rose en Clair, rose soutenu en Sombre), pour TOUT le groupe Immeuble (syndic, e-mail general, gardien, conseil
+   syndical, habitants). Ce qu'il prenait avant, le jeton syndic-texte, est un bordeaux qui se confondait avec le
+   rouge du proprietaire. */
+.red-sugg-pastille--syndic,.red-sugg-pastille--immeuble{--red-sugg-ton:var(--color-svv-syndic-bord)}
 .red-sugg-pastille--neutre{--red-sugg-ton:var(--color-svv-muted)}
 .red-sugg-texte{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:.5rem;row-gap:0;min-width:0}
 .red-sugg-nom{color:var(--color-svv-ink);font-weight:600;overflow-wrap:anywhere}

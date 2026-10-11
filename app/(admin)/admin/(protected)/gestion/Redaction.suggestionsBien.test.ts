@@ -2,6 +2,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 import { lignesVersHtml } from '../../../../lib/gestion/mailSyndic';
 import { rangerSuggestions, type SuggestionAdresse } from '../../../../lib/gestion/suggestionsBien';
@@ -207,5 +209,45 @@ describe('sans adresses du bien (message ordinaire) : le champ se comporte comme
     await monter({ ...DEPART, suggestionsBien: null, appel: null });
     await cliquerDans('À');
     expect(liste('À')).toBeNull();
+  });
+});
+
+describe('LOT SUGGESTIONS-COULEUR-IMMEUBLE-ROSE — chaque partie sa couleur, le rose pour l’immeuble', () => {
+  const css = readFileSync(join(__dirname, 'Redaction.tsx'), 'utf8');
+  const tonDe = (classe: string): string | undefined =>
+    new RegExp(`\\.red-sugg-pastille--${classe}[^{]*\\{--red-sugg-ton:var\\((--[a-z-]+)\\)\\}`).exec(css)?.[1];
+
+  it('🔴 propriétaire rouge, locataire vert, ancien locataire violet, IMMEUBLE ROSE (le jeton des boutons du syndic), autres gris', () => {
+    expect(tonDe('proprietaire')).toBe('--color-svv-red');
+    expect(tonDe('locataire')).toBe('--color-svv-green');
+    expect(tonDe('ancien_locataire')).toBe('--color-svv-violet');
+    expect(tonDe('syndic')).toBe('--color-svv-syndic-bord');
+    expect(css).toContain('.red-sugg-pastille--syndic,.red-sugg-pastille--immeuble{--red-sugg-ton:var(--color-svv-syndic-bord)}');
+    expect(tonDe('neutre')).toBe('--color-svv-muted');
+    // le même jeton que les boutons roses du syndic sur les cartes de bien
+    expect(readFileSync(join(__dirname, 'BoutonSyndic.tsx'), 'utf8')).toContain('border-color:var(--color-svv-syndic-bord)');
+  });
+  it('🔴 le rouge est réservé aux propriétaires, et le rose à l’immeuble : aucune autre pastille ne les emprunte', () => {
+    const regles = css.match(/\.red-sugg-pastille--[a-z_,.\-]+\{--red-sugg-ton:var\(--[a-z-]+\)\}/g) ?? [];
+    expect(regles.filter((r) => r.includes('--color-svv-red)'))).toEqual(['.red-sugg-pastille--proprietaire{--red-sugg-ton:var(--color-svv-red)}']);
+    expect(regles.filter((r) => r.includes('syndic'))).toEqual(['.red-sugg-pastille--syndic,.red-sugg-pastille--immeuble{--red-sugg-ton:var(--color-svv-syndic-bord)}']);
+    expect(css).not.toMatch(/red-sugg[^{]*\{[^}]*--color-svv-syndic-texte/);
+  });
+  it('à l’écran : toutes les lignes du groupe IMMEUBLE sont roses (pleines), et seules les lignes de propriétaire sont rouges', async () => {
+    await monter();
+    await cliquerDans('À');
+    const lignes = [...(liste('À')?.querySelectorAll('.red-suggestion') ?? [])] as HTMLElement[];
+    const immeuble = lignes.filter((b) => b.dataset.groupe === 'immeuble');
+    expect(immeuble.length).toBeGreaterThan(0);
+    for (const b of immeuble) {
+      const c = b.querySelector('.red-sugg-pastille')?.className ?? '';
+      expect(c).toMatch(/red-sugg-pastille--(syndic|immeuble)/);
+      expect(c).not.toContain('--contour');
+    }
+    for (const b of lignes) {
+      if ((b.querySelector('.red-sugg-pastille')?.className ?? '').includes('--proprietaire')) {
+        expect(b.querySelector('.red-sugg-role')?.textContent).toMatch(/propriétaire/i);
+      }
+    }
   });
 });
