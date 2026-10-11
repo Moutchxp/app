@@ -326,7 +326,8 @@ describe('🔴 ④ valider écrit les cibles ; ignorer n’écrit rien', () => {
     cibles = [{ sorte: 'lot' as const, cle: '61', id: null, libelle: '12 rue Danton, PUTEAUX — lot 61' }];
     contexte.biens = [BIEN('24', false, 'm'), BIEN('61', false, 'm')];
     await monter(['bailleur@free.fr']);
-    expect(cases().map((c) => c.checked)).toEqual([false, true]);
+    // LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — le bien coché passe EN TÊTE (cochés d'abord, puis les autres).
+    expect(cases().map((c) => c.checked)).toEqual([true, false]);
   });
 });
 

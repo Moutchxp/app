@@ -2391,10 +2391,14 @@ export function Redaction({
           pieces={[]}
           cibles={brouillon.cibles ?? []}
           clesClients={clesClientsPresents}
-          clientsEnAttente={enAttente.map((c) => ({
-            adresse: c.adresse, cles: c.biens.map((b) => b.cle),
-            biens: c.biens.map((b) => ({ cle: b.cle, lotId: b.lotId, libelle: b.libelle, categorie: b.categorie, motif: motifDuLien(b) })),
-          }))}
+          /* LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — TOUS les biens des adresses présentes, rattachés ou non (et plus
+             seulement ceux des adresses en attente : un bien choisi faisait disparaître les autres à la réouverture). */
+          biensDesAdresses={[...new Set(adressesDesChamps)]
+            .filter((a) => (biensClients[a] ?? []).length > 0)
+            .map((a) => ({
+              adresse: a,
+              biens: (biensClients[a] ?? []).map((b) => ({ cle: b.cle, lotId: b.lotId, libelle: b.libelle, categorie: b.categorie, motif: motifDuLien(b) })),
+            }))}
           clesDeBase={new Set(((brouillon.cibles ?? []) as CibleBrouillon[])
             .filter((c) => c.sorte === 'lot' && c.origine === undefined).map((c) => c.cle ?? ''))}
           onChange={(cibles) => {

@@ -75,7 +75,7 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 }
 
 export function RattacherEnEcrivant({
-  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, clientsEnAttente = [],
+  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, biensDesAdresses = [],
   piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
   onSelection, onChange, onFerme,
 }: {
@@ -88,17 +88,19 @@ export function RattacherEnEcrivant({
   /** Les biens de BASE (fiche ouverte, réponse héritée) : ils ne dépendent pas des adresses, jamais « manuels ». */
   clesDeBase?: ReadonlySet<string> | null;
   /**
-   * 🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — les adresses dont les biens ATTENDENT un choix (le bouton pulsait
-   * pour elles).
-   * LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES : toutes les familles (contact ou e-mail général du syndic,
-   * carnet de l'immeuble, e-mail rattaché, clients). Chacun de leurs biens que le moteur ne propose pas est AJOUTÉ aux
-   * propositions, DÉCOCHÉ, avec son motif (« contact du syndic, suit la copropriété de ce bien — … ») et les deux lignes
-   * propriétaire / locataire de sa fiche. CE QU'IL Y AVAIT AVANT : le moteur de recherche était lancé sur l'adresse du
-   * premier client en attente — il ne trouvait rien pour un contact d'immeuble (aucune partie ne porte son e-mail).
+   * ══ 🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — TOUS LES BIENS DES ADRESSES PRÉSENTES ═══════════════════════════
+   * Les adresses de À, Cc et Cci liées à des biens (clients, contacts du syndic, e-mail général, carnet de l'immeuble,
+   * e-mails rattachés), dans l'ordre des champs, avec TOUS leurs biens — rattachés ou non. Chacun que le moteur ne
+   * propose pas rejoint les propositions : coché s'il est déjà rattaché, DÉCOCHÉ sinon, avec son motif (« contact du
+   * syndic, suit la copropriété de ce bien — … ») et les deux lignes propriétaire / locataire de sa fiche.
+   * DÉFAUT D'ARNO (11/10/2026) : c.jullien@sansvisavis.com, 6 biens ; 1 coché et validé ; la modale rouverte ne montrait
+   * plus que ce bien (« 1 bien(s) coché(s) sur 1 affiché(s) »). CAUSE : seuls les biens des adresses EN ATTENTE (aucun
+   * bien rattaché) étaient transmis (lot PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES) ; une adresse dont un bien
+   * était choisi n'attendait plus, et ses 5 autres biens disparaissaient.
    */
-  clientsEnAttente?: ReadonlyArray<{
-    adresse: string; cles: readonly string[];
-    biens?: ReadonlyArray<{ cle: string; lotId: number; libelle: string; categorie?: CategorieBien; motif: string }>;
+  biensDesAdresses?: ReadonlyArray<{
+    adresse: string;
+    biens: ReadonlyArray<{ cle: string; lotId: number; libelle: string; categorie?: CategorieBien; motif: string }>;
   }>;
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA MÊME MODALE AU-DESSUS D'UN MAIL REÇU ════════════════════════════
@@ -278,11 +280,11 @@ export function RattacherEnEcrivant({
    * Les biens EN ATTENTE, figés à l'ouverture (la liste ne bouge pas sous le doigt pendant qu'on coche) : chaque bien
    * une fois, dans l'ordre des adresses.
    */
-  const [enAttente] = useState(() => {
-    const out: Array<{ cle: string; id: number; libelle: string; categorie?: CategorieBien; motif: string }> = [];
-    for (const c of clientsEnAttente) {
-      for (const b of c.biens ?? []) {
-        if (!out.some((x) => x.cle === b.cle)) out.push({ cle: b.cle, id: b.lotId, libelle: b.libelle, categorie: b.categorie, motif: b.motif });
+  const [desAdresses] = useState(() => {
+    const out: Array<{ cle: string; id: number; libelle: string; categorie?: CategorieBien; motif: string; rang: number }> = [];
+    for (const [rang, c] of biensDesAdresses.entries()) {
+      for (const b of c.biens) {
+        if (!out.some((x) => x.cle === b.cle)) out.push({ cle: b.cle, id: b.lotId, libelle: b.libelle, categorie: b.categorie, motif: b.motif, rang });
       }
     }
     return out;
@@ -384,7 +386,9 @@ export function RattacherEnEcrivant({
    * CLASSER-SUR-CHAQUE-MAIL a payé une fois. Ce qui est coché est visible, toujours.
    */
   const proposesAffiches = (contexte?.biens ?? []).filter(
-    (b) => b.replie !== true || autresDeplies || (coches?.has(b.cle) ?? false));
+    (b) => b.replie !== true || autresDeplies || (coches?.has(b.cle) ?? false)
+      // LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — un bien d'une adresse présente n'est jamais replié.
+      || desAdresses.some((x) => x.cle === b.cle));
   /** Les biens montrés SOUS les propositions : trouvés à la recherche, ou déjà rattachés et non proposés. */
   const horsPropositions: { cible: CibleBrouillon; origine: 'recherche' | 'deja' | 'attente'; motif?: string }[] = [
     ...ajoutes.filter((a) => !clesProposees.has(a.cle ?? ''))
@@ -394,8 +398,8 @@ export function RattacherEnEcrivant({
         && !clesProposees.has(c.cle ?? '')
         && !ajoutes.some((a) => (a.cle ?? '') === (c.cle ?? '')))
       .map((c) => ({ cible: c, origine: 'deja' as const })),
-    // LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — les biens en attente que le moteur ne propose pas.
-    ...enAttente
+    // LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — les biens des adresses présentes que le moteur ne propose pas.
+    ...desAdresses
       .filter((b) => !clesProposees.has(b.cle)
         && !ajoutes.some((a) => (a.cle ?? '') === b.cle)
         && !cibles.some((c) => c.sorte === 'lot' && (c.cle ?? '') === b.cle))
@@ -426,6 +430,21 @@ export function RattacherEnEcrivant({
    * la recherche. Les cacher ferait exactement le défaut que ce bloc répare — une case cochée sans case.
    */
   const clesHors = horsPropositions.map((x) => x.cible.cle ?? '').filter((c) => c !== '');
+  /**
+   * ══ 🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — L'ORDRE D'AFFICHAGE ══════════════════════════════════════════
+   * Les biens COCHÉS en tête, puis les autres, regroupés par adresse (dans l'ordre des champs), puis ce que le moteur
+   * propose d'autre. « Cochés » = cochés À L'OUVERTURE (pré-coche comprise) : un bien qu'on coche ou décoche ensuite
+   * ne saute pas sous le doigt.
+   */
+  const cochesALOuverture = useRef<ReadonlySet<string> | null>(null);
+  if (cochesALOuverture.current === null && coches !== null) cochesALOuverture.current = new Set(coches);
+  const rangAdresse = (cle: string): number => desAdresses.find((x) => x.cle === cle)?.rang ?? biensDesAdresses.length;
+  const lignesAffichees: Array<{ cle: string; moteur: (typeof proposesAffiches)[number] } | { cle: string; hors: (typeof horsPropositions)[number] }> = [
+    ...proposesAffiches.map((b) => ({ cle: b.cle, moteur: b })),
+    ...horsPropositions.map((h) => ({ cle: h.cible.cle ?? '', hors: h })),
+  ].map((l, i) => ({ l, i, coche: (cochesALOuverture.current?.has(l.cle) ?? false) ? 0 : 1, rang: rangAdresse(l.cle) }))
+    .sort((x, y) => x.coche - y.coche || x.rang - y.rang || x.i - y.i)
+    .map((x) => x.l);
   useEffect(() => {
     /* ⚠️ AUCUNE GARDE « vivant » : en mode strict, React monte, démonte puis remonte l'effet — la garde jetait la
        SEULE réponse (la clé, déjà demandée, n'était jamais relue) : la carte restait sans parties (mesuré dans
@@ -549,7 +568,7 @@ export function RattacherEnEcrivant({
    * qu'il se calcule avant le rendu. Il vivait ici ; l'ordre des crochets reste le même à chaque rendu, ce qui
    * est la seule chose que React exige.
    */
-  const replies = (contexte?.biens ?? []).filter((b) => b.replie).length;
+  const replies = (contexte?.biens ?? []).filter((b) => b.replie && !desAdresses.some((x) => x.cle === b.cle)).length;
 
   /**
    * 🔴 LE CURSEUR VA DANS LE CHAMP DE RECHERCHE (demande d'Arno). Une seule fois, à l'ouverture : le remettre à
@@ -668,7 +687,7 @@ export function RattacherEnEcrivant({
     }
     for (const a of ajoutes) parCle.set(a.cle ?? '', { libelle: a.libelle, id: a.id, categorie: a.categorie });
     // LOT PUCE-COHERENTE-AVEC-RATTACHEMENT-TOUTES-FAMILLES — un bien en attente coché se décrit aussi.
-    for (const b of enAttente) if (!parCle.has(b.cle)) parCle.set(b.cle, { libelle: b.libelle, id: b.id, categorie: b.categorie });
+    for (const b of desAdresses) if (!parCle.has(b.cle)) parCle.set(b.cle, { libelle: b.libelle, id: b.id, categorie: b.categorie });
     // 🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — un résultat de recherche AFFICHÉ et coché se décrit aussi.
     for (const b of recherche.v === 'ok' ? recherche.resultats.lignes : []) {
       if (!parCle.has(b.cle)) { const n = cibleDuResultat(b); parCle.set(b.cle, { libelle: n.libelle, id: null, categorie: n.categorie }); }
@@ -798,7 +817,13 @@ export function RattacherEnEcrivant({
             <ZoneDefilante className="rec-biens" as="ul" enfants={<>
               {/* 🔴 LA MÊME LISTE QUE CELLE QUE LE COMPTEUR COMPTE (`proposesAffiches`) : avant ce lot, le rendu
                   filtrait les repliés et le compte ne les filtrait pas. Une seule liste, un seul verdict. */}
-              {proposesAffiches.map((b) => (
+              {/* 🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — UNE SEULE LISTE, DANS L'ORDRE DE `lignesAffichees` : les
+                  propositions du moteur et les autres biens (déjà rattachés, trouvés à la recherche, biens des adresses
+                  présentes) mêlés, cochés en tête puis regroupés par adresse. */}
+              {lignesAffichees.map((l) => {
+                if ('moteur' in l) {
+                  const b = l.moteur;
+                  return (
                 <li key={b.cle} className="rec-bien">
                   <label className="rec-choix">
                     <input type="checkbox" checked={selection.has(b.cle)} onChange={() => basculer(b.cle)} />
@@ -816,28 +841,10 @@ export function RattacherEnEcrivant({
                       cette fenêtre ; le motif reste, dessous, en italique gris. */}
                   <PartiesSurDeuxLignes parties={b.parties} />
                   <p className="rec-motif">{b.motif}</p>
-                </li>
-              ))}
-              {/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUI EST COCHÉ EST VISIBLE, TOUJOURS ══════════════
-                  Deux sources ici, et la SECONDE est le correctif du défaut d'Arno (« le compteur reste bloqué
-                  à 1 ») : les biens DÉJÀ RATTACHÉS que le moteur ne propose pas. Ils étaient cochés sans case —
-                  comptés par le bouton, introuvables dans la liste, hors d'atteinte de « Tout désélectionner ».
-
-                  🔴 LE MOTIF DIT D'OÙ CHACUN VIENT : « ajouté à la main depuis la recherche » n'est pas « déjà
-                  rattaché à ce mail », et c'est précisément ce qu'on a besoin de savoir avant de décocher. */}
-              {/* ══ 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — « VOIR LES AUTRES » ═══════════════════════════════
-                  Demande d'Arno : « Plus de 5 biens → les 5 plus pertinents, plus “voir les autres”. » Les
-                  douze lots d'un bailleur noieraient la proposition au lieu de l'éclairer ; ils ne sont pas
-                  perdus pour autant, ils sont à un clic. */}
-              {replies > 0 && (
-                <li className="rec-bien rec-autres">
-                  <button type="button" className="gst-lien-bouton"
-                    onClick={() => setAutresDeplies((v) => !v)}>
-                    {autresDeplies ? 'masquer les autres biens' : `voir les autres (${replies})`}
-                  </button>
-                </li>
-              )}
-              {horsPropositions.map(({ cible: a, origine, motif }) => (
+                </li>);
+                }
+                const { cible: a, origine, motif } = l.hors;
+                return (
                 <li key={`hors-${a.cle}`} className="rec-bien">
                   <label className="rec-choix">
                     <input type="checkbox" checked={selection.has(a.cle ?? '')}
@@ -858,8 +865,27 @@ export function RattacherEnEcrivant({
                         ? 'ajouté à la main depuis la recherche'
                         : 'déjà rattaché — décochez pour le retirer'}
                   </p>
+                </li>);
+              })}
+              {/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUI EST COCHÉ EST VISIBLE, TOUJOURS ══════════════
+                  Deux sources ici, et la SECONDE est le correctif du défaut d'Arno (« le compteur reste bloqué
+                  à 1 ») : les biens DÉJÀ RATTACHÉS que le moteur ne propose pas. Ils étaient cochés sans case —
+                  comptés par le bouton, introuvables dans la liste, hors d'atteinte de « Tout désélectionner ».
+
+                  🔴 LE MOTIF DIT D'OÙ CHACUN VIENT : « ajouté à la main depuis la recherche » n'est pas « déjà
+                  rattaché à ce mail », et c'est précisément ce qu'on a besoin de savoir avant de décocher. */}
+              {/* ══ 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — « VOIR LES AUTRES » ═══════════════════════════════
+                  Demande d'Arno : « Plus de 5 biens → les 5 plus pertinents, plus “voir les autres”. » Les
+                  douze lots d'un bailleur noieraient la proposition au lieu de l'éclairer ; ils ne sont pas
+                  perdus pour autant, ils sont à un clic. */}
+              {replies > 0 && (
+                <li className="rec-bien rec-autres">
+                  <button type="button" className="gst-lien-bouton"
+                    onClick={() => setAutresDeplies((v) => !v)}>
+                    {autresDeplies ? 'masquer les autres biens' : `voir les autres (${replies})`}
+                  </button>
                 </li>
-              ))}
+              )}
             </>} />
           </section>
         )}

@@ -435,3 +435,93 @@ describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — le scénario
     expect(cibles()).toEqual(['900']);
   });
 });
+
+describe('🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — la modale montre TOUS les biens des adresses présentes', () => {
+  const JULLIEN = ['432', '494', '373', '219', '224', '58'];
+  const cartes = () => [...container.querySelectorAll('.rec-biens .rec-bien')].filter((l) => l.querySelector('input[type="checkbox"]'));
+  const cleDe = (li: Element) => /(\d+) rue des Tests/.exec(li.textContent ?? '')?.[1] ?? '?';
+  const cochees = () => cartes().filter((l) => (l.querySelector('input') as HTMLInputElement).checked).map(cleDe);
+  const compteur = () => container.querySelector('.rec-compte')?.textContent ?? '';
+  const bouton = (re: RegExp) => [...container.querySelectorAll('button')].find((b) => re.test(b.textContent?.trim() ?? '')) as HTMLButtonElement;
+  const texteClasser = () => [...container.querySelectorAll('[class^="ccl"], [class*=" ccl"]')].map((e) => e.textContent ?? '').join(' ').replace(/\s+/g, ' ');
+  const cocher = async (cle: string) => { await cliquer(cartes().find((l) => cleDe(l) === cle)?.querySelector('input') as Element); };
+  const retirer = async (a: string) => { await cliquer(container.querySelector(`button[aria-label="Retirer ${a}"]`) as Element); };
+  const choisirEtValider = async (...cles: string[]) => {
+    await ouvrirModale();
+    for (const c of cles) await cocher(c);
+    await cliquer(bouton(/^Valider/));
+  };
+
+  it('🔴 le scénario d’Arno : 1 bien choisi et validé, la modale rouverte montre les 6, 1 coché EN TÊTE', async () => {
+    await monter(NOUVEAU);
+    await taper('c.jullien@sansvisavis.com');
+    await choisirEtValider('373');
+    expect(cibles()).toEqual(['373']);
+    await ouvrirModale();
+    expect(cartes().map(cleDe)).toEqual(['373', '432', '494', '219', '224', '58']);
+    expect(cochees()).toEqual(['373']);
+    expect(compteur()).toBe('1 bien(s) coché(s) sur 6 affiché(s).');
+    expect(cartes()[0].querySelector('.rec-motif')?.textContent).toBe('déjà rattaché — décochez pour le retirer');
+    expect(cartes()[1].querySelector('.rec-motif')?.textContent).toBe('propriétaire de ce bien — Cédric JULLIEN - GARRIDO');
+  });
+  it('cocher un 2e bien et valider : « Rattaché — 2 logements »', async () => {
+    await monter(NOUVEAU);
+    await taper('c.jullien@sansvisavis.com');
+    await choisirEtValider('373');
+    await choisirEtValider('432');
+    expect(cibles().sort()).toEqual(['373', '432']);
+    expect(texteClasser()).toMatch(/Rattaché\s*—?\s*2 logements/);
+  });
+  it('« Sélectionner tous » puis « Désélectionner tous » portent sur toute la liste', async () => {
+    await monter(NOUVEAU);
+    await taper('c.jullien@sansvisavis.com');
+    await choisirEtValider('373');
+    await ouvrirModale();
+    await cliquer(bouton(/^Sélectionner tous les biens$/));
+    expect(cochees().sort()).toEqual([...JULLIEN].sort());
+    expect(compteur()).toBe('6 bien(s) coché(s) sur 6 affiché(s).');
+    await cliquer(bouton(/^Désélectionner tous les biens$/));
+    expect(cochees()).toEqual([]);
+    await cliquer(bouton(/^Sélectionner tous les biens$/));
+    await cliquer(bouton(/^Valider/));
+    expect(cibles().sort()).toEqual([...JULLIEN].sort());
+  });
+  it('pas de doublon avec la recherche : les mêmes biens trouvés par la recherche ne s’ajoutent pas au compte', async () => {
+    await monter(NOUVEAU);
+    await taper('c.jullien@sansvisavis.com');
+    await ouvrirModale();
+    const champ = container.querySelector('.rec input[type="search"], .rec input[type="text"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(champ, 'c.jullien@sansvisavis.com');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await laisser();
+    expect(cartes().map(cleDe)).toHaveLength(6);
+    expect(compteur()).toBe('0 bien(s) coché(s) sur 6 affiché(s).');
+    await cocher('494');
+    await cliquer(bouton(/^Valider/));
+    expect(cibles()).toEqual(['494']);
+  });
+  it('adresse retirée : ses biens quittent le rattachement ET la liste', async () => {
+    await monter(NOUVEAU);
+    await taper('seul@x.fr');
+    await taper('c.jullien@sansvisavis.com');
+    await choisirEtValider('373', '432');
+    expect(cibles().sort()).toEqual(['373', '432', '900']);
+    await retirer('c.jullien@sansvisavis.com');
+    expect(cibles()).toEqual(['900']);
+    await ouvrirModale();
+    expect(cartes().map(cleDe)).toEqual(['900']);
+  });
+  it('plusieurs destinataires : cochés en tête, puis les autres regroupés par adresse (ordre des champs)', async () => {
+    await monter(NOUVEAU);
+    await taper('multi@x.fr');
+    await taper('c.jullien@sansvisavis.com');
+    await choisirEtValider('224');
+    await ouvrirModale();
+    // multi@x.fr est aussi proposé par le moteur ; c.jullien ne l'est que par ses biens.
+    expect(cartes().map(cleDe)).toEqual(['224', '432', '433', '494', '373', '219', '58']);
+    expect(cochees()).toEqual(['224']);
+    expect(compteur()).toBe('1 bien(s) coché(s) sur 7 affiché(s).');
+  });
+});
