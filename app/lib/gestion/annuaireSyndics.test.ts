@@ -429,10 +429,13 @@ describe('LOT SYNDIC-CONTACT-PARTI — « ne travaille plus ici » (pur)', () =>
   const mathis = { ...contactVide(), id: 21, prenom: 'Mathis', nom: 'Bercier', civilite: 'M.' as const, immeubles: ADRS.map((a) => a.cle) };
   it('la question : nom avec civilité, syndic « NOM / Ville », copropriétés par voie ; le pronom suit la civilité, sinon « Ce contact »', () => {
     expect(phraseDepart(mathis, 'TEST ARNAUD / Asnieres Sur Seine', ADRS)).toBe('M. Mathis BERCIER ne travaille plus chez TEST ARNAUD / Asnieres Sur Seine ? '
-      + 'Il sera retiré du catalogue et de ses 3 copropriétés : 15 rue Carle Hebert, 92400 Courbevoie · 12 rue des Pavillons, 92800 Puteaux · 25 rue Edith Cavell, 92400 Courbevoie.');
+      + 'Il sera retiré du catalogue des contacts du syndic et de ses 3 copropriétés : 15 rue Carle Hebert, 92400 Courbevoie · 12 rue des Pavillons, 92800 Puteaux · 25 rue Edith Cavell, 92400 Courbevoie.');
     expect(phraseDepart({ ...mathis, civilite: 'Mme', prenom: 'Léa', immeubles: ['12 rue des pavillons'] }, 'S', ADRS))
-      .toBe('Mme Léa BERCIER ne travaille plus chez S ? Elle sera retirée du catalogue et de sa copropriété : 12 rue des Pavillons, 92800 Puteaux.');
-    expect(phraseDepart({ ...mathis, civilite: null, immeubles: [] }, 'S', ADRS)).toBe('Mathis BERCIER ne travaille plus chez S ? Ce contact sera retiré du catalogue.');
+      .toBe('Mme Léa BERCIER ne travaille plus chez S ? Elle sera retirée du catalogue des contacts du syndic et de sa copropriété : 12 rue des Pavillons, 92800 Puteaux.');
+    expect(phraseDepart({ ...mathis, civilite: null, immeubles: [] }, 'S', ADRS)).toBe('Mathis BERCIER ne travaille plus chez S ? Ce contact sera retiré du catalogue des contacts du syndic.');
+    // LOT SYNDIC-DEPART-LIBELLE-CATALOGUE — CE QU'IL DISAIT AVANT : « … retiré du catalogue … ». Les variantes manquantes :
+    expect(phraseDepart({ ...mathis, immeubles: [] }, 'S', ADRS)).toBe('M. Mathis BERCIER ne travaille plus chez S ? Il sera retiré du catalogue des contacts du syndic.');
+    expect(phraseDepart({ ...mathis, civilite: 'Mme', prenom: 'Léa', immeubles: [] }, 'S', ADRS)).toBe('Mme Léa BERCIER ne travaille plus chez S ? Elle sera retirée du catalogue des contacts du syndic.');
     expect([boutonDepart(mathis), boutonDepart({ ...mathis, civilite: 'Mme' }), boutonDepart({ ...mathis, civilite: null })])
       .toEqual(['Oui, il ne travaille plus ici', 'Oui, elle ne travaille plus ici', 'Oui, ne travaille plus ici']);
   });

@@ -2954,7 +2954,7 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     annonce: c.querySelector('.fsy-parti-annonce')?.textContent ?? '',
     copros: [...c.querySelectorAll('.fsy-parti-copros li')].map((x) => x.textContent ?? ''),
   });
-  const PHRASE = 'M. Mathis BERCIER ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ? Il sera retiré du catalogue et de ses 3 copropriétés : '
+  const PHRASE = 'M. Mathis BERCIER ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ? Il sera retiré du catalogue des contacts du syndic et de ses 3 copropriétés : '
     + '15 rue Carle Hebert, 92400 Courbevoie · 12 rue des Pavillons, 92800 Puteaux · 25 rue Edith Cavell, 92400 Courbevoie.';
 
   it('le bouton « Ne travaille plus ici » : dans la tuile dépliée, depuis un bien (à côté de « Détacher ») comme depuis Syndics (à côté de « Supprimer ce contact »)', async () => {
@@ -2989,7 +2989,7 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     // copropriétés séparées par « · ». Même texte, désormais en lignes.
     expect(lignesDepart(c)).toEqual({
       question: 'M. Mathis BERCIER ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ?',
-      annonce: 'Il sera retiré du catalogue et de ses 3 copropriétés :',
+      annonce: 'Il sera retiré du catalogue des contacts du syndic et de ses 3 copropriétés :',
       copros: ['15 rue Carle Hebert, 92400 Courbevoie', '12 rue des Pavillons, 92800 Puteaux', '25 rue Edith Cavell, 92400 Courbevoie'],
     });
     expect(`${lignesDepart(c).question} ${lignesDepart(c).annonce} ${lignesDepart(c).copros.join(' · ')}.`).toBe(PHRASE); // même texte
@@ -3007,7 +3007,7 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     await cliquer(boutonDans(o, 'Ne travaille plus ici'));
     let c = o.querySelector('.fsy-parti-confirmer') as HTMLElement;
     expect(lignesDepart(c)).toEqual({ question: 'Mme Léa UNE ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ?',
-      annonce: 'Elle sera retirée du catalogue et de sa copropriété :', copros: ['25 rue Edith Cavell, 92400 Courbevoie'] });
+      annonce: 'Elle sera retirée du catalogue des contacts du syndic et de sa copropriété :', copros: ['25 rue Edith Cavell, 92400 Courbevoie'] });
     expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, elle ne travaille plus ici']);
     await act(async () => { root.render(null); });
     servir60({ ...FICHE_60, contacts: [{ ...FICHE_60.contacts[1], civilite: null, immeubles: [] }] });
@@ -3017,9 +3017,30 @@ describe('LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT', () => {
     await cliquer(boutonDans(o, 'Ne travaille plus ici'));
     c = o.querySelector('.fsy-parti-confirmer') as HTMLElement;
     expect(lignesDepart(c)).toEqual({ question: 'Léa UNE ne travaille plus chez _TEST ARNAUD / Asnieres Sur Seine ?',
-      annonce: 'Ce contact sera retiré du catalogue.', copros: [] });
+      annonce: 'Ce contact sera retiré du catalogue des contacts du syndic.', copros: [] });
     expect(c.querySelector('ul')).toBeNull();
     expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Oui, ne travaille plus ici']);
+  });
+
+  it('LOT SYNDIC-DEPART-LIBELLE-CATALOGUE — « … du catalogue des contacts du syndic … » dans toutes les variantes (0, 1, N copropriétés ; avec et sans civilité)', async () => {
+    const [mathis, lea] = FICHE_60.contacts;
+    for (const [contact, tuile, annonce, n] of [
+      [{ ...mathis, immeubles: [] }, 'M. Mathis BERCIER', 'Il sera retiré du catalogue des contacts du syndic.', 0],
+      [{ ...lea, immeubles: [] }, 'Mme Léa UNE', 'Elle sera retirée du catalogue des contacts du syndic.', 0],
+      [{ ...lea, civilite: null }, 'Léa UNE', 'Ce contact sera retiré du catalogue des contacts du syndic et de sa copropriété :', 1],
+      [{ ...mathis, civilite: null }, 'Mathis BERCIER', 'Ce contact sera retiré du catalogue des contacts du syndic et de ses 3 copropriétés :', 3],
+      [{ ...mathis, civilite: 'Mme' }, 'Mme Mathis BERCIER', 'Elle sera retirée du catalogue des contacts du syndic et de ses 3 copropriétés :', 3],
+    ] as const) {
+      await act(async () => { root.render(null); });
+      servir60({ ...FICHE_60, contacts: [contact] });
+      await act(async () => { root.render(createElement(FicheSyndic, { syndicId: 60, onFerme: vi.fn() })); });
+      await calmer();
+      const o = await deplier(tuile);
+      await cliquer(boutonDans(o, 'Ne travaille plus ici'));
+      const c = o.querySelector('.fsy-parti-confirmer') as HTMLElement;
+      expect(lignesDepart(c).annonce, tuile).toBe(annonce);
+      expect(lignesDepart(c).copros, tuile).toHaveLength(n);
+    }
   });
 
   it('la liste : puces discrètes, en retrait', async () => {

@@ -837,8 +837,9 @@ export function reintegrer(f: SyndicForm, id: number): SyndicForm {
 /**
  * La confirmation du départ, EN LIGNES (LOT SYNDIC-CONFIRMATION-DEPART-UNE-COPRO-PAR-LIGNE) :
  *   question    « M. Mathis BERCIER ne travaille plus chez SYNDIC / Ville ? »
- *   annonce     « Il sera retiré du catalogue et de ses 2 copropriétés : » / « … de sa copropriété : » /
- *               « Il sera retiré du catalogue. » (aucune)
+ *   annonce     « Il sera retiré du catalogue des contacts du syndic et de ses 2 copropriétés : » / « … de sa copropriété : » /
+ *               « Il sera retiré du catalogue des contacts du syndic. » (aucune)
+ *   (LOT SYNDIC-DEPART-LIBELLE-CATALOGUE — CE QU'IL DISAIT AVANT : « … retiré du catalogue … ».)
  *   copropriétés une par ligne, par nom de voie.
  * Le pronom suit la CIVILITÉ saisie (M. ⇒ Il, Mme ⇒ Elle) ; sans civilité, on ne devine pas : « Ce contact ». PUR.
  */
@@ -847,7 +848,7 @@ export function departEnLignes(c: ContactForm, syndic: string, adresses: readonl
   const nom = prenomNomCivil(c.civilite, c.prenom, c.nom) || valeurDuChoix(c.titreChoix, c.titreLibre) || 'Ce contact';
   const sujet = c.civilite === 'M.' ? 'Il' : c.civilite === 'Mme' ? 'Elle' : 'Ce contact';
   const l = trierParVoie(adresses.filter((a) => c.immeubles.includes(a.cle))).map((a) => a.adresse);
-  const base = `${sujet} sera retiré${c.civilite === 'Mme' ? 'e' : ''} du catalogue`;
+  const base = `${sujet} sera retiré${c.civilite === 'Mme' ? 'e' : ''} du catalogue des contacts du syndic`;
   const annonce = l.length === 0 ? `${base}.` : l.length === 1 ? `${base} et de sa copropriété :` : `${base} et de ses ${l.length} copropriétés :`;
   return { question: `${nom} ne travaille plus chez ${syndic} ?`, annonce, coproprietes: l };
 }
