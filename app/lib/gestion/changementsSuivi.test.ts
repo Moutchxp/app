@@ -73,10 +73,10 @@ describe('🔴 l’historique de CHAQUE bien concerné : entrée, sortie, et dé
     P(2, 26116, biens('219', '373'), 'a.jorel@sansvisavis.com', '2026-10-11T22:22:52Z'),
   ];
   const pour = (cle: string) => accoladesDuBienDansLeFil({ filId: 16502, mails: MAILS, periodes, cle });
-  it('le 25 rue Edith Cavell (219) reste suivi : « suivi modifié — 2 biens rattachés »', () => {
+  it('le 25 rue Edith Cavell (219) reste suivi : « suivi de fond modifié — 2 biens rattachés »', () => {
     const a = pour('219');
     expect(a).toHaveLength(1);
-    expect(a[0]).toMatchObject({ depuisMessageId: 26116, sens: 'modif', libelle: 'suivi modifié — 2 biens rattachés' });
+    expect(a[0]).toMatchObject({ depuisMessageId: 26116, sens: 'modif', libelle: 'suivi de fond modifié — 2 biens rattachés' });
   });
   it('le lot 373 entre : « suivi aussi par ce bien »', () => {
     expect(pour('373')[0]).toMatchObject({ sens: 'ajout', libelle: LIBELLE_AJOUT });
@@ -94,7 +94,7 @@ describe('🔴 les libellés de la fenêtre « Bien(s) rattaché(s) à ce mail �
     expect(motBiensRattaches(0)).toBe('aucun bien rattaché');
     expect(motBiensRattaches(1)).toBe('1 bien rattaché');
     expect(motBiensRattaches(2)).toBe('2 biens rattachés');
-    expect(libelleSuiviModifie(biens('219'))).toBe('suivi modifié — 1 bien rattaché');
+    expect(libelleSuiviModifie(biens('219'))).toBe('suivi de fond modifié — 1 bien rattaché');
   });
   it('③ « rattachera », et le nombre de biens cochés au bout de la 2ᵉ phrase', () => {
     expect(definitionAffichee('suite', 2)).toBe('À partir de ce mail, et pour tous les prochains échanges de cette conversation, le suivi rattachera les biens choisis ci-dessus. Les mails plus anciens ne changent pas — 2 biens rattachés.');

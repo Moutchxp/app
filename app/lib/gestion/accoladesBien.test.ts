@@ -32,11 +32,11 @@ describe('une accolade seulement si la période concerne CE bien', () => {
   });
   /**
    * 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — RÈGLE CHANGÉE PAR ARNO (12/10/2026) : un bien qui RESTE suivi a
-   * désormais son accolade, « suivi modifié — N biens rattachés ». Seul un bien étranger au changement n'en a pas.
+   * désormais son accolade, « suivi de fond modifié — N biens rattachés ». Seul un bien étranger au changement n'en a pas.
    */
-  it('🔴 le bien qui reste suivi : « suivi modifié — N biens rattachés » ; un bien étranger : rien', () => {
+  it('🔴 le bien qui reste suivi : « suivi de fond modifié — N biens rattachés » ; un bien étranger : rien', () => {
     const a = accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [reprise(1, 1, ['A']), periode(2, 3, ['A', 'B'])], cle: 'A' });
-    expect(a.map((x) => [x.depuisMessageId, x.sens, x.libelle])).toEqual([[3, 'modif', 'suivi modifié — 2 biens rattachés']]);
+    expect(a.map((x) => [x.depuisMessageId, x.sens, x.libelle])).toEqual([[3, 'modif', 'suivi de fond modifié — 2 biens rattachés']]);
     expect(accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [reprise(1, 1, ['A']), periode(2, 3, ['C'])], cle: 'Z' })).toEqual([]);
   });
   it('la fenêtre initiale de la reprise, au premier mail, ne porte aucune accolade', () => {

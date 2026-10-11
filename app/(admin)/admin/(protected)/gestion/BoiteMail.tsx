@@ -77,6 +77,8 @@ import { AIDE_OEIL } from '../../../../lib/gestion/apercuBrouillon';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 /* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — le cartouche rouge « Suivi modifié en one shot » et sa modale. */
 import { PastilleOneShot } from './PastilleOneShot';
+/* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
+import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
 
 /**
  * LOT 5a — LA BOÎTE MAIL. Le second mode du module : tout le courrier, du plus récent au plus ancien, comme on lit sa
@@ -2096,7 +2098,12 @@ export function BoiteMail({
                   </span>
                   {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait pas
                       si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
-                  <span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>
+                  {/* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — le nombre porte sur le mail que la ligne MONTRE ; une
+                      ligne fabriquée (filId négatif) ne désigne aucun mail : la date seule, comme avant. */}
+                  {l.filId > 0
+                    ? <DateEtBiens messageId={l.messageAffiche}
+                      date={<span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>} />
+                    : <span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>}
                 </button>
                 {/* ══ 🔴 LOT LISTE-GMAIL — LA BARRE D'ACTIONS, VOISINE DE LA LIGNE ET NON SON ENFANT ═══════════
                     La ligne EST un bouton, et la barre en contient cinq : un bouton dans un bouton est invalide et
@@ -2189,6 +2196,7 @@ export function BoiteMail({
 }
 
 const CSS_BOITE = `
+${CSS_COMPTEUR_BIENS}
 /* ══ LOT ERGO-BOITE — L'ICÔNE « RELEVER ET ACTUALISER » ════════════════════════════════════════════════════════
    Elle remplace « Relever maintenant » et « Rafraîchir », qui faisaient deux choses qu'on veut toujours ensemble.
    🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — SA FEUILLE EST PARTIE DANS BoutonRond.tsx, avec son balisage : le

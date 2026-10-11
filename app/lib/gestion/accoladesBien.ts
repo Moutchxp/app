@@ -22,7 +22,7 @@ export const LIBELLE_RETRAIT = 'sorti du suivi de ce bien';
  * ══ 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — LA RÈGLE S'ÉLARGIT (Arno, 12/10/2026) ═══════════════════════════
  * « TOUT changement de portée “Ce mail + futurs échanges” (et “Toute la conversation”) affiche l'accolade complète,
  * ancrée au mail déclencheur, dans l'historique de CHAQUE bien concerné (avant ou après), que le bien entre, sorte ou
- * reste suivi. Quand le bien reste suivi : “À partir d'ici : suivi modifié — N biens rattachés”. »
+ * reste suivi. Quand le bien reste suivi : “À partir d'ici : suivi de fond modifié — N biens rattachés”. »
  * L'ancienne règle (« seulement si CE bien entre ou sort ») taisait le cas du 25 rue Edith Cavell, resté suivi.
  * Les changements sont ceux de `changementsDuFil` (le premier mail compris quand c'est un geste).
  */
@@ -31,7 +31,7 @@ export interface AccoladeDuBien {
   filId: number;
   /** Le mail À PARTIR duquel le changement vaut. */
   depuisMessageId: number;
-  /** 🔴 `modif` : le bien RESTE suivi, le changement porte sur les autres biens (« suivi modifié — N biens rattachés »). */
+  /** 🔴 `modif` : le bien RESTE suivi, le changement porte sur les autres biens (« suivi de fond modifié — N biens rattachés »). */
   sens: 'ajout' | 'retrait' | 'modif';
   libelle: string;
   parLibelle: string | null;

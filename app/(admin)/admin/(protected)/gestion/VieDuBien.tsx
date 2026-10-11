@@ -40,6 +40,8 @@ import {
 } from '../../../../lib/gestion/sortirDuSuivi';
 /* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — le cartouche rouge « Suivi modifié en one shot » et sa modale. */
 import { PastilleOneShot } from './PastilleOneShot';
+/* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
+import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
 
 /**
  * LOT FICHES-ANNUAIRE (étape B) — « LA VIE DU BIEN » : TOUS SES MAILS, DANS LA FICHE.
@@ -616,7 +618,8 @@ export function LigneVie({
               <span className="vdb-capsule vdb-capsule--evt">{motEvenementEnCours(ouverts.length)}</span>
             )}
             </span>
-            <span className="vdb-quand">{dateHeureCourte(l.recuLe, maintenant)}</span>
+            <DateEtBiens messageId={l.messageId}
+              date={<span className="vdb-quand">{dateHeureCourte(l.recuLe, maintenant)}</span>} />
           </span>
           <span className="vdb-objet">Objet : {nettoyerObjet(l.objet ?? '') || '(sans objet)'}</span>
           {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — « pour MARTY Jean-François (locataire sortant) · via Me Martin, avocat »
@@ -829,6 +832,7 @@ export function LigneVie({
 }
 
 export const CSS_VIE_DU_BIEN = `
+${CSS_COMPTEUR_BIENS}
 /* AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
    terminerait — piege consigne onze fois dans ce depot, et onze fois dans un commentaire. */
 .vdb-filtres{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}

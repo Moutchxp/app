@@ -141,6 +141,8 @@ import { ecouterPiecesDrive } from '../../../../lib/gestion/signalPieceDrive';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 /* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — le cartouche rouge « Suivi modifié en one shot » et sa modale. */
 import { PastilleOneShot } from './PastilleOneShot';
+/* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
+import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
 
 /**
  * LOT 5b — LA VUE CONVERSATION. UNE SEULE, utilisée partout où l'on ouvre un échange : depuis la boîte mail, depuis le
@@ -3245,7 +3247,8 @@ export function MessageConversation({
               : (onActionStatut ? () => setActions((v) => !v) : undefined)} />
         )}
         {/* L'heure façon Gmail : « 19:07 (il y a 3 heures) », « hier 17:24 », « 22 sept. 18:44 ». */}
-        <span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{heureGmail(message.recuLe, maintenant)}</span>
+        <DateEtBiens messageId={message.messageId}
+          date={<span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{heureGmail(message.recuLe, maintenant)}</span>} />
 
         {/* ══ L'ÉTOILE DE LA RANGÉE — elle bascule le libellé STARRED dans la VRAIE boîte ════════════════════════
             Sans connexion Google, elle n'est pas affichée : on ne montre pas une étoile éteinte qui ne dirait rien.
@@ -3680,6 +3683,7 @@ export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer, vert 
  * quelqu'un a branché la feuille.
  */
 export const CSS_CONVERSATION = `
+${CSS_COMPTEUR_BIENS}
 .cnv{display:flex;flex-direction:column;gap:12px;min-width:0}
 .cnv-bandeau{display:flex;flex-direction:column;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--color-svv-line)}
 .cnv-bandeau-haut{display:flex;flex-wrap:wrap;align-items:center;gap:8px}

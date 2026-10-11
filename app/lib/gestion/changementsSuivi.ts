@@ -119,7 +119,10 @@ export function motBiensRattaches(n: number): string {
 
 export const nbBiensDuClassement = (c: Classement | null): number => (c?.sorte === 'biens' ? c.biens.length : 0);
 
-/** « suivi modifié — 2 biens rattachés » : l'accolade d'un bien qui RESTE suivi (Arno). PUR. */
+/**
+ * « suivi de fond modifié — 2 biens rattachés » : l'accolade d'un bien qui RESTE suivi (Arno). PUR.
+ * 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « suivi modifié » devient « suivi de fond modifié » (Arno, 12/10/2026).
+ */
 export function libelleSuiviModifie(apres: Classement): string {
-  return `suivi modifié — ${motBiensRattaches(nbBiensDuClassement(apres))}`;
+  return `suivi de fond modifié — ${motBiensRattaches(nbBiensDuClassement(apres))}`;
 }

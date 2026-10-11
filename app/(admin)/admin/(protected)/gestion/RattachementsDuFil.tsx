@@ -10,7 +10,7 @@ import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { MenuRattachementBien } from './MenuRattachementBien';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » peut se faire pendant que cette fenêtre est ouverte. */
-import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
+import { annoncerClassement, ecouterClassement } from '../../../../lib/gestion/signalClassement';
 // LOT FICHE-RATTACHEMENT — les mots et les ordres vivent dans un module PUR, éprouvé sans écran.
 import {
   adresseFicheAnnuaire, adresseHistoriqueDuBien, idDossierDrive,
@@ -945,6 +945,9 @@ export function RattachementsDuFil({
       });
       const d = (await res.json()) as { ok?: boolean; erreur?: string; trace?: TraceSuivi };
       if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
+      /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — le classement de ce mail (et peut-être de son échange) vient de
+         changer : les lignes affichées relisent leur compteur « N biens rattachés », sans recharger la page. */
+      annoncerClassement({ messageId: mailId, filId });
       onGeste?.(choix === 'mail'
         ? `Exception posée sur ce mail : ${motClassement(classement)}.`
         : (choix === 'conversation'
@@ -1109,6 +1112,7 @@ export function RattachementsDuFil({
                 setPonctuelFait(null);
                 const ok = await defaireLaDecisionDeSuivi(trace);
                 if (!ok) { setErreur('L’annulation n’a pas abouti : rien n’a été défait.'); return; }
+                annoncerClassement({ messageId: mailId ?? 0, filId });
                 onGeste?.('Modification ponctuelle annulée : l’état d’avant est rétabli.');
                 await charger();
               })()}>
