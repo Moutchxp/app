@@ -212,12 +212,26 @@ describe('🔴 ③b la recherche libre : des BIENS, et rien que des biens', () =
     resultats = { lignes: [trouve('445'), trouve('999')] };
     await monter();
     await taper('rue');
-    const lignes = [...container.querySelectorAll('.rec-resultats .rec-ligne')];
-    expect(lignes[0].textContent).toContain('déjà dans la sélection');
-    expect(lignes[1].textContent).not.toContain('déjà dans la sélection');
+    /* 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la mention et la trame ne paraissent que COCHÉ. */
+    const lignes = () => [...container.querySelectorAll('.rec-resultats .rec-ligne')];
+    expect(lignes()[0].textContent).not.toContain('déjà dans la sélection');
     /* Une seule case pour ce bien : cocher l'une coche l'autre. */
     await cliquer(casesResultats()[0]);
     expect(casesDuHaut()[0].checked).toBe(true);
+    expect(lignes()[0].textContent).toContain('déjà dans la sélection');
+    expect(lignes()[1].textContent).not.toContain('déjà dans la sélection');
+  });
+
+  it('🔴🔴 trame verte éteinte après décochage (Modifier le rattachement)', async () => {
+    resultats = { lignes: [trouve('999')] };
+    await monter();
+    await taper('rue');
+    const ligne = () => container.querySelector('.rec-resultats .rec-ligne') as HTMLElement;
+    await cliquer(ligne().querySelector('input') as HTMLInputElement);
+    expect(ligne().className).toContain('rec-ligne--deja');
+    await cliquer(ligne().querySelector('input') as HTMLInputElement);
+    expect(ligne().className).not.toContain('rec-ligne--deja');
+    expect(ligne().textContent).not.toContain('déjà dans la sélection');
   });
 
   it('🔴 aucun résultat ⇒ on DIT ce qu’on a cherché, jamais « aucun résultat » tout court', async () => {

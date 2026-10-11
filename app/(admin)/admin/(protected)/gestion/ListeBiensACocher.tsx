@@ -235,8 +235,16 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, o
   bien: BienTrouve; coche: boolean; titre: string; dejaEnHaut: boolean; aLaDateDuMail: boolean; onBasculer: () => void;
 }) {
   const l = ligneCompacteDuBien(b, titre);
+  /**
+   * 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — LA TRAME VERTE NE REFLÈTE QUE L'ÉTAT COCHÉ ACTUEL (Arno).
+   * DÉFAUT : une carte cochée puis décochée gardait sa trame. CAUSE : la trame suivait « ce bien est déjà montré plus
+   * haut » ; or un résultat coché rejoint la liste du haut et y RESTE une fois décoché (on ne fait pas disparaître sous
+   * le doigt la ligne qu'on vient de toucher). Elle suit désormais la case, et rien d'autre : décochée, la carte
+   * revient aussitôt à l'aspect normal — ici comme dans le composeur, puisque c'est le même composant.
+   */
+  const dejaCoche = dejaEnHaut && coche;
   return (
-    <li className={`rec-ligne${dejaEnHaut ? ' rec-ligne--deja' : ''}`}>
+    <li className={`rec-ligne${dejaCoche ? ' rec-ligne--deja' : ''}`}>
       <label className="rec-ligne-choix">
         <input type="checkbox" checked={coche} onChange={onBasculer} />
         <span className="rec-ligne-corps">
@@ -246,7 +254,7 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, o
             <InfoBien cle={b.cle} titre={l.titre} surLaLigne={`${l.titre} ${l.proprietaires} ${l.locataire}`} />
           </span>
           {/* 🔴 « déjà dans la sélection » : la même case, vue d'un autre endroit — jamais un second bien. */}
-          {dejaEnHaut && <span className="rec-ligne-deja">déjà dans la sélection</span>}
+          {dejaCoche && <span className="rec-ligne-deja">déjà dans la sélection</span>}
           <PartiesSurDeuxLignes parties={b.parties} dansUneLigne aLaDateDuMail={aLaDateDuMail} />
           {/* Pourquoi cette ligne répond : c'est ce qui permet de comprendre un résultat surprenant. */}
           <span className="rec-ligne-motif">trouvé par {b.raisons.map(motRaison).join(' · ')}</span>

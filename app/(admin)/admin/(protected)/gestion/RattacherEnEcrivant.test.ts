@@ -523,6 +523,25 @@ describe('🔴🔴 ⑥ un bien ne se compte jamais deux fois', () => {
     expect(boutonPar(/^Valider/).textContent).toBe('Valider — 1 bien(s)');
   });
 
+  /**
+   * 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — LA TRAME VERTE NE SUIT QUE L'ÉTAT COCHÉ ACTUEL (Arno).
+   * Un résultat coché puis décoché revient AUSSITÔT à l'aspect normal, même s'il reste dans la liste du haut.
+   */
+  it('🔴🔴 trame verte éteinte après décochage (composeur)', async () => {
+    contexte.biens = [BIEN('134', false, 'motif')];
+    biensTrouves = [TROUVE('432')];
+    await monter();
+    await taper('manessier');
+    const ligne = () => container.querySelector('.rec-ligne') as HTMLElement;
+    await cliquer(ligne().querySelector('input') as HTMLInputElement);
+    expect(ligne().className).toContain('rec-ligne--deja');
+    await cliquer(ligne().querySelector('input') as HTMLInputElement);
+    expect(ligne().className).not.toContain('rec-ligne--deja');
+    expect(ligne().textContent).not.toContain('déjà dans la sélection');
+    /* …et le bien reste dans la liste du haut, décoché : la ligne touchée ne disparaît pas. */
+    expect(container.querySelectorAll('.rec-bien')).toHaveLength(2);
+  });
+
   /** 🔴 ET LA VALIDATION N'EN POSE QU'UN : l'ensemble ne peut pas rendre deux fois la même clé. */
   it('🔴🔴 valider ne rend qu’UNE cible pour ce bien', async () => {
     contexte.biens = [BIEN('432', true, 'locataire')];
