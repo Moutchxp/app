@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { classementsDuRepere, colonnesAvantApres, ligneDuBien, titreApres, TITRE_AVANT, MENTION_RECALCULE } from './avantApres';
+import {
+  classementsDuRepere, colonnesAvantApres, ligneDuBien, motBiensSuivis, nbBiensSuivis, titreApres, TITRE_AVANT, MENTION_RECALCULE,
+} from './avantApres';
 import type { Classement } from './periodesConversation';
 
 /** 🔴🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — les deux colonnes, sans écran. */
@@ -44,5 +46,23 @@ describe('l’avant et l’après d’une période « la suite »', () => {
     expect(classementsDuRepere({ mails: [1, 2, 3], periodes, periodeId: 2 })).toEqual({ avant: periodes[0].classement, apres: periodes[1].classement });
     expect(classementsDuRepere({ mails: [1, 2, 3], periodes, periodeId: 1 })?.avant).toBeNull();
     expect(classementsDuRepere({ mails: [1, 2, 3], periodes, periodeId: 9 })).toBeNull();
+  });
+});
+
+describe('🔴 le nombre de biens suivis, dans l’en-tête de chaque colonne (Arno)', () => {
+  it('accord singulier / pluriel, « aucun bien suivi » à zéro', () => {
+    expect(motBiensSuivis(0)).toBe('aucun bien suivi');
+    expect(motBiensSuivis(1)).toBe('1 bien suivi');
+    expect(motBiensSuivis(2)).toBe('2 biens suivis');
+  });
+  it('les biens retirés (barrés, à droite) ne sont pas comptés ; les ajoutés le sont', () => {
+    const b = (cle: string) => ({ cle, libelle: `lot ${cle}` });
+    const c = colonnesAvantApres({
+      avant: { sorte: 'biens', biens: [b('219'), b('224')] } as Classement,
+      apres: { sorte: 'biens', biens: [b('219'), b('300')] } as Classement,
+    });
+    expect(nbBiensSuivis(c.avant)).toBe(2);
+    expect(c.apres.biens).toHaveLength(3);
+    expect(nbBiensSuivis(c.apres)).toBe(2);
   });
 });

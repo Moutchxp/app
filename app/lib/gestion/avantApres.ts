@@ -34,6 +34,19 @@ export const SUFFIXE_SUITE = 'à partir de ce mail';
 export const titreApres = (suffixe: string): string => `APRÈS — ${suffixe}`;
 export const PHRASE_SUITE = 'Les mails plus anciens ne changent pas.';
 
+/**
+ * 🔴 LOT PILULE-PARTOUT-ET-AVANT-APRES-PUCES-COMPTEURS (Arno) — le nombre de biens suivis d'une colonne, dans son en-tête :
+ * « 2 biens suivis », « 1 bien suivi », « aucun bien suivi ». ⚠️ Les biens RETIRÉS (barrés, à droite) ne sont pas
+ * comptés : ils ne sont plus suivis. PUR.
+ */
+export function nbBiensSuivis(c: Colonne): number {
+  return c.biens.filter((b) => b.etat !== 'retire').length;
+}
+export function motBiensSuivis(n: number): string {
+  if (n <= 0) return 'aucun bien suivi';
+  return n === 1 ? '1 bien suivi' : `${n} biens suivis`;
+}
+
 const roleMot = (s: 'proprietaire' | 'locataire'): string => (s === 'proprietaire' ? 'propriétaire' : 'locataire');
 const parties = (c: Classement | null): string[] =>
   (c?.personnes ?? []).map((p) => `${p.libelle.trim()} (${roleMot(p.sorte)})`).filter((x) => x.trim() !== '()');

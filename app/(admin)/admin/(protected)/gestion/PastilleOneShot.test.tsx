@@ -130,8 +130,8 @@ describe('PastilleOneShot', () => {
     /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — deux colonnes, une ligne par bien (adresse, CP ville, lot). */
     const avant = modale.querySelector('.maa-col--avant') as HTMLElement;
     const apres = modale.querySelector('.maa-col--apres') as HTMLElement;
-    expect(avant.querySelector('.maa-col-titre')?.textContent).toBe('AVANT — suivi de fond');
-    expect(apres.querySelector('.maa-col-titre')?.textContent).toBe('APRÈS — ce mail uniquement');
+    expect(avant.querySelector('.maa-col-titre')?.textContent).toBe('AVANT — suivi de fond · 1 bien suivi');
+    expect(apres.querySelector('.maa-col-titre')?.textContent).toBe('APRÈS — ce mail uniquement · 1 bien suivi');
     expect([...avant.querySelectorAll('.maa-bien')].map((b) => b.textContent)).toEqual(['25 rue Edith Cavell, 92400 COURBEVOIE — lot 12']);
     expect(avant.querySelector('.maa-parties')?.textContent).toBe('Parties : Nevine Abdellatif (locataire)');
     /* 🔴 À DROITE : l'ajouté porte un « + » vert, le retiré est barré. */

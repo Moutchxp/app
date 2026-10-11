@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  colonnesAvantApres, titreApres, MENTION_RECALCULE, TITRE_AVANT, type Colonne, type GesteAvantApres,
+  colonnesAvantApres, motBiensSuivis, nbBiensSuivis, titreApres, MENTION_RECALCULE, TITRE_AVANT, type Colonne,
+  type GesteAvantApres,
 } from '../../../../lib/gestion/avantApres';
 import { motParLe } from '../../../../lib/gestion/suiviOneShot';
 
@@ -96,6 +97,8 @@ function ColonneVue({ cote, titre, mention, colonne, lignes }: {
     <div className={`maa-col maa-col--${cote}`}>
       <h3 className="maa-col-titre">
         {titre}
+        {/* 🔴 LE NOMBRE DE BIENS SUIVIS DE CE CÔTÉ (Arno) — les retirés, barrés, ne comptent pas. */}
+        <span className="maa-compte"> · {motBiensSuivis(nbBiensSuivis(colonne))}</span>
         {/* 🔴 DISCRÈTE : l'avant n'a pas été photographié au geste, il est recalculé aujourd'hui. */}
         {mention !== null && <span className="maa-recalcule"> {mention}</span>}
       </h3>
@@ -107,7 +110,11 @@ function ColonneVue({ cote, titre, mention, colonne, lignes }: {
             {colonne.biens.map((b) => (
               <li key={`${b.cle}-${b.etat ?? ''}`} className={`maa-bien${b.etat === null ? '' : ` maa-bien--${b.etat}`}`}>
                 {/* 🔴 LE « + » ET LE BARRÉ SONT DITS AUSSI EN MOTS (lecteur d'écran, niveaux de gris). */}
-                {b.etat === 'ajoute' && <span className="maa-plus" aria-label="ajouté">+</span>}
+                {/* 🔴 LA PUCE (Arno) : un petit rond plein devant chaque adresse ; le « + » vert d'un ajout en tient lieu.
+                    Elle est un élément à part de la rangée flexible : une adresse sur deux lignes s'aligne sous le TEXTE. */}
+                {b.etat === 'ajoute'
+                  ? <span className="maa-plus" aria-label="ajouté">+</span>
+                  : <span className="maa-puce" aria-hidden="true" />}
                 <span className="maa-ligne">{lignes[b.cle] ?? b.libelle}</span>
                 {b.etat === 'retire' && <span className="maa-sr"> (retiré)</span>}
               </li>
@@ -141,13 +148,18 @@ export const CSS_MODALE_AVANT_APRES = `
 .maa-vide{font-style:italic;color:var(--color-svv-muted)}
 .maa-mot{font-weight:700;color:var(--color-svv-muted)}
 .maa-biens{margin:.3rem 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:3px}
-.maa-bien{display:flex;align-items:baseline;gap:.35rem;font-size:.84rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.maa-bien{display:flex;align-items:baseline;gap:.35rem;font-size:.84rem;line-height:1.4;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .maa-ligne{min-width:0}
+/* La puce : petit rond plein, couleur du texte secondaire ; rouge pale sur un bien retire. Meme case que le « + ». */
+/* Centree sur la PREMIERE ligne (hauteur de ligne 1,4) : (1,4em - 6px) / 2 = 0,7em - 3px. */
+.maa-puce{flex:0 0 auto;align-self:flex-start;width:6px;height:6px;margin:calc(.7em - 3px) 3px 0;border-radius:50%;
+  background:var(--color-svv-muted)}
+.maa-bien--retire .maa-puce{background:color-mix(in srgb, var(--color-svv-red) 55%, var(--color-svv-muted))}
 /* Retire : barre, en rouge pale (le texte reste lisible, c'est un etat et non une alerte). */
 .maa-bien--retire .maa-ligne{text-decoration:line-through;text-decoration-color:var(--color-svv-red);
   color:color-mix(in srgb, var(--color-svv-red) 55%, var(--color-svv-muted))}
 /* Ajoute : un « + » vert devant la ligne. */
-.maa-plus{flex:0 0 auto;font-weight:700;color:var(--color-svv-green-ink)}
+.maa-plus{flex:0 0 auto;width:12px;text-align:center;font-weight:700;color:var(--color-svv-green-ink)}
 .maa-bien--ajoute .maa-ligne{font-weight:600}
 .maa-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .maa-qui{margin:0;font-size:.8rem;color:var(--color-svv-muted)}

@@ -147,8 +147,8 @@ describe('🔴🔴 ① clic → fenêtre', () => {
 describe('🔴🔴 ② ③ deux colonnes : AVANT — suivi de fond / APRÈS — à partir de ce mail', () => {
   it('les titres, le statut, une ligne par bien (adresse, CP ville, lot), les parties', async () => {
     await ouvrir();
-    expect(colonne('avant').querySelector('.maa-col-titre')?.textContent).toBe('AVANT — suivi de fond');
-    expect(colonne('apres').querySelector('.maa-col-titre')?.textContent).toBe('APRÈS — à partir de ce mail');
+    expect(colonne('avant').querySelector('.maa-col-titre')?.textContent).toBe('AVANT — suivi de fond · 1 bien suivi');
+    expect(colonne('apres').querySelector('.maa-col-titre')?.textContent).toBe('APRÈS — à partir de ce mail · aucun bien suivi');
     expect(colonne('avant').querySelector('.maa-statut')?.textContent).toBe('Statut : Classé');
     expect(colonne('avant').querySelector('.maa-bien')?.textContent).toBe('12 rue Inventée, 92400 VILLE-TEST — lot 484');
     expect(colonne('avant').querySelector('.maa-parties')?.textContent).toBe('Parties : PROPRIO Fictif (propriétaire)');
@@ -159,6 +159,15 @@ describe('🔴🔴 ② ③ deux colonnes : AVANT — suivi de fond / APRÈS — 
     const b = colonne('apres').querySelector('.maa-bien--retire') as HTMLElement;
     expect(b.textContent).toBe('12 rue Inventée, 92400 VILLE-TEST — lot 484 (retiré)');
     expect(CSS_MODALE_AVANT_APRES).toContain('.maa-bien--retire .maa-ligne{text-decoration:line-through');
+  });
+  it('🔴 une puce devant chaque adresse, élément à part (la 2ᵉ ligne s’aligne sous le texte) ; rouge pâle si retiré', async () => {
+    await ouvrir();
+    const avant = colonne('avant').querySelector('.maa-bien') as HTMLElement;
+    expect(avant.firstElementChild?.className).toBe('maa-puce');
+    expect(avant.firstElementChild?.getAttribute('aria-hidden')).toBe('true');
+    expect((colonne('apres').querySelector('.maa-bien--retire') as HTMLElement).firstElementChild?.className).toBe('maa-puce');
+    expect(CSS_MODALE_AVANT_APRES).toContain('.maa-puce{flex:0 0 auto;');
+    expect(CSS_MODALE_AVANT_APRES).toContain('.maa-bien--retire .maa-puce{background:color-mix(in srgb, var(--color-svv-red) 55%');
   });
   it('🔴 l’avant d’une accolade vient de la fenêtre précédente : jamais « recalculé »', async () => {
     await ouvrir();
