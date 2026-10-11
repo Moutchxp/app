@@ -20,7 +20,7 @@ import {
   AIDE_DRIVE_ABSENT, AIDE_DRIVE_DU_BIEN, AIDE_HISTORIQUE_ABSENT, AIDE_HISTORIQUE_DU_BIEN,
   AUCUN_BIEN_DU_MAIL, biensDuMail, ENCADRE_EXCEPTION_CE_MAIL, MENTION_AJOUT_PONCTUEL, motEnTeteMail,
   MOT_DRIVE_ABSENT, MOT_DRIVE_DU_BIEN, MOT_HISTORIQUE_DU_BIEN,
-  MOT_MODIFIER_BIENS_DU_MAIL, resumeModificationBiens, TITRE_BIENS_DU_MAIL,
+  MOT_MODIFIER_BIENS_DU_MAIL, resumeModificationBiens, TITRE_BIENS_DU_MAIL, TITRE_BIENS_SUIVIS,
   type BienRattache, type FicheRattachementFil, type PersonneRattachement,
 } from '../../../../lib/gestion/ficheRattachement';
 /* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — « Ouvrir le Drive du bien » ouvre NOTRE outil Drive, et
@@ -64,6 +64,11 @@ import { ChampsEvenement, CSS_BLOC_EVENEMENT } from './BlocEvenement';
 import { bornesEvenement } from '../../../../lib/gestion/evenementQualite';
 import { jourParis } from '../../../../lib/gestion/historiqueBien';
 import { ChoisirEvenement } from './ChoisirEvenement';
+/* 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — les cartes des biens suivis prennent le format des cartes du
+   composant partagé : mêmes classes, même pastille « i », mêmes deux lignes de parties. */
+import { CSS_LISTE_BIENS, PartiesSurDeuxLignes } from './ListeBiensACocher';
+import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
+import { titresDistincts } from '../../../../lib/gestion/titreBien';
 import type { EvenementDuMail } from '../../../../lib/gestion/evenementQualite';
 
 /**
@@ -532,6 +537,14 @@ export function RattachementsDuFil({
     : biensDuMail(fiche.biens, tousLesLiens, mailId);
   /** L'état de départ du panneau : exactement les biens ci-dessus, cochés. */
   const clesDuMail = biens.map((b) => b.cle);
+  /**
+   * 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — LE TITRE DES CARTES SUIVIES, « adresse — nature · type », par la
+   * fonction des cartes du composant partagé. Le code postal est ôté : c'est la forme que la recherche affiche.
+   */
+  const titresSuivis = new Map(titresDistincts(biens.map((b) => ({
+    cle: b.cle, adresse: b.adresseComplete.replace(/\b\d{5}\s+/, ''), nature: b.nature, typeBien: b.typeBien,
+    immeuble: null as string | null,
+  }))).map((x) => [x.cle, x.titre]));
   const libellesConnus: Record<string, string> = {};
   for (const b of biens) libellesConnus[b.cle] = `${b.adresseComplete} — lot ${b.numeroLot}`;
   /**
@@ -953,8 +966,16 @@ export function RattachementsDuFil({
           `bev-…`). Elle est montée ici parce que ce sont SES champs qu'on affiche ; la recopier aurait donné
           deux formulaires qui ne se ressemblent plus au premier ajustement. */}
       <style>{CSS_BLOC_EVENEMENT}</style>
-      <div className="mrt rdf" role="dialog" aria-modal="true" aria-labelledby="rdf-titre"
+      {ponctuel && <style>{CSS_LISTE_BIENS}</style>}
+      {ponctuel && <style>{CSS_INFO_BIEN}</style>}
+      <div className={`mrt rdf${ponctuel ? ' rdf--ponctuel' : ''}`} role="dialog" aria-modal="true" aria-labelledby="rdf-titre"
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } }}>
+        {/* 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — LA CROIX : fermer sans rien écrire, c'est revenir à
+            « Origine » (Arno). Elle ne fait QUE fermer : aucune requête ne part par elle. */}
+        {ponctuel && (
+          <button type="button" className="rdf-croix" aria-label="Fermer sans rien changer"
+            title="Fermer sans rien changer" onClick={onFerme}>×</button>
+        )}
 
         {/* ══ 🔴🔴 EN TÊTE : DE QUEL MAIL ON PARLE — expéditeur, date, objet (demande d'Arno) ═════════════════
             🔴 UN SEUL TITRE DÉSORMAIS. « Bien(s) de cet échange » a disparu avec la fenêtre qui le portait : un
@@ -1007,7 +1028,9 @@ export function RattachementsDuFil({
           * ⚠️ ON NE L'AFFICHE PAS QUAND LE BLOC « aucun bien » EST LÀ : il dirait la même chose deux fois, à deux
           * centimètres d'écart.
           */}
-        {fiche !== null && !(biens.length === 0 && panneau === 'aucun') && (
+        {/* 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — en « Modifier le rattachement », le titre du bloc des biens
+            suivis REMPLACE ce compteur (Arno). Les deux autres portes le gardent. */}
+        {!ponctuel && fiche !== null && !(biens.length === 0 && panneau === 'aucun') && (
           <p className="rdf-detail rdf-compteur">{motNbBiensRattaches((selection ?? clesDuMail).length)}</p>
         )}
 
@@ -1042,7 +1065,7 @@ export function RattachementsDuFil({
         {/* ══ 🔴 HORS GESTION, OU AUCUN BIEN : ON LE DIT, ET ON PROPOSE LE GESTE ═════════════════════════════
             Un cadre vide se lit comme une panne. Ces deux états sont des RÉPONSES — « ce mail ne concerne aucun
             bien », « il n'est rattaché à rien pour l'instant » — et chacun a sa suite naturelle. */}
-        {fiche !== null && biens.length === 0 && (
+        {!ponctuel && fiche !== null && biens.length === 0 && (
           <div className="rdf-vide">
             <p className="rdf-vide-mot">
               {fiche.horsGestion
@@ -1057,8 +1080,37 @@ export function RattachementsDuFil({
           </div>
         )}
 
+        {/* ══ 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — BLOC 1 : « BIENS ACTUELLEMENT SUIVI(S) » ════════════
+            Le titre est INTÉGRÉ au cadre qui liste les biens (Arno), en plus grand. Chaque bien est une carte au format du
+            composant partagé ; son détail est sur une ligne repliable. Seule la porte ponctuelle est concernée. */}
+        {ponctuel && fiche !== null && (
+          <section className="rdf-suivis" aria-labelledby="rdf-suivis-titre">
+            <h3 className="rdf-suivis-titre" id="rdf-suivis-titre">{TITRE_BIENS_SUIVIS}</h3>
+            {biens.length === 0 && (
+              <p className="rdf-detail">
+                {fiche.horsGestion
+                  ? 'Cet échange est marqué « Hors gestion » : il ne concerne aucun bien. La marque se lève d’elle-même si vous le rattachez à un bien.'
+                  : `${AUCUN_BIEN_DU_MAIL}. Les autres mails de la conversation peuvent l’être, eux.`}
+              </p>
+            )}
+            <ul className="rdf-suivis-liste">
+              {biens.map((b) => (
+                <CarteBienSuivi key={b.cle} bien={b} titre={titresSuivis.get(b.cle) ?? b.adresseComplete}
+                  ponctuel={b.ponctuel}
+                  garde={panneau === 'aucun' ? undefined : (selection ?? clesDuMail).includes(b.cle)}
+                  onGarder={panneau === 'aucun' ? undefined : () => setSelection((avant) => {
+                    const courant = avant ?? clesDuMail;
+                    return courant.includes(b.cle) ? courant.filter((c) => c !== b.cle) : [...courant, b.cle];
+                  })}
+                  liens={b.lienIds.map((id) => liensParId.get(id)).filter((l): l is LienAffiche => l !== undefined)}
+                  onModifier={setModifie} />
+              ))}
+            </ul>
+          </section>
+        )}
+
         {/* ══ 🔴 UN BLOC PAR BIEN ════════════════════════════════════════════════════════════════════════════ */}
-        {biens.map((b) => (
+        {!ponctuel && biens.map((b) => (
           <BlocBien key={b.cle} bien={b} dossierId={dossiers[b.cle] ?? b.dossierDriveId}
             ponctuel={b.ponctuel}
             /* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — la case n'existe QUE pendant la
@@ -1203,9 +1255,14 @@ export function RattachementsDuFil({
                     ⚠️ RIEN N'EST ÉCRIT ICI : on note ce qu'on VEUT, et « Valider le suivi » l'écrit après les
                     biens — c'est à cette seule condition que la carte neuve peut recevoir les biens cochés, leur
                     propriétaire et leur locataire. */}
-                <div className="rdf-evt">
+                {/* ══ 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — BLOC 4 : UNE SEULE LIGNE REPLIABLE (Arno) ══════
+                    « ▸ Événement rattaché : aucun / GES-… ». Dépliée, elle montre le contenu d'avant, à l'identique
+                    (« Lier à un événement », « Créer un événement »). Les deux autres portes gardent la ligne ouverte. */}
+                {(() => {
+                  const contenuEvt = (
+                    <>
                   <p className="rdf-evt-tete">
-                    <span className="rdf-suivi-titre">Événement rattaché</span>
+                    {!ponctuel && <span className="rdf-suivi-titre">Événement rattaché</span>}
                     {evtDuMail === null && <span className="rdf-detail">lecture…</span>}
                     {evtDuMail !== null && evtDuMail.evenement !== null && (
                       <span className="rdf-evt-nom">
@@ -1324,7 +1381,21 @@ export function RattachementsDuFil({
                       </div>
                     </div>
                   )}
-                </div>
+                    </>
+                  );
+                  if (!ponctuel) return <div className="rdf-evt">{contenuEvt}</div>;
+                  const etatEvt = evtVoulu !== null
+                    ? (evtVoulu.sorte === 'lier' ? `à lier : ${evtVoulu.mot}` : `à créer : « ${evtVoulu.objet.trim()} »`)
+                    : evtDuMail === null ? 'lecture…'
+                      : evtDuMail.evenement === null ? 'aucun'
+                        : `${evtDuMail.evenement.reference} · ${evtDuMail.evenement.objet}`;
+                  return (
+                    <details className="rdf-evt rdf-evt-repli" open={panneauEvt !== 'aucun' || undefined}>
+                      <summary className="rdf-evt-resume">Événement rattaché : {etatEvt}</summary>
+                      {contenuEvt}
+                    </details>
+                  );
+                })()}
                 {/* 🔴 CE QUE LA VALIDATION VA ÉCRIRE, DIT AVANT DE LA FAIRE — « Aucun changement » compris. */}
                 {/* ⚠️ `rdf-bilan`, PAS `rdf-resume` : ce dernier est déjà le dépliant « Voir le détail par mail »
                     de chaque bien. Deux sens pour une classe, c'est un style qu'on croit changer ici et qui
@@ -1455,16 +1526,6 @@ function BlocBien({
   /** L'adresse de la fiche du bien, ou `null` : celle du second. */
   const histo = adresseHistoriqueDuBien(bien.lotId);
   const avecCase = garde !== undefined && onGarder !== undefined;
-  /**
-   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — FAUT-IL AJOUTER « Aujourd'hui : … » ?
-   *
-   * `null` = non, et c'est le cas le plus fréquent : l'occupant n'a pas changé depuis le mail, la ligne ne
-   * répéterait que ce qui est écrit juste au-dessus. La décision est PURE et éprouvée sans écran — la carte ne
-   * fait que l'écrire.
-   */
-  const aujourdhui = occupantsAujourdhuiADire(
-    bien.personnes.filter((p) => p.role === 'locataire'), bien.occupantsAujourdhui,
-  );
   /* 🔴 LA CARTE S'ESTOMPE quand elle ne sera plus là : la mention le DIT, l'opacité ne fait que l'appuyer. */
   const retire = avecCase && garde === false;
   return (
@@ -1542,6 +1603,31 @@ function BlocBien({
         )}
       </div>
 
+      <CorpsDuBien bien={bien} liens={liens} onModifier={onModifier} />
+    </section>
+  );
+}
+
+/**
+ * ══ 🔴 LE CORPS D'UNE CARTE DE BIEN : ses personnes (l'expéditeur en tête), « vacant », « Aujourd'hui », et le détail
+ * par mail. Extrait TEL QUEL de `BlocBien` (lot MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS) pour être rendu aussi dans la
+ * ligne repliable des cartes de « Modifier le rattachement » — un seul dessin, deux places.
+ */
+function CorpsDuBien({ bien, liens, onModifier }: {
+  bien: BienRattache; liens: LienAffiche[]; onModifier: (l: LienAffiche) => void;
+}) {
+  /**
+   * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — FAUT-IL AJOUTER « Aujourd'hui : … » ?
+   *
+   * `null` = non, et c'est le cas le plus fréquent : l'occupant n'a pas changé depuis le mail, la ligne ne
+   * répéterait que ce qui est écrit juste au-dessus. La décision est PURE et éprouvée sans écran — la carte ne
+   * fait que l'écrire.
+   */
+  const aujourdhui = occupantsAujourdhuiADire(
+    bien.personnes.filter((p) => p.role === 'locataire'), bien.occupantsAujourdhui,
+  );
+  return (
+    <>
       {/* ══ 🔴 LES PERSONNES, L'EXPÉDITEUR EN TÊTE ═════════════════════════════════════════════════════════ */}
       {bien.personnes.filter((p) => p.role === 'proprietaire').length === 0 && (
         <p className="rdf-detail rdf-absent">Aucun propriétaire connu pour ce lot dans l’annuaire.</p>
@@ -1609,7 +1695,77 @@ function BlocBien({
           </ul>
         </details>
       )}
-    </section>
+    </>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — UN BIEN SUIVI, AU FORMAT DES CARTES DU COMPOSANT PARTAGÉ ═══════
+ *
+ * DEMANDE D'ARNO (11/10/2026) : « Chaque bien déjà rattaché est présenté au format des cartes de ListeBiensACocher :
+ * case, titre “adresse — nature · type”, “i”, PROPRIÉTAIRE, LOCATAIRE (à la date du mail), motif. Sous la carte, une
+ * ligne repliable unique avec le nom du propriétaire. Dépliée, elle montre le détail actuel […]. La capsule rouge
+ * “EXPÉDITEUR” reste affichée à côté de la partie qui a envoyé le mail, y compris sur la ligne repliée. »
+ *
+ * 🔴 RIEN DU DÉTAIL N'EST PERDU : la ligne repliable rend `CorpsDuBien` — le même que la carte d'avant — précédé du
+ * statut, de la mention « ajout ponctuel » et des caractéristiques (lot, nature, type, surface).
+ * 🔴 SEULS « Ouvrir le Drive du bien » ET « Historique du bien » N'Y SONT PAS (accord d'Arno, pour cette modale) : ils
+ * restent sur la carte des deux autres portes et ailleurs dans l'application.
+ */
+function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponctuel = false }: {
+  bien: BienRattache;
+  /** « ajout ponctuel » (voir `MOTIF_AJOUT_PONCTUEL`). */
+  ponctuel?: boolean;
+  titre: string;
+  liens: LienAffiche[];
+  /** `undefined` ⇒ aucune case (hors modification). */
+  garde?: boolean;
+  onGarder?: () => void;
+  onModifier: (l: LienAffiche) => void;
+}) {
+  const avecCase = garde !== undefined && onGarder !== undefined;
+  const retire = avecCase && garde === false;
+  const proprios = bien.personnes.filter((p) => p.role === 'proprietaire');
+  const locataires = bien.personnes.filter((p) => p.role === 'locataire');
+  const expediteur: 'proprietaire' | 'locataire' | null = proprios.some((p) => p.expediteur) ? 'proprietaire'
+    : locataires.some((p) => p.expediteur) ? 'locataire' : null;
+  const capsule = <span className="rec-expediteur">Expéditeur</span>;
+  const motif = !avecCase ? 'rattaché à ce mail'
+    : garde ? 'déjà rattaché — décochez pour le retirer'
+      : 'décoché : ce mail sortira du suivi de ce bien à la validation (restaurable)';
+  return (
+    <li className={`rec-bien rdf-suivi-carte${retire ? ' rdf-suivi-carte--retire' : ''}`}>
+      <label className="rec-choix">
+        {avecCase && (
+          <input type="checkbox" className="rdf-garde" checked={garde} onChange={onGarder}
+            aria-label={`Garder « ${titre} » rattaché à ce mail`} />
+        )}
+        <span className="rec-bien-nom">{titre}</span>
+        <InfoBien cle={bien.cle} titre={titre} surLaLigne={`${titre} ${bien.personnes.map((p) => p.nom).join(' ')}`} />
+        {/* 🔴 « SERA RETIRÉ » EST ÉCRIT, jamais seulement grisé. */}
+        {retire && <span className="rdf-sera-retire">sera retiré</span>}
+      </label>
+      <PartiesSurDeuxLignes parties={bien.personnes} aLaDateDuMail expediteur={expediteur} />
+      <p className="rec-motif">{motif}</p>
+      <details className="rdf-suivi-detail">
+        <summary className="rdf-suivi-resume">
+          {proprios.length === 0 ? 'Aucun propriétaire connu' : proprios.map((p) => p.nom).join(' · ')}
+          {expediteur === 'proprietaire' && <> {capsule}</>}
+          {expediteur === 'locataire' && <> · {locataires.filter((p) => p.expediteur).map((p) => p.nom).join(' · ')} {capsule}</>}
+        </summary>
+        <div className="rdf-suivi-corps">
+          <p className="rdf-detail rdf-caract">
+            <span className={`rdf-statut rdf-statut--${bien.statut}`}>{motStatutBien(bien.statut)}</span>
+            {ponctuel && <span className="rdf-ponctuel">{MENTION_AJOUT_PONCTUEL}</span>}
+            <span>lot {bien.numeroLot}</span>
+            {bien.nature !== null && <span>{bien.nature}</span>}
+            {bien.typeBien !== null && <span>{bien.typeBien}</span>}
+            <span className={bien.surfaceM2 === null ? 'rdf-absent' : undefined}>{motSurface(bien.surfaceM2)}</span>
+          </p>
+          <CorpsDuBien bien={bien} liens={liens} onModifier={onModifier} />
+        </div>
+      </details>
+    </li>
   );
 }
 
@@ -1838,6 +1994,28 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-alerte-texte{font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}
 /* Ce que la validation va ecrire, en une phrase — « Aucun changement » compris. */
 .rdf-bilan{font-weight:600;color:var(--color-svv-ink)}
+/* ══ LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — « MODIFIER LE RATTACHEMENT » ══════════════════════════════════
+   AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit. Couleurs : jetons seulement. */
+.rdf--ponctuel{position:relative}
+.rdf-croix{position:absolute;top:8px;right:8px;display:inline-flex;align-items:center;justify-content:center;
+  min-width:36px;min-height:36px;padding:0;font:inherit;font-size:1.4rem;line-height:1;color:var(--color-svv-muted);
+  background:transparent;border:0;border-radius:50%;cursor:pointer}
+.rdf-croix:hover{background:color-mix(in srgb, var(--color-svv-ink) 8%, transparent);color:var(--color-svv-ink)}
+.rdf-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+/* Bloc 1 : le titre est DANS le cadre, en plus grand. */
+.rdf-suivis{margin:4px 0 10px;padding:10px 12px;background:var(--color-svv-surface);
+  border:2px solid var(--color-svv-line-strong);border-radius:.7rem;min-width:0}
+.rdf-suivis-titre{margin:0 0 .5rem;font-size:1.02rem;font-weight:700;color:var(--color-svv-ink)}
+.rdf-suivis-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.rdf-suivi-carte--retire{opacity:.6;border-style:dashed}
+.rdf-suivi-detail{margin:.35rem 0 0 1.6rem}
+.rdf-suivi-resume{font-size:.8rem;font-weight:600;color:var(--color-svv-ink);cursor:pointer;overflow-wrap:anywhere}
+.rdf-suivi-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.rdf-suivi-corps{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+/* La ligne « Evenement rattache », repliee. */
+.rdf-evt-resume{font-size:.8rem;font-weight:600;color:var(--color-svv-ink);cursor:pointer;overflow-wrap:anywhere}
+.rdf-evt-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.rdf-evt-repli>.rdf-evt-tete{margin-top:6px}
 /* LOT STATUT-PAR-MAIL — le detail par mail, REPLIE. On ne cache rien : on cesse de repeter. */
 .rdf-detail-mails{margin-top:2px}
 .rdf-resume{font-size:.78rem;color:var(--color-svv-muted);cursor:pointer}

@@ -271,22 +271,30 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, o
  * 🔴 `aLaDateDuMail` : « LOCATAIRE (à la date du mail) », et « Vacant à cette date ». La précision est hors des
  * petites capitales : c'est une phrase, pas un intitulé.
  */
-export function PartiesSurDeuxLignes({ parties, dansUneLigne = false, aLaDateDuMail = false }: {
+export function PartiesSurDeuxLignes({ parties, dansUneLigne = false, aLaDateDuMail = false, expediteur = null }: {
   parties: readonly { role: string; nom: string }[];
   /** Dans une ligne de résultat (déjà décalée par sa case) : pas de retrait supplémentaire. */
   dansUneLigne?: boolean;
   aLaDateDuMail?: boolean;
+  /**
+   * 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la partie qui a ENVOYÉ le mail : la capsule rouge « Expéditeur »
+   * se pose sur SA ligne (Arno). `null` = aucune des deux (le cas des listes de recherche).
+   */
+  expediteur?: 'proprietaire' | 'locataire' | null;
 }) {
   const l = deuxLignesParties(parties, { aLaDateDuMail });
+  const capsule = <span className="rec-expediteur">Expéditeur</span>;
   return (
     <span className={`rec-deux-lignes${dansUneLigne ? '' : ' rec-deux-lignes--carte'}`}>
       <span className="rec-ligne-parties">
         <span className="rec-ligne-role">{l.libelleProprietaires}</span>{' '}{l.proprietaires}
+        {expediteur === 'proprietaire' && <> {capsule}</>}
       </span>
       <span className="rec-ligne-parties">
         <span className="rec-ligne-role">{l.libelleLocataires}</span>
         {l.precisionLocataires !== null && <span className="rec-ligne-precision"> {l.precisionLocataires}</span>}
         {' '}{l.locataires}
+        {expediteur === 'locataire' && <> {capsule}</>}
       </span>
     </span>
   );
@@ -349,6 +357,10 @@ export const CSS_LISTE_BIENS = `
 /* LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — « (a la date du mail) » : gris, sans capitales — une precision, pas un titre. */
 .rec-ligne-precision{font-size:.7rem;color:var(--color-svv-muted)}
 .rec-ligne-sep{color:var(--color-svv-muted)}
+/* LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la capsule « Expediteur », meme dessin que celle de la fiche. */
+.rec-expediteur{display:inline-block;padding:0 .4rem;border-radius:999px;font-size:.62rem;font-weight:700;
+  letter-spacing:.03em;text-transform:uppercase;color:var(--color-svv-red);border:1px solid var(--color-svv-red);
+  white-space:nowrap;vertical-align:1px}
 .rec-deux-lignes{display:flex;flex-direction:column;gap:1px;min-width:0}
 .rec-deux-lignes--carte{margin:.25rem 0 0 1.6rem}
 .rec-ligne-motif{font-size:.72rem;font-style:italic;color:var(--color-svv-muted)}

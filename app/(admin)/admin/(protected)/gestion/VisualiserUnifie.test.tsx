@@ -790,7 +790,7 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
     expect(b?.textContent).toBe(BANDEAU_MODIFICATION_PONCTUELLE);
     /* 🔴 EN HAUT VEUT DIRE AVANT LE RESTE : on doit savoir ce que la fenêtre fait avant de commencer à cocher. */
     const html = (container.querySelector('[role="dialog"]') as HTMLElement).innerHTML;
-    expect(html.indexOf('rdf-bandeau-ponctuel')).toBeLessThan(html.indexOf('rdf-item'));
+    expect(html.indexOf('rdf-bandeau-ponctuel')).toBeLessThan(html.indexOf('rdf-suivi-carte'));
   });
 
   it('🔴🔴 LE BOUTON DIT LA PORTÉE : « Valider pour ce mail uniquement »', async () => {
@@ -803,8 +803,9 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
   it('🔴 elle s’ouvre sur le panneau, avec toutes ses fonctions', async () => {
     await monterPonctuel();
     expect(bouton(new RegExp(MOT_MODIFIER_BIENS_DU_MAIL))).toBeUndefined();
-    /* Les cartes du haut, le moteur de recherche, et la ligne « Événement rattaché » : rien n'est retiré. */
-    expect(container.querySelector('.rdf-item')).not.toBeNull();
+    /* Les cartes du haut, le moteur de recherche, et la ligne « Événement rattaché » : rien n'est retiré.
+       🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — les cartes du haut sont au format du composant partagé. */
+    expect(container.querySelector('.rdf-suivi-carte')).not.toBeNull();
     expect(container.textContent).toContain('Moteur de recherche');
     expect(container.querySelector('.rdf-evt')).not.toBeNull();
   });
@@ -922,7 +923,7 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
     }) as unknown as typeof fetch;
     await monterPonctuel();
     /* On DÉCOCHE le bien : c'est le geste de l'essai réel. */
-    await cocher(container.querySelector('.rdf-item input.rdf-garde') as HTMLInputElement);
+    await cocher(container.querySelector('.rdf-suivi-carte input.rdf-garde') as HTMLInputElement);
     await cliquer(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT)) as Element);
     const corps = ecritures[0].corps as {
       classement: { biens: unknown[]; personnes?: { sorte: string; cle: string }[] };
