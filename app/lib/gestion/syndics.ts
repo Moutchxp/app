@@ -969,7 +969,9 @@ Array<{ cleCoord: string; lignes: string[] }> {
 
 /** Ce que la première confirmation de fermeture énumère. */
 export interface ResumeFermeture {
+  /** LOT SYNDIC-FERMETURE-TEXTE-ET-CONTACTS-LIBERES — « Fermeture définitive du syndic : », puis le nom, seul sur sa ligne. */
   titre: string;
+  syndic: string;
   coproprietes: Array<{ adresse: string; lots: string; secondaires: string | null }>;
   /** « Les 4 lots concernés n’auront plus de syndic. » */
   phraseLots: string;
@@ -998,7 +1000,7 @@ export function resumeFermeture(fiche: Pick<FicheSyndic, 'nom' | 'ville' | 'copr
     const morceaux = [prenomNomCivil(c.civilite, c.prenom, c.nom), (c.titre ?? '').trim()].filter((x) => x !== '');
     return morceaux.length > 0 ? morceaux.join(' · ') : 'Contact sans nom';
   });
-  return { titre: `Fermeture définitive du syndic ${nomAvecVille(fiche.nom, fiche.ville)}`, coproprietes, phraseLots, contacts };
+  return { titre: 'Fermeture définitive du syndic :', syndic: nomAvecVille(fiche.nom, fiche.ville), coproprietes, phraseLots, contacts };
 }
 
 // ══ LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES ════════════════════════════════════════════════════════════════

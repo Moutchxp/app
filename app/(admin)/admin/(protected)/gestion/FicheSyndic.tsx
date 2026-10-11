@@ -1279,10 +1279,27 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
               const r = resumeFermeture(fiche);
               return (
                 <>
-                  <p className="fsy-fermeture-titre">{r.titre}</p>
+                  {/* LOT SYNDIC-FERMETURE-TEXTE-ET-CONTACTS-LIBERES — CE QU'IL Y AVAIT : le titre sur une ligne
+                      (« Fermeture définitive du syndic NOM »), les copropriétés AVANT les contacts, « Copropriétés
+                      détachées » / « Contacts supprimés ». Désormais le nom seul sur sa ligne, les contacts d'abord. */}
+                  <div className="fsy-fermeture-entete">
+                    <p className="fsy-fermeture-titre">{r.titre}</p>
+                    <p className="fsy-fermeture-syndic">{r.syndic}</p>
+                  </div>
                   <p>Cette action va :</p>
-                  <section className="fsy-fermeture-partie" aria-label="Copropriétés détachées">
-                    <p className="fsy-fermeture-sous-titre">Copropriétés détachées ({r.coproprietes.length})</p>
+                  <section className="fsy-fermeture-partie" aria-label="Contacts supprimés">
+                    <p className="fsy-fermeture-sous-titre">Supprimer tous les contacts internes du syndic ({r.contacts.length})</p>
+                    {r.contacts.length === 0 ? <p className="fsy-fermeture-vide">Aucun contact</p> : (
+                      <>
+                        <ul className="fsy-fermeture-liste">
+                          {r.contacts.map((c, i) => <li key={i}>{c}</li>)}
+                        </ul>
+                        <p>Leurs numéros de téléphone et adresses e-mail seront également effacés de l’application.</p>
+                      </>
+                    )}
+                  </section>
+                  <section className="fsy-fermeture-partie" aria-label="Copropriétés orphelines">
+                    <p className="fsy-fermeture-sous-titre">Copropriétés qui seront orphelines de syndic ({r.coproprietes.length})</p>
                     {r.coproprietes.length === 0 ? <p className="fsy-fermeture-vide">Aucune copropriété rattachée</p> : (
                       <ul className="fsy-fermeture-liste">
                         {r.coproprietes.map((c, i) => (
@@ -1291,17 +1308,6 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
                       </ul>
                     )}
                     <p>{r.phraseLots}</p>
-                  </section>
-                  <section className="fsy-fermeture-partie" aria-label="Contacts supprimés">
-                    <p className="fsy-fermeture-sous-titre">Contacts supprimés ({r.contacts.length})</p>
-                    {r.contacts.length === 0 ? <p className="fsy-fermeture-vide">Aucun contact</p> : (
-                      <>
-                        <ul className="fsy-fermeture-liste">
-                          {r.contacts.map((c, i) => <li key={i}>{c}</li>)}
-                        </ul>
-                        <p>Ces contacts seront également effacés de l’application.</p>
-                      </>
-                    )}
                   </section>
                   <p className="fsy-fermeture-gris">Le gardien et les habitants des immeubles (carnet de l’immeuble) ne sont pas touchés.</p>
                 </>
@@ -2709,7 +2715,9 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-fermeture{display:grid;grid-template-columns:96px minmax(0,1fr);align-items:start;column-gap:1.1rem;row-gap:1rem;padding:16px 18px;border-radius:12px;border:1px solid var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-ink);font-size:.88rem}
 .fsy-fermeture p{margin:0}
 .fsy-fermeture-texte{display:flex;flex-direction:column;gap:.7rem;min-width:0}
-.fsy-fermeture-titre{font-weight:700;font-size:1.05rem;line-height:1.3}
+.fsy-fermeture-entete{display:flex;flex-direction:column;gap:1.3em}
+.fsy-fermeture-titre{font-weight:600;font-size:.95rem;line-height:1.3}
+.fsy-fermeture-syndic{font-weight:700;font-size:1.2rem;line-height:1.25;overflow-wrap:anywhere}
 .fsy-fermeture-partie{display:flex;flex-direction:column;gap:.35rem}
 .fsy-fermeture-sous-titre{font-variant-caps:all-small-caps;letter-spacing:.06em;font-weight:600;font-size:.95rem;color:var(--color-svv-muted)}
 .fsy-fermeture-liste{margin:0;padding-left:1.1rem;list-style:disc;line-height:1.5;max-height:calc(6 * 1.5em);overflow-y:auto;overscroll-behavior:contain}

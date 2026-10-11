@@ -1669,7 +1669,7 @@ describe('LOT SYNDIC-FERMETURE-ALERTE-MISE-EN-FORME — le détail de la fermetu
       coproprietes: [copro(1, '25 rue Edith Cavell', [10]), copro(2, '3 av Y', [11, 12, 13], 2), copro(3, '9 rue Z', [], 1)],
       contacts: [contact(1, 'M.', 'Augustin', 'Jorel', 'Responsable de copropriété'), contact(2, null, null, null, 'Service comptabilité'),
         contact(3, 'Mme', 'Léa', 'Durand', null), contact(4, null, null, null, null)] })).toEqual({
-      titre: 'Fermeture définitive du syndic TEST ARNAUD / Asnieres Sur Seine',
+      titre: 'Fermeture définitive du syndic :', syndic: 'TEST ARNAUD / Asnieres Sur Seine',
       coproprietes: [
         { adresse: '25 rue Edith Cavell, 92400 Courbevoie', lots: '1 lot du portefeuille', secondaires: null },
         { adresse: '3 av Y, 92400 Courbevoie', lots: '3 lots du portefeuille', secondaires: '+ 2 adresses' },
@@ -1684,6 +1684,63 @@ describe('LOT SYNDIC-FERMETURE-ALERTE-MISE-EN-FORME — le détail de la fermetu
     const { resumeFermeture } = await import('./syndics');
     expect(resumeFermeture({ nom: 'S', ville: null, coproprietes: [copro(1, 'A', [5])], contacts: [] }).phraseLots).toBe('Le lot concerné n’aura plus de syndic.');
     expect(resumeFermeture({ nom: 'S', ville: null, coproprietes: [], contacts: [] })).toEqual({
-      titre: 'Fermeture définitive du syndic S', coproprietes: [], phraseLots: 'Aucun lot du portefeuille n’est concerné.', contacts: [] });
+      titre: 'Fermeture définitive du syndic :', syndic: 'S', coproprietes: [], phraseLots: 'Aucun lot du portefeuille n’est concerné.', contacts: [] });
+  });
+});
+
+describe('LOT SYNDIC-FERMETURE-TEXTE-ET-CONTACTS-LIBERES — les contacts supprimés, partis, retirés ou d’un syndic supprimé ne bloquent plus rien', () => {
+  // Le parcours en base (transaction annulée, rien d'écrit) l'a prouvé de bout en bout ; ici, les EXCLUSIONS de chaque
+  // requête de contrôle sont verrouillées par fragments sémantiques (jamais la forme exacte du SQL).
+  beforeEach(() => { appels.length = 0; reponses = []; });
+  const ns = (s: string): string => s.replace(/\s+/g, ' ');
+  const requetes = (): string[] => appels.map((a) => ns(a.sql));
+  const EXCLUSIONS_SYNDIC = ['c.retire_le IS NULL', 'c.parti_le IS NULL', 's.supprime_le IS NULL'];
+
+  it('doublonsAilleurs : le contrôle du même Prénom + NOM et des e-mails écarte contacts retirés, partis, et syndics supprimés', async () => {
+    const { doublonsAilleurs } = await import('./syndicRepo');
+    await doublonsAilleurs(11, 'Jean', 'Dupont', ['j@d.fr'], ['0611223344']);
+    const noms = requetes().find((s) => s.includes('FROM gestion_syndic_contact c JOIN gestion_syndic s')) as string;
+    for (const f of EXCLUSIONS_SYNDIC) expect(noms).toContain(f);
+    expect(noms).toContain('k.retire_le IS NULL');
+  });
+
+  it('doublonsAilleurs : les e-mails et téléphones des DEUX carnets écartent coordonnées retirées, contacts retirés ou partis, syndics supprimés, contacts retirés de l’immeuble', async () => {
+    const { doublonsAilleurs } = await import('./syndicRepo');
+    await doublonsAilleurs(11, '', '', ['j@d.fr'], ['0611223344']);
+    const syndics = requetes().find((s) => s.includes('FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact ct')) as string;
+    for (const f of ['k.retire_le IS NULL', 'ct.retire_le IS NULL', 'ct.parti_le IS NULL', 's.supprime_le IS NULL']) expect(syndics).toContain(f);
+    const carnet = requetes().find((s) => s.includes('FROM gestion_copropriete_contact_coordonnee k JOIN gestion_copropriete_contact ct')) as string;
+    for (const f of ['k.retire_le IS NULL', 'ct.retire_le IS NULL']) expect(carnet).toContain(f);
+  });
+
+  it('enregistrerSyndic : le contrôle serveur lit les mêmes coordonnées filtrées ; un contact qui part n’est pas un porteur', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    const { validerSyndic } = await import('./syndics');
+    // Le contact 7 (même e-mail en base chez un autre syndic, encore actif) PART : rien à confirmer, l'enregistrement passe.
+    reponses = [(sql) => (sql.includes('FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact ct') ? { rows: [
+      { coord_id: '90', sorte: 'email', valeur: 'j@d.fr', contact_id: '50', civilite: null, prenom: 'Jean', nom: 'Dupont', titre: null,
+        syndic_id: '9', syndic_nom: 'AUTRE', syndic_ville: null, copros: [] }] } : undefined),
+    (sql) => (sql.includes('SELECT') && sql.includes('FROM gestion_syndic WHERE id') ? { rows: [{ id: '11', nom: 'S', ville: null }] } : undefined)];
+    const v = validerSyndic({ nom: 'S', adresse: '1 rue A', codePostal: '92400', ville: 'Courbevoie',
+      contacts: [{ id: 7, prenom: 'Jean', nom: 'Dupont', parti: true, coordonnees: [{ sorte: 'email', valeur: 'j@d.fr' }] }] });
+    if (!v.ok) throw new Error(v.motif);
+    const r = await enregistrerSyndic(11, v.syndic, { id: null, libelle: 'test' });
+    expect('avertissement' in r ? r.avertissement : undefined).toBeUndefined();
+    const lu = requetes().find((s) => s.includes('FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact ct')) as string;
+    for (const f of ['ct.retire_le IS NULL', 'ct.parti_le IS NULL', 's.supprime_le IS NULL']) expect(lu).toContain(f);
+  });
+
+  it('un contact ACTIF déclenche toujours l’avertissement à l’enregistrement', async () => {
+    const { enregistrerSyndic } = await import('./syndicRepo');
+    const { validerSyndic } = await import('./syndics');
+    reponses = [(sql) => (sql.includes('FROM gestion_syndic_coordonnee k JOIN gestion_syndic_contact ct') ? { rows: [
+      { coord_id: '90', sorte: 'email', valeur: 'j@d.fr', contact_id: '50', civilite: null, prenom: 'Jean', nom: 'Dupont', titre: null,
+        syndic_id: '9', syndic_nom: 'AUTRE', syndic_ville: null, copros: [] }] } : undefined)];
+    const v = validerSyndic({ nom: 'S', adresse: '1 rue A', codePostal: '92400', ville: 'Courbevoie',
+      contacts: [{ prenom: 'Jean', nom: 'Dupont', coordonnees: [{ sorte: 'email', valeur: 'j@d.fr' }] }] });
+    if (!v.ok) throw new Error(v.motif);
+    const r = await enregistrerSyndic(11, v.syndic, { id: null, libelle: 'test' });
+    expect(r.ok).toBe(false);
+    expect(r.ok ? [] : r.avertissement).toEqual(['L’adresse e-mail j@d.fr est déjà utilisée par Jean DUPONT · AUTRE.']);
   });
 });

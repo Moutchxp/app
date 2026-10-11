@@ -273,16 +273,19 @@ describe('supprimer ce syndic', () => {
   it('lien « Supprimer ce syndic pour cause de fermeture définitive » → 1re confirmation (le détail) → 2e → « Oui, supprimer définitivement » : DELETE aussitôt, puis la fiche se ferme', async () => {
     const onFerme = await ouvrir();
     await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
+    // LOT SYNDIC-FERMETURE-TEXTE-ET-CONTACTS-LIBERES — CE QU'IL DISAIT AVANT : titre sur une ligne, copropriétés d'abord
+    // (« Copropriétés détachées (1) »), puis « Contacts supprimés (1) » et « Ces contacts seront également effacés… ».
     expect(textes()).toEqual([
-      'Fermeture définitive du syndic _TEST Cabinet / Paris',
+      'Fermeture définitive du syndic :',
+      '_TEST Cabinet / Paris',
       'Cette action va :',
-      'Copropriétés détachées (1)',
+      'Supprimer tous les contacts internes du syndic (1)',
+      'Leurs numéros de téléphone et adresses e-mail seront également effacés de l’application.',
+      'Copropriétés qui seront orphelines de syndic (1)',
       'Le lot concerné n’aura plus de syndic.',
-      'Contacts supprimés (1)',
-      'Ces contacts seront également effacés de l’application.',
       'Le gardien et les habitants des immeubles (carnet de l’immeuble) ne sont pas touchés.',
     ]);
-    expect(lignes('Copropriétés détachées')).toEqual(['12 rue X, 92400 Courbevoie — 1 lot du portefeuille']);
+    expect(lignes('Copropriétés orphelines')).toEqual(['12 rue X, 92400 Courbevoie — 1 lot du portefeuille']);
     expect(lignes('Contacts supprimés')).toEqual(['Léa DURAND · Responsable de copropriété']);
     expect(boutons()).toEqual(['Annuler', 'Continuer']);
     await cliquer(boutonDans(encadre(), 'Continuer'));
@@ -322,28 +325,45 @@ describe('supprimer ce syndic', () => {
     expect(css).toContain('.fsy-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end');
     expect(encadre().lastElementChild?.className).toBe('fsy-boutons fsy-fermeture-boutons');
     expect(css).toContain('.fsy-fermeture-sous-titre{font-variant-caps:all-small-caps;');
-    expect(encadre().querySelector('.fsy-fermeture-titre')?.textContent).toBe('Fermeture définitive du syndic _TEST Cabinet / Paris');
+    expect(encadre().querySelector('.fsy-fermeture-titre')?.textContent).toBe('Fermeture définitive du syndic :');
+    expect(encadre().querySelector('.fsy-fermeture-syndic')?.textContent).toBe('_TEST Cabinet / Paris');
   });
 
   it('une ligne par copropriété (avec ses lots et « + N adresses » en gris), une ligne par contact (« M. Augustin JOREL · Responsable de copropriété »)', async () => {
     await fermer(40);
-    expect(encadre().querySelector('.fsy-fermeture-titre')?.textContent).toBe('Fermeture définitive du syndic TEST ARNAUD / Asnieres Sur Seine');
-    expect(partie('Copropriétés détachées').querySelector('.fsy-fermeture-sous-titre')?.textContent).toBe('Copropriétés détachées (7)');
-    expect(lignes('Copropriétés détachées')).toEqual([
+    expect(encadre().querySelector('.fsy-fermeture-syndic')?.textContent).toBe('TEST ARNAUD / Asnieres Sur Seine');
+    expect(partie('Copropriétés orphelines').querySelector('.fsy-fermeture-sous-titre')?.textContent).toBe('Copropriétés qui seront orphelines de syndic (7)');
+    expect(lignes('Copropriétés orphelines')).toEqual([
       '25 rue Edith Cavell, 92400 Courbevoie — 1 lot du portefeuille',
       '3 av Y, 92400 Courbevoie — 2 lots du portefeuille + 2 adresses',
       ...[3, 4, 5, 6, 7].map((n) => `${n} rue Z, 92400 Courbevoie — aucun lot du portefeuille`),
     ]);
-    expect(partie('Copropriétés détachées').querySelector('li:nth-child(2) .fsy-fermeture-gris')?.textContent).toBe(' + 2 adresses');
+    expect(partie('Copropriétés orphelines').querySelector('li:nth-child(2) .fsy-fermeture-gris')?.textContent).toBe(' + 2 adresses');
     expect(textes()).toContain('Les 3 lots concernés n’auront plus de syndic.');
-    expect(partie('Contacts supprimés').querySelector('.fsy-fermeture-sous-titre')?.textContent).toBe('Contacts supprimés (7)');
+    expect(partie('Contacts supprimés').querySelector('.fsy-fermeture-sous-titre')?.textContent).toBe('Supprimer tous les contacts internes du syndic (7)');
     expect(lignes('Contacts supprimés')).toEqual(['M. Augustin JOREL · Responsable de copropriété', 'Service comptabilité',
       ...[3, 4, 5, 6, 7].map((n) => `Mme Contact N${n}`)]);
   });
 
+  it('le titre sur deux lignes (« … du syndic : », puis le nom seul, en gras et plus grand) ; les CONTACTS avant les COPROPRIÉTÉS', async () => {
+    await fermer(40);
+    const entete = encadre().querySelector('.fsy-fermeture-entete') as HTMLElement;
+    expect([...entete.children].map((x) => [x.className, x.textContent])).toEqual([
+      ['fsy-fermeture-titre', 'Fermeture définitive du syndic :'], ['fsy-fermeture-syndic', 'TEST ARNAUD / Asnieres Sur Seine']]);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-fermeture-entete{display:flex;flex-direction:column;gap:1.3em}'); // une ligne vide entre les deux
+    expect(css).toContain('.fsy-fermeture-syndic{font-weight:700;font-size:1.2rem;');
+    expect(css).toContain('.fsy-fermeture-titre{font-weight:600;font-size:.95rem;');
+    expect([...encadre().querySelectorAll('section')].map((x) => x.getAttribute('aria-label'))).toEqual(['Contacts supprimés', 'Copropriétés orphelines']);
+    expect(partie('Contacts supprimés').lastElementChild?.textContent).toBe('Leurs numéros de téléphone et adresses e-mail seront également effacés de l’application.');
+    expect(partie('Copropriétés orphelines').lastElementChild?.textContent).toBe('Les 3 lots concernés n’auront plus de syndic.');
+    expect(encadre().querySelector('.fsy-fermeture-texte')?.lastElementChild?.textContent)
+      .toBe('Le gardien et les habitants des immeubles (carnet de l’immeuble) ne sont pas touchés.');
+  });
+
   it('au-delà de 6 lignes, chaque liste défile seule (hauteur bornée à 6 lignes)', async () => {
     await fermer(40);
-    for (const nom of ['Copropriétés détachées', 'Contacts supprimés']) {
+    for (const nom of ['Copropriétés orphelines', 'Contacts supprimés']) {
       const ul = partie(nom).querySelector('ul') as HTMLElement;
       expect(ul.className).toBe('fsy-fermeture-liste');
       expect(ul.children).toHaveLength(7);
@@ -354,13 +374,13 @@ describe('supprimer ce syndic', () => {
 
   it('listes vides : « Aucune copropriété rattachée », « Aucun contact »', async () => {
     await fermer(41);
-    expect(partie('Copropriétés détachées').querySelector('ul')).toBeNull();
+    expect(partie('Copropriétés orphelines').querySelector('ul')).toBeNull();
     expect(partie('Contacts supprimés').querySelector('ul')).toBeNull();
     expect(textes()).toEqual([
-      'Fermeture définitive du syndic TEST ARNAUD / Asnieres Sur Seine',
+      'Fermeture définitive du syndic :', 'TEST ARNAUD / Asnieres Sur Seine',
       'Cette action va :',
-      'Copropriétés détachées (0)', 'Aucune copropriété rattachée', 'Aucun lot du portefeuille n’est concerné.',
-      'Contacts supprimés (0)', 'Aucun contact',
+      'Supprimer tous les contacts internes du syndic (0)', 'Aucun contact',
+      'Copropriétés qui seront orphelines de syndic (0)', 'Aucune copropriété rattachée', 'Aucun lot du portefeuille n’est concerné.',
       'Le gardien et les habitants des immeubles (carnet de l’immeuble) ne sont pas touchés.',
     ]);
     expect(boutons()).toEqual(['Annuler', 'Continuer']);
@@ -4350,5 +4370,57 @@ describe('LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — la pastille de
     await calmer();
     expect(appels.map((x) => [x.methode, x.url])).toEqual([['POST', '/api/admin/gestion/coproprietes/conflits/5/verifier']]);
     expect(document.querySelector('.bsy-conflit')).toBeNull();
+  });
+});
+
+/**
+ * ══ LOT SYNDIC-FERMETURE-TEXTE-ET-CONTACTS-LIBERES — À L'ÉCRAN, UN CONTACT PARTI OU SUPPRIMÉ NE BLOQUE PLUS RIEN ══
+ * Fiche 11 : Léa DURAND, téléphone 06 13 86 18 77. Ici, `cliquer` ne répond PAS à l'avertissement : toute alerte reste
+ * visible. Le nouveau contact porte téléphone ET e-mail (aucun manque) : une alerte serait donc un doublon.
+ */
+describe('LOT SYNDIC-FERMETURE-TEXTE-ET-CONTACTS-LIBERES — à l’écran', () => {
+  beforeEach(() => { passerAlerteCoord = false; });
+  const edit = (): HTMLElement => document.querySelector('.fsy-contact-edit') as HTMLElement;
+  const champC = (label: string): HTMLInputElement => [...edit().querySelectorAll('label')]
+    .find((x) => x.querySelector('span')?.textContent === label)?.querySelector('input') as HTMLInputElement;
+  const leaRevient = async (): Promise<void> => {
+    await cliquer(bouton('+ Ajouter un contact'));
+    await taper(champC('Prénom'), 'Léa');
+    await taper(champC('Nom'), 'Durand');
+    await cliquer(boutonDans(edit(), '+ téléphone'));
+    await taper(edit().querySelector('input[aria-label="Téléphone du contact"]') as HTMLInputElement, '06 13 86 18 77');
+    await cliquer(boutonDans(edit(), '+ e-mail'));
+    await taper(edit().querySelector('input[aria-label="E-mail du contact"]') as HTMLInputElement, 'lea@test.invalid');
+    await cliquer(boutonDans(edit(), 'Valider'));
+  };
+  const alertes = (): string[] => [...document.querySelectorAll('.fsy-contact-edit .fsy-doublon, .fsy-contact-edit .fsy-alerte-coord')]
+    .map((x) => x.textContent ?? '');
+  const noms = (): string[] => [...document.querySelectorAll('button.fsy-contact-replie .fsy-contact-nom')].map((x) => x.textContent ?? '');
+
+  it('Léa ACTIVE : son homonyme est bloqué (rouge)', async () => {
+    await ouvrir();
+    await leaRevient();
+    expect(alertes()[0]).toContain('Un contact nommé Léa DURAND existe déjà chez');
+  });
+
+  it('après « Ne travaille plus ici » : même nom, même téléphone → ni blocage ni avertissement', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Ne travaille plus ici'));
+    await cliquer(bouton('Oui, ne travaille plus ici')); // Léa : civilité non renseignée
+    await leaRevient();
+    expect(alertes()).toEqual([]);
+    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
+    expect(noms()).toEqual(['Léa DURAND']);
+  });
+
+  it('après « Supprimer ce contact » : même nom, même téléphone → ni blocage ni avertissement', async () => {
+    await ouvrir();
+    await cliquer(document.querySelector('button.fsy-contact-replie') as Element);
+    await cliquer(boutonDans(document.querySelector('.fsy-contact-ouvert'), 'Supprimer ce contact'));
+    await cliquer(bouton('Oui, supprimer'));
+    await leaRevient();
+    expect(alertes()).toEqual([]);
+    expect(noms()).toEqual(['Léa DURAND']);
   });
 });
