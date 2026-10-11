@@ -25,7 +25,7 @@ import {
 } from '../../../../lib/gestion/familleAdresse';
 import {
   biensAutomatiques, clesDesClientsPresents, clesDuContexte, clientsAChoisir, clientsDuBien, familleDuClient,
-  fusionnerSuggestions, marquerOrigines, recalculerCibles, type BienClient, type BiensDesClients,
+  fusionnerSuggestions, marquerOrigines, motBiensAChoisir, recalculerCibles, type BiensDesClients,
 } from '../../../../lib/gestion/contexteClients';
 import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
@@ -857,7 +857,8 @@ export function Redaction({
    * elle est l'e-mail d'un propriétaire ou d'un locataire (actuel ou ancien).
    *   a. un seul bien ⇒ il entre d'office dans les CIBLES (le mécanisme des biens cochés avant l'envoi) — sauf depuis
    *      une fiche bien (le bien de la fiche est le contexte), et sauf un mail classé « Interne » ou « hors gestion » ;
-   *   b. plusieurs biens ⇒ la ligne « Rattacher ce mail à : » les propose à cocher.
+   *   b. plusieurs biens ⇒ le bouton de rattachement pulse, et c'est dans la modale qu'on choisit (lot
+   *      RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE : la ligne « Rattacher ce mail à : » a été retirée).
    * Retirer l'adresse retire le bien qu'elle avait amené d'office ; décocher un bien amené d'office ne le fait pas
    * revenir. Rien n'est écrit en base : seules les cibles du brouillon changent, comme au bloc « Classer ce mail ».
    */
@@ -922,22 +923,27 @@ export function Redaction({
     if (change) modifier(ajout ? { cibles, interne: false, horsGestion: false } : { cibles });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- les clés (adresses, cibles et origines, biens lus) suffisent.
   }, [cleAdressesDesChamps, cleContexte, cleOrigines, cleBiensClients, contexteFiche]);
-  /** Cocher / décocher un bien d'un client à plusieurs biens (la ligne « Rattacher ce mail à : »). */
-  const basculerBienClient = (b: BienClient): void => {
-    const cibles = (brouillon.cibles ?? []) as CibleBrouillon[];
-    if (contexteCles.has(b.cle)) {
-      modifier({ cibles: cibles.filter((c) => !(c.sorte === 'lot' && c.cle === b.cle)) });
-      return;
-    }
-    modifier({ cibles: [...cibles, { sorte: 'lot', cle: b.cle, id: b.lotId, libelle: b.libelle, categorie: b.categorie, origine: 'client' }],
-      interne: false, horsGestion: false });
-  };
   /** Les biens ajoutés à la main SANS client destinataire, pas encore confirmés : à signaler avant l'envoi. */
   const manuelsAConfirmer = recalculerCibles((brouillon.cibles ?? []) as CibleBrouillon[], adressesDesChamps, biensClients)
     .manuelsSansClient.filter((c) => c.manuelConfirme !== true);
   const clesClientsPresents = clesDesClientsPresents(adressesDesChamps, biensClients);
   const [confirmationManuels, setConfirmationManuels] = useState(false);
   const aChoisir = clientsAChoisir(adressesDesChamps, biensClients);
+  /**
+   * ══ 🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — DES BIENS ATTENDENT UN CHOIX ═══════════════════════════════
+   * Un client à plusieurs biens dont AUCUN n'est encore dans le contexte « attend » : le bouton de rattachement pulse,
+   * avec « N biens à choisir pour Prénom NOM ». La pulsation s'arrête à l'ouverture de la modale (les clients en
+   * attente à cet instant sont « vus »), ou quand plus personne n'attend (bien coché, adresse retirée). Elle reprend
+   * pour un client NOUVEAU — une adresse retirée puis remise compte comme nouvelle.
+   */
+  const enAttente = aChoisir.filter((c) => !c.biens.some((b) => contexteCles.has(b.cle)));
+  const [vusALaModale, setVusALaModale] = useState<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const presentes = new Set(adressesDesChamps);
+    if ([...vusALaModale].some((a) => !presentes.has(a))) setVusALaModale(new Set([...vusALaModale].filter((a) => presentes.has(a))));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des adresses suffit.
+  }, [cleAdressesDesChamps]);
+  const mentionAChoisir = enAttente.some((c) => !vusALaModale.has(c.adresse)) ? motBiensAChoisir(enAttente) : null;
   /** Les familles affichées : la lecture générale, celles des biens du contexte, puis l'aspect des CLIENTS. */
   const famillesAffichees: FamillesConnues = (() => {
     const out: FamillesConnues = { ...familles, ...famillesDesBiens };
@@ -2149,29 +2155,11 @@ export function Redaction({
           refSaisie={saisieCci} onQuitter={(v) => { if (v.length === 0) setAfficheCci(false); }} />
       )}
 
-      {/* ══ 🔴🔴 LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — « RATTACHER CE MAIL À : » ═════════════════════════
-          Un client lié à PLUSIEURS biens : ses biens, à cocher (un ou plusieurs). Cocher = la même porte que le bloc
-          « Classer ce mail » (les cibles du brouillon) : le mail envoyé leur sera rattaché, et leurs adresses sont
-          proposées dans À / Cc / Cci. Compacte : une ligne de cases qui passe à la ligne. */}
-      {aChoisir.length > 0 && (
-        <div className="red-rattacher-clients" role="group" aria-label="Rattacher ce mail à">
-          <span className="red-rattacher-titre">Rattacher ce mail à :</span>
-          {aChoisir.map((c) => (
-            <div key={c.adresse} className="red-rattacher-client">
-              {aChoisir.length > 1 && (
-                <span className="red-rattacher-qui">{c.biens.find((b) => b.nom)?.nom ?? c.adresse} :</span>
-              )}
-              {c.biens.map((b) => (
-                <label key={`${c.adresse}|${b.cle}`} className="red-rattacher-bien">
-                  <input type="checkbox" checked={contexteCles.has(b.cle)} onChange={() => basculerBienClient(b)} />
-                  <span>{b.libelle}</span>
-                </label>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
+      {/* ══ 🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — LA LIGNE « RATTACHER CE MAIL À : » A ÉTÉ RETIRÉE ═══════
+          (accord explicite d'Arno). CE QU'IL Y AVAIT : sous les champs d'adresses, les biens d'un client à plusieurs
+          biens, à cocher. Elle faisait doublon avec la modale « Rattacher ce mail à… », qui porte plus d'informations
+          (parties, motifs, moteur de recherche). LE GESTE N'EST PAS PERDU : la modale est désormais la SEULE porte, et
+          le bouton qui l'ouvre PULSE tant que des biens attendent un choix (voir `ChampClassement`, `aChoisir`). */}
       {brouillon.destinatairesApproximatifs && (
         <p className="gst-tronc red-avertit">⚠ {MENTION_DESTINATAIRES_APPROXIMATIFS}</p>
       )}
@@ -2285,7 +2273,11 @@ export function Redaction({
           horsGestion={brouillon.horsGestion === true}
           /* 🔴🔴 LOT CLASSER-AVANT-ENVOI — « Rattacher » est désormais LA SEULE façon d'ouvrir la modale (avec
              la case verte, qui la rouvre sur les choix en cours). L'ouverture automatique a été retirée. */
-          onRattacher={destinatairesValides.length > 0 ? () => setRattacherOuvert(true) : undefined}
+          onRattacher={destinatairesValides.length > 0 ? () => {
+            setRattacherOuvert(true);
+            setVusALaModale(new Set([...vusALaModale, ...enAttente.map((c) => c.adresse)]));
+          } : undefined}
+          aChoisir={rattacherOuvert ? null : mentionAChoisir}
           /* 🔴 LES TROIS RÉPONSES S'EXCLUENT : choisir « Interne » lève les biens ET l'héritage, comme cocher
              un bien lève « Interne » (voir la modale). Une contradiction enregistrée ne se rattrape pas. */
           onInterne={() => onChange({ ...brouillon, interne: true, cibles: [], horsGestion: false })}
@@ -2332,6 +2324,7 @@ export function Redaction({
           pieces={[]}
           cibles={brouillon.cibles ?? []}
           clesClients={clesClientsPresents}
+          clientsEnAttente={enAttente.map((c) => ({ adresse: c.adresse, cles: c.biens.map((b) => b.cle) }))}
           clesDeBase={new Set(((brouillon.cibles ?? []) as CibleBrouillon[])
             .filter((c) => c.sorte === 'lot' && c.origine === undefined).map((c) => c.cle ?? ''))}
           onChange={(cibles) => {
@@ -2346,7 +2339,13 @@ export function Redaction({
               /* 🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — chaque bien garde (ou reçoit) son origine : client d'un
                  destinataire, ou ajout manuel. C'est elle qui décide s'il suit les adresses. */
               cibles: marquerOrigines((brouillon.cibles ?? []) as CibleBrouillon[], cibles as CibleBrouillon[],
-                adressesDesChamps, biensClients),
+                adressesDesChamps, biensClients).map((c) => (c.sorte === 'lot' && c.id === null
+                /* La modale rend les biens de son moteur SANS identifiant interne (la clé suffit au rattachement) ;
+                   on le reprend du brouillon ou des biens des clients : c'est par lui qu'on lit les adresses du
+                   bien (`/biens/[id]/ecrire`). */
+                ? { ...c, id: ((brouillon.cibles ?? []) as CibleBrouillon[]).find((x) => x.sorte === 'lot' && x.cle === c.cle && x.id !== null)?.id
+                    ?? Object.values(biensClients).flat().find((b) => b.cle === c.cle)?.lotId ?? null }
+                : c)),
               interne: unBien ? false : interneVoulu,
               horsGestion: unBien ? false : brouillon.horsGestion === true,
             });
@@ -2837,14 +2836,6 @@ const CSS_REDACTION = `
   background:var(--color-svv-orange-soft);color:var(--color-svv-ink);font-size:.9rem}
 .red-avertit-manuel-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 6px}
 .red-avertit-manuel-actions{display:flex;flex-wrap:wrap;gap:8px}
-.red-rattacher-clients{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:2px 0 4px;font-size:.85rem;
-  color:var(--color-svv-ink)}
-.red-rattacher-titre{font-weight:600;color:var(--color-svv-muted)}
-.red-rattacher-client{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px}
-.red-rattacher-qui{font-weight:600}
-.red-rattacher-bien{display:inline-flex;align-items:center;gap:6px;min-height:36px;cursor:pointer}
-.red-rattacher-bien input{width:18px;height:18px;accent-color:var(--color-svv-red)}
-.red-rattacher-bien input:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .red-pastille--inconnue{background:var(--color-svv-surface);border:1px dashed var(--color-svv-muted);color:var(--color-svv-ink)}
 .red-pastille--famille .red-retirer,.red-pastille--inconnue .red-retirer{color:var(--color-svv-ink)}
 .red-pastille--famille .red-retirer:hover,.red-pastille--inconnue .red-retirer:hover{color:var(--color-svv-red)}

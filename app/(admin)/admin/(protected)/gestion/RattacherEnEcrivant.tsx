@@ -75,7 +75,7 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 }
 
 export function RattacherEnEcrivant({
-  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null,
+  destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, clientsEnAttente = [],
   piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
   onSelection, onChange, onFerme,
 }: {
@@ -87,6 +87,14 @@ export function RattacherEnEcrivant({
   clesClients?: ReadonlySet<string> | null;
   /** Les biens de BASE (fiche ouverte, réponse héritée) : ils ne dépendent pas des adresses, jamais « manuels ». */
   clesDeBase?: ReadonlySet<string> | null;
+  /**
+   * 🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — les clients à plusieurs biens qui ATTENDENT un choix (le bouton
+   * pulsait pour eux). Si les propositions du moteur ne couvrent pas leurs biens — le moteur n'emploie jamais une de
+   * nos propres adresses comme clé (cas e) —, le MOTEUR DE RECHERCHE de cette fenêtre est lancé sur l'adresse du
+   * premier d'entre eux : ses biens s'affichent avec toutes leurs informations, à cocher. Une fois, et seulement si
+   * l'on n'a encore rien tapé. Vide ⇒ rien ne change.
+   */
+  clientsEnAttente?: ReadonlyArray<{ adresse: string; cles: readonly string[] }>;
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LA MÊME MODALE AU-DESSUS D'UN MAIL REÇU ════════════════════════════
    *
@@ -253,6 +261,15 @@ export function RattacherEnEcrivant({
    * il se calcule bien avant le rendu. Un crochet déclaré plus bas serait lu après son premier usage.
    */
   const [autresDeplies, setAutresDeplies] = useState(false);
+  const rechercheAmorcee = useRef(false);
+  useEffect(() => {
+    if (rechercheAmorcee.current || etat.v !== 'ok' || saisie !== '') return;
+    const proposes = new Set(etat.contexte.biens.map((b) => b.cle));
+    const aCouvrir = clientsEnAttente.find((c) => c.cles.some((k) => !proposes.has(k)));
+    rechercheAmorcee.current = true;
+    if (aCouvrir !== undefined) setSaisie(aCouvrir.adresse);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- une seule fois, au premier chargement réussi.
+  }, [etat.v]);
 
   const charger = useCallback(async () => {
     // ⚠️ ON NE REVIENT PAS À « Lecture des biens possibles… » quand on a déjà quelque chose à montrer : ce

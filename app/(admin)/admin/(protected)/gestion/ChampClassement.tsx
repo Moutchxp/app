@@ -45,8 +45,15 @@ import {
 export function ChampClassement({
   cibles, interne, horsGestion = false, onRattacher, onInterne, onReinitialiser,
   interneDisponible = true, persistant = true, persistantHorsGestion = true,
-  compact = false, titre = 'Classer ce mail',
+  compact = false, titre = 'Classer ce mail', aChoisir = null,
 }: {
+  /**
+   * ══ 🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE ═══════════════════════════════════════════════════════════════
+   * Une adresse saisie amène des biens À CHOISIR (client lié à plusieurs biens, aucun coché) : le bouton qui ouvre la
+   * modale (« Rattacher », ou la case verte « Rattaché ») PULSE, et porte cette mention sous son libellé
+   * (« 6 biens à choisir pour Cédric JULLIEN »). `null` (le défaut) ⇒ le bouton d'avant, immobile.
+   */
+  aChoisir?: string | null;
   cibles: readonly CibleBrouillon[];
   /** « Interne » a-t-il été choisi pour ce brouillon ? */
   interne: boolean;
@@ -223,11 +230,12 @@ export function ChampClassement({
             {etat === 'rattache' && (
               /* 🔴 CLIQUABLE : « Un clic sur la case verte rouvre la modale avec les choix en cours ». Les deux
                  autres cases vertes n'ont rien à rouvrir : un clic les DÉFAIT (voir plus bas). */
-              <button type="button" className={`ccl-case ccl-case--verte ccl-case--pleine${classeAnimee}`}
+              <button type="button" className={`ccl-case ccl-case--verte ccl-case--pleine${classeAnimee}${aChoisir !== null ? ' ccl-case--pulse' : ''}`}
                 onClick={onRattacher} disabled={onRattacher === undefined}
                 title="Revoir ou modifier les biens rattachés">
                 <span className="ccl-case-mot">Rattaché</span>
                 <span className="ccl-case-detail">{resume}</span>
+                {aChoisir !== null && <span className="ccl-case-a-choisir">{aChoisir}</span>}
               </button>
             )}
             {/* ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — « INTERNE » ET « HORS GESTION » SONT CLIQUABLES ═══════
@@ -287,10 +295,11 @@ export function ChampClassement({
               rétractation elle-même, et le faire aussi apparaître en fondu le ferait clignoter. */}
           <button type="button"
             className={`ccl-case ccl-case--rouge${enScission ? ' ccl-case--rebondit' : ''}${
-              cote === 'droite' ? ' ccl-case--reparait' : ''}`}
+              cote === 'droite' ? ' ccl-case--reparait' : ''}${aChoisir !== null ? ' ccl-case--pulse' : ''}`}
             onClick={onRattacher} disabled={onRattacher === undefined} title={motifRattacher}>
             <span className="ccl-case-mot">Rattacher</span>
             <span className="ccl-case-detail">à un logement</span>
+            {aChoisir !== null && <span className="ccl-case-a-choisir">{aChoisir}</span>}
           </button>
           {/* ⚠️ LE CLIC NE FAIT QU'UNE CHOSE : poser le choix. L'animation se déclenche toute seule, en voyant
               l'état passer de « rien » à une case verte — même mécanisme que « Valider » dans la modale. */}
@@ -383,6 +392,26 @@ export const CSS_CHAMP_CLASSEMENT = `
 .ccl-case--fixe{margin:0;cursor:default}
 
 .ccl-case:disabled{opacity:.55;cursor:not-allowed}
+
+/* ══ LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — DES BIENS ATTENDENT UN CHOIX ══════════════════════════════════
+   Un halo de la couleur du bouton s'etend et s'estompe (1,6 s, en continu), avec une legere montee d'echelle
+   (1 -> 1,02). Le halo est une ombre portee : il se dessine PAR-DESSUS les voisins, sans rien deplacer. Moins
+   d'animations demandees : ni halo ni echelle, un contour epais de la couleur du bouton. */
+.ccl-case--rouge{--ccl-pulse:var(--color-svv-red)}
+.ccl-case--verte{--ccl-pulse:var(--color-svv-green-ink)}
+.ccl-case--pulse{position:relative;z-index:1;animation:ccl-pulse-echelle 1.6s ease-in-out infinite}
+.ccl-case--pulse::after{content:'';position:absolute;inset:-1px;border-radius:inherit;pointer-events:none;
+  animation:ccl-pulse-halo 1.6s ease-out infinite}
+@keyframes ccl-pulse-echelle{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}
+@keyframes ccl-pulse-halo{
+  0%{box-shadow:0 0 0 0 color-mix(in srgb, var(--ccl-pulse) 60%, transparent)}
+  100%{box-shadow:0 0 0 14px color-mix(in srgb, var(--ccl-pulse) 0%, transparent)}
+}
+.ccl-case-a-choisir{font-size:.72rem;font-weight:600;line-height:1.25;overflow-wrap:anywhere}
+@media (prefers-reduced-motion: reduce){
+  .ccl-case--pulse{animation:none}
+  .ccl-case--pulse::after{animation:none;box-shadow:0 0 0 3px var(--ccl-pulse)}
+}
 .ccl-case:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 
 /* ══ 🔴🔴 L'ANIMATION « D — ELASTIQUE », VALIDEE PAR ARNO ════════════════════════════════════════════════════

@@ -239,3 +239,29 @@ export function ciblesAPoserALEnvoi<T extends CibleAvecOrigine>(
   }
   return { gardees, ecartees };
 }
+
+/**
+ * LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — « LATHAM Lionel » (l'annuaire écrit NOM Prénom) → « Lionel LATHAM ».
+ * Les mots tout en capitales du début forment le NOM ; le reste, le prénom. Rien à retourner (société, nom seul) :
+ * tel quel. PUR.
+ */
+export function prenomNom(nomComplet: string): string {
+  const mots = nomComplet.trim().split(/\s+/).filter((m) => m !== '');
+  const estNom = (m: string): boolean => m === '-' || (/\p{L}/u.test(m) && m === m.toLocaleUpperCase('fr-FR'));
+  let i = 0;
+  while (i < mots.length && estNom(mots[i])) i += 1;
+  if (i === 0 || i === mots.length) return mots.join(' ');
+  return [...mots.slice(i), ...mots.slice(0, i)].join(' ');
+}
+
+/**
+ * La mention du bouton qui pulse : « 6 biens à choisir pour Cédric JULLIEN » (un client), « 9 biens à choisir »
+ * (plusieurs clients ; chaque bien compté une fois). PUR.
+ */
+export function motBiensAChoisir(enAttente: ReadonlyArray<{ adresse: string; biens: readonly BienClient[] }>): string | null {
+  if (enAttente.length === 0) return null;
+  const n = new Set(enAttente.flatMap((c) => c.biens.map((b) => b.cle))).size;
+  if (enAttente.length > 1) return `${n} biens à choisir`;
+  const nom = enAttente[0].biens.find((b) => (b.nom ?? '').trim() !== '')?.nom ?? null;
+  return nom === null ? `${n} biens à choisir pour ${enAttente[0].adresse}` : `${n} biens à choisir pour ${prenomNom(nom)}`;
+}

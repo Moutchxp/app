@@ -52,6 +52,15 @@ beforeEach(() => {
     const q = new URL(`http://x${url}`).searchParams.getAll('a');
     if (url.includes('/adresses/biens')) return new Response(JSON.stringify({ etat: 'ok', biens: Object.fromEntries(q.map((a) => [a, BIENS[a] ?? []])) }));
     if (url.includes('/adresses/familles')) return new Response(JSON.stringify({ etat: 'ok', familles: Object.fromEntries(q.map((a) => [a, null])) }));
+    if (url.includes('/gestion/classement') && init?.method === 'POST') {
+      const dest = (JSON.parse(String(init.body)) as { destinataires?: string[] }).destinataires ?? [];
+      const biens = [...new Map(dest.flatMap((a) => BIENS[a] ?? []).map((x) => [x.cle, x])).values()].map((x) => ({
+        cle: x.cle, libelle: x.libelle, adresse: `${x.cle} rue des Tests`, commune: 'PARIS', typeBien: 'Appartement', nature: 'Appartement',
+        caracteristiques: [], adresseComplete: `${x.cle} rue des Tests, 75000 PARIS`, parties: [], recommande: false,
+        motif: 'un des biens du propriétaire', cas: 'b', certitude: 'a_trancher', dejaRattache: false,
+      }));
+      return new Response(JSON.stringify({ etat: 'ok', contexte: { biens, examen: { issue: 'a_trancher', motif: '' }, proprietaire: null, interneDabord: false, disponible: true } }));
+    }
     const m = /\/biens\/(\d+)\/ecrire/.exec(url);
     if (m) return new Response(JSON.stringify({ etat: 'ok', cible: { cle: m[1], libelle: `${m[1]} rue des Tests, 75000 PARIS — lot ${m[1]}` }, groupes: listeDu(Number(m[1])) }));
     return new Response(JSON.stringify({ ok: true, correspondants: [] }));
@@ -93,8 +102,21 @@ const cliquer = async (el: Element) => {
 };
 const puce = (a: string) => [...container.querySelectorAll('.red-pastille')].find((p) => p.querySelector(`button[aria-label="Retirer ${a}"]`)) as HTMLElement | undefined;
 const cibles = () => ((courant.cibles ?? []) as Array<{ cle: string | null; id: number | null }>).map((c) => c.cle);
-const cases = () => [...container.querySelectorAll('.red-rattacher-bien')].map((l) => ({
-  texte: l.textContent ?? '', coche: (l.querySelector('input') as HTMLInputElement).checked, el: l.querySelector('input') as HTMLInputElement }));
+/** 🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — on choisit DANS LA MODALE, la seule porte : ouvrir par le bouton du
+ *  bas, cocher / décocher le bien (par son adresse), valider. */
+const boutonRattacher = () => container.querySelector('.ccl-case--rouge, .ccl-case--verte') as HTMLButtonElement;
+const ouvrirModale = async () => { await cliquer(boutonRattacher()); };
+const basculerDansLaModale = async (...cles: string[]) => {
+  await ouvrirModale();
+  for (const c of cles) {
+    const li = [...container.querySelectorAll('.rec-bien')].find((l) => (l.textContent ?? '').includes(`${c} rue des Tests`));
+    expect(li, `bien ${c} dans la modale`).toBeDefined();
+    await cliquer(li?.querySelector('input') as Element);
+  }
+  await cliquer([...container.querySelectorAll('button')].find((b) => /^Valider/.test(b.textContent?.trim() ?? '')) as Element);
+};
+const pulse = () => container.querySelector('.ccl-case--pulse');
+const mention = () => container.querySelector('.ccl-case-a-choisir')?.textContent ?? null;
 const titresListe = async (champ = 'À') => {
   await cliquer(saisie(champ));
   const t = [...ligne(champ).querySelectorAll('.red-sugg-titre, .red-sugg-sous-titre')].map((x) => `${x.className.includes('sous') ? '  ' : ''}${x.textContent}`);
@@ -129,26 +151,27 @@ describe('a. client lié à UN SEUL bien (locataire)', () => {
 });
 
 describe('b. client lié à PLUSIEURS biens (propriétaire)', () => {
-  it('🔴 contour plein, info-bulle « lié à 3 biens », ligne « Rattacher ce mail à : », aucune suggestion de bien', async () => {
+  it('🔴 contour plein, info-bulle « lié à 3 biens », le bouton PULSE, aucune suggestion de bien ; la modale propose les 3', async () => {
     await monter(NOUVEAU);
     await taper('trois.biens@x.fr');
     expect(puce('trois.biens@x.fr')?.className).toBe('red-pastille red-pastille--famille red-pastille--proprietaire red-pastille--a-choisir');
     expect(puce('trois.biens@x.fr')?.title).toBe('DUPONT Jean · Propriétaire — lié à 3 biens — choisissez le bien ci-dessous — trois.biens@x.fr');
-    expect(container.querySelector('.red-rattacher-titre')?.textContent).toBe('Rattacher ce mail à :');
-    expect(cases().map((c) => [c.texte, c.coche])).toEqual([
-      ['601 rue des Tests, 75000 PARIS — lot 601', false], ['602 rue des Tests, 75000 PARIS — lot 602', false],
-      ['603 rue des Tests, 75000 PARIS — lot 603', false]]);
+    expect(pulse()).toBe(boutonRattacher());
+    expect(mention()).toBe('3 biens à choisir pour Jean DUPONT');
     expect(cibles()).toEqual([]);
     expect(await titresListe()).toEqual([]);
+    await ouvrirModale();
+    expect([...container.querySelectorAll('.rec-bien')].map((l) => (/(\d+) rue des Tests/.exec(l.textContent ?? '') ?? [])[1]))
+      .toEqual(['601', '602', '603']);
   });
   it('🔴 cocher 1 bien : trame pleine, cible, suggestions de ce bien ; cocher un 2e : intertitre par bien', async () => {
     await monter(NOUVEAU);
     await taper('trois.biens@x.fr');
-    await cliquer(cases()[1].el);
+    await basculerDansLaModale('602');
     expect(cibles()).toEqual(['602']);
     expect(puce('trois.biens@x.fr')?.className).toBe('red-pastille red-pastille--famille red-pastille--proprietaire');
     expect(await titresListe()).toEqual(['Clients de l’agence', 'Immeuble']);
-    await cliquer(cases()[2].el);
+    await basculerDansLaModale('603');
     expect(cibles()).toEqual(['602', '603']);
     expect(await titresListe()).toEqual([
       'Clients de l’agence', '  602 rue des Tests, 75000 PARIS — lot 602', '  603 rue des Tests, 75000 PARIS — lot 603',
@@ -157,8 +180,8 @@ describe('b. client lié à PLUSIEURS biens (propriétaire)', () => {
   it('décocher : le bien sort du contexte ; plus aucun coché ⇒ contour', async () => {
     await monter(NOUVEAU);
     await taper('trois.biens@x.fr');
-    await cliquer(cases()[0].el);
-    await cliquer(cases()[0].el);
+    await basculerDansLaModale('601');
+    await basculerDansLaModale('601');
     expect(cibles()).toEqual([]);
     expect(puce('trois.biens@x.fr')?.className).toContain('red-pastille--a-choisir');
   });
@@ -169,7 +192,7 @@ describe('un client sous DEUX familles (locataire d’un bien, propriétaire d�
     await monter(NOUVEAU);
     await taper('deux.familles@x.fr');
     expect(puce('deux.familles@x.fr')?.className).toBe('red-pastille red-pastille--famille red-pastille--proprietaire red-pastille--a-choisir');
-    await cliquer(cases().find((c) => c.texte.includes('701'))?.el as Element);
+    await basculerDansLaModale('701');
     expect(puce('deux.familles@x.fr')?.className).toBe('red-pastille red-pastille--famille red-pastille--locataire');
   });
 });
@@ -180,7 +203,7 @@ describe('ce qui ne change pas', () => {
     await taper('exterieur@ailleurs.fr');
     expect(puce('exterieur@ailleurs.fr')?.className).toBe('red-pastille red-pastille--inconnue');
     expect(cibles()).toEqual([]);
-    expect(container.querySelector('.red-rattacher-clients')).toBeNull();
+    expect(pulse()).toBeNull();
   });
   it('🔴 depuis une FICHE BIEN : rien d’office (le bien de la fiche reste le contexte), mais on peut cocher les biens d’un client', async () => {
     await monter({ ...NOUVEAU, voie: 'repondre', a: [], filId: 10, repondALeMessageId: 77, objet: 'Re: X',
@@ -188,7 +211,8 @@ describe('ce qui ne change pas', () => {
     await taper('un.bien@x.fr');
     expect(cibles()).toEqual(['219']);
     await taper('trois.biens@x.fr');
-    await cliquer(cases()[0].el);
+    expect(pulse()).not.toBeNull();                                  // la case verte du bien de la fiche pulse
+    await basculerDansLaModale('601');
     expect(cibles()).toEqual(['219', '601']);
   });
   it('un mail classé « Interne » : aucun bien d’office', async () => {
@@ -203,7 +227,7 @@ describe('🔴 à l’envoi, les biens du contexte partent avec le mail (la port
     await monter({ ...NOUVEAU, objet: 'Essai' } as BrouillonEcran);
     await taper('un.bien@x.fr');
     await taper('trois.biens@x.fr');
-    await cliquer(cases()[2].el);
+    await basculerDansLaModale('603');
     const envoyer = [...container.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Envoyer') as HTMLButtonElement;
     expect(envoyer.disabled).toBe(false);
     await act(async () => { envoyer.click(); });
@@ -224,7 +248,7 @@ describe('🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — le scénario d�
   it('🔴 multipropriétaire, 1 bien coché, adresse retirée, propriétaire à 1 bien ajouté : « 1 logement », SEULEMENT le sien', async () => {
     await monter(NOUVEAU);
     await taper('multi@x.fr');
-    await cliquer(cases()[0].el);                                     // 1bis rue Manessier, lot 432
+    await basculerDansLaModale('432');                                // 1bis rue Manessier, lot 432
     expect(cibles()).toEqual(['432']);
     await retirer('multi@x.fr');
     expect(cibles()).toEqual([]);                                     // le bien part AVEC l'adresse
@@ -241,11 +265,11 @@ describe('🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — le scénario d�
     await taper('seul@x.fr');
     expect(cibles()).toEqual(['900']);
     await taper('multi@x.fr');
-    await cliquer(cases()[1].el);
+    await basculerDansLaModale('433');
     await retirer('multi@x.fr');
     await taper('multi@x.fr');
     expect(cibles()).toEqual(['900']);
-    expect(cases().map((c) => c.coche)).toEqual([false, false]);
+    expect(mention()).toBe('2 biens à choisir pour JULLIEN');           // à choisir de nouveau : rien de coché d'avance
   });
   it('deux clients du MÊME bien : retirer l’un garde le bien ; retirer le second le retire', async () => {
     await monter(NOUVEAU);
@@ -305,5 +329,56 @@ describe('🔴🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — le scénario d�
     await retirer('seul@x.fr');
     expect(cibles()).toEqual(['219']);
     expect(texteClasser()).toMatch(/Rattaché/);
+  });
+});
+
+describe('🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — le bouton pulse tant que des biens attendent un choix', () => {
+  const retirer = async (a: string) => { await cliquer(container.querySelector(`button[aria-label="Retirer ${a}"]`) as Element); };
+  it('🔴 la ligne « Rattacher ce mail à : » n’existe plus, dans aucun composeur (nouveau, réponse, fiche bien)', async () => {
+    for (const [b, lot] of [[NOUVEAU, null], [{ ...NOUVEAU, voie: 'repondre', filId: 10, repondALeMessageId: 77, objet: 'Re: X' }, null],
+      [{ ...NOUVEAU, voie: 'repondre', filId: 10, repondALeMessageId: 77, objet: 'Re: X', cibles: [{ sorte: 'lot', cle: '219', id: null, libelle: 'lot 219' }] }, 176]] as const) {
+      await monter(b as unknown as BrouillonEcran, lot);
+      await taper('trois.biens@x.fr');
+      expect(container.querySelector('.red-rattacher-clients')).toBeNull();
+      expect([...container.querySelectorAll('section.red > *:not(style)')].map((e) => e.textContent).join(' ')).not.toContain('Rattacher ce mail à :');
+    }
+  });
+  it('ouvrir la modale arrête la pulsation (et elle ne reprend pas à la fermeture pour le même client)', async () => {
+    await monter(NOUVEAU);
+    await taper('trois.biens@x.fr');
+    expect(pulse()).not.toBeNull();
+    await ouvrirModale();
+    expect(pulse()).toBeNull();
+    await cliquer(container.querySelector('.rec-croix') as Element);
+    expect(container.querySelector('.rec-croix')).toBeNull();          // la modale est fermée
+    expect(pulse()).toBeNull();
+  });
+  it('un bien coché : la pulsation s’arrête et la puce passe en trame pleine', async () => {
+    await monter(NOUVEAU);
+    await taper('trois.biens@x.fr');
+    await basculerDansLaModale('602');
+    expect(pulse()).toBeNull();
+    expect(puce('trois.biens@x.fr')?.className).toBe('red-pastille red-pastille--famille red-pastille--proprietaire');
+  });
+  it('adresse retirée : la pulsation s’arrête ; une NOUVELLE adresse multi-biens : elle reprend', async () => {
+    await monter(NOUVEAU);
+    await taper('trois.biens@x.fr');
+    await retirer('trois.biens@x.fr');
+    expect(pulse()).toBeNull();
+    await taper('deux.familles@x.fr');
+    expect(pulse()).not.toBeNull();
+    expect(mention()).toBe('2 biens à choisir pour Paul MARTIN');
+    await ouvrirModale();
+    await cliquer(container.querySelector('.rec-croix') as Element);
+    expect(pulse()).toBeNull();                                       // vu à la modale : il n'attend plus
+    await taper('multi@x.fr');                                       // un nouveau client en attente : elle reprend
+    expect(pulse()).not.toBeNull();
+    expect(mention()).toBe('4 biens à choisir');                      // plusieurs clients : le total
+  });
+  it('client à UN seul bien : aucune pulsation', async () => {
+    await monter(NOUVEAU);
+    await taper('un.bien@x.fr');
+    expect(pulse()).toBeNull();
+    expect(mention()).toBeNull();
   });
 });
