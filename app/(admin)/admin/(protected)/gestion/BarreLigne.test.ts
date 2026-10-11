@@ -666,7 +666,9 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
         filId: 7, objet: 'Fuite salle de bain', nbMailsDuFil: 3, horsGestion: false, messageRecentId: 8123,
         /* 🔴 L'EN-TÊTE DU MAIL DONT LA FENÊTRE PARLE : expéditeur, date, objet (demande d'Arno). */
         enTete: {
-          messageId: 8123, de: 'martin@orange.fr', deNom: 'Mme Martin',
+          /* 🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT — l'expéditeur est la personne qui porte l'adresse De: de CE
+             mail : le mail vient donc de BENTZ Marc, dont l'annuaire porte bentz@fictif.fr. */
+          messageId: 8123, de: 'bentz@fictif.fr', deNom: 'Marc BENTZ',
           recuLe: '2026-09-20T12:00:00Z', objet: 'Fuite salle de bain',
         },
         disponible: true,
@@ -715,7 +717,8 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     expect(items[0].textContent).toContain('06 11 22 33 44');
     expect(items[0].querySelectorAll('.rdf-contact')).toHaveLength(2);
     // 🔴 L'EXPÉDITEUR est dit par un MOT, jamais par la seule couleur.
-    expect(items[0].textContent).toContain('Expéditeur');
+    expect(items[0].textContent).toContain('Expéditeur : Marc BENTZ');
+    expect(items[0].querySelectorAll('.rdf-expediteur')).toHaveLength(1);
     // 🔴 « VACANT À CETTE DATE » est une RÉPONSE, pas un vide.
     expect(items[0].textContent).toContain('Vacant à cette date');
     expect(items[1].textContent).toContain('Auto');

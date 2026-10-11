@@ -75,7 +75,9 @@ import {
   positionSuivante, MOT_CONFIRMER_CONVERSATION, QUESTION_RETOUR_ORIGINE, type PositionPortee,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
-import { expediteurDuMail, roleExpediteur, type ExpediteurDuMail } from '../../../../lib/gestion/expediteurDuMail';
+import {
+  expediteurDuMail, indexExpediteur, MOT_EXPEDITEUR, roleExpediteur, type ExpediteurDuMail,
+} from '../../../../lib/gestion/expediteurDuMail';
 import type { EvenementDuMail } from '../../../../lib/gestion/evenementQualite';
 
 /**
@@ -1215,7 +1217,7 @@ export function RattachementsDuFil({
 
         {/* ══ 🔴 UN BLOC PAR BIEN ════════════════════════════════════════════════════════════════════════════ */}
         {!ponctuel && biens.map((b) => (
-          <BlocBien key={b.cle} bien={b} dossierId={dossiers[b.cle] ?? b.dossierDriveId}
+          <BlocBien key={b.cle} bien={b} dossierId={dossiers[b.cle] ?? b.dossierDriveId} expediteurMail={expediteurMail}
             ponctuel={b.ponctuel}
             /* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 3 — la case n'existe QUE pendant la
                modification : hors du panneau, la carte est exactement celle d'avant ce lot. */
@@ -1606,8 +1608,11 @@ export function RattachementsDuFil({
 /** UN BIEN : sa fiche, ses personnes, ses gestes. */
 function BlocBien({
   bien, dossierId, liens, onModifier, ponctuel = false, surUnSeulMail = false, garde, onGarder, onDrive,
+  expediteurMail = null,
 }: {
   bien: BienRattache;
+  /** 🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT — l'expéditeur du mail affiché (« Expéditeur : … »). */
+  expediteurMail?: ExpediteurDuMail | null;
   dossierId: string | null;
   liens: LienAffiche[];
   onModifier: (l: LienAffiche) => void;
@@ -1720,7 +1725,7 @@ function BlocBien({
         )}
       </div>
 
-      <CorpsDuBien bien={bien} liens={liens} onModifier={onModifier} />
+      <CorpsDuBien bien={bien} liens={liens} onModifier={onModifier} expediteurMail={expediteurMail} />
     </section>
   );
 }
@@ -1730,9 +1735,20 @@ function BlocBien({
  * par mail. Extrait TEL QUEL de `BlocBien` (lot MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS) pour être rendu aussi dans la
  * ligne repliable des cartes de « Modifier le rattachement » — un seul dessin, deux places.
  */
-function CorpsDuBien({ bien, liens, onModifier }: {
+function CorpsDuBien({ bien, liens, onModifier, expediteurMail = null, sansCartoucheExpediteur = false }: {
   bien: BienRattache; liens: LienAffiche[]; onModifier: (l: LienAffiche) => void;
+  /**
+   * 🔴🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT (Arno, 12/10/2026) — « Expéditeur : <nom> » sur la SEULE personne
+   * qui porte l'adresse De: de ce mail précis ; plus jamais « a écrit un jour dans la conversation ».
+   */
+  expediteurMail?: ExpediteurDuMail | null;
+  /**
+   * `true` dans la ligne repliable des cartes de « Bien(s) rattaché(s) à ce mail » : le cartouche est déjà sur la ligne
+   * du bien, la fiche dépliée ne le répète pas (un seul cartouche visible par bien).
+   */
+  sansCartoucheExpediteur?: boolean;
 }) {
+  const iExpediteur = sansCartoucheExpediteur ? -1 : indexExpediteur(bien.personnes, expediteurMail);
   /**
    * 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 2 — FAUT-IL AJOUTER « Aujourd'hui : … » ?
    *
@@ -1749,7 +1765,10 @@ function CorpsDuBien({ bien, liens, onModifier }: {
       {bien.personnes.filter((p) => p.role === 'proprietaire').length === 0 && (
         <p className="rdf-detail rdf-absent">Aucun propriétaire connu pour ce lot dans l’annuaire.</p>
       )}
-      {bien.personnes.map((p) => <CartePersonne key={`${p.role}-${p.cle}`} personne={p} />)}
+      {bien.personnes.map((p, i) => (
+        <CartePersonne key={`${p.role}-${p.cle}`} personne={p}
+          nomExpediteur={i === iExpediteur && expediteurMail !== null ? expediteurMail.nom : null} />
+      ))}
       {/* 🔴 « VACANT À CETTE DATE » EST UNE RÉPONSE, pas un vide : il explique pourquoi le mail vient du bailleur. */}
       {bien.personnes.filter((p) => p.role === 'locataire').length === 0 && (
         <p className="rdf-detail rdf-absent">{motSansLocataire(bien.dateMail)}</p>
@@ -1887,7 +1906,7 @@ function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponct
             {bien.typeBien !== null && <span>{bien.typeBien}</span>}
             <span className={bien.surfaceM2 === null ? 'rdf-absent' : undefined}>{motSurface(bien.surfaceM2)}</span>
           </p>
-          <CorpsDuBien bien={bien} liens={liens} onModifier={onModifier} />
+          <CorpsDuBien bien={bien} liens={liens} onModifier={onModifier} sansCartoucheExpediteur />
         </div>
       </details>
     </li>
@@ -1895,7 +1914,14 @@ function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponct
 }
 
 /** UNE PERSONNE : son nom, sa qualité, et TOUS ses moyens de contact, chacun avec sa colonne d'origine. */
-function CartePersonne({ personne }: { personne: PersonneRattachement }) {
+function CartePersonne({ personne, nomExpediteur = null }: {
+  personne: PersonneRattachement;
+  /**
+   * 🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT — le nom de « Expéditeur : <nom> » si CETTE personne a envoyé le mail affiché
+   * (décidé par `CorpsDuBien`, une seule par bien) ; `null` sinon. Le liseré rouge suit le mot : jamais la couleur seule.
+   */
+  nomExpediteur?: string | null;
+}) {
   const qualite = qualitePersonne(personne.civilite);
   const periode = motPeriode(personne);
   const fiche = adresseFicheAnnuaire(personne);
@@ -1906,13 +1932,17 @@ function CartePersonne({ personne }: { personne: PersonneRattachement }) {
   ];
 
   return (
-    <div className={`rdf-personne${personne.expediteur ? ' rdf-personne--expediteur' : ''}`}>
+    <div className={`rdf-personne${nomExpediteur !== null ? ' rdf-personne--expediteur' : ''}`}>
       <p className="rdf-personne-tete">
         <span className="rdf-sorte">{motRole(personne.role)}</span>
         <span className="rdf-personne-nom">{personne.nom}</span>
         {qualite !== null && <span className="rdf-note">{qualite}</span>}
         {/* 🔴 LE MOT « Expéditeur », jamais la couleur seule : c'est lui qui porte l'information. */}
-        {personne.expediteur && <span className="rdf-expediteur">Expéditeur</span>}
+        {nomExpediteur !== null && (
+          <span className="rdf-expediteur">
+            {MOT_EXPEDITEUR}<span className="rdf-expediteur-nom"> : {nomExpediteur}</span>
+          </span>
+        )}
         {/* LA FICHE D'ANNUAIRE, à côté de CHAQUE personne : c'est là qu'on va voir ou corriger ses coordonnées. */}
         {fiche !== null && (
           <a className="rdf-lien" href={fiche} target="_blank" rel="noopener noreferrer">
@@ -2043,7 +2073,9 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-personne-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.1rem .5rem;margin:0;min-width:0}
 .rdf-personne-nom{font-size:.88rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .rdf-expediteur{padding:.05rem .4rem;border-radius:999px;font-size:.68rem;font-weight:700;letter-spacing:.03em;
-  text-transform:uppercase;color:var(--color-svv-red);border:1px solid var(--color-svv-red);white-space:nowrap}
+  text-transform:uppercase;color:var(--color-svv-red);border:1px solid var(--color-svv-red);white-space:nowrap;max-width:100%}
+/* LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT — le nom garde sa casse : « EXPEDITEUR : Valentin TALHOUARN ». */
+.rdf-expediteur-nom{text-transform:none;letter-spacing:0;white-space:normal;overflow-wrap:anywhere}
 .rdf-contacts{display:flex;flex-direction:column;gap:2px;margin:2px 0 0;padding:0;list-style:none}
 /* ══ 🔴 LOT CONTACT-LIGNES — titre | valeur | Copier, et « Copier » colle au bord DROIT ═══════════════════
    Plus de flex-wrap : une adresse longue ne doit jamais pousser « Copier » a la ligne suivante. Elle est

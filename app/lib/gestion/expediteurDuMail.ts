@@ -33,18 +33,35 @@ export function expediteurDuMail(de: string | null | undefined, deNom: string | 
   return { adresse, nom: nom === '' || normal(nom) === adresse ? adresse : nom };
 }
 
+type PartieAvecEmails = { role: string; emails?: readonly { valeur: string }[] };
+
 /**
- * LA PARTIE DU BIEN QUI A ENVOYÉ CE MAIL : celle dont une adresse e-mail est l'adresse De:. Le propriétaire d'abord,
- * puis le locataire. `null` = l'expéditeur n'est aucune partie de ce bien. PUR.
+ * ══ 🔴🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT — LA PERSONNE DU BIEN QUI A ENVOYÉ CE MAIL. PUR. ══════════════
+ * Celle dont une adresse e-mail est l'adresse De: de CE mail ; le propriétaire d'abord, puis les locataires, dans
+ * l'ordre reçu. UNE SEULE personne par bien (« un seul cartouche », Arno) : si plusieurs portent l'adresse, la
+ * première. `-1` = l'expéditeur n'est aucune partie de ce bien. Plus jamais « a écrit un jour dans la conversation ».
  */
+export function indexExpediteur(
+  parties: readonly PartieAvecEmails[] | null | undefined,
+  expediteur: ExpediteurDuMail | null | undefined,
+): number {
+  if (expediteur == null || parties == null) return -1;
+  const porte = (p: PartieAvecEmails) => (p.emails ?? []).some((e) => normal(e.valeur) === expediteur.adresse);
+  const proprio = parties.findIndex((p) => p.role === 'proprietaire' && porte(p));
+  return proprio >= 0 ? proprio : parties.findIndex((p) => p.role === 'locataire' && porte(p));
+}
+
+/** Le rôle de cette personne, ou `null` : la ligne (PROPRIÉTAIRE / LOCATAIRE) qui porte le cartouche. PUR. */
 export function roleExpediteur(
-  parties: readonly { role: string; emails?: readonly { valeur: string }[] }[] | null | undefined,
+  parties: readonly PartieAvecEmails[] | null | undefined,
   expediteur: ExpediteurDuMail | null | undefined,
 ): 'proprietaire' | 'locataire' | null {
-  if (expediteur == null || parties == null) return null;
-  const porte = (role: string) => parties.some((p) => p.role === role
-    && (p.emails ?? []).some((e) => normal(e.valeur) === expediteur.adresse));
-  if (porte('proprietaire')) return 'proprietaire';
-  if (porte('locataire')) return 'locataire';
-  return null;
+  const i = indexExpediteur(parties, expediteur);
+  const r = i < 0 || parties == null ? null : parties[i].role;
+  return r === 'proprietaire' || r === 'locataire' ? r : null;
+}
+
+/** Le texte du cartouche : « Expéditeur : Valentin TALHOUARN ». PUR. */
+export function motCartoucheExpediteur(expediteur: ExpediteurDuMail): string {
+  return `${MOT_EXPEDITEUR} : ${expediteur.nom}`;
 }

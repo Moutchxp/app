@@ -13,7 +13,7 @@ import { POSITIONS_PORTEE, positionActive, type PositionPortee } from '../../../
  * ══ 🔴🔴 LOT GLISSIERE-PILULE — LE DESSIN « PILULE » (Arno, 11/10/2026) ════════════════════════════════════════════
  * Comportement INCHANGÉ (mêmes positions, même ordre, même logique) ; seul le dessin change : grosse piste arrondie
  * (~64 px, fond gris très clair, contour 3 px couleur du texte), curseur en pilule rouge (~104 × 50 px, contour
- * 3 px et ombre dure vers le bas couleur du texte, petit losange blanc au centre), un repère gris de 12 px à chaque
+ * 3 px et ombre dure vers le bas couleur du texte, poignée blanche au centre), un repère gris de 12 px à chaque
  * position, glissement avec léger rebond ; libellés EXACTEMENT centrés sous leur repère (≈ 140 px, retour à la ligne
  * permis), sans numéro, 16 px ; le libellé actif en rouge gras sur pastille rouge très pâle.
  *
@@ -97,7 +97,14 @@ export function GlissierePortee({ position, modification, onChoisir }: {
             style={{ ['--gpo-x' as string]: fraction(i) }} />
         ))}
         <div className="gpo-curseur" style={{ ['--gpo-x' as string]: fraction(Math.max(0, index)) }}>
-          <span className="gpo-losange" />
+          {/* 🔴 LOT PILULE-TROIS-TRAITS — LA POIGNÉE : trois traits verticaux blancs, celui du milieu plus grand (18 px,
+              12 px sur les côtés), 3 px d'épaisseur, bouts arrondis, 5 px d'écart. En SVG : net, identique dans les
+              deux thèmes, et réduit avec la pilule sur téléphone. */}
+          <svg className="gpo-poignee" viewBox="0 0 19 18" width="19" height="18" aria-hidden="true" focusable="false">
+            <rect x="0" y="3" width="3" height="12" rx="1.5" />
+            <rect x="8" y="0" width="3" height="18" rx="1.5" />
+            <rect x="16" y="3" width="3" height="12" rx="1.5" />
+          </svg>
         </div>
       </div>
       {/* Les quatre libellés, centrés sous leur repère : ce sont les boutons radio du groupe (cibles tactiles pleines). */}
@@ -131,10 +138,10 @@ export function GlissierePortee({ position, modification, onChoisir }: {
   );
 }
 
-/* ⚠️ AUCUN ACCENT GRAVE DANS CE LITTERAL. Couleurs : jetons seulement (Clair et Sombre), SAUF le losange blanc du
-   curseur. LOT PILULE-ROUGE-MAISON : le curseur prend NOTRE rouge, celui du bouton « Valider la
-   modification du suivi » (.svv-btn-primary), par la meme variable --color-svv-red ; plus de #FA5252. Le losange
-   blanc fait partie du curseur dans les deux themes.
+/* ⚠️ AUCUN ACCENT GRAVE DANS CE LITTERAL. Couleurs : jetons seulement (Clair et Sombre), SAUF la poignee blanche du
+   curseur (trois traits). LOT PILULE-ROUGE-MAISON : le curseur prend NOTRE rouge, celui du bouton « Valider la
+   modification du suivi » (.svv-btn-primary), par la meme variable --color-svv-red ; plus de #FA5252. La poignee
+   blanche fait partie du curseur dans les deux themes.
    LA GEOMETRIE : une position i est a  retrait + x * (largeur - 2 * retrait), x = i / 3 (variable --gpo-x). Les
    pourcentages se lisent sur la largeur du bloc qui contient (la piste, ou la rangee des libelles : meme largeur). */
 export const CSS_GLISSIERE_PORTEE = `
@@ -150,8 +157,8 @@ export const CSS_GLISSIERE_PORTEE = `
   transform:translate(-50%,calc(-50% - 2px));background:var(--color-svv-red);border:3px solid var(--color-svv-ink);
   box-shadow:0 5px 0 var(--color-svv-ink);cursor:grab;transition:left .42s cubic-bezier(.34,1.56,.64,1)}
 .gpo-curseur:active{cursor:grabbing}
-.gpo-losange{position:absolute;top:50%;left:50%;width:10px;height:10px;background:#fff;
-  transform:translate(-50%,-50%) rotate(45deg);border-radius:1px}
+.gpo-poignee{position:absolute;top:50%;left:50%;width:19px;height:18px;transform:translate(-50%,-50%);
+  fill:#fff;display:block}
 @media (prefers-reduced-motion:reduce){.gpo-curseur{transition:none}}
 .gpo-libelles{display:grid;min-width:0}
 .gpo-libelle{--gpo-l:min(140px, calc((100% - 2 * var(--gpo-retrait)) / 3 - 6px));grid-area:1/1;justify-self:start;
@@ -169,6 +176,7 @@ export const CSS_GLISSIERE_PORTEE = `
 @media (max-width:560px){
   .gpo{--gpo-retrait:46px}
   .gpo-curseur{width:80px;height:42px}
+  .gpo-poignee{width:15px;height:14px}
   .gpo-libelle{--gpo-l:min(140px, calc((100% - 2 * var(--gpo-retrait)) * 2 / 3 - 6px))}
   .gpo-libelle:nth-child(even){grid-area:2/1}
 }

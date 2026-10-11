@@ -126,7 +126,7 @@ describe('PastilleOneShot', () => {
     await attendre();
     const modale = document.querySelector('[role="dialog"]') as HTMLElement;
     expect(modale).not.toBeNull();
-    expect(modale.querySelector('h2')?.textContent).toBe('Suivi modifié pour ce mail uniquement');
+    expect(modale.querySelector('h2')?.textContent).toBe('Suivi modifié pour ce mail uniquement (One shot)');
     /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — deux colonnes, une ligne par bien (adresse, CP ville, lot). */
     const avant = modale.querySelector('.maa-col--avant') as HTMLElement;
     const apres = modale.querySelector('.maa-col--apres') as HTMLElement;

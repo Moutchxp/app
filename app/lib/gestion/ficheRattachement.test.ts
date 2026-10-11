@@ -247,16 +247,17 @@ describe('🔒 le dépôt de la fiche ne fait QUE lire', () => {
 describe('🔴🔴 l’expéditeur est reconnu par sa PARTIE, jamais par la clé qu’il traîne', () => {
   const code = readFileSync('app/lib/gestion/ficheRattachementRepo.ts', 'utf8');
 
-  it('la requête des expéditeurs lit la colonne `partie`', () => {
+  /**
+   * 🔴🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT (Arno, 12/10/2026) — LA RÈGLE A CHANGÉ : l'expéditeur est la
+   * personne qui porte l'adresse De: du mail AFFICHÉ, une seule par bien — « plus jamais la règle “a écrit un jour
+   * dans la conversation” ». Le défaut du 28/09/2026 (bailleur marqué quand sa locataire écrit) ne peut plus se
+   * produire : seule la personne qui porte l'adresse est marquée.
+   */
+  it('l’expéditeur est lu sur le mail affiché (`enTete`), jamais sur tous les mails de l’échange', () => {
     const sql = code.replace(/\s+/g, ' ');
-    expect(sql).toContain("a.role = 'expediteur'");
-    expect(sql).toContain('a.partie');
-    expect(sql).toContain('a.partie IS NOT NULL');
-  });
-
-  it('et le tri des expéditeurs sépare bien les deux rôles', () => {
-    expect(code).toContain("e.partie === 'proprietaire'");
-    expect(code).toContain("e.partie === 'locataire'");
+    expect(sql).toContain('expediteurDuMail(enTete?.de, enTete?.deNom)');
+    expect(sql).toContain('indexExpediteur(personnes, expediteur)');
+    expect(sql).not.toContain("a.role = 'expediteur'");
   });
 
   /**

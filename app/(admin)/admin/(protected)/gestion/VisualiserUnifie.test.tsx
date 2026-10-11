@@ -955,3 +955,33 @@ describe('🔴🔴 ⑤ la fenêtre en mode PONCTUEL', () => {
     expect(bouton(new RegExp(MOT_VALIDER_CE_MAIL_UNIQUEMENT))).toBeUndefined();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT — « VISUALISER / MODIFIER » ET « CLASSER » : UN SEUL CARTOUCHE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 le cartouche « Expéditeur : … » dans les cartes de « Visualiser / Modifier »', () => {
+  const pers = (role: 'proprietaire' | 'locataire', nom: string, email: string, expediteur = false) => ({
+    role, cle: `${role}-${nom}`, id: 1, nom, civilite: null, expediteur, telephones: [],
+    emails: [{ libelle: 'Email 1', valeur: email, affichage: email, note: null }],
+  });
+  const avecPersonnes = async (personnes: unknown[]) => {
+    const avant = FICHE.biens[0].personnes;
+    (FICHE.biens[0] as { personnes: unknown[] }).personnes = personnes;
+    try { await monter(MAIL); } finally { (FICHE.biens[0] as { personnes: unknown[] }).personnes = avant; }
+  };
+  it('sur la SEULE personne qui porte l’adresse De: de ce mail, et il la nomme', async () => {
+    await avecPersonnes([
+      pers('proprietaire', 'PROPRIO Fictif', 'proprio@exemple.test'),
+      pers('locataire', 'COUPLE Inventé et Inventée', 'monsieur.invente@exemple.test'),
+      pers('locataire', 'COUPLE Doublon', 'Monsieur.Invente@exemple.test'),
+    ]);
+    const marques = [...container.querySelectorAll('.rdf-item .rdf-expediteur')];
+    expect(marques.map((m) => m.textContent)).toEqual(['Expéditeur : Monsieur Inventé']);
+    expect(container.querySelectorAll('.rdf-item .rdf-personne--expediteur')).toHaveLength(1);
+  });
+  it('« a écrit un jour dans la conversation » ne suffit plus : sans l’adresse De:, aucun cartouche', async () => {
+    await avecPersonnes([pers('proprietaire', 'PROPRIO Fictif', 'proprio@exemple.test', true)]);
+    expect(container.querySelector('.rdf-item .rdf-expediteur')).toBeNull();
+  });
+});

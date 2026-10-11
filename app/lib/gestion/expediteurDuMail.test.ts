@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { expediteurDuMail, roleExpediteur } from './expediteurDuMail';
+import { expediteurDuMail, indexExpediteur, motCartoucheExpediteur, roleExpediteur } from './expediteurDuMail';
 
 describe('🔴 le cartouche « Expéditeur : … » (Arno, 11/10/2026)', () => {
   it('le nom de l’en-tête De:, sinon l’adresse', () => {
@@ -20,5 +20,22 @@ describe('🔴 le cartouche « Expéditeur : … » (Arno, 11/10/2026)', () => {
     expect(roleExpediteur([{ role: 'locataire' }], e)).toBeNull();
     expect(roleExpediteur(parties, null)).toBeNull();
     expect(roleExpediteur(parties, expediteurDuMail('gestion@sansvisavis.com', 'Gestion'))).toBeNull();
+  });
+});
+
+describe('🔴 une seule personne par bien, et la nouvelle règle partout (lot PILULE-TROIS-TRAITS)', () => {
+  const e = expediteurDuMail('marine@exemple.test', 'Marine YOUENOU');
+  it('la première qui porte l’adresse ; le propriétaire passe devant', () => {
+    const parties = [
+      { role: 'locataire', emails: [{ valeur: 'autre@exemple.test' }] },
+      { role: 'locataire', emails: [{ valeur: 'marine@exemple.test' }] },
+      { role: 'locataire', emails: [{ valeur: 'MARINE@exemple.test' }] },
+    ];
+    expect(indexExpediteur(parties, e)).toBe(1);
+    expect(indexExpediteur([...parties, { role: 'proprietaire', emails: [{ valeur: 'marine@exemple.test' }] }], e)).toBe(3);
+    expect(indexExpediteur(parties, null)).toBe(-1);
+  });
+  it('le texte du cartouche', () => {
+    expect(motCartoucheExpediteur(e as NonNullable<typeof e>)).toBe('Expéditeur : Marine YOUENOU');
   });
 });

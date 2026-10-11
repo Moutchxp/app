@@ -110,7 +110,8 @@ export interface ModificationOneShot {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export const MOT_PASTILLE_ONE_SHOT = 'Suivi modifié en one shot';
-export const TITRE_MODALE_ONE_SHOT = 'Suivi modifié pour ce mail uniquement';
+/** 🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT — « (One shot) » ajouté à droite, même ligne, même style (Arno). */
+export const TITRE_MODALE_ONE_SHOT = 'Suivi modifié pour ce mail uniquement (One shot)';
 export const PHRASE_AUTRES_MAILS =
   'Les autres mails de cette conversation et de cet expéditeur suivent toujours le suivi de fond.';
 export const MOT_SUIVI_DE_FOND = 'Suivi de fond';

@@ -10,6 +10,7 @@ import type {
   BienRattache, CoordonneeFiche, FicheRattachementFil, PersonneRattachement,
 } from './ficheRattachement';
 import { ordonnerBiens, ordonnerPersonnes } from './ficheRattachement';
+import { expediteurDuMail, indexExpediteur } from './expediteurDuMail';
 
 /**
  * MODULE « GESTION » — LOT FICHE-RATTACHEMENT : CE QU'IL FAUT POUR LA FENÊTRE « VISUALISER / MODIFIER ». LECTURE
@@ -315,36 +316,21 @@ export async function ficheRattachementDuFil(
     (id === null ? undefined : contacts.get(cleContact(sujet, id))) ?? { emails: [], telephones: [] };
 
   /**
-   * ── ⑥ 🔴 QUI A ÉCRIT DANS CET ÉCHANGE ────────────────────────────────────────────────────────────────────────
+   * ── ⑥ 🔴 QUI A ÉCRIT CE MAIL ────────────────────────────────────────────────────────────────────────────────────
    *
-   * C'est ce qui met un bloc « Expéditeur » en tête. On lit le RÔLE `expediteur` des adresses déjà relevées
-   * (lot DRIVE-2-bis) : la reconnaissance a déjà dit, pour chacune, si elle est celle d'un propriétaire ou d'un
-   * locataire, et lequel. On ne relit aucun mail, on ne devine rien.
+   * C'est ce qui met une personne en tête, marquée « Expéditeur : … ».
    *
-   * ⚠️ NOS ADRESSES SONT ÉCARTÉES. `gestion@` est expéditrice de la moitié des messages d'un échange : la garder
-   * mettrait « Expéditeur » sur tout le monde, c'est-à-dire sur personne.
+   * 🔴🔴 LOT PILULE-TROIS-TRAITS-ET-EXPEDITEUR-PARTOUT (décision d'Arno, 12/10/2026) : « un seul cartouche par mail,
+   * sur la partie qui porte l'adresse De: de ce mail précis. Plus jamais la règle “a écrit un jour dans la
+   * conversation”. » L'expéditeur est donc lu sur le mail AFFICHÉ (`enTete`), et c'est la personne dont l'annuaire
+   * porte cette adresse — une seule par bien (`indexExpediteur`). Nos propres adresses ne sont dans aucune fiche
+   * de propriétaire ou de locataire : un mail envoyé par nous ne marque personne.
+   *
+   * ⚠️ AVANT CE LOT, on lisait le rôle `expediteur` des adresses relevées sur TOUS les mails de l'échange (et le
+   * filtre sur `partie` évitait de marquer le bailleur quand le locataire écrivait — défaut du 28/09/2026, fil 36505).
+   * Ce défaut ne peut plus se produire : seule la personne qui porte l'adresse est marquée.
    */
-  const { rows: expediteurs } = await query<{ partie: string | null; proprietaire_cle: string | null; locataire_id: string | null }>(
-    `SELECT DISTINCT a.partie, a.proprietaire_cle, a.locataire_id::text AS locataire_id
-       FROM gestion_message_adresse a
-       JOIN gestion_message m ON m.id = a.message_id
-      WHERE m.fil_id = $1 AND a.role = 'expediteur' AND a.interne = false
-        AND a.partie IS NOT NULL`, [filId]);
-  /**
-   * 🔴🔴 ON FILTRE SUR LA `partie`, ET C'EST INDISPENSABLE — défaut trouvé à l'écran le 28/09/2026 sur « Paiement
-   * loyer Octobre » (fil 36505).
-   *
-   * Une adresse de LOCATAIRE porte AUSSI la clé de son bailleur (`proprietaire_cle`) : c'est normal, la
-   * reconnaissance dit tout ce qu'elle sait. Lire cette colonne sans regarder `partie` marquait donc « Expéditeur »
-   * sur le PROPRIÉTAIRE dès qu'un locataire écrivait — la fenêtre montrait alors deux expéditeurs, et mettait en
-   * tête celui qui n'avait rien envoyé. On aurait rappelé le bailleur au lieu de la locataire.
-   */
-  const propriosEcrivains = new Set(expediteurs
-    .filter((e) => e.partie === 'proprietaire')
-    .map((e) => e.proprietaire_cle).filter((x): x is string => x !== null));
-  const locatairesEcrivains = new Set(expediteurs
-    .filter((e) => e.partie === 'locataire')
-    .map((e) => e.locataire_id).filter((x): x is string => x !== null));
+  const expediteur = expediteurDuMail(enTete?.de, enTete?.deNom);
 
   // ── ⑦ L'ASSEMBLAGE ───────────────────────────────────────────────────────────────────────────────────────────
   const biens: BienRattache[] = [];
@@ -361,12 +347,9 @@ export async function ficheRattachementDuFil(
         id: lot.proprietaire_id === null ? null : Number(lot.proprietaire_id),
         nom: lot.proprietaire_nom ?? '(sans nom)', civilite: lot.proprietaire_civilite,
         telephones: c.telephones, emails: c.emails,
-        /**
-         * 🔴 UN LOCATAIRE QUI ÉCRIT NE MET PAS SON BAILLEUR EN TÊTE. On compare la clé du propriétaire de CE bien
-         * à celle des expéditeurs : sans cela, un mail de locataire aurait marqué « Expéditeur » sur le
-         * propriétaire, ce qui est faux et ferait rappeler la mauvaise personne.
-         */
-        expediteur: propriosEcrivains.has(lot.proprietaire_cle),
+        /* 🔴 MARQUÉE PLUS BAS, s'il y a lieu : seule la personne qui porte l'adresse De: de ce mail (voir ⑥). Un
+           locataire qui écrit ne marque donc jamais son bailleur. */
+        expediteur: false,
       });
     }
     for (const o of occupations.get(cle) ?? []) {
@@ -375,9 +358,12 @@ export async function ficheRattachementDuFil(
         role: 'locataire', cle: o.cle, id: Number(o.locataireId), nom: o.nom, civilite: null,
         telephones: c.telephones, emails: c.emails,
         depuis: o.depuis, jusqua: o.jusqua,
-        expediteur: locatairesEcrivains.has(o.locataireId),
+        expediteur: false,
       });
     }
+    /* 🔴 UNE SEULE PERSONNE MARQUÉE PAR BIEN : celle qui porte l'adresse De: de ce mail (voir ⑥). */
+    const iExpediteur = indexExpediteur(personnes, expediteur);
+    if (iExpediteur >= 0) personnes[iExpediteur] = { ...personnes[iExpediteur], expediteur: true };
 
     biens.push({
       cle,

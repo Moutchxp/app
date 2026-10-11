@@ -163,6 +163,13 @@ describe('① le bloc « Biens actuellement suivi(s) dans cette conversation »'
     expect(carte.querySelector('summary .rec-expediteur')).toBeNull();
     expect(carte.querySelectorAll('.rec-expediteur')).toHaveLength(1);
   });
+  it('🔴 la fiche dépliée « ▶ … » ne répète pas le cartouche : un seul visible par bien', async () => {
+    await avecExpediteur('valentin.talhouarn@gmail.com', 'Valentin TALHOUARN', 'valentin.talhouarn@gmail.com');
+    const carte = container.querySelector('.rdf-suivi-carte') as HTMLElement;
+    expect(carte.querySelectorAll('.rec-expediteur, .rdf-expediteur')).toHaveLength(1);
+    expect(carte.querySelector('.rdf-suivi-detail .rdf-expediteur')).toBeNull();
+    expect(carte.querySelector('.rdf-suivi-detail .rdf-personne--expediteur')).toBeNull();
+  });
   it('🔴 sans nom dans l’en-tête : l’adresse e-mail', async () => {
     await avecExpediteur('valentin.talhouarn@gmail.com', null, 'valentin.talhouarn@gmail.com');
     expect(container.querySelector('.rdf-suivi-carte .rec-expediteur')?.textContent).toBe('Expéditeur : valentin.talhouarn@gmail.com');
@@ -383,9 +390,14 @@ describe('la glissière « pilule »', () => {
     expect(container.querySelector('[role="radiogroup"]')?.textContent).not.toMatch(/[①②③④]/);
     expect(radios.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false', 'false']);
     expect(radios.map((r) => r.tabIndex)).toEqual([0, -1, -1, -1]);
-    /* Le dessin : une piste, quatre repères, un curseur avec son losange. */
+    /* Le dessin : une piste, quatre repères, un curseur avec sa poignée à trois traits (lot PILULE-TROIS-TRAITS). */
     expect(container.querySelectorAll('.gpo-piste .gpo-cran')).toHaveLength(4);
-    expect(container.querySelector('.gpo-curseur .gpo-losange')).not.toBeNull();
+    const traits = [...container.querySelectorAll('.gpo-curseur svg.gpo-poignee rect')];
+    expect(traits.map((r) => [r.getAttribute('width'), r.getAttribute('height'), r.getAttribute('rx')]))
+      .toEqual([['3', '12', '1.5'], ['3', '18', '1.5'], ['3', '12', '1.5']]);
+    /* 5 px d'écart entre deux traits : 0 → 3, puis 8 → 11, puis 16. */
+    expect(traits.map((r) => r.getAttribute('x'))).toEqual(['0', '8', '16']);
+    expect(container.querySelector('.gpo-curseur .gpo-losange')).toBeNull();
   });
 
   it('🔴 au clavier, le focus suit la position choisie', async () => {
