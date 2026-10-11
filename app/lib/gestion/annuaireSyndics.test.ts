@@ -675,25 +675,34 @@ describe('le dépôt — deux portes d\'écriture, rien n\'est effacé', () => {
     expect(appels.filter((a) => /^\s*(INSERT|UPDATE)/i.test(a.sql))).toEqual([]);
   });
 
-  it('SUPPRIMER : liens fermés (« suppression du syndic »), contacts retirés, supprime_le, ligne au journal — aucun DELETE', async () => {
+  // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL DISAIT AVANT : motif « suppression du syndic », une seule ligne
+  // de journal (le syndic). Désormais motif « fermeture définitive » partout, une ligne PAR LOT (adresses secondaires
+  // comprises) en plus de celle du syndic ; le carnet de l'immeuble n'est pas touché.
+  it('SUPPRIMER (fermeture définitive) : liens fermés, affectations et contacts retirés, syndic supprimé — motif partout ; journal par lot ; aucun DELETE', async () => {
     const { supprimerSyndic } = await import('./syndicRepo');
     reponses = [
       (sql) => (sql.includes('FROM gestion_annuaire_lot') ? { rows: [
         { id: '1', numero: '101', immeuble: '12 rue X', adresse: '12 rue X', commune: 'Paris', code_postal: '75001' },
         { id: '2', numero: '102', immeuble: '12 rue X', adresse: '12 rue X', commune: 'Paris', code_postal: '75001' },
+        { id: '3', numero: '301', immeuble: '3 av Y', adresse: '3 av Y', commune: 'Paris', code_postal: '75001' },
       ] } : undefined),
-      (sql) => (sql.includes('SELECT nom FROM gestion_syndic') ? { rows: [{ nom: 'Cabinet TEST' }] } : undefined),
-      (sql) => (sql.includes('FOR UPDATE OF cs') ? { rows: [{ id: '31', cle: cleImmeuble('12 rue X') }] } : undefined),
+      (sql) => (sql.includes('SELECT nom, ville FROM gestion_syndic') ? { rows: [{ nom: 'Cabinet TEST', ville: 'Lyon' }] } : undefined),
+      (sql) => (sql.includes('FOR UPDATE OF cs') ? { rows: [{ id: '31', cle: cleImmeuble('12 rue X'), libelle: '12 rue X', code_postal: '75001', commune: 'Paris' }] } : undefined),
+      (sql) => (sql.includes('FROM gestion_copropriete_adresse a JOIN gestion_copropriete c ON c.id = a.copropriete_id') && sql.includes('ORDER BY a.id')
+        ? { rows: [{ id: '5', cle: '3 av y', libelle: '3 av Y', code_postal: null, commune: null, copro_id: '77', copro_cle: '12 rue x' }] } : undefined),
     ];
     expect(await supprimerSyndic(11, auteur)).toEqual({ ok: true, coproprietes: 1 });
-    const sqls = appels.map((a) => norm(a.sql));
-    expect(sqls.some((s) => s.includes("fin_motif = 'suppression du syndic'"))).toBe(true);
-    expect(sqls.some((s) => s.includes('UPDATE gestion_syndic_contact SET retire_le = now()'))).toBe(true);
-    expect(sqls.some((s) => s.includes('UPDATE gestion_syndic SET supprime_le = now()'))).toBe(true);
-    const journal = appels.find((a) => a.sql.includes('INSERT INTO gestion_journal'));
-    expect(norm(journal?.sql ?? '')).toContain("VALUES ('annuaire', $1, 'suppression_syndic'");
-    expect(journal?.params).toEqual([11, 'Cabinet TEST', 'syndic supprimé — 1 copropriété(s), 2 bien(s) repassent sans syndic', 7, 'arno']);
+    const motif = (frag: string) => appels.find((a) => norm(a.sql).includes(frag))?.params.includes('fermeture définitive');
+    expect(motif('UPDATE gestion_copropriete_syndic SET fin = now()')).toBe(true);
+    expect(motif('UPDATE gestion_syndic_contact_copropriete a SET retire_le = now()')).toBe(true);
+    expect(motif('UPDATE gestion_syndic_contact SET retire_le = now()')).toBe(true);
+    expect(motif('UPDATE gestion_syndic SET supprime_le = now()')).toBe(true);
+    const journal = appels.filter((a) => a.sql.includes('INSERT INTO gestion_journal'));
+    expect(journal[0].params).toEqual([11, 'Cabinet TEST', 'syndic supprimé (fermeture définitive) — 1 copropriété(s), 3 bien(s) repassent sans syndic', 7, 'arno']);
+    expect(journal.slice(1).map((a) => [a.params[0], a.params[2]])).toEqual([1, 2, 3].map((id) => [id, 'Syndic Cabinet TEST / Lyon supprimé (fermeture définitive) : retiré de la copropriété 12 rue X, 75001 Paris']));
+    expect(norm(journal[1].sql)).toContain("VALUES ('annuaire_lot', $1, 'syndic_retire', $2, $3, $4, $5)");
     expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
+    expect(appels.some((a) => a.sql.includes('gestion_copropriete_contact') && /^\s*(INSERT|UPDATE)/i.test(a.sql))).toBe(false); // carnet intact
   });
 
   it('SUPPRIMER un syndic inconnu ou déjà supprimé : refusé avant toute écriture', async () => {
@@ -1301,8 +1310,9 @@ describe('les écrans', () => {
       // 'Oui, la prendre' (le champ d'ajout d'une copropriété, retiré, et la liste remplacée par les lots du portefeuille).
       // LOT SYNDIC-LOTS-DEUX-LIGNES-ET-PASTILLE — CE QU'IL DISAIT AVANT : 'au Valider', 'propriétaire non renseigné'.
       'Lots du portefeuille liés à ce syndic', 'en attente de validation', 'Ce lot recevra ce syndic quand vous cliquerez sur Valider',
-      'Propriétaire non renseigné', "'Propriétaires' : 'Propriétaire'", 'Supprimer ce syndic', 'Oui, supprimer ce syndic',
-      'perdra ce syndic', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
+      'Propriétaire non renseigné', "'Propriétaires' : 'Propriétaire'", 'Supprimer ce syndic pour cause de fermeture définitive', 'Oui, supprimer définitivement', // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — avant : 'Supprimer ce syndic', 'Oui, supprimer ce syndic'
+      // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — avant : 'perdra ce syndic' (la liste des biens de l'ancienne confirmation).
+      'Cette action ne peut pas être annulée depuis l’application', 'Rattacher cet immeuble à ce syndic', 'Créer un nouveau syndic', 'Retirer ? Le lien passe en historique.']) {
       expect(src).toContain(mot);
     }
     // LOT SYNDIC-ADRESSE-AUTOCOMPLETE-ET-CASSE-NOMS — CE QU'IL DISAIT AVANT : la fiche appelait la BAN locale seule et
@@ -1642,5 +1652,17 @@ describe('LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — serveur', () =
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS gestion_copropriete_conflit (');
     expect(sql).toContain('ST_DWithin(q.geom, pts.geom, 3)'); // même règle que l'application
     expect(sql).not.toMatch(/\bDELETE\b|\bDROP\b/i);
+  });
+});
+
+describe('LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — le texte de la fermeture (pur)', () => {
+  it('les vrais chiffres, singulier et pluriel, et les cas « aucun »', async () => {
+    const { texteFermeture } = await import('./syndics');
+    expect(texteFermeture('TEST ARNAUD / Asnieres Sur Seine', 5, 9, 4)).toEqual([
+      'Vous êtes sur le point de supprimer définitivement le syndic TEST ARNAUD / Asnieres Sur Seine.',
+      'Il sera détaché de ses 5 copropriétés et les 9 lots du portefeuille concernés n’auront plus de syndic.',
+      'Son catalogue de 4 contacts sera supprimé.']);
+    expect(texteFermeture('S', 1, 1, 1).slice(1)).toEqual(['Il sera détaché de sa copropriété et le lot du portefeuille concerné n’aura plus de syndic.', 'Son catalogue de 1 contact sera supprimé.']);
+    expect(texteFermeture('S', 0, 0, 0).slice(1)).toEqual(['Il n’est rattaché à aucune copropriété et aucun lot du portefeuille n’est concerné.', 'Son catalogue ne contient aucun contact.']);
   });
 });

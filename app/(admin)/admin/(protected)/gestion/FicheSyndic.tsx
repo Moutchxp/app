@@ -12,7 +12,7 @@ import {
   marquerParti, reintegrer, departEnLignes, boutonDepart, type AncienContact, alerteCoordonnees, coordonneesManquantes,
   CATEGORIES_IMMEUBLE, refusContactImmeuble, versFormulaireImmeuble, type ContactImmeubleLu,
   avertissementsCoordonnees, cleTelephone, coordonneesDuFormulaire, phraseManque, type CoordonneeConnue,
-  conflitAdresse, type AdresseSaisie, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
+  conflitAdresse, type AdresseSaisie, texteFermeture, type ChampAdresse, cleImmeuble, contactNomme, contactVide, coordonneeVide, coproprietesRetirees,
   emailPlausible, formaterTelephone, formulaireModifie, formulaireVide, immeublesQuiRepondent, libellesDe,
   lienTelephone, MINIMUM_AUTOCOMPLETION, motBiensEnGestion, nomDuContact, PERSONNALISE, saisieTelephone,
   TITRES_CONTACT, valeurDuChoix, versFormulaire, versSaisie,
@@ -86,7 +86,13 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [erreur, setErreur] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const [abandon, setAbandon] = useState(false);
-  const [suppression, setSuppression] = useState(false);
+  /** LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — 0 : rien ; 1 : première confirmation ; 2 : seconde. */
+  const [suppression, setSuppression] = useState<0 | 1 | 2>(0);
+  /** « Supprimer ce syndic pour cause de fermeture définitive » : des modifications en cours ⇒ le bandeau le dit d'abord. */
+  const demanderSuppression = (): void => {
+    if (modifie) { setErreur('Validez ou abandonnez vos modifications avant de supprimer ce syndic'); return; }
+    setErreur(null); setSuppression(1);
+  };
   /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — la confirmation « Retirer … de la copropriété … ? » est affichée. */
   const [retrait, setRetrait] = useState(false);
   /** Un « Valider » a été refusé pour une adresse incomplète : les champs vides se cerclent de rouge. */
@@ -379,7 +385,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       </div>
     </div>
   ) : (
-    <button type="button" className="fsy-retrait" onClick={demanderRetrait}>Supprimer ce syndic de cette résidence</button>
+    /* LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL Y AVAIT : « Supprimer ce syndic de cette résidence ». */
+    <button type="button" className="fsy-retrait" onClick={demanderRetrait}>Détacher / remplacer ce syndic de cette résidence</button>
   );
 
   /** « Créer un nouveau syndic » : le formulaire vide (l'immeuble du bien pré-rempli). */
@@ -419,7 +426,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           )}
           {mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={onEcrire}
-              connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression}
+              connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression} demanderSuppression={demanderSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
               ouverts={ouverts} setOuverts={setOuverts} edition={edition} setEdition={setEdition} cleDepart={cleDepart} adresseBien={adresseBien}
               onParcelle={setParcelle} voirParcelle={voirParcelle}
@@ -623,6 +630,21 @@ function ActionCopier({ tel }: { tel: string }) {
 }
 
 /**
+ * LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — le GROS triangle jaune (48 px) au point d'exclamation rouge, en SVG inline.
+ * Le jaune est le seul ton figé (aucun jeton jaune dans le dépôt) : il se lit sur fond Clair comme Sombre ; le contour
+ * et le point d'exclamation suivent les jetons du thème.
+ */
+function TriangleAlerte() {
+  return (
+    <svg className="fsy-triangle" width="48" height="48" viewBox="0 0 48 48" role="img" aria-label="Attention">
+      <path d="M24 4 L45 42 H3 Z" className="fsy-triangle-fond" strokeLinejoin="round" />
+      <rect x="21.5" y="15" width="5" height="16" rx="2" className="fsy-triangle-signe" />
+      <circle cx="24" cy="36.5" r="2.8" className="fsy-triangle-signe" />
+    </svg>
+  );
+}
+
+/**
  * ══ LOT COPRO-PLUSIEURS-ADRESSES — LA PETITE LIGNE « AUTRE ADRESSE » ══ l'autocomplétion existante (API Adresse, puis
  * BAN locale en repli — `chercherAdresses`), « Ajouter » / « Annuler ». Un refus (adresse déjà prise) se dit dessous.
  */
@@ -759,7 +781,7 @@ function ChampsCpVille({ form, setForm, manques }: { form: SyndicForm; setForm: 
 
 // ══ LA FICHE ═════════════════════════════════════════════════════════════════════════════════════════════════════
 
-function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, envoi, onSupprimer, tente,
+function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression, setSuppression, demanderSuppression, envoi, onSupprimer, tente,
   ouverts, setOuverts, edition, setEdition, cleDepart, retrait = null, adresseBien = null, onParcelle, voirParcelle = 0 }: {
   /** LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — l'état des propositions de la parcelle, pour l'alerte du Valider. */
   onParcelle?: (e: RapportParcelle) => void;
@@ -771,7 +793,7 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
   /** LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le gros bouton (ou sa confirmation), sous le bloc 2, depuis un bien. */
   retrait?: React.ReactNode;
   onEcrire?: (email: string) => void; connus: ImmeubleConnu[];
-  suppression: boolean; setSuppression: (v: boolean) => void; envoi: boolean; onSupprimer: () => void;
+  suppression: 0 | 1 | 2; setSuppression: (v: 0 | 1 | 2) => void; demanderSuppression: () => void; envoi: boolean; onSupprimer: () => void;
   /** Vrai après un « Valider » refusé : les champs d'adresse vides se cerclent de rouge. */
   tente: boolean;
   ouverts: string[]; setOuverts: (o: string[]) => void;
@@ -1243,22 +1265,35 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       )}
 
       {/* ══ 🔴 « SUPPRIMER CE SYNDIC » — discret, en bas, avec la liste des biens qui le perdront ══ */}
-      {fiche !== null && syndicId !== null && (suppression ? (
-        <div className="fsy-supprimer" role="group" aria-label="Confirmer la suppression du syndic">
-          <p><strong>Supprimer « {nomAvecVille(fiche.nom, fiche.ville)} » ?</strong> Ses contacts et ses liens de copropriété sont retirés ;
-            {biensPerdus.length === 0 ? ' aucun bien ne le perd.' : biensPerdus.length === 1 ? ' 1 bien perdra ce syndic :' : ` ${biensPerdus.length} biens perdront ce syndic :`}</p>
-          {biensPerdus.length > 0 && (
-            <ul className="fsy-liste fsy-liste--serree">
-              {biensPerdus.map((l) => <li key={l.id}><strong>lot {l.numero}</strong> — {l.immeuble}</li>)}
-            </ul>
-          )}
-          <div className="fsy-boutons">
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(false)} disabled={envoi}>Non, garder</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onSupprimer} disabled={envoi}>Oui, supprimer ce syndic</button>
+      {/* 🔴 LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL Y AVAIT : le lien « Supprimer ce syndic » et UNE
+          confirmation qui listait les biens. Désormais « … pour cause de fermeture définitive » et DEUX confirmations,
+          dans un encadré d'alerte au GROS triangle jaune : les vrais chiffres, puis « Confirmez-vous … ? ». */}
+      {fiche !== null && syndicId !== null && (suppression !== 0 ? (
+        <div className="fsy-supprimer fsy-fermeture" role="group" aria-label="Confirmer la suppression définitive du syndic">
+          <TriangleAlerte />
+          <div className="fsy-fermeture-texte">
+            {suppression === 1 ? (
+              <>
+                {texteFermeture(nomAvecVille(fiche.nom, fiche.ville), fiche.coproprietes.length, biensPerdus.length, fiche.contacts.length)
+                  .map((l, i) => <p key={i}>{i === 0 ? <strong>{l}</strong> : l}</p>)}
+                <div className="fsy-boutons">
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(0)} disabled={envoi}>Annuler</button>
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(2)} disabled={envoi}>Continuer</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p><strong>Confirmez-vous la fermeture définitive de {nomAvecVille(fiche.nom, fiche.ville)} ?</strong> Cette action ne peut pas être annulée depuis l’application.</p>
+                <div className="fsy-boutons">
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSuppression(1)} disabled={envoi}>Non, revenir</button>
+                  <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onSupprimer} disabled={envoi}>Oui, supprimer définitivement</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : (
-        <button type="button" className="fsy-lien-bouton fsy-supprimer-lien" onClick={() => setSuppression(true)}>Supprimer ce syndic</button>
+        <button type="button" className="fsy-lien-bouton fsy-supprimer-lien" onClick={demanderSuppression}>Supprimer ce syndic pour cause de fermeture définitive</button>
       ))}
     </div>
   );
@@ -2640,6 +2675,12 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-supprimer{display:flex;flex-direction:column;gap:.4rem;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-red);font-size:.86rem}
 .fsy-supprimer p{margin:0}
 .fsy-supprimer-lien{align-self:flex-start;color:var(--color-svv-muted)}
+/* LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — l'encadre d'alerte de la fermeture : le triangle a gauche, le texte a droite. */
+.fsy-fermeture{flex-direction:row;align-items:flex-start;gap:.8rem}
+.fsy-fermeture-texte{display:flex;flex-direction:column;gap:.4rem;min-width:0;flex:1 1 auto}
+.fsy-triangle{flex:0 0 48px;width:48px;height:48px}
+.fsy-triangle-fond{fill:#f5c400;stroke:var(--color-svv-ink);stroke-width:1.5}
+.fsy-triangle-signe{fill:var(--color-svv-red)}
 /* LOT SYNDIC-RETIRER-DE-LA-RESIDENCE — le GROS bouton : pleine largeur, fond blanc, bord et texte rouge de la marque. */
 .fsy-retrait{width:100%;min-height:52px;padding:10px 14px;border-radius:10px;border:2px solid var(--color-svv-red);
   background:var(--color-svv-surface);color:var(--color-svv-red);font:inherit;font-size:.95rem;font-weight:700;cursor:pointer;text-align:center}

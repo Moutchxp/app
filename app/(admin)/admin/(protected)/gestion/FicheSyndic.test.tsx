@@ -233,16 +233,72 @@ describe('les copropriétés — adresse complète, auto-complétion, reprise co
 });
 
 describe('supprimer ce syndic', () => {
-  it('lien discret → confirmation qui liste les biens → DELETE → ferme', async () => {
+  // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL DISAIT AVANT : lien « Supprimer ce syndic », UNE confirmation qui listait les biens (« 1 bien
+  // perdra ce syndic : lot 101 »), « Oui, supprimer ce syndic ». Désormais « … pour cause de fermeture définitive » et
+  // DEUX confirmations (les vrais chiffres, puis « Confirmez-vous … ? »), au triangle jaune.
+  const encadre = (): HTMLElement => document.querySelector('.fsy-fermeture') as HTMLElement;
+  const textes = (): string[] => [...encadre().querySelectorAll('.fsy-fermeture-texte > p')].map((p) => p.textContent ?? '');
+  const boutons = (): string[] => [...encadre().querySelectorAll('button')].map((b) => b.textContent ?? '');
+
+  it('lien « Supprimer ce syndic pour cause de fermeture définitive » → 1re confirmation (vrais chiffres) → 2e → « Oui, supprimer définitivement » : DELETE aussitôt, puis la fiche se ferme', async () => {
     const onFerme = await ouvrir();
-    await cliquer(bouton('Supprimer ce syndic'));
-    const conf = document.querySelector('.fsy-supprimer')?.textContent ?? '';
-    expect(conf).toContain('1 bien perdra ce syndic');
-    expect(conf).toContain('lot 101');
+    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
+    expect(textes()).toEqual([
+      'Vous êtes sur le point de supprimer définitivement le syndic _TEST Cabinet / Paris.',
+      'Il sera détaché de sa copropriété et le lot du portefeuille concerné n’aura plus de syndic.',
+      'Son catalogue de 1 contact sera supprimé.',
+    ]);
+    expect(boutons()).toEqual(['Annuler', 'Continuer']);
+    await cliquer(boutonDans(encadre(), 'Continuer'));
+    expect(textes()).toEqual(['Confirmez-vous la fermeture définitive de _TEST Cabinet / Paris ? Cette action ne peut pas être annulée depuis l’application.']);
+    expect(boutons()).toEqual(['Non, revenir', 'Oui, supprimer définitivement']);
+    expect(boutonDans(encadre(), 'Oui, supprimer définitivement').className).toContain('svv-btn-primary');
     expect(appels.some((a) => a.methode === 'DELETE')).toBe(false);
-    await cliquer(bouton('Oui, supprimer ce syndic'));
+    await cliquer(boutonDans(encadre(), 'Oui, supprimer définitivement'));
     expect(appels.find((a) => a.methode === 'DELETE')?.url).toBe('/api/admin/gestion/syndics/11');
+    expect(appels.some((a) => a.methode === 'PUT')).toBe(false); // pas besoin du Valider de la fiche
     expect(onFerme).toHaveBeenCalledTimes(1);
+  });
+
+  it('le GROS triangle jaune au point d’exclamation rouge (SVG inline, 48 px), à gauche du texte', async () => {
+    await ouvrir();
+    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
+    const svg = encadre().firstElementChild as SVGElement;
+    expect(svg.tagName.toLowerCase()).toBe('svg');
+    expect([svg.getAttribute('width'), svg.getAttribute('height'), svg.getAttribute('aria-label')]).toEqual(['48', '48', 'Attention']);
+    expect(svg.querySelector('.fsy-triangle-fond')).not.toBeNull();
+    expect(svg.querySelectorAll('.fsy-triangle-signe')).toHaveLength(2);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.fsy-triangle-fond{fill:#f5c400;stroke:var(--color-svv-ink);');
+    expect(css).toContain('.fsy-triangle-signe{fill:var(--color-svv-red)}');
+  });
+
+  it('les vrais chiffres, au pluriel : 2 copropriétés, 3 contacts', async () => {
+    await ouvrir(vi.fn(), 20);
+    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
+    expect(textes().slice(1)).toEqual(['Il sera détaché de ses 2 copropriétés et le lot du portefeuille concerné n’aura plus de syndic.',
+      'Son catalogue de 3 contacts sera supprimé.']);
+  });
+
+  it('« Annuler » puis « Non, revenir » n’écrivent rien', async () => {
+    const onFerme = await ouvrir();
+    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
+    await cliquer(boutonDans(encadre(), 'Annuler'));
+    expect(document.querySelector('.fsy-fermeture')).toBeNull();
+    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
+    await cliquer(boutonDans(encadre(), 'Continuer'));
+    await cliquer(boutonDans(encadre(), 'Non, revenir'));
+    expect(boutons()).toEqual(['Annuler', 'Continuer']);
+    expect(appels.filter((a) => a.methode !== 'GET')).toEqual([]);
+    expect(onFerme).not.toHaveBeenCalled();
+  });
+
+  it('modifications non validées : le bandeau le dit d’abord, pas de confirmation', async () => {
+    await ouvrir();
+    await taper(champ('Nom du cabinet *'), '_TEST Cabinet modifié');
+    await cliquer(bouton('Supprimer ce syndic pour cause de fermeture définitive'));
+    expect(document.querySelector('.fsy-pied-alerte')?.textContent).toBe('Validez ou abandonnez vos modifications avant de supprimer ce syndic');
+    expect(document.querySelector('.fsy-fermeture')).toBeNull();
   });
 });
 
@@ -1309,7 +1365,8 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
     for (let i = 1; i < ordre.length; i++) expect(ordre[i - 1].compareDocumentPosition(ordre[i])).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     // rien n'est retiré : historique / trace / suppression restent sous les deux blocs
     expect(bloc(2).compareDocumentPosition(document.querySelector('.fsy-trace') as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(bouton('Supprimer ce syndic')).toBeTruthy();
+    // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL DISAIT AVANT : « Supprimer ce syndic ».
+    expect(bouton('Supprimer ce syndic pour cause de fermeture définitive')).toBeTruthy();
   });
 
   /* LOT SYNDIC-BLOC-AJOUT-CONTACT — CE QU'IL DISAIT AVANT : le bloc d'ajout s'ouvrait DANS le bloc 2. Il a désormais
@@ -2509,11 +2566,12 @@ describe('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE', () => {
   it('DEPUIS UN BIEN : le gros bouton, sous « Syndic & portefeuille de gestion », au-dessus de « Créé le … » ; le lien « Supprimer ce syndic » reste dessous', async () => {
     await ouvrir50('12 rue X');
     const b = gros() as HTMLButtonElement;
-    expect(b.textContent).toBe('Supprimer ce syndic de cette résidence');
+    // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — CE QU'IL DISAIT AVANT : « Supprimer ce syndic de cette résidence ».
+    expect(b.textContent).toBe('Détacher / remplacer ce syndic de cette résidence');
     const bloc2 = document.querySelector('section[aria-labelledby="fsy-bloc-2"]') as Element;
     expect(bloc2.compareDocumentPosition(b)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(b.compareDocumentPosition(document.querySelector('.fsy-trace') as Element)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(b.compareDocumentPosition(bouton('Supprimer ce syndic'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(b.compareDocumentPosition(bouton('Supprimer ce syndic pour cause de fermeture définitive'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.fsy-retrait{width:100%;min-height:52px;');
     expect(css).toMatch(/\.fsy-retrait\{[^}]*border:2px solid var\(--color-svv-red\);\s*background:var\(--color-svv-surface\);color:var\(--color-svv-red\)/);
@@ -2522,7 +2580,7 @@ describe('LOT SYNDIC-RETIRER-DE-LA-RESIDENCE', () => {
   it('DEPUIS L’ÉCRAN SYNDICS : pas de gros bouton ; depuis un bien dont la copropriété n’est pas (encore) à ce syndic : non plus', async () => {
     await ouvrir50(null);
     expect(gros()).toBeNull();
-    expect(bouton('Supprimer ce syndic')).toBeTruthy();
+    expect(bouton('Supprimer ce syndic pour cause de fermeture définitive')).toBeTruthy();
     await act(async () => { root.render(null); });
     await ouvrir50('8 rue Z');
     expect(gros()).toBeNull();

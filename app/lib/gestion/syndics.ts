@@ -963,6 +963,18 @@ Array<{ cleCoord: string; lignes: string[] }> {
   return out;
 }
 
+// ══ LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — LE TEXTE DE LA FERMETURE DÉFINITIVE ══════════════════════════════
+
+/** Les trois phrases de la première confirmation, avec les VRAIS chiffres (copropriétés, lots, contacts). PUR. */
+export function texteFermeture(syndic: string, nbCopros: number, nbLots: number, nbContacts: number): string[] {
+  const copros = nbCopros === 0 ? 'Il n’est rattaché à aucune copropriété' : nbCopros === 1 ? 'Il sera détaché de sa copropriété' : `Il sera détaché de ses ${nbCopros} copropriétés`;
+  const lots = nbLots === 0 ? 'aucun lot du portefeuille n’est concerné' : nbLots === 1 ? 'le lot du portefeuille concerné n’aura plus de syndic'
+    : `les ${nbLots} lots du portefeuille concernés n’auront plus de syndic`;
+  const contacts = nbContacts === 0 ? 'Son catalogue ne contient aucun contact.' : nbContacts === 1 ? 'Son catalogue de 1 contact sera supprimé.'
+    : `Son catalogue de ${nbContacts} contacts sera supprimé.`;
+  return [`Vous êtes sur le point de supprimer définitivement le syndic ${syndic}.`, `${copros} et ${lots}.`, contacts];
+}
+
 // ══ LOT SYNDIC-CONTACT-ALERTE-COORDONNEES-MANQUANTES ════════════════════════════════════════════════════════════════
 
 /** Ce qui MANQUE réellement à un contact : une ligne ouverte mais laissée vide compte comme absente. PUR. */

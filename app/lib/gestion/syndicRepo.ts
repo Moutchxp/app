@@ -740,36 +740,52 @@ Promise<{ ok: true; lots: number } | { ok: false; motif: string }> {
 export async function supprimerSyndic(id: number, auteur: Auteur):
 Promise<{ ok: true; coproprietes: number } | { ok: false; motif: string }> {
   const parCle = await lotsParImmeuble();
+  // LOT SYNDIC-BOUTONS-DETACHER-ET-FERMETURE — « fermeture définitive » : le motif est écrit partout (liens,
+  // affectations, contacts, syndic) ; les lots de TOUTES les adresses des copropriétés (secondaires comprises) ont
+  // chacun leur ligne de journal, comme pour « Détacher / remplacer ce syndic de cette résidence ».
+  const MOTIF = 'fermeture définitive';
+  const secondaires = await adressesSecondaires();
   return withTransaction(async (q) => {
-    const { rows } = await q<{ nom: string }>(
-      `SELECT nom FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE`, [id]);
+    const { rows } = await q<{ nom: string; ville: string | null }>(
+      `SELECT nom, ville FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE`, [id]);
     const s = rows[0];
     if (s === undefined) return { ok: false, motif: 'Ce syndic n’existe pas ou a déjà été supprimé.' };
-    const { rows: liens } = await q<{ id: string; cle: string }>(
-      `SELECT cs.id::text, c.cle_immeuble AS cle FROM gestion_copropriete_syndic cs
+    const { rows: liens } = await q<{ id: string; cle: string; libelle: string; code_postal: string | null; commune: string | null }>(
+      `SELECT cs.id::text, c.cle_immeuble AS cle, c.libelle, c.code_postal, c.commune FROM gestion_copropriete_syndic cs
          JOIN gestion_copropriete c ON c.id = cs.copropriete_id
         WHERE cs.syndic_id = $1 AND cs.fin IS NULL FOR UPDATE OF cs`, [id]);
-    const nbBiens = liens.reduce((n, l) => n + (parCle.get(l.cle)?.lots.length ?? 0), 0);
+    const lotsDe = (cle: string) => [cle, ...secondaires.filter((a) => a.coproCle === cle).map((a) => a.cle)].flatMap((k) => parCle.get(k)?.lots ?? []);
+    const nbBiens = liens.reduce((n, l) => n + lotsDe(l.cle).length, 0);
     if (liens.length > 0) {
       await q(
-        `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = 'suppression du syndic'
-          WHERE id = ANY($1::bigint[])`, [liens.map((l) => l.id), auteur.id, auteur.libelle]);
+        `UPDATE gestion_copropriete_syndic SET fin = now(), fin_par = $2, fin_par_libelle = $3, fin_motif = $4
+          WHERE id = ANY($1::bigint[])`, [liens.map((l) => l.id), auteur.id, auteur.libelle, MOTIF]);
     }
     await q(
-      `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $2, retire_motif = 'suppression du syndic'
-         FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.retire_le IS NULL`, [id, auteur.libelle]);
+      `UPDATE gestion_syndic_contact_copropriete a SET retire_le = now(), retire_par_libelle = $2, retire_motif = $3
+         FROM gestion_syndic_contact c WHERE a.contact_id = c.id AND c.syndic_id = $1 AND a.retire_le IS NULL`, [id, auteur.libelle, MOTIF]);
     await q(
       `UPDATE gestion_syndic_coordonnee k SET retire_le = now() FROM gestion_syndic_contact c
         WHERE k.contact_id = c.id AND c.syndic_id = $1 AND c.retire_le IS NULL AND k.retire_le IS NULL`, [id]);
-    await q(`UPDATE gestion_syndic_contact SET retire_le = now(), retire_par_libelle = $2 WHERE syndic_id = $1 AND retire_le IS NULL`,
-      [id, auteur.libelle]);
-    await q(`UPDATE gestion_syndic SET supprime_le = now(), supprime_par = $2, supprime_par_libelle = $3 WHERE id = $1`,
-      [id, auteur.id, auteur.libelle]);
+    await q(`UPDATE gestion_syndic_contact SET retire_le = now(), retire_par_libelle = $2, retire_motif = $3 WHERE syndic_id = $1 AND retire_le IS NULL`,
+      [id, auteur.libelle, MOTIF]);
+    await q(`UPDATE gestion_syndic SET supprime_le = now(), supprime_par = $2, supprime_par_libelle = $3, supprime_motif = $4 WHERE id = $1`,
+      [id, auteur.id, auteur.libelle, MOTIF]);
     await q(
       `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle)
        VALUES ('annuaire', $1, 'suppression_syndic', $2, $3, $4, $5)`,
-      [id, s.nom, `syndic supprimé — ${liens.length} copropriété(s), ${nbBiens} bien(s) repassent sans syndic`,
+      [id, s.nom, `syndic supprimé (${MOTIF}) — ${liens.length} copropriété(s), ${nbBiens} bien(s) repassent sans syndic`,
         auteur.id, auteur.libelle]);
+    const syndic = nomAvecVille(s.nom, s.ville);
+    for (const l of liens) {
+      const adresse = adresseImmeuble(l.libelle, parCle.get(l.cle)?.codePostal ?? l.code_postal, parCle.get(l.cle)?.commune ?? l.commune);
+      for (const lot of lotsDe(l.cle)) {
+        await q(
+          `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, commentaire, auteur_id, auteur_libelle)
+           VALUES ('annuaire_lot', $1, 'syndic_retire', $2, $3, $4, $5)`,
+          [lot.id, syndic, `Syndic ${syndic} supprimé (${MOTIF}) : retiré de la copropriété ${adresse}`, auteur.id, auteur.libelle]);
+      }
+    }
     return { ok: true, coproprietes: liens.length };
   });
 }
