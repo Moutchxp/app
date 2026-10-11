@@ -979,7 +979,13 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
         {coproDuBien !== null && (
           <>
             <button type="button" className={`fsy-plus-adresse${pulse ? ' fsy-plus-adresse--pulse' : ''}`} title="Ajouter une autre adresse à cette copropriété"
-              aria-label="Ajouter une autre adresse à cette copropriété" onClick={() => { marquerVues(); setAjoutAdresse(true); setSaisieAdresse({ libelle: '', codePostal: '', commune: '' }); setRefusAdresse(null); }}>+</button>
+              aria-label="Ajouter une autre adresse à cette copropriété" onClick={() => { marquerVues(); setAjoutAdresse(true); setSaisieAdresse({ libelle: '', codePostal: '', commune: '' }); setRefusAdresse(null); }}>
+              {/* LOT COPRO-BOUTON-PLUS-PROPRE — CE QU'IL Y AVAIT : le caractère « + » de la police, jamais tout à fait
+                  centré. Désormais deux traits SVG, centrés par construction. */}
+              <svg className="fsy-plus-adresse-icone" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" focusable="false">
+                <path d="M5 .875V9.125M.875 5H9.125" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" />
+              </svg>
+            </button>
             {autresAdresses.length > 0 && (
               <button type="button" className="fsy-autres-adresses" aria-expanded={adressesOuvertes} onClick={() => setAdressesOuvertes(!adressesOuvertes)}>
                 · {autresAdresses.length === 1 ? '1 autre adresse' : `${autresAdresses.length} autres adresses`} {adressesOuvertes ? '▾' : '▸'}
@@ -2579,23 +2585,32 @@ button.fsy-copros-ligne:hover,button.fsy-copros-ligne:focus-visible{
 .fsy-choix-ajout-boutons{display:flex;flex-wrap:wrap;justify-content:center;gap:.5rem;width:100%}
 .fsy-choix{flex:1 1 13rem;min-height:52px;font-weight:700}
 .fsy-sous-titre--immeuble{margin-top:.6rem}
-.fsy-plus-adresse{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;margin-left:.4rem;padding:0;
-  vertical-align:middle;border-radius:50%;border:1px solid var(--color-svv-red);background:var(--color-svv-surface);color:var(--color-svv-red);
-  font:inherit;font-size:.95rem;font-weight:700;line-height:1;cursor:pointer;position:relative}
-/* la cible tactile du §15, invisible */
+/* LOT COPRO-BOUTON-PLUS-PROPRE — CE QU'IL Y AVAIT : rond de 20 px, bord de 1 px, « + » de police, survol rose pâle.
+   Désormais rond de 22 px, bord de 1,5 px, « + » SVG de 10 px ; survol rempli rouge ; anneau au clavier. */
+/* Centré sur les CAPITALES du titre, en restant DANS la ligne : un titre en flex enverrait le rond seul à la ligne
+   dès que l'adresse est longue. « middle » pose le MILIEU du rond à mi-hauteur des minuscules ; « top » le remonte de
+   la demi-différence avec les capitales (repli -.09em pour les navigateurs sans l'unité « cap »). */
+.fsy-plus-adresse{display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:22px;height:22px;margin-left:8px;padding:0;
+  vertical-align:middle;top:-.09em;top:calc(.5ex - .5cap);
+  border-radius:50%;border:1.5px solid var(--color-svv-red);background:var(--color-svv-surface);color:var(--color-svv-red);
+  cursor:pointer;position:relative;transition:background-color .15s ease,color .15s ease}
+.fsy-plus-adresse-icone{display:block;width:10px;height:10px;pointer-events:none}
+/* la cible tactile du §15 (au moins 32 px), invisible : la taille affichée ne change pas */
 .fsy-plus-adresse::after{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
-.fsy-plus-adresse:hover,.fsy-plus-adresse:focus-visible{background:var(--color-svv-red-soft)}
+.fsy-plus-adresse:hover{background:var(--color-svv-red);color:var(--color-svv-surface)}
+.fsy-plus-adresse:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES — le « + » PULSE quand des propositions attendent : un halo rouge
    transparent en SURIMPRESSION (::before, position absolue : rien ne bouge autour), deux pulsations amples (~2,5 fois
    le bouton, 0,8 s chacune), puis une douce et lente toutes les 2 s. Moins d'animations : pas de halo, un « + » rempli. */
 @keyframes fsy-pulse-ample{from{transform:scale(1);opacity:.55}to{transform:scale(2.5);opacity:0}}
 @keyframes fsy-pulse-douce{0%{transform:scale(1);opacity:0}30%{opacity:.28}100%{transform:scale(1.7);opacity:0}}
-.fsy-plus-adresse--pulse::before{content:"";position:absolute;inset:-1px;border-radius:50%;pointer-events:none;
+.fsy-plus-adresse--pulse::before{content:"";position:absolute;inset:-1.5px;border-radius:50%;pointer-events:none;
   background:color-mix(in srgb, var(--color-svv-red) 45%, transparent);
   animation:fsy-pulse-ample .8s ease-out 0s 2, fsy-pulse-douce 2s ease-in-out 1.6s infinite}
 @media (prefers-reduced-motion: reduce){
   .fsy-plus-adresse--pulse::before{animation:none;display:none}
-  .fsy-plus-adresse--pulse{background:var(--color-svv-red);color:var(--color-svv-surface)}}
+  .fsy-plus-adresse--pulse{background:var(--color-svv-red);color:var(--color-svv-surface)}
+  .fsy-plus-adresse{transition:none}}
 .fsy-prises-ailleurs{color:var(--color-svv-muted)}
 /* LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — le conflit possible : un encadre ORANGE dans le pied. */
 .fsy-conflit-parcelle{padding:6px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink)}

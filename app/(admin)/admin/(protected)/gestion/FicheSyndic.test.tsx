@@ -1430,7 +1430,8 @@ describe('LOT SYNDIC-MODALE-DEUX-BLOCS — deux blocs encadrés, l\'un sous l\'a
     await depuisLeBien();
     // LOT COPRO-PLUSIEURS-ADRESSES — CE QU'IL DISAIT AVANT : le titre seul. Le petit « + » (ajouter une autre adresse)
     // le suit désormais, dans la même ligne.
-    expect(titre(1)).toBe('Syndic de l’immeuble · 12 rue X, 92400 Courbevoie+');
+    // LOT COPRO-BOUTON-PLUS-PROPRE — CE QU'IL DISAIT AVANT : « …Courbevoie+ » (le « + » était un caractère ; c'est un SVG).
+    expect(titre(1)).toBe('Syndic de l’immeuble · 12 rue X, 92400 Courbevoie');
     expect(titre(2)).toBe('Syndic & portefeuille de gestion'); // avant : « Gérer ce syndic »
     expect(bloc(1).compareDocumentPosition(bloc(2))).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(bloc(1).className).toBe('fsy-cadre');
@@ -3742,13 +3743,38 @@ describe('LOT COPRO-PLUSIEURS-ADRESSES', () => {
   it('le « + » rouge cerclé, après l’adresse du titre, avec son info-bulle ; « · 1 autre adresse ▸ » repliée', async () => {
     await monterCarte('12 rue X');
     const p = plus() as HTMLButtonElement;
-    expect(p.textContent).toBe('+');
+    // LOT COPRO-BOUTON-PLUS-PROPRE — CE QU'IL DISAIT AVANT : `p.textContent` = « + » (caractère de police), rond de 20 px.
+    expect(p.querySelector('svg.fsy-plus-adresse-icone')).not.toBeNull();
+    expect(p.getAttribute('aria-label')).toBe('Ajouter une autre adresse à cette copropriété');
     expect(p.title).toBe('Ajouter une autre adresse à cette copropriété');
     expect(titre().firstChild?.textContent).toBe('Syndic de l’immeuble · 12 rue X, 92400 Courbevoie');
     expect(mention()?.textContent).toBe('· 1 autre adresse ▸');
     expect(document.querySelector('.fsy-adresses-copro')).toBeNull();
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
-    expect(css).toMatch(/\.fsy-plus-adresse\{[^}]*width:20px;height:20px;[^}]*border-radius:50%;border:1px solid var\(--color-svv-red\)/);
+    expect(css).toMatch(/\.fsy-plus-adresse\{[^}]*width:22px;height:22px;[^}]*border-radius:50%;border:1\.5px solid var\(--color-svv-red\)/);
+  });
+
+  it('LOT COPRO-BOUTON-PLUS-PROPRE — le « + » en SVG (deux traits de 1,75 px, bouts ronds, 10 px), rond de 22 px, survol rempli, anneau au clavier, cible de 44 px', async () => {
+    await monterCarte('12 rue X');
+    const p = plus() as HTMLButtonElement;
+    expect(p.textContent).toBe(''); // plus de caractère de police
+    const svg = p.querySelector('svg') as SVGElement;
+    expect([svg.getAttribute('class'), svg.getAttribute('width'), svg.getAttribute('height'), svg.getAttribute('viewBox'), svg.getAttribute('aria-hidden')])
+      .toEqual(['fsy-plus-adresse-icone', '10', '10', '0 0 10 10', 'true']);
+    const trait = svg.querySelector('path') as SVGPathElement;
+    expect([trait.getAttribute('d'), trait.getAttribute('stroke'), trait.getAttribute('stroke-width'), trait.getAttribute('stroke-linecap'), trait.getAttribute('fill')])
+      .toEqual(['M5 .875V9.125M.875 5H9.125', 'currentColor', '1.75', 'round', 'none']);
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
+    expect(css).toContain('.fsy-plus-adresse{display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:22px;height:22px;margin-left:8px;');
+    expect(css).toContain('vertical-align:middle;'); // centré sur le texte du titre, sans quitter la ligne
+    expect(css).toContain('border-radius:50%;border:1.5px solid var(--color-svv-red);background:var(--color-svv-surface);color:var(--color-svv-red);');
+    expect(css).toContain('transition:background-color .15s ease,color .15s ease}');
+    expect(css).toContain('.fsy-plus-adresse:hover{background:var(--color-svv-red);color:var(--color-svv-surface)}');
+    expect(css).toContain('.fsy-plus-adresse:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}');
+    expect(css).toContain('.fsy-plus-adresse::after{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;transform:translate(-50%,-50%)}');
+    expect(css).toContain('.fsy-plus-adresse-icone{display:block;width:10px;height:10px;pointer-events:none}');
+    // Le titre reste en ligne : le rond suit le dernier mot de l'adresse.
+    expect(titre().className).toBe('fsy-sous-titre fsy-cadre-titre');
   });
 
   it('dépliée : une adresse par ligne, sur fond blanc, avec « × » ; repliée au second clic', async () => {
@@ -4071,8 +4097,9 @@ describe('LOT COPRO-PARCELLE-PROPOSITIONS-IMMEDIATES', () => {
     const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, ' ');
     expect(css).toContain('@keyframes fsy-pulse-ample{from{transform:scale(1);opacity:.55}to{transform:scale(2.5);opacity:0}}');
     expect(css).toContain('animation:fsy-pulse-ample .8s ease-out 0s 2, fsy-pulse-douce 2s ease-in-out 1.6s infinite');
-    expect(css).toMatch(/\.fsy-plus-adresse--pulse::before\{content:"";position:absolute;inset:-1px;[^}]*pointer-events:none/);
-    expect(css).toContain('@media (prefers-reduced-motion: reduce){ .fsy-plus-adresse--pulse::before{animation:none;display:none} .fsy-plus-adresse--pulse{background:var(--color-svv-red);color:var(--color-svv-surface)}}');
+    // LOT COPRO-BOUTON-PLUS-PROPRE — CE QU'IL DISAIT AVANT : `inset:-1px` (bord de 1 px) ; pas de transition à couper.
+    expect(css).toMatch(/\.fsy-plus-adresse--pulse::before\{content:"";position:absolute;inset:-1.5px;[^}]*pointer-events:none/);
+    expect(css).toContain('@media (prefers-reduced-motion: reduce){ .fsy-plus-adresse--pulse::before{animation:none;display:none} .fsy-plus-adresse--pulse{background:var(--color-svv-red);color:var(--color-svv-surface)} .fsy-plus-adresse{transition:none}}');
   });
 
   it('ALERTE au Valider : propositions non traitées ⇒ le pied le dit ; « Voir les adresses » déplie et fait défiler ; « Valider quand même » enregistre', async () => {
