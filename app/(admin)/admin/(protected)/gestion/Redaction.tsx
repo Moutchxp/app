@@ -18,7 +18,7 @@ import { PARENT_PIECES_CONVERSATION } from '../../../../lib/gestion/piecesConver
 // LOT REDACTION-GMAIL — le corps en texte mis en forme, et le nettoyage du HTML collé (module PUR, partagé serveur).
 import { CSS_EDITEUR_RICHE, EditeurRiche, type ApiEditeur } from './EditeurRiche';
 import { htmlVersTexte, texteVersHtml } from '../../../../lib/gestion/htmlMail';
-import { formulePour, type AppelAuto } from '../../../../lib/gestion/mailSyndic';
+import { formulePour, suivreSurlignage, type AppelAuto } from '../../../../lib/gestion/mailSyndic';
 import { filtrerSuggestions, type GroupeSuggestions, type SuggestionAdresse } from '../../../../lib/gestion/suggestionsBien';
 import {
   SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
@@ -163,11 +163,18 @@ type Etat =
 export interface BrouillonEcran extends Brouillon {
   id: number | null; repris?: boolean;
   /**
-   * 🔴 LOT MAIL-SYNDIC-PREREMPLI — la plage de l'OBJET à sélectionner à l'ouverture (« XXXXXXXX ») : le curseur se
-   * pose dans l'objet, et la première frappe remplace le texte à compléter. Un geste d'OUVERTURE, jamais rejoué.
-   * Absent ⇒ rien ne change.
+   * 🔴 LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — la plage de l'OBJET SURLIGNÉE en rouge : le nom du compte connecté
+   * (« Arnaud JOREL / Cabinet Criterimmo / … »). Ce n'est PAS une sélection : taper ne l'efface pas. Elle suit la frappe
+   * (`suivreSurlignage`) et disparaît si l'on efface le nom. Champ d'écran : jamais enregistré, jamais envoyé (l'objet
+   * part en texte brut). Absent ⇒ l'objet s'affiche comme avant.
    */
-  selectionObjet?: [number, number] | null;
+  surlignageObjet?: [number, number] | null;
+  /**
+   * 🔴 LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — à l'OUVERTURE, le curseur se pose à la FIN de l'objet, sans rien
+   * sélectionner. Un geste d'ouverture, fait UNE fois par fenêtre : ni l'enregistrement du brouillon (qui lui donne un
+   * numéro), ni rien d'autre ne le rejoue. Absent ⇒ rien ne change.
+   */
+  curseurEnFinDObjet?: boolean;
   /**
    * 🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — les adresses liées au bien d'où l'on écrit, en trois groupes,
    * proposées dès qu'on clique dans À, Cc ou Cci. Champ d'écran : jamais enregistré. Absent ⇒ rien ne change.
@@ -1032,28 +1039,39 @@ export function Redaction({
   const cleCorps = `${brouillon.voie}:${brouillon.id ?? 'neuf'}:${brouillon.repondALeMessageId ?? 0}`;
 
   /**
-   * 🔴 LOT MAIL-SYNDIC-PREREMPLI — « À l'ouverture, le curseur est dans l'objet avec XXXXXXXX sélectionné. »
-   * Une seule fois par brouillon (sa clé), et jamais dans une fenêtre réduite : prendre le curseur, c'est la montrer.
+   * ══ 🔴🔴 LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — LE CURSEUR À LA FIN DE L'OBJET, UNE FOIS ════════════════════
+   * Remplace « XXXXXXXX sélectionné » (lot MAIL-SYNDIC-PREREMPLI). CE QU'IL FAISAIT AVANT, mesuré dans Chrome sur
+   * l'application réelle : la sélection était rattachée à la CLÉ du brouillon, qui contient son numéro ; au premier
+   * enregistrement (la première adresse validée), le numéro arrivait, la clé changeait, et le curseur était repris
+   * dans l'objet avec « XXXXXXXX » sélectionné — la frappe suivante l'écrasait. Désormais : UNE fois par fenêtre
+   * (`ouvertureFaite`), jamais rejoué, et RIEN n'est sélectionné. Jamais dans une fenêtre réduite : prendre le
+   * curseur, c'est la montrer.
    */
   const champObjet = useRef<HTMLInputElement | null>(null);
-  const selectionFaite = useRef<string | null>(null);
+  const miroirObjet = useRef<HTMLDivElement | null>(null);
+  const ouvertureFaite = useRef(false);
+  /** Le surlignage est dessiné SOUS le champ (`miroirObjet`) : il défile avec lui. */
+  const calerMiroir = (): void => {
+    if (miroirObjet.current !== null && champObjet.current !== null) miroirObjet.current.scrollLeft = champObjet.current.scrollLeft;
+  };
   useEffect(() => {
-    const plage = brouillon.selectionObjet;
-    if (!plage || reduite || selectionFaite.current === cleCorps) return;
+    if (!brouillon.curseurEnFinDObjet || reduite || ouvertureFaite.current) return;
     const champ = champObjet.current;
     if (champ === null) return;
-    selectionFaite.current = cleCorps;
-    /* ⚠️ SANS DÉFILEMENT : l'objet est en haut d'une fenêtre qu'on vient d'ouvrir, il est déjà sous les yeux. Le
-       défilement que le focus déclenche faisait glisser « De : … » sous la barre de titre (mesuré dans Chrome). */
+    ouvertureFaite.current = true;
+    /* ⚠️ SANS DÉFILEMENT de la fenêtre : l'objet est en haut d'une fenêtre qu'on vient d'ouvrir (le défilement que le
+       focus déclenche faisait glisser « De : … » sous la barre de titre — mesuré dans Chrome). */
     champ.focus({ preventScroll: true });
-    champ.setSelectionRange(plage[0], plage[1]);
-    /* 🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — MESURÉ DANS CHROME : le focus fait défiler le champ jusqu'à la
-       FIN de l'objet (125 px), et « XXXXXXXX », sélectionné au début, était hors de vue. La plage est en tête : on
-       ramène le champ à son début, maintenant et au prochain dessin (le navigateur peut redéfiler après le focus). */
+    const fin = champ.value.length;
+    champ.setSelectionRange(fin, fin);
+    /* MESURÉ DANS CHROME (fiche du 25 rue Edith Cavell) : le focus fait défiler le champ jusqu'au curseur, et le nom
+       surligné, en tête, sortait de la vue — alors qu'il est là pour attirer l'œil. Le curseur RESTE à la fin ; seul
+       l'affichage revient au début, maintenant et au prochain dessin. La première frappe ramène la vue au curseur. */
     champ.scrollLeft = 0;
-    requestAnimationFrame(() => { if (champ.selectionStart === plage[0]) champ.scrollLeft = 0; });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- geste d'ouverture : seule la clé du brouillon le relance.
-  }, [cleCorps, reduite]);
+    calerMiroir();
+    requestAnimationFrame(() => { champ.scrollLeft = 0; calerMiroir(); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- geste d'ouverture : fait une fois, jamais rejoué.
+  }, [brouillon.curseurEnFinDObjet, reduite]);
   const corpsInitialHtml = useMemo(() => {
     if ((brouillon.corpsHtml ?? '').trim() !== '') return brouillon.corpsHtml as string;
     const sig = (contexte.signatureHtml ?? '').trim();
@@ -1890,8 +1908,37 @@ export function Redaction({
       <div className="red-champ">
         <label className="red-label" htmlFor="red-objet">Objet</label>
         {/* ⚠️ « Entrée » ici ne doit RIEN envoyer : le champ n'est pas dans un formulaire, et rien n'écoute la touche. */}
-        <input id="red-objet" ref={champObjet} className="red-saisie red-saisie--pleine" value={brouillon.objet} maxLength={500}
-          onChange={(e) => modifier({ objet: e.target.value })} />
+        {/* ══ 🔴🔴 LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — LE NOM SURLIGNÉ EN ROUGE ═══════════════════════════
+            Un champ d'une ligne ne sait pas colorer une partie de son texte : le texte est donc DESSINÉ dessous
+            (`red-objet-miroir`, ignoré des lecteurs d'écran) avec le nom surligné, et le champ, au-dessus, garde la
+            saisie, le curseur et la sélection, son propre texte rendu transparent. Les deux défilent ensemble.
+            Sans surlignage (message ordinaire, nom effacé) : le champ d'avant, tel quel. */}
+        {(() => {
+          const plage = brouillon.surlignageObjet ?? null;
+          const champ = (
+            <input id="red-objet" ref={champObjet}
+              className={`red-saisie red-saisie--pleine${plage !== null ? ' red-objet--surligne' : ''}`}
+              value={brouillon.objet} maxLength={500}
+              onChange={(e) => {
+                const objet = e.target.value;
+                if (brouillon.surlignageObjet === undefined) { modifier({ objet }); return; }
+                modifier({ objet, surlignageObjet: suivreSurlignage(brouillon.objet, objet, brouillon.surlignageObjet) });
+              }}
+              onScroll={calerMiroir} onSelect={calerMiroir} onKeyUp={calerMiroir} />
+          );
+          if (plage === null) return champ;
+          const [d, f] = plage;
+          return (
+            <div className="red-objet-cadre">
+              <div ref={miroirObjet} className="red-objet-miroir" aria-hidden="true">
+                {brouillon.objet.slice(0, d)}
+                <mark className="red-objet-nom">{brouillon.objet.slice(d, f)}</mark>
+                {brouillon.objet.slice(f)}
+              </div>
+              {champ}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ══ 🔴 LOT REDACTION-GMAIL — LE CORPS EN TEXTE MIS EN FORME ══════════════════════════════════════════════
@@ -2445,6 +2492,18 @@ const CSS_REDACTION = `
 .red-saisie--pleine{flex:0 0 auto;min-height:44px;height:44px;padding:.5rem .7rem;
   border:1px solid var(--color-svv-line-strong);border-radius:.6rem;
   background:var(--color-svv-surface);width:100%;box-sizing:border-box}
+/* LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — le nom du compte surligné dans l'objet. Le miroir reprend EXACTEMENT
+   la boîte du champ (bordure transparente comprise) pour que chaque lettre tombe sous la sienne ; le champ, au-dessus,
+   rend son texte transparent et garde le curseur (couleur d'encre) et la sélection (voile rouge translucide). */
+.red-objet-cadre{position:relative;width:100%}
+.red-objet-miroir{position:absolute;inset:0;box-sizing:border-box;padding:.5rem .7rem;border:1px solid transparent;
+  border-radius:.6rem;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:16px;line-height:26px;
+  white-space:pre;overflow:hidden;pointer-events:none}
+.red-objet-nom{background:var(--color-svv-red-soft);color:var(--color-svv-red);border-radius:.25rem;
+  box-shadow:0 0 0 2px var(--color-svv-red-soft)}
+.red-saisie--pleine.red-objet--surligne{position:relative;background:transparent;color:transparent;
+  caret-color:var(--color-svv-ink);line-height:26px}
+.red-objet--surligne::selection{background:color-mix(in srgb,var(--color-svv-red) 28%,transparent);color:transparent}
 .red-corps{width:100%;box-sizing:border-box;min-height:180px;padding:.6rem .7rem;font:inherit;font-size:16px;
   line-height:1.5;border:1px solid var(--color-svv-line-strong);border-radius:.6rem;background:var(--color-svv-surface);
   color:var(--color-svv-ink);resize:vertical}

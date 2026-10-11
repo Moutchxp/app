@@ -1,12 +1,16 @@
 import 'server-only';
-import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
+import { trouverCompteParId } from '../../../../../../../lib/admin/comptes';
+import { exigerModule } from '../../../../../../../lib/admin/garde';
+import { nomDuCompte } from '../../../../../../../lib/gestion/mailSyndic';
 import { preparerMailSyndic } from '../../../../../../../lib/gestion/mailSyndicRepo';
 import { syndicsDisponibles } from '../../../../../../../lib/gestion/syndicRepo';
 
 /**
  * ══ /api/admin/gestion/syndics/[id]/mail — LE MAIL AU SYNDIC, PRÉ-REMPLI (LOT MAIL-SYNDIC-PREREMPLI) ═══════════════
  *
- *   · GET `?a=adresse[&a=…][&lot=N]` → `{ etat: 'ok', objet, selection, corps }`.
+ *   · GET `?a=adresse[&a=…][&lot=N]` → `{ etat: 'ok', objet, surlignage, corps, civilites }`.
+ *     LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET : l'objet commence par « Prénom NOM » du compte CONNECTÉ (lu dans
+ *     `admin_utilisateur`) ; sans nom (ou voie de secours, sans compte) ⇒ « Cabinet Criterimmo / … ».
  *     `lot` = le bien d'où l'on écrit : objet avec la résidence, corps complet. Sans `lot` (écran « Syndics ») :
  *     objet sans résidence, formule d'appel seule.
  *
@@ -23,8 +27,10 @@ function identifiant(brut: string | null): number | null {
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
-  const refus = await exigerCompteActif(request, 'gestion');
-  if (refus) return refus;
+  // `exigerModule` : le même contrôle que `exigerCompteActif` (session, compte actif, droit `gestion`), qui rend en plus
+  //   le compte connecté — son nom va dans l'objet.
+  const garde = await exigerModule(request, 'gestion');
+  if ('refus' in garde) return garde.refus;
   const id = identifiant((await params).id);
   if (id === null) return Response.json({ etat: 'erreur', message: 'Syndic non désigné.' }, { status: 422, headers: ENTETES });
   const url = new URL(request.url);
@@ -35,7 +41,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       return Response.json({ etat: 'erreur', message: 'Annuaire des syndics non installé (migration 324).' },
         { status: 409, headers: ENTETES });
     }
-    const pret = await preparerMailSyndic(id, lot, a);
+    const compte = garde.auteurId === null ? null : await trouverCompteParId(garde.auteurId);
+    const pret = await preparerMailSyndic(id, lot, a, compte === null ? null : nomDuCompte(compte.prenom, compte.nom));
     if (pret === null) return Response.json({ etat: 'erreur', message: 'Ce syndic n’existe pas.' }, { status: 404, headers: ENTETES });
     return Response.json({ etat: 'ok', ...pret }, { headers: ENTETES });
   } catch (e) {

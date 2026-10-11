@@ -3,11 +3,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
-import { brouillonMailSyndic, corpsMailSyndic, objetMailSyndic, selectionObjet } from '../../../../lib/gestion/mailSyndic';
+import { brouillonMailSyndic, corpsMailSyndic, objetMailSyndic, surlignageObjet } from '../../../../lib/gestion/mailSyndic';
 
 /**
  * ══ 🔴🔴 LOT MAIL-SYNDIC-PREREMPLI — LE VRAI ÉDITEUR, OUVERT PRÉ-REMPLI ══════════════════════════════════════════════
- * « À l'ouverture, le curseur est dans l'objet avec XXXXXXXX sélectionné. » Le corps s'affiche ligne par ligne, avec
+ * LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET : à l'ouverture, le curseur est à la FIN de l'objet, rien n'est
+ * sélectionné, le nom du compte est SURLIGNÉ (jamais effacé par la frappe). Le corps s'affiche ligne par ligne, avec
  * ses lignes vides. Et RIEN n'est enregistré : un brouillon pré-rempli qu'on n'a pas touché n'existe pas (aucun POST
  * vers les brouillons, donc aucun brouillon Gmail), et rien n'est envoyé.
  */
@@ -19,9 +20,9 @@ const CONTEXTE: ContexteRedactionEcran = {
   delaiAnnulationS: 5,
 };
 
-const pret = (bien: Parameters<typeof corpsMailSyndic>[0]['bien'], residence: string | null) => {
-  const objet = objetMailSyndic(residence);
-  return { objet, selection: selectionObjet(objet), corps: corpsMailSyndic({ destinataires: [{ civilite: 'Mme', nom: 'Durand' }], bien }) };
+const pret = (bien: Parameters<typeof corpsMailSyndic>[0]['bien'], residence: string | null, nom: string | null = 'Arnaud JOREL') => {
+  const objet = objetMailSyndic(residence, nom);
+  return { objet, surlignage: surlignageObjet(objet, nom), corps: corpsMailSyndic({ destinataires: [{ civilite: 'Mme', nom: 'Durand' }], bien }) };
 };
 const brouillon = (p: ReturnType<typeof pret>): BrouillonEcran => ({
   id: null, voie: 'nouveau', a: ['l.durand@criterimmo.fr'], cc: [], cci: [], citation: null,
@@ -46,8 +47,9 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); }); };
+let courant: BrouillonEcran;
 const monter = async (b: BrouillonEcran) => {
-  let courant = b;
+  courant = b;
   const rendre = () => root.render(createElement(Redaction, {
     dansFenetre: true, brouillon: courant, contexte: CONTEXTE,
     onChange: (n: BrouillonEcran) => { courant = n; rendre(); },
@@ -68,57 +70,130 @@ const BIEN = {
   locataires: [{ nom: 'ROI Nathan', telephone: '06 12 34 56 78', email: 'n.roi@x.fr' }],
 };
 
-describe('🔴 l’objet : le curseur y est, « XXXXXXXX » sélectionné', () => {
-  it('depuis une fiche bien', async () => {
+const objetDe = () => container.querySelector('#red-objet') as HTMLInputElement;
+const surligne = () => container.querySelector('.red-objet-nom')?.textContent ?? null;
+const taperDansObjet = async (valeur: string, curseur = valeur.length) => {
+  await act(async () => {
+    const champ = objetDe();
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(champ, valeur);
+    champ.setSelectionRange(curseur, curseur);
+    champ.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await calmer();
+};
+
+describe('🔴🔴 LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — l’objet : le nom surligné, le curseur à la fin, rien de sélectionné', () => {
+  it('depuis une fiche bien : le nom du compte en tête, SURLIGNÉ ; curseur à la FIN ; aucune sélection', async () => {
     await monter(brouillon(pret(BIEN, '25 rue Edith Cavell, 92400 Courbevoie')));
-    const objet = container.querySelector('#red-objet') as HTMLInputElement;
-    expect(objet.value).toBe('XXXXXXXX / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
+    const objet = objetDe();
+    expect(objet.value).toBe('Arnaud JOREL / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
     expect(document.activeElement).toBe(objet);
-    expect([objet.selectionStart, objet.selectionEnd]).toEqual([0, 8]);
-    // Le destinataire cliqué est en place.
+    expect([objet.selectionStart, objet.selectionEnd]).toEqual([objet.value.length, objet.value.length]);
+    expect(surligne()).toBe('Arnaud JOREL');
+    expect(objet.classList.contains('red-objet--surligne')).toBe(true);
+    // Le miroir dessine EXACTEMENT le texte du champ, et n'est pas lu deux fois.
+    expect(container.querySelector('.red-objet-miroir')?.textContent).toBe(objet.value);
+    expect(container.querySelector('.red-objet-miroir')?.getAttribute('aria-hidden')).toBe('true');
     expect(container.querySelector('.red-pastille')?.textContent).toContain('l.durand@criterimmo.fr');
+  });
+
+  it('🔴 taper au clavier n’efface PAS le nom : la frappe s’ajoute à la fin, le nom reste surligné', async () => {
+    await monter(brouillon(pret(BIEN, 'R')));
+    await taperDansObjet(`${objetDe().value} — urgent`);
+    expect(courant.objet).toBe('Arnaud JOREL / Cabinet Criterimmo / résidence R — urgent');
+    expect(surligne()).toBe('Arnaud JOREL');
+  });
+
+  it('nom modifié à la main : le surlignage suit ; nom effacé : il disparaît proprement (champ ordinaire)', async () => {
+    await monter(brouillon(pret(BIEN, 'R')));
+    await taperDansObjet('Arnaud J. / Cabinet Criterimmo / résidence R', 9);
+    expect(surligne()).toBe('Arnaud J.');
+    await taperDansObjet('Cabinet Criterimmo / résidence R', 0);
+    expect(surligne()).toBeNull();
+    expect(container.querySelector('.red-objet-miroir')).toBeNull();
+    expect(objetDe().classList.contains('red-objet--surligne')).toBe(false);
+    expect(objetDe().value).toBe('Cabinet Criterimmo / résidence R');
+  });
+
+  it('compte sans nom : « Cabinet Criterimmo / … », rien de surligné, curseur à la fin', async () => {
+    await monter(brouillon(pret(BIEN, 'R', null)));
+    const objet = objetDe();
+    expect(objet.value).toBe('Cabinet Criterimmo / résidence R');
+    expect(surligne()).toBeNull();
+    expect(document.activeElement).toBe(objet);
+    expect([objet.selectionStart, objet.selectionEnd]).toEqual([objet.value.length, objet.value.length]);
   });
 
   it('depuis l’écran « Syndics » : objet sans résidence, corps = formule seule puis la signature', async () => {
     await monter(brouillon(pret(null, null)));
-    const objet = container.querySelector('#red-objet') as HTMLInputElement;
-    expect(objet.value).toBe('XXXXXXXX / Cabinet Criterimmo');
-    expect([objet.selectionStart, objet.selectionEnd]).toEqual([0, 8]);
+    expect(objetDe().value).toBe('Arnaud JOREL / Cabinet Criterimmo');
     expect(lignesAffichees()).toEqual(['Bonjour Madame DURAND,', '', '', 'Service Gestion']);
   });
 
-  it('⚠️ un message ordinaire (sans plage) ne vole pas le curseur à l’objet', async () => {
-    await monter({ ...brouillon(pret(null, null)), selectionObjet: null });
-    expect(document.activeElement).not.toBe(container.querySelector('#red-objet'));
+  it('🔴🔴 l’enregistrement du brouillon (qui lui donne un numéro) ne relance AUCUNE sélection, ne reprend pas le curseur', async () => {
+    await monter(brouillon(pret(BIEN, 'R')));
+    // On travaille dans « À » ; puis le brouillon reçoit son numéro (ce que fait le premier enregistrement).
+    const a = container.querySelector('[data-champ="À"] input.red-saisie') as HTMLInputElement;
+    await act(async () => { a.focus(); });
+    await act(async () => { courant = { ...courant, id: 4242 }; root.render(createElement(Redaction, {
+      dansFenetre: true, brouillon: courant, contexte: CONTEXTE, onChange: () => {}, onFerme: () => {}, onEnvoye: () => {}, onGeste: () => {},
+    } as never)); });
+    await calmer();
+    expect(document.activeElement).toBe(a);
+    const objet = objetDe();
+    expect(objet.selectionStart).toBe(objet.selectionEnd);
+    expect(surligne()).toBe('Arnaud JOREL');
+  });
+
+  it('⚠️ un message ordinaire (pas de pré-remplissage) ne vole pas le curseur à l’objet, et rien n’y est surligné', async () => {
+    await monter({ ...brouillon(pret(null, null)), curseurEnFinDObjet: undefined, surlignageObjet: undefined });
+    expect(document.activeElement).not.toBe(objetDe());
+    expect(container.querySelector('.red-objet-miroir')).toBeNull();
   });
 });
 
-describe('🔴 le corps dans l’éditeur, ligne par ligne', () => {
+describe('🔴 le corps dans l’éditeur, ligne par ligne (version B)', () => {
+  const ADR = '25 rue Edith Cavell, 92400 Courbevoie';
+  const ANNONCE = 'Le Cabinet Criterimmo assure la gestion locative d\'un bien situé dans la résidence du '
+    + '25 rue Edith Cavell, 92400 Courbevoie, dont vous êtes le syndic. Ce bien appartient à :';
   it('formule, deux lignes vides, blocs séparés d’une ligne vide, deux lignes vides, signature', async () => {
-    await monter(brouillon(pret(BIEN, 'R')));
+    await monter(brouillon(pret({ ...BIEN, adresse: ADR }, ADR)));
     expect(lignesAffichees()).toEqual([
       'Bonjour Madame DURAND,', '', '',
-      'Je prends contact auprès de vous concernant la résidence dont vous êtes le syndic, en qualité de gestionnaire locatif pour le compte du copropriétaire suivant :',
-      '', 'LOPES Alberto', '',
-      'Concernant un appartement meublé de 2 pièces.', '',
-      'Il est actuellement occupé par le locataire suivant :', '',
+      ANNONCE, '', 'LOPES Alberto', '',
+      'Il s\'agit d\'un appartement meublé de 2 pièces, actuellement occupé par :', '',
       'ROI Nathan · 06 12 34 56 78 · n.roi@x.fr', '', '',
       'Service Gestion',
     ]);
   });
   it('plusieurs propriétaires, deux locataires', async () => {
-    await monter(brouillon(pret({ ...BIEN, proprietaires: ['A Un', 'B Deux'], locataires: [{ nom: 'C Trois' }, { nom: 'D Quatre', email: 'd@x.fr' }] }, 'R')));
+    await monter(brouillon(pret({ ...BIEN, adresse: ADR, proprietaires: ['A Un', 'B Deux'], locataires: [{ nom: 'C Trois' }, { nom: 'D Quatre', email: 'd@x.fr' }] }, ADR)));
     const l = lignesAffichees();
-    expect(l[3]).toMatch(/des copropriétaires suivants :$/);
+    expect(l[3]).toBe(ANNONCE);
     expect(l.slice(5, 7)).toEqual(['A Un', 'B Deux']);
-    expect(l).toContain('Il est actuellement occupé par les locataires suivants :');
+    expect(l).toContain('Il s\'agit d\'un appartement meublé de 2 pièces, actuellement occupé par :');
     expect(l.slice(-5)).toEqual(['C Trois', 'D Quatre · d@x.fr', '', '', 'Service Gestion']);
   });
-  it('aucun propriétaire, bien vacant, éléments du bien manquants', async () => {
-    await monter(brouillon(pret({ proprietaires: [], descriptif: {}, locataires: [] }, 'R')));
+  it('aucun propriétaire, bien vacant, description absente', async () => {
+    await monter(brouillon(pret({ adresse: ADR, proprietaires: [], descriptif: {}, locataires: [] }, ADR)));
     const l = lignesAffichees();
-    expect(l.slice(5)).toEqual(['(propriétaire non renseigné)', '', 'Logement actuellement vacant.', '', '', 'Service Gestion']);
-    expect(l.join('\n')).not.toContain('Concernant');
+    expect(l.slice(5)).toEqual(['(propriétaire non renseigné)', '', 'Il s\'agit d\'un logement, actuellement vacant.', '', '', 'Service Gestion']);
+  });
+});
+
+describe('🔴 le mail ENVOYÉ porte l’objet en texte brut (aucune mise en forme du surlignage)', () => {
+  it('l’envoi (doublé, rien ne part) : `objet` est la chaîne seule, sans balise, sans plage', async () => {
+    await monter(brouillon(pret(BIEN, 'R')));
+    const envoyer = [...container.querySelectorAll('button')].find((x) => x.textContent?.trim() === 'Envoyer') as HTMLButtonElement;
+    await act(async () => { envoyer.click(); });
+    await act(async () => { vi.advanceTimersByTime(8000); });
+    await calmer();
+    const envoi = (fetch as unknown as { mock: { calls: Array<[unknown, { method?: string; body?: string }?]> } }).mock.calls
+      .find((c) => String(c[0]).includes('/envois') && c[1]?.method === 'POST');
+    expect(envoi, 'POST /envois').toBeDefined();
+    const corps = JSON.parse(String(envoi?.[1]?.body)) as Record<string, unknown>;
+    expect(corps.objet).toBe('Arnaud JOREL / Cabinet Criterimmo / résidence R');
+    expect(JSON.stringify(corps)).not.toMatch(/surlign|<mark|red-objet/);
   });
 });
 

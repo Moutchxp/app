@@ -3,7 +3,7 @@ import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { ficheSyndic } from './syndicRepo';
 import { adresseImmeuble, communeLisible, type Civilite } from './syndics';
 import {
-  corpsMailSyndic, objetMailSyndic, selectionObjet, type DestinataireAppel, type LocataireDuMail,
+  corpsMailSyndic, objetMailSyndic, surlignageObjet, type DestinataireAppel, type LocataireDuMail,
 } from './mailSyndic';
 
 /**
@@ -16,8 +16,11 @@ import {
 
 export interface MailSyndicPrepare {
   objet: string;
-  /** La plage de l'objet à sélectionner à l'ouverture (« XXXXXXXX »). */
-  selection: [number, number] | null;
+  /**
+   * LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — la plage de l'objet à SURLIGNER : le nom du compte connecté, en
+   * tête. Jamais une sélection. `null` = compte sans nom (l'objet commence par « Cabinet Criterimmo »).
+   */
+  surlignage: [number, number] | null;
   /** Le corps en texte brut, SANS la signature (l'écran l'ajoute dessous). */
   corps: string;
   /**
@@ -46,9 +49,12 @@ function locataireDuMail(p: PersonneAnnuaire): LocataireDuMail {
 
 /**
  * Prépare l'objet et le corps. `null` = syndic inconnu (la route répond 404 ; l'écran ouvre alors le message
- * adressé, sans pré-remplissage — exactement comme avant ce lot).
+ * adressé, sans pré-remplissage — exactement comme avant ce lot). `nomCompte` = « Arnaud JOREL », le compte connecté
+ * (lu par la route) ; `null` ⇒ l'objet commence par « Cabinet Criterimmo ».
  */
-export async function preparerMailSyndic(syndicId: number, lotId: number | null, a: readonly string[]): Promise<MailSyndicPrepare | null> {
+export async function preparerMailSyndic(
+  syndicId: number, lotId: number | null, a: readonly string[], nomCompte: string | null = null,
+): Promise<MailSyndicPrepare | null> {
   const fiche = await ficheSyndic(syndicId, lotId);
   if (fiche === null) return null;
   const lu = lotId === null ? null : await ficheLot(lotId);
@@ -68,10 +74,12 @@ export async function preparerMailSyndic(syndicId: number, lotId: number | null,
   const residence = lot === null || (lot.adresse ?? '').trim() === ''
     ? null : adresseImmeuble(lot.adresse as string, lot.codePostal, communeLisible(lot.commune));
   // 🔴 NOTRE cabinet, jamais le nom du syndic (lot MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE).
-  const objet = objetMailSyndic(residence);
+  const objet = objetMailSyndic(residence, nomCompte);
   const corps = corpsMailSyndic({
     destinataires,
     bien: lot === null ? null : {
+      // L'adresse du BIEN (celle de sa carte, adresse secondaire comprise) — la même que dans l'objet.
+      adresse: residence,
       proprietaires: lot.proprietaires.filter((p) => !p.archive).map(nomPrenom),
       descriptif: { nature: lot.nature, typeBien: lot.typeBien, surfaceM2: lot.surfaceM2 },
       locataires: lot.occupants.filter((p) => !p.archive).map(locataireDuMail),
@@ -85,5 +93,5 @@ export async function preparerMailSyndic(syndicId: number, lotId: number | null,
       civilites[adr] = { civilite: c.civilite ?? null, nom: c.nom };
     }
   }
-  return { objet, selection: selectionObjet(objet), corps, civilites };
+  return { objet, surlignage: surlignageObjet(objet, nomCompte), corps, civilites };
 }

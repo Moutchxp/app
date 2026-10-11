@@ -73,15 +73,17 @@ describe('③ le bouton Drive de la rédaction', () => {
     const p = await ouvrirLeDrive({});
     for (const k of ['dossierDepart', 'arrivee', 'documentEnEvidence', 'lectureSeule', 'mentionDepart']) expect(p[k], k).toBeUndefined();
   });
-  it('l’objet pré-rempli : le curseur au début, « XXXXXXXX » sélectionné ET visible (champ ramené à gauche)', async () => {
+  it('LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — l’objet pré-rempli : curseur à la FIN, rien de sélectionné, nom surligné', async () => {
+    const objetTexte = 'Arnaud JOREL / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie';
     await act(async () => {
       root.render(createElement(Redaction as never, {
-        dansFenetre: true, brouillon: { ...BASE, objet: 'XXXXXXXX / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie', selectionObjet: [0, 8] },
+        dansFenetre: true, brouillon: { ...BASE, objet: objetTexte, surlignageObjet: [0, 12], curseurEnFinDObjet: true },
         contexte: CONTEXTE, onChange: () => {}, onFerme: () => {}, onEnvoye: () => {}, onGeste: () => {},
       }));
     });
     const objet = container.querySelector('#red-objet') as HTMLInputElement;
-    expect([objet.selectionStart, objet.selectionEnd, objet.scrollLeft]).toEqual([0, 8, 0]);
+    expect([objet.selectionStart, objet.selectionEnd]).toEqual([objetTexte.length, objetTexte.length]);
+    expect(container.querySelector('.red-objet-nom')?.textContent).toBe('Arnaud JOREL');
   });
 });
 

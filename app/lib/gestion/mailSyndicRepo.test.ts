@@ -46,10 +46,10 @@ beforeEach(() => {
 });
 
 describe('preparerMailSyndic — depuis une fiche bien', () => {
-  it('objet avec la résidence (adresse du bien, commune lisible) et « XXXXXXXX » à sélectionner', async () => {
-    const p = await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr']);
-    expect(p?.objet).toBe('XXXXXXXX / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
-    expect(p?.selection).toEqual([0, 8]);
+  it('LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — objet : le nom du compte connecté (surligné), puis la résidence', async () => {
+    const p = await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr'], 'Arnaud JOREL');
+    expect(p?.objet).toBe('Arnaud JOREL / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
+    expect(p?.surlignage).toEqual([0, 12]);
     expect(ficheSyndic).toHaveBeenCalledWith(40, 176);
     expect(contactsDeLImmeuble).toHaveBeenCalledWith('25 rue Edith Cavell');
   });
@@ -69,17 +69,30 @@ describe('preparerMailSyndic — depuis une fiche bien', () => {
   it('un contact du CARNET de l’immeuble ⇒ sa civilité compte aussi', async () => {
     expect((await preparerMailSyndic(40, 176, ['gardienne@x.fr']))?.corps.split('\n')[0]).toBe('Bonjour Madame PETIT,');
   });
-  it('propriétaires « NOM Prénom » tels qu’en base (archivés exclus), bien, locataire en place avec téléphone et e-mail EN COURS', async () => {
+  it('compte sans nom : l’objet commence par « Cabinet Criterimmo », rien n’est surligné', async () => {
+    const p = await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr'], null);
+    expect(p?.objet).toBe('Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
+    expect(p?.surlignage).toBeNull();
+  });
+  it('propriétaires « NOM Prénom » tels qu’en base (archivés exclus), ADRESSE DU BIEN, bien, locataire en place avec téléphone et e-mail EN COURS', async () => {
     const l = (await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr']))?.corps.split('\n') ?? [];
-    expect(l.slice(3, 7)).toEqual([
-      'Je prends contact auprès de vous concernant la résidence dont vous êtes le syndic, en qualité de gestionnaire locatif pour le compte des copropriétaires suivants :',
-      '', 'LOPES Alberto', 'JULLIEN - GARRIDO Cédric',
+    expect(l.slice(3, 8)).toEqual([
+      'Le Cabinet Criterimmo assure la gestion locative d\'un bien situé dans la résidence du 25 rue Edith Cavell, 92400 Courbevoie, dont vous êtes le syndic. Ce bien appartient à :',
+      '', 'LOPES Alberto', 'JULLIEN - GARRIDO Cédric', '',
     ]);
-    expect(l).toContain('Concernant un appartement meublé de 2 pièces.');
-    expect(l).toContain('Il est actuellement occupé par le locataire suivant :');
+    expect(l).toContain('Il s\'agit d\'un appartement meublé de 2 pièces, actuellement occupé par :');
     expect(l).toContain('ROI Nathan · 06 12 34 56 78 · n.roi@x.fr');
     // 🔴 Le numéro WIPPIMMO n'est JAMAIS écrit comme un lot de copropriété.
     expect(l.join('\n')).not.toContain('219');
+  });
+});
+
+describe('LOT MAIL-PREREMPLI-TEXTE-B — l’adresse du corps est celle du BIEN (sa carte), même adresse secondaire', () => {
+  it('un bien à l’adresse secondaire d’une copropriété : c’est SON adresse qui est écrite, pas celle de l’immeuble', async () => {
+    ficheLot.mockResolvedValue({ etat: 'ok', data: { ...LOT, adresse: '2 rue Secondaire', immeuble: '25 rue Edith Cavell' } });
+    const p = await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr'], 'Arnaud JOREL');
+    expect(p?.corps).toContain('dans la résidence du 2 rue Secondaire, 92400 Courbevoie, dont vous êtes le syndic.');
+    expect(p?.objet).toBe('Arnaud JOREL / Cabinet Criterimmo / résidence 2 rue Secondaire, 92400 Courbevoie');
   });
 });
 
@@ -87,10 +100,10 @@ describe('🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — l’objet porte
   it('quel que soit le nom du syndic, l’objet dit « Cabinet Criterimmo » et ne contient JAMAIS le nom du syndic', async () => {
     for (const nom of ['TEST ARNAUD', 'Foncia Courbevoie', 'Nexity Lamy']) {
       ficheSyndic.mockResolvedValue({ ...FICHE, nom });
-      const avecBien = await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr']);
-      const sansBien = await preparerMailSyndic(40, null, ['m.bercier@criterimmo.fr']);
-      expect(avecBien?.objet).toBe('XXXXXXXX / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
-      expect(sansBien?.objet).toBe('XXXXXXXX / Cabinet Criterimmo');
+      const avecBien = await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr'], 'Arnaud JOREL');
+      const sansBien = await preparerMailSyndic(40, null, ['m.bercier@criterimmo.fr'], 'Arnaud JOREL');
+      expect(avecBien?.objet).toBe('Arnaud JOREL / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
+      expect(sansBien?.objet).toBe('Arnaud JOREL / Cabinet Criterimmo');
       expect(avecBien?.objet).not.toContain(nom);
       expect(sansBien?.objet).not.toContain(nom);
     }
@@ -99,8 +112,8 @@ describe('🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — l’objet porte
 
 describe('preparerMailSyndic — hors fiche bien, et les refus', () => {
   it('écran « Syndics » (pas de bien) : objet sans résidence, formule seule, aucune lecture du bien', async () => {
-    const p = await preparerMailSyndic(40, null, ['m.bercier@criterimmo.fr']);
-    expect(p).toMatchObject({ objet: 'XXXXXXXX / Cabinet Criterimmo', selection: [0, 8], corps: 'Bonjour Monsieur BERCIER,\n\n\n' });
+    const p = await preparerMailSyndic(40, null, ['m.bercier@criterimmo.fr'], 'Arnaud JOREL');
+    expect(p).toMatchObject({ objet: 'Arnaud JOREL / Cabinet Criterimmo', surlignage: [0, 12], corps: 'Bonjour Monsieur BERCIER,\n\n\n' });
     // LOT MAIL-DEPUIS-BIEN — la civilité des contacts connus voyage, pour recalculer la formule (le générique n'y est pas).
     expect(p?.civilites).toEqual({
       'm.bercier@criterimmo.fr': { civilite: 'M.', nom: 'Bercier' }, 'l.durand@criterimmo.fr': { civilite: null, nom: 'Durand' } });
