@@ -283,7 +283,15 @@ export async function POST(request: Request): Promise<Response> {
      * écriture (la marque d'échange posée juste en dessous changerait le fond qu'on photographie).
      */
     const photo = corps.choix === 'mail' && corps.messageId !== null ? await photoDuFondEnBase(corps.messageId) : null;
-    const issue = await marquerInterne({ filIds: corps.filIds, auteur });
+    /**
+     * ══ 🔴🔴 LOT INTERNE-CE-MAIL-UNIQUEMENT (11/10/2026) — « CE MAIL UNIQUEMENT » NE POSE PLUS LA MARQUE D'ÉCHANGE ═══════
+     * DÉFAUT : la marque d'ÉCHANGE (`gestion_fil_interne`) était posée quel que soit le choix ; elle sert de REPLI à tous
+     * les mails sans marque propre (`interneDuMail`), si bien que les autres mails du fil basculaient en Interne.
+     * DÉCISION D'ARNO : en portée « ce mail uniquement », seul ce mail est marqué. « La suite » et « toute la
+     * conversation » ne changent pas.
+     */
+    const ceMailSeul = corps.choix === 'mail' && corps.messageId !== null;
+    const issue = ceMailSeul ? { ok: true as const, nb: 0 } : await marquerInterne({ filIds: corps.filIds, auteur });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
     /**
      * 🔴🔴 POINT 7 — ET LA MARQUE PAR MAIL, POUR LES MAILS QUE LE CHOIX COUVRE. Les deux sont écrites, et c'est
@@ -336,7 +344,11 @@ export async function DELETE(request: Request): Promise<Response> {
 
   try {
     const auteur = await auteurDeLaRequete(request);
-    const issue = await annulerInterne({ filIds: corps.filIds, motif: corps.motif, auteur });
+    /* 🔴 LOT INTERNE-CE-MAIL-UNIQUEMENT — symétrique : retirer « Interne » de CE mail seul ne retire pas la marque
+       d'échange, sans quoi les autres mails du fil perdraient leur repli « Interne » d'un coup. */
+    const ceMailSeul = corps.choix === 'mail' && corps.messageId !== null;
+    const issue = ceMailSeul ? { ok: true as const, nb: 0 }
+      : await annulerInterne({ filIds: corps.filIds, motif: corps.motif, auteur });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
     /**
      * 🔴🔴 POINT 7 — ET LE RETRAIT PAR MAIL. Il est AUSSI IMPORTANT QUE LA POSE, et pour une raison précise : la
