@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { traceOneShotDisponible } from './traceOneShotRepo';
 import { interneDuMessageDisponible } from './schema';
 import type { Auteur } from './gestes';
 
@@ -114,6 +115,13 @@ export async function lireInterneDesMessages(
  */
 export async function marquerInterneDesMessages(o: {
   messageIds: readonly number[]; auteur: Auteur;
+  /**
+   * 🔴 LOT TRACE-ONE-SHOT (342) — LA PORTÉE CHOISIE AU GESTE (« ce mail uniquement », « ce mail et la conversation à
+   * venir », « toute la conversation »), et pour « ce mail uniquement » la photo du suivi de fond juste avant. Absentes
+   * (projection d'une fenêtre, remise après annulation) ⇒ l'INSERT d'avant ce lot, à la lettre : portée inconnue.
+   */
+  portee?: 'mail' | 'suite' | 'conversation';
+  fondAvant?: unknown;
 }): Promise<IssueInterneMessage> {
   if (!(await interneDuMessageDisponible())) return { ok: false, motif: SANS_MIGRATION };
   if (!auteurHumainInterneMessage(o.auteur)) {
@@ -122,6 +130,16 @@ export async function marquerInterneDesMessages(o: {
   const ids = idsPropres(o.messageIds);
   if (ids.length === 0) return { ok: false, motif: 'Aucun mail désigné.' };
 
+  if (o.portee !== undefined && (await traceOneShotDisponible())) {
+    const { rows } = await query<{ id: string }>(
+      `INSERT INTO gestion_message_interne (message_id, pose_par, pose_par_libelle, portee, fond_avant)
+       SELECT m.id, $2, $3, $4, $5::jsonb FROM gestion_message m WHERE m.id = ANY($1::bigint[])
+       ON CONFLICT (message_id) WHERE retire_le IS NULL DO NOTHING
+       RETURNING id`,
+      [ids, o.auteur.id, o.auteur.libelle, o.portee,
+        o.portee === 'mail' && o.fondAvant != null ? JSON.stringify(o.fondAvant) : null]);
+    return { ok: true, nb: rows.length };
+  }
   const { rows } = await query<{ id: string }>(
     `INSERT INTO gestion_message_interne (message_id, pose_par, pose_par_libelle)
      SELECT m.id, $2, $3 FROM gestion_message m WHERE m.id = ANY($1::bigint[])

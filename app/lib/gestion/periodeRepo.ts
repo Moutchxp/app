@@ -31,6 +31,9 @@ import { MOTIF_INTERNE_PAR_SUIVI } from './interneDuMail';
  */
 import { MOTIF_LEVE_PAR_RATTACHEMENT } from './interneLevee';
 import type { Auteur } from './gestes';
+/* 🔴 LOT TRACE-ONE-SHOT (342) — la photo du suivi de fond, prise juste avant une exception « ce mail uniquement ». */
+import { photoDuFond } from './suiviOneShot';
+import { traceOneShotDisponible } from './traceOneShotRepo';
 // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — « ce mail est-il un de nos envois automatiques ? ». Module PUR.
 import { estDocumentEnvoye } from './documentsAuto';
 // 🔴🔴 LOT CONTACTS-EXTERNES — les interventions que la fenêtre projette, et le rôle recalculé mail par mail.
@@ -399,6 +402,19 @@ export async function poserClassement(o: {
    */
   const trace = traceVide(o.filId, o.messageId);
 
+  /**
+   * 🔴🔴 LOT TRACE-ONE-SHOT (342) — LA PHOTO DU SUIVI DE FOND, JUSTE AVANT LE GESTE. Décision d'Arno : « chaque geste
+   * “ce mail uniquement” enregistre aussi une photo du suivi de fond JUSTE AVANT le geste ». Elle est prise des fenêtres
+   * DÉJÀ LUES (`avant`) — ce que le mail suivait à cet instant, l'exception mise de côté — et de la marque d'échange.
+   * ⚠️ SEULEMENT POUR UNE EXCEPTION, et seulement si la 342 est là : sinon l'INSERT reste celui d'avant, à la lettre.
+   */
+  const photo = effet.nouvelleException !== null && (await traceOneShotDisponible())
+    ? photoDuFond({
+      messageId: o.messageId, mails, periodes: avant.periodes,
+      interneEchange: (await lireInterne([o.filId])).has(o.filId), le: new Date(),
+    })
+    : null;
+
   await withTransaction(async (q) => {
     // ① « Toute la conversation » : les périodes existantes sont DATÉES, jamais supprimées.
     if (effet.periodesRemplacees.length > 0) {
@@ -440,10 +456,15 @@ export async function poserClassement(o: {
           WHERE message_id = $1 AND retiree_le IS NULL RETURNING id::text`,
         [o.messageId]);
       trace.exceptionsRetirees = [...trace.exceptionsRetirees, ...fermees.map((r) => Number(r.id))];
-      const { rows } = await q<{ id: string }>(
-        `INSERT INTO gestion_message_exception (message_id, sorte, cree_par, cree_par_libelle)
-         VALUES ($1, $2, $3, $4) RETURNING id::text`,
-        [o.messageId, o.classement.sorte, o.auteur.id, libelle]);
+      const { rows } = photo === null
+        ? await q<{ id: string }>(
+          `INSERT INTO gestion_message_exception (message_id, sorte, cree_par, cree_par_libelle)
+           VALUES ($1, $2, $3, $4) RETURNING id::text`,
+          [o.messageId, o.classement.sorte, o.auteur.id, libelle])
+        : await q<{ id: string }>(
+          `INSERT INTO gestion_message_exception (message_id, sorte, cree_par, cree_par_libelle, fond_avant)
+           VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING id::text`,
+          [o.messageId, o.classement.sorte, o.auteur.id, libelle, JSON.stringify(photo)]);
       trace.exceptionCreee = Number(rows[0].id);
       await ecrireBiens(q, 'gestion_message_exception_bien', 'exception_id', Number(rows[0].id), o.classement);
       await ecrirePersonnes(q, 'gestion_message_exception_personne', 'exception_id', Number(rows[0].id),

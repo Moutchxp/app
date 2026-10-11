@@ -1291,7 +1291,12 @@ export async function changerStatut(o: {
     if (avant === 'confirme' && o.statut !== 'confirme' && rows[0].cible_sorte === 'lot'
         && !(o.annulationAjout === true && rows[0].recent === true)) {
       const { sortirLeLien } = await import('./sortieSuiviRepo');
-      const fait = await sortirLeLien(q, o.lienId, o.auteur, o.motif ?? null);
+      /* 🔴 LOT TRACE-ONE-SHOT (342) — un retrait fait À LA MAIN sur ce mail (« Remplacer par », case décochée,
+         « Retirer ») est un geste « ce mail uniquement » : la photo du suivi de fond est jointe. Une sortie écrite par
+         une projection, par « Interne » ou par l'annulation d'un ajout n'en reçoit pas. */
+      const { photoSiSortieAlaMain } = await import('./suiviOneShotRepo');
+      const photo = await photoSiSortieAlaMain(Number(rows[0].message_id), o.auteur, o.motif ?? null);
+      const fait = await sortirLeLien(q, o.lienId, o.auteur, o.motif ?? null, photo);
       return fait ? { ok: true, id: o.lienId } : { ok: false, motif: 'Ce mail n’a pas pu être sorti du suivi de ce bien.' };
     }
     /* Un lien sorti du suivi ne se « retire » pas une seconde fois : il ne peut qu'être restauré. */

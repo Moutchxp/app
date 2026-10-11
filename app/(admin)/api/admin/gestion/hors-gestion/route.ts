@@ -4,6 +4,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
   annulerHorsGestion, historiqueHorsGestion, lireHorsGestion, marquerHorsGestion,
 } from '../../../../../lib/gestion/horsGestionRepo';
+import { photoDuFondEnBase } from '../../../../../lib/gestion/traceOneShotRepo';
 import { horsGestionDisponible } from '../../../../../lib/gestion/schema';
 
 /**
@@ -68,12 +69,17 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 /** Le corps d'un geste, ou `null` s'il est illisible. */
-async function corpsDuGeste(request: Request): Promise<{ messageIds: number[]; motif: string | null } | null> {
+async function corpsDuGeste(request: Request): Promise<{
+  messageIds: number[]; motif: string | null;
+  /** 🔴 LOT TRACE-ONE-SHOT (342) — la portée choisie au geste. Absente = inconnue (appelant d'avant ce lot). */
+  portee: 'mail' | 'conversation' | null;
+} | null> {
   try {
-    const c = (await request.json()) as { messageIds?: unknown; motif?: unknown };
+    const c = (await request.json()) as { messageIds?: unknown; motif?: unknown; portee?: unknown };
     return {
       messageIds: lireMessageIds(c.messageIds),
       motif: typeof c.motif === 'string' ? c.motif.trim().slice(0, 300) : null,
+      portee: c.portee === 'mail' || c.portee === 'conversation' ? c.portee : null,
     };
   } catch { return null; }
 }
@@ -89,8 +95,17 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   try {
+    /**
+     * 🔴 LOT TRACE-ONE-SHOT (342) — « ce mail uniquement » sur UN mail : la photo du suivi de fond, prise AVANT
+     * l'écriture. Plusieurs mails « ce mail » (cas impossible aujourd'hui) n'auraient pas de photo : on ne photographie
+     * pas un fond pour un autre.
+     */
+    const photo = corps.portee === 'mail' && corps.messageIds.length === 1
+      ? await photoDuFondEnBase(corps.messageIds[0]) : null;
     const issue = await marquerHorsGestion({
       messageIds: corps.messageIds, motif: corps.motif, auteur: await auteurDeLaRequete(request),
+      ...(corps.portee === null ? {} : { portee: corps.portee }),
+      ...(photo === null ? {} : { fondAvant: photo }),
     });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
     return Response.json({ ok: true, nb: issue.nb }, { headers: ENTETES });

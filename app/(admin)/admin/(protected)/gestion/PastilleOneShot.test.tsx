@@ -126,6 +126,16 @@ describe('PastilleOneShot', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('🔴 LOT TRACE-ONE-SHOT — sans photo, la mention discrète « (suivi de fond recalculé aujourd’hui) » ; avec photo, rien', async () => {
+    reponse = { 2: [{ ...DEUX[0], fondRecalcule: true }, { ...DEUX[1], fondRecalcule: false }] };
+    rendre(() => {});
+    await attendre();
+    act(() => { (racine.querySelector('.svv-oneshot') as HTMLElement).click(); });
+    const lignes = [...document.querySelectorAll('[role="dialog"] .osm-modif')];
+    expect(lignes[0].querySelector('.osm-recalcule')?.textContent).toBe(' (suivi de fond recalculé aujourd’hui)');
+    expect(lignes[1].querySelector('.osm-recalcule')).toBeNull();
+  });
+
   it('④ Échap ferme la modale', async () => {
     rendre(() => {});
     await attendre();

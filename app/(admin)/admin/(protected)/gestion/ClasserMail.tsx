@@ -301,7 +301,8 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
       try {
         const res = await fetch('/api/admin/gestion/hors-gestion', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messageIds: plan.aMarquerHorsGestion, motif: plan.motifHorsGestion }),
+          /* 🔴 LOT TRACE-ONE-SHOT (342) — la portée choisie dans cette fenêtre est enregistrée avec la marque. */
+          body: JSON.stringify({ messageIds: plan.aMarquerHorsGestion, motif: plan.motifHorsGestion, portee }),
         });
         if (res.ok) faits += 1;
         else ratés.push('marquage hors gestion');

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 import {
-  AIDE_PASTILLE_ONE_SHOT, MOT_MODIFIE_POUR_CE_MAIL, MOT_SUIVI_DE_FOND, PHRASE_AUTRES_MAILS, TITRE_MODALE_ONE_SHOT,
+  AIDE_PASTILLE_ONE_SHOT, MOT_FOND_RECALCULE, MOT_MODIFIE_POUR_CE_MAIL, MOT_SUIVI_DE_FOND, PHRASE_AUTRES_MAILS, TITRE_MODALE_ONE_SHOT,
   motParLe, motPastilleOneShot, type ModificationOneShot,
 } from '../../../../lib/gestion/suiviOneShot';
 
@@ -155,7 +155,10 @@ export function ModaleOneShot({ modifs, onFermer }: { modifs: readonly Modificat
         <ul className="osm-liste">
           {modifs.map((m, i) => (
             <li key={`${i}-${m.modifie}`} className="osm-modif">
-              <p className="osm-ligne"><span className="osm-mot">{MOT_SUIVI_DE_FOND} :</span> {m.fond}</p>
+              <p className="osm-ligne"><span className="osm-mot">{MOT_SUIVI_DE_FOND} :</span> {m.fond}
+                {/* 🔴 LOT TRACE-ONE-SHOT (342) — sans photo prise au geste, le fond est un RECALCUL : on le dit, discrètement. */}
+                {m.fondRecalcule === true && <span className="osm-recalcule"> {MOT_FOND_RECALCULE}</span>}
+              </p>
               <p className="osm-ligne osm-ligne--apres">
                 <span className="osm-mot">{MOT_MODIFIE_POUR_CE_MAIL} :</span> {m.modifie}
               </p>
@@ -190,6 +193,7 @@ export const CSS_PASTILLE_ONE_SHOT = `
 .osm-ligne{margin:0 0 .25rem;overflow-wrap:anywhere;color:var(--color-svv-ink)}
 .osm-ligne--apres{font-weight:600}
 .osm-mot{font-weight:700;color:var(--color-svv-muted)}
+.osm-recalcule{font-size:.76rem;font-style:italic;color:var(--color-svv-muted)}
 .osm-qui{margin:0;font-size:.78rem;color:var(--color-svv-muted)}
 .osm-phrase{margin:0;font-size:.85rem;color:var(--color-svv-ink)}
 .osm-boutons{display:flex;justify-content:flex-end;gap:8px}

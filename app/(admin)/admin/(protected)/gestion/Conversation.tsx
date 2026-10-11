@@ -2025,7 +2025,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               await fetch('/api/admin/gestion/hors-gestion', {
                 method: actif ? 'POST' : 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messageIds: [m.messageId] }),
+                /* 🔴 LOT TRACE-ONE-SHOT (342) — ce bouton vise CE mail et lui seul : la portée est dite au serveur. */
+                body: JSON.stringify({ messageIds: [m.messageId], ...(actif ? { portee: 'mail' } : {}) }),
               });
               await chargerRattachements(idsMessages);
               onGeste(actif ? 'Mail marqué « hors gestion ».' : 'Marque « hors gestion » retirée.');

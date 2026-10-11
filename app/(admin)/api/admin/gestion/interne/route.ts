@@ -12,6 +12,7 @@ import {
   annulerInterneDesMessages, lireInterneDesMessages, marquerInterneDesMessages,
 } from '../../../../../lib/gestion/interneMessageRepo';
 import { mailsCouvertsParLeChoix, type ChoixInterne } from '../../../../../lib/gestion/interneDuMail';
+import { photoDuFondEnBase } from '../../../../../lib/gestion/traceOneShotRepo';
 /**
  * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — marquer « interne » DÉTACHE les biens du mail,
  * selon la fenêtre choisie, par la porte existante. Et un « Annuler » les remet, dans les secondes qui suivent.
@@ -277,6 +278,11 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     const auteur = await auteurDeLaRequete(request);
+    /**
+     * 🔴 LOT TRACE-ONE-SHOT (342) — « ce mail uniquement » : la photo du suivi de fond est prise ICI, AVANT toute
+     * écriture (la marque d'échange posée juste en dessous changerait le fond qu'on photographie).
+     */
+    const photo = corps.choix === 'mail' && corps.messageId !== null ? await photoDuFondEnBase(corps.messageId) : null;
     const issue = await marquerInterne({ filIds: corps.filIds, auteur });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
     /**
@@ -288,7 +294,10 @@ export async function POST(request: Request): Promise<Response> {
      * le repli. On rend le nombre, et l'appelant peut le dire.
      */
     const couverts = mailsDuGeste(corps);
-    const parMail = await marquerInterneDesMessages({ messageIds: couverts, auteur });
+    /* 🔴 LOT TRACE-ONE-SHOT (342) — la portée choisie est enregistrée sur chaque marque posée par ce geste. */
+    const parMail = await marquerInterneDesMessages({
+      messageIds: couverts, auteur, portee: corps.choix, ...(photo === null ? {} : { fondAvant: photo }),
+    });
     /**
      * ══ 🔴🔴 POINT 2 — ET LES BIENS PARTENT AVEC, par la porte existante ═══════════════════════════════════════
      *

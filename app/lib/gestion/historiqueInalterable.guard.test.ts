@@ -136,7 +136,8 @@ describe('④ LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — le verrou resser
   it('les six gestes passent par `changerStatut`, qui convertit tout retrait d’un bien confirmé en « sorti du suivi »', () => {
     const ratt = sql(lire('rattachementRepo.ts'));
     expect(ratt).toContain("if (avant === 'confirme' && o.statut !== 'confirme' && rows[0].cible_sorte === 'lot' && !(o.annulationAjout === true && rows[0].recent === true))");
-    expect(ratt).toContain('await sortirLeLien(q, o.lienId, o.auteur, o.motif ?? null)');
+    /* 🔴 LOT TRACE-ONE-SHOT (342) — le même appel, la photo du suivi de fond en plus (null pour une sortie automatique). */
+    expect(ratt).toContain('await sortirLeLien(q, o.lienId, o.auteur, o.motif ?? null, photo)');
     // rattacher : re-cocher un bien sorti le RESTAURE (une seule ligne par couple)
     expect(ratt).toContain("WHERE ${OU_IDENTITE} AND statut = 'sorti' ORDER BY id DESC LIMIT 1");
   });

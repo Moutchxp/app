@@ -1,5 +1,5 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
-import { memeConfiguration, type Classement } from './periodesConversation';
+import { memeConfiguration, projeter, type Classement, type Periode } from './periodesConversation';
 
 /**
  * ══ 🔴🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — CE QUE « CE MAIL UNIQUEMENT » A CHANGÉ SUR UN MAIL. Module PUR ══════
@@ -42,10 +42,61 @@ export function exceptionEstUnGeste(parLibelle: string | null | undefined): bool
   return l !== '' && l !== 'automatique' && !AUTEURS_HORS_ONE_SHOT.includes(l);
 }
 
+/**
+ * ══ 🔴🔴 LOT TRACE-ONE-SHOT (migration 342) — LA PHOTO DU SUIVI DE FOND JUSTE AVANT LE GESTE ═════════════════════
+ *
+ * DÉCISION D'ARNO (11/10/2026) : « chaque geste “ce mail uniquement” enregistre aussi une photo du suivi de fond JUSTE
+ * AVANT le geste (statut, biens, parties) […]. La modale affiche cette photo quand elle existe, sinon le recalcul
+ * actuel avec la mention discrète “(suivi de fond recalculé aujourd'hui)”. »
+ *
+ * 🔴 CE QUI EST PHOTOGRAPHIÉ : la fenêtre qui couvrait le mail (classement entier, ou `null` = aucune) ET la marque
+ * d'échange « Interne » — les deux faits dont le fond se déduit (voir `normaliser`). Pas l'état du mail lui-même : une
+ * exception précédente n'est pas « le fond ».
+ */
+export interface PhotoFond {
+  fenetre: Classement | null;
+  interneEchange: boolean;
+  le: string;
+}
+
+/** LA PHOTO, prise des données déjà lues (fenêtres du fil, ordre des mails). PUR. */
+export function photoDuFond(o: {
+  messageId: number; mails: readonly number[]; periodes: readonly Periode[]; interneEchange: boolean; le: Date;
+}): PhotoFond {
+  const f = projeter(o.mails, o.periodes, []).get(o.messageId) ?? null;
+  /* On ne garde que ce qui sert : sorte, biens (clé, libellé), parties (sorte, clé, libellé). */
+  const fenetre: Classement | null = f === null ? null : {
+    sorte: f.sorte,
+    biens: f.biens.map((b) => ({ cle: b.cle, libelle: b.libelle })),
+    ...((f.personnes ?? []).length > 0
+      ? { personnes: (f.personnes ?? []).map((p) => ({ sorte: p.sorte, cle: p.cle, libelle: p.libelle })) } : {}),
+  };
+  return { fenetre, interneEchange: o.interneEchange, le: o.le.toISOString() };
+}
+
+/** Une photo lue en base (jsonb) → la photo, ou `null` si elle est absente ou illisible. PUR. */
+export function photoLue(brut: unknown): PhotoFond | null {
+  if (brut === null || typeof brut !== 'object') return null;
+  const b = brut as { fenetre?: unknown; interneEchange?: unknown; le?: unknown };
+  const f = b.fenetre as Classement | null | undefined;
+  const fenetreValide = f === null || (typeof f === 'object' && f !== undefined
+    && (f.sorte === 'biens' || f.sorte === 'interne' || f.sorte === 'hors_gestion') && Array.isArray(f.biens));
+  if (!fenetreValide) return null;
+  return { fenetre: f ?? null, interneEchange: b.interneEchange === true, le: typeof b.le === 'string' ? b.le : '' };
+}
+
+/** La mention discrète, quand le fond n'a pas été photographié au geste (gestes antérieurs à la 342). */
+export const MOT_FOND_RECALCULE = '(suivi de fond recalculé aujourd’hui)';
+
 /** Une modification « ce mail uniquement », mise en mots pour la modale. */
 export interface ModificationOneShot {
   /** « Suivi de fond : … » — ce qu'aurait donné la règle normale. */
   fond: string;
+  /**
+   * 🔴 LOT TRACE-ONE-SHOT — `true` = le fond n'a PAS été photographié au geste : il est recalculé aujourd'hui, et la
+   * modale le dit. `false` = c'est la photo prise juste avant le geste.
+   */
+  fondRecalcule?: boolean;
   /** « Modifié pour ce mail : … » — ce qui a été appliqué. */
   modifie: string;
   /** Qui, déjà mis en nom lisible côté serveur. */
@@ -140,6 +191,8 @@ export function modificationsDeLException(o: {
   fond: Classement | undefined;
   exception: Classement;
   interneDeLEchange?: boolean;
+  /** 🔴 LOT TRACE-ONE-SHOT — le fond vient-il d'un recalcul (pas de photo) ? Absent = non dit (comme avant). */
+  fondRecalcule?: boolean;
   par: string;
   le: string | null;
 }): ModificationOneShot[] {
@@ -150,7 +203,9 @@ export function modificationsDeLException(o: {
   if (memeConfiguration(base, appliqueLu)) return [];
 
   const fond = motClassementDeFond(fondLu);
-  const ligne = (modifie: string): ModificationOneShot => ({ fond, modifie, par: o.par, le: o.le });
+  const ligne = (modifie: string): ModificationOneShot => ({
+    fond, modifie, par: o.par, le: o.le, ...(o.fondRecalcule === undefined ? {} : { fondRecalcule: o.fondRecalcule }),
+  });
 
   if (base.sorte !== appliqueLu.sorte) {
     if (appliqueLu.sorte === 'interne') return [ligne('classé Interne')];
@@ -208,12 +263,42 @@ export function sortieEstUnGeste(o: {
 /** UNE SORTIE DU SUIVI (statut `sorti` d'un lien mail → bien). PUR. Le motif, s'il y en a un, est dit tel quel. */
 export function modificationDeLaSortie(o: {
   bienLibelle: string; motif?: string | null; par: string; le: string | null;
+  /**
+   * 🔴 LOT TRACE-ONE-SHOT — le suivi de fond du mail (photo, ou recalcul). Absent ⇒ « rattaché à <ce bien> », la
+   * phrase d'avant ce lot.
+   */
+  fond?: { classement: Classement | undefined; interneEchange: boolean; recalcule: boolean };
 }): ModificationOneShot {
   const bien = motBienCourt(o.bienLibelle);
   const motif = (o.motif ?? '').trim();
   return {
-    fond: `rattaché à ${bien}`,
+    fond: o.fond === undefined
+      ? `rattaché à ${bien}` : motClassementDeFond(normaliser(o.fond.classement, o.fond.interneEchange)),
     modifie: motif === '' ? `sorti du suivi de ${bien}` : `sorti du suivi de ${bien} (${motif})`,
     par: o.par, le: o.le,
+    ...(o.fond === undefined ? {} : { fondRecalcule: o.fond.recalcule }),
   };
+}
+
+/**
+ * ══ 🔴🔴 LOT TRACE-ONE-SHOT — « INTERNE » OU « HORS GESTION » POSÉ SUR CE MAIL UNIQUEMENT. PUR ═════════════════════
+ *
+ * Depuis la 342, ces deux boutons enregistrent la portée choisie. Une marque VIVANTE de portée « ce mail uniquement »
+ * est une modification one shot — sauf si le fond disait déjà la même chose (rien n'a été modifié).
+ */
+export function modificationDeMarque(o: {
+  sorte: 'interne' | 'hors_gestion';
+  fond: Classement | undefined;
+  interneEchange: boolean;
+  fondRecalcule: boolean;
+  par: string;
+  le: string | null;
+}): ModificationOneShot[] {
+  const fondLu = normaliser(o.fond, o.interneEchange);
+  if (fondLu?.sorte === o.sorte) return [];
+  return [{
+    fond: motClassementDeFond(fondLu),
+    modifie: o.sorte === 'interne' ? 'classé Interne' : 'classé Hors gestion',
+    par: o.par, le: o.le, fondRecalcule: o.fondRecalcule,
+  }];
 }

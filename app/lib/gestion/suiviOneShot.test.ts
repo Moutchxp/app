@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  AUTEURS_HORS_ONE_SHOT, exceptionEstUnGeste, modificationDeLaSortie, modificationsDeLException, motBienCourt,
-  motClassementDeFond, motParLe, motPastilleOneShot, sortieEstUnGeste, MOT_PASTILLE_ONE_SHOT,
+  AUTEURS_HORS_ONE_SHOT, exceptionEstUnGeste, modificationDeLaSortie, modificationDeMarque, modificationsDeLException,
+  motBienCourt, motClassementDeFond, motParLe, motPastilleOneShot, photoDuFond, photoLue, sortieEstUnGeste,
+  MOT_FOND_RECALCULE, MOT_PASTILLE_ONE_SHOT,
 } from './suiviOneShot';
 import type { Classement } from './periodesConversation';
 
@@ -162,5 +163,59 @@ describe('les mots', () => {
   it('le fond, en une phrase', () => {
     expect(motClassementDeFond({ sorte: 'interne', biens: [] })).toBe('classé Interne');
     expect(motClassementDeFond({ sorte: 'biens', biens: [] })).toBe('aucun bien (mail à classer)');
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT TRACE-ONE-SHOT (migration 342) — LA PHOTO DU FOND, ET LES MARQUES « CE MAIL UNIQUEMENT »
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('la photo du suivi de fond', () => {
+  const periodes = [{ id: 1, depuisMessageId: 10, classement: { sorte: 'biens' as const, biens: [A],
+    personnes: [{ sorte: 'locataire' as const, cle: 'L1', libelle: 'Nevine Abdellatif', contactExterneId: 9 }] } }];
+  it('photographie la fenêtre qui couvre le mail (sorte, biens, parties) et la marque d’échange', () => {
+    const p = photoDuFond({ messageId: 11, mails: [10, 11], periodes, interneEchange: true, le: new Date(LE) });
+    expect(p).toEqual({
+      fenetre: { sorte: 'biens', biens: [A], personnes: [{ sorte: 'locataire', cle: 'L1', libelle: 'Nevine Abdellatif' }] },
+      interneEchange: true, le: '2026-10-11T16:12:00.000Z',
+    });
+  });
+  it('aucune fenêtre : `fenetre` vaut null (ce n’est pas « aucun bien »)', () => {
+    expect(photoDuFond({ messageId: 9, mails: [9, 10], periodes, interneEchange: false, le: new Date(LE) }).fenetre).toBeNull();
+  });
+  it('une photo lue en base se relit ; une photo illisible rend null (on recalculera)', () => {
+    expect(photoLue({ fenetre: { sorte: 'biens', biens: [A] }, interneEchange: false, le: LE })?.fenetre?.biens).toEqual([A]);
+    expect(photoLue({ fenetre: null, interneEchange: true, le: LE })).toEqual({ fenetre: null, interneEchange: true, le: LE });
+    for (const x of [null, 'x', 7, { fenetre: { sorte: 'autre', biens: [] } }, { fenetre: { sorte: 'biens' } }]) {
+      expect(photoLue(x), JSON.stringify(x)).toBeNull();
+    }
+  });
+  it('le fond recalculé est DIT ; le fond photographié ne l’est pas', () => {
+    const avec = modificationsDeLException({ fond: fondA, exception: { sorte: 'biens', biens: [] }, fondRecalcule: false, par: PAR, le: LE });
+    const sans = modificationsDeLException({ fond: fondA, exception: { sorte: 'biens', biens: [] }, fondRecalcule: true, par: PAR, le: LE });
+    expect(avec[0].fondRecalcule).toBe(false);
+    expect(sans[0].fondRecalcule).toBe(true);
+    expect(MOT_FOND_RECALCULE).toBe('(suivi de fond recalculé aujourd’hui)');
+  });
+});
+
+describe('« Interne » / « Hors gestion » posés sur ce mail uniquement', () => {
+  it('classé Interne, avec le fond de la photo', () => {
+    expect(modificationDeMarque({ sorte: 'interne', fond: fondA, interneEchange: false, fondRecalcule: false, par: PAR, le: LE }))
+      .toEqual([{ fond: 'rattaché à 54 avenue du Puvis de Chavannes, COURBEVOIE (lot 316)', modifie: 'classé Interne',
+        par: PAR, le: LE, fondRecalcule: false }]);
+  });
+  it('classé Hors gestion, sans fenêtre', () => {
+    expect(modificationDeMarque({ sorte: 'hors_gestion', fond: undefined, interneEchange: false, fondRecalcule: true, par: PAR, le: LE })[0])
+      .toMatchObject({ fond: 'aucun suivi de conversation (mail à classer)', modifie: 'classé Hors gestion', fondRecalcule: true });
+  });
+  it('🔴 rien n’a changé si le fond disait déjà la même chose (échange déjà interne)', () => {
+    expect(modificationDeMarque({ sorte: 'interne', fond: undefined, interneEchange: true, fondRecalcule: false, par: PAR, le: LE })).toEqual([]);
+  });
+  it('une sortie du suivi dit le fond entier quand il est connu', () => {
+    const m = modificationDeLaSortie({ bienLibelle: A.libelle, par: PAR, le: LE,
+      fond: { classement: { sorte: 'biens', biens: [A, B] }, interneEchange: false, recalcule: false } });
+    expect(m.fond).toBe('rattaché à 54 avenue du Puvis de Chavannes, COURBEVOIE (lot 316), 15 rue Carle Hebert, COURBEVOIE (lot 24)');
+    expect(m.fondRecalcule).toBe(false);
   });
 });

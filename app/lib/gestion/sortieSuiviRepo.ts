@@ -1,4 +1,5 @@
 import { query, withTransaction } from '../db/client';
+import { photoDuFondEnBase, traceOneShotDisponible } from './traceOneShotRepo';
 import type { Auteur } from './gestes';
 
 /**
@@ -39,7 +40,14 @@ export async function autoriserGesteDedie(q: Tx): Promise<void> {
  * SORTIR DU SUIVI UN LIEN DE BIEN CONFIRMÉ, dans la transaction de l'appelant. Le lien passe au statut « sorti » pour CE
  * bien seul (la ligne du couple mail, bien) : il reste en base, restaurable. Rend `true` s'il a été marqué.
  */
-export async function sortirLeLien(q: Tx, lienId: number, auteur: Auteur, motif: string | null): Promise<boolean> {
+export async function sortirLeLien(
+  q: Tx, lienId: number, auteur: Auteur, motif: string | null,
+  /**
+   * 🔴 LOT TRACE-ONE-SHOT (342) — la photo du suivi de fond prise juste avant une sortie faite à la main (« ce mail
+   * uniquement »). Absente (projection, « Interne », annulation d'un ajout) ⇒ rien de plus n'est écrit.
+   */
+  fondAvant: unknown = null,
+): Promise<boolean> {
   await autoriserGesteDedie(q);
   const { rows } = await q<{ id: string; message_id: string; cible_cle: string }>(
     `UPDATE gestion_rattachement
@@ -53,6 +61,12 @@ export async function sortirLeLien(q: Tx, lienId: number, auteur: Auteur, motif:
       `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
        VALUES ('rattachement', $1, 'sortir_du_suivi', 'confirme', 'sorti', $2, $3, $4)`,
       [Number(r.id), `mail ${r.message_id} · lot ${r.cible_cle}${motif ? ` · ${motif}` : ''}`, auteur.id, auteur.libelle]);
+  }
+  /* ⚠️ UNE SECONDE ÉCRITURE, À PART : l'UPDATE ci-dessus reste celui de la 340, à la lettre ; la photo n'est qu'une
+     explication jointe, et elle n'est écrite que si la 342 est là. */
+  if (rows.length > 0 && fondAvant !== null && fondAvant !== undefined && (await traceOneShotDisponible())) {
+    await q('UPDATE gestion_rattachement SET sorti_fond_avant = $2::jsonb WHERE id = $1 AND statut = \'sorti\'',
+      [lienId, JSON.stringify(fondAvant)]);
   }
   return rows.length > 0;
 }
@@ -73,6 +87,11 @@ export async function restaurerLeLien(q: Tx, lienId: number, auteur: Auteur, mot
        VALUES ('rattachement', $1, 'restaurer_dans_le_suivi', 'sorti', 'confirme', $2, $3, $4)`,
       [Number(r.id), `mail ${r.message_id} · lot ${r.cible_cle}`, auteur.id, auteur.libelle]);
   }
+  /* 🔴 LOT TRACE-ONE-SHOT (342) — la photo n'explique plus rien une fois le lien restauré : elle s'efface avec lui. */
+  if (rows.length > 0 && (await traceOneShotDisponible())) {
+    await q('UPDATE gestion_rattachement SET sorti_fond_avant = NULL WHERE id = $1 AND sorti_fond_avant IS NOT NULL',
+      [lienId]);
+  }
   return rows.length > 0;
 }
 
@@ -84,6 +103,9 @@ async function marquer(o: {
   const libelle = (o.auteur.libelle ?? '').trim();
   if (libelle === '') return { ok: false, motif: 'Auteur inconnu.' };
   const auteur = { id: o.auteur.id, libelle };
+  /* 🔴 LOT TRACE-ONE-SHOT (342) — « Sortir du suivi » est un geste « ce mail uniquement » : la photo du suivi de fond
+     est prise AVANT la transaction. */
+  const photo = o.sortir ? await photoDuFondEnBase(o.messageId) : null;
   return withTransaction<IssueSortie>(async (q) => {
     // ⚠️ LE COUPLE (MAIL, CE BIEN) SEULEMENT : les liens du même mail vers d'AUTRES biens ne sont jamais lus ici.
     const { rows } = await q<{ id: string }>(
@@ -94,7 +116,7 @@ async function marquer(o: {
     let faits = 0;
     for (const r of rows) {
       const fait = o.sortir
-        ? await sortirLeLien(q, Number(r.id), auteur, o.motif ?? null)
+        ? await sortirLeLien(q, Number(r.id), auteur, o.motif ?? null, photo)
         : await restaurerLeLien(q, Number(r.id), auteur);
       if (fait) faits += 1;
     }
