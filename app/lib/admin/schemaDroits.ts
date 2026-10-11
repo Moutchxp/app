@@ -51,3 +51,12 @@ const memoiser = memoire.memoiser;
 export function oublierSchemaDroits(): void {
   memoire.oublier();
 }
+
+/**
+ * LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — la migration 341 est-elle appliquée ? Elle porte la case « Appartient au
+ * service gestion ». Tant qu'elle ne l'est pas : la case est lue FAUSSE partout (le cartouche s'affiche, comme avant),
+ * et l'écran des comptes ne propose pas de la cocher. Aucun droit n'en dépend.
+ */
+export function serviceGestionDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.service_gestion', () => colonneExiste('admin_utilisateur', 'service_gestion'));
+}

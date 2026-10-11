@@ -19,7 +19,15 @@ interface CompteVue {
 }
 interface DetailCompte extends CompteVue {
   doit_changer_mot_de_passe: boolean;
+  /** LOT PROFIL-GESTION — « Appartient au service gestion » (migration 341). Absent d'une réponse d'avant ce lot. */
+  serviceGestion?: ServiceGestionVue;
 }
+/** LOT PROFIL-GESTION — la case, et son dernier changement tel que le journal le porte (date, auteur). */
+export interface ServiceGestionVue { valeur: boolean; disponible: boolean; modifieLe: string | null; modifiePar: string | null }
+
+/** Le libellé et l'aide de la case : écrits une fois, relus par les tests. */
+export const LIBELLE_SERVICE_GESTION = 'Appartient au service gestion';
+export const AIDE_SERVICE_GESTION = 'Les mails écrits depuis la gestion n’affichent pas de cartouche d’alerte sur le nom.';
 
 const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
   { cle: 'pilotage', libelle: 'Pilotage' },
@@ -139,8 +147,10 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
  */
 export function DetailContenu({
   compte, perms, peutModifierPermis, envoi, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
-  onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer,
+  onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer, onBasculerServiceGestion,
 }: {
+  /** LOT PROFIL-GESTION — coche / décoche « Appartient au service gestion » (enregistré aussitôt, historisé). */
+  onBasculerServiceGestion?: () => void;
   compte: DetailCompte;
   perms: Perms;
   peutModifierPermis: boolean; // RATT-EDIT (lot A3) — état de la sous-case
@@ -198,6 +208,28 @@ export function DetailContenu({
           {identiteInvalide && <span className="cpt-err" role="status">Prénom et nom sont obligatoires.</span>}
         </div>
       </div>
+
+      {/* ══ LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — « APPARTIENT AU SERVICE GESTION » ═════════════════════════════
+          Une AFFECTATION, pas un droit : elle ne touche ni la tuile Gestion ni l'envoi (les permissions sont plus bas).
+          Pour TOUT compte, administrateur compris. Enregistrée aussitôt, historisée (date, auteur). */}
+      {compte.serviceGestion !== undefined && (
+        <div className="cpt-identite" role="group" aria-labelledby={`service-${compte.id}`} style={{ marginTop: 8 }}>
+          <div className="cpt-perms-titre" id={`service-${compte.id}`}>Service</div>
+          <Chip libelle={LIBELLE_SERVICE_GESTION} coche={compte.serviceGestion.valeur}
+            disabled={enCours || !compte.serviceGestion.disponible} onToggle={onBasculerServiceGestion} />
+          <span className="cpt-note">
+            {AIDE_SERVICE_GESTION} Cette case ne donne aucun droit : ni l’accès à la tuile Gestion, ni l’envoi.
+          </span>
+          {!compte.serviceGestion.disponible && (
+            <span className="cpt-note">Mise à jour de la base à appliquer (migration 341) avant de pouvoir la cocher.</span>
+          )}
+          {compte.serviceGestion.modifieLe !== null && (
+            <span className="cpt-note">
+              Dernier changement : {formaterDate(compte.serviceGestion.modifieLe)}{compte.serviceGestion.modifiePar ? `, par ${compte.serviceGestion.modifiePar}` : ''}.
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="cpt-perms-titre" id={`perms-${compte.id}`}>
         Permissions {!collaborateur && '(administrateur : toutes, non modifiables)'}
@@ -310,6 +342,18 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       }
     } finally { setEnCours(false); }
   }
+  async function basculerServiceGestion() {
+    if (!d?.serviceGestion) return;
+    setEnCours(true); setMsg(null);
+    try {
+      const res = await fetch(`/api/admin/comptes/${id}/service-gestion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ valeur: !d.serviceGestion.valeur }) });
+      if (res.ok) { setMsg('Service enregistré.'); await recharger(); }
+      else {
+        const body = await res.json().catch(() => null);
+        setMsg(typeof body?.erreur === 'string' ? body.erreur : 'Enregistrement refusé.');
+      }
+    } finally { setEnCours(false); }
+  }
   async function promouvoir() {
     if (!window.confirm('Promouvoir ce compte en administrateur ? Un administrateur a toutes les permissions et ne peut plus être rétrogradé.')) return;
     setEnCours(true); setMsg(null);
@@ -332,7 +376,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
               setPerms((p) => ({ ...p, [cle]: !p[cle] }));
             }}
             onToggleModif={() => setPeutModifierPermis((v) => !v)} onChoisirEnvoi={setEnvoi}
-            onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} />
+            onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} onBasculerServiceGestion={basculerServiceGestion} />
         : (msg ?? 'Chargement…')}
     </div>
   );

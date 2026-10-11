@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { trouverCompteParId, permsDuCompte, capaciteModifPermis, etatEnvoiGestion } from '../../../../../lib/admin/comptes';
+import { lireServiceGestion } from '../../../../../lib/admin/serviceGestion';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -33,6 +34,8 @@ export async function GET(request: Request, ctx: Ctx) {
       peutModifierPermis: capaciteModifPermis(c), // RATT-EDIT lot A3 — état de la sous-case « modifier après validation »
       // LOT 5-DROITS — TROIS états possibles, dont « à décider » : l'écran doit pouvoir le DIRE, pas seulement le colorer.
       etatEnvoiGestion: etatEnvoiGestion(c),
+      // LOT PROFIL-GESTION — « Appartient au service gestion » (aucun droit), avec son dernier changement (date, auteur).
+      serviceGestion: await lireServiceGestion(c.id),
     },
   });
 }

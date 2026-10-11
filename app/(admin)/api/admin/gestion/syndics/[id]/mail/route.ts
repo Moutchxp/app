@@ -1,6 +1,7 @@
 import 'server-only';
 import { trouverCompteParId } from '../../../../../../../lib/admin/comptes';
 import { exigerModule } from '../../../../../../../lib/admin/garde';
+import { servicesGestion } from '../../../../../../../lib/admin/serviceGestion';
 import { nomDuCompte } from '../../../../../../../lib/gestion/mailSyndic';
 import { preparerMailSyndic } from '../../../../../../../lib/gestion/mailSyndicRepo';
 import { syndicsDisponibles } from '../../../../../../../lib/gestion/syndicRepo';
@@ -43,6 +44,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     }
     const compte = garde.auteurId === null ? null : await trouverCompteParId(garde.auteurId);
     const pret = await preparerMailSyndic(id, lot, a, compte === null ? null : nomDuCompte(compte.prenom, compte.nom));
+    /* LOT PROFIL-GESTION-ET-ROUGE-PROPRIETAIRE — un compte qui APPARTIENT AU SERVICE GESTION écrit dans son cadre
+       habituel : son nom est dans l'objet, SANS cartouche d'alerte (aucun surlignage). Les autres gardent le cartouche,
+       effaçable d'un clic. Le nom reste du texte brut dans tous les cas. */
+    if (pret !== null && compte !== null && (await servicesGestion([compte.id])).get(compte.id) === true) pret.surlignage = null;
     if (pret === null) return Response.json({ etat: 'erreur', message: 'Ce syndic n’existe pas.' }, { status: 404, headers: ENTETES });
     return Response.json({ etat: 'ok', ...pret }, { headers: ENTETES });
   } catch (e) {

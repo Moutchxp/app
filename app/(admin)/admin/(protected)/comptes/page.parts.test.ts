@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
-import { formaterDate, Chip, DetailContenu } from './page';
+import { formaterDate, Chip, DetailContenu, LIBELLE_SERVICE_GESTION, AIDE_SERVICE_GESTION } from './page';
 
 describe('formaterDate (M3-4 Lot E)', () => {
   it('null → « jamais »', () => {
@@ -244,5 +244,34 @@ describe('DetailContenu — droits complémentaires GROUPÉS SOUS LEUR TUILE (lo
       expect(html).not.toContain('à décider');
       expect(html).not.toContain('Répondez d’abord à la question');
     });
+  });
+});
+
+describe('🔴 LOT PROFIL-GESTION — « Appartient au service gestion » dans le détail d’un compte', () => {
+  const rendre = (serviceGestion: unknown, role: 'collaborateur' | 'administrateur' = 'collaborateur') => renderToStaticMarkup(createElement(DetailContenu, {
+    compte: { ...compteCollab, role, serviceGestion } as never, perms: compteCollab.perms, collaborateur: role === 'collaborateur',
+    msg: null, enCours: false, ...idProps, peutModifierPermis: false, onToggle: noop, onToggleModif: noop, onEnregistrer: noop,
+    onPromouvoir: noop, onFermer: noop, onBasculerServiceGestion: noop,
+  }));
+  it('la case, son libellé et son aide ; pour un ADMINISTRATEUR aussi (elle n’est pas grisée par le rôle)', () => {
+    for (const role of ['collaborateur', 'administrateur'] as const) {
+      const html = rendre({ valeur: false, disponible: true, modifieLe: null, modifiePar: null }, role);
+      expect(html).toContain(LIBELLE_SERVICE_GESTION);
+      expect(html).toContain(AIDE_SERVICE_GESTION);
+      expect(html).toContain('ne donne aucun droit');
+      const puce = html.slice(html.lastIndexOf('<button', html.indexOf(LIBELLE_SERVICE_GESTION)), html.indexOf(LIBELLE_SERVICE_GESTION));
+      expect(puce).toContain('aria-pressed="false"');
+      expect(puce).not.toContain('disabled');
+    }
+  });
+  it('cochée, avec son dernier changement (date et auteur)', () => {
+    const html = rendre({ valeur: true, disponible: true, modifieLe: '2026-10-11T13:00:00.000Z', modifiePar: 'Arnaud Jorel' });
+    expect(html).toContain('Dernier changement : 11 octobre 2026');
+    expect(html).toContain('par Arnaud Jorel');
+  });
+  it('migration absente : la case est grisée, et l’écran le dit ; réponse d’avant ce lot : rien ne s’affiche', () => {
+    const html = rendre({ valeur: false, disponible: false, modifieLe: null, modifiePar: null });
+    expect(html).toContain('migration 341');
+    expect(rendre(undefined)).not.toContain(LIBELLE_SERVICE_GESTION);
   });
 });

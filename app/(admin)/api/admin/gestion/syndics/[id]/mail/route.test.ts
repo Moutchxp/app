@@ -13,6 +13,8 @@ vi.mock('../../../../../../../lib/admin/comptes', () => ({ trouverCompteParId: (
 const preparerMailSyndic = vi.fn();
 vi.mock('../../../../../../../lib/gestion/mailSyndicRepo', () => ({ preparerMailSyndic: (...a: unknown[]) => preparerMailSyndic(...a) }));
 vi.mock('../../../../../../../lib/gestion/syndicRepo', () => ({ syndicsDisponibles: async () => true }));
+let coches = new Map<number, boolean>();
+vi.mock('../../../../../../../lib/admin/serviceGestion', () => ({ servicesGestion: async () => coches }));
 
 const { GET } = await import('./route');
 const appeler = () => GET(new Request('http://x/api/admin/gestion/syndics/40/mail?a=m%40x.fr&lot=176'), { params: Promise.resolve({ id: '40' }) });
@@ -20,7 +22,8 @@ const appeler = () => GET(new Request('http://x/api/admin/gestion/syndics/40/mai
 beforeEach(() => {
   exigerModule.mockReset().mockResolvedValue({ auteurId: 2 });
   trouverCompteParId.mockReset().mockResolvedValue({ id: 2, prenom: 'Arnaud', nom: 'Jorel' });
-  preparerMailSyndic.mockReset().mockResolvedValue({ objet: 'o', surlignage: null, corps: 'c', civilites: {} });
+  preparerMailSyndic.mockReset().mockResolvedValue({ objet: 'Arnaud JOREL / o', surlignage: [0, 12], corps: 'c', civilites: {} });
+  coches = new Map();
 });
 
 describe('/syndics/[id]/mail — le nom du compte connecté', () => {
@@ -46,5 +49,25 @@ describe('/syndics/[id]/mail — le nom du compte connecté', () => {
     exigerModule.mockResolvedValue({ refus: new Response('non', { status: 403 }) });
     expect((await appeler()).status).toBe(403);
     expect(preparerMailSyndic).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 LOT PROFIL-GESTION — le cartouche selon « Appartient au service gestion »', () => {
+  it('compte COCHÉ : le nom est dans l’objet, SANS cartouche (aucun surlignage)', async () => {
+    coches = new Map([[2, true]]);
+    const r = await (await appeler()).json();
+    expect(r.objet).toBe('Arnaud JOREL / o');
+    expect(r.surlignage).toBeNull();
+  });
+  it('compte NON coché : le cartouche reste', async () => {
+    coches = new Map([[2, false]]);
+    expect((await (await appeler()).json()).surlignage).toEqual([0, 12]);
+  });
+  it('compte sans nom : comportement inchangé (aucun nom, la préparation décide seule)', async () => {
+    trouverCompteParId.mockResolvedValue({ id: 2, prenom: '', nom: '' });
+    preparerMailSyndic.mockResolvedValue({ objet: 'Cabinet Criterimmo', surlignage: null, corps: 'c', civilites: {} });
+    const r = await (await appeler()).json();
+    expect(preparerMailSyndic.mock.calls[0][3]).toBeNull();
+    expect([r.objet, r.surlignage]).toEqual(['Cabinet Criterimmo', null]);
   });
 });
