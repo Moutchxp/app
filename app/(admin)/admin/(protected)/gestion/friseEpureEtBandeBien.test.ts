@@ -110,7 +110,7 @@ describe('🔴🔴 ② le carré n’a plus qu’une rangée de pictos', () => {
    */
   it('🔴🔴 les trois pictos du pied portent les trois gestes', () => {
     expect(FRISE).toContain('onClick={() => onModifier(e)}>✎</button>');
-    expect(FRISE).toContain('>i</button>');
+    expect(FRISE).toContain('<span className="fav-i-cercle" aria-hidden="true">i</span>');
     expect(FRISE).toContain('onClick={() => onOuvrir(detailOuvert ? null : `c${e.id}`)}>…</button>');
   });
 

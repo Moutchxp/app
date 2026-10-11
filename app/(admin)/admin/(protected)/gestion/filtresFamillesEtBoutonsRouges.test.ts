@@ -135,7 +135,7 @@ describe('🔴🔴 ③ l’actif est le rouge de la marque, sauf l’urgence', (
   it('🔴🔴 les trois tons d’urgence gardent leur couleur, survol et focus compris', () => {
     const feuille = URGENCE.slice(URGENCE.indexOf('const CSS_SELECTEUR_URGENCE'));
     for (const [ton, jeton] of [
-      ['vert', '--color-svv-green-ink'], ['orange', '--color-svv-orange'], ['rouge', '--color-svv-red-dark'],
+      ['vert', '--color-svv-green-ink'], ['orange', '--color-svv-urgence-orange'], ['rouge', '--color-svv-red-dark'],
     ] as const) {
       expect(feuille, ton).toContain(`.gurg-voie--${ton}.gpil--actif:hover:not(:disabled),`);
       expect(feuille, ton).toContain(`background:var(${jeton});`);

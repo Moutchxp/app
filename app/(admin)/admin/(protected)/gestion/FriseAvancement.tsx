@@ -1343,14 +1343,31 @@ function Carre({
             * tactile (CLAUDE.md §15). Et le « i » grisé reste ATTEIGNABLE — il dit « aucun commentaire », ce
             * qui est une information.
             */}
-          <button type="button"
-            className={`fav-picto-b${(e.texte ?? '').trim() === '' ? ' fav-picto-b--muet' : ''}`}
-            aria-label={`Commentaire de la carte ${c.mot}`}
-            onMouseEnter={(ev) => onCommentaire?.(e, ev.currentTarget)}
-            onMouseLeave={() => onCommentaire?.(null, null)}
-            onFocus={(ev) => onCommentaire?.(e, ev.currentTarget)}
-            onBlur={() => onCommentaire?.(null, null)}
-            onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}>i</button>
+          {/**
+            * ══ 🔴🔴 LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE — LE « i » DANS UN CERCLE, ET MUET SANS COMMENTAIRE ══════
+            * ARNO (11/10/2026) : « le “i” est à peine visible » ⇒ un petit cercle (18 px, bord fin de la couleur du
+            * texte secondaire), plus foncé au survol. Carte SANS commentaire : survol et clic N'OUVRENT PLUS la
+            * bulle, le cercle est grisé, et seule l'info-bulle simple « ajoutée le … à … par … » reste (`title`).
+            * CE QU'IL FAISAIT AVANT : la bulle s'ouvrait aussi sans texte, pour dire « Aucun commentaire ».
+            */}
+          {(e.texte ?? '').trim() === '' ? (
+            <button type="button" className="fav-picto-b fav-picto-i fav-picto-i--sans"
+              aria-label={`Aucun commentaire sur la carte ${c.mot}`}
+              title={pose ?? 'Aucun commentaire'}
+              onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); }}>
+              <span className="fav-i-cercle" aria-hidden="true">i</span>
+            </button>
+          ) : (
+            <button type="button" className="fav-picto-b fav-picto-i"
+              aria-label={`Commentaire de la carte ${c.mot}`}
+              onMouseEnter={(ev) => onCommentaire?.(e, ev.currentTarget)}
+              onMouseLeave={() => onCommentaire?.(null, null)}
+              onFocus={(ev) => onCommentaire?.(e, ev.currentTarget)}
+              onBlur={() => onCommentaire?.(null, null)}
+              onClick={(ev) => { ev.preventDefault(); ev.stopPropagation(); onCommentaire?.(e, ev.currentTarget); }}>
+              <span className="fav-i-cercle" aria-hidden="true">i</span>
+            </button>
+          )}
 
           {/* ③ LE MENU « … » : détail, montant, modifier/retirer pour une étape manuelle (Arno). Inchangé. */}
           <button type="button" className="fav-picto-b" aria-expanded={detailOuvert}
@@ -2641,6 +2658,15 @@ const CSS_FRISE_AVANCEMENT = `
 .fav-picto-b--enfonce{background:var(--color-svv-line-strong);color:var(--color-svv-ink)}
 .fav-carre--close .fav-picto-b--enfonce{background:var(--color-svv-green);color:var(--color-svv-bg)}
 .fav-picto-b--muet{opacity:.45}
+/* ══ 🔴🔴 LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE — LE « i » DANS SON CERCLE ═══════════════════════════════════
+   18 px, bord fin de la couleur du picto (currentColor : texte secondaire, plus fonce au survol avec le bouton,
+   et la couleur de fond sur la carte verte pleine). Sans commentaire : grise, opacite reduite.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.fav-i-cercle{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;
+  box-sizing:border-box;border:1.5px solid currentColor;border-radius:50%;font-size:.72rem;font-weight:700;
+  font-style:normal;line-height:1;font-family:Georgia,'Times New Roman',serif}
+.fav-picto-i--sans .fav-i-cercle{opacity:.4;border-width:1px;font-weight:400}
+.fav-picto-i--sans{cursor:default}
 .fav-picto-b--vide{cursor:default}
 .fav-picto-b--vide:hover{background:none}
 /* ⚠️ LA COULEUR DE CES PICTOS SUR LA CARTE VERTE PLEINE EST POSEE PLUS HAUT, dans la liste groupee de

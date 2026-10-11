@@ -101,8 +101,9 @@ describe('🔴🔴 ② la rangée de trois pictos, en bas et centrée', () => {
     const fin = rangee.indexOf('</span>\n      </div>');
     const bloc = rangee.slice(0, fin);
     expect(bloc.indexOf('✎')).toBeGreaterThan(-1);
-    expect(bloc.indexOf('>i</button>')).toBeGreaterThan(bloc.indexOf('✎'));
-    expect(bloc.indexOf('>…</button>')).toBeGreaterThan(bloc.indexOf('>i</button>'));
+    const i = bloc.indexOf('<span className="fav-i-cercle" aria-hidden="true">i</span>');
+    expect(i).toBeGreaterThan(bloc.indexOf('✎'));
+    expect(bloc.indexOf('>…</button>')).toBeGreaterThan(i);
   });
 
   /**
@@ -202,13 +203,16 @@ describe('🔴🔴 ③ le « i » : une bulle instantanée, et un aveu quand il 
    * ⚠️ GRISÉ MAIS ATTEIGNABLE : ce n'est PAS un `disabled`. Un bouton désactivé ne prend pas le focus, donc ne
    * dirait jamais « aucun commentaire » au clavier — et c'est une information, pas un vide.
    */
-  it('🔴🔴 sans texte, le « i » est grisé et la bulle l’avoue', () => {
-    expect(FRISE).toContain("className={`fav-picto-b${(e.texte ?? '').trim() === '' ? ' fav-picto-b--muet' : ''}`}");
-    expect(FRISE).toContain('<span className="fav-commentaire-vide">Aucun commentaire</span>');
-    expect(FEUILLE).toContain('.fav-picto-b--muet{opacity:.45}');
-    /* 🔴 ET IL RESTE ATTEIGNABLE : le `i` ne porte pas `disabled`, contrairement au crayon quand l'écran est occupé. */
-    const bloc = FRISE.slice(FRISE.indexOf("? ' fav-picto-b--muet'"), FRISE.indexOf('>i</button>'));
+  /* LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE (11/10/2026) — Arno revient sur « bulle “Aucun commentaire” » : sans
+     texte, le « i » n'ouvre PLUS de bulle ; il est grisé, garde l'info-bulle simple « ajoutée le … par … » et
+     reste ATTEIGNABLE (aucun `disabled`). Le comportement est éprouvé au rendu dans friseInfoEtOrangeUrgence.test.ts. */
+  it('🔴🔴 sans texte, le « i » est grisé, sans bulle, et reste atteignable', () => {
+    const bloc = FRISE.slice(FRISE.indexOf('fav-picto-i--sans"'), FRISE.indexOf('<span className="fav-i-cercle"'));
+    expect(bloc).toContain('title={pose ?? \'Aucun commentaire\'}');
+    expect(bloc).not.toContain('onMouseEnter');
+    expect(bloc).not.toContain('onFocus');
     expect(bloc).not.toContain('disabled');
+    expect(FEUILLE).toContain('.fav-picto-i--sans .fav-i-cercle{opacity:.4;');
   });
 
   /**

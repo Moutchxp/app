@@ -2594,7 +2594,7 @@ ${CSS_BOUTON_PILULE}
    rouge » — c'est-a-dire le cas le plus interessant, un dossier urgent qu'on n'a pas encore qualifie.
    ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral de gabarit. */
 .gst-type-capsule--urg-vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
-.gst-type-capsule--urg-orange{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}
+.gst-type-capsule--urg-orange{background:var(--color-svv-orange-soft);color:var(--color-svv-urgence-orange-texte)}
 .gst-type-capsule--urg-rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 /* ══ AUCUN NIVEAU ENREGISTRE : GRIS NEUTRE ══
    Arno : « Evenement sans niveau d'urgence enregistre : capsule grise neutre (comme aujourd'hui pour “Type a

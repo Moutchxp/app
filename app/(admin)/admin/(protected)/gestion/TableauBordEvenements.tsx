@@ -371,13 +371,13 @@ const CSS_TABLEAU_BORD = `
 .tbe-ton--normale .tbe-chiffre--actif:hover:not(:disabled){background:var(--color-svv-green-ink);
   border-color:transparent}
 .tbe-ton--haute .tbe-chiffre--actif,
-.tbe-ton--haute .tbe-chiffre--actif:hover:not(:disabled){background:var(--color-svv-orange);
+.tbe-ton--haute .tbe-chiffre--actif:hover:not(:disabled){background:var(--color-svv-urgence-orange);
   border-color:transparent}
 .tbe-ton--urgent .tbe-chiffre--actif,
 .tbe-ton--urgent .tbe-chiffre--actif:hover:not(:disabled){background:var(--color-svv-red-dark);
   border-color:transparent}
 .tbe-ton--normale .tbe-n{color:var(--color-svv-green-ink)}
-.tbe-ton--haute .tbe-n{color:var(--color-svv-orange)}
+.tbe-ton--haute .tbe-n{color:var(--color-svv-urgence-orange-texte)}
 .tbe-ton--urgent .tbe-n{color:var(--color-svv-red-dark)}
 .tbe-ton--normale .tbe-chiffre--actif .tbe-n,
 .tbe-ton--haute .tbe-chiffre--actif .tbe-n,

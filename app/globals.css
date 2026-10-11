@@ -76,6 +76,15 @@
      Contrastes MESURÉS (WCAG, texte sur son fond) : 5,54:1 en Clair, 8,10:1 en Sombre — tous deux ≥ 4,5:1. */
   --color-svv-orange: #9a4408;               /* famille ORANGE — texte/accent d'une capsule tamisée (5,54:1 sur orange-soft) */
   --color-svv-orange-soft: #ffe8d4;          /* fond pâle de la capsule orange (texte = --color-svv-orange) */
+  /* ══ 🔴🔴 LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE — L'ORANGE DE L'URGENCE « INTERMÉDIAIRE » ═════════════════════
+     ARNO (11/10/2026) : l'orange actif (#9a4408, brun-rouge) se confondait avec le rouge « Urgent ». Un VRAI orange,
+     teinte 30°, saturation 100 %. Le #E67E22 donné en exemple ne tient que 2,85:1 sous un texte blanc (AA = 4,5:1) :
+     la luminosité est descendue jusqu'au premier palier AA.
+     Jetons PROPRES à l'urgence : --color-svv-orange garde ses autres sens (syndic en conflit, pastille « en attente »,
+     avertissement d'ajout manuel), qu'Arno n'a pas demandé de changer.
+     Contrastes MESURÉS (WCAG) : fond plein #b85c00 sous texte blanc 4,60:1 ; texte #a35200 sur orange-soft 4,71:1. */
+  --color-svv-urgence-orange: #b85c00;       /* fond plein du niveau « Intermédiaire » (texte = --color-svv-surface) */
+  --color-svv-urgence-orange-texte: #a35200; /* le mot / le chiffre « Intermédiaire » sur fond clair ou sur orange-soft */
   --color-svv-violet: #7d3ac1;               /* « à confirmer » : texte + bordure (le MOT porte l'info, le violet n'est qu'un appui) */
   --color-svv-violet-soft: #f3e8ff;          /* fond de la pastille « à confirmer » (texte = --color-svv-violet) */
   --color-svv-violet-faint: #faf5ff;         /* fond de la carte d'édition du sommet « à confirmer » (texte = ink/red) */
@@ -308,6 +317,10 @@
   /* LOT URGENCE-EVENEMENT — variante SOMBRE de la famille ORANGE, mesurée : 8,10:1. */
   --color-svv-orange: #ffb066;
   --color-svv-orange-soft: #3a2410;
+  /* LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE — même teinte 30°, éclaircie : fond plein sous texte sombre (surface)
+     6,79:1 ; texte sur orange-soft 6,85:1. */
+  --color-svv-urgence-orange: #ff8c1a;
+  --color-svv-urgence-orange-texte: #ff9933;
   --color-svv-violet: #c9a9f0;
   --color-svv-violet-soft: #2b1d3d;
   --color-svv-violet-faint: #241a33;
@@ -363,6 +376,8 @@
     /* LOT URGENCE-EVENEMENT — identiques au bloc [data-theme='dark']. */
     --color-svv-orange: #ffb066;
     --color-svv-orange-soft: #3a2410;
+    --color-svv-urgence-orange: #ff8c1a;     /* LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE — identique au bloc [data-theme='dark'] */
+    --color-svv-urgence-orange-texte: #ff9933;
     --color-svv-violet: #c9a9f0;
     --color-svv-violet-soft: #2b1d3d;
     --color-svv-violet-faint: #241a33;

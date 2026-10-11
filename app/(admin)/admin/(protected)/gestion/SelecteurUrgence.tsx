@@ -159,7 +159,7 @@ ${CSS_BOUTON_PILULE}
   border-color:transparent}
 .gurg-voie--orange.gpil--actif,
 .gurg-voie--orange.gpil--actif:hover:not(:disabled),
-.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-orange);
+.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-urgence-orange);
   border-color:transparent}
 .gurg-voie--rouge.gpil--actif,
 .gurg-voie--rouge.gpil--actif:hover:not(:disabled),

@@ -99,7 +99,7 @@ describe('🔴🔴 ① 32 px qu’on voit, 44 px qu’on touche', () => {
        « Normal » actif l'aurait fait virer au rouge, c'est-à-dire la fin de l'exception. 🔒 Les trois teintes
        elles-mêmes n'ont pas bougé d'un jeton. */
     expect(feuille).toContain('.gurg-voie--vert.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-green-ink);');
-    expect(feuille).toContain('.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-orange);');
+    expect(feuille).toContain('.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-urgence-orange);');
     expect(feuille).toContain('.gurg-voie--rouge.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-red-dark);');
     for (const ton of ['vert', 'orange', 'rouge']) {
       expect(feuille, ton).toContain(`.gurg-voie--${ton}.gpil--actif:hover:not(:disabled),`);

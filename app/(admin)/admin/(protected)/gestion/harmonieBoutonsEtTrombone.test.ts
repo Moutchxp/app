@@ -185,14 +185,15 @@ describe('🔴🔴 ② un seul format de boutons-filtres', () => {
        « Normal » actif l'aurait fait virer au rouge, c'est-à-dire la fin de l'exception. 🔒 Les trois teintes
        elles-mêmes n'ont pas bougé d'un jeton. */
     expect(feuille).toContain('.gurg-voie--vert.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-green-ink);');
-    expect(feuille).toContain('.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-orange);');
+    expect(feuille).toContain('.gurg-voie--orange.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-urgence-orange);');
     expect(feuille).toContain('.gurg-voie--rouge.gpil--actif:not(:disabled):focus-visible{background:var(--color-svv-red-dark);');
     for (const ton of ['vert', 'orange', 'rouge']) {
       expect(feuille, ton).toContain(`.gurg-voie--${ton}.gpil--actif:hover:not(:disabled),`);
     }
     /* 🔴 LES MÊMES TROIS JETONS, CÔTÉ CARTE — si l'une des deux listes bougeait seule, ce cas le dirait. */
     expect(VUE).toContain('.gst-type-capsule--urg-vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}');
-    expect(VUE).toContain('.gst-type-capsule--urg-orange{background:var(--color-svv-orange-soft);color:var(--color-svv-orange)}');
+    // LOT FRISE-PICTO-INFO-ET-ORANGE-URGENCE — la famille orange de l'urgence a ses propres jetons (texte AA sur orange-soft).
+    expect(VUE).toContain('.gst-type-capsule--urg-orange{background:var(--color-svv-orange-soft);color:var(--color-svv-urgence-orange-texte)}');
     expect(VUE).toContain('.gst-type-capsule--urg-rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}');
   });
 
