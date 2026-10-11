@@ -213,7 +213,23 @@ export interface BrouillonEcran extends Brouillon {
  */
 export function ChampDestinataires({
   libelle, valeurs, onChange, suggestions, onChercher, autoFocus = false, actions, propositions = null, dejaPresentes,
+  actif, onActiver, onDesactiver, onQuitter, refSaisie,
 }: {
+  /**
+   * ══ 🔴🔴 LOT COMPOSEUR-CC-CCI-REFERMABLES-ET-SUGGESTIONS — LA LISTE PILOTÉE PAR LE COMPOSEUR ══════════════════════
+   * ARNO : « une seule liste ouverte à la fois » ; elle se ferme sur un clic hors de la liste et du champ (y compris
+   * sur « Cc » / « Cci »), avec Échap, et quand une adresse est ajoutée ; elle se rouvre au clic dans le champ (ou en
+   * tapant). C'est le COMPOSEUR qui sait quel champ a la liste : `actif` le dit, `onActiver` / `onDesactiver` le
+   * demandent. Absent (`actif` indéfini) ⇒ le champ garde son comportement d'avant, seul.
+   * ⚠️ Fermer la liste ne retire jamais une adresse.
+   */
+  actif?: boolean;
+  onActiver?: () => void;
+  onDesactiver?: () => void;
+  /** Le champ perd le focus : la liste des adresses qu'il porte APRÈS validation du texte tapé (« Cc » vide ⇒ se referme). */
+  onQuitter?: (valeurs: string[]) => void;
+  /** Pour que le composeur pose le curseur dans ce champ (« Cc » qu'on vient d'ouvrir). */
+  refSaisie?: React.Ref<HTMLInputElement>;
   libelle: string;
   valeurs: string[];
   onChange: (v: string[]) => void;
@@ -261,14 +277,17 @@ export function ChampDestinataires({
   const autres = propositions === null ? suggestions
     : (saisie.trim().length >= 2 ? suggestions.filter((x) => !dejaVues.has(x.adresse.trim().toLowerCase())) : []);
   const items: { adresse: string; nom: string | null }[] = [...lignesBien, ...autres];
-  const ouverte = propositions === null
-    ? suggestions.length > 0 && saisie.trim().length >= 2 && !repliee
-    : focus && !repliee && items.length > 0;
+  const pilote = actif !== undefined;
+  const ouverte = pilote
+    ? actif && (propositions === null ? suggestions.length > 0 && saisie.trim().length >= 2 : items.length > 0)
+    : propositions === null
+      ? suggestions.length > 0 && saisie.trim().length >= 2 && !repliee
+      : focus && !repliee && items.length > 0;
   // Borné à CHAQUE rendu : la liste change pendant qu'on la parcourt (les suggestions arrivent du serveur), et un
   //   indice resté au-delà de la fin désignerait une proposition qui n'existe plus.
   const enAvant = ouverte && avance >= 0 && avance < items.length ? avance : -1;
 
-  const ajouter = (brut: string, nom?: string | null) => {
+  const ajouter = (brut: string, nom?: string | null): string[] => {
     const nouvelles = decouperAdresses(brut);
     const deja = new Set(valeurs);
     const ajouts = nouvelles.filter((a) => !deja.has(a));
@@ -277,10 +296,14 @@ export function ChampDestinataires({
     setRepliee(false);
     // Rien de neuf (champ vide, ou adresse déjà présente) : on vide quand même la saisie, mais on ne prévient pas le
     //   parent — un `onChange` qui rend la MÊME liste n'apporte rien et déclenche un enregistrement de brouillon.
-    if (ajouts.length === 0) { if (brut !== '') { setSaisie(''); onChercher(''); } return; }
-    onChange([...valeurs, ...ajouts]);
+    if (ajouts.length === 0) { if (brut !== '') { setSaisie(''); onChercher(''); } return valeurs; }
+    const apres = [...valeurs, ...ajouts];
+    onChange(apres);
     setSaisie('');
     onChercher('');
+    // LOT COMPOSEUR-CC-CCI-REFERMABLES — une adresse ajoutée referme la liste (un clic ou une frappe la rouvre).
+    if (pilote) onDesactiver?.();
+    return apres;
   };
 
   /** Ce qu'on affiche dans la pastille : le nom s'il est connu, l'adresse sinon. L'adresse reste dans l'infobulle. */
@@ -288,7 +311,7 @@ export function ChampDestinataires({
   const infobulleDe = (a: string) => (adresseValide(a) ? a : `Adresse incorrecte : ${a}`);
 
   return (
-    <div className="red-champ">
+    <div className="red-champ" data-champ={libelle}>
       <label className="red-label" htmlFor={id}>{libelle}</label>
       <div className="red-pastilles">
         {/* ══ 🔴 LOT BROUILLONS-GMAIL — « Cc » ET « Cci » SONT DANS LE CHAMP, à droite, comme dans Gmail ═════════
@@ -307,7 +330,7 @@ export function ChampDestinataires({
             </button>
           </span>
         ))}
-        <input id={id} className="red-saisie" type="text" inputMode="email" autoComplete="off" autoFocus={autoFocus}
+        <input id={id} ref={refSaisie} className="red-saisie" type="text" inputMode="email" autoComplete="off" autoFocus={autoFocus}
           value={saisie}
           role="combobox" aria-expanded={ouverte} aria-controls={`${id}-liste`} aria-autocomplete="list"
           aria-activedescendant={enAvant >= 0 ? `${id}-s${enAvant}` : undefined}
@@ -318,6 +341,7 @@ export function ChampDestinataires({
             setSaisie(v);
             setAvance(-1);
             setRepliee(false);
+            if (pilote) onActiver?.();
             onChercher(v);
           }}
           onKeyDown={(e) => {
@@ -338,12 +362,23 @@ export function ChampDestinataires({
               setAvance(Math.min(dernier, Math.max(0, (enAvant < 0 ? -1 : enAvant) + pas)));
               return;
             }
-            if (e.key === 'Escape' && ouverte) { e.preventDefault(); setRepliee(true); setAvance(-1); return; }
+            if (e.key === 'Escape' && ouverte) {
+              e.preventDefault(); setRepliee(true); setAvance(-1);
+              if (pilote) onDesactiver?.();
+              return;
+            }
             if (e.key === 'Backspace' && saisie === '' && valeurs.length > 0) onChange(valeurs.slice(0, -1));
           }}
-          onFocus={() => { setFocus(true); setRepliee(false); }}
-          onClick={() => { setFocus(true); setRepliee(false); }}
-          onBlur={() => { setFocus(false); ajouter(saisie); }} />
+          /* LOT COMPOSEUR-CC-CCI-REFERMABLES — piloté : la liste s'ouvre au CLIC (ou à la frappe), pas au simple focus —
+             « Cc » qu'on vient d'ouvrir reçoit le curseur sans faire surgir une liste qu'on n'a pas demandée. */
+          onFocus={() => { setFocus(true); if (!pilote) setRepliee(false); }}
+          onClick={() => { setFocus(true); setRepliee(false); if (pilote) onActiver?.(); }}
+          onBlur={() => {
+            setFocus(false);
+            const apres = ajouter(saisie);
+            if (pilote) onDesactiver?.();
+            onQuitter?.(apres);
+          }} />
         {actions !== undefined && <span className="red-champ-actions">{actions}</span>}
       </div>
       {ouverte && propositions === null && (
@@ -578,6 +613,60 @@ export function Redaction({
    */
   const [afficheCc, setAfficheCc] = useState(brouillon.cc.length > 0);
   const [afficheCci, setAfficheCci] = useState(brouillon.cci.length > 0);
+  /**
+   * ══ 🔴🔴 LOT COMPOSEUR-CC-CCI-REFERMABLES-ET-SUGGESTIONS — UNE SEULE LISTE, DES LIGNES QUI SE REFERMENT ════════════
+   * Valable pour TOUS les composeurs : ils rendent tous ce composant (fenêtre flottante, réponse dans la conversation,
+   * réponse depuis l'historique du bien).
+   *   · `listeDe` : le seul champ dont la liste de suggestions peut être ouverte (« une seule liste à la fois ») ;
+   *   · « Cc » / « Cci » : un clic ouvre la ligne (curseur dedans) ; ligne VIDE ⇒ un second clic la referme ; une ligne
+   *     vide qui perd le focus se referme d'elle-même ; une ligne qui porte une adresse reste ouverte.
+   *   · un clic hors de la liste et du champ (zone vide, « Cc », autre champ) ferme la liste. Rien n'est jamais retiré.
+   */
+  const [listeDe, setListeDe] = useState<'À' | 'Cc' | 'Cci' | null>(null);
+  const saisieCc = useRef<HTMLInputElement | null>(null);
+  const saisieCci = useRef<HTMLInputElement | null>(null);
+  const ccAOuvrir = useRef<'Cc' | 'Cci' | null>(null);
+  /** Le curseur va dans la ligne qu'on vient d'ouvrir — APRÈS son rendu (elle n'existe pas encore au clic). */
+  useEffect(() => {
+    const c = ccAOuvrir.current;
+    if (c === null) return;
+    ccAOuvrir.current = null;
+    (c === 'Cc' ? saisieCc : saisieCci).current?.focus();
+  }, [afficheCc, afficheCci]);
+  const basculerCopie = (quoi: 'Cc' | 'Cci'): void => {
+    setListeDe(null);
+    const ouverte = quoi === 'Cc' ? afficheCc : afficheCci;
+    const remplie = (quoi === 'Cc' ? brouillon.cc : brouillon.cci).length > 0;
+    const poser = quoi === 'Cc' ? setAfficheCc : setAfficheCci;
+    if (!ouverte) { ccAOuvrir.current = quoi; poser(true); return; }
+    if (!remplie) { poser(false); return; }
+    (quoi === 'Cc' ? saisieCc : saisieCci).current?.focus();
+  };
+  /**
+   * LE CLIC AILLEURS. Un seul écouteur (à la capture du `mousedown`) pour les deux règles : fermer la liste si l'on
+   * clique hors de SON champ ; refermer une ligne Cc / Cci restée VIDE si l'on clique hors d'elle — c'est le cas
+   * « on retire sa dernière adresse puis on clique ailleurs », où le champ n'a plus le focus à perdre.
+   * ⚠️ Les boutons « Cc » / « Cci » sont exclus de la seconde règle : c'est leur propre clic qui ouvre ou referme.
+   */
+  useEffect(() => {
+    const surClic = (e: MouseEvent): void => {
+      const cible = e.target as Element | null;
+      const dans = (champ: string): boolean =>
+        !!cible && !!racine.current?.querySelector(`[data-champ="${champ}"]`)?.contains(cible);
+      if (listeDe !== null && !dans(listeDe)) setListeDe(null);
+      const surBascule = (quoi: string): boolean => !!cible?.closest?.(`[data-bascule="${quoi}"]`);
+      if (afficheCc && brouillon.cc.length === 0 && !dans('Cc') && !surBascule('Cc')) setAfficheCc(false);
+      if (afficheCci && brouillon.cci.length === 0 && !dans('Cci') && !surBascule('Cci')) setAfficheCci(false);
+    };
+    document.addEventListener('mousedown', surClic, true);
+    return () => document.removeEventListener('mousedown', surClic, true);
+  }, [listeDe, afficheCc, afficheCci, brouillon.cc.length, brouillon.cci.length]);
+  /** Ce que chaque champ reçoit pour que la liste soit pilotée par le composeur. */
+  const pilotage = (champ: 'À' | 'Cc' | 'Cci') => ({
+    actif: listeDe === champ,
+    onActiver: () => setListeDe(champ),
+    onDesactiver: () => setListeDe((c) => (c === champ ? null : c)),
+  });
   const [citationOuverte, setCitationOuverte] = useState(false);
   const [suggestions, setSuggestions] = useState<{ adresse: string; nom: string | null }[]>([]);
   const [reste, setReste] = useState(0);
@@ -1722,7 +1811,7 @@ export function Redaction({
           l'encadré de l'effet d'ouverture). */}
       <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={modifierA}
         suggestions={suggestions} onChercher={chercherCorrespondants}
-        propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes}
+        propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('À')}
         /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — `calerAVue` COUPE AUSSI LE CURSEUR. Voir l'encadré
            du champ MESSAGE, plus bas : prendre le focus, c'est faire défiler. */
         autoFocus={calerAVue && brouillon.a.length === 0
@@ -1731,10 +1820,14 @@ export function Redaction({
            ouvre le champ correspondant ; `aria-expanded` dit s'il est déjà ouvert, pour qui ne voit pas l'écran. */
         actions={(
           <>
-            <button type="button" className="red-copie-bouton" aria-expanded={afficheCc}
-              title="Ajouter des destinataires en copie" onClick={() => setAfficheCc(true)}>Cc</button>
-            <button type="button" className="red-copie-bouton" aria-expanded={afficheCci}
-              title="Ajouter des destinataires en copie cachée" onClick={() => setAfficheCci(true)}>Cci</button>
+            {/* LOT COMPOSEUR-CC-CCI-REFERMABLES — `onMouseDown` annulé : le champ garde le focus (sinon sa perte
+                refermerait la ligne avant que le clic ne la rouvre). Ouverte et vide, un second clic la referme. */}
+            <button type="button" className="red-copie-bouton" aria-expanded={afficheCc} data-bascule="Cc"
+              title={afficheCc ? (brouillon.cc.length === 0 ? 'Refermer la ligne Cc' : 'Aller à la ligne Cc') : 'Ajouter des destinataires en copie'}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => basculerCopie('Cc')}>Cc</button>
+            <button type="button" className="red-copie-bouton" aria-expanded={afficheCci} data-bascule="Cci"
+              title={afficheCci ? (brouillon.cci.length === 0 ? 'Refermer la ligne Cci' : 'Aller à la ligne Cci') : 'Ajouter des destinataires en copie cachée'}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => basculerCopie('Cci')}>Cci</button>
           </>
         )} />
 
@@ -1743,12 +1836,14 @@ export function Redaction({
       {afficheCc && (
         <ChampDestinataires libelle="Cc" valeurs={brouillon.cc} onChange={(cc) => modifier({ cc })}
           suggestions={suggestions} onChercher={chercherCorrespondants}
-          propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} />
+          propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('Cc')}
+          refSaisie={saisieCc} onQuitter={(v) => { if (v.length === 0) setAfficheCc(false); }} />
       )}
       {afficheCci && (
         <ChampDestinataires libelle="Cci" valeurs={brouillon.cci} onChange={(cci) => modifier({ cci })}
           suggestions={suggestions} onChercher={chercherCorrespondants}
-          propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} />
+          propositions={brouillon.suggestionsBien ?? null} dejaPresentes={presentes} {...pilotage('Cci')}
+          refSaisie={saisieCci} onQuitter={(v) => { if (v.length === 0) setAfficheCci(false); }} />
       )}
 
       {brouillon.destinatairesApproximatifs && (
@@ -2373,8 +2468,10 @@ const CSS_REDACTION = `
   color:var(--color-svv-muted);background:transparent;border:0;border-radius:.4rem;cursor:pointer}
 .red-copie-bouton:hover{color:var(--color-svv-ink);background:var(--color-svv-field)}
 .red-copie-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
-/* Deja ouvert : le bouton reste la (recliquer ne fait rien de mal) mais il ne s'annonce plus comme une action. */
-.red-copie-bouton[aria-expanded="true"]{color:var(--color-svv-line-strong);cursor:default}
+/* LOT COMPOSEUR-CC-CCI-REFERMABLES : ouvert, le bouton reste ACTIF (il referme une ligne vide) et le montre :
+   texte fonce, fond de champ, souligne. Il n'est plus grise. */
+.red-copie-bouton[aria-expanded="true"]{color:var(--color-svv-ink);background:var(--color-svv-field);cursor:pointer;
+  text-decoration:underline;text-underline-offset:3px}
 
 /* ══ 🔴 L'INDICATEUR D'ENREGISTREMENT — discret, a cote des boutons du bas ═════════════════════════════════════
    Il n'occupe aucune place quand il n'a rien a dire : pas de hauteur reservee, pas de saut de mise en page. */
