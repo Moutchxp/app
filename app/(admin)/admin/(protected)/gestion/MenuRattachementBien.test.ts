@@ -362,14 +362,18 @@ describe('🔴 ③c une seule validation pour les DEUX zones', () => {
 });
 
 describe('🔴 ③d le compteur et « Sélectionner / Désélectionner tous les biens » (comme « Rattacher ce mail à… »)', () => {
-  it('« N bien(s) coché(s) sur M affiché(s) », résultats compris, un bien compté une fois', async () => {
+  /* 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE (11/10/2026) — le compteur porte UNIQUEMENT sur la carte Propositions. */
+  it('« N bien(s) coché(s) sur M affiché(s) » : la carte Propositions seule — ni les résultats, ni les biens suivis', async () => {
     resultats = { lignes: [trouve('445'), trouve('999')] };
     await monter();
     expect(compteur()).toBe('0 bien(s) coché(s) sur 2 affiché(s).');
     await cliquer(casesDuHaut()[0]);
     expect(compteur()).toBe('1 bien(s) coché(s) sur 2 affiché(s).');
     await taper('rue');
-    expect(compteur()).toBe('1 bien(s) coché(s) sur 3 affiché(s).');
+    expect(compteur()).toBe('1 bien(s) coché(s) sur 2 affiché(s).');
+    /* Un résultat coché rejoint la carte Propositions : il y compte, une fois. */
+    await cliquer(casesResultats()[1]);
+    expect(compteur()).toBe('2 bien(s) coché(s) sur 3 affiché(s).');
   });
 
   it('« Sélectionner tous les biens » coche tout ce qui est visible, puis devient « Désélectionner »', async () => {
@@ -378,14 +382,14 @@ describe('🔴 ③d le compteur et « Sélectionner / Désélectionner tous les 
     await taper('rue');
     await cliquer(boutonPar(/^Sélectionner tous les biens$/));
     expect(cases().every((c) => c.checked)).toBe(true);
-    expect(compteur()).toBe('3 bien(s) coché(s) sur 3 affiché(s).');
+    expect(compteur()).toBe('3 bien(s) coché(s) sur 3 affiché(s).');  // 445, 446, et le résultat 999 rangé en haut
     expect(boutonPar(/^Désélectionner tous les biens$/)).toBeDefined();
     await cliquer(boutonPar(/^Rattacher$/));
     expect(ecritures().filter((a) => a.methode === 'POST')
       .map((p) => (p.corps as { cible: { cle: string } }).cible.cle).sort()).toEqual(['445', '446', '999']);
   });
 
-  it('🔴 en mode commandé (Modifier le rattachement) : les biens déjà rattachés comptent, la validation reçoit la liste', async () => {
+  it('🔴 en mode commandé (Modifier le rattachement) : les biens déjà suivis ne comptent plus, la validation reçoit la liste', async () => {
     const recu: { voulue: readonly { cle: string }[] | null } = { voulue: null };
     let coches: readonly string[] = ['445'];
     const remonter = async () => monter({
@@ -397,11 +401,50 @@ describe('🔴 ③d le compteur et « Sélectionner / Désélectionner tous les 
     await remonter();
     /* 445 est déjà rattaché : sa carte est au-dessus, il n'est pas répété ici — mais il compte. */
     expect(container.querySelector('.rec-biens')?.textContent).not.toContain('445 rue Alpha');
-    expect(compteur()).toBe('1 bien(s) coché(s) sur 2 affiché(s).');
+    expect(compteur()).toBe('0 bien(s) coché(s) sur 1 affiché(s).');
     await cliquer(casesDuHaut()[0]);
     await remonter();
     expect(coches).toEqual(['445', '446']);
     await cliquer(boutonPar(/^Valider pour ce mail uniquement$/));
     expect((recu.voulue ?? []).map((x) => x.cle)).toEqual(['445', '446']);
+  });
+});
+
+describe('🔴🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — jamais de coupure silencieuse', () => {
+  it('8 cartes visibles sans défilement ; au-delà, « voir les autres (N) » explicite', async () => {
+    contexte = { ...contexte, biens: Array.from({ length: 11 }, (_, i) => propose(String(500 + i))) };
+    await monter();
+    const cartes = () => [...container.querySelectorAll('.rec-biens .rec-bien')].filter((c) => !c.classList.contains('rec-autres'));
+    expect(cartes()).toHaveLength(8);
+    expect(compteur()).toBe('0 bien(s) coché(s) sur 8 affiché(s).');
+    const voir = boutonPar(/^voir les autres \(3\)$/);
+    expect(voir).toBeDefined();
+    await cliquer(voir);
+    expect(cartes()).toHaveLength(11);
+    expect(compteur()).toBe('0 bien(s) coché(s) sur 11 affiché(s).');
+    expect(boutonPar(/^masquer les autres biens$/)).toBeDefined();
+  });
+
+  it('une proposition cochée au-delà de la 8e reste visible une fois repliée', async () => {
+    contexte = { ...contexte, biens: Array.from({ length: 10 }, (_, i) => propose(String(600 + i))) };
+    await monter();
+    await cliquer(boutonPar(/^voir les autres \(2\)$/));
+    await cliquer(casesDuHaut()[9]);
+    await cliquer(boutonPar(/^masquer les autres biens$/));
+    expect(casesDuHaut()).toHaveLength(9);
+    expect(compteur()).toBe('1 bien(s) coché(s) sur 9 affiché(s).');
+    expect(boutonPar(/^voir les autres \(1\)$/)).toBeDefined();
+  });
+});
+
+describe('🔴 un bien proposé ET trouvé à la recherche n’est pas son propre homonyme', () => {
+  it('son titre ne prend pas « · lot N » quand la recherche le retrouve', async () => {
+    resultats = { lignes: [trouve('445', { adresseVoie: '445 rue Alpha', typeBien: 'Type 2' })] };
+    await monter();
+    const titre = () => container.querySelector('.rec-biens .rec-bien-nom')?.textContent ?? '';
+    const avant = titre();
+    await taper('alpha');
+    expect(titre()).toBe(avant);
+    expect(titre()).not.toContain('lot 445');
   });
 });

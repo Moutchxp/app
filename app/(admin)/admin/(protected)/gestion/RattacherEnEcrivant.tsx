@@ -7,7 +7,7 @@ import type { ContexteRedaction } from '../../../../lib/gestion/classementBien';
 // 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — la catégorie d'un lot, posée là où la nature est connue. Module PUR.
 import { categorieDuBien, type CategorieBien } from '../../../../lib/gestion/categorieBien';
 // 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
-import { titresDistincts } from '../../../../lib/gestion/titreBien';
+import { titresDistincts, unParCle } from '../../../../lib/gestion/titreBien';
 import { CSS_INFO_BIEN } from './InfoBien';
 // 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la pastille qui annonce le contenu en dessous d'une liste.
 import { CSS_ZONE_DEFILANTE } from './ZoneDefilante';
@@ -497,7 +497,9 @@ export function RattacherEnEcrivant({
       nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null,
     })),
   ];
-  const parTitre = new Map(titresDistincts(pourTitres.filter((b) => b.cle !== '')).map((x) => [x.cle, x.titre]));
+  /* ⚠️ UN BIEN = UNE ENTRÉE (lot PROPOSITIONS-MEME-PROPRIETAIRE) : un bien proposé ET trouvé à la recherche serait
+     compté comme son propre homonyme, et son titre prendrait à tort « · lot N ». */
+  const parTitre = new Map(titresDistincts(unParCle(pourTitres.filter((b) => b.cle !== ''))).map((x) => [x.cle, x.titre]));
   /**
    * ⚠️ UN REPLI NOMMÉ : un bien déjà rattaché dont on n'a que le libellé enregistré (le texte figé en base, qui
    * porte encore « — lot N ») garde ce libellé plutôt que de perdre son nom. C'est le seul endroit où l'ancien

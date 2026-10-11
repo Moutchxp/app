@@ -73,6 +73,9 @@ export function useRechercheBiens(saisie: string, date: string | null = null): E
   return recherche;
 }
 
+/** 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — le nombre de cartes de propositions visibles d'emblée (Arno : 8). */
+export const PROPOSITIONS_VISIBLES = 8;
+
 /** Une carte de la liste « Propositions ». */
 export interface BienACocher {
   cle: string;
@@ -113,10 +116,25 @@ export function ListeBiensACocher({
   aLaDateDuMail?: boolean;
 }) {
   /**
-   * 🔴 « AUCUNE PROPOSITION » EST UN ÉTAT À PART (lot AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE) : rien à cocher,
-   * nulle part. C'est alors la PHRASE qui remplace le compteur — jamais « 0 bien(s) coché(s) sur 0 affiché(s) ».
+   * ══ 🔴🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — TOUTES LES PROPOSITIONS VISIBLES, SANS DÉFILEMENT INTERNE ════════════
+   * DÉFAUT D'ARNO : « le 4e bien est caché sous une flèche ⌄ ». Jusqu'à 8 cartes, toutes sont à l'écran ; au-delà,
+   * « voir les autres (N) », explicite — jamais une coupure silencieuse. ⚠️ UNE CARTE COCHÉE RESTE VISIBLE même
+   * au-delà de la huitième : ce qui est coché est visible, toujours.
    */
-  const aucuneProposition = clesVisibles.length === 0;
+  const [toutes, setToutes] = useState(false);
+  const affichees = toutes ? lignes : lignes.filter((b, i) => i < PROPOSITIONS_VISIBLES || selection.has(b.cle));
+  const cachees = lignes.length - affichees.length;
+  /**
+   * 🔴 LE COMPTEUR PORTE UNIQUEMENT SUR LA CARTE « PROPOSITIONS » (décision d'Arno, 11/10/2026) : ni les biens déjà
+   * suivis (bloc du dessus), ni les résultats de recherche. « N bien(s) coché(s) sur M affiché(s) », M = les cartes à
+   * l'écran ici.
+   */
+  const nbCochees = affichees.filter((b) => selection.has(b.cle)).length;
+  /**
+   * 🔴 « AUCUNE PROPOSITION » EST UN ÉTAT À PART (lot AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE) : la carte est vide.
+   * C'est alors la PHRASE qui remplace le compteur — jamais « 0 bien(s) coché(s) sur 0 affiché(s) ».
+   */
+  const aucuneProposition = lignes.length === 0;
   return (
     <>
       {afficherPropositions && (
@@ -130,12 +148,13 @@ export function ListeBiensACocher({
               ? <p className="rec-compte rec-aucune" role="status">{AUCUNE_PROPOSITION}</p>
               : (
                 <p className="rec-compte" role="status">
-                  {`${selection.size} bien(s) coché(s) sur ${clesVisibles.length} affiché(s).`}
+                  {`${nbCochees} bien(s) coché(s) sur ${affichees.length} affiché(s).`}
                 </p>
               )}
             {/* 🔴 UN SEUL LIEN QUI BASCULE, sur les propositions ET les résultats affichés. Il disparaît avec les
                 cases : « tout sélectionner » sur rien ne veut rien dire. */}
-            {!aucuneProposition && (
+            {/* ⚠️ IL RESTE TANT QU'IL Y A QUELQUE CHOSE À COCHER, résultats de recherche compris — même carte vide. */}
+            {clesVisibles.length > 0 && (
               <button type="button" className="gst-lien-bouton" onClick={onToutBasculer}>
                 {toutesCochees ? 'Désélectionner tous les biens' : 'Sélectionner tous les biens'}
               </button>
@@ -143,8 +162,8 @@ export function ListeBiensACocher({
           </div>
 
           {/* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 2) — la zone DIT ce qu'elle cache en dessous. */}
-          <ZoneDefilante className="rec-biens" as="ul" enfants={<>
-            {lignes.map((b) => (
+          <ul className="rec-biens">
+            {affichees.map((b) => (
               <li key={b.cle} className="rec-bien">
                 <label className="rec-choix">
                   <input type="checkbox" checked={selection.has(b.cle)} onChange={() => onBasculer(b.cle)} />
@@ -159,7 +178,15 @@ export function ListeBiensACocher({
                 <p className="rec-motif">{b.motif}</p>
               </li>
             ))}
-            {/* 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — « VOIR LES AUTRES » : au-delà de cinq, à un clic. */}
+            {/* 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — au-delà de huit cartes, explicite. */}
+            {(cachees > 0 || toutes) && lignes.length > PROPOSITIONS_VISIBLES && (
+              <li className="rec-bien rec-autres">
+                <button type="button" className="gst-lien-bouton" onClick={() => setToutes((v) => !v)}>
+                  {toutes ? 'masquer les autres biens' : `voir les autres (${cachees})`}
+                </button>
+              </li>
+            )}
+            {/* 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — « VOIR LES AUTRES » : au-delà de cinq biens d'une personne. */}
             {replies > 0 && onBasculerAutres !== undefined && (
               <li className="rec-bien rec-autres">
                 <button type="button" className="gst-lien-bouton" onClick={onBasculerAutres}>
@@ -167,7 +194,7 @@ export function ListeBiensACocher({
                 </button>
               </li>
             )}
-          </>} />
+          </ul>
         </section>
       )}
 
@@ -315,10 +342,9 @@ export const CSS_LISTE_BIENS = `
 .rec-compte{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
 /* LA PHRASE QUI REMPLACE LE COMPTEUR A ZERO : toute la largeur, la couleur du texte ordinaire. */
 .rec-aucune{flex:1 1 100%;font-size:.84rem;line-height:1.45;color:var(--color-svv-ink)}
-/* LOT DEFILEMENT-MODALES — EXCEPTION N° 1 : les propositions defilent dans une hauteur bornee (76 biens possibles).
-   overscroll-behavior:auto ECRIT EXPLICITEMENT : en bout de liste, la molette passe a la fenetre. */
-.rec-biens{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;
-  max-height:34vh;overflow-y:auto;overscroll-behavior:auto}
+/* LOT PROPOSITIONS-MEME-PROPRIETAIRE — PLUS DE HAUTEUR BORNEE NI DE DEFILEMENT INTERNE : jusqu'a 8 cartes, toutes
+   visibles ; au-dela, « voir les autres (N) » explicite. C'est le corps de la fenetre qui defile, jamais la liste. */
+.rec-biens{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .rec-bien{padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem}
 /* CIBLE TACTILE : la ligne entiere est cliquable. */
 .rec-choix{display:flex;align-items:flex-start;gap:.5rem;min-height:32px;cursor:pointer}

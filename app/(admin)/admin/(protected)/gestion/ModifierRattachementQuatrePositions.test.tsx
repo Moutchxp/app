@@ -40,8 +40,23 @@ const LIENS = [{
 }];
 const CONTEXTE = {
   messageId: MAIL, filId: 77, dateMail: '2025-11-21', nbMailsDuFil: 13, proprietaire: null,
-  examen: { issue: 'sans_candidat', motif: '' }, pieces: [], disponible: true, biens: [],
+  examen: { issue: 'sans_candidat', motif: '' }, pieces: [], disponible: true, biens: [] as unknown[],
 };
+/** 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — ce que la route rend avec `elargi=1` sur le cas d'Arno (mail 26188). */
+const proposeMemeProprio = (cle: string, adresse: string, commune: string) => ({
+  cle, libelle: `${adresse}, ${commune} — lot ${cle}`, adresse, commune, nature: 'Appartement', typeBien: 'Type 2',
+  caracteristiques: [], adresseComplete: `${adresse}, ${commune}`,
+  parties: [{ role: 'proprietaire', cle: 'P146', nom: 'JULLIEN - GARRIDO Cédric', emails: [], telephones: [] }],
+  recommande: false, motif: 'même propriétaire que 25 rue Edith Cavell — JULLIEN - GARRIDO Cédric',
+  cas: 'c', certitude: 'a_trancher', replie: false, dejaRattache: false,
+});
+const MEME_PROPRIO = [
+  proposeMemeProprio('373', '15 rue Carle Hebert', 'COURBEVOIE'),
+  proposeMemeProprio('58', '155 avenue Paul Vaillant Couturier', 'GENTILLY'),
+  proposeMemeProprio('432', '1bis Rue Manessier', 'Nogent-sur-Marne'),
+  proposeMemeProprio('224', '31 rue Camille Pelletan', 'LEVALLOIS PERRET'),
+];
+let lectures: string[] = [];
 const SUIVI = {
   etat: 'ok', mails: [9100, 9101, 9102, 9103, 9104, 9105, 9106, 9107, 9108, 9109, 9110, 9111, MAIL],
   periodes: [{ id: 5, depuisMessageId: 9100, classement: { sorte: 'biens', biens: [{ cle: 'L-176', libelle: 'lot 176' }] } }],
@@ -55,6 +70,8 @@ let ecritures: { url: string; corps: unknown }[];
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   ecritures = [];
+  lectures = [];
+  CONTEXTE.biens = [];
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     if ((init?.method ?? 'GET') !== 'GET') {
@@ -64,6 +81,7 @@ beforeEach(() => {
     if (u.includes('rattachements?fiche=')) return { ok: true, json: async () => ({ etat: 'ok', data: FICHE }) } as unknown as Response;
     if (u.includes('rattachements?fil=')) return { ok: true, json: async () => ({ etat: 'ok', data: LIENS }) } as unknown as Response;
     if (u.includes('/gestion/suivi')) return { ok: true, json: async () => SUIVI } as unknown as Response;
+    lectures.push(u);
     if (u.includes('/gestion/classement')) return { ok: true, json: async () => ({ etat: 'ok', contexte: CONTEXTE }) } as unknown as Response;
     if (u.includes('/affectation')) return { ok: true, json: async () => ({ etat: 'ok', evenement: null, qualifie: true }) } as unknown as Response;
     return { ok: true, json: async () => ({ etat: 'ok' }) } as unknown as Response;
@@ -271,5 +289,61 @@ describe('⑥ le bouton final et ce qu’il écrit', () => {
     await cliquer(bouton(/^Valider la modification du suivi$/) as Element);
     expect(suivis()).toHaveLength(1);
     expect(suivis()[0].corps).toMatchObject({ messageId: MAIL, choix: 'conversation' });
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — LES PROPOSITIONS DE CETTE MODALE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('propositions « même propriétaire », moteur vide à l’ouverture', () => {
+  it('🔴 la modale demande les propositions élargies', async () => {
+    await monter();
+    expect(lectures.some((u) => u.includes(`/gestion/classement?message=${MAIL}&elargi=1`))).toBe(true);
+  });
+
+  it('🔴 le cas d’Arno : 4 propositions visibles, motif « même propriétaire », « 0 bien(s) coché(s) sur 4 affiché(s) »', async () => {
+    CONTEXTE.biens = MEME_PROPRIO;
+    await monter();
+    const cartes = [...container.querySelectorAll('.rec-biens .rec-bien')].filter((c) => !c.classList.contains('rec-autres'));
+    expect(cartes).toHaveLength(4);
+    for (const c of cartes) {
+      expect(c.querySelector('.rec-motif')?.textContent).toBe('même propriétaire que 25 rue Edith Cavell — JULLIEN - GARRIDO Cédric');
+    }
+    expect(container.querySelector('.rec-compte')?.textContent).toBe('0 bien(s) coché(s) sur 4 affiché(s).');
+    expect(container.textContent).not.toContain('ajouté à la main');
+    /* 🔴 AUCUNE COUPURE : ni cadre défilant, ni flèche « ⌄ », ni « voir les autres » pour quatre cartes. */
+    expect(container.querySelector('.rec-biens')?.className).toBe('rec-biens');
+    expect(container.querySelector('.rec-autres')).toBeNull();
+  });
+
+  it('🔴 une recherche ne survit jamais à la fermeture : à la réouverture, moteur vide et vraies propositions seules', async () => {
+    CONTEXTE.biens = MEME_PROPRIO;
+    await monter();
+    const champ = container.querySelector('.rec-saisie') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(champ, 'jullien');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect((container.querySelector('.rec-saisie') as HTMLInputElement).value).toBe('jullien');
+    /* Fermer (la croix), puis rouvrir : c'est une fenêtre NEUVE. */
+    await cliquer(container.querySelector('.rdf-croix') as Element);
+    act(() => { root.unmount(); });
+    root = createRoot(container);
+    await monter();
+    expect((container.querySelector('.rec-saisie') as HTMLInputElement).value).toBe('');
+    expect(container.textContent).not.toContain('ajouté à la main');
+    expect(container.querySelectorAll('.rec-biens .rec-bien')).toHaveLength(4);
+  });
+});
+
+describe('une ouverture = une fenêtre neuve', () => {
+  it('🔴 l’historique du bien monte la fenêtre avec la clé du mail, et le menu avec celle du mail et de sa remise à zéro', async () => {
+    const { readFileSync } = await import('node:fs');
+    const h = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
+    expect(h).toContain('<RattachementsDuFil key={aModifier.messageId}');
+    const r = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
+    expect(r).toContain('<MenuRattachementBien key={`${mailId}-${cleMenu}`}');
   });
 });

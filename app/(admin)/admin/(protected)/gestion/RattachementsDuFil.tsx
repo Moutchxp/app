@@ -1250,7 +1250,9 @@ export function RattachementsDuFil({
         )}
 
         {mailId !== null && panneau !== 'aucun' && (
-          <MenuRattachementBien key={cleMenu} messageId={mailId} filId={filId}
+          <MenuRattachementBien key={`${mailId}-${cleMenu}`} messageId={mailId} filId={filId}
+            /* 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — en porte ponctuelle, les propositions élargies (règle d'Arno). */
+            propositionsElargies={ponctuel}
             preCoches={clesDuMail}
             /* 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — en porte ponctuelle, la validation est la glissière et
                le bouton final de cette fenêtre (dans le pied) : la rangée du menu n'est pas rendue. */

@@ -160,3 +160,10 @@ describe('🔒 module sans entrée-sortie', () => {
     expect(/fetch\(|query\(/.test(src)).toBe(false);
   });
 });
+
+describe('🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — unParCle', () => {
+  it('garde la première entrée de chaque clé, dans l’ordre', async () => {
+    const { unParCle } = await import('./titreBien');
+    expect(unParCle([{ cle: 'a', n: 1 }, { cle: 'b', n: 2 }, { cle: 'a', n: 3 }])).toEqual([{ cle: 'a', n: 1 }, { cle: 'b', n: 2 }]);
+  });
+});

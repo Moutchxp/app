@@ -133,3 +133,14 @@ export function titreParmi(
 export function sansNumeroDeLot(titre: string): boolean {
   return !/\blot\s+\S/i.test(titre);
 }
+
+/**
+ * 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — UN BIEN = UNE ENTRÉE, avant de départager les titres. PUR.
+ * Une fenêtre réunit ses listes (propositions, biens ajoutés, résultats) : un même bien peut y être deux fois. Sans ce
+ * filtre, il serait son propre homonyme et recevrait « · lot N ». La PREMIÈRE entrée gagne (la plus renseignée vient en
+ * tête chez les appelants : propositions d'abord).
+ */
+export function unParCle<T extends { cle: string }>(biens: readonly T[]): T[] {
+  const vus = new Set<string>();
+  return biens.filter((b) => (vus.has(b.cle) ? false : (vus.add(b.cle), true)));
+}

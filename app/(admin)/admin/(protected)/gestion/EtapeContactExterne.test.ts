@@ -630,7 +630,9 @@ describe('🔴🔴 le défilement de la modale « Rattacher ce mail à… »', (
       .split('}').map((b) => b.trim())
       .filter((b) => b.includes('{') && /overflow-y:\s*(auto|scroll)/.test(b.slice(b.indexOf('{'))))
       .map((b) => b.slice(0, b.indexOf('{')).trim());
-    expect(quiDefilent.sort()).toEqual(['.rec-biens', '.rec-corps', '.rec-resultats', '.rec-voile']);
+    /* 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE (11/10/2026) — les propositions ne défilent PLUS dans un cadre (« le 4e bien
+       était caché sous une flèche ») : huit cartes visibles, puis « voir les autres (N) ». Reste la liste des résultats. */
+    expect(quiDefilent.sort()).toEqual(['.rec-corps', '.rec-resultats', '.rec-voile']);
   });
 
   /**
@@ -639,7 +641,7 @@ describe('🔴🔴 le défilement de la modale « Rattacher ce mail à… »', (
    * défaut — une seule ligne `contain` héritée ailleurs a suffi à bloquer toutes les capsules de l'étape 2.
    */
   it('🔴🔴 en bout des deux listes, la molette rend la main à la modale', () => {
-    for (const c of ['.rec-biens', '.rec-resultats']) {
+    for (const c of ['.rec-resultats']) {
       const regle = reglesDe(CSS_LISTE_BIENS, c)[0];
       expect(regle, `${c} doit laisser passer la molette`).toContain('overscroll-behavior:auto');
       expect(regle).not.toContain('overscroll-behavior:contain');

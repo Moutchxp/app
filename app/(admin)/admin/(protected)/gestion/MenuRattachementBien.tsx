@@ -8,7 +8,7 @@ import { planClassement } from '../../../../lib/gestion/gesteClassement';
 import { CSS_LISTE_BIENS, ListeBiensACocher, useRechercheBiens } from './ListeBiensACocher';
 import { CSS_INFO_BIEN } from './InfoBien';
 import { CSS_ZONE_DEFILANTE } from './ZoneDefilante';
-import { titresDistincts } from '../../../../lib/gestion/titreBien';
+import { titresDistincts, unParCle } from '../../../../lib/gestion/titreBien';
 /* 🔴🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — le motif qui fait d'un lien un AJOUT PONCTUEL. Voir son encadré. */
 import { MOTIF_AJOUT_PONCTUEL } from '../../../../lib/gestion/ficheRattachement';
 import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
@@ -43,8 +43,13 @@ export function MenuRattachementBien({
   messageId, filId, onFerme, onGeste, onChange, onHorsGestion, ponctuel = false,
   preCoches = null, pied, onValider, motValider, validationBloquee = null, onSelection, libellesConnus,
   aussiAValider = false,
-  cochesImposees, onCochesChange, sansBoutons = false,
+  cochesImposees, onCochesChange, sansBoutons = false, propositionsElargies = false,
 }: {
+  /**
+   * 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — « Modifier le rattachement » : les propositions élargies (autres biens du
+   * propriétaire des biens rattachés, biens des adresses du mail). Absent ⇒ les propositions du moteur seules.
+   */
+  propositionsElargies?: boolean;
   /**
    * 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la rangée « Valider / Annuler » n'est pas rendue : la fenêtre
    * appelante valide elle-même, par sa glissière et son bouton final (posés dans `pied`). Absent ⇒ comme avant.
@@ -197,7 +202,8 @@ export function MenuRattachementBien({
 
   const charger = useCallback(async () => {
     try {
-      const res = await fetch(`/api/admin/gestion/classement?message=${messageId}`, { cache: 'no-store' });
+      const res = await fetch(`/api/admin/gestion/classement?message=${messageId}${propositionsElargies ? '&elargi=1' : ''}`,
+        { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string; contexte?: ContexteClassement };
       if (d.etat !== 'ok' || !d.contexte || !d.contexte.disponible) { setEtat({ v: 'rien' }); return; }
       setEtat({ v: 'ok', contexte: d.contexte });
@@ -219,7 +225,7 @@ export function MenuRattachementBien({
     } catch {
       setEtat({ v: 'rien' });
     }
-  }, [messageId, ponctuel, clePreCoches, commande]);
+  }, [messageId, ponctuel, clePreCoches, commande, propositionsElargies]);
 
   useEffect(() => { void charger(); }, [charger]);
   useEffect(() => { champ.current?.focus(); }, []);
@@ -272,13 +278,15 @@ export function MenuRattachementBien({
     .sort((x, y) => x.c - y.c || x.i - y.i).map((x) => x.l);
 
   /** 🔴 LES TITRES (« adresse — nature · type »), calculés UNE fois sur toutes les listes : deux homonymes se départagent. */
-  const parTitre = new Map(titresDistincts([
+  /* ⚠️ UN BIEN = UNE ENTRÉE : proposé ET trouvé à la recherche, il serait compté comme son propre homonyme, et son
+     titre prendrait à tort « · lot N » (vu dans Chrome le 11/10/2026, lot PROPOSITIONS-MEME-PROPRIETAIRE). */
+  const parTitre = new Map(titresDistincts(unParCle([
     ...propositions.map((b) => ({ cle: b.cle, adresse: [b.adresse ?? '', b.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
       nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null })),
     ...[...ajoutes, ...lignesTrouvees.filter((b) => !ajoutes.some((a) => a.cle === b.cle))].map((b) => ({
       cle: b.cle, adresse: [b.adresseVoie ?? '', b.commune ?? ''].filter((x) => x.trim() !== '').join(', '),
       nature: b.nature, typeBien: b.typeBien, immeuble: null as string | null })),
-  ]).map((x) => [x.cle, x.titre]));
+  ])).map((x) => [x.cle, x.titre]));
 
   /**
    * 🔴 CE QUI EST À L'ÉCRAN AVEC UNE CASE : les cartes des biens déjà rattachés (au-dessus, dans la fenêtre), les cartes

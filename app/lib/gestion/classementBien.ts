@@ -37,6 +37,9 @@ import { sqlSortesBien } from './statutClassement';
  * y reparaissait donc sous son nom d'origine, au moment précis où l'on décide dans quel bien la ranger.
  */
 import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
+/* 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — les biens liés aux adresses du mail, et leur motif (ceux du composeur). */
+import { biensDesClients } from './biensDesClientsRepo';
+import { motifDuLien } from './contexteClients';
 
 /**
  * MODULE « GESTION » — LOT STATUT-PAR-MAIL : CE QU'IL FAUT SAVOIR POUR CLASSER UN MAIL DANS UN BIEN. LECTURE SEULE.
@@ -170,6 +173,8 @@ interface LotDB {
   gestion_debut: string | null; gestion_fin: string | null;
   /** L'identifiant interne du propriétaire : c'est par lui qu'on retrouve ses contacts, en UNE requête. */
   proprietaire_id: string | null;
+  /** 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — le lot a quitté le portefeuille (absent du dernier import). */
+  absent?: boolean;
 }
 
 /**
@@ -270,6 +275,15 @@ async function construireBiens(o: {
    * pas : c'est ainsi qu'on écarte les mails de spam, ceux de la corbeille et les échanges tout internes.
    */
   contenu?: AnnuaireContenu;
+  /**
+   * ══ 🔴🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — LES PROPOSITIONS ÉLARGIES (« Modifier le rattachement » seulement) ══════
+   * RÈGLE D'ARNO (11/10/2026) : « tous les biens du portefeuille liés aux parties connues de ce mail, sauf ceux déjà
+   * rattachés : biens de chaque PROPRIÉTAIRE des biens déjà rattachés (motif : “même propriétaire que 25 rue Edith
+   * Cavell — JULLIEN - GARRIDO Cédric”) ; biens liés aux adresses de l'expéditeur et des destinataires (motifs
+   * existants). Un bien n'apparaît qu'une fois, avec le premier motif trouvé. Ordre : regroupés par motif, puis par
+   * adresse. » Absent ⇒ les propositions d'avant, à la lettre (les autres écrans n'en changent pas).
+   */
+  elargi?: { clientsDesAdresses: readonly { cle: string; motif: string }[] };
 }): Promise<{
   biens: BienProposable[];
   examen: { issue: 'automatique' | 'a_trancher' | 'sans_candidat'; motif: string };
@@ -288,7 +302,8 @@ async function construireBiens(o: {
             lo.code_postal, lo.immeuble, lo.nature,
             lo.gestion_debut::text AS gestion_debut, lo.gestion_fin::text AS gestion_fin,
             lo.proprietaire_id::text AS proprietaire_id,
-            pr.wippimmo_id AS proprietaire_cle, pr.nom_complet AS proprietaire_nom, pr.civilite AS proprietaire_civilite
+            pr.wippimmo_id AS proprietaire_cle, pr.nom_complet AS proprietaire_nom, pr.civilite AS proprietaire_civilite,
+            (lo.absent_le IS NOT NULL) AS absent
        FROM gestion_annuaire_lot lo
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
       ORDER BY lo.commune NULLS LAST, lo.adresse NULLS LAST, lo.wippimmo_id`);
@@ -344,6 +359,35 @@ async function construireBiens(o: {
         motif: `ancienne proposition « propriétaire ${nom} » — voici ses biens`,
         cas: 'c', certitude: 'a_trancher', preCoche: false,
       });
+    }
+  }
+
+  /**
+   * ── ⑤ bis 🔴🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — LES PROPOSITIONS ÉLARGIES, APRÈS CELLES DU MOTEUR ─────────────
+   * ① les autres biens du PROPRIÉTAIRE de chaque bien rattaché (confirmé) à ce mail, encore au portefeuille ;
+   * ② les biens liés aux adresses du mail (expéditeur, destinataires), avec le motif de `motifDuLien`.
+   * ⚠️ LE PREMIER MOTIF GAGNE : un bien déjà proposé par le moteur ou par le groupe ① n'est pas répété plus loin.
+   * Le groupe de chaque bien est retenu pour l'ORDRE final (regroupés par motif, puis par adresse).
+   */
+  const groupeDe = new Map<string, number>();
+  if (o.elargi !== undefined) {
+    for (const cleRattache of clesConfirmees) {
+      const r = parCle.get(cleRattache);
+      if (r === undefined || r.proprietaire_cle === null) continue;
+      const adresseCourte = (r.adresse ?? '').trim() === '' ? `lot ${r.cle}` : (r.adresse as string).trim();
+      const nom = (r.proprietaire_nom ?? '').trim();
+      const motif = `même propriétaire que ${adresseCourte}${nom === '' ? '' : ` — ${nom}`}`;
+      for (const l of lots) {
+        if (l.proprietaire_cle !== r.proprietaire_cle || l.absent === true || aMontrer.has(l.cle)) continue;
+        aMontrer.set(l.cle, { motif, cas: 'c', certitude: 'a_trancher', preCoche: false });
+        groupeDe.set(l.cle, 1);
+      }
+    }
+    for (const c of o.elargi.clientsDesAdresses) {
+      const l = parCle.get(c.cle);
+      if (l === undefined || l.absent === true || aMontrer.has(c.cle)) continue;
+      aMontrer.set(c.cle, { motif: c.motif, cas: 'c', certitude: 'a_trancher', preCoche: false });
+      groupeDe.set(c.cle, 2);
     }
   }
 
@@ -457,7 +501,9 @@ async function construireBiens(o: {
      * locataire ne doit pas être à chercher au milieu des huit lots du bailleur.
      */
     biens: biens.sort((a, b) =>
-      Number(b.certitude === 'quasi_certaine') - Number(a.certitude === 'quasi_certaine')
+      /* 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — les groupes élargis APRÈS le moteur, chacun trié par adresse. */
+      (groupeDe.get(a.cle) ?? 0) - (groupeDe.get(b.cle) ?? 0)
+      || Number(b.certitude === 'quasi_certaine') - Number(a.certitude === 'quasi_certaine')
       || Number(b.recommande) - Number(a.recommande)
       || a.libelle.localeCompare(b.libelle, 'fr')),
     examen: { issue: examen.issue, motif: examen.motif },
@@ -471,7 +517,11 @@ async function construireBiens(o: {
  * ⚠️ SANS ANNUAIRE OU SANS RATTACHEMENTS, on rend `disponible: false` plutôt qu'une liste vide. Une liste vide se
  * lirait « aucun bien ne correspond », ce qui serait faux : on n'a simplement pas pu chercher.
  */
-export async function contexteClassement(messageId: number): Promise<ContexteClassement> {
+export async function contexteClassement(
+  messageId: number,
+  /** 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — les propositions élargies (voir `construireBiens`). Absent ⇒ comme avant. */
+  o: { elargi?: boolean } = {},
+): Promise<ContexteClassement> {
   const vide: ContexteClassement = {
     messageId, filId: null, dateMail: null, nbMailsDuFil: 0, proprietaire: null, biens: [],
     examen: { issue: 'sans_candidat', motif: 'annuaire ou rattachements non installés' }, pieces: [],
@@ -579,6 +629,22 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
     },
     dateRef: dateMail,
     liens,
+    ...(o.elargi === true ? {
+      elargi: {
+        /* Les adresses DU MAIL (expéditeur et destinataires), jamais les nôtres : une adresse de l'agence ne désigne
+           aucun client. Lecture seule, par la porte des puces du composeur (`biensDesClients`). */
+        clientsDesAdresses: await (async () => {
+          const voulues = [...new Set(adr.filter((a) => a.du_mail && !a.interne).map((a) => a.adresse))];
+          if (voulues.length === 0) return [];
+          const parAdresse = await biensDesClients(voulues);
+          const out: { cle: string; motif: string }[] = [];
+          for (const a of voulues) {
+            for (const b of parAdresse[a.trim().toLowerCase()] ?? []) out.push({ cle: b.cle, motif: motifDuLien(b) });
+          }
+          return out;
+        })(),
+      },
+    } : {}),
   });
 
   return {

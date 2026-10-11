@@ -126,7 +126,7 @@ export async function GET(request: Request): Promise<Response> {
      * `messagesAReconnaitre`), et l'on passe.
      */
     await rafraichirAvantOuverture(message);
-    return Response.json({ etat: 'ok', contexte: await contexteClassement(message) },
+    return Response.json({ etat: 'ok', contexte: await contexteClassement(message, { elargi: url.searchParams.get('elargi') === '1' }) },
       { headers: { 'Cache-Control': SANS_CACHE } });
   } catch (e) {
     // Pas de catch muet : une liste vide se lirait « aucun bien ne correspond », ce qui serait faux.

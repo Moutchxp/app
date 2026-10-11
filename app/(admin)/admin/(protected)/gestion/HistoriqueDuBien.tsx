@@ -3186,7 +3186,9 @@ export function HistoriqueDuBien({
           et une fenêtre qui se referme emporterait la sortie avec elle (défaut mesuré au lot
           PHOTOS-ET-INTERNE-INVERSE). On recharge l'historique à chaque geste, et elle reste ouverte. */}
       {aModifier !== null && aModifier.filId != null && (
-        <RattachementsDuFil filId={aModifier.filId} messageId={aModifier.messageId}
+        /* 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — UNE OUVERTURE = UNE FENÊTRE NEUVE (clé du mail) : aucune recherche,
+           aucun bien coché à la main ne survit à la fermeture ni ne passe d'un mail à l'autre (Arno). */
+        <RattachementsDuFil key={aModifier.messageId} filId={aModifier.filId} messageId={aModifier.messageId}
           titre={nettoyerObjet(aModifier.objet ?? '') || null}
           ponctuel
           onFerme={() => setAModifier(null)}
