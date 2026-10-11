@@ -384,9 +384,15 @@ async function ecrireLienMoteur(
     return 'respecte';
   }
   const id = identite(messageId, null, c);
+  /* 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — UN LIEN CONFIRMÉ NE REDESCEND JAMAIS EN PROPOSITION PAR LE MOTEUR.
+     « Un mail entré dans l'historique d'un bien n'en sort JAMAIS, sauf par “Sortir du suivi” » (Arno) : la
+     rétrogradation « confirmé → proposé » d'un lien automatique le faisait sortir de l'historique sans un geste.
+     Le statut d'un lien confirmé reste donc « confirme » ; ses autres champs (règle, motif…) se mettent à jour.
+     La base le refuse aussi (migration 339). */
   const maj = await q(
     `UPDATE gestion_rattachement
-        SET statut = $6, regle = $7, confiance = $8, motif = $9, adresses = $10, cible_libelle = $11
+        SET statut = CASE WHEN statut = 'confirme' THEN 'confirme' ELSE $6 END,
+            regle = $7, confiance = $8, motif = $9, adresses = $10, cible_libelle = $11
       WHERE ${OU_IDENTITE}
         AND origine = 'automatique' AND statut IN ('propose', 'confirme') AND statut_par_libelle IS NULL`,
     [...id, statut, cand.regle, cand.confiance, cand.motif, cand.adresses.join(' '), libelle]);
@@ -426,10 +432,15 @@ async function retirerLiensPerimes(
     auteur: AUTEUR_MOTEUR.libelle, motif: 'le moteur ne propose plus cette cible',
   },
 ): Promise<number> {
+  /* 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — LES PROPOSITIONS SEULEMENT. Le moteur retirait aussi les liens
+     CONFIRMÉS qu'il avait posés dès qu'il cessait de les proposer — or il cesse de les proposer, entre autres, quand
+     un e-mail ou une carte est archivé dans l'annuaire. Un mail quittait ainsi l'historique d'un bien parce qu'un
+     contact avait changé : c'est exactement ce que la règle d'Arno interdit. Un lien confirmé ne sort plus que par
+     « Sortir du suivi ». (La base le refuse aussi : migration 339.) */
   const { rows } = await q<{ id: string; cible_sorte: string; cible_cle: string | null; cible_id: string | null }>(
     `SELECT id, cible_sorte, cible_cle, cible_id FROM gestion_rattachement
       WHERE message_id = $1 AND piece_id IS NULL
-        AND origine = 'automatique' AND statut IN ('propose', 'confirme') AND statut_par_libelle IS NULL`,
+        AND origine = 'automatique' AND statut = 'propose' AND statut_par_libelle IS NULL`,
     [messageId]);
 
   const perimes = rows.filter((r) => !gardees.some((g) => memeCible(g, {

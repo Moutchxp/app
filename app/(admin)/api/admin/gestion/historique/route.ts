@@ -4,6 +4,7 @@ import { cibleDepuisTexte, lireFiltres } from '../../../../../lib/gestion/histor
 import {
   enteteHistorique, etendreCible, interlocuteursHistorique, pageHistorique, propositionsHistorique,
 } from '../../../../../lib/gestion/historiqueRepo';
+import { anciensContactsParmi } from '../../../../../lib/gestion/anciensContactsRepo';
 
 /**
  * /api/admin/gestion/historique — LOT RATTACHEMENT-2 : TOUT CE QUI S'EST DIT À PROPOS D'UNE CIBLE.
@@ -53,9 +54,20 @@ export async function GET(request: Request): Promise<Response> {
       propositionsHistorique(etendue.data),
     ]);
 
+    /* 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — les adresses de la page qui furent celles d'un contact aujourd'hui
+       supprimé ou parti. Le mail s'affiche de toute façon (nom et adresse du MAIL) ; ceci n'ajoute que la mention
+       « ancien contact ». Une lecture en échec ne coûte que la mention, jamais la page. */
+    const adressesDeLaPage = page.lignes.flatMap((l) => [l.de ?? '', ...l.a.map((p) => p.adresse),
+      ...l.cc.map((p) => p.adresse), ...l.cci.map((p) => p.adresse)]);
+    const anciensContacts = await anciensContactsParmi(adressesDeLaPage).catch((e) => {
+      console.error('[api/admin/gestion/historique] anciens contacts illisibles', e);
+      return [] as string[];
+    });
+
     return Response.json({
       etat: 'ok',
       data: {
+        anciensContacts,
         cible: etendue.data.cible,
         titre: etendue.data.titre,
         sousTitre: etendue.data.sousTitre,

@@ -276,8 +276,12 @@ export function VieDuBien({ lotCle, maintenant, onOuvrirFil, filtreInitial = 'to
  * mail dans Gmail pour savoir à qui l'on a écrit.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-function UneAdresse({ p, tonDe }: { p: PersonneDuMail; tonDe?: (adresse: string) => TonMail | null }) {
-  const ton = tonDe === undefined ? null : tonDe(p.adresse);
+function UneAdresse({ p, tonDe, ancien = false }: {
+  p: PersonneDuMail; tonDe?: (adresse: string) => TonMail | null; ancien?: boolean;
+}) {
+  /* 🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — un ANCIEN CONTACT porte une pastille grise, sauf si sa couleur a été
+     mémorisée (rangement de partie gardé) : c'est `tonDe` qui le dit, et « non affecté » (gris) en est le repli. */
+  const ton = tonDe === undefined ? (ancien ? 'gris' : null) : tonDe(p.adresse);
   /* 🔴 AUCUNE PASTILLE POUR NOUS NI POUR L'INCONNU : « rien pour l'agence » (Arno), et rien non plus quand
      l'appelant ne sait pas répondre — une pastille grise par défaut aurait fait passer tout le monde pour
      « non affecté », ce qui est une affirmation. */
@@ -290,36 +294,38 @@ function UneAdresse({ p, tonDe }: { p: PersonneDuMail; tonDe?: (adresse: string)
       )}
       {p.nom !== null && <span className="vdb-qui-nom">{p.nom}</span>}
       <span className="vdb-qui-adr">{p.nom === null ? p.adresse : `<${p.adresse}>`}</span>
+      {ancien && <span className="vdb-qui-ancien">ancien contact</span>}
     </span>
   );
 }
 
-function LigneAdresses({ mot, gens, tonDe }: {
+function LigneAdresses({ mot, gens, tonDe, ancienContact }: {
   mot: string; gens: readonly PersonneDuMail[]; tonDe?: (adresse: string) => TonMail | null;
+  ancienContact?: (adresse: string) => boolean;
 }) {
   if (gens.length === 0) return null;
   return (
     <p className="vdb-dest">
       <span className="vdb-dest-mot">{mot} :</span>
       {gens.map((p, i) => (
-        <UneAdresse key={`${p.adresse}-${i}`} p={p} tonDe={tonDe} />
+        <UneAdresse key={`${p.adresse}-${i}`} p={p} tonDe={tonDe} ancien={ancienContact?.(p.adresse) === true} />
       ))}
     </p>
   );
 }
 
-function AdressesDuMail({ l, tonDe }: {
-  l: LigneHistorique; tonDe?: (adresse: string) => TonMail | null;
+function AdressesDuMail({ l, tonDe, ancienContact }: {
+  l: LigneHistorique; tonDe?: (adresse: string) => TonMail | null; ancienContact?: (adresse: string) => boolean;
 }) {
   return (
     <div className="vdb-adresses">
       {/* 🔴 « DE » EN PREMIER, AU-DESSUS DE « À » — demande d'Arno, et c'est l'ordre d'un en-tête de courrier. */}
-      <LigneAdresses mot="De" gens={[{ nom: l.deNom, adresse: l.de }]} tonDe={tonDe} />
-      <LigneAdresses mot="À" gens={l.a} tonDe={tonDe} />
-      <LigneAdresses mot="Cc" gens={l.cc} tonDe={tonDe} />
+      <LigneAdresses mot="De" gens={[{ nom: l.deNom, adresse: l.de }]} tonDe={tonDe} ancienContact={ancienContact} />
+      <LigneAdresses mot="À" gens={l.a} tonDe={tonDe} ancienContact={ancienContact} />
+      <LigneAdresses mot="Cc" gens={l.cc} tonDe={tonDe} ancienContact={ancienContact} />
       {/* ⚠️ « Cci » SEULEMENT SI ON LE CONNAÎT : on ne sait la copie cachée d'un mail REÇU que si l'on y était.
           Une ligne « Cci : — » sur un mail reçu laisserait croire qu'il n'y en avait pas. */}
-      <LigneAdresses mot="Cci" gens={l.cci} tonDe={tonDe} />
+      <LigneAdresses mot="Cci" gens={l.cci} tonDe={tonDe} ancienContact={ancienContact} />
       {/* ⚠️ LE REPLI DU DÉPÔT RESTE VISIBLE quand la liste ancienne était bornée et que la neuve est vide : un
           mail d'avant la capture des champs `jsonb` n'a que `destinataires`. Le taire aurait fait disparaître
           des destinataires qu'on affichait hier. */}
@@ -332,7 +338,7 @@ function AdressesDuMail({ l, tonDe }: {
 
 export function LigneVie({
   l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, modifierRattachement,
-  onVisualiser, repondre, composeur = null,
+  onVisualiser, repondre, composeur = null, ancienContact,
   destinataires = [], piecesCitables = [], adressesTrouvees = [],
 }: {
   l: LigneHistorique; maintenant: Date; ouvert: boolean; onBasculer: () => void;
@@ -425,6 +431,12 @@ export function LigneVie({
    * affichent quand même : c'est la COULEUR qui manque, pas l'information.
    */
   tonDe?: (adresse: string) => TonMail | null;
+  /**
+   * 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — cette adresse fut-elle celle d'un contact aujourd'hui supprimé ou parti ?
+   * Elle s'affiche alors avec la mention grise « ancien contact », sa pastille grise (sauf couleur mémorisée).
+   * FACULTATIVE, comme `tonDe` : absente ⇒ les autres écrans ne bougent pas d'un pixel.
+   */
+  ancienContact?: (adresse: string) => boolean;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 5 — LES MOTS CHERCHÉS, SURLIGNÉS DANS L'APERÇU ═════════════════════════
    *
@@ -696,7 +708,7 @@ export function LigneVie({
 
               ⚠️ LES LISTES SONT COMPLÈTES, SANS BORNE. Mesuré : le pire mail du dépôt porte 52 destinataires,
               et la moyenne est de 1,15. C'est une ligne qui se replie, pas une liste qui explose. */}
-          <AdressesDuMail l={l} tonDe={tonDe} />
+          <AdressesDuMail l={l} tonDe={tonDe} ancienContact={ancienContact} />
           {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES NOMS DE PIÈCES CITÉS DEVIENNENT DE PETITS LIENS ════
               DEMANDE D'ARNO : « chaque nom cité "<fichier.ext>" qui correspond à une pièce réelle de la MÊME
               conversation devient un petit lien discret (trombone + nom) qui ouvre cette pièce dans la
@@ -957,6 +969,8 @@ export const CSS_VIE_DU_BIEN = `
 .vdb-qui{display:inline-flex;align-items:baseline;gap:.25rem;max-width:100%;overflow-wrap:anywhere}
 .vdb-qui-nom{color:var(--color-svv-ink)}
 .vdb-qui-adr{color:var(--color-svv-muted)}
+/* LOT INVARIANT-HISTORIQUE-INALTERABLE : la mention grise d'un contact supprime ou parti. */
+.vdb-qui-ancien{color:var(--color-svv-muted);font-size:.78em;font-style:italic;margin-left:.3em}
 /* LA PASTILLE : un rond plein de 8 px, aligne sur la ligne de base du texte. Les quatre tons sont des JETONS,
    donc lisibles en Clair comme en Sombre ; « nous » n'en a pas — nous ne sommes pas une partie du bien. */
 .vdb-pastille{flex:0 0 auto;width:8px;height:8px;border-radius:999px;transform:translateY(-1px)}

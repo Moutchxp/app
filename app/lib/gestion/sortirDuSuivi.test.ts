@@ -174,20 +174,14 @@ describe('🔴 ③ ce qui n’est pas un bien ne devient pas un bien', () => {
 });
 
 describe('🔴🔴 ④ ce que l’écran dit avant, et après', () => {
-  it('🔴🔴 la question d’Arno, mot pour mot', () => {
-    expect(motConfirmationSortie({ adresseDuBien: '28 Avenue Marceau', nbPieces: 3 }))
-      .toBe('Sortir ce mail du suivi de 28 Avenue Marceau ? Ses 3 pièces jointes quitteront aussi cet historique.');
-  });
-
-  /** ⚠️ UNE CONFIRMATION QUI ÉNUMÈRE DES RIENS EST UNE CONFIRMATION QU'ON APPREND À NE PLUS LIRE. */
-  it('⚠️ aucune pièce ⇒ la seconde phrase disparaît', () => {
-    expect(motConfirmationSortie({ adresseDuBien: '28 Avenue Marceau', nbPieces: 0 }))
-      .toBe('Sortir ce mail du suivi de 28 Avenue Marceau ?');
-  });
-
-  it('⚠️ une seule pièce se dit au singulier', () => {
-    expect(motConfirmationSortie({ adresseDuBien: 'Marceau', nbPieces: 1 }))
-      .toContain('Sa pièce jointe quittera aussi cet historique.');
+  /* LOT INVARIANT-HISTORIQUE-INALTERABLE — CE QU'IL DISAIT AVANT : « Sortir ce mail du suivi de 28 Avenue Marceau ?
+     Ses 3 pièces jointes quitteront aussi cet historique. » (et ses variantes sans pièce / au singulier). La phrase
+     d'Arno a changé : le mail n'est plus détaché, il est marqué, et se restaure. */
+  it('🔴🔴 la question d’Arno, mot pour mot, quel que soit le nombre de pièces', () => {
+    for (const nbPieces of [0, 1, 3]) {
+      expect(motConfirmationSortie({ adresseDuBien: '28 Avenue Marceau', nbPieces }))
+        .toBe('Sortir ce mail du suivi de ce bien ? Il pourra être restauré.');
+    }
   });
 
   /** 🔴 L'ADRESSE, ET NON LE TITRE ENTIER : une question qu'on ne lit pas jusqu'au bout se clique sans être lue. */

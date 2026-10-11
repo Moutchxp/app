@@ -267,6 +267,45 @@ un `UPDATE` laisse l'écriture en base. Vérifié par test statique (`app/lib/ad
 
 ---
 
+## 14. HISTORIQUE INALTÉRABLE — UN MAIL ENTRÉ DANS L'HISTORIQUE D'UN BIEN N'EN SORT JAMAIS
+
+> Règle absolue posée par Arno le 11/10/2026 (lot INVARIANT-HISTORIQUE-INALTERABLE), **prioritaire sur tout le
+> reste**. Tout futur lot doit la respecter.
+
+**Historique inaltérable : un mail entré dans l'historique d'un bien n'en sort JAMAIS, sauf par le bouton « Sortir du
+suivi », utilisé mail par mail et restaurable.** Supprimer, désactiver, fermer, détacher ou remplacer quoi que ce soit
+dans l'annuaire — un contact, un syndic (fermeture définitive), « Ne travaille plus ici », une copropriété, une adresse
+secondaire, le carnet de l'immeuble, une partie, un changement de syndic — ne doit JAMAIS effacer, modifier ou masquer
+un mail, une pièce jointe ou une information de l'historique. Exemple : la copropriété change de syndic et les contacts
+de l'ancien syndic sont supprimés ; tous leurs mails restent visibles dans l'historique du bien, avec leurs pièces.
+
+**① HISTORIQUE D'UN BIEN = tous les mails rattachés à ce bien qui ne sont pas « sortis du suivi ». Point.** La seule
+règle de lecture est `sqlLiensDuBien` (`app/lib/gestion/rattachement.ts`) : lien confirmé, cible `lot`, lien de mail
+(`piece_id IS NULL`), **`sorti_le IS NULL`**. Aucune jointure obligatoire avec un contact, une partie ou un syndic
+ACTIF. Le nom et l'adresse affichés viennent du MAIL ; un contact supprimé ou parti porte la mention grise « ancien
+contact » (`anciensContactsRepo.ts`) et une pastille grise, sauf couleur mémorisée.
+
+**② « SORTIR DU SUIVI » MARQUE, N'EFFACE PAS** (`app/lib/gestion/sortieSuiviRepo.ts`, route
+`/api/admin/gestion/historique/sortis`) : colonnes `sorti_le`, `sorti_par`, `sorti_par_libelle`, `sorti_motif` sur les
+liens du mail vers CE bien ; « Restaurer » les efface, à tout moment. Chaque geste est au journal. Ligne repliée
+« Mails sortis du suivi (N) ▸ » en bas de l'historique.
+
+**③ VERROU EN BASE (migration 339)** — il tient même face à un vieux processus ou à un script :
+- aucun `DELETE` ni `TRUNCATE` sur `gestion_message`, `gestion_rattachement`, `gestion_message_adresse`,
+  `gestion_piece` (hors bases jetables d'épreuve `gestion_jetable` / `svav_test*`) ;
+- l'identité d'un rattachement (mail, pièce, cible) ne se modifie pas ; un lien confirmé ne se défait pas
+  automatiquement (`statut_par` NULL) ; la marque « sorti du suivi » ne se pose que par la fonction dédiée (réglage de
+  session `svav.sortie_suivi`) ;
+- une partie reconnue sur une adresse de mail ne s'efface pas (un recalcul garde la reconnaissance mémorisée) ;
+- plus aucun `ON DELETE CASCADE` vers ces quatre tables.
+
+**④ LE MOTEUR AUTOMATIQUE NE RETIRE NI NE RÉTROGRADE UN LIEN CONFIRMÉ** (`retirerLiensPerimes`, `ecrireLienMoteur`,
+`projeterLeFil` sans auteur) : un changement dans l'annuaire ne fait plus quitter l'historique à aucun mail.
+
+**⑤ EN SUSPENS (décision d'Arno attendue)** : six gestes MANUELS existants défont encore un lien confirmé (« Retirer »,
+« Valider le classement » avec un bien décoché, « Remplacer par », « Toute la conversation », la case « Interne »,
+« Annuler » de Monga). Ils n'ont pas été modifiés ; le verrou les laisse passer parce qu'ils portent un auteur.
+
 ### Notes de traçabilité
 - Chemin absolu des fichiers TS = `…/sansvisavis/app/app/lib/…` (dossier `app/` imbriqué) ; les chemins
   ci-dessus sont **relatifs à la racine du dépôt** (`app/lib/…`, `app/page.tsx`).

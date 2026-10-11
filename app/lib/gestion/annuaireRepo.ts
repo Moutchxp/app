@@ -1497,6 +1497,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
            FROM gestion_rattachement r
            JOIN gestion_message m ON m.id = r.message_id
           WHERE r.cible_sorte = 'lot' AND r.cible_cle = lo.wippimmo_id AND r.statut = 'confirme'
+            AND r.sorti_le IS NULL -- 339 : un mail sorti du suivi ne compte plus pour ce bien
        ) ma ON true
        /* ⚠️ UN EVENEMENT N'EST PAS RATTACHE A UN LOT, mais a des ECHANGES (gestion_affectation). « Ouvert »
           pour ce bien se lit donc : un evenement NON TRAITE, affecte a un echange dont un mail porte un
@@ -1715,6 +1716,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
            FROM gestion_rattachement r
            JOIN gestion_message m ON m.id = r.message_id
           WHERE r.cible_sorte = 'lot' AND r.cible_cle = lo.wippimmo_id AND r.statut = 'confirme'
+            AND r.sorti_le IS NULL -- 339 : un mail sorti du suivi ne compte plus pour ce bien
        ) ma ON true
        LEFT JOIN gestion_drive_arbre dr
               ON dr.sorte = 'bien' AND dr.cle = lo.wippimmo_id AND dr.absent_le IS NULL

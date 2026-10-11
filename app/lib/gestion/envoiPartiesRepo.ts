@@ -144,8 +144,9 @@ function champ(brut: unknown): string[] {
 /**
  * ② APRÈS LA RELÈVE — ÉCRIRE LES PARTIES DES ENVOIS DONT LE MESSAGE EST ENFIN LÀ. Rend le nombre d'envois traités.
  *
- * ⚠️ IDEMPOTENTE : `ON CONFLICT (message_id, adresse, rôle) DO UPDATE`, et l'envoi est daté une fois traité. La relève
- * qui écrit ensuite le À et le Cc du même message recalcule les colonnes CLIENTS à l'identique et laisse les autres.
+ * ⚠️ IDEMPOTENTE, ET AJOUT SEULEMENT (lot INVARIANT-HISTORIQUE-INALTERABLE) : une ligne absente est créée ; une ligne
+ * déjà là (la relève a déjà écrit le À et le Cc) ne gagne que la partie NON CLIENTE qui lui manquait — sa
+ * reconnaissance client n'est jamais réécrite. L'envoi est daté une fois traité.
  */
 export async function appliquerPartiesEnAttente(): Promise<number> {
   try {
@@ -175,11 +176,9 @@ export async function appliquerPartiesEnAttente(): Promise<number> {
               partie_externe, syndic_id, syndic_contact_id, copropriete_contact_id, calcule_le)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now())
            ON CONFLICT (message_id, adresse, role) DO UPDATE SET
-             interne = EXCLUDED.interne, partie = EXCLUDED.partie, proprietaire_cle = EXCLUDED.proprietaire_cle,
-             locataire_id = EXCLUDED.locataire_id, lot_cle = EXCLUDED.lot_cle, motif = EXCLUDED.motif,
              partie_externe = EXCLUDED.partie_externe, syndic_id = EXCLUDED.syndic_id,
-             syndic_contact_id = EXCLUDED.syndic_contact_id, copropriete_contact_id = EXCLUDED.copropriete_contact_id,
-             calcule_le = now()`,
+             syndic_contact_id = EXCLUDED.syndic_contact_id, copropriete_contact_id = EXCLUDED.copropriete_contact_id
+           WHERE gestion_message_adresse.partie_externe IS NULL AND EXCLUDED.partie_externe IS NOT NULL`,
           [Number(e.message_id), l.adresse, l.adresseBrute, l.role, l.interne, l.client.partie,
             l.client.proprietaireCle, l.client.locataireId, l.client.lotCle, l.motif,
             l.externe?.sorte ?? null, l.externe?.syndicId ?? null, l.externe?.syndicContactId ?? null,

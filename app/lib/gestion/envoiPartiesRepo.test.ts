@@ -112,6 +112,11 @@ describe('appliquerPartiesEnAttente — l’écriture, sur le message capturé',
     expect((inserts[1][1] as unknown[]).slice(10)).toEqual(['syndic_contact', 3, 30, null]);
     expect((inserts[2][1] as unknown[]).slice(10)).toEqual([null, null, null, null]);
     expect(String(inserts[0][0]).replace(/\s+/g, ' ')).toContain('ON CONFLICT (message_id, adresse, role) DO UPDATE');
+    /* LOT INVARIANT-HISTORIQUE-INALTERABLE — AJOUT SEULEMENT : une ligne déjà relevée ne gagne que la partie non cliente
+       qui lui manquait ; sa reconnaissance client n'est jamais réécrite. */
+    const conflit = String(inserts[0][0]).replace(/\s+/g, ' ');
+    expect(conflit).toContain('WHERE gestion_message_adresse.partie_externe IS NULL AND EXCLUDED.partie_externe IS NOT NULL');
+    expect(conflit.slice(conflit.indexOf('DO UPDATE'))).not.toContain('partie = EXCLUDED.partie,');
     const maj = query.mock.calls.find((c) => String(c[0]).includes('UPDATE gestion_envoi'));
     expect(maj?.[1]).toEqual([5, 900]);
   });

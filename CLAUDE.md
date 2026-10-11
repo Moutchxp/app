@@ -402,6 +402,23 @@ définitive avant de figer les couleurs dans le code.
   - 🔵 **PROMPT** — prompt à coller à l'agent Claude Code (toujours préciser DANS QUEL TERMINAL).
   - 🟢 **COMMIT** — message de commit à coller dans la boîte de commit de VS Code (Source Control).
 
+### 🔴🔴 INVARIANT — HISTORIQUE INALTÉRABLE (règle absolue d'Arno, prioritaire sur tout le reste)
+
+> **Historique inaltérable : un mail entré dans l'historique d'un bien n'en sort JAMAIS, sauf par le bouton « Sortir du
+> suivi », utilisé mail par mail et restaurable. Supprimer, désactiver, fermer, détacher ou remplacer quoi que ce soit
+> dans l'annuaire (contact, syndic, « Ne travaille plus ici », copropriété, adresse secondaire, carnet de l'immeuble,
+> partie, changement de syndic) ne doit JAMAIS effacer, modifier ou masquer un mail, une pièce jointe ou une
+> information de l'historique.**
+
+- **Décision d'Arno du 11/10/2026**, lot INVARIANT-HISTORIQUE-INALTERABLE. Détail, preuves et verrous :
+  `docs/INVARIANTS_SVAV.md` §14. Tout futur lot doit la respecter.
+- **L'historique d'un bien = ses mails rattachés non « sortis du suivi »**, lus par `sqlLiensDuBien` et rien d'autre :
+  jamais une jointure obligatoire sur un contact, une partie ou un syndic ACTIF. Un contact disparu s'affiche avec le
+  nom et l'adresse du mail, et la mention grise « ancien contact ».
+- **Le verrou est EN BASE (migration 339)** : ni DELETE ni TRUNCATE sur les mails, les rattachements, les adresses de
+  mail et les pièces ; pas de retrait automatique d'un lien confirmé ; plus de cascade. Un lot qui croit devoir
+  supprimer un mail se trompe de geste : il marque (« Sortir du suivi »), il n'efface pas.
+
 ### 🔴🔴 INTERDIT — ON NE RETIRE JAMAIS UN ÉLÉMENT D'INTERFACE SANS L'ACCORD D'ARNO POUR CET ÉLÉMENT
 
 > **Ne JAMAIS retirer, masquer, conditionner ou déplacer un élément d'interface ou une fonctionnalité existante

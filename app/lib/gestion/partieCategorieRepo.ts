@@ -1279,3 +1279,16 @@ export async function biensEtCotesDesContacts(
   }
   return out;
 }
+
+/**
+ * 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — CES ADRESSES ONT-ELLES (EU) UNE CARTE DE CONTACT, ET EST-ELLE EN COURS ?
+ * Pour la mention « ancien contact » de l'historique (`anciensContactsRepo`). Une ligne par carte : `actif` = non
+ * retirée. Sans la migration 304 : aucune ligne (sonde, règle du module). LECTURE SEULE.
+ */
+export async function etatDesCartes(adresses: readonly string[]): Promise<{ adresse: string; actif: boolean }[]> {
+  if (adresses.length === 0 || !(await contactCarteDisponible())) return [];
+  const { rows } = await query<{ adresse: string; actif: boolean }>(
+    `SELECT lower(btrim(adresse)) AS adresse, retire_le IS NULL AS actif
+       FROM gestion_contact_carte WHERE lower(btrim(adresse)) = ANY($1::text[])`, [[...adresses]]);
+  return rows;
+}

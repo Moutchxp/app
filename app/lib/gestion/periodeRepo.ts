@@ -796,6 +796,10 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
        * rattachement — reste : il a été décidé en regardant le mail, ce que la fenêtre ne fait pas.
        */
       if (!l.parLeSuivi && o?.remplacerLesLiensManuels !== true) continue;
+      /* 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — UNE PROJECTION SANS AUTEUR (l'héritage automatique de la relève)
+         NE RETIRE JAMAIS UN LIEN CONFIRMÉ : un mail ne quitte l'historique d'un bien que par un geste d'une personne
+         (« Sortir du suivi »). La base le refuse aussi (migration 339) ; ce garde évite d'en faire une erreur. */
+      if (auteur.id === null) continue;
       const issue = await changerStatut({
         lienId: l.id, statut: 'retire', auteur, motif: MOTIF_RETIRE_PAR_SUIVI,
       });

@@ -4374,6 +4374,10 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
   let liensDuMail: unknown[];
   let reponseSuivi: Record<string, unknown>;
   let lignesServies: LigneHistorique[];
+  /** LOT INVARIANT-HISTORIQUE-INALTERABLE — la route dédiée, et la liste repliée du bas. */
+  let reponseSortis: Record<string, unknown>;
+  let sortisServis: unknown[];
+  let anciensServis: string[];
 
   const servir = (): void => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
@@ -4381,11 +4385,13 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
       if (init?.method === 'POST') {
         envois.push({ url: u, corps: JSON.parse(String(init.body ?? '{}')) as Record<string, unknown> });
         if (u.includes('/gestion/suivi')) return reponse(reponseSuivi);
+        if (u.includes('/historique/sortis')) return reponse(reponseSortis);
         return reponse({ etat: 'ok', geste: null });
       }
       if (u.includes('/historique/evenements')) return reponse({ etat: 'ok', evenements: [] });
       if (u.includes('/historique/parties')) return reponse({ etat: 'ok', data: { parties: [], cartes: [] } });
       if (u.includes('/historique/pieces')) return reponse(porteursDepuis(lignesServies));
+      if (u.includes('/historique/sortis')) return reponse({ etat: 'ok', mails: sortisServis });
       if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
       /**
        * 🔴🔴 LE SUIVI DE LA CONVERSATION : c'est LUI qui dit ce que ce mail suit aujourd'hui, personnes
@@ -4409,6 +4415,7 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
           lignes: lignesServies, suite: false, entete: { nbMails: lignesServies.length },
           titre: '28 Avenue Marceau, 92400 COURBEVOIE — Appartement — lot 155',
           interlocuteurs: INTERLOCUTEURS, interlocuteursTronques: false,
+          anciensContacts: anciensServis,
         },
       });
     }));
@@ -4416,6 +4423,7 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
 
   beforeEach(() => {
     envois = [];
+    anciensServis = [];
     lignesServies = [M1, M2, M3];
     liensDuMail = [{
       id: 1, messageId: 1, pieceId: null, cible: { sorte: 'lot', cle: '155', id: null },
@@ -4424,6 +4432,8 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
     reponseSuivi = { ok: true, projetes: 1, trace: { filId: 10, messageId: 1, exceptionCreee: 77 } };
     /* Par défaut : AUCUNE fenêtre ne couvre ce mail — l'écran retombe donc sur ses liens. */
     suiviServi = { etat: 'ok', periodes: [], exceptions: [], mails: [1, 2, 3] };
+    reponseSortis = { ok: true, liens: 1 };
+    sortisServis = [];
     servir();
   });
 
@@ -4475,8 +4485,9 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
     await deplier(1);
     await cliquer(boutonSortir(1) ?? undefined);
     const boite = hote.querySelector('.hdb-confirme');
-    expect(boite?.textContent).toContain('Sortir ce mail du suivi de 28 Avenue Marceau, 92400 COURBEVOIE ?');
-    expect(boite?.textContent).toContain('Sa pièce jointe quittera aussi cet historique.');
+    /* LOT INVARIANT-HISTORIQUE-INALTERABLE — CE QU'IL DISAIT AVANT : « Sortir ce mail du suivi de 28 Avenue Marceau,
+       92400 COURBEVOIE ? » puis « Sa pièce jointe quittera aussi cet historique. ». Phrase d'Arno du 11/10/2026. */
+    expect(boite?.textContent).toContain('Sortir ce mail du suivi de ce bien ? Il pourra être restauré.');
     expect(boite?.textContent).toContain('les fichiers déjà rangés dans le Drive non plus');
     /* ⚠️ RIEN N'EST ÉCRIT TANT QU'ON N'A PAS CONFIRMÉ. */
     expect(envois).toHaveLength(0);
@@ -4500,69 +4511,19 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
   };
 
   /**
-   * 🔴🔴 LE CŒUR DU POINT : LA PORTE EXISTANTE, ET ELLE SEULE. `choix: 'mail'` est la fenêtre « Ce mail
-   * uniquement » ; la liste reposée est celle du mail MOINS ce bien — ici vide, le mail ne suivait que lui.
+   * ══ 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — LA PORTE DÉDIÉE, ET ELLE SEULE ══════════════════════════════════
+   * CE QU'ILS DISAIENT AVANT (cinq épreuves, dont « biens illisibles » et l'annulation par la trace) : le geste reposait une exception de suivi « ce mail uniquement »
+   * (`/gestion/suivi`, `choix: 'mail'`) avec la liste des biens moins celui-ci, lue dans les liens ou la configuration
+   * en vigueur. Il laissait confirmés les liens posés à la main ou par le moteur. Désormais : une MARQUE sur les liens
+   * du mail vers CE bien, par `/historique/sortis` — aucun bien n'est reposé, aucun suivi n'est touché, et la
+   * question des autres biens ne se pose plus (on ne les touche pas).
    */
-  it('🔴🔴 mail MONO-BIEN : exception « Ce mail uniquement », liste de biens VIDE', async () => {
+  it('🔴🔴 « Sortir du suivi » marque le mail pour CE bien par la route dédiée — aucun suivi n’est reposé', async () => {
     await monter();
     await confirmer(1);
-    const suivi = envois.find((e) => e.url.includes('/gestion/suivi'));
-    expect(suivi).toBeDefined();
-    expect(suivi?.corps.choix).toBe('mail');
-    expect(suivi?.corps.messageId).toBe(1);
-    expect(suivi?.corps.filId).toBe(10);
-    expect(suivi?.corps.classement).toEqual({ sorte: 'biens', biens: [], personnes: [] });
-  });
-
-  /** 🔴🔴 « Les autres biens éventuels du mail ne bougent pas » : ils sont REPOSÉS, donc rien ne leur arrive. */
-  it('🔴🔴 mail MULTI-BIENS : seul ce bien est retiré, l’autre est reposé', async () => {
-    liensDuMail = [
-      {
-        id: 1, messageId: 1, pieceId: null, cible: { sorte: 'lot', cle: '155', id: null },
-        libelle: 'Marceau — lot 155', statut: 'confirme', origine: 'manuel', parUnHumain: true,
-      },
-      {
-        id: 2, messageId: 1, pieceId: null, cible: { sorte: 'lot', cle: '421', id: null },
-        libelle: 'Carnot — lot 421', statut: 'confirme', origine: 'manuel', parUnHumain: true,
-      },
-    ];
-    await monter();
-    await confirmer(1);
-    const suivi = envois.find((e) => e.url.includes('/gestion/suivi'));
-    expect(suivi?.corps.classement)
-      .toEqual({ sorte: 'biens', biens: [{ cle: '421', libelle: 'Carnot — lot 421' }], personnes: [] });
-  });
-
-  /**
-   * ══ 🔴🔴 LE CAS QUE L'ESSAI RÉEL A RÉVÉLÉ, ET QU'AUCUNE ÉPREUVE NE TENAIT ════════════════════════════════════
-   *
-   * Sur le mail 57471 de lot-27, une FENÊTRE couvrait le mail : deux lots et un PROPRIÉTAIRE, ce dernier posé
-   * comme INTERVENTION (« via Arnaud JOREL »). En reconstruisant le classement depuis les liens, l'écran a
-   * ① reposé le propriétaire dans `biens` — donc en « lot 45 », un autre bien — puis ② perdu l'intervention.
-   *
-   * 🔴 ON PART DONC DE LA CONFIGURATION EN VIGUEUR, et on la rend telle quelle moins ce bien.
-   */
-  it('🔴🔴 la configuration du SUIVI prime, et ses personnes sont reposées telles quelles', async () => {
-    suiviServi = {
-      etat: 'ok', mails: [1, 2, 3], exceptions: [],
-      periodes: [{
-        id: 9, depuisMessageId: 1,
-        classement: {
-          sorte: 'biens',
-          biens: [{ cle: '155', libelle: 'Marceau — lot 155' }, { cle: '421', libelle: 'Carnot — lot 421' }],
-          personnes: [{ sorte: 'proprietaire', cle: '45', libelle: 'JOREL Arnaud', contactExterneId: 12 }],
-        },
-      }],
-    };
-    await monter();
-    await confirmer(1);
-    const suivi = envois.find((e) => e.url.includes('/gestion/suivi'));
-    expect(suivi?.corps.classement).toEqual({
-      sorte: 'biens',
-      biens: [{ cle: '421', libelle: 'Carnot — lot 421' }],
-      /* 🔴 LE PROPRIÉTAIRE RESTE UNE **PERSONNE**, avec son contact — jamais un bien. */
-      personnes: [{ sorte: 'proprietaire', cle: '45', libelle: 'JOREL Arnaud', contactExterneId: 12 }],
-    });
+    const sortie = envois.find((e) => e.url.includes('/historique/sortis'));
+    expect(sortie?.corps).toEqual({ action: 'sortir', messageId: 1, cible: 'lot-155' });
+    expect(envois.filter((e) => e.url.includes('/gestion/suivi'))).toEqual([]);
   });
 
   /**
@@ -4589,48 +4550,60 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
     expect(bandeau?.querySelector('.hdb-fait-annuler')).not.toBeNull();
   });
 
-  /**
-   * 🔴🔴 « ANNULER » PASSE PAR LA PORTE D'ANNULATION DU SUIVI, avec la TRACE rendue par le serveur — la seule
-   * chose que `annulerClassement` sache défaire. Un second geste « reposer les biens » aurait écrit par-dessus
-   * au lieu de défaire, et n'aurait pas rouvert les exceptions retirées au passage.
-   */
-  it('🔴🔴 « Annuler » renvoie la TRACE, et redemande la page au serveur', async () => {
+  /* LOT INVARIANT-HISTORIQUE-INALTERABLE — CE QU'IL DISAIT AVANT : « Annuler » renvoyait la TRACE du suivi à
+     `annulerClassement` (refusée après deux minutes). C'est maintenant la restauration, valable à tout moment. */
+  it('🔴🔴 « Annuler » restaure le mail, et redemande la page au serveur', async () => {
     await monter();
     await confirmer(1);
     lignesServies = [M1, M2, M3];
     await cliquer(hote.querySelector('.hdb-fait-annuler') ?? undefined);
-    const annulation = envois.filter((e) => e.url.includes('/gestion/suivi')).at(-1);
-    expect(annulation?.corps).toEqual({ annuler: { filId: 10, messageId: 1, exceptionCreee: 77 } });
-    /* ⚠️ ET LA LIGNE REVIENT TELLE QUE LE SERVEUR LA CONNAÎT, jamais reconstruite de mémoire. */
+    const restauration = envois.filter((e) => e.url.includes('/historique/sortis')).at(-1);
+    expect(restauration?.corps).toEqual({ action: 'restaurer', messageId: 1, cible: 'lot-155' });
     expect(objets()).toEqual(['hdb-mail-1', 'hdb-mail-2', 'hdb-mail-3']);
     expect(hote.querySelector('.hdb-fait')).toBeNull();
   });
 
-  /**
-   * 🔴🔴 LA LEÇON DE L'ESSAI RÉEL, ÉPROUVÉE : une lecture des biens qui n'aboutit pas ne doit JAMAIS se lire
-   * « ce mail n'a aucun bien ». Sans ce garde, l'écran posait une exception vide et retirait au passage tous les
-   * autres biens du mail — le contraire exact de ce qu'Arno demande.
-   */
-  it('🔴🔴 biens illisibles ⇒ AUCUNE écriture, et on le dit', async () => {
+  /** 🔴 EN BAS DE L'HISTORIQUE : « Mails sortis du suivi (N) ▸ », un « Restaurer » par mail. */
+  it('🔴 la ligne repliée « Mails sortis du suivi (N) ▸ » liste les mails sortis, avec « Restaurer »', async () => {
+    sortisServis = [{ messageId: 9, objet: 'Ancien devis', de: 'x@y.fr', deNom: 'X', recuLe: '2026-01-02T10:00:00Z',
+      sortiLe: '2026-10-11T10:00:00Z', sortiPar: 'a.jorel@sansvisavis.com', motif: null }];
+    await monter();
+    const titre = hote.querySelector('.mss-titre') as HTMLButtonElement;
+    expect(titre.textContent).toContain('Mails sortis du suivi (1)');
+    await cliquer(titre);
+    expect(hote.querySelector('.mss-mail')?.textContent).toContain('Ancien devis');
+    expect(hote.querySelector('.mss-mail')?.textContent).toContain('par a.jorel@sansvisavis.com');
+    await cliquer(hote.querySelector('.mss-restaurer') ?? undefined);
+    expect(envois.filter((e) => e.url.includes('/historique/sortis')).at(-1)?.corps)
+      .toEqual({ action: 'restaurer', messageId: 9, cible: 'lot-155' });
+  });
+
+  /** 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — un contact supprimé ou parti : le mail reste, avec la mention grise. */
+  it('🔴🔴 un ANCIEN CONTACT : le mail reste, nom et adresse du mail, mention grise « ancien contact »', async () => {
+    anciensServis = ['proprio@fictif.test'];
+    await monter();
+    expect(objets()).toEqual(['hdb-mail-1', 'hdb-mail-2', 'hdb-mail-3']);
+    await deplier(1);
+    const qui = hote.querySelector('#hdb-mail-1 .vdb-adresses .vdb-qui');
+    expect(qui?.textContent).toContain('M. ROI Nathan');
+    expect(qui?.textContent).toContain('proprio@fictif.test');
+    expect(qui?.querySelector('.vdb-qui-ancien')?.textContent).toBe('ancien contact');
+  });
+
+  it('⚠️ un contact EN COURS n’a pas la mention', async () => {
     await monter();
     await deplier(1);
-    await cliquer(boutonSortir(1) ?? undefined);
-    /* La route des rattachements répond « erreur » : on ne sait pas quels biens ce mail porte. */
-    const avant = global.fetch as unknown as typeof fetch;
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
-      if (String(url).includes('/rattachements')) return reponse({ etat: 'erreur' });
-      return (avant as unknown as (u: string, i?: RequestInit) => Promise<Response>)(url, init);
-    }));
-    await cliquer([...hote.querySelectorAll('.hdb-confirme-boutons button')]
-      .find((b) => (b.textContent ?? '').trim() === 'Confirmer'));
-    expect(envois.filter((e) => e.url.includes('/gestion/suivi'))).toEqual([]);
-    expect(texte()).toContain('n’ont pas pu être lus');
-    expect(objets()).toContain('hdb-mail-1');
+    expect(hote.querySelector('#hdb-mail-1 .vdb-qui-ancien')).toBeNull();
+  });
+
+  it('⚠️ aucun mail sorti : la ligne n’existe pas', async () => {
+    await monter();
+    expect(hote.querySelector('.mss-titre')).toBeNull();
   });
 
   /** ⚠️ UN REFUS NE FAIT RIEN DISPARAÎTRE : le mail reste, et le motif du serveur s'affiche. */
   it('⚠️ un refus du serveur laisse le mail en place, et le DIT', async () => {
-    reponseSuivi = { ok: false, erreur: 'Ce mail n’appartient pas à cet échange.' };
+    reponseSortis = { ok: false, erreur: 'Ce mail n’appartient pas à cet échange.' };
     await monter();
     await confirmer(1);
     expect(objets()).toContain('hdb-mail-1');

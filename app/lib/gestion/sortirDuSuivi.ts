@@ -181,12 +181,12 @@ export function suitCeBien(liens: readonly LienAffiche[], cleDuBien: string): bo
  * ⚠️ LE SINGULIER EST ÉCRIT : « Sa 1 pièce jointe » n'est pas du français, et la phrase est lue par quelqu'un qui
  * s'apprête à retirer un mail d'un dossier.
  */
-export function motConfirmationSortie(o: { adresseDuBien: string; nbPieces: number }): string {
-  const question = `Sortir ce mail du suivi de ${o.adresseDuBien} ?`;
-  if (o.nbPieces <= 0) return question;
-  return o.nbPieces === 1
-    ? `${question} Sa pièce jointe quittera aussi cet historique.`
-    : `${question} Ses ${o.nbPieces} pièces jointes quitteront aussi cet historique.`;
+/* 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — CE QU'ELLE DISAIT AVANT : « Sortir ce mail du suivi de <adresse> ? Ses N
+   pièces jointes quitteront aussi cet historique. » ARNO (11/10/2026), mot pour mot : « Sortir ce mail du suivi de ce
+   bien ? Il pourra être restauré. » Le geste ne détache plus rien : il marque, et « Restaurer » le défait à tout
+   moment. Les paramètres restent (l'appelant les passe toujours) ; la phrase ne les emploie plus. */
+export function motConfirmationSortie(_o: { adresseDuBien: string; nbPieces: number }): string {
+  return 'Sortir ce mail du suivi de ce bien ? Il pourra être restauré.';
 }
 
 /**

@@ -41,17 +41,15 @@ import { formaterDateIso } from '../../../../lib/gestion/annuaireRecherche';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » : les mots et la liste des biens qui restent. */
 import {
-  adresseDuBien, aideSortirDuSuivi, classementSansLeBien, motConfirmationSortie, motMailSorti,
+  adresseDuBien, aideSortirDuSuivi, motConfirmationSortie, motMailSorti,
   MOT_SORTIR_DU_SUIVI, SECONDES_ANNULER_SORTIE,
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — l'info-bulle du second bouton, écrite dans le module PUR. */
   aideModifierLeRattachement,
 } from '../../../../lib/gestion/sortirDuSuivi';
-/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — `projeter` dit ce que le suivi décide POUR CE MAIL. Module pur. */
-import { projeter, type ExceptionMail, type Periode } from '../../../../lib/gestion/periodesConversation';
+import { MailsSortisDuSuivi } from './MailsSortisDuSuivi';
 import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
 /* ⚠️ LE MÊME COMPTE QUE LE TROMBONE DE LA LIGNE : les « ._ » et les images de signature ne sont pas des pièces. */
 import { trierPieces } from '../../../../lib/gestion/lisibilite';
-import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { PersonneDuMail } from '../../../../lib/gestion/adressesMessage';
 import {
   libelleInterlocuteur, PAGE_HISTORIQUE_MAX, type Interlocuteur, type LigneHistorique,
@@ -462,6 +460,13 @@ export function HistoriqueDuBien({
    */
   const [rechargement, setRechargement] = useState(0);
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
+  /**
+   * 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — LES ANCIENS CONTACTS DE LA PAGE. Le mail est affiché de toute façon,
+   * avec le nom et l'adresse du MAIL ; une adresse d'un contact supprimé ou parti porte en plus la mention grise
+   * « ancien contact ». L'historique ne dépend jamais du statut actuel d'un contact.
+   */
+  const [anciensContacts, setAnciensContacts] = useState<ReadonlySet<string>>(new Set());
+  const estAncienContact = useCallback((adresse: string) => anciensContacts.has((adresse ?? '').trim().toLowerCase()), [anciensContacts]);
   const [deplie, setDeplie] = useState<Set<number>>(new Set());
   const [evenements, setEvenements] = useState<EvenementDuBien[]>([]);
   /**
@@ -811,6 +816,8 @@ export function HistoriqueDuBien({
             /* 🔴 LOT FRISE-PICTOS-PLUS-GRANDS… — la sélection SANS la recherche, dénominateur du « N sur M ». */
             selection?: { nbMails?: number };
             interlocuteurs?: Interlocuteur[]; interlocuteursTronques?: boolean; titre?: string;
+            /* 🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — les adresses d'anciens contacts (supprimés, partis). */
+            anciensContacts?: string[];
           };
         };
         if (!vivant) return;
@@ -828,6 +835,7 @@ export function HistoriqueDuBien({
           tronques: d.data?.interlocuteursTronques === true,
           titre: d.data?.titre ?? '',
         });
+        setAnciensContacts(new Set((d.data?.anciensContacts ?? []).map((a) => a.toLowerCase())));
       } catch {
         if (vivant) {
           setEtat({
@@ -1207,7 +1215,9 @@ export function HistoriqueDuBien({
   const [sortieEnCours, setSortieEnCours] = useState(false);
   const [sortieRefus, setSortieRefus] = useState<string | null>(null);
   /** Le geste fait, et sa TRACE — c'est elle, et elle seule, que `annulerClassement` sait défaire. */
-  const [sortieFaite, setSortieFaite] = useState<{ mot: string; trace: unknown } | null>(null);
+  const [sortieFaite, setSortieFaite] = useState<{ mot: string; messageId: number } | null>(null);
+  /** LOT INVARIANT-HISTORIQUE-INALTERABLE — incrémenté à chaque sortie : la ligne « Mails sortis du suivi » se relit. */
+  const [versionSortis, setVersionSortis] = useState(0);
   const [annulationSortie, setAnnulationSortie] = useState(false);
   /**
    * 🔴 LE COMPTEUR DE RECHARGEMENT : « Annuler » doit rétablir EXACTEMENT l'état d'avant, et la seule façon
@@ -1273,54 +1283,18 @@ export function HistoriqueDuBien({
     setSortieRefus(null);
     try {
       /**
-       * ══ 🔴🔴 ON PART DE CE QUE LE SUIVI DIT DE CE MAIL, PAS DE SES LIENS ══════════════════════════════════════
-       *
-       * `GET /suivi?fil=N` rend les PÉRIODES et les EXCEPTIONS de la conversation ; `projeter` — le module pur du
-       * suivi — en tire la configuration EN VIGUEUR sur ce mail, personnes et contacts extérieurs compris. C'est
-       * elle qu'on repose moins ce bien.
-       *
-       * 🔴 LES LIENS NE SONT QU'UN REPLI, pour un mail qu'aucune fenêtre ne couvre (voir `classementSansLeBien`).
-       * Les lire comme source principale a produit deux dégâts lors de l'essai réel du 05/10 — un propriétaire
-       * reposé en lot, puis son intervention perdue. L'encadré du module pur les raconte.
+       * ══ 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — LE MAIL EST MARQUÉ « SORTI DU SUIVI », RIEN N'EST DÉFAIT ═══════
+       * CE QU'IL FAISAIT AVANT : il reposait une exception de suivi « ce mail uniquement » sans ce bien. Les liens
+       * posés à la main ou par le moteur restaient alors confirmés (le mail revenait au rechargement), et l'annulation
+       * n'était possible que deux minutes. Désormais : une marque sur les liens du mail vers CE bien (qui, quand),
+       * restaurable à tout moment depuis « Mails sortis du suivi (N) » en bas de l'historique. Les autres biens du
+       * mail, ses pièces et le Drive ne bougent pas.
        */
-      const [rSuivi, res] = await Promise.all([
-        fetch(`/api/admin/gestion/suivi?fil=${l.filId}`, { cache: 'no-store' }),
-        fetch(`/api/admin/gestion/rattachements?messages=${l.messageId}`, { cache: 'no-store' }),
-      ]);
-      const dSuivi = (await rSuivi.json().catch(() => ({}))) as {
-        etat?: string; periodes?: Periode[]; exceptions?: ExceptionMail[]; mails?: number[];
-      };
-      /**
-       * ══ 🔴🔴 LA FORME DE CETTE RÉPONSE EST `{ data: { "<messageId>": liens[] } }` ════════════════════════════
-       *
-       * 🔴 ET LA LIRE DE TRAVERS N'EST PAS SANS CONSÉQUENCE — c'est le défaut que l'essai réel du 05/10/2026 a
-       * trouvé, sur le mail 57471 de lot-27. En lisant un `liens` qui n'existe pas, on obtenait un tableau VIDE :
-       * l'exception était alors posée SANS AUCUN BIEN, et le mail perdait aussi son PROPRIÉTAIRE — exactement ce
-       * qu'Arno interdit (« les autres biens éventuels du mail ne bougent pas »). Rétabli par l'annulation.
-       *
-       * ⚠️ UNE LECTURE QUI ÉCHOUE NE DOIT DONC JAMAIS SE LIRE « ce mail n'a aucun bien » : sans liens reçus, on
-       * refuse le geste plutôt que de tout retirer. Un tableau vide est une réponse VALIDE de ce dépôt (un mail
-       * sans aucun lien), mais nous n'y arrivons que si le mail est listé ici — donc rattaché.
-       */
-      const d = (await res.json().catch(() => ({}))) as {
-        etat?: string; data?: Record<string, LienAffiche[]>;
-      };
-      const liens = d.etat === 'ok' ? (d.data?.[String(l.messageId)] ?? []) : null;
-      if (liens === null) {
-        setSortieRefus('Les biens de ce mail n’ont pas pu être lus : rien n’a été changé.');
-        return;
-      }
-      const enVigueur = dSuivi.etat !== 'ok' ? undefined : projeter(
-        dSuivi.mails ?? [], dSuivi.periodes ?? [], dSuivi.exceptions ?? [],
-      ).get(l.messageId);
-      const envoi = await fetch('/api/admin/gestion/suivi', {
+      const envoi = await fetch('/api/admin/gestion/historique/sortis', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filId: l.filId, messageId: l.messageId, choix: 'mail',
-          classement: classementSansLeBien({ enVigueur, liens, cleDuBien: lotCle }),
-        }),
+        body: JSON.stringify({ action: 'sortir', messageId: l.messageId, cible: `lot-${lotCle}` }),
       });
-      const r = (await envoi.json().catch(() => ({}))) as { ok?: boolean; trace?: unknown; erreur?: string };
+      const r = (await envoi.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
       if (!envoi.ok || r.ok !== true) {
         setSortieRefus(r.erreur ?? 'Ce mail n’a pas pu être sorti du suivi.');
         return;
@@ -1338,7 +1312,8 @@ export function HistoriqueDuBien({
       /* ③ LES COMPTEURS DE LA BOÎTE, et la fenêtre « Visualiser / Modifier » si elle est ouverte sur ce mail. */
       annoncerClassement({ messageId: l.messageId, filId: l.filId });
       setASortir(null);
-      setSortieFaite({ mot: motMailSorti(adresseBien), trace: r.trace });
+      setSortieFaite({ mot: motMailSorti(adresseBien), messageId: l.messageId });
+      setVersionSortis((n) => n + 1);
     } catch {
       setSortieRefus('Ce mail n’a pas pu être sorti du suivi : le serveur n’a pas répondu.');
     } finally {
@@ -1358,9 +1333,10 @@ export function HistoriqueDuBien({
     if (sortieFaite === null || annulationSortie) return;
     setAnnulationSortie(true);
     try {
-      const res = await fetch('/api/admin/gestion/suivi', {
+      /* 🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — « Annuler » est la restauration, la même que celle d'en bas. */
+      const res = await fetch('/api/admin/gestion/historique/sortis', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ annuler: sortieFaite.trace }),
+        body: JSON.stringify({ action: 'restaurer', messageId: sortieFaite.messageId, cible: `lot-${lotCle}` }),
       });
       const r = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
       if (!res.ok || r.ok !== true) {
@@ -1369,6 +1345,7 @@ export function HistoriqueDuBien({
       }
       setSortieFaite(null);
       setRechargement((n) => n + 1);
+      setVersionSortis((n) => n + 1);
       annoncerClassement({ messageId: 0, filId: null });
     } catch {
       setSortieRefus('L’annulation n’a pas pu être faite : le serveur n’a pas répondu.');
@@ -3067,7 +3044,7 @@ export function HistoriqueDuBien({
                       onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                       onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                       piecesCitables={piecesParFil}
-                      sortieDuSuivi={sortieOfferte}
+                      sortieDuSuivi={sortieOfferte} ancienContact={estAncienContact}
                       modifierRattachement={modificationOfferte}
                       /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les mêmes deux propriétés que le montage
                          à plat, juste en dessous : un seul comportement pour les deux façons de voir le fil. */
@@ -3081,7 +3058,7 @@ export function HistoriqueDuBien({
                     onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                     onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                     piecesCitables={piecesParFil}
-                    sortieDuSuivi={sortieOfferte}
+                    sortieDuSuivi={sortieOfferte} ancienContact={estAncienContact}
                     modifierRattachement={modificationOfferte}
                     repondre={peutRepondre ? repondreAuMail : undefined}
                     composeurDe={composeurDuMail} />
@@ -3122,6 +3099,10 @@ export function HistoriqueDuBien({
               )}
             </>
           )}
+
+      {/* ══ 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — « Mails sortis du suivi (N) ▸ », avec « Restaurer » ══════ */}
+      <MailsSortisDuSuivi lotCle={lotCle} version={versionSortis}
+        onRestaure={() => { setRechargement((n) => n + 1); annoncerClassement({ messageId: 0, filId: null }); }} />
 
       {/* ══ 🔴 LE LIEN DISCRET VERS L'ÉCRAN PLEIN, TOUT EN BAS (lot HISTORIQUE-BIEN-3) ═════════════════════════
           Arno : « petit lien discret “Écran historique complet” en bas du nouveau bloc ».
@@ -4151,7 +4132,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
  * interdit). Un `ol > li > ol > li` est du HTML valide ; l'enveloppe ne porte aucun style propre.
  */
 function FilDeMails({
-  lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi,
+  lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi, ancienContact,
   modifierRattachement,
   onVisualiser, destinataires, piecesCitables, repondre, composeurDe,
 }: {
@@ -4171,6 +4152,8 @@ function FilDeMails({
    * par un rattachement. Rend `undefined` pour les autres : voir `sortieOfferte` dans le bloc principal.
    */
   sortieDuSuivi: (l: LigneHistorique) => { aide: string; onSortir: () => void } | undefined;
+  /** LOT INVARIANT-HISTORIQUE-INALTERABLE — cette adresse est-elle celle d'un ancien contact ? Facultatif. */
+  ancienContact?: (adresse: string) => boolean;
   /** 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — le second bouton de l'en-tête, par ligne. */
   modifierRattachement: (l: LigneHistorique) => { aide: string; onModifier: () => void } | undefined;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil d'une miniature du mail déplié ouvre la visionneuse. */
@@ -4239,6 +4222,7 @@ function FilDeMails({
               /* 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — les pièces de SA conversation, pour les noms cités. */
               piecesCitables={piecesCitables.get(l.filId) ?? []}
               sortieDuSuivi={sortieDuSuivi(l)}
+              ancienContact={ancienContact}
               modifierRattachement={modifierRattachement(l)}
               /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les trois boutons de la boîte mail sous ce mail
                  déplié, et l'éditeur juste en dessous. La ligne ne décide de rien : elle rend ce qu'on lui

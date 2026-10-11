@@ -458,6 +458,8 @@ export function sqlLiensDuBien(alias: string, o: { avecPropositions?: boolean } 
   const statut = o.avecPropositions === true
     ? `${alias}.statut IN ('propose', 'confirme')`
     : `${alias}.statut = 'confirme'`;
+  /* 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — un lien « sorti du suivi » (migration 339) reste en base, confirmé,
+     mais ne fait plus entrer son mail dans l'historique du bien. C'est la SEULE porte de sortie d'un historique. */
   return `${statut} AND ${alias}.cible_sorte = 'lot' AND ${alias}.cible_cle IS NOT NULL`
-    + ` AND ${alias}.piece_id IS NULL`;
+    + ` AND ${alias}.piece_id IS NULL AND ${alias}.sorti_le IS NULL`;
 }

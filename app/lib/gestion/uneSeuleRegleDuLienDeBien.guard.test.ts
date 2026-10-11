@@ -136,13 +136,17 @@ describe('🔴 ③ ce que le fragment produit, mot pour mot', () => {
    * 🔴 LE TEXTE EXACT, parce que c'est lui qui part en base. Les trois morceaux, dans cet ordre, avec l'alias
    * demandé — et le statut qui change, lui seul, selon `avecPropositions`.
    */
-  it('🔴 confirmé seul par défaut, propositions comprises sur demande', () => {
+  /* LOT INVARIANT-HISTORIQUE-INALTERABLE — CE QU'IL DISAIT AVANT : le fragment s'arrêtait à « piece_id IS NULL ». Il
+     porte désormais un cinquième morceau, « sorti_le IS NULL » : un lien sorti du suivi (migration 339) reste en
+     base, confirmé, mais ne fait plus entrer son mail dans l'historique du bien. */
+  it('🔴 confirmé seul par défaut, propositions comprises sur demande ; jamais un lien sorti du suivi', () => {
     expect(sqlLiensDuBien('r')).toBe(
-      "r.statut = 'confirme' AND r.cible_sorte = 'lot' AND r.cible_cle IS NOT NULL AND r.piece_id IS NULL",
+      "r.statut = 'confirme' AND r.cible_sorte = 'lot' AND r.cible_cle IS NOT NULL AND r.piece_id IS NULL"
+      + ' AND r.sorti_le IS NULL',
     );
     expect(sqlLiensDuBien('r', { avecPropositions: true })).toBe(
       "r.statut IN ('propose', 'confirme') AND r.cible_sorte = 'lot' AND r.cible_cle IS NOT NULL"
-      + ' AND r.piece_id IS NULL',
+      + ' AND r.piece_id IS NULL AND r.sorti_le IS NULL',
     );
   });
 
@@ -150,7 +154,7 @@ describe('🔴 ③ ce que le fragment produit, mot pour mot', () => {
   it('⚠️ l’alias traverse les quatre morceaux', () => {
     expect(sqlLiensDuBien('lien')).toBe(
       "lien.statut = 'confirme' AND lien.cible_sorte = 'lot' AND lien.cible_cle IS NOT NULL"
-      + ' AND lien.piece_id IS NULL',
+      + ' AND lien.piece_id IS NULL AND lien.sorti_le IS NULL',
     );
   });
 
