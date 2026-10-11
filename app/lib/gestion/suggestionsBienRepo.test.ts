@@ -28,7 +28,7 @@ const personne = (id: number, nom: string, prenom: string, civilite: string | nu
   sujet: 'proprietaire', id, cle: String(id), civilite, prenom, nom, archive, contacts,
 });
 const LOT = {
-  id: 176, numero: '219', nature: 'Appartement', typeBien: 'Type 2', immeuble: '25 rue Edith Cavell',
+  id: 176, numero: '219', driveDossierId: '1bTVd151',  nature: 'Appartement', typeBien: 'Type 2', immeuble: '25 rue Edith Cavell',
   adresse: '25 rue Edith Cavell', commune: 'COURBEVOIE', codePostal: '92400',
   proprietaires: [personne(1, 'DUPONT', 'Jean', 'M', [email('jean@x.fr'), email('vieux@x.fr', true)]),
     personne(2, 'ARCHIVE', 'Paul', null, [email('archive@x.fr')], true)],
@@ -62,6 +62,7 @@ beforeEach(() => {
   ]);
   query.mockImplementation(async (sql: string) => {
     if (sql.includes('gestion_copropriete_syndic')) return { rows: [{ cle: '25 rue edith cavell', syndic_id: '3' }] };
+    if (sql.includes('gestion_drive_arbre')) return { rows: [{ nom: '25 rue Edith Cavell — lot 219' }] };
     if (sql.includes('gestion_message_adresse')) {
       return { rows: [
         { adresse: 'jean@x.fr', brute: 'Jean <jean@x.fr>', n: '9' },
@@ -118,6 +119,11 @@ describe('ecrireDepuisLeBien — les trois groupes, dans l’ordre d’Arno', ()
     const g = (await ecrireDepuisLeBien(176))?.groupes ?? [];
     const jean = g[0].lignes.find((l) => l.adresse === 'jean@x.fr');
     expect([jean?.civilite, jean?.nomFamille]).toEqual(['M.', 'DUPONT']);
+  });
+  it('LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — le dossier Drive DÉJÀ associé au bien (lu, jamais écrit) ; aucun ⇒ null', async () => {
+    expect((await ecrireDepuisLeBien(176))?.dossierDrive).toEqual({ id: '1bTVd151', nom: '25 rue Edith Cavell — lot 219' });
+    ficheLot.mockResolvedValue({ etat: 'ok', data: { ...LOT, driveDossierId: null } });
+    expect((await ecrireDepuisLeBien(176))?.dossierDrive).toBeNull();
   });
   it('bien inconnu ⇒ `null`', async () => {
     ficheLot.mockResolvedValue({ etat: 'inconnu' });

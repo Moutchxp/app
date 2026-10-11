@@ -226,7 +226,17 @@ export const CSS_FENETRES = `
    ⚠️ NE PAS RETIRER L'UNE EN CROYANT QUE L'AUTRE SUFFIT : sans la borne, le corps repousse la barre ; sans le
    sticky, le defilement residuel la cache de nouveau. Le defaut est deja revenu une fois par cette porte.
    (Pas d'accent grave dans ce bloc : il fermerait le litteral de style — piege deja rencontre trois fois.) */
-.fre{position:fixed;z-index:60;display:grid;grid-template-rows:auto minmax(0,1fr);width:var(--fre-largeur);
+/* ══ LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — LA COLONNE EST BORNEE AUSSI, LE PENDANT HORIZONTAL DU MEME DEFAUT ══
+   CONSTAT D'ARNO (11/10/2026) : le message pre-rempli depuis une fiche bien s'affichait coupe a GAUCHE (« sieur JOREL »).
+   MESURE DANS CHROME, sur la vraie fenetre : .fre largeur 520, scrollWidth 668, scrollLeft 136.
+   POURQUOI. Sans colonne declaree, la grille cree une colonne implicite « auto », qui prend la largeur NATURELLE de la
+   plus longue ligne du contenu (la phrase d'annonce du mail pre-rempli : 668 px). Le contenu depassait la fenetre ;
+   .fre, en overflow:hidden, reste defilable PAR PROGRAMME, et le curseur pose dans l'objet a l'ouverture l'a fait
+   defiler vers la droite. Un message neuf, aux lignes courtes, ne le montrait pas.
+   LE CORRECTIF, A LA SOURCE : minmax(0,1fr) borne la colonne a la largeur de la fenetre (meme regle que la rangee du
+   corps) ; min-width:0 sur le corps. Mesure apres correction : 520 / 520, aucun defilement horizontal, tout passe a
+   la ligne (l'editeur coupe deja les mots trop longs). */
+.fre{position:fixed;z-index:60;display:grid;grid-template-rows:auto minmax(0,1fr);grid-template-columns:minmax(0,1fr);width:var(--fre-largeur);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
   border-radius:.7rem .7rem 0 0;box-shadow:0 -2px 22px color-mix(in srgb, var(--color-svv-ink) 20%, transparent);overflow:hidden}
 .fre--ouverte,.fre--reduite{bottom:0}
@@ -255,7 +265,11 @@ export const CSS_FENETRES = `
 .fre-icone{display:block;font-size:.95rem;line-height:1}
 .fre-bouton:hover{background:color-mix(in srgb, var(--color-svv-surface) 18%, transparent)}
 .fre-bouton:focus-visible{outline:2px solid var(--color-svv-surface);outline-offset:-2px}
-.fre-corps{min-height:0;overflow-y:auto;padding:10px 12px 12px}
+/* LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — position:relative : LA CAUSE DU « DEFILEMENT RESIDUEL » DECRIT PLUS
+   HAUT, ENFIN TROUVEE (mesure Chrome : .fre 702 de haut, 957 de contenu, scrollTop 50, « De : » cache sous la barre).
+   Le champ cache des pieces jointes (input.pjb-champ, position:absolute) prenait .fre pour repere : il echappait au
+   defilement du corps et rallongeait la FENETRE. Le corps devient son repere ; la fenetre ne defile plus. */
+.fre-corps{position:relative;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;padding:10px 12px 12px}
 /* ⚠️ SUR TELEPHONE, une fenetre flottante n'a pas de sens : elle prend tout l'ecran, comme dans Gmail. */
 @media (max-width: 640px){
   .fre--ouverte,.fre--plein{inset:0;width:100%;max-height:none;transform:none;border-radius:0}

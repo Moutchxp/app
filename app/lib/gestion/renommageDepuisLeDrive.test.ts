@@ -228,7 +228,9 @@ describe('🔴🔴 ③ un seul chemin d’écriture, et un seul juge', () => {
     /* ⚠️ `renommerPourDeVrai` EST LE SEUL À APPELER LE RÉSEAU : les deux nouvelles portes passent par lui. */
     const i = SFD.indexOf('const renommerPourDeVrai');
     const f = SFD.slice(i, SFD.indexOf('const ouvrirRenommageLigne', i));
-    expect(f).toContain("await fetch('/api/admin/gestion/drive/renommer'");
+    // LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — CE QU'IL DISAIT AVANT : « await fetch( ». Toute écriture Drive
+    //   passe désormais par `appelDrive`, le garde-fou de la lecture seule (même requête, même route).
+    expect(f).toContain("await appelDrive('/api/admin/gestion/drive/renommer'");
     expect(f).toContain("method: 'PATCH'");
     /* 🔴 JAMAIS DE COPIE : ni `files.copy`, ni une route de duplication, dans le chemin du renommage. */
     expect(f).not.toContain('copier');

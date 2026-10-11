@@ -83,6 +83,20 @@ describe('preparerMailSyndic — depuis une fiche bien', () => {
   });
 });
 
+describe('🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — l’objet porte NOTRE cabinet, jamais le syndic', () => {
+  it('quel que soit le nom du syndic, l’objet dit « Cabinet Criterimmo » et ne contient JAMAIS le nom du syndic', async () => {
+    for (const nom of ['TEST ARNAUD', 'Foncia Courbevoie', 'Nexity Lamy']) {
+      ficheSyndic.mockResolvedValue({ ...FICHE, nom });
+      const avecBien = await preparerMailSyndic(40, 176, ['m.bercier@criterimmo.fr']);
+      const sansBien = await preparerMailSyndic(40, null, ['m.bercier@criterimmo.fr']);
+      expect(avecBien?.objet).toBe('XXXXXXXX / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
+      expect(sansBien?.objet).toBe('XXXXXXXX / Cabinet Criterimmo');
+      expect(avecBien?.objet).not.toContain(nom);
+      expect(sansBien?.objet).not.toContain(nom);
+    }
+  });
+});
+
 describe('preparerMailSyndic — hors fiche bien, et les refus', () => {
   it('écran « Syndics » (pas de bien) : objet sans résidence, formule seule, aucune lecture du bien', async () => {
     const p = await preparerMailSyndic(40, null, ['m.bercier@criterimmo.fr']);

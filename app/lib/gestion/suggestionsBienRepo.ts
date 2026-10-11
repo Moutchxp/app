@@ -30,6 +30,11 @@ export interface EcrireDepuisLeBien {
   /** Le bien d'origine, prêt à poser dans `brouillon.cibles`. */
   cible: { sorte: 'lot'; cle: string; id: number; libelle: string; categorie: 'logement' | 'parking' | 'cave' };
   groupes: GroupeSuggestions[];
+  /**
+   * LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — le dossier Drive DÉJÀ associé au bien (« Dossier Drive du lot »), pour
+   * que le bouton Drive de la rédaction s'ouvre dessus. `null` = aucun. Lu dans NOTRE base (l'arbre), jamais écrit.
+   */
+  dossierDrive: { id: string; nom: string } | null;
 }
 
 const propre = (x: string | null | undefined): string => (x ?? '').trim();
@@ -162,7 +167,16 @@ export async function ecrireDepuisLeBien(lotId: number): Promise<EcrireDepuisLeB
     };
   });
 
+  // Le dossier Drive du bien : son identifiant vient de la fiche, son nom de l'arbre (simple attente d'affichage).
+  let dossierDrive: EcrireDepuisLeBien['dossierDrive'] = null;
+  if ((f.driveDossierId ?? '') !== '') {
+    const { rows: arbre } = await query<{ nom: string | null }>(
+      `SELECT nom FROM gestion_drive_arbre WHERE drive_id = $1 ORDER BY absent_le NULLS FIRST LIMIT 1`, [f.driveDossierId]);
+    dossierDrive = { id: f.driveDossierId as string, nom: (arbre[0]?.nom ?? '').trim() || `Dossier du lot ${f.numero}` };
+  }
+
   return {
+    dossierDrive,
     cible: {
       sorte: 'lot', cle: f.numero, id: f.id,
       libelle: libelleBien({ adresse: f.adresse, commune: f.commune, cle: f.numero }),

@@ -499,11 +499,31 @@ function BoutonLoupe({ actif, nom, onBasculer }: {
   );
 }
 
+/** LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — le mot du refus, et la réponse rendue au lieu d'une écriture. */
+export const MOT_DRIVE_LECTURE_SEULE = 'Drive en lecture seule depuis la rédaction : rien n’y est créé, renommé, déplacé ni supprimé.';
+function reponseLectureSeule(): Response {
+  return new Response(JSON.stringify({ ok: false, etat: 'erreur', erreur: MOT_DRIVE_LECTURE_SEULE,
+    message: MOT_DRIVE_LECTURE_SEULE, motif: MOT_DRIVE_LECTURE_SEULE }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+}
+
 export function SelecteurFichierDrive({
   onChoisir, onFermer, filId = null, lots = [], adressesA = [],
   mode = 'joindre', messageId = null, pieces = [], onRangement, dossierDepart = null,
-  documentEnEvidence = null, arrivee = 'dossier', piecesSources = [],
+  documentEnEvidence = null, arrivee = 'dossier', piecesSources = [], lectureSeule = false, mentionDepart = null,
 }: {
+  /**
+   * ══ 🔴🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — LE DRIVE EN LECTURE SEULE STRICTE ══════════════════════
+   * ARNO : « le dossier “Documents clients scannés” (et tout le Drive) ne doit JAMAIS être modifié. Lecture seule
+   * stricte : navigation, lecture de métadonnées, lecture d'un fichier choisi pour l'attacher au mail. Aucune
+   * création, écriture, renommage, déplacement, suppression, corbeille ni partage. Garde-fou codé. »
+   * 🔴 LE GARDE EST À LA SOURCE DES ÉCRITURES : toutes les requêtes qui modifient le Drive (dossier, corbeille,
+   * déplacer, renommer, déposer) passent par `appelDrive`, qui, en lecture seule, n'émet RIEN et rend un refus
+   * motivé. Aucun bouton n'est retiré : celui qui tenterait d'écrire lit le motif à la place.
+   * `false` (le défaut) ⇒ rien ne change pour les autres points d'entrée.
+   */
+  lectureSeule?: boolean;
+  /** Une petite mention grise sous le titre (« Aucun dossier Drive associé à ce bien »). `null` ⇒ aucune. */
+  mentionDepart?: string | null;
   /**
    * ══ 🔴🔴 LOT DRIVE-VIGNETTES-PIECES-SOURCE — LES PIÈCES D'OÙ CETTE FENÊTRE A ÉTÉ OUVERTE ═══════════════════
    *
@@ -625,6 +645,11 @@ export function SelecteurFichierDrive({
    */
   arrivee?: ArriveeDrive;
 }) {
+  /** 🔴 LE SEUL CHEMIN DES ÉCRITURES DRIVE DE CETTE FENÊTRE : en lecture seule, aucune ne part (voir `lectureSeule`). */
+  const appelDrive = useCallback(async (url: string, init?: RequestInit): Promise<Response> => {
+    if (lectureSeule && (init?.method ?? 'GET').toUpperCase() !== 'GET') return reponseLectureSeule();
+    return fetch(url, init);
+  }, [lectureSeule]);
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   /**
    * 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 4 — ON PART LÀ OÙ L'ON NOUS ENVOIE. L'endroit de départ
@@ -1331,7 +1356,9 @@ export function SelecteurFichierDrive({
        */
       const dernier = branche.atteints.at(-1);
       const documentId = documentEnEvidence?.driveFileId ?? '';
-      const dansLeDossier = dernier === undefined || documentId === ''
+      /* LOT MAIL-DEPUIS-BIEN — l'élément mis en évidence peut être le DOSSIER d'arrivée lui-même (le dossier du bien) :
+         il n'est pas dans son propre contenu, mais dans celui de son parent, déplié lui aussi. */
+      const dansLeDossier = dernier === undefined || documentId === '' || documentId === cible.id
         || (contenus.get(dernier.id) ?? []).some((f) => f.id === documentId);
       const message = branche.premierManquant !== null
         ? messageAncetreInaccessible(branche.premierManquant.nom)
@@ -1340,6 +1367,9 @@ export function SelecteurFichierDrive({
       /* ③ Et seulement alors : la branche entière, d'un coup. */
       setEnfants((m) => { const n = new Map(m); for (const [k, v] of contenus) n.set(k, v); return n; });
       setOuverts(new Set(atteints));
+      /* 🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — le dossier d'arrivée mis en évidence est AUSSI sélectionné :
+         « le dossier du bien sélectionné et visible » (Arno), même sans la loupe (qui interroge le Drive à part). */
+      if (documentId !== '' && documentId === cible.id && atteints.has(cible.id)) setSelection({ ids: [cible.id], ancre: cible.id });
       setEtatArrivee({
         e: 'pose', chemin: branche.atteints, profondeur: a.profondeurDocument, message,
       });
@@ -1483,12 +1513,16 @@ export function SelecteurFichierDrive({
    */
   useEffect(() => {
     if (ouvertureAuto.current || vignettesBien.length === 0) return;
+    /* 🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — UNE ARRIVÉE EN ARBORESCENCE NE SE FAIT PAS DOUBLER : la liste
+       part de la racine exprès (branche dépliée, dossier en évidence). Sans ce garde, les vignettes arrivées ensuite
+       faisaient ENTRER dans le dossier du bien, et l'arborescence disparaissait. */
+    if (enArborescence) return;
     if (departInitial.current !== '' || chemin.length > 0) return;
     const ou = dossierDOuverture(vignettesBien);
     if (ou === null) return;
     ouvertureAuto.current = true;
     allerA([{ id: ou.dossierId, nom: ou.dossierNom || ou.titre }]);
-  }, [vignettesBien, chemin.length, allerA]);
+  }, [vignettesBien, chemin.length, allerA, enArborescence]);
 
   const entrer = (f: { id: string; nom: string }) => {
     allerA([...chemin, { id: f.id, nom: f.nom }]);
@@ -1668,7 +1702,7 @@ export function SelecteurFichierDrive({
 
     setLigneNeuve({ c: 'creation', parent, parentNom, chemin, nom: v.nom });
     try {
-      const res = await fetch('/api/admin/gestion/drive/dossier', {
+      const res = await appelDrive('/api/admin/gestion/drive/dossier', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ parent, nom: v.nom }),
       });
@@ -2381,7 +2415,7 @@ export function SelecteurFichierDrive({
     setErreur(null);
     setReintegreEnCours(l.id);
     try {
-      const res = await fetch('/api/admin/gestion/drive/corbeille', {
+      const res = await appelDrive('/api/admin/gestion/drive/corbeille', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'reintegrer', id: l.id }),
       });
@@ -2520,7 +2554,7 @@ export function SelecteurFichierDrive({
     setBandeau({ mot: motMouvementEnCours(sorte, elements.length, cibleNom), mouvements: [] });
 
     try {
-      const res = await fetch('/api/admin/gestion/drive/deplacer', {
+      const res = await appelDrive('/api/admin/gestion/drive/deplacer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: sorte, cible: cibleId,
@@ -2602,7 +2636,7 @@ export function SelecteurFichierDrive({
       marquerEnVol(retour.elements.map((e) => e.id), true);
     }
     try {
-      const res = await fetch('/api/admin/gestion/drive/deplacer', {
+      const res = await appelDrive('/api/admin/gestion/drive/deplacer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'annuler', mouvements }),
       });
@@ -2720,7 +2754,7 @@ export function SelecteurFichierDrive({
     if (dossiers.length === 0) { void mouvoir('copier', elements, cibleId, cibleNom); return; }
     setErreur(null);
     try {
-      const res = await fetch('/api/admin/gestion/drive/deplacer', {
+      const res = await appelDrive('/api/admin/gestion/drive/deplacer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'compter', elements: dossiers.map((f) => ({ id: f.id, nom: f.nom, dossier: true })),
@@ -2816,7 +2850,7 @@ export function SelecteurFichierDrive({
       majListesDu(cibleId, (l) => retirerLigne(l, piece.pieceId));
     };
     try {
-      const res = await fetch(`/api/admin/gestion/pieces/${piece.pieceId}/drive`, {
+      const res = await appelDrive(`/api/admin/gestion/pieces/${piece.pieceId}/drive`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         /* 🔴 LOT RENOMMER-AVANT-RANGER — LE NOM CHOISI PART AVEC LA DEMANDE, ET C'EST LE SEUL ENDROIT QUI
            ENVOIE UN DÉPÔT : glisser, « Déposer ici », un raccourci de la barre latérale, un parent du bandeau,
@@ -3013,10 +3047,10 @@ export function SelecteurFichierDrive({
   ): Promise<void> => {
     try {
       const res = 'pieceId' in quoi
-        ? await fetch(`/api/admin/gestion/pieces/${quoi.pieceId}/nom?origine=visionneuse_drive`, {
+        ? await appelDrive(`/api/admin/gestion/pieces/${quoi.pieceId}/nom?origine=visionneuse_drive`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nom }),
         })
-        : await fetch('/api/admin/gestion/drive/renommer', {
+        : await appelDrive('/api/admin/gestion/drive/renommer', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ driveFileId: quoi.driveFileId, nom }),
@@ -4045,7 +4079,7 @@ export function SelecteurFichierDrive({
     setErreur(null);
     setJetEnCours(true);
     try {
-      const res = await fetch('/api/admin/gestion/drive/corbeille', {
+      const res = await appelDrive('/api/admin/gestion/drive/corbeille', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'corbeille', elements: [{ id: cible.id, nom: cible.nom }] }),
       });
@@ -4140,7 +4174,7 @@ export function SelecteurFichierDrive({
     setVignettesEnCours((s) => new Set(s).add(v.cle));
     try {
       const choisi = (nomsVignettes.get(v.cle) ?? '').trim();
-      const res = await fetch('/api/admin/gestion/drive/deplacer', {
+      const res = await appelDrive('/api/admin/gestion/drive/deplacer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'copier',
@@ -4427,7 +4461,7 @@ export function SelecteurFichierDrive({
   const sortirDeLaCorbeille = async (mouvements: number[]): Promise<void> => {
     setBandeau(null);
     try {
-      const res = await fetch('/api/admin/gestion/drive/corbeille', {
+      const res = await appelDrive('/api/admin/gestion/drive/corbeille', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'restaurer', mouvements }),
       });
@@ -4818,6 +4852,13 @@ export function SelecteurFichierDrive({
             <span aria-hidden="true">✕</span>
           </button>
         </header>
+        {/* 🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — ce que la fenêtre dit d'elle-même en arrivant depuis un bien. */}
+        {(mentionDepart !== null || lectureSeule) && (
+          <p className="sfd-mentions">
+            {mentionDepart !== null && <span className="sfd-mention">{mentionDepart}</span>}
+            {lectureSeule && <span className="sfd-mention">Lecture seule : rien n’est modifié dans le Drive.</span>}
+          </p>
+        )}
 
         {/* ══ 🔴 LA BARRE D'OUTILS, FAÇON FINDER ════════════════════════════════════════════════════════════════
             Flèches ‹ › avec l'historique, fil d'Ariane cliquable, loupe, et « ⋯ » pour « Nouveau dossier ». */}
@@ -6358,6 +6399,8 @@ export const CSS_SELECTEUR_FICHIER = `
 /* ── LA BARRE DE TITRE, avec sa croix (elle manquait) ─────────────────────────────────────────────────────── */
 .sfd-barre-titre{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 14px;min-height:44px;flex:0 0 auto;
   background:var(--color-svv-ink);color:var(--color-svv-surface)}
+.sfd-mentions{display:flex;flex-wrap:wrap;gap:4px 12px;margin:0;padding:2px 12px 4px;font-size:.78rem}
+.sfd-mention{color:var(--color-svv-muted)}
 .sfd-titre{flex:1 1 auto;min-width:0;margin:0;font-size:.9rem;font-weight:700;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sfd-croix{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-width:32px;

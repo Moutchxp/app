@@ -175,6 +175,13 @@ export interface BrouillonEcran extends Brouillon {
   suggestionsBien?: GroupeSuggestions[] | null;
   /** La formule d'appel écrite en tête du corps, et de quoi la recalculer quand « À » change. Absent ⇒ rien. */
   appel?: AppelAuto | null;
+  /**
+   * 🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — écrit depuis une fiche bien : le bouton Drive s'ouvre DIRECTEMENT
+   * sur le dossier Drive du bien (arbre déplié jusqu'à lui, dossier en évidence), en LECTURE SEULE stricte. Sans
+   * dossier associé : ouverture habituelle, avec la mention « Aucun dossier Drive associé à ce bien ». Champs d'écran.
+   */
+  depuisLeBien?: boolean;
+  dossierDriveBien?: { id: string; nom: string } | null;
 }
 
 /**
@@ -910,8 +917,15 @@ export function Redaction({
     const champ = champObjet.current;
     if (champ === null) return;
     selectionFaite.current = cleCorps;
-    champ.focus();
+    /* ⚠️ SANS DÉFILEMENT : l'objet est en haut d'une fenêtre qu'on vient d'ouvrir, il est déjà sous les yeux. Le
+       défilement que le focus déclenche faisait glisser « De : … » sous la barre de titre (mesuré dans Chrome). */
+    champ.focus({ preventScroll: true });
     champ.setSelectionRange(plage[0], plage[1]);
+    /* 🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — MESURÉ DANS CHROME : le focus fait défiler le champ jusqu'à la
+       FIN de l'objet (125 px), et « XXXXXXXX », sélectionné au début, était hors de vue. La plage est en tête : on
+       ramène le champ à son début, maintenant et au prochain dessin (le navigateur peut redéfiler après le focus). */
+    champ.scrollLeft = 0;
+    requestAnimationFrame(() => { if (champ.selectionStart === plage[0]) champ.scrollLeft = 0; });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- geste d'ouverture : seule la clé du brouillon le relance.
   }, [cleCorps, reduite]);
   const corpsInitialHtml = useMemo(() => {
@@ -1986,6 +2000,15 @@ export function Redaction({
 
       {drive && (
         <SelecteurFichierDrive
+          /* 🔴🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — depuis une fiche bien : le dossier du bien, parents dépliés,
+             lui-même en évidence (le repère de la loupe), et le Drive en LECTURE SEULE. Hors fiche bien : inchangé. */
+          {...(brouillon.depuisLeBien === true ? {
+            lectureSeule: true,
+            ...(brouillon.dossierDriveBien
+              ? { dossierDepart: brouillon.dossierDriveBien, arrivee: 'arborescence' as const,
+                documentEnEvidence: { driveFileId: brouillon.dossierDriveBien.id } }
+              : { mentionDepart: 'Aucun dossier Drive associé à ce bien' }),
+          } : {})}
           /**
            * 🔴 LOT DRIVE-DOSSIER-DU-BIEN — DE QUOI SAVOIR À QUEL BIEN CE MAIL EST RELIÉ.
            *

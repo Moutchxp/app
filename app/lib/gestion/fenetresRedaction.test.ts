@@ -208,7 +208,9 @@ describe('🔴🔴 la barre de titre ne peut plus être rognée', () => {
   });
 
   it('🔴 le corps peut rétrécir (min-height:0) et défile chez lui', () => {
-    expect(style).toContain('.fre-corps{min-height:0;overflow-y:auto');
+    // LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — CE QU'IL DISAIT AVANT : « .fre-corps{min-height:0;overflow-y:auto ».
+    //   Le corps est aussi le repère de ses absolus (position:relative) et ne déborde plus en largeur (min-width:0).
+    expect(style).toContain('.fre-corps{position:relative;min-height:0;min-width:0;overflow-y:auto');
   });
 
   it('🔴 réduite, la fenêtre est une pastille : sa rangée de corps est à zéro', () => {

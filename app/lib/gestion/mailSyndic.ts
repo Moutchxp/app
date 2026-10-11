@@ -85,10 +85,17 @@ export function civiliteDeTexte(brut: string | null | undefined): Civilite | nul
 /** Ce qu'Arno remplace à la première frappe. Sélectionné à l'ouverture. */
 export const OBJET_A_REMPLACER = 'XXXXXXXX';
 
+/**
+ * 🔴 LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — LE NOM DE NOTRE CABINET, EN DUR. C'est NOUS qui écrivons : l'objet
+ * porte notre nom, jamais celui du syndic à qui l'on écrit (CE QU'IL FAISAIT AVANT : « XXXXXXXX / TEST ARNAUD / … »,
+ * le nom du syndic). Texte fixe voulu par Arno.
+ */
+export const NOM_NOTRE_CABINET = 'Cabinet Criterimmo';
+
 /** « XXXXXXXX / Cabinet Criterimmo[ / résidence 25 rue Edith Cavell, 92400 Courbevoie] ». PUR. */
-export function objetMailSyndic(syndic: string, residence: string | null | undefined): string {
+export function objetMailSyndic(residence: string | null | undefined): string {
   const r = (residence ?? '').trim();
-  return [OBJET_A_REMPLACER, syndic.trim(), r === '' ? '' : `résidence ${r}`].filter((x) => x !== '').join(' / ');
+  return [OBJET_A_REMPLACER, NOM_NOTRE_CABINET, r === '' ? '' : `résidence ${r}`].filter((x) => x !== '').join(' / ');
 }
 
 /** La plage à sélectionner dans l'objet : « XXXXXXXX », toujours en tête. PUR. */
@@ -265,6 +272,9 @@ export interface Prerempli<G> {
   /** Les adresses liées au bien, proposées dans À / Cc / Cci. */
   suggestionsBien?: G[] | null;
   appel?: AppelAuto | null;
+  /** LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — écrit depuis une fiche bien : le Drive s'ouvre sur son dossier. */
+  depuisLeBien?: boolean;
+  dossierDriveBien?: { id: string; nom: string } | null;
 }
 
 const lireJson = async (
@@ -304,6 +314,10 @@ export async function preremplirDemande<B extends { objet: string; corps: string
   const civilites: AppelAuto['civilites'] = {};
   if (b !== null && Array.isArray(b.groupes)) {
     out.suggestionsBien = b.groupes as G[];
+    out.depuisLeBien = true;
+    const dd = b.dossierDrive as { id?: unknown; nom?: unknown } | null | undefined;
+    out.dossierDriveBien = dd && typeof dd.id === 'string' && dd.id !== ''
+      ? { id: dd.id, nom: typeof dd.nom === 'string' ? dd.nom : '' } : null;
     for (const g of b.groupes as Array<{ lignes?: Array<{ adresse: string; ton: string; civilite: Civilite | null; nomFamille: string | null }> }>) {
       for (const l of g.lignes ?? []) {
         // Une adresse sans personne derrière (e-mail général du syndic, « autre adresse ») n'est pas un contact.

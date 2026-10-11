@@ -66,11 +66,11 @@ describe('la formule d’appel, selon la civilité des destinataires en « À »
 
 describe('l’objet', () => {
   it('depuis une fiche bien : « XXXXXXXX / Cabinet / résidence adresse »', () => {
-    expect(objetMailSyndic('Cabinet Criterimmo', '25 rue Edith Cavell, 92400 Courbevoie'))
+    expect(objetMailSyndic('25 rue Edith Cavell, 92400 Courbevoie'))
       .toBe('XXXXXXXX / Cabinet Criterimmo / résidence 25 rue Edith Cavell, 92400 Courbevoie');
   });
   it('hors fiche bien (écran « Syndics ») : « XXXXXXXX / Cabinet »', () => {
-    expect(objetMailSyndic('Cabinet Criterimmo', null)).toBe('XXXXXXXX / Cabinet Criterimmo');
+    expect(objetMailSyndic(null)).toBe('XXXXXXXX / Cabinet Criterimmo');
   });
   it('« XXXXXXXX » est la plage sélectionnée à l’ouverture', () => {
     expect(selectionObjet('XXXXXXXX / Cabinet Criterimmo')).toEqual([0, 8]);
@@ -229,6 +229,15 @@ describe('la demande d’écriture → le brouillon', () => {
     expect(lire.mock.calls.map((c) => c[0])).toEqual(['/api/admin/gestion/biens/176/ecrire']);
     expect(b).toMatchObject({ objet: '', corps: '\n\nSIG', cibles: [{ cle: '219' }] });
     expect(b.appel).toBeUndefined();
+  });
+  it('LOT MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE — depuis un bien : « depuisLeBien » et son dossier Drive voyagent', async () => {
+    const b = await preremplirDemande({ email: 'p@x.fr', contexte: { lotId: 176 } }, BASE, {},
+      routeur(SYNDIC, { ...BIEN, dossierDrive: { id: 'D9', nom: 'lot 219' } }));
+    expect([b.depuisLeBien, b.dossierDriveBien]).toEqual([true, { id: 'D9', nom: 'lot 219' }]);
+    const sans = await preremplirDemande({ email: 'p@x.fr', contexte: { lotId: 176 } }, BASE, {}, routeur(SYNDIC, { ...BIEN, dossierDrive: null }));
+    expect([sans.depuisLeBien, sans.dossierDriveBien]).toEqual([true, null]);
+    const ecranSyndics = await preremplirDemande({ email: 'p@x.fr', contexte: { syndicId: 40, lotId: null } }, BASE, {}, routeur(SYNDIC, BIEN));
+    expect(ecranSyndics.depuisLeBien).toBeUndefined();
   });
   it('un bien déjà classé par ailleurs n’est pas remplacé', async () => {
     const b = await preremplirDemande({ email: 'p@x.fr', contexte: { lotId: 176 } },

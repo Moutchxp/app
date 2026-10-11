@@ -67,7 +67,8 @@ export async function preparerMailSyndic(syndicId: number, lotId: number | null,
 
   const residence = lot === null || (lot.adresse ?? '').trim() === ''
     ? null : adresseImmeuble(lot.adresse as string, lot.codePostal, communeLisible(lot.commune));
-  const objet = objetMailSyndic(fiche.nom, residence);
+  // 🔴 NOTRE cabinet, jamais le nom du syndic (lot MAIL-DEPUIS-BIEN-MISE-EN-PAGE-OBJET-DRIVE).
+  const objet = objetMailSyndic(residence);
   const corps = corpsMailSyndic({
     destinataires,
     bien: lot === null ? null : {

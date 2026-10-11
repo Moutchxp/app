@@ -20,7 +20,7 @@ const CONTEXTE: ContexteRedactionEcran = {
 };
 
 const pret = (bien: Parameters<typeof corpsMailSyndic>[0]['bien'], residence: string | null) => {
-  const objet = objetMailSyndic('Cabinet Criterimmo', residence);
+  const objet = objetMailSyndic(residence);
   return { objet, selection: selectionObjet(objet), corps: corpsMailSyndic({ destinataires: [{ civilite: 'Mme', nom: 'Durand' }], bien }) };
 };
 const brouillon = (p: ReturnType<typeof pret>): BrouillonEcran => ({
