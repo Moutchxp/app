@@ -155,7 +155,7 @@ describe('🔴🔴 le filtre arrive par la ROUTE, et pas seulement par les fonct
    * La voie du fil (l'affectation qu'un humain a posée) ET la voie du bien avec la fenêtre d'ouverture — c'est
    * la seconde qui manquait au filtre, et ce sont ses quatre mails qu'Arno a vus disparaître.
    */
-  it('⚠️ les deux voies de l’étiquette voyagent jusqu’à la base', async () => {
+  it('⚠️ l’étiquette « rattaché au mail » voyage jusqu’à la base', async () => {
     const sql = (await sqlDe(() => GET_HISTORIQUE(new Request(URL_FILTRE)))).join('\n');
     /**
      * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — LES DEUX VOIES PRENNENT LA MÊME CLÉ, ET LA MÊME BORNE ════
@@ -170,8 +170,9 @@ describe('🔴🔴 le filtre arrive par la ROUTE, et pas seulement par les fonct
      * que la borne des périodes y soit — ce que l'ancienne fenêtre unique ne savait pas dire.
      */
     expect(sql).toContain('ANY(ARRAY[m.id])');
-    expect(sql).toContain('JOIN gestion_affectation af ON af.actif AND af.fil_id = msg.fil_id');
-    expect(sql).toContain('JOIN biens_evt be ON be.cle = r.cible_cle');
+    /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — l'étiquette (donc le filtre) est « rattaché au mail » : l'affectation de
+       CE message, sinon celle du fil ENTIER. La voie du bien (cas b) n'est plus dans le filtre. */
+    expect(sql.replace(/\s+/g, ' ')).toContain('JOIN gestion_affectation af ON af.actif AND (af.message_id = msg.id');
     expect(sql).toContain('msg.recu_le >= svv_p.du');
     expect(sql).toContain('svv_p.au IS NULL OR msg.recu_le <= svv_p.au');
   });

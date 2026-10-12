@@ -706,7 +706,9 @@ describe('🔴🔴 ④ la ligne « Événement rattaché » de la fenêtre', () 
     await cliquer(bouton(/^Lier à un événement$/) as Element);
     await attendre(() => resultats().length === 1);
     await cliquer(container.querySelector('.rdf-evt-forme .gst-resultat') as Element);
-    expect(voulu()).toBe('à lier : GES-2026-000012 · objet 12');
+    /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — le nom de l'événement est dans la capsule ambre de la fenêtre. */
+    expect(voulu()).toBe('à lier : GES-2026-000012 — objet 12');
+    expect(container.querySelector('.rdf-evt-voulu .rdf-capsule-evt')?.getAttribute('title')).toBe('GES-2026-000012 — objet 12');
     expect(ecritures).toEqual([]);
   });
 

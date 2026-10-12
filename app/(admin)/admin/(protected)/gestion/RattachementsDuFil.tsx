@@ -80,6 +80,9 @@ import {
   expediteurDuMail, indexExpediteur, MOT_EXPEDITEUR, roleExpediteur, type ExpediteurDuMail,
 } from '../../../../lib/gestion/expediteurDuMail';
 import type { EvenementDuMail } from '../../../../lib/gestion/evenementQualite';
+import {
+  lectureEvenement, motCapsuleEvenement, type EvenementLu,
+} from '../../../../lib/gestion/evenementRattache';
 
 /**
  * LOT BARRE-STATUT, REFAIT AU LOT FICHE-RATTACHEMENT — « VISUALISER / MODIFIER » : CE QUE DIT UN ÉCHANGE CLASSÉ.
@@ -334,7 +337,7 @@ export function RattachementsDuFil({
    * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
   const [evtVoulu, setEvtVoulu] = useState<
-    { sorte: 'lier'; evenementId: number; mot: string }
+    { sorte: 'lier'; evenementId: number; mot: string; capsule?: { reference: string; objet: string } }
     | {
       sorte: 'creer'; objet: string; categorie: string; urgence: string;
       /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les jours civils retenus, et la note. */
@@ -360,7 +363,11 @@ export function RattachementsDuFil({
    * L'événement DÉJÀ posé sur ce mail, et si la migration 268 est là. Lus par la route que le bloc de l'encart
    * emploie déjà — une seule question, une seule réponse.
    */
-  const [evtDuMail, setEvtDuMail] = useState<{ evenement: EvenementDuMail | null; qualifie: boolean } | null>(null);
+  const [evtDuMail, setEvtDuMail] = useState<{
+    evenement: EvenementDuMail | null; qualifie: boolean;
+    /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — les deux listes que la LIGNE reçoit (rattachés, et ceux du bien). */
+    lus: { rattaches: EvenementLu[]; duBien: EvenementLu[] } | null;
+  } | null>(null);
   /**
    * 🔴 LES ÉVÉNEMENTS DES BIENS COCHÉS, par la route qui répond DÉJÀ à cette question
    * (`/historique/evenements?cible=lot-…`). `null` = pas encore lu, ou aucun bien coché ⇒ aucune restriction.
@@ -625,14 +632,20 @@ export function RattachementsDuFil({
     void (async () => {
       try {
         const res = await fetch(`/api/admin/gestion/messages/${mailId}/affectation`, { cache: 'no-store' });
-        const d = (await res.json()) as { etat?: string; evenement?: EvenementDuMail | null; qualifie?: boolean };
+        const d = (await res.json()) as {
+          etat?: string; evenement?: EvenementDuMail | null; qualifie?: boolean;
+          lus?: { rattaches?: EvenementLu[]; duBien?: EvenementLu[] };
+        };
         if (!vivant) return;
         setEvtDuMail({
           evenement: d.etat === 'ok' ? (d.evenement ?? null) : null,
           qualifie: d.etat === 'ok' && d.qualifie === true,
+          lus: d.etat === 'ok' && d.lus !== undefined
+            ? { rattaches: d.lus.rattaches ?? [], duBien: d.lus.duBien ?? [] }
+            : null,
         });
       } catch {
-        if (vivant) setEvtDuMail({ evenement: null, qualifie: false });
+        if (vivant) setEvtDuMail({ evenement: null, qualifie: false, lus: null });
       }
     })();
     return () => { vivant = false; };
@@ -679,6 +692,16 @@ export function RattachementsDuFil({
     })();
     return () => { vivant = false; };
   }, [panneauEvt, clesCochees]);
+
+  /**
+   * 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT — LE MÊME CALCUL QUE LA PASTILLE DE LA LIGNE (`lectureEvenement`, sur les
+   * listes que la ligne reçoit). L'événement affiché est celui que la pastille compte ; à défaut, un rattaché hors de
+   * toute période (gris : rattaché, mais pas « en cours » pour ce mail).
+   */
+  const lectureFenetre = lectureEvenement(evtDuMail?.lus?.rattaches ?? [], evtDuMail?.lus?.duBien ?? []);
+  const afficheEvt: { reference: string; objet: string } | null = lectureFenetre.evenement
+    ?? (evtDuMail?.evenement ? { reference: evtDuMail.evenement.reference, objet: evtDuMail.evenement.objet } : null);
+  const afficheEnCours = lectureFenetre.evenement !== null && lectureFenetre.evenement.ouvert;
 
   if (modifie !== null) {
     return (
@@ -1398,9 +1421,9 @@ export function RattachementsDuFil({
                   <p className="rdf-evt-tete">
                     {!ponctuel && <span className="rdf-suivi-titre">Événement rattaché</span>}
                     {evtDuMail === null && <span className="rdf-detail">lecture…</span>}
-                    {evtDuMail !== null && evtDuMail.evenement !== null && (
+                    {afficheEvt !== null && (
                       <span className="rdf-evt-nom">
-                        {evtDuMail.evenement.reference} · {evtDuMail.evenement.objet}
+                        <CapsuleEvenement e={afficheEvt} enCours={afficheEnCours} />
                       </span>
                     )}
                     {/* 🔴 « Aucun » EST UNE RÉPONSE : l'événement est facultatif, et il ne change jamais la
@@ -1412,7 +1435,8 @@ export function RattachementsDuFil({
                     {evtVoulu !== null && (
                       <span className="rdf-evt-voulu">
                         {evtVoulu.sorte === 'lier'
-                          ? `à lier : ${evtVoulu.mot}`
+                          ? <>à lier : {evtVoulu.capsule !== undefined
+                            ? <CapsuleEvenement e={evtVoulu.capsule} enCours /> : evtVoulu.mot}</>
                           : `à créer : « ${evtVoulu.objet.trim()} »`}
                       </span>
                     )}
@@ -1450,6 +1474,23 @@ export function RattachementsDuFil({
                       </button>
                     )}
                   </p>
+                  {/* 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT, CAS b) — le mail n'est rattaché à rien, un événement est ouvert
+                      sur son bien : on PROPOSE de l'y rattacher. Le clic NOTE le lien (comme « Lier à un événement ») ;
+                      seul « Valider » l'écrit. Jamais de rattachement automatique (Arno). */}
+                  {evtVoulu === null && panneauEvt === 'aucun' && afficheEvt === null && lectureFenetre.surLeBien.length > 0 && (
+                    <div className="rdf-evt-propose" role="note">
+                      <p className="rdf-detail">Un événement est ouvert sur ce bien, mais ce mail n’y est pas rattaché.</p>
+                      {lectureFenetre.surLeBien.map((e) => (
+                        <button key={e.id} type="button" className="rdf-evt-proposer"
+                          onClick={() => {
+                            setErreur(null);
+                            setEvtVoulu({ sorte: 'lier', evenementId: e.id, mot: `${e.reference} · ${e.objet}`, capsule: e });
+                          }}>
+                          <span>Rattacher ce mail à</span> <CapsuleEvenement e={e} enCours />
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {panneauEvt === 'lier' && (
                     <div className="rdf-evt-forme">
@@ -1468,6 +1509,7 @@ export function RattachementsDuFil({
                             sorte: 'lier',
                             evenementId: id,
                             mot: trouve == null ? `événement n° ${id}` : `${trouve.reference} · ${trouve.objet}`,
+                            ...(trouve == null ? {} : { capsule: { reference: trouve.reference, objet: trouve.objet } }),
                           });
                           setPanneauEvt('aucun');
                         }} />
@@ -1520,14 +1562,24 @@ export function RattachementsDuFil({
                     </>
                   );
                   if (!ponctuel) return <div className="rdf-evt">{contenuEvt}</div>;
+                  /* 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT, PARTIE 3 — UN BLOC ENCADRÉ, comme « Propositions », « Moteur de
+                     recherche » et « Portée du suivi ». Replié : UNE ligne — le titre, la capsule (ou « aucun »), le
+                     chevron. Déplié : tout le contenu d'avant, sans rien retirer. */
                   const etatEvt = evtVoulu !== null
-                    ? (evtVoulu.sorte === 'lier' ? `à lier : ${evtVoulu.mot}` : `à créer : « ${evtVoulu.objet.trim()} »`)
-                    : evtDuMail === null ? 'lecture…'
-                      : evtDuMail.evenement === null ? 'aucun'
-                        : `${evtDuMail.evenement.reference} · ${evtDuMail.evenement.objet}`;
+                    ? (evtVoulu.sorte === 'lier'
+                      ? <span className="rdf-evt-etat rdf-evt-voulu">à lier : {evtVoulu.capsule !== undefined
+                        ? <CapsuleEvenement e={evtVoulu.capsule} enCours /> : evtVoulu.mot}</span>
+                      : <span className="rdf-evt-etat rdf-evt-voulu">à créer : « {evtVoulu.objet.trim()} »</span>)
+                    : evtDuMail === null ? <span className="rdf-evt-etat rdf-evt-aucun">lecture…</span>
+                      : afficheEvt === null ? <span className="rdf-evt-etat rdf-evt-aucun">aucun</span>
+                        : <span className="rdf-evt-etat"><CapsuleEvenement e={afficheEvt} enCours={afficheEnCours} /></span>;
                   return (
-                    <details className="rdf-evt rdf-evt-repli" open={panneauEvt !== 'aucun' || undefined}>
-                      <summary className="rdf-evt-resume">Événement rattaché : {etatEvt}</summary>
+                    <details className="rdf-evt rdf-evt-repli rdf-evt-bloc" open={panneauEvt !== 'aucun' || undefined}>
+                      <summary className="rdf-evt-resume">
+                        <span className="rdf-evt-titre">Événement rattaché</span>
+                        {etatEvt}
+                        <span className="rdf-evt-chevron" aria-hidden="true" />
+                      </summary>
                       {contenuEvt}
                     </details>
                   );
@@ -2011,6 +2063,24 @@ function CartePersonne({ personne, nomExpediteur = null }: {
   );
 }
 
+/**
+ * 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT, PARTIE 3 — LA CAPSULE D'UN ÉVÉNEMENT DANS CETTE FENÊTRE : les couleurs de la
+ * pastille « Événement en cours » (ambre) quand il est en cours pour ce mail, grise sinon. Le titre est tronqué
+ * proprement ; le titre COMPLET est dans l'info-bulle.
+ */
+function CapsuleEvenement({ e, enCours }: { e: { reference: string; objet: string }; enCours: boolean }) {
+  const mot = motCapsuleEvenement(e);
+  return (
+    <span className={`rdf-capsule-evt${enCours ? '' : ' rdf-capsule-evt--gris'}`} title={mot}>
+      {/* Le TITRE se tronque d'abord ; le numéro ne se tronque qu'en dernier recours (écran étroit). */}
+      <span className="rdf-capsule-evt-mot">
+        <span className="rdf-capsule-evt-ref">{e.reference}</span>
+        <span className="rdf-capsule-evt-objet">{` — ${e.objet}`}</span>
+      </span>
+    </span>
+  );
+}
+
 export const CSS_RATTACHEMENTS_FIL = `
 .rdf-objet{margin:-6px 0 2px;font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 /* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 2 — le compteur en tete. Il BOUGE pendant qu'on modifie :
@@ -2205,6 +2275,42 @@ export const CSS_RATTACHEMENTS_FIL = `
 /* LOT MARGES-MODALE — trace VERS L INTERIEUR : rien ne deborde du bloc (focus, selection). */
 .rdf-evt-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px;border-radius:.4rem}
 .rdf-evt-repli>.rdf-evt-tete{margin-top:6px}
+/* LOT EVENEMENT-RATTACHE-COHERENT, PARTIE 3 — le bloc encadre, au dessin de .rec-carte (Propositions, Moteur de
+   recherche). Replie : une seule ligne, titre + capsule (ou aucun) + chevron a droite. Rien ne deborde. */
+.rdf-evt-bloc{margin:0 0 10px;padding:10px 12px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
+  border-radius:.7rem;box-shadow:0 1px 3px rgba(0,0,0,.06);min-width:0;box-sizing:border-box;max-width:100%}
+.rdf-evt-bloc>.rdf-evt-resume{display:flex;align-items:center;gap:.5rem;min-width:0;list-style:none;min-height:32px;
+  overflow-wrap:normal}
+.rdf-evt-bloc>.rdf-evt-resume::-webkit-details-marker{display:none}
+.rdf-evt-bloc>.rdf-evt-resume::marker{content:''}
+.rdf-evt-titre{flex:0 0 auto;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--color-svv-muted)}
+.rdf-evt-etat{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:.35rem;font-size:.8rem;overflow:hidden;
+  white-space:nowrap}
+.rdf-evt-aucun{color:var(--color-svv-muted);font-weight:600}
+.rdf-evt-chevron{flex:0 0 auto;margin-left:auto;width:8px;height:8px;border-right:2px solid var(--color-svv-muted);
+  border-bottom:2px solid var(--color-svv-muted);transform:rotate(-45deg);transition:transform .15s}
+.rdf-evt-bloc[open]>.rdf-evt-resume .rdf-evt-chevron{transform:rotate(45deg)}
+@media (prefers-reduced-motion:reduce){.rdf-evt-chevron{transition:none}}
+.rdf-evt-bloc[open]>.rdf-evt-resume{margin-bottom:6px}
+.rdf-evt-bloc>.rdf-evt-tete{margin-top:0}
+.rdf-capsule-evt{display:inline-flex;min-width:0;max-width:100%;padding:.1rem .55rem;border-radius:999px;
+  font-size:.74rem;font-weight:700;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);
+  border:1px solid var(--color-svv-amber-soft);box-sizing:border-box;vertical-align:middle}
+.rdf-capsule-evt--gris{background:var(--color-svv-field);color:var(--color-svv-muted);border-color:var(--color-svv-line)}
+.rdf-capsule-evt-mot{display:flex;min-width:0;overflow:hidden;white-space:nowrap}
+.rdf-capsule-evt-ref{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.rdf-capsule-evt-objet{flex:0 100000 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:pre}
+.rdf-evt-nom{display:inline-flex;min-width:0;max-width:100%}
+.rdf-evt-voulu{display:inline-flex;align-items:center;gap:.3rem;min-width:0;max-width:100%}
+.rdf-evt-propose{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin:6px 0 0;min-width:0}
+.rdf-evt-proposer{display:inline-flex;align-items:center;gap:.4rem;min-width:0;max-width:100%;min-height:32px;
+  padding:.25rem .6rem;font:inherit;font-size:.8rem;font-weight:600;color:var(--color-svv-ink);
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:999px;cursor:pointer;
+  box-sizing:border-box}
+.rdf-evt-proposer>span:first-child{flex:0 0 auto}
+.rdf-evt-proposer:hover{border-color:var(--color-svv-line-strong-hover)}
+.rdf-evt-proposer:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 /* LOT STATUT-PAR-MAIL — le detail par mail, REPLIE. On ne cache rien : on cesse de repeter. */
 .rdf-detail-mails{margin-top:2px}
 .rdf-resume{font-size:.78rem;color:var(--color-svv-muted);cursor:pointer}

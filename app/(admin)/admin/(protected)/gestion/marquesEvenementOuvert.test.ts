@@ -234,7 +234,10 @@ describe('🔴🔴 ④ une seule règle « événement ouvert », pour les deux 
     /* 🔴 ET LE DÉPÔT DE L'HISTORIQUE LE DIT EN TOUTES LETTRES : c'est le prédicat du cartouche, au mot près. */
     expect(REPO_HISTO).toContain('LE PRÉDICAT EST **CELUI DU CARTOUCHE DE LA FICHE**, AU MOT PRÈS');
     /* ③ ET C'EST L'ÉCRAN QUI NE RETIENT QUE LES OUVERTS, des deux côtés — ligne de mail et ligne du moteur. */
-    expect(VIE).toContain('const ouverts = l.evenements.filter((e) => e.ouvert);');
+    /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — le tri des ouverts passe par le calcul pur `lectureEvenement`, que la
+       fenêtre « Modifier le rattachement » appelle aussi : `enCours` = les rattachés dont `ouvert` est vrai. */
+    expect(VIE).toContain('const lecture = lectureEvenement(l.evenements, l.evenementsDuBien ?? []);');
+    expect(VIE).toContain('const ouverts = lecture.enCours;');
     /* 🔴 ET LE MOT DE LA CAPSULE VIENT DÉSORMAIS DU MODULE PUR, partagé par les QUATRE écrans du lot
        MARQUES-EVENEMENT-EN-COURS — il n'est plus écrit dans le composant. */
     expect(VIE).toContain('motEvenementEnCours(ouverts.length)');

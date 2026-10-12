@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { sqlEvenementsDesFils } from './historiqueRepo';
+import { ORDRE_RATTACHES, sqlEvenementsRattaches } from './evenementRattache';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 3 — UN ÉVÉNEMENT N'APPARAÎT QU'UNE FOIS PAR MAIL ═══════════════════════════
@@ -56,8 +56,11 @@ import { sqlEvenementsDesFils } from './historiqueRepo';
  * tenue par le `SELECT DISTINCT` de tête, qui porte sur (message, événement) — la clé que l'écran emploie.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-const SQL = sqlEvenementsDesFils('$1::bigint[]').replace(/\s+/g, ' ');
+/* 🔴 LOT EVENEMENT-RATTACHE-COHERENT (12/10/2026) — la « voie du fil » est devenue « rattaché au mail »
+   (`sqlEvenementsRattaches`) : la garantie de ce fichier la suit. */
+const SQL = sqlEvenementsRattaches(true, '$1::bigint[]').replace(/\s+/g, ' ');
 const REPO = readFileSync('app/lib/gestion/historiqueRepo.ts', 'utf8');
+const MODULE = readFileSync('app/lib/gestion/evenementRattache.ts', 'utf8');
 
 describe('point 3 — le couple (mail, événement) est rendu unique', () => {
   /**
@@ -80,7 +83,7 @@ describe('point 3 — le couple (mail, événement) est rendu unique', () => {
   });
 
   it('⚠️ LE TRI N’A PAS BOUGÉ DE SENS : le plus récemment ouvert en tête, l’identifiant pour départager', () => {
-    expect(SQL).toContain('ev.ouvert_le DESC, ev.id DESC');
+    expect(ORDRE_RATTACHES).toContain('r.ouvert_le DESC, r.id DESC');
   });
 
   /**
@@ -97,18 +100,24 @@ describe('point 3 — le couple (mail, événement) est rendu unique', () => {
    * nommément gardent leur étiquette, parce que l'APPARTENANCE reste celle du fil (`af.fil_id = msg.fil_id`).
    * Seul le QUAND est borné. C'est la nuance que la question laissait justement en suspens.
    */
-  it('🔴🔴 la portée est celle du FIL, et la borne celle du MAIL', () => {
-    expect(SQL).toContain('JOIN gestion_affectation af ON af.actif AND af.fil_id = msg.fil_id');
+  /**
+   * 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT (12/10/2026) — LA PORTÉE DE L'AFFECTATION EST ENFIN LUE. Arno : la
+   * pastille dit « le MAIL est rattaché à l'événement », comme la fenêtre. Une affectation « ce message seul »
+   * (57123, 57145, 57188, 57202, 57224) ne couvre plus les autres mails du fil 36475 (57068, 57119, 57144).
+   */
+  it('🔴🔴 une affectation de CE message, sinon une affectation du fil ENTIER', () => {
+    expect(SQL).toContain('af.message_id = msg.id');
+    expect(SQL).toContain('af.message_id IS NULL AND af.fil_id = msg.fil_id');
+    expect(SQL).toContain('NOT EXISTS (SELECT 1 FROM gestion_affectation am WHERE am.actif AND am.message_id = msg.id)');
     expect(SQL).toContain('WHERE msg.id = ANY($1::bigint[])');
-    /* ⚠️ `af.message_id` N'EST TOUJOURS PAS LUE : la portée « un seul message » de la colonne reste ignorée par
-       cette voie — c'est la voie du BIEN qui la lit, et c'est une autre question. */
-    expect(SQL).not.toContain('af.message_id');
+    /* Sans la migration 234, la colonne n'est pas nommée : toute affectation couvre le fil. */
+    expect(sqlEvenementsRattaches(false, '$1::bigint[]')).not.toContain('message_id IS NULL');
   });
 
   it('🔴 LA REQUÊTE EST NOMMÉE UNE FOIS : le dépôt n’en garde pas une seconde copie', () => {
     /* Le corps SQL ne doit apparaître qu'à UN endroit du dépôt — sa fonction. Deux copies divergeraient. */
-    const occurrences = REPO.split('SELECT DISTINCT msg.id AS message_id').length - 1;
-    expect(occurrences).toBe(1);
+    expect(MODULE.split('SELECT DISTINCT msg.id AS message_id').length - 1).toBe(1);
+    expect(REPO.split('SELECT DISTINCT msg.id AS message_id').length - 1).toBe(0);
     /**
      * 🔴🔴 ET ELLE A DEUX APPELANTS, POUR LA MÊME RAISON (lot FILTRE-COMME-ETIQUETTE) : le filtre « Événement
      * ouvert » ne réécrit pas la règle, il appelle cette requête bornée au mail courant.
@@ -116,8 +125,9 @@ describe('point 3 — le couple (mail, événement) est rendu unique', () => {
      * 🔴 LES DEUX VOIES PRENNENT MAINTENANT LE MÊME ENSEMBLE, `ARRAY[m.id]`, et c'est une simplification du lot
      * ETAT-PAR-LA-FRISE : la voie du fil se borne elle aussi à une date de mail.
      */
-    expect(REPO).toContain("sqlEvenementsDesFils('$1::bigint[]'), [uniques]);");
-    expect(REPO).toContain("sqlEvenementsDesFils('ARRAY[m.id]')");
+    expect(REPO).toContain("sqlRattachesDansUnePeriode(await deplacementsDeMailsDisponibles(), '$1::bigint[]')");
+    expect(REPO).toContain("sqlEvenementsRattaches(avecMessageId, 'ARRAY[m.id]')");
+    expect(readFileSync('app/lib/gestion/gestes.ts', 'utf8')).toContain("sqlEvenementsRattaches(surLeMail, 'ARRAY[$1::bigint]')");
   });
 
   /**

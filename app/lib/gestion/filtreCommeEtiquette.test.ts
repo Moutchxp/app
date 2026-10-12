@@ -1,8 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import {
-  sqlEvenementsDesFils, sqlEvenementsDesMessages, sqlFiltreEvenementOuvert,
-} from './historiqueRepo';
+import { sqlEvenementsDesMessages, sqlFiltreEvenementOuvert } from './historiqueRepo';
+import { sqlEvenementsRattaches } from './evenementRattache';
 import { ETAT_EVENEMENT_TRAITE, estEvenementOuvert, sqlEvenementOuvert } from './historique';
 
 /**
@@ -82,96 +81,58 @@ describe('« ouvert » n’est défini qu’une fois, et il l’est dans les deu
   });
 });
 
-describe('le filtre est FAIT des deux requêtes de l’étiquette — pas d’un second chemin', () => {
-  /**
-   * ══ 🔴🔴 L'ÉPREUVE CENTRALE DU LOT ════════════════════════════════════════════════════════════════════════
-   *
-   * Le texte que le filtre envoie contient, VERBATIM, les deux requêtes de l'étiquette — seule leur borne
-   * change. Si quelqu'un réécrivait un jour la règle du bien ou de la fenêtre dans le filtre, ces deux
-   * `toContain` tomberaient : un texte recopié ne reste pas identique à sa source.
-   */
-  it('🔴🔴 les deux voies de l’étiquette sont dans le filtre, caractère pour caractère', () => {
+/**
+ * ══ 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT (12/10/2026) — LE FILTRE RESTE L'ÉTIQUETTE, ET L'ÉTIQUETTE A CHANGÉ ════════
+ *
+ * Décision d'Arno : la pastille pleine est le cas a), « le MAIL est rattaché à l'événement », c'est-à-dire LA
+ * définition de la fenêtre « Modifier le rattachement » (`sqlEvenementsRattaches`). La voie du bien (cas b) n'en
+ * est plus. La règle « le filtre montre exactement les mails qui portent l'étiquette » (07/10/2026) tient : le
+ * filtre est fait de la MÊME requête, bornée au mail courant.
+ */
+describe('le filtre est FAIT de la requête de l’étiquette — pas d’un second chemin', () => {
+  it('🔴🔴 la requête des rattachés est dans le filtre, caractère pour caractère', () => {
     for (const avecMessageId of [true, false]) {
       const filtre = plat(sqlFiltreEvenementOuvert(avecMessageId));
-      expect(filtre).toContain(plat(sqlEvenementsDesFils('ARRAY[m.id]')));
-      expect(filtre).toContain(plat(sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')));
+      expect(filtre).toContain(plat(sqlEvenementsRattaches(avecMessageId, 'ARRAY[m.id]')));
     }
   });
 
-  /**
-   * 🔴🔴 ET LA SEULE DIFFÉRENCE EST LA BORNE. On remet dans le texte du filtre l'ensemble que l'étiquette
-   * emploie, et l'on doit retrouver MOT POUR MOT ce que l'étiquette envoie. C'est la garantie « même code » :
-   * aucune condition de plus, aucune de moins, aucun `etat` oublié en route.
-   */
   it('🔴🔴 rien d’autre que l’ensemble de messages ne distingue le filtre de l’étiquette', () => {
-    /* 🔴 LOT ETAT-PAR-LA-FRISE — UNE SEULE BORNE À REMETTRE : les deux voies prennent désormais le même
-       ensemble de MESSAGES, parce que la voie du fil est bornée par la date du mail, elle aussi. */
-    const commeLEtiquette = plat(sqlFiltreEvenementOuvert(true))
-      .replaceAll('ARRAY[m.id]', '$1::bigint[]');
-    expect(commeLEtiquette).toContain(plat(sqlEvenementsDesFils('$1::bigint[]')));
-    expect(commeLEtiquette).toContain(plat(sqlEvenementsDesMessages(true, '$1::bigint[]')));
+    const commeLEtiquette = plat(sqlFiltreEvenementOuvert(true)).replaceAll('ARRAY[m.id]', '$1::bigint[]');
+    expect(commeLEtiquette).toContain(plat(sqlEvenementsRattaches(true, '$1::bigint[]')));
+    /* L'étiquette garde la même requête, bornée aux périodes. */
+    expect(REPO).toContain("sqlRattachesDansUnePeriode(await deplacementsDeMailsDisponibles(), '$1::bigint[]')");
   });
 
-  /**
-   * 🔴 LES **DEUX** VOIES, OU LE FILTRE REDEVIENDRAIT PLUS ÉTROIT QUE L'ÉTIQUETTE. C'est précisément le défaut
-   * d'avant : le filtre ne connaissait que l'affectation du fil, l'étiquette connaissait aussi le bien et la
-   * fenêtre. Les deux branches s'unissent par `UNION ALL` — on ne cherche pas combien, seulement s'il en existe.
-   */
-  it('🔴 le filtre unit les deux voies, et ne garde que les événements ouverts', () => {
+  it('🔴 le filtre garde les rattachés EN COURS pour ce mail — et la voie du bien n’y est plus', () => {
     const f = plat(sqlFiltreEvenementOuvert(true));
     expect(f.startsWith('EXISTS (')).toBe(true);
-    expect(f).toContain('UNION ALL');
-    /* 🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » n'est plus demandé à la colonne : chaque voie le rend déjà,
-       calculé sur les cartes de BORNE. Le filtre ne fait que garder les lignes où il est vrai. */
-    expect(f).toContain('WHERE porte.ouvert)');
-    // La voie du bien apporte la période ; la voie du fil, l'affectation active — et la période aussi.
+    expect(f).toContain('WHERE porte.ouvert AND porte.dans_periode)');
     expect(f).toContain('msg.recu_le >= svv_p.du');
-    expect(f).toContain('JOIN gestion_affectation af ON af.actif AND af.fil_id = msg.fil_id');
+    expect(f).not.toContain('FROM gestion_evenement_partie p');
+    expect(f).not.toContain(plat(sqlEvenementsDesMessages(true, 'ARRAY[m.id]')));
   });
 
-  /**
-   * 🔴🔴 LE FILTRE SE CORRÈLE SUR LE MAIL COURANT, PAR SES DEUX CLÉS. `m.fil_id` pour la voie du fil, `m.id`
-   * pour la voie du bien : `m` est la table des messages de la requête porteuse, nommée ainsi dans les CINQ
-   * requêtes de cet écran.
-   */
-  it('🔴🔴 la borne est le mail courant, et c’est la MÊME pour les deux voies', () => {
+  it('🔴🔴 la borne est le mail courant', () => {
     const f = sqlFiltreEvenementOuvert(true);
-    /**
-     * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — `m.fil_id` A DISPARU DE LA CORRÉLATION, ET C'EST UN GAIN ═════════════
-     *
-     * Les deux voies se corrélaient par deux clés différentes : `m.fil_id` pour le fil, `m.id` pour le bien.
-     * Depuis que la voie du fil est bornée par la PÉRIODE — donc par une date de mail — elle part du message
-     * elle aussi, et retrouve le fil par `msg.fil_id`. Une seule clé de corrélation, donc un piège d'alias de
-     * moins (voir l'épreuve suivante).
-     */
     expect(f).toContain('ANY(ARRAY[m.id])');
     expect(f).not.toContain('ARRAY[m.fil_id]');
   });
 
   /**
-   * ══ 🔴🔴 LE PIÈGE QUI A FAILLI PASSER, ET QUE CETTE ÉPREUVE INTERDIT DE RAMENER ══════════════════════════
-   *
-   * `sqlEvenementsDesMessages` nommait `m` sa propre jointure sur `gestion_message`. Glissée dans l'`EXISTS` du
-   * filtre, cette seconde déclaration MASQUAIT la table porteuse : `r.message_id = ANY(ARRAY[m.id])` devenait
-   * une tautologie (la jointure interne l'impose déjà), et le filtre aurait rendu VRAI pour TOUT mail dès qu'un
-   * seul mail de la base portait un événement ouvert. Aucune erreur de PostgreSQL, aucun avertissement du
-   * compilateur : juste un filtre qui ne filtre plus. L'alias interne s'appelle `msg`.
+   * 🔴🔴 LE PIÈGE DE L'ALIAS `m` (lot FILTRE-COMME-ETIQUETTE) : une seconde déclaration de `m` dans la requête
+   * glissée sous l'`EXISTS` masquerait la table porteuse, et le filtre rendrait VRAI pour tout mail.
    */
   it('🔴🔴 aucune requête de l’étiquette ne redéclare l’alias `m` du mail courant', () => {
-    for (const sql of [sqlEvenementsDesFils('ARRAY[m.fil_id]'), sqlEvenementsDesMessages(true, 'ARRAY[m.id]')]) {
+    for (const sql of [sqlEvenementsRattaches(true, 'ARRAY[m.id]'), sqlEvenementsDesMessages(true, 'ARRAY[m.id]')]) {
       expect(plat(sql)).not.toMatch(/\bgestion_message m\b/);
       expect(plat(sql)).not.toMatch(/\bAS m\b/);
     }
   });
 
-  /**
-   * ⚠️ `aa.message_id` N'EXISTE QUE DEPUIS LA MIGRATION 234 : nommer la colonne sans elle fait tomber TOUT
-   * l'écran. Le filtre prend le même témoin que l'étiquette — il le reçoit de ses cinq appelants, qui l'ont
-   * déjà en main, plutôt que de poser une seconde sonde dans la même requête.
-   */
   it('⚠️ la colonne de la migration 234 n’est nommée que si elle existe, filtre compris', () => {
-    expect(sqlFiltreEvenementOuvert(false)).not.toContain('aa.message_id');
-    expect(sqlFiltreEvenementOuvert(true)).toContain('aa.message_id');
+    expect(sqlFiltreEvenementOuvert(false)).not.toContain('af.message_id');
+    expect(sqlFiltreEvenementOuvert(true)).toContain('af.message_id');
     expect(REPO).toContain('f: FiltresHistorique, apres: number, deplacements: boolean,');
     expect(REPO).toContain('if (f.evenementOuvert) bouts.push(sqlFiltreEvenementOuvert(deplacements));');
   });

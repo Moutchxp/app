@@ -7,6 +7,7 @@ import {
 import {
   deplacementsDeMailsDisponibles, evenementQualifieDisponible,
 } from '../../../../../../../lib/gestion/schema';
+import { evenementsLusDuMail } from '../../../../../../../lib/gestion/historiqueRepo';
 
 /**
  * /api/admin/gestion/messages/[id]/affectation (lot 4d-B2) — DÉPLACER UN SEUL MAIL vers une autre carte que son
@@ -54,8 +55,12 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const id = messageId((await ctx.params).id);
   if (id === null) return Response.json({ erreur: 'Message inconnu.' }, { status: 400 });
   try {
-    const [evenement, qualifie] = await Promise.all([evenementDuMail(id), evenementQualifieDisponible()]);
-    return Response.json({ etat: 'ok', evenement, qualifie },
+    /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — `lus` : les deux listes que la LIGNE reçoit déjà (rattachés, et ceux du
+       bien), lues par les mêmes requêtes. La fenêtre les passe à `lectureEvenement`, comme la ligne. */
+    const [evenement, qualifie, lus] = await Promise.all([
+      evenementDuMail(id), evenementQualifieDisponible(), evenementsLusDuMail(id),
+    ]);
+    return Response.json({ etat: 'ok', evenement, qualifie, lus },
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     // Pas de catch muet : « aucun » se lirait « pas d'événement », ce qui serait un mensonge.

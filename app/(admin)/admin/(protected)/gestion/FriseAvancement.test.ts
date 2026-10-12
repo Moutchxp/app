@@ -2051,12 +2051,17 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
    * fenêtre (il a été classé là exprès) ; un mail du bien la gagne dans la fenêtre. Remplacer l'une par l'autre
    * aurait RETIRÉ l'étiquette à des mails qui l'avaient — la simulation a mesuré 4 gagnés, 0 perdu.
    */
-  it('🔴🔴 les deux voies s’unissent, l’ancienne n’est pas remplacée', () => {
-    /* 🔴 LOT ETAT-PAR-LA-FRISE — la voie du fil prend des MESSAGES : la période se compare à une date de mail.
-       Le fil reste la condition d'appartenance ; le message n'apporte que son instant. */
-    expect(REPO_H).toContain('export function sqlEvenementsDesFils(messages: string): string {');
+  /**
+   * 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT (12/10/2026) — LES DEUX VOIES NE S'UNISSENT PLUS, PAR DÉCISION D'ARNO.
+   * a) le MAIL est rattaché à l'événement → pastille pleine ; b) il ne l'est pas, mais un événement est ouvert sur
+   * son bien → une mention discrète et une proposition de rattachement, jamais la pastille pleine. La voie du bien
+   * reste écrite (elle nourrit le cas b), mais arrive dans une liste À PART.
+   */
+  it('🔴🔴 la voie du bien est gardée, à part : elle ne fait plus la pastille pleine', () => {
     expect(REPO_H).toContain('export function sqlEvenementsDesMessages(avecMessageId: boolean, messages: string): string {');
-    expect(REPO_H).toContain('evenements: unirEvenements(');
+    expect(REPO_H).toContain('evenements: uneFoisParMail(evenements.get(Number(r.message_id)) ?? []),');
+    expect(REPO_H).toContain('evenementsDuBien: uneFoisParMail(evenementsParBien.get(Number(r.message_id)) ?? []),');
+    expect(REPO_H).not.toContain('unirEvenements(');
   });
 
   /** 🔴🔴 LA FENÊTRE : de l'ouverture à la clôture, bornes comprises — la règle d'Arno, mot pour mot. */
@@ -2110,7 +2115,9 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
      * qu'aucune affectation ne vise nommément gardent leur étiquette. Seul le QUAND est borné.
      */
     expect(REPO_H).toContain('evenements.get(Number(r.message_id)) ?? []');
-    expect(REPO_H).toContain('af.fil_id = msg.fil_id');
+    /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — l'appartenance par le fil ne vaut plus que pour une affectation du fil
+       ENTIER : voir `evenementRattache.test.ts`. */
+    expect(readFileSync('app/lib/gestion/evenementRattache.ts', 'utf8')).toContain('af.fil_id = msg.fil_id');
   });
 
   /**
@@ -2122,10 +2129,10 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
    * 🔴 ET LA VOIE DU FIL GAGNE À INFORMATION ÉGALE : c'est l'affectation qu'un humain a posée, la voie du bien
    * est une déduction.
    */
-  it('🔴🔴 pas de doublon, et l’affectation humaine l’emporte', () => {
-    expect(REPO_H).toContain('function unirEvenements(');
-    expect(REPO_H).toContain('for (const e of [...parFil, ...parBien]) {');
-    expect(REPO_H).toContain('if (vus.has(e.id)) continue;');
+  it('🔴🔴 pas de doublon : un événement une fois par mail, dans chaque liste', () => {
+    /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — plus d'union à dédoublonner ; chaque liste l'est à part, et le cas b)
+       écarte en plus ce que le mail porte déjà (`lectureEvenement`). */
+    expect(REPO_H).toContain('function uneFoisParMail(');
   });
 
   /**
@@ -2155,7 +2162,7 @@ describe('㉗ « Événement ouvert » : la seconde voie (lot EVENEMENT-MINIMALI
     // Le filtre est désormais FAIT des deux requêtes de l'étiquette, bornées au mail courant.
     /* 🔴 LOT ETAT-PAR-LA-FRISE — ET LES DEUX PRENNENT LA MÊME BORNE, `ARRAY[m.id]` : une seule clé de
        corrélation, donc un piège d'alias de moins. */
-    expect(REPO_H).toContain("sqlEvenementsDesFils('ARRAY[m.id]')");
-    expect(REPO_H).toContain("sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')");
+    /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — le filtre est l'étiquette, et l'étiquette est « rattaché, en cours ». */
+    expect(REPO_H).toContain("sqlEvenementsRattaches(avecMessageId, 'ARRAY[m.id]')");
   });
 });

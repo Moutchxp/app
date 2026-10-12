@@ -469,6 +469,13 @@ export interface LigneHistorique {
    */
   evenements: EvenementDeLigne[];
   /**
+   * 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT-ET-BLOC-DEPLIABLE — `evenements` ne porte plus que les événements RATTACHÉS
+   * au mail (cas a d'Arno, la définition de la fenêtre « Modifier le rattachement »). Ceux de son BIEN dont la période
+   * contient le mail, sans qu'il y soit rattaché (cas b), arrivent ici : la ligne en fait une mention discrète, jamais
+   * la pastille pleine. FACULTATIF : une réponse plus ancienne ne le porte pas, et `undefined` vaut « aucun ».
+   */
+  evenementsDuBien?: EvenementDeLigne[];
+  /**
    * ══ 🔴 LOT FICHES-ANNUAIRE — LA CAPSULE DE STATUT DU MAIL ═══════════════════════════════════════════════════
    *
    * Demande d'Arno pour la « vie du bien » : « dans le même format de ligne que la boîte (capsules, trombone

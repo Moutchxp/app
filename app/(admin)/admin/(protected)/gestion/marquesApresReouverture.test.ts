@@ -248,12 +248,14 @@ describe('🔴🔴 ③ LA CAPSULE ORANGE EST PARTOUT OÙ LA LIGNE D’UN MAIL S�
    * 🔴 LA FONCTION PARTAGÉE NE GARDE QUE LES OUVERTS, et c'est pour cela qu'aucun écran n'a de filtre à refaire
    * — donc aucun moyen d'en oublier un. Elle unit les deux voies avant de filtrer.
    */
-  it('🔴 `evenementsOuvertsDesMails` unit les deux voies, puis ne garde que les ouverts', () => {
+  /* 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT (12/10/2026) — l'union des deux voies est retirée par décision d'Arno : la
+     pastille pleine est le cas a) seul, « le MAIL est rattaché à l'événement », par le calcul pur que la ligne de
+     l'historique et la fenêtre appellent aussi. */
+  it('🔴 `evenementsOuvertsDesMails` lit les RATTACHÉS au mail, et le calcul unique `lectureEvenement`', () => {
     expect(REPO_HISTO).toContain('export async function evenementsOuvertsDesMails(');
-    /* 🔴 LOT ETAT-PAR-LA-FRISE — LES DEUX VOIES SONT CLÉES PAR MESSAGE : deux mails d'un même fil peuvent
-       tomber de part et d'autre d'une clôture, et la question « en cours POUR CE MAIL ? » ne se répond donc
-       plus à l'échelle du fil. Le verdict — unir, puis ne garder que les ouverts — ne bouge pas. */
-    expect(REPO_HISTO).toMatch(/unirEvenements\(parFil\.get\(m\.messageId\) \?\? \[\], parBien\.get\(m\.messageId\) \?\? \[\]\)\s*\n?\s*\.filter\(\(e\) => e\.ouvert\)/);
+    expect(REPO_HISTO).toContain('const rattaches = await evenementsRattaches(mails.map((m) => m.messageId));');
+    expect(REPO_HISTO).toContain('lectureEvenement(uneFoisParMail(rattaches.get(m.messageId) ?? [])).enCours');
+    expect(REPO_HISTO).not.toContain('unirEvenements(');
   });
 
   /**

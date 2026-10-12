@@ -19,6 +19,7 @@ import { adresseProposee, nettoyerObjet } from './objet';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit de la frise, et la cloture ne s'ecrit plus a la main. */
 import { MOTIF_CLOTURE_PAR_LA_FRISE, etatDeTravail, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import { deplacementsDeMailsDisponibles, evenementQualifieDisponible } from './schema';
+import { ORDRE_RATTACHES, sqlEvenementsRattaches } from './evenementRattache';
 import {
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les bornes et la note, décidées par le module PUR. */
   bornesEvenement, categorieValide, noteEvenement, urgenceValide, type EvenementDuMail,
@@ -789,33 +790,22 @@ export async function evenementDuMail(messageId: number): Promise<EvenementDuMai
   const surLeMail = await deplacementsDeMailsDisponibles();
   const qualifie = await evenementQualifieDisponible();
   const colonnes = qualifie ? 'e.categorie, e.urgence' : 'NULL::text AS categorie, NULL::text AS urgence';
-
-  if (surLeMail) {
-    const { rows } = await query<{
-      id: string; reference: string; objet: string; etat: string; categorie: string | null; urgence: string | null;
-    }>(
-      `SELECT e.id::text, e.reference, e.objet, e.etat, ${colonnes}
-         FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
-        WHERE a.message_id = $1 AND a.actif LIMIT 1`, [messageId]);
-    if (rows[0]) {
-      return {
-        evenementId: Number(rows[0].id), reference: rows[0].reference, objet: rows[0].objet,
-        etat: rows[0].etat, portee: 'mail', categorie: rows[0].categorie, urgence: rows[0].urgence,
-      };
-    }
-  }
-
+  /* 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT — « rattaché » a UNE définition (`sqlEvenementsRattaches`), que la pastille
+     de la ligne lit aussi : une affectation de CE message, sinon une affectation du fil entier. Même ordre que la
+     ligne (en cours d'abord) : le premier rattaché affiché ici est celui que la pastille compte. */
   const { rows } = await query<{
-    id: string; reference: string; objet: string; etat: string; categorie: string | null; urgence: string | null;
+    id: string; reference: string; objet: string; portee: string; etat: string;
+    categorie: string | null; urgence: string | null;
   }>(
-    `SELECT e.id::text, e.reference, e.objet, e.etat, ${colonnes}
-       FROM gestion_message m
-       JOIN gestion_affectation a ON a.fil_id = m.fil_id AND a.actif ${surLeMail ? 'AND a.message_id IS NULL' : ''}
-       JOIN gestion_evenement e ON e.id = a.evenement_id
-      WHERE m.id = $1 LIMIT 1`, [messageId]);
+    `SELECT r.id::text, r.reference, r.objet, r.portee, e.etat, ${colonnes}
+       FROM (${sqlEvenementsRattaches(surLeMail, 'ARRAY[$1::bigint]')}) r
+       JOIN gestion_evenement e ON e.id = r.id
+      ORDER BY ${ORDRE_RATTACHES}
+      LIMIT 1`, [messageId]);
   if (!rows[0]) return null;
   return {
     evenementId: Number(rows[0].id), reference: rows[0].reference, objet: rows[0].objet,
-    etat: rows[0].etat, portee: 'conversation', categorie: rows[0].categorie, urgence: rows[0].urgence,
+    etat: rows[0].etat, portee: rows[0].portee === 'mail' ? 'mail' : 'conversation',
+    categorie: rows[0].categorie, urgence: rows[0].urgence,
   };
 }

@@ -24,6 +24,7 @@ import {
 import { motCapsule, tonCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — le mot de la capsule orange, écrit UNE fois pour les quatre écrans. */
 import { motEvenementEnCours } from '../../../../lib/gestion/evenementQualite';
+import { lectureEvenement, motCapsuleEvenement, MOT_OUVERT_SUR_LE_BIEN } from '../../../../lib/gestion/evenementRattache';
 // 🔴🔴 LOT CONTACTS-EXTERNES — le mot du rôle instantané, écrit UNE fois dans le module PUR.
 import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
@@ -534,7 +535,11 @@ export function LigneVie({
   // 🔴 LA MÊME RÈGLE QUE LA BOÎTE : les « ._ » et les images de signature ne comptent pas comme pièces.
   const trombone = etatTrombone(vraies.length, 0);
   const motDuTrombone = motTrombone(trombone);
-  const ouverts = l.evenements.filter((e) => e.ouvert);
+  /* 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT — LE CALCUL UNIQUE, celui que la fenêtre « Modifier le rattachement » appelle
+     aussi sur les mêmes listes : a) rattaché et en cours → pastille pleine ; b) ouvert sur le bien seulement →
+     mention discrète. */
+  const lecture = lectureEvenement(l.evenements, l.evenementsDuBien ?? []);
+  const ouverts = lecture.enCours;
 
   return (
     <li className="vdb-item">
@@ -706,6 +711,14 @@ export function LigneVie({
             */}
           {motEvenementEnCours(ouverts.length) !== null && (
             <span className="vdb-capsule vdb-capsule--evt">{motEvenementEnCours(ouverts.length)}</span>
+          )}
+          {/* 🔴 LOT EVENEMENT-RATTACHE-COHERENT, CAS b) — le mail n'est pas rattaché, un événement est ouvert sur son
+              bien : une mention discrète, jamais la pastille pleine. Son info-bulle nomme l'événement. */}
+          {lecture.cas === 'ouvert_sur_le_bien' && (
+            <span className="vdb-evt-bien"
+              title={`${lecture.surLeBien.map(motCapsuleEvenement).join(' · ')} — ce mail n’y est pas rattaché`}>
+              {MOT_OUVERT_SUR_LE_BIEN}
+            </span>
           )}
           </span>
           <DateEtBiens messageId={l.messageId}
@@ -987,6 +1000,8 @@ ${CSS_COMPTEUR_BIENS}
   border-color:var(--color-svv-amber-soft)}
 /* LE TROMBONE : NOIR (encre) quand la piece est dans CE mail. Son infobulle dit laquelle des deux situations. */
 .vdb-trombone{font-size:.76rem;font-weight:600;color:var(--color-svv-ink);flex:0 0 auto}
+/* LOT EVENEMENT-RATTACHE-COHERENT, CAS b : une mention discrete, ni capsule ni couleur d'evenement. */
+.vdb-evt-bien{font-size:.72rem;font-style:italic;color:var(--color-svv-muted);white-space:nowrap}
 .vdb-detail{border-top:1px solid var(--color-svv-line);
   padding:10px var(--vdb-marge-d) 12px var(--vdb-marge-g);
   display:flex;flex-direction:column;gap:.5rem;background:var(--color-svv-field)}
