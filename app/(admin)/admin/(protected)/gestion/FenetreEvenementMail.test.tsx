@@ -117,8 +117,8 @@ describe('🔴🔴 B) créer un événement à partir de ce mail', () => {
     await cliquer(bouton('Créer un événement à partir de ce mail'));
     const titre = container.querySelector('.bev-saisie') as HTMLInputElement;
     expect(titre.value).toBe('1 rue du Banc, 92400 COURBEVOIE — lot 1');
-    /* Le formulaire existant, sans rien retirer — « Garder pour la validation » compris. */
-    expect(bouton('Garder pour la validation')).toBeDefined();
+    /* LOT RETRAIT-DES-DOUBLONS-CLASSER-ET-GARDER (accord d'Arno) — « Garder pour la validation » est retiré. */
+    expect(bouton('Garder pour la validation')).toBeUndefined();
     await cliquer(bouton('Créer l’événement'));
     expect(ecritures).toHaveLength(1);
     const e = ecritures[0] as { url: string; methode: string; corps: { nouveau: Record<string, unknown> } };
@@ -135,7 +135,7 @@ describe('🔴🔴 B) créer un événement à partir de ce mail', () => {
 });
 
 describe('🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — des blocs, et aucun champ perdu', () => {
-  it('Créer : ① Événement, ② Qualification, ③ Parties concernées, ④ Note — et TOUS les champs de l’ancienne fenêtre', async () => {
+  it('Créer : ① Événement, ② Qualification, ③ Parties concernées, ④ Note — tous les champs, pied [Fermer] [Créer l’événement]', async () => {
     await monter();
     await cliquer(bouton('Créer un événement à partir de ce mail'));
     const blocs = [...container.querySelectorAll('.bev-bloc-titre, .lce-titre-bloc')].map((e) => e.textContent);
@@ -149,17 +149,12 @@ describe('🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — des bloc
     expect(container.querySelector('.bev-apercu .cev')).not.toBeNull();
     /* Le bloc des parties : propriétaire du bien (fiche), toujours concerné. */
     expect(container.querySelector('.lce-case--fixe .lce-puce')?.textContent).toBe('PROPRIO Banc');
-    /* Les deux boutons et leur explication, dans le pied fixe. */
+    /* LOT RETRAIT-DES-DOUBLONS-CLASSER-ET-GARDER — le pied fixe ne porte plus que [Fermer] … [Créer l'événement], sans
+       la phrase d'explication. */
     const pied = container.querySelector('.fem-pied') as HTMLElement;
-    expect([...pied.querySelectorAll('button')].map((b) => b.textContent))
-      .toEqual(['Fermer', 'Garder pour la validation', 'Créer l’événement']);
-    expect(pied.querySelector('.fem-explication')?.textContent).toBe(
-      'Garder pour la validation : replie le formulaire, rien n’est encore enregistré · '
-      + 'Créer l’événement : l’événement est créé et ouvert tout de suite, avec ce mail comme premier mail');
-    /* « Garder pour la validation » n'écrit rien. */
-    await cliquer(bouton('Garder pour la validation'));
+    expect([...pied.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Fermer', 'Créer l’événement']);
+    expect(pied.querySelector('.fem-explication')).toBeNull();
     expect(ecritures).toEqual([]);
-    expect(container.querySelector('.fem-choisi')?.textContent).toContain('À créer');
   });
   it('Lier : ① la liste, ② les parties de l’événement choisi en lecture, pied [Fermer] [Lier ce mail]', async () => {
     await monter();

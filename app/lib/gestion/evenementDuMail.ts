@@ -28,16 +28,6 @@ export const AIDE_EVENEMENT_DU_MAIL =
 export const ONGLET_LIER = 'Lier ce mail à un événement déjà ouvert (one shot)';
 export const ONGLET_CREER = 'Créer un événement à partir de ce mail';
 
-/**
- * 🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — CE QUE FONT VRAIMENT LES DEUX BOUTONS, lu dans le code :
- * « Garder pour la validation » ne fait que replier le formulaire en une ligne « À créer : « … » — Modifier » ; RIEN
- * n'est enregistré, et fermer la fenêtre perd la saisie. « Créer l'événement » écrit tout de suite (POST
- * `/messages/<id>/affectation`, `{ nouveau }`) : l'événement est créé, ouvert, et ce mail en est le premier.
- */
-export const EXPLICATION_BOUTONS_CREER =
-  'Garder pour la validation : replie le formulaire, rien n’est encore enregistré · '
-  + 'Créer l’événement : l’événement est créé et ouvert tout de suite, avec ce mail comme premier mail';
-
 /** La phrase du bloc en lecture seule de « Modifier le rattachement », mot pour mot (Arno). */
 export const PHRASE_BLOC_LECTURE =
   'Pour créer un événement ou y lier ce mail, utilisez le bouton Événement du mail.';

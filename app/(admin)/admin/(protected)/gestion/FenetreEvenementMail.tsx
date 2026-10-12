@@ -13,7 +13,7 @@ import {
 } from '../../../../lib/gestion/evenementRattache';
 import { etapeEnMots } from '../../../../lib/gestion/etapeVignette';
 import {
-  corpsCreation, EXPLICATION_BOUTONS_CREER, libelleBienDuMail, ONGLET_CREER, ONGLET_LIER, partiesDesBiensFiche,
+  corpsCreation, libelleBienDuMail, ONGLET_CREER, ONGLET_LIER, partiesDesBiensFiche,
   phraseRemplacement, titrePrerempli, TITRE_EVENEMENT_DU_MAIL,
 } from '../../../../lib/gestion/evenementDuMail';
 import { motEnTeteMail, type FicheRattachementFil } from '../../../../lib/gestion/ficheRattachement';
@@ -30,7 +30,8 @@ import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
  *   A) « Lier ce mail à un événement déjà ouvert (one shot) » — les événements en cours sur le(s) bien(s) du mail
  *      (capsule · ouvert le … · Étape : …), « Voir aussi les autres événements » (la recherche de l'ancien « Lier à
  *      un événement » : clos, autres biens), « remplacera GES-… » quand le mail est déjà lié, « Lier ce mail ».
- *   B) « Créer un événement à partir de ce mail » — le formulaire existant (`ChampsEvenement`), sans rien retirer ;
+ *   B) « Créer un événement à partir de ce mail » — le formulaire existant (`ChampsEvenement`) ; « Garder pour la
+ *      validation », qui n'enregistrait rien ici, est retiré (lot RETRAIT-DES-DOUBLONS-CLASSER-ET-GARDER, accord d'Arno) ;
  *      le mail est le 1er mail de la carte neuve ; « Créer l'événement ».
  *   · Déjà lié : « Ce mail est lié à <capsule> », et « Retirer ce mail de l'événement » — le « Délier » qui existait
  *     (encart du mail, `BlocEvenement`), par la même route ; offert quand le lien est posé sur CE mail.
@@ -65,8 +66,6 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
   const [closLe, setClosLe] = useState('');
   const [note, setNote] = useState('');
   const [concernes, setConcernes] = useState<ChoixConcernes | null>(null);
-  /** « Garder pour la validation » : le formulaire est retenu (replié), « Créer l'événement » l'écrit. */
-  const [garde, setGarde] = useState(false);
   /** Onglet « Lier » : les parties de l'événement choisi (lecture seule), lues par la route de la carte. */
   const [partiesChoisi, setPartiesChoisi] = useState<
     { v: 'aucun' } | { v: 'charge' } | { v: 'ok'; proprietaires: string[]; personnes: Concerne[] }
@@ -283,26 +282,18 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
 
         {onglet === 'creer' && (
           <div className="fem-pan" role="tabpanel" aria-labelledby="fem-onglet-creer">
-            {garde ? (
-              <section className="bev-bloc" aria-label="Événement gardé pour la validation">
-                <p className="bev-bloc-titre">Événement</p>
-                <p className="fem-choisi">
-                  À créer : « {titre.trim()} »
-                  <button type="button" className="gst-lien-bouton" onClick={() => setGarde(false)}>Modifier</button>
-                </p>
-              </section>
-            ) : (
-              <ChampsEvenement enBlocs mentionPremierMail titre={titre} onTitre={setTitre}
-                categorie={categorie} onCategorie={setCategorie}
-                urgence={urgence} onUrgence={setUrgence}
-                qualifieDisponible={lu?.qualifie === true}
-                libellesDesBiens={biens.map((b) => b.libelle)}
-                ouvertLe={ouvertLe} onOuvertLe={setOuvertLe}
-                closLe={closLe} onClosLe={setClosLe}
-                note={note} onNote={setNote}
-                bienCles={biens.map((b) => b.cle)} concernes={concernes} onConcernes={setConcernes}
-                proprietaires={proprietaires} jourReference={jourDuMail} />
-            )}
+            {/* 🔴 LOT RETRAIT-DES-DOUBLONS-CLASSER-ET-GARDER (accord d'Arno) — « Garder pour la validation » est retiré :
+                ici il ne faisait que replier le formulaire, sans rien enregistrer. « Créer l'événement » suffit. */}
+            <ChampsEvenement enBlocs mentionPremierMail titre={titre} onTitre={setTitre}
+              categorie={categorie} onCategorie={setCategorie}
+              urgence={urgence} onUrgence={setUrgence}
+              qualifieDisponible={lu?.qualifie === true}
+              libellesDesBiens={biens.map((b) => b.libelle)}
+              ouvertLe={ouvertLe} onOuvertLe={setOuvertLe}
+              closLe={closLe} onClosLe={setClosLe}
+              note={note} onNote={setNote}
+              bienCles={biens.map((b) => b.cle)} concernes={concernes} onConcernes={setConcernes}
+              proprietaires={proprietaires} jourReference={jourDuMail} />
             {remplace === null && lies.length > 0 && (
               <p className="fem-remplace">{`La carte neuve remplacera ${lies.map((e) => e.reference).join(', ')} pour ce mail.`}</p>
             )}
@@ -322,21 +313,13 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
                   {occupe ? 'Enregistrement…' : 'Lier ce mail'}
                 </button>
               ) : (
-                <>
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                    disabled={garde || titre.trim() === '' || bornes.refus !== null}
-                    onClick={() => setGarde(true)}>
-                    Garder pour la validation
-                  </button>
-                  <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!creerPossible}
-                    onClick={creer}>
-                    {occupe ? 'Création…' : 'Créer l’événement'}
-                  </button>
-                </>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!creerPossible}
+                  onClick={creer}>
+                  {occupe ? 'Création…' : 'Créer l’événement'}
+                </button>
               )}
             </span>
           </div>
-          {onglet === 'creer' && <p className="fem-explication">{EXPLICATION_BOUTONS_CREER}</p>}
         </div>
       </div>
       <style>{CSS_CAPSULE_EVENEMENT}</style>
@@ -388,17 +371,14 @@ export const CSS_FENETRE_EVENEMENT_MAIL = `
   background:var(--color-svv-surface);border-top:1px solid var(--color-svv-line);display:flex;flex-direction:column;gap:6px}
 .fem-pied-boutons{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
 .fem-pied-droite{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-left:auto}
-.fem-explication{margin:0;font-size:.74rem;line-height:1.4;color:var(--color-svv-muted);text-align:right;overflow-wrap:anywhere}
 /* Grand ecran : un texte plus serre, pour tenir sur une ligne quand la place le permet — jamais tronque. */
 @media (min-width:721px){.fem-onglet{font-size:.76rem;padding:.4rem .45rem}}
-/* Telephone : le pied reste compact — [Fermer][Garder] sur une ligne, [Creer] dessous, l explication en petit. */
+/* Telephone : le pied reste compact — [Fermer] et le bouton d action cote a cote. */
 @media (max-width:520px){
   .fem-onglet{min-width:100%}
   .fem-pied{gap:4px;padding:8px 16px 10px}
   .fem-pied-boutons{display:grid;grid-template-columns:1fr 1fr;gap:6px}
   .fem-pied-droite{display:contents}
   .fem-pied-boutons .gst-btn{min-height:40px;padding:.3rem .5rem;font-size:.82rem;width:100%}
-  .fem-pied-droite>.svv-btn-primary{grid-column:1 / -1}
-  .fem-explication{text-align:left;font-size:.7rem;line-height:1.3}
-}
+  }
 `;
