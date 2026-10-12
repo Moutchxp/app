@@ -44,6 +44,7 @@ import type { CibleBrouillon } from '../../../../lib/gestion/redaction';
 import { ClasserMail } from './ClasserMail';
 // LOT CONTACTS-ET-EVENEMENT — le bloc « Événement rattaché », en tête de l'encart.
 import { BlocEvenement } from './BlocEvenement';
+import { EvenementRattacheResume, RENVOI_EVENEMENT_CONVERSATION } from './EvenementRattacheResume';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
 
@@ -137,7 +138,7 @@ interface ArgumentsClassement {
 export function EncartRattachement({
   messageId, filId, liens, interne = null, horsGestion = false, onInterne, onHorsGestion,
   onChange, onGeste, onHistorique, mailsDuFil = [], choixInterne = 'conversation', leveeExterne = null,
-  onLeveeAnnulee, jourDuMail = null,
+  onLeveeAnnulee, jourDuMail = null, aClasser = false, actionsDePied = [],
 }: {
   /**
    * 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LE JOUR DE CE MAIL, `AAAA-MM-JJ`.
@@ -148,6 +149,18 @@ export function EncartRattachement({
    * ⚠️ `null`/absent ⇒ le formulaire retombe sur aujourd'hui, comportement d'avant ce lot.
    */
   jourDuMail?: string | null;
+  /**
+   * ══ 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER (décision d'Arno, option 1) ═══════════════════════════════════════════════
+   * Sur un mail « À classer », « Rattacher à un logement » est le SEUL point d'entrée : sa fenêtre reprend ce que le
+   * lien « Classer » de l'en-tête offrait seul.
+   *   · `aClasser` — le mail est « À classer » : la fenêtre montre alors le bloc « Suivi dans la conversation » (les
+   *     trois choix, dont « Ce mail uniquement »), même au premier classement ; le défaut reste celui d'avant (« Ce
+   *     mail et la conversation à venir »), et seul un choix FAIT par l'utilisateur le remplace ;
+   *   · `actionsDePied` — « Classer dans une carte » et « Classer sans suite », les MÊMES gestes que le pied de la
+   *     fenêtre du « Classer » (même handler de la conversation, `agirSurLeStatut`). Vide ⇒ rien de plus.
+   */
+  aClasser?: boolean;
+  actionsDePied?: readonly { cle: string; libelle: string; onChoisir: () => void }[];
   messageId: number;
   /**
    * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — CE QUI MANQUAIT POUR QUE LES DEUX CASES AIENT UN SENS ═══════════════
@@ -236,6 +249,8 @@ export function EncartRattachement({
    * différence entre un geste et une décision — et c'est ce qui permet de ne plus écraser le passé.
    */
   const [choix, setChoix] = useState<ChoixSuivi>(SUIVI_DEFAUT);
+  /** 🔴 LOT UN-SEUL-BOUTON-RATTACHER — un choix de suivi FAIT à la main (sinon, la préséance d'avant s'applique). */
+  const [choixTouche, setChoixTouche] = useState(false);
   /** 🔴 « Sans confirmation, “Valider” reste bloqué » : la case que « Toute la conversation » exige. */
   const [confirme, setConfirme] = useState(false);
   /** Les périodes et exceptions de cette conversation. `null` = migration 290 absente, ou lecture en échec. */
@@ -735,7 +750,7 @@ export function EncartRattachement({
     const presentesAvant = new Set(biensRattaches.map((c) => c.cle ?? ''));
     const clesAjoutees = [...voulues].filter((c) => c !== '' && !presentesAvant.has(c));
     const choixDeLaLevee: ChoixInterne = suivi !== null && filId != null
-      ? (blocVisible || suiviContact === null ? choix : choixSuiviDeContact(suiviContact))
+      ? (blocVisible || choixTouche || suiviContact === null ? choix : choixSuiviDeContact(suiviContact))
       : 'mail';
 
     if (leveeConfirmee === null && clesAjoutees.length > 0) {
@@ -770,7 +785,9 @@ export function EncartRattachement({
         ...(personnes.length === 0 ? {} : { personnes }),
       };
       // 🔴 LA PRÉSÉANCE, ÉCRITE UNE SEULE FOIS (voir l'encadré ci-dessus).
-      const choixRetenu: ChoixSuivi = blocVisible || suiviContact === null
+      /* 🔴 LOT UN-SEUL-BOUTON-RATTACHER — un choix fait à la main dans le bloc offert aux mails « À classer » prime,
+         comme celui du bloc d'avant ; sans clic, rien ne change. */
+      const choixRetenu: ChoixSuivi = blocVisible || choixTouche || suiviContact === null
         ? choix : choixSuiviDeContact(suiviContact);
       setOccupe(true);
       setErreur(null);
@@ -1008,6 +1025,12 @@ export function EncartRattachement({
     reference: biensRattaches.map((b) => b.cle ?? ''),
     selection: selectionModale,
   });
+  /**
+   * 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER — LE BLOC EST AUSSI OFFERT À UN MAIL « À CLASSER » (décision d'Arno, option 1) :
+   * c'est ce que la fenêtre du « Classer » de l'en-tête offrait, et elle n'est plus le point d'entrée. Il faut le
+   * suivi (migration 290) et l'échange, comme pour le bloc d'avant.
+   */
+  const suiviOffert = blocVisible || (aClasser && suivi !== null && filId != null);
   /** Ce que l'alerte annonce, mot pour mot — composé par le module pur. */
   const alerte = suivi === null ? '' : alerteTouteLaConversation({
     mails: suivi.mails, exceptions: suivi.exceptions, messageId,
@@ -1438,7 +1461,7 @@ export function EncartRattachement({
                 `setCiblesEnCours(choisies)`, exécuté APRÈS la réponse du serveur, qui a le dernier mot. L'ordre
                 réel est : onChange (début) → onFerme (ce null) → réponse → ciblesEnCours. */
           onFerme={() => { setSelectionModale(null); setAjout(false); setCiblesEnCours(null); }}
-          validationBloquee={blocVisible && choix === 'conversation' && !confirme
+          validationBloquee={suiviOffert && choix === 'conversation' && !confirme
             ? 'Cochez la confirmation ci-dessus pour reclasser toute la conversation.'
             : null}
           piedSupplementaire={(
@@ -1448,13 +1471,13 @@ export function EncartRattachement({
                   n'est pas le premier de la conversation, ET on modifie un classement déjà validé sur cette
                   conversation. Sinon, il est absent, et le premier classement vaut pour ce mail et toute la
                   suite. » La décision est dans le module PUR (`blocSuiviVisible`). */}
-              {blocVisible && (
+              {suiviOffert && (
                 <fieldset className="ert-portee">
                   <legend className="ert-portee-titre">Suivi dans la conversation</legend>
                   {CHOIX_SUIVI.map((c) => (
                     <label className="ert-choix ert-choix--suivi" key={c.cle}>
                       <input type="radio" name="ert-suivi" checked={choix === c.cle}
-                        onChange={() => { setChoix(c.cle); setConfirme(false); }} />
+                        onChange={() => { setChoix(c.cle); setChoixTouche(true); setConfirme(false); }} />
                       <span>
                         <span className="ert-suivi-mot">{c.mot}</span>
                         {/* 🔴 UNE PHRASE D'AIDE SOUS CHAQUE CHOIX, EN FRANÇAIS SIMPLE (demande d'Arno) : trois
@@ -1482,10 +1505,22 @@ export function EncartRattachement({
                   )}
                 </fieldset>
               )}
-              <button type="button" className="gst-lien-bouton"
-                onClick={() => { setAjout(false); setClasser(true); }}>
-                Hors gestion, ou classer par pièce…
-              </button>
+              {/* 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER — l'événement du mail, EN LECTURE (même calcul que « Modifier le
+                  rattachement ») ; les gestes sur l'événement sont sous l'en-tête du mail, la phrase y renvoie. */}
+              {aClasser && <EvenementRattacheResume messageId={messageId} renvoi={RENVOI_EVENEMENT_CONVERSATION} />}
+              <span className="ert-pied-gestes">
+                <button type="button" className="gst-lien-bouton"
+                  onClick={() => { setAjout(false); setClasser(true); }}>
+                  Hors gestion, ou classer par pièce…
+                </button>
+                {/* 🔴 « Classer dans une carte » et « Classer sans suite » : les gestes du pied de l'ancien « Classer ». */}
+                {actionsDePied.map((a) => (
+                  <button key={a.cle} type="button" className="gst-lien-bouton"
+                    onClick={() => { setAjout(false); setCiblesEnCours(null); a.onChoisir(); }}>
+                    {a.libelle}
+                  </button>
+                ))}
+              </span>
             </>
           )} />
       )}
@@ -1738,6 +1773,8 @@ export const CSS_ENCART_RATTACHEMENT = `
 .ert-deplie{gap:2px}
 
 /* La portee, reprise au pied de la modale. Meme forme que celle du panneau qu'elle remplace. */
+/* LOT UN-SEUL-BOUTON-RATTACHER — les gestes du pied, cote a cote, qui passent a la ligne sans deborder. */
+.ert-pied-gestes{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem 1rem;min-width:0}
 .ert-portee{margin:0 0 .5rem;padding:6px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem;
   min-width:0}
 .ert-portee-titre{font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;

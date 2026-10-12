@@ -39,6 +39,12 @@ let messages: Record<string, unknown>[];
  * LOT FICHE-RATTACHEMENT — une TROISIÈME lecture s'y ajoute : `?fiche=`, qui rend les BIENS de l'échange.
  */
 let liensParMessage: Record<string, unknown[]>;
+/**
+ * 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER — `true` : les rattachements du mail sont illisibles, l'encart (et son « Rattacher à
+ * un logement ») se masque, et le lien « Classer » de l'en-tête reste le chemin. C'est le décor des épreuves de
+ * l'ANCIENNE fenêtre, qui vit toujours pour ce cas.
+ */
+let sansEncart = false;
 let rattachementsDuFil: Record<string, unknown>;
 let ficheDuFil: Record<string, unknown>;
 /**
@@ -53,6 +59,7 @@ beforeEach(() => {
   filCourant = FIL();
   messages = [MESSAGE()];
   liensParMessage = {};
+  sansEncart = false;
   rattachementsDuFil = { etat: 'ok', data: [] };
   ficheDuFil = {
     etat: 'ok',
@@ -75,6 +82,10 @@ beforeEach(() => {
     }
     // LOT STATUT-HORS-GESTION — les marques « ce mail ne concerne aucun bien ». AVANT `/rattachements` : les deux
     //   adresses se ressemblent, et l'ordre des tests décide ici laquelle répond.
+    // 🔴 LOT UN-SEUL-BOUTON-RATTACHER — le suivi de la conversation (migration 290), lu à l'ouverture de « Rattacher ».
+    if (u.includes('/gestion/suivi')) {
+      return { ok: true, json: async () => ({ etat: 'ok', periodes: [], exceptions: [], mails: [900], rattachee: false, expediteurConnu: false }) } as unknown as Response;
+    }
     if (u.includes('/hors-gestion')) {
       return {
         ok: true,
@@ -88,7 +99,9 @@ beforeEach(() => {
     if (u.includes('/rattachements?fiche=')) return { ok: true, json: async () => ficheDuFil } as unknown as Response;
     if (u.includes('/drive/dossier-du-bien')) return { ok: true, json: async () => ({ etat: 'ok', dossiers: [] }) } as unknown as Response;
     if (u.includes('/rattachements?fil=')) return { ok: true, json: async () => rattachementsDuFil } as unknown as Response;
-    if (u.includes('/rattachements')) return { ok: true, json: async () => ({ etat: 'ok', data: liensParMessage }) } as unknown as Response;
+    if (u.includes('/rattachements')) {
+      return { ok: true, json: async () => (sansEncart ? { etat: 'sans_schema', data: {} } : { etat: 'ok', data: liensParMessage }) } as unknown as Response;
+    }
     if (u.includes('/messages')) return { ok: true, json: async () => ({ fil: filCourant, messages, partis: [] }) } as unknown as Response;
     return { ok: true, json: async () => ({ evenements: [], max: 30 }) } as unknown as Response;
   }) as unknown as typeof fetch;
@@ -115,6 +128,7 @@ const declencheur = () => container.querySelector('.cnv-statut-bouton') as HTMLE
 
 describe('LES CINQ CARTOUCHES — le mot est écrit, jamais la couleur seule', () => {
   it('b) échange sans événement → « Événement : aucun » + bouton « Classer »', async () => {
+    sansEncart = true; /* LOT UN-SEUL-BOUTON-RATTACHER — l'ancienne fenêtre, chemin quand l'encart manque. */
     await monter();
     expect(cartouche()?.textContent).toBe('Événement : aucun');
     /**
@@ -182,6 +196,7 @@ describe('LA RÉVÉLATION DES GESTES, et son annulation', () => {
    * le cherchait. Les deux autres états du cartouche le gardent — voir les deux cas suivants.
    */
   it('« Classer » ouvre LA FENÊTRE, où les trois gestes se trouvent — et plus aucun bloc en ligne', async () => {
+    sansEncart = true; /* LOT UN-SEUL-BOUTON-RATTACHER — l'ancienne fenêtre, chemin quand l'encart manque. */
     await monter();
     expect(container.querySelector('.cnv-statut-actions')).toBeNull();
     await cliquer(declencheur());
@@ -225,6 +240,7 @@ describe('LA RÉVÉLATION DES GESTES, et son annulation', () => {
 
 describe('🔴 ① LES MÊMES ROUTES QU’AVANT, et ② le cartouche qui se met à jour', () => {
   it('« Classer dans une carte » et « Changer l’affectation » ouvrent le partage sur la RECHERCHE', async () => {
+    sansEncart = true; /* LOT UN-SEUL-BOUTON-RATTACHER — l'ancienne fenêtre, chemin quand l'encart manque. */
     await monter();
     await cliquer(declencheur());
     await cliquer(boutonPar(/^Classer dans une carte$/));
@@ -242,6 +258,7 @@ describe('🔴 ① LES MÊMES ROUTES QU’AVANT, et ② le cartouche qui se met 
    * événement » ne disparaît pas, il déménage, et son garde avec lui (`VisualiserUnifie.test.tsx`, bloc ④).
    */
   it('« Créer un événement » n’ouvre plus le partage : il ouvre le formulaire DANS la fenêtre', async () => {
+    sansEncart = true; /* LOT UN-SEUL-BOUTON-RATTACHER — l'ancienne fenêtre, chemin quand l'encart manque. */
     await monter();
     await cliquer(declencheur());
     await cliquer(boutonPar(/^Créer un événement$/));
@@ -252,6 +269,7 @@ describe('🔴 ① LES MÊMES ROUTES QU’AVANT, et ② le cartouche qui se met 
   });
 
   it('🔴 « Classer sans suite » appelle POST /sans-suite, et le cartouche devient « Sans suite »', async () => {
+    sansEncart = true; /* LOT UN-SEUL-BOUTON-RATTACHER — l'ancienne fenêtre, chemin quand l'encart manque. */
     await monter();
     await cliquer(declencheur());
     await cliquer(boutonPar(/^Classer sans suite$/));
@@ -269,6 +287,7 @@ describe('🔴 ① LES MÊMES ROUTES QU’AVANT, et ② le cartouche qui se met 
   });
 
   it('sans écran parent, « Classer » retombe sur le panneau EN PLACE — le comportement d’avant', async () => {
+    sansEncart = true; /* LOT UN-SEUL-BOUTON-RATTACHER — l'ancienne fenêtre, chemin quand l'encart manque. */
     await monter({ onClassement: undefined });
     await cliquer(declencheur());
     await cliquer(boutonPar(/^Classer dans une carte$/));
@@ -341,23 +360,33 @@ describe('🔴 LOT BARRE-STATUT — « Visualiser / Modifier » dans l’en-têt
     expect(cartouche()?.textContent).toBe('Événement : aucun');
   });
 
-  it('une PROPOSITION ne suffit pas : le lien reste « Classer »', async () => {
+  /* 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER (accord d'Arno) — un mail « À classer » dont l'encart est là n'a plus de lien
+     « Classer » : « Rattacher à un logement » est le seul point d'entrée. Une proposition ne le rend pas vert pour
+     autant : il n'y a tout simplement plus de lien. */
+  it('une PROPOSITION ne suffit pas : pas de « Visualiser / Modifier » — et plus de « Classer », l’encart le remplace', async () => {
     liensParMessage = { '900': [lien({ statut: 'propose' })] };
     await monter();
-    expect(declencheur()?.textContent).toBe('Classer');
+    expect(declencheur()).toBeNull();
+    expect(container.querySelector('.ccl-case--rouge')).not.toBeNull();
   });
 
   /** Un rattachement vers un ÉVÉNEMENT n'est pas la question posée ici : c'est celle du cartouche. */
-  it('un rattachement vers un ÉVÉNEMENT ne rend pas le lien vert', async () => {
+  it('un rattachement vers un ÉVÉNEMENT ne rend pas le lien vert (et le mail reste « À classer », par l’encart)', async () => {
     liensParMessage = { '900': [lien({ cible: { sorte: 'evenement', cle: 'ev-3', id: 3 } })] };
     await monter();
-    expect(declencheur()?.textContent).toBe('Classer');
+    expect(declencheur()?.textContent ?? null).not.toBe('Visualiser / Modifier');
+    expect(container.querySelector('.ccl-case--rouge')).not.toBeNull();
   });
 
-  it('aucun rattachement : le lien d’avant, inchangé', async () => {
+  it('aucun rattachement : sans encart, le lien d’avant, inchangé ; avec l’encart, plus de « Classer »', async () => {
+    sansEncart = true;
     await monter();
     expect(declencheur()?.textContent).toBe('Classer');
     expect(declencheur()?.className).not.toContain('--vert');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    sansEncart = false;
+    await monter();
+    expect(declencheur()).toBeNull();
   });
 
   it('🔴 le clic ouvre la FENÊTRE des rattachements, pas le menu de classement', async () => {
@@ -969,5 +998,55 @@ describe('🔴 B2/B4 — le cartouche suit l’événement du mail, la capsule n
     filCourant = FIL({ reference: 'GES-2026-000001', evenementId: 1, evenementObjet: 'Une carte' });
     await monter();
     expect(capsule()?.textContent).toBe('À classer');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER (décision d'Arno, option 1) — UN SEUL POINT D'ENTRÉE ══════════════════════════════
+ *
+ * Sur un mail « À classer » dont l'encart est là, le lien « Classer » de l'en-tête est retiré, et la fenêtre de
+ * « Rattacher à un logement » porte TOUT ce qu'il offrait : le suivi (dont « Ce mail uniquement »), « Classer dans
+ * une carte », « Classer sans suite », et l'événement en lecture. La pastille « À classer » et « Interne » restent.
+ * 🔒 `fetch` simulé : rien n'est écrit, sauf le POST /sans-suite que l'épreuve déclenche exprès, capturé.
+ */
+describe('🔴🔴 UN SEUL POINT D’ENTRÉE — « Rattacher à un logement »', () => {
+  const ouvrirRattacher = async () => {
+    await cliquer(container.querySelector('.ccl-case--rouge'));
+    for (let i = 0; i < 6; i++) await calmer();
+  };
+  it('l’en-tête n’a plus « Classer » ; la pastille et « Interne » restent', async () => {
+    await monter();
+    expect(declencheur()).toBeNull();
+    expect(container.querySelector('.ccl-case--rouge')?.textContent).toBe('Rattacherà un logement');
+    expect(container.querySelector('.ccl-case--blanche')?.textContent).toContain('Interne');
+  });
+  it('chaque geste de l’ancien « Classer » est accessible depuis « Rattacher »', async () => {
+    await monter();
+    await ouvrirRattacher();
+    /* Le suivi, même au premier classement : les trois choix, dont « Ce mail uniquement » ; le défaut d'avant. */
+    const choix = [...container.querySelectorAll('.ert-portee .ert-suivi-mot')].map((e) => e.textContent);
+    expect(choix).toEqual(['Ce mail uniquement', 'Ce mail et la conversation à venir', 'Toute la conversation']);
+    const coche = container.querySelector('.ert-portee input:checked')?.closest('label')?.querySelector('.ert-suivi-mot')?.textContent;
+    expect(coche).toBe('Ce mail et la conversation à venir');
+    /* Les deux gestes du pied, à côté de « Hors gestion, ou classer par pièce… ». */
+    const pied = [...container.querySelectorAll('.ert-pied-gestes button')].map((b) => b.textContent);
+    expect(pied).toEqual(['Hors gestion, ou classer par pièce…', 'Classer dans une carte', 'Classer sans suite']);
+    /* L'événement, en lecture, avec le renvoi vers les gestes sous l'en-tête. */
+    expect(container.querySelector('.eer .eer-titre')?.textContent).toContain('Événement rattaché');
+    expect(container.querySelector('.eer-renvoi')?.textContent).toContain('« Lier à un événement » ou « Créer un événement »');
+    expect(appels.filter((a) => a.methode !== 'GET' && !a.url.endsWith('/lecture'))).toEqual([]);
+  });
+  it('« Classer dans une carte » : le même geste que l’ancien pied (ouvre le partage sur la recherche)', async () => {
+    await monter();
+    await ouvrirRattacher();
+    await cliquer(boutonPar(/^Classer dans une carte$/));
+    expect(classements).toEqual(['existant']);
+  });
+  it('« Classer sans suite » : la même route, et le cartouche devient « Sans suite »', async () => {
+    await monter();
+    await ouvrirRattacher();
+    await cliquer(boutonPar(/^Classer sans suite$/));
+    expect(appels).toContainEqual({ url: '/api/admin/gestion/fils/101/sans-suite', methode: 'POST' });
+    expect(cartouche()?.textContent).toBe('Sans suite');
   });
 });

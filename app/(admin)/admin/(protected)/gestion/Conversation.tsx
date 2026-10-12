@@ -2966,6 +2966,9 @@ export function MessageConversation({
    * « comme aucun bien n'est rattaché » : les deux questions coïncident sur ce mail-là.
    */
   const classeParLaFenetre = !visualisable && filId !== null && statut?.sorte === 'a_classer';
+  /** 🔴 LOT UN-SEUL-BOUTON-RATTACHER — l'encart (et son « Rattacher à un logement ») est-il là ? Mêmes conditions que
+      son montage et que son propre `if (liens === null) return null`. */
+  const encartRattacherVisible = onRattachement !== undefined && rattachements !== null;
   const hors = mentionHorsFile(message);
   // LOT ENVOI-DIAG — ce message n'est pas arrivé. Rien de plus important à dire sur un message, donc rien au-dessus.
   const echec = mentionNonRemise(message);
@@ -3257,7 +3260,13 @@ export function MessageConversation({
             système d'événements n'est retiré — ses gestes restent derrière le même bouton qu'avant. */}
         {statut && (
           <CartoucheStatut statut={statut} ouvert={actions}
-            declencheur={visualisable ? 'Visualiser / Modifier' : propositions.declencheur}
+            /* 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER (accord d'Arno) — sur un mail « À classer » dont l'encart est là, le lien
+               rouge « Classer » est retiré : « Rattacher à un logement » est le seul point d'entrée, et sa fenêtre
+               reprend tout ce que « Classer » offrait (suivi, « Classer dans une carte », « Classer sans suite »,
+               l'événement en lecture). Sans encart (`onRattachement` absent, ou rattachements illisibles — l'encart se
+               masque alors lui-même), « Classer » reste, inchangé : on ne retire pas un chemin sans son remplaçant. */
+            declencheur={visualisable ? 'Visualiser / Modifier'
+              : (classeParLaFenetre && encartRattacherVisible ? null : propositions.declencheur)}
             vert={visualisable}
             onBasculer={visualisable || classeParLaFenetre
               ? () => setVoirRattachements(true)
@@ -3542,6 +3551,14 @@ export function MessageConversation({
                  CHRONOLOGIQUE, et la fenêtre de la case du bandeau (« toute la conversation », son sens depuis
                  toujours). Ils servent à DEMANDER au serveur ce que le geste détacherait. */
               mailsDuFil={mailsDuFil}
+              /* 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER — un mail « À classer » : la fenêtre « Rattacher » reprend les gestes
+                 de l'ancien « Classer » — même filtre, même handler (`onActionStatut`) que le pied de sa fenêtre. */
+              aClasser={classeParLaFenetre}
+              actionsDePied={classeParLaFenetre && onActionStatut !== undefined
+                ? (statut ? actionsDuStatut(statut).actions : [])
+                  .filter((a) => a.cle === 'classer' || a.cle === 'sans_suite')
+                  .map((a) => ({ cle: a.cle, libelle: a.libelle, onChoisir: () => onActionStatut(a.cle) }))
+                : []}
               /* 🔴🔴 POINT 2 — la sortie d'une levée faite dans « Visualiser / Modifier ». Voir son encadré. */
               leveeExterne={leveeAAnnuler}
               onLeveeAnnulee={() => setLeveeAAnnuler(null)}
