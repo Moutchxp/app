@@ -29,6 +29,9 @@ const migration266 = vi.fn(async () => true);
  * ce lot — nommer une colonne absente ferait échouer TOUTE la lecture.
  */
 const migration275 = vi.fn(async () => true);
+/* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — par défaut ABSENTES, comme avant ce lot : les épreuves d'avant tiennent. */
+const migration281 = vi.fn(async () => false);
+const migration297 = vi.fn(async () => false);
 vi.mock('./schema', () => ({
   /* 🔴 LOT FENETRES-INDEPENDANTES — le dédoublonnage du compteur passe par le nom d'USAGE : la sonde de la
      migration 286 est donc interrogée ici aussi. ABSENTE ⇒ le fragment rend `nom_fichier`, comme avant. */
@@ -38,7 +41,9 @@ vi.mock('./schema', () => ({
   pieceIntegreeDisponible: async () => false,
   rattachementsDisponibles: () => migration257(), horsGestionDisponible: () => migration266(),
   // 🔴 LOT RATTACHER-EN-ECRIVANT — migration 281 absente : la table n'est nommée nulle part.
-  interneDisponible: async () => false,
+  interneDisponible: () => migration281(),
+  /* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — la marque « Interne » PAR MAIL (migration 297), pilotée par le test. */
+  interneDuMessageDisponible: () => migration297(),
   // 🔴🔴 LOT RECEPTION-UNE-SEULE-SOURCE — la corbeille de Gmail (migration 275).
   corbeilleGmailDisponible: () => migration275(),
 }));
@@ -77,7 +82,8 @@ const paramsPage = () => (appelPage()?.[1] ?? []) as unknown[];
 
 beforeEach(() => {
   migration257.mockResolvedValue(true); migration266.mockResolvedValue(true);
-  migration275.mockResolvedValue(true); rendre([]);
+  migration275.mockResolvedValue(true); migration281.mockResolvedValue(false); migration297.mockResolvedValue(false);
+  rendre([]);
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -348,5 +354,42 @@ describe('le compte des mails reçus', () => {
     queryMock.mockReset();
     queryMock.mockResolvedValue({ rows: [] });
     expect(await compterMailsRecus('tous', true)).toBe(0);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — LA RÉCEPTION LIT LA MARQUE « INTERNE » MAIL PAR MAIL (accord d'Arno)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴🔴 la capsule « Interne » de la réception se lit mail par mail', () => {
+  beforeEach(() => { migration281.mockResolvedValue(true); migration297.mockResolvedValue(true); });
+
+  it('🔴 la requête lit la marque du MAIL (gestion_message_interne) en plus de celle de l’échange', async () => {
+    await lireMailsRecus(null, { limite: 10 });
+    expect(sqlPage()).toContain('FROM gestion_message_interne mi WHERE mi.message_id = m.id');
+    expect(sqlPage()).toContain('itm_vivante');
+  });
+
+  it('🔴 la marque du mail VIVANTE l’emporte : « interne » même sans marque d’échange', async () => {
+    rendre([ligne(1, { itn_marque: false, itm_vivante: true, itm_connue: true })]);
+    const p = await lireMailsRecus(null, { limite: 10 });
+    expect(p.lignes[0].capsule).toBe('interne');
+  });
+
+  it('🔴 une marque du mail RETIRÉE veut dire « non », même si l’échange est marqué', async () => {
+    rendre([ligne(1, { itn_marque: true, itm_vivante: false, itm_connue: true })]);
+    const p = await lireMailsRecus(null, { limite: 10 });
+    expect(p.lignes[0].capsule).toBe('a_classer');
+  });
+
+  it('🔴 sans marque du mail, la marque de l’échange répond (repli)', async () => {
+    rendre([ligne(1, { itn_marque: true, itm_vivante: null, itm_connue: false })]);
+    const p = await lireMailsRecus(null, { limite: 10 });
+    expect(p.lignes[0].capsule).toBe('interne');
+  });
+
+  it('⚠️ sans la migration 297, la table n’est nommée nulle part (lecture de l’échange, comme avant)', async () => {
+    migration297.mockResolvedValue(false);
+    await lireMailsRecus(null, { limite: 10 });
+    expect(sqlPage()).not.toContain('gestion_message_interne');
   });
 });

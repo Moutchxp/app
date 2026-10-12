@@ -4,6 +4,7 @@ import { sqlSansCourrierAutomatique } from './courrierAutomatique';
 import {
   corbeilleGmailDisponible,
   rattachementsDisponibles, horsGestionDisponible, interneDisponible, pieceIntegreeDisponible,
+  interneDuMessageDisponible,
 } from './schema';
 import { sqlEstVraiePiece } from './lisibilite';
 import { sqlNomAffiche } from './nomUsageSql';
@@ -11,6 +12,9 @@ import { sqlCleIdentitePiece } from './piecesConversation';
 import { capsuleDuMessage, sqlSortesBien, type CapsuleStatut } from './statutClassement';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la marque « Interne » de l'ÉCHANGE, par la jointure écrite UNE fois.
 import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
+/* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — la marque « Interne » lue MAIL PAR MAIL, comme la conversation et la boîte. */
+import { sqlColonnesInterneMessage, sqlJointureInterneMessage } from './interneMessageRepo';
+import { interneDuMail } from './interneDuMail';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 
 /**
@@ -118,6 +122,9 @@ interface LigneDB {
   hg_marque: boolean | null;
   /** LOT RATTACHER-EN-ECRIVANT — `null` sans la migration 281 : la table n'est nommée nulle part. */
   itn_marque: boolean | null;
+  /** LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — la marque du MAIL (migration 297) ; `NULL`/`false` sans elle. */
+  itm_vivante: boolean | null;
+  itm_connue: boolean;
   hg_motif: string | null;
 }
 
@@ -237,6 +244,8 @@ export async function lireMailsRecus(
   const avecHg = await horsGestionDisponible();
   // 🔴 LOT RATTACHER-EN-ECRIVANT — même patron : sans la 281, la table n'est nommée nulle part.
   const avecItn = await interneDisponible();
+  /* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — même patron : sans la 297, la table n'est nommée nulle part. */
+  const avecItm = await interneDuMessageDisponible();
   const filtre = o.filtre ?? 'tous';
   /* 🔴🔴 POINT 8 — LE MÊME MOT QUE LA BOÎTE (`tous`), pour que les deux lectures se relisent l'une l'autre. */
   const tous = o.inclureAutomatiques === true;
@@ -255,11 +264,13 @@ export async function lireMailsRecus(
               WHERE p.message_id = m.id AND ${sqlEstVraiePiece('p', avecPieceIntegree)})::int AS nb_pieces,
             ${avec ? 'rb.biens AS r_biens, rb.manuel AS r_manuel' : 'NULL::text[] AS r_biens, NULL::boolean AS r_manuel'},
             ${avecHg ? 'hg.marque AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'},
-            ${sqlColonneInterne(avecItn)}
+            ${sqlColonneInterne(avecItn)},
+            ${sqlColonnesInterneMessage(avecItm)}
        FROM gestion_message m
        ${jointureRattachements(avec)}
        ${jointureHorsGestion(avecHg)}
        ${sqlJointureInterne(avecItn, 'm')}
+       ${sqlJointureInterneMessage(avecItm, 'm.id')}
       WHERE m.sens = 'recu'
         AND m.spam_le IS NULL
         ${sqlHorsCorbeille(avecCorbeille)}
@@ -293,7 +304,13 @@ export async function lireMailsRecus(
          * qui arrive ICI (cette colonne est la Réception), porte la capsule verte au lieu de « À classer » —
          * le défaut exact qu'Arno a constaté.
          */
-        r.itn_marque === true);
+        /* 🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT (accord d'Arno) — MAIL PAR MAIL, par la règle pure `interneDuMail` :
+           la marque du mail l'emporte, une marque du mail retirée veut dire « non », sinon la marque de l'échange. */
+        interneDuMail({
+          marqueDuMailVivante: r.itm_vivante === true,
+          marqueDuMailConnue: r.itm_connue === true,
+          marqueDeLEchange: r.itn_marque === true,
+        }));
       return {
         // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans cette conversion, les clés React et les comparaisons mentiraient.
         messageId: Number(r.message_id),

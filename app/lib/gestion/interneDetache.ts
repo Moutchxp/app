@@ -61,6 +61,19 @@ export const SECONDES_ANNULER = 12;
  */
 export interface BienDetache { lienId: number; libelle: string; messageId?: number | null; recuLe?: string | null }
 
+/**
+ * ══ 🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — LE PREMIER MAIL D'UNE CONVERSATION. PUR. ══════════════════════════════
+ * `mails` est dans l'ordre CHRONOLOGIQUE. Vide (conversation inconnue) ⇒ on le tient pour premier : la portée ne
+ * couvre alors que lui, et rien ne remonte dans le passé.
+ */
+export function estPremierMail(messageId: number, mails: readonly number[]): boolean {
+  return mails.length === 0 || mails[0] === messageId;
+}
+
+/** Le bandeau du premier mail marqué directement (Arno) : « Conversation marquée Interne — Annuler », 10 secondes. */
+export const MOT_BANDEAU_DIRECT = 'Conversation marquée Interne';
+export const SECONDES_BANDEAU_DIRECT = 10;
+
 /** La portée du marquage, dite en une phrase (texte d'explication sous la glissière du panneau « Interne »). PUR. */
 export function phrasePorteeInterne(choix: 'mail' | 'suite' | 'conversation'): string {
   if (choix === 'mail') return 'Ce mail sera marqué Interne. Les autres mails de la conversation ne changent pas.';

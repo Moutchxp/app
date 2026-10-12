@@ -221,11 +221,14 @@ describe('🔴🔴 ⑤ l’écran : demander avant, offrir la sortie après', ()
    * conditionnerait une fonction existante à une requête nouvelle. La confirmation est une précaution, pas un
    * péage — et c'est pourquoi `null` et « liste vide » mènent à la même ligne.
    */
-  it('🔴🔴 sans bien rattaché — ou sans aperçu — le geste est exactement celui d’avant', () => {
-    expect(ENC).toContain(
-      'if (biens === null || biens.length === 0) { await appliquerInterne(choixInterne, []); return; }',
-    );
-    expect(ENC).toContain('setDemandeInterne({ choix: choixInterne, biens });');
+  /* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — la règle d'Arno : milieu de conversation ⇒ toujours le panneau ; premier
+     mail sans bien (ou sans aperçu) ⇒ marquage direct en « suite », puis le bandeau « Annuler ». Le parcours monté est
+     éprouvé par `InterneVersLAvant.test.ts`. */
+  it('🔴🔴 premier mail sans bien rattaché — ou sans aperçu — : marquage direct, puis le bandeau « Annuler »', () => {
+    expect(ENC).toContain('if (!estPremierMail(messageId, mailsDuFil)) {');
+    expect(ENC).toContain('setDemandeInterne({ choix: choixInterne, biens: biens ?? [] });');
+    expect(ENC).toContain("await appliquerInterne('suite', []);\n        setMarqueDirecte(true);");
+    expect(ENC).toContain("setDemandeInterne({ choix: 'suite', biens, unique: true });");
   });
 
   /**

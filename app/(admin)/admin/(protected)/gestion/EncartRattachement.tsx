@@ -10,6 +10,8 @@ import {
   motApresDetachement, SECONDES_ANNULER, type BienDetache,
   /* 🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — le texte vrai, mail par mail, et la phrase de portée. */
   phrasePorteeInterne, phrasesDetachement,
+  /* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — le premier mail, et son bandeau « Annuler » de 10 s. */
+  estPremierMail, MOT_BANDEAU_DIRECT, SECONDES_BANDEAU_DIRECT,
 } from '../../../../lib/gestion/interneDetache';
 /**
  * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS : les mots de « Ce mail est marqué Interne : rattacher
@@ -151,7 +153,7 @@ interface ArgumentsClassement {
 
 export function EncartRattachement({
   messageId, filId, liens, interne = null, horsGestion = false, onInterne, onHorsGestion,
-  onChange, onGeste, onHistorique, mailsDuFil = [], choixInterne = 'conversation', leveeExterne = null,
+  onChange, onGeste, onHistorique, mailsDuFil = [], choixInterne = 'suite', leveeExterne = null,
   onLeveeAnnulee, jourDuMail = null, aClasser = false, actionsDePied = [],
 }: {
   /**
@@ -211,6 +213,11 @@ export function EncartRattachement({
    * ⚠️ VIDE ⇒ L'APERÇU NE PORTE QUE SUR CE MAIL, et le geste reste celui d'avant. On ne devine pas une portée.
    */
   mailsDuFil?: readonly number[];
+  /**
+   * 🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — RÈGLE D'ARNO : « on ne remonte jamais dans le passé par défaut ». La
+   * position par défaut du panneau « Interne » est « Ce mail + futurs échanges » (`suite`), partout. Les mails plus
+   * anciens ne sont touchés que si l'on choisit soi-même « Toute la conversation ».
+   */
   choixInterne?: ChoixInterne;
   /**
    * ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'« ANNULER » D'UNE LEVÉE FAITE AILLEURS ═══════════════════
@@ -463,9 +470,24 @@ export function EncartRattachement({
    * elle, peut couvrir toute la conversation — donc des mails dont il n'a pas les liens. Une confirmation qui ne
    * nommerait que ce qu'il voit promettrait moins qu'elle ne fait.
    */
-  const [demandeInterne, setDemandeInterne] = useState<{ choix: ChoixInterne; biens: BienDetache[] } | null>(null);
+  /* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — `unique` : premier mail, une seule portée possible ⇒ pas de glissière. */
+  const [demandeInterne, setDemandeInterne] = useState<{
+    choix: ChoixInterne; biens: BienDetache[]; unique?: boolean;
+  } | null>(null);
   const [detachesInterne, setDetachesInterne] = useState<BienDetache[] | null>(null);
   const [occupeInterne, setOccupeInterne] = useState(false);
+  /**
+   * 🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — LA PORTÉE DU DERNIER MARQUAGE, pour que « Annuler » défasse EXACTEMENT ce
+   * marquage-là (même fenêtre de mails), et le bandeau « Conversation marquée Interne — Annuler » (10 s) du premier mail
+   * marqué directement, sans panneau.
+   */
+  const choixDuMarquage = useRef<ChoixInterne>('suite');
+  const [marqueDirecte, setMarqueDirecte] = useState(false);
+  useEffect(() => {
+    if (!marqueDirecte) return undefined;
+    const t = setTimeout(() => setMarqueDirecte(false), SECONDES_BANDEAU_DIRECT * 1000);
+    return () => clearTimeout(t);
+  }, [marqueDirecte]);
 
   /** L'« Annuler » ne reste offert que quelques secondes : passé ce délai, le geste est acquis. */
   useEffect(() => {
@@ -940,14 +962,34 @@ export function EncartRattachement({
     } catch { return null; }
   };
 
+  /**
+   * ══ 🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — LE CLIC SUR « INTERNE », SELON LA PLACE DU MAIL (règle d'Arno) ══════
+   *
+   *   · MAIL EN MILIEU DE CONVERSATION (au moins un mail plus ancien) : TOUJOURS le panneau, glissière sur « Ce mail +
+   *     futurs échanges », avec le texte vrai mail par mail. On ne remonte jamais dans le passé par défaut.
+   *   · PREMIER MAIL : la portée est forcée (« Ce mail + futurs échanges » = toute la conversation). Rien à retirer ⇒
+   *     marquage direct, puis le bandeau « Conversation marquée Interne — Annuler » (10 s). Au moins un bien retiré
+   *     du suivi d'un mail suivant ⇒ le panneau quand même, SANS glissière, avec la liste exacte, Confirmer / Annuler.
+   *
+   * ⚠️ `mailsDuFil` VIDE (conversation inconnue) se lit comme un premier mail : la portée ne couvre alors que lui.
+   * ⚠️ APERÇU EN ÉCHEC (`null`) au premier mail ⇒ on marque quand même : la confirmation est une précaution, pas un péage.
+   */
   const cliquerInterne = async (): Promise<void> => {
     if (onInterne === undefined) return;
     setOccupeInterne(true);
     try {
-      const biens = await apercuDetachement(choixInterne);
-      /* ⚠️ APERÇU EN ÉCHEC (`null`) ⇒ ON MARQUE QUAND MÊME : la confirmation est une précaution, pas un péage. */
-      if (biens === null || biens.length === 0) { await appliquerInterne(choixInterne, []); return; }
-      setDemandeInterne({ choix: choixInterne, biens });
+      if (!estPremierMail(messageId, mailsDuFil)) {
+        const biens = await apercuDetachement(choixInterne);
+        setDemandeInterne({ choix: choixInterne, biens: biens ?? [] });
+        return;
+      }
+      const biens = await apercuDetachement('suite');
+      if (biens === null || biens.length === 0) {
+        await appliquerInterne('suite', []);
+        setMarqueDirecte(true);
+        return;
+      }
+      setDemandeInterne({ choix: 'suite', biens, unique: true });
     } finally {
       setOccupeInterne(false);
     }
@@ -983,6 +1025,8 @@ export function EncartRattachement({
     choix: ChoixInterne, annonces: readonly BienDetache[],
   ): Promise<void> => {
     setDemandeInterne(null);
+    setMarqueDirecte(false);
+    choixDuMarquage.current = choix;
     setOccupeInterne(true);
     try {
       const faits = await onInterne?.(true, undefined, choix);
@@ -1002,7 +1046,8 @@ export function EncartRattachement({
     setDetachesInterne(null);
     setOccupeInterne(true);
     try {
-      await onInterne?.(false, liste.map((b) => b.lienId));
+      /* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — la MÊME portée que le marquage : on défait ce geste-là, pas plus. */
+      await onInterne?.(false, liste.map((b) => b.lienId), choixDuMarquage.current);
       annoncerClassement({ messageId, filId: filId ?? null });
     } finally {
       setOccupeInterne(false);
@@ -1316,12 +1361,23 @@ export function EncartRattachement({
               conversation —, libellés centrés, texte d'explication dessous, MÊMES EFFETS : la position choisie est la
               fenêtre d'avant (`mail`, `suite`, `conversation`), envoyée par le même geste. Position par défaut
               inchangée : celle que l'encart reçoit (`choixInterne`, « Toute la conversation » par défaut). */}
-          <p className="ert-interne-mot">Jusqu’où ce marquage porte-t-il ?</p>
-          <style>{CSS_GLISSIERE_PORTEE}</style>
-          <GlissierePortee position={positionDuChoixInterne(demandeInterne.choix)} modification
-            positions={POSITIONS_INTERNE} libelleGroupe="Portée du marquage" desactivee={occupeInterne}
-            onChoisir={(p) => { void changerFenetreInterne(choixDeLaPositionInterne(p)); }} />
-          <p className="ert-interne-portee" role="note">{phrasePorteeInterne(demandeInterne.choix)}</p>
+          {/* 🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — PREMIER MAIL : une seule portée possible (toute la conversation),
+              donc PAS de glissière ; le panneau ne s'ouvre que parce qu'un bien sortirait du suivi d'un mail suivant. */}
+          {demandeInterne.unique === true ? (
+            <>
+              <p className="ert-interne-mot">Marquer cette conversation « Interne » ?</p>
+              <p className="ert-interne-portee" role="note">{phrasePorteeInterne('conversation')}</p>
+            </>
+          ) : (
+            <>
+              <p className="ert-interne-mot">Jusqu’où ce marquage porte-t-il ?</p>
+              <style>{CSS_GLISSIERE_PORTEE}</style>
+              <GlissierePortee position={positionDuChoixInterne(demandeInterne.choix)} modification
+                positions={POSITIONS_INTERNE} libelleGroupe="Portée du marquage" desactivee={occupeInterne}
+                onChoisir={(p) => { void changerFenetreInterne(choixDeLaPositionInterne(p)); }} />
+              <p className="ert-interne-portee" role="note">{phrasePorteeInterne(demandeInterne.choix)}</p>
+            </>
+          )}
           {/* 🔴🔴 LE TEXTE DIT LA VÉRITÉ, MAIL PAR MAIL (Arno) : jamais « Sortir CE mail du suivi de X » quand X est porté
               par un AUTRE mail de la conversation. Il suit la position, en direct (la liste est redemandée au serveur). */}
           <ul className="ert-interne-liste ert-interne-verite">
@@ -1348,6 +1404,28 @@ export function EncartRattachement({
 
       {/* 🔴 APRÈS LE GESTE : le compte rendu, et la sortie — quelques secondes, puis elle s'efface d'elle-même.
           Un « Annuler » qui resterait indéfiniment ferait croire que le geste n'est jamais acquis. */}
+      {/* ══ 🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — PREMIER MAIL MARQUÉ DIRECTEMENT : le bandeau de 10 s ══════════
+          « Conversation marquée Interne — Annuler » (Arno). « Annuler » défait ce marquage, par la même porte et avec
+          la même portée : la marque de l'échange et celles des mails couverts sont retirées (datées, jamais effacées). */}
+      {marqueDirecte && (
+        <div className="ert-interne-panneau ert-interne-panneau--fait ert-interne-direct" role="status">
+          <p className="ert-interne-mot">
+            {MOT_BANDEAU_DIRECT} —{' '}
+            <button type="button" className="gst-lien-bouton" disabled={occupeInterne}
+              onClick={() => { void (async () => {
+                setMarqueDirecte(false);
+                setOccupeInterne(true);
+                try {
+                  await onInterne?.(false, [], choixDuMarquage.current);
+                  annoncerClassement({ messageId, filId: filId ?? null });
+                } finally { setOccupeInterne(false); }
+              })(); }}>
+              Annuler
+            </button>
+          </p>
+        </div>
+      )}
+
       {detachesInterne !== null && (
         <div className="ert-interne-panneau ert-interne-panneau--fait" role="status">
           <p className="ert-interne-mot">{motApresDetachement(detachesInterne.length)}</p>

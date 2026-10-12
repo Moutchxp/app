@@ -657,7 +657,7 @@ function sqlEtiquette(
    * `gestion_hors_gestion` ou `gestion_fil_interne` ferait échouer TOUTE la requête de la boîte — pas seulement ce
    * dossier. C'est la règle du module, et elle a déjà coûté une fois (les compteurs disparus du 27/09/2026).
    */
-  sondes?: { rattachements?: boolean; horsGestion?: boolean; interne?: boolean },
+  sondes?: { rattachements?: boolean; horsGestion?: boolean; interne?: boolean; interneMessage?: boolean },
 ): string {
   switch (e.sorte) {
     /**
@@ -740,10 +740,19 @@ function sqlEtiquette(
                 SELECT 1 FROM gestion_rattachement r0
                  WHERE r0.message_id = m.id AND r0.statut = 'confirme'
                    AND r0.cible_sorte IN (${sqlSortesBien()}))`;
-      const sansInterne = sondes?.interne !== true ? '' : `
-          AND NOT EXISTS (
+      /* 🔴🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT (accord d'Arno) — la marque « Interne » se lit MAIL PAR MAIL, comme la
+         pastille de la conversation et des lignes (règle pure `interneDuMail`) : une marque du mail, vivante, l'emporte ;
+         une marque du mail RETIRÉE veut dire « non » ; sinon, et seulement sinon, la marque de l'échange répond.
+         Sans la migration 297, la lecture reste celle de l'échange, au caractère près. */
+      const marqueEchange = `EXISTS (
                 SELECT 1 FROM gestion_fil_interne i0
                  WHERE i0.fil_id = m.fil_id AND i0.retire_le IS NULL)`;
+      const sansInterne = sondes?.interne !== true ? '' : sondes?.interneMessage === true ? `
+          AND NOT COALESCE((
+                SELECT (mi0.retire_le IS NULL) FROM gestion_message_interne mi0
+                 WHERE mi0.message_id = m.id
+                 ORDER BY mi0.pose_le DESC, mi0.id DESC LIMIT 1), ${marqueEchange})` : `
+          AND NOT ${marqueEchange}`;
       const sansHorsGestion = sondes?.horsGestion !== true ? '' : `
           AND NOT EXISTS (
                 SELECT 1 FROM gestion_hors_gestion h0
@@ -817,7 +826,7 @@ function predicatsBoite(
   rangFilsRetenus: number | null, etoilesSeules: boolean, rangAdresseGestion: number | null,
   etoileGmail: boolean, rangEtiquette: number,
   /** 🔴🔴 LOT DOSSIER-A-CLASSER — les trois sondes dont le seul dossier « À classer » a besoin. */
-  sondes?: { rattachements?: boolean; horsGestion?: boolean; interne?: boolean },
+  sondes?: { rattachements?: boolean; horsGestion?: boolean; interne?: boolean; interneMessage?: boolean },
 ): {
   sens: 'recu' | 'envoye' | null; montreLaCorbeille: boolean;
   filtreM: string; filtreM2: string; filtreEtiquette: string;
@@ -973,7 +982,7 @@ export function sqlPageBoite(
     sens, montreLaCorbeille, filtreM, filtreM2, filtreEtiquette, filtreSensM, filtreSensM2,
     filtreCorbeille, filtreCorbeilleM2, filtreSpamM, filtreSpamM2, filtreRetenus, filtreEtoile,
   } = predicatsBoite(inclureAutomatiques, etiquette, corbeille, spam, rangFilsRetenus, etoilesSeules,
-    rangAdresseGestion, etoileGmail, 4, { rattachements, horsGestion, interne });
+    rangAdresseGestion, etoileGmail, 4, { rattachements, horsGestion, interne, interneMessage });
   /**
    * L'INTERLOCUTEUR SUIT LE MESSAGE AFFICHÉ, et il ne peut plus en être autrement.
    *
@@ -1133,12 +1142,14 @@ export function sqlCompteBoite(
    * étiquettes : les épreuves qui figent la forme du SQL tiennent sans être réécrites.
    */
   rattachements = false, horsGestion = false, interne = false,
+  /** 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — la marque « Interne » par mail (migration 297), comme la page. */
+  interneMessage = false,
 ): string {
   const {
     filtreM, filtreM2, filtreEtiquette, filtreSensM, filtreSensM2,
     filtreCorbeille, filtreCorbeilleM2, filtreSpamM, filtreSpamM2, filtreRetenus, filtreEtoile,
   } = predicatsBoite(inclureAutomatiques, etiquette, corbeille, spam, rangFilsRetenus, etoilesSeules,
-    rangAdresseGestion, etoileGmail, rangEtiquette, { rattachements, horsGestion, interne });
+    rangAdresseGestion, etoileGmail, rangEtiquette, { rattachements, horsGestion, interne, interneMessage });
   return `SELECT count(*)::int AS n
        FROM gestion_message m
       WHERE true
@@ -1275,7 +1286,8 @@ export async function lireBoiteMail(
     // 🔴🔴 LOT DOSSIER-A-CLASSER — LES MÊMES SONDES QUE LA PAGE, et c'est obligatoire : le compte doit poser le
     //   MÊME prédicat, sinon la barre annoncerait « 1–25 sur N » pour une liste qui n'en montre pas N.
     sqlCompteBoite(tous, etiquette, corbeille, spam, rangRetenusCompte, options.etoilesSeules === true,
-      rangAdresseCompte, etoileGmail, 1, rattachements, horsGestion, interne),
+      rangAdresseCompte, etoileGmail, 1, rattachements, horsGestion, interne,
+          await interneDuMessageDisponible()),
     [...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
       ...(retenus === undefined ? [] : [[...retenus]])],
   )).rows[0]?.n ?? 0;
@@ -1316,7 +1328,8 @@ export async function lireBoiteMail(
     try {
       const compte = async (avecAuto: boolean): Promise<number> => (await query<{ n: number }>(
         sqlCompteBoite(avecAuto, etiquette, corbeille, spam, rangRetenusCompte, options.etoilesSeules === true,
-          rangAdresseCompte, etoileGmail, 1, rattachements, horsGestion, interne),
+          rangAdresseCompte, etoileGmail, 1, rattachements, horsGestion, interne,
+          await interneDuMessageDisponible()),
         [...paramsEtiquette, ...(adresseGestion === null ? [] : [adresseGestion]),
           ...(retenus === undefined ? [] : [[...retenus]])],
       )).rows[0]?.n ?? 0;
@@ -1862,12 +1875,12 @@ export async function comptesBoite(): Promise<{
    */
   const aClasser = await (async (): Promise<number> => {
     try {
-      const [rattachements, horsGestion, interne] = await Promise.all([
-        rattachementsDisponibles(), horsGestionDisponible(), interneDisponible(),
+      const [rattachements, horsGestion, interne, interneMessage] = await Promise.all([
+        rattachementsDisponibles(), horsGestionDisponible(), interneDisponible(), interneDuMessageDisponible(),
       ]);
       const { rows: r2 } = await query<{ n: number }>(
         sqlCompteBoite(false, { sorte: 'a_classer_statut', evenementId: null }, corbeille, spam,
-          null, false, null, false, 1, rattachements, horsGestion, interne), []);
+          null, false, null, false, 1, rattachements, horsGestion, interne, interneMessage), []);
       return r2[0]?.n ?? 0;
     } catch (e) {
       console.error('[gestion/boite] compte « À classer » illisible', e);
