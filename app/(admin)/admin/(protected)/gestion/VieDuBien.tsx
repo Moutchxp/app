@@ -571,55 +571,8 @@ export function LigneVie({
               * ⚠️ RIEN N'EST RETIRÉ NI CHANGÉ DANS LES ÉTIQUETTES : mêmes conditions, mêmes mots, mêmes
               * couleurs, mêmes info-bulles. Seul leur conteneur est neuf.
               */}
-            <span className="vdb-marques">
-            {/**
-              * ══ 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 1 — LE TROMBONE OUVRE LE GROUPE ════════════════
-              *
-              * ARNO : « “📎1” · “Auto” · “Événement en cours” · date. Le trombone et son chiffre passent juste à
-              * gauche de la capsule verte “Auto” (ou de la première étiquette présente s'il n'y a pas “Auto”). »
-              *
-              * 🔴 « OU DE LA PREMIÈRE ÉTIQUETTE PRÉSENTE » EST GRATUIT ICI, et c'est pour cela qu'il n'y a aucune
-              * condition à écrire : les trois étiquettes sont des frères dans le même conteneur, chacune rendue
-              * SEULEMENT si elle a lieu d'être. Le trombone posé en premier se retrouve donc collé à celle qui
-              * suit, quelle qu'elle soit — et seul, s'il n'y en a aucune.
-              *
-              * 🔴 LES DEUX AUTRES LISTES L'AVAIENT DÉJÀ : `BoiteReception` et `Conversation` montrent
-              * « 📎 n » puis la capsule (lots LISTE-GMAIL et FIL-APERCU-MINIATURES). Cette rangée-ci était la
-              * dernière à l'écrire dans l'autre sens ; elle rejoint les deux autres, elle n'invente rien.
-              *
-              * ⚠️ LA LIGNE REPLIÉE ET LA LIGNE DÉPLIÉE SONT LA MÊME : cet en-tête (`vdb-haut`) est rendu dans les
-              * deux cas — le dépliage n'ajoute que `vdb-detail` en dessous. Un seul déplacement sert les deux.
-              *
-              * ⚠️ RIEN N'EST RETIRÉ NI CONDITIONNÉ : mêmes conditions d'affichage, mêmes mots, mêmes info-bulles,
-              * mêmes couleurs. Seul l'ordre des frères change.
-              */}
-            {motDuTrombone !== null && (
-              <span className="vdb-trombone" title={motDuTrombone} aria-label={motDuTrombone}>
-                <span aria-hidden="true">📎</span>{vraies.length}
-              </span>
-            )}
-            {l.statut !== null && (
-              <span className={`vdb-capsule vdb-capsule--${tonCapsule(l.statut as CapsuleStatut)}`}
-                title={l.statutDetail ?? undefined}>
-                {motCapsule(l.statut as CapsuleStatut)}
-              </span>
-            )}
-            {/**
-              * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LE MOT VIENT DU MODULE PUR, ET N'EST PLUS ÉCRIT ICI.
-              *
-              * La capsule ne change ni de place ni de couleur : elle reste juste après celle de statut, dans la
-              * paire AMBRE qu'Arno appelle « orange » et qui porte déjà « événement en cours » sur cette fiche.
-              *
-              * ⚠️ SON MOT, LUI, CHANGE — « Événement ouvert » devient « Événement en cours ». C'est demandé, et
-              * c'est celui de la bande de l'en-tête : une même chose dite de deux façons sur un même écran se lit
-              * comme deux choses. Les trois autres écrans du lot lisent la MÊME fonction.
-              */}
-            {motEvenementEnCours(ouverts.length) !== null && (
-              <span className="vdb-capsule vdb-capsule--evt">{motEvenementEnCours(ouverts.length)}</span>
-            )}
-            </span>
-            <DateEtBiens messageId={l.messageId}
-              date={<span className="vdb-quand">{dateHeureCourte(l.recuLe, maintenant)}</span>} />
+            {/* 🔴 LOT LIGNE-DE-MAIL-BOUTONS-A-GAUCHE-DATE-A-DROITE — les étiquettes et la date sont sorties de ce bouton :
+                elles vivent dans `.vdb-cote`, voisin APRÈS les deux boutons, collé au bord droit (voir plus bas). */}
           </span>
           <span className="vdb-objet">Objet : {nettoyerObjet(l.objet ?? '') || '(sans objet)'}</span>
           {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — « pour MARTY Jean-François (locataire sortant) · via Me Martin, avocat »
@@ -678,6 +631,12 @@ export function LigneVie({
             </span>
           )}
         </button>
+        {/* ══ 🔴🔴 LOT LIGNE-DE-MAIL-BOUTONS-A-GAUCHE-DATE-A-DROITE ══════════════════════════════════════════════
+            Arno : sur une ligne DÉPLIÉE, [Sortir du suivi] [Modifier le rattachement] PUIS [Auto] [Événement en cours]
+            [date + « N biens rattachés »] — le groupe date / étiquettes reste collé au bord droit, exactement où il
+            est sur une ligne REPLIÉE : la date ne saute plus quand on déplie. Les boutons et ce groupe sont réunis
+            dans `.vdb-droite` (qui passe à la ligne sur téléphone : les boutons au-dessus du groupe). */}
+        <span className="vdb-droite">
         {/* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — LE BOUTON EST LE **VOISIN** DE LA LIGNE, jamais son enfant :
             l'en-tête entier EST un `<button>`, et un bouton dans un bouton n'est pas du HTML valide. C'est
             exactement la raison pour laquelle le triangle vit à gauche, en frère, depuis le lot d'origine. */}
@@ -699,6 +658,60 @@ export function LigneVie({
             {MOT_MODIFIER_LE_RATTACHEMENT}
           </button>
         )}
+        {/* Le groupe étiquettes + date : un clic dessus plie ou déplie la ligne, comme avant (la bulle du compteur
+            « N biens rattachés » arrête ses propres clics). */}
+        <span className="vdb-cote" onClick={onBasculer}>
+          <span className="vdb-marques">
+          {/**
+            * ══ 🔴🔴 LOT HARMONIE-BOUTONS-ET-TROMBONE, POINT 1 — LE TROMBONE OUVRE LE GROUPE ════════════════
+            *
+            * ARNO : « “📎1” · “Auto” · “Événement en cours” · date. Le trombone et son chiffre passent juste à
+            * gauche de la capsule verte “Auto” (ou de la première étiquette présente s'il n'y a pas “Auto”). »
+            *
+            * 🔴 « OU DE LA PREMIÈRE ÉTIQUETTE PRÉSENTE » EST GRATUIT ICI, et c'est pour cela qu'il n'y a aucune
+            * condition à écrire : les trois étiquettes sont des frères dans le même conteneur, chacune rendue
+            * SEULEMENT si elle a lieu d'être. Le trombone posé en premier se retrouve donc collé à celle qui
+            * suit, quelle qu'elle soit — et seul, s'il n'y en a aucune.
+            *
+            * 🔴 LES DEUX AUTRES LISTES L'AVAIENT DÉJÀ : `BoiteReception` et `Conversation` montrent
+            * « 📎 n » puis la capsule (lots LISTE-GMAIL et FIL-APERCU-MINIATURES). Cette rangée-ci était la
+            * dernière à l'écrire dans l'autre sens ; elle rejoint les deux autres, elle n'invente rien.
+            *
+            * ⚠️ LA LIGNE REPLIÉE ET LA LIGNE DÉPLIÉE SONT LA MÊME : cet en-tête (`vdb-haut`) est rendu dans les
+            * deux cas — le dépliage n'ajoute que `vdb-detail` en dessous. Un seul déplacement sert les deux.
+            *
+            * ⚠️ RIEN N'EST RETIRÉ NI CONDITIONNÉ : mêmes conditions d'affichage, mêmes mots, mêmes info-bulles,
+            * mêmes couleurs. Seul l'ordre des frères change.
+            */}
+          {motDuTrombone !== null && (
+            <span className="vdb-trombone" title={motDuTrombone} aria-label={motDuTrombone}>
+              <span aria-hidden="true">📎</span>{vraies.length}
+            </span>
+          )}
+          {l.statut !== null && (
+            <span className={`vdb-capsule vdb-capsule--${tonCapsule(l.statut as CapsuleStatut)}`}
+              title={l.statutDetail ?? undefined}>
+              {motCapsule(l.statut as CapsuleStatut)}
+            </span>
+          )}
+          {/**
+            * 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — LE MOT VIENT DU MODULE PUR, ET N'EST PLUS ÉCRIT ICI.
+            *
+            * La capsule ne change ni de place ni de couleur : elle reste juste après celle de statut, dans la
+            * paire AMBRE qu'Arno appelle « orange » et qui porte déjà « événement en cours » sur cette fiche.
+            *
+            * ⚠️ SON MOT, LUI, CHANGE — « Événement ouvert » devient « Événement en cours ». C'est demandé, et
+            * c'est celui de la bande de l'en-tête : une même chose dite de deux façons sur un même écran se lit
+            * comme deux choses. Les trois autres écrans du lot lisent la MÊME fonction.
+            */}
+          {motEvenementEnCours(ouverts.length) !== null && (
+            <span className="vdb-capsule vdb-capsule--evt">{motEvenementEnCours(ouverts.length)}</span>
+          )}
+          </span>
+          <DateEtBiens messageId={l.messageId}
+            date={<span className="vdb-quand">{dateHeureCourte(l.recuLe, maintenant)}</span>} />
+        </span>
+        </span>
       </div>
 
       {/* ⚠️ LE DÉTAIL S'OUVRE SUR PLACE : on ne quitte pas la fiche pour lire un mail de ce bien. */}
@@ -901,10 +914,29 @@ ${CSS_COMPTEUR_BIENS}
    pris toute la hauteur du bloc deplie — une colonne rouge de la hauteur d'un mail.
    ⚠️ flex:0 0 auto : il ne doit jamais prendre la place de l'objet, qui est l'information de la ligne.
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
-.vdb-sortir{flex:0 0 auto;align-self:flex-start;margin:8px 0 0 .5rem;padding:3px 8px;
-  font:inherit;font-size:.74rem;line-height:1.3;color:var(--color-svv-muted);background:none;
+.vdb-sortir{flex:0 0 auto;align-self:flex-start;margin:0;padding:3px 8px;
+  font:inherit;font-size:.74rem;line-height:1.3;color:var(--color-svv-red);background:none;
   border:1px solid var(--color-svv-red);border-radius:.4rem;cursor:pointer;white-space:nowrap}
+/* LOT LIGNE-DE-MAIL-BOUTONS (Arno) : le TEXTE prend le rouge de son contour (meme jeton, Clair et Sombre) ; au
+   survol, la trame du champ, le texte reste rouge et lisible. */
 .vdb-sortir:hover{color:var(--color-svv-red);background:var(--color-svv-field)}
+/* ══ LOT LIGNE-DE-MAIL-BOUTONS-A-GAUCHE-DATE-A-DROITE — [boutons] puis [etiquettes + date], colles au bord droit.
+   Le groupe date est le DERNIER element de la rangee, replie comme deplie : la date ne bouge plus. Sur un ecran
+   etroit, le groupe passe a la ligne SOUS les boutons (flex-wrap, justifie a droite), sans deborder. */
+.vdb-droite{flex:0 0 auto;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;align-content:flex-start;
+  gap:.4rem .5rem;padding:8px 12px 0 .5rem;min-width:0;max-width:62%;box-sizing:border-box}
+.vdb-cote{display:flex;flex-wrap:nowrap;justify-content:flex-end;align-items:center;gap:.45rem;min-width:0;cursor:pointer}
+.vdb-cote .vdb-marques{margin-left:0;flex-wrap:nowrap}
+/* Le TEXTE de l'en-tete cede la place (base nulle) : un long extrait ne repousse plus le groupe de droite. */
+.vdb-rangee>.vdb-ligne{flex:1 1 0}
+/* TELEPHONE : le groupe [boutons][etiquettes + date] passe sur sa propre ligne, sous l'en-tete, colle a droite ; s'il ne
+   tient pas d'une piece, les etiquettes et la date passent sous les boutons. Rien ne deborde. */
+@media (max-width:560px){
+  .vdb-rangee{flex-wrap:wrap}
+  .vdb-rangee>.vdb-ligne{flex:1 1 calc(100% - var(--vdb-marge-g))}
+  .vdb-droite{flex:1 1 100%;max-width:none;padding:0 12px 8px var(--vdb-marge-g)}
+  .vdb-cote,.vdb-cote .vdb-marques{flex-wrap:wrap}
+}
 .vdb-sortir:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .vdb-haut{display:flex;flex-wrap:wrap;align-items:center;gap:.45rem;min-width:0}
 .vdb-qui{font-size:.88rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
@@ -994,6 +1026,8 @@ ${CSS_COMPTEUR_BIENS}
 .vdb-pastille--gris{background:var(--color-svv-line-strong)}
 .vdb-corps{margin:0;font-size:.86rem;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .vdb-evts{margin:0;display:flex;flex-wrap:wrap;gap:.35rem}
+/* LOT LIGNE-DE-MAIL-BOUTONS — sur telephone, la reference et l objet d un evenement passent a la ligne : rien ne deborde. */
+.vdb-evts .vdb-capsule{white-space:normal;overflow-wrap:anywhere;max-width:100%;box-sizing:border-box}
 /* LOT CLASSER-PAR-LA-MODALE, POINT 0 — « Aucune piece jointe a ce mail — il cite 3 pieces du mail du … : »
    LA PHRASE PREND TOUTE LA LARGEUR (flex-basis 100%), les liens se rangent dessous et se replient d'eux-memes :
    trois noms de PDF ne tiennent pas sur une ligne de telephone, et une phrase coupee en deux morceaux par un

@@ -6487,4 +6487,28 @@ describe('⑳ 🔴🔴 « Modifier le rattachement », et la trame de toute la l
     expect(rangee.querySelector('.vdb-detail')).toBeNull();
     expect(mail.querySelector('.vdb-detail')).not.toBeNull();
   });
+
+  /**
+   * ══ 🔴🔴 LOT LIGNE-DE-MAIL-BOUTONS-A-GAUCHE-DATE-A-DROITE (12/10/2026) ═══════════════════════════════════════
+   * « [Sortir du suivi] [Modifier le rattachement] puis [Auto] [Événement en cours] [date + N biens rattachés] » :
+   * les deux boutons PRÉCÈDENT le groupe pastilles + date, qui reste calé à droite comme sur la ligne repliée
+   * (mesuré à l'écran : même place au pixel près). Le texte des boutons prend le rouge de leur contour.
+   */
+  it('🔴🔴 ligne dépliée : les deux boutons, PUIS les pastilles et la date — la date reste en dernier, à droite', async () => {
+    await monter();
+    const mail = hote.querySelector('#hdb-mail-1') as HTMLElement;
+    const avant = mail.querySelector('.vdb-droite') as HTMLElement;
+    expect(avant.lastElementChild?.classList.contains('vdb-cote')).toBe(true);
+    expect(avant.querySelectorAll('.vdb-sortir')).toHaveLength(0);
+    await cliquer(mail.querySelector('button') ?? undefined);
+    const droite = mail.querySelector('.vdb-droite') as HTMLElement;
+    expect([...droite.children].map((e) => e.className)).toEqual(['vdb-sortir', 'vdb-sortir', 'vdb-cote']);
+    expect([...droite.querySelectorAll('.vdb-sortir')].map((b) => b.textContent)).toEqual(['Sortir du suivi', 'Modifier le rattachement']);
+    const cote = droite.querySelector('.vdb-cote') as HTMLElement;
+    expect(cote.lastElementChild?.querySelector('.vdb-quand')).not.toBeNull();
+    expect(mail.querySelector('.vdb-ligne .vdb-quand')).toBeNull();
+    const vdb = readFileSync('app/(admin)/admin/(protected)/gestion/VieDuBien.tsx', 'utf8');
+    expect(vdb.replace(/\s+/g, '')).toContain('color:var(--color-svv-red);background:none;border:1pxsolidvar(--color-svv-red)');
+    expect(vdb).toContain('.vdb-sortir:hover{color:var(--color-svv-red);background:var(--color-svv-field)}');
+  });
 });
