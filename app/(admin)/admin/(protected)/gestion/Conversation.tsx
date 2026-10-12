@@ -4,6 +4,7 @@ import { chargerCorpsDuMessage } from './chargerCorps';
 import { decouperLesPiecesCitees, type PieceCitable } from '../../../../lib/gestion/piecesCitees';
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { syndicauxDepuisJson, type SyndicauxDuBien } from '../../../../lib/gestion/partiesSyndic';
 /* 🔴🔴 LOT COMPTEURS-CORBEILLE-RECEPTION, POINT 2 — la corbeille d'UN message : même route, même journal, même
    synchronisation Gmail que celle d'un échange. Seule la désignation change. */
 /* 🔴🔴 LOT ETOILE-PAR-MESSAGE — la porte d'écriture de l'étoile est celle du MAIL, plus celle de l'échange. */
@@ -660,6 +661,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    */
   const [categoriesDuBienRattache, setCategoriesDuBienRattache] =
     useState<ReadonlyMap<string, CategoriePartie>>(new Map());
+  /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — les personnes de la fiche syndic du bien rattaché (famille rose). */
+  const [syndicauxDuBienRattache, setSyndicauxDuBienRattache] = useState<SyndicauxDuBien>(new Map());
   /** L'ordre du récapitulatif. Local à l'écran : rien à mémoriser, la fenêtre s'ouvre et se ferme. */
   const [ordrePieces, setOrdrePieces] = useState<OrdrePieces>(ORDRE_PIECES_DEFAUT);
   /** La pièce affichée dans la visionneuse. `null` = elle est fermée. */
@@ -1458,7 +1461,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           etat?: string; data?: Parameters<typeof categoriesDeLaFiche>[0];
         };
         const dp = (await rp.json().catch(() => ({}))) as {
-          data?: { parties?: { adresse: string; categorie: string | null }[] };
+          data?: { parties?: { adresse: string; categorie: string | null }[]; syndicaux?: unknown };
         };
         if (!vivant) return;
         const rangees = new Map<string, CategoriePartie>();
@@ -1471,8 +1474,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
         }
         setCategoriesDuBienRattache(
           categoriesDuBien(df.etat === 'ok' && df.data ? df.data : null, rangees));
+        /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la fiche syndic du bien, lue avec les parties (même route). */
+        setSyndicauxDuBienRattache(syndicauxDepuisJson(dp.data?.syndicaux));
       } catch {
-        if (vivant) setCategoriesDuBienRattache(new Map());
+        if (vivant) { setCategoriesDuBienRattache(new Map()); setSyndicauxDuBienRattache(new Map()); }
       }
     })();
     return () => { vivant = false; };
@@ -1495,11 +1500,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     const m = new Map<number, FamilleVue[]>();
     for (const x of (vue.v === 'ok' ? vue.messages : [])) {
       m.set(x.messageId, famillesDestinataires(
-        { sens: x.sens, a: x.destA ?? [], cc: x.destCc ?? [] },
-        categoriesDuBienRattache, regles));
+        { sens: x.sens, a: x.destA ?? [], cc: x.destCc ?? [], recuLe: x.recuLe },
+        categoriesDuBienRattache, regles, syndicauxDuBienRattache));
     }
     return m as ReadonlyMap<number, FamilleVue[]>;
-  }, [vue, categoriesDuBienRattache]);
+  }, [vue, categoriesDuBienRattache, syndicauxDuBienRattache]);
 
   if (vue.v === 'charge') return <p className="gst-info" role="status">Chargement de la conversation…</p>;
   if (vue.v === 'erreur') {

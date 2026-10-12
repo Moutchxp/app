@@ -117,6 +117,8 @@ export const CSS_DESTINATAIRES_PIECE = `
    et que sa capsule d'Annuaire : le jeton tamise du theme (lot 84), mesure 5,48:1 en Clair, 7,74:1 en Sombre. */
 .ddp-capsule--violet{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .ddp-capsule--bleu{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, le MEME jeton que les puces des compositeurs (--color-svv-syndic-*, defini dans les DEUX modes). */
+.ddp-capsule--rose{background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte)}
 .ddp-capsule--gris{background:var(--color-svv-field);color:var(--color-svv-ink)}
 /* 🔴 EXTERIEUR : SANS FOND, bord fin, texte gris (Arno). C'est ce qui le distingue des quatre autres au premier
    coup d'oeil — il ne dit pas vers qui, il dit qu'on ne sait pas. */
@@ -141,6 +143,8 @@ export const CSS_DESTINATAIRES_PIECE = `
 .ddp-titre--vert{color:var(--color-svv-green-ink)}
 .ddp-titre--violet{color:var(--color-svv-violet)}
 .ddp-titre--bleu{color:var(--color-svv-blue)}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, le MEME jeton que les puces des compositeurs (--color-svv-syndic-*, defini dans les DEUX modes). */
+.ddp-titre--rose{color:var(--color-svv-syndic-texte)}
 .ddp-titre--gris{color:var(--color-svv-ink)}
 .ddp-titre--neutre{color:var(--color-svv-muted)}
 `;

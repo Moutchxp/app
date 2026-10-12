@@ -549,7 +549,7 @@ export function RattachementsDuFil({
    * 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — L'EXPÉDITEUR DU MAIL AFFICHÉ (`enTete`, celui dont la fenêtre
    * parle) : le cartouche « Expéditeur : … » des biens suivis, des propositions et des résultats vient de lui seul.
    */
-  const expediteurMail = expediteurDuMail(fiche?.enTete?.de, fiche?.enTete?.deNom);
+  const expediteurMail = expediteurDuMail(fiche?.enTete?.de, fiche?.enTete?.deNom, fiche?.enTete?.messageId ?? null);
   /**
    * 🔴🔴 LES BIENS QUE CETTE FENÊTRE MONTRE : ceux qui sont rattachés OFFICIELLEMENT à ce mail — lien vivant et
    * CONFIRMÉ, jamais une proposition. C'est `biensDuMail`, et il n'y a plus de second chemin : c'est pour cela
@@ -1895,7 +1895,8 @@ function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponct
         {retire && <span className="rdf-sera-retire">sera retiré</span>}
       </label>
       <PartiesSurDeuxLignes parties={bien.personnes} aLaDateDuMail expediteur={expediteur}
-        nomExpediteur={expediteurMail?.nom ?? null} />
+        nomExpediteur={expediteurMail?.nom ?? null}
+        bienCle={bien.cle} messageIdExpediteur={expediteurMail?.messageId ?? null} />
       <p className="rec-motif">{motif}</p>
       <details className="rdf-suivi-detail">
         <summary className="rdf-suivi-resume">

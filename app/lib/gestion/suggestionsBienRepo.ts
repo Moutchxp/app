@@ -8,6 +8,8 @@ import { lireCartesDuBien, lireCategoriesDuBien } from './partieCategorieRepo';
 import { sqlLiensDuBien } from './rattachement';
 import { ficheSyndic } from './syndicRepo';
 import { cleImmeuble } from './syndics';
+/* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — les rôles « Syndic — … », « Gardien »… écrits UNE fois, pour toutes les vues. */
+import { roleCabinet, roleContactSyndic, roleImmeuble } from './partiesSyndic';
 import { estAdresseSansReponse } from './typologie';
 import { rangerSuggestions, type GroupeSuggestions, type SuggestionAdresse, type TonSuggestion } from './suggestionsBien';
 
@@ -48,7 +50,6 @@ const ROLE_COTE: Record<'proprietaire' | 'locataire' | 'ancien_locataire', strin
   locataire: 'Contact du locataire',
   ancien_locataire: 'Contact d’un ancien locataire',
 };
-const MOT_CATEGORIE_IMMEUBLE: Record<string, string> = { gardien: 'Gardien', conseil_syndical: 'Conseil syndical' };
 
 /** Lit tout ce qu'il faut pour écrire depuis la fiche du bien `lotId`. `null` = bien inconnu. LECTURE SEULE. */
 export async function ecrireDepuisLeBien(lotId: number): Promise<EcrireDepuisLeBien | null> {
@@ -115,14 +116,14 @@ export async function ecrireDepuisLeBien(lotId: number): Promise<EcrireDepuisLeB
           if (k.sorte !== 'email') continue;
           immeuble.push({
             adresse: k.valeur, nom: nom === '' ? null : nom,
-            role: `${propre(c.titre) || 'Contact du syndic'} · ${syndic.nom}`, ton: 'syndic', propre: true,
+            role: roleContactSyndic(c.titre), ton: 'syndic', propre: true,
             civilite: c.civilite ?? null, nomFamille: propre(c.nom) || null,
           });
         }
       }
       if (propre(syndic.email) !== '') {
         immeuble.push({
-          adresse: syndic.email as string, nom: syndic.nom, role: 'Syndic — e-mail général', ton: 'syndic', propre: true,
+          adresse: syndic.email as string, nom: syndic.nom, role: roleCabinet(syndic.nom), ton: 'syndic', propre: true,
           civilite: null, nomFamille: null,
         });
       }
@@ -136,7 +137,7 @@ export async function ecrireDepuisLeBien(lotId: number): Promise<EcrireDepuisLeB
         if (k.sorte !== 'email') continue;
         immeuble.push({
           adresse: k.valeur, nom: nom === '' ? null : nom,
-          role: MOT_CATEGORIE_IMMEUBLE[c.categorie] ?? (propre(c.libelle) || 'Contact de l’immeuble'), ton: 'immeuble',
+          role: roleImmeuble(c.categorie, c.libelle), ton: 'immeuble',
           propre: true, civilite: c.civilite ?? null, nomFamille: propre(c.nom) || null,
         });
       }

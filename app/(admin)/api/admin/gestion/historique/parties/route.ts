@@ -14,6 +14,8 @@ import {
 import { coordonneesDeLaCarte } from '../../../../../../lib/gestion/ficheContact';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — quelle location réclame quel contact annexe. Voir son encadré. */
 import { contactsParLocataire } from '../../../../../../lib/gestion/historiqueRepo';
+/* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — qui, parmi les adresses du bien, la fiche syndic reconnaît. Lecture seule. */
+import { syndicauxDuBien } from '../../../../../../lib/gestion/partiesSyndicRepo';
 
 /**
  * /api/admin/gestion/historique/parties — LOT HISTORIQUE-BIEN-1 : LA CATÉGORIE DE CHAQUE ADRESSE D'UN BIEN.
@@ -116,6 +118,17 @@ export async function GET(request: Request): Promise<Response> {
        */
       contactsParLocataire(cible.cle ?? ''),
     ]);
+    /**
+     * ══ 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — LA FAMILLE « SYNDIC & IMMEUBLE », CALCULÉE ICI, JAMAIS STOCKÉE ══════
+     *
+     * Le cabinet du syndic de la copropriété du bien, ses contacts et le carnet de l'immeuble : par l'e-mail, puis
+     * par le téléphone de la signature (celui que `coordonneesDesParties` vient de trouver). Rien n'est écrit dans
+     * `gestion_partie_categorie` : l'écran pose la famille par-dessus les rangements, propriétaire et locataire
+     * l'emportant (`partiesSyndic.ts`). Un échec ne fait pas tomber les parties : la famille reste simplement vide.
+     */
+    const syndicaux = await syndicauxDuBien(cible.cle ?? '',
+      new Map(coordonnees.map((c) => [c.adresse.trim().toLowerCase(), c.telephone])))
+      .catch((e: unknown) => { console.error('[api/admin/gestion/historique/parties] fiche syndic illisible', e); return []; });
     return Response.json({
       etat: 'ok',
       data: {
@@ -156,6 +169,7 @@ export async function GET(request: Request): Promise<Response> {
          * n'afficher que les contacts de la location regardée, et montrer les compteurs qui vont avec.
          */
         contactsLocataires,
+        syndicaux,
         cartes: cartes.map((c) => ({
           id: c.id, cote: c.cote, locataireId: c.locataireId, adresse: c.adresse, nom: c.nom, telephone: c.telephone,
           origine: c.origine, verifie: c.verifieLe !== null,

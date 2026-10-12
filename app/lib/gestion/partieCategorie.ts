@@ -55,6 +55,16 @@
 export type Categorie = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'independant' | 'a_repartir';
 
 /**
+ * ══ 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — LA CATÉGORIE **AFFICHÉE**, FAMILLE « SYNDIC & IMMEUBLE » COMPRISE ═════════
+ *
+ * « Syndic & immeuble » (puce rose) : le cabinet du syndic de la copropriété du bien, ses contacts et le carnet de
+ * l'immeuble. ⚠️ CE N'EST PAS UNE `Categorie` : elle n'est JAMAIS stockée, ni posable à la main. Elle est CALCULÉE à
+ * l'affichage depuis la fiche syndic (`partiesSyndic.ts`). `Categorie`, elle, reste exactement la liste de la
+ * contrainte de `gestion_partie_categorie` (garde de la migration 318).
+ */
+export type CategorieAffichee = Categorie | 'syndic_immeuble';
+
+/**
  * D'où vient le rangement :
  *   · `defaut`  — la règle à trois étages a tranché (étages ② et ③) ;
  *   · `propose` — la règle PROPOSE un indépendant, et le dit « à vérifier » (étage ①) ;
@@ -211,7 +221,7 @@ export function sertALAutomatisation(categorie: Categorie): boolean {
  * ne puissent pas se contredire : un ancien locataire est TOUJOURS rangé côté locataire, et TOUJOURS peint en
  * violet. Deux lectures séparées auraient fini par mettre sa capsule dans un encart et sa couleur dans l'autre.
  */
-export function categorieDuGroupe(categorie: Categorie): Exclude<Categorie, 'ancien_locataire'> {
+export function categorieDuGroupe(categorie: CategorieAffichee): Exclude<CategorieAffichee, 'ancien_locataire'> {
   return categorie === 'ancien_locataire' ? 'locataire' : categorie;
 }
 
@@ -221,7 +231,7 @@ export function categorieDuGroupe(categorie: Categorie): Exclude<Categorie, 'anc
  * 🔴 `independant` ET `a_repartir` RENDENT `null`, ET C'EST LA MÊME RÈGLE QUE CI-DESSUS VUE DE L'ÉCRAN : aucune
  * carte n'est créée pour eux. Un indépendant n'est rattaché à aucun bien ; un « à répartir » attend qu'on tranche.
  */
-export function coteDeLaCategorie(categorie: Categorie): Cote | null {
+export function coteDeLaCategorie(categorie: CategorieAffichee): Cote | null {
   return categorie === 'proprietaire' || categorie === 'locataire' || categorie === 'ancien_locataire'
     ? categorie : null;
 }

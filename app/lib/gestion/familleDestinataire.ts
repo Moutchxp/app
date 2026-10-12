@@ -1,6 +1,7 @@
 import { estAncienLocataire, type CategoriePartie } from './historiqueBien';
 import type { ContactAffiche, FicheLot } from './annuaireRepo';
 import type { PersonneDuMail } from './adressesMessage';
+import { categorieAvecSyndical, type SyndicauxDuBien } from './partiesSyndic';
 
 /**
  * ══ 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — À QUELLE FAMILLE AVONS-NOUS ENVOYÉ CETTE PIÈCE ? ═════════════════════════
@@ -47,7 +48,7 @@ import type { PersonneDuMail } from './adressesMessage';
  * les deux parlent du même logement, et c'est leur voisinage qui fait lire la distinction.
  */
 export const ORDRE_FAMILLES = [
-  'proprietaire', 'locataire', 'ancien_locataire', 'independant', 'interne', 'exterieur',
+  'proprietaire', 'locataire', 'ancien_locataire', 'syndic_immeuble', 'independant', 'interne', 'exterieur',
 ] as const;
 
 export type FamilleDestinataire = (typeof ORDRE_FAMILLES)[number];
@@ -56,7 +57,7 @@ export type FamilleDestinataire = (typeof ORDRE_FAMILLES)[number];
  * Le ton d'une famille. `neutre` n'est pas une couleur : c'est l'absence de fond, demandée par Arno pour
  * l'extérieur (« sans fond, bord fin, texte gris »). La feuille le traduit ; ce module ne connaît pas de couleur.
  */
-export type TonFamille = 'rouge' | 'vert' | 'violet' | 'bleu' | 'gris' | 'neutre';
+export type TonFamille = 'rouge' | 'vert' | 'violet' | 'rose' | 'bleu' | 'gris' | 'neutre';
 
 const TONS: Record<FamilleDestinataire, TonFamille> = {
   proprietaire: 'rouge',
@@ -64,6 +65,8 @@ const TONS: Record<FamilleDestinataire, TonFamille> = {
   /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — le MÊME violet que le liseré de ses mails et que sa capsule d'Annuaire.
      Le ton vient du même vocabulaire (`tonDuGroupe('ancien_locataire')`), et la feuille le peint au même jeton. */
   ancien_locataire: 'violet',
+  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, celui des puces des compositeurs. */
+  syndic_immeuble: 'rose',
   independant: 'bleu',
   interne: 'gris',
   exterieur: 'neutre',
@@ -83,6 +86,7 @@ const MOTS: Record<FamilleDestinataire, string> = {
      qui reste réservé au locataire EN PLACE. Les deux capsules peuvent paraître sous la même pièce : c'est
      exactement le cas qu'on veut pouvoir lire d'un coup d'œil. */
   ancien_locataire: 'Envoyé vers ancien locataire',
+  syndic_immeuble: 'Envoyé au syndic & immeuble',
   independant: 'Envoyé à tiers indépendant',
   interne: 'Envoyé en interne',
   exterieur: 'Destinataire extérieur',
@@ -94,6 +98,7 @@ const TITRES: Record<FamilleDestinataire, string> = {
   locataire: 'Locataire',
   /* 🔴 LA SECTION DE LA BULLE DU « i » (Arno : « La bulle du “i” a sa section “Ancien locataire” »). */
   ancien_locataire: 'Ancien locataire',
+  syndic_immeuble: 'Syndic & immeuble',
   independant: 'Tiers indépendant',
   interne: 'Interne',
   exterieur: 'Extérieur',
@@ -113,7 +118,8 @@ export const tonFamille = (f: FamilleDestinataire): TonFamille => TONS[f];
 export function familleDeCategorie(c: CategoriePartie | 'a_repartir' | undefined): FamilleDestinataire {
   /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `ancien_locataire` TRAVERSE TEL QUEL, comme les trois autres : la famille
      de la capsule EST la catégorie du bloc Parties, et c'est ce qui garantit qu'elles ne pourront pas diverger. */
-  if (c === 'proprietaire' || c === 'locataire' || c === 'ancien_locataire' || c === 'independant') return c;
+  if (c === 'proprietaire' || c === 'locataire' || c === 'ancien_locataire' || c === 'independant'
+    || c === 'syndic_immeuble') return c;
   return 'exterieur';
 }
 
@@ -261,6 +267,8 @@ export interface MessagePourFamilles {
   a: readonly PersonneDuMail[];
   cc: readonly PersonneDuMail[];
   cci?: readonly PersonneDuMail[];
+  /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la date du message : un contact « parti » ne compte plus après son départ. */
+  recuLe?: string | null;
 }
 
 export interface ReglesFamilles {
@@ -288,6 +296,8 @@ export function famillesDestinataires(
   m: MessagePourFamilles,
   categories: ReadonlyMap<string, CategoriePartie>,
   regles: ReglesFamilles,
+  /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la fiche syndic du bien (`partiesSyndic.ts`), lue à la date du message. */
+  syndicaux?: SyndicauxDuBien,
 ): FamilleVue[] {
   if (m.sens !== 'envoye') return [];
   const boite = regles.adresseBoite.trim().toLowerCase();
@@ -302,7 +312,7 @@ export function famillesDestinataires(
        de nos adresses feraient passer un mail entre collègues pour un envoi au propriétaire. */
     const famille: FamilleDestinataire = regles.estInterne(a)
       ? 'interne'
-      : familleDeCategorie(categories.get(cle));
+      : familleDeCategorie(categorieAvecSyndical(cle, categories, syndicaux, m.recuLe ?? null));
     par.set(famille, [...(par.get(famille) ?? []), { champ, nom: p.nom, adresse: a }]);
   };
   for (const p of m.a) poser(p, 'À');

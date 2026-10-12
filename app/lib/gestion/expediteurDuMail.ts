@@ -18,6 +18,11 @@ export interface ExpediteurDuMail {
   adresse: string;
   /** « Valentin TALHOUARN », ou l'adresse elle-même. */
   nom: string;
+  /**
+   * 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — le mail, quand on le connaît : il permet de demander si l'expéditeur est le
+   * syndic (ou une personne de l'immeuble) d'un bien, sans faire voyager son adresse dans une URL.
+   */
+  messageId?: number | null;
 }
 
 export const MOT_EXPEDITEUR = 'Expéditeur';
@@ -25,12 +30,14 @@ export const MOT_EXPEDITEUR = 'Expéditeur';
 const normal = (s: string): string => s.trim().toLowerCase();
 
 /** L'expéditeur du mail affiché, ou `null` sans adresse De:. PUR. */
-export function expediteurDuMail(de: string | null | undefined, deNom: string | null | undefined): ExpediteurDuMail | null {
+export function expediteurDuMail(
+  de: string | null | undefined, deNom: string | null | undefined, messageId: number | null = null,
+): ExpediteurDuMail | null {
   const adresse = normal(de ?? '');
   if (adresse === '') return null;
   /* Un nom d'affichage peut arriver entre guillemets, ou n'être que l'adresse répétée. */
   const nom = (deNom ?? '').trim().replace(/^["'«\s]+|["'»\s]+$/g, '').trim();
-  return { adresse, nom: nom === '' || normal(nom) === adresse ? adresse : nom };
+  return { adresse, nom: nom === '' || normal(nom) === adresse ? adresse : nom, ...(messageId === null ? {} : { messageId }) };
 }
 
 type PartieAvecEmails = { role: string; emails?: readonly { valeur: string }[] };

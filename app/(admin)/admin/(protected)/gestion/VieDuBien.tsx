@@ -989,6 +989,8 @@ ${CSS_COMPTEUR_BIENS}
    (lot 84), avec ses contrastes mesures : rien n'est invente ici, et aucun #rrggbb n'est ecrit a la main. */
 .vdb-pastille--violet{background:var(--color-svv-violet)}
 .vdb-pastille--bleu{background:var(--color-svv-blue)}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, le MEME jeton que les puces des compositeurs (--color-svv-syndic-*, defini dans les DEUX modes). */
+.vdb-pastille--rose{background:var(--color-svv-syndic-bord)}
 .vdb-pastille--gris{background:var(--color-svv-line-strong)}
 .vdb-corps{margin:0;font-size:.86rem;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
 .vdb-evts{margin:0;display:flex;flex-wrap:wrap;gap:.35rem}

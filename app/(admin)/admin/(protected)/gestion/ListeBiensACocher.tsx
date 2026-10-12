@@ -8,6 +8,8 @@ import { InfoBien } from './InfoBien';
 import { ZoneDefilante } from './ZoneDefilante';
 import type { BienTrouve, ResultatsBiens } from '../../../../lib/gestion/rechercheBienRepo';
 import { MOT_EXPEDITEUR, roleExpediteur, type ExpediteurDuMail } from '../../../../lib/gestion/expediteurDuMail';
+import { TITRE_SYNDIC_IMMEUBLE } from '../../../../lib/gestion/partiesSyndic';
+import { useExpediteurSyndical } from './useExpediteurSyndical';
 
 /**
  * ══ 🔴🔴 LOT MOTEUR-RECHERCHE-BIENS-UNIFIE — LE SEUL COMPOSANT DE CHOIX DE BIENS DE L'APPLICATION ═══════════════════
@@ -289,7 +291,8 @@ export function ListeBiensACocher({
                 </label>
                 {b.parties !== null && (
                   <PartiesSurDeuxLignes parties={b.parties} aLaDateDuMail={aLaDateDuMail}
-                    expediteur={roleExpediteur(b.parties, expediteurMail)} nomExpediteur={expediteurMail?.nom ?? null} />
+                    expediteur={roleExpediteur(b.parties, expediteurMail)} nomExpediteur={expediteurMail?.nom ?? null}
+                    bienCle={b.cle} messageIdExpediteur={expediteurMail?.messageId ?? null} />
                 )}
                 {/* 🔴 LE MOTIF EST ÉCRIT EN CLAIR, TOUJOURS : pourquoi ce bien est là, pourquoi sa case est cochée. */}
                 <p className="rec-motif">{b.motif}</p>
@@ -354,7 +357,8 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, o
           {/* 🔴 « déjà dans la sélection » : la même case, vue d'un autre endroit — jamais un second bien. */}
           {dejaCoche && <span className="rec-ligne-deja">déjà dans la sélection</span>}
           <PartiesSurDeuxLignes parties={b.parties} dansUneLigne aLaDateDuMail={aLaDateDuMail}
-            expediteur={roleExpediteur(b.parties, expediteurMail)} nomExpediteur={expediteurMail?.nom ?? null} />
+            expediteur={roleExpediteur(b.parties, expediteurMail)} nomExpediteur={expediteurMail?.nom ?? null}
+            bienCle={b.cle} messageIdExpediteur={expediteurMail?.messageId ?? null} />
           {/* Pourquoi cette ligne répond : c'est ce qui permet de comprendre un résultat surprenant. */}
           <span className="rec-ligne-motif">trouvé par {b.raisons.map(motRaison).join(' · ')}</span>
         </span>
@@ -372,6 +376,7 @@ function LigneBienCompacte({ bien: b, coche, titre, dejaEnHaut, aLaDateDuMail, o
  */
 export function PartiesSurDeuxLignes({
   parties, dansUneLigne = false, aLaDateDuMail = false, expediteur = null, nomExpediteur = null,
+  bienCle = null, messageIdExpediteur = null,
 }: {
   parties: readonly { role: string; nom: string }[];
   /** Dans une ligne de résultat (déjà décalée par sa case) : pas de retrait supplémentaire. */
@@ -387,8 +392,16 @@ export function PartiesSurDeuxLignes({
    * un couple, le mot seul ne le disait pas (Arno). `null` ⇒ le mot seul, comme avant.
    */
   nomExpediteur?: string | null;
+  /**
+   * 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — le bien et le mail : quand l'expéditeur n'est ni le propriétaire ni un
+   * locataire, la fiche syndic peut le reconnaître (le syndic, un de ses contacts, une personne de l'immeuble). Le
+   * cartouche se pose alors sur une troisième ligne, « SYNDIC & IMMEUBLE », puce rose, avec son rôle exact.
+   */
+  bienCle?: string | null;
+  messageIdExpediteur?: number | null;
 }) {
   const l = deuxLignesParties(parties, { aLaDateDuMail });
+  const syndical = useExpediteurSyndical(messageIdExpediteur, bienCle, expediteur === null);
   const capsule = (
     <span className="rec-expediteur">
       {MOT_EXPEDITEUR}
@@ -409,6 +422,14 @@ export function PartiesSurDeuxLignes({
         {' '}{l.locataires}
         {expediteur === 'locataire' && <> {capsule}</>}
       </span>
+      {expediteur === null && syndical !== null && (
+        <span className="rec-ligne-parties rec-ligne-parties--syndic">
+          <span aria-hidden="true" className="rec-puce-syndic" />
+          <span className="rec-ligne-role">{TITRE_SYNDIC_IMMEUBLE}</span>{' '}
+          {syndical.nom}<span className="rec-ligne-precision"> — {syndical.role}</span>
+          {' '}{capsule}
+        </span>
+      )}
     </span>
   );
 }
@@ -491,6 +512,10 @@ export const CSS_LISTE_BIENS = `
   letter-spacing:.03em;text-transform:uppercase;color:var(--color-svv-red);border:1px solid var(--color-svv-red);
   white-space:nowrap;vertical-align:1px;max-width:100%}
 .rec-expediteur-nom{text-transform:none;letter-spacing:0;white-space:normal;overflow-wrap:anywhere}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — la troisieme ligne, quand le syndic ou une personne de l immeuble a ecrit :
+   puce rose, le MEME jeton que les puces des compositeurs (--color-svv-syndic-bord, defini dans les DEUX modes). */
+.rec-puce-syndic{display:inline-block;width:.55rem;height:.55rem;border-radius:999px;margin-right:.3rem;
+  vertical-align:middle;background:var(--color-svv-syndic-bord)}
 /* LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — LA TRAME VERTE = CASE COCHEE (Arno). Le meme vert que la
    trame « deja dans la selection » (.rec-ligne--deja) ; le texte garde ses couleurs (encre et gris lisibles sur ce
    fond, Clair comme Sombre). Elle suit la case, et rien d'autre. */

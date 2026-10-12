@@ -129,23 +129,26 @@ describe('② les parties — quatre groupes, l’agence écartée, le vocabulai
 
   it('🔴 quatre groupes, toujours, et dans le même ordre — avec le vocabulaire d’Arno', () => {
     const { groupes: g } = grouperParCategorie(liste, categories);
-    expect(g.map((x) => x.cle)).toEqual(['proprietaire', 'locataire', 'independant', 'a_repartir']);
-    expect(g.map((x) => x.titre)).toEqual(['Propriétaire', 'Locataire', 'Tiers indépendant', 'Non affectés']);
+/* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » (rose) entre AVANT le tiers indépendant. */
+    expect(g.map((x) => x.cle)).toEqual(['proprietaire', 'locataire', 'syndic_immeuble', 'independant', 'a_repartir']);
+    expect(g.map((x) => x.titre))
+      .toEqual(['Propriétaire', 'Locataire', 'Syndic & immeuble', 'Tiers indépendant', 'Non affectés']);
   });
 
   /** 🔴🔴 LES QUATRE TONS, ET CE SONT CEUX DE LA BARRE DES MAILS : la case cochée et le mail qui en vient
       portent la même couleur, sans qu'on ait à l'apprendre. */
   it('🔴🔴 chaque groupe porte son ton : rouge, vert, bleu, gris', () => {
     const { groupes: g } = grouperParCategorie(liste, categories);
-    expect(g.map((x) => x.ton)).toEqual(['rouge', 'vert', 'bleu', 'gris']);
+/* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » (rose) entre AVANT le tiers indépendant. */
+    expect(g.map((x) => x.ton)).toEqual(['rouge', 'vert', 'rose', 'bleu', 'gris']);
     expect(tonDuGroupe('proprietaire')).toBe('rouge');
     expect(tonDuGroupe('a_repartir')).toBe('gris');
   });
 
   it('🔴 chaque groupe porte son compte, et l’inconnu tombe dans « Non affectés »', () => {
     const { groupes: g } = grouperParCategorie(liste, categories);
-    expect(g.map((x) => x.nb)).toEqual([1, 1, 1, 1]);
-    expect(g[3].interlocuteurs.map((i) => i.adresse)).toEqual(['assureur@fictif.test']);
+    expect(g.map((x) => x.nb)).toEqual([1, 1, 0, 1, 1]);
+    expect(g[4].interlocuteurs.map((i) => i.adresse)).toEqual(['assureur@fictif.test']);
   });
 
   /**
@@ -161,7 +164,7 @@ describe('② les parties — quatre groupes, l’agence écartée, le vocabulai
     ];
     const { groupes: g, nousEcartees } = grouperParCategorie(avecNous, categories);
     expect(nousEcartees).toBe(2);
-    expect(g.map((x) => x.nb)).toEqual([1, 1, 1, 1]);
+    expect(g.map((x) => x.nb)).toEqual([1, 1, 0, 1, 1]);
     const toutes = g.flatMap((x) => x.interlocuteurs.map((i) => i.adresse));
     expect(toutes).not.toContain('gestion@criterimmo.fr');
     expect(toutes).not.toContain('service@criterimmo.fr');
@@ -189,14 +192,14 @@ describe('② les parties — quatre groupes, l’agence écartée, le vocabulai
   /** 🔴 LES QUATRE SONT RENDUS MÊME VIDES : des cases qui se déplacent d'un bien à l'autre se cochent de travers. */
   it('🔴 aucune catégorie connue ⇒ les quatre groupes existent quand même, tout « Non affectés »', () => {
     const { groupes: g } = grouperParCategorie(liste, new Map());
-    expect(g).toHaveLength(4);
-    expect(g.map((x) => x.nb)).toEqual([0, 0, 0, 4]);
+    expect(g).toHaveLength(5);
+    expect(g.map((x) => x.nb)).toEqual([0, 0, 0, 0, 4]);
   });
 
   it('⚠️ la casse ne range personne « Non affectés » par erreur', () => {
     const { groupes: g } = grouperParCategorie([inter({ adresse: 'Proprio@Fictif.Test' })], categories);
     expect(g[0].nb).toBe(1);
-    expect(g[3].nb).toBe(0);
+    expect(g[4].nb).toBe(0);
   });
 
   /** ⚠️ L'ORDRE REÇU EST CONSERVÉ : la route rend du plus bavard au moins bavard, et c'est la seule vérité. */
@@ -205,7 +208,7 @@ describe('② les parties — quatre groupes, l’agence écartée, le vocabulai
       inter({ adresse: 'b@fictif.test', nbMails: 9 }),
       inter({ adresse: 'a@fictif.test', nbMails: 3 }),
     ], new Map());
-    expect(g[3].interlocuteurs.map((i) => i.adresse)).toEqual(['b@fictif.test', 'a@fictif.test']);
+    expect(g[4].interlocuteurs.map((i) => i.adresse)).toEqual(['b@fictif.test', 'a@fictif.test']);
   });
 
   /**
@@ -941,9 +944,10 @@ describe('⑫ 🔴🔴 la couleur de la barre, selon la catégorie de l’expéd
    * entrée de légende, et il est devenu ROUGE le jour où le violet est né sans elle. Il reste, inchangé.
    */
   it('🔴 la légende dit les six cas, « nous » en dernier', () => {
-    expect(LEGENDE_BARRES.map((x) => x.ton)).toEqual(['rouge', 'vert', 'violet', 'bleu', 'gris', 'nous']);
+/* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » (rose) entre AVANT le tiers indépendant. */
+    expect(LEGENDE_BARRES.map((x) => x.ton)).toEqual(['rouge', 'vert', 'violet', 'rose', 'bleu', 'gris', 'nous']);
     expect(LEGENDE_BARRES.map((x) => x.mot)).toEqual([
-      'propriétaire', 'locataire', 'ancien locataire', 'tiers indépendant', 'non affecté', 'nous',
+      'propriétaire', 'locataire', 'ancien locataire', 'syndic & immeuble', 'tiers indépendant', 'non affecté', 'nous',
     ]);
     /* ⚠️ CHAQUE TON RENDU PAR LA RÈGLE A SON ENTRÉE DANS LA LÉGENDE : sans ce contrôle, un ton ajouté un jour
        se serait affiché sans jamais être expliqué. */
@@ -1099,7 +1103,9 @@ describe('⑭ 🔴🔴 le glisser-déposer : les contacts oui, les clients non',
   /** 🔴 LES QUATRE CATÉGORIES SONT ATTEIGNABLES : deux encarts, deux bandes, et rien d'oublié. */
   it('🔴 deux encarts et deux bandes couvrent les quatre groupes', () => {
     expect([...GROUPES_EN_ENCART, ...GROUPES_EN_BANDE])
-      .toEqual(['proprietaire', 'locataire', 'independant', 'a_repartir']);
+      .toEqual(['proprietaire', 'locataire', 'syndic_immeuble', 'independant', 'a_repartir']);
+    /* ⚠️ « Syndic & immeuble » n'est JAMAIS une destination de glisser : la famille se lit dans la fiche syndic. */
+    expect(ciblesDeplacement('independant').map((c) => c.cle)).not.toContain('syndic_immeuble');
   });
 
   /**
@@ -1684,7 +1690,8 @@ describe('point 2 — une adresse qui ne peut rien filtrer', () => {
     const r = grouperParCategorie(
       [{ adresse: 'gestion@criterimmo.fr', nom: null, nbMails: 9, aEcrit: 9, enCopie: 0, interne: true }],
       new Map(), new Set(['autre@sansvisavis.com']));
-    expect(r.groupes.map((g) => g.cle)).toEqual(['proprietaire', 'locataire', 'independant', 'a_repartir']);
+    expect(r.groupes.map((g) => g.cle))
+      .toEqual(['proprietaire', 'locataire', 'syndic_immeuble', 'independant', 'a_repartir']);
     expect(r.groupes.every((g) => g.nb === 0)).toBe(true);
     expect(r.nousEcartees).toBe(1);
     /* 🔴 ELLE EST MAINTENANT RENDUE, AVEC SES COMPTEURS — c'est ce que la ligne dépliable affiche. */

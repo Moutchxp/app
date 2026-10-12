@@ -157,6 +157,10 @@ import type { CoordonneesTrouvees } from '../../../../lib/gestion/partieCategori
 import {
   famillesDestinataires, fusionnerCategories, type FamilleVue,
 } from '../../../../lib/gestion/familleDestinataire';
+/* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la famille « Syndic & immeuble », calculée depuis la fiche syndic. */
+import {
+  avecSyndical, MOT_SYNDIC_IMMEUBLE_VIDE, syndicauxDepuisJson, type SyndicauxDuBien,
+} from '../../../../lib/gestion/partiesSyndic';
 import { COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
 /* ══ 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN (09/10/2026) ══════════════════════════════════════════════════
    ARNO : « un clic ouvre, DANS la fiche du bien, juste sous ce mail, le MÊME module de rédaction que la boîte
@@ -686,6 +690,15 @@ export function HistoriqueDuBien({
   const [categoriesRangees, setCategoriesRangees] =
     useState<ReadonlyMap<string, CategoriePartie>>(new Map());
   /**
+   * ══ 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — CE QUE LA FICHE SYNDIC RECONNAÎT PARMI LES ADRESSES DU BIEN ═════════
+   *
+   * Lu avec les parties (même route, même relecture) et JAMAIS fondu dans `categoriesRangees` : la famille
+   * « Syndic & immeuble » est CALCULÉE, et elle se lit à la date de chaque mail (un contact parti ne peint plus ce
+   * qu'il a écrit après son départ). Les groupes du bloc PARTIES la lisent à l'adresse (`categoriesParties`), les
+   * liserés, pastilles et capsules à la date du mail (`tonDeLExpediteur`, `famillesDestinataires`).
+   */
+  const [syndicaux, setSyndicaux] = useState<SyndicauxDuBien>(new Map());
+  /**
    * 🔴 LES CARTES PORTENT LEUR ADRESSE depuis le lot HISTORIQUE-BIEN-3, et il la fallait : le « + » cerclé ne
    * s'affiche que sur une partie qui N'A PAS encore de carte, ce qui demande de savoir lesquelles en ont une.
    */
@@ -762,6 +775,8 @@ export function HistoriqueDuBien({
           coordonnees?: CoordonneesTrouvees[];
           /* 🔴🔴 LOT HISTORIQUE-BIEN-16, POINT 1 — quelle location réclame quel contact annexe. */
           contactsLocataires?: ContactDeLocataire[];
+          /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — les adresses que la fiche syndic reconnaît, avec leur rôle. */
+          syndicaux?: unknown;
         };
       };
       const m = new Map<string, CategoriePartie>();
@@ -778,6 +793,7 @@ export function HistoriqueDuBien({
         }
       }
       setCategoriesRangees(m);
+      setSyndicaux(syndicauxDepuisJson(d.data?.syndicaux));
       setProposees(prop);
       setCartesContact(d.data?.cartes ?? []);
       setContactsLocataires(d.data?.contactsLocataires ?? []);
@@ -786,6 +802,7 @@ export function HistoriqueDuBien({
       setCoordonnees(co);
     } catch {
       setCategoriesRangees(new Map());
+      setSyndicaux(new Map());
       setProposees(new Map());
       setCartesContact([]);
       setCoordonnees(new Map());
@@ -1525,6 +1542,14 @@ export function HistoriqueDuBien({
   const categoriesFusionnees = useMemo(
     () => fusionnerCategories(categories, categoriesRangees),
     [categories, categoriesRangees]);
+  /**
+   * 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — LA MÊME CARTE, FAMILLE « SYNDIC & IMMEUBLE » POSÉE, POUR LES GROUPES DU BLOC
+   * PARTIES (une personne, un groupe). Propriétaire et locataire l'emportent ; elle passe avant le tiers
+   * indépendant et le non affecté (`partiesSyndic.ts`).
+   */
+  const categoriesParties = useMemo(
+    () => avecSyndical(categoriesFusionnees, syndicaux),
+    [categoriesFusionnees, syndicaux]);
 
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LES CLIENTS DE LA FICHE COMPLÈTENT LA LISTE AVANT LE RANGEMENT.
@@ -1648,7 +1673,7 @@ export function HistoriqueDuBien({
    * carte fusionnée ici aurait fait passer pour client un contact rangé en base, et il serait remonté en tête.
    */
   const parties = useMemo(() => {
-    const r = grouperParCategorie(interlocuteursEtClients, categoriesFusionnees, adressesClientes);
+    const r = grouperParCategorie(interlocuteursEtClients, categoriesParties, adressesClientes);
     return {
       ...r,
       groupes: r.groupes.map((g) => {
@@ -1706,7 +1731,7 @@ export function HistoriqueDuBien({
           .filter((i) => adresseGardeeDansLencart(
             i.adresse, cartesLocataires, CHOIX_LOCATAIRE_DEFAUT, contactsLocataires)).length,
     };
-  }, [interlocuteursEtClients, categoriesFusionnees, adressesClientes, categories,
+  }, [interlocuteursEtClients, categoriesParties, adressesClientes, categories,
     cartesLocataires, choixLocataire, contactsLocataires]);
 
   /**
@@ -1740,15 +1765,15 @@ export function HistoriqueDuBien({
     };
     const poser = (
       id: number,
-      x: { sens: 'recu' | 'envoye'; a: PersonneDuMail[]; cc: PersonneDuMail[]; cci?: PersonneDuMail[] },
+      x: { sens: 'recu' | 'envoye'; a: PersonneDuMail[]; cc: PersonneDuMail[]; cci?: PersonneDuMail[]; recuLe?: string | null },
     ): void => {
       if (m.has(id)) return;
-      m.set(id, famillesDestinataires(x, categoriesFusionnees, regles));
+      m.set(id, famillesDestinataires(x, categoriesFusionnees, regles, syndicaux));
     };
     for (const l of lignes) poser(l.messageId, l);
     if (etatPieces.v === 'ok') for (const x of etatPieces.messages) poser(x.messageId, x);
     return m as ReadonlyMap<number, FamilleVue[]>;
-  }, [lignes, etatPieces, categoriesFusionnees]);
+  }, [lignes, etatPieces, categoriesFusionnees, syndicaux]);
 
   /** La fiche d'annuaire de chaque client, pour le lien « adresse à corriger ». */
   const fichesClientes = useMemo(() => {
@@ -2150,7 +2175,8 @@ export function HistoriqueDuBien({
 
     setACreer({
       adresse,
-      categorie: choisie === undefined || choisie === 'a_repartir' ? '' : choisie,
+      /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » ne se pose pas à la main : rien de pré-choisi. */
+      categorie: choisie === undefined || choisie === 'a_repartir' || choisie === 'syndic_immeuble' ? '' : choisie,
       fiche: ficheDeContact({
         adresse,
         nom: dejaSeparee ? (propose?.nom ?? '') : coupe.nom,
@@ -2632,7 +2658,7 @@ export function HistoriqueDuBien({
               return (
                 <GroupeDeParties key={cle} g={g} forme="encart" reglages={reglages} bascules={bascules}
                   motSiVide={motEncartVide(cle, clientConnuPour(cle, clients))}
-                  periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse}
+                  periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse} syndicaux={syndicaux}
                   fichesClientes={fichesClientes} onFicheClient={onFicheClient}
                   survol={survol} glisse={glisse} menu={menu}
                   onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
@@ -2715,7 +2741,9 @@ export function HistoriqueDuBien({
             if (g === undefined) return null;
             return (
               <GroupeDeParties key={cle} g={g} forme="bande" reglages={reglages} bascules={bascules}
-                periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse}
+                /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la bande rose vide dit d'où vient la famille, et comment y entrer. */
+                motSiVide={cle === 'syndic_immeuble' ? MOT_SYNDIC_IMMEUBLE_VIDE : undefined}
+                periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse} syndicaux={syndicaux}
                 fichesClientes={fichesClientes} onFicheClient={onFicheClient}
                 survol={survol} glisse={glisse} menu={menu}
                 onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
@@ -2962,6 +2990,7 @@ export function HistoriqueDuBien({
           evenements={evenements}
           maintenant={maintenant}
           categories={categoriesFusionnees}
+          syndicaux={syndicaux}
           bornes={bornesDuChoix(reglages.periode)}
           tronqueeParLaLecture={friseTronquee}
           /* 🔴 CLIC SUR UN TRAIT : « le listing défile jusqu'à ce mail et le surligne brièvement » (Arno). Le
@@ -3052,7 +3081,7 @@ export function HistoriqueDuBien({
             <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('haut')}
               groupes={groupesPieces} depots={depots} emplacements={emplacements}
               maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
-              categories={categoriesFusionnees} destinataires={destinatairesDuMessage} />
+              categories={categoriesFusionnees} syndicaux={syndicaux} destinataires={destinatairesDuMessage} />
           )}
         </div>
       )}
@@ -3083,7 +3112,7 @@ export function HistoriqueDuBien({
                     </h5>
                     <FilDeMails lignes={c.lignes} maintenant={maintenant} deplie={deplie}
                       accolades={accoladesVisibles.filter((a) => a.filId === c.filId)}
-                      categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
+                      categories={categoriesFusionnees} syndicaux={syndicaux} surligne={mailSurligne} mots={motsCherches}
                       onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                       onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                       piecesCitables={piecesParFil}
@@ -3098,7 +3127,7 @@ export function HistoriqueDuBien({
                 : (
                   <FilDeMails lignes={lignes} maintenant={maintenant} deplie={deplie}
                     accolades={accoladesVisibles}
-                    categories={categoriesFusionnees} surligne={mailSurligne} mots={motsCherches}
+                    categories={categoriesFusionnees} syndicaux={syndicaux} surligne={mailSurligne} mots={motsCherches}
                     onBasculer={basculerMail} onOuvrirFil={ouvrirLaConversation}
                     onVisualiser={setPieceVue} destinataires={destinatairesDuMessage}
                     piecesCitables={piecesParFil}
@@ -3137,7 +3166,7 @@ export function HistoriqueDuBien({
                     <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('bas')}
                       groupes={groupesPieces} depots={depots} emplacements={emplacements}
                       maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
-                      categories={categoriesFusionnees} destinataires={destinatairesDuMessage} />
+                      categories={categoriesFusionnees} syndicaux={syndicaux} destinataires={destinatairesDuMessage} />
                   )}
                 </div>
               )}
@@ -3470,6 +3499,8 @@ interface PropsGroupe {
   periodes: ReadonlyMap<string, PeriodePartie>;
   /** Les CLIENTS de la fiche : eux seuls ne se déplacent pas. */
   categoriesFiche: ReadonlyMap<string, CategoriePartie>;
+  /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rôle de chaque personne de la fiche syndic, écrit sur sa capsule. */
+  syndicaux?: SyndicauxDuBien;
   /** Par adresse, les côtés où une carte de contact existe déjà. Décide de la présence du « + » cerclé. */
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 2 — les côtés où une carte **CRÉÉE** existe pour cette adresse.
@@ -3700,7 +3731,10 @@ function GroupeDeParties(p: PropsGroupe) {
   /* 🔴 LE SURVOL PENDANT UN GLISSER OUVRE, SANS MÉMORISER : la bande se referme dès qu'on en sort. */
   const ouvert = ouvertParChoix || (glisse !== null && survol === g.cle);
 
-  const survolable = glisse !== null && glisse.depuis !== g.cle;
+  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » n'est PAS une zone de dépôt : la famille se lit dans la
+     fiche syndic, elle ne se range pas à la main (on y entre en ajoutant la personne à la fiche syndic). Ses
+     capsules, elles, restent glissables vers Propriétaire ou Locataire, rôles qui l'emportent. */
+  const survolable = glisse !== null && glisse.depuis !== g.cle && g.cle !== 'syndic_immeuble';
   const surligne = survolable && survol === g.cle;
 
   return (
@@ -3777,10 +3811,12 @@ function GroupeDeParties(p: PropsGroupe) {
       {/* 🔴🔴 LOT HISTORIQUE-BIEN-15 — LA ZONE DE RECHANGE PREND TOUTE LA PLACE, phrase du vide comprise. */}
       {ouvert && p.zone !== undefined ? p.zone : (
         <>
-          {g.nb === 0 && motSiVide !== undefined && (
+          {/* ⚠️ Une BANDE repliée ne dit rien (LOT PARTIES-SYNDIC-ET-IMMEUBLE : la bande rose a sa phrase du vide). */}
+          {g.nb === 0 && motSiVide !== undefined && (forme === 'encart' || ouvert) && (
             <p className="hdb-vide-mot">{motSiVide}</p>
           )}
-          {ouvert && g.nb === 0 && (glisse !== null || motSiVide === undefined) && (
+          {/* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — jamais pour « Syndic & immeuble », qui n'est pas une zone de dépôt. */}
+          {ouvert && g.nb === 0 && (glisse !== null || motSiVide === undefined) && g.cle !== 'syndic_immeuble' && (
             <p className="hdb-vide-depot">Déposez ici pour ranger dans « {g.titre} ».</p>
           )}
 
@@ -3861,6 +3897,7 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
   const aCorriger = (sorte === 'client' || sorte === 'agence') && adresseACorriger(i.adresse, i.interne);
   const motifCorriger = aCorriger ? motifNonSelectionnable(i.adresse, i.interne) : null;
   const fiche = p.fichesClientes.get(cle);
+  const roleSyndical = g.cle === 'syndic_immeuble' ? p.syndicaux?.get(cleAdresse(i.adresse))?.role : undefined;
 
   return (
     <li className={`hdb-capsule hdb-capsule--${g.ton}${deplacable ? '' : ' hdb-capsule--fixe'}`}
@@ -3890,6 +3927,15 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
           <span className="hdb-personne-nom">{nomLisible}</span>
           <span className="hdb-compteurs">
             {motDeuxCompteurs(i)}
+            {/* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Chaque personne y apparaît avec son rôle exact, tiré de la
+                fiche syndic » (Arno) : « Syndic — TEST ARNAUD », « Syndic — Responsable de copropriété »,
+                « Gardien », « Contact immeuble »… */}
+            {roleSyndical !== undefined && (
+              <>
+                {' · '}
+                <span className="hdb-role-syndic">{roleSyndical}</span>
+              </>
+            )}
             {/* ══ 🔴🔴 LA DATE D'UN LOCATAIRE, EN PETIT TEXTE SUR LA LIGNE DES COMPTEURS ════════════════════
                 DEMANDE D'ARNO (05/10/2026) : « La date “depuis le 02/09/2022” des locataires passe en petit
                 texte sur la ligne des compteurs, pas en encadré. »
@@ -4180,7 +4226,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
 function FilDeMails({
   lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi, ancienContact,
   modifierRattachement,
-  onVisualiser, destinataires, piecesCitables, repondre, composeurDe, accolades = [],
+  onVisualiser, destinataires, piecesCitables, repondre, composeurDe, accolades = [], syndicaux,
 }: {
   lignes: readonly LigneHistorique[];
   /** 🔴 LOT ACCOLADE-PARTOUT — les accolades à poser entre les mails, à leur place dans le temps. */
@@ -4189,6 +4235,8 @@ function FilDeMails({
   deplie: ReadonlySet<number>;
   /** Pour la BARRE DE COULEUR : la catégorie retenue de chaque adresse, clé en minuscules. */
   categories: ReadonlyMap<string, CategoriePartie>;
+  /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la fiche syndic du bien, lue à la date de chaque mail. */
+  syndicaux?: SyndicauxDuBien;
   /** Le mail d'où l'on est parti, surligné brièvement au retour d'une conversation. */
   surligne: number | null;
   /** Les mots cherchés, surlignés dans l'aperçu de chaque ligne (point 5). */
@@ -4245,7 +4293,7 @@ function FilDeMails({
          * message » porte donc la barre, en `border-right` — zéro élément de plus dans le document.
          */
         <li key={l.messageId} id={`hdb-mail-${l.messageId}`}
-          className={`hdb-ancre hdb-barre hdb-barre--${tonDeLExpediteur(l, categories)}`
+          className={`hdb-ancre hdb-barre hdb-barre--${tonDeLExpediteur(l, categories, syndicaux)}`
             + `${surligne === l.messageId ? ' hdb-ancre--surlignee' : ''}`}>
           <ol className="vdb-liste">
             {/* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — LA CATÉGORIE D'UNE ADRESSE, RENDUE PAR CE BLOC.
@@ -4269,7 +4317,7 @@ function FilDeMails({
               adressesTrouvees={adressesTrouvees(l, mots, normaliserRecherche)}
               tonDe={(adresse) => (estAdresseInterne(adresse)
                 ? 'nous'
-                : tonDeLExpediteur({ sens: 'recu', de: adresse }, categories))}
+                : tonDeLExpediteur({ sens: 'recu', de: adresse, recuLe: l.recuLe }, categories, syndicaux))}
               onBasculer={() => onBasculer(l.messageId)} onOuvrirFil={onOuvrirFil}
               /* 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil du mail déplié ouvre LA MÊME visionneuse que le
                  résumé, avec LE MÊME tour. Deux portes, une seule fenêtre. */
@@ -4359,6 +4407,8 @@ function ResumeDeplie({ n, onFermer, ...props }: {
   gestes: GestesPiece;
   sansEmpreinte: number;
   categories: ReadonlyMap<string, CategoriePartie>;
+  /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la fiche syndic du bien, lue à la date de chaque mail. */
+  syndicaux?: SyndicauxDuBien;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
   destinataires: ReadonlyMap<number, FamilleVue[]>;
 }) {
@@ -4384,7 +4434,7 @@ function ResumeDeplie({ n, onFermer, ...props }: {
  * l'on rangerait une seconde fois un fichier déjà rangé.
  */
 function ResumePieces({
-  groupes, depots, emplacements, maintenant, gestes, sansEmpreinte, categories, destinataires,
+  groupes, depots, emplacements, maintenant, gestes, sansEmpreinte, categories, destinataires, syndicaux,
 }: {
   groupes: readonly GroupeDePieces<PieceDedoublonnee>[];
   depots: ReadonlyMap<number, DepotAffiche>;
@@ -4404,6 +4454,8 @@ function ResumePieces({
    * être rouge dans le listing et bleu dans le résumé, pour le même mail.
    */
   categories: ReadonlyMap<string, CategoriePartie>;
+  /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la fiche syndic du bien, lue à la date de chaque mail. */
+  syndicaux?: SyndicauxDuBien;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
   destinataires: ReadonlyMap<number, FamilleVue[]>;
 }) {
@@ -4411,7 +4463,7 @@ function ResumePieces({
     <div className="hdb-pieces">
       {groupes.map((g) => (
         <section key={g.messageId}
-          className={`pdc-groupe hdb-barre hdb-barre--${tonDeLExpediteur(g, categories)}`}>
+          className={`pdc-groupe hdb-barre hdb-barre--${tonDeLExpediteur(g, categories, syndicaux)}`}>
           <h6 className="pdc-groupe-titre">
             <span className="pdc-groupe-date">{dateHeureCourte(g.recuLe, maintenant)}</span>
             <span className="pdc-groupe-qui" title={dateHeureComplete(g.recuLe)}> · {mentionExpediteurPiece(g)}</span>
@@ -4680,6 +4732,8 @@ ${CSS_PIECES}
 .hdb-groupe--rouge.hdb-groupe--cible{border-color:var(--color-svv-red);background:var(--color-svv-red-soft)}
 .hdb-groupe--vert.hdb-groupe--cible{border-color:var(--color-svv-green);background:var(--color-svv-green-soft)}
 .hdb-groupe--bleu.hdb-groupe--cible{border-color:var(--color-svv-blue);background:var(--color-svv-blue-soft)}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, le MEME jeton que les puces des compositeurs (--color-svv-syndic-*, defini dans les DEUX modes). */
+.hdb-groupe--rose.hdb-groupe--cible{border-color:var(--color-svv-syndic-bord);background:var(--color-svv-syndic-fond)}
 .hdb-groupe--gris.hdb-groupe--cible{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
 /* Une bande vide survolee le DIT : sans ce mot, on lacherait la capsule sur un rectangle muet. */
 .hdb-vide-depot{margin:.3rem 0 .1rem;font-size:.74rem;color:var(--color-svv-muted);text-align:center}
@@ -4764,6 +4818,10 @@ ${CSS_PIECES}
 /* La mention discrete de la bascule actuels/anciens, sous les deux encarts. */
 .hdb-exclusif{margin:.35rem 0 0;font-size:.76rem;color:var(--color-svv-violet)}
 .hdb-groupe--bleu{border-left-color:var(--color-svv-blue)}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, le MEME jeton que les puces des compositeurs (--color-svv-syndic-*, defini dans les DEUX modes). */
+.hdb-groupe--rose{border-left-color:var(--color-svv-syndic-bord)}
+.hdb-groupe--rose .hdb-case input{accent-color:var(--color-svv-syndic-texte)}
+.hdb-role-syndic{color:var(--color-svv-syndic-texte);font-weight:600}
 .hdb-groupe--gris{border-left-color:var(--color-svv-line-strong)}
 /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — « NOTRE AGENCE » : LE GRIS NEUTRE D'ARNO.
    C'est le MEME ton que la barre verticale de nos propres mails dans le listing (tonDeLExpediteur rend 'nous') :
@@ -5065,6 +5123,8 @@ ${CSS_PIECES}
 .hdb-legende-pastille--vert{border-left-color:var(--color-svv-green);border-right-color:var(--color-svv-green)}
 .hdb-legende-pastille--violet{border-left-color:var(--color-svv-violet);border-right-color:var(--color-svv-violet)}
 .hdb-legende-pastille--bleu{border-left-color:var(--color-svv-blue);border-right-color:var(--color-svv-blue)}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, le MEME jeton que les puces des compositeurs (--color-svv-syndic-*, defini dans les DEUX modes). */
+.hdb-legende-pastille--rose{border-left-color:var(--color-svv-syndic-bord);border-right-color:var(--color-svv-syndic-bord)}
 /* GRIS POINTILLE : un trait discontinu, et non un gris plein — il dit qu'il reste un geste a faire. */
 .hdb-legende-pastille--gris{border-left:3px dashed var(--color-svv-line-strong);
   border-right:3px dashed var(--color-svv-line-strong)}
@@ -5092,6 +5152,8 @@ ${CSS_PIECES}
    (lot 84), avec ses contrastes mesures : rien n'est invente ici, et aucun #rrggbb n'est ecrit a la main. */
 .hdb-barre--violet{border-left-color:var(--color-svv-violet);border-right-color:var(--color-svv-violet)}
 .hdb-barre--bleu{border-left-color:var(--color-svv-blue);border-right-color:var(--color-svv-blue)}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, le MEME jeton que les puces des compositeurs (--color-svv-syndic-*, defini dans les DEUX modes). */
+.hdb-barre--rose{border-left-color:var(--color-svv-syndic-bord);border-right-color:var(--color-svv-syndic-bord)}
 .hdb-barre--gris{border-left-style:dashed;border-right-style:dashed;
   border-left-color:var(--color-svv-line-strong);border-right-color:var(--color-svv-line-strong)}
 /* « nous » : AUCUNE couleur, des deux cotes. Les bords restent transparents, donc la largeur du listing ne

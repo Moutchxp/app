@@ -1,4 +1,6 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
+/* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la famille « Syndic & immeuble », calculée depuis la fiche syndic. */
+import { categorieAvecSyndical, type SyndicauxDuBien } from './partiesSyndic';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — `periodeOccupation` est LA mise en forme d'une période d'occupation de
    ce dépôt (« du … au … »). La ligne d'un ancien locataire l'emploie telle quelle, jamais une copie. */
 import { formaterDateIso, periodeOccupation } from './annuaireRecherche';
@@ -21,7 +23,7 @@ import type { MessagePorteur, OrdrePieces } from './piecesConversation';
  *
  * ⚠️ IL EST PUR ET N'IMPORTE RIEN : ce fichier-ci est atteint par le navigateur, et l'importer ne tire pas `pg`.
  */
-import { categorieDuGroupe, coteDeLaCategorie, replierLesCartes, SEUIL_REPLI_CARTES, type Categorie }
+import { categorieDuGroupe, coteDeLaCategorie, replierLesCartes, SEUIL_REPLI_CARTES, type Categorie, type CategorieAffichee }
   from './partieCategorie';
 
 /**
@@ -277,7 +279,7 @@ export function periodeDeLEvenement(
  * naît là-bas, le compilateur l'amène ici (et signale le titre manquant dans `TITRES_GROUPES`). Une liste
  * recopiée se serait contentée de l'ignorer en silence, et la nouvelle catégorie serait tombée « à répartir ».
  */
-export type CategoriePartie = Exclude<Categorie, 'a_repartir'>;
+export type CategoriePartie = Exclude<CategorieAffichee, 'a_repartir'>;
 
 /**
  * Les quatre groupes du tableau « PARTIES », toujours dans cet ordre.
@@ -290,7 +292,7 @@ export type CategoriePartie = Exclude<Categorie, 'a_repartir'>;
  * locataires (N) », qui existe depuis le lot HISTORIQUE-BIEN-15. La charnière est `categorieDuGroupe`, écrite une
  * seule fois dans `partieCategorie.ts` — la catégorie porte la COULEUR, le groupe porte la PLACE.
  */
-export type CleGroupeParties = Exclude<Categorie, 'ancien_locataire'>;
+export type CleGroupeParties = Exclude<CategorieAffichee, 'ancien_locataire'>;
 
 export interface GroupeParties {
   cle: CleGroupeParties;
@@ -359,6 +361,8 @@ const TITRES_GROUPES: Record<CleGroupeParties, string> = {
   proprietaire: 'Propriétaire',
   locataire: 'Locataire',
   independant: 'Tiers indépendant',
+  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — calculée depuis la fiche syndic, jamais rangée à la main. */
+  syndic_immeuble: 'Syndic & immeuble',
   /**
    * 🔴 « NON AFFECTÉS » EST LE QUATRIÈME GROUPE, ET IL N'EST PAS UN FOURRE-TOUT HONTEUX. C'est là que tombent les
    * assureurs, les syndics, les artisans, les voisins — tout ce que l'annuaire ne rattache ni au propriétaire ni
@@ -388,7 +392,7 @@ const TITRES_GROUPES: Record<CleGroupeParties, string> = {
  * par se contredire sous les yeux — le propriétaire en tête d'un côté, le locataire de l'autre.
  */
 export const ORDRE_DES_GROUPES: readonly CleGroupeParties[] =
-  ['proprietaire', 'locataire', 'independant', 'a_repartir'];
+  ['proprietaire', 'locataire', 'syndic_immeuble', 'independant', 'a_repartir'];
 
 /**
  * ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LE CINQUIÈME TON : VIOLET = ANCIEN LOCATAIRE ═══════════════════════════
@@ -401,22 +405,25 @@ export const ORDRE_DES_GROUPES: readonly CleGroupeParties[] =
  * `tonDeLExpediteur` ou par `familleDeCategorie`. Ajouter la couleur ICI les sert tous, sans qu'aucun écran ne
  * sache ce qu'est un ancien locataire. C'est le « pas de copie » d'Arno, pris au mot.
  */
-export type TonGroupe = 'rouge' | 'vert' | 'bleu' | 'gris' | 'violet';
+export type TonGroupe = 'rouge' | 'vert' | 'bleu' | 'gris' | 'violet' | 'rose';
 
 /**
  * ⚠️ CE TABLEAU EST INDEXÉ PAR **CATÉGORIE**, PAS PAR GROUPE, et c'est toute la nuance de ce lot : il y a cinq
  * catégories et quatre groupes. Le violet n'a pas d'encart à lui ; il a une couleur à lui.
  */
-const TONS_GROUPES: Record<Categorie, TonGroupe> = {
+const TONS_GROUPES: Record<CategorieAffichee, TonGroupe> = {
   proprietaire: 'rouge',
   locataire: 'vert',
   ancien_locataire: 'violet',
   independant: 'bleu',
   a_repartir: 'gris',
+  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose déjà porté par le syndic et l'immeuble dans les puces des
+     compositeurs (`--color-svv-syndic-*`) : une même personne, une même couleur, partout. */
+  syndic_immeuble: 'rose',
 };
 
 /** Le ton d'un groupe — ou d'une catégorie, le tableau les couvre toutes. PUR. */
-export function tonDuGroupe(cle: Categorie): TonGroupe {
+export function tonDuGroupe(cle: CategorieAffichee): TonGroupe {
   return TONS_GROUPES[cle];
 }
 
@@ -660,8 +667,13 @@ export function motDeuxCompteurs(i: { aEcrit: number; enCopie: number }): string
 export type TonMail = TonGroupe | 'nous';
 
 export function tonDeLExpediteur(
-  l: Pick<LigneHistorique, 'sens' | 'de'>,
+  l: Pick<LigneHistorique, 'sens' | 'de'> & { recuLe?: string | null },
   categories: ReadonlyMap<string, CategoriePartie>,
+  /**
+   * 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — ce que la fiche syndic reconnaît (route des parties). Lu À LA DATE DU
+   * MAIL quand la ligne la porte : un contact « parti » ne peint plus en rose ce qu'il a écrit après son départ.
+   */
+  syndicaux?: SyndicauxDuBien,
 ): TonMail {
   if (l.sens === 'envoye') return 'nous';
   const adresse = (l.de ?? '').trim().toLowerCase();
@@ -674,7 +686,7 @@ export function tonDeLExpediteur(
    * des nôtres. Le gris, lui, dit la vérité : on ne sait pas.
    */
   if (adresse !== '' && estAdresseInterne(adresse)) return 'nous';
-  const c = categories.get(adresse);
+  const c = categorieAvecSyndical(adresse, categories, syndicaux, l.recuLe);
   return c === undefined ? 'gris' : TONS_GROUPES[c];
 }
 
@@ -709,6 +721,8 @@ export const LEGENDE_BARRES: readonly { ton: TonMail; mot: string }[] = [
      le cherche : les deux parlent du logement, et c'est leur VOISINAGE qui fait comprendre la distinction. Une
      couleur de plus sans ligne de légende serait une couleur qu'on devine — et qu'on devine mal. */
   { ton: 'violet', mot: 'ancien locataire' },
+  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — avant le tiers indépendant, comme dans la priorité de classement. */
+  { ton: 'rose', mot: 'syndic & immeuble' },
   { ton: 'bleu', mot: 'tiers indépendant' },
   { ton: 'gris', mot: 'non affecté' },
   { ton: 'nous', mot: 'nous' },
@@ -730,7 +744,7 @@ export const LEGENDE_BARRES: readonly { ton: TonMail; mot: string }[] = [
  * retrouvée rendue deux fois — ou pas du tout.
  */
 export const GROUPES_EN_ENCART: readonly CleGroupeParties[] = ['proprietaire', 'locataire'];
-export const GROUPES_EN_BANDE: readonly CleGroupeParties[] = ['independant', 'a_repartir'];
+export const GROUPES_EN_BANDE: readonly CleGroupeParties[] = ['syndic_immeuble', 'independant', 'a_repartir'];
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-11, POINT 2 — L'ORDRE DES LIGNES SOUS LES ENCARTS ═══════════════════════════════════
@@ -749,7 +763,7 @@ export const GROUPES_EN_BANDE: readonly CleGroupeParties[] = ['independant', 'a_
  * comme la capture d'Arno.
  */
 export const BANDES_SOUS_LES_ENCARTS: readonly (CleGroupeParties | 'agence')[] =
-  ['independant', 'agence', 'a_repartir'];
+  ['syndic_immeuble', 'independant', 'agence', 'a_repartir'];
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-5, POINT 1 — LE CLIENT DU BIEN A SA CAPSULE, MÊME SANS UN SEUL MAIL ═════════════════
@@ -1003,6 +1017,9 @@ export function sorteDeCapsule(
   if (interne) return 'agence';
   if (categoriesFiche.has(adresse.trim().toLowerCase())) return 'client';
   if (groupe === 'independant') return 'tiers';
+  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — une personne de la fiche syndic n'a pas de « + » : sa fiche EST la fiche
+     syndic, et c'est là qu'elle se complète. Même sorte que le tiers indépendant (ni « + », ni carte). */
+  if (groupe === 'syndic_immeuble') return 'tiers';
   return 'contact';
 }
 
@@ -1242,8 +1259,10 @@ export const SECONDES_ANNULER_DEPLACEMENT = 8;
  * ⚠️ LA CATÉGORIE D'ORIGINE EST ÉCARTÉE : proposer « déplacer vers là où tu es déjà » est un piège à clic.
  */
 export function ciblesDeplacement(depuis: CleGroupeParties): { cle: CleGroupeParties; titre: string }[] {
+  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » n'est jamais une destination : la famille se lit dans
+     la fiche syndic, aucun rangement ne la pose. */
   return [...GROUPES_EN_ENCART, ...GROUPES_EN_BANDE]
-    .filter((c) => c !== depuis)
+    .filter((c) => c !== depuis && c !== 'syndic_immeuble')
     .map((c) => ({ cle: c, titre: TITRES_GROUPES[c] }));
 }
 

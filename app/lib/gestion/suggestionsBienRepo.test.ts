@@ -101,8 +101,9 @@ describe('ecrireDepuisLeBien — les trois groupes, dans l’ordre d’Arno', ()
   });
   it('② IMMEUBLE : les contacts du syndic de CETTE copropriété, l’e-mail général, puis le gardien, puis les autres', async () => {
     expect((await lignes())?.[1]).toEqual(['immeuble', [
-      'm.bercier@criterimmo.fr|syndic|pleine|Gestionnaire · Cabinet Criterimmo',
-      'contact@criterimmo.fr|syndic|pleine|Syndic — e-mail général',
+      /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — les rôles d'Arno, les mêmes que dans le bloc PARTIES. */
+      'm.bercier@criterimmo.fr|syndic|pleine|Syndic — Gestionnaire',
+      'contact@criterimmo.fr|syndic|pleine|Syndic — Cabinet Criterimmo',
       'gardienne@x.fr|immeuble|pleine|Gardien',
       'cs@x.fr|immeuble|pleine|Conseil syndical',
     ]]);

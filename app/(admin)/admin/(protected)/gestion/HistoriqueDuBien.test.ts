@@ -2766,12 +2766,16 @@ describe('⑤-duodecies 🔴🔴 les deux bandes sont TOUJOURS là, même à zé
 
   it('🔴🔴 LES DEUX BANDES SONT RENDUES MÊME VIDES, dans l’ordre d’Arno', async () => {
     await monterAvec(QUE_DES_CLIENTS);
-    expect(bandes()).toHaveLength(2);
-    expect(bandes()[0].textContent).toContain('Tiers indépendant');
-    expect(bandes()[1].textContent).toContain('Non affectés');
-    /* Les tons : bleu puis gris, comme écrit. */
-    expect(bandes()[0].className).toContain('hdb-groupe--bleu');
-    expect(bandes()[1].className).toContain('hdb-groupe--gris');
+    /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » (rose) est une bande de plus, AVANT le tiers
+       indépendant, rendue elle aussi même vide (les cases ne se déplacent pas d'un bien à l'autre). */
+    expect(bandes()).toHaveLength(3);
+    expect(bandes()[0].textContent).toContain('Syndic & immeuble');
+    expect(bandes()[1].textContent).toContain('Tiers indépendant');
+    expect(bandes()[2].textContent).toContain('Non affectés');
+    /* Les tons : rose, bleu puis gris, comme écrit. */
+    expect(bandes()[0].className).toContain('hdb-groupe--rose');
+    expect(bandes()[1].className).toContain('hdb-groupe--bleu');
+    expect(bandes()[2].className).toContain('hdb-groupe--gris');
   });
 
   it('🔴🔴 L’ORDRE VIENT DU MODULE PUR, PAS DE L’ÉCRAN', () => {
@@ -2783,8 +2787,8 @@ describe('⑤-duodecies 🔴🔴 les deux bandes sont TOUJOURS là, même à zé
      * ⚠️ `GROUPES_EN_BANDE` RESTE et garde son emploi : il répond à « quelles CATÉGORIES se rendent en bande ? »
      * (c'est lui que le garde de couverture des quatre groupes additionne à `GROUPES_EN_ENCART`).
      */
-    expect(GROUPES_EN_BANDE).toEqual(['independant', 'a_repartir']);
-    expect(BANDES_SOUS_LES_ENCARTS).toEqual(['independant', 'agence', 'a_repartir']);
+    expect(GROUPES_EN_BANDE).toEqual(['syndic_immeuble', 'independant', 'a_repartir']);
+    expect(BANDES_SOUS_LES_ENCARTS).toEqual(['syndic_immeuble', 'independant', 'agence', 'a_repartir']);
     expect(SRC).toContain('BANDES_SOUS_LES_ENCARTS.map');
     /* 🔴 LE GARDE : plus aucune condition ne fait dépendre leur existence d'un glisser en cours. */
     expect(SRC).not.toContain('g.nb === 0 && glisse === null');
@@ -2840,7 +2844,7 @@ describe('⑤-duodecies 🔴🔴 les deux bandes sont TOUJOURS là, même à zé
 
   it('⚠️ AUCUNE RÉGRESSION QUAND ELLES SONT PLEINES', async () => {
     await monterAvec(INTERLOCUTEURS);
-    expect(bandes()).toHaveLength(2);
+    expect(bandes()).toHaveLength(3);
     expect((hote.querySelector('.hdb-groupe--gris') as HTMLElement)
       .querySelector('.gst-compte')?.textContent).toBe('1');
   });
@@ -3999,11 +4003,13 @@ describe('⑤-vicies 🔴🔴 l’ordre des bandes, et les deux encarts ouverts'
     await monter({ categories: CATS_LARGE });
     const bandes = [...hote.querySelectorAll('.hdb-groupe--bande')]
       .map((b) => (b.querySelector('.hdb-replier')?.textContent ?? '').replace(/[▶▼]/g, '').trim());
-    expect(bandes[0]).toContain('Tiers indépendant');
-    expect(bandes[1]).toContain('Notre agence');
-    expect(bandes[2]).toContain('Non affectés');
+    /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » ouvre la pile, avant le tiers indépendant. */
+    expect(bandes[0]).toContain('Syndic & immeuble');
+    expect(bandes[1]).toContain('Tiers indépendant');
+    expect(bandes[2]).toContain('Notre agence');
+    expect(bandes[3]).toContain('Non affectés');
     /* 🔴 ET « NON AFFECTÉS » EST BIEN LA DERNIÈRE : c'est ce qu'Arno souligne. */
-    expect(bandes).toHaveLength(3);
+    expect(bandes).toHaveLength(4);
   });
 
   /**

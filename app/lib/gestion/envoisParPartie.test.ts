@@ -123,8 +123,9 @@ describe('🔴🔴 ③ une capsule par famille, dans l’ordre', () => {
    * même logement, et c'est leur voisinage qui fait lire la distinction.
    */
   it('🔴🔴 l’ordre est celui d’Arno, quel que soit l’ordre des en-têtes', () => {
-    expect([...ORDRE_FAMILLES])
-      .toEqual(['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'interne', 'exterieur']);
+    /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » (rose) AVANT le tiers indépendant. */
+    expect([...ORDRE_FAMILLES]).toEqual(
+      ['proprietaire', 'locataire', 'ancien_locataire', 'syndic_immeuble', 'independant', 'interne', 'exterieur']);
     /* Les en-têtes sont donnés à l'envers exprès : le rendu doit les remettre dans l'ordre. */
     expect(familles(envoi([INCONNU, COLLEGUE, TIERS, ANCIEN, LOCATAIRE, PROPRIO])))
       .toEqual(['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'interne', 'exterieur']);
@@ -165,14 +166,14 @@ describe('🔴🔴 ③ une capsule par famille, dans l’ordre', () => {
   it('🔴 chaque famille a son mot, son titre et son ton', () => {
     expect(ORDRE_FAMILLES.map(motFamille)).toEqual([
       'Envoyé vers propriétaire', 'Envoyé vers locataire', 'Envoyé vers ancien locataire',
-      'Envoyé à tiers indépendant', 'Envoyé en interne', 'Destinataire extérieur',
+      'Envoyé au syndic & immeuble', 'Envoyé à tiers indépendant', 'Envoyé en interne', 'Destinataire extérieur',
     ]);
     /* 🔴 LA BULLE DU « i » A SA SECTION « Ancien locataire » (Arno), et c'est ce titre-là qu'elle écrit. */
     expect(ORDRE_FAMILLES.map(titreFamille)).toEqual([
-      'Propriétaire', 'Locataire', 'Ancien locataire', 'Tiers indépendant', 'Interne', 'Extérieur',
+      'Propriétaire', 'Locataire', 'Ancien locataire', 'Syndic & immeuble', 'Tiers indépendant', 'Interne', 'Extérieur',
     ]);
     expect(ORDRE_FAMILLES.map(tonFamille))
-      .toEqual(['rouge', 'vert', 'violet', 'bleu', 'gris', 'neutre']);
+      .toEqual(['rouge', 'vert', 'violet', 'rose', 'bleu', 'gris', 'neutre']);
   });
 });
 

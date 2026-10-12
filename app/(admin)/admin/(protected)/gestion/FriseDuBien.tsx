@@ -12,6 +12,7 @@ import { tonDeLExpediteur, type CategoriePartie, type OccupationPeriode }
   from '../../../../lib/gestion/historiqueBien';
 /* 🔴🔴 LE DÉFILEMENT, PARTAGÉ AVEC LA FRISE D'AVANCEMENT. Arno, B.3 : « même code, pas de second chemin. » */
 import { useDefilementFrise } from './useDefilementFrise';
+import type { SyndicauxDuBien } from '../../../../lib/gestion/partiesSyndic';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — LA FRISE CHRONOLOGIQUE DE LA VIE DU BIEN ══════════════════════════════
@@ -48,7 +49,7 @@ import { useDefilementFrise } from './useDefilementFrise';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function FriseDuBien({
-  mails, occupations, evenements, maintenant, categories, bornes, onMail, tronqueeParLaLecture = false,
+  mails, occupations, evenements, maintenant, categories, bornes, onMail, tronqueeParLaLecture = false, syndicaux,
 }: {
   /** TOUS les mails de la sélection — pas la page. Voir la route `/historique/frise`. */
   mails: readonly MailDeLaFrise[];
@@ -59,6 +60,8 @@ export function FriseDuBien({
   maintenant: Date;
   /** La catégorie de chaque adresse, pour le ton d'un trait. LA MÊME carte que les liserés du listing. */
   categories: ReadonlyMap<string, CategoriePartie>;
+  /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la fiche syndic du bien, lue à la date de chaque mail. */
+  syndicaux?: SyndicauxDuBien;
   /** Les bornes de la période retenue, à surligner. `null` de part et d'autre = aucune borne. */
   bornes: { du: string | null; au: string | null };
   /** Clic sur un trait : le listing défile jusqu'à ce mail et le surligne. */
@@ -168,7 +171,7 @@ export function FriseDuBien({
           {recus.map((m) => {
             const x = positionSurLaFrise(m.recuLe, mois);
             if (x === null) return null;
-            const ton = tonDeLExpediteur({ sens: 'recu', de: m.de }, categories);
+            const ton = tonDeLExpediteur({ sens: 'recu', de: m.de, recuLe: m.recuLe }, categories, syndicaux);
             return (
               <button
                 key={m.messageId}
@@ -323,6 +326,8 @@ export const CSS_FRISE_DU_BIEN = `
    (lot 84), avec ses contrastes mesures : rien n'est invente ici, et aucun #rrggbb n'est ecrit a la main. */
 .frs-trait--violet{background:var(--color-svv-violet)}
 .frs-trait--bleu{background:var(--color-svv-blue)}
+/* LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rose du syndic et de l'immeuble, le MEME jeton que les puces des compositeurs (--color-svv-syndic-*, defini dans les DEUX modes). */
+.frs-trait--rose{background:var(--color-svv-syndic-bord)}
 .frs-trait--gris{background:var(--color-svv-line-strong)}
 /* « nous » n'apparait pas dans la partie haute (elle ne porte que les RECUS), mais le ton existe : si un envoi
    y entrait un jour, il serait gris neutre comme sa barre dans le listing, et non invisible. */
