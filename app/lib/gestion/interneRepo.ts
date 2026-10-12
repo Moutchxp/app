@@ -292,19 +292,26 @@ export async function leverInterneApresRattachement(
 export async function biensADetacher(messageIds: readonly number[]): Promise<BienDetache[]> {
   const ids = idsPropres(messageIds);
   if (ids.length === 0 || !(await rattachementsDisponibles())) return [];
-  const { rows } = await query<{ id: string; cle: string | null; libelle: string | null; nom: string | null }>(
+  const { rows } = await query<{
+    id: string; cle: string | null; libelle: string | null; nom: string | null; message_id: string; recu_le: Date | string | null;
+  }>(
     /* ⚠️ `AS cle`, ET C'EST UN DÉFAUT QUE L'ÉCRAN A MONTRÉ : la première version sélectionnait `r.cible_cle` sans
        alias et lisait `r.cle` — la confirmation annonçait « lot ? » au lieu du numéro. Le type TypeScript ne peut
        pas attraper cela : il décrit ce que le code ATTEND, pas ce que la requête REND. */
     `SELECT r.id::text, r.cible_cle AS cle, r.cible_libelle AS libelle,
             CASE WHEN lo.wippimmo_id IS NULL THEN NULL
-                 ELSE concat_ws(', ', nullif(lo.adresse, ''), nullif(lo.commune, '')) END AS nom
+                 ELSE concat_ws(', ', nullif(lo.adresse, ''), nullif(lo.commune, '')) END AS nom,
+            r.message_id::text AS message_id, m.recu_le
        FROM gestion_rattachement r
        LEFT JOIN gestion_annuaire_lot lo ON lo.wippimmo_id = r.cible_cle
+       LEFT JOIN gestion_message m ON m.id = r.message_id
       WHERE r.message_id = ANY($1::bigint[]) AND ${sqlLiensDuBien('r')}
       ORDER BY r.id`, [ids]);
   return rows.map((r) => ({
     lienId: Number(r.id),
+    /* 🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — DE QUEL MAIL le lien sera retiré (le texte le nomme). */
+    messageId: Number(r.message_id),
+    recuLe: r.recu_le === null ? null : (r.recu_le instanceof Date ? r.recu_le.toISOString() : String(r.recu_le)),
     libelle: (r.nom ?? '').trim() !== '' ? `${r.nom} — lot ${r.cle ?? '?'}`
       : (r.libelle ?? '').trim() !== '' ? (r.libelle as string) : `lot ${r.cle ?? '?'}`,
   }));

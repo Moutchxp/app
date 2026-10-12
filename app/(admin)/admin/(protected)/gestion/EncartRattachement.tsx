@@ -7,7 +7,9 @@ import { useEffect, useRef, useState } from 'react';
  * … », dans un module PUR. L'écran les écrit, il ne les invente pas.
  */
 import {
-  messageDetachement, motApresDetachement, SECONDES_ANNULER, type BienDetache,
+  motApresDetachement, SECONDES_ANNULER, type BienDetache,
+  /* 🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — le texte vrai, mail par mail, et la phrase de portée. */
+  phrasePorteeInterne, phrasesDetachement,
 } from '../../../../lib/gestion/interneDetache';
 /**
  * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS : les mots de « Ce mail est marqué Interne : rattacher
@@ -27,6 +29,16 @@ import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcrivant';
 /* 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — la fenêtre commune, celle de « Modifier le rattachement ». */
 import { RattachementsDuFil } from './RattachementsDuFil';
+import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
+/* 🔴🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — la glissière de la fenêtre de rattachement, à trois positions. */
+import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
+import type { PositionPortee } from '../../../../lib/gestion/porteeSuivi';
+
+/** Les trois positions du panneau « Interne », et leur fenêtre d'écriture (mêmes effets qu'avec les boutons ronds). */
+const POSITIONS_INTERNE: readonly PositionPortee[] = ['one_shot', 'suite', 'conversation'];
+const positionDuChoixInterne = (c: ChoixInterne): PositionPortee => (c === 'mail' ? 'one_shot' : c);
+const choixDeLaPositionInterne = (p: PositionPortee): ChoixInterne =>
+  (p === 'one_shot' ? 'mail' : p === 'suite' ? 'suite' : 'conversation');
 import { lignePremierBien } from '../../../../lib/gestion/classementBoutons';
 // 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
@@ -238,6 +250,16 @@ export function EncartRattachement({
    * par pièce… » — est repris au pied de la modale (voir `piedSupplementaire`).
    */
   const [ajout, setAjout] = useState(false);
+  /**
+   * ══ 🔴🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — APRÈS CHAQUE GESTE, ON L'ANNONCE ══════════════════════════════
+   * Constat : l'encart relisait la conversation (`onChange`) mais n'annonçait jamais son geste. Le compteur
+   * « N biens rattachés » des lignes (conversation, boîte, historique) et les fenêtres ouvertes sur ce mail gardaient
+   * donc l'état d'avant jusqu'au rechargement de la page. On annonce désormais, puis on relit — comme la fenêtre commune.
+   */
+  const relire = async (): Promise<void> => {
+    annoncerClassement({ messageId, filId: filId ?? null });
+    await onChange();
+  };
   /** 🔴 « voir plus » : la ligne de gauche est repliée sur le PREMIER bien, et se déplie sur demande. */
   const [deplie, setDeplie] = useState(false);
   /**
@@ -336,7 +358,7 @@ export function EncartRattachement({
       const d = (await res.json()) as { ok?: boolean; erreur?: string };
       if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return false; }
       onGeste?.(dit);
-      await onChange();
+      await relire();
       return true;
     } catch {
       setErreur('Le serveur n’a pas répondu.');
@@ -700,7 +722,7 @@ export function EncartRattachement({
       const issue = await annulerLaLevee(fait);
       if (issue.ok) onGeste?.(motApresAnnulationLevee(issue.liens));
       else setErreur('Le serveur n’a pas répondu.');
-      await onChange();
+      await relire();
     } finally {
       setOccupeInterne(false);
     }
@@ -818,7 +840,7 @@ export function EncartRattachement({
         const d = (await res.json()) as { ok?: boolean; erreur?: string; trace?: TraceSuivi };
         if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
         onGeste?.(`${motDuGeste(choixRetenu, classement)}${mention}`);
-        await onChange();
+        await relire();
         setAjout(false);
         setEtape2(null);
         setCiblesEnCours(null);
@@ -848,7 +870,7 @@ export function EncartRattachement({
       await agir({ messageId, cible: { sorte: 'lot', cle }, motif: 'rattaché à la main' },
         'POST', 'Rattachement posé.');
     }
-    if (aPoser.length === 0 && aRetirer.length === 0) await onChange();
+    if (aPoser.length === 0 && aRetirer.length === 0) await relire();
     setAjout(false);
     setEtape2(null);
     setCiblesEnCours(null);
@@ -964,6 +986,7 @@ export function EncartRattachement({
     setOccupeInterne(true);
     try {
       const faits = await onInterne?.(true, undefined, choix);
+      annoncerClassement({ messageId, filId: filId ?? null });
       /* 🔴 ON N'OFFRE L'« ANNULER » QUE SI QUELQUE CHOSE A ÉTÉ DÉTACHÉ. Sinon il n'y a rien à remettre, et la
          marque se retire déjà d'un clic sur la case verte — le geste d'avant, inchangé. */
       const liste = Array.isArray(faits) ? faits : annonces;
@@ -980,6 +1003,7 @@ export function EncartRattachement({
     setOccupeInterne(true);
     try {
       await onInterne?.(false, liste.map((b) => b.lienId));
+      annoncerClassement({ messageId, filId: filId ?? null });
     } finally {
       setOccupeInterne(false);
     }
@@ -987,7 +1011,7 @@ export function EncartRattachement({
 
   const reinitialiser = async (): Promise<void> => {
     if (biensRattaches.length > 0) { await appliquerCibles([]); return; }
-    if (interne === true) { await onInterne?.(false); return; }
+    if (interne === true) { await onInterne?.(false); annoncerClassement({ messageId, filId: filId ?? null }); return; }
     if (horsGestion) await onHorsGestion?.(false);
   };
 
@@ -1286,37 +1310,28 @@ export function EncartRattachement({
           et ses biens, pas devant un voile qui les cache. */}
       {demandeInterne !== null && (
         <div className="ert-interne-panneau" role="group" aria-label="Confirmer le marquage « interne »">
-          {/* 🔴🔴 LES TROIS FENÊTRES D'ARNO, ET LES MÊMES MOTS QU'AILLEURS (`CHOIX_SUIVI`) : « Ce mail uniquement »,
-              « Ce mail et la conversation à venir », « Toute la conversation ». En écrire une seconde série aurait
-              donné deux vocabulaires pour une même notion. */}
+          {/* ══ 🔴🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — LA GLISSIÈRE, À LA PLACE DES TROIS BOUTONS RONDS ══════
+              DEMANDE D'ARNO (12/10/2026) : la MÊME glissière pilule que la fenêtre de rattachement (même composant, même
+              dessin), à trois positions — One shot (ce mail uniquement), Ce mail + futurs échanges, Toute la
+              conversation —, libellés centrés, texte d'explication dessous, MÊMES EFFETS : la position choisie est la
+              fenêtre d'avant (`mail`, `suite`, `conversation`), envoyée par le même geste. Position par défaut
+              inchangée : celle que l'encart reçoit (`choixInterne`, « Toute la conversation » par défaut). */}
           <p className="ert-interne-mot">Jusqu’où ce marquage porte-t-il ?</p>
-          <div className="ert-interne-fenetres" role="radiogroup" aria-label="Portée du marquage">
-            {CHOIX_SUIVI.map((c) => (
-              <label key={c.cle} className="ert-interne-fenetre" title={c.aide}>
-                <input type="radio" name={`ert-interne-${messageId}`} checked={demandeInterne.choix === c.cle}
-                  disabled={occupeInterne}
-                  onChange={() => { void changerFenetreInterne(c.cle); }} />
-                <span>{c.mot}</span>
-              </label>
-            ))}
-          </div>
-          {/* 🔴 ET LA LISTE SUIT LE CHOIX, en direct : « ce mail uniquement » et « toute la conversation » ne
-              détachent pas les mêmes biens. Une liste figée promettrait autre chose que ce que le bouton ferait. */}
-          {demandeInterne.biens.length === 0 ? (
+          <style>{CSS_GLISSIERE_PORTEE}</style>
+          <GlissierePortee position={positionDuChoixInterne(demandeInterne.choix)} modification
+            positions={POSITIONS_INTERNE} libelleGroupe="Portée du marquage" desactivee={occupeInterne}
+            onChoisir={(p) => { void changerFenetreInterne(choixDeLaPositionInterne(p)); }} />
+          <p className="ert-interne-portee" role="note">{phrasePorteeInterne(demandeInterne.choix)}</p>
+          {/* 🔴🔴 LE TEXTE DIT LA VÉRITÉ, MAIL PAR MAIL (Arno) : jamais « Sortir CE mail du suivi de X » quand X est porté
+              par un AUTRE mail de la conversation. Il suit la position, en direct (la liste est redemandée au serveur). */}
+          <ul className="ert-interne-liste ert-interne-verite">
+            {phrasesDetachement(messageId, demandeInterne.biens).map((ph) => <li key={ph}>{ph}</li>)}
+          </ul>
+          {demandeInterne.biens.length > 0 && (
             <p className="ert-interne-note">
-              Aucun bien à détacher avec cette portée : le marquage ne retirera aucun rattachement.
+              Les rattachements sont RETIRÉS, jamais supprimés : ils restent datés et signés, et « Annuler » les
+              remet.
             </p>
-          ) : (
-            <>
-              <p className="ert-interne-mot">{messageDetachement(demandeInterne.biens)}</p>
-              <ul className="ert-interne-liste">
-                {demandeInterne.biens.map((b) => <li key={b.lienId}>{b.libelle}</li>)}
-              </ul>
-              <p className="ert-interne-note">
-                Les rattachements sont RETIRÉS, jamais supprimés : ils restent datés et signés, et « Annuler » les
-                remet.
-              </p>
-            </>
           )}
           <div className="ert-interne-boutons">
             <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={occupeInterne}
@@ -1656,14 +1671,14 @@ export function EncartRattachement({
         <ClasserMail messageId={messageId} filId={null}
           onFerme={() => setClasser(false)}
           onGeste={onGeste}
-          onFait={async () => { await onChange(); }} />
+          onFait={async () => { await relire(); }} />
       )}
 
       {modifie !== null && (
         <ModifierRattachement lien={modifie} messageId={messageId}
           onGeste={onGeste}
           onAnnuler={() => setModifie(null)}
-          onFait={async () => { setModifie(null); await onChange(); }} />
+          onFait={async () => { setModifie(null); await relire(); }} />
       )}
 
       {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — LE TEMPS D'UN ALLER-RETOUR, ON DIT CE QU'ON FAIT ════════════════════
@@ -1788,6 +1803,11 @@ export const CSS_ENCART_RATTACHEMENT = `
 .ert-interne-liste{margin:.25rem 0 0;padding-left:1.1rem;display:flex;flex-direction:column;gap:.15rem;
   font-size:.78rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .ert-interne-note{margin:.3rem 0 0;font-size:.72rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — la phrase de portee sous la glissiere, au dessin de la definition de la
+   fenetre de rattachement ; puis ce qui change, mail par mail, en liste sans puces. */
+.ert-interne-portee{margin:.4rem 0 0;padding:6px 10px;border-left:3px solid var(--color-svv-red);border-radius:0 .5rem .5rem 0;
+  background:var(--color-svv-field);font-size:.82rem;line-height:1.45;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.ert-interne-verite{list-style:none;padding-left:0;font-size:.82rem;font-weight:600}
 .ert-interne-boutons{margin:.45rem 0 0;display:flex;flex-wrap:wrap;gap:.4rem}
 /* Les trois fenetres : une par ligne, cible tactile de 44 px, aucune dependance au survol. */
 .ert-interne-fenetres{margin:.3rem 0 .35rem;display:flex;flex-direction:column;gap:.1rem}

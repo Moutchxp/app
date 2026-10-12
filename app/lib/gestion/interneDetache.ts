@@ -51,8 +51,63 @@ export const MOTIF_DETACHE_PAR_INTERNE = 'détaché en marquant le mail « inter
 /** Combien de secondes l'« Annuler » reste offert après le geste. Demande d'Arno : « pendant quelques secondes ». */
 export const SECONDES_ANNULER = 12;
 
-/** Un bien que le geste va détacher, ou vient de détacher. */
-export interface BienDetache { lienId: number; libelle: string }
+/**
+ * Un bien que le geste va détacher, ou vient de détacher.
+ *
+ * 🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — `messageId` et `recuLe` disent DE QUEL MAIL le lien sera retiré. Sans
+ * eux, le panneau écrivait « Sortir ce mail du suivi de … » pour un bien porté par un AUTRE mail de la conversation
+ * (constat d'Arno, mail 58109 : le lot 236 était porté par le mail de 17:49). Facultatifs : une réponse d'API plus
+ * ancienne ne les porte pas, et le texte retombe alors sur une forme qui ne nomme aucun mail.
+ */
+export interface BienDetache { lienId: number; libelle: string; messageId?: number | null; recuLe?: string | null }
+
+/** La portée du marquage, dite en une phrase (texte d'explication sous la glissière du panneau « Interne »). PUR. */
+export function phrasePorteeInterne(choix: 'mail' | 'suite' | 'conversation'): string {
+  if (choix === 'mail') return 'Ce mail sera marqué Interne. Les autres mails de la conversation ne changent pas.';
+  if (choix === 'suite') {
+    return 'Ce mail et les mails suivants de cette conversation seront marqués Interne, ainsi que ses prochains échanges. '
+      + 'Les mails plus anciens ne changent pas.';
+  }
+  return 'Tous les mails de cette conversation seront marqués Interne, ainsi que ses prochains échanges.';
+}
+
+/** « 12/10 à 17:49 », à l'heure de Paris. PUR. */
+export function dateCourteMail(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const f = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', ...o }).format(d);
+  return `${f({ day: '2-digit', month: '2-digit' })} à ${f({ hour: '2-digit', minute: '2-digit' })}`;
+}
+
+export const AUCUN_BIEN_RETIRE = 'Aucun bien n’est retiré du suivi.';
+
+/**
+ * ══ 🔴🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — CE QUI VA CHANGER, MAIL PAR MAIL. PUR. ══════════════════════════
+ *
+ * RÈGLE D'ARNO : « Ne jamais écrire “Sortir CE mail du suivi de X” si ce mail n'est pas suivi par X. Lister précisément
+ * ce qui va changer » — une phrase par mail touché, dans l'ordre des mails :
+ *   · « Ce mail sortira du suivi de X (restaurable). » pour le mail cliqué ;
+ *   · « Le mail du 12/10 à 17:49 de cette conversation sortira du suivi de X (restaurable). » pour un autre ;
+ *   · « Aucun bien n'est retiré du suivi. » quand il n'y a rien.
+ */
+export function phrasesDetachement(messageId: number, biens: readonly BienDetache[]): string[] {
+  if (biens.length === 0) return [AUCUN_BIEN_RETIRE];
+  const parMail = new Map<string, { mail: number | null; recuLe: string | null; libelles: string[] }>();
+  for (const b of biens) {
+    const cle = b.messageId == null ? '?' : String(b.messageId);
+    const g = parMail.get(cle) ?? { mail: b.messageId ?? null, recuLe: b.recuLe ?? null, libelles: [] };
+    if (!g.libelles.includes(b.libelle)) g.libelles.push(b.libelle);
+    parMail.set(cle, g);
+  }
+  const groupes = [...parMail.values()].sort((a, b) => (a.recuLe ?? '').localeCompare(b.recuLe ?? ''));
+  return groupes.map((g) => {
+    const quoi = g.libelles.join(', de ');
+    if (g.mail === messageId) return `Ce mail sortira du suivi de ${quoi} (restaurable).`;
+    if (g.mail === null) return `Sortira du suivi : ${g.libelles.join(', ')} (restaurable).`;
+    const quand = g.recuLe === null ? `nº ${g.mail}` : `du ${dateCourteMail(g.recuLe)}`;
+    return `Le mail ${quand} de cette conversation sortira du suivi de ${quoi} (restaurable).`;
+  });
+}
 
 /**
  * ══ 🔴 LE MESSAGE DE CONFIRMATION, MOT POUR MOT CELUI D'ARNO. PUR. ══════════════════════════════════════════════

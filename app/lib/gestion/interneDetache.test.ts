@@ -233,19 +233,22 @@ describe('🔴🔴 ⑤ l’écran : demander avant, offrir la sortie après', ()
    * existaient dans la route et dans le module pur, mais aucun écran ne les proposait pour « interne » : la case
    * du bandeau a toujours porté sur l'échange entier.
    */
-  it('🔴🔴 les trois fenêtres, avec les mots déjà employés ailleurs', () => {
-    expect(ENC).toContain('{CHOIX_SUIVI.map((c) => (');
-    expect(ENC).toContain('void changerFenetreInterne(c.cle);');
+  /* 🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — les trois fenêtres sont désormais les trois positions de LA glissière
+     de la fenêtre de rattachement (One shot, Ce mail + futurs échanges, Toute la conversation), mêmes fenêtres. */
+  it('🔴🔴 les trois fenêtres, sur la glissière de la fenêtre de rattachement', () => {
+    expect(ENC).toContain('<GlissierePortee position={positionDuChoixInterne(demandeInterne.choix)} modification');
+    expect(ENC).toContain('positions={POSITIONS_INTERNE}');
+    expect(ENC).toContain('void changerFenetreInterne(choixDeLaPositionInterne(p));');
     /* 🔴 ET LA LISTE EST RE-DEMANDÉE AU SERVEUR : une liste figée promettrait autre chose que le bouton. */
     expect(ENC).toContain('const biens = await apercuDetachement(choix);');
   });
 
-  it('🔴 Confirmer / Annuler, et la liste nommée', () => {
-    expect(ENC).toContain('{messageDetachement(demandeInterne.biens)}');
+  it('🔴 Confirmer / Annuler, et ce qui change dit mail par mail', () => {
+    /* 🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — le texte vrai, mail par mail (« Aucun bien n'est retiré du suivi. »
+       quand la portée ne détache rien) : `phrasesDetachement`, éprouvé à part. */
+    expect(ENC).toContain('{phrasesDetachement(messageId, demandeInterne.biens).map(');
     expect(ENC).toContain('>\n              Confirmer\n            </button>');
     expect(ENC).toContain('onClick={() => setDemandeInterne(null)}');
-    /* 🔴 ET QUAND LA PORTÉE CHOISIE NE DÉTACHE RIEN, L'ÉCRAN LE DIT au lieu d'une liste vide muette. */
-    expect(ENC).toContain('Aucun bien à détacher avec cette portée');
   });
 
   /** 🔴 PUIS L'« ANNULER », qui s'efface de lui-même : un bouton éternel ferait croire que rien n'est acquis. */

@@ -41,7 +41,20 @@ const retraitDe = (e: Element): number => {
   return Number.isFinite(v) ? v : RETRAIT_PX;
 };
 
-export function GlissierePortee({ position, modification, onChoisir, origineInterdite = null }: {
+export function GlissierePortee({
+  position, modification, onChoisir, origineInterdite = null, positions, libelleGroupe = 'Portée du suivi de ce mail',
+  desactivee = false,
+}: {
+  /**
+   * 🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — LES POSITIONS OFFERTES, dans l'ordre de `POSITIONS_PORTEE`. Absent ⇒ les
+   * quatre. Le panneau « Interne » n'en offre que trois (One shot, Ce mail + futurs échanges, Toute la conversation) :
+   * même composant, même dessin, la piste se répartit sur le nombre de positions.
+   */
+  positions?: readonly PositionPortee[];
+  /** Le nom du groupe pour les lecteurs d'écran. */
+  libelleGroupe?: string;
+  /** Tout est figé (une requête est en cours). */
+  desactivee?: boolean;
   position: PositionPortee;
   /** Y a-t-il une modification dans les blocs du dessus ? Sans elle, les trois autres positions sont grisées. */
   modification: boolean;
@@ -55,14 +68,15 @@ export function GlissierePortee({ position, modification, onChoisir, origineInte
 }) {
   /** Une position est-elle choisissable ? La règle d'avant, moins « Origine » quand elle est interdite. */
   const actif = (cle: PositionPortee): boolean =>
-    positionActive(cle, modification) && !(origineInterdite !== null && cle === 'origine');
+    !desactivee && positionActive(cle, modification) && !(origineInterdite !== null && cle === 'origine');
+  const LISTE = positions === undefined ? POSITIONS_PORTEE : POSITIONS_PORTEE.filter((p) => positions.includes(p.cle));
   const piste = useRef<HTMLDivElement | null>(null);
   const groupe = useRef<HTMLDivElement | null>(null);
   const glisse = useRef(false);
   /** Le clavier a-t-il demandé ce changement ? Alors le focus suit le bouton choisi (radio « itinérant »). */
   const auClavier = useRef(false);
-  const index = POSITIONS_PORTEE.findIndex((p) => p.cle === position);
-  const n = POSITIONS_PORTEE.length;
+  const index = LISTE.findIndex((p) => p.cle === position);
+  const n = LISTE.length;
 
   useEffect(() => {
     if (!auClavier.current) return;
@@ -71,7 +85,7 @@ export function GlissierePortee({ position, modification, onChoisir, origineInte
   }, [position]);
 
   const choisirIndex = (i: number): void => {
-    const p = POSITIONS_PORTEE[Math.max(0, Math.min(n - 1, i))];
+    const p = LISTE[Math.max(0, Math.min(n - 1, i))];
     if (p !== undefined && actif(p.cle) && p.cle !== position) onChoisir(p.cle);
   };
   const indexAuPoint = (clientX: number): number => {
@@ -86,7 +100,7 @@ export function GlissierePortee({ position, modification, onChoisir, origineInte
   /** La flèche saute les positions grisées : elle va à la prochaine position ACTIVE dans ce sens, ou ne bouge pas. */
   const pas = (sens: 1 | -1): void => {
     for (let i = index + sens; i >= 0 && i < n; i += sens) {
-      if (actif(POSITIONS_PORTEE[i].cle)) { auClavier.current = true; choisirIndex(i); return; }
+      if (actif(LISTE[i].cle)) { auClavier.current = true; choisirIndex(i); return; }
     }
   };
   /** La place d'une position sur la piste : de 0 (Origine) à 1 (Toute la conversation). */
@@ -103,7 +117,7 @@ export function GlissierePortee({ position, modification, onChoisir, origineInte
         onPointerMove={(e) => { if (glisse.current) choisirIndex(indexAuPoint(e.clientX)); }}
         onPointerUp={() => { glisse.current = false; }}
         onPointerCancel={() => { glisse.current = false; }}>
-        {POSITIONS_PORTEE.map((p, i) => (
+        {LISTE.map((p, i) => (
           <span key={p.cle}
             className={`gpo-cran${actif(p.cle) ? '' : ' gpo-cran--grise'}`}
             style={{ ['--gpo-x' as string]: fraction(i) }} />
@@ -121,24 +135,24 @@ export function GlissierePortee({ position, modification, onChoisir, origineInte
         </div>
       </div>
       {/* Les quatre libellés, centrés sous leur repère : ce sont les boutons radio du groupe (cibles tactiles pleines). */}
-      <div className="gpo-libelles" role="radiogroup" aria-label="Portée du suivi de ce mail" ref={groupe}
+      <div className="gpo-libelles" role="radiogroup" aria-label={libelleGroupe} ref={groupe}
         onKeyDown={(e) => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); pas(1); }
           else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); pas(-1); }
           else if (e.key === 'Home') {
             e.preventDefault();
             for (let i = 0; i < n; i += 1) {
-              if (actif(POSITIONS_PORTEE[i].cle)) { auClavier.current = true; choisirIndex(i); break; }
+              if (actif(LISTE[i].cle)) { auClavier.current = true; choisirIndex(i); break; }
             }
           }
           else if (e.key === 'End') {
             e.preventDefault();
             for (let i = n - 1; i >= 0; i -= 1) {
-              if (actif(POSITIONS_PORTEE[i].cle)) { auClavier.current = true; choisirIndex(i); break; }
+              if (actif(LISTE[i].cle)) { auClavier.current = true; choisirIndex(i); break; }
             }
           }
         }}>
-        {POSITIONS_PORTEE.map((p, i) => {
+        {LISTE.map((p, i) => {
           const active = actif(p.cle);
           const choisi = p.cle === position;
           const interdite = origineInterdite !== null && p.cle === 'origine';
