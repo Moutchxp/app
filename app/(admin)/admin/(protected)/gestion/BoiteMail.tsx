@@ -2086,7 +2086,7 @@ export function BoiteMail({
                       */}
                     {motEvenementEnCours(l.evenementsEnCours ?? 0) !== null && (
                       <span className="bte-capsule bte-capsule--evt"
-                        title="Ce mail relève d'un événement en cours sur le bien">
+                        title={l.evenementsEnCoursSurvol ?? "Ce mail relève d'un événement en cours sur le bien"}>
                         {motEvenementEnCours(l.evenementsEnCours ?? 0)}
                       </span>
                     )}

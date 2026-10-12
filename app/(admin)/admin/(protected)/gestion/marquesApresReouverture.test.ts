@@ -238,7 +238,8 @@ describe('🔴🔴 ③ LA CAPSULE ORANGE EST PARTOUT OÙ LA LIGNE D’UN MAIL S�
     ['la recherche', () => REPO_RECH],
     ['la conversation', () => REPO_CARTE],
   ])('🔴🔴 %s appelle `evenementsOuvertsDesMails`, sans réécrire la règle', (_nom, src) => {
-    expect(src()).toContain("import { evenementsOuvertsDesMails } from './historiqueRepo';");
+    /* LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — l'import porte aussi la bulle de la pastille, du même module. */
+    expect(src()).toContain("import { evenementsOuvertsDesMails, survolPastille } from './historiqueRepo';");
     expect(src()).toContain('await evenementsOuvertsDesMails(');
     /* ⚠️ ET NE RECOPIE NI LA FENÊTRE NI LES DEUX VOIES : aucun SQL d'événement de son côté. */
     expect(src()).not.toContain('gestion_evenement_partie');
@@ -251,10 +252,12 @@ describe('🔴🔴 ③ LA CAPSULE ORANGE EST PARTOUT OÙ LA LIGNE D’UN MAIL S�
   /* 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT (12/10/2026) — l'union des deux voies est retirée par décision d'Arno : la
      pastille pleine est le cas a) seul, « le MAIL est rattaché à l'événement », par le calcul pur que la ligne de
      l'historique et la fenêtre appellent aussi. */
-  it('🔴 `evenementsOuvertsDesMails` lit les RATTACHÉS au mail, et le calcul unique `lectureEvenement`', () => {
+  /* 🔴🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS (Arno) — la pastille réunit les rattachés en cours ET les événements
+     en cours sur le bien à la date du mail, par le calcul pur que la ligne de l'historique appelle aussi. */
+  it('🔴 `evenementsOuvertsDesMails` réunit les deux cas par le calcul unique `evenementsDeLaPastille`', () => {
     expect(REPO_HISTO).toContain('export async function evenementsOuvertsDesMails(');
-    expect(REPO_HISTO).toContain('const rattaches = await evenementsRattaches(mails.map((m) => m.messageId));');
-    expect(REPO_HISTO).toContain('lectureEvenement(uneFoisParMail(rattaches.get(m.messageId) ?? [])).enCours');
+    expect(REPO_HISTO).toContain('const [rattaches, duBien] = await Promise.all([evenementsRattaches(ids), evenementsDesMessages(ids)]);');
+    expect(REPO_HISTO).toContain('const ouverts = evenementsDeLaPastille(lectureEvenement(');
     expect(REPO_HISTO).not.toContain('unirEvenements(');
   });
 

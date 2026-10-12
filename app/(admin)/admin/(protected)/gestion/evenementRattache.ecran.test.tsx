@@ -106,7 +106,7 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.unstubA
 const calmer = async () => { await act(async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); }); };
 const neuf = () => { act(() => { root.unmount(); }); root = createRoot(container); };
 
-async function lireLaLigne(c: Cas): Promise<{ pastille: boolean; mention: boolean }> {
+async function lireLaLigne(c: Cas): Promise<{ pastille: boolean; survol: string | null }> {
   await act(async () => {
     root.render(createElement(LigneVie, {
       l: { ...LIGNE, evenements: c.rattaches, evenementsDuBien: c.duBien },
@@ -114,11 +114,9 @@ async function lireLaLigne(c: Cas): Promise<{ pastille: boolean; mention: boolea
     }));
   });
   await calmer();
-  /* 🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE — sur la ligne, la pastille et la mention d'avant (lot 8ae9f387). */
-  return {
-    pastille: container.querySelector('.vdb-capsule--evt') !== null,
-    mention: container.querySelector('.vdb-evt-bien') !== null,
-  };
+  /* 🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — sur la ligne, UNE présentation : la pastille « Événement en cours ». */
+  const p = container.querySelector('.vdb-capsule--evt') as HTMLElement | null;
+  return { pastille: p !== null, survol: p?.title ?? null };
 }
 
 async function monterFenetre(c: Cas): Promise<HTMLDetailsElement> {
@@ -148,13 +146,24 @@ describe('🔴🔴 ① la pastille de la ligne et la fenêtre disent la même ch
     const d = await monterFenetre(c);
     const r = resume(d);
     const capsuleEnCours = [...r.querySelectorAll('.cev')].some((x) => !x.className.includes('cev--clos'));
-    /* a) : pastille pleine ⇔ capsule en cours dans la ligne repliée (le mail EST rattaché). */
-    expect(ligne.pastille).toBe(c.rattaches.some((e) => e.ouvert));
-    expect(capsuleEnCours).toBe(ligne.pastille || ligne.mention);
-    /* b) : mention discrète ⇔ « aucun — 1 événement en cours sur ce bien : » + « Rattacher ». */
-    expect(r.querySelector('.rdf-evt-rattacher') !== null).toBe(ligne.mention);
+    const rattacheEnCours = c.rattaches.some((e) => e.ouvert);
+    /* 🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — la LIGNE réunit les deux cas : pastille ⇔ capsule en cours dans
+       la fenêtre (rattachée, ou en cours sur le bien). La FENÊTRE, elle, distingue toujours. */
+    expect(ligne.pastille).toBe(capsuleEnCours);
+    /* a) rattaché : la fenêtre nomme l'événement, sans « Rattacher » ; la bulle ne dit pas « non rattaché ». */
+    if (rattacheEnCours) {
+      expect(r.querySelector('.rdf-evt-rattacher')).toBeNull();
+      expect(ligne.survol).not.toContain('mail non rattaché');
+    }
+    /* b) non rattaché, en cours sur le bien : même pastille ; la fenêtre dit « aucun — 1 événement en cours sur ce
+       bien : » et offre « Rattacher » ; la bulle ajoute « — mail non rattaché ». */
+    if (!rattacheEnCours && ligne.pastille) {
+      expect(r.querySelector('.rdf-evt-aucun')?.textContent).toBe('aucun — 1 événement en cours sur ce bien :');
+      expect(r.querySelector('.rdf-evt-rattacher')).not.toBeNull();
+      expect(ligne.survol).toContain('— mail non rattaché');
+    }
     if (c.nom === 'aucun') {
-      expect([ligne.pastille, ligne.mention]).toEqual([false, false]);
+      expect(ligne.pastille).toBe(false);
       expect(r.querySelector('.rdf-evt-aucun')?.textContent).toBe('aucun');
     }
     expect(ecritures).toEqual([]);
@@ -220,22 +229,34 @@ describe('🔴🔴 PARTIE 2 — la capsule : type · numéro — titre, trame = 
     expect(sans.querySelector('.cev-type')?.textContent).toBe('non précisée');
   });
   /**
-   * 🔴🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE (Arno) — la capsule type + trame NE VA PAS sur les lignes de mail : elles
-   * gardent la pastille « Événement en cours » d'avant (ambre, sans type ni urgence) et la mention grise, l'événement
-   * au survol. La capsule vit dans la fenêtre « Bien(s) rattaché(s) à ce mail » seule.
+   * 🔴🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS (Arno) — sur les LIGNES de mail, la MÊME pastille dans les deux cas
+   * (ambre, « Événement en cours », sans type ni urgence) ; plus de mention en italique. Au survol : numéro et titre,
+   * et « — mail non rattaché » quand le mail ne l'est pas. La capsule type + trame reste dans la fenêtre seule.
    */
-  it('les lignes de mail gardent la pastille sobre et la mention grise — sans type ni couleur d’urgence', async () => {
-    await lireLaLigne({ nom: '', rattaches: [GES2], duBien: [] });
-    expect(container.querySelector('.vdb-capsule--evt')?.textContent).toBe('Événement en cours');
-    expect(container.querySelector('.cev')).toBeNull();
+  it('les lignes de mail : la même pastille, rattaché ou non — la bulle dit la différence', async () => {
+    await lireLaLigne({ nom: '', rattaches: [GES2], duBien: [GES2] });
+    const a = container.querySelector('.vdb-capsule--evt') as HTMLElement;
+    const pastilleA = [a.className, a.textContent];
+    expect(a.title).toBe('GES-2026-000002 — Fuite salle de bain');
     neuf();
     await lireLaLigne({ nom: '', rattaches: [], duBien: [GES2] });
-    const m = container.querySelector('.vdb-evt-bien') as HTMLElement;
-    expect(m.textContent).toBe('événement ouvert sur ce bien');
-    expect(m.title).toBe('GES-2026-000002 — Fuite salle de bain — ce mail n’y est pas rattaché');
+    const b = container.querySelector('.vdb-capsule--evt') as HTMLElement;
+    expect([b.className, b.textContent]).toEqual(pastilleA);
+    expect(pastilleA).toEqual(['vdb-capsule vdb-capsule--evt', 'Événement en cours']);
+    expect(b.title).toBe('GES-2026-000002 — Fuite salle de bain — mail non rattaché');
+    expect(container.querySelector('.vdb-evt-bien')).toBeNull();
+    expect(container.textContent).not.toContain('événement ouvert sur ce bien');
     expect(container.querySelector('.cev')).toBeNull();
+    /* Rattaché à l'un, un autre en cours sur le bien : « 2 événements en cours », une ligne de bulle par événement. */
+    neuf();
+    await lireLaLigne({ nom: '', rattaches: [GES1], duBien: [GES1, GES2] });
+    const c = container.querySelector('.vdb-capsule--evt') as HTMLElement;
+    expect(c.textContent).toBe('2 événements en cours');
+    expect(c.title).toBe('GES-2026-000001 — Re: NOTE INFORMATION RESIDENCE DE L’ORNE\nGES-2026-000002 — Fuite salle de bain — mail non rattaché');
     for (const f of ['VieDuBien.tsx', 'BoiteMail.tsx', 'Conversation.tsx']) {
-      expect(readFileSync(`app/(admin)/admin/(protected)/gestion/${f}`, 'utf8'), f).not.toMatch(/<CapsuleEvenement\b|CSS_CAPSULE_EVENEMENT/);
+      const src = readFileSync(`app/(admin)/admin/(protected)/gestion/${f}`, 'utf8');
+      expect(src, f).not.toMatch(/<CapsuleEvenement\b|CSS_CAPSULE_EVENEMENT/);
+      expect(src, f).not.toContain('vdb-evt-bien');
     }
   });
 });

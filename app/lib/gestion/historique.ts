@@ -550,6 +550,12 @@ export interface EvenementDeLigne {
   urgence?: string | null;
   ouvertLe?: string | null;
   etape?: DerniereEtapeVignette | null;
+  /**
+   * 🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — pour la pastille des listes (boîte, recherche, conversation) :
+   * `true` = le mail est rattaché à l'événement, `false` = événement en cours sur son bien à la date du mail. Absent
+   * ailleurs.
+   */
+  rattache?: boolean;
 }
 
 /**

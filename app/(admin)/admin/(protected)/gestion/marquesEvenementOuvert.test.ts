@@ -237,7 +237,8 @@ describe('🔴🔴 ④ une seule règle « événement ouvert », pour les deux 
     /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — le tri des ouverts passe par le calcul pur `lectureEvenement`, que la
        fenêtre « Modifier le rattachement » appelle aussi : `enCours` = les rattachés dont `ouvert` est vrai. */
     expect(VIE).toContain('const lecture = lectureEvenement(l.evenements, l.evenementsDuBien ?? []);');
-    expect(VIE).toContain('const ouverts = lecture.enCours;');
+    /* LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — les deux cas, par le calcul pur partagé avec les listes. */
+    expect(VIE).toContain('const ouverts = evenementsDeLaPastille(lecture);');
     /* 🔴 ET LE MOT DE LA CAPSULE VIENT DÉSORMAIS DU MODULE PUR, partagé par les QUATRE écrans du lot
        MARQUES-EVENEMENT-EN-COURS — il n'est plus écrit dans le composant. */
     expect(VIE).toContain('motEvenementEnCours(ouverts.length)');

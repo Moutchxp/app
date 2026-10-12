@@ -3238,7 +3238,7 @@ export function MessageConversation({
             ⚠️ `?? 0` : une réponse de serveur plus ancienne que ce lot n'a pas le champ. Patron du module. */}
         {motEvenementEnCours(message.evenementsEnCours ?? 0) !== null && (
           <span className="cnv-capsule cnv-capsule--evt"
-            title="Ce mail relève d'un événement en cours sur le bien">
+            title={message.evenementsEnCoursSurvol ?? "Ce mail relève d'un événement en cours sur le bien"}>
             {motEvenementEnCours(message.evenementsEnCours ?? 0)}
           </span>
         )}

@@ -104,13 +104,16 @@ describe('le filtre est FAIT de la requête de l’étiquette — pas d’un sec
     expect(REPO).toContain("sqlRattachesDansUnePeriode(await deplacementsDeMailsDisponibles(), '$1::bigint[]')");
   });
 
-  it('🔴 le filtre garde les rattachés EN COURS pour ce mail — et la voie du bien n’y est plus', () => {
-    const f = plat(sqlFiltreEvenementOuvert(true));
-    expect(f.startsWith('EXISTS (')).toBe(true);
-    expect(f).toContain('WHERE porte.ouvert AND porte.dans_periode)');
-    expect(f).toContain('msg.recu_le >= svv_p.du');
-    expect(f).not.toContain('FROM gestion_evenement_partie p');
-    expect(f).not.toContain(plat(sqlEvenementsDesMessages(true, 'ARRAY[m.id]')));
+  /* 🔴🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS (Arno) — « le filtre montre exactement les mails qui portent la
+     pastille », et la pastille réunit les deux cas : rattaché en cours, OU en cours sur le bien à la date du mail. */
+  it('🔴 le filtre réunit les rattachés EN COURS et la voie du bien, mot pour mot', () => {
+    for (const avecMessageId of [true, false]) {
+      const f = plat(sqlFiltreEvenementOuvert(avecMessageId));
+      expect(f.startsWith('EXISTS (')).toBe(true);
+      expect(f).toContain('WHERE porte.ouvert AND porte.dans_periode UNION ALL');
+      expect(f).toContain(plat(sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')));
+      expect(f).toContain('WHERE vb.ouvert)');
+    }
   });
 
   it('🔴🔴 la borne est le mail courant', () => {

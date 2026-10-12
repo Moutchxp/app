@@ -30,7 +30,7 @@ import { chargerConfigGestion } from './config';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils } from './nonRemiseRepo';
 /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — la MÊME question que la liste et l'historique, au même endroit. */
-import { evenementsOuvertsDesMails } from './historiqueRepo';
+import { evenementsOuvertsDesMails, survolPastille } from './historiqueRepo';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la règle « vraie pièce », rendue en SQL depuis sa définition UNIQUE.
 import { sqlEstVraiePiece } from './lisibilite';
 import { sqlCleIdentitePiece } from './piecesConversation';
@@ -622,6 +622,8 @@ export async function chercherDansLeCourrier(
         .reduce((n, [, liste]) => n + liste.length, 0),
       reference: r.reference,
       evenementsEnCours: (evtsOuverts.get(Number(r.message_id)) ?? []).length,
+      /* LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — la bulle : numéro, titre, « — mail non rattaché ». */
+      evenementsEnCoursSurvol: survolPastille(evtsOuverts.get(Number(r.message_id)) ?? []),
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
       /**

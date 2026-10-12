@@ -119,8 +119,6 @@ export function lectureEvenement(
   };
 }
 
-/** La mention discrète du cas b), sur la ligne. */
-export const MOT_OUVERT_SUR_LE_BIEN = 'événement ouvert sur ce bien';
 
 /** Le mot de la capsule d'un événement : « GES-2026-000001 — Re: NOTE INFORMATION… ». */
 export function motCapsuleEvenement(e: { reference: string; objet: string }): string {
@@ -212,4 +210,34 @@ export function dateCourteIso(iso: string | null | undefined): string | null {
   /* Le jour à PARIS (lot LISTE-MAILS-RETOUR-PASTILLE-SOBRE-ET-DATE-ETAPE), comme la frise. */
   const j = jourParisIso(iso);
   return j.length === 10 ? `${j.slice(8, 10)}/${j.slice(5, 7)}/${j.slice(0, 4)}` : null;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS (Arno, 12/10/2026) — SUR LES LIGNES DE MAIL, UNE SEULE PRÉSENTATION
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   « Dans les deux cas (mail rattaché à l'événement OU mail d'un bien qui a un événement en cours à la date du mail),
+   la ligne affiche la pastille “Événement en cours” […]. Au survol : numéro et titre de l'événement. Si le mail n'y
+   est pas encore rattaché, ajouter “— mail non rattaché”. Le filtre “Événement ouvert” montre exactement les mails
+   qui portent la pastille. »
+
+   🔴 LA FENÊTRE « Modifier le rattachement » NE CHANGE PAS : elle continue de distinguer « rattaché » et « aucun — N
+   événement(s) en cours sur ce bien » (`resumeBlocEvenement`). Seule la LIGNE réunit les deux cas, et c'est ce calcul
+   qui le fait — le même pour l'historique, la boîte, la recherche et la conversation. */
+
+/** Les événements de la pastille d'une ligne : les rattachés en cours, puis ceux du bien (non rattachés). PUR. */
+export function evenementsDeLaPastille(l: LectureEvenement): Array<EvenementLu & { rattache: boolean }> {
+  return [
+    ...l.enCours.map((e) => ({ ...e, rattache: true })),
+    ...l.surLeBien.map((e) => ({ ...e, rattache: false })),
+  ];
+}
+
+/** Le mot ajouté au survol quand le mail n'est pas encore rattaché à l'événement. */
+export const MOT_MAIL_NON_RATTACHE = 'mail non rattaché';
+
+/** La bulle de la pastille : « numéro — titre », et « — mail non rattaché » s'il y a lieu ; une ligne par événement. PUR. */
+export function survolPastille(liste: ReadonlyArray<{ reference: string; objet: string; rattache?: boolean }>): string {
+  return liste.map((e) => `${e.reference} — ${e.objet}${e.rattache === false ? ` — ${MOT_MAIL_NON_RATTACHE}` : ''}`)
+    .join('\n');
 }

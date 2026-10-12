@@ -55,7 +55,11 @@ import { interventionsDesMessages } from './contactExterneRepo';
    🔴🔴 LOT ETAT-PAR-LA-FRISE (08/10/2026) — et cet endroit est désormais `etatParLaFrise` : « ouvert » ne se
    demande plus à la colonne `etat`, il se DÉDUIT des cartes de borne de la frise. Les périodes avec. */
 import { sqlDansUnePeriodeOuverte, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
-import { lectureEvenement, ORDRE_RATTACHES, sqlEvenementsRattaches } from './evenementRattache';
+import {
+  evenementsDeLaPastille, lectureEvenement, ORDRE_RATTACHES, sqlEvenementsRattaches, survolPastille,
+} from './evenementRattache';
+/** 🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — la bulle de la pastille, pour les dépôts des listes. */
+export { survolPastille };
 import { sqlDerniereEtape } from './derniereEtapeSql';
 import type { DerniereEtapeVignette } from './fileRepo';
 import type { TypeEtape } from './mongaEtape';
@@ -1119,14 +1123,22 @@ function sqlRattachesDansUnePeriode(avecMessageId: boolean, messages: string): s
  * mails seulement « dans la période d'un événement de leur bien » (cas b) ne portent plus la pastille pleine, et ne
  * passent donc plus ce filtre. Mesuré le 12/10/2026 : 12 mails le passaient, 5 le passent (57123, 57145, 57188,
  * 57202, 57224 — les cinq affectés nommément).
+ * 🔴🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS (12/10/2026, Arno) — la pastille des LIGNES réunit de nouveau les deux
+ * cas (rattaché en cours, OU en cours sur le bien à la date du mail), et le filtre la suit : mesuré sur toute la
+ * base, 11 mails (55969, 57119, 57123, 57144, 57145, 57188, 57202, 57224, 57258, 57276, 57597) ; 9 sur la fiche du
+ * bien 315 (57202 et 57224 ne sont rattachés à aucun bien). La FENÊTRE, elle, continue de distinguer les deux cas.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function sqlFiltreEvenementOuvert(avecMessageId: boolean): string {
-  /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — le filtre est l'ÉTIQUETTE, et l'étiquette est « rattaché au mail, en
-     cours » (cas a d'Arno). La voie du bien ne donne plus la pastille pleine : elle ne passe donc plus le filtre. */
+  /* 🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — le filtre est la PASTILLE, et la pastille réunit les deux cas :
+     rattaché au mail et en cours, OU en cours sur le bien du mail à sa date (la voie du bien, bornée aux périodes
+     ouvertes). Les deux requêtes sont celles de la ligne, bornées au mail courant. */
   return `EXISTS (
             SELECT 1 FROM (${sqlEvenementsRattaches(avecMessageId, 'ARRAY[m.id]')}) porte
-             WHERE porte.ouvert AND porte.dans_periode)`;
+             WHERE porte.ouvert AND porte.dans_periode
+            UNION ALL
+            SELECT 1 FROM (${sqlEvenementsDesMessages(avecMessageId, 'ARRAY[m.id]')}) vb
+             WHERE vb.ouvert)`;
 }
 
 /**
@@ -1277,12 +1289,16 @@ export async function evenementsOuvertsDesMails(
 ): Promise<Map<number, EvenementDeLigne[]>> {
   const out = new Map<number, EvenementDeLigne[]>();
   if (mails.length === 0) return out;
-  /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — la pastille pleine est le cas a) seul : un événement EN COURS rattaché au
-     mail. La voie du bien (cas b) n'y entre plus — c'est une proposition, pas un rattachement. */
-  const rattaches = await evenementsRattaches(mails.map((m) => m.messageId));
-  await enrichirEvenements([rattaches]);
+  /* 🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS (Arno) — la pastille réunit les DEUX cas : un événement en cours
+     RATTACHÉ au mail, et un événement en cours sur son BIEN à la date du mail (non rattaché). Chaque événement dit
+     lequel (`rattache`), pour la bulle « — mail non rattaché ». Le calcul est `evenementsDeLaPastille`, le même que
+     la ligne de l'historique. */
+  const ids = mails.map((m) => m.messageId);
+  const [rattaches, duBien] = await Promise.all([evenementsRattaches(ids), evenementsDesMessages(ids)]);
   for (const m of mails) {
-    const ouverts = lectureEvenement(uneFoisParMail(rattaches.get(m.messageId) ?? [])).enCours;
+    const ouverts = evenementsDeLaPastille(lectureEvenement(
+      uneFoisParMail(rattaches.get(m.messageId) ?? []), uneFoisParMail(duBien.get(m.messageId) ?? []),
+    ));
     if (ouverts.length > 0) out.set(m.messageId, ouverts);
   }
   return out;

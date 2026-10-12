@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   lectureEvenement, listeEnCours, motCapsuleEvenement, motSurvolUrgence, motTypeEvenement, nEvenements, resumeBlocEvenement,
-  sqlEvenementsRattaches, trameEvenement, trierParUrgence,
+  sqlEvenementsRattaches, trameEvenement, trierParUrgence, evenementsDeLaPastille, survolPastille,
 } from './evenementRattache';
 import { etapeEnMots, jourParisIso } from './etapeVignette';
 
@@ -130,5 +130,21 @@ describe('🔴🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE-ET-DATE-ETAPE — la da
     expect(jourParisIso('2026-10-11T09:00')).toBe('2026-10-11');
     expect(jourParisIso('')).toBe('');
     expect(jourParisIso(null)).toBe('');
+  });
+});
+
+describe('🔴🔴 LOT UNE-SEULE-PASTILLE-EVENEMENT-EN-COURS — la pastille des lignes réunit les deux cas', () => {
+  const E = (id: number, ouvert = true) => ({ id, reference: `GES-${id}`, objet: `objet ${id}`, ouvert });
+  it('rattaché en cours, ou en cours sur le bien : dans la pastille, chacun avec son `rattache`', () => {
+    expect(evenementsDeLaPastille(lectureEvenement([E(1)], [E(1), E(2)])).map((e) => [e.id, e.rattache]))
+      .toEqual([[1, true], [2, false]]);
+    expect(evenementsDeLaPastille(lectureEvenement([], [E(2)])).map((e) => [e.id, e.rattache])).toEqual([[2, false]]);
+    expect(evenementsDeLaPastille(lectureEvenement([], []))).toEqual([]);
+    /* Un événement clos n'allume rien. */
+    expect(evenementsDeLaPastille(lectureEvenement([E(3, false)], [E(4, false)]))).toEqual([]);
+  });
+  it('la bulle : numéro — titre, et « — mail non rattaché » s’il y a lieu', () => {
+    expect(survolPastille([{ reference: 'GES-1', objet: 'A', rattache: true }, { reference: 'GES-2', objet: 'B', rattache: false }]))
+      .toBe('GES-1 — A\nGES-2 — B — mail non rattaché');
   });
 });
