@@ -78,6 +78,8 @@ import {
   AUCUN_BIEN_SUIVI, glissiereOuverte, morceauxDefinitionPortee, porteeArbitre, positionAffichee,
   /* 🔴🔴 LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — le bouton de la portée (module PUR). */
   etatBoutonPortee,
+  /* 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — la bulle d'« Origine » grisée au premier rattachement. */
+  BULLE_ORIGINE_PREMIER,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
 import {
@@ -1077,6 +1079,8 @@ export function RattachementsDuFil({
    * 🔴 ① AVEC DES MODIFICATIONS : la question « Revenir au suivi d'origine ? », et rien ne bouge sans un « Oui ».
    */
   const choisirPosition = (p: PositionPortee): void => {
+    /* 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — « Origine » n'est pas choisissable au premier rattachement (Arno). */
+    if (p === 'origine' && premier) return;
     if (p === 'origine' && modification) { setDemandeOrigine(true); return; }
     setPosition(p);
     setConfirme(false);
@@ -1124,8 +1128,9 @@ export function RattachementsDuFil({
       <style>{CSS_GLISSIERE_PORTEE}</style>
       <p className="rdf-suivi-titre">Portée du suivi</p>
       {/* 🔴 Au premier classement, les quatre positions se choisissent d'emblée (`glissiereOuverte`). */}
+      {/* 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — au premier rattachement, « Origine » grisée, avec sa bulle. */}
       <GlissierePortee position={position} modification={glissiereOuverte(modification, premier)}
-        onChoisir={choisirPosition} />
+        onChoisir={choisirPosition} origineInterdite={premier ? BULLE_ORIGINE_PREMIER : null} />
       {demandeOrigine && (
         <div className="rdf-portee-question" role="alertdialog" aria-label={QUESTION_RETOUR_ORIGINE}>
           <p className="rdf-portee-question-mot">{QUESTION_RETOUR_ORIGINE}</p>

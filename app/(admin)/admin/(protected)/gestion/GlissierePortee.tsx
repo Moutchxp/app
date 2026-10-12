@@ -41,12 +41,21 @@ const retraitDe = (e: Element): number => {
   return Number.isFinite(v) ? v : RETRAIT_PX;
 };
 
-export function GlissierePortee({ position, modification, onChoisir }: {
+export function GlissierePortee({ position, modification, onChoisir, origineInterdite = null }: {
   position: PositionPortee;
   /** Y a-t-il une modification dans les blocs du dessus ? Sans elle, les trois autres positions sont grisées. */
   modification: boolean;
   onChoisir: (p: PositionPortee) => void;
+  /**
+   * 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE (accord d'Arno) — au PREMIER rattachement, « Origine » reste visible mais
+   * GRISÉE et non sélectionnable (souris, glisser, clavier). La valeur est la bulle de survol ; `null` = Origine normale.
+   * ⚠️ `aria-disabled` ET NON `disabled` : un bouton désactivé ne reçoit plus le survol, et la bulle ne s'afficherait pas.
+   */
+  origineInterdite?: string | null;
 }) {
+  /** Une position est-elle choisissable ? La règle d'avant, moins « Origine » quand elle est interdite. */
+  const actif = (cle: PositionPortee): boolean =>
+    positionActive(cle, modification) && !(origineInterdite !== null && cle === 'origine');
   const piste = useRef<HTMLDivElement | null>(null);
   const groupe = useRef<HTMLDivElement | null>(null);
   const glisse = useRef(false);
@@ -63,7 +72,7 @@ export function GlissierePortee({ position, modification, onChoisir }: {
 
   const choisirIndex = (i: number): void => {
     const p = POSITIONS_PORTEE[Math.max(0, Math.min(n - 1, i))];
-    if (p !== undefined && positionActive(p.cle, modification) && p.cle !== position) onChoisir(p.cle);
+    if (p !== undefined && actif(p.cle) && p.cle !== position) onChoisir(p.cle);
   };
   const indexAuPoint = (clientX: number): number => {
     const e = piste.current;
@@ -77,7 +86,7 @@ export function GlissierePortee({ position, modification, onChoisir }: {
   /** La flèche saute les positions grisées : elle va à la prochaine position ACTIVE dans ce sens, ou ne bouge pas. */
   const pas = (sens: 1 | -1): void => {
     for (let i = index + sens; i >= 0 && i < n; i += sens) {
-      if (positionActive(POSITIONS_PORTEE[i].cle, modification)) { auClavier.current = true; choisirIndex(i); return; }
+      if (actif(POSITIONS_PORTEE[i].cle)) { auClavier.current = true; choisirIndex(i); return; }
     }
   };
   /** La place d'une position sur la piste : de 0 (Origine) à 1 (Toute la conversation). */
@@ -96,7 +105,7 @@ export function GlissierePortee({ position, modification, onChoisir }: {
         onPointerCancel={() => { glisse.current = false; }}>
         {POSITIONS_PORTEE.map((p, i) => (
           <span key={p.cle}
-            className={`gpo-cran${positionActive(p.cle, modification) ? '' : ' gpo-cran--grise'}`}
+            className={`gpo-cran${actif(p.cle) ? '' : ' gpo-cran--grise'}`}
             style={{ ['--gpo-x' as string]: fraction(i) }} />
         ))}
         <div className="gpo-curseur" style={{ ['--gpo-x' as string]: fraction(Math.max(0, index)) }}>
@@ -116,21 +125,29 @@ export function GlissierePortee({ position, modification, onChoisir }: {
         onKeyDown={(e) => {
           if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); pas(1); }
           else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); pas(-1); }
-          else if (e.key === 'Home') { e.preventDefault(); auClavier.current = true; choisirIndex(0); }
+          else if (e.key === 'Home') {
+            e.preventDefault();
+            for (let i = 0; i < n; i += 1) {
+              if (actif(POSITIONS_PORTEE[i].cle)) { auClavier.current = true; choisirIndex(i); break; }
+            }
+          }
           else if (e.key === 'End') {
             e.preventDefault();
             for (let i = n - 1; i >= 0; i -= 1) {
-              if (positionActive(POSITIONS_PORTEE[i].cle, modification)) { auClavier.current = true; choisirIndex(i); break; }
+              if (actif(POSITIONS_PORTEE[i].cle)) { auClavier.current = true; choisirIndex(i); break; }
             }
           }
         }}>
         {POSITIONS_PORTEE.map((p, i) => {
-          const active = positionActive(p.cle, modification);
+          const active = actif(p.cle);
           const choisi = p.cle === position;
+          const interdite = origineInterdite !== null && p.cle === 'origine';
           return (
             <button key={p.cle} type="button" role="radio" aria-checked={choisi} tabIndex={choisi ? 0 : -1}
-              disabled={!active}
-              className={`gpo-libelle${choisi ? ' gpo-libelle--choisi' : ''}`}
+              disabled={!active && !interdite}
+              aria-disabled={interdite ? true : undefined}
+              title={interdite ? origineInterdite : undefined}
+              className={`gpo-libelle${choisi ? ' gpo-libelle--choisi' : ''}${interdite ? ' gpo-libelle--interdite' : ''}`}
               style={{ ['--gpo-x' as string]: fraction(i) }}
               onClick={() => choisirIndex(i)}>
               {p.libelle}
@@ -177,6 +194,8 @@ export const CSS_GLISSIERE_PORTEE = `
   border:0;border-radius:.6rem;cursor:pointer;overflow-wrap:anywhere}
 .gpo-libelle--choisi{font-weight:700;color:var(--color-svv-red);background:var(--color-svv-red-soft)}
 .gpo-libelle:disabled{color:var(--color-svv-muted);opacity:.55;cursor:not-allowed}
+/* LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — Origine interdite au premier rattachement : meme gris, mais survolable (bulle). */
+.gpo-libelle--interdite{color:var(--color-svv-muted);opacity:.55;cursor:not-allowed}
 .gpo-libelle:focus-visible{outline:3px solid var(--color-svv-ink);outline-offset:-3px}
 /* PETIT ECRAN (telephone) : quatre libelles de 140 px ne tiennent pas cote a cote. Ils restent EXACTEMENT centres sous
    leur repere et en 16 px, mais sur deux rangees decalees (Origine et Ce mail + futurs echanges en haut, One shot et

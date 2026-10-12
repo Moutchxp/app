@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  AUCUN_BIEN_SUIVI, DEFINITION_ORIGINE_PREMIER, glissiereOuverte, morceauxDefinitionPortee, porteeArbitre,
+  AUCUN_BIEN_SUIVI, definitionDe, glissiereOuverte, morceauxDefinitionPortee, porteeArbitre,
   positionAffichee, POSITIONS_PORTEE,
 } from '../../../../lib/gestion/porteeSuivi';
 
@@ -72,15 +72,15 @@ describe('🔴🔴 la glissière au premier classement (mail jamais classé)', (
     expect(positionAffichee(null, true, true)).toBe('suite');
   });
 
-  it('🔴 la position choisie est gardée, « Origine » comprise, biens cochés ou non (lot BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT)', () => {
-    expect(positionAffichee('origine', false, true)).toBe('origine');
-    expect(positionAffichee('origine', true, true)).toBe('origine');
+  it('🔴 « Origine » n’est jamais la position au premier rattachement (lot PREMIER-RATTACHEMENT-SANS-ORIGINE)', () => {
+    expect(positionAffichee('origine', false, true)).toBe('suite');
+    expect(positionAffichee('origine', true, true)).toBe('suite');
     expect(positionAffichee('one_shot', true, true)).toBe('one_shot');
+    expect(positionAffichee('conversation', false, true)).toBe('conversation');
   });
 
-  it('🔴 « Origine » veut dire « laisser à classer, aucun changement »', () => {
-    expect(morceauxDefinitionPortee('origine', 0, true)).toEqual([{ texte: DEFINITION_ORIGINE_PREMIER, fort: false }]);
-    expect(DEFINITION_ORIGINE_PREMIER).toContain('reste à classer');
+  it('🔴 son texte « Le mail reste à classer… » est retiré : jamais affiché au premier rattachement', () => {
+    expect(morceauxDefinitionPortee('origine', 0, true).map((m) => m.texte).join('')).not.toContain('reste à classer');
     expect(AUCUN_BIEN_SUIVI).toBe('Aucun bien suivi pour l’instant');
   });
 
@@ -94,7 +94,7 @@ describe('🔴🔴 la glissière au premier classement (mail jamais classé)', (
     expect(positionAffichee(null, false, false)).toBe('origine');
     expect(positionAffichee(null, true, false)).toBe('one_shot');
     expect(positionAffichee('conversation', true, false)).toBe('conversation');
-    expect(morceauxDefinitionPortee('origine', 0, false)[0].texte).not.toBe(DEFINITION_ORIGINE_PREMIER);
+    expect(morceauxDefinitionPortee('origine', 0, false)[0].texte).toBe(definitionDe('origine').definition);
   });
 
   it('🔴 la préséance : la glissière arbitre dès qu’on la touche, et toujours hors premier classement', () => {

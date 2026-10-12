@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { EncartRattachement } from './EncartRattachement';
 import { BIEN_UNIQUEMENT, TITRE_ETAPE2 } from '../../../../lib/gestion/contactExterne';
 import {
-  AUCUN_BIEN_SUIVI, DEFINITION_ORIGINE_PREMIER, MOT_VALIDER_MODIFICATION,
+  AUCUN_BIEN_SUIVI, BULLE_ORIGINE_PREMIER, MOT_VALIDER_MODIFICATION,
 } from '../../../../lib/gestion/porteeSuivi';
 
 /**
@@ -522,8 +522,8 @@ describe('🔴🔴 ⑦ mail déjà classé : la glissière, comme dans « Modifi
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴🔴 ⑧ UN MAIL JAMAIS CLASSÉ : LE PREMIER CLASSEMENT
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   DÉCISION D'ARNO (12/10/2026) : « Origine » = « laisser à classer, aucun changement » ; la glissière part sur « Ce mail
-   + futurs échanges », la règle actuelle du premier classement. */
+   DÉCISION D'ARNO (12/10/2026) : la glissière part TOUJOURS sur « Ce mail + futurs échanges », la règle du premier
+   classement ; « Origine » y est visible mais grisée et non sélectionnable (lot PREMIER-RATTACHEMENT-SANS-ORIGINE). */
 
 describe('🔴🔴 ⑧ mail jamais classé : « Ce mail + futurs échanges » d’avance', () => {
   const jamaisRattachee = (o: Partial<typeof suiviDuFil> = {}) => {
@@ -538,20 +538,42 @@ describe('🔴🔴 ⑧ mail jamais classé : « Ce mail + futurs échanges » d�
     expect(etape1Ouverte()).toBe(true);
     expect(positionChoisie()).toContain('Ce mail + futurs échanges');
     expect(texte()).toContain(AUCUN_BIEN_SUIVI);
-    // Les quatre positions se choisissent d'emblée : aucune n'est grisée.
-    expect(container.querySelectorAll('.gpo-cran--grise')).toHaveLength(0);
+    // Les trois autres positions se choisissent d'emblée ; seule « Origine » est grisée.
+    expect(container.querySelectorAll('.gpo-cran--grise')).toHaveLength(1);
   });
 
-  it('🔴🔴 « Origine » veut dire « laisser à classer », et ne rien écrire', async () => {
+  it('🔴🔴 « Origine » est grisée, porte sa bulle, et ne se choisit ni à la souris ni au clavier', async () => {
     jamaisRattachee();
     await monter();
     await cliquer('Rattacher');
-    await act(async () => { position('Origine').click(); });
+    const origine = position('Origine');
+    expect(origine.getAttribute('aria-disabled')).toBe('true');
+    expect(origine.getAttribute('title')).toBe(BULLE_ORIGINE_PREMIER);
+    expect(origine.className).toContain('gpo-libelle--interdite');
+    await act(async () => { origine.click(); });
     await calmer();
-    expect(texte()).toContain(DEFINITION_ORIGINE_PREMIER);
-    await cliquer('Valider le maintien du suivi actuel');
-    expect(ecritures()).toHaveLength(0);
-    expect(etape1Ouverte()).toBe(false);
+    expect(positionChoisie()).toContain('Ce mail + futurs échanges');
+    // Clavier : depuis « One shot », la flèche gauche et « Début » ne vont pas sur Origine.
+    await act(async () => { position('One shot').click(); });
+    await calmer();
+    const groupe = container.querySelector('[role="radiogroup"]') as HTMLElement;
+    for (const key of ['ArrowLeft', 'Home']) {
+      await act(async () => { groupe.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); });
+      await calmer();
+      expect(positionChoisie()).toContain('One shot');
+    }
+  });
+
+  it('🔴🔴 ni « Valider le maintien du suivi actuel », ni sa mention, ni « Le mail reste à classer » au premier rattachement', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    for (const coche of [false, true]) {
+      if (coche) { await act(async () => { caseDuBien().click(); }); await calmer(); }
+      expect(texte()).not.toContain('Valider le maintien du suivi actuel');
+      expect(texte()).not.toContain('ne seront pas rattachés en position Origine');
+      expect(texte()).not.toContain('reste à classer');
+    }
   });
 
   it('🔴🔴 aucun bien coché hors « Origine » : bouton BLANC « Sélectionner minimum un bien », inactif, qui appelle l’œil', async () => {
@@ -579,26 +601,11 @@ describe('🔴🔴 ⑧ mail jamais classé : « Ce mail + futurs échanges » d�
     expect(bouton('Valider le rattachement one shot')).toBeDefined();
     await act(async () => { position('Toute la conversation').click(); });
     await calmer();
-    expect(bouton('Valider le rattachement toute la conversation')).toBeDefined();
+    expect(bouton('Valider le rattachement de toute la conversation')).toBeDefined();
     // Décocher : retour au bouton blanc.
     await act(async () => { caseDuBien().click(); });
     await calmer();
     expect(bouton('Sélectionner minimum un bien')).toBeDefined();
-  });
-
-  it('🔴🔴 « Origine » avec un bien coché : la mention, et valider laisse le mail à classer (rien n’est écrit)', async () => {
-    jamaisRattachee();
-    await monter();
-    await cliquer('Rattacher');
-    await act(async () => { position('Origine').click(); });
-    await calmer();
-    await act(async () => { caseDuBien().click(); });
-    await calmer();
-    expect(positionChoisie()).toContain('Origine');
-    expect(texte()).toContain('Les biens cochés ne seront pas rattachés en position Origine.');
-    await cliquer('Valider le maintien du suivi actuel');
-    expect(ecritures()).toHaveLength(0);
-    expect(etape1Ouverte()).toBe(false);
   });
 
   it('🔴🔴 au PREMIER mail de la conversation aussi', async () => {

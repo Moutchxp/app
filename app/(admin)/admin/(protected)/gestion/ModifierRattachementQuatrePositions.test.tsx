@@ -278,6 +278,10 @@ describe('⑤ la glissière', () => {
   it('🔴 revenir sur ① avec des modifications : la question, puis tout revient à l’état d’ouverture', async () => {
     await monter();
     await decocher();
+    /* 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — en MODIFICATION, « Origine » reste sélectionnable : ni grisée, ni bulle. */
+    expect(libelle(/Origine/).getAttribute('aria-disabled')).toBeNull();
+    expect(libelle(/Origine/).getAttribute('title')).toBeNull();
+    expect(libelle(/Origine/).className).not.toContain('gpo-libelle--interdite');
     await cliquer(libelle(/Origine/));
     expect(container.querySelector('.rdf-portee-question')?.textContent).toContain('Revenir au suivi d’origine ? Vos modifications seront abandonnées');
     await cliquer(bouton(/^Non$/) as Element);
