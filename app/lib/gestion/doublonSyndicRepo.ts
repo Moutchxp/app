@@ -4,6 +4,8 @@ import { adressesDeLaParcelle } from './parcelleRepo';
 import { ficheSyndic, enregistrerSyndic, syndicsComparables } from './syndicRepo';
 import { cleImmeuble, validerSyndic, versFormulaire, versSaisie, type ImmeubleSaisi } from './syndics';
 import { cleAdressePostale, memeAdressePostale } from './doublonSyndic';
+import { contactsDeLImmeuble } from './contactsImmeubleRepo';
+import { biensDeLaCopropriete, type ResumeRattachement } from './partageSyndic';
 
 /**
  * ══ 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — LE DÉPÔT ═════════════════════════════════════════════
@@ -205,27 +207,61 @@ export async function biensAvecProposition(): Promise<Array<{ lot: LotLu; syndic
 }
 
 /**
+ * ══ LE RÉSUMÉ DU PARTAGE, APRÈS UN RATTACHEMENT ══ (lot FICHE-SYNDIC-UNIQUE-ET-PARTAGEE) : la copropriété que le bien a
+ * rejointe (ou qui vient de naître), ses contacts syndic et ses habitants / gardien, les AUTRES biens qui la partagent,
+ * et — copropriété nouvelle — les contacts du cabinet qui ne la suivent pas encore (proposés par lien, jamais copiés).
+ * Les habitants d'un AUTRE immeuble ne sont jamais proposés : le carnet appartient à sa copropriété. LECTURE SEULE.
+ */
+export async function resumePartage(syndicId: number, cleCopro: string, lotId: number | null, nouvelleCopro: boolean): Promise<ResumeRattachement | null> {
+  const fiche = await ficheSyndic(syndicId);
+  if (fiche === null) return null;
+  const cle = cleImmeuble(cleCopro);
+  const copro = fiche.coproprietes.find((c) => c.cle === cle || (c.adresses ?? []).some((a) => a.cle === cle));
+  if (copro === undefined) return null;
+  const habitants = await contactsDeLImmeuble(copro.libelle);
+  const suivent = fiche.contacts.filter((c) => c.immeubles.includes(copro.cle));
+  return {
+    syndic: { id: fiche.id, nom: fiche.nom, ville: fiche.ville },
+    copro: { cle: copro.cle, libelle: copro.libelle },
+    nouvelleCopro,
+    contactsSyndic: suivent.length,
+    habitants: habitants.length,
+    autresBiens: biensDeLaCopropriete(fiche, copro.cle).filter((b) => b.id !== lotId).length,
+    contactsProposables: nouvelleCopro ? fiche.contacts.filter((c) => !c.immeubles.includes(copro.cle))
+      .map((c) => ({ id: c.id, nom: [c.civilite, c.prenom, (c.nom ?? '').toLocaleUpperCase('fr')].filter((x) => (x ?? '').trim() !== '').join(' '), titre: c.titre })) : [],
+  };
+}
+
+/**
  * ══ LE RATTACHEMENT, SUR UN CLIC ══ — par la porte unique `enregistrerSyndic`, exactement comme le « Valider » de la
  * fiche : la fiche du syndic est relue, l'immeuble du bien y est ajouté, et la saisie repasse par `validerSyndic`.
- *   · `coproCle` donné : l'adresse du bien devient une adresse SECONDAIRE de cette copropriété (même adresse postale,
- *     même parcelle : c'est la même copropriété) — le geste « Rattacher à … » du conflit de parcelle ;
- *   · sinon : l'immeuble du bien devient une copropriété de ce syndic — le geste « Rattacher cet immeuble à ce syndic ».
+ *   · le bien est dans le MÊME immeuble qu'une copropriété de ce syndic (`coproCle` donné, ou retrouvée ici par la
+ *     même adresse postale, une adresse de la copropriété ou la même parcelle) : il REJOINT cette copropriété, et son
+ *     adresse en devient une adresse SECONDAIRE si elle est nouvelle — il hérite de tout (contacts, carnet) ;
+ *   · sinon (un AUTRE immeuble du même cabinet) : l'immeuble du bien devient une copropriété de ce syndic, et les
+ *     coordonnées du cabinet sont partagées.
  * Les coordonnées déjà enregistrées du syndic ne changent pas : leurs avertissements ont été confirmés quand elles ont
  * été saisies (`confirmeDoublons`).
  */
 export async function rattacherBienAuSyndic(
-  syndicId: number, immeuble: ImmeubleSaisi, coproCle: string | null, auteur: Auteur,
-): Promise<{ ok: true; id: number } | { ok: false; motif: string }> {
+  syndicId: number, immeuble: ImmeubleSaisi, coproCle: string | null, auteur: Auteur, lotId: number | null = null,
+): Promise<{ ok: true; id: number; resume: ResumeRattachement | null } | { ok: false; motif: string }> {
   const libelle = immeuble.libelle.trim();
   if (libelle === '') return { ok: false, motif: 'Ce bien n’a pas d’« Immeuble » : il ne peut recevoir un syndic que par son immeuble.' };
   const fiche = await ficheSyndic(syndicId);
   if (fiche === null) return { ok: false, motif: 'Ce syndic n’existe pas ou a été supprimé.' };
   const f = versFormulaire(fiche);
   const cle = cleImmeuble(libelle);
-  const dejaLa = f.immeubles.some((im) => cleImmeuble(im.libelle) === cle
+  /* La copropriété de CE syndic qui porte déjà l'adresse du bien, si on ne l'a pas donnée (critère « adresse »). */
+  let coproVisee = coproCle;
+  if (coproVisee === null) {
+    const connus = await syndicsConnusPourAdresse(immeuble, { lotId });
+    coproVisee = connus.find((c) => c.syndic.id === syndicId)?.copro.cle ?? null;
+  }
+  const dejaLa = f.immeubles.find((im) => cleImmeuble(im.libelle) === cle
     || (im.adresses ?? []).some((a) => cleImmeuble(a.libelle) === cle));
-  if (!dejaLa) {
-    const cible = coproCle === null ? undefined : f.immeubles.find((im) => cleImmeuble(im.libelle) === cleImmeuble(coproCle));
+  const cible = coproVisee === null ? undefined : f.immeubles.find((im) => cleImmeuble(im.libelle) === cleImmeuble(coproVisee as string));
+  if (dejaLa === undefined) {
     f.immeubles = cible === undefined
       ? [...f.immeubles, { libelle, codePostal: immeuble.codePostal, commune: immeuble.commune }]
       : f.immeubles.map((im) => (im === cible
@@ -234,7 +270,30 @@ export async function rattacherBienAuSyndic(
   const v = validerSyndic(JSON.parse(JSON.stringify({ ...versSaisie(f), confirmeDoublons: true })));
   if (!v.ok) return { ok: false, motif: v.motif };
   const r = await enregistrerSyndic(syndicId, v.syndic, auteur);
-  return r.ok ? r : { ok: false, motif: r.motif };
+  if (!r.ok) return { ok: false, motif: r.motif };
+  const finale = dejaLa !== undefined ? dejaLa.libelle : cible !== undefined ? cible.libelle : libelle;
+  const resume = await resumePartage(syndicId, finale, lotId, dejaLa === undefined && cible === undefined).catch(() => null);
+  return { ok: true, id: r.id, resume };
+}
+
+/**
+ * « AJOUTER » UN CONTACT DU CABINET À UNE COPROPRIÉTÉ — la personne EXISTANTE suit désormais aussi cette copropriété
+ * (une affectation de plus), jamais une copie. Par la porte unique `enregistrerSyndic`, uniquement sur un clic.
+ */
+export async function affecterContact(syndicId: number, contactId: number, coproCle: string, auteur: Auteur):
+Promise<{ ok: true } | { ok: false; motif: string }> {
+  const fiche = await ficheSyndic(syndicId);
+  if (fiche === null) return { ok: false, motif: 'Ce syndic n’existe pas ou a été supprimé.' };
+  const cle = cleImmeuble(coproCle);
+  if (!fiche.coproprietes.some((c) => c.cle === cle)) return { ok: false, motif: 'Cette copropriété n’est pas celle de ce syndic.' };
+  const f = versFormulaire(fiche);
+  const c = f.contacts.find((x) => x.id === contactId);
+  if (c === undefined) return { ok: false, motif: 'Ce contact n’est pas (ou plus) un contact de ce syndic.' };
+  if (!c.immeubles.includes(cle)) c.immeubles = [...c.immeubles, cle];
+  const v = validerSyndic(JSON.parse(JSON.stringify({ ...versSaisie(f), confirmeDoublons: true })));
+  if (!v.ok) return { ok: false, motif: v.motif };
+  const r = await enregistrerSyndic(syndicId, v.syndic, auteur);
+  return r.ok ? { ok: true } : { ok: false, motif: r.motif };
 }
 
 /** « Ignorer » : mémorisé pour CE bien et CE syndic, au journal (ajout seul). Écrit UNIQUEMENT sur un clic. */

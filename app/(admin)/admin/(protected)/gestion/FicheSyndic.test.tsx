@@ -3832,6 +3832,10 @@ describe('LOT COPRO-PLUSIEURS-ADRESSES', () => {
     expect(await groupesLots()).toEqual([{ tete: '12 rue X, 92400 Courbevoie · 3 av Y, 92400 Courbevoie · 9 bd W, 92400 Courbevoie',
       lots: ['lot 101', 'lot 301', 'lot 302', 'lot 901 (attente)'] }]);
     await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    /* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — depuis un bien, la fiche commune l'annonce d'abord : les adresses de la
+       copropriété sont du niveau copropriété (ses 3 biens). */
+    expect(document.querySelector('.fsy-partage')?.textContent).toContain('Cette modification s’appliquera aux 3 biens rattachés à cette fiche');
+    await cliquer(boutonDans(document.querySelector('.fsy-partage'), 'Enregistrer'));
     expect(put().immeubles[0]).toMatchObject({ libelle: '12 rue X', adresses: [{ libelle: '3 av Y' }, { libelle: '9 bd W', codePostal: '92400', commune: 'Courbevoie' }] });
   });
 
@@ -3865,6 +3869,10 @@ describe('LOT COPRO-PLUSIEURS-ADRESSES', () => {
     expect(mention()).toBeNull();
     expect(await groupesLots()).toEqual([{ tete: '12 rue X, 92400 Courbevoie', lots: ['lot 101'] }]);
     await cliquer(boutonDans(document.querySelector('.fsy-pied'), 'Valider'));
+    /* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — depuis un bien, la fiche commune l'annonce d'abord : les adresses de la
+       copropriété sont du niveau copropriété (ses 3 biens). */
+    expect(document.querySelector('.fsy-partage')?.textContent).toContain('Cette modification s’appliquera aux 3 biens rattachés à cette fiche');
+    await cliquer(boutonDans(document.querySelector('.fsy-partage'), 'Enregistrer'));
     expect(put().immeubles[0].adresses).toEqual([]);
   });
 

@@ -7,6 +7,7 @@ import {
 import type { ImmeubleSaisi } from '../../../../lib/gestion/syndics';
 import { nomAvecVille } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles } from './useImmeublesSyndics';
+import { motConfirmationRattachement, type ResumeRattachement } from '../../../../lib/gestion/partageSyndic';
 
 /**
  * ══ 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — LES TROIS PROPOSITIONS DE L'ÉCRAN ═══════════════════════
@@ -41,20 +42,84 @@ export function motOrigine(s: SyndicConnuVu): string {
   return parts.join(' ; ');
 }
 
-/** Le rattachement d'un syndic EXISTANT à l'immeuble d'un bien. Rend `null` si tout va bien, sinon le motif. */
-export async function rattacherAuBien(syndicId: number, immeuble: ImmeubleSaisi, coproCle: string | null): Promise<string | null> {
+/**
+ * Le rattachement d'un syndic EXISTANT à l'immeuble d'un bien (la fiche ENTIÈRE, par lien). Rend l'erreur, ou le
+ * résumé du partage (« Syndic X rattaché — N contacts syndic et M habitants / gardien partagés avec K autres biens »).
+ */
+export async function rattacherAuBien(syndicId: number, immeuble: ImmeubleSaisi, coproCle: string | null, lotId: number | null = null):
+Promise<{ erreur: string | null; resume: ResumeRattachement | null }> {
   try {
     const r = await fetch(`/api/admin/gestion/syndics/${syndicId}/rattacher-bien`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ immeuble, ...(coproCle !== null ? { coproCle } : {}) }),
+      body: JSON.stringify({ immeuble, ...(coproCle !== null ? { coproCle } : {}), ...(lotId !== null ? { lotId } : {}) }),
     });
-    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
-    if (!r.ok || j.ok !== true) return j.erreur ?? 'Rattachement impossible.';
+    const j = (await r.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; resume?: ResumeRattachement | null };
+    if (!r.ok || j.ok !== true) return { erreur: j.erreur ?? 'Rattachement impossible.', resume: null };
     await rafraichirImmeubles();
-    return null;
+    return { erreur: null, resume: j.resume ?? null };
   } catch {
-    return 'Rattachement impossible : le serveur n’a pas répondu.';
+    return { erreur: 'Rattachement impossible : le serveur n’a pas répondu.', resume: null };
   }
+}
+
+/* ══ LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — LA CONFIRMATION, ET LES CONTACTS DU CABINET À AJOUTER PAR LIEN ═══════════ */
+
+/**
+ * « Syndic X rattaché — N contacts syndic et M habitants / gardien partagés avec K autres biens ». Copropriété nouvelle
+ * (un AUTRE immeuble du même cabinet) : « Contacts syndic déjà connus chez ce cabinet », un « Ajouter » par personne —
+ * la personne EXISTANTE suit aussi cet immeuble, jamais une copie. Les habitants d'un autre immeuble ne sont jamais
+ * proposés : le carnet appartient à sa copropriété.
+ */
+export function ConfirmationRattachement({ resume }: { resume: ResumeRattachement }) {
+  const [ajoutes, setAjoutes] = useState<number[]>([]);
+  const [envoi, setEnvoi] = useState<number | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const ajouter = async (id: number): Promise<void> => {
+    setEnvoi(id); setErreur(null);
+    try {
+      const r = await fetch(`/api/admin/gestion/syndics/${resume.syndic.id}/affecter-contact`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contactId: id, copro: resume.copro.cle }) });
+      const j = (await r.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Ajout impossible.'); return; }
+      setAjoutes((l) => [...l, id]);
+    } catch {
+      setErreur('Ajout impossible : le serveur n’a pas répondu.');
+    } finally {
+      setEnvoi(null);
+    }
+  };
+  const contacts = resume.contactsSyndic + ajoutes.length;
+  return (
+    <>
+    <style>{CSS_PROPOSITIONS_SYNDIC}</style>
+    <div className="psy-bandeau psy-bandeau--confirme" role="status">
+      <p className="psy-titre">{motConfirmationRattachement({ ...resume, contactsSyndic: contacts })}</p>
+      <p className="psy-note">
+        {resume.nouvelleCopro
+          ? `${resume.copro.libelle} devient une copropriété de ce syndic : les coordonnées du cabinet sont partagées.`
+          : `Le bien rejoint la copropriété ${resume.copro.libelle} : il en partage les contacts, le carnet et les adresses.`}
+      </p>
+      {resume.contactsProposables.length > 0 && (
+        <div className="psy-encadre-contacts" role="group" aria-label="Contacts syndic déjà connus chez ce cabinet">
+          <p className="psy-sous-titre">Contacts syndic déjà connus chez ce cabinet</p>
+          <ul className="psy-liste">
+            {resume.contactsProposables.map((c) => (
+              <li key={c.id} className="psy-ligne">
+                <span className="psy-mot">{c.nom}{c.titre ? <span className="psy-origine"> — {c.titre}</span> : null}</span>
+                <span className="psy-actions">
+                  {ajoutes.includes(c.id)
+                    ? <span className="psy-ajoute">Ajouté à cette copropriété</span>
+                    : <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi !== null} onClick={() => void ajouter(c.id)}>Ajouter</button>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {erreur !== null && <p className="psy-erreur" role="alert">{erreur}</p>}
+    </div>
+    </>
+  );
 }
 
 /* ══ ① LE BANDEAU DE LA FENÊTRE DE CRÉATION ═══════════════════════════════════════════════════════════════════════ */
@@ -185,6 +250,7 @@ export function BandeauSyndicConnuDuBien({ lotId }: { lotId: number }) {
   const [erreur, setErreur] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const [version, setVersion] = useState(0);
+  const [confirme, setConfirme] = useState<ResumeRattachement | null>(null);
   useEffect(() => {
     let vivant = true;
     void fetch(`/api/admin/gestion/biens/${lotId}/syndic-connu`, { cache: 'no-store' })
@@ -193,14 +259,17 @@ export function BandeauSyndicConnuDuBien({ lotId }: { lotId: number }) {
       .catch(() => { if (vivant) setP(null); });
     return () => { vivant = false; };
   }, [lotId, version]);
+  /* LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — après « Rattacher », le message de confirmation reste sous les yeux. */
+  if (confirme !== null) return <ConfirmationRattachement resume={confirme} />;
   if (p === null || p.syndics.length === 0) return null;
   const plusieurs = new Set(p.syndics.map((s) => s.syndic.id)).size > 1;
   const rattacher = async (s: SyndicConnuVu): Promise<void> => {
     setEnvoi(true); setErreur(null);
-    const motif = await rattacherAuBien(s.syndic.id,
-      { libelle: p.lot.immeuble ?? '', codePostal: p.lot.codePostal ?? '', commune: p.lot.commune ?? '' }, s.copro.cle);
+    const r = await rattacherAuBien(s.syndic.id,
+      { libelle: p.lot.immeuble ?? '', codePostal: p.lot.codePostal ?? '', commune: p.lot.commune ?? '' }, s.copro.cle, lotId);
     setEnvoi(false);
-    if (motif !== null) { setErreur(motif); return; }
+    if (r.erreur !== null) { setErreur(r.erreur); return; }
+    if (r.resume !== null) setConfirme(r.resume);
     setVersion((n) => n + 1);
   };
   const ignorer = async (s: SyndicConnuVu): Promise<void> => {
@@ -264,6 +333,11 @@ export const CSS_PROPOSITIONS_SYNDIC = `
 .psy-conflit{margin:0;padding:6px 10px;border-radius:8px;border:1px solid var(--color-svv-orange);background:var(--color-svv-orange-soft);color:var(--color-svv-ink)}
 .psy-erreur{margin:0;padding:6px 10px;border-radius:8px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
 .psy-pied-encadre{display:flex;justify-content:flex-end}
+.psy-bandeau--confirme{border-color:var(--color-svv-green);background:var(--color-svv-green-soft)}
+.psy-bandeau--confirme .psy-titre{color:var(--color-svv-green-ink)}
+.psy-encadre-contacts{display:flex;flex-direction:column;gap:.35rem;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-syndic-bord);background:var(--color-svv-surface)}
+.psy-sous-titre{margin:0;font-weight:700;font-size:.8rem;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-syndic-texte)}
+.psy-ajoute{font-size:.8rem;font-weight:600;color:var(--color-svv-green-ink)}
 .psy-pied .fsy-question{font-weight:600}
 @media (max-width:640px){.psy-actions{width:100%}.psy-actions .gst-btn{flex:1 1 auto}}
 `;

@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useState } from 'react';
+import { biensPartagesDuCabinet, ligneBienPartage, motFichePartagee, type BienPartage } from '../../../../lib/gestion/partageSyndic';
 import { createPortal } from 'react-dom';
 import { cleImmeuble, nomAvecVille } from '../../../../lib/gestion/syndics';
 import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
@@ -53,6 +54,9 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
   /** LOT SYNDIC-NOM-VILLE-ET-NOTE-VIDE — « NOM / Ville », calculé ; JAMAIS tronqué (il passe à la ligne). */
   const nom = syndic !== null ? nomAvecVille(syndic.nom, syndic.ville) : '';
   const libelle = (immeuble ?? '').trim();
+  /* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — les AUTRES biens qui partagent cette fiche (tout le cabinet), lus dans
+     l'annuaire des immeubles déjà chargé : aucune requête de plus. */
+  const partages = syndic !== null ? biensPartagesDuCabinet(etat.immeubles, syndic.id, lotId) : [];
   return (
     <span className={`bsy-ligne${dansLaFiche ? ' bsy-ligne--fiche' : ''}`}>
       <style>{CSS_BOUTON_SYNDIC}</style>
@@ -63,6 +67,7 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
         onClick={() => setOuvert(true)}>
         <span className="bsy-mot">{syndic !== null ? nom : 'Créer le syndic'}</span>
       </button>
+      <LignePartage biens={partages} />
       {/* ⚠️ DANS UN PORTAIL : la carte peut porter une transformation (survol), qui piégerait un « position:fixed ».
           Et le portail vise `.svv-adm-root`, pas `body` : c'est là que vivent les couleurs du thème Sombre. */}
       {ouvert && typeof document !== 'undefined' && createPortal(
@@ -83,6 +88,36 @@ export function BoutonSyndic({ immeuble, dansLaFiche = false, lotId = null }: {
   );
 }
 
+/**
+ * ══ 🔴🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — « FICHE PARTAGÉE AVEC N AUTRES BIENS » ══════════════════════════════════
+ * Une ligne discrète sous le bouton du syndic : la fiche est COMMUNE, et la carte le dit. Au survol, au focus clavier ou
+ * au toucher, une bulle liste ces biens (« adresse — lot N »). Elle se déplie DANS la carte (rien ne la rogne), et
+ * Échap ou un second toucher la referme. Rien quand la fiche ne sert qu'à ce bien.
+ */
+export function LignePartage({ biens }: { biens: readonly BienPartage[] }) {
+  const [ouvert, setOuvert] = useState(false);
+  const [epingle, setEpingle] = useState(false);
+  const mot = motFichePartagee(biens.length);
+  if (mot === null) return null;
+  const visible = ouvert || epingle;
+  return (
+    <span className="bsy-partage" onMouseEnter={() => setOuvert(true)} onMouseLeave={() => setOuvert(false)}>
+      <span role="button" tabIndex={0} className="bsy-partage-mot" aria-expanded={visible}
+        onFocus={() => setOuvert(true)} onBlur={() => setOuvert(false)}
+        onClick={(e) => { e.stopPropagation(); setEpingle((v) => !v); }}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') { setOuvert(false); setEpingle(false); }
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEpingle((v) => !v); }
+        }}>{mot}</span>
+      {visible && (
+        <ul className="bsy-partage-bulle" role="list" aria-label={mot}>
+          {biens.map((b) => <li key={b.id}>{ligneBienPartage(b)}</li>)}
+        </ul>
+      )}
+    </span>
+  );
+}
+
 /* Rose franc (jetons --color-svv-syndic-*) quand le syndic est connu, blanc sinon. AUCUN ACCENT GRAVE ici.
    .bsy-ligne porte LE MEME retrait que .ann-carte-pied (0 14px) : c'est ce qui aligne les deux boutons. */
 export const CSS_BOUTON_SYNDIC = `
@@ -94,6 +129,13 @@ export const CSS_BOUTON_SYNDIC = `
 .ann-carte-bouton.bsy--connu,.ann-carte-bouton.bsy--connu:hover,.svv-adm-root .ann-carte-bouton.bsy--connu:hover{
   background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte);border-color:var(--color-svv-syndic-bord)}
 .ann-carte-bouton.bsy--connu:hover{filter:brightness(.97)}
+/* LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — la ligne discrete du partage, et sa bulle (depliee dans la carte). */
+.bsy-partage{display:block;margin:.25rem 0 0;text-align:center}
+.bsy-partage-mot{font-size:.74rem;color:var(--color-svv-muted);cursor:help;text-decoration:underline dotted;text-underline-offset:2px}
+.bsy-partage-mot:focus-visible{outline:2px solid var(--color-svv-syndic-bord);outline-offset:2px;border-radius:4px}
+.bsy-partage-bulle{list-style:none;margin:.3rem 0 0;padding:6px 10px;border-radius:8px;text-align:left;
+  border:1px solid var(--color-svv-syndic-bord);background:var(--color-svv-surface-raised);color:var(--color-svv-ink);
+  box-shadow:0 4px 14px rgba(0,0,0,.12);font-size:.78rem;display:flex;flex-direction:column;gap:.15rem;overflow-wrap:anywhere}
 `;
 
 /**

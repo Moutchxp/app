@@ -47,7 +47,7 @@ vi.mock('./syndicRepo', async (orig) => ({
   enregistrerSyndic: (...a: unknown[]) => enregistrer(...(a as [])),
 }));
 
-const { syndicsConnusPourAdresse, propositionPourBien, biensAvecProposition, rattacherBienAuSyndic, ignorerProposition } =
+const { syndicsConnusPourAdresse, propositionPourBien, biensAvecProposition, rattacherBienAuSyndic, ignorerProposition, affecterContact } =
   await import('./doublonSyndicRepo');
 const auteur = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 
@@ -107,7 +107,7 @@ describe('🔴🔴 PARTIE 3 — le bandeau d’un bien sans syndic à une adress
 describe('🔴🔴 LE RATTACHEMENT, SUR UN CLIC, PAR LA PORTE UNIQUE enregistrerSyndic', () => {
   it('avec la copropriété connue : l’immeuble du bien devient une adresse SECONDAIRE de cette copropriété', async () => {
     expect(await rattacherBienAuSyndic(2, { libelle: '25, r. Edith-Cavell', codePostal: '92400', commune: 'COURBEVOIE' }, '25 rue edith cavell', auteur))
-      .toEqual({ ok: true, id: 2 });
+      .toMatchObject({ ok: true, id: 2 });
     const [id, saisie] = enregistrer.mock.calls[0] as unknown as [number, { immeubles: Array<{ libelle: string; adresses?: Array<{ libelle: string }> }>; confirmeDoublons?: boolean; contacts: unknown[] }];
     expect(id).toBe(2);
     expect(saisie.immeubles.map((i) => [i.libelle, (i.adresses ?? []).map((a) => a.libelle)])).toEqual([['25 rue Edith Cavell', ['25, r. Edith-Cavell']]]);
@@ -126,5 +126,41 @@ describe('🔴🔴 LE RATTACHEMENT, SUR UN CLIC, PAR LA PORTE UNIQUE enregistrer
   it('⚠️ aucun accent dans le SQL du dépôt (piège du lot 19d3c67d)', () => {
     const src = readFileSync('app/lib/gestion/doublonSyndicRepo.ts', 'utf8');
     for (const sql of src.match(/`[^`]*`/g) ?? []) expect(sql, sql.slice(0, 60)).not.toMatch(/[À-ÿ]/);
+  });
+});
+
+describe('🔴🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — rattacher = rattacher à la fiche ENTIÈRE', () => {
+  type Saisie = { immeubles: Array<{ libelle: string; adresses?: Array<{ libelle: string }> }>; contacts: Array<{ id: number | null; immeubles: string[] }>; nom: string; email: string };
+  it('critère ADRESSE, copropriété non précisée : le serveur RETROUVE la copropriété de ce syndic, le bien la rejoint (aucune copropriété en double)', async () => {
+    const r = await rattacherBienAuSyndic(2, { libelle: '25, r. Edith-Cavell', codePostal: '92400', commune: 'COURBEVOIE' }, null, auteur, 500);
+    const [, saisie] = enregistrer.mock.calls[0] as unknown as [number, Saisie];
+    expect(saisie.immeubles.map((i) => [i.libelle, (i.adresses ?? []).map((a) => a.libelle)])).toEqual([['25 rue Edith Cavell', ['25, r. Edith-Cavell']]]);
+    expect(r.ok && r.resume).toMatchObject({ copro: { cle: '25 rue edith cavell' }, nouvelleCopro: false, contactsSyndic: 1, habitants: 0, contactsProposables: [] });
+  });
+  it('un AUTRE immeuble du même cabinet : nouvelle copropriété, coordonnées du cabinet inchangées et partagées, contacts du cabinet proposés (jamais copiés)', async () => {
+    /* La relecture après l'écriture voit la nouvelle copropriété (le faux dépôt la lui donne). */
+    const sr = await import('./syndicRepo');
+    const fiche = await sr.ficheSyndic(2);
+    if (fiche === null) throw new Error('fiche');
+    vi.mocked(sr.ficheSyndic).mockResolvedValueOnce(fiche).mockResolvedValueOnce({ ...fiche, coproprietes: [...fiche.coproprietes,
+      { id: 8, cle: '1 rue ailleurs', libelle: '1 rue Ailleurs', debut: '', lots: [{ id: 502, numero: '903', adresse: '1 rue Ailleurs', commune: 'PARIS' }], codePostal: '75001', commune: 'PARIS', adresses: [] }] });
+    const r = await rattacherBienAuSyndic(2, { libelle: '1 rue Ailleurs', codePostal: '75001', commune: 'PARIS' }, null, auteur, 502);
+    const [id, saisie] = enregistrer.mock.calls[0] as unknown as [number, Saisie];
+    /* UNE fiche : on écrit le syndic EXISTANT (son id), ses coordonnées telles quelles — jamais un nouveau syndic. */
+    expect(id).toBe(2);
+    expect([saisie.nom, saisie.email]).toEqual(['TEST ARNAUD', 'arnaud.jorel@gmail.com']);
+    expect(saisie.immeubles.map((i) => i.libelle)).toEqual(['25 rue Edith Cavell', '1 rue Ailleurs']);
+    /* Le contact n'est PAS recopié dans la nouvelle copropriété : il est PROPOSÉ (« Ajouter », par lien). */
+    expect(saisie.contacts.map((c) => c.immeubles)).toEqual([['25 rue edith cavell']]);
+    expect(r.ok && r.resume).toMatchObject({ nouvelleCopro: true, copro: { cle: '1 rue ailleurs' }, contactsSyndic: 0, autresBiens: 0,
+      contactsProposables: [{ id: 51, nom: 'M. Arnaud JOREL', titre: 'Responsable de copropriété' }] });
+  });
+  it('« Ajouter » un contact du cabinet : une affectation de plus pour la MÊME personne (son id), pas une copie', async () => {
+    expect(await affecterContact(2, 51, '25 rue edith cavell', auteur)).toEqual({ ok: true });
+    const [, saisie] = enregistrer.mock.calls[0] as unknown as [number, Saisie];
+    expect(saisie.contacts).toHaveLength(1);
+    expect(saisie.contacts[0]).toMatchObject({ id: 51, immeubles: ['25 rue edith cavell'] });
+    expect((await affecterContact(2, 999, '25 rue edith cavell', auteur)).ok).toBe(false);
+    expect((await affecterContact(2, 51, '1 rue inconnue', auteur)).ok).toBe(false);
   });
 });

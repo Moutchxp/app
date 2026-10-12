@@ -29,8 +29,13 @@ import {
   comparableDeLaSaisie, doublonsDuSyndic, saisieComparable, type DoublonIgnore, type DoublonSyndic, type SyndicComparable,
 } from '../../../../lib/gestion/doublonSyndic';
 import {
-  BandeauDoublonSyndic, EncadreSyndicConnu, PiedDoublonSyndic, rattacherAuBien, useSyndicsConnus,
+  BandeauDoublonSyndic, ConfirmationRattachement, EncadreSyndicConnu, PiedDoublonSyndic, rattacherAuBien, useSyndicsConnus,
 } from './PropositionsSyndic';
+/* 🔴🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — la fiche est COMMUNE : ce que touche une modification, et à combien de biens. */
+import {
+  biensDeLaCopropriete, biensDuCabinet, motAvertissementPartage, niveauxModifies, type ResumeRattachement,
+} from '../../../../lib/gestion/partageSyndic';
+import { createPortal } from 'react-dom';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA FICHE SYNDIC (UN SEUL COMPOSANT, RÉUTILISABLE TEL QUEL) ═══════════
@@ -116,6 +121,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [edition, setEdition] = useState<EtatEdition | null>(null);
   const [questionContact, setQuestionContact] = useState(false);
   const boite = useRef<HTMLDivElement | null>(null);
+  /** LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — une fiche est ouverte par-dessus : Échap est à elle. */
+  const ficheVueOuverte = useRef(false);
   const immeubles = useImmeublesSyndics();
   /** LOT MAIL-SYNDIC-PREREMPLI — l'adresse cliquée part avec ce syndic et ce bien. Un syndic pas encore créé : le bien
    *  seul (LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS), et rien du tout hors d'une fiche bien. */
@@ -180,6 +187,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   useEffect(() => {
     const auClavier = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return;
+      // LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — une fiche ouverte PAR-DESSUS (« Voir la fiche ») se ferme seule.
+      if (ficheVueOuverte.current) return;
       // LOT SYNDIC-CATALOGUE-ANNULER-ET-TITRE — Échap DANS une tuile dépliée du catalogue la replie (son propre
       // gestionnaire), SANS fermer la fiche : on la laisse passer.
       if ((e.target as Element | null)?.closest?.('[data-echap-local]')) return;
@@ -236,16 +245,46 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const depuisUnBien = immeubleDepart !== null && immeubleDepart.libelle.trim() !== '';
   /** « Sélectionner ce syndic pour ce bien » / « Le rattacher à ce bien » : le syndic EXISTANT reçoit l'immeuble du
    *  bien (comme adresse de sa copropriété quand on la connaît), puis la fenêtre se ferme. Rien n'est créé. */
+  /**
+   * 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — après le rattachement, la fenêtre ne se ferme plus d'un coup : elle dit
+   * « Syndic X rattaché — N contacts syndic et M habitants / gardien partagés avec K autres biens », et propose les
+   * contacts du cabinet quand l'immeuble est une copropriété NOUVELLE de ce syndic. Le bien rejoint la copropriété
+   * existante quand il est dans le même immeuble (le serveur la retrouve par l'adresse) — aucune copropriété en double.
+   */
+  const [confirmation, setConfirmation] = useState<ResumeRattachement | null>(null);
   const selectionner = async (id: number, coproCle: string | null = null): Promise<void> => {
     if (immeubleDepart === null || immeubleDepart.libelle.trim() === '') return;
     setEnvoi(true); setErreur(null);
-    const motif = await rattacherAuBien(id, immeubleDepart, coproCle);
+    const r = await rattacherAuBien(id, immeubleDepart, coproCle, lotDepart);
     setEnvoi(false);
-    if (motif !== null) { setErreur(motif); return; }
-    onFerme();
+    if (r.erreur !== null) { setErreur(r.erreur); return; }
+    if (r.resume === null) { onFerme(); return; }
+    setConfirmation(r.resume);
   };
-  /** « Voir la fiche » : la fenêtre montre ce syndic existant (la création en cours est abandonnée). */
-  const voirLaFiche = (id: number): void => { setEtapeDoublon(null); setSyndicId(id); void charger(id); };
+  /**
+   * « Voir la fiche » — 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE (Arno) : la fiche existante s'ouvre PAR-DESSUS ; la
+   * saisie en cours n'est pas perdue, on la retrouve en refermant.
+   */
+  const [ficheVue, setFicheVue] = useState<number | null>(null);
+  const voirLaFiche = (id: number): void => { setFicheVue(id); };
+  useEffect(() => { ficheVueOuverte.current = ficheVue !== null; }, [ficheVue]);
+
+  /**
+   * ══ 🔴🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — « CETTE MODIFICATION S'APPLIQUERA AUX N BIENS » ═══════════════════
+   * Depuis un bien, une modification de la fiche COMMUNE est annoncée avant d'être enregistrée : niveau cabinet (tous
+   * les biens du cabinet), niveau copropriété (tous les biens de l'immeuble). Retirer un contact (« Ne travaille plus
+   * ici », « Détacher de la copropriété ») ou un habitant passe par le même « Valider », donc par le même avertissement.
+   * Rien n'est annoncé quand la fiche ne sert qu'à ce bien.
+   */
+  const motPartage = (f: SyndicForm): string | null => {
+    if (syndicId === null || fiche === null || lotDepart === null) return null;
+    const n = niveauxModifies(initial, f, cleDepart);
+    return motAvertissementPartage({
+      cabinet: n.cabinet ? biensDuCabinet(fiche).length : null,
+      copropriete: n.copropriete ? biensDeLaCopropriete(fiche, cleDepart).length : null,
+    });
+  };
+  const [etapePartage, setEtapePartage] = useState<string | null>(null);
   const connus = useSyndicsConnus(mode === 'recherche' && depuisUnBien ? immeubleDepart : null, lotDepart, ancienSyndicId);
   const [connusEcartes, setConnusEcartes] = useState(false);
 
@@ -285,8 +324,14 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [conflitConfirme, setConflitConfirme] = useState(false);
   const [memeTraite, setMemeTraite] = useState(false);
   const [alerteVue, setAlerteVue] = useState(false);
-  const valider = async (passe: { parcelle?: boolean; conflit?: boolean; meme?: boolean; ignores?: DoublonIgnore[] } = {}, f: SyndicForm = form): Promise<void> => {
+  const valider = async (passe: { parcelle?: boolean; conflit?: boolean; meme?: boolean; ignores?: DoublonIgnore[]; partage?: boolean } = {}, f: SyndicForm = form): Promise<void> => {
     setAlerteParcelle(false);
+    /* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — la fiche est commune : on le dit avant d'enregistrer. */
+    if (!passe.partage) {
+      /* Un contact en cours de modification compte aussi : c'est lui que la question « Enregistrer … ? » ajoutera. */
+      const m = motPartage(edition !== null && contactEnCours ? appliquerBrouillon(f, edition) : f);
+      if (m !== null) { setEtapePartage(m); return; }
+    }
     /* 🔴 LOT SYNDIC-ANTI-DOUBLON — à la création, un doublon possible non encore accepté : le pied le dit d'abord. Une
        fois accepté (« Créer quand même »), les étapes existantes du Valider (parcelle, conflit) suivent normalement. */
     if (syndicId === null && doublons.length > 0 && accepte === null && passe.ignores === undefined) { setEtapeDoublon(doublons); return; }
@@ -340,7 +385,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         ? { ...c, immeubles: [...new Set(c.immeubles.map((k) => (k === bienCle ? cleCible : k)))] } : c)),
     };
     setForm(g); setMemeTraite(true);
-    void valider({ meme: true }, g);
+    void valider({ meme: true, partage: true }, g);
   };
 
   /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — le serveur a renvoyé des coordonnées déjà utilisées, NON confirmées
@@ -485,25 +530,27 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         </div>
 
         <div className="fsy-corps">
-          {immeubles !== null && !immeubles.disponible && (
+          {/* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — le rattachement est fait : ce qui est désormais partagé. */}
+          {confirmation !== null && <ConfirmationRattachement resume={confirmation} />}
+          {confirmation === null && immeubles !== null && !immeubles.disponible && (
             <p className="fsy-alerte">L’annuaire des syndics n’est pas encore installé (migrations 324-325).</p>
           )}
-          {mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
+          {confirmation === null && mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
           {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 2 : un syndic déjà connu pour cette adresse, AVANT le formulaire. */}
-          {mode === 'recherche' && depuisUnBien && connus === null && <p className="fsy-discret">Recherche des syndics connus pour cette adresse…</p>}
-          {mode === 'recherche' && connus !== null && connus.length > 0 && !connusEcartes && (
+          {confirmation === null && mode === 'recherche' && depuisUnBien && connus === null && <p className="fsy-discret">Recherche des syndics connus pour cette adresse…</p>}
+          {confirmation === null && mode === 'recherche' && connus !== null && connus.length > 0 && !connusEcartes && (
             <EncadreSyndicConnu syndics={connus} envoi={envoi}
               onRattacher={(c) => void selectionner(c.syndic.id, c.copro.cle)} onNon={() => setConnusEcartes(true)} />
           )}
-          {mode === 'recherche' && (connus === null ? !depuisUnBien : (connus.length === 0 || connusEcartes)) && (
+          {confirmation === null && mode === 'recherche' && (connus === null ? !depuisUnBien : (connus.length === 0 || connusEcartes)) && (
             <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)} ancienSyndicId={ancienSyndicId} />
           )}
           {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 1 : pendant la saisie d'un NOUVEAU syndic. */}
-          {creation && (
+          {confirmation === null && creation && (
             <BandeauDoublonSyndic doublons={doublons} envoi={envoi} onVoir={voirLaFiche}
               onSelectionner={depuisUnBien ? (id) => void selectionner(id) : undefined} />
           )}
-          {mode === 'edition' && (
+          {confirmation === null && mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={ecrire}
               connus={immeubles?.immeubles ?? []} suppression={suppression} setSuppression={setSuppression} demanderSuppression={demanderSuppression}
               envoi={envoi} onSupprimer={() => void supprimer()} tente={tente}
@@ -516,7 +563,18 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         {/* ══ LE PIED, TOUJOURS VISIBLE — hors de la zone qui défile ══ */}
         <div className="fsy-pied">
           {erreur !== null && <p className="fsy-alerte fsy-pied-alerte" role="alert">{erreur}</p>}
-          {alerteParcelle ? (
+          {confirmation !== null ? (
+            <div className="fsy-boutons">
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onFerme}>Fermer</button>
+            </div>
+          ) : etapePartage !== null ? (
+            <div className="fsy-boutons fsy-partage" role="group" aria-label="La fiche est partagée">
+              <span className="fsy-question">{etapePartage}</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapePartage(null)} disabled={envoi}>Revenir</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi}
+                onClick={() => { setEtapePartage(null); void valider({ partage: true }); }}>Enregistrer</button>
+            </div>
+          ) : alerteParcelle ? (
             <div className="fsy-boutons fsy-alerte-parcelle" role="group" aria-label="Adresses de la parcelle non associées">
               <span className="fsy-question">
                 Cette copropriété possède peut-être d’autres adresses postales : {parcelle.proposables === 1
@@ -524,7 +582,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
                   : `${parcelle.proposables} adresses sur la même parcelle cadastrale n’ont pas été associées.`}
               </span>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setAlerteParcelle(false); setVoirParcelle((n) => n + 1); }}>Voir les adresses</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void valider({ parcelle: true, conflit: conflitConfirme, meme: memeTraite })}>Valider quand même</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void valider({ parcelle: true, conflit: conflitConfirme, meme: memeTraite, partage: true })}>Valider quand même</button>
             </div>
           ) : etapeParcelle === 'conflit' && parcelle.bien !== null ? (
             <div className="fsy-boutons fsy-conflit-parcelle" role="group" aria-label="Conflit possible sur la parcelle">
@@ -544,7 +602,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
             <div className="fsy-boutons fsy-conflit-parcelle" role="group" aria-label="Confirmer une copropriété distincte">
               <span className="fsy-question">Confirmez-vous que {parcelle.bien.libelle} est une copropriété distincte, avec un syndic différent ?</span>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtapeParcelle('conflit')}>Non, revenir</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setConflitConfirme(true); void valider({ conflit: true }); }}>Oui, je confirme</button>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setConflitConfirme(true); void valider({ conflit: true, partage: true }); }}>Oui, je confirme</button>
             </div>
           ) : etapeParcelle === 'meme' && parcelle.memeSyndic.length > 0 ? (
             <div className="fsy-boutons fsy-meme-syndic" role="group" aria-label="Même parcelle qu’une copropriété de ce syndic">
@@ -552,7 +610,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
                 Cette adresse est sur la même parcelle qu’une copropriété de ce syndic : la rattacher à cette copropriété ?
                 <span className="fsy-discret"> ({parcelle.memeSyndic[0].coproLibelle})</span>
               </span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setMemeTraite(true); void valider({ meme: true, conflit: conflitConfirme }); }}>Non</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setMemeTraite(true); void valider({ meme: true, conflit: conflitConfirme, partage: true }); }}>Non</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={regrouper}>Oui</button>
             </div>
           ) : etapeDoublon !== null && etapeDoublon.length > 0 ? (
@@ -605,6 +663,12 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           )}
         </div>
       </div>
+      {/* 🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — « Voir la fiche » : la fiche existante PAR-DESSUS, dans le même
+          portail que la fenêtre (thème Sombre compris) ; en la fermant, on retrouve sa saisie intacte. */}
+      {ficheVue !== null && typeof document !== 'undefined' && createPortal(
+        <FicheSyndic key={`vue-${ficheVue}`} syndicId={ficheVue} onFerme={() => setFicheVue(null)} onEcrire={onEcrire} />,
+        document.querySelector('.svv-adm-root') ?? document.body,
+      )}
     </div>
   );
 }

@@ -19,6 +19,11 @@ const CONNU: SyndicConnuVu = { syndic: { id: 2, nom: '_BANC Syndic', ville: 'Asn
 const AUTRE: SyndicConnuVu = { syndic: { id: 3, nom: '_BANC Autre', ville: 'Paris' }, copro: { cle: '27 rue edith cavell', libelle: '27 rue Edith Cavell' },
   via: ['parcelle'], biens: [] };
 
+/* LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — la fiche du syndic existant, ouverte PAR-DESSUS ; le résumé d'un rattachement. */
+const FICHE_4 = { id: 4, nom: 'Cabinet FONCIA', adresse: '12 bis av. des Champs-Élysées', codePostal: '75008', ville: 'Paris', telephone: '0142000001',
+  telephone2: null, email: 'contact@foncia.invalid', note: null, creeLe: '2026-10-12T10:00:00Z', creeParLibelle: 'banc', majLe: null, majParLibelle: null,
+  contacts: [], coproprietes: [], historique: [], anciens: [] };
+let resume: unknown = null;
 let appels: Array<{ url: string; methode: string; corps: Record<string, unknown> | null }> = [];
 let connus: SyndicConnuVu[] = [];
 let proposition: unknown = null;
@@ -26,7 +31,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  appels = []; connus = []; proposition = null;
+  appels = []; connus = []; proposition = null; resume = null;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const methode = init?.method ?? 'GET';
     const corps = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
@@ -35,7 +40,9 @@ beforeEach(() => {
     if (url.startsWith('/api/admin/gestion/syndics/immeubles')) return rep({ etat: 'ok', disponible: true, immeubles: [] });
     if (url.startsWith('/api/admin/gestion/syndics/connus')) return rep({ etat: 'ok', syndics: connus });
     if (url.startsWith('/api/admin/gestion/syndics/comparables')) return rep({ etat: 'ok', syndics: ANNUAIRE });
-    if (/\/syndics\/\d+\/rattacher-bien$/.test(url)) return rep({ ok: true, id: 4 });
+    if (/\/syndics\/\d+\/rattacher-bien$/.test(url)) return rep({ ok: true, id: 4, resume });
+    if (/\/syndics\/\d+\/affecter-contact$/.test(url)) return rep({ ok: true });
+    if (url.startsWith('/api/admin/gestion/syndics/4') && methode === 'GET') return rep({ etat: 'ok', fiche: FICHE_4 });
     if (url === '/api/admin/gestion/syndics' && methode === 'POST') {
       return Array.isArray(corps?.doublonsSyndicIgnores) ? rep({ ok: true, id: 13 })
         : rep({ erreur: 'Ce syndic existe peut-être déjà.', doublonsSyndic: [] }, false);
@@ -118,7 +125,7 @@ describe('🔴🔴 PARTIE 1 — le doublon possible, pendant la saisie, sur chac
     await attendre(10);
     const r = appels.find((a) => a.methode === 'POST' && a.url.endsWith('/rattacher-bien'));
     expect(r?.url).toBe('/api/admin/gestion/syndics/4/rattacher-bien');
-    expect(r?.corps).toEqual({ immeuble: IMMEUBLE });
+    expect(r?.corps).toEqual({ immeuble: IMMEUBLE, lotId: 176 });
     expect(appels.some((a) => a.url === '/api/admin/gestion/syndics' && a.methode === 'POST')).toBe(false);
     expect(ferme).toBe(1);
   });
@@ -139,6 +146,44 @@ describe('🔴🔴 PARTIE 1 — le doublon possible, pendant la saisie, sur chac
   });
 });
 
+describe('🔴🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — « Voir la fiche » et la confirmation du rattachement', () => {
+  it('« Voir la fiche » ouvre la fiche existante PAR-DESSUS ; en la fermant, la saisie est intacte', async () => {
+    await nouveau();
+    await taper(champ('Nom du cabinet *'), 'SARL Foncia');
+    await cliquer('Voir la fiche');
+    await attendre(10);
+    const fenetres = [...document.querySelectorAll('.fsy')];
+    expect(fenetres).toHaveLength(2);
+    expect(fenetres[1].querySelector('#fsy-titre')?.textContent).toBe('Cabinet FONCIA / Paris');
+    await act(async () => { (fenetres[1].querySelector('.fsy-croix') as HTMLElement).click(); });
+    await calmer();
+    expect(document.querySelectorAll('.fsy')).toHaveLength(1);
+    expect(champ('Nom du cabinet *').value).toBe('SARL Foncia');
+    expect(bandeau()).toContain('même nom');
+    expect(ferme).toBe(0);
+  });
+  it('« Sélectionner ce syndic pour ce bien » (autre immeuble) : le message, et « Ajouter » rattache la personne existante', async () => {
+    resume = { syndic: { id: 4, nom: 'Cabinet FONCIA', ville: 'Paris' }, copro: { cle: '25 rue edith cavell', libelle: '25 rue Edith Cavell' },
+      nouvelleCopro: true, contactsSyndic: 0, habitants: 0, autresBiens: 0,
+      contactsProposables: [{ id: 41, nom: 'Mme Léa DURAND', titre: 'Responsable de copropriété' }] };
+    await nouveau();
+    await taper(champ('Nom du cabinet *'), 'Foncia');
+    await cliquer('Sélectionner ce syndic pour ce bien');
+    await attendre(10);
+    expect(ferme).toBe(0);
+    const c = document.querySelector('.psy-bandeau--confirme')?.textContent ?? '';
+    expect(c).toContain('Syndic Cabinet FONCIA rattaché — 0 contacts syndic et 0 habitants / gardien partagés avec 0 autres biens');
+    expect(c).toContain('Contacts syndic déjà connus chez ce cabinet');
+    expect(c).toContain('Mme Léa DURAND — Responsable de copropriété');
+    await cliquer('Ajouter');
+    expect(appels.find((a) => a.url.endsWith('/affecter-contact'))?.corps).toEqual({ contactId: 41, copro: '25 rue edith cavell' });
+    expect(document.querySelector('.psy-bandeau--confirme')?.textContent).toContain('1 contact syndic');
+    expect(document.querySelector('.psy-bandeau--confirme')?.textContent).toContain('Ajouté à cette copropriété');
+    await cliquer('Fermer');
+    expect(ferme).toBe(1);
+  });
+});
+
 describe('🔴🔴 PARTIE 2 — un syndic déjà connu pour cette adresse, AVANT le formulaire', () => {
   it('l’encadré d’abord ; « Le rattacher à ce bien » rattache (comme adresse de sa copropriété) et ferme', async () => {
     connus = [CONNU];
@@ -154,7 +199,7 @@ describe('🔴🔴 PARTIE 2 — un syndic déjà connu pour cette adresse, AVANT
     await attendre(10);
     const r = appels.find((a) => a.methode === 'POST' && a.url.endsWith('/rattacher-bien'));
     expect(r?.url).toBe('/api/admin/gestion/syndics/2/rattacher-bien');
-    expect(r?.corps).toEqual({ immeuble: IMMEUBLE, coproCle: '25 rue edith cavell' });
+    expect(r?.corps).toEqual({ immeuble: IMMEUBLE, coproCle: '25 rue edith cavell', lotId: 176 });
     expect(ferme).toBe(1);
   });
   it('« Non, créer un autre syndic » : la recherche et la création existantes reviennent, inchangées', async () => {
@@ -189,7 +234,7 @@ describe('🔴🔴 PARTIE 3 — le bandeau de la fiche d’un bien', () => {
     expect(container.textContent).toContain('Syndic connu pour cette adresse : _BANC Syndic / Asnieres');
     await cliquer('Rattacher');
     const r = appels.find((a) => a.methode === 'POST' && a.url.endsWith('/rattacher-bien'));
-    expect(r?.corps).toEqual({ immeuble: { libelle: '25, r. Edith-Cavell', codePostal: '92400', commune: 'COURBEVOIE' }, coproCle: '25 rue edith cavell' });
+    expect(r?.corps).toEqual({ immeuble: { libelle: '25, r. Edith-Cavell', codePostal: '92400', commune: 'COURBEVOIE' }, coproCle: '25 rue edith cavell', lotId: 500 });
   });
   it('« Ignorer » : mémorisé pour ce bien (le serveur ne le repropose plus), le bandeau disparaît', async () => {
     proposition = { lot: { immeuble: '25, r. Edith-Cavell', codePostal: '92400', commune: 'COURBEVOIE' }, syndics: [CONNU] };
