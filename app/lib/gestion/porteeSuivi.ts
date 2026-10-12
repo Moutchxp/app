@@ -116,6 +116,54 @@ export function positionSuivante(position: PositionPortee, modification: boolean
   return position === 'origine' ? 'one_shot' : position;
 }
 
+/**
+ * ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — LE PREMIER CLASSEMENT D'UN MAIL ══════════════════════════════════════
+ *
+ * DÉCISION D'ARNO (12/10/2026) : « Pour un mail JAMAIS classé, la position “Origine” signifie “laisser à classer,
+ * aucun changement”. La glissière est placée par défaut sur “Ce mail + futurs échanges”, comme la règle actuelle du
+ * premier classement » (`SUIVI_DEFAUT`, `'suite'`).
+ *
+ * 🔴 `voulue` VAUT `null` TANT QUE PERSONNE N'A TOUCHÉ LA GLISSIÈRE : c'est ce qui distingue le DÉFAUT d'un choix fait à
+ * la main — et la règle de préséance de l'étape « Classer ce nouveau contact » en dépend (`porteeArbitre`).
+ * ⚠️ HORS PREMIER CLASSEMENT, RIEN NE CHANGE : `null` se lit « Origine », et `positionSuivante` s'applique telle quelle.
+ */
+export function positionAffichee(
+  voulue: PositionPortee | null, modification: boolean, premier: boolean,
+): PositionPortee {
+  if (!premier) return positionSuivante(voulue ?? 'origine', modification);
+  const p = voulue ?? 'suite';
+  /* « Origine » choisie à la main puis un bien coché : on reprend le défaut du premier classement. */
+  return modification && p === 'origine' ? 'suite' : p;
+}
+
+/** Au premier classement, les quatre positions se choisissent d'emblée (rien n'est écrit sans un bien coché). PUR. */
+export function glissiereOuverte(modification: boolean, premier: boolean): boolean {
+  return modification || premier;
+}
+
+/**
+ * LA GLISSIÈRE ARBITRE-T-ELLE LA PORTÉE ? Oui dès qu'on l'a touchée, et toujours hors premier classement. Au premier
+ * classement, sans clic, le choix de l'étape « Classer ce nouveau contact » garde la main — la préséance d'avant. PUR.
+ */
+export function porteeArbitre(voulue: PositionPortee | null, premier: boolean): boolean {
+  return voulue !== null || !premier;
+}
+
+/** « Origine » d'un mail jamais classé (Arno : « laisser à classer, aucun changement »). */
+export const DEFINITION_ORIGINE_PREMIER =
+  'Le mail reste à classer : aucun bien n’est rattaché, aucun changement n’est enregistré.';
+
+/** Le bloc des biens suivis, pour un mail jamais classé (Arno, mot pour mot). */
+export const AUCUN_BIEN_SUIVI = 'Aucun bien suivi pour l’instant';
+
+/** La définition affichée, premier classement compris. PUR. */
+export function morceauxDefinitionPortee(
+  p: PositionPortee, nbCoches: number, premier: boolean,
+): { texte: string; fort: boolean }[] {
+  if (premier && p === 'origine') return [{ texte: DEFINITION_ORIGINE_PREMIER, fort: false }];
+  return morceauxDefinition(p, nbCoches);
+}
+
 export const MOT_VALIDER_MAINTIEN = 'Valider le maintien du suivi actuel';
 export const MOT_VALIDER_MODIFICATION = 'Valider la modification du suivi';
 export function motBoutonFinal(modification: boolean): string {

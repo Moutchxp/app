@@ -1005,7 +1005,7 @@ describe('🔴 B2/B4 — le cartouche suit l’événement du mail, la capsule n
  * ══ 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER (décision d'Arno, option 1) — UN SEUL POINT D'ENTRÉE ══════════════════════════════
  *
  * Sur un mail « À classer » dont l'encart est là, le lien « Classer » de l'en-tête est retiré, et la fenêtre de
- * « Rattacher à un logement » porte TOUT ce qu'il offrait : le suivi (dont « Ce mail uniquement »), « Classer dans
+ * « Rattacher à un logement » — la fenêtre commune depuis le lot UNE-SEULE-FENETRE-DE-RATTACHEMENT — porte TOUT ce qu'il offrait : le suivi (dont « Ce mail uniquement »), « Classer dans
  * une carte », « Classer sans suite », et l'événement en lecture. La pastille « À classer » et « Interne » restent.
  * 🔒 `fetch` simulé : rien n'est écrit, sauf le POST /sans-suite que l'épreuve déclenche exprès, capturé.
  */
@@ -1023,17 +1023,19 @@ describe('🔴🔴 UN SEUL POINT D’ENTRÉE — « Rattacher à un logement »'
   it('chaque geste de l’ancien « Classer » est accessible depuis « Rattacher »', async () => {
     await monter();
     await ouvrirRattacher();
-    /* Le suivi, même au premier classement : les trois choix, dont « Ce mail uniquement » ; le défaut d'avant. */
-    const choix = [...container.querySelectorAll('.ert-portee .ert-suivi-mot')].map((e) => e.textContent);
-    expect(choix).toEqual(['Ce mail uniquement', 'Ce mail et la conversation à venir', 'Toute la conversation']);
-    const coche = container.querySelector('.ert-portee input:checked')?.closest('label')?.querySelector('.ert-suivi-mot')?.textContent;
-    expect(coche).toBe('Ce mail et la conversation à venir');
-    /* Les deux gestes du pied, à côté de « Hors gestion, ou classer par pièce… ». */
-    const pied = [...container.querySelectorAll('.ert-pied-gestes button')].map((b) => b.textContent);
-    expect(pied).toEqual(['Hors gestion, ou classer par pièce…', 'Classer dans une carte', 'Classer sans suite']);
+    /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — c'est la fenêtre commune, celle de « Modifier le rattachement ». */
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) rattaché(s) à ce mail');
+    /* La portée, même au premier classement : la glissière (One shot = l'ancien « Ce mail uniquement »), et le défaut
+       d'avant (« Ce mail + futurs échanges »). */
+    const positions = [...container.querySelectorAll('[role="radio"]')].map((e) => e.textContent);
+    expect(positions).toEqual(['Origine', 'One shot', 'Ce mail + futurs échanges', 'Toute la conversation']);
+    expect(container.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Ce mail + futurs échanges');
+    /* Les gestes de l'ancien pied, dans « Autres classements ». */
+    const autres = [...container.querySelectorAll('.rdf-autres button')].map((b) => b.textContent);
+    expect(autres).toEqual(['Hors gestion, ou classer par pièce…', 'Classer dans une carte', 'Classer sans suite']);
     /* L'événement, en lecture, avec le renvoi vers les gestes sous l'en-tête. */
-    expect(container.querySelector('.eer .eer-titre')?.textContent).toContain('Événement rattaché');
-    expect(container.querySelector('.eer-renvoi')?.textContent).toContain('« Lier à un événement » ou « Créer un événement »');
+    expect(container.querySelector('.rdf-evt-bloc .rdf-evt-titre')?.textContent).toContain('Événement rattaché');
+    expect(container.querySelector('.rdf-evt-renvoi')?.textContent).toContain('« Lier à un événement » ou « Créer un événement »');
     expect(appels.filter((a) => a.methode !== 'GET' && !a.url.endsWith('/lecture'))).toEqual([]);
   });
   it('« Classer dans une carte » : le même geste que l’ancien pied (ouvre le partage sur la recherche)', async () => {

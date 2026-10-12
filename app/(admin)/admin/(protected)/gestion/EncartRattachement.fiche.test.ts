@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EncartRattachement } from './EncartRattachement';
+import { TITRE_BIENS_DU_MAIL } from '../../../../lib/gestion/ficheRattachement';
+import { MOT_VALIDER_MAINTIEN, MOT_VALIDER_MODIFICATION } from '../../../../lib/gestion/porteeSuivi';
 
 /**
  * 🔴 LOT FICHE-PROPOSITION — LA LIGNE DES BIENS RATTACHÉS, ET OÙ S'OUVRE LA RECHERCHE.
@@ -52,8 +54,23 @@ let appels: { url: string; methode: string; corps: unknown }[];
 /** 🔴 LOT SUIVI-CONVERSATION — les périodes de la conversation. `null` = migration 290 absente. */
 let suiviDuFil: { periodes: unknown[]; exceptions: unknown[]; mails: number[] } | null;
 
+/** 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — ce que la fenêtre commune lit : les liens montés, et leur bien. */
+let liensDuFil: unknown[] = [];
+const ficheDuFil = () => ({
+  filId: 101, objet: 'Objet', nbMailsDuFil: 2, horsGestion: false, messageRecentId: 900,
+  enTete: { messageId: 900, de: 'x@exemple.test', deNom: 'X', recuLe: '2026-03-10T10:00:00Z', objet: 'Objet' },
+  disponible: true,
+  biens: (liensDuFil as { cible: { sorte: string; cle: string | null }; statut: string }[])
+    .filter((l) => l.cible.sorte === 'lot' && l.statut === 'confirme').slice(0, 1).map(() => ({
+      cle: '442', lotId: 442, adresseComplete: '22 Boulevard Richard Wallace, 92800 PUTEAUX', numeroLot: '442',
+      nature: 'Appartement', typeBien: 'Type 2', surfaceM2: null, statut: 'classe', dateMail: '2026-03-10', nbMails: 1,
+      dossierDriveId: null, lienIds: [1], personnes: [],
+    })),
+});
+
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  liensDuFil = [];
   evenementDuMail = null;
   migration268 = true;
   appels = [];
@@ -85,6 +102,13 @@ beforeEach(() => {
         json: async () => (suiviDuFil === null ? { etat: 'sans_schema' } : { etat: 'ok', ...suiviDuFil }),
       } as unknown as Response;
     }
+    /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — la fiche et les liens que lit la fenêtre commune. */
+    if (u.includes('/rattachements?fiche=')) {
+      return { ok: true, json: async () => ({ etat: 'ok', data: ficheDuFil() }) } as unknown as Response;
+    }
+    if (u.includes('/rattachements?fil=')) {
+      return { ok: true, json: async () => ({ etat: 'ok', data: liensDuFil }) } as unknown as Response;
+    }
     // 🔴 LOT MODALE-RATTACHER-PROPRE — la fiche que la pastille « i » demande, par la CLÉ du lot.
     if (u.includes('lotCle=')) {
       return {
@@ -112,6 +136,7 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restore
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); }); };
 const monter = async (liens: unknown[], props: Record<string, unknown> = {}) => {
+  liensDuFil = liens;
   await act(async () => {
     root.render(createElement(EncartRattachement, {
       messageId: 900, filId: 101, liens, onChange: () => {}, ...props,
@@ -215,60 +240,58 @@ describe('🔴 la ligne des biens s’intitule « Bien(s) rattaché(s) : »', ()
 });
 
 /**
- * ══ 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE PANNEAU EN LIGNE EST DEVENU **LA MODALE** ══════════════════════════
+ * ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — LES CASES OUVRENT LA FENÊTRE COMMUNE ═════════════════════════════════
  *
- * ARNO (point 4) : « Clic sur la case verte “Rattaché” → la modale “Rattacher ce mail à…” s'ouvre avec les biens
- * actuellement rattachés COCHÉS, plus les propositions et le moteur de recherche. »
+ * DÉCISION D'ARNO (12/10/2026) : la fenêtre « Bien(s) rattaché(s) à ce mail » de « Modifier le rattachement »
+ * REMPLACE « Rattacher ce mail à… ». Les deux cases du bloc (rouge « Rattacher », verte « Rattaché ») l'ouvrent : le
+ * bien rattaché y est une carte cochée, les propositions et le moteur de recherche en dessous, la glissière de la
+ * portée, et « Autres classements » en bas.
  *
- * 🔴 C'EST LA MÊME FENÊTRE QUE LA RÉDACTION, et c'est tout l'objet de ce lot : un seul geste, une seule fenêtre,
- * des deux côtés de l'application. Le panneau `MenuRattachementBien` n'est pas mort pour autant — il reste la
- * fenêtre « Visualiser / Modifier » de l'en-tête.
+ * (Ces épreuves remplacent celles de la modale « Rattacher ce mail à… », lot CLASSER-SUR-CHAQUE-MAIL : même parcours,
+ * même écriture — un lien RETIRÉ, jamais supprimé.)
  */
-describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la rédaction', () => {
+describe('🔴🔴 la fenêtre commune « Bien(s) rattaché(s) à ce mail »', () => {
+  const titre = () => container.querySelector('#rdf-titre');
+  const caseDuBienSuivi = () => container.querySelector('.rdf-suivi-carte input[type="checkbox"]') as HTMLInputElement | null;
+
   it('elle n’est pas là au repos', async () => {
     await monter([lien()]);
-    expect(container.querySelector('.rec-voile')).toBeNull();
+    expect(titre()).toBeNull();
   });
 
   it('🔴 la case ROUGE l’ouvre, avec le moteur de recherche', async () => {
     await monter([]);
     await cliquer(container.querySelector('.ccl-case--rouge'));
-    const modale = container.querySelector('.rec-voile');
-    expect(modale).not.toBeNull();
-    expect(modale?.textContent ?? '').toContain('Rattacher ce mail à');
-    expect(modale?.textContent ?? '').toContain('Moteur de recherche');
+    expect(titre()?.textContent).toBe(TITRE_BIENS_DU_MAIL);
+    expect(container.textContent ?? '').toContain('Moteur de recherche');
+    // 🔴 L'ancienne fenêtre n'est plus montée : une seule fenêtre.
+    expect(container.querySelector('.rec-voile')).toBeNull();
   });
 
-  /** 🔴 « avec les biens actuellement rattachés COCHÉS » — c'est le correctif du compteur bloqué à « 1 ». */
-  it('🔴🔴 la case VERTE la rouvre avec le bien déjà rattaché COCHÉ et VISIBLE', async () => {
+  /** 🔴 « avec les biens actuellement rattachés COCHÉS » : la carte du bien suivi, cochée. */
+  it('🔴🔴 la case VERTE l’ouvre avec le bien déjà rattaché COCHÉ et VISIBLE', async () => {
     await monter([lien()]);
     await cliquer(container.querySelector('.ccl-case--verte'));
-    const cases = [...container.querySelectorAll('.rec-biens input[type="checkbox"]')] as HTMLInputElement[];
-    expect(cases).toHaveLength(1);
-    expect(cases[0].checked).toBe(true);
-    expect(container.querySelector('.rec-biens')?.textContent).toContain('22 Boulevard Richard Wallace');
-    // Le compteur du bouton dit le VRAI nombre, celui des cases visibles.
-    expect(boutonPar(/^Valider — 1 bien\(s\)$/)).toBeDefined();
+    expect(caseDuBienSuivi()?.checked).toBe(true);
+    expect(container.querySelector('.rdf-suivis')?.textContent).toContain('22 Boulevard Richard Wallace');
+    // Sans modification, le bouton final dit qu'il ne change rien.
+    expect(boutonPar(new RegExp(`^${MOT_VALIDER_MAINTIEN}$`))).toBeDefined();
   });
 
-  /**
-   * 🔴🔴 LE DÉFAUT D'ARNO, REJOUÉ : « il reste bloqué à “1” alors que rien n'est coché dans la liste visible ».
-   * Décocher la seule case doit faire tomber le compteur à zéro — et le bouton s'intituler « aucun bien ».
-   */
-  it('🔴🔴 décocher tout : le compteur tombe à ZÉRO, et le bouton le dit', async () => {
+  it('🔴🔴 décocher tout : la glissière passe sur « One shot », et le bouton dit la modification', async () => {
     await monter([lien()]);
     await cliquer(container.querySelector('.ccl-case--verte'));
-    await cliquer(container.querySelector('.rec-biens input[type="checkbox"]'));
-    expect(boutonPar(/^Valider — aucun bien$/)).toBeDefined();
-    expect(boutonPar(/^Valider — aucun bien$/)?.disabled).toBe(false);
+    await cliquer(caseDuBienSuivi());
+    expect(container.querySelector('.rdf-suivi-carte')?.textContent).toContain('sera retiré');
+    expect(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`))?.disabled).toBe(false);
   });
 
-  /** 🔴 « valider retire tous les rattachements » : un PATCH `retire`, jamais une suppression. */
+  /** 🔴 « valider retire tous les rattachements » : un PATCH `retire`, jamais une suppression (sans la 290). */
   it('🔴🔴 valider à 0 RETIRE le rattachement, sans rien supprimer', async () => {
     await monter([lien()]);
     await cliquer(container.querySelector('.ccl-case--verte'));
-    await cliquer(container.querySelector('.rec-biens input[type="checkbox"]'));
-    await cliquer(boutonPar(/^Valider — aucun bien$/));
+    await cliquer(caseDuBienSuivi());
+    await cliquer(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`)));
     /* LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — décocher un bien confirmé sort le mail du suivi de ce bien : la
        question d'Arno est posée d'abord, et on y répond « Sortir du suivi ». */
     expect(document.querySelector('.red-conf-question')?.textContent).toContain('Il restera dans les autres historiques et pourra être restauré.');
@@ -279,29 +302,19 @@ describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la 
     expect(appels.some((a) => a.methode === 'DELETE' && a.url.includes('/rattachements'))).toBe(false);
   });
 
-  /**
-   * 🔴🔴 LE PARCOURS COMPLET QU'ARNO DEMANDE EN TEST : « passer de Rattaché à Interne ».
-   *
-   * Il tient en trois temps, et aucun n'est évident seul : on décoche, on valide à zéro (le lien est RETIRÉ, pas
-   * supprimé), les deux cases reviennent — et c'est seulement là que « Interne » devient choisissable.
-   */
+  /** 🔴🔴 LE PARCOURS COMPLET QU'ARNO DEMANDE EN TEST : « passer de Rattaché à Interne ». */
   it('🔴🔴 de RATTACHÉ à INTERNE, de bout en bout', async () => {
     const vus: boolean[] = [];
     await monter([lien()], { interne: false, onInterne: (a: boolean) => { vus.push(a); } });
     expect(container.querySelector('.ccl-case--verte')?.textContent).toContain('Rattaché');
 
     await cliquer(container.querySelector('.ccl-case--verte'));
-    await cliquer(container.querySelector('.rec-biens input[type="checkbox"]'));
-    await cliquer(boutonPar(/^Valider — aucun bien$/));
-    /* LOT HISTORIQUE-SORTIE-PAR-BIEN-ET-SIX-BOUTONS — décocher un bien confirmé sort le mail du suivi de ce bien : la
-       question d'Arno est posée d'abord, et on y répond « Sortir du suivi ». */
-    expect(document.querySelector('.red-conf-question')?.textContent).toContain('Il restera dans les autres historiques et pourra être restauré.');
+    await cliquer(caseDuBienSuivi());
+    await cliquer(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`)));
     await cliquer([...document.querySelectorAll('.red-conf button')].find((b) => b.textContent === 'Sortir du suivi'));
     expect(appels.find((a) => a.methode === 'PATCH')?.corps).toMatchObject({ statut: 'retire' });
 
     // ⚠️ LE PARENT REND LA VÉRITÉ : le lien retiré, la conversation recharge et ne le passe plus.
-    // ⚠️ `button.ccl-case` : depuis le lot AUCUNE-PROPOSITION-ET-ANIMATION-INVERSE, le fantôme de la scission
-    //   porte la même classe pendant 560 ms — mais il n'est pas un bouton, et c'est ce qui le distingue.
     await monter([], { interne: false, onInterne: (a: boolean) => { vus.push(a); } });
     expect(container.querySelectorAll('button.ccl-case')).toHaveLength(2);
     await cliquer([...container.querySelectorAll('button.ccl-case')][1]);
@@ -311,22 +324,47 @@ describe('🔴🔴 la MODALE « Rattacher ce mail à… », la même qu’à la 
   it('la croix la referme sans rien écrire', async () => {
     await monter([lien()]);
     await cliquer(container.querySelector('.ccl-case--verte'));
-    await cliquer(container.querySelector('.rec-croix'));
-    expect(container.querySelector('.rec-voile')).toBeNull();
+    await cliquer(container.querySelector('.rdf-croix'));
+    expect(titre()).toBeNull();
     expect(appels.some((a) => a.methode !== 'GET')).toBe(false);
   });
 
-  /**
-   * 🔴 RIEN N'EST PERDU : « Hors gestion… » est repris au pied de la modale.
-   *
-   * ⚠️ « Portée » A ÉTÉ REMPLACÉE PAR « Suivi dans la conversation » au lot SUIVI-CONVERSATION — et le bloc
-   * n'apparaît que sous DEUX conditions, qui ne sont pas réunies ici (migration 290 absente par défaut).
-   */
-  it('🔴 « Hors gestion… » est au pied de la modale', async () => {
+  it('[Fermer] en pied la referme sans rien écrire', async () => {
+    await monter([lien()]);
+    await cliquer(container.querySelector('.ccl-case--verte'));
+    await cliquer(boutonPar(/^Fermer$/));
+    expect(titre()).toBeNull();
+    expect(appels.some((a) => a.methode !== 'GET')).toBe(false);
+  });
+
+  /** 🔴 RIEN N'EST PERDU : « Hors gestion… » est dans le bloc « Autres classements », en bas de la fenêtre. */
+  it('🔴 « Hors gestion, ou classer par pièce… » est dans « Autres classements »', async () => {
     await monter([]);
     await cliquer(container.querySelector('.ccl-case--rouge'));
-    const modale = container.querySelector('.rec-voile');
-    expect(modale?.textContent ?? '').toContain('Hors gestion, ou classer par pièce');
+    const autres = container.querySelector('.rdf-autres');
+    expect(autres?.textContent).toContain('Autres classements');
+    expect(autres?.textContent).toContain('Hors gestion, ou classer par pièce');
+    // Il ferme la fenêtre commune avant d'ouvrir la fenêtre de classement : jamais deux boîtes empilées.
+    await cliquer([...(autres?.querySelectorAll('button') ?? [])].find((b) => /Hors gestion/.test(b.textContent ?? '')));
+    expect(titre()).toBeNull();
+  });
+
+  it('🔴 « Classer dans une carte » et « Classer sans suite » y sont pour un mail « À classer », mêmes gestes', async () => {
+    const choisis: string[] = [];
+    await monter([], {
+      aClasser: true,
+      actionsDePied: [
+        { cle: 'classer', libelle: 'Classer dans une carte', onChoisir: () => { choisis.push('classer'); } },
+        { cle: 'sans_suite', libelle: 'Classer sans suite', onChoisir: () => { choisis.push('sans_suite'); } },
+      ],
+    });
+    await cliquer(container.querySelector('.ccl-case--rouge'));
+    const autres = container.querySelector('.rdf-autres');
+    expect(autres?.textContent).toContain('Classer dans une carte');
+    expect(autres?.textContent).toContain('Classer sans suite');
+    await cliquer([...(autres?.querySelectorAll('button') ?? [])].find((b) => b.textContent === 'Classer sans suite'));
+    expect(choisis).toEqual(['sans_suite']);
+    expect(titre()).toBeNull();
   });
 });
 
@@ -508,13 +546,13 @@ describe('🔴🔴 la ligne montre le PREMIER bien, et se déplie', () => {
 });
 
 /**
- * ══ 🔴🔴 LOT SUIVI-CONVERSATION — LE BLOC « SUIVI DANS LA CONVERSATION » ═══════════════════════════════════════
+ * ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — LA PORTÉE : LA GLISSIÈRE REMPLACE LE BLOC À TROIS CHOIX ══════════════
  *
- * ARNO : « Il n'apparaît dans la modale que si DEUX conditions sont réunies : le mail n'est pas le premier de la
- * conversation, ET on modifie un classement déjà validé sur cette conversation. […] avec “Ce mail et la
- * conversation à venir” coché par défaut. […] Sans confirmation, “Valider” reste bloqué. »
+ * DÉCISION D'ARNO (12/10/2026) : « Les trois boutons ronds “Ce mail uniquement / Ce mail et la conversation à venir /
+ * Toute la conversation” sont remplacés par la glissière : One shot / Ce mail + futurs échanges / Toute la
+ * conversation. Mêmes effets. » (Ces épreuves remplacent celles du bloc « Suivi dans la conversation ».)
  */
-describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
+describe('🔴🔴 la portée, sur la glissière de la fenêtre commune', () => {
   const PERIODE = {
     id: 1, depuisMessageId: 800, classement: { sorte: 'biens', biens: [{ cle: '442', libelle: 'lot 442' }] },
   };
@@ -522,128 +560,70 @@ describe('🔴🔴 le bloc « Suivi dans la conversation »', () => {
     await monter([lien()]);
     await cliquer(container.querySelector('.ccl-case--verte'));
   };
-  /**
-   * ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT — OUVRIR NE SUFFIT PLUS, IL FAUT CHANGER QUELQUE CHOSE ═══════════════
-   *
-   * CONSTAT D'ARNO (02/10/2026), fil 3490 : « Le bloc s'affiche dès l'ouverture de la modale, sans qu'aucune case
-   * ait été touchée. » Le bloc n'apparaît désormais que si la sélection DIFFÈRE du rattachement validé. Les
-   * essais qui l'attendent doivent donc faire le geste — et c'est très bien ainsi : ils décrivent maintenant le
-   * parcours réel, « j'ouvre, je change, on me demande la portée ».
-   */
-  const changerUneCase = async () => {
-    const cases = [...container.querySelectorAll('.rec-bien input[type="checkbox"]')] as HTMLInputElement[];
-    await cliquer(cases[0]);
+  const ouvrirEtChanger = async () => {
+    await ouvrir();
+    await cliquer(container.querySelector('.rdf-suivi-carte input[type="checkbox"]'));
   };
-  const ouvrirEtChanger = async () => { await ouvrir(); await changerUneCase(); };
-  const bloc = () => [...container.querySelectorAll('.ert-portee')]
-    .find((f) => /Suivi dans la conversation/.test(f.textContent ?? ''));
+  const position = (mot: string) =>
+    [...container.querySelectorAll('[role="radio"]')].find((e) => (e.textContent ?? '').includes(mot));
 
-  /** ⚠️ SANS LA MIGRATION 290, LE BLOC N'EXISTE PAS : le classement se comporte comme avant ce lot. */
-  it('⚠️ absent sans la migration 290', async () => {
-    suiviDuFil = null;
-    await ouvrir();
-    expect(bloc()).toBeUndefined();
-  });
-
-  it('🔴🔴 absent sur le PREMIER mail de la conversation, même classée', async () => {
-    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [900, 901] };
-    await ouvrir();
-    expect(bloc()).toBeUndefined();
-  });
-
-  it('🔴🔴 absent sur une conversation JAMAIS classée', async () => {
-    suiviDuFil = { periodes: [], exceptions: [], mails: [800, 900] };
-    await ouvrir();
-    expect(bloc()).toBeUndefined();
-  });
-
-  it('🔴🔴 présent quand les DEUX conditions sont réunies, avec les trois choix', async () => {
+  it('🔴🔴 plus aucun bouton rond : les quatre positions de la glissière', async () => {
     suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
-    await ouvrirEtChanger();
-    const f = bloc();
-    expect(f).toBeDefined();
-    expect(f?.textContent).toContain('Ce mail uniquement');
-    expect(f?.textContent).toContain('Ce mail et la conversation à venir');
-    expect(f?.textContent).toContain('Toute la conversation');
+    await ouvrir();
+    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
+    expect([...container.querySelectorAll('[role="radio"]')].map((e) => e.textContent))
+      .toEqual(['Origine', 'One shot', 'Ce mail + futurs échanges', 'Toute la conversation']);
+    expect(container.textContent).not.toContain('Suivi dans la conversation');
   });
 
-  /** 🔴 « Une phrase d'aide sous chaque choix, en français simple. » */
-  it('🔴 chaque choix porte sa phrase d’aide', async () => {
-    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
-    await ouvrirEtChanger();
-    const aides = [...(bloc()?.querySelectorAll('.ert-suivi-aide') ?? [])].map((x) => x.textContent ?? '');
-    expect(aides).toHaveLength(3);
-    expect(aides[0]).toContain('Le mail suivant reprend la règle d’avant');
-    expect(aides[1]).toContain('Les mails précédents ne bougent pas');
-    expect(aides[2]).toContain('Les exceptions déjà posées sont conservées');
-  });
-
-  it('🔴 « Ce mail et la conversation à venir » est coché par défaut', async () => {
-    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
-    await ouvrirEtChanger();
-    const cases = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
-    expect(cases.map((c) => c.checked)).toEqual([false, true, false]);
-  });
-
-  /**
-   * 🔴🔴 « TOUTE LA CONVERSATION » : l'alerte, et la confirmation sans laquelle « Valider » reste bloqué.
-   */
-  it('🔴🔴 « Toute la conversation » alerte, et bloque « Valider » tant qu’on n’a pas confirmé', async () => {
+  it('🔴🔴 « Toute la conversation » alerte, et bloque la validation tant qu’on n’a pas confirmé', async () => {
     suiviDuFil = {
       periodes: [PERIODE], exceptions: [{ messageId: 801, classement: { sorte: 'biens', biens: [] } }],
       mails: [800, 801, 900],
     };
     await ouvrirEtChanger();
-    const radios = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
-    await cliquer(radios[2]);
-
-    const alerte = container.querySelector('.ert-alerte-texte')?.textContent ?? '';
-    expect(alerte).toContain('2 mails de cette conversation seront reclassés');
+    await cliquer(position('Toute la conversation'));
+    const alerte = container.querySelector('.rdf-alerte-texte')?.textContent ?? '';
+    // Les AUTRES mails, moins ceux qui portent une exception (règle du modèle, `motConfirmationConversation`).
+    expect(alerte).toContain('1 mail de cette conversation sera mis à jour');
     expect(alerte).toContain('1 exception est conservée');
-
-    const valider = boutonPar(/^Valider/) as HTMLButtonElement;
-    expect(valider.disabled).toBe(true);
-    expect(container.querySelector('.rec-bloque')?.textContent).toContain('Cochez la confirmation');
-
-    await cliquer(container.querySelector('.ert-alerte input[type="checkbox"]'));
-    expect((boutonPar(/^Valider/) as HTMLButtonElement).disabled).toBe(false);
+    expect(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`))?.disabled).toBe(true);
+    await cliquer(container.querySelector('.rdf-alerte input[type="checkbox"]'));
+    expect(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`))?.disabled).toBe(false);
   });
 
-  /** ⚠️ CHANGER DE CHOIX REDEMANDE LA CONFIRMATION : on ne garde pas un « oui » donné pour autre chose. */
-  it('⚠️ revenir sur un autre choix remet la confirmation à zéro', async () => {
+  /** ⚠️ CHANGER DE POSITION REDEMANDE LA CONFIRMATION : on ne garde pas un « oui » donné pour autre chose. */
+  it('⚠️ revenir sur une autre position remet la confirmation à zéro', async () => {
     suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
     await ouvrirEtChanger();
-    const radios = () => [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
-    await cliquer(radios()[2]);
-    await cliquer(container.querySelector('.ert-alerte input[type="checkbox"]'));
-    await cliquer(radios()[0]);
-    await cliquer(radios()[2]);
-    expect((boutonPar(/^Valider/) as HTMLButtonElement).disabled).toBe(true);
+    await cliquer(position('Toute la conversation'));
+    await cliquer(container.querySelector('.rdf-alerte input[type="checkbox"]'));
+    await cliquer(position('One shot'));
+    await cliquer(position('Toute la conversation'));
+    expect(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`))?.disabled).toBe(true);
   });
 
-  /**
-   * 🔴🔴 LA VALIDATION ENVOIE LA DÉCISION, EN UNE REQUÊTE — et non une suite de gestes mail par mail.
-   */
-  it('🔴🔴 valider envoie le classement ET le choix de suivi', async () => {
+  /** 🔴🔴 LA VALIDATION ENVOIE LA DÉCISION, EN UNE REQUÊTE — par la route du suivi, avec la portée choisie. */
+  it('🔴🔴 valider envoie le classement ET la portée (« One shot » = `mail`)', async () => {
     suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
     await ouvrirEtChanger();
-    const radios = [...(bloc()?.querySelectorAll('input[type="radio"]') ?? [])] as HTMLInputElement[];
-    await cliquer(radios[0]);
-    await cliquer(boutonPar(/^Valider/));
+    await cliquer(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`)));
     const envoi = appels.find((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
-    /**
-     * ⚠️ LE CLASSEMENT ENVOYÉ EST VIDE, ET C'EST LE GESTE QU'ON VIENT DE FAIRE. Depuis le lot
-     * MODALE-SUIVI-ET-DEFILEMENT, le bloc de suivi n'apparaît qu'après un CHANGEMENT : l'essai décoche donc le
-     * seul bien rattaché, puis choisit « ce mail uniquement ». Ce qui part est exactement cela — le classement
-     * voulu et la portée voulue, en une requête. C'est ce que l'essai éprouve, et il l'éprouve maintenant sur un
-     * parcours réel.
-     */
     expect(envoi?.corps).toMatchObject({
       filId: 101, messageId: 900, choix: 'mail',
       classement: { sorte: 'biens', biens: [] },
     });
     // ⚠️ ET AUCUN GESTE MAIL PAR MAIL : la décision passe par UNE porte.
     expect(appels.some((a) => a.methode === 'PATCH')).toBe(false);
+  });
+
+  it('🔴 « Ce mail + futurs échanges » écrit la période (`suite`)', async () => {
+    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
+    await ouvrirEtChanger();
+    await cliquer(position('Ce mail + futurs échanges'));
+    await cliquer(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`)));
+    expect(appels.find((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'))?.corps)
+      .toMatchObject({ choix: 'suite' });
   });
 });
 

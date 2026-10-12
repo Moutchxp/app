@@ -3,9 +3,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { EncartRattachement } from './EncartRattachement';
-import { BIEN_UNIQUEMENT, TITRE_ETAPE2, TITRE_SUIVI } from '../../../../lib/gestion/contactExterne';
+import { BIEN_UNIQUEMENT, TITRE_ETAPE2 } from '../../../../lib/gestion/contactExterne';
+import {
+  AUCUN_BIEN_SUIVI, DEFINITION_ORIGINE_PREMIER, MOT_VALIDER_MODIFICATION,
+} from '../../../../lib/gestion/porteeSuivi';
 
 /**
+ * ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — L'ÉTAPE 1 EST DÉSORMAIS LA FENÊTRE COMMUNE ══════════════════════════
+ *
+ * « Rattacher à un logement » ouvre la fenêtre « Bien(s) rattaché(s) à ce mail » (celle de « Modifier le
+ * rattachement ») ; sa validation est confiée à l'encart, qui garde TOUT son chemin : étape 2, marque « Interne »,
+ * route du suivi. Ces épreuves rejouent le câblage d'avant sur la fenêtre commune : on coche le bien dans ses
+ * propositions (elle ne pré-coche rien, règle d'Arno), on choisit la portée sur la glissière, on valide par son
+ * bouton final. Les trois choix ronds d'avant sont remplacés par la glissière (⑦ ⑧).
+ *
  * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LE CÂBLAGE : ÉTAPE 1 → ÉTAPE 2 → ÉCRITURE ════════════════════════════════════
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -76,7 +87,30 @@ const ETAPE2_DEMANDEE = {
   typeLibre: false,
 };
 
+/** 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — le bien déjà rattaché, tel que la fiche le rend (`monterAvecLien`). */
+const BIEN_FICHE = {
+  cle: LOT, lotId: 442, adresseComplete: '22 Bd Richard Wallace, 92800 PUTEAUX', numeroLot: '442',
+  nature: 'Appartement', typeBien: 'Type 2', surfaceM2: null, statut: 'classe', dateMail: '2026-03-10', nbMails: 1,
+  dossierDriveId: null, lienIds: [1], personnes: [],
+};
+const LIEN_CONFIRME = {
+  id: 1, messageId: 900, pieceId: null, cible: { sorte: 'lot', cle: LOT, id: null },
+  libelle: PROPOSE.libelle, origine: 'manuel', statut: 'confirme',
+  bien: { adresse: '22 Bd Richard Wallace', commune: 'PUTEAUX', nature: 'Appartement', typeBien: 'Type 2', immeuble: null },
+  confiance: null, regle: 'a', motif: null, adresses: [], parUnHumain: true,
+  creeLe: null, creePar: null, statutLe: null, statutPar: null, categorie: null,
+};
+let liensDuFil: unknown[] = [];
+const ficheDuFil = () => ({
+  filId: 101, objet: 'Retenue sur dépôt de garantie', nbMailsDuFil: 2, horsGestion: false, messageRecentId: 900,
+  enTete: { messageId: 900, de: 'avocat@cabinet.test', deNom: 'Cabinet Martin', recuLe: '2026-03-10T10:00:00Z',
+    objet: 'Retenue sur dépôt de garantie' },
+  disponible: true,
+  biens: liensDuFil.length > 0 ? [BIEN_FICHE] : [],
+});
+
 beforeEach(() => {
+  liensDuFil = [];
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   appels = []; gestes = []; propositions = [PROPOSE];
   suiviDuFil = { periodes: [], exceptions: [], mails: [900] };
@@ -108,6 +142,13 @@ beforeEach(() => {
         ok: true,
         json: async () => ({ etat: 'ok', ...suiviDuFil }),
       } as unknown as Response;
+    }
+    /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — la fiche et les liens que lit la fenêtre commune. */
+    if (u.includes('/rattachements?fiche=')) {
+      return { ok: true, json: async () => ({ etat: 'ok', data: ficheDuFil() }) } as unknown as Response;
+    }
+    if (u.includes('/rattachements?fil=')) {
+      return { ok: true, json: async () => ({ etat: 'ok', data: liensDuFil }) } as unknown as Response;
     }
     if (u.includes('/classement?message=')) {
       return {
@@ -143,6 +184,7 @@ const monter = async () => {
  * confirmé, la sélection ne peut pas « différer du rattachement validé ».
  */
 const monterAvecLien = async () => {
+  liensDuFil = [LIEN_CONFIRME];
   await act(async () => {
     root.render(createElement(EncartRattachement, {
       messageId: 900, filId: 101, interne: false, horsGestion: false,
@@ -160,7 +202,9 @@ const monterAvecLien = async () => {
 };
 
 const texte = (): string => container.textContent ?? '';
-const boutons = (): HTMLButtonElement[] => [...container.querySelectorAll('button')];
+/* ⚠️ La fenêtre commune reste montée (cachée) pendant l'étape 2 : on ne vise que ce qui est VISIBLE. */
+const visible = (e: Element): boolean => e.closest('[hidden]') === null;
+const boutons = (): HTMLButtonElement[] => [...container.querySelectorAll('button')].filter(visible);
 const bouton = (mot: string): HTMLButtonElement | undefined =>
   boutons().find((b) => (b.textContent ?? '').includes(mot));
 const cliquer = async (mot: string) => {
@@ -170,7 +214,7 @@ const cliquer = async (mot: string) => {
   await calmer();
 };
 const caseDe = (nom: string): HTMLInputElement => {
-  const label = [...container.querySelectorAll('label')].find((l) => (l.textContent ?? '').includes(nom));
+  const label = [...container.querySelectorAll('label')].filter(visible).find((l) => (l.textContent ?? '').includes(nom));
   const c = label?.querySelector<HTMLInputElement>('input[type="checkbox"]');
   if (c === null || c === undefined) throw new Error(`aucune case pour « ${nom} »`);
   return c;
@@ -181,16 +225,32 @@ const caseDe = (nom: string): HTMLInputElement => {
  * « — lot 442 » ne trouverait rien. C'est précisément ce que ce lot-là a changé, et le test s'y conforme.
  */
 const caseDuBien = (): HTMLInputElement => caseDe('22 Bd Richard Wallace');
-/** La modale de l'étape 1 est-elle ouverte ? Son titre est le même depuis le lot RATTACHER-EN-ECRIVANT. */
-const etape1Ouverte = (): boolean => texte().includes('Rattacher ce mail à…');
+/**
+ * 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — L'ÉTAPE 1 EST LA FENÊTRE COMMUNE, ouverte ET visible : pendant l'étape 2 elle
+ * est CACHÉE (`hidden`), pas fermée — c'est ce qui garde ses cases pour « ← Retour ».
+ */
+const etape1Ouverte = (): boolean => {
+  const t = container.querySelector('#rdf-titre');
+  return t !== null && t.closest('[hidden]') === null;
+};
 const etape2Ouverte = (): boolean => texte().includes(TITRE_ETAPE2);
 const ecritures = () => appels.filter((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
+/** Une position de la glissière, par son libellé (boutons radio du groupe). */
+const position = (mot: string): HTMLElement => {
+  const r = [...container.querySelectorAll<HTMLElement>('[role="radio"]')].find((e) => (e.textContent ?? '').includes(mot));
+  if (r === undefined) throw new Error(`aucune position « ${mot} »`);
+  return r;
+};
+const positionChoisie = (): string =>
+  container.querySelector('[role="radio"][aria-checked="true"]')?.textContent ?? '';
 
-/** Ouvre la modale et valide le bien proposé (déjà coché par le moteur). */
+/** Ouvre la fenêtre commune, coche le bien proposé et valide par le bouton final. */
 const validerLeBien = async () => {
   await cliquer('Rattacher');
   expect(etape1Ouverte()).toBe(true);
-  await cliquer('Valider —');
+  await act(async () => { caseDuBien().click(); });
+  await calmer();
+  await cliquer(MOT_VALIDER_MODIFICATION);
 };
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -252,39 +312,29 @@ describe('🔴🔴 ② expéditeur inconnu : l’étape 2 s’ouvre, et rien n�
     expect(etape1Ouverte()).toBe(true);
     // 🔴 LA CASE DU BIEN EST TOUJOURS COCHÉE : c'est la demande d'Arno, mot pour mot.
     expect(caseDuBien().checked).toBe(true);
-    expect(texte()).toContain('Valider — 1 bien(s)');
     expect(ecritures()).toHaveLength(0);
   });
 
-  it('🔴🔴 ③-bis « ← Retour » NE RECOCHE PAS CE QU’ON AVAIT DÉCOCHÉ (défaut vu à l’écran)', async () => {
+  it('🔴🔴 ③-bis « ← Retour » NE RECOCHE PAS CE QU’ON AVAIT DÉCOCHÉ, et garde la portée choisie', async () => {
     /**
-     * 🔴🔴 LE DÉFAUT EXACT, MESURÉ À L'ÉCRAN le 02/10/2026 sur le mail 57329 (GDS PROPRETÉ) : le moteur
-     * proposait QUATRE biens, tous cochés d'avance. On les décochait, on en cochait un autre par la recherche,
-     * on validait, puis on revenait — et la fenêtre affichait « 5 bien(s) coché(s) ». La PRÉ-COCHE du moteur
-     * revenait par-dessus la sélection qu'on venait de quitter.
-     *
-     * 🔴 « Garde les cases cochées » (Arno) VEUT DIRE LES DEUX SENS : ce qui est coché reste coché, ET ce qui
-     * est décoché reste décoché. D'où la propriété `selectionInitiale` de la modale.
+     * 🔴 « Garde les cases cochées » (Arno) VEUT DIRE LES DEUX SENS — défaut vu à l'écran le 02/10/2026 (mail 57329).
+     * La fenêtre commune est CACHÉE pendant l'étape 2, pas démontée : tout revient tel quel, la glissière comprise.
      */
-    // Deux propositions, toutes deux recommandées : c'est la situation qui a révélé le défaut.
     propositions = [PROPOSE, { ...PROPOSE, cle: '443', libelle: '8 rue des Pavillons, PUTEAUX — lot 443',
       adresse: '8 rue des Pavillons', adresseComplete: '8 rue des Pavillons, 92800 PUTEAUX' }];
     await monter();
     await cliquer('Rattacher');
-    expect(texte()).toContain('2 bien(s) coché(s)');
-
-    // On en DÉCOCHE un, et l'on valide avec l'autre.
-    await act(async () => { caseDe('8 rue des Pavillons').click(); });
+    await act(async () => { caseDuBien().click(); });
     await calmer();
-    expect(texte()).toContain('1 bien(s) coché(s)');
-    await cliquer('Valider — 1 bien(s)');
+    await act(async () => { position('One shot').click(); });
+    await calmer();
+    await cliquer(MOT_VALIDER_MODIFICATION);
     expect(etape2Ouverte()).toBe(true);
 
     await cliquer('← Retour');
-    // 🔴 UN SEUL BIEN COCHÉ, celui qu'on avait laissé. Le second est TOUJOURS AFFICHÉ, mais décoché.
-    expect(texte()).toContain('1 bien(s) coché(s) sur 2 affiché(s)');
     expect(caseDe('8 rue des Pavillons').checked).toBe(false);
     expect(caseDuBien().checked).toBe(true);
+    expect(positionChoisie()).toContain('One shot');
   });
 
   it('🔴🔴 ④ valider l’étape 2 : le contact d’abord, le classement ENSUITE, par la MÊME route', async () => {
@@ -319,11 +369,26 @@ describe('🔴🔴 ② expéditeur inconnu : l’étape 2 s’ouvre, et rien n�
   it('🔴 « Classement ponctuel » envoie le choix `mail` — une exception, rien d’hérité', async () => {
     await monter();
     await validerLeBien();
-    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')].filter(visible);
     await act(async () => { radios[1].click(); });
     await act(async () => { caseDe('THAI Cécile').click(); });
     await calmer();
     await cliquer('Valider');
+    expect((ecritures()[0].corps as { choix: string }).choix).toBe('mail');
+  });
+
+  it('🔴🔴 la glissière TOUCHÉE l’emporte sur le choix de l’étape 2 (préséance d’avant : le bloc touché arbitre)', async () => {
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    await act(async () => { position('One shot').click(); });
+    await calmer();
+    await cliquer(MOT_VALIDER_MODIFICATION);
+    await act(async () => { caseDe('THAI Cécile').click(); });
+    await calmer();
+    await cliquer('Valider');
+    // L'étape 2 laissée sur « Suivi automatique » : c'est la glissière, touchée, qui décide.
     expect((ecritures()[0].corps as { choix: string }).choix).toBe('mail');
   });
 
@@ -339,7 +404,7 @@ describe('🔴🔴 ② expéditeur inconnu : l’étape 2 s’ouvre, et rien n�
     expect(Object.keys(corps.classement)).toEqual(['sorte', 'biens']);
   });
 
-  it('🔴 l’étape 2 se ferme après la validation', async () => {
+  it('🔴 l’étape 2 se ferme après la validation, et la fenêtre commune avec elle', async () => {
     await monter();
     await validerLeBien();
     await act(async () => { caseDe(BIEN_UNIQUEMENT).click(); });
@@ -347,6 +412,7 @@ describe('🔴🔴 ② expéditeur inconnu : l’étape 2 s’ouvre, et rien n�
     await cliquer('Valider');
     expect(etape2Ouverte()).toBe(false);
     expect(etape1Ouverte()).toBe(false);
+    expect(container.querySelector('#rdf-titre')).toBeNull();
   });
 });
 
@@ -367,19 +433,18 @@ describe('🔴🔴 ⑤ si la vérification échoue, le bien se classe quand mêm
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   🔴 ⑥ « VALIDER — AUCUN BIEN » NE POSE AUCUNE QUESTION
+   🔴 ⑥ TOUT DÉCOCHER NE POSE AUCUNE QUESTION
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('🔴 ⑥ « Valider — aucun bien » : aucune question, et pas même une requête', () => {
+describe('🔴 ⑥ tout décocher : aucune question, et pas même une requête', () => {
   beforeEach(() => { etape2 = { ...ETAPE2_DEMANDEE }; });
 
-  it('🔴 décocher le bien proposé puis valider ne demande RIEN au serveur sur le contact', async () => {
-    await monter();
-    await cliquer('Rattacher');
+  it('🔴 décocher le bien rattaché puis valider ne demande RIEN au serveur sur le contact', async () => {
+    await monterAvecLien();
+    await cliquer('Rattaché');
     await act(async () => { caseDuBien().click(); });
     await calmer();
-    expect(texte()).toContain('Valider — aucun bien');
-    await cliquer('Valider — aucun bien');
+    await cliquer(MOT_VALIDER_MODIFICATION);
     expect(etape2Ouverte()).toBe(false);
     // ⚠️ AUCUNE LECTURE DE L'ÉTAPE 2 : la question n'a pas de sens, et on ne la pose donc pas.
     expect(appels.filter((a) => a.url.includes('/gestion/contact-externe'))).toHaveLength(0);
@@ -388,23 +453,13 @@ describe('🔴 ⑥ « Valider — aucun bien » : aucune question, et pas même 
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   🔴🔴 ⑦ LA NON-RÉGRESSION DEMANDÉE PAR ARNO : LE BLOC À 3 CHOIX, POUR UN EXPÉDITEUR CONNU
+   🔴🔴 ⑦ UN MAIL DÉJÀ CLASSÉ : LA GLISSIÈRE DU MODÈLE, À L'IDENTIQUE DE « MODIFIER LE RATTACHEMENT »
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   Le bloc à trois choix d'avant est remplacé par la glissière (décision d'Arno, lot UNE-SEULE-FENETRE-DE-RATTACHEMENT) :
+   à l'ouverture « Origine » (le suivi tel qu'il est), une case changée la place sur « One shot », « Toute la
+   conversation » exige sa confirmation. Mêmes fenêtres d'écriture qu'avant. */
 
-   RÈGLE D'ARNO, rappelée le 02/10/2026 : « pour tout expéditeur présent dans les fiches propriétaires ou
-   locataires, la modale et le bloc à 3 choix fonctionnent EXACTEMENT comme avant CONTACTS-EXTERNES. L'étape 2 ne
-   concerne QUE les expéditeurs inconnus. »
-
-   🔴 CE QUE CES ÉPREUVES GARDENT, ET QU'AUCUNE AUTRE NE GARDAIT : l'aller-retour complet du bloc sur le chemin
-   RÉEL — la modale montée, la route de l'étape 2 répondant « expéditeur connu », et le bloc qui apparaît au
-   changement puis disparaît au retour à l'état de départ. Les trois conditions de `blocSuiviVisible` sont
-   éprouvées à part (module pur) ; ici c'est le CÂBLAGE qui est sous surveillance.
-
-   ⚠️ ELLES AURAIENT ATTRAPÉ UNE RÉGRESSION DU LOT CONTACTS-EXTERNES. Il n'y en a pas eu — le calcul et le rendu
-   du bloc sont restés identiques au caractère près — mais rien ne le VÉRIFIAIT de bout en bout. */
-
-describe('🔴🔴 ⑦ expéditeur connu : le bloc à 3 choix apparaît au changement, et disparaît au retour', () => {
-  /** Une conversation DÉJÀ CLASSÉE, et un mail qui n'est pas le premier : les deux conditions d'Arno. */
+describe('🔴🔴 ⑦ mail déjà classé : la glissière, comme dans « Modifier le rattachement »', () => {
   const dejaClassee = () => {
     etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
     suiviDuFil = {
@@ -414,52 +469,38 @@ describe('🔴🔴 ⑦ expéditeur connu : le bloc à 3 choix apparaît au chang
     };
   };
 
-  it('🔴🔴 À L’OUVERTURE : pas de bloc — la sélection est celle qui est validée', async () => {
+  it('🔴🔴 À L’OUVERTURE : « Origine », les autres positions grisées, aucun ancien choix rond', async () => {
     dejaClassee();
     await monterAvecLien();
     await cliquer('Rattaché');
     expect(etape1Ouverte()).toBe(true);
+    expect(positionChoisie()).toContain('Origine');
     expect(texte()).not.toContain('Suivi dans la conversation');
+    expect(container.querySelectorAll('input[type="radio"]')).toHaveLength(0);
   });
 
-  it('🔴🔴 ON CHANGE UNE CASE : le bloc APPARAÎT, avec ses trois choix et son défaut', async () => {
+  it('🔴🔴 ON CHANGE UNE CASE : la glissière passe sur « One shot », et l’écriture est une exception (`mail`)', async () => {
     dejaClassee();
     await monterAvecLien();
     await cliquer('Rattaché');
     await act(async () => { caseDuBien().click(); });
     await calmer();
-    expect(texte()).toContain('Suivi dans la conversation');
-    expect(texte()).toContain('Ce mail uniquement');
-    expect(texte()).toContain('Ce mail et la conversation à venir');
-    expect(texte()).toContain('Toute la conversation');
-    // 🔴 LE CHOIX COCHÉ D'AVANCE N'A PAS CHANGÉ : « Ce mail et la conversation à venir ».
-    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
-    expect(radios).toHaveLength(3);
-    expect(radios[1].checked).toBe(true);
-  });
-
-  it('🔴🔴 ON REVIENT À L’ÉTAT DE DÉPART : le bloc DISPARAÎT', async () => {
-    dejaClassee();
-    await monterAvecLien();
-    await cliquer('Rattaché');
-    await act(async () => { caseDuBien().click(); });
-    await calmer();
-    expect(texte()).toContain('Suivi dans la conversation');
-    await act(async () => { caseDuBien().click(); });
-    await calmer();
-    expect(texte()).not.toContain('Suivi dans la conversation');
-  });
-
-  it('🔴🔴 ET AUCUNE ÉTAPE 2 N’EST JAMAIS OUVERTE pour cet expéditeur', async () => {
-    dejaClassee();
-    await monterAvecLien();
-    await cliquer('Rattaché');
-    await act(async () => { caseDuBien().click(); });
-    await calmer();
-    await cliquer('Valider — aucun bien');
+    expect(positionChoisie()).toContain('One shot');
+    await cliquer(MOT_VALIDER_MODIFICATION);
     expect(etape2Ouverte()).toBe(false);
-    // Le classement part par la porte qui existait déjà, avec le choix du bloc à 3 choix.
     expect(ecritures()).toHaveLength(1);
+    expect((ecritures()[0].corps as { choix: string }).choix).toBe('mail');
+  });
+
+  it('🔴 « Ce mail + futurs échanges » écrit la période (`suite`)', async () => {
+    dejaClassee();
+    await monterAvecLien();
+    await cliquer('Rattaché');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    await act(async () => { position('Ce mail + futurs échanges').click(); });
+    await calmer();
+    await cliquer(MOT_VALIDER_MODIFICATION);
     expect((ecritures()[0].corps as { choix: string }).choix).toBe('suite');
   });
 
@@ -469,137 +510,69 @@ describe('🔴🔴 ⑦ expéditeur connu : le bloc à 3 choix apparaît au chang
     await cliquer('Rattaché');
     await act(async () => { caseDuBien().click(); });
     await calmer();
-    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
-    await act(async () => { radios[2].click(); });
+    await act(async () => { position('Toute la conversation').click(); });
     await calmer();
-    expect(texte()).toContain('Je confirme le reclassement de toute la conversation.');
-    expect(bouton('Valider —')?.disabled).toBe(true);
+    expect(texte()).toContain('Je confirme la mise à jour de toute la conversation.');
+    expect(bouton(MOT_VALIDER_MODIFICATION)?.disabled).toBe(true);
     expect(ecritures()).toHaveLength(0);
   });
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   🔴🔴 ⑧ LOT SUIVI-CONVERSATION-NON-RATTACHEE — LA SECONDE PORTE, SUR LE CHEMIN RÉEL
+   🔴🔴 ⑧ UN MAIL JAMAIS CLASSÉ : LE PREMIER CLASSEMENT
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   DÉCISION D'ARNO (12/10/2026) : « Origine » = « laisser à classer, aucun changement » ; la glissière part sur « Ce mail
+   + futurs échanges », la règle actuelle du premier classement. */
 
-   DÉCISION D'ARNO (02/10/2026) : « conversation JAMAIS rattachée (aucune période, aucune exception, aucun
-   rattachement confirmé), expéditeur CONNU : le bloc à 3 choix est TOUJOURS affiché dès l'ouverture, quelle que
-   soit la position du mail (1er compris), sans condition de changement. »
-
-   ⚠️ C'EST LE SERVEUR QUI DÉCIDE, et ces épreuves le pilotent par sa RÉPONSE — jamais par une propriété du
-   composant. C'est la leçon du correctif du 28/09/2026 : un test qui passe une propriété prouve le composant et
-   pas le câblage. */
-
-describe('🔴🔴 ⑧ conversation jamais rattachée : le bloc est là dès l’ouverture', () => {
-  /** Jamais rattachée : aucune période, aucune exception, aucun rattachement validé. */
+describe('🔴🔴 ⑧ mail jamais classé : « Ce mail + futurs échanges » d’avance', () => {
   const jamaisRattachee = (o: Partial<typeof suiviDuFil> = {}) => {
     etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
     suiviDuFil = { periodes: [], exceptions: [], mails: [800, 900], rattachee: false, expediteurConnu: true, ...o };
   };
 
-  it('🔴🔴 le bloc est visible SANS qu’on ait touché à une case', async () => {
+  it('🔴🔴 la glissière est sur « Ce mail + futurs échanges » dès l’ouverture, et le bloc dit « Aucun bien suivi »', async () => {
     jamaisRattachee();
     await monter();
     await cliquer('Rattacher');
     expect(etape1Ouverte()).toBe(true);
-    expect(texte()).toContain('Suivi dans la conversation');
-    expect(texte()).toContain('Ce mail uniquement');
-    expect(texte()).toContain('Toute la conversation');
+    expect(positionChoisie()).toContain('Ce mail + futurs échanges');
+    expect(texte()).toContain(AUCUN_BIEN_SUIVI);
+    // Les quatre positions se choisissent d'emblée : aucune n'est grisée.
+    expect(container.querySelectorAll('.gpo-cran--grise')).toHaveLength(0);
+  });
+
+  it('🔴🔴 « Origine » veut dire « laisser à classer », et ne rien écrire', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { position('Origine').click(); });
+    await calmer();
+    expect(texte()).toContain(DEFINITION_ORIGINE_PREMIER);
+    await cliquer('Valider le maintien du suivi actuel');
+    expect(ecritures()).toHaveLength(0);
+    expect(etape1Ouverte()).toBe(false);
   });
 
   it('🔴🔴 au PREMIER mail de la conversation aussi', async () => {
-    // `mails[0] === messageId` : c'est bien le premier, et la règle ① l'aurait fait taire.
     jamaisRattachee({ mails: [900] });
     await monter();
     await cliquer('Rattacher');
-    expect(texte()).toContain('Suivi dans la conversation');
+    expect(positionChoisie()).toContain('Ce mail + futurs échanges');
   });
 
-  it('🔴 « Ce mail et la conversation à venir » est coché d’avance', async () => {
+  it('🔴🔴 valider sans toucher la glissière : la période (`suite`), comme le premier classement d’avant', async () => {
     jamaisRattachee();
     await monter();
-    await cliquer('Rattacher');
-    const radios = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
-    expect(radios).toHaveLength(3);
-    expect(radios[1].checked).toBe(true);
-  });
-
-  it('🔴🔴 EXPÉDITEUR INCONNU : aucun bloc dans l’étape 1 — c’est l’étape 2 qui porte le suivi', async () => {
-    jamaisRattachee({ expediteurConnu: false });
-    etape2 = { ...ETAPE2_DEMANDEE };
-    await monter();
-    await cliquer('Rattacher');
-    expect(texte()).not.toContain('Suivi dans la conversation');
-    // Et au Valider, c'est bien l'étape 2 qui s'ouvre, avec SES deux choix.
-    await cliquer('Valider —');
-    expect(etape2Ouverte()).toBe(true);
-    /**
-     * ══ 🔴🔴 L'INVARIANT NE SE LIT PLUS AU TITRE — ET C'EST VOULU (lot BROUILLONS-APERCU-TYPES-LIBELLES) ══════
-     *
-     * Depuis qu'Arno a demandé l'uniformisation, les DEUX blocs s'appellent « Suivi dans la conversation » : le
-     * titre ne départage donc plus rien. Ce qui les distingue n'a pas changé pour autant — le bloc de l'étape 1
-     * offre TROIS choix, dont « Toute la conversation », celui de l'étape 2 en offre DEUX. C'est sur cela que
-     * l'invariant se vérifie désormais, et c'est un meilleur contrôle : il porte sur ce que l'écran FAIT, pas
-     * sur la façon dont il s'intitule.
-     */
-    expect(texte()).toContain(TITRE_SUIVI);
-    expect(texte()).toContain('Ce mail et la conversation à venir');
-    expect(texte()).toContain('Ce mail uniquement');
-    // 🔴 LE TROISIÈME CHOIX N'EXISTE QUE DANS LA MODALE : s'il apparaît ici, les deux blocs sont montés ensemble.
-    expect(texte()).not.toContain('Toute la conversation');
-  });
-
-  it('🔴🔴 un RATTACHEMENT VALIDÉ suffit à faire reprendre la règle ①, même sans période', async () => {
-    /**
-     * 🔴 LA LETTRE D'ARNO : « conversation DÉJÀ rattachée (au moins une période OU un rattachement validé) ».
-     * Sans ce fait, une conversation portant des liens confirmés mais aucune période aurait montré le bloc en
-     * permanence — alors qu'elle relève de la règle ①, inchangée.
-     */
-    jamaisRattachee({ rattachee: true });
-    await monterAvecLien();
-    await cliquer('Rattaché');
-    expect(texte()).not.toContain('Suivi dans la conversation');
-    // Et il réapparaît au changement, comme depuis le 01/10.
-    await act(async () => { caseDuBien().click(); });
-    await calmer();
-    expect(texte()).toContain('Suivi dans la conversation');
-  });
-
-  it('🔴🔴 APRÈS VALIDATION, le mail suivant suit la règle ① (la conversation est devenue rattachée)', async () => {
-    jamaisRattachee();
-    await monter();
-    await cliquer('Rattacher');
-    expect(texte()).toContain('Suivi dans la conversation');
-    await cliquer('Valider —');
+    await validerLeBien();
     expect(ecritures()).toHaveLength(1);
     expect((ecritures()[0].corps as { choix: string }).choix).toBe('suite');
-
-    /**
-     * Le mail SUIVANT : la conversation porte désormais une période ET un rattachement validé. Le serveur le dit,
-     * et le bloc se tait tant qu'on ne change rien — c'est exactement la règle ①.
-     */
-    suiviDuFil = {
-      periodes: [{ id: 1, depuisMessageId: 900, classement: { sorte: 'biens', biens: [{ cle: LOT, libelle: PROPOSE.libelle }] } }],
-      exceptions: [], mails: [800, 900], rattachee: true, expediteurConnu: true,
-    };
-    await monterAvecLien();
-    await cliquer('Rattaché');
-    expect(texte()).not.toContain('Suivi dans la conversation');
   });
 
-  it('⚠️ une réponse d’API plus ancienne (sans les deux champs) rend le comportement d’AVANT', async () => {
-    etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
-    suiviDuFil = { periodes: [], exceptions: [], mails: [800, 900] } as unknown as typeof suiviDuFil;
-    await monter();
-    await cliquer('Rattacher');
-    expect(texte()).not.toContain('Suivi dans la conversation');
-  });
-
-  it('🔴 la route est bien interrogée AVEC le mail : sans lui elle ne peut pas répondre', async () => {
+  it('🔴 la route du suivi est bien interrogée AVEC le mail par l’encart (règle de l’étape 2)', async () => {
     jamaisRattachee();
     await monter();
     await cliquer('Rattacher');
-    const lecture = appels.find((a) => a.url.includes('/gestion/suivi') && a.methode === 'GET');
+    const lecture = appels.find((a) => a.url.includes('/gestion/suivi') && a.url.includes('message=') && a.methode === 'GET');
     expect(lecture?.url).toContain('fil=101');
     expect(lecture?.url).toContain('message=900');
   });

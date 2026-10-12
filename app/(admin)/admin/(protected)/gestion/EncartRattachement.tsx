@@ -25,6 +25,8 @@ import { ModifierRattachement } from './ModifierRattachement';
 // 🔴🔴 LOT CLASSER-SUR-CHAQUE-MAIL — LE MÊME MODULE QUE LA FENÊTRE DE RÉDACTION, à l'extrémité droite du bloc.
 import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcrivant';
+/* 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — la fenêtre commune, celle de « Modifier le rattachement ». */
+import { RattachementsDuFil } from './RattachementsDuFil';
 import { lignePremierBien } from '../../../../lib/gestion/classementBoutons';
 // 🔴 LOT MODALE-RATTACHER-PROPRE — le titre d'un bien (sans numéro de lot) et la pastille « i ».
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
@@ -251,6 +253,17 @@ export function EncartRattachement({
   const [choix, setChoix] = useState<ChoixSuivi>(SUIVI_DEFAUT);
   /** 🔴 LOT UN-SEUL-BOUTON-RATTACHER — un choix de suivi FAIT à la main (sinon, la préséance d'avant s'applique). */
   const [choixTouche, setChoixTouche] = useState(false);
+  /**
+   * ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — LA PORTÉE CHOISIE DANS LA FENÊTRE COMMUNE ═══════════════════════
+   *
+   * La fenêtre commune confie sa validation à cet encart (`ecrireParLAppelant`) avec les biens cochés, la portée de sa
+   * glissière, et si cette glissière ARBITRE (touchée, ou hors premier classement — `porteeArbitre`). Elle remplace,
+   * pour ce geste, le bloc à trois choix d'avant : même préséance, la glissière à la place du bloc.
+   *
+   * ⚠️ UNE RÉFÉRENCE ET NON UN ÉTAT : l'écriture part dans le même tour que la validation, et un état ne serait lu
+   * qu'au rendu suivant. Elle est oubliée quand la fenêtre se ferme.
+   */
+  const choixFenetre = useRef<{ choix: ChoixSuivi; arbitre: boolean } | null>(null);
   /** 🔴 « Sans confirmation, “Valider” reste bloqué » : la case que « Toute la conversation » exige. */
   const [confirme, setConfirme] = useState(false);
   /** Les périodes et exceptions de cette conversation. `null` = migration 290 absente, ou lecture en échec. */
@@ -300,6 +313,8 @@ export function EncartRattachement({
     })();
     return () => { vivant = false; };
   }, [ajout, filId, messageId]);
+  /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — la portée de la fenêtre commune est oubliée avec elle. */
+  useEffect(() => { if (!ajout) choixFenetre.current = null; }, [ajout]);
   /** LOT FIL-LECTURE-2 — le rattachement dont on a ouvert la fenêtre « Modifier ». `null` = aucune fenêtre. */
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
   const [occupe, setOccupe] = useState(false);
@@ -749,8 +764,12 @@ export function EncartRattachement({
      */
     const presentesAvant = new Set(biensRattaches.map((c) => c.cle ?? ''));
     const clesAjoutees = [...voulues].filter((c) => c !== '' && !presentesAvant.has(c));
+    /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — la glissière de la fenêtre commune tient la place du bloc à trois choix. */
+    const fenetre = choixFenetre.current;
+    const choixBase: ChoixSuivi = fenetre?.choix ?? choix;
+    const arbitre = fenetre !== null ? fenetre.arbitre : (blocVisible || choixTouche);
     const choixDeLaLevee: ChoixInterne = suivi !== null && filId != null
-      ? (blocVisible || choixTouche || suiviContact === null ? choix : choixSuiviDeContact(suiviContact))
+      ? (arbitre || suiviContact === null ? choixBase : choixSuiviDeContact(suiviContact))
       : 'mail';
 
     if (leveeConfirmee === null && clesAjoutees.length > 0) {
@@ -787,8 +806,8 @@ export function EncartRattachement({
       // 🔴 LA PRÉSÉANCE, ÉCRITE UNE SEULE FOIS (voir l'encadré ci-dessus).
       /* 🔴 LOT UN-SEUL-BOUTON-RATTACHER — un choix fait à la main dans le bloc offert aux mails « À classer » prime,
          comme celui du bloc d'avant ; sans clic, rien ne change. */
-      const choixRetenu: ChoixSuivi = blocVisible || choixTouche || suiviContact === null
-        ? choix : choixSuiviDeContact(suiviContact);
+      const choixRetenu: ChoixSuivi = arbitre || suiviContact === null
+        ? choixBase : choixSuiviDeContact(suiviContact);
       setOccupe(true);
       setErreur(null);
       try {
@@ -1427,7 +1446,51 @@ export function EncartRattachement({
 
           ⚠️ CE QUE LE PANNEAU PORTAIT DE PLUS EST REPRIS AU PIED, pas perdu : le suivi (qui a remplacé la
           portée, lot SUIVI-CONVERSATION) et « Hors gestion, ou classer par pièce… ». */}
-      {ajout && (
+      {/* ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — « Rattacher à un logement » OUVRE LA FENÊTRE COMMUNE ══════════
+          DÉCISION D'ARNO (12/10/2026) : la fenêtre « Bien(s) rattaché(s) à ce mail » de « Modifier le rattachement »
+          REMPLACE « Rattacher ce mail à… ». Même composant (`RattachementsDuFil`, porte ponctuelle), aucune copie.
+
+          🔴 RIEN NE DISPARAÎT, TOUT EST REPORTÉ :
+            · les trois choix ronds de suivi → la glissière (One shot / Ce mail + futurs échanges / Toute la
+              conversation), mêmes fenêtres d'écriture ; au premier classement, « Ce mail + futurs échanges » d'avance ;
+            · « Hors gestion, ou classer par pièce… », « Classer dans une carte », « Classer sans suite » → le bloc
+              « Autres classements » de la fenêtre, mêmes actions (la fenêtre se ferme, l'encart ouvre la suite) ;
+            · la VALIDATION reste celle de cet encart (`ecrireParLAppelant` → `appliquerCibles`) : étape « Classer ce
+              nouveau contact » et son « ← Retour », question et « Annuler » de la marque « Interne », chemin sans
+              migration 290 — rien n'est recopié dans la fenêtre.
+
+          ⚠️ PENDANT CES ÉTAPES, LA FENÊTRE EST CACHÉE, PAS FERMÉE (`hidden`) : « ← Retour » la retrouve exactement comme
+          on l'a laissée — cases cochées, biens trouvés par la recherche, position de la glissière. Elle se ferme quand
+          le classement est écrit.
+
+          ⚠️ SANS ÉCHANGE CONNU (`filId` absent), la fenêtre commune ne peut pas lire le suivi : l'ancienne fenêtre
+          reste alors le repli, inchangée. */}
+      {ajout && filId != null && (
+        <div hidden={verification || etape2 !== null || demandeLevee !== null}>
+          <RattachementsDuFil filId={filId} messageId={messageId} ponctuel aClasser={aClasser}
+            renvoiEvenement={RENVOI_EVENEMENT_CONVERSATION}
+            erreurDeLAppelant={erreur} occupeParLAppelant={occupe || occupeInterne}
+            onFerme={() => { setSelectionModale(null); setAjout(false); setCiblesEnCours(null); }}
+            onGeste={onGeste}
+            ecrireParLAppelant={(voulus, choixVoulu, arbitre) => {
+              choixFenetre.current = { choix: choixVoulu, arbitre };
+              setErreur(null);
+              void appliquerCibles(voulus.map((v) => ({ sorte: 'lot' as const, cle: v.cle, id: null, libelle: v.libelle })));
+            }}
+            actionsDePied={[
+              {
+                cle: 'hors_gestion', libelle: 'Hors gestion, ou classer par pièce…',
+                onChoisir: () => { setAjout(false); setClasser(true); },
+              },
+              /* 🔴 « Classer dans une carte » et « Classer sans suite » : les gestes du pied de l'ancien « Classer ». */
+              ...actionsDePied.map((a) => ({
+                cle: a.cle, libelle: a.libelle,
+                onChoisir: () => { setAjout(false); setCiblesEnCours(null); a.onChoisir(); },
+              })),
+            ]} />
+        </div>
+      )}
+      {ajout && filId == null && (
         <RattacherEnEcrivant
           messageId={messageId}
           destinataires={[]}

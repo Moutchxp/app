@@ -72,8 +72,10 @@ import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
 /* 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la portée en quatre positions (module PUR) et sa glissière. */
 import {
-  definitionDe, modificationEnCours, morceauxDefinition, motApresValidation, motBoutonFinal, motConfirmationConversation,
-  positionSuivante, MOT_CONFIRMER_CONVERSATION, QUESTION_RETOUR_ORIGINE, type PositionPortee,
+  definitionDe, modificationEnCours, motApresValidation, motBoutonFinal, motConfirmationConversation,
+  MOT_CONFIRMER_CONVERSATION, QUESTION_RETOUR_ORIGINE, type PositionPortee,
+  /* 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — le premier classement d'un mail (module PUR). */
+  AUCUN_BIEN_SUIVI, glissiereOuverte, morceauxDefinitionPortee, porteeArbitre, positionAffichee,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
 import {
@@ -146,7 +148,34 @@ type Panneau = 'aucun' | 'modifier';
 export function RattachementsDuFil({
   filId, titre, messageId = null, onFerme, onGeste, onLeveeFaite,
   ouvreLaModification = false, actionsDePied = [], ponctuel = false,
+  aClasser = false, ecrireParLAppelant, renvoiEvenement = PHRASE_BLOC_LECTURE,
+  erreurDeLAppelant = null, occupeParLAppelant = false,
 }: {
+  /**
+   * 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — quand l'appelant écrit (`ecrireParLAppelant`), SON refus et SON attente
+   * s'affichent ICI, dans la fenêtre restée ouverte : écrits sous elle, ils seraient cachés par son voile.
+   */
+  erreurDeLAppelant?: string | null;
+  occupeParLAppelant?: boolean;
+  /**
+   * ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — LA FENÊTRE COMMUNE, OUVERTE AUSSI PAR « Rattacher à un logement » ═══
+   *
+   * DÉCISION D'ARNO (12/10/2026) : « les fenêtres qui ont la même fonction doivent être IDENTIQUES ». La fenêtre de
+   * « Modifier le rattachement » (porte ponctuelle) remplace « Rattacher ce mail à… ». Trois propriétés suffisent :
+   *
+   *   · `aClasser` — le mail est « À classer » : c'est un PREMIER classement (avec un mail sans bien ni suivi, voir
+   *     `premier`). « Origine » y veut dire « laisser à classer », la glissière part sur « Ce mail + futurs échanges ».
+   *   · `ecrireParLAppelant` — la validation est CONFIÉE à l'appelant, avec les biens cochés et la portée : l'encart du
+   *     mail y garde son chemin complet (étape « Classer ce nouveau contact », marque « Interne », chemin sans
+   *     migration 290). Rien n'est recopié : c'est SON code qui écrit, comme avant. Absent ⇒ la fenêtre écrit elle-même.
+   *   · `renvoiEvenement` — la phrase du bloc « Événement rattaché » dit OÙ sont les gestes sur l'événement, et ils ne
+   *     sont pas au même endroit selon l'écran (bouton « Événement » de l'historique, en-tête du mail ailleurs).
+   */
+  aClasser?: boolean;
+  ecrireParLAppelant?: (
+    voulus: readonly { cle: string; libelle: string }[], choix: ChoixSuivi, arbitre: boolean,
+  ) => void;
+  renvoiEvenement?: string;
   filId: number;
   /** L'objet de l'échange, connu de la liste. La fiche en rend un aussi ; celui-ci sert de repli. */
   titre?: string | null;
@@ -406,7 +435,8 @@ export function RattachementsDuFil({
    * du retour à « Origine », la clé qui remet le menu à son état d'ouverture, et la portée du dernier geste (pour dire
    * ce qui vient d'être fait au-dessus de l'« Annuler »).
    */
-  const [positionVoulue, setPosition] = useState<PositionPortee>('origine');
+  /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — `null` = personne n'a touché la glissière (le DÉFAUT, voir `positionAffichee`). */
+  const [positionVoulue, setPosition] = useState<PositionPortee | null>(null);
   const [demandeOrigine, setDemandeOrigine] = useState(false);
   const [cleMenu, setCleMenu] = useState(0);
   const [choixFait, setChoixFait] = useState<ChoixSuivi>('mail');
@@ -619,9 +649,19 @@ export function RattachementsDuFil({
   const modification = modificationEnCours({ avant: clesDuMail, apres: selection, evenementVoulu: evtVoulu !== null });
   /* ⚠️ CALCULÉE AU RENDU, jamais recopiée par un effet : la position affichée découle de la position voulue et de
      l'existence d'une modification — elle ne peut donc jamais les contredire. */
-  const position = positionSuivante(positionVoulue, modification);
-  /* Plus aucune modification : la position voulue repart de ①, pour que la PROCHAINE modification ramène bien sur ②. */
-  if (!modification && positionVoulue !== 'origine') setPosition('origine');
+  /**
+   * ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — LE PREMIER CLASSEMENT ═════════════════════════════════════════════
+   * Un mail « À classer », ou un mail qui ne porte aucun bien et qu'aucune période ni exception ne couvre : il n'a
+   * JAMAIS été classé. « Origine » y veut dire « laisser à classer », et la glissière part sur « Ce mail + futurs
+   * échanges », la règle du premier classement (Arno). Les mails de l'historique d'un bien n'y sont jamais.
+   */
+  const premier = ponctuel && (aClasser || (
+    suivi !== null && mailId !== null && fiche !== null && !fiche.horsGestion && clesDuMail.length === 0
+    && !projeter(suivi.mails, suivi.periodes, suivi.exceptions).has(mailId)));
+  const position = positionAffichee(positionVoulue, modification, premier);
+  /* Plus aucune modification : la position voulue repart de ①, pour que la PROCHAINE modification ramène bien sur ②.
+     ⚠️ Pas au premier classement : la portée s'y choisit AVANT de cocher, et on ne la reprend pas. */
+  if (!premier && !modification && positionVoulue !== null) setPosition(null);
 
   /**
    * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — L'ÉVÉNEMENT DÉJÀ POSÉ SUR CE MAIL, et la migration 268.
@@ -983,7 +1023,7 @@ export function RattachementsDuFil({
       await ecrireLEvenementVoulu(fraiche, voulus);
       /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — la sortie, quelques secondes, et seulement dans cette porte :
          ailleurs la fenêtre se referme au geste, et un « Annuler » rendu dedans disparaîtrait avec elle. */
-      if (ponctuel) { setChoixFait(choix); setPonctuelFait(d.trace ?? null); setPosition('origine'); }
+      if (ponctuel) { setChoixFait(choix); setPonctuelFait(d.trace ?? null); setPosition(null); }
       /* 🔴🔴 POINT 2 — APRÈS L'ÉCRITURE, ET JAMAIS AVANT : la marque est déjà levée par `rattacher()`. Ce qui
          reste à faire est d'offrir la SORTIE, avec les deux moitiés qu'elle devra défaire. */
       if (leveeConfirmee !== null && leveeConfirmee.length > 0 && ajoutes.length > 0) {
@@ -1045,13 +1085,21 @@ export function RattachementsDuFil({
     if (!modification) { onFerme(); return; }
     const choix = definitionDe(position).choix;
     if (choix === null || (position === 'conversation' && !confirme)) return;
-    void ecrire((selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle })), choix);
+    const voulus = (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle }));
+    /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — l'appelant qui écrit lui-même reçoit les biens et la portée. */
+    if (ecrireParLAppelant !== undefined) {
+      ecrireParLAppelant(voulus, choix, porteeArbitre(positionVoulue, premier));
+      return;
+    }
+    void ecrire(voulus, choix);
   };
   const blocPortee = (
     <div className="rdf-portee">
       <style>{CSS_GLISSIERE_PORTEE}</style>
       <p className="rdf-suivi-titre">Portée du suivi</p>
-      <GlissierePortee position={position} modification={modification} onChoisir={choisirPosition} />
+      {/* 🔴 Au premier classement, les quatre positions se choisissent d'emblée (`glissiereOuverte`). */}
+      <GlissierePortee position={position} modification={glissiereOuverte(modification, premier)}
+        onChoisir={choisirPosition} />
       {demandeOrigine && (
         <div className="rdf-portee-question" role="alertdialog" aria-label={QUESTION_RETOUR_ORIGINE}>
           <p className="rdf-portee-question-mot">{QUESTION_RETOUR_ORIGINE}</p>
@@ -1067,7 +1115,7 @@ export function RattachementsDuFil({
       <p className={`rdf-portee-definition rdf-portee-definition--${position}`} role="note">
         {/* 🔴 ③ porte le nombre de biens cochés, en direct (lot ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES). */}
         {/* 🔴 LOT BULLE-BIENS-RATTACHES — « suivi de fond » en gras dans ③ (Arno). */}
-        {morceauxDefinition(position, new Set(selection ?? clesDuMail).size)
+        {morceauxDefinitionPortee(position, new Set(selection ?? clesDuMail).size, premier)
           .map((m, i) => (m.fort ? <strong key={i}>{m.texte}</strong> : <span key={i}>{m.texte}</span>))}
       </p>
       {/* 🔴 ④ — LA CONFIRMATION AVANT VALIDATION, avec le nombre de mails mis à jour. */}
@@ -1083,7 +1131,7 @@ export function RattachementsDuFil({
         </div>
       )}
       <button type="button" className="svv-btn svv-btn-primary gst-btn rdf-valider-portee"
-        disabled={modification && position === 'conversation' && !confirme}
+        disabled={occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
         onClick={validerLaPortee}>
         {motBoutonFinal(modification)}
       </button>
@@ -1224,7 +1272,8 @@ export function RattachementsDuFil({
               <p className="rdf-detail">
                 {fiche.horsGestion
                   ? 'Cet échange est marqué « Hors gestion » : il ne concerne aucun bien. La marque se lève d’elle-même si vous le rattachez à un bien.'
-                  : `${AUCUN_BIEN_DU_MAIL}. Les autres mails de la conversation peuvent l’être, eux.`}
+                  : premier ? AUCUN_BIEN_SUIVI
+                    : `${AUCUN_BIEN_DU_MAIL}. Les autres mails de la conversation peuvent l’être, eux.`}
               </p>
             )}
             <ul className="rdf-suivis-liste">
@@ -1588,7 +1637,7 @@ export function RattachementsDuFil({
                     </div>
                   )}
                   {/* 🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — la phrase d'Arno, en bas du bloc en lecture. */}
-                  {ponctuel && <p className="rdf-detail rdf-evt-renvoi">{PHRASE_BLOC_LECTURE}</p>}
+                  {ponctuel && <p className="rdf-detail rdf-evt-renvoi">{renvoiEvenement}</p>}
                     </>
                   );
                   if (!ponctuel) return <div className="rdf-evt">{contenuEvt}</div>;
@@ -1652,7 +1701,23 @@ export function RattachementsDuFil({
                     🔴 SECONDAIRES VEUT DIRE SECONDAIRES : en liens discrets, SOUS le bilan, loin du bouton
                     vert. Ce ne sont pas des façons de valider la fenêtre — ce sont deux autres décisions, qui
                     la quittent. Les habiller en boutons les aurait mises à égalité avec « Valider le suivi ». */}
-                {actionsDePied.length > 0 && (
+                {/* ══ 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — « AUTRES CLASSEMENTS » (Arno) ══════════════════════
+                    Dans la fenêtre commune, les gestes de l'ancienne « Rattacher ce mail à… » (« Hors gestion, ou
+                    classer par pièce… », « Classer dans une carte », « Classer sans suite ») forment un bloc en bas,
+                    sous la portée. Mêmes actions qu'avant : l'appelant les fournit, la fenêtre ne fait que les montrer. */}
+                {ponctuel && actionsDePied.length > 0 && (
+                  <section className="rdf-autres" aria-labelledby="rdf-autres-titre">
+                    <p className="rdf-suivi-titre" id="rdf-autres-titre">Autres classements</p>
+                    <p className="rdf-pied-actions">
+                      {actionsDePied.map((a) => (
+                        <button key={a.cle} type="button" className="gst-lien-bouton" onClick={a.onChoisir}>
+                          {a.libelle}
+                        </button>
+                      ))}
+                    </p>
+                  </section>
+                )}
+                {!ponctuel && actionsDePied.length > 0 && (
                   <p className="rdf-pied-actions">
                     {actionsDePied.map((a) => (
                       <button key={a.cle} type="button" className="gst-lien-bouton" onClick={a.onChoisir}>
@@ -1666,6 +1731,7 @@ export function RattachementsDuFil({
         )}
 
         {erreur !== null && <p className="gst-tronc" role="alert">{erreur}</p>}
+        {erreurDeLAppelant !== null && <p className="gst-tronc" role="alert">{erreurDeLAppelant}</p>}
 
         {/* ══ 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — LA QUESTION D'ARNO, MOT POUR MOT ═══════════════════
             « Ce mail est marqué Interne : rattacher ce bien retirera la marque Interne » avec Confirmer /
@@ -2278,6 +2344,11 @@ export const CSS_RATTACHEMENTS_FIL = `
 /* ══ LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — « MODIFIER LE RATTACHEMENT » ══════════════════════════════════
    AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit. Couleurs : jetons seulement. */
 .rdf--ponctuel{position:relative}
+/* LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — le bloc « Autres classements », sous la portee : encadre comme elle, plus
+   discret (trait fin), ses gestes en liens qui se replient d'eux-memes sur telephone. */
+.rdf-autres{display:flex;flex-direction:column;gap:4px;margin-top:6px;padding:8px 12px;min-width:0;
+  border:1px solid var(--color-svv-line);border-radius:.7rem;background:var(--color-svv-surface)}
+.rdf-autres .rdf-pied-actions{margin:0;padding-top:0;border-top:0}
 /* La portee : la glissiere, sa definition, le bouton final pleine largeur. */
 .rdf-portee{display:flex;flex-direction:column;gap:8px;margin-top:6px;padding:10px 12px;
   border:2px solid var(--color-svv-line-strong);border-radius:.7rem;background:var(--color-svv-surface);min-width:0}
