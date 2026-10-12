@@ -1386,7 +1386,9 @@ describe('㉑ la vignette d’un événement', () => {
     const ETAPE = readFileSync('app/lib/gestion/etapeVignette.ts', 'utf8');
     expect(CARTE).toContain('const lue = etapeEnMots(etape, ouvertLe);');
     expect(ETAPE).toContain("const mot = etape === null\n    ? motEtape('ouverture')");
-    expect(ETAPE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
+    /* LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE-ET-DATE-ETAPE — le jour À PARIS (jourParisIso), et plus les dix premiers
+       caractères d'une heure UTC (une étape du 11/10 s'affichait « 10/10 »). Une chaîne vide rend toujours « — ». */
+    expect(ETAPE).toContain("const quand = jourParisIso(etape?.survenuLe ?? ouvertLe ?? '');");
   });
 
   /**
@@ -1461,7 +1463,9 @@ describe('㉑-bis la miniature ne peut pas emporter l’écran', () => {
   /** ⚠️ ET LA DATE RÉSISTE AUSSI À UNE CHAÎNE ABSENTE : une carte sans `ouvertLe` ne doit pas davantage jeter. */
   it('⚠️ une date absente rend un tiret, jamais une exception', () => {
     const ETAPE = readFileSync('app/lib/gestion/etapeVignette.ts', 'utf8');
-    expect(ETAPE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
+    /* LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE-ET-DATE-ETAPE — le jour À PARIS (jourParisIso), et plus les dix premiers
+       caractères d'une heure UTC (une étape du 11/10 s'affichait « 10/10 »). Une chaîne vide rend toujours « — ». */
+    expect(ETAPE).toContain("const quand = jourParisIso(etape?.survenuLe ?? ouvertLe ?? '');");
     expect(ETAPE).toContain("? `${quand.slice(8, 10)}/${quand.slice(5, 7)}/${quand.slice(0, 4)}` : '—';");
   });
 });

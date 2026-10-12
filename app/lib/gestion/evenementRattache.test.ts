@@ -4,7 +4,7 @@ import {
   lectureEvenement, listeEnCours, motCapsuleEvenement, motSurvolUrgence, motTypeEvenement, nEvenements, resumeBlocEvenement,
   sqlEvenementsRattaches, trameEvenement, trierParUrgence,
 } from './evenementRattache';
-import { etapeEnMots } from './etapeVignette';
+import { etapeEnMots, jourParisIso } from './etapeVignette';
 
 /**
  * ══ 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT-ET-BLOC-DEPLIABLE — LE CALCUL UNIQUE ═══════════════════════════════════════
@@ -112,5 +112,23 @@ describe('🔴🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — capsule, tri, ligne r
     expect(etapeEnMots({ type: 'devis_recu', titre: null, survenuLe: '2026-10-02T09:00:00Z', heureConnue: false,
       jourConnu: true, source: 'monga', certitude: 'a_confirmer' }, null))
       .toEqual({ mot: 'Devis reçu', date: '02/10/2026', aConfirmer: true, deMonga: true });
+  });
+});
+
+describe('🔴🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE-ET-DATE-ETAPE — la date de l’étape, à Paris', () => {
+  it('le cas réel : « Devis reçu » de GES-2026-000001, enregistré 2026-10-10 22:00 UTC = 11/10 00:00 à Paris', () => {
+    const etape = { type: 'devis_recu' as const, titre: null, survenuLe: '2026-10-10T22:00:00Z', heureConnue: false,
+      jourConnu: true, source: 'manuelle' as const, certitude: 'fiable' as const };
+    expect(etapeEnMots(etape, null).date).toBe('11/10/2026');
+  });
+  it('le jour de Paris pour un instant à fuseau, le découpage pour un jour civil', () => {
+    expect(jourParisIso('2026-10-10T22:00:00Z')).toBe('2026-10-11');
+    expect(jourParisIso('2026-10-11 00:00:00+02')).toBe('2026-10-11');
+    expect(jourParisIso('2026-01-31T23:30:00Z')).toBe('2026-02-01');
+    expect(jourParisIso('2026-09-23T20:23:23Z')).toBe('2026-09-23');
+    expect(jourParisIso('2026-10-11')).toBe('2026-10-11');
+    expect(jourParisIso('2026-10-11T09:00')).toBe('2026-10-11');
+    expect(jourParisIso('')).toBe('');
+    expect(jourParisIso(null)).toBe('');
   });
 });

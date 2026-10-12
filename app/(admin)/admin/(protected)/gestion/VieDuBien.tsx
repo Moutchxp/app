@@ -24,8 +24,7 @@ import {
 import { motCapsule, tonCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — le mot de la capsule orange, écrit UNE fois pour les quatre écrans. */
 import { motEvenementEnCours } from '../../../../lib/gestion/evenementQualite';
-import { lectureEvenement, survolEvenements } from '../../../../lib/gestion/evenementRattache';
-import { CapsuleEvenement, CSS_CAPSULE_EVENEMENT } from './CapsuleEvenement';
+import { lectureEvenement, motCapsuleEvenement, MOT_OUVERT_SUR_LE_BIEN } from '../../../../lib/gestion/evenementRattache';
 // 🔴🔴 LOT CONTACTS-EXTERNES — le mot du rôle instantané, écrit UNE fois dans le module PUR.
 import { motRoleInstantane } from '../../../../lib/gestion/contactExterne';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
@@ -710,17 +709,18 @@ export function LigneVie({
             * c'est celui de la bande de l'en-tête : une même chose dite de deux façons sur un même écran se lit
             * comme deux choses. Les trois autres écrans du lot lisent la MÊME fonction.
             */}
-          {/* 🔴🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET, PARTIE 2 — LA CAPSULE D'ÉVÉNEMENT, celle de la fenêtre : le TYPE
-              de l'événement le plus urgent en tête, la trame de son URGENCE. Le mot reste « Événement en cours ». */}
-          {motEvenementEnCours(ouverts.length) !== null && ouverts[0] !== undefined && (
-            <CapsuleEvenement e={ouverts[0]} variante="pastille" mot={motEvenementEnCours(ouverts.length) ?? ''}
-              survol={survolEvenements(ouverts)} />
+          {/* 🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE (Arno) — sur les LIGNES de mail, la pastille d'avant, sans type ni
+              couleur d'urgence : la capsule type + trame vit dans la fenêtre « Bien(s) rattaché(s) à ce mail » seule. */}
+          {motEvenementEnCours(ouverts.length) !== null && (
+            <span className="vdb-capsule vdb-capsule--evt">{motEvenementEnCours(ouverts.length)}</span>
           )}
           {/* 🔴 LOT EVENEMENT-RATTACHE-COHERENT, CAS b) — le mail n'est pas rattaché, un événement est ouvert sur son
-              bien : une mention discrète (la capsule AU TRAIT), jamais la pastille pleine. La bulle nomme l'événement. */}
-          {lecture.cas === 'ouvert_sur_le_bien' && lecture.surLeBien[0] !== undefined && (
-            <CapsuleEvenement e={lecture.surLeBien[0]} variante="mention"
-              survol={survolEvenements(lecture.surLeBien, 'Ce mail n’y est pas rattaché.')} />
+              bien : une mention discrète, jamais la pastille pleine. Son info-bulle nomme l'événement. */}
+          {lecture.cas === 'ouvert_sur_le_bien' && (
+            <span className="vdb-evt-bien"
+              title={`${lecture.surLeBien.map(motCapsuleEvenement).join(' · ')} — ce mail n’y est pas rattaché`}>
+              {MOT_OUVERT_SUR_LE_BIEN}
+            </span>
           )}
           </span>
           <DateEtBiens messageId={l.messageId}
@@ -772,8 +772,11 @@ export function LigneVie({
           )}
           {l.evenements.length > 0 && (
             <p className="vdb-evts">
-              {/* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — la même capsule que partout (type, trame d'urgence, gris si clos). */}
-              {l.evenements.map((e) => <CapsuleEvenement key={e.id} e={e} />)}
+              {l.evenements.map((e) => (
+                <span key={e.id} className={`vdb-capsule${e.ouvert ? ' vdb-capsule--evt' : ' vdb-capsule--gris'}`}>
+                  {e.reference} — {e.objet}{e.ouvert ? '' : ' (traité)'}
+                </span>
+              ))}
             </p>
           )}
           {l.pieces.length > 0 && (
@@ -858,7 +861,6 @@ export function LigneVie({
 
 export const CSS_VIE_DU_BIEN = `
 ${CSS_COMPTEUR_BIENS}
-${CSS_CAPSULE_EVENEMENT}
 /* AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
    terminerait — piege consigne onze fois dans ce depot, et onze fois dans un commentaire. */
 .vdb-filtres{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem}
@@ -1000,6 +1002,8 @@ ${CSS_CAPSULE_EVENEMENT}
   border-color:var(--color-svv-amber-soft)}
 /* LE TROMBONE : NOIR (encre) quand la piece est dans CE mail. Son infobulle dit laquelle des deux situations. */
 .vdb-trombone{font-size:.76rem;font-weight:600;color:var(--color-svv-ink);flex:0 0 auto}
+/* LOT EVENEMENT-RATTACHE-COHERENT, CAS b : une mention discrete, ni capsule ni couleur d'evenement. */
+.vdb-evt-bien{font-size:.72rem;font-style:italic;color:var(--color-svv-muted);white-space:nowrap}
 .vdb-detail{border-top:1px solid var(--color-svv-line);
   padding:10px var(--vdb-marge-d) 12px var(--vdb-marge-g);
   display:flex;flex-direction:column;gap:.5rem;background:var(--color-svv-field)}

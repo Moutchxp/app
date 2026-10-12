@@ -42,8 +42,7 @@ describe('🔴🔴 ① le trombone ouvre le groupe d’étiquettes', () => {
   it('🔴🔴 l’ordre est 📎 · statut · événement', () => {
     expect(marques.indexOf('className="vdb-trombone"')).toBeGreaterThan(-1);
     expect(marques.indexOf('className="vdb-trombone"')).toBeLessThan(marques.indexOf('tonCapsule'));
-    /* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — la pastille est la capsule d'événement partagée (variante « pastille »). */
-    expect(marques.indexOf('tonCapsule')).toBeLessThan(marques.indexOf('variante="pastille"'));
+    expect(marques.indexOf('tonCapsule')).toBeLessThan(marques.indexOf('vdb-capsule--evt'));
   });
 
   /**
@@ -56,7 +55,7 @@ describe('🔴🔴 ① le trombone ouvre le groupe d’étiquettes', () => {
   it('🔴 chaque étiquette garde sa propre condition, aucune n’en dépend d’une autre', () => {
     expect(marques).toContain('{motDuTrombone !== null && (');
     expect(marques).toContain('{l.statut !== null && (');
-    expect(marques).toContain('{motEvenementEnCours(ouverts.length) !== null && ouverts[0] !== undefined && (');
+    expect(marques).toContain('{motEvenementEnCours(ouverts.length) !== null && (');
   });
 
   /**

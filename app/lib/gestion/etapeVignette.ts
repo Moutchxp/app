@@ -1,4 +1,5 @@
 import { motEtape } from './mongaEtape';
+import { FUSEAU_AFFICHAGE } from './ecran';
 import type { DerniereEtapeVignette } from './fileRepo';
 
 /**
@@ -20,7 +21,10 @@ export function etapeEnMots(
     ? motEtape('ouverture')
     : (etape.type === 'autre' && etape.titre !== null && etape.titre.trim() !== ''
       ? etape.titre.trim() : motEtape(etape.type));
-  const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);
+  /* 🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE-ET-DATE-ETAPE — le JOUR À PARIS, et non les dix premiers caractères d'une
+     heure UTC : une étape du 11/10 (enregistrée « 11/10 00:00 » à Paris, soit « 10/10 22:00 » en UTC) s'affichait
+     « 10/10 » sur la vignette de la carte et dans la fenêtre du mail, alors que la frise disait « 11/10 ». */
+  const quand = jourParisIso(etape?.survenuLe ?? ouvertLe ?? '');
   /* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — une carte validée SANS date n'en montre aucune. */
   const sansDate = etape !== null && etape.jourConnu === false;
   const date = sansDate ? null : quand.length === 10
@@ -30,4 +34,21 @@ export function etapeEnMots(
     aConfirmer: etape !== null && etape.certitude === 'a_confirmer',
     deMonga: etape !== null && etape.source === 'monga',
   };
+}
+
+/**
+ * ══ 🔴🔴 LE JOUR CIVIL À PARIS D'UN INSTANT ISO — `AAAA-MM-JJ` ══════════════════════════════════════════════════════
+ *
+ * Un instant qui porte son fuseau (« …Z », « …+02 », « …+02:00 ») est ramené au jour de Paris — c'est ce que la frise
+ * affiche, elle qui lit la base en heure de Paris. Une chaîne SANS fuseau (« 2026-10-11 », « 2026-10-11T09:00 ») est
+ * déjà un jour civil : elle se découpe, sans `Date` — le fuseau du lecteur ne doit rien décaler. PUR.
+ */
+export function jourParisIso(iso: string | null | undefined): string {
+  const s = (iso ?? '').trim();
+  if (!/(?:Z|[+-]\d{2}(?::?\d{2})?)$/.test(s) || !/\d{2}:\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'));
+  if (Number.isNaN(d.getTime())) return s.slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: FUSEAU_AFFICHAGE, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d);
 }

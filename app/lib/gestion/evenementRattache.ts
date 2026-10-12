@@ -1,6 +1,7 @@
 import { sqlDansUnePeriodeOuverte, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import { motCategorie, motUrgence, NIVEAUX_URGENCE, tonUrgence } from './evenementQualite';
 import type { DerniereEtapeVignette } from './fileRepo';
+import { jourParisIso } from './etapeVignette';
 
 /**
  * ══ 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT-ET-BLOC-DEPLIABLE — UNE SEULE VÉRITÉ : « CE MAIL EST-IL RATTACHÉ À UN
@@ -208,12 +209,7 @@ export function listeEnCours(l: LectureEvenement): Array<EvenementLu & { rattach
 
 /** « 26/09/2026 » depuis une date ISO, ou `null`. PUR. */
 export function dateCourteIso(iso: string | null | undefined): string | null {
-  const j = (iso ?? '').slice(0, 10);
+  /* Le jour à PARIS (lot LISTE-MAILS-RETOUR-PASTILLE-SOBRE-ET-DATE-ETAPE), comme la frise. */
+  const j = jourParisIso(iso);
   return j.length === 10 ? `${j.slice(8, 10)}/${j.slice(5, 7)}/${j.slice(0, 4)}` : null;
-}
-
-/** La bulle d'une pastille ou d'une mention qui résume UN OU PLUSIEURS événements : une ligne par événement. PUR. */
-export function survolEvenements(liste: readonly EvenementLu[], fin: string | null = null): string {
-  const lignes = liste.map((e) => `${e.reference} — ${e.objet} (Type : ${motTypeEvenement(e.categorie)} · ${motSurvolUrgence(e)})`);
-  return [...lignes, ...(fin === null ? [] : [fin])].join('\n');
 }

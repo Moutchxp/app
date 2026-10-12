@@ -1272,9 +1272,6 @@ export async function evenementsLusDuMail(
  * aucun filtre à refaire — et aucun moyen d'en oublier un.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-/** 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — un événement en cours d'un mail, tel que les listes le reçoivent (déjà trié : urgence décroissante). */
-export type EvenementEnCours = EvenementDeLigne;
-
 export async function evenementsOuvertsDesMails(
   mails: readonly { messageId: number; filId: number }[],
 ): Promise<Map<number, EvenementDeLigne[]>> {

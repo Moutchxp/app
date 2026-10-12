@@ -1,8 +1,6 @@
 'use client';
 
-import {
-  motSurvolUrgence, motTypeEvenement, trameEvenement, MOT_OUVERT_SUR_LE_BIEN,
-} from '../../../../lib/gestion/evenementRattache';
+import { motSurvolUrgence, motTypeEvenement, trameEvenement } from '../../../../lib/gestion/evenementRattache';
 
 /**
  * ══ 🔴🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET, PARTIE 2 — LA CAPSULE D'ÉVÉNEMENT, UNE SEULE ET MÊME PARTOUT ═══════════
@@ -12,11 +10,10 @@ import {
  * La même capsule sert aussi pour la pastille “Événement en cours” des lignes de mail et pour la mention
  * “événement ouvert sur ce bien”. »
  *
- * 🔴 TROIS VARIANTES D'UN SEUL DESSIN — même trame, même type en tête, même bulle :
- *   · `nom`      — « Type · GES-2026-000001 — titre » (fenêtre « Bien(s) rattaché(s) à ce mail ») ;
- *   · `pastille` — « Type · Événement en cours » (cas a : le mail est rattaché) — lignes de mail ;
- *   · `mention`  — « Type · événement ouvert sur ce bien » (cas b) : la même trame, mais au TRAIT, sans fond, en
- *     italique — c'est ce qui la garde discrète, et distincte de la pastille pleine (règle du lot 8ae9f387).
+ * 🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE (Arno, 12/10/2026) — ELLE NE VIT QUE DANS LA FENÊTRE « Bien(s) rattaché(s) à
+ * ce mail » (bloc « Événement rattaché » et liste des événements en cours). Les LIGNES de mail (historique, boîte,
+ * recherche, conversation) gardent la pastille « Événement en cours » sobre et la mention grise d'avant : la capsule
+ * type + trame d'urgence les rendait brouillonnes.
  *
  * ⚠️ LA COULEUR N'EST JAMAIS SEULE : le type est écrit, et l'urgence l'est dans la bulle et au lecteur d'écran.
  * ⚠️ SA FEUILLE (`CSS_CAPSULE_EVENEMENT`) EST DANS CELLE DE CHAQUE ÉCRAN HÔTE, une fois — jamais une balise
@@ -30,32 +27,21 @@ export interface EvenementCapsule {
   urgence?: string | null;
 }
 
-export function CapsuleEvenement({ e, variante = 'nom', mot, survol }: {
-  e: EvenementCapsule;
-  variante?: 'nom' | 'pastille' | 'mention';
-  /** Le mot de la pastille (« Événement en cours », « 2 événements en cours »). */
-  mot?: string;
-  /** Une bulle plus complète (plusieurs événements) ; sinon numéro, titre, type et urgence. */
-  survol?: string;
-}) {
+export function CapsuleEvenement({ e }: { e: EvenementCapsule }) {
   const type = motTypeEvenement(e.categorie);
-  const bulle = survol ?? `${e.reference} — ${e.objet}\nType : ${type} · ${motSurvolUrgence(e)}`;
-  const classes = `cev cev--${trameEvenement(e)}${variante === 'nom' ? '' : ` cev--${variante}`}`;
+  const bulle = `${e.reference} — ${e.objet}\nType : ${type} · ${motSurvolUrgence(e)}`;
+  const classes = `cev cev--${trameEvenement(e)}`;
   return (
     <span className={classes} title={bulle}>
       <span className="cev-type">{type}</span>
       <span className="cev-sep" aria-hidden="true"> · </span>
-      {variante === 'nom' ? (
-        /* Le TITRE se tronque d'abord ; le numéro ne se tronque qu'en dernier recours (écran étroit). */
-        <span className="cev-mot">
-          <span className="cev-ref">{e.reference}</span>
-          <span className="cev-objet">{` — ${e.objet}`}</span>
-          {/* Clos : le mot « (traité) » reste écrit, comme avant ce lot — la couleur n'est jamais seule. */}
-          {!e.ouvert && <span className="cev-clos">{' (traité)'}</span>}
-        </span>
-      ) : (
-        <span className="cev-mot"><span className="cev-objet">{variante === 'mention' ? MOT_OUVERT_SUR_LE_BIEN : mot}</span></span>
-      )}
+      {/* Le TITRE se tronque d'abord ; le numéro ne se tronque qu'en dernier recours (écran étroit). */}
+      <span className="cev-mot">
+        <span className="cev-ref">{e.reference}</span>
+        <span className="cev-objet">{` — ${e.objet}`}</span>
+        {/* Clos : le mot « (traité) » reste écrit — la couleur n'est jamais seule. */}
+        {!e.ouvert && <span className="cev-clos">{' (traité)'}</span>}
+      </span>
       <span className="cev-sr">{` — ${motSurvolUrgence(e).toLowerCase()}`}</span>
     </span>
   );
@@ -78,13 +64,6 @@ export const CSS_CAPSULE_EVENEMENT = `
 .cev--rouge{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border-color:var(--color-svv-red-soft)}
 .cev--non-precisee{background:var(--color-svv-amber-soft);color:var(--color-svv-amber);border-color:var(--color-svv-amber-soft)}
 .cev--clos{background:var(--color-svv-field);color:var(--color-svv-muted);border-color:var(--color-svv-line)}
-.cev--pastille{font-size:.68rem;padding:.1rem .5rem}
-/* La mention du cas b : la meme trame, au trait, sans fond, en italique — discrete. */
-.cev--mention{background:transparent;font-size:.68rem;font-weight:600;font-style:italic;padding:.05rem .45rem}
-.cev--mention.cev--vert{border-color:var(--color-svv-green-ink)}
-.cev--mention.cev--orange{border-color:var(--color-svv-urgence-orange-texte)}
-.cev--mention.cev--rouge{border-color:var(--color-svv-red-dark)}
-.cev--mention.cev--non-precisee{border-color:var(--color-svv-amber)}
 .cev-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);
   white-space:nowrap;border:0}
 `;

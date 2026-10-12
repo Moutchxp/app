@@ -114,8 +114,7 @@ describe('🔴🔴 ① une OUVERTURE comme une RÉOUVERTURE rendent l’événem
    */
   it('🔴 la capsule du mail ne sait pas, et n’a pas à savoir, d’où vient l’ouverture', async () => {
     await monterLigne(LIGNE([evt(1, true)]));
-    /* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — la pastille est la capsule d'événement partagée (variante « pastille »). */
-    expect(container.querySelector('.cev--pastille .cev-objet')?.textContent).toBe('Événement en cours');
+    expect(container.querySelector('.vdb-capsule--evt')?.textContent).toBe('Événement en cours');
   });
 });
 
@@ -239,9 +238,7 @@ describe('🔴🔴 ③ LA CAPSULE ORANGE EST PARTOUT OÙ LA LIGNE D’UN MAIL S�
     ['la recherche', () => REPO_RECH],
     ['la conversation', () => REPO_CARTE],
   ])('🔴🔴 %s appelle `evenementsOuvertsDesMails`, sans réécrire la règle', (_nom, src) => {
-    /* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — l'import porte aussi le TYPE des événements en cours (la pastille porte
-       désormais leur type et leur urgence) : même module, même fonction, aucune règle recopiée. */
-    expect(src()).toMatch(/import \{ evenementsOuvertsDesMails(, type EvenementEnCours)? \} from '\.\/historiqueRepo';/);
+    expect(src()).toContain("import { evenementsOuvertsDesMails } from './historiqueRepo';");
     expect(src()).toContain('await evenementsOuvertsDesMails(');
     /* ⚠️ ET NE RECOPIE NI LA FENÊTRE NI LES DEUX VOIES : aucun SQL d'événement de son côté. */
     expect(src()).not.toContain('gestion_evenement_partie');

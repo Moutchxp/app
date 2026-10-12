@@ -106,7 +106,7 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.unstubA
 const calmer = async () => { await act(async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); }); };
 const neuf = () => { act(() => { root.unmount(); }); root = createRoot(container); };
 
-async function lireLaLigne(c: Cas): Promise<{ pastille: boolean; mention: boolean; trame: string | null }> {
+async function lireLaLigne(c: Cas): Promise<{ pastille: boolean; mention: boolean }> {
   await act(async () => {
     root.render(createElement(LigneVie, {
       l: { ...LIGNE, evenements: c.rattaches, evenementsDuBien: c.duBien },
@@ -114,11 +114,10 @@ async function lireLaLigne(c: Cas): Promise<{ pastille: boolean; mention: boolea
     }));
   });
   await calmer();
-  const p = container.querySelector('.cev--pastille');
+  /* 🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE — sur la ligne, la pastille et la mention d'avant (lot 8ae9f387). */
   return {
-    pastille: p !== null,
-    mention: container.querySelector('.cev--mention') !== null,
-    trame: p === null ? null : (p.className.match(/cev--(vert|orange|rouge|non-precisee|clos)/)?.[1] ?? null),
+    pastille: container.querySelector('.vdb-capsule--evt') !== null,
+    mention: container.querySelector('.vdb-evt-bien') !== null,
   };
 }
 
@@ -220,12 +219,24 @@ describe('🔴🔴 PARTIE 2 — la capsule : type · numéro — titre, trame = 
     expect(urgent.title).toContain('GES-2026-000002 — Fuite salle de bain');
     expect(sans.querySelector('.cev-type')?.textContent).toBe('non précisée');
   });
-  it('la pastille de la ligne et la mention prennent la même trame', async () => {
-    const ligne = await lireLaLigne({ nom: '', rattaches: [GES2], duBien: [] });
-    expect(ligne.trame).toBe('rouge');
+  /**
+   * 🔴🔴 LOT LISTE-MAILS-RETOUR-PASTILLE-SOBRE (Arno) — la capsule type + trame NE VA PAS sur les lignes de mail : elles
+   * gardent la pastille « Événement en cours » d'avant (ambre, sans type ni urgence) et la mention grise, l'événement
+   * au survol. La capsule vit dans la fenêtre « Bien(s) rattaché(s) à ce mail » seule.
+   */
+  it('les lignes de mail gardent la pastille sobre et la mention grise — sans type ni couleur d’urgence', async () => {
+    await lireLaLigne({ nom: '', rattaches: [GES2], duBien: [] });
+    expect(container.querySelector('.vdb-capsule--evt')?.textContent).toBe('Événement en cours');
+    expect(container.querySelector('.cev')).toBeNull();
     neuf();
     await lireLaLigne({ nom: '', rattaches: [], duBien: [GES2] });
-    expect(container.querySelector('.cev--mention')?.className).toContain('cev--rouge');
+    const m = container.querySelector('.vdb-evt-bien') as HTMLElement;
+    expect(m.textContent).toBe('événement ouvert sur ce bien');
+    expect(m.title).toBe('GES-2026-000002 — Fuite salle de bain — ce mail n’y est pas rattaché');
+    expect(container.querySelector('.cev')).toBeNull();
+    for (const f of ['VieDuBien.tsx', 'BoiteMail.tsx', 'Conversation.tsx']) {
+      expect(readFileSync(`app/(admin)/admin/(protected)/gestion/${f}`, 'utf8'), f).not.toMatch(/<CapsuleEvenement\b|CSS_CAPSULE_EVENEMENT/);
+    }
   });
 });
 

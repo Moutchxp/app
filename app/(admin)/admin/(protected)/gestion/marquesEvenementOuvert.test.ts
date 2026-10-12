@@ -93,8 +93,7 @@ const monterLigne = async (l: LigneHistorique) => {
   await act(async () => { await Promise.resolve(); });
 };
 
-/* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — la pastille est la capsule d'événement partagée (variante « pastille »). */
-const capsuleEvt = (): HTMLElement | null => container.querySelector('.cev--pastille .cev-objet');
+const capsuleEvt = (): HTMLElement | null => container.querySelector('.vdb-capsule--evt');
 
 describe('🔴🔴 ① la capsule orange d’un mail compris dans la période d’un événement', () => {
   /**
@@ -116,7 +115,7 @@ describe('🔴🔴 ① la capsule orange d’un mail compris dans la période d�
   it('🔴 deux événements ouverts : « 2 événements en cours »', async () => {
     await monterLigne(LIGNE([evt(1, true), evt(2, true)]));
     expect(capsuleEvt()?.textContent).toBe('2 événements en cours');
-    expect(container.querySelectorAll('.cev--pastille')).toHaveLength(1);
+    expect(container.querySelectorAll('.vdb-capsule--evt')).toHaveLength(1);
   });
 
   /**
