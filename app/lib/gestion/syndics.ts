@@ -1,4 +1,5 @@
 import { normaliserTexte } from './annuaire';
+import type { CritereDoublon, DoublonIgnore } from './doublonSyndic';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN, COMMIT 2 — L'ANNUAIRE DES SYNDICS : LES RÈGLES PURES ═══════════════
@@ -82,6 +83,10 @@ export interface SyndicSaisi {
   /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — l'écran a fait CONFIRMER les e-mails / téléphones déjà utilisés.
    *  Absent : le serveur renvoie l'avertissement et n'écrit rien. */
   confirmeDoublons?: boolean;
+  /** 🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — « Créer quand même » : les syndics existants que l'écran a
+   *  montrés comme doublons possibles, et leurs critères. Absent : une création qui ressemble à un syndic existant est
+   *  renvoyée à l'écran, et rien n'est écrit. */
+  doublonsSyndicIgnores?: DoublonIgnore[];
 }
 
 /** LOT COPRO-CONTACTS-IMMEUBLE — les catégories d'un contact d'immeuble, en base. */
@@ -484,6 +489,11 @@ export function validerSyndic(brut: unknown): { ok: true; syndic: SyndicSaisi } 
       noteBien,
       ...(contactsImmeuble !== null ? { contactsImmeuble } : {}),
       ...(b.confirmeDoublons === true ? { confirmeDoublons: true } : {}),
+      ...(Array.isArray(b.doublonsSyndicIgnores) ? { doublonsSyndicIgnores: b.doublonsSyndicIgnores.slice(0, 50)
+        .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
+        .map((x) => ({ id: Number(x.id), criteres: (Array.isArray(x.criteres) ? x.criteres : [])
+          .filter((c): c is CritereDoublon => ['nom', 'nom_proche', 'adresse', 'email', 'telephone'].includes(String(c))) }))
+        .filter((x) => Number.isSafeInteger(x.id) && x.id > 0) } : {}),
       ...(Array.isArray(b.alerteParcelle) ? { alerteParcelle: b.alerteParcelle.slice(0, 30).map((x) => cleImmeuble(texte(x))).filter((x) => x !== '') } : {}),
       ...(Array.isArray(b.conflitsParcelle) ? { conflitsParcelle: b.conflitsParcelle.slice(0, 30)
         .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)

@@ -24,6 +24,13 @@ import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 import { chercherAdresses } from './adressesSyndic';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { BoutonPilule, CSS_BOUTON_PILULE } from './BoutonPilule';
+/* 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — doublon possible à la création, syndic connu pour l'adresse. */
+import {
+  comparableDeLaSaisie, doublonsDuSyndic, saisieComparable, type DoublonIgnore, type DoublonSyndic, type SyndicComparable,
+} from '../../../../lib/gestion/doublonSyndic';
+import {
+  BandeauDoublonSyndic, EncadreSyndicConnu, PiedDoublonSyndic, rattacherAuBien, useSyndicsConnus,
+} from './PropositionsSyndic';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA FICHE SYNDIC (UN SEUL COMPOSANT, RÉUTILISABLE TEL QUEL) ═══════════
@@ -199,6 +206,49 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   }, [questionContact]);
   useEffect(() => { boite.current?.focus(); }, []);
 
+  /**
+   * ══ 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE ═════════════════════════════════════════════════════
+   * PARTIE 1 — pendant la création (dès qu'un champ compte, sans attendre « Valider »), la saisie est comparée à TOUT
+   * l'annuaire : nom, adresse, e-mail, téléphone (cabinet ET contacts). Un seul critère suffit pour AVERTIR ; « Créer
+   * quand même » reste possible, et le serveur trace la création avec les critères ignorés.
+   * PARTIE 2 — à l'ouverture depuis un bien ou une adresse, AVANT le formulaire : les syndics déjà connus pour la même
+   * adresse postale (autre bien du portefeuille, adresse de la copropriété, même parcelle).
+   */
+  const [comparables, setComparables] = useState<SyndicComparable[] | null>(null);
+  const creation = mode === 'edition' && syndicId === null;
+  useEffect(() => {
+    if (!creation || comparables !== null) return undefined;
+    let vivant = true;
+    void fetch('/api/admin/gestion/syndics/comparables', { cache: 'no-store' })
+      .then((r) => r.json() as Promise<{ etat?: string; syndics?: SyndicComparable[] }>)
+      .then((j) => { if (vivant) setComparables(j.etat === 'ok' && Array.isArray(j.syndics) ? j.syndics : []); })
+      .catch(() => { if (vivant) setComparables([]); });
+    return () => { vivant = false; };
+  }, [creation, comparables]);
+  const doublons = useMemo((): DoublonSyndic[] => {
+    if (!creation || comparables === null) return [];
+    const c = comparableDeLaSaisie({ ...form, contacts: [...form.contacts, ...(edition?.brouillon ? [edition.brouillon] : [])] });
+    return saisieComparable(c) ? doublonsDuSyndic(c, comparables) : [];
+  }, [creation, comparables, form, edition]);
+  /** « Créer quand même » : ce qui a été montré et accepté (renvoyé au serveur, qui trace la création). */
+  const [accepte, setAccepte] = useState<DoublonIgnore[] | null>(null);
+  const [etapeDoublon, setEtapeDoublon] = useState<DoublonSyndic[] | null>(null);
+  const depuisUnBien = immeubleDepart !== null && immeubleDepart.libelle.trim() !== '';
+  /** « Sélectionner ce syndic pour ce bien » / « Le rattacher à ce bien » : le syndic EXISTANT reçoit l'immeuble du
+   *  bien (comme adresse de sa copropriété quand on la connaît), puis la fenêtre se ferme. Rien n'est créé. */
+  const selectionner = async (id: number, coproCle: string | null = null): Promise<void> => {
+    if (immeubleDepart === null || immeubleDepart.libelle.trim() === '') return;
+    setEnvoi(true); setErreur(null);
+    const motif = await rattacherAuBien(id, immeubleDepart, coproCle);
+    setEnvoi(false);
+    if (motif !== null) { setErreur(motif); return; }
+    onFerme();
+  };
+  /** « Voir la fiche » : la fenêtre montre ce syndic existant (la création en cours est abandonnée). */
+  const voirLaFiche = (id: number): void => { setEtapeDoublon(null); setSyndicId(id); void charger(id); };
+  const connus = useSyndicsConnus(mode === 'recherche' && depuisUnBien ? immeubleDepart : null, lotDepart, ancienSyndicId);
+  const [connusEcartes, setConnusEcartes] = useState(false);
+
   /** « Rattacher cet immeuble à ce syndic » : SA fiche s'ouvre, l'immeuble déjà ajouté (et donc à valider). */
   const rattacherA = async (id: number): Promise<void> => {
     setSyndicId(id);
@@ -235,8 +285,11 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   const [conflitConfirme, setConflitConfirme] = useState(false);
   const [memeTraite, setMemeTraite] = useState(false);
   const [alerteVue, setAlerteVue] = useState(false);
-  const valider = async (passe: { parcelle?: boolean; conflit?: boolean; meme?: boolean } = {}, f: SyndicForm = form): Promise<void> => {
+  const valider = async (passe: { parcelle?: boolean; conflit?: boolean; meme?: boolean; ignores?: DoublonIgnore[] } = {}, f: SyndicForm = form): Promise<void> => {
     setAlerteParcelle(false);
+    /* 🔴 LOT SYNDIC-ANTI-DOUBLON — à la création, un doublon possible non encore accepté : le pied le dit d'abord. Une
+       fois accepté (« Créer quand même »), les étapes existantes du Valider (parcelle, conflit) suivent normalement. */
+    if (syndicId === null && doublons.length > 0 && accepte === null && passe.ignores === undefined) { setEtapeDoublon(doublons); return; }
     if (!passe.conflit && !conflitConfirme && parcelle.conflits.length > 0) { setEtapeParcelle('conflit'); return; }
     if (!passe.meme && !memeTraite && parcelle.memeSyndic.length > 0) { setEtapeParcelle('meme'); return; }
     setEtapeParcelle(null);
@@ -244,7 +297,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       setAlerteParcelle(true); setAlerteVue(true); return;
     }
     if (contactEnCours) { setQuestionContact(true); return; }
-    await validerAvec(f, false, { conflit: passe.conflit === true || conflitConfirme });
+    await validerAvec(f, false, { conflit: passe.conflit === true || conflitConfirme, ignores: passe.ignores });
   };
   /** « Rattacher à SYNDIC » : l'adresse du bien devient une adresse SECONDAIRE de la copropriété existante de ce
    *  syndic (son « Valider », par la même porte) ; la fiche en cours n'enregistre rien et se ferme. */
@@ -293,7 +346,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   /** LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — le serveur a renvoyé des coordonnées déjà utilisées, NON confirmées
    *  (un chemin qui n'est pas passé par le « Valider » d'un contact) : on les montre, et on confirme ou on revient. */
   const [avertServeur, setAvertServeur] = useState<{ lignes: string[]; f: SyndicForm; conflit?: boolean } | null>(null);
-  const validerAvec = async (f: SyndicForm, confirme = false, ctx: { conflit?: boolean } = {}): Promise<void> => {
+  const validerAvec = async (f: SyndicForm, confirme = false, ctx: { conflit?: boolean; ignores?: DoublonIgnore[] } = {}): Promise<void> => {
+    const ignores = ctx.ignores ?? accepte;
     setAvertServeur(null);
     setQuestionContact(false);
     setEdition(null);
@@ -313,6 +367,8 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...versSaisie(f), ...(confirme ? { confirmeDoublons: true } : {}),
+          // LOT SYNDIC-ANTI-DOUBLON — « Créer quand même » : les doublons possibles montrés et acceptés.
+          ...(syndicId === null && ignores !== null && ignores.length > 0 ? { doublonsSyndicIgnores: ignores } : {}),
           // LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — l'alerte montrée (plus jamais pour cette copropriété) ;
           // les conflits confirmés (la pastille des deux cartes).
           ...(alerteVue && parcelle.coproCle !== null ? { alerteParcelle: [parcelle.coproCle] } : {}),
@@ -321,7 +377,10 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
             : {}),
         }),
       });
-      const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string; avertissement?: string[] };
+      const j = (await r.json()) as { ok?: boolean; id?: number; erreur?: string; avertissement?: string[]; doublonsSyndic?: DoublonSyndic[] };
+      /* LOT SYNDIC-ANTI-DOUBLON — le serveur a trouvé un doublon que l'écran n'avait pas fait accepter (l'annuaire a pu
+         changer entre-temps) : on le montre, rien n'a été écrit. */
+      if (Array.isArray(j.doublonsSyndic) && j.doublonsSyndic.length > 0) { setAccepte(null); setEtapeDoublon(j.doublonsSyndic); return; }
       if (Array.isArray(j.avertissement) && j.avertissement.length > 0 && !confirme) { setAvertServeur({ lignes: j.avertissement, f, conflit: ctx.conflit === true }); return; }
       if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Enregistrement impossible.'); return; }
       await rafraichirImmeubles();
@@ -430,8 +489,19 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
             <p className="fsy-alerte">L’annuaire des syndics n’est pas encore installé (migrations 324-325).</p>
           )}
           {mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
-          {mode === 'recherche' && (
+          {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 2 : un syndic déjà connu pour cette adresse, AVANT le formulaire. */}
+          {mode === 'recherche' && depuisUnBien && connus === null && <p className="fsy-discret">Recherche des syndics connus pour cette adresse…</p>}
+          {mode === 'recherche' && connus !== null && connus.length > 0 && !connusEcartes && (
+            <EncadreSyndicConnu syndics={connus} envoi={envoi}
+              onRattacher={(c) => void selectionner(c.syndic.id, c.copro.cle)} onNon={() => setConnusEcartes(true)} />
+          )}
+          {mode === 'recherche' && (connus === null ? !depuisUnBien : (connus.length === 0 || connusEcartes)) && (
             <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)} ancienSyndicId={ancienSyndicId} />
+          )}
+          {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 1 : pendant la saisie d'un NOUVEAU syndic. */}
+          {creation && (
+            <BandeauDoublonSyndic doublons={doublons} envoi={envoi} onVoir={voirLaFiche}
+              onSelectionner={depuisUnBien ? (id) => void selectionner(id) : undefined} />
           )}
           {mode === 'edition' && (
             <Edition form={form} setForm={setForm} fiche={fiche} syndicId={syndicId} onEcrire={ecrire}
@@ -485,6 +555,13 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setMemeTraite(true); void valider({ meme: true, conflit: conflitConfirme }); }}>Non</button>
               <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={regrouper}>Oui</button>
             </div>
+          ) : etapeDoublon !== null && etapeDoublon.length > 0 ? (
+            <PiedDoublonSyndic doublons={etapeDoublon} envoi={envoi} onRevenir={() => setEtapeDoublon(null)}
+              onCreer={() => {
+                const acc = etapeDoublon.map((d) => ({ id: d.syndic.id, criteres: d.criteres }));
+                setAccepte(acc); setEtapeDoublon(null);
+                void valider({ ignores: acc });
+              }} />
           ) : avertServeur !== null ? (
             <div className="fsy-boutons fsy-avert-serveur" role="group" aria-label="Coordonnées déjà utilisées">
               <span className="fsy-question fsy-alerte-coord-texte">

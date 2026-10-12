@@ -86,6 +86,7 @@ import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffic
 import { pastillesBien } from '../../../../lib/gestion/pastillesBien';
 // LOT ANNUAIRE-SYNDICS — le bouton syndic des cartes de bien, et le composeur qu'il peut ouvrir.
 import { BoutonSyndic, EcrireDepuisGestion, PastilleConflitParcelle } from './BoutonSyndic';
+import { BandeauSyndicConnuDuBien } from './PropositionsSyndic';
 import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 
 /**
@@ -1421,6 +1422,10 @@ function VueLot({
       {/* 🔴 LOT ANNUAIRE-SYNDICS — depuis la fiche du bien : la copropriété du bien est pré-remplie. */}
       <PastilleConflitParcelle immeuble={f.immeuble} />
       <BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />
+      {/* 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE, PARTIE 3 — un bien sans syndic à une adresse déjà
+          connue (un autre bien rattaché à un syndic) : « Syndic connu pour cette adresse : … — Rattacher / Ignorer ».
+          Jamais de rattachement automatique ; « Ignorer » est mémorisé pour ce bien. */}
+      <BandeauSyndicConnuDuBien lotId={f.id} />
 
       <section className="ann-bloc">
         <div className="ann-personne">

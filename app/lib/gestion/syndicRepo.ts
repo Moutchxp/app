@@ -9,6 +9,19 @@ import {
   adresseImmeuble, cleImmeuble, communeLisible, type AdresseBan, type FicheSyndic, type ImmeubleConnu, type LotDeCopropriete,
   type SyndicResume, type SyndicSaisi,
 } from './syndics';
+import {
+  doublonsCouverts, doublonsDuSyndic, motTraceIgnore, type DoublonSyndic, type SyndicComparable,
+} from './doublonSyndic';
+
+/** La saisie d'un syndic, vue par la comparaison anti-doublon : le cabinet, puis les coordonnées de ses contacts. */
+function comparableDuSyndicSaisi(s: SyndicSaisi): SyndicComparable {
+  const coords = s.contacts.filter((c) => c.parti !== true).flatMap((c) => c.coordonnees);
+  return {
+    id: null, nom: s.nom, adresse: s.adresse, codePostal: s.codePostal, ville: s.ville,
+    emails: [s.email, ...coords.filter((k) => k.sorte === 'email').map((k) => k.valeur)],
+    telephones: [s.telephone, s.telephone2, ...coords.filter((k) => k.sorte === 'telephone').map((k) => k.valeur)],
+  };
+}
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN, COMMIT 2 — LE DÉPÔT DE L'ANNUAIRE DES SYNDICS ══════════════════════
@@ -29,6 +42,31 @@ import {
  *
  * ⚠️ PAS DE `import 'server-only'` ICI — convention du module (voir `contactExterneRepo.ts`).
  */
+
+/* ══ LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE ══ */
+/** L'annuaire des syndics non supprimés, avec les e-mails et téléphones de leurs contacts en poste. LECTURE SEULE. */
+export async function syndicsComparables(q: RequeteTx | typeof query = query): Promise<SyndicComparable[]> {
+  const { rows } = await (q as typeof query)<{
+    id: string; nom: string; adresse: string | null; code_postal: string | null; ville: string | null;
+    email: string | null; telephone: string | null; telephone_2: string | null;
+    emails: string[] | null; telephones: string[] | null;
+  }>(
+    `SELECT s.id::text, s.nom, s.adresse, s.code_postal, s.ville, s.email, s.telephone, s.telephone_2,
+            (SELECT array_agg(k.valeur) FROM gestion_syndic_contact ct
+               JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id AND k.retire_le IS NULL
+              WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND ct.parti_le IS NULL AND k.sorte = 'email') AS emails,
+            (SELECT array_agg(k.valeur) FROM gestion_syndic_contact ct
+               JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id AND k.retire_le IS NULL
+              WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND ct.parti_le IS NULL AND k.sorte = 'telephone') AS telephones
+       FROM gestion_syndic s
+      WHERE s.supprime_le IS NULL
+      ORDER BY s.id`);
+  return rows.map((r) => ({
+    id: Number(r.id), nom: r.nom, adresse: r.adresse ?? '', codePostal: r.code_postal ?? '', ville: r.ville ?? '',
+    emails: [r.email ?? '', ...(r.emails ?? [])].filter((x) => x.trim() !== ''),
+    telephones: [r.telephone ?? '', r.telephone_2 ?? '', ...(r.telephones ?? [])].filter((x) => x.trim() !== ''),
+  }));
+}
 
 /** Les migrations 324, 325 ET 326 sont-elles appliquées ? Sans elles, l'écran le dit et n'offre aucun geste. */
 export async function syndicsDisponibles(): Promise<boolean> {
@@ -367,8 +405,18 @@ const nul = (v: string): string | null => (v.trim() === '' ? null : v.trim());
  * normal, et un refus rendu après un UPDATE écrirait quand même (piège consigné du dépôt).
  */
 export async function enregistrerSyndic(id: number | null, saisie: SyndicSaisi, auteur: Auteur):
-Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: string[] }> {
+Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: string[]; doublonsSyndic?: DoublonSyndic[] }> {
   return withTransaction(async (q) => {
+    /**
+     * ══ 🔴🔴 LOT SYNDIC-ANTI-DOUBLON-ET-PROPOSITION-PAR-ADRESSE — À LA CRÉATION, CE SYNDIC EXISTE-T-IL DÉJÀ ? ═══════
+     * Nom, adresse, e-mail, téléphone (cabinet ET contacts) comparés à tout l'annuaire. Un doublon possible que
+     * l'écran n'a pas fait accepter (« Créer quand même ») : renvoyé, et RIEN n'est écrit — décidé AVANT toute
+     * écriture (piège withTransaction). Accepté : la création se fait, et elle est tracée au journal plus bas.
+     */
+    const doublonsIgnores = id === null ? doublonsDuSyndic(comparableDuSyndicSaisi(saisie), await syndicsComparables(q)) : [];
+    if (!doublonsCouverts(doublonsIgnores, saisie.doublonsSyndicIgnores)) {
+      return { ok: false, motif: 'Ce syndic existe peut-être déjà.', doublonsSyndic: doublonsIgnores };
+    }
     // 🔴 LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — CE QU'IL Y AVAIT : un e-mail déjà porté par un contact d'un AUTRE
     // syndic était REFUSÉ (et l'index 327 le refusait en base). Décision d'Arno : un e-mail ou un téléphone déjà utilisé
     // n'est plus qu'un AVERTISSEMENT. Sans confirmation explicite de l'écran (`confirmeDoublons`), le serveur le renvoie
@@ -395,6 +443,14 @@ Promise<{ ok: true; id: number } | { ok: false; motif: string; avertissement?: s
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id::text`,
         [...champs, auteur.id, auteur.libelle]);
       syndicId = Number(rows[0]?.id);
+      /* 🔴 LOT SYNDIC-ANTI-DOUBLON — « Créer quand même » : la création est tracée avec le(s) critère(s) ignoré(s). */
+      if (doublonsIgnores.length > 0) {
+        await q(
+          `INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle)
+           VALUES ('annuaire', $1, 'syndic_cree_malgre_doublon', $2, $3, $4, $5)`,
+          [syndicId, JSON.stringify(doublonsIgnores.map((d) => ({ id: d.syndic.id, criteres: d.criteres }))),
+            motTraceIgnore(doublonsIgnores), auteur.id, auteur.libelle]);
+      }
     } else {
       const { rows: existe } = await q<{ id: string }>(
         `SELECT id::text FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL FOR UPDATE`, [id]);

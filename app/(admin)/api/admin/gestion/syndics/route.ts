@@ -50,7 +50,9 @@ export async function POST(request: Request): Promise<Response> {
     }
     const issue = await enregistrerSyndic(null, v.syndic, await auteurDeLaRequete(request));
     // LOT CONTACTS-DOUBLON-EMAIL-TEL-AVERTISSEMENT — des coordonnées déjà utilisées, non confirmées : les lignes suivent.
-    if (!issue.ok) return Response.json({ erreur: issue.motif, ...(issue.avertissement ? { avertissement: issue.avertissement } : {}) }, { status: 409, headers: ENTETES });
+    if (!issue.ok) return Response.json({ erreur: issue.motif, ...(issue.avertissement ? { avertissement: issue.avertissement } : {}),
+      /* 🔴 LOT SYNDIC-ANTI-DOUBLON — les syndics existants qui ressemblent à celui qu'on crée, et pourquoi. */
+      ...(issue.doublonsSyndic ? { doublonsSyndic: issue.doublonsSyndic } : {}) }, { status: 409, headers: ENTETES });
     return Response.json({ ok: true, id: issue.id }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/syndics] création impossible', e);
