@@ -11,6 +11,7 @@ import type { MongaDeLEvenement } from '../../../../lib/gestion/mongaRepo';
 import type { CarteEvenement, DerniereEtapeVignette } from '../../../../lib/gestion/fileRepo';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le mot d'une étape et la forme de sa date : modules PURS. */
 import { motEtape } from '../../../../lib/gestion/mongaEtape';
+import { etapeEnMots } from '../../../../lib/gestion/etapeVignette';
 /* 🔴 LOT EVENEMENT-MINIMALISTE, POINT 2 — le mot d'un TYPE d'événement. Module PUR, liste déjà en base (268).
    🔴🔴 LOT CAPSULE-TYPE-EVENEMENT — et sa COULEUR, et le mot de l'absence de type, et la LISTE pour le choisir :
    tout vient du même module, qui est désormais la seule déclaration des types. */
@@ -939,26 +940,16 @@ function MiniatureEtape({ etape: brut, ouvertLe, misAJourLe = null }: {
    * 🔴 ET LA CONSÉQUENCE ÉTAIT TOTALE : la vignette jetait, donc la liste entière, donc l'écran partagé. Une
    * miniature est un ORNEMENT ; elle ne doit jamais pouvoir emporter l'écran qui la porte.
    */
+  /* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — les mots sont calculés par `etapeEnMots` (module pur), que la fenêtre
+     « Bien(s) rattaché(s) à ce mail » appelle aussi : « Étape : … » y est donc identique à cette miniature. Sans
+     aucune étape : « Ouverture » et sa date ; une carte sans date n'en montre aucune ; absent vaut `null`. */
   const etape = brut ?? null;
-
-  /**
-   * 🔴 SANS AUCUNE ÉTAPE : « Ouverture » et sa date (Arno). C'est exactement ce que la frise montre dans le même
-   * cas — sa carte d'ouverture dérivée de `gestion_evenement.ouvert_le` (lot FRISE-CONSTRUCTIBLE). Les deux
-   * écrans disent donc la même chose, parce qu'ils lisent la même donnée.
-   */
-  const mot = etape === null
-    ? motEtape('ouverture')
-    : (etape.type === 'autre' && etape.titre !== null && etape.titre.trim() !== ''
-      ? etape.titre.trim() : motEtape(etape.type));
-  /* ⚠️ ET LA DATE RÉSISTE AUSSI À UNE CHAÎNE ABSENTE : une carte sans `ouvertLe` ne doit pas davantage jeter. */
-  const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);
-  /* 🔴 LOT FRISE-DATE-VIDE-PAR-DEFAUT — une carte validée SANS date n'en montre aucune, ici comme sur la frise
-     dont cette miniature est le résumé : son jour enregistré n'est qu'un repli de rangement. Rien, pas « — ». */
-  const sansDate = etape !== null && etape.jourConnu === false;
-  const date = sansDate ? '' : quand.length === 10
-    ? `${quand.slice(8, 10)}/${quand.slice(5, 7)}/${quand.slice(0, 4)}` : '—';
-  const doute = etape !== null && etape.certitude === 'a_confirmer';
-  const deMonga = etape !== null && etape.source === 'monga';
+  const lue = etapeEnMots(etape, ouvertLe);
+  const mot = lue.mot;
+  const sansDate = lue.date === null;
+  const date = lue.date ?? '';
+  const doute = lue.aConfirmer;
+  const deMonga = lue.deMonga;
 
   return (
     <span className={`gst-mini${doute ? ' gst-mini--doute' : ''}`}>

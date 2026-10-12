@@ -75,7 +75,8 @@ import { interneDuMail } from './interneDuMail';
 import { sqlSortesBien } from './statutClassement';
 /* 🔴🔴 LOT MARQUES-EVENEMENT-EN-COURS — « ce mail porte-t-il un événement en cours ? », posée à la fonction qui
    porte la règle d'Arno du 07/10 (les deux voies unies), et non réécrite ici. Voir son encadré. */
-import { evenementsOuvertsDesMails } from './historiqueRepo';
+import { evenementsOuvertsDesMails, type EvenementEnCours } from './historiqueRepo';
+
 // LOT LECTURE-HTML-FIL-TROMBONE — la MÊME règle que la conversation pour distinguer une pièce d'un logo de signature.
 import { sqlEstVraiePiece, trierPieces, type PieceATrier } from './lisibilite';
 // 🔴 LOT FENETRES-INDEPENDANTES — la clé d'identité d'une pièce, la MÊME qu'au récapitulatif. Module PUR.
@@ -226,6 +227,12 @@ export interface LigneBoite {
    * au bien dans la fenêtre de l'événement. Voir l'encadré de `evenementsOuvertsDesMails`.
    */
   evenementsEnCours: number;
+  /**
+   * 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — LES ÉVÉNEMENTS EN COURS EUX-MÊMES (triés par `evenementsOuvertsDesMails` : urgence décroissante), pour
+   * que la pastille porte leur TYPE et la trame de leur URGENCE, comme partout. FACULTATIF : une réponse plus
+   * ancienne ne le porte pas, et la pastille reprend alors son dessin d'avant.
+   */
+  evenementsEnCoursListe?: EvenementEnCours[];
   /** L'échange a-t-il été classé sans suite ? L'écran le DIT : la boîte montre tout, elle n'efface rien. */
   sansSuite: boolean;
   /**
@@ -1463,6 +1470,7 @@ export async function lireBoiteMail(
       spam: r.est_spam === true,
       reference: r.reference,
       evenementsEnCours: (evtsOuverts.get(Number(r.message_id)) ?? []).length,
+      evenementsEnCoursListe: evtsOuverts.get(Number(r.message_id)) ?? [],
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
       // 🔴 LA CAPSULE « Non envoyé », sur la ligne de l'échange concerné. `null` = rien à signaler.

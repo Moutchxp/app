@@ -24,6 +24,7 @@ import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, j
 import { chargerConfigGestion } from './config';
 /* 🔴 LOT VIGNETTE-EVENEMENT, POINT 2 — le TYPE seul, effacé à la compilation : aucune dépendance ajoutée. */
 import type { TypeEtape } from './mongaEtape';
+import { sqlDerniereEtape } from './derniereEtapeSql';
 import { toleranceVeilleValide, VEILLE_INTERVALLES_DEFAUT, type VeilleReleve } from './ecran';
 import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
 import {
@@ -593,21 +594,8 @@ const SQL_DERNIERE_MAJ_MONGA = `
  * Monga » reste la dernière PAR DATE, comme la frise les range. Un second tri aurait fait dire à la capsule autre
  * chose que la frise qu'elle résume.
  */
-function sqlDerniereEtape(alias: string, mongaSeulement: boolean): string {
-  return `
-  LEFT JOIN LATERAL (
-    SELECT x.type, x.titre, x.survenu_le, x.heure_connue, x.jour_connu, x.source, x.certitude
-      FROM gestion_monga_etape x
-     WHERE x.statut = 'vif'
-       AND x.type NOT IN ('facture','rappel_devis','contact_injoignable','commentaire','note')
-       ${mongaSeulement ? "AND x.source = 'monga'" : ''}
-       AND (x.evenement_id = e.id
-            OR x.reference IN (SELECT reference FROM gestion_monga_lien
-                                WHERE evenement_id = e.id AND retire_le IS NULL))
-     ORDER BY x.survenu_le DESC, x.id DESC
-     LIMIT 1
-  ) ${alias} ON true`;
-}
+/* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — le texte vit dans `derniereEtapeSql.ts` (module PUR), pour que l'historique
+   du bien le lise sans tirer ce dépôt (et Gmail) derrière lui. Même texte, mêmes liaisons. */
 
 const SQL_DERNIERE_ETAPE = sqlDerniereEtape('et', false);
 /** 🔴🔴 LOT CARTE-EVENEMENT-EPUREE, POINT 3 — la dernière étape VENUE DE MONGA, pour la capsule verte. */

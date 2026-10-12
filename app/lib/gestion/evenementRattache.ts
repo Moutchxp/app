@@ -1,4 +1,6 @@
 import { sqlDansUnePeriodeOuverte, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+import { motCategorie, motUrgence, NIVEAUX_URGENCE, tonUrgence } from './evenementQualite';
+import type { DerniereEtapeVignette } from './fileRepo';
 
 /**
  * ══ 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT-ET-BLOC-DEPLIABLE — UNE SEULE VÉRITÉ : « CE MAIL EST-IL RATTACHÉ À UN
@@ -72,6 +74,12 @@ export interface EvenementLu {
   reference: string;
   objet: string;
   ouvert: boolean;
+  /* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — ce que la capsule et la liste affichent. FACULTATIFS : une réponse plus
+     ancienne ne les porte pas ; la capsule dit alors « non précisée » et la liste « Étape : ouverture ». */
+  categorie?: string | null;
+  urgence?: string | null;
+  ouvertLe?: string | null;
+  etape?: DerniereEtapeVignette | null;
 }
 
 /** Ce que la ligne ET la fenêtre affichent d'un mail : le même calcul, sur les mêmes données. */
@@ -95,14 +103,14 @@ export interface LectureEvenement {
 export function lectureEvenement(
   rattaches: readonly EvenementLu[], duBien: readonly EvenementLu[] = [],
 ): LectureEvenement {
-  const enCours = rattaches.filter((e) => e.ouvert);
+  const enCours = trierParUrgence(rattaches.filter((e) => e.ouvert));
   const ids = new Set(rattaches.map((e) => e.id));
   const vus = new Set<number>();
-  const surLeBien = duBien.filter((e) => {
+  const surLeBien = trierParUrgence(duBien.filter((e) => {
     if (!e.ouvert || ids.has(e.id) || vus.has(e.id)) return false;
     vus.add(e.id);
     return true;
-  });
+  }));
   const evenement = enCours[0] ?? rattaches[0] ?? null;
   return {
     cas: enCours.length > 0 ? 'rattache' : surLeBien.length > 0 ? 'ouvert_sur_le_bien' : 'aucun',
@@ -116,4 +124,96 @@ export const MOT_OUVERT_SUR_LE_BIEN = 'événement ouvert sur ce bien';
 /** Le mot de la capsule d'un événement : « GES-2026-000001 — Re: NOTE INFORMATION… ». */
 export function motCapsuleEvenement(e: { reference: string; objet: string }): string {
   return `${e.reference} — ${e.objet}`;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — LA CAPSULE D'ÉVÉNEMENT, SES MOTS ET SA TRAME
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ARNO (12/10/2026) : « Contenu : TYPE de l'événement (sa catégorie ; “non précisée” si vide) · numéro — titre. TRAME
+   = couleur de l'URGENCE : reprends l'échelle et les couleurs d'urgence déjà définies dans l'application si elles
+   existent […] ; non précisée = le jaune / orange actuel ; événement clos = gris. »
+
+   🔴 L'ÉCHELLE EXISTE (lot URGENCE-EVENEMENT, `NIVEAUX_URGENCE`) : trois niveaux — Normal (vert), Intermédiaire
+   (orange), Urgent (rouge) —, les tons de la capsule de type de la carte. Elle est REPRISE telle quelle : la même
+   urgence a la même couleur sur la carte et dans la fenêtre du mail. */
+
+/** La trame d'une capsule : un ton d'urgence, « non précisée » (ambre), ou « clos » (gris). */
+export type TrameEvenement = 'vert' | 'orange' | 'rouge' | 'non-precisee' | 'clos';
+
+/** La trame : clos d'abord (gris, quelle que soit l'urgence), puis le ton de l'urgence, sinon l'ambre. PUR. */
+export function trameEvenement(e: { ouvert: boolean; urgence?: string | null }): TrameEvenement {
+  if (!e.ouvert) return 'clos';
+  return tonUrgence(e.urgence ?? null) ?? 'non-precisee';
+}
+
+/** Le TYPE affiché : la catégorie, ou « non précisée ». PUR. */
+export function motTypeEvenement(categorie: string | null | undefined): string {
+  return categorie === null || categorie === undefined || categorie.trim() === '' ? 'non précisée' : motCategorie(categorie);
+}
+
+/** « Urgence : <niveau> », et « (événement clos) » pour un clos. PUR. */
+export function motSurvolUrgence(e: { ouvert: boolean; urgence?: string | null }): string {
+  return `Urgence : ${motUrgence(e.urgence ?? null).toLowerCase()}${e.ouvert ? '' : ' (événement clos)'}`;
+}
+
+/** Le rang d'une urgence, pour le tri : la plus haute d'abord ; « non précisée » en dernier. PUR. */
+export function rangUrgence(u: string | null | undefined): number {
+  const i = NIVEAUX_URGENCE.findIndex((n) => n.cle === u);
+  return i < 0 ? -1 : i;
+}
+
+/** Tri d'Arno : urgence décroissante, puis l'ouverture la plus récente, puis l'identifiant. PUR, non destructif. */
+export function trierParUrgence<T extends { id: number; urgence?: string | null; ouvertLe?: string | null }>(
+  liste: readonly T[],
+): T[] {
+  return [...liste].sort((a, b) => (rangUrgence(b.urgence) - rangUrgence(a.urgence))
+    || (b.ouvertLe ?? '').localeCompare(a.ouvertLe ?? '')
+    || (b.id - a.id));
+}
+
+/** Accord : « 1 événement », « 2 événements ». PUR. */
+export function nEvenements(n: number): string {
+  return `${n} événement${n > 1 ? 's' : ''}`;
+}
+
+/** La ligne repliée du bloc, en mots — les trois cas d'Arno (Partie 1). PUR. */
+export function resumeBlocEvenement(l: LectureEvenement, rattaches: readonly EvenementLu[]): {
+  cas: 'rattache' | 'en_cours_sur_le_bien' | 'aucun';
+  capsules: EvenementLu[];
+  /** « + N autre(s) en cours » (cas 1), ou « aucun — N événement(s) en cours sur ce bien : » (cas 2). */
+  mot: string | null;
+} {
+  if (rattaches.length > 0) {
+    const n = l.surLeBien.length;
+    return {
+      cas: 'rattache', capsules: trierParUrgence(rattaches),
+      mot: n === 0 ? null : `+ ${n} autre${n > 1 ? 's' : ''} en cours`,
+    };
+  }
+  if (l.surLeBien.length > 0) {
+    const n = l.surLeBien.length;
+    return { cas: 'en_cours_sur_le_bien', capsules: l.surLeBien, mot: `aucun — ${nEvenements(n)} en cours sur ce bien :` };
+  }
+  return { cas: 'aucun', capsules: [], mot: 'aucun' };
+}
+
+/** La liste dépliée : les événements EN COURS, rattachés ou non, triés par urgence puis ouverture. PUR. */
+export function listeEnCours(l: LectureEvenement): Array<EvenementLu & { rattache: boolean }> {
+  return trierParUrgence([
+    ...l.enCours.map((e) => ({ ...e, rattache: true })),
+    ...l.surLeBien.map((e) => ({ ...e, rattache: false })),
+  ]);
+}
+
+/** « 26/09/2026 » depuis une date ISO, ou `null`. PUR. */
+export function dateCourteIso(iso: string | null | undefined): string | null {
+  const j = (iso ?? '').slice(0, 10);
+  return j.length === 10 ? `${j.slice(8, 10)}/${j.slice(5, 7)}/${j.slice(0, 4)}` : null;
+}
+
+/** La bulle d'une pastille ou d'une mention qui résume UN OU PLUSIEURS événements : une ligne par événement. PUR. */
+export function survolEvenements(liste: readonly EvenementLu[], fin: string | null = null): string {
+  const lignes = liste.map((e) => `${e.reference} — ${e.objet} (Type : ${motTypeEvenement(e.categorie)} · ${motSurvolUrgence(e)})`);
+  return [...lignes, ...(fin === null ? [] : [fin])].join('\n');
 }

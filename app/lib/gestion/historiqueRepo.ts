@@ -39,6 +39,8 @@ import {
   deplacementsDeMailsDisponibles, horsGestionDisponible, nomUsageDisponible, rattachementsDisponibles,
   /* 🔴 LOT IMAGES-INTEGREES-COMME-PIECES — la colonne `integree` (migration 296) n’est NOMMÉE que si elle existe. */
   pieceIntegreeDisponible,
+  /* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — categorie et urgence (migration 268), pour la capsule. */
+  evenementQualifieDisponible,
 } from './schema';
 // LOT FICHES-ANNUAIRE — LA MÊME fonction pure que la boîte : un seul verdict de statut pour tout le module.
 import { capsuleStatut, sqlSortesBien, type CapsuleStatut } from './statutClassement';
@@ -54,6 +56,9 @@ import { interventionsDesMessages } from './contactExterneRepo';
    demande plus à la colonne `etat`, il se DÉDUIT des cartes de borne de la frise. Les périodes avec. */
 import { sqlDansUnePeriodeOuverte, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
 import { lectureEvenement, ORDRE_RATTACHES, sqlEvenementsRattaches } from './evenementRattache';
+import { sqlDerniereEtape } from './derniereEtapeSql';
+import type { DerniereEtapeVignette } from './fileRepo';
+import type { TypeEtape } from './mongaEtape';
 import {
   texteCible, CONTACTS_PAR_LOCATAIRE_MAX, INTERLOCUTEURS_MAX, MAILS_DE_LA_FRISE_MAX,
   PORTEURS_DE_PIECES_MAX,
@@ -702,6 +707,8 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
    * l'événement. Voir l'encadré de `sqlEvenementsDesMessages`. UNE requête pour la page entière.
    */
   const evenementsParBien = await evenementsDesMessages(gardees.map((r) => Number(r.message_id)));
+  /* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — type, urgence, ouverture, dernière étape : UNE requête pour la page. */
+  await enrichirEvenements([evenements, evenementsParBien]);
   // 🔴 … et la capsule de statut de chaque MAIL, par la MÊME fonction pure que la boîte.
   const statuts = await statutsDesMessages(gardees.map((r) => Number(r.message_id)));
   /**
@@ -1173,6 +1180,55 @@ async function evenementsRattaches(messageIds: readonly number[]): Promise<Map<n
 }
 
 /**
+ * ══ 🔴🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — LE TYPE, L'URGENCE, L'OUVERTURE ET LA DERNIÈRE ÉTAPE ══════════════════
+ *
+ * Ce que la capsule d'événement (trame = urgence, texte = type) et la liste « Événements en cours sur ce bien »
+ * (« ouvert le … · Étape : … ») affichent. UNE requête pour tous les événements d'une page, jamais une par ligne.
+ *
+ * 🔴 LA DERNIÈRE ÉTAPE EST CELLE DE LA CARTE : `sqlDerniereEtape` (fileRepo), le même texte SQL que la vignette de
+ * l'événement, lu par la même fonction de mots (`etapeEnMots`).
+ * ⚠️ SANS LA MIGRATION 268, ni catégorie ni urgence ne sont nommées : la capsule dit « non précisée ».
+ * ⚠️ AUCUN ACCENT dans le SQL de ce bloc (piège du lot 19d3c67d).
+ */
+async function enrichirEvenements(maps: ReadonlyArray<Map<number, EvenementDeLigne[]>>): Promise<void> {
+  const ids = [...new Set(maps.flatMap((m) => [...m.values()].flat().map((e) => e.id)))];
+  if (ids.length === 0) return;
+  const qualifie = await evenementQualifieDisponible();
+  const { rows } = await query<{
+    id: string; categorie: string | null; urgence: string | null; ouvert_le: string | null;
+    etape_type: TypeEtape | null; etape_titre: string | null; etape_survenu_le: string | null;
+    etape_heure_connue: boolean | null; etape_jour_connu: boolean | null;
+    etape_source: 'monga' | 'manuelle' | null; etape_certitude: DerniereEtapeVignette['certitude'] | null;
+  }>(
+    `SELECT e.id::text, ${qualifie ? 'e.categorie, e.urgence' : 'NULL::text AS categorie, NULL::text AS urgence'},
+            to_char(e.ouvert_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ouvert_le,
+            et.type AS etape_type, et.titre AS etape_titre,
+            to_char(et.survenu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS etape_survenu_le,
+            et.heure_connue AS etape_heure_connue, et.jour_connu AS etape_jour_connu,
+            et.source AS etape_source, et.certitude AS etape_certitude
+       FROM gestion_evenement e
+       ${sqlDerniereEtape('et', false)}
+      WHERE e.id = ANY($1::bigint[])`, [ids]);
+  const parId = new Map(rows.map((r) => [Number(r.id), r]));
+  for (const m of maps) {
+    for (const liste of m.values()) {
+      for (const e of liste) {
+        const r = parId.get(e.id);
+        if (r === undefined) continue;
+        e.categorie = r.categorie;
+        e.urgence = r.urgence;
+        e.ouvertLe = r.ouvert_le;
+        e.etape = r.etape_type === null || r.etape_survenu_le === null ? null : {
+          type: r.etape_type, titre: r.etape_titre, survenuLe: r.etape_survenu_le,
+          heureConnue: r.etape_heure_connue === true, jourConnu: r.etape_jour_connu !== false,
+          source: r.etape_source ?? 'manuelle', certitude: r.etape_certitude ?? 'fiable',
+        };
+      }
+    }
+  }
+}
+
+/**
  * ══ 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT — CE QUE LA FENÊTRE LIT, PAR LES MÊMES REQUÊTES QUE LA LIGNE ═══════════════
  *
  * La route `/messages/<id>/affectation` rend ces deux listes, et la fenêtre les passe à `lectureEvenement` — la
@@ -1183,6 +1239,7 @@ export async function evenementsLusDuMail(
   messageId: number,
 ): Promise<{ rattaches: EvenementDeLigne[]; duBien: EvenementDeLigne[] }> {
   const [rattaches, duBien] = await Promise.all([evenementsRattaches([messageId]), evenementsDesMessages([messageId])]);
+  await enrichirEvenements([rattaches, duBien]);
   return {
     rattaches: uneFoisParMail(rattaches.get(messageId) ?? []),
     duBien: uneFoisParMail(duBien.get(messageId) ?? []),
@@ -1215,6 +1272,9 @@ export async function evenementsLusDuMail(
  * aucun filtre à refaire — et aucun moyen d'en oublier un.
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+/** 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — un événement en cours d'un mail, tel que les listes le reçoivent (déjà trié : urgence décroissante). */
+export type EvenementEnCours = EvenementDeLigne;
+
 export async function evenementsOuvertsDesMails(
   mails: readonly { messageId: number; filId: number }[],
 ): Promise<Map<number, EvenementDeLigne[]>> {
@@ -1223,6 +1283,7 @@ export async function evenementsOuvertsDesMails(
   /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — la pastille pleine est le cas a) seul : un événement EN COURS rattaché au
      mail. La voie du bien (cas b) n'y entre plus — c'est une proposition, pas un rattachement. */
   const rattaches = await evenementsRattaches(mails.map((m) => m.messageId));
+  await enrichirEvenements([rattaches]);
   for (const m of mails) {
     const ouverts = lectureEvenement(uneFoisParMail(rattaches.get(m.messageId) ?? [])).enCours;
     if (ouverts.length > 0) out.set(m.messageId, ouverts);

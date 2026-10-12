@@ -204,7 +204,7 @@ describe('④ la ligne « Événement rattaché », repliable', () => {
     /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT, PARTIE 3 — un bloc encadré ; replié, UNE ligne : titre, « aucun », chevron. */
     expect(d.className).toContain('rdf-evt-bloc');
     const resume = d.querySelector('summary') as HTMLElement;
-    expect(resume.querySelector('.rdf-evt-titre')?.textContent).toBe('Événement rattaché');
+    expect(resume.querySelector('.rdf-evt-titre')?.textContent).toBe('Événement rattaché :');
     expect(resume.querySelector('.rdf-evt-aucun')?.textContent).toBe('aucun');
     expect(resume.querySelector('.rdf-capsule-evt')).toBeNull();
     expect(resume.lastElementChild?.className).toBe('rdf-evt-chevron');

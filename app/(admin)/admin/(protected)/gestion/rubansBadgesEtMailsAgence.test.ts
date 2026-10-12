@@ -97,7 +97,8 @@ describe('🔴🔴 ② les étiquettes passent à droite, contre la date', () =>
     const bloc = LIGNE.slice(LIGNE.indexOf('<span className="vdb-marques">'),
       LIGNE.indexOf('<span className="vdb-quand">'));
     expect(bloc).toContain('vdb-capsule vdb-capsule--${tonCapsule(l.statut as CapsuleStatut)}');
-    expect(bloc).toContain('vdb-capsule vdb-capsule--evt');
+    /* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — la pastille est la capsule d'événement partagée (variante « pastille »). */
+    expect(bloc).toContain('<CapsuleEvenement e={ouverts[0]} variante="pastille"');
     expect(bloc).toContain('className="vdb-trombone"');
   });
 
@@ -117,7 +118,7 @@ describe('🔴🔴 ② les étiquettes passent à droite, contre la date', () =>
     const bloc = LIGNE.slice(LIGNE.indexOf('<span className="vdb-marques">'),
       LIGNE.indexOf('<span className="vdb-quand">'));
     expect(bloc.indexOf('vdb-trombone')).toBeLessThan(bloc.indexOf('tonCapsule'));
-    expect(bloc.indexOf('tonCapsule')).toBeLessThan(bloc.indexOf('vdb-capsule--evt'));
+    expect(bloc.indexOf('tonCapsule')).toBeLessThan(bloc.indexOf('variante="pastille"'));
   });
 
   /**
@@ -134,7 +135,7 @@ describe('🔴🔴 ② les étiquettes passent à droite, contre la date', () =>
   /** ⚠️ ET LES ÉTIQUETTES ELLES-MÊMES NE CHANGENT PAS : mêmes conditions, mêmes mots, mêmes info-bulles. */
   it('⚠️ rien n’est retiré ni changé dans les badges', () => {
     expect(LIGNE).toContain('{motCapsule(l.statut as CapsuleStatut)}');
-    expect(LIGNE).toContain('{motEvenementEnCours(ouverts.length)}');
+    expect(LIGNE).toContain("mot={motEvenementEnCours(ouverts.length) ?? ''}");
     expect(LIGNE).toContain('<span aria-hidden="true">📎</span>{vraies.length}');
     expect(LIGNE).toContain('title={motDuTrombone} aria-label={motDuTrombone}');
   });

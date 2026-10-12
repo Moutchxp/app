@@ -144,6 +144,8 @@ import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 import { PastilleOneShot } from './PastilleOneShot';
 /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
 import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
+import { CapsuleEvenement, CSS_CAPSULE_EVENEMENT } from './CapsuleEvenement';
+import { survolEvenements } from '../../../../lib/gestion/evenementRattache';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 
 /**
@@ -3236,12 +3238,19 @@ export function MessageConversation({
             retiré, et les deux ne répondent pas à la même question.
 
             ⚠️ `?? 0` : une réponse de serveur plus ancienne que ce lot n'a pas le champ. Patron du module. */}
-        {motEvenementEnCours(message.evenementsEnCours ?? 0) !== null && (
-          <span className="cnv-capsule cnv-capsule--evt"
-            title="Ce mail relève d'un événement en cours sur le bien">
-            {motEvenementEnCours(message.evenementsEnCours ?? 0)}
-          </span>
-        )}
+        {/* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — LA CAPSULE D'ÉVÉNEMENT, la même que l'historique et la fenêtre du mail
+                        (type de l'événement le plus urgent, trame de son urgence). Sans la liste (serveur plus ancien),
+                        la pastille d'avant, inchangée. */}
+                    {motEvenementEnCours(message.evenementsEnCours ?? 0) !== null && (message.evenementsEnCoursListe?.[0] !== undefined
+                      ? <CapsuleEvenement e={message.evenementsEnCoursListe[0]} variante="pastille"
+                        mot={motEvenementEnCours(message.evenementsEnCours ?? 0) ?? ''}
+                        survol={survolEvenements(message.evenementsEnCoursListe, 'Ce mail relève d’un événement en cours.')} />
+                      : (
+                        <span className="cnv-capsule cnv-capsule--evt"
+                          title="Ce mail relève d'un événement en cours sur le bien">
+                          {motEvenementEnCours(message.evenementsEnCours ?? 0)}
+                        </span>
+                      ))}
         {/* ══ 🔴🔴 LOT SUIVI-CONVERSATION — « exception : <biens> » ════════════════════════════════════════════
             Demande d'Arno, mot pour mot. Elle se lit À CÔTÉ de la capsule, et non à sa place : la capsule dit
             le STATUT (classé, à classer…), la mention dit SOUS QUELLE RÈGLE — « ce mail-ci, et pas les
@@ -3701,6 +3710,7 @@ export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer, vert 
  */
 export const CSS_CONVERSATION = `
 ${CSS_COMPTEUR_BIENS}
+${CSS_CAPSULE_EVENEMENT}
 .cnv{display:flex;flex-direction:column;gap:12px;min-width:0}
 .cnv-bandeau{display:flex;flex-direction:column;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--color-svv-line)}
 .cnv-bandeau-haut{display:flex;flex-wrap:wrap;align-items:center;gap:8px}

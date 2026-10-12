@@ -141,7 +141,9 @@ describe('🔴🔴 ③ une carte non datée n’affiche AUCUNE date', () => {
 
   /** 🔴 La miniature de l'événement résume la frise : même règle, rien à la place de la date. */
   it('🔴 la miniature de l’événement non plus', () => {
-    expect(CARTE).toContain('const sansDate = etape !== null && etape.jourConnu === false;');
+    /* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — la règle est dans `etapeEnMots`, partagé avec la fenêtre du mail. */
+    expect(readFileSync('app/lib/gestion/etapeVignette.ts', 'utf8')).toContain('const sansDate = etape !== null && etape.jourConnu === false;');
+    expect(CARTE).toContain('const sansDate = lue.date === null;');
     expect(CARTE).toContain('{!sansDate && <span className="gst-mini-date">{date}</span>}');
   });
 });

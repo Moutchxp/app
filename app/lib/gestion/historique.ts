@@ -17,6 +17,7 @@
 import type { Cible, CibleSorte } from './rattachement';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 3 — le nom ET l'adresse d'un destinataire, séparés (module pur). */
 import type { PersonneDuMail } from './adressesMessage';
+import type { DerniereEtapeVignette } from './fileRepo';
 
 /** Combien de mails par page. La frise se lit, elle ne se déroule pas : 25 suffit, et le reste se charge à la demande. */
 export const PAGE_HISTORIQUE = 25;
@@ -540,6 +541,15 @@ export interface EvenementDeLigne {
    * réponse disponible, et donc utilisable un jour par mégarde.
    */
   ouvert: boolean;
+  /**
+   * 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — ce que la capsule d'événement et la liste « Événements en cours sur ce
+   * bien » affichent : le type, l'urgence (la trame), l'ouverture et la dernière étape de la frise (celle de la
+   * carte). FACULTATIFS : une réponse plus ancienne ne les porte pas, et l'écran dit alors « non précisée ».
+   */
+  categorie?: string | null;
+  urgence?: string | null;
+  ouvertLe?: string | null;
+  etape?: DerniereEtapeVignette | null;
 }
 
 /**

@@ -1381,8 +1381,12 @@ describe('㉑ la vignette d’un événement', () => {
    * donnée, donc ils ne peuvent pas se contredire.
    */
   it('🔴🔴 sans étape : « Ouverture » et la date d’ouverture de l’événement', () => {
-    expect(CARTE).toContain("const mot = etape === null\n    ? motEtape('ouverture')");
-    expect(CARTE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
+    /* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — les mots de la miniature sont calculés par `etapeEnMots`, partagé
+       avec la fenêtre « Bien(s) rattaché(s) à ce mail ». */
+    const ETAPE = readFileSync('app/lib/gestion/etapeVignette.ts', 'utf8');
+    expect(CARTE).toContain('const lue = etapeEnMots(etape, ouvertLe);');
+    expect(ETAPE).toContain("const mot = etape === null\n    ? motEtape('ouverture')");
+    expect(ETAPE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
   });
 
   /**
@@ -1414,7 +1418,9 @@ describe('㉑ la vignette d’un événement', () => {
    * et les REPÈRES en sont écartés : un commentaire ou un rappel ne sont pas des étapes (règle de MONGA-2).
    */
   it('🔴🔴 la lecture suit les mêmes règles que la frise', () => {
-    const repo = readFileSync('app/lib/gestion/fileRepo.ts', 'utf8');
+    /* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — le texte vit dans `derniereEtapeSql.ts` (module pur), que `fileRepo` lie. */
+    expect(readFileSync('app/lib/gestion/fileRepo.ts', 'utf8')).toContain("import { sqlDerniereEtape } from './derniereEtapeSql';");
+    const repo = readFileSync('app/lib/gestion/derniereEtapeSql.ts', 'utf8');
     expect(repo).toContain('OR x.reference IN (SELECT reference FROM gestion_monga_lien');
     expect(repo).toContain("x.type NOT IN ('facture','rappel_devis','contact_injoignable','commentaire','note')");
     /* ⚠️ LA DERNIÈRE PAR DATE, puis par identifiant — exactement l'ordre de `construireFrise`. */
@@ -1454,8 +1460,9 @@ describe('㉑-bis la miniature ne peut pas emporter l’écran', () => {
 
   /** ⚠️ ET LA DATE RÉSISTE AUSSI À UNE CHAÎNE ABSENTE : une carte sans `ouvertLe` ne doit pas davantage jeter. */
   it('⚠️ une date absente rend un tiret, jamais une exception', () => {
-    expect(CARTE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
-    expect(CARTE).toContain("? `${quand.slice(8, 10)}/${quand.slice(5, 7)}/${quand.slice(0, 4)}` : '—';");
+    const ETAPE = readFileSync('app/lib/gestion/etapeVignette.ts', 'utf8');
+    expect(ETAPE).toContain("const quand = (etape?.survenuLe ?? ouvertLe ?? '').slice(0, 10);");
+    expect(ETAPE).toContain("? `${quand.slice(8, 10)}/${quand.slice(5, 7)}/${quand.slice(0, 4)}` : '—';");
   });
 });
 

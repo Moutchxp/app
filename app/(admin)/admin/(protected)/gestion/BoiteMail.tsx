@@ -79,6 +79,8 @@ import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 import { PastilleOneShot } from './PastilleOneShot';
 /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
 import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
+import { CapsuleEvenement, CSS_CAPSULE_EVENEMENT } from './CapsuleEvenement';
+import { survolEvenements } from '../../../../lib/gestion/evenementRattache';
 
 /**
  * LOT 5a — LA BOÎTE MAIL. Le second mode du module : tout le courrier, du plus récent au plus ancien, comme on lit sa
@@ -2084,12 +2086,19 @@ export function BoiteMail({
                       * ⚠️ `?? 0` : une réponse de serveur plus ancienne que ce lot n'a pas le champ. Aucune
                       * capsule vaut mieux qu'un écran cassé — le patron du module, déjà appliqué à l'étoile.
                       */}
-                    {motEvenementEnCours(l.evenementsEnCours ?? 0) !== null && (
-                      <span className="bte-capsule bte-capsule--evt"
-                        title="Ce mail relève d'un événement en cours sur le bien">
-                        {motEvenementEnCours(l.evenementsEnCours ?? 0)}
-                      </span>
-                    )}
+                    {/* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — LA CAPSULE D'ÉVÉNEMENT, la même que l'historique et la fenêtre du mail
+                        (type de l'événement le plus urgent, trame de son urgence). Sans la liste (serveur plus ancien),
+                        la pastille d'avant, inchangée. */}
+                    {motEvenementEnCours(l.evenementsEnCours ?? 0) !== null && (l.evenementsEnCoursListe?.[0] !== undefined
+                      ? <CapsuleEvenement e={l.evenementsEnCoursListe[0]} variante="pastille"
+                        mot={motEvenementEnCours(l.evenementsEnCours ?? 0) ?? ''}
+                        survol={survolEvenements(l.evenementsEnCoursListe, 'Ce mail relève d’un événement en cours.')} />
+                      : (
+                        <span className="bte-capsule bte-capsule--evt"
+                          title="Ce mail relève d'un événement en cours sur le bien">
+                          {motEvenementEnCours(l.evenementsEnCours ?? 0)}
+                        </span>
+                      ))}
                     {/* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — dans cette liste la ligne ne dit pas « reçu de » et ses
                         capsules vivent dans le bloc de fin : la pastille s'y pose, après « Événement en cours »
                         (même raisonnement que la capsule orange). Elle porte sur le mail que la ligne MONTRE. Pas
@@ -2197,6 +2206,7 @@ export function BoiteMail({
 
 const CSS_BOITE = `
 ${CSS_COMPTEUR_BIENS}
+${CSS_CAPSULE_EVENEMENT}
 /* ══ LOT ERGO-BOITE — L'ICÔNE « RELEVER ET ACTUALISER » ════════════════════════════════════════════════════════
    Elle remplace « Relever maintenant » et « Rafraîchir », qui faisaient deux choses qu'on veut toujours ensemble.
    🔴🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 2 — SA FEUILLE EST PARTIE DANS BoutonRond.tsx, avec son balisage : le

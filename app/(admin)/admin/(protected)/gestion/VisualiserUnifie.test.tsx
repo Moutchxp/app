@@ -707,8 +707,10 @@ describe('🔴🔴 ④ la ligne « Événement rattaché » de la fenêtre', () 
     await attendre(() => resultats().length === 1);
     await cliquer(container.querySelector('.rdf-evt-forme .gst-resultat') as Element);
     /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — le nom de l'événement est dans la capsule ambre de la fenêtre. */
-    expect(voulu()).toBe('à lier : GES-2026-000012 — objet 12');
-    expect(container.querySelector('.rdf-evt-voulu .rdf-capsule-evt')?.getAttribute('title')).toBe('GES-2026-000012 — objet 12');
+    /* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — la capsule d'événement partagée : type · numéro — titre, bulle complète. */
+    expect(voulu()?.startsWith('à lier : ')).toBe(true);
+    expect(container.querySelector('.rdf-evt-voulu .cev .cev-ref')?.textContent).toBe('GES-2026-000012');
+    expect(container.querySelector('.rdf-evt-voulu .cev')?.getAttribute('title')).toContain('GES-2026-000012 — objet 12');
     expect(ecritures).toEqual([]);
   });
 

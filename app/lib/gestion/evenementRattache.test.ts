@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { lectureEvenement, motCapsuleEvenement, sqlEvenementsRattaches } from './evenementRattache';
+import {
+  lectureEvenement, listeEnCours, motCapsuleEvenement, motSurvolUrgence, motTypeEvenement, nEvenements, resumeBlocEvenement,
+  sqlEvenementsRattaches, trameEvenement, trierParUrgence,
+} from './evenementRattache';
+import { etapeEnMots } from './etapeVignette';
 
 /**
  * ══ 🔴🔴 LOT EVENEMENT-RATTACHE-COHERENT-ET-BLOC-DEPLIABLE — LE CALCUL UNIQUE ═══════════════════════════════════════
@@ -70,5 +74,43 @@ describe('🔒 « rattaché » a UNE définition SQL, lue par la ligne, la fenê
   });
   it('⚠️ aucun accent dans le SQL émis (piège du lot 19d3c67d)', () => {
     expect(sqlEvenementsRattaches(true, '$1::bigint[]')).not.toMatch(/[À-ÿ]/);
+  });
+});
+
+describe('🔴🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — capsule, tri, ligne repliée, étape', () => {
+  const U = (id: number, urgence: string | null, ouvertLe: string, ouvert = true) =>
+    ({ id, reference: `GES-${id}`, objet: `objet ${id}`, ouvert, urgence, ouvertLe });
+  it('la trame : l’échelle de l’application (normale vert, haute orange, urgent rouge), non précisée ambre, clos gris', () => {
+    expect(trameEvenement({ ouvert: true, urgence: 'normale' })).toBe('vert');
+    expect(trameEvenement({ ouvert: true, urgence: 'haute' })).toBe('orange');
+    expect(trameEvenement({ ouvert: true, urgence: 'urgent' })).toBe('rouge');
+    expect(trameEvenement({ ouvert: true, urgence: null })).toBe('non-precisee');
+    expect(trameEvenement({ ouvert: false, urgence: 'urgent' })).toBe('clos');
+    expect(motSurvolUrgence({ ouvert: true, urgence: 'haute' })).toBe('Urgence : intermédiaire');
+    expect(motTypeEvenement(null)).toBe('non précisée');
+  });
+  it('le tri : urgence décroissante, puis ouverture la plus récente', () => {
+    const l = trierParUrgence([U(1, null, '2026-10-01'), U(2, 'normale', '2026-09-01'), U(3, 'urgent', '2026-08-01'),
+      U(4, 'urgent', '2026-09-15')]);
+    expect(l.map((e) => e.id)).toEqual([4, 3, 2, 1]);
+  });
+  it('les accords : 1 événement, 2 événements ; + 1 autre, + 2 autres', () => {
+    expect(nEvenements(1)).toBe('1 événement');
+    expect(nEvenements(2)).toBe('2 événements');
+    const a = U(1, null, '2026-09-01');
+    expect(resumeBlocEvenement(lectureEvenement([a], [U(2, null, 'x')]), [a]).mot).toBe('+ 1 autre en cours');
+    expect(resumeBlocEvenement(lectureEvenement([a], [U(2, null, 'x'), U(3, null, 'y')]), [a]).mot).toBe('+ 2 autres en cours');
+    expect(resumeBlocEvenement(lectureEvenement([], [U(2, null, 'x')]), []).mot).toBe('aucun — 1 événement en cours sur ce bien :');
+    expect(resumeBlocEvenement(lectureEvenement([], []), []).cas).toBe('aucun');
+  });
+  it('la liste dépliée : rattachés et non rattachés en cours, une fois chacun, triés', () => {
+    const l = listeEnCours(lectureEvenement([U(1, null, '2026-09-01')], [U(1, null, '2026-09-01'), U(2, 'urgent', '2026-08-01')]));
+    expect(l.map((e) => [e.id, e.rattache])).toEqual([[2, false], [1, true]]);
+  });
+  it('l’étape : la dernière étape de la frise, sinon « Ouverture » et la date d’ouverture', () => {
+    expect(etapeEnMots(null, '2026-09-23T08:00:00Z')).toEqual({ mot: 'Ouverture', date: '23/09/2026', aConfirmer: false, deMonga: false });
+    expect(etapeEnMots({ type: 'devis_recu', titre: null, survenuLe: '2026-10-02T09:00:00Z', heureConnue: false,
+      jourConnu: true, source: 'monga', certitude: 'a_confirmer' }, null))
+      .toEqual({ mot: 'Devis reçu', date: '02/10/2026', aConfirmer: true, deMonga: true });
   });
 });

@@ -46,7 +46,8 @@ import {
 //   garde d'imports de ce fichier pour la même raison que `./schema` : elle ne manipule aucun octet de pièce jointe.
 import { nonRemisesDesMessages, type MentionNonRemise } from './nonRemiseRepo';
 /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — la MÊME question que l'historique du bien et que la boîte. */
-import { evenementsOuvertsDesMails } from './historiqueRepo';
+import { evenementsOuvertsDesMails, type EvenementEnCours } from './historiqueRepo';
+
 
 export interface FilDeCarte {
   filId: number;
@@ -149,6 +150,12 @@ export interface MessageDeFil {
    * est bornée par des dates et que deux messages d'un même fil peuvent tomber de part et d'autre.
    */
   evenementsEnCours: number;
+  /**
+   * 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — LES ÉVÉNEMENTS EN COURS EUX-MÊMES (triés par `evenementsOuvertsDesMails` : urgence décroissante), pour
+   * que la pastille porte leur TYPE et la trame de leur URGENCE, comme partout. FACULTATIF : une réponse plus
+   * ancienne ne le porte pas, et la pastille reprend alors son dessin d'avant.
+   */
+  evenementsEnCoursListe?: EvenementEnCours[];
   /** Le motif de la règle, en clair. `null` quand le message n'est pas écarté. */
   motifHorsFile: string | null;
   /**
@@ -910,6 +917,7 @@ export async function lireMessagesDuFil(
      */
     aLaCorbeille: m.a_la_corbeille === true,
     evenementsEnCours: (evtsOuverts.get(m.message_id) ?? []).length,
+    evenementsEnCoursListe: evtsOuverts.get(m.message_id) ?? [],
     nonRemises: avisParMessage.get(m.message_id) ?? [],
     // `null` (jamais analysé) et `[]` (analysé, personne) ne se confondent pas — c'est tout l'objet de la migration 235.
     destA: adressesDe(m.dest_a),
