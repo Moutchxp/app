@@ -45,11 +45,34 @@ export function biensPartagesDuCabinet(immeubles: readonly ImmeubleConnu[], synd
     .sort((a, b) => a.adresse.localeCompare(b.adresse, 'fr') || a.numero.localeCompare(b.numero, 'fr', { numeric: true }));
 }
 
-/** « Fiche partagée avec 3 autres biens », ou `null` quand elle n'est partagée avec aucun. PUR. */
-export function motFichePartagee(n: number): string | null {
-  if (n <= 0) return null;
-  return n === 1 ? 'Fiche partagée avec 1 autre bien' : `Fiche partagée avec ${n} autres biens`;
+/**
+ * ══ 🔴 LOT PARTAGE-CABINET-IMMEUBLE — LES AUTRES BIENS, EN DEUX GROUPES ══ « Dans cet immeuble » (la copropriété du
+ * bien, adresses secondaires comprises) puis « Autres immeubles du cabinet ». PUR.
+ */
+export function biensPartagesParGroupe(
+  immeubles: readonly ImmeubleConnu[], syndicId: number, lotId: number | null, cleBien: string,
+): { immeuble: BienPartage[]; autres: BienPartage[] } {
+  const coproDe = (i: ImmeubleConnu): string => i.principale?.cle ?? i.cle;
+  const ici = immeubles.find((i) => i.cle === cleBien);
+  const coproIci = ici === undefined ? null : coproDe(ici);
+  const tous = biensPartagesDuCabinet(immeubles, syndicId, lotId);
+  const dansImmeuble = new Set(immeubles.filter((i) => i.syndic?.id === syndicId && coproIci !== null && coproDe(i) === coproIci)
+    .flatMap((i) => i.lots.map((l) => l.id)));
+  return { immeuble: tous.filter((b) => dansImmeuble.has(b.id)), autres: tous.filter((b) => !dansImmeuble.has(b.id)) };
 }
+
+/**
+ * « Fiche partagée avec 3 autres biens du cabinet, dont 1 dans cet immeuble », « … aucun dans cet immeuble », ou
+ * `null` quand elle n'est partagée avec aucun (pas de ligne). PUR.
+ */
+export function motFichePartagee(n: number, dansImmeuble = 0): string | null {
+  if (n <= 0) return null;
+  const tete = n === 1 ? 'Fiche partagée avec 1 autre bien du cabinet' : `Fiche partagée avec ${n} autres biens du cabinet`;
+  return dansImmeuble <= 0 ? `${tete}, aucun dans cet immeuble` : `${tete}, dont ${dansImmeuble} dans cet immeuble`;
+}
+
+export const TITRE_GROUPE_IMMEUBLE = 'Dans cet immeuble';
+export const TITRE_GROUPE_AUTRES = 'Autres immeubles du cabinet';
 
 /** Une ligne de la bulle : « 25 rue Edith Cavell — lot 219 ». PUR. */
 export const ligneBienPartage = (b: BienPartage): string => `${b.adresse === '' ? 'adresse inconnue' : b.adresse} — lot ${b.numero}`;

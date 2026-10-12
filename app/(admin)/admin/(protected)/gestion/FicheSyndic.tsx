@@ -36,6 +36,8 @@ import {
   biensDeLaCopropriete, biensDuCabinet, motAvertissementPartage, niveauxModifies, type ResumeRattachement,
 } from '../../../../lib/gestion/partageSyndic';
 import { createPortal } from 'react-dom';
+/* 🔴🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — réintégrer un ancien contact plutôt que le recréer. */
+import { ancienDuMemeNom, motProposeReintegration, reintegrerAvecSaisie } from '../../../../lib/gestion/reintegrationContact';
 
 /**
  * ══ 🔴🔴 LOT ANNUAIRE-SYNDICS-ET-ENTETE-BIEN — LA FICHE SYNDIC (UN SEUL COMPOSANT, RÉUTILISABLE TEL QUEL) ═══════════
@@ -1739,7 +1741,21 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
     if (edition?.cle === cle) setEdition(null);
     setASupprimer(null);
   };
-  const valider = (e: EtatEdition): void => {
+  /**
+   * ══ 🔴🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — « RÉINTÉGRER » PLUTÔT QUE RECRÉER ══════════════
+   * Un NOUVEAU contact (syndic, ou habitant / gardien) qui porte le nom d'un ancien contact de CE cabinet (« ne travaille
+   * plus ici ») : AVANT la création, « M. X a travaillé ici jusqu'au JJ/MM/AAAA — Réintégrer cette personne ? ».
+   * « Réintégrer » remet la fiche existante en poste, ce qu'on venait de saisir lui étant proposé (`reintegrerAvecSaisie`) ;
+   * « Non, c'est une autre personne » crée le contact, comme avant, et ne repose plus la question pour cet ancien.
+   */
+  const [retour, setRetour] = useState<{ e: EtatEdition; ancien: AncienContact } | null>(null);
+  const [ecartes, setEcartes] = useState<number[]>([]);
+  const valider = (e: EtatEdition, ecarte: number | null = null): void => {
+    if (e.nouveau) {
+      const a = ancienDuMemeNom(form.anciens ?? [], e.brouillon, ecarte === null ? ecartes : [...ecartes, ecarte]);
+      if (a !== null) { setRetour({ e, ancien: a }); return; }
+    }
+    setRetour(null);
     setForm(appliquerBrouillon(form, e));
     if (e.nouveau && parImmeuble && (e.immeuble === true || suitImmeuble(e.brouillon, cleDepart as string))) marquerArrivee(e.cle);
     // Un contact existant revient OUVERT EN LECTURE ; un nouveau s'affiche REPLIÉ.
@@ -1875,8 +1891,23 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
    * ② « Nouveau contact », en sous-cadre : la création complète, inchangée (lot SYNDIC-AJOUT-CONTACT-CATALOGUE-OUVERT :
    *    depuis un bien, rattaché QU'À l'immeuble du bien, « Sera rattaché à : … » à la place des cases).
    */
+  const propositionRetour = retour !== null && edition !== null && retour.e.cle === edition.cle ? (
+    <div className="fsy-alerte fsy-confirmer fsy-retour" role="group" aria-label="Réintégrer cette personne ?">
+      <span>{motProposeReintegration(retour.ancien)}</span>
+      <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-mini-btn" onClick={() => {
+        /* Depuis le carnet de l'immeuble, la catégorie (« Gardien »…) n'est pas un titre de contact syndic : on la laisse. */
+        const saisie = retour.e.immeuble === true ? { ...retour.e.brouillon, titreChoix: '', titreLibre: '' } : retour.e.brouillon;
+        setForm(reintegrerAvecSaisie(form, retour.ancien.id, saisie, cleDepart));
+        setRetour(null); setEdition(null);
+      }}>Réintégrer</button>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => {
+        const a = retour.ancien.id; setEcartes([...ecartes, a]); valider(retour.e, a);
+      }}>Non, c’est une autre personne</button>
+    </div>
+  ) : null;
   const ajout = edition !== null && edition.nouveau && edition.immeuble !== true ? (
     <>
+      {propositionRetour}
       {avecCatalogue && (
         <div className="fsy-sous-cadre">
           <Catalogue contacts={catalogue} adresses={adresses} onSelectionner={selectionner} aDeplier={aDeplier} />
@@ -1974,6 +2005,7 @@ function useContacts({ form, setForm, onEcrire, ouverts, setOuverts, edition, se
   ) : null;
   const ajoutImmeuble = edition !== null && edition.nouveau && edition.immeuble === true ? (
     <div className="fsy-sous-cadre">
+      {propositionRetour}
       <ContactEnModification e={edition} origine={edition.depart ?? null} onEcrire={onEcrire} adresses={adresses}
         onChange={(b) => setEdition({ ...edition, brouillon: b })} immeuble={adresseImmeubleDuBien}
         onAnnuler={() => setEdition(null)} onValider={(p) => valider(p ? { ...edition, brouillon: { ...edition.brouillon, ...p } } : edition)} verifier={verifierImmeuble} />

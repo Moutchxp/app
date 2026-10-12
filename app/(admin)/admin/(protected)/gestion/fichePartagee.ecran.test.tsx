@@ -23,7 +23,10 @@ const FICHE = {
     { id: 6, cle: '25 rue edith cavell', libelle: '25 rue Edith Cavell', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: LOTS_CAVELL },
     { id: 7, cle: '15 rue carle hebert', libelle: '15 rue Carle Hebert', codePostal: '92400', commune: 'Courbevoie', debut: '2026-10-10', lots: LOTS_HEBERT },
   ],
-  historique: [], anciens: [],
+  historique: [],
+  /* LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — un ancien contact « ne travaille plus ici » (banc). */
+  anciens: [{ id: 9, titre: 'Comptable', prenom: 'Paul', nom: 'Loge', civilite: 'M.', partiLe: '2026-09-30 18:00:00+02',
+    coordonnees: [{ sorte: 'email', libelle: null, valeur: 'paul.ancien@banc.invalid' }] }],
 };
 const SYNDIC = { id: 11, nom: '_BANC Cabinet', ville: 'Paris' };
 const IMMEUBLES = [
@@ -153,10 +156,62 @@ describe('🔴🔴 PARTIE 2 — « Fiche partagée avec N autres biens » sur la
   it('la ligne discrète et sa bulle (adresse — lot), au focus comme au survol', async () => {
     await monter(1, '25 rue Edith Cavell');
     const mot = document.querySelector('.bsy-partage-mot') as HTMLElement;
-    expect(mot.textContent).toBe('Fiche partagée avec 2 autres biens');
+    /* 🔴 LOT PARTAGE-CABINET-IMMEUBLE — « … du cabinet, dont M dans cet immeuble », et la bulle en deux groupes. */
+    expect(mot.textContent).toBe('Fiche partagée avec 2 autres biens du cabinet, dont 1 dans cet immeuble');
     expect(document.querySelector('.bsy-partage-bulle')).toBeNull();
     await act(async () => { mot.focus(); });
-    expect([...document.querySelectorAll('.bsy-partage-bulle li')].map((l) => l.textContent))
-      .toEqual(['15 rue Carle Hebert — lot 373', '25 rue Edith Cavell — lot 220']);
+    expect([...document.querySelectorAll('.bsy-partage-groupe')].map((g) => [
+      g.querySelector('.bsy-partage-titre')?.textContent, [...g.querySelectorAll('li')].map((l) => l.textContent)]))
+      .toEqual([['Dans cet immeuble', ['25 rue Edith Cavell — lot 220']], ['Autres immeubles du cabinet', ['15 rue Carle Hebert — lot 373']]]);
+  });
+  it('un bien seul dans son immeuble : « aucun dans cet immeuble », un seul groupe', async () => {
+    await monter(3, '15 rue Carle Hebert');
+    expect(document.querySelector('.bsy-partage-mot')?.textContent).toBe('Fiche partagée avec 2 autres biens du cabinet, aucun dans cet immeuble');
+    await act(async () => { (document.querySelector('.bsy-partage-mot') as HTMLElement).click(); });
+    expect([...document.querySelectorAll('.bsy-partage-titre')].map((t) => t.textContent)).toEqual(['Autres immeubles du cabinet']);
+  });
+});
+
+describe('🔴🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — « Réintégrer » plutôt que recréer', () => {
+  const saisirNouveau = async (choix: string): Promise<HTMLElement> => {
+    await monter(1, '25 rue Edith Cavell');
+    await ouvrir();
+    await cliquer(bouton('+ Ajouter un contact'));
+    await cliquer(bouton(choix));
+    const edit = document.querySelector('.fsy-contact-edit') as HTMLElement;
+    const champ = (l: string) => [...edit.querySelectorAll('label')].find((x) => x.querySelector('span')?.textContent === l)?.querySelector('input') as HTMLInputElement;
+    if (choix.startsWith('Habitant')) await cliquer(bouton('Gardien', edit.querySelector('[aria-label="Catégorie"]') as Element));
+    await taper(champ('Prénom'), 'paul');
+    await taper(champ('Nom'), 'LOGÉ');
+    await cliquer(bouton('Valider', edit));
+    const pas = edit.querySelector('.svv-btn-primary');
+    if (pas?.textContent?.trim() === 'Valider quand même') await cliquer(pas);
+    return edit;
+  };
+  it('contact syndic : AVANT la création, la proposition ; « Réintégrer » remet la fiche #9 en poste (aucun nouveau contact)', async () => {
+    await saisirNouveau('Contact du syndic de copropriété');
+    const prop = document.querySelector('.fsy-retour');
+    expect(prop?.textContent).toContain('M. Paul LOGE a travaillé ici jusqu’au 30/09/2026 — Réintégrer cette personne ?');
+    await cliquer(bouton('Réintégrer', prop as Element));
+    expect(document.querySelector('.fsy-contact-edit')).toBeNull();
+    await cliquer(bouton('Valider', document.querySelector('.fsy-pied') as Element));
+    if (document.querySelector('.fsy-partage')) await cliquer(bouton('Enregistrer', document.querySelector('.fsy-partage') as Element));
+    const contacts = (puts[0]?.contacts ?? []) as Array<{ id: number | null; nom: string; reintegre?: boolean; immeubles: string[] }>;
+    expect(contacts.filter((c) => c.nom === 'Loge')).toEqual([expect.objectContaining({ id: 9, reintegre: true, immeubles: ['25 rue edith cavell'] })]);
+    expect(contacts.some((c) => c.id === null)).toBe(false);
+  });
+  it('« Non, c’est une autre personne » : le contact est créé, comme avant', async () => {
+    await saisirNouveau('Contact du syndic de copropriété');
+    await cliquer(bouton('Non, c’est une autre personne', document.querySelector('.fsy-retour') as Element));
+    expect(document.querySelector('.fsy-retour')).toBeNull();
+    await cliquer(bouton('Valider', document.querySelector('.fsy-pied') as Element));
+    if (document.querySelector('.fsy-partage')) await cliquer(bouton('Enregistrer', document.querySelector('.fsy-partage') as Element));
+    const contacts = (puts[0]?.contacts ?? []) as Array<{ id: number | null; nom: string; reintegre?: boolean }>;
+    expect(contacts.some((c) => c.id === null && c.nom.toLowerCase().startsWith('log'))).toBe(true);
+    expect(contacts.some((c) => c.id === 9)).toBe(false);
+  });
+  it('habitant / gardien : la même proposition, avant la création', async () => {
+    await saisirNouveau('Habitant / gardien de l’immeuble');
+    expect(document.querySelector('.fsy-retour')?.textContent).toContain('a travaillé ici jusqu’au 30/09/2026');
   });
 });

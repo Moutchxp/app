@@ -1,6 +1,7 @@
 import { query } from '../db/client';
 import { cleImmeuble, cleEmail, cleTelephone } from './syndics';
 import { sqlLiensDuBien } from './rattachement';
+import { ACTION_PERIODE_CONTACT, norme, periodesEnPoste } from './reintegrationContact';
 import { estAdresseInterne } from './adresseInterne';
 import {
   reconnaitreSyndical, roleCabinet, roleContactSyndic, roleImmeuble, syndicauxDesAdresses, type PersonneSyndicale, type SyndicalDeLAdresse,
@@ -78,14 +79,21 @@ export async function personnesSyndicalesDesBiens(lotCles: readonly string[]): P
         WHERE cs.copropriete_id = ANY($1::bigint[]) AND cs.fin IS NULL AND s.supprime_le IS NULL`, [toutes]),
     query<{
       copro: string; id: string; titre: string | null; civilite: string | null; prenom: string | null; nom: string | null;
-      parti_le: string | null; coordonnees: Array<{ sorte: string; valeur: string }> | null;
+      parti_le: string | null; coordonnees: Array<{ sorte: string; valeur: string; retire_le: string | null }> | null;
+      retours: Array<{ depart: string; retour: string }> | null;
     }>(
       `SELECT cs.copropriete_id::text AS copro, ct.id::text, ct.titre, ct.civilite, ct.prenom, ct.nom,
               ct.parti_le::text AS parti_le,
-              (SELECT json_agg(json_build_object('sorte', k.sorte, 'valeur', k.valeur))
+              (SELECT json_agg(json_build_object('depart', j.valeur_avant, 'retour', j.valeur_apres))
+                 FROM gestion_journal j
+                WHERE j.entite = 'annuaire' AND j.entite_id = ct.id AND j.action = '${ACTION_PERIODE_CONTACT}') AS retours,
+              (SELECT json_agg(json_build_object('sorte', k.sorte, 'valeur', k.valeur, 'retire_le', k.retire_le))
                  FROM gestion_syndic_coordonnee k
                 WHERE k.contact_id = ct.id
-                  AND (k.retire_le IS NULL OR (ct.parti_le IS NOT NULL AND k.retire_le = ct.parti_le))) AS coordonnees
+                  AND (k.retire_le IS NULL OR (ct.parti_le IS NOT NULL AND k.retire_le = ct.parti_le)
+                       OR k.retire_le IN (SELECT j.valeur_avant::timestamptz FROM gestion_journal j
+                                           WHERE j.entite = 'annuaire' AND j.entite_id = ct.id
+                                             AND j.action = '${ACTION_PERIODE_CONTACT}'))) AS coordonnees
          FROM gestion_copropriete_syndic cs
          JOIN gestion_syndic s ON s.id = cs.syndic_id AND s.supprime_le IS NULL
          JOIN gestion_syndic_contact ct ON ct.syndic_id = s.id AND ct.retire_le IS NULL
@@ -93,7 +101,10 @@ export async function personnesSyndicalesDesBiens(lotCles: readonly string[]): P
           AND (ct.tous_immeubles
                OR EXISTS (SELECT 1 FROM gestion_syndic_contact_copropriete a
                            WHERE a.contact_id = ct.id AND a.copropriete_id = cs.copropriete_id
-                             AND (a.retire_le IS NULL OR (ct.parti_le IS NOT NULL AND a.retire_le = ct.parti_le))))`,
+                             AND (a.retire_le IS NULL OR (ct.parti_le IS NOT NULL AND a.retire_le = ct.parti_le)
+                                  OR a.retire_le IN (SELECT j.valeur_avant::timestamptz FROM gestion_journal j
+                                                      WHERE j.entite = 'annuaire' AND j.entite_id = ct.id
+                                                        AND j.action = '${ACTION_PERIODE_CONTACT}'))))`,
       [toutes]),
     query<{
       copro: string; categorie: string; libelle: string | null; civilite: string | null; prenom: string | null;
@@ -129,11 +140,24 @@ export async function personnesSyndicalesDesBiens(lotCles: readonly string[]): P
     });
   }
   for (const c of contacts) {
-    poser(c.copro, {
-      sorte: 'contact_syndic', role: roleContactSyndic(c.titre), nom: nomDe(c.civilite, c.prenom, c.nom),
-      emails: coords(c.coordonnees, 'email'), telephones: coords(c.coordonnees, 'telephone'),
-      partiLe: c.parti_le,
-    });
+    const commun = { sorte: 'contact_syndic' as const, role: roleContactSyndic(c.titre), nom: nomDe(c.civilite, c.prenom, c.nom) };
+    if ((c.retours ?? []).length === 0) {
+      poser(c.copro, { ...commun, emails: coords(c.coordonnees, 'email'), telephones: coords(c.coordonnees, 'telephone'), partiLe: c.parti_le });
+      continue;
+    }
+    /**
+     * 🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — PARTI PUIS REVENU : UNE ENTRÉE PAR PÉRIODE, chacune avec
+     * les coordonnées QU'ELLE avait (retirées au départ qui la clôt ; en cours pour la dernière). Reconnue pendant
+     * chaque période en poste, pas entre les deux — et un ancien e-mail ne désigne pas la personne après son départ.
+     */
+    const periodes = periodesEnPoste(c.retours ?? [], c.parti_le);
+    const memeInstant = (a: string | null, b: string | null): boolean =>
+      a !== null && b !== null && Date.parse(norme(a)) === Date.parse(norme(b));
+    for (const per of periodes) {
+      const siennes = (c.coordonnees ?? []).filter((k) => (per.au === null ? k.retire_le === null : memeInstant(k.retire_le, per.au)));
+      poser(c.copro, { ...commun, emails: coords(siennes, 'email'), telephones: coords(siennes, 'telephone'),
+        partiLe: c.parti_le, periodes: [per] });
+    }
   }
   for (const c of immeuble) {
     poser(c.copro, {

@@ -2,6 +2,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { normaliserTexte } from './annuaire';
 import { enregistrerContactsImmeuble } from './contactsImmeubleRepo';
 import type { Auteur } from './gestes';
+import { ACTION_PERIODE_CONTACT } from './reintegrationContact';
 import {
   civiliteLue, cleEmail, cleNom, nomAvecVille, type ContactAilleurs,
   cleCoordonnee, cleTelephone, lignesDoublonCoordonnee, quiPorte, type Civilite, type CoordonneeConnue, type CoordonneeSaisie,
@@ -499,8 +500,9 @@ async function enregistrerNoteBien(q: RequeteTx, syndicId: number, lotId: number
 async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: SyndicSaisi, auteur: Auteur): Promise<void> {
   // LOT SYNDIC-CONTACT-PARTI — le catalogue = les contacts NI retirés NI partis ; les partis sont lus à part (pour une
   // réintégration) et ne sont jamais « retirés » parce qu'absents de la saisie.
-  const { rows: existants } = await q<{ id: string; parti: boolean }>(
-    `SELECT id::text, parti_le IS NOT NULL AS parti FROM gestion_syndic_contact WHERE syndic_id = $1 AND retire_le IS NULL FOR UPDATE`, [syndicId]);
+  const { rows: existants } = await q<{ id: string; parti: boolean; parti_le: string | null }>(
+    `SELECT id::text, parti_le::text AS parti_le, parti_le IS NOT NULL AS parti FROM gestion_syndic_contact WHERE syndic_id = $1 AND retire_le IS NULL FOR UPDATE`, [syndicId]);
+  const departDe = new Map(existants.map((r) => [Number(r.id), r.parti_le]));
   const ids = new Set(existants.filter((r) => !r.parti).map((r) => Number(r.id)));
   const partis = new Set(existants.filter((r) => r.parti).map((r) => Number(r.id)));
   const gardes = new Set<number>();
@@ -525,6 +527,16 @@ async function enregistrerContacts(q: RequeteTx, syndicId: number, saisie: Syndi
       // revient SANS copropriété ; ses coordonnées sont RECRÉÉES plus bas (les anciennes lignes restent en historique).
       contactId = c.id;
       gardes.add(contactId);
+      /* 🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — la période terminée est GARDÉE (départ → retour),
+         au journal (ajout seul), AVANT d'effacer `parti_le` : période 1 jusqu'au départ, période 2 depuis le retour. */
+      const depart = departDe.get(contactId) ?? null;
+      if (depart != null) {
+        await q(
+          `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_id, auteur_libelle)
+           VALUES ('annuaire', $1, '${ACTION_PERIODE_CONTACT}', $2, now()::text, $3, $4, $5)`,
+          [contactId, depart, 'contact syndic réintégré : période en poste terminée au départ, nouvelle période depuis le retour',
+            auteur.id, auteur.libelle]);
+      }
       await q(
         `UPDATE gestion_syndic_contact SET parti_le = NULL, parti_par = NULL, parti_par_libelle = NULL,
                 reintegre_le = now(), reintegre_par_libelle = $2 WHERE id = $1`, [contactId, auteur.libelle]);

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  biensDeLaCopropriete, biensDuCabinet, biensPartagesDuCabinet, ligneBienPartage, motAvertissementPartage,
+  biensDeLaCopropriete, biensDuCabinet, biensPartagesDuCabinet, biensPartagesParGroupe, ligneBienPartage, motAvertissementPartage,
   motConfirmationRattachement, motFichePartagee, niveauxModifies,
 } from './partageSyndic';
 import { versFormulaire, type FicheSyndic, type ImmeubleConnu } from './syndics';
@@ -42,9 +42,22 @@ describe('🔴 RÈGLE 1 — le CABINET : une fiche, commune à tous ses biens, q
     ] as ImmeubleConnu[];
     const b = biensPartagesDuCabinet(IM, 11, 1);
     expect(b.map(ligneBienPartage)).toEqual(['15 rue Carle Hebert — lot 373', '25 bis rue Edith Cavell — lot 990', '25 rue Edith Cavell — lot 220']);
-    expect(motFichePartagee(b.length)).toBe('Fiche partagée avec 3 autres biens');
-    expect(motFichePartagee(1)).toBe('Fiche partagée avec 1 autre bien');
-    expect(motFichePartagee(0)).toBeNull();
+    /* 🔴 LOT PARTAGE-CABINET-IMMEUBLE — les deux groupes : « Dans cet immeuble » (adresse secondaire comprise), puis
+       « Autres immeubles du cabinet ». */
+    const g = biensPartagesParGroupe(IM, 11, 1, '25 rue edith cavell');
+    expect(g.immeuble.map(ligneBienPartage)).toEqual(['25 bis rue Edith Cavell — lot 990', '25 rue Edith Cavell — lot 220']);
+    expect(g.autres.map(ligneBienPartage)).toEqual(['15 rue Carle Hebert — lot 373']);
+    /* Depuis l'adresse SECONDAIRE, le même immeuble. */
+    expect(biensPartagesParGroupe(IM, 11, 9, '25 bis rue edith cavell').immeuble.map((x) => x.numero)).toEqual(['219', '220']);
+    expect(biensPartagesParGroupe(IM, 11, 3, '15 rue carle hebert').immeuble).toEqual([]);
+  });
+  it('🔴 LOT PARTAGE-CABINET-IMMEUBLE — « … du cabinet, dont M dans cet immeuble », accords compris', () => {
+    expect(motFichePartagee(3, 2)).toBe('Fiche partagée avec 3 autres biens du cabinet, dont 2 dans cet immeuble');
+    expect(motFichePartagee(3, 1)).toBe('Fiche partagée avec 3 autres biens du cabinet, dont 1 dans cet immeuble');
+    expect(motFichePartagee(2, 0)).toBe('Fiche partagée avec 2 autres biens du cabinet, aucun dans cet immeuble');
+    expect(motFichePartagee(1, 1)).toBe('Fiche partagée avec 1 autre bien du cabinet, dont 1 dans cet immeuble');
+    expect(motFichePartagee(1)).toBe('Fiche partagée avec 1 autre bien du cabinet, aucun dans cet immeuble');
+    expect(motFichePartagee(0, 0)).toBeNull();
   });
 });
 

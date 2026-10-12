@@ -1,4 +1,5 @@
 import { cleEmail, cleTelephone, type CategorieImmeuble } from './syndics';
+import { enPosteLe, type PeriodeEnPoste } from './reintegrationContact';
 
 /**
  * ══ 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — QUI, PARMI LES PARTIES D'UN BIEN, EST LE SYNDIC OU UNE PERSONNE DE L'IMMEUBLE ══
@@ -40,6 +41,11 @@ export interface PersonneSyndicale {
   telephones: readonly string[];
   /** « Ne travaille plus ici » : la date du départ, ou `null`. */
   partiLe: string | null;
+  /**
+   * 🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — les périodes en poste, quand la personne est partie puis
+   * revenue (« Réintégrer ») : reconnue pendant CHAQUE période, pas entre les deux. Absent : `partiLe` seul fait foi.
+   */
+  periodes?: PeriodeEnPoste[];
 }
 
 /** Ce que la reconnaissance rend : le rôle, la personne, et par quoi on l'a reconnue. */
@@ -50,6 +56,8 @@ export interface RoleSyndical {
   par: 'email' | 'telephone';
   /** Le départ de la personne reconnue (« Ne travaille plus ici »), ou `null`. */
   partiLe: string | null;
+  /** Ses périodes en poste, quand elle est partie puis revenue. */
+  periodes?: PeriodeEnPoste[];
 }
 
 /** Le titre de la famille, au mot près (légende, groupe du bloc PARTIES, bulles). */
@@ -90,6 +98,7 @@ const ORDRE: Record<PersonneSyndicale['sorte'], number> = { contact_syndic: 0, i
 
 /** La personne compte-t-elle encore à cette date ? `date` nulle = aujourd'hui (un mail qu'on écrit). */
 function presente(p: PersonneSyndicale, date: string | null): boolean {
+  if (p.periodes !== undefined && p.periodes.length > 0) return enPosteLe(p.periodes, date);
   if (p.partiLe === null) return true;
   if (date === null) return false;
   const d = Date.parse(date);
@@ -111,16 +120,17 @@ export function reconnaitreSyndical(
      qu'un ancien contact avait noté, désigne qui est là) ; puis le contact du syndic, l'immeuble, le cabinet. */
   const vivantes = personnes.filter((p) => presente(p, date))
     .sort((a, b) => Number(a.partiLe !== null) - Number(b.partiLe !== null) || ORDRE[a.sorte] - ORDRE[b.sorte]);
+  /* (Une personne revenue a `partiLe` nul : elle est EN POSTE aujourd'hui, et compte comme telle.) */
   const e = cleEmail(qui.email ?? '');
   if (e !== '') {
     const p = vivantes.find((x) => x.emails.includes(e));
-    if (p !== undefined) return { role: p.role, nom: p.nom, sorte: p.sorte, par: 'email', partiLe: p.partiLe };
+    if (p !== undefined) return { role: p.role, nom: p.nom, sorte: p.sorte, par: 'email', partiLe: p.partiLe, ...(p.periodes ? { periodes: p.periodes } : {}) };
   }
   const t = cleTelephone(qui.telephone ?? '');
   /* Un numéro trop court (un poste, une extension) ne désigne personne. */
   if (t.length >= 9) {
     const p = vivantes.find((x) => x.telephones.includes(t));
-    if (p !== undefined) return { role: p.role, nom: p.nom, sorte: p.sorte, par: 'telephone', partiLe: p.partiLe };
+    if (p !== undefined) return { role: p.role, nom: p.nom, sorte: p.sorte, par: 'telephone', partiLe: p.partiLe, ...(p.periodes ? { periodes: p.periodes } : {}) };
   }
   return null;
 }
@@ -150,6 +160,8 @@ export interface SyndicalDeLAdresse {
   role: string;
   nom: string;
   partiLe: string | null;
+  /** 🔴 LOT PARTAGE-CABINET-IMMEUBLE-ET-FUSION-CONTACTS-RETOUR — partie puis revenue : ses périodes en poste. */
+  periodes?: PeriodeEnPoste[];
 }
 
 /** adresse (minuscules) → ce que la fiche syndic en dit. */
@@ -157,7 +169,9 @@ export type SyndicauxDuBien = ReadonlyMap<string, SyndicalDeLAdresse>;
 
 /** L'adresse désigne-t-elle encore le syndic à cette date ? Sans date : oui (lecture « à l'adresse »). */
 export function syndicalALaDate(s: SyndicalDeLAdresse, date?: string | null): boolean {
-  if (s.partiLe === null || date === undefined) return true;
+  if (date === undefined) return true;
+  if (s.periodes !== undefined && s.periodes.length > 0) return enPosteLe(s.periodes, date);
+  if (s.partiLe === null) return true;
   if (date === null) return false;
   const d = Date.parse(date);
   const parti = Date.parse(s.partiLe);
@@ -204,9 +218,12 @@ export function syndicauxDepuisJson(v: unknown): SyndicauxDuBien {
   if (!Array.isArray(v)) return m;
   for (const x of v as Array<Record<string, unknown>>) {
     if (typeof x?.adresse !== 'string' || typeof x.role !== 'string') continue;
+    const periodes = Array.isArray(x.periodes) ? (x.periodes as Array<Record<string, unknown>>)
+      .map((q) => ({ du: typeof q?.du === 'string' ? q.du : null, au: typeof q?.au === 'string' ? q.au : null })) : undefined;
     m.set(x.adresse.trim().toLowerCase(), {
       role: x.role, nom: typeof x.nom === 'string' ? x.nom : '',
       partiLe: typeof x.partiLe === 'string' ? x.partiLe : null,
+      ...(periodes !== undefined && periodes.length > 0 ? { periodes } : {}),
     });
   }
   return m;
@@ -226,7 +243,8 @@ export function syndicauxDesAdresses(
   for (const a of adresses) {
     const r = reconnaitreSyndical(personnes, { email: a.adresse, telephone: a.telephone ?? null }, a.premierMail);
     if (r === null) continue;
-    out.push({ adresse: a.adresse.trim().toLowerCase(), role: r.role, nom: r.nom, partiLe: r.partiLe });
+    out.push({ adresse: a.adresse.trim().toLowerCase(), role: r.role, nom: r.nom, partiLe: r.partiLe,
+      ...(r.periodes ? { periodes: r.periodes } : {}) });
   }
   return out;
 }
