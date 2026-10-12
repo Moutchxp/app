@@ -72,10 +72,12 @@ import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
 /* 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la portée en quatre positions (module PUR) et sa glissière. */
 import {
-  definitionDe, modificationEnCours, motApresValidation, motBoutonFinal, motConfirmationConversation,
+  definitionDe, modificationEnCours, motApresValidation, motConfirmationConversation,
   MOT_CONFIRMER_CONVERSATION, QUESTION_RETOUR_ORIGINE, type PositionPortee,
   /* 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — le premier classement d'un mail (module PUR). */
   AUCUN_BIEN_SUIVI, glissiereOuverte, morceauxDefinitionPortee, porteeArbitre, positionAffichee,
+  /* 🔴🔴 LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — le bouton de la portée (module PUR). */
+  etatBoutonPortee,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
 import {
@@ -437,6 +439,14 @@ export function RattachementsDuFil({
    */
   /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — `null` = personne n'a touché la glissière (le DÉFAUT, voir `positionAffichee`). */
   const [positionVoulue, setPosition] = useState<PositionPortee | null>(null);
+  /* 🔴 LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — l'appel vers les blocs de biens (bouton blanc), quelques instants.
+     ⚠️ DÉCLARÉ ICI, AVEC LES AUTRES ÉTATS : plus bas, la fenêtre Drive rend avant, et l'ordre des hooks casserait. */
+  const [appel, setAppel] = useState(0);
+  useEffect(() => {
+    if (appel === 0) return undefined;
+    const t = setTimeout(() => setAppel(0), 1400);
+    return () => clearTimeout(t);
+  }, [appel]);
   const [demandeOrigine, setDemandeOrigine] = useState(false);
   const [cleMenu, setCleMenu] = useState(0);
   const [choixFait, setChoixFait] = useState<ChoixSuivi>('mail');
@@ -1081,8 +1091,24 @@ export function RattachementsDuFil({
     setConfirme(false);
     setPosition('origine');
   };
+  /**
+   * ══ 🔴🔴 LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — LE BOUTON SUIT LA GLISSIÈRE ET LES CASES, EN DIRECT ══════
+   * Calculé au rendu par le module PUR (`etatBoutonPortee`) : aucun bien coché au premier rattachement, hors « Origine »,
+   * ⇒ « Sélectionner minimum un bien », blanc et inactif ; son clic n'écrit rien, il APPELLE l'œil vers les blocs de
+   * biens (un bref liseré, qui se tait sous `prefers-reduced-motion`).
+   */
+  const nbCoches = new Set(selection ?? clesDuMail).size;
+  const bouton = etatBoutonPortee({ premier, position, modification, nbCoches });
+  const appelerLesBiens = (): void => {
+    setAppel(Date.now());
+    const bloc = document.querySelector<HTMLElement>('.rdf .rdf-suivis, .rdf .rec-carte');
+    /* ⚠️ `scrollIntoView` peut manquer (environnement sans mise en page) : l'appel reste visuel, sans défilement. */
+    if (bloc !== null && typeof bloc.scrollIntoView === 'function') bloc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
   const validerLaPortee = (): void => {
-    if (!modification) { onFerme(); return; }
+    if (bouton.inactif) { appelerLesBiens(); return; }
+    /* « Origine » n'écrit jamais rien : au premier rattachement, le mail reste « À classer », biens cochés ou non. */
+    if (!modification || position === 'origine') { onFerme(); return; }
     const choix = definitionDe(position).choix;
     if (choix === null || (position === 'conversation' && !confirme)) return;
     const voulus = (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle }));
@@ -1130,11 +1156,14 @@ export function RattachementsDuFil({
           </label>
         </div>
       )}
-      <button type="button" className="svv-btn svv-btn-primary gst-btn rdf-valider-portee"
+      <button type="button"
+        className={`svv-btn gst-btn rdf-valider-portee ${bouton.aspect === 'vide' ? 'svv-btn-outline rdf-valider-portee--vide' : 'svv-btn-primary'}`}
         disabled={occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
+        aria-disabled={bouton.inactif ? true : undefined}
         onClick={validerLaPortee}>
-        {motBoutonFinal(modification)}
+        {bouton.mot}
       </button>
+      {bouton.mention !== null && <p className="rdf-valider-mention" role="note">{bouton.mention}</p>}
     </div>
   );
 
@@ -1149,7 +1178,7 @@ export function RattachementsDuFil({
       <style>{CSS_BLOC_EVENEMENT}</style>
       {ponctuel && <style>{CSS_LISTE_BIENS}</style>}
       {ponctuel && <style>{CSS_INFO_BIEN}</style>}
-      <div className={`mrt rdf${ponctuel ? ' rdf--ponctuel' : ''}`} role="dialog" aria-modal="true" aria-labelledby="rdf-titre"
+      <div className={`mrt rdf${ponctuel ? ' rdf--ponctuel' : ''}${appel !== 0 ? ' rdf--appel' : ''}`} role="dialog" aria-modal="true" aria-labelledby="rdf-titre"
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } }}>
         {/* 🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — LA CROIX : fermer sans rien écrire, c'est revenir à
             « Origine » (Arno). Elle ne fait QUE fermer : aucune requête ne part par elle. */}
@@ -2359,6 +2388,17 @@ export const CSS_RATTACHEMENTS_FIL = `
   background:var(--color-svv-amber-soft)}
 .rdf-portee-question-mot{margin:0;font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
 .rdf-valider-portee{width:100%;justify-content:center;min-height:48px;font-size:.95rem;font-weight:700}
+/* LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — le bouton BLANC (contour et texte rouges) : « Selectionner minimum
+   un bien ». Inactif sans etre grise : il doit se lire, en Clair comme en Sombre. */
+.rdf-valider-portee.rdf-valider-portee--vide{background:var(--color-svv-surface);color:var(--color-svv-red);
+  border:2px solid var(--color-svv-red);box-shadow:none;cursor:default}
+.rdf-valider-portee.rdf-valider-portee--vide:hover{background:var(--color-svv-surface);color:var(--color-svv-red)}
+.rdf-valider-mention{margin:-2px 0 0;font-size:.78rem;font-style:italic;color:var(--color-svv-muted);text-align:center}
+/* L'appel vers les blocs de biens : un bref liseré rouge, deux fois. */
+@keyframes rdf-appel{0%,100%{box-shadow:0 0 0 0 transparent}50%{box-shadow:0 0 0 3px var(--color-svv-red)}}
+.rdf--appel .rdf-suivis,.rdf--appel .rec-carte{animation:rdf-appel .6s ease-in-out 2}
+@media (prefers-reduced-motion: reduce){.rdf--appel .rdf-suivis,.rdf--appel .rec-carte{animation:none;
+  outline:2px solid var(--color-svv-red);outline-offset:2px}}
 .rdf-croix{position:absolute;top:8px;right:8px;display:inline-flex;align-items:center;justify-content:center;
   min-width:36px;min-height:36px;padding:0;font:inherit;font-size:1.4rem;line-height:1;color:var(--color-svv-muted);
   background:transparent;border:0;border-radius:50%;cursor:pointer}

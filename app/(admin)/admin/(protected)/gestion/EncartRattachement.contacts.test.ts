@@ -250,7 +250,8 @@ const validerLeBien = async () => {
   expect(etape1Ouverte()).toBe(true);
   await act(async () => { caseDuBien().click(); });
   await calmer();
-  await cliquer(MOT_VALIDER_MODIFICATION);
+  /* 🔴 LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — au premier rattachement, le bouton dit la portée. */
+  await cliquer('Valider le rattachement');
 };
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -328,7 +329,7 @@ describe('🔴🔴 ② expéditeur inconnu : l’étape 2 s’ouvre, et rien n�
     await calmer();
     await act(async () => { position('One shot').click(); });
     await calmer();
-    await cliquer(MOT_VALIDER_MODIFICATION);
+    await cliquer('Valider le rattachement one shot');
     expect(etape2Ouverte()).toBe(true);
 
     await cliquer('← Retour');
@@ -384,7 +385,7 @@ describe('🔴🔴 ② expéditeur inconnu : l’étape 2 s’ouvre, et rien n�
     await calmer();
     await act(async () => { position('One shot').click(); });
     await calmer();
-    await cliquer(MOT_VALIDER_MODIFICATION);
+    await cliquer('Valider le rattachement one shot');
     await act(async () => { caseDe('THAI Cécile').click(); });
     await calmer();
     await cliquer('Valider');
@@ -548,6 +549,53 @@ describe('🔴🔴 ⑧ mail jamais classé : « Ce mail + futurs échanges » d�
     await act(async () => { position('Origine').click(); });
     await calmer();
     expect(texte()).toContain(DEFINITION_ORIGINE_PREMIER);
+    await cliquer('Valider le maintien du suivi actuel');
+    expect(ecritures()).toHaveLength(0);
+    expect(etape1Ouverte()).toBe(false);
+  });
+
+  it('🔴🔴 aucun bien coché hors « Origine » : bouton BLANC « Sélectionner minimum un bien », inactif, qui appelle l’œil', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    const b = bouton('Sélectionner minimum un bien');
+    expect(b?.className).toContain('rdf-valider-portee--vide');
+    expect(b?.getAttribute('aria-disabled')).toBe('true');
+    await cliquer('Sélectionner minimum un bien');
+    expect(ecritures()).toHaveLength(0);
+    expect(etape1Ouverte()).toBe(true);
+    expect(container.querySelector('.rdf--appel')).not.toBeNull();
+  });
+
+  it('🔴🔴 le bouton suit en direct : un bien coché, puis chaque position', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(bouton('Valider le rattachement de fond')?.className).toContain('svv-btn-primary');
+    await act(async () => { position('One shot').click(); });
+    await calmer();
+    expect(bouton('Valider le rattachement one shot')).toBeDefined();
+    await act(async () => { position('Toute la conversation').click(); });
+    await calmer();
+    expect(bouton('Valider le rattachement toute la conversation')).toBeDefined();
+    // Décocher : retour au bouton blanc.
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(bouton('Sélectionner minimum un bien')).toBeDefined();
+  });
+
+  it('🔴🔴 « Origine » avec un bien coché : la mention, et valider laisse le mail à classer (rien n’est écrit)', async () => {
+    jamaisRattachee();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { position('Origine').click(); });
+    await calmer();
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(positionChoisie()).toContain('Origine');
+    expect(texte()).toContain('Les biens cochés ne seront pas rattachés en position Origine.');
     await cliquer('Valider le maintien du suivi actuel');
     expect(ecritures()).toHaveLength(0);
     expect(etape1Ouverte()).toBe(false);

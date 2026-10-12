@@ -72,9 +72,9 @@ describe('🔴🔴 la glissière au premier classement (mail jamais classé)', (
     expect(positionAffichee(null, true, true)).toBe('suite');
   });
 
-  it('🔴 « Origine » choisie reste « Origine » tant que rien n’est coché ; un bien coché reprend le défaut', () => {
+  it('🔴 la position choisie est gardée, « Origine » comprise, biens cochés ou non (lot BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT)', () => {
     expect(positionAffichee('origine', false, true)).toBe('origine');
-    expect(positionAffichee('origine', true, true)).toBe('suite');
+    expect(positionAffichee('origine', true, true)).toBe('origine');
     expect(positionAffichee('one_shot', true, true)).toBe('one_shot');
   });
 

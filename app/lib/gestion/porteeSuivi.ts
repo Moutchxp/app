@@ -131,9 +131,9 @@ export function positionAffichee(
   voulue: PositionPortee | null, modification: boolean, premier: boolean,
 ): PositionPortee {
   if (!premier) return positionSuivante(voulue ?? 'origine', modification);
-  const p = voulue ?? 'suite';
-  /* « Origine » choisie à la main puis un bien coché : on reprend le défaut du premier classement. */
-  return modification && p === 'origine' ? 'suite' : p;
+  /* 🔴 LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — la position choisie est GARDÉE, même « Origine » avec des biens
+     cochés : le bouton le dit (« Les biens cochés ne seront pas rattachés en position Origine. »). */
+  return voulue ?? 'suite';
 }
 
 /** Au premier classement, les quatre positions se choisissent d'emblée (rien n'est écrit sans un bien coché). PUR. */
@@ -162,6 +162,53 @@ export function morceauxDefinitionPortee(
 ): { texte: string; fort: boolean }[] {
   if (premier && p === 'origine') return [{ texte: DEFINITION_ORIGINE_PREMIER, fort: false }];
   return morceauxDefinition(p, nbCoches);
+}
+
+/**
+ * ══ 🔴🔴 LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — LE BOUTON DU BLOC « PORTÉE DU SUIVI » ═══════════════════
+ *
+ * RÈGLE D'ARNO (12/10/2026), pour un PREMIER rattachement (mail jamais classé) :
+ *   ① aucun bien coché, glissière sur One shot / Ce mail + futurs échanges / Toute la conversation : bouton BLANC à
+ *      contour et texte rouges, « Sélectionner minimum un bien », INACTIF (le clic n'écrit rien, il appelle l'œil
+ *      vers les blocs de biens) ;
+ *   ② au moins un bien coché : bouton PLEIN rouge, libellé selon la position ;
+ *   ③ « Origine » : plein rouge, « Valider le maintien du suivi actuel », biens cochés ou non — le mail reste « À
+ *      classer » ; avec des biens cochés, une mention discrète le dit sous le bouton.
+ *
+ * 🔴 POUR UNE MODIFICATION (mail déjà classé), RIEN NE CHANGE : décocher tous les biens EST le geste existant qui
+ * retire ce mail du suivi de ses biens (« sorti du suivi », restaurable) — c'est par lui qu'on passe de « Rattaché »
+ * à « Interne ». Le bouton blanc ne s'y applique donc jamais : les libellés de modification sont gardés. PUR.
+ */
+export const MOT_SELECTIONNER_UN_BIEN = 'Sélectionner minimum un bien';
+export const MENTION_ORIGINE_BIENS_COCHES = 'Les biens cochés ne seront pas rattachés en position Origine.';
+export const MOTS_VALIDER_PREMIER: Readonly<Record<Exclude<PositionPortee, 'origine'>, string>> = {
+  one_shot: 'Valider le rattachement one shot',
+  suite: 'Valider le rattachement de fond',
+  conversation: 'Valider le rattachement toute la conversation',
+};
+
+export interface EtatBoutonPortee {
+  mot: string;
+  /** `plein` : rouge, texte blanc ; `vide` : blanc, contour et texte rouges. */
+  aspect: 'plein' | 'vide';
+  /** Inactif : le clic n'écrit rien (il appelle l'œil vers les biens). */
+  inactif: boolean;
+  /** La mention discrète sous le bouton, ou `null`. */
+  mention: string | null;
+}
+
+export function etatBoutonPortee(o: {
+  premier: boolean; position: PositionPortee; modification: boolean; nbCoches: number;
+}): EtatBoutonPortee {
+  if (!o.premier) return { mot: motBoutonFinal(o.modification), aspect: 'plein', inactif: false, mention: null };
+  if (o.position === 'origine') {
+    return {
+      mot: MOT_VALIDER_MAINTIEN, aspect: 'plein', inactif: false,
+      mention: o.nbCoches > 0 ? MENTION_ORIGINE_BIENS_COCHES : null,
+    };
+  }
+  if (o.nbCoches === 0) return { mot: MOT_SELECTIONNER_UN_BIEN, aspect: 'vide', inactif: true, mention: null };
+  return { mot: MOTS_VALIDER_PREMIER[o.position], aspect: 'plein', inactif: false, mention: null };
 }
 
 export const MOT_VALIDER_MAINTIEN = 'Valider le maintien du suivi actuel';
