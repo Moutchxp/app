@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   ANCIENS_PROPOSES, choixModifie, choixParDefaut, concernesDepuisJson, ligneConcernes, optionsDuBien, phraseRattachement,
-  tonConcerne, type Concerne,
+  tonConcerne, type Concerne, recapRattachement, basculerConcerne,
 } from './locatairesEvenement';
 
 /**
@@ -127,5 +127,20 @@ describe('🔒 la base : migration d’AJOUT, écriture seulement sur un choix m
     expect(pur).toContain('...(modifie ? { concernes: v.concernes?.choix ?? [] } : {}),');
     /* La table des parties (268) n'est jamais réécrite pour les événements existants. */
     expect(readFileSync('app/lib/gestion/evenementConcerneRepo.ts', 'utf8')).not.toContain('gestion_evenement_partie');
+  });
+});
+
+describe('🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — le récapitulatif', () => {
+  const o = optionsDuBien(OCC_LOUE, AUJ);
+  it('biens · propriétaire · locataires, avec les accords', () => {
+    expect(recapRattachement(['A — lot 1'], ['P'], o.actuels)).toBe('Sera rattaché à : A — lot 1 · propriétaire P · locataire TALHOUARN Valentin');
+    expect(recapRattachement(['A — lot 1'], ['P', 'Q'], [...o.actuels, ...o.anciens]))
+      .toBe('Sera rattaché à : A — lot 1 · propriétaires P, Q · locataire TALHOUARN Valentin · anciens locataires LEON GUIMAREY DI FIORE Isabella et Hugo, MOUDNI Imane');
+    expect(recapRattachement(['A — lot 1'], [], [])).toBe('Sera rattaché à : A — lot 1 · propriétaire · aucun locataire');
+  });
+  it('basculer ajoute ou retire, sans doublon', () => {
+    const un = basculerConcerne([], o.actuels[0]);
+    expect(un).toHaveLength(1);
+    expect(basculerConcerne(un, o.actuels[0])).toEqual([]);
   });
 });

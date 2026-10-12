@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { LocatairesConcernes, type ChoixConcernes } from './LocatairesConcernes';
+import { CapsuleEvenement, CSS_CAPSULE_EVENEMENT } from './CapsuleEvenement';
 import { phraseRattachement } from '../../../../lib/gestion/locatairesEvenement';
 import { ChoisirEvenement } from './ChoisirEvenement';
 /**
@@ -343,6 +344,7 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
 export function ChampsEvenement({
   titre, onTitre, categorie, onCategorie, urgence, onUrgence, qualifieDisponible, libellesDesBiens,
   ouvertLe, onOuvertLe, closLe, onClosLe, note, onNote, bienCles, concernes = null, onConcernes,
+  enBlocs = false, proprietaires = [], jourReference = null, mentionPremierMail = false,
 }: {
   titre: string;
   onTitre: (v: string) => void;
@@ -380,9 +382,102 @@ export function ChampsEvenement({
   bienCles?: readonly string[];
   concernes?: ChoixConcernes | null;
   onConcernes?: (c: ChoixConcernes | null) => void;
+  /**
+   * 🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — LES MÊMES CHAMPS, RANGÉS EN BLOCS (fenêtre « Événement de ce
+   * mail ») : ① ÉVÉNEMENT (titre, dates), ② QUALIFICATION (catégorie, urgence, aperçu de la capsule), ③ PARTIES
+   * CONCERNÉES, ④ NOTE. Aucun champ retiré ni ajouté : seul l'ordre et les cadres changent. Absent ⇒ la mise en
+   * page d'avant (encart du mail, fenêtre des biens par la conversation ou la boîte).
+   */
+  enBlocs?: boolean;
+  /** Les propriétaires du bien, pour la ligne « Propriétaire » du bloc des parties. */
+  proprietaires?: readonly string[];
+  /** Le jour de référence des locataires actuels (la date du mail), `null` = aujourd'hui. */
+  jourReference?: string | null;
+  /** « Ce mail sera le premier mail de l'événement. » sous les dates (fenêtre « Événement de ce mail »). */
+  mentionPremierMail?: boolean;
 }) {
   /* 🔴 LE REFUS EST DIT ICI, SOUS LES DEUX CHAMPS QU'IL CONCERNE — et c'est le module PUR qui le formule. */
   const refus = bornesEvenement(ouvertLe, closLe).refus;
+  const parties = bienCles !== undefined && bienCles.length > 0 && onConcernes !== undefined ? (
+    <LocatairesConcernes bienCles={bienCles} libellesDesBiens={libellesDesBiens} valeur={concernes} onChange={onConcernes}
+      proprietaires={proprietaires} jour={jourReference} />
+  ) : (
+    <p className="bev-note">{phraseRattachement(libellesDesBiens, null)}</p>
+  );
+  if (enBlocs) {
+    return (
+      <>
+        <style>{CSS_CAPSULE_EVENEMENT}</style>
+        <section className="bev-bloc" aria-labelledby="bev-bloc-evt">
+          <p className="bev-bloc-titre" id="bev-bloc-evt">Événement</p>
+          <label className="bev-champ">
+            <span className="bev-label">Titre</span>
+            <input className="bev-saisie" value={titre} onChange={(e) => onTitre(e.target.value)}
+              placeholder="Ce dont il s’agit, en une ligne" />
+          </label>
+          <div className="bev-deux">
+            <label className="bev-champ">
+              <span className="bev-label">Date d’ouverture</span>
+              <input className="bev-saisie" type="date" value={ouvertLe} onChange={(e) => onOuvertLe(e.target.value)} />
+            </label>
+            <label className="bev-champ">
+              <span className="bev-label">Date de clôture (facultative)</span>
+              <input className="bev-saisie" type="date" value={closLe} onChange={(e) => onClosLe(e.target.value)} />
+            </label>
+          </div>
+          {closLe.trim() !== '' && refus === null && (
+            <p className="bev-note">La carte sera créée déjà CLÔTURÉE à cette date.</p>
+          )}
+          {refus !== null && <p className="bev-refus" role="alert">{refus}</p>}
+          {mentionPremierMail && <p className="bev-note bev-discret">Ce mail sera le premier mail de l’événement.</p>}
+        </section>
+        <section className="bev-bloc" aria-labelledby="bev-bloc-qualif">
+          <p className="bev-bloc-titre" id="bev-bloc-qualif">Qualification</p>
+          {qualifieDisponible ? (
+            <>
+              <div className="bev-deux">
+                <label className="bev-champ">
+                  <span className="bev-label">Catégorie</span>
+                  <select className="bev-saisie" value={categorie} onChange={(e) => onCategorie(e.target.value)}>
+                    <option value="">non précisée</option>
+                    {TYPES_EVENEMENT.map((t) => <option key={t.cle} value={t.cle}>{t.mot}</option>)}
+                  </select>
+                </label>
+                <label className="bev-champ">
+                  <span className="bev-label">Urgence</span>
+                  <select className="bev-saisie" value={urgence} onChange={(e) => onUrgence(e.target.value)}>
+                    <option value="">non précisée</option>
+                    {NIVEAUX_URGENCE.map((n) => <option key={n.cle} value={n.cle}>{n.mot}</option>)}
+                  </select>
+                </label>
+              </div>
+              {/* L'aperçu, en direct : la capsule que l'événement portera (type + trame d'urgence, lot f47dcafb). */}
+              <p className="bev-apercu">
+                <span className="bev-label">Aperçu</span>
+                <CapsuleEvenement e={{ reference: 'Nouvel événement', objet: titre.trim() || '(sans titre)', ouvert: true,
+                  categorie: categorie === '' ? null : categorie, urgence: urgence === '' ? null : urgence }} />
+              </p>
+            </>
+          ) : (
+            <p className="bev-note">
+              Catégorie et urgence ne sont pas encore installées sur cette base (mise à jour 268 à appliquer).
+            </p>
+          )}
+        </section>
+        {parties}
+        <section className="bev-bloc" aria-labelledby="bev-bloc-note">
+          <p className="bev-bloc-titre" id="bev-bloc-note">Note</p>
+          <label className="bev-champ">
+            <span className="bev-label">Note (facultative)</span>
+            <textarea className="bev-saisie bev-note-saisie" value={note} rows={3}
+              maxLength={NOTE_EVENEMENT_MAX}
+              onChange={(e) => onNote(e.target.value)}
+              placeholder="Ce qu’il faut savoir pour reprendre ce dossier" />
+          </label>
+        </section>
+      </>
+    );
+  }
   return (
     <>
       <label className="bev-champ">
@@ -458,11 +553,9 @@ export function ChampsEvenement({
 
       {/* 🔴 CE À QUOI LA CARTE SERA RATTACHÉE, DIT AVANT DE VALIDER — et, depuis le lot MARGES-MODALE-ET-LOCATAIRES-DE-
           L-EVENEMENT, le ou les locataires concernés, modifiables (la phrase suit le choix). */}
-      {bienCles !== undefined && bienCles.length > 0 && onConcernes !== undefined ? (
-        <LocatairesConcernes bienCles={bienCles} libellesDesBiens={libellesDesBiens} valeur={concernes} onChange={onConcernes} />
-      ) : (
-        <p className="bev-note">{phraseRattachement(libellesDesBiens, null)}</p>
-      )}
+      {/* 🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — le bloc « Parties concernées » (choix visibles, récapitulatif
+          en direct) remplace la ligne « Locataire(s) concerné(s) : … — Modifier », ici aussi. */}
+      {parties}
     </>
   );
 }
@@ -490,6 +583,12 @@ export const CSS_BLOC_EVENEMENT = `
 .bev-deux{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:0}
 @media (max-width:720px){.bev-deux{grid-template-columns:1fr}}
 .bev-note{margin:.35rem 0 0;font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+/* LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — les blocs encadres de la fenetre « Evenement de ce mail ». */
+.bev-bloc{margin:0;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:.7rem;
+  background:var(--color-svv-surface);box-sizing:border-box;min-width:0;max-width:100%}
+.bev-bloc-titre{margin:0 0 .2rem;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--color-svv-muted)}
+.bev-discret{font-style:italic}
+.bev-apercu{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.35rem 0 0;min-width:0}
 /* LOT RATTACHEMENT-PONCTUEL, POINT 0 — le refus des deux dates, et la note.
    LE REFUS EST ECRIT, pas seulement colore : une couleur seule ne se lit ni en niveaux de gris ni pour un
    daltonien. Le jeton rouge ne fait que l'appuyer. */

@@ -134,6 +134,44 @@ describe('🔴🔴 B) créer un événement à partir de ce mail', () => {
   });
 });
 
+describe('🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — des blocs, et aucun champ perdu', () => {
+  it('Créer : ① Événement, ② Qualification, ③ Parties concernées, ④ Note — et TOUS les champs de l’ancienne fenêtre', async () => {
+    await monter();
+    await cliquer(bouton('Créer un événement à partir de ce mail'));
+    const blocs = [...container.querySelectorAll('.bev-bloc-titre, .lce-titre-bloc')].map((e) => e.textContent);
+    expect(blocs).toEqual(['Événement', 'Qualification', 'Parties concernées', 'Note']);
+    const libelles = [...container.querySelectorAll('.fem .bev-label')].map((e) => e.textContent);
+    for (const l of ['Titre', 'Date d’ouverture', 'Date de clôture (facultative)', 'Catégorie', 'Urgence', 'Note (facultative)']) {
+      expect(libelles, l).toContain(l);
+    }
+    expect(container.textContent).toContain('Ce mail sera le premier mail de l’événement.');
+    /* L'aperçu de la capsule, en direct (type + trame d'urgence). */
+    expect(container.querySelector('.bev-apercu .cev')).not.toBeNull();
+    /* Le bloc des parties : propriétaire du bien (fiche), toujours concerné. */
+    expect(container.querySelector('.lce-case--fixe .lce-puce')?.textContent).toBe('PROPRIO Banc');
+    /* Les deux boutons et leur explication, dans le pied fixe. */
+    const pied = container.querySelector('.fem-pied') as HTMLElement;
+    expect([...pied.querySelectorAll('button')].map((b) => b.textContent))
+      .toEqual(['Fermer', 'Garder pour la validation', 'Créer l’événement']);
+    expect(pied.querySelector('.fem-explication')?.textContent).toBe(
+      'Garder pour la validation : replie le formulaire, rien n’est encore enregistré · '
+      + 'Créer l’événement : l’événement est créé et ouvert tout de suite, avec ce mail comme premier mail');
+    /* « Garder pour la validation » n'écrit rien. */
+    await cliquer(bouton('Garder pour la validation'));
+    expect(ecritures).toEqual([]);
+    expect(container.querySelector('.fem-choisi')?.textContent).toContain('À créer');
+  });
+  it('Lier : ① la liste, ② les parties de l’événement choisi en lecture, pied [Fermer] [Lier ce mail]', async () => {
+    await monter();
+    const blocs = () => [...container.querySelectorAll('.bev-bloc-titre, .lce-titre-bloc')].map((e) => e.textContent);
+    expect(blocs()).toEqual(['Événements en cours sur ce bien', 'Parties concernées']);
+    expect([...(container.querySelector('.fem-pied') as HTMLElement).querySelectorAll('button')].map((b) => b.textContent))
+      .toEqual(['Fermer', 'Lier ce mail']);
+    expect(container.querySelector('.fem-explication')).toBeNull();
+    expect(ecritures).toEqual([]);
+  });
+});
+
 describe('🔴 retirer, fermer', () => {
   it('« Retirer ce mail de l’événement » (le « Délier » existant) quand le lien est posé sur CE mail', async () => {
     affectation = { etat: 'ok', qualifie: true,

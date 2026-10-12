@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ChampsEvenement, CSS_BLOC_EVENEMENT } from './BlocEvenement';
 import { ChoisirEvenement } from './ChoisirEvenement';
-import type { ChoixConcernes } from './LocatairesConcernes';
+import { PartiesEnLecture, type ChoixConcernes } from './LocatairesConcernes';
+import type { Concerne } from '../../../../lib/gestion/locatairesEvenement';
 import { CapsuleEvenement, CSS_CAPSULE_EVENEMENT } from './CapsuleEvenement';
 import { CSS_MODIFIER_RATTACHEMENT } from './ModifierRattachement';
 import { bornesEvenement, type EvenementDuMail } from '../../../../lib/gestion/evenementQualite';
@@ -12,8 +13,8 @@ import {
 } from '../../../../lib/gestion/evenementRattache';
 import { etapeEnMots } from '../../../../lib/gestion/etapeVignette';
 import {
-  corpsCreation, libelleBienDuMail, ONGLET_CREER, ONGLET_LIER, partiesDesBiensFiche, phraseRemplacement,
-  titrePrerempli, TITRE_EVENEMENT_DU_MAIL,
+  corpsCreation, EXPLICATION_BOUTONS_CREER, libelleBienDuMail, ONGLET_CREER, ONGLET_LIER, partiesDesBiensFiche,
+  phraseRemplacement, titrePrerempli, TITRE_EVENEMENT_DU_MAIL,
 } from '../../../../lib/gestion/evenementDuMail';
 import { motEnTeteMail, type FicheRattachementFil } from '../../../../lib/gestion/ficheRattachement';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
@@ -66,6 +67,29 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
   const [concernes, setConcernes] = useState<ChoixConcernes | null>(null);
   /** « Garder pour la validation » : le formulaire est retenu (replié), « Créer l'événement » l'écrit. */
   const [garde, setGarde] = useState(false);
+  /** Onglet « Lier » : les parties de l'événement choisi (lecture seule), lues par la route de la carte. */
+  const [partiesChoisi, setPartiesChoisi] = useState<
+    { v: 'aucun' } | { v: 'charge' } | { v: 'ok'; proprietaires: string[]; personnes: Concerne[] }
+  >({ v: 'aucun' });
+  useEffect(() => {
+    if (choisi === null) { setPartiesChoisi({ v: 'aucun' }); return undefined; }
+    let vivant = true;
+    setPartiesChoisi({ v: 'charge' });
+    void fetch(`/api/admin/gestion/evenements/${choisi.id}`, { cache: 'no-store' })
+      .then((r) => r.json() as Promise<{ parties?: { sorte: string; nom: string }[]; concernes?: Concerne[] | null }>)
+      .then((d) => {
+        if (!vivant) return;
+        const parties = d.parties ?? [];
+        /* Les personnes : le choix enregistré s'il a été modifié, sinon les locataires en place. */
+        const personnes: Concerne[] = d.concernes ?? parties.filter((x) => x.sorte === 'locataire').map((x) => ({
+          sorte: 'locataire', locataireId: null, sujet: null, sujetId: null, nom: x.nom, email: null, telephone: null,
+          entree: null, sortie: null,
+        }));
+        setPartiesChoisi({ v: 'ok', proprietaires: parties.filter((x) => x.sorte === 'proprietaire').map((x) => x.nom), personnes });
+      })
+      .catch(() => { if (vivant) setPartiesChoisi({ v: 'ok', proprietaires: [], personnes: [] }); });
+    return () => { vivant = false; };
+  }, [choisi]);
 
   const charger = useCallback(async () => {
     try {
@@ -91,6 +115,9 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
   useEffect(() => { void charger(); }, [charger]);
 
   const biens = (fiche?.biens ?? []).map((b) => ({ cle: b.cle, libelle: libelleBienDuMail(b) }));
+  /** Les propriétaires des biens du mail (toujours concernés), sans doublon. */
+  const proprietaires = [...new Set((fiche?.biens ?? []).flatMap((b) => (b.personnes ?? [])
+    .filter((x) => x.role === 'proprietaire').map((x) => x.nom)))];
   const jourDuMail = fiche?.enTete?.recuLe == null ? null : jourParis(new Date(fiche.enTete.recuLe));
   /* Le titre et la date d'ouverture se préremplissent UNE fois, quand la fiche arrive. */
   useEffect(() => {
@@ -174,6 +201,7 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
           </div>
         )}
 
+        {/* 🔴 LE CHOIX DU MODE : deux onglets de même largeur, l'actif bien marqué. */}
         <div className="fem-onglets" role="tablist" aria-label="Que faire de l’événement de ce mail">
           <button type="button" role="tab" aria-selected={onglet === 'lier'} id="fem-onglet-lier"
             className={`fem-onglet${onglet === 'lier' ? ' fem-onglet--actif' : ''}`}
@@ -188,105 +216,128 @@ export function FenetreEvenementMail({ messageId, filId, onFerme, onFait }: {
         </div>
 
         {onglet === 'lier' && (
-          <section className="fem-pan" role="tabpanel" aria-labelledby="fem-onglet-lier">
-            <p className="fem-aide">Ce mail seul est lié, pas le reste de la conversation.</p>
-            {liste.length === 0 ? (
-              <p className="fem-vide">Aucun événement en cours sur le bien de ce mail.</p>
-            ) : (
-              <ul className="fem-lignes">
-                {liste.map((e) => {
-                  const etape = etapeEnMots(e.etape, e.ouvertLe);
-                  const ouvert = dateCourteIso(e.ouvertLe);
-                  return (
-                    <li key={e.id} className="fem-ligne">
-                      <label className="fem-choix">
-                        <input type="radio" name="fem-evenement" disabled={e.rattache}
-                          checked={choisi?.id === e.id}
-                          onChange={() => setChoisi({ id: e.id, reference: e.reference, objet: e.objet })} />
-                        <CapsuleEvenement e={e} />
-                      </label>
-                      <span className="fem-meta">
-                        {ouvert !== null && <span>ouvert le {ouvert}</span>}
-                        <span>Étape : {etape.mot}{etape.date !== null && etape.date !== '—' ? ` (${etape.date})` : ''}</span>
-                      </span>
-                      {e.rattache && <span className="fem-deja">Rattaché ✓</span>}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            <button type="button" className="gst-lien-bouton" aria-expanded={autres}
-              onClick={() => setAutres((v) => !v)}>
-              Voir aussi les autres événements
-            </button>
-            {autres && (
-              <div className="fem-autres">
-                {/* La recherche partagée de l'ancien « Lier à un événement » : clos, autres biens. */}
-                <ChoisirEvenement choisi={choisi?.id ?? null} exclure={lies[0]?.id ?? null} autoFocus
-                  onChoisir={(id, trouve) => {
-                    if (id === null) { setChoisi(null); return; }
-                    setChoisi({ id, reference: trouve?.reference ?? `événement n° ${id}`, objet: trouve?.objet ?? '' });
-                  }} />
-              </div>
-            )}
-            {choisi !== null && (
-              <p className="fem-choisi">
-                Choisi : {choisi.reference}{choisi.objet !== '' ? ` — ${choisi.objet}` : ''}
-                {remplace !== null && <span className="fem-remplace">{` — ${remplace}`}</span>}
-              </p>
-            )}
-            <div className="fem-pied">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>Fermer</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={choisi === null || occupe}
-                onClick={() => choisi !== null && void ecrire('POST', { evenementId: choisi.id }, 'Mail lié à l’événement.')}>
-                {occupe ? 'Enregistrement…' : 'Lier ce mail'}
+          <div className="fem-pan" role="tabpanel" aria-labelledby="fem-onglet-lier">
+            {/* ① BLOC « ÉVÉNEMENTS EN COURS SUR CE BIEN » */}
+            <section className="bev-bloc" aria-labelledby="fem-bloc-liste">
+              <p className="bev-bloc-titre" id="fem-bloc-liste">Événements en cours sur ce bien</p>
+              <p className="fem-aide">Ce mail seul est lié, pas le reste de la conversation.</p>
+              {liste.length === 0 ? (
+                <p className="fem-vide">Aucun événement en cours sur le bien de ce mail.</p>
+              ) : (
+                <ul className="fem-lignes">
+                  {liste.map((e) => {
+                    const etape = etapeEnMots(e.etape, e.ouvertLe);
+                    const ouvert = dateCourteIso(e.ouvertLe);
+                    return (
+                      <li key={e.id} className="fem-ligne">
+                        <label className="fem-choix">
+                          <input type="radio" name="fem-evenement" disabled={e.rattache}
+                            checked={choisi?.id === e.id}
+                            onChange={() => setChoisi({ id: e.id, reference: e.reference, objet: e.objet })} />
+                          <CapsuleEvenement e={e} />
+                        </label>
+                        <span className="fem-meta">
+                          {ouvert !== null && <span>ouvert le {ouvert}</span>}
+                          <span>Étape : {etape.mot}{etape.date !== null && etape.date !== '—' ? ` (${etape.date})` : ''}</span>
+                        </span>
+                        {e.rattache && <span className="fem-deja">Rattaché ✓</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <button type="button" className="gst-lien-bouton fem-voir" aria-expanded={autres}
+                onClick={() => setAutres((v) => !v)}>
+                Voir aussi les autres événements
               </button>
-            </div>
-          </section>
+              {autres && (
+                <div className="fem-autres">
+                  {/* La recherche partagée de l'ancien « Lier à un événement » : clos, autres biens. */}
+                  <ChoisirEvenement choisi={choisi?.id ?? null} exclure={lies[0]?.id ?? null} autoFocus
+                    onChoisir={(id, trouve) => {
+                      if (id === null) { setChoisi(null); return; }
+                      setChoisi({ id, reference: trouve?.reference ?? `événement n° ${id}`, objet: trouve?.objet ?? '' });
+                    }} />
+                </div>
+              )}
+              {choisi !== null && (
+                <p className="fem-choisi">
+                  Choisi : {choisi.reference}{choisi.objet !== '' ? ` — ${choisi.objet}` : ''}
+                  {remplace !== null && <span className="fem-remplace">{` — ${remplace}`}</span>}
+                </p>
+              )}
+            </section>
+            {/* ② BLOC « PARTIES CONCERNÉES », en lecture : celles de l'événement choisi. */}
+            {partiesChoisi.v === 'aucun' ? (
+              <section className="bev-bloc" aria-label="Parties concernées">
+                <p className="bev-bloc-titre">Parties concernées</p>
+                <p className="fem-vide">Choisissez un événement pour voir ses parties.</p>
+              </section>
+            ) : (
+              <PartiesEnLecture enCours={partiesChoisi.v === 'charge'}
+                proprietaires={partiesChoisi.v === 'ok' ? partiesChoisi.proprietaires : []}
+                personnes={partiesChoisi.v === 'ok' ? partiesChoisi.personnes : []} />
+            )}
+          </div>
         )}
 
         {onglet === 'creer' && (
-          <section className="fem-pan" role="tabpanel" aria-labelledby="fem-onglet-creer">
-            <p className="fem-aide">Ce mail sera le premier mail de l’événement créé.</p>
+          <div className="fem-pan" role="tabpanel" aria-labelledby="fem-onglet-creer">
             {garde ? (
-              <p className="fem-choisi">
-                À créer : « {titre.trim()} »
-                <button type="button" className="gst-lien-bouton" onClick={() => setGarde(false)}>Modifier</button>
-              </p>
+              <section className="bev-bloc" aria-label="Événement gardé pour la validation">
+                <p className="bev-bloc-titre">Événement</p>
+                <p className="fem-choisi">
+                  À créer : « {titre.trim()} »
+                  <button type="button" className="gst-lien-bouton" onClick={() => setGarde(false)}>Modifier</button>
+                </p>
+              </section>
             ) : (
-              <div className="bev-forme">
-                <ChampsEvenement titre={titre} onTitre={setTitre}
-                  categorie={categorie} onCategorie={setCategorie}
-                  urgence={urgence} onUrgence={setUrgence}
-                  qualifieDisponible={lu?.qualifie === true}
-                  libellesDesBiens={biens.map((b) => b.libelle)}
-                  ouvertLe={ouvertLe} onOuvertLe={setOuvertLe}
-                  closLe={closLe} onClosLe={setClosLe}
-                  note={note} onNote={setNote}
-                  bienCles={biens.map((b) => b.cle)} concernes={concernes} onConcernes={setConcernes} />
-                <div className="bev-boutons">
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                    disabled={titre.trim() === '' || bornes.refus !== null}
-                    onClick={() => setGarde(true)}>
-                    Garder pour la validation
-                  </button>
-                </div>
-              </div>
+              <ChampsEvenement enBlocs mentionPremierMail titre={titre} onTitre={setTitre}
+                categorie={categorie} onCategorie={setCategorie}
+                urgence={urgence} onUrgence={setUrgence}
+                qualifieDisponible={lu?.qualifie === true}
+                libellesDesBiens={biens.map((b) => b.libelle)}
+                ouvertLe={ouvertLe} onOuvertLe={setOuvertLe}
+                closLe={closLe} onClosLe={setClosLe}
+                note={note} onNote={setNote}
+                bienCles={biens.map((b) => b.cle)} concernes={concernes} onConcernes={setConcernes}
+                proprietaires={proprietaires} jourReference={jourDuMail} />
             )}
             {remplace === null && lies.length > 0 && (
               <p className="fem-remplace">{`La carte neuve remplacera ${lies.map((e) => e.reference).join(', ')} pour ce mail.`}</p>
             )}
-            <div className="fem-pied">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>Fermer</button>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!creerPossible}
-                onClick={creer}>
-                {occupe ? 'Création…' : 'Créer l’événement'}
-              </button>
-            </div>
-          </section>
+          </div>
         )}
 
         {erreur !== null && <p className="gst-tronc" role="alert">{erreur}</p>}
+
+        {/* 🔴 LE PIED, FIXE EN BAS : toujours visible, même quand on fait défiler la fenêtre. */}
+        <div className="fem-pied">
+          <div className="fem-pied-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>Fermer</button>
+            <span className="fem-pied-droite">
+              {onglet === 'lier' ? (
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={choisi === null || occupe}
+                  onClick={() => choisi !== null && void ecrire('POST', { evenementId: choisi.id }, 'Mail lié à l’événement.')}>
+                  {occupe ? 'Enregistrement…' : 'Lier ce mail'}
+                </button>
+              ) : (
+                <>
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                    disabled={garde || titre.trim() === '' || bornes.refus !== null}
+                    onClick={() => setGarde(true)}>
+                    Garder pour la validation
+                  </button>
+                  <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={!creerPossible}
+                    onClick={creer}>
+                    {occupe ? 'Création…' : 'Créer l’événement'}
+                  </button>
+                </>
+              )}
+            </span>
+          </div>
+          {onglet === 'creer' && <p className="fem-explication">{EXPLICATION_BOUTONS_CREER}</p>}
+        </div>
       </div>
       <style>{CSS_CAPSULE_EVENEMENT}</style>
     </div>
@@ -309,15 +360,14 @@ export const CSS_FENETRE_EVENEMENT_MAIL = `
   font-size:.82rem;font-weight:600;color:var(--color-svv-ink);border:1px solid var(--color-svv-line);border-radius:.6rem;
   background:var(--color-svv-field);box-sizing:border-box}
 .fem-note{font-weight:400;color:var(--color-svv-muted)}
-.fem-onglets{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
-.fem-onglet{flex:1 1 14rem;min-height:40px;padding:.4rem .7rem;font:inherit;font-size:.82rem;font-weight:700;text-align:left;
-  color:var(--color-svv-ink);background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
+.fem-onglets{display:flex;flex-wrap:wrap;gap:6px;margin:0}
+.fem-onglet{flex:1 1 0;min-width:14rem;min-height:40px;padding:.4rem .7rem;font:inherit;font-size:.8rem;font-weight:700;
+  text-align:center;color:var(--color-svv-ink);background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
   border-radius:.6rem;cursor:pointer;box-sizing:border-box}
-.fem-onglet--actif{border:2px solid var(--color-svv-red);color:var(--color-svv-red)}
+.fem-onglet--actif{border:2px solid var(--color-svv-red);color:var(--color-svv-red);background:var(--color-svv-red-soft)}
 .fem-onglet:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-4px}
-.fem-pan{display:flex;flex-direction:column;gap:8px;padding:10px 12px;min-width:0;border:1px solid var(--color-svv-line);
-  border-radius:.7rem;background:var(--color-svv-surface);box-sizing:border-box}
-.fem-aide{margin:0;font-size:.78rem;font-style:italic;color:var(--color-svv-muted)}
+.fem-pan{display:flex;flex-direction:column;gap:10px;min-width:0}
+.fem-aide{margin:0 0 .4rem;font-size:.78rem;font-style:italic;color:var(--color-svv-muted)}
 .fem-vide{margin:0;font-size:.82rem;color:var(--color-svv-muted)}
 .fem-lignes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;min-width:0}
 .fem-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .6rem;padding:6px 8px;min-width:0;
@@ -328,9 +378,27 @@ export const CSS_FENETRE_EVENEMENT_MAIL = `
 .fem-meta{display:flex;flex-wrap:wrap;gap:.15rem .6rem;font-size:.76rem;color:var(--color-svv-muted);min-width:0}
 .fem-meta>span+span::before{content:'·';margin-right:.6rem}
 .fem-deja{margin-left:auto;font-size:.78rem;font-weight:700;color:var(--color-svv-green-ink);white-space:nowrap}
-.fem-autres{min-width:0}
-.fem-choisi{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .6rem;margin:0;font-size:.82rem;font-weight:600;
+.fem-voir{align-self:flex-start;margin-top:.4rem}
+.fem-autres{min-width:0;margin-top:.3rem}
+.fem-choisi{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem .6rem;margin:.4rem 0 0;font-size:.82rem;font-weight:600;
   color:var(--color-svv-ink);overflow-wrap:anywhere}
 .fem-remplace{margin:0;font-size:.8rem;font-weight:400;color:var(--color-svv-muted)}
-.fem-pied{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-top:4px}
+/* Le pied, FIXE en bas de la fenetre qui defile (.mrt : overflow auto, padding 16px). */
+.fem-pied{position:sticky;bottom:-16px;z-index:2;margin:0 -16px -16px;padding:10px 16px 12px;
+  background:var(--color-svv-surface);border-top:1px solid var(--color-svv-line);display:flex;flex-direction:column;gap:6px}
+.fem-pied-boutons{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.fem-pied-droite{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;margin-left:auto}
+.fem-explication{margin:0;font-size:.74rem;line-height:1.4;color:var(--color-svv-muted);text-align:right;overflow-wrap:anywhere}
+/* Grand ecran : un texte plus serre, pour tenir sur une ligne quand la place le permet — jamais tronque. */
+@media (min-width:721px){.fem-onglet{font-size:.76rem;padding:.4rem .45rem}}
+/* Telephone : le pied reste compact — [Fermer][Garder] sur une ligne, [Creer] dessous, l explication en petit. */
+@media (max-width:520px){
+  .fem-onglet{min-width:100%}
+  .fem-pied{gap:4px;padding:8px 16px 10px}
+  .fem-pied-boutons{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .fem-pied-droite{display:contents}
+  .fem-pied-boutons .gst-btn{min-height:40px;padding:.3rem .5rem;font-size:.82rem;width:100%}
+  .fem-pied-droite>.svv-btn-primary{grid-column:1 / -1}
+  .fem-explication{text-align:left;font-size:.7rem;line-height:1.3}
+}
 `;

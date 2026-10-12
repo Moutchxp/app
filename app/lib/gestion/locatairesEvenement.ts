@@ -147,3 +147,40 @@ export function concernesDepuisJson(v: unknown): Concerne[] | null {
   }
   return out;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES (Arno, 12/10/2026) — LE BLOC « PARTIES CONCERNÉES »
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   Les choix sont VISIBLES DIRECTEMENT (plus de petite fenêtre « Modifier ») : propriétaire (rouge, toujours concerné),
+   locataires actuels (vert, cochés par défaut), anciens locataires (violet, les deux plus récents, décochés),
+   « + Autre personne… » (gris). En pied de bloc, un récapitulatif qui remplace la phrase « Sera rattaché à … ». */
+
+/** Le mot d'une liste de noms, avec son accord : « locataire Y », « locataires Y, Z ». PUR. */
+function groupe(singulier: string, pluriel: string, noms: readonly string[]): string | null {
+  return noms.length === 0 ? null : `${noms.length > 1 ? pluriel : singulier} ${noms.join(', ')}`;
+}
+
+/**
+ * LE RÉCAPITULATIF, EN DIRECT : « Sera rattaché à : 25 rue Edith Cavell, 92400 COURBEVOIE — lot 219 · propriétaire X ·
+ * locataires Y ». Propriétaire inconnu : « propriétaire » seul ; aucun locataire choisi : « aucun locataire ». PUR.
+ */
+export function recapRattachement(
+  libellesDesBiens: readonly string[], proprietaires: readonly string[], choix: readonly Concerne[],
+): string {
+  const biens = libellesDesBiens.length === 0 ? 'aucun bien' : libellesDesBiens.join(', ');
+  const morceaux = [
+    proprietaires.length === 0 ? 'propriétaire' : groupe('propriétaire', 'propriétaires', proprietaires),
+    groupe('locataire', 'locataires', choix.filter((c) => c.sorte === 'locataire').map((c) => c.nom)),
+    groupe('ancien locataire', 'anciens locataires', choix.filter((c) => c.sorte === 'ancien_locataire').map((c) => c.nom)),
+    groupe('autre personne', 'autres personnes', choix.filter((c) => c.sorte === 'annuaire' || c.sorte === 'libre').map((c) => c.nom)),
+  ].filter((m): m is string => m !== null);
+  if (!choix.some((c) => c.sorte === 'locataire' || c.sorte === 'ancien_locataire')) morceaux.splice(1, 0, 'aucun locataire');
+  return `Sera rattaché à : ${[biens, ...morceaux].join(' · ')}`;
+}
+
+/** Ajouter ou retirer une personne du choix, sans doublon. PUR. */
+export function basculerConcerne(choix: readonly Concerne[], c: Concerne): Concerne[] {
+  const k = cleConcerne(c);
+  return choix.some((x) => cleConcerne(x) === k) ? choix.filter((x) => cleConcerne(x) !== k) : [...choix, c];
+}

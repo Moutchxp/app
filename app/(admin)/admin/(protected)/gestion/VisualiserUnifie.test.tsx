@@ -567,7 +567,9 @@ describe('🔴🔴 ④ la ligne « Événement rattaché » de la fenêtre', () 
     /* 🔴 ET LA PHRASE « Sera rattaché à … » NOMME LES DEUX BIENS, pas leurs clés. */
     /* ⚠️ LA DERNIÈRE `bev-note` EST CELLE DES BIENS : la première dit que la migration 268 manque dans ce
        décor, et elle a sa raison d'être. Viser « la note » tout court aurait éprouvé la mauvaise phrase. */
-    const notes = [...container.querySelectorAll('.rdf-evt-forme .bev-note')].map((e) => e.textContent ?? '');
+    /* LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — la phrase est devenue le récapitulatif du bloc « Parties
+       concernées » (`lce-recap`), ou la phrase d'avant (`bev-note`) tant que les locataires ne sont pas lus. */
+    const notes = [...container.querySelectorAll('.rdf-evt-forme .bev-note, .rdf-evt-forme .lce-recap')].map((e) => e.textContent ?? '');
     const note = notes[notes.length - 1];
     expect(note).toContain('7 rue Inventée');
     expect(note).not.toContain('L-247');

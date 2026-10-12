@@ -2,8 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  choixModifie, choixParDefaut, cleConcerne, jourFr, ligneConcernes, optionsDuBien, phraseRattachement, tonConcerne,
-  type Concerne, type OccupationVue,
+  basculerConcerne, choixModifie, choixParDefaut, cleConcerne, jourFr, optionsDuBien, phraseRattachement,
+  recapRattachement, tonConcerne, type Concerne, type OccupationVue,
 } from '../../../../lib/gestion/locatairesEvenement';
 
 /**
@@ -44,7 +44,24 @@ interface Trouve {
   sujet: 'proprietaire' | 'locataire'; id: number; nomAffiche: string; email: string | null; mobile: string | null;
 }
 
-export function LocatairesConcernes({ bienCles, libellesDesBiens, valeur, onChange, initial = null, sansPhrase = false }: {
+/**
+ * ══ 🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES (Arno, 12/10/2026) — LE BLOC « PARTIES CONCERNÉES » ═══════════
+ *
+ * Il REMPLACE la ligne « Locataire(s) concerné(s) : … — Modifier » partout (création depuis un mail ou depuis
+ * l'encart, modification d'un événement existant) : un seul composant. Les choix sont VISIBLES DIRECTEMENT :
+ *   · PROPRIÉTAIRE — puce rouge, toujours rattaché : case cochée et grisée, « toujours concerné » ;
+ *   · LOCATAIRES ACTUELS — puce verte, « entré le … », cochés par défaut ;
+ *   · ANCIENS LOCATAIRES — puce violette, « du … au … », les deux plus récents, décochés par défaut ;
+ *   · « + Autre personne… » — l'annuaire ou la saisie libre d'avant, ajoutée en ligne grise ;
+ *   · bien vacant — « Aucun locataire en place à la date du mail » (ou « aujourd'hui »).
+ * En pied de bloc, le récapitulatif « Sera rattaché à : … » (création), mis à jour en direct.
+ *
+ * 🔴 LA RÈGLE D'ENREGISTREMENT NE CHANGE PAS : sans action, rien ne change ; seul un choix MODIFIÉ remonte
+ * (`modifie`), et c'est lui seul que l'appelant envoie. Rien n'est écrit ici.
+ */
+export function PartiesConcernees({
+  bienCles, libellesDesBiens, valeur, onChange, initial = null, sansPhrase = false, proprietaires = [], jour = null,
+}: {
   bienCles: readonly string[];
   libellesDesBiens: readonly string[];
   /** Le choix courant ; `null` = le choix par défaut, intact. */
@@ -52,16 +69,18 @@ export function LocatairesConcernes({ bienCles, libellesDesBiens, valeur, onChan
   onChange: (c: ChoixConcernes | null) => void;
   /** En modification d'un événement : le choix déjà enregistré (sinon le choix par défaut). */
   initial?: Concerne[] | null;
-  /** En modification : pas de phrase « Sera rattaché à … » (l'événement l'est déjà). */
+  /** En modification : pas de récapitulatif « Sera rattaché à : … » (l'événement l'est déjà). */
   sansPhrase?: boolean;
+  /** Le ou les propriétaires du bien, quand l'appelant les connaît (sinon « Propriétaire du bien »). */
+  proprietaires?: readonly string[];
+  /** Le jour de référence des « locataires actuels » (`AAAA-MM-JJ`, la date du mail) ; `null` = aujourd'hui. */
+  jour?: string | null;
 }) {
   const occupations = useOccupations(bienCles);
-  const options = useMemo(() => (occupations === null ? null : optionsDuBien(occupations, aujourdhuiParis())), [occupations]);
+  const reference = jour ?? aujourdhuiParis();
+  const options = useMemo(() => (occupations === null ? null : optionsDuBien(occupations, reference)), [occupations, reference]);
   const parDefaut = useMemo(() => (options === null ? null : (initial ?? choixParDefaut(options))), [options, initial]);
   const choix = valeur?.choix ?? parDefaut;
-  const vacant = options !== null && options.actuels.length === 0;
-  const [ouvert, setOuvert] = useState(false);
-  const [brouillon, setBrouillon] = useState<Concerne[]>([]);
   const [autre, setAutre] = useState<'ferme' | 'recherche' | 'libre'>('ferme');
   const [q, setQ] = useState('');
   const [trouves, setTrouves] = useState<Trouve[] | null>(null);
@@ -79,112 +98,149 @@ export function LocatairesConcernes({ bienCles, libellesDesBiens, valeur, onChan
     return () => { vivant = false; clearTimeout(t); };
   }, [q, autre]);
 
+  const titreBloc = <p className="lce-titre-bloc">Parties concernées</p>;
   if (options === null || choix === null || parDefaut === null) {
-    /* Les locataires ne sont pas encore connus : la phrase d'avant, mot pour mot. */
-    return sansPhrase ? null : <p className="bev-note">{phraseRattachement(libellesDesBiens, null)}</p>;
+    return (
+      <section className="lce lce-bloc" aria-label="Parties concernées">
+        <style>{CSS_LOCATAIRES_CONCERNES}</style>
+        {titreBloc}
+        <p className="lce-vide">Lecture des locataires…</p>
+        {!sansPhrase && <p className="lce-recap">{phraseRattachement(libellesDesBiens, null)}</p>}
+      </section>
+    );
   }
-  const coche = (c: Concerne): boolean => brouillon.some((x) => cleConcerne(x) === cleConcerne(c));
-  const basculer = (c: Concerne): void => setBrouillon(coche(c) ? brouillon.filter((x) => cleConcerne(x) !== cleConcerne(c)) : [...brouillon, c]);
-  const autres = brouillon.filter((c) => c.sorte === 'annuaire' || c.sorte === 'libre');
+  const coche = (c: Concerne): boolean => choix.some((x) => cleConcerne(x) === cleConcerne(c));
+  const changer = (suivant: Concerne[]): void => onChange({ choix: suivant, modifie: choixModifie(suivant, parDefaut) });
+  const autres = choix.filter((c) => c.sorte === 'annuaire' || c.sorte === 'libre');
   const ajouter = (c: Concerne): void => {
-    if (!coche(c)) setBrouillon([...brouillon, c]);
+    if (!coche(c)) changer([...choix, c]);
     setAutre('ferme'); setQ(''); setLibre({ nom: '', email: '', telephone: '' });
-  };
-  const valider = (): void => {
-    onChange({ choix: brouillon, modifie: choixModifie(brouillon, parDefaut) });
-    setOuvert(false);
   };
   const ligne = (c: Concerne, detail: string) => (
     <li key={cleConcerne(c)}>
       <label className={`lce-case lce-case--${tonConcerne(c.sorte)}`}>
-        <input type="checkbox" checked={coche(c)} onChange={() => basculer(c)} />
-        <span className="lce-nom">{c.nom}</span>
+        <input type="checkbox" checked={coche(c)} onChange={() => changer(basculerConcerne(choix, c))} />
+        <span className={`lce-puce lce-puce--${tonConcerne(c.sorte)}`}>{c.nom}</span>
         {detail !== '' && <span className="lce-detail">{detail}</span>}
       </label>
     </li>
   );
 
   return (
-    <div className="lce">
+    <section className="lce lce-bloc" aria-label="Parties concernées">
       <style>{CSS_LOCATAIRES_CONCERNES}</style>
-      {!sansPhrase && <p className="bev-note">{phraseRattachement(libellesDesBiens, choix, vacant)}</p>}
-      <p className="lce-ligne">
-        <span className="lce-titre">Locataire(s) concerné(s) :</span>{' '}
-        {choix.length === 0 ? <span className="lce-vide">{ligneConcernes(choix)}</span>
-          : choix.map((c) => <span key={cleConcerne(c)} className={`lce-puce lce-puce--${tonConcerne(c.sorte)}`}>{c.nom}</span>)}
-        {' — '}
-        <button type="button" className="lce-modifier" aria-expanded={ouvert}
-          onClick={() => { setBrouillon(choix); setAutre('ferme'); setOuvert(!ouvert); }}>Modifier</button>
-      </p>
-      {ouvert && (
-        <div className="lce-fenetre" role="group" aria-label="Choisir le ou les locataires concernés">
-          <p className="lce-groupe lce-groupe--vert">Locataires actuels</p>
-          {options.actuels.length === 0
-            ? <p className="lce-vide">Aucun locataire en place (bien vacant).</p>
-            : <ul className="lce-liste">{options.actuels.map((c) => ligne(c, c.entree ? `entré le ${jourFr(c.entree)}` : ''))}</ul>}
-          <p className="lce-groupe lce-groupe--violet">Anciens locataires</p>
-          {options.anciens.length === 0
-            ? <p className="lce-vide">Aucun ancien locataire connu.</p>
-            : <ul className="lce-liste">{options.anciens.map((c) => ligne(c,
-              `${c.entree ? `du ${jourFr(c.entree)} ` : ''}${c.sortie ? `au ${jourFr(c.sortie)}` : ''}`.trim()))}</ul>}
-          {autres.length > 0 && (
-            <>
-              <p className="lce-groupe lce-groupe--gris">Autres personnes</p>
-              <ul className="lce-liste">{autres.map((c) => ligne(c, [c.email, c.telephone].filter(Boolean).join(' · ')))}</ul>
-            </>
+      {titreBloc}
+      <p className="lce-groupe lce-groupe--rouge">Propriétaire</p>
+      <ul className="lce-liste">
+        {(proprietaires.length === 0 ? ['Propriétaire du bien'] : proprietaires).map((nom) => (
+          <li key={nom}>
+            <label className="lce-case lce-case--rouge lce-case--fixe">
+              <input type="checkbox" checked disabled aria-describedby="lce-toujours" />
+              <span className="lce-puce lce-puce--rouge">{nom}</span>
+              <span className="lce-detail" id="lce-toujours">toujours concerné</span>
+            </label>
+          </li>
+        ))}
+      </ul>
+      <p className="lce-groupe lce-groupe--vert">Locataires actuels</p>
+      {options.actuels.length === 0
+        ? <p className="lce-vide">{jour === null ? 'Aucun locataire en place aujourd’hui.' : 'Aucun locataire en place à la date du mail.'}</p>
+        : <ul className="lce-liste">{options.actuels.map((c) => ligne(c, c.entree ? `entré le ${jourFr(c.entree)}` : ''))}</ul>}
+      <p className="lce-groupe lce-groupe--violet">Anciens locataires</p>
+      {options.anciens.length === 0
+        ? <p className="lce-vide">Aucun ancien locataire connu.</p>
+        : <ul className="lce-liste">{options.anciens.map((c) => ligne(c,
+          `${c.entree ? `du ${jourFr(c.entree)} ` : ''}${c.sortie ? `au ${jourFr(c.sortie)}` : ''}`.trim()))}</ul>}
+      {autres.length > 0 && (
+        <>
+          <p className="lce-groupe lce-groupe--gris">Autres personnes</p>
+          <ul className="lce-liste">{autres.map((c) => ligne(c, [c.email, c.telephone].filter(Boolean).join(' · ')))}</ul>
+        </>
+      )}
+      {autre === 'ferme' && (
+        <button type="button" className="lce-modifier" onClick={() => setAutre('recherche')}>+ Autre personne…</button>
+      )}
+      {autre === 'recherche' && (
+        <div className="lce-autre">
+          <label className="bev-champ">
+            <span className="bev-label">Chercher dans l’annuaire (nom, e-mail, téléphone)</span>
+            <input className="bev-saisie" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+          </label>
+          {trouves !== null && trouves.length > 0 && (
+            <ul className="lce-liste">
+              {trouves.map((t) => (
+                <li key={`${t.sujet}-${t.id}`}>
+                  <button type="button" className="lce-trouve" onClick={() => ajouter({
+                    sorte: 'annuaire', locataireId: null, sujet: t.sujet, sujetId: t.id, nom: t.nomAffiche,
+                    email: t.email, telephone: t.mobile, entree: null, sortie: null })}>
+                    {t.nomAffiche}{t.email ? ` · ${t.email}` : ''}{t.mobile ? ` · ${t.mobile}` : ''}
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
-          {autre === 'ferme' && (
-            <button type="button" className="lce-modifier" onClick={() => setAutre('recherche')}>Autre personne…</button>
-          )}
-          {autre === 'recherche' && (
-            <div className="lce-autre">
-              <label className="bev-champ">
-                <span className="bev-label">Chercher dans l’annuaire (nom, e-mail, téléphone)</span>
-                <input className="bev-saisie" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
-              </label>
-              {trouves !== null && trouves.length > 0 && (
-                <ul className="lce-liste">
-                  {trouves.map((t) => (
-                    <li key={`${t.sujet}-${t.id}`}>
-                      <button type="button" className="lce-trouve" onClick={() => ajouter({
-                        sorte: 'annuaire', locataireId: null, sujet: t.sujet, sujetId: t.id, nom: t.nomAffiche,
-                        email: t.email, telephone: t.mobile, entree: null, sortie: null })}>
-                        {t.nomAffiche}{t.email ? ` · ${t.email}` : ''}{t.mobile ? ` · ${t.mobile}` : ''}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {trouves !== null && trouves.length === 0 && <p className="lce-vide">Personne ne correspond dans l’annuaire.</p>}
-              <button type="button" className="lce-modifier" onClick={() => setAutre('libre')}>Saisir librement (sans créer de fiche)</button>
-            </div>
-          )}
-          {autre === 'libre' && (
-            <div className="lce-autre">
-              <label className="bev-champ"><span className="bev-label">Nom *</span>
-                <input className="bev-saisie" value={libre.nom} onChange={(e) => setLibre({ ...libre, nom: e.target.value })} autoFocus /></label>
-              <div className="bev-deux">
-                <label className="bev-champ"><span className="bev-label">E-mail (facultatif)</span>
-                  <input className="bev-saisie" type="email" value={libre.email} onChange={(e) => setLibre({ ...libre, email: e.target.value })} /></label>
-                <label className="bev-champ"><span className="bev-label">Téléphone (facultatif)</span>
-                  <input className="bev-saisie" type="tel" value={libre.telephone} onChange={(e) => setLibre({ ...libre, telephone: e.target.value })} /></label>
-              </div>
-              <p className="lce-vide">Enregistrée sur l’événement seulement : aucune fiche n’est créée dans l’annuaire.</p>
-              <div className="lce-boutons">
-                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAutre('ferme')}>Annuler</button>
-                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={libre.nom.trim() === ''}
-                  onClick={() => ajouter({ sorte: 'libre', locataireId: null, sujet: null, sujetId: null, nom: libre.nom.trim(),
-                    email: libre.email.trim() || null, telephone: libre.telephone.trim() || null, entree: null, sortie: null })}>Ajouter</button>
-              </div>
-            </div>
-          )}
-          <div className="lce-boutons">
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setOuvert(false)}>Annuler</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={valider}>Valider le choix</button>
+          {trouves !== null && trouves.length === 0 && <p className="lce-vide">Personne ne correspond dans l’annuaire.</p>}
+          <div className="lce-boutons lce-boutons--gauche">
+            <button type="button" className="lce-modifier" onClick={() => setAutre('libre')}>Saisir librement (sans créer de fiche)</button>
+            <button type="button" className="lce-modifier" onClick={() => setAutre('ferme')}>Annuler</button>
           </div>
         </div>
       )}
-    </div>
+      {autre === 'libre' && (
+        <div className="lce-autre">
+          <label className="bev-champ"><span className="bev-label">Nom *</span>
+            <input className="bev-saisie" value={libre.nom} onChange={(e) => setLibre({ ...libre, nom: e.target.value })} autoFocus /></label>
+          <div className="bev-deux">
+            <label className="bev-champ"><span className="bev-label">E-mail (facultatif)</span>
+              <input className="bev-saisie" type="email" value={libre.email} onChange={(e) => setLibre({ ...libre, email: e.target.value })} /></label>
+            <label className="bev-champ"><span className="bev-label">Téléphone (facultatif)</span>
+              <input className="bev-saisie" type="tel" value={libre.telephone} onChange={(e) => setLibre({ ...libre, telephone: e.target.value })} /></label>
+          </div>
+          <p className="lce-vide">Enregistrée sur l’événement seulement : aucune fiche n’est créée dans l’annuaire.</p>
+          <div className="lce-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAutre('ferme')}>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={libre.nom.trim() === ''}
+              onClick={() => ajouter({ sorte: 'libre', locataireId: null, sujet: null, sujetId: null, nom: libre.nom.trim(),
+                email: libre.email.trim() || null, telephone: libre.telephone.trim() || null, entree: null, sortie: null })}>Ajouter</button>
+          </div>
+        </div>
+      )}
+      {!sansPhrase && (
+        <p className="lce-recap" role="status">{recapRattachement(libellesDesBiens, proprietaires, choix)}</p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * 🔴 L'ANCIEN NOM, GARDÉ : les appelants d'avant ce lot montent désormais le bloc « Parties concernées » sans changer
+ * leur import. Un seul composant, deux noms pour le même.
+ */
+export const LocatairesConcernes = PartiesConcernees;
+
+/**
+ * 🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — LE MÊME BLOC, EN LECTURE : les parties d'un événement existant
+ * (onglet « Lier »). Propriétaires en rouge, locataires en vert, anciens en violet, autres en gris — aucune case.
+ */
+export function PartiesEnLecture({ proprietaires, personnes, enCours = false }: {
+  proprietaires: readonly string[];
+  personnes: readonly Concerne[];
+  enCours?: boolean;
+}) {
+  return (
+    <section className="lce lce-bloc" aria-label="Parties concernées">
+      <style>{CSS_LOCATAIRES_CONCERNES}</style>
+      <p className="lce-titre-bloc">Parties concernées</p>
+      {enCours ? <p className="lce-vide">Lecture…</p> : (
+        <>
+          <p className="lce-groupe lce-groupe--rouge">Propriétaire</p>
+          <p className="lce-puces">{proprietaires.length === 0 ? <span className="lce-vide">non renseigné</span>
+            : proprietaires.map((n) => <span key={n} className="lce-puce lce-puce--rouge">{n}</span>)}</p>
+          <p className="lce-groupe lce-groupe--vert">Locataires et autres personnes</p>
+          <p className="lce-puces"><PucesConcernes concernes={personnes} /></p>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -207,6 +263,19 @@ export function PucesConcernes({ concernes }: { concernes: readonly Concerne[] }
    (--color-svv-violet), gris = autre personne : les memes jetons que les puces des parties, dans les DEUX modes. */
 export const CSS_LOCATAIRES_CONCERNES = `
 .lce{display:flex;flex-direction:column;gap:.35rem;min-width:0}
+/* LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — le bloc encadre, au dessin des blocs de la fenetre des biens. */
+.lce-bloc{margin:0;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:.7rem;
+  background:var(--color-svv-surface);box-sizing:border-box;max-width:100%}
+.lce-titre-bloc{margin:0 0 .2rem;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--color-svv-muted)}
+.lce-groupe--rouge{color:var(--color-svv-red-dark)}
+.lce-case--rouge{border-left-color:var(--color-svv-red);background:var(--color-svv-red-soft)}
+.lce-case--fixe{cursor:default}
+.lce-case--fixe input{accent-color:var(--color-svv-red)}
+.lce-puce--rouge{color:var(--color-svv-red-dark);background:var(--color-svv-red-soft)}
+.lce-puces{display:flex;flex-wrap:wrap;gap:.3rem;margin:0}
+.lce-recap{margin:.3rem 0 0;padding-top:.45rem;border-top:1px solid var(--color-svv-line);font-size:.8rem;font-weight:600;
+  color:var(--color-svv-ink);overflow-wrap:anywhere}
+.lce-boutons--gauche{justify-content:flex-start}
 .lce-ligne{margin:0;font-size:.84rem;display:flex;flex-wrap:wrap;align-items:center;gap:.3rem;min-width:0}
 .lce-titre{font-weight:600;color:var(--color-svv-ink)}
 .lce-vide{font-size:.82rem;color:var(--color-svv-muted);margin:0}
@@ -239,4 +308,12 @@ export const CSS_LOCATAIRES_CONCERNES = `
   font:inherit;font-size:.82rem;color:var(--color-svv-ink);cursor:pointer;overflow-wrap:anywhere;box-sizing:border-box}
 .lce-trouve:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .lce-boutons{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+/* LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — EN DERNIER, pour l'emporter sur .lce-case plus haut. */
+/* La case reste a cote du nom : une grille (case | nom | detail), le detail passant sous le nom sur telephone. */
+.lce-case{display:grid;grid-template-columns:auto auto minmax(0,1fr);align-items:center;column-gap:.5rem}
+.lce-case .lce-puce{justify-self:start;min-width:0}
+@media (max-width:520px){
+  .lce-case{grid-template-columns:auto minmax(0,1fr)}
+  .lce-case .lce-detail{grid-column:2}
+}
 `;

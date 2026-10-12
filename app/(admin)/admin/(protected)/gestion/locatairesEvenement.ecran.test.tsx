@@ -53,72 +53,91 @@ function Hote() {
   const [v, setV] = useState<ChoixConcernes | null>(null);
   return createElement(LocatairesConcernes, {
     bienCles: ['315'], libellesDesBiens: ['67 rue de Normandie, 92400 COURBEVOIE — lot 315'], valeur: v,
+    proprietaires: ['ABDELLATIF Névine'],
     onChange: (c) => { dernier = c; setV(c); },
   });
 }
 const monter = async (): Promise<void> => { await act(async () => { root.render(createElement(Hote)); }); await calmer(); };
+const cases = () => [...container.querySelectorAll('.lce-case')].map((c) => [
+  c.className.replace('lce-case ', ''), c.querySelector('.lce-puce')?.textContent, c.querySelector('.lce-detail')?.textContent ?? '',
+  (c.querySelector('input') as HTMLInputElement).checked, (c.querySelector('input') as HTMLInputElement).disabled,
+]);
+const recap = () => container.querySelector('.lce-recap')?.textContent;
 
-describe('🔴🔴 « Locataire(s) concerné(s) : … — Modifier »', () => {
-  it('par défaut : le locataire en place, la phrase avec son nom — et RIEN ne remonte tant qu’on ne modifie pas', async () => {
+/**
+ * ══ 🔴🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — LE BLOC « PARTIES CONCERNÉES » ═══════════════════════════
+ * Les choix sont VISIBLES DIRECTEMENT (plus de petite fenêtre « Modifier ») ; le récapitulatif suit en direct.
+ */
+describe('🔴🔴 le bloc « Parties concernées »', () => {
+  it('propriétaire TOUJOURS inclus (rouge, coché, grisé), locataires actuels cochés, DEUX anciens au plus, décochés', async () => {
     await monter();
-    expect(container.querySelector('.bev-note')?.textContent)
-      .toBe('Sera rattaché à 67 rue de Normandie, 92400 COURBEVOIE — lot 315, à son propriétaire et à TALHOUARN Valentin (locataire en place).');
-    expect([...container.querySelectorAll('.lce-ligne .lce-puce')].map((p) => [p.textContent, p.className])).toEqual([['TALHOUARN Valentin', 'lce-puce lce-puce--vert']]);
+    expect(container.querySelector('.lce-titre-bloc')?.textContent).toBe('Parties concernées');
+    expect(cases()).toEqual([
+      ['lce-case--rouge lce-case--fixe', 'ABDELLATIF Névine', 'toujours concerné', true, true],
+      ['lce-case--vert', 'TALHOUARN Valentin', 'entré le 26/10/2024', true, false],
+      ['lce-case--violet', 'LEON GUIMAREY DI FIORE Isabella et Hugo', 'du 01/05/2025 au 28/09/2026', false, false],
+      ['lce-case--violet', 'MOUDNI Imane', 'du 16/04/2022 au 16/01/2025', false, false],
+    ]);
+    /* Plus de bouton « Modifier » : tout est visible. */
+    expect([...container.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['+ Autre personne…']);
+    expect(recap()).toBe('Sera rattaché à : 67 rue de Normandie, 92400 COURBEVOIE — lot 315 · propriétaire ABDELLATIF Névine · locataire TALHOUARN Valentin');
     expect(dernier).toBeNull();
   });
-  it('la fenêtre : actuels en VERT (entrée), les DEUX anciens les plus récents en VIOLET (entrée, sortie)', async () => {
+  it('cocher un ancien, décocher l’actuel : le récapitulatif suit en direct, le choix remonte comme MODIFIÉ', async () => {
     await monter();
-    await cliquer(bouton('Modifier'));
-    const cases = [...container.querySelectorAll('.lce-case')].map((c) => [c.className.replace('lce-case ', ''), c.querySelector('.lce-nom')?.textContent,
-      c.querySelector('.lce-detail')?.textContent, (c.querySelector('input') as HTMLInputElement).checked]);
-    expect(cases).toEqual([
-      ['lce-case--vert', 'TALHOUARN Valentin', 'entré le 26/10/2024', true],
-      ['lce-case--violet', 'LEON GUIMAREY DI FIORE Isabella et Hugo', 'du 01/05/2025 au 28/09/2026', false],
-      ['lce-case--violet', 'MOUDNI Imane', 'du 16/04/2022 au 16/01/2025', false],
-    ]);
-  });
-  it('un ancien locataire choisi : la phrase suit, le choix remonte comme MODIFIÉ', async () => {
-    await monter();
-    await cliquer(bouton('Modifier'));
-    const [actuel, ancien] = [...container.querySelectorAll('.lce-case input')] as HTMLInputElement[];
-    await cliquer(actuel);
-    await cliquer(ancien);
-    await cliquer(bouton('Valider le choix'));
+    const [, actuel, ancien] = [...container.querySelectorAll('.lce-case input')] as HTMLInputElement[];
+    await act(async () => { actuel.click(); });
+    await calmer();
+    expect(recap()).toBe('Sera rattaché à : 67 rue de Normandie, 92400 COURBEVOIE — lot 315 · propriétaire ABDELLATIF Névine · aucun locataire');
+    await act(async () => { ancien.click(); });
+    await calmer();
     expect(dernier?.modifie).toBe(true);
     expect(dernier?.choix.map((c) => [c.sorte, c.locataireId])).toEqual([['ancien_locataire', 302]]);
-    expect(container.querySelector('.bev-note')?.textContent).toBe('Sera rattaché à 67 rue de Normandie, 92400 COURBEVOIE — lot 315, à son propriétaire et à LEON GUIMAREY DI FIORE Isabella et Hugo (ancien locataire, sorti le 28/09/2026).');
-    expect(container.querySelector('.lce-puce')?.className).toBe('lce-puce lce-puce--violet');
+    expect(recap()).toBe('Sera rattaché à : 67 rue de Normandie, 92400 COURBEVOIE — lot 315 · propriétaire ABDELLATIF Névine · ancien locataire LEON GUIMAREY DI FIORE Isabella et Hugo');
+    /* Le propriétaire ne se décoche pas. */
+    const proprio = container.querySelector('.lce-case--fixe input') as HTMLInputElement;
+    await act(async () => { proprio.click(); });
+    await calmer();
+    expect(proprio.checked).toBe(true);
   });
-  it('« Autre personne… » : l’annuaire, puis la saisie libre (gris, sans fiche)', async () => {
+  it('revenir au choix par défaut : le choix ne remonte plus comme modifié', async () => {
     await monter();
-    await cliquer(bouton('Modifier'));
-    await cliquer(bouton('Autre personne…'));
+    const [, actuel] = [...container.querySelectorAll('.lce-case input')] as HTMLInputElement[];
+    await act(async () => { actuel.click(); });
+    await calmer();
+    await act(async () => { actuel.click(); });
+    await calmer();
+    expect(dernier?.modifie).toBe(false);
+  });
+  it('« + Autre personne… » : l’annuaire, puis la saisie libre — ajoutées en lignes grises, cochées', async () => {
+    await monter();
+    await cliquer(bouton('+ Autre personne…'));
     await taper(container.querySelector('.lce-autre input[type="search"]') as HTMLInputElement, 'banc');
     await act(async () => { await new Promise((r) => setTimeout(r, 300)); });
     await calmer();
     await cliquer(bouton('M. Paul BANC · paul@banc.invalid'));
-    await cliquer(bouton('Autre personne…'));
+    await cliquer(bouton('+ Autre personne…'));
     await cliquer(bouton('Saisir librement (sans créer de fiche)'));
     const champs = [...container.querySelectorAll('.lce-autre input')] as HTMLInputElement[];
     await taper(champs[0], 'Me DUPONT, avocat');
     await taper(champs[1], 'me.dupont@banc.invalid');
     expect(container.textContent).toContain('aucune fiche n’est créée dans l’annuaire');
     await cliquer(bouton('Ajouter'));
-    await cliquer(bouton('Valider le choix'));
     expect(dernier?.choix.map((c) => [c.sorte, c.nom, c.sujet, c.sujetId, c.email])).toEqual([
       ['locataire', 'TALHOUARN Valentin', null, null, null],
       ['annuaire', 'M. Paul BANC', 'proprietaire', 12, 'paul@banc.invalid'],
       ['libre', 'Me DUPONT, avocat', null, null, 'me.dupont@banc.invalid'],
     ]);
-    expect([...container.querySelectorAll('.lce-ligne .lce-puce')].map((p) => p.className.split('--')[1])).toEqual(['vert', 'gris', 'gris']);
+    expect(cases().filter((c) => c[0] === 'lce-case--gris').map((c) => [c[1], c[3]]))
+      .toEqual([['M. Paul BANC', true], ['Me DUPONT, avocat', true]]);
+    expect(recap()).toContain('· autres personnes M. Paul BANC, Me DUPONT, avocat');
   });
-  it('bien vacant : rien de coché, et la phrase le dit', async () => {
+  it('bien vacant : rien de coché chez les locataires, la phrase le dit, le récapitulatif aussi', async () => {
     occupations = occupations.slice(1);
     await monter();
-    expect(container.querySelector('.bev-note')?.textContent).toContain('aucun locataire concerné (bien vacant)');
-    await cliquer(bouton('Modifier'));
-    expect(container.textContent).toContain('Aucun locataire en place (bien vacant).');
-    expect(([...container.querySelectorAll('.lce-case input')] as HTMLInputElement[]).some((i) => i.checked)).toBe(false);
+    expect(container.textContent).toContain('Aucun locataire en place aujourd’hui.');
+    expect(cases().filter((c) => c[0] !== 'lce-case--rouge lce-case--fixe').some((c) => c[3])).toBe(false);
+    expect(recap()).toBe('Sera rattaché à : 67 rue de Normandie, 92400 COURBEVOIE — lot 315 · propriétaire ABDELLATIF Névine · aucun locataire');
   });
 });
 

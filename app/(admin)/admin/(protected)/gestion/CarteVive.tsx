@@ -1103,7 +1103,11 @@ function EtatCarte({ etat, traiteLe, traitePar, occupe, onEtat }: {
 export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
   /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — la réponse de la route porte aussi les biens et les personnes
      concernées (`concernes` : `null` = le choix par défaut). Facultatifs : une réponse plus ancienne ne les a pas. */
-  detail: CarteDetail & { biens?: { cle: string }[]; concernes?: Concerne[] | null }; occupe: boolean;
+  detail: CarteDetail & {
+    biens?: { cle: string }[]; concernes?: Concerne[] | null;
+    /* LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — pour la ligne « Propriétaire » du bloc des parties. */
+    parties?: { sorte: 'proprietaire' | 'locataire'; nom: string }[];
+  }; occupe: boolean;
   onValider: (champs: {
     /** 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — présent SEULEMENT si le choix a été modifié. */
     concernes?: Concerne[];
@@ -1154,8 +1158,11 @@ export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
         </select>
       </label>
       {bienCles.length > 0 && (
+        /* 🔴 LOT FENETRE-EVENEMENT-STRUCTUREE-ET-BLOC-PARTIES — le bloc « Parties concernées » (choix visibles) remplace la
+           ligne « Locataire(s) concerné(s) : … — Modifier », sur l'événement existant aussi. */
         <LocatairesConcernes bienCles={bienCles} libellesDesBiens={[]} sansPhrase
-          initial={detail.concernes ?? null} valeur={concernes} onChange={setConcernes} />
+          initial={detail.concernes ?? null} valeur={concernes} onChange={setConcernes}
+          proprietaires={[...new Set((detail.parties ?? []).filter((p) => p.sorte === 'proprietaire').map((p) => p.nom))]} />
       )}
       <p className="gst-note">Un champ vidé est effacé ; le « quoi », lui, ne peut pas rester vide — sans titre, la carte devient introuvable.</p>
       <div className="gst-actions">
