@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { LocatairesConcernes, type ChoixConcernes } from './LocatairesConcernes';
+import { phraseRattachement } from '../../../../lib/gestion/locatairesEvenement';
 import { ChoisirEvenement } from './ChoisirEvenement';
 /**
  * 🔴 DEPUIS LE MODULE **PUR**, JAMAIS DEPUIS `gestes.ts`. Ce composant vit dans le navigateur : importer le dépôt
@@ -86,6 +88,8 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
 
   /** Le formulaire de création. Rien n'est écrit tant qu'on n'a pas validé. */
   const [titre, setTitre] = useState('');
+  /** 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — le choix des personnes concernées (`null` : par défaut). */
+  const [concernes, setConcernes] = useState<ChoixConcernes | null>(null);
   const [categorie, setCategorie] = useState('');
   const [urgence, setUrgence] = useState('');
   /**
@@ -181,6 +185,8 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
         ouvertLe: bornes.ouvertLe,
         closLe: bornes.closLe,
         note: note.trim() === '' ? null : note.trim(),
+        /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — envoyé SEULEMENT si le choix a été modifié. */
+        ...(concernes !== null && concernes.modifie ? { concernes: concernes.choix } : {}),
       },
     }, `Événement créé et lié à ${portee === 'mail' ? 'ce mail' : 'la conversation'}.`);
   };
@@ -293,7 +299,8 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
             libellesDesBiens={biens.map((b) => b.libelle)}
             ouvertLe={ouvertLe} onOuvertLe={setOuvertLe}
             closLe={closLe} onClosLe={setClosLe}
-            note={note} onNote={setNote} />
+            note={note} onNote={setNote}
+            bienCles={biens.map((b) => b.cle)} concernes={concernes} onConcernes={setConcernes} />
 
           <div className="bev-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe}
@@ -335,7 +342,7 @@ export function BlocEvenement({ messageId, filId, biens, onGeste, onChange, jour
  */
 export function ChampsEvenement({
   titre, onTitre, categorie, onCategorie, urgence, onUrgence, qualifieDisponible, libellesDesBiens,
-  ouvertLe, onOuvertLe, closLe, onClosLe, note, onNote,
+  ouvertLe, onOuvertLe, closLe, onClosLe, note, onNote, bienCles, concernes = null, onConcernes,
 }: {
   titre: string;
   onTitre: (v: string) => void;
@@ -366,6 +373,13 @@ export function ChampsEvenement({
   onClosLe: (v: string) => void;
   note: string;
   onNote: (v: string) => void;
+  /**
+   * 🔴🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — les biens (clés WIPPIMMO) et le choix des personnes
+   * concernées : « Locataire(s) concerné(s) : … — Modifier ». Absents : la phrase d'avant, mot pour mot.
+   */
+  bienCles?: readonly string[];
+  concernes?: ChoixConcernes | null;
+  onConcernes?: (c: ChoixConcernes | null) => void;
 }) {
   /* 🔴 LE REFUS EST DIT ICI, SOUS LES DEUX CHAMPS QU'IL CONCERNE — et c'est le module PUR qui le formule. */
   const refus = bornesEvenement(ouvertLe, closLe).refus;
@@ -442,12 +456,13 @@ export function ChampsEvenement({
         </p>
       )}
 
-      {/* 🔴 CE À QUOI LA CARTE SERA RATTACHÉE, DIT AVANT DE VALIDER. */}
-      <p className="bev-note">
-        {libellesDesBiens.length === 0
-          ? 'Aucun bien classé sur ce mail : la carte sera ouverte sans bien rattaché.'
-          : `Sera rattaché à ${libellesDesBiens.join(', ')}, à son propriétaire et à son locataire.`}
-      </p>
+      {/* 🔴 CE À QUOI LA CARTE SERA RATTACHÉE, DIT AVANT DE VALIDER — et, depuis le lot MARGES-MODALE-ET-LOCATAIRES-DE-
+          L-EVENEMENT, le ou les locataires concernés, modifiables (la phrase suit le choix). */}
+      {bienCles !== undefined && bienCles.length > 0 && onConcernes !== undefined ? (
+        <LocatairesConcernes bienCles={bienCles} libellesDesBiens={libellesDesBiens} valeur={concernes} onChange={onConcernes} />
+      ) : (
+        <p className="bev-note">{phraseRattachement(libellesDesBiens, null)}</p>
+      )}
     </>
   );
 }

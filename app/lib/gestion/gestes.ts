@@ -13,6 +13,7 @@
  *    côté de son identifiant : il restera lisible des années après, même si le compte est désactivé.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+import { ecrireConcernes } from './evenementConcerneRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { adresseProposee, nettoyerObjet } from './objet';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit de la frise, et la cloture ne s'ecrit plus a la main. */
@@ -115,6 +116,11 @@ export interface NouvelEvenement {
   ouvertLe?: string | null;
   closLe?: string | null;
   note?: string | null;
+  /**
+   * 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — le choix des personnes concernées, envoyé SEULEMENT quand il a
+   * été modifié (relu par `concernesDepuisJson`). Absent : le comportement d'avant, à l'identique.
+   */
+  concernes?: unknown;
 }
 
 /**
@@ -226,6 +232,8 @@ async function creerEvenementDansTransaction(
         [id, partie.sorte, cle, texte(partie.libelle) ?? '', auteur.id, auteur.libelle]);
     }
   }
+  /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — le choix modifié des personnes concernées (migration 343). */
+  if (n.concernes !== undefined) await ecrireConcernes(q, id, n.concernes, auteur);
   return { id, reference };
 }
 

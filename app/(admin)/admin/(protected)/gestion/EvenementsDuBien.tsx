@@ -387,7 +387,15 @@ export function EvenementsDuBien({
                     */}
                   {modifie !== null && modifie.id === e.id
                     ? <FormulaireCarte detail={modifie.detail} occupe={occupe}
-                      onValider={(champs) => void ecrire(e.id, champs, `Événement ${e.reference} mis à jour.`)}
+                      onValider={(champs) => {
+                        /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — le choix des personnes concernées part par
+                           son propre appel (`{ concernes }`), PAR LA MÊME PORTE `ecrire`, puis les champs, comme avant. */
+                        const { concernes, ...reste } = champs;
+                        void (async () => {
+                          if (concernes !== undefined) await ecrire(e.id, { concernes }, 'Personnes concernées mises à jour.');
+                          await ecrire(e.id, reste, `Événement ${e.reference} mis à jour.`);
+                        })();
+                      }}
                       onAnnuler={() => setModifie(null)} />
                     : (
                       <p className="evb-gestes">

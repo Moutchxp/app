@@ -334,6 +334,15 @@ export function redactionDisponible(): Promise<boolean> {
   });
 }
 
+/**
+ * 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — la migration 343 est-elle appliquée ? Elle tient les personnes
+ * CONCERNÉES par un événement quand le choix par défaut (les locataires en place) a été modifié. Sans elle, le choix
+ * n'est pas proposé et tout se comporte comme avant.
+ */
+export function evenementConcerneDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_evenement_concerne', () => tableExiste('gestion_evenement_concerne'));
+}
+
 async function tableExiste(table: string): Promise<boolean> {
   try {
     const { rows } = await query<{ n: number }>(

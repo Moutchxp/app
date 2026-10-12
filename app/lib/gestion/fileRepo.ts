@@ -11,6 +11,8 @@
  * L'ORDRE DEMANDÉ À L'ÉCRAN : ce qui attend une réponse depuis LE PLUS LONGTEMPS d'abord. Donc, dans les deux colonnes :
  * ce qui attend passe devant ce qui n'attend pas, puis du plus ANCIEN au plus récent.
  */
+import { lireConcernes } from './evenementConcerneRepo';
+import type { Concerne } from './locatairesEvenement';
 import { query } from '../db/client';
 import { sqlEstVraiePiece } from './lisibilite';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » se deduit des cartes de borne de la frise, et le tri de la file avec. */
@@ -161,6 +163,11 @@ export interface CarteEvenement {
   bien: { cle: string; adresse: string | null; commune: string | null;
     proprietaire: string | null; locataire: string | null } | null;
   nbBiens: number;
+  /**
+   * 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — les personnes CONCERNÉES, quand leur choix a été modifié
+   * (migration 343). Absent : le choix par défaut (les locataires en place), la carte d'avant.
+   */
+  concernes?: Concerne[];
 }
 
 /** Ce qu'une miniature de dernière étape porte. Les REPÈRES en sont exclus : ce ne sont pas des étapes. */
@@ -728,8 +735,11 @@ export async function lireEvenements(
     `SELECT count(*)::int AS n,
             count(*) FILTER (WHERE ${sqlEvenementOuvertParLaFrise('e')})::int AS ouverts
        FROM gestion_evenement e`);
+  /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — une lecture groupée pour la page ; vide sans la 343. */
+  const concernes = await lireConcernes(rows.map((r) => Number(r.evenement_id)));
   return {
     cartes: rows.map((r) => ({
+      ...(concernes.has(Number(r.evenement_id)) ? { concernes: concernes.get(Number(r.evenement_id)) } : {}),
       evenementId: r.evenement_id, reference: r.reference, objet: r.objet, demandeur: r.demandeur,
       adresseLibre: r.adresse_libre,
       /* 🔴 LOT ETAT-PAR-LA-FRISE — « Traité » vient de la frise, les deux autres de la colonne. Une seule

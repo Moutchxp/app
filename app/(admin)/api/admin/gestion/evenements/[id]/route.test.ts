@@ -98,7 +98,9 @@ describe('GET — le détail, servi seulement à qui a le droit', () => {
      * événement sans bien n'a aucune partie à nommer, et la carte dépliée n'affiche alors rien de plus qu'avant
      * ce lot.
      */
-    expect(await res.json()).toEqual({ ...CARTE, monga: null, biens: [], parties: [] });
+    /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — `concernes` S'AJOUTE AU CONTRAT : `null` = le choix par
+       défaut (les locataires en place), la carte d'avant. */
+    expect(await res.json()).toEqual({ ...CARTE, monga: null, biens: [], parties: [], concernes: null });
     expect(res.headers.get('Cache-Control')).toBe('private, no-store');
   });
 

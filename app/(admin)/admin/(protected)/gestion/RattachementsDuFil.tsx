@@ -60,6 +60,7 @@ import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — le formulaire de création et la recherche d'événements, RÉEMPLOYÉS
    et non recopiés (voir l'encadré de `ChampsEvenement`). Le type vient du module PUR. */
 import { ChampsEvenement, CSS_BLOC_EVENEMENT } from './BlocEvenement';
+import type { ChoixConcernes } from './LocatairesConcernes';
 /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les bornes de la carte neuve, décidées par le module PUR. */
 import { bornesEvenement } from '../../../../lib/gestion/evenementQualite';
 import { jourParis } from '../../../../lib/gestion/historiqueBien';
@@ -338,6 +339,8 @@ export function RattachementsDuFil({
       sorte: 'creer'; objet: string; categorie: string; urgence: string;
       /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les jours civils retenus, et la note. */
       ouvertLe: string | null; closLe: string | null; note: string | null;
+      /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — le choix modifié des personnes concernées (sinon `null`). */
+      concernes?: ChoixConcernes | null;
     }
     | null
   >(null);
@@ -345,6 +348,8 @@ export function RattachementsDuFil({
   const [panneauEvt, setPanneauEvt] = useState<'aucun' | 'lier' | 'creer'>('aucun');
   /** Les champs du formulaire partagé (`ChampsEvenement`). Rien n'est écrit tant qu'on n'a pas validé. */
   const [evtTitre, setEvtTitre] = useState('');
+  /** 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — « Locataire(s) concerné(s) » (`null` : le choix par défaut). */
+  const [evtConcernes, setEvtConcernes] = useState<ChoixConcernes | null>(null);
   const [evtCategorie, setEvtCategorie] = useState('');
   const [evtUrgence, setEvtUrgence] = useState('');
   /** 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note de la carte neuve (accord d'Arno). */
@@ -821,7 +826,13 @@ export function RattachementsDuFil({
             ? { categorie: voulu.categorie === '' ? null : voulu.categorie } : {}),
           ...(evtDuMail?.qualifie === true
             ? { urgence: voulu.urgence === '' ? null : voulu.urgence } : {}),
-          parties: partiesDesBiens(fraiche, voulus),
+          /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — un choix MODIFIÉ remplace les locataires du jour du mail :
+             ce sont alors les personnes choisies qui sont concernées (le propriétaire reste, toujours). Sans
+             modification : exactement les parties d'avant. */
+          parties: voulu.concernes?.modifie === true
+            ? partiesDesBiens(fraiche, voulus).filter((p) => p.sorte !== 'locataire')
+            : partiesDesBiens(fraiche, voulus),
+          ...(voulu.concernes?.modifie === true ? { concernes: voulu.concernes.choix } : {}),
           /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note, telles que le formulaire les a
              retenues. C'est le SQL qui les ancre à midi, heure de Paris. */
           ouvertLe: voulu.ouvertLe,
@@ -1478,7 +1489,8 @@ export function RattachementsDuFil({
                         libellesDesBiens={(selection ?? clesDuMail).map((c) => libellesDuMail[c] ?? c)}
                         ouvertLe={evtOuvertLe} onOuvertLe={setEvtOuvertLe}
                         closLe={evtClosLe} onClosLe={setEvtClosLe}
-                        note={evtNote} onNote={setEvtNote} />
+                        note={evtNote} onNote={setEvtNote}
+                        bienCles={selection ?? clesDuMail} concernes={evtConcernes} onConcernes={setEvtConcernes} />
                       <div className="rdf-evt-boutons">
                         {/* ⚠️ « Annuler » NE CRÉE RIEN, et ne garde rien : demande d'Arno, mot pour mot. */}
                         <button type="button" className="svv-btn svv-btn-outline gst-btn"
@@ -1496,6 +1508,7 @@ export function RattachementsDuFil({
                               ouvertLe: bornes.ouvertLe,
                               closLe: bornes.closLe,
                               note: evtNote.trim() === '' ? null : evtNote.trim(),
+                              concernes: evtConcernes,
                             });
                             setPanneauEvt('aucun');
                           }}>
@@ -2185,16 +2198,17 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-suivi-carte--retire{opacity:.6;border-style:dashed}
 .rdf-suivi-detail{margin:.35rem 0 0 1.6rem}
 .rdf-suivi-resume{font-size:.8rem;font-weight:600;color:var(--color-svv-ink);cursor:pointer;overflow-wrap:anywhere}
-.rdf-suivi-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.rdf-suivi-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px;border-radius:.4rem}
 .rdf-suivi-corps{display:flex;flex-direction:column;gap:6px;margin-top:6px}
 /* La ligne « Evenement rattache », repliee. */
 .rdf-evt-resume{font-size:.8rem;font-weight:600;color:var(--color-svv-ink);cursor:pointer;overflow-wrap:anywhere}
-.rdf-evt-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* LOT MARGES-MODALE — trace VERS L INTERIEUR : rien ne deborde du bloc (focus, selection). */
+.rdf-evt-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px;border-radius:.4rem}
 .rdf-evt-repli>.rdf-evt-tete{margin-top:6px}
 /* LOT STATUT-PAR-MAIL — le detail par mail, REPLIE. On ne cache rien : on cesse de repeter. */
 .rdf-detail-mails{margin-top:2px}
 .rdf-resume{font-size:.78rem;color:var(--color-svv-muted);cursor:pointer}
-.rdf-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.rdf-resume:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px;border-radius:.4rem}
 .rdf-sous-liste{display:flex;flex-direction:column;gap:6px;margin:6px 0 0;padding:0 0 0 10px;list-style:none;
   border-left:2px solid var(--color-svv-line)}
 .rdf-sous-item{display:flex;flex-direction:column;gap:2px;min-width:0}

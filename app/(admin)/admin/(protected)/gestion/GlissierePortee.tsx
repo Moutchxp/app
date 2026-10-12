@@ -147,7 +147,10 @@ export function GlissierePortee({ position, modification, onChoisir }: {
    modification du suivi » (.svv-btn-primary), par la meme variable --color-svv-red ; plus de #FA5252. La poignee
    blanche fait partie du curseur dans les deux themes.
    LA GEOMETRIE : une position i est a  retrait + x * (largeur - 2 * retrait), x = i / 3 (variable --gpo-x). Les
-   pourcentages se lisent sur la largeur du bloc qui contient (la piste, ou la rangee des libelles : meme largeur). */
+   pourcentages se lisent sur la largeur du bloc qui contient (la piste, ou la rangee des libelles : meme largeur).
+   LOT MARGES-MODALE (Arno) : la pastille d un libelle reste DANS le bloc (clamp entre 0 et 100 % - sa largeur) — calee a
+   gauche pour Origine, a droite pour Toute la conversation ; centree sous son repere tant que la place le permet. Le
+   contour de focus se trace vers l interieur. */
 export const CSS_GLISSIERE_PORTEE = `
 .gpo{--gpo-retrait:${RETRAIT_PX}px;display:flex;flex-direction:column;gap:10px;min-width:0;padding:6px 0 0}
 /* LOT PILULE-AFFINEE-ET-ACCOLADE-ENVELOPPANTE (Arno) : moins « playschool » — contours 2 px, ombre 3 px adoucie (70 %),
@@ -169,12 +172,12 @@ export const CSS_GLISSIERE_PORTEE = `
 .gpo-libelles{display:grid;min-width:0}
 .gpo-libelle{--gpo-l:min(140px, calc((100% - 2 * var(--gpo-retrait)) / 3 - 6px));grid-area:1/1;justify-self:start;
   align-self:start;width:var(--gpo-l);box-sizing:border-box;min-height:44px;padding:4px 6px;
-  margin-left:calc(var(--gpo-retrait) + var(--gpo-x) * (100% - 2 * var(--gpo-retrait)) - var(--gpo-l) / 2);
+  margin-left:clamp(0px, calc(var(--gpo-retrait) + var(--gpo-x) * (100% - 2 * var(--gpo-retrait)) - var(--gpo-l) / 2), calc(100% - var(--gpo-l)));
   font:inherit;font-size:16px;line-height:1.25;text-align:center;color:var(--color-svv-gray);background:transparent;
   border:0;border-radius:.6rem;cursor:pointer;overflow-wrap:anywhere}
 .gpo-libelle--choisi{font-weight:700;color:var(--color-svv-red);background:var(--color-svv-red-soft)}
 .gpo-libelle:disabled{color:var(--color-svv-muted);opacity:.55;cursor:not-allowed}
-.gpo-libelle:focus-visible{outline:3px solid var(--color-svv-ink);outline-offset:2px}
+.gpo-libelle:focus-visible{outline:3px solid var(--color-svv-ink);outline-offset:-3px}
 /* PETIT ECRAN (telephone) : quatre libelles de 140 px ne tiennent pas cote a cote. Ils restent EXACTEMENT centres sous
    leur repere et en 16 px, mais sur deux rangees decalees (Origine et Ce mail + futurs echanges en haut, One shot et
    Toute la conversation dessous) : chacun dispose ainsi de deux intervalles. Le curseur et son retrait raccourcissent

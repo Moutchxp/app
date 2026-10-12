@@ -26,6 +26,7 @@ import { chargerConfigGestion } from '../../../../../../lib/gestion/config';
 import { lirePartenairesInternes } from '../../../../../../lib/gestion/partenaires';
 import { deplacementsDeMailsDisponibles } from '../../../../../../lib/gestion/schema';
 import { changerEtatEvenement, estEtat, modifierEvenement } from '../../../../../../lib/gestion/gestes';
+import { lireConcernes, remplacerConcernes } from '../../../../../../lib/gestion/evenementConcerneRepo';
 
 /**
  * /api/admin/gestion/evenements/[id] (lot 4c) — LE DÉTAIL D'UNE CARTE, et ses corrections.
@@ -92,8 +93,11 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     const parties = fiches
       .flatMap((b) => personnesEnVigueur(b.personnes))
       .map((p) => ({ sorte: p.sorte, nom: p.nom }));
+    /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — les personnes concernées, si leur choix a été modifié
+       (`null` : le choix par défaut, les locataires en place). */
+    const concernes = (await lireConcernes([id])).get(id) ?? null;
     return Response.json(
-      { ...carte, monga, biens, parties }, { headers: { 'Cache-Control': 'private, no-store' } });
+      { ...carte, monga, biens, parties, concernes }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/evenement] lecture impossible', e);
     return Response.json({ erreur: 'Lecture impossible : erreur interne du serveur.' }, { status: 503 });
@@ -111,12 +115,19 @@ export async function PATCH(request: Request, ctx: Contexte): Promise<Response> 
      🔴 LOT URGENCE-EVENEMENT, POINT 3 — et `urgence` avec elle, pour exactement la même raison : le niveau ne se
      posait qu'à la création. Le sélecteur à trois boutons de la carte et celui de la fiche du bien passent tous
      les deux par CETTE porte, et par aucune autre : même garde, même journal. */
-  let corps: { etat?: unknown; objet?: string | null; demandeurNom?: string | null; demandeurEmail?: string | null; adresseLibre?: string | null; categorie?: string | null; urgence?: string | null };
+  let corps: { etat?: unknown; objet?: string | null; demandeurNom?: string | null; demandeurEmail?: string | null; adresseLibre?: string | null; categorie?: string | null; urgence?: string | null; concernes?: unknown };
   try { corps = (await request.json()) as typeof corps; }
   catch { return Response.json({ erreur: 'Demande illisible.' }, { status: 422 }); }
 
   try {
     const auteur = await auteurDeLaRequete(request);
+    /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — `{ concernes }` : remplace le choix des personnes concernées
+       (les anciennes lignes datées, jamais supprimées). Un appel à part, comme `{ etat }`. */
+    if (corps.concernes !== undefined) {
+      const fait = await remplacerConcernes(id, corps.concernes, auteur);
+      if (!fait) return Response.json({ erreur: 'Choix illisible, ou mise à jour 343 non appliquée.' }, { status: 409 });
+      return Response.json({ ok: true });
+    }
     if (corps.etat !== undefined) {
       if (!estEtat(corps.etat)) return Response.json({ erreur: 'État inconnu.' }, { status: 400 });
       const issue = await changerEtatEvenement(id, corps.etat, auteur);

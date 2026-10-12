@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { LocatairesConcernes, PucesConcernes, type ChoixConcernes } from './LocatairesConcernes';
+import type { Concerne } from '../../../../lib/gestion/locatairesEvenement';
 import { BlocRepliable } from '../permis/BlocRepliable';
 import type { Rapport } from './gestesMail';
 import type { CarteDetail } from '../../../../lib/gestion/carteRepo';
@@ -68,6 +70,8 @@ type CarteAvecMonga = CarteDetail & {
    * L'écran n'affiche alors rien de plus qu'avant, au lieu de tomber. Même prudence que `biens` et `derniereEtape`.
    */
   parties?: { sorte: 'proprietaire' | 'locataire'; nom: string }[];
+  /** 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — les personnes concernées si leur choix a été modifié (sinon `null`). */
+  concernes?: Concerne[] | null;
 };
 
 type VueCarte = { v: 'charge' } | { v: 'ok'; d: CarteAvecMonga } | { v: 'erreur'; m: string };
@@ -700,6 +704,10 @@ function CorpsCarte({ evenementId, onDetail, onGeste, partage, onOuvrirBien, dej
         * URGENCE-EVENEMENT.
         */}
       <PartiesManquantes parties={d.parties} dejaDits={dejaDits} />
+      {/* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — les personnes concernées choisies, en couleur. */}
+      {d.concernes != null && (
+        <p className="gst-parties lce-ligne"><span className="gst-parties-role">Concerné(s)&nbsp;:</span>{' '}<PucesConcernes concernes={d.concernes} /></p>
+      )}
 
       {/**
         * 🔴🔴 L'UNIQUE EXCEPTION, EN PLEIN ÉCRAN SEULEMENT — voir l'encadré ci-dessus. `EtatCarte` n'existe nulle
@@ -884,6 +892,11 @@ function LignesDuDossier({ carte, maintenant }: { carte: CarteEvenement; mainten
         </span>
       )}
       {gens.length > 0 && <span className="gst-carte-ligne">{gens.join(' · ')}</span>}
+      {/* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — le choix MODIFIÉ des personnes concernées, en couleur
+          (vert : en place ; violet : ancien locataire ; gris : autre personne). Absent : la carte d'avant. */}
+      {carte.concernes !== undefined && (
+        <span className="gst-carte-ligne lce-ligne">Concerné(s) :{' '}<PucesConcernes concernes={carte.concernes} /></span>
+      )}
     </>
   );
 }
@@ -1097,8 +1110,12 @@ function EtatCarte({ etat, traiteLe, traitePar, occupe, onEtat }: {
  * proposer d'autres champs d'un côté que de l'autre.
  */
 export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
-  detail: CarteDetail; occupe: boolean;
+  /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — la réponse de la route porte aussi les biens et les personnes
+     concernées (`concernes` : `null` = le choix par défaut). Facultatifs : une réponse plus ancienne ne les a pas. */
+  detail: CarteDetail & { biens?: { cle: string }[]; concernes?: Concerne[] | null }; occupe: boolean;
   onValider: (champs: {
+    /** 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — présent SEULEMENT si le choix a été modifié. */
+    concernes?: Concerne[];
     objet: string; demandeurNom: string; adresseLibre: string;
     /** 🔴 LOT CAPSULE-TYPE-EVENEMENT — ABSENTE quand le type n'a pas bougé : voir plus bas pourquoi. */
     categorie?: string;
@@ -1121,6 +1138,9 @@ export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
    * ajouté là-bas apparaît ici sans qu'on touche à ce fichier.
    */
   const [categorie, setCategorie] = useState(categorieValide(detail.categorie) ?? '');
+  /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — le même choix qu'à la création, sur l'événement existant. */
+  const [concernes, setConcernes] = useState<ChoixConcernes | null>(null);
+  const bienCles = (detail.biens ?? []).map((b) => b.cle);
   return (
     <div className="gst-bloc gst-champs">
       <label className="gst-champ">
@@ -1142,6 +1162,10 @@ export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
           {TYPES_EVENEMENT.map((t) => <option key={t.cle} value={t.cle}>{t.mot}</option>)}
         </select>
       </label>
+      {bienCles.length > 0 && (
+        <LocatairesConcernes bienCles={bienCles} libellesDesBiens={[]} sansPhrase
+          initial={detail.concernes ?? null} valeur={concernes} onChange={setConcernes} />
+      )}
       <p className="gst-note">Un champ vidé est effacé ; le « quoi », lui, ne peut pas rester vide — sans titre, la carte devient introuvable.</p>
       <div className="gst-actions">
         <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={occupe || objet.trim() === ''}
@@ -1153,6 +1177,7 @@ export function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
             * touche pas ne s'en aperçoit jamais.
             */
           onClick={() => onValider({
+            ...(concernes !== null && concernes.modifie ? { concernes: concernes.choix } : {}),
             objet, demandeurNom: demandeur, adresseLibre: adresse,
             ...(categorie === (categorieValide(detail.categorie) ?? '') ? {} : { categorie }),
           })}>

@@ -481,7 +481,8 @@ export const CSS_LISTE_BIENS = `
 .rec-saisie{min-height:40px;padding:.35rem .55rem;font:inherit;font-size:.9rem;color:var(--color-svv-ink);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:.45rem;
   min-width:0;width:100%}
-.rec-saisie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* LOT MARGES-MODALE — le champ de recherche occupe toute la largeur : son contour se trace vers l interieur. */
+.rec-saisie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .rec-vide{margin:.4rem 0 0;font-size:.8rem;color:var(--color-svv-muted)}
 /* LOT DEFILEMENT-MODALES — EXCEPTION N° 2 : la recherche ne pousse jamais les propositions hors de l'ecran. */
 .rec-resultats{margin-top:.4rem;max-height:30vh;overflow-y:auto;overscroll-behavior:auto}
