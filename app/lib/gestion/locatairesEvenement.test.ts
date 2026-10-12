@@ -118,8 +118,13 @@ describe('🔒 la base : migration d’AJOUT, écriture seulement sur un choix m
     expect(g).toContain('if (n.concernes !== undefined) await ecrireConcernes(q, id, n.concernes, auteur);');
     const bloc = readFileSync('app/(admin)/admin/(protected)/gestion/BlocEvenement.tsx', 'utf8');
     expect(bloc).toContain('...(concernes !== null && concernes.modifie ? { concernes: concernes.choix } : {}),');
+    /* LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — le corps de création vit dans `corpsCreation` (module pur),
+       partagé par « Modifier le rattachement » et « Événement de ce mail » : la règle n'y a pas changé d'un mot. */
     const rdf = readFileSync('app/(admin)/admin/(protected)/gestion/RattachementsDuFil.tsx', 'utf8');
-    expect(rdf).toContain("...(voulu.concernes?.modifie === true ? { concernes: voulu.concernes.choix } : {}),");
+    expect(rdf).toContain('corpsCreation(voulu, evtDuMail?.qualifie === true, partiesDesBiens(fraiche, voulus))');
+    const pur = readFileSync('app/lib/gestion/evenementDuMail.ts', 'utf8');
+    expect(pur).toContain("const modifie = v.concernes?.modifie === true;");
+    expect(pur).toContain('...(modifie ? { concernes: v.concernes?.choix ?? [] } : {}),');
     /* La table des parties (268) n'est jamais réécrite pour les événements existants. */
     expect(readFileSync('app/lib/gestion/evenementConcerneRepo.ts', 'utf8')).not.toContain('gestion_evenement_partie');
   });

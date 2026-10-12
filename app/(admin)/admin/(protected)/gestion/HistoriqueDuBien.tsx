@@ -27,6 +27,8 @@ import { CSS_FRISE_DU_BIEN, FriseDuBien } from './FriseDuBien';
 /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — LA fenêtre des biens d'un mail, montée en mode PONCTUEL. Le même
    composant que « Visualiser / Modifier » et « Classer » : aucune copie, aucune seconde fenêtre à corriger. */
 import { RattachementsDuFil } from './RattachementsDuFil';
+import { FenetreEvenementMail } from './FenetreEvenementMail';
+import { AIDE_EVENEMENT_DU_MAIL } from '../../../../lib/gestion/evenementDuMail';
 /* 🔴🔴 LOT ACCOLADE-PARTOUT — l'accolade rouge de la vue conversation, posée dans l'historique quand un suivi récurrent
    fait entrer ou sortir CE bien. Le type vient du dépôt en `import type` : rien de `pg` n'entre dans le paquet client. */
 import { AccoladeSuivi, CSS_ACCOLADE_SUIVI } from './AccoladeSuivi';
@@ -1320,6 +1322,17 @@ export function HistoriqueDuBien({
    * ni lire ni écrire — le bouton n'est alors pas rendu, plutôt qu'offert et inerte.
    */
   const [aModifier, setAModifier] = useState<LigneHistorique | null>(null);
+  /**
+   * 🔴🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — LE MAIL DONT ON OUVRE « Événement de ce mail ». Même
+   * condition que son voisin : il faut un échange (`filId`), sans quoi le bouton n'est pas rendu.
+   */
+  const [evtDuMail, setEvtDuMail] = useState<LigneHistorique | null>(null);
+  const evenementOffert = useCallback(
+    (l: LigneHistorique) => (l.filId === null || l.filId === undefined ? undefined : {
+      aide: AIDE_EVENEMENT_DU_MAIL,
+      onOuvrir: () => setEvtDuMail(l),
+    }),
+    []);
   const modificationOfferte = useCallback(
     (l: LigneHistorique) => (l.filId === null || l.filId === undefined ? undefined : {
       aide: aideModifierLeRattachement(adresseBien),
@@ -3118,6 +3131,7 @@ export function HistoriqueDuBien({
                       piecesCitables={piecesParFil}
                       sortieDuSuivi={sortieOfferte} ancienContact={estAncienContact}
                       modifierRattachement={modificationOfferte}
+                      evenementDuMail={evenementOffert}
                       /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les mêmes deux propriétés que le montage
                          à plat, juste en dessous : un seul comportement pour les deux façons de voir le fil. */
                       repondre={peutRepondre ? repondreAuMail : undefined}
@@ -3133,6 +3147,7 @@ export function HistoriqueDuBien({
                     piecesCitables={piecesParFil}
                     sortieDuSuivi={sortieOfferte} ancienContact={estAncienContact}
                     modifierRattachement={modificationOfferte}
+                    evenementDuMail={evenementOffert}
                     repondre={peutRepondre ? repondreAuMail : undefined}
                     composeurDe={composeurDuMail} />
                 )}
@@ -3266,6 +3281,19 @@ export function HistoriqueDuBien({
             setSortieRefus(message);
             setRechargement((n) => n + 1);
             annoncerClassement({ messageId: aModifier.messageId, filId: aModifier.filId });
+          }} />
+      )}
+
+      {/* ══ 🔴🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — « ÉVÉNEMENT DE CE MAIL » ══════════════════════
+          Après un geste : la fenêtre se ferme, et la page est REDEMANDÉE — pastille de la ligne, bloc en lecture et
+          carte d'événement reviennent tels que le serveur les connaît, sans recharger la page. */}
+      {evtDuMail !== null && evtDuMail.filId != null && (
+        <FenetreEvenementMail key={evtDuMail.messageId} messageId={evtDuMail.messageId} filId={evtDuMail.filId}
+          onFerme={() => setEvtDuMail(null)}
+          onFait={(message) => {
+            setEvtDuMail(null);
+            setSortieRefus(message);
+            setRechargement((n) => n + 1);
           }} />
       )}
 
@@ -4226,6 +4254,7 @@ function ListeDefilante({ children, etiquette }: { children: ReactNode; etiquett
 function FilDeMails({
   lignes, maintenant, deplie, categories, surligne, mots, onBasculer, onOuvrirFil, sortieDuSuivi, ancienContact,
   modifierRattachement,
+  evenementDuMail,
   onVisualiser, destinataires, piecesCitables, repondre, composeurDe, accolades = [], syndicaux,
 }: {
   lignes: readonly LigneHistorique[];
@@ -4252,6 +4281,8 @@ function FilDeMails({
   ancienContact?: (adresse: string) => boolean;
   /** 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — le second bouton de l'en-tête, par ligne. */
   modifierRattachement: (l: LigneHistorique) => { aide: string; onModifier: () => void } | undefined;
+  /** 🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — le 3e bouton du mail déplié. Absent ⇒ non rendu. */
+  evenementDuMail?: (l: LigneHistorique) => { aide: string; onOuvrir: () => void } | undefined;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — l'œil d'une miniature du mail déplié ouvre la visionneuse. */
   onVisualiser: (pieceId: number) => void;
   /** 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 2 — les parties destinataires, par message. */
@@ -4329,6 +4360,7 @@ function FilDeMails({
               sortieDuSuivi={sortieDuSuivi(l)}
               ancienContact={ancienContact}
               modifierRattachement={modifierRattachement(l)}
+              evenementDuMail={evenementDuMail?.(l)}
               /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les trois boutons de la boîte mail sous ce mail
                  déplié, et l'éditeur juste en dessous. La ligne ne décide de rien : elle rend ce qu'on lui
                  donne, et ne rend rien quand on ne lui donne rien. */

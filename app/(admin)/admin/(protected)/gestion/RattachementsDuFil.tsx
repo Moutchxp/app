@@ -85,6 +85,9 @@ import {
 } from '../../../../lib/gestion/evenementRattache';
 import { etapeEnMots } from '../../../../lib/gestion/etapeVignette';
 import { CapsuleEvenement, CSS_CAPSULE_EVENEMENT } from './CapsuleEvenement';
+import {
+  corpsCreation, partiesDesBiensFiche, PHRASE_BLOC_LECTURE, type PartieCarteNeuve,
+} from '../../../../lib/gestion/evenementDuMail';
 
 /**
  * LOT BARRE-STATUT, REFAIT AU LOT FICHE-RATTACHEMENT — « VISUALISER / MODIFIER » : CE QUE DIT UN ÉCHANGE CLASSÉ.
@@ -858,30 +861,11 @@ export function RattachementsDuFil({
   ): Promise<void> => {
     const voulu = evtVoulu;
     if (voulu === null || mailId === null) return;
+    /* 🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — le corps de création est `corpsCreation` (module pur
+       evenementDuMail), le MÊME que la fenêtre « Événement de ce mail » envoie : aucun des deux ne le recopie. */
     const corps = voulu.sorte === 'lier'
       ? { evenementId: voulu.evenementId }
-      : {
-        nouveau: {
-          objet: voulu.objet.trim(),
-          /* ⚠️ SANS LA MIGRATION 268, ces deux champs n'ont nulle part où s'écrire : on ne les envoie pas. */
-          ...(evtDuMail?.qualifie === true
-            ? { categorie: voulu.categorie === '' ? null : voulu.categorie } : {}),
-          ...(evtDuMail?.qualifie === true
-            ? { urgence: voulu.urgence === '' ? null : voulu.urgence } : {}),
-          /* 🔴 LOT MARGES-MODALE-ET-LOCATAIRES-DE-L-EVENEMENT — un choix MODIFIÉ remplace les locataires du jour du mail :
-             ce sont alors les personnes choisies qui sont concernées (le propriétaire reste, toujours). Sans
-             modification : exactement les parties d'avant. */
-          parties: voulu.concernes?.modifie === true
-            ? partiesDesBiens(fraiche, voulus).filter((p) => p.sorte !== 'locataire')
-            : partiesDesBiens(fraiche, voulus),
-          ...(voulu.concernes?.modifie === true ? { concernes: voulu.concernes.choix } : {}),
-          /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les deux dates et la note, telles que le formulaire les a
-             retenues. C'est le SQL qui les ancre à midi, heure de Paris. */
-          ouvertLe: voulu.ouvertLe,
-          closLe: voulu.closLe,
-          note: voulu.note,
-        },
-      };
+      : corpsCreation(voulu, evtDuMail?.qualifie === true, partiesDesBiens(fraiche, voulus));
     try {
       const res = await fetch(`/api/admin/gestion/messages/${mailId}/affectation`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
@@ -906,23 +890,7 @@ export function RattachementsDuFil({
   const partiesDesBiens = (
     fraiche: FicheRattachementFil | null,
     voulus: readonly { cle: string; libelle: string }[],
-  ): { sorte: 'lot' | 'proprietaire' | 'locataire'; cle: string; libelle: string }[] => {
-    const out: { sorte: 'lot' | 'proprietaire' | 'locataire'; cle: string; libelle: string }[] = [];
-    /* 🔴 LES BIENS VOULUS, DANS L'ORDRE VOULU — et leurs personnes lues sur la fiche fraîche. Un bien qu'elle ne
-       porte pas encore (lecture en échec) garde quand même sa ligne « lot » : la carte sera rattachée au bien,
-       même si l'on n'a pas su nommer son propriétaire. */
-    const parCle = new Map((fraiche?.biens ?? []).map((b) => [b.cle, b]));
-    for (const v of voulus) {
-      const b = parCle.get(v.cle);
-      out.push({ sorte: 'lot', cle: v.cle, libelle: v.libelle });
-      for (const p of b?.personnes ?? []) {
-        if (p.role === 'proprietaire' || p.role === 'locataire') {
-          out.push({ sorte: p.role, cle: p.cle, libelle: p.nom });
-        }
-      }
-    }
-    return out;
-  };
+  ): PartieCarteNeuve[] => partiesDesBiensFiche(fraiche?.biens ?? [], voulus);
 
   /**
    * Les PERSONNES que le suivi applique à ce mail — propriétaire, locataire, et leur contact extérieur. PUR vis
@@ -1461,9 +1429,12 @@ export function RattachementsDuFil({
                                 <span>Étape : {etape.mot}{etape.date !== null && etape.date !== '—' ? ` (${etape.date})` : ''}
                                   {etape.aConfirmer ? ' — à confirmer' : ''}</span>
                               </span>
+                              {/* 🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — dans « Modifier le rattachement »
+                                  (porte ponctuelle), LECTURE SEULE : « non rattaché » en simple texte ; la case
+                                  « Rattacher ce mail » a déménagé dans la fenêtre « Événement de ce mail ». */}
                               {e.rattache
                                 ? <span className="rdf-evt-rattache">Rattaché ✓</span>
-                                : (
+                                : ponctuel ? <span className="rdf-evt-non-rattache">non rattaché</span> : (
                                   <label className="rdf-evt-cocher">
                                     <input type="checkbox" checked={coche}
                                       onChange={() => {
@@ -1512,7 +1483,10 @@ export function RattachementsDuFil({
                           : `à créer : « ${evtVoulu.objet.trim()} »`}
                       </span>
                     )}
-                    {panneauEvt === 'aucun' && evtVoulu === null && (
+                    {/* 🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — en porte ponctuelle, « Lier à un événement »
+                        et « Créer un événement » ont déménagé dans la fenêtre « Événement de ce mail » (bouton
+                        « Événement » du mail déplié). Les deux autres portes les gardent ici, inchangés. */}
+                    {!ponctuel && panneauEvt === 'aucun' && evtVoulu === null && (
                       <>
                         <button type="button" className="gst-lien-bouton"
                           onClick={() => { setPanneauEvt('lier'); setErreur(null); }}>
@@ -1613,6 +1587,8 @@ export function RattachementsDuFil({
                       </div>
                     </div>
                   )}
+                  {/* 🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — la phrase d'Arno, en bas du bloc en lecture. */}
+                  {ponctuel && <p className="rdf-detail rdf-evt-renvoi">{PHRASE_BLOC_LECTURE}</p>}
                     </>
                   );
                   if (!ponctuel) return <div className="rdf-evt">{contenuEvt}</div>;
@@ -1640,20 +1616,8 @@ export function RattachementsDuFil({
                               {resume.cas === 'rattache' && resume.mot !== null && (
                                 <span className="rdf-evt-autres">{resume.mot}</span>
                               )}
-                              {resume.cas === 'en_cours_sur_le_bien' && (
-                                <button type="button" className="rdf-evt-rattacher"
-                                  onClick={(ev) => {
-                                    /* Un bouton DANS le résumé : il ne doit pas basculer le bloc deux fois. */
-                                    ev.preventDefault();
-                                    ev.stopPropagation();
-                                    setBlocEvtOuvert(true);
-                                    requestAnimationFrame(() => {
-                                      document.querySelector<HTMLInputElement>('.rdf-evt-lignes input[type="checkbox"]')?.focus();
-                                    });
-                                  }}>
-                                  Rattacher
-                                </button>
-                              )}
+                              {/* 🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — le bouton « Rattacher » a déménagé dans la
+                                  fenêtre « Événement de ce mail » : cette ligne ne fait plus que dire. */}
                             </span>
                           );
                   return (
@@ -2372,11 +2336,6 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf-evt-bloc>.rdf-evt-tete{margin-top:0}
 .rdf-evt-nom{display:inline-flex;min-width:0;max-width:100%}
 .rdf-evt-voulu{display:inline-flex;align-items:center;gap:.3rem;min-width:0;max-width:100%}
-.rdf-evt-rattacher{min-height:28px;padding:.15rem .7rem;font:inherit;font-size:.78rem;font-weight:700;
-  color:var(--color-svv-red);background:var(--color-svv-surface);border:1px solid var(--color-svv-red);
-  border-radius:999px;cursor:pointer}
-.rdf-evt-rattacher:hover{background:var(--color-svv-field)}
-.rdf-evt-rattacher:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-4px}
 /* PARTIE 3 — la liste des evenements en cours. */
 .rdf-evt-liste{margin:0 0 8px;min-width:0}
 .rdf-evt-liste-titre{margin:0 0 6px;font-size:.78rem;font-weight:700;color:var(--color-svv-ink)}
@@ -2391,6 +2350,8 @@ export const CSS_RATTACHEMENTS_FIL = `
   font-weight:600;color:var(--color-svv-ink);cursor:pointer;min-width:0;flex-wrap:wrap}
 .rdf-evt-cocher input:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 .rdf-evt-remplace{font-weight:400;color:var(--color-svv-muted)}
+.rdf-evt-non-rattache{margin-left:auto;font-size:.78rem;font-weight:600;color:var(--color-svv-muted);white-space:nowrap}
+.rdf-evt-renvoi{margin:8px 0 0;font-style:italic}
 ${CSS_CAPSULE_EVENEMENT}
 /* LOT STATUT-PAR-MAIL — le detail par mail, REPLIE. On ne cache rien : on cesse de repeter. */
 .rdf-detail-mails{margin-top:2px}

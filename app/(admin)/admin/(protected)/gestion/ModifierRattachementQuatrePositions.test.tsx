@@ -196,7 +196,7 @@ describe('① le bloc « Biens actuellement suivi(s) dans cette conversation »'
 });
 
 describe('④ la ligne « Événement rattaché », repliable', () => {
-  it('🔴 une seule ligne repliée ; dépliée, « Lier à un événement » et « Créer un événement »', async () => {
+  it('🔴 une seule ligne repliée ; dépliée, la lecture seule et le renvoi au bouton « Événement »', async () => {
     await monter();
     const d = container.querySelector('details.rdf-evt') as HTMLDetailsElement;
     expect(d).not.toBeNull();
@@ -208,9 +208,13 @@ describe('④ la ligne « Événement rattaché », repliable', () => {
     expect(resume.querySelector('.rdf-evt-aucun')?.textContent).toBe('aucun');
     expect(resume.querySelector('.rdf-capsule-evt')).toBeNull();
     expect(resume.lastElementChild?.className).toBe('rdf-evt-chevron');
-    expect(bouton(/^Lier à un événement$/)).toBeDefined();
-    expect(bouton(/^Créer un événement$/)).toBeDefined();
-    expect(d.contains(bouton(/^Lier à un événement$/) as Node)).toBe(true);
+    /* 🔴🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE (accord d'Arno) — dans cette porte, le bloc est en LECTURE :
+       « Lier à un événement » et « Créer un événement » ont déménagé dans la fenêtre « Événement de ce mail »
+       (bouton « Événement » du mail déplié), et une phrase y renvoie. */
+    expect(bouton(/^Lier à un événement$/)).toBeUndefined();
+    expect(bouton(/^Créer un événement$/)).toBeUndefined();
+    expect(d.querySelector('.rdf-evt-renvoi')?.textContent)
+      .toBe('Pour créer un événement ou y lier ce mail, utilisez le bouton Événement du mail.');
   });
 });
 

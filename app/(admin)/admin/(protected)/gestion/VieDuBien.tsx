@@ -43,6 +43,7 @@ import {
 import { PastilleOneShot } from './PastilleOneShot';
 /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
 import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
+import { MOT_EVENEMENT_DU_MAIL } from '../../../../lib/gestion/evenementDuMail';
 
 /**
  * LOT FICHES-ANNUAIRE (étape B) — « LA VIE DU BIEN » : TOUS SES MAILS, DANS LA FICHE.
@@ -342,7 +343,7 @@ function AdressesDuMail({ l, tonDe, ancienContact }: {
 }
 
 export function LigneVie({
-  l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, modifierRattachement,
+  l, maintenant, ouvert, onBasculer, onOuvrirFil, surligner = [], tonDe, sortieDuSuivi, modifierRattachement, evenementDuMail,
   onVisualiser, repondre, composeur = null, ancienContact,
   destinataires = [], piecesCitables = [], adressesTrouvees = [],
 }: {
@@ -388,6 +389,11 @@ export function LigneVie({
    * et la ligne est exactement celle d'avant ce lot.
    */
   modifierRattachement?: { aide: string; onModifier: () => void };
+  /**
+   * 🔴🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — le 3e bouton, « Événement » : il ouvre la fenêtre
+   * « Événement de ce mail ». Absent ⇒ il n'est pas rendu, et la ligne est exactement celle d'avant ce lot.
+   */
+  evenementDuMail?: { aide: string; onOuvrir: () => void };
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-14, POINT 3 — L'ŒIL DU MAIL DÉPLIÉ ═════════════════════════════════════════════
    *
@@ -663,6 +669,15 @@ export function LigneVie({
           <button type="button" className="vdb-sortir" title={modifierRattachement.aide}
             aria-label={modifierRattachement.aide} onClick={modifierRattachement.onModifier}>
             {MOT_MODIFIER_LE_RATTACHEMENT}
+          </button>
+        )}
+        {/* 🔴🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — « ÉVÉNEMENT », le 3e voisin, même classe donc même
+            dessin (contour et texte rouges, même taille) : [Sortir du suivi] [Modifier le rattachement] [Événement],
+            puis Auto / pastilles / date. Sur téléphone, le bloc de droite passe à la ligne sans déborder. */}
+        {ouvert && evenementDuMail !== undefined && (
+          <button type="button" className="vdb-sortir" title={evenementDuMail.aide}
+            aria-label={evenementDuMail.aide} onClick={evenementDuMail.onOuvrir}>
+            {MOT_EVENEMENT_DU_MAIL}
           </button>
         )}
         {/* Le groupe étiquettes + date : un clic dessus plie ou déplie la ligne, comme avant (la bulle du compteur

@@ -159,7 +159,8 @@ describe('🔴🔴 ① la pastille de la ligne et la fenêtre disent la même ch
        bien : » et offre « Rattacher » ; la bulle ajoute « — mail non rattaché ». */
     if (!rattacheEnCours && ligne.pastille) {
       expect(r.querySelector('.rdf-evt-aucun')?.textContent).toBe('aucun — 1 événement en cours sur ce bien :');
-      expect(r.querySelector('.rdf-evt-rattacher')).not.toBeNull();
+      /* LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — plus de « Rattacher » ici : il est dans « Événement de ce mail ». */
+      expect(r.querySelector('button')).toBeNull();
       expect(ligne.survol).toContain('— mail non rattaché');
     }
     if (c.nom === 'aucun') {
@@ -180,7 +181,7 @@ describe('🔴🔴 ② PARTIE 1 — la ligne repliée dit toujours la vérité c
     d = await monterFenetre({ nom: '', rattaches: [GES1], duBien: [GES2, GES4] });
     expect(resume(d).querySelector('.rdf-evt-autres')?.textContent).toBe('+ 2 autres en cours');
   });
-  it('2) non rattaché : « aucun — N événement(s) en cours sur ce bien : », les capsules, « Rattacher » qui déplie', async () => {
+  it('2) non rattaché : « aucun — N événement(s) en cours sur ce bien : » et les capsules, sans bouton', async () => {
     let d = await monterFenetre({ nom: '', rattaches: [], duBien: [GES1] });
     expect(resume(d).querySelector('.rdf-evt-aucun')?.textContent).toBe('aucun — 1 événement en cours sur ce bien :');
     neuf();
@@ -188,11 +189,8 @@ describe('🔴🔴 ② PARTIE 1 — la ligne repliée dit toujours la vérité c
     expect(resume(d).querySelector('.rdf-evt-aucun')?.textContent).toBe('aucun — 2 événements en cours sur ce bien :');
     /* Tri : urgence décroissante — l'urgent d'abord. */
     expect(capsulesVisibles(d)).toEqual(['GES-2026-000002', 'GES-2026-000001']);
-    expect(d.open).toBe(false);
-    await act(async () => { (resume(d).querySelector('.rdf-evt-rattacher') as HTMLButtonElement).click(); });
-    await calmer();
-    expect(d.open).toBe(true);
-    expect(container.querySelector('.rdf-evt-lignes')).not.toBeNull();
+    /* LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — la ligne repliée ne fait plus que DIRE : aucun bouton. */
+    expect(resume(d).querySelector('button')).toBeNull();
     expect(ecritures).toEqual([]);
   });
   it('3) ni rattaché ni en cours : « aucun », gris, sans capsule', async () => {
@@ -262,7 +260,7 @@ describe('🔴🔴 PARTIE 2 — la capsule : type · numéro — titre, trame = 
 });
 
 describe('🔴🔴 PARTIE 3 — déplié : « Événements en cours sur ce bien »', () => {
-  it('une ligne par événement : ouvert le …, Étape = dernière étape de la frise, Rattaché ✓ ou la case', async () => {
+  it('une ligne par événement : ouvert le …, Étape = dernière étape de la frise, « Rattaché ✓ » ou « non rattaché »', async () => {
     const d = await monterFenetre({ nom: '', rattaches: [GES1], duBien: [GES1, GES2] });
     await deplier(d);
     const lignes = [...d.querySelectorAll('.rdf-evt-ligne')] as HTMLElement[];
@@ -271,23 +269,25 @@ describe('🔴🔴 PARTIE 3 — déplié : « Événements en cours sur ce bien 
     /* Frise vide : « Étape : Ouverture » et la date d'ouverture — comme la miniature de la carte. */
     expect(lignes[1].querySelector('.rdf-evt-meta')?.textContent).toBe('ouvert le 23/09/2026Étape : Ouverture (23/09/2026)');
     expect(lignes[1].querySelector('.rdf-evt-rattache')?.textContent).toBe('Rattaché ✓');
-    const caseG2 = lignes[0].querySelector('input[type="checkbox"]') as HTMLInputElement;
-    expect(caseG2.checked).toBe(false);
-    await act(async () => { caseG2.click(); });
-    await calmer();
-    expect((d.querySelector('.rdf-evt-ligne input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
-    expect(d.querySelector('.rdf-evt-remplace')?.textContent).toBe(' — remplacera GES-2026-000001');
+    /* LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — « non rattaché » en simple texte, aucune case. */
+    expect(lignes[0].querySelector('.rdf-evt-non-rattache')?.textContent).toBe('non rattaché');
+    expect(d.querySelector('input')).toBeNull();
     expect(ecritures).toEqual([]);
   });
-  it('rien n’est retiré : « Lier à un événement », « Créer un événement » restent sous la liste', async () => {
+  /**
+   * 🔴🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE (accord d'Arno) — LE BLOC EST EN LECTURE SEULE dans « Modifier
+   * le rattachement » : ni case, ni « Rattacher », ni « Lier à un événement », ni « Créer un événement », ni
+   * formulaire. Tout a déménagé dans « Événement de ce mail » (épreuves de `FenetreEvenementMail`), et la phrase
+   * d'Arno y renvoie.
+   */
+  it('bloc sans action : aucun bouton, aucune case, aucun champ — et la phrase de renvoi', async () => {
     const d = await monterFenetre({ nom: '', rattaches: [], duBien: [GES1] });
     await deplier(d);
-    const mots = [...d.querySelectorAll('button')].map((b) => b.textContent);
-    expect(mots).toContain('Lier à un événement');
-    expect(mots).toContain('Créer un événement');
-    /* La liste est EN TÊTE du contenu déplié, « Lier » et « Créer » en dessous. */
-    const lier = [...d.querySelectorAll('button')].find((b) => b.textContent === 'Lier à un événement') as HTMLElement;
-    expect(d.querySelector('.rdf-evt-liste')!.compareDocumentPosition(lier) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const contenu = [...d.children].filter((x) => x.tagName !== 'SUMMARY');
+    expect(contenu.flatMap((x) => [...x.querySelectorAll('button, input, select, textarea')])).toEqual([]);
+    expect(contenu.filter((x) => x.matches('button, input, select, textarea'))).toEqual([]);
+    expect(d.querySelector('.rdf-evt-renvoi')?.textContent)
+      .toBe('Pour créer un événement ou y lier ce mail, utilisez le bouton Événement du mail.');
   });
   it('l’étape vient de la MÊME fonction que la miniature de la carte, sur le même SQL', () => {
     const carte = readFileSync('app/(admin)/admin/(protected)/gestion/CarteVive.tsx', 'utf8');

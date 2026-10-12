@@ -6413,7 +6413,8 @@ describe('⑳ 🔴🔴 « Modifier le rattachement », et la trame de toute la l
     const b = boutonsDuMail(1);
     /* 🔴 LES DEUX, DANS L'ORDRE, et avec la MÊME classe : Arno demande « même style », et deux boutons de même
        rang doivent se ressembler — sans quoi l'un paraît plus grave que l'autre. */
-    expect(b.map((x) => x.textContent)).toEqual(['Sortir du suivi', 'Modifier le rattachement']);
+    /* LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — un 3e voisin, « Événement », même classe. */
+    expect(b.map((x) => x.textContent)).toEqual(['Sortir du suivi', 'Modifier le rattachement', 'Événement']);
     expect(new Set(b.map((x) => x.className)).size).toBe(1);
     /* ⚠️ ET SON INFO-BULLE NOMME LE BIEN, comme celle de son voisin : « modifier le rattachement » pourrait se
        lire « de la conversation », ce que le geste ne fait PAS. */
@@ -6483,7 +6484,7 @@ describe('⑳ 🔴🔴 « Modifier le rattachement », et la trame de toute la l
     const rangee = mail.querySelector('.vdb-rangee') as HTMLElement;
     expect(rangee.querySelector('.vdb-triangle')).not.toBeNull();
     expect(rangee.querySelector('.vdb-ligne')).not.toBeNull();
-    expect(rangee.querySelectorAll('.vdb-sortir')).toHaveLength(2);
+    expect(rangee.querySelectorAll('.vdb-sortir')).toHaveLength(3);
     expect(rangee.querySelector('.vdb-detail')).toBeNull();
     expect(mail.querySelector('.vdb-detail')).not.toBeNull();
   });
@@ -6502,8 +6503,9 @@ describe('⑳ 🔴🔴 « Modifier le rattachement », et la trame de toute la l
     expect(avant.querySelectorAll('.vdb-sortir')).toHaveLength(0);
     await cliquer(mail.querySelector('button') ?? undefined);
     const droite = mail.querySelector('.vdb-droite') as HTMLElement;
-    expect([...droite.children].map((e) => e.className)).toEqual(['vdb-sortir', 'vdb-sortir', 'vdb-cote']);
-    expect([...droite.querySelectorAll('.vdb-sortir')].map((b) => b.textContent)).toEqual(['Sortir du suivi', 'Modifier le rattachement']);
+    /* LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — un 3e voisin, « Événement », même classe. */
+    expect([...droite.children].map((e) => e.className)).toEqual(['vdb-sortir', 'vdb-sortir', 'vdb-sortir', 'vdb-cote']);
+    expect([...droite.querySelectorAll('.vdb-sortir')].map((b) => b.textContent)).toEqual(['Sortir du suivi', 'Modifier le rattachement', 'Événement']);
     const cote = droite.querySelector('.vdb-cote') as HTMLElement;
     expect(cote.lastElementChild?.querySelector('.vdb-quand')).not.toBeNull();
     expect(mail.querySelector('.vdb-ligne .vdb-quand')).toBeNull();
