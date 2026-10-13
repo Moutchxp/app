@@ -174,6 +174,8 @@ import { COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 import { classementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
+/* 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — le « Nouveau message » de la colonne, déjà rattaché au bien. */
+import { brouillonNouveauDepuisLeBien, MOT_NOUVEAU_MESSAGE } from '../../../../lib/gestion/nouveauMessageBien';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8 — UNE CARTE TELLE QUE LA ROUTE LA REND À CE BLOC ══════════════════════════════════
@@ -1253,6 +1255,43 @@ export function HistoriqueDuBien({
         onGeste={(m, o) => onGesteMail?.(m, o)} />
     );
   }, [reponse, redaction, onGesteMail, lotId]);
+
+  /**
+   * ══ 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — « NOUVEAU MESSAGE », DÉJÀ RATTACHÉ À CE BIEN ═══════
+   *
+   * ARNO (13/10/2026) : « Le clic ouvre LE MÊME compositeur que “Nouveau message”, avec TOUTES ses fonctions, mais
+   * déjà rattaché au bien de la fiche. […] Après l'envoi, le mail apparaît en tête de l'historique sans recharger. »
+   *
+   * 🔴 C'EST `Redaction`, MONTÉ TEL QUEL, comme la réponse sous un mail : le brouillon est celui du bouton de la
+   * colonne (`preparerBrouillon('nouveau')`), complété par la lecture du bien que fait déjà « Écrire depuis
+   * gestion@ » (bien pré-coché, adresses du dossier, Drive) et par la formule d'appel calculée sur « À »
+   * (`brouillonNouveauDepuisLeBien`). Le compositeur n'en sait rien de plus : il reçoit un brouillon, comme partout.
+   *
+   * ⚠️ LES MÊMES DEUX CONDITIONS QUE « Répondre » (`peutRepondre`), plus l'identifiant interne du bien, sans lequel
+   * ses adresses ne se lisent pas : sans eux, aucun bouton — et la fiche est exactement celle d'avant ce lot.
+   */
+  const [nouveau, setNouveau] = useState<BrouillonEcran | null>(null);
+  const [nouveauEnCours, setNouveauEnCours] = useState(false);
+  const ancreNouveau = useRef<HTMLDivElement | null>(null);
+  const peutEcrireNouveau = peutRepondre && lotId !== null;
+  const ouvrirNouveau = useCallback(async (): Promise<void> => {
+    if (redaction === null || lotId === null) return;
+    /* Déjà ouvert : on le montre, on n'en ouvre pas un second (ce serait perdre ce qu'on a commencé). */
+    if (nouveau !== null) { ancreNouveau.current?.scrollIntoView({ block: 'nearest' }); return; }
+    setNouveauEnCours(true);
+    try {
+      const base: BrouillonEcran = {
+        ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
+        id: null,
+      };
+      const libelle = lignes.find((l) => (l.cibleLibelle ?? '') !== '')?.cibleLibelle ?? `lot ${lotCle}`;
+      const b = await brouillonNouveauDepuisLeBien(base, { lotId, cle: lotCle, libelle },
+        { texte: redaction.signature, html: redaction.signatureHtml });
+      setNouveau(b as BrouillonEcran);
+    } finally {
+      setNouveauEnCours(false);
+    }
+  }, [redaction, lotId, lotCle, nouveau, lignes]);
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI » ═══════════════════════════════════════════════
@@ -3065,9 +3104,20 @@ export function HistoriqueDuBien({
           glisser la légende telle quelle l'aurait fait DISPARAÎTRE sur un bien dont les mails ne portent aucune
           pièce — une légende perdue pour faire de la place, c'est-à-dire une fonctionnalité retirée. Chacune
           garde donc sa propre condition, et elles partagent une ligne quand elles sont là toutes les deux. */}
-      {(totalPieces > 0 || lignes.length > 0) && (
+      {/* 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — la condition s'élargit au seul bouton : un bien
+          sans mail doit pouvoir recevoir son premier message. Le bouton des pièces et la légende gardent chacun la
+          leur, inchangée. */}
+      {(totalPieces > 0 || lignes.length > 0 || peutEcrireNouveau) && (
         <div className="hdb-resume hdb-resume--haut" ref={ancreResumeHaut}>
           <div className="hdb-resume-ligne">
+            {/* 🔴 LE GROS BOUTON ROUGE DE LA COLONNE, mêmes classes (plein rouge, texte blanc), à gauche de la ligne. */}
+            {peutEcrireNouveau && (
+              <button type="button" className="svv-btn svv-btn-primary gst-btn hdb-nouveau"
+                disabled={nouveauEnCours} aria-expanded={nouveau !== null}
+                onClick={() => { void ouvrirNouveau(); }}>
+                {MOT_NOUVEAU_MESSAGE}
+              </button>
+            )}
             {totalPieces > 0 && (
               <BasculeResume n={totalPieces} ouvert={resumeOuvert} onBasculer={() => setResumeOuvert((v) => !v)} />
             )}
@@ -3089,13 +3139,27 @@ export function HistoriqueDuBien({
               phrase qu'Arno demande de retirer, et elle l'est : le résumé couvre désormais la sélection entière.
               `motPorteeDuResume` ne parle plus que des trois cas où ce n'est PAS vrai — borne atteinte,
               recherche en cours, lecture en échec — et rend `null` partout ailleurs. */}
-          {porteeDuResume !== null && <p className="gst-note hdb-note">{porteeDuResume}</p>}
+          {/* ⚠️ La note garde la condition d'avant ce lot : le bouton seul ne la fait jamais apparaître. */}
+          {porteeDuResume !== null && (totalPieces > 0 || lignes.length > 0) && <p className="gst-note hdb-note">{porteeDuResume}</p>}
           {resumeOuvert && (
             <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('haut')}
               groupes={groupesPieces} depots={depots} emplacements={emplacements}
               maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
               categories={categoriesFusionnees} syndicaux={syndicaux} destinataires={destinatairesDuMessage} />
           )}
+        </div>
+      )}
+
+      {/* ══ 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — LE COMPOSITEUR, EN TÊTE DE LA LISTE ════════════
+          Le même `Redaction` que la réponse sous un mail, avec les mêmes propriétés. Envoyé : on referme et on RELIT
+          (le compteur `rechargement`, celui de toutes les relectures du bloc) — le mail parti arrive en tête. */}
+      {nouveau !== null && redaction !== null && (
+        <div className="hdb-nouveau-composeur" ref={ancreNouveau}>
+          <Redaction brouillon={nouveau} contexte={redaction} lotFiche={lotId}
+            onChange={(b) => setNouveau((r) => (r === null ? null : b))}
+            onFerme={() => setNouveau(null)}
+            onEnvoye={() => { setNouveau(null); setRechargement((n) => n + 1); }}
+            onGeste={(m, o) => onGesteMail?.(m, o)} />
         </div>
       )}
 
@@ -5144,6 +5208,11 @@ ${CSS_PIECES}
    automatique, elle est a droite dans les deux cas.
    ⚠️ LE REPLI RESTE AUTORISE : sur un ecran etroit, la legende passe sous le bouton plutot que de le rogner. */
 .hdb-resume-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .8rem;min-width:0}
+/* ══ 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — le gros bouton rouge de la colonne, a gauche de la
+   ligne : memes classes (svv-btn-primary, gst-btn), il ne prend que sa largeur et ne s'etire jamais. Le compositeur
+   ouvert se pose sous la ligne, avant le premier mail. */
+.hdb-nouveau{flex:0 0 auto}
+.hdb-nouveau-composeur{margin:.4rem 0 .9rem;min-width:0}
 .hdb-legende-barres{display:flex;flex-wrap:wrap;gap:.2rem .8rem;margin:.4rem 0 .3rem;font-size:.7rem;
   color:var(--color-svv-muted);min-width:0;margin-left:auto}
 .hdb-legende-item{display:inline-flex;align-items:center;gap:.3rem}
