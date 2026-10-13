@@ -86,7 +86,8 @@ const boutonEnvoyer = () => [...container.querySelectorAll('button')]
   .find((b) => /^Envoyer/.test((b.textContent ?? '').trim())) as HTMLButtonElement;
 const caseDe = (mot: RegExp) => [...container.querySelectorAll('.ccl-case')]
   .find((c) => mot.test(c.textContent ?? '')) as HTMLElement | undefined;
-const modaleOuverte = () => container.querySelector('.rec-voile') !== null;
+// LOT FENETRE-CLASSEMENT-UNIQUE — la modale du composeur est la fenêtre partagée, en mode brouillon.
+const modaleOuverte = () => container.querySelector('.rdf--brouillon') !== null;
 const lecturesClassement = () => appels.filter((a) => /\/classement$/.test(a.url)).length;
 /**
  * 🔴🔴 LOT BROUILLON-SANS-CLASSEMENT — COMBIEN D'ENVOIS SONT PARTIS. C'est la preuve que « un mail ne part jamais

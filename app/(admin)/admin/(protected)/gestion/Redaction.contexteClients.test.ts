@@ -363,8 +363,8 @@ describe('🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — le bouton puls
     expect(pulse()).not.toBeNull();
     await ouvrirModale();
     expect(pulse()).toBeNull();
-    await cliquer(container.querySelector('.rec-croix') as Element);
-    expect(container.querySelector('.rec-croix')).toBeNull();          // la modale est fermée
+    await cliquer(container.querySelector('.rdf--brouillon .rdf-croix') as Element);
+    expect(container.querySelector('.rdf--brouillon .rdf-croix')).toBeNull();          // la modale est fermée
     expect(pulse()).toBeNull();
   });
   it('un bien coché : la pulsation s’arrête et la puce passe en trame pleine', async () => {
@@ -384,7 +384,7 @@ describe('🔴🔴 LOT RATTACHER-LIGNE-SUPPRIMEE-BOUTON-PULSE — le bouton puls
     expect(mention()).toBe('2 propositions en attente');
     expect(infobulle()).toBe('Biens à choisir pour Paul MARTIN (2) — cliquer pour choisir');
     await ouvrirModale();
-    await cliquer(container.querySelector('.rec-croix') as Element);
+    await cliquer(container.querySelector('.rdf--brouillon .rdf-croix') as Element);
     expect(pulse()).toBeNull();                                       // vu à la modale : il n'attend plus
     await taper('multi@x.fr');                                       // un nouveau client en attente : elle reprend
     expect(pulse()).not.toBeNull();

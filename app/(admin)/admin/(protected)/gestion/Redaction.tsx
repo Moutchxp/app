@@ -33,6 +33,8 @@ import {
 import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 // 🔴 LOT RATTACHER-EN-ECRIVANT — la modale « Rattacher ce mail à… », ouverte dès qu'une adresse est validée.
 import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcrivant';
+/* 🔴 LOT FENETRE-CLASSEMENT-UNIQUE — la fenêtre partagée de « Modifier le rattachement », en mode brouillon. */
+import { RattachementsDuFil } from './RattachementsDuFil';
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, motsJeterBrouillon, pretAEnvoyer, secondesRestantes,
@@ -2567,8 +2569,20 @@ export function Redaction({
       {/* ══ 🔴🔴 LA MODALE, AU CENTRE DE L'ÉCRAN ════════════════════════════════════════════════════════════
           Elle ne se monte QUE quand il y a des destinataires : sans eux, le moteur n'a rien à déduire, et une
           fenêtre vide ferait douter qu'on ait oublié quelque chose. */}
+      {/* ══ 🔴🔴 LOT FENETRE-CLASSEMENT-UNIQUE (Arno, 13/10/2026) — LA FENÊTRE DE « MODIFIER LE RATTACHEMENT » ══════════
+          Le composeur ouvre la MÊME fenêtre (`RattachementsDuFil`, mode brouillon) : son cadre, son titre, les biens
+          suivis dans la conversation pour une réponse ; dedans, le contenu d'avant (propositions d'après les
+          destinataires, recherche, « Valider »). Glissière masquée : l'envoi reste « one shot ». Rien n'est écrit
+          avant l'envoi : les choix vont dans le brouillon, comme avant. */}
       {rattacherOuvert && destinatairesValides.length > 0 && (
+        <RattachementsDuFil
+          brouillon={{
+            filId: brouillon.filId ?? null, messageId: brouillon.repondALeMessageId ?? null,
+            reponse: brouillon.voie === 'repondre' || brouillon.voie === 'repondre_tous',
+          }}
+          onFerme={() => setRattacherOuvert(false)}>
         <RattacherEnEcrivant
+          integre
           /* 🔴 « Réinitialiser » CHANGE CETTE CLÉ : la modale se remonte à neuf, donc les propositions sont
              relues et la pré-coche refaite — c'est ce que demande Arno, et c'est la seule façon de l'obtenir
              d'un composant qui, exprès, ne pré-coche qu'une fois. */
@@ -2641,6 +2655,7 @@ export function Redaction({
             ? { cle: destinatairesValides.join(','), contexte: prechargeClassement.contexte }
             : null}
           onFerme={() => setRattacherOuvert(false)} />
+        </RattachementsDuFil>
       )}
 
       {contexte.signature.trim() === '' && <p className="gst-note">{MENTION_SANS_SIGNATURE}</p>}

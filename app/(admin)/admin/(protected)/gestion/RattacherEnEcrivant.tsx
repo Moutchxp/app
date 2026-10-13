@@ -76,8 +76,15 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 export function RattacherEnEcrivant({
   destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, biensDesAdresses = [],
   piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
-  onSelection, onChange, onFerme,
+  onSelection, onChange, onFerme, integre = false,
 }: {
+  /**
+   * ══ 🔴🔴 LOT FENETRE-CLASSEMENT-UNIQUE (Arno, 13/10/2026) — LE CONTENU, SANS SON CADRE ════════════════════════
+   * Le composeur ouvre désormais LA fenêtre de « Modifier le rattachement » (`RattachementsDuFil`, mode brouillon),
+   * et ce composant y devient son CONTENU : propositions « D'après le destinataire », recherche, « Valider ». Vrai ⇒
+   * ni voile, ni cadre, ni titre, ni croix : ce sont ceux de la grande fenêtre. Faux (défaut) ⇒ exactement d'avant.
+   */
+  integre?: boolean;
   /**
    * 🔴 LOT RATTACHEMENT-BIENS-SUIT-LES-ADRESSES — les clés des biens dont un propriétaire ou un locataire est
    * destinataire. Un bien coché HORS de cet ensemble est dit « ajouté manuellement — aucun client de ce bien dans les
@@ -691,22 +698,13 @@ export function RattacherEnEcrivant({
    */
   const fermerSansRien = () => onFerme();
 
-  return (
-    <div className="mrt-voile rec-voile" role="presentation"
-      onClick={(e) => { if (e.target === e.currentTarget) fermerSansRien(); }}>
-      <style>{CSS_RATTACHER_EN_ECRIVANT}</style>
+  const contenu = (
+    <>
       {/* 🔴 LOT MODALE-RATTACHER-PROPRE — la feuille de la pastille « i » : la modale vit au-dessus de tout, et
           ne peut compter sur aucune feuille montée par l'écran qui l'ouvre. */}
       <style>{CSS_INFO_BIEN}</style>
       <style>{CSS_ZONE_DEFILANTE}</style>
       <style>{CSS_LISTE_BIENS}</style>
-      <div className="mrt rec" role="dialog" aria-modal="true" aria-labelledby="rec-titre"
-        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); fermerSansRien(); } }}>
-        {/* 🔴 LA CROIX EST UNE SORTIE NOMMÉE (demande d'Arno) : elle remplace le bouton « Ignorer » du pied, qui
-            disait la même chose en prenant la place d'une décision. Rien n'est changé en sortant par elle. */}
-        <button type="button" className="rec-croix" aria-label="Fermer sans rien changer"
-          title="Fermer sans rien changer" onClick={fermerSansRien}>×</button>
-        <h2 className="mrt-titre" id="rec-titre">Rattacher ce mail à…</h2>
         {/* ══ 🔴🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 3) — SEUL LE MILIEU DÉFILE ═══════════════════════════
             CONSTAT D'ARNO : « Sur la capture, “Valider” est coupé en bas. » La modale entière défilait
             (`.rec{max-height:92vh;overflow-y:auto}`) : passé une certaine hauteur de contenu, le pied sortait du
@@ -809,6 +807,32 @@ export function RattacherEnEcrivant({
             {selection.size === 0 ? 'Valider — aucun bien' : `Valider — ${selection.size} bien(s)`}
           </button>
         </div>
+    </>
+  );
+
+  /* 🔴 LOT FENETRE-CLASSEMENT-UNIQUE — dans la grande fenêtre : le contenu seul, en colonne (corps défilant, pied fixe). */
+  if (integre) {
+    return (
+      <div className="rec rec--integre"
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); fermerSansRien(); } }}>
+        <style>{CSS_RATTACHER_EN_ECRIVANT}</style>
+        {contenu}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mrt-voile rec-voile" role="presentation"
+      onClick={(e) => { if (e.target === e.currentTarget) fermerSansRien(); }}>
+      <style>{CSS_RATTACHER_EN_ECRIVANT}</style>
+      <div className="mrt rec" role="dialog" aria-modal="true" aria-labelledby="rec-titre"
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); fermerSansRien(); } }}>
+        {/* 🔴 LA CROIX EST UNE SORTIE NOMMÉE (demande d'Arno) : elle remplace le bouton « Ignorer » du pied, qui
+            disait la même chose en prenant la place d'une décision. Rien n'est changé en sortant par elle. */}
+        <button type="button" className="rec-croix" aria-label="Fermer sans rien changer"
+          title="Fermer sans rien changer" onClick={fermerSansRien}>×</button>
+        <h2 className="mrt-titre" id="rec-titre">Rattacher ce mail à…</h2>
+        {contenu}
       </div>
     </div>
   );
@@ -894,6 +918,10 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 /* 🔴 LOT SUIVI-CONVERSATION — le motif qui dit pourquoi « Valider » attend. Il prend toute la largeur du pied
    pour se lire d'un coup, et le rouge n'est qu'un renfort : le MOT porte l'information. */
 .rec-bloque{flex:1 1 100%;margin:0;font-size:.82rem;font-weight:600;color:var(--color-svv-red)}
+/* LOT FENETRE-CLASSEMENT-UNIQUE : le contenu pose dans la grande fenetre — ni cadre ni ombre, il prend la place qui
+   reste ; le corps defile, le pied « Valider » reste visible. */
+.rec.rec--integre{max-width:none;width:auto;background:transparent;box-shadow:none;border-radius:0;padding:0;
+  max-height:none;flex:1 1 auto;min-height:0}
 @media (max-width:520px){
   .rec{width:100%;max-width:100%}
   .rec-pied>.svv-btn{flex:1 1 100%}

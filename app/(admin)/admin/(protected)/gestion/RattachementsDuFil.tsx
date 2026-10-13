@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 // LOT CONTACT-LIGNES — le type passe dans le titre, et ne s'ecrit qu'une fois par groupe.
 import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 /* 🔴🔴 LOT MONGA-1, POINT 3 — l'encart d'une intervention Monga, monté en tête de cette fenêtre. */
@@ -150,7 +150,105 @@ type Etat =
  */
 type Panneau = 'aucun' | 'modifier';
 
-export function RattachementsDuFil({
+/**
+ * ══ 🔴🔴 LOT FENETRE-CLASSEMENT-UNIQUE (Arno, 13/10/2026) — LA MÊME FENÊTRE, OUVERTE DEPUIS LE COMPOSEUR ══════════════
+ * « Classer ce mail » du composeur ouvre désormais CETTE fenêtre (« Bien(s) rattaché(s) à ce mail »), en mode
+ * BROUILLON — décisions d'Arno : glissière « Portée du suivi » MASQUÉE (l'envoi reste « one shot », comme avant) ;
+ * ni « Événement rattaché » ni « Autres classements » (ils n'ont pas de sens avant l'envoi) ; le bloc « Biens
+ * actuellement suivis dans cette conversation » pour une RÉPONSE seulement (en lecture : ces biens suivent déjà).
+ * Le contenu (propositions « D'après le destinataire », recherche, « Valider — N bien(s) / aucun bien ») est celui du
+ * composeur, posé dedans (`children`) : RIEN n'est écrit sur le serveur, les choix vont dans le brouillon et sont
+ * appliqués à l'envoi, exactement comme avant.
+ * Sans `brouillon` : la fenêtre est exactement celle d'avant (« Modifier le rattachement », « Visualiser / Modifier »).
+ */
+export interface BrouillonRattachement {
+  /** La conversation du brouillon (`null` pour un nouveau message). */
+  filId: number | null;
+  /** Le mail auquel on répond (`null` = le plus récent de la conversation). */
+  messageId: number | null;
+  /** Vrai pour « Répondre » / « Répondre à tous » : le bloc des biens suivis s'affiche. */
+  reponse: boolean;
+}
+
+type ProprietesMail = Parameters<typeof RattachementsDuFilMail>[0];
+
+export function RattachementsDuFil(props: ProprietesMail
+  | { brouillon: BrouillonRattachement; onFerme: () => void; children: ReactNode }) {
+  if ('brouillon' in props) return <FenetreRattachementBrouillon {...props} />;
+  return <RattachementsDuFilMail {...props} />;
+}
+
+/** Le mode brouillon : le cadre et le titre de la fenêtre, les biens suivis (réponse), puis le contenu du composeur. */
+function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
+  brouillon: BrouillonRattachement; onFerme: () => void; children: ReactNode;
+}) {
+  const [suivis, setSuivis] = useState<{ biens: (FicheRattachementFil['biens'][number] & { ponctuel: boolean })[]; titres: Map<string, string> } | null>(null);
+  const avecSuivis = brouillon.reponse && brouillon.filId !== null;
+  useEffect(() => {
+    if (!avecSuivis) return;
+    let annule = false;
+    void (async () => {
+      try {
+        const q = brouillon.messageId === null ? '' : `&message=${brouillon.messageId}`;
+        const [rf, rl] = await Promise.all([
+          fetch(`/api/admin/gestion/rattachements?fiche=${brouillon.filId}${q}`, { cache: 'no-store' }),
+          fetch(`/api/admin/gestion/rattachements?fil=${brouillon.filId}`, { cache: 'no-store' }),
+        ]);
+        const df = (await rf.json()) as { etat?: string; data?: FicheRattachementFil };
+        const dl = (await rl.json()) as { etat?: string; data?: LienAffiche[] };
+        if (annule || df.etat !== 'ok' || !df.data || !Array.isArray(df.data.biens)) { if (!annule) setSuivis({ biens: [], titres: new Map() }); return; }
+        const mailId = brouillon.messageId ?? df.data.enTete?.messageId ?? null;
+        const biens = mailId === null ? [] : biensDuMail(df.data.biens, dl.etat === 'ok' && Array.isArray(dl.data) ? dl.data : [], mailId);
+        const titres = new Map(titresDistincts(biens.map((b) => ({
+          cle: b.cle, adresse: b.adresseComplete.replace(/\b\d{5}\s+/, ''), nature: b.nature, typeBien: b.typeBien,
+          immeuble: null as string | null,
+        }))).map((x) => [x.cle, x.titre]));
+        setSuivis({ biens, titres });
+      } catch {
+        if (!annule) setSuivis({ biens: [], titres: new Map() });
+      }
+    })();
+    return () => { annule = true; };
+  }, [avecSuivis, brouillon.filId, brouillon.messageId]);
+
+  return (
+    <div className="mrt-voile rdf-brouillon-voile" role="presentation"
+      onClick={(e) => { if (e.target === e.currentTarget) onFerme(); }}>
+      <style>{CSS_MODIFIER_RATTACHEMENT}</style>
+      <style>{CSS_RATTACHEMENTS_FIL}</style>
+      <style>{CSS_LISTE_BIENS}</style>
+      <style>{CSS_INFO_BIEN}</style>
+      <div className="mrt rdf rdf--ponctuel rdf--brouillon" role="dialog" aria-modal="true" aria-labelledby="rdf-titre"
+        data-mode="brouillon" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } }}>
+        <button type="button" className="rdf-croix" aria-label="Fermer sans rien changer"
+          title="Fermer sans rien changer" onClick={onFerme}>×</button>
+        <h2 className="mrt-titre" id="rdf-titre">{TITRE_BIENS_DU_MAIL}</h2>
+        <p className="rdf-detail rdf-brouillon-mot">{MOT_BROUILLON_ONE_SHOT}</p>
+        {avecSuivis && (
+          <section className="rdf-suivis" aria-labelledby="rdf-suivis-titre" data-bloc="suivis">
+            <h3 className="rdf-suivis-titre" id="rdf-suivis-titre">{TITRE_BIENS_SUIVIS}</h3>
+            {suivis === null && <p className="gst-info" role="status">Lecture des biens suivis…</p>}
+            {suivis !== null && suivis.biens.length === 0 && <p className="rdf-detail">{AUCUN_BIEN_SUIVI}</p>}
+            {suivis !== null && suivis.biens.length > 0 && (
+              <ul className="rdf-suivis-liste">
+                {suivis.biens.map((b) => (
+                  <CarteBienSuivi key={b.cle} bien={b} titre={suivis.titres.get(b.cle) ?? b.adresseComplete}
+                    ponctuel={b.ponctuel} liens={[]} onModifier={() => {}} />
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/** La phrase du mode brouillon : ce que « Valider » fera, et quand (décision d'Arno : envoi « one shot »). */
+export const MOT_BROUILLON_ONE_SHOT = 'Mail en cours d’écriture : les biens choisis seront rattachés à CE mail, au moment de l’envoi.';
+
+function RattachementsDuFilMail({
   filId, titre, messageId = null, onFerme, onGeste, onLeveeFaite,
   ouvreLaModification = false, actionsDePied = [], ponctuel = false,
   aClasser = false, ecrireParLAppelant, renvoiEvenement = PHRASE_BLOC_LECTURE,
@@ -2388,6 +2486,14 @@ export const CSS_RATTACHEMENTS_FIL = `
 /* ══ LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — « MODIFIER LE RATTACHEMENT » ══════════════════════════════════
    AUCUN ACCENT GRAVE DANS CE BLOC : il vit dans un litteral de gabarit. Couleurs : jetons seulement. */
 .rdf--ponctuel{position:relative}
+/* LOT FENETRE-CLASSEMENT-UNIQUE — le mode brouillon (ouvert depuis le composeur). Le voile passe AU-DESSUS de la fenetre
+   de redaction flottante (z-index 60) et de son plein ecran, comme le faisait la petite fenetre (80). La fenetre est une
+   colonne : titre, biens suivis (bornes), puis le contenu du composeur dont seul le corps defile ; « Valider » reste vu. */
+.rdf-brouillon-voile{z-index:80}
+.rdf--brouillon{display:flex;flex-direction:column;overflow:hidden;max-height:min(92vh, calc(100dvh - 32px));
+  width:min(680px, 96vw)}
+.rdf--brouillon > .rdf-suivis{flex:0 0 auto;max-height:32vh;overflow-y:auto}
+.rdf-brouillon-mot{margin:0;padding-right:2.2rem}
 /* LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — le bloc « Autres classements », sous la portee : encadre comme elle, plus
    discret (trait fin), ses gestes en liens qui se replient d'eux-memes sur telephone. */
 .rdf-autres{display:flex;flex-direction:column;gap:4px;margin-top:6px;padding:8px 12px;min-width:0;
