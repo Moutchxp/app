@@ -112,6 +112,35 @@ const SQL_TACHE = `
 
 const iso = (d: Date | null): string | null => (d === null ? null : new Date(d).toISOString());
 
+/**
+ * 🔴 LOT FICHE-CARTE-TACHE — les contacts copiés (état daté) et les pièces de chaque tâche, en DEUX requêtes pour toute
+ * la liste. Sans la 347 ou la 348, la liste correspondante est vide (la carte n'affiche alors rien de plus).
+ */
+async function avecContactsEtPieces(taches: Tache[]): Promise<Tache[]> {
+  if (taches.length === 0) return taches;
+  const ids = taches.map((t) => t.id);
+  const [avecContacts, avecPieces] = await Promise.all([contactsTacheDisponible(), piecesTacheDisponible()]);
+  const [c, p] = await Promise.all([
+    avecContacts ? query<LigneContact & { tache_id: number }>(
+      `SELECT tache_id::int AS tache_id, cle, famille, nom, qualite, organisation, adresse, coordonnees, copie_le
+         FROM gestion_tache_contact WHERE tache_id = ANY($1::bigint[]) AND retire_le IS NULL ORDER BY tache_id, rang, id`, [ids])
+      : Promise.resolve({ rows: [] as (LigneContact & { tache_id: number })[] }),
+    avecPieces ? query<{ tache_id: number; drive_fichier_id: string; nom: string; type_mime: string | null; lien: string | null;
+      ajoute_le: Date; ajoute_par_libelle: string }>(
+      `SELECT tache_id::int AS tache_id, drive_fichier_id, nom, type_mime, lien, ajoute_le, ajoute_par_libelle
+         FROM gestion_tache_piece WHERE tache_id = ANY($1::bigint[]) AND retire_le IS NULL ORDER BY tache_id, id`, [ids])
+      : Promise.resolve({ rows: [] as { tache_id: number; drive_fichier_id: string; nom: string; type_mime: string | null; lien: string | null; ajoute_le: Date; ajoute_par_libelle: string }[] }),
+  ]);
+  return taches.map((t) => ({
+    ...t,
+    contacts: c.rows.filter((r) => Number(r.tache_id) === t.id && estFamille(r.famille)).map(versContact),
+    pieces: p.rows.filter((r) => Number(r.tache_id) === t.id).map((r) => ({
+      driveId: r.drive_fichier_id, nom: r.nom, typeMime: r.type_mime, lien: r.lien,
+      ajouteLe: iso(r.ajoute_le) ?? '', ajouteParLibelle: r.ajoute_par_libelle,
+    })),
+  }));
+}
+
 /** 🔴 LOT TACHES-AGENDA — la durée et la mention « Agenda » de chaque tâche (une requête pour toute la liste). */
 async function avecAgenda(taches: Tache[]): Promise<Tache[]> {
   const m = await complementsAgenda(taches.map((t) => t.id));
@@ -165,7 +194,9 @@ export async function listerTaches(lotId: number | null): Promise<{ taches: Tach
         ORDER BY coalesce(t.faite_le, t.annulee_le, t.maj_le) DESC, t.id DESC LIMIT ${TERMINEES_MAX}`, [lotId]),
   ]);
   const tronque = o.rows.length > OUVERTES_MAX;
-  return { taches: await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache)), tronque };
+  const taches = await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache));
+  // 🔴 LOT FICHE-CARTE-TACHE — sur la fiche d'UN bien, chaque carte montre ses contacts et ses pièces sans clic de plus.
+  return { taches: lotId === null ? taches : await avecContactsEtPieces(taches), tronque };
 }
 
 export async function lireTache(id: number): Promise<{ tache: Tache; traces: TraceTache[]; contacts: ContactTache[]; pieces: PieceTache[] } | null> {
@@ -259,11 +290,15 @@ export async function contactsCopies(tacheId: number, q: RequeteTx = query): Pro
   const { rows } = await q<LigneContact>(
     `SELECT cle, famille, nom, qualite, organisation, adresse, coordonnees, copie_le
        FROM gestion_tache_contact WHERE tache_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [tacheId]);
-  return rows.filter((r) => estFamille(r.famille)).map((r) => ({
+  return rows.filter((r) => estFamille(r.famille)).map(versContact);
+}
+
+function versContact(r: LigneContact): ContactTache {
+  return {
     cle: r.cle, famille: r.famille as ContactTache['famille'], nom: r.nom, qualite: r.qualite,
     organisation: r.organisation, adresse: r.adresse, coordonnees: coordonneesLisibles(r.coordonnees),
     copieLe: iso(r.copie_le) ?? '',
-  }));
+  };
 }
 
 /**

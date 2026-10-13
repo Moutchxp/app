@@ -121,8 +121,9 @@ describe('🔴 le bloc « Tâches de ce bien »', () => {
     await act(async () => { repli()!.click(); });
     expect(repli()?.getAttribute('aria-expanded')).toBe('true');
     expect(lignes()).toEqual(['1', '2']);
-    expect(container.querySelector('#bloc .tch-bloc-titre')?.textContent).toContain('Tâches de ce bien');
-    expect(container.querySelector('#bloc [data-tache="1"]')?.textContent).toContain('Faite');
+    // LOT FICHE-CARTE-TACHE, point 8 : plus de seconde ligne « Tâches de ce bien » (doublon de la ligne rouge).
+    expect(container.querySelector('#bloc .tch-bloc-titre')).toBeNull();
+    expect(container.querySelector('#bloc [data-tache="1"]')?.textContent).toContain('Tâche réalisée');
     expect(container.querySelector('#bloc [data-tache="1"]')?.textContent).toContain('Décaler');
     expect(container.querySelector('#bloc details summary')?.textContent).toBe('Faites ou annulées (1)');
     await act(async () => { repli()!.click(); });
@@ -131,7 +132,7 @@ describe('🔴 le bloc « Tâches de ce bien »', () => {
   it('reste déplié après « Faite » depuis la fiche ; bouton et bloc recomptés aussitôt', async () => {
     await monter();
     await act(async () => { repli()!.click(); });
-    const faite = [...container.querySelectorAll<HTMLButtonElement>('#bloc [data-tache="1"] button')].find((b) => b.textContent?.includes('Faite'))!;
+    const faite = [...container.querySelectorAll<HTMLButtonElement>('#bloc [data-tache="1"] button')].find((b) => b.textContent?.includes('Tâche réalisée'))!;
     await act(async () => { faite.click(); });
     await calmer();
     expect(repli()?.getAttribute('aria-expanded')).toBe('true');

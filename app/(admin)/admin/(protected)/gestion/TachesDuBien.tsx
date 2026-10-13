@@ -6,8 +6,11 @@ import {
   type Tache,
 } from '../../../../lib/gestion/taches';
 import { CSS_TACHES, LigneTache, useMaintenant } from './LigneTache';
+/* 🔴 LOT FICHE-CARTE-TACHE — les encadrés de contacts des cartes, et la fiche d'aujourd'hui pour « Mettre à jour ». */
+import { CSS_CONTACTS_TACHE } from './ContactsTache';
+import type { ContactSource } from '../../../../lib/gestion/contactsTache';
 import { FenetreTache } from './FenetreTache';
-import { demanderDepliageBien, ecouterDepliageBien, ecouterTaches, lireTaches } from './tachesClient';
+import { demanderDepliageBien, ecouterDepliageBien, ecouterTaches, lireContactsDuBien, lireTaches } from './tachesClient';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LES TÂCHES EN HAUT DE LA FICHE DU BIEN ══════════════════════════════════════════════════
@@ -105,6 +108,18 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
   useEffect(() => { void charger(); }, [charger]);
   useEffect(() => ecouterTaches(() => { void charger(); }), [charger]);
 
+  /* 🔴 LOT FICHE-CARTE-TACHE — la fiche d'aujourd'hui (contacts du bien), lue quand le bloc est déplié et relue après
+     chaque geste : c'est elle qui dit « Coordonnées modifiées depuis » / « Mettre à jour » sur un encadré. */
+  const [sources, setSources] = useState<ContactSource[] | null>(null);
+  const [versionSources, setVersionSources] = useState(0);
+  useEffect(() => ecouterTaches(() => setVersionSources((v) => v + 1)), []);
+  useEffect(() => {
+    if (!deplie) return;
+    let annule = false;
+    void lireContactsDuBien(lotId).then((c) => { if (!annule) setSources(c); });
+    return () => { annule = true; };
+  }, [lotId, deplie, versionSources]);
+
   const fenetre = detail !== null && <FenetreTache mode={{ sorte: 'detail', id: detail }} onFermer={() => setDetail(null)} onEcrire={onEcrire} />;
   if (taches === null) return null;
   const { ouvertes, terminees } = repartirTaches(taches, maintenant);
@@ -142,29 +157,22 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
   }
 
   return (
-    <section className="tch-bloc-fiche" aria-labelledby={`tch-bien-${lotId}`} data-taches-bien="deplie">
-      <style>{CSS_TACHES}{CSS_REPLI}</style>
+    <section className="tch-bloc-fiche" aria-label="Tâches de ce bien" data-taches-bien="deplie">
+      <style>{CSS_TACHES}{CSS_REPLI}{CSS_CONTACTS_TACHE}</style>
       {repli}
+      {/* 🔴 LOT FICHE-CARTE-TACHE, POINT 8 (accord d'Arno) — la seconde ligne « Tâches de ce bien » et ses pastilles,
+          qui répétaient la ligne rouge, ne s'affichent plus : la ligne rouge reste seule en tête. */}
       <div id={`tch-bien-corps-${lotId}`}>
-      <h4 className="tch-bloc-titre" id={`tch-bien-${lotId}`}>
-        Tâches de ce bien
-        <ul className="tch-compteurs" aria-label="Compteurs des tâches">
-          {ORDRE_COULEURS.filter((c) => n[c] > 0).map((c) => (
-            <li key={c} className="tch-compteur">
-              <span className={`tch-pastille tch-pastille--${c}`} aria-hidden="true" />
-              <b>{n[c]}</b> {MOT_COMPTEUR[c]}
-            </li>
-          ))}
-        </ul>
-      </h4>
       <ul className="tch-liste">
-        {ouvertes.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail} />)}
+        {ouvertes.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
+          presentation="carte" sources={sources} onEcrire={onEcrire} />)}
       </ul>
       {terminees.length > 0 && (
         <details className="tch-terminees">
           <summary>Faites ou annulées ({terminees.length})</summary>
           <ul className="tch-liste">
-            {terminees.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail} />)}
+            {terminees.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
+              presentation="carte" sources={sources} onEcrire={onEcrire} />)}
           </ul>
         </details>
       )}

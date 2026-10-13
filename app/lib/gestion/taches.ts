@@ -23,6 +23,7 @@ import { FUSEAU_AFFICHAGE } from './ecran';
 import { lireClesContacts } from './contactsTache';
 import type { AcceptationTache } from './acceptationTache';
 import type { AgendaTache } from './agendaTache';
+import type { ContactTache } from './contactsTache';
 
 export type EtatTache = 'a_faire' | 'faite' | 'annulee';
 export type CouleurTache = 'retard' | 'jour' | 'proche' | 'plus_tard';
@@ -86,6 +87,9 @@ export interface Tache {
   dureeMinutes?: number | null;
   /** 🔴 LOT TACHES-AGENDA — la mention « Agenda » (dans l'agenda, à resynchroniser, pas d'agenda Google…) ; `null` = rien. */
   agenda?: AgendaTache | null;
+  /** 🔴 LOT FICHE-CARTE-TACHE — les contacts copiés et les pièces, rendus seulement pour les tâches D'UN bien (fiche). */
+  contacts?: ContactTache[];
+  pieces?: PieceTache[];
 }
 
 /**

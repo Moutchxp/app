@@ -127,6 +127,68 @@ export function ContactsAffiches({ contacts, sources, onEcrire, onMettreAJour, o
   );
 }
 
+/**
+ * ══ 🔴🔴 LOT FICHE-CARTE-TACHE (Arno, 13/10/2026) — UN ENCADRÉ PAR CONTACT, en fin de carte de tâche ══════════════
+ * Clairement séparés, chacun avec le liseré de SA famille (`tonDuGroupe`, source unique du bloc PARTIES) : nom en gras
+ * et famille ; chaque téléphone sur sa ligne avec son libellé (tel:) ; chaque e-mail sur sa ligne, qui ouvre le
+ * composeur « Nouveau message » (adresse pré-remplie, rien n'est envoyé). Coordonnées COPIÉES (état daté), et
+ * « Mettre à jour » quand la fiche a changé — comme dans le détail. (`ContactsAffiches`, lui, reste celui de la
+ * fenêtre, inchangé.)
+ */
+export function EncadresContacts({ contacts, sources, onEcrire, onMettreAJour, occupe = false }: {
+  contacts: readonly ContactTache[];
+  sources: readonly ContactSource[] | null;
+  onEcrire?: (email: string) => void;
+  onMettreAJour?: (cle: string) => void;
+  occupe?: boolean;
+}) {
+  if (contacts.length === 0) return null;
+  return (
+    <div className="tchc-encadres" aria-label="Contacts de la tâche" data-ordre="contacts">
+      {contacts.map((c) => {
+        const etat = sources === null ? 'a_jour' : etatCopie(c, sources);
+        return (
+          <div key={c.cle} className={`tchc-encadre tchc-groupe--${tonDuGroupe(c.famille)}`} data-contact={c.cle} data-etat-copie={etat}>
+            <p className="tchc-nom"><b>{c.nom}</b> <span className="tchc-qualite">· {MOT_FAMILLE[c.famille]}{c.qualite ? ` · ${c.qualite}` : ''}</span></p>
+            {c.organisation && <p className="tchc-ligne">Cabinet : {c.organisation}</p>}
+            {c.coordonnees.map((k, i) => (
+              <p key={i} className="tchc-ligne" data-coordonnee={k.sorte}>
+                <span className="tchc-libelle">{libelleCoordonnee(k)} : </span>
+                {k.sorte === 'telephone'
+                  ? <a className="tchc-lien" href={lienTelephone(k.valeur)}>{k.affichage ?? k.valeur}</a>
+                  : onEcrire
+                    ? (
+                      <button type="button" className="tchc-lien tchc-lien-bouton" onClick={() => onEcrire(k.valeur)}
+                        title="Écrire un nouveau message à cette adresse (rien n’est envoyé sans vous)">
+                        {k.valeur}
+                      </button>
+                    )
+                    : <span>{k.valeur}</span>}
+              </p>
+            ))}
+            {c.adresse && <p className="tchc-ligne">Adresse : {c.adresse}</p>}
+            <p className="tchc-copie">
+              Coordonnées copiées le {horodatageLisible(c.copieLe)}
+              {etat === 'plus_lie' && ' · n’est plus lié à ce bien (coordonnées conservées)'}
+            </p>
+            {etat === 'modifie' && (
+              <p className="tchc-modifie">
+                Coordonnées modifiées depuis
+                {onMettreAJour && (
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn tchc-maj" disabled={occupe}
+                    onClick={() => onMettreAJour(c.cle)}>
+                    Mettre à jour
+                  </button>
+                )}
+              </p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* ⚠️ CSS DANS UN GABARIT : jamais d'accent grave dans un commentaire ci-dessous.
    LES TONS : les MEMES jetons que le liseré des familles du bloc PARTIES (hdb-groupe--rouge, --vert, --violet,
    --rose, --bleu, --gris). Aucune couleur nouvelle. */
@@ -138,6 +200,11 @@ export const CSS_CONTACTS_TACHE = `
   background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit}
 .tchc-groupe{display:flex;flex-direction:column;gap:2px;padding:.25rem .4rem .3rem .55rem;border:1px solid var(--color-svv-line);
   border-left-width:4px;border-radius:.5rem;background:var(--color-svv-surface);min-width:0}
+/* LOT FICHE-CARTE-TACHE : l'encadre d'UN contact, AVANT les tons (sinon sa bordure efface la couleur du liseré). */
+.tchc-encadres{display:flex;flex-direction:column;gap:8px}
+.tchc-encadre{display:flex;flex-direction:column;gap:2px;padding:.45rem .6rem .5rem .7rem;border:1px solid var(--color-svv-line);
+  border-left-width:5px;border-radius:.5rem;background:var(--color-svv-surface);min-width:0}
+.tchc-encadre .tchc-nom{font-size:.92rem}
 .tchc-groupe--rouge{border-left-color:var(--color-svv-red)}
 .tchc-groupe--vert{border-left-color:var(--color-svv-green)}
 .tchc-groupe--violet{border-left-color:var(--color-svv-violet)}

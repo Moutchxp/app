@@ -101,7 +101,7 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
 
   it('« Faite » depuis le récapitulatif : la tâche quitte les ouvertes des DEUX écrans, et reste consultable grisée', async () => {
     await monter();
-    await act(async () => { bouton('general', 1, 'Faite').click(); });
+    await act(async () => { bouton('general', 1, 'Tâche réalisée').click(); });
     await calmer();
     expect(gestes).toEqual([{ id: 1, corps: { geste: 'faite' } }]);
     expect(ouvertes('fiche')).toEqual(['2:jour', '3:proche', '4:plus_tard']);
@@ -142,7 +142,8 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
     taches = taches.map((t) => (t.id === 2 ? { ...t, acceptation: acc('en_attente', 1) } : t.id === 4 ? { ...t, acceptation: acc('refusee', 1) } : t));
     await monter();
     for (const ecran of ['fiche', 'general'] as const) {
-      const badge = container.querySelector(`#${ecran} [data-tache="2"] .tch-echeance [data-acceptation]`);
+      // Récapitulatif : le badge est collé à l'échéance ; fiche (carte, LOT FICHE-CARTE-TACHE) : dans la ligne clé.
+      const badge = container.querySelector(`#${ecran} [data-tache="2"] ${ecran === 'general' ? '.tch-echeance' : '.tch-carte-cle'} [data-acceptation]`);
       expect(badge?.textContent).toBe('⏳ En attente');
       expect(container.querySelector(`#${ecran} [data-tache="2"]`)?.textContent).toContain('mail non envoyé (envoi désactivé)');
       expect(container.querySelector(`#${ecran} [data-tache="4"] [data-acceptation]`)?.textContent).toBe('✗ Refusée — à réattribuer');
@@ -168,9 +169,9 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
 });
 
 describe('🔴 PARTIE A — l’échéance en premier, en gras, le libellé de couleur collé', () => {
-  it('sur les deux écrans, la ligne commence par l’échéance ; la date de création n’y figure pas', async () => {
+  it('dans le récapitulatif, la ligne commence par l’échéance ; la date de création n’y figure pas (la fiche, elle, montre une CARTE titre d’abord — LOT FICHE-CARTE-TACHE)', async () => {
     await monter();
-    for (const ecran of ['fiche', 'general'] as const) {
+    for (const ecran of ['general'] as const) {
       const ligne = container.querySelector(`#${ecran} [data-tache="2"]`) as HTMLElement;
       const premier = ligne.querySelector('.tch-haut')?.firstElementChild as HTMLElement;
       expect(premier.className).toBe('tch-echeance');

@@ -74,6 +74,10 @@ describe('🔴 le vrai SQL', () => {
     const j = await query<{ operation: string; resultat: string }>(
       `SELECT operation, resultat FROM gestion_tache_agenda_appel WHERE tache_id = $1 ORDER BY id`, [c.id]);
     expect(j.rows.map((r) => `${r.operation}:${r.resultat}`)).toContain('suppression:ok');
+    // 🔴 LOT FICHE-CARTE-TACHE — « ✗ Tâche annulée » est CE geste : tracé (jamais supprimé) et événement retiré.
+    const tr = await query<{ action: string }>(`SELECT action FROM gestion_tache_action WHERE tache_id = $1`, [c.id]);
+    expect(tr.rows.map((r) => r.action)).toContain('annulation');
+    expect((await query(`SELECT etat FROM gestion_tache WHERE id = $1`, [c.id])).rows[0].etat).toBe('annulee');
   });
 
   it('collègue : rien avant acceptation ; dans SON agenda après', async () => {
