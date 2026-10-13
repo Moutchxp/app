@@ -157,7 +157,7 @@ import type { CoordonneesTrouvees } from '../../../../lib/gestion/partieCategori
 /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — les familles destinataires d'une pièce, et la carte des catégories du
    bloc PARTIES : les deux viennent du MÊME module pur que les capsules des miniatures (point 3b d'Arno). */
 import {
-  famillesDestinataires, fusionnerCategories, type FamilleVue,
+  famillesDestinataires, fusionnerCategories, rangementsDesParties, type FamilleVue,
 } from '../../../../lib/gestion/familleDestinataire';
 /* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la famille « Syndic & immeuble », calculée depuis la fiche syndic. */
 import {
@@ -787,14 +787,14 @@ export function HistoriqueDuBien({
           syndicaux?: unknown;
         };
       };
-      const m = new Map<string, CategoriePartie>();
+      /* 🔴🔴 LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — la carte des groupes vient de la règle pure
+         `rangementsDesParties`, la MÊME que lisent les suggestions des compositeurs (côté serveur). ⚠️ « non
+         affectée » N'EST PAS UN GROUPE DE PARTIE : c'est l'absence de rangement, jamais posée dans cette carte. */
+      const m = rangementsDesParties(d.data?.parties ?? []);
       const prop = new Map<string, Categorie>();
       for (const x of d.data?.parties ?? []) {
         const cle = x.adresse.trim().toLowerCase();
         if (x.categorie === 'proprietaire' || x.categorie === 'locataire' || x.categorie === 'independant') {
-          /* ⚠️ « non affectée » N'EST PAS UN GROUPE DE PARTIE : c'est l'absence de rangement, et le module pur
-             l'exprime en ne connaissant pas l'adresse. On ne la pose donc pas dans la carte des groupes. */
-          m.set(cle, x.categorie);
           prop.set(cle, x.categorie);
         } else if (x.categorie === 'a_repartir') {
           prop.set(cle, 'a_repartir');

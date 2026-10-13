@@ -4,14 +4,17 @@ import { categorieDuBien } from './categorieBien';
 import { libelleBien } from './classementBien';
 import { contactsDeLImmeuble } from './contactsImmeubleRepo';
 import { civiliteDeTexte } from './mailSyndic';
-import { lireCartesDuBien, lireCategoriesDuBien } from './partieCategorieRepo';
+import { coordonneesDesParties, lireCartesDuBien, lireCategoriesDuBien } from './partieCategorieRepo';
+import { famillesDesParties, rangementsDesParties } from './familleDestinataire';
+import { syndicauxDuBien } from './partiesSyndicRepo';
+import { syndicauxDepuisJson } from './partiesSyndic';
 import { sqlLiensDuBien } from './rattachement';
 import { ficheSyndic } from './syndicRepo';
 import { cleImmeuble } from './syndics';
 /* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — les rôles « Syndic — … », « Gardien »… écrits UNE fois, pour toutes les vues. */
 import { roleCabinet, roleContactSyndic, roleImmeuble } from './partiesSyndic';
 import { estAdresseSansReponse } from './typologie';
-import { rangerSuggestions, type GroupeSuggestions, type SuggestionAdresse, type TonSuggestion } from './suggestionsBien';
+import { rangerSuggestions, tonDeLaFamille, type GroupeSuggestions, type SuggestionAdresse, type TonSuggestion } from './suggestionsBien';
 
 /**
  * ══ 🔴🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — CE QU'ON LIT QUAND ON ÉCRIT DEPUIS UNE FICHE BIEN ═════════
@@ -171,13 +174,30 @@ export async function ecrireDepuisLeBien(lotId: number): Promise<EcrireDepuisLeB
       GROUP BY a.adresse
       ORDER BY max(m.recu_le) DESC NULLS LAST, a.adresse
       LIMIT 400`, [f.numero]);
+  /*
+   * ══ 🔴🔴 LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — LA COULEUR EST CELLE DES PARTIES DU BIEN ══════════════
+   * CONSTAT D'ARNO (bien-343) : « Grabovets valeriy », rangé en « Tiers indépendant » (bleu) dans les PARTIES, avait ici
+   * une pastille GRISE. CAUSE : ce groupe recevait le gris (`neutre`) EN DUR, sans jamais demander où la personne est
+   * rangée. DÉSORMAIS : la famille du bloc PARTIES, par le MÊME calcul et la même source — la fiche (`f`), les
+   * rangements retenus (`lireCategoriesDuBien`, comme `/historique/parties`), la famille « Syndic & immeuble »
+   * (`syndicauxDuBien`, reconnue par l'e-mail puis par le téléphone des signatures, comme la route) — passés à
+   * `famillesDesParties`. Une adresse non affectée reste grise. La rubrique et « vue dans N mails du bien » ne changent
+   * pas. Une fiche syndic illisible ne fait pas tomber la liste : la famille syndic reste vide, comme dans la route.
+   */
+  const coordonnees = await coordonneesDesParties(f.numero).catch(() => []);
+  const syndicaux = await syndicauxDuBien(f.numero, new Map(coordonnees.map((c) => [c.adresse.trim().toLowerCase(), c.telephone])))
+    .catch((e: unknown) => { console.error('[gestion/suggestionsBien] fiche syndic illisible', e); return []; });
+  const familles = famillesDesParties(f,
+    rangementsDesParties(categories.map((p) => ({ adresse: p.adresse, categorie: p.retenue?.categorie ?? null }))),
+    syndicauxDepuisJson(syndicaux));
   const autres: SuggestionAdresse[] = vues
     .filter((v) => v.adresse.includes('@') && !estAdresseSansReponse(v.adresse))
     .map((v) => {
       const nom = /^\s*"?([^"<]+?)"?\s*</.exec(v.brute ?? '')?.[1]?.trim() ?? null;
       const n = Number(v.n);
       return {
-        adresse: v.adresse, nom: nom === '' ? null : nom, role: `vue dans ${n} mail${n > 1 ? 's' : ''} du bien`, ton: 'neutre',
+        adresse: v.adresse, nom: nom === '' ? null : nom, role: `vue dans ${n} mail${n > 1 ? 's' : ''} du bien`,
+        ton: tonDeLaFamille(familles.get(v.adresse.trim().toLowerCase())),
         propre: true, civilite: null, nomFamille: null,
       };
     });

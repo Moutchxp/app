@@ -80,6 +80,8 @@ const doseDe = (ton: string, pale: boolean): number => {
 const TONS: Record<string, string> = {
   proprietaire: 'color-svv-proprio', locataire: 'color-svv-green', ancien_locataire: 'color-svv-violet',
   syndic: 'color-svv-syndic-bord', immeuble: 'color-svv-syndic-bord', neutre: 'color-svv-muted',
+  /* LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — le bleu du tiers indépendant, éprouvé comme les autres. */
+  independant: 'color-svv-blue',
 };
 
 describe('🔴 contraste AA : le texte (encre) et le « × » sur chaque fond, en Clair et en Sombre', () => {

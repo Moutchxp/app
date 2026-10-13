@@ -17,8 +17,28 @@
  */
 import type { Civilite } from './syndics';
 
-/** La famille de couleur d'une ligne. Les quatre premières sont les tons existants des parties. */
-export type TonSuggestion = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'syndic' | 'immeuble' | 'neutre';
+/**
+ * La famille de couleur d'une ligne. Les quatre premières sont les tons existants des parties.
+ * LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — `independant` : le BLEU du « tiers indépendant » des PARTIES.
+ */
+export type TonSuggestion = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'syndic' | 'immeuble' | 'independant' | 'neutre';
+
+/**
+ * ══ 🔴🔴 LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — LA COULEUR D'UNE FAMILLE DES PARTIES ═══════════════════
+ * La famille où le bloc PARTIES range une adresse (`famillesDesParties`) → la couleur de sa pastille : propriétaire
+ * rouge, locataire vert, ancien locataire violet, syndic & immeuble rose, tiers indépendant BLEU, non affecté (absent
+ * de la carte) gris. Aucun second calcul : on ne fait que nommer la couleur de la famille déjà tranchée. PUR.
+ */
+export function tonDeLaFamille(famille: string | null | undefined): TonSuggestion {
+  switch (famille) {
+    case 'proprietaire': return 'proprietaire';
+    case 'locataire': return 'locataire';
+    case 'ancien_locataire': return 'ancien_locataire';
+    case 'syndic_immeuble': return 'syndic';
+    case 'independant': return 'independant';
+    default: return 'neutre';
+  }
+}
 
 export interface SuggestionAdresse {
   adresse: string;

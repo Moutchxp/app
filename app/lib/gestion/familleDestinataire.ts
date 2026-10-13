@@ -1,7 +1,7 @@
 import { estAncienLocataire, type CategoriePartie } from './historiqueBien';
 import type { ContactAffiche, FicheLot } from './annuaireRepo';
 import type { PersonneDuMail } from './adressesMessage';
-import { categorieAvecSyndical, type SyndicauxDuBien } from './partiesSyndic';
+import { avecSyndical, categorieAvecSyndical, type SyndicauxDuBien } from './partiesSyndic';
 
 /**
  * ══ 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — À QUELLE FAMILLE AVONS-NOUS ENVOYÉ CETTE PIÈCE ? ═════════════════════════
@@ -236,6 +236,40 @@ export function categoriesDuBien(
   rangees: ReadonlyMap<string, CategoriePartie> = new Map(),
 ): ReadonlyMap<string, CategoriePartie> {
   return fusionnerCategories(fiche === null ? new Map() : categoriesDeLaFiche(fiche), rangees);
+}
+
+/**
+ * ══ 🔴🔴 LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — LES RANGEMENTS DU BLOC PARTIES, UNE SEULE RÈGLE ═══════════
+ *
+ * Ce que `/historique/parties` rend (`parties[]` : l'adresse et la catégorie RETENUE) devient la carte des rangements :
+ * seuls propriétaire, locataire et indépendant sont des groupes ; « non affectée » (`a_repartir`) est l'ABSENCE de
+ * rangement, et l'adresse n'est donc pas posée. C'est la règle qu'écrivait `HistoriqueDuBien` (`relireParties`),
+ * descendue ici mot pour mot pour que les suggestions des compositeurs la lisent à l'identique. PUR.
+ */
+export function rangementsDesParties(
+  parties: readonly { adresse: string; categorie: string | null }[],
+): ReadonlyMap<string, CategoriePartie> {
+  const m = new Map<string, CategoriePartie>();
+  for (const x of parties) {
+    if (x.categorie === 'proprietaire' || x.categorie === 'locataire' || x.categorie === 'independant') {
+      m.set(x.adresse.trim().toLowerCase(), x.categorie);
+    }
+  }
+  return m;
+}
+
+/**
+ * ══ 🔴🔴 LA FAMILLE DE CHAQUE ADRESSE DANS LES PARTIES DU BIEN — LE CALCUL DU BLOC PARTIES, ET LUI SEUL ═══════════════
+ * La fiche l'emporte sur les rangements (`categoriesDuBien`), puis la famille « Syndic & immeuble » se pose par-dessus,
+ * propriétaire et locataire l'emportant (`avecSyndical`) : exactement `categoriesParties` de `HistoriqueDuBien`. Une
+ * adresse absente de la carte est « non affectée ». PUR.
+ */
+export function famillesDesParties(
+  fiche: FicheAvecParties | null,
+  rangees: ReadonlyMap<string, CategoriePartie>,
+  syndicaux: SyndicauxDuBien,
+): ReadonlyMap<string, CategoriePartie> {
+  return avecSyndical(categoriesDuBien(fiche, rangees), syndicaux);
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

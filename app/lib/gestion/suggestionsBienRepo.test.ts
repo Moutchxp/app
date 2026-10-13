@@ -12,9 +12,14 @@ const ficheLot = vi.fn();
 vi.mock('./annuaireRepo', () => ({ ficheLot: (...a: unknown[]) => ficheLot(...a) }));
 const lireCartesDuBien = vi.fn();
 const lireCategoriesDuBien = vi.fn();
+const coordonneesDesParties = vi.fn();
 vi.mock('./partieCategorieRepo', () => ({
   lireCartesDuBien: (...a: unknown[]) => lireCartesDuBien(...a), lireCategoriesDuBien: (...a: unknown[]) => lireCategoriesDuBien(...a),
+  coordonneesDesParties: (...a: unknown[]) => coordonneesDesParties(...a),
 }));
+/* LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — la famille « Syndic & immeuble » des PARTIES (lecture doublée). */
+const syndicauxDuBien = vi.fn();
+vi.mock('./partiesSyndicRepo', () => ({ syndicauxDuBien: (...a: unknown[]) => syndicauxDuBien(...a) }));
 const ficheSyndic = vi.fn();
 vi.mock('./syndicRepo', () => ({ ficheSyndic: (...a: unknown[]) => ficheSyndic(...a) }));
 const contactsDeLImmeuble = vi.fn();
@@ -34,6 +39,9 @@ const LOT = {
     personne(2, 'ARCHIVE', 'Paul', null, [email('archive@x.fr')], true)],
   occupants: [personne(7, 'ROI', 'Léa', 'Mme', [email('lea@x.fr')])],
   anciensOccupants: [personne(8, 'HIRSCH', 'Thibaut', 'M', [email('thibaut@x.fr')])],
+  /* Ce que la fiche porte aussi, et que le bloc PARTIES lit (`categoriesDeLaFiche`). */
+  proprietaireContacts: [],
+  occupations: [{ sortie: '2024-06-30', contacts: [email('thibaut@x.fr')] }],
 };
 
 beforeEach(() => {
@@ -43,6 +51,8 @@ beforeEach(() => {
     { cote: 'locataire', locataireId: null, adresse: 'garant@x.fr', nom: 'ROI', prenom: 'Marc', civilite: 'M.', qualite: 'Garant' },
     { cote: 'proprietaire', locataireId: null, adresse: 'fille@x.fr', nom: 'DUPONT', prenom: 'Anne', civilite: 'Mme', qualite: null },
   ]);
+  coordonneesDesParties.mockReset().mockResolvedValue([]);
+  syndicauxDuBien.mockReset().mockResolvedValue([]);
   lireCategoriesDuBien.mockReset().mockResolvedValue([
     { adresse: 'notaire@x.fr', retenue: { categorie: 'proprietaire', origine: 'manuel' } },
     { adresse: 'tiers@x.fr', retenue: { categorie: 'independant', origine: 'manuel' } },
@@ -120,7 +130,9 @@ describe('ecrireDepuisLeBien — les trois groupes, dans l’ordre d’Arno', ()
   });
   it('🔴 ③ AUTRES : TOUTES les adresses de l’historique (même avec une partie ailleurs), le dernier échange d’abord, sans doublon de ①/② ni adresse technique', async () => {
     expect((await lignes())?.[2]).toEqual(['autres', [
-      'tiers@x.fr|neutre|pleine|vue dans 1 mail du bien',
+      /* 🔴 LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — rangé « indépendant » dans les PARTIES : BLEU (il était
+         `neutre`, gris, en dur : c'est le défaut constaté par Arno sur bien-343). */
+      'tiers@x.fr|independant|pleine|vue dans 1 mail du bien',
       'client.autre.bien@z.fr|neutre|pleine|vue dans 1 mail du bien',
       'inconnu@y.fr|neutre|pleine|vue dans 4 mails du bien',
     ]]);
@@ -153,5 +165,35 @@ describe('ecrireDepuisLeBien — les trois groupes, dans l’ordre d’Arno', ()
   it('bien inconnu ⇒ `null`', async () => {
     ficheLot.mockResolvedValue({ etat: 'inconnu' });
     expect(await ecrireDepuisLeBien(9)).toBeNull();
+  });
+});
+
+/* ══ 🔴🔴 LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — LA COULEUR DES « AUTRES ADRESSES » = LEUR FAMILLE DES PARTIES ══ */
+describe('③ AUTRES : chaque pastille porte la famille où le bloc PARTIES range l’adresse', () => {
+  const autres = async () => Object.fromEntries(((await ecrireDepuisLeBien(176))?.groupes[2].lignes ?? []).map((l) => [l.adresse, l.ton]));
+  it('indépendant BLEU, locataire vert (rangement), syndic & immeuble rose (fiche syndic), non affecté gris', async () => {
+    lireCategoriesDuBien.mockResolvedValue([
+      { adresse: 'TIERS@x.fr ', retenue: { categorie: 'independant', origine: 'manuel' } },
+      { adresse: 'inconnu@y.fr', retenue: { categorie: 'a_repartir', origine: 'defaut' } },
+      { adresse: 'client.autre.bien@z.fr', retenue: { categorie: 'locataire', origine: 'manuel' } },
+    ]);
+    expect(await autres()).toEqual({ 'tiers@x.fr': 'independant', 'inconnu@y.fr': 'neutre' });
+    /* Rangée « locataire », l'adresse rejoint déjà les clients avec le vert du locataire (comme avant ce lot). */
+    const clients = (await ecrireDepuisLeBien(176))?.groupes[0].lignes ?? [];
+    expect(clients.find((l) => l.adresse === 'client.autre.bien@z.fr')?.ton).toBe('locataire');
+    /* La famille « Syndic & immeuble » vient de la fiche syndic, et passe AVANT le tiers indépendant (règle des PARTIES). */
+    syndicauxDuBien.mockResolvedValue([{ adresse: 'tiers@x.fr', role: 'Syndic — Responsable de copropriété', nom: 'X', partiLe: null }]);
+    expect((await autres())['tiers@x.fr']).toBe('syndic');
+  });
+  it('la reconnaissance du syndic reçoit les téléphones des signatures, comme la route des parties', async () => {
+    coordonneesDesParties.mockResolvedValue([{ adresse: 'Tiers@x.fr', telephone: '0601020304' }]);
+    await ecrireDepuisLeBien(176);
+    expect(syndicauxDuBien).toHaveBeenCalledWith('219', new Map([['tiers@x.fr', '0601020304']]));
+  });
+  it('une fiche syndic illisible ne fait pas tomber la liste : la famille syndic reste vide', async () => {
+    syndicauxDuBien.mockRejectedValue(new Error('base'));
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect((await autres())['tiers@x.fr']).toBe('independant');
+    err.mockRestore();
   });
 });

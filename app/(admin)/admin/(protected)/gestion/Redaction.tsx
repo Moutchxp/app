@@ -2958,6 +2958,8 @@ const CSS_REDACTION = `
 /* Le rose du syndic est DÉJÀ un pastel en Clair (#f9a8d4) : à la dose commune, la puce paraissait blanche (mesuré dans
    Chrome). Il prend une dose plus forte — le contraste reste éprouvé par le test, en Clair comme en Sombre. */
 .red-pastille--syndic,.red-pastille--immeuble{--red-puce-ton:var(--color-svv-syndic-bord);--red-puce-dose:50%;--red-puce-dose-pale:22%}
+/* LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — le BLEU du « tiers indépendant », le jeton de la légende des PARTIES. */
+.red-pastille--independant{--red-puce-ton:var(--color-svv-blue)}
 .red-pastille--neutre{--red-puce-ton:var(--color-svv-muted)}
 .red-pastille--famille{background:color-mix(in srgb,var(--red-puce-ton) var(--red-puce-dose,20%),var(--color-svv-surface));
   border-color:color-mix(in srgb,var(--red-puce-ton) var(--red-puce-dose,20%),var(--color-svv-surface));color:var(--color-svv-ink)}
@@ -3048,6 +3050,8 @@ const CSS_REDACTION = `
    syndical, habitants). Ce qu'il prenait avant, le jeton syndic-texte, est un bordeaux qui se confondait avec le
    rouge du proprietaire. */
 .red-sugg-pastille--syndic,.red-sugg-pastille--immeuble{--red-sugg-ton:var(--color-svv-syndic-bord)}
+/* LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — tiers independant : le BLEU de la legende des PARTIES (jeton --color-svv-blue, Clair et Sombre). */
+.red-sugg-pastille--independant{--red-sugg-ton:var(--color-svv-blue)}
 .red-sugg-pastille--neutre{--red-sugg-ton:var(--color-svv-muted)}
 .red-sugg-texte{display:flex;flex-wrap:wrap;align-items:baseline;column-gap:.5rem;row-gap:0;min-width:0}
 .red-sugg-nom{color:var(--color-svv-ink);font-weight:600;overflow-wrap:anywhere}
