@@ -1,12 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 /* 🔴 LOT FILTRE-ECRAN-FIXE — l'écran ne bouge pas quand on change de filtre. */
-import { figerDefilement, hauteurRetenue, MOT_AUCUNE_TACHE_FILTRE } from './defilementFige';
+import { MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
 import {
-  compterTaches, motCompteur, ORDRE_COULEURS, repartirTaches, type Tache,
+  compterTaches, filtrerParPastille, type PastilleFiltre, repartirTaches, type Tache,
 } from '../../../../lib/gestion/taches';
-import { CSS_TACHES, LigneTache, useLignesDepliees, useMaintenant } from './LigneTache';
+import { CSS_TACHES, LigneTache, PastillesFiltres, useLignesDepliees, useMaintenant } from './LigneTache';
 import {
   compterEnAttente, filtrerParAcceptation, MOTS_QUI, ORDRE_FILTRES_QUI, MOTS_STATUT, type FiltreQui, type FiltreStatut,
 } from '../../../../lib/gestion/acceptationTache';
@@ -41,20 +41,12 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
      les tâches confiées à la personne connectée), désormais à côté de « Commandées par moi ». */
   const [qui, setQui] = useState<FiltreQui>('toutes');
   const [statut, setStatut] = useState<FiltreStatut>('toutes');
+  /** 🔴 LOT PASTILLES-FILTRES — la pastille active (une seule), combinée avec « qui » et « statut » ; `null` = toutes. */
+  const [pastille, setPastille] = useState<PastilleFiltre | null>(null);
   const [detail, setDetail] = useState<number | null>(null);
   /* 🔴 LOT FILTRE-ECRAN-FIXE — la zone de la liste garde la plus grande hauteur atteinte depuis l'ouverture, et la
      position de défilement est notée au clic sur un filtre puis rétablie après le rendu. */
-  const zoneListe = useRef<HTMLDivElement | null>(null);
-  const contenuListe = useRef<HTMLDivElement | null>(null);
-  const [hauteurMin, setHauteurMin] = useState(0);
-  const retablir = useRef<(() => void) | null>(null);
-  useLayoutEffect(() => {
-    const h = contenuListe.current?.getBoundingClientRect().height ?? 0;
-    const retenue = hauteurRetenue(hauteurMin, h);
-    if (retenue !== hauteurMin) setHauteurMin(retenue);
-    if (retablir.current !== null) { retablir.current(); retablir.current = null; }
-  });
-  const changerFiltre = (f: () => void) => { retablir.current = figerDefilement(zoneListe.current); f(); };
+  const { zone: zoneListe, contenu: contenuListe, hauteurMin, changerFiltre } = useZoneStable();
   /** 🔴 LOT TACHES-LIGNES-COMPACTES — lignes repliées par défaut ; le repli des terminées s'ouvre sur une carte dépliée. */
   const lignes = useLignesDepliees();
   const [termineesOuvertes, setTermineesOuvertes] = useState(false);
@@ -74,9 +66,12 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
   if (!installe || donnees === null) return null;
   const visibles = filtrerParAcceptation(donnees.taches, qui, statut, donnees.moi);
   // 🔴 ORDRE CHRONOLOGIQUE STRICT : l'échéance la plus proche en haut (en retard compris), la plus lointaine en bas.
-  const { ouvertes, terminees } = repartirTaches(visibles, maintenant);
-  const n = compterTaches(ouvertes, maintenant);
-  const enAttente = compterEnAttente(ouvertes);
+  const toutes = repartirTaches(visibles, maintenant);
+  // Les compteurs des pastilles suivent « qui » et « statut », pas la pastille elle-même.
+  const n = compterTaches(toutes.ouvertes, maintenant);
+  const enAttente = compterEnAttente(toutes.ouvertes);
+  const ouvertes = filtrerParPastille(toutes.ouvertes, pastille, maintenant);
+  const terminees = filtrerParPastille(toutes.terminees, pastille, maintenant);
 
   return (
     <section className="tch-tableau" aria-labelledby="tch-tableau-titre">
@@ -104,23 +99,13 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
           </div>
         </div>
       </div>
-      <ul className="tch-compteurs" aria-label="Compteurs des tâches">
-        {ORDRE_COULEURS.map((c) => (
-          <li key={c} className="tch-compteur">
-            <span className={`tch-pastille tch-pastille--${c}`} aria-hidden="true" />
-            {motCompteur(c, n[c])}
-          </li>
-        ))}
-        {/* 🔴 LOT TACHES-ACCEPTATION — la catégorie « En attente de confirmation ». */}
-        <li className="tch-compteur tch-compteur--attente" data-compteur="en_attente">
-          <span aria-hidden="true">⏳</span><b>{enAttente}</b> en attente de confirmation
-        </li>
-      </ul>
+      {/* 🔴 LOT PASTILLES-FILTRES — les pastilles sont des filtres (écran fixe, comme les autres). */}
+      <PastillesFiltres n={n} enAttente={enAttente} active={pastille} onChoisir={(p) => changerFiltre(() => setPastille(p))} />
       <ReglageEnvoi />
       {donnees.tronque && <p className="gst-tronc">La liste est tronquée : toutes les tâches ne sont pas affichées.</p>}
       <div className="tch-zone-liste" ref={zoneListe} data-zone-liste style={hauteurMin > 0 ? { minHeight: `${hauteurMin}px` } : undefined}>
       <div ref={contenuListe}>
-      {ouvertes.length === 0 && terminees.length === 0 && (qui !== 'toutes' || statut !== 'toutes')
+      {ouvertes.length === 0 && terminees.length === 0 && (qui !== 'toutes' || statut !== 'toutes' || pastille !== null)
         ? <p className="tch-vide tch-vide-filtre" role="status">{MOT_AUCUNE_TACHE_FILTRE}</p>
         : ouvertes.length === 0
         ? <p className="tch-vide">{qui === 'confiees' ? 'Aucune tâche à faire ne vous est confiée.' : qui === 'collaborateurs' ? 'Aucune tâche à faire confiée à un collaborateur.' : qui === 'commandees' ? 'Aucune tâche commandée par vous.' : 'Aucune tâche à faire.'} Une tâche se crée depuis la fiche d’un bien (« + Tâche »).</p>

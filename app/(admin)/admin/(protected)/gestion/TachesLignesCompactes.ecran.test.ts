@@ -251,3 +251,32 @@ describe('🔴 LOT CARTE-CONTACTS-PARTOUT — les contacts de la carte dépliée
     expect([...ligne(1).querySelectorAll('style')].some((st) => (st.textContent ?? '').includes('.tchc-groupe--vert{border-left-color'))).toBe(true);
   });
 });
+
+describe('🔴 LOT PASTILLES-FILTRES — les pastilles du récapitulatif filtrent', () => {
+  const pastille = (p: string) => container.querySelector<HTMLButtonElement>(`[data-pastille="${p}"]`)!;
+  const visibles = () => [...container.querySelectorAll('.tch-zone-liste .tch-liste:not(details .tch-liste) > .tch-ligne')].map((l) => l.getAttribute('data-tache'));
+  it('un clic : seulement cette catégorie, pastille en rouge ; re-clic : toutes ; une seule active', async () => {
+    await monter();
+    expect(visibles()).toEqual(['1', '2']);
+    await act(async () => { pastille('retard').click(); });
+    expect(visibles()).toEqual(['1']);
+    expect(pastille('retard').getAttribute('aria-pressed')).toBe('true');
+    expect(pastille('retard').className).toContain('tch-compteur--actif');
+    await act(async () => { pastille('jour').click(); });
+    expect(visibles()).toEqual(['2']);
+    expect(container.querySelectorAll('.tch-compteur--actif')).toHaveLength(1);
+    await act(async () => { pastille('jour').click(); });
+    expect(visibles()).toEqual(['1', '2']);
+    expect(container.querySelectorAll('.tch-compteur--actif')).toHaveLength(0);
+  });
+  it('se combine avec « qui » ; les compteurs suivent « qui » (pas la pastille) ; vide → message', async () => {
+    await monter();
+    await act(async () => { pastille('retard').click(); });
+    expect(pastille('jour').textContent).toBe('aujourd’hui / demain (1)'); // le compteur ne dépend pas de la pastille
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-filtre-qui="collaborateurs"]')!.click(); });
+    expect(visibles()).toEqual([]);
+    expect(pastille('retard').textContent).toBe('en retard (0)');
+    expect(container.querySelector('.tch-vide-filtre')?.textContent).toBe('Aucune tâche pour ce filtre');
+    expect(CSS_TACHES).toMatch(/button\.tch-compteur\.tch-compteur--actif\{background:var\(--tch-rouge-plein\)[^}]*color:#ffffff/);
+  });
+});

@@ -12,6 +12,7 @@
  *
  * Aucun réseau, aucune base. Navigateur seulement.
  */
+import { useLayoutEffect, useRef, useState } from 'react';
 
 /** Note la position de défilement des ancêtres de `depuis` (et de la fenêtre) ; rend la fonction qui la rétablit. */
 export function figerDefilement(depuis: Element | null): () => void {
@@ -33,3 +34,23 @@ export function hauteurRetenue(maxPrecedent: number, mesure: number): number {
 }
 
 export const MOT_AUCUNE_TACHE_FILTRE = 'Aucune tâche pour ce filtre';
+
+/**
+ * 🔴 LOT PASTILLES-FILTRES — LES DEUX GESTES EN UN, pour toute liste filtrée (récapitulatif, bloc de la fiche) : la zone
+ * (`zone`, avec `hauteurMin`) et son contenu mesuré (`contenu`) ; `changerFiltre` note le défilement avant le changement
+ * et le rétablit après le rendu.
+ */
+export function useZoneStable() {
+  const zone = useRef<HTMLDivElement | null>(null);
+  const contenu = useRef<HTMLDivElement | null>(null);
+  const [hauteurMin, setHauteurMin] = useState(0);
+  const retablir = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    const h = contenu.current?.getBoundingClientRect().height ?? 0;
+    const retenue = hauteurRetenue(hauteurMin, h);
+    if (retenue !== hauteurMin) setHauteurMin(retenue);
+    if (retablir.current !== null) { retablir.current(); retablir.current = null; }
+  });
+  const changerFiltre = (f: () => void) => { retablir.current = figerDefilement(zone.current); f(); };
+  return { zone, contenu, hauteurMin, changerFiltre };
+}

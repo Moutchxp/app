@@ -298,6 +298,23 @@ export function phraseEnAttenteBien(n: number): string {
   return `${n} tâche${n > 1 ? 's' : ''} en attente sur ce bien`;
 }
 
+/**
+ * ══ 🔴🔴 LOT PASTILLES-FILTRES (Arno, 14/10/2026) — UNE PASTILLE = UN FILTRE ═════════════════════════════════════════
+ * « en retard », « aujourd'hui / demain », « dans 2 jours », « plus tard » (la couleur de la tâche, `couleurTache`) et
+ * « en attente de confirmation » (tâche à faire dont la demande attend). Une seule active à la fois ; `null` = toutes.
+ * Elle se combine avec les filtres « qui » et « statut » (appliqués avant). Une tâche réalisée ou annulée n'a plus de
+ * couleur ni d'attente : elle ne passe aucune pastille. PUR.
+ */
+export type PastilleFiltre = CouleurTache | 'en_attente';
+
+export function filtrerParPastille<T extends Pick<Tache, 'jour' | 'etat' | 'acceptation'>>(
+  taches: readonly T[], pastille: PastilleFiltre | null, maintenant: Date,
+): T[] {
+  if (pastille === null) return [...taches];
+  if (pastille === 'en_attente') return taches.filter((t) => t.etat === 'a_faire' && t.acceptation?.statut === 'en_attente');
+  return taches.filter((t) => couleurTache(t, maintenant) === pastille);
+}
+
 export type FiltreTaches = 'toutes' | 'miennes';
 
 /** « Les miennes » = celles qui me sont CONFIÉES. Sans compte (voie de secours), aucune n'est à moi. PUR. */

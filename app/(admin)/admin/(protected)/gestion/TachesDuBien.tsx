@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  compterEnAttenteBien, compterTaches, motCompteur, motEnAttenteBouton, ORDRE_COULEURS, phraseEnAttenteBien, repartirTaches,
+  compterEnAttenteBien, compterTaches, filtrerParPastille, type PastilleFiltre, motEnAttenteBouton, ORDRE_COULEURS, phraseEnAttenteBien, repartirTaches,
   type Tache,
 } from '../../../../lib/gestion/taches';
-import { CSS_TACHES, LigneTache, useLignesDepliees, useMaintenant } from './LigneTache';
+import { CSS_TACHES, LigneTache, PastillesFiltres, useLignesDepliees, useMaintenant } from './LigneTache';
 /* 🔴 LOT FICHE-CARTE-TACHE — les encadrés de contacts des cartes, et la fiche d'aujourd'hui pour « Mettre à jour ». */
 import { CSS_CONTACTS_TACHE } from './ContactsTache';
+import { MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
 import type { ContactSource } from '../../../../lib/gestion/contactsTache';
 import { FenetreTache } from './FenetreTache';
 import { demanderDepliageBien, ecouterDepliageBien, ecouterTaches, lireContactsDuBien, lireTaches } from './tachesClient';
@@ -99,6 +100,11 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
   /** 🔴 LOT TACHES-LIGNES-COMPACTES — les lignes dépliées (toutes repliées par défaut), et le repli des terminées. */
   const lignes = useLignesDepliees();
   const [termineesOuvertes, setTermineesOuvertes] = useState(false);
+  /** 🔴 LOT PASTILLES-FILTRES — un clic sur une pastille du bandeau DÉPLIE le bloc et filtre ; re-clic : toutes. */
+  const [pastille, setPastille] = useState<PastilleFiltre | null>(null);
+  useEffect(() => { setPastille(null); }, [lotId]);
+  /** L'écran reste fixe au changement de pastille (LOT FILTRE-ECRAN-FIXE, point 4 : le bloc a désormais des filtres). */
+  const { zone: zoneListe, contenu: contenuListe, hauteurMin, changerFiltre } = useZoneStable();
   useEffect(() => { setDeplie(false); }, [lotId]);
   useEffect(() => ecouterDepliageBien(lotId, () => setDeplie(true)), [lotId]);
 
@@ -133,27 +139,26 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
   const { ouvertes, terminees } = repartirTaches(taches, maintenant);
   if (ouvertes.length === 0) return fenetre || null;
   const n = compterTaches(ouvertes, maintenant);
+  const filtreesOuvertes = filtrerParPastille(ouvertes, pastille, maintenant);
+  const filtreesTerminees = filtrerParPastille(terminees, pastille, maintenant);
   const pastilles = (
-    <ul className="tch-compteurs" aria-label="Compteurs des tâches">
-      {ORDRE_COULEURS.filter((c) => n[c] > 0).map((c) => (
-        <li key={c} className="tch-compteur">
-          <span className={`tch-pastille tch-pastille--${c}`} aria-hidden="true" />
-          {motCompteur(c, n[c])}
-        </li>
-      ))}
-    </ul>
+    <PastillesFiltres n={n} active={pastille} seulementNonVides
+      onChoisir={(p) => changerFiltre(() => { setPastille(p); if (p !== null) setDeplie(true); })} />
   );
   /* 🔴 LOT FICHE-TACHES-EN-ATTENTE — la ligne rouge, repliée par défaut ; elle reste en tête quand le bloc est déplié
      (un nouveau clic le replie). Le contenu déplié est celui d'avant, sans rien retirer. */
   const repli = (
-    <button type="button" className="tch-repli" aria-expanded={deplie} aria-controls={`tch-bien-corps-${lotId}`}
-      data-repli-taches onClick={() => setDeplie((d) => !d)}>
+    /* 🔴 LOT PASTILLES-FILTRES — un élément « bouton » (role) et non un <button> : il porte désormais des pastilles qui
+       sont elles-mêmes des boutons, et un bouton ne peut en contenir un autre. Clavier : Entrée / Espace. */
+    <div className="tch-repli" role="button" tabIndex={0} aria-expanded={deplie} aria-controls={`tch-bien-corps-${lotId}`}
+      data-repli-taches onClick={() => setDeplie((d) => !d)}
+      onKeyDown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setDeplie((d) => !d); } }}>
       <span className="tch-repli-corps">
         <span className="tch-repli-phrase">{phraseEnAttenteBien(compterEnAttenteBien(taches))}</span>
         {pastilles}
       </span>
       <span className="tch-repli-fleche" aria-hidden="true">{deplie ? '▾' : '▸'}</span>
-    </button>
+    </div>
   );
   if (!deplie) {
     return (
@@ -170,22 +175,28 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
       {repli}
       {/* 🔴 LOT FICHE-CARTE-TACHE, POINT 8 (accord d'Arno) — la seconde ligne « Tâches de ce bien » et ses pastilles,
           qui répétaient la ligne rouge, ne s'affichent plus : la ligne rouge reste seule en tête. */}
-      <div id={`tch-bien-corps-${lotId}`}>
+      <div id={`tch-bien-corps-${lotId}`} className="tch-zone-liste" ref={zoneListe} data-zone-liste
+        style={hauteurMin > 0 ? { minHeight: `${hauteurMin}px` } : undefined}>
+      <div ref={contenuListe}>
+      {filtreesOuvertes.length === 0 && filtreesTerminees.length === 0 && pastille !== null && (
+        <p className="tch-vide tch-vide-filtre" role="status">{MOT_AUCUNE_TACHE_FILTRE}</p>
+      )}
       {/* 🔴 LOT TACHES-LIGNES-COMPACTES — des lignes de deux lignes, repliées par défaut ; un clic déplie la carte. */}
       <ul className="tch-liste tch-liste--cartes">
-        {ouvertes.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
+        {filtreesOuvertes.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
           sources={sources} onEcrire={onEcrire} deplie={lignes.estDepliee(t.id)} onBasculer={() => lignes.basculer(t.id)} />)}
       </ul>
-      {terminees.length > 0 && (
+      {filtreesTerminees.length > 0 && (
         <details className="tch-terminees" open={termineesOuvertes}
           onToggle={(e) => setTermineesOuvertes((e.currentTarget as HTMLDetailsElement).open)}>
-          <summary>Faites ou annulées ({terminees.length})</summary>
+          <summary>Faites ou annulées ({filtreesTerminees.length})</summary>
           <ul className="tch-liste tch-liste--cartes">
-            {terminees.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
+            {filtreesTerminees.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
               sources={sources} onEcrire={onEcrire} deplie={lignes.estDepliee(t.id)} onBasculer={() => lignes.basculer(t.id)} />)}
           </ul>
         </details>
       )}
+      </div>
       </div>
       {fenetre}
     </section>
@@ -204,13 +215,15 @@ const CSS_BOUTON = `
 
 const CSS_REPLI = `
 .tch-bloc-fiche--replie{padding:0;border:0;background:none}
-.tch-repli{display:flex;flex-wrap:nowrap;align-items:center;gap:.7rem;width:100%;min-height:44px;margin:0;
+.tch-repli{box-sizing:border-box;display:flex;flex-wrap:nowrap;align-items:center;gap:.7rem;width:100%;min-height:44px;margin:0;
   padding:6px 12px;border:1px solid #a30402;border-radius:.8rem;background:#a30402;color:#fff;font:inherit;
   font-size:.92rem;font-weight:700;text-align:left;cursor:pointer}
 .tch-repli:hover{background:#850302;border-color:#850302}
 .tch-repli:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}
 .tch-repli-corps{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .7rem;flex:1 1 auto;min-width:0}
 .tch-repli .tch-compteur{font-weight:500;background:#ffffff;color:#16202c;border-color:#ffffff}
+/* LOT PASTILLES-FILTRES : sur le bandeau rouge, la pastille active (rouge) se detache par un cerne blanc. */
+.tch-repli button.tch-compteur.tch-compteur--actif{border:2px solid #ffffff;box-shadow:0 0 0 1px rgba(0,0,0,.25)}
 .tch-repli-fleche{flex:0 0 auto;font-size:1rem}
 .tch-bloc-fiche:not(.tch-bloc-fiche--replie) > .tch-repli{margin-bottom:8px}
 .tch-bloc-fiche:not(.tch-bloc-fiche--replie){background:var(--color-svv-field)}

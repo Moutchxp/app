@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
-  contactsQuiTiennent, couleurTache, echeanceCompacte, prenomNom, echeanceLisible, horodatageLisible, iconeType, motCouleurTache, RACCOURCIS_DECALAGE,
+  contactsQuiTiennent, couleurTache, echeanceCompacte, motCompteur, ORDRE_COULEURS, prenomNom, type CouleurTache, type PastilleFiltre, echeanceLisible, horodatageLisible, iconeType, motCouleurTache, RACCOURCIS_DECALAGE,
   type PieceTache, type Tache,
 } from '../../../../lib/gestion/taches';
 import type { ContactSource, ContactTache } from '../../../../lib/gestion/contactsTache';
@@ -432,6 +432,47 @@ function ContactsDeLaLigne({ contacts }: { contacts: readonly { nom: string; fam
   );
 }
 
+/**
+ * ══ 🔴🔴 LOT PASTILLES-FILTRES — LES PASTILLES, CLIQUABLES : un seul composant pour le récapitulatif et le bandeau ═══════
+ * Chaque pastille est un BOUTON (aria-pressed) : un clic filtre, un nouveau clic sur l'active revient à toutes. Une seule
+ * active à la fois ; l'active prend notre rouge, texte blanc. `seulementNonVides` : le bandeau de la fiche ne montre que
+ * les catégories présentes (comme avant). `enAttente` absent : pas de pastille « en attente de confirmation ».
+ */
+export function PastillesFiltres({ n, enAttente, active, onChoisir, seulementNonVides = false }: {
+  n: Record<CouleurTache, number>;
+  enAttente?: number;
+  active: PastilleFiltre | null;
+  onChoisir: (p: PastilleFiltre | null) => void;
+  seulementNonVides?: boolean;
+}) {
+  const choisir = (p: PastilleFiltre) => (e: { stopPropagation: () => void }) => {
+    e.stopPropagation(); // dans le bandeau de la fiche : la pastille filtre, elle ne replie pas
+    onChoisir(active === p ? null : p);
+  };
+  return (
+    <ul className="tch-compteurs" aria-label="Compteurs des tâches — un clic filtre">
+      {ORDRE_COULEURS.filter((c) => !seulementNonVides || n[c] > 0).map((c) => (
+        <li key={c} className="tch-compteur-li">
+          <button type="button" className={`tch-compteur${active === c ? ' tch-compteur--actif' : ''}`} data-pastille={c}
+            aria-pressed={active === c} onClick={choisir(c)}>
+            <span className={`tch-pastille tch-pastille--${c}`} aria-hidden="true" />
+            {motCompteur(c, n[c])}
+          </button>
+        </li>
+      ))}
+      {/* 🔴 LOT TACHES-ACCEPTATION — la catégorie « En attente de confirmation ». */}
+      {enAttente !== undefined && (
+        <li className="tch-compteur-li">
+          <button type="button" className={`tch-compteur tch-compteur--attente${active === 'en_attente' ? ' tch-compteur--actif' : ''}`}
+            data-compteur="en_attente" data-pastille="en_attente" aria-pressed={active === 'en_attente'} onClick={choisir('en_attente')}>
+            <span aria-hidden="true">⏳</span><b>{enAttente}</b> en attente de confirmation
+          </button>
+        </li>
+      )}
+    </ul>
+  );
+}
+
 /** 🔴 LOT FICHE-CARTE-TACHE — les libellés des boutons d'une tâche, écrits UNE fois (fiche et récapitulatif). */
 export const MOT_ACTION = {
   realisee: '✓ Tâche réalisée', decaler: 'Décaler', modifier: '✏ Modifier', annulee: '✗ Tâche annulée',
@@ -578,6 +619,13 @@ export const CSS_TACHES = `
 .tch-compteur{display:inline-flex;align-items:center;gap:.35rem;padding:.2rem .6rem;border:1px solid var(--color-svv-line);
   border-radius:999px;font-size:.82rem;color:var(--color-svv-ink);background:var(--color-svv-surface)}
 .tch-compteur b{font-variant-numeric:tabular-nums}
+/* LOT PASTILLES-FILTRES : chaque pastille est un bouton ; l'active prend notre rouge, texte blanc ; le rond garde sa
+   couleur, cerne de blanc pour rester visible sur le rouge. */
+.tch-compteur-li{display:inline-flex}
+button.tch-compteur{font:inherit;cursor:pointer;min-height:32px}
+button.tch-compteur:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+button.tch-compteur.tch-compteur--actif{background:var(--tch-rouge-plein);border-color:var(--tch-rouge-plein);color:#ffffff;font-weight:700}
+.tch-compteur--actif .tch-pastille{box-shadow:0 0 0 2px #ffffff}
 .tch-vide{margin:0;font-size:.85rem;color:var(--color-svv-muted)}
 .tch-terminees{margin-top:6px}
 .tch-terminees > summary{cursor:pointer;font-size:.85rem;color:var(--color-svv-muted);min-height:32px;

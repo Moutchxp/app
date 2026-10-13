@@ -158,3 +158,19 @@ describe('🔴 le bloc « Tâches de ce bien »', () => {
     expect(repli()?.getAttribute('aria-expanded')).toBe('false');
   });
 });
+
+describe('🔴 LOT PASTILLES-FILTRES — le bandeau rouge de la fiche', () => {
+  it('un clic sur une pastille déplie le bloc et filtre ; re-clic : toutes ; le bandeau, lui, replie', async () => {
+    await monter();
+    expect(repli()?.getAttribute('aria-expanded')).toBe('false');
+    await act(async () => { container.querySelector<HTMLButtonElement>('#bloc [data-pastille="retard"]')!.click(); });
+    await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
+    expect(repli()?.getAttribute('aria-expanded')).toBe('true');
+    expect(lignes()).toEqual(['1']);
+    await act(async () => { container.querySelector<HTMLButtonElement>('#bloc [data-pastille="retard"]')!.click(); });
+    expect(lignes()).toEqual(['1', '2']);
+    expect(repli()?.getAttribute('aria-expanded')).toBe('true'); // la pastille ne replie pas
+    await act(async () => { repli()!.click(); });
+    expect(repli()?.getAttribute('aria-expanded')).toBe('false');
+  });
+});
