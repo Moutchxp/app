@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  cleRappel, dateLisibleTache, erreurSaisie, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
+  cleRappel, dateLisibleTache, erreurSaisie, MENTION_SANS_ACCES_GESTION, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
   type Rappel,
 } from '../../../../lib/gestion/taches';
 import { blocContacts, type ContactSource } from '../../../../lib/gestion/contactsTache';
@@ -240,7 +240,11 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
               onChange={(e) => setSaisie((s) => ({ ...s, confieeA: e.target.value === '' ? null : Number(e.target.value) }))}>
               {saisie.confieeA === null && <option value="">— choisir —</option>}
               {(collab?.liste ?? []).map((c) => (
-                <option key={c.id} value={c.id}>{c.libelle}{c.id === collab?.moi ? ' (moi)' : ''}</option>
+                /* 🔴 RÈGLE D'ARNO DU 13/10/2026 — toute personne active de notre Workspace, moi en tête (ordre du serveur) ;
+                   sans la tuile Gestion, elle est proposée AVEC la mention, qui dit où elle verra la tâche. */
+                <option key={c.id} value={c.id}>
+                  {c.libelle}{c.id === collab?.moi ? ' (moi)' : ''}{c.accesGestion === false ? ` ${MENTION_SANS_ACCES_GESTION}` : ''}
+                </option>
               ))}
               {/* Une tâche confiée à quelqu'un qui n'a plus l'accès reste lisible : son nom figé. */}
               {tache !== null && tache.confieeA !== null && !(collab?.liste ?? []).some((c) => c.id === tache.confieeA) && (

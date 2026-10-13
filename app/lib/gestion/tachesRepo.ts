@@ -2,8 +2,10 @@ import 'server-only';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { titreLogement } from './annuaireRecherche';
 import type { Auteur } from './gestes';
+import { lireDomainesAutorises } from './comptesGoogleRepo';
+import { lireDomaines } from './googleCollaborateur';
 import {
-  jourDecale, rappelsParDefaut, rappelsValides,
+  collaborateursPourTache, jourDecale, rappelsParDefaut, rappelsValides, type CollaborateurTache,
   type ActionTache, type EtatTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
@@ -25,18 +27,28 @@ import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache 
  * ⚠️ AUCUN APPEL GOOGLE. Les colonnes du lot 2 (`google_*`, `synchro_*`) ne sont ni lues ni écrites ici.
  */
 
-/** Un collaborateur à qui l'on peut confier une tâche : compte ACTIF avec l'accès Gestion (ou administrateur). */
-export interface Collaborateur { id: number; libelle: string }
+/**
+ * 🔴🔴 À QUI L'ON PEUT CONFIER UNE TÂCHE — décision d'Arno du 13/10/2026 : compte ACTIF de l'application dont
+ * l'adresse est dans NOTRE Workspace, accès Gestion ou non. La règle est `peutRecevoirUneTache` (taches.ts), la MÊME
+ * pour la liste et pour la vérification ; les domaines sont lus à la source de la connexion Google.
+ */
+export type Collaborateur = CollaborateurTache;
 
-const SQL_COLLABORATEURS = `
-  SELECT id::int AS id, btrim(prenom || ' ' || nom) AS libelle
+const SQL_COMPTES = `
+  SELECT id::int AS id, btrim(prenom || ' ' || nom) AS libelle, identifiant, actif,
+         (role = 'administrateur' OR perm_gestion) AS "accesGestion"
     FROM admin_utilisateur
-   WHERE actif AND (role = 'administrateur' OR perm_gestion)
+   WHERE actif
    ORDER BY lower(prenom), lower(nom), id`;
 
-export async function listerCollaborateurs(): Promise<Collaborateur[]> {
-  const { rows } = await query<Collaborateur>(SQL_COLLABORATEURS);
-  return rows;
+/** Les domaines de notre Workspace, à la source de la connexion Google (`gestion_config`). */
+async function domainesWorkspace(): Promise<string[]> {
+  return lireDomaines(await lireDomainesAutorises());
+}
+
+export async function listerCollaborateurs(moi: number | null = null): Promise<Collaborateur[]> {
+  const { rows } = await query<Collaborateur & { actif: boolean; identifiant: string | null }>(SQL_COMPTES);
+  return collaborateursPourTache(rows, await domainesWorkspace(), moi);
 }
 
 /** Le nom de l'auteur d'un geste : « Prénom Nom » quand il a un compte, son identifiant sinon. */
@@ -229,11 +241,12 @@ async function tracer(
       auteur.id, nom]);
 }
 
-/** Le collaborateur choisi, relu en base : actif ET avec l'accès Gestion. Jamais cru sur parole du navigateur. */
+/** Le collaborateur choisi, relu en base et passé à LA règle (`peutRecevoirUneTache`). Jamais cru sur parole. */
 async function collaborateurValide(q: RequeteTx, id: number | null): Promise<Collaborateur | null> {
   if (id === null) return null;
-  const { rows } = await q<Collaborateur>(`SELECT * FROM (${SQL_COLLABORATEURS}) c WHERE c.id = $1`, [id]);
-  return rows[0] ?? null;
+  const { rows } = await q<Collaborateur & { actif: boolean; identifiant: string | null }>(
+    `SELECT * FROM (${SQL_COMPTES}) c WHERE c.id = $1`, [id]);
+  return collaborateursPourTache(rows, await domainesWorkspace(), null)[0] ?? null;
 }
 
 async function evenementExiste(q: RequeteTx, id: number | null): Promise<boolean> {
@@ -249,7 +262,7 @@ export async function creerTache(lotId: number, s: SaisieTache, auteur: Auteur):
     const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
     if (lot.rows.length === 0) return { ok: false, statut: 404, motif: 'Bien introuvable.' };
     const c = await collaborateurValide(q, s.confieeA);
-    if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas l’accès Gestion.' };
+    if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.' };
     if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.' };
     const nom = await nomAuteur(q, auteur);
     const rappels = rappelsValides(s.rappels, s.heure !== null);
@@ -370,7 +383,7 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
     if (t === null) return INTROUVABLE;
     if (t.etat !== 'a_faire') return DEJA_TERMINEE;
     const c = await collaborateurValide(q, s.confieeA);
-    if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas l’accès Gestion.' };
+    if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.' };
     if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.' };
     const rappels = rappelsValides(s.rappels, s.heure !== null);
     const nouveau = {

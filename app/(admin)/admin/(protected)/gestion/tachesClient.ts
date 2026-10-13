@@ -102,7 +102,8 @@ export async function lireDetailTache(id: number): Promise<DetailTache | null> {
   }
 }
 
-export interface CollaborateurEcran { id: number; libelle: string }
+/** Une personne de la liste « Confiée à ». `accesGestion` faux ⇒ mention « sans accès Gestion » (règle du 13/10/2026). */
+export interface CollaborateurEcran { id: number; libelle: string; accesGestion?: boolean }
 
 export async function lireCollaborateurs(): Promise<{ collaborateurs: CollaborateurEcran[]; moi: number | null } | null> {
   try {

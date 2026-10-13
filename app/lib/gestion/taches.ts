@@ -178,6 +178,53 @@ export function filtrerTaches(taches: readonly Tache[], filtre: FiltreTaches, mo
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   ②bis À QUI CONFIER UNE TÂCHE — LA RÈGLE UNIQUE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴🔴 DÉCISION D'ARNO (13/10/2026) ══════════════════════════════════════════════════════════════════════════════
+ * « On doit pouvoir confier une tâche à TOUTE personne qui a un compte actif sur notre interface ET une adresse de
+ * notre Workspace Google, MÊME si elle n'a pas accès à la tuile Gestion. » L'accès Gestion n'entre PLUS dans la
+ * règle de la personne à qui l'on CONFIE ; il reste exigé de celle qui CRÉE, voit ou modifie (garde des routes).
+ *
+ * 🔴 LES DOMAINES NE SONT PAS ÉCRITS ICI : ils sont passés par l'appelant, qui les lit à la MÊME source que la
+ * connexion Google (`gestion_config.domaines_google_autorises`, `lireDomainesAutorises`). Aucun domaine en dur.
+ * 🔴 AUCUN DOMAINE CONNU ⇒ PERSONNE : une adresse « de notre Workspace » ne se devine pas (fermé par défaut).
+ * ⚠️ La boîte n'est pas vérifiée chez Google ici : ce sera au lot 2 (aucun appel Google dans ce lot).
+ *
+ * Cette fonction est LA règle : la liste « Confiée à » ET la vérification du serveur l'appellent. PUR.
+ */
+export function peutRecevoirUneTache(
+  compte: { actif: boolean; identifiant: string | null }, domaines: readonly string[],
+): boolean {
+  if (!compte.actif) return false;
+  const adresse = (compte.identifiant ?? '').trim().toLowerCase();
+  const at = adresse.lastIndexOf('@');
+  if (at <= 0) return false;
+  const domaine = adresse.slice(at + 1);
+  return domaines.some((d) => d.trim().toLowerCase().replace(/^@/, '') === domaine);
+}
+
+/** La mention à côté du nom d'une personne qui n'a pas la tuile Gestion. */
+export const MENTION_SANS_ACCES_GESTION = '(sans accès Gestion — verra la tâche dans son agenda)';
+
+/** Une personne de la liste « Confiée à ». */
+export interface CollaborateurTache { id: number; libelle: string; accesGestion: boolean }
+
+/**
+ * LA LISTE « CONFIÉE À » : les comptes qui remplissent la règle, MOI EN TÊTE, puis l'ordre reçu (alphabétique). PUR.
+ */
+export function collaborateursPourTache(
+  comptes: readonly (CollaborateurTache & { actif: boolean; identifiant: string | null })[],
+  domaines: readonly string[], moi: number | null,
+): CollaborateurTache[] {
+  const retenus = comptes.filter((c) => peutRecevoirUneTache(c, domaines))
+    .map((c) => ({ id: Number(c.id), libelle: c.libelle, accesGestion: c.accesGestion }));
+  const i = moi === null ? -1 : retenus.findIndex((c) => c.id === Number(moi));
+  return i <= 0 ? retenus : [retenus[i], ...retenus.slice(0, i), ...retenus.slice(i + 1)];
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ③ DÉCALER
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 

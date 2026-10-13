@@ -22,7 +22,9 @@ const queryMock = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (s.includes('FROM gestion_tache WHERE id = $1 FOR UPDATE')) return { rows: [COURANTE] };
   if (s.includes('SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1')) return { rows: [{ lot_id: 10 }] };
   if (s.includes('FROM admin_utilisateur WHERE id = $1')) return { rows: [{ l: 'Arno Jorel' }] };
-  if (s.includes('FROM (') && s.includes('admin_utilisateur')) return { rows: [{ id: 1, libelle: 'Arno Jorel' }] };
+  if (s.includes('FROM (') && s.includes('admin_utilisateur')) {
+    return { rows: [{ id: 1, libelle: 'Arno Jorel', identifiant: 'a.jorel@sansvisavis.com', actif: true, accesGestion: true }] };
+  }
   if (s.includes('FROM gestion_annuaire_lot WHERE id = $1')) return { rows: [{ '?column?': 1 }] };
   if (s.includes('INSERT INTO gestion_tache (')) return { rows: [{ id: 7 }] };
   if (s.includes('FROM gestion_tache_contact WHERE tache_id = $1 AND retire_le IS NULL')) return { rows: actifs };
@@ -36,6 +38,7 @@ vi.mock('../db/client', () => ({
 }));
 vi.mock('./schema', () => ({ contactsTacheDisponible: async () => true, tachesDisponibles: async () => true }));
 vi.mock('./contactsTacheRepo', () => ({ contactsDuBienPourTache: async () => fiche }));
+vi.mock('./comptesGoogleRepo', () => ({ lireDomainesAutorises: async () => 'criterimmo.fr,sansvisavis.com' }));
 
 const { creerTache, modifierTache, actualiserContact, lireTache } = await import('./tachesRepo');
 
