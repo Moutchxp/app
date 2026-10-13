@@ -144,7 +144,7 @@ export function EncadresContacts({ contacts, sources, onEcrire, onMettreAJour, o
 }) {
   if (contacts.length === 0) return null;
   return (
-    <div className="tchc-encadres" aria-label="Contacts de la tâche" data-ordre="contacts">
+    <div className="tchc-encadres" aria-label="Contacts de la tâche">
       {contacts.map((c) => {
         const etat = sources === null ? 'a_jour' : etatCopie(c, sources);
         return (

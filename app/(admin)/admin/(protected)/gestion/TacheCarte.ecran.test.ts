@@ -91,10 +91,13 @@ const carte = (id: number) => container.querySelector(`#fiche [data-tache="${id}
 const boutonDe = (el: Element, mot: string) => [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes(mot));
 
 describe('🔴 la carte, de haut en bas', () => {
-  it('titre, ligne clé, commentaire, pièces, contacts, boutons — dans cet ordre', async () => {
+  it('🔴 LOT FICHE-CARTE-4-BLOCS — titre, quand/qui, notes (+ pièces), contacts, puis la barre d’actions', async () => {
     await monter();
     const ordre = [...carte(7).querySelectorAll('[data-ordre]')].map((e) => e.getAttribute('data-ordre'));
-    expect(ordre).toEqual(['titre', 'cle', 'note', 'pieces', 'contacts', 'actions']);
+    expect(ordre).toEqual(['titre', 'cle', 'notes', 'contacts', 'actions']);
+    expect([...carte(7).querySelectorAll('.tch-carte-etiquette')].map((e) => e.textContent))
+      .toEqual(['Quand / Qui', 'Notes', 'Pièces jointes', 'Contacts (2)']);
+    expect(carte(7).querySelector('.tch-carte-pied [data-ordre="actions"]')).not.toBeNull();
     expect(carte(7).querySelector('.tch-carte-titre')?.textContent).toBe('Visite technique');
     const cle = carte(7).querySelector('.tch-carte-cle')!;
     expect(cle.querySelector('.tch-date')?.textContent).toMatch(/^📅 .+ · 9 h 30$/);
@@ -106,10 +109,12 @@ describe('🔴 la carte, de haut en bas', () => {
     await monter();
     expect(carte(7).querySelector('.tch-carte-note')?.textContent).toBe('Clés chez le gardien.\nSonner deux fois.');
     expect(carte(8).querySelector('.tch-carte-note')).toBeNull();
+    // Ni note ni pièce : le bloc NOTES n'existe pas (pas de cadre vide).
+    expect(carte(8).querySelector('[data-ordre="notes"]')).toBeNull();
   });
   it('pièces : une ligne par fichier, cliquable vers le Drive', async () => {
     await monter();
-    const a = carte(7).querySelector<HTMLAnchorElement>('.tch-carte-pieces a');
+    const a = carte(7).querySelector<HTMLAnchorElement>('[data-ordre="notes"] .tch-carte-pieces a');
     expect(a?.href).toBe('https://drive.google.com/file/d/abc123/view');
     expect(a?.textContent).toBe('devis.pdf ↗');
   });
@@ -127,6 +132,20 @@ describe('🔴 la carte, de haut en bas', () => {
     // Le bloc « Contacts » généré (celui de l'agenda et des mails) n'apparaît nulle part sur la carte.
     expect(carte(7).textContent).not.toContain(blocContacts(CONTACTS).split('\n')[1]);
     expect(carte(7).querySelector('.tchc-apercu')).toBeNull();
+  });
+});
+
+describe('🔴 l’agenda, toujours dit sur la carte', () => {
+  const ag = (etat: string, texte: string, peutReessayer: boolean) => ({ etat, texte, motif: null, peutReessayer }) as Tache['agendaCarte'];
+  it('« Pas encore dans l’agenda » + « Envoyer » → la synchronisation existante (geste reessayerAgenda)', async () => {
+    taches = taches.map((x) => (x.id === 8 ? { ...x, agendaCarte: ag('pas_encore', 'Pas encore dans l’agenda', true) }
+      : x.id === 7 ? { ...x, agendaCarte: ag('dans_agenda', '📅 Dans l’agenda Google de Arnaud Jorel', false) } : x));
+    await monter();
+    expect(carte(7).querySelector('[data-agenda]')?.textContent).toBe('📆 Dans l’agenda Google de Arnaud Jorel');
+    expect(carte(8).querySelector('[data-agenda]')?.textContent).toBe('Pas encore dans l’agenda' + 'Envoyer');
+    await act(async () => { carte(8).querySelector<HTMLButtonElement>('[data-action="agenda"]')!.click(); });
+    await calmer();
+    expect(gestes).toEqual([{ id: 8, corps: { geste: 'reessayerAgenda' } }]);
   });
 });
 

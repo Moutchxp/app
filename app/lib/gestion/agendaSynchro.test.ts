@@ -218,6 +218,19 @@ describe('🔴🔴 garde-fou : aucun événement étranger touché', () => {
   });
 });
 
+describe('🔴 LOT FICHE-CARTE-4-BLOCS — « Envoyer » une tâche créée avant l’activation', () => {
+  it('« Pas encore dans l’agenda » ; « Envoyer » (reessayerSynchro, la synchronisation existante) la pose', async () => {
+    const { reessayerSynchro } = await import('./agendaSynchroRepo');
+    tache(60); // créée avant l'activation : non demandée, aucun événement
+    expect((await complementsAgenda([60])).get(60)?.agendaCarte).toMatchObject({ etat: 'pas_encore', peutReessayer: true });
+    const avant = fauxGoogleDesTests().appels.length;
+    expect(await reessayerSynchro(60)).toMatchObject({ etat: 'ok', place: { sorte: 'present' } });
+    expect(fauxGoogleDesTests().appels.slice(avant).some((x) => x.methode === 'POST')).toBe(true);
+    expect(taches.get(60)).toMatchObject({ synchro_etat: 'envoyee', google_agenda: ARNO });
+    expect((await complementsAgenda([60])).get(60)?.agendaCarte?.etat).toBe('dans_agenda');
+  });
+});
+
 describe('🔴 règle 3 et réglage', () => {
   it('compte hors Workspace : aucun appel ; mention « pas d’agenda Google »', async () => {
     tache(49, { confiee_email: 'gestion.criterimmo@gmail.com' });

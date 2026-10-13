@@ -271,7 +271,9 @@ export function estNotreEvenement(ev: unknown, tacheId: number): boolean {
 
 export type SynchroEtat = 'non_demandee' | 'a_envoyer' | 'envoyee' | 'echec' | 'a_retirer' | 'retiree';
 
-export type EtatAgendaEcran = 'dans_agenda' | 'apres_acceptation' | 'a_resynchroniser' | 'en_cours' | 'sans_agenda_google';
+export type EtatAgendaEcran = 'dans_agenda' | 'apres_acceptation' | 'a_resynchroniser' | 'en_cours' | 'sans_agenda_google'
+  /** 🔴 LOT FICHE-CARTE-4-BLOCS — sur la carte seulement. */
+  | 'pas_encore' | 'pas_dans_agenda';
 
 /** L'état « Agenda » d'une tâche, tel qu'une ligne ou la fenêtre l'affiche. `null` = rien à dire. */
 export interface AgendaTache { etat: EtatAgendaEcran; texte: string; motif: string | null; peutReessayer: boolean }
@@ -306,6 +308,27 @@ export function agendaAffiche(o: {
     return { etat: 'apres_acceptation', texte: 'Agenda : après acceptation', motif: null, peutReessayer: false };
   }
   return null;
+}
+
+/**
+ * ══ 🔴🔴 LOT FICHE-CARTE-4-BLOCS (Arno, 13/10/2026) — SUR LA CARTE DE LA FICHE, L'AGENDA EST TOUJOURS DIT ═════════════
+ * Les mêmes mentions que `agendaAffiche` (qui reste celle du récapitulatif, inchangée), plus ce qu'elle tait :
+ *   · « Pas encore dans l'agenda » — la tâche devrait y être mais n'y est pas (créée avant l'activation) ; avec
+ *     « Envoyer » quand l'envoi est actif (`peutReessayer` : la MÊME synchronisation que « Réessayer ») ;
+ *   · « Agenda : après acceptation » même réglage coupé ;
+ *   · « Pas dans l'agenda » — annulée, refusée, ou personne.
+ * Ne rend jamais `null`. PUR.
+ */
+export function agendaPourCarte(o: Parameters<typeof agendaAffiche>[0]): AgendaTache {
+  const a = agendaAffiche(o);
+  if (a !== null) return a;
+  if (o.place.sorte === 'absent' && o.place.raison === 'en_attente') {
+    return { etat: 'apres_acceptation', texte: 'Agenda : après acceptation', motif: null, peutReessayer: false };
+  }
+  if (o.place.sorte === 'absent') return { etat: 'pas_dans_agenda', texte: 'Pas dans l’agenda', motif: null, peutReessayer: false };
+  return o.reglageActif
+    ? { etat: 'pas_encore', texte: 'Pas encore dans l’agenda', motif: null, peutReessayer: true }
+    : { etat: 'pas_encore', texte: 'Pas encore dans l’agenda (envoi vers l’agenda désactivé)', motif: null, peutReessayer: false };
 }
 
 /** Le délai avant le prochain essai automatique : 5 min, 10, 20… plafonné à 6 h. PUR. */

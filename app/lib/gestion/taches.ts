@@ -87,6 +87,8 @@ export interface Tache {
   dureeMinutes?: number | null;
   /** 🔴 LOT TACHES-AGENDA — la mention « Agenda » (dans l'agenda, à resynchroniser, pas d'agenda Google…) ; `null` = rien. */
   agenda?: AgendaTache | null;
+  /** 🔴 LOT FICHE-CARTE-4-BLOCS — la mention « Agenda » de la CARTE, toujours présente (« Pas encore dans l'agenda »…). */
+  agendaCarte?: AgendaTache;
   /** 🔴 LOT FICHE-CARTE-TACHE — les contacts copiés et les pièces, rendus seulement pour les tâches D'UN bien (fiche). */
   contacts?: ContactTache[];
   pieces?: PieceTache[];

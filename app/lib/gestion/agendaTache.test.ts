@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  adresseComplete, adresseCourte, agendaAffiche, ajouterMinutesLocal, construireEvenement, delaiProchainEssaiMs,
+  adresseComplete, adresseCourte, agendaAffiche, agendaPourCarte, ajouterMinutesLocal, construireEvenement, delaiProchainEssaiMs,
   estNotreEvenement, lienFicheBien, MARQUE_APPLICATION, placeVoulue, rappelsGoogle, titreEvenement, type ContenuTache,
   type EtatPourAgenda,
 } from './agendaTache';
@@ -123,6 +123,16 @@ describe('ce que l’écran dit', () => {
     expect(agendaAffiche({ reglageActif: true, synchroEtat: 'envoyee', erreur: null, evenementId: 'e1', place: present, confieeLibelle: 'Arno' })?.etat).toBe('dans_agenda');
     expect(agendaAffiche({ reglageActif: true, synchroEtat: 'non_demandee', erreur: null, evenementId: null, place: { sorte: 'absent', raison: 'en_attente' }, confieeLibelle: 'C' })?.texte)
       .toBe('Agenda : après acceptation');
+  });
+  it('🔴 LOT FICHE-CARTE-4-BLOCS — sur la carte, l’agenda est TOUJOURS dit', () => {
+    const base = { synchroEtat: 'non_demandee' as const, erreur: null, evenementId: null, confieeLibelle: 'Arno' };
+    expect(agendaPourCarte({ ...base, reglageActif: true, place: present }))
+      .toEqual({ etat: 'pas_encore', texte: 'Pas encore dans l’agenda', motif: null, peutReessayer: true });
+    expect(agendaPourCarte({ ...base, reglageActif: false, place: present }).peutReessayer).toBe(false);
+    expect(agendaPourCarte({ ...base, reglageActif: false, place: { sorte: 'absent', raison: 'en_attente' } }).texte).toBe('Agenda : après acceptation');
+    expect(agendaPourCarte({ ...base, reglageActif: true, place: { sorte: 'absent', raison: 'annulee' } }).texte).toBe('Pas dans l’agenda');
+    expect(agendaPourCarte({ ...base, reglageActif: true, place: { sorte: 'absent', raison: 'hors_workspace' } }).texte).toBe('pas d’agenda Google');
+    expect(agendaPourCarte({ ...base, reglageActif: true, evenementId: 'e', synchroEtat: 'envoyee', place: present }).etat).toBe('dans_agenda');
   });
   it('reprise : délai croissant, plafonné', () => {
     expect(delaiProchainEssaiMs(0)).toBe(300_000);

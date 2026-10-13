@@ -199,39 +199,89 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   if (presentation === 'carte') {
     const note = (tache.note ?? '').trim();
     const pieces = tache.pieces ?? [];
+    const contacts = tache.contacts ?? [];
+    /* 🔴 LOT FICHE-CARTE-4-BLOCS — l'agenda est TOUJOURS dit sur la carte (repli : la mention du récapitulatif). */
+    const agenda = tache.agendaCarte ?? tache.agenda ?? null;
     return (
       <li className={`${classe} tch-carte`} data-tache={tache.id} data-couleur={couleur ?? 'terminee'}>
-        <h5 className="tch-carte-titre" data-ordre="titre">
+        {/* ① TITRE — bandeau d'en-tête. */}
+        <h5 className="tch-carte-titre tch-carte-bloc" data-ordre="titre">
           <button type="button" className="tch-objet tch-carte-objet" onClick={() => onDetail(tache.id)}
             title="Ouvrir la tâche (modifier, annuler)">
             {tache.objet}
           </button>
         </h5>
-        <div className="tch-carte-cle" data-ordre="cle">
-          <b className="tch-date" data-echeance={tache.jour}>📅 {echeanceLisible(tache.jour, tache.heure, maintenant)}</b>
-          {pastilleMot}
-          <b className="tch-carte-qui">👤 Confiée à {tache.confieeALibelle}</b>
-          {badge}
+        {/* ② QUAND / QUI — échéance, responsable, acceptation, agenda. */}
+        <div className="tch-carte-cle tch-carte-bloc" data-ordre="cle">
+          <p className="tch-carte-etiquette">Quand / Qui</p>
+          <div className="tch-carte-cle-ligne">
+            <b className="tch-date" data-echeance={tache.jour}>📅 {echeanceLisible(tache.jour, tache.heure, maintenant)}</b>
+            {pastilleMot}
+          </div>
+          <div className="tch-carte-cle-ligne">
+            <b className="tch-carte-qui">👤 Confiée à {tache.confieeALibelle}</b>
+            {badge}
+            {agenda && (
+              <span className={`tch-agenda tch-agenda--${agenda.etat}`} data-agenda={agenda.etat} title={agenda.motif ?? undefined}>
+                {agenda.etat === 'dans_agenda' ? agenda.texte.replace('📅', '📆') : agenda.texte}
+                {agenda.peutReessayer && (
+                  <button type="button" className="tch-lien tch-reessayer" disabled={occupe} data-action="agenda"
+                    onClick={() => void agir({ geste: 'reessayerAgenda' })}>
+                    {agenda.etat === 'pas_encore' ? 'Envoyer' : 'Réessayer'}
+                  </button>
+                )}
+              </span>
+            )}
+          </div>
+          <div className="tch-bas">{ev}{fin !== null && <span className="tch-fin">{fin}</span>}
+            {tache.acceptation?.statut === 'en_attente' && mentionMail(tache.acceptation.mailEtat) && (
+              <span className="tch-mail">{mentionMail(tache.acceptation.mailEtat)}</span>
+            )}
+            {tache.acceptation?.statut === 'refusee' && tache.acceptation.motif && (
+              <span className="tch-motif">Refusée par {tache.acceptation.reponduParLibelle ?? tache.acceptation.destinataireLibelle} : {tache.acceptation.motif}</span>
+            )}
+          </div>
         </div>
-        <div className="tch-bas">{ev}{mentions}</div>
-        {note !== '' && <p className="tch-carte-note" data-ordre="note">{tache.note}</p>}
-        {pieces.length > 0 && (
-          <ul className="tch-carte-pieces" data-ordre="pieces" aria-label="Pièces jointes">
-            {pieces.map((p) => (
-              <li key={p.driveId} data-piece={p.driveId}>
-                <span aria-hidden="true">{iconeType(p.typeMime)} </span>
-                {p.lien
-                  ? <a className="tchc-lien" href={p.lien} target="_blank" rel="noopener noreferrer">{p.nom} ↗</a>
-                  : <span>{p.nom}</span>}
-              </li>
-            ))}
-          </ul>
+        {/* ③ NOTES (+ pièces jointes) — absent si rien à dire. */}
+        {(note !== '' || pieces.length > 0) && (
+          <div className="tch-carte-notes tch-carte-bloc" data-ordre="notes">
+            {note !== '' && (
+              <>
+                <p className="tch-carte-etiquette">Notes</p>
+                <p className="tch-carte-note">{tache.note}</p>
+              </>
+            )}
+            {pieces.length > 0 && (
+              <>
+                <p className="tch-carte-etiquette">Pièces jointes</p>
+                <ul className="tch-carte-pieces" aria-label="Pièces jointes">
+                  {pieces.map((p) => (
+                    <li key={p.driveId} data-piece={p.driveId}>
+                      <span aria-hidden="true">{iconeType(p.typeMime)} </span>
+                      {p.lien
+                        ? <a className="tchc-lien" href={p.lien} target="_blank" rel="noopener noreferrer">{p.nom} ↗</a>
+                        : <span>{p.nom}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
         )}
-        <EncadresContacts contacts={tache.contacts ?? []} sources={sources} onEcrire={onEcrire} occupe={occupe}
-          onMettreAJour={terminee ? undefined : (cle) => void agir({ geste: 'actualiserContact', cle })} />
-        {actions}
-        {panneauDecaler}
-        {retour}
+        {/* ④ CONTACTS — un encadré par contact. */}
+        {contacts.length > 0 && (
+          <div className="tch-carte-contacts tch-carte-bloc" data-ordre="contacts">
+            <p className="tch-carte-etiquette">Contacts ({contacts.length})</p>
+            <EncadresContacts contacts={contacts} sources={sources} onEcrire={onEcrire} occupe={occupe}
+              onMettreAJour={terminee ? undefined : (cle) => void agir({ geste: 'actualiserContact', cle })} />
+          </div>
+        )}
+        {/* Barre d'actions, en pied. */}
+        <div className="tch-carte-pied">
+          {actions}
+          {panneauDecaler}
+          {retour}
+        </div>
       </li>
     );
   }
@@ -317,14 +367,42 @@ export const CSS_TACHES = `
 .tch-agenda{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.4rem}
 .tch-agenda--a_resynchroniser{color:var(--color-svv-red);font-weight:600}
 .tch-reessayer{min-height:32px;font-weight:600}
-.tch-carte{gap:6px;padding:10px 12px 10px 14px}
-.tch-carte-titre{margin:0;font-size:1.05rem;font-weight:800;line-height:1.25}
-.tch-carte-objet{font-size:1.05rem;font-weight:800;padding:0;min-height:28px}
-.tch-carte-cle{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .8rem;font-size:.92rem;color:var(--color-svv-ink)}
+/* LOT FICHE-CARTE-4-BLOCS : la carte en 4 blocs (titre ; quand/qui ; notes ; contacts) + pied d'actions.
+   Jetons du theme seulement : Clair et Sombre suivent. */
+.tch-liste--cartes{gap:20px}
+.tch-carte{gap:0;padding:0;overflow:hidden;border:1px solid var(--color-svv-line-strong);border-left-width:6px;
+  border-radius:.8rem;background:var(--color-svv-surface);box-shadow:0 2px 10px rgba(0,0,0,.10)}
+.tch-carte.tch-ligne--retard{border-left-color:var(--color-svv-red)}
+.tch-carte.tch-ligne--jour{border-left-color:var(--color-svv-line-strong)}
+.tch-carte.tch-ligne--proche{border-left-color:var(--color-svv-urgence-orange)}
+.tch-carte.tch-ligne--plus_tard{border-left-color:var(--color-svv-green)}
+.tch-carte.tch-ligne--terminee{border-left-color:var(--color-svv-line-strong)}
+.tch-carte-bloc{margin:0;padding:10px 14px;border-top:1px solid var(--color-svv-line)}
+.tch-carte-bloc:first-child{border-top:0}
+.tch-carte-titre{background:var(--color-svv-blue-soft);border-bottom:1px solid var(--color-svv-line-strong)}
+.tch-carte-titre + .tch-carte-bloc{border-top:0}
+.tch-carte-titre .tch-objet.tch-carte-objet{font-size:1.25rem;font-weight:800;line-height:1.25;padding:0;min-height:32px;color:var(--color-svv-ink)}
+.tch-carte-etiquette{margin:0 0 4px;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--color-svv-muted)}
+.tch-carte-cle{display:flex;flex-direction:column;gap:6px}
+.tch-carte-cle-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem .9rem;font-size:.95rem;color:var(--color-svv-ink)}
+.tch-carte-cle .tch-date{font-size:1rem}
 .tch-carte-qui{font-weight:700;color:var(--color-svv-ink)}
 .tch-carte .tch-bas:empty{display:none}
-.tch-carte-note{margin:2px 0 0;font-size:.92rem;line-height:1.45;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
-.tch-carte-pieces{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:.88rem;overflow-wrap:anywhere}
+.tch-agenda--dans_agenda{color:var(--color-svv-green-ink);font-weight:700}
+.tch-agenda--pas_encore,.tch-agenda--pas_dans_agenda,.tch-agenda--sans_agenda_google,.tch-agenda--apres_acceptation{color:var(--color-svv-muted)}
+.tch-carte-notes{margin:10px 14px 0;padding:10px 12px;border:1px solid var(--color-svv-line-strong);border-radius:.6rem;
+  background:var(--color-svv-field)}
+.tch-carte-notes .tch-carte-etiquette + .tch-carte-note{margin-top:0}
+.tch-carte-note{margin:0 0 6px;font-size:.95rem;line-height:1.5;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
+.tch-carte-note:last-child{margin-bottom:0}
+.tch-carte-pieces{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px;font-size:.9rem;overflow-wrap:anywhere}
+.tch-carte-notes + .tch-carte-bloc{border-top:0;margin-top:4px}
+.tch-carte-contacts .tchc-encadres{display:grid;grid-template-columns:1fr;gap:8px}
+@media (min-width:900px){.tch-carte-contacts .tchc-encadres{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tch-carte-pied{display:flex;flex-direction:column;gap:6px;margin-top:10px;padding:10px 14px;border-top:1px solid var(--color-svv-line-strong);
+  background:var(--color-svv-field)}
+.tch-carte-pied .tch-btn{background:var(--color-svv-surface)}
 .tch-ligne--terminee.tch-carte .tch-carte-objet{text-decoration:line-through}
 .tch-btn-annuler{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 .tch-confirmer{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px}

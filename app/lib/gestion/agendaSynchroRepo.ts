@@ -6,7 +6,7 @@ import { lireDomaines } from './googleCollaborateur';
 import { coordonneesLisibles, estFamille, texteCompletTache, type ContactSource } from './contactsTache';
 import { motRappel, type EtatTache, type Rappel } from './taches';
 import {
-  agendaAffiche, construireEvenement, delaiProchainEssaiMs, placeVoulue,
+  agendaAffiche, agendaPourCarte, construireEvenement, delaiProchainEssaiMs, placeVoulue,
   type AgendaTache, type PlaceVoulue, type SynchroEtat,
 } from './agendaTache';
 import { creerPorteAgenda, type IssueAgenda, type PorteAgenda } from './agendaGoogle';
@@ -138,17 +138,20 @@ const domainesWorkspace = async () => lireDomaines(await lireDomainesAutorises()
  * LA DURÉE ET L'ÉTAT « AGENDA » DE CHAQUE TÂCHE, pour les listes et le détail. Une seule requête pour toute la liste.
  * Sans la migration 350 : une carte vide (aucune mention, aucune durée).
  */
-export async function complementsAgenda(ids: readonly number[]): Promise<Map<number, { agenda: AgendaTache | null; dureeMinutes: number | null }>> {
-  const m = new Map<number, { agenda: AgendaTache | null; dureeMinutes: number | null }>();
+export async function complementsAgenda(ids: readonly number[]): Promise<Map<number, { agenda: AgendaTache | null; agendaCarte: AgendaTache; dureeMinutes: number | null }>> {
+  const m = new Map<number, { agenda: AgendaTache | null; agendaCarte: AgendaTache; dureeMinutes: number | null }>();
   if (ids.length === 0 || !(await agendaTacheDisponible())) return m;
   const [reglage, domaines, lignes] = await Promise.all([lireReglageAgenda(), domainesWorkspace(), lireLigne(query, ids)]);
   for (const r of lignes) {
+    const e = {
+      reglageActif: reglage, synchroEtat: r.synchro_etat, erreur: r.synchro_erreur, evenementId: r.google_evenement_id,
+      place: place(r, domaines), confieeLibelle: r.confiee_a_libelle,
+    };
     m.set(Number(r.id), {
       dureeMinutes: r.duree_minutes === null ? null : Number(r.duree_minutes),
-      agenda: agendaAffiche({
-        reglageActif: reglage, synchroEtat: r.synchro_etat, erreur: r.synchro_erreur, evenementId: r.google_evenement_id,
-        place: place(r, domaines), confieeLibelle: r.confiee_a_libelle,
-      }),
+      agenda: agendaAffiche(e),
+      // 🔴 LOT FICHE-CARTE-4-BLOCS — la mention TOUJOURS présente de la carte (fiche du bien).
+      agendaCarte: agendaPourCarte(e),
     });
   }
   return m;

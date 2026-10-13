@@ -147,7 +147,7 @@ async function avecAgenda(taches: Tache[]): Promise<Tache[]> {
   if (m.size === 0) return taches;
   return taches.map((t) => {
     const c = m.get(t.id);
-    return c === undefined ? t : { ...t, dureeMinutes: c.dureeMinutes, agenda: c.agenda };
+    return c === undefined ? t : { ...t, dureeMinutes: c.dureeMinutes, agenda: c.agenda, agendaCarte: c.agendaCarte };
   });
 }
 
