@@ -120,6 +120,7 @@ describe('🔴 règle 1 — confiée à soi-même : dans son agenda dès la cré
     const [ev] = evenements(ARNO);
     expect(ev.summary).toBe('Tâche gestion — _TEST agenda — 7 avenue de l’Union');
     expect(ev.visibility).toBe('private');
+    expect(ev.colorId).toBe('11'); // LOT AGENDA-COULEUR — à la création
     expect(ev.start).toEqual({ date: '2026-10-14' });
     expect(taches.get(41)).toMatchObject({ synchro_etat: 'envoyee', google_agenda: ARNO, google_evenement_id: ev.id });
     expect(etrangers()).toBe(etrangersAvant);
@@ -133,6 +134,11 @@ describe('🔴 règle 1 — confiée à soi-même : dans son agenda dès la cré
     expect(evenements(ARNO)[0]).toMatchObject({ id, start: { date: '2026-10-15' }, end: { date: '2026-10-16' } });
     await geste(41, { objet: 'Visite', heure: '09:30', duree_minutes: 90 });
     expect(evenements(ARNO)[0]).toMatchObject({ id, summary: 'Tâche gestion — Visite — 7 avenue de l’Union', end: { dateTime: '2026-10-15T11:00:00' } });
+    // LOT AGENDA-COULEUR — à la mise à jour, la couleur est reposée (même si quelqu'un l'a changée dans Google).
+    faux.agendas.get(ARNO)!.get(id!)!.colorId = '2';
+    await geste(41, { jour: '2026-10-15' });
+    expect(faux.agendas.get(ARNO)!.get(id!)!.colorId).toBe('11');
+    expect(faux.appels.filter((x) => x.methode === 'PATCH').every((x) => (x.corps as { colorId?: string }).colorId === '11')).toBe(true);
     await geste(41, { etat: 'faite' });
     expect(evenements(ARNO)[0]).toMatchObject({ id, summary: '✓ Tâche gestion — Visite — 7 avenue de l’Union' });
     await geste(41, { etat: 'annulee' });
@@ -245,6 +251,7 @@ describe('🔴 LOT AGENDA-TITRE-ET-LIENS — rattrapage des événements déjà 
       ...construireEvenement({ id, objet, texte: '', jour: '2026-10-16', heure: null, dureeMinutes: null, rappels: [], faite: false,
         lotId: 27, adresse: '7 avenue de l’Union', codePostal: null, commune: null, pieces: [] }, { motRappel: () => '' }),
       summary: `Gestion — 7 avenue de l’Union — ${objet}`,
+      colorId: '9',
       description: 'Fiche du bien : https://freight-trusts-supreme-sense.trycloudflare.com/admin/gestion?ecran=annuaire&fiche=lot-27',
     });
     const e70 = (await porte.creer(ARNO, 70, ancien(70, 'test 2'))) as { id: string };
@@ -260,12 +267,16 @@ describe('🔴 LOT AGENDA-TITRE-ET-LIENS — rattrapage des événements déjà 
     expect(liste.modifies).toBe(0);
 
     const orphelinAvant = JSON.stringify(faux.agendas.get(ARNO)!.get(orphelin.id));
+    expect(faux.agendas.get(ARNO)!.get(orphelin.id)?.colorId).toBe('9'); // l'orphelin garde sa couleur
     const r = await rattraperAgenda({ appliquer: true, porte });
     expect(r.modifies).toBe(2);
     expect(faux.agendas.get(ARNO)!.get(e70.id)?.summary).toBe('Tâche gestion — test 2 — 7 avenue de l’Union');
     expect(faux.agendas.get(ARNO)!.get(e71.id)?.summary).toBe('Tâche gestion — test 4 rdv — 7 avenue de l’Union');
     expect(String(faux.agendas.get(ARNO)!.get(e71.id)?.description)).not.toContain('trycloudflare');
     expect(JSON.stringify(faux.agendas.get(ARNO)!.get(orphelin.id))).toBe(orphelinAvant);
+    // LOT AGENDA-COULEUR — le rattrapage repeint les événements rattachés, et eux seuls.
+    expect(faux.agendas.get(ARNO)!.get(e70.id)?.colorId).toBe('11');
+    expect(faux.agendas.get(ARNO)!.get(e71.id)?.colorId).toBe('11');
     expect(etrangers()).toBe(etrangersAvant);
     // Aucune liste sans le filtre de la marque n'a été émise (le verrou l'aurait refusée) :
     expect(faux.appels.filter((x) => x.methode === 'GET' && !/\/events\//.test(x.url)).every((x) => x.url.includes('privateExtendedProperty'))).toBe(true);

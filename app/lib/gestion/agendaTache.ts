@@ -124,6 +124,8 @@ export interface EvenementGoogle {
   location?: string;
   description: string;
   visibility: 'private';
+  /** 🔴 LOT AGENDA-COULEUR — la couleur prédéfinie de l'événement (`COULEUR_EVENEMENT`). */
+  colorId: string;
   start: { date: string } | { dateTime: string; timeZone: string };
   end: { date: string } | { dateTime: string; timeZone: string };
   reminders: { useDefault: boolean; overrides?: { method: 'popup'; minutes: number }[] };
@@ -147,6 +149,13 @@ export function adresseComplete(adresse: string | null, codePostal: string | nul
 }
 
 export const PREFIXE_FAITE = '✓ ';
+
+/**
+ * 🔴 LOT AGENDA-COULEUR (Arno, 13/10/2026) — TOUS les événements de l'application prennent la couleur Google la plus
+ * proche de notre rouge : « Tomate » (« Tomato »), identifiant de couleur d'ÉVÉNEMENT « 11 » dans la palette de l'API
+ * Agenda (`colors.get` → `event`, de « 1 » Lavande à « 11 » Tomate). Posée à la création ET à chaque mise à jour.
+ */
+export const COULEUR_EVENEMENT = '11';
 
 /**
  * 🔴 LE TITRE (Arno, 13/10/2026, lot AGENDA-TITRE-ET-LIENS) : « Tâche gestion — <titre de la tâche> — <adresse
@@ -251,6 +260,7 @@ export function construireEvenement(c: ContenuTache, o: {
     ...(lieu !== null ? { location: lieu } : {}),
     description: blocs.join('\n\n'),
     visibility: 'private',
+    colorId: COULEUR_EVENEMENT,
     start: avecHeure ? { dateTime: `${c.jour}T${c.heure}:00`, timeZone: FUSEAU_AGENDA } : { date: c.jour },
     // ⚠️ JOURNÉE ENTIÈRE : la fin est le LENDEMAIN (borne exclusive de Google).
     end: avecHeure ? { dateTime: ajouterMinutesLocal(c.jour, c.heure as string, duree), timeZone: FUSEAU_AGENDA } : { date: ajouterJours(c.jour, 1) },

@@ -60,6 +60,7 @@ describe('🔴 l’événement', () => {
     expect(ev.start).toEqual({ date: '2026-10-14' });
     expect(ev.end).toEqual({ date: '2026-10-15' });
     expect(ev.visibility).toBe('private');
+    expect(ev.colorId).toBe('11'); // LOT AGENDA-COULEUR — « Tomate », la plus proche de notre rouge
     expect(ev.location).toBe('7 avenue de l’Union, 92600 Asnières-sur-Seine');
     expect(adresseComplete(null, null, null)).toBeNull();
   });
