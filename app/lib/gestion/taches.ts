@@ -44,6 +44,11 @@ export const MOT_COULEUR: Record<CouleurTache, string> = {
   retard: 'En retard', jour: 'Aujourd’hui', proche: 'Dans 2 jours', plus_tard: 'Plus tard',
 };
 
+/** 🔴 LOT TACHES-LIGNES-COMPACTES — un compteur : le libellé, puis le nombre entre parenthèses (« plus tard (1) »). PUR. */
+export function motCompteur(c: CouleurTache, n: number): string {
+  return `${MOT_COMPTEUR[c]} (${n})`;
+}
+
 /** 🔴 LOT COULEURS-TACHES — le mot d'UNE tâche : « Demain » pour la couleur `jour` quand c'est demain. PUR. */
 export function motCouleurTache(t: { jour: string; etat: EtatTache }, maintenant: Date): string | null {
   const c = couleurTache(t, maintenant);
@@ -52,7 +57,7 @@ export function motCouleurTache(t: { jour: string; etat: EtatTache }, maintenant
 }
 /** Le mot des compteurs, en tête du récapitulatif. */
 export const MOT_COMPTEUR: Record<CouleurTache, string> = {
-  retard: 'en retard', jour: 'aujourd’hui / demain', proche: '2 jours', plus_tard: 'plus tard',
+  retard: 'en retard', jour: 'aujourd’hui / demain', proche: 'dans 2 jours', plus_tard: 'plus tard',
 };
 
 /** Les rappels, sous une forme neutre qui ne dépend pas de Google (le lot 2 les traduira). */
@@ -536,6 +541,23 @@ export function echeanceLisible(jour: string, heure: string | null, maintenant: 
   if (heure === null) return `${date} · journée`;
   const [hh, mm] = heure.split(':');
   return `${date} · ${Number(hh)} h${mm === '00' ? '' : ` ${mm}`}`;
+}
+
+/**
+ * ══ 🔴🔴 LOT TACHES-LIGNES-COMPACTES (Arno, 13/10/2026) — L'ÉCHÉANCE DANS UNE LIGNE ════════════════════════════════
+ * « Aujourd'hui », « Demain », « Dans 2 jours » : PAS de date devant — le libellé seul, et l'heure s'il y en a une
+ * (« Aujourd'hui · 9 h 30 »). « Plus tard » et « En retard » (et une tâche terminée) : la date reste
+ * (« ven. 16 oct. · 16 h 30 »), pour savoir quand — et de combien elle est en retard. PUR.
+ */
+export function echeanceCompacte(t: { jour: string; heure: string | null; etat: EtatTache }, maintenant: Date): string {
+  const c = couleurTache(t, maintenant);
+  if (c === 'jour' || c === 'proche') {
+    const mot = motCouleurTache(t, maintenant) ?? '';
+    if (t.heure === null) return mot;
+    const [hh, mm] = t.heure.split(':');
+    return `${mot} · ${Number(hh)} h${mm === '00' ? '' : ` ${mm}`}`;
+  }
+  return echeanceLisible(t.jour, t.heure, maintenant);
 }
 
 /** Un instant, lu à Paris : « 13/10/2026 à 19:20 ». PUR. */

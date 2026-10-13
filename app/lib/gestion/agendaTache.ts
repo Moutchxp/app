@@ -351,6 +351,13 @@ export function agendaPourCarte(o: Parameters<typeof agendaAffiche>[0]): AgendaT
     : { etat: 'pas_encore', texte: 'Pas encore dans l’agenda (envoi vers l’agenda désactivé)', motif: null, peutReessayer: false };
 }
 
+/** 🔴 LOT TACHES-LIGNES-COMPACTES — la mention « agenda » COURTE d'une ligne repliée (la carte dit la phrase entière). PUR. */
+export const MOT_AGENDA_COURT: Record<EtatAgendaEcran, string> = {
+  dans_agenda: '📆 Dans l’agenda', apres_acceptation: '📆 Après acceptation', a_resynchroniser: '📆 À resynchroniser',
+  en_cours: '📆 Envoi en attente', sans_agenda_google: '📆 Pas d’agenda Google', pas_encore: '📆 Pas encore dans l’agenda',
+  pas_dans_agenda: '📆 Pas dans l’agenda',
+};
+
 /** Le délai avant le prochain essai automatique : 5 min, 10, 20… plafonné à 6 h. PUR. */
 export function delaiProchainEssaiMs(essais: number): number {
   const n = Math.max(0, Math.min(essais, 12));

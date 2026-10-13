@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  compterEnAttenteBien, compterTaches, MOT_COMPTEUR, motEnAttenteBouton, ORDRE_COULEURS, phraseEnAttenteBien, repartirTaches,
+  compterEnAttenteBien, compterTaches, motCompteur, motEnAttenteBouton, ORDRE_COULEURS, phraseEnAttenteBien, repartirTaches,
   type Tache,
 } from '../../../../lib/gestion/taches';
-import { CSS_TACHES, LigneTache, useMaintenant } from './LigneTache';
+import { CSS_TACHES, LigneTache, useLignesDepliees, useMaintenant } from './LigneTache';
 /* 🔴 LOT FICHE-CARTE-TACHE — les encadrés de contacts des cartes, et la fiche d'aujourd'hui pour « Mettre à jour ». */
 import { CSS_CONTACTS_TACHE } from './ContactsTache';
 import type { ContactSource } from '../../../../lib/gestion/contactsTache';
@@ -96,6 +96,9 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
   const [detail, setDetail] = useState<number | null>(null);
   /** 🔴 LOT FICHE-TACHES-EN-ATTENTE — replié par défaut, et de nouveau à chaque fiche ouverte. */
   const [deplie, setDeplie] = useState(false);
+  /** 🔴 LOT TACHES-LIGNES-COMPACTES — les lignes dépliées (toutes repliées par défaut), et le repli des terminées. */
+  const lignes = useLignesDepliees();
+  const [termineesOuvertes, setTermineesOuvertes] = useState(false);
   useEffect(() => { setDeplie(false); }, [lotId]);
   useEffect(() => ecouterDepliageBien(lotId, () => setDeplie(true)), [lotId]);
 
@@ -120,6 +123,11 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
     return () => { annule = true; };
   }, [lotId, deplie, versionSources]);
 
+  /* Une tâche dépliée qui vient d'être réalisée ou annulée passe dans « Faites ou annulées » : le repli s'ouvre, pour
+     qu'on voie le résultat sur la carte restée dépliée. */
+  const termineeDepliee = (taches ?? []).some((t) => t.etat !== 'a_faire' && lignes.ids.has(t.id));
+  useEffect(() => { if (termineeDepliee) setTermineesOuvertes(true); }, [termineeDepliee]);
+
   const fenetre = detail !== null && <FenetreTache mode={{ sorte: 'detail', id: detail }} onFermer={() => setDetail(null)} onEcrire={onEcrire} />;
   if (taches === null) return null;
   const { ouvertes, terminees } = repartirTaches(taches, maintenant);
@@ -130,7 +138,7 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
       {ORDRE_COULEURS.filter((c) => n[c] > 0).map((c) => (
         <li key={c} className="tch-compteur">
           <span className={`tch-pastille tch-pastille--${c}`} aria-hidden="true" />
-          <b>{n[c]}</b> {MOT_COMPTEUR[c]}
+          {motCompteur(c, n[c])}
         </li>
       ))}
     </ul>
@@ -163,16 +171,18 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
       {/* 🔴 LOT FICHE-CARTE-TACHE, POINT 8 (accord d'Arno) — la seconde ligne « Tâches de ce bien » et ses pastilles,
           qui répétaient la ligne rouge, ne s'affichent plus : la ligne rouge reste seule en tête. */}
       <div id={`tch-bien-corps-${lotId}`}>
+      {/* 🔴 LOT TACHES-LIGNES-COMPACTES — des lignes de deux lignes, repliées par défaut ; un clic déplie la carte. */}
       <ul className="tch-liste tch-liste--cartes">
         {ouvertes.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
-          presentation="carte" sources={sources} onEcrire={onEcrire} />)}
+          sources={sources} onEcrire={onEcrire} deplie={lignes.estDepliee(t.id)} onBasculer={() => lignes.basculer(t.id)} />)}
       </ul>
       {terminees.length > 0 && (
-        <details className="tch-terminees">
+        <details className="tch-terminees" open={termineesOuvertes}
+          onToggle={(e) => setTermineesOuvertes((e.currentTarget as HTMLDetailsElement).open)}>
           <summary>Faites ou annulées ({terminees.length})</summary>
           <ul className="tch-liste tch-liste--cartes">
             {terminees.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
-              presentation="carte" sources={sources} onEcrire={onEcrire} />)}
+              sources={sources} onEcrire={onEcrire} deplie={lignes.estDepliee(t.id)} onBasculer={() => lignes.basculer(t.id)} />)}
           </ul>
         </details>
       )}
@@ -204,5 +214,5 @@ const CSS_REPLI = `
 .tch-repli-fleche{flex:0 0 auto;font-size:1rem}
 .tch-bloc-fiche:not(.tch-bloc-fiche--replie) > .tch-repli{margin-bottom:8px}
 .tch-bloc-fiche:not(.tch-bloc-fiche--replie){background:var(--color-svv-field)}
-.tch-bloc-fiche .tch-liste--cartes{gap:20px}
+.tch-bloc-fiche .tch-liste--cartes{gap:6px}
 `;

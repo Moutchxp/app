@@ -72,6 +72,13 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.unstubAllGlobals(); });
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); }); };
+/** 🔴 LOT TACHES-LIGNES-COMPACTES — les lignes sont repliées par défaut : on les déplie d'un clic, comme Arno. */
+const deplierLignes = async (portee: string) => {
+  for (const l of [...container.querySelectorAll<HTMLElement>(`${portee} [data-depliee="non"] .tch-l1`)]) {
+    await act(async () => { l.click(); });
+  }
+  await act(async () => { for (let i = 0; i < 14; i++) await Promise.resolve(); });
+};
 const monter = async (lotId = 27) => {
   await act(async () => {
     root.render(createElement(Fragment, null,
@@ -121,6 +128,7 @@ describe('🔴 le bloc « Tâches de ce bien »', () => {
     await act(async () => { repli()!.click(); });
     expect(repli()?.getAttribute('aria-expanded')).toBe('true');
     expect(lignes()).toEqual(['1', '2']);
+    await deplierLignes('#bloc');
     // LOT FICHE-CARTE-TACHE, point 8 : plus de seconde ligne « Tâches de ce bien » (doublon de la ligne rouge).
     expect(container.querySelector('#bloc .tch-bloc-titre')).toBeNull();
     expect(container.querySelector('#bloc [data-tache="1"]')?.textContent).toContain('Tâche réalisée');
@@ -132,6 +140,7 @@ describe('🔴 le bloc « Tâches de ce bien »', () => {
   it('reste déplié après « Faite » depuis la fiche ; bouton et bloc recomptés aussitôt', async () => {
     await monter();
     await act(async () => { repli()!.click(); });
+    await deplierLignes('#bloc');
     const faite = [...container.querySelectorAll<HTMLButtonElement>('#bloc [data-tache="1"] button')].find((b) => b.textContent?.includes('Tâche réalisée'))!;
     await act(async () => { faite.click(); });
     await calmer();

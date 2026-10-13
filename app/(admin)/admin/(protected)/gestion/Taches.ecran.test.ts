@@ -65,7 +65,14 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.unstubA
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
 
-const monter = async () => {
+/** 🔴 LOT TACHES-LIGNES-COMPACTES — les lignes sont repliées par défaut : on les déplie d'un clic, comme Arno. */
+const deplierLignes = async (portee: string) => {
+  for (const l of [...container.querySelectorAll<HTMLElement>(`${portee} [data-depliee="non"] .tch-l1`)]) {
+    await act(async () => { l.click(); });
+  }
+  await act(async () => { for (let i = 0; i < 14; i++) await Promise.resolve(); });
+};
+const monter = async (deplier = true) => {
   await act(async () => {
     root.render(createElement(Fragment, null,
       createElement('div', { id: 'fiche' }, createElement(RecapTachesDuBien, { lotId: 10 })),
@@ -75,6 +82,7 @@ const monter = async () => {
   // 🔴 LOT FICHE-TACHES-EN-ATTENTE — le bloc de la fiche est REPLIÉ par défaut : on le déplie, comme Arno d'un clic.
   const repli = container.querySelector<HTMLButtonElement>('#fiche [data-repli-taches]');
   if (repli) { await act(async () => { repli.click(); }); await calmer(); }
+  if (deplier) { await deplierLignes('#fiche'); await deplierLignes('#general'); }
 };
 
 /** Ce qu'un écran montre des tâches OUVERTES : numéro → couleur, dans l'ordre d'affichage. */
@@ -96,7 +104,7 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
     expect(ouvertes('fiche')).toEqual(attendu);
     expect(ouvertes('general')).toEqual(attendu);
     // Les compteurs en tête du récapitulatif général.
-    expect(container.querySelector('#general .tch-compteurs')?.textContent).toBe('1 en retard1 aujourd’hui / demain1 2 jours1 plus tard⏳0 en attente de confirmation');
+    expect(container.querySelector('#general .tch-compteurs')?.textContent).toBe('en retard (1)aujourd’hui / demain (1)dans 2 jours (1)plus tard (1)⏳0 en attente de confirmation');
   });
 
   it('« Faite » depuis le récapitulatif : la tâche quitte les ouvertes des DEUX écrans, et reste consultable grisée', async () => {
@@ -143,7 +151,8 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
     await monter();
     for (const ecran of ['fiche', 'general'] as const) {
       // Récapitulatif : le badge est collé à l'échéance ; fiche (carte, LOT FICHE-CARTE-TACHE) : dans la ligne clé.
-      const badge = container.querySelector(`#${ecran} [data-tache="2"] ${ecran === 'general' ? '.tch-echeance' : '.tch-carte-cle'} [data-acceptation]`);
+      // Dépliées, les deux listes montrent la même carte : le badge est dans sa ligne « Quand / Qui ».
+      const badge = container.querySelector(`#${ecran} [data-tache="2"] .tch-carte-cle [data-acceptation]`);
       expect(badge?.textContent).toBe('⏳ En attente');
       expect(container.querySelector(`#${ecran} [data-tache="2"]`)?.textContent).toContain('mail non envoyé (envoi désactivé)');
       expect(container.querySelector(`#${ecran} [data-tache="4"] [data-acceptation]`)?.textContent).toBe('✗ Refusée — à réattribuer');
@@ -168,18 +177,18 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
   });
 });
 
-describe('🔴 PARTIE A — l’échéance en premier, en gras, le libellé de couleur collé', () => {
-  it('dans le récapitulatif, la ligne commence par l’échéance ; la date de création n’y figure pas (la fiche, elle, montre une CARTE titre d’abord — LOT FICHE-CARTE-TACHE)', async () => {
-    await monter();
-    for (const ecran of ['general'] as const) {
+describe('🔴 LOT TACHES-LIGNES-COMPACTES — la ligne repliée, sur les deux écrans', () => {
+  it('ligne 1 : le libellé (sans date pour aujourd’hui) et l’heure, puis le titre ; pas de date de création', async () => {
+    await monter(false);
+    for (const ecran of ['fiche', 'general'] as const) {
       const ligne = container.querySelector(`#${ecran} [data-tache="2"]`) as HTMLElement;
-      const premier = ligne.querySelector('.tch-haut')?.firstElementChild as HTMLElement;
-      expect(premier.className).toBe('tch-echeance');
-      const date = premier.querySelector('b.tch-date') as HTMLElement;
-      expect(date.textContent).toMatch(/ · 10 h$/);
-      expect(date.nextElementSibling?.textContent).toBe('Aujourd’hui');
+      const l1 = ligne.querySelector('.tch-l1') as HTMLElement;
+      expect(l1.firstElementChild?.className).toBe('tch-pastille-mot');
+      expect(l1.querySelector('b.tch-date')?.textContent).toBe('Aujourd’hui · 10 h');
+      expect(l1.querySelector('.tch-l1-titre')?.textContent).toBe('Visite du bien');
       expect(ligne.textContent).not.toContain('Créée');
-      expect(ligne.textContent).not.toContain('01/10/2026');
+      // En retard : la date reste.
+      expect(container.querySelector(`#${ecran} [data-tache="1"] .tch-l1 b.tch-date`)?.textContent).toMatch(/^[a-z]{3}\. \d+ /);
     }
   });
 });

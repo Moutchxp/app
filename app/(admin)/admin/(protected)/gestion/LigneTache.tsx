@@ -1,14 +1,15 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
 import {
-  couleurTache, echeanceLisible, horodatageLisible, iconeType, motCouleurTache, RACCOURCIS_DECALAGE,
-  type Tache,
+  couleurTache, echeanceCompacte, echeanceLisible, horodatageLisible, iconeType, motCouleurTache, RACCOURCIS_DECALAGE,
+  type PieceTache, type Tache,
 } from '../../../../lib/gestion/taches';
-import type { ContactSource } from '../../../../lib/gestion/contactsTache';
+import type { ContactSource, ContactTache } from '../../../../lib/gestion/contactsTache';
+import { MOT_AGENDA_COURT } from '../../../../lib/gestion/agendaTache';
 /* 🔴 LOT FICHE-CARTE-TACHE — un encadré par contact, au liseré de sa famille (source unique PARTIES). */
 import { EncadresContacts } from './ContactsTache';
-import { agirSurTache, type GesteTache } from './tachesClient';
+import { agirSurTache, ecouterTaches, lireDetailTache, type GesteTache } from './tachesClient';
 import { BADGE_ACCEPTATION, mentionMail } from '../../../../lib/gestion/acceptationTache';
 
 /**
@@ -42,7 +43,22 @@ export function useMaintenant(): Date {
   return m;
 }
 
-export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBien, onDetail, presentation = 'ligne', sources = null, onEcrire }: {
+/**
+ * ══ 🔴🔴 LOT TACHES-LIGNES-COMPACTES (Arno, 13/10/2026) — QUELLES LIGNES SONT DÉPLIÉES ══════════════════════════════
+ * Toutes repliées par défaut. L'état vit dans la LISTE (et non dans la ligne) : une tâche qui passe des « à faire » aux
+ * « faites ou annulées » après une action change de liste, et doit rester dépliée pour qu'on voie le résultat.
+ */
+export function useLignesDepliees(): { estDepliee: (id: number) => boolean; basculer: (id: number) => void; ids: ReadonlySet<number> } {
+  const [ids, setIds] = useState<ReadonlySet<number>>(() => new Set());
+  const basculer = useCallback((id: number) => setIds((avant) => {
+    const n = new Set(avant);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    return n;
+  }), []);
+  return { estDepliee: (id) => ids.has(id), basculer, ids };
+}
+
+export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBien, onDetail, presentation = 'compacte', sources = null, onEcrire, deplie = false, onBasculer }: {
   tache: Tache;
   maintenant: Date;
   /** Le récapitulatif général montre l'adresse du bien (cliquable) ; la fiche du bien, non — on y est déjà. */
@@ -50,9 +66,12 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   onOuvrirBien?: (lotId: number) => void;
   /** Ouvre la fenêtre « Tâche — <adresse> » sur cette tâche (clic sur l'objet, et « ✏ Modifier »). */
   onDetail: (id: number) => void;
-  /** 🔴 LOT FICHE-CARTE-TACHE — `carte` sur la fiche du bien (titre, ligne clé, note, pièces, contacts, boutons) ;
-   *  `ligne` (défaut) dans le récapitulatif général, mise en page inchangée. */
-  presentation?: 'ligne' | 'carte';
+  /** 🔴 LOT TACHES-LIGNES-COMPACTES — `compacte` (défaut, fiche ET récapitulatif) : deux lignes repliées, un clic
+   *  déplie la CARTE en 4 blocs (`deplie`) ; `carte` : la carte d'emblée. */
+  presentation?: 'compacte' | 'carte';
+  /** La ligne est-elle dépliée (en carte) ? L'état est tenu par la liste (`useLignesDepliees`). */
+  deplie?: boolean;
+  onBasculer?: () => void;
   /** La fiche d'aujourd'hui (contacts du bien), pour « Mettre à jour » une copie ; `null` = pas de mention. */
   sources?: readonly ContactSource[] | null;
   onEcrire?: (email: string) => void;
@@ -74,6 +93,19 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
     setMessage({ ok: r.ok, texte: r.message });
   };
 
+  /* 🔴 LOT TACHES-LIGNES-COMPACTES — le récapitulatif ne lit pas les contacts ni les pièces de chaque tâche : dépliée,
+     la carte les demande au détail (la même route que la fenêtre), et les relit après chaque geste. */
+  const [detail, setDetail] = useState<{ contacts: ContactTache[]; pieces: PieceTache[] } | null>(null);
+  const aLire = deplie && tache.contacts === undefined;
+  const [versionDetail, setVersionDetail] = useState(0);
+  useEffect(() => (aLire ? ecouterTaches(() => setVersionDetail((v) => v + 1)) : undefined), [aLire]);
+  useEffect(() => {
+    if (!aLire) return;
+    let annule = false;
+    void lireDetailTache(tache.id).then((d) => { if (!annule && d !== null) setDetail({ contacts: d.contacts, pieces: d.pieces }); });
+    return () => { annule = true; };
+  }, [aLire, tache.id, versionDetail]);
+
   const terminee = tache.etat !== 'a_faire';
   const fin = tache.etat === 'faite'
     ? `Faite par ${tache.faiteParLibelle ?? '?'} le ${horodatageLisible(tache.faiteLe ?? '')}`
@@ -94,32 +126,9 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
       {BADGE_ACCEPTATION[tache.acceptation.statut]}
     </span>
   );
-  /* Les mentions d'état : fin, mail, refus, agenda — les mêmes sur la ligne et sur la carte. */
+
+  /* L'événement lié : une capsule, sur la carte. */
   const ev = tache.evenement !== null && <span className="tch-ev">{tache.evenement.reference}</span>;
-  const mentions = (
-    <>
-      {fin !== null && <span className="tch-fin">{fin}</span>}
-      {tache.acceptation?.statut === 'en_attente' && mentionMail(tache.acceptation.mailEtat) && (
-        <span className="tch-mail">{mentionMail(tache.acceptation.mailEtat)}</span>
-      )}
-      {tache.acceptation?.statut === 'refusee' && tache.acceptation.motif && (
-        <span className="tch-motif">Refusée par {tache.acceptation.reponduParLibelle ?? tache.acceptation.destinataireLibelle} : {tache.acceptation.motif}</span>
-      )}
-      {/* 🔴 LOT TACHES-AGENDA — la mention « Agenda » : jamais d'échec silencieux (« à resynchroniser » + Réessayer). */}
-      {tache.agenda && (
-        <span className={`tch-agenda tch-agenda--${tache.agenda.etat}`} data-agenda={tache.agenda.etat}
-          title={tache.agenda.motif ?? undefined}>
-          {tache.agenda.texte}
-          {tache.agenda.peutReessayer && (
-            <button type="button" className="tch-lien tch-reessayer" disabled={occupe}
-              onClick={() => void agir({ geste: 'reessayerAgenda' })}>
-              Réessayer
-            </button>
-          )}
-        </span>
-      )}
-    </>
-  );
 
   /* ══ 🔴🔴 LOT FICHE-CARTE-TACHE — LES BOUTONS, LES MÊMES PARTOUT : « ✓ Tâche réalisée » (l'ancien « Faite », même
      geste), « Décaler », « ✏ Modifier » (la fenêtre de la tâche), « ✗ Tâche annulée » (confirmation d'abord : même
@@ -196,18 +205,23 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   /* ══ 🔴🔴 LOT FICHE-CARTE-TACHE — LA CARTE (fiche du bien), de haut en bas : titre ; ligne clé (📅 échéance, libellé
      de couleur, 👤 Confiée à, badge) ; commentaire EN ENTIER ; pièces ; un encadré par contact ; boutons. La note est
      le texte libre seul : les contacts ne s'affichent QUE dans les encadrés (aucun bloc « Contacts » en double). */
-  if (presentation === 'carte') {
+  if (presentation === 'carte' || deplie) {
     const note = (tache.note ?? '').trim();
-    const pieces = tache.pieces ?? [];
-    const contacts = tache.contacts ?? [];
+    const pieces = tache.pieces ?? detail?.pieces ?? [];
+    const contacts = tache.contacts ?? detail?.contacts ?? [];
     /* 🔴 LOT FICHE-CARTE-4-BLOCS — l'agenda est TOUJOURS dit sur la carte (repli : la mention du récapitulatif). */
     const agenda = tache.agendaCarte ?? tache.agenda ?? null;
     return (
-      <li className={`${classe} tch-carte`} data-tache={tache.id} data-couleur={couleur ?? 'terminee'}>
-        {/* ① TITRE — bandeau d'en-tête. */}
+      <li className={`${classe} tch-carte`} data-tache={tache.id} data-couleur={couleur ?? 'terminee'}
+        data-depliee={onBasculer !== undefined ? 'oui' : undefined}>
+        {/* ① TITRE — bandeau d'en-tête. 🔴 LOT TACHES-LIGNES-COMPACTES : dans une liste, un clic sur le bandeau REPLIE
+            la carte (« ✏ Modifier » ouvre la fenêtre, en pied) ; une carte seule garde l'ouverture de la fenêtre. */}
         <h5 className="tch-carte-titre tch-carte-bloc" data-ordre="titre">
-          <button type="button" className="tch-objet tch-carte-objet" onClick={() => onDetail(tache.id)}
-            title="Ouvrir la tâche (modifier, annuler)">
+          <button type="button" className="tch-objet tch-carte-objet"
+            onClick={() => (onBasculer !== undefined ? onBasculer() : onDetail(tache.id))}
+            aria-expanded={onBasculer !== undefined ? true : undefined}
+            title={onBasculer !== undefined ? 'Replier la tâche' : 'Ouvrir la tâche (modifier, annuler)'}>
+            {onBasculer !== undefined && <span className="tch-fleche" aria-hidden="true">▾ </span>}
             {tache.objet}
           </button>
         </h5>
@@ -233,7 +247,11 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
               </span>
             )}
           </div>
-          <div className="tch-bas">{ev}{fin !== null && <span className="tch-fin">{fin}</span>}
+          <div className="tch-bas">
+            {avecAdresse && (onOuvrirBien
+              ? <button type="button" className="tch-lien" onClick={() => onOuvrirBien(tache.lotId)}>{tache.adresseBien}</button>
+              : <span>{tache.adresseBien}</span>)}
+            {ev}{fin !== null && <span className="tch-fin">{fin}</span>}
             {tache.acceptation?.statut === 'en_attente' && mentionMail(tache.acceptation.mailEtat) && (
               <span className="tch-mail">{mentionMail(tache.acceptation.mailEtat)}</span>
             )}
@@ -286,43 +304,42 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
     );
   }
 
+  /* ══ 🔴🔴 LOT TACHES-LIGNES-COMPACTES — LA LIGNE REPLIÉE, DEUX LIGNES AU PLUS, SANS BOUTONS ════════════════════════
+     ① liseré · libellé/date · TITRE en gras · badge ; ② en petit : adresse (cliquable dans le récapitulatif, SANS
+     déplier) · → confiée à · contacts · pièces · agenda. Un clic (ou Entrée / Espace) déplie la carte en 4 blocs, où
+     sont tous les boutons. Les deux lignes ne passent jamais à la ligne : ce qui dépasse s'efface en « … ». */
+  const basculerAuClavier = (e: KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onBasculer?.(); }
+  };
+  const agenda = tache.agendaCarte ?? tache.agenda ?? null;
   return (
-    <li className={classe} data-tache={tache.id} data-couleur={couleur ?? 'terminee'}>
-      <div className="tch-haut">
-        {/* 🔴🔴 PARTIE A (Arno, 13/10/2026) — L'ÉCHÉANCE EN PREMIER ET EN GRAS (« mar. 13 oct. · 9 h 30 »), le libellé de
-            couleur COLLÉ à elle. C'est la date de la tâche, jamais celle de sa création (qui ne se lit qu'en petit,
-            dans le détail). */}
-        <span className="tch-echeance">
-          <b className="tch-date" data-echeance={tache.jour}>{echeanceLisible(tache.jour, tache.heure, maintenant)}</b>
-          {pastilleMot}
-          {badge}
+    <li className={`${classe} tch-compacte`} data-tache={tache.id} data-couleur={couleur ?? 'terminee'} data-depliee="non">
+      <div className="tch-l1" role="button" tabIndex={0} aria-expanded={false} title="Déplier la tâche"
+        onClick={() => onBasculer?.()} onKeyDown={basculerAuClavier}>
+        <span className="tch-pastille-mot">
+          <span className={`tch-pastille tch-pastille--${couleur ?? 'terminee'}`} aria-hidden="true" />
+          <b className="tch-date tch-l1-quand" data-echeance={tache.jour}>
+            {terminee ? `${tache.etat === 'faite' ? 'Faite' : 'Annulée'} · ${echeanceLisible(tache.jour, tache.heure, maintenant)}`
+              : echeanceCompacte(tache, maintenant)}
+          </b>
         </span>
-        <button type="button" className="tch-objet" onClick={() => onDetail(tache.id)}
-          title="Voir le détail, modifier ou annuler">
-          {tache.objet}
-        </button>
+        <b className="tch-l1-titre">{tache.objet}</b>
+        {badge}
       </div>
-      <div className="tch-bas">
-        {avecAdresse && (
-          onOuvrirBien
-            ? <button type="button" className="tch-lien" onClick={() => onOuvrirBien(tache.lotId)}>{tache.adresseBien}</button>
-            : <span>{tache.adresseBien}</span>
-        )}
+      <div className="tch-l2" onClick={() => onBasculer?.()}>
+        {onOuvrirBien && avecAdresse
+          ? <button type="button" className="tch-lien" data-action="ouvrir-bien"
+              onClick={(e) => { e.stopPropagation(); onOuvrirBien(tache.lotId); }}>{tache.adresseBien}</button>
+          : <span>{tache.adresseBien}</span>}
         <span className="tch-confiee">→ {tache.confieeALibelle}</span>
-        {ev}
-        {/* 🔴 LOT TACHES-1-BIS — dans les listes, un simple indicateur ; le détail montre les coordonnées. */}
         {(tache.nbContacts ?? 0) > 0 && (
           <span className="tch-contacts">👤 {tache.nbContacts} contact{tache.nbContacts > 1 ? 's' : ''}</span>
         )}
-        {/* 🔴 LOT TACHES-PIECES-DRIVE — un simple indicateur ; le détail montre les pièces et les ouvre dans le Drive. */}
         {(tache.nbPieces ?? 0) > 0 && (
           <span className="tch-pieces" title={`${tache.nbPieces} pièce(s) jointe(s)`}>📎 {tache.nbPieces}</span>
         )}
-        {mentions}
+        {agenda && <span className={`tch-agenda tch-agenda--${agenda.etat}`} data-agenda={agenda.etat}>{MOT_AGENDA_COURT[agenda.etat]}</span>}
       </div>
-      {actions}
-      {panneauDecaler}
-      {retour}
     </li>
   );
 }
@@ -373,9 +390,23 @@ export const CSS_TACHES = `
 .tch-agenda{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.4rem}
 .tch-agenda--a_resynchroniser{color:var(--color-svv-red);font-weight:600}
 .tch-reessayer{min-height:32px;font-weight:600}
+/* LOT TACHES-LIGNES-COMPACTES : la ligne repliee, deux lignes au plus ; rien ne passe a la ligne, l'exces s'efface. */
+.tch-compacte{gap:2px;padding:6px 10px 6px 12px;cursor:pointer}
+.tch-compacte:hover{background:var(--color-svv-field)}
+.tch-l1,.tch-l2{display:flex;align-items:center;gap:.6rem;min-width:0;white-space:nowrap;overflow:hidden}
+.tch-l1{min-height:28px;outline:none}
+.tch-l1:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;border-radius:.3rem}
+.tch-l1 > *{flex:0 0 auto}
+.tch-l1-titre{flex:1 1 auto !important;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:700;color:var(--color-svv-ink)}
+.tch-l2{font-size:.8rem;color:var(--color-svv-muted)}
+.tch-l2 > *{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.tch-l2 .tch-lien{min-height:24px}
+.tch-fleche{font-size:.85em}
 /* LOT FICHE-CARTE-4-BLOCS : la carte en 4 blocs (titre ; quand/qui ; notes ; contacts) + pied d'actions.
    Jetons du theme seulement : Clair et Sombre suivent. */
-.tch-liste--cartes{gap:20px}
+.tch-liste--cartes{gap:6px}
+/* LOT TACHES-LIGNES-COMPACTES : une carte depliee dans une liste garde ses 20 px d'ecart avec les lignes voisines. */
+.tch-liste > .tch-carte[data-depliee]{margin:14px 0}
 .tch-carte{gap:0;padding:0;overflow:hidden;border:1px solid var(--color-svv-line-strong);border-left-width:6px;
   border-radius:.8rem;background:var(--color-svv-surface);box-shadow:0 2px 10px rgba(0,0,0,.10)}
 .tch-carte.tch-ligne--retard{border-left-color:var(--tch-c-retard)}

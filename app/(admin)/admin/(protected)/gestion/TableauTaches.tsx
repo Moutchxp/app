@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  compterTaches, MOT_COMPTEUR, ORDRE_COULEURS, repartirTaches, type Tache,
+  compterTaches, motCompteur, ORDRE_COULEURS, repartirTaches, type Tache,
 } from '../../../../lib/gestion/taches';
-import { CSS_TACHES, LigneTache, useMaintenant } from './LigneTache';
+import { CSS_TACHES, LigneTache, useLignesDepliees, useMaintenant } from './LigneTache';
 import {
   compterEnAttente, filtrerParAcceptation, MOTS_QUI, MOTS_STATUT, type FiltreQui, type FiltreStatut,
 } from '../../../../lib/gestion/acceptationTache';
@@ -40,6 +40,11 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
   const [qui, setQui] = useState<FiltreQui>('toutes');
   const [statut, setStatut] = useState<FiltreStatut>('toutes');
   const [detail, setDetail] = useState<number | null>(null);
+  /** 🔴 LOT TACHES-LIGNES-COMPACTES — lignes repliées par défaut ; le repli des terminées s'ouvre sur une carte dépliée. */
+  const lignes = useLignesDepliees();
+  const [termineesOuvertes, setTermineesOuvertes] = useState(false);
+  const termineeDepliee = (donnees?.taches ?? []).some((t) => t.etat !== 'a_faire' && lignes.ids.has(t.id));
+  useEffect(() => { if (termineeDepliee) setTermineesOuvertes(true); }, [termineeDepliee]);
 
   const charger = useCallback(async () => {
     const r = await lireTaches(null);
@@ -88,7 +93,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
         {ORDRE_COULEURS.map((c) => (
           <li key={c} className="tch-compteur">
             <span className={`tch-pastille tch-pastille--${c}`} aria-hidden="true" />
-            <b>{n[c]}</b> {MOT_COMPTEUR[c]}
+            {motCompteur(c, n[c])}
           </li>
         ))}
         {/* 🔴 LOT TACHES-ACCEPTATION — la catégorie « En attente de confirmation ». */}
@@ -104,17 +109,18 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
           <ul className="tch-liste">
             {ouvertes.map((t) => (
               <LigneTache key={t.id} tache={t} maintenant={maintenant} avecAdresse onOuvrirBien={onOuvrirBien}
-                onDetail={setDetail} />
+                onDetail={setDetail} onEcrire={onEcrire} deplie={lignes.estDepliee(t.id)} onBasculer={() => lignes.basculer(t.id)} />
             ))}
           </ul>
         )}
       {terminees.length > 0 && (
-        <details className="tch-terminees">
+        <details className="tch-terminees" open={termineesOuvertes}
+          onToggle={(e) => setTermineesOuvertes((e.currentTarget as HTMLDetailsElement).open)}>
           <summary>Faites ou annulées ({terminees.length})</summary>
           <ul className="tch-liste">
             {terminees.map((t) => (
               <LigneTache key={t.id} tache={t} maintenant={maintenant} avecAdresse onOuvrirBien={onOuvrirBien}
-                onDetail={setDetail} />
+                onDetail={setDetail} onEcrire={onEcrire} deplie={lignes.estDepliee(t.id)} onBasculer={() => lignes.basculer(t.id)} />
             ))}
           </ul>
         </details>

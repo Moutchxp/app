@@ -77,6 +77,13 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.unstubAllGlobals(); });
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 15; i++) await Promise.resolve(); }); };
+/** 🔴 LOT TACHES-LIGNES-COMPACTES — les lignes sont repliées par défaut : on les déplie d'un clic, comme Arno. */
+const deplierLignes = async (portee: string) => {
+  for (const l of [...container.querySelectorAll<HTMLElement>(`${portee} [data-depliee="non"] .tch-l1`)]) {
+    await act(async () => { l.click(); });
+  }
+  await act(async () => { for (let i = 0; i < 14; i++) await Promise.resolve(); });
+};
 const monter = async () => {
   await act(async () => {
     root.render(createElement(Fragment, null,
@@ -86,6 +93,8 @@ const monter = async () => {
   await calmer();
   await act(async () => { container.querySelector<HTMLButtonElement>('#fiche [data-repli-taches]')!.click(); });
   await calmer();
+  await deplierLignes('#fiche');
+  await deplierLignes('#general');
 };
 const carte = (id: number) => container.querySelector(`#fiche [data-tache="${id}"]`) as HTMLElement;
 const boutonDe = (el: Element, mot: string) => [...el.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.includes(mot));
@@ -98,7 +107,8 @@ describe('🔴 la carte, de haut en bas', () => {
     expect([...carte(7).querySelectorAll('.tch-carte-etiquette')].map((e) => e.textContent))
       .toEqual(['Quand / Qui', 'Notes', 'Pièces jointes', 'Contacts (2)']);
     expect(carte(7).querySelector('.tch-carte-pied [data-ordre="actions"]')).not.toBeNull();
-    expect(carte(7).querySelector('.tch-carte-titre')?.textContent).toBe('Visite technique');
+    // Dépliée dans une liste, le bandeau porte « ▾ » : un clic la replie.
+    expect(carte(7).querySelector('.tch-carte-titre')?.textContent).toBe('▾ Visite technique');
     const cle = carte(7).querySelector('.tch-carte-cle')!;
     expect(cle.querySelector('.tch-date')?.textContent).toMatch(/^📅 .+ · 9 h 30$/);
     expect(cle.textContent).toContain('Aujourd’hui');
@@ -163,7 +173,8 @@ describe('🔴 les boutons', () => {
     await monter();
     await act(async () => { boutonDe(carte(8), 'Modifier')!.click(); });
     await calmer();
-    expect(lectures).toEqual(['8']);
+    // (Les cartes dépliées du récapitulatif lisent aussi leur détail : on regarde la DERNIÈRE lecture, celle du clic.)
+    expect(lectures.at(-1)).toBe('8');
     expect(container.querySelector('.tchf-titre')?.textContent).toBe('Tâche — 7 avenue de l’Union');
     expect((container.querySelector('.tchf input[type="text"]') as HTMLInputElement).value).toBe('Relancer le plombier');
   });
