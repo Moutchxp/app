@@ -569,7 +569,7 @@ export function FenetreConfirmation({ question, annuler, confirmer, echec = null
 
 export function Redaction({
   brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
-  reduite = false, calerAVue = true, calage = 'start', appel = 0, lotFiche = null,
+  reduite = false, calerAVue = true, calage = 'start', appel = 0, lotFiche = null, onPleinEcran,
 }: {
   /**
    * ══ 🔴🔴 LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN — LE BIEN DE LA FICHE OUVERTE ══════════════════════════════
@@ -606,6 +606,13 @@ export function Redaction({
    * pour qu'un brouillon resté vide soit abandonné quelle que soit la croix employée. `0` = aucune demande.
    */
   fermetureDemandee?: number;
+  /**
+   * ══ 🔴🔴 LOT PLEIN-ECRAN-DU-COMPOSITEUR-DANS-LA-FICHE — LE PLEIN ÉCRAN CONFIÉ AU CADRE ═══════════════════════════════
+   * Présent ⇒ le bouton « Plein écran » de l'en-tête l'appelle, au lieu de poser `red--plein` sur l'éditeur : c'est le
+   * CADRE qui monte alors la fenêtre plein écran de la colonne (celle de `FenetresRedaction`). Seule la fiche d'un bien
+   * le passe (« Nouveau message » de l'historique). ABSENT (partout ailleurs) ⇒ exactement le comportement d'avant.
+   */
+  onPleinEcran?: () => void;
   /**
    * 🔴 LA FENÊTRE EST-ELLE REPLIÉE SUR SA BARRE DE TITRE ? Réduire est une façon de dire « je m'en occupe plus
    * tard » : le brouillon doit être en base à cet instant, pas deux secondes après. L'éditeur n'est PAS démonté
@@ -2205,7 +2212,7 @@ export function Redaction({
               icône seule ne dirait pas dans quel sens elle agit. */}
           <button type="button" className="svv-btn svv-btn-outline gst-btn"
             aria-pressed={plein}
-            onClick={() => setPlein((v) => !v)}>
+            onClick={() => { if (onPleinEcran !== undefined) { onPleinEcran(); return; } setPlein((v) => !v); }}>
             {plein ? 'Réduire' : 'Plein écran'}
           </button>
           {/* 🔴 LOT BANDEAU-ET-BROUILLONS — `onMouseDown` ANNULÉ : voir l'encadré de la croix, dans

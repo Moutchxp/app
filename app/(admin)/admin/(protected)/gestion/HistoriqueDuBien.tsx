@@ -176,6 +176,10 @@ import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/r
 import { classementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 /* 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — le « Nouveau message » de la colonne, déjà rattaché au bien. */
 import { brouillonNouveauDepuisLeBien, MOT_NOUVEAU_MESSAGE } from '../../../../lib/gestion/nouveauMessageBien';
+/* 🔴🔴 LOT PLEIN-ECRAN-DU-COMPOSITEUR-DANS-LA-FICHE — le plein écran de la colonne : son cadre et son titre, importés. */
+import { createPortal } from 'react-dom';
+import { CSS_FENETRES, titreFenetre } from './FenetresRedaction';
+import { hoteDeLaBulle } from './InfoBien';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8 — UNE CARTE TELLE QUE LA ROUTE LA REND À CE BLOC ══════════════════════════════════
@@ -1292,6 +1296,44 @@ export function HistoriqueDuBien({
       setNouveauEnCours(false);
     }
   }, [redaction, lotId, lotCle, nouveau, lignes]);
+
+  /**
+   * ══ 🔴🔴 LOT PLEIN-ECRAN-DU-COMPOSITEUR-DANS-LA-FICHE — LE PLEIN ÉCRAN DE LA COLONNE, À L'IDENTIQUE ═══════════════════
+   *
+   * CONSTAT D'ARNO (13/10/2026, bien-343) : en plein écran, le « Nouveau message » de la fiche se posait sur
+   * l'historique sans voile propre, sans marge intérieure, la barre d'envoi rognée et « Réduire » au milieu de l'en-tête.
+   *
+   * CAUSE, MESURÉE DANS CHROME : c'était le plein écran propre à l'éditeur (`.red--plein`), pas celui de la colonne
+   * (`.fre--plein`, fenêtre de `FenetresRedaction`). Deux défauts dans sa règle : ① la règle `.red` (padding 12px 0),
+   * écrite APRÈS `.red--plein` dans la même feuille et de même poids, l'emporte (aucune marge à gauche ni à droite) ;
+   * ② le `transform` qui centre la fenêtre devient le repère de son voile `::before` en `position:fixed`, qui ne
+   * couvre donc que la fenêtre elle-même. Aucun ancêtre de la fiche n'y était pour quelque chose.
+   *
+   * 🔴 LE REMÈDE NE TOUCHE PAS À `.red--plein` : la réponse en place de la boîte et sous un mail de l'historique le
+   * gardent tel quel. Ici, l'éditeur demande le plein écran à SON CADRE (`onPleinEcran`), et le cadre monte la fenêtre
+   * de la colonne — mêmes classes (`fre fre--plein`, `fre-voile`, `fre-titre`, `fre-corps`), même feuille
+   * (`CSS_FENETRES`), au niveau de la page (portail dans la racine `.svv-adm-root`, qui porte les jetons du thème — `document.body` rendait la fenêtre claire en mode Sombre, mesuré), au-dessus de tout.
+   *
+   * 🔴 L'ÉDITEUR N'EST JAMAIS DÉMONTÉ : il est rendu UNE fois, par un portail, dans un hôte stable (`hoteNouveau`), et
+   * c'est cet hôte que l'on DÉPLACE dans le document — de la fiche à la fenêtre, et retour. Démonter perdrait le texte
+   * non enregistré, une pièce en cours de dépôt, un compte à rebours d'envoi, et l'étalon du brouillon silencieux.
+   */
+  const [nouveauPlein, setNouveauPlein] = useState(false);
+  const [fermetureNouveau, setFermetureNouveau] = useState(0);
+  const hoteNouveau = useMemo(() => (typeof document === 'undefined' ? null : document.createElement('div')), []);
+  const corpsPlein = useRef<HTMLDivElement | null>(null);
+  /* ⚠️ L'éditeur ne naît que dans un hôte DÉJÀ posé dans la page : né dans un nœud détaché, ses mesures d'ouverture
+     (le calage sous les yeux) liraient des zéros. */
+  const [hotePose, setHotePose] = useState(false);
+  useLayoutEffect(() => {
+    if (hoteNouveau === null) return;
+    if (nouveau === null) { hoteNouveau.remove(); if (hotePose) setHotePose(false); return; }
+    const place = nouveauPlein ? corpsPlein.current : ancreNouveau.current;
+    if (place !== null && hoteNouveau.parentElement !== place) place.appendChild(hoteNouveau);
+    if (!hotePose && hoteNouveau.isConnected) setHotePose(true);
+  });
+  /* Fermé ou envoyé : la fenêtre plein écran part avec lui. */
+  useEffect(() => { if (nouveau === null) setNouveauPlein(false); }, [nouveau]);
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « SORTIR DU SUIVI » ═══════════════════════════════════════════════
@@ -3155,12 +3197,54 @@ export function HistoriqueDuBien({
           (le compteur `rechargement`, celui de toutes les relectures du bloc) — le mail parti arrive en tête. */}
       {nouveau !== null && redaction !== null && (
         <div className="hdb-nouveau-composeur" ref={ancreNouveau}>
-          <Redaction brouillon={nouveau} contexte={redaction} lotFiche={lotId}
-            onChange={(b) => setNouveau((r) => (r === null ? null : b))}
-            onFerme={() => setNouveau(null)}
-            onEnvoye={() => { setNouveau(null); setRechargement((n) => n + 1); }}
-            onGeste={(m, o) => onGesteMail?.(m, o)} />
+          {/* 🔴🔴 LOT PLEIN-ECRAN-DU-COMPOSITEUR-DANS-LA-FICHE — UN SEUL éditeur, rendu dans l'hôte stable que l'on
+              déplace (voir `hoteNouveau`) : en place ici, ou dans la fenêtre plein écran ci-dessous. */}
+          {hoteNouveau !== null && hotePose && createPortal(
+            <Redaction brouillon={nouveau} contexte={redaction} lotFiche={lotId}
+              dansFenetre={nouveauPlein} fermetureDemandee={fermetureNouveau}
+              onPleinEcran={() => setNouveauPlein(true)}
+              onChange={(b) => setNouveau((r) => (r === null ? null : b))}
+              onFerme={() => setNouveau(null)}
+              onEnvoye={() => { setNouveau(null); setRechargement((n) => n + 1); }}
+              onGeste={(m, o) => onGesteMail?.(m, o)} />,
+            hoteNouveau,
+          )}
         </div>
+      )}
+      {/* ══ LA FENÊTRE PLEIN ÉCRAN DE LA COLONNE, AU NIVEAU DE LA PAGE ══ Même voile, même cadre, même barre de titre
+          (titre à gauche ; réduire, quitter le plein écran et fermer à droite), même corps qui défile. Réduire et
+          quitter le plein écran ramènent l'éditeur dans la fiche ; la croix ferme par la porte de l'éditeur, comme
+          celle de la colonne (`fermetureDemandee`). */}
+      {nouveau !== null && redaction !== null && nouveauPlein && typeof document !== 'undefined' && createPortal(
+        <>
+          <style>{CSS_FENETRES}</style>
+          <div className="fre-voile" aria-hidden="true" />
+          <section className="fre fre--plein hdb-nouveau-plein" aria-label={titreFenetre(nouveau)}>
+            <div className="fre-titre">
+              <button type="button" className="fre-titre-mot" aria-expanded title="Réduire la fenêtre"
+                onClick={() => setNouveauPlein(false)}>
+                {titreFenetre(nouveau)}
+              </button>
+              <span className="fre-boutons">
+                <button type="button" className="fre-bouton" aria-label="Réduire la fenêtre" title="Réduire la fenêtre"
+                  onClick={() => setNouveauPlein(false)}>
+                  <span aria-hidden="true" className="fre-icone">—</span>
+                </button>
+                <button type="button" className="fre-bouton" aria-label="Quitter le plein écran" title="Quitter le plein écran"
+                  onClick={() => setNouveauPlein(false)}>
+                  <span aria-hidden="true" className="fre-icone">⤡</span>
+                </button>
+                <button type="button" className="fre-bouton" aria-label="Fermer la fenêtre" title="Fermer"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setFermetureNouveau((n) => n + 1)}>
+                  <span aria-hidden="true" className="fre-icone">✕</span>
+                </button>
+              </span>
+            </div>
+            <div className="fre-corps" ref={corpsPlein} />
+          </section>
+        </>,
+        hoteDeLaBulle(),
       )}
 
       {/* ══ LE FIL ══ `LigneVie`, une par mail — LE composant de « Vie du bien », importé et non recopié. */}
