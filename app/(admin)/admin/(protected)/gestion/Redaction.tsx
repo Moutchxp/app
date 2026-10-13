@@ -774,9 +774,42 @@ export function Redaction({
      fiche, premier des cibles : on ne la relit pas, on ne lit que les biens AJOUTÉS au contexte. */
   const dejaPortee = (brouillon.suggestionsBien ?? null) !== null
     ? new Set([lotFiche, ciblesLots[0]?.id].filter((x): x is number => typeof x === 'number')) : new Set<number>();
+  /**
+   * ══ 🔴🔴 LOT REGRESSION-SUGGESTIONS-ADRESSES-DANS-REPONDRE — LE BIEN HÉRITÉ N'A QUE SA CLÉ ═════════════════════════
+   * Une réponse (Répondre, Répondre à tous, Transférer) hérite du bien rattaché au mail (`classementHerite`) avec sa
+   * CLÉ WIPPIMMO, sans identifiant interne : `cible_id` n'est jamais renseigné en base. La liste d'un bien se lit par
+   * identifiant (`/biens/<id>/ecrire`) — le bien hérité était donc ignoré, et il bloquait en plus l'ajout d'office du
+   * même bien par le client tapé en À (« déjà dans le contexte »). Constat d'Arno sur le mail 58133 (bien-396).
+   * 🔴 L'IDENTIFIANT EST RETROUVÉ À PART, par la lecture existante de la fiche par clé (`/annuaire?lotCle=`, celle de la
+   * pastille « i »), et ne sert QU'À lire la liste : les cibles du brouillon ne sont pas touchées (le lien posé à l'envoi
+   * reste exactement celui d'avant). Lecture seule ; un échec laisse le composeur tel qu'il était.
+   */
+  const [idsDesCles, setIdsDesCles] = useState<Record<string, number>>({});
+  const clesDemandees = useRef(new Set<string>());
+  const clesSansId = [...new Set(ciblesLots
+    .filter((c) => (c.id === null || c.id === undefined) && typeof c.cle === 'string' && c.cle.trim() !== '')
+    .map((c) => (c.cle as string).trim()))];
+  const cleClesSansId = clesSansId.join(',');
+  useEffect(() => {
+    const manque = clesSansId.filter((k) => !clesDemandees.current.has(k));
+    for (const k of manque) {
+      clesDemandees.current.add(k);
+      void (async () => {
+        try {
+          const res = await fetch(`/api/admin/gestion/annuaire?lotCle=${encodeURIComponent(k)}`, { cache: 'no-store' });
+          const d = (await res.json()) as { etat?: string; data?: { id?: number } };
+          const id = Number(d.data?.id);
+          if (!res.ok || d.etat !== 'ok' || !Number.isSafeInteger(id) || id <= 0) { clesDemandees.current.delete(k); return; }
+          setIdsDesCles((m) => ({ ...m, [k]: id }));
+        } catch { clesDemandees.current.delete(k); /* une liste de suggestions est un confort */ }
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des clés suffit.
+  }, [cleClesSansId]);
   const lotsDuContexte: number[] = [...new Set([
     ...(lotFiche !== null ? [lotFiche] : []),
     ...ciblesLots.map((c) => c.id).filter((x): x is number => typeof x === 'number' && x > 0),
+    ...clesSansId.map((k) => idsDesCles[k]).filter((x): x is number => typeof x === 'number' && x > 0),
   ])].filter((id) => !dejaPortee.has(id));
   const cleLotsDuContexte = lotsDuContexte.join(',');
   useEffect(() => {
