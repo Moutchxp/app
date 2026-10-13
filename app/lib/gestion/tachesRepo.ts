@@ -112,6 +112,19 @@ const SQL_TACHE = `
 
 const iso = (d: Date | null): string | null => (d === null ? null : new Date(d).toISOString());
 
+/** 🔴 LOT TACHES-LIGNE-CONTACTS — le nom et la famille des contacts de chaque tâche (une requête pour la liste). */
+async function avecContactsResume(taches: Tache[]): Promise<Tache[]> {
+  if (taches.length === 0 || !(await contactsTacheDisponible())) return taches;
+  const { rows } = await query<{ tache_id: number; nom: string; famille: string }>(
+    `SELECT tache_id::int AS tache_id, nom, famille FROM gestion_tache_contact
+      WHERE tache_id = ANY($1::bigint[]) AND retire_le IS NULL ORDER BY tache_id, rang, id`, [taches.map((t) => t.id)]);
+  return taches.map((t) => ({
+    ...t,
+    contactsResume: rows.filter((r) => Number(r.tache_id) === t.id && estFamille(r.famille))
+      .map((r) => ({ nom: r.nom, famille: r.famille as ContactTache['famille'] })),
+  }));
+}
+
 /**
  * 🔴 LOT FICHE-CARTE-TACHE — les contacts copiés (état daté) et les pièces de chaque tâche, en DEUX requêtes pour toute
  * la liste. Sans la 347 ou la 348, la liste correspondante est vide (la carte n'affiche alors rien de plus).
@@ -194,7 +207,7 @@ export async function listerTaches(lotId: number | null): Promise<{ taches: Tach
         ORDER BY coalesce(t.faite_le, t.annulee_le, t.maj_le) DESC, t.id DESC LIMIT ${TERMINEES_MAX}`, [lotId]),
   ]);
   const tronque = o.rows.length > OUVERTES_MAX;
-  const taches = await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache));
+  const taches = await avecContactsResume(await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache)));
   // 🔴 LOT FICHE-CARTE-TACHE — sur la fiche d'UN bien, chaque carte montre ses contacts et ses pièces sans clic de plus.
   return { taches: lotId === null ? taches : await avecContactsEtPieces(taches), tronque };
 }

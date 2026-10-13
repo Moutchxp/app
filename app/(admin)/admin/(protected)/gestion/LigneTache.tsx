@@ -1,14 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import {
-  couleurTache, echeanceCompacte, echeanceLisible, horodatageLisible, iconeType, motCouleurTache, RACCOURCIS_DECALAGE,
+  contactsQuiTiennent, couleurTache, echeanceCompacte, prenomNom, echeanceLisible, horodatageLisible, iconeType, motCouleurTache, RACCOURCIS_DECALAGE,
   type PieceTache, type Tache,
 } from '../../../../lib/gestion/taches';
 import type { ContactSource, ContactTache } from '../../../../lib/gestion/contactsTache';
 import { MOT_AGENDA_COURT } from '../../../../lib/gestion/agendaTache';
 /* 🔴 LOT FICHE-CARTE-TACHE — un encadré par contact, au liseré de sa famille (source unique PARTIES). */
 import { EncadresContacts } from './ContactsTache';
+/* 🔴 LOT TACHES-LIGNE-CONTACTS — la couleur de famille d'un contact : la source unique du bloc PARTIES. */
+import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import { agirSurTache, ecouterTaches, lireDetailTache, type GesteTache } from './tachesClient';
 import { BADGE_ACCEPTATION, mentionMail } from '../../../../lib/gestion/acceptationTache';
 
@@ -337,21 +339,66 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         <b className="tch-l1-titre">{tache.objet}</b>
         {badge}
       </div>
+      {/* 🔴 LOT TACHES-LIGNE-CONTACTS (Arno, 13/10/2026) — à GAUCHE : l'adresse, puis les contacts NOMMÉS (« Prénom NOM »)
+          avec la pastille de leur famille ; « … +n » quand ils ne tiennent pas. À DROITE, sous le badge : « → confiée à »
+          et l'agenda. Le compteur « 👤 n contacts » est retiré (demande d'Arno) : les noms le disent. */}
       <div className="tch-l2" onClick={() => onBasculer?.()}>
-        {onOuvrirBien && avecAdresse
-          ? <button type="button" className="tch-lien" data-action="ouvrir-bien"
-              onClick={(e) => { e.stopPropagation(); onOuvrirBien(tache.lotId); }}>{tache.adresseBien}</button>
-          : <span>{tache.adresseBien}</span>}
-        <span className="tch-confiee">→ {tache.confieeALibelle}</span>
-        {(tache.nbContacts ?? 0) > 0 && (
-          <span className="tch-contacts">👤 {tache.nbContacts} contact{tache.nbContacts > 1 ? 's' : ''}</span>
-        )}
-        {(tache.nbPieces ?? 0) > 0 && (
-          <span className="tch-pieces" title={`${tache.nbPieces} pièce(s) jointe(s)`}>📎 {tache.nbPieces}</span>
-        )}
-        {agenda && <span className={`tch-agenda tch-agenda--${agenda.etat}`} data-agenda={agenda.etat}>{MOT_AGENDA_COURT[agenda.etat]}</span>}
+        <span className="tch-l2-gauche">
+          {onOuvrirBien && avecAdresse
+            ? <button type="button" className="tch-lien tch-l2-adresse" data-action="ouvrir-bien"
+                onClick={(e) => { e.stopPropagation(); onOuvrirBien(tache.lotId); }}>{tache.adresseBien}</button>
+            : <span className="tch-l2-adresse">{tache.adresseBien}</span>}
+          {(tache.contactsResume ?? []).length > 0 && <ContactsDeLaLigne contacts={tache.contactsResume ?? []} />}
+          {(tache.nbPieces ?? 0) > 0 && (
+            <span className="tch-pieces" title={`${tache.nbPieces} pièce(s) jointe(s)`}>📎 {tache.nbPieces}</span>
+          )}
+        </span>
+        <span className="tch-l2-droite">
+          <span className="tch-confiee">→ {tache.confieeALibelle}</span>
+          {agenda && <span className={`tch-agenda tch-agenda--${agenda.etat}`} data-agenda={agenda.etat}>{MOT_AGENDA_COURT[agenda.etat]}</span>}
+        </span>
       </div>
     </li>
+  );
+}
+
+/**
+ * 🔴 LOT TACHES-LIGNE-CONTACTS — les contacts d'une ligne repliée : autant qu'il en tient, puis « … +n ». Les largeurs
+ * sont MESURÉES (une copie invisible de tous les contacts), et le choix est fait par `contactsQuiTiennent` (pur).
+ */
+function ContactsDeLaLigne({ contacts }: { contacts: readonly { nom: string; famille: Parameters<typeof tonDuGroupe>[0] }[] }) {
+  const boite = useRef<HTMLSpanElement | null>(null);
+  const [n, setN] = useState(contacts.length);
+  const cle = contacts.map((c) => `${c.famille}:${c.nom}`).join('|');
+  useLayoutEffect(() => {
+    const el = boite.current;
+    if (el === null) return;
+    const mesurer = () => {
+      const largeurs = [...el.querySelectorAll<HTMLElement>('[data-mesure-contact]')].map((e) => e.getBoundingClientRect().width);
+      const plus = el.querySelector<HTMLElement>('[data-mesure-plus]')?.getBoundingClientRect().width ?? 0;
+      setN(contactsQuiTiennent(largeurs, el.getBoundingClientRect().width, plus));
+    };
+    mesurer();
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(mesurer);
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [cle]);
+  const un = (c: { nom: string; famille: Parameters<typeof tonDuGroupe>[0] }, i: number, mesure = false) => (
+    <span key={i} className="tch-ct" {...(mesure ? { 'data-mesure-contact': '' } : { 'data-contact-ligne': '' })}>
+      <span className={`tch-ct-pastille tch-ct-pastille--${tonDuGroupe(c.famille)}`} aria-hidden="true" />
+      {prenomNom(c.nom)}
+    </span>
+  );
+  const reste = contacts.length - n;
+  return (
+    <span className="tch-cts" ref={boite}>
+      <span className="tch-cts-mesure" aria-hidden="true">
+        {contacts.map((c, i) => un(c, i, true))}
+        <span className="tch-ct-plus" data-mesure-plus="">… +{contacts.length}</span>
+      </span>
+      {contacts.slice(0, n).map((c, i) => un(c, i))}
+      {reste > 0 && <span className="tch-ct-plus" data-plus={reste} title={contacts.slice(n).map((c) => prenomNom(c.nom)).join(', ')}>… +{reste}</span>}
+    </span>
   );
 }
 
@@ -411,6 +458,22 @@ export const CSS_TACHES = `
 .tch-l1-titre{flex:1 1 auto !important;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:700;color:var(--color-svv-ink)}
 .tch-l2{font-size:.8rem;color:var(--color-svv-muted)}
 .tch-l2 > *{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+/* LOT TACHES-LIGNE-CONTACTS : a gauche l'adresse et les contacts (qui cedent la place), a droite « confiee a » et l'agenda
+   (qui ne bougent jamais). Pastilles : les MEMES jetons que le lisere des familles du bloc PARTIES. */
+.tch-l2-gauche{display:flex;align-items:center;gap:.6rem;flex:1 1 0 !important;min-width:0}
+.tch-l2-adresse{flex:0 1 auto;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis}
+.tch-l2-droite{display:flex;align-items:center;gap:.6rem;flex:0 0 auto !important;margin-left:auto;overflow:visible !important}
+.tch-cts{position:relative;display:flex;align-items:center;gap:8px;flex:1 1 0;min-width:0;overflow:hidden}
+.tch-cts-mesure{position:absolute;left:0;top:0;visibility:hidden;display:flex;gap:8px;white-space:nowrap;pointer-events:none}
+.tch-ct{display:inline-flex;align-items:center;gap:.3rem;flex:0 0 auto;color:var(--color-svv-ink)}
+.tch-ct-plus{flex:0 0 auto;color:var(--color-svv-muted)}
+.tch-ct-pastille{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--color-svv-line-strong)}
+.tch-ct-pastille--rouge{background:var(--color-svv-red)}
+.tch-ct-pastille--vert{background:var(--color-svv-green)}
+.tch-ct-pastille--violet{background:var(--color-svv-violet)}
+.tch-ct-pastille--rose{background:var(--color-svv-syndic-bord)}
+.tch-ct-pastille--bleu{background:var(--color-svv-blue)}
+.tch-ct-pastille--gris{background:var(--color-svv-line-strong)}
 .tch-l2 .tch-lien{min-height:24px}
 .tch-fleche{font-size:.85em}
 .tch-carte-titre--repli{cursor:pointer}

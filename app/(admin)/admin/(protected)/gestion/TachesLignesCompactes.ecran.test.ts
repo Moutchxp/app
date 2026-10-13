@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { TableauTaches } from './TableauTaches';
 import { CSS_TACHES, MOT_ACTION } from './LigneTache';
 import {
-  ajouterJours, echeanceCompacte, jourParisDe, MOT_COMPTEUR, MOT_COULEUR, motCompteur, type Tache,
+  ajouterJours, contactsQuiTiennent, echeanceCompacte, prenomNom, jourParisDe, MOT_COMPTEUR, MOT_COULEUR, motCompteur, type Tache,
 } from '../../../../lib/gestion/taches';
 
 /**
@@ -49,6 +49,7 @@ let root: Root;
 beforeEach(() => {
   taches = [
     t({ id: 1, objet: 'Relancer le plombier', jour: ajouterJours(AUJ, -3),
+      contactsResume: [{ nom: 'ASHISH Sneh', famille: 'locataire' }, { nom: 'HARB Samer', famille: 'ancien_locataire' }],
       agendaCarte: { etat: 'dans_agenda', texte: '📅 Dans l’agenda Google de Arnaud Jorel', motif: null, peutReessayer: false } }),
     t({ id: 2, objet: 'Visite', heure: '09:30' }),
   ];
@@ -86,7 +87,11 @@ describe('🔴 la ligne repliée', () => {
     expect([...l.children].map((c) => c.className)).toEqual(['tch-l1', 'tch-l2']);
     expect(l.querySelector('.tch-l1 b.tch-date')?.textContent).toMatch(/^[a-z]{3}\. \d+ [a-zé]+\.? · journée$/); // en retard : la date
     expect(l.querySelector('.tch-l1-titre')?.textContent).toBe('Relancer le plombier');
-    expect(l.querySelector('.tch-l2')?.textContent).toBe('7 avenue de l’Union, Asnières→ Arnaud Jorel👤 2 contacts📆 Dans l’agenda');
+    // LOT TACHES-LIGNE-CONTACTS : plus de « 👤 n contacts » ; à gauche l'adresse et les contacts nommés, à droite confiée + agenda.
+    const visible = (el: Element) => { const c = el.cloneNode(true) as Element; c.querySelectorAll('.tch-cts-mesure').forEach((m) => m.remove()); return c.textContent; };
+    expect(visible(l.querySelector('.tch-l2-gauche')!)).toBe('7 avenue de l’Union, AsnièresSneh ASHISHSamer HARB');
+    expect(l.querySelector('.tch-l2-droite')?.textContent).toBe('→ Arnaud Jorel📆 Dans l’agenda');
+    expect(l.querySelector('.tch-l2')?.textContent).not.toContain('contacts');
     expect(l.querySelector('.tch-actions')).toBeNull();
     expect(ligne(2).querySelector('.tch-l1 b.tch-date')?.textContent).toBe('Aujourd’hui · 9 h 30');
     // Deux lignes AU PLUS : rien ne passe à la ligne, l'excès s'efface (« … »).
@@ -142,6 +147,26 @@ describe('🔴 la ligne repliée', () => {
       await calmer();
       expect(ligne(1).classList.contains('tch-carte')).toBe(true);
     }
+  });
+  it('🔴 LOT TACHES-LIGNE-CONTACTS — chaque contact « Prénom NOM » derrière la pastille de SA famille ; la droite à part', async () => {
+    await monter();
+    const cts = [...ligne(1).querySelectorAll('[data-contact-ligne]')];
+    expect(cts.map((c) => c.textContent)).toEqual(['Sneh ASHISH', 'Samer HARB']);
+    expect(cts.map((c) => c.querySelector('.tch-ct-pastille')?.className))
+      .toEqual(['tch-ct-pastille tch-ct-pastille--vert', 'tch-ct-pastille tch-ct-pastille--violet']);
+    // Les éléments de droite ne cèdent jamais la place ; la gauche (adresse, contacts) se contracte.
+    expect(CSS_TACHES).toMatch(/\.tch-l2-droite\{[^}]*flex:0 0 auto !important;margin-left:auto/);
+    expect(CSS_TACHES).toMatch(/\.tch-l2-gauche\{[^}]*flex:1 1 0 !important;min-width:0/);
+  });
+  it('la fonction des contacts qui tiennent : tout, ou ce qui tient AVEC la place de « … +n »', () => {
+    expect(contactsQuiTiennent([80, 90], 200, 30)).toBe(2);
+    expect(contactsQuiTiennent([80, 90, 70], 200, 30)).toBe(1); // 80 + 8 + 90 > 200 - 30 - 8
+    expect(contactsQuiTiennent([300], 200, 30)).toBe(0);
+    expect(prenomNom('ASHISH Sneh')).toBe('Sneh ASHISH');
+    expect(prenomNom('JULLIEN - GARRIDO Cédric')).toBe('Cédric JULLIEN - GARRIDO');
+    expect(prenomNom('SCI DU PARC')).toBe('SCI DU PARC');
+    expect(prenomNom('Cabinet Exemple')).toBe('Cabinet Exemple');
+    expect(prenomNom('arnaud.jorel@gmail.com')).toBe('arnaud.jorel@gmail.com');
   });
   it('le clic sur l’adresse ouvre la fiche, sans déplier', async () => {
     await monter();

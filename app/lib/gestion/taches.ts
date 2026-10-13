@@ -44,6 +44,40 @@ export const MOT_COULEUR: Record<CouleurTache, string> = {
   retard: 'En retard', jour: 'Aujourd’hui', proche: 'Dans 2 jours', plus_tard: 'Plus tard',
 };
 
+/**
+ * 🔴 LOT TACHES-LIGNE-CONTACTS — « Prénom NOM » à partir de la forme enregistrée « NOM Prénom » (« ASHISH Sneh » →
+ * « Sneh ASHISH »). Les mots tout en capitales du début forment le nom ; s'il ne reste rien (« SCI DU PARC »), ou si le
+ * premier mot n'est pas en capitales (« Cabinet Exemple », une adresse e-mail), le nom est rendu tel quel. PUR.
+ */
+export function prenomNom(nom: string): string {
+  const mots = nom.trim().split(/\s+/).filter((m) => m !== '');
+  // Un mot « du nom » : sans aucune minuscule (« ASHISH », « JULLIEN », le tiret de « JULLIEN - GARRIDO »).
+  const capitales = (m: string) => m === m.toLocaleUpperCase('fr-FR') && !/@/.test(m);
+  let i = 0;
+  while (i < mots.length && capitales(mots[i])) i += 1;
+  if (i === 0 || i === mots.length) return mots.join(' ');
+  return [...mots.slice(i), ...mots.slice(0, i)].join(' ');
+}
+
+/**
+ * 🔴 LOT TACHES-LIGNE-CONTACTS — combien de contacts tiennent dans la place donnée (largeurs mesurées à l'écran), en
+ * réservant la place de « … +n » dès qu'il en reste à taire. PUR.
+ */
+export function contactsQuiTiennent(largeurs: readonly number[], disponible: number, largeurPlus: number, ecart = 8): number {
+  if (disponible <= 0) return largeurs.length; // pas encore mis en page : on montre tout
+  const total = largeurs.reduce((a, l, k) => a + l + (k > 0 ? ecart : 0), 0);
+  if (total <= disponible) return largeurs.length;
+  let place = disponible - largeurPlus - ecart;
+  let n = 0;
+  for (const l of largeurs) {
+    const besoin = l + (n > 0 ? ecart : 0);
+    if (besoin > place) break;
+    place -= besoin;
+    n += 1;
+  }
+  return n;
+}
+
 /** 🔴 LOT TACHES-LIGNES-COMPACTES — un compteur : le libellé, puis le nombre entre parenthèses (« plus tard (1) »). PUR. */
 export function motCompteur(c: CouleurTache, n: number): string {
   return `${MOT_COMPTEUR[c]} (${n})`;
@@ -112,6 +146,8 @@ export interface Tache {
   /** 🔴 LOT FICHE-CARTE-TACHE — les contacts copiés et les pièces, rendus seulement pour les tâches D'UN bien (fiche). */
   contacts?: ContactTache[];
   pieces?: PieceTache[];
+  /** 🔴 LOT TACHES-LIGNE-CONTACTS — le nom et la famille de chaque contact, pour la 2e ligne repliée (toutes les listes). */
+  contactsResume?: { nom: string; famille: ContactTache['famille'] }[];
 }
 
 /**
