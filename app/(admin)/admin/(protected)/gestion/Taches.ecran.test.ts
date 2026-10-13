@@ -72,6 +72,9 @@ const monter = async () => {
       createElement('div', { id: 'general' }, createElement(TableauTaches, { onOuvrirBien: () => {} }))));
   });
   await calmer();
+  // 🔴 LOT FICHE-TACHES-EN-ATTENTE — le bloc de la fiche est REPLIÉ par défaut : on le déplie, comme Arno d'un clic.
+  const repli = container.querySelector<HTMLButtonElement>('#fiche [data-repli-taches]');
+  if (repli) { await act(async () => { repli.click(); }); await calmer(); }
 };
 
 /** Ce qu'un écran montre des tâches OUVERTES : numéro → couleur, dans l'ordre d'affichage. */

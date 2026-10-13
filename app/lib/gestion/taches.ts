@@ -216,6 +216,26 @@ export function compterTaches(taches: readonly Tache[], maintenant: Date): Recor
   return n;
 }
 
+/**
+ * ══ 🔴🔴 LOT FICHE-TACHES-EN-ATTENTE (Arno, 13/10/2026) — « TÂCHES EN ATTENTE » D'UN BIEN ══════════════════════════
+ * = ni faites ni annulées : en retard, du jour, à venir, Y COMPRIS « En attente d'acceptation » et « Refusée » (une
+ * tâche refusée reste à faire : elle est à réattribuer). LA fonction unique : le bouton « + Tâche » ET le bloc
+ * « Tâches de ce bien » l'appellent, pour ne jamais afficher deux nombres différents. PUR.
+ */
+export function compterEnAttenteBien(taches: readonly Pick<Tache, 'etat'>[]): number {
+  return taches.filter((t) => t.etat === 'a_faire').length;
+}
+
+/** « 1 en attente », « 2 en attente » — dans le bouton. PUR. */
+export function motEnAttenteBouton(n: number): string {
+  return `${n} en attente`;
+}
+
+/** « 1 tâche en attente sur ce bien », « 2 tâches en attente sur ce bien » — la ligne repliée du bloc. PUR. */
+export function phraseEnAttenteBien(n: number): string {
+  return `${n} tâche${n > 1 ? 's' : ''} en attente sur ce bien`;
+}
+
 export type FiltreTaches = 'toutes' | 'miennes';
 
 /** « Les miennes » = celles qui me sont CONFIÉES. Sans compte (voie de secours), aucune n'est à moi. PUR. */

@@ -30,6 +30,24 @@ export function ecouterTaches(f: () => void): () => void {
 }
 
 /**
+ * 🔴 LOT FICHE-TACHES-EN-ATTENTE — « une tâche vient d'être CRÉÉE depuis la fiche de ce bien » : le bloc « Tâches de ce
+ * bien », replié par défaut, se déplie pour montrer le résultat (Arno). Un signal à part, porteur du bien, pour que
+ * les autres gestes (récapitulatif général, autres fiches) ne déplient rien.
+ */
+export const SIGNAL_DEPLIER_TACHES_BIEN = 'gestion:taches:deplier-bien';
+
+export function demanderDepliageBien(lotId: number): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(SIGNAL_DEPLIER_TACHES_BIEN, { detail: { lotId } }));
+}
+
+export function ecouterDepliageBien(lotId: number, f: () => void): () => void {
+  if (typeof window === 'undefined') return () => {};
+  const g = (e: Event) => { if (Number((e as CustomEvent<{ lotId: number }>).detail?.lotId) === Number(lotId)) f(); };
+  window.addEventListener(SIGNAL_DEPLIER_TACHES_BIEN, g);
+  return () => window.removeEventListener(SIGNAL_DEPLIER_TACHES_BIEN, g);
+}
+
+/**
  * L'ISSUE D'UN GESTE. Un refus porte TOUJOURS un message en français, et le champ concerné quand il y en a un
  * (`refusDuServeur`, règle unique) : la fenêtre l'affiche en haut ET à côté du champ. Jamais de clic sans effet.
  */
