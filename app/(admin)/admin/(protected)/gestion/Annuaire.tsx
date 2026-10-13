@@ -32,6 +32,8 @@ import { categoriesDeLaFiche } from '../../../../lib/gestion/familleDestinataire
  * fois est inoffensif, un style manquant ferait un listing sans mise en forme.
  */
 import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
+/* 🔴🔴 LOT TACHES-1 — le bouton « + Tâche » et le récapitulatif des tâches du bien, en haut de sa fiche. */
+import { BoutonTache, RecapTachesDuBien } from './TachesDuBien';
 /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — le contexte d'écriture ne fait que TRAVERSER cet écran. */
 import type { ContexteRedactionEcran } from './Redaction';
 /**
@@ -1416,6 +1418,9 @@ function VueLot({
             <a className="svv-btn svv-btn-outline gst-btn" href={`${DRIVE_DOSSIER}${f.driveDossierId}`}
               target="_blank" rel="noreferrer">Dossier Drive ↗</a>
           )}
+          {/* 🔴🔴 LOT TACHES-1 — « + Tâche », À CÔTÉ de « Dossier Drive ↗ » (Arno), sans rien déplacer ni retirer.
+              Ne rend rien tant que la migration 346 n'est pas appliquée. */}
+          <BoutonTache lotId={Number(f.id)} lotCle={f.numero} adresse={titreLogement(f.adresse, f.commune)} />
         </div>
       </header>
 
@@ -1423,6 +1428,10 @@ function VueLot({
           la page sur la « vie du bien » filtrée sur les échanges qui portent un événement ouvert. */}
       <CartoucheEvenement nb={f.evenementsOuverts}
         onOuvrir={() => { onFiltreVie('evenement'); ancreVie.current?.scrollIntoView({ block: 'start' }); }} />
+      {/* 🔴🔴 LOT TACHES-1 — SOUS L'EN-TÊTE, le récapitulatif des tâches DE CE BIEN, au code couleur commun. Posé
+          APRÈS la bande orange « Événement en cours », qui garde sa place juste sous l'en-tête (épreuve
+          `marquesApresReouverture.test.ts`). Aucune tâche ouverte ⇒ il ne rend rien, et seul le bouton se voit. */}
+      <RecapTachesDuBien lotId={Number(f.id)} />
       {/* 🔴 LOT ANNUAIRE-SYNDICS — depuis la fiche du bien : la copropriété du bien est pré-remplie. */}
       <PastilleConflitParcelle immeuble={f.immeuble} />
       <BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />

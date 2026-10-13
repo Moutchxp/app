@@ -28,6 +28,8 @@ import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
 /* 🔴🔴 LOT EVENEMENTS-TABLEAU-DE-BORD — le portefeuille en chiffres, tout en haut de l'écran des événements. */
 import { TableauBordEvenements } from './TableauBordEvenements';
+/* 🔴🔴 LOT TACHES-1 — le récapitulatif général des tâches, tout en bas de l'écran partagé. */
+import { TableauTaches } from './TableauTaches';
 /* 🔴🔴 LOT …-ET-LIGNE-DE-FILTRES — la ligne de filtres et de tris du plein écran Événements, et son module PUR. */
 import { LigneFiltresEvenements } from './LigneFiltresEvenements';
 import {
@@ -1850,6 +1852,11 @@ export function GestionVue({ intro }: {
           </details>
         )}
         </details>
+
+      {/* 🔴🔴 LOT TACHES-1 — LE RÉCAPITULATIF GÉNÉRAL DES TÂCHES, TOUT EN BAS DE L'ÉCRAN PARTAGÉ. C'est la seule place
+          qui ne déplace, ne rétrécit ni ne masque rien : annuaire, boîte à gauche, événements à droite et « Échanges
+          sans événement » restent exactement où ils étaient. L'adresse de chaque ligne ouvre la fiche du bien. */}
+      <TableauTaches onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }} />
       </>
       )}
     </>

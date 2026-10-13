@@ -343,6 +343,15 @@ export function evenementConcerneDisponible(): Promise<boolean> {
   return memoiser('table.gestion_evenement_concerne', () => tableExiste('gestion_evenement_concerne'));
 }
 
+/**
+ * 🔴 LOT TACHES-1 — la migration 346 est-elle appliquée ? Elle seule porte les tâches rattachées à un bien. Sans
+ * elle, ni le bouton « + Tâche » ni les récapitulatifs ne s'affichent, et tout est exactement comme avant ce lot.
+ */
+export function tachesDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_tache', async () =>
+    (await tableExiste('gestion_tache')) && (await tableExiste('gestion_tache_action')));
+}
+
 async function tableExiste(table: string): Promise<boolean> {
   try {
     const { rows } = await query<{ n: number }>(
