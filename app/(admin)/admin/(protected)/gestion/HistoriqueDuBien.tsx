@@ -526,37 +526,9 @@ export function HistoriqueDuBien({
    * contenu, et c'est le genre d'écran où l'on finit par ne plus savoir si l'on a déjà regardé.
    */
   const [resumeOuvert, setResumeOuvert] = useState(false);
-  /**
-   * 🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — LE HAUT DE CHAQUE RÉSUMÉ, pour y ramener la page quand on le referme
-   * depuis son bouton de fin. Deux ancres parce qu'il y a DEUX montages (au-dessus du fil, et en bas du
-   * listing) : chacun ramène à SON propre bouton du haut, jamais à celui de l'autre.
-   */
+  /** Le haut du résumé (le bloc « Nouveau message » / « 📎 … pièce(s) dans cette sélection »). 🔴 LOT PIECES-ZONE-UNIQUE :
+   *  il n'y a plus qu'un montage du résumé, donc plus de bouton de fin ni de recadrage depuis le bas. */
   const ancreResumeHaut = useRef<HTMLDivElement | null>(null);
-  const ancreResumeBas = useRef<HTMLDivElement | null>(null);
-  /**
-   * ══ 🔴🔴 LE RECADRAGE APRÈS FERMETURE — ET POURQUOI IL EST DIFFÉRÉ ═══════════════════════════════════════════
-   *
-   * DEMANDE D'ARNO : « En le refermant depuis le bas, la page se repositionne sur le haut du résumé refermé. »
-   *
-   * 🔴 LE DÉFILEMENT NE PEUT PAS SE FAIRE AU CLIC, ET C'EST MESURÉ : à cet instant le résumé est encore DÉPLIÉ —
-   * 10 906 px de haut sur lot-290 — et `scrollIntoView` calcule sur cette page-là. Essayé à l'écran : on
-   * atterrissait 8 453 px en dessous du bloc visé. On note donc QUI recadrer, et on le fait une fois le repli
-   * écrit dans le document.
-   *
-   * ⚠️ `useLayoutEffect` ET NON `useEffect` : il court après la mutation du DOM mais AVANT que l'écran soit
-   * peint. Avec `useEffect`, on verrait d'abord la page sauter à sa position d'avant, puis se recadrer.
-   */
-  const [recadrer, setRecadrer] = useState<'haut' | 'bas' | null>(null);
-  useLayoutEffect(() => {
-    if (recadrer === null) return;
-    /* ⚠️ `scrollIntoView?.()` : tous les environnements ne le fournissent pas (jsdom, impressions, lecteurs). Un
-       défilement de confort ne doit jamais faire tomber le rendu du bloc — c'est déjà la forme retenue ailleurs
-       dans ce module (`pied.current?.scrollIntoView?.(…)`, lot BROUILLON-EN-ATTENTE). */
-    (recadrer === 'haut' ? ancreResumeHaut : ancreResumeBas).current?.scrollIntoView?.({ block: 'start' });
-    setRecadrer(null);
-  }, [recadrer]);
-  /** Fermer DEPUIS LA FIN d'un résumé : on replie, et on ramène la page sur le haut de CE bloc-là. */
-  const fermerResumeDepuisLaFin = (ou: 'haut' | 'bas') => { setResumeOuvert(false); setRecadrer(ou); };
   /** Le mail d'où l'on est parti, surligné BRIÈVEMENT au retour (demande d'Arno). */
   const [mailSurligne, setMailSurligne] = useState<number | null>(repris?.mail ?? null);
 
@@ -3219,7 +3191,7 @@ export function HistoriqueDuBien({
           {/* ⚠️ La note garde la condition d'avant ce lot : le bouton seul ne la fait jamais apparaître. */}
           {porteeDuResume !== null && (totalPieces > 0 || lignes.length > 0) && <p className="gst-note hdb-note">{porteeDuResume}</p>}
           {resumeOuvert && (
-            <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('haut')}
+            <ResumeDeplie
               groupes={groupesPieces} depots={depots} emplacements={emplacements}
               maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
               categories={categoriesFusionnees} syndicaux={syndicaux} destinataires={destinatairesDuMessage} />
@@ -3352,22 +3324,9 @@ export function HistoriqueDuBien({
                 )}
               </div>
 
-              {/* ══ 🔴🔴 LE MÊME BOUTON, EN BAS DU LISTING (lot HISTORIQUE-BIEN-4, point 4) ═══════════════════
-                  Arno : « Le MÊME bouton est ajouté EN BAS du listing des mails : il ouvre et ferme le même
-                  résumé (un seul état partagé). » Après avoir lu quarante mails, on est en bas : remonter
-                  chercher le bouton du haut était un aller-retour pour rien. */}
-              {totalPieces > 0 && (
-                <div className="hdb-resume hdb-resume--bas" ref={ancreResumeBas}>
-                  <BasculeResume n={totalPieces} ouvert={resumeOuvert}
-                    onBasculer={() => setResumeOuvert((v) => !v)} />
-                  {resumeOuvert && (
-                    <ResumeDeplie n={totalPieces} onFermer={() => fermerResumeDepuisLaFin('bas')}
-                      groupes={groupesPieces} depots={depots} emplacements={emplacements}
-                      maintenant={maintenant} gestes={gestes} sansEmpreinte={recap.sansEmpreinte}
-                      categories={categoriesFusionnees} syndicaux={syndicaux} destinataires={destinatairesDuMessage} />
-                  )}
-                </div>
-              )}
+              {/* 🔴🔴 LOT PIECES-ZONE-UNIQUE (Arno, 13/10/2026) — le bloc du bas (bouton « 📎 … pièce(s) dans cette sélection »
+                  et SECONDE zone de visionnage) est RETIRÉ, avec l'accord d'Arno pour ces doublons : il n'y a plus qu'UNE
+                  zone, au-dessus de la liste des mails, et UN bouton, à côté de « Nouveau message ». */}
             </>
           )}
 
@@ -4597,22 +4556,11 @@ function FilDeMails({
  * ⚠️ LES TROIS MOTS AJOUTÉS (« dans cette sélection ») SONT LA CORRECTION DU POINT 1, DITE À L'ÉCRAN : le résumé
  * couvre la sélection, pas la page — et c'est l'ancien libellé qui avait fait croire le contraire.
  */
-function BasculeResume({ n, ouvert, onBasculer, place = 'tete' }: {
+function BasculeResume({ n, ouvert, onBasculer }: {
   n: number; ouvert: boolean; onBasculer: () => void;
-  /**
-   * ══ 🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — OÙ CE BOUTON-CI SE TIENT ═══════════════════════════════════════════
-   *
-   * DEMANDE D'ARNO (05/10/2026) : « Ajoute le MÊME bouton À LA FIN du résumé ouvert, CENTRÉ au milieu de la
-   * ligne. Même composant, même état partagé que le bouton du haut. »
-   *
-   * 🔴 `place` NE CHANGE QUE L'ALIGNEMENT, et c'est tout l'intérêt : le mot, l'état, le compte et le geste
-   * viennent des mêmes endroits qu'en tête. Un second composant « bouton du bas » aurait fini par porter un
-   * autre libellé — et c'est celui qu'on voit le moins qui aurait gardé l'ancien.
-   */
-  place?: 'tete' | 'pied';
 }) {
   return (
-    <button type="button" className={`pdc-trombone${place === 'pied' ? ' hdb-bascule-pied' : ''}`}
+    <button type="button" className="pdc-trombone"
       aria-expanded={ouvert} onClick={onBasculer}>
       <span aria-hidden="true">📎</span> {motPiecesSelection(n)}
       <span className="hdb-resume-mot"> {motBasculeResume(ouvert)}</span>
@@ -4637,10 +4585,7 @@ function BasculeResume({ n, ouvert, onBasculer, place = 'tete' }: {
  * ⚠️ CHAQUE MONTAGE VISE SON PROPRE HAUT, et non celui de l'autre : fermer depuis le bas du listing doit ramener
  * au bouton qu'on vient de quitter, pas en tête de page — on n'a pas demandé à remonter tout l'écran.
  */
-function ResumeDeplie({ n, onFermer, ...props }: {
-  n: number;
-  /** Referme le résumé ET demande que la page revienne sur le haut de CE bloc. Voir `recadrer` dans le bloc. */
-  onFermer: () => void;
+function ResumeDeplie(props: {
   groupes: readonly GroupeDePieces<PieceDedoublonnee>[];
   depots: ReadonlyMap<number, DepotAffiche>;
   emplacements: ReadonlyMap<number, readonly EmplacementPiece[]>;
@@ -4654,11 +4599,9 @@ function ResumeDeplie({ n, onFermer, ...props }: {
   destinataires: ReadonlyMap<number, FamilleVue[]>;
 }) {
   return (
-    <>
-      <ResumePieces {...props} />
-      {/* 🔴 CENTRÉ (demande d'Arno) : à la fin d'une liste, un bouton collé à gauche se cherche. */}
-      <BasculeResume n={n} ouvert place="pied" onBasculer={onFermer} />
-    </>
+    /* 🔴 LOT PIECES-ZONE-UNIQUE (Arno, 13/10/2026) — le bouton de fin de résumé (« au milieu » de la page) est RETIRÉ,
+       avec l'accord d'Arno : le SEUL bouton est celui du haut, à côté de « Nouveau message ». */
+    <ResumePieces {...props} />
   );
 }
 
@@ -5340,7 +5283,6 @@ ${CSS_PIECES}
    ⚠️ IL GARDE EXACTEMENT L'HABILLAGE DU BOUTON DU HAUT — meme classe .pdc-trombone, donc meme fond, meme hauteur
    de cible tactile, meme survol. Seul l'alignement change, et c'est ce qu'Arno demande.
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
-.hdb-bascule-pied{display:flex;margin:.6rem auto 0}
 .hdb-resume-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.2rem 0 .4rem;
   font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}
 .hdb-pieces{display:flex;flex-direction:column;gap:12px;min-width:0}

@@ -664,30 +664,20 @@ describe('⑤ le fil et les pièces', () => {
    * partagé). » Deux états auraient fait deux vérités pour un même contenu — l'écran où l'on finit par ne plus
    * savoir si l'on a déjà regardé. Le compte, lui, se lit toujours SANS clic : c'est tout l'intérêt du repli.
    */
-  it('🔴🔴 un seul état partagé, et le compte se lit sans clic', async () => {
+  it('🔴🔴 un seul état, et le compte se lit sans clic (LOT PIECES-ZONE-UNIQUE : un seul bouton)', async () => {
     await monter();
     const boutons = [...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[];
-    /* LE MÊME BOUTON, DEUX FOIS : en haut du bloc et en bas du listing. */
-    expect(boutons).toHaveLength(2);
-    for (const b of boutons) {
-      expect(b.getAttribute('aria-expanded')).toBe('false');
-      /* 🔴 LE LIBELLÉ DIT SON PÉRIMÈTRE : « dans cette sélection » — la correction du point 1, dite à l'écran. */
-      expect(b.textContent).toContain('2 pièces dans cette sélection');
-      expect(b.textContent).toContain('— les voir');
-    }
+    expect(boutons).toHaveLength(1);
+    expect(boutons[0].getAttribute('aria-expanded')).toBe('false');
+    /* 🔴 LE LIBELLÉ DIT SON PÉRIMÈTRE : « dans cette sélection ». */
+    expect(boutons[0].textContent).toContain('2 pièces dans cette sélection');
+    expect(boutons[0].textContent).toContain('— les voir');
     expect(hote.querySelectorAll('.pdc-carte')).toHaveLength(0);
-
-    /* UN CLIC EN HAUT OUVRE LES DEUX, et les deux boutons le disent. */
     await cliquer(boutons[0]);
-    for (const b of [...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[]) {
-      expect(b.getAttribute('aria-expanded')).toBe('true');
-      expect(b.textContent).toContain('— les masquer');
-    }
+    expect(boutons[0].getAttribute('aria-expanded')).toBe('true');
+    expect(boutons[0].textContent).toContain('— les masquer');
     expect(hote.querySelectorAll('.pdc-carte').length).toBeGreaterThan(0);
-
-    /* …ET UN CLIC EN BAS LES REFERME. */
-    const enBas = ([...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[])[1];
-    await cliquer(enBas);
+    await cliquer(boutons[0]);
     expect(hote.querySelectorAll('.pdc-carte')).toHaveLength(0);
   });
 
@@ -743,7 +733,7 @@ describe('⑤ le fil et les pièces', () => {
   it('🔴 chaque miniature porte « Visualiser » et « Télécharger »', async () => {
     await monter();
     await ouvrirLeResume();
-    const bas = hote.querySelector('.hdb-resume--bas') as HTMLElement;
+    const bas = hote.querySelector('.hdb-resume--haut') as HTMLElement; // LOT PIECES-ZONE-UNIQUE : la zone unique
     expect(bas.querySelector('[aria-label^="Visualiser"]')).not.toBeNull();
     expect(bas.querySelector('[aria-label^="Télécharger"]')).not.toBeNull();
     expect(texte()).toContain('quittance-fevrier.pdf');
@@ -2109,7 +2099,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
    * échoué pour cette raison — pas pour un défaut du produit.
    */
   const piecesDuResume = (): string[] =>
-    [...hote.querySelectorAll('.hdb-resume--bas .pdc-grille > li')]
+    [...hote.querySelectorAll('.hdb-resume--haut .pdc-grille > li')]
       .map((x) => (x.querySelector('.pcv-nom, [class*="nom"]')?.textContent
         ?? (x.textContent ?? '').trim().split('\n')[0]).trim());
 
@@ -4225,7 +4215,7 @@ describe('⑪-quinquies 🔴🔴 le résumé porte sur toute la sélection', () 
   };
 
   const nomsDuResume = (): string[] =>
-    [...hote.querySelectorAll('.hdb-resume--bas .pdc-grille > li')]
+    [...hote.querySelectorAll('.hdb-resume--haut .pdc-grille > li')]
       .map((x) => (x.querySelector('.pcv-nom, [class*="nom"]')?.textContent
         ?? (x.textContent ?? '').trim().split('\n')[0]).trim());
 
@@ -4619,163 +4609,41 @@ describe('⑫ 🔴🔴 sortir un mail du suivi de ce bien', () => {
 });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   ⑬ 🔴🔴 LOT RESUME-PIECES-BOUTON-BAS — LE MÊME BOUTON À LA FIN DU RÉSUMÉ
+   ⑬ 🔴🔴 LOT PIECES-ZONE-UNIQUE (Arno, 13/10/2026) — UNE SEULE ZONE, UN SEUL BOUTON
+   Remplace les épreuves des lots RESUME-PIECES-BOUTON-BAS et HISTORIQUE-BIEN-4 (bouton en bas du listing, bouton de
+   fin de résumé, seconde zone sous la liste), retirés avec l'accord d'Arno.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-describe('⑬ 🔴🔴 refermer le résumé des pièces depuis sa fin', () => {
-  /**
-   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   * CONSTAT D'ARNO (05/10/2026) : « une fois le résumé des pièces ouvert, il est long, et pour le refermer il faut
-   * remonter tout en haut. »
-   *
-   * SA DEMANDE : « Ajoute le MÊME bouton (“N pièces dans cette sélection — les masquer”) À LA FIN du résumé
-   * ouvert, CENTRÉ au milieu de la ligne. Même composant, même état partagé que le bouton du haut. […] En le
-   * refermant depuis le bas, la page se repositionne sur le haut du résumé refermé. »
-   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-   */
-
-  const bascules = (): HTMLButtonElement[] =>
-    [...hote.querySelectorAll('.pdc-trombone')] as HTMLButtonElement[];
-  const pieds = (): HTMLButtonElement[] =>
-    [...hote.querySelectorAll('.hdb-bascule-pied')] as HTMLButtonElement[];
-
-  /** 🔴 REPLIÉ, IL N'Y A AUCUN BOUTON DE FIN : il n'y a rien à fermer, et deux boutons identiques côte à côte. */
-  it('🔴 résumé fermé : aucun bouton de fin', async () => {
+describe('⑬ 🔴🔴 une seule zone de pièces, un seul bouton', () => {
+  it('fermé : un seul bouton, à côté de « Nouveau message » (même ligne) ; aucune zone', async () => {
     await monter();
-    expect(bascules().length).toBeGreaterThan(0);
-    expect(pieds()).toHaveLength(0);
-  });
-
-  /**
-   * 🔴🔴 OUVERT, CHAQUE MONTAGE A SON BOUTON DE FIN. Le bloc est rendu DEUX fois (au-dessus du fil, et en bas du
-   * listing, lot HISTORIQUE-BIEN-4) : les deux doivent l'avoir, sans quoi celui qu'on utilise le moins garderait
-   * le défaut qu'Arno signale.
-   */
-  it('🔴🔴 ouvert : un bouton de fin DANS chaque résumé, après les pièces', async () => {
-    await monter();
-    await ouvrirLeResume();
-    const hauts = [...hote.querySelectorAll('.hdb-resume--haut')];
-    const bas = [...hote.querySelectorAll('.hdb-resume--bas')];
-    expect(hauts[0]?.querySelector('.hdb-bascule-pied')).not.toBeNull();
-    expect(bas[0]?.querySelector('.hdb-bascule-pied')).not.toBeNull();
-    /* 🔴 ET IL EST BIEN APRÈS LES PIÈCES, jamais avant : c'est « à la fin du résumé » qu'Arno demande. */
-    for (const bloc of [hauts[0], bas[0]]) {
-      const html = bloc?.innerHTML ?? '';
-      expect(html.indexOf('hdb-pieces')).toBeLessThan(html.indexOf('hdb-bascule-pied'));
-    }
-  });
-
-  /**
-   * 🔴🔴 LE MÊME BOUTON, AU CARACTÈRE PRÈS. Même compte, même libellé, même habillage (`pdc-trombone`) : c'est un
-   * seul composant, et c'est ce qui garantit qu'il ne divergera pas du bouton du haut.
-   */
-  it('🔴🔴 même libellé et même habillage que le bouton du haut', async () => {
-    await monter();
-    await ouvrirLeResume();
-    const haut = bascules()[0];
-    const pied = pieds()[0];
-    expect(pied.textContent).toBe(haut.textContent);
-    expect(pied.textContent).toContain('pièce');
-    expect(pied.textContent).toContain('— les masquer');
-    /* 🔴 LE MÊME HABILLAGE : la classe du haut, plus le seul centrage. */
-    expect(pied.className).toContain('pdc-trombone');
-    expect(pied.className).toContain('hdb-bascule-pied');
-    expect(pied.getAttribute('aria-expanded')).toBe('true');
-  });
-
-  /** 🔴🔴 UN SEUL ÉTAT : fermer depuis la fin referme TOUT, les deux montages compris. */
-  it('🔴🔴 cliquer le bouton de fin referme le résumé — partout', async () => {
-    await monter();
-    await ouvrirLeResume();
-    expect(pieds().length).toBeGreaterThan(0);
-    await cliquer(pieds()[0]);
-    expect(pieds()).toHaveLength(0);
+    const b = [...hote.querySelectorAll('.pdc-trombone')];
+    expect(b).toHaveLength(1);
+    expect(b[0].closest('.hdb-resume--haut')).not.toBeNull();
     expect(hote.querySelectorAll('.hdb-pieces')).toHaveLength(0);
-    /* ⚠️ ET LE BOUTON DU HAUT REPROPOSE DE L'OUVRIR : l'état est bien partagé, pas local au bloc. */
-    expect(bascules()[0].textContent).toContain('— les voir');
-    expect(bascules()[0].getAttribute('aria-expanded')).toBe('false');
+    expect(hote.querySelector('.hdb-resume--bas')).toBeNull();
   });
-
-  /**
-   * 🔴🔴 LA SECONDE MOITIÉ DE LA DEMANDE : « la page se repositionne sur le haut du résumé refermé ». Sans cela,
-   * replier des centaines de miniatures fait remonter le contenu sous le curseur, et l'on se retrouve au milieu
-   * du fil sans savoir où.
-   *
-   * ⚠️ APRÈS LE RENDU (`requestAnimationFrame`) : viser le bloc encore DÉPLIÉ l'amènerait à l'écran à sa hauteur
-   * d'ouvert, et le défilement serait faux de toute la hauteur du résumé.
-   */
-  it('🔴🔴 fermer depuis la fin ramène la page sur le HAUT de ce résumé', async () => {
-    const vus: Element[] = [];
-    const avant = (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView;
-    (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView =
-      function marque(this: Element) { vus.push(this); };
-    try {
-      await monter();
-      await ouvrirLeResume();
-      const bloc = hote.querySelector('.hdb-resume--haut');
-      await cliquer(hote.querySelector('.hdb-resume--haut .hdb-bascule-pied') ?? undefined);
-      expect(vus).toContain(bloc);
-    } finally {
-      (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView = avant;
-    }
+  it('ouvert : UNE zone, au-dessus de la liste des mails ; toujours un seul bouton (pas de bouton de fin)', async () => {
+    await monter();
+    await ouvrirLeResume();
+    const zones = [...hote.querySelectorAll('.hdb-pieces')];
+    expect(zones).toHaveLength(1);
+    expect(zones[0].closest('.hdb-resume--haut')).not.toBeNull();
+    expect(hote.querySelectorAll('.pdc-trombone')).toHaveLength(1);
+    expect(hote.querySelector('.hdb-bascule-pied')).toBeNull();
+    // La zone précède la liste des mails dans le document.
+    const html = hote.innerHTML;
+    expect(html.indexOf('hdb-pieces')).toBeLessThan(html.indexOf('hdb-mail-'));
   });
-
-  /**
-   * 🔴 ET CHAQUE MONTAGE VISE SON PROPRE HAUT, jamais celui de l'autre : fermer depuis le bas du listing ramène
-   * au bouton qu'on vient de quitter, pas en tête de page — on n'a pas demandé à remonter tout l'écran.
-   */
-  it('🔴 fermer depuis le bas du listing ramène au bloc du BAS', async () => {
-    const vus: Element[] = [];
-    const avant = (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView;
-    (Element.prototype as unknown as { scrollIntoView: unknown }).scrollIntoView =
-      function marque(this: Element) { vus.push(this); };
-    try {
-      await monter();
-      await ouvrirLeResume();
-      const bas = hote.querySelector('.hdb-resume--bas');
-      await cliquer(hote.querySelector('.hdb-resume--bas .hdb-bascule-pied') ?? undefined);
-      expect(vus).toContain(bas);
-      expect(vus).not.toContain(hote.querySelector('.hdb-resume--haut'));
-    } finally {
-      (Element.prototype as unknown as { scrollIntoView?: unknown }).scrollIntoView = avant;
-    }
-  });
-
-  /**
-   * 🔴🔴 UN SEUL ENDROIT ÉCRIT LE BOUTON DE FIN, pour les deux montages. Deux copies auraient divergé au premier
-   * ajustement — et c'est la garantie que ce cas tient, sur le code lui-même.
-   */
-  it('🔴🔴 le bouton de fin n’est écrit qu’une fois dans la source', () => {
-    const code = codeSeul(SRC);
-    expect((code.match(/place="pied"/g) ?? [])).toHaveLength(1);
-    expect((code.match(/<ResumeDeplie /g) ?? [])).toHaveLength(2);
-    /**
-     * 🔴 ET LE DÉFILEMENT EST ÉCRIT UNE FOIS, dans un effet de MISE EN PAGE — pas au clic.
-     *
-     * ⚠️ MESURÉ À L'ÉCRAN, ET C'EST LA RAISON DE CETTE FORME : défiler au clic calcule sur le résumé encore
-     * DÉPLIÉ (10 906 px de haut sur lot-290), et l'on atterrissait 8 453 px sous le bloc visé. `useLayoutEffect`
-     * court après la mutation du DOM et avant la peinture : la page est déjà repliée, et rien ne saute.
-     */
-    expect((code.match(/\.current\?\.scrollIntoView\?\.\(\{ block: 'start' \}\)/g) ?? [])).toHaveLength(1);
-    expect(code).toContain('useLayoutEffect(() => {');
-    expect(code).not.toContain('requestAnimationFrame(() => ancre');
+  it('le bouton referme la zone', async () => {
+    await monter();
+    await ouvrirLeResume();
+    await cliquer(hote.querySelector('.pdc-trombone') ?? undefined);
+    expect(hote.querySelectorAll('.hdb-pieces')).toHaveLength(0);
+    expect(hote.querySelector('.pdc-trombone')?.getAttribute('aria-expanded')).toBe('false');
   });
 });
 
-/**
- * ══ 🔴🔴 LOT HISTORIQUE-BIEN-13, POINT 1 — UN SEUL LOCATAIRE À LA FOIS DANS L'ENCART ════════════════════════════
- *
- * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * CONSTAT D'ARNO (05/10/2026, lot-146) : « L'encart affiche “Locataire 6” : il mêle le locataire en place
- * (BRASSET/BRUERE) et les adresses des anciens (VAGLIO ARNAUD, ACKET GOEMAERE - DERRIEN). »
- *
- * 🔴 CE QUE CE BLOC PROUVE, ET QUE `historiqueBienLocataires.test.ts` NE PEUT PAS PROUVER. Le module pur dit
- * quelle adresse est gardée ; il ne dit pas que les radios partagent un `name` (donc que le navigateur tient
- * l'exclusivité), que le compteur de l'encart suit, que les deux champs de dates se remplissent, ni — le plus
- * important — qu'une adresse COCHÉE puis cachée QUITTE la recherche. C'est ce dernier point qui fait la
- * différence entre un encart rangé et une recherche juste.
- * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- */
 describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () => {
   /** Le bien 104 (lot-146), réduit à ce qui compte : un locataire en place, un ancien, une adresse sans carte. */
   const EN_PLACE = {
@@ -5295,7 +5163,7 @@ describe('⑬ 🔴🔴 l’encart Locataire ne mêle jamais deux périodes', () 
  */
 describe('⑭ 🔴🔴 l’œil ouvre la visionneuse maison, jamais un onglet', () => {
   const oeilDuResume = (): HTMLButtonElement | undefined =>
-    [...hote.querySelectorAll('.hdb-resume--bas .pdc-action')]
+    [...hote.querySelectorAll('.hdb-resume--haut .pdc-action')]
       .find((b) => (b.getAttribute('aria-label') ?? '').startsWith('Visualiser')) as HTMLButtonElement | undefined;
 
   it('🔴🔴 le clic sur 👁 ouvre la fenêtre, et n’ouvre AUCUN onglet', async () => {
@@ -5396,7 +5264,7 @@ describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () =
    * détail des adresses, le fait que ce soit SOUS la date, le clavier, et rien du tout pour un mail reçu.
    */
   const capsulesDest = (): { mot: string; ton: string }[] =>
-    [...hote.querySelectorAll('.hdb-resume--bas .ddp-capsule')].map((c) => ({
+    [...hote.querySelectorAll('.hdb-resume--haut .ddp-capsule')].map((c) => ({
       mot: c.textContent ?? '',
       ton: (c.className.match(/ddp-capsule--(\w+)/) ?? [])[1] ?? '',
     }));
@@ -5428,9 +5296,9 @@ describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () =
     servirLenvoi();
     await monter({ categories: CATEGORIES });
     await ouvrirLeResume();
-    const i = hote.querySelector('.hdb-resume--bas .ddp-i') as HTMLButtonElement;
+    const i = hote.querySelector('.hdb-resume--haut .ddp-i') as HTMLButtonElement;
     await cliquer(i);
-    const detail = hote.querySelector('.hdb-resume--bas .ddp-detail') as HTMLElement;
+    const detail = hote.querySelector('.hdb-resume--haut .ddp-detail') as HTMLElement;
     const lignes = [...detail.querySelectorAll('li')].map((x) => x.textContent ?? '');
     expect(lignes.find((l) => l.startsWith('Interne'))).toContain('jb.pons@sansvisavis.com');
     expect(lignes.find((l) => l.startsWith('Extérieur'))).toContain('inconnu@ailleurs.test');
@@ -5443,7 +5311,7 @@ describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () =
     servirLenvoi();
     await monter({ categories: CATEGORIES });
     await ouvrirLeResume();
-    const pied = hote.querySelector('.hdb-resume--bas .pdc-pied-carte') as HTMLElement;
+    const pied = hote.querySelector('.hdb-resume--haut .pdc-pied-carte') as HTMLElement;
     const enfants = [...pied.children];
     const date = enfants.findIndex((e) => (e.textContent ?? '').includes('·'));
     const lignes = enfants.findIndex((e) => e.classList.contains('ddp'));
@@ -5460,7 +5328,7 @@ describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () =
     servirLenvoi();
     await monter({ categories: CATEGORIES });
     await ouvrirLeResume();
-    const i = hote.querySelector('.hdb-resume--bas .ddp-i') as HTMLButtonElement;
+    const i = hote.querySelector('.hdb-resume--haut .ddp-i') as HTMLButtonElement;
     expect(i.getAttribute('aria-expanded')).toBe('false');
     /* 🔴 LE SURVOL EST SERVI PAR LE `title`, et il porte le MÊME texte que le panneau. */
     expect(i.getAttribute('title')).toContain('proprio@fictif.test');
@@ -5489,7 +5357,7 @@ describe('⑮ 🔴🔴 nos envois disent à quelle partie ils sont allés', () =
     servirLenvoi();
     await monter({ categories: CATEGORIES });
     await ouvrirLeResume();
-    const i = hote.querySelector('.hdb-resume--bas .ddp-i') as HTMLButtonElement;
+    const i = hote.querySelector('.hdb-resume--haut .ddp-i') as HTMLButtonElement;
     const titre = i.getAttribute('title') ?? '';
     /* 🔴 LE DESTINATAIRE DIRECT S'ÉCRIT NU, comme dans l'exemple d'Arno. */
     expect(titre).toContain('Propriétaire : M. ROI Nathan <proprio@fictif.test>');
