@@ -13,11 +13,11 @@ const periode = (id: number, depuis: number, biens: string[], par = 'a.jorel@san
 });
 
 describe('une accolade seulement si la période concerne CE bien', () => {
-  it('🔴 ajout : « suivi aussi par ce bien », au mail qui ouvre la période', () => {
+  it('🔴 ajout : « suivi de fond modifié », au mail qui ouvre la période', () => {
     const a = accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [periode(1, 1, ['A']), periode(2, 3, ['A', 'B'])], cle: 'B' });
     expect(a).toHaveLength(1);
-    expect(a[0]).toMatchObject({ depuisMessageId: 3, sens: 'ajout', libelle: 'suivi aussi par ce bien', parLibelle: 'a.jorel@sansvisavis.com' });
-    expect(LIBELLE_AJOUT).toBe('suivi aussi par ce bien');
+    expect(a[0]).toMatchObject({ depuisMessageId: 3, sens: 'ajout', libelle: 'suivi de fond modifié', parLibelle: 'a.jorel@sansvisavis.com' });
+    expect(LIBELLE_AJOUT).toBe('suivi de fond modifié');
     /* Le « i » : l'avant (fenêtre du mail précédent) et l'après, structurés pour la fenêtre en deux colonnes. */
     expect(a[0].detail?.avant?.biens.map((b) => b.cle)).toEqual(['A']);
     expect(a[0].detail?.apres.biens.map((b) => b.cle)).toEqual(['A', 'B']);

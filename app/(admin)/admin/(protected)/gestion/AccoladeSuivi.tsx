@@ -35,7 +35,7 @@ export interface MailDuRepere {
  */
 export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, nbMails, autres = [], compteMailId }: {
   cote: 'dessus' | 'dessous';
-  /** Ce qui suit « À partir d'ici : » — « aucun bien », « 25 rue Edith Cavell… », « suivi aussi par ce bien »… */
+  /** Ce qui suit « À partir d'ici : » — « aucun bien », « 25 rue Edith Cavell… », « suivi de fond modifié » (ajout)… */
   libelle: string;
   parLibelle: string | null;
   le: string | null;

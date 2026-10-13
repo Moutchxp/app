@@ -15,7 +15,11 @@ import { changementsDuFil, libelleSuiviModifie, motBiensRattaches, type PeriodeA
  * (`comparatifRepere`). On ne garde que celles où CE bien entre ou sort.
  */
 
-export const LIBELLE_AJOUT = 'suivi aussi par ce bien';
+/**
+ * 🔴 LOT LIBELLE-SUIVI-DE-FOND-MODIFIE (Arno, 14/10/2026) — « À partir d'ici : suivi aussi par ce bien » devient
+ * « À partir d'ici : suivi de fond modifié ». Le reste de la ligne (date, « reprise des périodes », bulle i) est inchangé.
+ */
+export const LIBELLE_AJOUT = 'suivi de fond modifié';
 export const LIBELLE_RETRAIT = 'sorti du suivi de ce bien';
 
 /**
@@ -58,7 +62,7 @@ export interface AccoladeDuBien {
  *   · seules les fenêtres VIVANTES portent une accolade (une fenêtre annulée ou remplacée est refermée en base) ;
  *   · « N biens rattachés » est le nombre de biens RÉELLEMENT rattachés au mail déclencheur aujourd'hui — le même
  *     calcul que le compteur sous la date et que la fenêtre « Bien(s) rattaché(s) à ce mail » ;
- *   · une accolade qui ne correspond plus à rien de réel disparaît : « suivi aussi par ce bien » exige que le bien SOIT
+ *   · une accolade qui ne correspond plus à rien de réel disparaît : « suivi de fond modifié » (ajout) exige que le bien SOIT
  *     rattaché au mail déclencheur, « sorti du suivi de ce bien » qu'il NE le soit PAS, « suivi de fond modifié » qu'il
  *     le soit.
  * `rattachesParMail` porte cette réalité (lue par `clesBiensParMail`). Absente, le calcul retombe sur les fenêtres

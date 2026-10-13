@@ -62,7 +62,7 @@ const ligne = (messageId: number, filId: number, recuLe: string): LigneHistoriqu
 const LIGNES = [ligne(3, 20, '2026-03-15T09:00:00Z'), ligne(2, 20, '2026-02-15T09:00:00Z'), ligne(1, 10, '2026-01-10T09:00:00Z')];
 const accolade = (filId: number, depuisMessageId: number, recuLe: string, sens: 'ajout' | 'retrait') => ({
   filId, depuisMessageId, recuLe, sens,
-  libelle: sens === 'ajout' ? 'suivi aussi par ce bien' : 'sorti du suivi de ce bien',
+  libelle: sens === 'ajout' ? 'suivi de fond modifié' : 'sorti du suivi de ce bien',
   parLibelle: 'a.jorel@sansvisavis.com', le: '2026-10-01T10:00:00Z', detail: null, nbMails: 2,
   mail: { de: 'x@fictif.test', deNom: 'X', recuLe, objet: 'o' },
 });
@@ -109,11 +109,11 @@ describe('② l’historique du bien', () => {
     expect(demandes.some((u) => u.includes('cible=lot-155') && /fils=(20,10|10,20)/.test(u))).toBe(true);
   });
 
-  it('🔴 « suivi aussi par ce bien » au premier mail concerné ; « sorti du suivi de ce bien » à sa place dans le temps', async () => {
+  it('🔴 « suivi de fond modifié » au premier mail concerné ; « sorti du suivi de ce bien » à sa place dans le temps', async () => {
     accolades = [accolade(20, 2, '2026-02-15T09:00:00Z', 'ajout'), accolade(10, 99, '2026-01-20T09:00:00Z', 'retrait')];
     await monter();
     expect(liste()).toEqual([
-      'm3', 'm2', 'A:À partir d’ici : suivi aussi par ce bien', 'A:À partir d’ici : sorti du suivi de ce bien', 'm1',
+      'm3', 'm2', 'A:À partir d’ici : suivi de fond modifié', 'A:À partir d’ici : sorti du suivi de ce bien', 'm1',
     ]);
     /* Plus récent en haut : l'accolade est EN DESSOUS du mail qu'elle ouvre (côté qui le précède dans le temps). */
     expect(hote.querySelectorAll('li.cnv-repere--dessous')).toHaveLength(2);

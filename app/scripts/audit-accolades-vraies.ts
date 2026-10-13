@@ -7,7 +7,7 @@
  * l'audit compare ce qu'elle dit à la réalité d'aujourd'hui, c'est-à-dire aux biens rattachés au mail déclencheur — le
  * même calcul que le compteur sous la date et que la fenêtre « Bien(s) rattaché(s) à ce mail » :
  *   · « suivi de fond modifié — N biens rattachés » : N = compteur du mail déclencheur ;
- *   · « suivi aussi par ce bien » : le bien EST rattaché au mail déclencheur ;
+ *   · « suivi de fond modifié » (ajout) : le bien EST rattaché au mail déclencheur ;
  *   · « sorti du suivi de ce bien » : il ne l'est PAS.
  * Il dit aussi ce que l'ANCIENNE règle (chiffre figé à la pose, fenêtres seules) aurait affiché de faux.
  *
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
   }
   console.log(`Échanges examinés : ${rows.length}`);
   console.log(`Accolades d'historique contrôlées (règle corrigée) : ${controlees} — écarts : ${ecarts}`);
-  console.log(`  « suivi de fond modifié — N » : ${parSens.modif} · « suivi aussi par ce bien » : ${parSens.ajout} · « sorti du suivi de ce bien » : ${parSens.retrait}`);
+  console.log(`  « suivi de fond modifié — N » : ${parSens.modif} · « suivi de fond modifié » (ajout) : ${parSens.ajout} · « sorti du suivi de ce bien » : ${parSens.retrait}`);
   console.log(`  dont fausses avec l'ANCIENNE règle (chiffre figé, réalité ignorée) : ${fausseAncienneRegle}`);
   console.log(`  accolades qui ne correspondaient plus à rien de réel, désormais masquées : ${masqueesCarIrreelles}`);
   console.log(`Accolades de la vue conversation contrôlées : ${conversationControlees} — écarts : ${conversationEcarts}`);

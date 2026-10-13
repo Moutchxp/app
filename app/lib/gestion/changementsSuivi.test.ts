@@ -78,7 +78,7 @@ describe('🔴 l’historique de CHAQUE bien concerné : entrée, sortie, et dé
     expect(a).toHaveLength(1);
     expect(a[0]).toMatchObject({ depuisMessageId: 26116, sens: 'modif', libelle: 'suivi de fond modifié — 2 biens rattachés' });
   });
-  it('le lot 373 entre : « suivi aussi par ce bien »', () => {
+  it('le lot 373 entre : « suivi de fond modifié »', () => {
     expect(pour('373')[0]).toMatchObject({ sens: 'ajout', libelle: LIBELLE_AJOUT });
   });
   it('un bien qui sort : « sorti du suivi de ce bien » ; un bien étranger au changement : rien', () => {
