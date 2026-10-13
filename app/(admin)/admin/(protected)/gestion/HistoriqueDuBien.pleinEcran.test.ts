@@ -94,7 +94,8 @@ describe('③ la barre d’envoi reste visible : le corps défile, la barre de t
   it('cadre en grille « auto minmax(0,1fr) », corps qui défile, plein écran borné à la hauteur de l’écran', () => {
     expect(CSS_FENETRES).toContain('grid-template-rows:auto minmax(0,1fr)');
     expect(CSS_FENETRES).toMatch(/\.fre-corps\{[^}]*overflow-y:auto/);
-    expect(CSS_FENETRES).toMatch(/\.fre--plein\{top:4vh;bottom:4vh/);
+    // LOT PLEIN-ECRAN-COMPOSEUR — bornée de haut en bas à l'écran (toute la zone de travail), sans transform.
+    expect(CSS_FENETRES).toMatch(/\.fre\.fre--plein\{position:fixed;top:0;right:0;bottom:0;left:0;transform:none/);
     expect(CSS_FENETRES).toMatch(/\.fre-voile\{position:fixed;inset:0/);
   });
 });

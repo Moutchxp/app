@@ -35,6 +35,8 @@ import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcrivant';
 /* 🔴 LOT FENETRE-CLASSEMENT-UNIQUE — la fenêtre partagée de « Modifier le rattachement », en mode brouillon. */
 import { RattachementsDuFil } from './RattachementsDuFil';
+/* 🔴 LOT PLEIN-ECRAN-COMPOSEUR — le plein écran, une seule géométrie pour tous les cadres du composeur. */
+import { cssPleinEcranComposeur } from './pleinEcranComposeur';
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, motsJeterBrouillon, pretAEnvoyer, secondesRestantes,
@@ -2329,6 +2331,9 @@ export function Redaction({
       {!dansFenetre && (
         <div className="red-haut">
           <h3 className="gst-titre">{titre}</h3>
+          {/* 🔴 LOT PLEIN-ECRAN-COMPOSEUR — « Plein écran / Réduire » et « Fermer » GROUPÉS À DROITE (Arno) : avec trois
+              éléments répartis sur la largeur, le bouton du milieu restait au milieu. Mêmes boutons, mêmes gestes. */}
+          <div className="red-haut-boutons">
           {/* 🔴 LOT REDACTION-GMAIL — le plein écran de la réponse en place. Le MOT change avec l'état : une
               icône seule ne dirait pas dans quel sens elle agit. */}
           <button type="button" className="svv-btn svv-btn-outline gst-btn"
@@ -2344,6 +2349,7 @@ export function Redaction({
           <button type="button" className="svv-btn svv-btn-outline gst-btn"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => void fermer()}>Fermer</button>
+          </div>
         </div>
       )}
 
@@ -3039,11 +3045,13 @@ const CSS_REDACTION = `
    Le composant n'est PAS demonte : seule sa classe change. Demonter perdrait le texte non enregistre, une piece
    en cours de depot et un compte a rebours d'envoi. On deplace un CADRE, jamais l'editeur.
    ⚠️ Le voile est un pseudo-element : pas de noeud de plus dans le DOM, donc rien a demonter non plus. */
-.red--plein{position:fixed;top:4vh;bottom:4vh;left:50%;transform:translateX(-50%);z-index:60;
-  width:min(900px, calc(100vw - 32px));overflow-y:auto;padding:14px 16px;
-  background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:.7rem}
-.red--plein::before{content:'';position:fixed;inset:0;z-index:-1;background:color-mix(in srgb, var(--color-svv-ink) 42%, transparent)}
-@media (max-width: 640px){ .red--plein{inset:0;width:100%;transform:none;border-radius:0} }
+.red--plein{padding:14px 16px}
+/* LOT PLEIN-ECRAN-COMPOSEUR — LA GEOMETRIE PARTAGEE (pleinEcranComposeur.ts) : toute la zone de travail, fond opaque,
+   aucun transform, aucun pseudo-element de voile (c'etaient les deux causes du fond gris et de la page visible). */
+${cssPleinEcranComposeur('.red.red--plein')}
+.red.red--plein{padding:14px 16px}
+.red.red--plein > .red-haut{position:sticky;top:-14px;z-index:2;margin:-14px -16px 0;padding:10px 16px;
+  background:var(--color-svv-surface);border-bottom:1px solid var(--color-svv-line)}
 /* ══ LOT REDACTION-GMAIL — le corps mis en forme, les outils du bas, le lien, la suppression ══════════════════════ */
 .red-corps-riche{border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);
   padding:2px 6px;min-width:0}
@@ -3097,6 +3105,7 @@ const CSS_REDACTION = `
 .red-apres{align-items:flex-start}
 .red-haut{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem}
 .red-haut .gst-titre{margin:0}
+.red-haut-boutons{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:.5rem;margin-left:auto}
 /* LOT REPONDRE-TRANSFERER-SANS-PERTE — le selecteur a trois positions. Cibles de 44 px, aucun effet au survol seul ;
    le mode courant se lit par le TRAIT (bordure epaisse, texte gras), pas par la couleur seule. Jetons seulement :
    valable en Clair comme en Sombre. Pas d'accent grave ici : ce bloc vit dans un litteral de gabarit. */

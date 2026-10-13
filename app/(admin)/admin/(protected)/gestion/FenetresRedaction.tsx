@@ -7,6 +7,8 @@ import {
   type EtatFenetre, type FenetreRedaction,
 } from '../../../../lib/gestion/fenetresRedaction';
 import type { Rapport } from './gestesMail';
+/* 🔴 LOT PLEIN-ECRAN-COMPOSEUR — la géométrie du plein écran, partagée avec la réponse en place (Redaction). */
+import { cssPleinEcranComposeur } from './pleinEcranComposeur';
 
 /**
  * LOT REDACTION-GMAIL — LES FENÊTRES FLOTTANTES DE RÉDACTION, ANCRÉES EN BAS À DROITE.
@@ -248,9 +250,11 @@ export const CSS_FENETRES = `
 .fre--reduite{max-height:none;width:min(280px, calc(100vw - 32px));grid-template-rows:auto 0;
   border-radius:.7rem .7rem 0 0}
 .fre--reduite .fre-titre{border-radius:.6rem .6rem 0 0}
-/* PLEIN ECRAN : centree, large, au-dessus du voile. */
-.fre--plein{top:4vh;bottom:4vh;left:50%;transform:translateX(-50%);width:min(900px, calc(100vw - 32px));
-  border-radius:.7rem;z-index:60}
+/* PLEIN ECRAN — LOT PLEIN-ECRAN-COMPOSEUR : la geometrie PARTAGEE avec la reponse en place (pleinEcranComposeur.ts) :
+   toute la zone de travail a droite de la colonne « Admin SVAV® », fond opaque, aucun transform. */
+${cssPleinEcranComposeur('.fre.fre--plein')}
+/* Le cadre de la boite garde SA regle : seul le corps defile (grille auto minmax(0,1fr)), la barre de titre reste. */
+.fre.fre--plein{overflow:hidden}
 /* ⚠️ LE position:sticky EST LA CEINTURE, PAS LA CORRECTION (voir l'encadre de .fre) : la bretelle est le
    minmax(0,1fr) de la grille. AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un litteral de gabarit. */
 .fre-titre{position:sticky;top:0;z-index:1;
@@ -272,7 +276,7 @@ export const CSS_FENETRES = `
 .fre-corps{position:relative;min-height:0;min-width:0;overflow-y:auto;overflow-x:hidden;padding:10px 12px 12px}
 /* ⚠️ SUR TELEPHONE, une fenetre flottante n'a pas de sens : elle prend tout l'ecran, comme dans Gmail. */
 @media (max-width: 640px){
-  .fre--ouverte,.fre--plein{inset:0;width:100%;max-height:none;transform:none;border-radius:0}
+  .fre--ouverte{inset:0;width:100%;max-height:none;transform:none;border-radius:0}
   .fre--reduite{left:0;right:0;width:100%}
 }
 @media (prefers-reduced-motion: reduce){ .fre{transition:none} }
