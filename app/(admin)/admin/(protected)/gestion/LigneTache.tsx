@@ -417,7 +417,7 @@ export const CSS_TACHES = `
 /* LOT COULEURS-TACHES (Arno, 13/10/2026) : retard = rouge fonce (bordeaux) ; aujourd'hui et demain = rouge ;
    apres-demain = orange ; plus tard = vert. Deux jetons propres aux taches, redefinis en Sombre (memes selecteurs que
    globals.css) : le bordeaux y reste distinct du rouge et lisible sur fond sombre. */
-:root,.svv-adm-root{--tch-c-retard:#6e0a1e;--tch-c-jour:var(--color-svv-proprio)}
+:root,.svv-adm-root{--tch-c-retard:#6e0a1e;--tch-c-jour:var(--color-svv-proprio);--tch-rouge-plein:#a30402}
 .svv-adm-root[data-theme='dark']{--tch-c-retard:#c2405e}
 @media (prefers-color-scheme: dark){.svv-adm-root[data-theme='system']{--tch-c-retard:#c2405e}}
 .tch-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}

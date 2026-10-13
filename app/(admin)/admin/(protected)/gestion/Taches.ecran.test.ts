@@ -4,6 +4,8 @@ import { act, createElement, Fragment } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { RecapTachesDuBien } from './TachesDuBien';
+import { CSS_TACHES } from './LigneTache';
+const SRC_TABLEAU = readFileSync('app/(admin)/admin/(protected)/gestion/TableauTaches.tsx', 'utf8');
 import { TableauTaches } from './TableauTaches';
 import { ajouterJours, jourDecale, jourParisDe, type RaccourciDecalage, type Tache } from '../../../../lib/gestion/taches';
 
@@ -174,6 +176,26 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
     taches = [];
     await monter();
     expect(container.querySelector('#fiche')?.innerHTML).toBe('');
+  });
+});
+
+describe('🔴 LOT FILTRE-COLLABORATEURS — « Confiées aux collaborateurs », et le filtre choisi en rouge', () => {
+  it('ordre des boutons ; le nouveau filtre exclut mes tâches, garde celles des autres ; compteurs et ordre suivent', async () => {
+    await monter(false);
+    const qui = [...container.querySelectorAll<HTMLButtonElement>('#general [data-filtre-qui]')];
+    expect(qui.map((b) => b.textContent)).toEqual(['Toutes', 'Confiées à moi', 'Confiées aux collaborateurs', 'Commandées par moi']);
+    const collab = container.querySelector<HTMLButtonElement>('#general [data-filtre-qui="collaborateurs"]')!;
+    await act(async () => { collab.click(); });
+    // Moi = 1 : les tâches 1 et 3 sont à moi (exclues), 2 et 4 à Claire (gardées), dans l'ordre chronologique.
+    expect(ouvertes('general')).toEqual(['2:jour', '4:plus_tard']);
+    expect(container.querySelector('#general .tch-compteurs')?.textContent)
+      .toBe('en retard (0)aujourd’hui / demain (1)dans 2 jours (0)plus tard (1)⏳0 en attente de confirmation');
+    expect(collab.getAttribute('aria-pressed')).toBe('true');
+    expect(collab.className).toContain('tch-filtre-btn--actif');
+  });
+  it('le bouton sélectionné (des deux groupes) : notre rouge, texte blanc', () => {
+    expect(SRC_TABLEAU).toMatch(/\.tch-filtre-btn--actif\{background:var\(--tch-rouge-plein\);color:#ffffff/);
+    expect(CSS_TACHES).toContain('--tch-rouge-plein:#a30402');
   });
 });
 

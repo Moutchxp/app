@@ -6,7 +6,7 @@ import {
 } from '../../../../lib/gestion/taches';
 import { CSS_TACHES, LigneTache, useLignesDepliees, useMaintenant } from './LigneTache';
 import {
-  compterEnAttente, filtrerParAcceptation, MOTS_QUI, MOTS_STATUT, type FiltreQui, type FiltreStatut,
+  compterEnAttente, filtrerParAcceptation, MOTS_QUI, ORDRE_FILTRES_QUI, MOTS_STATUT, type FiltreQui, type FiltreStatut,
 } from '../../../../lib/gestion/acceptationTache';
 import { FenetreTache } from './FenetreTache';
 import { ecouterTaches, lireTaches } from './tachesClient';
@@ -72,7 +72,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
         </h2>
         <div className="tch-filtres">
           <div className="tch-filtre" role="group" aria-label="Quelles tâches">
-            {(['toutes', 'confiees', 'commandees'] as const).map((f) => (
+            {ORDRE_FILTRES_QUI.map((f) => (
               <button key={f} type="button" aria-pressed={qui === f} data-filtre-qui={f}
                 className={`tch-filtre-btn${qui === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => setQui(f)}>
                 {MOTS_QUI[f]}
@@ -104,7 +104,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
       <ReglageEnvoi />
       {donnees.tronque && <p className="gst-tronc">La liste est tronquée : toutes les tâches ne sont pas affichées.</p>}
       {ouvertes.length === 0
-        ? <p className="tch-vide">{qui === 'confiees' ? 'Aucune tâche à faire ne vous est confiée.' : qui === 'commandees' ? 'Aucune tâche commandée par vous.' : 'Aucune tâche à faire.'} Une tâche se crée depuis la fiche d’un bien (« + Tâche »).</p>
+        ? <p className="tch-vide">{qui === 'confiees' ? 'Aucune tâche à faire ne vous est confiée.' : qui === 'collaborateurs' ? 'Aucune tâche à faire confiée à un collaborateur.' : qui === 'commandees' ? 'Aucune tâche commandée par vous.' : 'Aucune tâche à faire.'} Une tâche se crée depuis la fiche d’un bien (« + Tâche »).</p>
         : (
           <ul className="tch-liste">
             {ouvertes.map((t) => (
@@ -192,6 +192,8 @@ const CSS_TABLEAU = `
 .tch-filtre{display:inline-flex;border:1px solid var(--color-svv-line-strong);border-radius:999px;overflow:hidden}
 .tch-filtre-btn{min-height:40px;padding:0 .9rem;border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);
   font:inherit;font-size:.85rem;cursor:pointer}
-.tch-filtre-btn--actif{background:var(--color-svv-ink);color:var(--color-svv-surface);font-weight:700}
+/* LOT FILTRE-COLLABORATEURS : le filtre choisi prend NOTRE rouge, celui du bouton « + Tache » et du bandeau (#a30402,
+   variable --tch-rouge-plein), texte blanc : le jeton --color-svv-red passe a #ff6b6b en Sombre, ou le blanc ne se lirait pas. */
+.tch-filtre-btn--actif{background:var(--tch-rouge-plein);color:#ffffff;font-weight:700}
 .tch-filtre-btn:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 `;

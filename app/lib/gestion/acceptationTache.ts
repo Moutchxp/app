@@ -217,11 +217,14 @@ export function erreurMotif(motif: string | null | undefined): string | null {
    LES FILTRES ET LE COMPTEUR DU RÉCAPITULATIF
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export type FiltreQui = 'toutes' | 'confiees' | 'commandees';
+/** 🔴 LOT FILTRE-COLLABORATEURS — `collaborateurs` : confiées à une AUTRE personne que le collaborateur connecté. */
+export type FiltreQui = 'toutes' | 'confiees' | 'collaborateurs' | 'commandees';
+/** L'ordre des boutons (Arno) : Toutes / Confiées à moi / Confiées aux collaborateurs / Commandées par moi. */
+export const ORDRE_FILTRES_QUI: readonly FiltreQui[] = ['toutes', 'confiees', 'collaborateurs', 'commandees'];
 export type FiltreStatut = 'toutes' | StatutAcceptation;
 
 export const MOTS_QUI: Record<FiltreQui, string> = {
-  toutes: 'Toutes', confiees: 'Confiées à moi', commandees: 'Commandées par moi',
+  toutes: 'Toutes', confiees: 'Confiées à moi', collaborateurs: 'Confiées aux collaborateurs', commandees: 'Commandées par moi',
 };
 export const MOTS_STATUT: Record<FiltreStatut, string> = {
   toutes: 'Toutes', en_attente: 'En attente', acceptee: 'Acceptées', refusee: 'Refusées',
@@ -246,6 +249,7 @@ export function filtrerParAcceptation<T extends TacheFiltrable>(
 ): T[] {
   return taches.filter((t) => {
     if (qui === 'confiees' && (moi === null || t.confieeA === null || Number(t.confieeA) !== Number(moi))) return false;
+    if (qui === 'collaborateurs' && (t.confieeA === null || (moi !== null && Number(t.confieeA) === Number(moi)))) return false;
     if (qui === 'commandees' && !estCommandeePar(t, moi)) return false;
     if (statut !== 'toutes' && (t.acceptation?.statut ?? 'acceptee') !== statut) return false;
     return true;

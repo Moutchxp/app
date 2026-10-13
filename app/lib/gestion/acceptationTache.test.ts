@@ -121,3 +121,13 @@ describe('🔴 filtres combinables, compteur et ordre chronologique', () => {
     expect(repartirTaches(L, MAINT).ouvertes.map((x) => x.jour)).toEqual(['2026-10-10', '2026-10-13', '2026-10-14', '2026-10-20']);
   });
 });
+
+describe('🔴 LOT FILTRE-COLLABORATEURS — « Confiées aux collaborateurs »', () => {
+  it('garde les tâches confiées à un AUTRE que moi, exclut les miennes et celles sans personne', async () => {
+    const { filtrerParAcceptation, ORDRE_FILTRES_QUI, MOTS_QUI } = await import('./acceptationTache');
+    const l = [{ id: 1, confieeA: 2 }, { id: 2, confieeA: 3 }, { id: 3, confieeA: null }, { id: 4, confieeA: 5 }];
+    expect(filtrerParAcceptation(l, 'collaborateurs', 'toutes', 2).map((t) => t.id)).toEqual([2, 4]);
+    expect(filtrerParAcceptation(l, 'confiees', 'toutes', 2).map((t) => t.id)).toEqual([1]);
+    expect(ORDRE_FILTRES_QUI.map((f) => MOTS_QUI[f])).toEqual(['Toutes', 'Confiées à moi', 'Confiées aux collaborateurs', 'Commandées par moi']);
+  });
+});
