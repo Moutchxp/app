@@ -8,10 +8,10 @@ import {
 import type { ContactSource, ContactTache } from '../../../../lib/gestion/contactsTache';
 import { DUREE_DEFAUT_MINUTES, DUREES_PROPOSEES, MOT_AGENDA_COURT, motDuree } from '../../../../lib/gestion/agendaTache';
 /* 🔴 LOT FICHE-CARTE-TACHE — un encadré par contact, au liseré de sa famille (source unique PARTIES). */
-import { EncadresContacts } from './ContactsTache';
+import { CSS_CONTACTS_TACHE, EncadresContacts } from './ContactsTache';
 /* 🔴 LOT TACHES-LIGNE-CONTACTS — la couleur de famille d'un contact : la source unique du bloc PARTIES. */
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
-import { agirSurTache, ecouterTaches, lireDetailTache, type GesteTache } from './tachesClient';
+import { agirSurTache, ecouterTaches, lireContactsDuBien, lireDetailTache, type GesteTache } from './tachesClient';
 import { BADGE_ACCEPTATION, mentionMail } from '../../../../lib/gestion/acceptationTache';
 
 /**
@@ -60,7 +60,7 @@ export function useLignesDepliees(): { estDepliee: (id: number) => boolean; basc
   return { estDepliee: (id) => ids.has(id), basculer, ids };
 }
 
-export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBien, onDetail, presentation = 'compacte', sources = null, onEcrire, deplie = false, onBasculer }: {
+export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBien, onDetail, presentation = 'compacte', sources: sourcesRecues, onEcrire, deplie = false, onBasculer }: {
   tache: Tache;
   maintenant: Date;
   /** Le récapitulatif général montre l'adresse du bien (cliquable) ; la fiche du bien, non — on y est déjà. */
@@ -102,7 +102,18 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   const [detail, setDetail] = useState<{ contacts: ContactTache[]; pieces: PieceTache[] } | null>(null);
   const aLire = deplie && tache.contacts === undefined;
   const [versionDetail, setVersionDetail] = useState(0);
-  useEffect(() => (aLire ? ecouterTaches(() => setVersionDetail((v) => v + 1)) : undefined), [aLire]);
+  /* 🔴 LOT CARTE-CONTACTS-PARTOUT — la fiche d'aujourd'hui (contacts du bien), pour « Mettre à jour » : passée par la fiche
+     bien ; lue par la carte elle-même dans le récapitulatif (une fois dépliée), et relue après chaque geste. */
+  const [sourcesLues, setSourcesLues] = useState<ContactSource[] | null>(null);
+  const aLireSources = deplie && sourcesRecues === undefined;
+  useEffect(() => {
+    if (!aLireSources) return;
+    let annule = false;
+    void lireContactsDuBien(tache.lotId).then((c) => { if (!annule) setSourcesLues(c); });
+    return () => { annule = true; };
+  }, [aLireSources, tache.lotId, versionDetail]);
+  const sources = sourcesRecues ?? sourcesLues;
+  useEffect(() => (aLire || aLireSources ? ecouterTaches(() => setVersionDetail((v) => v + 1)) : undefined), [aLire, aLireSources]);
   useEffect(() => {
     if (!aLire) return;
     let annule = false;
@@ -239,6 +250,9 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
     return (
       <li className={`${classe} tch-carte`} data-tache={tache.id} data-couleur={couleur ?? 'terminee'}
         data-depliee={onBasculer !== undefined ? 'oui' : undefined}>
+        {/* 🔴 LOT CARTE-CONTACTS-PARTOUT — la carte porte la feuille de ses encadrés de contact (liseré de famille, liens) :
+            dans le récapitulatif, personne d'autre ne la montait, et les contacts y perdaient leur couleur. */}
+        <style>{CSS_CONTACTS_TACHE}</style>
         {/* ① TITRE — bandeau d'en-tête. 🔴 LOT TACHES-LIGNES-COMPACTES : dans une liste, un clic sur le bandeau REPLIE
             la carte (« ✏ Modifier » ouvre la fenêtre, en pied) ; une carte seule garde l'ouverture de la fenêtre. */}
         {/* 🔴 LOT CARTE-REPLI-BANDEAU (Arno, 13/10/2026) — un clic N'IMPORTE OÙ sur le bandeau (titre, flèche, marges) replie

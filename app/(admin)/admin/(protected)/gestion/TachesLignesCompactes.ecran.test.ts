@@ -45,6 +45,7 @@ const t = (p: Partial<Tache>): Tache => ({
 let taches: Tache[];
 let ouverts: number[];
 let gestes: Record<string, unknown>[];
+let ecrits: string[] = [];
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
@@ -64,7 +65,11 @@ beforeEach(() => {
       taches = taches.map((x) => (x.id === Number(m[1]) ? { ...x, etat: 'faite', faiteLe: new Date().toISOString(), faiteParLibelle: 'Arnaud' } : x));
       return Response.json({ etat: 'ok', id: Number(m[1]), message: 'Tâche faite.' });
     }
-    if (m) return Response.json({ etat: 'ok', tache: taches.find((x) => x.id === Number(m[1])), traces: [], contacts: [], pieces: [] });
+    if (m) return Response.json({ etat: 'ok', tache: taches.find((x) => x.id === Number(m[1])), traces: [], pieces: [],
+      contacts: Number(m[1]) === 1 ? [{ cle: 'locataire:7', famille: 'locataire', nom: 'ASHISH Sneh', qualite: null, organisation: null,
+        adresse: null, copieLe: '2026-10-13T08:00:00Z', coordonnees: [{ sorte: 'telephone', libelle: 'Portable', valeur: '0611223344', affichage: '06 11 22 33 44' },
+          { sorte: 'email', libelle: null, valeur: 'sneh@exemple.test', affichage: null }] }] : [] });
+    if (url.includes('/taches/contacts')) return Response.json({ etat: 'ok', contacts: [] });
     if (url.includes('reglage')) return Response.json({ etat: 'ok', envoiMail: false, modifiable: false });
     return Response.json({ etat: 'ok', taches, moi: 2, tronque: false });
   }));
@@ -73,7 +78,7 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.unstubAllGlobals(); });
 const calmer = async () => { await act(async () => { for (let i = 0; i < 14; i++) await Promise.resolve(); }); };
 const monter = async () => {
-  await act(async () => { root.render(createElement(TableauTaches, { onOuvrirBien: (id: number) => { ouverts.push(id); } })); });
+  await act(async () => { root.render(createElement(TableauTaches, { onOuvrirBien: (id: number) => { ouverts.push(id); }, onEcrire: (e: string) => { ecrits.push(e); } })); });
   await calmer();
 };
 const ligne = (id: number) => container.querySelector(`[data-tache="${id}"]`) as HTMLElement;
@@ -228,5 +233,21 @@ describe('🔴 LOT DECALER-DUREE — la durée dans « Décaler »', () => {
       .toBe('Décalée par Arnaud Jorel le 13/10/2026 à 12:00 (mer. 14/10/2026 à 09:30 → jeu. 15/10/2026 à 09:30, durée 1 h 30 → 2 h)');
     expect(phraseTrace({ action: 'decalage', avant: { jour: '2026-10-14', heure: null }, apres: { jour: '2026-10-15', heure: null },
       survenuLe: '2026-10-13T10:00:00Z', auteurLibelle: 'A' })).not.toContain('durée');
+  });
+});
+
+describe('🔴 LOT CARTE-CONTACTS-PARTOUT — les contacts de la carte dépliée du récapitulatif', () => {
+  it('même encadré que la fiche : liseré de famille, téléphone tel:, e-mail vers le composeur, feuille montée', async () => {
+    ecrits = [];
+    await monter();
+    await act(async () => { (ligne(1).querySelector('.tch-l1') as HTMLElement).click(); });
+    await calmer();
+    const encadre = ligne(1).querySelector('.tchc-encadre') as HTMLElement;
+    expect(encadre.className).toBe('tchc-encadre tchc-groupe--vert');
+    expect(encadre.querySelector('.tchc-nom')?.textContent).toBe('ASHISH Sneh · Locataire en place');
+    expect(encadre.querySelector<HTMLAnchorElement>('a[href^="tel:"]')?.textContent).toBe('06 11 22 33 44');
+    await act(async () => { (encadre.querySelector('.tchc-lien-bouton') as HTMLElement).click(); });
+    expect(ecrits).toEqual(['sneh@exemple.test']);
+    expect([...ligne(1).querySelectorAll('style')].some((st) => (st.textContent ?? '').includes('.tchc-groupe--vert{border-left-color'))).toBe(true);
   });
 });
