@@ -174,3 +174,15 @@ describe('🔴 LOT PASTILLES-FILTRES — le bandeau rouge de la fiche', () => {
     expect(repli()?.getAttribute('aria-expanded')).toBe('false');
   });
 });
+
+describe('🔴 LOT SORTIR-DU-FILTRE — la fiche : un clic dans une zone vide du bloc retire la pastille', () => {
+  it('pastille, puis clic dans le vide du bloc : toutes les tâches ; le bloc reste déplié', async () => {
+    await monter();
+    await act(async () => { container.querySelector<HTMLButtonElement>('#bloc [data-pastille="retard"]')!.click(); });
+    await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); });
+    expect(lignes()).toEqual(['1']);
+    await act(async () => { (container.querySelector('#bloc section.tch-bloc-fiche') as HTMLElement).click(); });
+    expect(lignes()).toEqual(['1', '2']);
+    expect(repli()?.getAttribute('aria-expanded')).toBe('true');
+  });
+});

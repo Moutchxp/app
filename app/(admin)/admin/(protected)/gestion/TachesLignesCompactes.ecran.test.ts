@@ -308,3 +308,41 @@ describe('🔴 LOT TERMINEES-7-JOURS — « Faites ou annulées » : les 7 derni
     expect(ecritures).toEqual([]);
   });
 });
+
+describe('🔴 LOT SORTIR-DU-FILTRE — trois sorties du filtre de pastille', () => {
+  const pastille = (p: string) => container.querySelector<HTMLButtonElement>(`[data-pastille="${p}"]`)!;
+  const visibles = () => [...container.querySelectorAll('.tch-zone-liste .tch-liste:not(details .tch-liste) > .tch-ligne')].map((l) => l.getAttribute('data-tache'));
+  const filtrer = async () => { await act(async () => { pastille('retard').click(); }); expect(visibles()).toEqual(['1']); };
+  it('« Toutes » du groupe « qui » retire aussi la pastille', async () => {
+    await monter(); await filtrer();
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-filtre-qui="toutes"]')!.click(); });
+    expect(visibles()).toEqual(['1', '2']);
+    expect(container.querySelector('.tch-compteur--actif')).toBeNull();
+  });
+  it('« Toutes » du groupe « statut » retire aussi la pastille', async () => {
+    await monter(); await filtrer();
+    await act(async () => { container.querySelector<HTMLButtonElement>('[data-filtre-statut="toutes"]')!.click(); });
+    expect(visibles()).toEqual(['1', '2']);
+  });
+  it('un clic dans une zone vide du bloc retire la pastille ; une ligne ou un bouton, non ; l’écran ne bouge pas', async () => {
+    await monter(); await filtrer();
+    // Une ligne : elle se déplie, le filtre reste.
+    await act(async () => { (ligne(1).querySelector('.tch-l1') as HTMLElement).click(); });
+    await calmer();
+    expect(visibles()).toEqual(['1']);
+    // Un bouton de la carte : le filtre reste.
+    await act(async () => { [...ligne(1).querySelectorAll('button')].find((b) => b.textContent === 'Décaler')!.click(); });
+    expect(visibles()).toEqual(['1']);
+    // La zone vide (le bloc lui-même) : toutes les tâches, et le défilement d'un conteneur est rétabli.
+    container.scrollTop = 700;
+    await act(async () => { (container.querySelector('.tch-zone-liste') as HTMLElement).click(); container.scrollTop = 0; });
+    await calmer();
+    expect(visibles()).toEqual(['1', '2']);
+    expect(container.scrollTop).toBe(700);
+  });
+  it('le re-clic sur la pastille active marche toujours', async () => {
+    await monter(); await filtrer();
+    await act(async () => { pastille('retard').click(); });
+    expect(visibles()).toEqual(['1', '2']);
+  });
+});

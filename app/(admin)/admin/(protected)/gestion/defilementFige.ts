@@ -54,3 +54,18 @@ export function useZoneStable() {
   const changerFiltre = (f: () => void) => { retablir.current = figerDefilement(zone.current); f(); };
   return { zone, contenu, hauteurMin, changerFiltre };
 }
+
+/**
+ * 🔴 LOT SORTIR-DU-FILTRE (Arno, 14/10/2026) — UN CLIC « DANS LE VIDE » DU BLOC TÂCHES : hors pastilles, lignes, boutons,
+ * liens, champs, repli « Faites ou annulées », et hors de toute fenêtre ouverte par-dessus. Sert à retirer le filtre de
+ * pastille. PUR (DOM seulement).
+ */
+const NON_VIDE = 'button,a,input,select,textarea,label,summary,details,[role="button"],[role="dialog"],[role="group"],'
+  + '.tch-ligne,.tch-compteur,.tchf-voile,.mrt-voile';
+export function estClicDansLeVide(cible: EventTarget | null, racine: Element): boolean {
+  if (!(cible instanceof Element) || !racine.contains(cible)) return false;
+  for (let e: Element | null = cible; e !== null && e !== racine; e = e.parentElement) {
+    if (e.matches(NON_VIDE)) return false;
+  }
+  return true;
+}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 /* 🔴 LOT FILTRE-ECRAN-FIXE — l'écran ne bouge pas quand on change de filtre. */
-import { MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
+import { estClicDansLeVide, MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
 import {
   compterTaches, filtrerParPastille, termineesRecentes, TITRE_TERMINEES, type PastilleFiltre, repartirTaches, type Tache,
 } from '../../../../lib/gestion/taches';
@@ -75,7 +75,10 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
   const terminees = termineesRecentes(filtrerParPastille(toutes.terminees, pastille, maintenant), maintenant);
 
   return (
-    <section className="tch-tableau" aria-labelledby="tch-tableau-titre">
+    /* 🔴 LOT SORTIR-DU-FILTRE — trois sorties du filtre de pastille : re-clic sur la pastille active, « Toutes » (qui ou
+       statut), et un clic dans une zone vide du bloc. Toutes à écran fixe. */
+    <section className="tch-tableau" aria-labelledby="tch-tableau-titre"
+      onClick={(e) => { if (pastille !== null && estClicDansLeVide(e.target, e.currentTarget)) changerFiltre(() => setPastille(null)); }}>
       <style>{CSS_TACHES}{CSS_TABLEAU}</style>
       <div className="tch-tableau-tete">
         <h2 className="gst-titre" id="tch-tableau-titre">
@@ -85,7 +88,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
           <div className="tch-filtre" role="group" aria-label="Quelles tâches">
             {ORDRE_FILTRES_QUI.map((f) => (
               <button key={f} type="button" aria-pressed={qui === f} data-filtre-qui={f}
-                className={`tch-filtre-btn${qui === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => changerFiltre(() => setQui(f))}>
+                className={`tch-filtre-btn${qui === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => changerFiltre(() => { setQui(f); if (f === 'toutes') setPastille(null); })}>
                 {MOTS_QUI[f]}
               </button>
             ))}
@@ -93,7 +96,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
           <div className="tch-filtre" role="group" aria-label="Quel statut">
             {(['toutes', 'en_attente', 'acceptee', 'refusee'] as const).map((f) => (
               <button key={f} type="button" aria-pressed={statut === f} data-filtre-statut={f}
-                className={`tch-filtre-btn${statut === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => changerFiltre(() => setStatut(f))}>
+                className={`tch-filtre-btn${statut === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => changerFiltre(() => { setStatut(f); if (f === 'toutes') setPastille(null); })}>
                 {MOTS_STATUT[f]}
               </button>
             ))}

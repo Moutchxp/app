@@ -8,7 +8,7 @@ import {
 import { CSS_TACHES, LigneTache, PastillesFiltres, useLignesDepliees, useMaintenant } from './LigneTache';
 /* 🔴 LOT FICHE-CARTE-TACHE — les encadrés de contacts des cartes, et la fiche d'aujourd'hui pour « Mettre à jour ». */
 import { CSS_CONTACTS_TACHE } from './ContactsTache';
-import { MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
+import { estClicDansLeVide, MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
 import type { ContactSource } from '../../../../lib/gestion/contactsTache';
 import { FenetreTache } from './FenetreTache';
 import { demanderDepliageBien, ecouterDepliageBien, ecouterTaches, lireContactsDuBien, lireTaches } from './tachesClient';
@@ -171,7 +171,9 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
   }
 
   return (
-    <section className="tch-bloc-fiche" aria-label="Tâches de ce bien" data-taches-bien="deplie">
+    /* 🔴 LOT SORTIR-DU-FILTRE — un clic dans une zone vide du bloc retire le filtre de pastille (le bandeau, lui, replie). */
+    <section className="tch-bloc-fiche" aria-label="Tâches de ce bien" data-taches-bien="deplie"
+      onClick={(e) => { if (pastille !== null && estClicDansLeVide(e.target, e.currentTarget)) changerFiltre(() => setPastille(null)); }}>
       <style>{CSS_TACHES}{CSS_REPLI}{CSS_CONTACTS_TACHE}</style>
       {repli}
       {/* 🔴 LOT FICHE-CARTE-TACHE, POINT 8 (accord d'Arno) — la seconde ligne « Tâches de ce bien » et ses pastilles,
