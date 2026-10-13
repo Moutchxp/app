@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  couleurTache, dateLisibleTache, horodatageLisible, MOT_COULEUR, RACCOURCIS_DECALAGE,
+  couleurTache, echeanceLisible, horodatageLisible, MOT_COULEUR, RACCOURCIS_DECALAGE,
   type Tache,
 } from '../../../../lib/gestion/taches';
 import { agirSurTache, type GesteTache } from './tachesClient';
@@ -73,11 +73,16 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
     <li className={`tch-ligne ${couleur === null ? 'tch-ligne--terminee' : `tch-ligne--${couleur}`}`}
       data-tache={tache.id} data-couleur={couleur ?? 'terminee'}>
       <div className="tch-haut">
-        <span className="tch-pastille-mot">
-          <span className={`tch-pastille tch-pastille--${couleur ?? 'terminee'}`} aria-hidden="true" />
-          <span className="tch-mot">{couleur === null ? (tache.etat === 'faite' ? 'Faite' : 'Annulée') : MOT_COULEUR[couleur]}</span>
+        {/* 🔴🔴 PARTIE A (Arno, 13/10/2026) — L'ÉCHÉANCE EN PREMIER ET EN GRAS (« mar. 13 oct. · 9 h 30 »), le libellé de
+            couleur COLLÉ à elle. C'est la date de la tâche, jamais celle de sa création (qui ne se lit qu'en petit,
+            dans le détail). */}
+        <span className="tch-echeance">
+          <b className="tch-date" data-echeance={tache.jour}>{echeanceLisible(tache.jour, tache.heure, maintenant)}</b>
+          <span className="tch-pastille-mot">
+            <span className={`tch-pastille tch-pastille--${couleur ?? 'terminee'}`} aria-hidden="true" />
+            <span className="tch-mot">{couleur === null ? (tache.etat === 'faite' ? 'Faite' : 'Annulée') : MOT_COULEUR[couleur]}</span>
+          </span>
         </span>
-        <span className="tch-date">{dateLisibleTache(tache.jour, tache.heure)}</span>
         <button type="button" className="tch-objet" onClick={() => onDetail(tache.id)}
           title="Voir le détail, modifier ou annuler">
           {tache.objet}
@@ -169,7 +174,8 @@ export const CSS_TACHES = `
 .tch-pastille--proche{background:var(--color-svv-urgence-orange)}
 .tch-pastille--plus_tard{background:var(--color-svv-green)}
 .tch-pastille--terminee{background:var(--color-svv-line)}
-.tch-date{font-size:.85rem;color:var(--color-svv-ink);white-space:nowrap}
+.tch-echeance{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem}
+.tch-date{font-size:.95rem;font-weight:700;color:var(--color-svv-ink);white-space:nowrap}
 .tch-objet{flex:1 1 12rem;min-width:0;text-align:left;background:none;border:0;padding:4px 0;font:inherit;
   font-weight:600;color:var(--color-svv-ink);cursor:pointer;overflow-wrap:anywhere;min-height:32px}
 .tch-objet:hover{text-decoration:underline}

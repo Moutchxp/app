@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  cleRappel, dateLisibleTache, iconeType, MENTION_SANS_ACCES_GESTION, verifierSaisie, type ChampTache, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
+  cleRappel, echeanceLisible, horodatageLisible, iconeType, MENTION_SANS_ACCES_GESTION, verifierSaisie, type ChampTache, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
   type Rappel,
 } from '../../../../lib/gestion/taches';
 import { blocContacts, type ContactSource } from '../../../../lib/gestion/contactsTache';
@@ -189,7 +189,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setOccupe(false);
     if (!r.ok) { setMessage({ ok: false, texte: r.message, champ: r.champ ?? null }); return; }
     if (mode.sorte === 'creer') {
-      onCree?.(`Tâche créée : « ${saisie.objet.trim()} » — ${dateLisibleTache(saisie.jour, saisie.heure)}.`);
+      onCree?.(`Tâche créée : « ${saisie.objet.trim()} » — ${echeanceLisible(saisie.jour, saisie.heure)}.`);
       onFermer();
       return;
     }
@@ -254,10 +254,15 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
         )}
 
         {mode.sorte === 'detail' && detail === null && <p className="tch-vide">Lecture de la tâche…</p>}
-        {terminee && tache !== null && (
-          <p className="tchf-etat">
-            {tache.etat === 'faite' ? 'Faite' : 'Annulée'} — {dateLisibleTache(tache.jour, tache.heure)}
+        {/* 🔴 PARTIE A — dans le détail : l'ÉCHÉANCE en évidence, et la création en PETIT, en dessous. */}
+        {tache !== null && (
+          <p className="tchf-echeance">
+            <b>{echeanceLisible(tache.jour, tache.heure)}</b>
+            {terminee && <span className="tchf-etat"> — {tache.etat === 'faite' ? 'Faite' : 'Annulée'}</span>}
           </p>
+        )}
+        {tache !== null && (
+          <p className="tchf-creee">Créée le {horodatageLisible(tache.creeLe)} par {tache.creeParLibelle}</p>
         )}
 
         <div className="tchf-corps">
@@ -455,7 +460,9 @@ const CSS_FENETRE = `
   border:1px solid transparent;border-radius:.5rem;color:var(--color-svv-ink);cursor:pointer}
 .tchf-croix:hover{background:var(--color-svv-field)}
 .tchf-croix:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.tchf-etat{margin:0;font-weight:600;color:var(--color-svv-muted)}
+.tchf-echeance{margin:0;font-size:1.05rem;color:var(--color-svv-ink)}
+.tchf-creee{margin:-6px 0 0;font-size:.76rem;color:var(--color-svv-muted)}
+.tchf-etat{font-weight:600;color:var(--color-svv-muted)}
 .tchf-corps{display:flex;flex-direction:column;gap:8px}
 .tchf-rangee{display:flex;flex-wrap:wrap;gap:8px}
 .tchf-rangee > .tchf-champ{flex:1 1 10rem}

@@ -137,6 +137,22 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
   });
 });
 
+describe('🔴 PARTIE A — l’échéance en premier, en gras, le libellé de couleur collé', () => {
+  it('sur les deux écrans, la ligne commence par l’échéance ; la date de création n’y figure pas', async () => {
+    await monter();
+    for (const ecran of ['fiche', 'general'] as const) {
+      const ligne = container.querySelector(`#${ecran} [data-tache="2"]`) as HTMLElement;
+      const premier = ligne.querySelector('.tch-haut')?.firstElementChild as HTMLElement;
+      expect(premier.className).toBe('tch-echeance');
+      const date = premier.querySelector('b.tch-date') as HTMLElement;
+      expect(date.textContent).toMatch(/ · 10 h$/);
+      expect(date.nextElementSibling?.textContent).toBe('Aujourd’hui');
+      expect(ligne.textContent).not.toContain('Créée');
+      expect(ligne.textContent).not.toContain('01/10/2026');
+    }
+  });
+});
+
 describe('🔴 non-régression : rien n’est déplacé', () => {
   const vue = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
   const annuaire = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');

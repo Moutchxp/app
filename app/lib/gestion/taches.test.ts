@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   compterTaches, couleurTache, dateLisibleTache, ecartJours, erreurSaisie, filtrerTaches, jourDecale, jourParisDe,
-  lireSaisie, phraseTrace, rappelsParDefaut, rappelsValides, repartirTaches, type Tache,
+  echeanceLisible, lireSaisie, phraseTrace, rappelsParDefaut, rappelsValides, repartirTaches, type Tache,
 } from './taches';
 
 /**
@@ -155,5 +155,18 @@ describe('🔴 les traces, comme Arno les a écrites', () => {
   it('la date d’une tâche se lit avec son jour de la semaine', () => {
     expect(dateLisibleTache('2026-10-13', null)).toBe('mar. 13/10/2026');
     expect(dateLisibleTache('2026-10-13', '09:30')).toBe('mar. 13/10/2026 à 09:30');
+  });
+});
+
+describe('🔴 PARTIE A — l’échéance, au format d’Arno', () => {
+  const MAINT = new Date('2026-10-13T15:00:00+02:00');
+  it('« mar. 13 oct. · 9 h 30 », « … · 10 h », « … · journée »', () => {
+    expect(echeanceLisible('2026-10-13', '09:30', MAINT)).toBe('mar. 13 oct. · 9 h 30');
+    expect(echeanceLisible('2026-10-13', '10:00', MAINT)).toBe('mar. 13 oct. · 10 h');
+    expect(echeanceLisible('2026-10-13', null, MAINT)).toBe('mar. 13 oct. · journée');
+    expect(echeanceLisible('2026-02-01', null, MAINT)).toBe('dim. 1 févr. · journée');
+  });
+  it('l’année n’apparaît que si elle n’est pas l’année en cours', () => {
+    expect(echeanceLisible('2027-01-04', null, MAINT)).toBe('lun. 4 janv. 2027 · journée');
   });
 });

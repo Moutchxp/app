@@ -458,6 +458,25 @@ export function dateLisibleTache(jour: string, heure: string | null): string {
   return heure === null ? base : `${base} à ${heure}`;
 }
 
+const MOIS_COURTS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+/**
+ * ══ 🔴🔴 L'ÉCHÉANCE, TELLE QU'ARNO VEUT LA LIRE (13/10/2026) ══════════════════════════════════════════════════════
+ * « mar. 13 oct. · 9 h 30 », ou « mar. 13 oct. · journée » pour un repère. C'est LA date d'une tâche — jamais celle
+ * de sa création. L'année n'est écrite que si elle n'est pas celle d'aujourd'hui (« lun. 4 janv. 2027 · journée »).
+ * PUR.
+ */
+export function echeanceLisible(jour: string, heure: string | null, maintenant: Date = new Date()): string {
+  const m = RE_JOUR.exec(jour);
+  if (m === null) return jour;
+  const jds = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12)).getUTCDay();
+  const annee = m[1] === jourParisDe(maintenant).slice(0, 4) ? '' : ` ${m[1]}`;
+  const date = `${JOURS_COURTS[jds]} ${Number(m[3])} ${MOIS_COURTS[Number(m[2]) - 1]}${annee}`;
+  if (heure === null) return `${date} · journée`;
+  const [hh, mm] = heure.split(':');
+  return `${date} · ${Number(hh)} h${mm === '00' ? '' : ` ${mm}`}`;
+}
+
 /** Un instant, lu à Paris : « 13/10/2026 à 19:20 ». PUR. */
 export function horodatageLisible(iso: string): string {
   const d = new Date(iso);
