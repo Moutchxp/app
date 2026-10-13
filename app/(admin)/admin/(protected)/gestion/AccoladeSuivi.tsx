@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
+import { estSuiviAutomatique, motSuiviAutomatique } from '../../../../lib/gestion/reglesRattachement';
 import { AIDE_PASTILLE_REPERE, motMailsCouverts, titreModaleChangement } from '../../../../lib/gestion/repereFenetre';
 import { PHRASE_SUITE, SUFFIXE_SUITE } from '../../../../lib/gestion/avantApres';
 import type { Classement } from '../../../../lib/gestion/periodesConversation';
@@ -87,9 +88,15 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, 
         <span className="cnv-repere-mot">À partir d’ici : {libelleVrai}</span>
         {(parLibelle !== null || le !== null) && (
           <span className="cnv-repere-qui">
-            {le !== null && dateHeureComplete(le)}
-            {le !== null && parLibelle !== null ? ' · ' : ''}
-            {parLibelle}
+            {/* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — R4 : un suivi posé par l'automate le dit
+                en toutes lettres (« suivi de fond posé automatiquement le … ») ; les autres, comme avant. */}
+            {estSuiviAutomatique(parLibelle) ? motSuiviAutomatique(le === null ? null : dateHeureComplete(le)) : (
+              <>
+                {le !== null && dateHeureComplete(le)}
+                {le !== null && parLibelle !== null ? ' · ' : ''}
+                {parLibelle}
+              </>
+            )}
           </span>
         )}
         {/* LA PASTILLE « i » : un vrai bouton, ouvert au clic (et Entrée / Espace). Le survol ne fait que la nommer. */}

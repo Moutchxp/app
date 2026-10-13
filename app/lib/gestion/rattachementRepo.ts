@@ -21,6 +21,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import type { Classement } from './periodesConversation';
 // 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — l'annuaire des personnes, pour le cas (e).
 import { chargerAnnuaireContenu } from './annuaireContenuRepo';
 // 🔴🔴 LOT BULLE-INFO-ET-S12 — « la fenêtre gagne ». La RÈGLE est pure ; la carte des fenêtres vient de
@@ -64,6 +65,8 @@ export const PAQUET_FILS = 300;
 export interface Auteur { id: number | null; libelle: string }
 
 export const AUTEUR_MOTEUR: Auteur = { id: null, libelle: 'moteur de rattachement' };
+/** Le motif d'un lien que le moteur retire parce qu'il ne le propose plus. ⚠️ Sans apostrophe : il est comparé tel quel. */
+export const MOTIF_RETRAIT_MOTEUR = 'le moteur ne propose plus cette cible';
 
 export interface ComptesPasse {
   filsVus: number;
@@ -196,6 +199,9 @@ export interface MessageDuPaquet {
    */
   sens: string | null;
   exclusionRegleId: number | null;
+  /** 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — la date du mail : les nouvelles règles ne
+      valent que pour un mail reçu après leur mise en service (décision C). ISO, ou `null`. */
+  recuLe?: string | null;
 }
 
 export interface Paquet {
@@ -273,7 +279,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   const horsSpam = await clauseHorsSpam('m');
   const { rows: msgs } = await query<{
     id: string; fil_id: string; objet: string | null; corps: string | null; html: string | null;
-    pieces: string[] | null; sens: string | null; exclu_par_regle_id: number | null;
+    pieces: string[] | null; sens: string | null; exclu_par_regle_id: number | null; recu_le: string | null;
   }>(
     // ⚠️ LES PIÈCES EN UNE FOIS, par agrégat : une requête par message coûterait des milliers d'accès sur une passe
     //    complète. Le corps est borné — on y cherche une adresse ou un n° de lot, pas un roman.
@@ -282,6 +288,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
     `SELECT m.id, m.fil_id, m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps,
             left(coalesce(m.corps_html, ''), 60000) AS html,
             m.sens, m.exclu_par_regle_id,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS recu_le,
             (SELECT array_agg(${await sqlNomAffiche('p')}) FROM gestion_piece p WHERE p.message_id = m.id) AS pieces
        FROM gestion_message m
       WHERE m.fil_id = ANY($1::bigint[]) ${horsSpam} ORDER BY m.id`, [ids]);
@@ -341,7 +348,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
     messages: msgs.map((m) => ({
       id: Number(m.id), filId: Number(m.fil_id), objet: m.objet,
       corps: corpsLisible(m.corps, m.html).slice(0, CORPS_CHERCHABLE_MAX), pieces: m.pieces ?? [],
-      sens: m.sens, exclusionRegleId: m.exclu_par_regle_id,
+      sens: m.sens, exclusionRegleId: m.exclu_par_regle_id, recuLe: m.recu_le,
     })),
     adresses,
   };
@@ -367,6 +374,18 @@ const OU_IDENTITE = `message_id = $1 AND coalesce(piece_id, 0) = $2
  */
 async function ecrireLienMoteur(
   q: RequeteTx, messageId: number, c: Cible, statut: 'propose' | 'confirme', cand: Candidat, libelle: string,
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — UN LIEN QUE LE MOTEUR A LUI-MÊME RETIRÉ NE
+   * BLOQUE PLUS (nouvelles règles seulement, donc nouveaux mails seulement — décision C).
+   *
+   * CE QUI BLOQUAIT (mesuré, RECON_RATTACHEMENT_AUTO) : l'insertion exige qu'AUCUNE ligne de cette identité n'existe.
+   * Un lien posé puis retiré par le moteur le 28/09 (« le moteur ne propose plus cette cible ») empêchait donc à jamais
+   * le moteur de reposer ce même bien, même quand il le jugeait certain : 18 mails restaient « À classer ».
+   * 🔴 SEUL CE RETRAIT-LÀ CESSE DE BLOQUER : signé « moteur de rattachement », sans compte, motif « le moteur ne propose
+   * plus cette cible ». Un mail SORTI DU SUIVI, un candidat REJETÉ, un lien retiré par un humain ou par un lot (les
+   * « Document CRITERIMMO » du 01/10, une réparation) continuent de bloquer : ce sont des décisions.
+   */
+  rouvrirRetraitDuMoteur = false,
 ): Promise<'ecrit' | 'maj' | 'respecte'> {
   /**
    * 🔴🔴 LOT FICHE-RATTACHEMENT — LE MOTEUR NE PEUT PLUS ÉCRIRE UNE PERSONNE, MÊME SI ON LE LUI DEMANDE.
@@ -404,7 +423,9 @@ async function ecrireLienMoteur(
         origine, regle, confiance, adresses, motif, statut, cree_par_libelle)
      SELECT $1, NULL, $3, nullif($4, ''), nullif($5, 0)::bigint, $11,
             'automatique', $7, $8, $10, $9, $6, 'moteur de rattachement'
-      WHERE NOT EXISTS (SELECT 1 FROM gestion_rattachement WHERE ${OU_IDENTITE})`,
+      WHERE NOT EXISTS (SELECT 1 FROM gestion_rattachement WHERE ${OU_IDENTITE}
+                        ${rouvrirRetraitDuMoteur ? `AND NOT (statut = 'retire' AND statut_par IS NULL
+                          AND statut_par_libelle = '${AUTEUR_MOTEUR.libelle}' AND statut_motif = '${MOTIF_RETRAIT_MOTEUR}')` : ''})`,
     [...id, statut, cand.regle, cand.confiance, cand.motif, cand.adresses.join(' '), libelle]);
   return (ins.rowCount ?? 0) > 0 ? 'ecrit' : 'respecte';
 }
@@ -429,7 +450,7 @@ async function retirerLiensPerimes(
    * pourquoi tous les rattachements « propriétaire » ont disparu le même jour.
    */
   retrait: { auteur: string; motif: string } = {
-    auteur: AUTEUR_MOTEUR.libelle, motif: 'le moteur ne propose plus cette cible',
+    auteur: AUTEUR_MOTEUR.libelle, motif: MOTIF_RETRAIT_MOTEUR,
   },
 ): Promise<number> {
   /* 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — LES PROPOSITIONS SEULEMENT. Le moteur retirait aussi les liens
@@ -595,16 +616,55 @@ async function examinerLePaquet(
     lireInterneDesMessages(paquet.messages.map((m) => m.id)),
     lireInterne(paquet.fils),
   ]);
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — LES NOUVELLES RÈGLES, MAIL PAR MAIL ══════
+   * DÉCISION C D'ARNO : rien sur l'existant. Les règles (R1, R2, R4, A, B, tiers indépendant, objet, lien retiré par le
+   * moteur) ne jouent que pour un mail REÇU à partir de la mise en service (migration 345). Pour tout autre mail — plus
+   * ancien, envoyé par nous, ou sans la migration —, la passe est EXACTEMENT celle d'avant ce lot.
+   * ⚠️ L'ANNUAIRE N'EST LU QUE S'IL Y A UN MAIL DU NOUVEAU RÉGIME DANS LE PAQUET : une passe sur l'existant ne paie rien.
+   */
+  const { lireReglageRattachement } = await import('./reglageRattachementRepo');
+  const { reglesDuMail } = await import('./reglesRattachement');
+  const reglage = await lireReglageRattachement();
+  const reglesParMail = new Map(paquet.messages.map((m) => [m.id, reglesDuMail({ sens: m.sens, recuLe: m.recuLe }, reglage)]));
+  const filsActifs = new Set(paquet.messages.filter((m) => reglesParMail.get(m.id)?.actives === true).map((m) => m.filId));
+  let annuaireRegles: Awaited<ReturnType<typeof import('./adressesRepo').chargerAnnuaireAdresses>> | null = null;
+  let independants = new Set<string>();
+  if (filsActifs.size > 0) {
+    const { chargerAnnuaireAdresses } = await import('./adressesRepo');
+    const { adressesIndependantes } = await import('./partieCategorieRepo');
+    annuaireRegles = await chargerAnnuaireAdresses();
+    independants = await adressesIndependantes([...filsActifs].flatMap((f) => (paquet.adresses.get(f) ?? []).map((a) => a.adresse)));
+  }
+  const { complementReconnaissance } = await import('./adressesMessage');
+  /** Les conversations où l'automate vient de poser un suivi de fond : leurs mails suivants en héritent (R4). */
+  const suivisPoses = new Set<number>();
+  /**
+   * 🔴 R4 — LE SUIVI QUI VIENT D'ÊTRE POSÉ VAUT AUSSI POUR LES MAILS SUIVANTS DU MÊME PAQUET. Les fenêtres ont été lues
+   * AVANT la boucle : sans cette carte, un mail suivant qui désigne un AUTRE bien était confirmé au lieu d'être PROPOSÉ
+   * (trouvé par l'épreuve sur base de test). Clé : la conversation ; valeur : depuis quand, et sur quel bien.
+   */
+  const poseDansLePaquet = new Map<number, { depuisId: number; depuisLe: string | null; classement: Classement }>();
   for (const m of paquet.messages) {
+    const regles = reglesParMail.get(m.id) ?? reglesDuMail({ sens: m.sens, recuLe: m.recuLe }, null);
     const marque = marquesParMail.get(m.id);
     const interne = interneDuMail({
       marqueDuMailVivante: marque?.vivante === true,
       marqueDuMailConnue: marque !== undefined,
       marqueDeLEchange: marquesDesFils.has(m.filId),
     });
+    const brutes = paquet.adresses.get(m.filId) ?? [];
     const examen = examinerMessage({
       messageId: m.id,
-      adressesEchange: paquet.adresses.get(m.filId) ?? [],
+      /* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — les adresses complétées pour les règles A, B
+         et la garde « tiers indépendant », À LA DATE DE CE MAIL. Ancien régime : les adresses telles quelles. */
+      adressesEchange: !regles.actives || annuaireRegles === null ? brutes : brutes.map((a) => {
+        const plus = complementReconnaissance(a.adresse, annuaireRegles!.contacts, annuaireRegles!.occupations, regles.dateMail);
+        return { ...a, aussiLocataireDe: plus.aussiLocataireDe, dernierBail: plus.dernierBail,
+          independant: independants.has(a.adresse.trim().toLowerCase()) };
+      }),
+      regles,
+      lectureObjet: regles.actives,
       // LOT AFFECTATION-PAR-BIEN — le catalogue et les textes : sans eux, les cas (b), (c) et (d) ne jouent pas.
       biens: catalogue,
       textes: { objet: m.objet, corps: m.corps, pieces: m.pieces },
@@ -653,10 +713,13 @@ async function examinerLePaquet(
      * module pur (`faceALaFenetre`), qui rend « confirme » dès qu'aucune fenêtre ne couvre le mail — donc pour
      * l'immense majorité du courrier, où rien ne change.
      */
+    const pose = poseDansLePaquet.get(m.filId);
+    const fenetre = fenetres.get(m.id) ?? (pose !== undefined && m.id !== pose.depuisId
+      && (m.recuLe ?? '') >= (pose.depuisLe ?? '') ? pose.classement : undefined);
     const aEcrire: { cand: Candidat; statut: 'propose' | 'confirme' }[] =
       examen.certain !== null
         ? [{ cand: examen.certain,
-          statut: faceALaFenetre(fenetres.get(m.id), examen.certain.cible.cle ?? '') },
+          statut: faceALaFenetre(fenetre, examen.certain.cible.cle ?? '') },
         ...examen.candidats.map((cand) => ({ cand, statut: 'propose' as const }))]
         : examen.candidats.map((cand) => ({ cand, statut: 'propose' as const }));
 
@@ -670,11 +733,31 @@ async function examinerLePaquet(
     // UNE TRANSACTION PAR MAIL : un mail à moitié rattaché serait pire qu'un mail pas rattaché, et une transaction
     //   par paquet de 300 fils garderait un verrou des minutes durant pendant qu'Arno travaille dans l'écran.
     await withTransaction(async (q) => {
+      let certainEcrit = false;
       for (const { cand, statut } of aEcrire) {
-        const fait = await ecrireLienMoteur(q, m.id, cand.cible, statut, cand, libelleCible(cand.cible, libelles));
+        const fait = await ecrireLienMoteur(q, m.id, cand.cible, statut, cand, libelleCible(cand.cible, libelles), regles.actives);
         if (fait === 'respecte') c.respectes += 1;
         else if (statut === 'confirme') c.liensEcrits += 1;
         else c.candidatsEcrits += 1;
+        /* 🔴 R4 — le suivi ne se pose QUE si le lien certain a réellement été écrit : un lien retiré par une décision (un
+           lot, un humain) est « respecté », et le suivi ne doit pas le reposer par l'héritage (trouvé par l'épreuve). */
+        if (cand === examen.certain && statut === 'confirme' && fait !== 'respecte') certainEcrit = true;
+      }
+      /**
+       * 🔴🔴 R4 — UN RATTACHEMENT AUTOMATIQUE POSE LE SUIVI DE FOND « Ce mail + futurs échanges » (nouveau régime
+       * seulement), dans la MÊME transaction que le lien. Seulement si le lien certain est réellement CONFIRMÉ (aucune
+       * fenêtre ne le contredit) et que la conversation n'a encore aucun suivi : un suivi existant ne change que par un
+       * geste humain.
+       */
+      const certainConfirme = aEcrire.find((x) => x.statut === 'confirme' && x.cand === examen.certain);
+      if (regles.actives && certainEcrit && certainConfirme !== undefined && (certainConfirme.cand.cible.cle ?? '') !== '') {
+        const { poserSuiviAutomatique } = await import('./periodeRepo');
+        const bien = { cle: certainConfirme.cand.cible.cle as string, libelle: libelleCible(certainConfirme.cand.cible, libelles) };
+        if (await poserSuiviAutomatique(q, m.filId, m.id, bien)) {
+          suivisPoses.add(m.filId);
+          poseDansLePaquet.set(m.filId, { depuisId: m.id, depuisLe: m.recuLe ?? null,
+            classement: { sorte: 'biens', biens: [bien] } as Classement });
+        }
       }
       c.liensRetires += await retirerLiensPerimes(q, m.id, aEcrire.map((x) => x.cand.cible), retrait);
 
@@ -686,6 +769,15 @@ async function examinerLePaquet(
            adresses_utiles = EXCLUDED.adresses_utiles, motif = EXCLUDED.motif, examine_le = now()`,
         [m.id, examen.issue, examen.candidats.length, examen.adressesUtiles, examen.motif]);
     });
+  }
+
+  /**
+   * 🔴 R4 — LES MAILS SUIVANTS ARRIVÉS DANS LA MÊME RELÈVE héritent tout de suite du suivi qu'on vient de poser, par la
+   * porte ordinaire de l'héritage (celle de la relève). Les prochains l'hériteront à leur arrivée, comme tout suivi.
+   */
+  if (appliquer && suivisPoses.size > 0) {
+    const { heriterLesNouveauxMails } = await import('./periodeRepo');
+    for (const fil of suivisPoses) await heriterLesNouveauxMails(fil, { id: null, libelle: 'suivi de la conversation' });
   }
 
   c.filsVus += paquet.fils.length;

@@ -382,3 +382,48 @@ export function reconnaitre(
       : 'locataire, mais aucun bail en cours à la date du mail',
   };
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — CE QUE `reconnaitre` NE GARDE PAS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Ce que les règles A et B demandent en plus de la reconnaissance stockée (qui fait primer le propriétaire). */
+export interface ComplementReconnaissance {
+  /** RÈGLE A — une adresse de PROPRIÉTAIRE qui est AUSSI locataire en place à la date du mail : ses lots de locataire. */
+  aussiLocataireDe: string[];
+  /** RÈGLE B — un locataire SANS bail en cours à la date du mail : son DERNIER bien et sa date de sortie. */
+  dernierBail: { lotCle: string; sortie: string } | null;
+}
+
+/**
+ * LE COMPLÉMENT, sur LES MÊMES DONNÉES que `reconnaitre` (contacts et occupations de l'annuaire, date du mail). PUR.
+ *   · règle A : propriétaire ET locataire en place ailleurs → `aussiLocataireDe` ;
+ *   · règle B : aucun bail en cours, mais au moins un bail CLOS avant la date du mail → le plus récemment quitté.
+ * ⚠️ Un propriétaire n'est jamais « ancien locataire » ici : la reconnaissance le traite en propriétaire, et la règle A
+ * dit déjà ce qu'il faut faire de ses deux rôles.
+ */
+export function complementReconnaissance(
+  adresse: string, contacts: readonly ContactConnu[], occupations: readonly OccupationConnue[], dateMail: string | null,
+): ComplementReconnaissance {
+  const cle = adresse.trim().toLowerCase();
+  const trouves = contacts.filter((c) => c.email.trim().toLowerCase() === cle);
+  const vide: ComplementReconnaissance = { aussiLocataireDe: [], dernierBail: null };
+  if (trouves.length === 0) return vide;
+  const locataires = new Set(trouves.filter((c) => c.role === 'locataire').map((c) => c.sujetId));
+  if (locataires.size === 0) return vide;
+  const jour = (dateMail ?? '').slice(0, 10);
+  const siennes = occupations.filter((o) => locataires.has(o.locataireId) && o.lotCle !== null && o.lotCle !== '');
+  const enCours = siennes.filter((o) => {
+    if (o.entree !== null && jour < o.entree.slice(0, 10)) return false;
+    if (o.sortie !== null && jour > o.sortie.slice(0, 10)) return false;
+    return true;
+  });
+  const proprietaire = trouves.some((c) => c.role === 'proprietaire');
+  if (proprietaire) return { aussiLocataireDe: [...new Set(enCours.map((o) => o.lotCle as string))], dernierBail: null };
+  if (enCours.length > 0 || jour === '') return vide;
+  const closes = siennes
+    .filter((o) => o.sortie !== null && o.sortie.slice(0, 10) < jour)
+    .sort((a, b) => (b.sortie as string).localeCompare(a.sortie as string));
+  const dernier = closes[0];
+  return dernier === undefined ? vide : { aussiLocataireDe: [], dernierBail: { lotCle: dernier.lotCle as string, sortie: (dernier.sortie as string).slice(0, 10) } };
+}

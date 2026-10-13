@@ -9,7 +9,7 @@ import { normaliserEmail } from './annuaire';
  * ici à répondre à UNE question : « quelles adresses touchent ce bien ? ». Voir l'encadré de la lecture.
  */
 import { sqlLiensDuBien } from './rattachement';
-import { categorieRetenue } from './partieCategorie';
+import { categorieRetenue, sertALAutomatisation } from './partieCategorie';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — le telephone d'une signature : fonction PURE, elle ne garde rien.
    🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — et l'ADRESSE POSTALE de la même signature, par la fonction voisine. */
 import { adresseEnSignature, telephoneEnSignature, type AdresseEnSignature } from './lisibilite';
@@ -1307,4 +1307,19 @@ export async function biensRangesSyndicLocal(adresse: string, lotCles: readonly 
       WHERE retire_le IS NULL AND categorie = 'syndic_immeuble' AND adresse = $1 AND lot_cle = ANY($2::text[])`,
     [a, [...lotCles]]);
   return rows.map((r) => r.lot_cle);
+}
+
+/**
+ * ══ 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — LES ADRESSES RANGÉES « TIERS INDÉPENDANT » ══
+ * Parmi `adresses`, celles dont un rangement GLOBAL vivant dit « indépendant » (proposé ou manuel). Elles ne déclenchent
+ * jamais de rattachement automatique : c'est la règle `sertALAutomatisation`, enfin appelée. LECTURE SEULE ; vide sans
+ * la table.
+ */
+export async function adressesIndependantes(adresses: readonly string[]): Promise<Set<string>> {
+  const voulues = [...new Set(adresses.map((a) => adressePropre(a)).filter((a): a is string => a !== null))];
+  if (voulues.length === 0 || !(await partieCategorieDisponible())) return new Set();
+  const { rows } = await query<{ adresse: string; categorie: Categorie }>(
+    `SELECT DISTINCT adresse, categorie FROM gestion_partie_categorie
+      WHERE retire_le IS NULL AND lot_cle IS NULL AND adresse = ANY($1::text[])`, [voulues]);
+  return new Set(rows.filter((r) => !sertALAutomatisation(r.categorie) && r.categorie === 'independant').map((r) => r.adresse));
 }

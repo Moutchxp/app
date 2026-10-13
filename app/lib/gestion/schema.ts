@@ -1147,6 +1147,15 @@ export function ficheContactCarteDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — LA MIGRATION 345 ══════════════════════════
+ * La table du réglage des nouvelles règles (mise en service, durée « ancien locataire »). Tant qu'elle n'existe pas, le
+ * moteur de rattachement se comporte EXACTEMENT comme avant ce lot (décision C : rien sur l'existant).
+ */
+export function reglageRattachementDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_rattachement_reglage', () => tableExiste('gestion_rattachement_reglage'));
+}
+
+/**
  * ══ 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — LA MIGRATION 344 : « SYNDIC & IMMEUBLE » RANGÉ À LA MAIN ══
  * La 344 élargit `gestion_partie_categorie_categorie_chk` à `syndic_immeuble` (classement LOCAL, sur un bien). On lit la
  * contrainte elle-même. Tant qu'elle répond « non », la zone « Syndic & immeuble » n'accepte aucun dépôt et le serveur

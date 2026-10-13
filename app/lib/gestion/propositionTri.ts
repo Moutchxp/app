@@ -36,6 +36,13 @@ export interface AdresseEchange {
    * ⚠️ FACULTATIF : absent ⇒ le cas (f) ne joue pas, et la passe se comporte exactement comme avant ce lot.
    */
   cartesLots?: readonly string[];
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — ce que les règles A et B et la garde « tiers
+   * indépendant » demandent (voir `AdresseVue`). Facultatifs : absents ⇒ rien ne change.
+   */
+  aussiLocataireDe?: readonly string[];
+  dernierBail?: { lotCle: string; sortie: string } | null;
+  independant?: boolean;
 }
 
 export type DestinationProposee =

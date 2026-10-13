@@ -1,5 +1,6 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
 import { memeConfiguration, projeter, type Classement, type Periode } from './periodesConversation';
+import { estSuiviAutomatique, motSuiviAutomatique } from './reglesRattachement';
 
 /**
  * ══ 🔴🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — CE QUE « CE MAIL UNIQUEMENT » A CHANGÉ SUR UN MAIL. Module PUR ══════
@@ -127,6 +128,12 @@ export function motPastilleOneShot(nb: number): string | null {
 
 /** « Par Arnaud Jorel, le 11/10/2026 à 18:12 ». Heure de Paris. */
 export function motParLe(par: string, le: string | null): string {
+  /* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — R4 : « Suivi de fond posé automatiquement le … ». */
+  if (estSuiviAutomatique(par)) {
+    const quand = motParLe('x', le).replace(/^Par x(, le )?/, '');
+    const mot = motSuiviAutomatique(quand === '' ? null : quand);
+    return mot.charAt(0).toUpperCase() + mot.slice(1);
+  }
   const qui = par.trim() === '' ? 'un utilisateur non identifié' : par.trim();
   if (le === null) return `Par ${qui}`;
   const d = new Date(le);

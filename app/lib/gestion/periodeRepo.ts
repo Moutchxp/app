@@ -32,6 +32,7 @@ import type { PeriodeAncienne } from './changementsSuivi';
  */
 import { MOTIF_LEVE_PAR_RATTACHEMENT } from './interneLevee';
 import type { Auteur } from './gestes';
+import { AUTEUR_SUIVI_AUTOMATIQUE } from './reglesRattachement';
 /* 🔴 LOT TRACE-ONE-SHOT (342) — la photo du suivi de fond, prise juste avant une exception « ce mail uniquement ». */
 import { photoDuFond } from './suiviOneShot';
 import { traceOneShotDisponible } from './traceOneShotRepo';
@@ -834,6 +835,25 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
        FROM gestion_rattachement
       WHERE message_id = ANY($1::bigint[]) AND cible_sorte = 'lot' AND statut = 'confirme'
         AND piece_id IS NULL`, [mails, MOTIF_POSE_PAR_SUIVI]);
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — UN MAIL SORTI DU SUIVI N'Y REVIENT JAMAIS
+   * PAR L'AUTOMATE (garde-fou d'Arno, épreuve obligatoire).
+   *
+   * TROUVÉ PAR L'ÉPREUVE SUR BASE DE TEST : la pose ci-dessous passe par `rattacher`, qui RESTAURE un lien « sorti »
+   * (c'est voulu pour un geste humain : « ajouter n'est jamais bloqué »). L'HÉRITAGE de la relève — une projection SANS
+   * auteur — rattachait donc de nouveau, à l'arrivée du mail suivant, un mail qu'une personne venait de sortir du suivi.
+   * Mesuré en base le 13/10/2026 : 0 cas (les 10 restaurations du journal sont toutes d'Arno) ; mais le chemin était
+   * ouvert, et le suivi posé par l'automate (R4) l'aurait emprunté à chaque relève.
+   * 🔴 DÉSORMAIS : une projection SANS auteur ne repose jamais un bien dont le mail est sorti. Une projection HUMAINE
+   * (un choix fait dans la fenêtre) garde exactement son comportement.
+   */
+  const sortis = new Set<string>();
+  if (auteur.id === null) {
+    const { rows: s0 } = await query<{ message_id: string; cible_cle: string }>(
+      `SELECT message_id::text, cible_cle FROM gestion_rattachement
+        WHERE message_id = ANY($1::bigint[]) AND cible_sorte = 'lot' AND statut = 'sorti' AND piece_id IS NULL`, [mails]);
+    for (const r of s0) sortis.add(`${r.message_id}|${r.cible_cle}`);
+  }
   const porte = new Map<number, { id: number; cle: string; parLeSuivi: boolean }[]>();
   for (const r of rows) {
     const m = Number(r.message_id);
@@ -881,6 +901,7 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
     for (const b of cibles) {
       if (documents.has(m)) break;
       if (actuelles.some((l) => l.cle === b.cle)) continue;
+      if (sortis.has(`${m}|${b.cle}`)) continue;   // 🔴 sorti du suivi par une personne : l'automate n'y revient jamais
       const issue = await rattacher({
         messageId: m, cible: { sorte: 'lot', cle: b.cle, id: null }, auteur,
         motif: MOTIF_POSE_PAR_SUIVI,
@@ -1325,4 +1346,32 @@ export async function simplifierLeFil(o: {
 
   const projetes = await projeterLeFil(o.filId, o.auteur);
   return { ...quoi, projetes };
+}
+
+/**
+ * ══ 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — R4 : LE SUIVI DE FOND POSÉ PAR L'AUTOMATE ═══
+ *
+ * ARNO : « Tout rattachement automatique pose le SUIVI DE FOND “Ce mail + futurs échanges” : les mails suivants de la
+ * conversation vont au même bien. […] Seule une action manuelle change ensuite le suivi de fond. Ce suivi est signé
+ * “automatique” (auteur dédié, distinct d'un humain). »
+ *
+ * 🔴 IL NE SE POSE QUE SUR UNE CONVERSATION SANS AUCUN SUIVI VIVANT. S'il en existe un — posé par Arno, par un collègue,
+ * par la reprise ou déjà par l'automate —, l'automate n'y touche pas : un mail suivant qui désigne un autre bien est
+ * alors PROPOSÉ (règle « la fenêtre gagne », `faceALaFenetre`), et le suivi reste celui qu'il était.
+ * 🔴 « CE MAIL + FUTURS ÉCHANGES » = une fenêtre de biens qui part de CE mail. Les mails plus anciens ne changent pas.
+ * ⚠️ DANS LA TRANSACTION DE L'APPELANT (celle qui vient de poser le lien) : un lien sans son suivi, ou l'inverse, ne
+ * doit pas exister. Signé `AUTEUR_SUIVI_AUTOMATIQUE`, sans compte (`cree_par` nul) : ni un humain, ni la reprise.
+ */
+export async function poserSuiviAutomatique(
+  q: Requete, filId: number, depuisMessageId: number, bien: { cle: string; libelle: string },
+): Promise<boolean> {
+  const { rows: vivants } = await q<{ n: number }>(
+    'SELECT count(*)::int AS n FROM gestion_fil_periode WHERE fil_id = $1 AND remplacee_le IS NULL', [filId]);
+  if ((vivants[0]?.n ?? 0) > 0) return false;
+  const { rows } = await q<{ id: string }>(
+    `INSERT INTO gestion_fil_periode (fil_id, depuis_message_id, sorte, cree_par, cree_par_libelle)
+     VALUES ($1, $2, 'biens', NULL, $3) RETURNING id::text`, [filId, depuisMessageId, AUTEUR_SUIVI_AUTOMATIQUE]);
+  await ecrireBiens(q, 'gestion_fil_periode_bien', 'periode_id', Number(rows[0].id),
+    { sorte: 'biens', biens: [{ cle: bien.cle, libelle: bien.libelle }] } as Classement);
+  return true;
 }

@@ -134,7 +134,8 @@ export type Destination =
  * 🔴🔴 LOT ATTENTION-ET-MODIFIER — `'g'` S'AJOUTE : « ce mail cite une intervention Monga reliée à un événement
  * de ce bien ». Même absence de migration : la colonne `regle` reste un `text` sans contrainte de valeurs.
  */
-export type Regle = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g';
+/* LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — (h) ancien locataire (règle B), (o) objet du mail. */
+export type Regle = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'o';
 export type Confiance = 'haute' | 'moyenne' | 'basse';
 
 export interface Decision {

@@ -33,6 +33,7 @@ import type { Confiance, Regle } from './triPieces';
 import type { AdresseEchange } from './propositionTri';
 // LOT AFFECTATION-PAR-BIEN — la cible d'un classement est TOUJOURS un bien : le moteur de ce lot est le seul.
 import { proposerBiens, type BienConnu, type PropositionBien, type TextesDuMail } from './propositionsBien';
+import type { ReglesDuMail } from './reglesRattachement';
 // 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — l'annuaire des personnes citées dans un texte. Module PUR.
 import type { AnnuaireContenu } from './personnesDansLeTexte';
 // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — « ce mail est-il un de nos envois automatiques ? ». Module PUR.
@@ -258,6 +259,12 @@ export function examinerMessage(o: {
    * et le moteur se comporte exactement comme avant ce lot.
    */
   mongaRelie?: { reference: string; biens: readonly string[] };
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — les nouvelles règles pour CE mail
+   * (`reglesDuMail`) et la lecture de l'objet. Absents ⇒ le moteur se comporte exactement comme avant ce lot.
+   */
+  regles?: ReglesDuMail;
+  lectureObjet?: boolean;
 }): Examen {
   const utiles = adressesUtiles(o.adressesEchange.filter((a) => a.messageId === o.messageId)).length;
 
@@ -315,11 +322,17 @@ export function examinerMessage(o: {
       duMail: a.messageId === o.messageId,
       /* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 1 — les biens où cette adresse porte une carte de contact. */
       cartesLots: a.cartesLots,
+      /* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — règles A, B et tiers indépendant. */
+      aussiLocataireDe: a.aussiLocataireDe,
+      dernierBail: a.dernierBail,
+      independant: a.independant,
     })),
     textes: o.textes,
     biens: o.biens,
     contenu: o.contenu,
     mongaRelie: o.mongaRelie,
+    regles: o.regles,
+    lectureObjet: o.lectureObjet,
   });
 
   /** Une proposition de bien, traduite dans le vocabulaire des rattachements. La cible est TOUJOURS un lot. */
@@ -337,7 +350,8 @@ export function examinerMessage(o: {
      */
     /* 🔴 (g) EST BASSE AUSSI : une citation de référence dans un objet transféré est un INDICE, pas une
        identité du logement. Voir le cas (g) de `propositionsBien`. */
-    confiance: p.cas === 'e' || p.cas === 'f' || p.cas === 'g'
+    /* (o) EST BASSE AUSSI : l'objet ne fait que PROPOSER (lot RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET). */
+    confiance: p.cas === 'e' || p.cas === 'f' || p.cas === 'g' || p.cas === 'o'
       ? 'basse'
       : p.certitude === 'quasi_certaine' ? 'haute' : 'moyenne',
     motif: p.motif,
@@ -353,6 +367,19 @@ export function examinerMessage(o: {
      * seule indication qu'un mail de tiers porte parfois. Elles restent donc, en PROPOSITIONS décochées, à côté
      * du lien confirmé.
      */
+    /**
+     * 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — SOUS LES NOUVELLES RÈGLES, TOUT CE QUI N'EST
+     * PAS LE BIEN CERTAIN RESTE PROPOSÉ : les autres biens du propriétaire en copie (R1), ceux que l'objet cite (o).
+     * Sans les nouvelles règles : exactement comme avant (seules les propositions de contenu restent).
+     */
+    if (o.regles?.actives === true) {
+      const certain = examen.propositions.find((p) => p.certitude === 'quasi_certaine') ?? examen.propositions[0];
+      return {
+        issue: 'automatique', certain: enCandidat(certain),
+        candidats: examen.propositions.filter((p) => p !== certain).map(enCandidat),
+        adressesUtiles: utiles, motif: examen.motif,
+      };
+    }
     return {
       issue: 'automatique',
       certain: enCandidat(examen.propositions.find((p) => p.cas !== 'e') ?? examen.propositions[0]),

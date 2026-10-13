@@ -9,6 +9,7 @@ import { ModifierRattachement, motSorteLong, CSS_MODIFIER_RATTACHEMENT } from '.
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import { MenuRattachementBien } from './MenuRattachementBien';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
+import { motSuiviAutomatique, suiviAutomatiqueDuMail } from '../../../../lib/gestion/reglesRattachement';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » peut se faire pendant que cette fenêtre est ouverte. */
 import { annoncerClassement, ecouterClassement } from '../../../../lib/gestion/signalClassement';
 // LOT FICHE-RATTACHEMENT — les mots et les ordres vivent dans un module PUR, éprouvé sans écran.
@@ -606,6 +607,8 @@ export function RattachementsDuFil({
    * le serveur a désigné comme le plus récent, c'est-à-dire celui que la ligne de liste affiche.
    */
   const mailId = messageId ?? fiche?.enTete?.messageId ?? null;
+  /** R4 : la date de pose du suivi AUTOMATIQUE qui couvre ce mail (`null` = pas un suivi automatique). */
+  const suiviAuto = suivi === null || mailId === null ? null : suiviAutomatiqueDuMail(suivi.mails, suivi.periodes, mailId);
   /**
    * 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — L'EXPÉDITEUR DU MAIL AFFICHÉ (`enTete`, celui dont la fenêtre
    * parle) : le cartouche « Expéditeur : … » des biens suivis, des propositions et des résultats vient de lui seul.
@@ -1302,6 +1305,13 @@ export function RattachementsDuFil({
         {ponctuel && fiche !== null && (
           <section className="rdf-suivis" aria-labelledby="rdf-suivis-titre">
             <h3 className="rdf-suivis-titre" id="rdf-suivis-titre">{TITRE_BIENS_SUIVIS}</h3>
+            {/* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — R4 : le suivi en vigueur sur ce mail a été
+                posé par l'automate ; on le dit, avec sa date. Rien d'autre ne change dans ce bloc. */}
+            {suiviAuto !== null && (
+              <p className="rdf-detail rdf-suivi-auto">
+                {motSuiviAutomatique(suiviAuto === '' ? null : dateHeureComplete(suiviAuto))}
+              </p>
+            )}
             {biens.length === 0 && (
               <p className="rdf-detail">
                 {fiche.horsGestion

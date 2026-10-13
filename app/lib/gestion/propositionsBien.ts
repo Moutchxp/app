@@ -41,6 +41,8 @@ import { texteNonCite } from './texteCite';
 import {
   biensAMontrer, motifDuContenu, personnesDansLeTexte, BIENS_MONTRES, type AnnuaireContenu,
 } from './personnesDansLeTexte';
+/* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — quand les nouvelles règles jouent. PUR lui aussi. */
+import { dansLesMoisApresSortie, jourLisible, REGLES_D_AVANT, type ReglesDuMail } from './reglesRattachement';
 
 /** Un bien de la gestion, réduit à ce qui permet de le proposer et de le reconnaître dans un texte. */
 export interface BienConnu {
@@ -86,6 +88,16 @@ export interface AdresseVue {
    * ce moteur sans connaître les cartes continuent de compiler et de rendre la même chose.
    */
   cartesLots?: readonly string[];
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — CE QUE LES RÈGLES A ET B DEMANDENT ══════════
+   * Facultatifs, et lus SEULEMENT quand les nouvelles règles jouent (`regles.actives`) : absents ⇒ rien ne change.
+   *   · `aussiLocataireDe` (règle A) : une adresse de propriétaire qui est AUSSI locataire en place ailleurs ;
+   *   · `dernierBail` (règle B) : un locataire sans bail en cours — son dernier bien et sa date de sortie ;
+   *   · `independant` : l'adresse est rangée « Tiers indépendant » — elle ne déclenche JAMAIS de rattachement automatique.
+   */
+  aussiLocataireDe?: readonly string[];
+  dernierBail?: { lotCle: string; sortie: string } | null;
+  independant?: boolean;
 }
 
 /**
@@ -106,7 +118,8 @@ export interface AdresseVue {
  * sortis — mais ils parlent bel et bien de l'intervention, et les perdre de l'historique du bien serait l'excès
  * inverse. On les PROPOSE donc, sans jamais les poser.
  */
-export type CasProposition = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g';
+/* LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — (h) l'ANCIEN LOCATAIRE (règle B), (o) l'OBJET du mail. */
+export type CasProposition = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'o';
 
 export interface PropositionBien {
   cle: string;
@@ -356,6 +369,31 @@ function nomSansLot(b: BienConnu): string {
 }
 
 /**
+ * 🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — CE QUE L'OBJET ÉCRIT VRAIMENT, pour le motif. PUR.
+ * Du numéro du bien jusqu'au dernier mot de sa voie, tel que l'expéditeur l'a tapé (« 67 rue de Normandie », « 67 r.
+ * de Normandie »). Comparaison sans accents ni casse, CARACTÈRE PAR CARACTÈRE (les positions restent celles de l'objet).
+ * À défaut, l'adresse du bien telle que l'annuaire l'écrit.
+ */
+export function extraitDeLObjet(objet: string, b: BienConnu): string {
+  const plie = [...objet].map((ch) => ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().slice(0, 1) || ' ').join('');
+  const mots = motsSignificatifs(b.adresse ?? '');
+  const numero = mots.find((m) => /^\d+$/.test(m)) ?? null;
+  const voie = mots.filter((m) => !/^\d+$/.test(m) && m.length >= 3);
+  const repli = (b.adresse ?? '').trim() || `lot ${b.numero ?? b.cle}`;
+  if (numero === null || voie.length === 0) return repli;
+  const debut = new RegExp(`(^|[^0-9])${numero}(?![0-9])`).exec(plie);
+  if (debut === null) return repli;
+  const de = debut.index + debut[1].length;
+  let fin = de + numero.length;
+  for (const m of voie) {
+    const i = plie.indexOf(m, de);
+    if (i < 0 || i - de > 80) return repli;
+    fin = Math.max(fin, i + m.length);
+  }
+  return objet.slice(de, fin).replace(/\s+/g, ' ').trim();
+}
+
+/**
  * 🔴 LES BIENS PROPOSABLES POUR CE MAIL. PUR — aucune écriture, aucun effet : il DÉCRIT ce qu'on peut proposer.
  *
  * L'ORDRE DES CAS EST L'ORDRE DE FIABILITÉ, et il n'est pas indifférent : un bien trouvé par le locataire (a) ne
@@ -379,7 +417,21 @@ export function proposerBiens(o: {
    * exactement comme avant ce lot.
    */
   mongaRelie?: { reference: string; biens: readonly string[] };
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — LES NOUVELLES RÈGLES (R1, R2, A, B, tiers
+   * indépendant). Absent, ou `actives: false` (mail arrivé avant la mise en service, mail envoyé, pas de migration 345)
+   * ⇒ le moteur se comporte EXACTEMENT comme avant ce lot (décision C d'Arno : rien sur l'existant).
+   */
+  regles?: ReglesDuMail;
+  /**
+   * 🔴🔴 LA LECTURE DE L'OBJET : chaque bien dont l'objet cite l'ADRESSE, le N° DE LOT ou une PERSONNE connue est
+   * PROPOSÉ (cas o), jamais coché, jamais rattaché automatiquement. Absent ⇒ rien de plus qu'avant.
+   */
+  lectureObjet?: boolean;
 }): ExamenBiens {
+  const regles = o.regles ?? REGLES_D_AVANT;
+  /** Règle A : une adresse du mail est-elle à la fois propriétaire et locataire en place ? Alors rien d'automatique. */
+  let doubleRole = false;
   const biensDuProprietaire = new Map<string, BienConnu[]>();
   for (const b of o.biens) {
     if (b.proprietaireCle === null || b.proprietaireCle === '') continue;
@@ -395,16 +447,81 @@ export function proposerBiens(o: {
   const propositions: PropositionBien[] = [];
   const vus = new Set<string>();
   const ajouter = (p: PropositionBien) => { if (!vus.has(p.cle)) { vus.add(p.cle); propositions.push(p); } };
+  /**
+   * 🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — « une proposition déjà donnée par l'e-mail n'est
+   * pas dupliquée (le motif s'ajoute) » (Arno). Le bien garde sa place, sa certitude et sa case ; son motif dit en plus
+   * ce que l'objet cite.
+   */
+  const completer = (cle: string, motif: string) => {
+    const p = propositions.find((x) => x.cle === cle);
+    if (p !== undefined && !p.motif.includes(motif)) p.motif = `${p.motif} · ${motif}`;
+  };
+  /**
+   * 🔴 TIERS INDÉPENDANT — « ne déclenche jamais de rattachement automatique » (Arno). La règle existait
+   * (`sertALAutomatisation`) mais personne ne l'appelait. Une adresse rangée indépendante ne donne donc, sous les
+   * nouvelles règles, qu'une PROPOSITION à trancher, décochée.
+   */
+  const jamaisAuto = (adresses: readonly AdresseVue[]): boolean =>
+    regles.actives && adresses.length > 0 && adresses.every((a) => a.independant === true);
+  const MOT_INDEPENDANT = ' — adresse rangée « tiers indépendant » : jamais de rattachement automatique';
 
+  /* Le groupe examiné et sa provenance, pour `proprietaires` (appelée à deux endroits selon les règles). */
+  let groupeEnCours: readonly AdresseVue[] = [];
+  let provenanceEnCours = '';
   const examinerGroupe = (groupe: readonly AdresseVue[], provenance: string) => {
+    groupeEnCours = groupe;
+    provenanceEnCours = provenance;
     // ── (a) UNE ADRESSE DE LOCATAIRE DÉSIGNE SON BIEN ────────────────────────────────────────────────────────────
     for (const a of groupe) {
       if (a.partie !== 'locataire' || a.lotCle === null || a.lotCle === '') continue;
+      const tiers = jamaisAuto([a]);
       ajouter({
-        cle: a.lotCle, cas: 'a', certitude: 'quasi_certaine', preCoche: true,
-        motif: `locataire en place à la date du mail (${a.adresse})${provenance}`,
+        cle: a.lotCle, cas: 'a', certitude: tiers ? 'a_trancher' : 'quasi_certaine', preCoche: !tiers,
+        motif: `locataire en place à la date du mail (${a.adresse})${provenance}${tiers ? MOT_INDEPENDANT : ''}`,
         adresses: [a.adresse],
       });
+    }
+
+    if (regles.actives) {
+      /**
+       * ── 🔴🔴 (h) RÈGLE B — L'ANCIEN LOCATAIRE QUI ÉCRIT APRÈS SON DÉPART ───────────────────────────────────────────
+       * Son DERNIER bien : rattaché automatiquement pendant N mois après la date de sortie (15 par défaut, réglable),
+       * seulement proposé au-delà. La durée est DITE dans le motif.
+       */
+      for (const a of groupe) {
+        if (a.partie !== 'locataire' || (a.lotCle ?? '') !== '' || a.dernierBail == null) continue;
+        const { lotCle, sortie } = a.dernierBail;
+        const n = regles.ancienLocataireMois;
+        const dedans = regles.dateMail !== null && dansLesMoisApresSortie(sortie, regles.dateMail, n) && !jamaisAuto([a]);
+        ajouter({
+          cle: lotCle, cas: 'h', certitude: dedans ? 'quasi_certaine' : 'a_trancher', preCoche: dedans,
+          motif: dedans
+            ? `ancien locataire de ce bien (${a.adresse}, sorti le ${jourLisible(sortie)}) — rattaché automatiquement `
+              + `pendant ${n} mois après la sortie${provenance}`
+            : `ancien locataire de ce bien (${a.adresse}, sorti le ${jourLisible(sortie)}) — au-delà de ${n} mois après `
+              + `la sortie : proposé seulement${provenance}`,
+          adresses: [a.adresse],
+        });
+      }
+      /**
+       * ── 🔴🔴 RÈGLE A — LOCATAIRE D'UN BIEN ET PROPRIÉTAIRE D'UN AUTRE ─────────────────────────────────────────────
+       * AUCUN rattachement automatique : « À classer », les deux biens proposés. Le bien loué est proposé ici, décoché ;
+       * ceux du propriétaire viennent plus bas, décochés eux aussi.
+       */
+      for (const a of groupe) {
+        if (a.partie !== 'proprietaire' || (a.aussiLocataireDe ?? []).length === 0) continue;
+        doubleRole = true;
+        for (const cle of a.aussiLocataireDe ?? []) {
+          ajouter({
+            cle, cas: 'a', certitude: 'a_trancher', preCoche: false,
+            motif: `${a.adresse} est locataire de ce bien et propriétaire d’un autre — à trancher${provenance}`,
+            adresses: [a.adresse],
+          });
+        }
+      }
+      /* ── 🔴🔴 RÈGLE R2 — LE PROPRIÉTAIRE D'UN SEUL BIEN PASSE AVANT LA CARTE DE CONTACT : sinon la carte (f), « à
+         trancher », prenait la place de sa quasi-certitude (mesuré : kharrat, lot 504 — RECON_RATTACHEMENT_AUTO §3.3). */
+      proprietaires(true);
     }
 
     /**
@@ -440,6 +557,19 @@ export function proposerBiens(o: {
     }
 
     // ── (b) et (c) — UN PROPRIÉTAIRE : UN SEUL BIEN, OU TOUS SES BIENS ──────────────────────────────────────────
+    /* 🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — sous les nouvelles règles, les propriétaires
+       d'UN bien sont déjà passés avant la carte de contact (règle R2) : ici ne restent que ceux de plusieurs biens.
+       Sans les nouvelles règles, l'ordre et le résultat sont ceux d'avant, au caractère près. */
+    proprietaires(regles.actives ? false : null);
+  };
+
+  /**
+   * (b) et (c), écrits UNE fois. `seulement` : `true` = les propriétaires d'un seul bien, `false` = ceux de plusieurs,
+   * `null` = tous (l'ordre d'avant ce lot).
+   */
+  function proprietaires(seulement: boolean | null, groupeCourant?: readonly AdresseVue[]) {
+    const groupe = groupeCourant ?? groupeEnCours;
+    const provenance = provenanceEnCours;
     const proprios = new Map<string, string[]>();
     for (const a of groupe) {
       const cle = a.proprietaireCle;
@@ -458,10 +588,20 @@ export function proposerBiens(o: {
     for (const [cle, adresses] of proprios) {
       const siens = biensDuProprietaire.get(cle) ?? [];
       const nom = siens[0]?.proprietaireNom ?? cle;
+      if (seulement === true && siens.length !== 1) continue;
+      if (seulement === false && siens.length === 1) continue;
       if (siens.length === 1) {
+        /* 🔴 RÈGLES A ET « TIERS INDÉPENDANT » (nouvelles règles seulement) : un propriétaire qui est aussi locataire
+           ailleurs, ou une adresse rangée indépendante, ne rattache rien d'office — le bien est proposé, décoché. */
+        const vues = groupe.filter((a) => adresses.includes(a.adresse));
+        const aussiLocataire = regles.actives && vues.some((a) => (a.aussiLocataireDe ?? []).length > 0);
+        const tiers = jamaisAuto(vues);
+        const aTrancher = aussiLocataire || tiers;
         ajouter({
-          cle: siens[0].cle, cas: 'b', certitude: 'quasi_certaine', preCoche: true,
-          motif: `${nom} n’a qu’un bien en gestion${provenance}`,
+          cle: siens[0].cle, cas: 'b', certitude: aTrancher ? 'a_trancher' : 'quasi_certaine', preCoche: !aTrancher,
+          motif: aussiLocataire
+            ? `${nom} n’a qu’un bien en gestion, mais est aussi locataire d’un autre — à trancher${provenance}`
+            : `${nom} n’a qu’un bien en gestion${provenance}${tiers ? MOT_INDEPENDANT : ''}`,
           adresses,
         });
         continue;
@@ -600,6 +740,43 @@ export function proposerBiens(o: {
     }
   }
 
+  /**
+   * ══ 🔴🔴 (o) — L'OBJET DU MAIL, LU POUR PROPOSER (LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET) ════
+   *
+   * ARNO : « Lire l'OBJET du mail pour y repérer un NOM de personne connue, une ADRESSE POSTALE d'un bien, un numéro de
+   * lot. Chaque bien ainsi repéré s'ajoute aux PROPOSITIONS […] avec un motif lisible. Jamais coché d'office, jamais de
+   * rattachement automatique, même avec une seule correspondance. »
+   *
+   * 🔴 L'OBJET SEUL — pas le corps. Le corps traîne citations, signatures et historique ; il est déjà lu par (d) et (e),
+   * avec leurs garde-fous. L'objet, lui, est la phrase que l'expéditeur a écrite pour dire de quoi il parle.
+   * 🔴 LES MÊMES RÈGLES DE RECONNAISSANCE QU'AILLEURS : `adresseCitee` (numéro ET nom de voie, accents, casse et
+   * « rue / r. » sans effet), `lotCite` (le mot « lot » devant le numéro), `personnesDansLeTexte` (deux mots dont un
+   * distinctif, ou un nom de famille rare d'au moins cinq lettres écrit avec une majuscule) — aucun nom court ou courant.
+   * 🔴 APRÈS TOUT LE RESTE : un bien déjà proposé GARDE sa place et sa case ; seul son motif s'enrichit.
+   */
+  if (o.lectureObjet === true && (o.textes?.objet ?? '').trim() !== '') {
+    const objetBrut = o.textes?.objet as string;
+    const objet = normaliser(objetBrut);
+    const parObjet = o.biens
+      .map((b) => ({ b, cite: citationDuBien(b, objet) }))
+      .filter((x): x is { b: BienConnu; cite: 'adresse' | 'lot' } => x.cite !== null);
+    const montres = biensCitesAMontrer(parObjet.map((x) => ({ cle: x.b.cle, cite: x.cite })));
+    for (const { b, cite } of parObjet) {
+      const motif = `proposé : l’objet cite “${cite === 'lot' ? `lot ${b.numero ?? b.cle}` : extraitDeLObjet(objetBrut, b)}”`;
+      if (vus.has(b.cle)) { completer(b.cle, motif); continue; }
+      ajouter({ cle: b.cle, cas: 'o', certitude: 'a_trancher', preCoche: false, motif, adresses: [], replie: !montres.has(b.cle) });
+    }
+    const personnes = o.contenu === undefined ? [] : personnesDansLeTexte(objetBrut, o.contenu);
+    for (const c of personnes) {
+      const motif = `proposé : l’objet cite “${c.extrait.trim()}” (${c.personne.nom})`;
+      const { montres: m5 } = biensAMontrer(c.personne);
+      for (const cle of c.personne.lots) {
+        if (vus.has(cle)) { completer(cle, motif); continue; }
+        ajouter({ cle, cas: 'o', certitude: 'a_trancher', preCoche: false, motif, adresses: [], replie: !m5.includes(cle) });
+      }
+    }
+  }
+
   if (propositions.length === 0) {
     return {
       issue: 'sans_candidat', propositions: [],
@@ -630,12 +807,30 @@ export function proposerBiens(o: {
    * adresse reconnue mais d'une citation. Le compter aurait pu faire ranger tout seul un `Fwd:` dont l'objet
    * seul parlait de Monga — exactement le défaut que le resserrement du prédicat vient de corriger.
    */
-  const parAdresse = propositions.filter((p) => p.cas !== 'e' && p.cas !== 'g');
-  if (parAdresse.length === 1 && quasi.length === 1 && !depuisLEchange) {
-    return {
-      issue: 'automatique', propositions,
-      motif: `un seul bien certain — ${parAdresse[0].motif}`,
-    };
+  /* 🔴 (o), L'OBJET, NE COMPTE JAMAIS NON PLUS : il ne fait que proposer, comme (e) et (g). */
+  const parAdresse = propositions.filter((p) => p.cas !== 'e' && p.cas !== 'g' && p.cas !== 'o');
+  if (!regles.actives) {
+    if (parAdresse.length === 1 && quasi.length === 1 && !depuisLEchange) {
+      return {
+        issue: 'automatique', propositions,
+        motif: `un seul bien certain — ${parAdresse[0].motif}`,
+      };
+    }
+  } else if (!doubleRole && quasi.length === 1 && !depuisLEchange) {
+    /**
+     * ══ 🔴🔴 LES NOUVELLES RÈGLES — R1 : L'ADRESSE DU LOCATAIRE TRANCHE ══════════════════════════════════════════════
+     * « S'il est en copie d'un propriétaire à plusieurs biens, c'est l'adresse du locataire qui tranche (les autres
+     * biens du propriétaire restent proposés, non cochés). » Les biens (c) du MÊME propriétaire que le bien certain ne
+     * bloquent donc plus ; tout autre bien venu d'une adresse (un second dossier) bloque comme avant.
+     * Règle A : une adresse à la fois propriétaire et locataire en place ⇒ jamais d'automatique (`doubleRole`).
+     */
+    const certain = quasi[0];
+    const proprioDuCertain = o.biens.find((b) => b.cle === certain.cle)?.proprietaireCle ?? null;
+    const bloquants = parAdresse.filter((p) => p !== certain && !(p.cas === 'c' && proprioDuCertain !== null
+      && o.biens.find((b) => b.cle === p.cle)?.proprietaireCle === proprioDuCertain));
+    if (bloquants.length === 0) {
+      return { issue: 'automatique', propositions, motif: `un seul bien certain — ${certain.motif}` };
+    }
   }
 
   /**

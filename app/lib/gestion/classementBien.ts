@@ -284,6 +284,12 @@ async function construireBiens(o: {
    * adresse. » Absent ⇒ les propositions d'avant, à la lettre (les autres écrans n'en changent pas).
    */
   elargi?: { clientsDesAdresses: readonly { cle: string; motif: string }[] };
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — proposer aussi les biens que l'OBJET cite
+   * (adresse, n° de lot, personne connue), jamais cochés. Passé par la fenêtre d'un mail REÇU seulement : la rédaction
+   * n'en a pas l'usage. Absent ⇒ les propositions d'avant, à la lettre. Affichage seul : rien n'est écrit.
+   */
+  lectureObjet?: boolean;
 }): Promise<{
   biens: BienProposable[];
   examen: { issue: 'automatique' | 'a_trancher' | 'sans_candidat'; motif: string };
@@ -318,6 +324,7 @@ async function construireBiens(o: {
       proprietaireCle: l.proprietaire_cle, proprietaireNom: l.proprietaire_nom,
     })),
     contenu: o.contenu,
+    lectureObjet: o.lectureObjet,
   });
 
   /**
@@ -615,6 +622,8 @@ export async function contexteClassement(
   const coeur = await construireBiens({
     contenu,
     adresses,
+    /* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — l'objet du mail propose ses biens (jamais cochés). */
+    lectureObjet: true,
     /**
      * ⚠️ LA RECONNAISSANCE LIT LES DEUX NOMS, L'ÉCRAN UN SEUL. Une règle qui repère « bail » dans un nom de
      * fichier doit continuer de le repérer après un renommage — et le repérer aussi dans le nom sous lequel la

@@ -172,3 +172,25 @@ Sur les 3 derniers mois : **403** conversations ont au moins un mail rattaché p
 | **Syndic, carnet d'immeuble, rangements des PARTIES** : non utilisés par le moteur | Ne pas les utiliser pour rattacher automatiquement (un syndic gère tout un immeuble) ; les garder comme propositions. |
 | **Garde `sertALAutomatisation` sans appelant** | La brancher dans le moteur, pour que la règle « un indépendant ne sert jamais à l'automatisation » soit tenue par le code et non par le seul modèle de données. |
 | **Envoi de l'application qui échappe à l'examen** (1 cas) | Faire examiner aussi les envois dont les adresses ont été posées avant la relève. |
+
+---
+
+## Correctif du 13/10/2026 — les 733 mails « examen automatique sans rattachement »
+
+> Ajouté au lot RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET. La section 3.3 et la recommandation
+> « liens retirés le 28/09 » ci-dessus attribuaient ces 733 mails à la passe « conversion règle bien 28/09 » : c'était
+> inexact. Mesuré en lecture seule (dernier retrait du lien « bien » de chacun) :
+
+| Qui a retiré le lien « bien » | Sens | Mails | Ce que c'est |
+|---|---|---:|---|
+| lot DOCUMENTS-HORS-BIENS, le 01/10/2026 à 22:37 | envoyés | 713 | des « Document CRITERIMMO » que nous envoyons, retirés **volontairement** (règle d'Arno du 01/10 : un document concerne une personne, pas un bien). Leur examen « automatique » date d'**avant** ce retrait : c'est un verdict périmé, pas un blocage. Ils ne doivent pas revenir. |
+| moteur de rattachement, le 28/09/2026 entre 15:23 et 23:11 | 10 reçus, 8 envoyés | 18 | les **vrais blocages** : pendant les passes de la conversion « cible = bien » du 28/09, le moteur a retiré ces liens (« le moteur ne propose plus cette cible ») ; réexaminés ensuite, ils sont jugés « automatique », mais l'écriture refusait de reposer un lien dont une ligne retirée existait (exemples : 57053 → bien 177, 661 → bien 418). |
+| réparation lot HISTORIQUES-UNE-SEULE-REGLE (04/10/2026) | envoyé | 1 | mail marqué « interne » : retrait délibéré. |
+| aucun lien « bien » retiré | envoyé | 1 | examen périmé. |
+
+La passe « conversion règle bien 28/09 » (commit 000baca2) a, elle, retiré **19 538 liens vers un PROPRIÉTAIRE** — remplacés par
+des liens vers les biens. Elle n'est pas la cause du blocage.
+
+Correction du moteur (lot RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4…) : sur les **nouveaux** mails seulement (décision C), un lien
+retiré **par le moteur lui-même** ne bloque plus ; tout retrait par une décision (lot, personne, sortie du suivi) bloque
+toujours. Les 733 mails existants ne sont pas touchés.
