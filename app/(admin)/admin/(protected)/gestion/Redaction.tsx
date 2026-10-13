@@ -36,7 +36,7 @@ import { CSS_RATTACHER_EN_ECRIVANT, RattacherEnEcrivant } from './RattacherEnEcr
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, motsJeterBrouillon, pretAEnvoyer, secondesRestantes,
-  type Brouillon, type CibleBrouillon, brouillonTouche} from '../../../../lib/gestion/redaction';
+  type Brouillon, type CibleBrouillon, type VoieRedaction, brouillonTouche} from '../../../../lib/gestion/redaction';
 // 🔴🔴 LOT CLASSER-AVANT-ENVOI — « classé ou non » est une DÉCISION, prise dans un module PUR et partagée mot
 //   pour mot avec le serveur. L'écran grise un bouton ; le serveur, lui, refuse.
 import { classementExigePour, classementFait, MOTIF_NON_CLASSE }
@@ -52,6 +52,12 @@ import {
   brouillonAQuelqueChose, delaiPour, MOTS_ENREGISTREMENT, signatureBrouillon, sorteDuChangement,
   type EtatEnregistrement,
 } from '../../../../lib/gestion/brouillonEnregistrement';
+// 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — changer de mode sans rien perdre. La RÈGLE vit dans un module PUR.
+import {
+  changerDeVoie, estBasculable, type OrigineVoies, type VoieBasculable,
+} from '../../../../lib/gestion/changerVoie';
+import { IconeVoie, VOIES_REPONSE } from './BoutonsRepondre';
+import type { MessageDeFil } from '../../../../lib/gestion/carteRepo';
 
 /**
  * LOT 5e — ÉCRIRE UN MESSAGE. Composant CLIENT.
@@ -196,6 +202,18 @@ export interface BrouillonEcran extends Brouillon {
    */
   depuisLeBien?: boolean;
   dossierDriveBien?: { id: string; nom: string } | null;
+  /**
+   * ══ 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — DE QUOI CHANGER DE MODE (champs d'écran, jamais enregistrés) ═════════
+   *   · `origineVoies` : le message auquel on répond, pour rejouer `preparerBrouillon` dessus. Absent (brouillon
+   *     rouvert depuis la liste) ⇒ relu au premier changement de mode, par la route de la conversation ;
+   *   · `voieDeNaissance` : le mode à l'ouverture. Les CLÉS de l'éditeur (corps, étalon, ouverture) le lisent à la
+   *     place du mode courant : changer de mode ne remonte donc ni l'éditeur ni l'étalon — c'est ce qui perdait le texte ;
+   *   · `retiresALaMain` : les adresses automatiques retirées par la personne. Elles ne reviennent pas.
+   * Absents ⇒ tout se comporte comme avant ce lot.
+   */
+  origineVoies?: OrigineVoies | null;
+  voieDeNaissance?: VoieRedaction;
+  retiresALaMain?: string[];
 }
 
 /**
@@ -569,8 +587,14 @@ export function FenetreConfirmation({ question, annuler, confirmer, echec = null
 
 export function Redaction({
   brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
-  reduite = false, calerAVue = true, calage = 'start', appel = 0, lotFiche = null, onPleinEcran,
+  reduite = false, calerAVue = true, calage = 'start', appel = 0, lotFiche = null, onPleinEcran, voieDemandee = null,
 }: {
+  /**
+   * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — UN BOUTON DU MAIL CLIQUÉ PENDANT QUE CE COMPOSEUR EST OUVERT SUR LUI.
+   * Chaque nouveau `n` demande de passer au mode `voie` — exactement comme le sélecteur du composeur, donc sans rien
+   * perdre. Un compteur, pas le mode seul : recliquer le même bouton doit pouvoir redemander. `null` = rien.
+   */
+  voieDemandee?: { voie: VoieRedaction; n: number } | null;
   /**
    * ══ 🔴🔴 LOT SUGGESTIONS-DANS-TOUS-COMPOSEURS-DEPUIS-BIEN — LE BIEN DE LA FICHE OUVERTE ══════════════════════════════
    * ARNO : depuis la fiche d'un bien, un clic dans À, Cc ou Cci propose les contacts de l'historique de CE bien, avec
@@ -1102,7 +1126,14 @@ export function Redaction({
    */
   const racine = useRef<HTMLElement | null>(null);
   const [ouvre, setOuvre] = useState(true);
-  const cleOuverture = `${brouillon.voie}:${brouillon.id ?? 'neuf'}`;
+  /**
+   * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — LES TROIS CLÉS DE L'ÉDITEUR LISENT LE MODE DE NAISSANCE. Elles lisaient
+   * le mode courant : changer de mode remontait l'éditeur de texte et remettait l'étalon « a-t-on écrit ? » à zéro —
+   * le brouillon passait pour vide, et se faisait abandonner à la fermeture. Sans changement de mode, les deux valent
+   * la même chose : rien ne bouge pour les autres chemins.
+   */
+  const voieCle = brouillon.voieDeNaissance ?? brouillon.voie;
+  const cleOuverture = `${voieCle}:${brouillon.id ?? 'neuf'}`;
   useEffect(() => {
     const doux = !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     /**
@@ -1399,7 +1430,7 @@ export function Redaction({
    * ⚠️ CALCULÉ UNE SEULE FOIS PAR BROUILLON (`useMemo` sur sa clé) : recalculé à chaque rendu, il remonterait
    * l'éditeur et effacerait ce qu'on est en train d'écrire.
    */
-  const cleCorps = `${brouillon.voie}:${brouillon.id ?? 'neuf'}:${brouillon.repondALeMessageId ?? 0}`;
+  const cleCorps = `${voieCle}:${brouillon.id ?? 'neuf'}:${brouillon.repondALeMessageId ?? 0}`;
 
   /**
    * ══ 🔴🔴 LOT MAIL-PREREMPLI-TEXTE-B-ET-NOM-DANS-OBJET — LE CURSEUR À LA FIN DE L'OBJET, UNE FOIS ════════════════════
@@ -1473,7 +1504,7 @@ export function Redaction({
    * nul et la règle ne dirait plus rien.
    */
   const origine = useRef<BrouillonEcran>(brouillon);
-  const cleBrouillon = `${brouillon.voie}:${brouillon.filId ?? 0}:${brouillon.repondALeMessageId ?? 0}`;
+  const cleBrouillon = `${voieCle}:${brouillon.filId ?? 0}:${brouillon.repondALeMessageId ?? 0}`;
   const cleOrigine = useRef(cleBrouillon);
   if (cleOrigine.current !== cleBrouillon) { cleOrigine.current = cleBrouillon; origine.current = brouillon; }
 
@@ -1533,6 +1564,15 @@ export function Redaction({
   const signatureEcrite = useRef<string | null>(brouillon.repris === true ? signatureBrouillon(brouillon) : null);
   /** Un envoi en cours : on ne s'enchevêtre pas, et la fermeture peut l'attendre. */
   const envoiEnCours = useRef<Promise<void> | null>(null);
+  /**
+   * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — LE BROUILLON EN BASE SUIT LE CHANGEMENT DE MODE.
+   *   · `ecrireLaVoie` : un brouillon qui existe déjà en base (rouvert, ou enregistré) s'écrit au changement de mode
+   *     même si rien d'autre n'a bougé — sinon il garderait l'ancien mode, et le rouvrir le ramènerait ;
+   *   · `relirePiecesApres` : passé en Transférer, c'est cet enregistrement qui reprend les pièces du message
+   *     d'origine (route des brouillons) — la zone des pièces les relit ensuite.
+   */
+  const ecrireLaVoie = useRef(false);
+  const relirePiecesApres = useRef(false);
 
   const corpsPourEnvoi = useCallback((b: BrouillonEcran) => JSON.stringify({
     id: b.id, filId: b.filId, repondAMessageId: b.repondALeMessageId, voie: b.voie,
@@ -1563,7 +1603,7 @@ export function Redaction({
    */
   const enregistrerMaintenant = useCallback(async (auVol = false): Promise<void> => {
     if (!contexte.schemaPret || !contexte.peutEnvoyer) return;
-    if (!toucheRef.current) return;
+    if (!toucheRef.current && !ecrireLaVoie.current) return;
     const b = aEnregistrer.current;
     const signature = signatureBrouillon(b);
     if (signature === signatureEcrite.current) return;
@@ -1593,6 +1633,8 @@ export function Redaction({
         const d = (await res.json().catch(() => ({}))) as { brouillon?: { id: number } };
         if (!res.ok || !d.brouillon) { setEtatEnreg('echec'); return; }
         signatureEcrite.current = signature;
+        ecrireLaVoie.current = false;
+        if (relirePiecesApres.current) { relirePiecesApres.current = false; setVersionPieces((v) => v + 1); }
         if (aEnregistrer.current.id === null) {
           // ⚠️ L'identifiant remonte, et il ne relance RIEN : il ne fait pas partie de la signature.
           aEnregistrer.current = { ...aEnregistrer.current, id: d.brouillon.id };
@@ -1739,6 +1781,83 @@ export function Redaction({
     if (!transfertNeuf) return;
     void assurerBrouillon();
   }, [transfertNeuf, assurerBrouillon]);
+
+  /**
+   * ══ 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — CHANGER DE MODE, ICI, SANS RIEN PERDRE ════════════════════════════
+   *
+   * Arno : « passer librement entre Répondre / Répondre à tous / Transférer, dans n'importe quel ordre et autant de
+   * fois que je veux, SANS JAMAIS perdre ce que j'ai déjà écrit ».
+   *
+   * 🔴 LA DÉCISION EST DANS `changerDeVoie` (module PUR, éprouvé sans écran) : elle retire ce que l'application avait
+   * rempli pour l'ancien mode, garde tout ce que la personne a fait, applique le nouveau mode.
+   *
+   * 🔴 LE MÊME BROUILLON CONTINUE : même numéro, même éditeur de texte (les clés lisent le mode de naissance), même
+   * zone de pièces. L'ÉTALON « a-t-on écrit ? » change de mode avec lui : basculer seul n'est pas écrire, et un
+   * brouillon où l'on n'a rien tapé reste abandonné à la fermeture, comme avant ce lot.
+   *
+   * ⚠️ LE MESSAGE D'ORIGINE EST RELU s'il n'est pas déjà là (brouillon rouvert depuis la liste) — par la route de la
+   * conversation, en lecture seule. S'il ne peut pas l'être, on le DIT et l'on ne touche à rien.
+   */
+  const [echecVoie, setEchecVoie] = useState<string | null>(null);
+  const lireOrigineVoies = async (b: BrouillonEcran): Promise<OrigineVoies | null> => {
+    if (b.origineVoies) return b.origineVoies;
+    if (b.filId === null || b.repondALeMessageId === null) return null;
+    try {
+      const res = await fetch(`/api/admin/gestion/fils/${b.filId}/messages`, { cache: 'no-store' });
+      if (!res.ok) return null;
+      const d = (await res.json()) as { messages?: MessageDeFil[] };
+      // ⚠️ `Number` des deux côtés : un identifiant bigint peut arriver en chaîne.
+      const m = (d.messages ?? []).find((x) => Number(x.messageId) === Number(b.repondALeMessageId));
+      if (m === undefined) return null;
+      return {
+        message: {
+          messageId: Number(m.messageId), de: m.de, deNom: m.deNom, objet: m.objet, recuLe: m.recuLe,
+          corps: m.corps ?? m.extrait, destA: m.destA, destCc: m.destCc, destinatairesFondus: m.destinatairesFondus,
+        },
+      };
+    } catch {
+      return null;
+    }
+  };
+  const basculerVers = async (voie: VoieRedaction): Promise<void> => {
+    if (!estBasculable(voie) || !estBasculable(brouillon.voie) || voie === brouillon.voie) return;
+    if (etat.v !== 'ecriture' && etat.v !== 'echec') return;
+    setEchecVoie(null);
+    const org = await lireOrigineVoies(aEnregistrer.current);
+    if (org === null) {
+      setEchecVoie('Changement de mode impossible : le message d’origine n’a pas pu être relu. Rien n’a été modifié.');
+      return;
+    }
+    // ⚠️ LE BROUILLON LE PLUS RÉCENT, pas celui de la fermeture : on a pu écrire pendant la relecture du message.
+    const b = aEnregistrer.current;
+    if (!estBasculable(b.voie) || b.voie === voie) return;
+    const ctx = { adresseGestion: contexte.adresseGestion, signature: contexte.signature };
+    const ch = changerDeVoie(b, voie as VoieBasculable, org, ctx);
+    const etalon = origine.current;
+    if (estBasculable(etalon.voie)) origine.current = { ...etalon, ...changerDeVoie(etalon, voie as VoieBasculable, org, ctx) };
+    if (b.id !== null) {
+      ecrireLaVoie.current = true;
+      if (voie === 'transferer') relirePiecesApres.current = true;
+    }
+    if (ch.cc.length > 0) setAfficheCc(true);
+    else if (b.cc.length > 0) setAfficheCc(false);
+    if (ch.cci.length > 0) setAfficheCci(true);
+    onChange({
+      ...b, ...ch, origineVoies: org, voieDeNaissance: b.voieDeNaissance ?? b.voie,
+      // Le surlignage du nom dans l'objet n'a plus de sens si le préfixe a bougé.
+      ...(ch.objet !== b.objet && b.surlignageObjet != null ? { surlignageObjet: null } : {}),
+    });
+  };
+  /** Un bouton du MAIL cliqué pendant que ce composeur est ouvert sur lui : même geste que le sélecteur. */
+  const demandeVue = useRef(voieDemandee?.n ?? 0);
+  useEffect(() => {
+    if (voieDemandee == null || voieDemandee.n === demandeVue.current) return;
+    demandeVue.current = voieDemandee.n;
+    void basculerVers(voieDemandee.voie);
+    const el = racine.current;
+    if (typeof el?.scrollIntoView === 'function') el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- seule une NOUVELLE demande agit.
+  }, [voieDemandee]);
 
   /**
    * ══ 🔴🔴 LOT ENVOI-ARRIERE-PLAN — JOINDRE UNE PIÈCE DU DRIVE, SANS ATTENDRE SES OCTETS ═══════════════════════
@@ -2226,6 +2345,28 @@ export function Redaction({
         </div>
       )}
 
+      {/* ══ 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — LE SÉLECTEUR À TROIS POSITIONS ══════════════════════════════
+          Les trois mots et les trois dessins sont CEUX des boutons du mail (`VOIES_REPONSE`, `IconeVoie`) : une seule
+          écriture. Le mode courant est enfoncé (`aria-pressed`) ET marqué par un trait, jamais par la couleur seule.
+          `onMouseDown` annulé : le champ en cours de saisie garde le focus, rien n'est validé à la place de la personne.
+          N'apparaît que sur une réponse ou un transfert d'un message connu — jamais sur « Nouveau message ». */}
+      {estBasculable(brouillon.voie) && brouillon.repondALeMessageId !== null
+        && (brouillon.origineVoies != null || brouillon.filId !== null) && (
+        <div className="red-voies" role="group" aria-label="Mode du message">
+          {VOIES_REPONSE.map(([v, mot]) => (
+            <button key={v} type="button"
+              className={`red-voie${brouillon.voie === v ? ' red-voie--active' : ''}`}
+              aria-pressed={brouillon.voie === v}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => void basculerVers(v)}>
+              <IconeVoie voie={v} />
+              <span>{mot}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {echecVoie !== null && <p className="gst-compte-rendu gst-ton-erreur" role="status">{echecVoie}</p>}
+
       <p className="gst-note">De : {contexte.nomExpediteur} &lt;{contexte.adresseGestion}&gt;</p>
 
       {/* 🔴 CE QUI EMPÊCHERAIT D'ENVOYER, DIT AVANT D'ÉCRIRE. On n'attend pas le clic pour l'annoncer. */}
@@ -2510,6 +2651,9 @@ export function Redaction({
       {contexte.piecesDisponibles && (
         <PiecesBrouillon key={versionPieces} brouillonId={brouillon.id} onChange={setPiecesJointes}
           onBesoinDeBrouillon={assurerBrouillon}
+          /* 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — les pièces reprises du message d'origine ne vivent qu'en
+             Transférer. Elles n'existent que sur un brouillon qui a été un transfert : ailleurs, rien ne change. */
+          masquerReprises={brouillon.voie !== 'transferer'}
           /**
            * ══ 🔴🔴 LOT EDITEUR-SIGNATURE-SOMBRE-ET-MINIATURES — L'ŒIL D'UNE VIGNETTE ════════════════════════════
            *
@@ -2938,6 +3082,15 @@ const CSS_REDACTION = `
 .red-apres{align-items:flex-start}
 .red-haut{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem}
 .red-haut .gst-titre{margin:0}
+/* LOT REPONDRE-TRANSFERER-SANS-PERTE — le selecteur a trois positions. Cibles de 44 px, aucun effet au survol seul ;
+   le mode courant se lit par le TRAIT (bordure epaisse, texte gras), pas par la couleur seule. Jetons seulement :
+   valable en Clair comme en Sombre. Pas d'accent grave ici : ce bloc vit dans un litteral de gabarit. */
+.red-voies{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 .4rem}
+.red-voie{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 .8rem;font:inherit;font-size:.82rem;
+  color:var(--color-svv-ink);background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
+  border-radius:999px;cursor:pointer}
+.red-voie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.red-voie--active{font-weight:700;border:2px solid var(--color-svv-red);color:var(--color-svv-red);cursor:default}
 .red-champ{display:flex;flex-direction:column;gap:3px;min-width:0}
 .red-label{font-size:.75rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted)}
 /* Les pastilles PASSENT À LA LIGNE : sur un téléphone, six destinataires ne tiennent pas sur une ligne, et une barre

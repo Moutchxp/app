@@ -102,6 +102,15 @@ export async function piecesDeLEnvoi(d: DemandeEnvoi, deps: DepsPiecesEnvoi): Pr
    */
   if (d.brouillonId !== null) {
     for (const p of await deps.duBrouillon(d.brouillonId)) {
+      /**
+       * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — UNE PIÈCE REPRISE DU MESSAGE D'ORIGINE NE PART QU'EN TRANSFÉRER.
+       * Seul « Transférer » en reprend (`reprendrePiecesDuMessage`, route des brouillons) : un brouillon passé ensuite
+       * en Répondre les porte encore en base, et l'écran ne les montre plus. Ce n'est PAS un saut silencieux (la règle
+       * ci-dessus) : c'est le mode choisi qui les exclut, et l'écran le montre déjà. Sans changement de mode, aucun
+       * autre brouillon n'en porte — rien ne change pour eux.
+       * ⚠️ SEULEMENT POUR UNE RÉPONSE NOMMÉE : une voie absente (appelant d'avant) garde le comportement d'avant.
+       */
+      if (p.pieceId != null && (d.voie === 'repondre' || d.voie === 'repondre_tous')) continue;
       pieces.push({ nom: p.nom, typeMime: p.typeMime, octets: await deps.octets(p) });
     }
   }

@@ -65,6 +65,7 @@ import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './R
 /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — les trois boutons et leurs icônes, partagés avec la vie du bien. */
 import { BoutonsRepondre, IconeVoie } from './BoutonsRepondre';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+import { estBasculable } from '../../../../lib/gestion/changerVoie';
 // LOT BROUILLONS-GMAIL — la traduction « brouillon en base → brouillon d'éditeur », PURE.
 import { reprendreBrouillon, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
 import { heureGmail } from '../../../../lib/gestion/ecran';
@@ -445,8 +446,24 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     heritageDe(liste.length > 0 ? liste[liste.length - 1].messageId : null);
 
   /** Ouvre la rédaction pour UN message précis, et la place sous lui. Un seul endroit pour les deux décisions. */
+  /**
+   * ══ 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — UN COMPOSEUR DÉJÀ OUVERT SUR CE MESSAGE CHANGE DE MODE ═══════════
+   *
+   * Arno : « cliquer sur un des 3 boutons du mail pendant qu'un composeur est déjà ouvert pour ce mail change le mode
+   * du composeur existant, sans en ouvrir un nouveau vide ». Avant ce lot, le clic fabriquait un brouillon NEUF qui
+   * remplaçait celui-ci — et ce qu'on avait écrit partait avec.
+   *
+   * ⚠️ LA DEMANDE PASSE À L'ÉDITEUR (`voieDemandee`), qui fait le même geste que son propre sélecteur : la règle n'est
+   * écrite qu'une fois. Un compteur, pour qu'un même bouton recliqué redemande.
+   */
+  const [voieDemandee, setVoieDemandee] = useState<{ voie: VoieRedaction; n: number } | null>(null);
+  const demanderVoie = (voie: VoieRedaction): void => setVoieDemandee((d) => ({ voie, n: (d?.n ?? 0) + 1 }));
+  const basculeSur = (messageId: number, voie: VoieRedaction): boolean => brouillon !== null
+    && brouillon.repondALeMessageId !== null && Number(brouillon.repondALeMessageId) === Number(messageId)
+    && estBasculable(brouillon.voie) && estBasculable(voie);
   const repondreA = (voie: VoieRedaction, m: MessageDeFil) => {
     if (redaction === null) return;
+    if (basculeSur(m.messageId, voie)) { demanderVoie(voie); return; }
     setBrouillon(ouvrirRedaction(voie, [m], filId, redaction, maintenant, heritageDe(m.messageId)));
     setBrouillonSous(m.messageId);
     /* 🔴 ICI ON A DEMANDÉ L'ÉDITEUR : il s'amène sous les yeux, comme avant ce lot (lot REPONSE-VISIBLE). */
@@ -948,6 +965,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     const cle = `${filId}:${voieInitiale}`;
     if (voieFaite.current === cle) return;
     voieFaite.current = cle;
+    // 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — un composeur déjà ouvert sur ce message CHANGE de mode, sans rien perdre.
+    const dernier = vue.messages.length > 0 ? vue.messages[vue.messages.length - 1].messageId : null;
+    if (dernier !== null && basculeSur(dernier, voieInitiale)) { demanderVoie(voieInitiale); return; }
     setBrouillon(ouvrirRedaction(voieInitiale, vue.messages, filId, redaction, maintenant,
       heritageDuDernier(vue.messages)));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 🔴 `heritageDuDernier` lit les rattachements, qui
@@ -2182,6 +2202,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               <div hidden={!deplies.has(m.messageId)}>
                 <Redaction brouillon={brouillon} contexte={redaction}
                   fermetureDemandee={fermetureReponse}
+                  voieDemandee={voieDemandee}
                   /* 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT — l'éditeur rouvert par l'OUVERTURE du mail
                      ne tire pas la page a lui : on voulait lire le mail. Voir `calerLaReponse`. */
                   calerAVue={calerLaReponse}
@@ -2246,6 +2267,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       {barreActions && redaction && (
         brouillon !== null && brouillonSous === null ? (
           <Redaction brouillon={brouillon} contexte={redaction}
+            voieDemandee={voieDemandee}
             onChange={setBrouillon}
             onFerme={() => setBrouillon(null)}
             onEnvoye={() => { setBrouillon(null); void recharger(); }}
@@ -2503,14 +2525,16 @@ function ouvrirRedaction(
   herite: ClassementHerite = { cibles: [], interne: false, horsGestion: false },
 ): BrouillonEcran {
   const dernier = messages.length > 0 ? messages[messages.length - 1] : null;
-  const b = preparerBrouillon(voie, dernier === null ? null : {
+  const message = dernier === null ? null : {
     messageId: dernier.messageId, de: dernier.de, deNom: dernier.deNom, objet: dernier.objet,
     recuLe: dernier.recuLe, corps: dernier.corps ?? dernier.extrait,
     destA: dernier.destA, destCc: dernier.destCc, destinatairesFondus: dernier.destinatairesFondus,
-  }, { adresseGestion: ctx.adresseGestion, signature: ctx.signature },
+  };
+  const dateLisible = dernier ? dateHeureComplete(dernier.recuLe) : undefined;
+  const b = preparerBrouillon(voie, message, { adresseGestion: ctx.adresseGestion, signature: ctx.signature },
   {
     filId,
-    dateLisible: dernier ? dateHeureComplete(dernier.recuLe) : undefined,
+    dateLisible,
     /**
      * 🔴🔴 LOT IMAGES-INTEGREES — « Quand on répond ou transfère depuis l'appli, l'image citée part comme une
      * image et non comme du texte » (Arno).
@@ -2526,6 +2550,8 @@ function ouvrirRedaction(
   return {
     ...b, id: null,
     cibles: herite.cibles, interne: herite.interne, horsGestion: herite.horsGestion,
+    // 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — de quoi changer de mode sans relire le message (champ d'écran).
+    origineVoies: message === null ? null : { message, dateLisible, origineHtml: dernier?.html ?? null },
   };
 }
 

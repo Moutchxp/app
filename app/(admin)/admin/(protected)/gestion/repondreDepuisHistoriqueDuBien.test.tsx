@@ -189,7 +189,9 @@ describe('🔴🔴 ③ un seul composant de boutons, et aucune règle d’écrit
    * premier ajustement — et c'est la réponse d'un client qui serait partie à la mauvaise personne.
    */
   it('🔴🔴 l’historique appelle le module pur, et ne préfixe aucun objet lui-même', () => {
-    expect(HDB).toContain('const b = preparerBrouillon(voie, {');
+    // LOT REPONDRE-TRANSFERER-SANS-PERTE — le message d'origine est désormais nommé (il sert aussi au changement de
+    //   mode) : on vérifie l'APPEL au module pur, plus la forme exacte de son premier argument.
+    expect(HDB).toContain('const b = preparerBrouillon(voie, message, ');
     expect(HDB).toContain('classementHerite({');
     const sansCommentaires = HDB.replace(/\/\*[\s\S]*?\*\//g, ' ');
     expect(sansCommentaires).not.toContain("'Re: '");

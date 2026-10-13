@@ -50,7 +50,15 @@ interface PieceRecente {
   tailleOctets: number | null;
 }
 
-export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, actions, onVisualiser }: {
+export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, actions, onVisualiser, masquerReprises = false }: {
+  /**
+   * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — LES PIÈCES REPRISES DU MESSAGE D'ORIGINE N'EXISTENT QU'EN TRANSFÉRER.
+   * Vrai ⇒ elles ne sont ni montrées, ni comptées, ni pesées (l'envoi ne les prend pas non plus : voir
+   * `piecesEnvoiCablage.ts`). Rien n'est retiré en base : repasser en Transférer les remontre telles qu'on les avait
+   * laissées, cochées ou non. Les pièces AJOUTÉES par la personne, elles, restent dans tous les modes.
+   * Absent ⇒ comportement d'avant ce lot.
+   */
+  masquerReprises?: boolean;
   /** `null` = le brouillon n'est pas encore enregistré. Il le sera à la première pièce (voir l'encadré). */
   brouillonId: number | null;
   /** Prévient l'éditeur du nombre de pièces (il l'affiche à côté du bouton « Envoyer »). */
@@ -71,7 +79,8 @@ export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, ac
    */
   onVisualiser?: (piece: { id: number; nom: string; typeMime: string | null }) => void;
 }) {
-  const [pieces, setPieces] = useState<PieceBrouillonAffichee[]>([]);
+  const [lues, setPieces] = useState<PieceBrouillonAffichee[]>([]);
+  const pieces = masquerReprises ? lues.filter((p) => p.origine !== 'reprise') : lues;
   const [message, setMessage] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
   const [survol, setSurvol] = useState(false);

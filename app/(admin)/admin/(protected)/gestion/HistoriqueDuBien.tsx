@@ -175,6 +175,7 @@ import { COMPTE_GESTION_DEFAUT } from '../../../../lib/gestion/gmailMenu';
    c'est tout l'intérêt : le jour où la boîte gagne une fonction, ce bloc l'a le même jour. */
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+import { estBasculable } from '../../../../lib/gestion/changerVoie';
 import { classementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 /* 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — le « Nouveau message » de la colonne, déjà rattaché au bien. */
 import { brouillonNouveauDepuisLeBien, MOT_NOUVEAU_MESSAGE } from '../../../../lib/gestion/nouveauMessageBien';
@@ -1217,11 +1218,27 @@ export function HistoriqueDuBien({
    * dans l'événement par la porte de tous les autres mails. Lui poser en plus une cible `evenement` aurait
    * ajouté un second chemin pour un fait déjà vrai — et deux vérités à tenir d'accord.
    */
+  /**
+   * ══ 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — UN COMPOSEUR DÉJÀ OUVERT SOUS CE MAIL CHANGE DE MODE ═══════════
+   * Même règle que la conversation : le bouton du mail ne fabrique plus un brouillon neuf qui écraserait le texte en
+   * cours ; il DEMANDE à l'éditeur de changer de mode (`voieDemandee`), le même geste que son propre sélecteur.
+   * ⚠️ LU PAR UNE RÉFÉRENCE : mettre `reponse` dans les dépendances recréerait ce rappel à chaque frappe, et avec lui
+   * toutes les lignes de l'historique qui le reçoivent.
+   */
+  const [voieDemandee, setVoieDemandee] = useState<{ voie: VoieRedaction; n: number } | null>(null);
+  const reponseCourante = useRef(reponse);
+  useEffect(() => { reponseCourante.current = reponse; }, [reponse]);
   const repondreAuMail = useCallback((
     l: LigneHistorique, voie: VoieRedaction, corps: string | null, html: string | null,
   ): void => {
     if (redaction === null) return;
-    const b = preparerBrouillon(voie, {
+    const ouverte = reponseCourante.current;
+    if (ouverte !== null && Number(ouverte.messageId) === Number(l.messageId)
+      && estBasculable(ouverte.brouillon.voie) && estBasculable(voie)) {
+      setVoieDemandee((d) => ({ voie, n: (d?.n ?? 0) + 1 }));
+      return;
+    }
+    const message = {
       messageId: l.messageId, de: l.de, deNom: l.deNom, objet: l.objet, recuLe: l.recuLe,
       corps: corps ?? l.extrait,
       /* ⚠️ `null` ET `[]` NE SE CONFONDENT PAS (migration 235) : « personne en copie » n'est pas « on ne sait
@@ -1229,8 +1246,10 @@ export function HistoriqueDuBien({
          sinon « Répondre à tous » retomberait sur la liste fondue, qu'il faut relire avant d'envoyer. */
       destA: l.a, destCc: l.cc, destReplyTo: l.repondreA,
       destinatairesFondus: l.destinataires.join(', '),
-    }, { adresseGestion: redaction.adresseGestion, signature: redaction.signature },
-    { filId: l.filId, dateLisible: dateHeureComplete(l.recuLe), origineHtml: html });
+    };
+    const dateLisible = dateHeureComplete(l.recuLe);
+    const b = preparerBrouillon(voie, message, { adresseGestion: redaction.adresseGestion, signature: redaction.signature },
+    { filId: l.filId, dateLisible, origineHtml: html });
     const herite = classementHerite({
       biens: [{ sorte: 'lot', cle: lotCle, id: null, libelle: l.cibleLibelle }],
     });
@@ -1238,6 +1257,8 @@ export function HistoriqueDuBien({
       messageId: l.messageId,
       brouillon: {
         ...b, id: null, cibles: herite.cibles, interne: herite.interne, horsGestion: herite.horsGestion,
+        // 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — de quoi changer de mode sans relire le message (champ d'écran).
+        origineVoies: { message, dateLisible, origineHtml: html },
       },
     });
     /* 🔴 ON DÉPLIE LE MAIL VISÉ : l'éditeur est caché quand son mail est replié, et un bouton dont l'effet est
@@ -1258,6 +1279,7 @@ export function HistoriqueDuBien({
     if (reponse === null || reponse.messageId !== l.messageId || redaction === null) return null;
     return (
       <Redaction brouillon={reponse.brouillon} contexte={redaction} lotFiche={lotId}
+        voieDemandee={voieDemandee}
         onChange={(b) => setReponse((r) => (r === null ? null : { ...r, brouillon: b }))}
         onFerme={() => setReponse(null)}
         /* 🔴 ENVOYÉ : on referme, et on RELIT. Le mail parti doit apparaître dans l'historique tout de suite,
@@ -1266,7 +1288,7 @@ export function HistoriqueDuBien({
         onEnvoye={() => { setReponse(null); setRechargement((n) => n + 1); }}
         onGeste={(m, o) => onGesteMail?.(m, o)} />
     );
-  }, [reponse, redaction, onGesteMail, lotId]);
+  }, [reponse, redaction, onGesteMail, lotId, voieDemandee]);
 
   /**
    * ══ 🔴🔴 LOT BOUTON-NOUVEAU-MESSAGE-DANS-L-HISTORIQUE-DU-BIEN — « NOUVEAU MESSAGE », DÉJÀ RATTACHÉ À CE BIEN ═══════

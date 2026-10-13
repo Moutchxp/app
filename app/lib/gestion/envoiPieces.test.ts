@@ -225,6 +225,30 @@ describe('les pièces du brouillon', () => {
       },
     )).rejects.toThrow('sans-octets.pdf');
   });
+
+  /**
+   * 🔴🔴 LOT REPONDRE-TRANSFERER-SANS-PERTE — un brouillon passé de Transférer à Répondre porte encore en base les
+   * pièces reprises du message d'origine ; l'écran ne les montre plus, et l'envoi ne les prend pas. Les pièces
+   * AJOUTÉES par la personne partent dans tous les modes ; une voie absente garde le comportement d'avant.
+   */
+  it('🔴 les pièces reprises du message d’origine ne partent qu’en Transférer', async () => {
+    const deps: DepsPiecesEnvoi = {
+      jeton: async () => 'J',
+      duBrouillon: async () => [
+        { nom: 'ajoute.pdf', typeMime: 'application/pdf', cleStockage: 'cle/ajout', cleStockagePiece: null, pieceId: null },
+        { nom: 'repris.pdf', typeMime: 'application/pdf', cleStockage: null, cleStockagePiece: 'cle/piece', pieceId: 9 },
+      ],
+      octets: async (p) => Buffer.from(p.cleStockage ?? p.cleStockagePiece ?? ''),
+      ancre: async () => null, original: async () => null, objet: async () => null,
+    };
+    const envoi = (voie?: string) => piecesDeLEnvoi({
+      cleIdempotence: 'k', brouillonId: 5, filId: null, repondAMessageId: 7, a: [], cc: [], cci: [], objet: '', corps: '', voie,
+    }, deps).then((l) => l.map((p) => p.nom));
+    expect(await envoi('transferer')).toEqual(['ajoute.pdf', 'repris.pdf']);
+    expect(await envoi('repondre')).toEqual(['ajoute.pdf']);
+    expect(await envoi('repondre_tous')).toEqual(['ajoute.pdf']);
+    expect(await envoi(undefined)).toEqual(['ajoute.pdf', 'repris.pdf']);
+  });
 });
 
 describe('ce qu’on refuse de joindre, et pourquoi', () => {
