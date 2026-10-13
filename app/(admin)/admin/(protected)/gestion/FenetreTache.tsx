@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  cleRappel, dateLisibleTache, erreurSaisie, MENTION_SANS_ACCES_GESTION, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
+  cleRappel, dateLisibleTache, MENTION_SANS_ACCES_GESTION, verifierSaisie, type ChampTache, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
   type Rappel,
 } from '../../../../lib/gestion/taches';
 import { blocContacts, type ContactSource } from '../../../../lib/gestion/contactsTache';
@@ -42,11 +42,13 @@ export type ModeFenetre =
   | { sorte: 'creer'; lotId: number; lotCle: string; adresse: string }
   | { sorte: 'detail'; id: number };
 
-export function FenetreTache({ mode, onFermer, onEcrire }: {
+export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   mode: ModeFenetre;
   onFermer: () => void;
   /** Ouvre le composeur « Nouveau message » avec l'adresse pré-remplie. Rien n'est envoyé. Absent ⇒ adresse en texte. */
   onEcrire?: (email: string) => void;
+  /** 🔴 Une tâche vient d'être CRÉÉE : la fenêtre se ferme, et l'appelant AFFICHE la confirmation (jamais en silence). */
+  onCree?: (confirmation: string) => void;
 }) {
   const [collab, setCollab] = useState<{ liste: CollaborateurEcran[]; moi: number | null } | null>(null);
   const [detail, setDetail] = useState<DetailTache | null>(null);
@@ -59,7 +61,21 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
     rappels: rappelsParDefaut(false),
   }));
   const [occupe, setOccupe] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
+  /**
+   * 🔴🔴 RÈGLE D'ARNO (13/10/2026) — « un refus, qu'il vienne du formulaire ou du serveur, affiche TOUJOURS un message
+   * clair en français, à côté du champ concerné ET en haut de la fenêtre. Jamais de clic sans effet visible. »
+   * `champ` désigne le champ fautif (`null` = la tâche entière) ; le message s'affiche en haut (bandeau, lu par les
+   * lecteurs d'écran) ET sous ce champ, et la fenêtre remonte jusqu'au bandeau.
+   */
+  const [message, setMessage] = useState<{ ok: boolean; texte: string; champ?: ChampTache | null } | null>(null);
+  const alerte = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (message !== null && !message.ok) alerte.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [message]);
+  /** Le message sous un champ, quand le refus le concerne. */
+  const erreurDe = (champ: ChampTache) => (message !== null && !message.ok && message.champ === champ
+    ? <span className="tchf-erreur" role="alert">{message.texte}</span> : null);
+  const invalide = (champ: ChampTache) => message !== null && !message.ok && message.champ === champ;
   const [confirmerAnnulation, setConfirmerAnnulation] = useState(false);
   const [version, setVersion] = useState(0);
   const premier = useRef<HTMLInputElement>(null);
@@ -154,8 +170,8 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
     setChoisis((l) => (l.includes(cle) ? l.filter((x) => x !== cle) : [...l, cle]));
 
   const enregistrer = async () => {
-    const erreur = erreurSaisie(saisie);
-    if (erreur !== null) { setMessage({ ok: false, texte: erreur }); return; }
+    const refus = verifierSaisie(saisie);
+    if (refus !== null) { setMessage({ ok: false, texte: refus.message, champ: refus.champ }); return; }
     setOccupe(true);
     setMessage(null);
     // Les contacts ne voyagent que si la section existe : sans elle, ils ne sont pas touchés.
@@ -164,8 +180,12 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
       ? await creerTache(mode.lotId, envoi)
       : await agirSurTache(mode.id, { geste: 'modifier', ...envoi });
     setOccupe(false);
-    if (!r.ok) { setMessage({ ok: false, texte: r.message }); return; }
-    if (mode.sorte === 'creer') { onFermer(); return; }
+    if (!r.ok) { setMessage({ ok: false, texte: r.message, champ: r.champ ?? null }); return; }
+    if (mode.sorte === 'creer') {
+      onCree?.(`Tâche créée : « ${saisie.objet.trim()} » — ${dateLisibleTache(saisie.jour, saisie.heure)}.`);
+      onFermer();
+      return;
+    }
     setMessage({ ok: true, texte: r.message });
     setVersion((v) => v + 1);
   };
@@ -205,6 +225,9 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
           </h2>
           <button type="button" className="tchf-croix" onClick={onFermer} aria-label="Fermer">×</button>
         </header>
+        {message !== null && !message.ok && (
+          <p ref={alerte} className="tchf-alerte" role="alert">{message.texte}</p>
+        )}
 
         {mode.sorte === 'detail' && detail === null && <p className="tch-vide">Lecture de la tâche…</p>}
         {terminee && tache !== null && (
@@ -217,18 +240,22 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
           <label className="tchf-champ">
             <span className="tch-etiquette">Objet</span>
             <input ref={premier} type="text" value={saisie.objet} maxLength={300} disabled={lectureSeule}
+              aria-invalid={invalide('objet') || undefined}
               onChange={(e) => setSaisie((s) => ({ ...s, objet: e.target.value }))} />
+            {erreurDe('objet')}
           </label>
           <div className="tchf-rangee">
             <label className="tchf-champ">
               <span className="tch-etiquette">Date</span>
-              <input type="date" value={saisie.jour} disabled={lectureSeule}
+              <input type="date" value={saisie.jour} disabled={lectureSeule} aria-invalid={invalide('jour') || undefined}
                 onChange={(e) => setSaisie((s) => ({ ...s, jour: e.target.value }))} />
+              {erreurDe('jour')}
             </label>
             <label className="tchf-champ">
               <span className="tch-etiquette">Heure (facultative)</span>
-              <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule}
+              <input type="time" value={saisie.heure ?? ''} disabled={lectureSeule} aria-invalid={invalide('heure') || undefined}
                 onChange={(e) => changerHeure(e.target.value)} />
+              {erreurDe('heure')}
             </label>
           </div>
           <p className="tchf-aide">
@@ -237,6 +264,7 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
           <label className="tchf-champ">
             <span className="tch-etiquette">Confiée à</span>
             <select value={saisie.confieeA ?? ''} disabled={lectureSeule || collab === null}
+              aria-invalid={invalide('confieeA') || undefined}
               onChange={(e) => setSaisie((s) => ({ ...s, confieeA: e.target.value === '' ? null : Number(e.target.value) }))}>
               {saisie.confieeA === null && <option value="">— choisir —</option>}
               {(collab?.liste ?? []).map((c) => (
@@ -251,6 +279,7 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
                 <option value={tache.confieeA}>{tache.confieeALibelle}</option>
               )}
             </select>
+            {erreurDe('confieeA')}
           </label>
           <label className="tchf-champ">
             <span className="tch-etiquette">Événement du bien lié (facultatif)</span>
@@ -264,10 +293,12 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
                 <option value={tache.evenement.id}>{tache.evenement.reference} — {tache.evenement.objet}</option>
               )}
             </select>
+            {erreurDe('evenementId')}
           </label>
           {sources !== null && (
             <ChoixContacts proposes={proposes} choisis={choisis} onBasculer={basculerContact} desactive={lectureSeule} />
           )}
+          {erreurDe('contacts')}
           <fieldset className="tchf-rappels" disabled={lectureSeule}>
             <legend className="tch-etiquette">Rappels</legend>
             {rappelsProposes(saisie.heure !== null).map((r) => (
@@ -281,7 +312,9 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
           <label className="tchf-champ">
             <span className="tch-etiquette">Note</span>
             <textarea rows={3} value={saisie.note} maxLength={5000} disabled={lectureSeule}
+              aria-invalid={invalide('note') || undefined}
               onChange={(e) => setSaisie((s) => ({ ...s, note: e.target.value }))} />
+            {erreurDe('note')}
           </label>
           {/* 🔴 LOT TACHES-1-BIS — le bloc « Contacts » GÉNÉRÉ, à la suite de la note : texte de la tâche = note +
               ce bloc. Il se refait à chaque case cochée ou décochée ; la note, au-dessus, n'est jamais touchée. */}
@@ -312,7 +345,8 @@ export function FenetreTache({ mode, onFermer, onEcrire }: {
         <footer className="tchf-pied">
           {!lectureSeule && (
             <button type="button" className="svv-btn gst-btn tch-btn" disabled={occupe} onClick={() => void enregistrer()}>
-              {mode.sorte === 'creer' ? 'Créer la tâche' : 'Enregistrer les modifications'}
+              {/* Le clic a TOUJOURS un effet visible : le bouton dit qu'il travaille tant que le serveur n'a pas répondu. */}
+              {occupe ? 'Enregistrement…' : mode.sorte === 'creer' ? 'Créer la tâche' : 'Enregistrer les modifications'}
             </button>
           )}
           {mode.sorte === 'detail' && tache !== null && !terminee && (
@@ -376,5 +410,9 @@ const CSS_FENETRE = `
 .tchf-case{display:inline-flex;align-items:center;gap:.4rem;min-height:36px;font-size:.88rem}
 .tchf-trace ul{margin:4px 0 0;padding-left:1.1rem;font-size:.84rem;color:var(--color-svv-ink)}
 .tchf-pied{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.tchf-alerte{margin:0;padding:8px 10px;border:1px solid var(--color-svv-red);border-left-width:4px;border-radius:.5rem;
+  background:var(--color-svv-red-soft);color:var(--color-svv-ink);font-size:.88rem;font-weight:600}
+.tchf-erreur{display:block;margin-top:2px;font-size:.8rem;font-weight:600;color:var(--color-svv-red)}
+.tchf-champ [aria-invalid='true']{border-color:var(--color-svv-red);border-width:2px}
 .tchf-danger{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 `;

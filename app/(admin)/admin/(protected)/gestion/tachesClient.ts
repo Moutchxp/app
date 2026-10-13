@@ -11,7 +11,7 @@
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : ce fichier vit dans le navigateur (garde `clientBoundary.guard.test.ts`).
  */
-import type { RaccourciDecalage, Rappel, Tache, TraceTache } from '../../../../lib/gestion/taches';
+import { refusDuServeur, type ChampTache, type RaccourciDecalage, type Rappel, type Tache, type TraceTache } from '../../../../lib/gestion/taches';
 import type { ContactSource, ContactTache } from '../../../../lib/gestion/contactsTache';
 
 export const SIGNAL_TACHES = 'gestion:taches';
@@ -27,20 +27,32 @@ export function ecouterTaches(f: () => void): () => void {
   return () => window.removeEventListener(SIGNAL_TACHES, f);
 }
 
-export type IssueGeste = { ok: true; message: string; id?: number } | { ok: false; message: string };
+/**
+ * L'ISSUE D'UN GESTE. Un refus porte TOUJOURS un message en français, et le champ concerné quand il y en a un
+ * (`refusDuServeur`, règle unique) : la fenêtre l'affiche en haut ET à côté du champ. Jamais de clic sans effet.
+ */
+export type IssueGeste =
+  | { ok: true; message: string; id?: number }
+  | { ok: false; message: string; champ?: ChampTache | null };
 
 async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): Promise<IssueGeste> {
+  let res: Response;
   try {
-    const res = await fetch(url, {
-      method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
-    });
-    const d = (await res.json().catch(() => ({}))) as { message?: string; erreur?: string; id?: number };
-    if (!res.ok) return { ok: false, message: d.erreur ?? 'Le geste n’a pas pu être enregistré.' };
-    signalerTaches();
-    return { ok: true, message: d.message ?? 'Enregistré.', id: d.id };
+    res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
   } catch {
-    return { ok: false, message: 'Le serveur ne répond pas : rien n’a été enregistré.' };
+    return { ok: false, message: 'Le serveur ne répond pas : rien n’a été enregistré.', champ: null };
   }
+  const d = (await res.json().catch(() => null)) as { message?: string; erreur?: string; champ?: string; id?: number; etat?: string } | null;
+  if (!res.ok) {
+    const r = refusDuServeur(res.status, d);
+    return { ok: false, message: r.message, champ: r.champ };
+  }
+  // ⚠️ UN 200 SANS LA RÉPONSE ATTENDUE (page de connexion servie à la place, par exemple) n'est PAS un succès.
+  if (d === null || d.etat !== 'ok') {
+    return { ok: false, message: 'Réponse inattendue du serveur : rien ne confirme l’enregistrement. Recharge la page.', champ: null };
+  }
+  signalerTaches();
+  return { ok: true, message: d.message ?? 'Enregistré.', id: d.id };
 }
 
 /** Ce que l'écran envoie à la création et à la modification. */

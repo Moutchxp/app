@@ -6,7 +6,7 @@ import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 import {
   collaborateursPourTache, jourDecale, rappelsParDefaut, rappelsValides, type CollaborateurTache,
-  type ActionTache, type EtatTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
+  type ActionTache, type ChampTache, type EtatTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
 import { contactsTacheDisponible } from './schema';
@@ -229,7 +229,9 @@ export async function actualiserContact(id: number, cle: string, auteur: Auteur)
   });
 }
 
-export type IssueTache = { ok: true; id: number } | { ok: false; statut: number; motif: string };
+export type IssueTache = { ok: true; id: number }
+  /** `champ` : le champ de la fenêtre à qui le refus se rattache (affiché À CÔTÉ de lui), quand il y en a un. */
+  | { ok: false; statut: number; motif: string; champ?: ChampTache };
 
 async function tracer(
   q: RequeteTx, tacheId: number, action: ActionTache, avant: unknown, apres: unknown, auteur: Auteur, nom: string,
@@ -262,8 +264,8 @@ export async function creerTache(lotId: number, s: SaisieTache, auteur: Auteur):
     const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
     if (lot.rows.length === 0) return { ok: false, statut: 404, motif: 'Bien introuvable.' };
     const c = await collaborateurValide(q, s.confieeA);
-    if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.' };
-    if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.' };
+    if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.', champ: 'confieeA' };
+    if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.', champ: 'evenementId' };
     const nom = await nomAuteur(q, auteur);
     const rappels = rappelsValides(s.rappels, s.heure !== null);
     const { rows } = await q<{ id: number }>(
@@ -383,8 +385,8 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
     if (t === null) return INTROUVABLE;
     if (t.etat !== 'a_faire') return DEJA_TERMINEE;
     const c = await collaborateurValide(q, s.confieeA);
-    if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.' };
-    if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.' };
+    if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.', champ: 'confieeA' };
+    if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.', champ: 'evenementId' };
     const rappels = rappelsValides(s.rappels, s.heure !== null);
     const nouveau = {
       objet: s.objet.trim(), note: vide(s.note), jour: s.jour, heure: s.heure,

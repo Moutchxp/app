@@ -353,18 +353,53 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
   };
 }
 
-/** Ce qui ne va pas dans une saisie, en français ; `null` si tout est bon. PUR. */
-export function erreurSaisie(s: Pick<SaisieTache, 'objet' | 'jour' | 'heure' | 'note' | 'confieeA'>): string | null {
+/** Les champs de la fenêtre auxquels un refus peut se rattacher (pour l'afficher À CÔTÉ du champ). */
+export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts';
+
+/** Un refus : le message en français, et le champ concerné (`null` = la tâche entière). */
+export interface RefusSaisie { message: string; champ: ChampTache | null }
+
+/**
+ * CE QUI NE VA PAS DANS UNE SAISIE, et SUR QUEL CHAMP. La même fonction pour la fenêtre (avant l'envoi) et pour les
+ * routes (au serveur) : les deux disent donc la même chose, au même endroit. `null` si tout est bon. PUR.
+ */
+export function verifierSaisie(s: Pick<SaisieTache, 'objet' | 'jour' | 'heure' | 'note' | 'confieeA'>): RefusSaisie | null {
   const objet = (s.objet ?? '').trim();
-  if (objet === '') return 'Indiquez l’objet de la tâche.';
-  if (objet.length > OBJET_MAX) return `L’objet dépasse ${OBJET_MAX} caractères.`;
-  if (!estJourValide(s.jour ?? '')) return 'Indiquez une date valide.';
-  if (s.heure !== null && !estHeureValide(s.heure)) return 'L’heure doit s’écrire HH:MM.';
-  if ((s.note ?? '').length > NOTE_MAX) return `La note dépasse ${NOTE_MAX} caractères.`;
+  if (objet === '') return { champ: 'objet', message: 'Indiquez l’objet de la tâche.' };
+  if (objet.length > OBJET_MAX) return { champ: 'objet', message: `L’objet dépasse ${OBJET_MAX} caractères.` };
+  if (!estJourValide(s.jour ?? '')) return { champ: 'jour', message: 'Indiquez une date valide.' };
+  if (s.heure !== null && !estHeureValide(s.heure)) return { champ: 'heure', message: 'L’heure doit s’écrire HH:MM.' };
+  if ((s.note ?? '').length > NOTE_MAX) return { champ: 'note', message: `La note dépasse ${NOTE_MAX} caractères.` };
   if (s.confieeA === null || !Number.isInteger(Number(s.confieeA)) || Number(s.confieeA) <= 0) {
-    return 'Choisissez la personne à qui la tâche est confiée.';
+    return { champ: 'confieeA', message: 'Choisissez la personne à qui la tâche est confiée.' };
   }
   return null;
+}
+
+/** Le message seul — conservé pour les appelants qui n'ont pas de champ à désigner. PUR. */
+export function erreurSaisie(s: Pick<SaisieTache, 'objet' | 'jour' | 'heure' | 'note' | 'confieeA'>): string | null {
+  return verifierSaisie(s)?.message ?? null;
+}
+
+/**
+ * ══ 🔴🔴 LE MESSAGE D'UN REFUS DU SERVEUR, POUR LA FENÊTRE D'UNE TÂCHE ═══════════════════════════════════════════
+ *
+ * Règle d'Arno (13/10/2026) : « un refus, qu'il vienne du formulaire ou du serveur, affiche TOUJOURS un message clair
+ * en français […]. Si la session a expiré, le message dit “Session expirée, reconnecte-toi” et non une fausse erreur
+ * de données. » Le garde des routes admin rend 401 SANS CORPS pour une session absente ou expirée (`proxy.ts`), et
+ * 403 `ACCES_REVOQUE` pour un compte révoqué depuis la connexion : ces deux cas ne sont PAS des erreurs de saisie. PUR.
+ */
+export const MESSAGE_SESSION_EXPIREE = 'Session expirée, reconnecte-toi.';
+
+export function refusDuServeur(statut: number, corps: { erreur?: unknown; champ?: unknown } | null): RefusSaisie {
+  const erreur = typeof corps?.erreur === 'string' ? corps.erreur : '';
+  if (statut === 401 || erreur === 'ACCES_REVOQUE') return { champ: null, message: MESSAGE_SESSION_EXPIREE };
+  if (statut === 403) return { champ: null, message: 'Vous n’avez pas l’accès Gestion : la tâche n’a pas été enregistrée.' };
+  const champs: readonly ChampTache[] = ['objet', 'jour', 'heure', 'note', 'confieeA', 'evenementId', 'contacts'];
+  const champ = typeof corps?.champ === 'string' && (champs as readonly string[]).includes(corps.champ)
+    ? corps.champ as ChampTache : null;
+  if (erreur !== '' && erreur !== 'INTERDIT') return { champ, message: erreur };
+  return { champ: null, message: `Le serveur a refusé l’enregistrement (erreur ${statut}). Rien n’a été enregistré.` };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

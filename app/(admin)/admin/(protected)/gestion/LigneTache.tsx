@@ -183,6 +183,7 @@ export const CSS_TACHES = `
   background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit}
 .tch-message{margin:0;font-size:.82rem;color:var(--color-svv-green-ink)}
 .tch-message--erreur{color:var(--color-svv-red)}
+.tch-confirmation{flex:1 1 100%;font-size:.84rem;font-weight:600;color:var(--color-svv-green-ink)}
 .tch-compteurs{display:flex;flex-wrap:wrap;gap:6px;margin:0;padding:0;list-style:none}
 .tch-compteur{display:inline-flex;align-items:center;gap:.35rem;padding:.2rem .6rem;border:1px solid var(--color-svv-line);
   border-radius:999px;font-size:.82rem;color:var(--color-svv-ink);background:var(--color-svv-surface)}

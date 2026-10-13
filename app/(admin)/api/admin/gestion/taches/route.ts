@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { tachesDisponibles } from '../../../../../lib/gestion/schema';
-import { erreurSaisie, lireSaisie } from '../../../../../lib/gestion/taches';
+import { verifierSaisie, lireSaisie } from '../../../../../lib/gestion/taches';
 import { creerTache, listerTaches } from '../../../../../lib/gestion/tachesRepo';
 
 /**
@@ -44,9 +44,9 @@ export async function POST(request: Request): Promise<Response> {
   const lotId = Number(corps.lotId);
   if (!Number.isInteger(lotId) || lotId <= 0) return Response.json({ erreur: 'Bien inconnu.' }, { status: 400 });
   const saisie = lireSaisie(corps);
-  const erreur = erreurSaisie(saisie);
-  if (erreur !== null) return Response.json({ erreur }, { status: 400 });
+  const refusSaisie = verifierSaisie(saisie);
+  if (refusSaisie !== null) return Response.json({ erreur: refusSaisie.message, champ: refusSaisie.champ }, { status: 400 });
   const issue = await creerTache(lotId, saisie, await auteurDeLaRequete(request));
-  if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: issue.statut });
+  if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
   return Response.json({ etat: 'ok', id: issue.id, message: 'Tâche créée.' });
 }

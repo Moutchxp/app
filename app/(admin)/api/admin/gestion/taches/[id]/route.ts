@@ -3,7 +3,7 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { tachesDisponibles } from '../../../../../../lib/gestion/schema';
 import {
-  erreurSaisie, estHeureValide, estJourValide, lireSaisie, RACCOURCIS_DECALAGE, type RaccourciDecalage,
+  verifierSaisie, estHeureValide, estJourValide, lireSaisie, RACCOURCIS_DECALAGE, type RaccourciDecalage,
 } from '../../../../../../lib/gestion/taches';
 import {
   actualiserContact, annulerTache, decalerTache, lireTache, marquerFaite, modifierTache, rouvrirTache, type IssueTache,
@@ -81,20 +81,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       const jour = String(corps.jour ?? '').trim();
       const heureBrute = typeof corps.heure === 'string' ? corps.heure.trim() : '';
       const heure = heureBrute === '' ? null : heureBrute;
-      if (!estJourValide(jour)) return Response.json({ erreur: 'Indiquez une date valide.' }, { status: 400 });
+      if (!estJourValide(jour)) return Response.json({ erreur: 'Indiquez une date valide.', champ: 'jour' }, { status: 400 });
       if (heure !== null && !estHeureValide(heure)) {
-        return Response.json({ erreur: 'L’heure doit s’écrire HH:MM.' }, { status: 400 });
+        return Response.json({ erreur: 'L’heure doit s’écrire HH:MM.', champ: 'heure' }, { status: 400 });
       }
       issue = await decalerTache(id, { jour, heure }, auteur);
     }
   } else if (geste === 'modifier') {
     const saisie = lireSaisie(corps);
-    const erreur = erreurSaisie(saisie);
-    if (erreur !== null) return Response.json({ erreur }, { status: 400 });
+    const refusSaisie = verifierSaisie(saisie);
+    if (refusSaisie !== null) return Response.json({ erreur: refusSaisie.message, champ: refusSaisie.champ }, { status: 400 });
     issue = await modifierTache(id, saisie, auteur);
   } else {
     return Response.json({ erreur: 'Geste inconnu.' }, { status: 400 });
   }
-  if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: issue.statut });
+  if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
   return Response.json({ etat: 'ok', id: issue.id, message: MESSAGES[geste] });
 }

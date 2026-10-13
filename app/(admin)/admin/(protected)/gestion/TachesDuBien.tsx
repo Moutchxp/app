@@ -29,6 +29,13 @@ export function BoutonTache({ lotId, lotCle, adresse, onEcrire }: {
 }) {
   const [installe, setInstalle] = useState(false);
   const [ouvert, setOuvert] = useState(false);
+  /** 🔴 La confirmation d'une création, à côté du bouton : la fenêtre se ferme, mais jamais en silence. */
+  const [confirmation, setConfirmation] = useState<string | null>(null);
+  useEffect(() => {
+    if (confirmation === null) return;
+    const t = window.setTimeout(() => setConfirmation(null), 8000);
+    return () => window.clearTimeout(t);
+  }, [confirmation]);
   useEffect(() => {
     let annule = false;
     void lireTaches(lotId).then((r) => { if (!annule) setInstalle(r.etat === 'ok'); });
@@ -37,11 +44,13 @@ export function BoutonTache({ lotId, lotCle, adresse, onEcrire }: {
   if (!installe) return null;
   return (
     <>
-      <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setOuvert(true)}>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setConfirmation(null); setOuvert(true); }}>
         + Tâche
       </button>
+      {confirmation !== null && <span className="tch-confirmation" role="status">✓ {confirmation}</span>}
       {ouvert && (
-        <FenetreTache mode={{ sorte: 'creer', lotId, lotCle, adresse }} onFermer={() => setOuvert(false)} onEcrire={onEcrire} />
+        <FenetreTache mode={{ sorte: 'creer', lotId, lotCle, adresse }} onFermer={() => setOuvert(false)} onEcrire={onEcrire}
+          onCree={setConfirmation} />
       )}
     </>
   );
