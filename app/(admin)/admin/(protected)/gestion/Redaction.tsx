@@ -2317,6 +2317,9 @@ export function Redaction({
     );
   }
 
+  /** 🔴 LOT NOUVEAU-MESSAGE-RATTACHE-CLIQUABLE — le brouillon porte-t-il déjà un bien (ex. « Nouveau message » de la fiche) ? */
+  const unBienChoisi = ((brouillon.cibles ?? []) as CibleBrouillon[]).some((c) => c.sorte === 'lot');
+
   return (
     <section className={`red${ouvre ? ' red--ouvre' : ''}${plein ? ' red--plein' : ''}`}
       aria-label={titre} ref={racine}>
@@ -2558,7 +2561,12 @@ export function Redaction({
           horsGestion={brouillon.horsGestion === true}
           /* 🔴🔴 LOT CLASSER-AVANT-ENVOI — « Rattacher » est désormais LA SEULE façon d'ouvrir la modale (avec
              la case verte, qui la rouvre sur les choix en cours). L'ouverture automatique a été retirée. */
-          onRattacher={destinatairesValides.length > 0 ? () => {
+          /* 🔴 LOT NOUVEAU-MESSAGE-RATTACHE-CLIQUABLE (Arno, 14/10/2026) — CAUSE DU BOUTON GRISÉ : la fenêtre ne s'ouvrait
+             qu'avec au moins un destinataire. Un « Nouveau message » écrit depuis la fiche d'un bien part déjà rattaché à
+             ce bien, SANS destinataire : la case verte « Rattaché » était donc rendue désactivée. Elle s'ouvre désormais
+             dès qu'un bien est déjà choisi (le bien de la fiche y est coché). Sans bien ni destinataire, rien ne change :
+             « Rattacher » attend toujours un destinataire pour en déduire les biens. */
+          onRattacher={destinatairesValides.length > 0 || unBienChoisi ? () => {
             setRattacherOuvert(true);
             setVusALaModale(new Set([...vusALaModale, ...enAttente.map((c) => c.adresse)]));
           } : undefined}
@@ -2580,7 +2588,7 @@ export function Redaction({
           suivis dans la conversation pour une réponse ; dedans, le contenu d'avant (propositions d'après les
           destinataires, recherche, « Valider »). Glissière masquée : l'envoi reste « one shot ». Rien n'est écrit
           avant l'envoi : les choix vont dans le brouillon, comme avant. */}
-      {rattacherOuvert && destinatairesValides.length > 0 && (
+      {rattacherOuvert && (destinatairesValides.length > 0 || unBienChoisi) && (
         <RattachementsDuFil
           brouillon={{
             filId: brouillon.filId ?? null, messageId: brouillon.repondALeMessageId ?? null,

@@ -56,8 +56,9 @@ beforeEach(() => {
     appels.push({ url, methode: init?.method ?? 'GET', corps: init?.body ? JSON.parse(String(init.body)) : null });
     const rep = (d: unknown) => new Response(JSON.stringify(d), { status: 200, headers: { 'Content-Type': 'application/json' } });
     if (/\/classement$/.test(url)) {
+      const sansDest = ((JSON.parse(String(init?.body ?? '{}')) as { destinataires?: string[] }).destinataires ?? []).length === 0;
       return rep({ etat: 'ok', contexte: { disponible: true, interneDabord: false,
-        biens: [{ cle: '421', libelle: '28 av. Marceau — lot 421', motif: 'locataire de ce bien', recommande: true, parties: [] }] } });
+        biens: sansDest ? [] : [{ cle: '421', libelle: '28 av. Marceau — lot 421', motif: 'locataire de ce bien', recommande: true, parties: [] }] } });
     }
     if (url.includes('rattachements?fiche=')) return rep({ etat: 'ok', data: FICHE });
     if (url.includes('rattachements?fil=')) return rep({ etat: 'ok', data: LIENS });
@@ -157,5 +158,48 @@ describe('🔴 les choix vont dans le brouillon, et partent à l’envoi', () =>
     await calmer();
     expect(fenetre()).toBeNull();
     expect(courant.cibles ?? []).toEqual([]);
+  });
+});
+
+describe('🔴 LOT NOUVEAU-MESSAGE-RATTACHE-CLIQUABLE — « Nouveau message » de la fiche, sans destinataire', () => {
+  const DE_LA_FICHE: BrouillonEcran = {
+    ...NEUF, a: [], objet: '', cibles: [{ sorte: 'lot', cle: '26', id: 27, libelle: '7 avenue de l’Union — lot 26' }],
+  } as BrouillonEcran;
+  const caseVerte = () => [...container.querySelectorAll<HTMLButtonElement>('.ccl-case')].find((c) => /Rattaché/.test(c.textContent ?? ''));
+  it('« Rattaché » est CLIQUABLE et ouvre la fenêtre partagée, le bien de la fiche coché ; pas de bloc des biens suivis', async () => {
+    await monter(DE_LA_FICHE);
+    expect(caseVerte()?.disabled).toBe(false);
+    await act(async () => { caseVerte()!.click(); });
+    await calmer();
+    const f = fenetre()!;
+    expect(f.getAttribute('data-mode')).toBe('brouillon');
+    expect(f.querySelector('[data-bloc="suivis"]')).toBeNull();
+    expect(f.textContent).not.toContain('D’après');
+    expect(f.textContent).not.toContain('Portée du suivi');
+    expect(bouton(/^Valider — 1 bien/)).toBeDefined();
+  });
+  it('le bien de la fiche part avec l’envoi (aucun mail réel : route simulée)', async () => {
+    await monter({ ...DE_LA_FICHE, a: ['gabrielle@exemple.test'], objet: 'Quittance' } as BrouillonEcran);
+    await act(async () => { bouton(/^Envoyer/)!.click(); });
+    await avancer(6000);
+    const envoi = appels.find((a) => a.methode !== 'GET' && /\/gestion\/envois/.test(a.url));
+    expect(((envoi!.corps as { cibles?: { cle?: string }[] }).cibles ?? []).map((c) => c.cle)).toEqual(['26']);
+  });
+  it('valider garde le bien dans le brouillon ; rouvrir, tout décocher, « Valider — aucun bien » : plus de bien', async () => {
+    await monter(DE_LA_FICHE);
+    await act(async () => { caseVerte()!.click(); });
+    await calmer();
+    await act(async () => { bouton(/^Valider — 1 bien/)!.click(); });
+    await calmer();
+    expect((courant.cibles ?? []).map((c) => (c as { cle?: string }).cle)).toEqual(['26']);
+    // Le libellé vert dit le nombre ; on rouvre, on décoche, on valide : « Valider — aucun bien ».
+    expect(caseVerte()?.textContent).toContain('Rattaché');
+    await act(async () => { caseVerte()!.click(); });
+    await calmer();
+    const coche = fenetre()!.querySelector<HTMLInputElement>('input[type="checkbox"]:checked')!;
+    await act(async () => { coche.click(); });
+    await act(async () => { bouton(/^Valider — aucun bien/)!.click(); });
+    await calmer();
+    expect((courant.cibles ?? []).filter((c) => (c as { sorte: string }).sorte === 'lot')).toEqual([]);
   });
 });

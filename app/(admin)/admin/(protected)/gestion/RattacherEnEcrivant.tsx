@@ -714,7 +714,8 @@ export function RattacherEnEcrivant({
         {/* ⚠️ « D'APRÈS LE DESTINATAIRE » NE SE DIT QUE D'UN MAIL QU'ON ÉCRIT. Sur un mail REÇU, le moteur part
             du message lui-même : la phrase serait fausse, et il n'y a rien à mettre à la place — chaque bien
             proposé porte déjà SON motif, juste à côté de sa case. */}
-        {messageId === null && (
+        {/* LOT NOUVEAU-MESSAGE-RATTACHE-CLIQUABLE : sans destinataire (« Nouveau message » de la fiche), rien à dire. */}
+        {messageId === null && destinataires.length > 0 && (
           <p className="rec-dest">
             D’après {destinataires.length === 1 ? 'le destinataire' : `les ${destinataires.length} destinataires`}
             {' : '}{destinataires.join(', ')}
