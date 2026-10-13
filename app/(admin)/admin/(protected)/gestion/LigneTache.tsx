@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  couleurTache, echeanceLisible, horodatageLisible, iconeType, MOT_COULEUR, RACCOURCIS_DECALAGE,
+  couleurTache, echeanceLisible, horodatageLisible, iconeType, motCouleurTache, RACCOURCIS_DECALAGE,
   type Tache,
 } from '../../../../lib/gestion/taches';
 import type { ContactSource } from '../../../../lib/gestion/contactsTache';
@@ -84,7 +84,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   const pastilleMot = (
     <span className="tch-pastille-mot">
       <span className={`tch-pastille tch-pastille--${couleur ?? 'terminee'}`} aria-hidden="true" />
-      <span className="tch-mot">{couleur === null ? (tache.etat === 'faite' ? 'Faite' : 'Annulée') : MOT_COULEUR[couleur]}</span>
+      <span className="tch-mot">{couleur === null ? (tache.etat === 'faite' ? 'Faite' : 'Annulée') : motCouleurTache(tache, maintenant)}</span>
     </span>
   );
   /* 🔴 LOT TACHES-ACCEPTATION — LE STATUT D'ACCEPTATION, en badge ; une tâche d'avant le lot n'a pas de badge. */
@@ -339,11 +339,17 @@ export const MOT_ACTION = {
  * ⚠️ CSS DANS UN GABARIT : jamais d'accent grave dans un commentaire ci-dessous (il fermerait le gabarit).
  */
 export const CSS_TACHES = `
+/* LOT COULEURS-TACHES (Arno, 13/10/2026) : retard = rouge fonce (bordeaux) ; aujourd'hui et demain = rouge ;
+   apres-demain = orange ; plus tard = vert. Deux jetons propres aux taches, redefinis en Sombre (memes selecteurs que
+   globals.css) : le bordeaux y reste distinct du rouge et lisible sur fond sombre. */
+:root,.svv-adm-root{--tch-c-retard:#6e0a1e;--tch-c-jour:var(--color-svv-proprio)}
+.svv-adm-root[data-theme='dark']{--tch-c-retard:#c2405e}
+@media (prefers-color-scheme: dark){.svv-adm-root[data-theme='system']{--tch-c-retard:#c2405e}}
 .tch-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .tch-ligne{display:flex;flex-direction:column;gap:4px;padding:8px 10px 8px 12px;border:1px solid var(--color-svv-line);
   border-left-width:5px;border-radius:.6rem;background:var(--color-svv-surface);min-width:0}
-.tch-ligne--retard{border-left-color:var(--color-svv-red)}
-.tch-ligne--jour{border-left-color:var(--color-svv-line-strong)}
+.tch-ligne--retard{border-left-color:var(--tch-c-retard)}
+.tch-ligne--jour{border-left-color:var(--tch-c-jour)}
 .tch-ligne--proche{border-left-color:var(--color-svv-urgence-orange)}
 .tch-ligne--plus_tard{border-left-color:var(--color-svv-green)}
 .tch-ligne--terminee{border-left-color:var(--color-svv-line);opacity:.62}
@@ -353,8 +359,8 @@ export const CSS_TACHES = `
   color:var(--color-svv-ink);white-space:nowrap}
 .tch-pastille{display:inline-block;width:14px;height:14px;border-radius:50%;flex:0 0 auto;
   border:1px solid transparent}
-.tch-pastille--retard{background:var(--color-svv-red)}
-.tch-pastille--jour{background:#ffffff;border-color:#9aa3ad}
+.tch-pastille--retard{background:var(--tch-c-retard)}
+.tch-pastille--jour{background:var(--tch-c-jour)}
 .tch-pastille--proche{background:var(--color-svv-urgence-orange)}
 .tch-pastille--plus_tard{background:var(--color-svv-green)}
 .tch-pastille--terminee{background:var(--color-svv-line)}
@@ -372,8 +378,8 @@ export const CSS_TACHES = `
 .tch-liste--cartes{gap:20px}
 .tch-carte{gap:0;padding:0;overflow:hidden;border:1px solid var(--color-svv-line-strong);border-left-width:6px;
   border-radius:.8rem;background:var(--color-svv-surface);box-shadow:0 2px 10px rgba(0,0,0,.10)}
-.tch-carte.tch-ligne--retard{border-left-color:var(--color-svv-red)}
-.tch-carte.tch-ligne--jour{border-left-color:var(--color-svv-line-strong)}
+.tch-carte.tch-ligne--retard{border-left-color:var(--tch-c-retard)}
+.tch-carte.tch-ligne--jour{border-left-color:var(--tch-c-jour)}
 .tch-carte.tch-ligne--proche{border-left-color:var(--color-svv-urgence-orange)}
 .tch-carte.tch-ligne--plus_tard{border-left-color:var(--color-svv-green)}
 .tch-carte.tch-ligne--terminee{border-left-color:var(--color-svv-line-strong)}

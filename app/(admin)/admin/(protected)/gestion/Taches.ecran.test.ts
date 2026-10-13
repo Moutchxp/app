@@ -90,13 +90,13 @@ const bouton = (ecran: 'fiche' | 'general', tache: number, mot: string) => {
 };
 
 describe('🔴 la fiche du bien et le récapitulatif général se mettent à jour pareil', () => {
-  it('quatre couleurs, dans l’ordre rouge, blanc, orange, vert, sur les deux écrans', async () => {
+  it('quatre couleurs, dans l’ordre bordeaux, rouge, orange, vert (LOT COULEURS-TACHES), sur les deux écrans', async () => {
     await monter();
     const attendu = ['1:retard', '2:jour', '3:proche', '4:plus_tard'];
     expect(ouvertes('fiche')).toEqual(attendu);
     expect(ouvertes('general')).toEqual(attendu);
     // Les compteurs en tête du récapitulatif général.
-    expect(container.querySelector('#general .tch-compteurs')?.textContent).toBe('1 en retard1 du jour1 2 jours1 plus tard⏳0 en attente de confirmation');
+    expect(container.querySelector('#general .tch-compteurs')?.textContent).toBe('1 en retard1 aujourd’hui / demain1 2 jours1 plus tard⏳0 en attente de confirmation');
   });
 
   it('« Faite » depuis le récapitulatif : la tâche quitte les ouvertes des DEUX écrans, et reste consultable grisée', async () => {

@@ -7,6 +7,14 @@
  *   · rappels par défaut : rendez-vous = la veille + 1 h avant ; repère = le jour même à 9 h. Modifiables ;
  *   · jamais de suppression : faite, décalée, annulée restent tracées (« décalée par X le … (ancienne → nouvelle) »).
  *
+ * 🔴🔴 RÈGLE RÉVISÉE PAR ARNO (13/10/2026, lot COULEURS-TACHES) — le blanc disparaît :
+ *   · date passée               → ROUGE FONCÉ / bordeaux (« En retard »)
+ *   · aujourd'hui ET demain     → ROUGE (« Aujourd'hui » / « Demain »)
+ *   · après-demain              → ORANGE (« Dans 2 jours »)
+ *   · dans 3 jours et plus      → VERT   (« Plus tard »)
+ * Les clés restent `retard` / `jour` / `proche` / `plus_tard` (la clé `jour` couvre aujourd'hui ET demain) ;
+ * l'ancienne règle ci-dessous est gardée pour l'historique.
+ *
  * 🔴 LE CODE COULEUR EST ÉCRIT ICI, ET NULLE PART AILLEURS. Tous les écrans (fiche du bien, récapitulatif général,
  * et tout futur endroit) appellent `couleurTache` : deux calculs finiraient par ne plus dire la même chose. Il se
  * calcule sur le JOUR de la tâche comparé à AUJOURD'HUI À PARIS, pour les tâches ni faites ni annulées :
@@ -35,9 +43,16 @@ export const ORDRE_COULEURS: readonly CouleurTache[] = ['retard', 'jour', 'proch
 export const MOT_COULEUR: Record<CouleurTache, string> = {
   retard: 'En retard', jour: 'Aujourd’hui', proche: 'Dans 2 jours', plus_tard: 'Plus tard',
 };
+
+/** 🔴 LOT COULEURS-TACHES — le mot d'UNE tâche : « Demain » pour la couleur `jour` quand c'est demain. PUR. */
+export function motCouleurTache(t: { jour: string; etat: EtatTache }, maintenant: Date): string | null {
+  const c = couleurTache(t, maintenant);
+  if (c === null) return null;
+  return c === 'jour' && ecartJours(jourParisDe(maintenant), t.jour) === 1 ? 'Demain' : MOT_COULEUR[c];
+}
 /** Le mot des compteurs, en tête du récapitulatif. */
 export const MOT_COMPTEUR: Record<CouleurTache, string> = {
-  retard: 'en retard', jour: 'du jour', proche: '2 jours', plus_tard: 'plus tard',
+  retard: 'en retard', jour: 'aujourd’hui / demain', proche: '2 jours', plus_tard: 'plus tard',
 };
 
 /** Les rappels, sous une forme neutre qui ne dépend pas de Google (le lot 2 les traduira). */
@@ -184,8 +199,8 @@ export function couleurTache(t: { jour: string; etat: EtatTache }, maintenant: D
   if (t.etat !== 'a_faire') return null;
   const ecart = ecartJours(jourParisDe(maintenant), t.jour);
   if (ecart < 0) return 'retard';
-  if (ecart === 0) return 'jour';
-  if (ecart <= 2) return 'proche';
+  if (ecart <= 1) return 'jour';   // aujourd'hui ET demain : rouge
+  if (ecart === 2) return 'proche'; // après-demain : orange
   return 'plus_tard';
 }
 

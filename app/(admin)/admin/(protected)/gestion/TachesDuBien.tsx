@@ -200,7 +200,7 @@ const CSS_REPLI = `
 .tch-repli:hover{background:#850302;border-color:#850302}
 .tch-repli:focus-visible{outline:2px solid var(--color-svv-ink);outline-offset:2px}
 .tch-repli-corps{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem .7rem;flex:1 1 auto;min-width:0}
-.tch-repli .tch-compteur{font-weight:500}
+.tch-repli .tch-compteur{font-weight:500;background:#ffffff;color:#16202c;border-color:#ffffff}
 .tch-repli-fleche{flex:0 0 auto;font-size:1rem}
 .tch-bloc-fiche:not(.tch-bloc-fiche--replie) > .tch-repli{margin-bottom:8px}
 .tch-bloc-fiche:not(.tch-bloc-fiche--replie){background:var(--color-svv-field)}

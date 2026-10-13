@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  compterTaches, couleurTache, dateLisibleTache, ecartJours, erreurSaisie, filtrerTaches, jourDecale, jourParisDe,
+  compterTaches, couleurTache, motCouleurTache, dateLisibleTache, ecartJours, erreurSaisie, filtrerTaches, jourDecale, jourParisDe,
   echeanceLisible, lireSaisie, phraseTrace, rappelsParDefaut, rappelsValides, repartirTaches, type Tache,
 } from './taches';
 
@@ -21,10 +21,10 @@ const tache = (p: Partial<Tache> = {}): Tache => ({
 });
 
 describe('🔴 le code couleur d’Arno', () => {
-  it('hier = rouge, aujourd’hui = blanc, demain et après-demain = orange, J+3 = vert', () => {
+  it('🔴 LOT COULEURS-TACHES — hier = bordeaux (retard), aujourd’hui ET demain = rouge, J+2 = orange, J+3 = vert', () => {
     expect(couleurTache({ jour: '2026-10-12', etat: 'a_faire' }, MAINTENANT)).toBe('retard');
     expect(couleurTache({ jour: '2026-10-13', etat: 'a_faire' }, MAINTENANT)).toBe('jour');
-    expect(couleurTache({ jour: '2026-10-14', etat: 'a_faire' }, MAINTENANT)).toBe('proche');
+    expect(couleurTache({ jour: '2026-10-14', etat: 'a_faire' }, MAINTENANT)).toBe('jour');
     expect(couleurTache({ jour: '2026-10-15', etat: 'a_faire' }, MAINTENANT)).toBe('proche');
     expect(couleurTache({ jour: '2026-10-16', etat: 'a_faire' }, MAINTENANT)).toBe('plus_tard');
     expect(couleurTache({ jour: '2027-01-01', etat: 'a_faire' }, MAINTENANT)).toBe('plus_tard');
@@ -39,7 +39,18 @@ describe('🔴 le code couleur d’Arno', () => {
     expect(apresMinuit.toISOString().slice(0, 10)).toBe('2026-10-13');
     expect(couleurTache({ jour: '2026-10-13', etat: 'a_faire' }, apresMinuit)).toBe('retard');
     expect(couleurTache({ jour: '2026-10-14', etat: 'a_faire' }, apresMinuit)).toBe('jour');
+    expect(couleurTache({ jour: '2026-10-15', etat: 'a_faire' }, apresMinuit)).toBe('jour');  // demain
     expect(couleurTache({ jour: '2026-10-16', etat: 'a_faire' }, apresMinuit)).toBe('proche');
+    expect(couleurTache({ jour: '2026-10-17', etat: 'a_faire' }, apresMinuit)).toBe('plus_tard');
+  });
+
+  it('🔴 le mot : « En retard », « Aujourd’hui », « Demain », « Dans 2 jours », « Plus tard » ; rien si terminée', () => {
+    const mot = (jour: string) => motCouleurTache({ jour, etat: 'a_faire' }, MAINTENANT);
+    expect(['2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15', '2026-10-16'].map(mot))
+      .toEqual(['En retard', 'Aujourd’hui', 'Demain', 'Dans 2 jours', 'Plus tard']);
+    expect(motCouleurTache({ jour: '2026-10-13', etat: 'faite' }, MAINTENANT)).toBeNull();
+    // Passé minuit à Paris, « Demain » devient « Aujourd’hui ».
+    expect(motCouleurTache({ jour: '2026-10-14', etat: 'a_faire' }, paris('2026-10-14T00:01:00'))).toBe('Aujourd’hui');
   });
 
   it('le changement d’heure (fin octobre) ne décale pas d’un jour', () => {
@@ -107,7 +118,7 @@ describe('🔴 « Décaler » : raccourcis, et nouvelle couleur', () => {
     const nouveau = jourDecale('2026-10-01', '+1j', MAINTENANT);
     expect(nouveau).toBe('2026-10-14');
     expect(couleurTache({ jour: '2026-10-01', etat: 'a_faire' }, MAINTENANT)).toBe('retard');
-    expect(couleurTache({ jour: nouveau, etat: 'a_faire' }, MAINTENANT)).toBe('proche');
+    expect(couleurTache({ jour: nouveau, etat: 'a_faire' }, MAINTENANT)).toBe('jour'); // demain : rouge
     expect(couleurTache({ jour: jourDecale('2026-10-13', '+1s', MAINTENANT), etat: 'a_faire' }, MAINTENANT)).toBe('plus_tard');
   });
 });
