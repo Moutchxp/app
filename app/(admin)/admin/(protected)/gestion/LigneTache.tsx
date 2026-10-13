@@ -134,44 +134,51 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
      geste), « Décaler », « ✏ Modifier » (la fenêtre de la tâche), « ✗ Tâche annulée » (confirmation d'abord : même
      annulation que dans la fenêtre — tracée, jamais supprimée, événement d'agenda retiré). Une tâche terminée ne
      garde que « ✏ Modifier », qui ouvre la fenêtre en lecture (« Rouvrir » y reste). */
+  /* 🔴 LOT CARTE-BOUTONS (Arno, 13/10/2026) — UNE ligne : à GAUCHE « ✓ Tâche réalisée » puis « ✗ Tâche annulée » (et sa
+     confirmation, à sa place) ; à DROITE, au bord : « Décaler » puis « ✏ Modifier ». Sur téléphone, si la place manque,
+     les deux groupes passent l'un sous l'autre, dans cet ordre. Mêmes boutons, mêmes effets. */
   const actions = (
     <div className="tch-actions" data-ordre="actions">
-      {!terminee && (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
-          onClick={() => void agir({ geste: 'faite' })}>
-          {MOT_ACTION.realisee}
-        </button>
-      )}
-      {!terminee && (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
-          aria-expanded={decaler}
-          onClick={() => { setJour(tache.jour); setHeure(tache.heure ?? ''); setDecaler((v) => !v); }}>
-          {MOT_ACTION.decaler}
-        </button>
-      )}
-      <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" data-action="modifier"
-        onClick={() => onDetail(tache.id)}>
-        {MOT_ACTION.modifier}
-      </button>
-      {!terminee && !confirmerAnnulation && (
-        <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tch-btn-annuler" disabled={occupe}
-          data-action="annuler" onClick={() => setConfirmerAnnulation(true)}>
-          {MOT_ACTION.annulee}
-        </button>
-      )}
-      {!terminee && confirmerAnnulation && (
-        <span className="tch-confirmer" role="group" aria-label="Confirmer l’annulation">
-          <span className="tch-confirmer-question">Annuler cette tâche ?</span>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tch-btn-annuler" disabled={occupe}
-            data-action="annuler-oui" onClick={() => void agir({ geste: 'annuler' })}>
-            Oui
-          </button>
+      <div className="tch-actions-gauche">
+        {!terminee && (
           <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
-            data-action="annuler-non" onClick={() => setConfirmerAnnulation(false)}>
-            Non
+            onClick={() => void agir({ geste: 'faite' })}>
+            {MOT_ACTION.realisee}
           </button>
-        </span>
-      )}
+        )}
+        {!terminee && !confirmerAnnulation && (
+          <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tch-btn-annuler" disabled={occupe}
+            data-action="annuler" onClick={() => setConfirmerAnnulation(true)}>
+            {MOT_ACTION.annulee}
+          </button>
+        )}
+        {!terminee && confirmerAnnulation && (
+          <span className="tch-confirmer" role="group" aria-label="Confirmer l’annulation">
+            <span className="tch-confirmer-question">Annuler cette tâche ?</span>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tch-btn-annuler" disabled={occupe}
+              data-action="annuler-oui" onClick={() => void agir({ geste: 'annuler' })}>
+              Oui
+            </button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
+              data-action="annuler-non" onClick={() => setConfirmerAnnulation(false)}>
+              Non
+            </button>
+          </span>
+        )}
+      </div>
+      <div className="tch-actions-droite">
+        {!terminee && (
+          <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
+            aria-expanded={decaler}
+            onClick={() => { setJour(tache.jour); setHeure(tache.heure ?? ''); setDecaler((v) => !v); }}>
+            {MOT_ACTION.decaler}
+          </button>
+        )}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" data-action="modifier"
+          onClick={() => onDetail(tache.id)}>
+          {MOT_ACTION.modifier}
+        </button>
+      </div>
     </div>
   );
 
@@ -455,6 +462,10 @@ export const CSS_TACHES = `
   text-decoration:underline;text-align:left;overflow-wrap:anywhere}
 .tch-ev{padding:0 .4rem;border:1px solid var(--color-svv-line);border-radius:999px}
 .tch-actions,.tch-decaler{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px}
+/* LOT CARTE-BOUTONS : deux groupes sur une ligne, le second colle au bord droit ; trop etroit, ils s'empilent. */
+.tch-actions{justify-content:space-between;align-items:center}
+.tch-actions-gauche,.tch-actions-droite{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.tch-actions-droite{margin-left:auto;justify-content:flex-end}
 .tch-btn{width:auto;min-height:44px;padding:0 .8rem;font-size:.84rem}
 .tch-decaler{padding:8px;border:1px dashed var(--color-svv-line-strong);border-radius:.5rem}
 .tch-decaler-choix{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px}

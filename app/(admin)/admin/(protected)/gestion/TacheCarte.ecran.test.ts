@@ -165,7 +165,7 @@ describe('🔴 les boutons', () => {
     for (const ecran of ['fiche', 'general']) {
       const l = container.querySelector(`#${ecran} [data-tache="8"] .tch-actions`)!;
       expect([...l.querySelectorAll('button')].map((b) => b.textContent)).toEqual([
-        MOT_ACTION.realisee, MOT_ACTION.decaler, MOT_ACTION.modifier, MOT_ACTION.annulee]);
+        MOT_ACTION.realisee, MOT_ACTION.annulee, MOT_ACTION.decaler, MOT_ACTION.modifier]);
     }
     expect(MOT_ACTION).toEqual({ realisee: '✓ Tâche réalisée', decaler: 'Décaler', modifier: '✏ Modifier', annulee: '✗ Tâche annulée' });
   });

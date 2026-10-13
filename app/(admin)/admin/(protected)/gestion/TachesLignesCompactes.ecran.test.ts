@@ -98,9 +98,22 @@ describe('🔴 la ligne repliée', () => {
     await calmer();
     expect(ligne(1).classList.contains('tch-carte')).toBe(true);
     expect([...ligne(1).querySelectorAll('.tch-actions button')].map((b) => b.textContent))
-      .toEqual([MOT_ACTION.realisee, MOT_ACTION.decaler, MOT_ACTION.modifier, MOT_ACTION.annulee]);
+      .toEqual([MOT_ACTION.realisee, MOT_ACTION.annulee, MOT_ACTION.decaler, MOT_ACTION.modifier]);
     await act(async () => { (ligne(1).querySelector('.tch-carte-objet') as HTMLElement).click(); });
     expect(ligne(1).getAttribute('data-depliee')).toBe('non');
+  });
+  it('🔴 LOT CARTE-BOUTONS — à gauche « Tâche réalisée » puis « Tâche annulée » ; à droite « Décaler » puis « Modifier »', async () => {
+    await monter();
+    await act(async () => { (ligne(1).querySelector('.tch-l1') as HTMLElement).click(); });
+    await calmer();
+    const mots = (sel: string) => [...ligne(1).querySelectorAll(`${sel} button`)].map((b) => b.textContent);
+    expect(mots('.tch-actions > .tch-actions-gauche')).toEqual([MOT_ACTION.realisee, MOT_ACTION.annulee]);
+    expect(mots('.tch-actions > .tch-actions-droite')).toEqual([MOT_ACTION.decaler, MOT_ACTION.modifier]);
+    expect(CSS_TACHES).toMatch(/\.tch-actions\{justify-content:space-between/);
+    expect(CSS_TACHES).toMatch(/\.tch-actions-droite\{margin-left:auto/);
+    // La confirmation d'annulation prend la place du bouton, dans le groupe de gauche.
+    await act(async () => { (ligne(1).querySelector('[data-action="annuler"]') as HTMLElement).click(); });
+    expect(ligne(1).querySelector('.tch-actions-gauche .tch-confirmer')).not.toBeNull();
   });
   it('le clic sur l’adresse ouvre la fiche, sans déplier', async () => {
     await monter();
