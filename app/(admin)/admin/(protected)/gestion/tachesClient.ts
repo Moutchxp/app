@@ -76,6 +76,8 @@ export type GesteTache =
   | ({ geste: 'modifier' } & SaisieEcran)
   /** 🔴 LOT TACHES-1-BIS — « Mettre à jour » les coordonnées copiées d'un contact. */
   | { geste: 'actualiserContact'; cle: string }
+  /** 🔴 LOT TACHES-ACCEPTATION — un nouveau mail, un nouveau lien ; l'ancien cesse d'agir. */
+  | { geste: 'renvoyerDemande' }
   /** 🔴 LOT TACHES-PIECES-DRIVE — des RÉFÉRENCES Drive ; le fichier n'est jamais touché. */
   | { geste: 'ajouterPieces'; pieces: string[] }
   | { geste: 'retirerPiece'; driveId: string };

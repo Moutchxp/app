@@ -36,7 +36,7 @@ vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...(a as [string, unknown[]])),
   withTransaction: async (f: (q: unknown) => unknown) => f((...a: unknown[]) => queryMock(...(a as [string, unknown[]]))),
 }));
-vi.mock('./schema', () => ({ contactsTacheDisponible: async () => true, tachesDisponibles: async () => true, piecesTacheDisponible: async () => false }));
+vi.mock('./schema', () => ({ acceptationTacheDisponible: async () => false, contactsTacheDisponible: async () => true, tachesDisponibles: async () => true, piecesTacheDisponible: async () => false }));
 vi.mock('./contactsTacheRepo', () => ({ contactsDuBienPourTache: async () => fiche }));
 vi.mock('./comptesGoogleRepo', () => ({ lireDomainesAutorises: async () => 'criterimmo.fr,sansvisavis.com' }));
 
@@ -68,7 +68,7 @@ beforeEach(() => { appels = []; actifs = []; fiche = [PROPRIO, SYNDIC]; });
 
 describe('🔴 copie au moment du choix', () => {
   it('créer une tâche avec deux contacts : deux copies, prises dans la fiche, et deux traces « contact ajouté »', async () => {
-    expect(await creerTache(10, { ...SAISIE, contacts: ['proprietaire:12', 'syndic_contact:9'] }, AUTEUR)).toEqual({ ok: true, id: 7 });
+    expect(await creerTache(10, { ...SAISIE, contacts: ['proprietaire:12', 'syndic_contact:9'] }, AUTEUR)).toMatchObject({ ok: true, id: 7 });
     const [a, b] = inserts();
     expect(a.params.slice(0, 8)).toEqual([7, 'proprietaire:12', 'proprietaire', 'M. DUPONT Jean', null, null, null,
       JSON.stringify(PROPRIO.coordonnees)]);

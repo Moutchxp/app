@@ -93,7 +93,7 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
     expect(ouvertes('fiche')).toEqual(attendu);
     expect(ouvertes('general')).toEqual(attendu);
     // Les compteurs en tête du récapitulatif général.
-    expect(container.querySelector('#general .tch-compteurs')?.textContent).toBe('1 en retard1 du jour1 2 jours1 plus tard');
+    expect(container.querySelector('#general .tch-compteurs')?.textContent).toBe('1 en retard1 du jour1 2 jours1 plus tard⏳0 en attente de confirmation');
   });
 
   it('« Faite » depuis le récapitulatif : la tâche quitte les ouvertes des DEUX écrans, et reste consultable grisée', async () => {
@@ -119,15 +119,42 @@ describe('🔴 la fiche du bien et le récapitulatif général se mettent à jou
     expect(ouvertes('general')).toEqual(attendu);
   });
 
-  it('🔴 le filtre « Les miennes » ne garde que les tâches confiées à moi', async () => {
+  it('🔴 le filtre « Confiées à moi » (l’ancien « Les miennes ») ne garde que les tâches confiées à moi', async () => {
     await monter();
     const miennes = [...container.querySelectorAll<HTMLButtonElement>('#general .tch-filtre-btn')]
-      .find((b) => b.textContent === 'Les miennes');
+      .find((b) => b.textContent === 'Confiées à moi');
     await act(async () => { miennes?.click(); });
     expect(ouvertes('general')).toEqual(['1:retard', '3:proche']);
     expect(miennes?.getAttribute('aria-pressed')).toBe('true');
     // La fiche du bien, elle, n'a pas de filtre : elle montre toujours toutes les tâches du bien.
     expect(ouvertes('fiche')).toHaveLength(4);
+  });
+
+  it('🔴 LOT TACHES-ACCEPTATION — badge à côté de l’échéance, compteur « en attente », filtre « Commandées par moi »', async () => {
+    const acc = (statut: 'en_attente' | 'acceptee' | 'refusee', demandeurId: number) => ({
+      statut, automatique: false, destinataireId: 2, destinataireLibelle: 'Claire Martin', demandeurId, demandeurLibelle: 'x',
+      demandeLe: '2026-10-01T08:00:00Z', reponduLe: null, reponduParLibelle: null, motif: statut === 'refusee' ? 'En congé' : null,
+      mailEtat: 'desactive' as const, mailLe: null,
+    });
+    taches = taches.map((t) => (t.id === 2 ? { ...t, acceptation: acc('en_attente', 1) } : t.id === 4 ? { ...t, acceptation: acc('refusee', 1) } : t));
+    await monter();
+    for (const ecran of ['fiche', 'general'] as const) {
+      const badge = container.querySelector(`#${ecran} [data-tache="2"] .tch-echeance [data-acceptation]`);
+      expect(badge?.textContent).toBe('⏳ En attente');
+      expect(container.querySelector(`#${ecran} [data-tache="2"]`)?.textContent).toContain('mail non envoyé (envoi désactivé)');
+      expect(container.querySelector(`#${ecran} [data-tache="4"] [data-acceptation]`)?.textContent).toBe('✗ Refusée — à réattribuer');
+    }
+    // Le code couleur des dates ne change pas.
+    expect(ouvertes('general')).toEqual(['1:retard', '2:jour', '3:proche', '4:plus_tard']);
+    expect(container.querySelector('#general [data-compteur="en_attente"]')?.textContent).toContain('1');
+    const commandees = container.querySelector<HTMLButtonElement>('#general [data-filtre-qui="commandees"]');
+    await act(async () => { commandees?.click(); });
+    // Les tâches 2 et 4 sont commandées par moi (demandeur 1) ; 1 et 3 ont été créées par « Arno Jorel » sans demande,
+    //   donc sans demandeur connu : seules les demandes comptent.
+    expect(ouvertes('general')).toEqual(['2:jour', '4:plus_tard']);
+    const refusees = container.querySelector<HTMLButtonElement>('#general [data-filtre-statut="refusee"]');
+    await act(async () => { refusees?.click(); });
+    expect(ouvertes('general')).toEqual(['4:plus_tard']);
   });
 
   it('une fiche sans tâche ouverte ne montre rien d’autre que son bouton', async () => {

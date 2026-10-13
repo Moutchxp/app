@@ -106,6 +106,11 @@ const CHEMINS_AUTHENTIFIE_SEUL: ReadonlySet<string> = new Set([
   '/admin/compte/mot-de-passe',
   '/api/admin/compte/mot-de-passe',
   '/api/admin/compte/ordre-modules', // self-service ordre des modules ; aucune perm de module ; la route se re-garde
+  // 🔴 LOT TACHES-ACCEPTATION — « Mes tâches » et la réponse Accepter / Refuser : ouvertes à tout compte qui remplit la
+  //   règle « Confiée à » (actif, adresse de notre Workspace), MÊME SANS la tuile Gestion. Chemins EXACTS ; la page et la
+  //   route revérifient la règle en base, et ne montrent que les tâches de la personne connectée.
+  '/admin/taches',
+  '/api/admin/taches/reponse',
 ]);
 
 export async function proxy(request: NextRequest) {

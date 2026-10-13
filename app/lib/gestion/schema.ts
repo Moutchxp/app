@@ -368,6 +368,15 @@ export function piecesTacheDisponible(): Promise<boolean> {
   return memoiser('table.gestion_tache_piece', () => tableExiste('gestion_tache_piece'));
 }
 
+/**
+ * 🔴 LOT TACHES-ACCEPTATION — la migration 349 est-elle appliquée ? Elle porte les demandes d'acceptation et le
+ * réglage d'envoi. Sans elle, aucune demande n'est posée et les tâches sont exactement celles d'avant ce lot.
+ */
+export function acceptationTacheDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_tache_demande', async () =>
+    (await tableExiste('gestion_tache_demande')) && (await tableExiste('gestion_tache_reglage')));
+}
+
 async function tableExiste(table: string): Promise<boolean> {
   try {
     const { rows } = await query<{ n: number }>(

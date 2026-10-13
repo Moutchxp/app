@@ -9,7 +9,10 @@ import {
   type ActionTache, type ChampTache, type EtatTache, type PieceAjout, type PieceTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
-import { contactsTacheDisponible, piecesTacheDisponible } from './schema';
+import { acceptationTacheDisponible, contactsTacheDisponible, piecesTacheDisponible } from './schema';
+/* 🔴 LOT TACHES-ACCEPTATION — la demande d'acceptation, posée dans la transaction du geste qui la provoque. */
+import { poserDemande, versAcceptation, type DemandePosee } from './acceptationRepo';
+import { acceptationInitiale } from './acceptationTache';
 import { contactsDuBienPourTache } from './contactsTacheRepo';
 import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache } from './contactsTache';
 
@@ -71,10 +74,21 @@ interface LigneTache {
   faite_le: Date | null; faite_par_libelle: string | null; annulee_le: Date | null; annulee_par_libelle: string | null;
   nb_contacts: number;
   nb_pieces: number;
+  cree_par: number | null;
+  dem_statut: string | null; dem_automatique?: boolean | null; dem_destinataire_id?: number | null;
+  dem_destinataire_libelle?: string | null; dem_demandeur_id?: number | null; dem_demandeur_libelle?: string | null;
+  dem_cree_le?: Date | null; dem_repondu_le?: Date | null; dem_repondu_par_libelle?: string | null; dem_motif?: string | null;
+  dem_mail_etat?: string | null; dem_mail_le?: Date | null;
 }
 
 /** Le nombre de contacts copiés — nommé seulement quand la 347 est là, sinon 0 (une sonde voyage avec sa donnée). */
-const sqlTache = (avecContacts: boolean, avecPieces = false): string => SQL_TACHE.replace('__NB_CONTACTS__', avecContacts
+const sqlTache = (avecContacts: boolean, avecPieces = false, avecDemande = false): string => SQL_TACHE.replace('__DEMANDE_CHAMPS__', avecDemande
+  ? `d.statut AS dem_statut, d.automatique AS dem_automatique, d.destinataire_id::int AS dem_destinataire_id,
+     d.destinataire_libelle AS dem_destinataire_libelle, d.demandeur_id::int AS dem_demandeur_id,
+     d.demandeur_libelle AS dem_demandeur_libelle, d.cree_le AS dem_cree_le, d.repondu_le AS dem_repondu_le,
+     d.repondu_par_libelle AS dem_repondu_par_libelle, d.motif AS dem_motif, d.mail_etat AS dem_mail_etat, d.mail_le AS dem_mail_le`
+  : 'NULL::text AS dem_statut').replace('__DEMANDE_JOINTURE__', avecDemande
+  ? "LEFT JOIN gestion_tache_demande d ON d.tache_id = t.id AND d.statut <> 'remplacee'" : '').replace('__NB_CONTACTS__', avecContacts
   ? '(SELECT count(*)::int FROM gestion_tache_contact c WHERE c.tache_id = t.id AND c.retire_le IS NULL)'
   : '0').replace('__NB_PIECES__', avecPieces
   ? '(SELECT count(*)::int FROM gestion_tache_piece p WHERE p.tache_id = t.id AND p.retire_le IS NULL)'
@@ -86,10 +100,11 @@ const SQL_TACHE = `
          t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
          t.rappels, t.etat, t.confiee_a::int AS confiee_a, t.confiee_a_libelle,
          t.cree_le, t.cree_par_libelle, t.maj_le, t.faite_le, t.faite_par_libelle, t.annulee_le, t.annulee_par_libelle,
-         __NB_CONTACTS__ AS nb_contacts, __NB_PIECES__ AS nb_pieces
+         __NB_CONTACTS__ AS nb_contacts, __NB_PIECES__ AS nb_pieces, t.cree_par::int AS cree_par, __DEMANDE_CHAMPS__
     FROM gestion_tache t
     JOIN gestion_annuaire_lot l ON l.id = t.lot_id
-    LEFT JOIN gestion_evenement e ON e.id = t.evenement_id`;
+    LEFT JOIN gestion_evenement e ON e.id = t.evenement_id
+    __DEMANDE_JOINTURE__`;
 
 const iso = (d: Date | null): string | null => (d === null ? null : new Date(d).toISOString());
 
@@ -105,6 +120,14 @@ function versTache(r: LigneTache): Tache {
     annuleeLe: iso(r.annulee_le), annuleeParLibelle: r.annulee_par_libelle,
     nbContacts: Number(r.nb_contacts ?? 0),
     nbPieces: Number(r.nb_pieces ?? 0),
+    creePar: r.cree_par === null || r.cree_par === undefined ? null : Number(r.cree_par),
+    acceptation: versAcceptation({
+      statut: r.dem_statut ?? null, automatique: r.dem_automatique ?? null, destinataire_id: r.dem_destinataire_id ?? null,
+      destinataire_libelle: r.dem_destinataire_libelle ?? null, demandeur_id: r.dem_demandeur_id ?? null,
+      demandeur_libelle: r.dem_demandeur_libelle ?? null, demande_le: r.dem_cree_le ?? null, repondu_le: r.dem_repondu_le ?? null,
+      repondu_par_libelle: r.dem_repondu_par_libelle ?? null, motif: r.dem_motif ?? null, mail_etat: r.dem_mail_etat ?? null,
+      mail_le: r.dem_mail_le ?? null,
+    }),
   };
 }
 
@@ -118,7 +141,7 @@ export const OUVERTES_MAX = 1000;
  * celles de tous les biens (récapitulatif général).
  */
 export async function listerTaches(lotId: number | null): Promise<{ taches: Tache[]; tronque: boolean }> {
-  const SQL = sqlTache(await contactsTacheDisponible(), await piecesTacheDisponible());
+  const SQL = sqlTache(await contactsTacheDisponible(), await piecesTacheDisponible(), await acceptationTacheDisponible());
   const [o, t] = await Promise.all([
     query<LigneTache>(
       `${SQL} WHERE t.etat = 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)
@@ -134,7 +157,7 @@ export async function listerTaches(lotId: number | null): Promise<{ taches: Tach
 export async function lireTache(id: number): Promise<{ tache: Tache; traces: TraceTache[]; contacts: ContactTache[]; pieces: PieceTache[] } | null> {
   const avecContacts = await contactsTacheDisponible();
   const avecPieces = await piecesTacheDisponible();
-  const { rows } = await query<LigneTache>(`${sqlTache(avecContacts, avecPieces)} WHERE t.id = $1`, [id]);
+  const { rows } = await query<LigneTache>(`${sqlTache(avecContacts, avecPieces, await acceptationTacheDisponible())} WHERE t.id = $1`, [id]);
   if (rows.length === 0) return null;
   const tr = await query<{ action: ActionTache; avant: Record<string, unknown> | null; apres: Record<string, unknown> | null; survenu_le: Date; auteur_libelle: string }>(
     `SELECT action, avant, apres, survenu_le, auteur_libelle FROM gestion_tache_action
@@ -292,7 +315,7 @@ export async function actualiserContact(id: number, cle: string, auteur: Auteur)
   });
 }
 
-export type IssueTache = { ok: true; id: number }
+export type IssueTache = { ok: true; id: number; demande?: DemandePosee | null }
   /** `champ` : le champ de la fenêtre à qui le refus se rattache (affiché À CÔTÉ de lui), quand il y en a un. */
   | { ok: false; statut: number; motif: string; champ?: ChampTache };
 
@@ -325,6 +348,7 @@ export async function creerTache(
   lotId: number, s: SaisieTache, auteur: Auteur, pieces: readonly PieceAjout[] = [],
 ): Promise<IssueTache> {
   const avecPieces = pieces.length > 0 && await piecesTacheDisponible();
+  const avecAcceptation = await acceptationTacheDisponible();
   const sources = await sourcesPour(lotId, s);
   return withTransaction(async (q) => {
     const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
@@ -346,7 +370,9 @@ export async function creerTache(
     }, auteur, nom);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
     if (avecPieces) await poserPieces(q, id, pieces, auteur, nom);
-    return { ok: true, id };
+    /* 🔴 LOT TACHES-ACCEPTATION — confiée à soi : acceptée d'office ; à un autre : en attente, et un mail à préparer. */
+    const demande = avecAcceptation ? await poserDemande(q, { tacheId: id, confieeA: c.id, confieeLibelle: c.libelle, auteur, nom }) : null;
+    return { ok: true, id, demande };
   });
 }
 
@@ -421,6 +447,9 @@ export async function decalerTache(
   id: number, vers: { raccourci: RaccourciDecalage } | { jour: string; heure: string | null }, auteur: Auteur,
   maintenant: Date = new Date(),
 ): Promise<IssueTache> {
+  const avecAcceptation = await acceptationTacheDisponible();
+  const relancerDemande = (q: RequeteTx, tid: number, confieeA: number | null, libelle: string, a: Auteur, nom: string) =>
+    (avecAcceptation ? relancer(q, tid, confieeA, libelle, a, nom) : Promise.resolve(null));
   return withTransaction(async (q) => {
     const t = await lirePourGeste(q, id);
     if (t === null) return INTROUVABLE;
@@ -436,7 +465,9 @@ export async function decalerTache(
       `UPDATE gestion_tache SET jour = $2::date, heure = $3::time, rappels = $4::jsonb, maj_le = now() WHERE id = $1`,
       [id, jour, heure, JSON.stringify(rappels)]);
     await tracer(q, id, 'decalage', { jour: t.jour, heure: t.heure }, { jour, heure }, auteur, nom);
-    return { ok: true, id };
+    // 🔴 LOT TACHES-ACCEPTATION — changer la date ou l'heure relance la demande (décision d'Arno, point 6).
+    const demande = await relancerDemande(q, id, t.confiee_a === null ? null : Number(t.confiee_a), t.confiee_a_libelle, auteur, nom);
+    return { ok: true, id, demande };
   });
 }
 
@@ -445,6 +476,7 @@ export async function decalerTache(
  * modification qui ne change rien n'écrit rien.
  */
 export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur): Promise<IssueTache> {
+  const avecAcceptation = await acceptationTacheDisponible();
   const lot = await query<{ lot_id: number }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
   const sources = lot.rows.length === 0 ? null : await sourcesPour(Number(lot.rows[0].lot_id), s);
   return withTransaction(async (q) => {
@@ -481,6 +513,40 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
       [id, nouveau.objet, nouveau.note, nouveau.jour, nouveau.heure, c.id, c.libelle, nouveau.evenementId,
         JSON.stringify(rappels)]);
     await tracer(q, id, 'modification', avant, apres, auteur, nom);
-    return { ok: true, id };
+    /* 🔴 LOT TACHES-ACCEPTATION — date, heure ou personne changée ⇒ nouvelle demande ; le reste ne change pas le statut. */
+    const relance = 'jour' in apres || 'heure' in apres || 'confieeA' in apres;
+    const demande = avecAcceptation && relance ? await relancer(q, id, c.id, c.libelle, auteur, nom) : null;
+    return { ok: true, id, demande };
+  });
+}
+
+/**
+ * RELANCE LA DEMANDE d'une tâche après un changement de date, d'heure ou de personne. Une tâche que l'on se confie
+ * et qui est DÉJÀ acceptée par soi n'est pas relancée : on n'écrit pas « Acceptée d'office » à chaque décalage.
+ */
+async function relancer(
+  q: RequeteTx, tacheId: number, confieeA: number | null, libelle: string, auteur: Auteur, nom: string,
+): Promise<DemandePosee | null> {
+  const { rows } = await q<{ statut: string; destinataire_id: number | null }>(
+    `SELECT statut, destinataire_id::int AS destinataire_id FROM gestion_tache_demande WHERE tache_id = $1 AND statut <> 'remplacee'`, [tacheId]);
+  const c = rows[0];
+  if (acceptationInitiale(confieeA, auteur.id) === 'acceptee' && c?.statut === 'acceptee'
+    && Number(c.destinataire_id) === Number(confieeA)) return null;
+  return poserDemande(q, { tacheId, confieeA, confieeLibelle: libelle, auteur, nom });
+}
+
+/** « RENVOYER LA DEMANDE » — un nouveau mail, un nouveau lien ; l'ancien cesse d'agir. Tracé. */
+export async function renvoyerDemande(id: number, auteur: Auteur): Promise<IssueTache> {
+  if (!(await acceptationTacheDisponible())) return { ok: false, statut: 503, motif: 'Acceptation non installée (migration 349).' };
+  return withTransaction(async (q) => {
+    const t = await lirePourGeste(q, id);
+    if (t === null) return INTROUVABLE;
+    if (t.etat !== 'a_faire') return DEJA_TERMINEE;
+    const nom = await nomAuteur(q, auteur);
+    if (acceptationInitiale(t.confiee_a, auteur.id) === 'acceptee') {
+      return { ok: false, statut: 409, motif: 'Cette tâche vous est confiée : il n’y a pas de demande à renvoyer.' };
+    }
+    const demande = await poserDemande(q, { tacheId: id, confieeA: t.confiee_a, confieeLibelle: t.confiee_a_libelle, auteur, nom, motifTrace: 'renvoi' });
+    return { ok: true, id, demande };
   });
 }

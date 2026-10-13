@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  compterTaches, filtrerTaches, MOT_COMPTEUR, ORDRE_COULEURS, repartirTaches,
-  type FiltreTaches, type Tache,
+  compterTaches, MOT_COMPTEUR, ORDRE_COULEURS, repartirTaches, type Tache,
 } from '../../../../lib/gestion/taches';
 import { CSS_TACHES, LigneTache, useMaintenant } from './LigneTache';
+import {
+  compterEnAttente, filtrerParAcceptation, MOTS_QUI, MOTS_STATUT, type FiltreQui, type FiltreStatut,
+} from '../../../../lib/gestion/acceptationTache';
 import { FenetreTache } from './FenetreTache';
 import { ecouterTaches, lireTaches } from './tachesClient';
 
@@ -33,7 +35,10 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
   const maintenant = useMaintenant();
   const [donnees, setDonnees] = useState<{ taches: Tache[]; moi: number | null; tronque: boolean } | null>(null);
   const [installe, setInstalle] = useState(true);
-  const [filtre, setFiltre] = useState<FiltreTaches>('toutes');
+  /* 🔴 LOT TACHES-ACCEPTATION — deux filtres combinables. « Confiées à moi » est l'ancien « Les miennes » (même règle :
+     les tâches confiées à la personne connectée), désormais à côté de « Commandées par moi ». */
+  const [qui, setQui] = useState<FiltreQui>('toutes');
+  const [statut, setStatut] = useState<FiltreStatut>('toutes');
   const [detail, setDetail] = useState<number | null>(null);
 
   const charger = useCallback(async () => {
@@ -47,9 +52,11 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
   useEffect(() => ecouterTaches(() => { void charger(); }), [charger]);
 
   if (!installe || donnees === null) return null;
-  const visibles = filtrerTaches(donnees.taches, filtre, donnees.moi);
+  const visibles = filtrerParAcceptation(donnees.taches, qui, statut, donnees.moi);
+  // 🔴 ORDRE CHRONOLOGIQUE STRICT : l'échéance la plus proche en haut (en retard compris), la plus lointaine en bas.
   const { ouvertes, terminees } = repartirTaches(visibles, maintenant);
   const n = compterTaches(ouvertes, maintenant);
+  const enAttente = compterEnAttente(ouvertes);
 
   return (
     <section className="tch-tableau" aria-labelledby="tch-tableau-titre">
@@ -58,13 +65,23 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
         <h2 className="gst-titre" id="tch-tableau-titre">
           Tâches <span className="gst-compte">{ouvertes.length}</span>
         </h2>
-        <div className="tch-filtre" role="group" aria-label="Quelles tâches">
-          {(['toutes', 'miennes'] as const).map((f) => (
-            <button key={f} type="button" aria-pressed={filtre === f}
-              className={`tch-filtre-btn${filtre === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => setFiltre(f)}>
-              {f === 'toutes' ? 'Toutes' : 'Les miennes'}
-            </button>
-          ))}
+        <div className="tch-filtres">
+          <div className="tch-filtre" role="group" aria-label="Quelles tâches">
+            {(['toutes', 'confiees', 'commandees'] as const).map((f) => (
+              <button key={f} type="button" aria-pressed={qui === f} data-filtre-qui={f}
+                className={`tch-filtre-btn${qui === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => setQui(f)}>
+                {MOTS_QUI[f]}
+              </button>
+            ))}
+          </div>
+          <div className="tch-filtre" role="group" aria-label="Quel statut">
+            {(['toutes', 'en_attente', 'acceptee', 'refusee'] as const).map((f) => (
+              <button key={f} type="button" aria-pressed={statut === f} data-filtre-statut={f}
+                className={`tch-filtre-btn${statut === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => setStatut(f)}>
+                {MOTS_STATUT[f]}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       <ul className="tch-compteurs" aria-label="Compteurs des tâches">
@@ -74,10 +91,15 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
             <b>{n[c]}</b> {MOT_COMPTEUR[c]}
           </li>
         ))}
+        {/* 🔴 LOT TACHES-ACCEPTATION — la catégorie « En attente de confirmation ». */}
+        <li className="tch-compteur tch-compteur--attente" data-compteur="en_attente">
+          <span aria-hidden="true">⏳</span><b>{enAttente}</b> en attente de confirmation
+        </li>
       </ul>
+      <ReglageEnvoi />
       {donnees.tronque && <p className="gst-tronc">La liste est tronquée : toutes les tâches ne sont pas affichées.</p>}
       {ouvertes.length === 0
-        ? <p className="tch-vide">{filtre === 'miennes' ? 'Aucune tâche à faire ne vous est confiée.' : 'Aucune tâche à faire.'} Une tâche se crée depuis la fiche d’un bien (« + Tâche »).</p>
+        ? <p className="tch-vide">{qui === 'confiees' ? 'Aucune tâche à faire ne vous est confiée.' : qui === 'commandees' ? 'Aucune tâche commandée par vous.' : 'Aucune tâche à faire.'} Une tâche se crée depuis la fiche d’un bien (« + Tâche »).</p>
         : (
           <ul className="tch-liste">
             {ouvertes.map((t) => (
@@ -102,8 +124,52 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
   );
 }
 
+/**
+ * ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE RÉGLAGE « ENVOYER LES DEMANDES D'ACCEPTATION PAR MAIL » ═════════════════════
+ * Désactivé par défaut. Visible de tous (on sait si les mails partent), modifiable par un ADMINISTRATEUR seulement.
+ */
+function ReglageEnvoi() {
+  const [r, setR] = useState<{ envoiMail: boolean; modifiable: boolean; modifieParLibelle: string | null } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [occupe, setOccupe] = useState(false);
+  useEffect(() => {
+    let annule = false;
+    void fetch('/api/admin/gestion/taches/reglage', { cache: 'no-store' }).then((x) => x.json()).then((d) => {
+      if (!annule && d?.etat === 'ok') setR({ envoiMail: d.envoiMail === true, modifiable: d.modifiable === true, modifieParLibelle: d.modifieParLibelle ?? null });
+    }).catch(() => {});
+    return () => { annule = true; };
+  }, []);
+  if (r === null) return null;
+  const basculer = async () => {
+    setOccupe(true);
+    const res = await fetch('/api/admin/gestion/taches/reglage', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ envoiMail: !r.envoiMail }),
+    }).catch(() => null);
+    const d = res === null ? null : await res.json().catch(() => null) as { message?: string; erreur?: string } | null;
+    if (res !== null && res.ok) setR({ ...r, envoiMail: !r.envoiMail });
+    setMessage(d?.message ?? d?.erreur ?? 'Le serveur ne répond pas.');
+    setOccupe(false);
+  };
+  return (
+    <details className="tch-reglage">
+      <summary>Réglage — envoi des demandes par mail : <b>{r.envoiMail ? 'activé' : 'désactivé'}</b></summary>
+      <label className="tch-reglage-case">
+        <input type="checkbox" checked={r.envoiMail} disabled={!r.modifiable || occupe} onChange={() => void basculer()} />
+        Envoyer les demandes d’acceptation par mail (depuis gestion@)
+      </label>
+      {!r.modifiable && <p className="tch-vide">Seul un administrateur peut changer ce réglage.</p>}
+      {message && <p className="tch-vide" role="status">{message}</p>}
+    </details>
+  );
+}
+
 /* ⚠️ CSS DANS UN GABARIT : jamais d'accent grave dans un commentaire ci-dessous. */
 const CSS_TABLEAU = `
+.tch-filtres{display:flex;flex-wrap:wrap;gap:8px}
+.tch-compteur--attente{border-style:dashed}
+.tch-reglage{font-size:.85rem;color:var(--color-svv-muted)}
+.tch-reglage > summary{cursor:pointer;min-height:32px;display:flex;align-items:center;gap:.3rem}
+.tch-reglage-case{display:flex;align-items:center;gap:.5rem;min-height:40px;color:var(--color-svv-ink)}
 .tch-tableau{display:flex;flex-direction:column;gap:8px;margin:18px 0 8px;padding:14px;
   border:1px solid var(--color-svv-line-strong);border-radius:14px;background:var(--color-svv-surface)}
 .tch-tableau-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}

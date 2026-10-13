@@ -9,6 +9,9 @@ import { jetonPourRequete } from '../../../../../lib/gestion/jetonCollaborateur'
 import { relirePieces } from '../../../../../lib/gestion/tachesDrive';
 import { piecesTacheDisponible } from '../../../../../lib/gestion/schema';
 import type { PieceAjout } from '../../../../../lib/gestion/taches';
+/* 🔴 LOT TACHES-ACCEPTATION — après la création, le mail de demande (envoi réel seulement si le réglage l'autorise). */
+import { envoyerSiBesoin } from '../../../../../lib/gestion/acceptationRepo';
+import { mentionMail } from '../../../../../lib/gestion/acceptationTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LES TÂCHES : LIRE, CRÉER ════════════════════════════════════════════════════════════════
@@ -61,5 +64,10 @@ export async function POST(request: Request): Promise<Response> {
   }
   const issue = await creerTache(lotId, saisie, await auteurDeLaRequete(request), pieces);
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
-  return Response.json({ etat: 'ok', id: issue.id, message: 'Tâche créée.' });
+  const mail = await envoyerSiBesoin(issue.demande);
+  const enAttente = issue.demande?.statut === 'en_attente';
+  return Response.json({
+    etat: 'ok', id: issue.id,
+    message: enAttente ? `Tâche créée, en attente d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' — demande envoyée par mail' : ''}.` : 'Tâche créée.',
+  });
 }

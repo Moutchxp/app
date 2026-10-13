@@ -21,6 +21,7 @@
  */
 import { FUSEAU_AFFICHAGE } from './ecran';
 import { lireClesContacts } from './contactsTache';
+import type { AcceptationTache } from './acceptationTache';
 
 export type EtatTache = 'a_faire' | 'faite' | 'annulee';
 export type CouleurTache = 'retard' | 'jour' | 'proche' | 'plus_tard';
@@ -76,6 +77,10 @@ export interface Tache {
   nbContacts: number;
   /** 🔴 LOT TACHES-PIECES-DRIVE — combien de pièces jointes (références Drive) — l'indicateur « 📎 2 ». */
   nbPieces?: number;
+  /** 🔴 LOT TACHES-ACCEPTATION — le compte qui a créé la tâche (repli de « Commandées par moi »). */
+  creePar?: number | null;
+  /** 🔴 LOT TACHES-ACCEPTATION — la demande d'acceptation COURANTE ; `null`/absent ⇒ tâche d'avant le lot. */
+  acceptation?: AcceptationTache | null;
 }
 
 /**
@@ -523,6 +528,10 @@ export function phraseTrace(t: TraceTache): string {
       if (typeof a.contactAjoute === 'string') return `Contact ajouté ${qui} (${a.contactAjoute})`;
       if (typeof a.contactRetire === 'string') return `Contact retiré ${qui} (${a.contactRetire})`;
       if (typeof a.contactMisAJour === 'string') return `Coordonnées mises à jour ${qui} (${a.contactMisAJour})`;
+      /* 🔴 LOT TACHES-ACCEPTATION — la demande, la réponse, le mail. */
+      if (typeof a.demandeAcceptation === 'string') return `Demande d’acceptation adressée à ${a.demandeAcceptation} ${qui}`;
+      if (a.acceptation === 'acceptee') return a.automatique === true ? `Acceptée d’office ${qui}` : `Acceptée ${qui}`;
+      if (a.acceptation === 'refusee') return `Refusée ${qui}${typeof a.motif === 'string' ? ` (motif : ${a.motif})` : ''}`;
       /* 🔴 LOT TACHES-PIECES-DRIVE — la pièce ajoutée ou retirée (le fichier du Drive, lui, n'est jamais touché). */
       if (typeof a.pieceAjoutee === 'string') return `Pièce jointe ajoutée ${qui} (${a.pieceAjoutee})`;
       if (typeof a.pieceRetiree === 'string') return `Pièce jointe retirée ${qui} (${a.pieceRetiree})`;

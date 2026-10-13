@@ -63,7 +63,7 @@ describe('🔴 « Faite »', () => {
 
 describe('🔴 « Décaler »', () => {
   it('+1 jour : nouvelle date écrite, trace « ancienne → nouvelle »', async () => {
-    expect(await decalerTache(7, { raccourci: '+1j' }, AUTEUR, MAINTENANT)).toEqual({ ok: true, id: 7 });
+    expect(await decalerTache(7, { raccourci: '+1j' }, AUTEUR, MAINTENANT)).toMatchObject({ ok: true, id: 7 });
     const [maj] = ecritures();
     expect(maj.params.slice(0, 3)).toEqual([7, '2026-10-16', null]);
     expect(trace()?.params.slice(1, 4)).toEqual([

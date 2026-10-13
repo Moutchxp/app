@@ -6,6 +6,7 @@ import {
   type Tache,
 } from '../../../../lib/gestion/taches';
 import { agirSurTache, type GesteTache } from './tachesClient';
+import { BADGE_ACCEPTATION, mentionMail } from '../../../../lib/gestion/acceptationTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — UNE TÂCHE SUR UNE LIGNE, LA MÊME PARTOUT ═══════════════════════════════════════════════
@@ -82,6 +83,14 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
             <span className={`tch-pastille tch-pastille--${couleur ?? 'terminee'}`} aria-hidden="true" />
             <span className="tch-mot">{couleur === null ? (tache.etat === 'faite' ? 'Faite' : 'Annulée') : MOT_COULEUR[couleur]}</span>
           </span>
+          {/* 🔴 LOT TACHES-ACCEPTATION — LE STATUT D'ACCEPTATION, en badge à côté de l'échéance (Arno) ; le code couleur
+              des dates, lui, ne change pas. Une tâche d'avant le lot n'a pas de demande : pas de badge. */}
+          {tache.acceptation && (
+            <span className={`tch-badge tch-badge--${tache.acceptation.statut}`} data-acceptation={tache.acceptation.statut}
+              title={tache.acceptation.statut === 'refusee' && tache.acceptation.motif ? `Motif : ${tache.acceptation.motif}` : undefined}>
+              {BADGE_ACCEPTATION[tache.acceptation.statut]}
+            </span>
+          )}
         </span>
         <button type="button" className="tch-objet" onClick={() => onDetail(tache.id)}
           title="Voir le détail, modifier ou annuler">
@@ -105,6 +114,12 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
           <span className="tch-pieces" title={`${tache.nbPieces} pièce(s) jointe(s)`}>📎 {tache.nbPieces}</span>
         )}
         {fin !== null && <span className="tch-fin">{fin}</span>}
+        {tache.acceptation?.statut === 'en_attente' && mentionMail(tache.acceptation.mailEtat) && (
+          <span className="tch-mail">{mentionMail(tache.acceptation.mailEtat)}</span>
+        )}
+        {tache.acceptation?.statut === 'refusee' && tache.acceptation.motif && (
+          <span className="tch-motif">Refusée par {tache.acceptation.reponduParLibelle ?? tache.acceptation.destinataireLibelle} : {tache.acceptation.motif}</span>
+        )}
       </div>
       {!terminee && (
         <div className="tch-actions">
@@ -174,6 +189,12 @@ export const CSS_TACHES = `
 .tch-pastille--proche{background:var(--color-svv-urgence-orange)}
 .tch-pastille--plus_tard{background:var(--color-svv-green)}
 .tch-pastille--terminee{background:var(--color-svv-line)}
+.tch-badge{display:inline-flex;align-items:center;padding:.05rem .5rem;border-radius:999px;font-size:.76rem;font-weight:700;
+  border:1px solid var(--color-svv-line-strong);color:var(--color-svv-ink);background:var(--color-svv-field);white-space:nowrap}
+.tch-badge--acceptee{border-color:var(--color-svv-green);color:var(--color-svv-green-ink)}
+.tch-badge--refusee{border-color:var(--color-svv-red);color:var(--color-svv-red)}
+.tch-mail{font-style:italic}
+.tch-motif{color:var(--color-svv-red)}
 .tch-echeance{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem}
 .tch-date{font-size:.95rem;font-weight:700;color:var(--color-svv-ink);white-space:nowrap}
 .tch-objet{flex:1 1 12rem;min-width:0;text-align:left;background:none;border:0;padding:4px 0;font:inherit;

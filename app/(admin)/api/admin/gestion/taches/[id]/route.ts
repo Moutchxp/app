@@ -6,10 +6,12 @@ import {
   lireIdsDrive, verifierSaisie, estHeureValide, estJourValide, lireSaisie, RACCOURCIS_DECALAGE, type RaccourciDecalage,
 } from '../../../../../../lib/gestion/taches';
 import {
-  actualiserContact, ajouterPieces, annulerTache, retirerPiece, decalerTache, lireTache, marquerFaite, modifierTache, rouvrirTache, type IssueTache,
+  actualiserContact, ajouterPieces, annulerTache, renvoyerDemande, retirerPiece, decalerTache, lireTache, marquerFaite, modifierTache, rouvrirTache, type IssueTache,
 } from '../../../../../../lib/gestion/tachesRepo';
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
 import { relirePieces } from '../../../../../../lib/gestion/tachesDrive';
+import { envoyerSiBesoin } from '../../../../../../lib/gestion/acceptationRepo';
+import { mentionMail } from '../../../../../../lib/gestion/acceptationTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — UNE TÂCHE : SON DÉTAIL, SES GESTES ═══════════════════════════════════════════════════════
@@ -21,6 +23,7 @@ import { relirePieces } from '../../../../../../lib/gestion/tachesDrive';
  *    · `decaler` + `jour` (+ `heure`, vide = journée)   → vers une date choisie ;
  *    · `modifier` + la saisie complète ;
  *    · `annuler` ; `rouvrir` ;
+ *    · `renvoyerDemande` (LOT TACHES-ACCEPTATION) → nouvelle demande, nouveau mail ; l'ancien lien cesse d'agir ;
  *    · `ajouterPieces` + `pieces` (identifiants Drive) / `retirerPiece` + `driveId` (LOT TACHES-PIECES-DRIVE) :
  *      des RÉFÉRENCES seulement ; le fichier du Drive n'est jamais touché ;
  *    · `actualiserContact` + `cle` (LOT TACHES-1-BIS) → recopie les coordonnées d'un contact depuis la fiche
@@ -50,7 +53,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
 const MESSAGES: Record<string, string> = {
   faite: 'Tâche faite.', decaler: 'Tâche décalée.', modifier: 'Tâche modifiée.', annuler: 'Tâche annulée.',
-  rouvrir: 'Tâche rouverte.', actualiserContact: 'Coordonnées mises à jour.',
+  rouvrir: 'Tâche rouverte.', actualiserContact: 'Coordonnées mises à jour.', renvoyerDemande: 'Demande renvoyée.',
   ajouterPieces: 'Pièce(s) jointe(s) ajoutée(s).', retirerPiece: 'Pièce jointe retirée de la tâche (le fichier du Drive n’est pas touché).',
 };
 
@@ -70,6 +73,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (geste === 'faite') issue = await marquerFaite(id, auteur);
   else if (geste === 'annuler') issue = await annulerTache(id, auteur);
   else if (geste === 'rouvrir') issue = await rouvrirTache(id, auteur);
+  else if (geste === 'renvoyerDemande') issue = await renvoyerDemande(id, auteur);
   else if (geste === 'ajouterPieces') {
     /* 🔴 LOT TACHES-PIECES-DRIVE — relues dans le Drive en LECTURE SEULE, puis seule la RÉFÉRENCE est gardée. */
     const ids = lireIdsDrive(corps.pieces) ?? [];
@@ -114,5 +118,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     return Response.json({ erreur: 'Geste inconnu.' }, { status: 400 });
   }
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
-  return Response.json({ etat: 'ok', id: issue.id, message: MESSAGES[geste] });
+  /* 🔴 LOT TACHES-ACCEPTATION — un geste qui a posé une demande en attente (renvoi, date/heure/personne changée) :
+     son mail, préparé (et envoyé seulement si le réglage l'autorise). */
+  const mail = await envoyerSiBesoin(issue.demande);
+  const suite = issue.demande?.statut === 'en_attente'
+    ? ` Nouvelle demande d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' envoyée par mail' : ''}.` : '';
+  return Response.json({ etat: 'ok', id: issue.id, message: `${MESSAGES[geste]}${suite}` });
 }

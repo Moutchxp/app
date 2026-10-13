@@ -29,6 +29,8 @@
  * candidats, plus leur propriétaire commun s'il existe. « Je ne sais pas » est une réponse ; deviner n'en est pas une.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+/* 🔴 LOT TACHES-ACCEPTATION — reconnaître nos demandes d'acceptation de tâche (jamais rattachées à un bien). */
+import { estDemandeAcceptationTache } from './acceptationTache';
 import type { Confiance, Regle } from './triPieces';
 import type { AdresseEchange } from './propositionTri';
 // LOT AFFECTATION-PAR-BIEN — la cible d'un classement est TOUJOURS un bien : le moteur de ce lot est le seul.
@@ -220,6 +222,11 @@ export function examinerMessage(o: {
   sens?: string | null;
   exclusionRegleId?: number | null;
   /**
+   * 🔴🔴 LOT TACHES-ACCEPTATION — LE MESSAGE-ID RFC DU MAIL, pour reconnaître NOS demandes d'acceptation de tâche
+   * (`estDemandeAcceptationTache`). Absent ⇒ seule la reconnaissance par l'objet (mail envoyé) joue.
+   */
+  messageIdEntete?: string | null;
+  /**
    * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 4 — LA MARQUE « INTERNE », ET LE CHEMIN QU'ELLE FERME ════════
    *
    * Le verdict du module pur `interneDuMail` : marque par mail vivante, sinon marque retirée, sinon marque de
@@ -299,6 +306,19 @@ export function examinerMessage(o: {
    * ⚠️ CELA NE CONCERNE QUE NOS ENVOIS. Une RÉPONSE humaine à un document est du vrai courrier client : elle
    * repasse par le moteur normalement et garde ses biens. C'est `estDocumentEnvoye` qui tient la différence.
    */
+  /**
+   * ══ 🔴🔴 LOT TACHES-ACCEPTATION — UNE DEMANDE D'ACCEPTATION DE TÂCHE N'A JAMAIS DE BIEN ════════════════════════
+   * Règle d'Arno (13/10/2026) : « le mail de demande ne doit jamais être rattaché à un bien ni créer de suivi ».
+   * Son objet cite l'adresse du bien (« Tâche à accepter — 7 avenue de l'Union — … ») : la lecture de l'objet le
+   * rattacherait très légitimement. Il est donc refusé ICI, avant tout calcul, comme un document envoyé.
+   */
+  if (estDemandeAcceptationTache({ sens: o.sens, messageIdEntete: o.messageIdEntete, objet: o.textes?.objet })) {
+    return {
+      issue: 'sans_candidat', certain: null, candidats: [], adressesUtiles: utiles,
+      motif: 'demande d’acceptation de tâche envoyée par l’application : elle ne concerne aucun bien',
+    };
+  }
+
   if (estDocumentEnvoye({ sens: o.sens, objet: o.textes?.objet, exclusionRegleId: o.exclusionRegleId })) {
     return {
       issue: 'sans_candidat', certain: null, candidats: [], adressesUtiles: utiles,

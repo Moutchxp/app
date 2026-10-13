@@ -11,6 +11,7 @@ import {
   type CollaborateurEcran, type DetailTache, type SaisieEcran,
 } from './tachesClient';
 import { CSS_TACHES } from './LigneTache';
+import { BADGE_ACCEPTATION, mentionMail, type AcceptationTache } from '../../../../lib/gestion/acceptationTache';
 import { ChoixContacts, ContactsAffiches, CSS_CONTACTS_TACHE, type ContactPropose } from './ContactsTache';
 /* 🔴 LOT TACHES-PIECES-DRIVE — le sélecteur Drive en LECTURE SEULE des tâches. */
 import { SelecteurDriveTache, type FichierChoisi } from './SelecteurDriveTache';
@@ -189,7 +190,10 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setOccupe(false);
     if (!r.ok) { setMessage({ ok: false, texte: r.message, champ: r.champ ?? null }); return; }
     if (mode.sorte === 'creer') {
-      onCree?.(`Tâche créée : « ${saisie.objet.trim()} » — ${echeanceLisible(saisie.jour, saisie.heure)}.`);
+      /* 🔴 LOT TACHES-ACCEPTATION — confiée à un collègue : la confirmation dit aussi « en attente d'acceptation » et l'état
+         du mail (« mail non envoyé (envoi désactivé) » tant que le réglage est coupé). */
+      const suite = r.message.startsWith('Tâche créée, ') ? ` — ${r.message.slice('Tâche créée, '.length).replace(/\.$/, '')}` : '';
+      onCree?.(`Tâche créée : « ${saisie.objet.trim()} » — ${echeanceLisible(saisie.jour, saisie.heure)}${suite}.`);
       onFermer();
       return;
     }
@@ -221,6 +225,16 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setPiecesChoisies((l) => [...l, ...f.filter((x) => !l.some((y) => y.id === x.id))]);
   };
   const ecrire = onEcrire === undefined ? undefined : (email: string) => { onFermer(); onEcrire(email); };
+
+  const renvoyer = async () => {
+    if (mode.sorte !== 'detail') return;
+    setOccupe(true);
+    setMessage(null);
+    const r = await agirSurTache(mode.id, { geste: 'renvoyerDemande' });
+    setOccupe(false);
+    setMessage(r.ok ? { ok: true, texte: r.message } : { ok: false, texte: r.message, champ: r.champ ?? null });
+    if (r.ok) setVersion((v) => v + 1);
+  };
 
   const geste = async (g: 'annuler' | 'rouvrir') => {
     setOccupe(true);
@@ -263,6 +277,28 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
         )}
         {tache !== null && (
           <p className="tchf-creee">Créée le {horodatageLisible(tache.creeLe)} par {tache.creeParLibelle}</p>
+        )}
+        {/* ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE STATUT D'ACCEPTATION, et ce que le demandeur peut faire : renvoyer la
+            demande, ou réattribuer (changer « Confiée à » puis enregistrer : une nouvelle demande part). */}
+        {tache?.acceptation && (
+          <div className="tchf-acceptation" data-acceptation={tache.acceptation.statut}>
+            <p className="tchf-acceptation-ligne">
+              <span className={`tch-badge tch-badge--${tache.acceptation.statut}`}>{BADGE_ACCEPTATION[tache.acceptation.statut]}</span>
+              {' '}{phraseAcceptation(tache.acceptation)}
+            </p>
+            {tache.acceptation.statut === 'refusee' && tache.acceptation.motif && (
+              <p className="tchf-acceptation-ligne">Motif du refus : {tache.acceptation.motif}</p>
+            )}
+            {!terminee && tache.acceptation.statut !== 'acceptee' && (
+              <p className="tchf-acceptation-actions">
+                <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
+                  onClick={() => void renvoyer()}>
+                  Renvoyer la demande
+                </button>
+                <span className="tchf-aide">Pour réattribuer : choisissez une autre personne dans « Confiée à », puis enregistrez.</span>
+              </p>
+            )}
+          </div>
         )}
 
         <div className="tchf-corps">
@@ -485,5 +521,21 @@ const CSS_FENETRE = `
 .tchf-piece{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-size:.88rem;overflow-wrap:anywhere}
 .tchf-retirer{width:auto;min-height:36px;padding:0 .6rem;font-size:.8rem}
 .tchf-ajout-piece{align-self:flex-start}
+.tchf-acceptation{display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid var(--color-svv-line);border-radius:.5rem}
+.tchf-acceptation-ligne{margin:0;font-size:.86rem;color:var(--color-svv-ink)}
+.tchf-acceptation-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0}
 .tchf-danger{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 `;
+
+/** La phrase du statut, dans le détail : qui, quand, et l'état du mail. PUR. */
+function phraseAcceptation(a: AcceptationTache): string {
+  if (a.statut === 'acceptee') {
+    return a.automatique ? `d’office (tâche confiée à ${a.destinataireLibelle})`
+      : `par ${a.reponduParLibelle ?? a.destinataireLibelle}${a.reponduLe ? ` le ${horodatageLisible(a.reponduLe)}` : ''}`;
+  }
+  if (a.statut === 'refusee') {
+    return `par ${a.reponduParLibelle ?? a.destinataireLibelle}${a.reponduLe ? ` le ${horodatageLisible(a.reponduLe)}` : ''} — à réattribuer`;
+  }
+  const mail = mentionMail(a.mailEtat) ?? (a.mailEtat === 'envoye' ? 'mail envoyé' : null);
+  return `— demande adressée à ${a.destinataireLibelle} par ${a.demandeurLibelle} le ${horodatageLisible(a.demandeLe)}${mail ? ` (${mail})` : ''}`;
+}

@@ -202,6 +202,8 @@ export interface MessageDuPaquet {
   /** 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — la date du mail : les nouvelles règles ne
       valent que pour un mail reçu après leur mise en service (décision C). ISO, ou `null`. */
   recuLe?: string | null;
+  /** 🔴 LOT TACHES-ACCEPTATION — le Message-ID RFC : il signe nos demandes d'acceptation de tâche. */
+  messageIdEntete?: string | null;
 }
 
 export interface Paquet {
@@ -280,6 +282,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   const { rows: msgs } = await query<{
     id: string; fil_id: string; objet: string | null; corps: string | null; html: string | null;
     pieces: string[] | null; sens: string | null; exclu_par_regle_id: number | null; recu_le: string | null;
+    message_entete: string | null;
   }>(
     // ⚠️ LES PIÈCES EN UNE FOIS, par agrégat : une requête par message coûterait des milliers d'accès sur une passe
     //    complète. Le corps est borné — on y cherche une adresse ou un n° de lot, pas un roman.
@@ -287,7 +290,7 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
     //    dont les relevés bancaires). Il est borné plus largement : la conversion le réduit beaucoup.
     `SELECT m.id, m.fil_id, m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps,
             left(coalesce(m.corps_html, ''), 60000) AS html,
-            m.sens, m.exclu_par_regle_id,
+            m.sens, m.exclu_par_regle_id, m.message_id AS message_entete,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS recu_le,
             (SELECT array_agg(${await sqlNomAffiche('p')}) FROM gestion_piece p WHERE p.message_id = m.id) AS pieces
        FROM gestion_message m
@@ -352,6 +355,8 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
       id: Number(m.id), filId: Number(m.fil_id), objet: m.objet,
       corps: corpsLisible(m.corps, m.html).slice(0, CORPS_CHERCHABLE_MAX), pieces: m.pieces ?? [],
       sens: m.sens, exclusionRegleId: m.exclu_par_regle_id, recuLe: m.recu_le,
+      /* 🔴 LOT TACHES-ACCEPTATION — le Message-ID, pour que le moteur reconnaisse nos demandes d'acceptation. */
+      messageIdEntete: m.message_entete,
     })),
     adresses,
   };
@@ -674,6 +679,8 @@ async function examinerLePaquet(
       contenu,
       // 🔴🔴 LOT DOCUMENTS-HORS-BIENS — le moteur doit pouvoir reconnaître NOS envois automatiques et les refuser.
       sens: m.sens, exclusionRegleId: m.exclusionRegleId,
+      /* 🔴🔴 LOT TACHES-ACCEPTATION — nos demandes d'acceptation de tâche : jamais rattachées à un bien. */
+      messageIdEntete: m.messageIdEntete,
       /* 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 4 — et la décision humaine « interne », qu'il ignorait. */
       interne,
       /**

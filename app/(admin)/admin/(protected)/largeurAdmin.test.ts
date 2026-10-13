@@ -104,6 +104,8 @@ const RACINES: readonly (readonly [string, string])[] = [
   ['Gestion', 'app/(admin)/admin/(protected)/gestion/GestionVue.tsx'],
   ['Audit', 'app/(admin)/admin/(protected)/audit/page.tsx'],
   ['Administratif — comptes', 'app/(admin)/admin/(protected)/comptes/page.tsx'],
+  // 🔴 LOT TACHES-ACCEPTATION — « Mes tâches » (réponse aux demandes d’acceptation), sous la même garde que les autres.
+  ['Mes tâches', 'app/(admin)/admin/(protected)/taches/page.tsx'],
 ];
 
 describe('🔴🔴 ② aucune page admin ne repose un plafond de largeur', () => {

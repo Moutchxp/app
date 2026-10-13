@@ -54,7 +54,7 @@ vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...(a as [string])),
   withTransaction: async (f: (q: unknown) => unknown) => f((...a: unknown[]) => queryMock(...(a as [string]))),
 }));
-vi.mock('./schema', () => ({ contactsTacheDisponible: async () => false, tachesDisponibles: async () => true }));
+vi.mock('./schema', () => ({ acceptationTacheDisponible: async () => false, contactsTacheDisponible: async () => false, tachesDisponibles: async () => true }));
 vi.mock('./comptesGoogleRepo', () => ({ lireDomainesAutorises: async () => 'criterimmo.fr,sansvisavis.com' }));
 
 const { creerTache } = await import('./tachesRepo');
@@ -74,7 +74,7 @@ describe('🔴 le serveur refuse une personne hors règle', () => {
   });
   it('actif, du Workspace, SANS accès Gestion : accepté', async () => {
     compteBase = { id: 5, libelle: 'Claire Martin', identifiant: 'c.martin@criterimmo.fr', actif: true, accesGestion: false };
-    expect(await creerTache(10, SAISIE, AUTEUR)).toEqual({ ok: true, id: 7 });
+    expect(await creerTache(10, SAISIE, AUTEUR)).toMatchObject({ ok: true, id: 7 });
     expect(appels.find((s) => s.startsWith('INSERT INTO gestion_tache ('))).toBeDefined();
   });
 });
