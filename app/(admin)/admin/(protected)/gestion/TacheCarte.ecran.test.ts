@@ -159,6 +159,19 @@ describe('🔴 l’agenda, toujours dit sur la carte', () => {
   });
 });
 
+describe('🔴 LOT CARTE-REPLI-BANDEAU — sur la fiche aussi, le bandeau replie', () => {
+  it('un clic sur le bandeau ramène la ligne compacte ; Modifier ne replie pas', async () => {
+    await monter();
+    await act(async () => { boutonDe(carte(8), 'Modifier')!.click(); });
+    await calmer();
+    expect(carte(8).classList.contains('tch-carte')).toBe(true);
+    await act(async () => { (carte(8).querySelector('.tch-carte-titre') as HTMLElement).click(); });
+    await calmer();
+    expect(carte(8).getAttribute('data-depliee')).toBe('non');
+    expect([...carte(8).children].map((c) => c.className)).toEqual(['tch-l1', 'tch-l2']);
+  });
+});
+
 describe('🔴 les boutons', () => {
   it('« ✓ Tâche réalisée », « Décaler », « ✏ Modifier », « ✗ Tâche annulée » — les mêmes dans le récapitulatif', async () => {
     await monter();

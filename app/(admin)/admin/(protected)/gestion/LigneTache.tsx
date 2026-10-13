@@ -223,9 +223,13 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         data-depliee={onBasculer !== undefined ? 'oui' : undefined}>
         {/* ① TITRE — bandeau d'en-tête. 🔴 LOT TACHES-LIGNES-COMPACTES : dans une liste, un clic sur le bandeau REPLIE
             la carte (« ✏ Modifier » ouvre la fenêtre, en pied) ; une carte seule garde l'ouverture de la fenêtre. */}
-        <h5 className="tch-carte-titre tch-carte-bloc" data-ordre="titre">
+        {/* 🔴 LOT CARTE-REPLI-BANDEAU (Arno, 13/10/2026) — un clic N'IMPORTE OÙ sur le bandeau (titre, flèche, marges) replie
+            la carte et la ramène à sa ligne compacte d'origine. Le geste est sur le bandeau ; le bouton du titre, seul
+            élément focalisable, y remonte son clic (Entrée / Espace au clavier) : un seul repli, jamais deux. */}
+        <h5 className={`tch-carte-titre tch-carte-bloc${onBasculer !== undefined ? ' tch-carte-titre--repli' : ''}`} data-ordre="titre"
+          onClick={onBasculer !== undefined ? () => onBasculer() : undefined}>
           <button type="button" className="tch-objet tch-carte-objet"
-            onClick={() => (onBasculer !== undefined ? onBasculer() : onDetail(tache.id))}
+            onClick={() => { if (onBasculer === undefined) onDetail(tache.id); }}
             aria-expanded={onBasculer !== undefined ? true : undefined}
             title={onBasculer !== undefined ? 'Replier la tâche' : 'Ouvrir la tâche (modifier, annuler)'}>
             {onBasculer !== undefined && <span className="tch-fleche" aria-hidden="true">▾ </span>}
@@ -409,6 +413,8 @@ export const CSS_TACHES = `
 .tch-l2 > *{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .tch-l2 .tch-lien{min-height:24px}
 .tch-fleche{font-size:.85em}
+.tch-carte-titre--repli{cursor:pointer}
+.tch-carte-titre--repli:hover{filter:brightness(.97)}
 /* LOT FICHE-CARTE-4-BLOCS : la carte en 4 blocs (titre ; quand/qui ; notes ; contacts) + pied d'actions.
    Jetons du theme seulement : Clair et Sombre suivent. */
 .tch-liste--cartes{gap:6px}

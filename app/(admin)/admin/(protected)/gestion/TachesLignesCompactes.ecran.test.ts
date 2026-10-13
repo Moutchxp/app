@@ -115,6 +115,34 @@ describe('🔴 la ligne repliée', () => {
     await act(async () => { (ligne(1).querySelector('[data-action="annuler"]') as HTMLElement).click(); });
     expect(ligne(1).querySelector('.tch-actions-gauche .tch-confirmer')).not.toBeNull();
   });
+  it('🔴 LOT CARTE-REPLI-BANDEAU — un clic n’importe où sur le bandeau ramène EXACTEMENT la ligne compacte d’origine', async () => {
+    await monter();
+    const avant = ligne(1).outerHTML;
+    await act(async () => { (ligne(1).querySelector('.tch-l1') as HTMLElement).click(); });
+    await calmer();
+    // Sur le bandeau lui-même (hors du texte du titre) :
+    await act(async () => { (ligne(1).querySelector('.tch-carte-titre') as HTMLElement).click(); });
+    await calmer();
+    expect(ligne(1).outerHTML).toBe(avant);
+    // Par le titre (et donc au clavier : Entrée / Espace sur le bouton produisent ce clic) : un seul repli.
+    await act(async () => { (ligne(1).querySelector('.tch-l1') as HTMLElement).click(); });
+    await calmer();
+    await act(async () => { (ligne(1).querySelector('.tch-carte-objet') as HTMLElement).click(); });
+    await calmer();
+    expect(ligne(1).outerHTML).toBe(avant);
+  });
+  it('🔴 les boutons et liens intérieurs ne replient pas la carte', async () => {
+    await monter();
+    await act(async () => { (ligne(1).querySelector('.tch-l1') as HTMLElement).click(); });
+    await calmer();
+    for (const sel of ['.tch-actions-droite button', '.tch-bas .tch-lien', '[data-action="annuler"]']) {
+      const el = ligne(1).querySelector(sel) as HTMLElement | null;
+      if (el === null) continue;
+      await act(async () => { el.click(); });
+      await calmer();
+      expect(ligne(1).classList.contains('tch-carte')).toBe(true);
+    }
+  });
   it('le clic sur l’adresse ouvre la fiche, sans déplier', async () => {
     await monter();
     await act(async () => { (ligne(2).querySelector('[data-action="ouvrir-bien"]') as HTMLElement).click(); });
