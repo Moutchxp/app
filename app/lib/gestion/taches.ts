@@ -74,6 +74,44 @@ export interface Tache {
   annuleeParLibelle: string | null;
   /** 🔴 LOT TACHES-1-BIS — combien de contacts sont copiés dans la tâche (l'indicateur « 👤 2 contacts »). */
   nbContacts: number;
+  /** 🔴 LOT TACHES-PIECES-DRIVE — combien de pièces jointes (références Drive) — l'indicateur « 📎 2 ». */
+  nbPieces?: number;
+}
+
+/**
+ * 🔴 LOT TACHES-PIECES-DRIVE — UNE PIÈCE JOINTE D'UNE TÂCHE : une RÉFÉRENCE au fichier du Drive, jamais une copie.
+ * Elle s'ouvre dans le Drive (nouvel onglet) avec les droits de la personne qui l'ouvre.
+ */
+export interface PieceTache {
+  driveId: string;
+  nom: string;
+  typeMime: string | null;
+  lien: string | null;
+  ajouteLe: string;
+  ajouteParLibelle: string;
+}
+
+/** Ce que le serveur a relu dans le Drive (lecture seule) avant d'enregistrer une référence. */
+export interface PieceAjout { driveId: string; nom: string; typeMime: string | null; lien: string | null }
+
+/** L'icône d'un type de fichier — un repère, jamais seul (le nom est toujours écrit). PUR. */
+export function iconeType(typeMime: string | null, dossier = false): string {
+  const t = (typeMime ?? '').toLowerCase();
+  if (dossier || t === 'application/vnd.google-apps.folder') return '📁';
+  if (t === 'application/pdf') return '📕';
+  if (t.startsWith('image/')) return '🖼️';
+  if (t.includes('spreadsheet') || t.includes('excel') || t.includes('csv')) return '📊';
+  if (t.includes('document') || t.includes('word') || t.startsWith('text/')) return '📝';
+  if (t.includes('presentation') || t.includes('powerpoint')) return '📽️';
+  if (t.startsWith('video/')) return '🎞️';
+  return '📎';
+}
+
+/** Les identifiants Drive envoyés par l'écran, nettoyés ; `undefined` ⇒ « pas de pièces à ajouter ». PUR. */
+export function lireIdsDrive(brut: unknown): string[] | undefined {
+  if (!Array.isArray(brut)) return undefined;
+  return [...new Set(brut.filter((x): x is string => typeof x === 'string').map((x) => x.trim())
+    .filter((x) => /^[A-Za-z0-9_-]{5,200}$/.test(x)))].slice(0, 20);
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -328,6 +366,8 @@ export interface SaisieTache {
   rappels: Rappel[];
   /** 🔴 LOT TACHES-1-BIS — les clés des contacts cochés ; `undefined` ⇒ ne pas toucher aux contacts. */
   contacts?: string[];
+  /** 🔴 LOT TACHES-PIECES-DRIVE — à la création : les identifiants Drive des pièces choisies. */
+  pieces?: string[];
 }
 
 /**
@@ -350,11 +390,12 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
     evenementId: ent(corps.evenementId),
     rappels: rappelsValides(corps.rappels, heure !== null),
     contacts: lireClesContacts(corps.contacts),
+    pieces: lireIdsDrive(corps.pieces),
   };
 }
 
 /** Les champs de la fenêtre auxquels un refus peut se rattacher (pour l'afficher À CÔTÉ du champ). */
-export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts';
+export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts' | 'pieces';
 
 /** Un refus : le message en français, et le champ concerné (`null` = la tâche entière). */
 export interface RefusSaisie { message: string; champ: ChampTache | null }
@@ -395,7 +436,7 @@ export function refusDuServeur(statut: number, corps: { erreur?: unknown; champ?
   const erreur = typeof corps?.erreur === 'string' ? corps.erreur : '';
   if (statut === 401 || erreur === 'ACCES_REVOQUE') return { champ: null, message: MESSAGE_SESSION_EXPIREE };
   if (statut === 403) return { champ: null, message: 'Vous n’avez pas l’accès Gestion : la tâche n’a pas été enregistrée.' };
-  const champs: readonly ChampTache[] = ['objet', 'jour', 'heure', 'note', 'confieeA', 'evenementId', 'contacts'];
+  const champs: readonly ChampTache[] = ['objet', 'jour', 'heure', 'note', 'confieeA', 'evenementId', 'contacts', 'pieces'];
   const champ = typeof corps?.champ === 'string' && (champs as readonly string[]).includes(corps.champ)
     ? corps.champ as ChampTache : null;
   if (erreur !== '' && erreur !== 'INTERDIT') return { champ, message: erreur };
@@ -463,6 +504,9 @@ export function phraseTrace(t: TraceTache): string {
       if (typeof a.contactAjoute === 'string') return `Contact ajouté ${qui} (${a.contactAjoute})`;
       if (typeof a.contactRetire === 'string') return `Contact retiré ${qui} (${a.contactRetire})`;
       if (typeof a.contactMisAJour === 'string') return `Coordonnées mises à jour ${qui} (${a.contactMisAJour})`;
+      /* 🔴 LOT TACHES-PIECES-DRIVE — la pièce ajoutée ou retirée (le fichier du Drive, lui, n'est jamais touché). */
+      if (typeof a.pieceAjoutee === 'string') return `Pièce jointe ajoutée ${qui} (${a.pieceAjoutee})`;
+      if (typeof a.pieceRetiree === 'string') return `Pièce jointe retirée ${qui} (${a.pieceRetiree})`;
       const champs = Object.keys(t.apres ?? {}).map((k) => MOTS_CHAMPS[k] ?? k);
       return `Modifiée ${qui}${champs.length > 0 ? ` (${champs.join(', ')})` : ''}`;
     }

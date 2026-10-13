@@ -95,6 +95,10 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         {(tache.nbContacts ?? 0) > 0 && (
           <span className="tch-contacts">👤 {tache.nbContacts} contact{tache.nbContacts > 1 ? 's' : ''}</span>
         )}
+        {/* 🔴 LOT TACHES-PIECES-DRIVE — un simple indicateur ; le détail montre les pièces et les ouvre dans le Drive. */}
+        {(tache.nbPieces ?? 0) > 0 && (
+          <span className="tch-pieces" title={`${tache.nbPieces} pièce(s) jointe(s)`}>📎 {tache.nbPieces}</span>
+        )}
         {fin !== null && <span className="tch-fin">{fin}</span>}
       </div>
       {!terminee && (

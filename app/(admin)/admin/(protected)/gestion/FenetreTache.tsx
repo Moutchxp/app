@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  cleRappel, dateLisibleTache, MENTION_SANS_ACCES_GESTION, verifierSaisie, type ChampTache, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
+  cleRappel, dateLisibleTache, iconeType, MENTION_SANS_ACCES_GESTION, verifierSaisie, type ChampTache, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
   type Rappel,
 } from '../../../../lib/gestion/taches';
 import { blocContacts, type ContactSource } from '../../../../lib/gestion/contactsTache';
@@ -12,6 +12,8 @@ import {
 } from './tachesClient';
 import { CSS_TACHES } from './LigneTache';
 import { ChoixContacts, ContactsAffiches, CSS_CONTACTS_TACHE, type ContactPropose } from './ContactsTache';
+/* 🔴 LOT TACHES-PIECES-DRIVE — le sélecteur Drive en LECTURE SEULE des tâches. */
+import { SelecteurDriveTache, type FichierChoisi } from './SelecteurDriveTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LA FENÊTRE D'UNE TÂCHE : CRÉER, ET LE DÉTAIL (MODIFIER, ANNULER, ROUVRIR) ═══════════════
@@ -55,6 +57,9 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   /** 🔴 LOT TACHES-1-BIS — les contacts du bien (fiche d'aujourd'hui) ; `null` ⇒ section absente. */
   const [sources, setSources] = useState<ContactSource[] | null>(null);
   const [choisis, setChoisis] = useState<string[]>([]);
+  /** 🔴 LOT TACHES-PIECES-DRIVE — à la création : les fichiers choisis (envoyés avec la tâche) ; le sélecteur. */
+  const [piecesChoisies, setPiecesChoisies] = useState<FichierChoisi[]>([]);
+  const [selecteurDrive, setSelecteurDrive] = useState(false);
   const [evenements, setEvenements] = useState<{ id: number; reference: string; objet: string; ouvert: boolean }[]>([]);
   const [saisie, setSaisie] = useState<SaisieEcran>(() => ({
     objet: '', jour: jourParisDe(new Date()), heure: null, note: '', confieeA: null, evenementId: null,
@@ -175,7 +180,9 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setOccupe(true);
     setMessage(null);
     // Les contacts ne voyagent que si la section existe : sans elle, ils ne sont pas touchés.
-    const envoi: SaisieEcran = sources === null ? saisie : { ...saisie, contacts: choisis };
+    const avecContacts: SaisieEcran = sources === null ? saisie : { ...saisie, contacts: choisis };
+    const envoi: SaisieEcran = mode.sorte === 'creer' && piecesChoisies.length > 0
+      ? { ...avecContacts, pieces: piecesChoisies.map((p) => p.id) } : avecContacts;
     const r = mode.sorte === 'creer'
       ? await creerTache(mode.lotId, envoi)
       : await agirSurTache(mode.id, { geste: 'modifier', ...envoi });
@@ -199,6 +206,20 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setMessage({ ok: r.ok, texte: r.message });
     if (r.ok) setVersion((v) => v + 1);
   };
+  /** Dans le DÉTAIL, ajouter ou retirer une pièce est un geste immédiat, tracé — comme « Mettre à jour » un contact. */
+  const gestePiece = async (g: { geste: 'ajouterPieces'; pieces: string[] } | { geste: 'retirerPiece'; driveId: string }) => {
+    if (mode.sorte !== 'detail') return;
+    setOccupe(true);
+    setMessage(null);
+    const r = await agirSurTache(mode.id, g);
+    setOccupe(false);
+    setMessage(r.ok ? { ok: true, texte: r.message } : { ok: false, texte: r.message, champ: r.champ ?? 'pieces' });
+    if (r.ok) setVersion((v) => v + 1);
+  };
+  const choisirPieces = (f: FichierChoisi[]) => {
+    if (mode.sorte === 'detail') { void gestePiece({ geste: 'ajouterPieces', pieces: f.map((x) => x.id) }); return; }
+    setPiecesChoisies((l) => [...l, ...f.filter((x) => !l.some((y) => y.id === x.id))]);
+  };
   const ecrire = onEcrire === undefined ? undefined : (email: string) => { onFermer(); onEcrire(email); };
 
   const geste = async (g: 'annuler' | 'rouvrir') => {
@@ -217,6 +238,9 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   return (
     <div className="tchf-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
       <style>{CSS_TACHES}{CSS_FENETRE}{CSS_CONTACTS_TACHE}</style>
+      {selecteurDrive && lotId !== null && (
+        <SelecteurDriveTache lotId={lotId} onChoisir={choisirPieces} onFermer={() => setSelecteurDrive(false)} />
+      )}
       <div className="tchf" role="dialog" aria-modal="true" aria-labelledby="tchf-titre">
         <header className="tchf-tete">
           <h2 className="tchf-titre" id="tchf-titre">
@@ -299,6 +323,42 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
             <ChoixContacts proposes={proposes} choisis={choisis} onBasculer={basculerContact} desactive={lectureSeule} />
           )}
           {erreurDe('contacts')}
+
+          {/* ══ 🔴🔴 LOT TACHES-PIECES-DRIVE — PIÈCES JOINTES, entre « Contacts de la tâche » et « Rappels » (Arno).
+              Des RÉFÉRENCES au Drive : on ouvre le fichier dans le Drive ; « Retirer » l'enlève de la TÂCHE, jamais
+              du Drive. */}
+          {lotId !== null && (
+            <div className="tchf-champ tchf-pieces">
+              <span className="tch-etiquette">Pièces jointes</span>
+              <ul className="tchf-pieces-liste">
+                {(mode.sorte === 'detail' ? (detail?.pieces ?? []).map((p) => ({ id: p.driveId, nom: p.nom, typeMime: p.typeMime ?? '', lien: p.lien }))
+                  : piecesChoisies).map((p) => (
+                  <li key={p.id} className="tchf-piece" data-piece={p.id}>
+                    <span aria-hidden="true">{iconeType(p.typeMime)}</span>
+                    {p.lien
+                      ? <a className="tchc-lien" href={p.lien} target="_blank" rel="noopener noreferrer">{p.nom} ↗</a>
+                      : <span>{p.nom}</span>}
+                    {!lectureSeule && (
+                      <button type="button" className="svv-btn svv-btn-outline gst-btn tchf-retirer" disabled={occupe}
+                        title="Retirer de la tâche (le fichier du Drive n’est pas touché)"
+                        onClick={() => (mode.sorte === 'detail'
+                          ? void gestePiece({ geste: 'retirerPiece', driveId: p.id })
+                          : setPiecesChoisies((l) => l.filter((x) => x.id !== p.id)))}>
+                        Retirer
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {!lectureSeule && (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tchf-ajout-piece" disabled={occupe}
+                  onClick={() => setSelecteurDrive(true)}>
+                  + Pièce jointe (Drive)
+                </button>
+              )}
+              {erreurDe('pieces')}
+            </div>
+          )}
           <fieldset className="tchf-rappels" disabled={lectureSeule}>
             <legend className="tch-etiquette">Rappels</legend>
             {rappelsProposes(saisie.heure !== null).map((r) => (
@@ -414,5 +474,9 @@ const CSS_FENETRE = `
   background:var(--color-svv-red-soft);color:var(--color-svv-ink);font-size:.88rem;font-weight:600}
 .tchf-erreur{display:block;margin-top:2px;font-size:.8rem;font-weight:600;color:var(--color-svv-red)}
 .tchf-champ [aria-invalid='true']{border-color:var(--color-svv-red);border-width:2px}
+.tchf-pieces-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.tchf-piece{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-size:.88rem;overflow-wrap:anywhere}
+.tchf-retirer{width:auto;min-height:36px;padding:0 .6rem;font-size:.8rem}
+.tchf-ajout-piece{align-self:flex-start}
 .tchf-danger{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 `;

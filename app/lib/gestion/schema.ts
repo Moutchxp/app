@@ -360,6 +360,14 @@ export function contactsTacheDisponible(): Promise<boolean> {
   return memoiser('table.gestion_tache_contact', () => tableExiste('gestion_tache_contact'));
 }
 
+/**
+ * 🔴 LOT TACHES-PIECES-DRIVE — la migration 348 est-elle appliquée ? Elle porte les RÉFÉRENCES Drive des pièces d'une
+ * tâche. Sans elle, le bouton « + Pièce jointe (Drive) » ne s'affiche pas et les tâches sont celles d'avant.
+ */
+export function piecesTacheDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_tache_piece', () => tableExiste('gestion_tache_piece'));
+}
+
 async function tableExiste(table: string): Promise<boolean> {
   try {
     const { rows } = await query<{ n: number }>(

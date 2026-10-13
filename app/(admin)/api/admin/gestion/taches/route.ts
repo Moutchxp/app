@@ -4,6 +4,11 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { tachesDisponibles } from '../../../../../lib/gestion/schema';
 import { verifierSaisie, lireSaisie } from '../../../../../lib/gestion/taches';
 import { creerTache, listerTaches } from '../../../../../lib/gestion/tachesRepo';
+/* 🔴 LOT TACHES-PIECES-DRIVE — les pièces choisies sont RELUES dans le Drive (lecture seule) avant d'en garder la référence. */
+import { jetonPourRequete } from '../../../../../lib/gestion/jetonCollaborateur';
+import { relirePieces } from '../../../../../lib/gestion/tachesDrive';
+import { piecesTacheDisponible } from '../../../../../lib/gestion/schema';
+import type { PieceAjout } from '../../../../../lib/gestion/taches';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LES TÂCHES : LIRE, CRÉER ════════════════════════════════════════════════════════════════
@@ -46,7 +51,15 @@ export async function POST(request: Request): Promise<Response> {
   const saisie = lireSaisie(corps);
   const refusSaisie = verifierSaisie(saisie);
   if (refusSaisie !== null) return Response.json({ erreur: refusSaisie.message, champ: refusSaisie.champ }, { status: 400 });
-  const issue = await creerTache(lotId, saisie, await auteurDeLaRequete(request));
+  let pieces: PieceAjout[] = [];
+  if ((saisie.pieces ?? []).length > 0 && await piecesTacheDisponible()) {
+    const jeton = await jetonPourRequete(request);
+    if (jeton.etat !== 'ok') return Response.json({ erreur: jeton.motif, champ: 'pieces' }, { status: 400 });
+    const r = await relirePieces(jeton.jeton, saisie.pieces ?? []);
+    if (!r.ok) return Response.json({ erreur: r.motif, champ: 'pieces' }, { status: 400 });
+    pieces = r.valeur;
+  }
+  const issue = await creerTache(lotId, saisie, await auteurDeLaRequete(request), pieces);
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
   return Response.json({ etat: 'ok', id: issue.id, message: 'Tâche créée.' });
 }

@@ -11,7 +11,9 @@
  *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : ce fichier vit dans le navigateur (garde `clientBoundary.guard.test.ts`).
  */
-import { refusDuServeur, type ChampTache, type RaccourciDecalage, type Rappel, type Tache, type TraceTache } from '../../../../lib/gestion/taches';
+import {
+  refusDuServeur, type ChampTache, type PieceTache, type RaccourciDecalage, type Rappel, type Tache, type TraceTache,
+} from '../../../../lib/gestion/taches';
 import type { ContactSource, ContactTache } from '../../../../lib/gestion/contactsTache';
 
 export const SIGNAL_TACHES = 'gestion:taches';
@@ -61,6 +63,8 @@ export interface SaisieEcran {
   evenementId: number | null; rappels: Rappel[];
   /** 🔴 LOT TACHES-1-BIS — les clés des contacts cochés ; absent ⇒ les contacts ne sont pas touchés. */
   contacts?: string[];
+  /** 🔴 LOT TACHES-PIECES-DRIVE — à la création : les identifiants Drive des pièces choisies. */
+  pieces?: string[];
 }
 
 export type GesteTache =
@@ -71,7 +75,10 @@ export type GesteTache =
   | { geste: 'decaler'; jour: string; heure: string | null }
   | ({ geste: 'modifier' } & SaisieEcran)
   /** 🔴 LOT TACHES-1-BIS — « Mettre à jour » les coordonnées copiées d'un contact. */
-  | { geste: 'actualiserContact'; cle: string };
+  | { geste: 'actualiserContact'; cle: string }
+  /** 🔴 LOT TACHES-PIECES-DRIVE — des RÉFÉRENCES Drive ; le fichier n'est jamais touché. */
+  | { geste: 'ajouterPieces'; pieces: string[] }
+  | { geste: 'retirerPiece'; driveId: string };
 
 /** LA porte des gestes sur une tâche existante. */
 export function agirSurTache(id: number, g: GesteTache): Promise<IssueGeste> {
@@ -101,14 +108,14 @@ export async function lireTaches(lotId: number | null): Promise<ListeTaches> {
   }
 }
 
-export interface DetailTache { tache: Tache; traces: TraceTache[]; contacts: ContactTache[] }
+export interface DetailTache { tache: Tache; traces: TraceTache[]; contacts: ContactTache[]; pieces: PieceTache[] }
 
 export async function lireDetailTache(id: number): Promise<DetailTache | null> {
   try {
     const res = await fetch(`/api/admin/gestion/taches/${id}`, { cache: 'no-store' });
-    const d = (await res.json()) as { etat?: string; tache?: Tache; traces?: TraceTache[]; contacts?: ContactTache[] };
+    const d = (await res.json()) as { etat?: string; tache?: Tache; traces?: TraceTache[]; contacts?: ContactTache[]; pieces?: PieceTache[] };
     return res.ok && d.etat === 'ok' && d.tache
-      ? { tache: d.tache, traces: d.traces ?? [], contacts: d.contacts ?? [] } : null;
+      ? { tache: d.tache, traces: d.traces ?? [], contacts: d.contacts ?? [], pieces: d.pieces ?? [] } : null;
   } catch {
     return null;
   }
@@ -150,4 +157,40 @@ export async function lireContactsDuBien(lotId: number): Promise<ContactSource[]
   } catch {
     return null;
   }
+}
+
+/* ═══ 🔴🔴 LOT TACHES-PIECES-DRIVE — LE SÉLECTEUR DRIVE DES TÂCHES (lecture seule, côté serveur verrouillé) ═══ */
+
+export interface ElementDriveEcran {
+  id: string; nom: string; typeMime: string; dossier: boolean; modifieLe: string | null; lien: string | null;
+}
+export type LectureDrive<T> = { etat: 'ok'; valeur: T } | { etat: 'sans_schema' } | { etat: 'indisponible'; message: string };
+
+async function lireDrive<T>(parametres: string, extraire: (d: Record<string, unknown>) => T): Promise<LectureDrive<T>> {
+  try {
+    const res = await fetch(`/api/admin/gestion/taches/drive?${parametres}`, { cache: 'no-store' });
+    const d = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok || d === null) return { etat: 'indisponible', message: refusDuServeur(res.status, d).message };
+    if (d.etat === 'sans_schema') return { etat: 'sans_schema' };
+    if (d.etat !== 'ok') return { etat: 'indisponible', message: String(d.message ?? 'Le Drive n’a pas pu être lu.') };
+    return { etat: 'ok', valeur: extraire(d) };
+  } catch {
+    return { etat: 'indisponible', message: 'Le serveur ne répond pas.' };
+  }
+}
+
+/** Le dossier de départ : celui du bien (comme « Dossier Drive ↗ »), ou la racine avec un message. */
+export function lireDepartDrive(lotId: number) {
+  return lireDrive(`bien=${lotId}`, (d) => ({
+    depart: d.depart as { id: string; nom: string }, message: (d.message as string | null) ?? null,
+  }));
+}
+export function lireDossierDrive(id: string) {
+  return lireDrive(`dossier=${encodeURIComponent(id)}`, (d) => ({
+    dossier: d.dossier as { id: string; nom: string }, parent: (d.parent as { id: string; nom: string } | null) ?? null,
+    elements: (d.elements as ElementDriveEcran[]) ?? [], tronque: d.tronque === true,
+  }));
+}
+export function chercherDansLeDrive(texte: string) {
+  return lireDrive(`recherche=${encodeURIComponent(texte)}`, (d) => (d.elements as ElementDriveEcran[]) ?? []);
 }

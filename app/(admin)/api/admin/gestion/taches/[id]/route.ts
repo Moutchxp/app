@@ -3,11 +3,13 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { tachesDisponibles } from '../../../../../../lib/gestion/schema';
 import {
-  verifierSaisie, estHeureValide, estJourValide, lireSaisie, RACCOURCIS_DECALAGE, type RaccourciDecalage,
+  lireIdsDrive, verifierSaisie, estHeureValide, estJourValide, lireSaisie, RACCOURCIS_DECALAGE, type RaccourciDecalage,
 } from '../../../../../../lib/gestion/taches';
 import {
-  actualiserContact, annulerTache, decalerTache, lireTache, marquerFaite, modifierTache, rouvrirTache, type IssueTache,
+  actualiserContact, ajouterPieces, annulerTache, retirerPiece, decalerTache, lireTache, marquerFaite, modifierTache, rouvrirTache, type IssueTache,
 } from '../../../../../../lib/gestion/tachesRepo';
+import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
+import { relirePieces } from '../../../../../../lib/gestion/tachesDrive';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — UNE TÂCHE : SON DÉTAIL, SES GESTES ═══════════════════════════════════════════════════════
@@ -19,6 +21,8 @@ import {
  *    · `decaler` + `jour` (+ `heure`, vide = journée)   → vers une date choisie ;
  *    · `modifier` + la saisie complète ;
  *    · `annuler` ; `rouvrir` ;
+ *    · `ajouterPieces` + `pieces` (identifiants Drive) / `retirerPiece` + `driveId` (LOT TACHES-PIECES-DRIVE) :
+ *      des RÉFÉRENCES seulement ; le fichier du Drive n'est jamais touché ;
  *    · `actualiserContact` + `cle` (LOT TACHES-1-BIS) → recopie les coordonnées d'un contact depuis la fiche
  *      d'aujourd'hui (« Mettre à jour »), datées et tracées.
  * 🔴 IL N'Y A PAS DE `DELETE`, ET C'EST LA RÈGLE D'ARNO : une tâche s'annule, elle ne se supprime jamais (la base
@@ -47,6 +51,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 const MESSAGES: Record<string, string> = {
   faite: 'Tâche faite.', decaler: 'Tâche décalée.', modifier: 'Tâche modifiée.', annuler: 'Tâche annulée.',
   rouvrir: 'Tâche rouverte.', actualiserContact: 'Coordonnées mises à jour.',
+  ajouterPieces: 'Pièce(s) jointe(s) ajoutée(s).', retirerPiece: 'Pièce jointe retirée de la tâche (le fichier du Drive n’est pas touché).',
 };
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
@@ -65,7 +70,20 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (geste === 'faite') issue = await marquerFaite(id, auteur);
   else if (geste === 'annuler') issue = await annulerTache(id, auteur);
   else if (geste === 'rouvrir') issue = await rouvrirTache(id, auteur);
-  else if (geste === 'actualiserContact') {
+  else if (geste === 'ajouterPieces') {
+    /* 🔴 LOT TACHES-PIECES-DRIVE — relues dans le Drive en LECTURE SEULE, puis seule la RÉFÉRENCE est gardée. */
+    const ids = lireIdsDrive(corps.pieces) ?? [];
+    if (ids.length === 0) return Response.json({ erreur: 'Aucune pièce choisie.', champ: 'pieces' }, { status: 400 });
+    const jeton = await jetonPourRequete(request);
+    if (jeton.etat !== 'ok') return Response.json({ erreur: jeton.motif, champ: 'pieces' }, { status: 400 });
+    const r = await relirePieces(jeton.jeton, ids);
+    if (!r.ok) return Response.json({ erreur: r.motif, champ: 'pieces' }, { status: 400 });
+    issue = await ajouterPieces(id, r.valeur, auteur);
+  } else if (geste === 'retirerPiece') {
+    const driveId = typeof corps.driveId === 'string' ? corps.driveId.trim() : '';
+    if (driveId === '') return Response.json({ erreur: 'Pièce inconnue.', champ: 'pieces' }, { status: 400 });
+    issue = await retirerPiece(id, driveId, auteur);
+  } else if (geste === 'actualiserContact') {
     const cle = typeof corps.cle === 'string' ? corps.cle.trim() : '';
     if (cle === '') return Response.json({ erreur: 'Contact inconnu.' }, { status: 400 });
     issue = await actualiserContact(id, cle, auteur);

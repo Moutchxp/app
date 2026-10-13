@@ -6,10 +6,10 @@ import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 import {
   collaborateursPourTache, jourDecale, rappelsParDefaut, rappelsValides, type CollaborateurTache,
-  type ActionTache, type ChampTache, type EtatTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
+  type ActionTache, type ChampTache, type EtatTache, type PieceAjout, type PieceTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
-import { contactsTacheDisponible } from './schema';
+import { contactsTacheDisponible, piecesTacheDisponible } from './schema';
 import { contactsDuBienPourTache } from './contactsTacheRepo';
 import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache } from './contactsTache';
 
@@ -70,11 +70,14 @@ interface LigneTache {
   cree_le: Date; cree_par_libelle: string; maj_le: Date;
   faite_le: Date | null; faite_par_libelle: string | null; annulee_le: Date | null; annulee_par_libelle: string | null;
   nb_contacts: number;
+  nb_pieces: number;
 }
 
 /** Le nombre de contacts copiés — nommé seulement quand la 347 est là, sinon 0 (une sonde voyage avec sa donnée). */
-const sqlTache = (avecContacts: boolean): string => SQL_TACHE.replace('__NB_CONTACTS__', avecContacts
+const sqlTache = (avecContacts: boolean, avecPieces = false): string => SQL_TACHE.replace('__NB_CONTACTS__', avecContacts
   ? '(SELECT count(*)::int FROM gestion_tache_contact c WHERE c.tache_id = t.id AND c.retire_le IS NULL)'
+  : '0').replace('__NB_PIECES__', avecPieces
+  ? '(SELECT count(*)::int FROM gestion_tache_piece p WHERE p.tache_id = t.id AND p.retire_le IS NULL)'
   : '0');
 
 const SQL_TACHE = `
@@ -83,7 +86,7 @@ const SQL_TACHE = `
          t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
          t.rappels, t.etat, t.confiee_a::int AS confiee_a, t.confiee_a_libelle,
          t.cree_le, t.cree_par_libelle, t.maj_le, t.faite_le, t.faite_par_libelle, t.annulee_le, t.annulee_par_libelle,
-         __NB_CONTACTS__ AS nb_contacts
+         __NB_CONTACTS__ AS nb_contacts, __NB_PIECES__ AS nb_pieces
     FROM gestion_tache t
     JOIN gestion_annuaire_lot l ON l.id = t.lot_id
     LEFT JOIN gestion_evenement e ON e.id = t.evenement_id`;
@@ -101,6 +104,7 @@ function versTache(r: LigneTache): Tache {
     faiteLe: iso(r.faite_le), faiteParLibelle: r.faite_par_libelle,
     annuleeLe: iso(r.annulee_le), annuleeParLibelle: r.annulee_par_libelle,
     nbContacts: Number(r.nb_contacts ?? 0),
+    nbPieces: Number(r.nb_pieces ?? 0),
   };
 }
 
@@ -114,7 +118,7 @@ export const OUVERTES_MAX = 1000;
  * celles de tous les biens (récapitulatif général).
  */
 export async function listerTaches(lotId: number | null): Promise<{ taches: Tache[]; tronque: boolean }> {
-  const SQL = sqlTache(await contactsTacheDisponible());
+  const SQL = sqlTache(await contactsTacheDisponible(), await piecesTacheDisponible());
   const [o, t] = await Promise.all([
     query<LigneTache>(
       `${SQL} WHERE t.etat = 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)
@@ -127,9 +131,10 @@ export async function listerTaches(lotId: number | null): Promise<{ taches: Tach
   return { taches: [...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache), tronque };
 }
 
-export async function lireTache(id: number): Promise<{ tache: Tache; traces: TraceTache[]; contacts: ContactTache[] } | null> {
+export async function lireTache(id: number): Promise<{ tache: Tache; traces: TraceTache[]; contacts: ContactTache[]; pieces: PieceTache[] } | null> {
   const avecContacts = await contactsTacheDisponible();
-  const { rows } = await query<LigneTache>(`${sqlTache(avecContacts)} WHERE t.id = $1`, [id]);
+  const avecPieces = await piecesTacheDisponible();
+  const { rows } = await query<LigneTache>(`${sqlTache(avecContacts, avecPieces)} WHERE t.id = $1`, [id]);
   if (rows.length === 0) return null;
   const tr = await query<{ action: ActionTache; avant: Record<string, unknown> | null; apres: Record<string, unknown> | null; survenu_le: Date; auteur_libelle: string }>(
     `SELECT action, avant, apres, survenu_le, auteur_libelle FROM gestion_tache_action
@@ -140,7 +145,65 @@ export async function lireTache(id: number): Promise<{ tache: Tache; traces: Tra
       action: r.action, avant: r.avant, apres: r.apres, survenuLe: iso(r.survenu_le) ?? '', auteurLibelle: r.auteur_libelle,
     })),
     contacts: avecContacts ? await contactsCopies(id) : [],
+    pieces: avecPieces ? await piecesDeLaTache(id) : [],
   };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT TACHES-PIECES-DRIVE — LES PIÈCES JOINTES : DES RÉFÉRENCES AU DRIVE (migration 348)
+   Aucune copie, aucun téléchargement : identifiant, nom, type, lien — et qui, quand. Le fichier n'est jamais touché.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export async function piecesDeLaTache(tacheId: number, q: RequeteTx = query): Promise<PieceTache[]> {
+  const { rows } = await q<{ drive_fichier_id: string; nom: string; type_mime: string | null; lien: string | null;
+    ajoute_le: Date; ajoute_par_libelle: string }>(
+    `SELECT drive_fichier_id, nom, type_mime, lien, ajoute_le, ajoute_par_libelle
+       FROM gestion_tache_piece WHERE tache_id = $1 AND retire_le IS NULL ORDER BY id`, [tacheId]);
+  return rows.map((r) => ({
+    driveId: r.drive_fichier_id, nom: r.nom, typeMime: r.type_mime, lien: r.lien,
+    ajouteLe: iso(r.ajoute_le) ?? '', ajouteParLibelle: r.ajoute_par_libelle,
+  }));
+}
+
+/** Enregistre les références (déjà relues dans le Drive par la route) ; une pièce déjà active est ignorée. */
+async function poserPieces(q: RequeteTx, tacheId: number, pieces: readonly PieceAjout[], auteur: Auteur, nom: string): Promise<void> {
+  const deja = new Set((await piecesDeLaTache(tacheId, q)).map((p) => p.driveId));
+  for (const p of pieces) {
+    if (deja.has(p.driveId)) continue;
+    deja.add(p.driveId);
+    await q(
+      `INSERT INTO gestion_tache_piece (tache_id, drive_fichier_id, nom, type_mime, lien, ajoute_par_libelle)
+       VALUES ($1, $2, $3, $4, $5, $6)`, [tacheId, p.driveId, p.nom, p.typeMime, p.lien, nom]);
+    await tracer(q, tacheId, 'modification', null, { pieceAjoutee: p.nom }, auteur, nom);
+  }
+}
+
+/** AJOUTER des pièces à une tâche existante (à faire). */
+export async function ajouterPieces(id: number, pieces: readonly PieceAjout[], auteur: Auteur): Promise<IssueTache> {
+  if (!(await piecesTacheDisponible())) return { ok: false, statut: 503, motif: 'Pièces jointes non installées (migration 348).' };
+  return withTransaction(async (q) => {
+    const t = await lirePourGeste(q, id);
+    if (t === null) return INTROUVABLE;
+    if (t.etat !== 'a_faire') return DEJA_TERMINEE;
+    await poserPieces(q, id, pieces, auteur, await nomAuteur(q, auteur));
+    return { ok: true, id };
+  });
+}
+
+/** RETIRER une pièce de la tâche : la référence est marquée retirée et tracée. Le fichier du Drive n'est PAS touché. */
+export async function retirerPiece(id: number, driveId: string, auteur: Auteur): Promise<IssueTache> {
+  if (!(await piecesTacheDisponible())) return { ok: false, statut: 503, motif: 'Pièces jointes non installées (migration 348).' };
+  return withTransaction(async (q) => {
+    const t = await lirePourGeste(q, id);
+    if (t === null) return INTROUVABLE;
+    const nom = await nomAuteur(q, auteur);
+    const { rows } = await q<{ nom: string }>(
+      `UPDATE gestion_tache_piece SET retire_le = now(), retire_par_libelle = $3
+        WHERE tache_id = $1 AND drive_fichier_id = $2 AND retire_le IS NULL RETURNING nom`, [id, driveId, nom]);
+    if (rows.length === 0) return { ok: false, statut: 404, motif: 'Cette pièce n’est pas (ou plus) dans la tâche.', champ: 'pieces' };
+    await tracer(q, id, 'modification', { piece: driveId }, { pieceRetiree: rows[0].nom }, auteur, nom);
+    return { ok: true, id };
+  });
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -258,7 +321,10 @@ async function evenementExiste(q: RequeteTx, id: number | null): Promise<boolean
 }
 
 /** CRÉER une tâche sur un bien. La saisie a déjà été vérifiée par `erreurSaisie` (route). */
-export async function creerTache(lotId: number, s: SaisieTache, auteur: Auteur): Promise<IssueTache> {
+export async function creerTache(
+  lotId: number, s: SaisieTache, auteur: Auteur, pieces: readonly PieceAjout[] = [],
+): Promise<IssueTache> {
+  const avecPieces = pieces.length > 0 && await piecesTacheDisponible();
   const sources = await sourcesPour(lotId, s);
   return withTransaction(async (q) => {
     const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
@@ -279,6 +345,7 @@ export async function creerTache(lotId: number, s: SaisieTache, auteur: Auteur):
       objet: s.objet.trim(), jour: s.jour, heure: s.heure, confieeA: c.libelle, evenementId: s.evenementId, rappels,
     }, auteur, nom);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
+    if (avecPieces) await poserPieces(q, id, pieces, auteur, nom);
     return { ok: true, id };
   });
 }
