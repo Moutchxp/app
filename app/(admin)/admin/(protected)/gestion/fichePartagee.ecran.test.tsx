@@ -152,23 +152,22 @@ describe('🔴🔴 RÈGLE 1 et 4 — une modification du CABINET s’annonce à 
   });
 });
 
-describe('🔴🔴 PARTIE 2 — « Fiche partagée avec N autres biens » sur la carte', () => {
-  it('la ligne discrète et sa bulle (adresse — lot), au focus comme au survol', async () => {
+describe('🔴🔴 LOT RETRAIT-FICHE-PARTAGEE — la mention « Fiche partagée » n’est plus affichée (accord d’Arno)', () => {
+  it('plus de ligne « Fiche partagée … » ni de bulle « Autres immeubles du cabinet » ; le bouton du syndic reste et ouvre sa fiche', async () => {
     await monter(1, '25 rue Edith Cavell');
-    const mot = document.querySelector('.bsy-partage-mot') as HTMLElement;
-    /* 🔴 LOT PARTAGE-CABINET-IMMEUBLE — « … du cabinet, dont M dans cet immeuble », et la bulle en deux groupes. */
-    expect(mot.textContent).toBe('Fiche partagée avec 2 autres biens du cabinet, dont 1 dans cet immeuble');
-    expect(document.querySelector('.bsy-partage-bulle')).toBeNull();
-    await act(async () => { mot.focus(); });
-    expect([...document.querySelectorAll('.bsy-partage-groupe')].map((g) => [
-      g.querySelector('.bsy-partage-titre')?.textContent, [...g.querySelectorAll('li')].map((l) => l.textContent)]))
-      .toEqual([['Dans cet immeuble', ['25 rue Edith Cavell — lot 220']], ['Autres immeubles du cabinet', ['15 rue Carle Hebert — lot 373']]]);
+    expect(document.body.textContent).not.toContain('Fiche partagée');
+    expect(document.body.textContent).not.toContain('Autres immeubles du cabinet');
+    expect(document.querySelector('.bsy-partage, .bsy-partage-mot, .bsy-partage-bulle')).toBeNull();
+    const syndic = document.querySelector('button.bsy') as HTMLButtonElement;
+    expect(syndic).not.toBeNull();
+    expect(syndic.className).toContain('bsy--connu');
+    await act(async () => { syndic.click(); });
+    for (let i = 0; i < 10; i++) await act(async () => { await Promise.resolve(); });
+    expect(document.querySelector('.fsy')).not.toBeNull(); // la fiche syndic s'ouvre, comme avant
   });
-  it('un bien seul dans son immeuble : « aucun dans cet immeuble », un seul groupe', async () => {
+  it('un bien seul dans son immeuble : rien non plus', async () => {
     await monter(3, '15 rue Carle Hebert');
-    expect(document.querySelector('.bsy-partage-mot')?.textContent).toBe('Fiche partagée avec 2 autres biens du cabinet, aucun dans cet immeuble');
-    await act(async () => { (document.querySelector('.bsy-partage-mot') as HTMLElement).click(); });
-    expect([...document.querySelectorAll('.bsy-partage-titre')].map((t) => t.textContent)).toEqual(['Autres immeubles du cabinet']);
+    expect(document.body.textContent).not.toContain('Fiche partagée');
   });
 });
 
