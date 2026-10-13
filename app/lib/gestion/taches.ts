@@ -22,6 +22,7 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
 import { lireClesContacts } from './contactsTache';
 import type { AcceptationTache } from './acceptationTache';
+import type { AgendaTache } from './agendaTache';
 
 export type EtatTache = 'a_faire' | 'faite' | 'annulee';
 export type CouleurTache = 'retard' | 'jour' | 'proche' | 'plus_tard';
@@ -81,6 +82,10 @@ export interface Tache {
   creePar?: number | null;
   /** 🔴 LOT TACHES-ACCEPTATION — la demande d'acceptation COURANTE ; `null`/absent ⇒ tâche d'avant le lot. */
   acceptation?: AcceptationTache | null;
+  /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (minutes) ; `null`/absent = 1 h. */
+  dureeMinutes?: number | null;
+  /** 🔴 LOT TACHES-AGENDA — la mention « Agenda » (dans l'agenda, à resynchroniser, pas d'agenda Google…) ; `null` = rien. */
+  agenda?: AgendaTache | null;
 }
 
 /**
@@ -373,6 +378,15 @@ export interface SaisieTache {
   contacts?: string[];
   /** 🔴 LOT TACHES-PIECES-DRIVE — à la création : les identifiants Drive des pièces choisies. */
   pieces?: string[];
+  /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous, en minutes ; `null` = 1 h ; `undefined` = ne pas y toucher. */
+  dureeMinutes?: number | null;
+}
+
+/** 🔴 LOT TACHES-AGENDA — une durée venue du navigateur : un entier entre 5 min et 24 h, sinon `null` (= 1 h). PUR. */
+export function dureeValide(brut: unknown): number | null {
+  if (brut === null || brut === undefined || brut === '') return null;
+  const n = Number(brut);
+  return Number.isInteger(n) && n >= 5 && n <= 1440 ? n : null;
 }
 
 /**
@@ -396,6 +410,7 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
     rappels: rappelsValides(corps.rappels, heure !== null),
     contacts: lireClesContacts(corps.contacts),
     pieces: lireIdsDrive(corps.pieces),
+    ...('dureeMinutes' in corps ? { dureeMinutes: heure === null ? null : dureeValide(corps.dureeMinutes) } : {}),
   };
 }
 
@@ -506,7 +521,7 @@ export interface TraceTache {
 
 const MOTS_CHAMPS: Record<string, string> = {
   objet: 'objet', jour: 'date', heure: 'heure', note: 'note', confieeA: 'personne', evenementId: 'événement',
-  rappels: 'rappels',
+  rappels: 'rappels', dureeMinutes: 'durée',
 };
 
 /**

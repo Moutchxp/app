@@ -9,7 +9,9 @@ import {
   type ActionTache, type ChampTache, type EtatTache, type PieceAjout, type PieceTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
-import { acceptationTacheDisponible, contactsTacheDisponible, piecesTacheDisponible } from './schema';
+import { acceptationTacheDisponible, agendaTacheDisponible, contactsTacheDisponible, piecesTacheDisponible } from './schema';
+/* 🔴 LOT TACHES-AGENDA — chaque geste réussi demande la synchronisation de l'agenda, dans SA transaction (migration 350). */
+import { complementsAgenda, marquerASynchroniser } from './agendaSynchroRepo';
 /* 🔴 LOT TACHES-ACCEPTATION — la demande d'acceptation, posée dans la transaction du geste qui la provoque. */
 import { poserDemande, versAcceptation, type DemandePosee } from './acceptationRepo';
 import { acceptationInitiale } from './acceptationTache';
@@ -27,7 +29,9 @@ import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache 
  *   ③ ON LIT (FOR UPDATE) AVANT D'ÉCRIRE : un refus se décide AVANT toute écriture. `withTransaction` valide au
  *     retour normal — un refus rendu après un UPDATE l'aurait laissé passer.
  *
- * ⚠️ AUCUN APPEL GOOGLE. Les colonnes du lot 2 (`google_*`, `synchro_*`) ne sont ni lues ni écrites ici.
+ * ⚠️ AUCUN APPEL GOOGLE ICI. 🔴 LOT TACHES-AGENDA : chaque geste réussi appelle `marquerASynchroniser` dans sa
+ * transaction (les colonnes `synchro_*`) ; l'appel à l'agenda, lui, se fait APRÈS la transaction, par la route
+ * (`synchroniserApresGeste`) — un échec de Google n'annule jamais le geste.
  */
 
 /**
@@ -108,6 +112,16 @@ const SQL_TACHE = `
 
 const iso = (d: Date | null): string | null => (d === null ? null : new Date(d).toISOString());
 
+/** 🔴 LOT TACHES-AGENDA — la durée et la mention « Agenda » de chaque tâche (une requête pour toute la liste). */
+async function avecAgenda(taches: Tache[]): Promise<Tache[]> {
+  const m = await complementsAgenda(taches.map((t) => t.id));
+  if (m.size === 0) return taches;
+  return taches.map((t) => {
+    const c = m.get(t.id);
+    return c === undefined ? t : { ...t, dureeMinutes: c.dureeMinutes, agenda: c.agenda };
+  });
+}
+
 function versTache(r: LigneTache): Tache {
   return {
     id: Number(r.id), lotId: Number(r.lot_id), lotCle: r.lot_cle, adresseBien: titreLogement(r.adresse, r.commune),
@@ -151,7 +165,7 @@ export async function listerTaches(lotId: number | null): Promise<{ taches: Tach
         ORDER BY coalesce(t.faite_le, t.annulee_le, t.maj_le) DESC, t.id DESC LIMIT ${TERMINEES_MAX}`, [lotId]),
   ]);
   const tronque = o.rows.length > OUVERTES_MAX;
-  return { taches: [...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache), tronque };
+  return { taches: await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache)), tronque };
 }
 
 export async function lireTache(id: number): Promise<{ tache: Tache; traces: TraceTache[]; contacts: ContactTache[]; pieces: PieceTache[] } | null> {
@@ -163,7 +177,7 @@ export async function lireTache(id: number): Promise<{ tache: Tache; traces: Tra
     `SELECT action, avant, apres, survenu_le, auteur_libelle FROM gestion_tache_action
       WHERE tache_id = $1 ORDER BY survenu_le, id`, [id]);
   return {
-    tache: versTache(rows[0]),
+    tache: (await avecAgenda([versTache(rows[0])]))[0],
     traces: tr.rows.map((r) => ({
       action: r.action, avant: r.avant, apres: r.apres, survenuLe: iso(r.survenu_le) ?? '', auteurLibelle: r.auteur_libelle,
     })),
@@ -209,6 +223,7 @@ export async function ajouterPieces(id: number, pieces: readonly PieceAjout[], a
     if (t === null) return INTROUVABLE;
     if (t.etat !== 'a_faire') return DEJA_TERMINEE;
     await poserPieces(q, id, pieces, auteur, await nomAuteur(q, auteur));
+    await marquerASynchroniser(q, id);
     return { ok: true, id };
   });
 }
@@ -225,6 +240,7 @@ export async function retirerPiece(id: number, driveId: string, auteur: Auteur):
         WHERE tache_id = $1 AND drive_fichier_id = $2 AND retire_le IS NULL RETURNING nom`, [id, driveId, nom]);
     if (rows.length === 0) return { ok: false, statut: 404, motif: 'Cette pièce n’est pas (ou plus) dans la tâche.', champ: 'pieces' };
     await tracer(q, id, 'modification', { piece: driveId }, { pieceRetiree: rows[0].nom }, auteur, nom);
+    await marquerASynchroniser(q, id);
     return { ok: true, id };
   });
 }
@@ -311,6 +327,7 @@ export async function actualiserContact(id: number, cle: string, auteur: Auteur)
       [id, cle, s.nom, s.qualite, s.organisation, s.adresse, JSON.stringify(s.coordonnees), s.famille]);
     if ((r.rowCount ?? 0) === 0) return { ok: false, statut: 404, motif: 'Ce contact n’est pas dans la tâche.' };
     await tracer(q, id, 'modification', { contact: cle }, { contactMisAJour: s.nom }, auteur, nom);
+    await marquerASynchroniser(q, id);
     return { ok: true, id };
   });
 }
@@ -349,6 +366,7 @@ export async function creerTache(
 ): Promise<IssueTache> {
   const avecPieces = pieces.length > 0 && await piecesTacheDisponible();
   const avecAcceptation = await acceptationTacheDisponible();
+  const avecDuree = await agendaTacheDisponible();
   const sources = await sourcesPour(lotId, s);
   return withTransaction(async (q) => {
     const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
@@ -365,6 +383,9 @@ export async function creerTache(
       [lotId, s.evenementId, s.objet.trim(), vide(s.note), s.jour, s.heure, JSON.stringify(rappels), c.id, c.libelle,
         auteur.id, nom]);
     const id = Number(rows[0].id);
+    if (avecDuree && s.heure !== null && (s.dureeMinutes ?? null) !== null) {
+      await q(`UPDATE gestion_tache SET duree_minutes = $2 WHERE id = $1`, [id, s.dureeMinutes]);
+    }
     await tracer(q, id, 'creation', null, {
       objet: s.objet.trim(), jour: s.jour, heure: s.heure, confieeA: c.libelle, evenementId: s.evenementId, rappels,
     }, auteur, nom);
@@ -372,6 +393,7 @@ export async function creerTache(
     if (avecPieces) await poserPieces(q, id, pieces, auteur, nom);
     /* 🔴 LOT TACHES-ACCEPTATION — confiée à soi : acceptée d'office ; à un autre : en attente, et un mail à préparer. */
     const demande = avecAcceptation ? await poserDemande(q, { tacheId: id, confieeA: c.id, confieeLibelle: c.libelle, auteur, nom }) : null;
+    await marquerASynchroniser(q, id);
     return { ok: true, id, demande };
   });
 }
@@ -405,6 +427,7 @@ export async function marquerFaite(id: number, auteur: Auteur): Promise<IssueTac
     await q(`UPDATE gestion_tache SET etat = 'faite', faite_le = now(), faite_par_libelle = $2, maj_le = now() WHERE id = $1`,
       [id, nom]);
     await tracer(q, id, 'faite', { etat: 'a_faire' }, { etat: 'faite' }, auteur, nom);
+    await marquerASynchroniser(q, id);
     return { ok: true, id };
   });
 }
@@ -419,6 +442,7 @@ export async function annulerTache(id: number, auteur: Auteur): Promise<IssueTac
     await q(`UPDATE gestion_tache SET etat = 'annulee', annulee_le = now(), annulee_par_libelle = $2, maj_le = now() WHERE id = $1`,
       [id, nom]);
     await tracer(q, id, 'annulation', { etat: 'a_faire' }, { etat: 'annulee' }, auteur, nom);
+    await marquerASynchroniser(q, id);
     return { ok: true, id };
   });
 }
@@ -434,6 +458,7 @@ export async function rouvrirTache(id: number, auteur: Auteur): Promise<IssueTac
       `UPDATE gestion_tache SET etat = 'a_faire', faite_le = NULL, faite_par_libelle = NULL,
               annulee_le = NULL, annulee_par_libelle = NULL, maj_le = now() WHERE id = $1`, [id]);
     await tracer(q, id, 'reouverture', { etat: t.etat }, { etat: 'a_faire' }, auteur, nom);
+    await marquerASynchroniser(q, id);
     return { ok: true, id };
   });
 }
@@ -467,6 +492,7 @@ export async function decalerTache(
     await tracer(q, id, 'decalage', { jour: t.jour, heure: t.heure }, { jour, heure }, auteur, nom);
     // 🔴 LOT TACHES-ACCEPTATION — changer la date ou l'heure relance la demande (décision d'Arno, point 6).
     const demande = await relancerDemande(q, id, t.confiee_a === null ? null : Number(t.confiee_a), t.confiee_a_libelle, auteur, nom);
+    await marquerASynchroniser(q, id);
     return { ok: true, id, demande };
   });
 }
@@ -477,6 +503,8 @@ export async function decalerTache(
  */
 export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur): Promise<IssueTache> {
   const avecAcceptation = await acceptationTacheDisponible();
+  /* 🔴 LOT TACHES-AGENDA — la durée ne se compare (et ne s'écrit) que si la 350 est là ET que l'écran l'a envoyée. */
+  const avecDuree = s.dureeMinutes !== undefined && await agendaTacheDisponible();
   const lot = await query<{ lot_id: number }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
   const sources = lot.rows.length === 0 ? null : await sourcesPour(Number(lot.rows[0].lot_id), s);
   return withTransaction(async (q) => {
@@ -487,14 +515,18 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
     if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.', champ: 'confieeA' };
     if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.', champ: 'evenementId' };
     const rappels = rappelsValides(s.rappels, s.heure !== null);
+    const dureeAvant = avecDuree
+      ? (await q<{ d: number | null }>(`SELECT duree_minutes AS d FROM gestion_tache WHERE id = $1`, [id])).rows[0]?.d ?? null : null;
     const nouveau = {
       objet: s.objet.trim(), note: vide(s.note), jour: s.jour, heure: s.heure,
       confieeA: c.id, evenementId: s.evenementId, rappels,
+      ...(avecDuree ? { dureeMinutes: s.heure === null ? null : s.dureeMinutes ?? null } : {}),
     };
     const ancien = {
       objet: t.objet, note: t.note, jour: t.jour, heure: t.heure,
       confieeA: t.confiee_a === null ? null : Number(t.confiee_a),
       evenementId: t.evenement_id === null ? null : Number(t.evenement_id), rappels: t.rappels,
+      ...(avecDuree ? { dureeMinutes: dureeAvant === null ? null : Number(dureeAvant) } : {}),
     };
     const avant: Record<string, unknown> = {};
     const apres: Record<string, unknown> = {};
@@ -506,12 +538,14 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
     }
     const nom = await nomAuteur(q, auteur);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
+    await marquerASynchroniser(q, id);
     if (Object.keys(apres).length === 0) return { ok: true, id };
     await q(
       `UPDATE gestion_tache SET objet = $2, note = $3, jour = $4::date, heure = $5::time, confiee_a = $6,
               confiee_a_libelle = $7, evenement_id = $8, rappels = $9::jsonb, maj_le = now() WHERE id = $1`,
       [id, nouveau.objet, nouveau.note, nouveau.jour, nouveau.heure, c.id, c.libelle, nouveau.evenementId,
         JSON.stringify(rappels)]);
+    if ('dureeMinutes' in apres) await q(`UPDATE gestion_tache SET duree_minutes = $2 WHERE id = $1`, [id, apres.dureeMinutes]);
     await tracer(q, id, 'modification', avant, apres, auteur, nom);
     /* 🔴 LOT TACHES-ACCEPTATION — date, heure ou personne changée ⇒ nouvelle demande ; le reste ne change pas le statut. */
     const relance = 'jour' in apres || 'heure' in apres || 'confieeA' in apres;

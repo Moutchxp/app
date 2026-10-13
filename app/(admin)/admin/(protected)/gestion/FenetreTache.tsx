@@ -15,6 +15,8 @@ import { BADGE_ACCEPTATION, mentionMail, type AcceptationTache } from '../../../
 import { ChoixContacts, ContactsAffiches, CSS_CONTACTS_TACHE, type ContactPropose } from './ContactsTache';
 /* 🔴 LOT TACHES-PIECES-DRIVE — le sélecteur Drive en LECTURE SEULE des tâches. */
 import { SelecteurDriveTache, type FichierChoisi } from './SelecteurDriveTache';
+/* 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (1 h par défaut) et l'état « Agenda » du détail. */
+import { DUREE_DEFAUT_MINUTES, DUREES_PROPOSEES, motDuree } from '../../../../lib/gestion/agendaTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LA FENÊTRE D'UNE TÂCHE : CRÉER, ET LE DÉTAIL (MODIFIER, ANNULER, ROUVRIR) ═══════════════
@@ -64,7 +66,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   const [evenements, setEvenements] = useState<{ id: number; reference: string; objet: string; ouvert: boolean }[]>([]);
   const [saisie, setSaisie] = useState<SaisieEcran>(() => ({
     objet: '', jour: jourParisDe(new Date()), heure: null, note: '', confieeA: null, evenementId: null,
-    rappels: rappelsParDefaut(false),
+    rappels: rappelsParDefaut(false), dureeMinutes: null,
   }));
   const [occupe, setOccupe] = useState(false);
   /**
@@ -113,6 +115,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
         setSaisie({
           objet: t.objet, jour: t.jour, heure: t.heure, note: t.note ?? '', confieeA: t.confieeA,
           evenementId: t.evenement?.id ?? null, rappels: t.rappels,
+          ...(t.dureeMinutes !== undefined ? { dureeMinutes: t.dureeMinutes } : {}),
         });
         setChoisis(d.contacts.map((c) => c.cle));
       }
@@ -152,7 +155,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     const heure = h === '' ? null : h;
     // Changer de NATURE (journée ↔ rendez-vous) remet les rappels par défaut de la nouvelle nature.
     const rappels = (heure === null) !== (s.heure === null) ? rappelsParDefaut(heure !== null) : s.rappels;
-    return { ...s, heure, rappels };
+    return { ...s, heure, rappels, ...(heure === null && s.dureeMinutes !== undefined ? { dureeMinutes: null } : {}) };
   });
 
   const basculerRappel = (r: Rappel) => setSaisie((s) => {
@@ -236,6 +239,16 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     if (r.ok) setVersion((v) => v + 1);
   };
 
+  const reessayerAgenda = async () => {
+    if (mode.sorte !== 'detail') return;
+    setOccupe(true);
+    setMessage(null);
+    const r = await agirSurTache(mode.id, { geste: 'reessayerAgenda' });
+    setOccupe(false);
+    setMessage(r.ok ? { ok: true, texte: r.message } : { ok: false, texte: r.message, champ: null });
+    setVersion((v) => v + 1);
+  };
+
   const geste = async (g: 'annuler' | 'rouvrir') => {
     setOccupe(true);
     setMessage(null);
@@ -301,6 +314,21 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
           </div>
         )}
 
+        {/* 🔴 LOT TACHES-AGENDA — l'état « Agenda » de la tâche ; un échec se dit, avec « Réessayer ». */}
+        {tache?.agenda && (
+          <div className={`tchf-agenda tch-agenda--${tache.agenda.etat}`} data-agenda={tache.agenda.etat}>
+            <p className="tchf-acceptation-ligne">
+              {tache.agenda.texte}{tache.agenda.motif ? ` — ${tache.agenda.motif}` : ''}
+            </p>
+            {tache.agenda.peutReessayer && (
+              <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
+                onClick={() => void reessayerAgenda()}>
+                Réessayer
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="tchf-corps">
           <label className="tchf-champ">
             <span className="tch-etiquette">Objet</span>
@@ -326,6 +354,19 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
           <p className="tchf-aide">
             {saisie.heure === null ? 'Sans heure : repère sur la journée.' : 'Avec heure : rendez-vous.'}
           </p>
+          {/* 🔴 LOT TACHES-AGENDA — « Durée » : seulement pour un rendez-vous ; 1 h par défaut (durée de l'événement
+              dans l'agenda Google). */}
+          {saisie.heure !== null && saisie.dureeMinutes !== undefined && (
+            <label className="tchf-champ tchf-duree">
+              <span className="tch-etiquette">Durée</span>
+              <select value={saisie.dureeMinutes ?? DUREE_DEFAUT_MINUTES} disabled={lectureSeule} data-champ-duree
+                onChange={(e) => setSaisie((s) => ({ ...s, dureeMinutes: Number(e.target.value) === DUREE_DEFAUT_MINUTES ? null : Number(e.target.value) }))}>
+                {[...new Set([...DUREES_PROPOSEES, saisie.dureeMinutes ?? DUREE_DEFAUT_MINUTES])].sort((a, b) => a - b).map((d) => (
+                  <option key={d} value={d}>{motDuree(d)}{d === DUREE_DEFAUT_MINUTES ? ' (par défaut)' : ''}</option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="tchf-champ">
             <span className="tch-etiquette">Confiée à</span>
             <select value={saisie.confieeA ?? ''} disabled={lectureSeule || collab === null}
@@ -525,6 +566,9 @@ const CSS_FENETRE = `
 .tchf-acceptation-ligne{margin:0;font-size:.86rem;color:var(--color-svv-ink)}
 .tchf-acceptation-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0}
 .tchf-danger{color:var(--color-svv-red);border-color:var(--color-svv-red)}
+.tchf-agenda{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--color-svv-line);border-radius:.5rem}
+.tchf-agenda.tch-agenda--a_resynchroniser{border-color:var(--color-svv-red)}
+.tchf-duree{max-width:14rem}
 `;
 
 /** La phrase du statut, dans le détail : qui, quand, et l'état du mail. PUR. */

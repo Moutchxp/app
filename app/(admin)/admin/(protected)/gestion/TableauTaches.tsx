@@ -129,34 +129,43 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
  * Désactivé par défaut. Visible de tous (on sait si les mails partent), modifiable par un ADMINISTRATEUR seulement.
  */
 function ReglageEnvoi() {
-  const [r, setR] = useState<{ envoiMail: boolean; modifiable: boolean; modifieParLibelle: string | null } | null>(null);
+  const [r, setR] = useState<{ envoiMail: boolean; modifiable: boolean; modifieParLibelle: string | null; agendaInstalle: boolean; envoiAgenda: boolean } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
   useEffect(() => {
     let annule = false;
     void fetch('/api/admin/gestion/taches/reglage', { cache: 'no-store' }).then((x) => x.json()).then((d) => {
-      if (!annule && d?.etat === 'ok') setR({ envoiMail: d.envoiMail === true, modifiable: d.modifiable === true, modifieParLibelle: d.modifieParLibelle ?? null });
+      if (!annule && d?.etat === 'ok') setR({ envoiMail: d.envoiMail === true, modifiable: d.modifiable === true, modifieParLibelle: d.modifieParLibelle ?? null, agendaInstalle: d.agendaInstalle === true, envoiAgenda: d.envoiAgenda === true });
     }).catch(() => {});
     return () => { annule = true; };
   }, []);
   if (r === null) return null;
-  const basculer = async () => {
+  /* 🔴 LOT TACHES-AGENDA — deux interrupteurs, la même porte : `envoiMail` (demandes par mail) ou `envoiAgenda`. */
+  const basculer = async (cle: 'envoiMail' | 'envoiAgenda' = 'envoiMail') => {
     setOccupe(true);
     const res = await fetch('/api/admin/gestion/taches/reglage', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ envoiMail: !r.envoiMail }),
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [cle]: !r[cle] }),
     }).catch(() => null);
     const d = res === null ? null : await res.json().catch(() => null) as { message?: string; erreur?: string } | null;
-    if (res !== null && res.ok) setR({ ...r, envoiMail: !r.envoiMail });
+    if (res !== null && res.ok) setR({ ...r, [cle]: !r[cle] });
     setMessage(d?.message ?? d?.erreur ?? 'Le serveur ne répond pas.');
     setOccupe(false);
   };
   return (
     <details className="tch-reglage">
-      <summary>Réglage — envoi des demandes par mail : <b>{r.envoiMail ? 'activé' : 'désactivé'}</b></summary>
+      <summary>Réglage — envoi des demandes par mail : <b>{r.envoiMail ? 'activé' : 'désactivé'}</b>
+        {r.agendaInstalle && <> · agenda Google : <b data-reglage-agenda>{r.envoiAgenda ? 'activé' : 'désactivé'}</b></>}</summary>
       <label className="tch-reglage-case">
         <input type="checkbox" checked={r.envoiMail} disabled={!r.modifiable || occupe} onChange={() => void basculer()} />
         Envoyer les demandes d’acceptation par mail (depuis gestion@)
       </label>
+      {r.agendaInstalle && (
+        <label className="tch-reglage-case">
+          <input type="checkbox" checked={r.envoiAgenda} disabled={!r.modifiable || occupe} data-case-agenda
+            onChange={() => void basculer('envoiAgenda')} />
+          Envoyer les tâches dans l’agenda Google (agenda de la personne concernée, après son acceptation)
+        </label>
+      )}
       {!r.modifiable && <p className="tch-vide">Seul un administrateur peut changer ce réglage.</p>}
       {message && <p className="tch-vide" role="status">{message}</p>}
     </details>

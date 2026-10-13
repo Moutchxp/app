@@ -377,6 +377,17 @@ export function acceptationTacheDisponible(): Promise<boolean> {
     (await tableExiste('gestion_tache_demande')) && (await tableExiste('gestion_tache_reglage')));
 }
 
+/**
+ * 🔴 LOT TACHES-AGENDA — la migration 350 est-elle appliquée ? Elle porte le réglage « Envoyer les tâches dans
+ * l'agenda Google », la durée d'un rendez-vous et le journal des appels à l'agenda. Sans elle, aucune tâche ne part
+ * vers l'agenda et les tâches sont exactement celles d'avant ce lot.
+ */
+export function agendaTacheDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_tache_agenda_appel', async () =>
+    (await tableExiste('gestion_tache_agenda_appel')) && (await colonneExiste('gestion_tache', 'duree_minutes'))
+    && (await colonneExiste('gestion_tache_reglage', 'envoi_agenda')));
+}
+
 async function tableExiste(table: string): Promise<boolean> {
   try {
     const { rows } = await query<{ n: number }>(

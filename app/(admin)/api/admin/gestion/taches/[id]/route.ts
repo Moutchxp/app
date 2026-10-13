@@ -12,6 +12,8 @@ import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborate
 import { relirePieces } from '../../../../../../lib/gestion/tachesDrive';
 import { envoyerSiBesoin } from '../../../../../../lib/gestion/acceptationRepo';
 import { mentionMail } from '../../../../../../lib/gestion/acceptationTache';
+/* 🔴 LOT TACHES-AGENDA — après chaque geste : l'agenda (réglage actif seulement) ; « Réessayer » le relance. */
+import { reessayerSynchro, phraseSynchro, synchroniserApresGeste } from '../../../../../../lib/gestion/agendaSynchroRepo';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — UNE TÂCHE : SON DÉTAIL, SES GESTES ═══════════════════════════════════════════════════════
@@ -31,7 +33,10 @@ import { mentionMail } from '../../../../../../lib/gestion/acceptationTache';
  * 🔴 IL N'Y A PAS DE `DELETE`, ET C'EST LA RÈGLE D'ARNO : une tâche s'annule, elle ne se supprime jamais (la base
  * le refuse de toute façon — migration 346).
  *
- * 🔒 `exigerCompteActif(…, 'gestion')`. Aucun appel Google. Runtime Node (driver pg).
+ *    · `reessayerAgenda` (LOT TACHES-AGENDA) → « Réessayer » l'envoi vers l'agenda Google, tout de suite.
+ * 🔴 LOT TACHES-AGENDA — après chaque geste réussi, l'agenda est synchronisé (réglage actif seulement) ; un échec de
+ * Google n'annule jamais le geste, il se dit (« Agenda : à resynchroniser »).
+ * 🔒 `exigerCompteActif(…, 'gestion')`. Runtime Node (driver pg).
  */
 export const runtime = 'nodejs';
 
@@ -74,6 +79,14 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   else if (geste === 'annuler') issue = await annulerTache(id, auteur);
   else if (geste === 'rouvrir') issue = await rouvrirTache(id, auteur);
   else if (geste === 'renvoyerDemande') issue = await renvoyerDemande(id, auteur);
+  else if (geste === 'reessayerAgenda') {
+    const s = await reessayerSynchro(id);
+    if (s.etat === 'desactive') return Response.json({ erreur: 'L’envoi vers l’agenda Google est désactivé dans les réglages.' }, { status: 409 });
+    if (s.etat === 'introuvable') return Response.json({ erreur: 'Tâche introuvable.' }, { status: 404 });
+    if (s.etat === 'sans_schema') return Response.json({ erreur: 'Agenda non installé (migration 350).' }, { status: 503 });
+    if (s.etat === 'echec') return Response.json({ erreur: `Agenda : toujours à resynchroniser (${s.motif}). Nouvel essai automatique plus tard.` }, { status: 502 });
+    return Response.json({ etat: 'ok', id, message: `Agenda resynchronisé.${phraseSynchro(s)}` });
+  }
   else if (geste === 'ajouterPieces') {
     /* 🔴 LOT TACHES-PIECES-DRIVE — relues dans le Drive en LECTURE SEULE, puis seule la RÉFÉRENCE est gardée. */
     const ids = lireIdsDrive(corps.pieces) ?? [];
@@ -123,5 +136,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const mail = await envoyerSiBesoin(issue.demande);
   const suite = issue.demande?.statut === 'en_attente'
     ? ` Nouvelle demande d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' envoyée par mail' : ''}.` : '';
-  return Response.json({ etat: 'ok', id: issue.id, message: `${MESSAGES[geste]}${suite}` });
+  const agenda = await synchroniserApresGeste(issue.id);
+  return Response.json({ etat: 'ok', id: issue.id, message: `${MESSAGES[geste]}${suite}${agenda}` });
 }

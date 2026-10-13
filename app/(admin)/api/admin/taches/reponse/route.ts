@@ -2,6 +2,8 @@ import 'server-only';
 import { NOM_COOKIE, sessionDepuisPayload, verifierJeton } from '../../../../../lib/admin/session';
 import { acceptationTacheDisponible } from '../../../../../lib/gestion/schema';
 import { compteSelonRegle, repondreDemande } from '../../../../../lib/gestion/acceptationRepo';
+/* 🔴 LOT TACHES-AGENDA — acceptée : elle entre dans l'agenda du destinataire ; refusée : elle n'y est pas. */
+import { synchroniserApresGeste } from '../../../../../lib/gestion/agendaSynchroRepo';
 
 /**
  * ══ 🔴🔴 LOT TACHES-ACCEPTATION — ACCEPTER OU REFUSER UNE TÂCHE CONFIÉE ═══════════════════════════════════════════
@@ -12,7 +14,8 @@ import { compteSelonRegle, repondreDemande } from '../../../../../lib/gestion/ac
  * « Refuser » exige un motif. Les refus sont rendus en clair (lien expiré, déjà utilisé, remplacé, autre personne).
  *
  * 🔒 Ouvert à tout compte qui remplit la règle « Confiée à » (proxy : chemin authentifié seul), relue ICI en base.
- * Aucun mail n'est envoyé par cette route.
+ * Aucun mail n'est envoyé par cette route. 🔴 LOT TACHES-AGENDA : la réponse est suivie de la synchronisation de l'agenda
+ * (réglage actif seulement) ; un échec de Google n'annule pas la réponse, il se dit.
  */
 export const runtime = 'nodejs';
 
@@ -38,5 +41,7 @@ export async function POST(request: Request): Promise<Response> {
     motif: typeof corps.motif === 'string' ? corps.motif : null,
     utilisateur: { id: compte.id, libelle: compte.nom }, nom: compte.nom,
   });
-  return r.ok ? json({ etat: 'ok', statut: r.statut, message: r.message }) : json({ erreur: r.message }, r.statut);
+  if (!r.ok) return json({ erreur: r.message }, r.statut);
+  const agenda = await synchroniserApresGeste(r.tacheId);
+  return json({ etat: 'ok', statut: r.statut, message: `${r.message}${agenda}` });
 }

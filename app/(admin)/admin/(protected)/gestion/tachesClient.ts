@@ -65,6 +65,8 @@ export interface SaisieEcran {
   contacts?: string[];
   /** 🔴 LOT TACHES-PIECES-DRIVE — à la création : les identifiants Drive des pièces choisies. */
   pieces?: string[];
+  /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (minutes) ; `null` = 1 h. */
+  dureeMinutes?: number | null;
 }
 
 export type GesteTache =
@@ -80,7 +82,9 @@ export type GesteTache =
   | { geste: 'renvoyerDemande' }
   /** 🔴 LOT TACHES-PIECES-DRIVE — des RÉFÉRENCES Drive ; le fichier n'est jamais touché. */
   | { geste: 'ajouterPieces'; pieces: string[] }
-  | { geste: 'retirerPiece'; driveId: string };
+  | { geste: 'retirerPiece'; driveId: string }
+  /** 🔴 LOT TACHES-AGENDA — « Réessayer » l'envoi vers l'agenda Google. */
+  | { geste: 'reessayerAgenda' };
 
 /** LA porte des gestes sur une tâche existante. */
 export function agirSurTache(id: number, g: GesteTache): Promise<IssueGeste> {

@@ -120,6 +120,19 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         {tache.acceptation?.statut === 'refusee' && tache.acceptation.motif && (
           <span className="tch-motif">Refusée par {tache.acceptation.reponduParLibelle ?? tache.acceptation.destinataireLibelle} : {tache.acceptation.motif}</span>
         )}
+        {/* 🔴 LOT TACHES-AGENDA — la mention « Agenda » : jamais d'échec silencieux (« à resynchroniser » + Réessayer). */}
+        {tache.agenda && (
+          <span className={`tch-agenda tch-agenda--${tache.agenda.etat}`} data-agenda={tache.agenda.etat}
+            title={tache.agenda.motif ?? undefined}>
+            {tache.agenda.texte}
+            {tache.agenda.peutReessayer && (
+              <button type="button" className="tch-lien tch-reessayer" disabled={occupe}
+                onClick={() => void agir({ geste: 'reessayerAgenda' })}>
+                Réessayer
+              </button>
+            )}
+          </span>
+        )}
       </div>
       {!terminee && (
         <div className="tch-actions">
@@ -195,6 +208,9 @@ export const CSS_TACHES = `
 .tch-badge--refusee{border-color:var(--color-svv-red);color:var(--color-svv-red)}
 .tch-mail{font-style:italic}
 .tch-motif{color:var(--color-svv-red)}
+.tch-agenda{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.4rem}
+.tch-agenda--a_resynchroniser{color:var(--color-svv-red);font-weight:600}
+.tch-reessayer{min-height:32px;font-weight:600}
 .tch-echeance{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem}
 .tch-date{font-size:.95rem;font-weight:700;color:var(--color-svv-ink);white-space:nowrap}
 .tch-objet{flex:1 1 12rem;min-width:0;text-align:left;background:none;border:0;padding:4px 0;font:inherit;

@@ -14,6 +14,8 @@ import { transportParDefaut, type TransportDemande } from './envoiDemandeTache';
 import { peutRecevoirUneTache } from './taches';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
+/* 🔴 LOT TACHES-AGENDA — accepter ou refuser change la place de la tâche dans l'agenda : on le marque dans la transaction. */
+import { marquerASynchroniser } from './agendaSynchroRepo';
 
 /**
  * ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE DÉPÔT DES DEMANDES D'ACCEPTATION (migration 349) ══════════════════════════════
@@ -193,7 +195,7 @@ async function piecesDeLaDemande(tacheId: number): Promise<{ nom: string; lien: 
    RÉPONDRE : ACCEPTER, REFUSER (motif obligatoire)
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export type IssueReponse = { ok: true; statut: StatutAcceptation; message: string } | { ok: false; statut: number; message: string };
+export type IssueReponse = { ok: true; statut: StatutAcceptation; message: string; tacheId?: number } | { ok: false; statut: number; message: string };
 
 interface LigneDemande {
   id: number; tache_id: number; statut: string; destinataire_id: number | null; expire_le: Date | null;
@@ -234,8 +236,9 @@ export async function repondreDemande(o: {
       `UPDATE gestion_tache_demande SET statut = $2, repondu_le = now(), repondu_par_libelle = $3, motif = $4, utilise_le = now()
         WHERE id = $1`, [d!.id, statut, o.nom, motif]);
     await tracer(q, d!.tache_id, { acceptation: 'en_attente' }, { acceptation: statut, ...(motif ? { motif } : {}) }, o.utilisateur, o.nom);
+    await marquerASynchroniser(q, Number(d!.tache_id));
     return {
-      ok: true, statut,
+      ok: true, statut, tacheId: Number(d!.tache_id),
       message: statut === 'acceptee' ? 'Tâche acceptée. Merci !' : 'Refus enregistré : la personne qui vous l’a confiée va la réattribuer.',
     };
   });

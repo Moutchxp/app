@@ -12,6 +12,8 @@ import type { PieceAjout } from '../../../../../lib/gestion/taches';
 /* 🔴 LOT TACHES-ACCEPTATION — après la création, le mail de demande (envoi réel seulement si le réglage l'autorise). */
 import { envoyerSiBesoin } from '../../../../../lib/gestion/acceptationRepo';
 import { mentionMail } from '../../../../../lib/gestion/acceptationTache';
+/* 🔴 LOT TACHES-AGENDA — après la création : l'agenda (réglage actif seulement) ; la lecture relance la reprise automatique. */
+import { declencherReprise, synchroniserApresGeste } from '../../../../../lib/gestion/agendaSynchroRepo';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LES TÂCHES : LIRE, CRÉER ════════════════════════════════════════════════════════════════
@@ -22,7 +24,9 @@ import { mentionMail } from '../../../../../lib/gestion/acceptationTache';
  * `POST { lotId, objet, jour, heure?, note?, confieeA, evenementId?, rappels }` → crée la tâche.
  *
  * ⚠️ SANS LA MIGRATION 346 : `{ etat: 'sans_schema' }`, et l'écran n'affiche rien — ni bouton, ni récapitulatif.
- * 🔒 `exigerCompteActif(…, 'gestion')`. Aucun appel Google. Runtime Node (driver pg).
+ * 🔒 `exigerCompteActif(…, 'gestion')`. Runtime Node (driver pg).
+ * 🔴 LOT TACHES-AGENDA — après la création, l'envoi vers l'agenda Google (seulement si le réglage est actif ; faux
+ * Google sous les tests). Un échec de Google n'annule pas la création : « Agenda : à resynchroniser ».
  */
 export const runtime = 'nodejs';
 
@@ -36,6 +40,7 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ erreur: 'Bien inconnu.' }, { status: 400 });
   }
   const auteur = await auteurDeLaRequete(request);
+  declencherReprise();
   const { taches, tronque } = await listerTaches(lotId);
   return Response.json(
     { etat: 'ok', taches, tronque, moi: auteur.id === null ? null : Number(auteur.id) },
@@ -65,9 +70,10 @@ export async function POST(request: Request): Promise<Response> {
   const issue = await creerTache(lotId, saisie, await auteurDeLaRequete(request), pieces);
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
   const mail = await envoyerSiBesoin(issue.demande);
+  const agenda = await synchroniserApresGeste(issue.id);
   const enAttente = issue.demande?.statut === 'en_attente';
   return Response.json({
     etat: 'ok', id: issue.id,
-    message: enAttente ? `Tâche créée, en attente d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' — demande envoyée par mail' : ''}.` : 'Tâche créée.',
+    message: `${enAttente ? `Tâche créée, en attente d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' — demande envoyée par mail' : ''}.` : 'Tâche créée.'}${agenda}`,
   });
 }
