@@ -44,8 +44,9 @@ async function clesDesCoproprietes(): Promise<Map<string, number[]>> {
   return m;
 }
 
-/** Les copropriétés de chaque bien demandé (clé WIPPIMMO → identifiants de copropriété). */
-async function coproprietesDesBiens(lotCles: readonly string[]): Promise<Map<string, Copro[]>> {
+/** Les copropriétés de chaque bien demandé (clé WIPPIMMO → identifiants de copropriété). Exportée pour le lot
+ *  TACHES-1-BIS (contacts d'une tâche) : MÊME lecture que la famille « Syndic & immeuble », aucune seconde règle. */
+export async function coproprietesDesBiens(lotCles: readonly string[]): Promise<Map<string, Copro[]>> {
   const out = new Map<string, Copro[]>();
   if (lotCles.length === 0) return out;
   const { rows } = await query<{ cle: string; immeuble: string | null; adresse: string | null }>(

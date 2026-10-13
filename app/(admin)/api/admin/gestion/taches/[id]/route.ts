@@ -6,7 +6,7 @@ import {
   erreurSaisie, estHeureValide, estJourValide, lireSaisie, RACCOURCIS_DECALAGE, type RaccourciDecalage,
 } from '../../../../../../lib/gestion/taches';
 import {
-  annulerTache, decalerTache, lireTache, marquerFaite, modifierTache, rouvrirTache, type IssueTache,
+  actualiserContact, annulerTache, decalerTache, lireTache, marquerFaite, modifierTache, rouvrirTache, type IssueTache,
 } from '../../../../../../lib/gestion/tachesRepo';
 
 /**
@@ -18,7 +18,9 @@ import {
  *    · `decaler` + `raccourci` (+1j, +2j, +1s)          → l'heure ne bouge pas ;
  *    · `decaler` + `jour` (+ `heure`, vide = journée)   → vers une date choisie ;
  *    · `modifier` + la saisie complète ;
- *    · `annuler` ; `rouvrir`.
+ *    · `annuler` ; `rouvrir` ;
+ *    · `actualiserContact` + `cle` (LOT TACHES-1-BIS) → recopie les coordonnées d'un contact depuis la fiche
+ *      d'aujourd'hui (« Mettre à jour »), datées et tracées.
  * 🔴 IL N'Y A PAS DE `DELETE`, ET C'EST LA RÈGLE D'ARNO : une tâche s'annule, elle ne se supprime jamais (la base
  * le refuse de toute façon — migration 346).
  *
@@ -44,7 +46,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
 const MESSAGES: Record<string, string> = {
   faite: 'Tâche faite.', decaler: 'Tâche décalée.', modifier: 'Tâche modifiée.', annuler: 'Tâche annulée.',
-  rouvrir: 'Tâche rouverte.',
+  rouvrir: 'Tâche rouverte.', actualiserContact: 'Coordonnées mises à jour.',
 };
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }): Promise<Response> {
@@ -63,6 +65,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (geste === 'faite') issue = await marquerFaite(id, auteur);
   else if (geste === 'annuler') issue = await annulerTache(id, auteur);
   else if (geste === 'rouvrir') issue = await rouvrirTache(id, auteur);
+  else if (geste === 'actualiserContact') {
+    const cle = typeof corps.cle === 'string' ? corps.cle.trim() : '';
+    if (cle === '') return Response.json({ erreur: 'Contact inconnu.' }, { status: 400 });
+    issue = await actualiserContact(id, cle, auteur);
+  }
   else if (geste === 'decaler') {
     const raccourci = String(corps.raccourci ?? '');
     if (raccourci !== '') {

@@ -352,6 +352,14 @@ export function tachesDisponibles(): Promise<boolean> {
     (await tableExiste('gestion_tache')) && (await tableExiste('gestion_tache_action')));
 }
 
+/**
+ * 🔴 LOT TACHES-1-BIS — la migration 347 est-elle appliquée ? Elle porte les contacts copiés dans une tâche. Sans
+ * elle, la section « Contacts de la tâche » ne s'affiche pas et les tâches se comportent exactement comme au lot 1.
+ */
+export function contactsTacheDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_tache_contact', () => tableExiste('gestion_tache_contact'));
+}
+
 async function tableExiste(table: string): Promise<boolean> {
   try {
     const { rows } = await query<{ n: number }>(

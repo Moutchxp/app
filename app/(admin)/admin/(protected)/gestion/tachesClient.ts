@@ -12,6 +12,7 @@
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : ce fichier vit dans le navigateur (garde `clientBoundary.guard.test.ts`).
  */
 import type { RaccourciDecalage, Rappel, Tache, TraceTache } from '../../../../lib/gestion/taches';
+import type { ContactSource, ContactTache } from '../../../../lib/gestion/contactsTache';
 
 export const SIGNAL_TACHES = 'gestion:taches';
 
@@ -46,6 +47,8 @@ async function envoyer(url: string, method: 'POST' | 'PATCH', corps: unknown): P
 export interface SaisieEcran {
   objet: string; jour: string; heure: string | null; note: string; confieeA: number | null;
   evenementId: number | null; rappels: Rappel[];
+  /** 🔴 LOT TACHES-1-BIS — les clés des contacts cochés ; absent ⇒ les contacts ne sont pas touchés. */
+  contacts?: string[];
 }
 
 export type GesteTache =
@@ -54,7 +57,9 @@ export type GesteTache =
   | { geste: 'rouvrir' }
   | { geste: 'decaler'; raccourci: RaccourciDecalage }
   | { geste: 'decaler'; jour: string; heure: string | null }
-  | ({ geste: 'modifier' } & SaisieEcran);
+  | ({ geste: 'modifier' } & SaisieEcran)
+  /** 🔴 LOT TACHES-1-BIS — « Mettre à jour » les coordonnées copiées d'un contact. */
+  | { geste: 'actualiserContact'; cle: string };
 
 /** LA porte des gestes sur une tâche existante. */
 export function agirSurTache(id: number, g: GesteTache): Promise<IssueGeste> {
@@ -84,11 +89,14 @@ export async function lireTaches(lotId: number | null): Promise<ListeTaches> {
   }
 }
 
-export async function lireDetailTache(id: number): Promise<{ tache: Tache; traces: TraceTache[] } | null> {
+export interface DetailTache { tache: Tache; traces: TraceTache[]; contacts: ContactTache[] }
+
+export async function lireDetailTache(id: number): Promise<DetailTache | null> {
   try {
     const res = await fetch(`/api/admin/gestion/taches/${id}`, { cache: 'no-store' });
-    const d = (await res.json()) as { etat?: string; tache?: Tache; traces?: TraceTache[] };
-    return res.ok && d.etat === 'ok' && d.tache ? { tache: d.tache, traces: d.traces ?? [] } : null;
+    const d = (await res.json()) as { etat?: string; tache?: Tache; traces?: TraceTache[]; contacts?: ContactTache[] };
+    return res.ok && d.etat === 'ok' && d.tache
+      ? { tache: d.tache, traces: d.traces ?? [], contacts: d.contacts ?? [] } : null;
   } catch {
     return null;
   }
@@ -114,5 +122,19 @@ export async function lireEvenementsDuBien(lotCle: string): Promise<{ id: number
     return d.etat === 'ok' ? (d.evenements ?? []) : [];
   } catch {
     return [];
+  }
+}
+
+/**
+ * 🔴 LOT TACHES-1-BIS — LES CONTACTS DU BIEN, pour la section « Contacts de la tâche ». `null` ⇒ la section ne
+ * s'affiche pas (migration 347 absente, ou lecture impossible) : la fenêtre est alors celle du lot 1.
+ */
+export async function lireContactsDuBien(lotId: number): Promise<ContactSource[] | null> {
+  try {
+    const res = await fetch(`/api/admin/gestion/taches/contacts?bien=${lotId}`, { cache: 'no-store' });
+    const d = (await res.json()) as { etat?: string; contacts?: ContactSource[] };
+    return res.ok && d.etat === 'ok' ? (d.contacts ?? []) : null;
+  } catch {
+    return null;
   }
 }

@@ -20,6 +20,7 @@
  * PUR : aucune base, aucun réseau, aucun écran. Chargeable dans le navigateur.
  */
 import { FUSEAU_AFFICHAGE } from './ecran';
+import { lireClesContacts } from './contactsTache';
 
 export type EtatTache = 'a_faire' | 'faite' | 'annulee';
 export type CouleurTache = 'retard' | 'jour' | 'proche' | 'plus_tard';
@@ -71,6 +72,8 @@ export interface Tache {
   faiteParLibelle: string | null;
   annuleeLe: string | null;
   annuleeParLibelle: string | null;
+  /** 🔴 LOT TACHES-1-BIS — combien de contacts sont copiés dans la tâche (l'indicateur « 👤 2 contacts »). */
+  nbContacts: number;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -276,6 +279,8 @@ export interface SaisieTache {
   confieeA: number | null;
   evenementId: number | null;
   rappels: Rappel[];
+  /** 🔴 LOT TACHES-1-BIS — les clés des contacts cochés ; `undefined` ⇒ ne pas toucher aux contacts. */
+  contacts?: string[];
 }
 
 /**
@@ -297,6 +302,7 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
     confieeA: ent(corps.confieeA),
     evenementId: ent(corps.evenementId),
     rappels: rappelsValides(corps.rappels, heure !== null),
+    contacts: lireClesContacts(corps.contacts),
   };
 }
 
@@ -370,6 +376,11 @@ export function phraseTrace(t: TraceTache): string {
     case 'reouverture': return `Rouverte ${qui}`;
     case 'decalage': return `Décalée ${qui} (${date(t.avant)} → ${date(t.apres)})`;
     case 'modification': {
+      /* 🔴 LOT TACHES-1-BIS — un contact ajouté, retiré ou remis à jour a sa propre ligne, et sa propre phrase. */
+      const a = t.apres ?? {};
+      if (typeof a.contactAjoute === 'string') return `Contact ajouté ${qui} (${a.contactAjoute})`;
+      if (typeof a.contactRetire === 'string') return `Contact retiré ${qui} (${a.contactRetire})`;
+      if (typeof a.contactMisAJour === 'string') return `Coordonnées mises à jour ${qui} (${a.contactMisAJour})`;
       const champs = Object.keys(t.apres ?? {}).map((k) => MOTS_CHAMPS[k] ?? k);
       return `Modifiée ${qui}${champs.length > 0 ? ` (${champs.join(', ')})` : ''}`;
     }

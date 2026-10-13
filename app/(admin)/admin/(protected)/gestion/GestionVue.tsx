@@ -1856,7 +1856,12 @@ export function GestionVue({ intro }: {
       {/* 🔴🔴 LOT TACHES-1 — LE RÉCAPITULATIF GÉNÉRAL DES TÂCHES, TOUT EN BAS DE L'ÉCRAN PARTAGÉ. C'est la seule place
           qui ne déplace, ne rétrécit ni ne masque rien : annuaire, boîte à gauche, événements à droite et « Échanges
           sans événement » restent exactement où ils étaient. L'adresse de chaque ligne ouvre la fiche du bien. */}
-      <TableauTaches onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }} />
+      <TableauTaches onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }}
+        /* 🔴 LOT TACHES-1-BIS — l'e-mail d'un contact de la tâche ouvre LE composeur « Nouveau message » de la boîte,
+           adresse pré-remplie, comme depuis l'annuaire (même garde : rédaction prête et envoi permis). Rien ne part. */
+        onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
+          ? (email) => { setEcrireA(email); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }
+          : undefined} />
       </>
       )}
     </>

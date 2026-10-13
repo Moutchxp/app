@@ -1420,7 +1420,8 @@ function VueLot({
           )}
           {/* 🔴🔴 LOT TACHES-1 — « + Tâche », À CÔTÉ de « Dossier Drive ↗ » (Arno), sans rien déplacer ni retirer.
               Ne rend rien tant que la migration 346 n'est pas appliquée. */}
-          <BoutonTache lotId={Number(f.id)} lotCle={f.numero} adresse={titreLogement(f.adresse, f.commune)} />
+          <BoutonTache lotId={Number(f.id)} lotCle={f.numero} adresse={titreLogement(f.adresse, f.commune)}
+            onEcrire={onEcrire === undefined ? undefined : (email) => onEcrire(email, { lotId: f.id })} />
         </div>
       </header>
 
@@ -1431,7 +1432,8 @@ function VueLot({
       {/* 🔴🔴 LOT TACHES-1 — SOUS L'EN-TÊTE, le récapitulatif des tâches DE CE BIEN, au code couleur commun. Posé
           APRÈS la bande orange « Événement en cours », qui garde sa place juste sous l'en-tête (épreuve
           `marquesApresReouverture.test.ts`). Aucune tâche ouverte ⇒ il ne rend rien, et seul le bouton se voit. */}
-      <RecapTachesDuBien lotId={Number(f.id)} />
+      <RecapTachesDuBien lotId={Number(f.id)}
+        onEcrire={onEcrire === undefined ? undefined : (email) => onEcrire(email, { lotId: f.id })} />
       {/* 🔴 LOT ANNUAIRE-SYNDICS — depuis la fiche du bien : la copropriété du bien est pré-remplie. */}
       <PastilleConflitParcelle immeuble={f.immeuble} />
       <BoutonSyndic immeuble={f.immeuble} dansLaFiche lotId={f.id} />

@@ -6,6 +6,10 @@ import {
   jourDecale, rappelsParDefaut, rappelsValides,
   type ActionTache, type EtatTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
+/* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
+import { contactsTacheDisponible } from './schema';
+import { contactsDuBienPourTache } from './contactsTacheRepo';
+import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache } from './contactsTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LE DÉPÔT DES TÂCHES (migration 346) ═══════════════════════════════════════════════════════
@@ -53,14 +57,21 @@ interface LigneTache {
   confiee_a: number | null; confiee_a_libelle: string;
   cree_le: Date; cree_par_libelle: string; maj_le: Date;
   faite_le: Date | null; faite_par_libelle: string | null; annulee_le: Date | null; annulee_par_libelle: string | null;
+  nb_contacts: number;
 }
+
+/** Le nombre de contacts copiés — nommé seulement quand la 347 est là, sinon 0 (une sonde voyage avec sa donnée). */
+const sqlTache = (avecContacts: boolean): string => SQL_TACHE.replace('__NB_CONTACTS__', avecContacts
+  ? '(SELECT count(*)::int FROM gestion_tache_contact c WHERE c.tache_id = t.id AND c.retire_le IS NULL)'
+  : '0');
 
 const SQL_TACHE = `
   SELECT t.id::int AS id, t.lot_id::int AS lot_id, l.wippimmo_id AS lot_cle, l.adresse, l.commune,
          t.evenement_id::int AS evenement_id, e.reference AS ev_reference, e.objet AS ev_objet,
          t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
          t.rappels, t.etat, t.confiee_a::int AS confiee_a, t.confiee_a_libelle,
-         t.cree_le, t.cree_par_libelle, t.maj_le, t.faite_le, t.faite_par_libelle, t.annulee_le, t.annulee_par_libelle
+         t.cree_le, t.cree_par_libelle, t.maj_le, t.faite_le, t.faite_par_libelle, t.annulee_le, t.annulee_par_libelle,
+         __NB_CONTACTS__ AS nb_contacts
     FROM gestion_tache t
     JOIN gestion_annuaire_lot l ON l.id = t.lot_id
     LEFT JOIN gestion_evenement e ON e.id = t.evenement_id`;
@@ -77,6 +88,7 @@ function versTache(r: LigneTache): Tache {
     creeLe: iso(r.cree_le) ?? '', creeParLibelle: r.cree_par_libelle, majLe: iso(r.maj_le) ?? '',
     faiteLe: iso(r.faite_le), faiteParLibelle: r.faite_par_libelle,
     annuleeLe: iso(r.annulee_le), annuleeParLibelle: r.annulee_par_libelle,
+    nbContacts: Number(r.nb_contacts ?? 0),
   };
 }
 
@@ -90,20 +102,22 @@ export const OUVERTES_MAX = 1000;
  * celles de tous les biens (récapitulatif général).
  */
 export async function listerTaches(lotId: number | null): Promise<{ taches: Tache[]; tronque: boolean }> {
+  const SQL = sqlTache(await contactsTacheDisponible());
   const [o, t] = await Promise.all([
     query<LigneTache>(
-      `${SQL_TACHE} WHERE t.etat = 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)
+      `${SQL} WHERE t.etat = 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)
         ORDER BY t.jour, t.heure NULLS FIRST, t.id LIMIT ${OUVERTES_MAX + 1}`, [lotId]),
     query<LigneTache>(
-      `${SQL_TACHE} WHERE t.etat <> 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)
+      `${SQL} WHERE t.etat <> 'a_faire' AND ($1::bigint IS NULL OR t.lot_id = $1)
         ORDER BY coalesce(t.faite_le, t.annulee_le, t.maj_le) DESC, t.id DESC LIMIT ${TERMINEES_MAX}`, [lotId]),
   ]);
   const tronque = o.rows.length > OUVERTES_MAX;
   return { taches: [...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache), tronque };
 }
 
-export async function lireTache(id: number): Promise<{ tache: Tache; traces: TraceTache[] } | null> {
-  const { rows } = await query<LigneTache>(`${SQL_TACHE} WHERE t.id = $1`, [id]);
+export async function lireTache(id: number): Promise<{ tache: Tache; traces: TraceTache[]; contacts: ContactTache[] } | null> {
+  const avecContacts = await contactsTacheDisponible();
+  const { rows } = await query<LigneTache>(`${sqlTache(avecContacts)} WHERE t.id = $1`, [id]);
   if (rows.length === 0) return null;
   const tr = await query<{ action: ActionTache; avant: Record<string, unknown> | null; apres: Record<string, unknown> | null; survenu_le: Date; auteur_libelle: string }>(
     `SELECT action, avant, apres, survenu_le, auteur_libelle FROM gestion_tache_action
@@ -113,7 +127,94 @@ export async function lireTache(id: number): Promise<{ tache: Tache; traces: Tra
     traces: tr.rows.map((r) => ({
       action: r.action, avant: r.avant, apres: r.apres, survenuLe: iso(r.survenu_le) ?? '', auteurLibelle: r.auteur_libelle,
     })),
+    contacts: avecContacts ? await contactsCopies(id) : [],
   };
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT TACHES-1-BIS — LES CONTACTS COPIÉS DANS UNE TÂCHE (migration 347)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+interface LigneContact {
+  cle: string; famille: string; nom: string; qualite: string | null; organisation: string | null; adresse: string | null;
+  coordonnees: unknown; copie_le: Date;
+}
+
+/** Les contacts ACTIFS d'une tâche, tels qu'ils ont été copiés (et quand). */
+export async function contactsCopies(tacheId: number, q: RequeteTx = query): Promise<ContactTache[]> {
+  const { rows } = await q<LigneContact>(
+    `SELECT cle, famille, nom, qualite, organisation, adresse, coordonnees, copie_le
+       FROM gestion_tache_contact WHERE tache_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [tacheId]);
+  return rows.filter((r) => estFamille(r.famille)).map((r) => ({
+    cle: r.cle, famille: r.famille as ContactTache['famille'], nom: r.nom, qualite: r.qualite,
+    organisation: r.organisation, adresse: r.adresse, coordonnees: coordonneesLisibles(r.coordonnees),
+    copieLe: iso(r.copie_le) ?? '',
+  }));
+}
+
+/**
+ * ALIGNE les contacts actifs d'une tâche sur les clés cochées, dans la transaction du geste :
+ *   · une clé nouvelle ⇒ une COPIE datée, prise dans la fiche d'aujourd'hui (`sources`), et une trace ;
+ *   · une clé décochée ⇒ la ligne est marquée RETIRÉE (jamais effacée), et une trace ;
+ *   · une clé déjà là ⇒ rien : sa copie garde sa date (« Mettre à jour » est un geste à part) ;
+ *   · une clé inconnue de la fiche et absente de la tâche ⇒ ignorée (on ne copie pas ce qu'on ne peut pas lire).
+ */
+async function synchroniserContacts(
+  q: RequeteTx, tacheId: number, cles: readonly string[], sources: readonly ContactSource[], auteur: Auteur, nom: string,
+): Promise<void> {
+  const actifs = await contactsCopies(tacheId, q);
+  const voulues = new Set(cles);
+  for (const c of actifs) {
+    if (voulues.has(c.cle)) continue;
+    await q(`UPDATE gestion_tache_contact SET retire_le = now(), retire_par_libelle = $3
+              WHERE tache_id = $1 AND cle = $2 AND retire_le IS NULL`, [tacheId, c.cle, nom]);
+    await tracer(q, tacheId, 'modification', { contact: c.cle }, { contactRetire: c.nom }, auteur, nom);
+  }
+  const presentes = new Set(actifs.map((c) => c.cle));
+  let rang = actifs.length;
+  for (const cle of cles) {
+    if (presentes.has(cle)) continue;
+    const s = sources.find((x) => x.cle === cle);
+    if (s === undefined) continue;
+    rang += 1;
+    await q(
+      `INSERT INTO gestion_tache_contact (tache_id, cle, famille, nom, qualite, organisation, adresse, coordonnees, rang,
+                                          ajoute_par_libelle)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)`,
+      [tacheId, s.cle, s.famille, s.nom, s.qualite, s.organisation, s.adresse, JSON.stringify(s.coordonnees), rang, nom]);
+    await tracer(q, tacheId, 'modification', null, { contactAjoute: s.nom }, auteur, nom);
+  }
+}
+
+/** Les contacts du bien, lus AVANT la transaction (la lecture est longue et n'écrit rien). `null` = ne rien toucher. */
+async function sourcesPour(lotId: number, s: SaisieTache): Promise<ContactSource[] | null> {
+  if (s.contacts === undefined || !(await contactsTacheDisponible())) return null;
+  return contactsDuBienPourTache(lotId);
+}
+
+/**
+ * « METTRE À JOUR » la copie d'un contact : la fiche a changé depuis, on recopie ce qu'elle dit aujourd'hui, avec
+ * la date du jour, et on le trace. Un contact qui n'est plus lié au bien ne se met pas à jour — sa copie reste.
+ */
+export async function actualiserContact(id: number, cle: string, auteur: Auteur): Promise<IssueTache> {
+  if (!(await contactsTacheDisponible())) return { ok: false, statut: 503, motif: 'Contacts non installés (migration 347).' };
+  const { rows } = await query<{ lot_id: number }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
+  if (rows.length === 0) return INTROUVABLE;
+  const s = (await contactsDuBienPourTache(Number(rows[0].lot_id))).find((x) => x.cle === cle);
+  if (s === undefined) return { ok: false, statut: 409, motif: 'Ce contact n’est plus lié au bien : ses coordonnées restent celles copiées.' };
+  return withTransaction(async (q) => {
+    const t = await lirePourGeste(q, id);
+    if (t === null) return INTROUVABLE;
+    const nom = await nomAuteur(q, auteur);
+    const r = await q(
+      `UPDATE gestion_tache_contact SET nom = $3, qualite = $4, organisation = $5, adresse = $6, coordonnees = $7::jsonb,
+              famille = $8, copie_le = now()
+        WHERE tache_id = $1 AND cle = $2 AND retire_le IS NULL`,
+      [id, cle, s.nom, s.qualite, s.organisation, s.adresse, JSON.stringify(s.coordonnees), s.famille]);
+    if ((r.rowCount ?? 0) === 0) return { ok: false, statut: 404, motif: 'Ce contact n’est pas dans la tâche.' };
+    await tracer(q, id, 'modification', { contact: cle }, { contactMisAJour: s.nom }, auteur, nom);
+    return { ok: true, id };
+  });
 }
 
 export type IssueTache = { ok: true; id: number } | { ok: false; statut: number; motif: string };
@@ -143,6 +244,7 @@ async function evenementExiste(q: RequeteTx, id: number | null): Promise<boolean
 
 /** CRÉER une tâche sur un bien. La saisie a déjà été vérifiée par `erreurSaisie` (route). */
 export async function creerTache(lotId: number, s: SaisieTache, auteur: Auteur): Promise<IssueTache> {
+  const sources = await sourcesPour(lotId, s);
   return withTransaction(async (q) => {
     const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
     if (lot.rows.length === 0) return { ok: false, statut: 404, motif: 'Bien introuvable.' };
@@ -161,6 +263,7 @@ export async function creerTache(lotId: number, s: SaisieTache, auteur: Auteur):
     await tracer(q, id, 'creation', null, {
       objet: s.objet.trim(), jour: s.jour, heure: s.heure, confieeA: c.libelle, evenementId: s.evenementId, rappels,
     }, auteur, nom);
+    if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
     return { ok: true, id };
   });
 }
@@ -168,13 +271,14 @@ export async function creerTache(lotId: number, s: SaisieTache, auteur: Auteur):
 const vide = (x: string | null): string | null => ((x ?? '').trim() === '' ? null : (x ?? '').trim());
 
 interface Courante {
+  lot_id: number;
   etat: EtatTache; objet: string; note: string | null; jour: string; heure: string | null; rappels: Rappel[];
   confiee_a: number | null; confiee_a_libelle: string; evenement_id: number | null;
 }
 
 async function lirePourGeste(q: RequeteTx, id: number): Promise<Courante | null> {
   const { rows } = await q<Courante>(
-    `SELECT etat, objet, note, to_char(jour, 'YYYY-MM-DD') AS jour, to_char(heure, 'HH24:MI') AS heure, rappels,
+    `SELECT lot_id::int AS lot_id, etat, objet, note, to_char(jour, 'YYYY-MM-DD') AS jour, to_char(heure, 'HH24:MI') AS heure, rappels,
             confiee_a::int AS confiee_a, confiee_a_libelle, evenement_id::int AS evenement_id
        FROM gestion_tache WHERE id = $1 FOR UPDATE`, [id]);
   return rows[0] ?? null;
@@ -259,6 +363,8 @@ export async function decalerTache(
  * modification qui ne change rien n'écrit rien.
  */
 export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur): Promise<IssueTache> {
+  const lot = await query<{ lot_id: number }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
+  const sources = lot.rows.length === 0 ? null : await sourcesPour(Number(lot.rows[0].lot_id), s);
   return withTransaction(async (q) => {
     const t = await lirePourGeste(q, id);
     if (t === null) return INTROUVABLE;
@@ -284,8 +390,9 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
         apres[k] = k === 'confieeA' ? c.libelle : nouveau[k];
       }
     }
-    if (Object.keys(apres).length === 0) return { ok: true, id };
     const nom = await nomAuteur(q, auteur);
+    if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
+    if (Object.keys(apres).length === 0) return { ok: true, id };
     await q(
       `UPDATE gestion_tache SET objet = $2, note = $3, jour = $4::date, heure = $5::time, confiee_a = $6,
               confiee_a_libelle = $7, evenement_id = $8, rappels = $9::jsonb, maj_le = now() WHERE id = $1`,

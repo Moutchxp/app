@@ -3,13 +3,15 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   cleRappel, dateLisibleTache, erreurSaisie, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
-  type Rappel, type Tache, type TraceTache,
+  type Rappel,
 } from '../../../../lib/gestion/taches';
+import { blocContacts, type ContactSource } from '../../../../lib/gestion/contactsTache';
 import {
-  agirSurTache, creerTache, lireCollaborateurs, lireDetailTache, lireEvenementsDuBien,
-  type CollaborateurEcran, type SaisieEcran,
+  agirSurTache, creerTache, lireCollaborateurs, lireContactsDuBien, lireDetailTache, lireEvenementsDuBien,
+  type CollaborateurEcran, type DetailTache, type SaisieEcran,
 } from './tachesClient';
 import { CSS_TACHES } from './LigneTache';
+import { ChoixContacts, ContactsAffiches, CSS_CONTACTS_TACHE, type ContactPropose } from './ContactsTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LA FENÊTRE D'UNE TÂCHE : CRÉER, ET LE DÉTAIL (MODIFIER, ANNULER, ROUVRIR) ═══════════════
@@ -28,15 +30,29 @@ import { CSS_TACHES } from './LigneTache';
  * 🔴 ANNULER DEMANDE UNE CONFIRMATION, DANS LA FENÊTRE (pas de boîte du navigateur) ; une tâche annulée reste en
  * base, grisée, avec sa trace — et « Rouvrir » la remet à faire.
  *
+ * ══ 🔴🔴 LOT TACHES-1-BIS — LES CONTACTS DU BIEN DANS LA TÂCHE ═══════════════════════════════════════════════════
+ * Section « Contacts de la tâche » entre « Événement du bien lié » et « Rappels » (aucun coché par défaut). Sous la
+ * note, l'aperçu du bloc « Contacts » GÉNÉRÉ : il se refait à chaque case, et la note n'est jamais touchée. Dans le
+ * détail, les contacts copiés avec leurs liens (tel:, Nouveau message) et « Mettre à jour » quand la fiche a changé.
+ * Sans la migration 347 (contacts illisibles), rien de tout cela ne s'affiche : la fenêtre est celle du lot 1.
+ *
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 export type ModeFenetre =
   | { sorte: 'creer'; lotId: number; lotCle: string; adresse: string }
   | { sorte: 'detail'; id: number };
 
-export function FenetreTache({ mode, onFermer }: { mode: ModeFenetre; onFermer: () => void }) {
+export function FenetreTache({ mode, onFermer, onEcrire }: {
+  mode: ModeFenetre;
+  onFermer: () => void;
+  /** Ouvre le composeur « Nouveau message » avec l'adresse pré-remplie. Rien n'est envoyé. Absent ⇒ adresse en texte. */
+  onEcrire?: (email: string) => void;
+}) {
   const [collab, setCollab] = useState<{ liste: CollaborateurEcran[]; moi: number | null } | null>(null);
-  const [detail, setDetail] = useState<{ tache: Tache; traces: TraceTache[] } | null>(null);
+  const [detail, setDetail] = useState<DetailTache | null>(null);
+  /** 🔴 LOT TACHES-1-BIS — les contacts du bien (fiche d'aujourd'hui) ; `null` ⇒ section absente. */
+  const [sources, setSources] = useState<ContactSource[] | null>(null);
+  const [choisis, setChoisis] = useState<string[]>([]);
   const [evenements, setEvenements] = useState<{ id: number; reference: string; objet: string; ouvert: boolean }[]>([]);
   const [saisie, setSaisie] = useState<SaisieEcran>(() => ({
     objet: '', jour: jourParisDe(new Date()), heure: null, note: '', confieeA: null, evenementId: null,
@@ -76,6 +92,7 @@ export function FenetreTache({ mode, onFermer }: { mode: ModeFenetre; onFermer: 
           objet: t.objet, jour: t.jour, heure: t.heure, note: t.note ?? '', confieeA: t.confieeA,
           evenementId: t.evenement?.id ?? null, rappels: t.rappels,
         });
+        setChoisis(d.contacts.map((c) => c.cle));
       }
     })();
     return () => { annule = true; };
@@ -89,6 +106,14 @@ export function FenetreTache({ mode, onFermer }: { mode: ModeFenetre; onFermer: 
     void lireEvenementsDuBien(lotCle).then((e) => { if (!annule) setEvenements(e); });
     return () => { annule = true; };
   }, [lotCle]);
+
+  const lotId = mode.sorte === 'creer' ? mode.lotId : detail?.tache.lotId ?? null;
+  useEffect(() => {
+    if (lotId === null) return;
+    let annule = false;
+    void lireContactsDuBien(lotId).then((c) => { if (!annule) setSources(c); });
+    return () => { annule = true; };
+  }, [lotId, version]);
 
   useEffect(() => { premier.current?.focus(); }, []);
   useEffect(() => {
@@ -114,20 +139,47 @@ export function FenetreTache({ mode, onFermer }: { mode: ModeFenetre; onFermer: 
     return { ...s, rappels: deja ? s.rappels.filter((x) => cleRappel(x) !== k) : [...s.rappels, r] };
   });
 
+  /* 🔴 LOT TACHES-1-BIS — ce qu'on propose à la case : la fiche d'aujourd'hui, PLUS les contacts déjà copiés qui n'y
+     sont plus (syndic changé, locataire sorti) — leur copie reste lisible et décochable, rien ne s'efface. */
+  const copies = detail?.contacts ?? [];
+  const proposes: ContactPropose[] = sources === null ? [] : [
+    ...sources,
+    ...copies.filter((c) => !sources.some((x) => x.cle === c.cle)).map((c) => ({ ...c, plusLie: true })),
+  ];
+  /* Le bloc « Contacts » tel qu'il sera écrit : la COPIE pour un contact déjà dans la tâche, la fiche sinon. */
+  const pourLeBloc = choisis
+    .map((cle) => copies.find((c) => c.cle === cle) ?? sources?.find((c) => c.cle === cle))
+    .filter((c): c is ContactSource => c !== undefined);
+  const basculerContact = (cle: string) =>
+    setChoisis((l) => (l.includes(cle) ? l.filter((x) => x !== cle) : [...l, cle]));
+
   const enregistrer = async () => {
     const erreur = erreurSaisie(saisie);
     if (erreur !== null) { setMessage({ ok: false, texte: erreur }); return; }
     setOccupe(true);
     setMessage(null);
+    // Les contacts ne voyagent que si la section existe : sans elle, ils ne sont pas touchés.
+    const envoi: SaisieEcran = sources === null ? saisie : { ...saisie, contacts: choisis };
     const r = mode.sorte === 'creer'
-      ? await creerTache(mode.lotId, saisie)
-      : await agirSurTache(mode.id, { geste: 'modifier', ...saisie });
+      ? await creerTache(mode.lotId, envoi)
+      : await agirSurTache(mode.id, { geste: 'modifier', ...envoi });
     setOccupe(false);
     if (!r.ok) { setMessage({ ok: false, texte: r.message }); return; }
     if (mode.sorte === 'creer') { onFermer(); return; }
     setMessage({ ok: true, texte: r.message });
     setVersion((v) => v + 1);
   };
+
+  const mettreAJour = async (cle: string) => {
+    if (mode.sorte !== 'detail') return;
+    setOccupe(true);
+    setMessage(null);
+    const r = await agirSurTache(mode.id, { geste: 'actualiserContact', cle });
+    setOccupe(false);
+    setMessage({ ok: r.ok, texte: r.message });
+    if (r.ok) setVersion((v) => v + 1);
+  };
+  const ecrire = onEcrire === undefined ? undefined : (email: string) => { onFermer(); onEcrire(email); };
 
   const geste = async (g: 'annuler' | 'rouvrir') => {
     setOccupe(true);
@@ -144,7 +196,7 @@ export function FenetreTache({ mode, onFermer }: { mode: ModeFenetre; onFermer: 
 
   return (
     <div className="tchf-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
-      <style>{CSS_TACHES}{CSS_FENETRE}</style>
+      <style>{CSS_TACHES}{CSS_FENETRE}{CSS_CONTACTS_TACHE}</style>
       <div className="tchf" role="dialog" aria-modal="true" aria-labelledby="tchf-titre">
         <header className="tchf-tete">
           <h2 className="tchf-titre" id="tchf-titre">
@@ -209,6 +261,9 @@ export function FenetreTache({ mode, onFermer }: { mode: ModeFenetre; onFermer: 
               )}
             </select>
           </label>
+          {sources !== null && (
+            <ChoixContacts proposes={proposes} choisis={choisis} onBasculer={basculerContact} desactive={lectureSeule} />
+          )}
           <fieldset className="tchf-rappels" disabled={lectureSeule}>
             <legend className="tch-etiquette">Rappels</legend>
             {rappelsProposes(saisie.heure !== null).map((r) => (
@@ -224,6 +279,19 @@ export function FenetreTache({ mode, onFermer }: { mode: ModeFenetre; onFermer: 
             <textarea rows={3} value={saisie.note} maxLength={5000} disabled={lectureSeule}
               onChange={(e) => setSaisie((s) => ({ ...s, note: e.target.value }))} />
           </label>
+          {/* 🔴 LOT TACHES-1-BIS — le bloc « Contacts » GÉNÉRÉ, à la suite de la note : texte de la tâche = note +
+              ce bloc. Il se refait à chaque case cochée ou décochée ; la note, au-dessus, n'est jamais touchée. */}
+          {sources !== null && pourLeBloc.length > 0 && (
+            <div className="tchf-champ">
+              <span className="tch-etiquette">Texte de la tâche — bloc « Contacts » (généré)</span>
+              <pre className="tchc-apercu" data-bloc-contacts>{blocContacts(pourLeBloc)}</pre>
+            </div>
+          )}
+
+          {detail !== null && (
+            <ContactsAffiches contacts={detail.contacts} sources={sources} onEcrire={ecrire}
+              onMettreAJour={terminee ? undefined : (cle) => void mettreAJour(cle)} occupe={occupe} />
+          )}
 
           {detail !== null && detail.traces.length > 0 && (
             <section className="tchf-trace" aria-label="Historique de la tâche">

@@ -22,7 +22,7 @@ const base = (p: Partial<Tache>): Tache => ({
   id: 0, lotId: 10, lotCle: '315', adresseBien: '12 rue des Lilas, Paris', evenement: null, objet: '', note: null,
   jour: AUJ, heure: null, rappels: [], etat: 'a_faire', confieeA: 1, confieeALibelle: 'Arno Jorel',
   creeLe: '2026-10-01T08:00:00.000Z', creeParLibelle: 'Arno Jorel', majLe: '2026-10-01T08:00:00.000Z',
-  faiteLe: null, faiteParLibelle: null, annuleeLe: null, annuleeParLibelle: null, ...p,
+  faiteLe: null, faiteParLibelle: null, annuleeLe: null, annuleeParLibelle: null, nbContacts: 0, ...p,
 });
 
 let taches: Tache[];

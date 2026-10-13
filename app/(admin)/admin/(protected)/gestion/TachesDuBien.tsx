@@ -22,7 +22,11 @@ import { ecouterTaches, lireTaches } from './tachesClient';
  */
 
 /** Le bouton « + Tâche » et sa fenêtre de création. Ne rend rien tant que les tâches ne sont pas installées. */
-export function BoutonTache({ lotId, lotCle, adresse }: { lotId: number; lotCle: string; adresse: string }) {
+export function BoutonTache({ lotId, lotCle, adresse, onEcrire }: {
+  lotId: number; lotCle: string; adresse: string;
+  /** 🔴 LOT TACHES-1-BIS — ouvre le composeur « Nouveau message », adresse pré-remplie, sans rien envoyer. */
+  onEcrire?: (email: string) => void;
+}) {
   const [installe, setInstalle] = useState(false);
   const [ouvert, setOuvert] = useState(false);
   useEffect(() => {
@@ -37,14 +41,14 @@ export function BoutonTache({ lotId, lotCle, adresse }: { lotId: number; lotCle:
         + Tâche
       </button>
       {ouvert && (
-        <FenetreTache mode={{ sorte: 'creer', lotId, lotCle, adresse }} onFermer={() => setOuvert(false)} />
+        <FenetreTache mode={{ sorte: 'creer', lotId, lotCle, adresse }} onFermer={() => setOuvert(false)} onEcrire={onEcrire} />
       )}
     </>
   );
 }
 
 /** Le récapitulatif des tâches DE CE BIEN. Rien quand il n'y a aucune tâche ouverte. */
-export function RecapTachesDuBien({ lotId }: { lotId: number }) {
+export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire?: (email: string) => void }) {
   const maintenant = useMaintenant();
   const [taches, setTaches] = useState<Tache[] | null>(null);
   const [detail, setDetail] = useState<number | null>(null);
@@ -58,7 +62,7 @@ export function RecapTachesDuBien({ lotId }: { lotId: number }) {
   useEffect(() => { void charger(); }, [charger]);
   useEffect(() => ecouterTaches(() => { void charger(); }), [charger]);
 
-  const fenetre = detail !== null && <FenetreTache mode={{ sorte: 'detail', id: detail }} onFermer={() => setDetail(null)} />;
+  const fenetre = detail !== null && <FenetreTache mode={{ sorte: 'detail', id: detail }} onFermer={() => setDetail(null)} onEcrire={onEcrire} />;
   if (taches === null) return null;
   const { ouvertes, terminees } = repartirTaches(taches, maintenant);
   if (ouvertes.length === 0) return fenetre || null;

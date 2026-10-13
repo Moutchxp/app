@@ -25,7 +25,11 @@ import { ecouterTaches, lireTaches } from './tachesClient';
  *
  * ⚠️ SANS LA MIGRATION 346, NE REND RIEN. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
-export function TableauTaches({ onOuvrirBien }: { onOuvrirBien: (lotId: number) => void }) {
+export function TableauTaches({ onOuvrirBien, onEcrire }: {
+  onOuvrirBien: (lotId: number) => void;
+  /** 🔴 LOT TACHES-1-BIS — ouvre le composeur « Nouveau message », adresse pré-remplie, sans rien envoyer. */
+  onEcrire?: (email: string) => void;
+}) {
   const maintenant = useMaintenant();
   const [donnees, setDonnees] = useState<{ taches: Tache[]; moi: number | null; tronque: boolean } | null>(null);
   const [installe, setInstalle] = useState(true);
@@ -93,7 +97,7 @@ export function TableauTaches({ onOuvrirBien }: { onOuvrirBien: (lotId: number) 
           </ul>
         </details>
       )}
-      {detail !== null && <FenetreTache mode={{ sorte: 'detail', id: detail }} onFermer={() => setDetail(null)} />}
+      {detail !== null && <FenetreTache mode={{ sorte: 'detail', id: detail }} onFermer={() => setDetail(null)} onEcrire={onEcrire} />}
     </section>
   );
 }

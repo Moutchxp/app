@@ -91,6 +91,10 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         )}
         <span className="tch-confiee">→ {tache.confieeALibelle}</span>
         {tache.evenement !== null && <span className="tch-ev">{tache.evenement.reference}</span>}
+        {/* 🔴 LOT TACHES-1-BIS — dans les listes, un simple indicateur ; le détail montre les coordonnées. */}
+        {(tache.nbContacts ?? 0) > 0 && (
+          <span className="tch-contacts">👤 {tache.nbContacts} contact{tache.nbContacts > 1 ? 's' : ''}</span>
+        )}
         {fin !== null && <span className="tch-fin">{fin}</span>}
       </div>
       {!terminee && (
