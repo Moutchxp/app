@@ -30,7 +30,7 @@ const { ENVOIS_FACTICES, transportParDefaut, transportFactice } = await import('
 const q = (...a: unknown[]) => queryMock(...(a as [string, unknown[]]));
 const ARNO = { id: 2, libelle: 'a.jorel@sansvisavis.com' };
 
-beforeEach(() => { appels = []; ENVOIS_FACTICES.length = 0; envoiActive = false; process.env.SITE_URL = 'https://app.test'; });
+beforeEach(() => { appels = []; ENVOIS_FACTICES.length = 0; envoiActive = false; process.env.GESTION_URL_APPLICATION = 'https://app.test'; process.env.SITE_URL = 'https://vieux-tunnel.trycloudflare.com'; });
 
 describe('🔴 la demande', () => {
   it('confiée à moi : acceptée d’office, aucun jeton', async () => {
@@ -68,5 +68,17 @@ describe('🔴 le mail : aucun vrai envoi', () => {
     expect(m.messageId).toMatch(/^<tache-acceptation\.[0-9a-f]+@criterimmo\.fr>$/);
     expect(m.corps).toContain('Accepter : https://app.test/admin/taches?j=JETON&d=accepter');
     expect(m.corps).toContain('Clés chez le gardien');
+    // 🔴 LOT AGENDA-TITRE-ET-LIENS — la base UNIQUE (GESTION_URL_APPLICATION), jamais le tunnel de SITE_URL.
+    expect(m.corps).not.toContain('trycloudflare');
+    expect(m.corps).not.toContain('lien valable sur l’ordinateur');
+  });
+  it('🔴 sans adresse fixe : liens vers localhost, avec la mention ; jamais le tunnel', async () => {
+    envoiActive = true;
+    delete process.env.GESTION_URL_APPLICATION;
+    expect(await envoyerDemande(41, 'JETON')).toBe('factice');
+    const m = ENVOIS_FACTICES[0];
+    expect(m.corps).toContain('Accepter : http://localhost:3000/admin/taches?j=JETON&d=accepter');
+    expect(m.corps).toContain('(lien valable sur l’ordinateur où tourne l’application)');
+    expect(m.corps).not.toContain('trycloudflare');
   });
 });

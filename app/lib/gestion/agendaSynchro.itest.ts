@@ -62,10 +62,10 @@ describe('🔴 le vrai SQL', () => {
 
     await marquerFaite(c.id, MOI);
     await synchroniserApresGeste(c.id);
-    expect(String(faux.agendas.get('a@sansvisavis.com')?.get(e1.google_evenement_id!)?.summary)).toMatch(/^✓ Gestion — /);
+    expect(String(faux.agendas.get('a@sansvisavis.com')?.get(e1.google_evenement_id!)?.summary)).toMatch(/^✓ Tâche gestion — /);
     await rouvrirTache(c.id, MOI);
     await synchroniserApresGeste(c.id);
-    expect(String(faux.agendas.get('a@sansvisavis.com')?.get(e1.google_evenement_id!)?.summary)).toMatch(/^Gestion — /);
+    expect(String(faux.agendas.get('a@sansvisavis.com')?.get(e1.google_evenement_id!)?.summary)).toMatch(/^Tâche gestion — /);
 
     await annulerTache(c.id, MOI);
     await synchroniserApresGeste(c.id);

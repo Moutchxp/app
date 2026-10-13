@@ -119,6 +119,8 @@ export interface ContenuDemande {
   lienAccepter: string;
   lienRefuser: string;
   expireLe: string;
+  /** 🔴 LOT AGENDA-TITRE-ET-LIENS — « (lien valable sur l'ordinateur où tourne l'application) » quand la base est locale. */
+  mentionLiens?: string;
 }
 
 /** Le corps du mail, en texte et en HTML, avec deux boutons « Accepter » et « Refuser ». PUR. */
@@ -138,6 +140,7 @@ export function corpsDemande(c: ContenuDemande): { texte: string; html: string }
     '',
     `Accepter : ${c.lienAccepter}`,
     `Refuser : ${c.lienRefuser}`,
+    ...(c.mentionLiens ? [c.mentionLiens] : []),
     '',
     `Ces liens sont personnels, utilisables une seule fois, jusqu’au ${c.expireLe}. Il faut être connecté à l’application.`,
   ].join('\n');
@@ -157,6 +160,7 @@ export function corpsDemande(c: ContenuDemande): { texte: string; html: string }
     c.pieces.length === 0 ? '' : `<p>Pièces jointes (Drive) :</p><ul>${c.pieces.map((p) => `<li>${p.lien
       ? `<a href="${echapper(p.lien)}">${echapper(p.nom)}</a>` : echapper(p.nom)}</li>`).join('')}</ul>`,
     `<p>${bouton(c.lienAccepter, 'Accepter', '#2e7d32')}${bouton(c.lienRefuser, 'Refuser', '#a30402')}</p>`,
+    c.mentionLiens ? `<p style="color:#666;font-size:12px">${echapper(c.mentionLiens)}</p>` : '',
     `<p style="color:#666;font-size:12px">Ces liens sont personnels, utilisables une seule fois, jusqu’au ${echapper(c.expireLe)}. `
       + 'Il faut être connecté à l’application.</p>',
   ].filter((x) => x !== '').join('\n');

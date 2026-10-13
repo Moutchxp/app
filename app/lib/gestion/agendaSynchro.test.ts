@@ -47,6 +47,12 @@ const queryMock = vi.fn(async (sql: string, params: unknown[] = []) => {
       synchro_prochain_essai: null, synchro_etat: String(t.synchro_version) === params[3] ? params[4] : 'a_envoyer' });
     return { rows: [] };
   }
+  if (s.includes('SELECT DISTINCT lower(a) AS a FROM')) {
+    return { rows: [...new Set([...taches.values()].map((x) => x.google_agenda).filter(Boolean))].map((a) => ({ a })) };
+  }
+  if (s.includes('SELECT id::int AS id, google_evenement_id AS ev FROM gestion_tache')) {
+    return { rows: [...taches.values()].filter((x) => x.google_evenement_id !== null).map((x) => ({ id: x.id, ev: x.google_evenement_id })) };
+  }
   if (s.includes("SELECT id::int AS id FROM gestion_tache WHERE synchro_etat IN ('a_envoyer', 'echec')")) {
     return { rows: [...taches.values()].filter((x) => ['a_envoyer', 'echec'].includes(x.synchro_etat)
       && (x.synchro_prochain_essai === null || x.synchro_prochain_essai <= Date.now())).map((x) => ({ id: x.id })) };
@@ -112,7 +118,7 @@ describe('🔴 règle 1 — confiée à soi-même : dans son agenda dès la cré
     tache(41);
     expect(await geste(41)).toMatchObject({ etat: 'ok', place: { sorte: 'present' } });
     const [ev] = evenements(ARNO);
-    expect(ev.summary).toBe('Gestion — 7 avenue de l’Union — _TEST agenda');
+    expect(ev.summary).toBe('Tâche gestion — _TEST agenda — 7 avenue de l’Union');
     expect(ev.visibility).toBe('private');
     expect(ev.start).toEqual({ date: '2026-10-14' });
     expect(taches.get(41)).toMatchObject({ synchro_etat: 'envoyee', google_agenda: ARNO, google_evenement_id: ev.id });
@@ -126,9 +132,9 @@ describe('🔴 règle 1 — confiée à soi-même : dans son agenda dès la cré
     expect(evenements(ARNO)).toHaveLength(1);
     expect(evenements(ARNO)[0]).toMatchObject({ id, start: { date: '2026-10-15' }, end: { date: '2026-10-16' } });
     await geste(41, { objet: 'Visite', heure: '09:30', duree_minutes: 90 });
-    expect(evenements(ARNO)[0]).toMatchObject({ id, summary: 'Gestion — 7 avenue de l’Union — Visite', end: { dateTime: '2026-10-15T11:00:00' } });
+    expect(evenements(ARNO)[0]).toMatchObject({ id, summary: 'Tâche gestion — Visite — 7 avenue de l’Union', end: { dateTime: '2026-10-15T11:00:00' } });
     await geste(41, { etat: 'faite' });
-    expect(evenements(ARNO)[0]).toMatchObject({ id, summary: '✓ Gestion — 7 avenue de l’Union — Visite' });
+    expect(evenements(ARNO)[0]).toMatchObject({ id, summary: '✓ Tâche gestion — Visite — 7 avenue de l’Union' });
     await geste(41, { etat: 'annulee' });
     expect(evenements(ARNO)).toEqual([]);
     expect(taches.get(41)).toMatchObject({ synchro_etat: 'retiree', google_evenement_id: null });
@@ -214,7 +220,7 @@ describe('🔴🔴 garde-fou : aucun événement étranger touché', () => {
       adresse: null, codePostal: null, commune: null, pieces: [] }, { motRappel: () => '' }));
     await geste(48);
     expect(evenements(ARNO)).toHaveLength(1);
-    expect(evenements(ARNO)[0].summary).toBe('Gestion — 7 avenue de l’Union — _TEST agenda');
+    expect(evenements(ARNO)[0].summary).toBe('Tâche gestion — _TEST agenda — 7 avenue de l’Union');
   });
 });
 
@@ -228,6 +234,41 @@ describe('🔴 LOT FICHE-CARTE-4-BLOCS — « Envoyer » une tâche créée avan
     expect(fauxGoogleDesTests().appels.slice(avant).some((x) => x.methode === 'POST')).toBe(true);
     expect(taches.get(60)).toMatchObject({ synchro_etat: 'envoyee', google_agenda: ARNO });
     expect((await complementsAgenda([60])).get(60)?.agendaCarte?.etat).toBe('dans_agenda');
+  });
+});
+
+describe('🔴 LOT AGENDA-TITRE-ET-LIENS — rattrapage des événements déjà posés', () => {
+  it('liste SEULEMENT nos événements ; met à jour ceux rattachés à leur tâche ; ne touche à rien d’autre', async () => {
+    const { rattraperAgenda } = await import('./agendaSynchroRepo');
+    const { construireEvenement } = await import('./agendaTache');
+    const ancien = (id: number, objet: string) => ({
+      ...construireEvenement({ id, objet, texte: '', jour: '2026-10-16', heure: null, dureeMinutes: null, rappels: [], faite: false,
+        lotId: 27, adresse: '7 avenue de l’Union', codePostal: null, commune: null, pieces: [] }, { motRappel: () => '' }),
+      summary: `Gestion — 7 avenue de l’Union — ${objet}`,
+      description: 'Fiche du bien : https://freight-trusts-supreme-sense.trycloudflare.com/admin/gestion?ecran=annuaire&fiche=lot-27',
+    });
+    const e70 = (await porte.creer(ARNO, 70, ancien(70, 'test 2'))) as { id: string };
+    const e71 = (await porte.creer(ARNO, 71, ancien(71, 'test 4 rdv'))) as { id: string };
+    const orphelin = (await porte.creer(ARNO, 99, ancien(99, 'orpheline'))) as { id: string }; // marqué, mais aucune tâche ne le réclame
+    tache(70, { objet: 'test 2', google_agenda: ARNO, google_evenement_id: e70.id, synchro_etat: 'envoyee' });
+    tache(71, { objet: 'test 4 rdv', jour: '2026-10-16', heure: '16:30', google_agenda: ARNO, google_evenement_id: e71.id, synchro_etat: 'envoyee' });
+    const avant = faux.appels.length;
+
+    const liste = await rattraperAgenda({ appliquer: false, porte });
+    expect(liste.evenements.map((e) => `${e.tacheId}:${e.rattache}`).sort()).toEqual(['70:true', '71:true', '99:false']);
+    expect(faux.appels.slice(avant).every((x) => x.methode === 'GET')).toBe(true); // lister n'écrit rien
+    expect(liste.modifies).toBe(0);
+
+    const orphelinAvant = JSON.stringify(faux.agendas.get(ARNO)!.get(orphelin.id));
+    const r = await rattraperAgenda({ appliquer: true, porte });
+    expect(r.modifies).toBe(2);
+    expect(faux.agendas.get(ARNO)!.get(e70.id)?.summary).toBe('Tâche gestion — test 2 — 7 avenue de l’Union');
+    expect(faux.agendas.get(ARNO)!.get(e71.id)?.summary).toBe('Tâche gestion — test 4 rdv — 7 avenue de l’Union');
+    expect(String(faux.agendas.get(ARNO)!.get(e71.id)?.description)).not.toContain('trycloudflare');
+    expect(JSON.stringify(faux.agendas.get(ARNO)!.get(orphelin.id))).toBe(orphelinAvant);
+    expect(etrangers()).toBe(etrangersAvant);
+    // Aucune liste sans le filtre de la marque n'a été émise (le verrou l'aurait refusée) :
+    expect(faux.appels.filter((x) => x.methode === 'GET' && !/\/events\//.test(x.url)).every((x) => x.url.includes('privateExtendedProperty'))).toBe(true);
   });
 });
 

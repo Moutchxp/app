@@ -103,6 +103,9 @@ export interface PorteAgenda {
   supprimer(agenda: string, evenementId: string, tacheId: number): Promise<IssueAgenda<Record<never, never>>>;
   /** Retrouve NOS événements de cette tâche dans cet agenda (filtre de la marque ET du numéro). */
   chercher(agenda: string, tacheId: number): Promise<IssueAgenda<{ ids: string[] }>>;
+  /** 🔴 LOT AGENDA-TITRE-ET-LIENS — TOUS les événements de l'APPLICATION dans cet agenda (filtre de la marque), et
+   *  rien d'autre : pour le rattrapage. Ce qui ne porte pas la marque n'est ni lu ni rendu. */
+  listerNotres(agenda: string): Promise<IssueAgenda<{ evenements: { id: string; tacheId: number; titre: string; debut: string }[] }>>;
 }
 
 const DELAI_MS = 15_000;
@@ -194,6 +197,19 @@ export function creerPorteAgenda(deps: { jeton: JetonAgenda; fetch: typeof fetch
       const items = ((r.corps as { items?: unknown[] } | null)?.items ?? []);
       // Double garde : même filtrés par Google, on ne retient que ce qui porte la marque ET ce numéro.
       return { ok: true, ids: items.filter((x) => estNotreEvenement(x, tacheId)).map((x) => String((x as { id: string }).id)) };
+    },
+    async listerNotres(agenda) {
+      const r = await appel(agenda, `${urlEvenements(agenda)}?${FILTRE_MARQUE}&showDeleted=false&maxResults=250`, { method: 'GET' });
+      if (!r.ok) return { ok: false, sorte: 'echec', motif: r.motif };
+      if (r.statut !== 200) return { ok: false, sorte: 'echec', motif: motifGoogle(r.statut, r.corps) };
+      const items = ((r.corps as { items?: { id?: string; summary?: string; start?: { date?: string; dateTime?: string };
+        extendedProperties?: { private?: Record<string, string> } }[] } | null)?.items ?? []);
+      // Double garde : on ne retient que ce qui porte la marque ET un numéro de tâche.
+      return { ok: true, evenements: items.flatMap((x) => {
+        const n = Number(x.extendedProperties?.private?.[CLE_TACHE]);
+        return Number.isSafeInteger(n) && n > 0 && estNotreEvenement(x, n)
+          ? [{ id: String(x.id), tacheId: n, titre: x.summary ?? '', debut: x.start?.date ?? x.start?.dateTime ?? '' }] : [];
+      }) };
     },
   };
 }

@@ -49,9 +49,9 @@ const contenu: ContenuTache = {
 };
 
 describe('🔴 l’événement', () => {
-  it('titre « Gestion — adresse courte — objet », jamais de n° de lot ; « ✓ » quand elle est faite', () => {
-    expect(titreEvenement(contenu)).toBe('Gestion — 7 avenue de l’Union — Visite technique');
-    expect(titreEvenement({ ...contenu, faite: true })).toBe('✓ Gestion — 7 avenue de l’Union — Visite technique');
+  it('titre « Tâche gestion — objet — adresse courte » (lot AGENDA-TITRE-ET-LIENS), jamais de n° de lot ; « ✓ » quand elle est faite', () => {
+    expect(titreEvenement(contenu)).toBe('Tâche gestion — Visite technique — 7 avenue de l’Union');
+    expect(titreEvenement({ ...contenu, faite: true })).toBe('✓ Tâche gestion — Visite technique — 7 avenue de l’Union');
     expect(titreEvenement(contenu)).not.toMatch(/lot|27/);
     expect(adresseCourte(null, 'Paris')).toBe('Paris');
   });

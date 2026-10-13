@@ -10,7 +10,8 @@
  *
  * L'ÉVÉNEMENT (décisions d'Arno) :
  *   · dans l'agenda PRINCIPAL de la personne confiée (`calendarId` = son adresse) ;
- *   · titre « Gestion — <adresse courte du bien> — <objet> » ; jamais de n° de lot, jamais de nom de locataire ;
+ *   · titre « Tâche gestion — <objet> — <adresse courte du bien> » (depuis le 13/10/2026 ; avant : « Gestion — <adresse>
+ *     — <objet> ») ; jamais de n° de lot, jamais de nom de locataire ;
  *     « ✓ » devant quand la tâche est faite ;
  *   · PRIVÉ (les collègues ne voient que « Occupé ») ; lieu = adresse complète du bien ;
  *   · avec heure : rendez-vous, 1 h par défaut (champ « Durée ») ; sans heure : journée entière ;
@@ -27,6 +28,7 @@
  */
 import { ajouterJours, dureeValide, estHeureValide, type EtatTache, type Rappel } from './taches';
 import { peutRecevoirUneTache } from './taches';
+import { MENTION_LIEN_LOCAL } from './adresseApplication';
 
 /** La marque privée de l'application, posée sur chaque événement qu'elle crée. Ne JAMAIS la changer : les événements
  *  déjà créés ne seraient plus reconnus, donc plus jamais mis à jour ni retirés. */
@@ -146,9 +148,13 @@ export function adresseComplete(adresse: string | null, codePostal: string | nul
 
 export const PREFIXE_FAITE = '✓ ';
 
-/** Le titre : « Gestion — 7 avenue de l'Union — Visite », « ✓ » devant quand elle est faite. PUR. */
+/**
+ * 🔴 LE TITRE (Arno, 13/10/2026, lot AGENDA-TITRE-ET-LIENS) : « Tâche gestion — <titre de la tâche> — <adresse
+ * courte> », « ✓ » devant quand elle est faite. Jamais de n° de lot, jamais de nom de locataire. PUR.
+ */
+export const PREFIXE_TITRE = 'Tâche gestion';
 export function titreEvenement(c: Pick<ContenuTache, 'objet' | 'adresse' | 'commune' | 'faite'>): string {
-  const t = `Gestion — ${adresseCourte(c.adresse, c.commune)} — ${c.objet.trim()}`;
+  const t = `${PREFIXE_TITRE} — ${c.objet.trim()} — ${adresseCourte(c.adresse, c.commune)}`;
   return c.faite ? `${PREFIXE_FAITE}${t}` : t;
 }
 
@@ -222,7 +228,11 @@ export function marqueTache(tacheId: number): Record<string, string> {
 }
 
 /** L'ÉVÉNEMENT COMPLET d'une tâche. `motRappel` met en mots le rappel remplacé (« Le jour même à 9 h »). PUR. */
-export function construireEvenement(c: ContenuTache, o: { siteUrl?: string | null; motRappel: (r: Rappel) => string }): EvenementGoogle {
+export function construireEvenement(c: ContenuTache, o: {
+  siteUrl?: string | null; motRappel: (r: Rappel) => string;
+  /** Lien vers `localhost` : la description le dit (`MENTION_LIEN_LOCAL`, lot AGENDA-TITRE-ET-LIENS). */
+  lienLocal?: boolean;
+}): EvenementGoogle {
   const avecHeure = c.heure !== null;
   const { reminders, remplaces } = rappelsGoogle(c.rappels, avecHeure);
   const lien = lienFicheBien(o.siteUrl, c.lotId);
@@ -231,7 +241,7 @@ export function construireEvenement(c: ContenuTache, o: { siteUrl?: string | nul
     remplaces.length > 0
       ? `Rappel prévu dans l’application : ${remplaces.map((r) => dansLaPhrase(o.motRappel(r))).join(', ')} (notification Google : la veille à 17 h).`
       : '',
-    lien !== null ? `Fiche du bien : ${lien}` : '',
+    lien !== null ? `Fiche du bien : ${lien}${o.lienLocal ? ` ${MENTION_LIEN_LOCAL}` : ''}` : '',
     'Créée depuis l’application Gestion. Pour la modifier, passez par l’application.',
   ].filter((x) => x !== '');
   const lieu = adresseComplete(c.adresse, c.codePostal, c.commune);

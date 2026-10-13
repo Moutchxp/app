@@ -16,6 +16,7 @@ import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 /* 🔴 LOT TACHES-AGENDA — accepter ou refuser change la place de la tâche dans l'agenda : on le marque dans la transaction. */
 import { marquerASynchroniser } from './agendaSynchroRepo';
+import { adresseApplication, MENTION_LIEN_LOCAL } from './adresseApplication';
 
 /**
  * ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE DÉPÔT DES DEMANDES D'ACCEPTATION (migration 349) ══════════════════════════════
@@ -133,8 +134,8 @@ export async function envoyerDemande(
   const d = rows[0];
   if (d === undefined) return 'aucun';
   if ((d.destinataire_email ?? '').trim() === '') return marquer('echec', 'Le destinataire n’a pas d’adresse.');
-  const base = (process.env.SITE_URL ?? '').trim();
-  if (base === '') return marquer('echec', 'SITE_URL absente : les liens Accepter / Refuser ne peuvent pas être construits.');
+  /* 🔴 LOT AGENDA-TITRE-ET-LIENS — la MÊME adresse de base que l'agenda (jamais un tunnel temporaire ; défaut localhost). */
+  const { base, locale } = adresseApplication();
 
   const [contacts, pieces] = await Promise.all([contactsDeLaDemande(d.tache_id), piecesDeLaDemande(d.tache_id)]);
   const config = await chargerConfigGestion();
@@ -145,6 +146,7 @@ export async function envoyerDemande(
     echeance, adresseBien: titreLogement(d.adresse, d.commune), objet: d.objet, demandeur: d.demandeur_libelle,
     destinataire: d.destinataire_libelle, texte: texteCompletTache(d.note, contacts), pieces,
     lienAccepter: liens.accepter, lienRefuser: liens.refuser, expireLe: horodatageLisible(iso(d.expire_le) ?? ''),
+    ...(locale ? { mentionLiens: MENTION_LIEN_LOCAL } : {}),
   });
   const de = config.adresseGestion;
   const r = await t.envoyer({
