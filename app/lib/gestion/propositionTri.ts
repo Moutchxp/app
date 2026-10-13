@@ -43,6 +43,8 @@ export interface AdresseEchange {
   aussiLocataireDe?: readonly string[];
   dernierBail?: { lotCle: string; sortie: string } | null;
   independant?: boolean;
+  /** 🔴 RÈGLE V — l'adresse est l'expéditeur (« De : ») du message d'où elle vient. Absent ⇒ inconnu. */
+  expediteur?: boolean;
 }
 
 export type DestinationProposee =

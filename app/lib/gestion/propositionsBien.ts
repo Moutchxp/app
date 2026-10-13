@@ -98,6 +98,8 @@ export interface AdresseVue {
   aussiLocataireDe?: readonly string[];
   dernierBail?: { lotCle: string; sortie: string } | null;
   independant?: boolean;
+  /** 🔴 RÈGLE V — cette adresse est-elle l'EXPÉDITEUR (« De : ») de CE mail ? Absent ⇒ inconnu, la règle V ne joue pas. */
+  expediteur?: boolean;
 }
 
 /**
@@ -428,6 +430,11 @@ export function proposerBiens(o: {
    * PROPOSÉ (cas o), jamais coché, jamais rattaché automatiquement. Absent ⇒ rien de plus qu'avant.
    */
   lectureObjet?: boolean;
+  /**
+   * 🔴🔴 LOT REGLE-OBJET-QUI-CONTREDIT-L-EXPEDITEUR — RÈGLE V. Vrai seulement pour un mail REÇU après la mise en service
+   * (le moteur et la fenêtre le décident). Absent ⇒ rien ne change.
+   */
+  objetContreExpediteur?: boolean;
 }): ExamenBiens {
   const regles = o.regles ?? REGLES_D_AVANT;
   /** Règle A : une adresse du mail est-elle à la fois propriétaire et locataire en place ? Alors rien d'automatique. */
@@ -777,6 +784,61 @@ export function proposerBiens(o: {
     }
   }
 
+  /**
+   * ══ 🔴🔴 RÈGLE V — L'OBJET CONTREDIT L'EXPÉDITEUR (LOT REGLE-OBJET-QUI-CONTREDIT-L-EXPEDITEUR) ═════════════════════
+   *
+   * CAS RÉEL D'ARNO (fil 37007) : M. LATHAM, propriétaire, écrit pour sa sœur, elle aussi propriétaire chez nous ; l'objet
+   * « Studio Marine - 39 bis rue rousselle » cite un bien de la sœur, pas un des siens.
+   * RÈGLE (avant R1, R2 et B) : si l'EXPÉDITEUR est reconnu — par les règles existantes seulement : e-mail exact d'un
+   * propriétaire, d'un locataire ou d'un ancien locataire — ET que l'objet cite l'adresse ou le n° de lot de biens en
+   * gestion dont AUCUN n'est à lui, alors AUCUN rattachement automatique (donc aucun suivi de fond automatique) : « À
+   * classer », avec ① ses biens, motif « bien de l'expéditeur », ② les biens cités, motif « proposé : l'objet cite “…”
+   * — bien de <propriétaire> ». Aucun n'est coché d'office.
+   * 🔴 Si l'objet cite AU MOINS un bien de l'expéditeur (une adresse d'immeuble, par exemple) : pas de contradiction,
+   * comportement normal (décision d'Arno). Expéditeur non reconnu, ou objet sans adresse reconnue : comportement normal.
+   */
+  let contradiction = false;
+  if (o.objetContreExpediteur === true && (o.textes?.objet ?? '').trim() !== '') {
+    const exp = utiles.filter((a) => a.duMail && a.expediteur === true);
+    const siens = new Set<string>();
+    for (const a of exp) {
+      if (a.partie === 'locataire' && (a.lotCle ?? '') !== '') siens.add(a.lotCle as string);
+      if (a.partie === 'locataire' && (a.lotCle ?? '') === '' && a.dernierBail != null) siens.add(a.dernierBail.lotCle);
+      if (a.partie === 'proprietaire' && (a.proprietaireCle ?? '') !== '') {
+        for (const b of biensDuProprietaire.get(a.proprietaireCle as string) ?? []) siens.add(b.cle);
+        for (const cle of a.aussiLocataireDe ?? []) siens.add(cle);
+      }
+    }
+    const objetBrut = o.textes?.objet as string;
+    const objetN = normaliser(objetBrut);
+    const cites = o.biens.map((b) => ({ b, cite: citationDuBien(b, objetN) })).filter((x) => x.cite !== null);
+    if (siens.size > 0 && cites.length > 0 && cites.every((x) => !siens.has(x.b.cle))) {
+      contradiction = true;
+      for (const p of propositions) {
+        p.preCoche = false;
+        if (siens.has(p.cle)) {
+          p.certitude = 'a_trancher';
+          if (!p.motif.startsWith('bien de l’expéditeur')) p.motif = `bien de l’expéditeur — ${p.motif}`;
+        }
+      }
+      for (const cle of siens) {
+        if (!vus.has(cle)) ajouter({ cle, cas: 'o', certitude: 'a_trancher', preCoche: false, motif: 'bien de l’expéditeur', adresses: exp.map((a) => a.adresse) });
+      }
+      for (const { b, cite } of cites) {
+        const extrait = cite === 'lot' ? `lot ${b.numero ?? b.cle}` : extraitDeLObjet(objetBrut, b);
+        const motifV = `proposé : l’objet cite “${extrait}” — bien de ${b.proprietaireNom ?? 'un autre propriétaire'}`;
+        const p = propositions.find((x) => x.cle === b.cle);
+        if (p === undefined) {
+          ajouter({ cle: b.cle, cas: 'o', certitude: 'a_trancher', preCoche: false, motif: motifV, adresses: [] });
+        } else {
+          const simple = `proposé : l’objet cite “${extrait}”`;
+          p.motif = p.motif.includes(motifV) ? p.motif
+            : p.motif.includes(simple) ? p.motif.replace(simple, motifV) : `${p.motif} · ${motifV}`;
+        }
+      }
+    }
+  }
+
   if (propositions.length === 0) {
     return {
       issue: 'sans_candidat', propositions: [],
@@ -809,6 +871,12 @@ export function proposerBiens(o: {
    */
   /* 🔴 (o), L'OBJET, NE COMPTE JAMAIS NON PLUS : il ne fait que proposer, comme (e) et (g). */
   const parAdresse = propositions.filter((p) => p.cas !== 'e' && p.cas !== 'g' && p.cas !== 'o');
+  if (contradiction) {
+    return {
+      issue: 'a_trancher', propositions,
+      motif: 'l’objet cite le bien d’un autre propriétaire que l’expéditeur — à trancher (aucun rattachement automatique)',
+    };
+  }
   if (!regles.actives) {
     if (parAdresse.length === 1 && quasi.length === 1 && !depuisLEchange) {
       return {

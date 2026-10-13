@@ -296,9 +296,10 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   const { rows: adr } = await query<{
     fil_id: string; message_id: string; adresse: string; interne: boolean; partie: string | null;
     proprietaire_cle: string | null; locataire_id: string | null; lot_cle: string | null; motif: string | null;
+    role: string | null;
   }>(
     `SELECT m.fil_id, a.message_id, a.adresse, a.interne, a.partie, a.proprietaire_cle, a.locataire_id,
-            a.lot_cle, a.motif
+            a.lot_cle, a.motif, a.role
        FROM gestion_message_adresse a
        JOIN gestion_message m ON m.id = a.message_id
       WHERE m.fil_id = ANY($1::bigint[])`, [ids]);
@@ -333,6 +334,8 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
     liste.push({
       adresse: r.adresse, messageId: Number(r.message_id), interne: r.interne,
       cartesLots: cartes.get(r.adresse.trim().toLowerCase()),
+      /* 🔴 RÈGLE V (LOT REGLE-OBJET-QUI-CONTREDIT-L-EXPEDITEUR) — qui a écrit ce message. */
+      expediteur: r.role === 'expediteur',
       reconnaissance: {
         partie: r.partie as 'proprietaire' | 'locataire' | null,
         proprietaireCle: r.proprietaire_cle,

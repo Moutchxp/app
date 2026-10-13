@@ -80,12 +80,15 @@ async function principal(): Promise<void> {
   const P5 = await proprio('P5', 'DOUBLE Eve', 'double@epreuve.test');
   const P6 = await proprio('P6', 'SIX Noé', null);
   const P7 = await proprio('P7', 'TIERS Sam', 'tiers@epreuve.test');
+  /* 🔴 RÈGLE V — la sœur, propriétaire elle aussi, dont l'objet cite le bien. */
+  const P8 = await proprio('P8', 'LATHAM Marine', null);
   const L101 = await lot('101', '67 rue de Normandie', P1);
   const L201 = await lot('201', '1 avenue Foch', P2); await lot('202', '2 avenue Foch', P2); await lot('203', '3 avenue Foch', P2);
   const L301 = await lot('301', '9 rue Danton', P3); const L302 = await lot('302', '11 rue Danton', P3);
   await lot('401', '4 rue Carnot', P4); await lot('501', '5 rue Hoche', P5);
   const L601 = await lot('601', '6 rue Kléber', P6); const L602 = await lot('602', '8 rue Kléber', P6);
   await lot('701', '7 rue Monge', P7);
+  await lot('801', '39 bis rue Rousselle', P8); await lot('802', '39 bis rue Rousselle', P8);
   void L101;
   await locataire('T1', 'KASSAR Marnie', 'loc@epreuve.test', L301, '301', '2024-01-01', null);
   await locataire('T2', 'DEUX Bob', 'loc2@epreuve.test', L201, '201', '2024-01-01', null);
@@ -110,6 +113,7 @@ async function principal(): Promise<void> {
     a: await fil(), b14: await fil(), b16: await fil(), syndic: await fil(), tiers: await fil(), interne: await fil(),
     sorti: await fil(), retireMoteur: await fil(), retireLot: await fil(), avantR1copie: await fil(), avantR2carte: await fil(),
     objetAdresse: await fil(), objetNom: await fil(), objetAmbigu: await fil(),
+    vLatham: await fil(), vSien: await fil(), vDeux: await fil(), vLocataire: await fil(), vAncien: await fil(),
   };
   const M = {
     r1: await mail(F.r1, 'loc@epreuve.test', apres(5)),
@@ -134,6 +138,13 @@ async function principal(): Promise<void> {
     objetAdresse: await mail(F.objetAdresse, 'multi@epreuve.test', apres(22), 'Fuite d’eau au 67 R. de Normandie'),
     objetNom: await mail(F.objetNom, 'inconnu@ailleurs.test', apres(23), 'Départ locataire - Mme KASSAR Marnie'),
     objetAmbigu: await mail(F.objetAmbigu, 'inconnu@ailleurs.test', apres(24), 'Rue de Normandie : travaux de Martin'),
+    /* 🔴 RÈGLE V */
+    vLatham: await mail(F.vLatham, 'unbien@epreuve.test', apres(25), 'Studio Marine - 39 bis rue rousselle'),
+    vSien: await mail(F.vSien, 'unbien@epreuve.test', apres(26), 'Fuite au 67 rue de Normandie'),
+    vDeux: await mail(F.vDeux, 'unbien@epreuve.test', apres(27), 'Travaux 1 avenue Foch et 9 rue Danton'),
+    vLocataire: await mail(F.vLocataire, 'loc@epreuve.test', apres(28), 'Clés du 39 bis rue Rousselle'),
+    vAncien: await mail(F.vAncien, 'ancien14@epreuve.test', apres(29), 'Dépôt de garantie 39 bis rue Rousselle'),
+    vSuivi: await mail(F.r4, 'loc@epreuve.test', apres(30), 'Re: Clés du 39 bis rue Rousselle'),
   };
   await query(`INSERT INTO gestion_fil_interne (fil_id, pose_par_libelle) VALUES ($1, 'epreuve')`, [F.interne]);
   /* Deux liens RETIRÉS posés d'avance : l'un par le moteur lui-même (ne doit plus bloquer), l'autre par un lot (bloque). */
@@ -203,6 +214,24 @@ async function principal(): Promise<void> {
   verifier('objet avec un nom connu : ses biens proposés, motif avec le nom', oN.length > 0 && oN.every((l) => l.statut === 'propose')
     && oN.some((l) => (l.motif ?? '').includes('KASSAR')), JSON.stringify(oN));
   verifier('objet ambigu (voie sans numéro, nom courant) : aucune proposition', (await liens(M.objetAmbigu)).length === 0, JSON.stringify(await liens(M.objetAmbigu)));
+
+  console.log('🔴 Règle V — l’objet contredit l’expéditeur reconnu');
+  const vl = await liens(M.vLatham);
+  verifier('cas LATHAM : rien de confirmé, aucun suivi ; ses biens « bien de l’expéditeur », le bien cité « — bien de LATHAM Marine »',
+    eq(await confirmes(M.vLatham), []) && (await suivis(F.vLatham)).length === 0 && eq(await proposes(M.vLatham), ['101', '801', '802'])
+    && (vl.find((l) => l.cle === '101')?.motif ?? '').startsWith('bien de l’expéditeur')
+    && (vl.find((l) => l.cle === '801')?.motif ?? '') === 'proposé : l’objet cite “39 bis rue rousselle” — bien de LATHAM Marine', JSON.stringify(vl));
+  verifier('l’objet cite un bien de l’expéditeur : rattaché normalement (R2)', eq(await confirmes(M.vSien), ['101']));
+  verifier('l’objet sans adresse : rattaché normalement (R2)', eq(await confirmes(M.r2), ['101']));
+  verifier('l’objet cite deux biens d’autres propriétaires : rien de confirmé, les deux proposés',
+    eq(await confirmes(M.vDeux), []) && eq(await proposes(M.vDeux), ['101', '201', '301']), JSON.stringify(await liens(M.vDeux)));
+  verifier('un locataire dont l’objet cite un autre bien : rien de confirmé, aucun suivi',
+    eq(await confirmes(M.vLocataire), []) && (await suivis(F.vLocataire)).length === 0 && eq(await proposes(M.vLocataire), ['301', '801', '802']),
+    JSON.stringify(await liens(M.vLocataire)));
+  verifier('un ancien locataire (B) dont l’objet cite un autre bien : rien de confirmé',
+    eq(await confirmes(M.vAncien), []) && eq(await proposes(M.vAncien), ['601', '801', '802']), JSON.stringify(await liens(M.vAncien)));
+  verifier('conversation déjà suivie, nouveau mail citant un autre bien : le suivi ne bouge pas, le bien cité est proposé',
+    eq(await suivis(F.r4), s4) && eq(await confirmes(M.vSuivi), ['301']) && (await proposes(M.vSuivi)).includes('801'), JSON.stringify(await liens(M.vSuivi)));
 
   console.log('🔴 Un mail SORTI DU SUIVI n’est JAMAIS rattaché de nouveau');
   verifier('d’abord rattaché automatiquement', eq(await confirmes(M.sorti), ['301']));

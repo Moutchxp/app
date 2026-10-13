@@ -40,6 +40,8 @@ import { sqlNomAffiche, sqlNomOrigine } from './nomUsageSql';
 /* 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — les biens liés aux adresses du mail, et leur motif (ceux du composeur). */
 import { biensDesClients } from './biensDesClientsRepo';
 import { motifDuLien } from './contexteClients';
+import { reglesDuMail } from './reglesRattachement';
+import { lireReglageRattachement } from './reglageRattachementRepo';
 
 /**
  * MODULE « GESTION » — LOT STATUT-PAR-MAIL : CE QU'IL FAUT SAVOIR POUR CLASSER UN MAIL DANS UN BIEN. LECTURE SEULE.
@@ -290,6 +292,8 @@ async function construireBiens(o: {
    * n'en a pas l'usage. Absent ⇒ les propositions d'avant, à la lettre. Affichage seul : rien n'est écrit.
    */
   lectureObjet?: boolean;
+  /** 🔴 RÈGLE V (LOT REGLE-OBJET-QUI-CONTREDIT-L-EXPEDITEUR) — vrai pour un mail REÇU après la mise en service. */
+  objetContreExpediteur?: boolean;
 }): Promise<{
   biens: BienProposable[];
   examen: { issue: 'automatique' | 'a_trancher' | 'sans_candidat'; motif: string };
@@ -325,6 +329,7 @@ async function construireBiens(o: {
     })),
     contenu: o.contenu,
     lectureObjet: o.lectureObjet,
+    objetContreExpediteur: o.objetContreExpediteur,
   });
 
   /**
@@ -543,8 +548,10 @@ export async function contexteClassement(
     html: string | null;
     /** 🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — au spam ou à la corbeille : le cas (e) ne joue pas. */
     ecarte: boolean;
+    sens: string | null; recu_iso: string | null;
   }>(
-    `SELECT m.fil_id::text AS fil_id,
+    `SELECT m.fil_id::text AS fil_id, m.sens,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS recu_iso,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS recu_le,
             (SELECT count(*) FROM gestion_message c WHERE c.fil_id = m.fil_id)::int AS nb,
             m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps,
@@ -571,10 +578,10 @@ export async function contexteClassement(
    */
   const { rows: adr } = await query<{
     adresse: string; interne: boolean; partie: string | null; lot_cle: string | null;
-    proprietaire_cle: string | null; du_mail: boolean;
+    proprietaire_cle: string | null; du_mail: boolean; expediteur: boolean;
   }>(
     `SELECT a.adresse, a.interne, a.partie, a.lot_cle, a.proprietaire_cle,
-            (a.message_id = $1) AS du_mail
+            (a.message_id = $1) AS du_mail, (a.message_id = $1 AND a.role = 'expediteur') AS expediteur
        FROM gestion_message_adresse a
        JOIN gestion_message mm ON mm.id = a.message_id
       WHERE a.message_id = $1 OR ($2::bigint IS NOT NULL AND mm.fil_id = $2::bigint)`,
@@ -599,6 +606,7 @@ export async function contexteClassement(
     lotCle: a.lot_cle,
     proprietaireCle: a.proprietaire_cle,
     duMail: a.du_mail,
+    expediteur: a.expediteur === true,
     cartesLots: cartes.get(a.adresse.trim().toLowerCase()),
   }));
 
@@ -624,6 +632,9 @@ export async function contexteClassement(
     adresses,
     /* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — l'objet du mail propose ses biens (jamais cochés). */
     lectureObjet: true,
+    /* 🔴🔴 LOT REGLE-OBJET-QUI-CONTREDIT-L-EXPEDITEUR — la règle V, pour un mail REÇU après la mise en service seulement :
+       la fenêtre dit alors la même chose que le moteur. Un mail plus ancien garde la fenêtre d'avant. */
+    objetContreExpediteur: reglesDuMail({ sens: m.sens, recuLe: m.recu_iso }, await lireReglageRattachement()).actives,
     /**
      * ⚠️ LA RECONNAISSANCE LIT LES DEUX NOMS, L'ÉCRAN UN SEUL. Une règle qui repère « bail » dans un nom de
      * fichier doit continuer de le repérer après un renommage — et le repérer aussi dans le nom sous lequel la

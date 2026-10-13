@@ -326,6 +326,8 @@ export function examinerMessage(o: {
       aussiLocataireDe: a.aussiLocataireDe,
       dernierBail: a.dernierBail,
       independant: a.independant,
+      /* 🔴 RÈGLE V — l'expéditeur de CE mail seulement. */
+      expediteur: a.expediteur === true && a.messageId === o.messageId,
     })),
     textes: o.textes,
     biens: o.biens,
@@ -333,6 +335,8 @@ export function examinerMessage(o: {
     mongaRelie: o.mongaRelie,
     regles: o.regles,
     lectureObjet: o.lectureObjet,
+    /* 🔴 RÈGLE V : avec les nouvelles règles seulement (mail REÇU après la mise en service). */
+    objetContreExpediteur: o.regles?.actives === true,
   });
 
   /** Une proposition de bien, traduite dans le vocabulaire des rattachements. La cible est TOUJOURS un lot. */

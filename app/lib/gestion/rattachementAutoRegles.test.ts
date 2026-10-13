@@ -264,3 +264,75 @@ describe('🔴 les gardes de l’écriture (code)', () => {
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS gestion_rattachement_reglage');
   });
 });
+
+/* ══ 🔴🔴 LOT REGLE-OBJET-QUI-CONTREDIT-L-EXPEDITEUR — RÈGLE V (moteur pur) ════════════════════════════════════════════ */
+import { proposerBiens, type AdresseVue } from './propositionsBien';
+describe('🔴 RÈGLE V — l’objet cite le bien d’un AUTRE propriétaire que l’expéditeur reconnu', () => {
+  const B: BienConnu[] = [
+    ...BIENS,
+    { cle: '801', numero: '801', adresse: '39 bis rue Rousselle', commune: 'PARIS', proprietaireCle: 'P8', proprietaireNom: 'LATHAM Marine' },
+    { cle: '802', numero: '802', adresse: '39 bis rue Rousselle', commune: 'PARIS', proprietaireCle: 'P8', proprietaireNom: 'LATHAM Marine' },
+    { cle: '901', numero: '901', adresse: '54 avenue Puvis', commune: 'COURBEVOIE', proprietaireCle: 'P9', proprietaireNom: 'NEUF Ida' },
+    { cle: '902', numero: '902', adresse: '54 avenue Puvis', commune: 'COURBEVOIE', proprietaireCle: 'P3', proprietaireNom: 'TROIS Léa' },
+  ];
+  const vue = (a: Partial<AdresseVue> & { adresse: string }): AdresseVue => ({
+    interne: false, partie: null, lotCle: null, proprietaireCle: null, duMail: true, expediteur: true, ...a,
+  });
+  const examen = (adresses: AdresseVue[], objet: string, v = true) => proposerBiens({
+    adresses, biens: B, textes: { objet, corps: '', pieces: [] }, regles: NOUVELLES, lectureObjet: true, objetContreExpediteur: v,
+  });
+  const LIONEL = vue({ adresse: 'unbien@x.fr', partie: 'proprietaire', proprietaireCle: 'P1' });
+  it('🔴 le cas LATHAM : aucun rattachement automatique, ses biens « bien de l’expéditeur », le bien cité « — bien de LATHAM Marine », rien de coché', () => {
+    const e = examen([LIONEL], 'Studio Marine - 39 bis rue rousselle');
+    expect(e.issue).toBe('a_trancher');
+    expect(e.propositions.every((p) => !p.preCoche)).toBe(true);
+    const p = Object.fromEntries(e.propositions.map((x) => [x.cle, x.motif]));
+    expect(p['101']).toMatch(/^bien de l’expéditeur/);
+    expect(p['801']).toBe('proposé : l’objet cite “39 bis rue rousselle” — bien de LATHAM Marine');
+    expect(p['802']).toBe('proposé : l’objet cite “39 bis rue rousselle” — bien de LATHAM Marine');
+  });
+  it('l’objet cite un bien DE l’expéditeur : comportement normal (R2)', () => {
+    expect(examen([LIONEL], 'Fuite au 67 rue de Normandie').issue).toBe('automatique');
+  });
+  it('l’objet ne cite aucune adresse : comportement normal', () => {
+    expect(examen([LIONEL], 'Question sur la régularisation').issue).toBe('automatique');
+  });
+  it('l’objet cite deux biens d’AUTRES propriétaires : les deux proposés, aucun automatique', () => {
+    const e = examen([LIONEL], 'Travaux 1 avenue Foch et 9 rue Danton');
+    expect(e.issue).toBe('a_trancher');
+    expect(e.propositions.map((p) => p.cle).sort()).toEqual(['101', '201', '301']);
+    expect(e.propositions.find((p) => p.cle === '201')?.motif).toContain('— bien de MULTI Anne');
+    expect(e.propositions.find((p) => p.cle === '301')?.motif).toContain('— bien de AUTRE Luc');
+  });
+  it('un LOCATAIRE dont l’objet cite un autre bien : aucun automatique', () => {
+    const e = examen([vue({ adresse: 'loc@x.fr', partie: 'locataire', lotCle: '301', proprietaireCle: 'P3' })], 'Clés du 39 bis rue Rousselle');
+    expect(e.issue).toBe('a_trancher');
+    expect(e.propositions.find((p) => p.cle === '301')?.motif).toMatch(/^bien de l’expéditeur/);
+  });
+  it('un ANCIEN LOCATAIRE (règle B) dont l’objet cite un autre bien : aucun automatique', () => {
+    const e = examen([vue({ adresse: 'ancien@x.fr', partie: 'locataire', dernierBail: { lotCle: '301', sortie: '2026-01-31' } })], 'Dépôt de garantie 67 rue de Normandie');
+    expect(e.issue).toBe('a_trancher');
+    expect(e.propositions.map((p) => p.cle).sort()).toEqual(['101', '301']);
+  });
+  it('C — l’objet cite une adresse d’immeuble qui couvre AUSSI un bien de l’expéditeur : pas de contradiction', () => {
+    const e = examen([vue({ adresse: 'loc@x.fr', partie: 'locataire', lotCle: '902', proprietaireCle: 'P3' })], 'Ascenseur 54 avenue Puvis');
+    expect(e.issue).toBe('automatique');
+  });
+  it('A — un expéditeur NON reconnu (cas lionel@ekamai.fr : seulement une carte de contact) : la règle V ne joue pas', () => {
+    const e = examen([vue({ adresse: 'lionel@ekamai.fr', cartesLots: ['301'] })], 'Studio Marine - 39 bis rue rousselle');
+    expect(e.propositions.some((p) => p.motif.includes('bien de l’expéditeur'))).toBe(false);
+    expect(e.propositions.find((p) => p.cle === '801')?.motif).toBe('proposé : l’objet cite “39 bis rue rousselle”');
+  });
+  it('B — sans la règle (mail envoyé, ou reçu avant la mise en service) : rien ne change', () => {
+    expect(examen([LIONEL], 'Studio Marine - 39 bis rue rousselle', false).issue).toBe('automatique');
+  });
+  it('la règle V passe par examinerMessage : uniquement sous les nouvelles règles, et pour l’expéditeur de CE mail', () => {
+    const mailLionel = proprio('unbien@x.fr', 'P1', { expediteur: true });
+    const e = examinerMessage({ messageId: MSG, adressesEchange: [mailLionel], biens: B, textes: { objet: 'Studio Marine - 39 bis rue rousselle' },
+      sens: 'recu', regles: NOUVELLES, lectureObjet: true });
+    expect(e.issue).toBe('a_trier');
+    const ancien = examinerMessage({ messageId: MSG, adressesEchange: [mailLionel], biens: B, textes: { objet: 'Studio Marine - 39 bis rue rousselle' },
+      sens: 'recu', regles: ANCIENNES, lectureObjet: false });
+    expect(ancien.issue).toBe('automatique');
+  });
+});
