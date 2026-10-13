@@ -97,7 +97,7 @@ export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, messageOuvert = null, brouillonOuvert = null,
   onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
-  piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
+  piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
   onEvenements, evenementsOuverts = null, onSyndics, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
@@ -202,6 +202,9 @@ export function PleinEcranBoite({
   onFicheAnnuaire?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
   /** LOT RATTACHEMENT-2 — ouvre l'historique complet d'une cible, depuis le bandeau « Rattaché à » d'un mail. */
   onHistorique?: (cible: Cible) => void;
+  /** 🔴🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — passés tels quels à la conversation (voir `Conversation`). */
+  onFicheBien?: (cle: string) => void;
+  bienCourant?: string | null;
   /** LOT ÉCRAN-VIVANT — incrémenté par l'écran quand du courrier est arrivé. La liste se relit si elle le peut. */
   versionDonnees?: number;
   onListeRelue?: () => void;
@@ -1308,6 +1311,7 @@ export function PleinEcranBoite({
               onFicheAnnuaire={onFicheAnnuaire}
               // LOT RATTACHEMENT-2 — une étiquette du bandeau « Rattaché à » ouvre TOUT l'historique de la cible.
               onHistorique={onHistorique}
+              onFicheBien={onFicheBien} bienCourant={bienCourant}
               // LOT 5-BOITE — ouvrir (ou marquer non lu) change le gras de la liste, qui l'applique sur place.
               onLecture={(id, lu) => setMarquage((m) => ({ filId: id, nonLu: !lu, cle: m.cle + 1 }))}
               /**

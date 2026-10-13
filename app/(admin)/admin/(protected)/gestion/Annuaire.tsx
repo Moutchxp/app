@@ -545,7 +545,11 @@ export function Annuaire({
                   ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onEcrire={onEcrire}
                     maintenant={refTemps} onOuvrirFil={onOuvrirFil} gestes={gestes} onCreer={creerEtRattacher}
                     redaction={redaction} onGesteMail={onGesteMail}
-                    poserSurVieDuBien={vieDuBienVisee === detail.data.id}
+                    /* 🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — une fiche ouverte par sa CLÉ (`bien-<n>`) vise
+                       le NUMÉRO WIPPIMMO, pas l'identifiant interne : comparée au seul `id`, `?bloc=vie` ne se posait
+                       jamais sur ces fiches (mesuré sur bien-396). Aucun lot n'a id = clé : pas de fausse rencontre. */
+                    poserSurVieDuBien={vieDuBienVisee === detail.data.id
+                      || (fiche?.sorte === 'bien' && vieDuBienVisee === Number(detail.data.numero))}
                     jetonHistorique={jetonHistorique}
                     onPoserJeton={onPoserJeton}
                     onVieDuBienPosee={() => setVieDuBienVisee(null)}

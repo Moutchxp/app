@@ -144,6 +144,8 @@ import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 import { PastilleOneShot } from './PastilleOneShot';
 /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
 import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
+import { BoutonHistoriqueMail, CSS_BOUTON_HISTORIQUE_MAIL, EnteteDroite } from './BoutonHistoriqueMail';
+import { biensDuBoutonHistorique } from '../../../../lib/gestion/boutonHistoriqueMail';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 
 /**
@@ -241,7 +243,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon, onClassementChange, onBrouillonsChange, onRetourHistoriqueBien }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null, onRouvrirBrouillon, onClassementChange, onBrouillonsChange, onRetourHistoriqueBien }: {
   filId: number;
   /**
    * 🔴 LOT LIGNE-NON-ENVOYE — rouvre le brouillon d'un mail de cet échange qui n'est pas parti. Absent ⇒ la
@@ -318,6 +320,16 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * les étiquettes restent du texte (cas d'une conversation rendue DANS une carte, d'où l'on ne veut pas partir).
    */
   onHistorique?: (cible: Cible) => void;
+  /**
+   * 🔴🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — ouvre la FICHE historique d'un bien (clé WIPPIMMO), depuis le
+   * bouton « Historique » posé au-dessus du bouton vert. Absent ⇒ pas de bouton (conversation rendue dans une carte).
+   */
+  onFicheBien?: (cle: string) => void;
+  /**
+   * Le bien dont on regarde l'historique quand la conversation a été ouverte depuis lui (jeton `hdb`) : le bouton
+   * « Historique » ne le propose pas, et disparaît s'il était le seul bien du mail. `null` ⇒ aucun bien exclu.
+   */
+  bienCourant?: string | null;
   /**
    * ══ 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « LE CLASSEMENT DE CET ÉCHANGE VIENT DE CHANGER » ═══════════════
    *
@@ -1756,7 +1768,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     <section className="cnv" aria-labelledby={`cnv-titre-${fil.filId}`}>
       {/* 🔴 LOT VISUALISER-MAIL-ET-REPERE-FENETRE — la feuille de la pastille « i » : le repère emploie LA pastille
           des biens, et elle a besoin de son style. Montée ici, jamais dans la pastille (voir son encadré). */}
-      <style>{CSS_CONVERSATION}{CSS_PIECES}{CSS_PIECES_CONVERSATION}{CSS_INFO_BIEN}</style>
+      <style>{CSS_CONVERSATION}{CSS_PIECES}{CSS_PIECES_CONVERSATION}{CSS_INFO_BIEN}{CSS_BOUTON_HISTORIQUE_MAIL}</style>
 
       {/* ══ LE BANDEAU DU HAUT : NOS FONCTIONS MAISON ══════════════════════════════════════════════════════════════
           Elles appellent les routes EXISTANTES, sans réécrire une ligne de leur logique — donc même journal, même
@@ -2125,6 +2137,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             }}
             onGesteRattachement={(t) => onGeste(t)}
             onHistorique={onHistorique}
+            /* 🔴🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — le bouton « Historique » au-dessus du bouton vert. */
+            onFicheBien={onFicheBien}
+            bienCourant={bienCourant}
             /* 🔴 LOT PIECES-DE-LA-CONVERSATION — la vignette d'une pièce ouvre la visionneuse maison, avec le tour
                de toute la conversation. */
             onVisualiser={(id) => setPieceVue(id)}
@@ -2685,8 +2700,11 @@ export function MessageConversation({
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
   mailsDuFil = [],
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
-  onReintegrerMessage, etoileDuMessage, piecesCitables = [],
+  onReintegrerMessage, etoileDuMessage, piecesCitables = [], onFicheBien, bienCourant = null,
 }: {
+  /** 🔴🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — voir les propriétés du même nom de `Conversation`. */
+  onFicheBien?: (cle: string) => void;
+  bienCourant?: string | null;
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 3 — LES PIÈCES DE LA CONVERSATION, POUR LES NOMS CITÉS ═══════════════
    *
@@ -2931,6 +2949,14 @@ export function MessageConversation({
    * Classé > Auto > Interne > Hors gestion > À classer (`capsuleDuMessage`, module PUR). Un échange marqué
    * interne PUIS rattaché à un bien redevient « Classé » tout seul — la réversibilité par le geste naturel.
    */
+  /**
+   * 🔴🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — les biens du bouton « Historique ». MÊME RÈGLE QUE LE BOUTON
+   * VERT (liens confirmés vers un lot), et seulement là où l'encart est rendu (`onRattachement`) : sans bouton vert, pas
+   * de bouton « Historique ». Le bien dont on regarde l'historique en est retiré.
+   */
+  const biensHistorique = onRattachement !== undefined && onFicheBien !== undefined
+    ? biensDuBoutonHistorique(rattachements, bienCourant)
+    : [];
   const capsule = rattachements === null
     ? null : capsuleDuMessage(rattachements, marque !== null, interne === true);
   const biensDuMail = (rattachements ?? [])
@@ -3428,7 +3454,7 @@ export function MessageConversation({
               pas permis — l'historique d'une cible, la vie d'un bien — le bloc n'aurait eu qu'une gouttière vide
               à droite. Une classe plutôt qu'un `:has()` : elle dit l'intention, et elle ne dépend d'aucun
               navigateur. */}
-          <div className="cnv-entete-bloc">
+          <div className={`cnv-entete-bloc${biensHistorique.length > 0 ? ' cnv-entete-bloc--historique' : ''}`}>
           <dl className="cnv-entete">
             {/* ⚠️ PAS DE LIGNE « OBJET » ICI — LOT FIL-LECTURE-2. Elle y a vécu une journée : l'objet apparaissait
                 alors DEUX fois, sous « reçu de … » et dans cet en-tête, à trois centimètres d'écart. Celui du haut
@@ -3492,6 +3518,11 @@ export function MessageConversation({
 
               ⚠️ MÊMES COMPORTEMENTS, MÊME SYNCHRONISATION : les trois boutons appellent exactement les mêmes
               fonctions qu'avant, avec les mêmes mots et les mêmes info-bulles. Seule leur boîte change. */}
+          {/* 🔴🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — « Historique », à GAUCHE des deux carrés, au-dessus du
+              bouton vert (même bord gauche) ; les carrés ne bougent pas. Sans bien rattaché, rien n'est enveloppé. */}
+          <EnteteDroite historique={biensHistorique.length > 0 && onFicheBien !== undefined
+            ? <BoutonHistoriqueMail messageId={message.messageId} biens={biensHistorique} onOuvrir={onFicheBien} />
+            : null}>
           {(etoileDuMessage !== undefined || onCorbeilleMessage !== undefined
             || (message.aLaCorbeille && onReintegrerMessage !== undefined)) && (
             <div className="cnv-entete-cases">
@@ -3529,6 +3560,7 @@ export function MessageConversation({
               )}
             </div>
           )}
+          </EnteteDroite>
           </div>
 
           {/* LOT RATTACHEMENT-1 — DE QUOI CE MAIL PARLE-T-IL ? Juste sous l'en-tête, avant le texte : c'est une

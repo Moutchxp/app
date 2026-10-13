@@ -263,7 +263,10 @@ describe('🔴🔴 ④ les quatre retraits autorisés, et rien de plus', () => {
     for (const vue of ['<VueProprietaire', '<VueLot', '<VueLocataire']) {
       expect(CODE, vue).toContain(vue);
     }
-    for (const prop of ['evenementVise={evenementVise}', 'poserSurVieDuBien={vieDuBienVisee === detail.data.id}',
+    /* 🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — `poserSurVieDuBien` garde sa comparaison à l'identifiant ET gagne
+       celle de la clé WIPPIMMO (fiche `bien-<n>`), sans quoi `?bloc=vie` ne s'y posait jamais. */
+    expect(CODE).toContain("fiche?.sorte === 'bien' && vieDuBienVisee === Number(detail.data.numero)");
+    for (const prop of ['evenementVise={evenementVise}', 'poserSurVieDuBien={vieDuBienVisee === detail.data.id',
       'jetonHistorique={jetonHistorique}', 'filtreVie={filtreVie}', 'onPoserJeton={onPoserJeton}']) {
       expect(CODE, prop).toContain(prop);
     }

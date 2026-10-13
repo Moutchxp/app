@@ -17,6 +17,7 @@ import type { DemandeEcriture } from '../../../../lib/gestion/mailSyndic';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-3, POINT 4 — de quoi relire l'état rangé derrière le jeton de retour. Le module
    est PUR : l'importer ici ne tire ni `pg` ni React. */
 import { CLE_RETOUR_BIEN, etatRetourDepuisBrut } from '../../../../lib/gestion/historiqueBien';
+import { ficheHistoriqueDuBien } from '../../../../lib/gestion/boutonHistoriqueMail';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { useReleveGestion } from './useReleveGestion';
@@ -495,6 +496,25 @@ export function GestionVue({ intro }: {
     const cible = fiche;
     return () => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: cible, hdb: j });
   }, [etatUrl.hdb, aller]);
+
+  /**
+   * 🔴🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — le bouton « Historique » d'un mail ouvre la fiche du bien, posée
+   * sur son historique (`bloc=vie`). Et le bien d'où l'on vient (jeton `hdb`, même lecture que `retourHistoriqueBien`)
+   * n'y est pas proposé : on y est déjà.
+   */
+  const ouvrirFicheBien = useCallback((cle: string) => {
+    const f = ficheHistoriqueDuBien(cle);
+    if (f !== null) aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: f, bloc: 'vie' });
+  }, [aller]);
+  const bienDuRetour = useMemo((): string | null => {
+    const j = etatUrl.hdb ?? null;
+    if (j === null || typeof window === 'undefined') return null;
+    try {
+      const brut = window.sessionStorage.getItem(`${CLE_RETOUR_BIEN}${j}`);
+      const e = brut === null ? null : etatRetourDepuisBrut(JSON.parse(brut));
+      return e === null ? null : e.fiche;
+    } catch { return null; }
+  }, [etatUrl.hdb]);
 
   const retour = useCallback(() => {
     if (typeof window === 'undefined') return;
@@ -1447,6 +1467,7 @@ export function GestionVue({ intro }: {
           ecrireA={ecrireA} onEcrireAConsomme={consommerEcrireA}
           onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
           onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
+          onFicheBien={ouvrirFicheBien} bienCourant={bienDuRetour}
           /* LOT ÉCRAN-VIVANT — le battement a vu du courrier : la liste se relit si elle peut le faire sans rien
              perdre, sinon elle l'annonce. Le compteur retombe à zéro dès qu'elle s'est relue. */
           versionDonnees={courrierNouveau} onListeRelue={() => setCourrierNouveau(0)}
@@ -1574,6 +1595,7 @@ export function GestionVue({ intro }: {
                 onRetourHistoriqueBien={retourHistoriqueBien}
                 onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
                 onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
+                onFicheBien={ouvrirFicheBien} bienCourant={bienDuRetour}
                 onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
             </section>
           )}
@@ -1616,6 +1638,7 @@ export function GestionVue({ intro }: {
             onRetourHistoriqueBien={retourHistoriqueBien}
             onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
             onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
+            onFicheBien={ouvrirFicheBien} bienCourant={bienDuRetour}
             onGeste={(m, o) => { surGeste(m, o); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
         </section>
       ) : (
