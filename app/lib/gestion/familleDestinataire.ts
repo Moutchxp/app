@@ -251,7 +251,10 @@ export function rangementsDesParties(
 ): ReadonlyMap<string, CategoriePartie> {
   const m = new Map<string, CategoriePartie>();
   for (const x of parties) {
-    if (x.categorie === 'proprietaire' || x.categorie === 'locataire' || x.categorie === 'independant') {
+    /* LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — « Syndic & immeuble » rangé À LA MAIN sur ce bien
+       (migration 344) est un rangement comme les autres : il ne vient que des lignes de CE bien. */
+    if (x.categorie === 'proprietaire' || x.categorie === 'locataire' || x.categorie === 'independant'
+      || x.categorie === 'syndic_immeuble') {
       m.set(x.adresse.trim().toLowerCase(), x.categorie);
     }
   }

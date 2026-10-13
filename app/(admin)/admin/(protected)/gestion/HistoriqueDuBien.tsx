@@ -94,6 +94,8 @@ import {
      à reconnaître l'adresse trouvée. Deux normalisations auraient fini par ne pas répondre pareil. */
   normaliserRecherche,
   motCacheesEnBas, motCacheesEnHaut, motDeplacement, MOTIF_NON_DEPLACABLE, partieDeplacable,
+  /* 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES */
+  MOTIF_FICHE_SYNDIC, MOT_SYNDIC_A_LA_MAIN, MOT_SYNDIC_FICHE, peutDeposer, vientDeLaFicheSyndic,
   CLE_RETOUR_BIEN, etatRetourDepuisBrut, MS_SURLIGNE_RETOUR, SECONDES_ANNULER_DEPLACEMENT,
   SANS_EVENEMENT, SANS_LOCATAIRE_CONNU, tonDeLExpediteur, tonDuGroupe, trierFil, LEGENDE_BARRES,
   type TonGroupe,
@@ -180,6 +182,7 @@ import { brouillonNouveauDepuisLeBien, MOT_NOUVEAU_MESSAGE } from '../../../../l
 import { createPortal } from 'react-dom';
 import { CSS_FENETRES, titreFenetre } from './FenetresRedaction';
 import { hoteDeLaBulle } from './InfoBien';
+import { oublierExpediteursSyndicaux } from './useExpediteurSyndical';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-BIEN-8 — UNE CARTE TELLE QUE LA ROUTE LA REND À CE BLOC ══════════════════════════════════
@@ -706,6 +709,9 @@ export function HistoriqueDuBien({
    * liserés, pastilles et capsules à la date du mail (`tonDeLExpediteur`, `famillesDestinataires`).
    */
   const [syndicaux, setSyndicaux] = useState<SyndicauxDuBien>(new Map());
+  /** 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — la base accepte-t-elle le classement local « Syndic &
+      immeuble » (migration 344) ? Lu avec les parties. `false` ⇒ zone non déposable, exactement comme avant ce lot. */
+  const [syndicLocal, setSyndicLocal] = useState(false);
   /**
    * 🔴 LES CARTES PORTENT LEUR ADRESSE depuis le lot HISTORIQUE-BIEN-3, et il la fallait : le « + » cerclé ne
    * s'affiche que sur une partie qui N'A PAS encore de carte, ce qui demande de savoir lesquelles en ont une.
@@ -785,6 +791,7 @@ export function HistoriqueDuBien({
           contactsLocataires?: ContactDeLocataire[];
           /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — les adresses que la fiche syndic reconnaît, avec leur rôle. */
           syndicaux?: unknown;
+          syndicLocal?: boolean;
         };
       };
       /* 🔴🔴 LOT PASTILLE-TIERS-INDEPENDANT-DANS-LES-SUGGESTIONS — la carte des groupes vient de la règle pure
@@ -802,6 +809,7 @@ export function HistoriqueDuBien({
       }
       setCategoriesRangees(m);
       setSyndicaux(syndicauxDepuisJson(d.data?.syndicaux));
+      setSyndicLocal(d.data?.syndicLocal === true);
       setProposees(prop);
       setCartesContact(d.data?.cartes ?? []);
       setContactsLocataires(d.data?.contactsLocataires ?? []);
@@ -2160,6 +2168,9 @@ export function HistoriqueDuBien({
         return;
       }
       await relireParties();
+      /* 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — le cartouche EXPÉDITEUR des fenêtres de
+         rattachement relira la famille (classement local « Syndic & immeuble » compris), sans recharger la page. */
+      oublierExpediteursSyndicaux();
       /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — on prévient les carrousels du haut : la synchronisation va dans les deux
          sens. Le tour est gardé pour ne pas s'entendre soi-même (voir l'encadré de l'écoute). */
       annoncerCartesContact(lotCle, { sauf: monEcoute.current ?? undefined });
@@ -2194,6 +2205,7 @@ export function HistoriqueDuBien({
       }
       setDernierGeste(null);
       await relireParties();
+      oublierExpediteursSyndicaux();
       /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — on prévient les carrousels du haut : la synchronisation va dans les deux
          sens. Le tour est gardé pour ne pas s'entendre soi-même (voir l'encadré de l'écoute). */
       annoncerCartesContact(lotCle, { sauf: monEcoute.current ?? undefined });
@@ -2752,7 +2764,7 @@ export function HistoriqueDuBien({
               return (
                 <GroupeDeParties key={cle} g={g} forme="encart" reglages={reglages} bascules={bascules}
                   motSiVide={motEncartVide(cle, clientConnuPour(cle, clients))}
-                  periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse} syndicaux={syndicaux}
+                  periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse} syndicaux={syndicaux} syndicLocal={syndicLocal}
                   fichesClientes={fichesClientes} onFicheClient={onFicheClient}
                   survol={survol} glisse={glisse} menu={menu}
                   onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
@@ -2827,6 +2839,7 @@ export function HistoriqueDuBien({
             if (cle === 'agence') {
               return (
                 <BandeAgence key="agence" adresses={parties.agence} ecartees={reglages.agenceEcartee}
+                  pendantGlisser={glisse !== null}
                   ouvert={bascules.has('agence')} onBasculerRepli={() => basculerRepli('agence')}
                   onBasculer={basculerAgence} onToutLeGroupe={basculerToutLagence} />
               );
@@ -2837,7 +2850,7 @@ export function HistoriqueDuBien({
               <GroupeDeParties key={cle} g={g} forme="bande" reglages={reglages} bascules={bascules}
                 /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la bande rose vide dit d'où vient la famille, et comment y entrer. */
                 motSiVide={cle === 'syndic_immeuble' ? MOT_SYNDIC_IMMEUBLE_VIDE : undefined}
-                periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse} syndicaux={syndicaux}
+                periodes={periodes} categoriesFiche={categories} cartesParAdresse={cartesParAdresse} syndicaux={syndicaux} syndicLocal={syndicLocal}
                 fichesClientes={fichesClientes} onFicheClient={onFicheClient}
                 survol={survol} glisse={glisse} menu={menu}
                 onBasculerRepli={basculerRepli} onBasculerPartie={basculerPartie} onBasculerGroupe={basculerGroupe}
@@ -3677,6 +3690,8 @@ interface PropsGroupe {
   categoriesFiche: ReadonlyMap<string, CategoriePartie>;
   /** 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — le rôle de chaque personne de la fiche syndic, écrit sur sa capsule. */
   syndicaux?: SyndicauxDuBien;
+  /** 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — « Syndic & immeuble » accepte un classement local. */
+  syndicLocal?: boolean;
   /** Par adresse, les côtés où une carte de contact existe déjà. Décide de la présence du « + » cerclé. */
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 2 — les côtés où une carte **CRÉÉE** existe pour cette adresse.
@@ -3805,8 +3820,10 @@ interface PropsGroupe {
  * ce qui fait qu'une adresse de l'agence apparue depuis naît cochée (voir `basculerAgence`).
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-function BandeAgence({ adresses, ecartees, ouvert, onBasculerRepli, onBasculer, onToutLeGroupe }: {
+function BandeAgence({ adresses, ecartees, ouvert, onBasculerRepli, onBasculer, onToutLeGroupe, pendantGlisser = false }: {
   adresses: readonly Interlocuteur[];
+  /** 🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — un glisser est en cours : l'agence, hors jeu, se grise. */
+  pendantGlisser?: boolean;
   /** Les adresses DÉCOCHÉES, en forme canonique. */
   ecartees: readonly string[];
   ouvert: boolean;
@@ -3825,7 +3842,8 @@ function BandeAgence({ adresses, ecartees, ouvert, onBasculerRepli, onBasculer, 
   const partiel = decochees > 0 && decochees < toutes.length;
 
   return (
-    <section className="hdb-groupe hdb-groupe--nous hdb-groupe--bande">
+    <section className={`hdb-groupe hdb-groupe--nous hdb-groupe--bande${pendantGlisser ? ' hdb-groupe--interdit' : ''}`}
+      aria-disabled={pendantGlisser || undefined}>
       <div className="hdb-groupe-tete">
         <button type="button" className="hdb-replier" aria-expanded={ouvert} onClick={onBasculerRepli}>
           <span aria-hidden="true" className={`hdb-triangle${ouvert ? ' hdb-triangle--ouvert' : ''}`}>▶</span>
@@ -3907,16 +3925,19 @@ function GroupeDeParties(p: PropsGroupe) {
   /* 🔴 LE SURVOL PENDANT UN GLISSER OUVRE, SANS MÉMORISER : la bande se referme dès qu'on en sort. */
   const ouvert = ouvertParChoix || (glisse !== null && survol === g.cle);
 
-  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » n'est PAS une zone de dépôt : la famille se lit dans la
-     fiche syndic, elle ne se range pas à la main (on y entre en ajoutant la personne à la fiche syndic). Ses
-     capsules, elles, restent glissables vers Propriétaire ou Locataire, rôles qui l'emportent. */
-  const survolable = glisse !== null && glisse.depuis !== g.cle && g.cle !== 'syndic_immeuble';
+  /* 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — LA ZONE ACCEPTE-T-ELLE CE GLISSER ? Une seule règle,
+     `peutDeposer`, la même que le menu « Déplacer vers… ». « Syndic & immeuble » accepte désormais un CLASSEMENT LOCAL
+     (ce bien seulement, rien n'est écrit dans la fiche syndic), depuis « Non affectés » ou « Tiers indépendant », si la
+     migration 344 est là. Pendant un glisser, une zone qui refuse se GRISE (`interdite`) ; son propre groupe, non. */
+  const survolable = glisse !== null && peutDeposer(glisse.depuis, g.cle, { syndicLocal: p.syndicLocal === true });
+  const interdite = glisse !== null && glisse.depuis !== g.cle && !survolable;
   const surligne = survolable && survol === g.cle;
 
   return (
     <section
       className={`hdb-groupe hdb-groupe--${p.ton ?? g.ton} hdb-groupe--${forme}`
-        + `${surligne ? ' hdb-groupe--cible' : ''}`}
+        + `${surligne ? ' hdb-groupe--cible' : ''}${interdite ? ' hdb-groupe--interdit' : ''}`}
+      aria-disabled={interdite || undefined}
       onDragOver={(e) => {
         if (!survolable) return;
         /* 🔴 SANS `preventDefault`, LE NAVIGATEUR REFUSE LE DÉPÔT — silencieusement. Voir l'encadré. */
@@ -3991,8 +4012,9 @@ function GroupeDeParties(p: PropsGroupe) {
           {g.nb === 0 && motSiVide !== undefined && (forme === 'encart' || ouvert) && (
             <p className="hdb-vide-mot">{motSiVide}</p>
           )}
-          {/* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — jamais pour « Syndic & immeuble », qui n'est pas une zone de dépôt. */}
-          {ouvert && g.nb === 0 && (glisse !== null || motSiVide === undefined) && g.cle !== 'syndic_immeuble' && (
+          {/* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — jamais pour « Syndic & immeuble » quand il refuse le dépôt.
+              LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES : il la dit quand il accepte ce glisser. */}
+          {ouvert && g.nb === 0 && (glisse !== null || motSiVide === undefined) && (g.cle !== 'syndic_immeuble' || survolable) && (
             <p className="hdb-vide-depot">Déposez ici pour ranger dans « {g.titre} ».</p>
           )}
 
@@ -4044,7 +4066,11 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
    * travail avant, et c'est ainsi que le « + » a pu manquer à sa troisième demande.
    */
   const sorte = sorteDeCapsule(i.adresse, g.cle, p.categoriesFiche, i.interne);
-  const deplacable = partieDeplacable(i.adresse, p.categoriesFiche, i.interne);
+  /* 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — DÉCISION D'ARNO : une personne venue de la FICHE
+     SYNDIC ne sort pas de « Syndic & immeuble » (ni glisser, ni menu) ; elle se modifie depuis la fiche syndic. Une
+     personne CLASSÉE À LA MAIN dans ce groupe, elle, se re-déplace comme tout contact. */
+  const deLaFicheSyndic = vientDeLaFicheSyndic(i.adresse, g.cle, p.syndicaux);
+  const deplacable = partieDeplacable(i.adresse, p.categoriesFiche, i.interne) && !deLaFicheSyndic;
   const menuOuvert = p.menu === cle;
   /**
    * ══ 🔴🔴 LE « + » CERCLÉ : UN CONTACT, D'UN CÔTÉ CLIENT, QUI N'A PAS ENCORE SA CARTE ═════════════════════════
@@ -4079,7 +4105,7 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
     <li className={`hdb-capsule hdb-capsule--${g.ton}${deplacable ? '' : ' hdb-capsule--fixe'}`}
       data-capsule=""
       draggable={deplacable}
-      title={deplacable ? undefined : MOTIF_NON_DEPLACABLE}
+      title={deplacable ? undefined : deLaFicheSyndic ? MOTIF_FICHE_SYNDIC : MOTIF_NON_DEPLACABLE}
       onDragStart={(e) => {
         if (!deplacable) { e.preventDefault(); return; }
         e.dataTransfer.setData('text/plain', nomLisible);
@@ -4110,6 +4136,17 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
               <>
                 {' · '}
                 <span className="hdb-role-syndic">{roleSyndical}</span>
+              </>
+            )}
+            {/* 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — d'où vient sa place dans « Syndic &
+                immeuble » : la fiche syndic (fixe), ou un classement à la main pour ce bien (re-déplaçable). */}
+            {g.cle === 'syndic_immeuble' && (
+              <>
+                {' · '}
+                <span className={`hdb-origine-syndic hdb-origine-syndic--${deLaFicheSyndic ? 'fiche' : 'main'}`}
+                  title={deLaFicheSyndic ? MOTIF_FICHE_SYNDIC : undefined}>
+                  {deLaFicheSyndic ? MOT_SYNDIC_FICHE : MOT_SYNDIC_A_LA_MAIN}
+                </span>
               </>
             )}
             {/* ══ 🔴🔴 LA DATE D'UN LOCATAIRE, EN PETIT TEXTE SUR LA LIGNE DES COMPTEURS ════════════════════
@@ -4175,7 +4212,7 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
 
       {/* ══ LE MENU « DÉPLACER VERS… » — LE CHEMIN CLAVIER ══════════════════════════════════════════════════ */}
       {deplacable && (
-        <MenuDeplacer cle={cle} nom={nomLisible} depuis={g.cle} ouvert={menuOuvert}
+        <MenuDeplacer cle={cle} nom={nomLisible} depuis={g.cle} ouvert={menuOuvert} syndicLocal={p.syndicLocal === true}
           onOuvrir={() => p.onMenu(menuOuvert ? null : cle)} onFermer={() => p.onMenu(null)}
           onChoisir={(vers, titre) => { void p.onDeplacer(i.adresse, vers, nomLisible, titre); }} />
       )}
@@ -4209,10 +4246,12 @@ function CapsulePartie({ i, g, ...p }: PropsGroupe & { i: Interlocuteur }) {
  * AILLEURS ferme le menu avant que le bouton d'un item ne reçoive le sien — et le choix se perd.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-function MenuDeplacer({ cle, nom, depuis, ouvert, onOuvrir, onFermer, onChoisir }: {
+function MenuDeplacer({ cle, nom, depuis, ouvert, onOuvrir, onFermer, onChoisir, syndicLocal = false }: {
   cle: string;
   nom: string;
   depuis: CleGroupeParties;
+  /** 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — « Syndic & immeuble » accepte un classement local. */
+  syndicLocal?: boolean;
   ouvert: boolean;
   onOuvrir: () => void;
   onFermer: () => void;
@@ -4276,7 +4315,7 @@ function MenuDeplacer({ cle, nom, depuis, ouvert, onOuvrir, onFermer, onChoisir 
           style={place === null
             ? { visibility: 'hidden', top: 0, left: 0 }
             : { top: `${place.haut}px`, left: `${place.gauche}px` }}>
-          {ciblesDeplacement(depuis).map((c) => (
+          {ciblesDeplacement(depuis, { syndicLocal }).map((c) => (
             <button key={c.cle} type="button" className="hdb-menu-item"
               onClick={() => onChoisir(c.cle, c.titre)}>{c.titre}</button>
           ))}
@@ -5290,6 +5329,13 @@ ${CSS_PIECES}
    l'espace qui separe le bas du panneau (ou la ligne, panneau ferme) de la liste des mails. Seul le panneau du HAUT est
    vise ; ferme, il n'est pas rendu : aucun trou residuel. */
 .hdb-resume--haut>.hdb-pieces{margin-top:1rem}
+/* ══ 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — PENDANT UN GLISSER, CE QUI REFUSE SE GRISE ═══════
+   Une zone qui n'accepte pas la capsule (et la bande « Notre agence », hors jeu) s'estompe et passe en gris : on voit
+   d'un coup d'oeil ou l'on peut lacher. La zone survolee qui accepte garde son surlignage (.hdb-groupe--cible). */
+.hdb-groupe--interdit{opacity:.45;filter:grayscale(1);cursor:no-drop}
+/* L'origine d'une personne de « Syndic & immeuble » : la fiche syndic (fixe) ou un classement a la main (deplacable). */
+.hdb-origine-syndic{font-size:.7rem;font-style:italic;color:var(--color-svv-muted)}
+.hdb-origine-syndic--fiche{cursor:help}
 
 /* ══ LA LEGENDE DES BARRES ── discrete : un mot et une pastille, en petit, au-dessus du listing. */
 /* ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 1 — LA LIGNE QUI PORTE LE BOUTON DES PIECES ET LA LEGENDE ═══════════

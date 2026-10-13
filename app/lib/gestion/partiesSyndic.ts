@@ -67,8 +67,17 @@ export const TITRE_SYNDIC_IMMEUBLE = 'Syndic & immeuble';
  * Ce que dit la bande rose quand elle est vide : la famille ne se range pas à la main, elle vient de la fiche syndic.
  * (Elle n'est donc jamais une zone de dépôt, et ne le prétend pas.)
  */
+/* LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — depuis la migration 344, on y entre AUSSI en y glissant une
+   personne pour ce bien seulement : la phrase le dit, sinon elle décrirait un seul des deux chemins. */
 export const MOT_SYNDIC_IMMEUBLE_VIDE =
-  'Personne de la fiche syndic ni du carnet de l’immeuble dans ces échanges. On y entre en ajoutant la personne à la fiche syndic.';
+  'Personne de la fiche syndic ni du carnet de l’immeuble dans ces échanges. On y entre en ajoutant la personne à la fiche syndic, '
+  + 'ou en y glissant une personne pour ce bien seulement.';
+
+/**
+ * LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — le rôle d'une personne rangée À LA MAIN en « Syndic &
+ * immeuble » sur un bien (classement local, migration 344) : ni contact de la fiche syndic, ni carnet de l'immeuble.
+ */
+export const ROLE_SYNDIC_A_LA_MAIN = 'Syndic & immeuble — classée à la main pour ce bien';
 
 /** « Syndic — <nom du cabinet> ». */
 export function roleCabinet(nomCabinet: string): string {

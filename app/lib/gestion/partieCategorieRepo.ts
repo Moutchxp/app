@@ -1292,3 +1292,19 @@ export async function etatDesCartes(adresses: readonly string[]): Promise<{ adre
        FROM gestion_contact_carte WHERE lower(btrim(adresse)) = ANY($1::text[])`, [[...adresses]]);
   return rows;
 }
+
+/**
+ * ══ 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — « SYNDIC & IMMEUBLE » RANGÉ À LA MAIN, BIEN PAR BIEN ══
+ * Parmi `lotCles`, les biens sur lesquels l'adresse est rangée À LA MAIN en « Syndic & immeuble » (classement local,
+ * migration 344). La ligne vivante d'un bien est unique (index de la 318) et ne peut être que manuelle : c'est donc la
+ * catégorie retenue de ce bien. LECTURE SEULE ; vide sans la 344 ou sans la table.
+ */
+export async function biensRangesSyndicLocal(adresse: string, lotCles: readonly string[]): Promise<string[]> {
+  const a = adressePropre(adresse);
+  if (a === null || lotCles.length === 0 || !(await partieCategorieDisponible())) return [];
+  const { rows } = await query<{ lot_cle: string }>(
+    `SELECT DISTINCT lot_cle FROM gestion_partie_categorie
+      WHERE retire_le IS NULL AND categorie = 'syndic_immeuble' AND adresse = $1 AND lot_cle = ANY($2::text[])`,
+    [a, [...lotCles]]);
+  return rows.map((r) => r.lot_cle);
+}

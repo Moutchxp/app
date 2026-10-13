@@ -140,11 +140,15 @@ describe('🔒 calculé à l’affichage, jamais stocké', () => {
     const repo = readFileSync('app/lib/gestion/partiesSyndicRepo.ts', 'utf8').replace(/\/\*[\s\S]*?\*\//g, ' ').toUpperCase();
     for (const v of ['INSERT ', 'UPDATE ', 'DELETE ', 'TRUNCATE']) expect(repo, v).not.toContain(v);
     const pur = readFileSync('app/lib/gestion/partieCategorie.ts', 'utf8');
-    expect(pur).toContain("export type Categorie = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'independant' | 'a_repartir';");
+    /* 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES (décision d'Arno du 13/10/2026) — la contrainte de la
+       base (migration 344) accepte « syndic_immeuble » RANGÉ À LA MAIN sur un bien : un classement LOCAL. La famille
+       calculée depuis la fiche syndic, elle, n'est toujours JAMAIS stockée : ce dépôt ne fait que lire. */
+    expect(pur).toContain("export type Categorie = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'independant' | 'a_repartir' | 'syndic_immeuble';");
     expect(pur).toContain("export type CategorieAffichee = Categorie | 'syndic_immeuble';");
-    /* Jamais posable à la main. */
+    /* Posable à la main, depuis la 344, par la même porte que les autres rangements — et sondé avant. */
     const route = readFileSync('app/(admin)/api/admin/gestion/historique/parties/route.ts', 'utf8');
-    expect(route).toContain("['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'a_repartir'];");
+    expect(route).toContain("['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'a_repartir', 'syndic_immeuble'];");
+    expect(route).toContain("if (categorie === 'syndic_immeuble' && !(await syndicLocalDisponible())) {");
   });
   it('⚠️ aucun accent grave ni accent dans le SQL du dépôt (piège du lot 19d3c67d)', () => {
     const src = readFileSync('app/lib/gestion/partiesSyndicRepo.ts', 'utf8');

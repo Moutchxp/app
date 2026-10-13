@@ -16,6 +16,7 @@ import { coordonneesDeLaCarte } from '../../../../../../lib/gestion/ficheContact
 import { contactsParLocataire } from '../../../../../../lib/gestion/historiqueRepo';
 /* 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — qui, parmi les adresses du bien, la fiche syndic reconnaît. Lecture seule. */
 import { syndicauxDuBien } from '../../../../../../lib/gestion/partiesSyndicRepo';
+import { syndicLocalDisponible } from '../../../../../../lib/gestion/schema';
 
 /**
  * /api/admin/gestion/historique/parties — LOT HISTORIQUE-BIEN-1 : LA CATÉGORIE DE CHAQUE ADRESSE D'UN BIEN.
@@ -170,6 +171,9 @@ export async function GET(request: Request): Promise<Response> {
          */
         contactsLocataires,
         syndicaux,
+        /* 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — la zone « Syndic & immeuble » accepte-t-elle un
+           classement local ? (migration 344). `false` ⇒ l'écran d'avant, zone non déposable. */
+        syndicLocal: await syndicLocalDisponible(),
         cartes: cartes.map((c) => ({
           id: c.id, cote: c.cote, locataireId: c.locataireId, adresse: c.adresse, nom: c.nom, telephone: c.telephone,
           origine: c.origine, verifie: c.verifieLe !== null,
@@ -213,8 +217,13 @@ export async function GET(request: Request): Promise<Response> {
 /* 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — `ancien_locataire` ENTRE DANS LA LISTE, et il y entre AVEC sa contrainte :
    le dépôt refuse de le poser sans `locataireId` (et refuse `locataireId` sur les autres). La route n'écrit donc
    aucune règle de plus — elle transmet, et c'est la porte d'écriture qui juge. */
+/* 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — `syndic_immeuble` ENTRE DANS LA LISTE : un SIMPLE
+   CLASSEMENT LOCAL sur ce bien (décision d'Arno du 13/10/2026), par la MÊME porte que les autres rangements manuels.
+   Il n'appelle AUCUNE route de la fiche syndic, et il n'est accepté que si la base le connaît (migration 344). */
 const CATEGORIES_POSABLES: readonly Categorie[] =
-  ['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'a_repartir'];
+  ['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'a_repartir', 'syndic_immeuble'];
+/** Le refus quand la 344 n'est pas appliquée : on le dit, on n'écrit rien. */
+const SANS_344 = 'Le classement « Syndic & immeuble » sur ce bien n’est pas encore disponible (migration 344 non appliquée).';
 
 function texteCourt(v: unknown, max: number): string | null {
   if (typeof v !== 'string') return null;
@@ -488,8 +497,8 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(
       {
         etat: 'refus',
-        motif: 'Choisissez une catégorie : Propriétaire, Locataire, Ancien locataire, Tiers indépendant ou '
-          + 'Non affectés.',
+        motif: 'Choisissez une catégorie : Propriétaire, Locataire, Ancien locataire, Tiers indépendant, '
+          + 'Syndic & immeuble ou Non affectés.',
       },
       { status: 400, headers: ENTETES });
   }
@@ -501,6 +510,9 @@ export async function POST(request: Request): Promise<Response> {
    */
   const locataireId = typeof c.locataireId === 'number' && Number.isInteger(c.locataireId) && c.locataireId > 0
     ? c.locataireId : null;
+  if (categorie === 'syndic_immeuble' && !(await syndicLocalDisponible())) {
+    return Response.json({ etat: 'refus', motif: SANS_344 }, { status: 409, headers: ENTETES });
+  }
 
   try {
     /* 🔴 LE RANGEMENT D'ABORD : c'est lui qui fait changer la partie de groupe, et c'est ce qu'Arno a demandé. */

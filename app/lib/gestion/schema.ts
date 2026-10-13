@@ -1147,6 +1147,28 @@ export function ficheContactCarteDisponible(): Promise<boolean> {
 }
 
 /**
+ * ══ 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — LA MIGRATION 344 : « SYNDIC & IMMEUBLE » RANGÉ À LA MAIN ══
+ * La 344 élargit `gestion_partie_categorie_categorie_chk` à `syndic_immeuble` (classement LOCAL, sur un bien). On lit la
+ * contrainte elle-même. Tant qu'elle répond « non », la zone « Syndic & immeuble » n'accepte aucun dépôt et le serveur
+ * refuse le geste avec son motif : exactement le comportement d'avant ce lot.
+ */
+export function syndicLocalDisponible(): Promise<boolean> {
+  return memoiser('contrainte.gestion_partie_categorie.syndic_immeuble', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n
+           FROM pg_constraint
+          WHERE conrelid = to_regclass('public.gestion_partie_categorie')
+            AND conname = 'gestion_partie_categorie_categorie_chk'
+            AND pg_get_constraintdef(oid) LIKE '%''syndic_immeuble''%'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      return false; // base injoignable : le geste reste fermé, comme avant ce lot
+    }
+  });
+}
+
+/**
  * ══ 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA MIGRATION 318 : UN CONTACT RATTACHÉ À UN ANCIEN LOCATAIRE ════════════
  *
  * Demande d'Arno (07/10/2026) : « Le contact ajouté est rattaché à l'ancien locataire, pas au locataire actuel ni

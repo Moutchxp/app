@@ -90,7 +90,7 @@ import type { Cible } from '../../../../lib/gestion/rattachement';
 /* ══ 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — le statut d'envoi des pièces, par famille de destinataire.
    Tout ce qui se DÉCIDE vient du module PUR : la famille d'une adresse, l'ordre, les mots, les tons. */
 import {
-  categoriesDeLaFiche, categoriesDuBien, famillesDestinataires, type FamilleVue,
+  categoriesDeLaFiche, categoriesDuBien, famillesDestinataires, rangementsDesParties, type FamilleVue,
 } from '../../../../lib/gestion/familleDestinataire';
 import type { CategoriePartie } from '../../../../lib/gestion/historiqueBien';
 import { estAdresseInterne } from '../../../../lib/gestion/adresseInterne';
@@ -1476,14 +1476,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           data?: { parties?: { adresse: string; categorie: string | null }[]; syndicaux?: unknown };
         };
         if (!vivant) return;
-        const rangees = new Map<string, CategoriePartie>();
-        for (const x of dp.data?.parties ?? []) {
-          /* ⚠️ « a_repartir » N'EST PAS UN RANGEMENT : c'est l'absence de rangement, et le module pur l'exprime
-             en ne connaissant pas l'adresse. Même règle que le bloc PARTIES, au mot près. */
-          if (x.categorie === 'proprietaire' || x.categorie === 'locataire' || x.categorie === 'independant') {
-            rangees.set(x.adresse.trim().toLowerCase(), x.categorie);
-          }
-        }
+        /* ⚠️ « a_repartir » N'EST PAS UN RANGEMENT : c'est l'absence de rangement. LOT
+           GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — la règle n'est plus recopiée ici : c'est
+           `rangementsDesParties`, celle du bloc PARTIES et des suggestions (« syndic & immeuble » rangé à la main
+           compris). */
+        const rangees = rangementsDesParties(dp.data?.parties ?? []);
         setCategoriesDuBienRattache(
           categoriesDuBien(df.etat === 'ok' && df.data ? df.data : null, rangees));
         /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — la fiche syndic du bien, lue avec les parties (même route). */

@@ -3,8 +3,11 @@ import { cleImmeuble, cleEmail, cleTelephone } from './syndics';
 import { sqlLiensDuBien } from './rattachement';
 import { ACTION_PERIODE_CONTACT, norme, periodesEnPoste } from './reintegrationContact';
 import { estAdresseInterne } from './adresseInterne';
+import { syndicLocalDisponible } from './schema';
+import { biensRangesSyndicLocal } from './partieCategorieRepo';
 import {
-  reconnaitreSyndical, roleCabinet, roleContactSyndic, roleImmeuble, syndicauxDesAdresses, type PersonneSyndicale, type SyndicalDeLAdresse,
+  reconnaitreSyndical, ROLE_SYNDIC_A_LA_MAIN, roleCabinet, roleContactSyndic, roleImmeuble, syndicauxDesAdresses, type PersonneSyndicale,
+  type SyndicalDeLAdresse,
 } from './partiesSyndic';
 
 /**
@@ -227,6 +230,21 @@ export async function expediteurSyndicalDesBiens(
   for (const [cle, liste] of personnes) {
     const r = reconnaitreSyndical(liste, { email: de.adresse }, de.recu_le);
     if (r !== null) out[cle] = { role: r.role, nom: r.nom };
+  }
+  /**
+   * ══ 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — LE CLASSEMENT LOCAL, BIEN PAR BIEN ═══════════════
+   * Une adresse rangée À LA MAIN en « Syndic & immeuble » sur un bien (migration 344) y prend le rose du cartouche,
+   * sur CE bien seulement : la ligne est lue pour chaque bien demandé, jamais ailleurs. La fiche syndic, quand elle
+   * reconnaît l'adresse, garde la main (son rôle est plus précis). Lecture seule.
+   */
+  const restants = lotCles.filter((c) => out[c] === undefined);
+  if (restants.length > 0 && (await syndicLocalDisponible())) {
+    const locaux = await biensRangesSyndicLocal(de.adresse ?? '', restants);
+    if (locaux.length > 0) {
+      const { rows: n } = await query<{ nom: string | null }>(`SELECT m.de_nom AS nom FROM gestion_message m WHERE m.id = $1`, [messageId]);
+      const nom = (n[0]?.nom ?? '').trim() || (de.adresse ?? '');
+      for (const l of locaux) out[l] = { role: ROLE_SYNDIC_A_LA_MAIN, nom };
+    }
   }
   return out;
 }

@@ -1258,13 +1258,53 @@ export const SECONDES_ANNULER_DEPLACEMENT = 8;
  *
  * ⚠️ LA CATÉGORIE D'ORIGINE EST ÉCARTÉE : proposer « déplacer vers là où tu es déjà » est un piège à clic.
  */
-export function ciblesDeplacement(depuis: CleGroupeParties): { cle: CleGroupeParties; titre: string }[] {
-  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » n'est jamais une destination : la famille se lit dans
-     la fiche syndic, aucun rangement ne la pose. */
+export function ciblesDeplacement(
+  depuis: CleGroupeParties, o: { syndicLocal?: boolean } = {},
+): { cle: CleGroupeParties; titre: string }[] {
+  /* 🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — « Syndic & immeuble » n'était jamais une destination. 🔴🔴 LOT
+     GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES : elle l'est désormais, par la MÊME règle que le glisser
+     (`peutDeposer`), depuis « Non affectés » et « Tiers indépendant » seulement, et seulement quand la base l'accepte
+     (migration 344). Sans `syndicLocal`, la liste est exactement celle d'avant. */
   return [...GROUPES_EN_ENCART, ...GROUPES_EN_BANDE]
-    .filter((c) => c !== depuis && c !== 'syndic_immeuble')
+    .filter((c) => peutDeposer(depuis, c, { syndicLocal: o.syndicLocal === true }))
     .map((c) => ({ cle: c, titre: TITRES_GROUPES[c] }));
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES (décision d'Arno du 13/10/2026)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ OÙ UNE CAPSULE PEUT-ELLE ÊTRE DÉPOSÉE ? — LA SEULE RÈGLE, POUR LE GLISSER COMME POUR LE MENU « DÉPLACER VERS… » ══
+ *   · jamais dans son propre groupe ;
+ *   · « Syndic & immeuble » : un SIMPLE CLASSEMENT LOCAL (ce bien seulement, aucune écriture dans la fiche syndic),
+ *     accepté depuis « Non affectés » ou « Tiers indépendant » seulement, et seulement si la base l'accepte
+ *     (`syndicLocal`, migration 344) ;
+ *   · Propriétaire, Locataire, Tiers indépendant, Non affectés : comme avant ce lot ;
+ *   · « Notre agence » n'est pas un groupe de parties : jamais une destination.
+ * ⚠️ Une capsule issue de la FICHE SYNDIC ne part de nulle part : elle n'est pas déplaçable (`vientDeLaFicheSyndic`). PUR.
+ */
+export function peutDeposer(depuis: CleGroupeParties, vers: CleGroupeParties, o: { syndicLocal: boolean }): boolean {
+  if (depuis === vers) return false;
+  if (vers === 'syndic_immeuble') return o.syndicLocal && (depuis === 'a_repartir' || depuis === 'independant');
+  return true;
+}
+
+/**
+ * Une capsule du groupe « Syndic & immeuble » vient-elle de la FICHE SYNDIC (contact du syndic, carnet de l'immeuble) ?
+ * Sinon, elle y a été CLASSÉE À LA MAIN pour ce bien. La fiche l'emporte quand les deux sont vrais. PUR.
+ */
+export function vientDeLaFicheSyndic(
+  adresse: string, groupe: CleGroupeParties, syndicaux: ReadonlyMap<string, unknown> | undefined,
+): boolean {
+  return groupe === 'syndic_immeuble' && (syndicaux?.has(adresse.trim().toLowerCase()) ?? false);
+}
+
+/** La bulle d'une capsule issue de la fiche syndic (décision d'Arno, au mot près). */
+export const MOTIF_FICHE_SYNDIC = 'Contact issu de la fiche syndic — modifiable depuis la fiche syndic';
+/** Les deux mentions qui distinguent les membres du groupe « Syndic & immeuble ». */
+export const MOT_SYNDIC_FICHE = 'fiche syndic';
+export const MOT_SYNDIC_A_LA_MAIN = 'classée à la main';
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ④-ter 🔴🔴 LOT HISTORIQUE-BIEN-3 — L'ENCART NE GRANDIT JAMAIS : IL DÉFILE

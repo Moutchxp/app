@@ -405,10 +405,14 @@ describe('🔒 ⑥ la migration 318', () => {
     expect(MIGRATION).toContain('gestion_partie_categorie');
     expect(MIGRATION).toContain('gestion_contact_carte');
     const pur = readFileSync('app/lib/gestion/partieCategorie.ts', 'utf8');
+    /* La 318 a nommé la liste du module pur de son temps ; la 344 (LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-
+       PARTIES) l'a élargie à « syndic_immeuble ». Le module pur suit la DERNIÈRE, et la 318 reste telle qu'écrite. */
     expect(pur).toContain(
-      "export type Categorie = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'independant' | 'a_repartir';");
+      "export type Categorie = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'independant' | 'a_repartir' | 'syndic_immeuble';");
     expect(MIGRATION.replace(/\s+/g, ' ')).toContain(
       "ARRAY['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'a_repartir']");
+    expect(readFileSync('db/migrations/344_gestion_partie_syndic_local.sql', 'utf8').replace(/\s+/g, ' ')).toContain(
+      "ARRAY['proprietaire', 'locataire', 'ancien_locataire', 'independant', 'a_repartir', 'syndic_immeuble']");
   });
 
   /** 🔴 SANS LA MIGRATION, LE GESTE EST REFUSÉ AVEC SON MOTIF — jamais rangé de travers. */

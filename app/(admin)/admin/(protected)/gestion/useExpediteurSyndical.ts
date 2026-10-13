@@ -44,6 +44,15 @@ async function charger(): Promise<void> {
   }
 }
 
+/**
+ * LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES — un rangement vient de changer dans le bloc PARTIES : ce que
+ * cette page savait de l'expéditeur des mails est peut-être périmé (classement local « Syndic & immeuble »). On l'oublie ;
+ * le prochain cartouche le redemande. Rien n'est écrit.
+ */
+export function oublierExpediteursSyndicaux(): void {
+  memoire.clear();
+}
+
 function demander(messageId: number, bien: string): void {
   const cle = cleDe(messageId, bien);
   if (memoire.has(cle)) return;

@@ -51,16 +51,24 @@
  * ⚠️ ELLE N'EST JAMAIS PRODUITE PAR LA RÈGLE PAR DÉFAUT (`categorieParDefaut`) : « ancien » est un fait de
  * l'annuaire (une occupation close), pas un signal d'adresse. Elle vient soit de la FICHE du bien
  * (`categoriesDeLaFiche`, l'unique règle ancien/actuel), soit d'un rangement manuel attaché à un ancien nommé.
+ *
+ * ══ 🔴🔴 LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES (décision d'Arno du 13/10/2026) ═══════════════════
+ * « Syndic & immeuble » RANGÉ À LA MAIN : un SIMPLE CLASSEMENT LOCAL, pour l'historique de CE bien uniquement — jamais
+ * global (la contrainte de portée l'impose : seul `independant` est sans bien), jamais un ajout à la fiche syndic, et
+ * sans effet sur les autres biens, même du même immeuble. Ouverte par la migration 344, sondée avant d'être posée
+ * (`syndicLocalDisponible`). Il ne sert jamais à l'automatisation (`sertALAutomatisation`).
  */
-export type Categorie = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'independant' | 'a_repartir';
+export type Categorie = 'proprietaire' | 'locataire' | 'ancien_locataire' | 'independant' | 'a_repartir' | 'syndic_immeuble';
 
 /**
  * ══ 🔴🔴 LOT PARTIES-SYNDIC-ET-IMMEUBLE — LA CATÉGORIE **AFFICHÉE**, FAMILLE « SYNDIC & IMMEUBLE » COMPRISE ═════════
  *
  * « Syndic & immeuble » (puce rose) : le cabinet du syndic de la copropriété du bien, ses contacts et le carnet de
- * l'immeuble. ⚠️ CE N'EST PAS UNE `Categorie` : elle n'est JAMAIS stockée, ni posable à la main. Elle est CALCULÉE à
- * l'affichage depuis la fiche syndic (`partiesSyndic.ts`). `Categorie`, elle, reste exactement la liste de la
- * contrainte de `gestion_partie_categorie` (garde de la migration 318).
+ * l'immeuble. Elle est CALCULÉE à l'affichage depuis la fiche syndic (`partiesSyndic.ts`). `Categorie`, elle, reste
+ * exactement la liste de la contrainte de `gestion_partie_categorie` (garde de la migration 318, élargie par la 344).
+ * LOT GLISSER-DEPOSER-ENTRE-TOUTES-LES-FAMILLES-DES-PARTIES : depuis la 344, la famille peut AUSSI être rangée à la
+ * main sur un bien (classement local, voir `Categorie`) ; la fiche syndic, elle, reste la seule source de ses membres
+ * « fiche syndic ».
  */
 export type CategorieAffichee = Categorie | 'syndic_immeuble';
 
