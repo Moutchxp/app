@@ -5283,6 +5283,13 @@ ${CSS_PIECES}
 .hdb-resume-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.2rem 0 .4rem;
   font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}
 .hdb-pieces{display:flex;flex-direction:column;gap:12px;min-width:0}
+/* ══ 🔴🔴 LOT MARGE-AU-DESSUS-DES-PIECES-JOINTES — LE PANNEAU OUVERT NE SE COLLE PLUS A LA LIGNE DES BOUTONS ═════════
+   Constat d'Arno (bien-343) : ouvert, le panneau commencait a 0 px sous « Nouveau message / N pieces / legende », son
+   lisere touchant les boutons. L'espace est CELUI QUI SEPARE DEJA LES BLOCS DE LA FICHE, pas une valeur au hasard :
+   le gap du bloc (.ann-bloc, .5rem) + la marge d'un bloc (.hdb-resume, .5rem) = 1rem — mesure 16 px, exactement
+   l'espace qui separe le bas du panneau (ou la ligne, panneau ferme) de la liste des mails. Seul le panneau du HAUT est
+   vise ; ferme, il n'est pas rendu : aucun trou residuel. */
+.hdb-resume--haut>.hdb-pieces{margin-top:1rem}
 
 /* ══ LA LEGENDE DES BARRES ── discrete : un mot et une pastille, en petit, au-dessus du listing. */
 /* ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 1 — LA LIGNE QUI PORTE LE BOUTON DES PIECES ET LA LEGENDE ═══════════
