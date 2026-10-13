@@ -1,6 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+/* 🔴 LOT FILTRE-ECRAN-FIXE — l'écran ne bouge pas quand on change de filtre. */
+import { figerDefilement, hauteurRetenue, MOT_AUCUNE_TACHE_FILTRE } from './defilementFige';
 import {
   compterTaches, motCompteur, ORDRE_COULEURS, repartirTaches, type Tache,
 } from '../../../../lib/gestion/taches';
@@ -40,6 +42,19 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
   const [qui, setQui] = useState<FiltreQui>('toutes');
   const [statut, setStatut] = useState<FiltreStatut>('toutes');
   const [detail, setDetail] = useState<number | null>(null);
+  /* 🔴 LOT FILTRE-ECRAN-FIXE — la zone de la liste garde la plus grande hauteur atteinte depuis l'ouverture, et la
+     position de défilement est notée au clic sur un filtre puis rétablie après le rendu. */
+  const zoneListe = useRef<HTMLDivElement | null>(null);
+  const contenuListe = useRef<HTMLDivElement | null>(null);
+  const [hauteurMin, setHauteurMin] = useState(0);
+  const retablir = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    const h = contenuListe.current?.getBoundingClientRect().height ?? 0;
+    const retenue = hauteurRetenue(hauteurMin, h);
+    if (retenue !== hauteurMin) setHauteurMin(retenue);
+    if (retablir.current !== null) { retablir.current(); retablir.current = null; }
+  });
+  const changerFiltre = (f: () => void) => { retablir.current = figerDefilement(zoneListe.current); f(); };
   /** 🔴 LOT TACHES-LIGNES-COMPACTES — lignes repliées par défaut ; le repli des terminées s'ouvre sur une carte dépliée. */
   const lignes = useLignesDepliees();
   const [termineesOuvertes, setTermineesOuvertes] = useState(false);
@@ -74,7 +89,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
           <div className="tch-filtre" role="group" aria-label="Quelles tâches">
             {ORDRE_FILTRES_QUI.map((f) => (
               <button key={f} type="button" aria-pressed={qui === f} data-filtre-qui={f}
-                className={`tch-filtre-btn${qui === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => setQui(f)}>
+                className={`tch-filtre-btn${qui === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => changerFiltre(() => setQui(f))}>
                 {MOTS_QUI[f]}
               </button>
             ))}
@@ -82,7 +97,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
           <div className="tch-filtre" role="group" aria-label="Quel statut">
             {(['toutes', 'en_attente', 'acceptee', 'refusee'] as const).map((f) => (
               <button key={f} type="button" aria-pressed={statut === f} data-filtre-statut={f}
-                className={`tch-filtre-btn${statut === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => setStatut(f)}>
+                className={`tch-filtre-btn${statut === f ? ' tch-filtre-btn--actif' : ''}`} onClick={() => changerFiltre(() => setStatut(f))}>
                 {MOTS_STATUT[f]}
               </button>
             ))}
@@ -103,7 +118,11 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
       </ul>
       <ReglageEnvoi />
       {donnees.tronque && <p className="gst-tronc">La liste est tronquée : toutes les tâches ne sont pas affichées.</p>}
-      {ouvertes.length === 0
+      <div className="tch-zone-liste" ref={zoneListe} data-zone-liste style={hauteurMin > 0 ? { minHeight: `${hauteurMin}px` } : undefined}>
+      <div ref={contenuListe}>
+      {ouvertes.length === 0 && terminees.length === 0 && (qui !== 'toutes' || statut !== 'toutes')
+        ? <p className="tch-vide tch-vide-filtre" role="status">{MOT_AUCUNE_TACHE_FILTRE}</p>
+        : ouvertes.length === 0
         ? <p className="tch-vide">{qui === 'confiees' ? 'Aucune tâche à faire ne vous est confiée.' : qui === 'collaborateurs' ? 'Aucune tâche à faire confiée à un collaborateur.' : qui === 'commandees' ? 'Aucune tâche commandée par vous.' : 'Aucune tâche à faire.'} Une tâche se crée depuis la fiche d’un bien (« + Tâche »).</p>
         : (
           <ul className="tch-liste">
@@ -125,6 +144,8 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
           </ul>
         </details>
       )}
+      </div>
+      </div>
       {detail !== null && <FenetreTache mode={{ sorte: 'detail', id: detail }} onFermer={() => setDetail(null)} onEcrire={onEcrire} />}
     </section>
   );
@@ -181,6 +202,11 @@ function ReglageEnvoi() {
 /* ⚠️ CSS DANS UN GABARIT : jamais d'accent grave dans un commentaire ci-dessous. */
 const CSS_TABLEAU = `
 .tch-filtres{display:flex;flex-wrap:wrap;gap:8px}
+/* LOT FILTRE-ECRAN-FIXE : la zone ne se retracte pas (hauteur minimale posee par l'ecran) et n'ancre pas le defilement ;
+   le message d'un filtre vide est centre dans la zone. */
+.tch-zone-liste{position:relative;overflow-anchor:none}
+.tch-vide-filtre{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;
+  font-size:.95rem}
 .tch-compteur--attente{border-style:dashed}
 .tch-reglage{font-size:.85rem;color:var(--color-svv-muted)}
 .tch-reglage > summary{cursor:pointer;min-height:32px;display:flex;align-items:center;gap:.3rem}
