@@ -53,7 +53,7 @@ beforeEach(() => {
   taches = [
     t({ id: 1, objet: 'Relancer le plombier', jour: ajouterJours(AUJ, -1) }),
     t({ id: 2, objet: 'Visite', acceptation: acc('en_attente') }),
-    t({ id: 4, objet: 'Ancienne', etat: 'faite', faiteLe: '2026-10-01T09:00:00Z', faiteParLibelle: 'Arnaud' }),
+    t({ id: 4, objet: 'Ancienne', etat: 'faite', faiteLe: new Date().toISOString() /* LOT TERMINEES-7-JOURS : récente, donc affichée */, faiteParLibelle: 'Arnaud' }),
   ];
   vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string; body?: string }) => {
     const m = /\/taches\/(\d+)$/.exec(String(u));
@@ -133,7 +133,7 @@ describe('🔴 le bloc « Tâches de ce bien »', () => {
     expect(container.querySelector('#bloc .tch-bloc-titre')).toBeNull();
     expect(container.querySelector('#bloc [data-tache="1"]')?.textContent).toContain('Tâche réalisée');
     expect(container.querySelector('#bloc [data-tache="1"]')?.textContent).toContain('Décaler');
-    expect(container.querySelector('#bloc details summary')?.textContent).toBe('Faites ou annulées (1)');
+    expect(container.querySelector('#bloc details summary')?.textContent).toBe('Faites ou annulées — 7 derniers jours (1)');
     await act(async () => { repli()!.click(); });
     expect(lignes()).toEqual([]);
   });

@@ -45,7 +45,7 @@ beforeEach(() => {
       acceptation: { statut: 'acceptee', automatique: true, destinataireId: 2, destinataireLibelle: 'Arnaud Jorel', demandeurId: 2,
         demandeurLibelle: 'Arnaud Jorel', demandeLe: '', reponduLe: null, reponduParLibelle: null, motif: null, mailEtat: 'aucun', mailLe: null } }),
     t({ id: 8, objet: 'Relancer le plombier', jour: ajouterJours(AUJ, -1), note: '   ' }),
-    t({ id: 9, objet: 'Ancienne', etat: 'faite', faiteLe: '2026-10-01T09:00:00Z', faiteParLibelle: 'Arnaud' }),
+    t({ id: 9, objet: 'Ancienne', etat: 'faite', faiteLe: new Date().toISOString() /* LOT TERMINEES-7-JOURS : récente, donc affichée */, faiteParLibelle: 'Arnaud' }),
   ];
   gestes = []; lectures = []; ecrits = [];
   vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string; body?: string }) => {

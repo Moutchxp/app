@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  compterEnAttenteBien, compterTaches, filtrerParPastille, type PastilleFiltre, motEnAttenteBouton, ORDRE_COULEURS, phraseEnAttenteBien, repartirTaches,
+  compterEnAttenteBien, compterTaches, filtrerParPastille, termineesRecentes, TITRE_TERMINEES, type PastilleFiltre, motEnAttenteBouton, ORDRE_COULEURS, phraseEnAttenteBien, repartirTaches,
   type Tache,
 } from '../../../../lib/gestion/taches';
 import { CSS_TACHES, LigneTache, PastillesFiltres, useLignesDepliees, useMaintenant } from './LigneTache';
@@ -140,7 +140,8 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
   if (ouvertes.length === 0) return fenetre || null;
   const n = compterTaches(ouvertes, maintenant);
   const filtreesOuvertes = filtrerParPastille(ouvertes, pastille, maintenant);
-  const filtreesTerminees = filtrerParPastille(terminees, pastille, maintenant);
+  // 🔴 LOT TERMINEES-7-JOURS — affichage seulement : les terminées des 7 derniers jours.
+  const filtreesTerminees = termineesRecentes(filtrerParPastille(terminees, pastille, maintenant), maintenant);
   const pastilles = (
     <PastillesFiltres n={n} active={pastille} seulementNonVides
       onChoisir={(p) => changerFiltre(() => { setPastille(p); if (p !== null) setDeplie(true); })} />
@@ -189,7 +190,7 @@ export function RecapTachesDuBien({ lotId, onEcrire }: { lotId: number; onEcrire
       {filtreesTerminees.length > 0 && (
         <details className="tch-terminees" open={termineesOuvertes}
           onToggle={(e) => setTermineesOuvertes((e.currentTarget as HTMLDetailsElement).open)}>
-          <summary>Faites ou annulées ({filtreesTerminees.length})</summary>
+          <summary>{TITRE_TERMINEES} ({filtreesTerminees.length})</summary>
           <ul className="tch-liste tch-liste--cartes">
             {filtreesTerminees.map((t) => <LigneTache key={t.id} tache={t} maintenant={maintenant} onDetail={setDetail}
               sources={sources} onEcrire={onEcrire} deplie={lignes.estDepliee(t.id)} onBasculer={() => lignes.basculer(t.id)} />)}

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 /* 🔴 LOT FILTRE-ECRAN-FIXE — l'écran ne bouge pas quand on change de filtre. */
 import { MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
 import {
-  compterTaches, filtrerParPastille, type PastilleFiltre, repartirTaches, type Tache,
+  compterTaches, filtrerParPastille, termineesRecentes, TITRE_TERMINEES, type PastilleFiltre, repartirTaches, type Tache,
 } from '../../../../lib/gestion/taches';
 import { CSS_TACHES, LigneTache, PastillesFiltres, useLignesDepliees, useMaintenant } from './LigneTache';
 import {
@@ -71,7 +71,8 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
   const n = compterTaches(toutes.ouvertes, maintenant);
   const enAttente = compterEnAttente(toutes.ouvertes);
   const ouvertes = filtrerParPastille(toutes.ouvertes, pastille, maintenant);
-  const terminees = filtrerParPastille(toutes.terminees, pastille, maintenant);
+  // 🔴 LOT TERMINEES-7-JOURS — affichage seulement : les terminées des 7 derniers jours.
+  const terminees = termineesRecentes(filtrerParPastille(toutes.terminees, pastille, maintenant), maintenant);
 
   return (
     <section className="tch-tableau" aria-labelledby="tch-tableau-titre">
@@ -120,7 +121,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
       {terminees.length > 0 && (
         <details className="tch-terminees" open={termineesOuvertes}
           onToggle={(e) => setTermineesOuvertes((e.currentTarget as HTMLDetailsElement).open)}>
-          <summary>Faites ou annulées ({terminees.length})</summary>
+          <summary>{TITRE_TERMINEES} ({terminees.length})</summary>
           <ul className="tch-liste">
             {terminees.map((t) => (
               <LigneTache key={t.id} tache={t} maintenant={maintenant} avecAdresse onOuvrirBien={onOuvrirBien}

@@ -315,6 +315,27 @@ export function filtrerParPastille<T extends Pick<Tache, 'jour' | 'etat' | 'acce
   return taches.filter((t) => couleurTache(t, maintenant) === pastille);
 }
 
+/**
+ * ══ 🔴🔴 LOT TERMINEES-7-JOURS (Arno, 14/10/2026) — « FAITES OU ANNULÉES » : LES 7 DERNIERS JOURS ═══════════════════════
+ * AFFICHAGE SEULEMENT (accord d'Arno pour ce masquage) : une tâche réalisée ou annulée il y a 7 jours civils au plus
+ * (heure de Paris) reste dans la section ; au-delà, elle n'y est plus montrée — elle n'est ni supprimée ni modifiée, et
+ * son historique est intact. PUR.
+ */
+export const JOURS_TERMINEES = 7;
+export const TITRE_TERMINEES = `Faites ou annulées — ${JOURS_TERMINEES} derniers jours`;
+
+export function termineesRecentes<T extends Pick<Tache, 'etat' | 'faiteLe' | 'annuleeLe'>>(
+  taches: readonly T[], maintenant: Date, jours = JOURS_TERMINEES,
+): T[] {
+  const aujourdhui = jourParisDe(maintenant);
+  return taches.filter((t) => {
+    const fin = t.etat === 'faite' ? t.faiteLe : t.etat === 'annulee' ? t.annuleeLe : null;
+    if (fin === null) return false;
+    const d = new Date(fin);
+    return !Number.isNaN(d.getTime()) && ecartJours(jourParisDe(d), aujourdhui) <= jours;
+  });
+}
+
 export type FiltreTaches = 'toutes' | 'miennes';
 
 /** « Les miennes » = celles qui me sont CONFIÉES. Sans compte (voie de secours), aucune n'est à moi. PUR. */

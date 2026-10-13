@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { TableauTaches } from './TableauTaches';
 import { CSS_TACHES, MOT_ACTION } from './LigneTache';
 import {
-  ajouterJours, contactsQuiTiennent, phraseTrace, echeanceCompacte, prenomNom, jourParisDe, MOT_COMPTEUR, MOT_COULEUR, motCompteur, type Tache,
+  ajouterJours, contactsQuiTiennent, phraseTrace, termineesRecentes, TITRE_TERMINEES, echeanceCompacte, prenomNom, jourParisDe, MOT_COMPTEUR, MOT_COULEUR, motCompteur, type Tache,
 } from '../../../../lib/gestion/taches';
 
 /**
@@ -278,5 +278,33 @@ describe('🔴 LOT PASTILLES-FILTRES — les pastilles du récapitulatif filtren
     expect(pastille('retard').textContent).toBe('en retard (0)');
     expect(container.querySelector('.tch-vide-filtre')?.textContent).toBe('Aucune tâche pour ce filtre');
     expect(CSS_TACHES).toMatch(/button\.tch-compteur\.tch-compteur--actif\{background:var\(--tch-rouge-plein\)[^}]*color:#ffffff/);
+  });
+});
+
+describe('🔴 LOT TERMINEES-7-JOURS — « Faites ou annulées » : les 7 derniers jours, affichage seulement', () => {
+  const MAINT = new Date('2026-10-14T10:00:00Z');
+  const fin = (jours: number) => new Date(MAINT.getTime() - jours * 86_400_000).toISOString();
+  it('6 jours : affichée ; 7 jours : affichée ; 8 jours : masquée ; à faire : jamais dans la section', () => {
+    const l = [
+      t({ id: 1, etat: 'faite', faiteLe: fin(6) }), t({ id: 2, etat: 'annulee', annuleeLe: fin(7) }),
+      t({ id: 3, etat: 'faite', faiteLe: fin(8) }), t({ id: 4 }),
+    ];
+    expect(termineesRecentes(l, MAINT).map((x) => x.id)).toEqual([1, 2]);
+    expect(TITRE_TERMINEES).toBe('Faites ou annulées — 7 derniers jours');
+  });
+  it('dans le récapitulatif : titre et compte des 7 jours ; la tâche ancienne est masquée, sans aucune écriture', async () => {
+    const ecritures: string[] = [];
+    const ancienne = t({ id: 30, objet: 'Ancienne', etat: 'faite', faiteLe: '2026-09-01T09:00:00Z', faiteParLibelle: 'A' });
+    const recente = t({ id: 31, objet: 'Récente', etat: 'faite', faiteLe: new Date().toISOString(), faiteParLibelle: 'A' });
+    vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string }) => {
+      if ((init?.method ?? 'GET') !== 'GET') ecritures.push(String(u));
+      return String(u).includes('reglage') ? Response.json({ etat: 'ok', envoiMail: false, modifiable: false })
+        : Response.json({ etat: 'ok', taches: [t({ id: 32 }), ancienne, recente], moi: 2, tronque: false });
+    }));
+    await monter();
+    expect(container.querySelector('details.tch-terminees summary')?.textContent).toBe('Faites ou annulées — 7 derniers jours (1)');
+    expect(container.querySelector('[data-tache="31"]')).not.toBeNull();
+    expect(container.querySelector('[data-tache="30"]')).toBeNull();
+    expect(ecritures).toEqual([]);
   });
 });
