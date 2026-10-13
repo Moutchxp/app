@@ -517,10 +517,14 @@ export async function rouvrirTache(id: number, auteur: Auteur): Promise<IssueTac
  * plus de sens, et remet ceux par défaut s'il n'en reste aucun.
  */
 export async function decalerTache(
-  id: number, vers: { raccourci: RaccourciDecalage } | { jour: string; heure: string | null }, auteur: Auteur,
+  id: number,
+  /* 🔴 LOT DECALER-DUREE — vers une date choisie, avec la DURÉE du rendez-vous (`undefined` = ne pas y toucher ;
+     `null` = 1 h). Les raccourcis gardent l'heure ET la durée. */
+  vers: { raccourci: RaccourciDecalage } | { jour: string; heure: string | null; dureeMinutes?: number | null }, auteur: Auteur,
   maintenant: Date = new Date(),
 ): Promise<IssueTache> {
   const avecAcceptation = await acceptationTacheDisponible();
+  const avecDuree = !('raccourci' in vers) && vers.dureeMinutes !== undefined && await agendaTacheDisponible();
   const relancerDemande = (q: RequeteTx, tid: number, confieeA: number | null, libelle: string, a: Auteur, nom: string) =>
     (avecAcceptation ? relancer(q, tid, confieeA, libelle, a, nom) : Promise.resolve(null));
   return withTransaction(async (q) => {
@@ -529,7 +533,11 @@ export async function decalerTache(
     if (t.etat !== 'a_faire') return DEJA_TERMINEE;
     const jour = 'raccourci' in vers ? jourDecale(t.jour, vers.raccourci, maintenant) : vers.jour;
     const heure = 'raccourci' in vers ? t.heure : vers.heure;
-    if (jour === t.jour && heure === t.heure) return { ok: false, statut: 400, motif: 'La date est la même.' };
+    const dureeAvant = avecDuree
+      ? (await q<{ d: number | null }>(`SELECT duree_minutes AS d FROM gestion_tache WHERE id = $1`, [id])).rows[0]?.d ?? null : null;
+    const dureeApres = avecDuree && !('raccourci' in vers) && heure !== null ? vers.dureeMinutes ?? null : dureeAvant;
+    const dureeChange = avecDuree && heure !== null && (dureeAvant === null ? null : Number(dureeAvant)) !== dureeApres;
+    if (jour === t.jour && heure === t.heure && !dureeChange) return { ok: false, statut: 400, motif: 'La date est la même.' };
     const nom = await nomAuteur(q, auteur);
     const avecHeure = heure !== null;
     let rappels = rappelsValides(t.rappels, avecHeure);
@@ -537,7 +545,11 @@ export async function decalerTache(
     await q(
       `UPDATE gestion_tache SET jour = $2::date, heure = $3::time, rappels = $4::jsonb, maj_le = now() WHERE id = $1`,
       [id, jour, heure, JSON.stringify(rappels)]);
-    await tracer(q, id, 'decalage', { jour: t.jour, heure: t.heure }, { jour, heure }, auteur, nom);
+    if (dureeChange) await q(`UPDATE gestion_tache SET duree_minutes = $2 WHERE id = $1`, [id, dureeApres]);
+    // La trace garde l'ancienne et la nouvelle durée quand elle change (LOT DECALER-DUREE).
+    await tracer(q, id, 'decalage',
+      { jour: t.jour, heure: t.heure, ...(dureeChange ? { dureeMinutes: dureeAvant ?? null } : {}) },
+      { jour, heure, ...(dureeChange ? { dureeMinutes: dureeApres } : {}) }, auteur, nom);
     // 🔴 LOT TACHES-ACCEPTATION — changer la date ou l'heure relance la demande (décision d'Arno, point 6).
     const demande = await relancerDemande(q, id, t.confiee_a === null ? null : Number(t.confiee_a), t.confiee_a_libelle, auteur, nom);
     await marquerASynchroniser(q, id);

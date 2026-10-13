@@ -6,7 +6,7 @@ import {
   type PieceTache, type Tache,
 } from '../../../../lib/gestion/taches';
 import type { ContactSource, ContactTache } from '../../../../lib/gestion/contactsTache';
-import { MOT_AGENDA_COURT } from '../../../../lib/gestion/agendaTache';
+import { DUREE_DEFAUT_MINUTES, DUREES_PROPOSEES, MOT_AGENDA_COURT, motDuree } from '../../../../lib/gestion/agendaTache';
 /* 🔴 LOT FICHE-CARTE-TACHE — un encadré par contact, au liseré de sa famille (source unique PARTIES). */
 import { EncadresContacts } from './ContactsTache';
 /* 🔴 LOT TACHES-LIGNE-CONTACTS — la couleur de famille d'un contact : la source unique du bloc PARTIES. */
@@ -85,6 +85,8 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
   const [jour, setJour] = useState(tache.jour);
   const [heure, setHeure] = useState(tache.heure ?? '');
+  /** 🔴 LOT DECALER-DUREE — la durée du rendez-vous, pré-remplie (1 h par défaut), mêmes choix que la fenêtre. */
+  const [duree, setDuree] = useState<number>(tache.dureeMinutes ?? DUREE_DEFAUT_MINUTES);
 
   const agir = async (g: GesteTache) => {
     setOccupe(true);
@@ -172,7 +174,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         {!terminee && (
           <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" disabled={occupe}
             aria-expanded={decaler}
-            onClick={() => { setJour(tache.jour); setHeure(tache.heure ?? ''); setDecaler((v) => !v); }}>
+            onClick={() => { setJour(tache.jour); setHeure(tache.heure ?? ''); setDuree(tache.dureeMinutes ?? DUREE_DEFAUT_MINUTES); setDecaler((v) => !v); }}>
             {MOT_ACTION.decaler}
           </button>
         )}
@@ -201,8 +203,22 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
           <span className="tch-etiquette">Heure (facultative)</span>
           <input type="time" value={heure} onChange={(e) => setHeure(e.target.value)} />
         </label>
+        {/* 🔴 LOT DECALER-DUREE — « Durée », seulement pour un rendez-vous (une heure saisie), comme à la création. */}
+        {heure !== '' && tache.dureeMinutes !== undefined && (
+          <label className="tch-champ-court">
+            <span className="tch-etiquette">Durée</span>
+            <select value={duree} data-champ-duree-decaler onChange={(e) => setDuree(Number(e.target.value))}>
+              {[...new Set([...DUREES_PROPOSEES, duree])].sort((a, b) => a - b).map((d) => (
+                <option key={d} value={d}>{motDuree(d)}{d === DUREE_DEFAUT_MINUTES ? ' (par défaut)' : ''}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <button type="button" className="svv-btn gst-btn tch-btn" disabled={occupe || jour === ''}
-          onClick={() => void agir({ geste: 'decaler', jour, heure: heure === '' ? null : heure })}>
+          onClick={() => void agir({
+            geste: 'decaler', jour, heure: heure === '' ? null : heure,
+            ...(tache.dureeMinutes !== undefined && heure !== '' ? { dureeMinutes: duree === DUREE_DEFAUT_MINUTES ? null : duree } : {}),
+          })}>
           Valider
         </button>
       </span>
@@ -539,7 +555,7 @@ export const CSS_TACHES = `
 .tch-decaler{padding:8px;border:1px dashed var(--color-svv-line-strong);border-radius:.5rem}
 .tch-decaler-choix{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px}
 .tch-champ-court{display:flex;flex-direction:column;gap:2px;font-size:.78rem;color:var(--color-svv-muted)}
-.tch-champ-court input{min-height:40px;padding:0 .4rem;border:1px solid var(--color-svv-line-strong);border-radius:.4rem;
+.tch-champ-court input,.tch-champ-court select{min-height:40px;padding:0 .4rem;border:1px solid var(--color-svv-line-strong);border-radius:.4rem;
   background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit}
 .tch-message{margin:0;font-size:.82rem;color:var(--color-svv-green-ink)}
 .tch-message--erreur{color:var(--color-svv-red)}

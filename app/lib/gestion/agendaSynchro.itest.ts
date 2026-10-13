@@ -60,6 +60,17 @@ describe('🔴 le vrai SQL', () => {
     expect(faux.agendas.get('a@sansvisavis.com')?.get(e1.google_evenement_id!)?.end).toEqual({ dateTime: '2026-10-15T11:00:00', timeZone: 'Europe/Paris' });
     expect((await query(`SELECT duree_minutes FROM gestion_tache WHERE id = $1`, [c.id])).rows[0].duree_minutes).toBe(90);
 
+    // 🔴 LOT DECALER-DUREE — « Décaler » vers une date, avec une durée : même événement, fin recalculée, trace des durées.
+    expect((await decalerTache(c.id, { jour: '2026-10-16', heure: '10:00', dureeMinutes: 120 }, MOI)).ok).toBe(true);
+    await synchroniserApresGeste(c.id);
+    expect((await etat(c.id)).google_evenement_id).toBe(e1.google_evenement_id);
+    expect(faux.agendas.get('a@sansvisavis.com')?.get(e1.google_evenement_id!)?.end).toEqual({ dateTime: '2026-10-16T12:00:00', timeZone: 'Europe/Paris' });
+    expect((await query(`SELECT duree_minutes FROM gestion_tache WHERE id = $1`, [c.id])).rows[0].duree_minutes).toBe(120);
+    const trDuree = (await query<{ avant: Record<string, unknown>; apres: Record<string, unknown> }>(
+      `SELECT avant, apres FROM gestion_tache_action WHERE tache_id = $1 AND action = 'decalage' ORDER BY id DESC LIMIT 1`, [c.id])).rows[0];
+    expect(trDuree.avant.dureeMinutes).toBe(90);
+    expect(trDuree.apres.dureeMinutes).toBe(120);
+
     await marquerFaite(c.id, MOI);
     await synchroniserApresGeste(c.id);
     expect(String(faux.agendas.get('a@sansvisavis.com')?.get(e1.google_evenement_id!)?.summary)).toMatch(/^✓ Tâche gestion — /);

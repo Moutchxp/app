@@ -3,7 +3,7 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { tachesDisponibles } from '../../../../../../lib/gestion/schema';
 import {
-  lireIdsDrive, verifierSaisie, estHeureValide, estJourValide, lireSaisie, RACCOURCIS_DECALAGE, type RaccourciDecalage,
+  dureeValide, lireIdsDrive, verifierSaisie, estHeureValide, estJourValide, lireSaisie, RACCOURCIS_DECALAGE, type RaccourciDecalage,
 } from '../../../../../../lib/gestion/taches';
 import {
   actualiserContact, ajouterPieces, annulerTache, renvoyerDemande, retirerPiece, decalerTache, lireTache, marquerFaite, modifierTache, rouvrirTache, type IssueTache,
@@ -120,7 +120,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
       if (heure !== null && !estHeureValide(heure)) {
         return Response.json({ erreur: 'L’heure doit s’écrire HH:MM.', champ: 'heure' }, { status: 400 });
       }
-      issue = await decalerTache(id, { jour, heure }, auteur);
+      /* 🔴 LOT DECALER-DUREE — la durée du rendez-vous, quand le panneau l'envoie (même règle que la fenêtre). */
+      issue = await decalerTache(id, { jour, heure, ...('dureeMinutes' in corps ? { dureeMinutes: heure === null ? null : dureeValide(corps.dureeMinutes) } : {}) }, auteur);
     }
   } else if (geste === 'modifier') {
     const saisie = lireSaisie(corps);

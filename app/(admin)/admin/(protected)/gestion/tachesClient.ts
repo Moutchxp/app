@@ -92,7 +92,7 @@ export type GesteTache =
   | { geste: 'annuler' }
   | { geste: 'rouvrir' }
   | { geste: 'decaler'; raccourci: RaccourciDecalage }
-  | { geste: 'decaler'; jour: string; heure: string | null }
+  | { geste: 'decaler'; jour: string; heure: string | null; dureeMinutes?: number | null }
   | ({ geste: 'modifier' } & SaisieEcran)
   /** 🔴 LOT TACHES-1-BIS — « Mettre à jour » les coordonnées copiées d'un contact. */
   | { geste: 'actualiserContact'; cle: string }

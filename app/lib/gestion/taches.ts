@@ -464,6 +464,15 @@ export interface SaisieTache {
   dureeMinutes?: number | null;
 }
 
+/** 🔴 LOT DECALER-DUREE — « 1 h », « 1 h 30 », « 45 min » ; `null` = 1 h (la durée par défaut). PUR. */
+export function dureeLisible(minutes: number | null): string {
+  const m = minutes ?? 60;
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return r === 0 ? `${h} h` : `${h} h ${String(r).padStart(2, '0')}`;
+}
+
 /** 🔴 LOT TACHES-AGENDA — une durée venue du navigateur : un entier entre 5 min et 24 h, sinon `null` (= 1 h). PUR. */
 export function dureeValide(brut: unknown): number | null {
   if (brut === null || brut === undefined || brut === '') return null;
@@ -635,7 +644,12 @@ export function phraseTrace(t: TraceTache): string {
     case 'faite': return `Faite ${qui}`;
     case 'annulation': return `Annulée ${qui}`;
     case 'reouverture': return `Rouverte ${qui}`;
-    case 'decalage': return `Décalée ${qui} (${date(t.avant)} → ${date(t.apres)})`;
+    case 'decalage': {
+      /* 🔴 LOT DECALER-DUREE — l'ancienne et la nouvelle durée, quand elle a changé. */
+      const d = (x: Record<string, unknown> | null) => dureeLisible((x?.dureeMinutes as number | null | undefined) ?? null);
+      const duree = t.apres !== null && 'dureeMinutes' in t.apres ? `, durée ${d(t.avant)} → ${d(t.apres)}` : '';
+      return `Décalée ${qui} (${date(t.avant)} → ${date(t.apres)}${duree})`;
+    }
     case 'modification': {
       /* 🔴 LOT TACHES-1-BIS — un contact ajouté, retiré ou remis à jour a sa propre ligne, et sa propre phrase. */
       const a = t.apres ?? {};

@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { TableauTaches } from './TableauTaches';
 import { CSS_TACHES, MOT_ACTION } from './LigneTache';
 import {
-  ajouterJours, contactsQuiTiennent, echeanceCompacte, prenomNom, jourParisDe, MOT_COMPTEUR, MOT_COULEUR, motCompteur, type Tache,
+  ajouterJours, contactsQuiTiennent, phraseTrace, echeanceCompacte, prenomNom, jourParisDe, MOT_COMPTEUR, MOT_COULEUR, motCompteur, type Tache,
 } from '../../../../lib/gestion/taches';
 
 /**
@@ -44,6 +44,7 @@ const t = (p: Partial<Tache>): Tache => ({
 });
 let taches: Tache[];
 let ouverts: number[];
+let gestes: Record<string, unknown>[];
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
@@ -51,13 +52,15 @@ beforeEach(() => {
     t({ id: 1, objet: 'Relancer le plombier', jour: ajouterJours(AUJ, -3),
       contactsResume: [{ nom: 'ASHISH Sneh', famille: 'locataire' }, { nom: 'HARB Samer', famille: 'ancien_locataire' }],
       agendaCarte: { etat: 'dans_agenda', texte: '📅 Dans l’agenda Google de Arnaud Jorel', motif: null, peutReessayer: false } }),
-    t({ id: 2, objet: 'Visite', heure: '09:30' }),
+    t({ id: 2, objet: 'Visite', heure: '09:30', dureeMinutes: 90 }),
   ];
   ouverts = [];
+  gestes = [];
   vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string; body?: string }) => {
     const url = String(u);
     const m = /\/taches\/(\d+)$/.exec(url);
     if (m && init?.method === 'PATCH') {
+      gestes.push(JSON.parse(String(init.body)));
       taches = taches.map((x) => (x.id === Number(m[1]) ? { ...x, etat: 'faite', faiteLe: new Date().toISOString(), faiteParLibelle: 'Arnaud' } : x));
       return Response.json({ etat: 'ok', id: Number(m[1]), message: 'Tâche faite.' });
     }
@@ -183,5 +186,47 @@ describe('🔴 la ligne repliée', () => {
     await calmer();
     expect(ligne(2).classList.contains('tch-carte')).toBe(true);
     expect((ligne(2).closest('details') as HTMLDetailsElement).open).toBe(true);
+  });
+});
+
+describe('🔴 LOT DECALER-DUREE — la durée dans « Décaler »', () => {
+  const ouvrirDecaler = async (id: number) => {
+    await act(async () => { (ligne(id).querySelector('.tch-l1') as HTMLElement).click(); });
+    await calmer();
+    const b = [...ligne(id).querySelectorAll('button')].find((x) => x.textContent === MOT_ACTION.decaler)!;
+    await act(async () => { b.click(); });
+  };
+  it('rendez-vous : « Durée » entre « Heure » et « Valider », pré-remplie avec la durée de la tâche ; envoyée à « Valider »', async () => {
+    await monter();
+    await ouvrirDecaler(2);
+    const panneau = ligne(2).querySelector('.tch-decaler') as HTMLElement;
+    const champs = [...panneau.querySelectorAll('.tch-decaler-choix > *')].map((e) => e.querySelector('.tch-etiquette')?.textContent ?? e.textContent);
+    expect(champs).toEqual(['Date', 'Heure (facultative)', 'Durée', 'Valider']);
+    const sel = panneau.querySelector('[data-champ-duree-decaler]') as HTMLSelectElement;
+    expect(sel.value).toBe('90');
+    expect([...sel.options].map((o) => o.textContent)).toContain('1 h (par défaut)');
+    await act(async () => {
+      const poser = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set;
+      poser?.call(sel, '120'); sel.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const valider = [...panneau.querySelectorAll('button')].find((x) => x.textContent === 'Valider')!;
+    await act(async () => { valider.click(); });
+    await calmer();
+    expect(gestes.at(-1)).toEqual({ geste: 'decaler', jour: AUJ, heure: '09:30', dureeMinutes: 120 });
+  });
+  it('sans heure : pas de « Durée » ; les raccourcis n’envoient que le raccourci (heure et durée gardées)', async () => {
+    await monter();
+    await ouvrirDecaler(1);
+    expect(ligne(1).querySelector('[data-champ-duree-decaler]')).toBeNull();
+    await act(async () => { [...ligne(1).querySelectorAll('button')].find((x) => x.textContent === '+1 jour')!.click(); });
+    await calmer();
+    expect(gestes.at(-1)).toEqual({ geste: 'decaler', raccourci: '+1j' });
+  });
+  it('la trace dit l’ancienne et la nouvelle durée quand elle change', () => {
+    expect(phraseTrace({ action: 'decalage', avant: { jour: '2026-10-14', heure: '09:30', dureeMinutes: 90 },
+      apres: { jour: '2026-10-15', heure: '09:30', dureeMinutes: 120 }, survenuLe: '2026-10-13T10:00:00Z', auteurLibelle: 'Arnaud Jorel' }))
+      .toBe('Décalée par Arnaud Jorel le 13/10/2026 à 12:00 (mer. 14/10/2026 à 09:30 → jeu. 15/10/2026 à 09:30, durée 1 h 30 → 2 h)');
+    expect(phraseTrace({ action: 'decalage', avant: { jour: '2026-10-14', heure: null }, apres: { jour: '2026-10-15', heure: null },
+      survenuLe: '2026-10-13T10:00:00Z', auteurLibelle: 'A' })).not.toContain('durée');
   });
 });
