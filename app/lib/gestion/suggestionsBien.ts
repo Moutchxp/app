@@ -33,6 +33,13 @@ export interface SuggestionAdresse {
   civilite: Civilite | null;
   nomFamille: string | null;
   /**
+   * 🔴 LOT DEUX-ECARTS-SUGGESTIONS (décision d'Arno, écart 748023a5) — le nom du CABINET d'un contact de syndic. Il
+   * suit le rôle sur la ligne (« Syndic — Responsable de copropriété · TEST ARNAUD ») et la saisie le cherche. À part
+   * de `role`, et c'est voulu : `role` nourrit aussi l'info-bulle des puces et les parties « Syndic & immeuble », qui
+   * ne changent pas. Absent ⇒ la ligne est exactement celle d'avant.
+   */
+  cabinet?: string;
+  /**
    * LOT NOUVEAU-MESSAGE-CONTEXTE-BIEN-PAR-CLIENT — le libellé du bien qui propose cette adresse, quand la liste en
    * regroupe PLUSIEURS : il sert d'intertitre gris dans chaque groupe. Absent ⇒ un seul bien, aucun intertitre.
    */
@@ -73,6 +80,12 @@ export function rangerSuggestions(parGroupe: Partial<Record<CleGroupeSuggestions
   }));
 }
 
+/** Le rôle tel que la ligne l'écrit : « rôle · cabinet » pour un contact de syndic, le rôle seul sinon. PUR. */
+export function roleAffiche(l: Pick<SuggestionAdresse, 'role' | 'cabinet'>): string {
+  const cabinet = (l.cabinet ?? '').trim();
+  return cabinet === '' ? l.role : `${l.role} · ${cabinet}`;
+}
+
 /**
  * CE QUE LA LISTE MONTRE APRÈS LA FRAPPE. PUR.
  *   · le texte tapé filtre sur le NOM ou l'ADRESSE (et le rôle), sans tenir compte des accents ni de la casse ;
@@ -88,7 +101,7 @@ export function filtrerSuggestions(
     .map((g) => ({
       ...g,
       lignes: g.lignes.filter((l) => !exclues.has(l.adresse)
-        && (q === '' || sansAccents(`${l.nom ?? ''} ${l.adresse} ${l.role}`).includes(q))),
+        && (q === '' || sansAccents(`${l.nom ?? ''} ${l.adresse} ${roleAffiche(l)}`).includes(q))),
     }))
     .filter((g) => g.lignes.length > 0);
 }

@@ -59,6 +59,12 @@ export function motifDuLien(b: Pick<BienClient, 'role' | 'nom'>): string {
   }
 }
 
+/**
+ * Combien d'adresses la route `/api/admin/gestion/adresses/biens` lit par appel (sa borne, `slice(0, 20)`). Le composeur
+ * découpe ses lectures à cette taille (lot DEUX-ECARTS-SUGGESTIONS).
+ */
+export const ADRESSES_PAR_LECTURE_BIENS = 20;
+
 /** adresse (minuscules) → ses biens. `[]` = pas un client. Absente = pas encore lue. */
 export type BiensDesClients = Record<string, BienClient[]>;
 

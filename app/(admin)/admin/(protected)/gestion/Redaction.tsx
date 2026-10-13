@@ -19,12 +19,12 @@ import { PARENT_PIECES_CONVERSATION } from '../../../../lib/gestion/piecesConver
 import { CSS_EDITEUR_RICHE, EditeurRiche, type ApiEditeur } from './EditeurRiche';
 import { htmlVersTexte, texteVersHtml } from '../../../../lib/gestion/htmlMail';
 import { formulePour, suivreSurlignage, type AppelAuto } from '../../../../lib/gestion/mailSyndic';
-import { filtrerSuggestions, type GroupeSuggestions, type SuggestionAdresse } from '../../../../lib/gestion/suggestionsBien';
+import { filtrerSuggestions, roleAffiche, type GroupeSuggestions, type SuggestionAdresse } from '../../../../lib/gestion/suggestionsBien';
 import {
   classesPuce, cleAdresse, famillesDesSuggestions, infobullePuce, type FamillesConnues,
 } from '../../../../lib/gestion/familleAdresse';
 import {
-  biensAutomatiques, clesDesClientsPresents, clesDuContexte, clientsDuBien, adressesEnAttente, famillesDesPuces,
+  ADRESSES_PAR_LECTURE_BIENS, biensAutomatiques, clesDesClientsPresents, clesDuContexte, clientsDuBien, adressesEnAttente, famillesDesPuces,
   attenteDuBouton, fusionnerSuggestions, marquerOrigines, motifDuLien, recalculerCibles, type BiensDesClients,
 } from '../../../../lib/gestion/contexteClients';
 import {
@@ -467,7 +467,7 @@ export function ChampDestinataires({
                       <span className="red-sugg-texte">
                         <span className="red-sugg-nom">{l.nom ?? l.adresse}</span>
                         <span className="red-sugg-role">
-                          {l.role}
+                          {roleAffiche(l)}
                           {!l.propre && <span className="red-sugg-rattache"> · rattaché</span>}
                         </span>
                         {l.nom !== null && <span className="red-sugg-adresse">{l.adresse}</span>}
@@ -900,13 +900,24 @@ export function Redaction({
   const refusesAuto = useRef(new Set<string>());            // « adresse|clé » : ajout d'office défait à la main
   const clientsPrecedents = useRef(new Set<string>());      // les biens « client » du dernier recalcul
   const contexteFiche = lotFiche !== null || brouillon.depuisLeBien === true;
+  /**
+   * ══ 🔴🔴 LOT DEUX-ECARTS-SUGGESTIONS (décision d'Arno, écart 1806463e) — LES COULEURS AU-DELÀ DE 20 ADRESSES ══════════
+   * La route `/adresses/biens` ne lit que 20 adresses par appel. Une lecture de plus de 20 adresses laissait les suivantes
+   * « demandées » mais jamais lues : leur puce restait neutre pour toujours (`famillesDesPuces` attend les biens).
+   * 🔴 LES SUIVANTES SONT LUES PAR PAQUETS DE 20, POUR LES COULEURS SEULEMENT. Elles vont dans `biensPourCouleurs`, que
+   * seul `famillesDesPuces` consulte : `biensClients` — qui décide des biens d'office, des retraits, du bouton qui
+   * pulse et de ce qui part à l'envoi — reste exactement celui d'avant (les 20 premières adresses de chaque lecture).
+   */
+  const [biensPourCouleurs, setBiensPourCouleurs] = useState<BiensDesClients>({});
   useEffect(() => {
     const manque = [...new Set(adressesDesChamps)].filter((x) => !biensDemandes.current.has(x));
     if (manque.length === 0) return undefined;
     const t = setTimeout(() => {
       for (const x of manque) biensDemandes.current.add(x);
+      /* ⚠️ Les 20 premières : la lecture d'avant, au caractère près (la route n'en lisait de toute façon que 20). */
+      const premieres = manque.slice(0, ADRESSES_PAR_LECTURE_BIENS);
       const params = new URLSearchParams();
-      for (const x of manque) params.append('a', x);
+      for (const x of premieres) params.append('a', x);
       void (async () => {
         try {
           const res = await fetch(`/api/admin/gestion/adresses/biens?${params.toString()}`, { cache: 'no-store' });
@@ -914,8 +925,24 @@ export function Redaction({
           if (!res.ok || d.biens === undefined || typeof d.biens !== 'object') throw new Error('illisible');
           const lus = d.biens;
           setBiensClients((b) => ({ ...b, ...lus }));
-        } catch { for (const x of manque) biensDemandes.current.delete(x); }
+        } catch { for (const x of premieres) biensDemandes.current.delete(x); }
       })();
+      /* Les suivantes : par paquets de 20, pour la couleur de leur puce et rien d'autre. Un échec laisse la puce
+         neutre, comme avant ; elle n'est pas redemandée (comme avant). */
+      for (let i = ADRESSES_PAR_LECTURE_BIENS; i < manque.length; i += ADRESSES_PAR_LECTURE_BIENS) {
+        const paquet = manque.slice(i, i + ADRESSES_PAR_LECTURE_BIENS);
+        const p = new URLSearchParams();
+        for (const x of paquet) p.append('a', x);
+        void (async () => {
+          try {
+            const res = await fetch(`/api/admin/gestion/adresses/biens?${p.toString()}`, { cache: 'no-store' });
+            const d = (await res.json()) as { biens?: BiensDesClients };
+            if (!res.ok || d.biens === undefined || typeof d.biens !== 'object') return;
+            const lus = d.biens;
+            setBiensPourCouleurs((b) => ({ ...b, ...lus }));
+          } catch { /* une couleur est un confort */ }
+        })();
+      }
     }, 150);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- la clé des adresses suffit.
@@ -996,7 +1023,9 @@ export function Redaction({
    * chaque adresse (`famillesDesPuces`) — TRAME PLEINE ⇔ un de ses biens est rattaché, pour toutes les familles.
    */
   const famillesAffichees: FamillesConnues = famillesDesPuces(
-    { ...familles, ...famillesDesBiens }, adressesDesChamps, biensClients, contexteAspect,
+    /* 🔴 LOT DEUX-ECARTS-SUGGESTIONS — les biens lus pour la COULEUR seule (au-delà de 20 adresses) complètent ceux des
+       clients, ICI SEULEMENT ; les lectures « client » gardent la main là où elles existent. */
+    { ...familles, ...famillesDesBiens }, adressesDesChamps, { ...biensPourCouleurs, ...biensClients }, contexteAspect,
     // Les listes des biens DU CONTEXTE ACTUEL (pas celles d'un bien décoché depuis) : leurs adresses sont liées à un
     // bien rattaché.
     famillesDesSuggestions(propositionsBien));

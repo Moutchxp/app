@@ -108,6 +108,16 @@ describe('ecrireDepuisLeBien — les trois groupes, dans l’ordre d’Arno', ()
       'cs@x.fr|immeuble|pleine|Conseil syndical',
     ]]);
   });
+  it('🔴 LOT DEUX-ECARTS-SUGGESTIONS — un contact du syndic porte le nom du cabinet ; le rôle, lui, ne change pas', async () => {
+    const g = (await ecrireDepuisLeBien(176))?.groupes[1].lignes ?? [];
+    const contact = g.find((l) => l.adresse === 'm.bercier@criterimmo.fr');
+    expect(contact?.role).toBe('Syndic — Gestionnaire');
+    expect(contact?.cabinet).toBe('Cabinet Criterimmo');
+    /* L'e-mail général dit déjà le cabinet dans son rôle : pas de second « · Cabinet ». */
+    expect(g.find((l) => l.adresse === 'contact@criterimmo.fr')?.cabinet).toBeUndefined();
+    /* Le carnet de l'immeuble n'est pas un contact de syndic. */
+    expect(g.find((l) => l.adresse === 'gardienne@x.fr')?.cabinet).toBeUndefined();
+  });
   it('🔴 ③ AUTRES : TOUTES les adresses de l’historique (même avec une partie ailleurs), le dernier échange d’abord, sans doublon de ①/② ni adresse technique', async () => {
     expect((await lignes())?.[2]).toEqual(['autres', [
       'tiers@x.fr|neutre|pleine|vue dans 1 mail du bien',

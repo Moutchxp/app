@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  civilitesDesSuggestions, filtrerSuggestions, rangerSuggestions, sansAccents, type SuggestionAdresse,
+  civilitesDesSuggestions, filtrerSuggestions, rangerSuggestions, roleAffiche, sansAccents, type SuggestionAdresse,
 } from './suggestionsBien';
 
 /**
@@ -55,6 +55,28 @@ describe('le filtre de la frappe', () => {
   it('une adresse déjà présente dans À, Cc ou Cci n’est plus proposée (casse comprise)', () => {
     const r = filtrerSuggestions(G, '', ['Jean.Dupont@x.fr', 'gardien@x.fr']);
     expect(r.flatMap((g) => g.lignes.map((x) => x.adresse))).toEqual(['lea@x.fr', 'autre@y.fr']);
+  });
+  /* 🔴 LOT DEUX-ECARTS-SUGGESTIONS (écart 748023a5) — le nom du cabinet, visible et cherchable. */
+  it('taper le nom du cabinet propose ses contacts ET son e-mail général', () => {
+    const S = rangerSuggestions({
+      immeuble: [
+        l('resp@cab.fr', { nom: 'Arnaud JOREL', role: 'Syndic — Responsable de copropriété', cabinet: 'TEST ARNAUD', ton: 'syndic' }),
+        l('compta@cab.fr', { nom: 'Mathis BERCIER', role: 'Syndic — Service comptabilité', cabinet: 'TEST ARNAUD', ton: 'syndic' }),
+        l('contact@cab.fr', { nom: 'TEST ARNAUD', role: 'Syndic — TEST ARNAUD', ton: 'syndic' }),
+        l('gardien@x.fr', { nom: 'Rose', role: 'Gardien', ton: 'immeuble' }),
+      ],
+      autres: [l('autre@y.fr')],
+    });
+    expect(filtrerSuggestions(S, 'test arn', []).flatMap((g) => g.lignes.map((x) => x.adresse)))
+      .toEqual(['resp@cab.fr', 'compta@cab.fr', 'contact@cab.fr']);
+    expect(filtrerSuggestions(S, 'rose', []).flatMap((g) => g.lignes.map((x) => x.adresse))).toEqual(['gardien@x.fr']);
+  });
+  it('roleAffiche : « rôle · cabinet » pour un contact de syndic, le rôle seul sinon (rien d’autre ne change)', () => {
+    expect(roleAffiche({ role: 'Syndic — Responsable de copropriété', cabinet: 'TEST ARNAUD' }))
+      .toBe('Syndic — Responsable de copropriété · TEST ARNAUD');
+    expect(roleAffiche({ role: 'Syndic — TEST ARNAUD' })).toBe('Syndic — TEST ARNAUD');
+    expect(roleAffiche({ role: 'Gardien', cabinet: '  ' })).toBe('Gardien');
+    expect(roleAffiche({ role: 'Propriétaire' })).toBe('Propriétaire');
   });
   it('sansAccents', () => {
     expect(sansAccents('  Léa   HÉLÈNE ')).toBe('lea helene');

@@ -118,6 +118,8 @@ export async function ecrireDepuisLeBien(lotId: number): Promise<EcrireDepuisLeB
             adresse: k.valeur, nom: nom === '' ? null : nom,
             role: roleContactSyndic(c.titre), ton: 'syndic', propre: true,
             civilite: c.civilite ?? null, nomFamille: propre(c.nom) || null,
+            /* 🔴 LOT DEUX-ECARTS-SUGGESTIONS — le cabinet, visible et cherchable sur la ligne (décision d'Arno). */
+            ...(propre(syndic.nom) !== '' ? { cabinet: propre(syndic.nom) } : {}),
           });
         }
       }
