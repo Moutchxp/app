@@ -1125,6 +1125,9 @@ export function GestionVue({ intro }: {
    * quelque chose, et une valeur illisible rend `null` plutôt qu'un écran blanc.
    */
   const cibleHistorique = cibleDepuisTexte(etatUrl.cible ?? null);
+  /** 🔴 LOT HISTORIQUE-PERSONNE-SANS-BANDEAU — l'écran d'historique d'une fiche propriétaire ou locataire. */
+  const historiquePersonne = ecran === 'historique' && cibleHistorique !== null
+    && (cibleHistorique.sorte === 'proprietaire' || cibleHistorique.sorte === 'locataire');
 
   /**
    * ══ 🔴 LOT VEILLE-VIVE — LE BANDEAU JUGE SUR CE QUE LE BATTEMENT A VU ═══════════════════════════════════════════
@@ -1192,6 +1195,13 @@ export function GestionVue({ intro }: {
           serveur qui ne connaît pas l'écran courant, lequel vit dans l'adresse et n'est lu qu'ici). C'est le
           patron déjà en place dans ce fichier, et non un contournement nouveau. */}
       {ecran === 'partage' && <style>{'.gst-page > .svv-page-head > .svv-page-sub{display:none}'}</style>}
+      {/* ══ 🔴🔴 LOT HISTORIQUE-PERSONNE-SANS-BANDEAU (accord explicite d'Arno, 14/10/2026) — l'historique d'une fiche
+          PROPRIÉTAIRE ou LOCATAIRE ne montre plus le bloc sous le titre « Gestion » : la phrase « Courrier de gestion
+          locative… », le cadre « Dernière relève… » et ses boutons, « Relève automatique : dernière passe… » et « Copie
+          des pièces vers le Drive à reprendre… ». AFFICHAGE SEULEMENT, sur ces deux écrans : le bloc reste partout
+          ailleurs, la relève et la copie tournent comme avant, et les ALERTES (relève arrêtée, copie arrêtée,
+          rattachement en échec) s'affichent toujours, ici compris. Le titre « Gestion » reste. */}
+      {historiquePersonne && <style>{'.gst-page > .svv-page-head > .svv-page-sub{display:none}'}</style>}
       {/* ══ 🔴🔴 RETIRÉ LE 07/10/2026 — LOT ADMIN-PLEINE-LARGEUR ═══════════════════════════════════════════════
           Vivait ici une règle conditionnelle qui levait `.gst-page{max-width:1120px}` POUR LE SEUL écran partagé
           (lot ECRAN-PARTAGE-PLEINE-LARGEUR, 0ae9eb79). Elle était bornée à cet écran parce que l'annuaire et
@@ -1274,7 +1284,7 @@ export function GestionVue({ intro }: {
           conditions, juste plus bas, ne sont pas touchées.
           ⚠️ LES ALERTES NON PLUS : « relève arrêtée », « copie arrêtée », « envoi en échec » s'affichent sur TOUS
           les écrans, celui-ci compris. Masquer une sécurité pour gagner de la place, c'est la retirer. */}
-      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && (
+      {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && !historiquePersonne && (
       <div className="gst-bandeau gst-bandeau--compact" role="status">
         {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
             L'heure de la dernière relève et l'état de la copie sont descendus dans la colonne (`etatDiscret`), et
@@ -1341,7 +1351,7 @@ export function GestionVue({ intro }: {
           <span className="gst-veille-texte">{veille.texte}</span>
           {veille.aide && <span className="gst-veille-aide">{veille.aide}</span>}
         </p>
-      ) : ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && (
+      ) : ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && !historiquePersonne && (
         /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — la ligne ORDINAIRE quitte aussi l'accueil (accord d'Arno).
            Elle reste dans la colonne de la boîte en plein écran. L'ALERTE, elle, s'affiche partout.
            🔴🔴 LOT …-ET-LIGNE-DE-FILTRES — elle quitte aussi l'ÉCRAN DES ÉVÉNEMENTS (accord d'Arno) : cet écran
@@ -1374,7 +1384,7 @@ export function GestionVue({ intro }: {
       )}
       {/* Même partage pour la copie : l'arrêt SUBI crie en haut, l'avancement ordinaire descend dans la colonne. */}
       {copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage'
-        && ecran !== 'evenements' && (
+        && ecran !== 'evenements' && !historiquePersonne && (
         /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1 — idem : l'avancement ORDINAIRE de la copie quitte l'accueil,
            et reste dans la colonne de la boîte en plein écran. L'ARRÊT SUBI, lui, crie partout. */
         <p className="gst-veille" role="status">{copie.texte}</p>

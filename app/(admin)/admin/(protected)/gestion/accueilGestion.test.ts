@@ -59,11 +59,12 @@ describe('🔴🔴 ① le bloc d’état ne s’affiche plus sur l’accueil', (
        ORDINAIRES quittent aussi l'ÉCRAN DES ÉVÉNEMENTS, qui porte désormais un tableau de bord et une ligne
        de filtres — trois bandeaux gris au-dessus les repoussaient sous la ligne de flottaison. CE QUE CE CAS
        TIENT N'A PAS BOUGÉ : elles quittent l'ACCUEIL, et c'est bien `ecran !== 'partage'` qu'on lit encore. */
+    /* LOT HISTORIQUE-PERSONNE-SANS-BANDEAU (accord d'Arno) : l'historique d'une fiche de personne s'ajoute à la liste. */
     expect(VUE).toContain("ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' "
-      + "&& ecran !== 'evenements' && (\n"
+      + "&& ecran !== 'evenements' && !historiquePersonne && (\n"
       + '        /* 🔴 LOT ACCUEIL-GESTION-ANNUAIRE, POINT 1');
     expect(VUE).toContain("copie.niveau === 'calme' && ecran !== 'boite' && ecran !== 'annuaire' "
-      + "&& ecran !== 'partage'\n        && ecran !== 'evenements' && (");
+      + "&& ecran !== 'partage'\n        && ecran !== 'evenements' && !historiquePersonne && (");
   });
 
   /**
