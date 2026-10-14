@@ -128,6 +128,22 @@ export const CRS_GPS = 4326;
 /** Tolérance sortante max du point d'origine vers l'extérieur de l'emprise (façades/balcons), en mètres. */
 export const ORIGIN_OUTSIDE_TOLERANCE_M = 0.3;
 
+/* ------------------------------------------------------------------ */
+/* Réentrée dans le propre bâtiment — tolérance de contact (SCORE seul) */
+/* ------------------------------------------------------------------ */
+// Décision d'Arno du 14/10/2026 (option A) : le propre bâtiment bouche un faisceau LÀ OÙ il y entre réellement ; le contact
+// RASANT le long de son mur ne compte jamais. Le polygone d'origine est rétréci de cette tolérance pour le seul calcul de la
+// réentrée (`candidatReentreeOrigine`) : un faisceau qui longe le mur à moins de cette distance n'est plus « dedans » ni
+// « dehors » selon une poussière de calcul (Mac / serveur, PROJ 9.9.0 / 9.8.1). Ce n'est pas un arrondi : aucune coordonnée
+// n'est tronquée. Valeur pilotée par `config_scoring.reentree_tolerance_contact_m` (migration 352) ; repli sur le défaut tant
+// que la colonne est absente ou hors plage. N'intervient JAMAIS dans le verdict (chemin `obstaclesParBalayage`).
+
+/** Défaut de `reentree_tolerance_contact_m`, en mètres (validé par Arno le 14/10/2026). */
+export const REENTREE_TOLERANCE_CONTACT_DEFAUT_M = 0.01;
+/** Plage admise de `reentree_tolerance_contact_m`, en mètres (bornes incluses). */
+export const REENTREE_TOLERANCE_CONTACT_MIN_M = 0.001;
+export const REENTREE_TOLERANCE_CONTACT_MAX_M = 0.1;
+
 /**
  * Mode de saisie du point d'origine : semi_auto (défaut) = point recalé sur la façade ;
  * manuel = point pris tel quel (cas particuliers, ex. baie en retrait au dernier étage).

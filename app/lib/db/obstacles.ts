@@ -16,7 +16,7 @@ import { balayerObstacle, type CelluleCouloir } from "../svv/balayageObstacle";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
 import type { ExtractionVueNature, ExtractionImmobilier, ExtractionMonuments } from "../svv/coucheDegagement";
-import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_OBSTACLE_M, THRESHOLD_M } from "../svv/config";
+import { ANALYSIS_RANGE_M, CORRIDOR_HALF_WIDTH_M, FLOOR_HEIGHT_OBSTACLE_M, REENTREE_TOLERANCE_CONTACT_DEFAUT_M, THRESHOLD_M } from "../svv/config";
 
 /**
  * Tolérance (m) pour identifier le span qui CONTIENT l'origine le long d'un rayon : un span dont la
@@ -42,6 +42,11 @@ export interface ParametresAxe {
    * point de contact (distanceM = dContact). Inutile pour les faisceaux.
    */
   altitudeFenetreM?: number;
+  /**
+   * Tolérance de contact (m) de la réentrée dans le propre bâtiment (`config_scoring.reentree_tolerance_contact_m`, décision
+   * d'Arno du 14/10/2026). Lue UNE fois par analyse (`faisceauxAmplitude`) et transportée ; absente → défaut 0,01 m.
+   */
+  toleranceContactReentreeM?: number;
 }
 
 interface LigneObstacle {
@@ -474,8 +479,17 @@ interface LigneReentreeSql {
  * cascade (resoudreSommet + fallback MNS si NONE). nature=null / ancien=false → aucun boost valorisant (F2/F3/F4).
  * SCORE-ONLY : appelé depuis la branche BD TOPO (faisceaux), jamais le verdict (obstaclesParBalayage).
  * Retourne null si pas de polygone d'origine ou pas de ré-entrée.
+ *
+ * ══ CONTACT RASANT (décision d'Arno du 14/10/2026, option A) ══════════════════════════════════════════════════════════
+ * Le propre bâtiment bouche le faisceau LÀ OÙ il y entre réellement ; le contact RASANT le long de son mur ne compte jamais.
+ * MESURÉ (golden Asnières, faisceau 45°) : l'origine est un sommet du polygone et le faisceau longe une arête sur 0,99 m. En
+ * double précision cette arête n'est pas exactement à 45° : selon que l'origine bouge de 1e-9 m d'un côté ou de l'autre
+ * (PROJ 9.9.0 / 9.8.1), ce morceau passait « dehors » (réentrée à 0,99 m → bouché) ou « dedans » (span d'origine, ignoré
+ * → dégagé). Le polygone est donc RÉTRÉCI de la tolérance de contact pour ce seul calcul : le contact rasant n'est plus ni
+ * dedans ni dehors, il est hors du bâtiment ; seule l'entrée réelle compte (≈ 1,000257 m ici, dans les 7 perturbations
+ * ±1e-9 / ±1e-6 m). Aucun arrondi de coordonnée. `ST_Force2D` conservé. La règle des 0,5 m (span d'origine) est inchangée.
  */
-async function candidatReentreeOrigine(params: ParametresAxe): Promise<ObstacleCandidat | null> {
+export async function candidatReentreeOrigine(params: ParametresAxe): Promise<ObstacleCandidat | null> {
   if (!params.batimentOriginePolygoneWkt) return null;
   const res = await query<LigneReentreeSql>(
     `WITH o AS (SELECT ST_Transform(ST_SetSRID(ST_MakePoint($1,$2),4326),2154) AS g),
@@ -484,7 +498,7 @@ async function candidatReentreeOrigine(params: ParametresAxe): Promise<ObstacleC
               ST_MakeLine(o.g, ST_Translate(o.g, $3*sin(radians($4)), $3*cos(radians($4)))) AS ln
        FROM o
      ),
-     poly AS (SELECT ST_Force2D(ST_GeomFromText($5, 2154)) AS g),
+     poly AS (SELECT ST_Buffer(ST_Force2D(ST_GeomFromText($5, 2154)), -$8::float8) AS g), -- rétréci de la tolérance de contact
      bat AS (
        SELECT altitude_maximale_toit AS amt, hauteur AS h, altitude_minimale_sol AS sol,
               nombre_d_etages AS net, cleabs
@@ -515,6 +529,7 @@ async function candidatReentreeOrigine(params: ParametresAxe): Promise<ObstacleC
       params.batimentOriginePolygoneWkt,
       params.batimentOrigineId,
       ORIGINE_SPAN_TOL_M,
+      params.toleranceContactReentreeM ?? REENTREE_TOLERANCE_CONTACT_DEFAUT_M,
     ],
   );
   if (res.rows.length === 0) return null;

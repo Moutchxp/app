@@ -16,6 +16,7 @@ import type { FaisceauResultat } from "../svv/scoreDegagement";
 import { obstaclesSurAxe, natureTraverseeParFaisceau } from "./obstacles";
 import { ANALYSIS_RANGE_M } from "../svv/config";
 import { query } from "./client";
+import { lireToleranceContactReentree } from "./toleranceReentree";
 
 export interface ParametresFaisceaux {
   point: PointWgs84;
@@ -35,6 +36,8 @@ export async function faisceauxAmplitude(
   params: ParametresFaisceaux,
 ): Promise<FaisceauResultat[]> {
   const azimuts = genererFaisceauxAmplitude(params.azimutPrincipalDeg);
+  // Tolérance de contact de la réentrée dans le propre bâtiment (option A d'Arno, 14/10/2026) : lue UNE fois par analyse.
+  const toleranceContactReentreeM = await lireToleranceContactReentree();
 
   const resultats: FaisceauResultat[] = [];
   for (const azimut of azimuts) {
@@ -43,6 +46,7 @@ export async function faisceauxAmplitude(
       azimutDeg: azimut,
       batimentOrigineId: params.batimentOrigineId,
       batimentOriginePolygoneWkt: params.batimentOriginePolygoneWkt,
+      toleranceContactReentreeM,
     });
     const res = premierObstacle(candidats, params.altitudeFenetreM);
     const obstacle = res.obstacle; // 1er obstacle retenu (≥ fenêtre) ou null si dégagé
