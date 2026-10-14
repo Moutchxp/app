@@ -115,6 +115,20 @@ describe('🔴🔴 fiche PROPRIÉTAIRE — les échanges avec ses personnes, et 
   });
 });
 
+describe('🔴🔴 fiche LOCATAIRE — actuel et ancien', () => {
+  it('locataire en place : ses mails, et eux seuls', async () => {
+    expect(await mailsDe(cibleLocataire(`${S}-T1`))).toEqual([ids.recuLea]);
+  });
+  it('ancien locataire : nos mails à lui, sans borne de date', async () => {
+    expect(await mailsDe(cibleLocataire(`${S}-T2`))).toEqual([ids.envoyeJean]);
+  });
+  it('les occupations restent dites (ligne « logements occupés »)', async () => {
+    const e = await etendreCible(cibleLocataire(`${S}-T2`), echanges);
+    if (e.etat !== 'ok') throw new Error('x');
+    expect(e.data.occupations.map((o) => [o.cle, o.depuis, o.jusqua])).toEqual([[`${S}-L1`, '2020-01-01', '2024-12-31']]);
+  });
+});
+
 describe('l’historique d’un bien est intact', () => {
   it('un lot ignore « echanges » : même sélection qu’avant (par rattachement)', async () => {
     expect(await mailsDe(cibleLot(`${S}-L1`))).toEqual(await mailsDe(cibleLot(`${S}-L1`), { ...FILTRES_VIDES }));

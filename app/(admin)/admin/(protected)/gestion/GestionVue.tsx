@@ -1410,7 +1410,7 @@ export function GestionVue({ intro }: {
       ) : ecran === 'historique' ? (
         /* 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026) — une fiche PROPRIÉTAIRE ou LOCATAIRE ouvre l'historique de
            ses échanges, avec le composant de l'historique d'un bien. Un bien et une carte gardent l'écran d'avant. */
-        cibleHistorique !== null && cibleHistorique.sorte === 'proprietaire' ? (
+        cibleHistorique !== null && (cibleHistorique.sorte === 'proprietaire' || cibleHistorique.sorte === 'locataire') ? (
           <HistoriquePersonne cible={cibleHistorique as Cible & { sorte: 'proprietaire' | 'locataire' }} maintenant={ref}
             redaction={redaction}
             onGesteMail={(m, o) => { surGeste(m, o); if (o?.rechargerTout) void charger(); }}

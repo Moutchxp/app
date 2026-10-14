@@ -269,6 +269,9 @@ export async function etendreCible(cible: Cible, f: FiltresHistorique): Promise<
         occupations,
         adresses: ads.map((a) => a.valeur),
         libelles,
+        /* 🔴 LOT HISTORIQUE-PERSONNE — par les échanges : ses adresses seules choisissent les mails (les occupations
+           restent dites, pour la ligne « logements occupés » de l'écran). */
+        ...(f.echanges ? { echanges: true } : {}),
       },
     };
   }

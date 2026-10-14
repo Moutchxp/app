@@ -144,6 +144,23 @@ describe('🔴🔴 fiche PROPRIÉTAIRE — même composant que l’historique d�
   });
 });
 
+describe('🔴🔴 fiche LOCATAIRE — mêmes composants, ligne des logements occupés', () => {
+  it('sélection par les échanges, et la ligne courte au-dessus des options, avec un lien par logement (anciens compris)', async () => {
+    await monter('locataire', 'T1');
+    expect(requetesMails().length).toBeGreaterThan(0);
+    expect(requetesMails().every((u) => u.includes('cible=locataire-T1&echanges=1'))).toBe(true);
+    const ligneOcc = hote.querySelector('[data-occupations]') as HTMLElement;
+    expect(ligneOcc.textContent).toContain('26 rue Emile Duclaux');
+    expect(ligneOcc.textContent).toContain('depuis le 01/01/2025');
+    expect(ligneOcc.textContent).toContain('du 01/01/2020 au 31/12/2024');
+    await cliquer([...ligneOcc.querySelectorAll('button')].find((b) => /Union/.test(b.textContent ?? '')));
+    expect(logementOuvert).toBe('27');
+    // Au-dessus de la barre OPTIONS.
+    const options = [...hote.querySelectorAll('legend')].find((l) => l.textContent === 'Options')!;
+    expect(ligneOcc.compareDocumentPosition(options) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+});
+
 describe('PUR', () => {
   it('cible de l’historique : inchangée pour un bien', () => {
     expect(cibleDeLHistorique('155', null)).toBe('lot-155');
