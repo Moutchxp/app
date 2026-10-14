@@ -52,7 +52,8 @@ describe('🔴🔴 quels événements concernent quel locataire', () => {
 
   it('🔴 BRANCHE ① — l’ouverture dans l’occupation, bornée à aujourd’hui quand le bail court', async () => {
     await evenementsParLocataire('104');
-    expect(sql()).toContain('ev.ouvert_le::date <= coalesce(b.sortie, current_date)');
+    // Jour de PARIS des deux côtés, explicite (portabilité : indépendant du fuseau de la session PG).
+    expect(sql()).toContain("((ev.ouvert_le) AT TIME ZONE 'Europe/Paris')::date <= coalesce(b.sortie, (now() AT TIME ZONE 'Europe/Paris')::date)");
   });
 
   it('🔴 BRANCHE ② — une adresse à elle dans un mail de l’événement, SANS condition de date', async () => {

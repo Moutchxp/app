@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PastilleActions } from './permis/PastilleActions';
+import { msJusquaProchaineHeureParis } from '../../../lib/temps/paris';
 
 /**
  * PASTILLES (tuile home) — sous-titre de la tuile « Permis de construire » + cumul des actions en attente. SANS action → rendu
@@ -27,11 +28,7 @@ export function ContenuTuilePermis({ desc, cumul }: { desc: string; cumul: numbe
 }
 
 function msJusquaProchaineHeure(h: number): number {
-  const now = new Date();
-  const cible = new Date(now);
-  cible.setHours(h, 0, 0, 0);
-  if (cible.getTime() <= now.getTime()) cible.setDate(cible.getDate() + 1);
-  return cible.getTime() - now.getTime();
+  return msJusquaProchaineHeureParis(new Date(), h); // heure de PARIS, quel que soit le fuseau de la machine (portabilité)
 }
 
 export function TuilePermisActions({ desc }: { desc: string }) {

@@ -1,5 +1,6 @@
 import 'server-only';
 import { Pool, type QueryResult, type QueryResultRow } from 'pg';
+import '../db/typesDate'; // dates sans fuseau lues à l'heure de Paris, quelle que soit la machine (lot PRÉPARATION-PORTABILITÉ)
 import {
   POOL_MAX,
   CONNECT_TIMEOUT_MS,

@@ -1,0 +1,31 @@
+# GABARIT — les marqueurs entre arobases sont remplacés par installer.sh à partir de svav.conf. Ne pas copier tel quel.
+#
+# ⚠️ À N'ACTIVER QU'APRÈS DÉCISION D'ARNO. Aujourd'hui, `npm run analytics:maintenance` (compaction, partitions,
+# purge de rétention) n'a AUCUN déclencheur, ni sur le Mac ni ailleurs. Ce fichier est fourni prêt, pas activé.
+#
+# Codes de sortie du script : 0 = propre (ou verrou déjà pris) ; 2 = terminé AVEC erreurs (ex. purge en échec) ;
+# 1 = échec. Un code ≠ 0 laisse le service en état « failed », visible dans `systemctl --failed`. Pas de Restart :
+# la passe du lendemain suffit, et un échec doit rester visible.
+[Unit]
+Description=Sans Vis-à-Vis — maintenance analytique quotidienne (À ACTIVER SUR DÉCISION D'ARNO)
+Documentation=file:@APP_DIR@/deploy/systemd/README.md
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=@SVAV_USER@
+Group=@SVAV_GROUP@
+# OBLIGATOIRE ICI PLUS QU'AILLEURS : ce script charge `.env` par `import 'dotenv/config'`, RELATIF au dossier courant
+# (il n'utilise pas chargerEnv.ts). Sans le bon WorkingDirectory, il ne trouve pas DATABASE_URL.
+WorkingDirectory=@APP_DIR@
+Environment=TZ=Europe/Paris
+Environment=PATH=@PATH@
+ExecStart=@NODE@ @APP_DIR@/node_modules/tsx/dist/cli.mjs @APP_DIR@/app/scripts/analytics-maintenance.ts
+TimeoutStartSec=1h
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=svav-analytics-maintenance
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

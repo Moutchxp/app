@@ -16,6 +16,7 @@ import { lireCompteSmtp, obtenirTransporteur, envoyerDemande, type CompteSmtp } 
 import { chargerConfigVeille } from './veilleConfig';
 import { problemeCorpsDemande, profilValide, ETIQUETTE_PROFIL, type ProfilDemandeur } from './demande';
 import type { Requete } from './mairieContact';
+import { SQL_AUJOURDHUI_PARIS, sqlJourParis } from '../temps/paris';
 
 // Compte SMTP à utiliser PAR PROFIL (S43) : infixe des variables d'env. '' = compte par défaut (SMTP_*, Google Workspace) ;
 // 'PERSONNE_' = second compte (SMTP_PERSONNE_*, boîte personnelle). L'adresse d'expédition/réponse, elle, vient de la base
@@ -167,7 +168,7 @@ export async function lireAdressesExpedition(): Promise<Record<string, string>> 
 export async function compterEmisAujourdhui(): Promise<number> {
   try {
     const { rows } = await query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM demande_acheminement WHERE canal = 'email' AND statut = 'envoye' AND envoye_le::date = CURRENT_DATE`);
+      `SELECT count(*)::int AS n FROM demande_acheminement WHERE canal = 'email' AND statut = 'envoye' AND ${sqlJourParis('envoye_le')} = ${SQL_AUJOURDHUI_PARIS}`);
     return rows[0]?.n ?? 0;
   } catch { return 0; }
 }

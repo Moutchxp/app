@@ -4,6 +4,7 @@
  * (client). 🔴 FILTRAGE EN BASE : toute valeur d'utilisateur passe en PARAMÈTRE LIÉ ($1, $2…), jamais concaténée ; le `type` choisit un
  * prédicat CONSTANT via sa clé (validée contre la liste fermée) — aucun SQL utilisateur.
  */
+import { sqlMinuitParisDe } from '../temps/paris';
 export interface CriteresSuivi {
   numDau?: string;            // n° de permis (contient) ← s.num_dau
   dossierId?: number | null;  // n° interne (exact) ← e.dossier_id (= s.id)
@@ -46,7 +47,7 @@ export function construireFiltreSuivi(c: CriteresSuivi): { fragments: string[]; 
   if (c.type && PREDICAT_TYPE[c.type]) fragments.push(`(${PREDICAT_TYPE[c.type]})`);
   const ad = dateBornee(c.autorisationDe); if (ad) fragments.push(`s.date_reelle_autorisation >= ${lier(ad)}`);
   const aa = dateBornee(c.autorisationA); if (aa) fragments.push(`s.date_reelle_autorisation <= ${lier(aa)}`);
-  const ed = dateBornee(c.entreeDe); if (ed) fragments.push(`COALESCE(r.detecte_le, e.maj_le) >= ${lier(ed)}::date`);
-  const ea = dateBornee(c.entreeA); if (ea) fragments.push(`COALESCE(r.detecte_le, e.maj_le) < (${lier(ea)}::date + 1)`); // borne haute INCLUSIVE sur le jour
+  const ed = dateBornee(c.entreeDe); if (ed) fragments.push(`COALESCE(r.detecte_le, e.maj_le) >= ${sqlMinuitParisDe(`${lier(ed)}::date`)}`);
+  const ea = dateBornee(c.entreeA); if (ea) fragments.push(`COALESCE(r.detecte_le, e.maj_le) < ${sqlMinuitParisDe(`${lier(ea)}::date + 1`)}`); // borne haute INCLUSIVE sur le jour
   return { fragments, valeurs, actif: fragments.length > 0 };
 }

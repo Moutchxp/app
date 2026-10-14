@@ -6,6 +6,7 @@ import { chargerAdressesExternes } from './envoiPartiesRepo';
 import { cleAdresse, famillesDesSuggestions, type FamilleAdresse, type FamillesConnues } from './familleAdresse';
 import { biensEtCotesDesContacts } from './partieCategorieRepo';
 import { ecrireDepuisLeBien } from './suggestionsBienRepo';
+import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 
 /**
  * ══ 🔴🔴 LOT FORMULE-CONTACT-PRIME-ET-PUCES-COLOREES — LA FAMILLE DE CHAQUE ADRESSE DES CHAMPS À / Cc / Cci ═════════
@@ -40,7 +41,7 @@ export async function famillesDesAdresses(adresses: readonly string[], lotId: nu
               (c.sujet = 'locataire' AND EXISTS (
                  SELECT 1 FROM gestion_annuaire_occupation o
                   WHERE o.locataire_id = c.sujet_id AND o.absent_le IS NULL
-                    AND (o.sortie IS NULL OR o.sortie >= current_date))) AS en_place
+                    AND (o.sortie IS NULL OR o.sortie >= ${SQL_AUJOURDHUI_PARIS}))) AS en_place
          FROM gestion_annuaire_contact c
          LEFT JOIN gestion_annuaire_proprietaire pr ON c.sujet = 'proprietaire' AND pr.id = c.sujet_id
          LEFT JOIN gestion_annuaire_locataire lo ON c.sujet = 'locataire' AND lo.id = c.sujet_id

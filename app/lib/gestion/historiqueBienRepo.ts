@@ -3,6 +3,7 @@ import 'server-only';
 import { sqlLiensDuBien } from './rattachement';
 import { query } from '../db/client';
 import { rattachementsDisponibles } from './schema';
+import { SQL_AUJOURDHUI_PARIS, sqlJourParis } from '../temps/paris';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » et « clos le » se DÉDUISENT des cartes de borne de la frise, jamais
    plus de `gestion_evenement.etat` / `traite_le`. C'est dans ce module que se voyait le constat d'Arno. */
 import { sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
@@ -235,15 +236,15 @@ export async function evenementsParLocataire(lotCle: string): Promise<EvenementD
             to_char(ev.ouvert_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ouvert_le,
             to_char(${sqlClosLeParLaFrise('ev')} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS clos_le,
             /* ① l'ouverture tombe dans l'occupation ; ② sinon, c'est une adresse qui l'a rattaché. */
-            CASE WHEN ev.ouvert_le::date >= b.entree
-                  AND ev.ouvert_le::date <= coalesce(b.sortie, current_date)
+            CASE WHEN ${sqlJourParis('ev.ouvert_le')} >= b.entree
+                  AND ${sqlJourParis('ev.ouvert_le')} <= coalesce(b.sortie, ${SQL_AUJOURDHUI_PARIS})
                  THEN 'occupation' ELSE 'adresse' END AS par
        FROM bornes b
        JOIN (SELECT DISTINCT id, reference, objet, etat, ouvert_le, traite_le FROM evts) ev ON true
       WHERE EXISTS (SELECT 1 FROM mails_evt me WHERE me.evt = ev.id)
         AND (
-          (b.entree IS NOT NULL AND ev.ouvert_le::date >= b.entree
-             AND ev.ouvert_le::date <= coalesce(b.sortie, current_date))
+          (b.entree IS NOT NULL AND ${sqlJourParis('ev.ouvert_le')} >= b.entree
+             AND ${sqlJourParis('ev.ouvert_le')} <= coalesce(b.sortie, ${SQL_AUJOURDHUI_PARIS}))
           OR EXISTS (
             SELECT 1 FROM mails_evt me
               JOIN gestion_message_adresse a ON a.message_id = me.message_id

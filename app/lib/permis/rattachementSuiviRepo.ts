@@ -29,6 +29,7 @@ import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; /
 import { figerVersionValidation } from './gelRepo'; // SURV-1 — geler la référence de surveillance à la validation AUTO
 import { construireFiltreSuivi, TYPES_PERMIS_FILTRE, type CriteresSuivi } from './filtreSuivi'; // recherche : critères + WHERE paramétré (module PUR client-safe)
 import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — le suivi Rattachement ne compte que les cartes actives (retirées invisibles)
+import { sqlMuraleParis } from '../temps/paris';
 
 // ÉTAGE 1 — deux états ajoutés : `acheve_sans_bati` (achèvement déclaré sur un permis SANS signal géométrique possible → décision
 //   humaine « confirmer et clore » attendue) et `clos_sans_bati` (terminal, après confirmation). Cf. resoudreEtatSuivi / migration 156.
@@ -270,9 +271,9 @@ const selectSuiviPrefixe = (faCb: string) => `e.dossier_id, s.num_dau, s.code_in
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
             s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict, r.origine_ouverture,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
-            to_char(r.reevalue_le, 'YYYY-MM-DD') AS reevalue,
+            to_char(${sqlMuraleParis('r.reevalue_le')}, 'YYYY-MM-DD') AS reevalue,
             to_char(s.date_reelle_autorisation, 'YYYY-MM-DD') AS date_autorisation,
-            to_char(r.detecte_le, 'YYYY-MM-DD') AS date_declenchement,
+            to_char(${sqlMuraleParis('r.detecte_le')}, 'YYYY-MM-DD') AS date_declenchement,
             EXISTS (SELECT 1 FROM permis_projection pj WHERE pj.dossier_id = e.dossier_id) AS projection_validee,
             (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id${faCb}) AS nb_corps,
             -- FRANCHI LE PROCESS : bâtiments dont l'altitude n'est PAS VALIDÉE (confirme_le NULL) …

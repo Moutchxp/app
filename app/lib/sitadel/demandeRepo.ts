@@ -31,6 +31,7 @@ import { fragmentCorpsActif } from '../permis/corpsActif'; // BAT-3 — les comp
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
 import { resoudreDepotPresume } from '../veille/depotPresume'; // LOT B1 : résout la présomption de dépôt téléservice au geste terminal (dépôt/annulation)
+import { jourParisDecale, sqlJourParis, sqlMuraleParis } from '../temps/paris';
 
 type Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<{ rows: R[] }>;
 const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t, p) => q(t, p)) as Requete;
@@ -72,15 +73,11 @@ function versCandidat(d: DossierAffiche): CandidatDossier {
 
 /** Borne d'ancienneté : aujourd'hui − `annees` (format 'AAAA-MM-JJ'). Au-delà, la hauteur est déjà mesurée au LiDAR. */
 function dateMinDepuis(annees: number): string {
-  const d = new Date();
-  d.setFullYear(d.getFullYear() - annees);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return jourParisDecale(new Date(), { annees: -annees }); // jour de PARIS, quel que soit le fuseau de la machine
 }
 /** Q2b — borne en MOIS : aujourd'hui − `mois` (format 'AAAA-MM-JJ'). `setMonth` négatif retombe sur l'année précédente. */
 function dateMinMois(mois: number): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() - mois);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return jourParisDecale(new Date(), { mois: -mois }); // jour de PARIS, quel que soit le fuseau de la machine
 }
 /**
  * Q4 — `ancienneteMois` (état d'écran, DÉJÀ borné par la route via `bornerAncienneteMois`) raccourcit la fenêtre passée à
@@ -150,7 +147,7 @@ export const SQL_PERMIS_CE_MOIS_PAR_COMMUNE =
   `SELECT d.code_insee, count(DISTINCT dd.dossier_id)::int AS n
      FROM demande d JOIN demande_dossier dd ON dd.demande_id = d.id
     WHERE dd.actif AND d.statut IN ('envoyee', 'close')
-      AND date_trunc('month', d.cree_le) = date_trunc('month', now())
+      AND date_trunc('month', ${sqlMuraleParis('d.cree_le')}) = date_trunc('month', ${sqlMuraleParis('now()')})
     GROUP BY d.code_insee`;
 
 async function lireHistorique(): Promise<HistoriqueDemandes> {
@@ -587,7 +584,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
     `SELECT s.id::int AS dossier_id, s.num_dau, s.code_insee, c.nom AS commune_nom,
             s.type, s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
             s.date_reelle_autorisation::text AS date_autorisation,
-            dd.satisfait_le::date::text AS satisfait_le, dd.satisfait_par, dm.reference AS demande_reference, dm.dest_canal AS canal, -- D2 : process d'affichage (lecture)
+            ${sqlJourParis('dd.satisfait_le')}::text AS satisfait_le, dd.satisfait_par, dm.reference AS demande_reference, dm.dest_canal AS canal, -- D2 : process d'affichage (lecture)
             dr.recu_le::text AS recu_le,
             (SELECT min(l.expire_le)::text FROM demande_reponse_lien l WHERE l.reponse_id = dd.reponse_id AND l.fort) AS expire_le_capte,
             EXISTS (SELECT 1 FROM demande_reponse_lien l WHERE l.reponse_id = dd.reponse_id AND l.fort) AS a_lien_fort,
@@ -847,7 +844,7 @@ export async function donneesFicheSynthese(dossierId: number): Promise<SourceFic
             c.nom AS commune_nom, s.code_insee,
             s.nature_projet_completee AS nature, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
             s.date_reelle_autorisation::text AS date_autorisation,
-            dd.satisfait_le::date::text AS satisfait_le, dd.satisfait_par
+            ${sqlJourParis('dd.satisfait_le')}::text AS satisfait_le, dd.satisfait_par
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
        JOIN demande dm ON dm.id = dd.demande_id

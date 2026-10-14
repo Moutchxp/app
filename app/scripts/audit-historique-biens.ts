@@ -42,6 +42,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { query } from '../lib/db/client';
+import { sqlJourParis } from '../lib/temps/paris';
 
 /**
  * 🔒 LE GARDE DE LECTURE SEULE. Il lit SON PROPRE SOURCE et refuse de démarrer si un verbe d'écriture SQL y
@@ -396,7 +397,7 @@ async function main(): Promise<void> {
         WHERE r.statut = 'confirme' AND r.cible_sorte = 'lot'
      ),
      bornes AS (
-       SELECT f.fil_id, f.lot_id, min(m.recu_le)::date AS d1, max(m.recu_le)::date AS d2
+       SELECT f.fil_id, f.lot_id, ${sqlJourParis('min(m.recu_le)')} AS d1, ${sqlJourParis('max(m.recu_le)')} AS d2
          FROM filsLot f JOIN gestion_message m ON m.fil_id = f.fil_id
         GROUP BY f.fil_id, f.lot_id
      )
@@ -426,7 +427,7 @@ async function main(): Promise<void> {
     WHERE o.lot_id = l.lot_id`;
   const datesLocataire = `
     WITH liens AS (
-      SELECT m.id AS message_id, m.fil_id, lo.id AS lot_id, r.cible_cle, m.recu_le::date AS d_mail
+      SELECT m.id AS message_id, m.fil_id, lo.id AS lot_id, r.cible_cle, ${sqlJourParis('m.recu_le')} AS d_mail
         FROM gestion_rattachement r
         JOIN gestion_message m ON m.id = r.message_id
         JOIN gestion_annuaire_lot lo ON lo.wippimmo_id = r.cible_cle

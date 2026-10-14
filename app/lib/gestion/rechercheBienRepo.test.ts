@@ -132,7 +132,7 @@ describe('🔴 ⑤ « passé » se juge à la DATE DU MAIL', () => {
   it('la date est passée LIÉE, et sert de référence à la sortie du bail', async () => {
     await chercherBiens('dupont', { dateMail: '2026-08-13' });
     expect(paramsRecherche()[4]).toBe('2026-08-13');
-    expect(sqlRecherche()).toContain('coalesce($5::date, current_date)');
+    expect(sqlRecherche()).toContain("coalesce($5::date, (now() AT TIME ZONE 'Europe/Paris')::date)"); // aujourd'hui = jour de PARIS (portabilité)
   });
 
   it('une date absurde est refusée, et on retombe sur aujourd’hui', async () => {

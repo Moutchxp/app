@@ -27,6 +27,7 @@
 import { query, withTransaction } from '../lib/db/client';
 import { closePool } from '../lib/db/client';
 import { MARQUEUR_DOCUMENT, REGLE_EXCLUSION_DOCUMENT, sousTypeLisible } from '../lib/gestion/documentsAuto';
+import { sqlJourParis } from '../lib/temps/paris';
 
 const P = '  ';
 const AUTEUR = 'lot DOCUMENTS-HORS-BIENS';
@@ -125,7 +126,7 @@ async function main(): Promise<void> {
     id: string; message_id: string; le: string; cible: string | null; objet: string | null;
     origine: string; par: string | null; cree_par: string;
   }>(
-    `SELECT r.id::text, r.message_id::text, m.recu_le::date::text AS le, r.cible_libelle AS cible, m.objet,
+    `SELECT r.id::text, r.message_id::text, ${sqlJourParis('m.recu_le')}::text AS le, r.cible_libelle AS cible, m.objet,
             r.origine, r.statut_par_libelle AS par, r.cree_par_libelle AS cree_par
        FROM gestion_rattachement r JOIN gestion_message m ON m.id = r.message_id
       WHERE r.cible_sorte = 'lot' AND ${VIVANT} AND ${EST_DOCUMENT_ENVOYE} AND ${EST_MANUEL}

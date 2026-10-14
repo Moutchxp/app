@@ -29,6 +29,7 @@
 import { query } from '../lib/db/client';
 import { interneDuMessageDisponible } from '../lib/gestion/schema';
 import { MOTIF_INTERNE_REPRISE } from '../lib/gestion/interneDuMail';
+import { sqlMuraleParis } from '../lib/temps/paris';
 
 const APPLIQUER = process.argv.includes('--appliquer');
 /** Au plus tant d'exemples affichés : un rapport de cent lignes ne se lit pas. */
@@ -57,7 +58,7 @@ async function aCreer(): Promise<ACreer[]> {
     fil_id: string; message_id: string; objet: string | null; recu_le: string; auteur: string;
   }>(
     `SELECT m.fil_id::text, m.id::text AS message_id, m.objet,
-            to_char(m.recu_le, 'YYYY-MM-DD HH24:MI') AS recu_le,
+            to_char(${sqlMuraleParis('m.recu_le')}, 'YYYY-MM-DD HH24:MI') AS recu_le,
             i.pose_par_libelle AS auteur
        FROM gestion_fil_interne i
        JOIN gestion_message m ON m.fil_id = i.fil_id AND m.corbeille_le IS NULL

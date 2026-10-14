@@ -24,6 +24,7 @@ import { nonRemiseDisponible, oublierSchema } from '../lib/gestion/schema';
 import {
   chiffresNonRemise, COMPTES_AVIS_VIDES, lireAvisEnAttente, type ComptesAvis,
 } from '../lib/gestion/nonRemiseRepo';
+import { sqlMuraleParis } from '../lib/temps/paris';
 
 const P = '[gestion:non-remise:rattraper]';
 /** Assez pour couvrir toute l'histoire de la boîte : la capture a commencé en 2024. */
@@ -96,7 +97,7 @@ async function principal(): Promise<void> {
    * derniers insérés ». La date qui a du sens est celle du message qui porte l'avis.
    */
   const { rows } = await query<{ objet: string | null; destinataire: string | null; motif: string; le: string }>(
-    `SELECT m.objet, n.destinataire, n.motif, to_char(a.recu_le, 'DD/MM/YYYY HH24:MI') AS le
+    `SELECT m.objet, n.destinataire, n.motif, to_char(${sqlMuraleParis('a.recu_le')}, 'DD/MM/YYYY HH24:MI') AS le
        FROM gestion_non_remise n
        JOIN gestion_message m ON m.id = n.origine_message_id
        JOIN gestion_message a ON a.id = n.avis_message_id

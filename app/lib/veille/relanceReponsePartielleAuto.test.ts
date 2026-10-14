@@ -6,6 +6,7 @@ import {
 import { MOTIF_RELANCE_PARTIELLE_PREFIXE, MOTIF_ANNONCE_CADA_PREFIXE } from './cascadePartielleRepo';
 import type { FamillePlan } from '../permis/planMasse';
 import { creerBudgetRun, type BudgetEnvoiRun } from './plafondEnvoiRun';
+import { instantParis } from '../temps/paris';
 
 const D = (iso: string | null) => (iso ? new Date(iso) : null);
 
@@ -36,8 +37,8 @@ describe('PART-E — cohabitation CASC-3 : préfixe de journal DISTINCT (n’inc
 });
 
 // Fenêtre d'envoi (envoiOuvre) lue en heure LOCALE → dates construites en local (jamais 'Z').
-const JEUDI_10H = new Date(2026, 8, 3, 10, 0, 0);   // ouvré, 9-11
-const DIMANCHE_10H = new Date(2026, 7, 30, 10, 0, 0); // non ouvré
+const JEUDI_10H = instantParis(2026, 9, 3, 10, 0, 0);   // ouvré, 9-11
+const DIMANCHE_10H = instantParis(2026, 8, 30, 10, 0, 0); // non ouvré
 
 const cand = (demandeId: number, dernierMailLe: string, rang = 1): CandidatRelanceReponse => ({ demandeId, dernierMailLe: new Date(dernierMailLe), famillesManquantes: ['masse'], rang });
 

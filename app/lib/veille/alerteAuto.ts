@@ -12,6 +12,7 @@ import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { echeanceDe, etatEcheance } from './echeance';
 import { composerAlerte, type EntreeAlerte, type DemandeEcheanceAlerte } from './alerte';
+import { heureParis, SQL_MINUIT_PARIS } from '../temps/paris';
 
 export type ResultatAlerte = 'ignore' | 'rien_a_dire' | 'envoyee' | 'erreur';
 export interface IssueAlerte { resultat: ResultatAlerte; raison: string; runId: number | null }
@@ -185,10 +186,10 @@ export function depsReellesAlerte(): DepsAlerteAuto {
       const c = await chargerConfigVeille();
       return { active: c.alerteActive, email: c.alerteEmail, heureLocale: c.alerteHeureLocale };
     },
-    heureLocaleCourante: () => new Date().getHours(),
+    heureLocaleCourante: () => heureParis(new Date()), // heure de PARIS, quel que soit le fuseau de la machine (portabilité)
     alerteFaiteAujourdHui: async () => {
       const { rows } = await query<{ fait: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM alerte_run WHERE resultat IN ('envoyee','rien_a_dire') AND demarre_le >= date_trunc('day', now())) AS fait`);
+        `SELECT EXISTS (SELECT 1 FROM alerte_run WHERE resultat IN ('envoyee','rien_a_dire') AND demarre_le >= ${SQL_MINUIT_PARIS}) AS fait`); // « aujourd'hui » = jour de Paris, pas celui de la session PG
       return rows[0]?.fait === true;
     },
     composer: async () => composerAlerte(await chargerEntreeAlerte()),

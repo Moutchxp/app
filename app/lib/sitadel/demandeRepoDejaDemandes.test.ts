@@ -39,7 +39,8 @@ describe('R2-fix2 — SQL_PERMIS_CE_MOIS_PAR_COMMUNE : le comptage du plafond es
   });
   it('ne retient que les demandes RÉELLEMENT PARTIES, sur le mois calendaire de création', () => {
     expect(m).toContain("d.statut IN ('envoyee', 'close')");
-    expect(m).toContain("date_trunc('month', d.cree_le) = date_trunc('month', now())");
+    // Mois calendaire de PARIS, explicite (portabilité : indépendant du fuseau de la session PG).
+    expect(m).toContain("date_trunc('month', ((d.cree_le) AT TIME ZONE 'Europe/Paris')) = date_trunc('month', ((now()) AT TIME ZONE 'Europe/Paris'))");
   });
 });
 

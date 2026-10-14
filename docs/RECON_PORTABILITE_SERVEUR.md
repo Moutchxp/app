@@ -4,25 +4,28 @@
 > (SELECT uniquement), aucun correctif. Les sorties brutes des commandes (build, tsc, vitest JSON UTC/Paris) et le
 > script de casse sont dans `.captures/recon-portabilite/` (gitignoré, non committé).
 >
+> **Mise à jour du 14/10/2026 — lot PRÉPARATION-PORTABILITÉ** : ce qui a été corrigé sur le Mac (sans changer son
+> comportement) est coché dans la synthèse ci-dessous et détaillé au **§12** ; la checklist de répétition générale est révisée.
+>
 > Étiquettes : **PROUVÉ** = vu dans le code (`fichier:ligne`) ou mesuré par une commande exécutée pendant ce lot ;
 > **SUPPOSÉ** = déduit, non vérifié jusqu'au bout. Une hypothèse n'est jamais donnée comme une cause.
 
 ## Synthèse — les 12 points qui cassent ou changent vraiment
 
-| # | Point | Effet sur Linux | Étiquette |
-|---|---|---|---|
-| 1 | **Fuseau du processus** : ~22 calculs en heure locale (fenêtres d'envoi, alerte quotidienne, fenêtre nocturne, numéros annuels) | En TZ=UTC, décalage de 1–2 h ; **2 fichiers de test virent au ROUGE** (mesuré) | PROUVÉ |
-| 2 | **Fuseau de la session PostgreSQL** (`CURRENT_DATE`, `date_trunc(now())`, `::date`) — le pool ne fixe rien | Si le PG du serveur est en UTC : plafonds quotidien/mensuel, « une alerte par jour », périodes de location basculent à 02 h Paris | PROUVÉ (code) / effet SUPPOSÉ |
-| 3 | **3 tâches de fond launchd** (veille, relève gestion continue, index Drive) écrites pour ce Mac | À réécrire en services + timers systemd | PROUVÉ |
-| 4 | **`tsx` et `dotenv` sont en devDependencies** mais indispensables aux tâches de fond et à tous les CLI | Un `npm ci --omit=dev` casse toutes les tâches de fond | PROUVÉ |
-| 5 | **`node_modules` contient des binaires darwin-arm64** (sharp, SWC, lightningcss, oxide) | Ne JAMAIS copier `node_modules` : `npm ci` sur le serveur | PROUVÉ |
-| 6 | **Binaires système** appelés par des routes de prod : `pdftoppm`, `pdfinfo`, `pdfseparate`, `pdfunite` ; par la veille : `tar -j`, `npm`, `curl`, `ogr2ogr` | Paquets `poppler-utils`, `bzip2`, `gdal-bin`, `curl` (+ `7zip` pour `bdtopo:import`) | PROUVÉ |
-| 7 | **`GESTION_URL_APPLICATION` et `SVAV_URL_PUBLIQUE` absentes du `.env`** → repli `http://localhost:3000` | Liens agenda Google, Accepter/Refuser et alertes d'envoi pointent vers localhost (déjà le cas aujourd'hui) | PROUVÉ |
-| 8 | **Fichiers hors dépôt** : `.env`, `~/.config/sansvisavis/google-gestion.json`, `~/.config/sansvisavis/drive-delegation.json` | Sans eux : pas de Gmail gestion@, pas de Drive délégué ni d'Agenda | PROUVÉ |
-| 9 | **Cookies `secure` en production** (`NODE_ENV=production`) + `siteUrlCertificat()` refuse tout `SITE_URL` non https public | TLS obligatoire devant `next start`, sinon plus de connexion admin/internaute | PROUVÉ (code) / navigateur SUPPOSÉ |
-| 10 | **MinIO** : `.minio/minio` est un binaire Mach-O arm64 | Binaire Linux à installer (ou S3 OVH) ; `S3_ENDPOINT` est `http://` local | PROUVÉ |
-| 11 | **Utilisateur PostgreSQL implicite** : `DATABASE_URL` sans utilisateur, les plists posent `USER/LOGNAME` | Sur Linux : rôle PG du nom de l'utilisateur du service, ou utilisateur dans l'URL | PROUVÉ |
-| 12 | **Dossier de travail** : polices/logos PDF lus via `process.cwd()` ; pas de `output: 'standalone'` | Lancer `next start` et les tâches **depuis la racine du dépôt** | PROUVÉ |
+| # | Point | Effet sur Linux | Étiquette | État après le lot PRÉPARATION-PORTABILITÉ |
+|---|---|---|---|---|
+| 1 | **Fuseau du processus** : ~22 calculs en heure locale (fenêtres d'envoi, alerte quotidienne, fenêtre nocturne, numéros annuels) | En TZ=UTC, décalage de 1–2 h ; **2 fichiers de test virent au ROUGE** (mesuré) | PROUVÉ | ✅ réglé (§12.1) |
+| 2 | **Fuseau de la session PostgreSQL** (`CURRENT_DATE`, `date_trunc(now())`, `::date`) — le pool ne fixe rien | Si le PG du serveur est en UTC : plafonds quotidien/mensuel, « une alerte par jour », périodes de location basculent à 02 h Paris | PROUVÉ (code) / effet SUPPOSÉ | ✅ réglé dans le code (§12.1) — régler aussi le PG serveur (checklist) |
+| 3 | **3 tâches de fond launchd** (veille, relève gestion continue, index Drive) écrites pour ce Mac | À réécrire en services + timers systemd | PROUVÉ | ✅ units écrites (`deploy/systemd/`, §12.3) — à installer |
+| 4 | **`tsx` et `dotenv` sont en devDependencies** mais indispensables aux tâches de fond et à tous les CLI | Un `npm ci --omit=dev` casse toutes les tâches de fond | PROUVÉ | ✅ réglé (§12.2) |
+| 5 | **`node_modules` contient des binaires darwin-arm64** (sharp, SWC, lightningcss, oxide) | Ne JAMAIS copier `node_modules` : `npm ci` sur le serveur | PROUVÉ | ⏳ consigne (checklist étape 6) |
+| 6 | **Binaires système** appelés par des routes de prod : `pdftoppm`, `pdfinfo`, `pdfseparate`, `pdfunite` ; par la veille : `tar -j`, `npm`, `curl`, `ogr2ogr` | Paquets `poppler-utils`, `bzip2`, `gdal-bin`, `curl` (+ `7zip` pour `bdtopo:import`) | PROUVÉ | ⏳ à installer (checklist étape 2) |
+| 7 | **`GESTION_URL_APPLICATION` et `SVAV_URL_PUBLIQUE` absentes du `.env`** → repli `http://localhost:3000` | Liens agenda Google, Accepter/Refuser et alertes d'envoi pointent vers localhost (déjà le cas aujourd'hui) | PROUVÉ | ✅ avertissement au démarrage + `.env.example` (§12.5) — valeurs à poser |
+| 8 | **Fichiers hors dépôt** : `.env`, `~/.config/sansvisavis/google-gestion.json`, `~/.config/sansvisavis/drive-delegation.json` | Sans eux : pas de Gmail gestion@, pas de Drive délégué ni d'Agenda | PROUVÉ | ⏳ à copier (checklist étape 7) |
+| 9 | **Cookies `secure` en production** (`NODE_ENV=production`) + `siteUrlCertificat()` refuse tout `SITE_URL` non https public | TLS obligatoire devant `next start`, sinon plus de connexion admin/internaute | PROUVÉ (code) / navigateur SUPPOSÉ | ⏳ frontal TLS (checklist étape 14) |
+| 10 | **MinIO** : `.minio/minio` est un binaire Mach-O arm64 | Binaire Linux à installer (ou S3 OVH) ; `S3_ENDPOINT` est `http://` local | PROUVÉ | ⏳ à installer (checklist étape 8) |
+| 11 | **Utilisateur PostgreSQL implicite** : `DATABASE_URL` sans utilisateur, les plists posent `USER/LOGNAME` | Sur Linux : rôle PG du nom de l'utilisateur du service, ou utilisateur dans l'URL | PROUVÉ | ✅ `User=` dans les units (§12.3) — rôle PG à créer |
+| 12 | **Dossier de travail** : polices/logos PDF lus via `process.cwd()` ; pas de `output: 'standalone'` | Lancer `next start` et les tâches **depuis la racine du dépôt** | PROUVÉ | ✅ `WorkingDirectory=` dans les units (§12.3) |
 
 Ce qui **ne casse pas** (mesuré) : casse des imports (0 divergence), `npm run build` (vert), `npx tsc --noEmit` (vert),
 golden (11/11 verts), aucune commande macOS-only exécutée par le code.
@@ -37,7 +40,7 @@ figé dans le bundle navigateur au build (PROUVÉ). Valeurs du `.env` **non lues
 « locale-only » (contient `localhost`, `127.0.0.1`, `/Users/` ou une IP privée) ont été calculés par script.
 
 | Variable | Lue (1re occurrence) | Dans `.env` | Locale-only | Rôle | Ce qui casse / à faire |
-|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|
 | `DATABASE_URL` | `app/lib/db/client.ts:25` | oui | **OUI** | Connexion PostgreSQL | Pointer le PG du serveur ; ajouter l'utilisateur dans l'URL (cf. §8) |
 | `ANALYSE_STATEMENT_TIMEOUT_MS` / `_CONNECT_TIMEOUT_MS` / `ANALYSE_POOL_MAX` | `app/lib/db/plafondAnalyse.ts:56,64,68` | non | — | Pool public de l'analyse | Défauts 15000 / 10000 / 10 |
 | `ANALYTICS_POOL_MAX`, `_CONNECT_`, `_STATEMENT_`, `_IDLE_`, `_IDLE_IN_TX_`, `_ECRITURE_TIMEOUT_MS` | `app/lib/analytics/config.ts:37-68` | non | — | Pool analytique | Défauts en dur |
@@ -89,7 +92,7 @@ URL en dur dans des scripts : `app/scripts/vidage-epreuve.ts:107,187` (`postgres
 ## 2. Fichiers nécessaires mais absents de git
 
 | Élément | Preuve | Étiquette | Ce qui casse sans lui | À faire |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | `.env` | `.gitignore` (`.env*`) | PROUVÉ | Tout (`DATABASE_URL manquant`) | Copier par canal sûr, dédoublonner `SMTP_PERSONNE_*`, corriger `DATABASE_URL`, `S3_ENDPOINT`, `GOOGLE_DELEGATION_CLE_FICHIER`, ajouter les URL publiques et `TZ` |
 | `~/.config/sansvisavis/google-gestion.json` (0600) | `app/lib/gestion/googleJeton.ts:37-40` ; lu par des routes de prod (`api/admin/gestion/{envois,redaction,corbeille,messages/[id]/gmail,messages/[id]/original}`) | PROUVÉ | Pas d'envoi Gmail gestion@, corbeille, original ; l'écran affiche « non autorisé » (`googleJeton.ts:67`, pas de plantage) | Copier chez l'utilisateur du service, ou `GOOGLE_GESTION_REFRESH_TOKEN` |
 | `~/.config/sansvisavis/drive-delegation.json` (0600) | `GOOGLE_DELEGATION_CLE_FICHIER` → `compteService.ts:55-62` | PROUVÉ | Drive délégué + Agenda « non configuré » | Copier + corriger le chemin |
@@ -106,7 +109,7 @@ URL en dur dans des scripts : `app/scripts/vidage-epreuve.ts:107,187` (`postgres
 ## 3. Chemins absolus propres au Mac
 
 | Élément | Preuve | Étiquette | Ce qui casse sur Linux | À faire |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | Plists : `/usr/local/bin/node`, `/bin/zsh -lc "cd /Users/macbookprom4arnaud/…"`, `~/Library/Logs/svav-*.log`, `USER/LOGNAME=macbookprom4arnaud` | `ops/com.sansvisavis.veille.plist:22-36`, `gestion-continu.plist:65-103`, `drive-empreintes.plist:55-87` | PROUVÉ | launchd n'existe pas | Units systemd (§8) |
 | `homedir()/.config/sansvisavis/google-gestion.json` | `app/lib/gestion/googleJeton.ts:40` | PROUVÉ | Chemin résolu chez l'utilisateur Linux ; fichier absent → « non autorisé » | Copier ou variable d'env |
 | `GOOGLE_DELEGATION_CLE_FICHIER=/Users/…` | `.env` (indicateur, valeur non lue) | PROUVÉ | Clé introuvable → Drive délégué / Agenda inactifs | Nouveau chemin |
@@ -124,7 +127,7 @@ URL en dur dans des scripts : `app/scripts/vidage-epreuve.ts:107,187` (`postgres
 ## 4. Dépendances à macOS, binaires et paquets
 
 | Élément | Preuve | Étiquette | Ce qui casse sur Linux | À installer |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | `pdftoppm`, `pdfinfo`, `pdfseparate`, `pdfunite` — **routes de prod** `api/admin/permis/extraire`, `…/emprise` | `app/lib/permis/lireCerfaScan.ts:195,209,215,219`, `reperePlanches.ts:122` | PROUVÉ | Extraction / emprise en échec | `poppler-utils` |
 | `tar -tjf` / `tar -xjOf` (DILA, veille) | `app/lib/sitadel/dilaIngest.ts:74,131` | PROUVÉ | Ingestion DILA en échec | `tar`, `bzip2` |
 | `npm run cadastre:ingest` lancé en sous-processus par la veille (`cwd: process.cwd()`) | `app/lib/veille/ingestionAutoRepo.ts:161` | PROUVÉ | `npm` absent du PATH du service → échec | `nodejs`/`npm` dans le PATH de l'unit |
@@ -174,7 +177,7 @@ Trois mécanismes : (A) fuseau du processus Node, (B) fuseau de session PG, (C) 
 ### Mesure : suite complète sous deux fuseaux (vitest seul, sans tsc)
 
 | | Fichiers | Tests | Verts | Rouges | Ignorés |
-|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|
 | `TZ=Europe/Paris` | 1 127 | 19 524 | 19 503 | **0** | 21 |
 | `TZ=UTC` | 1 127 | 19 524 | 19 499 | **4** (2 fichiers) | 21 |
 
@@ -188,7 +191,7 @@ Rouges sous UTC (PROUVÉ) :
 ### Inventaire (extrait — points fragiles)
 
 | Élément | Preuve | Mécanisme | Ce qui change si le serveur est en UTC | Étiquette |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | Fenêtre d'envoi / jour ouvré / prochain créneau | `app/lib/veille/envoiOuvre.ts:36,42,50,65,79` (appelants `envoiAuto.ts:22`, `envoiInitialAuto.ts:19`, `relanceReponsePartielleAuto.ts:24`, `cascadePartielleAuto.ts:15`, `alerteLienPeremptionAuto.ts:16`) | A | Fenêtre 9–11 h ouverte 11–13 h Paris (été) ; lundi 00–02 h vu comme dimanche ; « prévu le … » décalé | PROUVÉ (test rouge) |
 | Heure de l'alerte quotidienne | `app/lib/veille/alerteAuto.ts:188` (`getHours()`) | A | Récapitulatif à 10 h au lieu de 8 h (été) | PROUVÉ |
 | Fenêtre nocturne d'ingestion + clé `nuit_du` | `app/lib/veille/ingestionAuto.ts:52,61-64` | A | 3–6 h devient 5–8 h Paris ; clé de nuit = date UTC | PROUVÉ |
@@ -237,7 +240,7 @@ de dev en cours. Pas de `output: 'standalone'` (`next.config.ts`) : déployer = 
 ## 8. Tâches de fond
 
 | Tâche | Déclenchement aujourd'hui | Preuve | Étiquette | Remplacement Linux |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | **Veille** (`npm run veille:run` → `executerVeille` : relève auto, relances, cascade, alerte quotidienne, envois auto, saisines, alertes GED, ingestion auto DILA/PRADA/Sitadel/cadastre, surveillance polygones…) | launchd `StartInterval 900` (15 min) | `ops/com.sansvisavis.veille.plist:22-28` ; `app/lib/sitadel/executerVeille.ts:212+` | PROUVÉ | `svav-veille.service` (oneshot, `WorkingDirectory=<dépôt>`, `Environment=TZ=Europe/Paris`) + `.timer` `OnUnitActiveSec=15min` |
 | — état actuel | **dernier code de sortie 1** : `Error: read ETIMEDOUT` émis par `ImapFlow` **sans écouteur `error`** → le processus meurt | `launchctl list` ; `~/Library/Logs/svav-veille.log` (fin) | PROUVÉ | Même plantage possible sous systemd (non spécifique Mac) ; à instruire dans un lot dédié |
 | **Relève gestion continue** (`relever-gestion-continu.ts`, boucle interne 60 s) | launchd `KeepAlive`, `RunAtLoad`, `ThrottleInterval 60` ; en cours (PID 62757) | `ops/com.sansvisavis.gestion-continu.plist:65-103` | PROUVÉ | `svav-gestion-continu.service` (simple, `Restart=always`, `RestartSec=60`) |
@@ -260,7 +263,7 @@ Contraintes communes des units (PROUVÉ) : les plists posent `PATH=/usr/local/bi
 ## 9. Services externes
 
 | Service | Authentification | Preuve | Dépendance localhost / Mac | À faire |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | SMTP (nodemailer) — 2 profils | utilisateur + mot de passe d'application ; `secure = port === 465` | `app/lib/email/index.ts:85-93` | aucune | Ports sortants 465/587 ouverts (SUPPOSÉ) |
 | IMAP (imapflow) | mêmes identifiants, TLS 993 | `app/lib/email/index.ts:64-70`, `email/imap.ts:71` | aucune | — |
 | Gmail API gestion@criterimmo.fr | OAuth2 refresh token (`gmail.modify`, `gmail.settings.basic`, `drive`) | `app/lib/gestion/google.ts:42-61` | jeton **dans un fichier du home** (`googleJeton.ts:40`) | Copier ou variable d'env |
@@ -282,7 +285,7 @@ Contraintes communes des units (PROUVÉ) : les plists posent `PATH=/usr/local/bi
 ## 10. Base de données
 
 | Élément | Valeur | Preuve | Étiquette | À faire sur Linux |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | PostgreSQL | **17.10** (Homebrew, aarch64-apple-darwin) | `SELECT version()` | PROUVÉ | PostgreSQL 17 (dépôt PGDG) |
 | PostGIS | **3.6.4** — GEOS 3.15.0, PROJ 9.9.0 (`NETWORK_ENABLED=OFF`), GDAL 3.13.3 | `SELECT postgis_full_version()` | PROUVÉ | `postgresql-17-postgis-3` en 3.6.x ; versions GEOS/PROJ différentes possibles → cf. §11 |
 | Extensions installées | `pg_trgm 1.6`, `plpgsql`, `postgis 3.6.4`, `postgis_raster 3.6.4`, `postgis_topology 3.6.4`, `unaccent 1.1` | `SELECT … FROM pg_extension` | PROUVÉ | Toutes à installer **avant** `pg_restore` |
@@ -310,49 +313,174 @@ Contraintes communes des units (PROUVÉ) : les plists posent `PATH=/usr/local/bi
 
 ---
 
+## 12. Lot PRÉPARATION-PORTABILITÉ (14/10/2026) — ce qui est réglé
+
+Objectif : corriger sur le Mac ce qui casserait sur Linux, **sans changer le comportement du Mac**. Contrôle de fin :
+`npx tsc --noEmit` vert, `npm run build` vert (seul l'avertissement NFT connu du §7), golden 11/11 sous Paris **et** sous
+UTC, `npm test` complet vert sous **TZ=Europe/Paris et TZ=UTC** : **1 131 fichiers, 19 545 tests verts, 21 ignorés
+(19 566)** dans les deux cas (PROUVÉ). Le `curl` de `/admin/login` n'a pas pu être lancé dans ce lot (commande refusée par le
+mode de permissions) : **à rejouer à la main**.
+
+### 12.1 Fuseau horaire — une source unique, `app/lib/temps/paris.ts`
+
+- **Module pur** (aucun import, client et serveur) : `partiesParis`, `heureParis`, `jourSemaineParis`, `anneeParis`,
+  `jourParis`, `instantParis` (remplace `new Date(a, m, j, h)` ; heure sautée → +1 h, heure doublée → la 1re, à
+  l'identique de ce que faisait le Mac), `auJourParis`, `premierDuMoisParis`, `jourParisDecale`,
+  `msJusquaProchaineHeureParis`, `formatParis` (impose `timeZone`), et les fragments SQL `SQL_AUJOURDHUI_PARIS`,
+  `SQL_MINUIT_PARIS`, `sqlJourParis`, `sqlMuraleParis`, `sqlMinuitParisDe`.
+- **Calculs JS réécrits** (PROUVÉ) : fenêtre d'envoi / jour ouvré / prochain créneau / jour d'échéance
+  (`veille/envoiOuvre.ts`), heure de l'alerte quotidienne (`veille/alerteAuto.ts`), fenêtre nocturne + clé de nuit
+  (`veille/ingestionAuto.ts`), libération du quota mensuel (`sitadel/demande.ts`), bornes d'ancienneté
+  (`sitadel/demandeRepo.ts`, `permis/page.tsx`), numéros annuels DEM / GES (`api/admin/permis/demandes/route.ts`,
+  `…/depot-auto/route.ts`, `gestion/gestes.ts`), mail « Envoi demandé le … » (`gestion/fileEnvoi.ts`), horodatage DOS des
+  ZIP (`gestion/zip.ts`), « Dernière relève » (`gestion/ecran.ts`), date de « Mon espace » (`espace/page.tsx`), dates du
+  Finder Drive, des comptes, de la validation et du suivi de rattachement, des internautes, recomptage quotidien des tuiles
+  Permis (`PermisTuile.tsx`, `TuilePermisActions.tsx`), « aujourd'hui » de la frise (`FriseAvancement.tsx`) et du champ date
+  des pièces (`BlocDemandePieces.tsx`).
+- **Deux exceptions assumées** : `gestion/fileEnvoi.ts` et `gestion/indexEmpreintesDrive.ts` sont verrouillés « sans aucun
+  import » par leurs tests ; ils écrivent `timeZone: 'Europe/Paris'` en clair (commentaire à l'appui) au lieu d'importer
+  le module. Les ~38 formatages qui portaient **déjà** `timeZone: 'Europe/Paris'` n'ont pas été touchés.
+- **Dates lues en base** (mécanisme C du §6) : `app/lib/db/typesDate.ts` fixe l'analyse des types `date`, `timestamp`
+  sans fuseau et de leurs tableaux (OID 1082, 1114, 1182, 1115) à **minuit / heure murale de Paris** — exactement ce que le
+  Mac faisait (son fuseau local est Paris), désormais identique sur toute machine. Importé par les 4 fabriques de pool.
+  Le biais « veille » préexistant de certains affichages `toISOString().slice(0, 10)` d'une colonne `date` (CADA
+  `refus_le`, `nuit_du`, `date_distante`) est **conservé tel quel** (comportement du Mac) : à instruire dans un lot dédié.
+- **Inchangé, déjà indépendant de la machine** : les « aujourd'hui » calculés par `toISOString().slice(0, 10)` (jour
+  UTC, cf. §6 « invariant mais calé sur le jour UTC ») donnent le même résultat sur le Mac et sur Linux ; les corriger
+  changerait le comportement du Mac → hors périmètre, signalés pour un lot dédié.
+
+**Requêtes SQL rendues explicites (`AT TIME ZONE 'Europe/Paris'`)** — sous une session Paris, l'ancien et le nouveau
+fragment rendent le même résultat (mesuré) ; sous une session UTC, l'ancien glissait de 2 h / d'un jour, le nouveau non :
+
+| Fichier | Avant | Après |
+|---|---|---|
+| `veille/alerteAuto.ts` | `demarre_le >= date_trunc('day', now())` | `>= SQL_MINUIT_PARIS` |
+| `veille/releveApprofondie.ts` | idem | idem |
+| `sitadel/envoiDemande.ts` (plafond quotidien) | `envoye_le::date = CURRENT_DATE` | `sqlJourParis(envoye_le) = SQL_AUJOURDHUI_PARIS` |
+| `sitadel/demandeRepo.ts` (plafond mensuel) | `date_trunc('month', d.cree_le) = date_trunc('month', now())` | sur l'horloge de Paris des deux côtés |
+| `sitadel/demandeRepo.ts` (×2), `permis/projectionFileRepo.ts` | `satisfait_le::date::text` | `sqlJourParis(…)::text` |
+| `sitadel/mairieContact.ts` (×2) | `protocole_verifie_le = CURRENT_DATE` | `= SQL_AUJOURDHUI_PARIS` |
+| `veille/surveillancePolygonesAuto.ts` (×4) | `valide_le >= current_date - N`, `to_char(valide_le)`, `to_char(current_date)` | minuit de Paris de (aujourd'hui − N), horloge de Paris |
+| `veille/demandeReponseRepo.ts` | `recu_le::date::text` | `sqlJourParis(recu_le)::text` |
+| `permis/rattachementSuiviRepo.ts` (×2), `permis/parcellesRepo.ts` (×2), `admin/sourcesFraicheurRepo.ts` (×2), `internaute/extractionRepo.ts` | `to_char(<timestamptz>, 'YYYY-MM-DD')` | `to_char(sqlMuraleParis(…), …)` |
+| `permis/filtreSuivi.ts`, `gestion/rechercheBoite.ts` (×2 filtres), `gestion/historiqueRepo.ts` | `<timestamptz> >= $n::date` / `< $n::date + 1` | bornes = minuit de Paris (`sqlMinuitParisDe`) |
+| `gestion/rechercheBienRepo.ts` (×3), `raccourciDriveRepo.ts`, `famillesAdressesRepo.ts`, `annuaireContenuRepo.ts` (×2), `annuaireEditionRepo.ts` (×3) | `current_date` | `SQL_AUJOURDHUI_PARIS` |
+| `gestion/historiqueBienRepo.ts` | `ev.ouvert_le::date` / `current_date` | `sqlJourParis(ev.ouvert_le)` / `SQL_AUJOURDHUI_PARIS` |
+| `gestion/evenementEtatRepo.ts`, `documentsAutoRepo.ts`, `contactExterneRepo.ts` | `<timestamptz>::date` | `sqlJourParis(…)` |
+| scripts CLI `rattraper-non-remises`, `audit-historique-biens`, `reprise-interne-par-mail`, `retirer-documents-des-biens`, `reprendre-reponses-automatiques` | `::date` / `to_char` sur `recu_le` | Paris explicite |
+
+Laissés tels quels (PROUVÉ, sans dépendance) : `to_char` sur des colonnes de type `date` (`date_distante`,
+`date_fichier`, `date_paquet`, `jour`, `entree`, `sortie`), analytics (`jour_paris`), `certificatNumero.ts` (déjà ancré
+Paris). Aucune fonction, vue ou valeur par défaut **en base** n'utilise `CURRENT_DATE` / `date_trunc(now())` (requête sur
+`pg_proc`, `pg_views`, `information_schema.columns` : 0 ligne). Validation : 12 fonctions de lecture réelles exécutées en
+transaction **lecture seule** forcée (`default_transaction_read_only=on`) sous session Paris puis UTC → aucune erreur,
+résultats identiques ; `EXPLAIN` (sans exécution) des deux requêtes d'écriture modifiées → plans valides.
+
+**Épreuves ajoutées** (rejouées sous 4 à 5 fuseaux de machine via `process.env.TZ`, dont l'effet à chaud a été prouvé par
+un témoin) : `app/lib/temps/paris.test.ts` (minuit, 31/12 → 1er janvier, 29/03 et 25/10 : heure sautée, heure doublée,
+« demain 9 h » à travers le changement d'heure), `app/lib/temps/fuseauMetier.test.ts` (fenêtre d'envoi à 8 h 59 / 9 h 00 /
+10 h 59 / 11 h 00, lundi 00 h 30, prochain créneau à travers les deux changements d'heure, fenêtre nocturne qui traverse
+minuit, quota libéré le 1er à 00 h 30, mail d'alerte, bandeau, ZIP), `app/lib/db/typesDate.test.ts`. Les tests existants
+qui construisaient leurs dates en heure locale (`envoiOuvre`, `ingestionAuto`, `relanceReponsePartielleAuto`,
+`alerteLienPeremptionAuto`, `fileEnvoi`, `BlocDemandePieces`) les construisent désormais en heure de Paris ; ceux qui
+figeaient l'ancien SQL (9 fichiers) assertent le nouveau fragment.
+
+### 12.2 Dépendances
+
+`tsx`, `dotenv` **et `zod`** passent dans `dependencies` (même version). `zod` n'était déclaré nulle part (présent par
+transitivité d'outils de dev) alors que `app/lib/permis/compteRenduIaSchema.ts:6` l'importe (route caractéristiques, CLI
+`lire-cerfa-ia`). Lock : 752 paquets avant/après, aucune version changée, seules 31 marques `"dev": true` retirées (`tsx`,
+`dotenv`, `zod`, `esbuild` et ses 26 binaires, `fsevents`). **Preuve** (copie du dépôt hors de toute arborescence
+`node_modules`, `npm ci --omit=dev`, sans `.env`, base sur un port fermé) : AVANT, les 4 points d'entrée des tâches de fond
+cassent (`Cannot find module …/tsx/dist/cli.mjs`, puis `dotenv`) et `npm run veille:run` rend `tsx: command not found` ;
+APRÈS, aucun module introuvable (la veille et la maintenance s'arrêtent sur `ECONNREFUSED`, attendu ; la relève et l'index
+Drive s'arrêtent faute de compte configuré). Sur les 712 modules de `app/lib` : 241 introuvables avant, 0 après. `next build`
+exige toujours `typescript`, les `@types/*`, `tailwindcss` et `@tailwindcss/postcss` → sur le serveur : `npm ci` complet,
+`npm run build`, puis éventuellement `npm prune --omit=dev`.
+
+### 12.3 Tâches de fond Linux — `deploy/systemd/`
+
+Gabarits `svav-veille.service.in` + `.timer` (15 min), `svav-gestion-continu.service.in` (`Restart=always`,
+`RestartSec=60`), `svav-drive-empreintes.service.in` + `.timer` (15 min, 1er passage au démarrage),
+`svav-next.service.in` (`next start`, `NODE_ENV=production`), `svav-analytics-maintenance.service.in` + `.timer` (**à
+n'activer que sur décision d'Arno** : aucun déclencheur aujourd'hui). Tous : `TZ=Europe/Paris`, `WorkingDirectory=` racine,
+`User=`, journal (`SyslogIdentifier`). Paramétrage réel : systemd ne substitue pas de variable dans `WorkingDirectory=`,
+`User=` ni dans le programme d'`ExecStart=` → `installer.sh` remplace `@APP_DIR@`, `@SVAV_USER@`, `@NODE@`… à partir de
+`svav.conf` (lu, jamais exécuté), puis copie dans `/etc/systemd/system` sans rien activer. Rien n'a été installé ni lancé ;
+`systemd-analyze verify` est à jouer sur le serveur (absent de macOS). La purge des internautes échus n'a pas de point
+d'entrée CLI (route admin seulement) : aucun service fourni. Les 3 plists launchd du Mac sont **intacts**.
+
+### 12.4 Plantage de la veille sur coupure IMAP
+
+- **Cause établie par mesure** : 115 morts « Unhandled 'error' event » dans `~/Library/Logs/svav-veille.log` (ECONNRESET 55,
+  Socket timeout 38, ETIMEDOUT 21, EHOSTUNREACH 1). **Reproduction** sur un faux serveur IMAP local qui coupe la connexion
+  (RST) boîte ouverte : `creerClientBoite`, `creerClientEnvoyes` et `creerClientApprofondi` sans écouteur → processus tué,
+  même signature ; `creerClientApprofondi` **avec** écouteur → survit, erreur notée. Le verrou consultatif étant lié à la
+  session, une mort libère le verrou : la passe suivante repart normalement, mais toutes les étapes suivantes du passage
+  tué sont sautées et rien n'est journalisé.
+- **Corrigé dans ce lot** : la relève approfondie (`veille/releveApprofondie.ts`) passe désormais un écouteur à
+  `creerClientApprofondi` (modèle gestion, lot 3-ter) : coupure journalisée, appel suivant rejeté, run marqué « erreur ».
+- **NON corrigé — décision d'Arno attendue** : `creerClientBoite` (relève auto, `veille/releveAuto.ts:215`) et
+  `creerClientEnvoyes` (pré-cochage et capture des envoyés, `veille/preCochageReponduAuto.ts:87`,
+  `veille/captureSortantsAuto.ts:108`) n'acceptent pas d'écouteur ; la correction propre exige d'ajouter dans
+  `app/lib/email/imap.ts` un paramètre facultatif `surErreur` (comme `creerClientApprofondi`), interdit dans ce lot.
+
+### 12.5 Configuration
+
+- `SMTP_PERSONNE_PASS` : lignes **29, 32 et 35** du `.env` (valeurs non lues ; 2 valeurs distinctes, la dernière l'emporte).
+- `.env.example` complété : toutes les variables lues par le code, groupées par rubrique, une ligne de commentaire en
+  français chacune, valeurs vides ou fictives (`exemple.fr`) ; dont `GESTION_URL_APPLICATION`, `SVAV_URL_PUBLIQUE`,
+  `CADENCE_ENTETE_IP`, `TZ=Europe/Paris`.
+- Avertissement au démarrage : `app/lib/config/verifierUrlsPubliques.ts` (pur, testé) branché dans `instrumentation.ts`
+  (`register()`, runtime Node) et au démarrage de `relever-gestion-continu.ts` : si `NODE_ENV=production` et que
+  `SITE_URL`, `GESTION_URL_APPLICATION`, `SVAV_URL_PUBLIQUE` ou `S3_ENDPOINT` est absente/vide ou contient `localhost` /
+  `127.0.0.1` → `console.warn` nommant la variable et le motif (jamais la valeur), jamais d'arrêt. Sans effet en dev.
+
+---
+
 ## Checklist de répétition générale (machine Linux de test, avant la vraie bascule)
 
-À dérouler dans l'ordre ; chaque étape a son critère de réussite.
+À dérouler dans l'ordre ; chaque étape a son critère de réussite. *(Révisée après le lot PRÉPARATION-PORTABILITÉ.)*
 
-1. **Système** : Ubuntu/Debian LTS x86_64 ; `timedatectl set-timezone Europe/Paris` ; NTP actif (`timedatectl` → synchronized) ;
-   locale `en_US.UTF-8` générée (`locale -a`).
+1. **Système** : Ubuntu/Debian LTS x86_64 ; `timedatectl set-timezone Europe/Paris` (le code ne dépend plus du fuseau de la
+   machine, mais les heures des journaux et des timers `OnCalendar` en dépendent) ; NTP actif ; locale `en_US.UTF-8` générée.
 2. **Paquets** : `postgresql-17`, `postgresql-17-postgis-3` (3.6.x), `poppler-utils`, `gdal-bin`, `curl`, `bzip2`, `tar`,
-   `7zip`/`p7zip-full` ; facultatif `libreoffice-core`. Node **24.x** (même majeure que le Mac : 24.16.0).
+   `7zip`/`p7zip-full` ; facultatif `libreoffice-core`. Node **24.x** (Mac : 24.16.0), `npm` dans le même dossier que `node`.
 3. **Utilisateur de service** `svav` ; rôle PostgreSQL de même nom (ou utilisateur dans `DATABASE_URL`).
-4. **PostgreSQL** : `timezone = 'Europe/Paris'` dans `postgresql.conf` ; créer la base avec `LC_COLLATE/LC_CTYPE=en_US.UTF-8` ;
-   `CREATE EXTENSION postgis, postgis_raster, postgis_topology, pg_trgm, unaccent` ; vérifier `postgis_full_version()`.
-5. **Données** : sur le Mac `pg_dump -Fc sansvisavis` (11 Go) → `pg_restore` ; contrôler les comptes de quelques tables
-   (`mnt_lidar_brut`=64, `mns_lidar_brut`=64, `gestion_message`, `batiment`) et la dernière migration (351).
-6. **Code** : `git clone` (jamais copier le dossier du Mac) ; `npm ci` **complet** (devDeps incluses : `tsx`, `dotenv`).
-7. **Secrets** : `.env` copié par canal sûr, **dédoublonné** (`SMTP_PERSONNE_*`) ; corriger `DATABASE_URL`, `S3_ENDPOINT`,
-   `GOOGLE_DELEGATION_CLE_FICHIER` ; ajouter `GESTION_URL_APPLICATION`, `SVAV_URL_PUBLIQUE`, `CADENCE_ENTETE_IP`, `TZ=Europe/Paris` ;
-   copier `~/.config/sansvisavis/{google-gestion,drive-delegation}.json` en 0600 chez `svav`.
-8. **Stockage** : MinIO Linux (ou S3 OVH), bucket créé, `mc mirror` des données `.minio/data` ; vérifier qu'une pièce et un
-   certificat existants s'ouvrent.
-9. **Contrôles statiques** : `npx tsc --noEmit` (vert) ; `npm run build` (vert, seul l'avertissement NFT attendu) ;
-   `node .captures/recon-portabilite/verifier-casse.mjs` recopié (0 divergence — le build Linux est la vraie preuve).
-10. **Golden** : `TZ=Europe/Paris npx vitest run --config vitest.integration.config.ts app/lib/db/pipeline.itest.ts` → 11/11 ;
-    noter la valeur brute obtenue si elle diffère de `29.107259068449615` au-delà de la 6e décimale (signe GEOS/PROJ).
-11. **Suite complète** : `TZ=Europe/Paris npm test` → attendu vert (1 127 fichiers). Puis `TZ=UTC npx vitest run` pour
-    confirmer qu'on retrouve exactement les 2 fichiers rouges connus (sinon : nouvelle dépendance au fuseau).
-12. **Collation** : rejouer `SELECT ('a' < 'B'), ('é' < 'f'), ('Zoé' < 'abc');` → comparer à t/t/f ; parcourir une liste
-    triée par nom (annuaire) contre la même sur le Mac.
-13. **Binaires** : déclencher une extraction permis (`pdftoppm`/`pdfinfo`) et une emprise sur une pièce **« _TEST »**
-    uniquement ; `tar -tjf` sur une petite archive `.tar.bz2`.
-14. **Serveur web** : `svav-next.service` (`next start`, `WorkingDirectory=<dépôt>`, `Environment=NODE_ENV=production TZ=Europe/Paris`) ;
-    frontal TLS (nginx/Caddy ou Cloudflare nommé) ; `curl -s -o /dev/null -w '%{http_code}' https://…/admin/login` → 200 et
-    corps sans « Module not found » ni « Build Error » ; connexion admin et internaute (cookies `secure`).
-15. **Certificat** : émettre un certificat de test → PDF produit, QR pointant vers `SITE_URL` https, polices présentes.
-16. **Tâches de fond** (sur la machine de test, **boîtes et Drive de test uniquement**, ou désactivées côté envoi) :
-    units `svav-veille.{service,timer}`, `svav-gestion-continu.service`, `svav-drive-empreintes.{service,timer}` avec
-    `WorkingDirectory`, `User=svav`, `TZ`, PATH contenant `npm`/`ogr2ogr`/`curl` ; `journalctl -u …` sans erreur sur
-    2 passages ; vérifier qu'aucun job du Mac ne tourne en parallèle sur les mêmes boîtes (double relève / double envoi).
-17. **Fuseau en conditions réelles** : vérifier dans les journaux que la fenêtre d'envoi s'ouvre à l'heure réglée (heure
-    de Paris) et que l'alerte quotidienne part à `alerte_heure_locale`.
-18. **Google** : `npm run gestion:google:verifier`, `gestion:drive:verifier`, `gestion:agenda:verifier` (lecture) ; liens
-    agenda / Accepter-Refuser pointant vers l'URL publique, plus vers localhost.
-19. **Bascule** : arrêter les 3 agents launchd du Mac (`launchctl bootout`) **avant** d'activer les timers Linux ; dump
-    final + restauration ; DNS ; surveillance 24 h.
+4. **PostgreSQL** : `timezone = 'Europe/Paris'` dans `postgresql.conf` (filet de sécurité : le code applicatif est désormais
+   explicite) ; base en `en_US.UTF-8` ; `CREATE EXTENSION postgis, postgis_raster, postgis_topology, pg_trgm, unaccent`.
+5. **Données** : `pg_dump -Fc sansvisavis` (11 Go) → `pg_restore` ; contrôler `mnt_lidar_brut`=64, `mns_lidar_brut`=64,
+   `gestion_message`, `batiment`, dernière migration (351 au 14/10/2026, ou plus récente).
+6. **Code** : `git clone` (jamais copier le dossier du Mac ni `node_modules`) ; `npm ci` **complet** ; `npm run build` ;
+   facultatif `npm prune --omit=dev` (`tsx`, `dotenv`, `zod` restent, ils sont désormais en `dependencies`).
+7. **Secrets** : `.env` copié par canal sûr en partant de `.env.example` ; **dédoublonner `SMTP_PERSONNE_*`** (lignes 29/32/35
+   au 14/10) ; corriger `DATABASE_URL`, `S3_ENDPOINT`, `GOOGLE_DELEGATION_CLE_FICHIER` ; poser `GESTION_URL_APPLICATION`,
+   `SVAV_URL_PUBLIQUE`, `CADENCE_ENTETE_IP` ; copier `~/.config/sansvisavis/{google-gestion,drive-delegation}.json` (0600).
+8. **Stockage** : MinIO Linux (ou S3 OVH), `mc mirror` de `.minio/data` ; une pièce et un certificat existants s'ouvrent.
+9. **Contrôles statiques** : `npx tsc --noEmit` vert ; `npm run build` vert (seul l'avertissement NFT attendu) ;
+   `verifier-casse.mjs` recopié : 0 divergence.
+10. **Golden** : `npx vitest run --config vitest.integration.config.ts app/lib/db/pipeline.itest.ts` → 11/11 ; noter la
+    valeur brute si elle diffère de `29.107259068449615` au-delà de la 6e décimale (signe GEOS/PROJ).
+11. **Suite complète** : `TZ=Europe/Paris npm test` **puis** `TZ=UTC npm test` → tous deux verts (1 131 fichiers au 14/10).
+    Un rouge sous UTC seulement = nouvelle dépendance au fuseau → la faire passer par `app/lib/temps/paris.ts`.
+12. **Collation** : `SELECT ('a' < 'B'), ('é' < 'f'), ('Zoé' < 'abc');` → t/t/f comme sur le Mac ; comparer une liste triée.
+13. **Binaires** : extraction permis (`pdftoppm`/`pdfinfo`) et emprise sur une pièce **« _TEST »** uniquement ; `tar -tjf`.
+14. **Serveur web** : installer via `deploy/systemd/installer.sh` (après `svav.conf`), `systemd-analyze verify` sur les units,
+    activer `svav-next.service` ; frontal TLS ; `curl -s -o /dev/null -w '%{http_code}' https://…/admin/login` → 200, corps
+    sans « Module not found » ni « Build Error » ; connexion admin et internaute ; **aucun avertissement « URL publique »**
+    dans `journalctl -u svav-next` (sinon une variable de l'étape 7 manque).
+15. **Certificat** : certificat de test → PDF produit, QR vers `SITE_URL` https, polices présentes.
+16. **Tâches de fond** (boîtes et Drive **de test** uniquement, ou envois désactivés) : `svav-veille.timer`,
+    `svav-gestion-continu.service`, `svav-drive-empreintes.timer` ; `journalctl -u … -f` propre sur 2 passages.
+    Couper le réseau pendant une passe : la relève approfondie journalise « connexion IMAP perdue » et la passe suivante
+    repart ; **tant que la décision sur `imap.ts` n'est pas prise**, la relève auto et la capture des envoyés peuvent
+    encore tuer la passe (le timer la relance 15 min plus tard, `Restart=on-failure` 5 min).
+17. **Fuseau en conditions réelles** : la fenêtre d'envoi s'ouvre à l'heure réglée (heure de Paris), l'alerte quotidienne
+    part à `alerte_heure_locale`, les dates « du / au » des recherches comprennent bien le dernier jour.
+18. **Google** : `gestion:google:verifier`, `gestion:drive:verifier`, `gestion:agenda:verifier` ; liens agenda /
+    Accepter-Refuser vers l'URL publique, plus vers localhost.
+19. **Bascule** : arrêter les 3 agents launchd du Mac (`launchctl bootout`) **avant** d'activer les timers Linux ; dump final
+    + restauration ; DNS ; surveillance 24 h.
 
 ---
 
@@ -360,3 +488,7 @@ Contraintes communes des units (PROUVÉ) : les plists posent `PATH=/usr/local/bi
 
 `npm test` (= `tsc --noEmit && vitest run`, fuseau du Mac = Europe/Paris) exécuté en fin de lot : **EXIT 0 —
 1 127 fichiers verts / 1 127 ; 19 503 tests verts, 21 ignorés (19 524)**, 36,7 s (PROUVÉ).
+
+**Lot PRÉPARATION-PORTABILITÉ** : `npm test` complet **EXIT 0 sous TZ=Europe/Paris et sous TZ=UTC — 1 131 fichiers
+verts / 1 131 ; 19 545 tests verts, 21 ignorés (19 566)** dans les deux cas ; `npx tsc --noEmit` et `npm run build` verts ;
+golden 11/11 sous les deux fuseaux (PROUVÉ).

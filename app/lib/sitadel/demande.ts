@@ -8,6 +8,7 @@
  */
 import { type CanalContact, emailValide } from './mairieContact';
 import { formaterReferencePermis, composerAdressePermis } from './referencePermis';
+import { jourParis, premierDuMoisParis } from '../temps/paris';
 
 export interface ConfigDemandeur {
   raisonSociale: string;
@@ -447,9 +448,9 @@ export interface DiagnosticProposition {
  * en paramètre, jamais `new Date()` implicite). Le plafond mensuel se remet à zéro au changement de mois.
  */
 export function dateLiberationQuota(maintenant: Date): string {
-  const prochain = new Date(maintenant.getFullYear(), maintenant.getMonth() + 1, 1);
-  const mm = String(prochain.getMonth() + 1).padStart(2, '0');
-  return `01/${mm}/${prochain.getFullYear()}`;
+  // Mois de PARIS (portabilité) : le 1er à 00 h 30 heure de Paris est déjà le nouveau mois, même sur un serveur en UTC.
+  const [a, m] = jourParis(premierDuMoisParis(maintenant, 1)).split('-'); // le 1er : jamais de débordement (31 janv. → février)
+  return `01/${m}/${a}`;
 }
 
 /**

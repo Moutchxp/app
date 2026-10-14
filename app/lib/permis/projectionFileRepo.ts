@@ -23,6 +23,7 @@ import { estValidationAcquise } from './rattachementGroupes'; // 🔴 SOURCE UNI
 import { lireEtatPlanche } from './plancheParcellesRepo'; // PL-ÉTAT — état SAUVEGARDÉ de la planche (sélection validée + bilan déclaré ↔ effectif), pour la LIGNE de titre sans déplier
 import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — la file/projection ne compte que les cartes actives (retirées invisibles)
 import type { CasBilanComparatif } from './comparatifParcelles'; // PL-ÉTAT — cas du bilan (module pur)
+import { sqlJourParis } from '../temps/paris';
 
 // VAL-1 (213) — un bâtiment est « SANS emprise validée » selon la validation PAR EMPRISE (≥ 1 emprise ET aucune emprise non validée). Repli
 //   (213 non appliquée) : ancien pointeur unique par corps `emprise_validee_id`. MÊME règle que le dépliant + la liste Rattachement → un seul verdict.
@@ -124,7 +125,7 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
             (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id${faB})::int AS nb_batiments,
             (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id${faB} AND b.altitude_sommet_ngf IS NULL)::int AS nb_corps_sans_altitude,
             (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id${faB} AND ${fragCorpsNonEnregistre('b')})::int AS nb_corps_non_enregistres,
-            max(dd.satisfait_le)::date::text AS satisfait_le
+            ${sqlJourParis('max(dd.satisfait_le)')}::text AS satisfait_le
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee

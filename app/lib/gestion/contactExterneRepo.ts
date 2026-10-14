@@ -19,6 +19,7 @@ import {
   type PersonneEtape2, type RoleInstantane, type TypeContactExterne,
 } from './contactExterne';
 import type { Auteur } from './gestes';
+import { sqlJourParis } from '../temps/paris';
 
 /**
  * ══ 🔴🔴 LOT CONTACTS-EXTERNES — LES ADRESSES INCONNUES, LES PERSONNES DU DOSSIER, ET LES INTERVENTIONS ═════════
@@ -974,7 +975,7 @@ export async function interventionsDeLaFiche(
       role_instantane: string | null; email: string | null; nom: string | null; type: string | null;
       biens: { cle: string; libelle: string }[] | null;
     }>(
-      `SELECT r.message_id::int, m.fil_id::int, m.recu_le::date::text AS le, m.objet,
+      `SELECT r.message_id::int, m.fil_id::int, ${sqlJourParis('m.recu_le')}::text AS le, m.objet,
               r.role_instantane, ce.email, ce.nom, ce.type,
               (SELECT json_agg(json_build_object('cle', b.cible_cle,
                                                  'libelle', coalesce(b.cible_libelle, b.cible_cle)))

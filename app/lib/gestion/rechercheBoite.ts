@@ -46,6 +46,7 @@ import { sqlColonneInterne, sqlJointureInterne } from './interneRepo';
 import {
   automatiquesInclus, decouperTermes, listesChoisies, normaliser, normSql, type CritereRecherche, type SorteListe,
 } from './rechercheTermes';
+import { sqlMinuitParisDe } from '../temps/paris';
 
 /**
  * 🔴 CE FICHIER EST STRICTEMENT SERVEUR : il importe `db/client`, donc le pilote `pg`, donc `dns`. Un composant client
@@ -375,8 +376,8 @@ export function conditions(
   }
 
   // Période INCLUSE des deux côtés : « du 1er au 3 » comprend le 3 en entier, ce que tout le monde attend.
-  if ((c.du ?? '') !== '') sql.push(`m.recu_le >= ${lier(c.du)}::date`);
-  if ((c.au ?? '') !== '') sql.push(`m.recu_le < (${lier(c.au)}::date + interval '1 day')`);
+  if ((c.du ?? '') !== '') sql.push(`m.recu_le >= ${sqlMinuitParisDe(`${lier(c.du)}::date`)}`);
+  if ((c.au ?? '') !== '') sql.push(`m.recu_le < ${sqlMinuitParisDe(`${lier(c.au)}::date + 1`)}`);
 
   return { sql, params };
 }
@@ -829,8 +830,8 @@ export async function chercherDansLesBrouillons(
     filtres.push(critere.piece === 'avec' ? existe : `NOT ${existe}`);
   }
   // La période porte sur la DERNIÈRE MODIFICATION : c'est la seule date qu'un brouillon possède.
-  if ((critere.du ?? '') !== '') filtres.push(`b.maj_le >= ${lier(critere.du)}::date`);
-  if ((critere.au ?? '') !== '') filtres.push(`b.maj_le < (${lier(critere.au)}::date + interval '1 day')`);
+  if ((critere.du ?? '') !== '') filtres.push(`b.maj_le >= ${sqlMinuitParisDe(`${lier(critere.du)}::date`)}`);
+  if ((critere.au ?? '') !== '') filtres.push(`b.maj_le < ${sqlMinuitParisDe(`${lier(critere.au)}::date + 1`)}`);
 
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
   const { rows } = await query<BrouillonDB>(

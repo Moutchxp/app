@@ -7,6 +7,7 @@ import { adresseComplete, type Coordonnee, type PersonneFiche } from './ficheBie
 import { libelleContact } from './annuaire';
 import { libelleSourceContactDisponible } from './schema';
 import { classerResultats, raisonsTriees, type RaisonCorrespondance } from './rechercheBien';
+import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 
 /**
  * MODULE « GESTION » — LOT BIEN-RATTACHE : LA RECHERCHE LIBRE D'UN BIEN. IMPUR (SQL), LECTURE SEULE.
@@ -124,7 +125,7 @@ export async function chercherBiens(
        SELECT o.lot_id, l.nom, l.id AS locataire_id, o.sortie,
               /* 🔴 « PASSÉ » SE JUGE À LA DATE DU MAIL, jamais à aujourd'hui : un mail d'août cherche l'occupant
                  d'août. Sans date utilisable, on retombe sur la date du jour — et on le dit dans le libellé. */
-              (o.sortie IS NOT NULL AND o.sortie < coalesce($5::date, current_date)) AS passe,
+              (o.sortie IS NOT NULL AND o.sortie < coalesce($5::date, ${SQL_AUJOURDHUI_PARIS})) AS passe,
               (NOT EXISTS (SELECT 1 FROM mots WHERE l.nom_normalise NOT LIKE '%' || m || '%')) AS par_nom,
               (l.id IN (SELECT sujet_id FROM contacts_trouves WHERE sujet = 'locataire')) AS par_contact
          FROM gestion_annuaire_occupation o
@@ -223,8 +224,8 @@ async function partiesDesBiens(
        FROM gestion_annuaire_occupation o
        JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
       WHERE o.lot_id = ANY($1::bigint[])
-        AND (o.entree IS NULL OR o.entree <= coalesce($2::date, current_date))
-        AND (o.sortie IS NULL OR o.sortie >= coalesce($2::date, current_date))
+        AND (o.entree IS NULL OR o.entree <= coalesce($2::date, ${SQL_AUJOURDHUI_PARIS}))
+        AND (o.sortie IS NULL OR o.sortie >= coalesce($2::date, ${SQL_AUJOURDHUI_PARIS}))
       ORDER BY o.entree DESC NULLS LAST, o.id DESC`,
     [lots.map((l) => Number(l.lot_id)), dateMail]);
 

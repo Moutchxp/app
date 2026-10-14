@@ -16,6 +16,7 @@ import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouver
 // TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { PointLambert } from '../../../../lib/permis/calageEmprise';
+import { formatParis } from '../../../../lib/temps/paris';
 
 // L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
@@ -30,7 +31,7 @@ import { recompterSiSucces } from './comptesActions';
 /** RATT-EDIT (lot C1) — libellé lisible d'une version de gel restaurable (type + date + auteur en clair), pour le sélecteur et la pop-up 3. */
 function libelleVersionRestaurable(v: VersionRestaurable): string {
   const type = v.type === 'validation_initiale' ? "Validation d’origine" : v.type === 'revalidation' ? 'Revalidation' : v.type === 'restauration' ? 'Restauration' : 'Version';
-  const date = new Date(v.dateIso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  const date = formatParis('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(v.dateIso)); // jour de PARIS
   return `${type} du ${date}${v.auteurNom ? ` par ${v.auteurNom}` : ''}`;
 }
 

@@ -6,11 +6,14 @@
  *  - 'saisine' (constate le refus tacite CE JOUR) → RECULER au lundi (l'avancer rendrait la lettre fausse).
  *
  * ⚠️ Jours fériés HORS PÉRIMÈTRE — choix explicite et assumé d'Arno : ils ne sont PAS traités (un férié ouvré part quand même).
- * ⚠️ Heure LOCALE (serveur = Europe/Paris, comme alerteAuto) : getDay()/getHours() lus sur l'instant fourni.
+ * Heure de PARIS, quel que soit le fuseau de la machine (lot PRÉPARATION-PORTABILITÉ, 14/10/2026) : jour de la semaine et heure
+ * sont lus par app/lib/temps/paris.ts. Avant, `getDay()`/`getHours()` lisaient le fuseau du PROCESSUS — sous TZ=UTC, la fenêtre
+ * 9 h–11 h s'ouvrait à 11 h heure de Paris (mesuré : envoiInitialAuto.test.ts rouge sous TZ=UTC).
  */
 import { echeanceDe } from './echeance';
 import type { ReglagesCascade } from './cascadeRelance';
 import type { VarianteRelance } from './relance';
+import { auJourParis, heureParis, jourSemaineParis } from '../temps/paris';
 
 /** Filtre horaire passé aux fonctions d'envoi par l'envoi AUTOMATIQUE (absent = envoi MANUEL, jamais bridé). */
 export interface FiltreHoraire {
@@ -33,13 +36,13 @@ export function etatFiltreHoraire(filtre: FiltreHoraire | undefined): { envoie: 
 
 /** Lundi (1) … vendredi (5). Samedi (6) et dimanche (0) sont non ouvrés. */
 export function estJourOuvre(d: Date): boolean {
-  const j = d.getDay();
+  const j = jourSemaineParis(d);
   return j >= 1 && j <= 5;
 }
 
-/** Reconstruit une date au jour calendaire (jour + deltaJours) à `heure`:00 LOCALE — normalisation JS (débordement de mois), sûre au changement d'heure. */
+/** Reconstruit une date au jour calendaire de Paris (jour + deltaJours) à `heure`:00 heure de Paris — débordement de mois et changement d'heure gérés. */
 function auJour(ref: Date, deltaJours: number, heure: number): Date {
-  return new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() + deltaJours, heure, 0, 0, 0);
+  return auJourParis(ref, deltaJours, heure);
 }
 
 /**
@@ -47,7 +50,7 @@ function auJour(ref: Date, deltaJours: number, heure: number): Date {
  * jour même. Week-end → décalage selon la variante (rappel/avis → vendredi d'avant ; saisine → lundi d'après). PUR, testé au jour.
  */
 export function momentEnvoiRelance(variante: VarianteRelance, jour: Date, heureDebut: number): Date {
-  const j = jour.getDay(); // 0=dimanche, 6=samedi
+  const j = jourSemaineParis(jour); // 0=dimanche, 6=samedi
   if (j >= 1 && j <= 5) return auJour(jour, 0, heureDebut); // jour ouvré : ce jour même
   const recule = variante === 'saisine'; // saisine → lundi (recule) ; rappel/avis → vendredi (avance)
   if (j === 6) return auJour(jour, recule ? 2 : -1, heureDebut); // samedi → lundi (+2) ou vendredi (−1)
@@ -62,7 +65,7 @@ export function fenetreEnvoiOuverte(maintenant: Date, heureDebut: number, heureF
   const coherente = Number.isInteger(heureDebut) && Number.isInteger(heureFin)
     && heureDebut >= 0 && heureFin <= 23 && heureDebut < heureFin;
   if (!coherente) return { coherente: false, ouverte: false };
-  const h = maintenant.getHours();
+  const h = heureParis(maintenant);
   return { coherente: true, ouverte: estJourOuvre(maintenant) && h >= heureDebut && h < heureFin };
 }
 
@@ -76,7 +79,7 @@ export function jourEcheanceEtape(variante: VarianteRelance, envoyeLe: Date, reg
 
 /** Prochain créneau d'envoi ouvré ≥ maintenant, à `heureDebut` : aujourd'hui si jour ouvré avant la fenêtre, sinon le prochain jour ouvré. */
 export function prochainCreneauEnvoi(maintenant: Date, heureDebut: number): Date {
-  if (estJourOuvre(maintenant) && maintenant.getHours() < heureDebut) return auJour(maintenant, 0, heureDebut);
+  if (estJourOuvre(maintenant) && heureParis(maintenant) < heureDebut) return auJour(maintenant, 0, heureDebut);
   let d = auJour(maintenant, 1, heureDebut);
   while (!estJourOuvre(d)) d = auJour(d, 1, heureDebut);
   return d;

@@ -7,6 +7,7 @@
  */
 import { query } from '../db/client';
 import { sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise, sqlPeriodesDeLEvenement } from './etatParLaFrise';
+import { sqlJourParis } from '../temps/paris';
 
 /**
  * ══ 🔴🔴 LOT ETAT-PAR-LA-FRISE — POSER LA QUESTION « OUVERT ? » À LA BASE. LECTURE SEULE. ════════════════════════
@@ -91,8 +92,8 @@ export async function evenementsEnContradiction(): Promise<DivergenceEtat[]> {
             ${sqlEvenementOuvertParLaFrise('e')} AS ouvert,
             ${sqlClosLeParLaFrise('e')}::text AS clos_le,
             (SELECT string_agg(
-                      CASE WHEN p.au IS NULL THEN p.du::date || ' → ouverte'
-                           ELSE p.du::date || ' → ' || p.au::date END, ' | ' ORDER BY p.du)
+                      CASE WHEN p.au IS NULL THEN ${sqlJourParis('p.du')} || ' → ouverte'
+                           ELSE ${sqlJourParis('p.du')} || ' → ' || ${sqlJourParis('p.au')} END, ' | ' ORDER BY p.du)
                FROM (${sqlPeriodesDeLEvenement('e')}) p) AS bornes
        FROM gestion_evenement e
       /* 🔴 LA CONTRADICTION, EN UNE LIGNE : la colonne dit « traité » et la frise dit ouvert, ou l'inverse. */

@@ -60,8 +60,9 @@ describe('construireFiltreSuivi — un critère à la fois (fragment + valeur li
   it('date d’ENTRÉE en suivi → COALESCE(detecte_le, maj_le) borné (même source que « suivi depuis »), borne haute inclusive', () => {
     const r = construireFiltreSuivi({ entreeDe: '2026-09-01', entreeA: '2026-09-06' });
     const f = norm(r.fragments.join(' '));
-    expect(f).toContain('COALESCE(r.detecte_le, e.maj_le) >= $1');
-    expect(f).toContain('COALESCE(r.detecte_le, e.maj_le) < ($2::date + 1)'); // < jour+1 = inclusif sur le dernier jour
+    // Bornes = MINUIT DE PARIS du jour saisi (portabilité : indépendant du fuseau de la session PostgreSQL).
+    expect(f).toContain("COALESCE(r.detecte_le, e.maj_le) >= (($1::date)::timestamp AT TIME ZONE 'Europe/Paris')");
+    expect(f).toContain("COALESCE(r.detecte_le, e.maj_le) < (($2::date + 1)::timestamp AT TIME ZONE 'Europe/Paris')"); // < jour+1 = inclusif sur le dernier jour
     expect(r.valeurs).toEqual(['2026-09-01', '2026-09-06']);
   });
 });

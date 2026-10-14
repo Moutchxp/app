@@ -20,6 +20,7 @@
  * « Reçu de loyer.pdf » ressort en charabia à l'extraction sous Windows.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+import { partiesParis } from '../temps/paris';
 
 /** Une entrée de l'archive : un nom déjà nettoyé et dédoublonné (cf. `nomsSansDoublon`), et ses octets. */
 export interface EntreeZip {
@@ -54,10 +55,12 @@ export function crc32(octets: Uint8Array): number {
  * produirait une année négative, que certains extracteurs refusent. PUR.
  */
 export function dateDos(d: Date): { date: number; heure: number } {
-  const an = Math.max(1980, d.getFullYear());
+  // Le format DOS n'a pas de fuseau : on écrit l'heure de PARIS (celle du Mac d'Arno), quel que soit le fuseau du serveur.
+  const p = partiesParis(d);
+  const an = Math.max(1980, p.annee);
   return {
-    date: ((an - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(),
-    heure: (d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds() / 2),
+    date: ((an - 1980) << 9) | (p.mois << 5) | p.jour,
+    heure: (p.heure << 11) | (p.minute << 5) | Math.floor(p.seconde / 2),
   };
 }
 

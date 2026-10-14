@@ -29,6 +29,7 @@
  *   npm run gestion:auto:reponses -- --appliquer  → elle écrit
  */
 import { query, withTransaction } from '../lib/db/client';
+import { sqlJourParis } from '../lib/temps/paris';
 
 const P = '  ';
 const REGLE_DOCUMENT = 5;
@@ -65,7 +66,7 @@ async function main(): Promise<void> {
   console.log(`${P}conversations « automatique » ${avant.fils}`);
 
   const { rows: ex } = await query<{ id: string; le: string; de: string; objet: string | null }>(
-    `SELECT id::text, recu_le::date::text AS le, de_adresse AS de, objet
+    `SELECT id::text, ${sqlJourParis('recu_le')}::text AS le, de_adresse AS de, objet
        FROM gestion_message WHERE exclu_le IS NOT NULL AND sens = 'recu'
        ORDER BY recu_le DESC LIMIT $1`, [EXEMPLES]);
   console.log(`\n${ex.length} DES MAILS QUI REVIENDRAIENT (les plus récents)`);

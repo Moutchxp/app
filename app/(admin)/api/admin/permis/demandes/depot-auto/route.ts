@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
 import { materialiserDepotTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
+import { anneeParis } from '../../../../../../lib/temps/paris';
 
 /**
  * POST /api/admin/permis/demandes/depot-auto — MATÉRIALISE la demande d'une carte de dépôt VIRTUELLE (commune libre affichée
@@ -21,7 +22,7 @@ export async function POST(request: Request): Promise<Response> {
     cleCtx = c.cle;
     if (typeof c.cle !== 'string' || c.cle.trim() === '') return Response.json({ erreur: 'cle invalide' }, { status: 400 });
     const communeNom = typeof c.communeNom === 'string' ? c.communeNom : null;
-    const annee = new Date().getFullYear();
+    const annee = anneeParis(new Date()); // année de PARIS (le 1er janvier 00 h 30 est déjà la nouvelle année, même serveur en UTC)
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
     const cfg = await chargerConfigVeille();
     const res = await materialiserDepotTeleservice(cfg, annee, auteur, c.cle, communeNom);

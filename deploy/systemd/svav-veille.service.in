@@ -1,0 +1,39 @@
+# GABARIT — les marqueurs entre arobases sont remplacés par installer.sh à partir de svav.conf. Ne pas copier tel quel.
+#
+# Équivalent de ops/com.sansvisavis.veille.plist : UNE passe de `npm run veille:run` (executerVeille), puis le
+# processus rend la main. Déclenché toutes les 15 min par svav-veille.timer (pas de section [Install] ici : on active
+# le TIMER, jamais ce service directement).
+[Unit]
+Description=Sans Vis-à-Vis — veille (une passe ; déclenchée par svav-veille.timer)
+Documentation=file:@APP_DIR@/deploy/systemd/README.md
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=@SVAV_USER@
+Group=@SVAV_GROUP@
+# OBLIGATOIRE : data/sitadel est relatif, statfs(process.cwd()) mesure le disque, et `npm run cadastre:ingest`
+# est lancé en sous-processus avec cwd = process.cwd().
+WorkingDirectory=@APP_DIR@
+Environment=TZ=Europe/Paris
+# node + npm (sous-processus cadastre:ingest), curl, ogr2ogr, tar, bzip2.
+Environment=PATH=@PATH@
+# os.tmpdir() lit TMPDIR : l'archive DILA (~600 Mo) et le cadastre vont sur disque (/var/tmp), pas dans /tmp qui
+# peut être en mémoire vive (tmpfs). Avec PrivateTmp=true, ce /var/tmp est PRIVÉ au service et vidé à son arrêt.
+Environment=TMPDIR=/var/tmp
+# Même commande que `npm run veille:run`, sans shell ni npm : node → lanceur tsx du dépôt → point d'entrée.
+ExecStart=@NODE@ @APP_DIR@/node_modules/tsx/dist/cli.mjs @APP_DIR@/app/scripts/veille-run.ts
+# Pour un oneshot, systemd ne met AUCUNE limite de durée par défaut : on en pose une, large (ingestions longues).
+TimeoutStartSec=4h
+# Nouvel essai 5 min après un échec (code ≠ 0). Exige systemd ≥ 244 pour un Type=oneshot.
+# Le timer relancerait de toute façon la passe suivante.
+Restart=on-failure
+RestartSec=5min
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=svav-veille
+# Durcissement léger.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

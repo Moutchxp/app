@@ -2,6 +2,7 @@ import { query } from '../db/client';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { annuaireDisponible } from './schema';
 import { nomDeFamilleDeLImport, type AnnuaireContenu, type PersonneConnue } from './personnesDansLeTexte';
+import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 
 /**
  * ══ 🔴🔴 LOT PROPOSITIONS-PAR-LE-CONTENU — L'ANNUAIRE TEL QUE LA RECHERCHE DANS UN TEXTE L'ATTEND ══════════════
@@ -71,7 +72,7 @@ export async function chargerAnnuaireContenu(): Promise<AnnuaireContenu> {
             (SELECT array_agg(lo.wippimmo_id ORDER BY lo.commune, lo.adresse, lo.wippimmo_id)
                FROM gestion_annuaire_lot lo
               WHERE lo.proprietaire_id = p.id
-                AND (lo.gestion_fin IS NULL OR lo.gestion_fin >= current_date)) AS lots
+                AND (lo.gestion_fin IS NULL OR lo.gestion_fin >= ${SQL_AUJOURDHUI_PARIS})) AS lots
        FROM gestion_annuaire_proprietaire p
       WHERE p.absent_le IS NULL`);
 
@@ -84,7 +85,7 @@ export async function chargerAnnuaireContenu(): Promise<AnnuaireContenu> {
                FROM gestion_annuaire_occupation o
                JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
               WHERE o.locataire_id = l.id AND o.sortie IS NULL
-                AND (lo.gestion_fin IS NULL OR lo.gestion_fin >= current_date)) AS lots
+                AND (lo.gestion_fin IS NULL OR lo.gestion_fin >= ${SQL_AUJOURDHUI_PARIS})) AS lots
        FROM gestion_annuaire_locataire l
       WHERE l.absent_le IS NULL`);
 

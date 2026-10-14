@@ -15,6 +15,7 @@ import 'server-only';
 import { query } from '../db/client';
 import { construireFiltres, clauseStatuts, clauseStatutsGestion, clauseCompte, exprConsentiLe, normaliserStatuts, ordreListe, FINALITE_F1, versCsv, versCsvPreuveDesabo, type FiltresExtraction, type FiltreCompte, type ModeConsentement, type LigneProfil, type LignePreuveDesabo } from './extraction';
 import type { CleFinalite } from './textesConsentement';
+import { sqlMuraleParis } from '../temps/paris';
 
 // L'invariant de consentement (FROM/WHERE, INTERSECTION de statuts) est construit par `clauseStatuts` (extraction.ts,
 // pur & testable) ; ici on ne fait que l'EXÉCUTER. GARDE FAIL-CLOSED : une sélection de statuts VIDE renvoie un
@@ -132,7 +133,7 @@ export async function compterProfils(filtres: FiltresExtraction, statuts: readon
  */
 export async function lireBornesDates(): Promise<{ min: string | null; max: string | null }> {
   const r = await query<{ min: string | null; max: string | null }>(
-    `SELECT to_char(min(cree_a), 'YYYY-MM-DD') AS min, to_char(max(cree_a), 'YYYY-MM-DD') AS max
+    `SELECT to_char(${sqlMuraleParis('min(cree_a)')}, 'YYYY-MM-DD') AS min, to_char(${sqlMuraleParis('max(cree_a)')}, 'YYYY-MM-DD') AS max
      FROM internaute_commercial`,
   );
   return { min: r.rows[0]?.min ?? null, max: r.rows[0]?.max ?? null };

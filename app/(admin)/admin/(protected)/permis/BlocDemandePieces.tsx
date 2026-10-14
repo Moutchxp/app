@@ -8,6 +8,7 @@ import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49
 // LOT 29 — sélecteur de destinataire : types CLIENT-SAFE (aucun import serveur) + regex e-mail partagée avec la validation base (CHECK).
 import { LABEL_PROVENANCE, fusionnerOptions, type OptionDestinataire } from '../../../../lib/veille/optionsDestinataire';
 import { FORME_EMAIL } from '../../../../lib/sitadel/reglagesVeille';
+import { jourParis } from '../../../../lib/temps/paris';
 
 /**
  * PART-3a/3c — DEMANDER À LA MAIRIE LES PIÈCES MANQUANTES, en DEUX TEMPS : (1) cocher les familles → « Préparer » AFFICHE l'objet et
@@ -33,8 +34,7 @@ const styleChamp: React.CSSProperties = { width: '100%', padding: '.4rem .5rem',
  * la Date (getFullYear/getMonth/getDate), déterministe et sans dépendance de locale. Le back ancre ensuite à 12:00 Europe/Paris (LOT 1).
  */
 export function jourCivilLocal(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  return jourParis(d); // jour civil de PARIS (lot PRÉPARATION-PORTABILITÉ) : identique pour Arno, indépendant du fuseau de la machine
 }
 
 /**

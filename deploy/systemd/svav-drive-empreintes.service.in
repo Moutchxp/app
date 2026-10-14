@@ -1,0 +1,30 @@
+# GABARIT — les marqueurs entre arobases sont remplacés par installer.sh à partir de svav.conf. Ne pas copier tel quel.
+#
+# Équivalent de ops/com.sansvisavis.drive-empreintes.plist : mise à jour incrémentale (changes.list) de l'index des
+# empreintes du Drive. Lecture seule du Drive. UNE passe puis rend la main ; déclenché par svav-drive-empreintes.timer.
+# Aucun script npm n'existe pour cette commande : on appelle le point d'entrée directement, comme le plist.
+[Unit]
+Description=Sans Vis-à-Vis — index des empreintes Drive (une passe ; déclenchée par svav-drive-empreintes.timer)
+Documentation=file:@APP_DIR@/deploy/systemd/README.md
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=@SVAV_USER@
+Group=@SVAV_GROUP@
+WorkingDirectory=@APP_DIR@
+Environment=TZ=Europe/Paris
+Environment=PATH=@PATH@
+ExecStart=@NODE@ @APP_DIR@/node_modules/tsx/dist/cli.mjs @APP_DIR@/app/scripts/indexer-empreintes-drive.ts --changements --appliquer
+# Une passe incrémentale dure moins d'une seconde (mesuré sur le Mac) ; 30 min = garde-fou contre un blocage réseau.
+TimeoutStartSec=30min
+# Exige systemd ≥ 244 pour un Type=oneshot. Le jeton de reprise est en base : une passe ratée n'est jamais une perte.
+Restart=on-failure
+RestartSec=5min
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=svav-drive-empreintes
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

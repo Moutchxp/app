@@ -529,7 +529,7 @@ describe('R5b — statutDemande / lireClePiece : LECTURE seule', () => {
     etat.rows = [{ recu_le: '2026-08-04' }];
     expect(await lireRecuLeReponse(4242)).toBe('2026-08-04'); // borne serveur : le dépôt ne peut être postérieur au message
     const sel = trouver(/FROM demande_reponse\b/i)!;
-    expect(norm(sel.sql)).toContain('SELECT recu_le::date::text AS recu_le FROM demande_reponse');
+    expect(norm(sel.sql)).toContain("SELECT ((recu_le) AT TIME ZONE 'Europe/Paris')::date::text AS recu_le FROM demande_reponse"); // jour de PARIS (portabilité)
     expect(sel.params).toEqual([4242]);
     etat.rows = [];
     expect(await lireRecuLeReponse(999)).toBeNull();

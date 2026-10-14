@@ -5,6 +5,7 @@ import {
   type DepsIngestionAuto, type SourceAuto,
 } from './ingestionAuto';
 import { lireConfigIngestionAuto } from './ingestionAutoRepo';
+import { instantParis } from '../temps/paris';
 
 /**
  * FRAÎCHEUR / F6 — orchestrateur d'ingestion auto (le lot qui EXÉCUTE). Prouve PAR LES TESTS : désactivé → aucune exécution ;
@@ -12,7 +13,7 @@ import { lireConfigIngestionAuto } from './ingestionAutoRepo';
  * une par tick ; et surtout : MIGRATION ABSENTE (config en échec) → tout désactivé → AUCUN runner appelé.
  */
 
-const H = (heure: number) => new Date(`2026-08-23T${String(heure).padStart(2, '0')}:00:00`); // heure LOCALE (getHours déterministe)
+const H = (heure: number) => instantParis(2026, 8, 23, heure); // heure de PARIS, quel que soit le fuseau du runner (portabilité)
 
 interface Faux { deps: DepsIngestionAuto; runners: string[]; refus: string[]; debut: string[]; fin: { resultat: string }[] }
 function faux(over: Partial<DepsIngestionAuto> = {}): Faux {
@@ -114,8 +115,8 @@ describe('helpers purs', () => {
     expect(dansFenetre(H(5), 23, 2)).toBe(false);
   });
   it('nuitCourante : après minuit dans une fenêtre traversante → nuit de la veille', () => {
-    expect(nuitCourante(new Date('2026-08-23T01:00:00'), 23, 2)).toBe('2026-08-22');
-    expect(nuitCourante(new Date('2026-08-23T04:00:00'), 3, 6)).toBe('2026-08-23');
+    expect(nuitCourante(instantParis(2026, 8, 23, 1, 0, 0), 23, 2)).toBe('2026-08-22');
+    expect(nuitCourante(instantParis(2026, 8, 23, 4, 0, 0), 3, 6)).toBe('2026-08-23');
   });
   it('validerArgsCadastre : millésime externe validé au motif strict, refus sinon', () => {
     expect(validerArgsCadastre('2026-06-01', '75,78,92,93').ok).toBe(true);

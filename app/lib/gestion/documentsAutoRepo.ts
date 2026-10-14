@@ -8,6 +8,7 @@ import {
   type AnnuaireAdresses, type Attribution, type DocumentDeFiche, type FicheDestinataire,
   type MotifNonAttribue, type VoieAttribution,
 } from './documentsAuto';
+import { sqlJourParis } from '../temps/paris';
 
 export type { DocumentDeFiche };
 
@@ -358,7 +359,7 @@ export async function documentsDeLaFiche(
   const { rows } = await query<{
     message_id: number; fil_id: number; le: string; objet: string | null;
   }>(
-    `SELECT r.message_id::int, m.fil_id::int, m.recu_le::date::text AS le, m.objet
+    `SELECT r.message_id::int, m.fil_id::int, ${sqlJourParis('m.recu_le')}::text AS le, m.objet
        FROM gestion_rattachement r JOIN gestion_message m ON m.id = r.message_id
       WHERE r.cible_sorte = $1 AND r.cible_cle = $2 AND r.regle = $3
         AND r.statut IN ('propose', 'confirme') AND r.piece_id IS NULL

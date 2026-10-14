@@ -8,6 +8,7 @@ import { dossiersSatisfaits, type ReponsePourSatisfaction } from './satisfaction
 import type { ResultatDepotEntrant } from '../stockage';
 import { estAccuseAutomatique, referenceCiteeDans, type MessageEntrant } from './rattachementReponse'; // FUS-4 : foyer unique de la nature + comparaison de référence (rattachementReponse est PUR ; l'edge est à sens unique, rattachement→repo est type-only)
 import { normaliserReference } from '../sitadel/demandesListe'; // FUS-4 ② : forme normalisée des références (alignée sur la cascade)
+import { sqlJourParis } from '../temps/paris';
 
 export type ProfilBoite = 'entreprise' | 'personne';
 export type RattachementMethode = 'message_id' | 'reference_objet' | 'reference_corps' | 'numero_dossier' | 'reference_mairie' | 'reference_differee' | 'manuel' | 'aucun';
@@ -777,7 +778,7 @@ export async function statutDemande(demandeId: number): Promise<string | null> {
 
 /** T4 — jour de réception d'un message (`recu_le::date`), pour BORNER côté serveur la date de dépôt saisie (le dépôt précède le message). `null` si le message est absent. */
 export async function lireRecuLeReponse(reponseId: number): Promise<string | null> {
-  const { rows } = await query<{ recu_le: string }>(`SELECT recu_le::date::text AS recu_le FROM demande_reponse WHERE id = $1`, [reponseId]);
+  const { rows } = await query<{ recu_le: string }>(`SELECT ${sqlJourParis('recu_le')}::text AS recu_le FROM demande_reponse WHERE id = $1`, [reponseId]);
   return rows[0]?.recu_le ?? null;
 }
 

@@ -17,6 +17,7 @@ import { CommutateurProcess, type CompteursProcess } from './CommutateurProcess'
 import { EditeurContactCommune } from './EditeurContactCommune'; // Lot C — fiche contact ouvrable PAR COMMUNE (2 portes : carte au repos + bloc « Hors process »)
 import { PROCESS_DEFAUT, type Process } from '../../../../lib/sitadel/process';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
+import { msJusquaProchaineHeureParis } from '../../../../lib/temps/paris';
 
 /**
  * Onglets scopés par le commutateur de process (À demander, En cours, Réponses). D3-fix — Archives en est RETIRÉ : une fois les
@@ -37,13 +38,9 @@ interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libe
 
 interface Comptes { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number; enCours: number }
 
-/** Millisecondes jusqu'à la PROCHAINE occurrence de l'heure locale `h` (0..23). Sert au SEUL recomptage quotidien (pas un sondage). */
+/** Millisecondes jusqu'à la PROCHAINE occurrence de l'heure de Paris `h` (0..23). Sert au SEUL recomptage quotidien (pas un sondage). */
 function msJusquaProchaineHeure(h: number): number {
-  const now = new Date();
-  const cible = new Date(now);
-  cible.setHours(h, 0, 0, 0);
-  if (cible.getTime() <= now.getTime()) cible.setDate(cible.getDate() + 1);
-  return cible.getTime() - now.getTime();
+  return msJusquaProchaineHeureParis(new Date(), h); // heure de PARIS, quel que soit le fuseau de la machine (portabilité)
 }
 
 export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle, qInitial, peutModifierPermis = false, estAdministrateur = false }: Props) {

@@ -2,6 +2,7 @@ import { query } from '../db/client';
 import { sqlLiensDuBien } from './rattachement';
 import { rattachementsDisponibles } from './schema';
 import { adressesRapprochables } from './adresseInterne';
+import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 /* 🔴🔴 `gestion_contact_carte` NE SE NOMME QUE DEPUIS `partieCategorieRepo` — un garde du module le tient. On
    passe donc par sa fonction, jamais par une requête à nous : une table à une seule porte le reste. */
 import { biensEtCotesDesContacts } from './partieCategorieRepo';
@@ -162,7 +163,7 @@ async function sujetDeLAdresse(
  */
 async function biensDuLocataire(locataireId: number): Promise<BienPourLaFenetre[]> {
   const { rows } = await query<LigneLot & { en_cours: boolean }>(
-    `SELECT ${CHAMPS_LOT}, (o.sortie IS NULL OR o.sortie >= current_date) AS en_cours
+    `SELECT ${CHAMPS_LOT}, (o.sortie IS NULL OR o.sortie >= ${SQL_AUJOURDHUI_PARIS}) AS en_cours
        FROM (
          SELECT DISTINCT ON (oc.lot_wippimmo_id) oc.lot_wippimmo_id, oc.sortie, oc.entree
            FROM gestion_annuaire_occupation oc

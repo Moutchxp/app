@@ -9,6 +9,7 @@ import { libelleScore } from '../../../../lib/libelles';
 import { SCORE_LABEL_EXCEPTIONNELLE_MIN, SCORE_LABEL_EXCELLENTE_MIN } from '../../../../lib/svv/config';
 import type { CleFinalite } from '../../../../lib/internaute/textesConsentement';
 import { CapsuleCompte } from './CapsuleCompte';
+import { formatParis } from '../../../../lib/temps/paris';
 
 /**
  * Vue interactive du module « Internautes » (LOT 3). Client PUR : ne touche jamais la base ; consomme
@@ -1270,7 +1271,7 @@ type LigneRecent = {
   a_un_compte: boolean; // EXISTS(internaute_auth) → capsule « Compte / One-shot »
 };
 
-const dateFr = (v: unknown) => (v ? new Date(String(v)).toLocaleDateString('fr-FR') : '—');
+const dateFr = (v: unknown) => (v ? formatParis('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(String(v))) : '—'); // jour de PARIS
 
 /** État RÉEL de l'envoi du certificat d'une analyse, dérivé de `certificat_acheminement.statut` (source de vérité,
  *  reliée par `certificat.projet_id`). « Aucun certificat » n'est PAS une erreur (verdict vis-à-vis → émission refusée)
@@ -1712,7 +1713,7 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
       {/* Profil effacé : note INFORMATIVE (pas une action) — affichée aux deux endroits. */}
       {i.efface_a ? (
         <div style={{ color: 'var(--color-svv-muted)', borderTop: '1px solid var(--color-svv-line)', paddingTop: 8 }}>
-          Profil effacé le {new Date(String(i.efface_a)).toLocaleDateString('fr-FR')} — identité anonymisée, analyses supprimées ; la preuve de consentement est conservée.
+          Profil effacé le {dateFr(i.efface_a)} — identité anonymisée, analyses supprimées ; la preuve de consentement est conservée.
         </div>
       ) : null}
 

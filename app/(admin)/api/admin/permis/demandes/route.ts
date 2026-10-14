@@ -3,6 +3,7 @@ import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
 import { profilValide, validerIdsLot, validerLotsSelection, bornerAncienneteMois } from '../../../../../lib/sitadel/demande';
 import { listerDemandes, creerDemandes, changerStatutLot, changerProfilLot, IdentiteIncompleteError, TransitionInterditeError } from '../../../../../lib/sitadel/demandeRepo';
+import { anneeParis } from '../../../../../lib/temps/paris';
 
 /**
  * /api/admin/permis/demandes (chantier S7 / S7e / V3). GET = liste des demandes (+ alertes d'identité ciblées par profil).
@@ -40,7 +41,7 @@ export async function POST(request: Request): Promise<Response> {
     const manuels = vManuel.ok ? vManuel.ids : [];
     if (lotsSel.length === 0 && manuels.length === 0) return Response.json({ erreur: vLots.ok ? 'sélection invalide' : vLots.erreur }, { status: 400 });
     clesCtx = lotsSel.map((l) => l.cle);
-    const annee = new Date().getFullYear();
+    const annee = anneeParis(new Date()); // année de PARIS (le 1er janvier 00 h 30 est déjà la nouvelle année, même serveur en UTC)
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
     const cfg = await chargerConfigVeille();
     // Q4 — MÊME fenêtre d'ancienneté (bornée serveur) que l'aperçu : la création re-dérive la proposition, elle doit voir la

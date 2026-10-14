@@ -9,6 +9,7 @@ import { query } from '../db/client';
 import type { ParcelleDecision } from './decisionParcelles';
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti = AUTORITÉ (registre), plus le proxy
 import { cleabsAppartenantPermis } from './appartenancePermis'; // VOIS-1 — un bâtiment voisin n'entre jamais dans les caractéristiques (filtre à la LECTURE)
+import { sqlMuraleParis } from '../temps/paris';
 
 export interface ParcelleLigne {
   id: number;                          // LOT 101 — id de la ligne permis_parcelle (cible du geste de correction)
@@ -305,7 +306,7 @@ export async function figerBatiSnapshot(dossierId: number, majPar: string): Prom
          FROM batiment b
          JOIN permis_empreinte pe ON pe.dossier_id = $1
         WHERE pe.geom IS NOT NULL AND b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom)
-       RETURNING cleabs, nombre_d_etages AS etages, altitude_max_toit AS alt, hauteur, to_char(date_modification, 'YYYY-MM-DD') AS dmod`,
+       RETURNING cleabs, nombre_d_etages AS etages, altitude_max_toit AS alt, hauteur, to_char(${sqlMuraleParis('date_modification')}, 'YYYY-MM-DD') AS dmod`,
     [dossierId, majPar]);
   const batiments: BatimentSnapshot[] = rows.map((r) => ({
     cleabs: r.cleabs, nombreEtages: r.etages, altitudeMaxToit: r.alt == null ? null : Number(r.alt),
@@ -330,7 +331,7 @@ export async function lireBatiSnapshotPermis(dossierId: number): Promise<BatiSna
   const c = cap[0];
   if (!c) return null;
   const { rows } = await query<{ cleabs: string | null; etages: number | null; alt: number | null; hauteur: number | null; dmod: string | null }>(
-    `SELECT cleabs, nombre_d_etages AS etages, altitude_max_toit AS alt, hauteur, to_char(date_modification, 'YYYY-MM-DD') AS dmod
+    `SELECT cleabs, nombre_d_etages AS etages, altitude_max_toit AS alt, hauteur, to_char(${sqlMuraleParis('date_modification')}, 'YYYY-MM-DD') AS dmod
        FROM permis_bati_snapshot WHERE dossier_id = $1 ORDER BY cleabs`, [dossierId]);
   const bruts: BatimentSnapshot[] = rows.map((r) => ({
     cleabs: r.cleabs, nombreEtages: r.etages, altitudeMaxToit: r.alt == null ? null : Number(r.alt),

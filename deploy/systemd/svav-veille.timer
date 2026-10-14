@@ -1,0 +1,14 @@
+# Équivalent de StartInterval 900 + RunAtLoad false (ops/com.sansvisavis.veille.plist) :
+# première passe 15 min après l'activation du timer (démarrage du serveur ou `systemctl enable --now`),
+# puis 15 min après le début de chaque passe.
+# Si une passe dure plus de 15 min, le timer NE lance PAS de seconde passe en parallèle.
+[Unit]
+Description=Sans Vis-à-Vis — veille toutes les 15 minutes
+
+[Timer]
+OnActiveSec=15min
+OnUnitActiveSec=15min
+Unit=svav-veille.service
+
+[Install]
+WantedBy=timers.target

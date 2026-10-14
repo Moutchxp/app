@@ -19,6 +19,7 @@ import { analyserLiensReponse, parserHotesNonFort } from './extractionLiens';
 import { construireLigne, type CritereRecherche, type LigneReleve, type MessageBoite, type PieceMeta } from './releveReponses';
 import type { BrancheDepot } from '../sitadel/depotManuel'; // N1-A : type SEUL (runtime injecté via opts.depot)
 import { etatEcheance, type ReglagesEcheance } from './echeance';
+import { SQL_MINUIT_PARIS } from '../temps/paris';
 
 /**
  * Accès MULTI-BOÎTES à la boîte de réponse, implémenté par imap.ts (`creerClientApprofondi`), faussé dans les tests. Chaque
@@ -314,7 +315,7 @@ export function depsReellesApprofondie(): DepsApprofondie {
       const { rows } = await query<{ fait: boolean }>(
         `SELECT EXISTS (
             SELECT 1 FROM releve_run
-             WHERE declencheur = 'approfondi' AND demande_id = $1 AND demarre_le >= date_trunc('day', now())
+             WHERE declencheur = 'approfondi' AND demande_id = $1 AND demarre_le >= ${SQL_MINUIT_PARIS}
           ) AS fait`,
         [demandeId]);
       return rows[0]?.fait === true;
@@ -325,7 +326,12 @@ export function depsReellesApprofondie(): DepsApprofondie {
       if (compte === null) throw new Error(`profil « ${cible.profil} » inactif (compte IMAP absent)`);
       const { creerClientApprofondi } = await import('../email/imap');
       const { brancheDepotManuel } = await import('../sitadel/depotManuel'); // N1-A : versement auto en GED (même module, 2e chemin)
-      return releverApprofondie({ client: creerClientApprofondi(compte), cible, appliquer: true, depot: await brancheDepotManuel(cible.profil) });
+      // LOT PRÉPARATION-PORTABILITÉ — ÉCOUTEUR « error » OBLIGATOIRE (modèle gestion, LOT 3-ter). Sans lui, une coupure
+      //   réseau fait émettre « error » sans écouteur sur l'instance ImapFlow et Node TUE le processus de la veille (mesuré :
+      //   journal launchd, 115 morts « Unhandled 'error' event » ; reproduit sur faux serveur local). Avec lui, la coupure est
+      //   journalisée, l'appel IMAP suivant rejette, et le `catch` de executerApprofondie marque le run « erreur ».
+      const surErreur = (e: Error): void => { console.error(`[veille] relève approfondie — connexion IMAP perdue : ${e.message}`); };
+      return releverApprofondie({ client: creerClientApprofondi(compte, surErreur), cible, appliquer: true, depot: await brancheDepotManuel(cible.profil) });
     },
     insererRun: async (profil, demandeId) => {
       const { rows } = await query<{ id: number }>(

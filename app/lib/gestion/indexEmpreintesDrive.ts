@@ -298,7 +298,10 @@ export function motEtatIndex(o: { fichiers: number; releveLe: Date | null }): st
   if (o.fichiers <= 0) return 'Aucune empreinte du Drive n’est indexée.';
   const quand = o.releveLe === null
     ? 'à une date inconnue'
-    : `au ${o.releveLe.toLocaleDateString('fr-FR')} ${o.releveLe.toLocaleTimeString('fr-FR').slice(0, 5)}`;
+    // Heure de PARIS quel que soit le fuseau de la machine (lot PRÉPARATION-PORTABILITÉ). Le fuseau est écrit en clair ici, et
+    //   non importé de app/lib/temps/paris.ts, parce que ce module est verrouillé SANS AUCUNE dépendance (garde du test « 🔒 le module
+    //   pur ne connaît ni fetch ni SQL »). Même valeur que FUSEAU_PARIS.
+    : `au ${o.releveLe.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' })} ${o.releveLe.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris' }).slice(0, 5)}`;
   return `${o.fichiers.toLocaleString('fr-FR')} empreinte${o.fichiers > 1 ? 's' : ''} du Drive indexée`
     + `${o.fichiers > 1 ? 's' : ''}, relevé ${quand}.`;
 }

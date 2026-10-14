@@ -136,11 +136,15 @@ export function objetAlerte(objetOrigine: string): string {
   return `⚠️ Mail non envoyé : ${o === '' ? '(sans objet)' : o}`;
 }
 
-/** Une date, en français, pour le corps de l'alerte. PUR (la locale est passée, jamais lue de l'environnement). */
+/** Une date, en français, pour le corps de l'alerte — en heure de PARIS, quel que soit le fuseau de la machine. PUR. */
 export function heureFr(d: Date): string {
-  const deuxChiffres = (n: number) => String(n).padStart(2, '0');
-  return `${deuxChiffres(d.getDate())}/${deuxChiffres(d.getMonth() + 1)}/${d.getFullYear()}`
-    + ` à ${deuxChiffres(d.getHours())} h ${deuxChiffres(d.getMinutes())}`;
+  // Le fuseau est écrit en clair, et non tiré de app/lib/temps/paris.ts : ce module est verrouillé SANS AUCUNE dépendance
+  //   (garde « 🔴 aucun import » de fileEnvoi.test.ts). Même valeur que FUSEAU_PARIS ; `en-GB` rend « JJ/MM/AAAA, HH:MM ».
+  const p: Record<string, string> = {};
+  for (const x of new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(d)) p[x.type] = x.value;
+  return `${p.day}/${p.month}/${p.year} à ${p.hour} h ${p.minute}`;
 }
 
 /**

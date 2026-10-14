@@ -1,0 +1,13 @@
+# Équivalent de StartInterval 900 + RunAtLoad true (ops/com.sansvisavis.drive-empreintes.plist) :
+# première passe 1 min après l'activation du timer (démarrage du serveur ou `systemctl enable --now`, le temps que le
+# réseau soit prêt), puis 15 min après le début de chaque passe. Jamais deux passes en parallèle.
+[Unit]
+Description=Sans Vis-à-Vis — index des empreintes Drive toutes les 15 minutes
+
+[Timer]
+OnActiveSec=1min
+OnUnitActiveSec=15min
+Unit=svav-drive-empreintes.service
+
+[Install]
+WantedBy=timers.target

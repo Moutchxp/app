@@ -4,6 +4,7 @@
  * adresses est l'annuaire de l'administration (DILA / service-public.fr), Licence Ouverte. Le CLI
  * `mairie-contact-import.ts` fait le réseau ; ici, pas d'I/O réseau.
  */
+import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 
 /**
  * Provenance du DESTINATAIRE d'une commune. ⚠️ 'annuaire_dila' est une VALEUR DE GARDE (RÉSERVÉE), PAS vestigiale : ne la
@@ -195,12 +196,12 @@ export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ c
   const touche = e.toucheProtocole !== false;
   await q(
     `INSERT INTO mairie_contact (code_insee, email, source, statut, canal, url_formulaire, adresse_postale, maj_le, note, telephone, responsable_nom, protocole_verifie_le, telephone_standard, email_type, email_direct)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, CASE WHEN $13 THEN CURRENT_DATE ELSE NULL END, $11, $12, $14)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, CASE WHEN $13 THEN ${SQL_AUJOURDHUI_PARIS} ELSE NULL END, $11, $12, $14)
      ON CONFLICT (code_insee) DO UPDATE SET
        email = EXCLUDED.email, source = EXCLUDED.source, statut = EXCLUDED.statut, canal = EXCLUDED.canal,
        url_formulaire = EXCLUDED.url_formulaire, adresse_postale = EXCLUDED.adresse_postale, maj_le = now(), note = EXCLUDED.note,
        telephone = EXCLUDED.telephone, responsable_nom = EXCLUDED.responsable_nom,
-       protocole_verifie_le = CASE WHEN $13 THEN CURRENT_DATE ELSE mairie_contact.protocole_verifie_le END,
+       protocole_verifie_le = CASE WHEN $13 THEN ${SQL_AUJOURDHUI_PARIS} ELSE mairie_contact.protocole_verifie_le END,
        telephone_standard = EXCLUDED.telephone_standard, email_type = EXCLUDED.email_type, email_direct = EXCLUDED.email_direct`,
     [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, note, tel, resp, telStd, emailType, touche, emailDir],
   );

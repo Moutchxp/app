@@ -7,14 +7,16 @@
  * l'outil laisse croire au calme alors qu'il est aveugle. C'est exactement le piège que le journal des passes existe pour
  * lever, et il serait absurde de le reproduire à l'écran.
  */
+import { formatParis } from '../temps/paris';
 
-/** Date lisible en français, heure locale. Rendue CÔTÉ CLIENT uniquement (après chargement) → aucun écart d'hydratation. */
+/** Date lisible en français, en heure de PARIS quel que soit le fuseau de la machine (lot PRÉPARATION-PORTABILITÉ ; mesuré :
+ *  sous TZ=UTC, « 14:00 » devenait « 12:00 »). */
 export function formaterDateFr(iso: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '—';
-  const jour = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
-  const heure = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(d);
+  const jour = formatParis('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
+  const heure = formatParis('fr-FR', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
   return `${jour}, ${heure}`;
 }
 

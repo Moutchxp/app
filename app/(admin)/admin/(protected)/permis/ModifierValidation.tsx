@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, type CSSProperties } from 'react';
+import { formatParis } from '../../../../lib/temps/paris';
 
 /**
  * RATT-EDIT (lot B2) — VERROU d'édition d'un permis DÉJÀ VALIDÉ, dans l'onglet Rattachement. Deux composants PURS (aucun réseau, aucun
@@ -120,7 +121,7 @@ function dateLisible(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  return formatParis('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(d); // jour de PARIS (portabilité)
 }
 
 /** Date+heure lisibles en français (jamais un ISO brut) ; null/invalide → non affichées. */
@@ -128,7 +129,7 @@ function dateHeureLisible(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
-  return d.toLocaleString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  return formatParis('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d); // heure de PARIS
 }
 
 export function PopUpConfirmerRestauration({ versionLabel, enCours = false, onConfirmer, onAnnuler }: {

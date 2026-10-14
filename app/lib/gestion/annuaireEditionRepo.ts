@@ -14,6 +14,7 @@ import type { Auteur } from './rattachementRepo';
  * correction — reste muet. Voir `rafraichirPropositions`.
  */
 import { rafraichirPourAdresses, rafraichirPourNoms } from './rafraichirPropositions';
+import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 
 /**
  * LOT FICHES-ANNUAIRE (étape C) — ÉCRIRE DANS L'ANNUAIRE. IMPUR (base), et le seul module qui écrive.
@@ -675,13 +676,13 @@ export async function remplacerProprietaireDuLot(lotId: number, o: {
 
     await q(
       `UPDATE gestion_annuaire_lot_proprietaire
-          SET jusqu_a = coalesce($3::date, current_date)
+          SET jusqu_a = coalesce($3::date, ${SQL_AUJOURDHUI_PARIS})
         WHERE lot_id = $1 AND proprietaire_id = $2 AND jusqu_a IS NULL`,
       [lotId, o.ancienId, o.date]);
     await q(
       `INSERT INTO gestion_annuaire_lot_proprietaire
          (lot_id, proprietaire_id, rang, depuis, cree_par, cree_par_libelle)
-       VALUES ($1, $2, 1, coalesce($3::date, current_date), $4, $5)
+       VALUES ($1, $2, 1, coalesce($3::date, ${SQL_AUJOURDHUI_PARIS}), $4, $5)
        ON CONFLICT (lot_id, proprietaire_id) WHERE jusqu_a IS NULL DO NOTHING`,
       [lotId, o.nouveauId, o.date, auteur.id, auteur.libelle]);
     await journaliser(q, {
@@ -826,7 +827,7 @@ export async function enregistrerDepart(
     const o = rows[0];
     if (o === undefined) return { etat: 'inconnu' as const };
     await q(
-      'UPDATE gestion_annuaire_occupation SET sortie = coalesce($2::date, current_date) WHERE id = $1',
+      `UPDATE gestion_annuaire_occupation SET sortie = coalesce($2::date, ${SQL_AUJOURDHUI_PARIS}) WHERE id = $1`,
       [occupationId, sortie]);
     await journaliser(q, {
       personneId: Number(o.locataire_id), action: 'annuaire_depart',

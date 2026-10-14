@@ -233,7 +233,7 @@ describe('les filtres se COMBINENT avec les mots', () => {
 
   it('la période est INCLUSE des deux côtés : « au 31 mars » comprend le 31 en entier', () => {
     expect(conditions({ saisie: '', au: '2026-03-31' }, true).sql.join(' '))
-      .toContain("+ interval '1 day'");
+      .toContain("::date + 1)::timestamp AT TIME ZONE 'Europe/Paris')"); // lendemain à minuit, heure de PARIS (portabilité)
   });
 
   it('un filtre seul, sans mot, cherche quand même', () => {
@@ -660,7 +660,7 @@ describe('LOT RECHERCHE-AVANCEE — pièce jointe et période', () => {
     const { sql, params } = conditions({ saisie: 'bail', du: '2026-01-01', au: '2026-03-31' }, true);
     const s = plat(sql.join(' '));
     expect(s).toContain('m.recu_le >=');
-    expect(s).toContain("interval '1 day'"); // le dernier jour compte en ENTIER
+    expect(s).toContain("::date + 1)::timestamp AT TIME ZONE 'Europe/Paris')"); // le dernier jour compte en ENTIER (minuit de PARIS)
     expect(params).toContain('2026-01-01');
     expect(params).toContain('2026-03-31');
   });

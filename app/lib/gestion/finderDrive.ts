@@ -1,4 +1,5 @@
 import { RACINE_DRIVES_PARTAGES, RACINE_MON_DRIVE } from './cibleDepot';
+import { formatParis } from '../temps/paris';
 
 /**
  * LOT DRIVE-FACON-FINDER — LES RÈGLES DU NAVIGATEUR DRIVE, EN PRÉSENTATION LISTE. Module PUR.
@@ -188,8 +189,8 @@ export function dateFinder(iso: string | null, langue = 'fr-FR'): string {
   if (iso === null || iso.trim() === '') return '';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
-  const jour = d.toLocaleDateString(langue, { day: 'numeric', month: 'short', year: 'numeric' });
-  const heure = d.toLocaleTimeString(langue, { hour: '2-digit', minute: '2-digit' });
+  const jour = formatParis(langue, { day: 'numeric', month: 'short', year: 'numeric' }).format(d); // heure de PARIS (portabilité)
+  const heure = formatParis(langue, { hour: '2-digit', minute: '2-digit' }).format(d);
   return `${jour} à ${heure}`;
 }
 

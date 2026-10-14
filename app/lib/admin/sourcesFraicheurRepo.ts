@@ -4,6 +4,7 @@
 // reste protégé par `exigerAdministrateur` sur la route /api/admin/sources.
 import { query } from '../db/client';
 import { DEPARTEMENTS, type Departement, type LectureSource } from './sourcesFraicheur';
+import { sqlMuraleParis } from '../temps/paris';
 
 /**
  * FRAÎCHEUR DES DONNÉES — LECTURES SEULES (lot 1/3). Un SELECT par source, chacune isolée (une table absente ou une
@@ -89,7 +90,7 @@ async function lireBdtopoBati(): Promise<LectureSource> {
 /** BD TOPO adresse — pas de table de millésime : substitut = date max de `date_modification` ; couverture par INSEE. */
 async function lireBdtopoAdresse(): Promise<LectureSource> {
   const r = await query<{ n: number; d: string | null }>(
-    `SELECT count(*)::int AS n, to_char(max(date_modification), 'YYYY-MM-DD') AS d FROM adresse_ban`,
+    `SELECT count(*)::int AS n, to_char(${sqlMuraleParis('max(date_modification)')}, 'YYYY-MM-DD') AS d FROM adresse_ban`,
   );
   const n = Number(r.rows[0]?.n ?? 0);
   const d = r.rows[0]?.d ?? null;
@@ -117,7 +118,7 @@ export async function lireCadastre(req: Requete = requeteDefaut): Promise<Lectur
   // DIRECTEMENT. ⚠️ Ne jamais l'envelopper dans to_char() — to_char(text, …) n'existe pas côté PostgreSQL (la lecture
   // jetterait et l'écran afficherait « indisponible » alors que la donnée est là). `charge_le` (timestamptz) garde son to_char.
   const m = await req<{ m: string | null; c: string | null }>(
-    `SELECT max(millesime) AS m, to_char(max(charge_le), 'YYYY-MM-DD') AS c FROM cadastre_millesime`,
+    `SELECT max(millesime) AS m, to_char(${sqlMuraleParis('max(charge_le)')}, 'YYYY-MM-DD') AS c FROM cadastre_millesime`,
   );
   const mil = m.rows[0]?.m ?? null;
   return {

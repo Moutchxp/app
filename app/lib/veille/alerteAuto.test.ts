@@ -103,7 +103,8 @@ describe('R8 — depsReellesAlerte : SQL émis (fragments sémantiques, paramèt
     const norm = (queryMock.mock.calls[0][0] as string).replace(/\s+/g, ' ');
     expect(norm).toContain('FROM alerte_run');
     expect(norm).toContain("resultat IN ('envoyee','rien_a_dire')");
-    expect(norm).toContain("date_trunc('day', now())");
+    // Minuit de PARIS, explicite (portabilité : indépendant du fuseau de la session PG).
+    expect(norm).toContain("(date_trunc('day', now() AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'Europe/Paris')");
   });
 
   it('marquerRienADire : INSERT alerte_run « rien_a_dire »', async () => {

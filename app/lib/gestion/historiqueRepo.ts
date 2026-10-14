@@ -22,6 +22,7 @@ import { query } from '../db/client';
 import { sqlLiensDuBien } from './rattachement';
 // 🔴 LOT NOM-UNIQUE-DES-PIECES — le repli « nom d'usage, sinon nom d'origine », écrit UNE fois.
 import { sqlNomAffiche } from './nomUsageSql';
+import { sqlMinuitParisDe } from '../temps/paris';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-10, POINT 2 — les trois rôles qui font « participer » à un mail, écrits UNE fois :
    le compteur des capsules et le filtre du listing lisent la MÊME liste (règle d'Arno). */
 import {
@@ -627,9 +628,9 @@ function conditions(
                              WHERE xa.message_id = m.id AND xa.role = 'expediteur'
                                AND xa.adresse = ANY(${ajouter(f.expediteursExclus)}::text[]))`);
   }
-  if (f.du !== null) bouts.push(`m.recu_le >= ${ajouter(f.du)}::date`);
+  if (f.du !== null) bouts.push(`m.recu_le >= ${sqlMinuitParisDe(`${ajouter(f.du)}::date`)}`);
   // BORNE HAUTE INCLUSE : « au 7 mars » doit contenir le 7 mars, donc on compare au lendemain à minuit.
-  if (f.au !== null) bouts.push(`m.recu_le < (${ajouter(f.au)}::date + 1)`);
+  if (f.au !== null) bouts.push(`m.recu_le < ${sqlMinuitParisDe(`${ajouter(f.au)}::date + 1`)}`);
   if (f.pieces === 'avec') bouts.push('EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)');
   if (f.pieces === 'sans') bouts.push('NOT EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)');
   /**

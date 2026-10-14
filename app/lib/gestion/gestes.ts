@@ -24,6 +24,7 @@ import {
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — les bornes et la note, décidées par le module PUR. */
   bornesEvenement, categorieValide, noteEvenement, urgenceValide, type EvenementDuMail,
 } from './evenementQualite';
+import { anneeParis } from '../temps/paris';
 
 /**
  * LOT 4d-B2 — « cette affectation porte sur TOUT l'échange », en SQL.
@@ -168,7 +169,7 @@ async function creerEvenementDansTransaction(
    */
   const bornes = bornesEvenement(n.ouvertLe, n.closLe);
   if (bornes.refus !== null) throw new Error(bornes.refus);
-  const reference = await prochaineReference(q, new Date().getFullYear());
+  const reference = await prochaineReference(q, anneeParis(new Date())); // année de PARIS, quel que soit le fuseau de la machine
   /**
    * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 0 — LES DEUX DATES ET LA NOTE, DANS LE SEUL CHEMIN D'ÉCRITURE ══════
    *

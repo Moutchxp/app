@@ -21,6 +21,7 @@
 import { Pool, QueryResult, QueryResultRow } from "pg";
 import "dotenv/config";
 import { poolContextuel } from "./plafondAnalyse";
+import "./typesDate"; // dates sans fuseau lues à l'heure de Paris, quelle que soit la machine (lot PRÉPARATION-PORTABILITÉ)
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL manquant — vérifie le fichier .env à la racine du repo.");

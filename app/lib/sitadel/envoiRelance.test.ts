@@ -217,7 +217,9 @@ describe('W1 — budget PARTAGÉ : compterEmisAujourdhui compte TOUTES les émis
     const s = norm(appels[0].sql);
     expect(s).toContain("canal = 'email'");
     expect(s).toContain("statut = 'envoye'");
-    expect(s).toContain('CURRENT_DATE');
+    // « Aujourd'hui » = jour civil de PARIS, explicite (portabilité : plus de CURRENT_DATE, qui suit le fuseau de la session PG).
+    expect(s).toContain("((envoye_le) AT TIME ZONE 'Europe/Paris')::date = (now() AT TIME ZONE 'Europe/Paris')::date");
+    expect(s).not.toContain('CURRENT_DATE');
     expect(s).not.toContain('relance_id'); // ne distingue pas → un jour chargé en demandes réduit le budget des relances
   });
 });

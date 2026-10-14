@@ -26,6 +26,7 @@ import {
   cartesDuReservoir, confirmationCarte,
   estRepere, informationsDuReservoir, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
 } from '../../../../lib/gestion/mongaEtape';
+import { jourParis } from '../../../../lib/temps/paris';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — la question posée avant de retirer une clôture vient du module PUR, comme celle
    qui précède sa pose. Deux formulations auraient fini par dire deux choses du même geste. */
 import { questionAvantRetrait } from '../../../../lib/gestion/etatParLaFrise';
@@ -122,8 +123,7 @@ function jourFrCourt(jour: string): string {
 }
 
 function aujourdhuiLocal(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return jourParis(new Date()); // jour civil de PARIS, quel que soit le fuseau de la machine (portabilité)
 }
 
 export function FriseAvancement({

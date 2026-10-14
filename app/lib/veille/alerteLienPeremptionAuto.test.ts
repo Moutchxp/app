@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { executerAlerteLienPeremption, composerAlerteLiens, type LienPerissableCandidat, type DepsAlerteLienPeremption } from './alerteLienPeremptionAuto';
+import { instantParis } from '../temps/paris';
 
 const cand = (lienId: number, recuLe: string, numDau = `PC${lienId}`): LienPerissableCandidat => ({ lienId, recuLe: new Date(recuLe), url: `https://mairie.test/dl/${lienId}`, numDau, communeNom: 'Aubervilliers' });
 
 // Fenêtre d'envoi (envoiOuvre) lue en heure LOCALE → on construit `now` en heure locale (jamais en UTC 'Z', dépendant du fuseau).
-const JEUDI_10H = new Date(2026, 8, 3, 10, 0, 0);   // jeudi 3 sept. 2026, 10 h LOCAL (ouvré, dans 9-11)
-const DIMANCHE_10H = new Date(2026, 7, 30, 10, 0, 0); // dimanche 30 août 2026, 10 h LOCAL (non ouvré)
+const JEUDI_10H = instantParis(2026, 9, 3, 10, 0, 0);   // jeudi 3 sept. 2026, 10 h heure de Paris (ouvré, dans 9-11)
+const DIMANCHE_10H = instantParis(2026, 8, 30, 10, 0, 0); // dimanche 30 août 2026, 10 h heure de Paris (non ouvré)
 
 /** Deps de test : config réglable, candidats fournis, `envoyer`/`marquerAlertes` tracés. */
 function deps(over: {

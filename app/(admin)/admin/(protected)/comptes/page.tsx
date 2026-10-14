@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { EnTetePage } from '../_composants/EnTetePage';
 import type { Perms, RoleAdmin } from '../../../../lib/admin/session';
+import { formatParis } from '../../../../lib/temps/paris';
 
 interface CompteVue {
   id: number;
@@ -119,8 +120,8 @@ export function formaterDate(iso: string | null): string {
   if (!iso) return 'jamais';
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return 'jamais';
-  const jour = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(d);
-  const heure = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(d);
+  const jour = formatParis('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }).format(d); // heure de PARIS (portabilité)
+  const heure = formatParis('fr-FR', { hour: '2-digit', minute: '2-digit' }).format(d);
   return `${jour}, ${heure}`;
 }
 

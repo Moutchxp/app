@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Pool } from 'pg';
+import './typesDate'; // dates sans fuseau lues à l'heure de Paris, quelle que soit la machine (lot PRÉPARATION-PORTABILITÉ)
 
 /**
  * PLAFOND D'ATTENTE DE LA BASE, SCOPÉ AU SEUL CHEMIN DE L'ANALYSE PUBLIQUE (`POST /api/analyse`).

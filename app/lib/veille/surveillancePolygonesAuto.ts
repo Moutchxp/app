@@ -16,6 +16,7 @@ import {
   surveillerPolygones, composerAlerteSurveillance, lienFichePermis,
   type FootprintValide, type FootprintCourant, type ChangementSurveille, type DossierSurveille,
 } from '../permis/surveillancePolygones';
+import { SQL_AUJOURDHUI_PARIS, sqlMinuitParisDe, sqlMuraleParis } from '../temps/paris';
 
 export interface DepsSurveillancePolygones {
   /** Le marqueur anti-doublon existe-t-il ? (migration 171 appliquée). Absent → brique NO-OP propre. */
@@ -88,7 +89,7 @@ export async function compterSurveillanceDossiers(): Promise<number> {
          FROM permis_surveillance_alerte a
          JOIN permis_rattachement r ON r.dossier_id = a.dossier_id
         WHERE r.etat = 'valide' AND r.valide_le IS NOT NULL
-          AND r.valide_le >= current_date - make_interval(days => $1)`,
+          AND r.valide_le >= ${sqlMinuitParisDe(`${SQL_AUJOURDHUI_PARIS} - ($1)::int`)}`,
       [c.surveillanceFenetreJours]);
     return Number(rows[0]?.n ?? 0);
   } catch { return 0; } // 171 non appliquée → 0
@@ -116,11 +117,11 @@ export function depsReellesSurveillancePolygones(): DepsSurveillancePolygones {
     chargerDossiersEnFenetre: async (fenetreJours) => {
       // SCOPING serveur : uniquement les rattachements VALIDÉS dont la validation est encore DANS la fenêtre (jamais tout l'univers).
       const { rows } = await query<{ dossier_id: number | string; num_dau: string; valide_le: string | null }>(
-        `SELECT r.dossier_id, s.num_dau, to_char(r.valide_le, 'YYYY-MM-DD') AS valide_le
+        `SELECT r.dossier_id, s.num_dau, to_char(${sqlMuraleParis('r.valide_le')}, 'YYYY-MM-DD') AS valide_le
            FROM permis_rattachement r
            JOIN sitadel_dossier s ON s.id = r.dossier_id
           WHERE r.etat = 'valide' AND r.valide_le IS NOT NULL
-            AND r.valide_le >= current_date - make_interval(days => $1)`,
+            AND r.valide_le >= ${sqlMinuitParisDe(`${SQL_AUJOURDHUI_PARIS} - ($1)::int`)}`,
         [fenetreJours]);
       return rows.map((r) => ({ dossierId: Number(r.dossier_id), numDau: r.num_dau, valideLe: r.valide_le }));
     },
@@ -166,7 +167,7 @@ export function depsReellesSurveillancePolygones(): DepsSurveillancePolygones {
       } catch { return []; }
     },
     aujourdhui: async () => {
-      const { rows } = await query<{ d: string }>(`SELECT to_char(current_date, 'YYYY-MM-DD') AS d`);
+      const { rows } = await query<{ d: string }>(`SELECT to_char(${SQL_AUJOURDHUI_PARIS}, 'YYYY-MM-DD') AS d`);
       return rows[0].d;
     },
     envoyer: (destinataire, sujet, corps) => envoyerAlerteReelle(destinataire, sujet, corps),

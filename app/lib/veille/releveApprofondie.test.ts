@@ -214,7 +214,8 @@ describe('R6 — depsReellesApprofondie : SQL émis (fragments sémantiques, par
     expect(norm).toContain('FROM releve_run');
     expect(norm).toContain("declencheur = 'approfondi'");
     expect(norm).toContain('demande_id = $1');
-    expect(norm).toContain("date_trunc('day', now())");
+    // Minuit de PARIS, explicite (portabilité : indépendant du fuseau de la session PG).
+    expect(norm).toContain("(date_trunc('day', now() AT TIME ZONE 'Europe/Paris') AT TIME ZONE 'Europe/Paris')");
     expect(params).toEqual([42]);
   });
 });

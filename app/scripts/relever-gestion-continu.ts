@@ -89,6 +89,7 @@ export function creerMinuterie(o: {
 async function main(): Promise<void> {
   const unTour = lireUnTour(process.argv);
   for (const l of enTete(unTour)) console.log(l);
+  for (const m of (await import('../lib/config/verifierUrlsPubliques')).verifierUrlsPubliques(process.env)) console.warn(m);
 
   const { boucleContinue } = await import('../lib/gestion/releveContinue');
   const { relever } = await import('../lib/gestion/releveReelle');

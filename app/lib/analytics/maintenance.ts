@@ -1,4 +1,5 @@
 import { Pool, type PoolClient } from 'pg';
+import '../db/typesDate'; // dates sans fuseau lues à l'heure de Paris, quelle que soit la machine (lot PRÉPARATION-PORTABILITÉ)
 
 /**
  * M2 — Analytics, LOT 3. Job de MAINTENANCE : compaction, gestion des partitions, purge. Ne collecte

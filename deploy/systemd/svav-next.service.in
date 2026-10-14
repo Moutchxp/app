@@ -1,0 +1,33 @@
+# GABARIT — les marqueurs entre arobases sont remplacés par installer.sh à partir de svav.conf. Ne pas copier tel quel.
+#
+# Le serveur web lui-même : `next start` (équivalent de `npm start`). Exige un `npm run build` préalable, fait par le
+# même compte, dans le même dossier. Aucun équivalent launchd aujourd'hui (sur le Mac, `next dev` est lancé à la main).
+[Unit]
+Description=Sans Vis-à-Vis — serveur web (next start)
+Documentation=file:@APP_DIR@/deploy/systemd/README.md
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=@SVAV_USER@
+Group=@SVAV_GROUP@
+# OBLIGATOIRE : polices et logos du certificat PDF sont lus via process.cwd().
+WorkingDirectory=@APP_DIR@
+Environment=TZ=Europe/Paris
+Environment=NODE_ENV=production
+Environment=NEXT_TELEMETRY_DISABLED=1
+# pdftoppm / pdfinfo / pdfseparate / pdfunite (poppler-utils) sont appelés par des routes de production.
+Environment=PATH=@PATH@
+ExecStart=@NODE@ @APP_DIR@/node_modules/next/dist/bin/next start -H @NEXT_HOST@ -p @NEXT_PORT@
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=svav-next
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

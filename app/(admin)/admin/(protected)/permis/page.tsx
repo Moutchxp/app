@@ -5,6 +5,7 @@ import { chargerConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { categoriesConnues } from '../../../../lib/sitadel/priorite';
 import { libelleTriCandidats } from '../../../../lib/sitadel/reglagesVeille';
 import { PermisTuile } from './PermisTuile';
+import { jourParisDecale } from '../../../../lib/temps/paris';
 
 /**
  * Module « Permis de construire » (chantier S3) — veille des autorisations d'urbanisme (Sitadel).
@@ -32,8 +33,8 @@ export default async function PermisPage({ searchParams }: { searchParams: Searc
 
   // Date « depuis » par défaut = aujourd'hui − `annees_par_defaut` ans, calculée CÔTÉ SERVEUR (valeur stable → aucun
   // écart d'hydratation). La vue peut l'effacer (« depuis toujours ») pour remonter tout l'historique.
-  const auj = new Date();
-  const depuisParDefaut = `${auj.getFullYear() - config.anneesParDefaut}-${String(auj.getMonth() + 1).padStart(2, '0')}-${String(auj.getDate()).padStart(2, '0')}`;
+  //   Jour de PARIS, quel que soit le fuseau du serveur (lot PRÉPARATION-PORTABILITÉ).
+  const depuisParDefaut = jourParisDecale(new Date(), { annees: -config.anneesParDefaut });
 
   return (
     /* 🔴🔴 LOT ADMIN-PLEINE-LARGEUR — plafond retiré : la largeur vient de `.svv-adm-main`, écrite une fois. */

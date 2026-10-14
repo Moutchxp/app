@@ -10,6 +10,7 @@ import {
   TITRE_ESPACE, SOUS_LIGNE_ACCUEIL, TITRE_ANALYSES, MSG_AUCUNE_ANALYSE,
   MSG_ADRESSE_ABSENTE, LIB_RETOUR_MENU, salutation, formatScore,
 } from './presentation';
+import { formatParis } from '../lib/temps/paris';
 
 // Runtime Node (session + driver pg). JAMAIS de cache : l'espace dépend de la session et de l'état base.
 export const runtime = 'nodejs';
@@ -21,7 +22,7 @@ export const metadata: Metadata = {
 };
 
 function dateFr(iso: string): string {
-  return new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(iso));
+  return formatParis('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(iso)); // jour de PARIS (portabilité)
 }
 
 /**

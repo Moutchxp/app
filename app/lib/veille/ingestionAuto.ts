@@ -7,6 +7,7 @@
  * rattrapage en journée ; une ingestion par tick ; une tentative par source et par nuit ; garde-fou disque AVEC MARGE ; toute
  * exécution laisse une trace. Les I/O sont injectées (`DepsIngestionAuto`) → les tests ne lancent JAMAIS une vraie ingestion.
  */
+import { heureParis, jourParis, jourParisDecale } from '../temps/paris';
 
 /**
  * ⚠️ WHITELIST DE SÉCURITÉ EXPLICITE — les sources RÉELLEMENT automatisables (cas a strict : complet, outillé, sans étape
@@ -47,9 +48,9 @@ export const MILLESIME_DATE_MOTIF = /^\d{4}-\d{2}-\d{2}$/;
 /** Liste de départements « NN,NN,… » — validée avant passage en argument (jamais concaténée dans un shell). */
 export const DEPTS_MOTIF = /^\d{2}(,\d{2})*$/;
 
-/** Fenêtre nocturne : `now` est-il dans [début, fin) ? Gère une fenêtre qui traverse minuit (début > fin). */
+/** Fenêtre nocturne (heures de PARIS, quel que soit le fuseau de la machine) : `now` est-il dans [début, fin) ? Gère une fenêtre qui traverse minuit (début > fin). */
 export function dansFenetre(now: Date, debut: number, fin: number): boolean {
-  const h = now.getHours();
+  const h = heureParis(now);
   if (debut === fin) return false; // fenêtre vide → jamais (sûr)
   if (debut < fin) return h >= debut && h < fin; // même jour (ex. 3..6)
   return h >= debut || h < fin; // traverse minuit (ex. 23..2)
@@ -57,12 +58,8 @@ export function dansFenetre(now: Date, debut: number, fin: number): boolean {
 
 /** Clé de nuit 'YYYY-MM-DD' : pour une fenêtre traversant minuit, les heures après minuit comptent pour la nuit de la veille. */
 export function nuitCourante(now: Date, debut: number, fin: number): string {
-  const d = new Date(now);
-  if (debut > fin && now.getHours() < fin) d.setDate(d.getDate() - 1);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const j = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${j}`;
+  // Jour civil de PARIS (portabilité) : la veille si la fenêtre traverse minuit et qu'on est après minuit.
+  return debut > fin && heureParis(now) < fin ? jourParisDecale(now, { jours: -1 }) : jourParis(now);
 }
 
 /** Valide les arguments du spawn cadastre (données externes) — refuse plutôt que de transmettre tel quel. */

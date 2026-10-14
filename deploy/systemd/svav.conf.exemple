@@ -1,0 +1,25 @@
+# Réglages d'installation des services systemd Sans Vis-à-Vis.
+#
+# MODE D'EMPLOI : copier ce fichier en `svav.conf` (même dossier), adapter les valeurs, puis lancer
+# `sudo ./installer.sh`. Ce fichier ne contient AUCUN secret : les secrets restent dans le `.env` du dépôt,
+# que les scripts chargent eux-mêmes.
+#
+# Format strict : une ligne CLE=valeur, sans espace autour du « = », sans guillemets, sans espace dans la valeur.
+# Les lignes vides et celles qui commencent par « # » sont ignorées. Le fichier est LU, jamais exécuté.
+
+# Dossier racine du dépôt cloné sur le serveur (celui qui contient package.json et .env). Chemin absolu.
+APP_DIR=/srv/sansvisavis/app
+
+# Compte Linux qui fait tourner les services. Il doit exister (adduser) et posséder le dépôt.
+# Si DATABASE_URL ne contient pas de nom d'utilisateur, PostgreSQL utilisera CE nom : créer un rôle PG identique.
+SVAV_USER=svav
+SVAV_GROUP=svav
+
+# Chemin absolu du programme node (Node 24). Pour le trouver : `command -v node` (en étant connecté comme SVAV_USER).
+# npm doit se trouver dans le MÊME dossier que node (c'est le cas avec NodeSource et avec nvm).
+NODE=/usr/bin/node
+
+# Adresse et port d'écoute de `next start`. 127.0.0.1 = joignable seulement depuis le serveur lui-même,
+# derrière le frontal HTTPS (nginx, Caddy ou tunnel). Mettre 0.0.0.0 seulement si l'on sait pourquoi.
+NEXT_HOST=127.0.0.1
+NEXT_PORT=3000

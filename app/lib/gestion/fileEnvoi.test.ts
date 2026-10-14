@@ -6,6 +6,7 @@ import {
   fusionnerNonEnvoyes, heureFr, motEtatFile, objetAlerte, placePourLaPiece, tonEtatFile, verdictPieces,
   type MentionNonEnvoye,
 } from './fileEnvoi';
+import { instantParis } from '../temps/paris';
 
 /**
  * 🔴 LOT ENVOI-ARRIERE-PLAN — CE QUI DÉCIDE D'UN ENVOI DIFFÉRÉ. Module PUR, donc éprouvé ENTIÈREMENT — et c'est
@@ -110,7 +111,7 @@ describe('🔴 ③ la cause est en français, et elle NOMME la pièce', () => {
     const c = corpsAlerte({
       objet: 'Relance loyer',
       destinataires: ['martin@orange.fr', 'syndic@immo.fr'],
-      cliqueLe: new Date(2026, 8, 28, 18, 12),
+      cliqueLe: instantParis(2026, 9, 28, 18, 12),
       cause: 'la pièce « bail.pdf » n’a pas pu être récupérée depuis le Drive.',
       lienBrouillon: 'https://exemple.fr/admin/gestion?brouillon=42',
     });
@@ -127,7 +128,7 @@ describe('🔴 ③ la cause est en français, et elle NOMME la pièce', () => {
 
   it('une liste de destinataires vide se DIT, plutôt que de laisser un blanc', () => {
     const c = corpsAlerte({
-      objet: 'x', destinataires: [], cliqueLe: new Date(2026, 0, 2, 9, 5),
+      objet: 'x', destinataires: [], cliqueLe: instantParis(2026, 1, 2, 9, 5),
       cause: 'c', lienBrouillon: 'l',
     });
     expect(c).toContain('Destinataires : (aucun)');
@@ -135,7 +136,7 @@ describe('🔴 ③ la cause est en français, et elle NOMME la pièce', () => {
   });
 
   it('l’heure est écrite sur deux chiffres — « 9 h 5 » se lit mal', () => {
-    expect(heureFr(new Date(2026, 8, 3, 7, 4))).toBe('03/09/2026 à 07 h 04');
+    expect(heureFr(instantParis(2026, 9, 3, 7, 4))).toBe('03/09/2026 à 07 h 04');
   });
 });
 
