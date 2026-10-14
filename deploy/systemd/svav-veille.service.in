@@ -26,10 +26,10 @@ Environment=TMPDIR=/var/tmp
 ExecStart=@NODE@ @APP_DIR@/node_modules/tsx/dist/cli.mjs @APP_DIR@/app/scripts/veille-run.ts
 # Pour un oneshot, systemd ne met AUCUNE limite de durée par défaut : on en pose une, large (ingestions longues).
 TimeoutStartSec=4h
-# Nouvel essai 5 min après un échec (code ≠ 0). Exige systemd ≥ 244 pour un Type=oneshot.
-# Le timer relancerait de toute façon la passe suivante.
-Restart=on-failure
-RestartSec=5min
+# PAS DE REJEU (décision du 14/10/2026, préparatifs de bascule) : une passe en échec n'est PAS relancée par systemd.
+# Comme sur le Mac (launchd ne rejouait pas), c'est la passe suivante du minuteur (15 min) qui reprend : un rejeu
+# 5 min après aurait relancé toutes les étapes qui ENVOIENT (cascade partielle, alertes…). L'échec reste visible
+# dans `systemctl --failed` et `journalctl -u svav-veille`.
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=svav-veille

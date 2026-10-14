@@ -1,13 +1,14 @@
 # GABARIT — les marqueurs entre arobases sont remplacés par installer.sh à partir de svav.conf. Ne pas copier tel quel.
 #
-# ⚠️ À N'ACTIVER QU'APRÈS DÉCISION D'ARNO. Aujourd'hui, `npm run analytics:maintenance` (compaction, partitions,
-# purge de rétention) n'a AUCUN déclencheur, ni sur le Mac ni ailleurs. Ce fichier est fourni prêt, pas activé.
+# DÉCISION DU 14/10/2026 : activée APRÈS LA BASCULE (minuteur svav-analytics-maintenance.timer, 04 h 30). Jusque-là,
+# `npm run analytics:maintenance` (compaction, partitions, purge de rétention) n'a AUCUN déclencheur, ni sur le Mac
+# ni ailleurs. Fichier prêt, installé par installer.sh, jamais activé par lui.
 #
 # Codes de sortie du script : 0 = propre (ou verrou déjà pris) ; 2 = terminé AVEC erreurs (ex. purge en échec) ;
 # 1 = échec. Un code ≠ 0 laisse le service en état « failed », visible dans `systemctl --failed`. Pas de Restart :
 # la passe du lendemain suffit, et un échec doit rester visible.
 [Unit]
-Description=Sans Vis-à-Vis — maintenance analytique quotidienne (À ACTIVER SUR DÉCISION D'ARNO)
+Description=Sans Vis-à-Vis — maintenance analytique quotidienne (activée après la bascule)
 Documentation=file:@APP_DIR@/deploy/systemd/README.md
 Wants=network-online.target
 After=network-online.target postgresql.service

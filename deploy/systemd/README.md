@@ -32,15 +32,15 @@ ci-dessous se fait à la main.
 | `svav-gestion-continu.service.in` | La relève du courrier de gestion : tourne **en permanence**, relancée si elle s'arrête | `ops/com.sansvisavis.gestion-continu.plist` |
 | `svav-drive-empreintes.service.in` + `svav-drive-empreintes.timer` | La mise à jour de l'index des empreintes du Drive : toutes les 15 min, une première fois au démarrage | `ops/com.sansvisavis.drive-empreintes.plist` |
 | `svav-next.service.in` | Le site lui-même (`next start`), relancé s'il s'arrête | aucun (lancé à la main) |
-| `svav-analytics-maintenance.service.in` + `.timer` | Maintenance des statistiques, une fois par nuit — **à n'activer que sur décision d'Arno** | aucun (n'existe nulle part aujourd'hui) |
+| `svav-analytics-maintenance.service.in` + `.timer` | Maintenance des statistiques, chaque nuit à 04 h 30 (après la sauvegarde de 03 h 30) — **à activer après la bascule** (décision du 14/10/2026) | aucun (n'existe nulle part aujourd'hui) |
 | `svav.conf.exemple` | Les réglages d'installation (dossier du dépôt, compte, chemin de node, port) | — |
 | `installer.sh` | Remplit les gabarits avec vos réglages et les copie dans systemd, **sans rien activer** | — |
 
 ### Deux tâches qui n'ont pas de service ici
 
 - **Maintenance des statistiques** (`npm run analytics:maintenance`) : aujourd'hui, **aucun déclencheur** ne la lance,
-  alors que sa documentation demande un passage quotidien. Le service et son timer sont fournis prêts, mais **il ne faut
-  les activer qu'après décision d'Arno** (étape 5, encadré).
+  alors que sa documentation demande un passage quotidien. Le service et son timer sont fournis prêts et installés par
+  `installer.sh` ; **décision du 14/10/2026 : les activer APRÈS la bascule** (étape 5, encadré).
 - **Purge des internautes échus** (`purgerEchus`) : il n'existe **aucune commande** pour la lancer depuis un terminal.
   Elle ne se déclenche que par le bouton de l'administration (route `POST /api/admin/internautes/purge`, réservée à
   l'administrateur). Aucun service n'est donc fourni ; en créer un demanderait d'abord d'écrire cette commande (lot
@@ -162,12 +162,12 @@ sudo systemctl enable --now svav-drive-empreintes.timer
 - La veille fait sa **première passe 15 minutes** après l'activation (comme sur le Mac : pas de passe à l'installation).
 - L'index Drive fait sa première passe **1 minute** après l'activation (sur le Mac : dès le chargement).
 
-> **Maintenance des statistiques — uniquement sur décision d'Arno :**
+> **Maintenance des statistiques — à activer APRÈS la bascule (décision du 14/10/2026) :**
 > ```sh
 > sudo systemctl enable --now svav-analytics-maintenance.timer
 > ```
-> Elle passe chaque nuit à 00 h 15, **heure du serveur** (d'où le réglage Europe/Paris à l'étape 1). Si le serveur
-> était éteint à cette heure-là, elle est rattrapée au démarrage suivant.
+> Elle passe chaque nuit à 04 h 30, après la sauvegarde de 03 h 30, **heure du serveur** (d'où le réglage
+> Europe/Paris à l'étape 1). Si le serveur était éteint à cette heure-là, elle est rattrapée au démarrage suivant.
 
 ---
 
@@ -270,10 +270,13 @@ nouveau code d'eux-mêmes à leur passe suivante.
 
 - Relève du courrier et site : relancés **toujours**, 60 s (relève) ou 5 s (site) après un arrêt, sans limite de
   nombre — comme `KeepAlive` sur le Mac.
-- Veille et index Drive : **nouvel essai 5 minutes après un échec** (`Restart=on-failure`). Pour ce type de service
-  (« oneshot »), systemd n'accepte ce réglage qu'**à partir de la version 244**. Sur un systemd plus ancien,
-  supprimer les deux lignes `Restart=` et `RestartSec=` de ces deux gabarits avant d'installer : le timer relance de
-  toute façon une passe 15 minutes plus tard.
+- Veille : **pas de nouvel essai** (décision du 14/10/2026). Comme sur le Mac, une passe en échec n'est pas rejouée :
+  la passe suivante du minuteur (15 min) reprend. Un rejeu 5 minutes après aurait relancé toutes les étapes qui
+  envoient (cascade partielle, alertes…). L'échec reste visible (`systemctl --failed`, `journalctl -u svav-veille`).
+- Index Drive : **nouvel essai 5 minutes après un échec** (`Restart=on-failure` ; lecture seule du Drive, sans
+  envoi). Pour ce type de service (« oneshot »), systemd n'accepte ce réglage qu'**à partir de la version 244**. Sur
+  un systemd plus ancien, supprimer les lignes `Restart=` et `RestartSec=` de ce gabarit avant d'installer : le timer
+  relance de toute façon une passe 15 minutes plus tard.
 - Maintenance des statistiques : **pas** de nouvel essai — un échec doit rester visible (`systemctl --failed`) ;
   la passe de la nuit suivante suffit.
 

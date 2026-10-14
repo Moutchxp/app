@@ -1,13 +1,14 @@
-# ⚠️ À N'ACTIVER QU'APRÈS DÉCISION D'ARNO (voir README.md).
+# DÉCISION DU 14/10/2026 (préparatifs de bascule) : à ACTIVER APRÈS LA BASCULE (pas avant), sur le serveur seulement.
+# Installé par installer.sh comme les autres minuteurs ; jamais activé par lui.
 #
-# Une fois par jour à 00 h 15, heure du SERVEUR : le serveur doit être réglé sur Europe/Paris
-# (`timedatectl set-timezone Europe/Paris`) — la variable TZ des services ne s'applique pas à l'horloge des timers.
-# Persistent=true : si le serveur était éteint à 00 h 15, la passe est rattrapée au démarrage suivant.
+# Une fois par nuit à 04 h 30, APRÈS la sauvegarde de 03 h 30, heure du SERVEUR : le serveur doit être réglé sur
+# Europe/Paris (`timedatectl set-timezone Europe/Paris`) — la variable TZ des services ne s'applique pas à l'horloge
+# des timers. Persistent=true : si le serveur était éteint à 04 h 30, la passe est rattrapée au démarrage suivant.
 [Unit]
-Description=Sans Vis-à-Vis — maintenance analytique chaque nuit à 00 h 15
+Description=Sans Vis-à-Vis — maintenance analytique chaque nuit à 04 h 30
 
 [Timer]
-OnCalendar=*-*-* 00:15:00
+OnCalendar=*-*-* 04:30:00
 Persistent=true
 Unit=svav-analytics-maintenance.service
 
