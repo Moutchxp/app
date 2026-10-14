@@ -80,8 +80,8 @@ describe('① le cartouche de statut', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
     expect(src).toContain('.ann-role-capsule--en-place{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);\n  border-color:var(--color-svv-green)}');
     expect(src).toContain('.ann-role-capsule--ancien{color:var(--color-svv-violet);background:var(--color-svv-violet-soft);');
-    // La fiche propriétaire et la fiche d'un bien gardent la capsule grise, sans modificateur.
-    expect(src).toContain('<span className="ann-role-capsule">Propriétaire</span>');
+    // La fiche d'un bien garde la capsule grise ; la fiche propriétaire passe en rouge (lot COULEURS-CARTOUCHES).
+    expect(src).toContain('<span className="ann-role-capsule ann-role-capsule--proprietaire">Propriétaire</span>');
     expect(src).toContain('<span className="ann-role-capsule">Bien</span>');
   });
 });

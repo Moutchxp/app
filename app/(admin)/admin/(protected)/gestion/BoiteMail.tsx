@@ -2055,7 +2055,7 @@ export function BoiteMail({
                         priorité est tenue par `capsuleStatut` (module PUR) : Classé > Auto > Hors gestion >
                         À classer. Un mail marqué hors gestion PUIS rattaché à un bien reste donc vert. */}
                     {l.classement && etiquette.sorte !== 'spam' && etiquette.sorte !== 'brouillons' && (
-                      <span className={`bte-capsule bte-capsule--${capsuleDeLaLigne(l)}`}
+                      <span className={`bte-capsule bte-capsule--statut bte-capsule--${capsuleDeLaLigne(l)}`}
                         title={bulleCapsule(capsuleDeLaLigne(l),
                           capsuleDeLaLigne(l) === 'hors_gestion'
                             ? motMotifHorsGestion(l.motifHorsGestion)
@@ -2453,4 +2453,30 @@ ${CSS_BARRE_PAGES}
   white-space:nowrap;border:0}
 
 ${CSS_MENU_LIGNE}
+/* ══ 🔴🔴 LOT ALIGNEMENT-STATUTS-BOITE (Arno, 14/10/2026) — « A classer », « Auto », « Classe » PARFAITEMENT ALIGNES ══════
+   Arno : « les statuts doivent etre parfaitement alignes a la verticale, d'une ligne a l'autre. Aujourd'hui “A classer”
+   est decale vers la gauche. […] colonne de largeur fixe, meme boite et meme alignement pour les trois etats, que la
+   ligne ait ou non une piece jointe, et que l'heure et “N bien(s) rattache(s)” restent alignes eux aussi. »
+   MESURE AVANT CORRECTION (banc, 25 lignes de Reception) : bord gauche « A classer » 1112,8 px, « Classe » 1147,5,
+   « Auto » 1155,1 — ecart 42,3 px. DEUX causes : la boite suivait la longueur du MOT, et la colonne de l'heure suivait
+   le texte « N biens rattaches » (« aucun bien rattache » plus long : le statut s'arretait 21 px plus a gauche).
+   ① LA BOITE : la largeur commune du plus long des trois mots (« A classer »), mot centre. Couleurs et mots
+     inchanges. « Hors gestion », plus long, garde la place qu'il lui faut.
+   ② LA COLONNE HEURE + BIENS : une largeur minimale fixe (6,5 rem) qui contient « aucun bien rattache » et une date
+     avec annee — la colonne ne varie plus d'une ligne a l'autre, donc le statut, colle a elle, non plus.
+   ③ SUR TELEPHONE : le trombone et le statut sont pousses au BOUT de la rangee (comme l'ecran partage) — la presence
+     d'un trombone ne decale plus le statut. Sur ordinateur, la colonne a la largeur de son contenu : rien ne bouge.
+   AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+/* ① La boite se mesure ELLE-MEME sur le plus long des trois mots, quelle que soit la police : un pseudo-element
+   invisible, sans hauteur, porte « A classer » dans la meme colonne de grille que le vrai mot (centre), APRES lui : la ligne de base de la boite reste celle du mot. Une largeur
+   en em ne suffisait pas : la police differe d'un contexte a l'autre, et « A classer » debordait encore de 14 px. */
+.bte-capsule--statut{display:inline-grid;justify-items:center;align-items:center;text-align:center}
+.bte-capsule--statut::after{content:"À classer";height:0;line-height:0;overflow:hidden;visibility:hidden}
+.bte-bas>.bte-marque--pieces{margin-left:auto}
+.bte-bas>.bte-capsule--statut{margin-left:auto}
+.bte-bas>.bte-marque--pieces+.bte-capsule--statut{margin-left:0}
+@media (min-width:768px){
+  .bte-liste--dense .bte-ligne{grid-template-columns:minmax(7rem,12rem) minmax(0,1fr) auto minmax(6.5rem,auto)}
+  .bte-liste--dense .bte-ligne>.cbm-pile,.bte-liste--dense .bte-ligne>.bte-quand{justify-self:end}
+}
 `;

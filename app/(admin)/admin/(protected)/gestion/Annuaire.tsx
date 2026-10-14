@@ -924,7 +924,9 @@ function VueProprietaire({
         <div className="ann-tete-mots">
           <h3 className="ann-tete-nom">{f.civilite ? `${f.civilite} ` : ''}{f.nom}</h3>
           <p className="ann-tete-sous">
-            <span className="ann-role-capsule">Propriétaire</span>
+            {/* 🔴 LOT COULEURS-CARTOUCHES (Arno, 14/10/2026) — ROUGE transparent, le rouge « propriétaire » de la légende de
+                l'historique, sur le modèle du vert « Locataire en place ». Le mot est inchangé. */}
+            <span className="ann-role-capsule ann-role-capsule--proprietaire">Propriétaire</span>
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
             {/* ══ 🔴🔴 LOT FICHES-RETOUCHES — L'HISTORIQUE COMPLET DU PROPRIÉTAIRE, ET QUAND IL SERT ═══════════
                 Arno : « l'historique complet du propriétaire reste accessible depuis l'en-tête de la fiche, en
@@ -2003,6 +2005,11 @@ function VueLocataire({
       {/* ══ 🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT, EN CARTES — la règle d'Arno, à l'écran ═══════════════════════ */}
       <BlocCartes titre="Coordonnées" id="ann-coord-loc" personnes={f.personnes} motAjouter="Ajouter un occupant"
         role={(p) => (p.id === f.id ? 'Locataire' : 'Même logement')} gestes={gestes}
+        /* 🔴 LOT COULEURS-CARTOUCHES (Arno, 14/10/2026) — chaque capsule prend la couleur du statut de SA personne, par la
+           règle en place : la personne de la fiche suit le titre (vert en place, violet ancien) ; les autres cartes
+           sont les occupants EN COURS du même logement (le serveur ne ramène que des occupations sans sortie), donc
+           vertes. Les mots ne changent pas. */
+        tonRole={(p) => (p.id !== f.id || enCours.length > 0 ? 'en_place' : 'ancien')}
         creation={{
           /* ⚠️ ON RATTACHE AU LOGEMENT EN COURS. Sans logement en cours, la personne est créée sans lien : il n'y
              a rien à quoi la rattacher, et inventer un bail serait écrire un fait faux — la phrase le dit. */
@@ -2386,6 +2393,11 @@ export const CSS_ANNUAIRE = `
    (--color-svv-green-ink sur --color-svv-green-soft), definies en Clair ET en Sombre. Aucune couleur en dur. */
 .ann-role-capsule--en-place{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);
   border-color:var(--color-svv-green)}
+/* 🔴 LOT COULEURS-CARTOUCHES — LA CAPSULE « PROPRIETAIRE », EN ROUGE TRANSPARENT. Le rouge « proprietaire » de la legende
+   de l'historique (--color-svv-red, texte et bordure) sur son fond tamise (--color-svv-red-soft), definis en Clair ET en
+   Sombre : le meme modele que le vert « Locataire en place ». Aucune couleur en dur. */
+.ann-role-capsule--proprietaire{color:var(--color-svv-red);background:var(--color-svv-red-soft);
+  border-color:var(--color-svv-red)}
 .ann-tete-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-left:auto}
 
 /* ── LES BLOCS ────────────────────────────────────────────────────────────────────────────────────────────── */

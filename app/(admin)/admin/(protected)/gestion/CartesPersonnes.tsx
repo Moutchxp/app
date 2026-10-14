@@ -349,11 +349,20 @@ function Coordonnees({ contacts, onEcrire }: {
 
 type Mode = 'lecture' | 'modifier' | 'separer';
 
-export function CartePersonne({ p, gestes, role, dessous, deplacer }: {
+/** 🔴 LOT COULEURS-CARTOUCHES — la teinte d'une capsule de rôle quand l'écran la connaît (statut de la personne). */
+export type TonRoleCarte = 'proprietaire' | 'en_place' | 'ancien';
+
+export function CartePersonne({ p, gestes, role, dessous, deplacer, ton }: {
   p: PersonneAnnuaire;
   gestes: GestesCartes;
   /** Le mot de la capsule de rôle : « Propriétaire », « En place », « Parti »… */
   role: string;
+  /**
+   * 🔴 LOT COULEURS-CARTOUCHES (Arno, 14/10/2026) — la teinte DONNÉE par l'écran, d'après le STATUT de la personne
+   * (fiche locataire : vert en place, violet ancien), le mot restant celui de `role`. Absente ⇒ la teinte se déduit du
+   * mot (`tonDuRoleClient`), exactement comme avant : aucun autre écran ne change.
+   */
+  ton?: TonRoleCarte | null;
   /** Ce que la fiche ajoute sous les coordonnées (les dates d'une occupation, par exemple). */
   dessous?: React.ReactNode;
   /**
@@ -419,9 +428,10 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer }: {
               🔴 LE TON SE DÉDUIT DU MOT (`tonDuRoleClient`), et le mot reste la seule source : aucune seconde
               propriété « et voici sa couleur » à tenir d'accord avec le libellé. Tout autre rôle — « Parti »,
               « Même logement », « CONTACT DU … » — garde le gris d'aujourd'hui. */}
-          <span className={`cp-role${tonDuRoleClient(role) === null ? '' : ` cp-role--${tonDuRoleClient(role)}`}`}>
-            {role}
-          </span>
+          {(() => {
+            const t = ton ?? tonDuRoleClient(role);
+            return <span className={`cp-role${t === null ? '' : ` cp-role--${t}`}`}>{role}</span>;
+          })()}
             {p.archive && <span className="cp-caps cp-caps--absent">archivée</span>}
             {p.absent && <span className="cp-caps cp-caps--absent">absente de l’export</span>}
           </p>
@@ -1394,12 +1404,14 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
 }
 
 export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous, creation,
-  contacts = [], gestesContact, creationContact, teinte = null, sousTitre = null }: {
+  contacts = [], gestesContact, creationContact, teinte = null, sousTitre = null, tonRole }: {
   titre: string;
   id: string;
   personnes: readonly PersonneAnnuaire[];
   gestes: GestesCartes;
   role: string | ((p: PersonneAnnuaire) => string);
+  /** 🔴 LOT COULEURS-CARTOUCHES — la teinte de la capsule de CHAQUE personne, d'après son statut. Absente ⇒ rien ne change. */
+  tonRole?: (p: PersonneAnnuaire) => TonRoleCarte | null;
   motAjouter: string;
   dessous?: (p: PersonneAnnuaire) => React.ReactNode;
   /**
@@ -1532,6 +1544,7 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
         {ordonnees.map((p, i) => (
           <CartePersonne key={`${p.sujet}-${p.id}`} p={p} gestes={gestes}
             role={typeof role === 'string' ? role : role(p)}
+            ton={tonRole?.(p) ?? null}
             dessous={dessous?.(p)}
             deplacer={!gestes.modifiable || vivantes.length < 2 || p.archive ? null : {
               gauche: i > 0,
@@ -1749,6 +1762,9 @@ export const CSS_CARTES = `
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
 .cp-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 .cp-role--en_place{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+/* 🔴 LOT COULEURS-CARTOUCHES (Arno, 14/10/2026) — l'ANCIEN locataire en VIOLET : la paire tamisee du theme, celle de la
+   capsule du titre de sa fiche et de « ancien locataire » dans la legende de l'historique. Le MOT reste ecrit. */
+.cp-role--ancien{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .cp-tete-actions{display:flex;gap:.25rem;flex:0 0 auto}
 /* Cible tactile >= 44 px en hauteur reelle grace au padding : l'icone reste petite, la zone cliquable non. */
 .cp-icone{min-width:2rem;min-height:2rem;display:inline-flex;align-items:center;justify-content:center;

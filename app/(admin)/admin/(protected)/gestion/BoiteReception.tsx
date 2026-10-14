@@ -455,6 +455,13 @@ ${CSS_BOUTON_PILULE}
 /* LOT RATTACHER-EN-ECRIVANT — « Interne » : VERT, un etat d'ARRIVEE. Le MOT est toujours ecrit. */
 .brc-capsule--interne{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 .brc-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
+/* 🔴 LOT ALIGNEMENT-STATUTS-BOITE (Arno, 14/10/2026) — LA MEME BOITE POUR « A classer », « Auto », « Classe » : la
+   largeur du plus long des trois mots, mesuree par un pseudo-element invisible et sans hauteur, quelle que soit la
+   police ; mot centre. La capsule est deja poussee au bout de la rangee
+   (margin-left:auto) : ses deux bords coincident desormais d'une ligne a l'autre, trombone ou non. Couleurs et mots
+   inchanges. AUCUN ACCENT GRAVE ICI : litteral gabarit. */
+.brc-capsule{display:inline-grid;justify-items:center;align-items:center;text-align:center}
+.brc-capsule::after{content:"À classer";height:0;line-height:0;overflow:hidden;visibility:hidden}
 .brc-plus{align-self:flex-start}
 .brc-ailleurs{margin:4px 0 0;font-size:.8rem;color:var(--color-svv-muted)}
 `;
