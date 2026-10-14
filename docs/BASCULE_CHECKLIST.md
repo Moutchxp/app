@@ -155,7 +155,7 @@ PRADA / cadastre / BD TOPO (veille : détection ; ingestions éteintes), IGN (tu
 | 3.1 | Relève continue Gestion | `journalctl -u svav-gestion-continu -n 50` ; `select resultat, termine_le from gestion_releve_run order by id desc limit 3` | une passe toutes les ~60 s, en succès ; aucun « non autorisé » Gmail |
 | 3.2 | Veille | `journalctl -u svav-veille -n 100` ; `select statut, fini_le from veille_run order by demarre_le desc limit 1` ; `select resultat from releve_run order by id desc limit 1` | passe en succès ; relève des mairies `ok` |
 | 3.3 | Empreintes Drive | `journalctl -u svav-drive-empreintes -n 30` | une passe incrémentale terminée, sans erreur de clé |
-| 3.0 | Tous les comptes d'envoi, sans rien envoyer | `npm run smtp:verifier` | « OK » pour : SMTP défaut, SMTP « personne », API Gmail de gestion@, Agenda par délégation ; code de sortie 0 |
+| 3.0 | Tous les comptes d'envoi, sans rien envoyer | `npm run smtp:verifier` | « OK » pour : SMTP défaut, SMTP « personne », API Gmail de gestion@, Agenda par délégation, Drive par délégation (racine « Base de données locative » et ses enfants directs, §5) ; code de sortie 0 |
 | 3.4 | Mail SMTP compte par défaut (envoi réel) | `npm run alertes:envoyer` (simulation, affiche le mail) puis `npm run alertes:envoyer -- --appliquer` | reçu par **a.jorel@sansvisavis.com** (adresse d'alerte en base), et par lui seul |
 | 3.5 | Mail SMTP des profils (mairies) | `npm run smtp:verifier` (connexion + authentification, AUCUN envoi) — aucun envoi réel de test : ces comptes n'écrivent qu'aux mairies | « OK » pour les deux comptes SMTP |
 | 3.6 | Gmail gestion@ (envoi) | Gestion → « Nouveau message » adressé **uniquement** à a.jorel@sansvisavis.com, objet « _TEST bascule » | reçu ; apparaît dans les Envoyés de gestion@ ; relevé par la relève suivante |
@@ -187,3 +187,94 @@ PRADA / cadastre / BD TOPO (veille : détection ; ingestions éteintes), IGN (tu
 | ~~Décision : rejeu de la veille~~ | **décidé le 14/10/2026 : PAS de rejeu** (`Restart=` retiré de `svav-veille.service.in`) ; la passe suivante du minuteur reprend |
 | Outils d'ingestion (`ogr2ogr`, `7z`, `curl`, `bzip2`) | seulement si une ingestion automatique est rallumée (toutes éteintes aujourd'hui) |
 | Docs à mettre à jour : `ops/README.md:114-118` (passes « planifie »), en-tête de `veille-run.ts:13` (« aucun envoi » : faux) | confusion à l'exploitation |
+
+## 5. Drive : comment l'application y accède, et ce qui marchera sur le serveur
+
+> Recon en lecture seule du 14/10/2026 (code du dépôt et noms des variables du `.env` ; aucun appel réseau, aucun
+> accès au Drive ni aux dossiers synchronisés du Mac).
+
+### 5.1 Carte des accès
+
+**(A) API Google Drive par la clé de délégation** — TOUS les accès de l'application. Compte de service
+(`drive-delegation.json`, `GOOGLE_DELEGATION_CLE_FICHIER`), portée `drive`, au nom du collaborateur connecté
+(`jetonCollaborateur.ts`) ou de gestion@ pour les passes de fond (`driveDelegue.ts:jetonPourSubject`).
+
+| Usage | Code | Déclencheur | Lecture / écriture |
+|---|---|---|---|
+| Fenêtre Drive de la Gestion : naviguer, lister, aperçu, localiser | routes `api/admin/gestion/drive/{fichiers,dossiers,dossier-du-bien,apercu,localiser}`, `drive.ts` (`files.list`) | à chaque ouverture / clic | lecture, **en direct** |
+| Ranger / copier une pièce | `depotDriveReel.ts`, `drive.ts` (téléversement), `driveMouvement.ts` (copie) | bouton | écriture |
+| Déplacer | `driveMouvement.ts` (`addParents` / `removeParents`), route `drive/deplacer` | bouton | écriture |
+| Corbeille (jamais de suppression définitive) | `driveCorbeilleReel.ts`, route `drive/corbeille` | bouton | écriture |
+| Créer un dossier | `driveCreation.ts`, route `drive/dossier` | bouton | écriture |
+| Renommer (registre de l'application seulement) | `renommageDrive.ts`, `renommagePieceReel.ts` | bouton ; **alignement automatique** quand un nom a changé dans Drive : ouverture d'un fil (`fils/[id]/messages/route.ts:73`, `relireNomsDesPieces`) et relève continue (`suiteReleveReel.ts`) | écriture |
+| Lire le contenu d'une copie (pièce vidée de MinIO) | `pieceDriveLecture.ts`, `driveLectureFichier.ts` | ouverture d'une pièce | lecture |
+| Index des empreintes | `app/scripts/indexer-empreintes-drive.ts --changements --appliquer` (`changes.list`), puis correction des emplacements fantômes (`fantomesEmplacements.ts`) | **toutes les 15 min** (launchd → `svav-drive-empreintes.timer`) | lecture du Drive, écriture en base |
+| Arbre, copies en masse, vidage | `driveEcriture.ts`, `copiePiecesReel.ts`, CLI `gestion:drive:*` | CLI, simulation par défaut | écriture sous « Base de données locative » seulement (`driveGardeFou.ts`) |
+| Drive « Permis » | `permis/drive.ts` (`GOOGLE_DRIVE_*`, `drive.readonly`) | veille | lecture |
+
+**(B) Fichiers locaux d'un dossier synchronisé par l'application Google Drive du Mac** — **AUCUN.** Recherche dans
+`app/`, `scripts/`, `ops/`, `deploy/` : aucun chemin `~/Library/CloudStorage/GoogleDrive-…`, `/Users/…/Google Drive`,
+« Mon Drive » ou « Drive partagés » sur le disque (ces mots n'apparaissent que comme LIBELLÉS d'écran de la fenêtre
+Drive) ; aucun `fs.watch`, `watchFile`, `chokidar`, aucune dépendance de ce type ; aucune variable du `.env` ne pointe
+vers un dossier synchronisé. Les seuls dossiers locaux lus ou écrits par des scripts sont le Bureau (rapports),
+Téléchargements (import de l'annuaire, à la main) et `data/sitadel` — rien qui touche au Drive.
+
+### 5.2 D'où vient la « synchronisation dans les deux sens »
+
+Ce n'est PAS le client Google Drive du Mac : l'application ne lit ni n'écrit aucun fichier local. C'est l'API.
+
+- **Application → Drive : immédiat.** Ranger, copier, déplacer, mettre à la corbeille, créer un dossier, renommer :
+  chaque geste est un appel API, visible dans Google Drive à l'instant (le client Drive du Mac ne fait que l'AFFICHER
+  à Arno sur son poste).
+- **Drive → application : à l'ouverture.** La fenêtre Drive lit le Drive EN DIRECT (`files.list`) à chaque ouverture
+  et à chaque clic : un document déposé, déplacé, renommé ou mis à la corbeille dans Drive apparaît tel quel dès
+  qu'on ouvre ou rafraîchit la fenêtre. Latence : aucune.
+- **Les déplacements de dossiers « suivent »** parce que l'application désigne dossiers et fichiers par leur
+  IDENTIFIANT Drive (ex. le dossier d'un bien, `drive_dossier_id`), qui ne change pas quand on les déplace ; les
+  chemins affichés sont relus en direct.
+- **L'index des empreintes** (`changes.list`, toutes les 15 min) tient à jour nom, parent et empreinte de chaque fichier
+  (ajout, corbeille, déplacement, renommage). Il sert à « cette pièce est déjà dans le Drive », à la loupe « Localiser »
+  et à la correction des emplacements fantômes. Latence : 15 min au plus.
+- **Les renommages faits dans Drive** sur des copies créées par l'application sont relus à l'ouverture d'un fil et
+  alignés pendant la relève continue (60 s).
+- Aucun webhook (`changes.watch`) : rien n'est poussé par Google.
+
+### 5.3 Conclusion pour le serveur
+
+Tout passe par (A) : **aucun client Google Drive n'est nécessaire sur Linux, ni rclone.** Le même comportement est
+obtenu dès que :
+1. la clé de délégation est lisible par l'utilisateur du service (`GOOGLE_DELEGATION_CLE_FICHIER` → fait le
+   14/10/2026, à vérifier par `npm run smtp:verifier`, ligne Drive) ;
+2. l'horloge est juste (NTP : le jeton est un JWT signé) ;
+3. `svav-drive-empreintes.timer` est activé (sans lui, la fenêtre en direct marche, mais « déjà dans le Drive », la
+   localisation et les fantômes se figent) ;
+4. `svav-gestion-continu` tourne (alignement des renommages).
+
+Ce qui manque : rien côté code. La délégation de domaine (portées `drive` et `calendar.events`) est déjà déclarée
+dans la console Google Workspace (13/10/2026, `agendaDelegue.ts`).
+
+### 5.4 Vérification sans risque (lecture seule)
+
+`npm run smtp:verifier` lit en base l'identifiant de la racine « Base de données locative » (`gestion_drive_arbre`),
+puis, au nom de gestion@ : ses MÉTADONNÉES (id, nom) et le NOMBRE de ses enfants directs (identifiants seulement).
+Aucune lecture de contenu, aucune écriture, aucun autre dossier : toute autre requête est refusée avant de partir
+(`fetchDriveLectureSeule`). 🔴 Un dossier nommé « Documents clients scannés », « 1 actifs », « 2 vendus » ou
+« 3 perdus » est REFUSÉ par garde-fou codé (`estNomProtege`), avant tout appel et à la lecture des métadonnées.
+
+### 5.5 Tests de bascule — UNIQUEMENT dans un dossier de test créé à la main par Arno
+
+> 🔴 Jamais ailleurs, et jamais dans « Documents clients scannés » (GESTION LOCATIVE › 1 actifs / 2 vendus / 3 perdus).
+> Pièces : uniquement celles d'un mail « _TEST » envoyé à a.jorel@sansvisavis.com (CLAUDE.md).
+
+Préparation (Arno, dans Google Drive sur le web) : créer sous « Base de données locative » un dossier
+« _TEST bascule », avec deux sous-dossiers « A » et « B ».
+
+| # | Geste | Attendu |
+|---|---|---|
+| 5.5.1 | `npm run smtp:verifier` | ligne Drive « OK » (racine accessible, N enfants directs) |
+| 5.5.2 | **Ajout Drive → appli** : Arno dépose un fichier « _TEST ajout.pdf » dans « A » (Drive web) ; puis la fenêtre Drive de l'appli, dossier « _TEST bascule › A » | le fichier apparaît dès l'ouverture |
+| 5.5.3 | **Ajout appli → Drive** : « Ranger » une pièce du mail « _TEST » dans « A » | le fichier apparaît aussitôt dans Drive web |
+| 5.5.4 | **Déplacement** : Arno déplace « A » dans « B » (Drive web) ; rouvrir la fenêtre ; puis, 15 min plus tard, la loupe « Localiser » de la pièce rangée en 5.5.3 | « A » apparaît sous « B » à l'ouverture ; la loupe montre le nouveau chemin après la passe d'index |
+| 5.5.5 | **Renommage** : Arno renomme la copie rangée en 5.5.3 (Drive web) ; rouvrir le fil du mail « _TEST » | le nouveau nom est repris |
+| 5.5.6 | **Suppression** : mettre « _TEST ajout.pdf » à la corbeille PAR L'APPLICATION | le fichier est dans la corbeille de Drive (jamais supprimé définitivement) ; disparu de la fenêtre |
+| 5.5.7 | Nettoyage | Arno met « _TEST bascule » à la corbeille dans Drive web |
