@@ -29,20 +29,28 @@ de `ST_AsBinary` égal).
    vérifier sur la machine).
 2. Appliquer la migration 353 (retire la seule contrainte qui bloquerait toute dalle hors d'Asnières) :
    `psql "$DATABASE_URL" -f db/migrations/353_lidar_emprise_libre.sql`
-3. Une SOURCE de téléchargement explicite — l'outil ne devine aucune URL :
-   - `--source-urls=<fichier.csv>` : une ligne `dalle;couche;url` par dalle et par couche (ex.
-     `0646_6868;MNS;https://…`), tirée du catalogue de la Géoplateforme IGN ;
-   - ou `--modele-url='https://…{X}…{Y}…{COUCHE}…'` si l'IGN expose un modèle d'adresse régulier (`{X}`, `{Y}` = km sur
-     4 chiffres, `{COUCHE}` = `MNS` ou `MNT`).
-   ⚠️ **La source officielle n'a pas pu être vérifiée pendant ce lot** (accès web refusé par le mode de permissions) :
-   la fixer avant le premier `--charger`.
+3. La SOURCE des fichiers — par DÉFAUT le **WFS de la Géoplateforme IGN** (`--source-wfs`), vérifié par une vraie
+   requête le 14/10/2026 (réponse enregistrée : `app/lib/lidar/__fixtures__/wfs-metadata-asnieres.json`) :
+   - `https://data.geopf.fr/wfs/ows`, WFS 2.0.0, couche `IGNF_LIDAR-HD_METADONNEE:metadata`, une entité par dalle
+     (`coordonnees_nw` = « 0646-6868 ») ;
+   - champs `url_mns` / `url_mnt` : une requête WMS-R GetMap dont la BBOX est exactement l'emprise de la dalle
+     (2000 × 2000 px) et dont `FILENAME` est `LHD_FXX_0646_6868_MNS_O_0M50_LAMB93_IGN69.tif` — le fichier du Mac ;
+   - l'outil interroge le WFS par blocs de 10 km (64 blocs, pagination STARTINDEX / COUNT), contrôle chaque URL
+     (FILENAME et BBOX de la dalle), met la liste en cache dans `--dossier` (`wfs-sources.csv`, `--rafraichir-wfs` pour
+     la refaire) et SIGNALE sans bloquer les dalles du cercle absentes du WFS (`wfs-indisponibles.txt` : zones non
+     diffusées, ZICAD…).
+   - Restent disponibles : `--source-urls=<fichier.csv>` (lignes `dalle;couche;url`) et `--modele-url='…{X}…{Y}…{COUCHE}…'`.
+   ⚠️ Le CONTENU du GeoTIFF rendu par le WMS-R n'a pas encore été comparé au fichier du Mac : le contrôle d'intégrité de
+   l'outil le jugera au premier téléchargement. Essai recommandé avant le chargement complet :
+   `npm run lidar:import -- --charger --dalles=<une dalle voisine>` puis `--verifier`.
 
 ### Commandes
 
 ```bash
 cd <dépôt>
-npm run lidar:import                                   # --liste : aucune écriture, aucun téléchargement
-npm run lidar:import -- --charger --source-urls=/srv/lidar/sources.csv --paralleles=4 --dossier=/srv/lidar/tmp
+npm run lidar:import -- --dossier=/srv/lidar/tmp      # --liste : aucune écriture en base, aucun téléchargement de
+                                                       #   dalle ; interroge le WFS : dalles disponibles chez l'IGN
+npm run lidar:import -- --charger --paralleles=4 --dossier=/srv/lidar/tmp      # source WFS IGN par défaut
 npm run lidar:import -- --verifier                     # dalles et tuiles par couche, trous et doublons
 ```
 

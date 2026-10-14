@@ -3,11 +3,13 @@
  *
  *   npm run lidar:import                       → --liste (DÉFAUT) : aucun téléchargement, aucune écriture
  *   npm run lidar:import -- --verifier         → comptes de tuiles par dalle et par couche, trous et doublons
- *   npm run lidar:import -- --charger --source-urls=<fichier.csv>   (ou --modele-url='…{X}…{Y}…{COUCHE}…')
+ *   npm run lidar:import -- --charger          → source par DÉFAUT : le WFS de la Géoplateforme IGN (--source-wfs),
+ *                                                 mis en cache dans --dossier ; ou --source-urls=<fichier.csv>,
+ *                                                 ou --modele-url='…{X}…{Y}…{COUCHE}…'
  *
  * Options : --rayon-km=36  --centre-lat=48.853 --centre-lon=2.3499  --paralleles=4  --dossier=<tmp>
  *           --base=<chaîne de connexion> (défaut DATABASE_URL)  --exiger-base=<nom>  --dalles=0646_6868,0647_6868
- *           --limite=<n>
+ *           --limite=<n>  --rafraichir-wfs (ignore le cache WFS)  --sans-wfs (--liste sans interroger l'IGN)
  *
  * Écrit UNIQUEMENT dans mns_lidar_brut et mnt_lidar_brut, au MÊME format que la dalle d'Asnières (raster2pgsql, tuiles
  * 256 × 256, SRID 2154, nodata -9999, rasters en base). Les règles (aucune suppression, une dalle par transaction,
@@ -19,12 +21,14 @@
  *   · --exiger-base=<nom> refuse toute autre base ;
  *   · --charger est refusé tant que la contrainte `enforce_max_extent_rast` (posée par AddRasterConstraints sur la seule
  *     emprise d'Asnières) est présente : appliquer d'abord db/migrations/353_lidar_emprise_libre.sql ;
- *   · aucune URL de téléchargement n'est devinée : la source se donne explicitement (catalogue IGN).
+ *   · aucune URL de téléchargement n'est devinée : elles viennent du WFS IGN (`IGNF_LIDAR-HD_METADONNEE:metadata`,
+ *     champs url_mns / url_mnt — vérifié le 14/10/2026), contrôlées dalle par dalle (FILENAME et BBOX), ou d'une liste
+ *     fournie. Une dalle du cercle absente du WFS (zone non diffusée, ZICAD…) est signalée, jamais bloquante.
  */
 import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
-import { appendFile, mkdir, readdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import { appendFile, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
@@ -36,6 +40,10 @@ import {
   type CoucheLidar, type Dalle, type EtatDalle,
 } from '../app/lib/lidar/grilleLidar';
 import { chargerDalles, type DepsChargement, type EvenementJournal } from '../app/lib/lidar/importLidar';
+import {
+  blocsDuCercle, lireLignesSources, lirePageWfs, pageSuivante, sourcesDuCercle, urlGetFeature, WFS_PAR_PAGE,
+  type EntreeWfs, type SourcesCercle,
+} from '../app/lib/lidar/sourceWfs';
 
 // ── Arguments ───────────────────────────────────────────────────────────────────────────────────────────────────────
 const args = new Map<string, string>();
@@ -118,17 +126,63 @@ async function contrainteEmpriseFigee(c: Client): Promise<string[]> {
 }
 
 // ── Source des fichiers (jamais devinée) ────────────────────────────────────────────────────────────────────────────
-async function lireSource(): Promise<(d: Dalle, couche: CoucheLidar) => string> {
+const cacheWfs = path.join(dossier, 'wfs-sources.csv');
+const indisponiblesWfs = path.join(dossier, 'wfs-indisponibles.txt');
+
+/** Interroge le WFS IGN bloc par bloc (pagination STARTINDEX / COUNT) et croise avec les dalles du cercle. */
+async function interrogerWfs(centre: { x: number; y: number }, dalles: readonly Dalle[]): Promise<SourcesCercle & { anomalies: string[]; requetes: number }> {
+  const entrees: EntreeWfs[] = [];
+  const anomalies: string[] = [];
+  let requetes = 0;
+  for (const bloc of blocsDuCercle(centre, rayonM)) {
+    for (let debut = 0; ; debut += WFS_PAR_PAGE) {
+      let page;
+      for (let essai = 1; ; essai += 1) {
+        try {
+          requetes += 1;
+          const r = await fetch(urlGetFeature(bloc, debut));
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          page = lirePageWfs(await r.json());
+          break;
+        } catch (e) {
+          if (essai >= 3) throw new Error(`WFS IGN injoignable : ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      entrees.push(...page.entrees);
+      anomalies.push(...page.anomalies);
+      if (!pageSuivante(page, debut)) break;
+    }
+  }
+  return { ...sourcesDuCercle(dalles, entrees), anomalies: [...new Set(anomalies)], requetes };
+}
+
+/** Sources WFS du cercle, depuis le cache du dossier de travail s'il correspond au même cercle (sinon interrogées). */
+async function sourcesWfs(centre: { x: number; y: number }, dalles: readonly Dalle[]): Promise<{ table: Map<string, string>; disponibles: number; indisponibles: string[]; origine: string }> {
+  const entete = `# wfs ${centre.x} ${centre.y} ${rayonM}`;
+  if (!args.has('rafraichir-wfs')) {
+    try {
+      const texte = await readFile(cacheWfs, 'utf8');
+      if (texte.startsWith(`${entete}\n`)) {
+        const table = lireLignesSources(texte);
+        const indisponibles = (await readFile(indisponiblesWfs, 'utf8')).split('\n').filter((l) => l.trim() !== '');
+        return { table, disponibles: dalles.length - indisponibles.length, indisponibles, origine: `cache ${cacheWfs}` };
+      }
+    } catch { /* pas de cache : on interroge */ }
+  }
+  const s = await interrogerWfs(centre, dalles);
+  await mkdir(dossier, { recursive: true });
+  await writeFile(cacheWfs, `${entete}\n${s.lignes.join('\n')}\n`);
+  await writeFile(indisponiblesWfs, `${s.indisponibles.join('\n')}\n`);
+  for (const a of s.anomalies) console.error(`[lidar-import] WFS : ${a}`);
+  return { table: lireLignesSources(s.lignes.join('\n')), disponibles: s.disponibles, indisponibles: s.indisponibles, origine: `WFS IGN (${s.requetes} requêtes)` };
+}
+
+async function lireSource(centre: { x: number; y: number }, dalles: readonly Dalle[]): Promise<(d: Dalle, couche: CoucheLidar) => string> {
   const fichier = args.get('source-urls');
   const modele = args.get('modele-url');
   if (fichier) {
-    // CSV « dalle;couche;url » (ex. « 0646_6868;MNS;https://… »), tiré du catalogue IGN — une ligne par dalle et par couche.
-    const table = new Map<string, string>();
-    for (const ligne of (await readFile(fichier, 'utf8')).split(/\r?\n/)) {
-      const [dalle, couche, url] = ligne.split(';').map((s) => s.trim());
-      if (!dalle || !couche || !url || dalle.startsWith('#')) continue;
-      table.set(`${dalle}|${couche.toUpperCase()}`, url);
-    }
+    // CSV « dalle;couche;url » (ex. « 0646_6868;MNS;https://… ») — une ligne par dalle et par couche.
+    const table = lireLignesSources(await readFile(fichier, 'utf8'));
     return (d, couche) => {
       const url = table.get(`${nomDalle(d)}|${couche}`);
       if (!url) throw new Error(`aucune URL pour ${nomDalle(d)} ${couche} dans ${fichier}`);
@@ -140,7 +194,15 @@ async function lireSource(): Promise<(d: Dalle, couche: CoucheLidar) => string> 
       .replaceAll('{X}', String(d.xKm).padStart(4, '0')).replaceAll('{Y}', String(d.yKm).padStart(4, '0'))
       .replaceAll('{COUCHE}', couche);
   }
-  return arreter('--charger exige une source : --source-urls=<fichier.csv> (catalogue IGN) ou --modele-url=<modèle>');
+  // DÉFAUT (--source-wfs) : le WFS de la Géoplateforme IGN.
+  const w = await sourcesWfs(centre, dalles);
+  console.log(JSON.stringify({ source: w.origine, disponibles_ign: w.disponibles, indisponibles_ign: w.indisponibles.length }, null, 2));
+  if (w.indisponibles.length > 0) console.error(`[lidar-import] ${w.indisponibles.length} dalle(s) du cercle absentes du WFS IGN (zones non diffusées, ZICAD…) : ${indisponiblesWfs}`);
+  return (d, couche) => {
+    const url = w.table.get(`${nomDalle(d)}|${couche}`);
+    if (!url) throw new Error(`dalle absente du WFS IGN (${couche}) — zone non diffusée ?`);
+    return url;
+  };
 }
 
 async function telecharger(url: string, destination: string): Promise<void> {
@@ -258,14 +320,24 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({ trous_ou_incompletes: incoherentes, absentes: compte.absente, tuiles_en_double_par_couche: doublons }, null, 2));
       return;
     }
-    if (mode === 'liste') return;
+    if (mode === 'liste') {
+      if (args.has('sans-wfs') || args.has('source-urls') || args.has('modele-url')) return;
+      try {
+        const w = await sourcesWfs(centre, dalles);
+        const absentesDispo = dalles.filter((d) => et.get(nomDalle(d)) === 'absente' && w.table.has(`${nomDalle(d)}|MNS`) && w.table.has(`${nomDalle(d)}|MNT`)).length;
+        console.log(JSON.stringify({ source: w.origine, disponibles_ign: w.disponibles, indisponibles_ign: w.indisponibles.length, a_charger_disponibles_ign: absentesDispo, liste_indisponibles: indisponiblesWfs }, null, 2));
+      } catch (e) {
+        console.log(JSON.stringify({ disponibles_ign: 'inconnu', motif: e instanceof Error ? e.message : String(e) }, null, 2));
+      }
+      return;
+    }
 
     // ── --charger ──
     if (process.platform === 'darwin' && nomBase !== 'lidar_jetable') arreter(`sur le Mac, --charger n'écrit que dans « lidar_jetable » (base « ${nomBase} » refusée)`);
     const figees = await contrainteEmpriseFigee(c);
     if (figees.length > 0) arreter(`contrainte enforce_max_extent_rast présente sur ${figees.join(', ')} : appliquer d'abord db/migrations/353_lidar_emprise_libre.sql`);
     for (const outil of ['raster2pgsql', 'psql', 'gdalinfo']) if (!(await disponible(outil))) arreter(`outil absent : ${outil}`);
-    const source = await lireSource();
+    const source = await lireSource(centre, dalles);
     await mkdir(dossier, { recursive: true });
     for (const f of await readdir(dossier)) if (f.endsWith('.part')) await rm(path.join(dossier, f), { force: true }); // reste d'une coupure
 
