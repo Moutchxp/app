@@ -12,7 +12,8 @@
  *
  * Observe seulement : ne redémarre rien, n'écrit jamais en base. Logique et garde-fous : `app/lib/ops/surveillance.ts`.
  * Réglages (`.env`, tous facultatifs) : SURVEILLANCE_DESTINATAIRE, SURVEILLANCE_URL, SURVEILLANCE_SAUVEGARDES_LOCALES,
- * SURVEILLANCE_OVH, SURVEILLANCE_RECAP (oui/non), SURVEILLANCE_RECAP_HEURE, SURVEILLANCE_ETAT (fichier d'état).
+ * SURVEILLANCE_OVH, SURVEILLANCE_RECAP (oui/non), SURVEILLANCE_RECAP_HEURE, SURVEILLANCE_ETAT (fichier d'état),
+ * SURVEILLANCE_CERT_JOURS (alerte du certificat, défaut 20 jours), SURVEILLANCE_CERT_RAPPEL_JOURS (défaut 1 : un mail par jour).
  * Mail : compte SMTP par défaut (SMTP_* + MAIL_FROM). Un envoi raté s'écrit dans le journal système, sans boucle.
  * Code de sortie : toujours 0 sauf panne de la surveillance elle-même — un problème observé n'est pas un échec.
  */

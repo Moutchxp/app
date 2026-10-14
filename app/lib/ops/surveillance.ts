@@ -6,7 +6,8 @@
  *      (relève Gestion, veille, empreintes Drive, statistiques) SEULEMENT s'ils sont installés ET activés — un
  *      automatisme absent ou non activé n'est pas une alerte (ils sont volontairement éteints avant la bascule) ;
  *      toute unité svav-* en échec ;
- *   2. le site répond 200 en moins de 10 s ; son certificat https vaut encore plus de 14 jours ;
+ *   2. le site répond 200 en moins de 10 s ; son certificat https vaut encore plus de 20 jours
+ *      (réglable ; sinon UN mail par jour, décompte recalculé, et « résolu » au renouvellement) ;
  *   3. la dernière sauvegarde locale (…/sauvegardes/<x>/TERMINEE) et la dernière svav-*.tar.zst.age de l'espace OVH
  *      (Roubaix) ont moins de 26 h ; l'espace OVH est monté ;
  *   4. disque / et espace OVH remplis à 85 % au plus ;
@@ -29,7 +30,6 @@
 
 export const SEUILS = {
   siteDelaiMs: 10_000,
-  certificatJoursMin: 14,
   sauvegardeHeuresMax: 26,
   disqueMax: 0.85,
   releveMinutesMax: 10,
@@ -59,6 +59,10 @@ export interface Reglages {
   pointOvh: string;
   recapQuotidien: boolean;
   recapHeure: number;
+  /** Alerte du certificat https à partir de N jours restants (SURVEILLANCE_CERT_JOURS). */
+  certJours: number;
+  /** Rappel du certificat tous les N jours civils (SURVEILLANCE_CERT_RAPPEL_JOURS ; 1 = un mail par jour). */
+  certRappelJours: number;
 }
 
 export const REGLAGES_DEFAUT: Reglages = {
@@ -68,6 +72,8 @@ export const REGLAGES_DEFAUT: Reglages = {
   pointOvh: '/mnt/svav-ovh',
   recapQuotidien: true,
   recapHeure: 8,
+  certJours: 20,
+  certRappelJours: 1,
 };
 
 /** Réglages lus dans l'environnement (`.env`), avec repli sûr sur les défauts. PUR. */
@@ -75,6 +81,11 @@ export function lireReglages(env: Record<string, string | undefined>): Reglages 
   const txt = (cle: string, defaut: string) => (env[cle] ?? '').trim() || defaut;
   const heure = Number((env.SURVEILLANCE_RECAP_HEURE ?? '').trim());
   const recap = (env.SURVEILLANCE_RECAP ?? '').trim().toLowerCase();
+  const entier = (cle: string, min: number, max: number, defaut: number) => {
+    const brut = (env[cle] ?? '').trim();
+    const n = Number(brut);
+    return brut !== '' && Number.isInteger(n) && n >= min && n <= max ? n : defaut;
+  };
   return {
     destinataire: txt('SURVEILLANCE_DESTINATAIRE', REGLAGES_DEFAUT.destinataire),
     urlSite: txt('SURVEILLANCE_URL', REGLAGES_DEFAUT.urlSite),
@@ -83,6 +94,8 @@ export function lireReglages(env: Record<string, string | undefined>): Reglages 
     recapQuotidien: !['non', 'off', '0', 'false'].includes(recap),
     recapHeure: Number.isInteger(heure) && heure >= 0 && heure <= 23 && (env.SURVEILLANCE_RECAP_HEURE ?? '').trim() !== ''
       ? heure : REGLAGES_DEFAUT.recapHeure,
+    certJours: entier('SURVEILLANCE_CERT_JOURS', 1, 90, REGLAGES_DEFAUT.certJours),
+    certRappelJours: entier('SURVEILLANCE_CERT_RAPPEL_JOURS', 1, 30, REGLAGES_DEFAUT.certRappelJours),
   };
 }
 
@@ -116,6 +129,10 @@ export interface Probleme {
   cle: string;
   titre: string; // court, sert d'objet de mail
   detail: string;
+  /** Objet du mail « résolu » (défaut : le titre). */
+  titreResolu?: string;
+  /** Rappel tous les N jours CIVILS (heure de Paris), au lieu du rappel toutes les 6 h — le certificat https. */
+  rappelJours?: number;
 }
 export interface LigneControle {
   quoi: string;
@@ -194,11 +211,19 @@ export async function controler(sondes: Sondes, reglages: Reglages, maintenant: 
   await essayer('Certificat https', 'certificat', async () => {
     const c = await sondes.certificat(reglages.urlSite);
     if (!c.expireLe) return ko('Certificat https', { cle: 'certificat', titre: 'Certificat https invalide', detail: c.erreur ?? 'certificat illisible' });
+    // Décompte RECALCULÉ à chaque passe : chaque mail (apparition, rappel quotidien) porte le nombre de jours du moment.
     const jours = Math.floor((c.expireLe.getTime() - maintenant.getTime()) / 86_400_000);
     const fin = `expire le ${dateLisible(c.expireLe)}`;
+    const le = jourCivil(c.expireLe);
     if (c.erreur) ko('Certificat https', { cle: 'certificat', titre: 'Certificat https invalide', detail: `${c.erreur} (${fin})` });
-    else if (jours > SEUILS.certificatJoursMin) ok('Certificat https', `${fin} (dans ${jours} jours)`);
-    else ko('Certificat https', { cle: 'certificat', titre: jours < 0 ? 'Certificat https expiré' : `Certificat https expire dans ${jours} jours`, detail: fin });
+    else if (jours > reglages.certJours) ok('Certificat https', `${fin} (dans ${jours} jours)`);
+    else ko('Certificat https', {
+      cle: 'certificat',
+      titre: jours < 0 ? `Certificat https expiré (le ${le})` : `Certificat https : coupure dans ${jours} jour${jours > 1 ? 's' : ''} (le ${le})`,
+      detail: `${fin} — renouvellement à faire (seuil d'alerte : ${reglages.certJours} jours restants)`,
+      titreResolu: 'Certificat https renouvelé',
+      rappelJours: reglages.certRappelJours,
+    });
   });
 
   // 3. Sauvegardes.
@@ -262,6 +287,7 @@ export interface ProblemeSuivi {
   detail: string;
   depuis: string; // ISO
   dernierEnvoi: string; // ISO
+  titreResolu?: string;
 }
 export interface Etat {
   version: 1;
@@ -302,6 +328,16 @@ function jourEtHeure(d: Date): { jour: string; heure: number } {
   const v = (t: string) => p.find((x) => x.type === t)?.value ?? '';
   return { jour: `${v('year')}-${v('month')}-${v('day')}`, heure: Number(v('hour')) };
 }
+/** Date civile jj/mm/aaaa, heure de Paris. PUR. */
+export function jourCivil(d: Date): string {
+  const [a, m, j] = jourEtHeure(d).jour.split('-');
+  return `${j}/${m}/${a}`;
+}
+/** Nombre de jours CIVILS (heure de Paris) entre deux instants : 23 h 59 → 00 h 01 = 1 jour. PUR. */
+function ecartJoursCivils(avant: Date, apres: Date): number {
+  const utc = (d: Date) => { const [a, m, j] = jourEtHeure(d).jour.split('-').map(Number); return Date.UTC(a, m - 1, j); };
+  return Math.round((utc(apres) - utc(avant)) / 86_400_000);
+}
 
 const tronquer = (s: string, n = 180) => (s.length <= n ? s : `${s.slice(0, n - 1)}…`);
 const PIED = [
@@ -316,7 +352,8 @@ function blocControles(lignes: LigneControle[]): string[] {
 }
 
 /**
- * Décide des mails d'une passe. PUR. Nouveaux problèmes, rappels (≥ 6 h depuis le dernier mail) et résolus partent dans
+ * Décide des mails d'une passe. PUR. Nouveaux problèmes, rappels (≥ 6 h depuis le dernier mail ; tous les N jours civils
+ * pour un problème à `rappelJours`, le certificat https) et résolus partent dans
  * UN seul mail ; le récapitulatif quotidien, s'il est dû, dans un second.
  */
 export function planifier(etat: Etat, controles: Controles, maintenant: Date, reglages: Reglages, machine: string): Envoi[] {
@@ -326,7 +363,9 @@ export function planifier(etat: Etat, controles: Controles, maintenant: Date, re
   const nouveaux = controles.problemes.filter((p) => !etat.problemes[p.cle]);
   const rappels = controles.problemes.filter((p) => {
     const s = etat.problemes[p.cle];
-    return s && maintenant.getTime() - Date.parse(s.dernierEnvoi) >= SEUILS.rappelHeures * 3_600_000;
+    if (!s) return false;
+    if (p.rappelJours) return ecartJoursCivils(new Date(s.dernierEnvoi), maintenant) >= p.rappelJours;
+    return maintenant.getTime() - Date.parse(s.dernierEnvoi) >= SEUILS.rappelHeures * 3_600_000;
   });
   const resolus = Object.entries(etat.problemes).filter(([cle]) => !actuels.has(cle));
 
@@ -335,23 +374,24 @@ export function planifier(etat: Etat, controles: Controles, maintenant: Date, re
     let sujet: string;
     if (nouveaux.length === 1) sujet = `⚠ ${nouveaux[0].titre}`;
     else if (nouveaux.length > 1) sujet = `⚠ ${nouveaux.length} problèmes : ${titres(nouveaux)}`;
-    else if (rappels.length > 0) sujet = `⚠ Toujours en cours : ${titres(rappels)}`;
-    else sujet = `✅ Résolu : ${resolus.map(([, s]) => s.titre).join(' ; ')}`;
+    // Un rappel à décompte (certificat) porte son titre du jour tel quel : « ⚠ Certificat https : coupure dans 17 jours … ».
+    else if (rappels.length > 0) sujet = rappels.every((p) => p.rappelJours) ? `⚠ ${titres(rappels)}` : `⚠ Toujours en cours : ${titres(rappels)}`;
+    else sujet = `✅ Résolu : ${resolus.map(([, s]) => s.titreResolu ?? s.titre).join(' ; ')}`;
     if (nouveaux.length > 0 && resolus.length > 0) sujet += ` (+ ${resolus.length} résolu${resolus.length > 1 ? 's' : ''})`;
 
     const corps: string[] = [`Serveur ${machine}, contrôle du ${dateLisible(maintenant)}.`, ''];
     if (nouveaux.length) corps.push('NOUVEAU PROBLÈME :', ...nouveaux.map((p) => `  ⚠ ${p.titre}\n    ${p.detail}`), '');
-    if (rappels.length) corps.push(`TOUJOURS EN COURS (rappel toutes les ${SEUILS.rappelHeures} h) :`,
-      ...rappels.map((p) => `  ⚠ ${p.titre} — depuis le ${dateLisible(new Date(etat.problemes[p.cle].depuis))}\n    ${p.detail}`), '');
-    if (resolus.length) corps.push('RÉSOLU :', ...resolus.map(([, s]) => `  ✅ ${s.titre} — apparu le ${dateLisible(new Date(s.depuis))}`), '');
+    if (rappels.length) corps.push('TOUJOURS EN COURS :',
+      ...rappels.map((p) => `  ⚠ ${p.titre} — depuis le ${dateLisible(new Date(etat.problemes[p.cle].depuis))} (${p.rappelJours ? (p.rappelJours === 1 ? 'rappel chaque jour' : `rappel tous les ${p.rappelJours} jours`) : `rappel toutes les ${SEUILS.rappelHeures} h`})\n    ${p.detail}`), '');
+    if (resolus.length) corps.push('RÉSOLU :', ...resolus.map(([, s]) => `  ✅ ${s.titreResolu ?? s.titre} — apparu le ${dateLisible(new Date(s.depuis))}`), '');
     corps.push('ÉTAT DE TOUS LES CONTRÔLES :', ...blocControles(controles.lignes), ...PIED);
 
     envois.push({
       mail: { sujet: tronquer(`${PREFIXE_OBJET} ${sujet}`), corps: corps.join('\n') },
       appliquer: (e) => {
         const problemes = { ...e.problemes };
-        for (const p of nouveaux) problemes[p.cle] = { titre: p.titre, detail: p.detail, depuis: iso, dernierEnvoi: iso };
-        for (const p of rappels) if (problemes[p.cle]) problemes[p.cle] = { ...problemes[p.cle], detail: p.detail, dernierEnvoi: iso };
+        for (const p of nouveaux) problemes[p.cle] = { titre: p.titre, detail: p.detail, depuis: iso, dernierEnvoi: iso, ...(p.titreResolu ? { titreResolu: p.titreResolu } : {}) };
+        for (const p of rappels) if (problemes[p.cle]) problemes[p.cle] = { ...problemes[p.cle], titre: p.titre, detail: p.detail, dernierEnvoi: iso };
         for (const [cle] of resolus) delete problemes[cle];
         return { ...e, problemes };
       },

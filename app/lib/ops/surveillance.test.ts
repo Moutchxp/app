@@ -84,12 +84,14 @@ describe('controler', () => {
     expect(await titre(async () => ({ statut: 200, dureeMs: 9_999 }))).toBeUndefined();
   });
 
-  it('certificat : alerte à 14 jours ou moins, et s\'il est invalide', async () => {
-    const titre = async (certificat: Sondes['certificat']) => (await controler(sondesSaines(T0, { certificat }), REGLAGES_DEFAUT, T0)).problemes[0]?.titre;
-    expect(await titre(async () => ({ expireLe: plus(T0, 15 * 24 * H) }))).toBeUndefined();
-    expect(await titre(async () => ({ expireLe: plus(T0, 14 * 24 * H) }))).toBe('Certificat https expire dans 14 jours');
-    expect(await titre(async () => ({ expireLe: plus(T0, -H) }))).toBe('Certificat https expiré');
+  it('certificat : alerte à 20 jours restants ou moins (réglable), et s\'il est invalide', async () => {
+    const titre = async (certificat: Sondes['certificat'], r = REGLAGES_DEFAUT) => (await controler(sondesSaines(T0, { certificat }), r, T0)).problemes[0]?.titre;
+    expect(await titre(async () => ({ expireLe: plus(T0, 21 * 24 * H) }))).toBeUndefined();
+    expect(await titre(async () => ({ expireLe: plus(T0, 20 * 24 * H) }))).toBe('Certificat https : coupure dans 20 jours (le 03/11/2026)');
+    expect(await titre(async () => ({ expireLe: plus(T0, 30 * H) }))).toBe('Certificat https : coupure dans 1 jour (le 15/10/2026)');
+    expect(await titre(async () => ({ expireLe: plus(T0, -H) }))).toBe('Certificat https expiré (le 14/10/2026)');
     expect(await titre(async () => ({ expireLe: null, erreur: 'ECONNREFUSED' }))).toBe('Certificat https invalide');
+    expect(await titre(async () => ({ expireLe: plus(T0, 20 * 24 * H) }), { ...REGLAGES_DEFAUT, certJours: 14 })).toBeUndefined();
   });
 
   it('sauvegardes : plus de 26 h, absentes, espace OVH non monté (sans double alerte)', async () => {
@@ -192,6 +194,63 @@ describe('anti-avalanche', () => {
   it('cleUnite : même clé pour « svav-next » et « svav-next.service »', () => {
     expect(cleUnite('svav-next')).toBe(cleUnite('svav-next.service'));
     expect(cleUnite('svav-veille.timer')).toBe('unite:svav-veille.timer');
+  });
+});
+
+describe('certificat https : un mail par jour, décompte recalculé', () => {
+  // Expiration fixe : le 03/11/2026 à 09 h 00, heure de Paris (T0 + 20 jours).
+  const EXPIRE = plus(T0, 20 * 24 * H);
+  const passe = async (etat: Etat, at: Date, expireLe = EXPIRE) => {
+    const c = await controler(sondesSaines(at, { certificat: async () => ({ expireLe }) }), SANS_RECAP, at);
+    const envois = planifier(etat, c, at, SANS_RECAP, 'm');
+    return { sujets: envois.map((x) => x.mail.sujet), corps: envois.map((x) => x.mail.corps), etat: envois.reduce((acc, x) => x.appliquer(acc), etat) };
+  };
+
+  it('25 j → rien ; 20 j → mail ; même jour → rien ; lendemain 19 j → mail « 19 jours » ; renouvellement → résolu', async () => {
+    const a25 = await passe(lireEtat(null), plus(T0, -5 * 24 * H));
+    expect(a25.sujets).toEqual([]);
+
+    const a20 = await passe(a25.etat, T0);
+    expect(a20.sujets).toEqual(['[SVAV serveur] ⚠ Certificat https : coupure dans 20 jours (le 03/11/2026)']);
+    expect(a20.corps[0]).toContain('coupure dans 20 jours');
+
+    // Même jour, 5 min puis 13 h 55 plus tard (23 h 55 à Paris) : pas de doublon, malgré le rappel de 6 h des autres contrôles.
+    expect((await passe(a20.etat, plus(T0, 5))).sujets).toEqual([]);
+    expect((await passe(a20.etat, plus(T0, 13 * H + 55))).sujets).toEqual([]);
+
+    // Lendemain, juste après minuit à Paris : nouveau mail, décompte recalculé (pas le texte de la veille).
+    const a19 = await passe(a20.etat, plus(T0, 14 * H + 5));
+    expect(a19.sujets).toEqual(['[SVAV serveur] ⚠ Certificat https : coupure dans 19 jours (le 03/11/2026)']);
+    expect(a19.corps[0]).toContain('coupure dans 19 jours');
+    expect(a19.corps[0]).not.toContain('coupure dans 20 jours');
+    expect(a19.corps[0]).toContain('rappel chaque jour');
+    expect(a19.etat.problemes.certificat.depuis).toBe(T0.toISOString());
+    expect((await passe(a19.etat, plus(T0, 20 * H))).sujets).toEqual([]);
+
+    // Renouvelé : 90 jours de plus → « résolu ».
+    const renouvele = await passe(a19.etat, plus(T0, 26 * H), plus(T0, 110 * 24 * H));
+    expect(renouvele.sujets).toEqual(['[SVAV serveur] ✅ Résolu : Certificat https renouvelé']);
+    expect(renouvele.etat.problemes).toEqual({});
+  });
+
+  it('rappel tous les N jours si SURVEILLANCE_CERT_RAPPEL_JOURS le demande', async () => {
+    const r = { ...SANS_RECAP, certRappelJours: 2 };
+    const etape = async (etat: Etat, at: Date) => {
+      const c = await controler(sondesSaines(at, { certificat: async () => ({ expireLe: EXPIRE }) }), r, at);
+      const envois = planifier(etat, c, at, r, 'm');
+      return { n: envois.length, etat: envois.reduce((acc, x) => x.appliquer(acc), etat) };
+    };
+    const j0 = await etape(lireEtat(null), T0);
+    expect((await etape(j0.etat, plus(T0, 24 * H))).n).toBe(0);
+    expect((await etape(j0.etat, plus(T0, 48 * H))).n).toBe(1);
+  });
+
+  it('lireReglages : SURVEILLANCE_CERT_JOURS et SURVEILLANCE_CERT_RAPPEL_JOURS', () => {
+    expect([REGLAGES_DEFAUT.certJours, REGLAGES_DEFAUT.certRappelJours]).toEqual([20, 1]);
+    const r = lireReglages({ SURVEILLANCE_CERT_JOURS: '30', SURVEILLANCE_CERT_RAPPEL_JOURS: '3' });
+    expect([r.certJours, r.certRappelJours]).toEqual([30, 3]);
+    expect(lireReglages({ SURVEILLANCE_CERT_JOURS: 'vingt', SURVEILLANCE_CERT_RAPPEL_JOURS: '0' }).certJours).toBe(20);
+    expect(lireReglages({ SURVEILLANCE_CERT_RAPPEL_JOURS: '0' }).certRappelJours).toBe(1);
   });
 });
 

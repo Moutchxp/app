@@ -294,7 +294,7 @@ Préparation (Arno, dans Google Drive sur le web) : créer sous « Base de donn�
 | Automatismes `svav-gestion-continu`, `svav-veille.timer`, `svav-drive-empreintes.timer`, `svav-analytics-maintenance.timer` | **seulement s'ils sont installés ET activés** : pas actif. Non installé ou non activé = « non concerné », jamais une alerte |
 | Toute unité `svav-*` | en échec (`systemctl --failed`) |
 | Site (`SURVEILLANCE_URL`, défaut `https://authentification.sansvisavis.com/`) | pas de 200, ou 10 s et plus |
-| Certificat https du site | invalide, ou expire dans 14 jours ou moins |
+| Certificat https du site | invalide, ou 20 jours restants ou moins (`SURVEILLANCE_CERT_JOURS`) : **un mail par jour** (`SURVEILLANCE_CERT_RAPPEL_JOURS`, défaut 1) avec le décompte du jour, ex. « [SVAV serveur] ⚠ Certificat https : coupure dans 17 jours (le 31/01/2027) » ; « ✅ Résolu : Certificat https renouvelé » quand il redépasse 20 jours |
 | Dernière sauvegarde locale (`/home/ubuntu/sauvegardes/*/TERMINEE`, date du fichier) | 26 h et plus, ou aucune |
 | Espace OVH (`/mnt/svav-ovh`) | non monté |
 | Dernier `svav-*.tar.zst.age` de l'espace OVH (racine et un niveau en dessous) | 26 h et plus, ou aucun |
@@ -309,7 +309,7 @@ surveillé par le contrôle toutes les 5 minutes ; pour l'alerte immédiate, ajo
 
 ### 6.2 Quand part un mail
 
-- **Apparition** d'un problème → un mail « [SVAV serveur] ⚠ … » ; **rappel** toutes les 6 h tant qu'il dure ;
+- **Apparition** d'un problème → un mail « [SVAV serveur] ⚠ … » ; **rappel** toutes les 6 h tant qu'il dure (certificat https : un par jour, décompte recalculé) ;
   **disparition** → « [SVAV serveur] ✅ Résolu : … ». Les événements d'une même passe partent dans UN seul mail.
 - **Échec d'une unité** → mail immédiat, puis au plus un par 6 h pour la même unité ; le « résolu » part quand elle n'est
   plus en échec (pour un minuteur : à la passe réussie suivante).
@@ -321,7 +321,7 @@ surveillé par le contrôle toutes les 5 minutes ; pour l'alerte immédiate, ajo
 
 Réglages facultatifs dans `.env` : `SURVEILLANCE_DESTINATAIRE`, `SURVEILLANCE_URL`, `SURVEILLANCE_SAUVEGARDES_LOCALES`,
 `SURVEILLANCE_OVH`, `SURVEILLANCE_RECAP` (`non` pour couper le récapitulatif), `SURVEILLANCE_RECAP_HEURE` (défaut 8),
-`SURVEILLANCE_ETAT`.
+`SURVEILLANCE_ETAT`, `SURVEILLANCE_CERT_JOURS` (défaut 20), `SURVEILLANCE_CERT_RAPPEL_JOURS` (défaut 1).
 
 Les deux services tournent en **root** (sauvegardes sous `/home/ubuntu`, journal de toutes les unités), avec un système
 de fichiers en lecture seule sauf `/var/lib/svav-surveillance`. **`DATABASE_URL` doit donc nommer son utilisateur
