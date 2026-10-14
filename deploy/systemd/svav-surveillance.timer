@@ -1,0 +1,12 @@
+# Surveillance du serveur : une passe 2 min après l'activation du minuteur (démarrage du serveur ou
+# `systemctl enable --now`), puis toutes les 5 min. Jamais deux passes en parallèle.
+[Unit]
+Description=Sans Vis-à-Vis — surveillance du serveur toutes les 5 minutes
+
+[Timer]
+OnActiveSec=2min
+OnUnitActiveSec=5min
+Unit=svav-surveillance.service
+
+[Install]
+WantedBy=timers.target

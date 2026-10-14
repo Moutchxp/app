@@ -278,3 +278,79 @@ Préparation (Arno, dans Google Drive sur le web) : créer sous « Base de donn�
 | 5.5.5 | **Renommage** : Arno renomme la copie rangée en 5.5.3 (Drive web) ; rouvrir le fil du mail « _TEST » | le nouveau nom est repris |
 | 5.5.6 | **Suppression** : mettre « _TEST ajout.pdf » à la corbeille PAR L'APPLICATION | le fichier est dans la corbeille de Drive (jamais supprimé définitivement) ; disparu de la fenêtre |
 | 5.5.7 | Nettoyage | Arno met « _TEST bascule » à la corbeille dans Drive web |
+
+## 6. Surveillance du serveur — être prévenu par mail
+
+> Lot du 14/10/2026. Destinataire unique : a.jorel@sansvisavis.com, par le compte SMTP par défaut (`SMTP_*` +
+> `MAIL_FROM`). La surveillance **observe et prévient** : elle ne redémarre rien, ne corrige rien, n'écrit jamais en
+> base (connexion en lecture seule). Code : `app/lib/ops/surveillance.ts` (logique, testée), `surveillanceSysteme.ts`
+> (sondes), `scripts/surveillance.ts` (`npm run surveillance`).
+
+### 6.1 Ce qui est contrôlé, toutes les 5 minutes (`svav-surveillance.timer`)
+
+| Contrôle | Alerte si |
+|---|---|
+| `svav-next`, `svav-minio`, `caddy`, `postgresql` | pas actif (ou introuvable) |
+| Automatismes `svav-gestion-continu`, `svav-veille.timer`, `svav-drive-empreintes.timer`, `svav-analytics-maintenance.timer` | **seulement s'ils sont installés ET activés** : pas actif. Non installé ou non activé = « non concerné », jamais une alerte |
+| Toute unité `svav-*` | en échec (`systemctl --failed`) |
+| Site (`SURVEILLANCE_URL`, défaut `https://authentification.sansvisavis.com/`) | pas de 200, ou 10 s et plus |
+| Certificat https du site | invalide, ou expire dans 14 jours ou moins |
+| Dernière sauvegarde locale (`/home/ubuntu/sauvegardes/*/TERMINEE`, date du fichier) | 26 h et plus, ou aucune |
+| Espace OVH (`/mnt/svav-ovh`) | non monté |
+| Dernier `svav-*.tar.zst.age` de l'espace OVH (racine et un niveau en dessous) | 26 h et plus, ou aucun |
+| Disque `/`, espace OVH | plus de 85 % occupés |
+| PostgreSQL | ne répond pas |
+| Relève Gestion (si `svav-gestion-continu` est activé) | aucune passe `ok` dans `gestion_releve_run` depuis 10 min |
+
+Et à **l'échec de toute unité `svav-*`** (`OnFailure=svav-alerte@%n.service`, posé dans les gabarits de ce dépôt) : un
+mail immédiat avec les 30 dernières lignes de son journal. `svav-minio` n'est pas un gabarit de ce dépôt : il est
+surveillé par le contrôle toutes les 5 minutes ; pour l'alerte immédiate, ajouter la même ligne par
+`sudo systemctl edit svav-minio` (section `[Unit]`).
+
+### 6.2 Quand part un mail
+
+- **Apparition** d'un problème → un mail « [SVAV serveur] ⚠ … » ; **rappel** toutes les 6 h tant qu'il dure ;
+  **disparition** → « [SVAV serveur] ✅ Résolu : … ». Les événements d'une même passe partent dans UN seul mail.
+- **Échec d'une unité** → mail immédiat, puis au plus un par 6 h pour la même unité ; le « résolu » part quand elle n'est
+  plus en échec (pour un minuteur : à la passe réussie suivante).
+- **Récapitulatif quotidien** à 8 h (« tout va bien » ou la liste des problèmes en cours).
+- **Envoi raté** → écrit dans le journal (`journalctl -u svav-surveillance`), aucun nouvel essai pendant 30 min, jamais de
+  mail sur l'échec d'un mail.
+- État : `/var/lib/svav-surveillance/etat.json` (le supprimer = repartir de zéro : les problèmes en cours seront
+  re-signalés une fois).
+
+Réglages facultatifs dans `.env` : `SURVEILLANCE_DESTINATAIRE`, `SURVEILLANCE_URL`, `SURVEILLANCE_SAUVEGARDES_LOCALES`,
+`SURVEILLANCE_OVH`, `SURVEILLANCE_RECAP` (`non` pour couper le récapitulatif), `SURVEILLANCE_RECAP_HEURE` (défaut 8),
+`SURVEILLANCE_ETAT`.
+
+Les deux services tournent en **root** (sauvegardes sous `/home/ubuntu`, journal de toutes les unités), avec un système
+de fichiers en lecture seule sauf `/var/lib/svav-surveillance`. **`DATABASE_URL` doit donc nommer son utilisateur
+PostgreSQL** (sinon PostgreSQL essaierait le rôle « root » et la surveillance signalerait « PostgreSQL ne répond pas »).
+
+### 6.3 Installer
+
+```sh
+cd /srv/sansvisavis/app            # APP_DIR de svav.conf
+git pull                           # récupérer le lot (ou la méthode de mise à jour habituelle)
+cd deploy/systemd && sudo ./installer.sh && cd ../..
+sudo npm run surveillance -- --essai          # contrôles + mails qui partiraient, RIEN n'est envoyé
+sudo systemctl enable --now svav-surveillance.timer
+systemctl list-timers svav-surveillance.timer
+```
+
+`installer.sh` réinstalle aussi les gabarits existants, désormais porteurs de `OnFailure=` : rien n'est activé ni
+redémarré par lui ; la ligne prend effet au prochain démarrage de chaque unité (`daemon-reload` suffit pour les
+minuteurs).
+
+### 6.4 Tester sans risque
+
+| # | Geste | Attendu |
+|---|---|---|
+| 6.4.1 | `sudo npm run surveillance -- --essai` | tous les contrôles « OK » ou « — » (non concerné) ; « Aucun mail ne partirait » (ou le seul récapitulatif s'il est plus de 8 h et qu'il n'est pas encore parti) |
+| 6.4.2 | `sudo systemctl start svav-surveillance` puis `journalctl -u svav-surveillance -n 20` | « N contrôles, 0 problème(s) » ; le récapitulatif du jour arrive s'il est plus de 8 h |
+| 6.4.3 | **Provoquer une alerte** : `sudo systemctl stop svav-minio`, puis `sudo systemctl start svav-surveillance` | mail « [SVAV serveur] ⚠ Service svav-minio arrêté (inactive) » |
+| 6.4.4 | `sudo systemctl start svav-minio`, puis `sudo systemctl start svav-surveillance` | mail « [SVAV serveur] ✅ Résolu : Service svav-minio arrêté (inactive) » |
+| 6.4.5 | Alerte d'échec : `sudo systemctl start svav-alerte@essai-manuel.service` | mail « ⚠ Échec de essai-manuel.service » avec un journal « -- No entries -- » ; puis 5 min plus tard « ✅ Résolu » (l'unité n'existe pas, donc n'est pas en échec) |
+| 6.4.6 | Envoi impossible (facultatif) : lire `journalctl -u svav-surveillance` après une coupure SMTP | une ligne « ÉCHEC D'ENVOI (prochain essai dans 30 min) », pas de boucle |
+
+Arrêter MinIO quelques secondes n'a pas d'effet durable : seules les pièces demandées pendant ce temps échouent.

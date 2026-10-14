@@ -1,0 +1,40 @@
+# GABARIT — les marqueurs entre arobases sont remplacés par installer.sh à partir de svav.conf. Ne pas copier tel quel.
+#
+# SURVEILLANCE DU SERVEUR (lot du 14/10/2026) : UNE passe de `npm run surveillance` — services, site, certificat,
+# sauvegardes, disques, base, relève — puis un mail à Arno SEULEMENT si un problème apparaît, dure depuis 6 h (rappel)
+# ou disparaît (« résolu »), et le récapitulatif de 8 h. Déclenchée toutes les 5 min par svav-surveillance.timer (pas
+# de section [Install] : on active le TIMER).
+#
+# OBSERVE SEULEMENT : aucune commande qui agit (systemctl show / list-units, journalctl), base en lecture seule.
+#
+# POURQUOI ROOT : lire les sauvegardes de /home/ubuntu (dossier fermé aux autres comptes sous Ubuntu 24.04), le journal
+# de toutes les unités et l'espace OVH monté. En contrepartie, le système de fichiers lui est rendu en LECTURE SEULE
+# (ProtectSystem=strict, ProtectHome=read-only) : il ne peut écrire que son fichier d'état, /var/lib/svav-surveillance.
+# DATABASE_URL (dans .env) doit donc nommer son utilisateur PostgreSQL (sinon PG essaierait le rôle « root »).
+[Unit]
+Description=Sans Vis-à-Vis — surveillance du serveur (une passe ; déclenchée par svav-surveillance.timer)
+Documentation=file:@APP_DIR@/docs/BASCULE_CHECKLIST.md
+Wants=network-online.target
+After=network-online.target
+# Si la surveillance elle-même tombe en panne, on le sait aussi.
+OnFailure=svav-alerte@%n.service
+
+[Service]
+Type=oneshot
+User=root
+# OBLIGATOIRE : le script charge `.env` par `import 'dotenv/config'`, relatif au dossier courant.
+WorkingDirectory=@APP_DIR@
+Environment=TZ=Europe/Paris
+Environment=PATH=@PATH@
+StateDirectory=svav-surveillance
+StateDirectoryMode=0700
+# flock : jamais deux écritures du fichier d'état en même temps (passe du minuteur + alerte d'échec simultanées).
+ExecStart=/usr/bin/flock /var/lib/svav-surveillance/verrou @NODE@ @APP_DIR@/node_modules/tsx/dist/cli.mjs @APP_DIR@/scripts/surveillance.ts
+TimeoutStartSec=4min
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=svav-surveillance
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only

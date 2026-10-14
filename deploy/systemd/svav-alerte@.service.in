@@ -1,0 +1,30 @@
+# GABARIT — les marqueurs entre arobases sont remplacés par installer.sh à partir de svav.conf. Ne pas copier tel quel.
+#
+# ALERTE D'ÉCHEC (lot SURVEILLANCE DU SERVEUR, 14/10/2026) : lancée par `OnFailure=svav-alerte@%n.service` des unités
+# svav-*. L'instance (%i) est le nom complet de l'unité qui a échoué, p. ex. svav-alerte@svav-veille.service.service.
+# Un mail IMMÉDIAT à Arno avec les 30 dernières lignes du journal de cette unité (au plus un toutes les 6 h par unité ;
+# le « résolu » part de la passe de surveillance suivante). Ne doit JAMAIS porter elle-même de OnFailure= (boucle).
+# Un envoi raté s'écrit dans le journal et la sortie reste 0 : jamais d'alerte sur l'échec d'une alerte.
+[Unit]
+Description=Sans Vis-à-Vis — alerte par mail : échec de %i
+Documentation=file:@APP_DIR@/docs/BASCULE_CHECKLIST.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=@APP_DIR@
+Environment=TZ=Europe/Paris
+Environment=PATH=@PATH@
+StateDirectory=svav-surveillance
+StateDirectoryMode=0700
+ExecStart=/usr/bin/flock /var/lib/svav-surveillance/verrou @NODE@ @APP_DIR@/node_modules/tsx/dist/cli.mjs @APP_DIR@/scripts/surveillance.ts --unite=%i
+TimeoutStartSec=2min
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=svav-alerte
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only

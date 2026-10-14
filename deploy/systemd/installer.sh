@@ -75,7 +75,7 @@ fi
 
 # PATH des services : le dossier de node/npm en tête, puis les dossiers système (curl, ogr2ogr, tar, bzip2, poppler).
 PATH_SVC="$NODE_DIR:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-for prog in curl ogr2ogr tar bzip2 pdftoppm; do
+for prog in curl ogr2ogr tar bzip2 pdftoppm flock; do
   PATH="$PATH_SVC" command -v "$prog" >/dev/null 2>&1 || echo "ATTENTION : « $prog » introuvable dans $PATH_SVC (voir les prérequis du README)." >&2
 done
 

@@ -12,6 +12,8 @@ Description=Sans Vis-à-Vis — maintenance analytique quotidienne (activée apr
 Documentation=file:@APP_DIR@/deploy/systemd/README.md
 Wants=network-online.target
 After=network-online.target postgresql.service
+# Mail immédiat à Arno si cette unité échoue (svav-alerte@.service, surveillance du serveur).
+OnFailure=svav-alerte@%n.service
 
 [Service]
 Type=oneshot

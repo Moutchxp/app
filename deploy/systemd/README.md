@@ -33,6 +33,8 @@ ci-dessous se fait à la main.
 | `svav-drive-empreintes.service.in` + `svav-drive-empreintes.timer` | La mise à jour de l'index des empreintes du Drive : toutes les 15 min, une première fois au démarrage | `ops/com.sansvisavis.drive-empreintes.plist` |
 | `svav-next.service.in` | Le site lui-même (`next start`), relancé s'il s'arrête | aucun (lancé à la main) |
 | `svav-analytics-maintenance.service.in` + `.timer` | Maintenance des statistiques, chaque nuit à 04 h 30 (après la sauvegarde de 03 h 30) — **à activer après la bascule** (décision du 14/10/2026) | aucun (n'existe nulle part aujourd'hui) |
+| `svav-surveillance.service.in` + `svav-surveillance.timer` | Surveillance du serveur toutes les 5 min : mail à Arno à l'apparition, au rappel (6 h) et à la résolution d'un problème, récapitulatif à 8 h (`docs/BASCULE_CHECKLIST.md` §6) — tourne en root, système de fichiers en lecture seule | aucun |
+| `svav-alerte@.service.in` | Mail immédiat à l'échec d'une unité svav-* (appelée par `OnFailure=` des gabarits), avec la fin de son journal | aucun |
 | `svav.conf.exemple` | Les réglages d'installation (dossier du dépôt, compte, chemin de node, port) | — |
 | `installer.sh` | Remplit les gabarits avec vos réglages et les copie dans systemd, **sans rien activer** | — |
 
