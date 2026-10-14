@@ -13,12 +13,15 @@
  *   · seuls comptent les biens qu'on peut viser : en gestion, et connus de l'annuaire (un `lotId`) ;
  *   · le bien loué ACTUELLEMENT (occupation sans date de sortie, la règle unique `estLocataireEnPlace`) — le premier
  *     dans l'ordre de la fiche, qui est celui que le bloc de mails montre (« le plus récent s'il en occupe plusieurs ») ;
- *   · sinon le DERNIER loué : la sortie la plus récente, puis l'entrée la plus récente à sortie égale ;
+ *   · sinon le DERNIER loué : la sortie la plus récente ; à sortie ÉGALE, un LOGEMENT passe avant un parking ou une cave
+ *     (correction d'Arno du 14/10/2026 : fiche 44, le studio et non le parking — la catégorie est celle, existante, de
+ *     `categorieDuBien`), puis l'entrée la plus récente ;
  *   · sinon rien — le message part sans bien, comme celui de la fiche propriétaire.
  *
  * PUR : aucune I/O, aucun import qui tire `pg`.
  */
 import { titreLogement } from './annuaireRecherche';
+import { categorieDuBien } from './categorieBien';
 import { estLocataireEnPlace } from './historiqueBien';
 
 /** Ce que le module lit d'un logement de la fiche (forme de `LogementDuLocataire`). */
@@ -30,6 +33,14 @@ export interface LogementPourNouveauMessage {
   entree: string | null;
   sortie: string | null;
   horsGestion: boolean;
+  /** Nature et type WIPPIMMO, pour départager deux sorties le même jour (logement avant parking / cave). */
+  nature?: string | null;
+  typeBien?: string | null;
+}
+
+/** 0 pour un logement, 1 pour un parking ou une cave : le logement passe d'abord. PUR. */
+function rangCategorie(o: LogementPourNouveauMessage): number {
+  return categorieDuBien({ nature: o.nature ?? null, typeBien: o.typeBien ?? null }) === 'logement' ? 0 : 1;
 }
 
 export interface BienNouveauMessage { lotId: number; cle: string; libelle: string }
@@ -45,6 +56,7 @@ export function bienDuNouveauMessageLocataire(logements: readonly LogementPourNo
     o.lotId !== null && !o.horsGestion && o.numero.trim() !== '');
   const enCours = visables.find(estLocataireEnPlace);
   const choisi = enCours ?? [...visables].sort((x, y) =>
-    (y.sortie ?? '').localeCompare(x.sortie ?? '') || (y.entree ?? '').localeCompare(x.entree ?? ''))[0];
+    (y.sortie ?? '').localeCompare(x.sortie ?? '') || rangCategorie(x) - rangCategorie(y)
+      || (y.entree ?? '').localeCompare(x.entree ?? ''))[0];
   return choisi === undefined ? null : { lotId: choisi.lotId, cle: choisi.numero, libelle: libelleBienNouveauMessage(choisi) };
 }

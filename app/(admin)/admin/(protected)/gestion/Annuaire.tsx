@@ -1989,7 +1989,10 @@ function VueLocataire({
                 verte) passe en violet » (Arno). Le MOT ne change pas d'un caractère ; seul le ton suit la même
                 règle que partout ailleurs. Et le mot reste : une couleur seule ne se lit ni en niveaux de gris,
                 ni au lecteur d'écran — règle transverse du module. */}
-            <span className={`ann-role-capsule${enCours.length > 0 ? '' : ' ann-role-capsule--ancien'}`}>
+            {/* 🔴 LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC (Arno, 14/10/2026) — VERT quand il occupe un logement, VIOLET quand
+                c'est un ancien locataire : les teintes « locataire » et « ancien locataire » de la légende de l'historique.
+                Le statut vient de la règle en place (`estLocataireEnPlace`), et le MOT reste écrit. */}
+            <span className={`ann-role-capsule${enCours.length > 0 ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>
               {enCours.length > 0 ? 'Locataire en place' : 'Ancien locataire'}
             </span>
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
@@ -2154,7 +2157,7 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
   o: LogementDuLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistoriqueDuBien: (lotId: number) => void;
 }) {
-  const corps = (
+  const tete = (
     <>
       <span className="ann-carte-tete">
         <span className="ann-carte-titre">
@@ -2165,6 +2168,10 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
           {o.horsGestion && <span className="ann-etiq ann-etiq--absent">hors gestion</span>}
         </span>
       </span>
+    </>
+  );
+  const faits = (
+    <>
       <span className="ann-carte-faits">
         <span className="ann-fait">
           <span className="ann-fait-mot">Occupation</span>
@@ -2192,13 +2199,26 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
   return (
     <li className={`ann-carte${o.encours ? '' : ' ann-carte--ancien'}`}>
       {o.lotId === null
-        ? <span className="ann-carte-corps">{corps}</span>
-        : <button type="button" className="ann-carte-corps" onClick={() => ouvrir('lot', o.lotId as number)}>
-          {corps}
-        </button>}
-      {/* 🔴 LOT ANNUAIRE-SYNDICS — le bouton syndic, juste sous les faits : il ne peut pas vivre DANS le bouton de
-          la carte (un bouton dans un bouton est du HTML invalide). Seulement pour un lot de l'annuaire. */}
-      {o.lotId !== null && <BoutonSyndic immeuble={o.immeuble} lotId={o.lotId} />}
+        ? <span className="ann-carte-corps">{tete}{faits}</span>
+        : (
+          /* ══ 🔴🔴 LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC (Arno, 14/10/2026) — LE BOUTON SYNDIC SOUS L'EN-TÊTE ═══════════
+             « dans la partie blanche de la carte, sur la ligne juste AU-DESSUS de la ligne OCCUPATION ». Il ne peut pas
+             vivre DANS le bouton de la carte (un bouton dans un bouton est du HTML invalide) : le bouton de carte est donc
+             COUPÉ en deux autour de lui — l'en-tête, puis les faits —, qui ouvrent tous deux la fiche du bien, comme avant.
+             Le second sort de la tabulation (`tabIndex=-1`) : UN arrêt clavier pour UN geste, et son texte reste lisible.
+             Seule cette carte (fiche LOCATAIRE) bouge : la carte de bien de la fiche propriétaire est un autre composant. */
+          <>
+            <button type="button" className="ann-carte-corps ann-carte-corps--tete"
+              onClick={() => ouvrir('lot', o.lotId as number)}>
+              {tete}
+            </button>
+            <span className="ann-carte-syndic"><BoutonSyndic immeuble={o.immeuble} lotId={o.lotId} /></span>
+            <button type="button" className="ann-carte-corps ann-carte-corps--faits" tabIndex={-1}
+              onClick={() => ouvrir('lot', o.lotId as number)}>
+              {faits}
+            </button>
+          </>
+        )}
       {/* 🔴 LOT FICHES-RETOUCHES — MÊME PIED QUE LA CARTE DE BIEN : deux boutons de même largeur, et
           « Historique » au-dessus quand le lot est dans l'annuaire. Deux cartes qui montrent le même objet ne
           peuvent pas se présenter de deux façons — on réapprendrait à lire d'un écran à l'autre. */}
@@ -2361,6 +2381,11 @@ export const CSS_ANNUAIRE = `
    tamisee du theme (lot 84), mesuree 5,48:1 en Clair et 7,74:1 en Sombre. */
 .ann-role-capsule--ancien{color:var(--color-svv-violet);background:var(--color-svv-violet-soft);
   border-color:var(--color-svv-violet)}
+/* 🔴 LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC — LA CAPSULE « LOCATAIRE EN PLACE », EN VERT. Le vert « locataire » de la
+   legende de l'historique (--color-svv-green, bordure) et la paire tamisee du theme pour le texte et le fond
+   (--color-svv-green-ink sur --color-svv-green-soft), definies en Clair ET en Sombre. Aucune couleur en dur. */
+.ann-role-capsule--en-place{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);
+  border-color:var(--color-svv-green)}
 .ann-tete-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-left:auto}
 
 /* ── LES BLOCS ────────────────────────────────────────────────────────────────────────────────────────────── */
@@ -2625,6 +2650,16 @@ export const CSS_ANNUAIRE = `
 .ann-cartes{align-items:stretch}
 .ann-carte-faits{flex:1 1 auto}
 .ann-carte-pied{margin-top:auto}
+/* ══ 🔴🔴 LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC — LA LIGNE SYNDIC D'UNE CARTE DE LOGEMENT, SOUS L'EN-TETE ════════════
+   Arno : le bouton syndic « dans la partie blanche de la carte, sur la ligne juste AU-DESSUS de la ligne OCCUPATION.
+   Meme largeur et meme style ». Il garde SA ligne (.bsy-ligne, retrait de 14 px comme le pied) ; l'enveloppe ne fait
+   que lui donner l'air de l'en-tete au-dessus. Vide (syndics non installes) : elle ne prend aucune place.
+   Les faits, en dessous, gardent leur bloc qui absorbe la hauteur (cartes de meme hauteur, pied colle en bas).
+   AUCUN ACCENT GRAVE ICI : ce commentaire vit DANS un litteral gabarit. */
+.ann-carte-syndic{display:flex;flex-direction:column;align-items:stretch;padding-top:11px}
+.ann-carte-syndic:empty{display:none}
+.ann-carte-syndic .bsy-ligne{margin-bottom:0}
+.ann-carte-corps--faits{flex:1 1 auto}
 
 /* ══ 🔴 LE CARTOUCHE « EVENEMENT EN COURS » ═══════════════════════════════════════════════════════════════════
    Toute la largeur, coins arrondis, orange SOBRE de la palette d'alerte existante — aucune couleur nouvelle :

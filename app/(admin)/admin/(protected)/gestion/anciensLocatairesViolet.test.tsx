@@ -285,7 +285,8 @@ describe('🔴🔴 ④ la capsule « Ancien locataire »', () => {
    */
   it('🔴🔴 l’en-tête d’une fiche de locataire porte le violet quand il est parti', () => {
     expect(ANNUAIRE).toContain(
-      "<span className={`ann-role-capsule${enCours.length > 0 ? '' : ' ann-role-capsule--ancien'}`}>");
+      /* LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC — et VERT quand il occupe un logement. */
+      "<span className={`ann-role-capsule${enCours.length > 0 ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>");
     expect(ANNUAIRE).toContain(
       '.ann-role-capsule--ancien{color:var(--color-svv-violet);background:var(--color-svv-violet-soft);');
     /* 🔴 LE MOT RESTE : « Ancien locataire », écrit, à côté de la couleur. */

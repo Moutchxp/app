@@ -1273,7 +1273,9 @@ describe('les écrans', () => {
     const i = carte.indexOf('<BoutonSyndic immeuble={b.immeuble} lotId={b.id} />');
     expect(i).toBeGreaterThan(carte.indexOf('<CartoucheEvenement'));
     expect(i).toBeLessThan(carte.indexOf('className="ann-carte-faits"'));
-    expect(src).toContain('{o.lotId !== null && <BoutonSyndic immeuble={o.immeuble} lotId={o.lotId} />}');
+    /* LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC (Arno, 14/10/2026) — carte de LOGEMENT d'une fiche locataire : sous l'en-tête,
+       au-dessus d'OCCUPATION (le bouton de carte est coupé autour de lui). La carte du bien, ci-dessus, est inchangée. */
+    expect(src).toContain('<span className="ann-carte-syndic"><BoutonSyndic immeuble={o.immeuble} lotId={o.lotId} /></span>');
   });
 
   it('l\'entrée « Syndics » est SOUS « Événements », et « Annuaire » garde sa place après', () => {
