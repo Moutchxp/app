@@ -178,7 +178,8 @@ describe('🔴 les accolades se relisent après chaque geste', () => {
   it('l’historique du bien et la vue conversation écoutent le signal de classement', () => {
     const h = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
     expect(h).toContain('useEffect(() => ecouterClassement(() => setVersionAccolades((n) => n + 1)), []);');
-    expect(h).toContain('}, [lotCle, filsDeLaPage, versionAccolades]);');
+    // LOT HISTORIQUE-PERSONNE : `personne` s'ajoute à la fin (une fiche de personne n'a pas d'accolades).
+    expect(h).toContain('}, [lotCle, filsDeLaPage, versionAccolades, personne]);');
     const c = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
     expect(c).toContain('useEffect(() => ecouterClassement((s) => {');
     expect(c).toContain('void chargerSuivi(filId);\n    void chargerInterne(filId);');

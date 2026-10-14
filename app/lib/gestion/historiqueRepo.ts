@@ -120,6 +120,12 @@ export interface CibleEtendue {
    * ait déjà rendu les clés ou pas encore signé.
    */
   adresses: string[];
+  /**
+   * 🔴🔴 LOT HISTORIQUE-PERSONNE — VRAI pour l'historique d'une fiche propriétaire ou locataire ouvert « par les
+   * échanges » (`echanges=1`) : les mails sont choisis par les ADRESSES des personnes de la fiche (`adresses`), et par
+   * rien d'autre. Absent/faux ⇒ la sélection d'avant, à l'identique.
+   */
+  echanges?: boolean;
 }
 
 /**
@@ -268,8 +274,8 @@ export async function etendreCible(cible: Cible, f: FiltresHistorique): Promise<
   }
 
   // ── UN PROPRIÉTAIRE ──────────────────────────────────────────────────────────────────────────────────────────
-  const { rows: pr } = await query<{ nom_complet: string; absent: boolean }>(
-    'SELECT nom_complet, (absent_le IS NOT NULL) AS absent FROM gestion_annuaire_proprietaire WHERE wippimmo_id = $1',
+  const { rows: pr } = await query<{ id: string; nom_complet: string; absent: boolean }>(
+    'SELECT id::text, nom_complet, (absent_le IS NOT NULL) AS absent FROM gestion_annuaire_proprietaire WHERE wippimmo_id = $1',
     [cible.cle ?? '']);
   if (pr.length === 0) return { etat: 'inconnue' };
   const titre = nomProprietaire({ wippimmoId: cible.cle ?? '', nomComplet: pr[0].nom_complet });
@@ -292,6 +298,32 @@ export async function etendreCible(cible: Cible, f: FiltresHistorique): Promise<
 
   const libelles = new Map([[texteCible(cible), titre]]);
   for (const l of logements) libelles.set(texteCible(cibleLot(l.cle)), l.libelle);
+
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-PERSONNE — PAR LES ÉCHANGES : LES ADRESSES DE TOUTES LES PERSONNES DE LA FICHE ═════════════
+   * Décision d'Arno (14/10/2026) : « toutes les personnes de la fiche (couple, indivision ajoutée à la main) et toutes
+   * leurs adresses actives ». Les personnes sont celles des cartes de la fiche (`idsCoproprietaires`) ; les adresses,
+   * celles que les cartes montrent (vivantes). Ni logements, ni rattachements : seuls les échanges comptent.
+   */
+  if (f.echanges) {
+    const { idsCoproprietaires } = await import('./annuaireRepo');
+    const ids = await idsCoproprietaires(Number(pr[0].id));
+    const { rows: ads } = await query<{ valeur: string }>(
+      `SELECT DISTINCT lower(valeur) AS valeur FROM gestion_annuaire_contact
+        WHERE sujet = 'proprietaire' AND sujet_id = ANY($1::bigint[]) AND sorte = 'email'
+          AND absent_le IS NULL${await conditionCoordonneeVivante()}`, [ids]);
+    return {
+      etat: 'ok',
+      data: {
+        ...vide, titre,
+        sousTitre: pr[0].absent
+          ? 'ce propriétaire n’est plus dans l’export de gestion'
+          : `${logements.length} logement${logements.length > 1 ? 's' : ''} en gestion`,
+        libelles, logementsDuProprietaire: logements,
+        adresses: ads.map((a) => a.valeur), echanges: true,
+      },
+    };
+  }
 
   return {
     etat: 'ok',
@@ -342,6 +374,10 @@ function cteMessages(o: {
    * autre chose. Les tableaux VIDES ne coûtent rien : `unnest('{}')` et `= ANY('{}')` ne rendent aucune ligne.
    */
   avecLocataire?: boolean;
+  /** 🔴 LOT HISTORIQUE-PERSONNE — l'axe « échanges » ($4 adresses, $5 clé) : voir son encadré. */
+  echanges?: boolean;
+  /** La sorte de la personne (`proprietaire` | `locataire`), pour nommer la ligne. */
+  sortePersonne?: string;
 }): string {
   const carte = o.avecCarte
     ? `
@@ -431,6 +467,37 @@ function cteMessages(o: {
       WHERE ia.adresse = ANY($7::text[])`
     : '';
 
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026) — L'AXE « ÉCHANGES » D'UNE FICHE PROPRIÉTAIRE OU LOCATAIRE ══════
+   * « TOUS les mails échangés entre CE propriétaire et nous, et eux seuls : les mails qu'il nous a envoyés ; nos mails
+   * qui lui sont adressés (À, Cc, Cci), réponses comprises. » Donc :
+   *   · un mail REÇU dont l'EXPÉDITEUR est une adresse de la fiche (`gestion_message_adresse`, rôle `expediteur`) ;
+   *   · un mail ENVOYÉ dont un DESTINATAIRE ou une COPIE est une adresse de la fiche ;
+   *   · un mail ENVOYÉ dont le Cci la porte — lu dans sa colonne, le Cci n'étant pas relevé dans la table d'adresses.
+   * Un mail d'un tiers où la personne n'est qu'en copie n'en est PAS : ce n'est pas un échange entre elle et nous.
+   * ⚠️ Les adresses sont comparées en minuscules des deux côtés (la table d'adresses est déjà normalisée).
+   */
+  const echanges = o.echanges === true
+    ? `
+     UNION ALL
+     SELECT ea.message_id, '${o.sortePersonne === 'locataire' ? 'locataire' : 'proprietaire'}'::text AS cible_sorte,
+            $5::text AS cible_cle, NULL::bigint AS cible_id, NULL::text AS cible_libelle, 1 AS prio,
+            'rattachement'::text AS source
+       FROM gestion_message_adresse ea
+       JOIN gestion_message me ON me.id = ea.message_id
+      WHERE ea.adresse = ANY($4::text[])
+        AND ((me.sens = 'recu' AND ea.role = 'expediteur')
+          OR (me.sens = 'envoye' AND ea.role IN ('destinataire', 'copie', 'copie_cachee')))
+     UNION ALL
+     SELECT mc.id AS message_id, '${o.sortePersonne === 'locataire' ? 'locataire' : 'proprietaire'}'::text AS cible_sorte,
+            $5::text AS cible_cle, NULL::bigint AS cible_id, NULL::text AS cible_libelle, 1 AS prio,
+            'rattachement'::text AS source
+       FROM gestion_message mc
+      WHERE mc.sens = 'envoye' AND jsonb_typeof(mc.dest_cci) = 'array'
+        AND EXISTS (SELECT 1 FROM jsonb_array_elements(mc.dest_cci) cc
+                     WHERE lower(cc->>'adresse') = ANY($4::text[]))`
+    : '';
+
   return `liens AS (
      SELECT r.message_id, r.cible_sorte, r.cible_cle, r.cible_id, r.cible_libelle,
             CASE r.cible_sorte WHEN 'lot' THEN 1 WHEN 'proprietaire' THEN 2 ELSE 3 END AS prio,
@@ -438,7 +505,7 @@ function cteMessages(o: {
        FROM gestion_rattachement r
       WHERE ((${sqlLiensDuBien('r')} AND r.cible_cle = ANY($1::text[]))
           OR (${vivantConfirme} AND r.cible_sorte = 'proprietaire' AND r.cible_cle = ANY($2::text[]))
-          OR (${vivantConfirme} AND r.cible_sorte = 'evenement'    AND r.cible_id  = ANY($3::bigint[])))${carte}${occupation}${correspondance}
+          OR (${vivantConfirme} AND r.cible_sorte = 'evenement'    AND r.cible_id  = ANY($3::bigint[])))${carte}${occupation}${correspondance}${echanges}
    ),
    choisis AS (
      ${o.grouper
@@ -614,6 +681,8 @@ function clesDe(c: CibleEtendue): [string[], string[], number[]] {
  */
 function baseParams(c: CibleEtendue): unknown[] {
   const base: unknown[] = [c.lots, c.proprietaires, c.evenements];
+  /* 🔴 LOT HISTORIQUE-PERSONNE — par les échanges : $4 les adresses de la fiche, $5 la clé de la personne. */
+  if (parEchanges(c)) return [...base, c.adresses, c.cible.cle ?? ''];
   if (!estLocataire(c)) return base;
   return [
     ...base,
@@ -626,10 +695,13 @@ function baseParams(c: CibleEtendue): unknown[] {
 }
 
 /** La cible demandée EST un locataire ⇒ les deux axes de plus, et les cinq paramètres qui vont avec. */
-function estLocataire(c: CibleEtendue): boolean { return c.cible.sorte === 'locataire'; }
+function estLocataire(c: CibleEtendue): boolean { return c.cible.sorte === 'locataire' && c.echanges !== true; }
+
+/** 🔴 LOT HISTORIQUE-PERSONNE — l'historique d'une fiche propriétaire ou locataire, choisi par les échanges. */
+function parEchanges(c: CibleEtendue): boolean { return c.echanges === true; }
 
 /** Combien de paramètres de base la requête lie, donc à partir d'où les filtres numérotent les leurs. */
-function decalage(c: CibleEtendue): number { return estLocataire(c) ? 8 : 3; }
+function decalage(c: CibleEtendue): number { return parEchanges(c) ? 5 : estLocataire(c) ? 8 : 3; }
 
 // ── LES TROIS QUESTIONS ─────────────────────────────────────────────────────────────────────────────────────────
 
@@ -647,7 +719,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   // 🔴 LA SONDE AVANT LES CONDITIONS : le filtre « Événement ouvert » en a besoin (voir `conditions`).
   const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
   const cte = cteMessages({
-    avecCarte: evs.length > 0, deplacements, grouper: f.grouper, avecLocataire: estLocataire(c),
+    avecCarte: evs.length > 0, deplacements, grouper: f.grouper, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte,
   });
 
   const pTaille = base.length + 1 + cond.params.length;
@@ -937,7 +1009,7 @@ export async function porteursDePieces(
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   const [, , evs] = clesDe(c);
-  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
+  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte });
   /* 🔴 LA PAGINATION N'A PAS DE SENS ICI : on veut la sélection ENTIÈRE. Les champs `page` et `taille` des
      filtres sont donc ignorés — ils ne font pas partie de `conditions`, qui ne lit que les tamis. */
   const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
@@ -1392,7 +1464,7 @@ export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): P
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   // Le compteur ne GROUPE jamais : un mail compte pour un, même s'il concerne deux logements.
-  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
+  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte });
 
   const compter = async (cond: { sql: string; params: unknown[] }): Promise<EnteteHistorique> => {
     const { rows } = await query<{ mails: string; pieces: string; premier: string | null; dernier: string | null }>(
@@ -1440,7 +1512,7 @@ export async function interlocuteursHistorique(
   const [, , evs] = clesDe(c);
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
-  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
+  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte });
   const cond = conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }, decalage(c), deplacements, await nomUsageDisponible());
   const pLimite = base.length + 1 + cond.params.length;
 
@@ -1742,7 +1814,7 @@ export async function mailsDeLaFrise(
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   const [, , evs] = clesDe(c);
-  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c) });
+  const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte });
   const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
   const pLimite = base.length + 1 + cond.params.length;
 

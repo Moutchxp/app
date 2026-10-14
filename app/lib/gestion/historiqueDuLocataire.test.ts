@@ -172,8 +172,8 @@ describe('🔴🔴 ④ les paramètres liés, là où un décalage ne se voit pa
   });
 
   /** 🔴 TROIS, OU HUIT. Jamais autre chose — voir l'encadré d'`avecLocataire` : Postgres refuse une sur-alimentation. */
-  it('🔴 trois paramètres de base, ou huit pour un locataire', () => {
-    expect(REPO).toContain('function decalage(c: CibleEtendue): number { return estLocataire(c) ? 8 : 3; }');
+  it('🔴 trois paramètres de base, ou huit pour un locataire (cinq par les échanges, lot HISTORIQUE-PERSONNE)', () => {
+    expect(REPO).toContain('function decalage(c: CibleEtendue): number { return parEchanges(c) ? 5 : estLocataire(c) ? 8 : 3; }');
     expect(REPO).toContain('if (!estLocataire(c)) return base;');
   });
 

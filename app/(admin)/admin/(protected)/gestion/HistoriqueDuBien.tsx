@@ -294,12 +294,51 @@ const ATTENTE_FRAPPE_MS = 250;
 
 const MANQUE_CATEGORIE = 'Choisissez une catégorie : elle n’a pas été déduite pour cette adresse.';
 
+/** « depuis le 01/02/2024 », « du 01/02/2020 au 30/06/2023 », « dates inconnues ». PUR. */
+export function motOccupation(depuis: string | null, jusqua: string | null): string {
+  const j = (x: string | null) => (x === null || x.length < 10 ? null : `${x.slice(8, 10)}/${x.slice(5, 7)}/${x.slice(0, 4)}`);
+  const d = j(depuis);
+  const f = j(jusqua);
+  if (d !== null && f !== null) return `du ${d} au ${f}`;
+  if (d !== null) return `depuis le ${d}`;
+  if (f !== null) return `jusqu’au ${f}`;
+  return 'dates inconnues';
+}
+
+/** 🔴 LOT HISTORIQUE-PERSONNE — la fiche dont on montre les échanges (voir la propriété `personne`). */
+export interface PersonneHistorique {
+  sorte: 'proprietaire' | 'locataire';
+  /** La clé WIPPIMMO de la fiche — celle de l'adresse de l'écran (`proprio-…`, `locataire-…`). */
+  cle: string;
+  nom: string;
+  /** Les adresses e-mail actives de toutes les personnes de la fiche (pour les couleurs et « Nouveau message »). */
+  adresses: readonly string[];
+  /** LOCATAIRE : ses logements, avec ses dates — la ligne courte au-dessus de la barre OPTIONS. */
+  occupations?: readonly { cle: string; libelle: string; depuis: string | null; jusqua: string | null }[];
+  onOuvrirLogement?: (cle: string) => void;
+}
+
+/** La cible et la sélection que les routes reçoivent : le bien, ou les échanges de la fiche. PUR. */
+export function cibleDeLHistorique(lotCle: string, personne: PersonneHistorique | null): string {
+  if (personne === null) return `lot-${encodeURIComponent(lotCle)}`;
+  return `${personne.sorte === 'proprietaire' ? 'proprio' : 'locataire'}-${encodeURIComponent(personne.cle)}&echanges=1`;
+}
+
 export function HistoriqueDuBien({
   lotCle, maintenant, occupations, categories, periodes = new Map(), clients = [], onFicheClient,
   cartesLocataires = [],
   evenementOuvertInitial = false, onOuvrirFil, onEcranComplet, jeton = null, onPoserJeton,
-  signalRelire = 0, redaction = null, onGesteMail, lotId = null,
+  signalRelire = 0, redaction = null, onGesteMail, lotId = null, personne = null,
 }: {
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026) — LE MÊME HISTORIQUE, POUR UNE FICHE PROPRIÉTAIRE OU LOCATAIRE ═══
+   * « Présentation et comportement STRICTEMENT IDENTIQUES à la liste de mails de l'historique d'un bien […] un seul
+   * composant partagé pour les trois historiques, seule la sélection des mails change. » Présent ⇒ les mails sont ceux
+   * échangés avec la ou les personnes de la fiche (`echanges=1`, choisis par leurs adresses) ; ce qui n'a de sens que
+   * pour un bien (événements du bien, Parties, accolades de suivi, « Sortir du suivi », période du dernier locataire)
+   * n'est pas rendu. Absent (défaut) ⇒ l'historique du bien, exactement comme avant.
+   */
+  personne?: PersonneHistorique | null;
   /** La clé WIPPIMMO du lot — la cible de l'historique, et la seule identité qui survive à un ré-import. */
   lotCle: string;
   /**
@@ -603,11 +642,15 @@ export function HistoriqueDuBien({
    * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
   const parametres = reglagesEnParametres(reglages, page, PAGE_HISTORIQUE_MAX);
+  /* 🔴 LOT HISTORIQUE-PERSONNE — `lot-<clé>` pour un bien (inchangé), les échanges de la fiche sinon. */
+  const cibleHisto = cibleDeLHistorique(lotCle, personne);
   const parametresSansPage = reglagesEnParametres({ ...reglages }, 0, PAGE_HISTORIQUE_MAX);
   useEffect(() => { setPage(0); }, [parametresSansPage]);
 
   // ── ① LES ÉVÉNEMENTS DU BIEN, UNE FOIS ────────────────────────────────────────────────────────────────────────
   useEffect(() => {
+    /* 🔴 LOT HISTORIQUE-PERSONNE — une fiche de personne n'a pas « les événements du bien » (période, en-tête). */
+    if (personne !== null) { setEvenements([]); setEvtsParLocataire([]); setEvenementsIllisibles(false); return undefined; }
     let vivant = true;
     void (async () => {
       try {
@@ -632,7 +675,7 @@ export function HistoriqueDuBien({
     /* 🔴 LOT MARQUES-EVENEMENT-EN-COURS — `signalRelire` EST UNE DÉPENDANCE : clore ou rouvrir depuis la frise,
        plus haut sur la même page, change `ouvert` et donc la ligne orange du moteur. Sans cela elle restait
        telle qu'au chargement de la fiche. */
-  }, [lotCle, signalRelire]);
+  }, [lotCle, signalRelire, personne]);
 
   /**
    * ══ 🔴🔴 ①-ter LE MÊME SIGNAL REDEMANDE AUSSI LES LIGNES DE MAIL ═════════════════════════════════════════════
@@ -748,6 +791,8 @@ export function HistoriqueDuBien({
    */
   /** Relire les rangements. Appelée au montage ET après une création : la partie doit changer de groupe en direct. */
   const relireParties = useCallback(async (): Promise<void> => {
+    /* 🔴 LOT HISTORIQUE-PERSONNE — le bloc « Parties » est celui d'un bien : rien à lire pour une fiche de personne. */
+    if (personne !== null) return;
     try {
       const res = await fetch(
         `/api/admin/gestion/historique/parties?cible=lot-${encodeURIComponent(lotCle)}`,
@@ -796,7 +841,7 @@ export function HistoriqueDuBien({
       setCartesContact([]);
       setCoordonnees(new Map());
     }
-  }, [lotCle]);
+  }, [lotCle, personne]);
   useEffect(() => { void relireParties(); }, [relireParties]);
   /**
    * 🔴 L'ÉCOUTE : un geste fait DANS UN CARROUSEL DU HAUT met ce bloc à jour, sans que l'un connaisse l'autre.
@@ -825,7 +870,7 @@ export function HistoriqueDuBien({
       try {
         const sep = parametres === '' ? '?' : '&';
         const res = await fetch(
-          `/api/admin/gestion/historique${parametres}${sep}cible=lot-${encodeURIComponent(lotCle)}`,
+          `/api/admin/gestion/historique${parametres}${sep}cible=${cibleHisto}`,
           { cache: 'no-store' });
         const d = (await res.json()) as {
           etat?: string;
@@ -865,7 +910,7 @@ export function HistoriqueDuBien({
     return () => { vivant = false; };
     /* ⚠️ `rechargement` EST UNE DÉPENDANCE : « Annuler » le fait avancer, et la page est redemandée telle que le
        serveur la connaît (lot HISTORIQUE-BIEN-12, point 1). */
-  }, [lotCle, parametres, rechargement]);
+  }, [lotCle, parametres, rechargement, cibleHisto]);
 
   // ── ③ LE FIL, LES PIÈCES, LE RÉSUMÉ ───────────────────────────────────────────────────────────────────────────
   /** La page REÇUE, triée. C'est le dénominateur du « N mails sur M » : la sélection déjà affichée. */
@@ -906,7 +951,7 @@ export function HistoriqueDuBien({
       try {
         const sep = parametresSansPage === '' ? '?' : '&';
         const res = await fetch(
-          `/api/admin/gestion/historique/pieces${parametresSansPage}${sep}cible=lot-${encodeURIComponent(lotCle)}`,
+          `/api/admin/gestion/historique/pieces${parametresSansPage}${sep}cible=${cibleHisto}`,
           { cache: 'no-store' });
         const d = (await res.json()) as {
           etat?: string;
@@ -924,7 +969,7 @@ export function HistoriqueDuBien({
       }
     })();
     return () => { vivant = false; };
-  }, [lotCle, parametresSansPage, rechargement]);
+  }, [lotCle, parametresSansPage, rechargement, cibleHisto]);
 
   /**
    * ══ 🔴🔴 LOT HISTORIQUE-BIEN-17, POINT 2 — LES MAILS DE LA FRISE ═══════════════════════════════════════════
@@ -949,7 +994,7 @@ export function HistoriqueDuBien({
       try {
         const sep = parametresSansPage === '' ? '?' : '&';
         const res = await fetch(
-          `/api/admin/gestion/historique/frise${parametresSansPage}${sep}cible=lot-${encodeURIComponent(lotCle)}`,
+          `/api/admin/gestion/historique/frise${parametresSansPage}${sep}cible=${cibleHisto}`,
           { cache: 'no-store' });
         const d = (await res.json()) as {
           etat?: string; data?: { mails?: MailDeLaFrise[]; tronque?: boolean };
@@ -964,7 +1009,7 @@ export function HistoriqueDuBien({
       }
     })();
     return () => { vivant = false; };
-  }, [lotCle, parametresSansPage, rechargement]);
+  }, [lotCle, parametresSansPage, rechargement, cibleHisto]);
 
   const motsCherches = useMemo(() => motsRecherches(reglages.texte), [reglages.texte]);
   /**
@@ -1113,6 +1158,8 @@ export function HistoriqueDuBien({
   useEffect(() => ecouterClassement(() => setVersionAccolades((n) => n + 1)), []);
   useEffect(() => {
     if (filsDeLaPage === '') return undefined;
+    /* 🔴 LOT HISTORIQUE-PERSONNE — les accolades disent le suivi d'UN BIEN : aucune pour une fiche de personne. */
+    if (personne !== null) { setAccolades([]); return undefined; }
     let vivant = true;
     void (async () => {
       try {
@@ -1123,7 +1170,7 @@ export function HistoriqueDuBien({
       } catch { if (vivant) setAccolades([]); }
     })();
     return () => { vivant = false; };
-  }, [lotCle, filsDeLaPage, versionAccolades]);
+  }, [lotCle, filsDeLaPage, versionAccolades, personne]);
   const accoladesVisibles = accoladesDeLaPage({
     lignes, accolades, premierePage: page === 0, dernierePage: etat.v === 'ok' && etat.suite !== true,
   });
@@ -1222,8 +1269,10 @@ export function HistoriqueDuBien({
     const dateLisible = dateHeureComplete(l.recuLe);
     const b = preparerBrouillon(voie, message, { adresseGestion: redaction.adresseGestion, signature: redaction.signature },
     { filId: l.filId, dateLisible, origineHtml: html });
+    /* 🔴 LOT HISTORIQUE-PERSONNE — sur une fiche de personne, aucun bien n'est hérité : le composeur propose les biens
+       d'après les destinataires, comme pour tout message. */
     const herite = classementHerite({
-      biens: [{ sorte: 'lot', cle: lotCle, id: null, libelle: l.cibleLibelle }],
+      biens: personne !== null ? [] : [{ sorte: 'lot', cle: lotCle, id: null, libelle: l.cibleLibelle }],
     });
     setReponse({
       messageId: l.messageId,
@@ -1237,7 +1286,7 @@ export function HistoriqueDuBien({
        invisible est un bouton cassé (lot REPONSE-VISIBLE). Le geste vient d'un mail DÉJÀ déplié — c'est une
        ceinture, pas une bretelle. */
     setDeplie((d) => (d.has(l.messageId) ? d : new Set(d).add(l.messageId)));
-  }, [redaction, lotCle]);
+  }, [redaction, lotCle, personne]);
 
   /** 🔴 L'ÉDITEUR PEUT-IL SEULEMENT S'OUVRIR ? Les deux mêmes conditions que la conversation, pas une de plus. */
   const peutRepondre = redaction !== null && redaction.schemaPret && redaction.peutEnvoyer;
@@ -1279,9 +1328,9 @@ export function HistoriqueDuBien({
   const [nouveau, setNouveau] = useState<BrouillonEcran | null>(null);
   const [nouveauEnCours, setNouveauEnCours] = useState(false);
   const ancreNouveau = useRef<HTMLDivElement | null>(null);
-  const peutEcrireNouveau = peutRepondre && lotId !== null;
+  const peutEcrireNouveau = peutRepondre && (lotId !== null || personne !== null);
   const ouvrirNouveau = useCallback(async (): Promise<void> => {
-    if (redaction === null || lotId === null) return;
+    if (redaction === null || (lotId === null && personne === null)) return;
     /* Déjà ouvert : on le montre, on n'en ouvre pas un second (ce serait perdre ce qu'on a commencé). */
     if (nouveau !== null) { ancreNouveau.current?.scrollIntoView({ block: 'nearest' }); return; }
     setNouveauEnCours(true);
@@ -1290,6 +1339,11 @@ export function HistoriqueDuBien({
         ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
         id: null,
       };
+      /* 🔴 LOT HISTORIQUE-PERSONNE — depuis une fiche de personne : un message neuf ADRESSÉ à ses adresses, sans bien. */
+      if (personne !== null || lotId === null) {
+        setNouveau({ ...base, a: [...(personne?.adresses ?? [])] } as BrouillonEcran);
+        return;
+      }
       const libelle = lignes.find((l) => (l.cibleLibelle ?? '') !== '')?.cibleLibelle ?? `lot ${lotCle}`;
       const b = await brouillonNouveauDepuisLeBien(base, { lotId, cle: lotCle, libelle },
         { texte: redaction.signature, html: redaction.signatureHtml });
@@ -1297,7 +1351,7 @@ export function HistoriqueDuBien({
     } finally {
       setNouveauEnCours(false);
     }
-  }, [redaction, lotId, lotCle, nouveau, lignes]);
+  }, [redaction, lotId, lotCle, nouveau, lignes, personne]);
 
   /**
    * ══ 🔴🔴 LOT PLEIN-ECRAN-DU-COMPOSITEUR-DANS-LA-FICHE — LE PLEIN ÉCRAN DE LA COLONNE, À L'IDENTIQUE ═══════════════════
@@ -1384,11 +1438,12 @@ export function HistoriqueDuBien({
    * n'aurait rien fait — et l'on aurait cherché pourquoi le mail est toujours là.
    */
   const sortieOfferte = useCallback(
-    (l: LigneHistorique) => (l.source !== 'rattachement' ? undefined : {
+    /* 🔴 LOT HISTORIQUE-PERSONNE — « Sortir du suivi » retire un mail du suivi d'UN BIEN : pas sur une fiche de personne. */
+    (l: LigneHistorique) => (l.source !== 'rattachement' || personne !== null ? undefined : {
       aide: aideSortirDuSuivi(adresseBien),
       onSortir: () => { setSortieRefus(null); setASortir(l); },
     }),
-    [adresseBien]);
+    [adresseBien, personne]);
 
   /**
    * ══ 🔴🔴 LOT RATTACHEMENT-PONCTUEL, POINT 1 — « MODIFIER LE RATTACHEMENT », VOISIN DE « SORTIR DU SUIVI » ════
@@ -2478,7 +2533,8 @@ export function HistoriqueDuBien({
   return (
     <section className="ann-bloc hdb" aria-labelledby="hdb-titre">
       <h4 className="ann-bloc-titre" id="hdb-titre">
-        Historique du bien
+        {/* 🔴 LOT HISTORIQUE-PERSONNE — sur une fiche de personne : les échanges avec elle. */}
+        {personne === null ? 'Historique du bien' : 'Historique des échanges'}
         {etat.v === 'ok' && <span className="gst-compte">{etat.total}</span>}
       </h4>
 
@@ -2499,7 +2555,24 @@ export function HistoriqueDuBien({
           La phrase vient ENTIÈREMENT du module pur (`motLocataireDeLaPeriode`), et c'est là qu'elle est éprouvée :
           une maquette de l'étude annonçait « locataire en place depuis le 08/06/2025 » sur un logement vacant
           depuis le 28/09/2026, avec une date d'entrée devinée. Aucun morceau de cette phrase ne se compose ici. */}
-      <p className="hdb-occupant">{motLocataireDeLaPeriode(occupations, maintenant)}</p>
+      {personne === null && <p className="hdb-occupant">{motLocataireDeLaPeriode(occupations, maintenant)}</p>}
+      {/* ══ 🔴🔴 LOT HISTORIQUE-PERSONNE, POINT 2 (Arno) — LA LIGNE COURTE DES LOGEMENTS OCCUPÉS, au-dessus des options ══
+          Ses logements, avec ses dates, et un lien vers l'historique de chacun (les anciens compris : ce lien n'existe
+          nulle part ailleurs). */}
+      {personne !== null && personne.sorte === 'locataire' && (personne.occupations ?? []).length > 0 && (
+        <p className="hdb-occupant hdb-occupations" data-occupations="">
+          <span className="hdb-occupations-mot">Logements occupés :</span>
+          {(personne.occupations ?? []).map((o, i) => (
+            <span key={`${o.cle}-${i}`} className="hdb-occupation">
+              {i > 0 && <span aria-hidden="true"> · </span>}
+              {personne.onOuvrirLogement !== undefined
+                ? <button type="button" className="gst-lien-bouton" onClick={() => personne.onOuvrirLogement?.(o.cle)}>{o.libelle}</button>
+                : <span>{o.libelle}</span>}
+              {' '}<span className="ann-gris">({motOccupation(o.depuis, o.jusqua)})</span>
+            </span>
+          ))}
+        </p>
+      )}
 
       {/* ══ LE TABLEAU DE BORD ══ Rendu HORS du commutateur d'état : cocher une case ne démonte jamais la case,
           donc le focus et la position de défilement ne bougent pas. */}
@@ -2529,6 +2602,7 @@ export function HistoriqueDuBien({
                   🔴 `disabled` ET `title`, PAS UNE COULEUR : un bouton pâle ne dit pas POURQUOI il est pâle.
                   Le motif vient du module pur (`SANS_LOCATAIRE_CONNU`) et il est aussi écrit SOUS la bande,
                   parce qu'une infobulle n'existe pas sur un téléphone — règle tenue partout dans ce bloc. */}
+              {personne === null && (
               <button type="button" aria-pressed={reglages.periode.sorte === 'occupation'}
                 disabled={periodeLocataire === null}
                 title={periodeLocataire === null ? SANS_LOCATAIRE_CONNU : undefined}
@@ -2538,9 +2612,11 @@ export function HistoriqueDuBien({
                 }))}>
                 Depuis l’entrée du dernier locataire
               </button>
+              )}
 
               {/* ⚠️ « UN ÉVÉNEMENT » EST UN BOUTON **ET** UNE LISTE : le bouton dit le choix, la liste dit
                   lequel. Il est grisé quand le bien n'a aucun événement — même règle que ci-dessus. */}
+              {personne === null && (
               <button type="button" aria-pressed={reglages.periode.sorte === 'evenement'}
                 disabled={evenements.length === 0}
                 title={evenements.length === 0 ? SANS_EVENEMENT : undefined}
@@ -2553,6 +2629,7 @@ export function HistoriqueDuBien({
                 })}>
                 Un événement
               </button>
+              )}
 
               <button type="button" aria-pressed={reglages.periode.sorte === 'dates'}
                 className={`hdb-seg${reglages.periode.sorte === 'dates' ? ' hdb-seg--actif' : ''}`}
@@ -2646,17 +2723,21 @@ export function HistoriqueDuBien({
           )}
 
           {/* LES DEUX MOTIFS DE GRISAGE, ÉCRITS — une information portée par une seule infobulle n'existe pas. */}
-          {periodeLocataire === null && <p className="gst-note hdb-note">{SANS_LOCATAIRE_CONNU}</p>}
+          {/* 🔴 LOT HISTORIQUE-PERSONNE — ces deux motifs disent pourquoi deux boutons d'un BIEN sont grisés : sans eux
+              (fiche de personne), ils n'ont rien à expliquer. */}
+          {personne === null && periodeLocataire === null && <p className="gst-note hdb-note">{SANS_LOCATAIRE_CONNU}</p>}
           {evenementsIllisibles && (
             <p className="gst-note hdb-note" role="status">
               Les événements de ce bien n’ont pas pu être lus — les deux dates restent utilisables.
             </p>
           )}
-          {!evenementsIllisibles && evenements.length === 0 && (
+          {personne === null && !evenementsIllisibles && evenements.length === 0 && (
             <p className="gst-note hdb-note">{SANS_EVENEMENT}</p>
           )}
         </fieldset>
 
+        {/* 🔴 LOT HISTORIQUE-PERSONNE — « Parties » est le bloc d'un bien : il n'est pas rendu pour une fiche de personne. */}
+        {personne === null && (<>
         {/* ══ 🔴🔴 BLOC 2 — « PARTIES » : CAPSULES, DEUX ENCARTS, DEUX BANDES (lot HISTORIQUE-BIEN-3) ══════════
             DEMANDE D'ARNO (05/10/2026) : « Chaque partie devient une CAPSULE (pastille arrondie : case à cocher,
             nom ou adresse, compteurs a écrit / en copie, et la date pour les locataires). » Et : « “Tiers
@@ -2952,6 +3033,7 @@ export function HistoriqueDuBien({
             <p className="ann-gris">Aucune personne à lister pour ces réglages.</p>
           )}
         </fieldset>
+        </>)}
 
         {/* ══ 🔴🔴 BLOC 3 — « OPTIONS » : UNE SEULE RANGÉE, PROPRE ET ALIGNÉE (lot HISTORIQUE-BIEN-3, point 5)
             DEMANDE D'ARNO (05/10/2026), qui juge l'actuel « immonde » : « Une seule rangée horizontale, propre,
@@ -3331,8 +3413,11 @@ export function HistoriqueDuBien({
           )}
 
       {/* ══ 🔴🔴 LOT INVARIANT-HISTORIQUE-INALTERABLE — « Mails sortis du suivi (N) ▸ », avec « Restaurer » ══════ */}
+      {/* 🔴 LOT HISTORIQUE-PERSONNE — les mails sortis du suivi D'UN BIEN : pas sur une fiche de personne. */}
+      {personne === null && (
       <MailsSortisDuSuivi lotCle={lotCle} version={versionSortis}
         onRestaure={() => { setRechargement((n) => n + 1); annoncerClassement({ messageId: 0, filId: null }); }} />
+      )}
 
       {/* ══ 🔴 LE LIEN DISCRET VERS L'ÉCRAN PLEIN, TOUT EN BAS (lot HISTORIQUE-BIEN-3) ═════════════════════════
           Arno : « petit lien discret “Écran historique complet” en bas du nouveau bloc ».

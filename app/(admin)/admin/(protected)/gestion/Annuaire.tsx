@@ -936,8 +936,11 @@ function VueProprietaire({
                 bien, il rendrait mot pour mot la même liste que le bouton « Historique » de l'unique carte — deux
                 chemins vers la même page, dont on finit par se demander lequel montre autre chose. À plusieurs
                 biens, il répond à une question que les cartes ne savent pas poser : « tout ce qui s'est dit avec
-                cette personne, tous biens confondus ». */}
-            {f.biens.length > 1 && onHistorique !== undefined && (
+                cette personne, tous biens confondus ».
+                🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026, point A) — LE LIEN EST SUR TOUTES LES FICHES : l'historique
+                montre désormais les ÉCHANGES avec la ou les personnes de la fiche (leurs adresses), et non plus l'union
+                des historiques de ses biens. Il dit donc autre chose que les cartes, même à un seul bien. Libellé inchangé. */}
+            {onHistorique !== undefined && (
               <button type="button" className="ann-lien ann-tete-histo"
                 onClick={() => onHistorique({ sorte: 'proprietaire', cle: f.cle, id: null })}>
                 Historique, tous biens confondus →

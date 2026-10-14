@@ -63,6 +63,9 @@ import {
   aRafraichir, empreinteSuivante, peutBattre, PERIODE_BATTEMENT_MS, veilleAAfficher, veilleSuivante,
   type Empreinte, type VeilleVive,
 } from '../../../../lib/gestion/rafraichir';
+/* 🔴 LOT HISTORIQUE-PERSONNE — l'historique des échanges d'une fiche propriétaire ou locataire. */
+import { HistoriquePersonne } from './HistoriquePersonne';
+import type { Cible } from '../../../../lib/gestion/rattachement';
 import { HistoriqueCible } from './HistoriqueCible';
 import { cibleDepuisTexte, texteCible } from '../../../../lib/gestion/historique';
 /* 🔴🔴 LOT FILTRES-EVENEMENTS-NEW — L'UNIQUE SOURCE DE CALCUL de l'ordre des cartes, partagée par les deux
@@ -1405,7 +1408,20 @@ export function GestionVue({ intro }: {
             }
             : undefined} />
       ) : ecran === 'historique' ? (
-        cibleHistorique !== null ? (
+        /* 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026) — une fiche PROPRIÉTAIRE ou LOCATAIRE ouvre l'historique de
+           ses échanges, avec le composant de l'historique d'un bien. Un bien et une carte gardent l'écran d'avant. */
+        cibleHistorique !== null && cibleHistorique.sorte === 'proprietaire' ? (
+          <HistoriquePersonne cible={cibleHistorique as Cible & { sorte: 'proprietaire' | 'locataire' }} maintenant={ref}
+            redaction={redaction}
+            onGesteMail={(m, o) => { surGeste(m, o); if (o?.rechargerTout) void charger(); }}
+            onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
+            onReception={() => aller({ ...ETAT_DEFAUT, ecran: 'boite', etiquette: ETIQUETTE_RECEPTION })}
+            onOuvrirFil={(id, messageId) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null })}
+            onOuvrirLogement={(c) => {
+              const n = Number(c);
+              if (Number.isSafeInteger(n) && n > 0) aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'bien', id: n }, bloc: 'vie' });
+            }} />
+        ) : cibleHistorique !== null ? (
           <HistoriqueCible cible={cibleHistorique} maintenant={ref}
             /* ⚠️ « ← » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte : s'en remettre à
              lui ferait un bouton de retour qui ne sort de nulle part. */

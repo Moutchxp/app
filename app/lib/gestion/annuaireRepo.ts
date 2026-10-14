@@ -1329,7 +1329,16 @@ async function derniersProprietaires(ids: readonly number[]): Promise<Set<number
  * vérité d'aujourd'hui, et non une carte vide.
  */
 async function coproprietairesDe(proprietaireId: number): Promise<PersonneAnnuaire[]> {
-  if (!await annuaireModifiableDisponible()) return personnesDe('proprietaire', [proprietaireId]);
+  return personnesDe('proprietaire', await idsCoproprietaires(proprietaireId));
+}
+
+/**
+ * 🔴 LOT HISTORIQUE-PERSONNE — LES IDENTIFIANTS des personnes de la fiche (la personne demandée en tête), EXACTEMENT
+ * ceux que `coproprietairesDe` montre en cartes : l'historique d'une fiche propriétaire lit les adresses de ces
+ * personnes-là, et d'aucune autre (décision d'Arno, 14/10/2026 : « toutes les personnes de la fiche »).
+ */
+export async function idsCoproprietaires(proprietaireId: number): Promise<number[]> {
+  if (!await annuaireModifiableDisponible()) return [proprietaireId];
   const { rows } = await query<{ proprietaire_id: string }>(
     /**
      * ⚠️ DEUX SOURCES DE PROPRIÉTÉ, ET IL FAUT LES DEUX. Corrigé le 29/09/2026, sur la fiche de M. ROI Nathan :
@@ -1356,8 +1365,7 @@ async function coproprietairesDe(proprietaireId: number): Promise<PersonneAnnuai
      SELECT DISTINCT lp.proprietaire_id::text
        FROM gestion_annuaire_lot_proprietaire lp JOIN ses_lots s ON s.lot_id = lp.lot_id
       WHERE lp.jusqu_a IS NULL`, [proprietaireId]);
-  const ids = [proprietaireId, ...rows.map((r) => Number(r.proprietaire_id))];
-  return personnesDe('proprietaire', ids);
+  return [...new Set([proprietaireId, ...rows.map((r) => Number(r.proprietaire_id))])];
 }
 
 export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheProprietaire>> {

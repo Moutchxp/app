@@ -147,7 +147,8 @@ describe('🔴 le bouton dans la fiche : le MÊME compositeur que « Nouveau mes
     expect(code).toContain('onEnvoye={() => { setNouveau(null); setRechargement((n) => n + 1); }}');
   });
   it('les mêmes conditions que « Répondre » (droit d’envoi, base à jour), plus le bien de la fiche', () => {
-    expect(code).toContain('const peutEcrireNouveau = peutRepondre && lotId !== null;');
+    // LOT HISTORIQUE-PERSONNE : le bien de la fiche, OU la fiche de personne (propriétaire, locataire).
+    expect(code).toContain('const peutEcrireNouveau = peutRepondre && (lotId !== null || personne !== null);');
     expect(code).toMatch(/\{peutEcrireNouveau && \(\s*<button type="button" className="svv-btn svv-btn-primary gst-btn hdb-nouveau"/);
   });
 });

@@ -78,6 +78,8 @@ export async function GET(request: Request): Promise<Response> {
         /* 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 3 — les tranches d'occupation, pour que l'écran DISE ce
            qu'il recouvre. Tableau vide pour toute autre cible : aucune autre n'est bornée dans le temps. */
         occupations: etendue.data.occupations,
+        /* 🔴 LOT HISTORIQUE-PERSONNE — par les échanges : les adresses de la fiche (couleurs, « Nouveau message »). */
+        ...(etendue.data.echanges === true ? { adresses: etendue.data.adresses } : {}),
         lignes: page.lignes,
         suite: page.suite,
         entete: entete.filtre,

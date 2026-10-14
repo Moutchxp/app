@@ -199,6 +199,13 @@ export interface FiltresHistorique {
   avecLogements: boolean;
   /** POUR UN PROPRIÉTAIRE : regrouper la frise par logement, d'un clic. Éteint par défaut : la frise est chronologique. */
   grouper: boolean;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026) — LES ÉCHANGES AVEC LA PERSONNE, ET EUX SEULS ═════════════════
+   * Pour une fiche PROPRIÉTAIRE ou LOCATAIRE : les mails reçus de ses adresses (toutes les personnes de la fiche) et
+   * nos mails qui leur sont adressés (À, Cc, Cci). Sans rattachement, sans tranche de dates, sans logements. Éteint
+   * par défaut : sans lui, la sélection est exactement celle d'avant (écran historique d'un bien, d'une carte).
+   */
+  echanges: boolean;
   page: number;
   taille: number;
 }
@@ -206,7 +213,7 @@ export interface FiltresHistorique {
 export const FILTRES_VIDES: FiltresHistorique = {
   interlocuteurs: [], expediteursExclus: [], du: null, au: null, pieces: 'toutes', texte: '',
   evenementOuvert: false,
-  avecProprietaire: false, avecLogements: true, grouper: false,
+  avecProprietaire: false, avecLogements: true, grouper: false, echanges: false,
   page: 0, taille: PAGE_HISTORIQUE,
 };
 
@@ -257,6 +264,8 @@ export function lireFiltres(p: URLSearchParams): FiltresHistorique {
     // ⚠️ ALLUMÉ SAUF SI ON DIT EXPLICITEMENT NON : l'absence du paramètre doit rendre le défaut, qui est « oui ».
     avecLogements: p.get('logements') !== '0',
     grouper: p.get('grouper') === '1',
+    /* 🔴 LOT HISTORIQUE-PERSONNE — lu strictement : seul « 1 » allume la sélection par les échanges. */
+    echanges: p.get('echanges') === '1',
     page: entierBorne(p.get('page'), 0, 10_000),
     taille: entierBorne(p.get('taille'), PAGE_HISTORIQUE, PAGE_HISTORIQUE_MAX) || PAGE_HISTORIQUE,
   };

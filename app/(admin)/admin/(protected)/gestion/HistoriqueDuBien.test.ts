@@ -2316,7 +2316,7 @@ describe('⑤-nonies 🔴🔴 le résumé des pièces suit la sélection', () =>
        parametresSansPage]` au caractère près, et le lot 12 — qui ajoute `rechargement` pour qu'« Annuler »
        redemande la page — la faisait échouer sans que rien ne soit cassé. Ce qui compte est que la lecture
        suive les FILTRES SANS LA PAGE, et jamais `parametres` (qui, lui, porte la page). */
-    expect(code).toContain('parametresSansPage, rechargement]);');
+    expect(code).toContain('parametresSansPage, rechargement, cibleHisto]);');
     expect(code).not.toContain('[lotCle, parametres, parametresSansPage');
   });
 

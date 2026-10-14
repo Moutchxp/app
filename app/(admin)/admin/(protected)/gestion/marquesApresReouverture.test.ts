@@ -182,7 +182,7 @@ describe('🔴🔴 ② LA CHAÎNE DE RELECTURE — le maillon qui manquait', () 
   it('🔴🔴 ⑤ l’historique redemande sa liste d’événements ET ses lignes', () => {
     expect(HISTO).toContain('signalRelire?: number');
     /* La liste d'événements : le signal entre dans les dépendances de son effet. */
-    expect(HISTO).toContain('}, [lotCle, signalRelire]);');
+    expect(HISTO).toContain('}, [lotCle, signalRelire, personne]);');
     /* Les lignes : le compteur de rechargement avance — celui dont les trois effets de page dépendent. */
     expect(HISTO).toContain('setRechargement((n) => n + 1);');
     /* ⚠️ ET PAS AU PREMIER PASSAGE : sans ce garde, chaque ouverture de fiche doublerait ses requêtes. */

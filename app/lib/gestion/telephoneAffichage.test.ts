@@ -295,8 +295,11 @@ describe('🔴 la carte de bien : « Historique » puis deux boutons de même la
    * L'historique d'un propriétaire est donc exactement l'union de ceux de ses biens. À un seul bien, le lien
    * rendrait mot pour mot la même liste que le bouton de l'unique carte.
    */
-  it('🔴 le lien « tous biens confondus » n’apparaît qu’au-delà d’un bien', () => {
-    expect(src).toContain('f.biens.length > 1 && onHistorique !== undefined');
+  /* 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026, point A) — le lien est désormais sur TOUTES les fiches propriétaires :
+     l'historique montre les échanges avec la fiche, et non plus l'union de ses biens. Libellé inchangé. */
+  it('🔴 le lien « tous biens confondus » est sur toutes les fiches propriétaires', () => {
+    expect(src).not.toContain('f.biens.length > 1 && onHistorique !== undefined');
+    expect(src).toContain("{onHistorique !== undefined && (\n              <button type=\"button\" className=\"ann-lien ann-tete-histo\"");
     expect(src).toContain('Historique, tous biens confondus');
     // Et l'ancien bouton du bas de page a bien disparu de la fiche propriétaire.
     const vue = src.slice(src.indexOf('function VueProprietaire'), src.indexOf('function BoutonDepart'));

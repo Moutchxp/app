@@ -120,7 +120,8 @@ describe('🔴🔴 ③ les écrans qui n’ont pas de colonne', () => {
    * sortie était « ← Écran partagé ». Ils reçoivent un bouton « Réception », à côté — jamais à la place.
    */
   it('🔴🔴 « À rattacher » et l’historique mènent à la Réception', () => {
-    for (const f of ['FileATrier.tsx', 'HistoriqueCible.tsx']) {
+    /* 🔴 LOT HISTORIQUE-PERSONNE — l'historique d'une fiche propriétaire ou locataire a son écran, avec les mêmes boutons. */
+    for (const f of ['FileATrier.tsx', 'HistoriqueCible.tsx', 'HistoriquePersonne.tsx']) {
       const src = readFileSync(`app/(admin)/admin/(protected)/gestion/${f}`, 'utf8');
       expect(src, f).toContain('onReception?: () => void;');
       expect(src, f).toContain('{onReception !== undefined && (');
@@ -128,6 +129,6 @@ describe('🔴🔴 ③ les écrans qui n’ont pas de colonne', () => {
       expect(src, f).toContain('← Écran partagé');
     }
     expect(VUE.match(/onReception=\{\(\) => aller\(\{ \.\.\.ETAT_DEFAUT, ecran: 'boite', etiquette: ETIQUETTE_RECEPTION \}\)\}/g) ?? [])
-      .toHaveLength(2);
+      .toHaveLength(3);
   });
 });
