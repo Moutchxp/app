@@ -116,7 +116,8 @@ describe('la feuille de style tient les exigences transverses', () => {
      */
     const vue = src.slice(src.indexOf('gst-deux'), src.indexOf('const CSS_GESTION'));
     expect(vue.indexOf('gst-titre-reception')).toBeLessThan(vue.indexOf('gst-titre-ev'));
-    expect(vue.indexOf('gst-titre-ev')).toBeLessThan(vue.indexOf('gst-titre-file'));
+    /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT (accord d'Arno, 14/10/2026) — le bloc « Sans événement » n'est plus rendu ici. */
+    expect(vue).not.toContain('gst-titre-file');
   });
 
   it('AUCUN débordement horizontal : la grille peut rétrécir et le texte casse', () => {

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -79,7 +80,9 @@ describe('🔴 les deux onglets sont partis, et rien d’autre', () => {
   it('l’écran partagé est le point d’entrée : la file À GAUCHE, les événements À DROITE', async () => {
     await monter();
     expect(container.querySelector('.gst-deux')).not.toBeNull();
-    expect(texte()).toContain('Sans événement');
+    /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT — la section « Échanges sans événement » n'est plus ici (accord d'Arno) ;
+       le lien « File des échanges sans événement » du pied de la boîte y mène. */
+    expect(texte()).toContain('File des échanges sans événement');
     expect(texte()).toContain('Événements');
     /**
      * ══ 🔴🔴 L'ORDRE DU DOM = L'ORDRE MOBILE — MIS À JOUR AU LOT ACCUEIL-GESTION, POINT 3 ═════════════════════
@@ -96,7 +99,7 @@ describe('🔴 les deux onglets sont partis, et rien d’autre', () => {
      */
     const html = container.innerHTML;
     expect(html.indexOf('gst-titre-reception')).toBeLessThan(html.indexOf('gst-titre-ev'));
-    expect(html.indexOf('gst-titre-ev')).toBeLessThan(html.indexOf('gst-titre-file'));
+    expect(html).not.toContain('gst-titre-file');
   });
 
   /**
@@ -104,9 +107,12 @@ describe('🔴 les deux onglets sont partis, et rien d’autre', () => {
    * colonne de gauche avait PERDU son « Plein écran » quand elle est devenue la boîte de réception : il revient à
    * la même place que celui des événements. La file des échanges sans événement, repliée en dessous, garde le sien.
    */
-  it('CHAQUE colonne a son bouton « Plein écran » — réception, échanges sans événement, événements', async () => {
+  it('CHAQUE colonne a son bouton « Plein écran » — réception, événements (la file : son lien, accord d’Arno)', async () => {
     await monter();
-    expect(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))).toHaveLength(3);
+    expect(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))).toHaveLength(2);
+    /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT — le « Plein écran » de la file retirée : son lien, qui ouvre « À classer ». */
+    await cliquer(boutons().find((b) => /File des échanges sans événement/.test(b.textContent ?? '')));
+    expect(url()).toContain('etiquette=a_classer');
   });
 });
 
@@ -283,7 +289,9 @@ describe('🔴 ③ sous « À classer », c’est le POSTE DE TRI lui-même — 
     expect(boutonPar(/^Classer dans une carte$/)).toBeDefined();
   });
 
-  it('🔴 …et l’écran PARTAGÉ dit le MÊME mot : un seul geste, un seul mot (lot 5-FUSION-B)', async () => {
+  it('🔴 …un seul geste, un seul mot (lot 5-FUSION-B) : « Classer dans une carte », jamais « Affecter »', async () => {
+    /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT — la file n'est plus que sous « À classer ». */
+    window.history.replaceState(null, '', '/admin/gestion?etiquette=a_classer');
     await monter();
     expect(boutonPar(/^Classer dans une carte$/)).toBeDefined();
     expect(boutonPar(/Affecter/)).toBeUndefined();
@@ -352,6 +360,8 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
   }
 
   it('le compteur « N échanges plus anciens » et sa sortie vers la boîte sont intacts', async () => {
+    /* 🔴 CHOIX « 1 » D'ARNO (14/10/2026) — la mention est désormais EN TÊTE de « À classer », dans la boîte. */
+    window.history.replaceState(null, '', '/admin/gestion?etiquette=a_classer');
     await monter();
     expect(texte()).toContain('12 échanges plus anciens que 30 jours');
     expect(texte()).toContain('Rien n’est supprimé');
@@ -363,10 +373,14 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
     expect(url()).toBe('/admin/gestion');
   });
 
-  it('« Classés sans suite » et son bouton « Rouvrir » restent dans l’écran partagé', async () => {
+  /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT (accord d'Arno, 14/10/2026) — « Classés sans suite » quitte l'écran partagé avec
+     la section ; ils restent dans la boîte (étiquette « Sans suite »), et « Rouvrir » reste dans la conversation. */
+  it('les classés sans suite gardent leur étiquette dans la boîte, et « Rouvrir » sa place dans la conversation', async () => {
+    window.history.replaceState(null, '', '/admin/gestion');
     await monter();
-    expect(texte()).toContain('Classés sans suite');
-    expect(boutonPar(/^Rouvrir$/)).toBeDefined();
+    expect([...container.querySelectorAll('.cm-entree')].some((b) => /Sans suite/.test(b.textContent ?? ''))).toBe(true);
+    const conversation = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+    expect(conversation).toContain("/sans-suite`, 'DELETE'");
   });
 
   it('les cartes gardent toutes leurs fonctions en plein écran : c’est la MÊME carte, pas une copie', async () => {

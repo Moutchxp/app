@@ -218,13 +218,12 @@ describe('🔴 LOT TACHES-LIGNES-COMPACTES — la ligne repliée, sur les deux �
 describe('🔴 non-régression : rien n’est déplacé', () => {
   const vue = readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8');
   const annuaire = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
-  it('le récapitulatif général est APRÈS « Échanges sans événement », sous les deux colonnes', () => {
+  it('le récapitulatif général est sous les deux colonnes (la section « Échanges sans événement » est retirée, accord d’Arno)', () => {
     const colonnes = vue.indexOf('<div className="gst-deux">');
-    const echanges = vue.indexOf('<details className="gst-file-echanges">');
     const tableau = vue.indexOf('<TableauTaches');
     expect(colonnes).toBeGreaterThan(0);
-    expect(echanges).toBeGreaterThan(colonnes);
-    expect(tableau).toBeGreaterThan(echanges);
+    expect(tableau).toBeGreaterThan(colonnes);
+    expect(vue).not.toContain('<details className="gst-file-echanges">');
   });
   it('« + Tâche » est à côté de « Dossier Drive ↗ », qui reste en place', () => {
     // « Dossier Drive ↗ » existe aussi sur d'autres fiches : on prend celui qui précède le bouton, et l'on vérifie

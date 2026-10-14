@@ -178,12 +178,27 @@ describe('⑤ rien n’est retiré ni masqué', () => {
    * de gauche à 922 px, pied de droite à 967). Il est désormais SOUS les deux, sur toute la largeur, avec son
    * titre, son compteur, son « Plein écran », sa fenêtre d'activité, ses gestes et son repli par défaut.
    */
-  it('🔴 le bloc « Échanges sans événement » est hors de la grille, et complet', () => {
-    const grille = VUE.slice(VUE.indexOf('<div className="gst-deux">'), VUE.indexOf('CE BLOC EST PASSÉ'));
-    expect(grille).not.toContain('gst-file-echanges');
-    expect(VUE).toContain('<details className="gst-file-echanges">');
-    expect(VUE).toContain('Échanges sans événement <span className="gst-compte">{d.filsTotal}</span>');
-    expect(VUE).toContain('gst-titre-file');
+  /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT (accord explicite d'Arno, 14/10/2026) — la section n'est plus rendue ; le lien
+     « File des échanges sans événement (N) » du pied de la boîte reste, et mène à la même file (étiquette « À classer »). */
+  it('🔴 la section « Échanges sans événement » n’est plus sur l’écran partagé ; le lien du pied reste', () => {
+    expect(VUE).not.toContain('<details className="gst-file-echanges">');
+    expect(VUE).not.toContain('Échanges sans événement <span className="gst-compte">');
+    expect(VUE).toContain('onFileEchanges={() => { setPanneau(null); aller({ ecran: \'boite\', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}');
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/BoiteReception.tsx', 'utf8'))
+      .toContain('File des échanges sans événement{compteEchanges !== null ?');
+  });
+  /* 🔴 CHOIX « 1 » D'ARNO — les deux mentions de la section retirée sont EN TÊTE de la file « À classer » de la boîte. */
+  it('🔴 les deux mentions (troncature, échanges plus anciens + « Les voir dans la boîte mail ») sont en tête de « À classer »', () => {
+    const debut = VUE.indexOf('const fileAClasser =');
+    const file = VUE.slice(debut, VUE.indexOf('</ul>', debut));
+    expect(file.indexOf('{mentionsFile}')).toBeGreaterThan(0);
+    expect(file.indexOf('{mentionsFile}')).toBeLessThan(file.indexOf("{barreFile('haut')}"));
+    expect(file).toContain('<>{mentionsFile}<p className="gst-vide">');
+    const mentions = VUE.slice(VUE.indexOf('const mentionsFile ='), debut);
+    expect(mentions).toContain('{troncFile && <p className="gst-tronc">{troncFile}</p>}');
+    expect(mentions).toContain('plus ancien');
+    expect(mentions).toContain('Les voir dans la boîte mail');
+    expect(VUE).toContain('enfantAClasser={fileAClasser}');
   });
 
   /** 🔴 LES DEUX GESTES DU PIED DE GAUCHE SONT LÀ, côte à côte : aucun n'a disparu avec la mise en rangée. */

@@ -216,7 +216,8 @@ describe('TÉLÉPHONE — deux écrans, jamais deux colonnes', () => {
 
 describe('🔴 « Classer dans une carte » : le MOT a changé, la ROUTE non', () => {
   it('le geste appelle toujours /fils/[id]/affectation, en POST', async () => {
-    await monter();
+    /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT (accord d'Arno, 14/10/2026) — la file n'est plus sur l'écran partagé : elle vit sous l'étiquette « À classer » de la boîte. */
+    await monter('?etiquette=a_classer');
     await cliquer(boutonPar(/^Classer dans une carte$/));
     await cliquer(boutonPar(/^Rattacher$/));
     const post = appels.find((a) => a.url.includes('/affectation') && a.methode === 'POST');

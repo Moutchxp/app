@@ -57,6 +57,10 @@ beforeEach(() => {
       fileCourante = APRES; // la file a changé sous l'écran : c'est tout le nœud du défaut
       return { ok: true, json: async () => ({ ok: true, evenementId: 9, reference: 'GES-2026-000001' }) } as unknown as Response;
     }
+    // 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT — le bouton rond de « À classer » relève (simulé) PUIS relit la file.
+    if (u.includes('/relever')) {
+      return { ok: true, status: 200, json: async () => ({ resultat: 'ok', resume: '', compteurs: { messagesLus: 0, captures: 0, recus: 0, envoyes: 0, exclus: 0, dejaConnus: 0, piecesDeposees: 0, piecesNonDeposees: 0, echecsLecture: 0, plafondAtteint: false, resteAVoir: 0 } }) } as unknown as Response;
+    }
     return { ok: true, json: async () => ECRAN(fileCourante) } as unknown as Response;
   }) as unknown as typeof fetch;
 });
@@ -68,7 +72,8 @@ const calmer = async () => { await act(async () => { await Promise.resolve(); aw
  * l'écran partagé ; depuis ce lot, l'adresse nue ouvre la boîte, où il n'y a ni ligne de file ni panneau à cliquer.
  */
 const monter = async () => {
-  window.history.replaceState(null, '', '/admin/gestion?ecran=partage');
+  /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT (accord d'Arno, 14/10/2026) — la file n'est plus sur l'écran partagé : elle vit sous l'étiquette « À classer » de la boîte : c'est là qu'on l'éprouve. */
+  window.history.replaceState(null, '', '/admin/gestion?etiquette=a_classer');
   await act(async () => { root.render(createElement(GestionVue)); });
   await calmer();
 };
@@ -133,7 +138,10 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
        d'Arno) : même action, même appel (`charger`), un dessin au lieu d'un mot. On le désigne donc par son
        libellé accessible, qui est la seule chose qu'il DIT — et la garantie éprouvée ici n'a pas changé d'un
        pouce : toute relecture referme le panneau. */
-    await cliquer(container.querySelector('.bte-relever') as HTMLElement | undefined);
+    /* 🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT — sous « À classer », le bouton rond est celui du titre de la file. */
+    await cliquer(container.querySelector('.gst-titre .bte-relever') as HTMLElement | undefined);
+    // Ce bouton RELÈVE puis relit (`charger`) : la relecture arrive un tour plus tard que l'ancien « Rafraîchir ».
+    for (let i = 0; i < 4; i += 1) await calmer();
     expect(panneaux()).toHaveLength(0);
   });
 

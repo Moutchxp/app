@@ -877,7 +877,6 @@ export function GestionVue({ intro }: {
 
   const d = vue.data;
   const ref = maintenant ?? new Date();
-  const troncFile = mentionTroncature(d.file.length, d.filsTotal);
   const troncEv = mentionTroncature(d.evenements.length, d.evenementsTotal);
   /**
    * LE POSTE DE TRI, RENDU UNE SEULE FOIS, et affiché à deux endroits : dans la colonne de gauche de l'écran partagé,
@@ -916,10 +915,35 @@ export function GestionVue({ intro }: {
     <BarrePages ou={ou} page={pageFile} lignes={d.file.length} total={d.filsTotal}
       suite={(pageFile + 1) * PAR_PAGE < d.filsTotal} nom="la file" onPage={allerPageFile} />
   );
+  /**
+   * 🔴🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT, CHOIX « 1 » D'ARNO (14/10/2026) — LES DEUX MENTIONS DE LA SECTION RETIRÉE
+   * de l'écran partagé sont ici, EN TÊTE de la vue « À classer » de la boîte mail (la même file), au mot près : la
+   * troncature, et la fenêtre d'activité avec sa sortie « Les voir dans la boîte mail ». Un outil qui cache sans le dire
+   * ment.
+   */
+  const troncFile = mentionTroncature(d.file.length, d.filsTotal);
+  const mentionsFile = (
+    <>
+      {troncFile && <p className="gst-tronc">{troncFile}</p>}
+      {d.filsTropAnciens > 0 && (
+        <p className="gst-tronc">
+          {d.filsTropAnciens} échange{d.filsTropAnciens > 1 ? 's' : ''} plus ancien{d.filsTropAnciens > 1 ? 's' : ''} que {d.fenetreJours} jours
+          {' '}ne {d.filsTropAnciens > 1 ? 'sont' : 'est'} pas affiché{d.filsTropAnciens > 1 ? 's' : ''} dans la file.
+          {' '}Rien n’est supprimé : {d.filsTropAnciens > 1 ? 'ils restent' : 'il reste'} en base.
+          {' '}
+          <button type="button" className="gst-lien-bouton"
+            onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }}>
+            Les voir dans la boîte mail
+          </button>
+        </p>
+      )}
+    </>
+  );
   const fileAClasser = d.file.length === 0 && pageFile === 0
-    ? <p className="gst-vide">{messageFileVide(d)}</p>
+    ? <>{mentionsFile}<p className="gst-vide">{messageFileVide(d)}</p></>
     : (
       <>
+      {mentionsFile}
       {barreFile('haut')}
       <ul className="gst-liste">
         {d.file.map((f) => (
@@ -1784,74 +1808,13 @@ export function GestionVue({ intro }: {
         </section>
       </div>
 
-      {/* ══ 🔴🔴 LOT ACCUEIL-GESTION, POINT 3 — CE BLOC EST PASSÉ **SOUS** LES DEUX COLONNES ════════════════
-
-          Il vivait DANS la colonne de gauche, sous son pied. Les deux colonnes ne pouvaient donc pas se
-          terminer sur la même ligne — mesuré avant correction : le pied de gauche à 922 px, celui de droite à
-          967 px — et c'est exactement la dissymétrie qu'Arno demande de corriger.
-
-          🔴 RIEN N'EST RETIRÉ NI MASQUÉ : le bloc garde son titre, son compteur, son « Plein écran », sa
-          fenêtre d'activité, ses gestes et son repli par défaut. Il est simplement posé SOUS les deux colonnes,
-          sur toute la largeur, là où il ne déséquilibre plus rien. */}
-        {/* LA FILE DES ÉCHANGES SANS ÉVÉNEMENT — conservée telle quelle, repliée par défaut. Elle garde son
-            plein écran, sa fenêtre d'activité, ses gestes et son compteur : aucun n'est retiré. */}
-        <details className="gst-file-echanges">
-          <summary className="gst-file-titre">
-            Échanges sans événement <span className="gst-compte">{d.filsTotal}</span>
-          </summary>
-        <div className="gst-entete-col">
-          <h2 className="gst-titre" id="gst-titre-file">
-            Sans événement <span className="gst-compte">{d.filsTotal}</span>
-          </h2>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn"
-            onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}>
-            Plein écran
-          </button>
-        </div>
-        {troncFile && <p className="gst-tronc">{troncFile}</p>}
-        {/* FENÊTRE D'ACTIVITÉ — dite en toutes lettres. Un outil qui cache sans le dire ment. */}
-        {d.filsTropAnciens > 0 && (
-          <p className="gst-tronc">
-            {d.filsTropAnciens} échange{d.filsTropAnciens > 1 ? 's' : ''} plus ancien{d.filsTropAnciens > 1 ? 's' : ''} que {d.fenetreJours} jours
-            {' '}ne {d.filsTropAnciens > 1 ? 'sont' : 'est'} pas affiché{d.filsTropAnciens > 1 ? 's' : ''} dans la file.
-            {' '}Rien n’est supprimé : {d.filsTropAnciens > 1 ? 'ils restent' : 'il reste'} en base.
-            {/* LOT 5a — la phrase ne change pas d'un mot ; on lui AJOUTE la sortie qui lui manquait.
-                LOT 5-FUSION — cette sortie mène désormais à l'étiquette « Réception », qui est ce que montrait
-                l'onglet supprimé : tout le courrier, sans la fenêtre de 30 jours. */}
-            {' '}
-            <button type="button" className="gst-lien-bouton"
-              onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }}>
-              Les voir dans la boîte mail
-            </button>
-          </p>
-        )}
-        {fileAClasser}
-
-        {/* CLASSÉS SANS SUITE — la contrepartie du geste : visible, et réversible d'un clic. */}
-        {d.sansSuiteTotal > 0 && (
-          <details className="gst-sans-suite">
-            <summary className="gst-sans-suite-titre">Classés sans suite <span className="gst-compte">{d.sansSuiteTotal}</span></summary>
-            <ul className="gst-liste">
-              {d.sansSuite.map((f) => (
-                <li key={f.filId} className="gst-item">
-                  <div className="gst-item-haut"><span className="gst-objet">{nettoyerObjet(f.objet) || '(sans objet)'}</span></div>
-                  <div className="gst-item-bas">
-                    <span title={formaterDateFr(f.classeLe)}>classé {depuis(f.classeLe, ref)}</span>
-                    {f.classePar && <><span className="gst-sep" aria-hidden="true">·</span><span>par {f.classePar}</span></>}
-                    {f.motif && <><span className="gst-sep" aria-hidden="true">·</span><span>{f.motif}</span></>}
-                  </div>
-                  <div className="gst-actions">
-                    <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={gesteEnCours}
-                      onClick={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'DELETE', 'Échange rouvert : il est revenu dans la file.')}>
-                      Rouvrir
-                    </button>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-        </details>
+      {/* 🔴🔴 LOT RETRAIT-ECHANGES-SANS-EVENEMENT (accord explicite d'Arno, 14/10/2026) — la section repliable « Échanges
+          sans événement » (et son « Plein écran », sa file, ses « Classés sans suite ») n'est plus rendue ici, entre la
+          boîte et les Tâches. RIEN N'EST PERDU : le lien « File des échanges sans événement (N) », à côté de « Voir les
+          mails plus anciens », ouvre la même file dans la boîte mail (étiquette « À classer ») ; les classés sans suite
+          ont leur étiquette « Sans suite » dans la boîte, et « Rouvrir » reste dans la conversation ; les deux mentions
+          (troncature, fenêtre d'activité et « Les voir dans la boîte mail ») sont en tête de « À classer » (choix « 1 »
+          d'Arno, `mentionsFile`). Aucune donnée modifiée. */}
 
       {/* 🔴🔴 LOT TACHES-1 — LE RÉCAPITULATIF GÉNÉRAL DES TÂCHES, TOUT EN BAS DE L'ÉCRAN PARTAGÉ. C'est la seule place
           qui ne déplace, ne rétrécit ni ne masque rien : annuaire, boîte à gauche, événements à droite et « Échanges
@@ -2852,9 +2815,4 @@ ${CSS_BOUTON_PILULE}
 /* CLASSÉS SANS SUITE — replié par défaut : présent sans encombrer. */
 /* LOT STATUT-PAR-MAIL — la file des echanges sans evenement, repliee sous la boite de reception. Rien n'est
    retire : elle garde son plein ecran, sa fenetre d'activite, ses gestes et son compteur. */
-.gst-file-echanges{margin-top:10px;border-top:1px solid var(--color-svv-line);padding-top:8px}
-.gst-file-titre{font-size:.85rem;font-weight:600;color:var(--color-svv-ink);cursor:pointer}
-.gst-file-titre:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.gst-sans-suite{margin-top:1rem;border-top:1px solid var(--color-svv-line);padding-top:.75rem}
-.gst-sans-suite-titre{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:13px;font-weight:700;color:var(--color-svv-ink);cursor:pointer}
 `;
