@@ -12,7 +12,7 @@
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { closePool, query } from './client';
 import { validerOrigine, type ValidationOrigine } from './origine';
-import { candidatReentreeOrigine } from './obstacles';
+import { candidatReentreeOrigine, obstaclesSurAxe } from './obstacles';
 import { faisceauxAmplitude } from './faisceaux';
 import { construireEntree } from './pipeline';
 import { analyser, type EntreeComplete } from '../svv/analyse';
@@ -63,12 +63,9 @@ describe('① Asnières, faisceau 45° — même classification sous perturbatio
 });
 
 describe('② Asnières — 61 faisceaux et score complet stables sous perturbation de l’origine', () => {
-  // ⚠️ CONSTAT HORS PÉRIMÈTRE (14/10/2026), non corrigé ici : le faisceau -90° (plein nord) LONGE un mur nord-sud du VOISIN
-  //   BATIMENT0000000240320053 ; l'origine décalée de -1e-6 m vers l'ouest le fait passer de 107,11 m (…053) à 120,00 m
-  //   (…054). La décision d'Arno ne porte que sur le PROPRE bâtiment : ce cas attend la sienne. La variante « -1e-6 x » est
-  //   donc exclue de la comparaison du SCORE et des faisceaux voisins ; le propre bâtiment, lui, est comparé dans les 7.
-  const VOISIN_RASANT = '-1e-6 x';
-  it('7 variantes : le propre bâtiment bouche les MÊMES faisceaux ; 6 variantes : mêmes 61 faisceaux, score identique à 1e-6 près', async () => {
+  // Le faisceau -90° (plein nord) frôle le bord du couloir sur un mur du VOISIN …053 (à exactement 1 m du rayon). Depuis la
+  // règle A étendue aux voisins (14/10/2026), ce frôlement n'est plus un contact : les 7 variantes sont toutes comparées.
+  it('7 variantes : mêmes 61 faisceaux (dégagé / bouché, bâtiment heurté), score identique à 1e-6 près', async () => {
     const { entree } = await construireEntree({ ...CAS_GOLDEN, point: { ...CAS_GOLDEN.point } });
     expect(entree).not.toBeNull();
     const classements: string[] = [];
@@ -81,12 +78,14 @@ describe('② Asnières — 61 faisceaux et score complet stables sous perturbat
         altitudeFenetreM: entree!.altitudeFenetreM,
       });
       proprePartout.push(JSON.stringify(faisceaux.filter((f) => f.impactCleabs === 'BATIMENT0000000240319856').map((f) => f.offsetDeg)));
-      if (nom === VOISIN_RASANT) continue;
+      expect(nom).toBeTruthy();
       classements.push(JSON.stringify(faisceaux.map((f) => [f.offsetDeg, f.distanceObstacleM === null, f.impactCleabs])));
       scores.push(analyser({ ...(entree as EntreeComplete), faisceaux }, PROFIL).score.total);
     }
     for (const c of proprePartout) expect(c).toBe(proprePartout[0]);
+    expect(classements).toHaveLength(7);
     for (const c of classements) expect(c).toBe(classements[0]);
+    expect(classements[0]).toContain('[-90,false,"BATIMENT0000000240320054"]'); // le voisin frôlé …053 n'est jamais retenu
     expect(Math.max(...scores) - Math.min(...scores)).toBeLessThan(1e-6);
     // Le faisceau 45° est bouché par le propre bâtiment dans toutes les variantes.
     expect(classements[0]).toContain('[-45,false,"BATIMENT0000000240319856"]');
@@ -122,6 +121,34 @@ describe('③ non-régression — une réentrée RÉELLE dans le propre bâtimen
     const L = `POLYGON((${pt(0, 0)},${pt(10, 0)},${pt(10, 20)},${pt(30, 20)},${pt(30, 30)},${pt(0, 30)},${pt(0, 0)}))`;
     const r = await candidatReentreeOrigine({ point: await versWgs84(X0 + 10, Y0 + 5), azimutDeg: 135, batimentOrigineId: 244601, batimentOriginePolygoneWkt: L });
     expect(r).toBeNull();
+  });
+});
+
+describe('⑤ voisins — un frôlement n’est pas un contact (règle A étendue, 14/10/2026)', () => {
+  const faisceau = async (dx: number, dy: number, azimutDeg: number) => obstaclesSurAxe({
+    point: await versWgs84(origine.x + dx, origine.y + dy), azimutDeg,
+    batimentOrigineId: validation.batimentOrigine!.id, batimentOriginePolygoneWkt: validation.batimentOrigine!.polygoneWkt,
+  });
+
+  it('…053, façade parallèle frôlée (à 1 m du rayon, bord du couloir) : jamais retenue, dans les 7 variantes ; premier obstacle …054 à 120,004 m', async () => {
+    for (const [nom, dx, dy] of PERTURBATIONS) {
+      const c = await faisceau(dx, dy, 0);
+      expect(c.map((o) => o.cleabs), nom).not.toContain('BATIMENT0000000240320053');
+      expect(c[0].cleabs, nom).toBe('BATIMENT0000000240320054');
+      expect(c[0].distanceM, nom).toBeCloseTo(120.00416659433121, 5); // distance sur l'emprise RÉELLE
+    }
+  });
+
+  it('mur réellement en face (le rayon le traverse) : toujours détecté — …054 sur le faisceau plein nord, …854 à 135°', async () => {
+    expect((await faisceau(0, 0, 0)).some((o) => o.cleabs === 'BATIMENT0000000240320054')).toBe(true);
+    const c = await faisceau(0, 0, 135);
+    expect(c.some((o) => o.cleabs === 'BATIMENT0000000240319854' && Math.abs(o.distanceM - 8.260713323240086) < 1e-9)).toBe(true);
+  });
+
+  it('coin qui entre de plus de 1 cm dans le couloir (…41399570, 1,44 cm à 123°) : toujours détecté, dans les 7 variantes', async () => {
+    for (const [nom, dx, dy] of PERTURBATIONS) {
+      expect((await faisceau(dx, dy, 123)).some((o) => o.cleabs === 'BATIMENT0000000241399570'), nom).toBe(true);
+    }
   });
 });
 

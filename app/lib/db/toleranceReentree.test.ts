@@ -8,7 +8,7 @@ const queryMock = vi.fn();
 vi.mock('./client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 
 import { toleranceContactValide, lireToleranceContactReentree } from './toleranceReentree';
-import { candidatReentreeOrigine } from './obstacles';
+import { candidatReentreeOrigine, obstaclesSurAxe } from './obstacles';
 import { REENTREE_TOLERANCE_CONTACT_DEFAUT_M } from '../svv/config';
 
 beforeEach(() => { queryMock.mockReset(); });
@@ -62,5 +62,23 @@ describe('candidatReentreeOrigine — le polygone rétréci CLASSE, le polygone 
   it('sans polygone d’origine : aucune requête', async () => {
     expect(await candidatReentreeOrigine({ ...params, batimentOriginePolygoneWkt: undefined })).toBeNull();
     expect(queryMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('obstaclesSurAxe (faisceaux du SCORE) — un voisin qui ne fait que frôler le couloir n’est pas retenu', () => {
+  const params = { point: { lat: 48.9, lon: 2.26 }, azimutDeg: 0, batimentOrigineId: 244601 };
+  it('le polygone de CONTACT du voisin (rétréci de la tolérance, en $7) doit toucher le couloir ; distance sur l’emprise réelle', async () => {
+    queryMock.mockResolvedValue({ rows: [] }); // voisins puis réentrée (sans polygone d'origine : aucune requête)
+    await obstaclesSurAxe({ ...params, toleranceContactReentreeM: 0.02 });
+    const [sql, p] = queryMock.mock.calls[0] as [string, unknown[]];
+    expect(plat(sql)).toContain('AND ST_Intersects(ST_Buffer(ST_Force2D(b.geom), -$7::float8), c.corr)');
+    expect(plat(sql)).toContain('ST_Distance(ST_Force2D(b.geom), c.origine) AS dist_m'); // mesure inchangée, polygone réel
+    expect(plat(sql)).toContain('WHERE ST_Intersects(b.geom, c.corr)'); // filtre indexé conservé
+    expect(p[6]).toBe(0.02);
+  });
+  it('sans tolérance transportée : le défaut 0,01 m', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await obstaclesSurAxe(params);
+    expect((queryMock.mock.calls[0] as [string, unknown[]])[1][6]).toBe(0.01);
   });
 });

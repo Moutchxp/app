@@ -43,8 +43,9 @@ export interface ParametresAxe {
    */
   altitudeFenetreM?: number;
   /**
-   * Tolérance de contact (m) de la réentrée dans le propre bâtiment (`config_scoring.reentree_tolerance_contact_m`, décision
-   * d'Arno du 14/10/2026). Lue UNE fois par analyse (`faisceauxAmplitude`) et transportée ; absente → défaut 0,01 m.
+   * Tolérance de contact (m) (`config_scoring.reentree_tolerance_contact_m`, règle A d'Arno du 14/10/2026 : un frôlement
+   * n'est pas un contact) — propre bâtiment ET voisins, faisceaux du SCORE seulement. Lue UNE fois par analyse
+   * (`faisceauxAmplitude`) et transportée ; absente → défaut 0,01 m. Le chemin du verdict (`obstaclesParBalayage`) l'ignore.
    */
   toleranceContactReentreeM?: number;
 }
@@ -454,6 +455,19 @@ async function obstaclesParBalayage(params: ParametresAxe, hOeilM: number): Prom
   return avecU([]);
 }
 
+/**
+ * ══ RÈGLE A D'ARNO (14/10/2026) — « UN FRÔLEMENT N'EST PAS UN CONTACT » ═══════════════════════════════════════════════
+ * Le POLYGONE DE CONTACT d'un bâtiment : son emprise RÉTRÉCIE de la tolérance de contact (`reentree_tolerance_contact_m`,
+ * défaut 0,01 m). Il ne sert QU'À CLASSER — y a-t-il une vraie pénétration, ou un simple frôlement ? — ; les DISTANCES et
+ * le toit MNS se lisent toujours sur le polygone RÉEL. Écrit une fois, pour le propre bâtiment (`candidatReentreeOrigine`)
+ * comme pour les voisins (`obstaclesSurAxe`, faisceaux du SCORE). Aucune coordonnée arrondie ; l'appelant passe une
+ * géométrie déjà en 2D (ST_Force2D conservé). Un bâtiment plus mince que deux fois la tolérance n'a plus de polygone de
+ * contact (vide) : il n'est jamais « pénétré ».
+ */
+function sqlPolygoneDeContact(geometrie2d: string, parametreTolerance: string): string {
+  return `ST_Buffer(${geometrie2d}, -${parametreTolerance}::float8)`;
+}
+
 interface LigneReentreeSql {
   dist_m: number | string;
   amt: number | null;
@@ -507,7 +521,7 @@ export async function candidatReentreeOrigine(params: ParametresAxe): Promise<Ob
        FROM o
      ),
      poly AS (SELECT ST_Force2D(ST_GeomFromText($5, 2154)) AS g),          -- polygone RÉEL : distances, sommets, toit MNS
-     polyc AS (SELECT ST_Buffer(p.g, -$8::float8) AS g FROM poly p),        -- rétréci de la tolérance : CLASSEMENT seul
+     polyc AS (SELECT ${sqlPolygoneDeContact('p.g', '$8')} AS g FROM poly p),        -- rétréci de la tolérance : CLASSEMENT seul
      bat AS (
        SELECT altitude_maximale_toit AS amt, hauteur AS h, altitude_minimale_sol AS sol,
               nombre_d_etages AS net, cleabs
@@ -630,6 +644,10 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
        -- par le bâtiment qui CONTIENT son point de départ (cas où l'id d'origine enregistré diffère
        -- du polygone réellement sous le marqueur). c.origine = point d'origine snappé, déjà en 2154.
        AND NOT ST_Contains(b.geom, c.origine)                        -- #2 : nu (Z ignoré par ST_Contains, prouvé #2a)
+       -- RÈGLE A (14/10/2026) : le voisin doit PÉNÉTRER le couloir d'au moins la tolérance de contact ; un bâtiment qui
+       -- frôle le bord du couloir (ou n'y entre que d'un cheveu) n'est pas rencontré, le faisceau continue sa course.
+       -- CLASSEMENT seul : dist_m et le toit MNS restent mesurés sur l'emprise RÉELLE ci-dessus.
+       AND ST_Intersects(${sqlPolygoneDeContact('ST_Force2D(b.geom)', '$7')}, c.corr)
      ORDER BY dist_m ASC;`,
     [
       params.point.lon,
@@ -638,6 +656,7 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
       ANALYSIS_RANGE_M,
       CORRIDOR_HALF_WIDTH_M,
       params.batimentOrigineId,
+      params.toleranceContactReentreeM ?? REENTREE_TOLERANCE_CONTACT_DEFAUT_M,
     ],
   );
 
