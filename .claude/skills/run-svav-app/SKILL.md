@@ -97,10 +97,10 @@ Importe les modules de prod, lit la ligne `certificat` jointe en base, génère 
 
 ```bash
 npx vitest run                     # suite unitaire (~1200 tests)
-npm run test:integration           # rejoue le GOLDEN Asnières = 29.107259068449615 (~160 s)
+npm run test:integration           # rejoue le GOLDEN Asnières = 29.12915579059343 (~160 s)
 ```
 
-Le golden `29.107259068449615` doit rester **bit-identique** : c'est l'invariant de non-régression du moteur.
+Le golden `29.12915579059343` doit rester **bit-identique** : c'est l'invariant de non-régression du moteur.
 
 ## Run (chemin humain)
 

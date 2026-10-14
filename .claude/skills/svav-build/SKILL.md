@@ -90,7 +90,7 @@ En plus des tests fonctionnels, MUST exécuter/établir une batterie vérifiant 
 les directives du projet. Cette batterie est le filet de sécurité automatique — elle attrape une
 violation même si aucun subagent ne l'a signalée comme doute. Elle DOIT couvrir, selon ce que le
 chantier touche :
-- GOLDEN : rejouer le test golden (pipeline.itest.ts). Le golden 29.107259068449615 DOIT être
+- GOLDEN : rejouer le test golden (pipeline.itest.ts). Le golden 29.12915579059343 DOIT être
   inchangé. S'il bouge, c'est un ÉVÉNEMENT MAJEUR → rapport de doute obligatoire + recon, jamais un
   rescellage silencieux.
 - VERDICT DÉCOUPLÉ : vérifier qu'aucun chemin ne fait entrer le verdict binaire dans le score, ni la

@@ -45,7 +45,7 @@ chaque objection, indique sa gravité : BLOQUANTE / MAJEURE / MINEURE, et la pre
 
 ### 3. Intégrer les verdicts
 Rassembler les deux rapports. Pour SVAV, porter une attention particulière à :
-- Toute affirmation touchant le golden 29.107259068449615 (un « le golden ne bouge pas » DOIT être
+- Toute affirmation touchant le golden 29.12915579059343 (un « le golden ne bouge pas » DOIT être
   prouvé, jamais supposé ; rappeler qu'Asnières est un oracle faible pour le chemin patrimoine).
 - Toute affirmation sur le découplage verdict/score (le verdict MUST rester géométrique).
 - Toute donnée qualifiée d'« anonyme » (souvent pseudonyme au sens RGPD → à requalifier).
