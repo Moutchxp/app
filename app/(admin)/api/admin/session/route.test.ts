@@ -204,11 +204,17 @@ describe('POST /api/admin/session — anti-force-brute (Lot 7)', () => {
     expect(noterEchec).not.toHaveBeenCalled();
   });
 
-  it('BREAK-GLASS (F1) : la voie de secours (identifiant vide) n’est JAMAIS throttlée', async () => {
-    verifierThrottle.mockResolvedValue({ bloque: true, retryAfter: 999 }); // même si le throttle voudrait bloquer…
+  // Lot SÉCURITÉ DE L'ADMIN EXPOSÉE (15/10/2026), trou CRITIQUE n° 1 : ce test affirmait l'inverse (« la voie de secours
+  // n'est JAMAIS throttlée », revue Lot 7 F1) — essais illimités depuis internet sur le secret partagé. Scénario complet
+  // avec un état de throttle réel en mémoire : route.limite.test.ts.
+  it('VOIE DE SECOURS (identifiant vide) throttlée comme les comptes nommés, sous la clé \'\' → 429 sans vérifier le secret', async () => {
+    verifierThrottle.mockResolvedValue({ bloque: true, retryAfter: 999 });
     verifier.mockResolvedValue(true);
     const res = await POST(requete({ identifiant: '', password: 'partage' }));
-    expect(res.status).toBe(200); // …le secours passe : corde de rappel toujours disponible
-    expect(verifierThrottle).not.toHaveBeenCalled(); // '' n’est jamais soumis au throttle (pas de DoS-lockout système)
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('999');
+    expect(verifierThrottle).toHaveBeenCalledWith('');
+    expect(verifier).not.toHaveBeenCalled();
+    expect(cookieStore.set).not.toHaveBeenCalled();
   });
 });

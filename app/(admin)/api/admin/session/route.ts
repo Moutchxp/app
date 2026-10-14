@@ -36,7 +36,8 @@ function reponseThrottlee(retryAfter: number): Response {
  * renvoie le LEURRE — pas `''`. Motif TEMPS CONSTANT (anti-énumération) : `verifier(password, '')` est rejeté
  * INSTANTANÉMENT par argon2 (hash malformé, aucun calcul), alors qu'un secret erroné contre un vrai hash déclenche
  * un argon2 complet (~ms). Cet écart de timing (~1700×) trahirait, par la seule mesure du temps de réponse, si le
- * break-glass est ARMÉ — or cette voie est délibérément NON throttlée. Le leurre force un argon2 complet dans TOUS
+ * break-glass est ARMÉ (le throttle, ajouté le 15/10/2026, ne masque pas le timing des 5 premiers essais).
+ * Le leurre force un argon2 complet dans TOUS
  * les cas → « non armé » indiscernable de « mauvais secret ». Symétrique de la voie NOMMÉE (`… ?? HASH_LEURRE`).
  *
  * FAIL-CLOSED : le leurre a une préimage inconnue → il ne matche JAMAIS le mot de passe saisi → echec() STANDARD.
@@ -58,7 +59,7 @@ function hashBreakGlass(): string {
  * Ouverture de session : POST { identifiant?, password }.
  *  - Identifiant renseigné → compte nommé de `admin_utilisateur` (refusé si `actif=false`).
  *  - Identifiant vide/absent → VOIE DE SECOURS (ancien mot de passe partagé), session administrateur, sub=null.
- * Anti-force-brute : (1) throttle PROGRESSIF par identifiant (Lot 7, `antiBruteforce.ts`) EN AMONT de la
+ * Anti-force-brute : (1) throttle PROGRESSIF par identifiant — voie de secours comprise, clé '' — (Lot 7, `antiBruteforce.ts`) EN AMONT de la
  * vérification — délai croissant plafonné (jamais un lockout), 429 + Retry-After générique ; (2) le hachage
  * argon2 impose un délai naturel ; un `verifier` de leurre est exécuté même quand l'identifiant est inconnu
  * (temps constant). Message d'échec toujours générique (aucune fuite d'existence). Succès → reset du throttle.
@@ -79,13 +80,14 @@ export async function POST(request: Request) {
 
   // ANTI-FORCE-BRUTE (Lot 7) : throttle progressif AVANT toute vérification (n'appelle PAS password.ts si bloqué).
   // Best-effort → si l'état de détection est indisponible, `bloque:false` (fail-safe : jamais de blocage légitime).
-  // ⚠️ BREAK-GLASS (revue Lot 7 F1) : la VOIE DE SECOURS (identifiant vide) n'est JAMAIS throttlée — c'est la
-  // corde de rappel d'Arno ; un attaquant ne doit pas pouvoir la bloquer en la floodant. Elle est protégée par un
-  // hash argon2id LENT (`verifier` contre `ADMIN_PASSWORD_ARGON2_B64`, décodé de base64) qui freine le brute-force
-  // MÊME sans throttle. La
-  // CLI `admin:secours` contourne aussi la route. Le throttle ne s'applique donc qu'aux comptes NOMMÉS → il existe
-  // TOUJOURS une voie de connexion non throttlée (pas de DoS-lockout système).
-  const throttle = cleThrottle === '' ? { bloque: false, retryAfter: 0 } : await verifierThrottle(cleThrottle);
+  // ⚠️ VOIE DE SECOURS (identifiant vide) THROTTLÉE ELLE AUSSI (lot SÉCURITÉ DE L'ADMIN EXPOSÉE, 15/10/2026 — trou
+  // CRITIQUE n° 1 de docs/AUDIT_COMPTES_COLLABORATEURS.md). Elle était exemptée (revue Lot 7 F1 : « corde de rappel
+  // qu'un attaquant ne doit pas pouvoir bloquer ») ; depuis que l'admin est publique, cette exemption offrait à
+  // internet des essais ILLIMITÉS sur un secret partagé qui donne l'administration complète. Même règle que les comptes
+  // nommés (5 échecs en 15 min, puis délai croissant plafonné à 5 min, réglages `login_throttle_*` d'analytics_config),
+  // sous sa propre clé '' : la bloquer ne bloque AUCUN compte nommé — l'administrateur nommé d'Arno reste ouvert, et la
+  // CLI `admin:secours` (sur le serveur) contourne toujours la route. Il n'y a donc toujours pas de DoS-lockout système.
+  const throttle = await verifierThrottle(cleThrottle);
   if (throttle.bloque) return reponseThrottlee(throttle.retryAfter);
 
   let session: SessionAdmin;
@@ -101,7 +103,7 @@ export async function POST(request: Request) {
     // encodé base64 (généré hors ligne via `admin:secours-hash`) est en env.
     // → accès administrateur complet, compte anonyme (sub=null).
     if (!(await verifier(password, hashBreakGlass()))) {
-      await noterEchec(cleThrottle); // audit agrégé de l'échec (la voie secours reste NON throttle-checkée — Lot 7 F1)
+      await noterEchec(cleThrottle); // échec compté pour le throttle de la voie de secours (clé '') + audit agrégé
       return echec();
     }
     session = { sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true };
