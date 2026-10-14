@@ -244,3 +244,18 @@ export function motApresValidation(choix: ChoixSuivi): string {
   if (choix === 'suite') return 'Suivi modifié à partir de ce mail, pour les prochains échanges de la conversation.';
   return 'Toute la conversation a été mise à jour.';
 }
+
+/**
+ * ══ 🔴🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE (Arno, 14/10/2026) — LE TITRE DU BLOC « PROPOSITIONS », EN DIRECT. PUR. ══════
+ * Sans bien ajouté (aucune case cochée hors du bloc des biens déjà rattachés) : « Propositions ». Dès qu'un bien est
+ * ajouté (propositions ou moteur de recherche) : « Bien(s) ajouté(s) », suivi de la portée de la glissière. L'écran le
+ * met en capitales (classe `rec-carte-titre`), comme « Propositions ».
+ */
+export const TITRE_PROPOSITIONS = 'Propositions';
+export function titreBlocPropositions(ajoute: boolean, position: PositionPortee): string {
+  if (!ajoute) return TITRE_PROPOSITIONS;
+  if (position === 'one_shot') return 'Bien(s) ajouté(s) en one shot';
+  if (position === 'suite') return 'Bien(s) ajouté(s) en suivi de fond';
+  if (position === 'conversation') return 'Bien(s) ajouté(s) pour toute la conversation';
+  return 'Bien(s) ajouté(s)';
+}

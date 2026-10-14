@@ -45,6 +45,7 @@ export function MenuRattachementBien({
   preCoches = null, pied, onValider, motValider, validationBloquee = null, onSelection, libellesConnus,
   aussiAValider = false,
   cochesImposees, onCochesChange, sansBoutons = false, propositionsElargies = false, propositionsRepliables = false,
+  titrePropositions,
   expediteurMail = null, trameCochee = false,
 }: {
   /** 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — l'expéditeur du mail affiché (cartouche nommé). */
@@ -53,6 +54,8 @@ export function MenuRattachementBien({
   trameCochee?: boolean;
   /** 🔴 LOT GLISSIERE-PILULE — le bloc « Propositions » porte la croix qui le replie (« Modifier le rattachement »). */
   propositionsRepliables?: boolean;
+  /** 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — le titre du bloc « Propositions », décidé par la fenêtre. Absent ⇒ inchangé. */
+  titrePropositions?: string;
   /**
    * 🔴 LOT PROPOSITIONS-MEME-PROPRIETAIRE — « Modifier le rattachement » : les propositions élargies (autres biens du
    * propriétaire des biens rattachés, biens des adresses du mail). Absent ⇒ les propositions du moteur seules.
@@ -448,6 +451,7 @@ export function MenuRattachementBien({
         saisie={saisie} onSaisie={setSaisie} champ={champ} recherche={recherche}
         clesEnHaut={clesEnHaut} onBasculerResultat={basculerResultat}
         aLaDateDuMail={dateMail !== null} repliable={propositionsRepliables}
+        {...(titrePropositions !== undefined ? { titrePropositions } : {})}
         expediteurMail={expediteurMail} trameCochee={trameCochee} />
 
       {/* ══ ③ UNE SEULE VALIDATION POUR LES DEUX ZONES ═══════════════════════════════════════════════════════

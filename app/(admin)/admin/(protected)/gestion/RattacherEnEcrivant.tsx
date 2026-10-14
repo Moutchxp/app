@@ -76,7 +76,7 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 export function RattacherEnEcrivant({
   destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, biensDesAdresses = [],
   piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
-  onSelection, onChange, onFerme, integre = false, masquees = null, validerExterne = null, onBasculerMasquees,
+  onSelection, onChange, onFerme, integre = false, masquees = null, validerExterne = null, onBasculerMasquees, titrePropositions,
 }: {
   /**
    * ══ 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE (Arno, 13-14/10/2026) — LES BIENS DU SUIVI DE FOND, TENUS PAR LA FENÊTRE ══════
@@ -96,6 +96,8 @@ export function RattacherEnEcrivant({
    * haut, comme dans « Modifier le rattachement » : la fenêtre, qui les tient, coche ou décoche toutes ses cases.
    */
   onBasculerMasquees?: (garde: boolean) => void;
+  /** 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — le titre du bloc « Propositions », décidé par la grande fenêtre. */
+  titrePropositions?: string;
   /**
    * ══ 🔴🔴 LOT FENETRE-CLASSEMENT-UNIQUE (Arno, 13/10/2026) — LE CONTENU, SANS SON CADRE ════════════════════════
    * Le composeur ouvre désormais LA fenêtre de « Modifier le rattachement » (`RattachementsDuFil`, mode brouillon),
@@ -805,7 +807,8 @@ export function RattacherEnEcrivant({
             clesEnHaut={clesEnHaut} onBasculerResultat={basculerResultat}
             /* 🔴 LOT COMPOSEUR-BLOC-VERT — dans la grande fenêtre : la liste de « Modifier le rattachement » (propositions
                repliables par leur croix, trame verte des cochés, locataire à la date du mail). Ailleurs : inchangée. */
-            {...(validerExterne !== null ? { repliable: true, trameCochee: true, aLaDateDuMail: true } : {})} />
+            {...(validerExterne !== null ? { repliable: true, trameCochee: true, aLaDateDuMail: true } : {})}
+            {...(titrePropositions !== undefined ? { titrePropositions } : {})} />
         )}
 
         {/* ══ 🔴 LE PIED NE PORTE PLUS QU'UNE DÉCISION ═════════════════════════════════════════════════════════

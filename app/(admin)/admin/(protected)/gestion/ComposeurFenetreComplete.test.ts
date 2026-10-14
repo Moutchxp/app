@@ -66,6 +66,18 @@ beforeEach(() => {
     const url = String(entree);
     appels.push({ url, methode: init?.method ?? 'GET', corps: init?.body ? JSON.parse(String(init.body)) : null });
     const rep = (d: unknown) => new Response(JSON.stringify(d), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    // 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — les propositions de la référence (« Modifier le rattachement » d'un mail reçu).
+    if (url.includes('/classement?message=')) {
+      return rep({ etat: 'ok', contexte: { messageId: MAIL, filId: 77, dateMail: '2025-11-21', nbMailsDuFil: 3, proprietaire: null,
+        examen: { issue: 'sans_candidat', motif: '' }, pieces: [], disponible: true,
+        biens: [{ cle: '421', libelle: '28 av. Marceau — lot 421', adresse: '28 av. Marceau', commune: 'Paris', nature: 'Appartement',
+          typeBien: 'T3', caracteristiques: [], adresseComplete: '28 av. Marceau, 75008 Paris', parties: [], recommande: false,
+          motif: 'locataire de ce bien', cas: 'a', certitude: 'a_trancher', replie: false, dejaRattache: false }] } });
+    }
+    if (url.includes('/gestion/biens?') || url.includes('/gestion/biens/')) {
+      return rep({ etat: 'ok', disponible: true, tronque: false, lignes: [{ cle: '777', libelle: '7 rue de la Recherche — lot 777',
+        adresseVoie: '7 rue de la Recherche', commune: 'Paris', nature: 'Appartement', typeBien: 'T1', parties: [], raisons: [] }] });
+    }
     if (/\/classement$/.test(url)) {
       return rep({ etat: 'ok', contexte: { disponible: true, interneDabord: false,
         biens: [{ cle: '421', libelle: '28 av. Marceau — lot 421', motif: 'locataire de ce bien', recommande: false, parties: [] }] } });
@@ -323,5 +335,67 @@ describe('🔴🔴 LOT COMPOSEUR-BLOC-VERT — le bloc vert du haut, dans tous l
     expect(fenetre()!.querySelectorAll('.rec-carte input[type="checkbox"]:checked')).toHaveLength(0);
     await cliquer(bouton(/^Sélectionner tous les biens$/)!);
     expect((bloc().querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
+  });
+});
+
+describe('🔴🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — le titre du bloc « Propositions », en direct', () => {
+  const titre = () => fenetreOuRef().querySelector('[data-titre-propositions]')?.textContent;
+  const fenetreOuRef = () => (container.querySelector('.mrt.rdf') as HTMLElement);
+  const caseProposee = () => [...fenetreOuRef().querySelectorAll<HTMLInputElement>('.rec-carte input[type="checkbox"]')]
+    .find((i) => /421|Marceau/.test(i.closest('li')?.textContent ?? ''))!;
+  const verifier = async () => {
+    // Aucun bien ajouté : « Propositions ».
+    expect(titre()).toBe('Propositions');
+    // Un bien ajouté : la portée de la glissière (One shot par défaut sur une modification).
+    await cliquer(caseProposee());
+    expect(titre()).toBe('Bien(s) ajouté(s) en one shot');
+    // La glissière bouge : le titre suit, immédiatement.
+    await cliquer(radio('Ce mail + futurs échanges'));
+    expect(titre()).toBe('Bien(s) ajouté(s) en suivi de fond');
+    await cliquer(radio('Toute la conversation'));
+    expect(titre()).toBe('Bien(s) ajouté(s) pour toute la conversation');
+    await cliquer(radio('One shot'));
+    expect(titre()).toBe('Bien(s) ajouté(s) en one shot');
+    // Tout décoché : retour à « Propositions ».
+    await cliquer(caseProposee());
+    expect(titre()).toBe('Propositions');
+  };
+  it('« Modifier le rattachement » d’un mail existant', async () => {
+    await act(async () => {
+      root.render(createElement(RattachementsDuFil, { filId: 77, titre: 'Fuite', messageId: MAIL, ponctuel: true, onFerme: () => {} } as never));
+    });
+    await calmer();
+    await verifier();
+  });
+  it('le composeur (Répondre) : la même règle, le même composant', async () => {
+    await monter(REPONSE);
+    await ouvrir();
+    await verifier();
+  });
+  it('un bien coché depuis le moteur de recherche compte comme ajouté', async () => {
+    await monter(REPONSE);
+    await ouvrir();
+    expect(titre()).toBe('Propositions');
+    const champ = fenetreOuRef().querySelector('.rec input[type="search"], .rec input[type="text"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set?.call(champ, 'recherche');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await avancer(600);
+    const trouve = [...fenetreOuRef().querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+      .find((i) => /Recherche/.test(i.closest('li')?.textContent ?? ''))!;
+    await cliquer(trouve);
+    expect(titre()).toBe('Bien(s) ajouté(s) en one shot');
+    // …et il apparaît dans ce bloc renommé.
+    expect(fenetreOuRef().querySelector('.rec-carte')?.textContent).toContain('Recherche');
+  });
+  it('nouveau message : premier rattachement, défaut « en suivi de fond » dès qu’un bien est ajouté', async () => {
+    await monter({ ...NEUF, cibles: [] } as BrouillonEcran);
+    await ouvrir();
+    const coche = caseProposee();
+    if (coche.checked) await cliquer(coche);
+    expect(titre()).toBe('Propositions');
+    await cliquer(caseProposee());
+    expect(titre()).toBe('Bien(s) ajouté(s) en suivi de fond');
   });
 });

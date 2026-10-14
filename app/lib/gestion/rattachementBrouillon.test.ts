@@ -85,3 +85,14 @@ describe('ce qui arrive du navigateur', () => {
     expect(rattachementVide({ position: 'one_shot', retires: [] })).toBe(false);
   });
 });
+
+import { titreBlocPropositions } from './porteeSuivi';
+describe('🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — le titre du bloc, PUR', () => {
+  it('« Propositions » sans ajout, puis la portée', () => {
+    expect(titreBlocPropositions(false, 'suite')).toBe('Propositions');
+    expect(titreBlocPropositions(true, 'one_shot')).toBe('Bien(s) ajouté(s) en one shot');
+    expect(titreBlocPropositions(true, 'suite')).toBe('Bien(s) ajouté(s) en suivi de fond');
+    expect(titreBlocPropositions(true, 'conversation')).toBe('Bien(s) ajouté(s) pour toute la conversation');
+    expect(titreBlocPropositions(true, 'origine')).toBe('Bien(s) ajouté(s)');
+  });
+});

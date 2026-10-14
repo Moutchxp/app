@@ -97,7 +97,7 @@ export interface BienACocher {
 }
 
 export function ListeBiensACocher({
-  afficherPropositions = true, lignes, titre, selection, onBasculer, clesVisibles, toutesCochees, onToutBasculer,
+  afficherPropositions = true, titrePropositions = 'Propositions', lignes, titre, selection, onBasculer, clesVisibles, toutesCochees, onToutBasculer,
   replies = 0, autresDeplies = false, onBasculerAutres, saisie, onSaisie, champ, recherche, clesEnHaut,
   onBasculerResultat, aLaDateDuMail = false, repliable = false, expediteurMail = null, trameCochee = false,
 }: {
@@ -115,6 +115,11 @@ export function ListeBiensACocher({
   repliable?: boolean;
   /** `false` = le moteur n'est pas installé sur cette base : seule la recherche est montrée. */
   afficherPropositions?: boolean;
+  /**
+   * 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — le titre du bloc, décidé par la fenêtre (`titreBlocPropositions`) : « Propositions »,
+   * ou « Bien(s) ajouté(s) … » selon la portée. Absent ⇒ « Propositions », comme avant.
+   */
+  titrePropositions?: string;
   /** Les cartes du haut, DANS L'ORDRE où elles doivent paraître. */
   lignes: readonly BienACocher[];
   /** Le titre d'un bien (« adresse — nature · type »), calculé par la fenêtre sur toutes ses listes à la fois. */
@@ -255,7 +260,7 @@ export function ListeBiensACocher({
         /* 🔴 LOT CLASSER-DEUX-BOUTONS — LES PROPOSITIONS SONT UNE CARTE, la recherche en est une autre :
            « chaque categorie a sa place » (demande d'Arno). */
         <section className={`rec-carte${peutReplier ? ' rec-carte--repliable' : ''}`} aria-label="Biens proposés">
-          <p className="rec-carte-titre">Propositions</p>
+          <p className="rec-carte-titre" data-titre-propositions="">{titrePropositions}</p>
           {peutReplier && (
             <button type="button" className="rec-replier" aria-label="Replier les propositions" aria-expanded="true"
               ref={boutonReplier} onClick={() => { replieGeste.current = true; setReplie(true); }}>

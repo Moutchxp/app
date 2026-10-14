@@ -2619,6 +2619,7 @@ export function Redaction({
              haut), la portée et l'événement (au-dessus du bouton), le bouton final de la portée. */
           masquees={fenetre.masquees}
           onBasculerMasquees={fenetre.onBasculerMasquees}
+          titrePropositions={fenetre.titrePropositions}
           onSelection={fenetre.onSelection}
           piedSupplementaire={fenetre.pied}
           validerExterne={fenetre.validerExterne}

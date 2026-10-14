@@ -81,6 +81,8 @@ import {
   etatBoutonPortee,
   /* 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — la bulle d'« Origine » grisée au premier rattachement. */
   BULLE_ORIGINE_PREMIER,
+  /* 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — le titre du bloc « Propositions », en direct. */
+  titreBlocPropositions,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
 /* 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la décision de la fenêtre pour un mail en cours d'écriture (module PUR). */
@@ -206,6 +208,8 @@ export interface ContenuFenetreBrouillon {
   validerExterne: (valider: () => void) => void;
   /** « Sélectionner / Désélectionner tous les biens » : la fenêtre coche ou décoche toutes les cartes du bloc du haut. */
   onBasculerMasquees: (garde: boolean) => void;
+  /** 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — le titre du bloc « Propositions » (`titreBlocPropositions`). */
+  titrePropositions: string;
   /** La sélection à reprendre après « Revenir au suivi d'origine ? — Oui » (`null` = la pré-coche habituelle). */
   selectionInitiale: readonly string[] | null;
   /** Change quand le contenu doit repartir de son état d'ouverture (« Revenir au suivi d'origine »). */
@@ -494,6 +498,9 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
         {children({
           masquees,
           onBasculerMasquees: basculerHaut,
+          /* 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — la même règle que « Modifier le rattachement » : un bien coché hors du
+             bloc du haut (propositions ou recherche) est un bien ajouté. */
+          titrePropositions: titreBlocPropositions(selection.some((c) => !cartes.some((b) => b.cle === c)), position),
           onSelection: (cles) => setSelection(cles),
           pied,
           validerExterne: (v) => { validerDuContenu.current = v; },
@@ -1713,6 +1720,12 @@ function RattachementsDuFilMail({
             /* 🔴 LOT GLISSIERE-PILULE — dans « Modifier le rattachement » (porte ponctuelle), le bloc « Propositions »
                se replie par sa croix (Arno). Les autres portes n'ont pas la croix. */
             propositionsRepliables={ponctuel}
+            /* 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE (Arno, 14/10/2026) — « Propositions », ou « Bien(s) ajouté(s) … » selon la
+               portée, dès qu'un bien est coché hors des biens déjà rattachés. Seule la porte à glissière est concernée. */
+            {...(ponctuel ? {
+              titrePropositions: titreBlocPropositions(
+                (selection ?? clesDuMail).some((c) => !clesDuMail.includes(c)), position),
+            } : {})}
             /* 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — le cartouche nommé et la trame verte « coché ». */
             expediteurMail={expediteurMail} trameCochee
             libellesConnus={libellesConnus}
