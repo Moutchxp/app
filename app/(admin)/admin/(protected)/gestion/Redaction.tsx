@@ -2608,6 +2608,8 @@ export function Redaction({
               .map((c) => ({ cle: c.cle as string, libelle: c.libelle })),
             evenements: ((brouillon.cibles ?? []) as CibleBrouillon[]).filter((c) => c.sorte === 'evenement')
               .map((c) => ({ id: c.id, libelle: c.libelle })),
+            /* 🔴 LOT COMPOSEUR-BLOC-VERT — pour la ligne « Brouillon · objet · destinataires ». */
+            objet: brouillon.objet, destinataires: destinatairesValides,
           }}
           onFerme={() => setRattacherOuvert(false)}>
         {(fenetre) => (
@@ -2616,6 +2618,7 @@ export function Redaction({
           /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — ce que la grande fenêtre tient : les biens du suivi de fond (bloc du
              haut), la portée et l'événement (au-dessus du bouton), le bouton final de la portée. */
           masquees={fenetre.masquees}
+          onBasculerMasquees={fenetre.onBasculerMasquees}
           onSelection={fenetre.onSelection}
           piedSupplementaire={fenetre.pied}
           validerExterne={fenetre.validerExterne}

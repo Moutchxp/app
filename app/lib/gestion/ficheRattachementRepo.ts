@@ -73,110 +73,16 @@ export function statutDesLiens(
 }
 
 /**
- * ══ 🔴 LES BIENS RATTACHÉS À UN ÉCHANGE, ET TOUT CE QU'ON VEUT EN SAVOIR. LECTURE SEULE. ═════════════════════════
- *
- * ⚠️ SANS ANNUAIRE OU SANS RATTACHEMENTS, on rend `disponible: false` plutôt qu'une liste vide. Une liste vide se
- * lirait « cet échange n'est rattaché à rien », ce qui serait faux : on n'a simplement pas pu regarder.
+ * ══ 🔴🔴 LOT COMPOSEUR-BLOC-VERT — L'ASSEMBLAGE DES BIENS, ÉCRIT UNE SEULE FOIS ════════════════════════════════════════
+ * Extrait tel quel de `ficheRattachementDuFil` (③ à ⑦) : lots, propriétaire, locataires à la date retenue, coordonnées,
+ * expéditeur. La fiche d'un échange l'appelle avec ses liens ; la fenêtre du composeur, pour un mail pas encore envoyé,
+ * l'appelle sans lien (`ficheDesBiens`). Un seul assemblage, donc une seule carte de bien.
  */
-export async function ficheRattachementDuFil(
-  filId: number,
-  /**
-   * ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 2 — DE QUEL MAIL LA FENÊTRE PARLE ════════════════
-   *
-   * RÈGLE D'ARNO (03/10/2026) : « elle porte sur UN mail précis : le mail cliqué, ou depuis une ligne de liste le
-   * mail affiché sur la ligne (le plus récent de l'échange). En tête : expéditeur, date, objet de ce mail. »
-   *
-   * 🔴 LE REPLI EST LE MAIL LE PLUS RÉCENT, et c'est exactement ce que la ligne de liste montre. `null` dit donc
-   * « celui de la ligne », pas « aucun » : la fenêtre a toujours un mail, c'est tout l'objet du lot.
-   *
-   * ⚠️ UN MAIL D'UN AUTRE ÉCHANGE EST IGNORÉ (la requête le borne à `fil_id = $1`) : on ne compose pas un en-tête
-   * à partir d'un identifiant qui ne vient pas de cette conversation.
-   */
-  messageId: number | null = null,
-): Promise<FicheRattachementFil> {
-  const vide: FicheRattachementFil = {
-    filId, objet: null, nbMailsDuFil: 0, biens: [], horsGestion: false, messageRecentId: null,
-    enTete: null, disponible: false,
-  };
-  if (!(await rattachementsDisponibles()) || !(await annuaireDisponible())) return vide;
-
-  // ── ① L'ÉCHANGE : son objet et son nombre de mails ──────────────────────────────────────────────────────────
-  const { rows: fil } = await query<{ objet: string | null; nb: number; recent: string | null }>(
-    `SELECT (SELECT m.objet FROM gestion_message m
-              WHERE m.fil_id = $1 ORDER BY m.recu_le DESC, m.id DESC LIMIT 1) AS objet,
-            (SELECT m.id::text FROM gestion_message m
-              WHERE m.fil_id = $1 ORDER BY m.recu_le DESC, m.id DESC LIMIT 1) AS recent,
-            (SELECT count(*) FROM gestion_message m WHERE m.fil_id = $1)::int AS nb`, [filId]);
-  const objet = fil[0]?.objet ?? null;
-  const nbMailsDuFil = fil[0]?.nb ?? 0;
-  const messageRecentId = fil[0]?.recent == null ? null : Number(fil[0].recent);
-
-  /**
-   * 🔴🔴 L'EN-TÊTE DU MAIL DONT LA FENÊTRE PARLE — expéditeur, date, objet. UNE requête, bornée à l'échange.
-   *
-   * ⚠️ `COALESCE($2, recent)` PLUTÔT QU'UNE SECONDE BRANCHE : un seul chemin de lecture, donc un seul
-   * comportement à éprouver. Et l'en-tête est `null` quand l'échange est vide — ce qui ne devrait pas arriver,
-   * mais se dit plutôt que de s'inventer.
-   */
-  const cible = messageId !== null && Number.isSafeInteger(messageId) && messageId > 0
-    ? messageId : messageRecentId;
-  const { rows: tete } = cible === null ? { rows: [] } : await query<{
-    id: string; de: string | null; de_nom: string | null; recu_le: string; objet: string | null;
-  }>(
-    `SELECT m.id::text, m.de_adresse AS de, m.de_nom,
-            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le, m.objet
-       FROM gestion_message m WHERE m.id = $2 AND m.fil_id = $1`, [filId, cible]);
-  const enTete = tete[0] === undefined ? null : {
-    messageId: Number(tete[0].id),
-    de: tete[0].de ?? '',
-    deNom: tete[0].de_nom,
-    recuLe: tete[0].recu_le,
-    objet: tete[0].objet,
-  };
-
-  /**
-   * ── ② LES LIENS VIVANTS DE L'ÉCHANGE ─────────────────────────────────────────────────────────────────────────
-   *
-   * ⚠️ `cible_sorte = 'lot'` SEULEMENT. Un reste d'ancien modèle (« propriétaire ») n'a pas de bien à décrire :
-   * il est montré, tel qu'il est, par l'encart du mail — jamais présenté ici comme un bien rattaché.
-   *
-   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — LE PRÉDICAT VIENT DU FRAGMENT UNIQUE ════════════════════
-   *
-   * `sqlLiensDuBien` porte désormais LA règle « qu'est-ce qu'un bien rattaché à un mail », et l'historique du
-   * bien comme celui du propriétaire lisent la MÊME. Elle était écrite ici une première fois et là-bas une
-   * seconde : les deux concordaient, mais parce que personne n'avait encore posé de lien confirmé sur une pièce
-   * jointe (voir l'encadré du fragment).
-   *
-   * ⚠️ `avecPropositions: true` RESTE INDISPENSABLE ICI : le panneau « Modifier les biens rattachés » propose à
-   * cocher les biens PROPOSÉS par le moteur. Ce que la fenêtre AFFICHE, lui, est réduit aux liens confirmés par
-   * le module pur `biensDuMail` — c'est là, et nulle part ailleurs, que se fait ce tri.
-   *
-   * 🔴 ET LE FRAGMENT AJOUTE `piece_id IS NULL`, QUE CETTE REQUÊTE N'AVAIT PAS. Invisible : la table ne contient
-   * aucune ligne avec `piece_id` non nul (0 sur 172 472, mesuré avant la modification).
-   */
-  const { rows: liens } = await query<LienDB>(
-    `SELECT r.id::text, r.message_id::text, r.cible_cle, r.statut, r.origine, r.statut_par_libelle,
-            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date_mail
-       FROM gestion_rattachement r
-       JOIN gestion_message m ON m.id = r.message_id
-      WHERE m.fil_id = $1 AND ${sqlLiensDuBien('r', { avecPropositions: true })}
-      ORDER BY m.recu_le DESC, r.id`, [filId]);
-
-  const horsGestion = (await horsGestionDisponible())
-    ? (await query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM gestion_hors_gestion h
-         JOIN gestion_message m ON m.id = h.message_id
-        WHERE m.fil_id = $1 AND h.retire_le IS NULL`, [filId])).rows[0]?.n > 0
-    : false;
-
-  if (liens.length === 0) {
-    return {
-      filId, objet, nbMailsDuFil, biens: [], horsGestion, messageRecentId, enTete, disponible: true,
-    };
-  }
-
+async function assemblerBiens(
+  cles: readonly string[], liens: readonly LienDB[], dateParCle: ReadonlyMap<string, string | null>,
+  enTete: { de: string; deNom: string | null } | null,
+): Promise<BienRattache[]> {
   // ── ③ LES LOTS CONCERNÉS, ET LEUR PROPRIÉTAIRE ──────────────────────────────────────────────────────────────
-  const cles = [...new Set(liens.map((l) => l.cible_cle as string))];
   const { rows: lots } = await query<LotDB>(
     `SELECT lo.id::text, lo.wippimmo_id AS cle, lo.adresse, lo.code_postal, lo.commune,
             lo.immeuble, lo.nature, lo.type_bien,
@@ -213,13 +119,6 @@ export async function ficheRattachementDuFil(
    * ⚠️ REPLI SUR LA DATE DU MAIL LE PLUS RÉCENT quand l'en-tête manque (échange vide) : la requête ② n'a alors
    * rendu aucun lien, donc aucun bien — le repli ne sert qu'à ne pas laisser un `null` décider à notre place.
    */
-  const dateAffichee = enTete === null ? null : enTete.recuLe.slice(0, 10);
-  const dateParCle = new Map<string, string | null>();
-  for (const l of liens) {
-    const cle = l.cible_cle as string;
-    if (!dateParCle.has(cle)) dateParCle.set(cle, dateAffichee ?? l.date_mail);
-  }
-
   const occupations = new Map<string, {
     locataireId: string; cle: string; nom: string; depuis: string | null; jusqua: string | null;
   }[]>();
@@ -394,6 +293,122 @@ export async function ficheRattachementDuFil(
     });
   }
 
+  return biens;
+}
+
+/**
+ * ══ 🔴 LES BIENS RATTACHÉS À UN ÉCHANGE, ET TOUT CE QU'ON VEUT EN SAVOIR. LECTURE SEULE. ═════════════════════════
+ *
+ * ⚠️ SANS ANNUAIRE OU SANS RATTACHEMENTS, on rend `disponible: false` plutôt qu'une liste vide. Une liste vide se
+ * lirait « cet échange n'est rattaché à rien », ce qui serait faux : on n'a simplement pas pu regarder.
+ */
+export async function ficheRattachementDuFil(
+  filId: number,
+  /**
+   * ══ 🔴🔴 LOT VISUALISER-UNIFIE-ET-BROUILLON-EN-HAUT, POINT 2 — DE QUEL MAIL LA FENÊTRE PARLE ════════════════
+   *
+   * RÈGLE D'ARNO (03/10/2026) : « elle porte sur UN mail précis : le mail cliqué, ou depuis une ligne de liste le
+   * mail affiché sur la ligne (le plus récent de l'échange). En tête : expéditeur, date, objet de ce mail. »
+   *
+   * 🔴 LE REPLI EST LE MAIL LE PLUS RÉCENT, et c'est exactement ce que la ligne de liste montre. `null` dit donc
+   * « celui de la ligne », pas « aucun » : la fenêtre a toujours un mail, c'est tout l'objet du lot.
+   *
+   * ⚠️ UN MAIL D'UN AUTRE ÉCHANGE EST IGNORÉ (la requête le borne à `fil_id = $1`) : on ne compose pas un en-tête
+   * à partir d'un identifiant qui ne vient pas de cette conversation.
+   */
+  messageId: number | null = null,
+): Promise<FicheRattachementFil> {
+  const vide: FicheRattachementFil = {
+    filId, objet: null, nbMailsDuFil: 0, biens: [], horsGestion: false, messageRecentId: null,
+    enTete: null, disponible: false,
+  };
+  if (!(await rattachementsDisponibles()) || !(await annuaireDisponible())) return vide;
+
+  // ── ① L'ÉCHANGE : son objet et son nombre de mails ──────────────────────────────────────────────────────────
+  const { rows: fil } = await query<{ objet: string | null; nb: number; recent: string | null }>(
+    `SELECT (SELECT m.objet FROM gestion_message m
+              WHERE m.fil_id = $1 ORDER BY m.recu_le DESC, m.id DESC LIMIT 1) AS objet,
+            (SELECT m.id::text FROM gestion_message m
+              WHERE m.fil_id = $1 ORDER BY m.recu_le DESC, m.id DESC LIMIT 1) AS recent,
+            (SELECT count(*) FROM gestion_message m WHERE m.fil_id = $1)::int AS nb`, [filId]);
+  const objet = fil[0]?.objet ?? null;
+  const nbMailsDuFil = fil[0]?.nb ?? 0;
+  const messageRecentId = fil[0]?.recent == null ? null : Number(fil[0].recent);
+
+  /**
+   * 🔴🔴 L'EN-TÊTE DU MAIL DONT LA FENÊTRE PARLE — expéditeur, date, objet. UNE requête, bornée à l'échange.
+   *
+   * ⚠️ `COALESCE($2, recent)` PLUTÔT QU'UNE SECONDE BRANCHE : un seul chemin de lecture, donc un seul
+   * comportement à éprouver. Et l'en-tête est `null` quand l'échange est vide — ce qui ne devrait pas arriver,
+   * mais se dit plutôt que de s'inventer.
+   */
+  const cible = messageId !== null && Number.isSafeInteger(messageId) && messageId > 0
+    ? messageId : messageRecentId;
+  const { rows: tete } = cible === null ? { rows: [] } : await query<{
+    id: string; de: string | null; de_nom: string | null; recu_le: string; objet: string | null;
+  }>(
+    `SELECT m.id::text, m.de_adresse AS de, m.de_nom,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le, m.objet
+       FROM gestion_message m WHERE m.id = $2 AND m.fil_id = $1`, [filId, cible]);
+  const enTete = tete[0] === undefined ? null : {
+    messageId: Number(tete[0].id),
+    de: tete[0].de ?? '',
+    deNom: tete[0].de_nom,
+    recuLe: tete[0].recu_le,
+    objet: tete[0].objet,
+  };
+
+  /**
+   * ── ② LES LIENS VIVANTS DE L'ÉCHANGE ─────────────────────────────────────────────────────────────────────────
+   *
+   * ⚠️ `cible_sorte = 'lot'` SEULEMENT. Un reste d'ancien modèle (« propriétaire ») n'a pas de bien à décrire :
+   * il est montré, tel qu'il est, par l'encart du mail — jamais présenté ici comme un bien rattaché.
+   *
+   * ══ 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 1 — LE PRÉDICAT VIENT DU FRAGMENT UNIQUE ════════════════════
+   *
+   * `sqlLiensDuBien` porte désormais LA règle « qu'est-ce qu'un bien rattaché à un mail », et l'historique du
+   * bien comme celui du propriétaire lisent la MÊME. Elle était écrite ici une première fois et là-bas une
+   * seconde : les deux concordaient, mais parce que personne n'avait encore posé de lien confirmé sur une pièce
+   * jointe (voir l'encadré du fragment).
+   *
+   * ⚠️ `avecPropositions: true` RESTE INDISPENSABLE ICI : le panneau « Modifier les biens rattachés » propose à
+   * cocher les biens PROPOSÉS par le moteur. Ce que la fenêtre AFFICHE, lui, est réduit aux liens confirmés par
+   * le module pur `biensDuMail` — c'est là, et nulle part ailleurs, que se fait ce tri.
+   *
+   * 🔴 ET LE FRAGMENT AJOUTE `piece_id IS NULL`, QUE CETTE REQUÊTE N'AVAIT PAS. Invisible : la table ne contient
+   * aucune ligne avec `piece_id` non nul (0 sur 172 472, mesuré avant la modification).
+   */
+  const { rows: liens } = await query<LienDB>(
+    `SELECT r.id::text, r.message_id::text, r.cible_cle, r.statut, r.origine, r.statut_par_libelle,
+            to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date_mail
+       FROM gestion_rattachement r
+       JOIN gestion_message m ON m.id = r.message_id
+      WHERE m.fil_id = $1 AND ${sqlLiensDuBien('r', { avecPropositions: true })}
+      ORDER BY m.recu_le DESC, r.id`, [filId]);
+
+  const horsGestion = (await horsGestionDisponible())
+    ? (await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM gestion_hors_gestion h
+         JOIN gestion_message m ON m.id = h.message_id
+        WHERE m.fil_id = $1 AND h.retire_le IS NULL`, [filId])).rows[0]?.n > 0
+    : false;
+
+  if (liens.length === 0) {
+    return {
+      filId, objet, nbMailsDuFil, biens: [], horsGestion, messageRecentId, enTete, disponible: true,
+    };
+  }
+
+  const cles = [...new Set(liens.map((l) => l.cible_cle as string))];
+  const dateAffichee = enTete === null ? null : enTete.recuLe.slice(0, 10);
+  const dateParCle = new Map<string, string | null>();
+  for (const l of liens) {
+    const cle = l.cible_cle as string;
+    if (!dateParCle.has(cle)) dateParCle.set(cle, dateAffichee ?? l.date_mail);
+  }
+
+  const biens = await assemblerBiens(cles, liens, dateParCle, enTete);
+
   return {
     filId, objet, nbMailsDuFil, biens: ordonnerBiens(biens), horsGestion, messageRecentId, enTete,
     disponible: true,
@@ -408,4 +423,19 @@ function motUtile(brut: string | null): string | null {
   const v = (brut ?? '').trim();
   if (v === '' || /^a\s*renseigner$/i.test(v.normalize('NFD').replace(/[̀-ͯ]/g, ''))) return null;
   return v;
+}
+
+/**
+ * ══ 🔴🔴 LOT COMPOSEUR-BLOC-VERT — LES CARTES DES BIENS D'UN MAIL PAS ENCORE ENVOYÉ. LECTURE SEULE. ════════════════════
+ * Le bloc vert de la fenêtre du composeur montre les biens déjà choisis (le bien de la fiche, par exemple) avec la MÊME
+ * carte que « Modifier le rattachement » : propriétaire, locataire, coordonnées. Le mail n'existe pas encore : aucun lien,
+ * aucun expéditeur, et la date retenue pour le locataire est aujourd'hui (jour de Paris).
+ */
+export async function ficheDesBiens(cles: readonly string[]): Promise<BienRattache[]> {
+  const uniques = [...new Set(cles.filter((c) => c.trim() !== ''))].slice(0, 20);
+  if (uniques.length === 0 || !(await annuaireDisponible())) return [];
+  const { rows } = await query<{ jour: string }>(
+    "SELECT to_char((now() AT TIME ZONE 'Europe/Paris')::date, 'YYYY-MM-DD') AS jour");
+  const jour = rows[0]?.jour ?? null;
+  return ordonnerBiens(await assemblerBiens(uniques, [], new Map(uniques.map((c) => [c, jour])), null));
 }

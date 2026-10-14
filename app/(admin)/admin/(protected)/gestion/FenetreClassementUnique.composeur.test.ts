@@ -128,8 +128,10 @@ describe('🔴 la même fenêtre que « Modifier le rattachement »', () => {
     expect(f.textContent).toContain('Portée du suivi');
     expect(f.textContent).toContain('Événement rattaché');
     expect(f.textContent).not.toContain('Autres classements');
-    // Nouveau message : pas de conversation, donc pas de bloc des biens suivis.
-    expect(f.querySelector('[data-bloc="suivis"]')).toBeNull();
+    /* 🔴 LOT COMPOSEUR-BLOC-VERT — Nouveau message : pas de suivi de fond, mais le bloc vert « Bien(s) rattaché(s) à ce
+       mail » est là (vide tant qu'aucun bien n'est choisi). */
+    expect(f.querySelector('[data-bloc="suivis"]')?.getAttribute('data-sorte')).toBe('nouveau');
+    expect(f.querySelector('[data-bloc="suivis"] .rdf-suivis-titre')?.textContent).toBe(TITRE_BIENS_DU_MAIL);
   });
 
   it('🔴 une RÉPONSE montre les biens suivis dans la conversation, AVEC leur case (lot COMPOSEUR-FENETRE-COMPLETE)', async () => {
@@ -173,14 +175,23 @@ describe('🔴 LOT NOUVEAU-MESSAGE-RATTACHE-CLIQUABLE — « Nouveau message » 
     ...NEUF, a: [], objet: '', cibles: [{ sorte: 'lot', cle: '26', id: 27, libelle: '7 avenue de l’Union — lot 26' }],
   } as BrouillonEcran;
   const caseVerte = () => [...container.querySelectorAll<HTMLButtonElement>('.ccl-case')].find((c) => /Rattaché/.test(c.textContent ?? ''));
-  it('« Rattaché » est CLIQUABLE et ouvre la fenêtre partagée, le bien de la fiche coché ; pas de bloc des biens suivis', async () => {
+  it('« Rattaché » est CLIQUABLE et ouvre la fenêtre partagée ; le bien de la fiche est dans le BLOC VERT du haut, coché', async () => {
     await monter(DE_LA_FICHE);
     expect(caseVerte()?.disabled).toBe(false);
     await act(async () => { caseVerte()!.click(); });
     await calmer();
     const f = fenetre()!;
     expect(f.getAttribute('data-mode')).toBe('brouillon');
-    expect(f.querySelector('[data-bloc="suivis"]')).toBeNull();
+    /* 🔴 LOT COMPOSEUR-BLOC-VERT — le bien de la fiche : bloc vert « Bien(s) rattaché(s) à ce mail », case cochée, et
+       PAS dans les propositions. */
+    const bloc = f.querySelector('[data-bloc="suivis"]') as HTMLElement;
+    expect(bloc.querySelector('.rdf-suivis-titre')?.textContent).toBe(TITRE_BIENS_DU_MAIL);
+    const carte = bloc.querySelector('.rdf-suivi-carte') as HTMLElement;
+    expect(carte.textContent).toContain('7 avenue de l’Union');
+    expect((carte.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
+    expect(carte.className).toContain('rec-bien--coche');
+    expect(carte.querySelector('.rec-motif')?.textContent).toBe('déjà rattaché — décochez pour le retirer');
+    expect([...f.querySelectorAll('.rec-carte .rec-bien-nom')].map((x) => x.textContent).join(' ')).not.toContain('Union');
     expect(f.textContent).not.toContain('D’après');
     expect(f.textContent).toContain('Portée du suivi');
     expect(bouton(/^Valider le rattachement de fond$/)).toBeDefined();

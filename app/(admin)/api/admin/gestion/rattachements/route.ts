@@ -6,7 +6,7 @@ import {
 } from '../../../../../lib/gestion/rattachementRepo';
 import { SORTES_RATTACHEMENT_PERMISES } from '../../../../../lib/gestion/rattachement';
 // LOT FICHE-RATTACHEMENT — la fiche d'un échange : ses biens, leurs parties, leurs coordonnées. Lecture seule.
-import { ficheRattachementDuFil } from '../../../../../lib/gestion/ficheRattachementRepo';
+import { ficheDesBiens, ficheRattachementDuFil } from '../../../../../lib/gestion/ficheRattachementRepo';
 import type { Cible, Issue, Statut } from '../../../../../lib/gestion/rattachement';
 
 /**
@@ -124,6 +124,16 @@ export async function GET(request: Request): Promise<Response> {
      * 🔒 LECTURE SEULE. Aucune écriture n'est faite pour la construire — ni en base, ni dans le Drive : le lien
      * vers le dossier est une ADRESSE que le navigateur ouvrira, jamais un appel de l'application à Google.
      */
+    /**
+     * 🔴🔴 LOT COMPOSEUR-BLOC-VERT — `?biensBrouillon=26,315` : les cartes des biens déjà choisis dans un mail PAS ENCORE
+     * envoyé (bloc vert de la fenêtre du composeur), assemblées comme celles d'un échange. Lecture seule.
+     */
+    const biensBrouillon = url.searchParams.get('biensBrouillon');
+    if (biensBrouillon !== null) {
+      const cles = biensBrouillon.split(',').map((c) => c.trim()).filter((c) => c !== '' && c.length <= 200).slice(0, 20);
+      return Response.json({ etat: 'ok', data: await ficheDesBiens(cles) }, { headers: ENTETES });
+    }
+
     const fiche = identifiant(url.searchParams.get('fiche'));
     if (fiche !== null) {
       /**

@@ -71,6 +71,11 @@ beforeEach(() => {
         biens: [{ cle: '421', libelle: '28 av. Marceau — lot 421', motif: 'locataire de ce bien', recommande: false, parties: [] }] } });
     }
     if (url.includes('rattachements?fiche=')) return rep({ etat: 'ok', data: FICHE });
+    // 🔴 LOT COMPOSEUR-BLOC-VERT — les cartes des biens déjà choisis d'un brouillon (le bien de la fiche).
+    if (url.includes('rattachements?biensBrouillon=')) {
+      return rep({ etat: 'ok', data: [{ ...FICHE.biens[0], cle: '26', lotId: 27, adresseComplete: '26 rue Emile Duclaux, 92150 SURESNES',
+        numeroLot: '26', lienIds: [], personnes: [personne('proprietaire', 'MARTIN Paul'), personne('locataire', 'DURAND Léa')] }] });
+    }
     if (url.includes('rattachements?fil=')) return rep({ etat: 'ok', data: LIENS });
     if (url.includes('/gestion/suivi?fil=')) return rep(SUIVI);
     if (url.includes('/evenements/des-biens')) return rep({ etat: 'ok', duBien: url.includes('L-176') ? [EVENEMENT] : [] });
@@ -166,10 +171,10 @@ describe('🔴 la fenêtre est la même que « Modifier le rattachement »', () 
     expect(bloc.querySelector('.rdf-evt-non-rattache')?.textContent).toBe('non rattaché');
   });
 
-  it('🔴 nouveau message : pas de bloc des biens suivis ; premier rattachement, « Origine » interdite', async () => {
+  it('🔴 nouveau message : bloc vert « Bien(s) rattaché(s) à ce mail » ; premier rattachement, « Origine » interdite', async () => {
     await monter(NEUF);
     await ouvrir();
-    expect(fenetre()!.querySelector('[data-bloc="suivis"]')).toBeNull();
+    expect(fenetre()!.querySelector('[data-bloc="suivis"]')?.getAttribute('data-sorte')).toBe('nouveau');
     expect(radio('Origine').getAttribute('aria-disabled')).toBe('true');
     expect(radio('Ce mail + futurs échanges').getAttribute('aria-checked')).toBe('true');
   });
@@ -248,5 +253,75 @@ describe('🔴 rien n’est écrit avant l’envoi ; les choix sont gardés avec
     await avancer(6000);
     const envoi = appels.find((a) => a.methode !== 'GET' && /\/gestion\/envois/.test(a.url));
     expect((envoi!.corps as { rattachement?: unknown }).rattachement).toEqual({ position: null, retires: [] });
+  });
+});
+
+describe('🔴🔴 LOT COMPOSEUR-BLOC-VERT — le bloc vert du haut, dans tous les modes', () => {
+  const DE_LA_FICHE = { ...NEUF, a: [], objet: '', cibles: [{ sorte: 'lot', cle: '26', id: 27, libelle: '26 rue Emile Duclaux — lot 26' }] } as BrouillonEcran;
+  const ouvrirFiche = async () => {
+    await act(async () => { ([...container.querySelectorAll<HTMLButtonElement>('.ccl-case')].find((c) => /Rattaché/.test(c.textContent ?? '')))!.click(); });
+    await calmer();
+  };
+  const bloc = () => fenetre()!.querySelector('[data-bloc="suivis"]') as HTMLElement;
+  const proposes = () => [...fenetre()!.querySelectorAll('.rec-carte .rec-bien-nom')].map((x) => x.textContent ?? '');
+
+  it('en-tête « Brouillon · objet · destinataires », à la place de « expéditeur · date · objet »', async () => {
+    await monter(REPONSE);
+    await ouvrir();
+    expect(fenetre()!.querySelector('.rdf-entete')?.textContent).toBe('Brouillon · Re: Fuite · c.jullien@exemple.test');
+    // …puis la phrase « Mail en cours d'écriture… », en petit, juste dessous.
+    expect(fenetre()!.querySelector('.rdf-entete + .rdf-brouillon-mot')).not.toBeNull();
+  });
+  it('« sans objet » et « aucun destinataire » quand il n’y en a pas', async () => {
+    await monter(DE_LA_FICHE);
+    await ouvrirFiche();
+    expect(fenetre()!.querySelector('.rdf-entete')?.textContent).toBe('Brouillon · sans objet · aucun destinataire');
+  });
+  it('🔴 nouveau message depuis la fiche : le bien dans le bloc vert, case cochée, propriétaire et locataire ; jamais dans Propositions', async () => {
+    await monter(DE_LA_FICHE);
+    await ouvrirFiche();
+    expect(bloc().querySelector('.rdf-suivis-titre')?.textContent).toBe('Bien(s) rattaché(s) à ce mail');
+    const carte = bloc().querySelector('.rdf-suivi-carte') as HTMLElement;
+    expect(carte.className).toContain('rec-bien--coche');
+    expect(carte.textContent).toContain('26 rue Emile Duclaux');
+    expect(carte.textContent).toContain('MARTIN Paul');
+    expect(carte.textContent).toContain('DURAND Léa');
+    expect(carte.querySelector('details.rdf-suivi-detail summary')?.textContent).toContain('MARTIN Paul');
+    expect(proposes().join(' ')).not.toContain('Duclaux');
+  });
+  it('décocher puis recocher : « sera retiré », puis de nouveau « déjà rattaché » — comme la référence', async () => {
+    await monter(DE_LA_FICHE);
+    await ouvrirFiche();
+    await cliquer(bloc().querySelector('input[type="checkbox"]')!);
+    expect(bloc().querySelector('.rdf-sera-retire')?.textContent).toBe('sera retiré');
+    expect(bouton(/^Valider la modification du suivi$/)).toBeDefined();
+    await cliquer(bloc().querySelector('input[type="checkbox"]')!);
+    expect(bloc().querySelector('.rdf-sera-retire')).toBeNull();
+    expect(bloc().querySelector('.rec-motif')?.textContent).toBe('déjà rattaché — décochez pour le retirer');
+    expect(bouton(/^Valider le rattachement de fond$/)).toBeDefined();
+  });
+  it('🔴 un bien coché dans les propositions puis validé rejoint le bloc vert à la réouverture', async () => {
+    await monter(REPONSE);
+    await ouvrir();
+    const caseProposee = [...fenetre()!.querySelectorAll<HTMLInputElement>('.rec-carte input[type="checkbox"]')]
+      .find((i) => /421/.test(i.closest('li')?.textContent ?? ''))!;
+    await cliquer(caseProposee);
+    await cliquer(bouton(/^Valider la modification du suivi$/)!);
+    expect(fenetre()).toBeNull();
+    await ouvrir();
+    expect([...bloc().querySelectorAll('.rdf-suivi-carte')].map((c) => /421/.test(c.textContent ?? ''))).toContain(true);
+    expect(proposes().join(' ')).not.toMatch(/421/);
+  });
+  it('« Désélectionner tous les biens » décoche aussi les cartes du bloc vert, comme la référence', async () => {
+    await monter(DE_LA_FICHE);
+    await ouvrirFiche();
+    // Une proposition est décochée : le lien dit d'abord « Sélectionner tous », puis « Désélectionner tous ».
+    await cliquer(bouton(/^Sélectionner tous les biens$/)!);
+    expect((bloc().querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
+    await cliquer(bouton(/^Désélectionner tous les biens$/)!);
+    expect((bloc().querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false);
+    expect(fenetre()!.querySelectorAll('.rec-carte input[type="checkbox"]:checked')).toHaveLength(0);
+    await cliquer(bouton(/^Sélectionner tous les biens$/)!);
+    expect((bloc().querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
   });
 });

@@ -7,7 +7,7 @@ import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 import { EncartMonga } from './EncartMonga';
 import { ModifierRattachement, motSorteLong, CSS_MODIFIER_RATTACHEMENT } from './ModifierRattachement';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
-import { MenuRattachementBien } from './MenuRattachementBien';
+import { CSS_MENU_RATTACHEMENT, MenuRattachementBien } from './MenuRattachementBien';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 import { motSuiviAutomatique, suiviAutomatiqueDuMail } from '../../../../lib/gestion/reglesRattachement';
 /* 🔴🔴 LOT HISTORIQUE-BIEN-12, POINT 1 — « Sortir du suivi » peut se faire pendant que cette fenêtre est ouverte. */
@@ -190,6 +190,9 @@ export interface BrouillonRattachement {
   /** Les biens déjà retenus par le brouillon (cibles « lot »), et ses événements (cibles « événement »). */
   biens: readonly { cle: string; libelle: string }[];
   evenements?: readonly { id: number | null; libelle: string }[];
+  /** 🔴 LOT COMPOSEUR-BLOC-VERT — l'objet et les destinataires du brouillon, pour la ligne d'en-tête « Brouillon · … ». */
+  objet?: string;
+  destinataires?: readonly string[];
 }
 
 /** Ce que la fenêtre donne au contenu du composeur (`RattacherEnEcrivant`, posé dedans). */
@@ -201,6 +204,8 @@ export interface ContenuFenetreBrouillon {
   pied: ReactNode;
   /** Le contenu y confie sa validation : le bouton final du cadre « Portée du suivi » la déclenche. */
   validerExterne: (valider: () => void) => void;
+  /** « Sélectionner / Désélectionner tous les biens » : la fenêtre coche ou décoche toutes les cartes du bloc du haut. */
+  onBasculerMasquees: (garde: boolean) => void;
   /** La sélection à reprendre après « Revenir au suivi d'origine ? — Oui » (`null` = la pré-coche habituelle). */
   selectionInitiale: readonly string[] | null;
   /** Change quand le contenu doit repartir de son état d'ouverture (« Revenir au suivi d'origine »). */
@@ -222,6 +227,16 @@ export const MOT_BROUILLON_A_L_ENVOI = 'Mail en cours d’écriture : rien n’e
   + 'fenêtre seront appliqués au mail dès qu’il sera parti.';
 /** Où sont les gestes sur l'événement, pour un mail pas encore envoyé (bloc « Événement rattaché » en lecture). */
 export const PHRASE_EVENEMENT_COMPOSEUR = 'Pour créer un événement ou y lier ce mail, utilisez le bouton Événement du mail une fois envoyé.';
+
+/**
+ * 🔴 LOT COMPOSEUR-BLOC-VERT — LA LIGNE D'EN-TÊTE, à la place de « expéditeur · date · objet » : « Brouillon · <objet ou
+ * « sans objet »> · <destinataires ou « aucun destinataire »> » (Arno, mot pour mot). PUR.
+ */
+export function enTeteBrouillon(objet: string | null | undefined, destinataires: readonly string[] | undefined): string {
+  const o = (objet ?? '').trim();
+  const d = (destinataires ?? []).filter((x) => x.trim() !== '');
+  return `Brouillon · ${o === '' ? 'sans objet' : o} · ${d.length === 0 ? 'aucun destinataire' : d.join(', ')}`;
+}
 
 /** Une carte de bien suivi dont la fiche n'a pas pu être lue : le libellé seul, sans parties. */
 function bienMinimal(cle: string, libelle: string): BienRattache {
@@ -271,7 +286,42 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
   /* ── LE SUIVI DE FOND QUE CE MAIL RECEVRA (le prochain mail de la conversation), et ses cartes. ── */
   const fond = avecSuivis && lu !== null ? fondDuProchainMail(lu.mails, lu.periodes) : null;
   const fondBiens = fond !== null && fond.sorte === 'biens' ? fond.biens : [];
-  const cartes = fondBiens.map((b) => lu?.biens.find((x) => x.cle === b.cle) ?? bienMinimal(b.cle, b.libelle));
+  /**
+   * ══ 🔴🔴 LOT COMPOSEUR-BLOC-VERT (Arno, 14/10/2026) — LE BLOC DU HAUT PORTE AUSSI LES BIENS DÉJÀ CHOISIS ═══════════════
+   * Comme dans « Modifier le rattachement », où le bloc du haut montre les biens rattachés au mail À L'OUVERTURE : ici, le
+   * suivi de fond (réponse) PLUS les biens que le brouillon porte déjà (le bien de la fiche pour un Nouveau message). Ils y
+   * sont sur fond vert, case cochée ; jamais seulement dans « Propositions ». La liste est FIGÉE à l'ouverture, comme la
+   * référence : un bien coché dans les propositions y reste coché, et rejoint le bloc à la réouverture.
+   */
+  const [clesBrouillon] = useState<readonly string[]>(() => brouillon.biens.map((b) => b.cle));
+  const [gardesBrouillon, setGardesBrouillon] = useState<readonly string[]>(() => brouillon.biens.map((b) => b.cle));
+  const clesDuBrouillonHaut = clesBrouillon.filter((c) => !fondBiens.some((b) => b.cle === c));
+  const [fichesBrouillon, setFichesBrouillon] = useState<BienRattache[]>([]);
+  const aLire = lu === null ? '' : clesDuBrouillonHaut.filter((c) => !lu.biens.some((b) => b.cle === c)).join(',');
+  useEffect(() => {
+    if (aLire === '') return undefined;
+    let vivant = true;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/gestion/rattachements?biensBrouillon=${encodeURIComponent(aLire)}`, { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; data?: BienRattache[] };
+        if (vivant && d.etat === 'ok' && Array.isArray(d.data)) setFichesBrouillon(d.data);
+      } catch { /* la carte garde son libellé seul */ }
+    })();
+    return () => { vivant = false; };
+  }, [aLire]);
+  const libelleBrouillon = (cle: string): string => brouillon.biens.find((b) => b.cle === cle)?.libelle ?? cle;
+  const carteDe = (cle: string, libelle: string): BienRattache => lu?.biens.find((x) => x.cle === cle)
+    ?? fichesBrouillon.find((x) => x.cle === cle) ?? bienMinimal(cle, libelle);
+  const cartes = [
+    ...fondBiens.map((b) => carteDe(b.cle, b.libelle)),
+    ...clesDuBrouillonHaut.map((c) => carteDe(c, libelleBrouillon(c))),
+  ];
+  const gardee = (cle: string): boolean => (fondBiens.some((b) => b.cle === cle)
+    ? !retires.includes(cle) : gardesBrouillon.includes(cle));
+  /* R4 : le suivi de fond posé par l'automate, avec sa date — la mention de la référence. */
+  const suiviAuto = avecSuivis && lu !== null && fond !== null
+    ? suiviAutomatiqueDuMail([...lu.mails, -1], lu.periodes, -1) : null;
   const titresSuivis = new Map(titresDistincts(cartes.map((b) => ({
     cle: b.cle, adresse: b.adresseComplete.replace(/\b\d{5}\s+/, ''), nature: b.nature, typeBien: b.typeBien,
     immeuble: null as string | null,
@@ -297,7 +347,12 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
 
   const clesFond = new Set(fondBiens.map((b) => b.cle));
   const libelles = new Map<string, string>([...brouillon.biens.map((b) => [b.cle, b.libelle] as const)]);
-  const choisis = selection.filter((c) => !clesFond.has(c)).map((cle) => ({ cle, libelle: libelles.get(cle) ?? cle }));
+  /* Les biens choisis : ceux du bloc du haut restés cochés (hors suivi de fond), puis ceux des propositions et de la
+     recherche. Les cartes du haut sont tenues ici, pas par les propositions. */
+  const choisis = [...new Set([
+    ...clesDuBrouillonHaut.filter((c) => gardesBrouillon.includes(c)),
+    ...selection.filter((c) => !clesFond.has(c) && !clesDuBrouillonHaut.includes(c)),
+  ])].map((cle) => ({ cle, libelle: libelles.get(cle) ?? cle }));
   /* 🔴 LA DÉCISION DE LA GRANDE FENÊTRE, pour ce mail (module pur, rejoué par le serveur sur le mail capturé). */
   const decision = decisionRattachement({
     fond: avecSuivis ? fond : null, biens: choisis, rattachement: { position: positionVoulue, retires: [...retires] },
@@ -314,6 +369,7 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
   };
   const revenirALOrigine = (): void => {
     setRetires([]);
+    setGardesBrouillon(clesBrouillon);
     setSelection([]);
     setSelectionInitiale([]);
     setCleContenu((n) => n + 1);
@@ -357,8 +413,16 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
   const rattaches: EvenementLu[] = (brouillon.evenements ?? []).filter((e) => e.id !== null)
     .map((e) => ({ id: e.id as number, reference: e.libelle, objet: '', ouvert: true }));
 
-  const masquees = fondBiens.length === 0 ? null
-    : new Map(fondBiens.map((b) => [b.cle, { garde: !retires.includes(b.cle), libelle: b.libelle }] as const));
+  const masquees = cartes.length === 0 ? null
+    : new Map(cartes.map((b) => [b.cle, {
+      garde: gardee(b.cle),
+      libelle: fondBiens.find((x) => x.cle === b.cle)?.libelle ?? libelleBrouillon(b.cle),
+    }] as const));
+  /** « Sélectionner / Désélectionner tous les biens » : toutes les cases du bloc du haut, comme la référence. */
+  const basculerHaut = (garde: boolean): void => {
+    setRetires(garde ? [] : fondBiens.map((b) => b.cle));
+    setGardesBrouillon(garde ? clesDuBrouillonHaut : []);
+  };
   const mailsPourConfirmation = [...(lu?.mails ?? []), -1];
 
   const pied = (
@@ -388,33 +452,48 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
       <style>{CSS_BLOC_EVENEMENT}</style>
       <style>{CSS_LISTE_BIENS}</style>
       <style>{CSS_INFO_BIEN}</style>
+      <style>{CSS_MENU_RATTACHEMENT}</style>
       <div className={`mrt rdf rdf--ponctuel rdf--brouillon${appel !== 0 ? ' rdf--appel' : ''}`} role="dialog" aria-modal="true"
         aria-labelledby="rdf-titre" data-mode="brouillon"
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } }}>
         <button type="button" className="rdf-croix" aria-label="Fermer sans rien changer"
           title="Fermer sans rien changer" onClick={onFerme}>×</button>
         <h2 className="mrt-titre" id="rdf-titre">{TITRE_BIENS_DU_MAIL}</h2>
+        {/* 🔴 LOT COMPOSEUR-BLOC-VERT — à la place de « expéditeur · date · objet » de la référence. */}
+        <p className="rdf-entete" data-entete="brouillon">{enTeteBrouillon(brouillon.objet, brouillon.destinataires)}</p>
         <p className="rdf-detail rdf-brouillon-mot">{MOT_BROUILLON_A_L_ENVOI}</p>
-        {avecSuivis && (
-          <section className="rdf-suivis" aria-labelledby="rdf-suivis-titre" data-bloc="suivis">
-            <h3 className="rdf-suivis-titre" id="rdf-suivis-titre">{TITRE_BIENS_SUIVIS}</h3>
-            {lu === null && <p className="gst-info" role="status">Lecture des biens suivis…</p>}
-            {lu !== null && cartes.length === 0 && <p className="rdf-detail">{AUCUN_BIEN_SUIVI}</p>}
-            {cartes.length > 0 && (
-              <ul className="rdf-suivis-liste">
-                {cartes.map((b) => (
-                  <CarteBienSuivi key={b.cle} bien={b} titre={titresSuivis.get(b.cle) ?? b.adresseComplete}
-                    garde={!retires.includes(b.cle)}
-                    onGarder={() => setRetires((avant) => (avant.includes(b.cle)
-                      ? avant.filter((c) => c !== b.cle) : [...avant, b.cle]))}
-                    liens={[]} onModifier={() => {}} />
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
+        {/* 🔴 LOT COMPOSEUR-BLOC-VERT — LE BLOC DU HAUT, DANS TOUS LES MODES : « Biens actuellement suivi(s)… (Suivi de
+            fond) » pour une réponse, « Bien(s) rattaché(s) à ce mail » pour un Nouveau message. Même carte, même fond
+            vert, même case que la référence. */}
+        <section className="rdf-suivis" aria-labelledby="rdf-suivis-titre" data-bloc="suivis"
+          data-sorte={avecSuivis ? 'suivi-de-fond' : 'nouveau'}>
+          <h3 className="rdf-suivis-titre" id="rdf-suivis-titre">{avecSuivis ? TITRE_BIENS_SUIVIS : TITRE_BIENS_DU_MAIL}</h3>
+          {suiviAuto !== null && (
+            <p className="rdf-detail rdf-suivi-auto">
+              {motSuiviAutomatique(suiviAuto === '' ? null : dateHeureComplete(suiviAuto))}
+            </p>
+          )}
+          {lu === null && <p className="gst-info" role="status">Lecture des biens suivis…</p>}
+          {lu !== null && cartes.length === 0 && (
+            <p className="rdf-detail">{avecSuivis ? AUCUN_BIEN_SUIVI : AUCUN_BIEN_DU_MAIL}</p>
+          )}
+          {cartes.length > 0 && (
+            <ul className="rdf-suivis-liste">
+              {cartes.map((b) => (
+                <CarteBienSuivi key={b.cle} bien={b} titre={titresSuivis.get(b.cle) ?? b.adresseComplete}
+                  garde={gardee(b.cle)}
+                  onGarder={() => (fondBiens.some((x) => x.cle === b.cle)
+                    ? setRetires((avant) => (avant.includes(b.cle) ? avant.filter((c) => c !== b.cle) : [...avant, b.cle]))
+                    : setGardesBrouillon((avant) => (avant.includes(b.cle)
+                      ? avant.filter((c) => c !== b.cle) : [...avant, b.cle])))}
+                  liens={[]} onModifier={() => {}} />
+              ))}
+            </ul>
+          )}
+        </section>
         {children({
           masquees,
+          onBasculerMasquees: basculerHaut,
           onSelection: (cles) => setSelection(cles),
           pied,
           validerExterne: (v) => { validerDuContenu.current = v; },
@@ -422,6 +501,10 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
           cle: `contenu-${cleContenu}`,
           rattachementVoulu: () => ({ position: positionVoulue, retires: [...retires] }),
         })}
+        {/* 🔴 LOT COMPOSEUR-BLOC-VERT — le pied de la référence : « Fermer », qui ferme sans rien changer (comme la croix). */}
+        <div className="mrt-boutons">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>Fermer</button>
+        </div>
       </div>
     </div>
   );
@@ -2779,6 +2862,8 @@ export const CSS_RATTACHEMENTS_FIL = `
 .rdf--brouillon .rec.rec--integre{flex:0 0 auto;min-height:auto}
 .rdf--brouillon .rec-corps{flex:0 0 auto;overflow:visible}
 .rdf--brouillon .rec-pied-sup{padding:0;border:0;background:transparent;animation:none}
+/* LOT COMPOSEUR-BLOC-VERT : le cadre gris de la reference (.mrb) garde sa marge interieure, que .rec.rec--integre annulait. */
+.rdf--brouillon .rec.rec--integre.mrb{padding:8px 10px;margin:6px 0 10px;background:var(--color-svv-field);border-radius:.6rem}
 .rdf-brouillon-mot{margin:0;padding-right:2.2rem}
 /* LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — le bloc « Autres classements », sous la portee : encadre comme elle, plus
    discret (trait fin), ses gestes en liens qui se replient d'eux-memes sur telephone. */

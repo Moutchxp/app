@@ -76,7 +76,7 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 export function RattacherEnEcrivant({
   destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, biensDesAdresses = [],
   piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
-  onSelection, onChange, onFerme, integre = false, masquees = null, validerExterne = null,
+  onSelection, onChange, onFerme, integre = false, masquees = null, validerExterne = null, onBasculerMasquees,
 }: {
   /**
    * ══ 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE (Arno, 13-14/10/2026) — LES BIENS DU SUIVI DE FOND, TENUS PAR LA FENÊTRE ══════
@@ -91,6 +91,11 @@ export function RattacherEnEcrivant({
    * chaque rendu, donc toujours à jour) et ne rend plus son propre bouton. `null` (défaut) ⇒ le bouton d'avant.
    */
   validerExterne?: ((valider: () => void) => void) | null;
+  /**
+   * 🔴 LOT COMPOSEUR-BLOC-VERT — « Sélectionner / Désélectionner tous les biens » porte AUSSI sur les cartes du bloc du
+   * haut, comme dans « Modifier le rattachement » : la fenêtre, qui les tient, coche ou décoche toutes ses cases.
+   */
+  onBasculerMasquees?: (garde: boolean) => void;
   /**
    * ══ 🔴🔴 LOT FENETRE-CLASSEMENT-UNIQUE (Arno, 13/10/2026) — LE CONTENU, SANS SON CADRE ════════════════════════
    * Le composeur ouvre désormais LA fenêtre de « Modifier le rattachement » (`RattachementsDuFil`, mode brouillon),
@@ -564,12 +569,14 @@ export function RattacherEnEcrivant({
    * qu'on n'a pas vus serait exactement le défaut que ce lot répare du côté du compteur.
    */
   const clesVisibles = (): string[] => [...new Set([
+    /* 🔴 LOT COMPOSEUR-BLOC-VERT — les cartes du bloc du haut sont à l'écran, avec leur case (comme la référence). */
+    ...(masquees === null ? [] : [...masquees.keys()]),
     ...tous.map((b) => b.cle),
     ...(recherche.v === 'ok' ? recherche.resultats.lignes.map((b) => b.cle) : []),
   ])].filter((c) => c !== '');
   const toutesCochees = (() => {
     const v = clesVisibles();
-    return v.length > 0 && v.every((c) => selection.has(c));
+    return v.length > 0 && v.every((c) => (masque(c) ? masquees?.get(c)?.garde === true : selection.has(c)));
   })();
 
   /**
@@ -611,7 +618,8 @@ export function RattacherEnEcrivant({
    */
   const toutBasculer = () => {
     const visibles = clesVisibles();
-    const tousCoches = visibles.every((c) => selection.has(c));
+    const tousCoches = toutesCochees;
+    if (masquees !== null) onBasculerMasquees?.(!tousCoches);
     if (!tousCoches && recherche.v === 'ok') {
       const aRanger = recherche.resultats.lignes.filter((b) => !selection.has(b.cle));
       for (const b of aRanger) rangerResultat(b);
@@ -692,8 +700,9 @@ export function RattacherEnEcrivant({
     setErreurValidation(null);
     /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — les biens du suivi de fond : ceux que le bloc du haut garde, et eux seuls. */
     for (const [c, m] of masquees ?? []) if (m.garde && !parCle.has(c)) parCle.set(c, { libelle: m.libelle, id: null });
-    const voulues = [...[...selection].filter((c) => !masque(c)),
-      ...[...(masquees ?? [])].filter(([, m]) => m.garde).map(([c]) => c)];
+    /* L'ordre d'avant est gardé : les biens déjà rattachés (le bloc du haut) d'abord, puis ceux qu'on vient de cocher. */
+    const voulues = [...[...(masquees ?? [])].filter(([, m]) => m.garde).map(([c]) => c),
+      ...[...selection].filter((c) => !masque(c))];
     const retenues: CibleBrouillon[] = [...new Set(voulues)]
       .filter((c) => parCle.has(c))
       .map((c) => ({
@@ -793,7 +802,10 @@ export function RattacherEnEcrivant({
             clesVisibles={clesVisibles()} toutesCochees={toutesCochees} onToutBasculer={toutBasculer}
             replies={replies} autresDeplies={autresDeplies} onBasculerAutres={() => setAutresDeplies((v) => !v)}
             saisie={saisie} onSaisie={setSaisie} champ={champRecherche} recherche={recherche}
-            clesEnHaut={clesEnHaut} onBasculerResultat={basculerResultat} />
+            clesEnHaut={clesEnHaut} onBasculerResultat={basculerResultat}
+            /* 🔴 LOT COMPOSEUR-BLOC-VERT — dans la grande fenêtre : la liste de « Modifier le rattachement » (propositions
+               repliables par leur croix, trame verte des cochés, locataire à la date du mail). Ailleurs : inchangée. */
+            {...(validerExterne !== null ? { repliable: true, trameCochee: true, aLaDateDuMail: true } : {})} />
         )}
 
         {/* ══ 🔴 LE PIED NE PORTE PLUS QU'UNE DÉCISION ═════════════════════════════════════════════════════════
@@ -839,7 +851,8 @@ export function RattacherEnEcrivant({
   /* 🔴 LOT FENETRE-CLASSEMENT-UNIQUE — dans la grande fenêtre : le contenu seul, en colonne (corps défilant, pied fixe). */
   if (integre) {
     return (
-      <div className="rec rec--integre"
+      /* 🔴 LOT COMPOSEUR-BLOC-VERT — dans la grande fenêtre, le cadre gris de la référence (`.mrb`, MenuRattachementBien). */
+      <div className={`rec rec--integre${validerExterne !== null ? ' mrb' : ''}`}
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); fermerSansRien(); } }}>
         <style>{CSS_RATTACHER_EN_ECRIVANT}</style>
         {contenu}

@@ -423,7 +423,8 @@ describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — le scénario
     expect(origines()).toEqual(['219:client', '224:client', '373:client', '432:client', '494:client', '58:client']);
     expect(texteClasser()).toMatch(/Rattaché\s*—?\s*6 logements/);
     await ouvrirModale();
-    expect([...container.querySelectorAll('.rec input[type="checkbox"]')].filter((i) => (i as HTMLInputElement).checked)).toHaveLength(6);
+    /* 🔴 LOT COMPOSEUR-BLOC-VERT — rouverte, les 6 biens rattachés sont dans le bloc vert du haut, cochés. */
+    expect([...container.querySelectorAll('[data-bloc="suivis"] input[type="checkbox"]')].filter((i) => (i as HTMLInputElement).checked)).toHaveLength(6);
   });
   it('retirer l’adresse : SEULS les biens de cette adresse partent (le bien d’un autre client reste)', async () => {
     await monter(NOUVEAU);
@@ -440,7 +441,10 @@ describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — le scénario
 
 describe('🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — la modale montre TOUS les biens des adresses présentes', () => {
   const JULLIEN = ['432', '494', '373', '219', '224', '58'];
-  const cartes = () => [...container.querySelectorAll('.rec-biens .rec-bien')].filter((l) => l.querySelector('input[type="checkbox"]'));
+  /* 🔴 LOT COMPOSEUR-BLOC-VERT — les cartes à l'écran, dans l'ordre : le bloc vert du haut (biens déjà rattachés), puis
+     les propositions. Un bien rattaché n'est jamais seulement dans les propositions (Arno, 14/10/2026). */
+  const cartes = () => [...container.querySelectorAll('[data-bloc="suivis"] .rdf-suivi-carte, .rec-biens .rec-bien')]
+    .filter((l) => l.querySelector('input[type="checkbox"]'));
   const cleDe = (li: Element) => /(\d+) rue des Tests/.exec(li.textContent ?? '')?.[1] ?? '?';
   const cochees = () => cartes().filter((l) => (l.querySelector('input') as HTMLInputElement).checked).map(cleDe);
   const compteur = () => container.querySelector('.rec-compte')?.textContent ?? '';
@@ -462,7 +466,8 @@ describe('🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — la modale montr
     await ouvrirModale();
     expect(cartes().map(cleDe)).toEqual(['373', '432', '494', '219', '224', '58']);
     expect(cochees()).toEqual(['373']);
-    expect(compteur()).toBe('1 bien(s) coché(s) sur 6 affiché(s).');
+    expect(container.querySelector('[data-bloc="suivis"] .rdf-suivi-carte')?.textContent).toContain('373 rue des Tests');
+    expect(compteur()).toBe('0 bien(s) coché(s) sur 5 affiché(s).');
     expect(cartes()[0].querySelector('.rec-motif')?.textContent).toBe('déjà rattaché — décochez pour le retirer');
     expect(cartes()[1].querySelector('.rec-motif')?.textContent).toBe('propriétaire de ce bien — Cédric JULLIEN - GARRIDO');
   });
@@ -481,7 +486,7 @@ describe('🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — la modale montr
     await ouvrirModale();
     await cliquer(bouton(/^Sélectionner tous les biens$/));
     expect(cochees().sort()).toEqual([...JULLIEN].sort());
-    expect(compteur()).toBe('6 bien(s) coché(s) sur 6 affiché(s).');
+    expect(compteur()).toBe('5 bien(s) coché(s) sur 5 affiché(s).');
     await cliquer(bouton(/^Désélectionner tous les biens$/));
     expect(cochees()).toEqual([]);
     await cliquer(bouton(/^Sélectionner tous les biens$/));
@@ -524,6 +529,6 @@ describe('🔴🔴 LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — la modale montr
     // multi@x.fr est aussi proposé par le moteur ; c.jullien ne l'est que par ses biens.
     expect(cartes().map(cleDe)).toEqual(['224', '432', '433', '494', '373', '219', '58']);
     expect(cochees()).toEqual(['224']);
-    expect(compteur()).toBe('1 bien(s) coché(s) sur 7 affiché(s).');
+    expect(compteur()).toBe('0 bien(s) coché(s) sur 6 affiché(s).');
   });
 });

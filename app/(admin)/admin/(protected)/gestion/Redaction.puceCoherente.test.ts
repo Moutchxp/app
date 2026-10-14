@@ -130,7 +130,8 @@ describe('🔴 contact du syndic qui suit plusieurs copropriétés (arnaud.jorel
     expect(li.querySelector('.rec-motif')?.textContent).toBe('contact du syndic, suit la copropriété de ce bien — Arnaud JOREL');
     expect(carte('58')?.querySelector('.rec-motif')?.textContent).toBe('e-mail général du syndic de la copropriété de ce bien — TEST ARNAUD');
     // Les deux lignes propriétaire / locataire, lues sur la fiche du bien.
-    expect((li.textContent ?? '').replace(/\s+/g, ' ')).toMatch(/PROPRIÉTAIRE\s*DUPONT Jean.*LOCATAIRE\s*Vacant/i);
+    // 🔴 LOT COMPOSEUR-BLOC-VERT — comme dans « Modifier le rattachement » : « Locataire (à la date du mail) ».
+    expect((li.textContent ?? '').replace(/\s+/g, ' ')).toMatch(/PROPRIÉTAIRE\s*DUPONT Jean.*LOCATAIRE\s*(\(à la date du mail\)\s*)?Vacant/i);
     await cliquer(li.querySelector('input') as Element);
     await valider();
     expect(origines()).toEqual(['219:client']);
