@@ -81,6 +81,12 @@ export { SEUIL_REPLI_CARTES, replierLesCartes };
  */
 export type ChoixPeriode =
   | { sorte: 'tous' }
+  /**
+   * 🔴🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE (Arno, 14/10/2026) — « PENDANT SA LOCATION » : la fiche d'un ancien
+   * locataire, chaque logement sur SA période (entrée → sortie). Pas de borne GLOBALE : les bornes sont par logement,
+   * et c'est le serveur qui les applique (`tranches`). Proposé seulement sur la fiche d'un ancien locataire.
+   */
+  | { sorte: 'location' }
   | { sorte: 'dates'; du: string | null; au: string | null }
   | { sorte: 'occupation'; du: string | null; au: string | null }
   | { sorte: 'evenement'; evenementId: number; du: string | null; au: string | null };
@@ -96,7 +102,34 @@ export interface BornesPeriode { du: string | null; au: string | null }
  * divergEr — on aurait lu « du 01/05/2025 au 04/10/2026 » sur un fil filtré autrement, et rien ne l'aurait dit.
  */
 export function bornesDuChoix(p: ChoixPeriode): BornesPeriode {
-  return p.sorte === 'tous' ? { du: null, au: null } : { du: p.du, au: p.au };
+  /* « Pendant sa location » n'a pas de borne globale : chaque logement porte la sienne (voir `ChoixPeriode`). */
+  return p.sorte === 'tous' || p.sorte === 'location' ? { du: null, au: null } : { du: p.du, au: p.au };
+}
+
+/** Une tranche d'occupation d'un logement loué : sa clé, son libellé, ses dates (`null` = inconnue). */
+export interface TrancheLocation { cle: string; libelle: string; depuis: string | null; jusqua: string | null }
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — « PÉRIODE RETENUE » DE « PENDANT SA LOCATION ». PUR. ═════════════
+ *
+ * Arno : « un libellé clair dans “Période retenue” (ex. “pendant sa location : du JJ/MM/AAAA au JJ/MM/AAAA”) […] Date
+ * d'entrée ou de sortie inconnue : pas de borne de ce côté. Dis-le dans le libellé, ne devine jamais une date. »
+ *
+ * Un logement : « pendant sa location : du … au … ». Plusieurs : « pendant ses locations, logement par logement : » puis
+ * chaque logement avec SES dates — une seule paire de dates pour tous mentirait sur ce que le serveur retient.
+ */
+export function motPeriodeLocation(tranches: readonly TrancheLocation[]): string {
+  const dates = (t: TrancheLocation): string => {
+    const d = formaterDateIso(jourValide(t.depuis));
+    const a = formaterDateIso(jourValide(t.jusqua));
+    if (d !== '' && a !== '') return `du ${d} au ${a}`;
+    if (d !== '') return `depuis le ${d} (date de sortie inconnue : pas de borne de fin)`;
+    if (a !== '') return `jusqu’au ${a} (date d’entrée inconnue : pas de borne de début)`;
+    return 'sans borne (dates d’entrée et de sortie inconnues)';
+  };
+  if (tranches.length === 0) return 'pendant sa location (aucun logement connu)';
+  if (tranches.length === 1) return `pendant sa location : ${dates(tranches[0])}`;
+  return `pendant ses locations, logement par logement : ${tranches.map((t) => `${t.libelle} ${dates(t)}`).join(' ; ')}`;
 }
 
 /** L'ordre du fil. Le plus récent en haut par défaut : c'est le dernier état du dossier qu'on vient chercher. */
@@ -201,12 +234,14 @@ export const REGLAGES_DEFAUT: Reglages = {
  * ⚠️ LA RECHERCHE ET LE FILTRE D'ÉVÉNEMENT EN FONT PARTIE (lot HISTORIQUE-BIEN-2) : sans eux, taper trois lettres
  * puis ne rien trouver n'aurait offert aucun moyen de revenir en arrière — et le fil vide aurait accusé le bien.
  */
-export function reglagesActifs(r: Reglages): boolean {
+export function reglagesActifs(r: Reglages, defaut: Reglages = REGLAGES_DEFAUT): boolean {
   /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — UNE PARTIE COCHÉE **EST** un réglage actif, et une adresse de
      l'agence décochée aussi : ce sont les deux seules façons de réduire le listing par les personnes depuis que
      l'interrupteur « Tous les mails du bien » a disparu. Sans elles, « tout remettre à plat » n'aurait pas été
      offert alors qu'il y avait quelque chose à défaire. */
-  return r.periode.sorte !== 'tous' || r.parties.length > 0 || r.agenceEcartee.length > 0
+  /* 🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — la période de DÉPART n'est pas un réglage actif : sur la fiche d'un
+     ancien locataire, « Pendant sa location » est le défaut, et « tout remettre à plat » y ramène. */
+  return r.periode.sorte !== defaut.periode.sorte || r.parties.length > 0 || r.agenceEcartee.length > 0
     || r.pieces !== 'toutes'
     || r.ordre !== ORDRE_FIL_DEFAUT || r.grouper
     || r.texte.trim() !== '' || r.evenementOuvert
@@ -1705,10 +1740,10 @@ export function etatRetourDepuisBrut(v: unknown): EtatRetourBien | null {
   const p = r.periode as Record<string, unknown> | undefined;
   if (typeof p !== 'object' || p === null) return null;
   const sorte = p.sorte;
-  if (sorte !== 'tous' && sorte !== 'dates' && sorte !== 'occupation' && sorte !== 'evenement') return null;
+  if (sorte !== 'tous' && sorte !== 'location' && sorte !== 'dates' && sorte !== 'occupation' && sorte !== 'evenement') return null;
   const jour = (x: unknown): string | null => (typeof x === 'string' ? jourValide(x) : null);
-  const periode: ChoixPeriode = sorte === 'tous'
-    ? { sorte: 'tous' }
+  const periode: ChoixPeriode = sorte === 'tous' || sorte === 'location'
+    ? { sorte }
     : sorte === 'evenement'
       ? {
         sorte: 'evenement',
@@ -1783,6 +1818,8 @@ export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQU
     expediteursExclus: [...new Set(r.agenceEcartee.map((a) => a.trim().toLowerCase()).filter((a) => a !== ''))],
     du: jourValide(bornes.du),
     au: jourValide(bornes.au),
+    /* 🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — « Pendant sa location » : chaque logement sur sa période, au serveur. */
+    tranches: r.periode.sorte === 'location',
     pieces: r.pieces,
     /**
      * ══ 🔴🔴 LA RECHERCHE REPART AU SERVEUR — LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER ══════════
@@ -2382,7 +2419,7 @@ export function motProlongationDeLaPeriode(
 ): string | null {
   const attendue = periodeDuChoixLocataire(cartes, choix, evenements, maintenant);
   if (attendue === null || attendue.sorte !== 'dates') return null;
-  if (periode.sorte === 'tous') return null;
+  if (periode.sorte === 'tous' || periode.sorte === 'location') return null;
   if (periode.du !== attendue.du || periode.au !== attendue.au) return null;
   return motProlongation(evenementQuiProlonge(cartes, choix, evenements, maintenant));
 }

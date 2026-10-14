@@ -140,9 +140,14 @@ describe('🔴🔴 ③ les deux axes, et le fragment unique', () => {
     expect(fin).toBeGreaterThan(debut);
     const branche = REPO.slice(debut, fin);
     expect(branche).toContain('occupations,');
-    expect(branche).toContain('adresses: ads.map((a) => a.valeur),');
-    /* ⚠️ AUCUNE AFFECTATION DE `lots` : ni `lots:`, ni un repli qui le remplirait « au cas où ». */
-    expect(branche).not.toMatch(/\blots\s*:/);
+    /* LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — ses adresses sont retirées pour la seule sélection « logements loués ». */
+    expect(branche).toContain('adresses: parLogements ? [] : ads.map((a) => a.valeur),');
+    /* ⚠️ AUCUNE AFFECTATION DE `lots` HORS DE « TOUS LES ÉCHANGES » D'UN ANCIEN LOCATAIRE (`loues=1` sans `tranches`, décision
+       d'Arno du 14/10/2026 : « toute la vie de ces logements ») : son historique à lui ne reçoit jamais de lots entiers. */
+    const lots = [...branche.matchAll(/\blots\s*:/g)];
+    expect(lots).toHaveLength(1);
+    expect(branche).toContain('...(parLogements && !f.tranches ? { lots: [...new Set(occupations.map((o) => o.cle))] } : {}),');
+    expect(branche).toContain('const parLogements = f.logementsLoues && !f.echanges;');
   });
 });
 

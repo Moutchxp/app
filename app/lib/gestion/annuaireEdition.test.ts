@@ -889,7 +889,10 @@ describe('🔴 le cartouche « Événement en cours »', () => {
     expect(src).toContain("evenementOuvertInitial={filtreVie === 'evenement'}");
     const moteur = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
     expect(moteur).toContain('evenementOuvertInitial = false');
-    expect(moteur).toContain('evenementOuvertInitial ? { ...REGLAGES_DEFAUT, evenementOuvert: true } : REGLAGES_DEFAUT');
+    /* LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — le départ s'appelle `reglagesDeDepart` : REGLAGES_DEFAUT partout, sauf la
+       fiche d'un ancien locataire (« Pendant sa location »). */
+    expect(moteur).toContain('evenementOuvertInitial ? { ...reglagesDeDepart, evenementOuvert: true } : reglagesDeDepart');
+    expect(moteur).toContain(': REGLAGES_DEFAUT),');
   });
 
   it('🔴 le MÊME cartouche en tête de la fiche du bien', () => {

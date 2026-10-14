@@ -9,6 +9,7 @@ import {
 } from './BlocHistoriqueEchanges';
 import { brouillonNouveauPersonne, cibleDeLHistorique, type PersonneHistorique } from './HistoriqueDuBien';
 import { bienDuNouveauMessageLocataire, type LogementPourNouveauMessage } from '../../../../lib/gestion/bienNouveauMessageLocataire';
+import { motPeriodeLocation, reglagesActifs, reglagesEnFiltres, REGLAGES_DEFAUT, etatRetourDepuisBrut } from '../../../../lib/gestion/historiqueBien';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
 
 /**
@@ -212,9 +213,95 @@ describe('🔒 un seul bloc, deux fiches', () => {
     expect(lire('HistoriquePersonne.tsx')).toContain("<BlocHistoriqueEchanges sorte={cible.sorte} cle={cle} fiche={fiche} perimetre={{ sorte: 'echanges' }}");
     const annuaire = lire('Annuaire.tsx');
     expect(annuaire).toContain('<BlocHistoriqueEchanges sorte="locataire"');
-    expect(annuaire).toContain("perimetre={{ sorte: 'bien', cle: lotCle, bienNouveauMessage: bienDuNouveauMessageLocataire(f.logements) }}");
+    expect(annuaire).toContain("{ sorte: 'bien', cle: lotCle, bienNouveauMessage: bienDuNouveauMessageLocataire(f.logements) }");
     expect(annuaire).not.toContain('<VieDuBien');
     // Le texte explicatif au-dessus du bloc est conservé.
     expect(annuaire).toContain('un mail est rattaché à un bien, jamais à une personne.');
+  });
+});
+
+describe('🔴🔴 PÉRIMÈTRE « LOGEMENTS » — la fiche d’un ANCIEN locataire (lot HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE)', () => {
+  const TRANCHES = [
+    { cle: '322', libelle: '1 rue B, Courbevoie', depuis: '2025-11-19', jusqua: '2026-01-23' },
+    { cle: '239', libelle: '2 rue A, Puteaux', depuis: null, jusqua: '2026-01-23' },
+  ];
+  const DERNIER = { lotId: 1, cle: '322', libelle: '1 rue B, Courbevoie — lot 322' };
+  async function monterAncien(tranches = TRANCHES): Promise<void> {
+    await act(async () => {
+      racine.render(createElement(BlocHistoriqueEchanges, {
+        sorte: 'locataire', cle: 'L44', fiche: { ...FICHE, occupations: tranches },
+        perimetre: { sorte: 'logements', bienNouveauMessage: DERNIER }, maintenant: MAINTENANT,
+        redaction: { schemaPret: true, peutEnvoyer: true, jetonPresent: true, piecesDisponibles: false, signature: 'Service Gestion',
+          nomExpediteur: 'Gestion', adresseGestion: 'gestion@exemple.test', delaiAnnulationS: 5, classementDisponible: true } as never,
+      }));
+    });
+    await calmer();
+  }
+  const retenue = () => hote.querySelector('.hdb-effective-valeur')?.textContent ?? '';
+  it('PAR DÉFAUT « Pendant sa location » : les logements loués, chacun sur sa période (loues=1 & tranches=1) — liste, frise, pièces', async () => {
+    await monterAncien();
+    expect(parMot('Pendant sa location')?.getAttribute('aria-pressed')).toBe('true');
+    for (const r of [/\/historique\?/, /\/historique\/pieces/, /\/historique\/frise/]) {
+      expect(requetes(r).length).toBeGreaterThan(0);
+      expect(requetes(r).every((u) => u.includes('cible=locataire-L44&loues=1') && u.includes('tranches=1') && !u.includes('echanges=1'))).toBe(true);
+    }
+    // Plusieurs logements : chacun avec SES dates ; une date inconnue est DITE, jamais devinée.
+    expect(retenue()).toBe('pendant ses locations, logement par logement : 1 rue B, Courbevoie du 19/11/2025 au 23/01/2026 ; '
+      + '2 rue A, Puteaux jusqu’au 23/01/2026 (date d’entrée inconnue : pas de borne de début)');
+    // Pas de champs Du / Au vides sous une période qui n'a pas de borne globale.
+    expect(hote.querySelector('.hdb-dates')).toBeNull();
+    // Rien n'est masqué : les autres choix restent là.
+    expect(parMot('Tous les échanges')).toBeDefined();
+    expect(texte()).toContain('Dates personnalisées');
+  });
+  it('« Tous les échanges » : toute la vie de ces logements (loues=1, sans tranches) ; « Pendant sa location » y revient', async () => {
+    await monterAncien();
+    await cliquer(parMot('Tous les échanges'));
+    const der = requetesMails().at(-1)!;
+    expect(der).toContain('loues=1');
+    expect(der).not.toContain('tranches=1');
+    expect(retenue()).toBe('tous les échanges, sans borne de date');
+    await cliquer(parMot('Pendant sa location'));
+    expect(requetesMails().at(-1)).toContain('tranches=1');
+  });
+  it('« Dates personnalisées » : les logements entiers bornés par les dates saisies (sans tranches)', async () => {
+    await monterAncien();
+    await cliquer(parMot('Dates personnalisées'));
+    expect(requetesMails().at(-1)).not.toContain('tranches=1');
+    expect(hote.querySelector('.hdb-dates')).not.toBeNull();
+  });
+  it('un seul logement : « pendant sa location : du … au … »', async () => {
+    await monterAncien([TRANCHES[0]]);
+    expect(retenue()).toBe('pendant sa location : du 19/11/2025 au 23/01/2026');
+  });
+  it('🔴 « Nouveau message » : adressé à lui, rattaché à son DERNIER logement', async () => {
+    await monterAncien();
+    await cliquer(parMot('Nouveau message'));
+    expect(texte()).toContain('lea@exemple.test');
+    expect(texte()).toMatch(/Rattaché\s*1 logement/);
+  });
+  it('PUR — libellés des bornes inconnues, défaut non « actif », filtres, retour', () => {
+    expect(motPeriodeLocation([{ cle: '1', libelle: 'x', depuis: '2024-03-22', jusqua: null }]))
+      .toBe('pendant sa location : depuis le 22/03/2024 (date de sortie inconnue : pas de borne de fin)');
+    expect(motPeriodeLocation([{ cle: '1', libelle: 'x', depuis: null, jusqua: null }]))
+      .toBe('pendant sa location : sans borne (dates d’entrée et de sortie inconnues)');
+    const depart = { ...REGLAGES_DEFAUT, periode: { sorte: 'location' as const } };
+    expect(reglagesActifs(depart, depart)).toBe(false);
+    expect(reglagesActifs(depart)).toBe(true);
+    expect(reglagesActifs(REGLAGES_DEFAUT)).toBe(false); // la fiche d'un bien et les autres fiches : inchangé
+    expect(reglagesEnFiltres(depart)).toMatchObject({ tranches: true, du: null, au: null });
+    expect(reglagesEnFiltres(REGLAGES_DEFAUT).tranches).toBe(false);
+    expect(etatRetourDepuisBrut({ fiche: 'x', reglages: { ...depart } })?.reglages.periode).toEqual({ sorte: 'location' });
+    expect(cibleDeLHistorique('x', { sorte: 'locataire', cle: 'L44', nom: '', adresses: [], logementsLoues: [] })).toBe('locataire-L44&loues=1');
+    expect(personneDuBloc('locataire', 'L44', { ...FICHE, occupations: TRANCHES }, { sorte: 'logements', bienNouveauMessage: DERNIER }))
+      .toEqual({ sorte: 'locataire', cle: 'L44', nom: 'DURAND Léa', adresses: ['lea@exemple.test'], logementsLoues: TRANCHES, bienNouveauMessage: DERNIER });
+  });
+  it('🔒 la fiche monte le bloc pour un ancien locataire, et garde l’information « plus de logement en cours »', () => {
+    const annuaire = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    expect(annuaire).toContain('<EchangesDuLocataire f={f} lotCle={null}');
+    expect(annuaire).toContain('Ancien locataire — plus de logement en cours.');
+    expect(annuaire).toContain("{ sorte: 'logements', bienNouveauMessage: bienDuNouveauMessageLocataire(f.logements) }");
+    // Le cas sans aucun logement en gestion garde sa phrase.
+    expect(annuaire).toContain('Aucun logement en gestion pour cette personne');
   });
 });

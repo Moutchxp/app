@@ -259,10 +259,19 @@ export async function etendreCible(cible: Cible, f: FiltresHistorique): Promise<
     for (const o of occupations) libelles.set(texteCible(cibleLot(o.cle)), o.libelle);
 
     const nbLots = new Set(occupations.map((o) => o.cle)).size;
+    /**
+     * ══ 🔴🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE (Arno, 14/10/2026) — LES MAILS DES LOGEMENTS QU'IL A LOUÉS ══════════
+     * Règle « mails du logement » : ni ses adresses (axe « correspondance » éteint par un tableau VIDE, qui ne rend aucune
+     * ligne), ni rien d'autre que ses logements. Avec `tranches` : l'axe « occupation », chaque logement sur SA période.
+     * Sans : l'axe « lots », toute la vie de ces logements (l'axe « occupation », inclus dedans, n'ajoute rien — le
+     * `DISTINCT ON` ne garde qu'une ligne par mail). Sans `logementsLoues` : la sélection d'avant, à l'identique.
+     */
+    const parLogements = f.logementsLoues && !f.echanges;
     return {
       etat: 'ok',
       data: {
         ...vide, titre,
+        ...(parLogements && !f.tranches ? { lots: [...new Set(occupations.map((o) => o.cle))] } : {}),
         sousTitre: lc[0].absent
           ? 'ce locataire n’est plus dans l’export de gestion'
           : nbLots === 0
@@ -270,7 +279,7 @@ export async function etendreCible(cible: Cible, f: FiltresHistorique): Promise<
             : `${nbLots} logement${nbLots > 1 ? 's' : ''} occupé${nbLots > 1 ? 's' : ''}`,
         /* 🔴 `lots` VIDE À DESSEIN — voir l'encadré ci-dessus. Tout passe par les tranches. */
         occupations,
-        adresses: ads.map((a) => a.valeur),
+        adresses: parLogements ? [] : ads.map((a) => a.valeur),
         libelles,
         /* 🔴 LOT HISTORIQUE-PERSONNE — par les échanges : ses adresses seules choisissent les mails (les occupations
            restent dites, pour la ligne « logements occupés » de l'écran). */

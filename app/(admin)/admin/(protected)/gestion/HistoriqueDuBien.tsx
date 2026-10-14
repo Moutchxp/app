@@ -80,7 +80,7 @@ import {
   /* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 1 — la ligne d'état et le groupe de l'agence remplacent l'interrupteur
      « Tous les mails du bien » et la phrase « N adresses de notre agence ne sont pas listées ». */
   MOT_TOUT_DECOCHER, motGroupeAgence, motSelectionDesParties, TITRE_GROUPE_AGENCE,
-  motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, ordreFilSuivant,
+  motAucunResultat, motDeuxCompteurs, motLocataireDeLaPeriode, motPeriodeEffective, motPeriodeLocation, ordreFilSuivant,
   periodeDeLEvenement, periodeDuDernierLocataire, reglagesActifs, REGLAGES_DEFAUT, reglagesEnParametres,
   adresseACorriger, BUT_DU_PLUS, CAPSULES_VISIBLES, ciblesDeplacement, clientConnuPour, compteCacheesEnBas,
   compteCacheesEnHaut,
@@ -118,6 +118,7 @@ import {
   type ChoixPeriode, type OccupationPeriode,
   type PeriodePartie, type Reglages,
 } from '../../../../lib/gestion/historiqueBien';
+import type { TrancheLocation } from '../../../../lib/gestion/historiqueBien';
 /* 🔴🔴 LOT PARTIES-HAUTEUR-ANNUAIRE-ROLES, POINT 1 — la hauteur qui contient N lignes ENTIÈRES (module PUR). */
 import { hauteurDesPremiers } from '../../../../lib/gestion/listeDefilante';
 /**
@@ -331,11 +332,21 @@ export interface PersonneHistorique {
    * dans le composeur, qui propose les autres biens de ses destinataires). Absent ⇒ message sans bien, comme avant.
    */
   bienNouveauMessage?: { lotId: number; cle: string; libelle: string } | null;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE (Arno, 14/10/2026) — LES LOGEMENTS QU'IL A LOUÉS ════════════════════
+   * Présent ⇒ la fiche d'un ANCIEN locataire : les mails des logements de ses occupations (règle « mails du logement »,
+   * `loues=1`), vus par défaut « Pendant sa location » (chaque logement sur sa période, `tranches=1`) ; « Tous les
+   * échanges » montre toute la vie de ces logements. Les tranches viennent du serveur (les mêmes que la requête) et
+   * écrivent « Période retenue ». Absent ⇒ rien ne change.
+   */
+  logementsLoues?: readonly TrancheLocation[];
 }
 
 /** La cible et la sélection que les routes reçoivent : le bien, ou les échanges de la fiche. PUR. */
 export function cibleDeLHistorique(lotCle: string, personne: PersonneHistorique | null): string {
   if (personne === null) return `lot-${encodeURIComponent(lotCle)}`;
+  /* LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — les logements qu'il a loués : la cible du locataire, `loues=1`. */
+  if (personne.logementsLoues !== undefined) return `locataire-${encodeURIComponent(personne.cle)}&loues=1`;
   /* LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE — fiche de personne bornée aux mails d'un bien : la cible du bien, sans `echanges`. */
   if ((personne.perimetreBien ?? '') !== '') return `lot-${encodeURIComponent(personne.perimetreBien as string)}`;
   return `${personne.sorte === 'proprietaire' ? 'proprio' : 'locataire'}-${encodeURIComponent(personne.cle)}&echanges=1`;
@@ -536,9 +547,15 @@ export function HistoriqueDuBien({
     } catch { return null; }
   }, [jeton, lotCle]);
 
+  /* 🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — la fiche d'un ancien locataire part « Pendant sa location » ; partout
+     ailleurs, le départ est celui d'avant (`REGLAGES_DEFAUT`, la même référence). */
+  const tranchesLouees = personne?.logementsLoues;
+  const reglagesDeDepart = useMemo<Reglages>(
+    () => ((tranchesLouees ?? []).length > 0 ? { ...REGLAGES_DEFAUT, periode: { sorte: 'location' } } : REGLAGES_DEFAUT),
+    [tranchesLouees]);
   const [reglages, setReglages] = useState<Reglages>(
     repris?.reglages
-    ?? (evenementOuvertInitial ? { ...REGLAGES_DEFAUT, evenementOuvert: true } : REGLAGES_DEFAUT));
+    ?? (evenementOuvertInitial ? { ...reglagesDeDepart, evenementOuvert: true } : reglagesDeDepart));
   /**
    * ⚠️ LA SAISIE ET LE RÉGLAGE SONT DEUX ÉTATS, ET IL LE FAUT. Le champ doit répondre à chaque lettre (sinon il
    * paraît cassé) ; la REQUÊTE, elle, n'part qu'après le silence. Les confondre aurait donné l'un ou l'autre
@@ -1224,10 +1241,10 @@ export function HistoriqueDuBien({
    * le bouton n'aurait eu l'air de rien faire. Écrit une fois, appelé aux deux endroits qui l'offrent.
    */
   const remettreAPlat = useCallback((): void => {
-    setReglages(REGLAGES_DEFAUT);
+    setReglages(reglagesDeDepart);
     setBascules(new Set());
     setSaisie('');
-  }, []);
+  }, [reglagesDeDepart]);
 
   /** Déplier ou replier un mail. Écrit une fois : les deux montages du fil (groupé ou non) s'en servent. */
   const basculerMail = useCallback((messageId: number): void => setDeplie((s) => {
@@ -2631,6 +2648,14 @@ export function HistoriqueDuBien({
 
           <div className="hdb-bande">
             <div className="hdb-segments" role="group" aria-label="Choisir la période">
+              {/* 🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — fiche d'un ancien locataire : sa période, logement par logement. */}
+              {(tranchesLouees ?? []).length > 0 && (
+              <button type="button" aria-pressed={reglages.periode.sorte === 'location'}
+                className={`hdb-seg${reglages.periode.sorte === 'location' ? ' hdb-seg--actif' : ''}`}
+                onClick={() => setReglages((r) => ({ ...r, periode: { sorte: 'location' } }))}>
+                Pendant sa location
+              </button>
+              )}
               <button type="button" aria-pressed={reglages.periode.sorte === 'tous'}
                 className={`hdb-seg${reglages.periode.sorte === 'tous' ? ' hdb-seg--actif' : ''}`}
                 onClick={() => setReglages((r) => ({ ...r, periode: { sorte: 'tous' } }))}>
@@ -2691,7 +2716,8 @@ export function HistoriqueDuBien({
               <span className="hdb-effective-mot">Période retenue</span>
               {/* 🔴🔴 LOT HISTORIQUE-BIEN-6, POINT 4 — `maintenant` entre ici pour que « la date du jour » s'écrive
                   « aujourd'hui ». Le module pur ne lit jamais l'horloge lui-même : il la reçoit. */}
-              <strong className="hdb-effective-valeur">{motPeriodeEffective(reglages.periode, maintenant)}</strong>
+              <strong className="hdb-effective-valeur">{reglages.periode.sorte === 'location'
+                ? motPeriodeLocation(tranchesLouees ?? []) : motPeriodeEffective(reglages.periode, maintenant)}</strong>
               {/* ══ 🔴🔴 LOT HISTORIQUE-BIEN-18, POINT 1 — « — prolongée par l'événement « … » » ═══════════════
                   Demande d'Arno, mot pour mot : « du 06/02/2025 au 15/03/2026 — prolongée par l'événement
                   « Litige dépôt de garantie » ». Elle ne paraît que si les dates affichées sont bien celles que
@@ -2733,7 +2759,7 @@ export function HistoriqueDuBien({
               personnalisées » : c'est la règle posée au lot précédent et qu'Arno n'a pas défaite —
               « l'événement PROPOSE une période, il ne l'impose pas ». Toucher une borne bascule sur
               « Dates personnalisées », ce qui est la vérité : ce n'est plus la période de l'événement. */}
-          {reglages.periode.sorte !== 'tous' && (
+          {reglages.periode.sorte !== 'tous' && reglages.periode.sorte !== 'location' && (
             <div className="hdb-dates">
               <label className="hdb-date">
                 <span className="svv-label">Du</span>
@@ -3412,7 +3438,7 @@ export function HistoriqueDuBien({
           : lignes.length === 0 ? (
             <div className="hdb-vide" role="status">
               <p className="ann-gris">{motAucunResultat(reglages)}</p>
-              {reglagesActifs(reglages) && (
+              {reglagesActifs(reglages, reglagesDeDepart) && (
                 <button type="button" className="svv-btn svv-btn-outline gst-btn"
                   onClick={remettreAPlat}>
                   Tout remettre à plat
@@ -3468,7 +3494,7 @@ export function HistoriqueDuBien({
                   <button type="button" className="svv-btn svv-btn-outline gst-btn"
                     onClick={() => setPage((n) => n + 1)}>Voir la suite →</button>
                 )}
-                {reglagesActifs(reglages) && (
+                {reglagesActifs(reglages, reglagesDeDepart) && (
                   <button type="button" className="gst-lien-bouton"
                     onClick={remettreAPlat}>
                     Tout remettre à plat

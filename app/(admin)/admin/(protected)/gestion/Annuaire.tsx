@@ -2051,6 +2051,19 @@ function VueLocataire({
           <EchangesDuLocataire f={f} lotCle={logementDesMails.numero} maintenant={maintenant}
             redaction={redaction} onGesteMail={onGesteMail} onOuvrirFil={onOuvrirFil} />
         </>
+      ) : enCours.length === 0 && passes.some((o) => o.lotId !== null && !o.horsGestion) ? (
+        /* ══ 🔴🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE (Arno, 14/10/2026) — UN ANCIEN LOCATAIRE A AUSSI SES ÉCHANGES ══════
+           Les mails des logements qu'il a loués (tous), vus par défaut pendant sa location, logement par logement.
+           L'information « plus de logement en cours » est gardée, sous une forme qui n'empêche plus le bloc. */
+        <>
+          <p className="ann-gris">
+            <strong>Ancien locataire — plus de logement en cours.</strong> Les échanges ci-dessous sont ceux <strong>des
+            logements qu’il a loués</strong>, montrés par défaut pendant sa location, logement par logement : un mail est
+            rattaché à un bien, jamais à une personne.
+          </p>
+          <EchangesDuLocataire f={f} lotCle={null} maintenant={maintenant}
+            redaction={redaction} onGesteMail={onGesteMail} onOuvrirFil={onOuvrirFil} />
+        </>
       ) : (
         <p className="ann-gris">
           Aucun logement en gestion pour cette personne : il n’y a donc pas d’échange rattaché à lui montrer.
@@ -2104,7 +2117,8 @@ function VueLocataire({
  */
 function EchangesDuLocataire({ f, lotCle, maintenant, redaction, onGesteMail, onOuvrirFil }: {
   f: FicheLocataire;
-  lotCle: string;
+  /** Le logement en cours ; `null` = ANCIEN locataire : les logements qu'il a loués (lot HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE). */
+  lotCle: string | null;
   maintenant: Date;
   redaction: ContexteRedactionEcran | null;
   onGesteMail?: (message: string, options?: { rechargerTout?: boolean }) => void;
@@ -2119,7 +2133,9 @@ function EchangesDuLocataire({ f, lotCle, maintenant, redaction, onGesteMail, on
     <>
       {erreur !== null && <p className="gst-note" role="status">Adresses de la fiche non lues : {erreur}</p>}
       <BlocHistoriqueEchanges sorte="locataire" cle={f.cle} fiche={lue}
-        perimetre={{ sorte: 'bien', cle: lotCle, bienNouveauMessage: bienDuNouveauMessageLocataire(f.logements) }}
+        perimetre={lotCle === null
+          ? { sorte: 'logements', bienNouveauMessage: bienDuNouveauMessageLocataire(f.logements) }
+          : { sorte: 'bien', cle: lotCle, bienNouveauMessage: bienDuNouveauMessageLocataire(f.logements) }}
         maintenant={maintenant} redaction={redaction} onGesteMail={onGesteMail} onOuvrirFil={onOuvrirFil} />
     </>
   );

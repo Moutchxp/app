@@ -215,6 +215,15 @@ export interface FiltresHistorique {
    * ⇒ aucune condition : la requête est celle d'avant.
    */
   classement: ChoixClassement;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE (Arno, 14/10/2026) — LES MAILS DES LOGEMENTS QU'IL A LOUÉS ════════════
+   * Pour une cible LOCATAIRE : les mails rattachés aux logements de ses occupations, selon la règle « mails du logement »
+   * (aucun mail pris par ses adresses). `tranches` borne chaque logement à SA période (entrée → sortie ; une date
+   * inconnue = pas de borne de ce côté) ; sans `tranches`, toute la vie de ces logements. Éteints par défaut : sans eux,
+   * la sélection d'un locataire est exactement celle d'avant.
+   */
+  logementsLoues: boolean;
+  tranches: boolean;
   page: number;
   taille: number;
 }
@@ -223,6 +232,7 @@ export const FILTRES_VIDES: FiltresHistorique = {
   interlocuteurs: [], expediteursExclus: [], du: null, au: null, pieces: 'toutes', texte: '',
   evenementOuvert: false,
   avecProprietaire: false, avecLogements: true, grouper: false, echanges: false, classement: 'tous',
+  logementsLoues: false, tranches: false,
   page: 0, taille: PAGE_HISTORIQUE,
 };
 
@@ -277,6 +287,9 @@ export function lireFiltres(p: URLSearchParams): FiltresHistorique {
     echanges: p.get('echanges') === '1',
     /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — lu strictement : deux valeurs connues, tout le reste vaut « tous ». */
     classement: p.get('classe') === 'a_classer' || p.get('classe') === 'classes' ? (p.get('classe') as ChoixClassement) : 'tous',
+    /* 🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE — lus strictement : seul « 1 » les allume. */
+    logementsLoues: p.get('loues') === '1',
+    tranches: p.get('tranches') === '1',
     page: entierBorne(p.get('page'), 0, 10_000),
     taille: entierBorne(p.get('taille'), PAGE_HISTORIQUE, PAGE_HISTORIQUE_MAX) || PAGE_HISTORIQUE,
   };
@@ -296,6 +309,8 @@ export function ecrireFiltres(f: FiltresHistorique): string {
   if (!f.avecLogements) p.set('logements', '0');
   if (f.grouper) p.set('grouper', '1');
   if (f.classement !== 'tous') p.set('classe', f.classement);
+  if (f.logementsLoues) p.set('loues', '1');
+  if (f.tranches) p.set('tranches', '1');
   if (f.page > 0) p.set('page', String(f.page));
   if (f.taille !== PAGE_HISTORIQUE) p.set('taille', String(f.taille));
   const s = p.toString();

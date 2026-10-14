@@ -27,7 +27,13 @@ import type { CategoriePartie } from '../../../../lib/gestion/historiqueBien';
  */
 export type PerimetreEchanges =
   | { sorte: 'echanges' }
-  | { sorte: 'bien'; cle: string; bienNouveauMessage: { lotId: number; cle: string; libelle: string } | null };
+  | { sorte: 'bien'; cle: string; bienNouveauMessage: { lotId: number; cle: string; libelle: string } | null }
+  /**
+   * 🔴🔴 LOT HISTORIQUE-ECHANGES-ANCIEN-LOCATAIRE (Arno, 14/10/2026) — la fiche d'un ANCIEN locataire : les mails des
+   * logements qu'il a loués (tous), vus par défaut « Pendant sa location ». Les logements et leurs dates sont ceux que la
+   * route rend pour la fiche (`fiche.occupations`) — les mêmes que la requête. « Nouveau message » : son dernier logement.
+   */
+  | { sorte: 'logements'; bienNouveauMessage: { lotId: number; cle: string; libelle: string } | null };
 
 /** Ce que la route `/historique` dit d'une fiche de personne (titre, adresses actives, logements occupés). */
 export interface FichePersonneLue {
@@ -69,6 +75,9 @@ export function personneDuBloc(
   const base = { sorte, cle, nom: fiche.titre, adresses: fiche.adresses };
   if (perimetre.sorte === 'bien') {
     return { ...base, perimetreBien: perimetre.cle, bienNouveauMessage: perimetre.bienNouveauMessage };
+  }
+  if (perimetre.sorte === 'logements') {
+    return { ...base, logementsLoues: fiche.occupations, bienNouveauMessage: perimetre.bienNouveauMessage };
   }
   return {
     ...base,
@@ -140,7 +149,8 @@ export function BlocHistoriqueEchanges({
   const texte = texteFichePersonne(sorte, cle);
   const personne = personneDuBloc(sorte, cle, fiche, perimetre, onOuvrirLogement);
   /* ⚠️ LA CLÉ PORTE LE PÉRIMÈTRE : changer de logement remonte le moteur à neuf, comme changer de fiche. */
-  const clef = perimetre.sorte === 'bien' ? `${texte}|lot-${perimetre.cle}` : texte;
+  const clef = perimetre.sorte === 'bien' ? `${texte}|lot-${perimetre.cle}`
+    : perimetre.sorte === 'logements' ? `${texte}|loues` : texte;
   return (
     <HistoriqueDuBien key={clef} lotCle={texte} personne={personne}
       maintenant={maintenant} occupations={[]} categories={categoriesDeLaFichePersonne(sorte, fiche)}
