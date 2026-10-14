@@ -17,6 +17,7 @@
     "obstacles:check": "tsx app/scripts/obstacles-check.ts",
     "faisceaux:check": "tsx app/scripts/faisceaux-check.ts",
     "analyse:check": "tsx app/scripts/analyse-check.ts",
+    "diag:golden": "tsx scripts/diag-golden.ts",
     "lidar:axe": "tsx app/scripts/lidar-axe-check.ts",
     "profil:check": "tsx app/scripts/profil-check.ts",
     "contact:pente": "tsx app/scripts/contact-pente-check.ts",
