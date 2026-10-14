@@ -41,13 +41,16 @@ describe('lireToleranceContactReentree — tourne sur le schéma actuel (migrati
   });
 });
 
-describe('candidatReentreeOrigine — le propre polygone est rétréci de la tolérance, ST_Force2D conservé', () => {
+describe('candidatReentreeOrigine — le polygone rétréci CLASSE, le polygone réel MESURE ; ST_Force2D conservé', () => {
   const params = { point: { lat: 48.9, lon: 2.26 }, azimutDeg: 45, batimentOrigineId: 244601, batimentOriginePolygoneWkt: 'POLYGON((0 0,1 0,1 1,0 1,0 0))' };
   it('la tolérance transportée est passée en $8 ; la règle des 0,5 m reste en $7', async () => {
     queryMock.mockResolvedValueOnce({ rows: [] });
     expect(await candidatReentreeOrigine({ ...params, toleranceContactReentreeM: 0.02 })).toBeNull();
     const [sql, p] = queryMock.mock.calls[0] as [string, unknown[]];
-    expect(plat(sql)).toContain('ST_Buffer(ST_Force2D(ST_GeomFromText($5, 2154)), -$8::float8)');
+    // Le polygone RÉEL (ST_Force2D conservé) donne les distances ; le rétréci ne sert qu'à CLASSER.
+    expect(plat(sql)).toContain('poly AS (SELECT ST_Force2D(ST_GeomFromText($5, 2154)) AS g)');
+    expect(plat(sql)).toContain('polyc AS (SELECT ST_Buffer(p.g, -$8::float8) AS g FROM poly p)');
+    expect(plat(sql)).toContain('FROM axe a, polyc p');
     expect(p[6]).toBe(0.5);
     expect(p[7]).toBe(0.02);
   });

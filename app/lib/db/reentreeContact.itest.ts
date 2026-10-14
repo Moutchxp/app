@@ -44,7 +44,7 @@ beforeAll(async () => {
 afterAll(async () => { await closePool(); });
 
 describe('① Asnières, faisceau 45° — même classification sous perturbation de l’origine', () => {
-  it('7 variantes : réentrée dans le propre bâtiment toujours trouvée, à ≈ 1,000257 m (et non 0,99 m ni « dégagé »)', async () => {
+  it('7 variantes : réentrée dans le propre bâtiment toujours trouvée, à la distance RÉELLE 0,98995 m (sommet où le faisceau quitte le mur)', async () => {
     expect(origine.x).toBeCloseTo(646451.7, 6);
     expect(origine.y).toBeCloseTo(6867683.6, 6);
     const distances: number[] = [];
@@ -55,8 +55,7 @@ describe('① Asnières, faisceau 45° — même classification sous perturbatio
       });
       expect(r, nom).not.toBeNull();
       expect(r!.cleabs, nom).toBe('BATIMENT0000000240319856');
-      expect(r!.distanceM, nom).toBeGreaterThan(1.0002);
-      expect(r!.distanceM, nom).toBeLessThan(1.0003);
+      expect(r!.distanceM, nom).toBeCloseTo(0.98995, 5); // 0,7·√2 : le sommet (646452,4 ; 6867684,3), polygone RÉEL
       distances.push(r!.distanceM);
     }
     expect(Math.max(...distances) - Math.min(...distances)).toBeLessThan(1e-5);
@@ -106,8 +105,8 @@ describe('③ non-régression — une réentrée RÉELLE dans le propre bâtimen
     for (const [ox, attendu] of [[10, 15 * Math.SQRT2], [9.8, 15 * Math.SQRT2]] as const) {
       const r = await candidatReentreeOrigine({ point: await versWgs84(X0 + ox, Y0 + 5), azimutDeg: 45, batimentOrigineId: 244601, batimentOriginePolygoneWkt: L });
       expect(r, `origine x=${ox}`).not.toBeNull();
-      // L'aile heurtée commence à y=20 ; rétrécie de 0,01 m, l'entrée réelle est à y=20,01.
-      expect(r!.distanceM).toBeCloseTo(attendu + 0.01 * Math.SQRT2, 6);
+      // L'aile heurtée commence à y=20 : distance mesurée sur le polygone RÉEL (le rétréci ne sert qu'à classer).
+      expect(r!.distanceM).toBeCloseTo(attendu, 6);
     }
   });
 
@@ -116,7 +115,7 @@ describe('③ non-régression — une réentrée RÉELLE dans le propre bâtimen
     const cour = `POLYGON((${pt(0, 0)},${pt(40, 0)},${pt(40, 40)},${pt(0, 40)},${pt(0, 0)}),(${pt(10, 10)},${pt(10, 30)},${pt(30, 30)},${pt(30, 10)},${pt(10, 10)}))`;
     const r = await candidatReentreeOrigine({ point: await versWgs84(X0 + 10, Y0 + 20), azimutDeg: 90, batimentOrigineId: 244601, batimentOriginePolygoneWkt: cour });
     expect(r).not.toBeNull();
-    expect(r!.distanceM).toBeCloseTo(20.01, 6); // façade opposée x=30, rétrécie de 0,01 m
+    expect(r!.distanceM).toBeCloseTo(20, 6); // façade opposée x=30, polygone RÉEL
   });
 
   it('un faisceau qui part VERS L’EXTÉRIEUR depuis la façade : aucune réentrée (comportement inchangé)', async () => {

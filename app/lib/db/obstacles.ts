@@ -486,8 +486,16 @@ interface LigneReentreeSql {
  * double précision cette arête n'est pas exactement à 45° : selon que l'origine bouge de 1e-9 m d'un côté ou de l'autre
  * (PROJ 9.9.0 / 9.8.1), ce morceau passait « dehors » (réentrée à 0,99 m → bouché) ou « dedans » (span d'origine, ignoré
  * → dégagé). Le polygone est donc RÉTRÉCI de la tolérance de contact pour ce seul calcul : le contact rasant n'est plus ni
- * dedans ni dehors, il est hors du bâtiment ; seule l'entrée réelle compte (≈ 1,000257 m ici, dans les 7 perturbations
- * ±1e-9 / ±1e-6 m). Aucun arrondi de coordonnée. `ST_Force2D` conservé. La règle des 0,5 m (span d'origine) est inchangée.
+ * dedans ni dehors, il est hors du bâtiment ; seule l'entrée réelle compte. Aucun arrondi de coordonnée. `ST_Force2D`
+ * conservé. La règle des 0,5 m (span d'origine) est inchangée.
+ *
+ * AFFINAGE (même jour) — la tolérance sert UNIQUEMENT à CLASSER (vraie entrée, ou contact rasant) ; la DISTANCE se lit sur le
+ * polygone RÉEL, comme avant le lot :
+ *   · entrée NETTE (le span réel qui la porte commence au-delà de 0,5 m) → son d_in réel, inchangé ;
+ *   · entrée MASQUÉE (le span réel part de l'origine, parce que le faisceau longe le mur à un cheveu DEDANS) → l'endroit où le
+ *     faisceau quitte le mur : le sommet réel le plus lointain resté à moins de la tolérance du faisceau, avant l'entrée.
+ *     Asnières 45° : 0,98995 m dans les 7 variantes (le sommet (646452,4 ; 6867684,3)), et non 0 m ni 1,000257 m.
+ * Le toit MNS se lit sur le polygone réel.
  */
 export async function candidatReentreeOrigine(params: ParametresAxe): Promise<ObstacleCandidat | null> {
   if (!params.batimentOriginePolygoneWkt) return null;
@@ -498,7 +506,8 @@ export async function candidatReentreeOrigine(params: ParametresAxe): Promise<Ob
               ST_MakeLine(o.g, ST_Translate(o.g, $3*sin(radians($4)), $3*cos(radians($4)))) AS ln
        FROM o
      ),
-     poly AS (SELECT ST_Buffer(ST_Force2D(ST_GeomFromText($5, 2154)), -$8::float8) AS g), -- rétréci de la tolérance de contact
+     poly AS (SELECT ST_Force2D(ST_GeomFromText($5, 2154)) AS g),          -- polygone RÉEL : distances, sommets, toit MNS
+     polyc AS (SELECT ST_Buffer(p.g, -$8::float8) AS g FROM poly p),        -- rétréci de la tolérance : CLASSEMENT seul
      bat AS (
        SELECT altitude_maximale_toit AS amt, hauteur AS h, altitude_minimale_sol AS sol,
               nombre_d_etages AS net, cleabs
@@ -511,8 +520,31 @@ export async function candidatReentreeOrigine(params: ParametresAxe): Promise<Ob
             LATERAL (SELECT (ST_Dump(ST_Intersection(a.ln, p.g))).geom AS geom) s
        WHERE ST_GeometryType(s.geom) = 'ST_LineString' AND NOT ST_IsEmpty(s.geom)
      ),
-     s0 AS (SELECT COALESCE(MAX(d_out) FILTER (WHERE d_in <= $7), 0) AS sortie0 FROM spans),
-     reentree AS (SELECT d_in FROM spans, s0 WHERE d_in > s0.sortie0 + 1e-6 ORDER BY d_in ASC LIMIT 1)
+     spansc AS (
+       SELECT LEAST(ST_Distance(a.origine, ST_StartPoint(s.geom)), ST_Distance(a.origine, ST_EndPoint(s.geom)))   AS d_in,
+              GREATEST(ST_Distance(a.origine, ST_StartPoint(s.geom)), ST_Distance(a.origine, ST_EndPoint(s.geom))) AS d_out
+       FROM axe a, polyc p,
+            LATERAL (SELECT (ST_Dump(ST_Intersection(a.ln, p.g))).geom AS geom) s
+       WHERE ST_GeometryType(s.geom) = 'ST_LineString' AND NOT ST_IsEmpty(s.geom)
+     ),
+     -- ① CLASSEMENT (polygone rétréci) : une vraie entrée existe-t-elle au-delà du span d'origine ? Règle des 0,5 m inchangée.
+     s0c AS (SELECT COALESCE(MAX(d_out) FILTER (WHERE d_in <= $7), 0) AS sortie0 FROM spansc),
+     entree AS (SELECT d_in AS dc FROM spansc, s0c WHERE d_in > s0c.sortie0 + 1e-6 ORDER BY d_in ASC LIMIT 1),
+     -- ② DISTANCE (polygone réel) : le span réel qui porte cette entrée…
+     porteur AS (SELECT s.d_in FROM spans s, entree e WHERE s.d_in <= e.dc AND s.d_out >= e.dc ORDER BY s.d_in DESC LIMIT 1),
+     -- …et, si ce span réel part de l'origine (entrée masquée par un contact rasant), l'endroit où le faisceau quitte le
+     -- mur : le sommet réel le plus lointain resté à moins de la tolérance du faisceau, avant l'entrée confirmée.
+     contact AS (
+       SELECT MAX(ST_LineLocatePoint(a.ln, v.geom) * $3) AS d
+       FROM axe a, poly p, entree e, LATERAL ST_DumpPoints(p.g) v
+       WHERE ST_Distance(v.geom, a.ln) <= $8::float8 AND ST_LineLocatePoint(a.ln, v.geom) * $3 < e.dc
+     ),
+     reentree AS (
+       SELECT CASE WHEN pt.d_in > $7 THEN pt.d_in   -- entrée NETTE : distance du polygone réel, comme avant le lot
+                   WHEN c.d > $7 THEN c.d           -- entrée MASQUÉE par un contact rasant parti de l'origine
+                   ELSE e.dc END AS d_in            -- (repli : jamais observé ; l'entrée confirmée sur le polygone rétréci)
+       FROM entree e LEFT JOIN porteur pt ON true LEFT JOIN contact c ON true
+     )
      SELECT r.d_in AS dist_m, bat.amt, bat.h, bat.sol, bat.net, bat.cleabs,
             ST_AsText(ST_LineInterpolatePoint(a.ln, LEAST(r.d_in, $3) / $3::float8)) AS impact_pt_wkt,
             ST_AsText(a.ln) AS axe_wkt,
