@@ -1,14 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { CSS_HISTORIQUE } from './HistoriqueCible';
-import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien, type PersonneHistorique } from './HistoriqueDuBien';
+import { CSS_HISTORIQUE_DU_BIEN } from './HistoriqueDuBien';
 import { CSS_VIE_DU_BIEN } from './VieDuBien';
 import { CSS_ANNUAIRE } from './Annuaire';
 import { motSorte } from './EncartRattachement';
+import { BlocHistoriqueEchanges, useFichePersonne } from './BlocHistoriqueEchanges';
 import type { ContexteRedactionEcran } from './Redaction';
 import type { Cible } from '../../../../lib/gestion/rattachement';
-import type { CategoriePartie } from '../../../../lib/gestion/historiqueBien';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026) — L'HISTORIQUE D'UNE FICHE PROPRIÉTAIRE OU LOCATAIRE ════════════════
@@ -41,54 +40,9 @@ export function HistoriquePersonne({
   onOuvrirLogement?: (cle: string) => void;
 }) {
   const cle = cible.cle ?? '';
-  const texte = `${cible.sorte === 'proprietaire' ? 'proprio' : 'locataire'}-${cle}`;
-  const [fiche, setFiche] = useState<{
-    titre: string; sousTitre: string | null; adresses: string[];
-    occupations: { cle: string; libelle: string; depuis: string | null; jusqua: string | null }[];
-  } | null>(null);
-  const [erreur, setErreur] = useState<string | null>(null);
-
-  useEffect(() => {
-    let vivant = true;
-    void (async () => {
-      try {
-        const res = await fetch(`/api/admin/gestion/historique?cible=${encodeURIComponent(texte)}&echanges=1&taille=1`,
-          { cache: 'no-store' });
-        const d = (await res.json()) as {
-          etat?: string; message?: string;
-          data?: { titre?: string; sousTitre?: string | null; adresses?: string[];
-            occupations?: { cle: string; libelle: string; depuis: string | null; jusqua: string | null }[] };
-        };
-        if (!vivant) return;
-        if (d.etat !== 'ok' || d.data === undefined) {
-          setErreur(d.etat === 'inconnue' ? 'Cette fiche n’existe pas (ou plus) dans l’annuaire.'
-            : d.etat === 'sans_schema' ? 'Historique pas encore installé : la mise à jour de la base reste à appliquer.'
-              : (d.message ?? 'Lecture impossible.'));
-          return;
-        }
-        setFiche({
-          titre: d.data.titre ?? '', sousTitre: d.data.sousTitre ?? null,
-          adresses: Array.isArray(d.data.adresses) ? d.data.adresses : [],
-          occupations: Array.isArray(d.data.occupations) ? d.data.occupations : [],
-        });
-      } catch {
-        if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.');
-      }
-    })();
-    return () => { vivant = false; };
-  }, [texte]);
-
-  /* 🔴 LES COULEURS DES FAMILLES, comme sur un bien : les adresses de la fiche portent SA famille (propriétaire, ou
-     locataire — « ancien locataire » quand plus aucune occupation n'est en cours). Les autres restent grises. */
-  const famille: CategoriePartie = cible.sorte === 'proprietaire' ? 'proprietaire'
-    : (fiche?.occupations ?? []).some((o) => o.jusqua === null) || (fiche?.occupations ?? []).length === 0
-      ? 'locataire' : 'ancien_locataire';
-  const categories = new Map<string, CategoriePartie>((fiche?.adresses ?? []).map((a) => [a.toLowerCase(), famille]));
-  const personne: PersonneHistorique | null = fiche === null ? null : {
-    sorte: cible.sorte, cle, nom: fiche.titre, adresses: fiche.adresses,
-    ...(cible.sorte === 'locataire' ? { occupations: fiche.occupations } : {}),
-    ...(onOuvrirLogement !== undefined ? { onOuvrirLogement } : {}),
-  };
+  /* 🔴 LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE — la lecture de la fiche et le bloc vivent dans `BlocHistoriqueEchanges`,
+     partagé avec la fiche locataire de l'annuaire. Cet écran garde son en-tête et son cadre, à l'identique. */
+  const { fiche, erreur } = useFichePersonne(cible.sorte, cle);
 
   return (
     <section className="hst hpe" aria-labelledby="hst-titre" data-historique-personne={cible.sorte}>
@@ -105,16 +59,17 @@ export function HistoriquePersonne({
         </div>
       </div>
       {erreur !== null && <p className="gst-tronc" role="alert">{erreur}</p>}
-      {personne !== null && (
+      {fiche !== null && (
         <div className="ann">
           <style>{CSS_ANNUAIRE}</style>
           <style>{CSS_VIE_DU_BIEN}</style>
           <style>{CSS_HISTORIQUE_DU_BIEN}</style>
-          <HistoriqueDuBien key={texte} lotCle={texte} personne={personne}
-            maintenant={maintenant} occupations={[]} categories={categories}
-            redaction={redaction} onGesteMail={onGesteMail} onOuvrirFil={onOuvrirFil} />
+          <BlocHistoriqueEchanges sorte={cible.sorte} cle={cle} fiche={fiche} perimetre={{ sorte: 'echanges' }}
+            maintenant={maintenant} redaction={redaction} onGesteMail={onGesteMail} onOuvrirFil={onOuvrirFil}
+            onOuvrirLogement={onOuvrirLogement} />
         </div>
       )}
+
     </section>
   );
 }

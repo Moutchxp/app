@@ -3508,17 +3508,19 @@ describe('⑦ 🔴🔴 le montage dans la fiche d’un bien', () => {
   });
 
   /**
-   * 🔴🔴 LA FICHE D'UN BIEN NE MONTE PLUS « VIE DU BIEN ». On le vérifie sur `VueLot` et non sur le fichier
-   * entier : le composant RESTE monté par `VueLocataire`, où il est le seul listing et où Arno n'a rien ouvert.
-   * Chercher `<VieDuBien` dans tout le fichier aurait donc interdit ce qui doit rester.
+   * 🔴🔴 LA FICHE D'UN BIEN NE MONTE PLUS « VIE DU BIEN ». On le vérifiait sur `VueLot` seul, parce que le composant
+   * restait monté par `VueLocataire`. Depuis le lot HISTORIQUE-ECHANGES-FICHE-LOCATAIRE (accord d'Arno, 14/10/2026),
+   * la fiche locataire monte à sa place le bloc « Historique des échanges » : plus aucun `<VieDuBien` dans l'annuaire.
    */
   it('🔴🔴 plus aucun second listing de mails dans la fiche d’un bien', () => {
     const vueLot = ANNUAIRE.slice(
       ANNUAIRE.indexOf('function VueLot'), ANNUAIRE.indexOf('function occupationsPourHistorique'));
     expect(vueLot).not.toContain('<VieDuBien');
     expect(vueLot).toContain('<HistoriqueDuBien');
-    /* …et il reste monté là où il est seul : la fiche d'un locataire. */
-    expect(ANNUAIRE).toContain('<VieDuBien lotCle={logementDesMails.numero}');
+    /* LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE (accord d'Arno, 14/10/2026) — la fiche d'un locataire, où il était le seul
+       listing, monte désormais le bloc « Historique des échanges » sur les mails du MÊME logement. */
+    expect(ANNUAIRE).not.toContain('<VieDuBien');
+    expect(ANNUAIRE).toContain('<EchangesDuLocataire f={f} lotCle={logementDesMails.numero}');
   });
 
   /** 🔴 LE HAUT DE LA FICHE NE BOUGE PAS : les blocs d'avant, tous là, dans le même ordre, et avant le moteur. */

@@ -81,11 +81,10 @@ import { MOT_EVENEMENT_DU_MAIL } from '../../../../lib/gestion/evenementDuMail';
  * une place qui n'existe que là. C'est là qu'il y avait DEUX listings de mails (celui-ci et le moteur), et c'est
  * ce doublon qui est supprimé : `VueLot` ne monte plus ce composant, le moteur occupe son rang et son ancre.
  *
- * 🔴 SUR LA FICHE D'UN **LOCATAIRE**, IL EST LE SEUL LISTING, ET IL RESTE. `VueLocataire` le monte pour montrer
- * « les échanges de SON logement » — il n'y a là aucun doublon, donc rien de ce qu'Arno a motivé. Le retirer
- * aurait supprimé une fonctionnalité qu'il n'a pas ouverte, ce que la consigne permanente interdit en toutes
- * lettres : « Hors de “Vie du bien” (accord donné), ne retire, ne masque et ne conditionne aucune fonctionnalité
- * sans l'accord d'Arno. » 🔭 **Question posée à Arno** : veut-il le moteur là aussi, ou ce listing tel quel ?
+ * 🔴 SUR LA FICHE D'UN **LOCATAIRE**, IL A ÉTÉ LE SEUL LISTING JUSQU'AU 14/10/2026. Arno a tranché la question qui
+ * était posée ici (lot HISTORIQUE-ECHANGES-FICHE-LOCATAIRE) : la fiche locataire monte désormais le bloc « Historique
+ * des échanges » de la fiche propriétaire (`BlocHistoriqueEchanges`), sur les mails du MÊME logement. Le composant
+ * `VieDuBien` n'est donc plus monté nulle part ; ce fichier reste la maison de `LigneVie` et de `CSS_VIE_DU_BIEN`.
  *
  * 🔴 ET CE FICHIER PORTE CE QUE LE MOTEUR RÉUTILISE. `LigneVie` est LA ligne de courrier du moteur (« reçu de… » /
  * « nous avons écrit… », capsules, trombone, date, triangle ▸, dépliage sur place), et `CSS_VIE_DU_BIEN` son

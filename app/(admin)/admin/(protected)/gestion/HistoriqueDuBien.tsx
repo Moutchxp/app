@@ -318,12 +318,42 @@ export interface PersonneHistorique {
   /** LOCATAIRE : ses logements, avec ses dates — la ligne courte au-dessus de la barre OPTIONS. */
   occupations?: readonly { cle: string; libelle: string; depuis: string | null; jusqua: string | null }[];
   onOuvrirLogement?: (cle: string) => void;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE (Arno, 14/10/2026) — LE PÉRIMÈTRE DES MAILS ══════════════════════
+   * Absent (défaut) ⇒ les échanges avec la fiche (`echanges=1`, choisis par ses adresses) : la fiche propriétaire,
+   * exactement comme avant. Présent ⇒ les mails rattachés à CE bien (clé WIPPIMMO) — la fiche d'un LOCATAIRE, dont les
+   * mails sont ceux de son logement (« un mail est rattaché à un bien, jamais à une personne »). Seule la sélection
+   * change : la présentation reste celle d'une fiche de personne.
+   */
+  perimetreBien?: string;
+  /**
+   * LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE — le bien auquel « Nouveau message » rattache d'office le message (coché
+   * dans le composeur, qui propose les autres biens de ses destinataires). Absent ⇒ message sans bien, comme avant.
+   */
+  bienNouveauMessage?: { lotId: number; cle: string; libelle: string } | null;
 }
 
 /** La cible et la sélection que les routes reçoivent : le bien, ou les échanges de la fiche. PUR. */
 export function cibleDeLHistorique(lotCle: string, personne: PersonneHistorique | null): string {
   if (personne === null) return `lot-${encodeURIComponent(lotCle)}`;
+  /* LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE — fiche de personne bornée aux mails d'un bien : la cible du bien, sans `echanges`. */
+  if ((personne.perimetreBien ?? '') !== '') return `lot-${encodeURIComponent(personne.perimetreBien as string)}`;
   return `${personne.sorte === 'proprietaire' ? 'proprio' : 'locataire'}-${encodeURIComponent(personne.cle)}&echanges=1`;
+}
+
+/**
+ * LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE — le « Nouveau message » d'une fiche de personne : adressé à ses adresses
+ * (comportement de la fiche propriétaire), et rattaché d'office au bien donné s'il y en a un. PUR.
+ */
+export function brouillonNouveauPersonne<B extends { a: readonly string[]; cibles?: unknown }>(
+  base: B, personne: PersonneHistorique,
+): B {
+  const b = personne.bienNouveauMessage ?? null;
+  return {
+    ...base,
+    a: [...personne.adresses],
+    ...(b === null ? {} : { cibles: [{ sorte: 'lot' as const, cle: b.cle, id: b.lotId, libelle: b.libelle }] }),
+  };
 }
 
 export function HistoriqueDuBien({
@@ -1353,7 +1383,7 @@ export function HistoriqueDuBien({
       };
       /* 🔴 LOT HISTORIQUE-PERSONNE — depuis une fiche de personne : un message neuf ADRESSÉ à ses adresses, sans bien. */
       if (personne !== null || lotId === null) {
-        setNouveau({ ...base, a: [...(personne?.adresses ?? [])] } as BrouillonEcran);
+        setNouveau((personne === null ? { ...base, a: [] } : brouillonNouveauPersonne(base, personne)) as BrouillonEcran);
         return;
       }
       const libelle = lignes.find((l) => (l.cibleLibelle ?? '') !== '')?.cibleLibelle ?? `lot ${lotCle}`;

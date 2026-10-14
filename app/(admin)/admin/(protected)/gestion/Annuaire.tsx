@@ -31,7 +31,7 @@ import { categoriesDeLaFiche } from '../../../../lib/gestion/familleDestinataire
  * de ses mails, donc il lui faut ces règles. `CSS_HISTORIQUE_DU_BIEN` les emporte aussi — un style monté deux
  * fois est inoffensif, un style manquant ferait un listing sans mise en forme.
  */
-import { CSS_VIE_DU_BIEN, VieDuBien, type FiltreVie } from './VieDuBien';
+import { CSS_VIE_DU_BIEN, type FiltreVie } from './VieDuBien';
 /* 🔴🔴 LOT TACHES-1 — le bouton « + Tâche » et le récapitulatif des tâches du bien, en haut de sa fiche. */
 import { BoutonTache, RecapTachesDuBien } from './TachesDuBien';
 /* 🔴🔴 LOT REPONDRE-DEPUIS-HISTORIQUE-DU-BIEN — le contexte d'écriture ne fait que TRAVERSER cet écran. */
@@ -46,6 +46,8 @@ import type { ContexteRedactionEcran } from './Redaction';
 /* 🔴🔴 LOT MONGA-2, POINT 4 — le bloc « Événements » de la fiche du bien. */
 import { EvenementsDuBien } from './EvenementsDuBien';
 import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
+import { BlocHistoriqueEchanges, useFichePersonne } from './BlocHistoriqueEchanges';
+import { bienDuNouveauMessageLocataire } from '../../../../lib/gestion/bienNouveauMessageLocataire';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », et l'ordre des
    anciens. La fiche ne les réécrit pas : elle les appelle, comme le dépôt et comme l'encart Parties. */
 import { estAncienLocataire, estLocataireEnPlace, parDepartLePlusRecent,
@@ -570,6 +572,7 @@ export function Annuaire({
                     onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })} />
                   : <VueLocataire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
                     gestes={gestes} maintenant={refTemps} onOuvrirFil={onOuvrirFil}
+                    redaction={redaction} onGesteMail={onGesteMail}
                     onHistoriqueDuBien={ouvrirVieDuBien} onCreer={creerEtRattacher} />}
         </section>
       ) : (
@@ -1944,12 +1947,20 @@ function grouperParPeriode(occupations: readonly OccupationDuLot[]): OccupationD
  * logement, c'est pouvoir joindre l'un ou l'autre. Ne montrer qu'un des deux conjoints ferait rater l'autre
  * numéro — le défaut même de l'annuaire d'avant.
  *
- * ⚠️ « SES MAILS » RÉUTILISE `VieDuBien`, avec la clé de son LOGEMENT EN COURS. Un mail n'est jamais rattaché à une
- * personne mais à un BIEN (règle centrale du module : « la cible est toujours un bien ») : les mails d'un
- * locataire sont donc ceux de son logement, et l'écran le DIT plutôt que de laisser croire à un tri par personne.
+ * ⚠️ « SES MAILS » SONT CEUX DE SON LOGEMENT EN COURS. Un mail n'est jamais rattaché à une personne mais à un BIEN
+ * (règle centrale du module : « la cible est toujours un bien ») : les mails d'un locataire sont donc ceux de son
+ * logement, et l'écran le DIT plutôt que de laisser croire à un tri par personne.
+ *
+ * 🔴🔴 LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE (Arno, 14/10/2026) — « VIE DU BIEN » EST REMPLACÉ, avec son accord, par
+ * le bloc « Historique des échanges » de la fiche propriétaire (`BlocHistoriqueEchanges`, périmètre « bien »). La règle
+ * qui choisit les mails ne change pas : ce sont ceux du MÊME logement (`lot-<clé>`), affichés aux MÊMES conditions.
+ * Chaque fonction de « Vie du bien » a été retrouvée dans le nouveau bloc avant le retrait : filtre pièces jointes
+ * (PIÈCES JOINTES Avec / Sans), filtre événement ouvert (« Événement ouvert »), recherche dans l'objet ET le texte
+ * (la recherche du bloc part au serveur, sur le corps entier), pastille « Auto » et « N biens rattachés » (la ligne est
+ * la même, `LigneVie`), dépliage d'un mail, compteur et pages.
  */
 function VueLocataire({
-  f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil, onHistoriqueDuBien, onCreer,
+  f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil, onHistoriqueDuBien, onCreer, redaction = null, onGesteMail,
 }: {
   f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
@@ -1958,6 +1969,9 @@ function VueLocataire({
   gestes: GestesCartes;
   maintenant: Date;
   onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+  /** LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE — de quoi répondre et écrire depuis le bloc, comme la fiche d'un bien. */
+  redaction?: ContexteRedactionEcran | null;
+  onGesteMail?: (message: string, options?: { rechargerTout?: boolean }) => void;
 }) {
   /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA RÈGLE UNIQUE, ici aussi : « ancien » se décide au MÊME endroit que
      la couleur d'un mail, la capsule d'une pièce jointe et le bloc de la fiche du bien. */
@@ -2034,7 +2048,8 @@ function VueLocataire({
             Les échanges ci-dessous sont ceux <strong>du logement</strong> {titreLogement(logementDesMails.adresse,
               logementDesMails.commune)} : un mail est rattaché à un bien, jamais à une personne.
           </p>
-          <VieDuBien lotCle={logementDesMails.numero} maintenant={maintenant} onOuvrirFil={onOuvrirFil} />
+          <EchangesDuLocataire f={f} lotCle={logementDesMails.numero} maintenant={maintenant}
+            redaction={redaction} onGesteMail={onGesteMail} onOuvrirFil={onOuvrirFil} />
         </>
       ) : (
         <p className="ann-gris">
@@ -2075,6 +2090,37 @@ function VueLocataire({
       {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — et ici, le courrier de son avocat, de son garant ou du syndic, avec son
           rôle AU JOUR DU MAIL. Liste distincte des documents automatiques ; sans la 293, rien ne s'affiche. */}
       <InterventionsDeLaFiche sorte="locataire" id={f.id} onOuvrirFil={onOuvrirFil} />
+    </>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT HISTORIQUE-ECHANGES-FICHE-LOCATAIRE — LE BLOC DES ÉCHANGES DE LA FICHE LOCATAIRE ═══════════════════════
+ *
+ * Le bloc « Historique des échanges » de la fiche propriétaire, sur les mails du logement (`lotCle`). Les adresses de la
+ * fiche (couleurs, destinataire du « Nouveau message ») sont lues par la MÊME route que l'écran historique du
+ * locataire : ce sont donc les mêmes. « Nouveau message » est rattaché d'office au bien loué (ou au dernier loué) ;
+ * le composeur propose ses autres biens. Tant que la fiche n'est pas lue, rien n'est rendu — une erreur se DIT.
+ */
+function EchangesDuLocataire({ f, lotCle, maintenant, redaction, onGesteMail, onOuvrirFil }: {
+  f: FicheLocataire;
+  lotCle: string;
+  maintenant: Date;
+  redaction: ContexteRedactionEcran | null;
+  onGesteMail?: (message: string, options?: { rechargerTout?: boolean }) => void;
+  onOuvrirFil?: (filId: number, messageId?: number | null) => void;
+}) {
+  const { fiche, erreur } = useFichePersonne('locataire', f.cle);
+  if (fiche === null && erreur === null) return <p className="gst-info" role="status">Chargement…</p>;
+  /* ⚠️ FICHE ILLISIBLE : les mails du logement restent montrés (ils ne dépendent que du logement, comme dans « Vie du
+     bien ») ; seules les adresses manquent — pas de couleur de famille, « Nouveau message » sans destinataire. On le dit. */
+  const lue = fiche ?? { titre: f.nom, sousTitre: null, adresses: [], occupations: [] };
+  return (
+    <>
+      {erreur !== null && <p className="gst-note" role="status">Adresses de la fiche non lues : {erreur}</p>}
+      <BlocHistoriqueEchanges sorte="locataire" cle={f.cle} fiche={lue}
+        perimetre={{ sorte: 'bien', cle: lotCle, bienNouveauMessage: bienDuNouveauMessageLocataire(f.logements) }}
+        maintenant={maintenant} redaction={redaction} onGesteMail={onGesteMail} onOuvrirFil={onOuvrirFil} />
     </>
   );
 }
