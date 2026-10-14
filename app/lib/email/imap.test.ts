@@ -19,6 +19,10 @@ const h = vi.hoisted(() => ({
     // T7-C — fetch async-générateur (en-têtes seuls). Par défaut vide ; les tests envoyés le surchargent.
     fetch: vi.fn<(range: unknown, query?: unknown, options?: unknown) => AsyncGenerator<Record<string, unknown>>>(() => (async function* () {})()),
     logout: vi.fn(async () => {}),
+    // LOT RELÈVE-QUI-SURVIT-AUX-COUPURES-IMAP — la relève et les envoyés écoutent désormais « error »/« close » et ferment le
+    //   socket : le faux client porte donc ces deux méthodes de la vraie API (aucun événement n'est émis ici).
+    on: vi.fn(),
+    close: vi.fn(),
   },
 }));
 // `new ImapFlow(...)` doit être constructible : une fonction (nommée) qui recopie le faux client sur l'instance.

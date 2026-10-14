@@ -90,6 +90,11 @@ export function depsReellesPreCochage(): DepsPreCochage {
         await client.ouvrir();                          // connecte + repère & ouvre \Sent (readOnly) ; pas de \Sent → aBoiteEnvoyes() faux
         if (!client.aBoiteEnvoyes()) return [];         // repli sûr : jamais de scan à l'aveugle
         return await client.lireEntetesReponses(messageIds, depuis); // SEARCH par en-tête + fetch EN-TÊTES seuls (jamais la source)
+      } catch (e) {
+        // LOT RELÈVE-QUI-SURVIT-AUX-COUPURES-IMAP — l'échec est JOURNALISÉ comme un échec, puis relancé : executerVeille l'isole
+        //   (catch muet) et la passe suivante reprend. Sans cette ligne, une coupure n'y laissait aucune trace.
+        console.error(`[veille] pré-cochage « répondu » — échec IMAP, passe abandonnée : ${e instanceof Error ? e.message : String(e)}`);
+        throw e;
       } finally {
         await client.fermer();
       }

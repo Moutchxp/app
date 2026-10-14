@@ -63,26 +63,124 @@ export function versMessageBoite(parsed: ParsedMail, uid: number): MessageBoite 
   return { uid, message, recuLe: parsed.date ?? new Date(), deNom, pieces, partiesRapport };
 }
 
-/** Construit un ClientBoite réel sur INBOX en lecture seule. Ne relève que ; n'écrit jamais dans la boîte. */
-export function creerClientBoite(compte: CompteImap): ClientBoite {
-  const client = new ImapFlow({
+/**
+ * ══ 🔴 LOT RELÈVE-QUI-SURVIT-AUX-COUPURES-IMAP (Arno, 14/10/2026) — UNE COUPURE NE TUE JAMAIS LE PROCESSUS ═════════════════
+ *
+ * CE QUI EST ÉTABLI (lecture d'imapflow 1.6.6, puis mesuré sur un faux serveur IMAP local — `.captures/releve-coupures-imap/`) :
+ *   · `ImapFlow.emitError` fait `this.emit('error', err)` SANS vérifier qu'un écouteur existe (imap-flow.js:509). Un
+ *     EventEmitter Node qui émet « error » sans écouteur JETTE : le processus meurt, avant tout `catch` ou `finally` de
+ *     l'appelant. Mesuré : coupure au repos ou en pleine opération → processus mort en ~0,1 s (« Unhandled 'error' event ») ;
+ *     serveur muet → opération bloquée 300 s (délai d'inactivité par défaut), puis même mort.
+ *   · À la fermeture, imapflow REJETTE toutes les commandes en vol (`NoConnection`, imap-flow.js:2438-2475) : avec un écouteur,
+ *     la coupure devient donc un rejet ordinaire de l'opération en cours, que l'appelant attrape.
+ *
+ * D'OÙ, pour la relève automatique (`creerClientBoite`) et la capture des envoyés (`creerClientEnvoyes`) :
+ *   · un écouteur « error » (et « close ») TOUJOURS posé, qui journalise la coupure comme une ERREUR (`surErreur` le remplace
+ *     si fourni) ; et, après chaque appel IMAP, la perte est vérifiée et devient un ÉCHEC (cf. `surveiller`) ;
+ *   · des délais EXPLICITES : connexion, accueil du serveur, inactivité du socket — aux valeurs par défaut d'imapflow 1.6.6, pour
+ *     que le fonctionnement normal reste identique ; un serveur muet rend la main au bout du délai d'inactivité ;
+ *   · `fermer()` ferme TOUJOURS le socket (`close()`, idempotent) après un LOGOUT tenté : aucune connexion orpheline.
+ * Rien ne change à la lecture : boîte en `readOnly` (EXAMINE), aucun drapeau, aucun déplacement, aucune suppression.
+ */
+export interface DelaisImap {
+  /** Établissement de la connexion TCP/TLS (option imapflow `connectionTimeout`). */
+  connexionMs: number;
+  /** Attente du message d'accueil du serveur (option imapflow `greetingTimeout`). */
+  accueilMs: number;
+  /** Inactivité du socket pendant une opération : au-delà, la connexion est déclarée perdue (option `socketTimeout`). */
+  socketMs: number;
+}
+/** Valeurs par défaut d'imapflow 1.6.6 (imap-flow.js:55/253-261), rendues explicites : le fonctionnement normal ne change pas. */
+export const DELAIS_IMAP: Readonly<DelaisImap> = { connexionMs: 90_000, accueilMs: 16_000, socketMs: 300_000 };
+
+/** Options des clients de relève et d'envoyés. `delais` sert aux épreuves ; `surErreur` remplace l'écouteur par défaut. */
+export interface OptionsClientImap {
+  surErreur?: (e: Error) => void;
+  delais?: Partial<DelaisImap>;
+}
+
+/** L'instance ImapFlow d'un compte, avec ses délais explicites. Aucun écouteur ici : chaque fabrique décide (cf. approfondie). */
+function nouvelleInstance(compte: CompteImap, delais?: Partial<DelaisImap>): ImapFlow {
+  const d = { ...DELAIS_IMAP, ...delais };
+  return new ImapFlow({
     host: compte.host,
     port: compte.port,
     secure: compte.tls,
     auth: { user: compte.user, pass: compte.pass },
     logger: false,
+    connectionTimeout: d.connexionMs,
+    greetingTimeout: d.accueilMs,
+    socketTimeout: d.socketMs,
   });
+}
+
+/** La connexion IMAP a été perdue pendant une passe : l'opération ÉCHOUE (jamais un résultat vide pris pour un succès). */
+export class ErreurConnexionImap extends Error {
+  readonly code = 'NoConnection';
+  constructor(chemin: string, cause: Error) {
+    super(`${chemin} — connexion IMAP perdue : ${cause.message}`);
+    this.name = 'ErreurConnexionImap';
+  }
+}
+
+/**
+ * LA SURVEILLANCE D'UNE CONNEXION. Deux constats, lus dans imapflow 1.6.6 puis MESURÉS sur le faux serveur local :
+ *   · une coupure NE FAIT PAS rejeter la recherche : `search()` attrape l'erreur et rend `false` (commands/search.js:186-189),
+ *     ou `undefined` quand la boîte n'est plus ouverte (imap-flow.js:3254-3257). Sans garde, une recherche coupée devenait
+ *     « aucun message », et la passe se terminait en SUCCÈS ;
+ *   · une fermeture propre par le serveur (FIN) n'émet PAS « error », seulement « close ».
+ * On note donc la perte (« error », ou « close » que nous n'avons pas demandé) et `verifier()` la transforme en échec après
+ * chaque appel IMAP. En fonctionnement normal, rien n'est noté : `verifier()` ne fait rien et les résultats sont ceux d'avant.
+ */
+interface Surveillance {
+  /** Lève `ErreurConnexionImap` si la connexion a été perdue depuis l'ouverture. */
+  verifier(): void;
+  /** À appeler avant de fermer nous-mêmes : la fermeture qui suit n'est pas une coupure. */
+  fermetureVoulue(): void;
+}
+function surveiller(client: ImapFlow, chemin: string, surErreur?: (e: Error) => void): Surveillance {
+  let perdue: Error | null = null;
+  let voulue = false;
+  const signaler = surErreur ?? ((e: Error) => {
+    console.error(`[imap] ${chemin} — connexion IMAP perdue (${(e as { code?: string }).code ?? 'sans code'}) : ${e.message}`);
+  });
+  client.on('error', (e: Error) => { perdue = perdue ?? e; signaler(e); });
+  client.on('close', () => {
+    if (voulue || perdue !== null) return;
+    perdue = Object.assign(new Error('connexion fermée par le serveur'), { code: 'NoConnection' });
+    signaler(perdue);
+  });
+  return {
+    verifier(): void { if (perdue !== null) throw new ErreurConnexionImap(chemin, perdue); },
+    fermetureVoulue(): void { voulue = true; },
+  };
+}
+
+/** Ferme proprement : LOGOUT tenté (best-effort), puis le socket est fermé quoi qu'il arrive (aucune connexion orpheline). */
+async function fermerProprement(client: ImapFlow, s: Surveillance): Promise<void> {
+  s.fermetureVoulue();
+  try { await client.logout(); } catch { /* best-effort : la fermeture ne doit pas faire échouer la passe */ }
+  finally { client.close(); } // idempotent : sans effet si le LOGOUT a déjà fermé la connexion
+}
+
+/** Construit un ClientBoite réel sur INBOX en lecture seule. Ne relève que ; n'écrit jamais dans la boîte. */
+export function creerClientBoite(compte: CompteImap, opts: OptionsClientImap = {}): ClientBoite {
+  const client = nouvelleInstance(compte, opts.delais);
+  const surveillance = surveiller(client, 'relève automatique', opts.surErreur);
+  const v = (): void => surveillance.verifier();
 
   return {
     async ouvrir(): Promise<void> {
       await client.connect();
       await client.mailboxOpen('INBOX', { readOnly: true }); // EXAMINE : aucune modification de la boîte
+      v();
     },
     async chercher(criteres: CritereRecherche): Promise<number[]> {
       // Recherche SERVEUR : SINCE + éventuellement FROM (imapflow n'accepte qu'UNE chaîne `from` → un appel par domaine).
       const critere: { since: Date; from?: string } = { since: criteres.depuis };
       if (criteres.from !== undefined && criteres.from !== '') critere.from = criteres.from;
       const uids = await client.search(critere, { uid: true });
+      v(); // une coupure rend `false`/`undefined` : sans cette ligne, elle passerait pour « aucun message »
       return uids === false ? [] : uids;
     },
     async chercherReferences(depuis: Date, references: string[]): Promise<number[]> {
@@ -98,6 +196,7 @@ export function creerClientBoite(compte: CompteImap): ClientBoite {
           ? { since: depuis, text: lot[0] }
           : { since: depuis, or: lot.map((r) => ({ text: r })) };
         const res = await client.search(critere, { uid: true });
+        v();
         if (res !== false) for (const u of res) uids.add(u);
       }
       return [...uids].sort((a, b) => a - b);
@@ -111,16 +210,18 @@ export function creerClientBoite(compte: CompteImap): ClientBoite {
         const mid = msg.envelope?.messageId;
         if (typeof mid === 'string' && mid.trim() !== '') map.set(msg.uid, mid);
       }
+      v(); // un fetch coupé s'arrête en silence : la liste serait incomplète
       return map;
     },
     async telechargerMessage(uid: number): Promise<MessageBoite> {
       const msg = await client.fetchOne(uid, { source: true }, { uid: true });
+      v();
       if (msg === false || !msg.source) throw new Error(`message uid ${uid} introuvable ou sans source`);
       const parsed = await simpleParser(msg.source);
       return versMessageBoite(parsed, uid);
     },
     async fermer(): Promise<void> {
-      try { await client.logout(); } catch { /* best-effort : la fermeture ne doit pas faire échouer la relève */ }
+      await fermerProprement(client, surveillance); // LOGOUT best-effort, puis socket fermé quoi qu'il arrive
     },
   };
 }
@@ -149,14 +250,10 @@ function extraireReferences(entetesBrut: string): string[] {
   return entetesBrut.match(/<[^>]+>/g) ?? [];
 }
 
-export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
-  const client = new ImapFlow({
-    host: compte.host,
-    port: compte.port,
-    secure: compte.tls,
-    auth: { user: compte.user, pass: compte.pass },
-    logger: false,
-  });
+export function creerClientEnvoyes(compte: CompteImap, opts: OptionsClientImap = {}): ClientEnvoyes {
+  const client = nouvelleInstance(compte, opts.delais);
+  const surveillance = surveiller(client, 'dossier envoyés', opts.surErreur);
+  const v = (): void => surveillance.verifier();
   let cheminEnvoyes: string | null = null;
   const TAILLE_LOT = 5; // chaque Message-ID → 2 termes OR (In-Reply-To + References) : lot de 5 = 10 termes (OU peu profond)
 
@@ -168,6 +265,7 @@ export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
       const boites = await client.list();
       const envoyes = boites.find((b) => b.specialUse === '\\Sent');
       if (envoyes) { cheminEnvoyes = envoyes.path; await client.mailboxOpen(cheminEnvoyes, { readOnly: true }); } // EXAMINE : aucune écriture
+      v(); // une liste coupée ne doit pas passer pour « pas de dossier envoyés »
     },
     aBoiteEnvoyes(): boolean {
       return cheminEnvoyes !== null;
@@ -184,6 +282,7 @@ export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
         const lot = coeurs.slice(i, i + TAILLE_LOT);
         const or: { header: Record<string, string> }[] = lot.flatMap((mid): { header: Record<string, string> }[] => [{ header: { 'in-reply-to': mid } }, { header: { references: mid } }]);
         const res = await client.search({ since: depuis, or }, { uid: true });
+        v(); // une coupure rend `false`/`undefined` : sans cette ligne, elle passerait pour « aucune réponse envoyée »
         if (res !== false) for (const u of res) uids.add(u);
       }
       if (uids.size === 0) return [];
@@ -196,6 +295,7 @@ export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
         const references = msg.headers ? extraireReferences(msg.headers.toString()) : [];
         sortants.push({ inReplyTo: env?.inReplyTo ?? null, references, destinataires });
       }
+      v();
       return sortants;
     },
     async lireSortantsComplets(messageIds: string[], depuis: Date): Promise<SortantComplet[]> {
@@ -212,6 +312,7 @@ export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
         const lot = coeurs.slice(i, i + TAILLE_LOT);
         const or: { header: Record<string, string> }[] = lot.flatMap((mid): { header: Record<string, string> }[] => [{ header: { 'in-reply-to': mid } }, { header: { references: mid } }]);
         const res = await client.search({ since: depuis, or }, { uid: true });
+        v(); // une coupure rend `false`/`undefined` : sans cette ligne, elle passerait pour « aucune réponse envoyée »
         if (res !== false) for (const u of res) uids.add(u);
       }
       if (uids.size === 0) return [];
@@ -234,10 +335,11 @@ export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
           envoyeLe: parsed.date ? parsed.date.toISOString() : null,
         });
       }
+      v();
       return sortants;
     },
     async fermer(): Promise<void> {
-      try { await client.logout(); } catch { /* best-effort : la fermeture ne doit pas faire échouer la veille */ }
+      await fermerProprement(client, surveillance); // LOGOUT best-effort, puis socket fermé quoi qu'il arrive
     },
   };
 }

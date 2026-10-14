@@ -108,12 +108,16 @@ describe('garantie STATIQUE — le module reste pur, et imap.ts reste opt-in', (
     expect(modules).toEqual([]);
   });
 
-  it('imap.ts n’attache l’écouteur QUE si l’appelant le fournit → le module Permis est inchangé', () => {
+  it('imap.ts : la relève APPROFONDIE n’attache l’écouteur QUE si l’appelant le fournit (régime inchangé)', () => {
     const src = readFileSync('app/lib/email/imap.ts', 'utf8');
     expect(src).toContain("if (surErreur) client.on('error', surErreur);");
-    // Un SEUL écouteur, et il est conditionnel : aucun `.on(` inconditionnel n'a été ajouté à ce fichier.
-    const ecouteurs = [...src.matchAll(/^\s*(?:if \([^)]*\) )?client\.on\(/gm)].map((m) => m[0].trim());
-    expect(ecouteurs).toEqual(["if (surErreur) client.on("]);
+    // LOT RELÈVE-QUI-SURVIT-AUX-COUPURES-IMAP (autorisation explicite d'Arno pour imap.ts) : la relève AUTOMATIQUE et la capture
+    //   des ENVOYÉS écoutent désormais TOUJOURS « error » et « close », dans `surveiller` et nulle part ailleurs. Le client
+    //   approfondi n'y passe pas : son seul écouteur reste le conditionnel ci-dessus.
+    const ecouteurs = [...src.matchAll(/^\s*(?:if \([^)]*\) )?client\.on\('(\w+)'/gm)].map((m) => m[0].trim());
+    expect(ecouteurs).toEqual(["client.on('error'", "client.on('close'", "if (surErreur) client.on('error'"]);
+    const approfondi = src.slice(src.indexOf('export function creerClientApprofondi'));
+    expect(approfondi).not.toContain('surveiller(');
   });
 
   it('la relève RÉELLE fournit bien l’écouteur ET l’enveloppe (sinon tout ceci ne servirait à rien)', () => {

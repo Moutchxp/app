@@ -111,6 +111,11 @@ export function depsReellesCaptureSortants(): DepsCaptureSortants {
         await client.ouvrir();                                 // connecte + repère & ouvre \Sent (readOnly) ; pas de \Sent → aBoiteEnvoyes() faux
         if (!client.aBoiteEnvoyes()) return [];                // repli sûr : jamais de scan à l'aveugle
         return await client.lireSortantsComplets(messageIds, depuis); // SEARCH par en-tête + fetch CORPS (dérogation FIL-C)
+      } catch (e) {
+        // LOT RELÈVE-QUI-SURVIT-AUX-COUPURES-IMAP — l'échec est JOURNALISÉ comme un échec, puis relancé : executerVeille l'isole
+        //   (catch muet) et la passe suivante reprend. Sans cette ligne, une coupure n'y laissait aucune trace.
+        console.error(`[veille] capture des envoyés — échec IMAP, passe abandonnée : ${e instanceof Error ? e.message : String(e)}`);
+        throw e;
       } finally {
         await client.fermer();
       }
