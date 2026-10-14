@@ -9,8 +9,15 @@
 ---
 
 ## 1. GOLDEN de non-régression
-- **Valeur exacte : `29.107259068449615`**, assertée `toBeCloseTo(…, 3)`.
-  - Preuve : `app/lib/db/pipeline.itest.ts:42` → `expect(resultat!.score.total).toBeCloseTo(29.107259068449615, 3);`
+- **Valeur exacte : `29.12915579059343`**, assertée `toBeCloseTo(…, 3)`.
+  - Preuve : `app/lib/db/pipeline.itest.ts:88` → `expect(resultat!.score.total).toBeCloseTo(29.12915579059343, 3);`
+  - Garde pure sans base (dans `npm test`) : `app/lib/svv/golden.test.ts`, égalité stricte sur la fixture
+    `app/lib/svv/__fixtures__/asnieres-golden.json`.
+  - **Historique** :
+    - 14/10/2026 : 29.107259068449615 → 29.12915579059343, règle « un frôlement n'est pas un contact » (propre bâtiment et
+      voisins), validé par Arno. Commits aef47062, 29d78c19, 52e03c14 ; verdict inchangé (`SANS_VIS_A_VIS`,
+      `42.100339602923526` m) ; faisceaux modifiés : +45° (4,10 → 8,26 m, score) et -90° (107,11 → 120,00 m, distance
+      perçue plafonnée à 200 m, sans effet sur la note).
 - **Scellé dans** le test d'intégration `app/lib/db/pipeline.itest.ts` (lancé via
   `npm run test:integration`, motif `*.itest.ts`).
 - **Point de référence rejoué** : **8 rue Denfert-Rochereau (Asnières)**, coordonnées

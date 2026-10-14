@@ -1,9 +1,10 @@
 /**
  * ══ LOT DIAGNOSTIC-GOLDEN (14/10/2026) — PARTIES PURES DE L'OUTIL `scripts/diag-golden.ts` ══════════════════════════════
  *
- * Le golden Asnières vaut 29.107259068449615 sur le Mac et 30.432841433985192 sur le serveur Linux, même commit, même base.
- * La CAUSE N'EST PAS ÉTABLIE. Cet outil n'en suppose aucune : il imprime chaque valeur intermédiaire, sur chaque machine,
- * pour que la comparaison des deux sorties désigne la PREMIÈRE étape qui diverge.
+ * Constat d'origine (14/10/2026) : le golden Asnières valait 29.107259068449615 sur le Mac et 30.432841433985192 sur le
+ * serveur Linux, même commit, même base. Cet outil n'en supposait aucune cause : il imprime chaque valeur intermédiaire, sur
+ * chaque machine, pour que la comparaison des deux sorties désigne la PREMIÈRE étape qui diverge. (Il a désigné le faisceau
+ * 45° ; corrigé par la règle « un frôlement n'est pas un contact », golden rescellé à 29.12915579059343.)
  *
  * Ce module ne contient que du PUR (aucune base, aucun réseau, aucun import) :
  *   · `jsonStable` — JSON aux clés TRIÉES, nombres en PLEINE PRÉCISION (aucun arrondi), stable d'une machine à l'autre ;
@@ -22,8 +23,9 @@ export const CAS_GOLDEN = {
   dernierEtage: false,
 } as const;
 
-/** La valeur scellée du golden (`pipeline.itest.ts:42` ; CLAUDE.md §0). */
-export const SCORE_GOLDEN = 29.107259068449615;
+/** La valeur scellée du golden (`pipeline.itest.ts` ; CLAUDE.md §0). Historique : 14/10/2026 : 29.107259068449615 →
+ *  29.12915579059343, règle « un frôlement n'est pas un contact » (propre bâtiment et voisins), validé par Arno. */
+export const SCORE_GOLDEN = 29.12915579059343;
 
 /**
  * COPIE EXACTE de `PROFIL_GOLDEN_REF` (`app/lib/db/pipeline.itest.ts`). Le type est volontairement large (pas d'import du
