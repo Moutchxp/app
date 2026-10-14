@@ -1,18 +1,18 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  executerAlerteSuperstructures, sujetSuperstructures, corpsSuperstructures, SEUIL_GARDE,
+  executerAlerteSuperstructures, sujetSuperstructures, corpsSuperstructures, SEUIL_GARDE, depsReellesAlerteSuperstructures,
   type DepsAlerteSuperstructures, type CandidatSuperstructure,
 } from './alerteSuperstructures';
 
 /**
  * N10-B — passe d'alerte superstructures : orchestration PURE par injection (aucun SMTP/S3/DB). On éprouve : ④ un sommet portant la
  * réserve déclenche UNE alerte (contenu complet + motif LiDAR + décision attendue) ; ⑤ rien à alerter → aucun e-mail ; ③ la 2ᵉ passe
- * n'envoie pas de doublon (idempotence par le registre) ; la GARDE anti-avalanche ; une cote non résolue (clé null) reste sans lien.
+ * n'envoie pas de doublon (idempotence par le registre) ; la GARDE anti-avalanche ; une cote non résolue (pièce null) reste sans lien.
  */
 const CAND = (over: Partial<CandidatSuperstructure> = {}): CandidatSuperstructure => ({
   dossierId: 11430, numDau: '07512024V0037', communeNom: 'Paris', adresse: '30 RUE LOUIS LUMIERE PARIS 20',
   sommetValeur: 97.13, sommetNiveau: 'TOITURE',
-  cotes: [{ cote: 108.93, piece: 'PC5.5_Facade_Sud.pdf', page: 1, cle: 'k/pc55' }, { cote: 100.0, piece: 'PC3.1_Coupe_AA.pdf', page: 1, cle: 'k/pc31' }],
+  cotes: [{ cote: 108.93, piece: 'PC5.5_Facade_Sud.pdf', page: 1, pieceId: 55 }, { cote: 100.0, piece: 'PC3.1_Coupe_AA.pdf', page: 1, pieceId: 31 }],
   ...over,
 });
 
@@ -22,7 +22,7 @@ function deps(over: Partial<DepsAlerteSuperstructures> = {}, candidats: Candidat
   const d: DepsAlerteSuperstructures = {
     lireConfig: async () => ({ active: true, email: 'alerte@sansvisavis.com' }),
     chargerCandidats: async () => candidats.filter((c) => !journal.includes(c.dossierId)), // le registre exclut les déjà alertés
-    lienSigne: async (cle) => `https://signed.example/${cle}`,
+    lienPiece: (pieceId) => `https://app.exemple.fr/admin/permis/piece/dossier/${pieceId}`,
     envoyer: async (m) => { envois.push(m); },
     journaliser: async (e) => { journal.push(e.dossierId); },
     ...over,
@@ -45,7 +45,7 @@ describe('N10-B — executerAlerteSuperstructures', () => {
     expect(m.corps).toContain('97.13');                            // sommet retenu
     expect(m.corps).toContain('TOITURE');                          // son niveau
     expect(m.corps).toContain('108.93');                           // cote au-dessus
-    expect(m.corps).toContain('https://signed.example/k/pc55#page=1'); // lien signé À LA PAGE
+    expect(m.corps).toContain('https://app.exemple.fr/admin/permis/piece/dossier/55#page=1'); // lien À LA PAGE, servi par l'application
     expect(m.corps).toMatch(/MNS LiDAR/);                          // le motif, en clair
     expect(m.corps).toMatch(/SOUS-ESTIMER/i);
   });
@@ -79,13 +79,13 @@ describe('N10-B — executerAlerteSuperstructures', () => {
     expect(envois).toHaveLength(0); // rien ne part tant qu'Arno n'a pas tranché
   });
 
-  it('② une cote non résolue (clé null) reste sans lien, avec mention explicite', async () => {
-    const cand = CAND({ cotes: [{ cote: 108.93, piece: 'renommee.pdf', page: 1, cle: null }] });
+  it('② une cote non résolue (pièce null) reste sans lien, avec mention explicite', async () => {
+    const cand = CAND({ cotes: [{ cote: 108.93, piece: 'renommee.pdf', page: 1, pieceId: null }] });
     const { d, envois } = deps({}, [cand]);
     await executerAlerteSuperstructures(d);
     expect(envois[0].corps).toContain('108.93');
     expect(envois[0].corps).toMatch(/introuvable/i);
-    expect(envois[0].corps).not.toContain('https://signed'); // aucun lien pour une pièce non résolue
+    expect(envois[0].corps).not.toContain('/admin/permis/piece/'); // aucun lien pour une pièce non résolue
   });
 
   it('un échec d’envoi est ISOLÉ (compté), n’empêche pas de journaliser les autres', async () => {
@@ -102,5 +102,16 @@ describe('N10-B — executerAlerteSuperstructures', () => {
     const corps = corpsSuperstructures(CAND(), new Map([[108.93, 'https://s/x#page=1']]));
     expect(corps).toContain('https://s/x#page=1');
     expect(corps).toMatch(/ombrière|superstructure/i);
+  });
+});
+
+describe('LOT PIECES-PERMIS-SERVIES — le lien réel d’une cote', () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+  it('URL ABSOLUE INLINE sur SVAV_URL_PUBLIQUE (le #page est ajouté par l’orchestration) ; jamais l’endpoint S3', () => {
+    vi.stubEnv('SVAV_URL_PUBLIQUE', 'https://app.exemple.fr');
+    vi.stubEnv('S3_ENDPOINT', 'http://127.0.0.1:9000');
+    const url = depsReellesAlerteSuperstructures().lienPiece(55);
+    expect(url).toBe('https://app.exemple.fr/admin/permis/piece/dossier/55');
+    expect(url).not.toContain('127.0.0.1:9000');
   });
 });

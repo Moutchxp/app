@@ -285,10 +285,19 @@ describe('PROJ-2 — POST enregistrer : géométrie recalculée SERVEUR (plan �
 });
 
 describe('PROJ-2 — POST signer_piece / supprimer', () => {
-  it('signer_piece → URL signée inline (clé jamais exposée au client)', async () => {
+  it('signer_piece → adresse RELATIVE de la pièce servie par l’application, inline (clé jamais exposée au client)', async () => {
+    vi.stubEnv('S3_ENDPOINT', 'http://127.0.0.1:9000');
     const res = await post({ action: 'signer_piece', pieceId: 55 });
     const j = await res.json();
-    expect(j.url).toBe('https://signed.example/ged/dossier/55.pdf');
+    vi.unstubAllEnvs();
+    expect(j.url).toBe('/admin/permis/piece/dossier/55'); // LOT PIECES-PERMIS-SERVIES : plus d'URL présignée
+    expect(JSON.stringify(j)).not.toContain('127.0.0.1:9000');
+    expect(JSON.stringify(j)).not.toContain('ged/dossier/55.pdf');
+  });
+  it('signer_piece sur une pièce absente → 404, comme avant', async () => {
+    (lireCleTelechargeable as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    const res = await post({ action: 'signer_piece', pieceId: 56 });
+    expect(res.status).toBe(404);
   });
   it('supprimer → scopé au dossier', async () => {
     const res = await post({ action: 'supprimer', dossierId: 11434, id: 42 });

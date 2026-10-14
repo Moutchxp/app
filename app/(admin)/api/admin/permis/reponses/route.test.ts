@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 /**
  * T1 — POST /api/admin/permis/reponses, actions de STATUT par dossier (non fourni / refus mairie / annuler triage / retirer /
@@ -338,24 +338,39 @@ describe('T7-B — répondu / annuler_repondu (bouton MANUEL, RÉVERSIBLE)', () 
 });
 
 describe('N10-B — url_piece : variante INLINE (ouverture à la page) sans changer le téléchargement existant', () => {
-  beforeEach(() => { cleTel.mockResolvedValue({ cle: 'k/abc', nomFichier: 'PC3.pdf' }); signee.mockResolvedValue('https://signed/url'); });
+  // LOT PIECES-PERMIS-SERVIES — l'URL renvoyée est celle de la route de l'application, plus une URL présignée S3.
+  beforeEach(() => { cleTel.mockResolvedValue({ cle: 'k/abc', nomFichier: 'PC3.pdf', typeMime: 'application/pdf' }); vi.stubEnv('S3_ENDPOINT', 'http://127.0.0.1:9000'); });
+  afterEach(() => { vi.unstubAllEnvs(); });
 
-  it('① DÉFAUT (aucun `inline`) → téléchargement FORCÉ, STRICTEMENT inchangé (forcerTelechargement:true)', async () => {
+  it('① DÉFAUT (aucun `inline`) → téléchargement FORCÉ (`?telecharger=1`, la route pose le nom d’origine)', async () => {
     const res = await post({ action: 'url_piece', pieceId: 7, source: 'dossier' });
     expect(res.status).toBe(200);
-    expect(signee).toHaveBeenCalledWith('k/abc', undefined, { forcerTelechargement: true, nomFichier: 'PC3.pdf' });
+    expect((await res.json()).url).toBe('/admin/permis/piece/dossier/7?telecharger=1');
+    expect(cleTel).toHaveBeenCalledWith(7, 'dossier');
   });
 
-  it('inline:true → signe SANS forcer le téléchargement (ouverture au visionneur)', async () => {
+  it('inline:true → ouverture au visionneur (aucun paramètre ; le client ajoute #page=N)', async () => {
     const res = await post({ action: 'url_piece', pieceId: 7, source: 'dossier', inline: true });
     expect(res.status).toBe(200);
-    expect(signee).toHaveBeenCalledWith('k/abc', undefined, {}); // aucune option → Content-Disposition inline
+    expect((await res.json()).url).toBe('/admin/permis/piece/dossier/7');
   });
 
-  it('la clé de stockage ne figure PAS dans la réponse (seule l’URL signée sort)', async () => {
+  it('source absente → pièce reçue par e-mail (`reponse`), comme avant', async () => {
+    const res = await post({ action: 'url_piece', pieceId: 9 });
+    expect((await res.json()).url).toBe('/admin/permis/piece/reponse/9?telecharger=1');
+    expect(cleTel).toHaveBeenCalledWith(9, 'reponse');
+  });
+
+  it('ni la clé de stockage ni l’endpoint S3 ne figurent dans la réponse ; aucune URL n’est plus signée', async () => {
     const res = await post({ action: 'url_piece', pieceId: 7, source: 'dossier', inline: true });
-    const body = await res.json();
-    expect(body.url).toBe('https://signed/url');
-    expect(JSON.stringify(body)).not.toContain('k/abc');
+    const texte = JSON.stringify(await res.json());
+    expect(texte).not.toContain('k/abc');
+    expect(texte).not.toContain('127.0.0.1:9000');
+    expect(signee).not.toHaveBeenCalled();
+  });
+
+  it('pièce non déposée → 404, comme avant', async () => {
+    cleTel.mockResolvedValueOnce(null);
+    expect((await post({ action: 'url_piece', pieceId: 8, source: 'dossier' })).status).toBe(404);
   });
 });

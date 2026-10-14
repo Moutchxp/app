@@ -2,7 +2,7 @@
  * N10-B — ALERTE « superstructures au-dessus de la toiture retenue ». Passe SÉPARÉE (découplée de l'écriture des niveaux : un
  * e-mail qui échoue ne casse jamais une écriture, et l'alerte reste REJOUABLE), sur le modèle de G1 `alerteGedAuto` : orchestration
  * PURE par injection (aucun SMTP, aucun S3, aucune base dans les tests). Réutilise l'ENVOI de G1 (transporteur, adresse d'alerte,
- * URL signées) ; seule la cheville d'idempotence est neuve (table `alerte_permis`, migration 129).
+ * liens vers la route de l'application) ; seule la cheville d'idempotence est neuve (table `alerte_permis`, migration 129).
  *
  * POURQUOI (à écrire dans le corps du mail, en clair) : le MNS LiDAR mesure la surface pleine LA PLUS HAUTE — une ombrière
  * photovoltaïque ou une superstructure serait donc captée. Retenir la toiture peut SOUS-ESTIMER l'obstacle : c'est le sens d'erreur
@@ -13,8 +13,10 @@
  * on N'ENVOIE RIEN et on le signale — décision Arno (à N=1 il n'y a pas d'avalanche ; au-delà, il tranche avant tout envoi).
  */
 
-/** Une cote de superstructure au-dessus du sommet retenu, avec sa provenance et sa clé de stockage (null = pièce introuvable → pas de lien). */
-export interface SuperstructureCote { cote: number; piece: string | null; page: number | null; cle: string | null }
+/** Une cote de superstructure au-dessus du sommet retenu, avec sa provenance et l'identifiant de sa pièce (`dossier_document.id` ;
+ *  null = pièce introuvable → pas de lien). LOT PIECES-PERMIS-SERVIES : l'identifiant, plus la clé de stockage — le lien est celui
+ *  de la route de l'application. */
+export interface SuperstructureCote { cote: number; piece: string | null; page: number | null; pieceId: number | null }
 /** Un permis dû à l'alerte : identité + sommet retenu + cotes au-dessus. */
 export interface CandidatSuperstructure {
   dossierId: number; numDau: string; communeNom: string | null; adresse: string | null;
@@ -25,7 +27,7 @@ export interface CandidatSuperstructure {
 export interface DepsAlerteSuperstructures {
   lireConfig(): Promise<{ active: boolean; email: string }>;
   chargerCandidats(): Promise<CandidatSuperstructure[]>;   // permis avec réserve superstructures NON encore alertés
-  lienSigne(cle: string): Promise<string>;                 // URL signée INLINE (le #page est ajouté ici, jamais côté serveur de signature)
+  lienPiece(pieceId: number): string;                      // URL ABSOLUE INLINE de la pièce servie par l'application (le #page est ajouté ici)
   envoyer(mail: { to: string; sujet: string; corps: string }): Promise<void>;
   journaliser(e: { dossierId: number; sujet: string }): Promise<void>; // INSERT alerte_permis (ON CONFLICT DO NOTHING)
 }
@@ -61,7 +63,7 @@ export function corpsSuperstructures(c: CandidatSuperstructure, liensParCote: Ma
 }
 
 /**
- * Une passe d'alertes superstructures. GARDE d'abord (avalanche → rien envoyé). Puis, par permis dû : résout les liens signés (à la
+ * Une passe d'alertes superstructures. GARDE d'abord (avalanche → rien envoyé). Puis, par permis dû : résout les liens (à la
  * page), compose, envoie, journalise (idempotent). Un échec est ISOLÉ. N'écrit NI le moteur de niveaux NI les valeurs — que le registre.
  */
 export async function executerAlerteSuperstructures(deps: DepsAlerteSuperstructures): Promise<BilanAlerteSuperstructures> {
@@ -75,11 +77,11 @@ export async function executerAlerteSuperstructures(deps: DepsAlerteSuperstructu
   for (const c of candidats) {
     examinees += 1;
     try {
-      // Liens signés INLINE + #page (le fragment n'est jamais signé → sécurité intacte ; la clé ne sort jamais telle quelle).
+      // Liens INLINE + #page vers la route de l'application (la clé ne sort jamais ; sans session → page de connexion).
       const liens = new Map<number, string>();
       for (const s of c.cotes) {
-        if (s.cle === null) continue; // pièce introuvable → pas de lien mort ; le corps le dit
-        const base = await deps.lienSigne(s.cle);
+        if (s.pieceId === null) continue; // pièce introuvable → pas de lien mort ; le corps le dit
+        const base = deps.lienPiece(s.pieceId);
         liens.set(s.cote, s.page !== null ? `${base}#page=${s.page}` : base);
       }
       const sujet = sujetSuperstructures(c.numDau);
@@ -96,9 +98,12 @@ export async function executerAlerteSuperstructures(deps: DepsAlerteSuperstructu
 // ── Implémentations RÉELLES (production) ──────────────────────────────────────
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
+import { urlAbsoluePiecePermis } from './piecePermisServie';
 
-/** Durée d'un lien d'alerte : 7 jours — le mail doit rester ouvrable longtemps après réception (comme le plancher 72 h de G1). */
-const DUREE_LIEN_ALERTE_S = 7 * 24 * 3600;
+/** Durée d'un lien d'alerte : 7 jours — le mail doit rester ouvrable longtemps après réception (comme le plancher 72 h de G1).
+ *  LOT PIECES-PERMIS-SERVIES (14/10/2026) — plus utilisée : le lien vers l'application n'expire pas (le droit est relu à chaque
+ *  ouverture). Conservée (exportée pour ne pas être signalée inutilisée) en attendant la décision d'Arno. */
+export const DUREE_LIEN_ALERTE_S = 7 * 24 * 3600;
 
 export function depsReellesAlerteSuperstructures(): DepsAlerteSuperstructures {
   return {
@@ -120,12 +125,12 @@ export function depsReellesAlerteSuperstructures(): DepsAlerteSuperstructures {
             AND NOT EXISTS (SELECT 1 FROM alerte_permis a WHERE a.dossier_id = j.dossier_id AND a.type = 'superstructures')`);
       const out: CandidatSuperstructure[] = [];
       for (const p of perms) {
-        // Cotes écartées « superstructure » du même permis, résolues vers leur clé de stockage (unicité (dossier_id, nom_fichier)).
-        const { rows: cotes } = await query<{ cote: number; piece: string | null; page: number | null; cle: string | null }>(
+        // Cotes écartées « superstructure » du même permis, résolues vers leur pièce (unicité (dossier_id, nom_fichier)).
+        const { rows: cotes } = await query<{ cote: number; piece: string | null; page: number | null; piece_id: number | string | null }>(
           `SELECT je.valeur AS cote, je.piece, je.page,
-                  (SELECT doc.cle_stockage FROM dossier_document doc
+                  (SELECT doc.id FROM dossier_document doc
                     WHERE doc.dossier_id = je.dossier_id AND doc.nom_fichier = je.piece
-                    LIMIT 1) AS cle
+                    LIMIT 1) AS piece_id
              FROM permis_extraction_journal je
             WHERE je.dossier_id = $1 AND je.methode = 'enonce' AND je.role = 'ecartee' AND je.motif ILIKE '%superstructure%'
             ORDER BY je.valeur DESC`,
@@ -134,16 +139,14 @@ export function depsReellesAlerteSuperstructures(): DepsAlerteSuperstructures {
         out.push({
           dossierId: p.dossier_id, numDau: p.num_dau, communeNom: p.commune_nom, adresse: p.adresse,
           sommetValeur: p.sommet, sommetNiveau,
-          cotes: cotes.map((x) => ({ cote: x.cote, piece: x.piece, page: x.page, cle: x.cle })),
+          cotes: cotes.map((x) => ({ cote: x.cote, piece: x.piece, page: x.page, pieceId: x.piece_id === null ? null : Number(x.piece_id) })),
         });
       }
       return out;
     },
-    lienSigne: async (cle) => {
-      const { urlSignee } = await import('../stockage');
-      // N10-B — variante INLINE (pas de forcerTelechargement) → le PDF s'ouvre au visionneur (le #page est ajouté par l'orchestration).
-      return urlSignee(cle, DUREE_LIEN_ALERTE_S, {});
-    },
+    // N10-B — variante INLINE → le PDF s'ouvre au visionneur (le #page est ajouté par l'orchestration). LOT PIECES-PERMIS-SERVIES :
+    //   URL ABSOLUE sur SVAV_URL_PUBLIQUE vers la route de l'application (plus d'URL présignée, injoignable en production).
+    lienPiece: (pieceId) => urlAbsoluePiecePermis('dossier', pieceId),
     envoyer: async (mail) => {
       const { lireConfigEmail, obtenirTransporteur, envoyerAlerte } = await import('../email');
       const cfg = lireConfigEmail();

@@ -5,6 +5,7 @@ import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossi
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, reclasserNatureReponse, estNatureReclassable, marquerRepondu, annulerRepondu, RattachementNonEnvoyeeError } from '../../../../../lib/veille/demandeReponseRepo';
 import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelechargeable, marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
+import { cheminPiecePermis } from '../../../../../lib/permis/piecePermisServie'; // LOT PIECES-PERMIS-SERVIES : la pièce est servie par l'application
 import { confirmerDepot } from '../../../../../lib/veille/confirmerDepot'; // LOT 35 : confirmation de dépôt + attribution de la référence mairie
 import { lireReferenceMairieDeReponse } from '../../../../../lib/veille/releveReponses'; // LOT 35 : référence (SLC…) portée par l'accusé déclencheur
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
@@ -13,7 +14,7 @@ import { marquerTestAnalyseDemande } from '../../../../../lib/permis/testAnalyse
 
 /**
  * /api/admin/permis/reponses — GET agrégé LECTURE SEULE (R5a) + POST ACTIONS (R5b/R5c). R5b : rattacher une réponse à une
- * demande, marquer/démarquer un dossier reçu, lien signé de pièce, marquer une réponse traitée. R5c : éditer / régénérer /
+ * demande, marquer/démarquer un dossier reçu, lien de pièce, marquer une réponse traitée. R5c : éditer / régénérer /
  * abandonner un brouillon de relance, CLÔTURER une demande (enfin l'écrivain de 'close') et la ROUVRIR. Les refus métier
  * (transition interdite, régénération impossible) répondent en 409 avec un message explicite ; l'inattendu reste un 503
  * journalisé (jamais de catch muet). RÉSERVÉ ADMINISTRATEUR (même garde que les routes voisines). Runtime Node.
@@ -185,20 +186,19 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: r === 'reattache', traite: r === 'reattache' });
     }
 
-    // Lien de téléchargement d'une pièce déposée : le SERVEUR signe et renvoie l'URL — la clé de stockage ne sort JAMAIS au client.
+    // Lien d'une pièce déposée : le SERVEUR renvoie l'adresse de la route qui la sert — la clé de stockage ne sort JAMAIS au client.
     if (corps.action === 'url_piece') {
       if (!estEntier(corps.pieceId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       // A1b — dispatch par ORIGINE (défaut 'reponse' = pièce reçue par e-mail ; 'dossier' = document ajouté à la main) : UNE
-      // seule lecture de clé (lireCleTelechargeable) et UN seul signeur (urlSignee). La clé de stockage ne sort jamais au client.
+      // seule lecture de clé (lireCleTelechargeable). La pièce absente reste un 404, comme avant.
       const source = corps.source === 'dossier' ? 'dossier' : 'reponse';
       const piece = await lireCleTelechargeable(corps.pieceId, source);
       if (piece === null) return Response.json({ erreur: 'pièce non déposée (aucune clé de stockage)' }, { status: 404 });
-      const { urlSignee } = await import('../../../../../lib/stockage'); // import dynamique : garde @aws-sdk hors du graphe statique
-      // N10-B — VARIANTE INLINE (opt-in `inline:true`) : signe SANS forcer le téléchargement → le PDF s'ouvre dans le visionneur
-      //   (le client y ajoute #page=N, fragment jamais signé → sécurité intacte, clé jamais exposée). DÉFAUT (inline absent/false) :
-      //   téléchargement FORCÉ, STRICTEMENT inchangé (N6-E) — tous les appelants existants omettent `inline` → comportement identique.
+      // LOT PIECES-PERMIS-SERVIES — plus d'URL présignée (injoignable en production : MinIO n'écoute que sur 127.0.0.1) : l'adresse
+      //   RELATIVE de la route qui sert les octets. N10-B — `inline:true` → affichage (le client y ajoute #page=N) ; DÉFAUT →
+      //   téléchargement FORCÉ avec le nom d'origine (N6-E), comme avant.
       const inline = corps.inline === true;
-      return Response.json({ url: await urlSignee(piece.cle, undefined, inline ? {} : { forcerTelechargement: true, nomFichier: piece.nomFichier }) });
+      return Response.json({ url: cheminPiecePermis(source, corps.pieceId, { telecharger: !inline }) });
     }
 
     // R5c — éditer le brouillon d'une relance (objet + corps). Le texte stocké EST la vérité (aucune régénération implicite).

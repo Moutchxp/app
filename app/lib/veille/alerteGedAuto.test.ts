@@ -1,6 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { executerAlerteGedAuto, type DepsAlerteGed, type CandidatAlerteGed } from './alerteGedAuto';
-import { DUREE_LIEN_SIGNE_MIN_S } from './alerteGed';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { executerAlerteGedAuto, depsReellesAlerteGed, type DepsAlerteGed, type CandidatAlerteGed } from './alerteGedAuto';
 
 // Expiration 17/08 13:24 → seuil J-3 = 14/08 13:24, seuil 24 h = 16/08 13:24.
 const EXP = new Date('2026-08-17T13:24:00Z');
@@ -19,19 +18,19 @@ const cand = (over: Partial<CandidatAlerteGed> = {}): CandidatAlerteGed => ({
 function harness(candidats: CandidatAlerteGed[], opts: { maintenant?: Date; envoyerThrows?: boolean } = {}) {
   const journal: { reponseId: number; dossierId: number | null; type: string; enRetard: boolean }[] = [];
   const envois: { sujet: string; corps: string; attachments: { filename: string }[] }[] = [];
-  const liensSignes: { cle: string; dureeS: number }[] = [];
+  const liensPieces: number[] = [];
   const contenusLus: string[] = [];
   const deps: DepsAlerteGed = {
     maintenant: () => opts.maintenant ?? APRES_J3,
     lireConfig: async () => ({ active: true, email: 'ops@sansvisavis.fr' }),
     chargerCandidats: async () => candidats,
     dejaEnvoyes: async (rid, did) => journal.filter((j) => j.reponseId === rid && (j.dossierId ?? 0) === (did ?? 0)).map((j) => j.type as 'j3' | 'h24'),
-    lienSigne: async (cle, dureeS) => { liensSignes.push({ cle, dureeS }); return `https://s3/signed?cle=${cle}`; },
+    lienPiece: (pieceId) => { liensPieces.push(pieceId); return `https://app.exemple.fr/admin/permis/piece/reponse/${pieceId}?telecharger=1`; },
     lireContenuPiece: async (cle) => { contenusLus.push(cle); return Buffer.from('XX'); },
     envoyer: async (m) => { if (opts.envoyerThrows) throw new Error('SMTP down'); envois.push({ sujet: m.sujet, corps: m.corps, attachments: m.attachments }); },
     journaliser: async (e) => { journal.push({ reponseId: e.reponseId, dossierId: e.dossierId, type: e.type, enRetard: e.enRetard }); },
   };
-  return { deps, journal, envois, liensSignes, contenusLus };
+  return { deps, journal, envois, liensPieces, contenusLus };
 }
 
 describe('G1 — executerAlerteGedAuto : preuves fondateur', () => {
@@ -67,17 +66,17 @@ describe('G1 — executerAlerteGedAuto : preuves fondateur', () => {
     expect(h.journal.map((j) => j.type).sort()).toEqual(['h24', 'j3']);
   });
 
-  it('une pièce au-dessus du seuil produit un LIEN SIGNÉ de durée suffisante (≥ 72 h), pas un échec SMTP', async () => {
-    const lourde = cand({ aLienPerissable: false, liensPerissables: [], pieces: [{ nomFichier: 'gros.zip', tailleOctets: 30 * 1024 * 1024, cleStockage: 'entrantes/1/gros.zip', typeMime: 'application/zip', motifNonStocke: null }] });
+  it('une pièce au-dessus du seuil produit un LIEN vers la pièce servie par l’application, pas un échec SMTP', async () => {
+    const lourde = cand({ aLienPerissable: false, liensPerissables: [], pieces: [{ id: 77, nomFichier: 'gros.zip', tailleOctets: 30 * 1024 * 1024, cleStockage: 'entrantes/1/gros.zip', typeMime: 'application/zip', motifNonStocke: null }] });
     const h = harness([lourde], { maintenant: APRES_J3 });
     const b = await executerAlerteGedAuto(h.deps);
     expect(b.envoyees).toBe(1);
     expect(b.erreurs).toBe(0);                       // AUCUN échec SMTP (la grosse pièce n'est pas jointe)
-    expect(h.liensSignes).toHaveLength(1);
-    expect(h.liensSignes[0].dureeS).toBeGreaterThanOrEqual(DUREE_LIEN_SIGNE_MIN_S); // ≥ 72 h
+    expect(h.liensPieces).toEqual([77]);             // l'identifiant de la pièce, jamais sa clé de stockage
     expect(h.contenusLus).toHaveLength(0);           // pas de lecture pour joindre : on a lié
     expect(h.envois[0].attachments).toHaveLength(0); // rien joint (trop lourd)
-    expect(h.envois[0].corps).toContain('https://s3/signed?cle=entrantes/1/gros.zip');
+    expect(h.envois[0].corps).toContain('https://app.exemple.fr/admin/permis/piece/reponse/77?telecharger=1');
+    expect(h.envois[0].corps).not.toContain('entrantes/1/gros.zip'); // la clé ne sort pas
   });
 
   it('une alerte dont le seuil est passé pendant une interruption part à la passe suivante et est marquée EN RETARD', async () => {
@@ -90,7 +89,7 @@ describe('G1 — executerAlerteGedAuto : preuves fondateur', () => {
   });
 
   it('petite pièce → jointe (relue du stockage) ; désactivé / sans e-mail → rien', async () => {
-    const petite = cand({ aLienPerissable: false, liensPerissables: [], pieces: [{ nomFichier: 'a.pdf', tailleOctets: 1024, cleStockage: 'entrantes/1/a.pdf', typeMime: 'application/pdf', motifNonStocke: null }] });
+    const petite = cand({ aLienPerissable: false, liensPerissables: [], pieces: [{ id: 5, nomFichier: 'a.pdf', tailleOctets: 1024, cleStockage: 'entrantes/1/a.pdf', typeMime: 'application/pdf', motifNonStocke: null }] });
     const h = harness([petite], { maintenant: APRES_J3 });
     await executerAlerteGedAuto(h.deps);
     expect(h.contenusLus).toEqual(['entrantes/1/a.pdf']);
@@ -103,7 +102,7 @@ describe('G1 — executerAlerteGedAuto : preuves fondateur', () => {
 
   it('T7-B — pièce NON stockée (cle_stockage null) → corps « NON récupérée » + motif, JAMAIS « aucune perte possible »', async () => {
     const refusee = cand({ aLienPerissable: false, liensPerissables: [], pieces: [
-      { nomFichier: 'plan.pdf', tailleOctets: 60 * 1024 * 1024, cleStockage: null, typeMime: 'application/pdf', motifNonStocke: 'pièce trop volumineuse : 60 Mo (maximum 50 Mo)' },
+      { id: 6, nomFichier: 'plan.pdf', tailleOctets: 60 * 1024 * 1024, cleStockage: null, typeMime: 'application/pdf', motifNonStocke: 'pièce trop volumineuse : 60 Mo (maximum 50 Mo)' },
     ] });
     const h = harness([refusee], { maintenant: APRES_J3 });
     const b = await executerAlerteGedAuto(h.deps);
@@ -112,5 +111,20 @@ describe('G1 — executerAlerteGedAuto : preuves fondateur', () => {
     expect(h.envois[0].attachments).toHaveLength(0);  // rien joint
     expect(h.envois[0].corps).toContain('plan.pdf — NON récupérée (pièce trop volumineuse : 60 Mo (maximum 50 Mo))');
     expect(h.envois[0].corps).not.toContain('aucune perte possible');
+  });
+});
+
+describe('LOT PIECES-PERMIS-SERVIES — le lien réel d’une pièce lourde', () => {
+  afterEach(() => { vi.unstubAllEnvs(); });
+  it('URL ABSOLUE sur SVAV_URL_PUBLIQUE vers la route de l’application, en téléchargement forcé ; jamais l’endpoint S3', () => {
+    vi.stubEnv('SVAV_URL_PUBLIQUE', 'https://app.exemple.fr/');
+    vi.stubEnv('S3_ENDPOINT', 'http://127.0.0.1:9000');
+    const url = depsReellesAlerteGed().lienPiece(42);
+    expect(url).toBe('https://app.exemple.fr/admin/permis/piece/reponse/42?telecharger=1');
+    expect(url).not.toContain('127.0.0.1:9000');
+  });
+  it('sans SVAV_URL_PUBLIQUE : le repli de la Gestion, http://localhost:3000', () => {
+    vi.stubEnv('SVAV_URL_PUBLIQUE', undefined as unknown as string);
+    expect(depsReellesAlerteGed().lienPiece(42)).toBe('http://localhost:3000/admin/permis/piece/reponse/42?telecharger=1');
   });
 });

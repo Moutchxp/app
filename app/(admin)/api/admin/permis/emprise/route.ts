@@ -7,6 +7,7 @@ import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan, type Ajustement } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
+import { cheminPiecePermis } from '../../../../../lib/permis/piecePermisServie'; // LOT PIECES-PERMIS-SERVIES
 import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf, lireInclusionsBestOf, inclurePageBestOf, desinclurePageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo'; // LOT 61 (exclusions) + LOT 92 (inclusions)
 import { lireDeblocagesTracable, estPageDebloquee, debloquerPageTracable, reverrouillerPageTracable } from '../../../../../lib/permis/pageTracableManuelRepo'; // DÉBLOCAGE MANUEL — pages rendues traçables à la main (3e miroir 190/194)
 import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction'; // LOT 58 — une analyse à la fois par dossier
@@ -30,7 +31,7 @@ import { calculerBestOf, estPiecePdf } from '../../../../../lib/permis/bestOfCal
  * PROJ-2 / PROJ-2b — /api/admin/permis/emprise : tracé manuel assisté d'une emprise RECONSTITUÉE, calée sur la parcelle, PAR BÂTIMENT.
  * GET ?dossierId=N → pièces PDF de la GED (choix), emprises déjà tracées (avec corps_id), projections IGNORÉES, et contexte.
  * POST { action } :
- *   'signer_piece' {pieceId}                → URL SIGNÉE inline de la pièce (rendu PDF client) ; la clé de stockage ne sort jamais.
+ *   'signer_piece' {pieceId}                → adresse (relative) de la pièce servie par l'application, inline (rendu PDF client) ; la clé ne sort jamais.
  *   'enregistrer' {dossierId, corpsId, libelle, pieceId, page, anneauPlan, paires, ratioDeclare}
  *                                           → 🔴 la GÉOMÉTRIE est recalculée CÔTÉ SERVEUR (similitude autoritative sur `paires`),
  *                                             jamais reçue du client ; enregistre UNE reconstitution (jamais une mesure), liée au bâtiment.
@@ -182,8 +183,9 @@ export async function POST(request: Request): Promise<Response> {
       if (!Number.isInteger(body.pieceId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       const piece = await lireCleTelechargeable(body.pieceId as number, 'dossier');
       if (!piece) return Response.json({ erreur: 'pièce introuvable' }, { status: 404 });
-      const { urlSignee } = await import('../../../../../lib/stockage'); // import dynamique : @aws-sdk hors du graphe statique
-      return Response.json({ url: await urlSignee(piece.cle, undefined, {}) }); // inline (le client ajoute #page=N, fragment jamais signé)
+      // LOT PIECES-PERMIS-SERVIES — l'adresse RELATIVE de la route qui sert la pièce (plus d'URL présignée, injoignable en
+      //   production) ; affichage inline, le client lit le PDF (pdf.js) ou y ajoute #page=N. La clé ne sort jamais.
+      return Response.json({ url: cheminPiecePermis('dossier', body.pieceId as number) });
     }
 
     const dossierId = coercerDossierId(body.dossierId);

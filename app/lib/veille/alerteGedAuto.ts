@@ -10,14 +10,15 @@
  */
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
+import { urlAbsoluePiecePermis } from '../permis/piecePermisServie';
 import {
-  expirationEffective, alertesDues, pieceEstLourde, dureeLienSigne, sujetAlerte, composerCorpsForward,
+  expirationEffective, alertesDues, pieceEstLourde, sujetAlerte, composerCorpsForward,
   type TypeAlerteGed, type ContexteAlerte, type PieceForward,
 } from './alerteGed';
 
 /** Une pièce d'une réponse (métadonnées ; le contenu est relu à la demande via le stockage). `motifNonStocke` non nul ⟺ pièce
  *  NON récupérée (cleStockage NULL) : T7-B — jamais annoncée « sauvegardée ». */
-export interface PieceCandidate { nomFichier: string; tailleOctets: number | null; cleStockage: string | null; typeMime: string | null; motifNonStocke: string | null }
+export interface PieceCandidate { id: number; nomFichier: string; tailleOctets: number | null; cleStockage: string | null; typeMime: string | null; motifNonStocke: string | null }
 
 /** Un couple (réponse × permis) à surveiller — ou (réponse × NULL) pour une réponse non rattachée porteuse d'un lien. */
 export interface CandidatAlerteGed {
@@ -41,7 +42,7 @@ export interface DepsAlerteGed {
   lireConfig(): Promise<{ active: boolean; email: string }>;
   chargerCandidats(): Promise<CandidatAlerteGed[]>;
   dejaEnvoyes(reponseId: number, dossierId: number | null): Promise<TypeAlerteGed[]>;
-  lienSigne(cle: string, dureeS: number): Promise<string>;          // urlSignee (jamais un GET vers la mairie)
+  lienPiece(pieceId: number): string;                               // URL ABSOLUE de la pièce servie par l'application (jamais un GET vers la mairie)
   lireContenuPiece(cle: string): Promise<Buffer>;                   // recuperer (pièce déjà chez nous)
   envoyer(mail: { to: string; sujet: string; corps: string; attachments: { filename: string; content: Buffer; contentType: string }[] }): Promise<void>;
   journaliser(e: { reponseId: number; dossierId: number | null; type: TypeAlerteGed; seuil: Date; enRetard: boolean; sujet: string }): Promise<void>;
@@ -51,7 +52,7 @@ export interface BilanAlerteGed { examinees: number; envoyees: number; enRetard:
 
 /**
  * Une passe d'alertes. Pour chaque candidat, calcule les alertes DUES (J-3/24 h, non déjà envoyées, permis non classé, dans la
- * fenêtre), compose le forward (lien EN TÊTE ; pièces petites jointes / lourdes en lien signé ≥ 72 h), envoie, journalise. Le
+ * fenêtre), compose le forward (lien EN TÊTE ; pièces petites jointes / lourdes en lien vers l'application), envoie, journalise. Le
  * journal AVANT la prochaine passe empêche tout doublon. Un échec sur une alerte est ISOLÉ (compté, on continue).
  */
 export async function executerAlerteGedAuto(deps: DepsAlerteGed): Promise<BilanAlerteGed> {
@@ -70,14 +71,15 @@ export async function executerAlerteGedAuto(deps: DepsAlerteGed): Promise<BilanA
 
     for (const due of dues) {
       try {
-        // Pièces : joindre les petites (relues du stockage), lier les lourdes (URL signée ≥ temps restant, plancher 72 h).
+        // Pièces : joindre les petites (relues du stockage), lier les lourdes. LOT PIECES-PERMIS-SERVIES : le lien est celui de la
+        //   route de l'application (sans session → page de connexion), plus une URL présignée — injoignable en production.
         const attachments: { filename: string; content: Buffer; contentType: string }[] = [];
         const piecesForward: PieceForward[] = [];
         for (const p of c.pieces) {
           // T7-B — pièce NON récupérée (cle_stockage NULL) : on ne l'a PAS chez nous → jamais « sauvegardée », on porte le motif.
           if (p.cleStockage === null) { piecesForward.push({ nomFichier: p.nomFichier, recuperee: false, jointe: false, lienSigne: null, motif: p.motifNonStocke }); continue; }
           if (pieceEstLourde(p.tailleOctets)) {
-            const url = await deps.lienSigne(p.cleStockage, dureeLienSigne(expiration, maintenant));
+            const url = deps.lienPiece(p.id);
             piecesForward.push({ nomFichier: p.nomFichier, recuperee: true, jointe: false, lienSigne: url, motif: null });
           } else {
             const contenu = await deps.lireContenuPiece(p.cleStockage);
@@ -161,14 +163,14 @@ export function depsReellesAlerteGed(): DepsAlerteGed {
       }
 
       // 3) Pièces stockées par réponse.
-      const { rows: pieces } = await query<{ reponse_id: number; nom_fichier: string; taille_octets: number | null; cle_stockage: string | null; type_mime: string | null; motif_non_stocke: string | null }>(
-        `SELECT reponse_id::int AS reponse_id, nom_fichier, taille_octets::bigint AS taille_octets, cle_stockage, type_mime, motif_non_stocke
+      const { rows: pieces } = await query<{ id: number | string; reponse_id: number; nom_fichier: string; taille_octets: number | null; cle_stockage: string | null; type_mime: string | null; motif_non_stocke: string | null }>(
+        `SELECT id, reponse_id::int AS reponse_id, nom_fichier, taille_octets::bigint AS taille_octets, cle_stockage, type_mime, motif_non_stocke
            FROM demande_reponse_piece WHERE reponse_id = ANY($1::bigint[]) ORDER BY reponse_id, id`,
         [reponseIds]);
       const piecesParReponse = new Map<number, PieceCandidate[]>();
       for (const p of pieces) {
         (piecesParReponse.get(p.reponse_id) ?? piecesParReponse.set(p.reponse_id, []).get(p.reponse_id)!)
-          .push({ nomFichier: p.nom_fichier, tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets), cleStockage: p.cle_stockage, typeMime: p.type_mime, motifNonStocke: p.motif_non_stocke });
+          .push({ id: Number(p.id), nomFichier: p.nom_fichier, tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets), cleStockage: p.cle_stockage, typeMime: p.type_mime, motifNonStocke: p.motif_non_stocke });
       }
 
       // autresPermis : les autres num_dau de la MÊME réponse (dérivé des bases).
@@ -195,11 +197,9 @@ export function depsReellesAlerteGed(): DepsAlerteGed {
         [reponseId, dossierId]);
       return rows.map((r) => r.type);
     },
-    lienSigne: async (cle, dureeS) => {
-      const { urlSignee } = await import('../stockage');
-      // N6-E — le lien d'alerte pointe vers une pièce GED (désormais aussi HTML/CSV) : téléchargement FORCÉ, jamais un rendu inline.
-      return urlSignee(cle, dureeS, { forcerTelechargement: true });
-    },
+    // N6-E — le lien d'alerte pointe vers une pièce GED (désormais aussi HTML/CSV) : téléchargement FORCÉ, jamais un rendu inline.
+    // LOT PIECES-PERMIS-SERVIES — URL ABSOLUE sur SVAV_URL_PUBLIQUE vers la route de l'application (plus d'URL présignée).
+    lienPiece: (pieceId) => urlAbsoluePiecePermis('reponse', pieceId, { telecharger: true }),
     lireContenuPiece: async (cle) => {
       const { recuperer } = await import('../stockage');
       return recuperer(cle);

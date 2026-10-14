@@ -938,15 +938,17 @@ export async function supprimerDocumentDossier(documentId: number): Promise<bool
 /**
  * A1b — lit la CLÉ de stockage d'une pièce téléchargeable, DISPATCHÉE par `source` : 'reponse' (pièce reçue par e-mail,
  * `demande_reponse_piece` — réutilise `lireClePiece`, chemin relève inchangé) ou 'dossier' (document ajouté à la main,
- * `dossier_document`). UNE SEULE fonction de lecture de clé (pas de 2e implémentation) ; la SIGNATURE reste faite par
- * `urlSignee` (lib/stockage), seul signeur. La clé ne quitte pas le serveur (seul l'appelant qui signe la reçoit).
+ * `dossier_document`). UNE SEULE fonction de lecture de clé (pas de 2e implémentation). LOT PIECES-PERMIS-SERVIES : plus
+ * aucune URL signée ne sort ; les octets sont servis par la route `/admin/permis/piece/<source>/<id>`, seule à recevoir la
+ * clé. La clé ne quitte jamais le serveur.
  */
-export async function lireCleTelechargeable(id: number, source: 'reponse' | 'dossier'): Promise<{ cle: string; nomFichier: string } | null> {
-  // N6-E — renvoie la clé ET le nom d'origine (nom de téléchargement forcé, cf. urlSignee). `null` = pièce absente / non déposée.
+export async function lireCleTelechargeable(id: number, source: 'reponse' | 'dossier'): Promise<{ cle: string; nomFichier: string; typeMime: string | null } | null> {
+  // N6-E — renvoie la clé ET le nom d'origine (nom de téléchargement forcé). `null` = pièce absente / non déposée.
+  // LOT PIECES-PERMIS-SERVIES — et le type : la route `/admin/permis/piece/<source>/<id>` sert les octets avec leur type.
   if (source === 'dossier') {
-    const { rows } = await query<{ cle_stockage: string | null; nom_fichier: string }>(`SELECT cle_stockage, nom_fichier FROM dossier_document WHERE id = $1`, [id]);
+    const { rows } = await query<{ cle_stockage: string | null; nom_fichier: string; type_mime: string | null }>(`SELECT cle_stockage, nom_fichier, type_mime FROM dossier_document WHERE id = $1`, [id]);
     const r = rows[0];
-    return r && r.cle_stockage !== null ? { cle: r.cle_stockage, nomFichier: r.nom_fichier } : null;
+    return r && r.cle_stockage !== null ? { cle: r.cle_stockage, nomFichier: r.nom_fichier, typeMime: r.type_mime ?? null } : null;
   }
   return lireClePiece(id);
 }

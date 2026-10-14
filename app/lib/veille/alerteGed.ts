@@ -17,6 +17,9 @@ export const DEFAUT_VALIDITE_JOURS = 7;
 /** Seuil au-delà duquel une pièce n'est plus jointe mais liée (marge sous le plafond Gmail de 25 Mo, en-têtes + encodage compris). */
 export const SEUIL_PIECE_LOURDE_OCTETS = 20 * 1024 * 1024;
 /** Plancher de validité d'un lien signé : 72 h — sinon le lien meurt avant que le mail soit lu (la durée par défaut d'urlSignee est 900 s). */
+// LOT PIECES-PERMIS-SERVIES (14/10/2026) — l'alerte ne signe plus d'URL : le lien pointe vers la route de l'application, qui relit
+//   le droit à chaque ouverture et n'expire pas. Cette constante et `dureeLienSigne` ne sont plus appelées en production ;
+//   conservées en attendant la décision d'Arno.
 export const DUREE_LIEN_SIGNE_MIN_S = 72 * 3600;
 /** Au-delà de cette marge après le seuil, l'alerte est « en retard » (la passe launchd est à 15 min → 1 h ne flague jamais un envoi normal). */
 export const MARGE_RETARD_MS = MS_HEURE;
@@ -105,6 +108,7 @@ export function sujetAlerte(type: TypeAlerteGed, ctx: ContexteAlerte): string {
  *  - recuperee=true, jointe=false → liée par URL signée (lourde) ;
  *  - recuperee=false              → NON récupérée (motif) : à récupérer depuis le message d'origine ou à redemander à la mairie.
  */
+/** `lienSigne` : nom historique — c'est désormais l'URL de la pièce servie par l'application (LOT PIECES-PERMIS-SERVIES). */
 export interface PieceForward { nomFichier: string; recuperee: boolean; jointe: boolean; lienSigne: string | null; motif: string | null }
 
 export interface CorpsForwardEntree {
