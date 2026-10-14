@@ -50,7 +50,14 @@ import type { SyndicauxDuBien } from '../../../../lib/gestion/partiesSyndic';
  */
 export function FriseDuBien({
   mails, occupations, evenements, maintenant, categories, bornes, onMail, tronqueeParLaLecture = false, syndicaux,
+  parClassement = false,
 }: {
+  /**
+   * 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT (Arno, 14/10/2026) — historique d'une fiche de personne : un bâton VERT si le mail
+   * est classé, ROUGE s'il est « À classer » (`aClasser`, lu sur le serveur). Faux (défaut) ⇒ les couleurs par famille,
+   * celles de l'historique d'un bien, inchangées.
+   */
+  parClassement?: boolean;
   /** TOUS les mails de la sélection — pas la page. Voir la route `/historique/frise`. */
   mails: readonly MailDeLaFrise[];
   occupations: readonly OccupationPeriode[];
@@ -171,7 +178,9 @@ export function FriseDuBien({
           {recus.map((m) => {
             const x = positionSurLaFrise(m.recuLe, mois);
             if (x === null) return null;
-            const ton = tonDeLExpediteur({ sens: 'recu', de: m.de, recuLe: m.recuLe }, categories, syndicaux);
+            const ton = parClassement && m.aClasser !== undefined
+              ? (m.aClasser ? 'rouge' : 'vert')
+              : tonDeLExpediteur({ sens: 'recu', de: m.de, recuLe: m.recuLe }, categories, syndicaux);
             return (
               <button
                 key={m.messageId}

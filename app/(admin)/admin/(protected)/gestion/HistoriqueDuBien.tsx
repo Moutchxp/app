@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+/* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — l'écran reste fixe au changement de classement (même geste que les tâches). */
+import { figerDefilement } from './defilementFige';
 /**
  * ══ 🔴🔴 LES DEUX COMPOSANTS SONT **IMPORTÉS**, JAMAIS RECOPIÉS ═══════════════════════════════════════════════════
  *
@@ -644,6 +646,8 @@ export function HistoriqueDuBien({
   const parametres = reglagesEnParametres(reglages, page, PAGE_HISTORIQUE_MAX);
   /* 🔴 LOT HISTORIQUE-PERSONNE — `lot-<clé>` pour un bien (inchangé), les échanges de la fiche sinon. */
   const cibleHisto = cibleDeLHistorique(lotCle, personne);
+  /** 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — l'écran reste fixe au changement de classement (voir l'effet plus bas). */
+  const retablirDefilement = useRef<(() => void) | null>(null);
   const parametresSansPage = reglagesEnParametres({ ...reglages }, 0, PAGE_HISTORIQUE_MAX);
   useEffect(() => { setPage(0); }, [parametresSansPage]);
 
@@ -1017,6 +1021,14 @@ export function HistoriqueDuBien({
    * que la sélection contient SANS la recherche. L'écran ne les recompte pas — il n'a qu'une page sous la main.
    */
   const totalTrouve = etat.v === 'ok' ? etat.total : 0;
+  /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — ÉCRAN FIXE : la position notée au clic est rétablie à chaque rendu de la
+     relecture (chargement, puis résultat), puis oubliée. Le navigateur ne déplace donc rien sous les yeux. */
+  useLayoutEffect(() => {
+    const r = retablirDefilement.current;
+    if (r === null) return;
+    r();
+    if (etat.v !== 'charge') retablirDefilement.current = null;
+  }, [etat]);
   const totalSelection = etat.v === 'ok' ? etat.selection : 0;
   /**
    * ══ 🔴🔴 LOT FRISE-PICTOS-PLUS-GRANDS-ET-RECHERCHE-BIEN-ENTIER, POINT 3 — UN SEUL TAMIS ════════════════════
@@ -3103,6 +3115,25 @@ export function HistoriqueDuBien({
               </div>
             </div>
 
+            {/* ══ 🔴🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT (Arno, 14/10/2026) — « CLASSEMENT » : Tous / À classer / Classés ══
+                Même contrôle segmenté que les pièces jointes, à côté d'elles. Fiche de personne SEULEMENT : l'historique
+                d'un bien ne le propose pas (accord d'Arno requis). Il se combine avec tout le reste ; l'écran reste fixe. */}
+            {personne !== null && (
+              <div className="hdb-opt" data-option="classement">
+                <span className="hdb-opt-mot">Classement</span>
+                <div className="hdb-segs" role="group" aria-label="Classement">
+                  {([['tous', 'Tous'], ['a_classer', 'À classer'], ['classes', 'Classés']] as const).map(([cle, mot]) => (
+                    <button key={cle} type="button" aria-pressed={(reglages.classement ?? 'tous') === cle}
+                      className={`hdb-petit${(reglages.classement ?? 'tous') === cle ? ' hdb-petit--actif' : ''}`}
+                      onClick={(e) => {
+                        retablirDefilement.current = figerDefilement(e.currentTarget);
+                        setReglages((r) => ({ ...r, classement: cle }));
+                      }}>{mot}</button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* ── LA PUCE « ÉVÉNEMENT OUVERT » ─────────────────────────────────────────────────────────────── */}
             <div className="hdb-opt">
               <button type="button" aria-pressed={reglages.evenementOuvert}
@@ -3166,6 +3197,13 @@ export function HistoriqueDuBien({
 
           ⚠️ RIEN TANT QU'IL N'Y A PAS DE MAIL : une frise de douze mois vides au-dessus d'un bien neuf n'apprend
           rien, et prendrait la place du message qui, lui, dit ce qu'il en est. */}
+      {/* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — la légende des deux couleurs, près de la frise (fiche de personne). */}
+      {personne !== null && friseMails.length > 0 && (
+        <p className="hdb-legende-classement" data-legende="classement">
+          <span className="hdb-legende-item"><span aria-hidden="true" className="hdb-point hdb-point--vert">●</span> classé</span>
+          <span className="hdb-legende-item"><span aria-hidden="true" className="hdb-point hdb-point--rouge">●</span> à classer</span>
+        </p>
+      )}
       {friseMails.length > 0 && (
         <FriseDuBien
           mails={friseMails}
@@ -3176,6 +3214,8 @@ export function HistoriqueDuBien({
           syndicaux={syndicaux}
           bornes={bornesDuChoix(reglages.periode)}
           tronqueeParLaLecture={friseTronquee}
+          /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — fiche de personne : vert classé, rouge à classer. Bien : inchangé. */
+          parClassement={personne !== null}
           /* 🔴 CLIC SUR UN TRAIT : « le listing défile jusqu'à ce mail et le surligne brièvement » (Arno). Le
              geste existait déjà pour le retour d'une conversation — on le réemprunte, au lieu d'en écrire un
              second qui aurait fini par surligner autrement. */
@@ -5455,4 +5495,11 @@ ${CSS_PIECES}
 /* ── LA SORTIE VERS L'ECRAN PLEIN ── discrete : en bas, en petit, alignee a droite. C'est une sortie, pas une
    action : la mettre en tete aurait propose de quitter le bloc avant de l'avoir lu. */
 .hdb-sortie{margin:.7rem 0 0;text-align:right;font-size:.74rem}
+
+/* LOT HISTORIQUE-PERSONNE-CLASSEMENT : la legende des deux couleurs de la frise d'une fiche de personne. Jetons du theme,
+   lisibles en Clair et en Sombre ; le mot porte l'information, la couleur l'appuie. */
+.hdb-legende-classement{display:flex;flex-wrap:wrap;gap:.8rem;margin:.2rem 0 0;font-size:.74rem;color:var(--color-svv-muted)}
+.hdb-point{font-size:.8rem}
+.hdb-point--vert{color:var(--color-svv-green)}
+.hdb-point--rouge{color:var(--color-svv-red)}
 `;

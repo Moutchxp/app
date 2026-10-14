@@ -11,7 +11,7 @@
  */
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { query, closePool } from '../db/client';
-import { etendreCible, pageHistorique, enteteHistorique } from './historiqueRepo';
+import { etendreCible, pageHistorique, enteteHistorique, mailsDeLaFrise, porteursDePieces } from './historiqueRepo';
 import { FILTRES_VIDES } from './historique';
 import { cibleLocataire, cibleProprietaire, cibleLot } from './rattachement';
 
@@ -132,5 +132,72 @@ describe('🔴🔴 fiche LOCATAIRE — actuel et ancien', () => {
 describe('l’historique d’un bien est intact', () => {
   it('un lot ignore « echanges » : même sélection qu’avant (par rattachement)', async () => {
     expect(await mailsDe(cibleLot(`${S}-L1`))).toEqual(await mailsDe(cibleLot(`${S}-L1`), { ...FILTRES_VIDES }));
+  });
+});
+
+/* ══ 🔴🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT (Arno, 14/10/2026) — « À classer » / « Classés », frise, période ══════════ */
+describe('🔴🔴 classement : À classer / Classés, combiné à la période ; couleurs de la frise', () => {
+  const C: Record<string, number> = {};
+  const bob = () => `bob.${S}@exemple.test`;
+  beforeAll(async () => {
+    C.p = await un(`INSERT INTO gestion_annuaire_proprietaire (wippimmo_id, nom, nom_complet, nom_normalise)
+      VALUES ($1, 'BOB', 'BOB Pierre', 'bob pierre')`, [`${S}-P9`]);
+    await query(`INSERT INTO gestion_annuaire_contact (sujet, sujet_id, sorte, valeur, valeur_brute)
+      VALUES ('proprietaire', $1, 'email', $2, $2)`, [C.p, bob()]);
+    const nous = 'gestion@exemple.test';
+    C.aClasser = await mail({ sens: 'recu', de: bob(), a: [nous], jour: '2026-03-01' });
+    C.rattache = await mail({ sens: 'recu', de: bob(), a: [nous], jour: '2026-03-02' });
+    C.horsGestion = await mail({ sens: 'envoye', de: nous, a: [bob()], jour: '2026-03-03' });
+    C.interneMail = await mail({ sens: 'envoye', de: nous, a: [bob()], jour: '2026-03-04' });
+    C.interneEchange = await mail({ sens: 'recu', de: bob(), a: [nous], jour: '2026-03-05' });
+    C.interneRetire = await mail({ sens: 'recu', de: bob(), a: [nous], jour: '2026-03-06' });
+    const fil = async (id: number) => Number((await query<{ f: string }>('SELECT fil_id::text AS f FROM gestion_message WHERE id = $1', [id])).rows[0].f);
+    await query(`INSERT INTO gestion_rattachement (message_id, cible_sorte, cible_cle, cible_libelle, origine, statut, cree_par_libelle)
+      VALUES ($1, 'lot', $2, 'Bien fictif', 'manuel', 'confirme', 'épreuve')`, [C.rattache, `${S}-L1`]);
+    await query(`INSERT INTO gestion_hors_gestion (message_id, pose_par_libelle) VALUES ($1, 'épreuve')`, [C.horsGestion]);
+    await query(`INSERT INTO gestion_message_interne (message_id, pose_par_libelle) VALUES ($1, 'épreuve')`, [C.interneMail]);
+    await query(`INSERT INTO gestion_fil_interne (fil_id, pose_par_libelle) VALUES ($1, 'épreuve')`, [await fil(C.interneEchange)]);
+    // Marque d'échange, mais la marque DU MAIL a été retirée : la règle du repli dit « pas interne ».
+    await query(`INSERT INTO gestion_fil_interne (fil_id, pose_par_libelle) VALUES ($1, 'épreuve')`, [await fil(C.interneRetire)]);
+    await query(`INSERT INTO gestion_message_interne (message_id, pose_par_libelle, retire_le, retire_par_libelle)
+      VALUES ($1, 'épreuve', now(), 'épreuve')`, [C.interneRetire]);
+  });
+  const cible = () => cibleProprietaire(`${S}-P9`);
+  it('« À classer » : ni bien, ni Hors gestion, ni Interne (marque du mail retirée ⇒ pas interne)', async () => {
+    expect(new Set(await mailsDe(cible(), { ...echanges, classement: 'a_classer' }))).toEqual(new Set([C.aClasser, C.interneRetire]));
+  });
+  it('« Classés » : tout le reste — rattaché, Hors gestion, Interne (mail ou échange)', async () => {
+    expect(new Set(await mailsDe(cible(), { ...echanges, classement: 'classes' })))
+      .toEqual(new Set([C.rattache, C.horsGestion, C.interneMail, C.interneEchange]));
+  });
+  it('combiné à la période : le compteur, la frise et les pièces suivent', async () => {
+    const f = { ...echanges, classement: 'classes' as const, du: '2026-03-03', au: '2026-03-04' };
+    expect(new Set(await mailsDe(cible(), f))).toEqual(new Set([C.horsGestion, C.interneMail]));
+    const e = await etendreCible(cible(), f);
+    if (e.etat !== 'ok') throw new Error('x');
+    expect((await enteteHistorique(e.data, f)).filtre.nbMails).toBe(2);
+    expect((await mailsDeLaFrise(e.data, f)).mails.map((m) => m.messageId).sort()).toEqual([C.horsGestion, C.interneMail].sort());
+    expect((await porteursDePieces(e.data, f)).messages).toEqual([]);
+  });
+  it('🔴 frise : chaque mail dit s’il est à classer (rouge) ou classé (vert)', async () => {
+    const e = await etendreCible(cible(), echanges);
+    if (e.etat !== 'ok') throw new Error('x');
+    const parId = new Map((await mailsDeLaFrise(e.data, echanges)).mails.map((m) => [m.messageId, m.aClasser]));
+    expect(parId.get(C.aClasser)).toBe(true);
+    expect(parId.get(C.interneRetire)).toBe(true);
+    expect(parId.get(C.rattache)).toBe(false);
+    expect(parId.get(C.interneEchange)).toBe(false);
+  });
+  it('la capsule d’une fiche de personne dit « Interne » ; celle d’un bien n’est pas touchée', async () => {
+    const e = await etendreCible(cible(), echanges);
+    if (e.etat !== 'ok') throw new Error('x');
+    const statut = new Map((await pageHistorique(e.data, echanges)).lignes.map((l) => [Number(l.messageId), l.statut]));
+    expect(statut.get(C.interneMail)).toBe('interne');
+    expect(statut.get(C.aClasser)).toBe('a_classer');
+    expect(statut.get(C.rattache)).toBe('classe');
+    // Bien : la frise ne porte pas la couleur de classement (couleurs par famille, inchangées).
+    const lot = await etendreCible(cibleLot(`${S}-L1`), { ...FILTRES_VIDES });
+    if (lot.etat !== 'ok') throw new Error('x');
+    expect((await mailsDeLaFrise(lot.data, { ...FILTRES_VIDES })).mails.every((m) => m.aClasser === undefined)).toBe(true);
   });
 });

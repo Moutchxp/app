@@ -151,6 +151,8 @@ export function cibleDepuisTexte(brut: string | null | undefined): Cible | null 
 // ── LES FILTRES ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 export type ChoixPieces = 'toutes' | 'avec' | 'sans';
+/** 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — le filtre de classement d'un historique de fiche (propriétaire, locataire). */
+export type ChoixClassement = 'tous' | 'a_classer' | 'classes';
 
 export interface FiltresHistorique {
   /** Adresses cochées. Vide = tous les interlocuteurs. */
@@ -206,6 +208,13 @@ export interface FiltresHistorique {
    * par défaut : sans lui, la sélection est exactement celle d'avant (écran historique d'un bien, d'une carte).
    */
   echanges: boolean;
+  /**
+   * ══ 🔴🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT (Arno, 14/10/2026) — « CLASSEMENT » : Tous / À classer / Classés ══════════
+   * « À classer » = mails au statut « À classer » ; « Classés » = tous les autres (rattachés à au moins un bien, auto ou
+   * manuel, Interne, Hors gestion, sans suite). Une seule définition, côté serveur (`sqlAClasser`). « tous » (défaut)
+   * ⇒ aucune condition : la requête est celle d'avant.
+   */
+  classement: ChoixClassement;
   page: number;
   taille: number;
 }
@@ -213,7 +222,7 @@ export interface FiltresHistorique {
 export const FILTRES_VIDES: FiltresHistorique = {
   interlocuteurs: [], expediteursExclus: [], du: null, au: null, pieces: 'toutes', texte: '',
   evenementOuvert: false,
-  avecProprietaire: false, avecLogements: true, grouper: false, echanges: false,
+  avecProprietaire: false, avecLogements: true, grouper: false, echanges: false, classement: 'tous',
   page: 0, taille: PAGE_HISTORIQUE,
 };
 
@@ -266,6 +275,8 @@ export function lireFiltres(p: URLSearchParams): FiltresHistorique {
     grouper: p.get('grouper') === '1',
     /* 🔴 LOT HISTORIQUE-PERSONNE — lu strictement : seul « 1 » allume la sélection par les échanges. */
     echanges: p.get('echanges') === '1',
+    /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — lu strictement : deux valeurs connues, tout le reste vaut « tous ». */
+    classement: p.get('classe') === 'a_classer' || p.get('classe') === 'classes' ? (p.get('classe') as ChoixClassement) : 'tous',
     page: entierBorne(p.get('page'), 0, 10_000),
     taille: entierBorne(p.get('taille'), PAGE_HISTORIQUE, PAGE_HISTORIQUE_MAX) || PAGE_HISTORIQUE,
   };
@@ -284,6 +295,7 @@ export function ecrireFiltres(f: FiltresHistorique): string {
   if (f.avecProprietaire) p.set('proprio', '1');
   if (!f.avecLogements) p.set('logements', '0');
   if (f.grouper) p.set('grouper', '1');
+  if (f.classement !== 'tous') p.set('classe', f.classement);
   if (f.page > 0) p.set('page', String(f.page));
   if (f.taille !== PAGE_HISTORIQUE) p.set('taille', String(f.taille));
   const s = p.toString();

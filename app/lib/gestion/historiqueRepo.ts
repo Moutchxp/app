@@ -37,6 +37,8 @@ import { nomsCherchablesAvec } from './nomUsageSql';
 import { nomBien, nomProprietaire } from './driveArbre';
 import {
   deplacementsDeMailsDisponibles, horsGestionDisponible, nomUsageDisponible, rattachementsDisponibles,
+  /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — les marques « Interne » (par échange, par mail), pour « À classer ». */
+  interneDisponible, interneDuMessageDisponible,
   /* 🔴 LOT IMAGES-INTEGREES-COMME-PIECES — la colonne `integree` (migration 296) n’est NOMMÉE que si elle existe. */
   pieceIntegreeDisponible,
   /* LOT BLOC-EVENEMENT-RATTACHE-COMPLET — categorie et urgence (migration 268), pour la capsule. */
@@ -352,6 +354,40 @@ function libelleEtat(e: string): string {
 // ── LA DÉFINITION PARTAGÉE DES MAILS DE LA CIBLE ────────────────────────────────────────────────────────────────
 
 /**
+ * ══ 🔴🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT (Arno, 14/10/2026) — « À CLASSER », ÉCRIT UNE SEULE FOIS ═══════════════════
+ * Un mail est « À classer » quand il n'est NI rattaché à un bien (lien confirmé vers une sorte de bien — la même règle
+ * que la capsule, `statutsDesMessages`), NI marqué « Hors gestion », NI « Interne » (la règle du repli : marque du mail
+ * vivante ⇒ interne ; marque du mail retirée ⇒ non, même si l'échange en porte une ; aucune ⇒ celle de l'échange), NI
+ * dans un échange classé « sans suite ». « Classés » est exactement la négation. Le filtre, la couleur des bâtons de la
+ * frise et la capsule « Interne » des historiques de fiche lisent ce même fragment.
+ * ⚠️ Chaque table n'est NOMMÉE que si sa sonde l'a vue : une migration absente vaut « aucune marque ».
+ */
+async function sqlMarqueInterne(m: string): Promise<string> {
+  const [parMail, parEchange] = await Promise.all([interneDuMessageDisponible(), interneDisponible()]);
+  const vivante = parMail
+    ? `EXISTS (SELECT 1 FROM gestion_message_interne mi WHERE mi.message_id = ${m}.id AND mi.retire_le IS NULL)` : 'false';
+  const connue = parMail ? `EXISTS (SELECT 1 FROM gestion_message_interne mk WHERE mk.message_id = ${m}.id)` : 'false';
+  const echange = parEchange
+    ? `EXISTS (SELECT 1 FROM gestion_fil_interne fi WHERE fi.fil_id = ${m}.fil_id AND fi.retire_le IS NULL)` : 'false';
+  return `(${vivante} OR (NOT ${connue} AND ${echange}))`;
+}
+
+export async function sqlAClasser(m: string): Promise<string> {
+  const horsGestion = await horsGestionDisponible();
+  return `(NOT EXISTS (SELECT 1 FROM gestion_rattachement rk
+                        WHERE rk.message_id = ${m}.id AND rk.statut = 'confirme' AND rk.cible_sorte IN (${sqlSortesBien()}))
+     AND ${horsGestion
+    ? `NOT EXISTS (SELECT 1 FROM gestion_hors_gestion hk WHERE hk.message_id = ${m}.id AND hk.retire_le IS NULL)` : 'true'}
+     AND NOT ${await sqlMarqueInterne(m)}
+     AND NOT EXISTS (SELECT 1 FROM gestion_fil fk WHERE fk.id = ${m}.fil_id AND fk.etat = 'sans_suite'))`;
+}
+
+/** Le prédicat, seulement quand le filtre de classement est posé (sinon chaîne vide : la requête d'avant). */
+async function sqlAClasserSi(f: FiltresHistorique): Promise<string> {
+  return f.classement === 'tous' ? '' : sqlAClasser('m');
+}
+
+/**
  * LE `WITH` QUI DIT « CES MAILS-LÀ », une fois pour les trois questions de l'écran.
  *
  * Les paramètres sont TOUJOURS dans le même ordre : $1 lots, $2 propriétaires, $3 événements. La suite du SQL ajoute
@@ -541,6 +577,8 @@ function conditions(
    * migration 286, la recherche porte sur le seul nom reçu, et la requête est celle d'avant.
    */
   avecNomUsage = false,
+  /** 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — le prédicat « À classer » (`sqlAClasser('m')`), quand le filtre est posé. */
+  aClasser = '',
 ): { sql: string; params: unknown[] } {
   const bouts: string[] = [];
   const params: unknown[] = [];
@@ -663,6 +701,9 @@ function conditions(
    * filtre. C'est ce désaccord-là qu'Arno ferme.
    */
   if (f.evenementOuvert) bouts.push(sqlFiltreEvenementOuvert(deplacements));
+  /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — « À classer » ou « Classés » (= tout le reste), sans paramètre lié. */
+  if (aClasser !== '' && f.classement === 'a_classer') bouts.push(aClasser);
+  if (aClasser !== '' && f.classement === 'classes') bouts.push(`NOT ${aClasser}`);
   return { sql: bouts.length === 0 ? '' : ` AND ${bouts.join(' AND ')}`, params };
 }
 
@@ -720,7 +761,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   // 🔴 LA SONDE AVANT LES CONDITIONS : le filtre « Événement ouvert » en a besoin (voir `conditions`).
-  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
+  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible(), await sqlAClasserSi(f));
   const cte = cteMessages({
     avecCarte: evs.length > 0, deplacements, grouper: f.grouper, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte,
   });
@@ -789,7 +830,9 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
   /* 🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET — type, urgence, ouverture, dernière étape : UNE requête pour la page. */
   await enrichirEvenements([evenements, evenementsParBien]);
   // 🔴 … et la capsule de statut de chaque MAIL, par la MÊME fonction pure que la boîte.
-  const statuts = await statutsDesMessages(gardees.map((r) => Number(r.message_id)));
+  /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — sur une fiche de personne, la capsule dit aussi « Interne » (la marque que le
+     filtre « Classés » compte) ; ailleurs, la capsule d'avant, à l'identique. */
+  const statuts = await statutsDesMessages(gardees.map((r) => Number(r.message_id)), parEchanges(c));
   /**
    * 🔴🔴 LOT CONTACTS-EXTERNES — les personnes que chaque mail concerne AUSSI, et la mention « via … ». UNE
    * requête pour la page entière, jamais une par ligne. Carte VIDE sans la migration 293 : la fonction sort
@@ -867,6 +910,7 @@ export async function pageHistorique(c: CibleEtendue, f: FiltresHistorique): Pro
  */
 async function statutsDesMessages(
   messageIds: readonly number[],
+  avecInterne = false,
 ): Promise<Map<number, { statut: CapsuleStatut; detail: string | null }>> {
   const out = new Map<number, { statut: CapsuleStatut; detail: string | null }>();
   const uniques = [...new Set(messageIds)];
@@ -877,10 +921,12 @@ async function statutsDesMessages(
   if (!avecRattachements) return out;
   const { rows } = await query<{
     message_id: string; n: number; humain: boolean | null; detail: string | null; hg: boolean | null;
+    interne: boolean | null;
   }>(
     `SELECT m.id AS message_id,
             coalesce(cl.n, 0)::int AS n, cl.humain, cl.detail,
-            ${avecHorsGestion ? 'hg.marque' : 'NULL::boolean'} AS hg
+            ${avecHorsGestion ? 'hg.marque' : 'NULL::boolean'} AS hg,
+            ${avecInterne ? await sqlMarqueInterne('m') : 'NULL::boolean'} AS interne
        FROM gestion_message m
        LEFT JOIN LATERAL (
          SELECT count(*)::int AS n,
@@ -901,7 +947,10 @@ async function statutsDesMessages(
       WHERE m.id = ANY($1::bigint[])`, [uniques]);
   for (const r of rows) {
     out.set(Number(r.message_id), {
-      statut: capsuleStatut({ nbActifs: r.n, parUnHumain: r.humain === true, horsGestion: r.hg === true }),
+      statut: capsuleStatut({
+        nbActifs: r.n, parUnHumain: r.humain === true, horsGestion: r.hg === true,
+        ...(avecInterne ? { interne: r.interne === true } : {}),
+      }),
       detail: r.detail,
     });
   }
@@ -1015,7 +1064,7 @@ export async function porteursDePieces(
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte });
   /* 🔴 LA PAGINATION N'A PAS DE SENS ICI : on veut la sélection ENTIÈRE. Les champs `page` et `taille` des
      filtres sont donc ignorés — ils ne font pas partie de `conditions`, qui ne lit que les tamis. */
-  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
+  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible(), await sqlAClasserSi(f));
   const pLimite = base.length + 1 + cond.params.length;
 
   const { rows } = await query<{
@@ -1488,10 +1537,10 @@ export async function enteteHistorique(c: CibleEtendue, f: FiltresHistorique): P
   const avecNomUsage = await nomUsageDisponible();
   const cherche = f.texte.trim() !== '';
   const [filtre, total, sansRecherche] = await Promise.all([
-    compter(conditions(f, decalage(c), deplacements, avecNomUsage)),
+    compter(conditions(f, decalage(c), deplacements, avecNomUsage, await sqlAClasserSi(f))),
     compter({ sql: '', params: [] }),
     cherche
-      ? compter(conditions({ ...f, texte: '' }, decalage(c), deplacements, avecNomUsage))
+      ? compter(conditions({ ...f, texte: '' }, decalage(c), deplacements, avecNomUsage, await sqlAClasserSi(f)))
       : Promise.resolve(null),
   ]);
   return { filtre, total, sansRecherche: sansRecherche ?? filtre };
@@ -1516,7 +1565,7 @@ export async function interlocuteursHistorique(
   const base = baseParams(c);
   const deplacements = await deplacementsDeMailsDisponibles();
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte });
-  const cond = conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }, decalage(c), deplacements, await nomUsageDisponible());
+  const cond = conditions({ ...f, interlocuteurs: [], expediteursExclus: [] }, decalage(c), deplacements, await nomUsageDisponible(), await sqlAClasserSi(f));
   const pLimite = base.length + 1 + cond.params.length;
 
   /**
@@ -1809,6 +1858,8 @@ export interface MailDeLaFriseRepo {
   de: string;
   deNom: string | null;
   objet: string | null;
+  /** 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — fiche de personne seulement : « À classer » (rouge) ou classé (vert). */
+  aClasser?: boolean;
 }
 
 export async function mailsDeLaFrise(
@@ -1818,16 +1869,18 @@ export async function mailsDeLaFrise(
   const deplacements = await deplacementsDeMailsDisponibles();
   const [, , evs] = clesDe(c);
   const cte = cteMessages({ avecCarte: evs.length > 0, deplacements, grouper: false, avecLocataire: estLocataire(c), echanges: parEchanges(c), sortePersonne: c.cible.sorte });
-  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible());
+  const cond = conditions(f, decalage(c), deplacements, await nomUsageDisponible(), await sqlAClasserSi(f));
   const pLimite = base.length + 1 + cond.params.length;
 
   const { rows } = await query<{
     message_id: string; recu_le: string; sens: string; de: string; de_nom: string | null; objet: string | null;
+    a_classer: boolean | null;
   }>(
     `WITH ${cte}
      SELECT m.id AS message_id,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le,
-            m.sens, m.de_adresse AS de, m.de_nom, m.objet
+            m.sens, m.de_adresse AS de, m.de_nom, m.objet,
+            ${parEchanges(c) ? await sqlAClasser('m') : 'NULL::boolean'} AS a_classer
        FROM choisis ch
        JOIN gestion_message m ON m.id = ch.message_id
       WHERE true${cond.sql}
@@ -1843,6 +1896,7 @@ export async function mailsDeLaFrise(
       messageId: Number(r.message_id), recuLe: r.recu_le,
       sens: r.sens === 'envoye' ? 'envoye' : 'recu',
       de: r.de, deNom: r.de_nom, objet: r.objet,
+      ...(r.a_classer === null ? {} : { aClasser: r.a_classer }),
     })),
   };
 }

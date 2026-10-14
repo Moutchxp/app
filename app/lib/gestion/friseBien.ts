@@ -46,6 +46,8 @@ export interface MailDeLaFrise {
   de: string;
   deNom: string | null;
   objet: string | null;
+  /** 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — fiche de personne seulement : « À classer » (rouge) ou classé (vert). */
+  aClasser?: boolean;
 }
 
 /** Les champs d'une date en heure de Paris. Écrit ici parce que `ecran.ts` ne les exporte pas. */

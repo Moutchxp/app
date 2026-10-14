@@ -10,7 +10,7 @@ import type { PersonneDuMail } from './adressesMessage';
 import { estAdresseInterne } from './adresseInterne';
 import {
   ecrireFiltres, FILTRES_VIDES, jourValide, libelleInterlocuteur, PAGE_HISTORIQUE, PORTEURS_DE_PIECES_MAX,
-  type ChoixPieces, type FiltresHistorique, type Interlocuteur, type LigneHistorique,
+  type ChoixPieces, type ChoixClassement, type FiltresHistorique, type Interlocuteur, type LigneHistorique,
   type MessagePorteurDePieces,
 } from './historique';
 import type { MessagePorteur, OrdrePieces } from './piecesConversation';
@@ -143,6 +143,11 @@ export interface Reglages {
    */
   agenceEcartee: string[];
   pieces: ChoixPieces;
+  /**
+   * 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — « CLASSEMENT » Tous / À classer / Classés. FACULTATIF et absent sur un bien :
+   * l'historique d'un bien ne le propose pas (accord d'Arno requis), et ses réglages restent ceux d'avant.
+   */
+  classement?: ChoixClassement;
   ordre: OrdreFil;
   /**
    * « Regrouper par conversation ». DÉCOCHÉ par défaut : le fil est chronologique, c'est sa raison d'être.
@@ -204,7 +209,8 @@ export function reglagesActifs(r: Reglages): boolean {
   return r.periode.sorte !== 'tous' || r.parties.length > 0 || r.agenceEcartee.length > 0
     || r.pieces !== 'toutes'
     || r.ordre !== ORDRE_FIL_DEFAUT || r.grouper
-    || r.texte.trim() !== '' || r.evenementOuvert;
+    || r.texte.trim() !== '' || r.evenementOuvert
+    || (r.classement ?? 'tous') !== 'tous';
 }
 
 /** L'inversion de l'ordre, écrite une fois. PUR. */
@@ -1803,6 +1809,7 @@ export function reglagesEnFiltres(r: Reglages, page = 0, taille = PAGE_HISTORIQU
      */
     texte: r.texte,
     evenementOuvert: r.evenementOuvert,
+    classement: r.classement ?? 'tous',
     /**
      * 🔴 `grouper` RESTE **FAUX**, TOUJOURS, ET CE N'EST PAS UN OUBLI. Le `grouper=1` de la route regroupe par
      * CIBLE (l'historique d'un propriétaire, séparé par logement) ; le réglage « Regrouper par conversation »

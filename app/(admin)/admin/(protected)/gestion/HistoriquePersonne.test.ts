@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { HistoriquePersonne } from './HistoriquePersonne';
 import { HistoriqueDuBien, cibleDeLHistorique, motOccupation } from './HistoriqueDuBien';
 import type { LigneHistorique } from '../../../../lib/gestion/historique';
+import { SANS_EVENEMENT, SANS_LOCATAIRE_CONNU } from '../../../../lib/gestion/historiqueBien';
 
 /**
  * ══ 🔴🔴 LOT HISTORIQUE-PERSONNE (Arno, 14/10/2026) — L'HISTORIQUE D'UNE FICHE PROPRIÉTAIRE / LOCATAIRE, À L'ÉCRAN ═══
@@ -42,7 +43,12 @@ beforeEach(() => {
       return reponse({ etat: 'ok', porteurs: [{ messageId: 2, filId: 20, recuLe: LIGNES[0].recuLe, sens: 'envoye', de: 'gestion@exemple.test', deNom: null,
         objet: 'Travaux', pieces: LIGNES[0].pieces }], tronque: false, total: 1 });
     }
-    if (u.includes('/historique/frise')) return reponse({ etat: 'ok', mois: [] });
+    if (u.includes('/historique/frise')) {
+      return reponse({ etat: 'ok', data: { tronque: false, mails: [
+        { messageId: 1, recuLe: '2026-02-01T09:00:00Z', sens: 'recu', de: 'c.jullien@exemple.test', deNom: null, objet: 'Quittance', aClasser: true },
+        { messageId: 3, recuLe: '2026-03-01T09:00:00Z', sens: 'recu', de: 'c.jullien@exemple.test', deNom: null, objet: 'Travaux', aClasser: false },
+      ] } });
+    }
     if (u.includes('/pieces-drive')) return reponse({ etat: 'ok', depots: [], emplacements: [] });
     const locataire = u.includes('cible=locataire');
     return reponse({ etat: 'ok', data: {
@@ -172,5 +178,78 @@ describe('PUR', () => {
   });
   it('le composant est exporté une seule fois (même composant pour les trois historiques)', () => {
     expect(typeof HistoriqueDuBien).toBe('function');
+  });
+});
+
+/* ══ 🔴🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT (Arno, 14/10/2026) ══════════════════════════════════════════════════════════ */
+const changer = async (el: HTMLInputElement, valeur: string) => {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  await act(async () => { setter?.call(el, valeur); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await calmer();
+};
+const requetes = (route: RegExp) => appels.filter((u) => route.test(u) && !/taille=1(&|$)/.test(u));
+describe('🔴 période : « Dates personnalisées » ouvre Du / Au, et tout suit', () => {
+  it('Du / Au filtrent la liste, la frise et les pièces ; le compteur est celui du serveur', async () => {
+    await monter('proprietaire', '79');
+    expect(hote.querySelector('input[type="date"]')).toBeNull();
+    await cliquer(parMot('Dates personnalisées'));
+    const [du] = [...hote.querySelectorAll<HTMLInputElement>('input[type="date"]')];
+    expect(du).toBeDefined();
+    await changer(du, '2026-03-01');
+    expect(requetes(/\/historique\?/).some((u) => u.includes('du=2026-03-01'))).toBe(true);
+    expect(requetes(/\/historique\/frise/).some((u) => u.includes('du=2026-03-01'))).toBe(true);
+    expect(requetes(/\/historique\/pieces/).some((u) => u.includes('du=2026-03-01'))).toBe(true);
+    expect(hote.querySelector('#hdb-titre .gst-compte')?.textContent).toBe('2');
+    await cliquer(parMot('Tous les échanges'));
+    expect(requetes(/\/historique\?/).at(-1)).not.toContain('du=');
+  });
+  it('les phrases propres à un bien n’y sont pas', async () => {
+    await monter('proprietaire', '79');
+    expect(texte()).not.toContain(SANS_LOCATAIRE_CONNU);
+    expect(texte()).not.toContain(SANS_EVENEMENT);
+  });
+});
+describe('🔴 « CLASSEMENT » Tous / À classer / Classés, à côté des pièces jointes', () => {
+  it('le groupe est là, même style que les pièces ; chaque choix part au serveur (liste, frise, pièces)', async () => {
+    await monter('proprietaire', '79');
+    const groupe = hote.querySelector('[data-option="classement"]') as HTMLElement;
+    expect(groupe.querySelector('.hdb-opt-mot')?.textContent).toBe('Classement');
+    expect([...groupe.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Tous', 'À classer', 'Classés']);
+    expect(groupe.querySelector('.hdb-petit--actif')?.textContent).toBe('Tous');
+    const pieces = [...hote.querySelectorAll('.hdb-opt')].find((o) => o.querySelector('.hdb-opt-mot')?.textContent === 'Pièces jointes')!;
+    expect(pieces.nextElementSibling).toBe(groupe);
+    await cliquer([...groupe.querySelectorAll('button')][1]);
+    for (const r of [/\/historique\?/, /\/historique\/frise/, /\/historique\/pieces/]) {
+      expect(requetes(r).some((u) => u.includes('classe=a_classer'))).toBe(true);
+    }
+    await cliquer([...groupe.querySelectorAll('button')][2]);
+    expect(requetes(/\/historique\?/).at(-1)).toContain('classe=classes');
+    // Combiné : pièces « Avec » en plus.
+    await cliquer(parMot('Avec'));
+    expect(requetes(/\/historique\?/).at(-1)).toMatch(/classe=classes/);
+    expect(requetes(/\/historique\?/).at(-1)).toMatch(/pieces=avec/);
+  });
+  it('🔴 frise : bâton ROUGE à classer, VERT classé, et la légende « ● classé ● à classer »', async () => {
+    await monter('proprietaire', '79');
+    const traits = [...hote.querySelectorAll('.frs-trait')].map((t) => t.className);
+    expect(traits.some((c) => c.includes('frs-trait--rouge'))).toBe(true);
+    expect(traits.some((c) => c.includes('frs-trait--vert'))).toBe(true);
+    expect(hote.querySelector('[data-legende="classement"]')?.textContent).toContain('classé');
+    expect(hote.querySelector('[data-legende="classement"]')?.textContent).toContain('à classer');
+  });
+});
+describe('🔴 l’historique d’un BIEN est inchangé', () => {
+  it('ni groupe « Classement », ni légende de classement ; la frise garde ses couleurs par famille', async () => {
+    await act(async () => {
+      racine.render(createElement(HistoriqueDuBien, {
+        lotCle: '155', maintenant: MAINTENANT, occupations: [], categories: new Map([['c.jullien@exemple.test', 'proprietaire']]),
+      } as never));
+    });
+    await calmer();
+    expect(hote.querySelector('[data-option="classement"]')).toBeNull();
+    expect(hote.querySelector('[data-legende="classement"]')).toBeNull();
+    expect(appels.filter((u) => /\/historique(\/frise|\/pieces)?\?/.test(u)).every((u) => !u.includes('classe='))).toBe(true);
+    // Les deux mails de la frise viennent du propriétaire : rouge par FAMILLE (propriétaire), jamais vert de classement.
+    expect([...hote.querySelectorAll('.frs-trait')].every((t) => t.className.includes('frs-trait--rouge'))).toBe(true);
   });
 });
