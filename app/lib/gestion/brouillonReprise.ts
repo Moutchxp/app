@@ -1,5 +1,6 @@
 import type { Brouillon, CibleBrouillon, VoieRedaction } from './redaction';
 import { texteVersHtml } from './htmlMail';
+import type { RattachementBrouillon } from './rattachementBrouillon';
 
 /**
  * LOT APERCU-PAGE1 + BROUILLONS — ROUVRIR UN BROUILLON DANS L'ÉDITEUR.
@@ -45,6 +46,8 @@ export interface BrouillonEnregistre {
    * classer s'applique à la réouverture. On ne reconstruit jamais un classement qu'on n'a pas lu.
    */
   horsGestion?: boolean;
+  /** 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la portée et les biens du suivi de fond décochés (migration 351). */
+  rattachement?: RattachementBrouillon | null;
 }
 
 /** Le brouillon prêt pour l'éditeur : la forme de l'écran, plus son identifiant et la marque « repris ». */
@@ -88,6 +91,8 @@ export function reprendreBrouillon(b: BrouillonEnregistre): BrouillonRepris {
     // 🔴 LOT CLASSER-AVANT-ENVOI — et l'héritage avec, sans quoi rouvrir un brouillon demanderait de reclasser
     //   un courrier déjà classé.
     horsGestion: b.horsGestion === true,
+    // 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la portée et les biens du fond décochés reviennent tels qu'ils ont été laissés.
+    ...(b.rattachement ? { rattachement: { position: b.rattachement.position, retires: [...b.rattachement.retires] } } : {}),
   };
 }
 

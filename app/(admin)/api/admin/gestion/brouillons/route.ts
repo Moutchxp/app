@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { reprendrePiecesDuMessage } from '../../../../../lib/gestion/brouillonPieceRepo';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
+import { rattachementRecu } from '../../../../../lib/gestion/rattachementBrouillon';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
 import { decouperAdresses, type CibleBrouillon } from '../../../../../lib/gestion/redaction';
 import {
@@ -218,6 +219,11 @@ export async function POST(request: Request): Promise<Response> {
        * classer un courrier. Sans la migration 289, le dépôt l'ignore sans rien casser.
        */
       horsGestion: corps.horsGestion === true,
+      /**
+       * 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LA PORTÉE ET LES BIENS DU SUIVI DE FOND DÉCOCHÉS, gardés avec le brouillon.
+       * Relus strictement ; absents de la demande ⇒ la colonne n'est pas touchée.
+       */
+      ...(corps.rattachement !== undefined ? { rattachement: rattachementRecu(corps.rattachement) } : {}),
     }, await auteurDeLaRequete(request));
 
     /**

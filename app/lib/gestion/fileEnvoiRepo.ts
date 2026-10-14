@@ -1,9 +1,10 @@
 import { query, withTransaction } from '../db/client';
 import { attenteAvantReprise, BAIL_SECONDES, ESSAIS_MAX } from './fileEnvoi';
 import {
-  envoiHorsGestionFileDisponible, envoiIgnoreDisponible, envoiInterneFileDisponible, fileEnvoiDisponible,
+  envoiFileRattachementDisponible, envoiHorsGestionFileDisponible, envoiIgnoreDisponible, envoiInterneFileDisponible, fileEnvoiDisponible,
 } from './schema';
 import type { LigneFile, PieceAFond } from './travailleurEnvoi';
+import { rattachementRecu, type RattachementBrouillon } from './rattachementBrouillon';
 import type { EtatPiece, MentionNonEnvoye } from './fileEnvoi';
 
 /**
@@ -115,6 +116,8 @@ export interface DemandeEnFile {
    * le genre de défaut qu'on ne reproduit jamais.
    */
   horsGestion?: boolean;
+  /** 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la portée et les biens du suivi de fond décochés (migration 351). */
+  rattachement?: RattachementBrouillon | null;
 }
 
 /** L'état d'une ligne tel que l'écran le montre. */
@@ -194,9 +197,12 @@ export async function mettreEnFile(
    * paramètre n'échoue pas : il écrit la mauvaise valeur dans la mauvaise colonne. On les POUSSE donc.
    */
   const avecHorsGestion = await envoiHorsGestionFileDisponible();
+  /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — une colonne facultative de plus (migration 351), poussée comme les autres. */
+  const avecRattachement = await envoiFileRattachementDisponible();
   const optionnelles: { nom: string; valeur: unknown }[] = [
     ...(avecInterne ? [{ nom: 'interne_demande', valeur: d.interne === true }] : []),
     ...(avecHorsGestion ? [{ nom: 'hors_gestion_demande', valeur: d.horsGestion === true }] : []),
+    ...(avecRattachement ? [{ nom: 'rattachement', valeur: d.rattachement == null ? null : JSON.stringify(d.rattachement) }] : []),
   ];
   // ⚠️ $1..$14 SONT LES COLONNES OBLIGATOIRES : les facultatives commencent donc à $15.
   const nomsOptionnels = optionnelles.map((o) => `, ${o.nom}`).join('');
@@ -461,13 +467,15 @@ export async function lireDemande(id: number): Promise<(DemandeEnFile & {
     objet: string; corps: string; corps_html: string | null; cibles: unknown;
     interne_demande: boolean | null;
     hors_gestion_demande: boolean | null;
+    rattachement: unknown;
     auteur_id: string | null; auteur_libelle: string;
   }>(
     `SELECT cle_idempotence, brouillon_id::text, fil_id::text, repond_a_message_id::text, voie,
             dest_a, dest_cc, dest_cci, objet, corps, corps_html, cibles, auteur_id::text, auteur_libelle${
     await envoiInterneFileDisponible() ? ', interne_demande' : ', NULL::boolean AS interne_demande'}${
     await envoiHorsGestionFileDisponible()
-      ? ', hors_gestion_demande' : ', NULL::boolean AS hors_gestion_demande'}
+      ? ', hors_gestion_demande' : ', NULL::boolean AS hors_gestion_demande'}${
+    await envoiFileRattachementDisponible() ? ', rattachement' : ', NULL::jsonb AS rattachement'}
        FROM gestion_envoi_file WHERE id = $1`, [id]);
   const r = rows[0];
   if (!r) return null;
@@ -482,6 +490,7 @@ export async function lireDemande(id: number): Promise<(DemandeEnFile & {
     cibles: Array.isArray(r.cibles) ? r.cibles : [],
     interne: r.interne_demande === true,
     horsGestion: r.hors_gestion_demande === true,
+    rattachement: rattachementRecu(r.rattachement),
     auteurId: r.auteur_id === null ? null : Number(r.auteur_id),
     auteurLibelle: r.auteur_libelle,
   };

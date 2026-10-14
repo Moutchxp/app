@@ -1596,6 +1596,8 @@ export function Redaction({
      * migration 289, la route l'ignore — et le bloc l'annonce.
      */
     horsGestion: b.horsGestion === true,
+    /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la portée et les biens du suivi de fond décochés, gardés avec le brouillon. */
+    rattachement: b.rattachement ?? null,
   }), []);
 
   /**
@@ -2143,6 +2145,12 @@ export function Redaction({
            * sera posé sur le message envoyé dès que la relève l'aura capturé (migration 289).
            */
           horsGestion: b.horsGestion === true ? true : undefined,
+          /**
+           * 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LE RESTE DE LA FENÊTRE (portée du suivi, biens du suivi de fond
+           * décochés). Il part TOUJOURS, même vide : c'est lui qui fait passer les biens par la fonction de « Modifier
+           * le rattachement » après l'envoi, à la position par défaut de la fenêtre si personne n'a touché la glissière.
+           */
+          rattachement: b.rattachement ?? { position: null, retires: [] },
         }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
@@ -2592,18 +2600,33 @@ export function Redaction({
         <RattachementsDuFil
           brouillon={{
             filId: brouillon.filId ?? null, messageId: brouillon.repondALeMessageId ?? null,
-            reponse: brouillon.voie === 'repondre' || brouillon.voie === 'repondre_tous',
+            /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — le bloc « Biens actuellement suivis » dès qu'il y a une conversation
+               (Répondre, Répondre à tous, Transférer) ; jamais pour un Nouveau message. */
+            conversation: (brouillon.filId ?? null) !== null && brouillon.voie !== 'nouveau',
+            rattachement: brouillon.rattachement ?? null,
+            biens: ((brouillon.cibles ?? []) as CibleBrouillon[]).filter((c) => c.sorte === 'lot' && (c.cle ?? '') !== '')
+              .map((c) => ({ cle: c.cle as string, libelle: c.libelle })),
+            evenements: ((brouillon.cibles ?? []) as CibleBrouillon[]).filter((c) => c.sorte === 'evenement')
+              .map((c) => ({ id: c.id, libelle: c.libelle })),
           }}
           onFerme={() => setRattacherOuvert(false)}>
+        {(fenetre) => (
         <RattacherEnEcrivant
           integre
+          /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — ce que la grande fenêtre tient : les biens du suivi de fond (bloc du
+             haut), la portée et l'événement (au-dessus du bouton), le bouton final de la portée. */
+          masquees={fenetre.masquees}
+          onSelection={fenetre.onSelection}
+          piedSupplementaire={fenetre.pied}
+          validerExterne={fenetre.validerExterne}
+          selectionInitiale={fenetre.selectionInitiale}
           /* 🔴 « Réinitialiser » CHANGE CETTE CLÉ : la modale se remonte à neuf, donc les propositions sont
              relues et la pré-coche refaite — c'est ce que demande Arno, et c'est la seule façon de l'obtenir
              d'un composant qui, exprès, ne pré-coche qu'une fois. */
           /* ⚠️ UNE CLÉ TEXTUELLE, PAS LE NOMBRE NU : un `0` posé comme clé se confond avec la clé implicite
              d'un autre enfant, et React signale alors « two children with the same key, 0 » — un avertissement
              qui ne dit pas d'où il vient. Le préfixe coûte zéro et ferme la question. */
-          key={`rec-${versionRattachement}`}
+          key={`rec-${versionRattachement}-${fenetre.cle}`}
           destinataires={destinatairesValides}
           objet={brouillon.objet}
           /**
@@ -2660,6 +2683,8 @@ export function Redaction({
                 : c)),
               interne: unBien ? false : interneVoulu,
               horsGestion: unBien ? false : brouillon.horsGestion === true,
+              /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la portée et les biens du suivi de fond décochés, avec les biens. */
+              rattachement: fenetre.rattachementVoulu(),
             });
           }}
           /* 🔴🔴 LOT CLASSER-AVANT-ENVOI — LES PROPOSITIONS SONT DÉJÀ LÀ quand le pré-chargement a abouti pour
@@ -2669,6 +2694,7 @@ export function Redaction({
             ? { cle: destinatairesValides.join(','), contexte: prechargeClassement.contexte }
             : null}
           onFerme={() => setRattacherOuvert(false)} />
+        )}
         </RattachementsDuFil>
       )}
 

@@ -36,6 +36,7 @@ vi.mock('./schema', () => ({
   brouillonClassementDisponible: async () => false,
   // 🔴 LOT CLASSER-AVANT-ENVOI — idem pour la migration 289 : ce fichier n'éprouve QUE le HTML.
   brouillonHorsGestionDisponible: async () => false,
+  brouillonRattachementDisponible: async () => false,
   corbeilleBrouillonDisponible: async () => true,
 }));
 

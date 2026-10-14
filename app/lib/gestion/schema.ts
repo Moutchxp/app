@@ -1260,3 +1260,19 @@ export function contactAncienLocataireDisponible(): Promise<boolean> {
 export function mongaDisponible(): Promise<boolean> {
   return memoiser('table.gestion_monga_lien', () => tableExiste('gestion_monga_lien'));
 }
+
+/**
+ * ══ 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la migration 351 est-elle appliquée ? ═══════════════════════════════════════
+ * Elle porte le rattachement COMPLET choisi dans le composeur (portée du suivi, biens du suivi de fond décochés) : avec
+ * le brouillon, dans la file d'envoi, puis attaché à l'envoi parti jusqu'à la capture du mail. Sans elle, le composeur
+ * se comporte comme avant (les biens choisis deviennent des rattachements manuels du mail envoyé).
+ */
+export function brouillonRattachementDisponible(): Promise<boolean> {
+  return memoiser('brouillon.rattachement', () => colonneExiste('gestion_brouillon', 'rattachement'));
+}
+export function envoiFileRattachementDisponible(): Promise<boolean> {
+  return memoiser('envoi_file.rattachement', () => colonneExiste('gestion_envoi_file', 'rattachement'));
+}
+export function envoiClassementDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_envoi_classement', () => tableExiste('gestion_envoi_classement'));
+}

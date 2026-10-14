@@ -135,6 +135,17 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
       journal?.(`suite : ${posesEnvoi} bien(s) choisi(s) avant l’envoi, rattaché(s) au message maintenant capturé`);
     }
     /**
+     * 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LE RATTACHEMENT COMPLET CHOISI DANS LE COMPOSEUR (biens, portée du suivi),
+     * appliqué par `poserClassement` — la fonction de « Modifier le rattachement » — dès que le mail envoyé est capturé.
+     * Même moment, même raison que les biens cochés juste au-dessus ; sans la migration 351 : 0, sans requête de plus
+     * qu'une sonde.
+     */
+    const { appliquerClassementsEnAttente } = await import('./envoiClassementRepo');
+    const classesEnvoi = await appliquerClassementsEnAttente();
+    if (classesEnvoi > 0) {
+      journal?.(`suite : rattachement choisi avant l’envoi appliqué à ${classesEnvoi} message(s) maintenant capturé(s)`);
+    }
+    /**
      * 🔴 LOT MAIL-DEPUIS-BIEN-RATTACHEMENT-ET-SUGGESTIONS — ET LES PARTIES DE SES DESTINATAIRES (À, Cc, Cci) : clients,
      * contacts du syndic, carnet de l'immeuble. Même raison, même moment, même garde (sans la migration 338 : 0, sans
      * une requête de plus qu'une sonde). Voir `envoiPartiesRepo`.

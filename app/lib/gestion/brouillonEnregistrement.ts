@@ -46,7 +46,7 @@ export function delaiPour(sorte: SorteChangement): number {
 /** La part du brouillon qui se retrouve en base. Tout le reste (identifiant, état d'écran) n'est pas un changement. */
 type PartEnregistrable = Pick<Brouillon,
   'voie' | 'a' | 'cc' | 'cci' | 'objet' | 'corps' | 'citation'>
-  & { corpsHtml?: string | null; cibles?: Brouillon['cibles']; interne?: boolean };
+  & { corpsHtml?: string | null; cibles?: Brouillon['cibles']; interne?: boolean; rattachement?: Brouillon['rattachement'] };
 
 /**
  * ══ ① LA SIGNATURE DE CE QUI SERA ÉCRIT ════════════════════════════════════════════════════════════════════════
@@ -76,6 +76,9 @@ export function signatureBrouillon(b: PartEnregistrable): string {
      * figurer ici, sans quoi un brouillon dont SEULE cette part a changé n'est jamais réécrit.
      */
     b.cibles ?? [], b.interne === true,
+    /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la portée et les biens du suivi de fond décochés : même motif. Ajoutés
+       seulement quand ils existent, pour qu'un brouillon sans eux garde exactement sa signature d'avant. */
+    ...(b.rattachement ? [b.rattachement] : []),
   ]);
 }
 

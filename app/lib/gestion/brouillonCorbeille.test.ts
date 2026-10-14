@@ -59,6 +59,7 @@ vi.mock('./schema', () => ({
   brouillonClassementDisponible: async () => false,
   // 🔴 LOT CLASSER-AVANT-ENVOI — idem pour la migration 289 : ce fichier éprouve la CORBEILLE.
   brouillonHorsGestionDisponible: async () => false,
+  brouillonRattachementDisponible: async () => false,
 }));
 
 import {

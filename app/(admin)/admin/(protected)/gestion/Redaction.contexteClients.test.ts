@@ -416,7 +416,9 @@ describe('🔴🔴 LOT RATTACHEMENT-VALIDER-TOUS-PERD-DES-BIENS — le scénario
     expect([...container.querySelectorAll('.rec input[type="checkbox"]')].filter((i) => (i as HTMLInputElement).checked)).toHaveLength(0);
     await cliquer(caseDe('432 rue des Tests'));
     await cliquer(bouton(/^Sélectionner tous les biens$/));
-    expect(bouton(/^Valider/).textContent).toBe('Valider — 6 bien(s)');
+    /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — le bouton est celui de la grande fenêtre (premier rattachement, défaut
+       « Ce mail + futurs échanges ») ; il rattache les 6 biens cochés, comme « Valider — 6 bien(s) » avant. */
+    expect(bouton(/^Valider/).textContent).toBe('Valider le rattachement de fond');
     await cliquer(bouton(/^Valider/));
     expect(origines()).toEqual(['219:client', '224:client', '373:client', '432:client', '494:client', '58:client']);
     expect(texteClasser()).toMatch(/Rattaché\s*—?\s*6 logements/);

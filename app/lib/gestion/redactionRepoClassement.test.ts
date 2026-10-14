@@ -33,6 +33,7 @@ vi.mock('./schema', () => ({
   // 🔴 LOT CLASSER-AVANT-ENVOI — la sonde de la migration 289 (« hors gestion » hérité). FAUSSE ici : ce
   //   fichier éprouve la 285, et son SQL doit rester celui d'avant le lot suivant.
   brouillonHorsGestionDisponible: () => migration289(),
+  brouillonRattachementDisponible: async () => false,
   corbeilleBrouillonDisponible: async () => true,
 }));
 vi.mock('./htmlMail', () => ({ assainirHtml: (h: string) => h }));

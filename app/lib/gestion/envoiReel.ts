@@ -5,6 +5,8 @@ import type { AncrageFil, DepsEnvoiComplet } from './envoi';
 import {
   demanderHorsGestionPourEnvoi, demanderInternePourEnvoi, enregistrerCiblesEnvoi,
 } from './envoiCiblesRepo';
+// 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — le rattachement complet choisi dans le composeur (portée comprise).
+import { enregistrerClassementEnvoi } from './envoiClassementRepo';
 import { envoyerViaGmail } from './envoiGmail';
 import { depsPiecesEnvoi, piecesDeLEnvoi } from './piecesEnvoiCablage';
 import { COMPTE_GESTION, lireIdentifiants, rafraichirJeton } from './google';
@@ -137,7 +139,15 @@ export function depsEnvoiReel(c: CablageEnvoi): DepsEnvoiComplet {
      * ⚠️ ELLE NE PEUT RIEN FAIRE ÉCHOUER : `enregistrerCiblesEnvoi` attrape ses propres erreurs et rend 0. Et
      * elle est de toute façon appelée AU MIEUX-EFFORT, après le message parti.
      */
-    classer: async (o) => { await enregistrerCiblesEnvoi({ envoiId: o.envoiId, cibles: o.cibles, auteur: o.auteur }); },
+    classer: async (o) => {
+      /* 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — les biens voyagent par l'intention complète (portée comprise) quand elle
+         est retenue ; ils ne passent alors plus par les rattachements manuels directs. Sinon : le chemin d'avant. */
+      const parLeClassement = await enregistrerClassementEnvoi({
+        envoiId: o.envoiId, cibles: o.cibles, rattachement: o.rattachement ?? null, auteur: o.auteur,
+      });
+      const cibles = parLeClassement ? o.cibles.filter((c) => c.sorte !== 'lot') : o.cibles;
+      await enregistrerCiblesEnvoi({ envoiId: o.envoiId, cibles, auteur: o.auteur });
+    },
     /**
      * 🔴 LOT RATTACHER-EN-ECRIVANT — « INTERNE » demandé sur un message NEUF : même chemin, même raison. Sans la
      * migration 283, `demanderInternePourEnvoi` rend `false` sans rien écrire, et l'écran l'a déjà dit.

@@ -130,6 +130,8 @@ export function depsTravailleurReel(): DepsTravailleur {
          * refusée par le serveur au moment où le travailleur la reprend, c'est-à-dire bien après le clic.
          */
         horsGestion: d.horsGestion === true,
+        /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la portée choisie dans la fenêtre survit elle aussi à la file. */
+        rattachement: d.rattachement ?? null,
       }, auteur, depsEnvoiReel({
         // 🔴 LE DROIT EST RELU EN BASE, pour l'auteur enregistré : un droit retiré entre le clic et l'envoi
         //   différé coupe l'envoi. C'est le cas que cette relecture existe précisément pour attraper.

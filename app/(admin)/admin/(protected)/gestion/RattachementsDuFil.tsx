@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 // LOT CONTACT-LIGNES — le type passe dans le titre, et ne s'ecrit qu'une fois par groupe.
 import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 /* 🔴🔴 LOT MONGA-1, POINT 3 — l'encart d'une intervention Monga, monté en tête de cette fenêtre. */
@@ -83,6 +83,10 @@ import {
   BULLE_ORIGINE_PREMIER,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
+/* 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la décision de la fenêtre pour un mail en cours d'écriture (module PUR). */
+import {
+  decisionRattachement, fondDuProchainMail, type RattachementBrouillon,
+} from '../../../../lib/gestion/rattachementBrouillon';
 import {
   expediteurDuMail, indexExpediteur, MOT_EXPEDITEUR, roleExpediteur, type ExpediteurDuMail,
 } from '../../../../lib/gestion/expediteurDuMail';
@@ -152,13 +156,26 @@ type Panneau = 'aucun' | 'modifier';
 
 /**
  * ══ 🔴🔴 LOT FENETRE-CLASSEMENT-UNIQUE (Arno, 13/10/2026) — LA MÊME FENÊTRE, OUVERTE DEPUIS LE COMPOSEUR ══════════════
- * « Classer ce mail » du composeur ouvre désormais CETTE fenêtre (« Bien(s) rattaché(s) à ce mail »), en mode
- * BROUILLON — décisions d'Arno : glissière « Portée du suivi » MASQUÉE (l'envoi reste « one shot », comme avant) ;
- * ni « Événement rattaché » ni « Autres classements » (ils n'ont pas de sens avant l'envoi) ; le bloc « Biens
- * actuellement suivis dans cette conversation » pour une RÉPONSE seulement (en lecture : ces biens suivent déjà).
- * Le contenu (propositions « D'après le destinataire », recherche, « Valider — N bien(s) / aucun bien ») est celui du
- * composeur, posé dedans (`children`) : RIEN n'est écrit sur le serveur, les choix vont dans le brouillon et sont
- * appliqués à l'envoi, exactement comme avant.
+ * « Classer ce mail » du composeur ouvre CETTE fenêtre (« Bien(s) rattaché(s) à ce mail »), en mode BROUILLON.
+ *
+ * ══ 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE (Arno, 13-14/10/2026) — ET ELLE Y EST DÉSORMAIS COMPLÈTE ═══════════════════════
+ * DÉCISION D'ARNO : dans le composeur (Nouveau message, Répondre, Répondre à tous, Transférer — partout), la fenêtre est
+ * IDENTIQUE à celle de « Modifier le rattachement » d'un mail existant :
+ *   · « Biens actuellement suivi(s) dans cette conversation (Suivi de fond) », avec case à cocher, fond vert, « déjà
+ *     rattaché — décochez pour le retirer » et le détail propriétaire / locataire (`CarteBienSuivi`, la même carte) ;
+ *   · propositions et moteur de recherche (le contenu du composeur, propositions d'après les destinataires comprises) ;
+ *   · « Événement rattaché » avec les événements en cours du bien (`BlocEvenementLecture`, le même bloc) ;
+ *   · « Portée du suivi » : la glissière à 4 positions, ses définitions et ses alertes (`BlocPortee`, le même bloc).
+ * Pour un Nouveau message (pas encore de conversation) : pas de bloc « Biens suivis » ; le bien de la fiche est coché
+ * dans les propositions. La position par défaut est celle qu'aurait la grande fenêtre pour ce mail
+ * (`decisionRattachement`, module pur, que le serveur rejoue sur le mail capturé).
+ *
+ * 🔴 RIEN N'EST ÉCRIT SUR LE SERVEUR : les choix (biens, portée, biens du suivi de fond décochés) vont dans le brouillon,
+ * et partent avec l'envoi. Une fois le mail parti et capturé, ils sont appliqués par `poserClassement` — la fonction de
+ * « Modifier le rattachement » (voir `envoiClassementRepo`).
+ * ⚠️ « Autres classements » n'apparaît pas : ses gestes (« Hors gestion, ou classer par pièce… », « Classer dans une
+ * carte », « Classer sans suite ») portent sur un mail EXISTANT, et la grande fenêtre ne les a qu'ouverte depuis la boîte
+ * mail. « Interne » et « Hors gestion » restent dans le bloc « Classer ce mail » du composeur, inchangés.
  * Sans `brouillon` : la fenêtre est exactement celle d'avant (« Modifier le rattachement », « Visualiser / Modifier »).
  */
 export interface BrouillonRattachement {
@@ -166,87 +183,249 @@ export interface BrouillonRattachement {
   filId: number | null;
   /** Le mail auquel on répond (`null` = le plus récent de la conversation). */
   messageId: number | null;
-  /** Vrai pour « Répondre » / « Répondre à tous » : le bloc des biens suivis s'affiche. */
-  reponse: boolean;
+  /** Vrai quand le mail part DANS une conversation (Répondre, Répondre à tous, Transférer) : le bloc des biens suivis. */
+  conversation: boolean;
+  /** Ce que le brouillon garde déjà de la fenêtre : portée touchée et biens du suivi de fond décochés. */
+  rattachement: RattachementBrouillon | null;
+  /** Les biens déjà retenus par le brouillon (cibles « lot »), et ses événements (cibles « événement »). */
+  biens: readonly { cle: string; libelle: string }[];
+  evenements?: readonly { id: number | null; libelle: string }[];
+}
+
+/** Ce que la fenêtre donne au contenu du composeur (`RattacherEnEcrivant`, posé dedans). */
+export interface ContenuFenetreBrouillon {
+  /** Les biens du suivi de fond (tenus par le bloc du haut) : `garde` = case cochée. `null` = aucun. */
+  masquees: ReadonlyMap<string, { garde: boolean; libelle: string }> | null;
+  onSelection: (cles: readonly string[]) => void;
+  /** Le bloc « Événement rattaché » puis la « Portée du suivi », à poser au-dessus du bouton final. */
+  pied: ReactNode;
+  /** Le contenu y confie sa validation : le bouton final du cadre « Portée du suivi » la déclenche. */
+  validerExterne: (valider: () => void) => void;
+  /** La sélection à reprendre après « Revenir au suivi d'origine ? — Oui » (`null` = la pré-coche habituelle). */
+  selectionInitiale: readonly string[] | null;
+  /** Change quand le contenu doit repartir de son état d'ouverture (« Revenir au suivi d'origine »). */
+  cle: string;
+  /** Ce que la validation range dans le brouillon, avec les biens. */
+  rattachementVoulu: () => RattachementBrouillon;
 }
 
 type ProprietesMail = Parameters<typeof RattachementsDuFilMail>[0];
 
 export function RattachementsDuFil(props: ProprietesMail
-  | { brouillon: BrouillonRattachement; onFerme: () => void; children: ReactNode }) {
+  | { brouillon: BrouillonRattachement; onFerme: () => void; children: (c: ContenuFenetreBrouillon) => ReactNode }) {
   if ('brouillon' in props) return <FenetreRattachementBrouillon {...props} />;
   return <RattachementsDuFilMail {...props} />;
 }
 
-/** Le mode brouillon : le cadre et le titre de la fenêtre, les biens suivis (réponse), puis le contenu du composeur. */
+/** La phrase du mode brouillon : rien n'est écrit avant l'envoi, tout est appliqué après. */
+export const MOT_BROUILLON_A_L_ENVOI = 'Mail en cours d’écriture : rien n’est enregistré avant l’envoi. Les choix de cette '
+  + 'fenêtre seront appliqués au mail dès qu’il sera parti.';
+/** Où sont les gestes sur l'événement, pour un mail pas encore envoyé (bloc « Événement rattaché » en lecture). */
+export const PHRASE_EVENEMENT_COMPOSEUR = 'Pour créer un événement ou y lier ce mail, utilisez le bouton Événement du mail une fois envoyé.';
+
+/** Une carte de bien suivi dont la fiche n'a pas pu être lue : le libellé seul, sans parties. */
+function bienMinimal(cle: string, libelle: string): BienRattache {
+  return {
+    cle, lotId: null, adresseComplete: libelle, numeroLot: cle, nature: null, typeBien: null, surfaceM2: null,
+    statut: 'classe', dateMail: null, occupantsAujourdhui: [], nbMails: 0, dossierDriveId: null, personnes: [],
+    lienIds: [],
+  } as unknown as BienRattache;
+}
+
+/** Le mode brouillon : la fenêtre de « Modifier le rattachement », pour un mail qui n'existe pas encore. */
 function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
-  brouillon: BrouillonRattachement; onFerme: () => void; children: ReactNode;
+  brouillon: BrouillonRattachement; onFerme: () => void; children: (c: ContenuFenetreBrouillon) => ReactNode;
 }) {
-  const [suivis, setSuivis] = useState<{ biens: (FicheRattachementFil['biens'][number] & { ponctuel: boolean })[]; titres: Map<string, string> } | null>(null);
-  const avecSuivis = brouillon.reponse && brouillon.filId !== null;
+  const avecSuivis = brouillon.conversation && brouillon.filId !== null;
+  /* La conversation : ses mails, ses périodes et ses exceptions (le suivi de fond), et la fiche de ses biens. */
+  const [lu, setLu] = useState<{
+    mails: number[]; periodes: Periode[]; exceptions: ExceptionMail[]; biens: BienRattache[];
+  } | null>(avecSuivis ? null : { mails: [], periodes: [], exceptions: [], biens: [] });
   useEffect(() => {
-    if (!avecSuivis) return;
+    if (!avecSuivis) return undefined;
     let annule = false;
     void (async () => {
+      const vide = { mails: [] as number[], periodes: [] as Periode[], exceptions: [] as ExceptionMail[], biens: [] as BienRattache[] };
       try {
         const q = brouillon.messageId === null ? '' : `&message=${brouillon.messageId}`;
-        const [rf, rl] = await Promise.all([
+        const [rs, rf] = await Promise.all([
+          fetch(`/api/admin/gestion/suivi?fil=${brouillon.filId}`, { cache: 'no-store' }),
           fetch(`/api/admin/gestion/rattachements?fiche=${brouillon.filId}${q}`, { cache: 'no-store' }),
-          fetch(`/api/admin/gestion/rattachements?fil=${brouillon.filId}`, { cache: 'no-store' }),
         ]);
-        const df = (await rf.json()) as { etat?: string; data?: FicheRattachementFil };
-        const dl = (await rl.json()) as { etat?: string; data?: LienAffiche[] };
-        if (annule || df.etat !== 'ok' || !df.data || !Array.isArray(df.data.biens)) { if (!annule) setSuivis({ biens: [], titres: new Map() }); return; }
-        const mailId = brouillon.messageId ?? df.data.enTete?.messageId ?? null;
-        const biens = mailId === null ? [] : biensDuMail(df.data.biens, dl.etat === 'ok' && Array.isArray(dl.data) ? dl.data : [], mailId);
-        const titres = new Map(titresDistincts(biens.map((b) => ({
-          cle: b.cle, adresse: b.adresseComplete.replace(/\b\d{5}\s+/, ''), nature: b.nature, typeBien: b.typeBien,
-          immeuble: null as string | null,
-        }))).map((x) => [x.cle, x.titre]));
-        setSuivis({ biens, titres });
+        const ds = (await rs.json()) as { etat?: string; mails?: number[]; exceptions?: ExceptionMail[]; periodes?: Periode[] };
+        const df = (await rf.json().catch(() => ({}))) as { etat?: string; data?: FicheRattachementFil };
+        if (annule) return;
+        setLu({
+          mails: ds.etat === 'ok' ? ds.mails ?? [] : [],
+          periodes: ds.etat === 'ok' ? ds.periodes ?? [] : [],
+          exceptions: ds.etat === 'ok' ? ds.exceptions ?? [] : [],
+          biens: df.etat === 'ok' && df.data !== undefined && Array.isArray(df.data.biens) ? df.data.biens : [],
+        });
       } catch {
-        if (!annule) setSuivis({ biens: [], titres: new Map() });
+        if (!annule) setLu(vide);
       }
     })();
     return () => { annule = true; };
   }, [avecSuivis, brouillon.filId, brouillon.messageId]);
 
+  /* ── LE SUIVI DE FOND QUE CE MAIL RECEVRA (le prochain mail de la conversation), et ses cartes. ── */
+  const fond = avecSuivis && lu !== null ? fondDuProchainMail(lu.mails, lu.periodes) : null;
+  const fondBiens = fond !== null && fond.sorte === 'biens' ? fond.biens : [];
+  const cartes = fondBiens.map((b) => lu?.biens.find((x) => x.cle === b.cle) ?? bienMinimal(b.cle, b.libelle));
+  const titresSuivis = new Map(titresDistincts(cartes.map((b) => ({
+    cle: b.cle, adresse: b.adresseComplete.replace(/\b\d{5}\s+/, ''), nature: b.nature, typeBien: b.typeBien,
+    immeuble: null as string | null,
+  }))).map((x) => [x.cle, x.titre]));
+
+  /* ── LES CHOIX, gardés jusqu'à « Valider » (puis dans le brouillon). ── */
+  const [retires, setRetires] = useState<readonly string[]>(brouillon.rattachement?.retires ?? []);
+  const [positionVoulue, setPosition] = useState<PositionPortee | null>(brouillon.rattachement?.position ?? null);
+  const [selection, setSelection] = useState<readonly string[]>(brouillon.biens.map((b) => b.cle));
+  const [selectionInitiale, setSelectionInitiale] = useState<readonly string[] | null>(null);
+  const [cleContenu, setCleContenu] = useState(0);
+  const [demandeOrigine, setDemandeOrigine] = useState(false);
+  const [confirme, setConfirme] = useState(false);
+  const [appel, setAppel] = useState(0);
+  useEffect(() => {
+    if (appel === 0) return undefined;
+    const t = setTimeout(() => setAppel(0), 1400);
+    return () => clearTimeout(t);
+  }, [appel]);
+  const [blocEvtOuvert, setBlocEvtOuvert] = useState(false);
+  /** La validation du contenu (`RattacherEnEcrivant`), à jour à chaque rendu : le bouton final de la portée l'appelle. */
+  const validerDuContenu = useRef<(() => void) | null>(null);
+
+  const clesFond = new Set(fondBiens.map((b) => b.cle));
+  const libelles = new Map<string, string>([...brouillon.biens.map((b) => [b.cle, b.libelle] as const)]);
+  const choisis = selection.filter((c) => !clesFond.has(c)).map((cle) => ({ cle, libelle: libelles.get(cle) ?? cle }));
+  /* 🔴 LA DÉCISION DE LA GRANDE FENÊTRE, pour ce mail (module pur, rejoué par le serveur sur le mail capturé). */
+  const decision = decisionRattachement({
+    fond: avecSuivis ? fond : null, biens: choisis, rattachement: { position: positionVoulue, retires: [...retires] },
+  });
+  const { premier, modification, position } = decision;
+  /* Plus aucune modification : la position voulue repart de ① (règle de la grande fenêtre). */
+  if (!premier && !modification && positionVoulue !== null) setPosition(null);
+
+  const choisirPosition = (p: PositionPortee): void => {
+    if (p === 'origine' && premier) return;
+    if (p === 'origine' && modification) { setDemandeOrigine(true); return; }
+    setPosition(p);
+    setConfirme(false);
+  };
+  const revenirALOrigine = (): void => {
+    setRetires([]);
+    setSelection([]);
+    setSelectionInitiale([]);
+    setCleContenu((n) => n + 1);
+    setDemandeOrigine(false);
+    setConfirme(false);
+    setPosition('origine');
+  };
+  /**
+   * 🔴 LE BOUTON DE LA GRANDE FENÊTRE (`etatBoutonPortee`), avec UNE nuance qui protège un geste existant du composeur :
+   * décocher TOUS les biens qu'un brouillon portait déjà (le bien ajouté d'office d'un client destinataire, par exemple)
+   * puis valider les retire du brouillon — « Valider — aucun bien » d'avant. Ce n'est plus un premier rattachement à
+   * faire, c'est une modification : le bouton prend donc le mot et l'état de la grande fenêtre pour une modification
+   * (« Valider la modification du suivi », actif). Rien n'est écrit pour autant avant l'envoi.
+   */
+  const retraitDeTout = premier && decision.voulus.length === 0 && brouillon.biens.length > 0;
+  const bouton = retraitDeTout
+    ? etatBoutonPortee({ premier: false, position, modification: true, nbCoches: 0 })
+    : etatBoutonPortee({ premier, position, modification, nbCoches: decision.voulus.length });
+  const appelerLesBiens = (): void => {
+    setAppel(Date.now());
+    const bloc = document.querySelector<HTMLElement>('.rdf--brouillon .rdf-suivis, .rdf--brouillon .rec-carte');
+    if (bloc !== null && typeof bloc.scrollIntoView === 'function') bloc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  };
+
+  /* ── LES ÉVÉNEMENTS EN COURS DES BIENS QUI SERONT RATTACHÉS (lecture seule). ── */
+  const clesVoulues = decision.voulus.map((b) => b.cle).join(',');
+  const [duBien, setDuBien] = useState<EvenementLu[] | null>(null);
+  useEffect(() => {
+    if (clesVoulues === '') { setDuBien([]); return undefined; }
+    let vivant = true;
+    setDuBien(null);
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/gestion/evenements/des-biens?biens=${encodeURIComponent(clesVoulues)}`, { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; duBien?: EvenementLu[] };
+        if (vivant) setDuBien(d.etat === 'ok' && Array.isArray(d.duBien) ? d.duBien : []);
+      } catch { if (vivant) setDuBien([]); }
+    })();
+    return () => { vivant = false; };
+  }, [clesVoulues]);
+  const rattaches: EvenementLu[] = (brouillon.evenements ?? []).filter((e) => e.id !== null)
+    .map((e) => ({ id: e.id as number, reference: e.libelle, objet: '', ouvert: true }));
+
+  const masquees = fondBiens.length === 0 ? null
+    : new Map(fondBiens.map((b) => [b.cle, { garde: !retires.includes(b.cle), libelle: b.libelle }] as const));
+  const mailsPourConfirmation = [...(lu?.mails ?? []), -1];
+
+  const pied = (
+    <div className="rdf-pied-panneau">
+      <BlocEvenementLecture lus={{ rattaches, duBien: duBien ?? [] }} evenement={null} charge={duBien === null}
+        renvoi={PHRASE_EVENEMENT_COMPOSEUR} ouvert={blocEvtOuvert} onOuvert={setBlocEvtOuvert} />
+      {lu !== null && (
+        <BlocPortee position={position} modification={modification} premier={premier}
+          nbCoches={decision.voulus.length}
+          demandeOrigine={demandeOrigine} onChoisir={choisirPosition}
+          onOuiOrigine={revenirALOrigine} onNonOrigine={() => setDemandeOrigine(false)}
+          confirmation={position === 'conversation' && modification
+            ? motConfirmationConversation({ mails: mailsPourConfirmation, exceptions: lu.exceptions, messageId: -1 }) : null}
+          confirme={confirme} onConfirme={() => setConfirme((v) => !v)}
+          bouton={bouton} desactive={modification && position === 'conversation' && !confirme}
+          onValider={() => { if (bouton.inactif) appelerLesBiens(); else validerDuContenu.current?.(); }} />
+      )}
+    </div>
+  );
+
   return (
     <div className="mrt-voile rdf-brouillon-voile" role="presentation"
       onClick={(e) => { if (e.target === e.currentTarget) onFerme(); }}>
       <style>{CSS_MODIFIER_RATTACHEMENT}</style>
+      <style>{CSS_BOUTON_COPIER}</style>
       <style>{CSS_RATTACHEMENTS_FIL}</style>
+      <style>{CSS_BLOC_EVENEMENT}</style>
       <style>{CSS_LISTE_BIENS}</style>
       <style>{CSS_INFO_BIEN}</style>
-      <div className="mrt rdf rdf--ponctuel rdf--brouillon" role="dialog" aria-modal="true" aria-labelledby="rdf-titre"
-        data-mode="brouillon" onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } }}>
+      <div className={`mrt rdf rdf--ponctuel rdf--brouillon${appel !== 0 ? ' rdf--appel' : ''}`} role="dialog" aria-modal="true"
+        aria-labelledby="rdf-titre" data-mode="brouillon"
+        onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onFerme(); } }}>
         <button type="button" className="rdf-croix" aria-label="Fermer sans rien changer"
           title="Fermer sans rien changer" onClick={onFerme}>×</button>
         <h2 className="mrt-titre" id="rdf-titre">{TITRE_BIENS_DU_MAIL}</h2>
-        <p className="rdf-detail rdf-brouillon-mot">{MOT_BROUILLON_ONE_SHOT}</p>
+        <p className="rdf-detail rdf-brouillon-mot">{MOT_BROUILLON_A_L_ENVOI}</p>
         {avecSuivis && (
           <section className="rdf-suivis" aria-labelledby="rdf-suivis-titre" data-bloc="suivis">
             <h3 className="rdf-suivis-titre" id="rdf-suivis-titre">{TITRE_BIENS_SUIVIS}</h3>
-            {suivis === null && <p className="gst-info" role="status">Lecture des biens suivis…</p>}
-            {suivis !== null && suivis.biens.length === 0 && <p className="rdf-detail">{AUCUN_BIEN_SUIVI}</p>}
-            {suivis !== null && suivis.biens.length > 0 && (
+            {lu === null && <p className="gst-info" role="status">Lecture des biens suivis…</p>}
+            {lu !== null && cartes.length === 0 && <p className="rdf-detail">{AUCUN_BIEN_SUIVI}</p>}
+            {cartes.length > 0 && (
               <ul className="rdf-suivis-liste">
-                {suivis.biens.map((b) => (
-                  <CarteBienSuivi key={b.cle} bien={b} titre={suivis.titres.get(b.cle) ?? b.adresseComplete}
-                    ponctuel={b.ponctuel} liens={[]} onModifier={() => {}} />
+                {cartes.map((b) => (
+                  <CarteBienSuivi key={b.cle} bien={b} titre={titresSuivis.get(b.cle) ?? b.adresseComplete}
+                    garde={!retires.includes(b.cle)}
+                    onGarder={() => setRetires((avant) => (avant.includes(b.cle)
+                      ? avant.filter((c) => c !== b.cle) : [...avant, b.cle]))}
+                    liens={[]} onModifier={() => {}} />
                 ))}
               </ul>
             )}
           </section>
         )}
-        {children}
+        {children({
+          masquees,
+          onSelection: (cles) => setSelection(cles),
+          pied,
+          validerExterne: (v) => { validerDuContenu.current = v; },
+          selectionInitiale,
+          cle: `contenu-${cleContenu}`,
+          rattachementVoulu: () => ({ position: positionVoulue, retires: [...retires] }),
+        })}
       </div>
     </div>
   );
 }
-
-/** La phrase du mode brouillon : ce que « Valider » fera, et quand (décision d'Arno : envoi « one shot »). */
-export const MOT_BROUILLON_ONE_SHOT = 'Mail en cours d’écriture : les biens choisis seront rattachés à CE mail, au moment de l’envoi.';
 
 function RattachementsDuFilMail({
   filId, titre, messageId = null, onFerme, onGeste, onLeveeFaite,
@@ -1224,53 +1403,17 @@ function RattachementsDuFilMail({
     }
     void ecrire(voulus, choix);
   };
+  /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — le bloc est un composant PARTAGÉ (`BlocPortee`) : le composeur rend le même. */
   const blocPortee = (
-    <div className="rdf-portee">
-      <style>{CSS_GLISSIERE_PORTEE}</style>
-      <p className="rdf-suivi-titre">Portée du suivi</p>
-      {/* 🔴 Au premier classement, les quatre positions se choisissent d'emblée (`glissiereOuverte`). */}
-      {/* 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — au premier rattachement, « Origine » grisée, avec sa bulle. */}
-      <GlissierePortee position={position} modification={glissiereOuverte(modification, premier)}
-        onChoisir={choisirPosition} origineInterdite={premier ? BULLE_ORIGINE_PREMIER : null} />
-      {demandeOrigine && (
-        <div className="rdf-portee-question" role="alertdialog" aria-label={QUESTION_RETOUR_ORIGINE}>
-          <p className="rdf-portee-question-mot">{QUESTION_RETOUR_ORIGINE}</p>
-          <div className="rdf-evt-boutons">
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={revenirALOrigine}>Oui</button>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setDemandeOrigine(false)}>
-              Non
-            </button>
-          </div>
-        </div>
-      )}
-      {/* 🔴 LA DÉFINITION DE LA POSITION, mot pour mot (Arno). */}
-      <p className={`rdf-portee-definition rdf-portee-definition--${position}`} role="note">
-        {/* 🔴 ③ porte le nombre de biens cochés, en direct (lot ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES). */}
-        {/* 🔴 LOT BULLE-BIENS-RATTACHES — « suivi de fond » en gras dans ③ (Arno). */}
-        {morceauxDefinitionPortee(position, new Set(selection ?? clesDuMail).size, premier)
-          .map((m, i) => (m.fort ? <strong key={i}>{m.texte}</strong> : <span key={i}>{m.texte}</span>))}
-      </p>
-      {/* 🔴 ④ — LA CONFIRMATION AVANT VALIDATION, avec le nombre de mails mis à jour. */}
-      {position === 'conversation' && modification && suivi !== null && mailId !== null && (
-        <div className="rdf-alerte" role="status">
-          <span className="rdf-alerte-texte">
-            {motConfirmationConversation({ mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId })}
-          </span>
-          <label className="rdf-choix">
-            <input type="checkbox" checked={confirme} onChange={() => setConfirme((v) => !v)} />
-            <span>{MOT_CONFIRMER_CONVERSATION}</span>
-          </label>
-        </div>
-      )}
-      <button type="button"
-        className={`svv-btn gst-btn rdf-valider-portee ${bouton.aspect === 'vide' ? 'svv-btn-outline rdf-valider-portee--vide' : 'svv-btn-primary'}`}
-        disabled={occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
-        aria-disabled={bouton.inactif ? true : undefined}
-        onClick={validerLaPortee}>
-        {bouton.mot}
-      </button>
-      {bouton.mention !== null && <p className="rdf-valider-mention" role="note">{bouton.mention}</p>}
-    </div>
+    <BlocPortee position={position} modification={modification} premier={premier}
+      nbCoches={new Set(selection ?? clesDuMail).size}
+      demandeOrigine={demandeOrigine} onChoisir={choisirPosition}
+      onOuiOrigine={revenirALOrigine} onNonOrigine={() => setDemandeOrigine(false)}
+      confirmation={position === 'conversation' && modification && suivi !== null && mailId !== null
+        ? motConfirmationConversation({ mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId }) : null}
+      confirme={confirme} onConfirme={() => setConfirme((v) => !v)}
+      bouton={bouton} desactive={occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
+      onValider={validerLaPortee} />
   );
 
   return (
@@ -1783,47 +1926,13 @@ function RattachementsDuFilMail({
                     </>
                   );
                   if (!ponctuel) return <div className="rdf-evt">{contenuEvt}</div>;
-                  /* 🔴🔴 LOT BLOC-EVENEMENT-RATTACHE-COMPLET, PARTIE 1 — LA LIGNE REPLIÉE DIT TOUJOURS LA VÉRITÉ COMPLÈTE :
-                     1) rattaché → une capsule par événement rattaché (+ « + N autre(s) en cours ») ; 2) non rattaché,
-                     des événements en cours sur le bien → « aucun — N événement(s) en cours sur ce bien : », leurs
-                     capsules et « Rattacher », qui déplie le bloc sur la liste ; 3) ni l'un ni l'autre → « aucun ».
-                     DÉPLIÉ, la ligne ne porte plus que le titre et le chevron : les capsules sont dans la liste
-                     (Partie 4 : jamais deux fois la même). */
-                  const resume = resumeBlocEvenement(lectureFenetre, rattachesAffiches);
-                  const etatEvt = blocEvtOuvert ? null
-                    : evtVoulu !== null
-                      ? (evtVoulu.sorte === 'lier'
-                        ? <span className="rdf-evt-etat rdf-evt-voulu">à lier : {evtVoulu.capsule !== undefined
-                          ? <CapsuleEvenement e={{ ...evtVoulu.capsule, ...(listeOuverte.find((x) => x.id === evtVoulu.evenementId) ?? {}), ouvert: true }} />
-                          : evtVoulu.mot}</span>
-                        : <span className="rdf-evt-etat rdf-evt-voulu">à créer : « {evtVoulu.objet.trim()} »</span>)
-                      : evtDuMail === null ? <span className="rdf-evt-etat rdf-evt-aucun">lecture…</span>
-                        : resume.cas === 'aucun'
-                          ? <span className="rdf-evt-etat"><span className="rdf-evt-aucun">aucun</span></span>
-                          : (
-                            <span className="rdf-evt-etat">
-                              {resume.cas === 'en_cours_sur_le_bien' && <span className="rdf-evt-aucun">{resume.mot}</span>}
-                              {resume.capsules.map((e) => <CapsuleEvenement key={e.id} e={e} />)}
-                              {resume.cas === 'rattache' && resume.mot !== null && (
-                                <span className="rdf-evt-autres">{resume.mot}</span>
-                              )}
-                              {/* 🔴 LOT BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE — le bouton « Rattacher » a déménagé dans la
-                                  fenêtre « Événement de ce mail » : cette ligne ne fait plus que dire. */}
-                            </span>
-                          );
+                  /* 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — EN PORTE PONCTUELLE, LE BLOC EST EN LECTURE SEULE, et c'est un
+                     composant PARTAGÉ (`BlocEvenementLecture`) : le composeur rend le même. Repliée, la ligne dit toujours
+                     la vérité complète (lot BLOC-EVENEMENT-RATTACHE-COMPLET, parties 1 à 4). */
                   return (
-                    <details className="rdf-evt rdf-evt-repli rdf-evt-bloc" open={blocEvtOuvert}
-                      onToggle={(ev) => setBlocEvtOuvert(ev.currentTarget.open)}>
-                      <summary className="rdf-evt-resume">
-                        {/* « ÉVÉNEMENT RATTACHÉ : aucun » — le deux-points reste collé au titre, même quand la suite
-                            passe à la ligne (téléphone). */}
-                        <span className="rdf-evt-titre">Événement rattaché{etatEvt !== null && evtVoulu === null
-                          && resume.cas !== 'rattache' && evtDuMail !== null ? ' :' : ''}</span>
-                        {etatEvt}
-                        <span className="rdf-evt-chevron" aria-hidden="true" />
-                      </summary>
-                      {contenuEvt}
-                    </details>
+                    <BlocEvenementLecture lus={evtDuMail?.lus ?? null} evenement={evtDuMail?.evenement ?? null}
+                      charge={evtDuMail === null} renvoi={renvoiEvenement}
+                      ouvert={blocEvtOuvert} onOuvert={setBlocEvtOuvert} />
                   );
                 })()}
                 {/* 🔴 CE QUE LA VALIDATION VA ÉCRIRE, DIT AVANT DE LA FAIRE — « Aucun changement » compris. */}
@@ -1932,6 +2041,178 @@ function RattachementsDuFilMail({
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>Fermer</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LE BLOC « ÉVÉNEMENT RATTACHÉ » EN LECTURE, UN SEUL DESSIN POUR LES DEUX ══════
+ * Extrait tel quel de la porte ponctuelle de « Modifier le rattachement » (lots BLOC-EVENEMENT-RATTACHE-COMPLET et
+ * BOUTON-EVENEMENT-ET-RATTACHEMENT-EN-LECTURE) : une ligne repliable qui dit la vérité complète ; dépliée, les événements
+ * EN COURS sur le bien (capsule, ouverture, étape, « Rattaché ✓ » ou « non rattaché »), puis la phrase qui dit où sont
+ * les gestes. AUCUN GESTE ICI : lier ou créer un événement se fait ailleurs (phrase `renvoi`).
+ */
+export function BlocEvenementLecture({ lus, evenement, charge, renvoi, ouvert, onOuvert }: {
+  lus: { rattaches: EvenementLu[]; duBien: EvenementLu[] } | null;
+  /** L'événement posé sur le mail, quand la route le connaît hors de toute période (gris). */
+  evenement: EvenementDuMail | null;
+  /** Vrai tant que la lecture n'a pas répondu (« lecture… »). */
+  charge: boolean;
+  renvoi: string;
+  ouvert: boolean;
+  onOuvert: (o: boolean) => void;
+}) {
+  /* 🔴 LOT EVENEMENT-RATTACHE-COHERENT — le même calcul que la pastille de la ligne (`lectureEvenement`). */
+  const lecture = lectureEvenement(lus?.rattaches ?? [], lus?.duBien ?? []);
+  const rattachesAffiches: EvenementLu[] = (lus?.rattaches ?? []).length > 0
+    ? trierParUrgence(lus?.rattaches ?? [])
+    : (evenement ? [{
+      id: evenement.evenementId, reference: evenement.reference, objet: evenement.objet,
+      ouvert: false, categorie: evenement.categorie, urgence: evenement.urgence,
+    }] : []);
+  const listeOuverte = listeEnCours(lecture);
+  const rattachesHorsListe = rattachesAffiches.filter((e) => !listeOuverte.some((x) => x.id === e.id));
+  const contenu = (
+    <>
+      {listeOuverte.length > 0 && (
+        <div className="rdf-evt-liste">
+          <p className="rdf-evt-liste-titre">Événements en cours sur ce bien</p>
+          <ul className="rdf-evt-lignes">
+            {listeOuverte.map((e) => {
+              const etape = etapeEnMots(e.etape, e.ouvertLe);
+              const ouvertLe = dateCourteIso(e.ouvertLe);
+              return (
+                <li key={e.id} className="rdf-evt-ligne">
+                  <CapsuleEvenement e={e} />
+                  <span className="rdf-evt-meta">
+                    {ouvertLe !== null && <span>ouvert le {ouvertLe}</span>}
+                    <span>Étape : {etape.mot}{etape.date !== null && etape.date !== '—' ? ` (${etape.date})` : ''}
+                      {etape.aConfirmer ? ' — à confirmer' : ''}</span>
+                  </span>
+                  {e.rattache
+                    ? <span className="rdf-evt-rattache">Rattaché ✓</span>
+                    : <span className="rdf-evt-non-rattache">non rattaché</span>}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+      <p className="rdf-evt-tete">
+        {charge && <span className="rdf-detail">lecture…</span>}
+        {rattachesHorsListe.map((e) => (
+          <span key={e.id} className="rdf-evt-nom"><CapsuleEvenement e={e} /></span>
+        ))}
+        {!charge && rattachesAffiches.length === 0 && (
+          <span className="rdf-detail">aucun — l’événement est facultatif</span>
+        )}
+      </p>
+      <p className="rdf-detail rdf-evt-renvoi">{renvoi}</p>
+    </>
+  );
+  const resume = resumeBlocEvenement(lecture, rattachesAffiches);
+  const etatEvt = ouvert ? null
+    : charge ? <span className="rdf-evt-etat rdf-evt-aucun">lecture…</span>
+      : resume.cas === 'aucun'
+        ? <span className="rdf-evt-etat"><span className="rdf-evt-aucun">aucun</span></span>
+        : (
+          <span className="rdf-evt-etat">
+            {resume.cas === 'en_cours_sur_le_bien' && <span className="rdf-evt-aucun">{resume.mot}</span>}
+            {resume.capsules.map((e) => <CapsuleEvenement key={e.id} e={e} />)}
+            {resume.cas === 'rattache' && resume.mot !== null && (
+              <span className="rdf-evt-autres">{resume.mot}</span>
+            )}
+          </span>
+        );
+  return (
+    <details className="rdf-evt rdf-evt-repli rdf-evt-bloc" open={ouvert}
+      onToggle={(ev) => onOuvert(ev.currentTarget.open)}>
+      <summary className="rdf-evt-resume">
+        {/* « ÉVÉNEMENT RATTACHÉ : aucun » — le deux-points reste collé au titre, même quand la suite passe à la ligne. */}
+        <span className="rdf-evt-titre">Événement rattaché{etatEvt !== null
+          && resume.cas !== 'rattache' && !charge ? ' :' : ''}</span>
+        {etatEvt}
+        <span className="rdf-evt-chevron" aria-hidden="true" />
+      </summary>
+      {contenu}
+    </details>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LE BLOC « PORTÉE DU SUIVI », UN SEUL DESSIN POUR LES DEUX FENÊTRES ══════════
+ * Extrait tel quel de « Modifier le rattachement » (lot MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS) : glissière, question
+ * du retour à « Origine », définition de la position, confirmation de « Toute la conversation », bouton final. Le
+ * composeur rend le même composant : la fenêtre est la même parce que c'est le même code.
+ */
+export function BlocPortee({
+  position, modification, premier, nbCoches, demandeOrigine, onChoisir, onOuiOrigine, onNonOrigine,
+  confirmation, confirme, onConfirme, bouton, desactive, onValider, sansBouton = false,
+}: {
+  position: PositionPortee;
+  modification: boolean;
+  premier: boolean;
+  nbCoches: number;
+  demandeOrigine: boolean;
+  onChoisir: (p: PositionPortee) => void;
+  onOuiOrigine: () => void;
+  onNonOrigine: () => void;
+  /** La phrase de ④ (« N mails de cette conversation seront mis à jour… ») ; `null` = pas de confirmation à demander. */
+  confirmation: string | null;
+  confirme: boolean;
+  onConfirme: () => void;
+  bouton: { mot: string; aspect: 'plein' | 'vide'; inactif: boolean; mention: string | null };
+  desactive: boolean;
+  onValider: () => void;
+  /** Le composeur pose le bouton final dans son pied (celui qui valide les biens) : il n'est pas rendu ici. */
+  sansBouton?: boolean;
+}) {
+  return (
+    <div className="rdf-portee">
+      <style>{CSS_GLISSIERE_PORTEE}</style>
+      <p className="rdf-suivi-titre">Portée du suivi</p>
+      {/* 🔴 Au premier classement, les quatre positions se choisissent d'emblée (`glissiereOuverte`). */}
+      {/* 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — au premier rattachement, « Origine » grisée, avec sa bulle. */}
+      <GlissierePortee position={position} modification={glissiereOuverte(modification, premier)}
+        onChoisir={onChoisir} origineInterdite={premier ? BULLE_ORIGINE_PREMIER : null} />
+      {demandeOrigine && (
+        <div className="rdf-portee-question" role="alertdialog" aria-label={QUESTION_RETOUR_ORIGINE}>
+          <p className="rdf-portee-question-mot">{QUESTION_RETOUR_ORIGINE}</p>
+          <div className="rdf-evt-boutons">
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={onOuiOrigine}>Oui</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onNonOrigine}>
+              Non
+            </button>
+          </div>
+        </div>
+      )}
+      {/* 🔴 LA DÉFINITION DE LA POSITION, mot pour mot (Arno). */}
+      <p className={`rdf-portee-definition rdf-portee-definition--${position}`} role="note">
+        {/* 🔴 ③ porte le nombre de biens cochés, en direct (lot ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES). */}
+        {/* 🔴 LOT BULLE-BIENS-RATTACHES — « suivi de fond » en gras dans ③ (Arno). */}
+        {morceauxDefinitionPortee(position, nbCoches, premier)
+          .map((m, i) => (m.fort ? <strong key={i}>{m.texte}</strong> : <span key={i}>{m.texte}</span>))}
+      </p>
+      {/* 🔴 ④ — LA CONFIRMATION AVANT VALIDATION, avec le nombre de mails mis à jour. */}
+      {confirmation !== null && (
+        <div className="rdf-alerte" role="status">
+          <span className="rdf-alerte-texte">{confirmation}</span>
+          <label className="rdf-choix">
+            <input type="checkbox" checked={confirme} onChange={onConfirme} />
+            <span>{MOT_CONFIRMER_CONVERSATION}</span>
+          </label>
+        </div>
+      )}
+      {!sansBouton && (
+        <button type="button"
+          className={`svv-btn gst-btn rdf-valider-portee ${bouton.aspect === 'vide' ? 'svv-btn-outline rdf-valider-portee--vide' : 'svv-btn-primary'}`}
+          disabled={desactive}
+          aria-disabled={bouton.inactif ? true : undefined}
+          onClick={onValider}>
+          {bouton.mot}
+        </button>
+      )}
+      {!sansBouton && bouton.mention !== null && <p className="rdf-valider-mention" role="note">{bouton.mention}</p>}
     </div>
   );
 }
@@ -2490,9 +2771,14 @@ export const CSS_RATTACHEMENTS_FIL = `
    de redaction flottante (z-index 60) et de son plein ecran, comme le faisait la petite fenetre (80). La fenetre est une
    colonne : titre, biens suivis (bornes), puis le contenu du composeur dont seul le corps defile ; « Valider » reste vu. */
 .rdf-brouillon-voile{z-index:80}
-.rdf--brouillon{display:flex;flex-direction:column;overflow:hidden;max-height:min(92vh, calc(100dvh - 32px));
-  width:min(680px, 96vw)}
-.rdf--brouillon > .rdf-suivis{flex:0 0 auto;max-height:32vh;overflow-y:auto}
+/* LOT COMPOSEUR-FENETRE-COMPLETE : la fenetre du composeur defile EN ENTIER, comme « Modifier le rattachement » (.mrt) :
+   biens suivis, propositions, recherche, evenement, portee et son bouton se suivent dans le meme cadre. Le contenu du
+   composeur pose dedans perd sa colonne a corps defilant ; son pied (l'evenement et la portee) perd son cadre de carte :
+   ce sont les blocs de la grande fenetre, deja encadres. */
+.rdf--brouillon{max-height:min(92vh, calc(100dvh - 32px));width:min(680px, 96vw)}
+.rdf--brouillon .rec.rec--integre{flex:0 0 auto;min-height:auto}
+.rdf--brouillon .rec-corps{flex:0 0 auto;overflow:visible}
+.rdf--brouillon .rec-pied-sup{padding:0;border:0;background:transparent;animation:none}
 .rdf-brouillon-mot{margin:0;padding-right:2.2rem}
 /* LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — le bloc « Autres classements », sous la portee : encadre comme elle, plus
    discret (trait fin), ses gestes en liens qui se replient d'eux-memes sur telephone. */

@@ -1202,7 +1202,7 @@ async function evenementsRattaches(messageIds: readonly number[]): Promise<Map<n
  * ⚠️ SANS LA MIGRATION 268, ni catégorie ni urgence ne sont nommées : la capsule dit « non précisée ».
  * ⚠️ AUCUN ACCENT dans le SQL de ce bloc (piège du lot 19d3c67d).
  */
-async function enrichirEvenements(maps: ReadonlyArray<Map<number, EvenementDeLigne[]>>): Promise<void> {
+export async function enrichirEvenements(maps: ReadonlyArray<Map<number, EvenementDeLigne[]>>): Promise<void> {
   const ids = [...new Set(maps.flatMap((m) => [...m.values()].flat().map((e) => e.id)))];
   if (ids.length === 0) return;
   const qualifie = await evenementQualifieDisponible();

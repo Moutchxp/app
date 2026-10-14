@@ -131,6 +131,14 @@ export interface Brouillon {
    * mais le choix ne sera pas retrouvé à la réouverture du brouillon. L'écran le DIT.
    */
   horsGestion?: boolean;
+  /**
+   * 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LE RESTE DE LA FENÊTRE « Bien(s) rattaché(s) à ce mail » : la position de la
+   * glissière « Portée du suivi » (`null` = position par défaut) et les biens du suivi de fond décochés. Rien n'est
+   * écrit avant l'envoi : ils partent avec lui, et sont appliqués par la fonction de « Modifier le rattachement ».
+   */
+  /* ⚠️ LA FORME EST ÉCRITE ICI, sans import : ce module garde sa liste d'imports fermée (garantie statique). Elle est
+     celle de `RattachementBrouillon` (`rattachementBrouillon.ts`), qui la relit strictement. */
+  rattachement?: { position: 'origine' | 'one_shot' | 'suite' | 'conversation' | null; retires: string[] } | null;
 }
 
 /**

@@ -8,9 +8,10 @@ import { TITRE_BIENS_DU_MAIL, TITRE_BIENS_SUIVIS } from '../../../../lib/gestion
 
 /**
  * ══ 🔴🔴 LOT FENETRE-CLASSEMENT-UNIQUE (Arno, 13/10/2026) — LE COMPOSEUR OUVRE LA FENÊTRE DE « MODIFIER LE RATTACHEMENT » ══
- * Décisions d'Arno : fenêtre partagée `RattachementsDuFil` en mode brouillon, glissière masquée (envoi « one shot »),
- * ni « Événement rattaché » ni « Autres classements », bloc « Biens suivis dans cette conversation » pour une réponse
- * seulement ; propositions « D'après le destinataire » gardées ; choix gardés avec le brouillon, appliqués à l'envoi.
+ * Fenêtre partagée `RattachementsDuFil` en mode brouillon ; propositions « D'après le destinataire » gardées ; choix
+ * gardés avec le brouillon, appliqués à l'envoi.
+ * 🔴 LOT COMPOSEUR-FENETRE-COMPLETE (Arno, 13-14/10/2026) — la fenêtre y est désormais COMPLÈTE : glissière « Portée du
+ * suivi », « Événement rattaché », biens suivis avec leur case (voir `ComposeurFenetreComplete.test.ts`).
  * Le VRAI composeur et la VRAIE fenêtre, routes simulées : rien ne part.
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,6 +63,11 @@ beforeEach(() => {
     }
     if (url.includes('rattachements?fiche=')) return rep({ etat: 'ok', data: FICHE });
     if (url.includes('rattachements?fil=')) return rep({ etat: 'ok', data: LIENS });
+    // 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — le suivi de fond de la conversation (L-176 depuis le premier mail).
+    if (url.includes('/gestion/suivi?fil=')) {
+      return rep({ etat: 'ok', mails: [9100, MAIL], exceptions: [],
+        periodes: [{ id: 5, depuisMessageId: 9100, classement: { sorte: 'biens', biens: [{ cle: 'L-176', libelle: 'lot 176' }] } }] });
+    }
     if (/\/gestion\/envois/.test(url)) return rep({ etat: 'ok', ok: true, envoi: { id: 1 } });
     return rep({ ok: true, brouillon: { id: 4242 } });
   }));
@@ -110,28 +116,29 @@ describe('🔴 la même fenêtre que « Modifier le rattachement »', () => {
     expect(f.textContent).toContain('Portée du suivi');
   });
 
-  it('🔴 propositions « D’après le destinataire » conservées ; glissière, événement, autres classements absents', async () => {
+  it('🔴 propositions « D’après le destinataire » conservées ; glissière et événement présents (lot COMPOSEUR-FENETRE-COMPLETE)', async () => {
     await monter(NEUF);
     await ouvrir();
     const f = fenetre()!;
     expect(f.textContent).toContain('D’après le destinataire : gabrielle@exemple.test');
     // La proposition du moteur est là, pré-cochée (recommandée), comme dans la petite fenêtre d'avant.
     expect(f.querySelectorAll('input[type="checkbox"]:checked').length).toBeGreaterThan(0);
-    expect(bouton(/^Valider — 1 bien/)).toBeDefined();
-    expect(f.textContent).not.toContain('Portée du suivi');
-    expect(f.textContent).not.toContain('Événement rattaché');
+    // Premier rattachement : le bouton de la portée, « Ce mail + futurs échanges » par défaut.
+    expect(bouton(/^Valider le rattachement de fond$/)).toBeDefined();
+    expect(f.textContent).toContain('Portée du suivi');
+    expect(f.textContent).toContain('Événement rattaché');
     expect(f.textContent).not.toContain('Autres classements');
     // Nouveau message : pas de conversation, donc pas de bloc des biens suivis.
     expect(f.querySelector('[data-bloc="suivis"]')).toBeNull();
   });
 
-  it('🔴 une RÉPONSE montre les biens suivis dans la conversation (en lecture)', async () => {
+  it('🔴 une RÉPONSE montre les biens suivis dans la conversation, AVEC leur case (lot COMPOSEUR-FENETRE-COMPLETE)', async () => {
     await monter(REPONSE);
     await ouvrir();
     const bloc = fenetre()!.querySelector('[data-bloc="suivis"]') as HTMLElement;
     expect(bloc.querySelector('.rdf-suivis-titre')?.textContent).toBe(TITRE_BIENS_SUIVIS);
     expect(bloc.textContent).toContain('15 rue Carle Hebert');
-    expect(bloc.querySelector('input[type="checkbox"]')).toBeNull();
+    expect((bloc.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
   });
 });
 
@@ -139,7 +146,7 @@ describe('🔴 les choix vont dans le brouillon, et partent à l’envoi', () =>
   it('« Valider » : rien n’est écrit sur le serveur, le brouillon porte le bien ; l’envoi l’emporte', async () => {
     await monter(NEUF);
     await ouvrir();
-    await act(async () => { bouton(/^Valider — 1 bien/)!.click(); });
+    await act(async () => { bouton(/^Valider le rattachement de fond$/)!.click(); });
     await calmer();
     expect(fenetre()).toBeNull();
     expect((courant.cibles ?? []).map((c) => (c as { cle?: string }).cle)).toEqual(['421']);
@@ -175,8 +182,8 @@ describe('🔴 LOT NOUVEAU-MESSAGE-RATTACHE-CLIQUABLE — « Nouveau message » 
     expect(f.getAttribute('data-mode')).toBe('brouillon');
     expect(f.querySelector('[data-bloc="suivis"]')).toBeNull();
     expect(f.textContent).not.toContain('D’après');
-    expect(f.textContent).not.toContain('Portée du suivi');
-    expect(bouton(/^Valider — 1 bien/)).toBeDefined();
+    expect(f.textContent).toContain('Portée du suivi');
+    expect(bouton(/^Valider le rattachement de fond$/)).toBeDefined();
   });
   it('le bien de la fiche part avec l’envoi (aucun mail réel : route simulée)', async () => {
     await monter({ ...DE_LA_FICHE, a: ['gabrielle@exemple.test'], objet: 'Quittance' } as BrouillonEcran);
@@ -185,20 +192,23 @@ describe('🔴 LOT NOUVEAU-MESSAGE-RATTACHE-CLIQUABLE — « Nouveau message » 
     const envoi = appels.find((a) => a.methode !== 'GET' && /\/gestion\/envois/.test(a.url));
     expect(((envoi!.corps as { cibles?: { cle?: string }[] }).cibles ?? []).map((c) => c.cle)).toEqual(['26']);
   });
-  it('valider garde le bien dans le brouillon ; rouvrir, tout décocher, « Valider — aucun bien » : plus de bien', async () => {
+  it('valider garde le bien dans le brouillon ; rouvrir, tout décocher, valider : plus de bien (geste d’avant gardé)', async () => {
     await monter(DE_LA_FICHE);
     await act(async () => { caseVerte()!.click(); });
     await calmer();
-    await act(async () => { bouton(/^Valider — 1 bien/)!.click(); });
+    await act(async () => { bouton(/^Valider le rattachement de fond$/)!.click(); });
     await calmer();
     expect((courant.cibles ?? []).map((c) => (c as { cle?: string }).cle)).toEqual(['26']);
-    // Le libellé vert dit le nombre ; on rouvre, on décoche, on valide : « Valider — aucun bien ».
+    // Le libellé vert dit le nombre ; on rouvre, on décoche, on valide.
     expect(caseVerte()?.textContent).toContain('Rattaché');
     await act(async () => { caseVerte()!.click(); });
     await calmer();
     const coche = fenetre()!.querySelector<HTMLInputElement>('input[type="checkbox"]:checked')!;
     await act(async () => { coche.click(); });
-    await act(async () => { bouton(/^Valider — aucun bien/)!.click(); });
+    await calmer();
+    /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — retirer tous les biens que le brouillon portait est une MODIFICATION : le mot
+       de la grande fenêtre pour une modification, bouton actif. */
+    await act(async () => { bouton(/^Valider la modification du suivi$/)!.click(); });
     await calmer();
     expect((courant.cibles ?? []).filter((c) => (c as { sorte: string }).sorte === 'lot')).toEqual([]);
   });

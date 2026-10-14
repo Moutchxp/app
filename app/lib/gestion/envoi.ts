@@ -34,6 +34,7 @@ import {
   type PieceAEnvoyer, type ResultatEnvoi,
 } from './envoiGmail';
 import { pretAEnvoyer } from './redaction';
+import { rattachementVide, type RattachementBrouillon } from './rattachementBrouillon';
 // 🔴 LOT CLASSER-AVANT-ENVOI — le garde « ce mail est-il classé ? », MODULE PUR partagé avec l'écran et la route.
 import { refusSiNonClasse } from './classementAvantEnvoi';
 // LOT ETOILE-ET-SIGNATURE — reconnaître NOS adresses d'images de signature dans le corps, et les remplacer par des `cid:`.
@@ -93,6 +94,12 @@ export interface DemandeEnvoi {
    * 🔴 IL COMPTE AUSSI POUR LE GARDE (étape ②bis) : c'est l'un des trois états qui font qu'un mail EST classé.
    */
   horsGestion?: boolean;
+  /**
+   * 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LE RESTE DE LA FENÊTRE « Bien(s) rattaché(s) à ce mail » : la position de la
+   * glissière « Portée du suivi » et les biens du suivi de fond décochés. Retenu après un envoi RÉUSSI avec les biens,
+   * puis appliqué par `poserClassement` quand la relève a capturé le mail. Absent ⇒ le chemin d'avant.
+   */
+  rattachement?: RattachementBrouillon | null;
 }
 
 export interface DepsEnvoiComplet {
@@ -172,6 +179,8 @@ export interface DepsEnvoiComplet {
     gmailMessageId: string | null;
     cibles: readonly { sorte: string; cle: string | null; id: number | null; libelle: string }[];
     auteur: Auteur;
+    /** 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la portée et les biens du suivi de fond décochés (voir `EnvoiDemande`). */
+    rattachement?: RattachementBrouillon | null;
   }): Promise<void>;
   /**
    * 🔴 LOT RATTACHER-EN-ECRIVANT — « INTERNE » DEMANDÉ PENDANT L'ÉCRITURE D'UN MESSAGE **NEUF**.
@@ -404,9 +413,13 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
    * main en deux clics si elle manque.
    */
   const cibles = d.cibles ?? [];
-  if (deps.classer && cibles.length > 0) {
+  /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — un bien du suivi de fond décoché, ou une portée choisie, est aussi un classement
+     à retenir, même sans bien coché (ex. : réponse dont on retire le seul bien suivi). */
+  const rattachement = d.rattachement ?? null;
+  if (deps.classer && (cibles.length > 0 || !rattachementVide(rattachement))) {
     await auMieux('classement', () => (deps.classer as NonNullable<DepsEnvoiComplet['classer']>)({
       envoiId: envoi.id, gmailMessageId: issue.gmailMessageId ?? null, cibles, auteur,
+      ...(rattachement !== null ? { rattachement } : {}),
     }));
   }
   /**

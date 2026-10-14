@@ -32,6 +32,7 @@ import { pretAEnvoyer } from '../../../../../lib/gestion/redaction';
 import { refusSiNonClasse } from '../../../../../lib/gestion/classementAvantEnvoi';
 import { biensDesClients } from '../../../../../lib/gestion/biensDesClientsRepo';
 import { ciblesAPoserALEnvoi, type OrigineCible } from '../../../../../lib/gestion/contexteClients';
+import { rattachementRecu } from '../../../../../lib/gestion/rattachementBrouillon';
 
 /**
  * /api/admin/gestion/envois (lot 5e) — ENVOYER un message au nom de gestion@criterimmo.fr.
@@ -177,6 +178,11 @@ export async function POST(request: Request): Promise<Response> {
      * STRICTEMENT (`=== true`) comme « Interne », et pour la même raison.
      */
     horsGestion: corps.horsGestion === true,
+    /**
+     * 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LA PORTÉE DU SUIVI ET LES BIENS DU SUIVI DE FOND DÉCOCHÉS, choisis dans la
+     * fenêtre « Bien(s) rattaché(s) à ce mail ». Relus strictement (`rattachementRecu`) ; appliqués après l'envoi.
+     */
+    rattachement: rattachementRecu(corps.rattachement),
   };
   {
     const { gardees, ecartees } = await ciblesCoherentes(demande.cibles, [...demande.a, ...demande.cc, ...demande.cci]);
@@ -230,6 +236,7 @@ export async function POST(request: Request): Promise<Response> {
         a: demande.a, cc: demande.cc, cci: demande.cci,
         objet: demande.objet, corps: demande.corpsTexte, corpsHtml: demande.corpsHtml,
         cibles: demande.cibles, interne: demande.interne, horsGestion: demande.horsGestion,
+        rattachement: demande.rattachement,
       }, auteur);
       // `null` = la clé existait déjà : c'est un doublon (double-clic, requête rejouée), et c'est le bon résultat.
       if (demande.brouillonId !== null) {
@@ -324,6 +331,7 @@ export async function POST(request: Request): Promise<Response> {
       interne: demande.interne,
       // 🔴 LOT CLASSER-AVANT-ENVOI — « Hors gestion » hérité : il compte pour le garde de `envoyerMessage`.
       horsGestion: demande.horsGestion,
+      rattachement: demande.rattachement,
     }, auteur, deps);
 
     if (!issue.ok) {

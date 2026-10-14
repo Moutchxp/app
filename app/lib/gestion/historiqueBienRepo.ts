@@ -6,6 +6,8 @@ import { rattachementsDisponibles } from './schema';
 /* 🔴🔴 LOT ETAT-PAR-LA-FRISE — « ouvert » et « clos le » se DÉDUISENT des cartes de borne de la frise, jamais
    plus de `gestion_evenement.etat` / `traite_le`. C'est dans ce module que se voyait le constat d'Arno. */
 import { sqlClosLeParLaFrise, sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+import { enrichirEvenements } from './historiqueRepo';
+import type { EvenementDeLigne } from './historique';
 
 /**
  * LOT HISTORIQUE-BIEN-1 — LES ÉVÉNEMENTS D'UN BIEN, **AVEC LEURS DATES**. LECTURE SEULE.
@@ -262,4 +264,24 @@ export async function evenementsParLocataire(lotCle: string): Promise<EvenementD
     closLe: r.clos_le,
     par: r.par === 'occupation' ? 'occupation' : 'adresse',
   }));
+}
+
+/**
+ * ══ 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LES ÉVÉNEMENTS EN COURS DES BIENS D'UN MAIL PAS ENCORE ENVOYÉ ═══════════════
+ * Le bloc « Événement rattaché » de la fenêtre du composeur montre les événements EN COURS des biens cochés, comme
+ * celui de « Modifier le rattachement » montre ceux du bien du mail (`duBien`). Le mail n'existe pas encore : la liste
+ * vient des événements de chaque bien (`evenementsDuBien`, celle du bloc Événements de la fiche), en cours seulement,
+ * enrichis par la MÊME fonction que ceux d'un mail (catégorie, urgence, dernière étape). LECTURE SEULE.
+ */
+export async function evenementsEnCoursDesBiens(cles: readonly string[]): Promise<EvenementDeLigne[]> {
+  const vus = new Map<number, EvenementDeLigne>();
+  for (const cle of [...new Set(cles.filter((c) => c.trim() !== ''))].slice(0, 20)) {
+    const { liste } = await evenementsDuBien(cle);
+    for (const e of liste) {
+      if (e.ouvert && !vus.has(e.id)) vus.set(e.id, { id: e.id, reference: e.reference, objet: e.objet, ouvert: true });
+    }
+  }
+  const carte = new Map([[0, [...vus.values()]]]);
+  await enrichirEvenements([carte]);
+  return carte.get(0) ?? [];
 }

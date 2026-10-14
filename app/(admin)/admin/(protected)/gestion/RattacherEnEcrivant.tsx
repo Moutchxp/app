@@ -76,8 +76,21 @@ function precocher(c: ContexteRedaction, cibles: readonly CibleBrouillon[]): Set
 export function RattacherEnEcrivant({
   destinataires, objet, corps, pieces, cibles, precharge = null, messageId = null, clesClients = null, clesDeBase = null, biensDesAdresses = [],
   piedSupplementaire = null, validationBloquee = null, selectionInitiale = null,
-  onSelection, onChange, onFerme, integre = false,
+  onSelection, onChange, onFerme, integre = false, masquees = null, validerExterne = null,
 }: {
+  /**
+   * ══ 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE (Arno, 13-14/10/2026) — LES BIENS DU SUIVI DE FOND, TENUS PAR LA FENÊTRE ══════
+   * Dans la grande fenêtre, les biens actuellement suivis ont LEUR bloc, avec leur case (comme « Modifier le
+   * rattachement »). Ils ne sont donc pas répétés dans les propositions ; à la validation, ceux que le bloc garde
+   * cochés sont retenus, ceux qu'il a décochés ne le sont pas. `null` (défaut) ⇒ exactement d'avant.
+   */
+  masquees?: ReadonlyMap<string, { garde: boolean; libelle: string }> | null;
+  /**
+   * 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — LA VALIDATION EST DÉCLENCHÉE PAR LA GRANDE FENÊTRE : son bouton final est dans le
+   * cadre « Portée du suivi », comme dans « Modifier le rattachement ». Le composant lui confie sa fonction `valider` (à
+   * chaque rendu, donc toujours à jour) et ne rend plus son propre bouton. `null` (défaut) ⇒ le bouton d'avant.
+   */
+  validerExterne?: ((valider: () => void) => void) | null;
   /**
    * ══ 🔴🔴 LOT FENETRE-CLASSEMENT-UNIQUE (Arno, 13/10/2026) — LE CONTENU, SANS SON CADRE ════════════════════════
    * Le composeur ouvre désormais LA fenêtre de « Modifier le rattachement » (`RattachementsDuFil`, mode brouillon),
@@ -387,10 +400,12 @@ export function RattacherEnEcrivant({
    * cacher le laisserait coché sans case — c'est exactement le défaut « le compteur reste bloqué à 1 » que le lot
    * CLASSER-SUR-CHAQUE-MAIL a payé une fois. Ce qui est coché est visible, toujours.
    */
+  /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — un bien du suivi de fond est dans le bloc du haut de la fenêtre, pas ici. */
+  const masque = (cle: string | null | undefined): boolean => masquees !== null && masquees.has(cle ?? '');
   const proposesAffiches = (contexte?.biens ?? []).filter(
-    (b) => b.replie !== true || autresDeplies || (coches?.has(b.cle) ?? false)
+    (b) => !masque(b.cle) && (b.replie !== true || autresDeplies || (coches?.has(b.cle) ?? false)
       // LOT MODALE-PROPOSITIONS-TOUJOURS-VISIBLES — un bien d'une adresse présente n'est jamais replié.
-      || desAdresses.some((x) => x.cle === b.cle));
+      || desAdresses.some((x) => x.cle === b.cle)));
   /** Les biens montrés SOUS les propositions : trouvés à la recherche, ou déjà rattachés et non proposés. */
   const horsPropositions: { cible: CibleBrouillon; origine: 'recherche' | 'deja' | 'attente'; motif?: string }[] = [
     ...ajoutes.filter((a) => !clesProposees.has(a.cle ?? ''))
@@ -409,7 +424,7 @@ export function RattacherEnEcrivant({
         cible: { sorte: 'lot' as const, cle: b.cle, id: b.id, libelle: b.libelle, ...(b.categorie ? { categorie: b.categorie } : {}) },
         origine: 'attente' as const, motif: b.motif,
       })),
-  ];
+  ].filter((h) => !masque(h.cible.cle));
   /**
    * Tous les biens montrés : ceux du moteur, puis les autres. C'est la liste que le compteur compte.
    *
@@ -470,7 +485,8 @@ export function RattacherEnEcrivant({
     ...horsPropositions.map((x) => ({ cle: x.cible.cle ?? '', libelle: x.cible.libelle })),
   ];
   /** Ce qui est DÉJÀ montré en haut — propositions comprises. Sert à dire « déjà dans la sélection » en bas. */
-  const clesEnHaut = new Set(tous.map((b) => b.cle).filter((c) => c !== ''));
+  const clesEnHaut = new Set([...tous.map((b) => b.cle), ...(masquees === null ? [] : [...masquees.keys()])]
+    .filter((c) => c !== ''));
 
   /**
    * ══ 🔴🔴 LOT MODALE-RATTACHER-PROPRE — LES TITRES, CALCULÉS UNE FOIS POUR TOUTE LA FENÊTRE ═════════════════
@@ -667,14 +683,18 @@ export function RattacherEnEcrivant({
       if (!parCle.has(b.cle)) { const n = cibleDuResultat(b); parCle.set(b.cle, { libelle: n.libelle, id: null, categorie: n.categorie }); }
     }
     // 🔴 LE GARDE-FOU : « Valider — N bien(s) » rattache EXACTEMENT les N biens cochés, ou le DIT et ne ferme pas.
-    const manquants = [...selection].filter((c) => !parCle.has(c));
+    const manquants = [...selection].filter((c) => !masque(c) && !parCle.has(c));
     if (manquants.length > 0) {
       setErreurValidation(`${manquants.length} bien(s) coché(s) n’ont pas pu être retenus (lot${manquants.length > 1 ? 's' : ''} `
         + `${manquants.join(', ')}) : rien n’a été validé. Relancez la recherche puis validez à nouveau.`);
       return;
     }
     setErreurValidation(null);
-    const retenues: CibleBrouillon[] = [...selection]
+    /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — les biens du suivi de fond : ceux que le bloc du haut garde, et eux seuls. */
+    for (const [c, m] of masquees ?? []) if (m.garde && !parCle.has(c)) parCle.set(c, { libelle: m.libelle, id: null });
+    const voulues = [...[...selection].filter((c) => !masque(c)),
+      ...[...(masquees ?? [])].filter(([, m]) => m.garde).map(([c]) => c)];
+    const retenues: CibleBrouillon[] = [...new Set(voulues)]
       .filter((c) => parCle.has(c))
       .map((c) => ({
         sorte: 'lot' as const, cle: c, id: parCle.get(c)?.id ?? null,
@@ -697,6 +717,8 @@ export function RattacherEnEcrivant({
    * un seul endroit : trois sorties qui appelleraient trois choses finiraient par ne plus faire la même.
    */
   const fermerSansRien = () => onFerme();
+  /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la grande fenêtre reçoit la validation à jour, à chaque rendu. */
+  validerExterne?.(valider);
 
   const contenu = (
     <>
@@ -797,6 +819,8 @@ export function RattacherEnEcrivant({
           {validationBloquee !== null && (
             <p className="rec-bloque" role="status">{validationBloquee}</p>
           )}
+          {/* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — dans la grande fenêtre, le bouton final est dans le cadre de la portée. */}
+          {validerExterne === null && (
           <button type="button" className="svv-btn svv-btn-primary gst-btn"
             disabled={validationBloquee !== null} title={validationBloquee ?? undefined}
             onClick={valider}>
@@ -807,6 +831,7 @@ export function RattacherEnEcrivant({
                 l'encadré de `horsPropositions`). C'est ce qui fait que ce compte redescend à zéro. */}
             {selection.size === 0 ? 'Valider — aucun bien' : `Valider — ${selection.size} bien(s)`}
           </button>
+          )}
         </div>
     </>
   );
@@ -907,6 +932,9 @@ export const CSS_RATTACHER_EN_ECRIVANT = `
 .rec-note{font-size:.78rem;color:var(--color-svv-muted)}
 /* 🔴 LE PIED NE DEFILE PAS : il est hors du corps, donc toujours visible — c'est tout l'objet du point 3. */
 .rec-pied{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.5rem;margin-top:.8rem;flex:0 0 auto}
+/* LOT COMPOSEUR-FENETRE-COMPLETE : dans la grande fenetre, le bouton est dans le cadre de la portee ; sans message, ce pied
+   ne garde aucune place. */
+.rec-pied:empty{display:none}
 /* 🔴 LOT CLASSER-SUR-CHAQUE-MAIL — ce que l'appelant ajoute au pied (portee, « Hors gestion… ») : une carte de
    plus, du meme relief que les autres, pour qu'on la lise comme une zone et non comme un ajout. */
 /* 🔴 LOT MODALE-SUIVI-ET-DEFILEMENT (point 1) — IL APPARAIT AU MOMENT DU CHANGEMENT, discretement.
