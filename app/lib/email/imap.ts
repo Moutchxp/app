@@ -245,6 +245,26 @@ function coeurMessageId(brut: string): string {
   return brut.trim().replace(/^<+/, '').replace(/>+$/, '').trim();
 }
 
+/** Message-ID comparable : chevrons retirés, partie domaine en minuscules (même règle que `normaliserMessageId`). */
+function idComparable(brut: string): string {
+  const s = coeurMessageId(brut);
+  const at = s.lastIndexOf('@');
+  return at === -1 ? s : `${s.slice(0, at)}@${s.slice(at + 1).toLowerCase()}`;
+}
+
+/** UID triés → plage IMAP compacte (« 3:7,10,12:13 ») : une longue liste d'UID ne fait pas exploser la ligne de commande. */
+export function compacterUids(uids: Iterable<number>): string {
+  const t = [...new Set(uids)].sort((a, b) => a - b);
+  const morceaux: string[] = [];
+  for (let i = 0; i < t.length; ) {
+    let j = i;
+    while (j + 1 < t.length && t[j + 1] === t[j] + 1) j += 1;
+    morceaux.push(i === j ? `${t[i]}` : `${t[i]}:${t[j]}`);
+    i = j + 1;
+  }
+  return morceaux.join(',');
+}
+
 /** Extrait les Message-ID (`<...>`) d'un bloc d'en-têtes brut (la ligne References). */
 function extraireReferences(entetesBrut: string): string[] {
   return entetesBrut.match(/<[^>]+>/g) ?? [];
@@ -304,22 +324,29 @@ export function creerClientEnvoyes(compte: CompteImap, opts: OptionsClientImap =
       //   (SEARCH par les Message-ID du fil, puis appariement strict côté appelant). La boîte reste ouverte en `readOnly` (EXAMINE) :
       //   aucun flag posé, rien de déplacé ni supprimé. NE PAS étendre cette dérogation à `lireEntetesReponses` (pré-cochage).
       if (cheminEnvoyes === null) return []; // pas de dossier envoyés → rien (jamais de scan à l'aveugle)
-      const coeurs = [...new Set(messageIds.map(coeurMessageId).filter((m) => m !== ''))];
-      if (coeurs.length === 0) return [];
+      const cibles = new Set(messageIds.map(idComparable).filter((m) => m !== ''));
+      if (cibles.size === 0) return [];
 
+      // LOT LENTEUR DE LA VEILLE (15/10/2026) — l'ancienne recherche « SEARCH SINCE … OR HEADER In-Reply-To/References »
+      //   faisait parcourir à Gmail les en-têtes de TOUT le dossier depuis la fenêtre (en-têtes non indexés) : ~3 min par
+      //   passe pour 2 recherches. Désormais : (1) SEARCH SINCE SEUL (indexé, immédiat) ; (2) lecture des DEUX en-têtes de fil
+      //   (In-Reply-To, References) des messages de la fenêtre — jamais l'enveloppe, ni l'objet, ni le corps ; (3) on ne garde
+      //   que ceux qui citent EXACTEMENT un Message-ID suivi (même règle que `apparierSortant`, qui l'exige ensuite de toute
+      //   façon) ; (4) SOURCE des seuls retenus. Mêmes sortants trouvés, sans le balayage côté serveur.
+      const fenetre = await client.search({ since: depuis }, { uid: true });
+      v(); // une coupure rend `false`/`undefined` : sans cette ligne, elle passerait pour « aucune réponse envoyée »
+      if (fenetre === false || fenetre.length === 0) return [];
       const uids = new Set<number>();
-      for (let i = 0; i < coeurs.length; i += TAILLE_LOT) {
-        const lot = coeurs.slice(i, i + TAILLE_LOT);
-        const or: { header: Record<string, string> }[] = lot.flatMap((mid): { header: Record<string, string> }[] => [{ header: { 'in-reply-to': mid } }, { header: { references: mid } }]);
-        const res = await client.search({ since: depuis, or }, { uid: true });
-        v(); // une coupure rend `false`/`undefined` : sans cette ligne, elle passerait pour « aucune réponse envoyée »
-        if (res !== false) for (const u of res) uids.add(u);
+      for await (const msg of client.fetch(compacterUids(fenetre), { headers: ['in-reply-to', 'references'] }, { uid: true })) {
+        const cites = msg.headers ? extraireReferences(msg.headers.toString()) : [];
+        if (cites.some((c) => cibles.has(idComparable(c)))) uids.add(msg.uid);
       }
+      v();
       if (uids.size === 0) return [];
 
       // fetch SOURCE (dérogation) → parse mailparser : en-têtes de fil + destinataires + objet + CORPS texte + date.
       const sortants: SortantComplet[] = [];
-      for await (const msg of client.fetch([...uids].join(','), { source: true }, { uid: true })) {
+      for await (const msg of client.fetch(compacterUids(uids), { source: true }, { uid: true })) {
         if (!msg.source) continue;
         const parsed = await simpleParser(msg.source);
         const dest = [...(parsed.to ? [parsed.to].flat() : []), ...(parsed.cc ? [parsed.cc].flat() : [])]

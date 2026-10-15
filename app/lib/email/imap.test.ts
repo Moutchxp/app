@@ -28,7 +28,7 @@ const h = vi.hoisted(() => ({
 // `new ImapFlow(...)` doit être constructible : une fonction (nommée) qui recopie le faux client sur l'instance.
 vi.mock('imapflow', () => ({ ImapFlow: vi.fn(function FakeImapFlow(this: Record<string, unknown>) { Object.assign(this, h.fake); }) }));
 
-import { creerClientApprofondi, creerClientEnvoyes, versMessageBoite } from './imap';
+import { compacterUids, creerClientApprofondi, creerClientEnvoyes, versMessageBoite } from './imap';
 import { simpleParser } from 'mailparser';
 import { estEmisParNous } from './enteteAuto';
 import { estRebondNonRemise } from '../veille/rattachementReponse';
@@ -178,5 +178,70 @@ describe('T7-C — creerClientEnvoyes : dossier envoyés en LECTURE STRICTE, EN-
     expect((h.fake as Record<string, unknown>).messageFlagsAdd).toBeUndefined();
     expect((h.fake as Record<string, unknown>).messageMove).toBeUndefined();
     expect((h.fake as Record<string, unknown>).messageDelete).toBeUndefined();
+  });
+});
+
+describe('LENTEUR DE LA VEILLE — lireSortantsComplets : SEARCH SINCE seul, tri local sur les en-têtes de fil', () => {
+  const listeAvecSent = [{ path: '[Gmail]/Sent Mail', flags: new Set<string>(['\\Sent']), specialUse: '\\Sent' }];
+  const source = (mid: string, irt: string) => Buffer.from(
+    `Message-ID: ${mid}\r\nIn-Reply-To: ${irt}\r\nTo: urba@mairie.fr\r\nSubject: Re: dossier\r\nDate: Tue, 13 Oct 2026 10:00:00 +0200\r\n\r\nVoici les pièces.\r\n`);
+
+  it('ne demande au serveur QUE la fenêtre (aucune recherche par en-tête), puis la source des seuls messages qui citent un fil', async () => {
+    h.fake.list.mockResolvedValueOnce(listeAvecSent);
+    h.fake.search.mockResolvedValueOnce([101, 102, 103, 104]);
+    h.fake.fetch
+      .mockImplementationOnce(function () {
+        return (async function* () {
+          yield { uid: 101, headers: Buffer.from('In-Reply-To: <m7@mairie.fr>\r\n') };                 // cite le fil
+          yield { uid: 102, headers: Buffer.from('References: <a@b> <m7@MAIRIE.FR>\r\n') };          // cite le fil (domaine en majuscules)
+          yield { uid: 103, headers: Buffer.from('In-Reply-To: <autre@ailleurs.fr>\r\n') };          // sans rapport
+          yield { uid: 104, headers: Buffer.from('') };                                                // aucun en-tête de fil
+        })();
+      })
+      .mockImplementationOnce(function () {
+        return (async function* () {
+          yield { uid: 101, source: source('<r1@nous.fr>', '<m7@mairie.fr>') };
+          yield { uid: 102, source: source('<r2@nous.fr>', '<m7@mairie.fr>') };
+        })();
+      });
+    const c = creerClientEnvoyes(COMPTE);
+    await c.ouvrir();
+    const depuis = new Date('2026-10-12T00:00:00Z');
+    const sortants = await c.lireSortantsComplets(['<m7@mairie.fr>'], depuis);
+
+    expect(h.fake.search).toHaveBeenCalledTimes(1);
+    expect(h.fake.search.mock.calls[0][0]).toEqual({ since: depuis }); // pas de OR HEADER : rien à balayer côté serveur
+    // 1er fetch : les DEUX en-têtes de fil seulement — ni enveloppe, ni objet, ni corps
+    expect(h.fake.fetch.mock.calls[0][0]).toBe('101:104');
+    expect(h.fake.fetch.mock.calls[0][1]).toEqual({ headers: ['in-reply-to', 'references'] });
+    // 2e fetch : la SOURCE des deux seuls messages qui citent le fil
+    expect(h.fake.fetch.mock.calls[1][0]).toBe('101:102');
+    expect(h.fake.fetch.mock.calls[1][1]).toEqual({ source: true });
+    expect(sortants.map((s) => s.messageId)).toEqual(['<r1@nous.fr>', '<r2@nous.fr>']);
+  });
+
+  it('fenêtre vide → aucun fetch', async () => {
+    h.fake.list.mockResolvedValueOnce(listeAvecSent);
+    h.fake.search.mockResolvedValueOnce([]);
+    const c = creerClientEnvoyes(COMPTE);
+    await c.ouvrir();
+    expect(await c.lireSortantsComplets(['<m7@mairie.fr>'], new Date())).toEqual([]);
+    expect(h.fake.fetch).not.toHaveBeenCalled();
+  });
+
+  it('aucun message ne cite un fil → aucune source lue', async () => {
+    h.fake.list.mockResolvedValueOnce(listeAvecSent);
+    h.fake.search.mockResolvedValueOnce([5]);
+    h.fake.fetch.mockImplementationOnce(function () { return (async function* () { yield { uid: 5, headers: Buffer.from('In-Reply-To: <x@y>\r\n') }; })(); });
+    const c = creerClientEnvoyes(COMPTE);
+    await c.ouvrir();
+    expect(await c.lireSortantsComplets(['<m7@mairie.fr>'], new Date())).toEqual([]);
+    expect(h.fake.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('compacterUids : plages compactes, doublons et désordre absorbés', () => {
+    expect(compacterUids([7, 3, 4, 5, 10, 12, 13, 4])).toBe('3:5,7,10,12:13');
+    expect(compacterUids([])).toBe('');
+    expect(compacterUids([42])).toBe('42');
   });
 });

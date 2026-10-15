@@ -11,6 +11,11 @@
  *  - repli SÛR : migration 176 absente OU aucun fil → AUCUNE connexion IMAP ; aucun dossier \Sent → aucun effet (jamais de scan aveugle) ;
  *  - LECTURE STRICTE (EXAMINE) : aucun flag, rien déplacé/supprimé.
  * ISOLATION : un échec (IMAP, DB) n'interrompt ni la capture des autres ni la veille (compté, on continue).
+ *
+ * CURSEUR (lot LENTEUR DE LA VEILLE, 15/10/2026, migration 360) : sans lui, chaque passe relisait le dossier envoyés depuis le
+ * PREMIER envoi (~3 min par passe sur le serveur). Fenêtre = `fenetreCapture` : curseur − 3 j, SAUF au premier passage, ou si
+ * un fil apporte un Message-ID que la dernière passe ok ne couvrait pas → fenêtre d'origine complète (aucune détection perdue).
+ * Le curseur n'avance qu'après une passe lue jusqu'au bout ET sans échec de stockage.
  */
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
@@ -24,6 +29,34 @@ export interface DepsCaptureSortants {
   chargerFils(profil: ProfilBoite): Promise<{ fils: FilCible[]; messageIds: string[]; depuis: Date }>; // fils suivis + union des Message-ID + borne basse
   lireSortantsComplets(profil: ProfilBoite, messageIds: string[], depuis: Date): Promise<SortantComplet[]>; // \Sent, CORPS ; [] si compte/\Sent absent
   stocker(demandeId: number, destinataire: string, sortant: SortantComplet): Promise<boolean>; // true = inséré ; false = doublon (dédup)
+  /** Dernière passe « ok » : son début et les Message-ID qu'elle couvrait. `null` = aucune (premier passage, ou migration 360 absente). */
+  dernierePasse(profil: ProfilBoite): Promise<{ debut: Date; messageIds: string[] } | null>;
+  /** Journalise une passe lue jusqu'au bout (sans effet si la migration 360 est absente). */
+  noterPasse(p: PasseCapture): Promise<void>;
+  maintenant(): Date;
+}
+
+export interface PasseCapture {
+  profil: ProfilBoite; debut: Date; depuis: Date; messageIds: string[];
+  examines: number; captures: number; erreurs: number; resultat: 'ok' | 'partiel';
+}
+
+/** Marge de relecture avant le curseur, en jours — même valeur et mêmes raisons que la relève (P1, releveReponses.ts). */
+export const MARGE_CURSEUR_CAPTURE_JOURS = 3;
+
+/**
+ * Fenêtre de relecture du dossier envoyés. PURE.
+ *  - aucune passe ok connue → fenêtre d'origine (`depuisOrigine` = premier envoi de demande) ;
+ *  - un Message-ID de fil absent de la dernière passe ok (nouveau fil, nouvelle réponse de mairie relevée en retard…) →
+ *    fenêtre d'origine : une réponse d'Arno plus ancienne que le curseur doit pouvoir être trouvée ;
+ *  - sinon : curseur − 3 j, jamais avant la fenêtre d'origine.
+ */
+export function fenetreCapture(depuisOrigine: Date, messageIds: readonly string[], derniere: { debut: Date; messageIds: readonly string[] } | null): { depuis: Date; motif: 'premiere' | 'nouveaux' | 'curseur' } {
+  if (derniere === null) return { depuis: depuisOrigine, motif: 'premiere' };
+  const couverts = new Set(derniere.messageIds);
+  if (messageIds.some((m) => !couverts.has(m))) return { depuis: depuisOrigine, motif: 'nouveaux' };
+  const curseur = new Date(derniere.debut.getTime() - MARGE_CURSEUR_CAPTURE_JOURS * 86_400_000);
+  return { depuis: curseur.getTime() > depuisOrigine.getTime() ? curseur : depuisOrigine, motif: 'curseur' };
 }
 
 export interface BilanCapture { examines: number; captures: number; erreurs: number }
@@ -37,9 +70,12 @@ export async function executerCaptureSortantsAuto(deps: DepsCaptureSortants): Pr
   if (!config.active) return { examines: 0, captures: 0, erreurs: 0 };
   if (!(await deps.tableDisponible())) return { examines: 0, captures: 0, erreurs: 0 }; // migration 176 absente → aucune capture, aucune connexion IMAP
 
-  const { fils, messageIds, depuis } = await deps.chargerFils(config.profil);
+  const { fils, messageIds, depuis: depuisOrigine } = await deps.chargerFils(config.profil);
   if (fils.length === 0 || messageIds.length === 0) return { examines: 0, captures: 0, erreurs: 0 }; // aucun fil → AUCUNE connexion IMAP
 
+  const debut = deps.maintenant();
+  const { depuis } = fenetreCapture(depuisOrigine, messageIds, await deps.dernierePasse(config.profil));
+  // Un échec IMAP LÈVE ici (journalisé par lireSortantsComplets) : aucune passe notée, le curseur n'avance pas.
   const sortants = await deps.lireSortantsComplets(config.profil, messageIds, depuis); // [] si compte absent OU pas de dossier \Sent
 
   let captures = 0, erreurs = 0;
@@ -53,6 +89,8 @@ export async function executerCaptureSortantsAuto(deps: DepsCaptureSortants): Pr
       erreurs += 1; // ISOLATION : un échec de stockage n'interrompt ni les autres ni la veille (retenté la passe suivante).
     }
   }
+  // « partiel » si un stockage a échoué : le curseur reste où il était, l'envoi sera revu à la passe suivante.
+  await deps.noterPasse({ profil: config.profil, debut, depuis, messageIds, examines: sortants.length, captures, erreurs, resultat: erreurs > 0 ? 'partiel' : 'ok' });
   return { examines: sortants.length, captures, erreurs };
 }
 
@@ -135,5 +173,32 @@ export function depsReellesCaptureSortants(): DepsCaptureSortants {
         throw e;
       }
     },
+    dernierePasse: async (profil) => {
+      try {
+        const { rows } = await query<{ debut: Date; message_ids: string[] }>(
+          `SELECT debut, message_ids FROM capture_sortants_passe WHERE profil = $1 AND resultat = 'ok' ORDER BY debut DESC LIMIT 1`, [profil]);
+        return rows[0] ? { debut: rows[0].debut, messageIds: rows[0].message_ids } : null;
+      } catch (e) {
+        if (typeof e === 'object' && e !== null && (e as { code?: string }).code === '42P01') return null; // 360 absente → fenêtre d'origine (comportement d'avant)
+        throw e;
+      }
+    },
+    noterPasse: async (p) => {
+      try {
+        await query(
+          `INSERT INTO capture_sortants_passe (profil, debut, depuis, message_ids, examines, captures, erreurs, resultat)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [p.profil, p.debut, p.depuis, p.messageIds, p.examines, p.captures, p.erreurs, p.resultat]);
+        // Purge : plus de 30 jours, en gardant TOUJOURS la dernière passe ok du profil (le curseur).
+        await query(
+          `DELETE FROM capture_sortants_passe WHERE profil = $1 AND debut < now() - interval '30 days'
+              AND id <> coalesce((SELECT id FROM capture_sortants_passe WHERE profil = $1 AND resultat = 'ok' ORDER BY debut DESC LIMIT 1), 0)`,
+          [p.profil]);
+      } catch (e) {
+        if (typeof e === 'object' && e !== null && (e as { code?: string }).code === '42P01') return; // 360 absente → rien à noter
+        throw e;
+      }
+    },
+    maintenant: () => new Date(),
   };
 }

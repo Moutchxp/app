@@ -20,7 +20,7 @@ const { appels, queryMock } = vi.hoisted(() => {
 vi.mock('../db/client', () => ({ query: queryMock }));
 vi.mock('../sitadel/veilleConfig', () => ({ chargerConfigVeille: vi.fn(async () => ({ releveActive: true, releveProfil: 'entreprise' })) }));
 
-import { executerCaptureSortantsAuto, depsReellesCaptureSortants, type DepsCaptureSortants } from './captureSortantsAuto';
+import { executerCaptureSortantsAuto, depsReellesCaptureSortants, fenetreCapture, type DepsCaptureSortants, type PasseCapture } from './captureSortantsAuto';
 import type { SortantComplet, FilCible } from './captureSortants';
 
 const sortant = (over: Partial<SortantComplet> = {}): SortantComplet => ({
@@ -29,9 +29,10 @@ const sortant = (over: Partial<SortantComplet> = {}): SortantComplet => ({
 });
 const fil = (over: Partial<FilCible> = {}): FilCible => ({ demandeId: 154, messageIds: ['<m7@mairie.fr>', '<init@nous.fr>'], mairieAdresses: ['urba@mairie.fr'], ...over });
 
-function harness(opts: { active?: boolean; table?: boolean; fils?: FilCible[]; messageIds?: string[]; sortants?: SortantComplet[]; stockerThrows?: boolean; doublon?: boolean } = {}) {
+function harness(opts: { active?: boolean; table?: boolean; fils?: FilCible[]; messageIds?: string[]; sortants?: SortantComplet[]; stockerThrows?: boolean; doublon?: boolean; derniere?: { debut: Date; messageIds: string[] } | null; imapEchoue?: boolean } = {}) {
+  const passes: PasseCapture[] = [];
   const stockes: { demandeId: number; dest: string; messageId: string }[] = [];
-  const lireSortantsComplets = vi.fn(async () => opts.sortants ?? []);
+  const lireSortantsComplets = vi.fn(async (_p: unknown, _m: string[], _d: Date) => { if (opts.imapEchoue) throw new Error('IMAP coupé'); return opts.sortants ?? []; });
   const chargerFils = vi.fn(async () => ({ fils: opts.fils ?? [fil()], messageIds: opts.messageIds ?? ['<m7@mairie.fr>', '<init@nous.fr>'], depuis: new Date('2026-08-04T08:00:00Z') }));
   const tableDisponible = vi.fn(async () => opts.table ?? true);
   const deps: DepsCaptureSortants = {
@@ -40,8 +41,11 @@ function harness(opts: { active?: boolean; table?: boolean; fils?: FilCible[]; m
     chargerFils,
     lireSortantsComplets,
     stocker: async (demandeId, dest, s) => { if (opts.stockerThrows) throw new Error('DB down'); if (opts.doublon) return false; stockes.push({ demandeId, dest, messageId: s.messageId }); return true; },
+    dernierePasse: async () => opts.derniere ?? null,
+    noterPasse: async (p) => { passes.push(p); },
+    maintenant: () => new Date('2026-10-15T21:00:00Z'),
   };
-  return { deps, stockes, lireSortantsComplets, chargerFils, tableDisponible };
+  return { deps, stockes, passes, lireSortantsComplets, chargerFils, tableDisponible };
 }
 
 beforeEach(() => { appels.length = 0; });
@@ -139,5 +143,53 @@ describe('FIL-C — depsReellesCaptureSortants : requêtes', () => {
     expect(sql).toContain('ON CONFLICT (message_id) DO NOTHING');
     expect(insere).toBe(true);
     expect(ins.params[1]).toBe('<out-1@nous.fr>'); // message_id lié (clé de dédup)
+  });
+});
+
+describe('LENTEUR DE LA VEILLE — curseur de la capture des envoyés (migration 360)', () => {
+  const origine = new Date('2026-08-04T08:00:00Z');
+  const ids = ['<m7@mairie.fr>', '<init@nous.fr>'];
+
+  it('fenetreCapture : premier passage → fenêtre d’origine', () => {
+    expect(fenetreCapture(origine, ids, null)).toEqual({ depuis: origine, motif: 'premiere' });
+  });
+  it('fenetreCapture : mêmes Message-ID → curseur − 3 j', () => {
+    expect(fenetreCapture(origine, ids, { debut: new Date('2026-10-15T20:45:00Z'), messageIds: ids }))
+      .toEqual({ depuis: new Date('2026-10-12T20:45:00Z'), motif: 'curseur' });
+  });
+  it('fenetreCapture : un Message-ID nouveau (réponse de mairie relevée en retard) → fenêtre d’origine', () => {
+    expect(fenetreCapture(origine, [...ids, '<m8@mairie.fr>'], { debut: new Date('2026-10-15T20:45:00Z'), messageIds: ids }))
+      .toEqual({ depuis: origine, motif: 'nouveaux' });
+  });
+  it('fenetreCapture : jamais avant la fenêtre d’origine', () => {
+    expect(fenetreCapture(origine, ids, { debut: new Date('2026-08-05T00:00:00Z'), messageIds: ids }).depuis).toEqual(origine);
+  });
+
+  it('passe complète → lit depuis curseur − 3 j et note une passe « ok » avec les Message-ID couverts', async () => {
+    const h = harness({ sortants: [sortant()], derniere: { debut: new Date('2026-10-15T20:45:00Z'), messageIds: ids } });
+    await executerCaptureSortantsAuto(h.deps);
+    expect(h.lireSortantsComplets.mock.calls[0][2]).toEqual(new Date('2026-10-12T20:45:00Z'));
+    expect(h.passes).toEqual([{ profil: 'entreprise', debut: new Date('2026-10-15T21:00:00Z'), depuis: new Date('2026-10-12T20:45:00Z'), messageIds: ids, examines: 1, captures: 1, erreurs: 0, resultat: 'ok' }]);
+  });
+  it('premier passage → fenêtre d’origine', async () => {
+    const h = harness();
+    await executerCaptureSortantsAuto(h.deps);
+    expect(h.lireSortantsComplets.mock.calls[0][2]).toEqual(origine);
+  });
+  it('échec IMAP → l’erreur remonte et AUCUNE passe n’est notée (le curseur n’avance pas)', async () => {
+    const h = harness({ imapEchoue: true, derniere: { debut: new Date('2026-10-15T20:45:00Z'), messageIds: ids } });
+    await expect(executerCaptureSortantsAuto(h.deps)).rejects.toThrow('IMAP coupé');
+    expect(h.passes).toEqual([]);
+  });
+  it('un stockage en échec → passe « partiel » (le curseur n’avance pas, l’envoi sera revu)', async () => {
+    const h = harness({ sortants: [sortant()], stockerThrows: true });
+    await executerCaptureSortantsAuto(h.deps);
+    expect(h.passes[0].resultat).toBe('partiel');
+  });
+  it('aucun fil → ni IMAP ni passe notée', async () => {
+    const h = harness({ fils: [], messageIds: [] });
+    await executerCaptureSortantsAuto(h.deps);
+    expect(h.lireSortantsComplets).not.toHaveBeenCalled();
+    expect(h.passes).toEqual([]);
   });
 });
