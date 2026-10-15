@@ -101,6 +101,9 @@ interface MajRun {
 /** Toutes les I/O du moteur, injectables pour les tests (concurrence / échec sans réseau ni base). */
 export interface DepsVeille {
   maintenant(): Date;
+  /** Instrumentation des durées (lot LENTEUR DE LA VEILLE, 15/10/2026) : une ligne au début et à la fin de chaque étape.
+   *  Production : console.log (journal systemd, horodaté). Absent (tests) → silencieux. Ne change aucun comportement. */
+  journal?(ligne: string): void;
   chargerConfig(): Promise<ConfigAuto & { csvRetentionJours: number }>;
   dernierSucces(): Promise<Date | null>;
   millesimeEnBase(): Promise<string | null>;
@@ -209,11 +212,54 @@ function publicationLisible(d: Date): string {
   return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Europe/Paris' }).format(d);
 }
 
+/** Durée écoulée depuis `t0` (horloge monotone), en secondes lisibles — AFFICHAGE seulement, jamais réutilisée. */
+function duree(t0: number): string {
+  return `${((performance.now() - t0) / 1000).toFixed(1)} s`;
+}
+
+/**
+ * Étape ISOLÉE, chronométrée : même sémantique qu'avant (`try { await … } catch { }` : une erreur est avalée, la veille
+ * continue), plus une ligne de journal au début et à la fin avec la durée. Sert à localiser les attentes réseau.
+ */
+async function etapeIsolee(deps: DepsVeille, nom: string, fn: () => Promise<unknown>): Promise<void> {
+  const t0 = performance.now();
+  deps.journal?.(`[veille] étape ${nom} : début`);
+  try {
+    await fn();
+    deps.journal?.(`[veille] étape ${nom} : ${duree(t0)}`);
+  } catch {
+    deps.journal?.(`[veille] étape ${nom} : ${duree(t0)} — en erreur (isolée, la veille continue)`);
+  }
+}
+
+/** Étape du cœur Sitadel, chronométrée : l'erreur REMONTE comme avant (statut 'echec'), la durée est journalisée quand même. */
+async function chrono<T>(deps: DepsVeille, nom: string, fn: () => Promise<T>): Promise<T> {
+  const t0 = performance.now();
+  deps.journal?.(`[veille] étape ${nom} : début`);
+  try {
+    const r = await fn();
+    deps.journal?.(`[veille] étape ${nom} : ${duree(t0)}`);
+    return r;
+  } catch (e) {
+    deps.journal?.(`[veille] étape ${nom} : ${duree(t0)} — en erreur`);
+    throw e;
+  }
+}
+
 export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = depsReelles()): Promise<ResultatVeille> {
+  const debutPasse = performance.now();
+  try {
+    return await executerVeilleChronometree(opts, deps);
+  } finally {
+    deps.journal?.(`[veille] passe complète : ${duree(debutPasse)}`);
+  }
+}
+
+async function executerVeilleChronometree(opts: OptionsVeille, deps: DepsVeille): Promise<ResultatVeille> {
   const forcer = opts.forcer ?? false;
 
   // 1) Verrou : un run déjà en cours → sortie immédiate, sans réseau ni écriture.
-  if (!(await deps.acquerirVerrou())) {
+  if (!(await chrono(deps, 'acquerirVerrou', () => deps.acquerirVerrou()))) {
     return { statut: 'rien_a_faire', raison: 'un run est déjà en cours (verrou pris) — sortie sans action', runId: null };
   }
 
@@ -231,7 +277,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   ici (executerReleveAuto journalise déjà son propre « erreur » sans relancer). N'affecte ni le verrou, ni le run
     //   Sitadel, ni son statut ; la séquence Sitadel continue exactement comme si de rien n'était.
     if (faitMairies && deps.releveAuto) {
-      try { await deps.releveAuto(); } catch { /* relève isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'releveAuto', async () => deps.releveAuto?.()); /* relève isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1ter) RELÈVE APPROFONDIE (R6) — APRÈS la relève courante (qui vient, si elle a réussi, de rafraîchir la fraîcheur) :
@@ -239,7 +285,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   compris) « pour être sûr de ne pas avoir loupé le mail ». Garde 1/jour/demande à l'intérieur. MÊME ISOLATION à
     //   double filet que §1bis : un échec n'impacte jamais la veille Sitadel.
     if (faitMairies && deps.echeanceApprofondie) {
-      try { await deps.echeanceApprofondie(); } catch { /* approfondie isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'echeanceApprofondie', async () => deps.echeanceApprofondie?.()); /* approfondie isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1ter-bis) DIAGNOSTICS DE VAGUE (PART-C) — APRÈS les relèves (qui viennent de verser en GED les pièces reçues) : pour chaque
@@ -247,7 +293,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   AUTO ici), on lance UN SEUL diagnostic de complétude (qui peut lever le marqueur partiel). Jamais un diagnostic par mail.
     //   MÊME ISOLATION à double filet : un échec n'impacte jamais la veille Sitadel. AUCUN envoi (le diagnostic ne réclame rien).
     if (faitMairies && deps.diagnosticVague) {
-      try { await deps.diagnosticVague(); } catch { /* diagnostics de vague isolés : n'impactent jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'diagnosticVague', async () => deps.diagnosticVague?.()); /* diagnostics de vague isolés : n'impactent jamais la veille Sitadel */
     }
 
     // 1ter-bis) AUTO-PARTIEL — ENVOI AUTOMATIQUE de la cascade PARTIELLE (relances 1..N, annonce CADA) aux dates dérivées de partiel_le.
@@ -256,7 +302,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   pour la même réponse (une seule relance à la mairie) ; le PLAFOND ANTI-CUMUL (budget partagé du run, cf. depsReelles) est le filet
     //   EXPLICITE. Anti-doublon par réservation de créneau (auto ⇄ manuel) ; gated par cascade_partiel_auto_active. MÊME ISOLATION.
     if (faitMairies && deps.cascadePartielleAuto) {
-      try { await deps.cascadePartielleAuto(); } catch { /* cascade partielle auto isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'cascadePartielleAuto', async () => deps.cascadePartielleAuto?.()); /* cascade partielle auto isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1ter-ter) BOUCLE DE RELANCE « la mairie a répondu partiellement » (PART-E) — APRÈS la cascade partielle (ordre ci-dessus) :
@@ -264,20 +310,20 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   relance_auto_active) la relance adaptée, sous délai de calme (vagueCloseeEnvoi), fenêtre ouvrée, cap par run ET plafond
     //   anti-cumul par demande/run ; mode MANUEL → rien ici (pastille Analyse). Échange de suivi : PAS de plafond quotidien. MÊME ISOLATION.
     if (faitMairies && deps.relanceReponsePartielle) {
-      try { await deps.relanceReponsePartielle(); } catch { /* boucle partielle isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'relanceReponsePartielle', async () => deps.relanceReponsePartielle?.()); /* boucle partielle isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1quater) BROUILLONS DE RELANCE (R6b) — APRÈS l'approfondie (qui vient de regarder au mieux) : pour les demandes dont
     //   l'échéance d'un mois est DÉPASSÉE et sans relance vivante, on PRÉPARE un texte de relance (aucun envoi). MÊME
     //   ISOLATION que §1bis/§1ter : un échec n'impacte jamais la veille Sitadel.
     if (faitMairies && deps.relanceEcheance) {
-      try { await deps.relanceEcheance(); } catch { /* relance isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'relanceEcheance', async () => deps.relanceEcheance?.()); /* relance isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1quinquies) ALERTE e-mail quotidienne (R8) — APRÈS les relances : un seul récapitulatif par jour, uniquement s'il y a
     //   quelque chose à dire. MÊME ISOLATION : un échec d'envoi n'impacte jamais la veille ni la relève.
     if (faitMairies && deps.alerteQuotidienne) {
-      try { await deps.alerteQuotidienne(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'alerteQuotidienne', async () => deps.alerteQuotidienne?.()); /* alerte isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1sexies-part) PRÉPARATION AUTO de la saisine CADA sur DOSSIER PARTIEL (PART-F) — AVANT la proposition X5 : pour une demande
@@ -285,7 +331,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   saisine_cada_auto_active). Le brouillon crée une saisine vivante → la demande n'est plus « saisissable » → la proposition X5
     //   ci-dessous ne la double pas ; elle est signalée par la pastille « Saisines CADA ». MÊME ISOLATION : un échec n'impacte rien.
     if (faitMairies && deps.preparerSaisinePartielle) {
-      try { await deps.preparerSaisinePartielle(); } catch { /* préparation isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'preparerSaisinePartielle', async () => deps.preparerSaisinePartielle?.()); /* préparation isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1sexies) PROPOSITIONS de saisine CADA (X5) — DERNIÈRE étape auto, APRÈS l'alerte : pour chaque demande devenue
@@ -293,21 +339,21 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   confirmation. MÊME ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève. AUCUN envoi
     //   vers une mairie ou la CADA (invariant executerVeille).
     if (faitMairies && deps.propositionCada) {
-      try { await deps.propositionCada(); } catch { /* proposition isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'propositionCada', async () => deps.propositionCada?.()); /* proposition isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1septies) ALERTES « contenu à classer/télécharger en GED » (G1) — DERNIÈRE étape auto : pour chaque réponse porteuse de
     //   pièces et/ou d'un lien dont le contenu n'est pas encore en GED, un compte à rebours (J-3 puis 24 h) envoie le mail de
     //   mairie forwardé à l'exploitant. Idempotence par (réponse × permis × type). MÊME ISOLATION : un échec n'impacte rien.
     if (faitMairies && deps.alerteGed) {
-      try { await deps.alerteGed(); } catch { /* alerte GED isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'alerteGed', async () => deps.alerteGed?.()); /* alerte GED isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1septies-lien) ALERTE « lien de téléchargement bientôt périmé » (PART-D) — pour chaque lien fort en attente (GED vide) ayant
     //   atteint le seuil : UN e-mail groupé à Arno (jamais à une mairie ; aucun interrupteur de relance), une seule fois par lien,
     //   dans la fenêtre d'envoi ouvrée. MÊME ISOLATION : un échec n'impacte jamais la veille ni la relève.
     if (faitMairies && deps.alerteLienPeremption) {
-      try { await deps.alerteLienPeremption(); } catch { /* alerte lien isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'alerteLienPeremption', async () => deps.alerteLienPeremption?.()); /* alerte lien isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1septies-bis) RAPPEL « un permis attend le bâti depuis trop longtemps » (ATT-BATI) — un simple FILET, INDÉPENDANT de
@@ -315,7 +361,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   trop longtemps ou tombe). Un rappel par dossier au-delà du seuil (marqueur anti-doublon). Ne lit QUE l'état/l'ancienneté.
     //   MÊME ISOLATION : un échec n'impacte jamais la veille ni la relève.
     if (faitMairies && deps.alerteAttenteBati) {
-      try { await deps.alerteAttenteBati(); } catch { /* rappel « attente bâti » isolé : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'alerteAttenteBati', async () => deps.alerteAttenteBati?.()); /* rappel « attente bâti » isolé : n'impacte jamais la veille Sitadel */
     }
 
     // 1octies) ALERTES « ce message de mairie appelle une réponse » (T7-B, cas ③) — APRÈS les alertes GED : pour chaque message
@@ -323,14 +369,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   mail de mairie à l'exploitant pour qu'il y réponde. Idempotence par message (alerte_action_le). MÊME ISOLATION : un
     //   échec n'impacte rien. On ne suit JAMAIS un lien ; aucune bascule statut/satisfait_le/Archives.
     if (faitMairies && deps.alerteAction) {
-      try { await deps.alerteAction(); } catch { /* alerte action isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'alerteAction', async () => deps.alerteAction?.()); /* alerte action isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1nonies) PRÉ-COCHAGE automatique de « répondu » (T7-C) — APRÈS l'alerte action : on lit le dossier ENVOYÉS (en-têtes seuls,
     //   lecture stricte) pour cocher les messages `autre` auxquels le fondateur a déjà répondu. Ancre anti-résurrection
     //   (repondu_auto_le). MÊME ISOLATION : un échec n'impacte rien. Ne remplace jamais le bouton manuel ; jamais demande.statut.
     if (faitMairies && deps.preCochageRepondu) {
-      try { await deps.preCochageRepondu(); } catch { /* pré-cochage isolé : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'preCochageRepondu', async () => deps.preCochageRepondu?.()); /* pré-cochage isolé : n'impacte jamais la veille Sitadel */
     }
 
     // 1nonies-bis) CAPTURE des réponses envoyées HORS OUTIL (FIL-C) — passe SŒUR de T7-C, MÊME verrou, JUSTE APRÈS. Lit le dossier
@@ -338,7 +384,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   DÉDIÉE demande_sortant_hors_outil, pour compléter le fil. NE MODIFIE PAS le pré-cochage. MÊME ISOLATION : un échec n'impacte
     //   rien. Migration 176 absente OU aucun fil → aucune connexion IMAP (repli propre).
     if (faitMairies && deps.captureSortants) {
-      try { await deps.captureSortants(); } catch { /* capture isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'captureSortants', async () => deps.captureSortants?.()); /* capture isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1decies) ENVOI AUTOMATIQUE aux mairies / à la CADA (RELANCE lot 6) — DERNIÈRE étape auto, APRÈS que la cascade a préparé
@@ -348,14 +394,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève ; les deux étapes sont isolées l'une
     //   de l'autre (dans executerEnvoiAuto). Un compte rendu INTERNE (alerte_email) récapitule tout envoi effectué.
     if (faitMairies && deps.envoiAuto) {
-      try { await deps.envoiAuto(); } catch { /* envoi auto isolé : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'envoiAuto', async () => deps.envoiAuto?.()); /* envoi auto isolé : n'impacte jamais la veille Sitadel */
     }
 
     // 1decies-bis) ENVOI AUTO de la 1re DEMANDE (224) — étape ISOLÉE, à côté de l'envoi auto des relances mais INDÉPENDANTE :
     //   son propre interrupteur (email_envoi_initial_auto_active, défaut false → rien ne part) + fenêtre horaire ; passe par
     //   envoyerDemandes (capBatch + caps). Un échec n'impacte jamais la veille ni les relances.
     if (faitMairies && deps.envoiInitialAuto) {
-      try { await deps.envoiInitialAuto(); } catch { /* envoi initial auto isolé : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'envoiInitialAuto', async () => deps.envoiInitialAuto?.()); /* envoi initial auto isolé : n'impacte jamais la veille Sitadel */
     }
 
     // 1undecies) DÉTECTION des nouvelles publications (FRAÎCHEUR lot 2) — DERNIÈRE étape auto : interroge les MÉTADONNÉES
@@ -363,7 +409,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   téléchargement de donnée (lot 3). MÊME ISOLATION à double filet : un échec de détection n'impacte jamais la veille
     //   ni la relève. Interrupteur global + cadence + activation par source sont gérés DANS executerDetection.
     if (faitDonnees && deps.detecterEditions) {
-      try { await deps.detecterEditions(); } catch { /* détection isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'detecterEditions', async () => deps.detecterEditions?.()); /* détection isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1duodecies) INGESTION AUTOMATIQUE nocturne (FRAÎCHEUR lot 6) — APRÈS la détection (qui vient de rafraîchir « mise à jour
@@ -371,7 +417,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   UNE ingestion part (une par tick, une tentative par source et par nuit). Défauts tout-false → rien. MÊME ISOLATION à
     //   double filet : un échec d'ingestion n'impacte jamais la veille ni la relève.
     if (faitDonnees && deps.ingestionAuto) {
-      try { await deps.ingestionAuto(); } catch { /* ingestion auto isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'ingestionAuto', async () => deps.ingestionAuto?.()); /* ingestion auto isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1duodecies-bis) REJEU AUTOMATIQUE du suivi de rattachement (RATT-AUTO) — JUSTE APRÈS l'ingestion nocturne : si une édition
@@ -379,7 +425,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   fasse basculer en `arbitrage_demande` dans le MÊME passage. SCOPÉ à ces dossiers (jamais tout l'univers). Interrupteur
     //   `rattachement_suivi_auto_active` (défaut false) lu dans la brique. MÊME ISOLATION : un échec n'impacte jamais la veille.
     if (faitDonnees && deps.suiviRattachementAuto) {
-      try { await deps.suiviRattachementAuto(); } catch { /* rejeu suivi isolé : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'suiviRattachementAuto', async () => deps.suiviRattachementAuto?.()); /* rejeu suivi isolé : n'impacte jamais la veille Sitadel */
     }
 
     // 1terdecies) ALERTE e-mail « bases prêtes à être mises à jour » (FRAÎCHEUR lot 4 / G4) — DERNIÈRE étape auto, APRÈS la
@@ -387,14 +433,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   un e-mail SEULEMENT si une nouvelle source apparaît (anti-spam par empreinte) ET sous l'interrupteur dédié (défaut off).
     //   MÊME ISOLATION à double filet : un échec d'envoi n'impacte jamais la veille ni la relève.
     if (faitDonnees && deps.alerteMisesAJour) {
-      try { await deps.alerteMisesAJour(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'alerteMisesAJour', async () => deps.alerteMisesAJour?.()); /* alerte isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1quaterdecies) ALERTE « un bâtiment qui fondait un certificat a disparu » (à revérifier) — APRÈS la détection/ingestion des
     //   éditions BD TOPO : on croise les certificats émis (cleabs d'obstacle capturé) avec le bâti COURANT. SIGNAL seulement (jamais
     //   de recertification, aucune écriture de certificat). Un rappel par certificat (marqueur anti-doublon). MÊME ISOLATION.
     if (faitDonnees && deps.alerteObstacleDisparu) {
-      try { await deps.alerteObstacleDisparu(); } catch { /* alerte obstacle disparu isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'alerteObstacleDisparu', async () => deps.alerteObstacleDisparu?.()); /* alerte obstacle disparu isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1quindecies) SURVEILLANCE des polygones APRÈS validation (SURV-1) — APRÈS l'ingestion d'une nouvelle édition BD TOPO : pour les
@@ -402,14 +448,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   polygone apparaît / disparaît / change de contour. SIGNAL seulement (n'invalide RIEN). Latente tant qu'aucun dossier n'est
     //   validé (0 aujourd'hui) → coût nul. MÊME ISOLATION à double filet : un échec n'impacte jamais la veille.
     if (faitDonnees && deps.surveillancePolygones) {
-      try { await deps.surveillancePolygones(); } catch { /* surveillance isolée : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'surveillancePolygones', async () => deps.surveillancePolygones?.()); /* surveillance isolée : n'impacte jamais la veille Sitadel */
     }
 
     // 1sexdecies) VERSEMENT en GED des pièces d'une réponse RATTACHÉE (PART-1) — 2e voie d'admission (le rattachement, pas
     //   l'expéditeur). Passe ISOLÉE et IDEMPOTENTE : verse les pièces des réponses « documents » rattachées, hors signature citée
     //   et sans doublon. MÊME ISOLATION : un échec n'impacte jamais la veille. Latente quand tout est déjà versé.
     if (faitDonnees && deps.versementRattache) {
-      try { await deps.versementRattache(); } catch { /* versement isolé : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'versementRattache', async () => deps.versementRattache?.()); /* versement isolé : n'impacte jamais la veille Sitadel */
     }
 
     // 1septdecies) PRÉCALCUL DE FOND du best-of PDF (PC-3) — JUSTE APRÈS le versement (§1sexdecies), pour que les pièces fraîchement
@@ -417,7 +463,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   sous budget de temps (rend la main largement avant la fin de l'intervalle), garde echecTelechargement (jamais un best-of dégradé).
     //   Accélérateur PUR : la route /emprise garde son repli à la volée. MÊME ISOLATION à double filet : un échec n'impacte jamais la veille.
     if (faitDonnees && deps.precalculBestOf) {
-      try { await deps.precalculBestOf(); } catch { /* précalcul isolé : n'impacte jamais la veille Sitadel */ }
+      await etapeIsolee(deps, 'precalculBestOf', async () => deps.precalculBestOf?.()); /* précalcul isolé : n'impacte jamais la veille Sitadel */
     }
 
     // Le CŒUR SITADEL (§2-7 : garde d'intervalle, run journal, millésime distant, ingestion, purge) appartient à la famille
@@ -445,7 +491,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     // 4) Millésime distant (bon marché) vs base. ⚠️ Si l'appel DiDo échoue (réseau/format/champ absent), l'exception
     //    remonte au catch → statut 'echec' : SURTOUT PAS de repli vers l'ingestion complète « au cas où ». Un moteur qui,
     //    en panne réseau, lance le travail lourd (880 Mo + UPSERT) serait dangereux (re-téléchargements en boucle).
-    const distant = await deps.millesimeDistant();
+    const distant = await chrono(deps, 'millesimeDistant (DiDo)', () => deps.millesimeDistant());
     detecte = distant.millesime;
     const nouveau = millesimeEstNouveau(await deps.millesimeEnBase(), distant.millesime);
     if (!nouveau.nouveau && !forcer) {
@@ -463,7 +509,7 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     }
 
     // 5) Ingestion du millésime DÉTECTÉ (non plus une constante figée) → compteurs réels ; base = distant après succès.
-    const c = await deps.ingerer(distant.millesime);
+    const c = await chrono(deps, 'ingerer', () => deps.ingerer(distant.millesime));
 
     // 6) Purge des CSV — UNIQUEMENT ici (chemin de succès) et JAMAIS le millésime qu'on vient d'ingérer (= le cache
     //    courant, ce qui rend le prochain re-run gratuit). Ne vise que les millésimes ANTÉRIEURS au-delà de la rétention.
@@ -510,6 +556,7 @@ function depsReelles(): DepsVeille {
   };
   return {
     maintenant: () => new Date(),
+    journal: (ligne) => console.log(ligne),
     chargerConfig: async () => {
       const c = await chargerConfigVeille();
       return { autoActive: c.autoActive, autoIntervalleHeures: c.autoIntervalleHeures, csvRetentionJours: c.csvRetentionJours, runDemandeLe: c.runDemandeLe };

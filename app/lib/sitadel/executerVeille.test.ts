@@ -729,3 +729,40 @@ describe('H1 — parserFamille : valeur inconnue REFUSÉE (jamais un repli silen
     expect(() => parserFamille(['--famille'])).toThrow(/invalide/); // sans valeur → refus aussi
   });
 });
+
+describe('LENTEUR DE LA VEILLE — instrumentation des durées (sans changer le comportement)', () => {
+  it('une ligne de début et une de fin par étape, avec durée ; une erreur d’étape isolée reste avalée et se voit', async () => {
+    const lignes: string[] = [];
+    const releveAuto = vi.fn(async () => { throw new Error('IMAP injoignable'); });
+    const captureSortants = vi.fn(async () => undefined);
+    const deps = makeDeps({ journal: (l: string) => lignes.push(l), releveAuto, captureSortants });
+
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+
+    // Comportement inchangé : la relève en erreur n'empêche ni la suite, ni le cœur Sitadel.
+    expect(captureSortants).toHaveBeenCalledTimes(1);
+    expect(r.statut).not.toBe('echec');
+    expect(lignes).toContain('[veille] étape releveAuto : début');
+    expect(lignes.some((l) => /^\[veille\] étape releveAuto : \d+\.\d s — en erreur \(isolée, la veille continue\)$/.test(l))).toBe(true);
+    expect(lignes.some((l) => /^\[veille\] étape captureSortants : \d+\.\d s$/.test(l))).toBe(true);
+    expect(lignes.some((l) => /^\[veille\] étape millesimeDistant \(DiDo\) : \d+\.\d s$/.test(l))).toBe(true);
+    expect(lignes.at(-1)).toMatch(/^\[veille\] passe complète : \d+\.\d s$/);
+    // L'ordre des débuts suit l'ordre des étapes.
+    const debuts = lignes.filter((l) => l.endsWith(': début')).map((l) => l.replace(/^\[veille\] étape | : début$/g, ''));
+    expect(debuts.indexOf('releveAuto')).toBeLessThan(debuts.indexOf('captureSortants'));
+    expect(debuts.indexOf('captureSortants')).toBeLessThan(debuts.indexOf('millesimeDistant (DiDo)'));
+  });
+
+  it('une erreur du cœur Sitadel remonte comme avant (statut echec), et sa durée est journalisée', async () => {
+    const lignes: string[] = [];
+    const deps = makeDeps({ journal: (l: string) => lignes.push(l), millesimeDistant: vi.fn(async () => { throw new Error('DiDo 503'); }) });
+    await expect(executerVeille({ declencheur: 'manuel' }, deps)).rejects.toThrow('DiDo 503');
+    expect(lignes.some((l) => /^\[veille\] étape millesimeDistant \(DiDo\) : \d+\.\d s — en erreur$/.test(l))).toBe(true);
+    expect(lignes.at(-1)).toMatch(/^\[veille\] passe complète : /);
+  });
+
+  it('sans journal (tests, appels isolés) : silencieux, même résultat', async () => {
+    const r = await executerVeille({ declencheur: 'manuel' }, makeDeps({}));
+    expect(r.statut).toBeDefined();
+  });
+});
