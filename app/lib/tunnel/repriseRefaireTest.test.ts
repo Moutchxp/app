@@ -83,10 +83,47 @@ describe('reprise de « Refaire le test » — câblage dans le tunnel (app/page
   });
 
   it('nouveau test depuis l’accueil → rien de repris ; « Refaire la photo » n’utilise pas la reprise', () => {
-    expect(src).toContain('if (etape === "accueil") { repriseRef.current = null; setPointRepris(false); }');
+    expect(src).toContain('if (etape === "accueil") reinitialiserSessionTest();');
     const i = src.indexOf('function reprendrePhoto() {');
     const bloc = src.slice(i, src.indexOf('startCamera();', i));
     expect(bloc).not.toContain('repriseRef');
     expect(src).toContain('if (demanderGpsALOuverture(repriseRef.current)) demanderPositionGPS();');
+  });
+});
+
+describe('retour à l’accueil = session de test VIERGE (retour d’Arno du 16/10/2026)', () => {
+  const src = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf8').replace(/\s+/g, ' ');
+  const i = src.indexOf('function reinitialiserSessionTest() {');
+  const corps = src.slice(i, src.indexOf('function reinitialiserCapteurs() {', i));
+
+  it('tout chemin vers l’accueil passe par setEtape("accueil"), qui déclenche la remise à zéro', () => {
+    expect(src).toContain('useEffect(() => { if (etape === "accueil") reinitialiserSessionTest();');
+    expect(src).toContain('onRecommencer={() => setEtape("accueil")}');
+    expect(src).toContain('onAccueil={() => setEtape("accueil")}');
+  });
+
+  it('adresse, point, mode, validation, photo, capteurs, étage, analyse et résultat sont remis à leur valeur de première visite', () => {
+    for (const geste of [
+      'repriseRef.current = null;', 'setPointRepris(false);', 'conserverPositionRef.current = false;', 'userMovedRef.current = false;',
+      'setAddress("");', 'setAddressInfo("");', 'setPositionGPSObtenue(false);', 'setCarteCentrePret(false);', 'setCommuneInsee(null);',
+      'setPosition({ latitude: 48.8566, longitude: 2.3522 });', 'origine.reset();', 'setMode("semi_auto");', 'setPointDeplace(false);',
+      'stopCamera();', 'reinitialiserCapteurs();', 'setPhoto(null);', 'setCapturedOrientation(null);', 'setAzimutAjuste(null);',
+      'setEtage("");', 'setHauteurSousPlafondM(2.5);', 'setDernierEtage(null);',
+      'setAnalyseEnCours(false);', 'setAnalyse(null);', 'setAnalyseErreur(null);', 'setEtatPhoto("echec");', 'setAnalyseEtape(0);',
+    ]) expect(corps, geste).toContain(geste);
+  });
+
+  it('les valeurs remises sont bien celles du premier rendu (aucune divergence silencieuse)', () => {
+    expect(src).toContain('const [mode, setMode] = useState<ModeOrigine>("semi_auto");');
+    expect(src).toContain('const [hauteurSousPlafondM, setHauteurSousPlafondM] = useState<number>(2.5);');
+    expect(src).toContain('const [position, setPosition] = useState({ latitude: 48.8566, longitude: 2.3522, });');
+    expect(src).toContain('const [etatPhoto, setEtatPhoto] = useState<"en_cours" | "exploitable" | "inexploitable" | "echec">("echec");');
+  });
+
+  it('« Refaire le test » ne passe PAS par l’accueil : la reprise reste intacte', () => {
+    const j = src.indexOf('onRefaireTest={() => {');
+    const bloc = src.slice(j, src.indexOf('}}', j));
+    expect(bloc).not.toContain('setEtape("accueil")');
+    expect(bloc).not.toContain('reinitialiserSessionTest');
   });
 });

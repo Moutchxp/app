@@ -1775,8 +1775,12 @@ export default function Home() {
   // Posé UNIQUEMENT par ce bouton ; consommé à la photo ; effacé au retour à l'accueil (rien n'est repris ailleurs).
   const repriseRef = useRef<RepriseTest | null>(null);
   const [pointRepris, setPointRepris] = useState(false); // l'écran de localisation affiche le point repris (choix A)
+  // RETOUR À L'ACCUEIL = SESSION DE TEST VIERGE (retour d'Arno du 16/10/2026) : tout chemin qui ramène à l'accueil
+  // (« Retour à l'accueil » du résultat, « Accueil » du certificat…) passe par setEtape("accueil") → cet effet. SEUL
+  // « Refaire le test » garde les données du test précédent (reprise ci-dessus, qui ne passe pas par l'accueil).
   useEffect(() => {
-    if (etape === "accueil") { repriseRef.current = null; setPointRepris(false); }
+    if (etape === "accueil") reinitialiserSessionTest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [etape]);
   // Vrai dès que l'utilisateur a déplacé la carte. Empêche le GPS photo TARDIF de rappeler la
   // carte sur le point photo après que l'utilisateur a choisi son point.
@@ -2094,6 +2098,48 @@ export default function Home() {
   // Réinitialise TOUT l'état de l'aide au niveau (states + refs) à une entrée caméra,
   // pour ne pas hériter d'un isLevel/refs figés (sinon déclencheur grisé au retour).
   // Ne touche PAS la logique de calcul du tick : remet seulement les valeurs initiales.
+  /**
+   * Remet la session de test à l'état d'une PREMIÈRE VISITE : adresse, point, mode, validation, photo, capteurs, étage,
+   * analyse et résultat. Volontairement CONSERVÉS (ce ne sont pas des données du test) : la session analytics de la
+   * visite (`sessionDebutee`), l'objectif photo détecté (`surUltra`, `ultraDeviceId`) et les marques « aide déjà
+   * consultée » des pictos « i » (`info…Vu`, qui arrêtent seulement leur clignotement).
+   */
+  function reinitialiserSessionTest() {
+    repriseRef.current = null;
+    setPointRepris(false);
+    conserverPositionRef.current = false;
+    ignoreNextReverseRef.current = false;
+    userMovedRef.current = false;
+    dernierRefus.current = null;
+    setAddress("");
+    setAddressInfo("");
+    setPositionGPSObtenue(false);
+    setCarteCentrePret(false);
+    setCommuneInsee(null);
+    setPosition({ latitude: 48.8566, longitude: 2.3522 }); // valeur initiale (centre par défaut, jamais affiché sans vrai centre)
+    origine.reset();
+    setMode("semi_auto");
+    setPointDeplace(false);
+    stopCamera();
+    reinitialiserCapteurs();
+    setPhoto(null);
+    setCapturedOrientation(null);
+    setAzimutAjuste(null);
+    setAngles({ pitch: 0, roll: 0, heading: 0 });
+    setEtage("");
+    setHauteurSousPlafondM(2.5);
+    setDernierEtage(null);
+    setAnalyseEnCours(false);
+    setAnalyse(null);
+    setAnalyseErreur(null);
+    setEtatPhoto("echec");
+    setAnalyseEtape(0);
+    setInfoLocalisationOuvert(false);
+    setInfoOrientationOuvert(false);
+    setInfoHauteurOuvert(false);
+    setShowInfoPhoto(false);
+  }
+
   function reinitialiserCapteurs() {
     setIsLevel(false);
     setPitchValid(false);
