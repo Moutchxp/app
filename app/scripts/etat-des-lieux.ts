@@ -69,7 +69,7 @@ async function main(): Promise<void> {
 }
 
 // N'exécuter que si lancé directement (jamais si un test importe ce module).
-import { pathToFileURL } from 'node:url';
-if (!!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+import { estPointEntree } from '../lib/scripts/pointEntree';
+if (estPointEntree(import.meta.url)) {
   void main().catch((e) => { console.error('[permis:etat-des-lieux] échec', e); process.exitCode = 1; }).finally(() => closePool());
 }

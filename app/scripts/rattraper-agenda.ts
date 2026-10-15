@@ -12,7 +12,7 @@
  *   npm run gestion:agenda:rattraper -- --appliquer
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 
 const P = '[gestion:agenda:rattraper]';
 
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
   for (const x of r.echecs) console.error(`${P} ⚠️ ${x}`);
 }
 
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   main().catch((e) => { console.error(`${P} échec`, e); process.exitCode = 1; })
     .finally(async () => { const { closePool } = await import('../lib/db/client'); await closePool(); });

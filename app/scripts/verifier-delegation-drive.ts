@@ -13,7 +13,7 @@
  *   npm run gestion:drive:verifier -- a.jorel@sansvisavis.com --drives
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import { lireCleService, SCOPE_DRIVE, VARIABLE_CLE_FICHIER, VARIABLE_CLE_JSON } from '../lib/gestion/compteService';
 
 const P = '[gestion:drive:verifier]';
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   console.log(`${P} ✅ Vérification terminée. Aucune écriture, aucun fichier touché.`);
 }
 
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   void main()
     .catch((e) => { console.error(`${P} échec`, e); process.exitCode = 1; })

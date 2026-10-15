@@ -7,7 +7,7 @@
  *          npm run permis:lire-cerfa-ia -- 468 --appliquer   (persiste, requiert migration 216)
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree as fichierLance } from '../lib/scripts/pointEntree';
 import { closePool } from '../lib/db/client';
 import { produirePasseIa, depsReellesIa } from '../lib/permis/compteRenduIaRepo';
 
@@ -42,5 +42,5 @@ async function main(): Promise<void> {
   console.log(`\n[lire-cerfa-ia] Terminé. Coût total : ${coutTotal.toFixed(5)} USD.`);
 }
 
-const estPointEntree = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const estPointEntree = fichierLance(import.meta.url);
 if (estPointEntree) void main().catch((e) => { console.error('[permis:lire-cerfa-ia] échec', e); process.exitCode = 1; }).finally(() => closePool());

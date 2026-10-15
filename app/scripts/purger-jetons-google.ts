@@ -16,7 +16,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 
 const P = '[gestion:purger-jetons-google]';
 const ENDPOINT_REVOCATION = 'https://oauth2.googleapis.com/revoke';
@@ -96,7 +96,7 @@ async function main(): Promise<void> {
   if (!appliquer) console.log(`${P} Pour exécuter réellement : npm run gestion:purger-jetons-google -- --appliquer`);
 }
 
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   void main()
     .catch((e) => { console.error(`${P} échec`, e); process.exitCode = 1; })

@@ -9,7 +9,7 @@
  * IDEMPOTENT : rejouer --appliquer ne refait rien (demande déjà envoyée, message déjà rattaché). AUCUN envoi d'e-mail.
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import type { RapportAutoConfirmation } from '../lib/veille/autoConfirmationTeleservice';
 
 /** Rendu lisible du rapport (dry-run comme apply). PUR (juste des chaînes) → testable si besoin. */
@@ -37,7 +37,7 @@ async function main(): Promise<void> {
 }
 
 // N'exécute `main()` que si lancé DIRECTEMENT (`tsx …/rattraper-accuses-teleservice.ts`), jamais à l'import par un test.
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   void main()
     .catch((e) => { console.error('[permis:rattraper-accuses] échec', e); process.exitCode = 1; })

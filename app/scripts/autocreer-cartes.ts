@@ -9,7 +9,7 @@
  *          npm run permis:autocreer-cartes -- --appliquer   → applique (requiert migration 218)
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree as fichierLance } from '../lib/scripts/pointEntree';
 import { query, closePool } from '../lib/db/client';
 import { autocreerCartes, depsReellesAutocreation } from '../lib/permis/autocreationCartesRepo';
 import { fragmentCorpsActif } from '../lib/permis/corpsActif'; // BAT-3 — un dossier dont toutes les cartes sont retirées n'est plus « ayant des cartes »
@@ -42,5 +42,5 @@ async function main(): Promise<void> {
   else console.log(`\n[autocreer-cartes] DRY-RUN — aucune écriture. Relancez avec « -- --appliquer » (migration 218 requise).`);
 }
 
-const estPointEntree = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const estPointEntree = fichierLance(import.meta.url);
 if (estPointEntree) void main().catch((e) => { console.error('[permis:autocreer-cartes] échec', e); process.exitCode = 1; }).finally(() => closePool());

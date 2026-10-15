@@ -14,7 +14,7 @@
  *   npm run permis:rattraper-description -- --appliquer  → recalcule et upsert les récaps.
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree as fichierLance } from '../lib/scripts/pointEntree';
 import { query, closePool } from '../lib/db/client';
 import { lireGedPermis, depsReellesLectureGed } from '../lib/permis/lectureGed';
 import { texteDeGed, ecrireDeclarationsRecap } from '../lib/permis/cerfaRecapRepo';
@@ -69,5 +69,5 @@ async function main(): Promise<void> {
   }
 }
 
-const estPointEntree = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const estPointEntree = fichierLance(import.meta.url);
 if (estPointEntree) void main().catch((e) => { console.error('[permis:rattraper-description] échec', e); process.exitCode = 1; }).finally(() => closePool());

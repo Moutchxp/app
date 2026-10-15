@@ -9,7 +9,7 @@
  * Lancer : npm run permis:selection-pages-ia [-- 468 470 531 7424]   (par défaut : tous les dossiers avec Cerfa au best-of)
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree as fichierLance } from '../lib/scripts/pointEntree';
 import { query, closePool } from '../lib/db/client';
 import { extrairePagesPdf } from '../lib/permis/extractionPdf';
 import { selectionnerPagesIa } from '../lib/permis/selectionPagesCerfaIa';
@@ -58,5 +58,5 @@ async function main(): Promise<void> {
   console.log('\n[selection-pages-ia] Terminé. AUCUNE donnée n’a quitté la machine.');
 }
 
-const estPointEntree = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const estPointEntree = fichierLance(import.meta.url);
 if (estPointEntree) void main().catch((e) => { console.error('[permis:selection-pages-ia] échec', e); process.exitCode = 1; }).finally(() => closePool());

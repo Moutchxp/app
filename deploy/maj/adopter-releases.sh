@@ -85,6 +85,11 @@ preconditions() {
   # Sans ces deux lignes, l'arrêt propre de la relève et de next est compté comme une panne (adoption du 15/10/2026 annulée).
   grep -qx 'KillMode=mixed' "$APP/deploy/systemd/svav-gestion-continu.service.in" && grep -qx 'SuccessExitStatus=143' "$APP/deploy/systemd/svav-next.service.in" \
     && ok "gabarits d'unités à jour (KillMode=mixed, SuccessExitStatus=143)" || ko "gabarits d'unités du serveur pas à jour : réaligner d'abord app/ sur origin/main"
+  # Lancé par le lien current, un script qui compare argv[1] à import.meta.url sans chemin réel se croit importé et sort
+  # en silence avec le code 0 (relève Gestion, adoption du 15/10/2026 19:21).
+  local anciens; anciens=$(grep -l 'pathToFileURL(process.argv\[1\])' "$APP"/app/scripts/*.ts "$APP"/scripts/*.ts 2>/dev/null | wc -l)
+  (( anciens == 0 )) && ok "aucun script avec l'ancienne garde de point d'entrée (sensible aux liens)" \
+    || ko "$anciens script(s) avec l'ancienne garde de point d'entrée : réaligner d'abord app/ sur origin/main"
   [[ $(grep -c -F "$CIBLE_ENV_SAUV" "$SAUV") == 1 ]] && ok "svav-sauvegarde : une seule mention de app/.env" || ko "svav-sauvegarde : app/.env absent ou cité plusieurs fois"
   local racine; racine=$(grep -E '^RACINE=' "$SAUV" | head -1 | cut -d= -f2- | tr -d "\"'")
   [[ $racine == "$RACINE_ATTENDUE" ]] && ok "svav-sauvegarde : RACINE=$racine" || ko "svav-sauvegarde : RACINE=« $racine » (attendu $RACINE_ATTENDUE)"

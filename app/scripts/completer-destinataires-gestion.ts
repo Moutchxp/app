@@ -28,7 +28,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import type { IssueCompletion, RapportCompletion } from '../lib/gestion/completion';
 import type { OptionsCompletion } from '../lib/gestion/completionPasse';
 // Les DÉCISIONS DE BOUCLE viennent de la relève : attente croissante, budget d'échecs, message d'arrêt sur passe
@@ -217,7 +217,7 @@ async function main(): Promise<void> {
 }
 
 // Point d'entrée : n'exécute `main()` que si le fichier est lancé DIRECTEMENT, jamais à l'import par un test.
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   void main()
     .catch((e) => { console.error('[gestion:completer-destinataires] échec', e); process.exitCode = 1; })

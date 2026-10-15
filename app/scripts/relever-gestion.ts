@@ -25,7 +25,7 @@
  */
 import '../lib/chargerEnv';
 import { statfs } from 'node:fs/promises';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import type { RapportCapture } from '../lib/gestion/capture';
 import type { IssueReleve } from '../lib/gestion/releve';
 import type { OptionsRattrapage } from '../lib/gestion/releveReelle';
@@ -393,7 +393,7 @@ async function main(): Promise<void> {
 }
 
 // Point d'entrée : n'exécute `main()` que si le fichier est lancé DIRECTEMENT, jamais à l'import par un test.
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   void main()
     .catch((e) => { console.error('[gestion:relever] échec', e); process.exitCode = 1; })

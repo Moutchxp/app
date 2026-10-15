@@ -12,7 +12,7 @@
  *   npm run permis:instruire-teleservice -- --appliquer  → écrit (si migration 215 appliquée).
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree as fichierLance } from '../lib/scripts/pointEntree';
 import { query, closePool } from '../lib/db/client';
 import { instruireTeleservice } from '../lib/permis/teleserviceRepo';
 
@@ -47,5 +47,5 @@ async function main(): Promise<void> {
   }
 }
 
-const estPointEntree = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const estPointEntree = fichierLance(import.meta.url);
 if (estPointEntree) void main().catch((e) => { console.error('[permis:instruire-teleservice] échec', e); process.exitCode = 1; }).finally(() => closePool());

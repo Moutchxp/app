@@ -125,8 +125,10 @@ describe('garanties STATIQUES', () => {
     //   fermeture du pool en sortie (une extinction, jamais une écriture). Rien d'autre n'est atteignable.
     // `node:fs/promises` n'y figure QUE pour `statfs` — une MESURE de l'espace libre (garde disque du lot R). La CLI
     //   n'écrit toujours aucun fichier : le test suivant le vérifie sur la source.
+    //   Le point d'entrée passe par `../lib/scripts/pointEntree` (lecture de chemins réels seulement, realpath) depuis le
+    //   15/10/2026 : la garde par `node:url` seul ne reconnaissait pas un lancement par le lien `current`.
     expect(new Set(modules)).toEqual(new Set([
-      '../lib/chargerEnv', 'node:fs/promises', 'node:url', '../lib/gestion/releveReelle', '../lib/db/client',
+      '../lib/chargerEnv', 'node:fs/promises', '../lib/scripts/pointEntree', '../lib/gestion/releveReelle', '../lib/db/client',
     ]));
   });
 

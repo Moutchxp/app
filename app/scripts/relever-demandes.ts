@@ -15,7 +15,7 @@
  * Profil inactif (compte IMAP absent) → message clair + sortie 0 (pas une erreur). Même convention que `demandes:envoyer`.
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import type { ProfilBoite } from '../lib/veille/demandeReponseRepo';
 import type { RapportReleve } from '../lib/veille/releveReponses';
 import type { IssueReleveManuelle } from '../lib/veille/releveAuto';
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
 
 // Point d'entrée : n'exécute `main()` que si le fichier est lancé DIRECTEMENT (`tsx …/relever-demandes.ts`), jamais à l'import
 //   par un test (qui n'importe que le cœur PUR `executerCli`).
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   void main()
     .catch((e) => { console.error('[demandes:relever] échec', e); process.exitCode = 1; })

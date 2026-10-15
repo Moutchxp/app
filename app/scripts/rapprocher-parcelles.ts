@@ -125,6 +125,6 @@ async function main(): Promise<void> {
 
 // LOT 104 — n'exécuter `main()` QUE si ce fichier est le POINT D'ENTRÉE (lancé directement), jamais quand un autre module (ex. la CLI
 //   `etat-des-lieux`, ou un test) importe `parserDepts` — sinon l'import déclencherait un rapprochement réel + une double fermeture du pool.
-import { pathToFileURL } from 'node:url';
-const estPointEntree = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+import { estPointEntree as fichierLance } from '../lib/scripts/pointEntree';
+const estPointEntree = fichierLance(import.meta.url);
 if (estPointEntree) void main().catch((e) => { console.error('[permis:rapprocher-parcelles] échec', e); process.exitCode = 1; }).finally(() => closePool());

@@ -30,7 +30,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import { jetonPourSubject } from '../lib/gestion/driveDelegue';
 import {
   construirePlanArbre, resumerPlanArbre, CLE_RACINE, type NoeudPlan, type Plan,
@@ -236,7 +236,7 @@ async function principal(): Promise<void> {
   console.log(`${P} Racine attendue : « ${RACINE_NOM} » dans « ${DRIVE_NOM} ».`);
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (estPointEntree(import.meta.url)) {
   void principal().then(async () => {
     const { closePool } = await import('../lib/db/client');
     await closePool();

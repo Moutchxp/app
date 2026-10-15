@@ -50,7 +50,7 @@
  */
 import '../lib/chargerEnv';
 import { hostname } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import { query, closePool } from '../lib/db/client';
 import { jetonPourSubject } from '../lib/gestion/driveDelegue';
 import { copiePiecesDisponible } from '../lib/gestion/schema';
@@ -511,7 +511,7 @@ async function clore(
       + `${motifArretTexte === null ? '' : ` — ${motifArretTexte}`}`]);
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (estPointEntree(import.meta.url)) {
   void principal().then(closePool, async (e: unknown) => {
     console.error(e);
     process.exitCode = 1;

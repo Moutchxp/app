@@ -27,7 +27,7 @@
  * écrites en clair dans le rapport lui-même, pour être jugées. Voir `app/lib/gestion/typologie.ts`.
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import type { ClientApprofondi } from '../lib/veille/releveApprofondie'; // TYPE SEUL (effacé à la compilation) — aucun couplage d'exécution
 import type { MessageBoite } from '../lib/veille/releveReponses';        // TYPE SEUL
 import {
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
 }
 
 // Point d'entrée : n'exécute `main()` que si le fichier est lancé DIRECTEMENT, jamais à l'import par un test.
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   void main().catch((e) => { console.error('[gestion:sonder] échec', e); process.exitCode = 1; });
 }

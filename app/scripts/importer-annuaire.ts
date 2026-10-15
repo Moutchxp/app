@@ -38,7 +38,7 @@ import '../lib/chargerEnv';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import { construirePlan, ErreurSource, resumerPlan, type PlanImport } from '../lib/gestion/annuaireImport';
 import { appliquerPlan, type ComptesImport } from '../lib/gestion/annuaireRepo';
 import { ErreurClasseur, lireClasseur, type FeuilleLue } from '../lib/gestion/xlsxLecture';
@@ -186,7 +186,7 @@ async function principal(): Promise<void> {
 }
 
 // Exécutée seulement quand on LANCE ce fichier — jamais quand un test l'importe pour éprouver ses fonctions pures.
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (estPointEntree(import.meta.url)) {
   void principal().then(async () => {
     const { closePool } = await import('../lib/db/client');
     await closePool();

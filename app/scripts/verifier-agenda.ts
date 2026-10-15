@@ -10,7 +10,7 @@
  *   npm run gestion:agenda:verifier -- a.jorel@sansvisavis.com
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import { jetonAgendaPour, oublierJetonsAgenda, SCOPE_AGENDA } from '../lib/gestion/agendaDelegue';
 import { BASE_AGENDA, fetchAgendaGarde, FILTRE_MARQUE, motifGoogle } from '../lib/gestion/agendaGoogle';
 
@@ -39,5 +39,5 @@ async function main(): Promise<void> {
   console.log(`${P} ✅ Vérification terminée. Lecture de NOS événements seulement ; rien n'a été écrit.`);
 }
 
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) main().catch((e) => { console.error(e); process.exitCode = 1; });

@@ -24,7 +24,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import { query, closePool } from '../lib/db/client';
 import { rattachementsDisponibles, adressesMessagesDisponibles } from '../lib/gestion/schema';
 import {
@@ -337,7 +337,7 @@ async function principal(): Promise<void> {
   console.log('');
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (estPointEntree(import.meta.url)) {
   void principal().then(closePool, async (e: unknown) => {
     console.error(e);
     process.exitCode = 1;

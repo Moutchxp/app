@@ -15,7 +15,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -252,7 +252,7 @@ function expediteursFrequents(
     .map(([adresse, compte]) => ({ adresse, compte }));
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (estPointEntree(import.meta.url)) {
   void principal().then(async () => {
     const { closePool } = await import('../lib/db/client');
     await closePool();

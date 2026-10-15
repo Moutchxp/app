@@ -18,7 +18,7 @@
  *   npm run gestion:relever-continu -- --un-tour   # un seul tour (vérification), puis sortie
  */
 import '../lib/chargerEnv';
-import { pathToFileURL } from 'node:url';
+import { estPointEntree } from '../lib/scripts/pointEntree';
 
 /** Un seul tour puis sortie — pour vérifier que tout est branché sans lancer un processus de longue durée. PUR. */
 export function lireUnTour(argv: readonly string[]): boolean {
@@ -239,7 +239,7 @@ async function main(): Promise<void> {
 }
 
 // Point d'entrée : n'exécute `main()` que si le fichier est lancé DIRECTEMENT, jamais à l'import par un test.
-const lanceDirect = process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
+const lanceDirect = estPointEntree(import.meta.url);
 if (lanceDirect) {
   void main()
     .catch((e) => { console.error('[gestion:relever-continu] échec', e); process.exitCode = 1; })
