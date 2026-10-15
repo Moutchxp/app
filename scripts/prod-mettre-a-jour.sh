@@ -19,13 +19,14 @@ cd "$(dirname "$0")/.." || exit 2
 
 SERVEUR=svav-prod
 MAJ=/home/ubuntu/sansvisavis/maj
-MODE=--essai; SUIVRE=0; LOCAL=0; OPTIONS=()
+MODE=--essai; SUIVRE=0; LOCAL=0; OPTS="" # une chaîne, pas un tableau : /bin/bash 3.2 du Mac + set -u refuse un tableau vide
 for a in "$@"; do
   case $a in
     --essai|--appliquer) MODE=$a ;;
     --suivre) SUIVRE=1 ;;
     --verifier-seulement) LOCAL=1 ;;
-    --empreinte-amorcage=*|--accepter-irreversible=*) OPTIONS+=("$a") ;;
+    --empreinte-amorcage=*) [[ $a =~ ^--empreinte-amorcage=[0-9a-f]{16}$ ]] || { echo "empreinte invalide (16 caractères hexadécimaux)"; exit 2; }; OPTS="$OPTS $a" ;;
+    --accepter-irreversible=*) [[ $a =~ ^--accepter-irreversible=[0-9a-z_.,]+$ ]] || { echo "liste de migrations invalide"; exit 2; }; OPTS="$OPTS $a" ;;
     *) echo "option inconnue : $a"; exit 2 ;;
   esac
 done
@@ -72,7 +73,7 @@ ID=$(date +%Y%m%d-%H%M%S)_${SHA:0:8}
 echo "== Envoi au serveur ($MODE, ${SHA:0:12}, journal $MAJ/$ID.log) =="
 ssh $SERVEUR "install -d -m 0755 $MAJ && cat > $MAJ/serveur-$SHA.sh" < deploy/maj/serveur.sh || refus "envoi du script impossible"
 ssh $SERVEUR "sudo -n systemd-run --unit=svav-maj --collect --description='Sans Vis-à-Vis — mise à jour ${SHA:0:12}' \
-  /bin/bash $MAJ/serveur-$SHA.sh $MODE $SHA --journal=$MAJ/$ID.log ${OPTIONS[*]}" < /dev/null \
+  /bin/bash $MAJ/serveur-$SHA.sh $MODE $SHA --journal=$MAJ/$ID.log$OPTS" < /dev/null \
   || refus "lancement impossible (une mise à jour tourne déjà ? → --suivre)"
 suivre "$ID"; code=$?
 echo
