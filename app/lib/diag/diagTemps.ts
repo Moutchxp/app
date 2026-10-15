@@ -153,6 +153,19 @@ export function plusLentes(journal: readonly MesureRequete[], n: number): Mesure
 
 const ms = (v: number): string => `${v.toFixed(1)} ms`;
 
+/**
+ * Motif d'arrêt SANS analyse, en clair (lot ZONE SANS LiDAR, 15/10/2026) : avant, le rapport disait seulement « Origine
+ * valide : oui · verdict : — ». `motif` : celui de `motifSansResultat` (app/lib/tunnel), passé en chaîne pour garder ce
+ * module sans import. PUR.
+ */
+export function libelleArret(motif: string | null, raisonValidation: string | null): string | null {
+  if (motif === null) return null;
+  if (motif === 'origine_invalide') return `origine invalide — ${raisonValidation ?? 'raison non précisée'}`;
+  if (motif === 'pas_de_lidar') return 'aucune dalle LiDAR (MNT) sous l’origine : zone sans relevés, aucune analyse possible (motif pas_de_lidar)';
+  if (motif === 'altitude_indisponible') return 'une dalle MNT couvre l’origine mais sans valeur à ce point (nodata) : altitude du terrain inconnue (motif altitude_indisponible)';
+  return motif;
+}
+
 export interface RapportDiagTemps {
   cas: ArgumentsDiagTemps;
   machine: string;
@@ -162,6 +175,8 @@ export interface RapportDiagTemps {
   verdict: string | null;
   distanceM: number | null;
   validationValide: boolean;
+  /** Motif d'arrêt sans analyse, déjà en clair (`libelleArret`), ou null si l'analyse a eu lieu. */
+  arret?: string | null;
   journal: MesureRequete[];
 }
 
@@ -172,9 +187,13 @@ export function rendreRapport(r: RapportDiagTemps): string {
   l.push(`diag:temps — ${r.machine}`);
   l.push(`Cas : lat ${r.cas.point.lat}, lon ${r.cas.point.lon}, azimut ${r.cas.azimutPrincipalDeg}°, étage ${r.cas.etage}${r.cas.dernierEtage ? ' (dernier étage)' : ''}`);
   l.push(`Origine valide : ${r.validationValide ? 'oui' : 'non'} · verdict : ${r.verdict ?? '—'}${r.distanceM === null ? '' : ` (distance ${r.distanceM} m)`}`);
+  if (r.arret) l.push(`ARRÊT SANS ANALYSE : ${r.arret}`);
   l.push('');
   l.push(`TOTAL : ${ms(r.totalMs)}  (construireEntree ${ms(r.construireEntreeMs)}, analyser ${r.analyserMs === null ? '—' : ms(r.analyserMs)})`);
   l.push(`SQL : ${r.journal.length} requêtes, ${ms(sqlTotal)} cumulées (exécutées UNE PAR UNE, en lecture seule ; en production, certaines partent en parallèle)`);
+  // Mesuré le 15/10/2026 : la 1re requête d'une connexion neuve coûte ~100 à 400 ms (préparation + exécution à froid), puis
+  // < 1 ms rejouée — ce n'est pas son plan. Le dire évite de chercher un défaut d'index dans validerOrigine (n°1).
+  l.push('(la requête n°1 porte l’amorçage de la connexion neuve : préparation et exécution à froid ; rejouée, elle est bien plus rapide)');
   l.push('');
   l.push('Par étape :');
   for (const e of cumulParEtape(r.journal)) l.push(`  ${e.etape.padEnd(28)} ${String(e.nbRequetes).padStart(4)} requête(s)  ${ms(e.sqlMs).padStart(12)}`);

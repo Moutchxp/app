@@ -4,6 +4,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../lib/db/pipeline', () => ({ analyserAdresse: vi.fn() }));
 vi.mock('../../lib/analytics/writer', () => ({ incrementerCompteur: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../lib/analytics/commune', () => ({ communeDuPoint: vi.fn().mockResolvedValue(null) }));
+// Lot ZONE SANS LiDAR : couverture MNT et journal détaillé, mockés (leurs propres tests couvrent la base et le repli).
+vi.mock('../../lib/db/couvertureLidar', () => ({ mntSousLePoint: vi.fn() }));
+vi.mock('../../lib/analytics/sansLidar', () => ({ journaliserAnalyseSansLidar: vi.fn().mockResolvedValue(undefined) }));
 // Cadence + session : mockées pour piloter le verdict sans base (le limiteur a ses propres tests).
 const { verifierCadence, purgerCadence, internauteConnecteDepuisCookies } = vi.hoisted(() => ({
   verifierCadence: vi.fn(),
@@ -22,10 +25,14 @@ import { POST } from './route';
 import { analyserAdresse } from '../../lib/db/pipeline';
 import { incrementerCompteur } from '../../lib/analytics/writer';
 import { communeDuPoint } from '../../lib/analytics/commune';
+import { mntSousLePoint } from '../../lib/db/couvertureLidar';
+import { journaliserAnalyseSansLidar } from '../../lib/analytics/sansLidar';
 
 const analyser = analyserAdresse as unknown as ReturnType<typeof vi.fn>;
 const incr = incrementerCompteur as unknown as ReturnType<typeof vi.fn>;
 const commune = communeDuPoint as unknown as ReturnType<typeof vi.fn>;
+const mnt = mntSousLePoint as unknown as ReturnType<typeof vi.fn>;
+const journal = journaliserAnalyseSansLidar as unknown as ReturnType<typeof vi.fn>;
 
 const RESULTAT_FAKE = {
   verdict: { verdict: 'SANS_VIS_A_VIS', distanceM: 61 },
@@ -212,5 +219,76 @@ describe('/api/analyse — limitation de cadence', () => {
     const res = await POST(requete({ lat: 'x' }));
     expect(res.status).toBe(400);
     expect(verifierCadence).not.toHaveBeenCalled();
+  });
+});
+
+describe('/api/analyse — ZONE SANS LiDAR : dire pourquoi il n’y a pas de verdict (lot du 15/10/2026)', () => {
+  /** Origine dans un bâtiment (snappée), sans altitude : ce que rend validerOrigine quand aucune dalle ne couvre le point. */
+  const VALIDATION_SANS_ALTITUDE = {
+    valide: true, altitudeTerrainOrigineM: null, pointSnappeL93: { x: 642685.2785637568, y: 6853606.124672878 },
+  };
+  const CORPS_VELIZY = { lat: 48.78132268116829, lon: 2.2205969595575814, azimut: 90, etage: 2, dernierEtage: false };
+
+  it('aucune dalle MNT → 200, resultat null, motif « pas_de_lidar » ; compteur raison hors_lidar ; journal avec adresse et dalle', async () => {
+    analyser.mockResolvedValue({ validation: VALIDATION_SANS_ALTITUDE, resultat: null });
+    mnt.mockResolvedValue(false);
+    commune.mockResolvedValueOnce('78640');
+    const res = await POST(requete({ ...CORPS_VELIZY, adresse: '  1 rue de l’Essai 78140 Vélizy-Villacoublay  ' }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual({ ok: true, validation: VALIDATION_SANS_ALTITUDE, resultat: null, motif: 'pas_de_lidar' });
+    expect(mnt).toHaveBeenCalledWith(VALIDATION_SANS_ALTITUDE.pointSnappeL93);
+    await tick();
+    expect(incr.mock.calls[0][0]).toEqual({ nom: 'resultat', verdict: 'INDETERMINE', scoreTranche: null, communeInsee: '78640', raison: 'hors_lidar' });
+    expect(journal).toHaveBeenCalledWith({
+      adresse: '1 rue de l’Essai 78140 Vélizy-Villacoublay', lat: 48.78132268116829, lon: 2.2205969595575814,
+      xL93: 642685.2785637568, yL93: 6853606.124672878, dalle: '0642_6854', communeInsee: '78640',
+    });
+  });
+
+  it('l’adresse est facultative, et n’entre jamais dans le calcul', async () => {
+    analyser.mockResolvedValue({ validation: VALIDATION_SANS_ALTITUDE, resultat: null });
+    mnt.mockResolvedValue(false);
+    await POST(requete(CORPS_VELIZY));
+    await tick();
+    expect(journal.mock.calls[0][0].adresse).toBeNull();
+    expect(analyser.mock.calls[0][0]).not.toHaveProperty('adresse');
+  });
+
+  it('dalle MNT présente (trou de valeur) → motif « altitude_indisponible », compteur sans raison, aucun journal', async () => {
+    analyser.mockResolvedValue({ validation: VALIDATION_SANS_ALTITUDE, resultat: null });
+    mnt.mockResolvedValue(true);
+    const json = await (await POST(requete(CORPS_VELIZY))).json();
+    expect(json.motif).toBe('altitude_indisponible');
+    await tick();
+    expect(incr.mock.calls[0][0]).not.toHaveProperty('raison');
+    expect(journal).not.toHaveBeenCalled();
+  });
+
+  it('vérification de couverture EN ÉCHEC → 200 quand même, motif « altitude_indisponible » (jamais « pas de LiDAR » sans preuve)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    analyser.mockResolvedValue({ validation: VALIDATION_SANS_ALTITUDE, resultat: null });
+    mnt.mockRejectedValue(new Error('base indisponible'));
+    const res = await POST(requete(CORPS_VELIZY));
+    expect(res.status).toBe(200);
+    expect((await res.json()).motif).toBe('altitude_indisponible');
+    await tick();
+    expect(journal).not.toHaveBeenCalled();
+  });
+
+  it('origine hors bâtiment → motif « origine_invalide », aucune vérification de couverture', async () => {
+    analyser.mockResolvedValue({ validation: { valide: false, altitudeTerrainOrigineM: null, pointSnappeL93: null }, resultat: null });
+    const json = await (await POST(requete(CORPS_VELIZY))).json();
+    expect(json.motif).toBe('origine_invalide');
+    expect(mnt).not.toHaveBeenCalled();
+  });
+
+  it('un VRAI résultat → réponse inchangée : pas de champ motif, aucune vérification de couverture, aucun journal', async () => {
+    analyser.mockResolvedValue({ validation: { valide: true, altitudeTerrainOrigineM: 41.5 }, resultat: RESULTAT_FAKE });
+    const json = await (await POST(requete(CORPS_OK))).json();
+    expect(json).toEqual({ ok: true, validation: { valide: true, altitudeTerrainOrigineM: 41.5 }, resultat: RESULTAT_FAKE });
+    expect(mnt).not.toHaveBeenCalled();
+    await tick();
+    expect(journal).not.toHaveBeenCalled();
   });
 });

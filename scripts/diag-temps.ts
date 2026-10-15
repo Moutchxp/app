@@ -34,8 +34,10 @@ import { construireEntree } from '../app/lib/db/pipeline';
 import { chargerProfilDegagement } from '../app/lib/db/profilConfig';
 import { analyser } from '../app/lib/svv/analyse';
 import { sqlNormalise } from '../app/lib/diag/diagGolden';
+import { mntSousLePoint } from '../app/lib/db/couvertureLidar';
+import { motifSansResultat } from '../app/lib/tunnel/motifSansResultat';
 import {
-  etapeDepuisPile, lireArguments, longueurCouloir, plusLentes, rendreRapport, tuilesLues, type MesureRequete,
+  etapeDepuisPile, libelleArret, lireArguments, longueurCouloir, plusLentes, rendreRapport, tuilesLues, type MesureRequete,
 } from '../app/lib/diag/diagTemps';
 
 const RACINE = path.resolve(__dirname, '..');
@@ -114,6 +116,16 @@ async function main(): Promise<void> {
     const totalMs = maintenant() - t0;
     (pool as unknown as { query: unknown }).query = original;
 
+    // Arrêt sans analyse : POURQUOI (même règle que la route /api/analyse), hors chronométrage, même transaction.
+    let arret: string | null = null;
+    if (!entree) {
+      let mnt: boolean | null = null;
+      if (validation.valide && validation.altitudeTerrainOrigineM == null && validation.pointSnappeL93) {
+        mnt = await mntSousLePoint(validation.pointSnappeL93, (t, p) => c.query(t, p as never));
+      }
+      arret = libelleArret(motifSansResultat(validation, mnt), validation.raison);
+    }
+
     // Tuiles lues : les requêtes du classement sont REJOUÉES en EXPLAIN (ANALYZE, BUFFERS) dans la même transaction en lecture seule.
     if (cas.explain) {
       for (const q of plusLentes(journal, cas.top)) {
@@ -131,7 +143,7 @@ async function main(): Promise<void> {
     rapport = rendreRapport({
       cas, machine, totalMs, construireEntreeMs: t1 - t0, analyserMs,
       verdict: resultat?.verdict.verdict ?? null, distanceM: resultat?.verdict.distanceM ?? null,
-      validationValide: validation.valide, journal,
+      validationValide: validation.valide, arret, journal,
     });
     if (cas.json) {
       await fs.writeFile(cas.json, `${JSON.stringify({ cas, machine, totalMs, journal, plans }, null, 2)}\n`);

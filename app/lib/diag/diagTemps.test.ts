@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  CAS_INDETERMINE_SERVEUR, cumulParEtape, etapeDepuisPile, lireArguments, longueurCouloir, plusLentes, rendreRapport,
+  CAS_INDETERMINE_SERVEUR, cumulParEtape, etapeDepuisPile, libelleArret, lireArguments, longueurCouloir, plusLentes, rendreRapport,
   tuilesLues, type MesureRequete,
 } from './diagTemps';
 
@@ -113,5 +113,24 @@ describe('classement et rapport', () => {
     expect(texte).toContain('couloir 200 m · tuiles lues : MNS 4000, MNT 0');
     expect(texte).not.toContain('n°3 ');
     expect(texte).toContain('verdict : INDETERMINE (distance 0 m)');
+    expect(texte).toContain('la requête n°1 porte l’amorçage');
+    expect(texte).not.toContain('ARRÊT SANS ANALYSE');
+  });
+
+  it('rendreRapport : arrêt sans analyse → le motif en clair, sous la ligne du verdict', () => {
+    const texte = rendreRapport({
+      cas: lireArguments([]), machine: 'serveur', totalMs: 1600, construireEntreeMs: 1600, analyserMs: null,
+      verdict: null, distanceM: null, validationValide: true, arret: libelleArret('pas_de_lidar', null), journal: [mesure(1, 1584, 'validerOrigine')],
+    });
+    expect(texte).toContain('Origine valide : oui · verdict : —\nARRÊT SANS ANALYSE : aucune dalle LiDAR (MNT) sous l’origine');
+  });
+});
+
+describe('libelleArret', () => {
+  it('chaque motif en clair ; null quand l’analyse a eu lieu', () => {
+    expect(libelleArret(null, null)).toBeNull();
+    expect(libelleArret('origine_invalide', 'Point à 3.20 m du bâtiment')).toBe('origine invalide — Point à 3.20 m du bâtiment');
+    expect(libelleArret('pas_de_lidar', null)).toContain('aucune dalle LiDAR (MNT)');
+    expect(libelleArret('altitude_indisponible', null)).toContain('sans valeur à ce point (nodata)');
   });
 });

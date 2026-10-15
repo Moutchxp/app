@@ -9,6 +9,10 @@ import type { ModeOrigine } from "../../lib/svv/config";
 import { incrementerCompteur } from "../../lib/analytics/writer";
 import { communeDuPoint } from "../../lib/analytics/commune";
 import { scoreTranche } from "../../lib/analytics/contexte";
+// Lot ZONE SANS LiDAR — pourquoi une analyse s'arrête sans verdict (couche ROUTE, après le calcul ; moteur intact).
+import { mntSousLePoint } from "../../lib/db/couvertureLidar";
+import { motifSansResultat, dalleIgn, type MotifSansResultat } from "../../lib/tunnel/motifSansResultat";
+import { journaliserAnalyseSansLidar } from "../../lib/analytics/sansLidar";
 
 // `after()` (émission post-réponse) requiert le runtime Node (déjà le défaut ; rendu explicite).
 export const runtime = "nodejs";
@@ -49,6 +53,8 @@ export async function POST(req: Request) {
   // hauteur sous plafond optionnelle : nombre > 0, sinon undefined → le moteur applique 2,50.
   const hauteurSousPlafondM =
     typeof b.hauteurSousPlafondM === "number" && b.hauteurSousPlafondM > 0 ? b.hauteurSousPlafondM : undefined;
+  // adresse saisie, optionnelle : n'entre JAMAIS dans le calcul ; sert seulement au journal d'une analyse sans LiDAR.
+  const adresse = typeof b.adresse === "string" && b.adresse.trim() !== "" ? b.adresse.trim().slice(0, 300) : null;
 
   // ── CADENCE (résidu G4) — APRÈS la validation d'entrée (une requête malformée ne consomme pas de quota),
   //    AVANT le calcul (c'est lui qu'on protège). Un titulaire de compte est compté PAR COMPTE et n'a aucune
@@ -111,13 +117,39 @@ export async function POST(req: Request) {
   //  - le verdict/score sont seulement LUS (jamais modifiés ni recalculés) → golden intact ;
   //  - lat/lon servent au lookup commune EN VOL puis sont jetés — seul l'INSEE (5 car) est stocké.
   const { validation, resultat } = sortie;
+
+  // ── POURQUOI SANS VERDICT (lot ZONE SANS LiDAR) — seulement quand le moteur n'a rien rendu. Origine dans un bâtiment
+  //    mais altitude absente : une dalle MNT couvre-t-elle le point ? Non → zone sans relevés (« pas_de_lidar ») ; oui →
+  //    simple trou de valeur. Une vérification en échec ne prétend jamais « pas de LiDAR » (repli altitude_indisponible).
+  let motif: MotifSansResultat | null = null;
+  if (resultat === null) {
+    let mnt: boolean | null = null;
+    if (validation.valide === true && validation.altitudeTerrainOrigineM == null && validation.pointSnappeL93) {
+      const pointL93 = validation.pointSnappeL93;
+      mnt = await avecPlafondAnalyse(() => mntSousLePoint(pointL93)).catch((e) => {
+        console.error("[/api/analyse] vérification de couverture LiDAR impossible — motif altitude_indisponible", e instanceof Error ? e.message : e);
+        return null;
+      });
+    }
+    motif = motifSansResultat(validation, mnt);
+  }
+
   try {
     after(async () => {
       try {
         const verdict = resultat ? resultat.verdict.verdict : "INDETERMINE";
         const tranche = resultat ? scoreTranche(resultat.score.total) : null;
         const commune = await communeDuPoint(lat, lon);
-        await incrementerCompteur({ nom: "resultat", verdict, scoreTranche: tranche, communeInsee: commune });
+        await incrementerCompteur({
+          nom: "resultat", verdict, scoreTranche: tranche, communeInsee: commune,
+          ...(motif === "pas_de_lidar" ? { raison: "hors_lidar" } : {}),
+        });
+        if (motif === "pas_de_lidar") {
+          const p = validation.pointSnappeL93;
+          await journaliserAnalyseSansLidar({
+            adresse, lat, lon, xL93: p?.x ?? null, yL93: p?.y ?? null, dalle: p ? dalleIgn(p.x, p.y) : null, communeInsee: commune,
+          });
+        }
         await purgerCadence(); // purge des vieux compteurs, post-réponse et best-effort (aucune tâche planifiée à tenir)
       } catch (e) {
         console.error("[analytics] émission resultat abandonnée", e);
@@ -127,5 +159,5 @@ export async function POST(req: Request) {
     console.error("[analytics] after() indisponible — resultat abandonné", e);
   }
 
-  return NextResponse.json({ ok: true, validation, resultat });
+  return NextResponse.json({ ok: true, validation, resultat, ...(motif ? { motif } : {}) });
 }

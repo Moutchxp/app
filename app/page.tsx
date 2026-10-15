@@ -15,6 +15,8 @@ import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
 import { finalitesActivesTunnel, type CleFinalite } from "./lib/internaute/textesConsentement";
 import { ChoixOffre } from "./ChoixOffre";
+import { EcranSansVerdict } from "./EcranSansVerdict";
+import type { MotifSansResultat } from "./lib/tunnel/motifSansResultat";
 import { MenuBurger } from "./MenuBurger";
 import { orchestrerIllimite, boutonEnvoiActif, LONGUEUR_MIN_MDP } from "./lib/tunnel/choixOffre";
 import { PhoneInput } from "react-international-phone";
@@ -49,6 +51,8 @@ const ECRAN_VERS_ETAPE: Partial<Record<Etape, string>> = {
 interface ReponseAnalyse {
   ok: true;
   validation: { valide: boolean; raison?: string } & Record<string, unknown>;
+  // Présent quand `resultat` est null : pourquoi l'analyse s'est arrêtée (lot ZONE SANS LiDAR, cf. EcranSansVerdict).
+  motif?: MotifSansResultat;
   // Miroir de ResultatComplet (lib/svv/analyse.ts) — verdict + score (famille1/2).
   resultat:
     | {
@@ -2504,7 +2508,8 @@ export default function Home() {
       const r = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, hauteurSousPlafondM, dernierEtage, mode }),
+        // `adresse` n'entre jamais dans le calcul : seulement dans le journal d'une analyse sans LiDAR (lot ZONE SANS LiDAR).
+        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, hauteurSousPlafondM, dernierEtage, mode, adresse: address || undefined }),
         signal: ctrl.signal,
       });
       // On vérifie le statut AVANT de lire le corps (une réponse d'erreur peut ne pas être du JSON).
@@ -3632,51 +3637,8 @@ export default function Home() {
     ) : analyse &&
       (!analyse.resultat ||
         analyse.resultat.verdict.verdict === "INDETERMINE") ? (
-      /* c) indéterminé — titre/message/bouton selon la CAUSE (front-only, ordre B→A→C→D) */
-      (() => {
-        const v = analyse.validation;
-        const r = analyse.resultat;
-        let titre: string;
-        let message: string;
-        let bouton: string;
-        if (r != null && r.verdict.verdict === "INDETERMINE") {
-          // (B) Zone non couverte par les données de relief (trou de couverture LiDAR).
-          titre = "Zone non couverte par nos données";
-          message =
-            "Cette zone n'est pas encore couverte par les données de relief nécessaires à l'analyse. Nous ne pouvons donc pas certifier la vue depuis ce point. Notre couverture s'étend régulièrement.";
-          bouton = "Essayer un autre point";
-        } else if (r == null && v.valide === false) {
-          // (A) Point hors bâtiment / origine invalide.
-          titre = "Point en dehors d'un bâtiment";
-          message =
-            "Le repère doit être posé à l'intérieur de votre bâtiment, à l'emplacement de votre fenêtre. Là, il est tombé sur une rue ou un espace extérieur.";
-          bouton = "Repositionner le point";
-        } else if (r == null && v.valide === true && v.altitudeTerrainOrigineM == null) {
-          // (C) Altitude du sol (MNT) indisponible à l'origine.
-          titre = "Altitude du sol indisponible";
-          message =
-            "Nous n'avons pas l'altitude du terrain exactement à cet emplacement. Déplacez légèrement le repère sur votre bâtiment et réessayez.";
-          bouton = "Ajuster le point";
-        } else {
-          // (D) Fallback (autre indétermination).
-          titre = "Analyse indéterminée";
-          message = "L'analyse n'a pas pu aboutir pour ce point. Réessayez ou déplacez légèrement le repère.";
-          bouton = "Modifier le point";
-        }
-        return (
-          <div className="mt-4 rounded-xl border border-svv-line bg-svv-field p-4">
-            <p className="text-lg font-bold text-svv-ink">{titre}</p>
-            <p className="mt-1 text-sm text-svv-muted">{message}</p>
-            <button
-              type="button"
-              onClick={() => { setCarteCentrePret(true); setEtape("localisation"); }}
-              className="svv-btn svv-btn-outline mt-3"
-            >
-              {bouton}
-            </button>
-          </div>
-        );
-      })()
+      /* c) indéterminé — titre/message/bouton selon la CAUSE (front-only, ordre B→A→C→D) — cf. EcranSansVerdict */
+      <EcranSansVerdict analyse={analyse} onModifierPoint={() => { setCarteCentrePret(true); setEtape("localisation"); }} />
     ) : analyse && analyse.resultat ? (
       /* d) vrai résultat — écrans 7A (certifié) / 7B (vis-à-vis) */
       <EcranResultat
