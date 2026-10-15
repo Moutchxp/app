@@ -11,16 +11,40 @@
  *
  * Logique PURE (aucun React, aucun réseau) ; le câblage est dans app/page.tsx.
  */
-import type { OrigineValidee } from '../useOrigineValidation';
+import type { OrigineValidee, ReponseOrigine } from '../useOrigineValidation';
+import type { ModeOrigine } from '../svv/config';
 
+/**
+ * POINT REPRIS (retour d'Arno du 16/10/2026) : on reprend EXACTEMENT le point validé ET le mode du test précédent.
+ *  - `valide` = ce que l'analyse reçoit : le point posé par l'internaute + son bâtiment. Il est renvoyé TEL QUEL à l'analyse
+ *    avec le même `mode` : le serveur refait le même recadrage (validerOrigine, déterministe) → même point recadré, même
+ *    bâtiment, même résultat. On ne renvoie PAS le point recadré comme nouveau point brut : un second recadrage d'un point
+ *    déjà posé sur un contour pourrait basculer sur une autre façade ou un mur mitoyen.
+ *  - `pointAffiche` = ce que l'internaute VOIT : en mode Façade, le point RECADRÉ sur la façade (celui qui a servi à
+ *    l'analyse) ; en mode Libre, son point non corrigé.
+ */
 export interface RepriseTest {
   adresse: string;
-  valide: OrigineValidee; // point validé du test précédent (lat/lon + bâtiment + altitude terrain), tel quel
+  valide: OrigineValidee;                  // point validé du test précédent (lat/lon + bâtiment + altitude terrain), tel quel
+  mode: ModeOrigine;                       // Façade (semi_auto) ou Libre (manuel), rouvert tel quel
+  pointAffiche: { lat: number; lon: number }; // centre de la carte à la reprise
+  controle: ReponseOrigine | null;         // dernier contrôle du point (statut, point recadré) — restitué tel quel, sans nouvel appel
 }
 
-/** Instantané pris au clic sur « Refaire le test ». `null` si aucun point validé (rien à reprendre → mécanique d'avant). */
-export function prendreReprise(adresse: string, valide: OrigineValidee | null): RepriseTest | null {
-  return valide === null ? null : { adresse, valide };
+/**
+ * Instantané pris au clic sur « Refaire le test ». `null` si aucun point validé (rien à reprendre → mécanique d'avant).
+ * `controle` = le contrôle qui a permis la validation (`origine.resultat`), dont le point recadré en mode Façade.
+ */
+export function prendreReprise(
+  adresse: string,
+  valide: OrigineValidee | null,
+  mode: ModeOrigine,
+  controle: ReponseOrigine | null,
+): RepriseTest | null {
+  if (valide === null) return null;
+  const recadre = controle?.pointSnappeWgs84 ?? null;
+  const pointAffiche = mode !== 'manuel' && recadre !== null ? recadre : { lat: valide.lat, lon: valide.lon };
+  return { adresse, valide, mode, pointAffiche, controle };
 }
 
 /**

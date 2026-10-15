@@ -2452,9 +2452,12 @@ export default function Home() {
           repriseRef.current = null;
           if (reprise) {
             // « Refaire le test » : même adresse, même point, DÉJÀ validé (aucun nouveau contrôle tant qu'on ne touche pas la carte).
-            setPosition({ latitude: reprise.valide.lat, longitude: reprise.valide.lon });
+            // Mode Façade : la carte s'ouvre sur le point RECADRÉ (celui qui a servi à l'analyse) ; mode Libre : point non corrigé.
+            // L'analyse reçoit toujours le point validé + le même mode → même recadrage serveur, même bâtiment, même résultat.
+            setMode(reprise.mode);
+            setPosition({ latitude: reprise.pointAffiche.lat, longitude: reprise.pointAffiche.lon });
             setAddress(reprise.adresse);
-            origine.reprendre(reprise.valide);
+            origine.reprendre(reprise.valide, reprise.controle);
             setPointRepris(true);
           } else {
             origine.evaluer(position.latitude, position.longitude, mode); // re-évalue le point conservé (sans GPS)
@@ -3689,7 +3692,7 @@ export default function Home() {
         onObtenirCertificat={() => { mesure("clic_certificat"); setEtape("certificat"); }}
         onRecommencer={() => setEtape("accueil")}
         onRefaireTest={() => {
-          repriseRef.current = prendreReprise(address, origine.valide); // AJOUT : même adresse + point validé repris
+          repriseRef.current = prendreReprise(address, origine.valide, mode, origine.resultat); // AJOUT : même adresse, même point validé, même mode
           reinitialiserCapteurs();             // repart d'un état niveau propre (évite le déclencheur grisé)
           setPhoto(null);
           setCapturedOrientation(null);

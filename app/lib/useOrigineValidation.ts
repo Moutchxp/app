@@ -72,10 +72,11 @@ export function useOrigineValidation() {
     setEnCours(false);
   }, []);
 
-  // « Refaire le test » (reprise) : remet tel quel le point VALIDÉ du test précédent, sans nouvel appel (il a déjà été
-  // contrôlé et confirmé par l'internaute). Le prochain `evaluer` (geste sur la carte) le remet en « à valider ».
-  const reprendre = useCallback((v: OrigineValidee) => {
-    setResultat(null);
+  // « Refaire le test » (reprise) : remet tel quel le point VALIDÉ du test précédent ET le contrôle qui l'a permis (statut,
+  // point recadré), sans nouvel appel (déjà contrôlé et confirmé par l'internaute). Le prochain `evaluer` (geste sur la
+  // carte, changement de mode) le remet en « à valider ».
+  const reprendre = useCallback((v: OrigineValidee, controle: ReponseOrigine | null = null) => {
+    setResultat(controle);
     setEnCours(false);
     setValide(v);
   }, []);
