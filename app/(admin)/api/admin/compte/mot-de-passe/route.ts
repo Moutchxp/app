@@ -4,6 +4,7 @@ import { verifier, hacher } from '../../../../../lib/admin/motDePasse';
 import { trouverCompteParId, changerMotDePasseSelf, permsDuCompte, capaciteModifPermis } from '../../../../../lib/admin/comptes';
 import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload } from '../../../../../lib/admin/session';
 import { LONGUEUR_MIN_MOT_DE_PASSE } from '../../../../../lib/admin/politiqueMdp';
+import { empreinteMotDePasse, lireEtatCompte } from '../../../../../lib/admin/etatSession';
 
 /**
  * Changement de mot de passe SELF-SERVICE (M3-4 Lot B). NAMESPACE SINGULIER `/api/admin/compte/mot-de-passe`
@@ -78,6 +79,10 @@ export async function POST(request: Request) {
     perms: permsDuCompte(compte),
     doitChanger: false,
     peutModifierPermis: capaciteModifPermis(compte), // RATT-EDIT lot A3 — le jeton frais porte la capacité (subordination incluse)
+    // AUDIT POINTS 4-5 : le jeton frais porte l'empreinte du NOUVEAU mot de passe — les autres sessions (ancienne empreinte)
+    // sont coupées par le proxy ; celle-ci continue sans reconnexion.
+    empreinteMdp: empreinteMotDePasse(nouveauHash),
+    versionSession: (await lireEtatCompte(compte.id).catch(() => null))?.versionSession ?? undefined,
   });
   (await cookies()).set(NOM_COOKIE, jetonFrais, optionsCookie(process.env.NODE_ENV === 'production'));
   return Response.json({ ok: true });

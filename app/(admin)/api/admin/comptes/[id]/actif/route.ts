@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { reactiverCompte, desactiverCompte, trouverCompteParId } from '../../../../../../lib/admin/comptes';
+import { revoquerSessions } from '../../../../../../lib/admin/etatSession';
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -35,7 +36,12 @@ export async function POST(request: Request, ctx: Ctx) {
     ? await reactiverCompte(idNum, garde.auteurId)
     : await desactiverCompte(idNum, garde.auteurId);
 
-  if (modifie) return Response.json({ ok: true });
+  if (modifie) {
+    // AUDIT POINT 4 : une désactivation RÉVOQUE aussi les sessions (version + 1) — sans quoi une réactivation ferait revivre
+    // un jeton encore valable. (Le proxy refuse déjà tout compte inactif ; best-effort si la migration 356 manque.)
+    if (!actif) await revoquerSessions(idNum);
+    return Response.json({ ok: true });
+  }
 
   // Aucune ligne modifiée : diagnostiquer (SELECT léger, hors écriture, aucune course sur le write).
   const compte = await trouverCompteParId(idNum);

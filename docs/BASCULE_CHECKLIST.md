@@ -377,7 +377,7 @@ nouveau mot de passe.
 
 | Situation | Ce qui se passe |
 |---|---|
-| Mot de passe oublié | la commande le remplace |
+| Mot de passe oublié | la commande le remplace ; les sessions ouvertes ailleurs avec l'ancien mot de passe sont coupées |
 | Compte désactivé (même administrateur) | la commande le réactive |
 | Trop d'essais (« Trop de tentatives ») | attendre le délai affiché (5 min au plus) — ou la commande, qui ne dépend pas de ce compteur |
 | Identifiant inconnu | refusé : la commande ne crée pas de compte (`npm run admin:creer` pour cela) |

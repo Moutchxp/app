@@ -107,3 +107,25 @@ describe('POST /comptes/[id]/actif — R-D : un administrateur ne se (dés)activ
     expect(await res.json()).toEqual({ erreur: 'ADMIN_CLI_UNIQUEMENT' });
   });
 });
+
+describe('POST /comptes/[id]/actif — désactivation et révocation des sessions (point 4, 15/10/2026)', () => {
+  it('désactiver un collaborateur RÉVOQUE ses sessions (version + 1) : une réactivation ne ferait pas revivre un ancien jeton', async () => {
+    gardeAdmin();
+    queryMock
+      .mockResolvedValueOnce({ rows: [{}] }) // pg_advisory_xact_lock
+      .mockResolvedValueOnce({ rows: [{ id: 5 }] }) // desactiverCompte : 1 ligne
+      .mockResolvedValueOnce({ rows: [], rowCount: 1 }); // revoquerSessions
+    const res = await postActif(await req(admin(), { actif: false }), ctx);
+    expect(res.status).toBe(200);
+    const [sql, params] = queryMock.mock.calls[3];
+    expect(String(sql)).toContain('SET session_version = session_version + 1');
+    expect(params).toEqual([5]);
+  });
+
+  it('réactiver ne révoque rien (aucune requête de révocation)', async () => {
+    gardeAdmin();
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 5 }] }); // reactiverCompte : 1 ligne
+    expect((await postActif(await req(admin(), { actif: true }), ctx)).status).toBe(200);
+    expect(queryMock.mock.calls.map((c) => String(c[0])).some((q) => q.includes('session_version'))).toBe(false);
+  });
+});

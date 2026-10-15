@@ -1,0 +1,93 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const { q } = vi.hoisted(() => ({ q: vi.fn() }));
+vi.mock('../db/client', () => ({ query: q }));
+vi.mock('server-only', () => ({}));
+
+import { empreinteMotDePasse, lireEtatCompte, verdictSession, revoquerSessions, type EtatCompte } from './etatSession';
+import { permsAucune, permsToutes, type SessionAdmin } from './session';
+
+beforeEach(() => { q.mockReset(); vi.restoreAllMocks(); });
+
+const collab = (perms = { ...permsAucune(), curation: true }): SessionAdmin => ({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms, doitChanger: false, peutModifierPermis: false });
+const etat = (over: Partial<EtatCompte> = {}): EtatCompte => ({ actif: true, role: 'collaborateur', perms: { ...permsAucune(), curation: true }, empreinteMdp: 'E1', versionSession: null, ...over });
+
+describe('empreinteMotDePasse', () => {
+  it('32 caractères hexadécimaux, stable, différente pour un autre hash, sans rien du hash', () => {
+    const e = empreinteMotDePasse('$argon2id$v=19$m=65536,t=3,p=4$sel$hash');
+    expect(e).toMatch(/^[0-9a-f]{32}$/);
+    expect(empreinteMotDePasse('$argon2id$v=19$m=65536,t=3,p=4$sel$hash')).toBe(e);
+    expect(empreinteMotDePasse('$argon2id$v=19$m=65536,t=3,p=4$sel$autre')).not.toBe(e);
+    expect(e).not.toContain('argon');
+  });
+});
+
+describe('verdictSession (pur)', () => {
+  it('compte absent / inactif → refusé, avec le motif', () => {
+    expect(verdictSession({}, collab(), null)).toEqual({ valide: false, motif: 'compte_absent' });
+    expect(verdictSession({}, collab(), etat({ actif: false }))).toEqual({ valide: false, motif: 'compte_inactif' });
+  });
+
+  it('empreinte du jeton ≠ base (mot de passe changé) → refusé ; jeton SANS empreinte (avant ce lot) → contrôle sauté', () => {
+    expect(verdictSession({ emp: 'E0' }, collab(), etat())).toEqual({ valide: false, motif: 'mot_de_passe_change' });
+    expect(verdictSession({}, collab(), etat()).valide).toBe(true);
+  });
+
+  it('version de session : comparée seulement quand la colonne existe ; jeton sans ver = 0', () => {
+    expect(verdictSession({ emp: 'E1', ver: 1 }, collab(), etat({ versionSession: 2 }))).toEqual({ valide: false, motif: 'session_revoquee' });
+    expect(verdictSession({ emp: 'E1' }, collab(), etat({ versionSession: 1 }))).toEqual({ valide: false, motif: 'session_revoquee' });
+    expect(verdictSession({ emp: 'E1' }, collab(), etat({ versionSession: 0 })).valide).toBe(true);
+    expect(verdictSession({ emp: 'E1', ver: 5 }, collab(), etat({ versionSession: null })).valide).toBe(true); // migration 356 absente
+  });
+
+  it('droits EFFECTIFS = jeton ∩ base ; administrateur seulement si les DEUX le disent', () => {
+    const v = verdictSession({}, collab({ ...permsAucune(), curation: true, gestion: true }), etat({ perms: { ...permsAucune(), curation: true } }));
+    expect(v.valide && v.perms).toEqual({ ...permsAucune(), curation: true }); // gestion retirée en base → retirée tout de suite
+    const ajout = verdictSession({}, collab(), etat({ perms: permsToutes() }));
+    expect(ajout.valide && ajout.perms.pilotage).toBe(false); // un ajout attend la prochaine connexion
+    const admin: SessionAdmin = { ...collab(permsToutes()), role: 'administrateur' };
+    expect(verdictSession({}, admin, etat()).valide && verdictSession({}, admin, etat())).toMatchObject({ role: 'collaborateur' });
+    expect(verdictSession({}, admin, etat({ role: 'administrateur', perms: permsToutes() }))).toEqual({ valide: true, role: 'administrateur', perms: permsToutes() });
+  });
+});
+
+describe('lireEtatCompte', () => {
+  it('une requête par clé primaire ; version lue sans nommer la colonne (to_jsonb), donc sans migration', async () => {
+    q.mockResolvedValueOnce({ rows: [{ actif: true, role: 'collaborateur', mot_de_passe: 'H', perm_curation: true, perm_gestion: false, version: null }] });
+    const e = await lireEtatCompte(3);
+    const [sql, params] = q.mock.calls[0];
+    expect(String(sql).replace(/\s+/g, ' ')).toContain("to_jsonb(u) ->> 'session_version' AS version");
+    expect(String(sql)).not.toMatch(/u\.session_version/);
+    expect(params).toEqual([3]);
+    expect(e).toEqual({ actif: true, role: 'collaborateur', perms: { ...permsAucune(), curation: true }, empreinteMdp: empreinteMotDePasse('H'), versionSession: null });
+  });
+
+  it('version présente (migration 356 appliquée) → nombre ; compte absent → null ; administrateur → tous droits', async () => {
+    q.mockResolvedValueOnce({ rows: [{ actif: true, role: 'administrateur', mot_de_passe: 'H', version: '4' }] });
+    expect(await lireEtatCompte(1)).toMatchObject({ role: 'administrateur', perms: permsToutes(), versionSession: 4 });
+    q.mockResolvedValueOnce({ rows: [] });
+    expect(await lireEtatCompte(9)).toBeNull();
+  });
+});
+
+describe('revoquerSessions', () => {
+  it('incrémente la version du compte', async () => {
+    q.mockResolvedValueOnce({ rows: [], rowCount: 1 });
+    expect(await revoquerSessions(3)).toBe(true);
+    expect(q.mock.calls[0]).toEqual(['UPDATE admin_utilisateur SET session_version = session_version + 1 WHERE id = $1', [3]]);
+  });
+
+  it('migration 356 non appliquée (colonne absente, 42703) → false, sans bruit ni exception', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    q.mockRejectedValueOnce(Object.assign(new Error('column "session_version" does not exist'), { code: '42703' }));
+    expect(await revoquerSessions(3)).toBe(false);
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it('autre erreur → false, journalisée, jamais remontée', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    q.mockRejectedValueOnce(new Error('down'));
+    expect(await revoquerSessions(3)).toBe(false);
+    expect(err).toHaveBeenCalledTimes(1);
+  });
+});

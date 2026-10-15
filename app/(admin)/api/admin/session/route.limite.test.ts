@@ -26,6 +26,13 @@ vi.mock('../../../../lib/admin/session', () => ({
   optionsCookie: () => ({}),
   signerJeton: vi.fn(async () => 'jeton'),
   permsToutes: () => ({}),
+  verifierJeton: vi.fn(async () => null),
+  sessionDepuisPayload: vi.fn(),
+}));
+vi.mock('../../../../lib/admin/etatSession', () => ({
+  empreinteMotDePasse: () => 'empreinte',
+  lireEtatCompte: vi.fn(async () => ({ versionSession: null })),
+  revoquerSessions: vi.fn(async () => false),
 }));
 vi.mock('../../../../lib/auth/antiBruteforce', async () => {
   const vrai = await vi.importActual<typeof import('../../../../lib/auth/antiBruteforce')>('../../../../lib/auth/antiBruteforce');

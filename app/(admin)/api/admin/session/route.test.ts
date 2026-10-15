@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Cookie store simulé (next/headers cookies() est async côté route).
-const cookieStore = { set: vi.fn(), delete: vi.fn() };
+const cookieStore = { set: vi.fn(), delete: vi.fn(), get: vi.fn() };
+
+// Points 4-5 (15/10/2026) — état de session en base, simulé : version de session 7 ; révocation observée.
+const lireEtatCompte = vi.fn();
+const revoquerSessions = vi.fn();
+vi.mock('../../../../lib/admin/etatSession', async () => {
+  const vrai = await vi.importActual<typeof import('../../../../lib/admin/etatSession')>('../../../../lib/admin/etatSession');
+  return { ...vrai, lireEtatCompte: (...a: unknown[]) => lireEtatCompte(...a), revoquerSessions: (...a: unknown[]) => revoquerSessions(...a) };
+});
 vi.mock('next/headers', () => ({ cookies: () => Promise.resolve(cookieStore) }));
 
 // Vérification argon2 (`verifier`) — mockée : pilote À LA FOIS la voie NOMMÉE et la voie de SECOURS (qui compare
@@ -35,7 +43,9 @@ vi.mock('../../../../lib/auth/antiBruteforce', () => ({
   noterEchecIp: vi.fn(async () => undefined),
 }));
 
-import { POST } from './route';
+import { POST, DELETE } from './route';
+import { verifierJeton, signerJeton, permsToutes } from '../../../../lib/admin/session';
+import { empreinteMotDePasse } from '../../../../lib/admin/etatSession';
 
 function requete(body: unknown): Request {
   return new Request('http://local/api/admin/session', {
@@ -62,6 +72,10 @@ beforeEach(() => {
   noterEchec.mockReset();
   noterSucces.mockReset();
   verifierThrottle.mockResolvedValue({ bloque: false, retryAfter: 0 }); // throttle laisse passer par défaut
+  cookieStore.get.mockReset();
+  cookieStore.delete.mockReset();
+  lireEtatCompte.mockReset().mockResolvedValue({ versionSession: 7 });
+  revoquerSessions.mockReset().mockResolvedValue(true);
 });
 
 describe('POST /api/admin/session', () => {
@@ -219,5 +233,44 @@ describe('POST /api/admin/session — anti-force-brute (Lot 7)', () => {
     expect(verifierThrottle).toHaveBeenCalledWith('');
     expect(verifier).not.toHaveBeenCalled();
     expect(cookieStore.set).not.toHaveBeenCalled();
+  });
+});
+
+// ══ AUDIT POINT 4 (15/10/2026) — le jeton porte de quoi être révoqué ; la déconnexion révoque côté serveur ══════════════
+describe('session révocable (point 4)', () => {
+  it('connexion : le jeton porte l’empreinte du mot de passe (emp) et la version de session du compte (ver)', async () => {
+    trouverCompte.mockResolvedValue(compte({ mot_de_passe: 'HASH:arno' }));
+    verifier.mockResolvedValue(true);
+    await POST(requete({ identifiant: 'arno@x.com', password: 'bon' }));
+    const jeton = cookieStore.set.mock.calls[0][1] as string;
+    const payload = await verifierJeton(jeton);
+    expect(payload?.emp).toBe(empreinteMotDePasse('HASH:arno'));
+    expect(payload?.emp).not.toContain('HASH'); // une empreinte, pas le hash
+    expect(payload?.ver).toBe(7);
+  });
+
+  it('connexion, migration 356 non appliquée (version null) : pas de claim ver, la connexion marche', async () => {
+    lireEtatCompte.mockResolvedValue({ versionSession: null });
+    trouverCompte.mockResolvedValue(compte());
+    verifier.mockResolvedValue(true);
+    const res = await POST(requete({ identifiant: 'arno@x.com', password: 'bon' }));
+    expect(res.status).toBe(200);
+    expect((await verifierJeton(cookieStore.set.mock.calls[0][1] as string))?.ver).toBeUndefined();
+  });
+
+  it('DÉCONNEXION : toutes les sessions du compte sont révoquées en base (avant : seul le cookie était effacé)', async () => {
+    const jeton = await signerJeton({ sub: 5, identifiant: 'arno', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
+    cookieStore.get.mockReturnValue({ value: jeton });
+    const res = await DELETE();
+    expect(res.status).toBe(200);
+    expect(revoquerSessions).toHaveBeenCalledWith(5);
+    expect(cookieStore.delete).toHaveBeenCalledWith({ name: 'svv_admin_session', path: '/' });
+  });
+
+  it('déconnexion sans cookie, ou révocation impossible : le cookie est effacé quand même, jamais d’erreur', async () => {
+    cookieStore.get.mockReturnValue(undefined);
+    expect((await DELETE()).status).toBe(200);
+    expect(revoquerSessions).not.toHaveBeenCalled();
+    expect(cookieStore.delete).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,5 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
+
+// Points 4-5 (15/10/2026) : le proxy relit le compte en base. Ici la base est simulée ; par défaut le compte est un
+// administrateur actif aux droits complets, sans version de session (migration 356 non appliquée) — les droits EFFECTIFS
+// sont alors ceux du jeton, et tous les cas historiques ci-dessous gardent leur sens.
+const { lireEtatCompte } = vi.hoisted(() => ({ lireEtatCompte: vi.fn() }));
+vi.mock('./etatSession', async () => {
+  const vrai = await vi.importActual<typeof import('./etatSession')>('./etatSession');
+  return { ...vrai, lireEtatCompte };
+});
+
 import { proxy } from '../../../proxy';
 import { signerJeton, permsToutes, permsAucune, NOM_COOKIE, type SessionAdmin } from './session';
 
@@ -7,6 +17,7 @@ const SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
 
 beforeEach(() => {
   process.env.ADMIN_SESSION_SECRET = SECRET;
+  lireEtatCompte.mockReset().mockResolvedValue({ actif: true, role: 'administrateur', perms: permsToutes(), empreinteMdp: 'emp-actuelle', versionSession: null });
 });
 
 async function requete(pathname: string, session: SessionAdmin | null): Promise<NextRequest> {
@@ -370,5 +381,74 @@ describe('proxy — module « Gestion » (lot 2) : gardé par perm_gestion, comm
     for (const p of ['/admin/curation', '/admin/permis', '/api/admin/curation', '/api/admin/permis']) {
       expect((await proxy(await requete(p, avecGestion))).status).toBeGreaterThanOrEqual(307); // toujours refusés
     }
+  });
+});
+
+// ══ AUDIT POINTS 4 ET 5 (15/10/2026) — révocation côté serveur et relecture en base ══════════════════════════════════════
+// Le trou : le proxy décidait sur le JETON seul (8 h). Déconnexion, désactivation, changement de mot de passe, tuile retirée :
+// rien de tout cela ne coupait une session déjà ouverte sur les routes et les pages qui ne relisaient pas la base.
+describe('proxy — la session vit aussi longtemps que le compte le permet (points 4 et 5)', () => {
+  const collabCuration = (extra: Partial<SessionAdmin> = {}): SessionAdmin => ({ ...collab({ ...permsAucune(), curation: true }), ...extra });
+  const etatCollab = (over: Record<string, unknown> = {}) => ({
+    actif: true, role: 'collaborateur', perms: { ...permsAucune(), curation: true }, empreinteMdp: 'emp-actuelle', versionSession: null, ...over,
+  });
+
+  it('collaborateur DÉSACTIVÉ en base, jeton encore valable → API 401, page renvoyée à la connexion (lecture curation « jeton seul »)', async () => {
+    lireEtatCompte.mockResolvedValue(etatCollab({ actif: false }));
+    expect((await proxy(await requete('/api/admin/curation/journal', collabCuration()))).status).toBe(401);
+    const page = await proxy(await requete('/admin/curation', collabCuration()));
+    expect(page.headers.get('location')).toMatch(/\/admin\/login$/);
+    expect(lireEtatCompte).toHaveBeenCalledWith(3);
+  });
+
+  it('TUILE RETIRÉE en base (perm_curation=false), jeton qui la porte encore → 403 tout de suite', async () => {
+    lireEtatCompte.mockResolvedValue(etatCollab({ perms: permsAucune() }));
+    expect((await proxy(await requete('/api/admin/curation/parcelles', collabCuration()))).status).toBe(403);
+    expect((await proxy(await requete('/admin/curation', collabCuration()))).headers.get('location')).toMatch(/\/admin$/);
+  });
+
+  it('banc de test (aLaPermission = jeton seul) : tuile retirée en base → 403 au proxy', async () => {
+    const collabBanc = collab({ ...permsAucune(), banc_test: true });
+    lireEtatCompte.mockResolvedValue(etatCollab({ perms: permsAucune() }));
+    expect((await proxy(await requete('/api/admin/banc-comparer', collabBanc))).status).toBe(403);
+  });
+
+  it('MOT DE PASSE CHANGÉ ou RÉINITIALISÉ (empreinte en base ≠ jeton) → session refusée', async () => {
+    lireEtatCompte.mockResolvedValue(etatCollab({ empreinteMdp: 'emp-nouvelle' }));
+    expect((await proxy(await requete('/api/admin/curation', collabCuration({ empreinteMdp: 'emp-ancienne' })))).status).toBe(401);
+  });
+
+  it('DÉCONNEXION (version de session incrémentée en base) → l’ancien jeton est refusé', async () => {
+    lireEtatCompte.mockResolvedValue(etatCollab({ versionSession: 1 }));
+    expect((await proxy(await requete('/api/admin/curation', collabCuration({ empreinteMdp: 'emp-actuelle', versionSession: 0 })))).status).toBe(401);
+  });
+
+  it('compte SUPPRIMÉ (absent en base) → 401', async () => {
+    lireEtatCompte.mockResolvedValue(null);
+    expect((await proxy(await requete('/api/admin/curation', collabCuration()))).status).toBe(401);
+  });
+
+  it('un refus efface le cookie de session (le navigateur ne le renvoie plus)', async () => {
+    lireEtatCompte.mockResolvedValue(etatCollab({ actif: false }));
+    const res = await proxy(await requete('/admin/curation', collabCuration()));
+    expect(res.headers.get('set-cookie') ?? '').toMatch(new RegExp(`${NOM_COOKIE}=;`));
+  });
+
+  it('jeton ADMINISTRATEUR mais compte collaborateur en base → traité en collaborateur (jamais plus que la base)', async () => {
+    lireEtatCompte.mockResolvedValue(etatCollab());
+    expect((await proxy(await requete('/api/admin/comptes', admin()))).status).toBe(403);
+  });
+
+  it('base INJOIGNABLE → refus prudent (503), jamais un accès « faute de mieux »', async () => {
+    lireEtatCompte.mockRejectedValue(new Error('connexion refusée'));
+    expect((await proxy(await requete('/api/admin/curation', collabCuration()))).status).toBe(503);
+  });
+
+  it('USAGE NORMAL inchangé : compte actif, même empreinte, même version → passe ; un jeton d’avant ce lot (sans empreinte) passe aussi', async () => {
+    lireEtatCompte.mockResolvedValue(etatCollab({ versionSession: 2 }));
+    expect((await proxy(await requete('/api/admin/curation', collabCuration({ empreinteMdp: 'emp-actuelle', versionSession: 2 })))).status).not.toBe(401);
+    lireEtatCompte.mockResolvedValue(etatCollab());
+    const res = await proxy(await requete('/admin/curation', collabCuration()));
+    expect(res.status).not.toBe(307);
   });
 });

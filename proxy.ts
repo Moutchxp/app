@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload, type Module } from './app/lib/admin/session';
+import { lireEtatCompte, verdictSession, type EtatCompte } from './app/lib/admin/etatSession';
 
 /**
  * Garde d'accès de l'interface admin (EX-11..EX-15) + contrôle des PERMISSIONS côté serveur (M3 Lot 2e).
@@ -137,7 +138,7 @@ export async function proxy(request: NextRequest) {
   }
 
   // Session EFFECTIVE (fail-closed sur le rôle, cf. sessionDepuisPayload).
-  const session = sessionDepuisPayload(payload);
+  let session = sessionDepuisPayload(payload);
 
   // ═══ VOIE DE SECOURS WEB RETIRÉE (décision d'Arno du 15/10/2026, audit point A) ═══
   // Une session ANONYME (sub=null : l'ancienne voie de secours) ne peut plus être émise ; un jeton de ce type encore en
@@ -148,6 +149,26 @@ export async function proxy(request: NextRequest) {
     }
     return NextResponse.redirect(new URL('/admin/login', request.url));
   }
+
+  // ═══ RELECTURE DU COMPTE EN BASE (audit points 4 et 5, 15/10/2026) ═══
+  // Le jeton n'est plus seul juge : compte absent/désactivé, mot de passe changé (empreinte), session révoquée (version)
+  // → session refusée et cookie effacé ; droits EFFECTIFS = jeton ∩ base (un retrait vaut à la requête suivante). Base
+  // injoignable → 503 : on ne laisse pas entrer « faute de mieux ». Une requête indexée par clé primaire. Cf. etatSession.ts.
+  let etat: EtatCompte | null;
+  try {
+    etat = await lireEtatCompte(session.sub);
+  } catch {
+    return new NextResponse(null, { status: 503 });
+  }
+  const verdict = verdictSession(payload, session, etat);
+  if (!verdict.valide) {
+    const refus = estApi
+      ? new NextResponse(null, { status: 401 })
+      : NextResponse.redirect(new URL('/admin/login', request.url));
+    refus.cookies.set(NOM_COOKIE, '', { path: '/', maxAge: 0 });
+    return refus;
+  }
+  session = { ...session, role: verdict.role, perms: verdict.perms };
 
   // ═══ ENFORCEMENT PREMIÈRE CONNEXION (M3-4 Lot B) ═══
   // TANT QUE doitChanger : tout l'admin est bloqué SAUF la page/route de changement (whitelist EXACTE ci-dessus ;

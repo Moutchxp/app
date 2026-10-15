@@ -25,6 +25,10 @@ export interface SessionAdmin {
   //   HORS MODULES : ce n'est pas une zone gardée mais un GESTE. Portée dans le JWT pour l'UI (bouton « Modifier » du lot B2). La
   //   GARDE serveur relit la base à chaque geste (retrait immédiat) — le JWT ne fait pas foi seul. Administrateur → true.
   peutModifierPermis: boolean;
+  // AUDIT POINTS 4-5 (15/10/2026) — révocation côté serveur, portées dans le jeton (claims `emp` / `ver`) et comparées à la
+  // base par le proxy (cf. `etatSession.ts`). Facultatives : un jeton qui ne les porte pas subit les autres contrôles en base.
+  empreinteMdp?: string; // empreinte du HASH du mot de passe à l'émission (change si le mot de passe change)
+  versionSession?: number; // version de session du compte à l'émission (incrémentée à la déconnexion / désactivation)
 }
 
 /** Toutes permissions à true (administrateur, ou voie de secours). */
@@ -79,7 +83,11 @@ export async function signerJeton(session: SessionAdmin): Promise<string> {
   // RÈGLE D'OR : sub=null (voie de secours) ⇒ doitChanger FORCÉ à false, jamais lu depuis l'appelant → jamais piégé.
   const doitChanger = session.sub === null ? false : session.doitChanger;
   // RATT-EDIT (lot A3) — la capacité de modif entre dans le JWS (valeur EFFECTIVE calculée à la connexion : administrateur/secours → true).
-  const jwt = new SignJWT({ identifiant: session.identifiant, role: session.role, perms: session.perms, doitChanger, peutModifierPermis: session.peutModifierPermis })
+  const jwt = new SignJWT({
+    identifiant: session.identifiant, role: session.role, perms: session.perms, doitChanger, peutModifierPermis: session.peutModifierPermis,
+    ...(session.empreinteMdp !== undefined ? { emp: session.empreinteMdp } : {}),
+    ...(session.versionSession !== undefined ? { ver: session.versionSession } : {}),
+  })
     .setProtectedHeader({ alg: 'HS256' })
     .setJti(crypto.randomUUID())
     .setIssuedAt()

@@ -2,8 +2,9 @@ import 'server-only';
 import { cookies } from 'next/headers';
 import { verifier } from '../../../../lib/admin/motDePasse';
 import { trouverCompte, marquerConnexion, permsDuCompte, capaciteModifPermis } from '../../../../lib/admin/comptes';
-import { NOM_COOKIE, optionsCookie, signerJeton, type SessionAdmin } from '../../../../lib/admin/session';
+import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload, type SessionAdmin } from '../../../../lib/admin/session';
 import { verifierThrottle, noterEchec, noterSucces, cleThrottleIp, verifierThrottleIp, noterEchecIp } from '../../../../lib/auth/antiBruteforce';
+import { empreinteMotDePasse, lireEtatCompte, revoquerSessions } from '../../../../lib/admin/etatSession';
 
 /** Hash argon2id de leurre (d'une valeur jetable) : sert au `verifier` de TEMPS CONSTANT quand l'identifiant est
  *  inconnu — l'échec ne révèle alors ni l'existence du compte ni la longueur du mot de passe. */
@@ -87,6 +88,9 @@ export async function POST(request: Request) {
     perms: permsDuCompte(compte),
     doitChanger: compte.doit_changer_mot_de_passe, // M3-4 Lot B : le drapeau entre dans le JWS
     peutModifierPermis: capaciteModifPermis(compte), // RATT-EDIT lot A3 — capacité EFFECTIVE (subordination incluse) portée dans le JWS
+    // AUDIT POINTS 4-5 : empreinte du mot de passe et version de session, que le proxy compare à la base à chaque requête.
+    empreinteMdp: empreinteMotDePasse(compte.mot_de_passe),
+    versionSession: (await lireEtatCompte(compte.id).catch(() => null))?.versionSession ?? undefined,
   };
 
   await noterSucces(cleThrottle); // SUCCÈS → reset des échecs de cet identifiant + audit agrégé
@@ -95,8 +99,17 @@ export async function POST(request: Request) {
   return Response.json({ ok: true });
 }
 
-/** Déconnexion : DELETE → cookie effacé (EX-21). */
+/**
+ * Déconnexion : DELETE → cookie effacé (EX-21) ET, depuis le 15/10/2026 (audit point 4), toutes les sessions du compte
+ * RÉVOQUÉES côté serveur (version de session + 1) : un jeton copié ailleurs ne vaut plus rien. Best-effort — tant que la
+ * migration 356 n'est pas appliquée, seul le cookie est effacé (comportement d'avant). Ne refuse jamais la déconnexion.
+ */
 export async function DELETE() {
-  (await cookies()).delete({ name: NOM_COOKIE, path: '/' });
+  const magasin = await cookies();
+  const jeton = magasin.get(NOM_COOKIE)?.value;
+  const payload = jeton ? await verifierJeton(jeton) : null;
+  const sub = payload ? sessionDepuisPayload(payload).sub : null;
+  if (sub !== null) await revoquerSessions(sub);
+  magasin.delete({ name: NOM_COOKIE, path: '/' });
   return Response.json({ ok: true });
 }

@@ -22,8 +22,15 @@ vi.mock('../../../../../lib/admin/comptes', () => ({
   capaciteModifPermis: () => false, // RATT-EDIT lot A3 — capacité de modif (mock)
 }));
 
+// Points 4-5 (15/10/2026) — version de session du compte en base, simulée (3).
+vi.mock('../../../../../lib/admin/etatSession', async () => {
+  const vrai = await vi.importActual<typeof import('../../../../../lib/admin/etatSession')>('../../../../../lib/admin/etatSession');
+  return { ...vrai, lireEtatCompte: vi.fn(async () => ({ versionSession: 3 })) };
+});
+
 import { POST } from './route';
-import { signerJeton, permsToutes, permsAucune, type SessionAdmin } from '../../../../../lib/admin/session';
+import { signerJeton, verifierJeton, permsToutes, permsAucune, type SessionAdmin } from '../../../../../lib/admin/session';
+import { empreinteMotDePasse } from '../../../../../lib/admin/etatSession';
 
 const SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
 
@@ -139,5 +146,21 @@ describe('POST /api/admin/compte/mot-de-passe', () => {
     cookieStore.get.mockReturnValue(undefined);
     const res = await POST(requete({ ancien: 'x', nouveau: 'yyyyyyyyyyyy', confirmation: 'yyyyyyyyyyyy' }));
     expect(res.status).toBe(401);
+  });
+});
+
+describe('changement de mot de passe et révocation (point 4, 15/10/2026)', () => {
+  it('le jeton frais porte l’empreinte du NOUVEAU mot de passe : les autres sessions (ancienne empreinte) tombent, celle-ci continue', async () => {
+    await connecte({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms: { ...permsAucune(), curation: true }, doitChanger: true, peutModifierPermis: false });
+    trouverCompteParId.mockResolvedValue({ id: 3, identifiant: 'lea', role: 'collaborateur', actif: true, mot_de_passe: 'ANCIEN_HASH' });
+    verifier.mockResolvedValue(true);
+    hacher.mockResolvedValue('NOUVEAU_HASH');
+    changerMotDePasseSelf.mockResolvedValue({ id: 3 });
+    const res = await POST(requete({ ancien: 'ancien-mot-de-passe', nouveau: 'nouveau-mot-de-passe-123', confirmation: 'nouveau-mot-de-passe-123' }));
+    expect(res.status).toBe(200);
+    const payload = await verifierJeton(cookieStore.set.mock.calls[0][1] as string);
+    expect(payload?.emp).toBe(empreinteMotDePasse('NOUVEAU_HASH'));
+    expect(payload?.emp).not.toBe(empreinteMotDePasse('ANCIEN_HASH'));
+    expect(payload?.ver).toBe(3);
   });
 });
