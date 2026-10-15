@@ -26,7 +26,7 @@
 #   5. le lien current est retiré, releases/ supprimé s'il est vide ;
 #   6. svav-next et svav-gestion-continu redémarrés, puis / et /admin/login doivent répondre 200 ;
 #   7. adoption-avant/ est renommé adoption-avant.annulee-<date> (trace gardée). shared/ est laissé en place (une copie du
-#      .env, mêmes droits 600, sans effet) : le supprimer est un geste manuel.
+#      .env, mêmes droits 600, sans effet) ; une nouvelle adoption le réutilise s'il n'a pas changé (shared_residuel).
 #
 # GARANTIES : ne touche ni la base ni les 4 tables LiDAR, ni MinIO, ni Caddy, ni les sauvegardes existantes ; n'utilise
 # aucune commande git ; n'affiche aucune valeur du .env. La rotation de svav-sauvegarde (find "$RACINE" -mindepth 1
@@ -58,13 +58,25 @@ ok()    { printf '  OK   %s\n' "$*"; }
 ko()    { printf '  ⛔   %s\n' "$*"; ECHECS=$((ECHECS + 1)); }
 ECHECS=0
 
+# Le retour laisse shared/ en place (étape 7). Une nouvelle adoption le réutilise SEULEMENT s'il est exactement ce reste :
+# un retour tracé (adoption-avant.annulee-…), et dedans rien d'autre qu'un .env identique à app/.env et un data/ vide.
+shared_residuel() {
+  compgen -G "$AVANT.annulee-*" > /dev/null || return 1
+  [[ -d $SHARED && ! -L $SHARED && -f $SHARED/.env && ! -L $SHARED/.env ]] || return 1
+  cmp -s "$SHARED/.env" "$APP/.env" || return 1
+  [[ -z $(ls -A "$SHARED" | grep -vx -e '.env' -e 'data') ]] || return 1
+  [[ ! -e $SHARED/data ]] || { [[ -d $SHARED/data && ! -L $SHARED/data && -z $(ls -A "$SHARED/data") ]] || return 1; }
+}
+
 preconditions() {
   titre "Préconditions"
   [[ $(id -u) == 0 ]] && ok "lancé en root" || ko "doit être lancé avec sudo"
   [[ -d $APP && -f $APP/package.json ]] && ok "$APP existe" || ko "$APP introuvable"
   if [[ -f $APP/.env && ! -L $APP/.env ]]; then ok "app/.env est un vrai fichier ($(stat -c '%U:%G %a' "$APP/.env"))"; else ko "app/.env n'est pas un vrai fichier"; fi
   [[ ! -e $APP/data && ! -L $APP/data ]] && ok "app/data absent" || ko "app/data existe déjà"
-  [[ ! -e $SHARED ]] && ok "shared/ absent" || ko "$SHARED existe déjà"
+  if [[ ! -e $SHARED ]]; then ok "shared/ absent"
+  elif shared_residuel; then ok "shared/ laissé par un retour précédent (seulement .env identique à app/.env + data/ vide) : réutilisé"
+  else ko "$SHARED existe déjà, et ce n'est pas le reste d'un retour (contenu : $(ls -A "$SHARED" | tr '\n' ' '))"; fi
   [[ ! -e $CURRENT && ! -L $CURRENT ]] && ok "current absent" || ko "$CURRENT existe déjà"
   [[ ! -e $RELEASES ]] && ok "releases/ absent" || ko "$RELEASES existe déjà"
   [[ ! -e $AVANT ]] && ok "aucune adoption précédente" || ko "$AVANT existe : adoption déjà tentée (--retour pour revenir)"
