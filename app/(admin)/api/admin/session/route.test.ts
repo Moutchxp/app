@@ -43,6 +43,14 @@ vi.mock('../../../../lib/auth/antiBruteforce', () => ({
   noterEchecIp: vi.fn(async () => undefined),
 }));
 
+// Point 8 (15/10/2026) — journal des connexions, simulé (observé).
+const journaliserConnexion = vi.fn();
+const purgerJournalConnexions = vi.fn();
+vi.mock('../../../../lib/auth/journalConnexion', () => ({
+  journaliserConnexion: (...a: unknown[]) => journaliserConnexion(...a),
+  purgerJournalConnexions: (...a: unknown[]) => purgerJournalConnexions(...a),
+}));
+
 import { POST, DELETE } from './route';
 import { verifierJeton, signerJeton, permsToutes } from '../../../../lib/admin/session';
 import { empreinteMotDePasse } from '../../../../lib/admin/etatSession';
@@ -76,6 +84,8 @@ beforeEach(() => {
   cookieStore.delete.mockReset();
   lireEtatCompte.mockReset().mockResolvedValue({ versionSession: 7 });
   revoquerSessions.mockReset().mockResolvedValue(true);
+  journaliserConnexion.mockReset().mockResolvedValue(undefined);
+  purgerJournalConnexions.mockReset().mockResolvedValue(undefined);
 });
 
 describe('POST /api/admin/session', () => {
@@ -272,5 +282,43 @@ describe('session révocable (point 4)', () => {
     expect((await DELETE()).status).toBe(200);
     expect(revoquerSessions).not.toHaveBeenCalled();
     expect(cookieStore.delete).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ══ AUDIT POINT 8 (15/10/2026) — chaque tentative laisse une trace : qui, quand, résultat (l'adresse en empreinte) ═════════
+// Le trou : seuls des compteurs anonymes existaient ; une intrusion ne laissait aucune trace exploitable.
+describe('journal des connexions (point 8)', () => {
+  it('connexion RÉUSSIE → une ligne « succes » avec l’identifiant et le compte, puis purge au-delà de la conservation', async () => {
+    trouverCompte.mockResolvedValue(compte());
+    verifier.mockResolvedValue(true);
+    await POST(requete({ identifiant: 'Arno@X.com', password: 'bon' }));
+    expect(journaliserConnexion).toHaveBeenCalledWith({ identifiant: 'arno@x.com', compteId: 5, resultat: 'succes', ipEmpreinte: null });
+    expect(purgerJournalConnexions).toHaveBeenCalledTimes(1);
+  });
+
+  it('mauvais mot de passe sur un compte existant → « echec » avec le compte ; compte inconnu → « echec » sans compte', async () => {
+    trouverCompte.mockResolvedValue(compte());
+    verifier.mockResolvedValue(false);
+    await POST(requete({ identifiant: 'arno@x.com', password: 'faux' }));
+    expect(journaliserConnexion).toHaveBeenLastCalledWith({ identifiant: 'arno@x.com', compteId: 5, resultat: 'echec', ipEmpreinte: null });
+    trouverCompte.mockResolvedValue(null);
+    await POST(requete({ identifiant: 'fantome@x.com', password: 'x' }));
+    expect(journaliserConnexion).toHaveBeenLastCalledWith({ identifiant: 'fantome@x.com', compteId: null, resultat: 'echec', ipEmpreinte: null });
+  });
+
+  it('tentative BLOQUÉE par la limite → « bloque » ; identifiant vide (ancienne voie de secours) → « echec »', async () => {
+    verifierThrottle.mockResolvedValue({ bloque: true, retryAfter: 30 });
+    await POST(requete({ identifiant: 'arno@x.com', password: 'x' }));
+    expect(journaliserConnexion).toHaveBeenLastCalledWith({ identifiant: 'arno@x.com', compteId: null, resultat: 'bloque', ipEmpreinte: null });
+    verifierThrottle.mockResolvedValue({ bloque: false, retryAfter: 0 });
+    await POST(requete({ identifiant: '', password: 'partage' }));
+    expect(journaliserConnexion).toHaveBeenLastCalledWith({ identifiant: '', compteId: null, resultat: 'echec', ipEmpreinte: null });
+  });
+
+  it('le mot de passe n’est jamais journalisé', async () => {
+    trouverCompte.mockResolvedValue(compte());
+    verifier.mockResolvedValue(false);
+    await POST(requete({ identifiant: 'arno@x.com', password: 'mot-de-passe-secret' }));
+    expect(JSON.stringify(journaliserConnexion.mock.calls)).not.toContain('mot-de-passe-secret');
   });
 });

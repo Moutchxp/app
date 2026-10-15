@@ -29,6 +29,7 @@ vi.mock('../../../../lib/admin/session', () => ({
   verifierJeton: vi.fn(async () => null),
   sessionDepuisPayload: vi.fn(),
 }));
+vi.mock('../../../../lib/auth/journalConnexion', () => ({ journaliserConnexion: vi.fn(async () => undefined), purgerJournalConnexions: vi.fn(async () => undefined) }));
 vi.mock('../../../../lib/admin/etatSession', () => ({
   empreinteMotDePasse: () => 'empreinte',
   lireEtatCompte: vi.fn(async () => ({ versionSession: null })),

@@ -82,5 +82,5 @@ export function estVideAudit(a: Audit): boolean {
 
 /** Rappel RGPD affiché en tête : l'audit est strictement agrégé. */
 export const RAPPEL_AUDIT =
-  'Vue AGRÉGÉE — aucun suivi individuel, aucune adresse IP. Nombre de connexions réussies et échouées par ' +
-  'tranche de temps (audit de sécurité), jamais « qui » ni « d’où ».';
+  'Courbe et pics : vue AGRÉGÉE — nombre de connexions réussies et échouées par tranche de temps. Plus bas, ' +
+  'les dernières connexions une à une (qui, quand, résultat) ; l’adresse n’y est jamais gardée en clair.';

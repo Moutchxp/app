@@ -15,6 +15,7 @@ import {
   type Grain,
   type Audit,
 } from './affichage';
+import { libelleResultat, dateParis, adresseCourte, identifiantAffiche, type ReponseJournal } from './journalConnexions';
 
 /**
  * M2 — LOT 7. Écran d'AUDIT DE SÉCURITÉ (agrégé). CONSOMME l'API `GET /api/admin/audit` et l'AFFICHE : courbe
@@ -154,6 +155,58 @@ export function AlertePics({ data }: { data: Audit }) {
   );
 }
 
+/**
+ * AUDIT POINT 8 (15/10/2026) — « Dernières connexions » : le journal NOMINATIF (qui, quand, résultat), adresse en empreinte
+ * seulement. Ajout sous les cartes agrégées existantes, qui restent inchangées. Réservé à l'administrateur (route gardée).
+ */
+export function JournalConnexions() {
+  const [etat, setEtat] = useState<{ statut: 'chargement' } | { statut: 'erreur' } | { statut: 'ok'; data: ReponseJournal }>({ statut: 'chargement' });
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/audit/connexions');
+        if (annule) return;
+        if (!res.ok) { setEtat({ statut: 'erreur' }); return; }
+        const data = (await res.json()) as ReponseJournal;
+        if (!annule) setEtat({ statut: 'ok', data });
+      } catch {
+        if (!annule) setEtat({ statut: 'erreur' });
+      }
+    })();
+    return () => { annule = true; };
+  }, []);
+  return (
+    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 0 }}>
+      <h2 style={{ margin: 0, fontSize: '.95rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Dernières connexions</h2>
+      <p style={{ margin: 0, fontSize: '.78rem', color: 'var(--color-svv-muted)' }}>
+        Chaque tentative : qui, quand, résultat. L’adresse n’est jamais gardée en clair — une empreinte permet seulement de
+        reconnaître une même source. Conservées 12 mois.
+      </p>
+      {etat.statut === 'chargement' && <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Chargement…</span>}
+      {etat.statut === 'erreur' && <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Journal indisponible.</span>}
+      {etat.statut === 'ok' && !etat.data.disponible && (
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Journal pas encore activé (mise à jour de la base à appliquer : migration 357).</span>
+      )}
+      {etat.statut === 'ok' && etat.data.disponible && etat.data.lignes.length === 0 && (
+        <span style={{ fontSize: '.8rem', color: 'var(--color-svv-muted)' }}>Aucune tentative enregistrée.</span>
+      )}
+      {etat.statut === 'ok' && etat.data.disponible && etat.data.lignes.length > 0 && (
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {etat.data.lignes.map((l, i) => (
+            <li key={`${l.survenuLe}-${i}`} style={{ display: 'flex', flexWrap: 'wrap', gap: '2px 12px', fontSize: '.8rem', borderBottom: '1px solid var(--color-svv-line)', paddingBottom: 6 }}>
+              <span style={{ color: 'var(--color-svv-muted)', fontVariantNumeric: 'tabular-nums' }}>{dateParis(l.survenuLe)}</span>
+              <span style={{ color: 'var(--color-svv-ink)', overflowWrap: 'anywhere', flex: '1 1 160px' }}>{identifiantAffiche(l.identifiant)}</span>
+              <strong style={{ color: l.resultat === 'succes' ? 'var(--color-svv-green)' : 'var(--color-svv-red)' }}>{libelleResultat(l.resultat)}</strong>
+              <span style={{ color: 'var(--color-svv-muted)', fontFamily: 'monospace' }} title="Empreinte de l’adresse (jamais l’adresse)">{adresseCourte(l.ipEmpreinte)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function AuditPage() {
   const [fenetre, setFenetre] = useState<Fenetre>(() => fenetreDefaut());
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
@@ -217,6 +270,8 @@ export default function AuditPage() {
           </div>
         </div>
       )}
+
+      <JournalConnexions />
     </section>
   );
 }

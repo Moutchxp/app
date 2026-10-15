@@ -5,6 +5,7 @@ import { trouverCompte, marquerConnexion, permsDuCompte, capaciteModifPermis } f
 import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload, type SessionAdmin } from '../../../../lib/admin/session';
 import { verifierThrottle, noterEchec, noterSucces, cleThrottleIp, verifierThrottleIp, noterEchecIp } from '../../../../lib/auth/antiBruteforce';
 import { empreinteMotDePasse, lireEtatCompte, revoquerSessions } from '../../../../lib/admin/etatSession';
+import { journaliserConnexion, purgerJournalConnexions, type ResultatConnexion } from '../../../../lib/auth/journalConnexion';
 
 /** Hash argon2id de leurre (d'une valeur jetable) : sert au `verifier` de TEMPS CONSTANT quand l'identifiant est
  *  inconnu — l'échec ne révèle alors ni l'existence du compte ni la longueur du mot de passe. */
@@ -51,18 +52,29 @@ export async function POST(request: Request) {
 
   // ANTI-FORCE-BRUTE (Lot 7) : throttle progressif AVANT toute vérification (n'appelle PAS password.ts si bloqué).
   // Best-effort → si l'état de détection est indisponible, `bloque:false` (fail-safe : jamais de blocage légitime).
-  const throttle = await verifierThrottle(cleThrottle);
-  if (throttle.bloque) return reponseThrottlee(throttle.retryAfter);
   // AUDIT POINT 3 : limite par ADRESSE (empreinte HMAC, jamais en clair) en plus de la limite par compte. `null` si l'adresse
   // n'est pas établie de façon sûre → pas de limite par IP (jamais un compteur commun qui bloquerait Arno).
   const cleIp = cleThrottleIp(request);
+  // AUDIT POINT 8 : chaque tentative laisse une ligne (identifiant, compte, résultat, adresse EN EMPREINTE). Best-effort.
+  const journal = (resultat: ResultatConnexion, compteId: number | null = null) =>
+    journaliserConnexion({ identifiant: cleThrottle, compteId, resultat, ipEmpreinte: cleIp ? cleIp.slice('ip:'.length) : null });
+
+  const throttle = await verifierThrottle(cleThrottle);
+  if (throttle.bloque) {
+    await journal('bloque');
+    return reponseThrottlee(throttle.retryAfter);
+  }
   if (cleIp) {
     const parIp = await verifierThrottleIp(cleIp);
-    if (parIp.bloque) return reponseThrottlee(parIp.retryAfter);
+    if (parIp.bloque) {
+      await journal('bloque');
+      return reponseThrottlee(parIp.retryAfter);
+    }
   }
-  const noterLesEchecs = async () => {
+  const noterLesEchecs = async (compteId: number | null = null) => {
     await noterEchec(cleThrottle);
     if (cleIp) await noterEchecIp(cleIp);
+    await journal('echec', compteId);
   };
 
   // VOIE DE SECOURS RETIRÉE (15/10/2026) : identifiant vide → refus générique, compté comme un échec (audit), rien vérifié.
@@ -77,7 +89,7 @@ export async function POST(request: Request) {
   const hash = compte?.mot_de_passe ?? HASH_LEURRE;
   const motOk = await verifier(password, hash);
   if (!compte || !compte.actif || !motOk) {
-    await noterLesEchecs(); // échec (compte inconnu, inactif OU mauvais mot de passe) → même traitement
+    await noterLesEchecs(compte?.id ?? null); // échec (compte inconnu, inactif OU mauvais mot de passe) → même traitement
     return echec();
   }
   await marquerConnexion(compte.id);
@@ -94,6 +106,8 @@ export async function POST(request: Request) {
   };
 
   await noterSucces(cleThrottle); // SUCCÈS → reset des échecs de cet identifiant + audit agrégé
+  await journal('succes', compte.id);
+  await purgerJournalConnexions(); // conservation 12 mois (réglable) : les lignes plus anciennes sont effacées
   const jeton = await signerJeton(session);
   (await cookies()).set(NOM_COOKIE, jeton, optionsCookie(process.env.NODE_ENV === 'production'));
   return Response.json({ ok: true });
