@@ -30,13 +30,15 @@
  *    automatique du code.
  *
  * AVERTISSEMENTS (n'empêchent pas la mise à jour, s'affichent) : fichier déjà inscrit dont le contenu a changé depuis
- * (il ne sera jamais rejoué), fichier inscrit introuvable sur disque, migration « écartée » (jamais appliquée).
+ * (il ne sera jamais rejoué), fichier inscrit introuvable sur disque, migration « écartée » (jamais appliquée) — sauf si
+ * une migration appliquée la remplace (en-tête `-- svav:remplace <fichier>`, le seul moyen de réveiller une écartée).
  */
 import { createHash } from 'node:crypto';
 
 export const TABLES_LIDAR = ['mns_lidar_brut', 'mnt_lidar_brut', 'mns_bati_propre', 'rge_alti'] as const;
 
 export const EN_TETE_IRREVERSIBLE = 'svav:irreversible';
+export const EN_TETE_REMPLACE = 'svav:remplace';
 
 export type ModeExecution = 'enveloppee' | 'transaction-propre' | 'sans-transaction';
 
@@ -57,6 +59,7 @@ export interface AnalyseMigration {
   sha256: string;
   mode: ModeExecution;
   irreversible: boolean;
+  remplace: string[]; // en-têtes « -- svav:remplace <fichier> » : migrations écartées que celle-ci réveille
   refus: string[];
   tablesCreees: string[];
   tablesSupprimees: string[];
@@ -186,6 +189,7 @@ function extrait(instr: string): string {
 export function analyserMigration(f: FichierMigration): AnalyseMigration {
   const numero = numeroMigration(f.fichier);
   const irreversible = new RegExp(`^\\s*--\\s*${EN_TETE_IRREVERSIBLE}\\b`, 'im').test(f.contenu);
+  const remplace = [...f.contenu.matchAll(new RegExp(`^\\s*--\\s*${EN_TETE_REMPLACE}\\s+(\\S+\\.sql)\\b`, 'gim'))].map((m) => m[1]);
   const instrs = instructions(f.contenu);
   const refus: string[] = [];
   const tablesCreees: string[] = [];
@@ -225,7 +229,7 @@ export function analyserMigration(f: FichierMigration): AnalyseMigration {
 
   if (concurrently && transactionPropre) refus.push(`${f.fichier} : CONCURRENTLY dans un fichier qui gère ses propres transactions — à appliquer à la main`);
   const mode: ModeExecution = concurrently ? 'sans-transaction' : transactionPropre ? 'transaction-propre' : 'enveloppee';
-  return { fichier: f.fichier, numero, sha256: empreinte(f.contenu), mode, irreversible, refus, tablesCreees, tablesSupprimees, colonnesAjoutees };
+  return { fichier: f.fichier, numero, sha256: empreinte(f.contenu), mode, irreversible, remplace, refus, tablesCreees, tablesSupprimees, colonnesAjoutees };
 }
 
 /**
@@ -261,7 +265,13 @@ export function planifier(fichiers: FichierMigration[], registre: LigneRegistre[
     if (!a) avertissements.push(`${fichier} : inscrit au registre mais absent de db/migrations`);
     else if (a.sha256 !== sha) avertissements.push(`${fichier} : contenu modifié depuis son application (il ne sera pas rejoué)`);
   }
-  for (const l of registre) if (l.origine === 'ecartee') avertissements.push(`${l.fichier} : écartée à l'amorçage, JAMAIS appliquée`);
+  // Une migration écartée cesse d'être rappelée dès qu'une migration APPLIQUÉE déclare la remplacer (« -- svav:remplace ») :
+  //   l'historique n'est pas réécrit (la ligne « ecartee » reste), c'est la nouvelle migration qui porte le réveil.
+  for (const l of registre) {
+    if (l.origine !== 'ecartee') continue;
+    const par = analyses.find((a) => a.remplace.includes(l.fichier) && inscrits.has(a.fichier));
+    if (!par) avertissements.push(`${l.fichier} : écartée à l'amorçage, JAMAIS appliquée`);
+  }
 
   const maxInscrit = Math.max(0, ...registre.map((l) => numeroMigration(l.fichier) ?? 0));
   const nouvelles = analyses

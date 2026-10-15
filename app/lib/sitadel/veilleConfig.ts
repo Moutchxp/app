@@ -109,7 +109,7 @@ export interface ConfigVeille {
 
 /**
  * S-DWG — TEXTE par défaut du 3e tiret « fichiers sources des pièces graphiques ». SOURCE UNIQUE côté code (repli avant
- * migration + défaut du repli). ⚠️ Doit rester byte-identique au DEFAULT SQL de `mention_sources_texte` (migration 148) —
+ * migration + défaut du repli). ⚠️ Doit rester byte-identique au DEFAULT SQL de `mention_sources_texte` (migrations 148 et 359) —
  * un test statique le verrouille. Formulation qui N'OBLIGE À RIEN (les sources ne sont pas une pièce Cerfa).
  */
 export const MENTION_SOURCES_TEXTE_DEFAUT =
@@ -145,7 +145,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   adresseReponse: '',    // = DEFAULT de la migration 071 (non configurée → le send refuse)
   mentionServiceActive: false, mentionServiceTexte: '', // = DEFAULT de la migration 072 (désactivée, vide)
   mentionDelaiActive: false, mentionDelaiTexte: '',     // = DEFAULT de la migration 072 (désactivée, vide)
-  mentionSourcesActive: true, mentionSourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT, // = DEFAULT de la migration 148 (actif, texte pré-rédigé)
+  mentionSourcesActive: false, mentionSourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT, // = DEFAULT de la migration 359 (désactivé, texte pré-rédigé de 148)
   releveActive: false, releveIntervalleMinutes: 60, releveProfil: 'entreprise', // = DEFAULT de la migration 074 (opt-in)
   depotReleveDelaiSecondes: 60, // = DEFAULT de la migration 187 (LOT 34 : relève déclenchée par le clic « copier », alignée sur echeance_detection_le)
   echeanceAlerteJours: 7, releveFraicheurHeures: 48, // = DEFAULT de la migration 075
@@ -314,16 +314,17 @@ async function lireAdresseReponse(): Promise<string> {
  * pas passée, les colonnes n'existent pas → retombe sur les défauts (désactivées, vides), sans dégrader le reste.
  */
 async function lireMentions(): Promise<Pick<ConfigVeille, 'mentionServiceActive' | 'mentionServiceTexte' | 'mentionDelaiActive' | 'mentionDelaiTexte' | 'mentionSourcesActive' | 'mentionSourcesTexte'>> {
-  // S-DWG — le défaut du tiret « sources » est ACTIF + pré-rédigé (opt-out), pour que le repli AVANT la migration 148
-  // reproduise EXACTEMENT le défaut SQL (une seule vérité de comportement, migration passée ou non). S40 reste opt-in/vide.
-  const def = { mentionServiceActive: false, mentionServiceTexte: '', mentionDelaiActive: false, mentionDelaiTexte: '', mentionSourcesActive: true, mentionSourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT };
+  // S-DWG — le défaut du tiret « sources » est DÉSACTIVÉ + pré-rédigé (migration 359, décision d'Arno du 15/10/2026 ; 148
+  // disait actif), pour que le repli AVANT 359 reproduise EXACTEMENT le défaut SQL (une seule vérité de comportement,
+  // migration passée ou non). S40 reste opt-in/vide.
+  const def = { mentionServiceActive: false, mentionServiceTexte: '', mentionDelaiActive: false, mentionDelaiTexte: '', mentionSourcesActive: false, mentionSourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT };
   try {
     const { rows } = await query<{ mention_service_active: boolean; mention_service_texte: string; mention_delai_active: boolean; mention_delai_texte: string; mention_sources_active: boolean; mention_sources_texte: string }>(
       `SELECT mention_service_active, mention_service_texte, mention_delai_active, mention_delai_texte, mention_sources_active, mention_sources_texte FROM config_veille WHERE id = 1`);
     const r = rows[0];
     if (!r) return def;
     return { mentionServiceActive: r.mention_service_active, mentionServiceTexte: r.mention_service_texte, mentionDelaiActive: r.mention_delai_active, mentionDelaiTexte: r.mention_delai_texte, mentionSourcesActive: r.mention_sources_active, mentionSourcesTexte: r.mention_sources_texte };
-  } catch { return def; } // 072/148 pas encore appliquées → défauts (sources actif par défaut)
+  } catch { return def; } // 072/359 pas encore appliquées → défauts (tout désactivé)
 }
 
 /**

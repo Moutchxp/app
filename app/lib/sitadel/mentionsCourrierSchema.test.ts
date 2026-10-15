@@ -58,8 +58,7 @@ describe('S-DWG — migration 148 : tiret « fichiers sources des pièces graphi
     const m = /mention_sources_texte\s+text\s+NOT NULL\s+DEFAULT\s+'([^']*)'/i.exec(code148);
     expect(m).not.toBeNull();
     expect(m![1]).toBe(MENTION_SOURCES_TEXTE_DEFAUT);
-    // défauts du code alignés (actif + texte pré-rédigé) — l'opt-out se comporte pareil migration passée ou non
-    expect(CONFIG_VEILLE_DEFAUT.mentionSourcesActive).toBe(true);
+    // 148 n'a JAMAIS été appliquée : elle est réveillée par 359, dont le défaut fait foi pour le code (voir plus bas).
     expect(CONFIG_VEILLE_DEFAUT.mentionSourcesTexte).toBe(MENTION_SOURCES_TEXTE_DEFAUT);
   });
 
@@ -75,5 +74,30 @@ describe('S-DWG — migration 148 : tiret « fichiers sources des pièces graphi
     expect(/N''OBLIGE À RIEN|n'oblige à rien/i.test(mig148)).toBe(true);
     expect(/BEGIN;/.test(code148) && /COMMIT;/.test(code148)).toBe(true);
     expect(/AUCUN ENVOI|aucun octet/i.test(mig148)).toBe(true);
+  });
+});
+
+/**
+ * Migration 359 — réveil de 148 (jamais appliquée, « ecartee » au registre), décision d'Arno du 15/10/2026 : mêmes
+ * colonnes, même texte, mais tiret DWG DÉSACTIVÉ par défaut ; le repli du code suit ce défaut (une seule vérité).
+ */
+const mig359 = readFileSync('db/migrations/359_mention_sources_reveil.sql', 'utf8');
+const code359 = mig359.split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
+
+describe('S-DWG — migration 359 : réveil de 148, tiret désactivé par défaut', () => {
+  it('déclare remplacer 148 (sans la réécrire) et ne fait qu’ajouter', () => {
+    expect(/^--\s*svav:remplace\s+148_mention_sources_graphiques\.sql\b/m.test(mig359)).toBe(true);
+    for (const col of ['mention_sources_active', 'mention_sources_texte']) {
+      expect(new RegExp(`ADD COLUMN IF NOT EXISTS\\s+${col}\\b`, 'i').test(code359)).toBe(true);
+    }
+    expect(/DROP\s|DELETE\s+FROM|TRUNCATE|UPDATE\s/i.test(code359)).toBe(false);
+    expect(/^\s*(BEGIN|COMMIT)\s*;/im.test(code359)).toBe(false); // enveloppée par la mise à jour, avec son inscription
+  });
+
+  it('booléen NOT NULL DEFAULT false, texte = constante applicative (byte-identique), repli du code aligné', () => {
+    expect(/mention_sources_active\s+boolean\s+NOT NULL\s+DEFAULT\s+false/i.test(code359)).toBe(true);
+    const m = /mention_sources_texte\s+text\s+NOT NULL\s+DEFAULT\s+'([^']*)'/i.exec(code359);
+    expect(m![1]).toBe(MENTION_SOURCES_TEXTE_DEFAUT);
+    expect(CONFIG_VEILLE_DEFAUT.mentionSourcesActive).toBe(false);
   });
 });

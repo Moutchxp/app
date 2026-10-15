@@ -141,6 +141,22 @@ describe('planifier', () => {
     expect(p.nouvelles).toEqual([]);
     expect(p.avertissements).toEqual(["002_b.sql : écartée à l'amorçage, JAMAIS appliquée"]);
   });
+  it('une écartée remplacée (« -- svav:remplace ») par une migration APPLIQUÉE n’est plus rappelée', () => {
+    const reveil = f('003_reveil.sql', '-- svav:remplace 002_b.sql\nALTER TABLE b ADD COLUMN IF NOT EXISTS c text;');
+    expect(analyserMigration(reveil).remplace).toEqual(['002_b.sql']);
+    const registre = [
+      { fichier: m1.fichier, sha256: sha(m1) },
+      { fichier: m2.fichier, sha256: sha(m2), origine: 'ecartee' },
+    ];
+    // Pas encore appliquée : le réveil est NOUVEAU, l'écartée reste rappelée.
+    const avant = planifier([m1, m2, reveil], registre);
+    expect(avant.nouvelles.map((a) => a.fichier)).toEqual(['003_reveil.sql']);
+    expect(avant.avertissements).toEqual(["002_b.sql : écartée à l'amorçage, JAMAIS appliquée"]);
+    // Appliquée : plus de rappel, et l'écartée n'est jamais rejouée.
+    const apres = planifier([m1, m2, reveil], [...registre, { fichier: reveil.fichier, sha256: sha(reveil) }]);
+    expect(apres.nouvelles).toEqual([]);
+    expect(apres.avertissements).toEqual([]);
+  });
   it('remonte les refus d’une nouvelle migration', () => {
     const p = planifier([m1, f('002_x.sql', 'TRUNCATE rge_alti;')], [{ fichier: m1.fichier, sha256: sha(m1) }]);
     expect(p.refus.join()).toMatch(/nomme une table LiDAR/);

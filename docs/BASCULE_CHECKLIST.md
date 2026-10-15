@@ -410,6 +410,11 @@ rejouant l'ancien fichier à la main).
 | **216** — lecture IA du Cerfa | Chaque lecture IA du Cerfa (Mistral, payante) est conservée : son compte rendu reste affiché à côté de la lecture automatique, avec la preuve de ce qui a été transmis au prestataire (pages envoyées ou refusées), le modèle et le coût. | La lecture IA, lancée à la main, se fait et s'affiche, mais **rien n'est gardé** : ni le compte rendu (à relancer, donc à repayer, pour le revoir), ni la trace de ce qui a été envoyé à Mistral. |
 | **262** — registre des déplacements de pièces dans le Drive | Rien de visible tant que les déplacements réels ne sont pas autorisés : c'est le registre qui gardera, pour chaque pièce déplacée, d'où elle vient et où elle va (ce qui rend le geste réversible). À réveiller **le jour où** le plan de classement passe de la simulation aux déplacements réels. | Le plan de classement tourne en simulation seule, et n'a pas besoin de cette table. |
 
+**148 — réveil préparé (15/10/2026)** : migration `359_mention_sources_reveil.sql` (`-- svav:remplace 148_…`), passée par
+la mise à jour de la prod. Mêmes colonnes et même texte que 148, mais **tiret DWG désactivé par défaut** : une fois
+passée, les deux mentions d'Arno reviennent dans les demandes par e-mail et le tiret n'apparaît plus tant qu'il n'est pas
+activé dans Réglages. 148 reste « ecartee » au registre (l'historique n'est pas réécrit).
+
 **Texte exact ajouté par le tiret « fichiers sources » (148)**, en dernière ligne de la liste des pièces demandées, juste
 après « — et, s’ils figurent au dossier, les plans de niveaux ou d’étages et tout document portant les altitudes ou cotes
 NGF du projet. » :
