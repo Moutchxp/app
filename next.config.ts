@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { entetesSecuriteAdmin } from "./app/lib/admin/entetesSecurite";
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -11,6 +12,10 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ['pdfkit', 'pdfjs-dist'],
   allowedDevOrigins: ['*.trycloudflare.com', 'assembled-mitchell-construct-charms.trycloudflare.com', '192.168.1.164'],
   devIndicators: false,
+  // AUDIT POINT 7 (15/10/2026) — en-têtes de sécurité de l'ADMIN, posés par l'application (cf. entetesSecurite.ts).
+  async headers() {
+    return entetesSecuriteAdmin(process.env.NODE_ENV === 'production');
+  },
 };
 
 export default nextConfig;
