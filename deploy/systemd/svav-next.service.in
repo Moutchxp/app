@@ -22,6 +22,10 @@ Environment=NEXT_TELEMETRY_DISABLED=1
 # pdftoppm / pdfinfo / pdfseparate / pdfunite (poppler-utils) sont appelés par des routes de production.
 Environment=PATH=@PATH@
 ExecStart=@NODE@ @APP_DIR@/node_modules/next/dist/bin/next start -H @NEXT_HOST@ -p @NEXT_PORT@
+# Sur SIGTERM, next start termine proprement puis sort VOLONTAIREMENT avec le code 143 (128 + 15, start-server.js) :
+# c'est son arrêt normal, pas une panne (d'où les alertes « Échec de svav-next.service » du 15/10/2026 à chaque
+# redémarrage). Toute autre sortie reste un échec.
+SuccessExitStatus=143
 Restart=always
 RestartSec=5
 StandardOutput=journal

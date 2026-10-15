@@ -49,6 +49,9 @@ RACINE_ATTENDUE=/home/ubuntu/sauvegardes
 CIBLE_ENV_SAUV=/home/ubuntu/sansvisavis/app/.env
 URL_PUBLIQUE=https://authentification.sansvisavis.com
 
+STABLE_S=30       # une unité redémarrée doit rester active au moins autant…
+STABLE_MAX_S=150  # …avant ce délai, sinon c'est un échec
+
 dire()  { printf '%s\n' "$*"; }
 titre() { printf '\n== %s ==\n' "$*"; }
 ok()    { printf '  OK   %s\n' "$*"; }
@@ -67,6 +70,9 @@ preconditions() {
   [[ ! -e $AVANT ]] && ok "aucune adoption précédente" || ko "$AVANT existe : adoption déjà tentée (--retour pour revenir)"
   [[ $(grep -c '^APP_DIR=' "$CONF") == 1 && $(grep '^APP_DIR=' "$CONF") == "APP_DIR=$APP" ]] && ok "svav.conf : APP_DIR=$APP" || ko "svav.conf : APP_DIR inattendu"
   [[ -x $APP/deploy/systemd/installer.sh ]] || [[ -f $APP/deploy/systemd/installer.sh ]] && ok "installer.sh présent" || ko "installer.sh introuvable"
+  # Sans ces deux lignes, l'arrêt propre de la relève et de next est compté comme une panne (adoption du 15/10/2026 annulée).
+  grep -qx 'KillMode=mixed' "$APP/deploy/systemd/svav-gestion-continu.service.in" && grep -qx 'SuccessExitStatus=143' "$APP/deploy/systemd/svav-next.service.in" \
+    && ok "gabarits d'unités à jour (KillMode=mixed, SuccessExitStatus=143)" || ko "gabarits d'unités du serveur pas à jour : réaligner d'abord app/ sur origin/main"
   [[ $(grep -c -F "$CIBLE_ENV_SAUV" "$SAUV") == 1 ]] && ok "svav-sauvegarde : une seule mention de app/.env" || ko "svav-sauvegarde : app/.env absent ou cité plusieurs fois"
   local racine; racine=$(grep -E '^RACINE=' "$SAUV" | head -1 | cut -d= -f2- | tr -d "\"'")
   [[ $racine == "$RACINE_ATTENDUE" ]] && ok "svav-sauvegarde : RACINE=$racine" || ko "svav-sauvegarde : RACINE=« $racine » (attendu $RACINE_ATTENDUE)"
@@ -101,10 +107,32 @@ apercu() {
   rm -rf "$t"
 }
 
+# Attend qu'une unité redémarrée soit STABLE : active depuis au moins STABLE_S s, sans redémarrage automatique (NRestarts
+# inchangé depuis l'appel) ni changement de processus principal, en STABLE_MAX_S s au plus. Un service qui « tient »
+# 2 secondes puis retombe n'est pas un service qui marche (adoption du 15/10/2026 : vérifié trop tôt).
+attendre_stable() {
+  local u=$1 debut=$SECONDS n0 n etat pid pid0="" depuis
+  n0=$(systemctl show -p NRestarts --value "$u" < /dev/null)
+  while (( SECONDS - debut < STABLE_MAX_S )); do
+    etat=$(systemctl show -p ActiveState --value "$u" < /dev/null)
+    n=$(systemctl show -p NRestarts --value "$u" < /dev/null)
+    pid=$(systemctl show -p MainPID --value "$u" < /dev/null)
+    if [[ $n != "$n0" ]]; then ko "$u redémarré seul (NRestarts $n0 → $n)"; return 1; fi
+    if [[ $etat == active ]]; then
+      [[ -z $pid0 ]] && pid0=$pid
+      if [[ $pid != "$pid0" ]]; then ko "$u : processus principal changé ($pid0 → $pid)"; return 1; fi
+      depuis=$(( $(date +%s) - $(date -d "$(systemctl show -p ActiveEnterTimestamp --value "$u" < /dev/null)" +%s) ))
+      if (( depuis >= STABLE_S )); then ok "$u stable : actif depuis $depuis s, NRestarts=$n, PID $pid"; return 0; fi
+    fi
+    sleep 2
+  done
+  ko "$u pas stable après $STABLE_MAX_S s (état $etat, NRestarts $n0 → $n)"; return 1
+}
+
 verifier() {
   titre "Vérifications"
   local code
-  for i in $(seq 1 30); do code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/admin/login < /dev/null); [[ $code == 200 ]] && break; sleep 2; done
+  attendre_stable svav-next; attendre_stable svav-gestion-continu
   for chemin in / /admin/login; do
     for base in http://127.0.0.1:3000 "$URL_PUBLIQUE"; do
       local t; t=$(mktemp); code=$(curl -s -o "$t" -w '%{http_code}' "$base$chemin" < /dev/null)
@@ -153,7 +181,8 @@ retour() {
   [[ -L $CURRENT ]] && rm "$CURRENT" && ok "lien current retiré"
   [[ -d $RELEASES ]] && rmdir "$RELEASES" 2>/dev/null && ok "releases/ (vide) retiré"
   systemctl restart svav-next svav-gestion-continu < /dev/null && ok "svav-next et svav-gestion-continu redémarrés"
-  local code; for i in $(seq 1 30); do code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/admin/login < /dev/null); [[ $code == 200 ]] && break; sleep 2; done
+  attendre_stable svav-next; attendre_stable svav-gestion-continu
+  local code; code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/admin/login < /dev/null)
   [[ $code == 200 ]] && ok "/admin/login → 200" || ko "/admin/login → $code APRÈS RETOUR — à voir tout de suite"
   mv "$AVANT" "$AVANT.annulee-$(date +%Y%m%d-%H%M%S)" && ok "trace gardée dans $AVANT.annulee-…"
 }

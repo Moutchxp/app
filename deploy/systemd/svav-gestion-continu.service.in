@@ -22,6 +22,12 @@ Environment=TZ=Europe/Paris
 Environment=PATH=@PATH@
 # Même commande que `npm run gestion:relever-continu`.
 ExecStart=@NODE@ @APP_DIR@/node_modules/tsx/dist/cli.mjs @APP_DIR@/app/scripts/relever-gestion-continu.ts
+# tsx lance le script dans un processus enfant, avec un assistant esbuild qui compile les modules chargés à la demande.
+# Par défaut, systemctl stop envoie SIGTERM à TOUT le groupe : l'assistant meurt aussitôt, et le premier module chargé
+# ensuite (fermeture de la base, par exemple) fait sortir le script en erreur (« The service is no longer running »,
+# constaté le 15/10/2026) — un arrêt propre compté comme une panne, avec alerte. mixed : SIGTERM au seul processus
+# principal (tsx le relaie au script) ; ce qui resterait reçoit SIGKILL à la fin.
+KillMode=mixed
 Restart=always
 RestartSec=60
 # `systemctl stop` envoie SIGTERM : le script finit son tour proprement et rend le verrou.
