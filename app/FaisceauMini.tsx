@@ -46,6 +46,10 @@ export default function FaisceauMini({ lat, lon, azimutDeg, couleur }: FaisceauM
 
   useEffect(() => {
     let cancelled = false;
+    // Recalage différé de la taille : ANNULÉ au démontage. Sans cela, quitter la page de résultat (ou changer ses props)
+    // moins de 200 ms après l'apparition de la carte appelait invalidateSize() sur une carte déjà détruite →
+    // « Cannot read properties of undefined (reading '_leaflet_pos') » (reproduit 9 fois sur 9 au banc, 16/10/2026).
+    let recalage: ReturnType<typeof setTimeout> | null = null;
     (async () => {
       const L = (await import("leaflet")).default;
       if (cancelled || !divRef.current || mapRef.current) return;
@@ -103,13 +107,15 @@ export default function FaisceauMini({ lat, lon, azimutDeg, couleur }: FaisceauM
       }
 
       map.invalidateSize();
-      setTimeout(() => map.invalidateSize(), 200);
+      recalage = setTimeout(() => { if (mapRef.current === map) map.invalidateSize(); }, 200);
     })();
 
     return () => {
       cancelled = true;
-      const m = mapRef.current as { remove?: () => void } | null;
+      if (recalage !== null) clearTimeout(recalage);
+      const m = mapRef.current as { remove?: () => void; stop?: () => void } | null;
       if (m && m.remove) {
+        m.stop?.(); // arrête une éventuelle animation de vue avant la destruction
         m.remove();
         mapRef.current = null;
       }
