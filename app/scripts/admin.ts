@@ -3,6 +3,8 @@
  *   npm run admin:creer   -- --identifiant a.jorel@sansvisavis.com --role administrateur --prenom Arnaud --nom Jorel
  *   npm run admin:reset    -- --identifiant a.jorel@sansvisavis.com
  *   npm run admin:secours  -- --identifiant a.jorel@sansvisavis.com   (RÉACTIVATION SEULE d'un compte existant)
+ *   npm run admin:desactiver -- --identifiant x@sansvisavis.com      (désactive un compte, administrateur compris)
+ *   npm run admin:reactiver  -- --identifiant x@sansvisavis.com      (réactive un compte désactivé)
  *   npm run admin:lister
  *
  * `admin:creer` exige --prenom et --nom (non vides) ; les comptes créés par la CLI ont
@@ -20,7 +22,7 @@
  * exige une confirmation interactive explicite.
  */
 import readline from 'node:readline';
-import { creerCompte, reinitialiserMotDePasse, secours, listerComptes, ErreurCompte } from '../lib/admin/comptes';
+import { creerCompte, reinitialiserMotDePasse, secours, listerComptes, desactiverCompteCli, reactiverCompteCli, ErreurCompte } from '../lib/admin/comptes';
 import { estEmailValide } from '../lib/admin/email';
 import { closePool } from '../lib/db/client';
 import type { RoleAdmin } from '../lib/admin/session';
@@ -62,6 +64,17 @@ async function gardeProduction(): Promise<void> {
     const r = await lireLigne('⚠ NODE_ENV=production. Tapez « oui » pour continuer : ');
     if (r.toLowerCase() !== 'oui') throw new ErreurCompte('Annulé (production non confirmée).');
   }
+}
+
+/**
+ * AUDIT POINT 11 — confirmation d'un geste sur un compte : on montre le compte, puis il faut RETAPER son adresse (pas un
+ * simple « oui » : on ne désactive pas le mauvais compte par une touche Entrée trop rapide).
+ */
+async function confirmerParIdentifiant(identifiant: string, geste: string): Promise<void> {
+  const c = (await listerComptes()).find((x) => x.identifiant.toLowerCase() === identifiant.toLowerCase());
+  if (c) console.log(`Compte : ${c.identifiant} — ${c.prenom} ${c.nom}, ${c.role}, ${c.actif ? 'actif' : 'inactif'}.`);
+  const r = await lireLigne(`Pour ${geste} ce compte, retapez son adresse : `);
+  if (r.toLowerCase() !== identifiant.toLowerCase()) throw new ErreurCompte('Annulé (adresse non confirmée).');
 }
 
 function exigerIdentifiant(): string {
@@ -136,6 +149,25 @@ async function main(): Promise<void> {
       console.log(`✓ Secours : ${c.identifiant} → administrateur actif, toutes permissions, mot de passe réinitialisé.`);
       break;
     }
+    case 'desactiver': {
+      const identifiant = exigerIdentifiant();
+      await gardeProduction();
+      await confirmerParIdentifiant(identifiant, 'DÉSACTIVER');
+      const issue = await desactiverCompteCli(identifiant);
+      if (issue === 'introuvable') throw new ErreurCompte(`Aucun compte « ${identifiant} ».`);
+      if (issue === 'dernier_administrateur') throw new ErreurCompte('Refusé : c’est le DERNIER administrateur actif (sinon plus personne ne pourrait administrer).');
+      console.log(issue === 'deja' ? `= ${identifiant} était déjà désactivé.` : `✓ ${identifiant} désactivé ; ses sessions ouvertes sont coupées. (Journalisé.)`);
+      break;
+    }
+    case 'reactiver': {
+      const identifiant = exigerIdentifiant();
+      await gardeProduction();
+      await confirmerParIdentifiant(identifiant, 'RÉACTIVER');
+      const issue = await reactiverCompteCli(identifiant);
+      if (issue === 'introuvable') throw new ErreurCompte(`Aucun compte « ${identifiant} ».`);
+      console.log(issue === 'deja' ? `= ${identifiant} était déjà actif.` : `✓ ${identifiant} réactivé (même rôle, mêmes droits, même mot de passe). (Journalisé.)`);
+      break;
+    }
     case 'lister': {
       const comptes = await listerComptes();
       if (comptes.length === 0) {
@@ -151,7 +183,7 @@ async function main(): Promise<void> {
       break;
     }
     default:
-      console.error('Sous-commande inconnue. Utilisez : creer | reset | secours | lister.');
+      console.error('Sous-commande inconnue. Utilisez : creer | reset | secours | desactiver | reactiver | lister.');
       process.exitCode = 1;
   }
 }

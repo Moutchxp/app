@@ -382,7 +382,10 @@ nouveau mot de passe.
 | Trop d'essais (« Trop de tentatives ») | attendre le délai affiché (5 min au plus) — ou la commande, qui ne dépend pas de ce compteur |
 | Identifiant inconnu | refusé : la commande ne crée pas de compte (`npm run admin:creer` pour cela) |
 
-Pour lister les comptes et voir lesquels sont actifs : `npm run admin:lister`.
+Pour lister les comptes et voir lesquels sont actifs : `npm run admin:lister`. Pour désactiver ou réactiver un compte,
+administrateur compris (l'écran ne le permet pas pour un administrateur) : `npm run admin:desactiver -- --identifiant …`
+/ `npm run admin:reactiver -- --identifiant …` — il faut retaper l'adresse du compte pour confirmer ; le dernier
+administrateur actif ne peut pas être désactivé ; le geste est journalisé et les sessions du compte désactivé sont coupées.
 
 La variable `ADMIN_PASSWORD_ARGON2_B64` du `.env` ne sert plus à rien ; elle peut rester ou être retirée, sans effet.
 

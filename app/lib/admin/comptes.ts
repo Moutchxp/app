@@ -544,6 +544,69 @@ export async function secours(identifiant: string, motDePasseClair: string): Pro
   return rows[0];
 }
 
+/**
+ * ══ AUDIT POINT 11 (15/10/2026) — DÉSACTIVER / RÉACTIVER UN COMPTE EN LIGNE DE COMMANDE (administrateurs compris) ══════════
+ * L'écran ne (dés)active jamais un administrateur (décision R-D) : c'est la CLI, sur le serveur, qui le fait. Ces deux
+ * fonctions sont appelées par `npm run admin:desactiver` / `admin:reactiver` APRÈS confirmation. Journal
+ * `admin_utilisateur_log` (`desactivation` / `reactivation`, auteur NULL, `via: cli`). Jamais le DERNIER administrateur
+ * actif (même verrou de sérialisation que `desactiverCompte`). La désactivation révoque aussi les sessions (version + 1)
+ * si la migration 356 est appliquée — le proxy refuse de toute façon un compte inactif.
+ */
+export type IssueCli = 'fait' | 'deja' | 'introuvable' | 'dernier_administrateur';
+
+export async function desactiverCompteCli(identifiant: string): Promise<IssueCli> {
+  return withTransaction(async (q) => {
+    await q('SELECT pg_advisory_xact_lock($1)', [VERROU_DESACTIVATION_ADMIN]);
+    const { rows } = await q<{ id: number; role: RoleAdmin; actif: boolean; admins_actifs: number }>(
+      `SELECT id, role, actif,
+              (SELECT count(*)::int FROM admin_utilisateur WHERE actif AND role = 'administrateur') AS admins_actifs
+         FROM admin_utilisateur WHERE lower(identifiant) = lower($1)`,
+      [identifiant],
+    );
+    const c = rows[0];
+    if (!c) return 'introuvable';
+    if (!c.actif) return 'deja';
+    if (c.role === 'administrateur' && c.admins_actifs <= 1) return 'dernier_administrateur';
+    await q(
+      `WITH maj AS (
+         UPDATE admin_utilisateur SET actif = false WHERE id = $1 AND actif = true RETURNING id
+       ), jrnl AS (
+         INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+         SELECT 'desactivation', maj.id, NULL, jsonb_build_object('actif', true), jsonb_build_object('actif', false, 'via', 'cli') FROM maj
+       )
+       SELECT id FROM maj`,
+      [c.id],
+    );
+    // Révocation des sessions : la colonne n'est nommée que si elle existe (une erreur abandonnerait la transaction).
+    const col = await q<{ n: number }>(
+      `SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'admin_utilisateur' AND column_name = 'session_version'`,
+    );
+    if ((col.rows[0]?.n ?? 0) > 0) {
+      await q(`UPDATE admin_utilisateur SET session_version = session_version + 1 WHERE id = $1`, [c.id]);
+    }
+    return 'fait';
+  });
+}
+
+export async function reactiverCompteCli(identifiant: string): Promise<IssueCli> {
+  const { rows } = await query<{ id: number; actif: boolean }>(
+    `SELECT id, actif FROM admin_utilisateur WHERE lower(identifiant) = lower($1)`, [identifiant]);
+  const c = rows[0];
+  if (!c) return 'introuvable';
+  if (c.actif) return 'deja';
+  await query(
+    `WITH maj AS (
+       UPDATE admin_utilisateur SET actif = true WHERE id = $1 AND actif = false RETURNING id
+     ), jrnl AS (
+       INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
+       SELECT 'reactivation', maj.id, NULL, jsonb_build_object('actif', false), jsonb_build_object('actif', true, 'via', 'cli') FROM maj
+     )
+     SELECT id FROM maj`,
+    [c.id],
+  );
+  return 'fait';
+}
+
 /** Liste des comptes pour l'affichage (CLI + tuile Administratif). JAMAIS le hash. `id` = clé pour les actions. */
 export interface CompteListe {
   id: number;

@@ -30,6 +30,8 @@
     "admin:reset": "tsx app/scripts/admin.ts reset",
     "admin:secours": "tsx app/scripts/admin.ts secours",
     "admin:lister": "tsx app/scripts/admin.ts lister",
+    "admin:desactiver": "tsx app/scripts/admin.ts desactiver",
+    "admin:reactiver": "tsx app/scripts/admin.ts reactiver",
     "analytics:maintenance": "tsx app/scripts/analytics-maintenance.ts",
     "sitadel:ingest": "tsx app/scripts/sitadel-ingest.ts",
     "cadastre:ingest": "tsx app/scripts/cadastre-ingest.ts",
