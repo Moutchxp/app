@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { genererVisuelPng, urlVisuel, partsDescriptif, type DonneesVisuel } from './genererVisuelPng';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { genererVisuelPng, largeurPastille, largeurTexteRendu, urlVisuel, partsDescriptif, type DonneesVisuel } from './genererVisuelPng';
 
 function donnees(over: Partial<DonneesVisuel> = {}): DonneesVisuel {
   return {
@@ -86,5 +88,27 @@ describe('partsDescriptif — omission propre des null (jamais « null » visibl
   });
   it('tout null → tableau vide', () => {
     expect(partsDescriptif({ ville: null, typeBien: null, surfaceM2: null, pieces: null, anneeOuEpoque: null, etage: null, dernierEtage: null, exterieur: null })).toEqual([]);
+  });
+});
+
+describe('pastille « Vue dégagée certifiée » — largeur adaptée au texte réellement rendu', () => {
+  it('largeurPastille : marge de 24 px de chaque côté, jamais sous la largeur historique de 220 px', () => {
+    expect(largeurPastille(150)).toBe(220);
+    expect(largeurPastille(205)).toBe(253);   // Helvetica gras (Mac)
+    expect(largeurPastille(244)).toBe(292);   // police de repli large (serveur Linux)
+    expect(largeurPastille(244.2)).toBe(293); // jamais plus étroite que le texte
+  });
+
+  it('largeurTexteRendu : mesure le texte avec la police de la machine (non nulle, croissante avec le texte)', async () => {
+    const pastille = await largeurTexteRendu('Vue dégagée certifiée', 20, true);
+    expect(pastille).toBeGreaterThan(150);
+    expect(pastille).toBeLessThan(400);
+    expect(await largeurTexteRendu('Vue dégagée certifiée certifiée', 20, true)).toBeGreaterThan(pastille);
+    expect(await largeurTexteRendu('', 20, true)).toBe(0);
+  });
+
+  it('le texte de la pastille porte l’accord : « certifiée »', () => {
+    const src = readFileSync(join(process.cwd(), 'app/lib/visuel/genererVisuelPng.ts'), 'utf8');
+    expect(src).toContain("const PASTILLE_TEXTE = 'Vue dégagée certifiée';");
   });
 });

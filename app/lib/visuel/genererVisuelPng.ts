@@ -29,6 +29,40 @@ const LOGO_ROND_B64 = readFileSync(join(process.cwd(), 'app', 'lib', 'pdf', 'act
 const W = 1200;
 const H = 900; // 4:3
 
+// ── Pastille rouge « Vue dégagée certifiée » ──
+// Sa largeur était FIXE (220 px) alors que la police n'est pas embarquée : sur le Mac (Helvetica gras) le texte fait
+// 205 px et tient ; sur le serveur Linux, faute d'Helvetica/Arial, la police de repli est plus large (~245 px) et le texte
+// débordait en BLANC sur le fond BLANC de l'encart → on lisait « ue dégagée certifié » (V et e final invisibles, l'accord
+// était bon). La pastille est désormais dimensionnée sur la largeur RÉELLEMENT rendue, sur la machine qui génère.
+const PASTILLE_TEXTE = 'Vue dégagée certifiée';
+const PASTILLE_TAILLE = 20;
+const PASTILLE_LARGEUR_MIN = 220; // largeur historique : jamais plus étroite
+const PASTILLE_MARGE = 24;        // marge intérieure, de chaque côté du texte
+const PASTILLE_CENTRE_X = 380;    // centre de la colonne gauche (inchangé)
+
+/**
+ * Largeur en pixels d'un texte tel que librsvg le dessine SUR CETTE MACHINE (police réellement trouvée) : le texte est
+ * rendu seul, puis on mesure l'étendue horizontale des pixels encrés. 0 si rien n'est encré.
+ */
+export async function largeurTexteRendu(texte: string, taille: number, gras: boolean): Promise<number> {
+  const largeurToile = Math.ceil(texte.length * taille * 1.5) + 40;
+  const hauteurToile = Math.ceil(taille * 2.5);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${largeurToile}" height="${hauteurToile}"><text x="20" y="${Math.ceil(taille * 1.6)}" font-family="${POLICE}" font-size="${taille}"${gras ? ' font-weight="bold"' : ''} fill="#000">${esc(texte)}</text></svg>`;
+  const { data, info } = await sharp(Buffer.from(svg, 'utf8')).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  let min = info.width, max = -1;
+  for (let y = 0; y < info.height; y++) {
+    for (let x = 0; x < info.width; x++) {
+      if (data[(y * info.width + x) * info.channels + 3] > 0) { if (x < min) min = x; if (x > max) max = x; }
+    }
+  }
+  return max < 0 ? 0 : max - min + 1;
+}
+
+/** Largeur de la pastille pour un texte de `largeurTexte` px : marge de chaque côté, jamais sous la largeur historique. */
+export function largeurPastille(largeurTexte: number): number {
+  return Math.max(PASTILLE_LARGEUR_MIN, Math.ceil(largeurTexte) + 2 * PASTILLE_MARGE);
+}
+
 export interface DescriptifVisuelPng {
   ville: string | null;
   typeBien: string | null;
@@ -93,7 +127,7 @@ function wrapParts(parts: string[], maxChars: number): string[] {
   return lignes;
 }
 
-function construireSvg(d: DonneesVisuel, qrB64: string): string {
+function construireSvg(d: DonneesVisuel, qrB64: string, pastilleL: number): string {
   const scoreTxt = d.score === null ? '—' : String(Math.round(d.score));
   const lignesDescr = wrapParts(partsDescriptif(d.descriptif), 46);
   // Descriptif centré dans la colonne gauche, sous le score.
@@ -113,8 +147,8 @@ function construireSvg(d: DonneesVisuel, qrB64: string): string {
 
   <!-- ══ Colonne gauche : encart blanc (score + descriptif) ══ -->
   <rect x="40" y="185" width="680" height="600" rx="20" fill="${BLANC}" stroke="${NEUTRE_BORD}" stroke-width="2"/>
-  <rect x="270" y="215" width="220" height="42" rx="21" fill="${ROUGE}"/>
-  <text x="380" y="243" text-anchor="middle" font-family="${POLICE}" font-size="20" font-weight="bold" fill="${BLANC}">Vue dégagée certifiée</text>
+  <rect x="${PASTILLE_CENTRE_X - pastilleL / 2}" y="215" width="${pastilleL}" height="42" rx="21" fill="${ROUGE}"/>
+  <text x="${PASTILLE_CENTRE_X}" y="243" text-anchor="middle" font-family="${POLICE}" font-size="${PASTILLE_TAILLE}" font-weight="bold" fill="${BLANC}">${esc(PASTILLE_TEXTE)}</text>
   <text x="380" y="430" text-anchor="middle" font-family="${POLICE}" font-size="150" font-weight="bold" fill="${ENCRE}">${esc(scoreTxt)}<tspan font-size="70" fill="${GRIS_CLAIR}">/100</tspan></text>
   <text x="380" y="490" text-anchor="middle" font-family="${POLICE}" font-size="26" fill="${GRIS}">Score de qualité de vue</text>
   ${descrSvg}
@@ -141,6 +175,7 @@ export async function genererVisuelPng(d: DonneesVisuel): Promise<Buffer> {
     width: 250,
     color: { dark: ENCRE, light: BLANC },
   });
-  const svg = construireSvg(d, qrPng.toString('base64'));
+  const pastilleL = largeurPastille(await largeurTexteRendu(PASTILLE_TEXTE, PASTILLE_TAILLE, true));
+  const svg = construireSvg(d, qrPng.toString('base64'), pastilleL);
   return sharp(Buffer.from(svg, 'utf8')).png().toBuffer();
 }
