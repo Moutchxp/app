@@ -145,3 +145,12 @@ administrateur (jamais l'inverse). Pas de suppression (désactivation, à dessei
    la page et lesquelles des ≈ 25 actions réservées ?), Internautes (ouvrir, ou retirer la tuile de la liste des droits),
    Pilotage (réserver la modification de `config_scoring` à l'administrateur ?), réglages des tâches, et le mail
    d'acceptation de tâche (exiger `perm_gestion_envoi` ?).
+
+## 7. Suivi des décisions d'Arno (15/10/2026)
+
+| Point | Décision | État |
+|---|---|---|
+| Critique 1 — limite d'essais sur la voie de secours | corriger | fait (`f4b333fa`) |
+| A — voie de secours | **RETIRER de la page web** (accord explicite d'Arno pour ce retrait) : identifiant vide refusé, mention « Laisser vide pour l'accès de secours » supprimée, session anonyme (`sub=null`) refusée par le proxy et les gardes, `admin:secours-hash` supprimée. Corde de rappel unique : `npm run admin:secours` sur le serveur (`docs/BASCULE_CHECKLIST.md` §7) | fait |
+| B — double authentification | **reportée par décision d'Arno le 15/10/2026** — à rouvrir AVANT l'ouverture de comptes collaborateurs | reportée |
+| 10 — contenu des tuiles pour les collaborateurs | choix métier, plus tard | non traité |

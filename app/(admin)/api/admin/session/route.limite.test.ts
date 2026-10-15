@@ -67,7 +67,7 @@ describe('POST /api/admin/session — limite des essais', () => {
     for (let i = 0; i < 8; i++) statuts.push((await POST(req({ identifiant: '', password: `essai-${i}` }))).status);
     expect(statuts.slice(0, 5)).toEqual([401, 401, 401, 401, 401]);
     expect(statuts.slice(5)).toEqual([429, 429, 429]);
-    expect(verifier).toHaveBeenCalledTimes(5); // le secret n'est plus éprouvé une fois bloqué
+    expect(verifier).not.toHaveBeenCalled(); // voie retirée (15/10/2026) : le secret n'est JAMAIS éprouvé
     expect(cookieStore.set).not.toHaveBeenCalled();
   });
 
@@ -80,11 +80,13 @@ describe('POST /api/admin/session — limite des essais', () => {
     expect(cookieStore.set).not.toHaveBeenCalled();
   });
 
-  it('voie de secours, usage normal : le bon secret du premier coup ouvre la session', async () => {
+  // Décision d'Arno du 15/10/2026 : voie de secours RETIRÉE de la route web. Ce cas affirmait « le bon secret du premier coup
+  // ouvre la session » ; il n'ouvre plus rien. Le secours passe uniquement par `npm run admin:secours` sur le serveur.
+  it('voie de secours RETIRÉE : le bon secret du premier coup n\'ouvre plus aucune session (401)', async () => {
     verifier.mockResolvedValue(true);
     const r = await POST(req({ identifiant: '', password: 'le-bon' }));
-    expect(r.status).toBe(200);
-    expect(cookieStore.set).toHaveBeenCalledTimes(1);
+    expect(r.status).toBe(401);
+    expect(cookieStore.set).not.toHaveBeenCalled();
   });
 
   it('la voie de secours bloquée ne bloque PAS un compte nommé (fondateur inchangé)', async () => {

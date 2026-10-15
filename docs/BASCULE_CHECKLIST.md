@@ -354,3 +354,34 @@ minuteurs).
 | 6.4.6 | Envoi impossible (facultatif) : lire `journalctl -u svav-surveillance` après une coupure SMTP | une ligne « ÉCHEC D'ENVOI (prochain essai dans 30 min) », pas de boucle |
 
 Arrêter MinIO quelques secondes n'a pas d'effet durable : seules les pièces demandées pendant ce temps échouent.
+
+## 7. Si je ne peux plus me connecter
+
+Depuis le 15/10/2026 (décision d'Arno, audit `docs/AUDIT_COMPTES_COLLABORATEURS.md`, point A), **la page de connexion
+n'a plus de voie de secours** : l'ancienne astuce « identifiant vide + mot de passe partagé » est refusée comme n'importe
+quel échec. La seule corde de rappel est une commande **sur le serveur**, qui réactive un compte nommé existant, le
+repasse administrateur avec tous les droits, et lui donne un nouveau mot de passe. Elle n'utilise aucune page web : elle
+écrit directement en base, et marche même si l'admin est inaccessible.
+
+```sh
+ssh <compte>@<serveur>                       # connexion au serveur
+cd /srv/sansvisavis/app                      # APP_DIR de svav.conf
+npm run admin:secours -- --identifiant a.jorel@sansvisavis.com
+#   → en production : taper « oui » pour confirmer
+#   → saisir DEUX FOIS le nouveau mot de passe (frappe masquée, rien ne s'affiche, ≥ 12 caractères conseillé)
+#   → « ✓ Secours : a.jorel@sansvisavis.com → administrateur actif, toutes permissions, mot de passe réinitialisé. »
+```
+
+Puis se connecter normalement sur `https://authentification.sansvisavis.com/admin/login` avec cette adresse et ce
+nouveau mot de passe.
+
+| Situation | Ce qui se passe |
+|---|---|
+| Mot de passe oublié | la commande le remplace |
+| Compte désactivé (même administrateur) | la commande le réactive |
+| Trop d'essais (« Trop de tentatives ») | attendre le délai affiché (5 min au plus) — ou la commande, qui ne dépend pas de ce compteur |
+| Identifiant inconnu | refusé : la commande ne crée pas de compte (`npm run admin:creer` pour cela) |
+
+Pour lister les comptes et voir lesquels sont actifs : `npm run admin:lister`.
+
+La variable `ADMIN_PASSWORD_ARGON2_B64` du `.env` ne sert plus à rien ; elle peut rester ou être retirée, sans effet.

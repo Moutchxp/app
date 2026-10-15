@@ -16,7 +16,6 @@ export default function AdminLoginPage() {
       const res = await fetch('/api/admin/session', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        // Identifiant vide = voie de secours (ancien mot de passe partagé) tant que M3-5 n'a pas basculé.
         body: JSON.stringify({ identifiant, password }),
       });
       if (res.ok) {
@@ -66,6 +65,7 @@ export default function AdminLoginPage() {
             placeholder="prenom@exemple.fr"
             value={identifiant}
             onChange={(e) => setIdentifiant(e.target.value)}
+            required
             style={{
               width: '100%',
               minHeight: 44,
@@ -75,13 +75,11 @@ export default function AdminLoginPage() {
               background: 'var(--color-svv-surface)',
               border: '1px solid var(--color-svv-line)',
               borderRadius: '.75rem',
-              marginBottom: 4,
+              marginBottom: 12,
             }}
           />
-          {/* Aide discrète : champ FACULTATIF, vide = voie de secours. À retirer au lot de bascule (M3-5). */}
-          <p style={{ fontSize: '.72rem', color: 'var(--color-svv-muted)', margin: '0 0 12px' }}>
-            Laisser vide pour l’accès de secours.
-          </p>
+          {/* Voie de secours RETIRÉE de la page (décision d'Arno, 15/10/2026) : l'adresse est obligatoire ; le secours
+              passe par `npm run admin:secours` sur le serveur (docs/BASCULE_CHECKLIST.md). */}
 
           <label htmlFor="admin-password" className="svv-label" style={{ display: 'block', marginBottom: 6 }}>
             Mot de passe

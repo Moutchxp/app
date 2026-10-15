@@ -113,10 +113,12 @@ describe('proxy — enforcement première connexion (M3-4 Lot B)', () => {
     expect(res.status).not.toBe(302);
   });
 
-  it('VOIE DE SECOURS (sub=null) : JAMAIS redirigée, même si doitChanger est passé à true', async () => {
-    const res = await proxy(await requete('/admin/pilotage', secours(true))); // signerJeton force doitChanger=false
-    expect(res.status).not.toBe(302);
-    expect(res.status).not.toBe(403);
+  // Décision d'Arno du 15/10/2026 (audit point A) : voie de secours WEB retirée ; une session anonyme (sub=null) n'est plus
+  // acceptée — traitée comme NON authentifiée. Ce cas affirmait l'inverse.
+  it('ancienne VOIE DE SECOURS (sub=null) : renvoyée à la connexion (page), jamais admise', async () => {
+    const res = await proxy(await requete('/admin/pilotage', secours(true)));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/admin\/login$/);
   });
 
   it('jeton LEGACY (sans doitChanger) : session non cassée, pas de redirection', async () => {
@@ -157,10 +159,11 @@ describe('proxy — tuile Administratif, rôle EN DUR (M3-4 Lot C)', () => {
     }
   });
 
-  it('VOIE DE SECOURS (sub=null, administrateur) → tuile Administratif accessible', async () => {
+  // Décision d'Arno du 15/10/2026 (audit point A) : voie de secours WEB retirée ; une session anonyme (sub=null) n'est plus
+  // acceptée — traitée comme NON authentifiée. Ce cas affirmait l'inverse.
+  it('ancienne VOIE DE SECOURS (sub=null, administrateur) → tuile Administratif REFUSÉE (401, comme sans session)', async () => {
     const res = await proxy(await requete('/api/admin/comptes', secours()));
-    expect(res.status).not.toBe(403);
-    expect(res.status).not.toBe(307);
+    expect(res.status).toBe(401);
   });
 
   it('NON-COLLISION : /admin/compte/mot-de-passe (singulier) N’EST PAS capté par la garde /comptes', async () => {
@@ -193,10 +196,11 @@ describe('proxy — défaut FAIL-CLOSED (durcissement : chemin non déclaré →
     }
   });
 
-  it('VOIE DE SECOURS (sub=null, administrateur) sur route inconnue → laissé passer', async () => {
+  // Décision d'Arno du 15/10/2026 (audit point A) : voie de secours WEB retirée ; une session anonyme (sub=null) n'est plus
+  // acceptée — traitée comme NON authentifiée. Ce cas affirmait l'inverse.
+  it('ancienne VOIE DE SECOURS (sub=null, administrateur) sur route inconnue → 401', async () => {
     const res = await proxy(await requete('/api/admin/route-fantome', secours()));
-    expect(res.status).not.toBe(403);
-    expect(res.status).not.toBe(307);
+    expect(res.status).toBe(401);
   });
 
   it('route inconnue + NON authentifié → 401 (l’auth prime sur le défaut fail-closed)', async () => {
@@ -285,10 +289,11 @@ describe('proxy — RATT-EDIT (lot A2) : « Permis de construire » devient un m
     expect((await proxy(await requete('/api/admin/permis', avecCuration()))).status).toBe(403);
   });
 
-  it('VOIE DE SECOURS (sub=null, administrateur) → /api/admin/permis accessible', async () => {
+  // Décision d'Arno du 15/10/2026 (audit point A) : voie de secours WEB retirée ; une session anonyme (sub=null) n'est plus
+  // acceptée — traitée comme NON authentifiée. Ce cas affirmait l'inverse.
+  it('ancienne VOIE DE SECOURS (sub=null, administrateur) → /api/admin/permis refusé (401)', async () => {
     const res = await proxy(await requete('/api/admin/permis', secours()));
-    expect(res.status).not.toBe(403);
-    expect(res.status).not.toBe(307);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -345,14 +350,14 @@ describe('proxy — module « Gestion » (lot 2) : gardé par perm_gestion, comm
     }
   });
 
-  it('administrateur et VOIE DE SECOURS → laissés passer (permissions implicites)', async () => {
-    for (const session of [admin(), secours()]) {
-      for (const p of ['/admin/gestion', '/api/admin/gestion']) {
-        const res = await proxy(await requete(p, session));
-        expect(res.status).not.toBe(307);
-        expect(res.status).not.toBe(403);
-      }
+  it('administrateur → laissé passer (permissions implicites) ; ancienne VOIE DE SECOURS → refusée (retirée le 15/10/2026)', async () => {
+    for (const p of ['/admin/gestion', '/api/admin/gestion']) {
+      const res = await proxy(await requete(p, admin()));
+      expect(res.status).not.toBe(307);
+      expect(res.status).not.toBe(403);
     }
+    expect((await proxy(await requete('/admin/gestion', secours()))).headers.get('location')).toMatch(/\/admin\/login$/);
+    expect((await proxy(await requete('/api/admin/gestion', secours()))).status).toBe(401);
   });
 
   it('NON authentifié → login pour la page, 401 pour l’API (aucune donnée de gestion sans session)', async () => {

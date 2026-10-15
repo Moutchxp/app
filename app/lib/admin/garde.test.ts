@@ -7,7 +7,7 @@ vi.mock('../db/client', () => ({
 }));
 
 import { SignJWT } from 'jose';
-import { exigerCompteActif, exigerModule, exigerAdministrateur, exigerCapaciteModif } from './garde';
+import { exigerCompteActif, exigerModule, exigerAdministrateur, exigerCapaciteModif, exigerCapaciteEnvoiGestion } from './garde';
 import { signerJeton, permsToutes, permsAucune, NOM_COOKIE, type SessionAdmin } from './session';
 
 const SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
@@ -35,11 +35,13 @@ async function corps(res: Response) {
   return res.json();
 }
 
-describe('exigerCompteActif — RÈGLE D’OR voie de secours', () => {
-  it('sub = null → AUTORISÉ (null) et AUCUNE requête base émise', async () => {
+describe('exigerCompteActif — ancienne voie de secours (sub = null)', () => {
+  // Décision d'Arno du 15/10/2026 (audit point A) : la voie de secours WEB est retirée ; une session anonyme (sub=null) ne peut
+  // plus être émise et n'est plus acceptée. Ce cas affirmait l'inverse (« sub=null → autorisé sans requête »).
+  it('sub = null → REFUSÉ (403 ACCES_REVOQUE), AUCUNE requête base émise', async () => {
     const res = await exigerCompteActif(await requete(secours()), 'curation');
-    expect(res).toBeNull();
-    expect(queryMock).not.toHaveBeenCalled(); // preuve : aucune requête (WHERE id=null enfermerait Arno)
+    expect(res?.status).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
   });
 });
 
@@ -89,9 +91,11 @@ describe('exigerCompteActif — comptes nommés (relecture base)', () => {
 });
 
 describe('exigerModule — RATT-EDIT (lot A2) : garde d’un module (perm_permis) avec auteurId (routes CONVERTIES)', () => {
-  it('voie de secours (sub=null) → autorisé {auteurId:null}, AUCUNE requête base', async () => {
+  // Décision d'Arno du 15/10/2026 (audit point A) : la voie de secours WEB est retirée ; une session anonyme (sub=null) ne peut
+  // plus être émise et n'est plus acceptée. Ce cas affirmait l'inverse (« sub=null → autorisé sans requête »).
+  it('ancienne voie de secours (sub=null) → REFUSÉ (403), AUCUNE requête base', async () => {
     const g = await exigerModule(await requete(secours()), 'permis');
-    expect(g).toEqual({ auteurId: null });
+    expect('refus' in g && g.refus.status).toBe(403);
     expect(queryMock).not.toHaveBeenCalled();
   });
 
@@ -160,8 +164,10 @@ describe('exigerCapaciteModif — RATT-EDIT (lot A3) : sous-droit « modifier ap
     expect(await exigerCapaciteModif(await requete(admin()))).toBeNull();
   });
 
-  it('voie de secours (sub=null) → autorisé (null), AUCUNE requête', async () => {
-    expect(await exigerCapaciteModif(await requete(secours()))).toBeNull();
+  // Décision d'Arno du 15/10/2026 (audit point A) : la voie de secours WEB est retirée ; une session anonyme (sub=null) ne peut
+  // plus être émise et n'est plus acceptée. Ce cas affirmait l'inverse (« sub=null → autorisé sans requête »).
+  it('ancienne voie de secours (sub=null) → REFUSÉ (403), AUCUNE requête', async () => {
+    expect((await exigerCapaciteModif(await requete(secours())))?.status).toBe(403);
     expect(queryMock).not.toHaveBeenCalled();
   });
 
@@ -217,10 +223,16 @@ describe('FAIL-CLOSED (M1) — jeton SIGNÉ mais MAL FORMÉ (sub null, sans rôl
     expect(queryMock).not.toHaveBeenCalled();
   });
 
-  it('NON-RÉGRESSION : la VRAIE voie de secours (sub null AVEC role administrateur) reste AUTORISÉE, sans requête', async () => {
-    expect(await exigerCompteActif(await requete(secours()), 'curation')).toBeNull();
-    expect(await exigerModule(await requete(secours()), 'permis')).toEqual({ auteurId: null });
-    expect(await exigerCapaciteModif(await requete(secours()))).toBeNull();
+  // Décision d'Arno du 15/10/2026 (audit point A) : la voie de secours WEB est retirée ; une session anonyme (sub=null) ne peut
+  // plus être émise et n'est plus acceptée. Ce cas affirmait l'inverse (« sub=null → autorisé sans requête »).
+  it('VOIE DE SECOURS RETIRÉE : même AVEC role administrateur, sub null est REFUSÉ par les cinq gardes, sans requête', async () => {
+    expect((await exigerCompteActif(await requete(secours()), 'curation'))?.status).toBe(403);
+    const m = await exigerModule(await requete(secours()), 'permis');
+    expect('refus' in m && m.refus.status).toBe(403);
+    expect((await exigerCapaciteModif(await requete(secours())))?.status).toBe(403);
+    expect((await exigerCapaciteEnvoiGestion(await requete(secours())))?.status).toBe(403);
+    const a = await exigerAdministrateur(await requete(secours()));
+    expect('refus' in a && a.refus.status).toBe(403);
     expect(queryMock).not.toHaveBeenCalled();
   });
 });

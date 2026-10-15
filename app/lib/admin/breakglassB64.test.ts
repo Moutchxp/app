@@ -8,6 +8,8 @@ import { hacher, verifier } from './motDePasse';
  *   CLI: hacher → base64        (app/scripts/admin.ts, `admin:secours-hash`)
  *   route: base64 → décodage    (session/route.ts, `hashBreakGlass`)
  * redonnent exactement le hash d'origine, et que la valeur stockée est immunisée contre l'expansion Next.
+ * ⚠️ Depuis le 15/10/2026, la voie de secours web et `admin:secours-hash` sont RETIRÉES (audit point A) : ces tests ne
+ * gardent que les propriétés des primitives `hacher`/`verifier` et du base64, toujours vraies.
  */
 describe('break-glass base64 — round-trip argon2 (fix expansion @next/env)', () => {
   it('hacher(secret) → base64 → décodage → verifier(secret, hash) === true', async () => {

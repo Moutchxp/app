@@ -136,8 +136,18 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL('/admin/login', request.url));
   }
 
-  // Session EFFECTIVE (tolérante : ancien jeton sans perms → administrateur complet, voie de secours idem).
+  // Session EFFECTIVE (fail-closed sur le rôle, cf. sessionDepuisPayload).
   const session = sessionDepuisPayload(payload);
+
+  // ═══ VOIE DE SECOURS WEB RETIRÉE (décision d'Arno du 15/10/2026, audit point A) ═══
+  // Une session ANONYME (sub=null : l'ancienne voie de secours) ne peut plus être émise ; un jeton de ce type encore en
+  // circulation (≤ 8 h) est traité comme une ABSENCE de session. Le secours passe par `npm run admin:secours` sur le serveur.
+  if (session.sub === null) {
+    if (estApi) {
+      return new NextResponse(null, { status: 401 });
+    }
+    return NextResponse.redirect(new URL('/admin/login', request.url));
+  }
 
   // ═══ ENFORCEMENT PREMIÈRE CONNEXION (M3-4 Lot B) ═══
   // TANT QUE doitChanger : tout l'admin est bloqué SAUF la page/route de changement (whitelist EXACTE ci-dessus ;

@@ -61,7 +61,7 @@ export async function exigerAdministrateur(request: Request): Promise<GardeAdmin
   const session = sessionDepuisPayload(payload);
   // FAIL-CLOSED (M1) : la voie de secours doit porter une CLAIM POSITIVE (role administrateur, cf. session/route.ts:107).
   //   sub null MAIS rôle non-administrateur = jeton mal formé/forgé → refus (jamais admin « par défaut »), sans requête base.
-  if (session.sub === null) return session.role === 'administrateur' ? { auteurId: null } : { refus: refusInterdit() };
+  if (session.sub === null) return { refus: refusInterdit() }; // voie de secours web RETIRÉE (15/10/2026) : jamais admise
 
   const { rows } = await query<{ actif: boolean; role: string }>(
     `SELECT actif, role FROM admin_utilisateur WHERE id = $1`,
@@ -88,7 +88,7 @@ export async function exigerModule(request: Request, module: Module): Promise<Ga
 
   const session = sessionDepuisPayload(payload);
   // FAIL-CLOSED (M1) : voie de secours = sub null AVEC role administrateur explicite ; sinon (jeton mal formé/forgé) refus.
-  if (session.sub === null) return session.role === 'administrateur' ? { auteurId: null } : { refus: refusRevoque() };
+  if (session.sub === null) return { refus: refusRevoque() }; // voie de secours web RETIRÉE (15/10/2026) : jamais admise
 
   const colonne = `perm_${module}`;
   const { rows } = await query<{ actif: boolean; role: string; perm: boolean }>(
@@ -116,7 +116,7 @@ export async function exigerCapaciteModif(request: Request): Promise<Response | 
 
   const session = sessionDepuisPayload(payload);
   // FAIL-CLOSED (M1) : voie de secours = sub null AVEC role administrateur explicite ; sinon (jeton mal formé/forgé) refus.
-  if (session.sub === null) return session.role === 'administrateur' ? null : refusRevoque();
+  if (session.sub === null) return refusRevoque(); // voie de secours web RETIRÉE (15/10/2026) : jamais admise
 
   const { rows } = await query<{ actif: boolean; role: string; permis: boolean; modif: boolean }>(
     `SELECT actif, role, perm_permis AS permis, perm_permis_modif AS modif FROM admin_utilisateur WHERE id = $1`,
@@ -154,7 +154,7 @@ export async function exigerCapaciteEnvoiGestion(request: Request): Promise<Resp
 
   const session = sessionDepuisPayload(payload);
   // FAIL-CLOSED (M1) : voie de secours = sub null AVEC role administrateur explicite ; sinon (jeton mal formé/forgé) refus.
-  if (session.sub === null) return session.role === 'administrateur' ? null : refusRevoque();
+  if (session.sub === null) return refusRevoque(); // voie de secours web RETIRÉE (15/10/2026) : jamais admise
 
   const { droitEnvoiGestionDisponible } = await import('./schemaDroits');
   const avecEnvoi = await droitEnvoiGestionDisponible();
@@ -195,7 +195,7 @@ export async function exigerCompteActif(request: Request, module: Module): Promi
   // RÈGLE D'OR + FAIL-CLOSED (M1) : la VRAIE voie de secours (sub null AVEC role administrateur explicite, cf.
   //   session/route.ts:107) est autorisée SANS requête (jamais de refus « 0 ligne » qui l'enfermerait dehors) ; un sub
   //   null SANS ce rôle = jeton mal formé/forgé → refus immédiat (jamais admin par défaut).
-  if (session.sub === null) return session.role === 'administrateur' ? null : refusRevoque();
+  if (session.sub === null) return refusRevoque(); // voie de secours web RETIRÉE (15/10/2026) : jamais admise
 
   // Compte nommé : relire l'état RÉEL. `module` appartient à l'union fermée `Module` → nom de colonne sûr.
   const colonne = `perm_${module}`;
@@ -214,3 +214,8 @@ export async function exigerCompteActif(request: Request, module: Module): Promi
   if (!compte.perm) return refusRevoque(); // collaborateur dont la permission a été retirée
   return null;
 }
+
+// ⚠️ VOIE DE SECOURS WEB RETIRÉE (décision d'Arno du 15/10/2026, audit point A). Les « RÈGLE D'OR sub === null → autorisé »
+// décrites dans ce fichier sont ABOLIES : une session anonyme (sub=null) ne peut plus être émise par la route de connexion,
+// et chaque garde la REFUSE désormais, sans requête. Le secours passe par `npm run admin:secours` (compte nommé réactivé).
+// (Note placée en fin de fichier pour ne décaler aucune ligne citée par docs/INVARIANTS_SVAV.md.)

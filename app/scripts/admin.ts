@@ -3,13 +3,16 @@
  *   npm run admin:creer   -- --identifiant a.jorel@sansvisavis.com --role administrateur --prenom Arnaud --nom Jorel
  *   npm run admin:reset    -- --identifiant a.jorel@sansvisavis.com
  *   npm run admin:secours  -- --identifiant a.jorel@sansvisavis.com   (RÉACTIVATION SEULE d'un compte existant)
- *   npm run admin:secours-hash                                        (HASH argon2 du secret break-glass → ligne .env)
  *   npm run admin:lister
  *
  * `admin:creer` exige --prenom et --nom (non vides) ; les comptes créés par la CLI ont
  * `doit_changer_mot_de_passe = false` (Arno choisit lui-même le mot de passe — seule la future UICréation, Lot C,
- * posera true). `admin:secours` NE CRÉE PLUS de compte : un identifiant inconnu est refusé (la vraie corde de
- * rappel est la voie de secours NAVIGATEUR, mot de passe partagé, indépendante de la base).
+ * posera true). `admin:secours` NE CRÉE PLUS de compte : un identifiant inconnu est refusé.
+ *
+ * 🔴 CORDE DE RAPPEL UNIQUE depuis le 15/10/2026 (décision d'Arno, audit point A) : la voie de secours NAVIGATEUR
+ * (identifiant vide + mot de passe partagé) est RETIRÉE de la page de connexion. Si Arno ne peut plus se connecter,
+ * c'est `npm run admin:secours` sur le serveur (via SSH) — procédure : docs/BASCULE_CHECKLIST.md, « Si je ne peux plus
+ * me connecter ». `admin:secours-hash` (qui armait la voie navigateur) est supprimée avec elle.
  *
  * Le mot de passe est TOUJOURS saisi en clavier MASQUÉ (jamais en argument de ligne de commande — il resterait
  * dans l'historique shell) et n'est jamais affiché ni loggé. DATABASE_URL est lu depuis .env (via client.ts).
@@ -18,7 +21,6 @@
  */
 import readline from 'node:readline';
 import { creerCompte, reinitialiserMotDePasse, secours, listerComptes, ErreurCompte } from '../lib/admin/comptes';
-import { hacher } from '../lib/admin/motDePasse';
 import { estEmailValide } from '../lib/admin/email';
 import { closePool } from '../lib/db/client';
 import type { RoleAdmin } from '../lib/admin/session';
@@ -97,10 +99,9 @@ function exigerRole(): RoleAdmin {
 }
 
 async function main(): Promise<void> {
-  // NB : `DATABASE_URL` est requis pour TOUTES les sous-commandes, y compris `secours-hash` — non parce que ce
-  // dernier écrit en base (il n'écrit RIEN : il ne fait que hacher un secret), mais parce que ce script importe
-  // statiquement la couche DB (`comptes` → `db/client`, qui lève au chargement si la var manque). En pratique la
-  // var vient de `.env` (chargé par `dotenv/config` dans `client.ts`) — la commande fonctionne donc dans le repo.
+  // NB : `DATABASE_URL` est requis pour TOUTES les sous-commandes : ce script importe statiquement la couche DB
+  // (`comptes` → `db/client`, qui lève au chargement si la var manque). En pratique la var vient de `.env` (chargé par
+  // `dotenv/config` dans `client.ts`) — la commande fonctionne donc dans le repo.
   if (!process.env.DATABASE_URL) {
     throw new ErreurCompte('DATABASE_URL manquant — ré-exportez-le depuis .env (ex. `source .env`) puis relancez.');
   }
@@ -135,19 +136,6 @@ async function main(): Promise<void> {
       console.log(`✓ Secours : ${c.identifiant} → administrateur actif, toutes permissions, mot de passe réinitialisé.`);
       break;
     }
-    case 'secours-hash': {
-      // Génère le HASH argon2 du SECRET break-glass (voie de secours du login), ENCODÉ EN BASE64. Le base64 est
-      // IMMUNISÉ contre l'expansion de variables de `@next/env` (aucun `$` dans son alphabet), contrairement au
-      // hash argon2 brut `$argon2id$…` qui était mutilé au runtime Next → 401. N'écrit RIEN en base, ne LOGGE
-      // JAMAIS le secret en clair (saisie MASQUÉE + confirmation). Sortie = la ligne .env à coller par Arno.
-      // (Le hash est public/sans danger : il ne révèle pas le secret ; c'est un argon2id salé.)
-      const secret = await saisirMotDePasse(); // masqué + confirmation ; refuse vide / non concordant
-      const h = await hacher(secret);
-      const b64 = Buffer.from(h, 'utf8').toString('base64'); // base64 → aucun `$` → pas d'expansion @next/env
-      console.log('\nColle cette ligne dans .env (puis redémarre) — le secret n’est jamais affiché :\n');
-      console.log(`ADMIN_PASSWORD_ARGON2_B64=${b64}`);
-      break;
-    }
     case 'lister': {
       const comptes = await listerComptes();
       if (comptes.length === 0) {
@@ -163,7 +151,7 @@ async function main(): Promise<void> {
       break;
     }
     default:
-      console.error('Sous-commande inconnue. Utilisez : creer | reset | secours | secours-hash | lister.');
+      console.error('Sous-commande inconnue. Utilisez : creer | reset | secours | lister.');
       process.exitCode = 1;
   }
 }

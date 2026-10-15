@@ -108,12 +108,11 @@ describe('POST /comptes/[id]/identite — F-2 (édition prénom/nom) + double ba
     expect(queryMock).toHaveBeenCalledTimes(1); // garde a lieu ; l’id est rejeté ensuite, pas de modif
   });
 
-  it('VOIE DE SECOURS (sub = null) : accès complet, auteur_id NULL au journal, sans requête de garde', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [{ id: 5 }] }); // 1re requête = modifierIdentite (pas de garde en secours)
+  // Décision d'Arno du 15/10/2026 (audit point A) : voie de secours WEB retirée ; ce cas affirmait « accès complet en secours ».
+  it('ancienne VOIE DE SECOURS (sub = null) : REFUSÉE (403), aucune modification, aucune requête', async () => {
     const res = await POST(await req(secours(), { prenom: 'X', nom: 'Y' }), ctx);
-    expect(res.status).toBe(200);
-    const params = queryMock.mock.calls[0][1] as unknown[]; // en secours il n’y a PAS de requête de garde
-    expect(params).toEqual([5, 'X', 'Y', null]); // auteur_id = NULL
+    expect(res.status).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
   });
 
   it('sans cookie de session → 403 INTERDIT', async () => {

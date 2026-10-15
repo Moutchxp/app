@@ -513,8 +513,9 @@ export async function changerMotDePasseSelf(id: number, nouveauHash: string): Pr
  *
  * ⚠️ Il NE CRÉE PLUS de compte. Un identifiant INCONNU lève `ErreurCompte` — aucune création possible sans
  * identité (prenom/nom sont NOT NULL depuis 016 ; une valeur sentinelle serait un NULL déguisé). Pour créer,
- * utiliser `admin:creer`. La vraie corde de rappel d'Arno reste la VOIE DE SECOURS NAVIGATEUR (identifiant
- * vide + mot de passe partagé, sub=null, password.ts), qui ne dépend d'aucune ligne en base.
+ * utiliser `admin:creer`. 🔴 Depuis le 15/10/2026 (décision d'Arno, audit point A), c'est LA corde de rappel : la voie
+ * de secours navigateur (identifiant vide + mot de passe partagé) est retirée. Elle n'utilise aucune route web : une
+ * écriture en base, depuis le serveur (`npm run admin:secours`, docs/BASCULE_CHECKLIST.md).
  */
 export async function secours(identifiant: string, motDePasseClair: string): Promise<ResultatCompte> {
   const existant = await trouverCompte(identifiant);
