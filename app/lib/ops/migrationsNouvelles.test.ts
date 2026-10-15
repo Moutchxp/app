@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { analyserMigration, instructions, planifier, type FichierMigration } from './migrationsNouvelles';
+import { analyserMigration, instructions, planEnTsv, planifier, type FichierMigration } from './migrationsNouvelles';
 
 const f = (fichier: string, contenu: string): FichierMigration => ({ fichier, contenu });
 
@@ -144,6 +144,25 @@ describe('planifier', () => {
   it('remonte les refus d’une nouvelle migration', () => {
     const p = planifier([m1, f('002_x.sql', 'TRUNCATE rge_alti;')], [{ fichier: m1.fichier, sha256: sha(m1) }]);
     expect(p.refus.join()).toMatch(/nomme une table LiDAR/);
+  });
+});
+
+describe('planEnTsv', () => {
+  it('une ligne par fait, dans l’ordre, sans tabulation parasite', () => {
+    const m1 = f('001_a.sql', 'CREATE TABLE a (id int);');
+    const m2 = f('002_b.sql', '-- svav:irreversible\nDROP TABLE x;');
+    const m3 = f('003_c.sql', 'TRUNCATE rge_alti;');
+    const sha1 = analyserMigration(m1).sha256;
+    const tsv = planEnTsv(planifier([m1, m2, m3], [{ fichier: m1.fichier, sha256: sha1 }, { fichier: '000_z.sql', sha256: 'f'.repeat(64), origine: 'ecartee' }]));
+    const lignes = tsv.split('\n').map((l) => l.split('\t'));
+    expect(lignes[0]).toEqual(['NOUVELLE', '002_b.sql', 'enveloppee', '1', analyserMigration(m2).sha256]);
+    expect(lignes[1].slice(0, 4)).toEqual(['NOUVELLE', '003_c.sql', 'enveloppee', '0']);
+    expect(lignes.filter((l) => l[0] === 'REFUS').length).toBe(2); // TRUNCATE rge_alti : table LiDAR + destructif sans en-tête
+    expect(lignes.filter((l) => l[0] === 'AVERT').length).toBe(2);
+    expect(lignes.every((l) => (l[0] === 'NOUVELLE' ? l.length === 5 : l.length === 2))).toBe(true);
+  });
+  it('plan vide → texte vide', () => {
+    expect(planEnTsv({ nouvelles: [], refus: [], avertissements: [] })).toBe('');
   });
 });
 

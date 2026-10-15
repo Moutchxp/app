@@ -23,6 +23,8 @@
     "smtp:verifier": "tsx scripts/verifier-smtp.ts",
     "surveillance": "tsx scripts/surveillance.ts",
     "migrations:amorcer": "tsx scripts/migrations-amorcer.ts",
+    "migrations:plan": "tsx scripts/migrations-plan.ts",
+    "prod:mettre-a-jour": "bash scripts/prod-mettre-a-jour.sh",
     "lidar:axe": "tsx app/scripts/lidar-axe-check.ts",
     "profil:check": "tsx app/scripts/profil-check.ts",
     "contact:pente": "tsx app/scripts/contact-pente-check.ts",

@@ -228,6 +228,22 @@ export function analyserMigration(f: FichierMigration): AnalyseMigration {
   return { fichier: f.fichier, numero, sha256: empreinte(f.contenu), mode, irreversible, refus, tablesCreees, tablesSupprimees, colonnesAjoutees };
 }
 
+/**
+ * Plan au format lu par deploy/maj/serveur.sh : une ligne par fait, champs séparés par des tabulations.
+ *   NOUVELLE  fichier  mode  irreversible(0|1)  sha256     (dans l'ordre d'application)
+ *   REFUS     message
+ *   AVERT     message
+ * Aucun message ne contient de tabulation ni de saut de ligne (remplacés par une espace).
+ */
+export function planEnTsv(plan: PlanMigrations): string {
+  const net = (s: string) => s.replace(/[\t\r\n]+/g, ' ');
+  return [
+    ...plan.nouvelles.map((a) => ['NOUVELLE', a.fichier, a.mode, a.irreversible ? '1' : '0', a.sha256].join('\t')),
+    ...plan.refus.map((r) => `REFUS\t${net(r)}`),
+    ...plan.avertissements.map((r) => `AVERT\t${net(r)}`),
+  ].join('\n');
+}
+
 export function planifier(fichiers: FichierMigration[], registre: LigneRegistre[]): PlanMigrations {
   const analyses = fichiers.map(analyserMigration);
   const parNom = new Map(analyses.map((a) => [a.fichier, a]));
