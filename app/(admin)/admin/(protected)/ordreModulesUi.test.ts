@@ -1,13 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import {
-  messageEchecReorg,
-  MSG_REORG_SECOURS,
-  MSG_REORG_SESSION,
-  MSG_REORG_ECHEC,
-  MSG_SECOURS_GRILLE,
-} from './ordreModulesUi';
+import * as ui from './ordreModulesUi';
+import { messageEchecReorg, MSG_REORG_SESSION, MSG_REORG_ECHEC } from './ordreModulesUi';
 
 /**
  * DETTE « MENSONGE D'INTERFACE » SOLDÉE — le rangement des tuiles est self-service PAR COMPTE ; en voie de secours (sub=null)
@@ -16,12 +11,10 @@ import {
  * sélection PURE du message selon le statut HTTP et (2) le câblage (composant client non montable ici : garde par lecture de source).
  */
 describe('messageEchecReorg — motif HONNÊTE selon le statut, jamais « panne de données » à tort', () => {
-  it('400 (voie de secours) → message « compte nommé », sans jargon (pas « 400 », pas « self-service »)', () => {
-    expect(messageEchecReorg(400)).toBe(MSG_REORG_SECOURS);
-    expect(MSG_REORG_SECOURS).toContain('accès de secours');
-    expect(MSG_REORG_SECOURS).toContain('compte nommé');
-    expect(MSG_REORG_SECOURS).not.toContain('400');
-    expect(MSG_REORG_SECOURS.toLowerCase()).not.toContain('self-service');
+  // Voie de secours web retirée le 15/10/2026 (audit point A) ; ses textes, devenus inatteignables, sont retirés (accord d'Arno).
+  it('400 → message d’échec générique : le texte « accès de secours » n’existe plus', () => {
+    expect(messageEchecReorg(400)).toBe(MSG_REORG_ECHEC);
+    expect(Object.values(ui).filter((v) => typeof v === 'string').join(' ')).not.toContain('secours');
   });
   it('401 → session expirée (une reconnexion, pas une perte de données)', () => {
     expect(messageEchecReorg(401)).toBe(MSG_REORG_SESSION);
@@ -32,10 +25,9 @@ describe('messageEchecReorg — motif HONNÊTE selon le statut, jamais « panne 
     expect(messageEchecReorg(403)).toBe(MSG_REORG_ECHEC);
     expect(messageEchecReorg(0)).toBe(MSG_REORG_ECHEC);
   });
-  it('le contexte de secours DIT que c’est l’ordre par défaut et que rien n’est perdu (lecture honnête)', () => {
-    expect(MSG_SECOURS_GRILLE).toContain('ordre par défaut');
-    expect(MSG_SECOURS_GRILLE).toContain('n’est pas perdu');
-    expect(MSG_SECOURS_GRILLE).toContain('compte nommé');
+  it('le contexte « accès de secours » au-dessus de la grille est retiré (plus d’export MSG_SECOURS_GRILLE ni MSG_REORG_SECOURS)', () => {
+    expect('MSG_SECOURS_GRILLE' in ui).toBe(false);
+    expect('MSG_REORG_SECOURS' in ui).toBe(false);
   });
 });
 
@@ -47,10 +39,13 @@ describe('GrilleModules + page.tsx — empêchement AVANT le geste en voie de se
     expect(page).toContain('const secours = session ? session.sub === null : false;');
     expect(page).toContain('<GrilleModules tuiles={tuiles} secours={secours} />');
   });
-  it('GrilleModules reçoit `secours` et affiche le CONTEXTE au-dessus de la grille AVANT toute tentative', () => {
+  it('GrilleModules reçoit toujours `secours`, mais n’affiche plus aucun texte « accès de secours » (bandeau, libellé, info-bulle)', () => {
     expect(grille).toContain('export function GrilleModules({ tuiles, secours = false }');
-    expect(grille).toContain('{secours && (');
-    expect(grille).toContain('MSG_SECOURS_GRILLE');
+    expect(grille).not.toContain('MSG_SECOURS_GRILLE');
+    expect(grille).not.toContain('accès de secours\'');
+    expect(grille).not.toContain('Réordonner indisponible');
+    expect(grille).not.toContain('Reconnectez-vous avec votre compte nommé');
+    expect(grille).toContain('aria-label={`Réordonner la tuile ${tuile.libelle}`}');
   });
   it('en voie de secours : rendu STATIQUE (aucun DndContext monté) + poignées DÉSACTIVÉES', () => {
     expect(grille).toContain('{(!mounted || secours) ? (');   // le drag n'est monté QUE hors secours (et après hydratation)

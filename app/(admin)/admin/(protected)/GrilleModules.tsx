@@ -25,7 +25,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { LienMenu } from './menuAdmin';
 import { TuilePermisActions } from './TuilePermisActions';
 import { TuileSourcesActions } from './TuileSourcesActions';
-import { MSG_SECOURS_GRILLE, messageEchecReorg } from './ordreModulesUi';
+import { messageEchecReorg } from './ordreModulesUi';
 
 /** Slug de la tuile « Permis de construire » (menuAdmin) — porte le cumul d'actions en attente. */
 const SLUG_PERMIS = '/admin/permis';
@@ -134,8 +134,7 @@ function TuileStatique({ tuile, poigneeInactive = false }: { tuile: LienMenu; po
           sanctionner après coup (le motif est dit en clair au-dessus de la grille). Hors secours, `poigneeInactive=false`
           → sortie IDENTIQUE à avant (aucun attribut `disabled`) : rendu pré-hydratation inchangé, aucun mismatch. */}
       <button type="button" className="svv-grille-poignee" disabled={poigneeInactive} aria-disabled={poigneeInactive || undefined}
-        aria-label={poigneeInactive ? 'Réordonner indisponible en accès de secours' : `Réordonner la tuile ${tuile.libelle}`}
-        title={poigneeInactive ? 'Reconnectez-vous avec votre compte nommé pour ranger vos tuiles' : undefined}>
+        aria-label={`Réordonner la tuile ${tuile.libelle}`}>
         <span aria-hidden="true">⠿</span>
       </button>
     </li>
@@ -211,14 +210,8 @@ export function GrilleModules({ tuiles, secours = false }: { tuiles: LienMenu[];
   return (
     <>
       <style>{CSS_GRILLE}</style>
-      {/* VOIE DE SECOURS — message de CONTEXTE affiché AVANT toute tentative (point 3) : on DIT que c'est l'ordre par défaut
-          (rien n'est perdu) et qu'il faut son compte nommé pour ranger. Le geste est empêché (poignées inactives ci-dessous),
-          pas sanctionné après coup. */}
-      {secours && (
-        <p className="svv-grille-info" role="note">
-          {MSG_SECOURS_GRILLE}
-        </p>
-      )}
+      {/* Le message de contexte « accès de secours » est RETIRÉ (voie de secours web supprimée le 15/10/2026 ; texte devenu
+          inatteignable, retrait accordé par Arno). */}
       {erreur && (
         <p className="svv-grille-erreur" role="status">
           {erreur}
