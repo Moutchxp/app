@@ -153,4 +153,5 @@ administrateur (jamais l'inverse). Pas de suppression (désactivation, à dessei
 | Critique 1 — limite d'essais sur la voie de secours | corriger | fait (`f4b333fa`) |
 | A — voie de secours | **RETIRER de la page web** (accord explicite d'Arno pour ce retrait) : identifiant vide refusé, mention « Laisser vide pour l'accès de secours » supprimée, session anonyme (`sub=null`) refusée par le proxy et les gardes, `admin:secours-hash` supprimée. Corde de rappel unique : `npm run admin:secours` sur le serveur (`docs/BASCULE_CHECKLIST.md` §7) | fait |
 | B — double authentification | **reportée par décision d'Arno le 15/10/2026** — à rouvrir AVANT l'ouverture de comptes collaborateurs | reportée |
+| 3 — limite par IP | en plus de la limite par compte ; IP jamais en clair (HMAC, secret serveur), effacée après la fenêtre ; seuil et fenêtre réglables (migration 355) ; active si `CADENCE_ENTETE_IP` est posé | fait |
 | 10 — contenu des tuiles pour les collaborateurs | choix métier, plus tard | non traité |

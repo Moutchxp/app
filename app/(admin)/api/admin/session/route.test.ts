@@ -29,6 +29,10 @@ vi.mock('../../../../lib/auth/antiBruteforce', () => ({
   verifierThrottle: (...a: unknown[]) => verifierThrottle(...a),
   noterEchec: (...a: unknown[]) => noterEchec(...a),
   noterSucces: (...a: unknown[]) => noterSucces(...a),
+  // Point 3 (limite par IP) : aucune adresse établie dans ces tests → pas de limite par IP (scénarios dans route.limite.test.ts).
+  cleThrottleIp: () => null,
+  verifierThrottleIp: vi.fn(async () => ({ bloque: false, retryAfter: 0 })),
+  noterEchecIp: vi.fn(async () => undefined),
 }));
 
 import { POST } from './route';

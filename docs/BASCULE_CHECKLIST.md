@@ -385,3 +385,9 @@ nouveau mot de passe.
 Pour lister les comptes et voir lesquels sont actifs : `npm run admin:lister`.
 
 La variable `ADMIN_PASSWORD_ARGON2_B64` du `.env` ne sert plus à rien ; elle peut rester ou être retirée, sans effet.
+
+**Limite d'essais par adresse IP** (audit point 3) : elle ne s'applique que si le `.env` du serveur déclare l'en-tête
+d'adresse posé par le frontal, `CADENCE_ENTETE_IP=x-forwarded-for` derrière Caddy (Caddy remplace cet en-tête par
+l'adresse réelle du visiteur tant qu'aucun `trusted_proxies` n'est configuré — à vérifier sur la version installée).
+Sans cette ligne, seule la limite par compte s'applique. L'adresse n'est jamais conservée en clair (empreinte HMAC).
+

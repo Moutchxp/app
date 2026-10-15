@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { verifier } from '../../../../lib/admin/motDePasse';
 import { trouverCompte, marquerConnexion, permsDuCompte, capaciteModifPermis } from '../../../../lib/admin/comptes';
 import { NOM_COOKIE, optionsCookie, signerJeton, type SessionAdmin } from '../../../../lib/admin/session';
-import { verifierThrottle, noterEchec, noterSucces } from '../../../../lib/auth/antiBruteforce';
+import { verifierThrottle, noterEchec, noterSucces, cleThrottleIp, verifierThrottleIp, noterEchecIp } from '../../../../lib/auth/antiBruteforce';
 
 /** Hash argon2id de leurre (d'une valeur jetable) : sert au `verifier` de TEMPS CONSTANT quand l'identifiant est
  *  inconnu — l'échec ne révèle alors ni l'existence du compte ni la longueur du mot de passe. */
@@ -52,10 +52,21 @@ export async function POST(request: Request) {
   // Best-effort → si l'état de détection est indisponible, `bloque:false` (fail-safe : jamais de blocage légitime).
   const throttle = await verifierThrottle(cleThrottle);
   if (throttle.bloque) return reponseThrottlee(throttle.retryAfter);
+  // AUDIT POINT 3 : limite par ADRESSE (empreinte HMAC, jamais en clair) en plus de la limite par compte. `null` si l'adresse
+  // n'est pas établie de façon sûre → pas de limite par IP (jamais un compteur commun qui bloquerait Arno).
+  const cleIp = cleThrottleIp(request);
+  if (cleIp) {
+    const parIp = await verifierThrottleIp(cleIp);
+    if (parIp.bloque) return reponseThrottlee(parIp.retryAfter);
+  }
+  const noterLesEchecs = async () => {
+    await noterEchec(cleThrottle);
+    if (cleIp) await noterEchecIp(cleIp);
+  };
 
   // VOIE DE SECOURS RETIRÉE (15/10/2026) : identifiant vide → refus générique, compté comme un échec (audit), rien vérifié.
   if (identifiant === '') {
-    await noterEchec(cleThrottle);
+    await noterLesEchecs();
     return echec();
   }
 
@@ -65,7 +76,7 @@ export async function POST(request: Request) {
   const hash = compte?.mot_de_passe ?? HASH_LEURRE;
   const motOk = await verifier(password, hash);
   if (!compte || !compte.actif || !motOk) {
-    await noterEchec(cleThrottle); // échec (compte inconnu, inactif OU mauvais mot de passe) → même traitement
+    await noterLesEchecs(); // échec (compte inconnu, inactif OU mauvais mot de passe) → même traitement
     return echec();
   }
   await marquerConnexion(compte.id);
