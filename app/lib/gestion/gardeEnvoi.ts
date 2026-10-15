@@ -39,10 +39,9 @@ export async function peutEnvoyerAuNomDeGestion(request: Request): Promise<boole
   if (!payload) return false;
   const session = sessionDepuisPayload(payload);
 
-  // RÈGLE D'OR du dépôt : la VOIE DE SECOURS (mot de passe partagé, `sub` nul AVEC rôle administrateur explicite) est
-  //   administrateur, et ses droits sont implicites. Ne jamais dériver un refus d'un « 0 ligne » — un `WHERE id = null`
-  //   enfermerait Arno dehors.
-  if (session.sub === null) return session.role === 'administrateur';
+  // VOIE DE SECOURS WEB RETIRÉE (décision d'Arno du 15/10/2026, audit point A) : une session anonyme (sub nul) n'est plus
+  //   émise ni admise — elle n'envoie donc rien non plus.
+  if (session.sub === null) return false;
 
   try {
     const compte = await trouverCompteParId(session.sub);

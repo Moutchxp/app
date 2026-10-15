@@ -10,7 +10,8 @@ import {
 } from '../../../../../../lib/gestion/tachesRepo';
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
 import { relirePieces } from '../../../../../../lib/gestion/tachesDrive';
-import { envoyerSiBesoin } from '../../../../../../lib/gestion/acceptationRepo';
+// AUDIT POINT 9 : le mail de demande part au nom de gestion@ → seulement avec le droit d'envoi (cf. acceptationAutorisee.ts).
+import { envoyerSiAutorise } from '../../../../../../lib/gestion/acceptationAutorisee';
 import { mentionMail } from '../../../../../../lib/gestion/acceptationTache';
 /* 🔴 LOT TACHES-AGENDA — après chaque geste : l'agenda (réglage actif seulement) ; « Réessayer » le relance. */
 import { reessayerSynchro, phraseSynchro, synchroniserApresGeste } from '../../../../../../lib/gestion/agendaSynchroRepo';
@@ -134,7 +135,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
   /* 🔴 LOT TACHES-ACCEPTATION — un geste qui a posé une demande en attente (renvoi, date/heure/personne changée) :
      son mail, préparé (et envoyé seulement si le réglage l'autorise). */
-  const mail = await envoyerSiBesoin(issue.demande);
+  const mail = await envoyerSiAutorise(request, issue.demande);
   const suite = issue.demande?.statut === 'en_attente'
     ? ` Nouvelle demande d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' envoyée par mail' : ''}.` : '';
   const agenda = await synchroniserApresGeste(issue.id);

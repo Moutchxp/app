@@ -52,8 +52,12 @@ export const BADGE_ACCEPTATION: Record<StatutAcceptation, string> = {
 };
 
 /** La mention de l'état du mail, quand il n'est pas parti. */
-export function mentionMail(etat: EtatMail): string | null {
+/** AUDIT POINT 9 — phrase de la route quand le mail n'est pas parti faute de droit d'envoi au nom de gestion@. */
+export const MENTION_MAIL_SANS_DROIT = 'pas de mail : envoyer au nom de gestion@ demande le droit d’envoi — la demande est visible dans « Mes tâches »';
+
+export function mentionMail(etat: EtatMail | 'sans_droit'): string | null {
   switch (etat) {
+    case 'sans_droit': return MENTION_MAIL_SANS_DROIT;
     case 'desactive': return 'mail non envoyé (envoi désactivé)';
     case 'echec': return 'mail non envoyé (échec de l’envoi)';
     case 'factice': return 'mail préparé (essai, rien n’est parti)';
