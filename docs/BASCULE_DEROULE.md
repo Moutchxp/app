@@ -38,14 +38,16 @@
 | MinIO | service `svav-minio`, données `/home/ubuntu/sansvisavis/minio/data`, écoute `127.0.0.1:9000`, identifiants dans `/etc/svav/minio.env` (identiques au `.env`), compartiments `svav-dev` et `svav-jetable` ; même version que le Mac (premier transfert fait par `tar` via ssh) |
 | Migrations | 352 à 357 toutes appliquées |
 | Services actifs | `svav-next`, `svav-minio`, `caddy`, `postgresql`, `svav-surveillance.timer`, `svav-sauvegarde.timer` ; `svav-lidar-import` terminé — **ne pas relancer** |
-| LiDAR attendu | 265 024 tuiles par table (`mns_lidar_brut`, `mnt_lidar_brut`) |
+| LiDAR attendu | **265 088 tuiles par table** (`mns_lidar_brut`, `mnt_lidar_brut`) : 4 142 dalles × 64 = 4 141 importées + Asnières (mesuré par Arno le 15/10/2026) |
 | À installer à la bascule | `svav-gestion-continu`, `svav-veille.timer`, `svav-drive-empreintes.timer`, `svav-analytics-maintenance.timer` |
 
 ## Conventions
 
 - **« Terminal Mac »** = l'application Terminal de macOS, **fenêtre neuve**. Première commande : `whoami` → doit
   répondre `macbookprom4arnaud` ; seconde : `cd /Users/macbookprom4arnaud/sansvisavis/app`.
-  **Gardez la même fenêtre de A1 jusqu'à la fin de C** (elle porte la variable `$BASCULE`).
+  **Gardez la même fenêtre de A1 jusqu'à la fin de C** (elle porte la variable `$BASCULE`). Si elle a été fermée :
+  `export BASCULE=/Users/macbookprom4arnaud/sansvisavis/sauvegardes-bascule/2026-10-15_1113` (dossier de la bascule du
+  15/10/2026).
 - **« Serveur »** = une session `ssh svav-prod` (compte `ubuntu`).
 - **« Serveur (app) »** = la même session, placée dans le dossier de l'application avec le `.env` chargé (sans
   l'afficher) — à refaire après chaque nouvelle connexion :
@@ -78,12 +80,16 @@ cd /home/ubuntu/sansvisavis/app && set -a && . ./.env && set +a && git log -1 --
 psql "$DATABASE_URL" -At -c "select 'mns', count(*) from mns_lidar_brut union all select 'mnt', count(*) from mnt_lidar_brut"
 ```
 - Fait : compte les tuiles LiDAR du serveur.
-- Vous devez voir : `mns|265024` et `mnt|265024`.
+- Vous devez voir : `mns|265088` et `mnt|265088`.
 - Sinon : noter les deux nombres tels quels — ce sont eux qui doivent rester identiques après la copie (C7) ; me prévenir.
 
 ---
 
 ## A. Avant : sauvegardes
+
+> **FAITE ET VÉRIFIÉE le 15/10/2026 (Arno)** : Mac → `/Users/macbookprom4arnaud/sansvisavis/sauvegardes-bascule/2026-10-15_1113/`
+> (`mac-base` au format répertoire `-Fd`, et `mac-minio-data.tgz`) ; serveur → `/home/ubuntu/sauvegardes/2026-10-15_1116/`
+> et `/home/ubuntu/sauvegardes/serveur-avant-bascule.dump`.
 
 **A1 — Terminal Mac**
 ```sh
@@ -245,7 +251,7 @@ sudo systemctl stop svav-surveillance.timer svav-next && systemctl is-active sva
 scripts/bascule-sans-lidar.sh essai /home/ubuntu/svav-sans-lidar.dump "$DATABASE_URL" | tail -20
 ```
 - Fait : montre, SANS RIEN ÉCRIRE, le LiDAR de la cible et les entrées que la restauration laissera de côté.
-- Vous devez voir : `LiDAR de la cible (intouché) : mns_lidar_brut=265024 mnt_lidar_brut=265024 mns_bati_propre=0 rge_alti=0`
+- Vous devez voir : `LiDAR de la cible (intouché) : mns_lidar_brut=265088 mnt_lidar_brut=265088 mns_bati_propre=0 rge_alti=0`
   (ou les nombres de 0.3), la liste des entrées LiDAR / EXTENSION / SCHEMA écartées, et un nombre d'entrées restaurées.
 - Sinon : un nombre LiDAR différent de 0.3 → STOP, me prévenir.
 
@@ -265,7 +271,7 @@ scripts/bascule-sans-lidar.sh restaurer /home/ubuntu/svav-sans-lidar.dump "$DATA
 psql "$DATABASE_URL" -At -c "select 'mns', count(*) from mns_lidar_brut union all select 'mnt', count(*) from mnt_lidar_brut"
 sed -e 's/|.*//' /home/ubuntu/comptes-mac.txt | while read t; do echo "$t|$(psql "$DATABASE_URL" -At -c "select count(*) from $t")"; done > /home/ubuntu/comptes-serveur.txt; diff /home/ubuntu/comptes-mac.txt /home/ubuntu/comptes-serveur.txt && echo "COMPTES IDENTIQUES"
 ```
-- Vous devez voir : `mns|265024`, `mnt|265024` (comme en 0.3), puis `COMPTES IDENTIQUES`.
+- Vous devez voir : `mns|265088`, `mnt|265088` (comme en 0.3), puis `COMPTES IDENTIQUES`.
 - Sinon : me transmettre la sortie de `diff` (rien d'irréversible : la base du Mac est intacte, le serveur a A4 et A5).
 
 **C8 — Fichiers MinIO, par `tar` via ssh** (méthode du premier transfert ; même version de MinIO des deux côtés ;
@@ -514,8 +520,10 @@ le serveur a déjà fait (relances aux mairies envoyées deux fois). D'abord ram
 3. Fichiers déposés sur le serveur depuis la bascule : `svav-minio` arrêté des deux côtés, la même méthode dans l'autre
    sens : `ssh svav-prod 'tar -C /home/ubuntu/sansvisavis/minio/data -cf - svav-dev' | tar -C /Users/macbookprom4arnaud/sansvisavis/app/.minio/data -xf -`.
 4. Puis H1.2 et H1.3.
-5. En dernier recours, la sauvegarde complète A2 (`mac-complet.dump`) rend le Mac exactement tel qu'au matin de la
-   bascule — mais elle PERD ce que le serveur a fait depuis.
+5. En dernier recours, la sauvegarde complète A2 rend le Mac exactement tel qu'au matin de la bascule — mais elle PERD
+   ce que le serveur a fait depuis. Faite le 15/10/2026 au **format répertoire** (`-Fd`) :
+   `/Users/macbookprom4arnaud/sansvisavis/sauvegardes-bascule/2026-10-15_1113/mac-base` ; se restaure par
+   `pg_restore --clean --if-exists -d sansvisavis /Users/macbookprom4arnaud/sansvisavis/sauvegardes-bascule/2026-10-15_1113/mac-base`.
 
 ---
 
