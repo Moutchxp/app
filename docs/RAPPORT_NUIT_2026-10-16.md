@@ -32,7 +32,7 @@ lève « Cannot read properties of undefined (reading '_leaflet_pos') ». Ce n'�
 
 **Correction** (commit `8644f654`) : le recalage est mémorisé, **annulé au démontage**, et ne vise que la carte encore
 affichée ; `stop()` arrête toute animation avant `remove()`. **Affichage inchangé** (même zoom, mêmes tuiles). Test
-statique ajouté ; suite complète verte (1 168 fichiers, 19 942 tests).
+statique ajouté ; suite complète verte (1 167 fichiers, 19 933 tests au commit du lot 1 ; 1 168 / 19 942 après le lot 2).
 
 **Preuve sur la vraie page** (`npm run dev`, Chrome mobile, `.captures/nuit/journal-sortie-rapide.txt`, captures
 `N1-resultat-mini-carte.png`, `N2-accueil-apres-sortie-rapide.png`) : page de résultat quittée **0, 60 et 120 ms**
