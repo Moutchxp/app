@@ -10,6 +10,7 @@
  * hors bâtiment (indéterminé). Remplace l'ancienne tolérance de 0,30 m.
  */
 import { query } from "./client";
+import { sqlTuileContenant } from "./lectureRaster";
 import type { PointWgs84, PointL93 } from "../svv/geo";
 import type { ModeOrigine } from "../svv/config";
 
@@ -69,9 +70,7 @@ export async function validerOrigine(
             ST_AsText(nn.geom) AS polygone_wkt,
             nn.alt_sol_bdtopo,
             (SELECT ST_Value(m.rast, snap.g)           -- terrain MNT AU POINT SNAPPÉ (S2, option a)
-               FROM mnt_lidar_brut m
-              WHERE ST_Intersects(m.rast, snap.g)
-              LIMIT 1) AS alt_terrain_mnt,
+               ${sqlTuileContenant('mnt_lidar_brut', 'm', 'snap.g')}) AS alt_terrain_mnt,  -- par l'index (lectureRaster.ts)
             ST_Distance(nn.geom, pt.g) AS dist_m,
             ST_Covers(nn.geom, pt.g) AS couvert,        -- intérieur OU bordure
             ST_X(snap.g) AS snap_x, ST_Y(snap.g) AS snap_y,

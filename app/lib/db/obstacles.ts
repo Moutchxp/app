@@ -12,6 +12,7 @@
  * → direction (dx, dy) = (sin θ, cos θ).
  */
 import { query } from "./client";
+import { sqlTuileContenant } from "./lectureRaster";
 import { balayerObstacle, type CelluleCouloir } from "../svv/balayageObstacle";
 import type { PointWgs84 } from "../svv/geo";
 import type { ObstacleCandidat, SourceHauteur } from "../svv/verdict";
@@ -189,9 +190,9 @@ async function couvertureCellules(params: ParametresAxe): Promise<LigneCouvertur
      axe AS (SELECT ST_MakeLine(o.g, ST_Translate(o.g, $4*d.dx, $4*d.dy)) AS ln FROM o,d),
      corr AS (SELECT ST_Buffer(axe.ln, $5) AS g FROM axe),        -- couloir 2 m (±1)
      couverture AS (                                              -- emprise des DALLES (aucun filtre bâti)
-       SELECT ST_Union(ST_Envelope(r.rast)) AS g
+       SELECT ST_Union(ST_Envelope(r.rast) ORDER BY r.ctid) AS g     -- mêmes tuiles, même ordre qu'avant (lectureRaster.ts)
        FROM mns_lidar_brut r, corr
-       WHERE ST_Intersects(r.rast, corr.g)
+       WHERE ST_ConvexHull(r.rast) && corr.g AND ST_Intersects(r.rast, corr.g)  -- préfiltre = expression de l'index
      ),
      centres AS (                                                 -- centre L93 de chaque cellule (i,j)
        SELECT i, j,
@@ -235,7 +236,13 @@ export interface CelluleProfilOrigine {
  *  - mnsBrutM    : MNS lu sur mns_lidar_brut SANS aucun filtre b.id (le toit de l'origine —
  *    et de l'aile opposée d'un U, même id — N'EST PAS effacé), nodata nettoyé (NULL / -9999 → null).
  *
- * PLOMBERIE PURE (étape 2a) : cette source n'est lue NULLE PART ; la règle creux+mur (2b) la consommera.
+ * Seul lecteur : `detecterAileOpposeeUSurAxe` (règle creux+mur, 2b).
+ *
+ * BORNE (lot LENTEUR DU MOTEUR, 15/10/2026) : le MNS n'est lu que jusqu'à la DERNIÈRE cellule dans l'origine (imax, et au
+ * moins la cellule 0, qui amorce le toit de départ) ; au-delà, mnsBrutM = null. Le candidat rendu est IDENTIQUE : après imax,
+ * dansOrigine est faux partout, or l'automate ne rend un obstacle qu'à une ré-entrée (dansOrigine vrai) ; il ne peut donc plus
+ * qu'avancer son compteur de creux ou finir sur null — avec ou sans les valeurs de MNS (épreuve : obstacles.borneProfil.test.ts).
+ * Avant la borne, les 400 cellules (200 m) étaient lues, une tuile chacune : 224 s sur le serveur.
  * Requête SÉPARÉE : n'altère ni echantillonnerGrille, ni son filtre b.id <> $4, ni le verdict.
  * Polygone absent/undefined → ST_GeomFromText(NULL) = NULL → ST_Contains NULL → dansOrigine=false partout.
  */
@@ -250,14 +257,18 @@ async function profilOrigineAxe(params: ParametresAxe): Promise<CelluleProfilOri
          ST_X(o.g) + ((i+0.5)*0.5)*d.dx,
          ST_Y(o.g) + ((i+0.5)*0.5)*d.dy),2154) AS centre
        FROM generate_series(0, $4-1) AS i, o, d
-     )
-     SELECT c.i,
-       COALESCE(ST_Contains(poly.g, c.centre), false) AS dans_origine,
+     ),
+     dedans AS (
+       SELECT c.i, c.centre, COALESCE(ST_Contains(poly.g, c.centre), false) AS dans_origine FROM centres c, poly
+     ),
+     borne AS (SELECT COALESCE(MAX(i) FILTER (WHERE dans_origine), 0) AS imax FROM dedans)  -- dernière cellule DANS l'origine
+     SELECT x.i, x.dans_origine,
+       CASE WHEN x.i <= borne.imax THEN                           -- au-delà : lu par personne (cf. BORNE ci-dessus)
        (SELECT v.val FROM (
-          SELECT ST_Value(r.rast, c.centre) AS val
-          FROM mns_lidar_brut r WHERE ST_Intersects(r.rast, c.centre) LIMIT 1
-        ) v WHERE v.val IS NOT NULL AND v.val <> -9999) AS mns_brut
-     FROM centres c, poly ORDER BY c.i;`,
+          SELECT ST_Value(r.rast, x.centre) AS val
+          ${sqlTuileContenant('mns_lidar_brut', 'r', 'x.centre')}
+        ) v WHERE v.val IS NOT NULL AND v.val <> -9999) END AS mns_brut
+     FROM dedans x, borne ORDER BY x.i;`,
     [
       params.point.lon,
       params.point.lat,
@@ -337,7 +348,7 @@ const CREUX_CELLULES_MIN = 5;
  * Retour : AU PLUS un ObstacleCandidat (LIDAR_HD), ou null (aucune ré-entrée qualifiante).
  * Ne touche ni estBloquee, ni le seuil 40 m, ni premierObstacle : produit juste un candidat de plus.
  */
-function detecterAileOpposeeUSurAxe(
+export function detecterAileOpposeeUSurAxe(
   profilAxe: CelluleProfilOrigine[],
   hOeilM: number,
 ): ObstacleCandidat | null {
@@ -564,7 +575,7 @@ export async function candidatReentreeOrigine(params: ParametresAxe): Promise<Ob
             ST_AsText(a.ln) AS axe_wkt,
             (SELECT v.val FROM (
                SELECT ST_Value(m.rast, ST_PointOnSurface(p.g)) AS val
-               FROM mns_lidar_brut m WHERE ST_Intersects(m.rast, ST_PointOnSurface(p.g)) LIMIT 1
+               ${sqlTuileContenant('mns_lidar_brut', 'm', 'ST_PointOnSurface(p.g)')}
              ) v WHERE v.val IS NOT NULL AND v.val <> -9999) AS mns_toit
      FROM reentree r, axe a, poly p, bat;`,
     [
@@ -632,8 +643,7 @@ export async function obstaclesSurAxe(params: ParametresAxe): Promise<ObstacleCa
             -- Fallback hauteur : toit MNS LiDAR sur un point garanti DANS l'emprise (nodata -9999/NULL écarté).
             (SELECT v.val FROM (
                SELECT ST_Value(m.rast, ST_PointOnSurface(ST_Force2D(b.geom))) AS val
-               FROM mns_lidar_brut m
-               WHERE ST_Intersects(m.rast, ST_PointOnSurface(ST_Force2D(b.geom))) LIMIT 1
+               ${sqlTuileContenant('mns_lidar_brut', 'm', 'ST_PointOnSurface(ST_Force2D(b.geom))')}
              ) v WHERE v.val IS NOT NULL AND v.val <> -9999) AS mns_toit
      FROM bdtopo_batiment b
        LEFT JOIN bdnb_annee_batiment ba ON ba.cleabs = b.cleabs,  -- F2 : année (PK cleabs, 1:0/1:1)

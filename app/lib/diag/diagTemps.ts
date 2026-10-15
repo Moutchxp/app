@@ -58,13 +58,18 @@ export function lireArguments(argv: readonly string[]): ArgumentsDiagTemps {
 
 /**
  * Longueur du couloir (m) d'une requête du moteur : le paramètre multiplié dans `ST_Translate(o.g, $N * …)`, forme commune
- * à toutes les requêtes d'axe (`obstacles.ts`, `preparateurPaysage.ts`). `null` si la requête n'en construit pas. PUR.
+ * à toutes les requêtes d'axe (`obstacles.ts`, `preparateurPaysage.ts`) ; à défaut, un NOMBRE de cellules de 0,5 m le long
+ * de l'axe, `generate_series(0, $N-1)` (profil d'axe : 400 cellules = 200 m). `null` si la requête n'en construit pas. PUR.
  */
 export function longueurCouloir(sql: string, params: readonly unknown[]): number | null {
+  const lire = (n: string, facteur: number): number | null => {
+    const v = Number(params[Number(n) - 1]);
+    return Number.isFinite(v) ? v * facteur : null;
+  };
   const m = /ST_Translate\(\s*o\.g\s*,\s*\$(\d+)\s*\*/.exec(sql);
-  if (!m) return null;
-  const v = Number(params[Number(m[1]) - 1]);
-  return Number.isFinite(v) ? v : null;
+  if (m) return lire(m[1], 1);
+  const c = /generate_series\(\s*0\s*,\s*\$(\d+)\s*-\s*1\s*\)/.exec(sql);
+  return c && /\*\s*0\.5/.test(sql) ? lire(c[1], 0.5) : null;
 }
 
 /** Nom de fonction d'une ligne de pile V8 (« at async obstaclesSurAxe (…) » → « obstaclesSurAxe »), ou null. */

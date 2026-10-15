@@ -40,6 +40,10 @@ describe('longueurCouloir', () => {
     expect(longueurCouloir('ST_Translate( o.g , $4*sin(radians($3)), …)', [0, 0, 0, '200'])).toBe(200);
   });
 
+  it('à défaut, un nombre de cellules de 0,5 m (profil d’axe : 400 cellules → 200 m)', () => {
+    expect(longueurCouloir('ST_X(o.g) + ((i+0.5)*0.5)*d.dx FROM generate_series(0, $4-1) AS i', [0, 0, 0, 400])).toBe(200);
+  });
+
   it('null quand la requête ne construit pas d’axe, ou que le paramètre est illisible', () => {
     expect(longueurCouloir('SELECT * FROM config_scoring WHERE id = 1', [])).toBeNull();
     expect(longueurCouloir('ST_Translate(o.g, $2*d.dx, 0)', [0, 'x'])).toBeNull();
