@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { ModeOrigine } from "./lib/svv/config";
+import { FONDS_DE_PLAN, ZOOM_MAX_CARTE } from "./lib/carte/fondsDePlan";
 
 // Indice « glissez la carte » : fondu d'apparition qui RESTE visible (svvFadeIn, opacity 0→1,
 // pas d'extinction) + glissement horizontal en boucle infinie (svvDragSlide, ~±28px). Keyframes
@@ -160,17 +161,15 @@ export default function MapContent({
   useEffect(() => {
     if (!leafletMap.current) return;
 
-    const url =
-      mapMode === "map"
-        ? "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+    const fond = FONDS_DE_PLAN[mapMode];
 
     if (tileLayer.current) {
       leafletMap.current.removeLayer(tileLayer.current);
     }
 
-    tileLayer.current = L.tileLayer(url, {
-      maxZoom: 20,
+    tileLayer.current = L.tileLayer(fond.url, {
+      maxNativeZoom: fond.zoomMaxFourni, // au-delà : tuiles de ce niveau AGRANDIES, jamais de tuile inexistante
+      maxZoom: ZOOM_MAX_CARTE,
     }).addTo(leafletMap.current);
   }, [mapMode]);
 
