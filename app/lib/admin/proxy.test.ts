@@ -452,3 +452,50 @@ describe('proxy — la session vit aussi longtemps que le compte le permet (poin
     expect(res.status).not.toBe(307);
   });
 });
+
+// ══ AUDIT POINT 6 (15/10/2026) — contrôle d'ORIGINE sur les requêtes qui modifient ══════════════════════════════════════
+// Le trou : seul SameSite=Strict protégeait des requêtes forgées ; or les sous-domaines de sansvisavis.com sont « même site »
+// pour le navigateur — une faille sur l'un d'eux pouvait envoyer des actions authentifiées à l'admin.
+describe('proxy — contrôle d’origine des requêtes qui modifient (point 6)', () => {
+  async function ecriture(pathname: string, entetes: Record<string, string>, session: SessionAdmin | null = admin(), methode = 'POST'): Promise<NextRequest> {
+    const base = await requete(pathname, session);
+    const headers = new Headers(base.headers);
+    headers.set('host', 'authentification.sansvisavis.com');
+    for (const [k, v] of Object.entries(entetes)) headers.set(k, v);
+    return new NextRequest(new URL(`http://authentification.sansvisavis.com${pathname}`), { method: methode, headers });
+  }
+
+  it('POST depuis un AUTRE sous-domaine (Sec-Fetch-Site: same-site) → 403, même avec une session valide', async () => {
+    const res = await proxy(await ecriture('/api/admin/gestion/brouillons', { 'sec-fetch-site': 'same-site', origin: 'https://blog.sansvisavis.com' }));
+    expect(res.status).toBe(403);
+  });
+
+  it('POST depuis un site tiers (cross-site) ou une Origin étrangère → 403', async () => {
+    expect((await proxy(await ecriture('/api/admin/comptes', { 'sec-fetch-site': 'cross-site' }))).status).toBe(403);
+    expect((await proxy(await ecriture('/api/admin/comptes', { origin: 'https://evil.example' }))).status).toBe(403);
+    expect((await proxy(await ecriture('/api/admin/comptes', { origin: 'null' }))).status).toBe(403);
+  });
+
+  it('connexion forgée depuis un autre site (CSRF de connexion) → 403 avant toute vérification', async () => {
+    expect((await proxy(await ecriture('/api/admin/session', { 'sec-fetch-site': 'cross-site' }, null))).status).toBe(403);
+  });
+
+  it('PATCH / DELETE aussi contrôlés', async () => {
+    expect((await proxy(await ecriture('/api/admin/config', { 'sec-fetch-site': 'same-site' }, admin(), 'PATCH'))).status).toBe(403);
+    expect((await proxy(await ecriture('/api/admin/session', { 'sec-fetch-site': 'same-site' }, admin(), 'DELETE'))).status).toBe(403);
+  });
+
+  it('USAGE NORMAL : même origine (Sec-Fetch-Site same-origin, ou Origin du même hôte, https derrière Caddy) → passe', async () => {
+    expect((await proxy(await ecriture('/api/admin/comptes', { 'sec-fetch-site': 'same-origin', origin: 'https://authentification.sansvisavis.com' }))).status).not.toBe(403);
+    expect((await proxy(await ecriture('/api/admin/comptes', { origin: 'https://authentification.sansvisavis.com' }))).status).not.toBe(403);
+    expect((await proxy(await ecriture('/api/admin/session', { 'sec-fetch-site': 'same-origin' }, null))).status).not.toBe(403);
+  });
+
+  it('lecture (GET) venue d’ailleurs → non concernée (SameSite et la garde de session s’appliquent)', async () => {
+    expect((await proxy(await ecriture('/api/admin/comptes', { 'sec-fetch-site': 'cross-site' }, admin(), 'GET'))).status).not.toBe(403);
+  });
+
+  it('client hors navigateur (ni Origin ni Sec-Fetch-Site : script, curl) → non concerné, la session décide', async () => {
+    expect((await proxy(await ecriture('/api/admin/comptes', {}))).status).not.toBe(403);
+  });
+});

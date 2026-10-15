@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload, type Module } from './app/lib/admin/session';
 import { lireEtatCompte, verdictSession, type EtatCompte } from './app/lib/admin/etatSession';
+import { origineAutorisee } from './app/lib/admin/controleOrigine';
 
 /**
  * Garde d'accès de l'interface admin (EX-11..EX-15) + contrôle des PERMISSIONS côté serveur (M3 Lot 2e).
@@ -116,6 +117,13 @@ const CHEMINS_AUTHENTIFIE_SEUL: ReadonlySet<string> = new Set([
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  // ═══ CONTRÔLE D'ORIGINE (audit point 6, 15/10/2026) ═══
+  // Toute requête d'API qui MODIFIE (connexion et déconnexion comprises) doit venir de l'admin elle-même : un autre
+  // sous-domaine de sansvisavis.com est « même site » pour le navigateur, SameSite seul ne suffit pas. Cf. controleOrigine.ts.
+  if (pathname.startsWith('/api/admin/') && !origineAutorisee(request.method, request.headers)) {
+    return NextResponse.json({ erreur: 'ORIGINE_REFUSEE' }, { status: 403 });
+  }
 
   // Whitelist : la page de login et l'endpoint de session restent publics.
   if (pathname === '/admin/login') {

@@ -156,4 +156,5 @@ administrateur (jamais l'inverse). Pas de suppression (désactivation, à dessei
 | 3 — limite par IP | en plus de la limite par compte ; IP jamais en clair (HMAC, secret serveur), effacée après la fenêtre ; seuil et fenêtre réglables (migration 355) ; active si `CADENCE_ENTETE_IP` est posé | fait |
 | 4 — révocation des sessions | le proxy relit le compte à chaque requête ; jeton porteur de l'empreinte du mot de passe (changement / réinitialisation / `admin:secours` coupent les sessions, sans migration) et d'une version de session incrémentée à la déconnexion et à la désactivation (migration 356) | fait |
 | 5 — routes et pages « jeton seul » | couvertes au proxy : compte absent ou inactif → refus ; droits effectifs = jeton ∩ base (retrait immédiat sur toutes les routes et pages de l'admin) | fait |
+| 6 — contrôle d'origine | toute requête d'API qui modifie (connexion comprise) doit venir de l'admin elle-même : `Sec-Fetch-Site` same-origin, ou `Origin` du même hôte ; autre sous-domaine ou site tiers → 403 | fait |
 | 10 — contenu des tuiles pour les collaborateurs | choix métier, plus tard | non traité |
