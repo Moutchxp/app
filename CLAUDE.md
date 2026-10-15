@@ -502,6 +502,23 @@ définitive avant de figer les couleurs dans le code.
   a explicitement demandé là le 01/10/2026). Ce ne sont pas des captures : un filet de sécurité enterré dans un
   dossier « Captures » est un filet perdu. Ne pas les déplacer sans l'accord d'Arno.
 
+### 🔴🔴 INTERDIT — JAMAIS `npm run test:integration` EN ENTIER
+
+> **Pour le contrôle de fin, ne JAMAIS lancer `npm run test:integration` en entier. Lancer UNIQUEMENT les fichiers
+> `*.itest.ts` nommés dans le lot, dont `pipeline.itest.ts` :
+> `npx vitest run --config vitest.integration.config.ts app/lib/db/pipeline.itest.ts [autres fichiers nommés]`.**
+
+- **Décision d'Arno du 15/10/2026**, lot LENTEUR DU MOTEUR SUR LiDAR RÉEL.
+- **CE QUI LA JUSTIFIE, CONSTATÉ.** Une trentaine de fichiers `*.itest.ts` (permis, veille, analytics, sitadel)
+  écrivent dans la VRAIE base du Mac : données d'essai insérées puis effacées, dossiers réels modifiés puis restaurés,
+  et même la maintenance analytics exécutée pour de bon. Le 15/10/2026, la suite lancée en entier pour un contrôle de
+  fin, dans un lot qui interdisait toute écriture en base, a compacté **25 vraies sessions analytics** (détail par
+  session perdu, seuls les compteurs du jour restent) et laissé une ligne orpheline dans `demande_journal`
+  (n° 1317, auteur « itest », retirée ensuite sur accord d'Arno). Seuls les itests « gestion » exigent une base
+  d'essai `svav_test…` et refusent de démarrer sur la vraie.
+- **Un itest non nommé dans le lot ne se lance pas**, même « pour vérifier que rien n'a cassé ». S'il paraît
+  nécessaire, lire d'abord s'il écrit (`grep -E "INSERT|UPDATE|DELETE"`) et demander à Arno.
+
 ---
 
 ## 15. Exigences transverses d'interface
