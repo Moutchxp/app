@@ -142,12 +142,19 @@ verifier_site() {
   done
 }
 
-# Ligne « Tests » de vitest → « passés/total » ; vrai seulement si TOUS passent (aucun échoué ni sauté) et au moins 11.
+# Bilan du golden lu dans le RAPPORT JSON de vitest (--reporter=json), jamais à l'écran : la sortie lisible est colorée
+# (codes ANSI) et la ligne « Tests » n'était pas reconnue (essai du 15/10/2026 19:53, 11/11 refusé). Affiche passés/total ;
+# vrai SEULEMENT si : rapport lisible, un seul fichier = pipeline.itest.ts, success, au moins 11 tests, tous passés,
+# aucun échoué, sauté ni « à faire ».
 golden_ok() {
-  local ligne=$1 passes total
-  passes=$(grep -oE '[0-9]+ passed' <<<"$ligne" | grep -oE '[0-9]+'); total=$(grep -oE '\([0-9]+\)' <<<"$ligne" | tr -dc 0-9)
-  echo "${passes:-0}/${total:-0}"
-  [[ -n $passes && $passes == "$total" && $passes -ge 11 ]] && ! grep -qE 'failed' <<<"$ligne"
+  /usr/bin/env node -e '
+    let r; try { r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")); } catch { console.log("rapport JSON absent ou illisible"); process.exit(1); }
+    const t = r.numTotalTests ?? 0, p = r.numPassedTests ?? 0, e = r.numFailedTests ?? 0, s = r.numPendingTests ?? 0, a = r.numTodoTests ?? 0;
+    const fichiers = (r.testResults ?? []).map((x) => x.name);
+    const bonFichier = fichiers.length === 1 && /\/app\/lib\/db\/pipeline\.itest\.ts$/.test(fichiers[0]);
+    console.log(`${p}/${t}` + (e + s + a ? ` (${e} échoué(s), ${s} sauté(s), ${a} à faire)` : "") + (bonFichier ? "" : ` — fichier(s) inattendu(s) : ${fichiers.join(", ") || "aucun"}`));
+    process.exit(r.success === true && bonFichier && t >= 11 && p === t && e + s + a === 0 ? 0 : 1);
+  ' "$1"
 }
 
 # Garde au plus GARDER_VERSIONS versions dans releases/ : la nouvelle et celle d'avant (retour) TOUJOURS, puis les
@@ -315,12 +322,13 @@ fi
 # ── 7. Golden ────────────────────────────────────────────────────────────────────────────────────────────────────
 etape "7. Golden (pipeline.itest.ts) depuis la nouvelle version"
 t=$SECONDS
-sortie=$(avecEnv node_modules/.bin/vitest run --config vitest.integration.config.ts app/lib/db/pipeline.itest.ts < /dev/null 2>&1)
-ligne=$(grep -E '^ +Tests +' <<<"$sortie" | tail -1)
-if bilan=$(golden_ok "$ligne"); then ok "golden : $bilan ($((SECONDS - t)) s)"
+RAPPORT=$MAJ/$ID.golden.json; rm -f "$RAPPORT"
+sortie=$(avecEnv env NO_COLOR=1 node_modules/.bin/vitest run --config vitest.integration.config.ts app/lib/db/pipeline.itest.ts \
+  --reporter=default --reporter=json --outputFile.json="$RAPPORT" < /dev/null 2>&1)
+if bilan=$(golden_ok "$RAPPORT"); then ok "golden : $bilan ($((SECONDS - t)) s)"
 else
   tail -25 <<<"$sortie" | sed 's/^/     /'
-  ko "golden : « $ligne »"
+  ko "golden : $bilan (rapport : $RAPPORT)"
   terminer 1 "GOLDEN EN ÉCHEC — pas de bascule$( (( ${#MIGRATIONS_PASSEES[@]} )) && echo " (migrations passées, elles restent : ${MIGRATIONS_PASSEES[*]})")"
 fi
 
