@@ -22,3 +22,16 @@ describe('carte de localisation — la carte reste affichée à tous les zooms',
     expect(src).not.toMatch(/tile\.openstreetmap\.org|arcgisonline/); // les URL ne vivent plus qu'à un seul endroit
   });
 });
+
+describe('carte du faisceau — mêmes fonds, même sur-zoom, zoom des boutons inchangé', () => {
+  const src = readFileSync(join(process.cwd(), 'app/FaisceauMap.tsx'), 'utf8').replace(/\s+/g, ' ');
+  it('les deux couches (création et bascule Plan/Satellite) passent maxNativeZoom = niveau fourni et maxZoom = zoom maximal', () => {
+    expect(src.match(/maxNativeZoom: t0?\.zoomMaxFourni, maxZoom: ZOOM_MAX_CARTE,/g)?.length).toBe(2);
+    expect(src).not.toMatch(/maxZoom: t0?\.maxZoom/);
+    expect(src).not.toMatch(/tile\.openstreetmap\.org|arcgisonline/); // URL : une seule source, fondsDePlan.ts
+  });
+  it('les boutons « + » / « − » gardent leurs bornes (19 et 3) : comportement inchangé', () => {
+    expect(src).toContain('appliquerVue(Math.min(19, (mapRef.current?.getZoom() ?? 0) + 1))');
+    expect(src).toContain('appliquerVue(Math.max(3, (mapRef.current?.getZoom() ?? 0) - 1))');
+  });
+});

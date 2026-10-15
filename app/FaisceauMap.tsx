@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import "leaflet/dist/leaflet.css";
 import { cardinalAbrege } from "./lib/cardinal";
 import { destination, GEOMETRIE_VALIDATION } from "./lib/geodesieAffichage";
+import { FONDS_DE_PLAN, ZOOM_MAX_CARTE } from "./lib/carte/fondsDePlan";
 
 // Géométrie de VALIDATION (= carte du certificat) : centralisée dans le module pur, PARTAGÉE avec le générateur
 // serveur (même géométrie). Rendu écran INCHANGÉ (mêmes valeurs). FaisceauMini garde les siennes, en local.
@@ -14,18 +15,12 @@ const MARGE_ROT_DEG = 30;          // borne ± autour de l'azimut capté (= marg
 const SENS_ROT_DEG_PAR_PX = 0.25;  // sensibilité du glissement horizontal → rotation (à affiner iPhone)
 const SEUIL_AXE_PX = 4;            // course min avant de figer l'axe dominant du geste
 
-// Mêmes sources de tuiles que la carte de localisation (cf. MapContent).
+// Mêmes fonds de plan que la carte de localisation (cf. MapContent) — une seule source : app/lib/carte/fondsDePlan.ts.
+// Chaque fond s'arrête à son dernier niveau FOURNI (maxNativeZoom) ; au-delà, ses tuiles sont AGRANDIES (sur-zoom) au lieu
+// d'en demander d'inexistantes. Ici les boutons « + » plafonnent déjà la vue à 19 (inchangé) : réglage préventif, aligné.
 const TUILES = {
-  map: {
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: "© OpenStreetMap",
-    maxZoom: 19,
-  },
-  satellite: {
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution: "© Esri",
-    maxZoom: 20,
-  },
+  map: { ...FONDS_DE_PLAN.map, attribution: "© OpenStreetMap" },
+  satellite: { ...FONDS_DE_PLAN.satellite, attribution: "© Esri" },
 } as const;
 type MapMode = keyof typeof TUILES;
 
@@ -164,7 +159,8 @@ export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null,
 
       const t0 = TUILES[mapModeRef.current];
       tileLayerRef.current = L.tileLayer(t0.url, {
-        maxZoom: t0.maxZoom,
+        maxNativeZoom: t0.zoomMaxFourni,
+        maxZoom: ZOOM_MAX_CARTE,
         attribution: t0.attribution,
         crossOrigin: true,
       }).addTo(map);
@@ -217,7 +213,8 @@ export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null,
     if (tileLayerRef.current) map.removeLayer(tileLayerRef.current);
     const t = TUILES[mapMode];
     tileLayerRef.current = L.tileLayer(t.url, {
-      maxZoom: t.maxZoom,
+      maxNativeZoom: t.zoomMaxFourni,
+      maxZoom: ZOOM_MAX_CARTE,
       attribution: t.attribution,
       crossOrigin: true,
     }).addTo(map);
