@@ -18,6 +18,7 @@
     "faisceaux:check": "tsx app/scripts/faisceaux-check.ts",
     "analyse:check": "tsx app/scripts/analyse-check.ts",
     "diag:golden": "tsx scripts/diag-golden.ts",
+    "diag:temps": "tsx scripts/diag-temps.ts",
     "lidar:import": "tsx scripts/lidar-import.ts",
     "smtp:verifier": "tsx scripts/verifier-smtp.ts",
     "surveillance": "tsx scripts/surveillance.ts",

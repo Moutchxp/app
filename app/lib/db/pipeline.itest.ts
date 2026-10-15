@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, afterAll } from 'vitest';
 import { analyserAdresse } from './pipeline';
-import { closePool } from './client';
+import { closePool, query } from './client';
 import type { ProfilDegagement } from '../svv/profilDegagement';
 import { clonerProfil } from '../svv/profilTest';
 import { comparerProfils } from './bancEssai';
@@ -59,6 +59,63 @@ const PROFIL_GOLDEN_REF: ProfilDegagement = {
 afterAll(async () => {
   await closePool();
 });
+
+/** Bande de recherche de l'origine sous un bord Nord de couverture : entre 0,6 m et 2,4 m du bord (< 3 m = moins de 6
+ *  lignes de 0,5 m couvertes, profondeur de la fenêtre d'obstacle du balayage), et à 2 m au moins des bords Est/Ouest. */
+const BANDE_BORD_MIN_M = 0.6;
+const BANDE_BORD_MAX_M = 2.4;
+
+/**
+ * Un point d'origine AU BORD RÉEL de la couverture LiDAR de la base où tourne le test, LECTURE SEULE :
+ *  · une tuile de `mns_lidar_brut` dont la bande de 45 m au Nord ne touche AUCUNE tuile (même test de couverture que le
+ *    moteur : `ST_Intersects(rast, géométrie)`, enveloppe des tuiles) — bord d'une dalle sans voisine, ou trou réel ;
+ *  · un bâtiment BD TOPO dans la bande [0,6 ; 2,4] m sous ce bord ; le point est pris DANS son emprise, puis on applique
+ *    le snap du mode semi-auto (point le plus proche de la bordure du bâtiment le plus proche, `origine.ts`) et l'on
+ *    exige que le point snappé reste dans la bande, avec le MNT lisible dessous.
+ * `null` si la base n'a aucun bord de ce type. Parcours dans l'ordre des rid puis des id de bâtiment, arrêté au premier
+ * point retenu (pas de tri final : il forcerait à évaluer toutes les tuiles de la base, ≈ 265 000 sur le serveur).
+ */
+async function trouverBordNordCouverture(): Promise<{ lat: number; lon: number; yBordL93: number } | null> {
+  const { rows } = await query<{ lat: number; lon: number; y1: number }>(
+    `WITH bord AS (
+       SELECT r.rid, ST_XMin(e.env) AS x0, ST_XMax(e.env) AS x1, ST_YMax(e.env) AS y1
+       FROM mns_lidar_brut r
+       CROSS JOIN LATERAL (SELECT ST_Envelope(r.rast) AS env) e
+       WHERE (SELECT 1 FROM mns_lidar_brut n
+               WHERE ST_Intersects(n.rast, ST_MakeEnvelope(ST_XMin(e.env) + 1.5, ST_YMax(e.env) + 0.1,
+                                                           ST_XMax(e.env) - 1.5, ST_YMax(e.env) + 45, 2154))
+               LIMIT 1) IS NULL
+       ORDER BY r.rid
+     ),
+     bande AS (
+       SELECT b.*, ST_MakeEnvelope(b.x0 + 2, b.y1 - $2, b.x1 - 2, b.y1 - $1, 2154) AS g FROM bord b
+     ),
+     cand AS (
+       SELECT ba.rid, ba.x0, ba.x1, ba.y1, bt.id AS bat_id, ST_PointOnSurface(bt.inter) AS p
+       FROM bande ba
+       CROSS JOIN LATERAL (
+         SELECT t.id, ST_Intersection(ST_Force2D(t.geom), ba.g) AS inter
+         FROM bdtopo_batiment t WHERE ST_Intersects(t.geom, ba.g)
+         ORDER BY t.id
+       ) bt
+       WHERE ST_Area(bt.inter) > 0.5
+     ),
+     snap AS (
+       SELECT c.*, ST_ClosestPoint(ST_Boundary(nn.g), c.p) AS s
+       FROM cand c
+       CROSS JOIN LATERAL (SELECT ST_Force2D(t.geom) AS g FROM bdtopo_batiment t ORDER BY t.geom <-> c.p LIMIT 1) nn
+     )
+     SELECT ST_Y(ST_Transform(p, 4326)) AS lat, ST_X(ST_Transform(p, 4326)) AS lon, y1
+     FROM snap
+     WHERE ST_Y(s) BETWEEN y1 - $2 AND y1 - $1 AND ST_X(s) BETWEEN x0 + 2 AND x1 - 2
+       AND (SELECT v FROM (SELECT ST_Value(m.rast, s) AS v FROM mnt_lidar_brut m WHERE ST_Intersects(m.rast, s) LIMIT 1) q
+             WHERE v IS NOT NULL AND v <> -9999) IS NOT NULL
+     LIMIT 1;`,
+    [BANDE_BORD_MIN_M, BANDE_BORD_MAX_M],
+  );
+  if (rows.length === 0) return null;
+  return { lat: rows[0].lat, lon: rows[0].lon, yBordL93: rows[0].y1 };
+}
 
 describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () => {
   it('cas POSITIF : point intérieur → SANS_VIS_A_VIS, terrain MNT, obstacle LiDAR', async () => {
@@ -281,12 +338,24 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     expect(Number.isFinite(validation.distanceAuBatimentM)).toBe(true);
   });
 
-  it('cas INDÉTERMINÉ : couloir sortant de la couverture LiDAR avant 40 m → INDETERMINE', async () => {
-    // Origine couverte (MNS+MNT) dans bdtopo_batiment 486669, à ~2,2 m du bord Nord des dalles ;
-    // couloir plein Nord → sort de la couverture à 2,20 m → < 6 lignes couvertes → aucune fenêtre
-    // d'obstacle possible → trou de données < 40 m avant tout obstacle → INDÉTERMINÉ.
+  it('cas INDÉTERMINÉ : couloir sortant de la couverture LiDAR avant 40 m → INDETERMINE', async (ctx) => {
+    // L'origine est cherchée AU BORD RÉEL de la couverture de la base où tourne le test (cf. trouverBordNordCouverture) :
+    // une origine couverte (MNS+MNT), snappée à moins de 2,4 m d'un bord Nord SANS dalle voisine ; couloir plein Nord →
+    // sort de la couverture avant 2,4 m → < 6 lignes couvertes → aucune fenêtre d'obstacle possible → trou de données
+    // < 40 m avant tout obstacle → INDÉTERMINÉ. (Avant le 15/10/2026, le point était FIXE — bâtiment 486669, à ~2,2 m du
+    // bord Nord de LA dalle d'Asnières — et la prémisse tombait dès que la dalle voisine était chargée : sur le serveur,
+    // 4 141 dalles, l'analyse partait sur 200 m de couloir couvert.)
+    const bord = await trouverBordNordCouverture();
+    if (!bord) {
+      const message =
+        'cas INDÉTERMINÉ IGNORÉ : aucun bord Nord de couverture LiDAR exploitable dans cette base (dalle MNS sans voisine ' +
+        'au Nord, avec un bâtiment à moins de 2,4 m du bord et le MNT sous l\'origine) — le cas n\'a PAS été vérifié.';
+      console.warn(message);
+      ctx.skip(message);
+      return;
+    }
     const { validation, resultat } = await analyserAdresse({
-      point: { lat: 48.90977883617502, lon: 2.274351016683915 },
+      point: { lat: bord.lat, lon: bord.lon },
       azimutPrincipalDeg: 0,
       etage: 0,
       dernierEtage: false,
@@ -295,6 +364,10 @@ describe('analyserAdresse — golden 8 rue Denfert-Rochereau (Asnières)', () =>
     // L'origine est VALIDE (terrain MNT lu) : l'INDÉTERMINÉ vient du couloir, pas de l'origine.
     expect(validation.valide).toBe(true);
     expect(validation.altitudeTerrainOrigineM).not.toBeNull();
+    // Le snap du moteur retombe bien dans la bande choisie : < 2,4 m du bord sans voisine (prémisse du cas).
+    const margeNordM = bord.yBordL93 - validation.pointSnappeL93!.y;
+    expect(margeNordM).toBeGreaterThan(0);
+    expect(margeNordM).toBeLessThan(BANDE_BORD_MAX_M);
 
     expect(resultat).not.toBeNull();
     expect(resultat!.verdict.verdict).toBe('INDETERMINE');
