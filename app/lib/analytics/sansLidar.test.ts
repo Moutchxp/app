@@ -6,22 +6,23 @@ vi.mock('server-only', () => ({}));
 
 import { journaliserAnalyseSansLidar, type AnalyseSansLidar } from './sansLidar';
 
-const EV: AnalyseSansLidar = {
-  adresse: '1 rue de l’Essai 78140 Vélizy-Villacoublay', lat: 48.78132268116829, lon: 2.2205969595575814,
-  xL93: 642685.2785637568, yL93: 6853606.124672878, dalle: '0642_6854', communeInsee: '78640',
-};
+const EV: AnalyseSansLidar = { dalle: '0642_6854', communeInsee: '78640' };
 
 beforeEach(() => { queryAnalytics.mockReset(); vi.restoreAllMocks(); });
 
 describe('journaliserAnalyseSansLidar — best-effort, jamais une erreur pour l’internaute', () => {
-  it('écrit une ligne pas_de_lidar avec adresse, point, dalle et commune (paramètres liés)', async () => {
+  it('écrit une ligne pas_de_lidar avec SEULEMENT le jour, la dalle et la commune (paramètres liés)', async () => {
     queryAnalytics.mockResolvedValue({ rows: [], rowCount: 1 });
     await journaliserAnalyseSansLidar(EV);
     const [sql, params] = queryAnalytics.mock.calls[0];
-    expect(String(sql).replace(/\s+/g, ' ')).toContain('INSERT INTO analyse_sans_lidar');
-    expect(String(sql)).toContain("'pas_de_lidar'");
-    expect(params.slice(1)).toEqual([EV.adresse, EV.lat, EV.lon, EV.xL93, EV.yL93, '0642_6854', '78640']);
-    expect(params[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/); // jour civil de Paris
+    const texte = String(sql).replace(/\s+/g, ' ');
+    expect(texte).toContain('INSERT INTO analyse_sans_lidar (jour_paris, motif, dalle, commune_insee)');
+    expect(texte).toContain("'pas_de_lidar'");
+    expect(params).toHaveLength(3);
+    expect(params[0]).toMatch(/^\d{4}-\d{2}-\d{2}$/); // jour civil de Paris, jamais l'heure
+    expect(params.slice(1)).toEqual(['0642_6854', '78640']);
+    // 🔒 décision d'Arno : ni adresse, ni point, ni heure
+    expect(texte).not.toMatch(/adresse|lat|lon|x_l93|y_l93|survenu_le/);
   });
 
   it('REPLI : table absente (migration 354 non appliquée, 42P01) → aucune exception, UN seul avertissement', async () => {

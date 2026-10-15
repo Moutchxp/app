@@ -53,8 +53,6 @@ export async function POST(req: Request) {
   // hauteur sous plafond optionnelle : nombre > 0, sinon undefined → le moteur applique 2,50.
   const hauteurSousPlafondM =
     typeof b.hauteurSousPlafondM === "number" && b.hauteurSousPlafondM > 0 ? b.hauteurSousPlafondM : undefined;
-  // adresse saisie, optionnelle : n'entre JAMAIS dans le calcul ; sert seulement au journal d'une analyse sans LiDAR.
-  const adresse = typeof b.adresse === "string" && b.adresse.trim() !== "" ? b.adresse.trim().slice(0, 300) : null;
 
   // ── CADENCE (résidu G4) — APRÈS la validation d'entrée (une requête malformée ne consomme pas de quota),
   //    AVANT le calcul (c'est lui qu'on protège). Un titulaire de compte est compté PAR COMPTE et n'a aucune
@@ -145,10 +143,9 @@ export async function POST(req: Request) {
           ...(motif === "pas_de_lidar" ? { raison: "hors_lidar" } : {}),
         });
         if (motif === "pas_de_lidar") {
+          // Jour + dalle + commune SEULEMENT (décision d'Arno) : le point sert ici à calculer la dalle, puis il est jeté.
           const p = validation.pointSnappeL93;
-          await journaliserAnalyseSansLidar({
-            adresse, lat, lon, xL93: p?.x ?? null, yL93: p?.y ?? null, dalle: p ? dalleIgn(p.x, p.y) : null, communeInsee: commune,
-          });
+          await journaliserAnalyseSansLidar({ dalle: p ? dalleIgn(p.x, p.y) : null, communeInsee: commune });
         }
         await purgerCadence(); // purge des vieux compteurs, post-réponse et best-effort (aucune tâche planifiée à tenir)
       } catch (e) {

@@ -2508,8 +2508,7 @@ export default function Home() {
       const r = await fetch("/api/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // `adresse` n'entre jamais dans le calcul : seulement dans le journal d'une analyse sans LiDAR (lot ZONE SANS LiDAR).
-        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, hauteurSousPlafondM, dernierEtage, mode, adresse: address || undefined }),
+        body: JSON.stringify({ lat, lon, azimut, etage: etageNum, hauteurSousPlafondM, dernierEtage, mode }),
         signal: ctrl.signal,
       });
       // On vérifie le statut AVANT de lire le corps (une réponse d'erreur peut ne pas être du JSON).

@@ -229,7 +229,7 @@ describe('/api/analyse — ZONE SANS LiDAR : dire pourquoi il n’y a pas de ver
   };
   const CORPS_VELIZY = { lat: 48.78132268116829, lon: 2.2205969595575814, azimut: 90, etage: 2, dernierEtage: false };
 
-  it('aucune dalle MNT → 200, resultat null, motif « pas_de_lidar » ; compteur raison hors_lidar ; journal avec adresse et dalle', async () => {
+  it('aucune dalle MNT → 200, resultat null, motif « pas_de_lidar » ; compteur raison hors_lidar ; journal dalle + commune SEULES', async () => {
     analyser.mockResolvedValue({ validation: VALIDATION_SANS_ALTITUDE, resultat: null });
     mnt.mockResolvedValue(false);
     commune.mockResolvedValueOnce('78640');
@@ -240,18 +240,17 @@ describe('/api/analyse — ZONE SANS LiDAR : dire pourquoi il n’y a pas de ver
     expect(mnt).toHaveBeenCalledWith(VALIDATION_SANS_ALTITUDE.pointSnappeL93);
     await tick();
     expect(incr.mock.calls[0][0]).toEqual({ nom: 'resultat', verdict: 'INDETERMINE', scoreTranche: null, communeInsee: '78640', raison: 'hors_lidar' });
-    expect(journal).toHaveBeenCalledWith({
-      adresse: '1 rue de l’Essai 78140 Vélizy-Villacoublay', lat: 48.78132268116829, lon: 2.2205969595575814,
-      xL93: 642685.2785637568, yL93: 6853606.124672878, dalle: '0642_6854', communeInsee: '78640',
-    });
+    // 🔒 décision d'Arno (15/10/2026) : ni l'adresse envoyée, ni le point, ni l'heure ne sont journalisés.
+    expect(journal).toHaveBeenCalledWith({ dalle: '0642_6854', communeInsee: '78640' });
+    expect(JSON.stringify(journal.mock.calls[0][0])).not.toMatch(/Essai|48\.78|2\.22|642685|6853606/);
   });
 
-  it('l’adresse est facultative, et n’entre jamais dans le calcul', async () => {
+  it('une adresse envoyée par un ancien client est ignorée : ni calcul, ni journal', async () => {
     analyser.mockResolvedValue({ validation: VALIDATION_SANS_ALTITUDE, resultat: null });
     mnt.mockResolvedValue(false);
-    await POST(requete(CORPS_VELIZY));
+    await POST(requete({ ...CORPS_VELIZY, adresse: '1 rue de l’Essai' }));
     await tick();
-    expect(journal.mock.calls[0][0].adresse).toBeNull();
+    expect(Object.keys(journal.mock.calls[0][0]).sort()).toEqual(['communeInsee', 'dalle']);
     expect(analyser.mock.calls[0][0]).not.toHaveProperty('adresse');
   });
 
