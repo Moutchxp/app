@@ -6,6 +6,7 @@ import MapSelector from "./MapSelector";
 import { AdresseAutocomplete } from "./components/AdresseAutocomplete";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
+import { afficherPointRepris, demanderGpsALOuverture, prendreReprise, type RepriseTest } from "./lib/tunnel/repriseRefaireTest";
 import type { ModeOrigine } from "./lib/svv/config";
 import { hauteurVision } from "./lib/svv/config";
 import { cardinal } from "./lib/cardinal";
@@ -1770,6 +1771,13 @@ export default function Home() {
   }, [analyseEnCours]);
   const ignoreNextReverseRef = useRef(false);
   const conserverPositionRef = useRef(false); // au redo : garder le marqueur, ne pas réécrire via GPS
+  // « Refaire le test » (page de résultat) : adresse + point validé du test précédent, repris sur l'écran de localisation.
+  // Posé UNIQUEMENT par ce bouton ; consommé à la photo ; effacé au retour à l'accueil (rien n'est repris ailleurs).
+  const repriseRef = useRef<RepriseTest | null>(null);
+  const [pointRepris, setPointRepris] = useState(false); // l'écran de localisation affiche le point repris (choix A)
+  useEffect(() => {
+    if (etape === "accueil") { repriseRef.current = null; setPointRepris(false); }
+  }, [etape]);
   // Vrai dès que l'utilisateur a déplacé la carte. Empêche le GPS photo TARDIF de rappeler la
   // carte sur le point photo après que l'utilisateur a choisi son point.
   const userMovedRef = useRef(false);
@@ -2332,7 +2340,8 @@ export default function Home() {
       setRollValid(true);
     }
     // Caméra ACCORDÉE → on demande la position GPS (centrage carte uniquement, non bloquant).
-    demanderPositionGPS();
+    // SAUF reprise de « Refaire le test » : la demande GPS viderait l'adresse et replacerait le point (cf. repriseRefaireTest).
+    if (demanderGpsALOuverture(repriseRef.current)) demanderPositionGPS();
   }
 
   // « Réessayer » de la modale orientation : re-déclenche requestPermission DANS le geste du clic
@@ -2439,7 +2448,17 @@ export default function Home() {
         if (conserverPositionRef.current) {
           conserverPositionRef.current = false;
           setCarteCentrePret(true); // point conservé : centre déjà bon, pas d'attente GPS
-          origine.evaluer(position.latitude, position.longitude, mode); // re-évalue le point conservé (sans GPS)
+          const reprise = repriseRef.current;
+          repriseRef.current = null;
+          if (reprise) {
+            // « Refaire le test » : même adresse, même point, DÉJÀ validé (aucun nouveau contrôle tant qu'on ne touche pas la carte).
+            setPosition({ latitude: reprise.valide.lat, longitude: reprise.valide.lon });
+            setAddress(reprise.adresse);
+            origine.reprendre(reprise.valide);
+            setPointRepris(true);
+          } else {
+            origine.evaluer(position.latitude, position.longitude, mode); // re-évalue le point conservé (sans GPS)
+          }
         } else {
           demanderPositionGPS();
         }
@@ -3137,6 +3156,7 @@ export default function Home() {
           longitude={position.longitude}
           onPositionChange={(newPosition) => {
             userMovedRef.current = true; // vrai déplacement → le GPS photo tardif ne recentrera plus
+            setPointRepris(false); // carte touchée → fin de la reprise, parcours normal (contrôle puis « Valider »)
             setPosition(newPosition);
             getAddressFromGPS(newPosition.latitude, newPosition.longitude);
             origine.evaluer(newPosition.latitude, newPosition.longitude, mode);
@@ -3144,7 +3164,7 @@ export default function Home() {
           onUserMove={() => { userMovedRef.current = true; setPointDeplace(true); }}
           pointSnappe={mode === "manuel" ? null : (origine.resultat?.pointSnappeWgs84 ?? null)}
           mode={mode}
-          onModeChange={(x) => { setMode(x); origine.evaluer(position.latitude, position.longitude, x); }}
+          onModeChange={(x) => { setMode(x); setPointRepris(false); origine.evaluer(position.latitude, position.longitude, x); }}
         />
       ) : (
         // Placeholder neutre, même hauteur que la carte → pas de flash Paris ni de saut de layout.
@@ -3217,6 +3237,24 @@ export default function Home() {
       </div>
     )}
 
+    {/* « Refaire le test » (choix A) : point du test précédent, déjà validé → cartouche vert + « Continuer avec ce point ».
+        Toucher la carte (ou changer d'adresse / de mode) fait tomber la reprise : retour au parcours normal ci-dessous. */}
+    {afficherPointRepris(pointRepris, origine.valide) ? (
+    <>
+    <div className="mt-3 min-h-12">
+      <div className="rounded-xl border border-svv-green/40 bg-svv-green-soft p-3 text-sm font-medium text-svv-green-ink">
+        ✓ Point validé lors du test précédent
+      </div>
+    </div>
+    <button
+      type="button"
+      onClick={() => { setPointRepris(false); setEtape("orientation"); }}
+      className="mt-4 svv-btn svv-btn-primary"
+    >
+      Continuer avec ce point
+    </button>
+    </>
+    ) : (
     <button
       type="button"
       onClick={() => {
@@ -3236,6 +3274,7 @@ export default function Home() {
     >
       Valider votre point de vue
     </button>
+    )}
 
     {/* Pop-up d'aide « Pourquoi ce point et comment le placer » (calquée sur l'écran orientation) */}
     {infoLocalisationOuvert && (
@@ -3650,6 +3689,7 @@ export default function Home() {
         onObtenirCertificat={() => { mesure("clic_certificat"); setEtape("certificat"); }}
         onRecommencer={() => setEtape("accueil")}
         onRefaireTest={() => {
+          repriseRef.current = prendreReprise(address, origine.valide); // AJOUT : même adresse + point validé repris
           reinitialiserCapteurs();             // repart d'un état niveau propre (évite le déclencheur grisé)
           setPhoto(null);
           setCapturedOrientation(null);
