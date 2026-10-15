@@ -415,3 +415,24 @@ après « — et, s’ils figurent au dossier, les plans de niveaux ou d’étag
 NGF du projet. » :
 
 > — si le dossier en comporte, les fichiers sources des pièces graphiques (DWG, DXF) ; leur communication nous serait précieuse, mais leur absence ne doit en rien retarder l’envoi des pièces ci-dessus.
+
+## 9. Mettre à jour la prod
+
+Depuis le 15/10/2026, une seule commande met la prod à jour, avec sauvegarde avant et retour arrière automatique.
+Mode d'emploi complet : `deploy/maj/README.md`. En bref, dans le Terminal du Mac, travail committé :
+
+```
+mkdir -p .captures/maj
+git push
+npm run prod:mettre-a-jour -- --essai      2>&1 | tee .captures/maj/essai.txt
+npm run prod:mettre-a-jour -- --appliquer  2>&1 | tee .captures/maj/appliquer.txt
+```
+
+- L'essai ne change rien pour les visiteurs ; il doit finir par `═══ ESSAI RÉUSSI … ═══`.
+- L'application finit par `═══ MISE À JOUR RÉUSSIE … ═══`, ou revient seule à la version d'avant
+  (`═══ ÉCHEC — RETOUR ARRIÈRE FAIT … ═══`).
+- **Un ⛔** : lire la dernière ligne `═══ … ═══` et le tableau « Si un ⛔ apparaît » du README. `REFUSÉ` = rien n'a changé.
+- **Journaux** : `/home/ubuntu/sansvisavis/maj/` (un `.log` par passage, `historique.tsv`).
+  **Sauvegardes avant mise à jour** : `/home/ubuntu/sauvegardes-maj/` (les 10 dernières, sans LiDAR).
+- **Revenir en arrière à la main** (code : un changement de lien ; base : décision d'Arno, jamais automatique) : section
+  du même nom dans le README.
