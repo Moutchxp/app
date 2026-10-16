@@ -644,11 +644,22 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
     ...o,
   });
 
-  const ouvrir = async (contexte: Record<string, unknown>, mails: number[] = [900]) => {
+  /**
+   * 🔴 LOT RATTACHEMENT-CONVERSATION — `suiviMails` : les mails de la conversation selon `/suivi`. Par défaut, le mail 900
+   * n'est PAS le premier (899 le précède) : c'est le cas où le geste d'avant reste vrai. Premier mail d'une conversation
+   * sans suivi de fond ⇒ règle A (épreuves dédiées plus bas).
+   */
+  const ouvrir = async (contexte: Record<string, unknown>, mails: number[] = [900], suiviMails: number[] = [899, 900]) => {
     liensParMessage = { '900': [] };
     const avant = global.fetch as unknown as typeof fetch;
     global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       const u = String(url);
+      if (u.includes('/gestion/interne?fils=')) {   // « Interne » installé, conversation non marquée
+        return { ok: true, json: async () => ({ etat: 'ok', data: {} }) } as unknown as Response;
+      }
+      if (u.includes('/gestion/suivi') && (init?.method ?? 'GET') === 'GET') {
+        return { ok: true, json: async () => ({ etat: 'ok', periodes: [], exceptions: [], mails: suiviMails, rattachee: false, interneEchange: false }) } as unknown as Response;
+      }
       if (u.includes('/classement?message=')) {
         appels.push({ url: u, methode: init?.method ?? 'GET' });
         return { ok: true, json: async () => ({ etat: 'ok', contexte }) } as unknown as Response;
@@ -738,6 +749,35 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
     expect(resume()).toContain('2 biens');
     await cliquer(valider());
     expect(ecritures().filter((a) => a.methode === 'POST')).toHaveLength(2);
+  });
+
+  /* ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION — RÈGLE A (décision d'Arno du 16/10/2026) ══════════════════════════════════ */
+  it('🔴🔴 règle A : premier mail d’une conversation sans suivi ⇒ la glissière du bouton « Rattacher », sur « Ce mail + futurs échanges »', async () => {
+    await ouvrir(CONTEXTE(), [900, 901, 902], [900, 901, 902]);
+    expect(radios()).toHaveLength(0); // les deux choix d'avant cèdent la place à la glissière, ici seulement
+    const positions = [...container.querySelectorAll('.clm [role="radio"]')].map((r) => `${r.textContent}${r.getAttribute('aria-checked') === 'true' ? '*' : ''}`);
+    expect(positions).toEqual(['One shot', 'Ce mail + futurs échanges*', 'Toute la conversation']);
+    expect(container.textContent).toContain('son rattachement devient le suivi de fond');
+  });
+
+  it('🔴🔴 règle A : la validation part à `/suivi` (la porte du bouton « Rattacher »), une seule requête, portée « suite »', async () => {
+    await ouvrir(CONTEXTE(), [900, 901, 902], [900, 901, 902]);
+    await cliquer(valider());
+    const suivis = appels.filter((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
+    expect(suivis).toHaveLength(1);
+    expect(ecritures().filter((a) => a.methode === 'POST')).toHaveLength(0);
+  });
+
+  it('🔴🔴 règle C : « Interne » sur un mail qui n’est pas le premier ⇒ glissière SANS position, validation inactive jusqu’au choix', async () => {
+    await ouvrir(CONTEXTE(), [899, 900], [899, 900]);
+    const interne = [...container.querySelectorAll('.clm input[name="clm-reponse"]')][1] as HTMLInputElement;
+    await cliquer(interne);
+    const glissiere = () => [...container.querySelectorAll('.clm [role="radio"]')] as HTMLElement[];
+    expect(glissiere().map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'false', 'false']);
+    expect((valider() as HTMLButtonElement).disabled).toBe(true);
+    await cliquer(glissiere()[0]);
+    expect(glissiere()[0].getAttribute('aria-checked')).toBe('true');
+    expect((valider() as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('un bien DÉCOCHÉ passe au statut « retiré » (PATCH), il n’est jamais supprimé', async () => {

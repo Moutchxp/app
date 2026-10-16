@@ -37,6 +37,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { motSortieDesBiens } from './sortirDuSuivi';
+import { porteeADemander } from './porteeSuivi';
 
 /**
  * 🔴 LE MOTIF ÉCRIT EN BASE SUR CHAQUE LIEN RETIRÉ. Il dit QUI a décidé et POURQUOI, et il se relit dans le journal
@@ -85,8 +86,7 @@ export function porteeInterneADemander(o: {
   messageId: number; mails: readonly number[]; nbPeriodes: number; nbExceptions: number;
   rattachee: boolean; interneEchange: boolean;
 }): boolean {
-  const sansFond = o.nbPeriodes === 0 && o.nbExceptions === 0 && !o.rattachee && !o.interneEchange;
-  return sansFond && o.mails.length > 1 && o.mails.includes(o.messageId) && !estPremierMail(o.messageId, o.mails);
+  return porteeADemander(o);
 }
 
 /** Le bandeau du premier mail marqué directement (Arno) : « Conversation marquée Interne — Annuler », 10 secondes. */

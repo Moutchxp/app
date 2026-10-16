@@ -8,6 +8,8 @@ import {
 // 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — « cet expéditeur est-il connu des fiches ? » (règle ② d'Arno).
 import { expediteurConnuDesFiches } from '../../../../../lib/gestion/contactExterneRepo';
 import { periodesDisponibles } from '../../../../../lib/gestion/schema';
+// 🔴🔴 LOT RATTACHEMENT-CONVERSATION — la conversation est-elle déjà « Interne » (suivi de fond Interne, règle B) ?
+import { lireInterne } from '../../../../../lib/gestion/interneRepo';
 import type { ChoixSuivi, Classement, SorteClassement } from '../../../../../lib/gestion/periodesConversation';
 
 /**
@@ -177,7 +179,7 @@ export async function GET(request: Request): Promise<Response> {
      * 🔴 CINQ LECTURES EN PARALLÈLE, et non l'une après l'autre : elles sont indépendantes, et cette route
      * s'exécute à CHAQUE ouverture de la modale. Les enchaîner se verrait à l'écran.
      */
-    const [suivi, mails, rattachee, expediteurConnu, anciennes] = await Promise.all([
+    const [suivi, mails, rattachee, expediteurConnu, anciennes, interneEchange] = await Promise.all([
       suiviDuFil(filId),
       mailsDuFil(filId),
       // 🔴 « DÉJÀ RATTACHÉE » : au moins un rattachement VALIDÉ, en plus des périodes et des exceptions.
@@ -186,9 +188,11 @@ export async function GET(request: Request): Promise<Response> {
       /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — les fenêtres refermées : l'« avant » d'un changement et les
          autres changements du même mail (fenêtre du « i »). Lecture seule, silencieuse en cas d'échec. */
       periodesRefermeesDuFil(filId),
+      /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION — lecture seule ; en échec, `false` : au pire on DEMANDE la portée, jamais on ne la devine. */
+      lireInterne([filId]).then((m) => m.size > 0).catch(() => false),
     ]);
     return Response.json(
-      { etat: 'ok', ...suivi, mails, rattachee, expediteurConnu, anciennes }, { headers: ENTETES });
+      { etat: 'ok', ...suivi, mails, rattachee, expediteurConnu, anciennes, interneEchange }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/suivi] lecture impossible (fil=%d)', filId, e);
     return Response.json({ erreur: 'Lecture impossible : la base n’a pas répondu.' },

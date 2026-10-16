@@ -528,7 +528,9 @@ describe('🔴🔴 ⑦ mail déjà classé : la glissière, comme dans « Modifi
 describe('🔴🔴 ⑧ mail jamais classé : « Ce mail + futurs échanges » d’avance', () => {
   const jamaisRattachee = (o: Partial<typeof suiviDuFil> = {}) => {
     etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
-    suiviDuFil = { periodes: [], exceptions: [], mails: [800, 900], rattachee: false, expediteurConnu: true, ...o };
+    /* 🔴 LOT RATTACHEMENT-CONVERSATION — 900 est le PREMIER mail (règle A : présélection inchangée). Le mail du milieu
+       d'une conversation sans suivi relève de la règle C, éprouvée juste après ce bloc. */
+    suiviDuFil = { periodes: [], exceptions: [], mails: [900, 901], rattachee: false, expediteurConnu: true, ...o };
   };
 
   it('🔴🔴 la glissière est sur « Ce mail + futurs échanges » dès l’ouverture, et le bloc dit « Aucun bien suivi »', async () => {
@@ -630,5 +632,76 @@ describe('🔴🔴 ⑧ mail jamais classé : « Ce mail + futurs échanges » d�
     const lecture = appels.find((a) => a.url.includes('/gestion/suivi') && a.url.includes('message=') && a.methode === 'GET');
     expect(lecture?.url).toContain('fil=101');
     expect(lecture?.url).toContain('message=900');
+  });
+});
+
+/* ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — RÈGLE C : mail du MILIEU d'une conversation sans suivi ══════ */
+describe('🔴🔴 règle C : mail qui n’est pas le premier, conversation sans suivi de fond — aucune position présélectionnée', () => {
+  const milieuSansFond = () => {
+    etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] };
+    suiviDuFil = { periodes: [], exceptions: [], mails: [800, 900], rattachee: false, expediteurConnu: true };
+  };
+  it('🔴🔴 glissière vide, texte d’invite, bouton inactif même avec un bien coché ; rien n’est écrit', async () => {
+    milieuSansFond();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(container.querySelectorAll('.rdf [role="radio"][aria-checked="true"]')).toHaveLength(0);
+    expect(container.querySelector('.gpo-curseur')).toBeNull();
+    expect(texte()).toContain('choisissez le type de suivi');
+    const b = bouton('Choisissez d’abord le type de suivi');
+    expect(b?.disabled).toBe(true);
+    expect(ecritures()).toHaveLength(0);
+  });
+  it('🔴🔴 une option choisie ⇒ le bouton s’active et la portée choisie part, exactement', async () => {
+    milieuSansFond();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    await act(async () => { position('One shot').click(); });
+    await calmer();
+    expect(positionChoisie()).toContain('One shot');
+    await cliquer('Valider le rattachement one shot');
+    expect(ecritures()).toHaveLength(1);
+    expect((ecritures()[0].corps as { choix: string }).choix).toBe('mail');
+  });
+  it('⚠️ conversation DÉJÀ suivie : rien ne change (pas de glissière vide)', async () => {
+    milieuSansFond();
+    suiviDuFil = { ...suiviDuFil, rattachee: true };
+    await monter();
+    await cliquer('Rattacher');
+    expect(texte()).not.toContain('choisissez le type de suivi');
+  });
+});
+
+/* ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — L'ÉTAPE 2 REFLÈTE LA GLISSIÈRE ═══════════════════════════ */
+describe('🔴🔴 « Classer ce nouveau contact » affiche le choix réel de la glissière', () => {
+  const radiosEtape2 = () => [...container.querySelectorAll('input[name="ece-suivi"]')] as HTMLInputElement[];
+  it('🔴🔴 « One shot » sur la glissière ⇒ « Ce mail uniquement » coché (et non « Ce mail et la conversation à venir »), en lecture seule', async () => {
+    etape2 = ETAPE2_DEMANDEE;
+    suiviDuFil = { periodes: [], exceptions: [], mails: [900, 901], rattachee: false, expediteurConnu: false };
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    await act(async () => { position('One shot').click(); });
+    await calmer();
+    await cliquer('Valider le rattachement one shot');
+    expect(radiosEtape2().map((r) => r.checked)).toEqual([false, true]);
+    expect(radiosEtape2().every((r) => r.disabled)).toBe(true);
+    expect(texte()).toContain('Portée choisie à l’étape précédente : « One shot »');
+  });
+  it('⚠️ glissière non touchée (premier mail, défaut) : les deux choix décident, comme avant', async () => {
+    etape2 = ETAPE2_DEMANDEE;
+    suiviDuFil = { periodes: [], exceptions: [], mails: [900, 901], rattachee: false, expediteurConnu: false };
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    await cliquer('Valider le rattachement de fond');
+    expect(radiosEtape2().map((r) => r.checked)).toEqual([true, false]);
+    expect(radiosEtape2().some((r) => r.disabled)).toBe(false);
   });
 });

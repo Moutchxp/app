@@ -259,3 +259,31 @@ export function titreBlocPropositions(ajoute: boolean, position: PositionPortee)
   if (position === 'conversation') return 'Bien(s) ajouté(s) pour toute la conversation';
   return 'Bien(s) ajouté(s)';
 }
+
+/**
+ * ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — FAIRE CHOISIR LA PORTÉE, SANS PRÉSÉLECTION ═══════════════
+ *
+ * RÈGLE C : conversation SANS suivi de fond (aucune fenêtre, aucun rattachement validé, aucune marque « Interne » de
+ * l'échange), qui contient déjà plusieurs mails ; on classe un mail qui n'est PAS le premier ⇒ la glissière n'a AUCUNE
+ * position présélectionnée, et la validation reste inactive tant qu'une des trois options (One shot, Ce mail + futurs
+ * échanges, Toute la conversation) n'est pas choisie. Premier mail (A) et conversation déjà suivie (B) : rien ne change.
+ * `mails` est dans l'ordre CHRONOLOGIQUE ; vide ou mail absent ⇒ on ne demande rien. PUR.
+ */
+export function porteeADemander(o: {
+  messageId: number; mails: readonly number[]; nbPeriodes: number; nbExceptions: number;
+  rattachee: boolean; interneEchange: boolean;
+}): boolean {
+  const sansFond = o.nbPeriodes === 0 && o.nbExceptions === 0 && !o.rattachee && !o.interneEchange;
+  return sansFond && o.mails.length > 1 && o.mails.includes(o.messageId) && o.mails[0] !== o.messageId;
+}
+
+/** La glissière est-elle encore SANS position (règle C, et personne n'a encore choisi) ? PUR. */
+export function positionAChoisir(voulue: PositionPortee | null, aDemander: boolean): boolean {
+  return aDemander && (voulue === null || voulue === 'origine');
+}
+
+/** Le texte sous la glissière tant qu'aucune option n'est choisie, et le bouton inactif (Arno). */
+export const DEFINITION_A_CHOISIR = 'Ce mail n’est pas le premier de la conversation, et la conversation n’a pas encore de '
+  + 'suivi : choisissez le type de suivi — One shot, Ce mail + futurs échanges ou Toute la conversation. Aucun mail plus '
+  + 'ancien ne change sans que l’option choisie le dise.';
+export const MOT_CHOISIR_PORTEE = 'Choisissez d’abord le type de suivi';

@@ -55,7 +55,12 @@ export function GlissierePortee({
   libelleGroupe?: string;
   /** Tout est figé (une requête est en cours). */
   desactivee?: boolean;
-  position: PositionPortee;
+  /**
+   * 🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — `null` = AUCUNE position présélectionnée (mail qui n'est pas le
+   * premier, conversation sans suivi de fond) : le curseur n'est pas dessiné, aucun libellé n'est coché, et le premier
+   * libellé actif reste atteignable au clavier. Le premier clic choisit.
+   */
+  position: PositionPortee | null;
   /** Y a-t-il une modification dans les blocs du dessus ? Sans elle, les trois autres positions sont grisées. */
   modification: boolean;
   onChoisir: (p: PositionPortee) => void;
@@ -99,7 +104,7 @@ export function GlissierePortee({
   };
   /** La flèche saute les positions grisées : elle va à la prochaine position ACTIVE dans ce sens, ou ne bouge pas. */
   const pas = (sens: 1 | -1): void => {
-    for (let i = index + sens; i >= 0 && i < n; i += sens) {
+    for (let i = index < 0 ? (sens > 0 ? 0 : n - 1) : index + sens; i >= 0 && i < n; i += sens) {
       if (actif(LISTE[i].cle)) { auClavier.current = true; choisirIndex(i); return; }
     }
   };
@@ -122,7 +127,7 @@ export function GlissierePortee({
             className={`gpo-cran${actif(p.cle) ? '' : ' gpo-cran--grise'}`}
             style={{ ['--gpo-x' as string]: fraction(i) }} />
         ))}
-        <div className="gpo-curseur" style={{ ['--gpo-x' as string]: fraction(Math.max(0, index)) }}>
+        {index >= 0 && (<div className="gpo-curseur" style={{ ['--gpo-x' as string]: fraction(Math.max(0, index)) }}>
           {/* 🔴 LOT PILULE-TROIS-TRAITS — LA POIGNÉE : trois traits verticaux blancs, celui du milieu plus grand (18 px,
               12 px sur les côtés), 3 px d'épaisseur, bouts arrondis, 5 px d'écart. En SVG : net, identique dans les
               deux thèmes, et réduit avec la pilule sur téléphone. */}
@@ -132,7 +137,7 @@ export function GlissierePortee({
             <rect x="7" y="0" width="2" height="15" rx="1" />
             <rect x="14" y="2.5" width="2" height="10" rx="1" />
           </svg>
-        </div>
+        </div>)}
       </div>
       {/* Les quatre libellés, centrés sous leur repère : ce sont les boutons radio du groupe (cibles tactiles pleines). */}
       <div className="gpo-libelles" role="radiogroup" aria-label={libelleGroupe} ref={groupe}
@@ -157,7 +162,7 @@ export function GlissierePortee({
           const choisi = p.cle === position;
           const interdite = origineInterdite !== null && p.cle === 'origine';
           return (
-            <button key={p.cle} type="button" role="radio" aria-checked={choisi} tabIndex={choisi ? 0 : -1}
+            <button key={p.cle} type="button" role="radio" aria-checked={choisi} tabIndex={choisi || (index < 0 && p.cle === LISTE.find((q) => actif(q.cle))?.cle) ? 0 : -1}
               disabled={!active && !interdite}
               aria-disabled={interdite ? true : undefined}
               title={interdite ? origineInterdite : undefined}

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   definitionDe, modificationEnCours, motBoutonFinal, motConfirmationConversation, positionActive, positionSuivante,
-  POSITIONS_PORTEE, QUESTION_RETOUR_ORIGINE,
+  POSITIONS_PORTEE, QUESTION_RETOUR_ORIGINE, porteeADemander, positionAChoisir,
 } from './porteeSuivi';
 import { BANDEAU_MODIFICATION_PONCTUELLE } from './sortirDuSuivi';
 
@@ -59,5 +59,24 @@ describe('④ la confirmation, avec le nombre de mails mis à jour', () => {
   it('un seul autre mail, ou aucun', () => {
     expect(motConfirmationConversation({ mails: [1, 2], exceptions: [], messageId: 2 })).toBe('1 mail de cette conversation sera mis à jour.');
     expect(motConfirmationConversation({ mails: [2], exceptions: [], messageId: 2 })).toBe('Aucun autre mail de cette conversation ne sera mis à jour.');
+  });
+});
+
+/* ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — règle C : aucune position présélectionnée ══════════════════ */
+describe('🔴🔴 règle C — faire choisir la portée', () => {
+  const SANS = { nbPeriodes: 0, nbExceptions: 0, rattachee: false, interneEchange: false };
+  it('mail qui n’est pas le premier, conversation sans suivi ⇒ on demande ; premier mail ou conversation suivie ⇒ non', () => {
+    expect(porteeADemander({ messageId: 2, mails: [1, 2, 3], ...SANS })).toBe(true);
+    expect(porteeADemander({ messageId: 1, mails: [1, 2, 3], ...SANS })).toBe(false);
+    expect(porteeADemander({ messageId: 2, mails: [1, 2, 3], ...SANS, nbPeriodes: 1 })).toBe(false);
+    expect(porteeADemander({ messageId: 2, mails: [1, 2, 3], ...SANS, rattachee: true })).toBe(false);
+    expect(porteeADemander({ messageId: 2, mails: [1, 2, 3], ...SANS, interneEchange: true })).toBe(false);
+    expect(porteeADemander({ messageId: 9, mails: [1, 2, 3], ...SANS })).toBe(false);
+  });
+  it('sans position tant que personne n’a choisi (ni « Origine ») ; un choix la pose', () => {
+    expect(positionAChoisir(null, true)).toBe(true);
+    expect(positionAChoisir('origine', true)).toBe(true);
+    expect(positionAChoisir('one_shot', true)).toBe(false);
+    expect(positionAChoisir(null, false)).toBe(false);
   });
 });

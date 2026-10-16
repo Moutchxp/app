@@ -239,7 +239,8 @@ describe('🔴🔴 ⑤ l’écran : demander avant, offrir la sortie après', ()
   /* 🔴 LOT INTERNE-GLISSIERE-ET-STATUT-COHERENT — les trois fenêtres sont désormais les trois positions de LA glissière
      de la fenêtre de rattachement (One shot, Ce mail + futurs échanges, Toute la conversation), mêmes fenêtres. */
   it('🔴🔴 les trois fenêtres, sur la glissière de la fenêtre de rattachement', () => {
-    expect(ENC).toContain('<GlissierePortee position={positionDuChoixInterne(demandeInterne.choix)} modification');
+    /* 🔴 LOT RATTACHEMENT-CONVERSATION — `null` = règle C, aucune position présélectionnée. */
+    expect(ENC).toContain('<GlissierePortee position={demandeInterne.choix === null ? null : positionDuChoixInterne(demandeInterne.choix)} modification');
     expect(ENC).toContain('positions={POSITIONS_INTERNE}');
     expect(ENC).toContain('void changerFenetreInterne(choixDeLaPositionInterne(p));');
     /* 🔴 ET LA LISTE EST RE-DEMANDÉE AU SERVEUR : une liste figée promettrait autre chose que le bouton. */

@@ -83,6 +83,8 @@ import {
   BULLE_ORIGINE_PREMIER,
   /* 🔴 LOT TITRE-PROPOSITIONS-DYNAMIQUE — le titre du bloc « Propositions », en direct. */
   titreBlocPropositions,
+  /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION — règle C : faire choisir la portée, sans présélection. */
+  DEFINITION_A_CHOISIR, MOT_CHOISIR_PORTEE, porteeADemander, positionAChoisir,
 } from '../../../../lib/gestion/porteeSuivi';
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
 /* 🔴🔴 LOT COMPOSEUR-FENETRE-COMPLETE — la décision de la fenêtre pour un mail en cours d'écriture (module PUR). */
@@ -705,7 +707,7 @@ function RattachementsDuFilMail({
   }, [leveeFaite]);
   /** Les périodes et exceptions vivantes de l'échange — pour l'alerte de « Toute la conversation ». */
   const [suivi, setSuivi] = useState<
-    { mails: number[]; exceptions: ExceptionMail[]; periodes: Periode[] } | null>(null);
+    { mails: number[]; exceptions: ExceptionMail[]; periodes: Periode[]; rattachee?: boolean; interneEchange?: boolean } | null>(null);
   /**
    * 🔴 LES DOSSIERS DRIVE DES BIENS, par clé de lot. Lus À PART, et APRÈS le reste.
    *
@@ -904,11 +906,13 @@ function RattachementsDuFilMail({
         const res = await fetch(`/api/admin/gestion/suivi?fil=${filId}`, { cache: 'no-store' });
         const d = (await res.json()) as {
           etat?: string; mails?: number[]; exceptions?: ExceptionMail[]; periodes?: Periode[];
+          rattachee?: boolean; interneEchange?: boolean;
         };
         if (annule || d.etat !== 'ok') return;
         /* 🔴🔴 LES PÉRIODES AUSSI, DEPUIS LE LOT RATTACHEMENT-PONCTUEL — voir `personnesEnVigueur` : elles
            portent les PERSONNES du classement, que la validation doit reposer telles quelles. */
-        setSuivi({ mails: d.mails ?? [], exceptions: d.exceptions ?? [], periodes: d.periodes ?? [] });
+        setSuivi({ mails: d.mails ?? [], exceptions: d.exceptions ?? [], periodes: d.periodes ?? [],
+          rattachee: d.rattachee === true, interneEchange: d.interneEchange === true });
       } catch { /* l'alerte se taira : voir l'encadré */ }
     })();
     return () => { annule = true; };
@@ -1041,6 +1045,17 @@ function RattachementsDuFilMail({
     suivi !== null && mailId !== null && fiche !== null && !fiche.horsGestion && clesDuMail.length === 0
     && !projeter(suivi.mails, suivi.periodes, suivi.exceptions).has(mailId)));
   const position = positionAffichee(positionVoulue, modification, premier);
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — RÈGLE C : AUCUNE POSITION PRÉSÉLECTIONNÉE ══════════════
+   * Mail jamais classé qui n'est PAS le premier d'une conversation sans suivi de fond : la glissière s'ouvre vide, et la
+   * validation reste inactive tant qu'une des trois options n'est pas choisie. `suivi` pas encore lu ⇒ on ne demande pas
+   * (la règle d'avant, le temps d'une requête). Premier mail et conversation déjà suivie : inchangés.
+   */
+  const aDemander = premier && suivi !== null && mailId !== null && porteeADemander({
+    messageId: mailId, mails: suivi.mails, nbPeriodes: suivi.periodes.length, nbExceptions: suivi.exceptions.length,
+    rattachee: suivi.rattachee === true, interneEchange: suivi.interneEchange === true,
+  });
+  const sansPosition = positionAChoisir(positionVoulue, aDemander);
   /* Plus aucune modification : la position voulue repart de ①, pour que la PROCHAINE modification ramène bien sur ②.
      ⚠️ Pas au premier classement : la portée s'y choisit AVANT de cocher, et on ne la reprend pas. */
   if (!premier && !modification && positionVoulue !== null) setPosition(null);
@@ -1472,7 +1487,9 @@ function RattachementsDuFilMail({
    * biens (un bref liseré, qui se tait sous `prefers-reduced-motion`).
    */
   const nbCoches = new Set(selection ?? clesDuMail).size;
-  const bouton = etatBoutonPortee({ premier, position, modification, nbCoches });
+  const bouton = sansPosition
+    ? { mot: MOT_CHOISIR_PORTEE, aspect: 'vide' as const, inactif: true, mention: null }
+    : etatBoutonPortee({ premier, position, modification, nbCoches });
   const appelerLesBiens = (): void => {
     setAppel(Date.now());
     const bloc = document.querySelector<HTMLElement>('.rdf .rdf-suivis, .rdf .rec-carte');
@@ -1480,6 +1497,7 @@ function RattachementsDuFilMail({
     if (bloc !== null && typeof bloc.scrollIntoView === 'function') bloc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   };
   const validerLaPortee = (): void => {
+    if (sansPosition) return;   // 🔴 règle C : rien ne s'écrit tant qu'une option n'est pas choisie
     if (bouton.inactif) { appelerLesBiens(); return; }
     /* « Origine » n'écrit jamais rien : au premier rattachement, le mail reste « À classer », biens cochés ou non. */
     if (!modification || position === 'origine') { onFerme(); return; }
@@ -1495,14 +1513,14 @@ function RattachementsDuFilMail({
   };
   /* 🔴 LOT COMPOSEUR-FENETRE-COMPLETE — le bloc est un composant PARTAGÉ (`BlocPortee`) : le composeur rend le même. */
   const blocPortee = (
-    <BlocPortee position={position} modification={modification} premier={premier}
+    <BlocPortee position={position} modification={modification} premier={premier} sansPosition={sansPosition}
       nbCoches={new Set(selection ?? clesDuMail).size}
       demandeOrigine={demandeOrigine} onChoisir={choisirPosition}
       onOuiOrigine={revenirALOrigine} onNonOrigine={() => setDemandeOrigine(false)}
       confirmation={position === 'conversation' && modification && suivi !== null && mailId !== null
         ? motConfirmationConversation({ mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId }) : null}
       confirme={confirme} onConfirme={() => setConfirme((v) => !v)}
-      bouton={bouton} desactive={occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
+      bouton={bouton} desactive={sansPosition || occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
       onValider={validerLaPortee} />
   );
 
@@ -1724,7 +1742,7 @@ function RattachementsDuFilMail({
                portée, dès qu'un bien est coché hors des biens déjà rattachés. Seule la porte à glissière est concernée. */
             {...(ponctuel ? {
               titrePropositions: titreBlocPropositions(
-                (selection ?? clesDuMail).some((c) => !clesDuMail.includes(c)), position),
+                (selection ?? clesDuMail).some((c) => !clesDuMail.includes(c)), sansPosition ? 'origine' : position),
             } : {})}
             /* 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — le cartouche nommé et la trame verte « coché ». */
             expediteurMail={expediteurMail} trameCochee
@@ -2243,9 +2261,11 @@ export function BlocEvenementLecture({ lus, evenement, charge, renvoi, ouvert, o
  */
 export function BlocPortee({
   position, modification, premier, nbCoches, demandeOrigine, onChoisir, onOuiOrigine, onNonOrigine,
-  confirmation, confirme, onConfirme, bouton, desactive, onValider, sansBouton = false,
+  confirmation, confirme, onConfirme, bouton, desactive, onValider, sansBouton = false, sansPosition = false,
 }: {
   position: PositionPortee;
+  /** 🔴 LOT RATTACHEMENT-CONVERSATION — règle C : aucune position présélectionnée (glissière vide, texte d'invite). */
+  sansPosition?: boolean;
   modification: boolean;
   premier: boolean;
   nbCoches: number;
@@ -2269,7 +2289,7 @@ export function BlocPortee({
       <p className="rdf-suivi-titre">Portée du suivi</p>
       {/* 🔴 Au premier classement, les quatre positions se choisissent d'emblée (`glissiereOuverte`). */}
       {/* 🔴 LOT PREMIER-RATTACHEMENT-SANS-ORIGINE — au premier rattachement, « Origine » grisée, avec sa bulle. */}
-      <GlissierePortee position={position} modification={glissiereOuverte(modification, premier)}
+      <GlissierePortee position={sansPosition ? null : position} modification={glissiereOuverte(modification, premier)}
         onChoisir={onChoisir} origineInterdite={premier ? BULLE_ORIGINE_PREMIER : null} />
       {demandeOrigine && (
         <div className="rdf-portee-question" role="alertdialog" aria-label={QUESTION_RETOUR_ORIGINE}>
@@ -2286,7 +2306,7 @@ export function BlocPortee({
       <p className={`rdf-portee-definition rdf-portee-definition--${position}`} role="note">
         {/* 🔴 ③ porte le nombre de biens cochés, en direct (lot ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES). */}
         {/* 🔴 LOT BULLE-BIENS-RATTACHES — « suivi de fond » en gras dans ③ (Arno). */}
-        {morceauxDefinitionPortee(position, nbCoches, premier)
+        {sansPosition ? DEFINITION_A_CHOISIR : morceauxDefinitionPortee(position, nbCoches, premier)
           .map((m, i) => (m.fort ? <strong key={i}>{m.texte}</strong> : <span key={i}>{m.texte}</span>))}
       </p>
       {/* 🔴 ④ — LA CONFIRMATION AVANT VALIDATION, avec le nombre de mails mis à jour. */}

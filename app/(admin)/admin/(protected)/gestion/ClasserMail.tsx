@@ -14,7 +14,7 @@ import { messageDetachement, phrasePorteeInterne, porteeInterneADemander } from 
 /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION — la MÊME glissière que le panneau « Interne » de l'encart (trois positions). */
 import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
 import type { ChoixInterne } from '../../../../lib/gestion/interneDuMail';
-import type { PositionPortee } from '../../../../lib/gestion/porteeSuivi';
+import { definitionAffichee, type PositionPortee } from '../../../../lib/gestion/porteeSuivi';
 
 const POSITIONS_INTERNE: readonly PositionPortee[] = ['one_shot', 'suite', 'conversation'];
 const positionDuChoix = (c: ChoixInterne): PositionPortee => (c === 'mail' ? 'one_shot' : c);
@@ -92,9 +92,16 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
    * chronologique, et a-t-elle un suivi de fond ? `null` = pas lue (pas de conversation, ou lecture en échec) : le geste
    * reste alors celui d'avant, sur tout l'échange.
    */
-  const [fil, setFil] = useState<{ mails: number[]; nbPeriodes: number; nbExceptions: number; rattachee: boolean } | null>(null);
-  /** La portée choisie sur la glissière ; même position de départ que le panneau « Interne » de l'encart. */
-  const [porteeInterne, setPorteeInterne] = useState<ChoixInterne>('suite');
+  const [fil, setFil] = useState<{
+    mails: number[]; nbPeriodes: number; nbExceptions: number; rattachee: boolean; interneEchange: boolean;
+  } | null>(null);
+  /**
+   * La portée « Interne » choisie sur la glissière. 🔴 `null` = aucune position présélectionnée (règle C, décision d'Arno
+   * du 16/10/2026) : la validation attend qu'une des trois soit choisie.
+   */
+  const [porteeInterne, setPorteeInterne] = useState<ChoixInterne | null>(null);
+  /** 🔴 RÈGLE A — la portée des biens au premier mail d'une conversation sans suivi : celle du bouton « Rattacher ». */
+  const [porteeBiens, setPorteeBiens] = useState<ChoixInterne>('suite');
   const [motifHg, setMotifHg] = useState<string>('');
   /**
    * 🔴 LOT AFFECTATION-PAR-BIEN — LE CLASSEMENT PIÈCE PAR PIÈCE. Éteint par DÉFAUT : la règle d'avant ce lot, où
@@ -184,10 +191,11 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
           const rs = await fetch(`/api/admin/gestion/suivi?fil=${filId}&message=${messageId}`, { cache: 'no-store' });
           const ds = (await rs.json()) as {
             etat?: string; mails?: number[]; periodes?: unknown[]; exceptions?: unknown[]; rattachee?: boolean;
+            interneEchange?: boolean;
           };
           setFil(ds.etat === 'ok' && Array.isArray(ds.mails) ? {
             mails: ds.mails.map(Number), nbPeriodes: ds.periodes?.length ?? 0, nbExceptions: ds.exceptions?.length ?? 0,
-            rattachee: ds.rattachee === true,
+            rattachee: ds.rattachee === true, interneEchange: ds.interneEchange === true,
           } : null);
         } catch { setFil(null); }
       }
@@ -250,12 +258,23 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
    */
   const demanderPortee = aMarquerInterne && fil !== null && porteeInterneADemander({
     messageId, mails: fil.mails, nbPeriodes: fil.nbPeriodes, nbExceptions: fil.nbExceptions,
-    rattachee: fil.rattachee, interneEchange: dejaMarqueInterne,
+    rattachee: fil.rattachee, interneEchange: dejaMarqueInterne || fil.interneEchange,
   });
+  /**
+   * ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION — RÈGLE A, DÉCISION D'ARNO (16/10/2026) ═══════════════════════════════════════
+   * « Rattacher le premier mail d'une conversation à un ou plusieurs biens depuis cette fenêtre fixe le suivi de fond,
+   * exactement comme le bouton “Rattacher”. » Premier mail, conversation SANS suivi de fond, des biens cochés et pas de
+   * classement par pièce ⇒ la décision part à `/api/admin/gestion/suivi` (la porte du bouton « Rattacher »), avec la
+   * glissière à trois positions de ce bouton, sur « Ce mail + futurs échanges » comme au premier rattachement.
+   * Tous les autres cas : le geste d'avant, inchangé.
+   */
+  const premierSansFond = fil !== null && filId !== null && fil.mails.length > 0 && fil.mails[0] === messageId
+    && fil.nbPeriodes === 0 && fil.nbExceptions === 0 && !fil.rattachee && !fil.interneEchange && !dejaMarqueInterne;
+  const parLeSuiviDeFond = premierSansFond && reponse === 'biens' && !parPiece && !annulation;
   const aAnnulerInterne = interneInstalle && dejaMarqueInterne
     // Annuler explicitement, OU rattacher un bien : le second lève la marque, exactement comme pour hors gestion.
     && (annulationInterne || (plan !== null && plan.aPoser.length > 0));
-  const aFaire = plan !== null && (plan.aPoser.length > 0 || plan.aPoserPieces.length > 0 || plan.aRetirer.length > 0
+  const aFaire = !(demanderPortee && porteeInterne === null) && plan !== null && (plan.aPoser.length > 0 || plan.aPoserPieces.length > 0 || plan.aRetirer.length > 0
     || plan.aMarquerHorsGestion.length > 0 || plan.aAnnulerHorsGestion.length > 0
     || aMarquerInterne || aAnnulerInterne);
 
@@ -284,6 +303,29 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
       if (!ok) return;
     }
     setEnvoi({ en_cours: true, message: null });
+    /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION — RÈGLE A : le premier mail fixe le suivi de fond, par la porte du bouton
+       « Rattacher » (une seule requête, qui porte la décision entière ; la projection pose les liens des mails suivants). */
+    if (parLeSuiviDeFond && selection.length > 0 && etat.v === 'ok') {
+      try {
+        const res = await fetch('/api/admin/gestion/suivi', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filId, messageId, choix: porteeBiens,
+            classement: { sorte: 'biens', biens: selection.map((cle) => ({
+              cle, libelle: etat.contexte.biens.find((b) => b.cle === cle)?.libelle ?? cle })) },
+          }),
+        });
+        const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+        if (!res.ok || d.ok !== true) { setEnvoi({ en_cours: false, message: d.erreur ?? 'Le geste n’a pas abouti.' }); return; }
+      } catch { setEnvoi({ en_cours: false, message: 'Le serveur n’a pas répondu.' }); return; }
+      setEnvoi({ en_cours: false, message: null });
+      onGeste?.(porteeBiens === 'mail' ? 'Rattachement one shot enregistré.'
+        : porteeBiens === 'suite' ? 'Suivi de fond posé : les mails suivants de la conversation suivent ce rattachement.'
+          : 'Toute la conversation a été rattachée.');
+      await onFait?.();
+      onFerme();
+      return;
+    }
     let faits = 0;
     const ratés: string[] = [];
 
@@ -506,10 +548,13 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
                   <p className="clm-note"><strong>Quel type de suivi appliquer ?</strong> Ce mail n’est pas le premier de
                     la conversation, et la conversation n’a pas encore de suivi.</p>
                   <style>{CSS_GLISSIERE_PORTEE}</style>
-                  <GlissierePortee position={positionDuChoix(porteeInterne)} modification
+                  <GlissierePortee position={porteeInterne === null ? null : positionDuChoix(porteeInterne)} modification
                     positions={POSITIONS_INTERNE} libelleGroupe="Portée du marquage « Interne »" desactivee={envoi.en_cours}
                     onChoisir={(p) => setPorteeInterne(choixDeLaPosition(p))} />
-                  <p className="clm-note" role="note">{phrasePorteeInterne(porteeInterne)}</p>
+                  <p className="clm-note" role="note">{porteeInterne === null
+                    ? 'Choisissez le type de suivi : One shot, Ce mail + futurs échanges ou Toute la conversation. Aucun mail '
+                      + 'plus ancien ne change sans que l’option choisie le dise.'
+                    : phrasePorteeInterne(porteeInterne)}</p>
                 </div>
               )}
               {reponse === 'interne' && !demanderPortee && (
@@ -544,7 +589,23 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
               )}
             </fieldset>
 
+            {/* ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION — RÈGLE A : premier mail d'une conversation sans suivi de fond. La
+                portée est celle du bouton « Rattacher » (même glissière, mêmes trois positions, « Ce mail + futurs
+                échanges » d'emblée) : elle remplace ici, et ici seulement, les deux choix ci-dessous. */}
+            {parLeSuiviDeFond && (
+              <fieldset className="clm-bloc">
+                <legend className="clm-legende">Portée du suivi</legend>
+                <p className="clm-note">Premier mail de la conversation : son rattachement devient le suivi de fond.</p>
+                <style>{CSS_GLISSIERE_PORTEE}</style>
+                <GlissierePortee position={positionDuChoix(porteeBiens)} modification positions={POSITIONS_INTERNE}
+                  libelleGroupe="Portée du suivi de ce mail" desactivee={envoi.en_cours}
+                  onChoisir={(p) => setPorteeBiens(choixDeLaPosition(p))} />
+                <p className="clm-note" role="note">{definitionAffichee(
+                  porteeBiens === 'mail' ? 'one_shot' : porteeBiens, selection.length)}</p>
+              </fieldset>
+            )}
             {/* ══ 🔴 LA PORTÉE — UN CHOIX EXPLICITE, « ce mail » PAR DÉFAUT ═══════════════════════════════════════ */}
+            {!parLeSuiviDeFond && (
             <fieldset className="clm-bloc">
               <legend className="clm-legende">Portée</legend>
               <label className="clm-choix">
@@ -569,6 +630,7 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
                 </p>
               )}
             </fieldset>
+            )}
 
             {/* ══ 🔴 LA CIBLE — UN OU PLUSIEURS BIENS, AVEC LEURS PARTIES À LA DATE DU MAIL ═════════════════════ */}
             <fieldset className="clm-bloc">

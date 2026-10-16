@@ -61,9 +61,16 @@ export interface ValidationEtape2 {
 }
 
 export function EtapeContactExterne({
-  data, occupe = false, erreur = null, onRetour, onValider,
+  data, occupe = false, erreur = null, onRetour, onValider, suiviImpose = null,
 }: {
   data: ReponseEtape2;
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — LA PORTÉE DÉJÀ CHOISIE SUR LA GLISSIÈRE de l'étape 1, quand
+   * c'est elle qui décide (`porteeArbitre`). Les deux choix ci-dessous l'affichent alors TELS QU'ILS S'APPLIQUERONT
+   * (« One shot » ⇒ « Ce mail uniquement » coché), en lecture seule : avant, ils restaient sur leur défaut alors que la
+   * glissière l'emportait. `null` = la glissière n'a pas été touchée : les deux choix décident, comme avant.
+   */
+  suiviImpose?: 'mail' | 'suite' | 'conversation' | null;
   occupe?: boolean;
   erreur?: string | null;
   /** « ← Retour » vers l'étape 1 — et elle GARDE les cases cochées (c'est l'appelant qui les lui rend). */
@@ -209,9 +216,14 @@ export function EtapeContactExterne({
           {data.premierClassement && (
             <fieldset className="ece-bloc">
               <legend className="ece-sous-titre">{TITRE_SUIVI}</legend>
+              {suiviImpose !== null && (
+                <p className="ece-aide ece-aide--bloc" role="note">{motSuiviImpose(suiviImpose)}</p>
+              )}
               {CHOIX_SUIVI_CONTACT.map((c) => (
                 <label className="ece-choix ece-choix--suivi" key={c.cle}>
-                  <input type="radio" name="ece-suivi" checked={suivi === c.cle}
+                  <input type="radio" name="ece-suivi"
+                    checked={suiviImpose === null ? suivi === c.cle : suiviContactDeLaGlissiere(suiviImpose) === c.cle}
+                    disabled={suiviImpose !== null}
                     onChange={() => setSuivi(c.cle)} />
                   <span className="ece-texte">
                     <span className="ece-mot">{c.mot}</span>
@@ -559,3 +571,16 @@ export const CSS_ETAPE_CONTACT = `
   .ece-pied>.svv-btn{flex:1 1 100%}
 }
 `;
+
+/**
+ * 🔴 LOT RATTACHEMENT-CONVERSATION — LE CHOIX DE L'ÉTAPE 2 QUI CORRESPOND À LA GLISSIÈRE. PUR.
+ * « One shot » ⇒ « Ce mail uniquement » ; « Ce mail + futurs échanges » ⇒ « Ce mail et la conversation à venir » ;
+ * « Toute la conversation » n'a pas d'équivalent parmi les deux choix : aucun n'est coché, et la phrase le dit.
+ */
+export function suiviContactDeLaGlissiere(c: 'mail' | 'suite' | 'conversation'): SuiviContact | null {
+  return c === 'mail' ? 'ponctuel' : c === 'suite' ? 'auto' : null;
+}
+export function motSuiviImpose(c: 'mail' | 'suite' | 'conversation'): string {
+  const libelle = c === 'mail' ? 'One shot' : c === 'suite' ? 'Ce mail + futurs échanges' : 'Toute la conversation';
+  return `Portée choisie à l’étape précédente : « ${libelle} ». C’est elle qui s’appliquera.`;
+}

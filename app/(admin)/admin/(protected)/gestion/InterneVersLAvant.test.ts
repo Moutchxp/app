@@ -23,15 +23,20 @@ let root: Root;
 let biensAperçus: unknown[];
 let apercus: string[];
 let gestes: { actif: boolean; remettre?: readonly number[]; choix?: string }[];
+/** 🔴 LOT RATTACHEMENT-CONVERSATION — ce que `/suivi` répond. Par défaut : conversation DÉJÀ suivie (une période). */
+let suiviReponse: Record<string, unknown>;
+const SUIVIE = { etat: 'ok', periodes: [{ id: 1, depuisMessageId: 58100, classement: { sorte: 'biens', biens: [] } }], exceptions: [], mails: [58100, 58200, 58300], rattachee: true, interneEchange: false };
+const SANS_FOND = { etat: 'ok', periodes: [], exceptions: [], mails: [58100, 58200, 58300], rattachee: false, interneEchange: false };
 
 const LOT236 = { lienId: 173437, libelle: '1-11 rue Eugène Eichenberger, PUTEAUX — lot 236', messageId: 58115,
   recuLe: '2026-10-12T15:49:32Z' };
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  biensAperçus = []; apercus = []; gestes = [];
+  biensAperçus = []; apercus = []; gestes = []; suiviReponse = SUIVIE;
   global.fetch = vi.fn(async (url: string | URL | Request) => {
     const u = String(url);
+    if (u.includes('/gestion/suivi?')) return { ok: true, json: async () => suiviReponse } as unknown as Response;
     if (u.includes('/gestion/interne?') && u.includes('detacherait=1')) {
       apercus.push(new URL(u, 'http://x').searchParams.get('choix') ?? '');
       return { ok: true, json: async () => ({ etat: 'ok', biens: biensAperçus }) } as unknown as Response;
@@ -62,7 +67,28 @@ const cliquerInterne = async () => {
 const panneau = () => container.querySelector('.ert-interne-panneau:not(.ert-interne-panneau--fait)');
 const choisie = () => container.querySelector('.ert-interne-panneau [role="radio"][aria-checked="true"]')?.textContent;
 
-describe('① ② mail en milieu de conversation : toujours le panneau, sur « Ce mail + futurs échanges »', () => {
+describe('🔴🔴 LOT RATTACHEMENT-CONVERSATION — règle C : milieu d’une conversation SANS suivi de fond', () => {
+  it('🔴🔴 aucune position présélectionnée ; « Confirmer » inactif ; rien n’est demandé ni marqué avant le choix', async () => {
+    suiviReponse = SANS_FOND;
+    await monter(58200, [58100, 58200, 58300]);
+    await cliquerInterne();
+    expect(panneau()).not.toBeNull();
+    expect(choisie()).toBeUndefined();
+    const confirmer = () => [...container.querySelectorAll('.ert-interne-panneau button')].find((b) => b.textContent?.trim() === 'Confirmer') as HTMLButtonElement;
+    expect(confirmer().disabled).toBe(true);
+    expect(apercus).toEqual([]);
+    expect(gestes).toEqual([]);
+    await act(async () => { ([...container.querySelectorAll('.ert-interne-panneau [role="radio"]')][0] as HTMLElement).click(); });
+    await calmer();
+    expect(choisie()).toBe('One shot');
+    expect(confirmer().disabled).toBe(false);
+    await act(async () => { confirmer().click(); });
+    await calmer();
+    expect(gestes).toEqual([{ actif: true, choix: 'mail' }]);
+  });
+});
+
+describe('① ② mail en milieu d’une conversation DÉJÀ suivie : toujours le panneau, sur « Ce mail + futurs échanges » (inchangé)', () => {
   it('🔴 sans bien à retirer : le panneau s’ouvre quand même, position 2, et rien n’est marqué', async () => {
     await monter(58200, [58100, 58200, 58300]);
     await cliquerInterne();

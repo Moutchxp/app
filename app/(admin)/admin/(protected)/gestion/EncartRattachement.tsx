@@ -12,6 +12,8 @@ import {
   phrasePorteeInterne, phrasesDetachement,
   /* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — le premier mail, et son bandeau « Annuler » de 10 s. */
   estPremierMail, MOT_BANDEAU_DIRECT, SECONDES_BANDEAU_DIRECT,
+  /* 🔴 LOT RATTACHEMENT-CONVERSATION — règle C : faire choisir la portée, sans présélection. */
+  porteeInterneADemander,
 } from '../../../../lib/gestion/interneDetache';
 /**
  * 🔴🔴 LOT PHOTOS-ET-INTERNE-INVERSE, POINT 2 — L'AUTRE SENS : les mots de « Ce mail est marqué Interne : rattacher
@@ -472,7 +474,8 @@ export function EncartRattachement({
    */
   /* 🔴 LOT INTERNE-PAR-DEFAUT-VERS-L-AVANT — `unique` : premier mail, une seule portée possible ⇒ pas de glissière. */
   const [demandeInterne, setDemandeInterne] = useState<{
-    choix: ChoixInterne; biens: BienDetache[]; unique?: boolean;
+    /** 🔴 LOT RATTACHEMENT-CONVERSATION — `null` = aucune portée présélectionnée (règle C) : « Confirmer » attend un choix. */
+    choix: ChoixInterne | null; biens: BienDetache[]; unique?: boolean;
   } | null>(null);
   const [detachesInterne, setDetachesInterne] = useState<BienDetache[] | null>(null);
   const [occupeInterne, setOccupeInterne] = useState(false);
@@ -974,11 +977,31 @@ export function EncartRattachement({
    * ⚠️ `mailsDuFil` VIDE (conversation inconnue) se lit comme un premier mail : la portée ne couvre alors que lui.
    * ⚠️ APERÇU EN ÉCHEC (`null`) au premier mail ⇒ on marque quand même : la confirmation est une précaution, pas un péage.
    */
+  const conversationSansFond = async (): Promise<boolean> => {
+    if (filId == null) return false;
+    try {
+      const res = await fetch(`/api/admin/gestion/suivi?fil=${filId}`, { cache: 'no-store' });
+      const d = (await res.json()) as {
+        etat?: string; periodes?: unknown[]; exceptions?: unknown[]; mails?: number[]; rattachee?: boolean; interneEchange?: boolean;
+      };
+      if (d.etat !== 'ok') return false;
+      return porteeInterneADemander({
+        messageId, mails: (d.mails ?? mailsDuFil).map(Number), nbPeriodes: d.periodes?.length ?? 0,
+        nbExceptions: d.exceptions?.length ?? 0, rattachee: d.rattachee === true,
+        interneEchange: d.interneEchange === true || interne === true,
+      });
+    } catch { return false; }
+  };
+
   const cliquerInterne = async (): Promise<void> => {
     if (onInterne === undefined) return;
     setOccupeInterne(true);
     try {
       if (!estPremierMail(messageId, mailsDuFil)) {
+        /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — RÈGLE C : conversation sans suivi de fond ⇒ le panneau
+           s'ouvre SANS portée présélectionnée, et « Confirmer » reste inactif tant qu'une des trois n'est pas choisie.
+           Lecture seule du suivi ; en échec, le panneau d'avant (portée par défaut). */
+        if (await conversationSansFond()) { setDemandeInterne({ choix: null, biens: [] }); return; }
         const biens = await apercuDetachement(choixInterne);
         setDemandeInterne({ choix: choixInterne, biens: biens ?? [] });
         return;
@@ -1372,17 +1395,22 @@ export function EncartRattachement({
             <>
               <p className="ert-interne-mot">Jusqu’où ce marquage porte-t-il ?</p>
               <style>{CSS_GLISSIERE_PORTEE}</style>
-              <GlissierePortee position={positionDuChoixInterne(demandeInterne.choix)} modification
+              <GlissierePortee position={demandeInterne.choix === null ? null : positionDuChoixInterne(demandeInterne.choix)} modification
                 positions={POSITIONS_INTERNE} libelleGroupe="Portée du marquage" desactivee={occupeInterne}
                 onChoisir={(p) => { void changerFenetreInterne(choixDeLaPositionInterne(p)); }} />
-              <p className="ert-interne-portee" role="note">{phrasePorteeInterne(demandeInterne.choix)}</p>
+              <p className="ert-interne-portee" role="note">{demandeInterne.choix === null
+                ? 'Ce mail n’est pas le premier de la conversation, et la conversation n’a pas encore de suivi : choisissez le '
+                  + 'type de suivi. Aucun mail plus ancien ne change sans que l’option choisie le dise.'
+                : phrasePorteeInterne(demandeInterne.choix)}</p>
             </>
           )}
           {/* 🔴🔴 LE TEXTE DIT LA VÉRITÉ, MAIL PAR MAIL (Arno) : jamais « Sortir CE mail du suivi de X » quand X est porté
               par un AUTRE mail de la conversation. Il suit la position, en direct (la liste est redemandée au serveur). */}
+          {demandeInterne.choix !== null && (
           <ul className="ert-interne-liste ert-interne-verite">
             {phrasesDetachement(messageId, demandeInterne.biens).map((ph) => <li key={ph}>{ph}</li>)}
           </ul>
+          )}
           {demandeInterne.biens.length > 0 && (
             <p className="ert-interne-note">
               Les rattachements sont RETIRÉS, jamais supprimés : ils restent datés et signés, et « Annuler » les
@@ -1390,8 +1418,10 @@ export function EncartRattachement({
             </p>
           )}
           <div className="ert-interne-boutons">
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={occupeInterne}
-              onClick={() => { void appliquerInterne(demandeInterne.choix, demandeInterne.biens); }}>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn"
+              disabled={occupeInterne || demandeInterne.choix === null}
+              title={demandeInterne.choix === null ? 'Choisissez d’abord le type de suivi' : undefined}
+              onClick={() => { if (demandeInterne.choix !== null) void appliquerInterne(demandeInterne.choix, demandeInterne.biens); }}>
               Confirmer
             </button>
             <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupeInterne}
@@ -1784,6 +1814,8 @@ export function EncartRattachement({
           /* 🔴 « ← Retour » ROUVRE L'ÉTAPE 1 AVEC SES CASES (voir `ciblesEnCours`). Rien n'est écrit : on revient
              exactement où l'on était, et le geste reste à faire. */
           onRetour={() => { setEtape2(null); setErreurEtape2(null); setAjout(true); }}
+          /* 🔴 LOT RATTACHEMENT-CONVERSATION — l'étape 2 montre la portée de la glissière quand c'est elle qui décide. */
+          suiviImpose={choixFenetre.current?.arbitre === true ? choixFenetre.current.choix : null}
           onValider={validerEtape2} />
       )}
     </div>
