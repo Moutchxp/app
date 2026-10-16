@@ -6,7 +6,8 @@ import { ReponseTache } from "./ReponseTache";
  *
  * Ouverte par les boutons « Accepter » / « Refuser » du mail de demande. AUCUNE connexion : le jeton du lien suffit
  * (règles dans `app/api/tache/reponse/route.ts`). Plus aucune ouverture de la page de connexion de l'admin.
- * « Accepter » s'enregistre dès l'ouverture ; « Refuser » demande le motif (règle 4 du 13/10/2026).
+ * L'ouverture n'enregistre rien : « Confirmer l'acceptation » (un clic) ou le motif puis « Confirmer le refus » (règle 4
+ * du 13/10/2026). Un antivirus qui visite le lien ne peut donc pas répondre à la place du collaborateur.
  */
 export const dynamic = "force-dynamic";
 

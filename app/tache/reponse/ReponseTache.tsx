@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 
 /**
  * Réponse à une tâche confiée, par le lien du mail (lot GESTION-ACCEPTATION, 16/10/2026). Sans connexion.
- *  - « Accepter » : enregistré dès l'ouverture (UNE requête, même si la page se rend deux fois) → « Tâche acceptée ».
+ *  - « Accepter » : l'OUVERTURE du lien n'enregistre RIEN (un antivirus de messagerie qui visite le lien ne peut pas
+ *    accepter à la place du collaborateur — décision d'Arno du 16/10/2026). Seul le clic sur « Confirmer l'acceptation »
+ *    enregistre → « Tâche acceptée ».
  *  - « Refuser » : le motif est demandé (obligatoire, règle 4), puis « Tâche refusée ».
  *  - Lien faux, expiré, remplacé, tâche terminée : message clair, rien n'est modifié.
  *  - Lien déjà utilisé (double clic, second clic plus tard) : la réponse déjà enregistrée est affichée, rien ne change.
@@ -20,6 +22,7 @@ interface Resume {
 type Ecran =
   | { sorte: "chargement" }
   | { sorte: "choix"; r: Resume }
+  | { sorte: "confirmer"; r: Resume }
   | { sorte: "motif"; r: Resume }
   | { sorte: "fait"; statut: "acceptee" | "refusee"; r: Resume; deja: boolean; agenda?: string }
   | { sorte: "refus_lien"; r: Resume }
@@ -61,7 +64,7 @@ export function ReponseTache({ jeton, decision }: { jeton: string; decision: "ac
   const [motif, setMotif] = useState("");
   const [envoi, setEnvoi] = useState(false);
   const [erreurMotif, setErreurMotif] = useState<string | null>(null);
-  const lance = useRef(false); // une seule requête d'acceptation, même si React rend deux fois
+  const lance = useRef(false); // une seule LECTURE au chargement, même si React rend deux fois
 
   const repondre = async (d: "accepter" | "refuser", m?: string): Promise<void> => {
     setEnvoi(true);
@@ -96,6 +99,8 @@ export function ReponseTache({ jeton, decision }: { jeton: string; decision: "ac
       setEcran({ sorte: "refus_lien", r });
     } else if (decision === "refuser") {
       setEcran({ sorte: "motif", r });
+    } else if (decision === "accepter") {
+      setEcran({ sorte: "confirmer", r });
     } else {
       setEcran({ sorte: "choix", r });
     }
@@ -109,8 +114,8 @@ export function ReponseTache({ jeton, decision }: { jeton: string; decision: "ac
         const res = await fetch(`/api/tache/reponse?j=${encodeURIComponent(jeton)}`, { cache: "no-store" });
         const r = (await res.json()) as Resume & { erreur?: string };
         if (!res.ok) { setEcran({ sorte: "erreur", message: r.erreur ?? MSG_RESEAU }); return; }
-        if (r.peutRepondre && decision === "accepter") { await repondre("accepter"); return; }
-        afficherResume(r);
+        afficherResume(r); // LECTURE seule : l'ouverture du lien n'écrit jamais rien
+
       } catch {
         setEcran({ sorte: "erreur", message: MSG_RESEAU });
       }
@@ -145,6 +150,21 @@ export function ReponseTache({ jeton, decision }: { jeton: string; decision: "ac
               ? `Merci !${phraseAgenda(ecran.agenda ?? "")}`
               : "Votre refus est enregistré : la personne qui vous l’a confiée va la réattribuer."}
         </p>
+      </Bloc>
+    );
+  }
+  if (ecran.sorte === "confirmer") {
+    return (
+      <Bloc titre="Accepter cette tâche" couleur="vert">
+        <Tache r={ecran.r} />
+        <button
+          type="button"
+          disabled={envoi}
+          onClick={() => void repondre("accepter")}
+          className={`svv-btn svv-btn-primary mt-4 ${envoi ? "opacity-50" : ""}`}
+        >
+          {envoi ? "Enregistrement…" : "Confirmer l’acceptation"}
+        </button>
       </Bloc>
     );
   }

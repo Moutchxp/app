@@ -173,8 +173,9 @@ export function corpsDemande(c: ContenuDemande): { texte: string; html: string }
 
 /**
  * Les deux liens du mail. 🔴 LOT GESTION-ACCEPTATION (16/10/2026) : ils ouvrent la page PUBLIQUE de réponse
- * (`/tache/reponse`), SANS connexion — le jeton suffit. « Accepter » s'y enregistre dès l'ouverture ; « Refuser »
- * demande le motif (règle 4). Les anciens liens (`/admin/taches?j=…`) y sont redirigés par le proxy. PUR.
+ * (`/tache/reponse`), SANS connexion — le jeton suffit. L'ouverture n'enregistre RIEN (un antivirus qui visite le lien
+ * ne répond pas à la place du collaborateur) : « Confirmer l'acceptation », ou le motif puis « Confirmer le refus »
+ * (règle 4). Les anciens liens (`/admin/taches?j=…`) y sont redirigés par le proxy. PUR.
  */
 export const CHEMIN_REPONSE_PUBLIQUE = '/tache/reponse';
 export function liensDemande(base: string, jeton: string): { accepter: string; refuser: string } {
