@@ -1289,7 +1289,9 @@ export function PleinEcranBoite({
             dans une messagerie. Le retour se fait par la flèche de sa barre d'actions, ou par « Précédent ». */}
         {filOuvert !== null && (
           <section className="pe-lecture" aria-label="Conversation">
-            <Conversation key={`${filOuvert}-${versionFil}`} filId={filOuvert} maintenant={maintenant}
+            {/* 🔴 LOT GESTION-SUIVI-MIXTE (Arno) — LA PAGE D'UN FIL (?fil=…) : étoile pleine seulement, pas de flèche « Répondre »
+                par ligne, favoris au menu « ⋯ ». Les autres écrans qui rendent une conversation ne changent pas. */}
+            <Conversation key={`${filOuvert}-${versionFil}`} filId={filOuvert} maintenant={maintenant} vueDuFil
               /**
                * 🔴 LOT LIGNE-NON-ENVOYE — le brouillon d'un mail de cet échange qui n'est pas parti. On va là où
                * le travail est RETOURNÉ : les Brouillons. C'est le même geste que depuis la liste, et le même que

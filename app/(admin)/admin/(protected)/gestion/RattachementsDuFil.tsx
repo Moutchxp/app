@@ -1,6 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+/* 🔴 LOT GESTION-SUIVI-MIXTE — les biens One shot d'un mail (même vérité que le badge) et les mots du suivi mixte. */
+import { biensOneShotDuMail, MOT_CARTOUCHE_ONE_SHOT, TITRE_SUIVI_MIXTE } from '../../../../lib/gestion/suiviOneShot';
 // LOT CONTACT-LIGNES — le type passe dans le titre, et ne s'ecrit qu'une fois par groupe.
 import { lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 /* 🔴🔴 LOT MONGA-1, POINT 3 — l'encart d'une intervention Monga, monté en tête de cette fenêtre. */
@@ -1017,6 +1019,14 @@ function RattachementsDuFilMail({
   const libellesConnus: Record<string, string> = {};
   for (const b of biens) libellesConnus[b.cle] = `${b.adresseComplete} — lot ${b.numeroLot}`;
   /**
+   * 🔴🔴 LOT GESTION-SUIVI-MIXTE (Arno, 16/10/2026) — LES BIENS DE CE MAIL RATTACHÉS EN ONE SHOT, par la même vérité que le
+   * badge « Suivi modifié en one shot » (`biensOneShotDuMail`). Mixte = au moins un bien One shot ET au moins un bien du
+   * suivi de fond.
+   */
+  const clesOneShot = suivi === null || mailId === null ? new Set<string>()
+    : biensOneShotDuMail({ messageId: mailId, mails: suivi.mails, periodes: suivi.periodes, exceptions: suivi.exceptions });
+  const suiviMixte = clesOneShot.size > 0 && biens.some((b) => !clesOneShot.has(b.cle));
+  /**
    * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — LES NOMS DES BIENS **COCHÉS**, et pas seulement des rattachés.
    *
    * ⚠️ DÉFAUT VU À L'ÉCRAN (06/10/2026, mail d'essai 57299) : « Créer un événement » préremplissait le titre
@@ -1676,7 +1686,10 @@ function RattachementsDuFilMail({
             composant partagé ; son détail est sur une ligne repliable. Seule la porte ponctuelle est concernée. */}
         {ponctuel && fiche !== null && (
           <section className="rdf-suivis" aria-labelledby="rdf-suivis-titre">
-            <h3 className="rdf-suivis-titre" id="rdf-suivis-titre">{TITRE_BIENS_SUIVIS}</h3>
+            {/* 🔴🔴 LOT GESTION-SUIVI-MIXTE (Arno) — suivi de fond ET One shot sur ce mail : le titre le dit, en rouge. */}
+            <h3 className={`rdf-suivis-titre${suiviMixte ? ' rdf-suivis-titre--mixte' : ''}`} id="rdf-suivis-titre">
+              {suiviMixte ? TITRE_SUIVI_MIXTE : TITRE_BIENS_SUIVIS}
+            </h3>
             {/* 🔴🔴 LOT RATTACHEMENT-AUTOMATIQUE-REGLES-R1-R4-ET-LECTURE-DE-L-OBJET — R4 : le suivi en vigueur sur ce mail a été
                 posé par l'automate ; on le dit, avec sa date. Rien d'autre ne change dans ce bloc. */}
             {suiviAuto !== null && (
@@ -1695,7 +1708,7 @@ function RattachementsDuFilMail({
             <ul className="rdf-suivis-liste">
               {biens.map((b) => (
                 <CarteBienSuivi key={b.cle} bien={b} titre={titresSuivis.get(b.cle) ?? b.adresseComplete}
-                  ponctuel={b.ponctuel} expediteurMail={expediteurMail}
+                  ponctuel={b.ponctuel} expediteurMail={expediteurMail} oneShot={clesOneShot.has(b.cle)}
                   garde={panneau === 'aucun' ? undefined : (selection ?? clesDuMail).includes(b.cle)}
                   onGarder={panneau === 'aucun' ? undefined : () => setSelection((avant) => {
                     const courant = avant ?? clesDuMail;
@@ -2603,8 +2616,10 @@ function CorpsDuBien({ bien, liens, onModifier, expediteurMail = null, sansCarto
  * 🔴 SEULS « Ouvrir le Drive du bien » ET « Historique du bien » N'Y SONT PAS (accord d'Arno, pour cette modale) : ils
  * restent sur la carte des deux autres portes et ailleurs dans l'application.
  */
-function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponctuel = false, expediteurMail = null }: {
+function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponctuel = false, expediteurMail = null, oneShot = false }: {
   bien: BienRattache;
+  /** 🔴 LOT GESTION-SUIVI-MIXTE — ce bien est rattaché à ce mail en One shot (cartouche rouge sur fond blanc). */
+  oneShot?: boolean;
   /** 🔴 LOT PILULE-ROUGE-MAISON-EXPEDITEUR-UNIQUE-TRAME-VERTE — l'expéditeur du mail affiché. */
   expediteurMail?: ExpediteurDuMail | null;
   /** « ajout ponctuel » (voir `MOTIF_AJOUT_PONCTUEL`). */
@@ -2638,6 +2653,7 @@ function CarteBienSuivi({ bien, titre, liens, garde, onGarder, onModifier, ponct
             aria-label={`Garder « ${titre} » rattaché à ce mail`} />
         )}
         <span className="rec-bien-nom">{titre}</span>
+        {oneShot && <span className="rdf-cartouche-oneshot">{MOT_CARTOUCHE_ONE_SHOT}</span>}
         <InfoBien cle={bien.cle} titre={titre} surLaLigne={`${titre} ${bien.personnes.map((p) => p.nom).join(' ')}`} />
         {/* 🔴 « SERA RETIRÉ » EST ÉCRIT, jamais seulement grisé. */}
         {retire && <span className="rdf-sera-retire">sera retiré</span>}
@@ -2747,6 +2763,12 @@ function CartePersonne({ personne, nomExpediteur = null }: {
 }
 
 export const CSS_RATTACHEMENTS_FIL = `
+/* LOT GESTION-SUIVI-MIXTE — le titre du suivi mixte, en rouge ; le cartouche « One shot » : texte et bordure rouges, fond blanc. */
+.rdf-suivis .rdf-suivis-titre.rdf-suivis-titre--mixte{color:var(--color-svv-red)}
+.rdf-cartouche-oneshot{display:inline-flex;align-items:center;flex:0 0 auto;padding:0 .45rem;min-height:20px;border-radius:999px;
+  font-size:.7rem;font-weight:700;line-height:1.4;white-space:nowrap;color:var(--color-svv-red);background:#fff;
+  border:1px solid var(--color-svv-red)}
+
 /* LOT GESTION-EXPEDITEUR-INCONNU — l'interrupteur « Affecter l'expediteur inconnu » (deux positions, cibles tactiles pleines). */
 .rdf-affecter{margin:0 0 10px;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:.7rem;background:var(--color-svv-surface)}
 .rdf-affecter-ligne{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}

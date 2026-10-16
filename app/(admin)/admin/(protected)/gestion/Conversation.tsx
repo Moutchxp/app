@@ -246,7 +246,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null, onRouvrirBrouillon, onClassementChange, onBrouillonsChange, onRetourHistoriqueBien }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, brouillonRepris = null, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null, onRouvrirBrouillon, onClassementChange, onBrouillonsChange, onRetourHistoriqueBien, vueDuFil = false }: {
   filId: number;
   /**
    * 🔴 LOT LIGNE-NON-ENVOYE — rouvre le brouillon d'un mail de cet échange qui n'est pas parti. Absent ⇒ la
@@ -376,6 +376,12 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * vient — le jeton est dans l'adresse — et la conversation ne fait que rendre ce qu'on lui donne.
    */
   onRetourHistoriqueBien?: () => void;
+  /**
+   * 🔴🔴 LOT GESTION-SUIVI-MIXTE (Arno, 16/10/2026) — LA PAGE D'UN FIL (`?fil=`), et elle seule : l'étoile n'apparaît que
+   * PLEINE (mail en favori) ; la flèche « Répondre » de chaque ligne est retirée (les trois boutons du bas et le menu
+   * « ⋯ » répondent toujours) ; « Ajouter / Retirer des favoris » est offert dans le menu « ⋯ ». Absent ⇒ rien ne change.
+   */
+  vueDuFil?: boolean;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -2007,7 +2013,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               /* 🔴 LE MAIL QUI OUVRE LA FENÊTRE, pour le pied de la modale : c'est CE mail-ci, celui
                  que le repère annonce. Aucune recherche, aucune requête — il est déjà là. */
               mail={m} />)}
-          <MessageConversation message={m} maintenant={maintenant} filId={filId}
+          <MessageConversation message={m} maintenant={maintenant} filId={filId} vueDuFil={vueDuFil}
             /* 🔴🔴 POINT 2 — l'ordre est CHRONOLOGIQUE : c'est lui que la fenêtre d'Arno découpe. */
             mailsDuFil={idsMessages}
             /* 🔴 LOT SUIVI-CONVERSATION — « Un mail en exception porte une petite mention “exception : <biens>”
@@ -2741,8 +2747,10 @@ export function MessageConversation({
   rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null, exceptionDetail = null,
   mailsDuFil = [],
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
-  onReintegrerMessage, etoileDuMessage, piecesCitables = [], onFicheBien, bienCourant = null,
+  onReintegrerMessage, etoileDuMessage, piecesCitables = [], onFicheBien, bienCourant = null, vueDuFil = false,
 }: {
+  /** 🔴 LOT GESTION-SUIVI-MIXTE — la page d'un fil : étoile pleine seulement, pas de flèche « Répondre », favoris au menu. */
+  vueDuFil?: boolean;
   /** 🔴🔴 LOT BOUTON-HISTORIQUE-SUR-LES-MAILS-RATTACHES — voir les propriétés du même nom de `Conversation`. */
   onFicheBien?: (cle: string) => void;
   bienCourant?: string | null;
@@ -3356,7 +3364,8 @@ export function MessageConversation({
             ⚠️ LE REPLI SUR `gmail.etat.etoile` N'EST PAS UN SECOND ÉTAT : il ne sert que sans la migration 277,
             où le miroir n'existe pas — et où la grande étoile, elle, ne s'affiche pas du tout. C'est exactement
             le comportement d'avant ce lot, conservé pour ce seul cas. */}
-        {gmail?.etat && onEtoile && (
+        {/* 🔴 LOT GESTION-SUIVI-MIXTE — sur la page d'un fil, l'étoile n'est montrée que PLEINE (le geste passe au menu « ⋯ »). */}
+        {gmail?.etat && onEtoile && (!vueDuFil || etoilePosee) && (
           <button type="button" className={`cnv-etoile${etoilePosee ? ' cnv-etoile--posee' : ''}`}
             aria-pressed={etoilePosee} aria-label={libelleEtoile(etoilePosee)} title={libelleEtoile(etoilePosee)}
             onClick={onEtoile}>
@@ -3368,7 +3377,8 @@ export function MessageConversation({
         )}
 
         {/* LA FLÈCHE RÉPONDRE — le geste le plus fréquent, atteignable sans ouvrir le menu, comme dans Gmail. */}
-        {onRepondre && (
+        {/* 🔴 LOT GESTION-SUIVI-MIXTE — retirée de la page d'un fil (accord d'Arno) : les boutons du bas et le menu « ⋯ » restent. */}
+        {onRepondre && !vueDuFil && (
           <button type="button" className="cnv-icone" aria-label="Répondre" title="Répondre"
             onClick={() => onRepondre('repondre')}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -3380,8 +3390,8 @@ export function MessageConversation({
 
         {/* LE MENU « ⋮ » — mêmes mots, même ordre, mêmes séparateurs que Gmail. Il garde AUSSI nos entrées maison,
             rangées sous « Gestion » : « Déplacer ce mail », « Détacher ce mail ». */}
-        <MenuDiscret titre="Actions sur ce message" glyphe="⋮" entrees={
-          menuMessage({ nomExpediteur: qui, avecGestes: Boolean(onDeplacer || onRemettre) })
+        <MenuDiscret titre="Actions sur ce message" glyphe="⋮" entrees={[
+          ...menuMessage({ nomExpediteur: qui, avecGestes: Boolean(onDeplacer || onRemettre) })
             .filter((e) => (e.cle === 'deplacer_mail' ? Boolean(onDeplacer) : e.cle === 'detacher_mail' ? Boolean(onRemettre) : true))
             .map((e) => ({
               libelle: e.libelle,
@@ -3394,8 +3404,14 @@ export function MessageConversation({
                 if (e.cle === 'detacher_mail') { onRemettre?.(); return; }
                 onActionMessage?.(e.cle);
               },
-            }))
-        } />
+            })),
+          /* 🔴 LOT GESTION-SUIVI-MIXTE — sur la page d'un fil, l'étoile vide n'est plus montrée : le geste reste ici. */
+          ...(vueDuFil && gmail?.etat && onEtoile ? [{
+            libelle: etoilePosee ? 'Retirer des favoris' : 'Ajouter aux favoris',
+            separateurAvant: true,
+            onChoisir: () => { onEtoile(); },
+          }] : []),
+        ]} />
       </div>
       </div>
 

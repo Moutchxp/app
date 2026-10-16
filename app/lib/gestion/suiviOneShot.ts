@@ -1,5 +1,5 @@
 import { FUSEAU_AFFICHAGE } from './ecran';
-import { memeConfiguration, projeter, type Classement, type Periode } from './periodesConversation';
+import { memeConfiguration, projeter, type Classement, type ExceptionMail, type Periode } from './periodesConversation';
 import { estSuiviAutomatique, motSuiviAutomatique } from './reglesRattachement';
 
 /**
@@ -310,3 +310,23 @@ export function modificationDeMarque(o: {
     par: o.par, le: o.le, fondRecalcule: o.fondRecalcule,
   }];
 }
+
+/**
+ * ══ 🔴🔴 LOT GESTION-SUIVI-MIXTE (Arno, 16/10/2026) — LES BIENS DE CE MAIL RATTACHÉS EN ONE SHOT. PUR. ═══════════════════
+ * La MÊME vérité que le badge « Suivi modifié en one shot » (lot 823872a9) : une exception VIVANTE, posée par un geste
+ * humain (`exceptionEstUnGeste`). Ses biens qui ne sont PAS ceux du suivi de fond du mail (la fenêtre qui le couvre, les
+ * exceptions ignorées) sont les biens « One shot ». Sans exception de ce genre : aucun.
+ */
+export function biensOneShotDuMail(o: {
+  messageId: number; mails: readonly number[]; periodes: readonly Periode[]; exceptions: readonly ExceptionMail[];
+}): Set<string> {
+  const e = o.exceptions.find((x) => x.messageId === o.messageId && exceptionEstUnGeste(x.parLibelle));
+  if (e === undefined || e.classement.sorte !== 'biens') return new Set();
+  const fond = projeter(o.mails, o.periodes, []).get(o.messageId);
+  const deFond = new Set(fond?.sorte === 'biens' ? fond.biens.map((b) => b.cle) : []);
+  return new Set(e.classement.biens.map((b) => b.cle).filter((c) => !deFond.has(c)));
+}
+
+/** Le titre du bloc quand le mail mélange suivi de fond et One shot (Arno, mot pour mot). */
+export const TITRE_SUIVI_MIXTE = 'Suivi mixte : suivi de fond + One shot';
+export const MOT_CARTOUCHE_ONE_SHOT = 'One shot';

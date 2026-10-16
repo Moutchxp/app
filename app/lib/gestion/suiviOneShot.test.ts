@@ -219,3 +219,23 @@ describe('« Interne » / « Hors gestion » posés sur ce mail uniquement', () 
     expect(m.fondRecalcule).toBe(false);
   });
 });
+
+/* ══ 🔴🔴 LOT GESTION-SUIVI-MIXTE — les biens One shot d'un mail : la vérité du badge ═════════════════════════════════════ */
+describe('🔴🔴 biensOneShotDuMail', async () => {
+  const { biensOneShotDuMail } = await import('./suiviOneShot');
+  const bien = (cle: string) => ({ cle, libelle: `lot ${cle}` });
+  const periodes = [{ id: 1, depuisMessageId: 1, classement: { sorte: 'biens' as const, biens: [bien('345')] } }];
+  it('suivi de fond (345) + one shot (345, 343) ⇒ seul 343 est One shot', () => {
+    const exceptions = [{ messageId: 2, classement: { sorte: 'biens' as const, biens: [bien('345'), bien('343')] }, parLibelle: 'a.jorel@sansvisavis.com' }];
+    expect([...biensOneShotDuMail({ messageId: 2, mails: [1, 2], periodes, exceptions })]).toEqual(['343']);
+  });
+  it('pas d’exception, ou exception de la reprise (pas un geste), ou mail sans exception ⇒ aucun', () => {
+    expect(biensOneShotDuMail({ messageId: 2, mails: [1, 2], periodes, exceptions: [] }).size).toBe(0);
+    const reprise = [{ messageId: 2, classement: { sorte: 'biens' as const, biens: [bien('343')] }, parLibelle: 'reprise des périodes' }];
+    expect(biensOneShotDuMail({ messageId: 2, mails: [1, 2], periodes, exceptions: reprise }).size).toBe(0);
+  });
+  it('un one shot qui ne garde que des biens du fond (retrait) ⇒ aucun bien One shot', () => {
+    const exceptions = [{ messageId: 2, classement: { sorte: 'biens' as const, biens: [bien('345')] }, parLibelle: 'a.jorel@sansvisavis.com' }];
+    expect(biensOneShotDuMail({ messageId: 2, mails: [1, 2], periodes: [{ ...periodes[0], classement: { sorte: 'biens', biens: [bien('345'), bien('36')] } }], exceptions }).size).toBe(0);
+  });
+});

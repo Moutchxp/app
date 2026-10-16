@@ -1131,3 +1131,23 @@ describe('🔴🔴 LOT LISTING-EXCEPTION — mail en exception : une icône ⓘ 
     expect(css).toMatch(/\.cnv-exception-info\{position:absolute;/);
   });
 });
+
+/* ══ 🔴🔴 LOT GESTION-SUIVI-MIXTE (Arno, 16/10/2026) — LA PAGE D'UN FIL : pas de flèche « Répondre » par ligne, favoris au menu ══ */
+describe('🔴🔴 LOT GESTION-SUIVI-MIXTE — la page d’un fil (`vueDuFil`)', () => {
+  const fleches = () => [...container.querySelectorAll('.cnv-icone')].filter((x) => x.getAttribute('aria-label') === 'Répondre');
+  /* ⚠️ Ce banc ne monte pas la rédaction : la flèche n'y est jamais rendue. La preuve « avant / après » est faite en recette
+     (8 flèches et 4 étoiles vides avant, 0 après) ; ici, le code et les points d'entrée sont épinglés. */
+  it('🔴 page d’un fil : plus de flèche « Répondre » sur les lignes ; « Répondre » reste au menu « ⋯ »', async () => {
+    await monter({ vueDuFil: true });
+    expect(fleches()).toHaveLength(0);
+    const src = (await import('node:fs')).readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+    expect(src).toContain('{onRepondre && !vueDuFil && (');
+    expect(src).toContain("{gmail?.etat && onEtoile && (!vueDuFil || etoilePosee) && (");
+    expect(src).toContain("libelle: etoilePosee ? 'Retirer des favoris' : 'Ajouter aux favoris',");
+  });
+  it('🔴 seule la page d’un fil (plein écran, `?fil=`) le demande', async () => {
+    const fs = await import('node:fs');
+    expect(fs.readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8')).toContain('maintenant={maintenant} vueDuFil');
+    expect(fs.readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8')).not.toContain('vueDuFil');
+  });
+});
