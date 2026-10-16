@@ -539,7 +539,7 @@ export async function poserClassement(o: {
     debuts: apres.periodes.map((p) => p.depuisMessageId), exceptions: apres.exceptions.map((e) => e.messageId),
   });
   const detaches = await alignerSurLaFenetre({
-    messageId: o.messageId, mails: gouvernes, auteur: o.auteur,
+    messageId: o.messageId, mails: gouvernes, auteur: o.auteur, choix: o.choix,
     gardes: o.classement.sorte === 'biens' ? o.classement.biens.map((b) => b.cle) : [],
   });
   if (detaches.length > 0) trace.liensDetaches = detaches;
@@ -577,7 +577,7 @@ export const MOTIF_REMPLACE_PAR_FENETRE = 'remplacé par le suivi choisi dans la
  * servent à l'« Annuler ».
  */
 async function alignerSurLaFenetre(o: {
-  messageId: number; mails: readonly number[]; gardes: readonly string[]; auteur: Auteur;
+  messageId: number; mails: readonly number[]; gardes: readonly string[]; auteur: Auteur; choix: ChoixSuivi;
 }): Promise<number[]> {
   if (o.mails.length === 0) return [];
   const { rows } = await query<{ id: string; message_id: string }>(
@@ -586,7 +586,10 @@ async function alignerSurLaFenetre(o: {
       ORDER BY r.id`, [[...o.mails], [...o.gardes]]);
   const faits: number[] = [];
   for (const r of rows) {
-    const motif = Number(r.message_id) === o.messageId ? MOTIF_DETACHE_A_LA_MAIN : MOTIF_REMPLACE_PAR_FENETRE;
+    /* 🔴 LOT GESTION-BADGE-ONESHOT — seul un geste « ce mail uniquement » est un one shot ; sous une fenêtre de suivi de
+       fond (« ce mail + futurs », « toute la conversation »), TOUS ses mails — celui qui l'ouvre compris — sont retirés
+       au motif de la fenêtre, qui n'allume pas le badge « Suivi modifié en one shot ». */
+    const motif = o.choix === 'mail' && Number(r.message_id) === o.messageId ? MOTIF_DETACHE_A_LA_MAIN : MOTIF_REMPLACE_PAR_FENETRE;
     const issue = await changerStatut({ lienId: Number(r.id), statut: 'retire', auteur: o.auteur, motif });
     if (issue.ok) faits.push(Number(r.id));
   }

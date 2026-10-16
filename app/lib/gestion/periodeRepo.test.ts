@@ -603,3 +603,19 @@ describe('🔴🔴 LOT GESTION-FENETRES-SUIVI — « Ce mail + futurs échanges 
     expect(toutLeSql()).toContain('UPDATE gestion_fil_periode SET remplacee_le = now()');
   });
 });
+
+/* ══ 🔴🔴 LOT GESTION-BADGE-ONESHOT — le motif écrit dit si c'est un one shot ou une fenêtre (et donc le badge) ══════════ */
+describe('🔴🔴 LOT GESTION-BADGE-ONESHOT — motif de la sortie', () => {
+  const motifs = () => (changerStatut.mock.calls as unknown as [{ lienId: number; motif?: string }][]).map((c) => [c[0].lienId, c[0].motif]);
+  it('« Ce mail + futurs » : motif de FENÊTRE sur tous ses mails, mail d’ouverture compris', async () => {
+    base.mails = [10, 20, 30];
+    base.liens = [{ id: 2, message: 20, cle: '21', parLeSuivi: false }, { id: 3, message: 30, cle: '21', parLeSuivi: false }];
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'B' }] }, choix: 'suite', auteur: AUTEUR });
+    expect(motifs()).toEqual([[2, MOTIF_REMPLACE_PAR_FENETRE], [3, MOTIF_REMPLACE_PAR_FENETRE]]);
+  });
+  it('« ce mail uniquement » : motif « décoché à la main » (un vrai one shot)', async () => {
+    base.liens = [{ id: 2, message: 20, cle: '21', parLeSuivi: false }];
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [] }, choix: 'mail', auteur: AUTEUR });
+    expect(motifs()).toEqual([[2, MOTIF_DETACHE_A_LA_MAIN]]);
+  });
+});

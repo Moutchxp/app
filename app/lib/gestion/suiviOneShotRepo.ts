@@ -1,5 +1,7 @@
 import { query } from '../db/client';
-import { MOTIF_RETIRE_PAR_SUIVI, mailsDuFil, suiviDuFil } from './periodeRepo';
+import {
+  MOTIF_DETACHE_A_LA_MAIN, MOTIF_REMPLACE_PAR_FENETRE, MOTIF_RETIRE_PAR_SUIVI, mailsDuFil, suiviDuFil,
+} from './periodeRepo';
 import { MOTIF_DETACHE_PAR_INTERNE } from './interneDetache';
 import { MOTIF_RATTACHEMENT_ANNULE } from './interneLevee';
 import { projeter, type Classement } from './periodesConversation';
@@ -39,7 +41,16 @@ import type { Auteur } from './gestes';
  */
 export const MOTIFS_SORTIE_AUTOMATIQUE: readonly string[] = [
   MOTIF_RETIRE_PAR_SUIVI, MOTIF_DETACHE_PAR_INTERNE, MOTIF_RATTACHEMENT_ANNULE,
+  /* 🔴 LOT GESTION-BADGE-ONESHOT — un bien retiré par une FENÊTRE de suivi de fond n'est pas un geste one shot. */
+  MOTIF_REMPLACE_PAR_FENETRE,
 ];
+
+/**
+ * 🔴 LOT GESTION-BADGE-ONESHOT (Arno, 16/10/2026) — « bien décoché à la main dans la fenêtre de rattachement » n'est un
+ * one shot QUE si le mail porte encore une exception vivante (le geste « ce mail uniquement » en pose toujours une).
+ * Sans elle — sorties laissées par une fenêtre avant ce lot, ou geste annulé depuis —, aucun badge.
+ */
+export const MOTIFS_SORTIE_SI_EXCEPTION: readonly string[] = [MOTIF_DETACHE_A_LA_MAIN];
 
 /**
  * 🔴 LOT TRACE-ONE-SHOT — la photo du suivi de fond, SEULEMENT pour une sortie faite à la main. Appelée par
@@ -111,7 +122,9 @@ export async function oneShotDetaille(messageIds: readonly number[]): Promise<{
          LEFT JOIN admin_utilisateur u ON u.id = r.sorti_par
         WHERE r.message_id = ANY($1::bigint[]) AND r.statut = 'sorti' AND r.piece_id IS NULL
         ORDER BY r.message_id, r.cible_cle, r.sorti_le DESC, r.id DESC`, [ids]))
-      .rows.filter((r) => sortieEstUnGeste({ par: r.par, motif: r.motif, motifsAutomatiques: MOTIFS_SORTIE_AUTOMATIQUE }))
+      .rows.filter((r) => sortieEstUnGeste({ par: r.par, motif: r.motif, motifsAutomatiques: MOTIFS_SORTIE_AUTOMATIQUE })
+        && (!MOTIFS_SORTIE_SI_EXCEPTION.includes((r.motif ?? '').trim())
+          || exceptions.some((e) => e.message_id === r.message_id)))
       : [];
 
     /* 🔴 LOT TRACE-ONE-SHOT — les marques Interne / Hors gestion « ce mail uniquement », vivantes. Avant la 342, leur
