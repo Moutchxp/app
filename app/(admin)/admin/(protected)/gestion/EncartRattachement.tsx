@@ -1,7 +1,7 @@
 'use client';
 
 import { confirmerSortieDesBiens } from './confirmerSortieSuivi';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 /**
  * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — les mots et le délai de « Marquer interne détachera :
  * … », dans un module PUR. L'écran les écrit, il ne les invente pas.
@@ -295,6 +295,25 @@ export function EncartRattachement({
    * qu'au rendu suivant. Elle est oubliée quand la fenêtre se ferme.
    */
   const choixFenetre = useRef<{ choix: ChoixSuivi; arbitre: boolean } | null>(null);
+  /**
+   * 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU (Arno, 16/10/2026) — l'interrupteur « Affecter l'expéditeur inconnu » de la fenêtre :
+   * `false` (Désactivé, le défaut) ⇒ « Classer ce nouveau contact » ne s'ouvre pas ; `true` ⇒ comme avant ; `undefined`
+   * (interrupteur non affiché : expéditeur connu, ou lecture en échec) ⇒ comme avant.
+   */
+  const affecterExpediteur = useRef<boolean | undefined>(undefined);
+  /** La question posée par la fenêtre : la MÊME que celle qui ouvre l'étape 2 (route `contact-externe`, lecture seule). */
+  const expediteurInconnu = useCallback(async (cles: readonly string[]): Promise<boolean | null> => {
+    const biens = cles.filter((c) => c !== '');
+    if (biens.length === 0) return false;
+    const p = new URLSearchParams({ message: String(messageId), biens: biens.join(',') });
+    if (interne === true) p.set('interne', '1');
+    if (horsGestion) p.set('horsGestion', '1');
+    try {
+      const res = await fetch(`/api/admin/gestion/contact-externe?${p}`, { cache: 'no-store' });
+      const d = (await res.json()) as { etat?: string; data?: { requise?: boolean } };
+      return d.etat === 'ok' ? d.data?.requise === true : null;
+    } catch { return null; }
+  }, [messageId, interne, horsGestion]);
   /** 🔴 « Sans confirmation, “Valider” reste bloqué » : la case que « Toute la conversation » exige. */
   const [confirme, setConfirme] = useState(false);
   /** Les périodes et exceptions de cette conversation. `null` = migration 290 absente, ou lecture en échec. */
@@ -345,7 +364,7 @@ export function EncartRattachement({
     return () => { vivant = false; };
   }, [ajout, filId, messageId]);
   /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — la portée de la fenêtre commune est oubliée avec elle. */
-  useEffect(() => { if (!ajout) choixFenetre.current = null; }, [ajout]);
+  useEffect(() => { if (!ajout) { choixFenetre.current = null; affecterExpediteur.current = undefined; } }, [ajout]);
   /** LOT FIL-LECTURE-2 — le rattachement dont on a ouvert la fenêtre « Modifier ». `null` = aucune fenêtre. */
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
   const [occupe, setOccupe] = useState(false);
@@ -645,6 +664,12 @@ export function EncartRattachement({
      * monte dans le MÊME cadre, aux mêmes mesures. Entre les deux, un voile qui DIT ce qu'il fait — sans quoi
      * l'écran clignoterait, et un clignotement se lit comme un défaut.
      */
+    /* 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU — interrupteur sur « Désactivé » : pas d'étape 2 ; le rattachement et la portée
+       s'appliquent normalement, et l'expéditeur reste dans « Non affectés » de l'historique du bien. */
+    if (affecterExpediteur.current === false) {
+      await ecrireClassement(choisies, [], null, false);
+      return;
+    }
     setVerification(true);
     const verdict = await demanderEtape2(choisies);
     setVerification(false);
@@ -1600,8 +1625,10 @@ export function EncartRattachement({
             erreurDeLAppelant={erreur} occupeParLAppelant={occupe || occupeInterne}
             onFerme={() => { setSelectionModale(null); setAjout(false); setCiblesEnCours(null); }}
             onGeste={onGeste}
-            ecrireParLAppelant={(voulus, choixVoulu, arbitre) => {
+            expediteurInconnu={expediteurInconnu}
+            ecrireParLAppelant={(voulus, choixVoulu, arbitre, affecter) => {
               choixFenetre.current = { choix: choixVoulu, arbitre };
+              affecterExpediteur.current = affecter;
               setErreur(null);
               void appliquerCibles(voulus.map((v) => ({ sorte: 'lot' as const, cle: v.cle, id: null, libelle: v.libelle })));
             }}

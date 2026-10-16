@@ -207,7 +207,17 @@ const visible = (e: Element): boolean => e.closest('[hidden]') === null;
 const boutons = (): HTMLButtonElement[] => [...container.querySelectorAll('button')].filter(visible);
 const bouton = (mot: string): HTMLButtonElement | undefined =>
   boutons().find((b) => (b.textContent ?? '').includes(mot));
+/**
+ * 🔴 LOT GESTION-EXPEDITEUR-INCONNU — l'étape 2 ne s'ouvre plus que si l'interrupteur « Affecter l'expéditeur inconnu » est
+ * sur « Activé » (défaut : Désactivé). Les épreuves de l'étape 2 écrites avant ce lot décrivent ce comportement « comme
+ * avant » : le banc met donc l'interrupteur sur « Activé » avant de valider, quand il est affiché.
+ */
+let activerAvantValider = true;
 const cliquer = async (mot: string) => {
+  if (activerAvantValider && mot.startsWith('Valider') && container.querySelector('.rdf-affecter') !== null) {
+    await act(async () => { ([...container.querySelectorAll('.rdf-affecter [role="radio"]')][0] as HTMLElement).click(); });
+    await calmer();
+  }
   const b = bouton(mot);
   if (b === undefined) throw new Error(`aucun bouton « ${mot} » — écran : ${texte().slice(0, 400)}`);
   await act(async () => { b.click(); });
@@ -242,7 +252,7 @@ const position = (mot: string): HTMLElement => {
   return r;
 };
 const positionChoisie = (): string =>
-  container.querySelector('[role="radio"][aria-checked="true"]')?.textContent ?? '';
+  container.querySelector('.gpo [role="radio"][aria-checked="true"]')?.textContent ?? '';   // la glissière, pas l'interrupteur
 
 /** Ouvre la fenêtre commune, coche le bien proposé et valide par le bouton final. */
 const validerLeBien = async () => {
@@ -703,5 +713,55 @@ describe('🔴🔴 « Classer ce nouveau contact » affiche le choix réel de la
     await cliquer('Valider le rattachement de fond');
     expect(radiosEtape2().map((r) => r.checked)).toEqual([true, false]);
     expect(radiosEtape2().some((r) => r.disabled)).toBe(false);
+  });
+});
+
+/* ══ 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU (Arno, 16/10/2026) — « Classer ce nouveau contact » devient optionnelle ═══════════ */
+describe('🔴🔴 interrupteur « Affecter l’expéditeur inconnu »', () => {
+  beforeEach(() => { activerAvantValider = false; });
+  afterEach(() => { activerAvantValider = true; });
+  const positionsInterrupteur = () => [...container.querySelectorAll('.rdf-affecter [role="radio"]')]
+    .map((r) => `${r.textContent}${r.getAttribute('aria-checked') === 'true' ? '*' : ''}`);
+  const premierMail = () => { suiviDuFil = { periodes: [], exceptions: [], mails: [900, 901], rattachee: false, expediteurConnu: false }; };
+  it('🔴🔴 expéditeur inconnu : interrupteur affiché, « Désactivé » par défaut, avec sa ligne d’aide', async () => {
+    etape2 = ETAPE2_DEMANDEE; premierMail();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(positionsInterrupteur()).toEqual(['Activé', 'Désactivé*']);
+    expect(texte()).toContain('Affecter l’expéditeur inconnu');
+    expect(texte()).toContain('Désactivé : le mail est rattaché au bien et classé “Non affecté” dans son historique ; vous pourrez l’affecter plus tard par glisser-déposer.');
+  });
+  it('🔴🔴 « Désactivé » : la 2ᵉ fenêtre ne s’ouvre pas ; le rattachement et la portée partent', async () => {
+    etape2 = ETAPE2_DEMANDEE; premierMail();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    await cliquer('Valider le rattachement de fond');
+    expect(texte()).not.toContain('Classer ce nouveau contact');
+    expect(ecritures()).toHaveLength(1);
+    expect((ecritures()[0].corps as { choix: string }).choix).toBe('suite');
+  });
+  it('🔴 « Activé » : la 2ᵉ fenêtre s’ouvre, comme avant', async () => {
+    etape2 = ETAPE2_DEMANDEE; premierMail();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    await act(async () => { ([...container.querySelectorAll('.rdf-affecter [role="radio"]')][0] as HTMLElement).click(); });
+    await calmer();
+    await cliquer('Valider le rattachement de fond');
+    expect(texte()).toContain('Classer ce nouveau contact');
+    expect(ecritures()).toHaveLength(0);
+  });
+  it('⚠️ expéditeur connu des fiches : aucun interrupteur, rien ne change', async () => {
+    etape2 = { ...ETAPE2_DEMANDEE, requise: false, motif: 'expediteur_connu', biens: [] }; premierMail();
+    await monter();
+    await cliquer('Rattacher');
+    await act(async () => { caseDuBien().click(); });
+    await calmer();
+    expect(container.querySelector('.rdf-affecter')).toBeNull();
   });
 });

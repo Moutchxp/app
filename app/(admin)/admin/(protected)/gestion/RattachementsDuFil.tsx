@@ -522,7 +522,7 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
 function RattachementsDuFilMail({
   filId, titre, messageId = null, onFerme, onGeste, onLeveeFaite,
   ouvreLaModification = false, actionsDePied = [], ponctuel = false,
-  aClasser = false, ecrireParLAppelant, renvoiEvenement = PHRASE_BLOC_LECTURE,
+  aClasser = false, ecrireParLAppelant, renvoiEvenement = PHRASE_BLOC_LECTURE, expediteurInconnu,
   erreurDeLAppelant = null, occupeParLAppelant = false,
 }: {
   /**
@@ -548,7 +548,15 @@ function RattachementsDuFilMail({
   aClasser?: boolean;
   ecrireParLAppelant?: (
     voulus: readonly { cle: string; libelle: string }[], choix: ChoixSuivi, arbitre: boolean,
+    /** 🔴 LOT GESTION-EXPEDITEUR-INCONNU — l'interrupteur « Affecter l'expéditeur inconnu » ; `undefined` s'il n'est pas affiché. */
+    affecter?: boolean,
   ) => void;
+  /**
+   * 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU (Arno, 16/10/2026) — L'EXPÉDITEUR EST-IL INCONNU DES FICHES DES BIENS COCHÉS ? Fourni
+   * par l'appelant qui écrit (la MÊME question que celle qui ouvre « Classer ce nouveau contact ») ; `null` = on ne sait
+   * pas (lecture en échec) — l'interrupteur ne s'affiche pas, et la règle d'avant s'applique.
+   */
+  expediteurInconnu?: (cles: readonly string[]) => Promise<boolean | null>;
   renvoiEvenement?: string;
   filId: number;
   /** L'objet de l'échange, connu de la liste. La fiche en rend un aussi ; celui-ci sert de repli. */
@@ -811,6 +819,9 @@ function RattachementsDuFilMail({
    */
   /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — `null` = personne n'a touché la glissière (le DÉFAUT, voir `positionAffichee`). */
   const [positionVoulue, setPosition] = useState<PositionPortee | null>(null);
+  /* 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU — l'interrupteur, DÉSACTIVÉ à chaque ouverture (Arno), et l'expéditeur inconnu ? */
+  const [affecter, setAffecter] = useState(false);
+  const [inconnu, setInconnu] = useState(false);
   /* 🔴 LOT BOUTON-DE-VALIDATION-DU-PREMIER-RATTACHEMENT — l'appel vers les blocs de biens (bouton blanc), quelques instants.
      ⚠️ DÉCLARÉ ICI, AVEC LES AUTRES ÉTATS : plus bas, la fenêtre Drive rend avant, et l'ordre des hooks casserait. */
   const [appel, setAppel] = useState(0);
@@ -1059,6 +1070,18 @@ function RattachementsDuFilMail({
   /* Plus aucune modification : la position voulue repart de ①, pour que la PROCHAINE modification ramène bien sur ②.
      ⚠️ Pas au premier classement : la portée s'y choisit AVANT de cocher, et on ne la reprend pas. */
   if (!premier && !modification && positionVoulue !== null) setPosition(null);
+  /**
+   * 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU — à chaque changement des biens cochés, la question est reposée à l'appelant (lecture
+   * seule). Sans bien coché, ou si la lecture échoue, l'interrupteur disparaît.
+   */
+  const clesPourExpediteur = [...new Set(selection ?? clesDuMail)].sort().join(',');
+  useEffect(() => {
+    /* ⚠️ SEULEMENT S'IL Y A UNE MODIFICATION : rouvrir un mail rattaché sans rien changer ne pose aucune question. */
+    if (expediteurInconnu === undefined || clesPourExpediteur === '' || !modification) { setInconnu(false); return undefined; }
+    let vivant = true;
+    void expediteurInconnu(clesPourExpediteur.split(',')).then((r) => { if (vivant) setInconnu(r === true); });
+    return () => { vivant = false; };
+  }, [clesPourExpediteur, expediteurInconnu, modification]);
 
   /**
    * 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — L'ÉVÉNEMENT DÉJÀ POSÉ SUR CE MAIL, et la migration 268.
@@ -1506,7 +1529,7 @@ function RattachementsDuFilMail({
     const voulus = (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle }));
     /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — l'appelant qui écrit lui-même reçoit les biens et la portée. */
     if (ecrireParLAppelant !== undefined) {
-      ecrireParLAppelant(voulus, choix, porteeArbitre(positionVoulue, premier));
+      ecrireParLAppelant(voulus, choix, porteeArbitre(positionVoulue, premier), inconnu ? affecter : undefined);
       return;
     }
     void ecrire(voulus, choix);
@@ -2057,6 +2080,10 @@ function RattachementsDuFilMail({
                 <p className="rdf-detail rdf-bilan" role="status">
                   {resumeModificationBiens({ avant: clesDuMail, apres: selection ?? clesDuMail })}
                 </p>
+                )}
+                {/* 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU — l'interrupteur, AVANT la portée et son bouton de validation. */}
+                {ponctuel && inconnu && (
+                  <InterrupteurExpediteur actif={affecter} onChange={setAffecter} desactive={occupeParLAppelant} />
                 )}
                 {ponctuel && blocPortee}
                 {/* ══ 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 1 — LES DEUX ACTIONS SECONDAIRES DU PIED ══════════
@@ -2720,6 +2747,17 @@ function CartePersonne({ personne, nomExpediteur = null }: {
 }
 
 export const CSS_RATTACHEMENTS_FIL = `
+/* LOT GESTION-EXPEDITEUR-INCONNU — l'interrupteur « Affecter l'expediteur inconnu » (deux positions, cibles tactiles pleines). */
+.rdf-affecter{margin:0 0 10px;padding:10px 12px;border:1px solid var(--color-svv-line);border-radius:.7rem;background:var(--color-svv-surface)}
+.rdf-affecter-ligne{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.rdf-affecter-mot{font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
+.rdf-affecter-choix{display:inline-flex;border:1px solid var(--color-svv-line-strong);border-radius:999px;overflow:hidden}
+.rdf-affecter-position{min-height:36px;padding:0 14px;font:inherit;font-size:.8rem;font-weight:700;cursor:pointer;border:0;
+  background:transparent;color:var(--color-svv-muted)}
+.rdf-affecter-position--choisie{background:var(--color-svv-red);color:#fff}
+.rdf-affecter-position:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+.rdf-affecter-aide{margin:.4rem 0 0;font-size:.75rem;color:var(--color-svv-muted)}
+
 .rdf-objet{margin:-6px 0 2px;font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 /* 🔴🔴 LOT FENETRE-BIENS-CARTES-ET-RACCOURCIS, POINT 2 — le compteur en tete. Il BOUGE pendant qu'on modifie :
    on le met donc un peu en avant, pour que l'oeil le retrouve apres chaque case cochee. */
@@ -3002,3 +3040,35 @@ ${CSS_CAPSULE_EVENEMENT}
   .rdf-contact-libelle{flex-basis:3.6rem}
 }
 `;
+
+/**
+ * ══ 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU (Arno, 16/10/2026) — L'INTERRUPTEUR « AFFECTER L'EXPÉDITEUR INCONNU » ═══════════
+ * Deux positions, Activé / Désactivé ; DÉSACTIVÉ par défaut. Activé : après validation, « Classer ce nouveau contact »
+ * s'ouvre comme avant. Désactivé : il ne s'ouvre pas — le mail est rattaché, et son expéditeur reste dans « Non affectés »
+ * de l'historique du bien. Affiché seulement quand l'expéditeur est inconnu des fiches des biens cochés.
+ */
+export const MOT_AFFECTER_EXPEDITEUR = 'Affecter l’expéditeur inconnu';
+export const AIDE_AFFECTER_EXPEDITEUR = 'Désactivé : le mail est rattaché au bien et classé “Non affecté” dans son historique ; '
+  + 'vous pourrez l’affecter plus tard par glisser-déposer.';
+
+function InterrupteurExpediteur({ actif, onChange, desactive = false }: {
+  actif: boolean; onChange: (v: boolean) => void; desactive?: boolean;
+}) {
+  return (
+    <div className="rdf-affecter">
+      <div className="rdf-affecter-ligne">
+        <span className="rdf-affecter-mot" id="rdf-affecter-mot">{MOT_AFFECTER_EXPEDITEUR}</span>
+        <div className="rdf-affecter-choix" role="radiogroup" aria-labelledby="rdf-affecter-mot">
+          {([true, false] as const).map((v) => (
+            <button key={String(v)} type="button" role="radio" aria-checked={actif === v} disabled={desactive}
+              className={`rdf-affecter-position${actif === v ? ' rdf-affecter-position--choisie' : ''}`}
+              onClick={() => onChange(v)}>
+              {v ? 'Activé' : 'Désactivé'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="rdf-affecter-aide">{AIDE_AFFECTER_EXPEDITEUR}</p>
+    </div>
+  );
+}
