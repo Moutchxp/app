@@ -54,12 +54,12 @@ describe('ce que le code lit et écrit existe bien', () => {
   });
 });
 
-describe('rangement : 362 appliquée en prod, 363 (invitations) part à la prochaine mise à jour, 361 reste en attente', () => {
+describe('rangement : 362 appliquée en prod, 363 (invitations) et 364 (résidence du compte) partent à la prochaine mise à jour, 361 reste en attente', () => {
   const dossier = path.join(process.cwd(), MIGRATIONS);
   const existants = readdirSync(dossier).filter((n) => n.endsWith('.sql')).map((n) => ({ fichier: n, contenu: readFileSync(path.join(dossier, n), 'utf8') }));
   const ECARTEES = ['148_mention_sources_graphiques.sql', '212_permis_emprise_numero.sql', '216_permis_cerfa_ia.sql', '262_gestion_piece_classement.sql'];
   // Pas encore appliquées en prod (16/10/2026, après la publication de 4c8cd637 qui a appliqué la 362).
-  const A_VENIR = ['363_admin_invitation.sql'];
+  const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -72,7 +72,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations) part à la proch
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 est la seule nouvelle, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 et 364 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -82,13 +82,40 @@ describe('rangement : 362 appliquée en prod, 363 (invitations) part à la proch
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (364)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (365)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(363\)/);
-    const renumerotee = planifier([...existants, { fichier: '364_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(364\)/);
+    const renumerotee = planifier([...existants, { fichier: '365_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['364_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['365_permis_emprise_numero_reveil.sql']);
+  });
+});
+
+describe('364 (adresse de résidence sur le compte) : additive, enveloppée, sans toucher aux données', () => {
+  const contenu = lire(MIGRATIONS, '364_internaute_residence.sql');
+  const a = analyserMigration({ fichier: '364_internaute_residence.sql', contenu });
+  it('passe le garde, enveloppée, réversible, 3 colonnes ajoutées sur internaute et rien d’autre', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.tablesCreees).toEqual([]);
+    expect(a.colonnesAjoutees).toEqual([
+      { table: 'internaute', colonne: 'adresse_residence' },
+      { table: 'internaute', colonne: 'adresse_residence_maj_a' },
+      { table: 'internaute', colonne: 'adresse_residence_source' },
+    ]);
+  });
+  it('aucune écriture de données (ni UPDATE, ni INSERT, ni DELETE, ni DEFAULT posé sur les lignes existantes)', () => {
+    const sql = coeur(contenu).join('\n');
+    expect(sql).not.toMatch(/\b(UPDATE|INSERT|DELETE|TRUNCATE|DEFAULT)\b/i);
+  });
+  it('les sources acceptées sont celles que le code écrit', () => {
+    const code = readFileSync(path.join(process.cwd(), 'app/lib/internaute/residenceCompte.ts'), 'utf8');
+    for (const s of ['tunnel_bien_analyse', 'tunnel_adresse_saisie', 'espace_client']) {
+      expect(contenu).toContain(`'${s}'`);
+      expect(code).toContain(`'${s}'`);
+    }
   });
 });

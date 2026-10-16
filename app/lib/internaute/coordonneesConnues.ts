@@ -79,3 +79,16 @@ export function lireReponseCoordonnees(data: unknown): CoordonneesConnues | null
     derniereResidence: texte(d.derniereResidence),
   };
 }
+
+/**
+ * Ligne de journal de `GET /api/internaute/coordonnees` — JAMAIS de donnée personnelle (ni id, ni e-mail, ni IP, ni
+ * l'agent utilisateur brut) : l'issue, la présence du cookie de session et le TYPE d'appareil. « iphone-appli » = ouvert
+ * depuis l'écran d'accueil (l'agent utilisateur d'iOS y perd le mot « Safari/ ») : ce mode a ses propres cookies, distincts
+ * de ceux de Safari — un internaute connecté dans Safari n'y est pas connecté.
+ */
+export function ligneDiagnosticCoordonnees(issue: 'reconnu' | 'non_reconnu' | 'erreur', cookie: boolean, agent: string | null): string {
+  const ua = agent ?? '';
+  const ios = /iPhone|iPad|iPod/.test(ua);
+  const appareil = ios ? (/Safari\//.test(ua) ? 'iphone-safari' : 'iphone-appli') : /Android/.test(ua) ? 'android' : 'autre';
+  return `[coordonnees] ${issue} cookie=${cookie ? 'present' : 'absent'} appareil=${appareil}`;
+}

@@ -1,6 +1,8 @@
 import 'server-only';
 import { exigerInternaute } from '../../../lib/internaute/authGarde';
 import { lireCoordonneesTunnel } from '../../../lib/internaute/coordonneesTunnel';
+import { NOM_COOKIE_CLIENT } from '../../../lib/internaute/authSession';
+import { ligneDiagnosticCoordonnees } from '../../../lib/internaute/coordonneesConnues';
 
 // Runtime Node explicite (driver pg via la garde). Route PUBLIQUE (hors matcher admin), LECTURE SEULE.
 export const runtime = 'nodejs';
@@ -16,12 +18,19 @@ export const runtime = 'nodejs';
  */
 export async function GET(request: Request): Promise<Response> {
   const entetes = { 'Cache-Control': 'no-store' };
+  // Une ligne de journal par appel, SANS donnée personnelle (lot COORDONNEES-CONNU-REEL) : reconnu ou non, cookie de
+  // session présent ou non, type d'appareil. Assez pour dire, la prochaine fois, POURQUOI un internaute n'a pas été reconnu.
+  const cookie = (request.headers.get('cookie') ?? '').split(';').some((p) => p.trim().startsWith(`${NOM_COOKIE_CLIENT}=`));
+  const journal = (issue: 'reconnu' | 'non_reconnu' | 'erreur') =>
+    console.info(ligneDiagnosticCoordonnees(issue, cookie, request.headers.get('user-agent')));
   try {
     const garde = await exigerInternaute(request);
-    if ('refus' in garde) return Response.json({ connecte: false }, { headers: entetes });
+    if ('refus' in garde) { journal('non_reconnu'); return Response.json({ connecte: false }, { headers: entetes }); }
     const c = await lireCoordonneesTunnel(garde.internauteId);
+    journal('reconnu');
     return Response.json({ connecte: true, ...c }, { headers: entetes });
   } catch {
+    journal('erreur');
     return Response.json({ connecte: false }, { headers: entetes });
   }
 }

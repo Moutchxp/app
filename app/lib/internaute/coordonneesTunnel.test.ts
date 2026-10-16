@@ -51,4 +51,10 @@ describe('lireCoordonneesTunnel', () => {
     expect(sqlDe(1)).not.toContain('adresse_saisie');
     expect(c.derniereResidence).toBeNull();
   });
+
+  it('résidence : l’adresse DU COMPTE (364) fait foi ; la dernière saisie n’est qu’un repli', async () => {
+    lireCompte.mockResolvedValue({ prenom: 'Arno', nom: 'Essai', email: 'a@example.com', telephone: null, adresseResidence: ' 3 Rue du Compte 92600 Asnières-sur-Seine ' });
+    query.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ adresse: '1 rue de la Paix 75002 Paris' }] });
+    expect((await lireCoordonneesTunnel('uuid-1')).derniereResidence).toBe('3 Rue du Compte 92600 Asnières-sur-Seine');
+  });
 });

@@ -19,8 +19,8 @@ export async function lireCoordonneesTunnel(internauteId: string): Promise<Coord
         WHERE ca.internaute_id = $1 AND ca.actif = true`,
       [internauteId],
     ),
-    // Dernière adresse de résidence SAISIE par l'internaute (réponse « Non » à la question résidence principale) —
-    // JAMAIS l'adresse analysée d'un projet.
+    // REPLI seulement (compte sans adresse de résidence déclarée depuis la migration 364) : dernière adresse de résidence
+    // SAISIE par l'internaute (réponse « Non ») — jamais l'adresse analysée d'un projet. Aucune écriture.
     query<{ adresse: string }>(
       `SELECT payload->>'adresseResidence' AS adresse
          FROM internaute_projet
@@ -42,6 +42,7 @@ export async function lireCoordonneesTunnel(internauteId: string): Promise<Coord
     email: compte.email,
     telephone: compte.telephone,
     consentementsValables,
-    derniereResidence: residence.rows[0]?.adresse?.trim() || null,
+    // L'adresse de résidence DU COMPTE fait foi (déclarée dans le tunnel ou dans « Mon compte ») ; repli sur la dernière saisie.
+    derniereResidence: compte.adresseResidence?.trim() || residence.rows[0]?.adresse?.trim() || null,
   };
 }

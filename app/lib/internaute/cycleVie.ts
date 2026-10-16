@@ -13,6 +13,7 @@ import 'server-only';
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { ChampsRectification } from './rectification';
+import type { SourceResidence } from './residenceCompte';
 import { assurerTexteConsentement, insererConsentement } from './socle';
 import { texteCourant, type CleFinalite } from './textesConsentement';
 
@@ -73,7 +74,9 @@ async function anonymiserEnPlace(q: RequeteTx, ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   await q(
     `UPDATE internaute
-       SET prenom = NULL, nom = NULL, email = NULL, telephone = NULL, efface_a = now(), maj_a = now()
+       SET prenom = NULL, nom = NULL, email = NULL, telephone = NULL,
+           adresse_residence = NULL, adresse_residence_maj_a = NULL, adresse_residence_source = NULL, -- PII (364)
+           efface_a = now(), maj_a = now()
      WHERE id = ANY($1::uuid[]) AND efface_a IS NULL`,
     [ids],
   );
@@ -188,6 +191,41 @@ export async function rectifierInternaute(
     if (estCode(e, '23505')) throw new ErreurEmailDuplique();
     throw e;
   }
+}
+
+/**
+ * ADRESSE DE RÉSIDENCE PRINCIPALE du compte (migration 364, lot COORDONNEES-CONNU-REEL). La déclaration la plus récente
+ * REMPLACE la précédente ; `adresse = null` l'efface (« Mon compte », champ vidé). Rien n'est écrit si l'adresse est la même
+ * (aucun faux changement au journal). Chaque changement est journalisé comme une rectification — QUEL champ et sa SOURCE,
+ * jamais l'adresse (même principe que `rectifierInternaute`). Lecture `FOR UPDATE` AVANT d'écrire (une décision « rien à
+ * faire » ne laisse aucune écriture derrière elle). Profil effacé ou inconnu → `{ change: false }`. L'appelant garantit que
+ * `id` est celui de la SESSION (jamais un id lu dans la requête).
+ */
+export async function declarerResidence(
+  id: string,
+  adresse: string | null,
+  source: SourceResidence,
+  canal: CanalCycleVie,
+): Promise<{ change: boolean }> {
+  return withTransaction(async (q) => {
+    const avant = await q<{ adresse_residence: string | null }>(
+      `SELECT adresse_residence FROM internaute WHERE id = $1 AND efface_a IS NULL FOR UPDATE`,
+      [id],
+    );
+    if (avant.rows.length === 0) return { change: false };
+    if ((avant.rows[0].adresse_residence ?? null) === adresse) return { change: false };
+    await q(
+      `UPDATE internaute
+          SET adresse_residence = $2,
+              adresse_residence_maj_a = CASE WHEN $2::text IS NULL THEN NULL ELSE now() END,
+              adresse_residence_source = CASE WHEN $2::text IS NULL THEN NULL ELSE $3 END,
+              maj_a = now()
+        WHERE id = $1`,
+      [id, adresse, source],
+    );
+    await journaliserCycleVie(q, null, 'rectification', id, { champs: ['adresse_residence'], source, efface: adresse === null }, canal);
+    return { change: true };
+  });
 }
 
 /** Consentement souhaité à l'Écran B (case cochée), par finalité + version du texte affiché (catalogue). */

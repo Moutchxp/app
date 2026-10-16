@@ -3,8 +3,9 @@
 import { useState } from "react";
 import type { CSSProperties, FormEvent, ReactNode } from "react";
 import { CadenasInfo } from "./CadenasInfo";
+import { AdresseAutocomplete } from "../../components/AdresseAutocomplete";
 import {
-  LIB_CHAMP_PRENOM, LIB_CHAMP_NOM, LIB_CHAMP_EMAIL_COMPTE, LIB_CHAMP_TELEPHONE,
+  LIB_CHAMP_PRENOM, LIB_CHAMP_NOM, LIB_CHAMP_EMAIL_COMPTE, LIB_CHAMP_TELEPHONE, LIB_CHAMP_RESIDENCE, PLACEHOLDER_RESIDENCE,
   MSG_VALEUR_ABSENTE, MSG_TELEPHONE_ABSENT,
   LIB_MODIFIER, LIB_ENREGISTRER, LIB_ENREGISTREMENT, LIB_ANNULER,
   MSG_COMPTE_ENREGISTRE, MSG_COMPTE_VALIDATION, MSG_COMPTE_ERREUR,
@@ -20,15 +21,16 @@ interface Coordonnees {
   nom: string | null;
   email: string | null;
   telephone: string | null;
+  adresseResidence: string | null;
 }
 
-/** Ligne en LECTURE : libellé + valeur, avec cadenas optionnel (champs non modifiables). */
-function LigneLecture({ label, valeur, cadenas }: { label: string; valeur: string; cadenas?: ReactNode }) {
+/** Ligne en LECTURE : libellé + valeur, avec cadenas optionnel (champs non modifiables). `long` : valeur sur plusieurs lignes. */
+function LigneLecture({ label, valeur, cadenas, long }: { label: string; valeur: string; cadenas?: ReactNode; long?: boolean }) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-svv-line py-3">
       <div className="min-w-0">
         <span className="svv-label block">{label}</span>
-        <span className="block truncate text-sm text-svv-ink">{valeur}</span>
+        <span className={long ? "block break-words text-sm text-svv-ink" : "block truncate text-sm text-svv-ink"}>{valeur}</span>
       </div>
       {cadenas}
     </div>
@@ -36,8 +38,9 @@ function LigneLecture({ label, valeur, cadenas }: { label: string; valeur: strin
 }
 
 /**
- * Fiche « Mon compte » (client). LECTURE d'abord : les 4 infos affichées. « Modifier » bascule prénom/nom en champs de
- * saisie (Enregistrer / Annuler). « Annuler » restaure les valeurs initiales SANS appel réseau. E-mail et téléphone
+ * Fiche « Mon compte » (client). LECTURE d'abord : les 5 infos affichées. « Modifier » bascule prénom/nom ET l'adresse de
+ * résidence principale (même saisie à auto-complétion que le tunnel ; lot COORDONNEES-CONNU-REEL) en champs de saisie
+ * (Enregistrer / Annuler). « Annuler » restaure les valeurs initiales SANS appel réseau. E-mail et téléphone
  * TOUJOURS en lecture seule, avec cadenas. Succès → mode lecture + valeurs NORMALISÉES renvoyées par la route +
  * confirmation `role=status`. Échec → `role=alert`, valeurs saisies CONSERVÉES. Aucune animation.
  */
@@ -45,7 +48,8 @@ export function FicheCompte({ initial }: { initial: Coordonnees }) {
   const [edition, setEdition] = useState(false);
   const [prenom, setPrenom] = useState(initial.prenom ?? "");
   const [nom, setNom] = useState(initial.nom ?? "");
-  const [ref, setRef] = useState({ prenom: initial.prenom ?? "", nom: initial.nom ?? "" }); // valeurs en base (pour Annuler + affichage lecture)
+  const [residence, setResidence] = useState(initial.adresseResidence ?? "");
+  const [ref, setRef] = useState({ prenom: initial.prenom ?? "", nom: initial.nom ?? "", residence: initial.adresseResidence ?? "" }); // valeurs en base (pour Annuler + affichage lecture)
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const [succes, setSucces] = useState(false);
@@ -58,14 +62,24 @@ export function FicheCompte({ initial }: { initial: Coordonnees }) {
     setErreur(null);
     setPrenom(ref.prenom);
     setNom(ref.nom);
+    setResidence(ref.residence);
     setEdition(true);
   }
 
   function annuler() {
     setPrenom(ref.prenom); // restaure les valeurs initiales, aucun appel réseau
     setNom(ref.nom);
+    setResidence(ref.residence);
     setErreur(null);
     setEdition(false);
+  }
+
+  // N'envoie que ce qui a changé (pas de fausse « rectification » au journal) ; rien de changé → comme avant, prénom/nom.
+  function corpsModification(): Record<string, string> {
+    const corps: Record<string, string> = {};
+    if (prenom !== ref.prenom || nom !== ref.nom) Object.assign(corps, { prenom, nom });
+    if (residence !== ref.residence) corps.adresseResidence = residence;
+    return Object.keys(corps).length > 0 ? corps : { prenom, nom };
   }
 
   async function enregistrer(e: FormEvent) {
@@ -77,15 +91,17 @@ export function FicheCompte({ initial }: { initial: Coordonnees }) {
       const res = await fetch("/api/internaute/espace/compte", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prenom, nom }),
+        body: JSON.stringify(corpsModification()),
       });
       if (res.ok) {
         const data = await res.json().catch(() => null);
         const p = typeof data?.prenom === "string" ? data.prenom : prenom; // valeurs normalisées réellement en base
         const n = typeof data?.nom === "string" ? data.nom : nom;
-        setRef({ prenom: p, nom: n });
+        const r = data && "adresseResidence" in data ? (data.adresseResidence ?? "") : residence;
+        setRef({ prenom: p, nom: n, residence: r });
         setPrenom(p);
         setNom(n);
+        setResidence(r);
         setEdition(false);
         setSucces(true);
         return;
@@ -110,6 +126,7 @@ export function FicheCompte({ initial }: { initial: Coordonnees }) {
             <LigneLecture label={LIB_CHAMP_NOM} valeur={ref.nom || MSG_VALEUR_ABSENTE} />
             <LigneLecture label={LIB_CHAMP_EMAIL_COMPTE} valeur={email} cadenas={cadenasEmail} />
             <LigneLecture label={LIB_CHAMP_TELEPHONE} valeur={telephone} cadenas={cadenasTel} />
+            <LigneLecture label={LIB_CHAMP_RESIDENCE} valeur={ref.residence || MSG_VALEUR_ABSENTE} long />
           </div>
 
           {succes && (
@@ -134,6 +151,17 @@ export function FicheCompte({ initial }: { initial: Coordonnees }) {
           {/* E-mail et téléphone restent en lecture seule même en édition. */}
           <LigneLecture label={LIB_CHAMP_EMAIL_COMPTE} valeur={email} cadenas={cadenasEmail} />
           <LigneLecture label={LIB_CHAMP_TELEPHONE} valeur={telephone} cadenas={cadenasTel} />
+
+          {/* Adresse de résidence principale — même saisie à auto-complétion (BAN) que dans le tunnel. */}
+          <div className="flex flex-col gap-1">
+            <span className="svv-label">{LIB_CHAMP_RESIDENCE}</span>
+            <AdresseAutocomplete
+              value={residence}
+              onChange={setResidence}
+              onSelect={(s) => setResidence(s.label)}
+              placeholder={PLACEHOLDER_RESIDENCE}
+            />
+          </div>
 
           {erreur && <p role="alert" className="svv-page-note" style={{ marginTop: 0 }}>{erreur}</p>}
 

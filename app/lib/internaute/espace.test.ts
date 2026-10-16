@@ -59,18 +59,20 @@ describe('espace — accès données scopé par internaute_id (Commit C)', () =>
     expect(await lireIdentite('A')).toEqual({ prenom: null, nom: null });
   });
 
-  it('lireCompte : SELECT prenom, nom, email, telephone scopé par id de SESSION', async () => {
-    query.mockResolvedValue({ rows: [{ prenom: 'Jean', nom: 'Dupont', email: 'a@b.co', telephone: '+33600000000' }] });
+  it('lireCompte : coordonnées + adresse de résidence (364), scopées par id de SESSION', async () => {
+    query.mockResolvedValue({ rows: [{ prenom: 'Jean', nom: 'Dupont', email: 'a@b.co', telephone: '+33600000000', adresse_residence: '1 Rue X 75001 Paris' }] });
     const r = await lireCompte('A');
     const [sql, params] = query.mock.calls[0];
-    expect(sql).toMatch(/SELECT prenom, nom, email, telephone FROM internaute WHERE id = \$1/);
+    const s = String(sql).replace(/\s+/g, ' ');
+    expect(s).toContain('FROM internaute WHERE id = $1');
+    expect(s).toContain('adresse_residence');
     expect(params).toEqual(['A']); // id de session, jamais une entrée de requête
-    expect(r).toEqual({ prenom: 'Jean', nom: 'Dupont', email: 'a@b.co', telephone: '+33600000000' });
+    expect(r).toEqual({ prenom: 'Jean', nom: 'Dupont', email: 'a@b.co', telephone: '+33600000000', adresseResidence: '1 Rue X 75001 Paris' });
   });
 
   it('lireCompte : id inconnu / téléphone absent → champs à null', async () => {
     query.mockResolvedValue({ rows: [] });
-    expect(await lireCompte('A')).toEqual({ prenom: null, nom: null, email: null, telephone: null });
+    expect(await lireCompte('A')).toEqual({ prenom: null, nom: null, email: null, telephone: null, adresseResidence: null });
   });
 
   it('resoudrePdfCertificat : garde de propriété c.id = $1 AND ip.internaute_id = $2 → clé + numéro', async () => {

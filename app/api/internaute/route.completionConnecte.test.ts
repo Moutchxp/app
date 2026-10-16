@@ -7,21 +7,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  */
 const h = vi.hoisted(() => ({
   ingererProfil: vi.fn(), signerJetonRectification: vi.fn(), signerJetonEmission: vi.fn(),
-  exigerInternaute: vi.fn(), lireCompte: vi.fn(), rectifierInternaute: vi.fn(),
+  exigerInternaute: vi.fn(), lireCompte: vi.fn(), rectifierInternaute: vi.fn(), declarerResidence: vi.fn(),
 }));
 vi.mock('server-only', () => ({}));
 vi.mock('../../lib/internaute/socle', () => ({ ingererProfil: h.ingererProfil, ErreurAucunConsentement: class extends Error {} }));
 vi.mock('../../lib/internaute/jetonRectification', () => ({ signerJetonRectification: h.signerJetonRectification, signerJetonEmission: h.signerJetonEmission }));
 vi.mock('../../lib/internaute/authGarde', () => ({ exigerInternaute: h.exigerInternaute }));
 vi.mock('../../lib/internaute/espace', () => ({ lireCompte: h.lireCompte }));
-vi.mock('../../lib/internaute/cycleVie', () => ({ rectifierInternaute: h.rectifierInternaute }));
+vi.mock('../../lib/internaute/cycleVie', () => ({ rectifierInternaute: h.rectifierInternaute, declarerResidence: h.declarerResidence }));
 
 import { POST } from './route';
 
-const corps = (identite: Record<string, unknown>) => ({
+const corps = (identite: Record<string, unknown>, projet: Record<string, unknown> = {}) => ({
   identite: { prenom: 'Arno', nom: 'Essai', email: 'a@example.com', telephone: '+33611111111', ...identite },
   consentements: [],
-  projet: { versionTunnel: 1, payload: {}, verdict: 'SANS_VIS_A_VIS', etage: 0, dernierEtage: false },
+  projet: { versionTunnel: 1, payload: {}, verdict: 'SANS_VIS_A_VIS', etage: 0, dernierEtage: false, ...projet },
 });
 const requete = (b: unknown) => new Request('http://localhost/api/internaute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
 
@@ -31,6 +31,7 @@ describe('POST /api/internaute — compte connecté complété (cases vides seul
     h.signerJetonEmission.mockResolvedValue('JETON_EMISSION');
     h.ingererProfil.mockResolvedValue({ internauteId: 'uuid-compte', projetId: 5, creeInternaute: false });
     h.rectifierInternaute.mockResolvedValue({ rectifie: true });
+    h.declarerResidence.mockResolvedValue({ change: true });
   });
 
   it('session = ce dossier, téléphone vide sur le compte → complété par la rectification existante (canal tunnel), rien d’autre', async () => {
@@ -82,5 +83,50 @@ describe('POST /api/internaute — compte connecté complété (cases vides seul
     const res = await POST(requete(corps({})));
     expect(res.status).toBe(200);
     expect((await res.json()).jetonEmission).toBe('JETON_EMISSION');
+  });
+});
+
+describe('POST /api/internaute — adresse de résidence du compte (lot COORDONNEES-CONNU-REEL)', () => {
+  const BIEN = { adresseSaisie: '8 rue Denfert-Rochereau', adresseNormalisee: '8 Rue Denfert - Rochereau, Asnières-sur-Seine' };
+  beforeEach(() => {
+    Object.values(h).forEach((f) => f.mockReset());
+    h.signerJetonEmission.mockResolvedValue('JETON_EMISSION');
+    h.ingererProfil.mockResolvedValue({ internauteId: 'uuid-compte', projetId: 5, creeInternaute: false });
+    h.lireCompte.mockResolvedValue({ prenom: 'Arno', nom: 'Essai', email: 'a@example.com', telephone: '+33612345678', adresseResidence: null });
+    h.declarerResidence.mockResolvedValue({ change: true });
+  });
+
+  it('connecté, « Oui » → l’adresse du bien analysé devient la résidence du compte (source tunnel_bien_analyse)', async () => {
+    h.exigerInternaute.mockResolvedValue({ internauteId: 'uuid-compte' });
+    await POST(requete(corps({}, { ...BIEN, residencePrincipale: true })));
+    expect(h.declarerResidence).toHaveBeenCalledWith('uuid-compte', '8 Rue Denfert - Rochereau, Asnières-sur-Seine', 'tunnel_bien_analyse', 'tunnel');
+  });
+
+  it('connecté, « Non » + adresse saisie → l’adresse saisie (source tunnel_adresse_saisie), jamais celle du bien', async () => {
+    h.exigerInternaute.mockResolvedValue({ internauteId: 'uuid-compte' });
+    await POST(requete(corps({}, { ...BIEN, residencePrincipale: false, payload: { adresseResidence: ' 12 Rue de la Paix  75002 Paris ' } })));
+    expect(h.declarerResidence).toHaveBeenCalledWith('uuid-compte', '12 Rue de la Paix 75002 Paris', 'tunnel_adresse_saisie', 'tunnel');
+  });
+
+  it('non connecté, ou session d’un autre compte → rien n’est écrit sur un compte', async () => {
+    h.exigerInternaute.mockResolvedValue({ refus: Response.json({}, { status: 401 }) });
+    await POST(requete(corps({}, { ...BIEN, residencePrincipale: true })));
+    h.exigerInternaute.mockResolvedValue({ internauteId: 'uuid-autre' });
+    await POST(requete(corps({}, { ...BIEN, residencePrincipale: true })));
+    expect(h.declarerResidence).not.toHaveBeenCalled();
+  });
+
+  it('dossier neuf (e-mail inconnu) → aucune écriture de résidence', async () => {
+    h.ingererProfil.mockResolvedValue({ internauteId: 'uuid-neuf', projetId: 6, creeInternaute: true });
+    h.exigerInternaute.mockResolvedValue({ internauteId: 'uuid-neuf' });
+    await POST(requete(corps({}, { ...BIEN, residencePrincipale: true })));
+    expect(h.declarerResidence).not.toHaveBeenCalled();
+  });
+
+  it('échec d’écriture de la résidence → l’ingestion répond quand même 200', async () => {
+    h.exigerInternaute.mockResolvedValue({ internauteId: 'uuid-compte' });
+    h.declarerResidence.mockRejectedValue(new Error('db down'));
+    const res = await POST(requete(corps({}, { ...BIEN, residencePrincipale: true })));
+    expect(res.status).toBe(200);
   });
 });

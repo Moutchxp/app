@@ -181,6 +181,9 @@ export const LIB_CHAMP_PRENOM = 'Prénom';
 export const LIB_CHAMP_NOM = 'Nom';
 export const LIB_CHAMP_EMAIL_COMPTE = 'E-mail';
 export const LIB_CHAMP_TELEPHONE = 'Téléphone';
+/** Adresse de résidence principale du compte (lot COORDONNEES-CONNU-REEL, migration 364). */
+export const LIB_CHAMP_RESIDENCE = 'Adresse de résidence principale';
+export const PLACEHOLDER_RESIDENCE = 'Saisissez votre adresse de résidence principale';
 /** Valeur absente affichée en lecture. */
 export const MSG_VALEUR_ABSENTE = '—';
 /** Téléphone non renseigné en base (cadenas conservé). */

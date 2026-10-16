@@ -62,6 +62,8 @@ export interface CompteInternaute {
   nom: string | null;
   email: string | null;
   telephone: string | null;
+  /** Adresse de résidence principale déclarée (migration 364) — tunnel « Oui »/« Non », ou « Mon compte ». */
+  adresseResidence: string | null;
 }
 
 /**
@@ -70,8 +72,8 @@ export interface CompteInternaute {
  * relire les valeurs APRÈS une modification (prénom/nom normalisés) pour que l'écran affiche l'état réel de la base.
  */
 export async function lireCompte(internauteId: string): Promise<CompteInternaute> {
-  const r = await query<{ prenom: string | null; nom: string | null; email: string | null; telephone: string | null }>(
-    `SELECT prenom, nom, email, telephone FROM internaute WHERE id = $1`,
+  const r = await query<{ prenom: string | null; nom: string | null; email: string | null; telephone: string | null; adresse_residence: string | null }>(
+    `SELECT prenom, nom, email, telephone, adresse_residence FROM internaute WHERE id = $1`,
     [internauteId],
   );
   const row = r.rows[0];
@@ -80,6 +82,7 @@ export async function lireCompte(internauteId: string): Promise<CompteInternaute
     nom: row?.nom ?? null,
     email: row?.email ?? null,
     telephone: row?.telephone ?? null,
+    adresseResidence: row?.adresse_residence ?? null,
   };
 }
 

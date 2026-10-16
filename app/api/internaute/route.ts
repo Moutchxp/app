@@ -6,24 +6,33 @@ import { exigerInternaute } from '../../lib/internaute/authGarde';
 import { lireCompte } from '../../lib/internaute/espace';
 import { champsVidesACompleter } from '../../lib/internaute/coordonneesConnues';
 import { validerRectification } from '../../lib/internaute/rectification';
-import { rectifierInternaute } from '../../lib/internaute/cycleVie';
+import { rectifierInternaute, declarerResidence } from '../../lib/internaute/cycleVie';
+import { residenceDeclaree, type DeclarationProjet } from '../../lib/internaute/residenceCompte';
 
 /**
  * Internaute CONNECTÉ dont le compte n'avait pas tout (lot COORDONNEES-CONNU, décision 3a d'Arno du 16/10/2026) : la page
  * ne lui a demandé QUE ce qui manquait. On complète les CASES VIDES de SON compte — jamais d'écrasement, jamais l'e-mail —
  * par le chemin de rectification existant (`validerRectification` + `rectifierInternaute`, journalisé, canal 'tunnel').
+ * Même geste pour l'ADRESSE DE RÉSIDENCE déclarée par l'analyse (lot COORDONNEES-CONNU-REEL) : elle remplace celle du compte.
  * VERROU : uniquement si la SESSION désigne ce même dossier (sinon quiconque connaît un e-mail remplirait le compte d'un
- * autre). Best-effort : un échec ne bloque jamais l'ingestion ni le certificat.
+ * autre). Non connecté : rien n'est écrit sur un compte. Best-effort : un échec ne bloque jamais l'ingestion ni le certificat.
  */
-async function completerCompteConnecte(request: Request, internauteId: string, identite: { prenom: string; nom: string; telephone: string | null }) {
+async function completerCompteConnecte(
+  request: Request,
+  internauteId: string,
+  identite: { prenom: string; nom: string; telephone: string | null },
+  projet: DeclarationProjet,
+) {
   try {
     const garde = await exigerInternaute(request);
     if ('refus' in garde || garde.internauteId !== internauteId) return;
     const patch = champsVidesACompleter(await lireCompte(internauteId), identite);
-    if (Object.keys(patch).length === 0) return;
-    const v = validerRectification(patch);
-    if (!v.ok) return;
-    await rectifierInternaute(internauteId, v.champs, null, 'tunnel');
+    const v = Object.keys(patch).length > 0 ? validerRectification(patch) : null;
+    if (v?.ok) await rectifierInternaute(internauteId, v.champs, null, 'tunnel');
+    // Lot COORDONNEES-CONNU-REEL (16/10/2026) — « Oui » → l'adresse du bien analysé devient la résidence du compte ;
+    // « Non » + adresse saisie → l'adresse saisie. La plus récente remplace la précédente ; journalisé (cycleVie).
+    const residence = residenceDeclaree(projet);
+    if (residence) await declarerResidence(internauteId, residence.adresse, residence.source, 'tunnel');
   } catch (e) {
     console.error('[internaute] complétion du compte connecté indisponible', (e as Error)?.name ?? 'Erreur');
   }
@@ -61,7 +70,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const { internauteId, projetId, creeInternaute } = await ingererProfil(validation.corps);
     // Dossier réutilisé (e-mail déjà en base) : complétion des cases vides SEULEMENT si c'est le compte de la session.
-    if (!creeInternaute) await completerCompteConnecte(request, internauteId, validation.corps.identite);
+    if (!creeInternaute) await completerCompteConnecte(request, internauteId, validation.corps.identite, validation.corps.projet);
     // Jeton-capacité de rectification publique : frappé UNIQUEMENT si un NOUVEAU dossier a été inséré dans cette
     // requête (creeInternaute). Email pré-existant (get-or-create réutilise) → PAS de jeton → l'internaute ne peut
     // corriger QUE le dossier qu'il vient de créer, jamais celui d'un tiers (fermeture collision email / IDOR).
