@@ -4663,7 +4663,9 @@ function FilDeMails({
           detail={el.accolade.detail} mail={el.accolade.mail} nbMails={el.accolade.nbMails}
           /* 🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR — les autres changements du même mail, dans la fenêtre du « i ». */
           autres={lignesAutresChangements(el.accolade.autres ?? [], dateHeureComplete)}
-          compteMailId={el.accolade.compteMailId} />
+          compteMailId={el.accolade.compteMailId}
+          /* 🔴 LOT GESTION-FENETRES-SUIVI — le mail précédent de la conversation, pour l'« Avant » de la bulle. */
+          avantMail={el.accolade.avantMail ?? null} />
         : ((l: LigneHistorique) => (
         /**
          * ══ 🔴🔴 LA BARRE DE COULEUR EST PORTÉE PAR L'ENVELOPPE, PAS PAR `LigneVie` (lot HISTORIQUE-BIEN-2) ═══

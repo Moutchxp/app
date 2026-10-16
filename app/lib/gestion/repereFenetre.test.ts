@@ -291,14 +291,20 @@ describe('🔴 ③ ce que l’écran dessine', () => {
    */
   it('🔴🔴 la pastille est un bouton, et le clic ouvre la modale', () => {
     expect(src).toContain('<button type="button" className="cnv-repere-i" aria-haspopup="dialog"');
-    expect(src).toContain('onClick={() => setOuverte(true)}');
+    /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — le clic ouvre TOUJOURS la modale ; le survol, la bulle Avant/Après. */
+    expect(src).toContain('ouvrirFenetre={() => setOuverte(true)}');
+    expect(src).toContain('onClick={() => { fermer(); ouvrirFenetre(); }}');
     /* 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — la fenêtre du « i » est désormais la fenêtre en deux colonnes. */
     expect(src).toContain('<ModaleAvantApres titre={titreModaleChangement(le === null ? null : dateHeureComplete(le))}');
     expect(src).toContain('{c !== null && ouverte && (');
   });
 
-  /** 🔴 LE SURVOL NE FAIT PLUS QU'UNE CHOSE : dire ce que le clic va ouvrir. Et la bulle d'avant a disparu. */
-  it('🔴🔴 au survol, seulement « Voir le détail du changement »', () => {
+  /**
+   * 🔴 LE SURVOL NE FAIT PLUS QU'UNE CHOSE : dire ce que le clic va ouvrir. Et la bulle d'avant a disparu.
+   * ⚠️ LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) : le survol ouvre désormais la bulle « Avant / Après » (même composant
+   * que les autres bulles, éprouvée dans AccoladeSuivi.test.tsx) ; l'ancienne bulle `InfoBien` ne revient pas.
+   */
+  it('🔴🔴 au survol, « Voir le détail du changement » (et pas l’ancienne bulle InfoBien)', () => {
     expect(AIDE_PASTILLE_REPERE).toBe('Voir le détail du changement');
     expect(src).toContain('title={AIDE_PASTILLE_REPERE} aria-label={AIDE_PASTILLE_REPERE}');
     /* ⚠️ PLUS AUCUNE BULLE SUR LE REPÈRE : les lignes qu'elle composait sont parties dans la modale. */

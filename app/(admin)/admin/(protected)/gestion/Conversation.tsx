@@ -130,6 +130,7 @@ import {
 /* 🔴 LOT ACCOLADE-PARTOUT — l'accolade rouge, modèle unique, partagée avec l'historique du bien. */
 import { AccoladeSuivi, CSS_ACCOLADE_SUIVI, type MailDuRepere } from './AccoladeSuivi';
 import { accoladeInterneSuite } from '../../../../lib/gestion/accoladesBien';
+import { mailPrecedent, uneMaterialisationParMail, type SignauxAvant } from '../../../../lib/gestion/lisereSuivi';
 /* 🔴 LA PASTILLE « i » DES BIENS, employée telle quelle avec un autre contenu : voir son encadré `lignes`. */
 import { InfoBien, CSS_INFO_BIEN } from './InfoBien';
 /* 🔴🔴 LOT PICTO-PIECE-DANS-LE-DRIVE, POINT 1 — le statut « deja dans le Drive » des pieces de l'echange, et ou
@@ -1783,6 +1784,32 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       libelle: 'Interne', sens: 'ajout',
     })).filter((a): a is NonNullable<typeof a> => a !== null);
   })();
+  /**
+   * 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « JAMAIS DEUX LISERÉS POUR LE MÊME MAIL ». Le geste « Interne — ce
+   * mail et la suite » écrit une fenêtre de sorte `interne` ET des marques « Interne » pour la suite : chacune donnait son
+   * liseré (fil 36646). Une seule matérialisation par mail, la plus récente ; à geste égal, la fenêtre (module PUR).
+   */
+  const uniques = uneMaterialisationParMail(
+    reperes.map((r) => ({ ...r, depuisMessageId: r.avantMessageId })), accoladesInterne);
+  const reperesVisibles: RepereFil[] = uniques.fenetres;
+  const accoladesInterneVisibles = uniques.marques;
+  /**
+   * 🔴🔴 LOT GESTION-FENETRES-SUIVI — la partie « Avant » de la bulle du liseré : le mail PRÉCÉDENT dans la conversation et
+   * ses marques (Interne, Hors gestion). Ses biens sont lus à l'ouverture de la bulle, par la lecture du compteur.
+   */
+  const avantDuMail = (messageId: number): SignauxAvant | null => {
+    const prec = suivi === null ? null : mailPrecedent(suivi.mails, messageId);
+    if (prec === null) return null;
+    return {
+      messageId: prec,
+      interne: interne !== null && interneDuMail({
+        marqueDuMailVivante: interneParMail.get(prec)?.vivante === true,
+        marqueDuMailConnue: interneParMail.has(prec),
+        marqueDeLEchange: interne === true,
+      }),
+      horsGestion: horsGestion?.has(prec) === true,
+    };
+  };
   /** Le mot d'une exception, pour l'en-tête du mail qui la porte. `null` = ce mail n'en porte pas. */
   const exceptionDe = (messageId: number): string | null => {
     const e = suivi?.exceptions.find((x) => x.messageId === messageId);
@@ -2003,13 +2030,14 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               « avant » veut dire PLUS TARD : relevé à l'écran sur le fil 3490, le repère de la fenêtre du mail
               57368 (01/10 12:46) paraissait entre le 03/10 14:31 et lui, donc rattaché au mauvais mail.
               Il se pose désormais du côté qui PRÉCÈDE CHRONOLOGIQUEMENT (`coteDuRepere`). */}
-          {coteDuRepere(ordre) === 'dessus' && accoladesInterne
+          {coteDuRepere(ordre) === 'dessus' && accoladesInterneVisibles
             .filter((a) => a.depuisMessageId === m.messageId)
             .map((a) => <AccoladeSuivi key={`int-${a.le ?? ''}-${a.depuisMessageId}`} cote="dessus" libelle={a.libelle}
-              parLibelle={a.parLibelle} le={a.le} detail={a.detail} mail={m} nbMails={a.nbMails} />)}
-          {coteDuRepere(ordre) === 'dessus' && reperes
+              parLibelle={a.parLibelle} le={a.le} detail={a.detail} mail={m} nbMails={a.nbMails}
+              avantMail={avantDuMail(m.messageId)} />)}
+          {coteDuRepere(ordre) === 'dessus' && reperesVisibles
             .filter((r) => r.avantMessageId === m.messageId)
-            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessus"
+            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessus" avantMail={avantDuMail(m.messageId)}
               interneDeLEchange={interne === true}
               /* 🔴 LE MAIL QUI OUVRE LA FENÊTRE, pour le pied de la modale : c'est CE mail-ci, celui
                  que le repère annonce. Aucune recherche, aucune requête — il est déjà là. */
@@ -2255,13 +2283,14 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             ) : null} />
           {/* 🔴🔴 EN ORDRE « PLUS RÉCENT D'ABORD », CE QUI PRÉCÈDE CHRONOLOGIQUEMENT EST EN DESSOUS. Voir
               l'encadré du côté opposé, et `coteDuRepere`. */}
-          {coteDuRepere(ordre) === 'dessous' && accoladesInterne
+          {coteDuRepere(ordre) === 'dessous' && accoladesInterneVisibles
             .filter((a) => a.depuisMessageId === m.messageId)
             .map((a) => <AccoladeSuivi key={`int-${a.le ?? ''}-${a.depuisMessageId}`} cote="dessous" libelle={a.libelle}
-              parLibelle={a.parLibelle} le={a.le} detail={a.detail} mail={m} nbMails={a.nbMails} />)}
-          {coteDuRepere(ordre) === 'dessous' && reperes
+              parLibelle={a.parLibelle} le={a.le} detail={a.detail} mail={m} nbMails={a.nbMails}
+              avantMail={avantDuMail(m.messageId)} />)}
+          {coteDuRepere(ordre) === 'dessous' && reperesVisibles
             .filter((r) => r.avantMessageId === m.messageId)
-            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessous"
+            .map((r) => <LigneRepere key={`rep-${r.id}`} repere={r} suivi={suivi} cote="dessous" avantMail={avantDuMail(m.messageId)}
               interneDeLEchange={interne === true}
               /* 🔴 LE MAIL QUI OUVRE LA FENÊTRE, pour le pied de la modale : c'est CE mail-ci, celui
                  que le repère annonce. Aucune recherche, aucune requête — il est déjà là. */
@@ -2623,8 +2652,10 @@ function ouvrirRedaction(
  * changement de taille, par un `ResizeObserver`.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
+function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange, avantMail = null }: {
   repere: RepereFil;
+  /** 🔴 LOT GESTION-FENETRES-SUIVI — le mail précédent et ses marques, pour l'« Avant » de la bulle du liseré. */
+  avantMail?: SignauxAvant | null;
   suivi: { mails: number[]; periodes: Periode[]; exceptions: ExceptionMail[]; anciennes?: PeriodeAncienne[] } | null;
   cote: 'dessus' | 'dessous';
   /**
@@ -2664,7 +2695,7 @@ function LigneRepere({ repere: r, suivi, cote, mail, interneDeLEchange }: {
      JSX, mêmes classes, même feuille. Cette ligne n'en fait plus que la donnée. */
   return (
     <AccoladeSuivi cote={cote} libelle={r.versQuoi} parLibelle={r.parLibelle} le={r.le}
-      detail={c} mail={mail} nbMails={nbMails}
+      detail={c} mail={mail} nbMails={nbMails} avantMail={avantMail}
       autres={changement === null ? [] : lignesAutresChangements(changement.autres, dateHeureComplete)} />
   );
 }

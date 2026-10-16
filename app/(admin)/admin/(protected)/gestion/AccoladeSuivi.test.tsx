@@ -125,3 +125,74 @@ describe('② l’historique du bien', () => {
     expect(liste()).toEqual(['m3', 'm2', 'm1']);
   });
 });
+
+/* ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — LA BULLE « AVANT / APRÈS » DU LISERÉ ═══════════════════════ */
+
+describe('⑤ la bulle « Avant / Après » du liseré', () => {
+  const BIEN = (cle: string, adresse: string) => ({
+    cle, adresse, codePostal: '92400', commune: 'COURBEVOIE', nature: 'Appartement', typeBien: null, proprietaire: 'PROPRIO Fictif',
+  });
+  const survoler = async (avantMail: { messageId: number; interne: boolean; horsGestion: boolean } | null,
+    apres: { sorte: 'biens'; biens: { cle: string; libelle: string }[] } | { sorte: 'interne'; biens: [] }) => {
+    const { viderMemoireBiensRattaches } = await import('./CompteurBiensMail');
+    viderMemoireBiensRattaches();
+    const ol = document.createElement('ol'); document.body.appendChild(ol);
+    const r = createRoot(ol);
+    await act(async () => {
+      r.render(createElement(AccoladeSuivi, {
+        cote: 'dessus', libelle: 'Interne', parLibelle: 'a.jorel@sansvisavis.com', le: '2026-10-16T21:45:21Z',
+        detail: { avant: null, interneEchangeAvant: false, apres }, mail: null, nbMails: 3, avantMail,
+      }));
+    });
+    const i = ol.querySelector('button.cnv-repere-i') as HTMLButtonElement;
+    await act(async () => { i.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); });
+    await act(async () => { for (let k = 0; k < 20; k++) await Promise.resolve(); });
+    return { ol, r, i, bulle: () => document.querySelector('.cnv-lisere-bulle') as HTMLElement | null };
+  };
+
+  it('🔴 « Avant » = les biens du mail PRÉCÉDENT, un par ligne ; « Après » = la configuration validée, avec qui et quand', async () => {
+    const { ol, r, bulle } = await survoler({ messageId: 57705, interne: false, horsGestion: false },
+      { sorte: 'biens', biens: [{ cle: '21', libelle: 'x' }] });
+    const b = bulle() as HTMLElement;
+    expect(b).not.toBeNull();
+    expect(demandes).toEqual([]);
+    const titres = [...b.querySelectorAll('.cbm-bulle-titre')].map((p) => p.textContent);
+    expect(titres).toEqual(['Avant', 'Après']);
+    const avant = b.querySelector('.cnv-lisere-partie--avant') as HTMLElement;
+    expect([...avant.querySelectorAll('li.cbm-bulle-ligne')].map((li) => li.querySelector('.cbm-bulle-bien')?.textContent))
+      .toEqual(['1 rue A, COURBEVOIE', '2 rue B, COURBEVOIE']);
+    const apres = b.querySelector('.cnv-lisere-partie--apres') as HTMLElement;
+    expect(apres.querySelectorAll('li.cbm-bulle-ligne')).toHaveLength(1);
+    expect(apres.querySelector('.cnv-lisere-qui')?.textContent).toContain('a.jorel@sansvisavis.com');
+    expect(apres.querySelector('.cnv-lisere-qui')?.textContent).toContain('16 octobre 2026');
+    act(() => r.unmount()); ol.remove();
+  });
+
+  it('🔴 mail précédent sans bien : « Interne », sinon « Aucun rattachement » ; « Après » Interne', async () => {
+    const un = await survoler({ messageId: 1, interne: true, horsGestion: false }, { sorte: 'interne', biens: [] });
+    expect(un.bulle()?.querySelector('.cnv-lisere-partie--avant .cbm-bulle-mot')?.textContent).toBe('Interne');
+    expect(un.bulle()?.querySelector('.cnv-lisere-partie--apres .cbm-bulle-mot')?.textContent).toBe('Interne');
+    act(() => un.r.unmount()); un.ol.remove();
+    const deux = await survoler({ messageId: 1, interne: false, horsGestion: false }, { sorte: 'interne', biens: [] });
+    expect(deux.bulle()?.querySelector('.cnv-lisere-partie--avant .cbm-bulle-mot')?.textContent).toBe('Aucun rattachement');
+    act(() => deux.r.unmount()); deux.ol.remove();
+  });
+
+  it('le clic ouvre toujours la fenêtre détaillée (rien n’est retiré)', async () => {
+    const { ol, r, i } = await survoler({ messageId: 1, interne: false, horsGestion: false }, { sorte: 'interne', biens: [] });
+    await act(async () => { i.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(document.querySelector('.maa')).not.toBeNull();
+    expect(document.querySelector('.cnv-lisere-bulle')).toBeNull();
+    act(() => r.unmount()); ol.remove();
+  });
+
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const u = String(url);
+      if (u.includes('biens-par-mail?detail=57705')) return reponse({ etat: 'ok', biens: [BIEN('7', '1 rue A'), BIEN('8', '2 rue B')] });
+      if (u.includes('biens-par-mail?detail=')) return reponse({ etat: 'ok', biens: [] });
+      if (u.includes('biens-par-mail?cles=21')) return reponse({ etat: 'ok', biens: [BIEN('21', '54 avenue C')] });
+      return reponse({ etat: 'ok', biens: [], lignes: {} });
+    }));
+  });
+});

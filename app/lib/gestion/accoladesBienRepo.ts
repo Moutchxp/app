@@ -5,6 +5,7 @@ import { MOTIF_DETACHE_PAR_INTERNE } from './interneDetache';
 import {
   accoladeInterneSuite, accoladesDuBienDansLeFil, LIBELLE_RETRAIT, type AccoladeDuBien,
 } from './accoladesBien';
+import { mailPrecedent, uneMaterialisationParMail, type SignauxAvant } from './lisereSuivi';
 
 /**
  * ══ 🔴🔴 LOT ACCOLADE-PARTOUT — LES ACCOLADES D'UN BIEN, LUES EN BASE. LECTURE SEULE ═══════════════════════════════════
@@ -19,6 +20,8 @@ import {
 export interface AccoladeAffichee extends AccoladeDuBien {
   recuLe: string;
   mail: { de: string; deNom: string | null; recuLe: string; objet: string | null } | null;
+  /** 🔴 LOT GESTION-FENETRES-SUIVI — le mail précédent dans la conversation et ses marques (« Avant » de la bulle). */
+  avantMail?: SignauxAvant | null;
 }
 
 export async function accoladesDuBien(cle: string, filIds: readonly number[]): Promise<AccoladeAffichee[]> {
@@ -52,6 +55,8 @@ export async function accoladesDuBien(cle: string, filIds: readonly number[]): P
 
     const aLire = [...new Set([...avecSuite.map((r) => Number(r.fil_id)), ...internes.map((r) => Number(r.fil_id))])];
     const out: AccoladeDuBien[] = [];
+    /** Le mail précédent de chaque mail déclencheur, et sa conversation (pour la marque « Interne » de l'échange). */
+    const precedents = new Map<number, { prec: number; fil: number }>();
     for (const fil of aLire) {
       const { periodes } = await suiviDuFil(fil);
       const mails = await mailsDuFil(fil);
@@ -61,15 +66,24 @@ export async function accoladesDuBien(cle: string, filIds: readonly number[]): P
       const rattachesParMail = await clesBiensParMail(periodes.map((p) => p.depuisMessageId));
       const { rows: ie } = await query<{ n: number }>(
         'SELECT count(*)::int AS n FROM gestion_fil_interne WHERE fil_id = $1 AND retire_le IS NULL', [fil]);
-      out.push(...accoladesDuBienDansLeFil({
+      const deFenetres = accoladesDuBienDansLeFil({
         filId: fil, mails, periodes, anciennes, cle, interneDeLEchange: (ie[0]?.n ?? 0) > 0, rattachesParMail,
-      }));
+      });
+      const deMarques: AccoladeDuBien[] = [];
       for (const g of internes.filter((x) => Number(x.fil_id) === fil)) {
         const a = accoladeInterneSuite({
           filId: fil, mails, periodes, marques: g.ids.map(Number), parLibelle: g.par, le: g.pose,
           libelle: LIBELLE_RETRAIT, sens: 'retrait',
         });
-        if (a !== null) out.push(a);
+        if (a !== null) deMarques.push(a);
+      }
+      /* 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — jamais deux liserés pour le même mail : la plus récente, et à
+         geste égal la fenêtre (le geste « Interne — la suite » écrit une fenêtre ET des marques). */
+      const uniques = uneMaterialisationParMail(deFenetres, deMarques);
+      out.push(...uniques.fenetres, ...uniques.marques);
+      for (const a of [...uniques.fenetres, ...uniques.marques]) {
+        const prec = mailPrecedent(mails, a.depuisMessageId);
+        if (prec !== null) precedents.set(a.depuisMessageId, { prec, fil });
       }
     }
     if (out.length === 0) return [];
@@ -78,14 +92,53 @@ export async function accoladesDuBien(cle: string, filIds: readonly number[]): P
               to_char(recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le, objet
          FROM gestion_message WHERE id = ANY($1::bigint[])`, [out.map((a) => a.depuisMessageId)]);
     const parId = new Map(mails.map((m) => [Number(m.id), m]));
+    const signaux = await signauxAvant(precedents);
     return out.flatMap((a) => {
       const m = parId.get(a.depuisMessageId);
       return m === undefined ? [] : [{
         ...a, recuLe: m.recu_le, mail: { de: m.de, deNom: m.de_nom, recuLe: m.recu_le, objet: m.objet },
+        avantMail: signaux.get(a.depuisMessageId) ?? null,
       }];
     });
   } catch (e) {
     console.error('[gestion/accolades] lecture impossible (cle=%s)', cle, e);
     return [];
   }
+}
+
+/**
+ * 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — LES MARQUES DU MAIL PRÉCÉDENT, pour l'« Avant » de la bulle du liseré :
+ * « Interne » (la règle des trois cas, `interneDuMail`) et « Hors gestion ». Ses biens sont lus par l'écran à l'ouverture,
+ * par la lecture du compteur. LECTURE SEULE ; trois requêtes pour toute la page. En échec : aucun signal (l'« Avant »
+ * retombe alors sur la fenêtre remplacée).
+ */
+async function signauxAvant(precedents: ReadonlyMap<number, { prec: number; fil: number }>): Promise<Map<number, SignauxAvant>> {
+  const out = new Map<number, SignauxAvant>();
+  if (precedents.size === 0) return out;
+  try {
+    const { lireInterneDesMessages } = await import('./interneMessageRepo');
+    const { lireInterne } = await import('./interneRepo');
+    const { lireHorsGestion } = await import('./horsGestionRepo');
+    const { interneDuMail } = await import('./interneDuMail');
+    const ids = [...new Set([...precedents.values()].map((p) => p.prec))];
+    const [parMail, desFils, hors] = await Promise.all([
+      lireInterneDesMessages(ids),
+      lireInterne([...new Set([...precedents.values()].map((p) => p.fil))]),
+      lireHorsGestion(ids),
+    ]);
+    for (const [mail, { prec, fil }] of precedents) {
+      const marque = parMail.get(prec);
+      out.set(mail, {
+        messageId: prec,
+        interne: interneDuMail({
+          marqueDuMailVivante: marque?.vivante === true, marqueDuMailConnue: marque !== undefined,
+          marqueDeLEchange: desFils.has(fil),
+        }),
+        horsGestion: hors.has(prec),
+      });
+    }
+  } catch (e) {
+    console.error('[gestion/accolades] marques du mail précédent illisibles', e);
+  }
+  return out;
 }

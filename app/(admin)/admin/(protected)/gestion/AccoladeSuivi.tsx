@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { dateHeureComplete } from '../../../../lib/gestion/ecran';
 import { estSuiviAutomatique, motSuiviAutomatique } from '../../../../lib/gestion/reglesRattachement';
 import { AIDE_PASTILLE_REPERE, motMailsCouverts, titreModaleChangement } from '../../../../lib/gestion/repereFenetre';
@@ -8,8 +8,15 @@ import { PHRASE_SUITE, SUFFIXE_SUITE } from '../../../../lib/gestion/avantApres'
 import type { Classement } from '../../../../lib/gestion/periodesConversation';
 /* 🔴🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — le « i » ouvre la fenêtre en deux colonnes, commune avec la pastille. */
 import { ModaleAvantApres } from './ModaleAvantApres';
-import { useBiensRattaches } from './CompteurBiensMail';
+import { CSS_COMPTEUR_BIENS, ContenuBulleBiens, lireBiensDesCles, lireBiensDuMail, useBiensRattaches } from './CompteurBiensMail';
 import { motBiensRattaches } from '../../../../lib/gestion/changementsSuivi';
+import { createPortal } from 'react-dom';
+import { hoteDeLaBulle } from './InfoBien';
+import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
+import { placerBulleBiens, type BienDeLaBulle } from '../../../../lib/gestion/bulleBiensMail';
+import {
+  AUCUN_RATTACHEMENT, SOUS_TITRE_AVANT_LISERE, TITRE_APRES_LISERE, TITRE_AVANT_LISERE, motAvantSansBien, type SignauxAvant,
+} from '../../../../lib/gestion/lisereSuivi';
 
 /** Le mail qui ouvre le changement, pour la ligne « Sur le mail » de la fenêtre. */
 export interface MailDuRepere {
@@ -33,7 +40,7 @@ export interface MailDuRepere {
  * ⚠️ IL EST UN `<li>` ET MESURE SON VOISIN : posé dans une liste de mails (`ol`/`ul`), ses deux bras longent le mail
  * d'à côté jusqu'à mi-hauteur. Au-dessus du mail (`dessus`) le voisin est le SUIVANT, en dessous le PRÉCÉDENT.
  */
-export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, nbMails, autres = [], compteMailId }: {
+export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, nbMails, autres = [], compteMailId, avantMail = null }: {
   cote: 'dessus' | 'dessous';
   /** Ce qui suit « À partir d'ici : » — « aucun bien », « 25 rue Edith Cavell… », « suivi de fond modifié » (ajout)… */
   libelle: string;
@@ -55,6 +62,12 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, 
    * libellé rendu par le serveur (calculé à la lecture, sur les mêmes liens) s'affiche.
    */
   compteMailId?: number;
+  /**
+   * 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — le mail PRÉCÉDENT dans la conversation, et ses marques : la partie
+   * « Avant » de la bulle dit son rattachement EFFECTIF (ses biens, « Interne », « Hors gestion », ou « Aucun
+   * rattachement »). `null` = inconnu : l'« Avant » retombe sur la fenêtre que le changement a remplacée (`detail.avant`).
+   */
+  avantMail?: SignauxAvant | null;
 }) {
   const nEnDirect = useBiensRattaches(compteMailId);
   const libelleVrai = compteMailId !== undefined && nEnDirect !== null
@@ -100,12 +113,11 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, 
           </span>
         )}
         {/* LA PASTILLE « i » : un vrai bouton, ouvert au clic (et Entrée / Espace). Le survol ne fait que la nommer. */}
+        {/* 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — au survol (et au focus clavier) : la BULLE « Avant / Après »,
+            même contenu que les autres bulles de biens (un bien = une ligne). Le clic ouvre toujours la fenêtre détaillée. */}
         {c !== null && (
-          <button type="button" className="cnv-repere-i" aria-haspopup="dialog" aria-expanded={ouverte}
-            title={AIDE_PASTILLE_REPERE} aria-label={AIDE_PASTILLE_REPERE}
-            onClick={() => setOuverte(true)}>
-            <span aria-hidden="true">i</span>
-          </button>
+          <PastilleLisere ouvrirFenetre={() => setOuverte(true)} detail={c} avantMail={avantMail}
+            parLibelle={parLibelle} le={le} />
         )}
         {/* ⚠️ LA MODALE EST RENDUE DANS LA LIGNE, mais son voile est `position:fixed` : centrée sur l'ÉCRAN. */}
         {c !== null && ouverte && (
@@ -123,6 +135,137 @@ export function AccoladeSuivi({ cote, libelle, parLibelle, le, detail: c, mail, 
       </span>
       <span className="cnv-repere-bras cnv-repere-bras--droite" aria-hidden="true" />
     </li>
+  );
+}
+
+type Lu = { v: 'charge' } | { v: 'ok'; liste: BienDeLaBulle[] } | { v: 'erreur' };
+let fermerLaBulleLisere: (() => void) | null = null;
+
+/**
+ * ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — LA PASTILLE « i » DU LISERÉ ET SA BULLE « AVANT / APRÈS » ════════
+ * « Avant » : le rattachement EFFECTIF du mail précédent dans la conversation (ses biens, ou « Interne », ou « Aucun
+ * rattachement » s'il est À classer). « Après » : la dernière configuration de suivi de fond validée sur ce mail (biens,
+ * ou « Interne »), avec qui et quand. MÊME COMPOSANT que les autres bulles (`ContenuBulleBiens`, un bien = une ligne),
+ * posé dans un portail et gardé dans l'écran (`placerBulleBiens`).
+ * ⚠️ LE CLIC OUVRE TOUJOURS LA FENÊTRE DÉTAILLÉE (`ModaleAvantApres`) : rien n'est retiré. La bulle s'ouvre au survol de la
+ * souris et au focus CLAVIER seulement — un toucher ouvre la fenêtre, comme avant.
+ */
+function PastilleLisere({ ouvrirFenetre, detail, avantMail, parLibelle, le }: {
+  ouvrirFenetre: () => void;
+  detail: { avant: Classement | null; apres: Classement };
+  avantMail: SignauxAvant | null;
+  parLibelle: string | null;
+  le: string | null;
+}) {
+  const declencheur = useRef<HTMLButtonElement | null>(null);
+  const bulle = useRef<HTMLDivElement | null>(null);
+  const minuteur = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [ouverte, setOuverte] = useState(false);
+  const [place, setPlace] = useState<ReturnType<typeof placerBulleBiens> | null>(null);
+  const [avantLu, setAvantLu] = useState<Lu>({ v: 'charge' });
+  const [apresLu, setApresLu] = useState<Lu>({ v: 'charge' });
+  const clesApres = detail.apres.sorte === 'biens' ? detail.apres.biens.map((b) => b.cle) : [];
+  /* Sans le mail précédent, l'« Avant » est la fenêtre remplacée : ses biens par leurs clés. */
+  const clesAvantRepli = avantMail === null && detail.avant?.sorte === 'biens' ? detail.avant.biens.map((b) => b.cle) : [];
+
+  const annuler = (): void => { if (minuteur.current !== null) { clearTimeout(minuteur.current); minuteur.current = null; } };
+  const fermer = useCallback((): void => { annuler(); setOuverte(false); setPlace(null); }, []);
+  const ouvrir = (): void => {
+    annuler();
+    if (ouverte) return;
+    if (fermerLaBulleLisere !== null && fermerLaBulleLisere !== fermer) fermerLaBulleLisere();
+    fermerLaBulleLisere = fermer;
+    setOuverte(true);
+  };
+  const fermerBientot = (): void => { annuler(); minuteur.current = setTimeout(fermer, 180); };
+
+  /* LES BIENS, LUS À L'OUVERTURE — mêmes lectures et même mémoire que la bulle « N biens rattachés ». */
+  useEffect(() => {
+    if (!ouverte) return undefined;
+    let vivant = true;
+    const lu = (l: BienDeLaBulle[] | null): Lu => (l === null ? { v: 'erreur' } : { v: 'ok', liste: l });
+    if (avantMail !== null) void lireBiensDuMail(avantMail.messageId).then((l) => { if (vivant) setAvantLu(lu(l)); });
+    else void lireBiensDesCles(clesAvantRepli).then((l) => { if (vivant) setAvantLu(lu(l)); });
+    void lireBiensDesCles(clesApres).then((l) => { if (vivant) setApresLu(lu(l)); });
+    return () => { vivant = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- les clés sont relues à chaque ouverture
+  }, [ouverte, avantMail?.messageId]);
+
+  useLayoutEffect(() => {
+    if (!ouverte) return undefined;
+    const mesurer = (): void => {
+      const d = declencheur.current?.getBoundingClientRect();
+      const b = bulle.current;
+      if (d === undefined || b === null) return;
+      setPlace(placerBulleBiens({
+        declencheur: { gauche: d.left, haut: d.top, largeur: d.width, hauteur: d.height },
+        bulle: { largeur: b.offsetWidth, hauteur: b.scrollHeight },
+        fenetre: { largeur: window.innerWidth, hauteur: window.innerHeight },
+      }));
+    };
+    mesurer();
+    window.addEventListener('resize', mesurer);
+    document.addEventListener('scroll', mesurer, true);
+    return () => { window.removeEventListener('resize', mesurer); document.removeEventListener('scroll', mesurer, true); };
+  }, [ouverte, avantLu, apresLu]);
+
+  useEffect(() => {
+    if (!ouverte) return undefined;
+    const clavier = (e: KeyboardEvent): void => { if (e.key === 'Escape') fermer(); };
+    const ailleurs = (e: PointerEvent): void => {
+      const n = e.target as Node | null;
+      if (n !== null && (declencheur.current?.contains(n) || bulle.current?.contains(n))) return;
+      fermer();
+    };
+    document.addEventListener('keydown', clavier, true);
+    document.addEventListener('pointerdown', ailleurs, true);
+    const lacher = fermerQuandLaPagePerdLeFocus(fermer);
+    return () => {
+      document.removeEventListener('keydown', clavier, true);
+      document.removeEventListener('pointerdown', ailleurs, true);
+      lacher();
+    };
+  }, [ouverte, fermer]);
+  useEffect(() => () => { annuler(); if (fermerLaBulleLisere === fermer) fermerLaBulleLisere = null; }, [fermer]);
+
+  const motApres = detail.apres.sorte === 'interne' ? 'Interne' : detail.apres.sorte === 'hors_gestion' ? 'Hors gestion' : 'Aucun bien';
+  const motAvant = avantMail !== null ? motAvantSansBien(avantMail)
+    : detail.avant === null ? AUCUN_RATTACHEMENT
+      : detail.avant.sorte === 'interne' ? 'Interne' : detail.avant.sorte === 'hors_gestion' ? 'Hors gestion' : AUCUN_RATTACHEMENT;
+  const quiQuand = [le === null ? null : dateHeureComplete(le), parLibelle].filter((x): x is string => x !== null && x !== '').join(' · ');
+  const idBulle = useRef(`cnv-lisere-bulle-${Math.random().toString(36).slice(2)}`).current;
+
+  const contenu = (
+    <div className="cbm-bulle cnv-lisere-bulle" id={idBulle} role="tooltip" ref={bulle}
+      style={place === null ? { visibility: 'hidden', left: 0, top: 0 } : { left: place.gauche, top: place.haut, maxHeight: place.hauteurMax }}
+      onMouseEnter={annuler} onMouseLeave={fermerBientot} onClick={(e) => e.stopPropagation()}>
+      <style>{CSS_COMPTEUR_BIENS}</style>
+      <div className="cnv-lisere-partie cnv-lisere-partie--avant">
+        <ContenuBulleBiens titre={TITRE_AVANT_LISERE} etat={avantLu.v} biens={avantLu.v === 'ok' ? avantLu.liste : []}
+          sansBien={motAvant} />
+        {avantMail !== null && <p className="cbm-bulle-lot">{SOUS_TITRE_AVANT_LISERE}</p>}
+      </div>
+      <div className="cbm-bulle-pied cnv-lisere-partie cnv-lisere-partie--apres">
+        <ContenuBulleBiens titre={TITRE_APRES_LISERE} etat={clesApres.length === 0 ? 'ok' : apresLu.v}
+          biens={clesApres.length > 0 && apresLu.v === 'ok' ? apresLu.liste : []} sansBien={motApres} />
+        {quiQuand !== '' && <p className="cbm-bulle-lot cnv-lisere-qui">Validé le {quiQuand}</p>}
+      </div>
+    </div>
+  );
+
+  return (
+    <>
+      <button type="button" className="cnv-repere-i" aria-haspopup="dialog" ref={declencheur}
+        title={AIDE_PASTILLE_REPERE} aria-label={AIDE_PASTILLE_REPERE} aria-describedby={ouverte ? idBulle : undefined}
+        onMouseEnter={(e) => { if ((e.nativeEvent as PointerEvent).pointerType !== 'touch') ouvrir(); }}
+        onMouseLeave={fermerBientot}
+        onFocus={(e) => { let clavier = false; try { clavier = e.currentTarget.matches(':focus-visible'); } catch { clavier = false; } if (clavier) ouvrir(); }}
+        onBlur={fermerBientot}
+        onClick={() => { fermer(); ouvrirFenetre(); }}>
+        <span aria-hidden="true">i</span>
+      </button>
+      {ouverte && typeof document !== 'undefined' && createPortal(contenu, hoteDeLaBulle())}
+    </>
   );
 }
 
