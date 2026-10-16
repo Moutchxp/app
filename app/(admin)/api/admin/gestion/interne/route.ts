@@ -11,7 +11,10 @@ import { annulerInterne, lireInterne, marquerInterne } from '../../../../../lib/
 import {
   annulerInterneDesMessages, lireInterneDesMessages, marquerInterneDesMessages,
 } from '../../../../../lib/gestion/interneMessageRepo';
-import { mailsCouvertsParLeChoix, type ChoixInterne } from '../../../../../lib/gestion/interneDuMail';
+import {
+  MOTIF_INTERNE_ANTERIEUR, mailsAnterieursAProteger, mailsCouvertsParLeChoix, type ChoixInterne,
+} from '../../../../../lib/gestion/interneDuMail';
+import { declarerNonInterneDesMessages } from '../../../../../lib/gestion/interneMessageRepo';
 import { photoDuFondEnBase } from '../../../../../lib/gestion/traceOneShotRepo';
 /**
  * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — marquer « interne » DÉTACHE les biens du mail,
@@ -291,6 +294,22 @@ export async function POST(request: Request): Promise<Response> {
      * conversation » ne changent pas.
      */
     const ceMailSeul = corps.choix === 'mail' && corps.messageId !== null;
+    /**
+     * ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (16/10/2026) — « CE MAIL + FUTURS ÉCHANGES » NE REMONTE PLUS DANS LE PASSÉ ══
+     * La marque d'échange posée juste en dessous est le repli des mails sans ligne propre : les mails PLUS ANCIENS que
+     * celui-ci en héritaient, et toute la conversation passait en Interne. On les déclare d'abord « inchangés » (ligne
+     * née retirée, `NOT EXISTS` : un mail déjà décidé n'est pas touché). AVANT la marque, pour qu'aucun instant ne les
+     * montre en Interne. Voir `mailsAnterieursAProteger`.
+     */
+    const anterieurs = corps.choix === 'suite' && corps.messageId !== null
+      ? mailsAnterieursAProteger({
+        choix: corps.choix, mails: corps.mails, messageId: corps.messageId,
+        echangeVivantAvant: (await lireInterne(corps.filIds)).size > 0,
+      })
+      : [];
+    if (anterieurs.length > 0) {
+      await declarerNonInterneDesMessages({ messageIds: anterieurs, auteur, motif: MOTIF_INTERNE_ANTERIEUR });
+    }
     const issue = ceMailSeul ? { ok: true as const, nb: 0 } : await marquerInterne({ filIds: corps.filIds, auteur });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
     /**

@@ -89,6 +89,39 @@ export function mailsCouvertsParLeChoix(
   return choix === 'mail' ? [messageId] : [...mails.slice(i)];
 }
 
+/**
+ * ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (16/10/2026) — LES MAILS PLUS ANCIENS QU'UN « INTERNE » DE MILIEU DOIT PROTÉGER ══
+ *
+ * DÉFAUT CONSTATÉ PAR ARNO : dans une conversation entièrement « À classer », « Interne » posé sur un mail du MILIEU
+ * (portée « Ce mail + futurs échanges », la position par défaut du panneau) a mis TOUTE la conversation en Interne.
+ * Le panneau annonçait pourtant « Les mails plus anciens ne changent pas ».
+ *
+ * CAUSE : la portée « suite » pose la marque d'ÉCHANGE (c'est elle qui fait hériter les mails à venir), et cette
+ * marque est le REPLI de tout mail qui ne porte aucune ligne par mail (cas ③ d'`interneDuMail`). Les mails plus
+ * anciens, jamais décidés, en héritaient donc aussitôt.
+ *
+ * 🔴 CORRECTION : avant de poser la marque d'échange, on écrit sur ces mails plus anciens une ligne « on s'est
+ * prononcé, ce n'est pas interne » (née retirée) : le mécanisme existant du cas ②, déjà utilisé par la projection et
+ * par la levée. Rien d'autre ne change.
+ *
+ * ⚠️ SEULEMENT SI LA MARQUE D'ÉCHANGE N'ÉTAIT PAS DÉJÀ VIVANTE : sinon ces mails étaient DÉJÀ interne par le repli, et
+ * les « protéger » les ferait changer — l'inverse de la règle (aucun mail précédent ne change sans que l'option le dise).
+ * ⚠️ « Ce mail uniquement » ne pose pas la marque d'échange, et « Toute la conversation » couvre les anciens mails :
+ * aucun des deux n'a rien à protéger. Un mail introuvable dans la liste ne protège rien (on ne devine pas une position).
+ * PUR.
+ */
+export function mailsAnterieursAProteger(o: {
+  choix: ChoixInterne; mails: readonly number[]; messageId: number | null; echangeVivantAvant: boolean;
+}): number[] {
+  if (o.choix !== 'suite' || o.echangeVivantAvant || o.messageId === null) return [];
+  const i = o.mails.indexOf(o.messageId);
+  return i <= 0 ? [] : o.mails.slice(0, i);
+}
+
+/** Le motif écrit sur ces lignes : il dit d'où elles viennent, six mois plus tard. */
+export const MOTIF_INTERNE_ANTERIEUR =
+  'mail antérieur à un marquage « interne » pour la suite de la conversation : inchangé';
+
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    LES MOTS
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */

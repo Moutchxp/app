@@ -10,7 +10,15 @@ import {
 import { MOTIFS_HORS_GESTION } from '../../../../lib/gestion/statutClassement';
 import type { ContexteClassement } from '../../../../lib/gestion/classementBien';
 /* 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — « Marquer interne détachera : <liste> », module PUR. */
-import { messageDetachement } from '../../../../lib/gestion/interneDetache';
+import { messageDetachement, phrasePorteeInterne, porteeInterneADemander } from '../../../../lib/gestion/interneDetache';
+/* 🔴🔴 LOT RATTACHEMENT-CONVERSATION — la MÊME glissière que le panneau « Interne » de l'encart (trois positions). */
+import { CSS_GLISSIERE_PORTEE, GlissierePortee } from './GlissierePortee';
+import type { ChoixInterne } from '../../../../lib/gestion/interneDuMail';
+import type { PositionPortee } from '../../../../lib/gestion/porteeSuivi';
+
+const POSITIONS_INTERNE: readonly PositionPortee[] = ['one_shot', 'suite', 'conversation'];
+const positionDuChoix = (c: ChoixInterne): PositionPortee => (c === 'mail' ? 'one_shot' : c);
+const choixDeLaPosition = (p: PositionPortee): ChoixInterne => (p === 'one_shot' ? 'mail' : p === 'suite' ? 'suite' : 'conversation');
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 
 /**
@@ -79,6 +87,14 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
    * se demande d'un bouton en haut de la fenêtre et s'exécute à la validation.
    */
   const [annulationInterne, setAnnulationInterne] = useState(false);
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-CONVERSATION (16/10/2026) — LA CONVERSATION, telle que `/suivi` la lit : ses mails dans l'ordre
+   * chronologique, et a-t-elle un suivi de fond ? `null` = pas lue (pas de conversation, ou lecture en échec) : le geste
+   * reste alors celui d'avant, sur tout l'échange.
+   */
+  const [fil, setFil] = useState<{ mails: number[]; nbPeriodes: number; nbExceptions: number; rattachee: boolean } | null>(null);
+  /** La portée choisie sur la glissière ; même position de départ que le panneau « Interne » de l'encart. */
+  const [porteeInterne, setPorteeInterne] = useState<ChoixInterne>('suite');
   const [motifHg, setMotifHg] = useState<string>('');
   /**
    * 🔴 LOT AFFECTATION-PAR-BIEN — LE CLASSEMENT PIÈCE PAR PIÈCE. Éteint par DÉFAUT : la règle d'avant ce lot, où
@@ -162,6 +178,20 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
         } catch { /* l'option reste grisée : on ne propose pas un geste dont on ne sait pas s'il aboutira */ }
       }
 
+      /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION — lecture seule, silencieuse en cas d'échec (le geste reste celui d'avant). */
+      if (filId !== null) {
+        try {
+          const rs = await fetch(`/api/admin/gestion/suivi?fil=${filId}&message=${messageId}`, { cache: 'no-store' });
+          const ds = (await rs.json()) as {
+            etat?: string; mails?: number[]; periodes?: unknown[]; exceptions?: unknown[]; rattachee?: boolean;
+          };
+          setFil(ds.etat === 'ok' && Array.isArray(ds.mails) ? {
+            mails: ds.mails.map(Number), nbPeriodes: ds.periodes?.length ?? 0, nbExceptions: ds.exceptions?.length ?? 0,
+            rattachee: ds.rattachee === true,
+          } : null);
+        } catch { setFil(null); }
+      }
+
       setEtat({
         v: 'ok', contexte: dc.contexte, mailsSansManuel: mails, existants, dejaHorsGestion, horsGestionInstalle,
         dejaInterne, interneInstalle,
@@ -214,6 +244,14 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
    * Ils sont donc décidés ici, en deux booléens, et exécutés à la validation comme les autres.
    */
   const aMarquerInterne = reponse === 'interne' && interneInstalle && !dejaMarqueInterne;
+  /**
+   * 🔴🔴 LOT RATTACHEMENT-CONVERSATION — RÈGLE C D'ARNO : conversation sans suivi de fond, mail qui n'est pas le premier
+   * ⇒ on DEMANDE la portée (glissière). Premier mail (A) ou conversation déjà suivie (B) : le geste d'avant, inchangé.
+   */
+  const demanderPortee = aMarquerInterne && fil !== null && porteeInterneADemander({
+    messageId, mails: fil.mails, nbPeriodes: fil.nbPeriodes, nbExceptions: fil.nbExceptions,
+    rattachee: fil.rattachee, interneEchange: dejaMarqueInterne,
+  });
   const aAnnulerInterne = interneInstalle && dejaMarqueInterne
     // Annuler explicitement, OU rattacher un bien : le second lève la marque, exactement comme pour hors gestion.
     && (annulationInterne || (plan !== null && plan.aPoser.length > 0));
@@ -331,7 +369,10 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
       try {
         const res = await fetch('/api/admin/gestion/interne', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filIds: [filId] }),
+          /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION — la portée demandée part avec le geste, comme depuis l'encart. */
+          body: JSON.stringify(demanderPortee && fil !== null
+            ? { filIds: [filId], messageId, mails: fil.mails, choix: porteeInterne }
+            : { filIds: [filId] }),
         });
         if (res.ok) faits += 1; else ratés.push('marquage interne');
       } catch { ratés.push('marquage interne'); }
@@ -460,7 +501,18 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
                   {!interneInstalle && ' (pas encore installé sur cette base)'}
                 </span>
               </label>
-              {reponse === 'interne' && (
+              {reponse === 'interne' && demanderPortee && (
+                <div className="clm-portee-interne">
+                  <p className="clm-note"><strong>Quel type de suivi appliquer ?</strong> Ce mail n’est pas le premier de
+                    la conversation, et la conversation n’a pas encore de suivi.</p>
+                  <style>{CSS_GLISSIERE_PORTEE}</style>
+                  <GlissierePortee position={positionDuChoix(porteeInterne)} modification
+                    positions={POSITIONS_INTERNE} libelleGroupe="Portée du marquage « Interne »" desactivee={envoi.en_cours}
+                    onChoisir={(p) => setPorteeInterne(choixDeLaPosition(p))} />
+                  <p className="clm-note" role="note">{phrasePorteeInterne(porteeInterne)}</p>
+                </div>
+              )}
+              {reponse === 'interne' && !demanderPortee && (
                 <p className="clm-note">
                   La marque vaut pour TOUTE la conversation : la réponse d’un collègue héritera du même statut.
                   Rattacher un bien la lève.

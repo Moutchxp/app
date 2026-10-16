@@ -70,6 +70,25 @@ export function estPremierMail(messageId: number, mails: readonly number[]): boo
   return mails.length === 0 || mails[0] === messageId;
 }
 
+/**
+ * ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (16/10/2026) — FAUT-IL DEMANDER LA PORTÉE D'UN « INTERNE » ? PUR. ═════════════
+ *
+ * RÈGLE D'ARNO (C) : conversation SANS suivi de fond, « À classer », qui contient déjà plusieurs mails — quand on classe
+ * un mail qui n'est PAS le premier, l'application demande quel type de suivi appliquer (One shot, Ce mail + futurs
+ * échanges, Toute la conversation). Le premier mail fixe, lui, le suivi de fond de toute la conversation (A) ; et une
+ * conversation qui a déjà un suivi de fond garde les règles d'aujourd'hui (B).
+ *
+ * « SANS SUIVI DE FOND » = aucune fenêtre (période ou exception), aucun rattachement validé, aucune marque « Interne »
+ * de l'échange. `mails` est dans l'ordre CHRONOLOGIQUE ; vide (conversation inconnue) ⇒ on ne demande rien.
+ */
+export function porteeInterneADemander(o: {
+  messageId: number; mails: readonly number[]; nbPeriodes: number; nbExceptions: number;
+  rattachee: boolean; interneEchange: boolean;
+}): boolean {
+  const sansFond = o.nbPeriodes === 0 && o.nbExceptions === 0 && !o.rattachee && !o.interneEchange;
+  return sansFond && o.mails.length > 1 && o.mails.includes(o.messageId) && !estPremierMail(o.messageId, o.mails);
+}
+
 /** Le bandeau du premier mail marqué directement (Arno) : « Conversation marquée Interne — Annuler », 10 secondes. */
 export const MOT_BANDEAU_DIRECT = 'Conversation marquée Interne';
 export const SECONDES_BANDEAU_DIRECT = 10;

@@ -42,6 +42,8 @@ vi.mock('../../../../../lib/gestion/interneMessageRepo', () => ({
   marquerInterneDesMessages: async (o: unknown) => { noter('marquerInterneDesMessages')(o); return { ok: true, nb: 1 }; },
   annulerInterneDesMessages: async (o: unknown) => { noter('annulerInterneDesMessages')(o); return { ok: true, nb: 1 }; },
   lireInterneDesMessages: async () => new Map(),
+  /* 🔴 LOT RATTACHEMENT-CONVERSATION — « la suite » posée sur un mail du milieu protège d'abord les mails plus anciens. */
+  declarerNonInterneDesMessages: async (o: unknown) => { noter('declarerNonInterneDesMessages')(o); return { ok: true, nb: 1 }; },
 }));
 
 const { POST: posterHorsGestion } = await import('./route');

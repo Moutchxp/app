@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  messageDetachement, motApresAnnulation, motApresDetachement,
+  messageDetachement, motApresAnnulation, motApresDetachement, porteeInterneADemander,
   MOTIF_DETACHE_PAR_INTERNE, MOTIF_REMIS_APRES_ANNULATION, SECONDES_ANNULER, type BienDetache,
 } from './interneDetache';
 import { mailsCouvertsParLeChoix } from './interneDuMail';
@@ -270,5 +270,35 @@ describe('🔴🔴 ⑤ l’écran : demander avant, offrir la sortie après', ()
     const iRetour = ENC.indexOf('if (liens === null) return null;');
     expect(iEtat).toBeGreaterThan(0);
     expect(iRetour).toBeGreaterThan(iEtat);
+  });
+});
+
+/* ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (16/10/2026) — RÈGLE C : demander la portée d'un « Interne » de milieu ══════════ */
+describe('🔴🔴 règle C — « Interne » sur un mail qui n’est pas le premier d’une conversation sans suivi de fond', () => {
+  const SANS_FOND = { nbPeriodes: 0, nbExceptions: 0, rattachee: false, interneEchange: false };
+  const MAILS = [1, 2, 3, 4];
+  it('🔴 mail du milieu, conversation « À classer » ⇒ on demande', () => {
+    expect(porteeInterneADemander({ messageId: 3, mails: MAILS, ...SANS_FOND })).toBe(true);
+    expect(porteeInterneADemander({ messageId: 4, mails: MAILS, ...SANS_FOND })).toBe(true);
+  });
+  it('🔴 premier mail (A) ⇒ on ne demande pas : il fixe le suivi de fond', () => {
+    expect(porteeInterneADemander({ messageId: 1, mails: MAILS, ...SANS_FOND })).toBe(false);
+  });
+  it('🔴 conversation déjà suivie (B) ⇒ règles d’aujourd’hui, on ne demande pas', () => {
+    expect(porteeInterneADemander({ messageId: 3, mails: MAILS, ...SANS_FOND, nbPeriodes: 1 })).toBe(false);
+    expect(porteeInterneADemander({ messageId: 3, mails: MAILS, ...SANS_FOND, nbExceptions: 1 })).toBe(false);
+    expect(porteeInterneADemander({ messageId: 3, mails: MAILS, ...SANS_FOND, rattachee: true })).toBe(false);
+    expect(porteeInterneADemander({ messageId: 3, mails: MAILS, ...SANS_FOND, interneEchange: true })).toBe(false);
+  });
+  it('⚠️ conversation d’un seul mail, ou mail inconnu de la liste ⇒ on ne demande pas', () => {
+    expect(porteeInterneADemander({ messageId: 1, mails: [1], ...SANS_FOND })).toBe(false);
+    expect(porteeInterneADemander({ messageId: 9, mails: MAILS, ...SANS_FOND })).toBe(false);
+    expect(porteeInterneADemander({ messageId: 3, mails: [], ...SANS_FOND })).toBe(false);
+  });
+  it('🔴 « Classer ce mail » envoie la portée choisie sur la glissière (et l’échange seul hors règle C)', () => {
+    const CM = readFileSync('app/(admin)/admin/(protected)/gestion/ClasserMail.tsx', 'utf8');
+    expect(CM).toContain('porteeInterneADemander(');
+    expect(CM).toContain('<GlissierePortee');
+    expect(CM.replace(/\s+/g, ' ')).toContain('{ filIds: [filId], messageId, mails: fil.mails, choix: porteeInterne } : { filIds: [filId] }');
   });
 });
