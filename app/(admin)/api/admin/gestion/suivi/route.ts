@@ -153,6 +153,8 @@ export function traceRecue(brut: unknown): TraceClassement | null {
     exceptionCreee: entier(o.exceptionCreee),
     periodesRemplacees: liste(o.periodesRemplacees),
     exceptionsRetirees: liste(o.exceptionsRetirees),
+    /* 🔴 LOT GESTION-DETACHER — les liens sortis parce que leur bien a été décoché (restaurés par l'« Annuler »). */
+    ...(Array.isArray(o.liensDetaches) ? { liensDetaches: liste(o.liensDetaches) } : {}),
   };
 }
 

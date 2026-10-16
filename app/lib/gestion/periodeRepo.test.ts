@@ -86,6 +86,7 @@ vi.mock('./horsGestionRepo', () => ({
 
 import {
   heriterLesNouveauxMails, poserClassement, projeterLeFil, reprendreExistant, MOTIF_POSE_PAR_SUIVI,
+  MOTIF_DETACHE_A_LA_MAIN,
 } from './periodeRepo';
 
 const AUTEUR = { id: 7, libelle: AUTEUR_LIBELLE };
@@ -104,8 +105,16 @@ let base: FausseBase;
 const sqls = () => [...queryMock.mock.calls, ...qMock.mock.calls].map((c) => String(c[0]).replace(/\s+/g, ' '));
 const toutLeSql = () => sqls().join(' § ');
 
-function reponse(sql: string): { rows: unknown[] } {
+function reponse(sql: string, params: unknown[] = []): { rows: unknown[] } {
   const s = sql.replace(/\s+/g, ' ');
+  /* 🔴 LOT GESTION-DETACHER — les biens confirmés d'un mail, et les liens de ces biens sur ces mails. */
+  if (s.includes('SELECT DISTINCT r.cible_cle FROM gestion_rattachement r')) {
+    return { rows: [...new Set(base.liens.filter((l) => l.message === Number(params[0])).map((l) => l.cle))].map((c) => ({ cible_cle: c })) };
+  }
+  if (s.includes('SELECT r.id::text FROM gestion_rattachement r WHERE r.message_id = ANY($1::bigint[]) AND r.cible_cle = ANY($2::text[])')) {
+    const mails = (params[0] as number[]).map(Number); const cles = params[1] as string[];
+    return { rows: base.liens.filter((l) => mails.includes(l.message) && cles.includes(l.cle)).map((l) => ({ id: String(l.id) })) };
+  }
   if (s.includes('FROM gestion_message WHERE fil_id')) return { rows: base.mails.map((id) => ({ id: String(id) })) };
   if (s.includes('FROM gestion_fil_periode p')) {
     return { rows: base.periodes.map((p) => ({
@@ -141,8 +150,8 @@ beforeEach(() => {
   base = { mails: [10, 20, 30], periodes: [], exceptions: [], liens: [], filsARerendre: [], dejaRepris: 0 };
   for (const m of [queryMock, qMock, rattacher, changerStatut, marquerInterne, annulerInterne,
     marquerHorsGestion, annulerHorsGestion]) m.mockClear();
-  queryMock.mockImplementation(async (sql: string) => reponse(sql));
-  qMock.mockImplementation(async (sql: string) => reponse(sql));
+  queryMock.mockImplementation(async (sql: string, params?: unknown[]) => reponse(sql, params));
+  qMock.mockImplementation(async (sql: string, params?: unknown[]) => reponse(sql, params));
 });
 
 const BIEN = { cle: '421', libelle: '28 av. Marceau — Logement' };
@@ -514,5 +523,41 @@ describe('🔴🔴 ⑦ la reprise de l’existant ne perd rien', () => {
     expect(c.periodes).toBe(1);
     expect(c.exceptions).toBe(1);
     expect(c.filsInfideles).toBe(0);
+  });
+});
+
+/* ══ 🔴🔴 LOT GESTION-DETACHER (16/10/2026) — DÉCOCHER UN BIEN LE DÉTACHE VRAIMENT ═══════════════════════════════════════
+   Cas exact du défaut : le lien vient du MOTEUR (ou d'une personne), pas d'une fenêtre — la projection ne le retirait
+   pas. Il sort désormais du suivi par `changerStatut`, sur les mails que la portée couvre, et lui seul. */
+describe('🔴🔴 LOT GESTION-DETACHER — décocher un bien puis valider le détache', () => {
+  const detaches = () => (changerStatut.mock.calls as unknown as [{ lienId: number; statut: string; motif?: string }][])
+    .map((c) => c[0]).filter((x) => x.motif === MOTIF_DETACHE_A_LA_MAIN);
+  it('🔴🔴 le seul bien (lien du moteur), « ce mail seul » : sorti de CE mail, par la porte existante', async () => {
+    base.liens = [{ id: 1, message: 20, cle: '421', parLeSuivi: false }, { id: 2, message: 30, cle: '421', parLeSuivi: false }];
+    const r = await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [] }, choix: 'mail', auteur: AUTEUR });
+    expect(r.ok).toBe(true);
+    expect(detaches()).toEqual([{ lienId: 1, statut: 'retire', auteur: AUTEUR, motif: MOTIF_DETACHE_A_LA_MAIN }]);
+    expect(r.ok === true && r.trace.liensDetaches).toEqual([1]);
+    expect(toutLeSql()).not.toMatch(/DELETE FROM gestion_rattachement/);
+  });
+  it('🔴 un bien sur deux : seul le bien décoché part, l’autre reste', async () => {
+    base.liens = [{ id: 1, message: 20, cle: '421', parLeSuivi: false }, { id: 3, message: 20, cle: '500', parLeSuivi: false }];
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [{ cle: '500', libelle: 'B' }] }, choix: 'mail', auteur: AUTEUR });
+    expect(detaches().map((d) => d.lienId)).toEqual([1]);
+  });
+  it('🔴 « ce mail + futurs » : ce mail et les suivants, jamais les plus anciens', async () => {
+    base.liens = [10, 20, 30].map((m, i) => ({ id: i + 1, message: m, cle: '421', parLeSuivi: false }));
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [] }, choix: 'suite', auteur: AUTEUR });
+    expect(detaches().map((d) => d.lienId)).toEqual([2, 3]);
+  });
+  it('🔴 « toute la conversation » : tous les mails', async () => {
+    base.liens = [10, 20, 30].map((m, i) => ({ id: i + 1, message: m, cle: '421', parLeSuivi: false }));
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [] }, choix: 'conversation', auteur: AUTEUR });
+    expect(detaches().map((d) => d.lienId).sort()).toEqual([1, 2, 3]);
+  });
+  it('⚠️ rien de décoché : aucun détachement (un ajout ne retire rien)', async () => {
+    base.liens = [{ id: 1, message: 20, cle: '421', parLeSuivi: false }];
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [{ cle: '421', libelle: 'A' }, BIEN] }, choix: 'mail', auteur: AUTEUR });
+    expect(detaches()).toEqual([]);
   });
 });

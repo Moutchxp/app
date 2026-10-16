@@ -67,21 +67,17 @@ const cliquerInterne = async () => {
 const panneau = () => container.querySelector('.ert-interne-panneau:not(.ert-interne-panneau--fait)');
 const choisie = () => container.querySelector('.ert-interne-panneau [role="radio"][aria-checked="true"]')?.textContent;
 
-describe('🔴🔴 LOT RATTACHEMENT-CONVERSATION — règle C : milieu d’une conversation SANS suivi de fond', () => {
-  it('🔴🔴 aucune position présélectionnée ; « Confirmer » inactif ; rien n’est demandé ni marqué avant le choix', async () => {
+describe('🔴🔴 LOT GESTION-DETACHER — règle C pour « Interne » : milieu d’une conversation SANS suivi de fond', () => {
+  it('🔴🔴 le panneau s’ouvre sur « One shot » ; « Confirmer » marque CE mail seul', async () => {
     suiviReponse = SANS_FOND;
     await monter(58200, [58100, 58200, 58300]);
     await cliquerInterne();
     expect(panneau()).not.toBeNull();
-    expect(choisie()).toBeUndefined();
-    const confirmer = () => [...container.querySelectorAll('.ert-interne-panneau button')].find((b) => b.textContent?.trim() === 'Confirmer') as HTMLButtonElement;
-    expect(confirmer().disabled).toBe(true);
-    expect(apercus).toEqual([]);
-    expect(gestes).toEqual([]);
-    await act(async () => { ([...container.querySelectorAll('.ert-interne-panneau [role="radio"]')][0] as HTMLElement).click(); });
-    await calmer();
     expect(choisie()).toBe('One shot');
+    expect(apercus).toEqual(['mail']);
+    const confirmer = () => [...container.querySelectorAll('.ert-interne-panneau button')].find((b) => b.textContent?.trim() === 'Confirmer') as HTMLButtonElement;
     expect(confirmer().disabled).toBe(false);
+    expect(gestes).toEqual([]);
     await act(async () => { confirmer().click(); });
     await calmer();
     expect(gestes).toEqual([{ actif: true, choix: 'mail' }]);

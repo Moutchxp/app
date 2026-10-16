@@ -771,15 +771,12 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
     expect(ecritures().filter((a) => a.methode === 'POST')).toHaveLength(0);
   });
 
-  it('🔴🔴 règle C : « Interne » sur un mail qui n’est pas le premier ⇒ glissière SANS position, validation inactive jusqu’au choix', async () => {
+  it('🔴🔴 règle C (« Interne ») : mail qui n’est pas le premier ⇒ glissière sur « One shot », validation active', async () => {
     await ouvrir(CONTEXTE(), [899, 900], [899, 900]);
     const interne = [...container.querySelectorAll('.clm input[name="clm-reponse"]')][1] as HTMLInputElement;
     await cliquer(interne);
     const glissiere = () => [...container.querySelectorAll('.clm [role="radio"]')] as HTMLElement[];
-    expect(glissiere().map((r) => r.getAttribute('aria-checked'))).toEqual(['false', 'false', 'false']);
-    expect((valider() as HTMLButtonElement).disabled).toBe(true);
-    await cliquer(glissiere()[0]);
-    expect(glissiere()[0].getAttribute('aria-checked')).toBe('true');
+    expect(glissiere().map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
     expect((valider() as HTMLButtonElement).disabled).toBe(false);
   });
 

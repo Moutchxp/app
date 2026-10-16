@@ -96,10 +96,10 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
     mails: number[]; nbPeriodes: number; nbExceptions: number; rattachee: boolean; interneEchange: boolean;
   } | null>(null);
   /**
-   * La portée « Interne » choisie sur la glissière. 🔴 `null` = aucune position présélectionnée (règle C, décision d'Arno
-   * du 16/10/2026) : la validation attend qu'une des trois soit choisie.
+   * La portée « Interne » choisie sur la glissière (règle C). `null` = aucune position : la validation attendrait un choix.
    */
-  const [porteeInterne, setPorteeInterne] = useState<ChoixInterne | null>(null);
+  /* 🔴 LOT GESTION-DETACHER (Arno, 16/10/2026) — pour « Interne », la glissière part sur « One shot » (ce mail seul). */
+  const [porteeInterne, setPorteeInterne] = useState<ChoixInterne | null>('mail');
   /** 🔴 RÈGLE A — la portée des biens au premier mail d'une conversation sans suivi : celle du bouton « Rattacher ». */
   const [porteeBiens, setPorteeBiens] = useState<ChoixInterne>('suite');
   const [motifHg, setMotifHg] = useState<string>('');

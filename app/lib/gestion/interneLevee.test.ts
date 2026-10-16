@@ -337,8 +337,10 @@ describe('🔴🔴 ⑧ la trace de la décision de suivi, des deux côtés de la
     /* 🔴 ET LES SIX SONT NOMMÉS ICI : un champ ajouté d'un seul côté fait rougir l'épreuve au-dessus ; un champ
        ajouté des DEUX côtés sans être compris fait rougir celle-ci. */
     expect(depot).toEqual([
-      'exceptionCreee', 'exceptionsRetirees', 'filId', 'messageId', 'periodeCreee', 'periodesRemplacees',
+      'exceptionCreee', 'exceptionsRetirees', 'filId', 'liensDetaches', 'messageId', 'periodeCreee', 'periodesRemplacees',
     ]);
+    /* 🔴 LOT GESTION-DETACHER — `liensDetaches` : les liens sortis parce que leur bien a été décoché ; la route les relit. */
+    expect(readFileSync('app/(admin)/api/admin/gestion/suivi/route.ts', 'utf8')).toContain('liensDetaches: liste(o.liensDetaches)');
   });
 
   /** ⚠️ Et la route les relit un par un : un champ oublié là arriverait `null`, donc jamais défait. */

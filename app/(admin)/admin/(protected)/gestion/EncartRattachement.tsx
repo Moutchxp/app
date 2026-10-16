@@ -998,10 +998,15 @@ export function EncartRattachement({
     setOccupeInterne(true);
     try {
       if (!estPremierMail(messageId, mailsDuFil)) {
-        /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION (Arno, 16/10/2026) — RÈGLE C : conversation sans suivi de fond ⇒ le panneau
-           s'ouvre SANS portée présélectionnée, et « Confirmer » reste inactif tant qu'une des trois n'est pas choisie.
-           Lecture seule du suivi ; en échec, le panneau d'avant (portée par défaut). */
-        if (await conversationSansFond()) { setDemandeInterne({ choix: null, biens: [] }); return; }
+        /* 🔴🔴 LOT GESTION-DETACHER (Arno, 16/10/2026) — RÈGLE C POUR « INTERNE » : conversation sans suivi de fond ⇒ le
+           panneau s'ouvre sur « One shot » (ce mail seul), au lieu de l'absence de présélection décidée plus tôt — pour
+           « Interne » uniquement (le rattachement à un bien garde l'absence de présélection). Lecture seule du suivi ; en
+           échec, le panneau d'avant (portée par défaut). */
+        if (await conversationSansFond()) {
+          const biens = await apercuDetachement('mail');
+          setDemandeInterne({ choix: 'mail', biens: biens ?? [] });
+          return;
+        }
         const biens = await apercuDetachement(choixInterne);
         setDemandeInterne({ choix: choixInterne, biens: biens ?? [] });
         return;

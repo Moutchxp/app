@@ -23,7 +23,8 @@ import { marquerHorsGestion, annulerHorsGestion } from './horsGestionRepo';
 import {
   marquerInterneDesMessages, annulerInterneDesMessages, declarerNonInterneDesMessages,
 } from './interneMessageRepo';
-import { MOTIF_INTERNE_PAR_SUIVI } from './interneDuMail';
+import { MOTIF_INTERNE_PAR_SUIVI, mailsCouvertsParLeChoix } from './interneDuMail';
+import { sqlLiensDuBien } from './rattachement';
 import type { PeriodeAncienne } from './changementsSuivi';
 /**
  * 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE, POINT 1 — le motif que `rattacher()` écrit quand il lève la marque d'un mail
@@ -360,6 +361,11 @@ export interface TraceClassement {
   periodesRemplacees: number[];
   /** Les exceptions que le geste a RETIRÉES (`retiree_le`) — à rouvrir. */
   exceptionsRetirees: number[];
+  /**
+   * 🔴 LOT GESTION-DETACHER — les liens que le geste a sortis du suivi parce que la personne a DÉCOCHÉ leur bien (voir
+   * `detacherLesBiensDecoches`) — à restaurer si l'on annule. Facultatif : une trace d'avant ce lot ne le porte pas.
+   */
+  liensDetaches?: number[];
 }
 
 /** Une trace vide : le geste n'a rien écrit du tout (règle 2 d'`effetDuChoix` sur une configuration identique). */
@@ -440,6 +446,8 @@ export async function poserClassement(o: {
    * d'après la première ressusciterait une ligne que ce geste-ci n'avait pas fermée.
    */
   const trace = traceVide(o.filId, o.messageId);
+  /* 🔴 LOT GESTION-DETACHER — les biens DÉCOCHÉS sur ce mail, lus AVANT toute écriture (voir `detacherLesBiensDecoches`). */
+  const decoches = await biensDecochesSurLeMail(o.messageId, o.classement);
 
   /**
    * 🔴🔴 LOT TRACE-ONE-SHOT (342) — LA PHOTO DU SUIVI DE FOND, JUSTE AVANT LE GESTE. Décision d'Arno : « chaque geste
@@ -515,7 +523,51 @@ export async function poserClassement(o: {
     // 🔴 SEUL « Toute la conversation » remplace un lien posé à la main — et il l'annonce avant (voir la modale).
     remplacerLesLiensManuels: o.choix === 'conversation',
   });
-  return { ok: true, projetes, trace };
+  const detaches = await detacherLesBiensDecoches({
+    mails: mailsCouvertsParLeChoix(mails, o.messageId, o.choix), cles: decoches, auteur: o.auteur,
+  });
+  if (detaches.length > 0) trace.liensDetaches = detaches;
+  return { ok: true, projetes: projetes + detaches.length, trace };
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-DETACHER (16/10/2026) — DÉCOCHER UN BIEN LE DÉTACHE VRAIMENT ══════════════════════════════════════
+ *
+ * DÉFAUT CONSTATÉ PAR ARNO : sur un mail déjà rattaché, décocher le bien puis valider le laissait rattaché.
+ * CAUSE : la décision partait bien (période ou exception sans ce bien), mais la projection ne retire QUE les liens
+ * qu'une fenêtre a posés (motif « posé par le suivi de la conversation ») — or le lien venait du moteur de rattachement
+ * ou d'une personne. Il restait donc, et rien ne le disait.
+ *
+ * 🔴 CORRECTION : les biens que la personne a DÉCOCHÉS sur ce mail sont sortis du suivi par la porte existante
+ * (`changerStatut` → « sorti du suivi », restaurable, journalisé ; aucune suppression — verrou 339-340), sur les mails
+ * que la portée choisie couvre (ce mail seul / ce mail + suivants / toute la conversation). SEULEMENT ces biens : les
+ * autres liens posés à la main ou par le moteur ne sont jamais touchés par ce geste.
+ */
+export const MOTIF_DETACHE_A_LA_MAIN = 'bien décoché à la main dans la fenêtre de rattachement';
+
+/** Les biens confirmés sur ce mail qui ne sont plus dans la décision. LECTURE SEULE. */
+async function biensDecochesSurLeMail(messageId: number, c: Classement): Promise<string[]> {
+  if (c.sorte !== 'biens') return [];
+  const gardes = new Set(c.biens.map((b) => b.cle));
+  const { rows } = await query<{ cible_cle: string }>(
+    `SELECT DISTINCT r.cible_cle FROM gestion_rattachement r WHERE r.message_id = $1 AND ${sqlLiensDuBien('r')}`,
+    [messageId]);
+  return rows.map((r) => r.cible_cle).filter((k) => !gardes.has(k));
+}
+
+/** Sort du suivi les liens de ces biens sur ces mails. Rend les identifiants réellement sortis (pour l'« Annuler »). */
+async function detacherLesBiensDecoches(o: { mails: readonly number[]; cles: readonly string[]; auteur: Auteur }): Promise<number[]> {
+  if (o.mails.length === 0 || o.cles.length === 0) return [];
+  const { rows } = await query<{ id: string }>(
+    `SELECT r.id::text FROM gestion_rattachement r
+      WHERE r.message_id = ANY($1::bigint[]) AND r.cible_cle = ANY($2::text[]) AND ${sqlLiensDuBien('r')}
+      ORDER BY r.id`, [[...o.mails], [...o.cles]]);
+  const faits: number[] = [];
+  for (const r of rows) {
+    const issue = await changerStatut({ lienId: Number(r.id), statut: 'retire', auteur: o.auteur, motif: MOTIF_DETACHE_A_LA_MAIN });
+    if (issue.ok) faits.push(Number(r.id));
+  }
+  return faits;
 }
 
 /**
@@ -586,6 +638,19 @@ export async function annulerClassement(o: {
           WHERE id = ANY($1::bigint[]) AND fil_id = $2
             AND remplacee_le IS NOT NULL AND remplacee_le > now() - interval '2 minutes'`,
         [periodes, t.filId]);
+    }
+    /* 🔴 LOT GESTION-DETACHER — les liens que ce geste a sortis du suivi (bien décoché) redeviennent « confirme ». */
+    const detaches = ids(t.liensDetaches ?? []);
+    if (detaches.length > 0) {
+      /* ⚠️ La trace vient du navigateur : seuls les liens sortis PAR CE MOTIF, il y a moins de deux minutes, dans CETTE
+         conversation, sont restaurés — les mêmes gardes que le reste de l'annulation. */
+      const { rows: surs } = await q<{ id: string }>(
+        `SELECT r.id::text FROM gestion_rattachement r JOIN gestion_message m ON m.id = r.message_id
+          WHERE r.id = ANY($1::bigint[]) AND m.fil_id = $2 AND r.statut = 'sorti'
+            AND coalesce(r.sorti_motif, '') = $3 AND r.sorti_le > now() - interval '2 minutes'`,
+        [detaches, t.filId, MOTIF_DETACHE_A_LA_MAIN]);
+      const { restaurerLeLien } = await import('./sortieSuiviRepo');
+      for (const r of surs) await restaurerLeLien(q, Number(r.id), o.auteur, 'annulation du détachement');
     }
     const exceptions = ids(t.exceptionsRetirees);
     if (exceptions.length > 0) {

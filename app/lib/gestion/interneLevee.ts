@@ -147,6 +147,8 @@ export interface TraceSuivi {
   exceptionCreee: number | null;
   periodesRemplacees: number[];
   exceptionsRetirees: number[];
+  /** 🔴 LOT GESTION-DETACHER — les liens sortis parce que leur bien a été décoché (restaurés par l'« Annuler »). */
+  liensDetaches?: number[];
 }
 
 /** Ce que l'« Annuler » d'une levée doit défaire — les trois moitiés, nommées. */
