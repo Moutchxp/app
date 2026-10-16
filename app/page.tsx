@@ -409,6 +409,8 @@ function EcranResultat({
   // Reveal animé du score (cosmétique) : 0 → score final avec léger rebond (easeOutBack). Pilote
   // le chiffre ET l'arc. N'altère JAMAIS resultat.score.total (le score calculé reste la vérité).
   const [scoreAnime, setScoreAnime] = useState(0);
+  // Petit rebond élastique UNIQUE du score, une fois le chiffre définitif (fin du reveal). Jamais sous reduced-motion.
+  const [bumpScore, setBumpScore] = useState(false);
 
   // reset : replié à chaque nouvelle analyse
   useEffect(() => { setBadgesDeployes(false); }, [resultat]);
@@ -434,6 +436,7 @@ function EcranResultat({
   // reduced-motion → valeur finale figée, sans boucle. Ne touche PAS resultat.score.total.
   useEffect(() => {
     const cible = resultat.score.total;
+    setBumpScore(false);
     if (typeof window !== 'undefined'
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       setScoreAnime(cible);
@@ -446,7 +449,7 @@ function EcranResultat({
     const tick = (now: number) => {
       if (!debut) debut = now;
       const t = Math.min(1, (now - debut) / DUREE);
-      if (t >= 1) { setScoreAnime(cible); return; } // frame finale = valeur EXACTE
+      if (t >= 1) { setScoreAnime(cible); setBumpScore(true); return; } // frame finale = valeur EXACTE, puis rebond unique
       const e = 1 + c3 * (t - 1) ** 3 + c1 * (t - 1) ** 2;
       setScoreAnime(e * cible); // overshoot volontaire (non clampé côté chiffre)
       raf = requestAnimationFrame(tick);
@@ -507,9 +510,21 @@ function EcranResultat({
       0%, 60%, 100% { transform: scale(1); }
       30% { transform: scale(1.22); }
     }
+    /* Rebond final du score : UNE fois (pas de répétition), ≈ 0,6 s, grossissement maximal 1,08. */
+    .svv-score-bump {
+      animation: svvScoreBump 600ms ease-out 1;
+    }
+    @keyframes svvScoreBump {
+      0% { transform: scale(1); }
+      35% { transform: scale(1.08); }
+      60% { transform: scale(0.97); }
+      80% { transform: scale(1.02); }
+      100% { transform: scale(1); }
+    }
     @media (prefers-reduced-motion: reduce) {
       .svv-badges-clip { transition: none; }
       .svv-badges-toggle--bump { animation: none; }
+      .svv-score-bump { animation: none; }
     }
   `}</style>
       {/* 1. EN-TÊTE — 7A rouge / 7B sombre ; bandeau haut, icône + titre 2 lignes centrés */}
@@ -568,14 +583,10 @@ function EcranResultat({
                 strokeDashoffset={offset}
               />
             </svg>
-            {etatPhoto === "en_cours" && (
-              <span
-                className="absolute inset-0 animate-spin rounded-full border-[4px] border-svv-red border-t-transparent"
-                aria-hidden="true"
-              />
-            )}
+            {/* Cercle d'attente (rouge tournant) RETIRÉ — accord d'Arno du 16/10/2026 : la page de score ne s'ouvre plus
+                qu'une fois l'analyse de la photo finie (commit 2a6b70a6), il ne signalait plus aucun calcul en cours. */}
             <div className="absolute inset-0 flex flex-col items-center justify-center leading-none">
-              <div className="flex items-baseline">
+              <div className={`flex items-baseline ${bumpScore ? "svv-score-bump" : ""}`}>
                 <span className="text-3xl font-extrabold text-svv-ink tabular-nums">{Math.round(scoreAnime)}</span>
                 <span className="ml-0.5 text-[11px] font-semibold text-svv-muted">/100</span>
               </div>
@@ -695,6 +706,15 @@ function EcranResultat({
               <SceauCertifie className="h-7 w-auto shrink-0 text-white" />
               Obtenir mon certificat
             </button>
+            {/* « Refaire une analyse » depuis le verdict certifié — même geste que sur la page vis-à-vis (reprise : même
+                adresse, même point validé, même mode). Fond blanc, bordure et texte rouges de la charte. */}
+            <button type="button" onClick={onRefaireTest} className="svv-btn svv-btn-outline svv-btn-outline--danger mt-3">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                <path d="M3 3v5h5" />
+              </svg>
+              Refaire une analyse
+            </button>
             <button type="button" onClick={() => { mesure("clic_plusvalue"); todoEcranAVenir(); }} className="svv-btn svv-btn-outline mt-3">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 3v18h18" />
@@ -711,7 +731,7 @@ function EcranResultat({
                 <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
                 <path d="M3 3v5h5" />
               </svg>
-              Refaire le test
+              Refaire une analyse
             </button>
             <button type="button" onClick={() => { mesure("clic_estimation"); todoEcranAVenir(); }} className="svv-btn svv-btn-outline mt-3">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -722,7 +742,8 @@ function EcranResultat({
             </button>
           </>
         )}
-        <button type="button" onClick={onRecommencer} className="svv-link mt-1">
+        {/* Page certifiée : lien aligné à gauche (demande d'Arno) ; page vis-à-vis : inchangée (centré). */}
+        <button type="button" onClick={onRecommencer} className={`svv-link mt-1 ${certifie ? "justify-start" : ""}`}>
           ← Retour à l&apos;accueil
         </button>
       </div>
