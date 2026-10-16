@@ -570,3 +570,31 @@ describe('🔴 « Interne » : le cinquième statut, et sa place dans la priorit
     expect(actionDeLaCapsule('interne')).toEqual({ mot: 'Visualiser / Modifier', ton: 'vert' });
   });
 });
+
+/* ══ 🔴🔴 LOT GESTION-CARTOUCHE-EVENEMENT, POINT 2 (Arno, 16/10/2026) — l'état ouvert / clos du cartouche ══════════════ */
+describe('LOT GESTION-CARTOUCHE-EVENEMENT — ouvert / clos', () => {
+  const fil = { etat: 'a_classer' as const, reference: 'GES-2026-000012', evenementId: 12, evenementObjet: 'Fuite' };
+  it('ouvert → « Événement en cours », ton evt-ouvert, bulle « référence — nom » puis la portée', () => {
+    const s = statutDuMessage({ ...fil, evenementOuvert: true });
+    expect(libelleCartouche(s)).toBe('Événement en cours');
+    expect(tonCartouche(s)).toBe('evt-ouvert');
+    expect(precisionCartouche(s)).toBe('GES-2026-000012 — Fuite\nL’échange entier est classé dans cette carte.');
+    expect(lienVersCarte(s)).toBe('/admin/gestion?etiquette=carte-12');
+  });
+  it('clos → « Événement clos », ton evt-clos', () => {
+    const s = statutDuMessage({ ...fil, evenementOuvert: false });
+    expect(libelleCartouche(s)).toBe('Événement clos');
+    expect(tonCartouche(s)).toBe('evt-clos');
+  });
+  it('la carte du MAIL (déplacé seul) porte son propre état', () => {
+    const s = statutDuMessage({ ...fil, evenementOuvert: true },
+      { carteDuMail: { reference: 'GES-2026-000042', libelle: 'Serrure', evenementId: 42, ouvert: false } });
+    expect(libelleCartouche(s)).toBe('Événement clos');
+    expect(precisionCartouche(s)).toContain('GES-2026-000042 — Serrure');
+  });
+  it('état inconnu (serveur plus ancien) → le cartouche d’avant', () => {
+    const s = statutDuMessage(fil);
+    expect(libelleCartouche(s)).toBe('Événement : GES-2026-000012 · Fuite');
+    expect(tonCartouche(s)).toBe('succes');
+  });
+});

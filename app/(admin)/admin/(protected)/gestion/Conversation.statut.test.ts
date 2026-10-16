@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { Conversation } from './Conversation';
+import { Conversation, CSS_CONVERSATION } from './Conversation';
 
 /**
  * LOT 5-STATUT — LES CARTOUCHES, ÉPROUVÉS À L'ÉCRAN.
@@ -1219,5 +1219,53 @@ describe('🔴🔴 LOT GESTION-BULLES — bulle « Exception au suivi »', () =>
     /* 🔴 le suivi de fond actif en VERT (le vert « Classé »), et son intertitre en noir. */
     expect(css).toContain('.cbm-bulle-ligne--fond .cbm-bulle-bien,.cbm-bulle-ligne--fond .cbm-bulle-lot, .cbm-bulle-ligne--fond .cbm-bulle-proprio{color:var(--color-svv-green-ink)}');
     expect(css).toContain('.cbm-bulle-pied-titre{margin:0 0 4px;font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}');
+  });
+});
+
+/**
+ * ══ 🔴🔴 LOT GESTION-CARTOUCHE-EVENEMENT, POINT 2 (décisions d'Arno, 16/10/2026) ══════════════════════════════════════
+ * Mail rattaché à un événement OUVERT : cartouche orange « Événement en cours », bulle (référence et nom), clic inchangé.
+ * CLOS : même cartouche en gris neutre, « Événement clos ». Une seule pastille « événement » par ligne : la capsule orange
+ * « Événement en cours sur le bien » ne s'affiche que si le mail n'a pas son propre événement.
+ */
+describe('🔴🔴 LOT GESTION-CARTOUCHE-EVENEMENT — ouvert, clos, et une seule pastille', () => {
+  const capsuleEvt = () => container.querySelector('.cnv-capsule--evt') as HTMLElement | null;
+  const pastillesEvt = () => container.querySelectorAll('.cnv-capsule--evt, .cnv-cartouche--evt-ouvert, .cnv-cartouche--evt-clos');
+
+  it('ouvert → « Événement en cours », orange, bulle « référence — nom », lien vers la carte ; pas de capsule en double', async () => {
+    filCourant = FIL({ reference: 'GES-2026-000012', evenementId: 12, evenementObjet: 'Fuite salle de bain', evenementOuvert: true });
+    messages = [MESSAGE({ evenementsEnCours: 1, evenementsEnCoursSurvol: 'GES-2026-000012 — Fuite salle de bain' })];
+    await monter();
+    const c = cartouche() as HTMLAnchorElement;
+    expect(c.textContent).toBe('Événement en cours');
+    expect(c.className).toContain('cnv-cartouche--evt-ouvert');
+    expect(c.getAttribute('title')).toContain('GES-2026-000012 — Fuite salle de bain');
+    expect(c.getAttribute('href')).toBe('/admin/gestion?etiquette=carte-12');
+    expect(capsuleEvt()).toBeNull();
+    expect(pastillesEvt()).toHaveLength(1);
+  });
+
+  it('clos → « Événement clos », gris neutre, même bulle et même lien', async () => {
+    filCourant = FIL({ reference: 'GES-2026-000013', evenementId: 13, evenementObjet: 'Serrure', evenementOuvert: false });
+    await monter();
+    const c = cartouche() as HTMLAnchorElement;
+    expect(c.textContent).toBe('Événement clos');
+    expect(c.className).toContain('cnv-cartouche--evt-clos');
+    expect(c.getAttribute('title')).toContain('GES-2026-000013 — Serrure');
+    expect(c.getAttribute('href')).toBe('/admin/gestion?etiquette=carte-13');
+    expect(pastillesEvt()).toHaveLength(1);
+  });
+
+  it('mail SANS événement mais un événement en cours sur le bien → la capsule orange reste, seule', async () => {
+    messages = [MESSAGE({ evenementsEnCours: 1, evenementsEnCoursSurvol: 'GES-2026-000020 — Dégât des eaux — mail non rattaché' })];
+    await monter();
+    expect(capsuleEvt()?.textContent).toBe('Événement en cours');
+    expect(cartouche()).toBeNull();
+    expect(pastillesEvt()).toHaveLength(1);
+  });
+
+  it('la feuille porte les deux tons, par jetons', () => {
+    expect(CSS_CONVERSATION).toContain('.cnv-cartouche--evt-ouvert{color:var(--color-svv-amber)');
+    expect(CSS_CONVERSATION).toContain('.cnv-cartouche--evt-clos{color:var(--color-svv-muted)');
   });
 });

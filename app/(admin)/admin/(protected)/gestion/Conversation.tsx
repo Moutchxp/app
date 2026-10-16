@@ -1556,9 +1556,13 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 
   const { fil, messages, partis } = vue;
   /** La carte posée sur CE MAIL SEUL, quand il y en a une. `null` = il suit son échange, le cas ordinaire. */
-  const carteDe = (messageId: number): { reference: string; libelle: string | null; evenementId: number | null } | null => {
+  const carteDe = (messageId: number): {
+    reference: string; libelle: string | null; evenementId: number | null; ouvert: boolean | null;
+  } | null => {
     const p = partis.find((x) => x.messageId === messageId);
-    return p === undefined ? null : { reference: p.reference, libelle: p.objetEvenement, evenementId: p.evenementId };
+    return p === undefined ? null : {
+      reference: p.reference, libelle: p.objetEvenement, evenementId: p.evenementId, ouvert: p.evenementOuvert ?? null,
+    };
   };
   const rattache = fil.reference !== null;
 
@@ -3348,7 +3352,10 @@ export function MessageConversation({
             retiré, et les deux ne répondent pas à la même question.
 
             ⚠️ `?? 0` : une réponse de serveur plus ancienne que ce lot n'a pas le champ. Patron du module. */}
-        {motEvenementEnCours(message.evenementsEnCours ?? 0) !== null && (
+        {/* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (Arno, 16/10/2026) — UNE seule pastille « événement » par ligne : un mail
+            rattaché à un événement montre le sien (le cartouche « Événement en cours / clos » plus loin) ; sinon cette
+            capsule, comme avant. */}
+        {statut?.sorte !== 'carte' && motEvenementEnCours(message.evenementsEnCours ?? 0) !== null && (
           <span className="cnv-capsule cnv-capsule--evt"
             title={message.evenementsEnCoursSurvol ?? "Ce mail relève d'un événement en cours sur le bien"}>
             {motEvenementEnCours(message.evenementsEnCours ?? 0)}
@@ -4162,6 +4169,9 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
 .cnv-cartouche--succes{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border-color:var(--color-svv-green)}
 .cnv-cartouche--attente{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong)}
 .cnv-cartouche--neutre{color:var(--color-svv-muted)}
+/* LOT GESTION-CARTOUCHE-EVENEMENT — evenement OUVERT : la paire ambre de la capsule « Evenement en cours » ; CLOS : gris neutre. */
+.cnv-cartouche--evt-ouvert{color:var(--color-svv-amber);border-color:var(--color-svv-amber-soft);background:var(--color-svv-amber-soft)}
+.cnv-cartouche--evt-clos{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
 /* Le déclencheur (« Classer », « Modifier ») : discret, mais une cible de 44 px et un focus très visible. */
 .cnv-statut-bouton{min-height:44px;padding:0 .4rem;font-size:.75rem;font-weight:700;color:var(--color-svv-red);
   background:transparent;border:0;text-decoration:underline;text-underline-offset:3px;cursor:pointer}

@@ -211,6 +211,11 @@ export interface EnTeteFil {
    * requête de plus, aucun aller-retour de plus.
    */
   evenementObjet: string | null;
+  /**
+   * 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (Arno, 16/10/2026) — l'événement de l'échange est-il OUVERT (selon la frise,
+   * `sqlEvenementOuvertParLaFrise`) ? `null` sans événement. Le cartouche dit « Événement en cours » / « Événement clos ».
+   */
+  evenementOuvert?: boolean | null;
 }
 
 /**
@@ -767,10 +772,11 @@ export async function lireMessagesDuFil(
   //   reconstituerait l'état de son côté, et les trois finiraient par diverger.
   const { rows: fil } = await query<{
     id: number; objet: string | null; etat: string; reference: string | null; evenement_id: number | null;
-    evenement_objet: string | null;
+    evenement_objet: string | null; evenement_ouvert: boolean | null;
   }>(
     `SELECT f.id::int AS id, f.objet_initial AS objet, f.etat,
-            e.reference, e.id::int AS evenement_id, e.objet AS evenement_objet
+            e.reference, e.id::int AS evenement_id, e.objet AS evenement_objet,
+            CASE WHEN e.id IS NULL THEN NULL ELSE ${sqlEvenementOuvertParLaFrise('e')} END AS evenement_ouvert
        FROM gestion_fil f
        LEFT JOIN gestion_affectation a ON a.fil_id = f.id AND a.actif AND a.message_id IS NULL
        LEFT JOIN gestion_evenement e ON e.id = a.evenement_id
@@ -946,6 +952,7 @@ export async function lireMessagesDuFil(
       reference: fil[0].reference,
       evenementId: fil[0].evenement_id,
       evenementObjet: fil[0].evenement_objet,
+      evenementOuvert: typeof fil[0].evenement_ouvert === 'boolean' ? fil[0].evenement_ouvert : null,
     },
     messages,
     partis,
@@ -961,15 +968,18 @@ export interface MailParti {
   evenementId: number;
   /** LOT 5-STATUT — le titre de la carte d'arrivée. Gratuit : l'événement est déjà joint pour sa référence. */
   objetEvenement: string | null;
+  /** 🔴 LOT GESTION-CARTOUCHE-EVENEMENT — la carte d'arrivée est-elle ouverte (selon la frise) ? */
+  evenementOuvert?: boolean | null;
 }
 
 async function lireMailsPartis(filId: number): Promise<MailParti[]> {
   const { rows } = await query<{
     message_id: number; objet: string | null; recu_le: string; reference: string; evenement_id: number;
-    objet_evenement: string | null;
+    objet_evenement: string | null; evenement_ouvert: boolean | null;
   }>(
     `SELECT m.id::int AS message_id, m.objet, ${INSTANT('m.recu_le')} AS recu_le,
-            e.reference, e.id::int AS evenement_id, e.objet AS objet_evenement
+            e.reference, e.id::int AS evenement_id, e.objet AS objet_evenement,
+            ${sqlEvenementOuvertParLaFrise('e')} AS evenement_ouvert
        FROM gestion_affectation a
        JOIN gestion_message m ON m.id = a.message_id
        JOIN gestion_evenement e ON e.id = a.evenement_id
@@ -978,6 +988,7 @@ async function lireMailsPartis(filId: number): Promise<MailParti[]> {
   return rows.map((r) => ({
     messageId: r.message_id, objet: r.objet, recuLe: r.recu_le,
     reference: r.reference, evenementId: r.evenement_id, objetEvenement: r.objet_evenement,
+    evenementOuvert: typeof r.evenement_ouvert === 'boolean' ? r.evenement_ouvert : null,
   }));
 }
 

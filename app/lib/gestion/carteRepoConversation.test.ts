@@ -182,6 +182,8 @@ describe('l’en-tête de l’échange voyage avec ses messages', () => {
     const r = await lireMessagesDuFil(7);
     expect(r!.fil).toEqual({
       filId: 7, objet: 'Chauffage en panne', etat: 'sans_suite', reference: 'GES-2026-000012', evenementId: 3,
+      /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT — l'état ouvert/clos de la carte (frise) ; inconnu ici (ligne simulée). */
+      evenementOuvert: null,
     });
   });
 

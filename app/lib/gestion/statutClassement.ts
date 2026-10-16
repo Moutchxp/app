@@ -33,6 +33,12 @@ export type StatutClassement =
       evenementId: number | null;
       /** `true` = la carte de CE MAIL, déplacé seul ; `false` = celle de son échange. Le mot affiché en dépend. */
       propre: boolean;
+      /**
+       * 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (Arno, 16/10/2026) — l'événement est-il ouvert (selon la frise) ? `true` →
+       * « Événement en cours » (orange), `false` → « Événement clos » (gris). Absent / `null` (serveur plus ancien) : le
+       * cartouche d'avant, « Événement : <référence> · <titre> ».
+       */
+      ouvert?: boolean | null;
     }
   | { sorte: 'a_classer' }
   | { sorte: 'sans_suite' }
@@ -45,6 +51,8 @@ export interface EtatFil {
   evenementId: number | null;
   /** Le titre de la carte, quand l'échange est rattaché. */
   evenementObjet?: string | null;
+  /** 🔴 LOT GESTION-CARTOUCHE-EVENEMENT — la carte de l'échange est-elle ouverte (selon la frise) ? */
+  evenementOuvert?: boolean | null;
 }
 
 /** Ce qu'il faut savoir du MESSAGE. */
@@ -53,20 +61,24 @@ export interface EtatMessage {
   horsFile?: boolean;
   motifHorsFile?: string | null;
   /** Ce mail a-t-il été déplacé SEUL vers une carte ? La référence de cette carte, le cas échéant. */
-  carteDuMail?: { reference: string; libelle: string | null; evenementId: number | null } | null;
+  carteDuMail?: { reference: string; libelle: string | null; evenementId: number | null; ouvert?: boolean | null } | null;
 }
 
 /** Le statut à afficher pour CE message. PUR. Voir l'ordre des cas dans l'encadré ci-dessus. */
 export function statutDuMessage(fil: EtatFil, message: EtatMessage = {}): StatutClassement {
   const propre = message.carteDuMail;
   if (propre) {
-    return { sorte: 'carte', reference: propre.reference, libelle: propre.libelle, evenementId: propre.evenementId, propre: true };
+    return {
+      sorte: 'carte', reference: propre.reference, libelle: propre.libelle, evenementId: propre.evenementId, propre: true,
+      ...(typeof propre.ouvert === 'boolean' ? { ouvert: propre.ouvert } : {}),
+    };
   }
   if (message.horsFile === true) return { sorte: 'automatique', motif: message.motifHorsFile ?? null };
   if (fil.reference !== null && fil.reference !== '') {
     return {
       sorte: 'carte', reference: fil.reference, libelle: fil.evenementObjet ?? null,
       evenementId: fil.evenementId, propre: false,
+      ...(typeof fil.evenementOuvert === 'boolean' ? { ouvert: fil.evenementOuvert } : {}),
     };
   }
   return fil.etat === 'sans_suite' ? { sorte: 'sans_suite' } : { sorte: 'a_classer' };
@@ -76,9 +88,16 @@ export function statutDuMessage(fil: EtatFil, message: EtatMessage = {}): Statut
  * LE MOT DU CARTOUCHE. Toujours écrit, jamais remplacé par une couleur : c'est ce qui le rend lisible en niveaux de
  * gris, pour un daltonien, et à voix haute par un lecteur d'écran. PUR.
  */
+export const EVENEMENT_EN_COURS = 'Événement en cours';
+export const EVENEMENT_CLOS = 'Événement clos';
+
 export function libelleCartouche(s: StatutClassement): string {
   switch (s.sorte) {
     case 'carte': {
+      /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (Arno, 16/10/2026) — l'état en toutes lettres ; la référence et le nom passent
+         dans la bulle (`precisionCartouche`). */
+      if (s.ouvert === true) return EVENEMENT_EN_COURS;
+      if (s.ouvert === false) return EVENEMENT_CLOS;
       const nom = s.libelle && s.libelle.trim() !== '' ? `${s.reference} · ${s.libelle.trim()}` : s.reference;
       return `Événement : ${nom}`;
     }
@@ -103,10 +122,15 @@ export function libelleCartouche(s: StatutClassement): string {
 /** Ce que le cartouche dit en plus, pour un lecteur d'écran ou en infobulle. `null` = le libellé se suffit. PUR. */
 export function precisionCartouche(s: StatutClassement): string | null {
   switch (s.sorte) {
-    case 'carte':
-      return s.propre
+    case 'carte': {
+      const portee = s.propre
         ? 'Ce mail a été déplacé seul vers cette carte : il ne suit pas son échange.'
         : 'L’échange entier est classé dans cette carte.';
+      /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT — la bulle porte la référence et le nom (ils ne sont plus dans le mot). */
+      if (typeof s.ouvert !== 'boolean') return portee;
+      const nom = s.libelle && s.libelle.trim() !== '' ? `${s.reference} — ${s.libelle.trim()}` : s.reference;
+      return `${nom}\n${portee}`;
+    }
     case 'a_classer':
       return 'Cet échange n’est posé sur aucune carte d’événement. C’est une information distincte du '
         + 'classement du mail, qui se lit sur sa capsule (À classer / Auto / Classé).';
@@ -119,7 +143,10 @@ export function precisionCartouche(s: StatutClassement): string | null {
  * LE TON du cartouche. Trois valeurs seulement, et chacune a son jeton de charte — aucune couleur en dur.
  * ⚠️ Le ton n'est qu'un APPUI : le mot, lui, est toujours écrit (voir `libelleCartouche`).
  */
-export function tonCartouche(s: StatutClassement): 'succes' | 'attente' | 'neutre' {
+export function tonCartouche(s: StatutClassement): 'succes' | 'attente' | 'neutre' | 'evt-ouvert' | 'evt-clos' {
+  /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT — orange (la paire ambre « événement en cours » du module) ou gris neutre. */
+  if (s.sorte === 'carte' && s.ouvert === true) return 'evt-ouvert';
+  if (s.sorte === 'carte' && s.ouvert === false) return 'evt-clos';
   if (s.sorte === 'carte') return 'succes';
   /**
    * 🔴 LOT STATUT-PAR-MAIL — « aucun événement » EST NEUTRE, PLUS « EN ATTENTE ». Le ton « attente » est celui
