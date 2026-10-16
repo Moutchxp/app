@@ -4,6 +4,9 @@ import { estEmailValide } from '../../../../lib/admin/email';
 import { genererMotDePasseTemporaire } from '../../../../lib/admin/motDePasseTemporaire';
 import { creerCompteAdministration, listerComptes, ErreurCompte } from '../../../../lib/admin/comptes';
 import type { RoleAdmin } from '../../../../lib/admin/session';
+/* 🔴 LOT GESTION-INVITATION-ADMIN (16/10/2026) — le mail d'invitation part à la création ; la liste dit l'état de chaque compte. */
+import { envoyerInvitation, etatsInvitations, type IssueEnvoi } from '../../../../lib/admin/invitationRepo';
+import { phraseEnvoi } from '../../../../lib/admin/invitation';
 
 /**
  * Tuile Administratif (M3-4 Lot C). Namespace PLURIEL `/api/admin/comptes` (disjoint du self-service singulier
@@ -17,7 +20,9 @@ export async function GET(request: Request) {
   if ('refus' in garde) return garde.refus;
   try {
     const comptes = await listerComptes();
-    return Response.json({ comptes });
+    // État d'invitation (activé ou non, dernier envoi) : une lecture à part ; un échec ne prive pas de la liste.
+    const etats = await etatsInvitations(comptes.map((c) => Number(c.id))).catch(() => new Map());
+    return Response.json({ comptes: comptes.map((c) => ({ ...c, invitation: etats.get(Number(c.id)) ?? null })) });
   } catch {
     return Response.json({ erreur: 'Liste indisponible.' }, { status: 503 });
   }
@@ -82,8 +87,17 @@ export async function POST(request: Request) {
     const compte = await creerCompteAdministration({
       identifiant, prenom, nom, role, perms, peutModifierPermis: b.permis_modif === true, peutEnvoyerGestion: envoi, motDePasseClair: motDePasseTemporaire, auteurId: garde.auteurId, // RATT-EDIT lot A3 — sous-droit lu au niveau racine (subordonné à perms.permis côté repo)
     });
+    // 🔴 LE MAIL D'INVITATION : envoyé APRÈS la création (un échec n'annule pas le compte) et DIT tel quel à l'écran —
+    //    jamais « envoyé » quand rien n'est parti. Le mot de passe temporaire reste affiché une fois, comme avant.
+    let invitation: IssueEnvoi;
+    try {
+      invitation = await envoyerInvitation(Number(compte.id), garde.auteurId);
+    } catch (e) {
+      invitation = { ok: false, etat: 'echec', destinataire: identifiant, motif: e instanceof Error ? e.message.slice(0, 200) : 'erreur inconnue' };
+    }
+    const phrase = phraseEnvoi({ etat: invitation.etat === 'refuse' ? 'echec' : invitation.etat, destinataire: invitation.destinataire || identifiant, motif: invitation.ok ? null : invitation.motif });
     // Le CLAIR n'est renvoyé QU'ICI, une seule fois. Aucun réaffichage possible → l'admin doit le transmettre.
-    return Response.json({ compte, motDePasseTemporaire }, { status: 201 });
+    return Response.json({ compte, motDePasseTemporaire, invitation: { ...invitation, phrase } }, { status: 201 });
   } catch (e) {
     // ErreurCompte = message métier (identifiant pris, etc.) ; jamais le mot de passe dans l'erreur.
     if (e instanceof ErreurCompte) return Response.json({ erreur: e.message }, { status: 409 });

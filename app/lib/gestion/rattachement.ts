@@ -31,6 +31,7 @@
  */
 /* 🔴 LOT TACHES-ACCEPTATION — reconnaître nos demandes d'acceptation de tâche (jamais rattachées à un bien). */
 import { estDemandeAcceptationTache } from './acceptationTache';
+import { estInvitationAdmin } from '../admin/invitation';
 import type { Confiance, Regle } from './triPieces';
 import type { AdresseEchange } from './propositionTri';
 // LOT AFFECTATION-PAR-BIEN — la cible d'un classement est TOUJOURS un bien : le moteur de ce lot est le seul.
@@ -316,6 +317,15 @@ export function examinerMessage(o: {
     return {
       issue: 'sans_candidat', certain: null, candidats: [], adressesUtiles: utiles,
       motif: 'demande d’acceptation de tâche envoyée par l’application : elle ne concerne aucun bien',
+    };
+  }
+
+  /* 🔴 LOT GESTION-INVITATION-ADMIN (16/10/2026) — le mail d'invitation d'un nouveau compte part de gestion@ : il revient
+     par la relève des « Envoyés ». Il ne concerne aucun bien : refusé ici, comme la demande d'acceptation de tâche. */
+  if (estInvitationAdmin({ sens: o.sens, messageIdEntete: o.messageIdEntete, objet: o.textes?.objet })) {
+    return {
+      issue: 'sans_candidat', certain: null, candidats: [], adressesUtiles: utiles,
+      motif: 'invitation de compte envoyée par l’application : elle ne concerne aucun bien',
     };
   }
 

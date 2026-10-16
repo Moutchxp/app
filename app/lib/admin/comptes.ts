@@ -2,7 +2,7 @@
 // `app/scripts/admin.ts` (Node/tsx) et les tests → PAS de `import 'server-only'` (il lèverait sous tsx). Toute
 // écriture est journalisée dans `admin_utilisateur_log` (append-only). Aucun DELETE/DROP/TRUNCATE ni UPDATE de masse :
 // chaque mutation cible UNE ligne par identifiant/id exact.
-import { query, withTransaction } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import { hacher } from './motDePasse';
 // Import TYPE-ONLY de session.ts : évite d'en charger le runtime (`import 'server-only'`) sous le script tsx.
 import type { Perms, RoleAdmin } from './session';
@@ -487,8 +487,9 @@ export async function reinitialiserMotDePasse(identifiant: string, motDePasseCla
  * à false, et journalise `changement_mot_de_passe` avec `auteur_id = id` (l'utilisateur agit sur SON compte).
  * Le clair n'apparaît jamais ici (seul le hash est reçu/écrit). Mono-ligne (WHERE id=$1) ; ErreurCompte si 0 ligne.
  */
-export async function changerMotDePasseSelf(id: number, nouveauHash: string): Promise<ResultatCompte> {
-  const { rows } = await query<ResultatCompte>(
+export async function changerMotDePasseSelf(id: number, nouveauHash: string, q: RequeteTx = query): Promise<ResultatCompte> {
+  // `q` : la transaction de l'appelant (activation par lien d'invitation, lot GESTION-INVITATION-ADMIN) ; défaut = inchangé.
+  const { rows } = await q<ResultatCompte>(
     `WITH maj AS (
        UPDATE admin_utilisateur SET mot_de_passe = $2, doit_changer_mot_de_passe = false
         WHERE id = $1

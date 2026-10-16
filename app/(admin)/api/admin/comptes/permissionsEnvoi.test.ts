@@ -13,6 +13,11 @@ const modifierPermissions = vi.fn();
 const trouverCompteParId = vi.fn();
 const exigerAdministrateur = vi.fn();
 
+// LOT GESTION-INVITATION-ADMIN — la création envoie désormais l'invitation : SIMULÉE ici (jamais la vraie base ni un mail).
+vi.mock('../../../../lib/admin/invitationRepo', () => ({
+  envoyerInvitation: async () => ({ ok: true, etat: 'factice', destinataire: 'x@example.com' }),
+  etatsInvitations: async () => new Map(),
+}));
 vi.mock('../../../../lib/admin/garde', () => ({ exigerAdministrateur: (...a: unknown[]) => exigerAdministrateur(...a) }));
 vi.mock('../../../../lib/admin/comptes', () => ({
   modifierPermissions: (...a: unknown[]) => modifierPermissions(...a),

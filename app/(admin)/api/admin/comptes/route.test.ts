@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 // Pool pg mocké : garde (exigerAdministrateur) ET comptes partagent le même module client.
 const queryMock = vi.fn();
+// LOT GESTION-INVITATION-ADMIN — la création envoie désormais l'invitation : SIMULÉE ici (jamais la vraie base ni un mail).
+vi.mock('../../../../lib/admin/invitationRepo', () => ({
+  envoyerInvitation: async () => ({ ok: true, etat: 'factice', destinataire: 'x@example.com' }),
+  etatsInvitations: async () => new Map(),
+}));
 vi.mock('../../../../lib/db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 // Hachage déterministe (pas d'argon2 réel).
 vi.mock('../../../../lib/admin/motDePasse', () => ({ hacher: (c: string) => Promise.resolve(`HASH:${c}`) }));

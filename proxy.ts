@@ -145,6 +145,12 @@ export async function proxy(request: NextRequest) {
   if (pathname === '/api/admin/session') {
     return NextResponse.next();
   }
+  // 🔴 LOT GESTION-INVITATION-ADMIN (16/10/2026) — l'activation d'un compte par le lien de son mail d'invitation : la
+  // personne n'a pas encore de mot de passe, donc pas de session. Le JETON du lien est la seule autorisation (usage
+  // unique, expiration, remplacé par un renvoi — règles dans `invitationRepo.ts`). Rien d'autre n'est ouvert.
+  if (pathname === '/admin/activation' || pathname === '/api/admin/activation') {
+    return NextResponse.next();
+  }
 
   const jeton = request.cookies.get(NOM_COOKIE)?.value;
   const payload = jeton ? await verifierJeton(jeton) : null;

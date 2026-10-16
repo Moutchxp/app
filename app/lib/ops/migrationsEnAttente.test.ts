@@ -54,14 +54,16 @@ describe('ce que le code lit et écrit existe bien', () => {
   });
 });
 
-describe('rangement : 362 part à la prochaine mise à jour, 361 reste en attente', () => {
+describe('rangement : 362 appliquée en prod, 363 (invitations) part à la prochaine mise à jour, 361 reste en attente', () => {
   const dossier = path.join(process.cwd(), MIGRATIONS);
   const existants = readdirSync(dossier).filter((n) => n.endsWith('.sql')).map((n) => ({ fichier: n, contenu: readFileSync(path.join(dossier, n), 'utf8') }));
   const ECARTEES = ['148_mention_sources_graphiques.sql', '212_permis_emprise_numero.sql', '216_permis_cerfa_ia.sql', '262_gestion_piece_classement.sql'];
-  // Registre de la prod avant la prochaine mise à jour : tout db/migrations sauf la 362 (148/212/216/262 écartées).
-  const registre = existants.filter((f) => f.fichier !== '362_permis_cerfa_ia_reveil.sql').map((f) => ({
+  // Pas encore appliquées en prod (16/10/2026, après la publication de 4c8cd637 qui a appliqué la 362).
+  const A_VENIR = ['363_admin_invitation.sql'];
+  const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
+  const inscrire = (noms: string[]) => [...registre, ...existants.filter((f) => noms.includes(f.fichier)).map((f) => ({ fichier: f.fichier, sha256: analyserMigration(f).sha256 }))];
 
   it('362 est dans db/migrations et plus dans db/migrations-en-attente ; 361 y reste', () => {
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '362_permis_cerfa_ia_reveil.sql'))).toBe(true);
@@ -70,26 +72,23 @@ describe('rangement : 362 part à la prochaine mise à jour, 361 reste en attent
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('362 est la seule nouvelle ; une fois appliquée, 216 n’est plus rappelée, 212 et 262 le restent', () => {
-    const avant = planifier(existants, registre);
-    expect(avant.refus).toEqual([]);
-    expect(avant.nouvelles.map((n) => n.fichier)).toEqual(['362_permis_cerfa_ia_reveil.sql']);
-    const r362 = existants.find((f) => f.fichier === '362_permis_cerfa_ia_reveil.sql')!;
-    const apres = planifier(existants, [...registre, { fichier: r362.fichier, sha256: analyserMigration(r362).sha256 }]);
-    const avert = apres.avertissements.join('\n');
+  it('363 est la seule nouvelle, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+    const plan = planifier(existants, registre);
+    expect(plan.refus).toEqual([]);
+    expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
+    const avert = planifier(existants, inscrire(A_VENIR)).avertissements.join('\n');
     expect(avert).not.toMatch(/216_/);
     expect(avert).toMatch(/212_permis_emprise_numero\.sql : écartée/);
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('une fois 362 appliquée, la 361 déplacée telle quelle serait REFUSÉE : elle devra prendre un numéro au-dessus', () => {
-    const r362 = existants.find((f) => f.fichier === '362_permis_cerfa_ia_reveil.sql')!;
-    const apresMaj = [...registre, { fichier: r362.fichier, sha256: analyserMigration(r362).sha256 }];
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (364)', () => {
+    const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(362\)/);
-    const renumerotee = planifier([...existants, { fichier: '363_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(363\)/);
+    const renumerotee = planifier([...existants, { fichier: '364_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['363_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['364_permis_emprise_numero_reveil.sql']);
   });
 });

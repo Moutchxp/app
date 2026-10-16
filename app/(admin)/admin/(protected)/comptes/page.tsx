@@ -17,7 +17,15 @@ interface CompteVue {
   etatEnvoiGestion?: 'oui' | 'non' | 'a_decider' | 'sans_objet'; // LOT 5-DROITS — optionnel : une réponse d'API d'avant ce lot n'en porte pas
   derniere_connexion_a: string | null;
   cree_a: string | null; // date de création (fournie par l'API ; NULL toléré)
+  /** LOT GESTION-INVITATION-ADMIN — état de l'invitation (null/absent : invitations non installées → aucun bouton). */
+  invitation?: InvitationVue | null;
 }
+export interface InvitationVue { active: boolean; dernierEnvoi: string | null; mailEtat: 'en_cours' | 'envoye' | 'factice' | 'echec' | null; mailErreur: string | null; expireLe: string | null }
+/** Le bouton « Renvoyer le mail d'invitation » : seulement pour un compte actif, pas encore activé. PUR. */
+export function montrerRenvoi(c: Pick<CompteVue, 'invitation'>, desactive: boolean): boolean {
+  return !desactive && c.invitation != null && !c.invitation.active;
+}
+export const LIB_RENVOYER_INVITATION = 'Renvoyer le mail d’invitation';
 interface DetailCompte extends CompteVue {
   doit_changer_mot_de_passe: boolean;
   /** LOT PROFIL-GESTION — « Appartient au service gestion » (migration 341). Absent d'une réponse d'avant ce lot. */
@@ -384,7 +392,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
 }
 
 /** Modale bloquante du mot de passe temporaire : une seule fois, copie, case « transmis » avant fermeture. */
-function ModaleTemporaire({ identifiant, motDePasse, onFermer }: { identifiant: string; motDePasse: string; onFermer: () => void }) {
+function ModaleTemporaire({ identifiant, motDePasse, invitation, onFermer }: { identifiant: string; motDePasse: string; invitation?: { ok: boolean; phrase: string } | null; onFermer: () => void }) {
   const [transmis, setTransmis] = useState(false);
   const [copie, setCopie] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -393,6 +401,12 @@ function ModaleTemporaire({ identifiant, motDePasse, onFermer }: { identifiant: 
     <div role="alertdialog" aria-modal="true" aria-labelledby="cpt-modale-titre" className="cpt-overlay">
       <div ref={ref} tabIndex={-1} className="cpt-modale" style={{ outline: 'none' }}>
         <h2 className="cpt-titre" id="cpt-modale-titre">Mot de passe temporaire</h2>
+        {/* LOT GESTION-INVITATION-ADMIN — ce qui est RÉELLEMENT arrivé au mail d'invitation (jamais « envoyé » à tort). */}
+        {invitation && (
+          <p role={invitation.ok ? 'status' : 'alert'} className={invitation.ok ? 'cpt-invit cpt-invit--ok' : 'cpt-invit cpt-invit--ko'}>
+            {invitation.ok ? '✓ ' : '⚠ '}{invitation.phrase}
+          </p>
+        )}
         <p className="cpt-sous">
           Pour <strong>{identifiant}</strong>. Il ne sera <strong>plus jamais affiché</strong> : transmettez-le
           maintenant. Perdu ? Régénérez-en un depuis la liste.
@@ -417,7 +431,10 @@ export default function ComptesPage() {
   const [comptes, setComptes] = useState<CompteVue[]>([]);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [temp, setTemp] = useState<{ identifiant: string; motDePasse: string } | null>(null);
+  const [temp, setTemp] = useState<{ identifiant: string; motDePasse: string; invitation?: { ok: boolean; phrase: string } | null } | null>(null);
+  // LOT GESTION-INVITATION-ADMIN — résultat du dernier « Renvoyer » par compte (la phrase vraie), et envoi en cours.
+  const [renvois, setRenvois] = useState<Record<number, { ok: boolean; message: string }>>({});
+  const [renvoiEnCours, setRenvoiEnCours] = useState<number | null>(null);
   const [ouvertId, setOuvertId] = useState<number | null>(null);
   const [desactivesOuverts, setDesactivesOuverts] = useState(false);
   const detailsBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -460,7 +477,10 @@ export default function ComptesPage() {
       const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
       const body = await res.json().catch(() => ({}));
       if (res.status === 201) {
-        setTemp({ identifiant, motDePasse: body.motDePasseTemporaire });
+        setTemp({
+          identifiant, motDePasse: body.motDePasseTemporaire,
+          invitation: body.invitation ? { ok: body.invitation.ok === true, phrase: String(body.invitation.phrase ?? '') } : null,
+        });
         setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false);
         await recharger();
       } else setErreur(typeof body?.erreur === 'string' ? body.erreur : 'Création impossible.');
@@ -484,6 +504,20 @@ export default function ComptesPage() {
     const res = await fetch(`/api/admin/comptes/${c.id}/mot-de-passe-temporaire`, { method: 'POST' });
     const body = await res.json().catch(() => ({}));
     if (res.ok) { setTemp({ identifiant: c.identifiant, motDePasse: body.motDePasseTemporaire }); await recharger(); } else setErreur('Régénération impossible.');
+  }
+
+  async function renvoyerInvitation(c: CompteVue) {
+    setRenvoiEnCours(c.id);
+    try {
+      const res = await fetch(`/api/admin/comptes/${c.id}/invitation`, { method: 'POST' });
+      const body = await res.json().catch(() => ({}));
+      setRenvois((r) => ({ ...r, [c.id]: res.ok
+        ? { ok: true, message: String(body.message ?? `Mail renvoyé à ${c.identifiant}.`) }
+        : { ok: false, message: typeof body.erreur === 'string' ? body.erreur : 'Renvoi impossible.' } }));
+      await recharger();
+    } catch {
+      setRenvois((r) => ({ ...r, [c.id]: { ok: false, message: 'Renvoi impossible (réseau).' } }));
+    } finally { setRenvoiEnCours(null); }
   }
 
   function ouvrir(c: CompteVue, btn: HTMLButtonElement) { detailsBtnRef.current = btn; setOuvertId(c.id); }
@@ -512,6 +546,19 @@ export default function ComptesPage() {
           <div className="cpt-meta">{c.role} · créé le : {c.cree_a ? formaterDate(c.cree_a) : '—'} · dernière connexion : {formaterDate(c.derniere_connexion_a)}</div>
           {/* Règle admin (F1) : sous la ligne de rôle, dans la colonne d'identité — jamais dans la rangée de
               boutons (ceux-ci s'alignent ainsi d'une carte à l'autre). Ton sobre. Le refus est aussi serveur. */}
+          {/* LOT GESTION-INVITATION-ADMIN — compte pas encore activé : l'état de son invitation, et le résultat du renvoi. */}
+          {montrerRenvoi(c, desactive) && c.invitation && (
+            <div className="cpt-regle">
+              Pas encore activé
+              {c.invitation.dernierEnvoi ? ` · invitation du ${formaterDate(c.invitation.dernierEnvoi)}` : ' · aucune invitation envoyée'}
+              {c.invitation.mailEtat === 'echec' ? ` · ⚠ mail non parti${c.invitation.mailErreur ? ` (${c.invitation.mailErreur})` : ''}` : ''}
+            </div>
+          )}
+          {renvois[c.id] && (
+            <p role={renvois[c.id].ok ? 'status' : 'alert'} className={renvois[c.id].ok ? 'cpt-invit cpt-invit--ok' : 'cpt-invit cpt-invit--ko'}>
+              {renvois[c.id].message}
+            </p>
+          )}
           {!collaborateur && (
             <div className="cpt-regle">
               {desactive
@@ -523,6 +570,11 @@ export default function ComptesPage() {
         <div className="cpt-actions">
           <button type="button" className="cpt-btn cpt-btn--secondary" aria-expanded={false} aria-controls={`detail-${c.id}`} onClick={(e) => ouvrir(c, e.currentTarget)}>Détails</button>
           {!desactive && <button type="button" className="cpt-btn cpt-btn--secondary" onClick={() => regenerer(c)}>Régénérer le mot de passe</button>}
+          {montrerRenvoi(c, desactive) && (
+            <button type="button" className="cpt-btn cpt-btn--secondary" disabled={renvoiEnCours === c.id} onClick={() => void renvoyerInvitation(c)}>
+              {renvoiEnCours === c.id ? 'Envoi…' : LIB_RENVOYER_INVITATION}
+            </button>
+          )}
           {collaborateur && (
             <button type="button" className="cpt-btn cpt-btn--secondary" onClick={() => definirActif(c, desactive)}>{desactive ? 'Réactiver' : 'Désactiver'}</button>
           )}
@@ -613,7 +665,7 @@ export default function ComptesPage() {
           : rendreGroupes(desactives, true))}
       </section>
 
-      {temp && <ModaleTemporaire identifiant={temp.identifiant} motDePasse={temp.motDePasse} onFermer={() => setTemp(null)} />}
+      {temp && <ModaleTemporaire identifiant={temp.identifiant} motDePasse={temp.motDePasse} invitation={temp.invitation} onFermer={() => setTemp(null)} />}
     </div>
   );
 }
@@ -635,6 +687,9 @@ const CSS = `
 .cpt-tete{font-weight:700;color:var(--color-svv-ink)}
 .cpt-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .cpt-regle{font-size:.72rem;color:var(--color-svv-muted);margin-top:4px}
+.cpt-invit{font-size:.85rem;font-weight:600;border-radius:.6rem;padding:.5rem .7rem;margin:6px 0 10px}
+.cpt-invit--ok{color:var(--color-svv-green-ink, #1f6b3d);background:var(--color-svv-green-soft, #e7f5ec)}
+.cpt-invit--ko{color:var(--color-svv-red);background:var(--color-svv-field);border:1px solid var(--color-svv-red)}
 /* Bloc identité (édition prénom/nom + identifiant en texte lecture seule). */
 .cpt-identite{display:flex;flex-direction:column;gap:8px}
 .cpt-libc{display:flex;flex-direction:column;gap:4px}
