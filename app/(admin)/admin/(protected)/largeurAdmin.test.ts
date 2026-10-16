@@ -94,6 +94,7 @@ describe('🔴🔴 ① une seule règle de largeur, pour toute l’administratio
 const RACINES: readonly (readonly [string, string])[] = [
   ['Tableau de bord', 'app/(admin)/admin/(protected)/page.tsx'],
   ['Statistiques', 'app/(admin)/admin/(protected)/statistiques/page.tsx'],
+  ['Boîte de test (recette)', 'app/(admin)/admin/(protected)/recette/page.tsx'],
   ['Internautes (BD)', 'app/(admin)/admin/(protected)/internautes/page.tsx'],
   ['Pilotage Moteur', 'app/(admin)/admin/(protected)/pilotage/page.tsx'],
   ['Années de construction', 'app/(admin)/admin/(protected)/cartes-annee/page.tsx'],

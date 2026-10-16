@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { SCRIPT_INIT_THEME, THEME_DEFAUT } from '../lib/admin/theme';
+import { modeRecette } from '../lib/recette/mode';
 
 /** L'interface admin ne doit jamais être indexée (EX-1, isolation du public). */
 export const metadata: Metadata = {
@@ -17,6 +18,19 @@ export default function AdminGroupLayout({ children }: { children: React.ReactNo
   return (
     <div className="svv-adm-root" data-theme={THEME_DEFAUT} suppressHydrationWarning>
       <script dangerouslySetInnerHTML={{ __html: SCRIPT_INIT_THEME }} />
+      {/* MODE RECETTE (lot RECETTE-MAC) : bandeau sur TOUTES les pages de l'admin locale, connexion comprise. Jamais en
+          production (`modeRecette()` y est toujours faux, cf. app/lib/recette/mode.ts). */}
+      {modeRecette() && (
+        <div
+          id="bandeau-recette"
+          role="status"
+          style={{ background: 'var(--color-svv-ink)', color: '#fff', padding: '.5rem 1rem', textAlign: 'center', fontWeight: 800, fontSize: '.9rem', letterSpacing: '.02em' }}
+        >
+          RECETTE — aucun envoi réel
+          <span style={{ fontWeight: 400 }}> · mails, agenda et Drive interceptés · </span>
+          <a href="/admin/recette" style={{ color: '#fff', textDecoration: 'underline' }}>boîte de test</a>
+        </div>
+      )}
       {children}
     </div>
   );

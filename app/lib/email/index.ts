@@ -1,6 +1,8 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { ENTETE_AUTO_EMISSION, VALEUR_AUTO_EMISSION } from './enteteAuto';
+import { modeRecette } from '../recette/mode';
+import { deposerDansBoite } from '../recette/boite';
 
 /** En-tête d'auto-identification posé sur nos envois AUTOMATIQUES (alerte, forward GED, demande/relance) : la relève l'ignore
  *  en amont de toute rétention (correctif « boucle d'auto-alerte »). Le certificat et la réinitialisation (transactionnels,
@@ -82,6 +84,9 @@ export function lireConfigEmail(): ConfigEmail | null {
 const cache = new Map<string, Transporter>();
 /** Transporteur nodemailer, LAZY et caché PAR COMPTE. `secure` déduit du port (465 = TLS implicite ; sinon STARTTLS). */
 export function obtenirTransporteur(compte: CompteSmtp): Transporter {
+  // MODE RECETTE (lot RECETTE-MAC) : AUCUN mail réel. Le message est fabriqué (jsonTransport, zéro octet sur le réseau)
+  // puis déposé dans la boîte de test ; l'appelant reçoit une réponse « acceptée » comme d'un vrai serveur.
+  if (modeRecette()) return transporteurRecette();
   const cle = `${compte.host}:${compte.port}:${compte.user}`;
   const existant = cache.get(cle);
   if (existant) return existant;
@@ -93,6 +98,24 @@ export function obtenirTransporteur(compte: CompteSmtp): Transporter {
   });
   cache.set(cle, transporteur);
   return transporteur;
+}
+
+/** Transporteur de RECETTE : même interface, rien ne part ; chaque message va dans la boîte de test. */
+function transporteurRecette(): Transporter {
+  const json = nodemailer.createTransport({ jsonTransport: true });
+  const sendMail = (async (message: Parameters<Transporter['sendMail']>[0]) => {
+    const info = await json.sendMail(message);
+    let m: { to?: { address?: string }[]; cc?: { address?: string }[]; subject?: string; text?: string; attachments?: { filename?: string }[] } = {};
+    try { m = JSON.parse(String((info as { message?: unknown }).message ?? '{}')); } catch { /* aperçu indisponible */ }
+    const adresses = [...(m.to ?? []), ...(m.cc ?? [])].map((x) => x.address).filter(Boolean) as string[];
+    deposerDansBoite({
+      canal: 'smtp', issue: 'intercepte', a: adresses.join(', ') || null, objet: m.subject ?? null,
+      apercu: typeof m.text === 'string' ? m.text.slice(0, 1500) : null,
+      pieces: (m.attachments ?? []).map((p) => p.filename ?? 'pièce sans nom'),
+    });
+    return { ...info, accepted: adresses, rejected: [], response: '250 RECETTE — aucun envoi réel', messageId: info.messageId };
+  }) as unknown as Transporter['sendMail'];
+  return { sendMail, verify: async () => true, close: () => {} } as unknown as Transporter;
 }
 
 export interface MailCertificat {

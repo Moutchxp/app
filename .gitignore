@@ -97,3 +97,6 @@ google-gestion.json
 # Captures et fichiers de vérification à l'écran produits par Claude Code (lot RANGEMENT-BUREAU-CAPTURES,
 # 08/10/2026). Ils remplacent les dossiers qui s'empilaient sur le Bureau d'Arno. Jamais committés.
 .captures/
+
+# Mode recette (lot RECETTE-MAC) : boîte de test locale, jamais committée.
+.recette/
