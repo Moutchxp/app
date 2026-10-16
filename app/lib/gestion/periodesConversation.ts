@@ -588,6 +588,17 @@ export function motClassement(c: Classement): string {
 }
 
 /**
+ * ══ 🔴🔴 LOT LISTING-EXCEPTION (Arno, 16/10/2026) — LA BULLE DE L'ICÔNE ⓘ D'UN MAIL EN EXCEPTION. PUR. ═══════════════
+ * La pastille texte « exception : <biens> » cassait l'alignement des lignes ; elle devient une icône ⓘ dont la bulle dit,
+ * mot pour mot (Arno) : « Exception : ce mail est rattaché à <adresse — lot>, différent du suivi de la conversation ».
+ * Les sortes sans bien gardent la même phrase, avec leur mot (« classé « Interne » », « classé « Hors gestion » »).
+ */
+export function bulleException(c: Classement): string {
+  const quoi = c.sorte === 'biens' ? `rattaché à ${motClassement(c)}` : `classé « ${motClassement(c)} »`;
+  return `Exception : ce mail est ${quoi}, différent du suivi de la conversation`;
+}
+
+/**
  * LES LIGNES DE SÉPARATION À AFFICHER. PUR.
  *
  * ⚠️ LA PREMIÈRE PÉRIODE NE PRODUIT PAS DE REPÈRE quand elle commence au premier mail : il n'y a pas de

@@ -99,7 +99,7 @@ import { estAdresseInterne } from '../../../../lib/gestion/adresseInterne';
 import { classementHerite, type ClassementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴🔴 LOT SUIVI-CONVERSATION — les repères de période dans le fil. Décidés dans un module PUR.
 import {
-  motClassement, type ExceptionMail, type Periode, type RepereFil,
+  motClassement, bulleException, type ExceptionMail, type Periode, type RepereFil,
 } from '../../../../lib/gestion/periodesConversation';
 /* 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — quels changements portent une accolade, et leur avant / après. */
 import {
@@ -1778,7 +1778,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   /** Le mot d'une exception, pour l'en-tête du mail qui la porte. `null` = ce mail n'en porte pas. */
   const exceptionDe = (messageId: number): string | null => {
     const e = suivi?.exceptions.find((x) => x.messageId === messageId);
-    return e === undefined ? null : motClassement(e.classement);
+    /* 🔴 LOT LISTING-EXCEPTION — la phrase de la bulle de l'icône ⓘ (et non plus le texte d'une pastille). */
+    return e === undefined ? null : bulleException(e.classement);
   };
 
   return (
@@ -3298,12 +3299,12 @@ export function MessageConversation({
             Demande d'Arno, mot pour mot. Elle se lit À CÔTÉ de la capsule, et non à sa place : la capsule dit
             le STATUT (classé, à classer…), la mention dit SOUS QUELLE RÈGLE — « ce mail-ci, et pas les
             autres ». Deux informations différentes, et celle-ci n'existe que sur quelques mails. */}
-        {exception !== null && (
-          <span className="cnv-exception" title="Ce mail est classé à part : la période de la conversation ne
- s’applique pas à lui.">
-            exception : {exception}
-          </span>
-        )}
+        {/* ══ 🔴🔴 LOT LISTING-EXCEPTION (accord d'Arno, 16/10/2026) — LA PASTILLE TEXTE DEVIENT UNE ICÔNE ⓘ ═══════════
+            La pastille « exception : <adresse — lot> » s'affichait en entier dans la ligne et cassait l'alignement du
+            listing. À sa place, une icône ⓘ discrète qui NE PREND AUCUNE PLACE : un élément de largeur nulle, dont la
+            marge annule l'écart de la rangée, et l'icône posée en surimpression au coin de la capsule. La ligne garde
+            ainsi exactement la mise en page des autres mails. Survol, focus ou clic : la bulle dit la phrase d'Arno. */}
+        {exception !== null && <InfoException texte={exception} />}
         {/* LA MENTION D'ÉVÉNEMENT, DISCRÈTE ET DISTINCTE. Elle ne dit plus jamais « À classer » : son libellé est
             préfixé « Événement : », pour qu'on ne puisse plus la lire comme un verdict de classement. Rien du
             système d'événements n'est retiré — ses gestes restent derrière le même bouton qu'avant. */}
@@ -3959,10 +3960,24 @@ ${CSS_ACCOLADE_SUIVI}
   border-radius:0 .5rem .5rem 0;border-left:3px solid var(--color-svv-red);background:var(--color-svv-field)}
 .cnv-jete-mot{font-size:.85rem;font-weight:700;color:var(--color-svv-ink)}
 .cnv-jete-qui{font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
-/* La mention d'exception : discrete, a cote de la capsule, et jamais a sa place — ce sont deux informations. */
-.cnv-exception{display:inline-flex;align-items:center;min-height:22px;padding:.05rem .4rem;border-radius:999px;
-  font-size:.7rem;font-weight:700;color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong);
-  overflow-wrap:anywhere}
+/* LOT LISTING-EXCEPTION — l'icone d'exception : AUCUNE place dans la rangee. Largeur nulle, marge qui annule l'ecart
+   (gap 6px de .cnv-coin), icone posee en surimpression au coin haut-droit de la capsule voisine. La bulle s'ouvre au
+   survol, au focus clavier ou au clic (telephone). */
+.cnv-exception-ancre{position:relative;display:inline-block;width:0;height:0;margin-left:-6px;align-self:center}
+.cnv-exception-info{position:absolute;left:-11px;top:-19px;width:15px;height:15px;padding:0;border-radius:50%;
+  display:inline-flex;align-items:center;justify-content:center;font:inherit;font-size:.6rem;font-weight:800;
+  line-height:1;cursor:help;color:var(--color-svv-muted);background:var(--color-svv-surface);
+  border:1px solid var(--color-svv-line-strong)}
+/* Cible tactile elargie (telephone), invisible et hors mise en page. */
+.cnv-exception-info::before{content:'';position:absolute;inset:-9px}
+.cnv-exception-info:hover,.cnv-exception-info[aria-expanded="true"]{color:var(--color-svv-ink);border-color:var(--color-svv-ink)}
+.cnv-exception-info:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.cnv-exception-bulle{position:absolute;right:-14px;top:2px;z-index:30;width:max-content;max-width:min(20rem,80vw);
+  padding:.45rem .6rem;border-radius:.5rem;font-size:.75rem;font-weight:500;line-height:1.4;text-align:left;
+  white-space:normal;color:var(--color-svv-ink);background:var(--color-svv-surface);
+  border:1px solid var(--color-svv-line-strong);box-shadow:0 4px 14px rgba(0,0,0,.18);display:none}
+.cnv-exception-ancre:hover .cnv-exception-bulle,.cnv-exception-ancre:focus-within .cnv-exception-bulle,
+.cnv-exception-bulle--ouverte{display:block}
 
 .cnv-capsule{display:inline-flex;align-items:center;min-height:24px;padding:.05rem .45rem;border-radius:999px;
   font:inherit;font-size:.7rem;font-weight:700;line-height:1.5;white-space:nowrap;cursor:pointer;
@@ -4141,3 +4156,22 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
 /* Le menu vit désormais DANS le coin, à côté de la date et du cartouche : plus de positionnement absolu, donc plus
    de largeur réservée en dur sur la ligne — et rien ne peut se recouvrir quand le cartouche est long. */
 `;
+
+/**
+ * ══ 🔴🔴 LOT LISTING-EXCEPTION (accord d'Arno, 16/10/2026) — L'ICÔNE ⓘ D'UN MAIL EN EXCEPTION ═══════════════════════
+ * Remplace la pastille texte « exception : … » dans la ligne du mail. Elle ne prend AUCUNE place (voir le CSS
+ * `.cnv-exception-ancre`) ; la bulle s'ouvre au survol, au focus, ou au clic — et le clic ne plie ni ne déplie la carte.
+ */
+function InfoException({ texte }: { texte: string }) {
+  const [ouverte, setOuverte] = useState(false);
+  return (
+    <span className="cnv-exception-ancre">
+      <button type="button" className="cnv-exception-info" aria-label={texte} aria-expanded={ouverte}
+        onClick={(e) => { e.stopPropagation(); setOuverte((v) => !v); }}
+        onBlur={() => setOuverte(false)}>
+        i
+      </button>
+      <span className={`cnv-exception-bulle${ouverte ? ' cnv-exception-bulle--ouverte' : ''}`} role="tooltip">{texte}</span>
+    </span>
+  );
+}

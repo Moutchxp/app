@@ -34,6 +34,8 @@ let root: Root;
 let appels: { url: string; methode: string }[];
 let filCourant: Record<string, unknown>;
 let messages: Record<string, unknown>[];
+/** 🔴 LOT LISTING-EXCEPTION — les exceptions que `/suivi` rend (aucune par défaut). */
+let exceptionsSuivi: unknown[] = [];
 /**
  * LOT BARRE-STATUT — ce que les deux lectures de rattachements répondent. Pilotées par le test.
  * LOT FICHE-RATTACHEMENT — une TROISIÈME lecture s'y ajoute : `?fiche=`, qui rend les BIENS de l'échange.
@@ -60,6 +62,7 @@ beforeEach(() => {
   messages = [MESSAGE()];
   liensParMessage = {};
   sansEncart = false;
+  exceptionsSuivi = [];
   rattachementsDuFil = { etat: 'ok', data: [] };
   ficheDuFil = {
     etat: 'ok',
@@ -84,7 +87,7 @@ beforeEach(() => {
     //   adresses se ressemblent, et l'ordre des tests décide ici laquelle répond.
     // 🔴 LOT UN-SEUL-BOUTON-RATTACHER — le suivi de la conversation (migration 290), lu à l'ouverture de « Rattacher ».
     if (u.includes('/gestion/suivi')) {
-      return { ok: true, json: async () => ({ etat: 'ok', periodes: [], exceptions: [], mails: [900], rattachee: false, expediteurConnu: false }) } as unknown as Response;
+      return { ok: true, json: async () => ({ etat: 'ok', periodes: [], exceptions: exceptionsSuivi, mails: [900], rattachee: false, expediteurConnu: false }) } as unknown as Response;
     }
     if (u.includes('/hors-gestion')) {
       return {
@@ -1090,5 +1093,42 @@ describe('🔴🔴 UN SEUL POINT D’ENTRÉE — « Rattacher à un logement »'
     await cliquer(boutonPar(/^Classer sans suite$/));
     expect(appels).toContainEqual({ url: '/api/admin/gestion/fils/101/sans-suite', methode: 'POST' });
     expect(cartouche()?.textContent).toBe('Sans suite');
+  });
+});
+
+/* ══ 🔴🔴 LOT LISTING-EXCEPTION (accord d'Arno, 16/10/2026) — l'exception est une icône ⓘ, plus une pastille texte ══════ */
+describe('🔴🔴 LOT LISTING-EXCEPTION — mail en exception : une icône ⓘ qui ne prend aucune place, et sa bulle', () => {
+  const PHRASE = 'Exception : ce mail est rattaché à 54 Avenue Puvis De Chavannes, COURBEVOIE — lot 21, différent du suivi de la conversation';
+  const EXC = [{ messageId: 900, classement: { sorte: 'biens', biens: [{ cle: '21', libelle: '54 Avenue Puvis De Chavannes, COURBEVOIE — lot 21' }] } }];
+  it('🔴 plus de pastille « exception : … » dans la ligne ; une icône dont le nom accessible est la phrase', async () => {
+    exceptionsSuivi = EXC;
+    await monter();
+    const coin = (container.querySelector('.cnv-coin') as HTMLElement).cloneNode(true) as HTMLElement;
+    coin.querySelector('.cnv-exception-bulle')?.remove();   // la bulle est cachée tant qu'on ne la demande pas
+    expect(coin.textContent).not.toMatch(/exception/i);
+    expect(container.querySelector('.cnv-exception')).toBeNull();
+    const icone = container.querySelector('.cnv-exception-info') as HTMLButtonElement;
+    expect(icone.getAttribute('aria-label')).toBe(PHRASE);
+    expect(container.querySelector('.cnv-exception-bulle')?.textContent).toBe(PHRASE);
+  });
+  it('🔴 au clic : la bulle s’ouvre, et la carte du mail ne se plie ni ne se déplie', async () => {
+    exceptionsSuivi = EXC;
+    await monter();
+    const ligne = container.querySelector('.cnv-ligne') as HTMLElement;
+    const avant = ligne.getAttribute('aria-expanded');
+    await cliquer(container.querySelector('.cnv-exception-info'));
+    expect(container.querySelector('.cnv-exception-bulle')?.className).toContain('cnv-exception-bulle--ouverte');
+    expect((container.querySelector('.cnv-ligne') as HTMLElement).getAttribute('aria-expanded')).toBe(avant);
+  });
+  it('⚠️ sans exception : ni icône ni bulle (la ligne est celle de tous les mails)', async () => {
+    await monter();
+    expect(container.querySelector('.cnv-exception-ancre')).toBeNull();
+  });
+  it('🔴 l’icône ne prend aucune place : largeur nulle, marge qui annule l’écart de la rangée', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+    expect(css).toContain('.cnv-exception-ancre{position:relative;display:inline-block;width:0;height:0;margin-left:-6px;');
+    expect(css).toContain('.cnv-coin{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;');
+    expect(css).toMatch(/\.cnv-exception-info\{position:absolute;/);
   });
 });

@@ -829,3 +829,14 @@ describe('🔴🔴 ⑬-quinquies la reprise : désempiler une conversation déj�
     expect(q.periodesRetirees).toEqual([]);
   });
 });
+
+/* 🔴 LOT LISTING-EXCEPTION — la phrase de la bulle, mot pour mot (Arno). */
+describe('🔴 bulleException', async () => {
+  const { bulleException } = await import('./periodesConversation');
+  it('biens, Interne, Hors gestion', () => {
+    expect(bulleException({ sorte: 'biens', biens: [{ cle: '21', libelle: '54 Avenue Puvis De Chavannes, COURBEVOIE — lot 21' }] }))
+      .toBe('Exception : ce mail est rattaché à 54 Avenue Puvis De Chavannes, COURBEVOIE — lot 21, différent du suivi de la conversation');
+    expect(bulleException({ sorte: 'interne', biens: [] })).toBe('Exception : ce mail est classé « Interne », différent du suivi de la conversation');
+    expect(bulleException({ sorte: 'hors_gestion', biens: [] })).toBe('Exception : ce mail est classé « Hors gestion », différent du suivi de la conversation');
+  });
+});
