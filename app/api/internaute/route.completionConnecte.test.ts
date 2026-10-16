@@ -129,4 +129,14 @@ describe('POST /api/internaute — adresse de résidence du compte (lot COORDONN
     const res = await POST(requete(corps({}, { ...BIEN, residencePrincipale: true })));
     expect(res.status).toBe(200);
   });
+
+  it('« Non » SANS adresse (facultative) → envoi accepté (200), rien d’écrit en résidence, compte inchangé', async () => {
+    h.exigerInternaute.mockResolvedValue({ internauteId: 'uuid-compte' });
+    for (const adresseResidence of [null, '', '   ']) {
+      const res = await POST(requete(corps({}, { ...BIEN, residencePrincipale: false, payload: { adresseResidence } })));
+      expect(res.status).toBe(200);
+      expect((await res.json()).jetonEmission).toBe('JETON_EMISSION');
+    }
+    expect(h.declarerResidence).not.toHaveBeenCalled();
+  });
 });

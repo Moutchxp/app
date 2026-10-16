@@ -888,7 +888,6 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     terrasse === null && { cle: "terrasse", label: "Terrasse", msg: "Répondez oui ou non." },
     jardin === null && { cle: "jardin", label: "Jardin", msg: "Répondez oui ou non." },
     bienEstResidence === null && { cle: "residence", label: "Résidence principale", msg: "Répondez oui ou non." },
-    bienEstResidence === false && residenceAdresse.trim() === "" && { cle: "residenceAdresse", label: "Adresse de résidence principale", msg: "Ce champ est requis." },
   ].filter(Boolean) as { cle: string; label: string; msg: string }[];
   const enErreur = (cle: string) => tentative && champsManquants.some((m) => m.cle === cle);
   const msgErreur = (cle: string) => champsManquants.find((m) => m.cle === cle)?.msg ?? "";
@@ -906,7 +905,8 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       versionTunnel: 1,
       payload: {
         typeBien, surface, nbPieces, epoque, terrasse, balcon, jardin,
-        adresseResidence: bienEstResidence === false ? residenceAdresse.trim() : null,
+        // Facultative (décision d'Arno du 16/10/2026) : vide → null, jamais une chaîne vide.
+        adresseResidence: bienEstResidence === false ? residenceAdresse.trim() || null : null,
       },
       verdict,
       score,
@@ -1629,10 +1629,24 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
               <CadenasInfo cible="tunnel-telephone" />
             </div>
           )}
-          <p className="mt-1 break-words">
-            <span className="text-svv-muted">Adresse de résidence : </span>
-            <span className="font-semibold">{compte.derniereResidence ?? "non renseignée"}</span>
-          </p>
+          {compte.derniereResidence ? (
+            <p className="mt-1 break-words">
+              <span className="text-svv-muted">Adresse de résidence : </span>
+              <span className="font-semibold">{compte.derniereResidence}</span>
+            </p>
+          ) : (
+            // Compte sans adresse de résidence : champ FACULTATIF (décision d'Arno du 16/10/2026). Même état que le champ
+            // de la réponse « Non » : rempli ici, il préremplit ce champ et part avec la demande (enregistré sur le compte).
+            <div id="rappel-residence" className="mt-2">
+              <label className="mb-1 block text-sm text-svv-muted">Adresse de résidence principale <span className="text-svv-muted">(facultatif)</span></label>
+              <AdresseAutocomplete
+                value={residenceAdresse}
+                onChange={setResidenceAdresse}
+                onSelect={(s) => setResidenceAdresse(s.label)}
+                placeholder="Saisissez votre adresse de résidence principale"
+              />
+            </div>
+          )}
           {manquants.length > 0 && (
             <p className="mt-2 text-xs text-svv-muted">Complétez seulement ce qui manque ci-dessous ; votre compte sera mis à jour.</p>
           )}
@@ -1711,6 +1725,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       )}
       {bienEstResidence === false && (
         <div className="mt-2">
+          <label className="mb-1 block text-sm font-semibold text-svv-ink">Adresse de résidence principale <span className="font-normal text-svv-muted">(facultatif)</span></label>
           <div id="champ-residenceAdresse" className={enErreur("residenceAdresse") ? "rounded-xl ring-2 ring-svv-red" : undefined}>
             <AdresseAutocomplete
               value={residenceAdresse}

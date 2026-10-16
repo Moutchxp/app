@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
 
 /**
  * Adresse de résidence principale DU COMPTE (lot COORDONNEES-CONNU-REEL, migration 364) : règles pures, écriture
@@ -88,3 +90,15 @@ describe('effacement de l’identité : l’adresse de résidence part avec le r
     for (const c of ['adresse_residence = NULL', 'adresse_residence_maj_a = NULL', 'adresse_residence_source = NULL']) expect(anonymisation).toContain(c);
   });
 });
+
+describe('le certificat ne dépend pas de l’adresse de résidence (facultative, décision d’Arno du 16/10/2026)', () => {
+  it('PDF, émission et mails ne lisent jamais l’adresse de résidence (seul le Oui/Non donne « Habitation principale/secondaire »)', () => {
+    const racine = process.cwd();
+    const fichiers = ['app/lib/pdf/certificatPdf.ts', 'app/lib/pdf/publierCertificatPdf.ts', 'app/lib/db/certificatEmission.ts',
+      ...readdirSync(path.join(racine, 'app/lib/email')).filter((f) => f.endsWith('.ts') && !f.includes('.test.')).map((f) => `app/lib/email/${f}`)];
+    for (const f of fichiers) expect(readFileSync(path.join(racine, f), 'utf8'), f).not.toMatch(/adresseResidence|adresse_residence/);
+    expect(readFileSync(path.join(racine, 'app/lib/pdf/publierCertificatPdf.ts'), 'utf8'))
+      .toContain("r.residence_principale === null ? null : r.residence_principale ? 'Habitation principale' : 'Habitation secondaire'");
+  });
+});
+

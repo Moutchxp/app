@@ -55,3 +55,22 @@ describe('consentements', () => {
     expect(ecran).toContain('recontact_interne: false, email_marketing: false, retargeting_tiers: false,');
   });
 });
+
+describe('adresse de résidence principale : FACULTATIVE partout (décision d’Arno du 16/10/2026)', () => {
+  const champsManquants = ecran.slice(ecran.indexOf('const champsManquants'), ecran.indexOf('const enErreur'));
+  it('aucune règle « requis » sur l’adresse de résidence ; la question Oui/Non, elle, reste requise', () => {
+    expect(champsManquants).not.toContain('residenceAdresse');
+    expect(champsManquants).toContain('bienEstResidence === null && { cle: "residence"');
+  });
+  it('« Non » : le champ porte la mention « (facultatif) » ; vide → null dans le corps envoyé (jamais une chaîne vide)', () => {
+    expect(ecran).toContain('Adresse de résidence principale <span className="font-normal text-svv-muted">(facultatif)</span>');
+    expect(ecran).toContain('adresseResidence: bienEstResidence === false ? residenceAdresse.trim() || null : null,');
+  });
+  it('rappel d’un compte SANS adresse : champ facultatif, sur le même état que le champ « Non » ; avec adresse : affichée', () => {
+    expect(ecran).toContain('id="rappel-residence"');
+    expect(ecran).toContain('Adresse de résidence principale <span className="text-svv-muted">(facultatif)</span>');
+    expect(ecran).toContain('{compte.derniereResidence ? (');
+    expect(ecran).not.toContain('"non renseignée"');
+  });
+});
+
