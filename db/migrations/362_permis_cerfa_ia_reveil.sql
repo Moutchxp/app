@@ -1,9 +1,10 @@
 -- 362_permis_cerfa_ia_reveil.sql — réveille la migration 216, jamais appliquée (préparée la nuit du 16/10/2026).
 -- svav:remplace 216_permis_cerfa_ia.sql
 --
--- ⚠️ EN ATTENTE DE LA DÉCISION D'ARNO : ce fichier est rangé dans db/migrations-en-attente/, que la mise à jour de la prod
--- ne lit pas. Le déplacer dans db/migrations/ (en vérifiant que 362 est toujours le numéro suivant) = décider de
--- l'appliquer à la prochaine mise à jour. Analyse complète : docs/RAPPORT_NUIT_2026-10-16.md, lot 2.
+-- DÉCIDÉE PAR ARNO le 16/10/2026 : déplacée de db/migrations-en-attente/ vers db/migrations/, donc appliquée à la
+-- prochaine mise à jour de la prod. Analyse complète : docs/RAPPORT_NUIT_2026-10-16.md, lot 2.
+-- ⚠️ La 361 (réveil de 212) reste en attente : une fois 362 appliquée, la mise à jour refuse toute migration numérotée
+-- en dessous ; le jour où la 361 sera décidée, elle devra prendre un numéro libre au-dessus du dernier appliqué.
 --
 -- POURQUOI : la lecture IA du Cerfa (Mistral, payante, lancée à la main par npm run permis:lire-cerfa-ia) n'est pas
 -- gardée sans cette table : ni le compte rendu (relancer = repayer), ni la preuve de ce qui a été transmis au prestataire
