@@ -241,17 +241,28 @@ describe('🔴🔴 ⑤ ce que l’alerte annonce', () => {
   /** ⚠️ ON NE COMPTE PAS LES MAILS QU'ON NE RECLASSE PAS : une alerte qui exagère ne se lit plus. */
   /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « Toute la conversation » réaligne TOUS les mails et REMPLACE les
      one shot et les autres fenêtres : l'alerte les compte (avant ce lot, elle annonçait des exceptions « conservées »). */
-  it('🔴🔴 avec des one shot et des fenêtres : tous les mails sont reclassés, one shot et fenêtres annoncés remplacés', () => {
+  /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — remplace la règle 5 de 93019d9b : par défaut, les one shot
+     sont CONSERVÉS et ne sont pas comptés parmi les mails reclassés ; case « Écraser aussi… » cochée, ils le sont. */
+  it('🔴🔴 one shot et fenêtres, case NON cochée (défaut) : one shot conservés, hors du compte', () => {
     expect(alerteTouteLaConversation({
       mails: [1, 2, 3, 4, 5], exceptions: [exception(2, bien('C')), exception(4, bien('E'))],
       versQuoi: 'Interne', messageId: 5, periodes: [{}, {}],
-    })).toBe('Les 5 mails de cette conversation seront reclassés sur Interne ; 2 fenêtres de suivi et 2 one shot seront remplacés.');
+    })).toBe('Les 3 mails de cette conversation seront reclassés sur Interne ; 2 fenêtres de suivi seront remplacées ; 2 mails en One shot conservés.');
+  });
+  it('🔴🔴 case cochée : tous les mails reclassés, one shot remplacés', () => {
+    expect(alerteTouteLaConversation({
+      mails: [1, 2, 3, 4, 5], exceptions: [exception(2, bien('C')), exception(4, bien('E'))],
+      versQuoi: 'Interne', messageId: 5, periodes: [{}, {}], ecraserOneShot: true,
+    })).toBe('Les 5 mails de cette conversation seront reclassés sur Interne ; 2 fenêtres de suivi seront remplacées ; 2 mails en One shot remplacés.');
   });
 
-  it('⚠️ une seule exception se dit au singulier', () => {
+  it('⚠️ un seul one shot se dit au singulier', () => {
     expect(alerteTouteLaConversation({
       mails: [1, 2], exceptions: [exception(1, bien('C'))], versQuoi: 'Interne', messageId: 2,
-    })).toContain('1 one shot sera remplacé.');
+    })).toContain('1 mail en One shot conservé.');
+    expect(alerteTouteLaConversation({
+      mails: [1, 2], exceptions: [exception(1, bien('C'))], versQuoi: 'Interne', messageId: 2, ecraserOneShot: true,
+    })).toContain('1 mail en One shot remplacé.');
   });
 
   /** 🔴 LE MAIL QU'ON CLASSE CHANGE, MÊME S'IL PORTAIT UNE EXCEPTION : il est dans le compte. */
@@ -856,13 +867,20 @@ describe('🔴🔴 mailsDeLaFenetre', async () => {
   });
   it('« ce mail uniquement » : lui ; « toute la conversation » : tous ; mail inconnu : rien', () => {
     expect(mailsDeLaFenetre({ mails: M, messageId: 3, choix: 'mail', debuts: [], exceptions: [] })).toEqual([3]);
-    expect(mailsDeLaFenetre({ mails: M, messageId: 3, choix: 'conversation', debuts: [4], exceptions: [2] })).toEqual(M);
+    /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — « toute la conversation » : tous, SAUF les mails qui portent encore un one shot. */
+    expect(mailsDeLaFenetre({ mails: M, messageId: 3, choix: 'conversation', debuts: [4], exceptions: [2] })).toEqual([1, 3, 4, 5]);
+    expect(mailsDeLaFenetre({ mails: M, messageId: 3, choix: 'conversation', debuts: [4], exceptions: [] })).toEqual(M);
+    /* Le mail qu'on classe est toujours gouverné, même s'il portait un one shot. */
+    expect(mailsDeLaFenetre({ mails: M, messageId: 2, choix: 'conversation', debuts: [], exceptions: [2] })).toEqual(M);
     expect(mailsDeLaFenetre({ mails: M, messageId: 9, choix: 'suite', debuts: [], exceptions: [] })).toEqual([]);
   });
-  it('🔴 « Toute la conversation » remplace aussi les one shot ; « la suite » et « ce mail » jamais', () => {
+  it('🔴 « Toute la conversation » ne remplace les one shot QUE case cochée ; « la suite » et « ce mail » jamais', () => {
     const exceptions = [{ messageId: 2, classement: { sorte: 'biens' as const, biens: [] } }, { messageId: 4, classement: { sorte: 'interne' as const, biens: [] } }];
     const bienA = { sorte: 'biens' as const, biens: [{ cle: 'A', libelle: 'A' }] };
-    expect(effet({ choix: 'conversation', messageId: 3, classement: bienA, periodes: [], exceptions }).exceptionsRemplacees).toEqual([2, 4]);
+    /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — défaut : conservés ; case cochée : remplacés. */
+    expect(effet({ choix: 'conversation', messageId: 3, classement: bienA, periodes: [], exceptions }).exceptionsRemplacees).toEqual([]);
+    expect(effet({ choix: 'conversation', messageId: 3, classement: bienA, periodes: [], exceptions, ecraserOneShot: true }).exceptionsRemplacees).toEqual([2, 4]);
+    expect(effet({ choix: 'suite', messageId: 3, classement: bienA, periodes: [], exceptions, ecraserOneShot: true }).exceptionsRemplacees).toEqual([]);
     expect(effet({ choix: 'suite', messageId: 3, classement: bienA, periodes: [], exceptions }).exceptionsRemplacees).toEqual([]);
     expect(effet({ choix: 'mail', messageId: 3, classement: bienA, periodes: [], exceptions }).exceptionsRemplacees).toEqual([]);
   });

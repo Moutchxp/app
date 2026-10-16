@@ -241,6 +241,8 @@ export async function POST(request: Request): Promise<Response> {
     const issue = await poserClassement({
       filId, messageId, classement, choix: choixRecu(corps.choix),
       auteur: await auteurDeLaRequete(request),
+      /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — la case « Écraser aussi… » : seul un `true` explicite écrase les one shot. */
+      ecraserOneShot: corps.ecraserOneShot === true,
     });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
     /* 🔴🔴 LOT INTERNE-ANNULER-ET-SUITE — LA TRACE EST RENDUE À L'ÉCRAN, et c'est elle qui rend l'« Annuler »

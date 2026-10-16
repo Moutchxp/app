@@ -401,6 +401,12 @@ export async function poserClassement(o: {
   classement: Classement;
   choix: ChoixSuivi;
   auteur: Auteur;
+  /**
+   * 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — « Toute la conversation » : la case « Écraser aussi les N
+   * mail(s) modifié(s) en One shot ». Absente ou fausse (défaut) : les one shot sont conservés ; vraie : remplacés
+   * (datés, jamais supprimés — l'« Annuler » les rouvre par la trace).
+   */
+  ecraserOneShot?: boolean;
 }): Promise<IssueSuivi> {
   if (!(await periodesDisponibles())) {
     return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 290).' };
@@ -434,7 +440,7 @@ export async function poserClassement(o: {
    */
   const effet = effetDuChoix({
     choix: o.choix, messageId: o.messageId, classement: o.classement,
-    periodes: avant.periodes, exceptions: avant.exceptions, mails,
+    periodes: avant.periodes, exceptions: avant.exceptions, mails, ecraserOneShot: o.ecraserOneShot === true,
   });
 
   /**
@@ -469,7 +475,8 @@ export async function poserClassement(o: {
         [effet.periodesRemplacees, libelle]);
       trace.periodesRemplacees = rows.map((r) => Number(r.id));
     }
-    // 🔴 LOT GESTION-FENETRES-SUIVI — « Toute la conversation » remplace aussi les one shot (datés, jamais supprimés).
+    // 🔴 LOT GESTION-FENETRES-SUIVI — « Toute la conversation » remplace aussi les one shot (datés, jamais supprimés),
+    //   SEULEMENT si la case « Écraser aussi… » est cochée (lot GESTION-ONESHOT-CONVERSATION) : sinon la liste est vide.
     if (effet.exceptionsRemplacees.length > 0) {
       const { rows } = await q<{ id: string }>(
         `UPDATE gestion_message_exception e SET retiree_le = now()
@@ -485,7 +492,9 @@ export async function poserClassement(o: {
         `UPDATE gestion_message_exception SET retiree_le = now()
           WHERE message_id = $1 AND retiree_le IS NULL RETURNING id::text`,
         [effet.exceptionRetiree]);
-      trace.exceptionsRetirees = rows.map((r) => Number(r.id));
+      /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — AJOUTÉES, pas substituées : les one shot écrasés juste au-dessus doivent rester
+         dans la trace, sans quoi l'« Annuler » ne les rouvrirait pas. */
+      trace.exceptionsRetirees = [...trace.exceptionsRetirees, ...rows.map((r) => Number(r.id))];
     }
     // ③ LA NOUVELLE PÉRIODE. « Toute la conversation » part du PREMIER mail de la conversation.
     if (effet.nouvellePeriode !== null) {
@@ -536,7 +545,9 @@ export async function poserClassement(o: {
   const apres = await suiviDuFil(o.filId);
   const gouvernes = mailsDeLaFenetre({
     mails, messageId: o.messageId, choix: o.choix,
-    debuts: apres.periodes.map((p) => p.depuisMessageId), exceptions: apres.exceptions.map((e) => e.messageId),
+    debuts: apres.periodes.map((p) => p.depuisMessageId),
+    /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — un one shot que CE geste a écrasé ne protège plus son mail. */
+    exceptions: apres.exceptions.map((e) => e.messageId).filter((m) => !effet.exceptionsRemplacees.includes(m)),
   });
   const detaches = await alignerSurLaFenetre({
     messageId: o.messageId, mails: gouvernes, auteur: o.auteur, choix: o.choix,

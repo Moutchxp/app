@@ -85,7 +85,7 @@ vi.mock('./horsGestionRepo', () => ({
 }));
 
 import {
-  heriterLesNouveauxMails, poserClassement, projeterLeFil, reprendreExistant, MOTIF_POSE_PAR_SUIVI,
+  annulerClassement, heriterLesNouveauxMails, poserClassement, projeterLeFil, reprendreExistant, MOTIF_POSE_PAR_SUIVI,
   MOTIF_DETACHE_A_LA_MAIN, MOTIF_REMPLACE_PAR_FENETRE,
 } from './periodeRepo';
 
@@ -592,15 +592,47 @@ describe('🔴🔴 LOT GESTION-FENETRES-SUIVI — « Ce mail + futurs échanges 
     await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'suite', auteur: AUTEUR });
     expect(sortis()).toEqual([2, 4]);
   });
-  it('🔴 « Toute la conversation » réaligne tout : autres fenêtres et one shot remplacés (datés, jamais supprimés)', async () => {
+  /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — remplace la règle 5 de 93019d9b. */
+  const preparer = () => {
     base.mails = [10, 20, 30];
     base.periodes = [{ id: '1', depuis: 30, sorte: 'biens', biens: [{ cle: '77', libelle: 'lot 77' }] }];
     base.exceptions = [{ id: '5', message: 20, sorte: 'biens', biens: [{ cle: '55', libelle: 'lot 55' }] }];
     base.liens = [{ id: 1, message: 10, cle: '21', parLeSuivi: false }, { id: 2, message: 20, cle: '55', parLeSuivi: false }, { id: 3, message: 30, cle: '77', parLeSuivi: false }];
-    await poserClassement({ filId: 1, messageId: 10, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'conversation', auteur: AUTEUR });
+  };
+  it('🔴🔴 « Toute la conversation », case NON cochée (défaut) : tout est réaligné SAUF le one shot, intact', async () => {
+    preparer();
+    const r = await poserClassement({ filId: 1, messageId: 10, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'conversation', auteur: AUTEUR });
+    expect(sortis()).toEqual([1, 3]);
+    expect(toutLeSql()).not.toContain('UPDATE gestion_message_exception e SET retiree_le = now()');
+    expect(toutLeSql()).toContain('UPDATE gestion_fil_periode SET remplacee_le = now()');
+    expect(r.ok === true && r.trace.exceptionsRetirees).toEqual([]);
+  });
+  it('🔴🔴 case cochée : le one shot est remplacé aussi (daté, jamais supprimé), et la trace le garde pour l’« Annuler »', async () => {
+    preparer();
+    const r = await poserClassement({ filId: 1, messageId: 10, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'conversation', auteur: AUTEUR, ecraserOneShot: true });
     expect(sortis()).toEqual([1, 2, 3]);
     expect(toutLeSql()).toContain('UPDATE gestion_message_exception e SET retiree_le = now() WHERE e.message_id = ANY($1::bigint[])');
-    expect(toutLeSql()).toContain('UPDATE gestion_fil_periode SET remplacee_le = now()');
+    expect(toutLeSql()).not.toMatch(/DELETE FROM gestion_message_exception/);
+    expect(r.ok === true && r.trace.exceptionsRetirees).toHaveLength(1);
+  });
+  it('🔴 case cochée depuis un mail qui porte LUI AUSSI un one shot : les deux restent dans la trace (l’« Annuler » rouvre tout)', async () => {
+    preparer();
+    base.exceptions.push({ id: '6', message: 10, sorte: 'interne', biens: [] });
+    const r = await poserClassement({ filId: 1, messageId: 10, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'conversation', auteur: AUTEUR, ecraserOneShot: true });
+    /* Deux écritures (le one shot du mail 20, puis celui du mail classé) : leurs deux retours restent dans la trace. */
+    expect(r.ok === true && r.trace.exceptionsRetirees).toHaveLength(2);
+  });
+  it('🔴 « Annuler » remet tout comme avant, one shot compris : exceptions rouvertes, liens sortis restaurés', async () => {
+    await annulerClassement({
+      trace: { filId: 1, messageId: 10, periodeCreee: 900, exceptionCreee: null, periodesRemplacees: [1],
+        exceptionsRetirees: [5, 6], liensDetaches: [2] },
+      auteur: AUTEUR,
+    });
+    const appels = (qMock.mock.calls as unknown as [string, unknown[]][])
+      .map(([sql, p]) => ({ sql: String(sql).replace(/\s+/g, ' '), p }));
+    const rouvre = appels.find((c) => c.sql.includes('UPDATE gestion_message_exception e SET retiree_le = NULL'));
+    expect(rouvre?.p?.[0]).toEqual([5, 6]);
+    expect(appels.some((c) => c.sql.includes('FROM gestion_rattachement r') && JSON.stringify(c.p?.[0]) === '[2]')).toBe(true);
   });
 });
 

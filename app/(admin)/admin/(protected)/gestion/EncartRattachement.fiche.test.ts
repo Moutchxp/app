@@ -585,12 +585,75 @@ describe('🔴🔴 la portée, sur la glissière de la fenêtre commune', () => 
     await cliquer(position('Toute la conversation'));
     const alerte = container.querySelector('.rdf-alerte-texte')?.textContent ?? '';
     // Les AUTRES mails, moins ceux qui portent une exception (règle du modèle, `motConfirmationConversation`).
-    /* 🔴 LOT GESTION-FENETRES-SUIVI — le one shot est remplacé, et compté parmi les mails mis à jour. */
-    expect(alerte).toContain('2 mails de cette conversation seront mis à jour');
-    expect(alerte).toContain('1 fenêtre de suivi et 1 one shot seront remplacés');
+    /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — par défaut le one shot est CONSERVÉ : hors du compte. */
+    expect(alerte).toBe('1 mail de cette conversation sera mis à jour ; 1 fenêtre de suivi sera remplacée ; 1 mail en One shot conservé.');
     expect(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`))?.disabled).toBe(true);
     await cliquer(container.querySelector('.rdf-alerte input[type="checkbox"]'));
     expect(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`))?.disabled).toBe(false);
+  });
+
+  /* ══ 🔴🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — la case « Écraser aussi les N mail(s) modifié(s) en One shot » ══ */
+  const caseOneShot = () => container.querySelector('.rdf-choix--oneshot') as HTMLLabelElement | null;
+  const texteAlerte = () => container.querySelector('.rdf-alerte-texte')?.textContent ?? '';
+  const DEUX_ONE_SHOT = {
+    periodes: [PERIODE],
+    exceptions: [{ messageId: 801, classement: { sorte: 'biens' as const, biens: [] } }, { messageId: 802, classement: { sorte: 'interne' as const, biens: [] } }],
+    mails: [800, 801, 802, 803, 900],
+  };
+  it('🔴 sans one shot dans la conversation : pas de deuxième case, rien ne change', async () => {
+    suiviDuFil = { periodes: [PERIODE], exceptions: [], mails: [800, 900] };
+    await ouvrirEtChanger();
+    await cliquer(position('Toute la conversation'));
+    expect(container.querySelector('.rdf-alerte')).not.toBeNull();
+    expect(caseOneShot()).toBeNull();
+    expect(container.querySelectorAll('.rdf-alerte input[type="checkbox"]')).toHaveLength(1);
+  });
+  it('🔴🔴 avec des one shot : la case, SOUS la confirmation, avec N réel, NON cochée ; Z conservés', async () => {
+    suiviDuFil = DEUX_ONE_SHOT;
+    await ouvrirEtChanger();
+    await cliquer(position('Toute la conversation'));
+    const cases = [...container.querySelectorAll('.rdf-alerte label')];
+    expect(cases[0].textContent).toContain('Je confirme la mise à jour de toute la conversation');
+    expect(cases[1]).toBe(caseOneShot());
+    expect(caseOneShot()?.textContent).toBe('Écraser aussi les 2 mails modifiés en One shot');
+    expect((caseOneShot()?.querySelector('input') as HTMLInputElement).checked).toBe(false);
+    expect(texteAlerte()).toBe('2 mails de cette conversation seront mis à jour ; 1 fenêtre de suivi sera remplacée ; 2 mails en One shot conservés.');
+  });
+  it('🔴🔴 case cochée : le récapitulatif passe à « remplacés », X compte les one shot', async () => {
+    suiviDuFil = DEUX_ONE_SHOT;
+    await ouvrirEtChanger();
+    await cliquer(position('Toute la conversation'));
+    await cliquer(caseOneShot()?.querySelector('input'));
+    expect(texteAlerte()).toBe('4 mails de cette conversation seront mis à jour ; 1 fenêtre de suivi sera remplacée ; 2 mails en One shot remplacés.');
+  });
+  it('🔴🔴 la validation transmet la case : absente non cochée, `ecraserOneShot: true` cochée', async () => {
+    suiviDuFil = DEUX_ONE_SHOT;
+    await ouvrirEtChanger();
+    await cliquer(position('Toute la conversation'));
+    await cliquer(container.querySelector('.rdf-alerte input[type="checkbox"]'));
+    await cliquer(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`)));
+    const sans = appels.find((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
+    expect(sans?.corps).toMatchObject({ choix: 'conversation' });
+    expect((sans?.corps as Record<string, unknown>).ecraserOneShot).toBeUndefined();
+  });
+  it('🔴🔴 … et cochée, elle part', async () => {
+    suiviDuFil = DEUX_ONE_SHOT;
+    await ouvrirEtChanger();
+    await cliquer(position('Toute la conversation'));
+    await cliquer(container.querySelector('.rdf-alerte input[type="checkbox"]'));
+    await cliquer(caseOneShot()?.querySelector('input'));
+    await cliquer(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`)));
+    const avec = appels.find((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
+    expect(avec?.corps).toMatchObject({ choix: 'conversation', ecraserOneShot: true });
+  });
+  it('⚠️ changer de position décoche la case (non cochée à chaque retour)', async () => {
+    suiviDuFil = DEUX_ONE_SHOT;
+    await ouvrirEtChanger();
+    await cliquer(position('Toute la conversation'));
+    await cliquer(caseOneShot()?.querySelector('input'));
+    await cliquer(position('One shot'));
+    await cliquer(position('Toute la conversation'));
+    expect((caseOneShot()?.querySelector('input') as HTMLInputElement).checked).toBe(false);
   });
 
   /** ⚠️ CHANGER DE POSITION REDEMANDE LA CONFIRMATION : on ne garde pas un « oui » donné pour autre chose. */

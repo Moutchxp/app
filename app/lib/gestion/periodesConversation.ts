@@ -454,6 +454,11 @@ export function effetDuChoix(o: {
   exceptions: readonly ExceptionMail[];
   /** Les mails de la conversation, DANS L'ORDRE. Absent ⇒ la règle 2 ne s'applique pas (effet d'avant ce lot). */
   mails?: readonly number[];
+  /**
+   * 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — « Toute la conversation » : la case « Écraser aussi les N
+   * mail(s) modifié(s) en One shot ». Absente ou fausse (défaut) : les one shot sont CONSERVÉS. Vraie : remplacés.
+   */
+  ecraserOneShot?: boolean;
 }): EffetDuChoix {
   const portaitUneException = o.exceptions.some((e) => e.messageId === o.messageId);
   // 🔴 RÈGLE 1 — ce qui commençait déjà à ce mail est REMPLACÉ, quel que soit le choix.
@@ -466,7 +471,10 @@ export function effetDuChoix(o: {
       nouvelleException: null,
       periodesRemplacees: o.periodes.map((p) => p.id),
       exceptionRetiree: portaitUneException ? o.messageId : null,
-      exceptionsRemplacees: o.exceptions.map((e) => e.messageId).filter((m) => m !== o.messageId),
+      /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — remplace la règle 5 de 93019d9b : les one shot ne sont remplacés que si la
+         case « Écraser aussi… » est cochée ; sinon ils restent intacts (rattachements et badge). */
+      exceptionsRemplacees: o.ecraserOneShot === true
+        ? o.exceptions.map((e) => e.messageId).filter((m) => m !== o.messageId) : [],
     };
   }
 
@@ -526,7 +534,13 @@ export function mailsDeLaFenetre(o: {
   mails: readonly number[]; messageId: number; choix: ChoixSuivi;
   debuts: readonly number[]; exceptions: readonly number[];
 }): number[] {
-  if (o.choix === 'conversation') return [...o.mails];
+  /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — « Toute la conversation » gouverne tous les mails SAUF ceux
+     qui portent encore un one shot (case « Écraser aussi… » non cochée : leurs exceptions restent vivantes). Case cochée,
+     les exceptions sont retirées avant cet appel : la liste n'en contient plus, et tous les mails sont gouvernés. */
+  if (o.choix === 'conversation') {
+    const gardes = new Set(o.exceptions.filter((e) => e !== o.messageId));
+    return o.mails.filter((m) => !gardes.has(m));
+  }
   const i = o.mails.indexOf(o.messageId);
   if (i < 0) return [];
   if (o.choix === 'mail') return [o.messageId];
@@ -560,13 +574,37 @@ export function alerteTouteLaConversation(o: {
   messageId: number;
   /** 🔴 LOT GESTION-FENETRES-SUIVI — les fenêtres de suivi vivantes, toutes remplacées. Absent ⇒ non comptées. */
   periodes?: readonly unknown[];
+  /** 🔴 LOT GESTION-ONESHOT-CONVERSATION — la case « Écraser aussi… » ; absente = les one shot sont conservés. */
+  ecraserOneShot?: boolean;
 }): string {
-  /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « Toute la conversation » réaligne TOUS les mails et remplace les
-     autres fenêtres ET les one shot : l'alerte le compte, au lieu d'annoncer des exceptions « conservées ». */
-  const n = o.mails.length;
+  /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — les mails en one shot ne sont reclassés que si la case est
+     cochée ; sinon ils sont comptés à part, « conservés ». */
+  const oneShots = nbOneShots(o.exceptions, o.messageId);
+  const n = o.mails.length - (o.ecraserOneShot === true ? 0 : oneShots);
   const phrase = `Les ${n} mail${n > 1 ? 's' : ''} de cette conversation seront reclassés sur ${o.versQuoi}`;
-  const remplaces = motRemplaces(o.periodes?.length ?? 0, o.exceptions.filter((e) => e.messageId !== o.messageId).length);
-  return remplaces === null ? `${phrase}.` : `${phrase} ; ${remplaces}.`;
+  const suite = morceauxFenetresEtOneShots(o.periodes?.length ?? 0, oneShots, o.ecraserOneShot === true);
+  return suite.length === 0 ? `${phrase}.` : `${phrase} ; ${suite.join(' ; ')}.`;
+}
+
+/** Les one shot vivants de la conversation, hors le mail qu'on classe (lui change toujours). PUR. */
+export function nbOneShots(exceptions: readonly ExceptionMail[], messageId: number): number {
+  return new Set(exceptions.filter((e) => e.messageId !== messageId).map((e) => e.messageId)).size;
+}
+
+/**
+ * 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — « Y fenêtre(s) de suivi sera(ont) remplacée(s) » et « Z mail(s)
+ * en One shot conservé(s) » (ou « remplacé(s) » si la case est cochée). Un morceau à zéro n'est pas dit. PUR.
+ */
+export function morceauxFenetresEtOneShots(fenetres: number, oneShots: number, ecraser: boolean): string[] {
+  const out: string[] = [];
+  if (fenetres > 0) {
+    out.push(fenetres > 1 ? `${fenetres} fenêtres de suivi seront remplacées` : '1 fenêtre de suivi sera remplacée');
+  }
+  if (oneShots > 0) {
+    const verbe = ecraser ? 'remplacé' : 'conservé';
+    out.push(oneShots > 1 ? `${oneShots} mails en One shot ${verbe}s` : `1 mail en One shot ${verbe}`);
+  }
+  return out;
 }
 
 /** « 2 fenêtres de suivi et 1 one shot seront remplacés » — `null` s'il n'y a rien à remplacer. PUR. */

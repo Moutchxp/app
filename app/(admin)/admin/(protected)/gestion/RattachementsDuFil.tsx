@@ -54,7 +54,7 @@ import {
   SECONDES_ANNULER_SORTIE,
 } from '../../../../lib/gestion/sortirDuSuivi';
 import {
-  alerteTouteLaConversation, motClassement,
+  alerteTouteLaConversation, motClassement, nbOneShots,
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL — la projection, pour reposer les PERSONNES en vigueur (voir `ecrire`). */
   projeter,
   type ChoixSuivi, type Classement, type ExceptionMail, type Periode, type PersonneClassee,
@@ -75,7 +75,7 @@ import { CSS_INFO_BIEN, InfoBien } from './InfoBien';
 import { titresDistincts } from '../../../../lib/gestion/titreBien';
 /* 🔴🔴 LOT MODALE-MODIFIER-RATTACHEMENT-4-POSITIONS — la portée en quatre positions (module PUR) et sa glissière. */
 import {
-  definitionDe, modificationEnCours, motApresValidation, motConfirmationConversation,
+  definitionDe, modificationEnCours, motApresValidation, motConfirmationConversation, motEcraserOneShot,
   MOT_CONFIRMER_CONVERSATION, QUESTION_RETOUR_ORIGINE, type PositionPortee,
   /* 🔴🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — le premier classement d'un mail (module PUR). */
   AUCUN_BIEN_SUIVI, glissiereOuverte, morceauxDefinitionPortee, porteeArbitre, positionAffichee,
@@ -552,6 +552,8 @@ function RattachementsDuFilMail({
     voulus: readonly { cle: string; libelle: string }[], choix: ChoixSuivi, arbitre: boolean,
     /** 🔴 LOT GESTION-EXPEDITEUR-INCONNU — l'interrupteur « Affecter l'expéditeur inconnu » ; `undefined` s'il n'est pas affiché. */
     affecter?: boolean,
+    /** 🔴 LOT GESTION-ONESHOT-CONVERSATION — « Toute la conversation » : la case « Écraser aussi… » cochée. */
+    ecraserOneShot?: boolean,
   ) => void;
   /**
    * 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU (Arno, 16/10/2026) — L'EXPÉDITEUR EST-IL INCONNU DES FICHES DES BIENS COCHÉS ? Fourni
@@ -675,6 +677,12 @@ function RattachementsDuFilMail({
    */
   const [choixSuivi, setChoixSuivi] = useState<ChoixSuivi>('mail');
   const [confirme, setConfirme] = useState(false);
+  /**
+   * 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — la case « Écraser aussi les N mail(s) modifié(s) en One shot »,
+   * sous la confirmation de « Toute la conversation ». NON cochée à chaque ouverture (état neuf à chaque montage), et
+   * décochée à chaque changement de position.
+   */
+  const [ecraser, setEcraser] = useState(false);
   /** La sélection en cours dans le panneau, remontée par le menu : elle écrit la phrase et nourrit l'alerte. */
   const [selection, setSelection] = useState<readonly string[] | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
@@ -1432,7 +1440,10 @@ function RattachementsDuFilMail({
     try {
       const res = await fetch('/api/admin/gestion/suivi', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filId, messageId: mailId, classement, choix }),
+        body: JSON.stringify({
+          filId, messageId: mailId, classement, choix,
+          ...(choix === 'conversation' && ecraser ? { ecraserOneShot: true } : {}),
+        }),
       });
       const d = (await res.json()) as { ok?: boolean; erreur?: string; trace?: TraceSuivi };
       if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
@@ -1447,6 +1458,7 @@ function RattachementsDuFilMail({
       setPanneau('aucun');
       setSelection(null);
       setConfirme(false);
+      setEcraser(false);
       const fraiche = await charger();
       /* 🔴🔴 LOT CLASSER-PAR-LA-MODALE, POINT 3 — l'événement voulu s'écrit MAINTENANT, et pas avant : la carte
          neuve reçoit ainsi les biens qu'on vient d'écrire, avec leur propriétaire et leur locataire. */
@@ -1476,7 +1488,7 @@ function RattachementsDuFilMail({
    * Comportement existant, repris sans une virgule de changement (lot SUIVI-CONVERSATION).
    */
   const alerte = suivi === null || mailId === null ? '' : alerteTouteLaConversation({
-    mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId, periodes: suivi.periodes,
+    mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId, periodes: suivi.periodes, ecraserOneShot: ecraser,
     versQuoi: motClassement({
       sorte: 'biens',
       biens: (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle })),
@@ -1502,6 +1514,7 @@ function RattachementsDuFilMail({
     if (p === 'origine' && modification) { setDemandeOrigine(true); return; }
     setPosition(p);
     setConfirme(false);
+    setEcraser(false);
   };
   const revenirALOrigine = (): void => {
     setSelection(clesDuMail);
@@ -1511,6 +1524,7 @@ function RattachementsDuFilMail({
     setCleMenu((n) => n + 1);
     setDemandeOrigine(false);
     setConfirme(false);
+    setEcraser(false);
     setPosition('origine');
   };
   /**
@@ -1539,7 +1553,8 @@ function RattachementsDuFilMail({
     const voulus = (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle }));
     /* 🔴 LOT UNE-SEULE-FENETRE-DE-RATTACHEMENT — l'appelant qui écrit lui-même reçoit les biens et la portée. */
     if (ecrireParLAppelant !== undefined) {
-      ecrireParLAppelant(voulus, choix, porteeArbitre(positionVoulue, premier), inconnu ? affecter : undefined);
+      ecrireParLAppelant(voulus, choix, porteeArbitre(positionVoulue, premier), inconnu ? affecter : undefined,
+        choix === 'conversation' && ecraser);
       return;
     }
     void ecrire(voulus, choix);
@@ -1551,8 +1566,13 @@ function RattachementsDuFilMail({
       demandeOrigine={demandeOrigine} onChoisir={choisirPosition}
       onOuiOrigine={revenirALOrigine} onNonOrigine={() => setDemandeOrigine(false)}
       confirmation={position === 'conversation' && modification && suivi !== null && mailId !== null
-        ? motConfirmationConversation({ mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId, periodes: suivi.periodes }) : null}
+        ? motConfirmationConversation({
+          mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId, periodes: suivi.periodes, ecraserOneShot: ecraser,
+        }) : null}
       confirme={confirme} onConfirme={() => setConfirme((v) => !v)}
+      /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — N = les mails réellement en one shot (hors celui qu'on classe) ; 0 = pas de case. */
+      oneShots={suivi !== null && mailId !== null ? nbOneShots(suivi.exceptions, mailId) : 0}
+      ecraser={ecraser} onEcraser={() => setEcraser((v) => !v)}
       bouton={bouton} desactive={sansPosition || occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
       onValider={validerLaPortee} />
   );
@@ -2302,6 +2322,7 @@ export function BlocEvenementLecture({ lus, evenement, charge, renvoi, ouvert, o
 export function BlocPortee({
   position, modification, premier, nbCoches, demandeOrigine, onChoisir, onOuiOrigine, onNonOrigine,
   confirmation, confirme, onConfirme, bouton, desactive, onValider, sansBouton = false, sansPosition = false,
+  oneShots = 0, ecraser = false, onEcraser,
 }: {
   position: PositionPortee;
   /** 🔴 LOT RATTACHEMENT-CONVERSATION — règle C : aucune position présélectionnée (glissière vide, texte d'invite). */
@@ -2317,6 +2338,13 @@ export function BlocPortee({
   confirmation: string | null;
   confirme: boolean;
   onConfirme: () => void;
+  /**
+   * 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — le nombre RÉEL de mails en one shot de la conversation. Au
+   * moins un (et une confirmation affichée) : la deuxième case « Écraser aussi les N mail(s) modifié(s) en One shot ».
+   */
+  oneShots?: number;
+  ecraser?: boolean;
+  onEcraser?: () => void;
   bouton: { mot: string; aspect: 'plein' | 'vide'; inactif: boolean; mention: string | null };
   desactive: boolean;
   onValider: () => void;
@@ -2357,6 +2385,13 @@ export function BlocPortee({
             <input type="checkbox" checked={confirme} onChange={onConfirme} />
             <span>{MOT_CONFIRMER_CONVERSATION}</span>
           </label>
+          {/* 🔴 LOT GESTION-ONESHOT-CONVERSATION — sous la confirmation, seulement s'il y a des one shot ; non cochée par défaut. */}
+          {oneShots > 0 && onEcraser !== undefined && (
+            <label className="rdf-choix rdf-choix--oneshot">
+              <input type="checkbox" checked={ecraser} onChange={onEcraser} />
+              <span>{motEcraserOneShot(oneShots)}</span>
+            </label>
+          )}
         </div>
       )}
       {!sansBouton && (

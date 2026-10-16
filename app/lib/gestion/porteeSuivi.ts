@@ -1,5 +1,5 @@
 import { BANDEAU_MODIFICATION_PONCTUELLE, MOT_MODIFICATION_PONCTUELLE_FAITE } from './sortirDuSuivi';
-import { motRemplaces, type ChoixSuivi, type ExceptionMail } from './periodesConversation';
+import { morceauxFenetresEtOneShots, nbOneShots, type ChoixSuivi, type ExceptionMail } from './periodesConversation';
 import { motBiensRattaches } from './changementsSuivi';
 
 /**
@@ -226,15 +226,25 @@ export function motConfirmationConversation(o: {
   mails: readonly number[]; exceptions: readonly ExceptionMail[]; messageId: number;
   /** 🔴 LOT GESTION-FENETRES-SUIVI — les fenêtres de suivi vivantes : toutes remplacées. Absent ⇒ non comptées. */
   periodes?: readonly unknown[];
+  /** 🔴 LOT GESTION-ONESHOT-CONVERSATION — la case « Écraser aussi… » ; absente = les one shot sont conservés. */
+  ecraserOneShot?: boolean;
 }): string {
-  /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « Toute la conversation » réaligne TOUS les autres mails, one shot
-     compris, et remplace les fenêtres : on annonce combien de mails et de fenêtres (et de one shot) seront remplacés. */
-  const autres = o.mails.filter((m) => m !== o.messageId).length;
-  const phrase = autres === 0
+  /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — « X mails de cette conversation seront mis à jour ; Y fenêtre(s)
+     de suivi sera(ont) remplacée(s) ; Z mail(s) en One shot conservé(s) » (ou « remplacé(s) » si la case est cochée). Case
+     non cochée, les mails en one shot ne sont pas mis à jour : ils ne comptent pas dans X. */
+  const ecraser = o.ecraserOneShot === true;
+  const oneShots = nbOneShots(o.exceptions, o.messageId);
+  const autres = o.mails.filter((m) => m !== o.messageId).length - (ecraser ? 0 : oneShots);
+  const phrase = autres <= 0
     ? 'Aucun autre mail de cette conversation ne sera mis à jour'
     : `${autres} mail${autres > 1 ? 's' : ''} de cette conversation ${autres > 1 ? 'seront mis' : 'sera mis'} à jour`;
-  const remplaces = motRemplaces(o.periodes?.length ?? 0, o.exceptions.filter((e) => e.messageId !== o.messageId).length);
-  return remplaces === null ? `${phrase}.` : `${phrase} ; ${remplaces}.`;
+  const suite = morceauxFenetresEtOneShots(o.periodes?.length ?? 0, oneShots, ecraser);
+  return suite.length === 0 ? `${phrase}.` : `${phrase} ; ${suite.join(' ; ')}.`;
+}
+
+/** 🔴 LOT GESTION-ONESHOT-CONVERSATION — la deuxième case, sous la confirmation (N = nombre réel de mails en one shot). */
+export function motEcraserOneShot(n: number): string {
+  return n > 1 ? `Écraser aussi les ${n} mails modifiés en One shot` : 'Écraser aussi le mail modifié en One shot';
 }
 
 export const MOT_CONFIRMER_CONVERSATION = 'Je confirme la mise à jour de toute la conversation.';

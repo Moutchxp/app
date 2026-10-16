@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  definitionDe, modificationEnCours, motBoutonFinal, motConfirmationConversation, positionActive, positionSuivante,
+  definitionDe, modificationEnCours, motBoutonFinal, motConfirmationConversation, motEcraserOneShot, positionActive, positionSuivante,
   POSITIONS_PORTEE, QUESTION_RETOUR_ORIGINE, porteeADemander, positionAChoisir,
 } from './porteeSuivi';
 import { BANDEAU_MODIFICATION_PONCTUELLE } from './sortirDuSuivi';
@@ -52,12 +52,28 @@ describe('④ la confirmation, avec le nombre de mails mis à jour', () => {
     expect(motConfirmationConversation({ mails, exceptions: [], messageId: 112 })).toBe('12 mails de cette conversation seront mis à jour.');
   });
   /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — les one shot et les fenêtres sont REMPLACÉS, et comptés. */
-  it('les one shot et les fenêtres sont remplacés, et l’annonce les compte', () => {
+  /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — « X mails … mis à jour ; Y fenêtre(s) … remplacée(s) ; Z mail(s) en
+     One shot conservé(s) » (ou « remplacé(s) » si la case « Écraser aussi… » est cochée). */
+  it('case NON cochée : les one shot sont conservés et sortent du compte X', () => {
     const exceptions = [{ messageId: 101, classement: { sorte: 'interne' as const, biens: [] } }];
     expect(motConfirmationConversation({ mails, exceptions, messageId: 112 }))
-      .toBe('12 mails de cette conversation seront mis à jour ; 1 one shot sera remplacé.');
+      .toBe('11 mails de cette conversation seront mis à jour ; 1 mail en One shot conservé.');
     expect(motConfirmationConversation({ mails, exceptions, messageId: 112, periodes: [{}, {}] }))
-      .toBe('12 mails de cette conversation seront mis à jour ; 2 fenêtres de suivi et 1 one shot seront remplacés.');
+      .toBe('11 mails de cette conversation seront mis à jour ; 2 fenêtres de suivi seront remplacées ; 1 mail en One shot conservé.');
+  });
+  it('case cochée : les one shot sont remplacés et comptés dans X', () => {
+    const exceptions = [
+      { messageId: 101, classement: { sorte: 'interne' as const, biens: [] } },
+      { messageId: 103, classement: { sorte: 'biens' as const, biens: [] } },
+    ];
+    expect(motConfirmationConversation({ mails, exceptions, messageId: 112, periodes: [{}], ecraserOneShot: true }))
+      .toBe('12 mails de cette conversation seront mis à jour ; 1 fenêtre de suivi sera remplacée ; 2 mails en One shot remplacés.');
+    expect(motConfirmationConversation({ mails, exceptions, messageId: 112, periodes: [{}] }))
+      .toBe('10 mails de cette conversation seront mis à jour ; 1 fenêtre de suivi sera remplacée ; 2 mails en One shot conservés.');
+  });
+  it('le mot de la deuxième case, avec N réel', () => {
+    expect(motEcraserOneShot(1)).toBe('Écraser aussi le mail modifié en One shot');
+    expect(motEcraserOneShot(3)).toBe('Écraser aussi les 3 mails modifiés en One shot');
   });
   it('un seul autre mail, ou aucun', () => {
     expect(motConfirmationConversation({ mails: [1, 2], exceptions: [], messageId: 2 })).toBe('1 mail de cette conversation sera mis à jour.');

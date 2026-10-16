@@ -294,7 +294,8 @@ export function EncartRattachement({
    * ⚠️ UNE RÉFÉRENCE ET NON UN ÉTAT : l'écriture part dans le même tour que la validation, et un état ne serait lu
    * qu'au rendu suivant. Elle est oubliée quand la fenêtre se ferme.
    */
-  const choixFenetre = useRef<{ choix: ChoixSuivi; arbitre: boolean } | null>(null);
+  /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — `ecraserOneShot` : la case « Écraser aussi… » de « Toute la conversation ». */
+  const choixFenetre = useRef<{ choix: ChoixSuivi; arbitre: boolean; ecraserOneShot?: boolean } | null>(null);
   /**
    * 🔴🔴 LOT GESTION-EXPEDITEUR-INCONNU (Arno, 16/10/2026) — l'interrupteur « Affecter l'expéditeur inconnu » de la fenêtre :
    * `false` (Désactivé, le défaut) ⇒ « Classer ce nouveau contact » ne s'ouvre pas ; `true` ⇒ comme avant ; `undefined`
@@ -885,7 +886,11 @@ export function EncartRattachement({
       try {
         const res = await fetch('/api/admin/gestion/suivi', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filId, messageId, classement, choix: choixRetenu }),
+          body: JSON.stringify({
+            filId, messageId, classement, choix: choixRetenu,
+            /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — la case « Écraser aussi… » de la fenêtre, pour « Toute la conversation ». */
+            ...(choixRetenu === 'conversation' && fenetre?.ecraserOneShot === true ? { ecraserOneShot: true } : {}),
+          }),
         });
         const d = (await res.json()) as { ok?: boolean; erreur?: string; trace?: TraceSuivi };
         if (!res.ok || d.ok !== true) { setErreur(d.erreur ?? 'Le geste n’a pas abouti.'); return; }
@@ -1626,8 +1631,8 @@ export function EncartRattachement({
             onFerme={() => { setSelectionModale(null); setAjout(false); setCiblesEnCours(null); }}
             onGeste={onGeste}
             expediteurInconnu={expediteurInconnu}
-            ecrireParLAppelant={(voulus, choixVoulu, arbitre, affecter) => {
-              choixFenetre.current = { choix: choixVoulu, arbitre };
+            ecrireParLAppelant={(voulus, choixVoulu, arbitre, affecter, ecraserOneShot) => {
+              choixFenetre.current = { choix: choixVoulu, arbitre, ecraserOneShot: ecraserOneShot === true };
               affecterExpediteur.current = affecter;
               setErreur(null);
               void appliquerCibles(voulus.map((v) => ({ sorte: 'lot' as const, cle: v.cle, id: null, libelle: v.libelle })));
