@@ -129,6 +129,10 @@ export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null,
   // Création de la carte UNE seule fois (tuiles + origine). Pas de recréation à la rotation.
   useEffect(() => {
     let cancelled = false;
+    // Recalage différé de la taille : ANNULÉ au démontage. Sans cela, quitter l'écran d'orientation (ou changer
+    // lat/lon) moins de 300 ms après l'apparition de la carte appelait invalidateSize() sur une carte déjà détruite →
+    // « Cannot read properties of undefined (reading '_leaflet_pos') » (même défaut que la mini-carte, 16/10/2026).
+    let recalage: ReturnType<typeof setTimeout> | null = null;
     (async () => {
       const L = (await import("leaflet")).default;
       if (cancelled || !divRef.current || mapRef.current) return;
@@ -185,11 +189,13 @@ export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null,
       map.on("zoomend", majEchelle);
 
       map.invalidateSize();
-      setTimeout(() => map.invalidateSize(), 300);
+      recalage = setTimeout(() => { if (mapRef.current === map) map.invalidateSize(); }, 300);
     })();
     return () => {
       cancelled = true;
+      if (recalage !== null) clearTimeout(recalage);
       if (mapRef.current) {
+        mapRef.current.stop?.(); // arrête une éventuelle animation de vue avant la destruction
         mapRef.current.remove();
         mapRef.current = null;
         tileLayerRef.current = null;
