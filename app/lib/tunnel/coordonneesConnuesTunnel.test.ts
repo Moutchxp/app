@@ -33,7 +33,8 @@ describe('internaute connecté : coordonnées connues', () => {
   });
   it('prénom/nom modifiés → chemin EXISTANT de l’espace client (PATCH), avant la soumission', () => {
     expect(ecran).toContain('fetch("/api/internaute/espace/compte", { method: "PATCH",');
-    expect(ecran).toContain('await majPrenomNomCompte(); await soumettre();');
+    /* Lot TUNNEL-CONNECTE — la soumission rend désormais son issue (émission directe d'un connecté). */
+    expect(ecran).toContain('await majPrenomNomCompte(); const issue = await soumettre();');
   });
 });
 

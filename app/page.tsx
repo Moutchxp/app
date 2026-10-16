@@ -24,6 +24,7 @@ import { EcranSansVerdict } from "./EcranSansVerdict";
 import type { MotifSansResultat } from "./lib/tunnel/motifSansResultat";
 import { MenuBurger } from "./MenuBurger";
 import { orchestrerIllimite, boutonEnvoiActif, LONGUEUR_MIN_MDP } from "./lib/tunnel/choixOffre";
+import { emissionDirecteConnecte, lireIssueIngestion, type IssueIngestion } from "./lib/tunnel/finTunnelConnecte";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 import { getActiveFormattingMask } from "react-international-phone";
@@ -842,9 +843,16 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   const [modifierIdentite, setModifierIdentite] = useState(false);
   const manquants = compte ? champsIdentiteManquants(compte) : [];
   // Cases de l'Écran A (toutes sauf F2, posée à l'Écran B) encore à PROPOSER : non connecté → toutes (inchangé).
-  const finalitesAProposerA = finalitesActivesTunnel().filter(
+  const finalitesHorsF2A = finalitesActivesTunnel().filter(
     (t) => t.finalite !== "email_marketing" && !consentementDejaValable(compte, t.finalite),
   );
+  // Lot TUNNEL-CONNECTE (décision 2 d'Arno, 17/10/2026) — un CONNECTÉ ne passe plus par l'Écran A, où F2 était proposée (et
+  // jamais enregistrée pour lui) : F2, si elle n'est pas déjà valable, est proposée ICI, décochée, et part avec l'ingestion
+  // (qui l'enregistre sur son compte). Non connecté : F2 reste à l'Écran A, rien ne change.
+  const f2AuFormulaire = compte === null ? [] : finalitesActivesTunnel().filter(
+    (t) => t.finalite === "email_marketing" && !consentementDejaValable(compte, t.finalite),
+  );
+  const finalitesAProposerA = [...finalitesHorsF2A, ...f2AuFormulaire];
   // Champ d'identité à SAISIR : toujours pour un visiteur non connecté ; pour un connecté, seulement s'il manque (ou en
   // modification pour prénom/nom).
   // Un téléphone de compte au format invalide (ancienne saisie) est traité comme manquant : sinon la validation bloquerait
@@ -967,7 +975,10 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // MÊME sans consentement — le serveur crée profil+projet (base légale LIVRAISON) et frappe le jeton d'émission (Commit 2),
   // exactement comme pour un consentant. Le CLASSEMENT commercial reste conditionné au consentement : 0 consentement → 0
   // ligne de consentement → absent de la vue `internaute_commercial` (Commit 1). L'ingestion NE BLOQUE JAMAIS le flux.
-  const soumettre = async () => {
+  // Lot TUNNEL-CONNECTE — rend l'issue de l'ingestion (`null` en échec) : l'internaute connecté s'en sert pour émettre
+  // directement, sans les Écrans A et B. Le reste est INCHANGÉ.
+  const soumettre = async (): Promise<IssueIngestion | null> => {
+    let issue: IssueIngestion | null = null;
     const corps = construireCorps();
     setPosteEnA(true); // un POST a lieu à l'Écran A → profil créé (statut 'incomplet') si l'email est neuf
     setEnvoi(true);
@@ -981,6 +992,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       if (res.ok) {
         // Jeton-capacité de rectification : présent seulement si un NOUVEAU dossier a été créé (email neuf).
         const data = await res.json().catch(() => null);
+        issue = lireIssueIngestion(data);
         const jeton = typeof data?.jetonRectification === "string" ? data.jetonRectification : null;
         const jetonEmi = typeof data?.jetonEmission === "string" ? data.jetonEmission : null; // toujours présent (email neuf OU connu)
         const projetId = typeof data?.projetId === "number" ? data.projetId : null;
@@ -1002,6 +1014,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       setEnvoi(false);
       setSoumis(true); // non bloquant : confirmation affichée dans tous les cas
     }
+    return issue;
   };
 
   // Validation Écran B : COMPLÉTION du parcours (statut 'complet' + coordonnées de B qui FONT FOI + F2). UPSERT côté
@@ -1138,7 +1151,17 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     }
     void (async () => {
       await majPrenomNomCompte();
-      await soumettre();
+      const issue = await soumettre();
+      // Lot TUNNEL-CONNECTE (décisions d'Arno du 17/10/2026) — CONNECTÉ : ni Écran A (« Validez vos coordonnées d'envoi »),
+      // ni Écran B (« Comment souhaitez-vous continuer ? »). L'émission part directement, comme le choix « client / compte »
+      // pour un compte existant (aucun compte créé, aucun mot de passe, aucun clic fictif dans les statistiques), vers
+      // l'e-mail du compte. Ingestion en échec ou dossier neuf → parcours d'avant (Écran A avec son message, puis B).
+      const direct = emissionDirecteConnecte({ connecte: compte !== null, ingestion: issue });
+      if (direct !== null) {
+        setCoordsValidees(true);
+        setConfirme(true);
+        void emettreCertificat(direct.jetonEmission, direct.projetId);
+      }
     })();
   };
 
@@ -1742,11 +1765,18 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
           une finalité qui porte un `titre` affiche son titre + mention ; sinon (F1) la case seule. Charte : rouge/gris, ≥44px. */}
       {/* Connecté : une finalité déjà accordée et toujours valable n'est pas redemandée ; jamais accordée ou retirée →
           proposée, décochée, non imposée (lot COORDONNEES-CONNU). Non connecté : bloc inchangé. */}
-      {finalitesAProposerA.length === 0 ? (
+      {finalitesHorsF2A.length === 0 && (
         <p className="mt-6 rounded-xl bg-svv-field p-4 text-sm text-svv-ink">
           Votre accord pour être recontacté est déjà enregistré sur votre compte. Vous pouvez le retirer à tout moment.
         </p>
-      ) : (
+      )}
+      {/* Lot TUNNEL-CONNECTE — connecté, F2 déjà valable : la mention de l'Écran A (qu'il ne voit plus) est dite ici. */}
+      {compte !== null && consentementDejaValable(compte, "email_marketing") && (
+        <p className="mt-6 rounded-xl bg-svv-field p-4 text-sm text-svv-ink">
+          Votre accord pour l’envoi de mails est déjà enregistré sur votre compte. Vous pouvez le retirer à tout moment.
+        </p>
+      )}
+      {finalitesAProposerA.length > 0 && (
       <div className="mt-6 rounded-2xl bg-svv-field p-5">
         <h2 className="mb-3 text-lg font-bold text-svv-ink">Un service sur mesure</h2>
         <div className="flex flex-col gap-4">
