@@ -1149,7 +1149,7 @@ export function EncartRattachement({
   const suiviOffert = blocVisible || (aClasser && suivi !== null && filId != null);
   /** Ce que l'alerte annonce, mot pour mot — composé par le module pur. */
   const alerte = suivi === null ? '' : alerteTouteLaConversation({
-    mails: suivi.mails, exceptions: suivi.exceptions, messageId,
+    mails: suivi.mails, exceptions: suivi.exceptions, messageId, periodes: suivi.periodes,
     // ⚠️ L'ALERTE PARLE DE CE QUI EST RATTACHÉ AU MOMENT OÙ ON OUVRE : la fenêtre, elle, connaît la sélection
     //   en cours de modification, mais elle ne la remonte qu'à la validation. Nommer l'état de départ est
     //   honnête et suffit à faire comprendre la portée du geste — c'est le NOMBRE de mails qui alerte.

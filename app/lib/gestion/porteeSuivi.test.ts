@@ -51,10 +51,13 @@ describe('④ la confirmation, avec le nombre de mails mis à jour', () => {
   it('« 12 mails de cette conversation seront mis à jour »', () => {
     expect(motConfirmationConversation({ mails, exceptions: [], messageId: 112 })).toBe('12 mails de cette conversation seront mis à jour.');
   });
-  it('les exceptions conservées sont dites, et ne sont pas comptées', () => {
+  /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — les one shot et les fenêtres sont REMPLACÉS, et comptés. */
+  it('les one shot et les fenêtres sont remplacés, et l’annonce les compte', () => {
     const exceptions = [{ messageId: 101, classement: { sorte: 'interne' as const, biens: [] } }];
     expect(motConfirmationConversation({ mails, exceptions, messageId: 112 }))
-      .toBe('11 mails de cette conversation seront mis à jour ; 1 exception est conservée.');
+      .toBe('12 mails de cette conversation seront mis à jour ; 1 one shot sera remplacé.');
+    expect(motConfirmationConversation({ mails, exceptions, messageId: 112, periodes: [{}, {}] }))
+      .toBe('12 mails de cette conversation seront mis à jour ; 2 fenêtres de suivi et 1 one shot seront remplacés.');
   });
   it('un seul autre mail, ou aucun', () => {
     expect(motConfirmationConversation({ mails: [1, 2], exceptions: [], messageId: 2 })).toBe('1 mail de cette conversation sera mis à jour.');

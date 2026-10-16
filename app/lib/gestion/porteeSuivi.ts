@@ -1,5 +1,5 @@
 import { BANDEAU_MODIFICATION_PONCTUELLE, MOT_MODIFICATION_PONCTUELLE_FAITE } from './sortirDuSuivi';
-import type { ChoixSuivi, ExceptionMail } from './periodesConversation';
+import { motRemplaces, type ChoixSuivi, type ExceptionMail } from './periodesConversation';
 import { motBiensRattaches } from './changementsSuivi';
 
 /**
@@ -224,16 +224,17 @@ export const QUESTION_RETOUR_ORIGINE = 'Revenir au suivi d’origine ? Vos modif
  */
 export function motConfirmationConversation(o: {
   mails: readonly number[]; exceptions: readonly ExceptionMail[]; messageId: number;
+  /** 🔴 LOT GESTION-FENETRES-SUIVI — les fenêtres de suivi vivantes : toutes remplacées. Absent ⇒ non comptées. */
+  periodes?: readonly unknown[];
 }): string {
-  const avecException = new Set(o.exceptions.map((e) => e.messageId));
-  avecException.delete(o.messageId);
-  const autres = o.mails.filter((m) => m !== o.messageId && !avecException.has(m)).length;
+  /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « Toute la conversation » réaligne TOUS les autres mails, one shot
+     compris, et remplace les fenêtres : on annonce combien de mails et de fenêtres (et de one shot) seront remplacés. */
+  const autres = o.mails.filter((m) => m !== o.messageId).length;
   const phrase = autres === 0
     ? 'Aucun autre mail de cette conversation ne sera mis à jour'
     : `${autres} mail${autres > 1 ? 's' : ''} de cette conversation ${autres > 1 ? 'seront mis' : 'sera mis'} à jour`;
-  const g = avecException.size;
-  return g === 0 ? `${phrase}.`
-    : `${phrase} ; ${g} exception${g > 1 ? 's' : ''} ${g > 1 ? 'sont conservées' : 'est conservée'}.`;
+  const remplaces = motRemplaces(o.periodes?.length ?? 0, o.exceptions.filter((e) => e.messageId !== o.messageId).length);
+  return remplaces === null ? `${phrase}.` : `${phrase} ; ${remplaces}.`;
 }
 
 export const MOT_CONFIRMER_CONVERSATION = 'Je confirme la mise à jour de toute la conversation.';

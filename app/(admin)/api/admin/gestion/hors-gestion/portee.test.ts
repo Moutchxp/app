@@ -19,6 +19,10 @@ const noter = (nom: string) => (o: unknown) => { ordre.push(nom); (appels[nom] ?
 
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerCompteActif: async () => null }));
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 2, libelle: 'a.jorel@sansvisavis.com' }) }));
+/* 🔴 LOT GESTION-FENETRES-SUIVI — la conversation n'a pas de fenêtre lisible ici : la route garde sa découpe d'avant. */
+vi.mock('../../../../../lib/gestion/periodeRepo', () => ({
+  fenetresDuMail: async () => null, poserClassement: async () => ({ ok: true, projetes: 0 }), fermerFenetresInterne: async () => 0,
+}));
 vi.mock('../../../../../lib/gestion/traceOneShotRepo', () => ({
   photoDuFondEnBase: async (m: number) => { noter('photo')(m); return { fenetre: null, interneEchange: false, le: 'T' }; },
 }));

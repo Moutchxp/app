@@ -585,8 +585,9 @@ describe('🔴🔴 la portée, sur la glissière de la fenêtre commune', () => 
     await cliquer(position('Toute la conversation'));
     const alerte = container.querySelector('.rdf-alerte-texte')?.textContent ?? '';
     // Les AUTRES mails, moins ceux qui portent une exception (règle du modèle, `motConfirmationConversation`).
-    expect(alerte).toContain('1 mail de cette conversation sera mis à jour');
-    expect(alerte).toContain('1 exception est conservée');
+    /* 🔴 LOT GESTION-FENETRES-SUIVI — le one shot est remplacé, et compté parmi les mails mis à jour. */
+    expect(alerte).toContain('2 mails de cette conversation seront mis à jour');
+    expect(alerte).toContain('1 fenêtre de suivi et 1 one shot seront remplacés');
     expect(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`))?.disabled).toBe(true);
     await cliquer(container.querySelector('.rdf-alerte input[type="checkbox"]'));
     expect(boutonPar(new RegExp(`^${MOT_VALIDER_MODIFICATION}$`))?.disabled).toBe(false);

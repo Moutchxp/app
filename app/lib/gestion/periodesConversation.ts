@@ -394,6 +394,11 @@ export interface EffetDuChoix {
   periodesRemplacees: number[];
   /** L'exception à retirer de ce mail, s'il en portait une et qu'on repose une règle de période. */
   exceptionRetiree: number | null;
+  /**
+   * 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « Toute la conversation » remplace AUSSI les one shot : les mails
+   * dont l'exception est retirée. Vide pour les deux autres choix (les one shot d'une fenêtre sont conservés).
+   */
+  exceptionsRemplacees: number[];
 }
 
 /**
@@ -461,6 +466,7 @@ export function effetDuChoix(o: {
       nouvelleException: null,
       periodesRemplacees: o.periodes.map((p) => p.id),
       exceptionRetiree: portaitUneException ? o.messageId : null,
+      exceptionsRemplacees: o.exceptions.map((e) => e.messageId).filter((m) => m !== o.messageId),
     };
   }
 
@@ -481,6 +487,7 @@ export function effetDuChoix(o: {
         nouvelleException: null,
         periodesRemplacees: deCeMail,
         exceptionRetiree: portaitUneException ? o.messageId : null,
+        exceptionsRemplacees: [],
       };
     }
   }
@@ -493,6 +500,7 @@ export function effetDuChoix(o: {
       // ⚠️ `null` : reposer une EXCEPTION sur ce mail ne « retire » rien — l'écriture la remplace (une seule
       //   exception vivante par mail, l'index unique partiel de la migration 290 le garantit).
       exceptionRetiree: null,
+      exceptionsRemplacees: [],
     };
   }
   return {
@@ -500,7 +508,36 @@ export function effetDuChoix(o: {
     nouvelleException: null,
     periodesRemplacees: deCeMail,
     exceptionRetiree: portaitUneException ? o.messageId : null,
+    exceptionsRemplacees: [],
   };
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — LES MAILS D'UNE FENÊTRE DE SUIVI. PUR. ══════════════════════
+ *
+ * RÈGLE D'ARNO : « Ce mail + futurs échanges » ouvre une FENÊTRE ; elle s'arrête au prochain mail qui a lui-même ouvert
+ * une fenêtre ; les mails antérieurs ne changent pas ; les one shot situés à l'intérieur sont conservés. « Toute la
+ * conversation » couvre tous les mails ; « ce mail uniquement », ce mail seul.
+ *
+ * `mails` est dans l'ordre CHRONOLOGIQUE ; `debuts` = les mails où une AUTRE fenêtre commence ; `exceptions` = les
+ * mails qui portent un one shot. Un mail absent de la liste ne couvre rien (on ne devine pas une position).
+ */
+export function mailsDeLaFenetre(o: {
+  mails: readonly number[]; messageId: number; choix: ChoixSuivi;
+  debuts: readonly number[]; exceptions: readonly number[];
+}): number[] {
+  if (o.choix === 'conversation') return [...o.mails];
+  const i = o.mails.indexOf(o.messageId);
+  if (i < 0) return [];
+  if (o.choix === 'mail') return [o.messageId];
+  const debuts = new Set(o.debuts.filter((d) => d !== o.messageId));
+  const exceptions = new Set(o.exceptions.filter((e) => e !== o.messageId));
+  const fenetre: number[] = [];
+  for (const m of o.mails.slice(i)) {
+    if (m !== o.messageId && debuts.has(m)) break;
+    if (!exceptions.has(m)) fenetre.push(m);
+  }
+  return fenetre;
 }
 
 /**
@@ -521,16 +558,28 @@ export function alerteTouteLaConversation(o: {
   versQuoi: string;
   /** Le mail qu'on est en train de classer : il change, même s'il portait une exception. */
   messageId: number;
+  /** 🔴 LOT GESTION-FENETRES-SUIVI — les fenêtres de suivi vivantes, toutes remplacées. Absent ⇒ non comptées. */
+  periodes?: readonly unknown[];
 }): string {
-  const avecException = new Set(o.exceptions.map((e) => e.messageId));
-  avecException.delete(o.messageId);
-  const reclasses = o.mails.filter((m) => !avecException.has(m)).length;
-  const gardees = avecException.size;
-  const phrase = `Les ${reclasses} mail${reclasses > 1 ? 's' : ''} de cette conversation seront reclassés sur `
-    + `${o.versQuoi}`;
-  if (gardees === 0) return `${phrase}.`;
-  return `${phrase} ; ${gardees} exception${gardees > 1 ? 's' : ''} ${gardees > 1 ? 'sont' : 'est'} conservée${
-    gardees > 1 ? 's' : ''}.`;
+  /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « Toute la conversation » réaligne TOUS les mails et remplace les
+     autres fenêtres ET les one shot : l'alerte le compte, au lieu d'annoncer des exceptions « conservées ». */
+  const n = o.mails.length;
+  const phrase = `Les ${n} mail${n > 1 ? 's' : ''} de cette conversation seront reclassés sur ${o.versQuoi}`;
+  const remplaces = motRemplaces(o.periodes?.length ?? 0, o.exceptions.filter((e) => e.messageId !== o.messageId).length);
+  return remplaces === null ? `${phrase}.` : `${phrase} ; ${remplaces}.`;
+}
+
+/** « 2 fenêtres de suivi et 1 one shot seront remplacés » — `null` s'il n'y a rien à remplacer. PUR. */
+export function motRemplaces(fenetres: number, oneShots: number): string | null {
+  const morceaux = [
+    fenetres > 0 ? `${fenetres} fenêtre${fenetres > 1 ? 's' : ''} de suivi` : null,
+    oneShots > 0 ? `${oneShots} one shot` : null,
+  ].filter((x): x is string => x !== null);
+  if (morceaux.length === 0) return null;
+  const pluriel = fenetres + oneShots > 1;
+  /* L'accord : « fenêtre » est féminin ; avec au moins un one shot, le masculin l'emporte. */
+  const accord = oneShots === 0 ? (pluriel ? 'remplacées' : 'remplacée') : (pluriel ? 'remplacés' : 'remplacé');
+  return `${morceaux.join(' et ')} ${pluriel ? 'seront' : 'sera'} ${accord}`;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

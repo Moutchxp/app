@@ -86,7 +86,7 @@ vi.mock('./horsGestionRepo', () => ({
 
 import {
   heriterLesNouveauxMails, poserClassement, projeterLeFil, reprendreExistant, MOTIF_POSE_PAR_SUIVI,
-  MOTIF_DETACHE_A_LA_MAIN,
+  MOTIF_DETACHE_A_LA_MAIN, MOTIF_REMPLACE_PAR_FENETRE,
 } from './periodeRepo';
 
 const AUTEUR = { id: 7, libelle: AUTEUR_LIBELLE };
@@ -108,12 +108,10 @@ const toutLeSql = () => sqls().join(' § ');
 function reponse(sql: string, params: unknown[] = []): { rows: unknown[] } {
   const s = sql.replace(/\s+/g, ' ');
   /* 🔴 LOT GESTION-DETACHER — les biens confirmés d'un mail, et les liens de ces biens sur ces mails. */
-  if (s.includes('SELECT DISTINCT r.cible_cle FROM gestion_rattachement r')) {
-    return { rows: [...new Set(base.liens.filter((l) => l.message === Number(params[0])).map((l) => l.cle))].map((c) => ({ cible_cle: c })) };
-  }
-  if (s.includes('SELECT r.id::text FROM gestion_rattachement r WHERE r.message_id = ANY($1::bigint[]) AND r.cible_cle = ANY($2::text[])')) {
-    const mails = (params[0] as number[]).map(Number); const cles = params[1] as string[];
-    return { rows: base.liens.filter((l) => mails.includes(l.message) && cles.includes(l.cle)).map((l) => ({ id: String(l.id) })) };
+  /* 🔴 LOT GESTION-FENETRES-SUIVI — les liens des mails gouvernés qui ne sont pas des biens gardés. */
+  if (s.includes('SELECT r.id::text, r.message_id::text FROM gestion_rattachement r WHERE r.message_id = ANY($1::bigint[]) AND NOT (r.cible_cle = ANY($2::text[]))')) {
+    const mails = (params[0] as number[]).map(Number); const gardes = params[1] as string[];
+    return { rows: base.liens.filter((l) => mails.includes(l.message) && !gardes.includes(l.cle)).map((l) => ({ id: String(l.id), message_id: String(l.message) })) };
   }
   if (s.includes('FROM gestion_message WHERE fil_id')) return { rows: base.mails.map((id) => ({ id: String(id) })) };
   if (s.includes('FROM gestion_fil_periode p')) {
@@ -531,7 +529,7 @@ describe('🔴🔴 ⑦ la reprise de l’existant ne perd rien', () => {
    pas. Il sort désormais du suivi par `changerStatut`, sur les mails que la portée couvre, et lui seul. */
 describe('🔴🔴 LOT GESTION-DETACHER — décocher un bien puis valider le détache', () => {
   const detaches = () => (changerStatut.mock.calls as unknown as [{ lienId: number; statut: string; motif?: string }][])
-    .map((c) => c[0]).filter((x) => x.motif === MOTIF_DETACHE_A_LA_MAIN);
+    .map((c) => c[0]).filter((x) => x.motif === MOTIF_DETACHE_A_LA_MAIN || x.motif === MOTIF_REMPLACE_PAR_FENETRE);
   it('🔴🔴 le seul bien (lien du moteur), « ce mail seul » : sorti de CE mail, par la porte existante', async () => {
     base.liens = [{ id: 1, message: 20, cle: '421', parLeSuivi: false }, { id: 2, message: 30, cle: '421', parLeSuivi: false }];
     const r = await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [] }, choix: 'mail', auteur: AUTEUR });
@@ -559,5 +557,49 @@ describe('🔴🔴 LOT GESTION-DETACHER — décocher un bien puis valider le d�
     base.liens = [{ id: 1, message: 20, cle: '421', parLeSuivi: false }];
     await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [{ cle: '421', libelle: 'A' }, BIEN] }, choix: 'mail', auteur: AUTEUR });
     expect(detaches()).toEqual([]);
+  });
+});
+
+/* ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — DES FENÊTRES SUCCESSIVES, QUI REMPLACENT ET NE CUMULENT PAS ═══ */
+describe('🔴🔴 LOT GESTION-FENETRES-SUIVI — « Ce mail + futurs échanges » ouvre une fenêtre qui REMPLACE', () => {
+  const sortis = () => (changerStatut.mock.calls as unknown as [{ lienId: number; motif?: string }][])
+    .map((c) => c[0]).filter((x) => x.motif === MOTIF_DETACHE_A_LA_MAIN || x.motif === MOTIF_REMPLACE_PAR_FENETRE)
+    .map((x) => x.lienId).sort((a, b) => a - b);
+  it('🔴🔴 CAS EXACT DU FIL 36646 : lot 21 confirmé par la 1ʳᵉ fenêtre (motif du moteur), nouvelle fenêtre lot 36 au même mail ⇒ le 21 sort de ce mail et des suivants, rien avant', async () => {
+    base.mails = [10, 20, 30, 40];
+    base.periodes = [{ id: '1', depuis: 20, sorte: 'biens', biens: [{ cle: '21', libelle: 'lot 21' }] }];
+    base.liens = [
+      { id: 1, message: 10, cle: '99', parLeSuivi: false },          // mail antérieur : jamais lu
+      { id: 2, message: 20, cle: '21', parLeSuivi: false },
+      { id: 3, message: 30, cle: '21', parLeSuivi: false },
+      { id: 4, message: 40, cle: '21', parLeSuivi: false },
+    ];
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'suite', auteur: AUTEUR });
+    expect(sortis()).toEqual([2, 3, 4]);
+    expect(toutLeSql()).not.toMatch(/DELETE FROM gestion_rattachement/);
+  });
+  it('🔴 la fenêtre s’arrête à la fenêtre suivante : ses mails gardent leur propre suivi (et une fenêtre posée AVANT une existante s’arrête à elle)', async () => {
+    base.mails = [10, 20, 30, 40];
+    base.periodes = [{ id: '1', depuis: 30, sorte: 'biens', biens: [{ cle: '77', libelle: 'lot 77' }] }];
+    base.liens = [{ id: 2, message: 20, cle: '21', parLeSuivi: false }, { id: 3, message: 30, cle: '77', parLeSuivi: false }, { id: 4, message: 40, cle: '77', parLeSuivi: false }];
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'suite', auteur: AUTEUR });
+    expect(sortis()).toEqual([2]);
+  });
+  it('🔴 un one shot à l’intérieur de la fenêtre est conservé', async () => {
+    base.mails = [10, 20, 30, 40];
+    base.exceptions = [{ id: '5', message: 30, sorte: 'biens', biens: [{ cle: '55', libelle: 'lot 55' }] }];
+    base.liens = [{ id: 2, message: 20, cle: '21', parLeSuivi: false }, { id: 3, message: 30, cle: '55', parLeSuivi: false }, { id: 4, message: 40, cle: '21', parLeSuivi: false }];
+    await poserClassement({ filId: 1, messageId: 20, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'suite', auteur: AUTEUR });
+    expect(sortis()).toEqual([2, 4]);
+  });
+  it('🔴 « Toute la conversation » réaligne tout : autres fenêtres et one shot remplacés (datés, jamais supprimés)', async () => {
+    base.mails = [10, 20, 30];
+    base.periodes = [{ id: '1', depuis: 30, sorte: 'biens', biens: [{ cle: '77', libelle: 'lot 77' }] }];
+    base.exceptions = [{ id: '5', message: 20, sorte: 'biens', biens: [{ cle: '55', libelle: 'lot 55' }] }];
+    base.liens = [{ id: 1, message: 10, cle: '21', parLeSuivi: false }, { id: 2, message: 20, cle: '55', parLeSuivi: false }, { id: 3, message: 30, cle: '77', parLeSuivi: false }];
+    await poserClassement({ filId: 1, messageId: 10, classement: { sorte: 'biens', biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'conversation', auteur: AUTEUR });
+    expect(sortis()).toEqual([1, 2, 3]);
+    expect(toutLeSql()).toContain('UPDATE gestion_message_exception e SET retiree_le = now() WHERE e.message_id = ANY($1::bigint[])');
+    expect(toutLeSql()).toContain('UPDATE gestion_fil_periode SET remplacee_le = now()');
   });
 });

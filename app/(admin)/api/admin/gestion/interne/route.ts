@@ -15,6 +15,9 @@ import {
   MOTIF_INTERNE_ANTERIEUR, mailsAnterieursAProteger, mailsCouvertsParLeChoix, type ChoixInterne,
 } from '../../../../../lib/gestion/interneDuMail';
 import { declarerNonInterneDesMessages } from '../../../../../lib/gestion/interneMessageRepo';
+// 🔴🔴 LOT GESTION-FENETRES-SUIVI — « Interne » est une fenêtre de suivi comme les autres (règle 6 d'Arno).
+import { mailsDeLaFenetre } from '../../../../../lib/gestion/periodesConversation';
+import { fenetresDuMail, fermerFenetresInterne, poserClassement } from '../../../../../lib/gestion/periodeRepo';
 import { photoDuFondEnBase } from '../../../../../lib/gestion/traceOneShotRepo';
 /**
  * 🔴🔴 LOT PIECES-RECUPEREES-ET-INTERNE-SYMETRIQUE, POINT 2 — marquer « interne » DÉTACHE les biens du mail,
@@ -99,7 +102,7 @@ export async function GET(request: Request): Promise<Response> {
     if (url.searchParams.get('detacherait') === '1') {
       const n = Number(url.searchParams.get('messageId'));
       const choixBrut = url.searchParams.get('choix');
-      const couverts = mailsDuGeste({
+      const couverts = await mailsDuGeste({
         messageId: Number.isSafeInteger(n) && n > 0 ? n : null,
         mails: lireFilIds(url.searchParams.get('mails')),
         choix: choixBrut === 'mail' || choixBrut === 'suite' ? choixBrut : 'conversation',
@@ -125,7 +128,7 @@ export async function GET(request: Request): Promise<Response> {
       const n = Number(url.searchParams.get('messageId'));
       const messageId = Number.isSafeInteger(n) && n > 0 ? n : null;
       const choixBrut = url.searchParams.get('choix');
-      const couverts = mailsDuGeste({
+      const couverts = await mailsDuGeste({
         messageId,
         mails: lireFilIds(url.searchParams.get('mails')),
         choix: choixBrut === 'mail' || choixBrut === 'suite' ? choixBrut : 'conversation',
@@ -234,9 +237,23 @@ async function corpsDuGeste(request: Request): Promise<{
  * ⚠️ RIEN À MARQUER PAR MAIL quand l'appelant ne donne ni mail visé ni liste : le geste reste celui de l'ÉCHANGE,
  * exactement comme avant ce lot. On ne devine pas une portée.
  */
-function mailsDuGeste(c: { messageId: number | null; mails: number[]; choix: ChoixInterne }): number[] {
+async function mailsDuGeste(c: { messageId: number | null; mails: number[]; choix: ChoixInterne }): Promise<number[]> {
   if (c.messageId === null || c.mails.length === 0) return [];
+  /* 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « Ce mail + futurs échanges » s'arrête à la fenêtre suivante et
+     ne touche pas aux one shot qu'elle contient. Sans fenêtres lisibles (migration 290 absente), la découpe d'avant. */
+  if (c.choix === 'suite') {
+    const f = await fenetresDuMail(c.messageId);
+    if (f !== null) return mailsDeLaFenetre({ mails: c.mails, messageId: c.messageId, choix: 'suite', debuts: f.debuts, exceptions: f.exceptions });
+  }
   return mailsCouvertsParLeChoix(c.mails, c.messageId, c.choix);
+}
+
+/** La fenêtre ouverte à ce mail est-elle la DERNIÈRE de la conversation (aucune fenêtre ne commence après) ? */
+async function fenetreDerniere(messageId: number, mails: readonly number[]): Promise<boolean> {
+  const f = await fenetresDuMail(messageId);
+  if (f === null) return true;
+  const i = mails.indexOf(messageId);
+  return !f.debuts.some((d) => mails.indexOf(d) > i);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -294,6 +311,10 @@ export async function POST(request: Request): Promise<Response> {
      * conversation » ne changent pas.
      */
     const ceMailSeul = corps.choix === 'mail' && corps.messageId !== null;
+    /* 🔴🔴 LOT GESTION-FENETRES-SUIVI — « Ce mail + futurs échanges » ne pose la marque d'ÉCHANGE (qui fait hériter les
+       réponses à venir) que si cette fenêtre est la DERNIÈRE : sinon les réponses à venir suivent la dernière fenêtre. */
+    const sansMarqueEchange = ceMailSeul || (corps.choix === 'suite' && corps.messageId !== null && corps.mails.length > 0
+      && !(await fenetreDerniere(corps.messageId, corps.mails)));
     /**
      * ══ 🔴🔴 LOT RATTACHEMENT-CONVERSATION (16/10/2026) — « CE MAIL + FUTURS ÉCHANGES » NE REMONTE PLUS DANS LE PASSÉ ══
      * La marque d'échange posée juste en dessous est le repli des mails sans ligne propre : les mails PLUS ANCIENS que
@@ -310,7 +331,7 @@ export async function POST(request: Request): Promise<Response> {
     if (anterieurs.length > 0) {
       await declarerNonInterneDesMessages({ messageIds: anterieurs, auteur, motif: MOTIF_INTERNE_ANTERIEUR });
     }
-    const issue = ceMailSeul ? { ok: true as const, nb: 0 } : await marquerInterne({ filIds: corps.filIds, auteur });
+    const issue = sansMarqueEchange ? { ok: true as const, nb: 0 } : await marquerInterne({ filIds: corps.filIds, auteur });
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409, headers: ENTETES });
     /**
      * 🔴🔴 POINT 7 — ET LA MARQUE PAR MAIL, POUR LES MAILS QUE LE CHOIX COUVRE. Les deux sont écrites, et c'est
@@ -320,7 +341,7 @@ export async function POST(request: Request): Promise<Response> {
      * ⚠️ SON ÉCHEC NE FAIT PAS ÉCHOUER LE GESTE : la marque d'échange est posée, l'écran est donc déjà juste par
      * le repli. On rend le nombre, et l'appelant peut le dire.
      */
-    const couverts = mailsDuGeste(corps);
+    const couverts = await mailsDuGeste(corps);
     /* 🔴 LOT TRACE-ONE-SHOT (342) — la portée choisie est enregistrée sur chaque marque posée par ce geste. */
     const parMail = await marquerInterneDesMessages({
       messageIds: couverts, auteur, portee: corps.choix, ...(photo === null ? {} : { fondAvant: photo }),
@@ -338,6 +359,18 @@ export async function POST(request: Request): Promise<Response> {
      * des liens, l'écran ne saurait pas quoi remettre.
      */
     const detaches = await detacherBiensApresInterne(couverts, auteur);
+    /**
+     * ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI — ET LA FENÊTRE « INTERNE » EST ENREGISTRÉE (règles 2, 5, 6, 7 d'Arno) ══════════
+     * APRÈS les marques et le détachement (la porte de ce verbe, que son « Annuler » sait défaire). Une période « interne »
+     * comme les autres : les fenêtres se suivent sans s'écraser, « Toute la conversation » remplace les autres fenêtres et
+     * les one shot, et les réponses à venir suivent la dernière fenêtre. Son échec ne défait pas le geste déjà fait.
+     */
+    if ((corps.choix === 'suite' || corps.choix === 'conversation') && corps.messageId !== null && corps.mails.length > 0
+      && corps.filIds.length === 1) {
+      try {
+        await poserClassement({ filId: corps.filIds[0], messageId: corps.messageId, classement: { sorte: 'interne', biens: [] }, choix: corps.choix, auteur });
+      } catch (e) { console.error('[api/admin/gestion/interne] fenêtre « Interne » non enregistrée', e); }
+    }
     return Response.json(
       { ok: true, nb: issue.nb, nbMails: parMail.ok ? parMail.nb : 0, detaches }, { headers: ENTETES });
   } catch (e) {
@@ -376,7 +409,7 @@ export async function DELETE(request: Request): Promise<Response> {
      * n'aurait AUCUN effet visible, et l'on cliquerait trois fois avant de conclure que le bouton est cassé.
      */
     const parMail = await annulerInterneDesMessages({
-      messageIds: mailsDuGeste(corps), auteur, motif: corps.motif,
+      messageIds: await mailsDuGeste(corps), auteur, motif: corps.motif,
     });
     /**
      * ══ 🔴🔴 POINT 2 — ET L'« ANNULER » REMET LES BIENS DÉTACHÉS ════════════════════════════════════════════════
@@ -392,6 +425,13 @@ export async function DELETE(request: Request): Promise<Response> {
      * marque et ne touche à aucun rattachement.
      */
     const remis = corps.remettre.length === 0 ? 0 : await remettreBiensDetaches(corps.remettre, auteur);
+    /* 🔴🔴 LOT GESTION-FENETRES-SUIVI — retirer « Interne » ferme aussi sa FENÊTRE (celle ouverte à ce mail, ou toutes pour
+       « toute la conversation »), sans quoi la projection suivante la reposerait. Datée, jamais supprimée. */
+    if (corps.choix !== 'mail' && corps.filIds.length === 1 && !(corps.choix === 'suite' && corps.messageId === null)) {
+      try {
+        await fermerFenetresInterne({ filId: corps.filIds[0], depuis: corps.choix === 'suite' ? corps.messageId : null, auteur });
+      } catch (e) { console.error('[api/admin/gestion/interne] fenêtre « Interne » non fermée', e); }
+    }
     return Response.json(
       { ok: true, nb: issue.nb, nbMails: parMail.ok ? parMail.nb : 0, remis }, { headers: ENTETES });
   } catch (e) {

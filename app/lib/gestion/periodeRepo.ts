@@ -3,7 +3,7 @@ import {
   periodesDisponibles, rattachementsDisponibles, interventionsDisponibles, interneDuMessageDisponible,
 } from './schema';
 import {
-  effetDuChoix, periodeEnCours, projeter, reprendre, repriseFidele, simplifierLeSuivi,
+  effetDuChoix, mailsDeLaFenetre, periodeEnCours, projeter, reprendre, repriseFidele, simplifierLeSuivi,
   type ChoixSuivi, type Classement, type ExceptionMail, type Periode, type PersonneClassee,
   type Simplification,
 } from './periodesConversation';
@@ -23,7 +23,7 @@ import { marquerHorsGestion, annulerHorsGestion } from './horsGestionRepo';
 import {
   marquerInterneDesMessages, annulerInterneDesMessages, declarerNonInterneDesMessages,
 } from './interneMessageRepo';
-import { MOTIF_INTERNE_PAR_SUIVI, mailsCouvertsParLeChoix } from './interneDuMail';
+import { MOTIF_INTERNE_PAR_SUIVI } from './interneDuMail';
 import { sqlLiensDuBien } from './rattachement';
 import type { PeriodeAncienne } from './changementsSuivi';
 /**
@@ -446,8 +446,6 @@ export async function poserClassement(o: {
    * d'après la première ressusciterait une ligne que ce geste-ci n'avait pas fermée.
    */
   const trace = traceVide(o.filId, o.messageId);
-  /* 🔴 LOT GESTION-DETACHER — les biens DÉCOCHÉS sur ce mail, lus AVANT toute écriture (voir `detacherLesBiensDecoches`). */
-  const decoches = await biensDecochesSurLeMail(o.messageId, o.classement);
 
   /**
    * 🔴🔴 LOT TRACE-ONE-SHOT (342) — LA PHOTO DU SUIVI DE FOND, JUSTE AVANT LE GESTE. Décision d'Arno : « chaque geste
@@ -470,6 +468,16 @@ export async function poserClassement(o: {
           WHERE id = ANY($1::bigint[]) AND remplacee_le IS NULL RETURNING id::text`,
         [effet.periodesRemplacees, libelle]);
       trace.periodesRemplacees = rows.map((r) => Number(r.id));
+    }
+    // 🔴 LOT GESTION-FENETRES-SUIVI — « Toute la conversation » remplace aussi les one shot (datés, jamais supprimés).
+    if (effet.exceptionsRemplacees.length > 0) {
+      const { rows } = await q<{ id: string }>(
+        `UPDATE gestion_message_exception e SET retiree_le = now()
+          WHERE e.message_id = ANY($1::bigint[]) AND e.retiree_le IS NULL
+            AND EXISTS (SELECT 1 FROM gestion_message m WHERE m.id = e.message_id AND m.fil_id = $2)
+          RETURNING e.id::text`,
+        [effet.exceptionsRemplacees, o.filId]);
+      trace.exceptionsRetirees = [...trace.exceptionsRetirees, ...rows.map((r) => Number(r.id))];
     }
     // ② L'exception du mail qu'on reclasse en période : retirée, sinon elle masquerait la règle qu'on pose.
     if (effet.exceptionRetiree !== null) {
@@ -523,8 +531,16 @@ export async function poserClassement(o: {
     // 🔴 SEUL « Toute la conversation » remplace un lien posé à la main — et il l'annonce avant (voir la modale).
     remplacerLesLiensManuels: o.choix === 'conversation',
   });
-  const detaches = await detacherLesBiensDecoches({
-    mails: mailsCouvertsParLeChoix(mails, o.messageId, o.choix), cles: decoches, auteur: o.auteur,
+  /* 🔴 LOT GESTION-FENETRES-SUIVI — les mails que CE geste gouverne (la fenêtre ouverte, ce mail seul, ou toute la
+     conversation), lus APRÈS les écritures : ils ne gardent que les biens choisis. */
+  const apres = await suiviDuFil(o.filId);
+  const gouvernes = mailsDeLaFenetre({
+    mails, messageId: o.messageId, choix: o.choix,
+    debuts: apres.periodes.map((p) => p.depuisMessageId), exceptions: apres.exceptions.map((e) => e.messageId),
+  });
+  const detaches = await alignerSurLaFenetre({
+    messageId: o.messageId, mails: gouvernes, auteur: o.auteur,
+    gardes: o.classement.sorte === 'biens' ? o.classement.biens.map((b) => b.cle) : [],
   });
   if (detaches.length > 0) trace.liensDetaches = detaches;
   return { ok: true, projetes: projetes + detaches.length, trace };
@@ -544,27 +560,34 @@ export async function poserClassement(o: {
  * autres liens posés à la main ou par le moteur ne sont jamais touchés par ce geste.
  */
 export const MOTIF_DETACHE_A_LA_MAIN = 'bien décoché à la main dans la fenêtre de rattachement';
+/** 🔴 LOT GESTION-FENETRES-SUIVI — le motif d'un bien retiré d'un mail parce qu'une nouvelle fenêtre de suivi le gouverne. */
+export const MOTIF_REMPLACE_PAR_FENETRE = 'remplacé par le suivi choisi dans la fenêtre de rattachement';
 
-/** Les biens confirmés sur ce mail qui ne sont plus dans la décision. LECTURE SEULE. */
-async function biensDecochesSurLeMail(messageId: number, c: Classement): Promise<string[]> {
-  if (c.sorte !== 'biens') return [];
-  const gardes = new Set(c.biens.map((b) => b.cle));
-  const { rows } = await query<{ cible_cle: string }>(
-    `SELECT DISTINCT r.cible_cle FROM gestion_rattachement r WHERE r.message_id = $1 AND ${sqlLiensDuBien('r')}`,
-    [messageId]);
-  return rows.map((r) => r.cible_cle).filter((k) => !gardes.has(k));
-}
-
-/** Sort du suivi les liens de ces biens sur ces mails. Rend les identifiants réellement sortis (pour l'« Annuler »). */
-async function detacherLesBiensDecoches(o: { mails: readonly number[]; cles: readonly string[]; auteur: Auteur }): Promise<number[]> {
-  if (o.mails.length === 0 || o.cles.length === 0) return [];
-  const { rows } = await query<{ id: string }>(
-    `SELECT r.id::text FROM gestion_rattachement r
-      WHERE r.message_id = ANY($1::bigint[]) AND r.cible_cle = ANY($2::text[]) AND ${sqlLiensDuBien('r')}
-      ORDER BY r.id`, [[...o.mails], [...o.cles]]);
+/**
+ * ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — LES MAILS D'UNE FENÊTRE NE GARDENT QUE SES BIENS ══════════════
+ *
+ * DÉFAUT CONSTATÉ (fil 36646) : « Ce mail + futurs échanges » au milieu d'une conversation AJOUTAIT les biens du nouveau
+ * suivi à ceux d'avant. La projection confirme le bien d'une fenêtre en reprenant la proposition du moteur — qui garde
+ * son motif d'origine — puis, au changement de fenêtre, ne retire que les liens au motif « posé par le suivi ».
+ *
+ * 🔴 RÈGLE : sur les mails que le geste gouverne (`mailsDeLaFenetre` : de ce mail jusqu'à la fenêtre suivante, one shot
+ * exclus ; ou ce mail seul ; ou toute la conversation), tout lien de bien confirmé qui n'est pas un des biens choisis
+ * sort du suivi par la porte existante (`changerStatut` → « sorti du suivi », restaurable, journalisé ; verrou
+ * 339-340 : aucune suppression). Les mails antérieurs et les autres fenêtres ne sont jamais lus. Les liens rendus
+ * servent à l'« Annuler ».
+ */
+async function alignerSurLaFenetre(o: {
+  messageId: number; mails: readonly number[]; gardes: readonly string[]; auteur: Auteur;
+}): Promise<number[]> {
+  if (o.mails.length === 0) return [];
+  const { rows } = await query<{ id: string; message_id: string }>(
+    `SELECT r.id::text, r.message_id::text FROM gestion_rattachement r
+      WHERE r.message_id = ANY($1::bigint[]) AND NOT (r.cible_cle = ANY($2::text[])) AND ${sqlLiensDuBien('r')}
+      ORDER BY r.id`, [[...o.mails], [...o.gardes]]);
   const faits: number[] = [];
   for (const r of rows) {
-    const issue = await changerStatut({ lienId: Number(r.id), statut: 'retire', auteur: o.auteur, motif: MOTIF_DETACHE_A_LA_MAIN });
+    const motif = Number(r.message_id) === o.messageId ? MOTIF_DETACHE_A_LA_MAIN : MOTIF_REMPLACE_PAR_FENETRE;
+    const issue = await changerStatut({ lienId: Number(r.id), statut: 'retire', auteur: o.auteur, motif });
     if (issue.ok) faits.push(Number(r.id));
   }
   return faits;
@@ -647,8 +670,8 @@ export async function annulerClassement(o: {
       const { rows: surs } = await q<{ id: string }>(
         `SELECT r.id::text FROM gestion_rattachement r JOIN gestion_message m ON m.id = r.message_id
           WHERE r.id = ANY($1::bigint[]) AND m.fil_id = $2 AND r.statut = 'sorti'
-            AND coalesce(r.sorti_motif, '') = $3 AND r.sorti_le > now() - interval '2 minutes'`,
-        [detaches, t.filId, MOTIF_DETACHE_A_LA_MAIN]);
+            AND coalesce(r.sorti_motif, '') = ANY($3::text[]) AND r.sorti_le > now() - interval '2 minutes'`,
+        [detaches, t.filId, [MOTIF_DETACHE_A_LA_MAIN, MOTIF_REMPLACE_PAR_FENETRE]]);
       const { restaurerLeLien } = await import('./sortieSuiviRepo');
       for (const r of surs) await restaurerLeLien(q, Number(r.id), o.auteur, 'annulation du détachement');
     }
@@ -1439,4 +1462,35 @@ export async function poserSuiviAutomatique(
   await ecrireBiens(q, 'gestion_fil_periode_bien', 'periode_id', Number(rows[0].id),
     { sorte: 'biens', biens: [{ cle: bien.cle, libelle: bien.libelle }] } as Classement);
   return true;
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI — LES FENÊTRES DE LA CONVERSATION D'UN MAIL (pour « Interne »). LECTURE SEULE. ══════
+ * `debuts` : les mails où une fenêtre vivante commence ; `exceptions` : les mails qui portent un one shot vivant.
+ * `null` sans la migration 290 ou si le mail est inconnu : l'appelant garde alors sa découpe d'avant.
+ */
+export async function fenetresDuMail(messageId: number): Promise<{ filId: number; debuts: number[]; exceptions: number[] } | null> {
+  if (!(await periodesDisponibles())) return null;
+  const { rows } = await query<{ fil_id: string }>('SELECT fil_id::text FROM gestion_message WHERE id = $1', [messageId]);
+  if (rows.length === 0) return null;
+  const filId = Number(rows[0].fil_id);
+  const s = await suiviDuFil(filId);
+  return { filId, debuts: s.periodes.map((p) => p.depuisMessageId), exceptions: s.exceptions.map((e) => e.messageId) };
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI — RETIRER « INTERNE » FERME SA FENÊTRE ══════════════════════════════════════════════
+ * Les fenêtres « Interne » vivantes qui commencent à ce mail (`depuis`), ou toutes celles de la conversation (`null`),
+ * sont DATÉES (`remplacee_le`), jamais supprimées ; puis la conversation est reprojetée. Rend le nombre de fenêtres fermées.
+ */
+export async function fermerFenetresInterne(o: { filId: number; depuis: number | null; auteur: Auteur }): Promise<number> {
+  if (!(await periodesDisponibles())) return 0;
+  const libelle = (o.auteur.libelle ?? '').trim();
+  if (libelle === '' || libelle.toLowerCase() === 'automatique') return 0;
+  const { rows } = await query<{ id: string }>(
+    `UPDATE gestion_fil_periode SET remplacee_le = now(), remplacee_par_libelle = $3
+      WHERE fil_id = $1 AND sorte = 'interne' AND remplacee_le IS NULL AND ($2::bigint IS NULL OR depuis_message_id = $2)
+      RETURNING id::text`, [o.filId, o.depuis, libelle]);
+  if (rows.length > 0) await projeterLeFil(o.filId, o.auteur);
+  return rows.length;
 }

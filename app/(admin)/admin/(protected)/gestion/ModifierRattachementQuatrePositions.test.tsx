@@ -327,7 +327,8 @@ describe('⑥ le bouton final et ce qu’il écrit', () => {
     await monter();
     await decocher();
     await cliquer(libelle(/Toute la conversation/));
-    expect(container.querySelector('.rdf-alerte')?.textContent).toContain('12 mails de cette conversation seront mis à jour.');
+    /* 🔴 LOT GESTION-FENETRES-SUIVI — l'annonce compte aussi les fenêtres remplacées. */
+    expect(container.querySelector('.rdf-alerte')?.textContent).toContain('12 mails de cette conversation seront mis à jour ; 1 fenêtre de suivi sera remplacée.');
     expect((bouton(/^Valider la modification du suivi$/) as HTMLButtonElement).disabled).toBe(true);
     await cliquer(container.querySelector('.rdf-alerte input[type="checkbox"]') as Element);
     await cliquer(bouton(/^Valider la modification du suivi$/) as Element);

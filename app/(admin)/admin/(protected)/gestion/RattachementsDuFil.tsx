@@ -441,7 +441,7 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
           demandeOrigine={demandeOrigine} onChoisir={choisirPosition}
           onOuiOrigine={revenirALOrigine} onNonOrigine={() => setDemandeOrigine(false)}
           confirmation={position === 'conversation' && modification
-            ? motConfirmationConversation({ mails: mailsPourConfirmation, exceptions: lu.exceptions, messageId: -1 }) : null}
+            ? motConfirmationConversation({ mails: mailsPourConfirmation, exceptions: lu.exceptions, messageId: -1, periodes: lu.periodes }) : null}
           confirme={confirme} onConfirme={() => setConfirme((v) => !v)}
           bouton={bouton} desactive={modification && position === 'conversation' && !confirme}
           onValider={() => { if (bouton.inactif) appelerLesBiens(); else validerDuContenu.current?.(); }} />
@@ -1443,7 +1443,7 @@ function RattachementsDuFilMail({
    * Comportement existant, repris sans une virgule de changement (lot SUIVI-CONVERSATION).
    */
   const alerte = suivi === null || mailId === null ? '' : alerteTouteLaConversation({
-    mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId,
+    mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId, periodes: suivi.periodes,
     versQuoi: motClassement({
       sorte: 'biens',
       biens: (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle })),
@@ -1518,7 +1518,7 @@ function RattachementsDuFilMail({
       demandeOrigine={demandeOrigine} onChoisir={choisirPosition}
       onOuiOrigine={revenirALOrigine} onNonOrigine={() => setDemandeOrigine(false)}
       confirmation={position === 'conversation' && modification && suivi !== null && mailId !== null
-        ? motConfirmationConversation({ mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId }) : null}
+        ? motConfirmationConversation({ mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId, periodes: suivi.periodes }) : null}
       confirme={confirme} onConfirme={() => setConfirme((v) => !v)}
       bouton={bouton} desactive={sansPosition || occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
       onValider={validerLaPortee} />

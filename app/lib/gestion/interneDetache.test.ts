@@ -117,7 +117,7 @@ describe('🔴🔴 ③ les trois fenêtres d’Arno découpent le geste', () => 
   /** 🔴 ET LA ROUTE EMPLOIE BIEN CETTE DÉCOUPE pour choisir les mails à détacher. */
   it('🔴 la route détache les mails que la fenêtre couvre, et pas d’autres', () => {
     const r = readFileSync('app/(admin)/api/admin/gestion/interne/route.ts', 'utf8');
-    expect(r).toContain('const couverts = mailsDuGeste(corps);');
+    expect(r).toContain('const couverts = await mailsDuGeste(corps);');
     expect(r).toContain('const detaches = await detacherBiensApresInterne(couverts, auteur);');
     /* 🔴 ET L'APERÇU DE LA CONFIRMATION PORTE SUR LA MÊME DÉCOUPE : une confirmation qui nommerait d'autres biens
        que ceux qui partiront serait pire que pas de confirmation. */

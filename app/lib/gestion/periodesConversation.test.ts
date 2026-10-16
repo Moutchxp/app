@@ -239,17 +239,19 @@ describe('🔴🔴 ⑤ ce que l’alerte annonce', () => {
   });
 
   /** ⚠️ ON NE COMPTE PAS LES MAILS QU'ON NE RECLASSE PAS : une alerte qui exagère ne se lit plus. */
-  it('🔴🔴 avec des exceptions : elles sortent du compte, et sont annoncées conservées', () => {
+  /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — « Toute la conversation » réaligne TOUS les mails et REMPLACE les
+     one shot et les autres fenêtres : l'alerte les compte (avant ce lot, elle annonçait des exceptions « conservées »). */
+  it('🔴🔴 avec des one shot et des fenêtres : tous les mails sont reclassés, one shot et fenêtres annoncés remplacés', () => {
     expect(alerteTouteLaConversation({
       mails: [1, 2, 3, 4, 5], exceptions: [exception(2, bien('C')), exception(4, bien('E'))],
-      versQuoi: 'Interne', messageId: 5,
-    })).toBe('Les 3 mails de cette conversation seront reclassés sur Interne ; 2 exceptions sont conservées.');
+      versQuoi: 'Interne', messageId: 5, periodes: [{}, {}],
+    })).toBe('Les 5 mails de cette conversation seront reclassés sur Interne ; 2 fenêtres de suivi et 2 one shot seront remplacés.');
   });
 
   it('⚠️ une seule exception se dit au singulier', () => {
     expect(alerteTouteLaConversation({
       mails: [1, 2], exceptions: [exception(1, bien('C'))], versQuoi: 'Interne', messageId: 2,
-    })).toContain('1 exception est conservée.');
+    })).toContain('1 one shot sera remplacé.');
   });
 
   /** 🔴 LE MAIL QU'ON CLASSE CHANGE, MÊME S'IL PORTAIT UNE EXCEPTION : il est dans le compte. */
@@ -838,5 +840,41 @@ describe('🔴 bulleException', async () => {
       .toBe('Exception : ce mail est rattaché à 54 Avenue Puvis De Chavannes, COURBEVOIE — lot 21, différent du suivi de la conversation');
     expect(bulleException({ sorte: 'interne', biens: [] })).toBe('Exception : ce mail est classé « Interne », différent du suivi de la conversation');
     expect(bulleException({ sorte: 'hors_gestion', biens: [] })).toBe('Exception : ce mail est classé « Hors gestion », différent du suivi de la conversation');
+  });
+});
+
+/* ══ 🔴🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — les mails d'une fenêtre, et « Toute la conversation » ══════════ */
+describe('🔴🔴 mailsDeLaFenetre', async () => {
+  const { mailsDeLaFenetre, effetDuChoix: effet } = await import('./periodesConversation');
+  const M = [1, 2, 3, 4, 5];
+  it('de ce mail jusqu’à la fenêtre suivante (exclue) ; les mails antérieurs jamais', () => {
+    expect(mailsDeLaFenetre({ mails: M, messageId: 2, choix: 'suite', debuts: [4], exceptions: [] })).toEqual([2, 3]);
+    expect(mailsDeLaFenetre({ mails: M, messageId: 2, choix: 'suite', debuts: [2], exceptions: [] })).toEqual([2, 3, 4, 5]);
+  });
+  it('une fenêtre posée AVANT une fenêtre existante s’arrête à elle ; les one shot sont sautés', () => {
+    expect(mailsDeLaFenetre({ mails: M, messageId: 1, choix: 'suite', debuts: [3], exceptions: [2] })).toEqual([1]);
+  });
+  it('« ce mail uniquement » : lui ; « toute la conversation » : tous ; mail inconnu : rien', () => {
+    expect(mailsDeLaFenetre({ mails: M, messageId: 3, choix: 'mail', debuts: [], exceptions: [] })).toEqual([3]);
+    expect(mailsDeLaFenetre({ mails: M, messageId: 3, choix: 'conversation', debuts: [4], exceptions: [2] })).toEqual(M);
+    expect(mailsDeLaFenetre({ mails: M, messageId: 9, choix: 'suite', debuts: [], exceptions: [] })).toEqual([]);
+  });
+  it('🔴 « Toute la conversation » remplace aussi les one shot ; « la suite » et « ce mail » jamais', () => {
+    const exceptions = [{ messageId: 2, classement: { sorte: 'biens' as const, biens: [] } }, { messageId: 4, classement: { sorte: 'interne' as const, biens: [] } }];
+    const bienA = { sorte: 'biens' as const, biens: [{ cle: 'A', libelle: 'A' }] };
+    expect(effet({ choix: 'conversation', messageId: 3, classement: bienA, periodes: [], exceptions }).exceptionsRemplacees).toEqual([2, 4]);
+    expect(effet({ choix: 'suite', messageId: 3, classement: bienA, periodes: [], exceptions }).exceptionsRemplacees).toEqual([]);
+    expect(effet({ choix: 'mail', messageId: 3, classement: bienA, periodes: [], exceptions }).exceptionsRemplacees).toEqual([]);
+  });
+});
+
+describe('🔴 motRemplaces — l’accord', async () => {
+  const { motRemplaces } = await import('./periodesConversation');
+  it('fenêtre (féminin), one shot (masculin), mélange', () => {
+    expect(motRemplaces(1, 0)).toBe('1 fenêtre de suivi sera remplacée');
+    expect(motRemplaces(2, 0)).toBe('2 fenêtres de suivi seront remplacées');
+    expect(motRemplaces(0, 1)).toBe('1 one shot sera remplacé');
+    expect(motRemplaces(1, 1)).toBe('1 fenêtre de suivi et 1 one shot seront remplacés');
+    expect(motRemplaces(0, 0)).toBeNull();
   });
 });

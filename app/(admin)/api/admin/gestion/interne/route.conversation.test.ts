@@ -19,6 +19,10 @@ const base = vi.hoisted(() => ({
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerCompteActif: async () => null }));
 vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 2, libelle: 'a.jorel@sansvisavis.com' }) }));
 vi.mock('../../../../../lib/gestion/schema', () => ({ interneDisponible: async () => true, interneDuMessageDisponible: async () => true }));
+/* 🔴 LOT GESTION-FENETRES-SUIVI — la conversation n'a pas de fenêtre lisible ici : la route garde sa découpe d'avant. */
+vi.mock('../../../../../lib/gestion/periodeRepo', () => ({
+  fenetresDuMail: async () => null, poserClassement: async () => ({ ok: true, projetes: 0 }), fermerFenetresInterne: async () => 0,
+}));
 vi.mock('../../../../../lib/gestion/traceOneShotRepo', () => ({ photoDuFondEnBase: async () => null }));
 vi.mock('../../../../../lib/gestion/interneRepo', () => ({
   lireInterne: async () => (base.filMarque ? new Map([[1, {}]]) : new Map()),
