@@ -88,6 +88,7 @@ La dernière ligne `═══ … ═══` du journal dit dans quel cas on est
 | `ÉCHEC — RETOUR ARRIÈRE FAIT, ancienne version en service et vérifiée` | la nouvelle version a échoué une vérification ; le site est revenu tout seul et répond | envoyer le journal ; rien d'urgent |
 | `ÉCHEC — RETOUR ARRIÈRE AVEC … PROBLÈME(S)` | **urgent** : le retour lui-même a rencontré un problème | ouvrir le site ; puis « Revenir en arrière à la main » ci-dessous, et prévenir Claude |
 | pas de ligne `═══` (Terminal coupé) | la mise à jour continue peut-être | `npm run prod:mettre-a-jour -- --suivre` |
+| « RÉSULTAT INCONNU — connexion perdue » (code 3) | la connexion ssh a été coupée avant la ligne `═══`, et 6 reconnexions automatiques (reprise du journal là où il s'était arrêté) n'ont pas suffi. **Rien n'est conclu** : ne jamais lancer `--appliquer` sur la foi de cet essai | la commande affichée (lecture seule de la fin du journal), ou `--suivre` |
 
 ## Revenir en arrière à la main
 

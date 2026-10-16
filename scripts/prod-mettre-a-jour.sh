@@ -31,29 +31,75 @@ for a in "$@"; do
   esac
 done
 
-suivre() { # $1 = id de la mise à jour ; affiche le journal jusqu'à la fin de l'unité svav-maj, rend son code
-  local id=$1
-  ssh -o ServerAliveInterval=30 $SERVEUR "bash -s" <<EOF
+# Commande ssh et reprise après coupure : injectables pour les tests (scripts/prodMettreAJour.test.ts), jamais utile à la main.
+SSH=${SVAV_SSH:-ssh}
+PAUSE=${SVAV_MAJ_PAUSE:-10}   # secondes entre deux reconnexions
+ESSAIS=${SVAV_MAJ_ESSAIS:-6}  # reconnexions au plus après une coupure (l'unité svav-maj continue côté serveur)
+
+# Une lecture du journal, à partir de la ligne $2, jusqu'à la fin de l'unité svav-maj. Rend le code de ssh.
+suivre_une_fois() {
+  local id=$1 depuis=$2
+  $SSH -o ServerAliveInterval=15 -o ServerAliveCountMax=4 $SERVEUR "bash -s" <<EOF
 L=$MAJ/$id.log
 for i in \$(seq 1 30); do [ -f "\$L" ] && break; sleep 1; done
-tail -n +1 -F "\$L" 2>/dev/null & T=\$!
+tail -n +$depuis -F "\$L" 2>/dev/null & T=\$!
 sleep 2
 while [ "\$(systemctl show -p ActiveState --value svav-maj.service < /dev/null)" = active ] || [ "\$(systemctl show -p ActiveState --value svav-maj.service < /dev/null)" = activating ]; do sleep 2; done
 sleep 2; kill \$T 2>/dev/null
 EOF
-  local code; code=$(ssh $SERVEUR "cat $MAJ/$id.code 2>/dev/null" < /dev/null)
-  if [[ -z $code ]]; then
-    echo "⛔ pas de code de fin : l'unité s'est arrêtée sans conclure. Dernières lignes du système :"
-    ssh $SERVEUR "journalctl -u svav-maj -n 20 --no-pager" < /dev/null
-    return 1
-  fi
-  return "$code"
+}
+
+# 🔴 LA CONCLUSION NE VIENT QUE DE LA LIGNE FINALE DU SERVEUR (« ═══ ESSAI RÉUSSI … ═══ », « ═══ MISE À JOUR RÉUSSIE … ═══ »,
+# « ═══ REFUSÉ … ═══ », « ═══ ÉCHEC … ═══ »), lue dans le journal effectivement reçu. Une coupure ssh (code ≠ 0) avant
+# cette ligne : on se reconnecte et on reprend le journal là où il s'était arrêté. Toujours pas de ligne finale :
+# « RÉSULTAT INCONNU », code 3 — JAMAIS « réussi » (défaut du 16/10/2026 : coupure à l'étape 7, « Terminé : réussi »).
+suivre() { # $1 = id ; rend 0 (réussi), 2 (refusé), 1 (échec) ou 3 (inconnu)
+  local id=$1 cap essai=0 rc vus finale
+  cap=$(mktemp "${TMPDIR:-/tmp}/svav-maj.XXXXXX") || { echo "⛔ fichier temporaire impossible"; return 3; }
+  while :; do
+    vus=$(wc -l < "$cap" | tr -d ' ')
+    [[ -s $cap && -n $(tail -c 1 "$cap") ]] && echo # dernière ligne coupée en plein milieu : on repart à la ligne
+    suivre_une_fois "$id" $((vus + 1)) | tee -a "$cap"
+    rc=${PIPESTATUS[0]}
+    finale=$(grep -E '^\[[0-9:]+\] ═══ .+ ═══ \([0-9]+ s\)' "$cap" | tail -n 1) # le format EXACT de `terminer` (serveur.sh)
+    [[ -n $finale ]] && break
+    (( rc == 0 )) && break # ssh terminé normalement sans ligne finale : l'unité s'est arrêtée sans conclure
+    essai=$((essai + 1))
+    (( essai > ESSAIS )) && break
+    echo
+    echo "⚠ connexion perdue (ssh, code $rc) — la mise à jour continue sur le serveur. Reconnexion dans $PAUSE s ($essai/$ESSAIS)…"
+    sleep "$PAUSE"
+  done
+  rm -f "$cap"
+  case $finale in
+    *'ESSAI RÉUSSI'*|*'MISE À JOUR RÉUSSIE'*) return 0 ;;
+    *'REFUSÉ'*) return 2 ;;
+    *'ÉCHEC'*) return 1 ;;
+  esac
+  echo
+  echo "⛔ RÉSULTAT INCONNU — connexion perdue avant la ligne finale du serveur (dernier code ssh : $rc)."
+  echo "   La mise à jour a pu continuer, réussir ou échouer sur le serveur : NE CONCLUEZ RIEN, ne lancez pas --appliquer"
+  echo "   sur la foi de cet essai. Lire la fin du journal (lecture seule) :"
+  echo "     ssh $SERVEUR \"tail -n 40 $MAJ/$id.log; echo; cat $MAJ/$id.code 2>/dev/null || echo 'pas de code de fin (encore en cours ?)'\""
+  echo "   ou se raccrocher au journal :  npm run prod:mettre-a-jour -- --suivre"
+  return 3
+}
+
+conclure() { # $1 code de suivre, $2 mode
+  echo
+  case $1 in
+    0) echo "Terminé : réussi ($2) — ligne finale du serveur reçue." ;;
+    2) echo "Terminé : REFUSÉ avant toute modification en service (voir le journal ci-dessus)." ;;
+    3) echo "Terminé : RÉSULTAT INCONNU — connexion perdue (voir ci-dessus la commande pour lire la fin du journal)." ;;
+    *) echo "Terminé : ÉCHEC (code $1) — lire le journal ci-dessus ; la ligne ═══ dit si le retour arrière est fait." ;;
+  esac
+  return "$1"
 }
 
 if (( SUIVRE )); then
-  id=$(ssh $SERVEUR "ls -1t $MAJ/*.log 2>/dev/null | grep -v -e npm-ci -e build | head -1 | xargs -r basename -s .log" < /dev/null)
+  id=$($SSH $SERVEUR "ls -1t $MAJ/*.log 2>/dev/null | grep -v -e npm-ci -e build | head -1 | xargs -r basename -s .log" < /dev/null)
   [[ -n $id ]] || { echo "aucune mise à jour trouvée sur le serveur"; exit 2; }
-  echo "== journal $id =="; suivre "$id"; exit $?
+  echo "== journal $id =="; suivre "$id"; conclure $? "suivi"; exit $?
 fi
 
 refus() { echo "⛔ REFUSÉ : $*"; exit 2; }
@@ -76,10 +122,4 @@ ssh $SERVEUR "sudo -n systemd-run --unit=svav-maj --collect --description='Sans 
   /bin/bash $MAJ/serveur-$SHA.sh $MODE $SHA --journal=$MAJ/$ID.log$OPTS" < /dev/null \
   || refus "lancement impossible (une mise à jour tourne déjà ? → --suivre)"
 suivre "$ID"; code=$?
-echo
-case $code in
-  0) echo "Terminé : réussi ($MODE)." ;;
-  2) echo "Terminé : REFUSÉ avant toute modification en service (voir le journal ci-dessus)." ;;
-  *) echo "Terminé : ÉCHEC (code $code) — lire le journal ci-dessus ; la ligne ═══ dit si le retour arrière est fait." ;;
-esac
-exit $code
+conclure $code "$MODE"; exit $?
