@@ -149,6 +149,15 @@ export interface TraceSuivi {
   exceptionsRetirees: number[];
   /** 🔴 LOT GESTION-DETACHER — les liens sortis parce que leur bien a été décoché (restaurés par l'« Annuler »). */
   liensDetaches?: number[];
+  /** 🔴 LOT GESTION-ONESHOT-BADGE — « Toute la conversation » et les mails en one shot (voir `TraceClassement`). */
+  mailsEpargnes?: number[];
+  liensAvant?: {
+    messageId: number; confirmes: number[]; sortis?: { lienId: number; motif: string | null }[];
+    autres?: { lienId: number; statut: string }[];
+  }[];
+  mailsEcrases?: number[];
+  sortiesEcrasees?: { lienId: number; motif: string | null }[];
+  marquesEcrasees?: { sorte: 'interne' | 'hors_gestion'; messageId: number }[];
 }
 
 /** Ce que l'« Annuler » d'une levée doit défaire — les trois moitiés, nommées. */

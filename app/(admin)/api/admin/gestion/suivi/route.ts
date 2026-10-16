@@ -1,4 +1,5 @@
 import 'server-only';
+import { mailsAvecBadgeOneShot } from '../../../../../lib/gestion/suiviOneShotRepo';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
@@ -155,6 +156,42 @@ export function traceRecue(brut: unknown): TraceClassement | null {
     exceptionsRetirees: liste(o.exceptionsRetirees),
     /* 🔴 LOT GESTION-DETACHER — les liens sortis parce que leur bien a été décoché (restaurés par l'« Annuler »). */
     ...(Array.isArray(o.liensDetaches) ? { liensDetaches: liste(o.liensDetaches) } : {}),
+    /* 🔴 LOT GESTION-ONESHOT-BADGE — de quoi remettre les mails en one shot (conservés ou écrasés) comme avant. */
+    ...(Array.isArray(o.mailsEpargnes) ? { mailsEpargnes: liste(o.mailsEpargnes) } : {}),
+    ...(Array.isArray(o.mailsEcrases) ? { mailsEcrases: liste(o.mailsEcrases) } : {}),
+    ...(Array.isArray(o.liensAvant) ? {
+      liensAvant: (o.liensAvant as unknown[]).slice(0, 500).flatMap((x) => {
+        const e = (x ?? {}) as Record<string, unknown>;
+        const messageId = entier(e.messageId);
+        const sortis = (Array.isArray(e.sortis) ? e.sortis : []).slice(0, 500).flatMap((y) => {
+          const z = (y ?? {}) as Record<string, unknown>;
+          const lienId = entier(z.lienId);
+          return lienId === null ? [] : [{ lienId, motif: typeof z.motif === 'string' ? z.motif.slice(0, 300) : null }];
+        });
+        const autres = (Array.isArray(e.autres) ? e.autres : []).slice(0, 500).flatMap((y) => {
+          const z = (y ?? {}) as Record<string, unknown>;
+          const lienId = entier(z.lienId);
+          return lienId === null || typeof z.statut !== 'string' ? [] : [{ lienId, statut: z.statut.slice(0, 20) }];
+        });
+        return messageId === null ? [] : [{ messageId, confirmes: liste(e.confirmes), sortis, autres }];
+      }),
+    } : {}),
+    ...(Array.isArray(o.sortiesEcrasees) ? {
+      sortiesEcrasees: (o.sortiesEcrasees as unknown[]).slice(0, 500).flatMap((x) => {
+        const e = (x ?? {}) as Record<string, unknown>;
+        const lienId = entier(e.lienId);
+        const motif = typeof e.motif === 'string' ? e.motif.slice(0, 300) : null;
+        return lienId === null ? [] : [{ lienId, motif }];
+      }),
+    } : {}),
+    ...(Array.isArray(o.marquesEcrasees) ? {
+      marquesEcrasees: (o.marquesEcrasees as unknown[]).slice(0, 500).flatMap((x) => {
+        const e = (x ?? {}) as Record<string, unknown>;
+        const messageId = entier(e.messageId);
+        const sorte = e.sorte === 'interne' || e.sorte === 'hors_gestion' ? e.sorte : null;
+        return messageId === null || sorte === null ? [] : [{ sorte, messageId }];
+      }),
+    } : {}),
   };
 }
 
@@ -193,8 +230,13 @@ export async function GET(request: Request): Promise<Response> {
       /* 🔴🔴 LOT RATTACHEMENT-CONVERSATION — lecture seule ; en échec, `false` : au pire on DEMANDE la portée, jamais on ne la devine. */
       lireInterne([filId]).then((m) => m.size > 0).catch(() => false),
     ]);
+    /* 🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — les mails qui portent le badge « Suivi modifié en one shot » : la
+       vérité du décompte de « Toute la conversation ». En échec, absent : la fenêtre retombe sur les exceptions (et la
+       pose, elle, relit le badge et refuse de décider sur une lecture ratée). */
+    const mailsOneShot = await mailsAvecBadgeOneShot(mails).catch(() => null);
     return Response.json(
-      { etat: 'ok', ...suivi, mails, rattachee, expediteurConnu, anciennes, interneEchange }, { headers: ENTETES });
+      { etat: 'ok', ...suivi, mails, rattachee, expediteurConnu, anciennes, interneEchange,
+        ...(mailsOneShot === null ? {} : { mailsOneShot }) }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/suivi] lecture impossible (fil=%d)', filId, e);
     return Response.json({ erreur: 'Lecture impossible : la base n’a pas répondu.' },

@@ -459,6 +459,12 @@ export function effetDuChoix(o: {
    * mail(s) modifié(s) en One shot ». Absente ou fausse (défaut) : les one shot sont CONSERVÉS. Vraie : remplacés.
    */
   ecraserOneShot?: boolean;
+  /**
+   * 🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — les mails CONSERVÉS par « Toute la conversation » (case non cochée) :
+   * ceux qui portent le badge « Suivi modifié en one shot », le mail cliqué compris. Fourni, il prime sur `ecraserOneShot` :
+   * leurs exceptions restent, toutes les autres (reprise des périodes, exception identique au fond…) sont remplacées.
+   */
+  conserves?: readonly number[];
 }): EffetDuChoix {
   const portaitUneException = o.exceptions.some((e) => e.messageId === o.messageId);
   // 🔴 RÈGLE 1 — ce qui commençait déjà à ce mail est REMPLACÉ, quel que soit le choix.
@@ -470,11 +476,15 @@ export function effetDuChoix(o: {
       nouvellePeriode: { depuisMessageId: 0, classement: o.classement },
       nouvelleException: null,
       periodesRemplacees: o.periodes.map((p) => p.id),
-      exceptionRetiree: portaitUneException ? o.messageId : null,
+      /* 🔴 LOT GESTION-ONESHOT-BADGE — le mail cliqué garde SON one shot quand il est conservé. */
+      exceptionRetiree: portaitUneException && !(o.conserves ?? []).includes(o.messageId) ? o.messageId : null,
       /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — remplace la règle 5 de 93019d9b : les one shot ne sont remplacés que si la
-         case « Écraser aussi… » est cochée ; sinon ils restent intacts (rattachements et badge). */
-      exceptionsRemplacees: o.ecraserOneShot === true
-        ? o.exceptions.map((e) => e.messageId).filter((m) => m !== o.messageId) : [],
+         case « Écraser aussi… » est cochée ; sinon ils restent intacts (rattachements et badge). LOT GESTION-ONESHOT-BADGE :
+         avec `conserves` (la vérité du badge), seules les exceptions des mails conservés restent. */
+      exceptionsRemplacees: o.conserves !== undefined
+        ? o.exceptions.map((e) => e.messageId).filter((m) => m !== o.messageId && !o.conserves!.includes(m))
+        : o.ecraserOneShot === true
+          ? o.exceptions.map((e) => e.messageId).filter((m) => m !== o.messageId) : [],
     };
   }
 
@@ -533,10 +543,16 @@ export function effetDuChoix(o: {
 export function mailsDeLaFenetre(o: {
   mails: readonly number[]; messageId: number; choix: ChoixSuivi;
   debuts: readonly number[]; exceptions: readonly number[];
+  /** 🔴 LOT GESTION-ONESHOT-BADGE — « Toute la conversation » : les mails conservés (badge one shot, le cliqué compris). */
+  conserves?: readonly number[];
 }): number[] {
   /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — « Toute la conversation » gouverne tous les mails SAUF ceux
      qui portent encore un one shot (case « Écraser aussi… » non cochée : leurs exceptions restent vivantes). Case cochée,
      les exceptions sont retirées avant cet appel : la liste n'en contient plus, et tous les mails sont gouvernés. */
+  if (o.choix === 'conversation' && o.conserves !== undefined) {
+    const gardes = new Set(o.conserves);
+    return o.mails.filter((m) => !gardes.has(m));
+  }
   if (o.choix === 'conversation') {
     const gardes = new Set(o.exceptions.filter((e) => e !== o.messageId));
     return o.mails.filter((m) => !gardes.has(m));
@@ -576,10 +592,13 @@ export function alerteTouteLaConversation(o: {
   periodes?: readonly unknown[];
   /** 🔴 LOT GESTION-ONESHOT-CONVERSATION — la case « Écraser aussi… » ; absente = les one shot sont conservés. */
   ecraserOneShot?: boolean;
+  /** 🔴 LOT GESTION-ONESHOT-BADGE — les mails qui portent le badge « Suivi modifié en one shot » (la vérité). */
+  mailsOneShot?: readonly number[];
 }): string {
   /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — les mails en one shot ne sont reclassés que si la case est
-     cochée ; sinon ils sont comptés à part, « conservés ». */
-  const oneShots = nbOneShots(o.exceptions, o.messageId);
+     cochée ; sinon ils sont comptés à part, « conservés ». LOT GESTION-ONESHOT-BADGE : comptés d'après le badge, le mail
+     cliqué compris, un mail = 1. */
+  const oneShots = mailsEnOneShot(o).length;
   const n = o.mails.length - (o.ecraserOneShot === true ? 0 : oneShots);
   const phrase = `Les ${n} mail${n > 1 ? 's' : ''} de cette conversation seront reclassés sur ${o.versQuoi}`;
   const suite = morceauxFenetresEtOneShots(o.periodes?.length ?? 0, oneShots, o.ecraserOneShot === true);
@@ -589,6 +608,21 @@ export function alerteTouteLaConversation(o: {
 /** Les one shot vivants de la conversation, hors le mail qu'on classe (lui change toujours). PUR. */
 export function nbOneShots(exceptions: readonly ExceptionMail[], messageId: number): number {
   return new Set(exceptions.filter((e) => e.messageId !== messageId).map((e) => e.messageId)).size;
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — LES MAILS EN ONE SHOT = CEUX QUI PORTENT LE BADGE. PUR. ═════════
+ * « La source de vérité est le badge » : exception de suivi, sortie du suivi faite à la main, « Interne » ou « Hors
+ * gestion » posé sur ce mail seul — quelle qu'en soit la sorte, ×N compris. Un mail compte pour 1, le mail cliqué compris.
+ * `mailsOneShot` vient du serveur (même calcul que le badge) ; absent (réponse plus ancienne), repli sur les exceptions.
+ * Rendus dans l'ordre de la conversation quand elle est connue.
+ */
+export function mailsEnOneShot(o: {
+  mails?: readonly number[]; exceptions: readonly ExceptionMail[]; mailsOneShot?: readonly number[];
+}): number[] {
+  const brut = new Set(o.mailsOneShot ?? o.exceptions.map((e) => e.messageId));
+  if (o.mails === undefined) return [...brut];
+  return o.mails.filter((m) => brut.has(m));
 }
 
 /**

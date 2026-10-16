@@ -1,5 +1,5 @@
 import { BANDEAU_MODIFICATION_PONCTUELLE, MOT_MODIFICATION_PONCTUELLE_FAITE } from './sortirDuSuivi';
-import { morceauxFenetresEtOneShots, nbOneShots, type ChoixSuivi, type ExceptionMail } from './periodesConversation';
+import { mailsEnOneShot, morceauxFenetresEtOneShots, type ChoixSuivi, type ExceptionMail } from './periodesConversation';
 import { motBiensRattaches } from './changementsSuivi';
 
 /**
@@ -228,13 +228,19 @@ export function motConfirmationConversation(o: {
   periodes?: readonly unknown[];
   /** 🔴 LOT GESTION-ONESHOT-CONVERSATION — la case « Écraser aussi… » ; absente = les one shot sont conservés. */
   ecraserOneShot?: boolean;
+  /** 🔴 LOT GESTION-ONESHOT-BADGE — les mails qui portent le badge « Suivi modifié en one shot » (la vérité). */
+  mailsOneShot?: readonly number[];
 }): string {
   /* 🔴 LOT GESTION-ONESHOT-CONVERSATION (Arno, 17/10/2026) — « X mails de cette conversation seront mis à jour ; Y fenêtre(s)
      de suivi sera(ont) remplacée(s) ; Z mail(s) en One shot conservé(s) » (ou « remplacé(s) » si la case est cochée). Case
      non cochée, les mails en one shot ne sont pas mis à jour : ils ne comptent pas dans X. */
   const ecraser = o.ecraserOneShot === true;
-  const oneShots = nbOneShots(o.exceptions, o.messageId);
-  const autres = o.mails.filter((m) => m !== o.messageId).length - (ecraser ? 0 : oneShots);
+  /* 🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — Z = les mails qui portent le badge, le mail cliqué compris ; X = les
+     AUTRES mails réellement mis à jour (case non cochée : sans les mails conservés). */
+  const enOneShot = mailsEnOneShot(o);
+  const oneShots = enOneShot.length;
+  const autres = o.mails.filter((m) => m !== o.messageId).length
+    - (ecraser ? 0 : enOneShot.filter((m) => m !== o.messageId).length);
   const phrase = autres <= 0
     ? 'Aucun autre mail de cette conversation ne sera mis à jour'
     : `${autres} mail${autres > 1 ? 's' : ''} de cette conversation ${autres > 1 ? 'seront mis' : 'sera mis'} à jour`;

@@ -366,6 +366,53 @@ export interface TraceClassement {
    * `detacherLesBiensDecoches`) — à restaurer si l'on annule. Facultatif : une trace d'avant ce lot ne le porte pas.
    */
   liensDetaches?: number[];
+  /**
+   * 🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — « Toute la conversation » et les mails qui portent le badge :
+   *   · `mailsEpargnes` : les mails que la projection n'a PAS touchés (one shot conservés, ou écrasés puis remis par
+   *     l'instantané) — l'annulation ne les reprojette pas non plus ;
+   *   · `liensAvant` : pour CHAQUE mail de la conversation, ses liens de biens juste avant le geste — confirmés, et sortis
+   *     avec leur motif — : l'« Annuler » les remet tels quels (statut ET motif) ;
+   *   · `mailsEcrases` : les mails en one shot écrasés (case cochée), remis par l'instantané sans être reprojetés ;
+   *   · `sortiesEcrasees` : les sorties du suivi faites à la main que le geste a rendues (restaurées), avec leur motif ;
+   *   · `marquesEcrasees` : les marques « Interne » / « Hors gestion » posées sur ce mail seul que le geste a retirées.
+   * L'« Annuler » remet chaque mail écrasé EXACTEMENT comme avant. Facultatifs : une trace d'avant ce lot ne les porte pas.
+   */
+  mailsEpargnes?: number[];
+  liensAvant?: {
+    messageId: number; confirmes: number[]; sortis?: { lienId: number; motif: string | null }[];
+    /** Les autres liens (proposés, retirés, rejetés) et leur statut. */
+    autres?: { lienId: number; statut: string }[];
+  }[];
+  mailsEcrases?: number[];
+  sortiesEcrasees?: { lienId: number; motif: string | null }[];
+  marquesEcrasees?: { sorte: 'interne' | 'hors_gestion'; messageId: number }[];
+}
+
+/** 🔴 LOT GESTION-ONESHOT-BADGE — le motif des restaurations et retraits faits par « Écraser aussi les mails modifiés en One shot ». */
+export const MOTIF_ECRASE_PAR_CONVERSATION = 'one shot écrasé par « Toute la conversation »';
+export const MOTIF_ANNULATION_ECRASEMENT = 'annulation de « Toute la conversation »';
+
+/** Les liens de biens de ces mails (lots, hors pièces) : confirmés, et sortis avec leur motif. LECTURE SEULE. */
+async function etatDesLiens(mails: readonly number[]): Promise<{
+  messageId: number; confirmes: number[]; sortis: { lienId: number; motif: string | null }[]; autres: { lienId: number; statut: string }[];
+}[]> {
+  const out = new Map(mails.map((m) => [m, {
+    messageId: m, confirmes: [] as number[], sortis: [] as { lienId: number; motif: string | null }[],
+    autres: [] as { lienId: number; statut: string }[],
+  }]));
+  if (mails.length === 0) return [];
+  const { rows } = await query<{ id: string; message_id: string; statut: string; sorti_motif: string | null }>(
+    `SELECT id::text, message_id::text, statut, sorti_motif FROM gestion_rattachement
+      WHERE message_id = ANY($1::bigint[]) AND cible_sorte = 'lot' AND piece_id IS NULL
+      ORDER BY id`, [[...mails]]);
+  for (const r of rows) {
+    const e = out.get(Number(r.message_id));
+    if (e === undefined) continue;
+    if (r.statut === 'confirme') e.confirmes.push(Number(r.id));
+    else if (r.statut === 'sorti') e.sortis.push({ lienId: Number(r.id), motif: r.sorti_motif });
+    else e.autres.push({ lienId: Number(r.id), statut: r.statut });
+  }
+  return [...out.values()];
 }
 
 /** Une trace vide : le geste n'a rien écrit du tout (règle 2 d'`effetDuChoix` sur une configuration identique). */
@@ -438,9 +485,29 @@ export async function poserClassement(o: {
    * configuration que celle en vigueur juste avant ce mail ? ». Sans l'ordre des mails, la question n'a pas de
    * sens — et la règle 2 se tait (voir `effetDuChoix`).
    */
+  /**
+   * ══ 🔴🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — « TOUTE LA CONVERSATION » : LA VÉRITÉ EST LE BADGE ══════════════
+   * Les mails en one shot sont ceux qui portent le badge « Suivi modifié en one shot » (exception, sortie du suivi faite à
+   * la main, « Interne » / « Hors gestion » posé sur ce mail seul), le mail cliqué compris. Case non cochée : CONSERVÉS
+   * (ni projetés, ni alignés, leur exception reste). Case cochée : ÉCRASÉS (exception retirée, sorties à la main rendues,
+   * marques « ce mail » retirées), et photographiés pour l'« Annuler ». ⚠️ La lecture du badge LÈVE en cas d'échec : on ne
+   * décide jamais sur une lecture ratée.
+   */
+  const conversation = o.choix === 'conversation';
+  const ecraser = conversation && o.ecraserOneShot === true;
+  const oneShotRepo = conversation ? await import('./suiviOneShotRepo') : null;
+  const badges = oneShotRepo === null ? [] : await oneShotRepo.mailsAvecBadgeOneShot(mails);
+  const conserves = conversation && !ecraser ? badges : [];
+  const ecrases = ecraser ? badges : [];
+  const sortiesAEcraser = oneShotRepo !== null && ecrases.length > 0 ? await oneShotRepo.sortiesOneShotDesMails(ecrases) : [];
+  /* L'instantané des liens de TOUTE la conversation : l'« Annuler » de « Toute la conversation » remet chaque lien tel qu'il
+     était (statut et motif), ce que la seule reprojection ne savait pas faire. */
+  const liensAvant = conversation ? await etatDesLiens(mails) : [];
+
   const effet = effetDuChoix({
     choix: o.choix, messageId: o.messageId, classement: o.classement,
     periodes: avant.periodes, exceptions: avant.exceptions, mails, ecraserOneShot: o.ecraserOneShot === true,
+    ...(conversation ? { conserves } : {}),
   });
 
   /**
@@ -467,6 +534,17 @@ export async function poserClassement(o: {
     : null;
 
   await withTransaction(async (q) => {
+    /* 🔴 LOT GESTION-ONESHOT-BADGE — case cochée : les sorties du suivi faites à la main sur les mails écrasés sont rendues
+       (porte dédiée, journalisée) ; le mail suit désormais la conversation, et l'alignement retire au motif de la fenêtre
+       les biens qu'elle ne porte pas. Rien n'est supprimé. */
+    if (sortiesAEcraser.length > 0) {
+      const { restaurerLeLien } = await import('./sortieSuiviRepo');
+      const rendues: { lienId: number; motif: string | null }[] = [];
+      for (const s of sortiesAEcraser) {
+        if (await restaurerLeLien(q, s.lienId, o.auteur, MOTIF_ECRASE_PAR_CONVERSATION)) rendues.push({ lienId: s.lienId, motif: s.motif });
+      }
+      if (rendues.length > 0) trace.sortiesEcrasees = rendues;
+    }
     // ① « Toute la conversation » : les périodes existantes sont DATÉES, jamais supprimées.
     if (effet.periodesRemplacees.length > 0) {
       const { rows } = await q<{ id: string }>(
@@ -536,9 +614,32 @@ export async function poserClassement(o: {
     }
   });
 
+  /* 🔴 LOT GESTION-ONESHOT-BADGE — case cochée : les marques « Interne » / « Hors gestion » posées sur CE MAIL SEUL des mails
+     écrasés sont retirées (datées, jamais supprimées) ; la projection pose ensuite ce que la conversation demande. */
+  if (ecrases.length > 0) {
+    const marques: { sorte: 'interne' | 'hors_gestion'; messageId: number }[] = [];
+    for (const [sorte, table] of [['interne', 'gestion_message_interne'], ['hors_gestion', 'gestion_hors_gestion']] as const) {
+      const { rows } = await query<{ message_id: string }>(
+        `SELECT message_id::text FROM ${table}
+          WHERE message_id = ANY($1::bigint[]) AND retire_le IS NULL AND portee = 'mail'`, [ecrases]);
+      const ids = rows.map((r) => Number(r.message_id));
+      if (ids.length === 0) continue;
+      const issue = sorte === 'interne'
+        ? await annulerInterneDesMessages({ messageIds: ids, auteur: o.auteur, motif: MOTIF_ECRASE_PAR_CONVERSATION })
+        : await annulerHorsGestion({ messageIds: ids, auteur: o.auteur, motif: MOTIF_ECRASE_PAR_CONVERSATION });
+      if (issue.ok) marques.push(...ids.map((messageId) => ({ sorte, messageId })));
+    }
+    if (marques.length > 0) trace.marquesEcrasees = marques;
+    trace.mailsEcrases = [...ecrases];
+  }
+  if (conserves.length > 0) trace.mailsEpargnes = [...conserves];
+  if (liensAvant.length > 0) trace.liensAvant = liensAvant;
+
   const projetes = await projeterLeFil(o.filId, o.auteur, {
     // 🔴 SEUL « Toute la conversation » remplace un lien posé à la main — et il l'annonce avant (voir la modale).
     remplacerLesLiensManuels: o.choix === 'conversation',
+    /* 🔴 LOT GESTION-ONESHOT-BADGE — les mails conservés (badge one shot, case non cochée) ne sont pas touchés. */
+    ...(conserves.length > 0 ? { epargnes: new Set(conserves) } : {}),
   });
   /* 🔴 LOT GESTION-FENETRES-SUIVI — les mails que CE geste gouverne (la fenêtre ouverte, ce mail seul, ou toute la
      conversation), lus APRÈS les écritures : ils ne gardent que les biens choisis. */
@@ -548,6 +649,7 @@ export async function poserClassement(o: {
     debuts: apres.periodes.map((p) => p.depuisMessageId),
     /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — un one shot que CE geste a écrasé ne protège plus son mail. */
     exceptions: apres.exceptions.map((e) => e.messageId).filter((m) => !effet.exceptionsRemplacees.includes(m)),
+    ...(conversation ? { conserves } : {}),
   });
   const detaches = await alignerSurLaFenetre({
     messageId: o.messageId, mails: gouvernes, auteur: o.auteur, choix: o.choix,
@@ -705,7 +807,13 @@ export async function annulerClassement(o: {
    * conversation », qui déplace les liens posés à la main. Sans cette permission, l'annulation ne pourrait pas
    * les rendre — elle laisserait exactement les liens que le geste avait posés par-dessus eux.
    */
-  const projetes = await projeterLeFil(t.filId, o.auteur, { remplacerLesLiensManuels: true });
+  /* 🔴 LOT GESTION-ONESHOT-BADGE — les mails conservés et les mails écrasés ne sont pas reprojetés : les premiers n'ont pas
+     bougé, les seconds sont remis EXACTEMENT comme avant par leur instantané (juste après). */
+  const epargnes = new Set([...ids(t.mailsEpargnes ?? []), ...ids(t.mailsEcrases ?? [])]);
+  const projetes = await projeterLeFil(t.filId, o.auteur, {
+    remplacerLesLiensManuels: true, ...(epargnes.size > 0 ? { epargnes } : {}),
+  });
+  const remis = await remettreLesOneShotEcrases(t, o.auteur);
 
   /**
    * ══ 🔴🔴 LE CAS QUE LA PROJECTION SEULE NE PEUT PAS TRAITER, ET IL EST FRÉQUENT ════════════════════════════
@@ -797,7 +905,105 @@ export async function annulerClassement(o: {
       await retirerInterventionsSansBien(mails, o.auteur);
     }
   }
-  return { ok: true, projetes, trace: traceVide(t.filId, t.messageId) };
+  return { ok: true, projetes: projetes + remis, trace: traceVide(t.filId, t.messageId) };
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — L'« ANNULER » REMET LES MAILS ÉCRASÉS EXACTEMENT COMME AVANT ══════
+ * Pour chaque mail écrasé de la trace (et seulement ceux de CETTE conversation — la trace vient du navigateur) :
+ *   ① les sorties du suivi faites à la main sont reposées, avec leur motif d'origine ;
+ *   ② les liens que le geste a posés sur le mail repartent (annulation d'un ajout, borne de la base : 15 minutes) ;
+ *   ③ les liens confirmés avant le geste et sortis depuis sont restaurés ;
+ *   ④ les marques « Interne » / « Hors gestion » posées sur ce mail seul, retirées par le geste il y a moins de deux minutes,
+ *      sont reposées (portée « ce mail », photo du fond d'origine).
+ * Toutes les écritures passent par les portes dédiées (journalisées) ; rien n'est supprimé hors de la borne d'un ajout.
+ * Rend le nombre de gestes faits.
+ */
+async function remettreLesOneShotEcrases(t: TraceClassement, auteur: Auteur): Promise<number> {
+  const entrees = (t.liensAvant ?? []).slice(0, 500);
+  if (entrees.length === 0 && (t.marquesEcrasees ?? []).length === 0) return 0;
+  const duFil = new Set(await mailsDuFil(t.filId));
+  const { changerStatut } = await import('./rattachementRepo');
+  const { restaurerLeLien } = await import('./sortieSuiviRepo');
+  const restaurer = async (lienId: number): Promise<boolean> =>
+    withTransaction(async (q) => restaurerLeLien(q, lienId, auteur, MOTIF_ANNULATION_ECRASEMENT));
+  let gestes = 0;
+
+  const mails = entrees.map((e) => e.messageId).filter((m) => duFil.has(m));
+  if (mails.length > 0) {
+    type Avant = { statut: 'confirme' } | { statut: 'sorti'; motif: string | null } | { statut: 'autre'; valeur: string };
+    const avant = new Map<number, Avant>();
+    for (const e of entrees) {
+      if (!duFil.has(e.messageId)) continue;
+      for (const id of e.confirmes) avant.set(id, { statut: 'confirme' });
+      for (const x of e.sortis ?? []) avant.set(x.lienId, { statut: 'sorti', motif: x.motif });
+      for (const x of e.autres ?? []) {
+        if (['propose', 'retire', 'rejete'].includes(x.statut)) avant.set(x.lienId, { statut: 'autre', valeur: x.statut });
+      }
+    }
+    /* Trace d'avant ce lot (sans `sortis`) : les sorties à la main rendues par le geste en tiennent lieu. */
+    for (const x of t.sortiesEcrasees ?? []) if (!avant.has(x.lienId)) avant.set(x.lienId, { statut: 'sorti', motif: x.motif });
+    const { rows } = await query<{ id: string; statut: string; sorti_motif: string | null; neuf: boolean }>(
+      `SELECT id::text, statut, sorti_motif, cree_le > now() - interval '15 minutes' AS neuf FROM gestion_rattachement
+        WHERE message_id = ANY($1::bigint[]) AND cible_sorte = 'lot' AND piece_id IS NULL ORDER BY id`, [mails]);
+    const compter = (issue: { ok: boolean }): void => { if (issue.ok) gestes += 1; };
+    for (const r of rows) {
+      const id = Number(r.id);
+      const b = avant.get(id);
+      const n = r.statut;
+      /* Ramener un lien SORTI à « confirmé » : la seule porte est la restauration. */
+      const deSorti = async (): Promise<boolean> => (n !== 'sorti' ? true : restaurer(id));
+      if (b === undefined) {
+        // ② né pendant le geste : il repart (annulation d'un ajout, borne de la base) — même s'il a été sorti depuis.
+        if (!r.neuf || (n !== 'confirme' && n !== 'sorti')) continue;
+        if (!(await deSorti())) continue;
+        compter(await changerStatut({ lienId: id, statut: 'retire', auteur, motif: MOTIF_ANNULATION_ECRASEMENT, annulationAjout: true }));
+      } else if (b.statut === 'confirme') {
+        // ③ confirmé avant : il le redevient.
+        if (n === 'sorti') { if (await restaurer(id)) gestes += 1; }
+        else if (n !== 'confirme') compter(await changerStatut({ lienId: id, statut: 'confirme', auteur, motif: MOTIF_ANNULATION_ECRASEMENT }));
+      } else if (b.statut === 'sorti') {
+        // ① sorti avant (à la main ou par une fenêtre) : il ressort, avec son motif d'origine.
+        if (n === 'sorti' && (r.sorti_motif ?? null) === (b.motif ?? null)) continue;
+        if (n === 'sorti' && !(await restaurer(id))) continue;
+        if (n !== 'sorti' && n !== 'confirme') {
+          const c = await changerStatut({ lienId: id, statut: 'confirme', auteur, motif: MOTIF_ANNULATION_ECRASEMENT });
+          if (!c.ok) continue;
+        }
+        compter(await changerStatut({ lienId: id, statut: 'retire', auteur, motif: b.motif }));
+      } else if (n !== b.valeur) {
+        // ④ proposé / retiré / rejeté avant : il retrouve ce statut (annulation d'un ajout récent).
+        if (!(await deSorti())) continue;
+        compter(await changerStatut({ lienId: id, statut: b.valeur as 'propose' | 'retire' | 'rejete', auteur, motif: MOTIF_ANNULATION_ECRASEMENT, annulationAjout: true }));
+      }
+    }
+  }
+
+  // ④ les marques « ce mail » retirées par le geste, reposées telles qu'elles étaient.
+  for (const m of (t.marquesEcrasees ?? []).slice(0, 500)) {
+    if (!duFil.has(m.messageId)) continue;
+    const table = m.sorte === 'interne' ? 'gestion_message_interne' : 'gestion_hors_gestion';
+    const colMotif = m.sorte === 'interne' ? 'NULL::text' : 'motif';
+    const { rows } = await query<{ fond: unknown; motif: string | null }>(
+      `SELECT fond_avant AS fond, ${colMotif} AS motif FROM ${table}
+        WHERE message_id = $1 AND portee = 'mail' AND retire_le > now() - interval '2 minutes'
+          AND coalesce(retire_motif, '') = $2
+        ORDER BY retire_le DESC, id DESC LIMIT 1`, [m.messageId, MOTIF_ECRASE_PAR_CONVERSATION]);
+    if (rows.length === 0) continue;
+    /* Une marque posée entre-temps (projection d'une fenêtre « Interne ») occupe la place : elle repart d'abord. */
+    if (m.sorte === 'interne') {
+      await annulerInterneDesMessages({ messageIds: [m.messageId], auteur, motif: MOTIF_ANNULATION_ECRASEMENT });
+      const issue = await marquerInterneDesMessages({ messageIds: [m.messageId], auteur, portee: 'mail', fondAvant: rows[0].fond });
+      if (issue.ok) gestes += 1;
+    } else {
+      await annulerHorsGestion({ messageIds: [m.messageId], auteur, motif: MOTIF_ANNULATION_ECRASEMENT });
+      const issue = await marquerHorsGestion({
+        messageIds: [m.messageId], auteur, motif: rows[0].motif, portee: 'mail', fondAvant: rows[0].fond,
+      });
+      if (issue.ok) gestes += 1;
+    }
+  }
+  return gestes;
 }
 
 type Requete = Parameters<Parameters<typeof withTransaction>[0]>[0];
@@ -886,6 +1092,8 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
    * geste qui l'autorise, parce que c'est le seul qui annonce sa portée et demande une confirmation écrite.
    */
   remplacerLesLiensManuels?: boolean;
+  /** 🔴 LOT GESTION-ONESHOT-BADGE — des mails à ne PAS toucher (one shot conservés ; mails remis par l'instantané). */
+  epargnes?: ReadonlySet<number>;
 }): Promise<number> {
   if (!(await periodesDisponibles())) return 0;
   const mails = await mailsDuFil(filId);
@@ -965,6 +1173,7 @@ export async function projeterLeFil(filId: number, auteur: Auteur, o?: {
 
   let gestes = 0;
   for (const m of mails) {
+    if (o?.epargnes?.has(m)) continue; // 🔴 LOT GESTION-ONESHOT-BADGE — one shot conservé : on n'y touche pas
     const c = voulu.get(m);
     if (c === undefined) continue; // mail antérieur à toute période : on ne touche à rien
     const cibles = c.sorte === 'biens' ? c.biens : [];

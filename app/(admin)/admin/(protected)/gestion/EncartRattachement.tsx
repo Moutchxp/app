@@ -320,6 +320,8 @@ export function EncartRattachement({
   /** Les périodes et exceptions de cette conversation. `null` = migration 290 absente, ou lecture en échec. */
   const [suivi, setSuivi] = useState<{
     periodes: Periode[]; exceptions: ExceptionMail[]; mails: number[];
+    /** 🔴 LOT GESTION-ONESHOT-BADGE — les mails qui portent le badge « Suivi modifié en one shot ». */
+    mailsOneShot?: number[];
     /**
      * 🔴🔴 LOT SUIVI-CONVERSATION-NON-RATTACHEE — LES DEUX FAITS QUE LA RÈGLE ② D'ARNO DEMANDE.
      *
@@ -350,7 +352,7 @@ export function EncartRattachement({
           `/api/admin/gestion/suivi?fil=${filId}&message=${messageId}`, { cache: 'no-store' });
         const d = (await res.json()) as {
           etat?: string; periodes?: Periode[]; exceptions?: ExceptionMail[]; mails?: number[];
-          rattachee?: boolean; expediteurConnu?: boolean;
+          rattachee?: boolean; expediteurConnu?: boolean; mailsOneShot?: number[];
         };
         if (!vivant) return;
         setSuivi(d.etat !== 'ok' ? null
@@ -359,6 +361,7 @@ export function EncartRattachement({
             // ⚠️ `=== true` ET NON `?? false` : une réponse d'API plus ancienne que ce lot ne porte pas ces
             //   champs, et `undefined` doit valoir « non » — c'est-à-dire le comportement d'avant.
             rattachee: d.rattachee === true, expediteurConnu: d.expediteurConnu === true,
+            ...(Array.isArray(d.mailsOneShot) ? { mailsOneShot: d.mailsOneShot } : {}),
           });
       } catch { if (vivant) setSuivi(null); }
     })();
@@ -1180,6 +1183,7 @@ export function EncartRattachement({
   /** Ce que l'alerte annonce, mot pour mot — composé par le module pur. */
   const alerte = suivi === null ? '' : alerteTouteLaConversation({
     mails: suivi.mails, exceptions: suivi.exceptions, messageId, periodes: suivi.periodes,
+    ...(suivi.mailsOneShot === undefined ? {} : { mailsOneShot: suivi.mailsOneShot }),
     // ⚠️ L'ALERTE PARLE DE CE QUI EST RATTACHÉ AU MOMENT OÙ ON OUVRE : la fenêtre, elle, connaît la sélection
     //   en cours de modification, mais elle ne la remonte qu'à la validation. Nommer l'état de départ est
     //   honnête et suffit à faire comprendre la portée du geste — c'est le NOMBRE de mails qui alerte.

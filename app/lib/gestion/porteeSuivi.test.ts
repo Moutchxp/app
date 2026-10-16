@@ -99,3 +99,28 @@ describe('🔴🔴 règle C — faire choisir la portée', () => {
     expect(positionAChoisir(null, false)).toBe(false);
   });
 });
+
+/* ══ 🔴🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — LA SOURCE DE VÉRITÉ EST LE BADGE ══════════════════════════════════
+   Fil 36646 : 8 mails ; le badge est porté par 57773 (exception + sorties à la main, ×5) et par 58004 (« Interne » posé sur
+   ce mail seul, SANS exception). L'ancien décompte, qui ne lisait que les exceptions, annonçait « 1 mail ». */
+describe('LOT GESTION-ONESHOT-BADGE — N et Z comptent chaque mail qui porte le badge', async () => {
+  const { mailsEnOneShot } = await import('./periodesConversation');
+  const M = [57391, 57704, 57705, 57706, 57773, 57974, 58004, 58389];
+  const exc = [{ messageId: 57773, classement: { sorte: 'interne' as const, biens: [] } }];
+  it('🔴 un mail badgé SANS exception (58004) est compté ; un mail ×N compte pour 1', () => {
+    expect(mailsEnOneShot({ mails: M, exceptions: exc, mailsOneShot: [58004, 57773, 57773] })).toEqual([57773, 58004]);
+    expect(motConfirmationConversation({ mails: M, exceptions: exc, messageId: 57704, periodes: [{}, {}, {}], mailsOneShot: [57773, 58004] }))
+      .toBe('5 mails de cette conversation seront mis à jour ; 3 fenêtres de suivi seront remplacées ; 2 mails en One shot conservés.');
+    expect(motConfirmationConversation({ mails: M, exceptions: exc, messageId: 57704, periodes: [{}, {}, {}], mailsOneShot: [57773, 58004], ecraserOneShot: true }))
+      .toBe('7 mails de cette conversation seront mis à jour ; 3 fenêtres de suivi seront remplacées ; 2 mails en One shot remplacés.');
+  });
+  it('🔴 le mail sur lequel on agit compte s’il porte le badge (Z), et sort de X quand il est conservé', () => {
+    expect(motConfirmationConversation({ mails: M, exceptions: exc, messageId: 57773, mailsOneShot: [57773, 58004] }))
+      .toBe('6 mails de cette conversation seront mis à jour ; 2 mails en One shot conservés.');
+    expect(motConfirmationConversation({ mails: M, exceptions: exc, messageId: 57773, mailsOneShot: [57773, 58004], ecraserOneShot: true }))
+      .toBe('7 mails de cette conversation seront mis à jour ; 2 mails en One shot remplacés.');
+  });
+  it('sans la liste du serveur (réponse plus ancienne) : repli sur les exceptions', () => {
+    expect(mailsEnOneShot({ exceptions: exc })).toEqual([57773]);
+  });
+});

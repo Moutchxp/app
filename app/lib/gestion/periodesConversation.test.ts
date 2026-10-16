@@ -266,10 +266,15 @@ describe('🔴🔴 ⑤ ce que l’alerte annonce', () => {
   });
 
   /** 🔴 LE MAIL QU'ON CLASSE CHANGE, MÊME S'IL PORTAIT UNE EXCEPTION : il est dans le compte. */
-  it('🔴 le mail en cours est compté, même s’il portait une exception', () => {
+  /* 🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — « y compris le mail sur lequel j'agis s'il porte lui-même un One
+     shot » : conservé (case non cochée) ou écrasé (cochée), et compté dans Z. */
+  it('🔴 le mail en cours, s’il porte un one shot, est conservé ou écrasé comme les autres, et compté', () => {
     expect(alerteTouteLaConversation({
       mails: [1, 2, 3], exceptions: [exception(3, bien('C'))], versQuoi: 'Interne', messageId: 3,
-    })).toBe('Les 3 mails de cette conversation seront reclassés sur Interne.');
+    })).toBe('Les 2 mails de cette conversation seront reclassés sur Interne ; 1 mail en One shot conservé.');
+    expect(alerteTouteLaConversation({
+      mails: [1, 2, 3], exceptions: [exception(3, bien('C'))], versQuoi: 'Interne', messageId: 3, ecraserOneShot: true,
+    })).toBe('Les 3 mails de cette conversation seront reclassés sur Interne ; 1 mail en One shot remplacé.');
   });
 });
 
@@ -894,5 +899,24 @@ describe('🔴 motRemplaces — l’accord', async () => {
     expect(motRemplaces(0, 1)).toBe('1 one shot sera remplacé');
     expect(motRemplaces(1, 1)).toBe('1 fenêtre de suivi et 1 one shot seront remplacés');
     expect(motRemplaces(0, 0)).toBeNull();
+  });
+});
+
+/* ══ 🔴🔴 LOT GESTION-ONESHOT-BADGE — l'effet de « Toute la conversation » sur les mails conservés ═══════════════════════ */
+describe('LOT GESTION-ONESHOT-BADGE — conserves', async () => {
+  const { mailsDeLaFenetre, effetDuChoix: effet } = await import('./periodesConversation');
+  const bienA = { sorte: 'biens' as const, biens: [{ cle: 'A', libelle: 'A' }] };
+  const exceptions = [
+    { messageId: 1, classement: { sorte: 'biens' as const, biens: [] } },   // reprise (pas de badge)
+    { messageId: 3, classement: { sorte: 'interne' as const, biens: [] } }, // badge
+  ];
+  it('🔴 seules les exceptions des mails conservés restent ; le mail cliqué conservé garde la sienne', () => {
+    expect(effet({ choix: 'conversation', messageId: 2, classement: bienA, periodes: [], exceptions, conserves: [3] }).exceptionsRemplacees).toEqual([1]);
+    expect(effet({ choix: 'conversation', messageId: 3, classement: bienA, periodes: [], exceptions, conserves: [3] }).exceptionRetiree).toBeNull();
+    expect(effet({ choix: 'conversation', messageId: 3, classement: bienA, periodes: [], exceptions, conserves: [] }).exceptionRetiree).toBe(3);
+  });
+  it('🔴 les mails gouvernés : tous, sauf les conservés (le cliqué compris s’il l’est)', () => {
+    expect(mailsDeLaFenetre({ mails: [1, 2, 3, 4], messageId: 3, choix: 'conversation', debuts: [], exceptions: [1, 3], conserves: [3, 4] })).toEqual([1, 2]);
+    expect(mailsDeLaFenetre({ mails: [1, 2, 3, 4], messageId: 3, choix: 'conversation', debuts: [], exceptions: [1, 3], conserves: [] })).toEqual([1, 2, 3, 4]);
   });
 });

@@ -73,7 +73,10 @@ export async function oneShotDesMessages(messageIds: readonly number[]): Promise
  * 🔴 LOT MODALE-AVANT-APRES-DEUX-COLONNES — les mêmes traces, avec, pour chaque GESTE qui a produit au moins une
  * modification, son avant et son après STRUCTURÉS (la fenêtre en deux colonnes en a besoin : une ligne par bien).
  */
-export async function oneShotDetaille(messageIds: readonly number[]): Promise<{
+export async function oneShotDetaille(messageIds: readonly number[], options?: {
+  /** 🔴 LOT GESTION-ONESHOT-BADGE — lever en cas d'échec au lieu de rendre « aucun one shot » (pour DÉCIDER d'un geste). */
+  lever?: boolean;
+}): Promise<{
   modifications: Map<number, ModificationOneShot[]>; gestes: Map<number, GesteAvantApres[]>;
 }> {
   const parMail = new Map<number, ModificationOneShot[]>();
@@ -216,7 +219,40 @@ export async function oneShotDetaille(messageIds: readonly number[]): Promise<{
     }
   } catch (e) {
     console.error('[gestion/one-shot] lecture impossible', e);
+    if (options?.lever === true) throw e;
     return { modifications: new Map(), gestes: new Map() };
   }
   return { modifications: parMail, gestes };
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — LES MAILS QUI PORTENT LE BADGE « SUIVI MODIFIÉ EN ONE SHOT » ══════
+ * La MÊME lecture que le badge (`oneShotDetaille`) : exception de suivi, sortie du suivi faite à la main, « Interne » ou
+ * « Hors gestion » posé sur ce mail seul. Dans l'ordre de `mails`. ⚠️ LÈVE en cas d'échec : « Toute la conversation » ne
+ * décide jamais sur une lecture ratée (elle écraserait des one shot qu'elle n'a pas vus).
+ */
+export async function mailsAvecBadgeOneShot(mails: readonly number[]): Promise<number[]> {
+  const { modifications } = await oneShotDetaille(mails, { lever: true });
+  return mails.filter((m) => (modifications.get(m)?.length ?? 0) > 0);
+}
+
+/**
+ * 🔴 LOT GESTION-ONESHOT-BADGE — les SORTIES DU SUIVI que le badge compte comme un geste one shot, sur ces mails : TOUS
+ * les liens concernés (un couple mail → bien peut en avoir plusieurs), avec leur motif. LECTURE SEULE ; lève en cas
+ * d'échec. Même filtre que le badge : motif d'un geste, et « bien décoché à la main » seulement sous une exception.
+ */
+export async function sortiesOneShotDesMails(mails: readonly number[]): Promise<{ lienId: number; messageId: number; motif: string | null }[]> {
+  const ids = [...new Set(mails.filter((n) => Number.isSafeInteger(n) && n > 0))];
+  if (ids.length === 0) return [];
+  const { rows } = await query<{ id: string; message_id: string; par: string | null; motif: string | null; auteurs: string[] | null }>(
+    `SELECT r.id::text, r.message_id::text, r.sorti_par_libelle AS par, r.sorti_motif AS motif,
+            (SELECT array_agg(e.cree_par_libelle) FROM gestion_message_exception e
+              WHERE e.message_id = r.message_id AND e.retiree_le IS NULL) AS auteurs
+       FROM gestion_rattachement r
+      WHERE r.message_id = ANY($1::bigint[]) AND r.statut = 'sorti' AND r.piece_id IS NULL
+      ORDER BY r.id`, [ids]);
+  return rows
+    .filter((r) => sortieEstUnGeste({ par: r.par, motif: r.motif, motifsAutomatiques: MOTIFS_SORTIE_AUTOMATIQUE })
+      && (!MOTIFS_SORTIE_SI_EXCEPTION.includes((r.motif ?? '').trim()) || (r.auteurs ?? []).some((a) => exceptionEstUnGeste(a))))
+    .map((r) => ({ lienId: Number(r.id), messageId: Number(r.message_id), motif: r.motif }));
 }

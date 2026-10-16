@@ -54,7 +54,7 @@ import {
   SECONDES_ANNULER_SORTIE,
 } from '../../../../lib/gestion/sortirDuSuivi';
 import {
-  alerteTouteLaConversation, motClassement, nbOneShots,
+  alerteTouteLaConversation, mailsEnOneShot, motClassement,
   /* 🔴🔴 LOT RATTACHEMENT-PONCTUEL — la projection, pour reposer les PERSONNES en vigueur (voir `ecrire`). */
   projeter,
   type ChoixSuivi, type Classement, type ExceptionMail, type Periode, type PersonneClassee,
@@ -263,6 +263,8 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
   /* La conversation : ses mails, ses périodes et ses exceptions (le suivi de fond), et la fiche de ses biens. */
   const [lu, setLu] = useState<{
     mails: number[]; periodes: Periode[]; exceptions: ExceptionMail[]; biens: BienRattache[];
+    /** 🔴 LOT GESTION-ONESHOT-BADGE — les mails qui portent le badge « Suivi modifié en one shot ». */
+    mailsOneShot?: number[];
   } | null>(avecSuivis ? null : { mails: [], periodes: [], exceptions: [], biens: [] });
   useEffect(() => {
     if (!avecSuivis) return undefined;
@@ -275,13 +277,16 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
           fetch(`/api/admin/gestion/suivi?fil=${brouillon.filId}`, { cache: 'no-store' }),
           fetch(`/api/admin/gestion/rattachements?fiche=${brouillon.filId}${q}`, { cache: 'no-store' }),
         ]);
-        const ds = (await rs.json()) as { etat?: string; mails?: number[]; exceptions?: ExceptionMail[]; periodes?: Periode[] };
+        const ds = (await rs.json()) as {
+          etat?: string; mails?: number[]; exceptions?: ExceptionMail[]; periodes?: Periode[]; mailsOneShot?: number[];
+        };
         const df = (await rf.json().catch(() => ({}))) as { etat?: string; data?: FicheRattachementFil };
         if (annule) return;
         setLu({
           mails: ds.etat === 'ok' ? ds.mails ?? [] : [],
           periodes: ds.etat === 'ok' ? ds.periodes ?? [] : [],
           exceptions: ds.etat === 'ok' ? ds.exceptions ?? [] : [],
+          ...(ds.etat === 'ok' && Array.isArray(ds.mailsOneShot) ? { mailsOneShot: ds.mailsOneShot } : {}),
           biens: df.etat === 'ok' && df.data !== undefined && Array.isArray(df.data.biens) ? df.data.biens : [],
         });
       } catch {
@@ -443,7 +448,10 @@ function FenetreRattachementBrouillon({ brouillon, onFerme, children }: {
           demandeOrigine={demandeOrigine} onChoisir={choisirPosition}
           onOuiOrigine={revenirALOrigine} onNonOrigine={() => setDemandeOrigine(false)}
           confirmation={position === 'conversation' && modification
-            ? motConfirmationConversation({ mails: mailsPourConfirmation, exceptions: lu.exceptions, messageId: -1, periodes: lu.periodes }) : null}
+            ? motConfirmationConversation({
+              mails: mailsPourConfirmation, exceptions: lu.exceptions, messageId: -1, periodes: lu.periodes,
+              ...(lu.mailsOneShot === undefined ? {} : { mailsOneShot: lu.mailsOneShot }),
+            }) : null}
           confirme={confirme} onConfirme={() => setConfirme((v) => !v)}
           bouton={bouton} desactive={modification && position === 'conversation' && !confirme}
           onValider={() => { if (bouton.inactif) appelerLesBiens(); else validerDuContenu.current?.(); }} />
@@ -725,7 +733,9 @@ function RattachementsDuFilMail({
   }, [leveeFaite]);
   /** Les périodes et exceptions vivantes de l'échange — pour l'alerte de « Toute la conversation ». */
   const [suivi, setSuivi] = useState<
-    { mails: number[]; exceptions: ExceptionMail[]; periodes: Periode[]; rattachee?: boolean; interneEchange?: boolean } | null>(null);
+    { mails: number[]; exceptions: ExceptionMail[]; periodes: Periode[]; rattachee?: boolean; interneEchange?: boolean;
+      /** 🔴 LOT GESTION-ONESHOT-BADGE — les mails qui portent le badge « Suivi modifié en one shot » (vérité du décompte). */
+      mailsOneShot?: number[] } | null>(null);
   /**
    * 🔴 LES DOSSIERS DRIVE DES BIENS, par clé de lot. Lus À PART, et APRÈS le reste.
    *
@@ -927,13 +937,14 @@ function RattachementsDuFilMail({
         const res = await fetch(`/api/admin/gestion/suivi?fil=${filId}`, { cache: 'no-store' });
         const d = (await res.json()) as {
           etat?: string; mails?: number[]; exceptions?: ExceptionMail[]; periodes?: Periode[];
-          rattachee?: boolean; interneEchange?: boolean;
+          rattachee?: boolean; interneEchange?: boolean; mailsOneShot?: number[];
         };
         if (annule || d.etat !== 'ok') return;
         /* 🔴🔴 LES PÉRIODES AUSSI, DEPUIS LE LOT RATTACHEMENT-PONCTUEL — voir `personnesEnVigueur` : elles
            portent les PERSONNES du classement, que la validation doit reposer telles quelles. */
         setSuivi({ mails: d.mails ?? [], exceptions: d.exceptions ?? [], periodes: d.periodes ?? [],
-          rattachee: d.rattachee === true, interneEchange: d.interneEchange === true });
+          rattachee: d.rattachee === true, interneEchange: d.interneEchange === true,
+          ...(Array.isArray(d.mailsOneShot) ? { mailsOneShot: d.mailsOneShot } : {}) });
       } catch { /* l'alerte se taira : voir l'encadré */ }
     })();
     return () => { annule = true; };
@@ -1489,6 +1500,7 @@ function RattachementsDuFilMail({
    */
   const alerte = suivi === null || mailId === null ? '' : alerteTouteLaConversation({
     mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId, periodes: suivi.periodes, ecraserOneShot: ecraser,
+    ...(suivi.mailsOneShot === undefined ? {} : { mailsOneShot: suivi.mailsOneShot }),
     versQuoi: motClassement({
       sorte: 'biens',
       biens: (selection ?? clesDuMail).map((cle) => ({ cle, libelle: libellesDuMail[cle] ?? cle })),
@@ -1568,10 +1580,12 @@ function RattachementsDuFilMail({
       confirmation={position === 'conversation' && modification && suivi !== null && mailId !== null
         ? motConfirmationConversation({
           mails: suivi.mails, exceptions: suivi.exceptions, messageId: mailId, periodes: suivi.periodes, ecraserOneShot: ecraser,
+          ...(suivi.mailsOneShot === undefined ? {} : { mailsOneShot: suivi.mailsOneShot }),
         }) : null}
       confirme={confirme} onConfirme={() => setConfirme((v) => !v)}
-      /* 🔴 LOT GESTION-ONESHOT-CONVERSATION — N = les mails réellement en one shot (hors celui qu'on classe) ; 0 = pas de case. */
-      oneShots={suivi !== null && mailId !== null ? nbOneShots(suivi.exceptions, mailId) : 0}
+      /* 🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — N = les mails qui portent le badge « Suivi modifié en one shot »,
+         le mail cliqué compris (un mail = 1) ; 0 = pas de case. */
+      oneShots={suivi !== null ? mailsEnOneShot(suivi).length : 0}
       ecraser={ecraser} onEcraser={() => setEcraser((v) => !v)}
       bouton={bouton} desactive={sansPosition || occupeParLAppelant || (modification && position === 'conversation' && !confirme)}
       onValider={validerLaPortee} />

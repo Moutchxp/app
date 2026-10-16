@@ -84,9 +84,20 @@ vi.mock('./horsGestionRepo', () => ({
   annulerHorsGestion: (...a: unknown[]) => annulerHorsGestion(...(a as [])),
 }));
 
+/* 🔴 LOT GESTION-ONESHOT-BADGE — la lecture du badge « Suivi modifié en one shot » (vérité de « Toute la conversation »).
+   Par défaut : les mails qui portent une exception vivante dans la fausse base ; un test peut la fixer. */
+let badgesSimules: number[] | null = null;
+let marquesMailSimulees: { sorte: 'interne' | 'hors_gestion'; messageId: number }[] = [];
+let sortiesSimulees: { lienId: number; messageId: number; motif: string | null }[] = [];
+vi.mock('./suiviOneShotRepo', () => ({
+  mailsAvecBadgeOneShot: async (mails: readonly number[]) => (badgesSimules
+    ?? base.exceptions.map((e) => Number(e.message))).filter((m) => mails.includes(m)),
+  sortiesOneShotDesMails: async (mails: readonly number[]) => sortiesSimulees.filter((x) => mails.includes(x.messageId)),
+}));
+
 import {
   annulerClassement, heriterLesNouveauxMails, poserClassement, projeterLeFil, reprendreExistant, MOTIF_POSE_PAR_SUIVI,
-  MOTIF_DETACHE_A_LA_MAIN, MOTIF_REMPLACE_PAR_FENETRE,
+  MOTIF_DETACHE_A_LA_MAIN, MOTIF_REMPLACE_PAR_FENETRE, MOTIF_ECRASE_PAR_CONVERSATION,
 } from './periodeRepo';
 
 const AUTEUR = { id: 7, libelle: AUTEUR_LIBELLE };
@@ -112,6 +123,16 @@ function reponse(sql: string, params: unknown[] = []): { rows: unknown[] } {
   if (s.includes('SELECT r.id::text, r.message_id::text FROM gestion_rattachement r WHERE r.message_id = ANY($1::bigint[]) AND NOT (r.cible_cle = ANY($2::text[]))')) {
     const mails = (params[0] as number[]).map(Number); const gardes = params[1] as string[];
     return { rows: base.liens.filter((l) => mails.includes(l.message) && !gardes.includes(l.cle)).map((l) => ({ id: String(l.id), message_id: String(l.message) })) };
+  }
+  /* 🔴 LOT GESTION-ONESHOT-BADGE — les liens confirmés des mails écrasés (instantané), les marques « ce mail ». */
+  if (s.includes("SELECT id::text, message_id::text, statut, sorti_motif FROM gestion_rattachement WHERE message_id = ANY($1::bigint[]) AND cible_sorte = 'lot' AND piece_id IS NULL ORDER BY id")) {
+    const mails = (params[0] as number[]).map(Number);
+    return { rows: base.liens.filter((l) => mails.includes(l.message)).map((l) => ({ id: String(l.id), message_id: String(l.message), statut: 'confirme', sorti_motif: null })) };
+  }
+  if (s.includes("WHERE message_id = ANY($1::bigint[]) AND retire_le IS NULL AND portee = 'mail'")) {
+    const mails = (params[0] as number[]).map(Number);
+    const table = s.includes('gestion_message_interne') ? 'interne' : 'hors_gestion';
+    return { rows: marquesMailSimulees.filter((x) => x.sorte === table && mails.includes(x.messageId)).map((x) => ({ message_id: String(x.messageId) })) };
   }
   if (s.includes('FROM gestion_message WHERE fil_id')) return { rows: base.mails.map((id) => ({ id: String(id) })) };
   if (s.includes('FROM gestion_fil_periode p')) {
@@ -146,6 +167,7 @@ function reponse(sql: string, params: unknown[] = []): { rows: unknown[] } {
 beforeEach(() => {
   migration290 = true; migration257 = true; migration293 = false;
   base = { mails: [10, 20, 30], periodes: [], exceptions: [], liens: [], filsARerendre: [], dejaRepris: 0 };
+  badgesSimules = null; sortiesSimulees = []; marquesMailSimulees = [];
   for (const m of [queryMock, qMock, rattacher, changerStatut, marquerInterne, annulerInterne,
     marquerHorsGestion, annulerHorsGestion]) m.mockClear();
   queryMock.mockImplementation(async (sql: string, params?: unknown[]) => reponse(sql, params));
@@ -633,6 +655,54 @@ describe('🔴🔴 LOT GESTION-FENETRES-SUIVI — « Ce mail + futurs échanges 
     const rouvre = appels.find((c) => c.sql.includes('UPDATE gestion_message_exception e SET retiree_le = NULL'));
     expect(rouvre?.p?.[0]).toEqual([5, 6]);
     expect(appels.some((c) => c.sql.includes('FROM gestion_rattachement r') && JSON.stringify(c.p?.[0]) === '[2]')).toBe(true);
+  });
+
+  /* ══ 🔴🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — LA VÉRITÉ EST LE BADGE, PAS LA SEULE EXCEPTION ══════════════════
+     Cas exact du fil 36646 : le mail 58004 porte le badge par un « Interne » posé sur ce mail seul, SANS exception. */
+  const POSE = { filId: 1, messageId: 10, classement: { sorte: 'biens' as const, biens: [{ cle: '36', libelle: 'lot 36' }] }, choix: 'conversation' as const, auteur: AUTEUR };
+  const rattachesA = (m: number) => (rattacher.mock.calls as unknown as [{ messageId: number }][]).filter((c) => c[0].messageId === m).length;
+  it('🔴🔴 case NON cochée : un mail badgé SANS exception est réellement conservé — ni projeté, ni aligné', async () => {
+    base.liens = [{ id: 1, message: 10, cle: '21', parLeSuivi: false }, { id: 3, message: 30, cle: '77', parLeSuivi: false }];
+    badgesSimules = [30];
+    const r = await poserClassement(POSE);
+    expect(sortis()).toEqual([1]);
+    expect(rattachesA(30)).toBe(0);
+    expect(r.ok === true && r.trace.mailsEpargnes).toEqual([30]);
+  });
+  it('🔴🔴 case cochée : ce mail est réellement écrasé — sortie à la main rendue, marque « ce mail » retirée, aligné, photographié', async () => {
+    base.liens = [{ id: 1, message: 10, cle: '21', parLeSuivi: false }, { id: 3, message: 30, cle: '77', parLeSuivi: false }];
+    badgesSimules = [30];
+    sortiesSimulees = [{ lienId: 9, messageId: 30, motif: null }];
+    /* (La fausse base n'a pas la 297 : la marque « Interne » par mail n'y existe pas ; « Hors gestion », oui.) */
+    marquesMailSimulees = [{ sorte: 'hors_gestion', messageId: 30 }];
+    const r = await poserClassement({ ...POSE, ecraserOneShot: true });
+    expect(sortis()).toEqual([1, 3]);
+    expect(toutLeSql()).toContain("UPDATE gestion_rattachement SET statut = 'confirme'");
+    expect(r.ok === true && r.trace.sortiesEcrasees).toEqual([{ lienId: 9, motif: null }]);
+    expect(r.ok === true && r.trace.marquesEcrasees).toEqual([{ sorte: 'hors_gestion', messageId: 30 }]);
+    expect(annulerHorsGestion).toHaveBeenCalledWith(expect.objectContaining({ messageIds: [30], motif: MOTIF_ECRASE_PAR_CONVERSATION }));
+    expect(r.ok === true && r.trace.mailsEcrases).toEqual([30]);
+    /* L'instantané couvre TOUTE la conversation : chaque lien, avec son statut. */
+    expect(r.ok === true && r.trace.liensAvant).toEqual([
+      { messageId: 10, confirmes: [1], sortis: [], autres: [] }, { messageId: 20, confirmes: [], sortis: [], autres: [] },
+      { messageId: 30, confirmes: [3], sortis: [], autres: [] },
+    ]);
+    expect(r.ok === true && r.trace.mailsEpargnes).toBeUndefined();
+  });
+  it('🔴 le mail cliqué qui porte lui-même un one shot : conservé case non cochée (son exception reste), écrasé case cochée', async () => {
+    base.exceptions = [{ id: '5', message: 10, sorte: 'biens', biens: [{ cle: '55', libelle: 'lot 55' }] }];
+    const garde = await poserClassement(POSE);
+    expect(garde.ok === true && garde.trace.exceptionsRetirees).toEqual([]);
+    expect(garde.ok === true && garde.trace.mailsEpargnes).toEqual([10]);
+    queryMock.mockClear(); qMock.mockClear();
+    const ecrase = await poserClassement({ ...POSE, ecraserOneShot: true });
+    expect(ecrase.ok === true && ecrase.trace.exceptionsRetirees.length).toBeGreaterThan(0);
+  });
+  it('🔴 une exception SANS badge (reprise des périodes, identique au fond) n’est pas un one shot : remplacée même case non cochée', async () => {
+    base.exceptions = [{ id: '5', message: 20, sorte: 'biens', biens: [] }];
+    badgesSimules = [];
+    await poserClassement(POSE);
+    expect(toutLeSql()).toContain('UPDATE gestion_message_exception e SET retiree_le = now() WHERE e.message_id = ANY($1::bigint[])');
   });
 });
 

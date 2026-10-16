@@ -646,6 +646,17 @@ describe('🔴🔴 la portée, sur la glissière de la fenêtre commune', () => 
     const avec = appels.find((a) => a.methode === 'POST' && a.url.includes('/gestion/suivi'));
     expect(avec?.corps).toMatchObject({ choix: 'conversation', ecraserOneShot: true });
   });
+  /* 🔴🔴 LOT GESTION-ONESHOT-BADGE (Arno, 17/10/2026) — la source de vérité est le BADGE : un mail badgé sans exception
+     (Interne posé sur ce mail seul) et le mail cliqué lui-même sont comptés. */
+  it('🔴🔴 N et Z suivent la liste des mails badgés rendue par le serveur, mail cliqué compris', async () => {
+    suiviDuFil = { ...DEUX_ONE_SHOT, mailsOneShot: [801, 803, 900] } as typeof suiviDuFil;
+    await ouvrirEtChanger();
+    await cliquer(position('Toute la conversation'));
+    expect(caseOneShot()?.textContent).toBe('Écraser aussi les 3 mails modifiés en One shot');
+    expect(texteAlerte()).toBe('2 mails de cette conversation seront mis à jour ; 1 fenêtre de suivi sera remplacée ; 3 mails en One shot conservés.');
+    await cliquer(caseOneShot()?.querySelector('input'));
+    expect(texteAlerte()).toBe('4 mails de cette conversation seront mis à jour ; 1 fenêtre de suivi sera remplacée ; 3 mails en One shot remplacés.');
+  });
   it('⚠️ changer de position décoche la case (non cochée à chaque retour)', async () => {
     suiviDuFil = DEUX_ONE_SHOT;
     await ouvrirEtChanger();
