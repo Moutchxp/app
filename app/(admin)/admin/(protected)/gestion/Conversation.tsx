@@ -3787,9 +3787,13 @@ export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer, vert 
   const mot = libelleCartouche(statut);
   const precision = precisionCartouche(statut);
   const lien = lienVersCarte(statut);
+  /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (accord d'Arno, 16/10/2026) — « Événement : aucun » n'est plus affiché : rien à la
+     place. Ce n'était qu'un texte (aucun clic) ; lier ou créer un événement reste dans le mail ouvert (« Lier à un
+     événement » / « Créer un événement »), et le bouton voisin (« Classer », « Visualiser / Modifier ») est conservé. */
+  const sansEvenement = statut.sorte === 'a_classer';
   return (
     <span className="cnv-statut">
-      {lien
+      {sansEvenement ? null : lien
         ? <a className={`cnv-cartouche cnv-cartouche--${tonCartouche(statut)}`} href={lien} title={precision ?? undefined}>{mot}</a>
         : <span className={`cnv-cartouche cnv-cartouche--${tonCartouche(statut)}`} title={precision ?? undefined}>{mot}</span>}
       {declencheur && onBasculer && (

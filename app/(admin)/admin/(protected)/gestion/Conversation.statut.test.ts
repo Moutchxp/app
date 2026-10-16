@@ -142,16 +142,17 @@ const cartouche = () => container.querySelector('.cnv-cartouche') as HTMLElement
 const declencheur = () => container.querySelector('.cnv-statut-bouton') as HTMLElement | null;
 
 describe('LES CINQ CARTOUCHES — le mot est écrit, jamais la couleur seule', () => {
-  it('b) échange sans événement → « Événement : aucun » + bouton « Classer »', async () => {
+  it('b) échange sans événement → AUCUN cartouche (accord d’Arno), et le bouton « Classer » reste', async () => {
     sansEncart = true; /* LOT UN-SEUL-BOUTON-RATTACHER — l'ancienne fenêtre, chemin quand l'encart manque. */
     await monter();
-    expect(cartouche()?.textContent).toBe('Événement : aucun');
+    /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (accord d'Arno) — sans événement, plus de cartouche « Événement : aucun ». */
+    expect(cartouche()).toBeNull();
     /**
      * 🔴 LOT STATUT-PAR-MAIL — CE CARTOUCHE EST DÉSORMAIS NEUTRE, PLUS « EN ATTENTE ». « Attente » est le ton d'un
      * travail à faire ; or l'immense majorité des mails n'a pas d'événement et n'en aura jamais. C'est la CAPSULE
      * du bien qui porte le « à faire », et elle seule — sans quoi l'écran réclame une action qui n'existe pas.
      */
-    expect(cartouche()?.className).toContain('cnv-cartouche--neutre');
+    /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT — le geste, lui, ne vivait pas dans ce texte : le bouton voisin est conservé. */
     expect(declencheur()?.textContent).toBe('Classer');
   });
 
@@ -298,7 +299,8 @@ describe('🔴 ① LES MÊMES ROUTES QU’AVANT, et ② le cartouche qui se met 
     await cliquer(declencheur());
     await cliquer(boutonPar(/^Rouvrir$/));
     expect(appels).toContainEqual({ url: '/api/admin/gestion/fils/101/sans-suite', methode: 'DELETE' });
-    expect(cartouche()?.textContent).toBe('Événement : aucun');
+    /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (accord d'Arno) — sans événement, plus de cartouche « Événement : aucun ». */
+    expect(cartouche()).toBeNull();
   });
 
   it('sans écran parent, « Classer » retombe sur le panneau EN PLACE — le comportement d’avant', async () => {
@@ -372,7 +374,8 @@ describe('🔴 LOT BARRE-STATUT — « Visualiser / Modifier » dans l’en-têt
   it('🔴 le cartouche, lui, dit toujours « À classer » — c’est l’autre question', async () => {
     liensParMessage = { '900': [lien()] };
     await monter();
-    expect(cartouche()?.textContent).toBe('Événement : aucun');
+    /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (accord d'Arno) — sans événement, plus de cartouche « Événement : aucun ». */
+    expect(cartouche()).toBeNull();
   });
 
   /* 🔴🔴 LOT UN-SEUL-BOUTON-RATTACHER (accord d'Arno) — un mail « À classer » dont l'encart est là n'a plus de lien
@@ -546,7 +549,8 @@ describe('🔴 LOT STATUT-PAR-MAIL — la capsule du mail', () => {
     expect(capsule()?.textContent).toBe('Auto');
     expect(capsule()?.className).toContain('cnv-capsule--auto');
     // …et le cartouche d'événement, lui, ne dit plus « À classer ».
-    expect(cartouche()?.textContent).toBe('Événement : aucun');
+    /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT (accord d'Arno) — sans événement, plus de cartouche « Événement : aucun ». */
+    expect(cartouche()).toBeNull();
   });
 
   /** 🔴 LES DEUX INFORMATIONS NE SE DISENT PLUS JAMAIS AVEC LES MÊMES MOTS. */
@@ -554,7 +558,8 @@ describe('🔴 LOT STATUT-PAR-MAIL — la capsule du mail', () => {
     await monter();                                  // aucun rattachement du tout
     expect(capsule()?.textContent).toBe('À classer');
     expect(cartouche()?.textContent).not.toBe('À classer');
-    expect(cartouche()?.textContent).toContain('Événement');
+    /* 🔴 LOT GESTION-CARTOUCHE-EVENEMENT — sans événement, aucun cartouche : « À classer » n'y figure donc jamais. */
+    expect(cartouche()).toBeNull();
   });
 
   it('rattaché À LA MAIN ⇒ « Classé »', async () => {
