@@ -66,7 +66,7 @@ describe('🔴 le mail : aucun vrai envoi', () => {
     expect(m.a).toEqual(['claire@criterimmo.fr']);
     expect(m.objet).toMatch(/^Tâche à accepter — 7 avenue de l’Union — Visite — .* · 9 h 30$/);
     expect(m.messageId).toMatch(/^<tache-acceptation\.[0-9a-f]+@criterimmo\.fr>$/);
-    expect(m.corps).toContain('Accepter : https://app.test/admin/taches?j=JETON&d=accepter');
+    expect(m.corps).toContain('Accepter : https://app.test/tache/reponse?j=JETON&d=accepter');
     expect(m.corps).toContain('Clés chez le gardien');
     // 🔴 LOT AGENDA-TITRE-ET-LIENS — la base UNIQUE (GESTION_URL_APPLICATION), jamais le tunnel de SITE_URL.
     expect(m.corps).not.toContain('trycloudflare');
@@ -77,7 +77,7 @@ describe('🔴 le mail : aucun vrai envoi', () => {
     delete process.env.GESTION_URL_APPLICATION;
     expect(await envoyerDemande(41, 'JETON')).toBe('factice');
     const m = ENVOIS_FACTICES[0];
-    expect(m.corps).toContain('Accepter : http://localhost:3000/admin/taches?j=JETON&d=accepter');
+    expect(m.corps).toContain('Accepter : http://localhost:3000/tache/reponse?j=JETON&d=accepter');
     expect(m.corps).toContain('(lien valable sur l’ordinateur où tourne l’application)');
     expect(m.corps).not.toContain('trycloudflare');
   });

@@ -29,7 +29,7 @@ describe('🔴 l’adresse de base', () => {
   it('🔴 la description d’agenda et les liens « Accepter / Refuser » partent de la MÊME base', () => {
     const { base, locale } = adresseApplication({ GESTION_URL_APPLICATION: 'https://gestion.sansvisavis.com' });
     expect(lienFicheBien(base, 27)).toBe('https://gestion.sansvisavis.com/admin/gestion?ecran=annuaire&fiche=lot-27');
-    expect(liensDemande(base, 'J').accepter.startsWith('https://gestion.sansvisavis.com/admin/taches?')).toBe(true);
+    expect(liensDemande(base, 'J').accepter.startsWith('https://gestion.sansvisavis.com/tache/reponse?')).toBe(true);
     expect(locale).toBe(false);
   });
   it('base locale : la description dit que le lien ne vaut que sur l’ordinateur de l’application', () => {

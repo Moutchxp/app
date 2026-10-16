@@ -118,6 +118,19 @@ const CHEMINS_AUTHENTIFIE_SEUL: ReadonlySet<string> = new Set([
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // ═══ LIEN DE RÉPONSE À UNE TÂCHE (lot GESTION-ACCEPTATION, 16/10/2026) ═══
+  // Les mails envoyés avant ce lot pointent sur `/admin/taches?j=…&d=…`, qui ouvrait la page de connexion et perdait le
+  // lien (la réponse n'était jamais enregistrée). On les envoie sur la page PUBLIQUE de réponse, où le jeton suffit —
+  // AVANT tout contrôle de session (plus de page de connexion). Sans `j`, « Mes tâches » reste la page protégée d'avant.
+  if (pathname === '/admin/taches' && request.nextUrl.searchParams.has('j')) {
+    const cible = new URL('/tache/reponse', request.url);
+    for (const cle of ['j', 'd']) {
+      const v = request.nextUrl.searchParams.get(cle);
+      if (v !== null) cible.searchParams.set(cle, v);
+    }
+    return NextResponse.redirect(cible, 302);
+  }
+
   // ═══ CONTRÔLE D'ORIGINE (audit point 6, 15/10/2026) ═══
   // Toute requête d'API qui MODIFIE (connexion et déconnexion comprises) doit venir de l'admin elle-même : un autre
   // sous-domaine de sansvisavis.com est « même site » pour le navigateur, SameSite seul ne suffit pas. Cf. controleOrigine.ts.

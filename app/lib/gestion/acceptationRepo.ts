@@ -197,20 +197,27 @@ async function piecesDeLaDemande(tacheId: number): Promise<{ nom: string; lien: 
    RÉPONDRE : ACCEPTER, REFUSER (motif obligatoire)
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-export type IssueReponse = { ok: true; statut: StatutAcceptation; message: string; tacheId?: number } | { ok: false; statut: number; message: string };
+export type IssueReponse =
+  | { ok: true; statut: StatutAcceptation; message: string; tacheId?: number }
+  | { ok: false; statut: number; message: string; cause?: Exclude<VerdictLien, { ok: true }>['cause'] };
 
 interface LigneDemande {
-  id: number; tache_id: number; statut: string; destinataire_id: number | null; expire_le: Date | null;
-  utilise_le: Date | null; tache_etat: string;
+  id: number; tache_id: number; statut: string; destinataire_id: number | null; destinataire_libelle: string | null;
+  expire_le: Date | null; utilise_le: Date | null; tache_etat: string;
 }
 
 /**
  * RÉPONDRE à une demande — par le JETON du mail, ou (depuis « Mes tâches », sans jeton) par la tâche, pour son
  * destinataire connecté. Les mêmes refus dans les deux cas, sauf l'expiration, qui ne concerne que le lien.
+ *
+ * 🔴 LOT GESTION-ACCEPTATION (16/10/2026) — `identiteParJeton` : le lien du mail suffit, SANS connexion. Le jeton (32
+ * octets aléatoires, empreinte seule en base) est propre à CETTE demande, donc à ce destinataire et à cette tâche : c'est
+ * lui qui désigne la personne qui répond (le destinataire de la demande). Les autres règles ne changent pas : une seule
+ * fois (verrou de ligne + `utilise_le`), avant l'expiration, jamais une demande remplacée ou une tâche terminée.
  */
 export async function repondreDemande(o: {
   jeton?: string | null; tacheId?: number | null; decision: 'accepter' | 'refuser'; motif?: string | null;
-  utilisateur: Auteur; nom: string; maintenant?: Date;
+  utilisateur: Auteur | null; nom: string | null; maintenant?: Date; identiteParJeton?: boolean;
 }): Promise<IssueReponse> {
   if (o.decision === 'refuser') {
     const e = erreurMotif(o.motif);
@@ -220,24 +227,31 @@ export async function repondreDemande(o: {
     const parJeton = (o.jeton ?? '').trim() !== '';
     const { rows } = await q<LigneDemande>(
       `SELECT d.id::int AS id, d.tache_id::int AS tache_id, d.statut, d.destinataire_id::int AS destinataire_id,
-              d.expire_le, d.utilise_le, t.etat AS tache_etat
+              d.destinataire_libelle, d.expire_le, d.utilise_le, t.etat AS tache_etat
          FROM gestion_tache_demande d JOIN gestion_tache t ON t.id = d.tache_id
         WHERE ${parJeton ? 'd.jeton_empreinte = $1' : "d.tache_id = $1 AND d.statut <> 'remplacee'"}
         FOR UPDATE OF d`, [parJeton ? empreinteJeton(o.jeton ?? '') : o.tacheId ?? 0]);
     const d = rows[0] ?? null;
+    // Par le lien seul (sans connexion) : la personne qui répond EST le destinataire désigné par le jeton.
+    const parLien = parJeton && o.identiteParJeton === true;
+    const utilisateur: Auteur = parLien
+      ? { id: d?.destinataire_id ?? null, libelle: d?.destinataire_libelle ?? '' }
+      : o.utilisateur ?? { id: null, libelle: '' };
+    const nom = parLien ? (d?.destinataire_libelle ?? '') : (o.nom ?? '');
     const v: VerdictLien = verdictLien(
       d === null ? null : {
         statut: d.statut, destinataireId: d.destinataire_id,
         expireLe: parJeton ? iso(d.expire_le) : null, utiliseLe: iso(d.utilise_le),
       },
-      d?.tache_etat ?? null, o.utilisateur.id, o.maintenant ?? new Date());
-    if (!v.ok) return { ok: false, statut: v.cause === 'autre_personne' ? 403 : 409, message: v.message };
+      d?.tache_etat ?? null, utilisateur.id, o.maintenant ?? new Date());
+    if (!v.ok) return { ok: false, statut: v.cause === 'autre_personne' ? 403 : 409, message: v.message, cause: v.cause };
     const statut: StatutAcceptation = o.decision === 'accepter' ? 'acceptee' : 'refusee';
     const motif = o.decision === 'refuser' ? (o.motif ?? '').trim() : null;
     await q(
       `UPDATE gestion_tache_demande SET statut = $2, repondu_le = now(), repondu_par_libelle = $3, motif = $4, utilise_le = now()
-        WHERE id = $1`, [d!.id, statut, o.nom, motif]);
-    await tracer(q, d!.tache_id, { acceptation: 'en_attente' }, { acceptation: statut, ...(motif ? { motif } : {}) }, o.utilisateur, o.nom);
+        WHERE id = $1`, [d!.id, statut, nom, motif]);
+    await tracer(q, d!.tache_id, { acceptation: 'en_attente' },
+      { acceptation: statut, ...(motif ? { motif } : {}), ...(parLien ? { canal: 'lien du mail' } : {}) }, utilisateur, nom);
     await marquerASynchroniser(q, Number(d!.tache_id));
     return {
       ok: true, statut, tacheId: Number(d!.tache_id),
@@ -277,8 +291,11 @@ export async function mesTachesRecues(utilisateurId: number): Promise<TacheRecue
   return rows.map(versRecue);
 }
 
-/** La demande d'un jeton, pour l'afficher sur la page — avec le verdict pour CETTE personne. */
-export async function demandeDuJeton(jeton: string, utilisateurId: number | null): Promise<{ tache: TacheRecue | null; verdict: VerdictLien }> {
+/**
+ * La demande d'un jeton, pour l'afficher sur la page — avec le verdict pour CETTE personne. `'destinataire'` (page
+ * publique du lien, sans connexion) : le verdict est rendu pour le destinataire désigné par le jeton.
+ */
+export async function demandeDuJeton(jeton: string, utilisateurId: number | null | 'destinataire'): Promise<{ tache: TacheRecue | null; verdict: VerdictLien }> {
   const { rows } = await query<LigneRecue & { destinataire_id: number | null; expire_le: Date | null; utilise_le: Date | null; statut_brut: string }>(
     `SELECT t.id::int AS tache_id, t.objet, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
             t.etat, t.note, l.adresse, l.commune, d.demandeur_libelle, d.statut, d.statut AS statut_brut, d.cree_le,
@@ -288,7 +305,7 @@ export async function demandeDuJeton(jeton: string, utilisateurId: number | null
   const r = rows[0];
   const verdict = verdictLien(r === undefined ? null : {
     statut: r.statut_brut, destinataireId: r.destinataire_id, expireLe: iso(r.expire_le), utiliseLe: iso(r.utilise_le),
-  }, r?.etat ?? null, utilisateurId, new Date());
+  }, r?.etat ?? null, utilisateurId === 'destinataire' ? (r?.destinataire_id ?? null) : utilisateurId, new Date());
   // Une autre personne ne voit RIEN de la tâche : seulement le refus.
   return { tache: r === undefined || (!verdict.ok && verdict.cause === 'autre_personne') ? null : versRecue(r), verdict };
 }

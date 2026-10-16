@@ -57,7 +57,7 @@ describe('le mail de demande', () => {
       .toBe('Tâche à accepter — 7 avenue de l’Union — Visite — mar. 13 oct. · journée');
     expect(messageIdDemande('criterimmo.fr', 'abc')).toBe('<tache-acceptation.abc@criterimmo.fr>');
     const l = liensDemande('https://app.test/', 'JETON');
-    expect(l).toEqual({ accepter: 'https://app.test/admin/taches?j=JETON&d=accepter', refuser: 'https://app.test/admin/taches?j=JETON&d=refuser' });
+    expect(l).toEqual({ accepter: 'https://app.test/tache/reponse?j=JETON&d=accepter', refuser: 'https://app.test/tache/reponse?j=JETON&d=refuser' });
     const c = corpsDemande({
       echeance: 'mar. 13 oct. · journée', adresseBien: '7 avenue de l’Union, Asnières', objet: 'Visite', demandeur: 'Arnaud Jorel',
       destinataire: 'Claire', texte: 'Note\n\nContacts\n— M. X · Propriétaire', pieces: [{ nom: 'Bail.pdf', lien: 'https://drive/b' }],
