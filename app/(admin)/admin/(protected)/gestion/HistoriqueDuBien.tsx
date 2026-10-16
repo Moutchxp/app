@@ -1,5 +1,6 @@
 'use client';
 
+import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — l'écran reste fixe au changement de classement (même geste que les tâches). */
 import { figerDefilement } from './defilementFige';
@@ -4460,9 +4461,12 @@ function MenuDeplacer({ cle, nom, depuis, ouvert, onOuvrir, onFermer, onChoisir,
     };
     document.addEventListener('keydown', surTouche);
     document.addEventListener('mousedown', surClic);
+    /* 🔴 LOT GESTION-MENU-HISTORIQUE — et un clic dans le corps d'un mail (iframe), qui ôte le focus à la page. */
+    const lacher = fermerQuandLaPagePerdLeFocus(onFermer);
     return () => {
       document.removeEventListener('keydown', surTouche);
       document.removeEventListener('mousedown', surClic);
+      lacher();
     };
   }, [ouvert, onFermer]);
 

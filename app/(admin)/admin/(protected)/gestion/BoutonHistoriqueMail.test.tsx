@@ -141,6 +141,36 @@ describe('bouton « Historique » — un bien, plusieurs biens', () => {
   });
 });
 
+/* ══ 🔴🔴 LOT GESTION-MENU-HISTORIQUE (Arno, 16/10/2026) — le menu se referme partout, sans rien ouvrir ═════════════════════ */
+describe('🔴🔴 LOT GESTION-MENU-HISTORIQUE — fermer le menu sans choisir', () => {
+  const ouvert = () => container.querySelector('.bhm-liste') !== null;
+  it('🔴🔴 clic à côté, Échap, second clic sur « Historique », clic dans le corps du mail (iframe) : fermé, rien d’ouvert', async () => {
+    liens = [lien(1, '40'), lien(2, '41')];
+    const onFicheBien = vi.fn();
+    await monter({ onFicheBien });
+    /* clic à côté */
+    await cliquer(bouton() as Element); expect(ouvert()).toBe(true);
+    await act(async () => { document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true })); });
+    expect(ouvert()).toBe(false);
+    /* Échap */
+    await cliquer(bouton() as Element); expect(ouvert()).toBe(true);
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(ouvert()).toBe(false);
+    /* second clic sur le bouton */
+    await cliquer(bouton() as Element); expect(ouvert()).toBe(true);
+    await cliquer(bouton() as Element); expect(ouvert()).toBe(false);
+    /* 🔴 LE CAS DU DÉFAUT : un clic dans le corps du mail (cadre isolé, iframe) n'atteint pas la page ; il lui ôte le focus. */
+    await cliquer(bouton() as Element); expect(ouvert()).toBe(true);
+    await act(async () => { window.dispatchEvent(new Event('blur')); });
+    expect(ouvert()).toBe(false);
+    expect(bouton()?.getAttribute('aria-expanded')).toBe('false');
+    /* aucune de ces fermetures n'ouvre un historique, ni n'écrit quoi que ce soit */
+    expect(onFicheBien).not.toHaveBeenCalled();
+    /* (le marquage « lu » posé par la conversation à son ouverture n'est pas un geste du bouton) */
+    expect(ecritures.filter((u) => !u.endsWith('/lecture'))).toEqual([]);
+  });
+});
+
 describe('bouton « Historique » — la fiche courante est exclue', () => {
   it('ouverte depuis l’historique du bien 40 : seul 41 est proposé, en lien direct', async () => {
     liens = [lien(1, '40'), lien(2, '41')];

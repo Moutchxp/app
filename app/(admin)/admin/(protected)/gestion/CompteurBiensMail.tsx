@@ -1,5 +1,6 @@
 'use client';
 
+import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
@@ -225,9 +226,12 @@ function CompteurAvecBulle({ messageId, mot }: { messageId: number; mot: string 
     };
     document.addEventListener('keydown', clavier, true);
     document.addEventListener('pointerdown', ailleurs, true);
+    /* 🔴 LOT GESTION-MENU-HISTORIQUE — et un clic dans le corps d'un mail (iframe), qui ôte le focus à la page. */
+    const lacher = fermerQuandLaPagePerdLeFocus(fermer);
     return () => {
       document.removeEventListener('keydown', clavier, true);
       document.removeEventListener('pointerdown', ailleurs, true);
+      lacher();
     };
   }, [ouverte, fermer]);
   useEffect(() => () => {

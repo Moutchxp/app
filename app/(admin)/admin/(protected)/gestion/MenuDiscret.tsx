@@ -1,5 +1,6 @@
 'use client';
 
+import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 /**
@@ -58,7 +59,9 @@ export function MenuDiscret({ titre, entrees, desactive = false, glyphe = '⋯' 
     const surTouche = (e: KeyboardEvent) => { if (e.key === 'Escape') { setOuvert(false); bouton.current?.focus(); } };
     document.addEventListener('mousedown', surClic);
     document.addEventListener('keydown', surTouche);
-    return () => { document.removeEventListener('mousedown', surClic); document.removeEventListener('keydown', surTouche); };
+    /* 🔴 LOT GESTION-MENU-HISTORIQUE — et un clic dans le corps d'un mail (iframe), qui ôte le focus à la page. */
+    const lacher = fermerQuandLaPagePerdLeFocus(() => setOuvert(false));
+    return () => { document.removeEventListener('mousedown', surClic); document.removeEventListener('keydown', surTouche); lacher(); };
   }, [ouvert]);
 
   return (

@@ -1,5 +1,6 @@
 'use client';
 
+import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 /**
  * 🔴 DEPUIS LES MODULES **PURS**, JAMAIS DEPUIS LE DÉPÔT. Ce composant vit dans le navigateur : importer
@@ -403,7 +404,10 @@ export function FriseAvancement({
     };
     window.addEventListener('keydown', surTouche);
     document.addEventListener('pointerdown', surClicAilleurs);
+    /* 🔴 LOT GESTION-MENU-HISTORIQUE — et un clic dans le corps d'un mail (iframe), qui ôte le focus à la page. */
+    const lacher = fermerQuandLaPagePerdLeFocus(toutRefermer);
     return () => {
+      lacher();
       window.removeEventListener('keydown', surTouche);
       document.removeEventListener('pointerdown', surClicAilleurs);
     };

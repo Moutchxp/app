@@ -1,5 +1,6 @@
 'use client';
 
+import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ToucheReact, type FocusEvent } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -278,7 +279,10 @@ export function InfoBien({ cle, titre, surLaLigne, lignes: lignesFournies, aide 
      */
     document.addEventListener('click', dehors, true);
     document.addEventListener('keydown', echap, true);
+    /* 🔴 LOT GESTION-MENU-HISTORIQUE — et un clic dans le corps d'un mail (iframe), qui ôte le focus à la page. */
+    const lacher = fermerQuandLaPagePerdLeFocus(fermer);
     return () => {
+      lacher();
       document.removeEventListener('mousedown', dehors, true);
       document.removeEventListener('click', dehors, true);
       document.removeEventListener('keydown', echap, true);

@@ -1,5 +1,6 @@
 'use client';
 
+import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useEffect, useRef, useState } from 'react';
 import {
   bullePieceDansLeDrive, ligneEmplacement, titreMenuEmplacements, type EmplacementPiece,
@@ -78,7 +79,10 @@ export function PictoDansLeDrive({ emplacements, nomPiece, classe, onOuvrir }: {
     window.addEventListener('mousedown', surClic);
     window.addEventListener('scroll', surDefilement, true);
     window.addEventListener('resize', surDefilement);
+    /* 🔴 LOT GESTION-MENU-HISTORIQUE — et un clic dans le corps d'un mail (iframe), qui ôte le focus à la page. */
+    const lacher = fermerQuandLaPagePerdLeFocus(() => setPose(null));
     return () => {
+      lacher();
       window.removeEventListener('keydown', surTouche, true);
       window.removeEventListener('mousedown', surClic);
       window.removeEventListener('scroll', surDefilement, true);

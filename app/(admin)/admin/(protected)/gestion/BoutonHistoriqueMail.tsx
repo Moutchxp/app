@@ -1,5 +1,6 @@
 'use client';
 
+import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   gesteHistorique, MOT_HISTORIQUE, sousLibelleHistorique, type BienHistorique,
@@ -62,9 +63,12 @@ export function BoutonHistoriqueMail({ messageId, biens, onOuvrir }: {
     };
     document.addEventListener('keydown', clavier, true);
     document.addEventListener('pointerdown', ailleurs, true);
+    /* 🔴 LOT GESTION-MENU-HISTORIQUE — un clic dans le corps du mail (iframe) n'atteint pas la page : il lui ôte le focus. */
+    const lacher = fermerQuandLaPagePerdLeFocus(() => setOuverte(false));
     return () => {
       document.removeEventListener('keydown', clavier, true);
       document.removeEventListener('pointerdown', ailleurs, true);
+      lacher();
     };
   }, [ouverte]);
 
