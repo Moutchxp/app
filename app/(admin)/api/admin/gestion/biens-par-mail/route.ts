@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
-import { biensDeLaBulle, comptesBiensParMail, PLAFOND_COMPTE_BIENS } from '../../../../../lib/gestion/compteBiensMailRepo';
+import { biensDeLaBulle, biensDesCles, comptesBiensParMail, PLAFOND_COMPTE_BIENS } from '../../../../../lib/gestion/compteBiensMailRepo';
 
 /**
  * ══ 🔴🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — LE NOMBRE DE BIENS RATTACHÉS DES MAILS AFFICHÉS ══════════════════
@@ -25,6 +25,16 @@ export async function GET(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
   const url = new URL(request.url);
+  /* 🔴 LOT GESTION-BULLES — le détail de biens nommés par leurs clés (le suivi de fond, dans la bulle d'exception). */
+  if (url.searchParams.has('cles')) {
+    try {
+      const cles = (url.searchParams.get('cles') ?? '').split(',');
+      return Response.json({ etat: 'ok', biens: await biensDesCles(cles) }, { headers: ENTETES });
+    } catch (e) {
+      console.error('[gestion/biens-par-mail] biens des clés illisibles', e);
+      return Response.json({ etat: 'erreur' }, { status: 503, headers: ENTETES });
+    }
+  }
   /* 🔴 LOT BULLE-BIENS-RATTACHES — le détail d'UN mail, demandé au premier survol de son compteur. */
   const detail = Number(url.searchParams.get('detail'));
   if (url.searchParams.has('detail')) {

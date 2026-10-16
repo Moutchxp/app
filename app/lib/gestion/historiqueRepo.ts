@@ -941,7 +941,7 @@ async function statutsDesMessages(
        LEFT JOIN LATERAL (
          SELECT count(*)::int AS n,
                 bool_or(r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL) AS humain,
-                string_agg(coalesce(nullif(btrim(r.cible_libelle), ''), r.cible_cle), ' · ' ORDER BY r.id) AS detail
+                string_agg(coalesce(nullif(btrim(r.cible_libelle), ''), r.cible_cle), E'\n' ORDER BY r.id) AS detail
            FROM gestion_rattachement r
           WHERE r.message_id = m.id AND r.statut = 'confirme'
             -- 🔴🔴 LOT STATUT-LIGNE-APRES-CLASSEMENT — « un bien » vient de SORTES_BIEN, jamais d'une liste

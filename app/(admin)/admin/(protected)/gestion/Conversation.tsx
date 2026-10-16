@@ -144,9 +144,9 @@ import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 /* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — le cartouche rouge « Suivi modifié en one shot » et sa modale. */
 import { PastilleOneShot } from './PastilleOneShot';
 /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
-import { CSS_COMPTEUR_BIENS, ContenuBulleBiens, DateEtBiens, lireBiensDuMail } from './CompteurBiensMail';
+import { CSS_COMPTEUR_BIENS, ContenuBulleBiens, DateEtBiens, lireBiensDesCles, lireBiensDuMail } from './CompteurBiensMail';
 /* 🔴 LOT GESTION-BULLES — la bulle structurée de l'icône ⓘ d'exception. */
-import { piedException, TITRE_EXCEPTION, type BienDeLaBulle } from '../../../../lib/gestion/bulleBiensMail';
+import { TITRE_EXCEPTION, type BienDeLaBulle } from '../../../../lib/gestion/bulleBiensMail';
 import { BoutonHistoriqueMail, CSS_BOUTON_HISTORIQUE_MAIL, EnteteDroite } from './BoutonHistoriqueMail';
 import { biensDuBoutonHistorique } from '../../../../lib/gestion/boutonHistoriqueMail';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
@@ -1800,7 +1800,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     const fond = projeter(suivi.mails, suivi.periodes, []).get(messageId);
     return {
       sorte: e.classement.sorte,
-      fond: fond === undefined ? null : fond.sorte === 'biens' ? fond.biens.map((b) => b.libelle) : fond.sorte,
+      /* 🔴 LOT GESTION-BULLES — les CLÉS des biens du suivi de fond : leur détail est lu à l'ouverture (une ligne par bien). */
+      fond: fond === undefined ? null : fond.sorte === 'biens' ? fond.biens.map((b) => b.cle) : fond.sorte,
     };
   };
 
@@ -4201,14 +4202,22 @@ interface DetailException { sorte: 'biens' | 'interne' | 'hors_gestion'; fond: s
 
 function InfoException({ texte, messageId, detail }: { texte: string; messageId: number; detail: DetailException | null }) {
   const [ouverte, setOuverte] = useState(false);
-  /* 🔴 LOT GESTION-BULLES — les biens RÉELLEMENT rattachés à ce mail, lus au premier survol, focus ou clic (même lecture,
-     même mémoire que la bulle « N biens rattachés »). */
+  /* 🔴 LOT GESTION-BULLES — les biens RÉELLEMENT rattachés à ce mail (la différence, en rouge) et ceux du suivi de fond (en
+     bas, discrets), lus au premier survol, focus ou clic — mêmes lectures, même mémoire que la bulle « N biens rattachés ». */
   const [biens, setBiens] = useState<{ v: 'charge' } | { v: 'ok'; liste: BienDeLaBulle[] } | { v: 'erreur' }>({ v: 'charge' });
+  const [fondLu, setFondLu] = useState<{ v: 'charge' } | { v: 'ok'; liste: BienDeLaBulle[] } | { v: 'erreur' }>({ v: 'charge' });
+  const clesFond = Array.isArray(detail?.fond) ? detail.fond : [];
   const charger = (): void => {
-    if (biens.v === 'ok' || detail?.sorte !== 'biens') return;
-    void lireBiensDuMail(messageId).then((l) => setBiens(l === null ? { v: 'erreur' } : { v: 'ok', liste: l }));
+    if (detail?.sorte === 'biens' && biens.v !== 'ok') {
+      void lireBiensDuMail(messageId).then((l) => setBiens(l === null ? { v: 'erreur' } : { v: 'ok', liste: l }));
+    }
+    if (clesFond.length > 0 && fondLu.v !== 'ok') {
+      void lireBiensDesCles(clesFond).then((l) => setFondLu(l === null ? { v: 'erreur' } : { v: 'ok', liste: l }));
+    }
   };
   const sansBien = detail?.sorte === 'interne' ? 'Classé « Interne »' : detail?.sorte === 'hors_gestion' ? 'Classé « Hors gestion »' : 'Aucun bien';
+  const motFond = detail?.fond === 'interne' ? 'Interne' : detail?.fond === 'hors_gestion' ? 'Hors gestion'
+    : detail?.fond === null || detail === null ? 'aucun suivi' : 'aucun bien';
   return (
     <span className="cnv-exception-ancre" onMouseEnter={charger} onFocus={charger}>
       <button type="button" className="cnv-exception-info" aria-label={texte} aria-expanded={ouverte}
@@ -4217,11 +4226,15 @@ function InfoException({ texte, messageId, detail }: { texte: string; messageId:
         i
       </button>
       <span className={`cnv-exception-bulle${ouverte ? ' cnv-exception-bulle--ouverte' : ''}`} role="tooltip">
-        <ContenuBulleBiens titre={TITRE_EXCEPTION}
+        <ContenuBulleBiens titre={TITRE_EXCEPTION} rouge
           etat={detail?.sorte === 'biens' ? biens.v : 'ok'}
           biens={detail?.sorte === 'biens' && biens.v === 'ok' ? biens.liste : []}
           sansBien={sansBien}
-          pied={piedException(detail?.fond ?? null)} />
+          fond={{
+            etat: clesFond.length === 0 ? 'ok' : fondLu.v,
+            biens: clesFond.length > 0 && fondLu.v === 'ok' ? fondLu.liste : [],
+            sansBien: motFond,
+          }} />
       </span>
     </span>
   );

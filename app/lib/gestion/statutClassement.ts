@@ -451,7 +451,10 @@ export function bulleCapsuleMessage(
   }
   const dit = libelles.filter((l) => l.trim() !== '');
   const debut = s === 'classe' ? 'Rattaché à la main' : 'Rattaché automatiquement';
-  return dit.length === 0 ? `${debut}.` : `${debut} : ${dit.join(' · ')}`;
+  /* 🔴 LOT GESTION-BULLES (Arno, 16/10/2026) — UN BIEN = UNE LIGNE dans toutes les bulles : chaque bien sur sa ligne
+     (retour à la ligne de l'info-bulle), jamais deux biens séparés par « · ». Un seul bien : la phrase d'avant. */
+  if (dit.length === 0) return `${debut}.`;
+  return dit.length === 1 ? `${debut} : ${dit[0]}` : `${debut} :\n${dit.join('\n')}`;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

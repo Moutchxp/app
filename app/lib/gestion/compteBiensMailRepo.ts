@@ -69,3 +69,26 @@ export async function biensDeLaBulle(messageId: number): Promise<BienDeLaBulle[]
     nature: r.nature, typeBien: r.type_bien, proprietaire: r.proprietaire,
   }));
 }
+
+/**
+ * 🔴 LOT GESTION-BULLES (Arno, 16/10/2026) — LES BIENS DE CES CLÉS (lots WIPPIMMO), pour la partie « suivi de fond » de la
+ * bulle d'exception : même forme et même présentation que les biens du haut (une ligne par bien). LECTURE SEULE, bornée.
+ */
+export async function biensDesCles(cles: readonly string[]): Promise<BienDeLaBulle[]> {
+  const propres = [...new Set(cles.map((c) => String(c).trim()).filter((c) => c !== '' && c.length <= 64))].slice(0, 50);
+  if (propres.length === 0) return [];
+  const { rows } = await query<{
+    cle: string; adresse: string | null; code_postal: string | null; commune: string | null;
+    nature: string | null; type_bien: string | null; proprietaire: string | null;
+  }>(
+    `SELECT DISTINCT lo.wippimmo_id AS cle, lo.adresse, lo.code_postal, lo.commune, lo.nature, lo.type_bien,
+            pr.nom_complet AS proprietaire
+       FROM gestion_annuaire_lot lo
+       LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
+      WHERE lo.wippimmo_id = ANY($1::text[])
+      ORDER BY lo.adresse, lo.wippimmo_id`, [propres]);
+  return rows.map((r) => ({
+    cle: r.cle, adresse: r.adresse, codePostal: r.code_postal, commune: r.commune,
+    nature: r.nature, typeBien: r.type_bien, proprietaire: r.proprietaire,
+  }));
+}

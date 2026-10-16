@@ -36,6 +36,10 @@ let filCourant: Record<string, unknown>;
 let messages: Record<string, unknown>[];
 /** 🔴 LOT LISTING-EXCEPTION — les exceptions que `/suivi` rend (aucune par défaut). */
 let exceptionsSuivi: unknown[] = [];
+/** 🔴 LOT GESTION-BULLES — les fenêtres que `/suivi` rend, et les biens que `/biens-par-mail` connaît (par clé). */
+let periodesSuivi: unknown[] = [];
+let biensDuMailBulle: unknown[] = [];
+const BIEN_BULLE = (cle: string, typeBien: string) => ({ cle, adresse: '54 Avenue Puvis De Chavannes', codePostal: '92400', commune: 'COURBEVOIE', nature: 'Appartement meublé', typeBien, proprietaire: 'COSYNS Pierre' });
 /**
  * LOT BARRE-STATUT — ce que les deux lectures de rattachements répondent. Pilotées par le test.
  * LOT FICHE-RATTACHEMENT — une TROISIÈME lecture s'y ajoute : `?fiche=`, qui rend les BIENS de l'échange.
@@ -63,6 +67,7 @@ beforeEach(() => {
   liensParMessage = {};
   sansEncart = false;
   exceptionsSuivi = [];
+  periodesSuivi = []; biensDuMailBulle = [];
   rattachementsDuFil = { etat: 'ok', data: [] };
   ficheDuFil = {
     etat: 'ok',
@@ -76,6 +81,13 @@ beforeEach(() => {
     const u = String(url);
     const methode = init?.method ?? 'GET';
     appels.push({ url: u, methode });
+    if (u.includes('/biens-par-mail?cles=')) {
+      const cles = decodeURIComponent(u.split('cles=')[1] ?? '').split(',');
+      return { ok: true, json: async () => ({ etat: 'ok', biens: cles.map((c) => BIEN_BULLE(c, c === '36' ? 'Garage' : 'Type 1')) }) } as unknown as Response;
+    }
+    if (u.includes('/biens-par-mail?detail=')) {
+      return { ok: true, json: async () => ({ etat: 'ok', biens: biensDuMailBulle }) } as unknown as Response;
+    }
     if (u.includes('/sans-suite')) {
       filCourant = methode === 'POST' ? FIL({ etat: 'sans_suite' }) : FIL();
       return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
@@ -87,7 +99,7 @@ beforeEach(() => {
     //   adresses se ressemblent, et l'ordre des tests décide ici laquelle répond.
     // 🔴 LOT UN-SEUL-BOUTON-RATTACHER — le suivi de la conversation (migration 290), lu à l'ouverture de « Rattacher ».
     if (u.includes('/gestion/suivi')) {
-      return { ok: true, json: async () => ({ etat: 'ok', periodes: [], exceptions: exceptionsSuivi, mails: [900], rattachee: false, expediteurConnu: false }) } as unknown as Response;
+      return { ok: true, json: async () => ({ etat: 'ok', periodes: periodesSuivi, exceptions: exceptionsSuivi, mails: [900], rattachee: false, expediteurConnu: false }) } as unknown as Response;
     }
     if (u.includes('/hors-gestion')) {
       return {
@@ -1108,7 +1120,8 @@ describe('🔴🔴 LOT LISTING-EXCEPTION — mail en exception : une icône ⓘ 
     expect(icone.getAttribute('aria-label')).toBe(PHRASE);
     /* 🔴 LOT GESTION-BULLES — la bulle est structurée : titre, biens (lus en direct), puis le suivi de fond, à part. */
     expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-titre')?.textContent).toBe('Exception au suivi');
-    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied')?.textContent).toBe('Différent du suivi de la conversation : aucun suivi');
+    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied-titre')?.textContent).toBe('Différent du suivi de la conversation :');
+    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied-mot')?.textContent).toBe('aucun suivi');
   });
   it('🔴 au clic : la bulle s’ouvre, et la carte du mail ne se plie ni ne se déplie', async () => {
     exceptionsSuivi = EXC;
@@ -1149,5 +1162,54 @@ describe('🔴🔴 LOT GESTION-SUIVI-MIXTE — la page d’un fil (`vueDuFil`)',
     const fs = await import('node:fs');
     expect(fs.readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8')).toContain('maintenant={maintenant} vueDuFil');
     expect(fs.readFileSync('app/(admin)/admin/(protected)/gestion/GestionVue.tsx', 'utf8')).not.toContain('vueDuFil');
+  });
+});
+
+/* ══ 🔴🔴 LOT GESTION-BULLES (Arno, 16/10/2026) — UN BIEN = UNE LIGNE, ET LA DIFFÉRENCE EN ROUGE ═════════════════════════ */
+describe('🔴🔴 LOT GESTION-BULLES — bulle « Exception au suivi »', () => {
+  beforeEach(async () => { (await import('./CompteurBiensMail')).viderMemoireBiensRattaches(); });
+  const FOND = [{ id: 1, depuisMessageId: 900, classement: { sorte: 'biens', biens: [{ cle: '21', libelle: 'lot 21' }, { cle: '36', libelle: 'lot 36' }] } }];
+  const ouvrirBulle = async () => {
+    await act(async () => { container.querySelector('.cnv-exception-ancre')?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    await cliquer(container.querySelector('.cnv-exception-info'));
+  };
+  /** Échoue si deux biens partagent une ligne : chaque `li` porte UN seul bien, et aucun texte n'en enchaîne deux. */
+  const unBienParLigne = (lignes: Element[]) => {
+    for (const l of lignes) {
+      expect(l.querySelectorAll('.cbm-bulle-bien')).toHaveLength(1);
+      expect((l.textContent ?? '').match(/lot \d+/g) ?? []).toHaveLength(1);
+      expect(l.textContent ?? '').not.toMatch(/;/);
+    }
+  };
+  it('🔴🔴 cas du 7 oct. 16:12 (one shot sans aucun bien) : « Aucun bien » EN ROUGE ; le suivi de fond, un bien par ligne, discret', async () => {
+    periodesSuivi = FOND;
+    exceptionsSuivi = [{ messageId: 900, classement: { sorte: 'biens', biens: [] }, parLibelle: 'a.jorel@sansvisavis.com' }];
+    await monter();
+    await ouvrirBulle();
+    const diff = container.querySelector('.cnv-exception-bulle .cbm-bulle-diff');
+    expect(diff?.textContent).toBe('Aucun bien');
+    const fond = [...container.querySelectorAll('.cnv-exception-bulle .cbm-bulle-pied .cbm-bulle-ligne')];
+    expect(fond).toHaveLength(2);
+    unBienParLigne(fond);
+    expect(fond.every((l) => l.classList.contains('cbm-bulle-ligne--fond') && !l.classList.contains('cbm-bulle-ligne--diff'))).toBe(true);
+    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied')?.textContent).not.toMatch(/;/);
+  });
+  it('🔴🔴 exception à deux biens : chacun sur sa ligne, EN ROUGE (classe de la différence), et rien de rouge en bas', async () => {
+    periodesSuivi = [{ id: 1, depuisMessageId: 900, classement: { sorte: 'biens', biens: [{ cle: '21', libelle: 'lot 21' }] } }];
+    exceptionsSuivi = [{ messageId: 900, classement: { sorte: 'biens', biens: [{ cle: '21', libelle: 'lot 21' }, { cle: '36', libelle: 'lot 36' }] }, parLibelle: 'a.jorel@sansvisavis.com' }];
+    biensDuMailBulle = [BIEN_BULLE('21', 'Type 1'), BIEN_BULLE('36', 'Garage')];
+    await monter();
+    await ouvrirBulle();
+    const haut = [...container.querySelectorAll('.cnv-exception-bulle > .cbm-bulle-liste .cbm-bulle-ligne')];
+    expect(haut).toHaveLength(2);
+    unBienParLigne(haut);
+    expect(haut.every((l) => l.classList.contains('cbm-bulle-ligne--diff'))).toBe(true);
+    expect(container.querySelectorAll('.cnv-exception-bulle .cbm-bulle-pied .cbm-bulle-ligne--diff')).toHaveLength(0);
+  });
+  it('🔴 la différence est ROUGE dans la feuille (et le suivi de fond reste discret)', async () => {
+    const { CSS_COMPTEUR_BIENS } = await import('./CompteurBiensMail');
+    const css = CSS_COMPTEUR_BIENS.replace(/\s+/g, ' ');
+    expect(css).toContain('.cbm-bulle-diff,.cbm-bulle-ligne--diff .cbm-bulle-bien,.cbm-bulle-ligne--diff .cbm-bulle-lot, .cbm-bulle-ligne--diff .cbm-bulle-proprio{color:var(--color-svv-red)}');
+    expect(css).toContain('.cbm-bulle-ligne--fond .cbm-bulle-bien{font-weight:400;color:var(--color-svv-muted)}');
   });
 });

@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 import { motBiensRattaches } from '../../../../lib/gestion/changementsSuivi';
 import {
-  ligneStructuree, placerBulleBiens, TITRE_BIENS_RATTACHES, type BienDeLaBulle,
+  DEBUT_PIED_EXCEPTION, ligneStructuree, placerBulleBiens, TITRE_BIENS_RATTACHES, type BienDeLaBulle,
 } from '../../../../lib/gestion/bulleBiensMail';
 import { hoteDeLaBulle } from './InfoBien';
 
@@ -92,6 +92,9 @@ export function useBiensRattaches(messageId: number | null | undefined): number 
 /** Pour les épreuves : repartir d'une page neuve. */
 export function viderMemoireBiensRattaches(): void {
   memoire.clear();
+  /* 🔴 LOT GESTION-BULLES — et les détails des bulles (biens d'un mail, biens par clé). */
+  memoireDetail.clear();
+  memoireCles.clear();
   enAttente.clear();
   if (minuterie !== null) { clearTimeout(minuterie); minuterie = null; }
 }
@@ -287,33 +290,71 @@ export function viderMemoireBulleBiens(): void {
  * en discret, comme avant ce lot) ; une dernière ligne distincte et discrète quand l'appelant en donne une (le suivi de
  * fond, pour l'exception). Le MÊME composant pour la bulle « N biens rattachés » et pour l'icône ⓘ d'exception.
  */
-export function ContenuBulleBiens({ titre, etat, biens, pied = null, sansBien = null }: {
+export function ContenuBulleBiens({ titre, etat, biens, sansBien = null, rouge = false, fond = null }: {
   titre: string; etat: 'charge' | 'ok' | 'erreur'; biens: readonly BienDeLaBulle[];
-  pied?: string | null; sansBien?: string | null;
+  sansBien?: string | null;
+  /** 🔴 LOT GESTION-BULLES — la partie du haut est la DIFFÉRENCE (exception) : biens et « Aucun bien » en rouge. */
+  rouge?: boolean;
+  /**
+   * 🔴 LOT GESTION-BULLES — la partie du bas de la bulle d'exception : « Différent du suivi de la conversation : » sur sa
+   * ligne, puis UN BIEN PAR LIGNE (même présentation qu'en haut), ou un mot (« Interne », « aucun suivi »…).
+   */
+  fond?: { etat: 'charge' | 'ok' | 'erreur'; biens: readonly BienDeLaBulle[]; sansBien: string } | null;
 }) {
   return (
     <>
       <p className="cbm-bulle-titre">{titre}</p>
       {etat === 'charge' && <p className="cbm-bulle-mot">Chargement…</p>}
       {etat === 'erreur' && <p className="cbm-bulle-mot">Les biens n’ont pas pu être lus.</p>}
-      {etat === 'ok' && biens.length === 0 && sansBien !== null && <p className="cbm-bulle-mot">{sansBien}</p>}
-      {etat === 'ok' && biens.length > 0 && (
-        <ul className="cbm-bulle-liste">
-          {biens.map((b) => {
-            const l = ligneStructuree(b);
-            return (
-              <li key={b.cle} className="cbm-bulle-ligne">
-                <span className="cbm-bulle-bien">{l.adresse}</span>
-                <span className="cbm-bulle-lot">{l.lot}</span>
-                {l.proprietaire !== null && <span className="cbm-bulle-proprio">{l.proprietaire}</span>}
-              </li>
-            );
-          })}
-        </ul>
+      {etat === 'ok' && biens.length === 0 && sansBien !== null && (
+        <p className={`cbm-bulle-mot${rouge ? ' cbm-bulle-diff' : ''}`}>{sansBien}</p>
       )}
-      {pied !== null && <p className="cbm-bulle-pied">{pied}</p>}
+      {etat === 'ok' && biens.length > 0 && <ListeBiensBulle biens={biens} classe={rouge ? 'cbm-bulle-ligne--diff' : ''} />}
+      {fond !== null && (
+        <div className="cbm-bulle-pied">
+          <p className="cbm-bulle-pied-titre">{DEBUT_PIED_EXCEPTION} :</p>
+          {fond.etat === 'charge' && <p className="cbm-bulle-pied-mot">Chargement…</p>}
+          {fond.etat === 'erreur' && <p className="cbm-bulle-pied-mot">Les biens du suivi n’ont pas pu être lus.</p>}
+          {fond.etat === 'ok' && fond.biens.length === 0 && <p className="cbm-bulle-pied-mot">{fond.sansBien}</p>}
+          {fond.etat === 'ok' && fond.biens.length > 0 && <ListeBiensBulle biens={fond.biens} classe="cbm-bulle-ligne--fond" />}
+        </div>
+      )}
     </>
   );
+}
+
+/** 🔴 LOT GESTION-BULLES — UN BIEN = UNE LIGNE (un `li`), jamais deux biens sur la même : adresse et commune, lot · type, propriétaire. */
+function ListeBiensBulle({ biens, classe }: { biens: readonly BienDeLaBulle[]; classe: string }) {
+  return (
+    <ul className="cbm-bulle-liste">
+      {biens.map((b) => {
+        const l = ligneStructuree(b);
+        return (
+          <li key={b.cle} className={`cbm-bulle-ligne${classe === '' ? '' : ` ${classe}`}`}>
+            <span className="cbm-bulle-bien">{l.adresse}</span>
+            <span className="cbm-bulle-lot">{l.lot}</span>
+            {l.proprietaire !== null && <span className="cbm-bulle-proprio">{l.proprietaire}</span>}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** 🔴 LOT GESTION-BULLES — les biens de ces clés (suivi de fond), lus une fois puis gardés pour la page. */
+const memoireCles = new Map<string, BienDeLaBulle[]>();
+export async function lireBiensDesCles(cles: readonly string[]): Promise<BienDeLaBulle[] | null> {
+  const k = [...new Set(cles)].sort().join(',');
+  if (k === '') return [];
+  const connu = memoireCles.get(k);
+  if (connu !== undefined) return connu;
+  try {
+    const r = await fetch(`/api/admin/gestion/biens-par-mail?cles=${encodeURIComponent(k)}`, { cache: 'no-store' });
+    const j = (await r.json().catch(() => ({}))) as { etat?: string; biens?: BienDeLaBulle[] };
+    if (!r.ok || j.etat !== 'ok') return null;
+    memoireCles.set(k, j.biens ?? []);
+    return j.biens ?? [];
+  } catch { return null; }
 }
 
 /** 🔴 LOT GESTION-BULLES — les biens rattachés à un mail, lus une fois puis gardés (relus après un geste de classement). */
@@ -353,4 +394,11 @@ export const CSS_COMPTEUR_BIENS = `
 .cbm-bulle-proprio{font-size:.72rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .cbm-bulle-pied{margin:8px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);font-size:.74rem;
   color:var(--color-svv-muted);overflow-wrap:anywhere}
+.cbm-bulle-pied-titre{margin:0 0 4px}
+.cbm-bulle-pied-mot{margin:0}
+/* LOT GESTION-BULLES — la DIFFERENCE (exception) en rouge ; le suivi de fond, en bas, dans la couleur discrete. */
+.cbm-bulle-diff,.cbm-bulle-ligne--diff .cbm-bulle-bien,.cbm-bulle-ligne--diff .cbm-bulle-lot,
+.cbm-bulle-ligne--diff .cbm-bulle-proprio{color:var(--color-svv-red)}
+.cbm-bulle-diff{font-weight:600}
+.cbm-bulle-ligne--fond .cbm-bulle-bien{font-weight:400;color:var(--color-svv-muted)}
 `;

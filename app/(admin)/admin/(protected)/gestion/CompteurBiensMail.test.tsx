@@ -124,6 +124,11 @@ describe('🔴🔴 LOT BULLE-BIENS-RATTACHES — la bulle du compteur', () => {
       'lot 219 · Appartement meublé · Type 2',
       'lot 373',
     ]);
+    /* 🔴 LOT GESTION-BULLES — UN BIEN = UNE LIGNE : échoue si deux biens partagent une ligne. */
+    for (const l of lignes) {
+      expect(l.querySelectorAll('.cbm-bulle-bien')).toHaveLength(1);
+      expect((l.textContent ?? '').match(/lot \d+/g) ?? []).toHaveLength(1);
+    }
     expect(lignes[0].querySelector('.cbm-bulle-proprio')?.textContent).toBe('JULLIEN - GARRIDO Cédric');
     /* 🔴 dans la racine de l'administration (thème), jamais sous la ligne */
     expect(laBulle()?.closest('.svv-adm-root')).not.toBeNull();

@@ -304,6 +304,8 @@ describe('l’info-bulle de la capsule d’un message', () => {
   it('quand c’est vert, elle nomme les biens et dit qui a tranché', () => {
     expect(bulleCapsuleMessage('classe', ['Lot 445 — 127 rue Gerhard'])).toBe('Rattaché à la main : Lot 445 — 127 rue Gerhard');
     expect(bulleCapsuleMessage('auto', ['Lot 445'])).toBe('Rattaché automatiquement : Lot 445');
+    /* 🔴 LOT GESTION-BULLES — plusieurs biens : un par ligne, jamais à la suite. */
+    expect(bulleCapsuleMessage('classe', ['Lot 21', 'Lot 36'])).toBe('Rattaché à la main :\nLot 21\nLot 36');
   });
 
   it('sans libellé connu, elle reste une phrase — jamais une bulle vide', () => {

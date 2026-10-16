@@ -599,7 +599,8 @@ export function sqlJointureClassement(rattachements: boolean, alias: string): st
                   coalesce(nullif(btrim(r.cible_libelle), ''), r.cible_cle, 'cible ' || r.cible_id::text)
                   || CASE WHEN r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL
                           THEN ' — à la main' ELSE ' — automatique' END,
-                  ' · ' ORDER BY r.id) AS detail
+                  /* 🔴 LOT GESTION-BULLES — UN BIEN = UNE LIGNE dans l'info-bulle (les libellés contiennent eux-mêmes « · »). */
+                  E'\n' ORDER BY r.id) AS detail
            FROM gestion_rattachement r
           WHERE r.message_id = ${alias}.message_id AND r.statut = 'confirme'
             AND r.cible_sorte IN (${sqlSortesBien()})
