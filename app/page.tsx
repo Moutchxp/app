@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 import { afficherPointRepris, demanderGpsALOuverture, prendreReprise, type RepriseTest } from "./lib/tunnel/repriseRefaireTest";
 import { creerFiletAttenteGps, MESSAGE_GPS_EN_ATTENTE } from "./lib/tunnel/filetAttenteGps";
+import { ETAPES_ANALYSE, etapeSuivante, scoreAttendPhoto, type PhaseAnalyse } from "./lib/tunnel/etapesAnalyse";
 import type { ModeOrigine } from "./lib/svv/config";
 import { hauteurVision } from "./lib/svv/config";
 import { cardinal } from "./lib/cardinal";
@@ -123,16 +124,8 @@ const FaisceauMini = dynamic(() => import("./FaisceauMini"), { ssr: false });
 // à la prise de photo, ±30°). Correction d'affichage/saisie : n'altère pas le calcul.
 const MARGE_AJUSTEMENT_AZIMUT_DEG = 30;
 
-// Étapes affichées (présentation uniquement) sur l'écran « Analyse en cours ».
-// N'a AUCUN lien avec le pipeline réel : c'est une checklist animée par minuteur.
-const ETAPES_ANALYSE = [
-  "Localisation",
-  "Obstacles",
-  "Altitudes terrain",
-  "Hauteurs des bâtiments",
-  "Analyse photo (IA)",
-  "Calcul du résultat",
-] as const;
+// Étapes affichées sur l'écran « Analyse en cours » : checklist au minuteur, plafonnée par la phase RÉELLE du calcul
+// (aucune étape cochée avant la fin du calcul qu'elle désigne) — cf. app/lib/tunnel/etapesAnalyse.ts.
 
 type ResultatReussi = NonNullable<ReponseAnalyse["resultat"]>;
 
@@ -1744,6 +1737,8 @@ export default function Home() {
   // en_cours = analyse photo lancée ; complet = score enrichi reçu ; indisponible = pas de photo / échec / timeout
   // Étape animée de la checklist « Analyse en cours » (présentation seule, pas le pipeline).
   const [analyseEtape, setAnalyseEtape] = useState(0);
+  // Phase RÉELLE du calcul pendant l'écran d'attente (plafonne la checklist) : géométrie, puis analyse de la photo.
+  const phaseAnalyseRef = useRef<PhaseAnalyse>("geometrie");
   // M2 (LOT 2) — abandon AVEC cause : émet `point_origine_refuse` quand la validation se fige sur un statut
   // NON valide APRÈS déplacement du point, dédupliqué par statut (pas de sur-comptage sur chaque moveend).
   // hors_emprise = point hors/sans bâtiment. (non_deplace / hors_lidar : couverture partielle, cf. rapport.)
@@ -1760,19 +1755,17 @@ export default function Home() {
     }
   }, [origine.resultat?.statut, pointDeplace]);
 
-  // Minuteur d'animation (présentation seule) : coche une à une les 5 PREMIÈRES étapes.
-  // Délai par étape DOUBLÉ (~1400 ms) — les étapes intermédiaires défilent plus lentement.
-  // La DERNIÈRE étape (« Calcul du résultat ») est la plus longue en pratique : le compteur
-  // est plafonné à length-1, donc elle reste en « en cours » et N'EST JAMAIS cochée au
-  // minuteur ; elle se conclut quand le vrai résultat arrive (analyseEnCours → false →
-  // bascule sur 7A/7B). Ne déclenche NI ne modifie l'analyse (aucun appel réseau).
+  // Minuteur d'animation : coche les étapes une à une (~1400 ms par étape), SANS dépasser la phase réelle du calcul :
+  // pendant la géométrie, au plus « Hauteurs des bâtiments » en cours ; pendant l'analyse de la photo, au plus
+  // « Analyse photo (IA) » en cours. La DERNIÈRE étape (« Calcul du résultat ») n'est jamais cochée : la page de score
+  // s'ouvre quand TOUT est fini (analyseEnCours → false). Ne déclenche NI ne modifie l'analyse (aucun appel réseau).
   useEffect(() => {
     if (!analyseEnCours) {
       setAnalyseEtape(0);
       return;
     }
     const id = setInterval(() => {
-      setAnalyseEtape((e) => Math.min(e + 1, ETAPES_ANALYSE.length - 1));
+      setAnalyseEtape((e) => etapeSuivante(e, phaseAnalyseRef.current));
     }, 1400);
     return () => clearInterval(id);
   }, [analyseEnCours]);
@@ -2578,6 +2571,7 @@ export default function Home() {
     mesure("etape_atteinte", { etape: "analyse" });
     setAnalyse(null);
     setEtatPhoto("en_cours"); // repart propre : analyse photo lancée dès la phase 1
+    phaseAnalyseRef.current = "geometrie";
     setAnalyseEnCours(true);
     setEtape("resultat");
     setTimeout(() => {
@@ -2638,10 +2632,26 @@ export default function Home() {
         if (data.ok === false) {
           setAnalyseErreur(data?.erreur ?? "Une erreur est survenue pendant l'analyse. Réessayez dans un instant.");
         } else {
-          setAnalyse(data as ReponseAnalyse);
-          // Phase 2 (asynchrone, NON bloquante) : l'écran résultat s'affiche tout de suite avec le
-          // score géométrique ; l'analyse photo enrichira le score plus tard si disponible.
-          void lancerAnalysePhoto(lat, lon, azimut, photo);
+          const reponse = data as ReponseAnalyse;
+          if (scoreAttendPhoto(reponse.resultat)) {
+            // Phase 2 : l'écran d'attente RESTE affiché pendant l'analyse de la photo, qui fixe le score final. La page de
+            // score s'ouvre ensuite avec son score définitif (l'anneau s'anime une seule fois, dès l'ouverture).
+            // Échec, photo inexploitable ou délai de 45 s dépassé → score géométrique, « Score estimé sans photo » (inchangé).
+            clearTimeout(timer); // le délai de 60 s ne couvre que le calcul géométrique ; la photo a le sien (45 s)
+            phaseAnalyseRef.current = "photo";
+            const photoRes = await lancerAnalysePhoto(lat, lon, azimut, photo);
+            setAnalyse(
+              typeof photoRes.score === "number" && reponse.resultat
+                ? { ...reponse, resultat: { ...reponse.resultat, score: { ...reponse.resultat.score, total: photoRes.score } } }
+                : reponse,
+            );
+            setEtatPhoto(photoRes.etat);
+          } else {
+            // Pas de verdict (indéterminé, hors LiDAR…) : l'écran correspondant n'affiche aucun score → il s'ouvre tout de
+            // suite, et l'analyse de la photo part en arrière-plan comme avant.
+            setAnalyse(reponse);
+            void lancerAnalysePhoto(lat, lon, azimut, photo).then((r) => setEtatPhoto(r.etat));
+          }
         }
       }
     } catch (e) {
@@ -2659,11 +2669,15 @@ export default function Home() {
     }
   }
 
-  // Phase 2 — analyse photo asynchrone (non bloquante). Bouchon /api/analyse-photo pour l'instant
-  // (disponible:false → indisponible). Timeout 8 s ; abort/réseau/échec → indisponible.
-  async function lancerAnalysePhoto(lat: number, lon: number, azimut: number, photoDataUrl: string | null) {
-    if (!photoDataUrl) { setEtatPhoto("echec"); return; }
-    setEtatPhoto("en_cours");
+  // Phase 2 — analyse photo. Rend l'état photo et, si la photo est exploitable, le score enrichi par le serveur ;
+  // l'appelant les applique. Timeout 45 s ; abort/réseau/échec → echec (score géométrique conservé).
+  async function lancerAnalysePhoto(
+    lat: number,
+    lon: number,
+    azimut: number,
+    photoDataUrl: string | null,
+  ): Promise<{ etat: "exploitable" | "inexploitable" | "echec"; score?: number }> {
+    if (!photoDataUrl) return { etat: "echec" };
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 45000); // timeout 45 s (marge large pour pics de latence Gemini)
     try {
@@ -2676,26 +2690,17 @@ export default function Home() {
       const data = await r.json();
       // Échec serveur (snap indisponible / préparateur / IA technique) → score géométrique conservé, on signale "sans photo"
       if (!r.ok || data?.ok !== true || data?.disponible !== true) {
-        setEtatPhoto("echec");
-        return;
+        return { etat: "echec" };
       }
       // Photo INEXPLOITABLE (géométrie OK mais photo nulle/floue/intérieur) → on garde le score géométrique, message "sans photo"
       if (data.exploitable !== true) {
-        setEtatPhoto("inexploitable");
-        return;
+        return { etat: "inexploitable" };
       }
-      // Photo EXPLOITABLE → on applique le score enrichi renvoyé par le serveur dans resultat.score.total
-      if (typeof data.score === "number") {
-        setAnalyse((prev) =>
-          prev && prev.resultat
-            ? { ...prev, resultat: { ...prev.resultat, score: { ...prev.resultat.score, total: data.score } } }
-            : prev
-        );
-      }
-      setEtatPhoto("exploitable");
+      // Photo EXPLOITABLE → score enrichi renvoyé par le serveur (appliqué dans resultat.score.total par l'appelant)
+      return typeof data.score === "number" ? { etat: "exploitable", score: data.score } : { etat: "exploitable" };
     } catch (e) {
       console.error("[front] analyse-photo catch:", (e as Error)?.name, (e as Error)?.message);
-      setEtatPhoto("echec"); // abort/timeout/réseau → echec
+      return { etat: "echec" }; // abort/timeout/réseau → echec
     } finally {
       clearTimeout(timer);
     }
