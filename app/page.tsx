@@ -17,6 +17,8 @@ import { SceauCertifie } from "./components/SceauCertifie";
 import type { Orientation } from "./lib/svv/config";
 import type { LibelleScore } from "./lib/svv/scoreTotal";
 import { finalitesActivesTunnel, type CleFinalite } from "./lib/internaute/textesConsentement";
+import { champsIdentiteManquants, consentementDejaValable, lireReponseCoordonnees, type CoordonneesConnues } from "./lib/internaute/coordonneesConnues";
+import { CadenasInfo } from "./espace/compte/CadenasInfo";
 import { ChoixOffre } from "./ChoixOffre";
 import { EcranSansVerdict } from "./EcranSansVerdict";
 import type { MotifSansResultat } from "./lib/tunnel/motifSansResultat";
@@ -834,6 +836,40 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   const [coordsValidees, setCoordsValidees] = useState(false); // ÉCRAN 1 validé → ÉCRAN 2 (choix). false = écran 1.
   const [motDePasse2, setMotDePasse2] = useState(""); // confirmation du mot de passe (double saisie, chemin illimité)
   const [mdpVisible, setMdpVisible] = useState(true); // saisie VISIBLE par défaut, option « masquer »
+  // Lot COORDONNEES-CONNU (16/10/2026) — internaute CONNECTÉ : coordonnées déjà connues (null = non connecté → rien ne
+  // change). `modifierIdentite` : « Modifier » rouvre prénom/nom préremplis (e-mail/téléphone : cadenas de l'espace client).
+  const [compte, setCompte] = useState<CoordonneesConnues | null>(null);
+  const [modifierIdentite, setModifierIdentite] = useState(false);
+  const manquants = compte ? champsIdentiteManquants(compte) : [];
+  // Cases de l'Écran A (toutes sauf F2, posée à l'Écran B) encore à PROPOSER : non connecté → toutes (inchangé).
+  const finalitesAProposerA = finalitesActivesTunnel().filter(
+    (t) => t.finalite !== "email_marketing" && !consentementDejaValable(compte, t.finalite),
+  );
+  // Champ d'identité à SAISIR : toujours pour un visiteur non connecté ; pour un connecté, seulement s'il manque (ou en
+  // modification pour prénom/nom).
+  // Un téléphone de compte au format invalide (ancienne saisie) est traité comme manquant : sinon la validation bloquerait
+  // sur un champ masqué.
+  const aSaisir = (k: "prenom" | "nom" | "telephone") =>
+    compte === null || manquants.includes(k) || (modifierIdentite && k !== "telephone")
+    || (k === "telephone" && !!compte.telephone && !isValidPhoneNumber(compte.telephone));
+  useEffect(() => {
+    let annule = false;
+    fetch("/api/internaute/coordonnees", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        const c = lireReponseCoordonnees(d);
+        if (annule || !c) return;
+        setCompte(c);
+        // Préremplissage depuis le COMPTE (jamais depuis l'adresse analysée) — sans écraser une saisie déjà commencée.
+        setPrenom((v) => v || c.prenom || "");
+        setNom((v) => v || c.nom || "");
+        setEmail((v) => v || c.email || "");
+        // Le champ téléphone affiché avant l'arrivée du compte a pu poser l'indicatif seul (« +33 ») : ce n'est pas une saisie.
+        setTelephone((v) => (v.replace(/\D/g, "").length > 4 ? v : c.telephone || v));
+      })
+      .catch(() => { /* non connecté / réseau : formulaire complet, comme aujourd'hui */ });
+    return () => { annule = true; };
+  }, []);
 
   const emailValide = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
   // Champs REQUIS manquants/invalides — MÊME règle que l'ancien `estValide` (aucun champ requis ajouté ni retiré),
@@ -1100,7 +1136,30 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       }
       return;
     }
-    void soumettre();
+    void (async () => {
+      await majPrenomNomCompte();
+      await soumettre();
+    })();
+  };
+
+  // Connecté : prénom/nom MODIFIÉS depuis le rappel → mise à jour du compte par le chemin EXISTANT de l'espace client
+  // (PATCH /api/internaute/espace/compte : prénom/nom seulement, normalisés et journalisés côté serveur). Best-effort :
+  // un échec ne bloque jamais le certificat. Un prénom/nom ABSENT du compte est complété à l'ingestion (cases vides).
+  const majPrenomNomCompte = async () => {
+    if (!compte) return;
+    const patch: Record<string, string> = {};
+    if (compte.prenom && prenom.trim() && prenom.trim() !== compte.prenom) patch.prenom = prenom.trim();
+    if (compte.nom && nom.trim() && nom.trim() !== compte.nom) patch.nom = nom.trim();
+    if (Object.keys(patch).length === 0) return;
+    try {
+      await fetch("/api/internaute/espace/compte", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+    } catch {
+      /* réseau : non bloquant */
+    }
   };
 
   // Adresse auto = la PLUS PROCHE renvoyée par l'API (déjà triée par distance), pas adresseBien
@@ -1258,8 +1317,14 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
 
         {/* CONSENTEMENT F2 « communications par e-mail » — case DÉCOCHÉE par défaut, choix explicite (jamais forcée).
             Non-couplage : cocher F2 n'est PAS requis pour le certificat. Titre/libellé issus du catalogue versionné. */}
+        {/* Connecté : F2 déjà accordée et toujours valable sur le compte → pas redemandée (lot COORDONNEES-CONNU). */}
+        {consentementDejaValable(compte, "email_marketing") && (
+          <p className="mt-6 rounded-xl bg-svv-field p-4 text-sm text-svv-ink">
+            Votre accord pour l’envoi de mails est déjà enregistré sur votre compte. Vous pouvez le retirer à tout moment.
+          </p>
+        )}
         {finalitesActivesTunnel()
-          .filter((t) => t.finalite === "email_marketing")
+          .filter((t) => t.finalite === "email_marketing" && !consentementDejaValable(compte, t.finalite))
           .map((t) => (
             <div key={t.finalite} className="mt-6 rounded-2xl bg-svv-field p-5">
               {t.titre && <h2 className="mb-3 text-lg font-bold text-svv-ink">{t.titre}</h2>}
@@ -1539,21 +1604,57 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
 
       {/* IDENTITÉ */}
       <div className="mt-4 rounded-2xl bg-svv-field p-5">
-      <h2 className="text-lg font-bold text-svv-ink mb-3">Vos coordonnées</h2>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-lg font-bold text-svv-ink">Vos coordonnées</h2>
+        {/* Connecté : « Modifier » rouvre prénom/nom préremplis (e-mail/téléphone : cadenas de l'espace client). */}
+        {compte && !modifierIdentite && (
+          <button type="button" onClick={() => setModifierIdentite(true)} className="min-h-11 text-sm font-semibold text-svv-red underline">
+            Modifier
+          </button>
+        )}
+      </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <div>
+      {/* CONNECTÉ — rappel de ce qui est déjà connu (rien n'est redemandé). Non connecté : formulaire inchangé ci-dessous. */}
+      {compte && (
+        <div id="rappel-coordonnees" className="rounded-xl border border-svv-line bg-white p-3 text-sm text-svv-ink">
+          {!aSaisir("prenom") && <p><span className="text-svv-muted">Prénom : </span><span className="font-semibold">{prenom}</span></p>}
+          {!aSaisir("nom") && <p><span className="text-svv-muted">Nom : </span><span className="font-semibold">{nom}</span></p>}
+          <div className="flex items-center justify-between gap-2">
+            <p className="min-w-0 break-words"><span className="text-svv-muted">E-mail : </span><span className="font-semibold">{email || "—"}</span></p>
+            <CadenasInfo cible="tunnel-email" />
+          </div>
+          {!aSaisir("telephone") && (
+            <div className="flex items-center justify-between gap-2">
+              <p className="min-w-0 break-words"><span className="text-svv-muted">Téléphone : </span><span className="font-semibold">{telephone}</span></p>
+              <CadenasInfo cible="tunnel-telephone" />
+            </div>
+          )}
+          <p className="mt-1 break-words">
+            <span className="text-svv-muted">Adresse de résidence : </span>
+            <span className="font-semibold">{compte.derniereResidence ?? "non renseignée"}</span>
+          </p>
+          {manquants.length > 0 && (
+            <p className="mt-2 text-xs text-svv-muted">Complétez seulement ce qui manque ci-dessous ; votre compte sera mis à jour.</p>
+          )}
+        </div>
+      )}
+
+
+      {(aSaisir("prenom") || aSaisir("nom")) && <div className={compte ? "mt-3 grid grid-cols-2 gap-2" : "grid grid-cols-2 gap-2"}>
+        {aSaisir("prenom") && <div>
           <label className="mb-1 block text-sm font-semibold text-svv-ink">Prénom <span className="text-svv-red">*</span></label>
           <input id="champ-prenom" value={prenom} onChange={(e) => setPrenom(e.target.value)} className={`w-full rounded-xl ${enErreur("prenom") ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`} placeholder="Prénom" />
           {enErreur("prenom") && <p className="mt-1 text-sm text-svv-red">{msgErreur("prenom")}</p>}
-        </div>
-        <div>
+        </div>}
+        {aSaisir("nom") && <div>
           <label className="mb-1 block text-sm font-semibold text-svv-ink">Nom <span className="text-svv-red">*</span></label>
           <input id="champ-nom" value={nom} onChange={(e) => setNom(e.target.value)} className={`w-full rounded-xl ${enErreur("nom") ? "border-2 border-svv-red" : "border border-svv-line"} bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none`} placeholder="Nom" />
           {enErreur("nom") && <p className="mt-1 text-sm text-svv-red">{msgErreur("nom")}</p>}
-        </div>
-      </div>
+        </div>}
+      </div>}
 
+      {compte === null && (
+        <>
       <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Email <span className="text-svv-red">*</span></label>
       <input
         id="champ-email"
@@ -1571,9 +1672,15 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         <p className="mt-1 text-sm text-svv-red">{msgErreur("email")}</p>
       )}
 
+        </>
+      )}
+
+      {aSaisir("telephone") && (
+        <>
       <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Téléphone <span className="text-svv-red">*</span></label>
       <div id="champ-telephone" className={enErreur("telephone") ? "rounded-xl ring-2 ring-svv-red" : undefined}>
       <PhoneInput
+        value={compte ? telephone : undefined}
         defaultCountry="fr"
         disableDialCodeAndPrefix
         showDisabledDialCodeAndPrefix
@@ -1586,10 +1693,13 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       </div>
       {enErreur("telephone") && <p className="mt-1 text-sm text-svv-red">{msgErreur("telephone")}</p>}
 
+        </>
+      )}
+
       <label className="mb-1 mt-3 block text-sm font-semibold text-svv-ink">Le bien analysé est-il votre résidence principale ? <span className="text-svv-red">*</span></label>
       <div id="champ-residence" className={`grid grid-cols-2 gap-2 ${enErreur("residence") ? "rounded-xl p-1 ring-2 ring-svv-red" : ""}`}>
         <button type="button" onClick={() => setBienEstResidence(true)} className={classeChoix(bienEstResidence === true)}>Oui</button>
-        <button type="button" onClick={() => setBienEstResidence(false)} className={classeChoix(bienEstResidence === false)}>Non</button>
+        <button type="button" onClick={() => { setBienEstResidence(false); if (!residenceAdresse && compte?.derniereResidence) setResidenceAdresse(compte.derniereResidence); }} className={classeChoix(bienEstResidence === false)}>Non</button>
       </div>
       {enErreur("residence") && <p className="mt-1 text-sm text-svv-red">{msgErreur("residence")}</p>}
       {bienEstResidence === true && (
@@ -1619,10 +1729,17 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
           de mails »), on ne redemande pas la même chose deux fois. Le filtre n'affecte que L'AFFICHAGE : l'état/la garde
           et la soumission lisent `consentements` (F2 non affichée ici = jamais cochée en A = non envoyée). Rendu GÉNÉRIQUE :
           une finalité qui porte un `titre` affiche son titre + mention ; sinon (F1) la case seule. Charte : rouge/gris, ≥44px. */}
+      {/* Connecté : une finalité déjà accordée et toujours valable n'est pas redemandée ; jamais accordée ou retirée →
+          proposée, décochée, non imposée (lot COORDONNEES-CONNU). Non connecté : bloc inchangé. */}
+      {finalitesAProposerA.length === 0 ? (
+        <p className="mt-6 rounded-xl bg-svv-field p-4 text-sm text-svv-ink">
+          Votre accord pour être recontacté est déjà enregistré sur votre compte. Vous pouvez le retirer à tout moment.
+        </p>
+      ) : (
       <div className="mt-6 rounded-2xl bg-svv-field p-5">
         <h2 className="mb-3 text-lg font-bold text-svv-ink">Un service sur mesure</h2>
         <div className="flex flex-col gap-4">
-          {finalitesActivesTunnel().filter((t) => t.finalite !== "email_marketing").map((t) => (
+          {finalitesAProposerA.map((t) => (
             <div key={t.finalite} className="flex flex-col gap-2">
               {t.titre && <h3 className="text-sm font-bold text-svv-ink">{t.titre}</h3>}
               <label className="flex min-h-11 cursor-pointer items-start gap-3">
@@ -1644,6 +1761,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
           Le certificat vous est délivré même sans cocher ces cases. Vous pouvez retirer votre consentement à tout moment.
         </p>
       </div>
+      )}
 
       {/* ACTIONS — bouton TOUJOURS cliquable (Option C). Récap des champs requis manquants après une tentative. */}
       {tentative && champsManquants.length > 0 && (

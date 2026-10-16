@@ -2,6 +2,32 @@ import { NextResponse } from 'next/server';
 import { validerCorpsIngestion } from '../../lib/internaute/ingestion';
 import { ingererProfil, ErreurAucunConsentement } from '../../lib/internaute/socle';
 import { signerJetonRectification, signerJetonEmission } from '../../lib/internaute/jetonRectification';
+import { exigerInternaute } from '../../lib/internaute/authGarde';
+import { lireCompte } from '../../lib/internaute/espace';
+import { champsVidesACompleter } from '../../lib/internaute/coordonneesConnues';
+import { validerRectification } from '../../lib/internaute/rectification';
+import { rectifierInternaute } from '../../lib/internaute/cycleVie';
+
+/**
+ * Internaute CONNECTÉ dont le compte n'avait pas tout (lot COORDONNEES-CONNU, décision 3a d'Arno du 16/10/2026) : la page
+ * ne lui a demandé QUE ce qui manquait. On complète les CASES VIDES de SON compte — jamais d'écrasement, jamais l'e-mail —
+ * par le chemin de rectification existant (`validerRectification` + `rectifierInternaute`, journalisé, canal 'tunnel').
+ * VERROU : uniquement si la SESSION désigne ce même dossier (sinon quiconque connaît un e-mail remplirait le compte d'un
+ * autre). Best-effort : un échec ne bloque jamais l'ingestion ni le certificat.
+ */
+async function completerCompteConnecte(request: Request, internauteId: string, identite: { prenom: string; nom: string; telephone: string | null }) {
+  try {
+    const garde = await exigerInternaute(request);
+    if ('refus' in garde || garde.internauteId !== internauteId) return;
+    const patch = champsVidesACompleter(await lireCompte(internauteId), identite);
+    if (Object.keys(patch).length === 0) return;
+    const v = validerRectification(patch);
+    if (!v.ok) return;
+    await rectifierInternaute(internauteId, v.champs, null, 'tunnel');
+  } catch (e) {
+    console.error('[internaute] complétion du compte connecté indisponible', (e as Error)?.name ?? 'Erreur');
+  }
+}
 
 // Runtime Node explicite (comme /api/analyse) : le driver `pg` (socle.ts) exige Node, jamais l'edge runtime.
 export const runtime = 'nodejs';
@@ -34,6 +60,8 @@ export async function POST(request: Request): Promise<Response> {
   // exclut PAR CONSTRUCTION tout internaute sans consentement actif. Conditionner l'émission au consentement = violation RGPD.
   try {
     const { internauteId, projetId, creeInternaute } = await ingererProfil(validation.corps);
+    // Dossier réutilisé (e-mail déjà en base) : complétion des cases vides SEULEMENT si c'est le compte de la session.
+    if (!creeInternaute) await completerCompteConnecte(request, internauteId, validation.corps.identite);
     // Jeton-capacité de rectification publique : frappé UNIQUEMENT si un NOUVEAU dossier a été inséré dans cette
     // requête (creeInternaute). Email pré-existant (get-or-create réutilise) → PAS de jeton → l'internaute ne peut
     // corriger QUE le dossier qu'il vient de créer, jamais celui d'un tiers (fermeture collision email / IDOR).
