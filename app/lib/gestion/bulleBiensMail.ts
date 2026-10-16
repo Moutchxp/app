@@ -75,3 +75,52 @@ export function placerBulleBiens(o: {
   const hauteur = Math.min(b.hauteur, placeDessus);
   return { gauche, haut: d.haut - ECART - hauteur, hauteurMax: Math.max(placeDessus, 0), cote: 'dessus' };
 }
+
+/**
+ * ══ 🔴🔴 LOT GESTION-BULLES (Arno, 16/10/2026) — LA BULLE STRUCTURÉE, ÉCRITE UNE SEULE FOIS. PUR. ═════════════════════
+ * « Un titre court en gras ; UNE LIGNE PAR BIEN : adresse, commune, puis “lot N · type du lot” si connu ; pour
+ * l'exception, une dernière ligne distincte, plus discrète : “Différent du suivi de la conversation : <bien(s) du suivi>”. »
+ * Même structure pour toutes les bulles de biens (liste, conversation, plein écran, historique du bien).
+ */
+export const TITRE_BIENS_RATTACHES = 'Biens rattachés';
+export const TITRE_EXCEPTION = 'Exception au suivi';
+export const DEBUT_PIED_EXCEPTION = 'Différent du suivi de la conversation';
+
+export interface LigneStructuree {
+  /** « 54 avenue du Puvis de Chavannes, COURBEVOIE » — l'adresse puis la commune (sans code postal). */
+  adresse: string;
+  /** « lot 21 · Appartement meublé · Type 1 » — le type seulement s'il est connu. */
+  lot: string;
+  /** Le propriétaire, information secondaire déjà présente dans la bulle avant ce lot ; `null` s'il est inconnu. */
+  proprietaire: string | null;
+}
+
+export function ligneStructuree(b: BienDeLaBulle): LigneStructuree {
+  const adresse = [utile(b.adresse), utile(b.commune)].filter((x): x is string => x !== null).join(', ');
+  const type = typeDuBien(b);
+  const proprietaire = (b.proprietaire ?? '').trim();
+  return {
+    adresse: adresse === '' ? `bien ${b.cle}` : adresse,
+    lot: type === TYPE_NON_RENSEIGNE ? `lot ${b.cle}` : `lot ${b.cle} · ${type}`,
+    proprietaire: proprietaire === '' ? null : proprietaire,
+  };
+}
+
+/** La dernière ligne de la bulle d'exception : ce que dit le suivi de fond pour ce mail. PUR. */
+export function piedException(fond: readonly string[] | 'interne' | 'hors_gestion' | null): string {
+  const quoi = fond === null ? 'aucun suivi'
+    : fond === 'interne' ? 'Interne'
+      : fond === 'hors_gestion' ? 'Hors gestion'
+        : fond.length === 0 ? 'aucun bien' : fond.map(bienCourtSansCodePostal).join(' ; ');
+  return `${DEBUT_PIED_EXCEPTION} : ${quoi}`;
+}
+
+/** « 54 avenue …, 92400 COURBEVOIE — lot 345 » → « 54 avenue …, COURBEVOIE (lot 345) » : la forme des lignes au-dessus. PUR. */
+export function bienCourtSansCodePostal(libelle: string): string {
+  const t = (libelle ?? '').trim();
+  if (t === '') return 'un bien sans nom';
+  const parts = t.split(' — ').map((x) => x.trim()).filter((x) => x !== '');
+  const dernier = parts[parts.length - 1];
+  const court = parts.length > 1 && /^lot\s/i.test(dernier) ? `${parts[0]} (${dernier})` : parts[0];
+  return court.replace(/,\s*\d{5}\s+/, ', ');
+}

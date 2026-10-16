@@ -320,6 +320,13 @@ export const CSS_BARRE_LIGNE = `
    ⚠️ LA CONFIRMATION DE CORBEILLE FAIT EXCEPTION et reste visible jusqu'à Annuler ou Confirmer (règle plus bas).
    ⚠️ AUCUN ACCENT GRAVE ICI : littéral gabarit. */
 .bte-li:hover .brl,.bte-li:has(:focus-visible) .brl{opacity:1;pointer-events:auto}
+/* LOT GESTION-BULLES (Arno, 16/10/2026) — DANS LA LISTE, LA BARRE S'ARRETE AUSSI AVANT LA COLONNE DATE / COMPTEUR.
+   Mesure : la barre couvrait 1118-1368 et le compteur des biens 1294-1368 ; au survol de la ligne, elle passait donc
+   par-dessus « N bien(s) rattache(s) », dont la bulle devenait impossible a ouvrir a la souris. Le retrait ajoute la
+   largeur de cette colonne (7rem, le libelle le plus long « aucun bien rattache » en tient environ 6,3) : la date et
+   le compteur restent visibles et survolables, rien ne bouge dans la ligne.
+   AUCUN ACCENT GRAVE ICI : litteral gabarit. */
+.bte-li .brl{right:calc(44px + 8px + 7rem)}
 @media (prefers-reduced-motion:reduce){.brl{transition:none}}
 /* Sur écran tactile, il n'y a pas de survol : la barre est montrée en permanence plutôt qu'inatteignable. */
 @media (pointer:coarse){.brl{opacity:1;pointer-events:auto;position:static;transform:none;box-shadow:none}}

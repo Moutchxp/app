@@ -957,3 +957,13 @@ describe('🔴🔴 l’étoile de la ligne suit celle du mail ouvert', () => {
     expect(container.querySelector('.bte-etoile')).toBeNull();
   });
 });
+
+/* 🔴 LOT GESTION-BULLES — dans la liste, la barre s'arrête aussi avant la colonne date / compteur des biens (sa bulle
+   restait inatteignable à la souris : la barre la couvrait au survol de la ligne). */
+describe('🔴 la barre de la liste laisse la date et le compteur des biens survolables', () => {
+  it('retrait de la colonne date / compteur, en plus du menu', async () => {
+    const { readFileSync } = await import('node:fs');
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/BarreLigne.tsx', 'utf8');
+    expect(css).toContain('.bte-li .brl{right:calc(44px + 8px + 7rem)}');
+  });
+});

@@ -105,17 +105,24 @@ describe('🔴 le même calcul que la fenêtre « Bien(s) rattaché(s) à ce mai
 describe('🔴🔴 LOT BULLE-BIENS-RATTACHES — la bulle du compteur', () => {
   const declencheur = (i = 0) => container.querySelectorAll('.cbm-biens')[i] as HTMLElement;
   const laBulle = () => document.querySelector('.cbm-bulle') as HTMLElement | null;
-  it('au survol : une ligne par bien, propriétaire à droite ; le détail est lu UNE fois, puis gardé', async () => {
+  /* 🔴 LOT GESTION-BULLES (Arno, 16/10/2026) — titre « Biens rattachés », puis par bien : adresse et commune / « lot N · type »
+     (le type seulement s'il est connu) / le propriétaire, discret. */
+  it('au survol : un titre, une ligne par bien (adresse, commune, lot · type), propriétaire discret ; lu UNE fois, puis gardé', async () => {
     svv();
     await monter([2]);
     expect(declencheur().getAttribute('role')).toBe('button');
     expect(declencheur().tabIndex).toBe(0);
     await act(async () => { declencheur().dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
     await calmer();
+    expect(laBulle()?.querySelector('.cbm-bulle-titre')?.textContent).toBe('Biens rattachés');
     const lignes = [...(laBulle()?.querySelectorAll('.cbm-bulle-ligne') ?? [])];
     expect(lignes.map((l) => l.querySelector('.cbm-bulle-bien')?.textContent)).toEqual([
-      '25 rue Edith Cavell, 92400 COURBEVOIE — Appartement meublé · Type 2 — lot 219',
-      '15 rue Carle Hebert, 92400 COURBEVOIE — type non renseigné — lot 373',
+      '25 rue Edith Cavell, COURBEVOIE',
+      '15 rue Carle Hebert, COURBEVOIE',
+    ]);
+    expect(lignes.map((l) => l.querySelector('.cbm-bulle-lot')?.textContent)).toEqual([
+      'lot 219 · Appartement meublé · Type 2',
+      'lot 373',
     ]);
     expect(lignes[0].querySelector('.cbm-bulle-proprio')?.textContent).toBe('JULLIEN - GARRIDO Cédric');
     /* 🔴 dans la racine de l'administration (thème), jamais sous la ligne */

@@ -4,7 +4,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNo
 import { createPortal } from 'react-dom';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 import { motBiensRattaches } from '../../../../lib/gestion/changementsSuivi';
-import { ligneDeLaBulle, placerBulleBiens, type BienDeLaBulle } from '../../../../lib/gestion/bulleBiensMail';
+import {
+  ligneStructuree, placerBulleBiens, TITRE_BIENS_RATTACHES, type BienDeLaBulle,
+} from '../../../../lib/gestion/bulleBiensMail';
 import { hoteDeLaBulle } from './InfoBien';
 
 /**
@@ -243,21 +245,7 @@ function CompteurAvecBulle({ messageId, mot }: { messageId: number; mot: string 
         : { left: place.gauche, top: place.haut, maxHeight: place.hauteurMax }}
       onMouseEnter={annulerFermeture} onMouseLeave={fermerBientot}
       onClick={(e) => e.stopPropagation()}>
-      {etat.v === 'charge' && <p className="cbm-bulle-mot">Chargement…</p>}
-      {etat.v === 'erreur' && <p className="cbm-bulle-mot">Les biens n’ont pas pu être lus.</p>}
-      {etat.v === 'ok' && (
-        <ul className="cbm-bulle-liste">
-          {etat.biens.map((b) => {
-            const l = ligneDeLaBulle(b);
-            return (
-              <li key={b.cle} className="cbm-bulle-ligne">
-                <span className="cbm-bulle-bien">{l.bien}</span>
-                <span className="cbm-bulle-proprio">{l.proprietaire}</span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <ContenuBulleBiens titre={TITRE_BIENS_RATTACHES} etat={etat.v} biens={etat.v === 'ok' ? etat.biens : []} />
     </div>
   );
 
@@ -293,6 +281,55 @@ export function viderMemoireBulleBiens(): void {
    cran plus petit. LOT BULLE-BIENS-RATTACHES : la bulle reprend le dessin des bulles « i » (.ifb-bulle) — surface,
    bordure line-strong, rayon, ombre — et s'elargit au contenu (max-content) jusqu'a la largeur de l'ecran moins une
    marge ; au-dela seulement, les lignes passent a la ligne proprement. */
+/**
+ * ══ 🔴🔴 LOT GESTION-BULLES (Arno, 16/10/2026) — LE CONTENU COMMUN DES BULLES DE BIENS ══════════════════════════════════
+ * Un titre court en gras ; UNE LIGNE PAR BIEN (adresse et commune, puis « lot N · type » si connu, puis le propriétaire
+ * en discret, comme avant ce lot) ; une dernière ligne distincte et discrète quand l'appelant en donne une (le suivi de
+ * fond, pour l'exception). Le MÊME composant pour la bulle « N biens rattachés » et pour l'icône ⓘ d'exception.
+ */
+export function ContenuBulleBiens({ titre, etat, biens, pied = null, sansBien = null }: {
+  titre: string; etat: 'charge' | 'ok' | 'erreur'; biens: readonly BienDeLaBulle[];
+  pied?: string | null; sansBien?: string | null;
+}) {
+  return (
+    <>
+      <p className="cbm-bulle-titre">{titre}</p>
+      {etat === 'charge' && <p className="cbm-bulle-mot">Chargement…</p>}
+      {etat === 'erreur' && <p className="cbm-bulle-mot">Les biens n’ont pas pu être lus.</p>}
+      {etat === 'ok' && biens.length === 0 && sansBien !== null && <p className="cbm-bulle-mot">{sansBien}</p>}
+      {etat === 'ok' && biens.length > 0 && (
+        <ul className="cbm-bulle-liste">
+          {biens.map((b) => {
+            const l = ligneStructuree(b);
+            return (
+              <li key={b.cle} className="cbm-bulle-ligne">
+                <span className="cbm-bulle-bien">{l.adresse}</span>
+                <span className="cbm-bulle-lot">{l.lot}</span>
+                {l.proprietaire !== null && <span className="cbm-bulle-proprio">{l.proprietaire}</span>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {pied !== null && <p className="cbm-bulle-pied">{pied}</p>}
+    </>
+  );
+}
+
+/** 🔴 LOT GESTION-BULLES — les biens rattachés à un mail, lus une fois puis gardés (relus après un geste de classement). */
+export async function lireBiensDuMail(messageId: number): Promise<BienDeLaBulle[] | null> {
+  brancherEcoute();
+  const connu = memoireDetail.get(messageId);
+  if (connu !== undefined) return connu;
+  try {
+    const r = await fetch(`/api/admin/gestion/biens-par-mail?detail=${messageId}`, { cache: 'no-store' });
+    const j = (await r.json().catch(() => ({}))) as { etat?: string; biens?: BienDeLaBulle[] };
+    if (!r.ok || j.etat !== 'ok') return null;
+    memoireDetail.set(messageId, j.biens ?? []);
+    return j.biens ?? [];
+  } catch { return null; }
+}
+
 export const CSS_COMPTEUR_BIENS = `
 .cbm-pile{display:inline-flex;flex-direction:column;align-items:flex-end;gap:1px;flex:0 0 auto;min-width:0;
   text-align:right}
@@ -301,14 +338,19 @@ export const CSS_COMPTEUR_BIENS = `
 .cbm-biens--bulle:hover,.cbm-biens--ouverte{color:var(--color-svv-ink);text-decoration:underline dotted;
   text-underline-offset:2px}
 .cbm-biens--bulle:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
-.cbm-bulle{position:fixed;z-index:2000;box-sizing:border-box;width:max-content;max-width:calc(100vw - 24px);
+.cbm-bulle{position:fixed;z-index:2000;box-sizing:border-box;width:max-content;max-width:min(22rem,calc(100vw - 24px));
   overflow-y:auto;padding:10px 12px;font-size:.8rem;font-weight:400;font-style:normal;text-align:left;line-height:1.4;
   color:var(--color-svv-ink);background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
   border-radius:.6rem;box-shadow:0 10px 30px rgba(0,0,0,.22);cursor:default;white-space:normal;
   overscroll-behavior:contain}
 .cbm-bulle-mot{margin:0;color:var(--color-svv-muted)}
-.cbm-bulle-liste{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:4px}
-.cbm-bulle-ligne{display:flex;align-items:baseline;justify-content:space-between;gap:1.5rem}
-.cbm-bulle-bien{min-width:0;overflow-wrap:anywhere}
-.cbm-bulle-proprio{flex:0 1 auto;margin-left:auto;text-align:right;font-weight:600;overflow-wrap:anywhere}
+/* LOT GESTION-BULLES — titre en gras, une ligne par bien (adresse et commune / lot et type / proprietaire), pied discret. */
+.cbm-bulle-titre{margin:0 0 6px;font-weight:700;color:var(--color-svv-ink)}
+.cbm-bulle-liste{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}
+.cbm-bulle-ligne{display:flex;flex-direction:column;gap:1px;min-width:0}
+.cbm-bulle-bien{font-weight:600;overflow-wrap:anywhere}
+.cbm-bulle-lot{font-size:.75rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.cbm-bulle-proprio{font-size:.72rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.cbm-bulle-pied{margin:8px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);font-size:.74rem;
+  color:var(--color-svv-muted);overflow-wrap:anywhere}
 `;

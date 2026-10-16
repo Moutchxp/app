@@ -99,7 +99,7 @@ import { estAdresseInterne } from '../../../../lib/gestion/adresseInterne';
 import { classementHerite, type ClassementHerite } from '../../../../lib/gestion/classementAvantEnvoi';
 // 🔴🔴 LOT SUIVI-CONVERSATION — les repères de période dans le fil. Décidés dans un module PUR.
 import {
-  motClassement, bulleException, type ExceptionMail, type Periode, type RepereFil,
+  motClassement, bulleException, projeter, type ExceptionMail, type Periode, type RepereFil,
 } from '../../../../lib/gestion/periodesConversation';
 /* 🔴🔴 LOT ACCOLADE-AU-MAIL-DECLENCHEUR-ET-LIBELLES — quels changements portent une accolade, et leur avant / après. */
 import {
@@ -144,7 +144,9 @@ import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 /* 🔴 LOT PASTILLE-SUIVI-MODIFIE-ONE-SHOT — le cartouche rouge « Suivi modifié en one shot » et sa modale. */
 import { PastilleOneShot } from './PastilleOneShot';
 /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
-import { CSS_COMPTEUR_BIENS, DateEtBiens } from './CompteurBiensMail';
+import { CSS_COMPTEUR_BIENS, ContenuBulleBiens, DateEtBiens, lireBiensDuMail } from './CompteurBiensMail';
+/* 🔴 LOT GESTION-BULLES — la bulle structurée de l'icône ⓘ d'exception. */
+import { piedException, TITRE_EXCEPTION, type BienDeLaBulle } from '../../../../lib/gestion/bulleBiensMail';
 import { BoutonHistoriqueMail, CSS_BOUTON_HISTORIQUE_MAIL, EnteteDroite } from './BoutonHistoriqueMail';
 import { biensDuBoutonHistorique } from '../../../../lib/gestion/boutonHistoriqueMail';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
@@ -1781,6 +1783,20 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     /* 🔴 LOT LISTING-EXCEPTION — la phrase de la bulle de l'icône ⓘ (et non plus le texte d'une pastille). */
     return e === undefined ? null : bulleException(e.classement);
   };
+  /**
+   * 🔴🔴 LOT GESTION-BULLES — CE QUE L'EXCEPTION ET LE SUIVI DE FOND DISENT DE CE MAIL, pour la bulle structurée : la sorte
+   * de l'exception (ses biens sont lus en direct : ceux réellement rattachés), et le suivi de fond qui s'appliquerait sans
+   * elle (la fenêtre qui couvre ce mail, exceptions ignorées).
+   */
+  const exceptionDetail = (messageId: number): DetailException | null => {
+    const e = suivi?.exceptions.find((x) => x.messageId === messageId);
+    if (e === undefined || suivi === null) return null;
+    const fond = projeter(suivi.mails, suivi.periodes, []).get(messageId);
+    return {
+      sorte: e.classement.sorte,
+      fond: fond === undefined ? null : fond.sorte === 'biens' ? fond.biens.map((b) => b.libelle) : fond.sorte,
+    };
+  };
 
   return (
     <section className="cnv" aria-labelledby={`cnv-titre-${fil.filId}`}>
@@ -1997,6 +2013,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             /* 🔴 LOT SUIVI-CONVERSATION — « Un mail en exception porte une petite mention “exception : <biens>”
                dans son en-tête. » Le mot vient du module pur : trois sortes, une seule façon de les écrire. */
             exception={exceptionDe(m.messageId)}
+            exceptionDetail={exceptionDetail(m.messageId)}
             ouvert={deplies.has(m.messageId)}
             corpsCharge={corps.get(m.messageId)?.texte}
             htmlCharge={corps.get(m.messageId)?.html}
@@ -2721,7 +2738,7 @@ export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, htmlCharge, cssMailCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null, avecBrouillon = false,
   brouillonEnAttente = false, onOuvrirBrouillon,
-  rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null,
+  rattachements = null, horsGestion = null, interne = null, onInterne, onHorsGestion, exception = null, exceptionDetail = null,
   mailsDuFil = [],
   onRattachement, onGesteRattachement, onHistorique, onVisualiser, onNomChange, onCorbeilleMessage,
   onReintegrerMessage, etoileDuMessage, piecesCitables = [], onFicheBien, bienCourant = null,
@@ -2906,6 +2923,8 @@ export function MessageConversation({
    * la règle de sa période, et il n'y a rien à signaler.
    */
   exception?: string | null;
+  /** 🔴 LOT GESTION-BULLES — la sorte de l'exception et le suivi de fond du mail, pour la bulle structurée de l'icône ⓘ. */
+  exceptionDetail?: DetailException | null;
   /** Recharge les liens de l'échange après un geste. Absent = le bandeau reste en lecture. */
   onRattachement?: () => void | Promise<void>;
   onGesteRattachement?: (message: string) => void;
@@ -3304,7 +3323,7 @@ export function MessageConversation({
             listing. À sa place, une icône ⓘ discrète qui NE PREND AUCUNE PLACE : un élément de largeur nulle, dont la
             marge annule l'écart de la rangée, et l'icône posée en surimpression au coin de la capsule. La ligne garde
             ainsi exactement la mise en page des autres mails. Survol, focus ou clic : la bulle dit la phrase d'Arno. */}
-        {exception !== null && <InfoException texte={exception} />}
+        {exception !== null && <InfoException texte={exception} messageId={message.messageId} detail={exceptionDetail} />}
         {/* LA MENTION D'ÉVÉNEMENT, DISCRÈTE ET DISTINCTE. Elle ne dit plus jamais « À classer » : son libellé est
             préfixé « Événement : », pour qu'on ne puisse plus la lire comme un verdict de classement. Rien du
             système d'événements n'est retiré — ses gestes restent derrière le même bouton qu'avant. */}
@@ -3972,10 +3991,10 @@ ${CSS_ACCOLADE_SUIVI}
 .cnv-exception-info::before{content:'';position:absolute;inset:-9px}
 .cnv-exception-info:hover,.cnv-exception-info[aria-expanded="true"]{color:var(--color-svv-ink);border-color:var(--color-svv-ink)}
 .cnv-exception-info:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.cnv-exception-bulle{position:absolute;right:-14px;top:2px;z-index:30;width:max-content;max-width:min(20rem,80vw);
-  padding:.45rem .6rem;border-radius:.5rem;font-size:.75rem;font-weight:500;line-height:1.4;text-align:left;
-  white-space:normal;color:var(--color-svv-ink);background:var(--color-svv-surface);
-  border:1px solid var(--color-svv-line-strong);box-shadow:0 4px 14px rgba(0,0,0,.18);display:none}
+.cnv-exception-bulle{position:absolute;right:-14px;top:2px;z-index:30;box-sizing:border-box;width:max-content;
+  max-width:min(22rem,calc(100vw - 24px));padding:10px 12px;border-radius:.6rem;font-size:.8rem;font-weight:400;
+  line-height:1.4;text-align:left;white-space:normal;color:var(--color-svv-ink);background:var(--color-svv-surface);
+  border:1px solid var(--color-svv-line-strong);box-shadow:0 10px 30px rgba(0,0,0,.22);display:none}
 .cnv-exception-ancre:hover .cnv-exception-bulle,.cnv-exception-ancre:focus-within .cnv-exception-bulle,
 .cnv-exception-bulle--ouverte{display:block}
 
@@ -4162,16 +4181,32 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
  * Remplace la pastille texte « exception : … » dans la ligne du mail. Elle ne prend AUCUNE place (voir le CSS
  * `.cnv-exception-ancre`) ; la bulle s'ouvre au survol, au focus, ou au clic — et le clic ne plie ni ne déplie la carte.
  */
-function InfoException({ texte }: { texte: string }) {
+interface DetailException { sorte: 'biens' | 'interne' | 'hors_gestion'; fond: string[] | 'interne' | 'hors_gestion' | null }
+
+function InfoException({ texte, messageId, detail }: { texte: string; messageId: number; detail: DetailException | null }) {
   const [ouverte, setOuverte] = useState(false);
+  /* 🔴 LOT GESTION-BULLES — les biens RÉELLEMENT rattachés à ce mail, lus au premier survol, focus ou clic (même lecture,
+     même mémoire que la bulle « N biens rattachés »). */
+  const [biens, setBiens] = useState<{ v: 'charge' } | { v: 'ok'; liste: BienDeLaBulle[] } | { v: 'erreur' }>({ v: 'charge' });
+  const charger = (): void => {
+    if (biens.v === 'ok' || detail?.sorte !== 'biens') return;
+    void lireBiensDuMail(messageId).then((l) => setBiens(l === null ? { v: 'erreur' } : { v: 'ok', liste: l }));
+  };
+  const sansBien = detail?.sorte === 'interne' ? 'Classé « Interne »' : detail?.sorte === 'hors_gestion' ? 'Classé « Hors gestion »' : 'Aucun bien';
   return (
-    <span className="cnv-exception-ancre">
+    <span className="cnv-exception-ancre" onMouseEnter={charger} onFocus={charger}>
       <button type="button" className="cnv-exception-info" aria-label={texte} aria-expanded={ouverte}
-        onClick={(e) => { e.stopPropagation(); setOuverte((v) => !v); }}
+        onClick={(e) => { e.stopPropagation(); charger(); setOuverte((v) => !v); }}
         onBlur={() => setOuverte(false)}>
         i
       </button>
-      <span className={`cnv-exception-bulle${ouverte ? ' cnv-exception-bulle--ouverte' : ''}`} role="tooltip">{texte}</span>
+      <span className={`cnv-exception-bulle${ouverte ? ' cnv-exception-bulle--ouverte' : ''}`} role="tooltip">
+        <ContenuBulleBiens titre={TITRE_EXCEPTION}
+          etat={detail?.sorte === 'biens' ? biens.v : 'ok'}
+          biens={detail?.sorte === 'biens' && biens.v === 'ok' ? biens.liste : []}
+          sansBien={sansBien}
+          pied={piedException(detail?.fond ?? null)} />
+      </span>
     </span>
   );
 }

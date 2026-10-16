@@ -1106,7 +1106,9 @@ describe('🔴🔴 LOT LISTING-EXCEPTION — mail en exception : une icône ⓘ 
     expect(container.querySelector('.cnv-exception')).toBeNull();
     const icone = container.querySelector('.cnv-exception-info') as HTMLButtonElement;
     expect(icone.getAttribute('aria-label')).toBe(PHRASE);
-    expect(container.querySelector('.cnv-exception-bulle')?.textContent).toBe(PHRASE);
+    /* 🔴 LOT GESTION-BULLES — la bulle est structurée : titre, biens (lus en direct), puis le suivi de fond, à part. */
+    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-titre')?.textContent).toBe('Exception au suivi');
+    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied')?.textContent).toBe('Différent du suivi de la conversation : aucun suivi');
   });
   it('🔴 au clic : la bulle s’ouvre, et la carte du mail ne se plie ni ne se déplie', async () => {
     exceptionsSuivi = EXC;

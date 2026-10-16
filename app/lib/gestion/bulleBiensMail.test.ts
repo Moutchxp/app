@@ -57,3 +57,21 @@ describe('🔴 la position ③ : « suivi de fond » en gras', () => {
     expect(morceauxDefinition('origine', 0).every((x) => !x.fort)).toBe(true);
   });
 });
+
+/* ══ 🔴🔴 LOT GESTION-BULLES (Arno, 16/10/2026) — la bulle structurée ═════════════════════════════════════════════════ */
+describe('🔴🔴 la bulle structurée : une ligne par bien, et le suivi de fond à part', async () => {
+  const { ligneStructuree, piedException, bienCourtSansCodePostal } = await import('./bulleBiensMail');
+  const B = { cle: '21', adresse: '54 Avenue Puvis De Chavannes', codePostal: '92400', commune: 'COURBEVOIE', nature: 'Appartement meublé', typeBien: 'Type 1', proprietaire: 'COSYNS Pierre' };
+  it('adresse et commune (sans code postal) ; « lot N · type » ; le type omis s’il est inconnu', () => {
+    expect(ligneStructuree(B)).toEqual({ adresse: '54 Avenue Puvis De Chavannes, COURBEVOIE', lot: 'lot 21 · Appartement meublé · Type 1', proprietaire: 'COSYNS Pierre' });
+    expect(ligneStructuree({ ...B, nature: null, typeBien: 'A renseigner', proprietaire: null })).toEqual({ adresse: '54 Avenue Puvis De Chavannes, COURBEVOIE', lot: 'lot 21', proprietaire: null });
+  });
+  it('la dernière ligne de l’exception dit le suivi de fond, en forme courte', () => {
+    expect(piedException(['54 Avenue Puvis De Chavannes, 92400 COURBEVOIE — lot 36', '8 rue X, 92800 PUTEAUX — Parking — lot 9']))
+      .toBe('Différent du suivi de la conversation : 54 Avenue Puvis De Chavannes, COURBEVOIE (lot 36) ; 8 rue X, PUTEAUX (lot 9)');
+    expect(piedException('interne')).toBe('Différent du suivi de la conversation : Interne');
+    expect(piedException(null)).toBe('Différent du suivi de la conversation : aucun suivi');
+    expect(piedException([])).toBe('Différent du suivi de la conversation : aucun bien');
+    expect(bienCourtSansCodePostal('Sans lot')).toBe('Sans lot');
+  });
+});
