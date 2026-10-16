@@ -66,10 +66,13 @@ describe('adresse de résidence principale : FACULTATIVE partout (décision d’
     expect(ecran).toContain('Adresse de résidence principale <span className="font-normal text-svv-muted">(facultatif)</span>');
     expect(ecran).toContain('adresseResidence: bienEstResidence === false ? residenceAdresse.trim() || null : null,');
   });
-  it('rappel d’un compte SANS adresse : champ facultatif, sur le même état que le champ « Non » ; avec adresse : affichée', () => {
-    expect(ecran).toContain('id="rappel-residence"');
-    expect(ecran).toContain('Adresse de résidence principale <span className="text-svv-muted">(facultatif)</span>');
-    expect(ecran).toContain('{compte.derniereResidence ? (');
+  it('UN SEUL champ d’adresse à l’écran : le rappel n’en a aucun ; « Oui » → « le bien analysé » ; sans réponse → adresse du compte en lecture', () => {
+    const rappel = ecran.slice(ecran.indexOf('id="rappel-coordonnees"'), ecran.indexOf('{(aSaisir("prenom") || aSaisir("nom"))'));
+    expect(rappel).not.toContain('AdresseAutocomplete');
+    expect(rappel).toContain('{bienEstResidence === true ? ( <p id="rappel-residence"');
+    expect(rappel).toContain('<span className="font-semibold">le bien analysé</span>');
+    expect(rappel).toContain(') : bienEstResidence === null && compte.derniereResidence ? (');
+    expect(ecran.match(/<AdresseAutocomplete/g)).toHaveLength(1); // le seul : sous la question, réponse « Non »
     expect(ecran).not.toContain('"non renseignée"');
   });
 });

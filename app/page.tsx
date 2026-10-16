@@ -1629,24 +1629,20 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
               <CadenasInfo cible="tunnel-telephone" />
             </div>
           )}
-          {compte.derniereResidence ? (
-            <p className="mt-1 break-words">
+          {/* Résidence dans le rappel — UN SEUL champ d'adresse à l'écran, jamais deux (décision d'Arno du 16/10/2026) :
+              « Oui » → ligne en lecture « le bien analysé » ; « Non » → rien ici (seul le champ sous la question, prérempli
+              avec l'adresse du compte) ; pas encore de réponse → l'adresse du compte en lecture si elle existe. */}
+          {bienEstResidence === true ? (
+            <p id="rappel-residence" className="mt-1 break-words">
+              <span className="text-svv-muted">Résidence principale : </span>
+              <span className="font-semibold">le bien analysé</span>
+            </p>
+          ) : bienEstResidence === null && compte.derniereResidence ? (
+            <p id="rappel-residence" className="mt-1 break-words">
               <span className="text-svv-muted">Adresse de résidence : </span>
               <span className="font-semibold">{compte.derniereResidence}</span>
             </p>
-          ) : (
-            // Compte sans adresse de résidence : champ FACULTATIF (décision d'Arno du 16/10/2026). Même état que le champ
-            // de la réponse « Non » : rempli ici, il préremplit ce champ et part avec la demande (enregistré sur le compte).
-            <div id="rappel-residence" className="mt-2">
-              <label className="mb-1 block text-sm text-svv-muted">Adresse de résidence principale <span className="text-svv-muted">(facultatif)</span></label>
-              <AdresseAutocomplete
-                value={residenceAdresse}
-                onChange={setResidenceAdresse}
-                onSelect={(s) => setResidenceAdresse(s.label)}
-                placeholder="Saisissez votre adresse de résidence principale"
-              />
-            </div>
-          )}
+          ) : null}
           {manquants.length > 0 && (
             <p className="mt-2 text-xs text-svv-muted">Complétez seulement ce qui manque ci-dessous ; votre compte sera mis à jour.</p>
           )}
