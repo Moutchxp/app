@@ -146,7 +146,7 @@ import { PastilleOneShot } from './PastilleOneShot';
 /* 🔴 LOT SUIVI-DE-FOND-MODIFIE-ET-COMPTEUR-BIENS — « N biens rattachés » sous la date de chaque ligne de mail. */
 import { CSS_COMPTEUR_BIENS, ContenuBulleBiens, DateEtBiens, lireBiensDesCles, lireBiensDuMail } from './CompteurBiensMail';
 /* 🔴 LOT GESTION-BULLES — la bulle structurée de l'icône ⓘ d'exception. */
-import { TITRE_EXCEPTION, type BienDeLaBulle } from '../../../../lib/gestion/bulleBiensMail';
+import { AUCUN_SUIVI_DE_FOND, TITRE_EXCEPTION, type BienDeLaBulle } from '../../../../lib/gestion/bulleBiensMail';
 import { BoutonHistoriqueMail, CSS_BOUTON_HISTORIQUE_MAIL, EnteteDroite } from './BoutonHistoriqueMail';
 import { biensDuBoutonHistorique } from '../../../../lib/gestion/boutonHistoriqueMail';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
@@ -4216,8 +4216,8 @@ function InfoException({ texte, messageId, detail }: { texte: string; messageId:
     }
   };
   const sansBien = detail?.sorte === 'interne' ? 'Classé « Interne »' : detail?.sorte === 'hors_gestion' ? 'Classé « Hors gestion »' : 'Aucun bien';
-  const motFond = detail?.fond === 'interne' ? 'Interne' : detail?.fond === 'hors_gestion' ? 'Hors gestion'
-    : detail?.fond === null || detail === null ? 'aucun suivi' : 'aucun bien';
+  /* 🔴 LOT GESTION-BULLES (Arno) — aucun suivi de fond actif (ni fenêtre, ni bien) : « Aucun » sous l'intertitre. */
+  const motFond = detail?.fond === 'interne' ? 'Interne' : detail?.fond === 'hors_gestion' ? 'Hors gestion' : AUCUN_SUIVI_DE_FOND;
   return (
     <span className="cnv-exception-ancre" onMouseEnter={charger} onFocus={charger}>
       <button type="button" className="cnv-exception-info" aria-label={texte} aria-expanded={ouverte}

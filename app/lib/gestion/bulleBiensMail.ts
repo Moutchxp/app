@@ -85,6 +85,9 @@ export function placerBulleBiens(o: {
 export const TITRE_BIENS_RATTACHES = 'Biens rattachés';
 export const TITRE_EXCEPTION = 'Exception au suivi';
 export const DEBUT_PIED_EXCEPTION = 'Différent du suivi de la conversation';
+/** 🔴 LOT GESTION-BULLES (Arno, 16/10/2026) — l'intertitre de la partie du bas : le suivi de fond actif en arrière-plan. */
+export const TITRE_SUIVI_DE_FOND_ACTIF = 'Suivi de fond actif';
+export const AUCUN_SUIVI_DE_FOND = 'Aucun';
 
 export interface LigneStructuree {
   /** « 54 avenue du Puvis de Chavannes, COURBEVOIE » — l'adresse puis la commune (sans code postal). */

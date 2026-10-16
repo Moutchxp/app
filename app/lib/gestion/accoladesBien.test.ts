@@ -42,9 +42,9 @@ describe('une accolade seulement si la période concerne CE bien', () => {
   it('la fenêtre initiale de la reprise, au premier mail, ne porte aucune accolade', () => {
     expect(accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [reprise(1, 1, ['B'])], cle: 'B' })).toEqual([]);
   });
-  it('🔴 un CHANGEMENT posé sur le premier mail (geste) a son accolade, au premier mail', () => {
-    const a = accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [periode(1, 1, ['B'])], cle: 'B' });
-    expect(a.map((x) => [x.depuisMessageId, x.sens])).toEqual([[1, 'ajout']]);
+  /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — même un geste posé sur le PREMIER mail n'a pas de repère. */
+  it('🔴 un changement posé sur le premier mail (geste) n’a PAS d’accolade : rien ne le précède', () => {
+    expect(accoladesDuBienDansLeFil({ filId: 9, mails, periodes: [periode(1, 1, ['B'])], cle: 'B' })).toEqual([]);
   });
   it('🔴 plusieurs périodes successives : une accolade par changement, dans l’ordre chronologique', () => {
     const a = accoladesDuBienDansLeFil({

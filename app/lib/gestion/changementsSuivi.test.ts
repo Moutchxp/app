@@ -24,21 +24,11 @@ describe('🔴 quels changements portent une accolade', () => {
     expect(estUnGeste({ parLibelle: '' })).toBe(false);
   });
 
-  it('🔴 le cas d’Arno : un changement posé SUR LE PREMIER MAIL a désormais son accolade, avec l’avant qu’il a remplacé', () => {
+  /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — jamais de repère sur le PREMIER mail, même pour un geste humain
+     (la décision du fil 16502, qui l'y posait, est remplacée) : rien ne le précède. */
+  it('🔴 un changement posé SUR LE PREMIER MAIL n’a pas de repère, quel que soit son auteur', () => {
     const vivante = P(23854, 26188, biens('219'), 'a.jorel@sansvisavis.com', '2026-10-11T22:13:52.000Z');
-    const anciennes = [
-      A(23853, 26188, biens('219', '373'), 'a.jorel@sansvisavis.com', '2026-10-11T22:12:49.000Z', '2026-10-11T22:13:52.100Z'),
-      A(23852, 26188, biens('219', '224'), 'a.jorel@sansvisavis.com', '2026-10-11T20:55:46.000Z', '2026-10-11T21:00:37.000Z'),
-      A(4990, 26188, biens('219'), 'reprise des périodes', '2026-10-01T12:44:13.000Z', '2026-10-11T20:55:46.000Z'),
-    ];
-    const c = changementsDuFil({ mails: MAILS, periodes: [vivante], anciennes });
-    expect(c).toHaveLength(1);
-    expect(c[0].depuisMessageId).toBe(26188);
-    /* L'AVANT est la fenêtre que CE geste a refermée (00:13:52), pas « rien ». */
-    expect(c[0].avant).toEqual(biens('219', '373'));
-    expect(c[0].apres).toEqual(biens('219'));
-    /* Les AUTRES changements du même mail : les gestes humains, du plus récent au plus ancien ; jamais la reprise. */
-    expect(c[0].autres.map((x) => x.id)).toEqual([23853, 23852]);
+    expect(changementsDuFil({ mails: MAILS, periodes: [vivante] })).toEqual([]);
   });
 
   it('la fenêtre initiale de la reprise, au premier mail, ne porte toujours aucune accolade', () => {

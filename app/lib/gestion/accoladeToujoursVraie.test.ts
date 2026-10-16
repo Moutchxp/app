@@ -103,13 +103,14 @@ describe('🔴🔴 le scénario d’Arno (fil 16502), étape par étape', () => 
     /* ① rattacher 224 à partir du premier mail */
     b.suite(26188, B('219', '224'));
     verifier(b, tous);
-    expect(b.accolades('224').map((a) => [a.depuisMessageId, a.libelle])).toEqual([[26188, LIBELLE_AJOUT]]);
-    expect(b.accolades('219')[0].libelle).toBe('suivi de fond modifié — 2 biens rattachés');
+    /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — jamais de repère sur le PREMIER mail (26188) : rien ne le précède. */
+    expect(b.accolades('224')).toEqual([]);
+    expect(b.accolades('219')).toEqual([]);
 
     /* ② détacher 224 (le même mail : la fenêtre est remplacée) */
     b.suite(26188, B('219'));
     verifier(b, tous);
-    expect(b.accolades('219')[0].libelle).toBe('suivi de fond modifié — 1 bien rattaché');
+    expect(b.accolades('219')).toEqual([]);
 
     /* ③ rattacher 373 à partir du 2ᵉ mail, puis ANNULER : plus aucune accolade à ce mail, et pas de « 2 biens » figé */
     const posee = b.suite(26116, B('219', '373'));

@@ -1120,8 +1120,9 @@ describe('🔴🔴 LOT LISTING-EXCEPTION — mail en exception : une icône ⓘ 
     expect(icone.getAttribute('aria-label')).toBe(PHRASE);
     /* 🔴 LOT GESTION-BULLES — la bulle est structurée : titre, biens (lus en direct), puis le suivi de fond, à part. */
     expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-titre')?.textContent).toBe('Exception au suivi');
-    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied-titre')?.textContent).toBe('Différent du suivi de la conversation :');
-    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied-mot')?.textContent).toBe('aucun suivi');
+    /* 🔴 LOT GESTION-BULLES (Arno) — l'intertitre « Suivi de fond actif », et « Aucun » sans suivi de fond. */
+    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied-titre')?.textContent).toBe('Suivi de fond actif');
+    expect(container.querySelector('.cnv-exception-bulle .cbm-bulle-pied-mot')?.textContent).toBe('Aucun');
   });
   it('🔴 au clic : la bulle s’ouvre, et la carte du mail ne se plie ni ne se déplie', async () => {
     exceptionsSuivi = EXC;
@@ -1206,10 +1207,12 @@ describe('🔴🔴 LOT GESTION-BULLES — bulle « Exception au suivi »', () =>
     expect(haut.every((l) => l.classList.contains('cbm-bulle-ligne--diff'))).toBe(true);
     expect(container.querySelectorAll('.cnv-exception-bulle .cbm-bulle-pied .cbm-bulle-ligne--diff')).toHaveLength(0);
   });
-  it('🔴 la différence est ROUGE dans la feuille (et le suivi de fond reste discret)', async () => {
+  it('🔴 la différence est ROUGE dans la feuille ; le suivi de fond actif est VERT, sous un intertitre noir', async () => {
     const { CSS_COMPTEUR_BIENS } = await import('./CompteurBiensMail');
     const css = CSS_COMPTEUR_BIENS.replace(/\s+/g, ' ');
     expect(css).toContain('.cbm-bulle-diff,.cbm-bulle-ligne--diff .cbm-bulle-bien,.cbm-bulle-ligne--diff .cbm-bulle-lot, .cbm-bulle-ligne--diff .cbm-bulle-proprio{color:var(--color-svv-red)}');
-    expect(css).toContain('.cbm-bulle-ligne--fond .cbm-bulle-bien{font-weight:400;color:var(--color-svv-muted)}');
+    /* 🔴 le suivi de fond actif en VERT (le vert « Classé »), et son intertitre en noir. */
+    expect(css).toContain('.cbm-bulle-ligne--fond .cbm-bulle-bien,.cbm-bulle-ligne--fond .cbm-bulle-lot, .cbm-bulle-ligne--fond .cbm-bulle-proprio{color:var(--color-svv-green-ink)}');
+    expect(css).toContain('.cbm-bulle-pied-titre{margin:0 0 4px;font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}');
   });
 });

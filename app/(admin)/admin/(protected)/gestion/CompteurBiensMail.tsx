@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { ecouterClassement } from '../../../../lib/gestion/signalClassement';
 import { motBiensRattaches } from '../../../../lib/gestion/changementsSuivi';
 import {
-  DEBUT_PIED_EXCEPTION, ligneStructuree, placerBulleBiens, TITRE_BIENS_RATTACHES, type BienDeLaBulle,
+  TITRE_SUIVI_DE_FOND_ACTIF, ligneStructuree, placerBulleBiens, TITRE_BIENS_RATTACHES, type BienDeLaBulle,
 } from '../../../../lib/gestion/bulleBiensMail';
 import { hoteDeLaBulle } from './InfoBien';
 
@@ -312,7 +312,8 @@ export function ContenuBulleBiens({ titre, etat, biens, sansBien = null, rouge =
       {etat === 'ok' && biens.length > 0 && <ListeBiensBulle biens={biens} classe={rouge ? 'cbm-bulle-ligne--diff' : ''} />}
       {fond !== null && (
         <div className="cbm-bulle-pied">
-          <p className="cbm-bulle-pied-titre">{DEBUT_PIED_EXCEPTION} :</p>
+          {/* 🔴 LOT GESTION-BULLES (Arno) — « Suivi de fond actif », en noir ; ses biens en vert, un par ligne. */}
+          <p className="cbm-bulle-pied-titre">{TITRE_SUIVI_DE_FOND_ACTIF}</p>
           {fond.etat === 'charge' && <p className="cbm-bulle-pied-mot">Chargement…</p>}
           {fond.etat === 'erreur' && <p className="cbm-bulle-pied-mot">Les biens du suivi n’ont pas pu être lus.</p>}
           {fond.etat === 'ok' && fond.biens.length === 0 && <p className="cbm-bulle-pied-mot">{fond.sansBien}</p>}
@@ -394,11 +395,13 @@ export const CSS_COMPTEUR_BIENS = `
 .cbm-bulle-proprio{font-size:.72rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .cbm-bulle-pied{margin:8px 0 0;padding-top:6px;border-top:1px solid var(--color-svv-line);font-size:.74rem;
   color:var(--color-svv-muted);overflow-wrap:anywhere}
-.cbm-bulle-pied-titre{margin:0 0 4px}
-.cbm-bulle-pied-mot{margin:0}
+.cbm-bulle-pied-titre{margin:0 0 4px;font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}
+.cbm-bulle-pied-mot{margin:0;color:var(--color-svv-ink)}
 /* LOT GESTION-BULLES — la DIFFERENCE (exception) en rouge ; le suivi de fond, en bas, dans la couleur discrete. */
 .cbm-bulle-diff,.cbm-bulle-ligne--diff .cbm-bulle-bien,.cbm-bulle-ligne--diff .cbm-bulle-lot,
 .cbm-bulle-ligne--diff .cbm-bulle-proprio{color:var(--color-svv-red)}
 .cbm-bulle-diff{font-weight:600}
-.cbm-bulle-ligne--fond .cbm-bulle-bien{font-weight:400;color:var(--color-svv-muted)}
+/* LOT GESTION-BULLES — le suivi de fond actif, dans le vert « Classe » de la charte. */
+.cbm-bulle-ligne--fond .cbm-bulle-bien,.cbm-bulle-ligne--fond .cbm-bulle-lot,
+.cbm-bulle-ligne--fond .cbm-bulle-proprio{color:var(--color-svv-green-ink)}
 `;

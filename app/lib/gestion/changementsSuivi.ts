@@ -67,10 +67,11 @@ export function changementsDuFil(o: {
   const rang = new Map(o.mails.map((m, i) => [m, i]));
   const anciennes = o.anciennes ?? [];
   return [...o.periodes]
-    .filter((p) => {
-      const r = rang.get(p.depuisMessageId) ?? -1;
-      return r > 0 || (r === 0 && estUnGeste(p));
-    })
+    /* 🔴 LOT GESTION-FENETRES-SUIVI (Arno, 16/10/2026) — JAMAIS SUR LE PREMIER MAIL (le plus ancien, `mails` étant dans
+       l'ordre CHRONOLOGIQUE, quel que soit le tri de l'écran) : il n'y a pas de changement par rapport à un mail plus
+       ancien. Avant cette décision, un geste posé sur le premier mail y avait son repère (fil 16502) ; il ne l'a plus.
+       Affichage seulement : aucune donnée n'est touchée. */
+    .filter((p) => (rang.get(p.depuisMessageId) ?? -1) > 0)
     .sort((a, b) => (rang.get(a.depuisMessageId) as number) - (rang.get(b.depuisMessageId) as number))
     .map((p) => {
       const memeMail = anciennes
