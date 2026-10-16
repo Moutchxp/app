@@ -7,6 +7,7 @@ import { AdresseAutocomplete } from "./components/AdresseAutocomplete";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
 import { afficherPointRepris, demanderGpsALOuverture, prendreReprise, type RepriseTest } from "./lib/tunnel/repriseRefaireTest";
+import { creerFiletAttenteGps, MESSAGE_GPS_EN_ATTENTE } from "./lib/tunnel/filetAttenteGps";
 import type { ModeOrigine } from "./lib/svv/config";
 import { hauteurVision } from "./lib/svv/config";
 import { cardinal } from "./lib/cardinal";
@@ -1722,6 +1723,12 @@ export default function Home() {
   const [addressInfo, setAddressInfo] = useState(""); // message d'info SOUS le champ, jamais dans sa valeur
   const [positionGPSObtenue, setPositionGPSObtenue] = useState(false); // AFFICHAGE seul : libellé adresse
   const [carteCentrePret, setCarteCentrePret] = useState(false); // la carte localisation a un VRAI centre (pas le défaut Paris)
+  // Filet : si le GPS ne répond jamais (Safari iOS), la carte s'affiche quand même passé le délai maximum (cf. filetAttenteGps).
+  const filetGps = useRef(creerFiletAttenteGps(() => {
+    setCarteCentrePret(true);
+    setAddressInfo(MESSAGE_GPS_EN_ATTENTE);
+  }));
+  useEffect(() => () => filetGps.current.desarmer(), []);
   const origine = useOrigineValidation();
   const [mode, setMode] = useState<ModeOrigine>("semi_auto"); // saisie origine : semi_auto (snap) | manuel (M4b : boutons)
   const [pointDeplace, setPointDeplace] = useState(false); // true au 1er geste utilisateur sur la carte
@@ -1969,6 +1976,9 @@ export default function Home() {
     }, 1500);
     // Recentrage via le MÊME mécanisme que le GPS (setPosition → setView). Ne touche pas pointDeplace.
     setPosition({ latitude: s.lat, longitude: s.lon });
+    // Adresse choisie pendant l'attente GPS : c'est un vrai centre → la carte apparaît dessus (elle restait grise).
+    filetGps.current.desarmer();
+    setCarteCentrePret(true);
   }
 
   // Capteurs : PITCH + boussole via deviceorientation (inchangé), ROLL via DeviceMotion
@@ -2114,6 +2124,7 @@ export default function Home() {
     setAddress("");
     setAddressInfo("");
     setPositionGPSObtenue(false);
+    filetGps.current.desarmer();
     setCarteCentrePret(false);
     setCommuneInsee(null);
     setPosition({ latitude: 48.8566, longitude: 2.3522 }); // valeur initiale (centre par défaut, jamais affiché sans vrai centre)
@@ -2427,9 +2438,11 @@ export default function Home() {
       setAddress("");
       setPositionGPSObtenue(false);
       setAddressInfo("Calcul de votre position GPS…");
+      filetGps.current.armer();
 
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
+          filetGps.current.desarmer();
           const photoPosition = {
             latitude: pos.coords.latitude,
             longitude: pos.coords.longitude,
@@ -2444,6 +2457,7 @@ export default function Home() {
           setPositionGPSObtenue(true);
         },
         (error) => {
+          filetGps.current.desarmer();
           console.warn("Géoloc refusée/indisponible — code:", error?.code, "message:", error?.message);
           setPositionGPSObtenue(false);
           if (error?.code === 1) {
