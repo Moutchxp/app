@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { CartePersonne, CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_LOCATION, LocationCarte } from './LocationCarte';
-import { CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, gestesLocation, useLecture } from './commun';
+import { CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, gestesLocation, liste, useLecture } from './commun';
 import { enArbre, LIBELLE_CATEGORIE, resumeBien } from '../../../../lib/location/locationBien';
 import { periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
 import { estAncienLocataire, estLocataireEnPlace } from '../../../../lib/gestion/historiqueBien';
@@ -22,7 +22,7 @@ export function FicheProprietaireLocationVue({ id }: { id: number }) {
   }
   const d = etat.data;
   const gestes = gestesLocation(d.fiche.modifiable, rafraichir);
-  const arbre = enArbre(d.biens);
+  const arbre = enArbre(liste(d.biens));
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS}</style><style>{CSS_CARTES}</style>
@@ -34,12 +34,12 @@ export function FicheProprietaireLocationVue({ id }: { id: number }) {
       <section className="loc-bloc">
         <h3>Coordonnées</h3>
         <div className="loc-cartes">
-          {d.fiche.personnes.map((p) => <CartePersonne key={p.id} p={p} gestes={gestes} role="Propriétaire" deplacer={null} />)}
+          {liste(d.fiche.personnes).map((p) => <CartePersonne key={p.id} p={p} gestes={gestes} role="Propriétaire" deplacer={null} />)}
         </div>
       </section>
 
       <section className="loc-bloc">
-        <h3>Ses biens <span className="loc-pastille">{d.biens.length}</span></h3>
+        <h3>Ses biens <span className="loc-pastille">{liste(d.biens).length}</span></h3>
         {arbre.length === 0 ? <p className="loc-muet">Aucun bien rattaché.</p> : (
           <ul className="loc-arbre">
             {arbre.flatMap(({ bien, annexes }) => [
@@ -101,7 +101,7 @@ export function FicheLocataireLocationVue({ id }: { id: number }) {
     if (r.motif === null) rafraichir();
     return r.motif;
   };
-  const enPlace = d.locations.some(estLocataireEnPlace);
+  const enPlace = liste(d.locations).some(estLocataireEnPlace);
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS}</style><style>{CSS_CARTES}</style><style>{CSS_LOCATION}</style>
@@ -110,16 +110,16 @@ export function FicheLocataireLocationVue({ id }: { id: number }) {
       <section className="loc-bloc">
         <h3>Coordonnées</h3>
         <div className="loc-cartes">
-          {d.fiche.personnes.map((p) => (
+          {liste(d.fiche.personnes).map((p) => (
             <CartePersonne key={p.id} p={p} gestes={gestes} role={p.id === d.fiche.id ? 'Locataire' : 'Même logement'} deplacer={null} />
           ))}
         </div>
       </section>
       <section className="loc-bloc">
-        <h3>Ses locations <span className="loc-pastille">{d.locations.length}</span></h3>
-        {d.locations.length === 0 ? <p className="loc-muet">Aucune location connue.</p> : (
+        <h3>Ses locations <span className="loc-pastille">{liste(d.locations).length}</span></h3>
+        {liste(d.locations).length === 0 ? <p className="loc-muet">Aucune location connue.</p> : (
           <ul className="loc-liste">
-            {d.locations.map((l) => (
+            {liste(d.locations).map((l) => (
               <li key={l.occupationId} style={{ display: 'block' }}>
                 <p style={{ margin: '0 0 6px' }}>
                   {l.lotId === null ? <strong>Lot hors gestion</strong>

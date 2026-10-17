@@ -168,6 +168,7 @@ export async function listeBiens(page: number, filtre = ''): Promise<PageListe<B
       [tetes.map((b) => b.id)], 'ORDER BY lo.id')
     : [];
   return {
+    // 🔴 TOUJOURS un tableau `annexes`, vide pour un bien sans annexe (l'écran ne lit jamais `undefined`).
     lignes: tetes.map((b) => ({ ...b, annexes: annexes.filter((a) => a.parentId === b.id) })),
     total: t[0]?.n ?? 0, page,
   };

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CSS_LOCATION_ECRANS, EtatLecture, useLecture } from './commun';
+import { CSS_LOCATION_ECRANS, EtatLecture, liste as tableau, useLecture } from './commun';
 import { LIBELLE_CATEGORIE, resumeBien, type BienLocation } from '../../../../lib/location/locationBien';
 import type { LigneLocataire, LigneProprietaire, PageListe, ResultatsLocation } from '../../../../lib/location/locationRepo';
 
@@ -47,14 +47,14 @@ export function AccueilLocation({ administrateur }: { administrateur: boolean })
           <h3>Résultats pour « {terme} »</h3>
           {recherche.etat.etat !== 'ok' ? <EtatLecture etat={recherche.etat} /> : (() => {
             const r = recherche.etat.data;
-            if (r.personnes.length === 0 && r.biens.length === 0) return <p className="loc-muet">Aucune personne ni aucun bien ne correspond.</p>;
+            if (tableau(r.personnes).length === 0 && tableau(r.biens).length === 0) return <p className="loc-muet">Aucune personne ni aucun bien ne correspond.</p>;
             return (
               <ul className="loc-liste">
-                {r.personnes.map((p) => (
+                {tableau(r.personnes).map((p) => (
                   <li key={`${p.sujet}-${p.id}`}>
                     <span>
                       <a href={`/admin/location/${p.sujet}/${p.id}`}>{p.nomAffiche}</a>{' '}
-                      {p.roles.map((x) => (
+                      {tableau(p.roles).map((x) => (
                         <span key={x} className={`loc-pastille${x === 'locataire' ? ' loc-pastille--vert' : x === 'ancien_locataire' ? ' loc-pastille--violet' : ''}`}>
                           {x === 'proprietaire' ? 'propriétaire' : x === 'locataire' ? 'locataire' : 'ancien locataire'}
                         </span>
@@ -63,7 +63,7 @@ export function AccueilLocation({ administrateur }: { administrateur: boolean })
                     <span className="loc-muet">{[p.mobile, p.email].filter((x) => x).join(' · ')}</span>
                   </li>
                 ))}
-                {r.biens.map((b) => (
+                {tableau(r.biens).map((b) => (
                   <li key={`b-${b.id}`}>
                     <a href={`/admin/location/bien/${b.id}`}>{[b.adresse, b.commune].filter((x) => x).join(', ') || `Bien ${b.numero}`}</a>
                     <span className="loc-muet">{b.proprietaire ?? ''}</span>
@@ -87,7 +87,7 @@ export function AccueilLocation({ administrateur }: { administrateur: boolean })
           <>
             <p className="loc-muet">{liste.etat.data.total} au total{liste.etat.data.total > 50 ? ` — page ${page + 1}` : ''}</p>
             <ul className={onglet === 'biens' ? 'loc-arbre' : 'loc-liste'}>
-              {onglet === 'proprietaires' && (liste.etat.data.lignes as LigneProprietaire[]).map((p) => (
+              {onglet === 'proprietaires' && (tableau(liste.etat.data.lignes) as LigneProprietaire[]).map((p) => (
                 <li key={p.id}>
                   <a href={`/admin/location/proprietaire/${p.id}`}>{p.nom}</a>
                   <span className="loc-muet">
@@ -95,7 +95,7 @@ export function AccueilLocation({ administrateur }: { administrateur: boolean })
                   </span>
                 </li>
               ))}
-              {onglet === 'locataires' && (liste.etat.data.lignes as LigneLocataire[]).map((l) => (
+              {onglet === 'locataires' && (tableau(liste.etat.data.lignes) as LigneLocataire[]).map((l) => (
                 <li key={l.id}>
                   <span>
                     <a href={`/admin/location/locataire/${l.id}`}>{l.nom}</a>{' '}
@@ -104,9 +104,9 @@ export function AccueilLocation({ administrateur }: { administrateur: boolean })
                   <span className="loc-muet">{l.logement ?? ''}</span>
                 </li>
               ))}
-              {onglet === 'biens' && (liste.etat.data.lignes as (BienLocation & { annexes: BienLocation[] })[]).flatMap((b) => [
+              {onglet === 'biens' && (tableau(liste.etat.data.lignes) as (BienLocation & { annexes?: BienLocation[] })[]).flatMap((b) => [
                 <LigneBien key={b.id} b={b} />,
-                ...(b.annexes ?? []).map((a) => <LigneBien key={a.id} b={a} enfant />),
+                ...tableau(b.annexes).map((a) => <LigneBien key={a.id} b={a} enfant />),
               ])}
             </ul>
             <div className="loc-boutons">

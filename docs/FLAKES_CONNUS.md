@@ -109,3 +109,36 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
 - **Corriger la COLLECTE** : élargir `test.include` pour couvrir l'extension/emplacement, ou déplacer
   le fichier sous une zone couverte — puis vérifier que le test **passe** réellement. S'il échoue,
   c'est un **vrai test rouge** qui dormait : il se traite comme tel (jamais désactivé).
+
+---
+
+## `pieceEntrante.test.ts` — motif « stockage non configuré » attendu, autre motif reçu (17/10/2026)
+
+- **Fichier / tests** : `app/lib/stockage/pieceEntrante.test.ts` — les **5 tests** qui supposent le stockage NON
+  configuré en test et attendent le motif `stockage non configuré` :
+  « un .csv passe la whitelist », « un .html passe la whitelist (idem) », « deposerDocumentDossier (chemin GED / Drive)
+  accepte aussi text/html », « stockage non configuré (type + taille OK) → non déposé… » et « type + taille OK mais
+  stockage non configuré (tests) → non déposé, sans exception ».
+- **Symptôme** : les 5 échouent **ensemble**, **en suite complète** (`npm test`), **deux fois le 17/10/2026** (lots
+  « tuile Location » et « Location pour de vrai ») ; **verts en isolé** (23/23) **et à la suite complète suivante**
+  (1216 puis 1217 fichiers verts). Aucun fichier de `app/lib/stockage/` n'était modifié par ces lots.
+
+### ✅ PROUVÉ
+
+- Échec **intermittent** et **groupé** (les 5 tests de la même hypothèse « stockage non configuré » tombent ensemble) :
+  2 occurrences sur 6 suites complètes le 17/10/2026 ; 0 en isolé.
+- Le code testé n'a pas changé pendant les occurrences (aucune modification de `app/lib/stockage/*`).
+
+### ❓ NON ÉTABLI — la cause
+
+- Le motif réellement reçu n'a pas été capturé lors des deux occurrences (sortie filtrée sur les seuls titres).
+- Hypothèse **résiduelle et NON PROUVÉE** (à ne pas promouvoir en cause) : ces tests dépendent de l'ENVIRONNEMENT
+  (« S3_* absents ») ; si la configuration de stockage est visible du processus de test et que le service ne répond
+  pas à temps sous la charge de la suite complète, le dépôt s'arrête sur un autre motif.
+
+### Conduite à tenir si rouge
+
+- Relancer le fichier seul (`npx vitest run app/lib/stockage/pieceEntrante.test.ts`) puis la suite complète ; si vert,
+  consigner l'occurrence ici (date, suite, **motif reçu en entier** — sans filtrer la sortie).
+- **Ne pas** passer ces tests en `.skip` ni assouplir l'attente : la prochaine occurrence doit servir à capturer le motif
+  reçu, seule donnée qui manque pour établir la cause.

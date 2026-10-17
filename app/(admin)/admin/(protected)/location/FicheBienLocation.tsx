@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { CartePersonne, CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_LOCATION, LocationCarte } from './LocationCarte';
-import { CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, gestesLocation, useLecture } from './commun';
+import { CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, gestesLocation, liste, useLecture } from './commun';
 import {
   CATEGORIES, CATEGORIES_ANNEXE, LIBELLE_CATEGORIE, libelleEtage, resumeBien, verifierChampsBien,
   type BienLocation, type Categorie,
@@ -27,16 +27,16 @@ export function FicheBienLocation({ id }: { id: number }) {
   const f = d.fiche;
   const b = d.bien;
   const gestes = gestesLocation(f.modifiable, rafraichir);
-  const conditions = new Map(d.locations.map((l) => [l.occupationId, l.location]));
+  const conditions = new Map(liste(d.locations).map((l) => [l.occupationId, l.location]));
   const enregistrerConditions = async (occupationId: number, c: Record<string, unknown>): Promise<string | null> => {
     const r = await envoyer({ action: 'conditions-location', occupationId, conditions: c });
     if (r.motif === null) rafraichir();
     return r.motif;
   };
-  const enPlace = f.occupations.filter((o) => o.encours);
-  const anciens = f.occupations.filter((o) => !o.encours);
+  const enPlace = liste(f.occupations).filter((o) => o.encours);
+  const anciens = liste(f.occupations).filter((o) => !o.encours);
   const logement = d.parent ?? b;
-  const annexes = d.parent === null ? d.annexes : [];
+  const annexes = d.parent === null ? liste(d.annexes) : [];
 
   return (
     <div className="loc-page">
@@ -61,16 +61,16 @@ export function FicheBienLocation({ id }: { id: number }) {
           <LigneArbre b={logement} courant={logement.id === b.id} />
           {annexes.map((a) => <LigneArbre key={a.id} b={a} enfant courant={a.id === b.id} />)}
         </ul>
-        {d.parent === null && d.location372 && <AjoutAnnexes parentId={b.id} rattachables={d.rattachables} apres={rafraichir} />}
+        {d.parent === null && d.location372 && <AjoutAnnexes parentId={b.id} rattachables={[...liste(d.rattachables)]} apres={rafraichir} />}
       </section>
 
       <Caracteristiques b={b} modifiable={d.location372} apres={rafraichir} />
 
       <section className="loc-bloc">
-        <h3>Propriétaire{f.proprietaires.length > 1 ? 's' : ''}</h3>
-        {f.proprietaires.length === 0 ? <p className="loc-muet">{f.proprietaireNom || 'Aucun propriétaire rattaché.'}</p> : (
+        <h3>Propriétaire{liste(f.proprietaires).length > 1 ? 's' : ''}</h3>
+        {liste(f.proprietaires).length === 0 ? <p className="loc-muet">{f.proprietaireNom || 'Aucun propriétaire rattaché.'}</p> : (
           <div className="loc-cartes">
-            {f.proprietaires.map((p) => (
+            {liste(f.proprietaires).map((p) => (
               <div key={p.id}>
                 <CartePersonne p={p} gestes={gestes} role="Propriétaire" deplacer={null} />
                 <p className="loc-muet"><a href={`/admin/location/proprietaire/${p.id}`}>Fiche du propriétaire →</a></p>
@@ -85,7 +85,7 @@ export function FicheBienLocation({ id }: { id: number }) {
         {enPlace.length === 0 ? <p className="loc-muet">Aucun locataire en place — le bien est vacant.</p> : (
           <div className="loc-cartes">
             {enPlace.map((o) => {
-              const p = f.occupants.find((x) => x.id === o.locataireId);
+              const p = liste(f.occupants).find((x) => x.id === o.locataireId);
               return (
                 <div key={o.occupationId}>
                   {p !== undefined

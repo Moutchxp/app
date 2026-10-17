@@ -16,32 +16,41 @@ export type Chargement<T> = { etat: 'charge' } | { etat: 'erreur'; message: stri
 
 /** Lit `/api/admin/location?…` et rend l'état de chargement. `rafraichir` relit sans recharger la page. */
 export function useLecture<T>(parametres: string | null): { etat: Chargement<T>; rafraichir: () => void } {
-  const [etat, setEtat] = useState<Chargement<T>>({ etat: 'charge' });
+  /**
+   * 🔴🔴 CORRECTIF DU 17/10/2026 (plantage de l'accueil sur les vraies données de recette) — LA RÉPONSE EST LIÉE À LA
+   * DEMANDE QUI L'A PRODUITE. Avant, changer d'onglet rendait UNE fois l'écran avec les lignes de l'onglet précédent
+   * (la remise à « chargement » n'arrivait qu'après, dans l'effet) : des propriétaires étaient lus comme des biens, sans
+   * `annexes`, et l'écran tombait. Désormais une réponse n'est montrée que pour SES paramètres ; pour toute autre
+   * demande, on est « en chargement » DÈS LE RENDU — sans attendre l'effet. Un simple rafraîchissement (mêmes
+   * paramètres, après un geste) garde l'affichage en place jusqu'à la nouvelle réponse : pas de clignotement.
+   */
+  const [lu, setLu] = useState<{ cle: string; etat: Chargement<T> } | null>(null);
   const [n, setN] = useState(0);
   useEffect(() => {
     if (parametres === null) return;
     let vivant = true;
-    // 🔴 Une AUTRE demande (onglet, page, fiche) repart de « chargement » : les lignes de la demande précédente ne doivent
-    //   jamais être lues comme celles de la nouvelle (un onglet « Biens » qui recevrait encore les propriétaires).
-    setEtat({ etat: 'charge' });
+    const poser = (etat: Chargement<T>): void => { if (vivant) setLu({ cle: parametres, etat }); };
     void (async () => {
       try {
         const res = await fetch(`${API}?${parametres}`, { cache: 'no-store' });
-        if (res.status === 403) { if (vivant) setEtat({ etat: 'erreur', message: 'Accès refusé : droit « Location » requis.' }); return; }
+        if (res.status === 403) { poser({ etat: 'erreur', message: 'Accès refusé : droit « Location » requis.' }); return; }
         const d = await res.json() as { etat?: string; data?: T; message?: string };
-        if (!vivant) return;
-        if (d.etat === 'ok' && d.data !== undefined) setEtat({ etat: 'ok', data: d.data });
-        else if (d.etat === 'inconnu') setEtat({ etat: 'erreur', message: 'Cette fiche n’existe plus.' });
-        else if (d.etat === 'sans_schema') setEtat({ etat: 'erreur', message: MOTIF_SANS_MIGRATION });
-        else setEtat({ etat: 'erreur', message: d.message ?? 'Lecture impossible.' });
+        if (d.etat === 'ok' && d.data !== undefined) poser({ etat: 'ok', data: d.data });
+        else if (d.etat === 'inconnu') poser({ etat: 'erreur', message: 'Cette fiche n’existe plus.' });
+        else if (d.etat === 'sans_schema') poser({ etat: 'erreur', message: MOTIF_SANS_MIGRATION });
+        else poser({ etat: 'erreur', message: d.message ?? 'Lecture impossible.' });
       } catch {
-        if (vivant) setEtat({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' });
+        poser({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' });
       }
     })();
     return () => { vivant = false; };
   }, [parametres, n]);
+  const etat: Chargement<T> = lu !== null && parametres !== null && lu.cle === parametres ? lu.etat : { etat: 'charge' };
   return { etat, rafraichir: useCallback(() => setN((x) => x + 1), []) };
 }
+
+/** Une liste attendue : toujours un tableau, même si la réponse n'en porte pas (jamais `undefined.map`). */
+export const liste = <T,>(x: readonly T[] | null | undefined): readonly T[] => (Array.isArray(x) ? x : []);
 
 /** Envoie un geste. Rend `null` si c'est enregistré, sinon le motif (jamais une exception). */
 export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown }> {

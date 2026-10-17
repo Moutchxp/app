@@ -58,9 +58,9 @@ export function HonorairesGestion() {
   }, [annee, rafraichi]);
 
   const resultat: ResultatHonoraires | null = useMemo(() => (etat.etat === 'ok'
-    ? calculerHonoraires(etat.locations, { annee: etat.annee, mois }, etat.reglages.tva) : null), [etat, mois]);
+    ? calculerHonoraires(etat.locations ?? [], { annee: etat.annee, mois }, etat.reglages?.tva ?? []) : null), [etat, mois]);
   const parMois = useMemo(() => (etat.etat === 'ok'
-    ? MOIS.map((_, i) => calculerHonoraires(etat.locations, { annee: etat.annee, mois: i + 1 }, etat.reglages.tva))
+    ? MOIS.map((_, i) => calculerHonoraires(etat.locations ?? [], { annee: etat.annee, mois: i + 1 }, etat.reglages?.tva ?? []))
     : []), [etat]);
 
   const libellePeriode = mois === null ? `année ${annee}` : `${MOIS[mois - 1]} ${annee}`;
@@ -239,7 +239,7 @@ function ReglagesHonoraires({ reglages, onEnregistre }: { reglages: Reglages; on
   const [depuis, setDepuis] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const aujourdhui = new Date().toISOString().slice(0, 10);
-  const tvaDuJour = tvaEnVigueur(reglages.tva, aujourdhui);
+  const tvaDuJour = tvaEnVigueur(reglages.tva ?? [], aujourdhui);
 
   const envoyer = async (corps: Record<string, unknown>): Promise<void> => {
     try {
@@ -267,7 +267,7 @@ function ReglagesHonoraires({ reglages, onEnregistre }: { reglages: Reglages; on
         <button type="submit" className="svv-btn gst-btn">Enregistrer</button>
       </form>
       <p className="hon-note">TVA sur honoraires en vigueur aujourd’hui : <strong>{tvaDuJour === null ? 'aucune' : formaterTaux(tvaDuJour)}</strong>.
-        Historique : {reglages.tva.map((t) => `${formaterTaux(t.valeur)} depuis le ${t.depuis.split('-').reverse().join('/')}`).join(' · ') || 'aucun'}.</p>
+        Historique : {(reglages.tva ?? []).map((t) => `${formaterTaux(t.valeur)} depuis le ${t.depuis.split('-').reverse().join('/')}`).join(' · ') || 'aucun'}.</p>
       <form className="hon-reglages-ligne" onSubmit={(e) => { e.preventDefault(); void envoyer({ action: 'tva', valeur: tva, depuis }); }}>
         <label>Nouvelle TVA (%)
           <input className="hon-champ" inputMode="decimal" value={tva} onChange={(e) => setTva(e.target.value)} placeholder="20" /></label>
