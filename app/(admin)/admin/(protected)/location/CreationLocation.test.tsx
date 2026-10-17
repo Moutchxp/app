@@ -22,7 +22,7 @@ beforeEach(() => {
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return ok({ ids: [1, 2], logementId: 9 }); }
-    if (u.includes('proprietairesIds=')) return ok([{ id: 1, titre: 'DUPONT Paul', detail: null }, { id: 2, titre: 'DUPONT Anne', detail: null }]);
+    if (u.includes('cartesProprietaires=')) return ok([{ id: 1, nom: 'DUPONT Paul', telephone: null, email: null, biens: [] }, { id: 2, nom: 'DUPONT Anne', telephone: null, email: null, biens: [] }]);
     if (u.includes('proprietairesRecherche=')) return ok([{ id: 3, titre: 'MARTIN Léa', detail: '3 rue du Port, PARIS' }]);
     if (u.includes('syndics=1')) return ok([{ id: 5, nom: 'FONCIA', ville: 'Paris' }]);
     if (u.includes('syndicPourAdresse=')) return ok([{ id: 5, nom: 'FONCIA', ville: 'Paris', motif: 'un autre bien du portefeuille à cette adresse' }]);
@@ -129,7 +129,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
   it('les propriétaires arrivés de la création sont déjà là ; 7 sections en entonnoir ; bouton collant', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1, 2] })); });
     await calmer();
-    expect([...container.querySelectorAll('[data-proprietaires] .loc-puce')].map((x) => x.textContent?.replace('✕', '').trim())).toEqual(['DUPONT Paul', 'DUPONT Anne']);
+    expect([...container.querySelectorAll('[data-proprietaires] [data-carte-proprietaire] .cp-nom')].map((x) => x.textContent)).toEqual(['DUPONT Paul', 'DUPONT Anne']);
     expect([...container.querySelectorAll('.loc-section > h3')].map((h) => h.textContent?.replace(/^\d/, '').replace('*', '').trim()))
       .toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Annexes', 'Caractéristiques complémentaires', 'Commentaires']);
     expect(container.querySelector('[data-collant] button[type="submit"]')?.textContent).toBe('Enregistrer le bien');

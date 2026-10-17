@@ -24,3 +24,15 @@ describe('🔴 détail du syndic : les biens gérés PAR ADRESSE, triés commune
     expect(g[0].lots).toEqual([]);
   });
 });
+
+describe('🔴 détail du syndic : les contacts de CETTE adresse en tête', () => {
+  it('copropriété et adresses secondaires = même immeuble ; associés d’abord, ordre de l’annuaire gardé', async () => {
+    const { clesDeLAdresse, ordonnerContactsSyndic } = await import('./syndicLocation');
+    const cles = clesDeLAdresse('15 rue carle hebert', [{ cle: '15 rue carle hebert', adresses: [{ cle: '17 rue carle hebert' }] }, { cle: '25 rue edith cavell' }]);
+    expect([...cles].sort()).toEqual(['15 rue carle hebert', '17 rue carle hebert']);
+    const l = ordonnerContactsSyndic([
+      { nom: 'A', immeubles: ['25 rue edith cavell'] }, { nom: 'B', immeubles: ['17 rue carle hebert'] }, { nom: 'C', immeubles: [] }, { nom: 'D', immeubles: ['15 rue carle hebert'] },
+    ], cles);
+    expect(l.map((x) => `${x.contact.nom}${x.associe ? '*' : ''}`)).toEqual(['B*', 'D*', 'A', 'C']);
+  });
+});

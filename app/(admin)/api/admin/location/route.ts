@@ -17,7 +17,8 @@ import {
   creerBienComplet, creerProprietaires, enregistrerEnGestion, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
 } from '../../../../lib/location/creationBienRepo';
 import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo';
-import { syndicsPourAdresse, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
+import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
+import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/location/rattachementProprietairesRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -30,12 +31,13 @@ import { syndicsPourAdresse, type SyndicDuBien } from '../../../../lib/location/
  * GET : `?q=` recherche de l'accueil (personnes et syndics par nom / téléphone / e-mail ; biens du portefeuille par leur
  *       adresse) · `?liste=proprietaires|locataires|biens&page=&filtre=&anciens=1` · `?proprietaire=N` · `?locataire=N` ·
  *       `?lot=N` · `?syndic=N` · `?biensPourLocataire=texte` · `?telephone=&email=` (dédoublonnage à la saisie ; plusieurs
- *       valeurs possibles) · `?proprietairesRecherche=texte` · `?proprietairesIds=1,2` · `?syndics=1`.
+ *       valeurs possibles) · `?proprietairesRecherche=texte` · `?proprietairesIds=1,2` · `?syndics=1` · `?personnesLiees=N` (« Qui
+ *       rattacher à ce bien ? ») · `?cartesProprietaires=1,2`.
  * POST `{ action }` : modifier | archiver | restaurer | separer (une personne) · numero-mandat · modifier-bien ·
  *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · creer-locataire · conditions-location ·
  *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien (avec les contacts du propriétaire) · creer-locataires
  *       (cartes clients + contacts du locataire) · complements-bien
- *       (formulaire complet).
+ *       (formulaire complet) · ajouter-contact-syndic (annuaire du syndic de la Gestion).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
  */
 export const runtime = 'nodejs';
@@ -75,6 +77,16 @@ export async function GET(request: Request): Promise<Response> {
     if (p('proprietairesIds') !== null) {
       const ids = (p('proprietairesIds') ?? '').split(',').map((x) => identifiant(x.trim())).filter((x): x is number => x !== null);
       return Response.json({ etat: 'ok', data: await proprietairesParIds(ids) }, { headers: ENTETES });
+    }
+    // « Qui rattacher à ce bien ? » (Arno, 18/10/2026) — LECTURE SEULE.
+    const idLiees = identifiant(p('personnesLiees'));
+    if (idLiees !== null) {
+      const d = await personnesARattacher(idLiees);
+      return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
+    }
+    if (p('cartesProprietaires') !== null) {
+      const ids = (p('cartesProprietaires') ?? '').split(',').map((x) => identifiant(x.trim())).filter((x): x is number => x !== null);
+      return Response.json({ etat: 'ok', data: await cartesDeProprietaires(ids) }, { headers: ENTETES });
     }
     if (p('syndics') !== null) return Response.json({ etat: 'ok', data: await syndicsConnus() }, { headers: ENTETES });
     // « Syndic déjà connu pour cette adresse » (fonction de la Gestion) — LECTURE SEULE, jamais de rattachement sans clic.
@@ -186,7 +198,13 @@ export async function POST(request: Request): Promise<Response> {
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
           contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
           syndic: corps.syndic !== null && typeof corps.syndic === 'object' ? corps.syndic as SyndicDuBien : null,
+          contactsExistants: Array.isArray(corps.contactsExistants) ? (corps.contactsExistants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 40) : [],
         }, auteur));
+      case 'ajouter-contact-syndic': {
+        const syndicId = identifiant(corps.syndicId);
+        if (syndicId === null || corps.contact === null || typeof corps.contact !== 'object') return incomplet();
+        return repondre(await ajouterContactSyndic(syndicId, corps.contact as NouveauContactSyndic, auteur));
+      }
       case 'creer-locataires':
         return repondre(await creerLocatairesSurBien({
           cartes: Array.isArray(corps.cartes) ? (corps.cartes as ContactSaisi[]).slice(0, 12) : [],

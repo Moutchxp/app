@@ -10,9 +10,10 @@ import {
 } from '../../../../lib/location/bienComplet';
 import { verifierChampsBien, type Categorie } from '../../../../lib/location/locationBien';
 import type { ResultatPortefeuille } from '../../../../lib/location/recherchePortefeuille';
-import type { ChampsSaisis } from '../gestion/CartesPersonnes';
+import { CSS_CARTES, type ChampsSaisis } from '../gestion/CartesPersonnes';
 import { lireContactsEnAttente, oublierContactsEnAttente } from './contactsEnAttente';
-import { BadgeCarte } from './SaisieCartes';
+import { CartesDuBloc, CSS_RATTACHEMENT, PanneauQuiRattacher } from './RattachementProprietaires';
+import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type PersonneProprietaire } from '../../../../lib/location/rattachementProprietaires';
 import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
 
 /**
@@ -22,6 +23,9 @@ import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
  * téléphone, e-mail, et adresse postale des biens en gestion de notre portefeuille — aucune autre adresse). Choisir un
  * résultat rattache le bien à ce propriétaire (plusieurs possibles). Si on arrive depuis “Créer un nouveau propriétaire”,
  * les propriétaires sont déjà là, modifiables. »
+ * 🔴 Arno, 18/10/2026 : choisir un résultat ouvre, juste en dessous, « Qui rattacher à ce bien ? » (la personne cherchée,
+ * les personnes propriétaires liées, leurs contacts — `RattachementProprietaires.tsx`) ; les cartes retenues s'affichent en
+ * bas du bloc 1, en lecture seule. Seules les personnes cochées deviennent propriétaires du bien.
  * « Formulaire complet, logique ENTONNOIR (du plus général / important au détail), en sections titrées » : Propriétaire(s)
  * · Adresse et situation · Le bien · Copropriété · Annexes · Caractéristiques complémentaires · Commentaires.
  * Bouton « Enregistrer le bien » toujours accessible (en bas et collant). La règle est celle de `bienComplet.ts`, la même
@@ -64,7 +68,11 @@ const LIBELLE_OUI_NON: Record<'oui' | 'non', string> = { oui: 'Oui', non: 'Non' 
 const versOuiNon = (v: boolean | null): 'oui' | 'non' | null => (v === null ? null : v ? 'oui' : 'non');
 
 export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux: number[] }) {
-  const [proprietaires, setProprietaires] = useState<ResultatPortefeuille[]>([]);
+  const [proprietaires, setProprietaires] = useState<PersonneProprietaire[]>([]);
+  /** Les contacts EXISTANTS de la Gestion cochés dans « Qui rattacher à ce bien ? ». */
+  const [contactsExistants, setContactsExistants] = useState<ContactProprietaire[]>([]);
+  /** Le résultat de la recherche dont le panneau « Qui rattacher à ce bien ? » est ouvert. */
+  const [enChoix, setEnChoix] = useState<number | null>(null);
   const [texte, setTexte] = useState('');
   const [terme, setTerme] = useState('');
   const [b, setB] = useState(VIDE);
@@ -88,7 +96,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
   useEffect(() => { setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux]);
 
   // Les propriétaires arrivés de « Créer un nouveau propriétaire » : déjà rattachés, modifiables (retirables).
-  const initiaux = useLecture<ResultatPortefeuille[]>(proprietairesInitiaux.length > 0 ? `proprietairesIds=${proprietairesInitiaux.join(',')}` : null);
+  const initiaux = useLecture<PersonneProprietaire[]>(proprietairesInitiaux.length > 0 ? `cartesProprietaires=${proprietairesInitiaux.join(',')}` : null);
   const [initiauxPoses, setInitiauxPoses] = useState(false);
   useEffect(() => {
     if (!initiauxPoses && initiaux.etat.etat === 'ok') {
@@ -131,7 +139,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
     if (!v.ok) { setMotif(v.motif); return; }
     setEnvoi(true);
     const r = await envoyer({
-      action: 'creer-bien', proprietaireIds: proprietaires.map((p) => p.id),
+      action: 'creer-bien', proprietaireIds: proprietaires.map((p) => p.id), contactsExistants: contactsExistants.map((c) => c.id),
       logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode },
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
       contacts,
@@ -154,7 +162,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
 
   return (
     <form className="loc-page loc-ample" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CHAMP_ADRESSE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE}</style>
       <EnTeteLocation titre="Ajouter un nouveau bien"
         sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
 
@@ -170,35 +178,22 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
             <ul className="loc-choix" data-resultats-proprietaires>
               {resultats.map((r) => (
                 <li key={r.id}><button type="button" aria-pressed={false}
-                  onClick={() => { setProprietaires((l) => [...l, r]); setTexte(''); setTerme(''); }}>
+                  onClick={() => { setEnChoix(r.id); setTexte(''); setTerme(''); }}>
                   <span><strong>{r.titre}</strong></span><span className="loc-muet">{r.detail ?? ''}</span></button></li>
               ))}
             </ul>
           ))}
-        {proprietaires.length > 0 ? (
-          <ul className="loc-puces" aria-label="Propriétaires rattachés" data-proprietaires>
-            {proprietaires.map((p) => (
-              <li key={p.id} className="loc-puce">
-                <span>{p.titre}</span>
-                <button type="button" aria-label={`Retirer ${p.titre}`} onClick={() => setProprietaires((l) => l.filter((x) => x.id !== p.id))}>✕</button>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="loc-muet" style={{ margin: 0 }}>Aucun propriétaire rattaché. Cherchez-le ci-dessus, ou <a href="/admin/location/nouveau-proprietaire">créez un nouveau propriétaire</a>.</p>}
-        {contacts.length > 0 && (
-          <div className="loc-sous-section" data-contacts-proprietaire>
-            <h4>Contacts du propriétaire — enregistrés avec le bien</h4>
-            <ul className="loc-puces loc-puces--contacts">
-              {contacts.map((c, i) => (
-                <li key={`${c.nom}-${i}`} className="loc-puce loc-puce--contact">
-                  <BadgeCarte cote="proprietaire" sorte="contact" />
-                  <span>{[(c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' ')}{c.qualite ? <small> · {c.qualite}</small> : null}</span>
-                  <button type="button" aria-label={`Retirer le contact ${c.nom ?? ''}`} onClick={() => setContacts((l) => l.filter((_, j) => j !== i))}>✕</button>
-                </li>
-              ))}
-            </ul>
-          </div>
+        {enChoix !== null && (
+          <PanneauQuiRattacher key={enChoix} proprietaireId={enChoix} dejaProprietaires={proprietaires.map((p) => p.id)} dejaContacts={contactsExistants}
+            onAnnuler={() => setEnChoix(null)}
+            onValider={(ps, cs) => { setProprietaires((l) => ajouterProprietaires(l, ps)); setContactsExistants((l) => ajouterContacts(l, cs)); setEnChoix(null); }} />
         )}
+        {proprietaires.length === 0 && enChoix === null
+          ? <p className="loc-muet" style={{ margin: 0 }}>Aucun propriétaire rattaché. Cherchez-le ci-dessus, ou <a href="/admin/location/nouveau-proprietaire">créez un nouveau propriétaire</a>.</p> : null}
+        <CartesDuBloc proprietaires={proprietaires} contacts={contactsExistants} saisis={contacts}
+          onRetirerProprietaire={(id) => setProprietaires((l) => l.filter((x) => x.id !== id))}
+          onRetirerContact={(id) => setContactsExistants((l) => l.filter((x) => x.id !== id))}
+          onRetirerSaisi={(i) => setContacts((l) => l.filter((_, j) => j !== i))} />
         {manqueDe('proprietaires')}
       </section>
 

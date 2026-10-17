@@ -74,23 +74,46 @@ export async function rattacherSyndicAuBien(lotId: number, s: SyndicDuBien, adre
   }
   const nouveaux = s.nouveauxContacts ?? [];
   if (nouveaux.length > 0) {
-    const relue = await ficheSyndic(s.id);
-    if (relue === null) return { ok: false, motif: 'Ce syndic n’existe plus.' };
-    const saisie = versSaisie(versFormulaire(relue));
-    for (const c of nouveaux) {
-      saisie.contacts.push({
-        id: null, titre: texte(c.fonction, 120), prenom: texte(c.prenom, 120), nom: texte(c.nom, 200),
-        civilite: c.civilite === 'M.' || c.civilite === 'Mme' ? c.civilite : null, tousImmeubles: false, immeubles: [coproCle],
-        coordonnees: [
-          ...(texte(c.telephone, 40) !== '' ? [{ id: null, sorte: 'telephone' as const, libelle: 'Téléphone', valeur: texte(c.telephone, 40).replace(/[^\d+]/g, '') }] : []),
-          ...(texte(c.email, 200) !== '' ? [{ id: null, sorte: 'email' as const, libelle: 'E-mail', valeur: texte(c.email, 200) }] : []),
-        ],
-      });
-    }
-    const v = validerSyndic(JSON.parse(JSON.stringify({ ...saisie, confirmeDoublons: true })));
-    if (!v.ok) return { ok: false, motif: v.motif };
-    const e = await enregistrerSyndic(s.id, v.syndic, auteur);
-    if (!e.ok) return { ok: false, motif: e.motif };
+    const e = await enregistrerNouveauxContacts(s.id, nouveaux, [coproCle], auteur);
+    if (!e.ok) return e;
   }
   return { ok: true };
+}
+
+/** Ajoute des contacts à l'annuaire interne d'un syndic, par la porte unique de la Gestion (`enregistrerSyndic`). */
+async function enregistrerNouveauxContacts(syndicId: number, nouveaux: readonly NouveauContactSyndic[], immeubles: string[], auteur: Auteur):
+  Promise<{ ok: true; ids: number[] } | { ok: false; motif: string }> {
+  const relue = await ficheSyndic(syndicId);
+  if (relue === null) return { ok: false, motif: 'Ce syndic n’existe plus.' };
+  const avant = new Set(relue.contacts.map((c) => c.id));
+  const saisie = versSaisie(versFormulaire(relue));
+  for (const c of nouveaux) {
+    saisie.contacts.push({
+      id: null, titre: texte(c.fonction, 120), prenom: texte(c.prenom, 120), nom: texte(c.nom, 200),
+      civilite: c.civilite === 'M.' || c.civilite === 'Mme' ? c.civilite : null, tousImmeubles: false, immeubles,
+      coordonnees: [
+        ...(texte(c.telephone, 40) !== '' ? [{ id: null, sorte: 'telephone' as const, libelle: 'Téléphone', valeur: texte(c.telephone, 40).replace(/[^\d+]/g, '') }] : []),
+        ...(texte(c.email, 200) !== '' ? [{ id: null, sorte: 'email' as const, libelle: 'E-mail', valeur: texte(c.email, 200) }] : []),
+      ],
+    });
+  }
+  const v = validerSyndic(JSON.parse(JSON.stringify({ ...saisie, confirmeDoublons: true })));
+  if (!v.ok) return { ok: false, motif: v.motif };
+  const e = await enregistrerSyndic(syndicId, v.syndic, auteur);
+  if (!e.ok) return { ok: false, motif: e.motif };
+  const apres = await ficheSyndic(syndicId);
+  return { ok: true, ids: (apres?.contacts ?? []).map((c) => c.id).filter((id) => !avant.has(id)) };
+}
+
+/**
+ * « + Ajouter un contact » dans la modale du syndic (Arno, 18/10/2026) : le contact rejoint l'annuaire interne du syndic de
+ * la Gestion (visible ensuite dans la Gestion), sans copropriété : il se désigne ensuite pour le bien, dans le formulaire.
+ */
+export async function ajouterContactSyndic(syndicId: number, c: NouveauContactSyndic, auteur: Auteur):
+  Promise<{ etat: 'ok'; data: { contactId: number | null } } | { etat: 'refus'; motif: string }> {
+  const refus = refusNouveauxContacts([c]);
+  if (refus !== null) { const m = refus.replace(/^Contact du syndic 1 : /, ''); return { etat: 'refus', motif: m.charAt(0).toUpperCase() + m.slice(1) }; }
+  const e = await enregistrerNouveauxContacts(syndicId, [c], [], auteur);
+  if (!e.ok) return { etat: 'refus', motif: e.motif };
+  return { etat: 'ok', data: { contactId: e.ids[0] ?? null } };
 }

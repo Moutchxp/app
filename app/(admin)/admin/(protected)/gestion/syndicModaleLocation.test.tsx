@@ -32,7 +32,14 @@ beforeEach(() => {
   fiche = FICHE;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
-    if (init?.method !== undefined && init.method !== 'GET') { ecritures.push(`${init.method} ${u}`); return reponse({ ok: true }); }
+    if (init?.method !== undefined && init.method !== 'GET') {
+      ecritures.push(`${init.method} ${u} ${String(init.body ?? '')}`);
+      if (u === '/api/admin/location') {
+        fiche = { ...(fiche as typeof FICHE), contacts: [...(fiche as typeof FICHE).contacts, { id: 23, civilite: 'Mme', prenom: 'Zoé', nom: 'NOUVELLE', titre: 'Assistante', tousImmeubles: false, immeubles: [], coordonnees: [{ id: 9, sorte: 'email', libelle: null, valeur: 'zoe@exemple.test' }] }] };
+        return reponse({ etat: 'ok', data: { contactId: 23 } });
+      }
+      return reponse({ ok: true });
+    }
     if (u.includes('/syndics/connus')) return reponse({ etat: 'ok', syndics: [CONNU] });
     if (u.includes('/syndics/2')) return reponse({ etat: 'ok', fiche });
     if (u.includes('/syndics/immeubles')) return reponse({ etat: 'ok', disponible: true, immeubles: [] });
@@ -60,10 +67,12 @@ describe('🔴 modale syndic — variante « location »', () => {
     for (const t of ['TEST ARNAUD', '1 rue du Cabinet', '0140000000', 'cabinet@exemple.test', 'M. Arnaud JOREL', 'Responsable de copropriété', 'arnaud@exemple.test', '15 rue Carle Hebert', 'lot 219', 'Joignable le matin.']) {
       expect(detail.textContent, t).toContain(t);
     }
-    expect(detail.querySelector('a')?.getAttribute('href')).toBe('/admin/location/syndic/2');
+    // Plus aucun lien vers la fiche syndic dans le détail (accord d'Arno, 18/10/2026).
+    expect(detail.querySelector('a')).toBeNull();
+    expect(detail.textContent).not.toContain('Ouvrir la fiche syndic');
     // Les 3 boutons restent accessibles, détail ouvert ; UN SEUL « Masquer le détail » (celui de la ligne des 3 boutons).
     expect([...document.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Masquer le détail')).toHaveLength(1);
-    expect(detail.querySelector('button')).toBeNull();
+    expect([...detail.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual(['+ Ajouter un contact']);
     expect(document.querySelectorAll('[data-trois-boutons] button')).toHaveLength(3);
     await act(async () => { bouton('Le rattacher à ce bien')!.click(); });
     expect(choisis).toEqual([{ id: 2, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine' }]);
@@ -100,10 +109,10 @@ describe('🔴 modale syndic — variante « location »', () => {
       .toEqual(['Syndic', 'Contacts du syndic (2)', 'Immeubles et biens gérés (4)']);
     const blocSyndic = detail.querySelector('[data-bloc="syndic"]') as HTMLElement;
     expect(blocSyndic.querySelector('.syl-nom')?.textContent).toBe('TEST ARNAUD');
-    expect(blocSyndic.querySelector('a')?.textContent).toBe('Ouvrir la fiche syndic ↗');
+    expect(blocSyndic.querySelector('a')).toBeNull();
     expect(blocSyndic.textContent).not.toContain('Notes');
     expect(detail.querySelectorAll('[data-carte-contact]')).toHaveLength(2);
-    expect(detail.querySelector('[data-carte-contact]:last-child')?.textContent).toBe('COMPTAComptable0611223344');
+    expect([...detail.querySelectorAll('[data-carte-contact]')][1].textContent).toBe('COMPTAComptable0611223344');
     const adresses = [...detail.querySelectorAll('[data-groupe-adresse] .syl-adresse strong')].map((x) => x.textContent);
     expect(adresses).toEqual(['2 rue Carle Hebert', '15 rue Carle Hebert', '25 rue Edith Cavell', '155 avenue Paul Vaillant Couturier']);
     const lots = [...detail.querySelectorAll('[data-groupe-adresse]')[1].querySelectorAll('[data-lot]')].map((x) => x.textContent);
@@ -127,6 +136,49 @@ describe('🔴 modale syndic — variante « location »', () => {
     expect(regles.filter((r) => /blue/i.test(r))).toEqual([]);
     expect(css).toContain('.syl-bloc-titre{');
     expect(regles.join('}')).toContain('var(--color-svv-syndic-fond)');
+  });
+
+  it('CONTACTS : ceux déjà associés à CETTE adresse en tête, avec le repère rose ; les autres suivent', async () => {
+    fiche = { ...FICHE, contacts: [
+      { id: 31, civilite: null, prenom: null, nom: 'AUTRE', titre: 'Comptable', tousImmeubles: false, immeubles: ['25 rue edith cavell'], coordonnees: [] },
+      { id: 21, civilite: 'M.', prenom: 'Arnaud', nom: 'JOREL', titre: 'Gestionnaire', tousImmeubles: false, immeubles: ['15 rue carle hebert'], coordonnees: [] },
+    ] };
+    await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, variante: 'location', onFerme: () => {} })); });
+    await calmer();
+    await act(async () => { bouton('Voir le détail')!.click(); });
+    await calmer();
+    const cartes = [...document.querySelectorAll('[data-carte-contact]')];
+    expect(cartes.map((c) => c.querySelector('strong')?.textContent)).toEqual(['M. Arnaud JOREL', 'AUTRE']);
+    expect(cartes[0].getAttribute('data-associe')).toBe('oui');
+    expect(cartes[0].querySelector('.syl-repere')?.textContent).toBe('Déjà associé à cette adresse');
+    expect(cartes[1].querySelector('.syl-repere')).toBeNull();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('').replace(/\s+/g, '');
+    expect(css).toContain('.syl-carte--associe{border:2pxsolidvar(--color-svv-syndic-bord)');
+  });
+
+  it('« + Ajouter un contact » : petit formulaire, enregistré dans l’annuaire du syndic (route), ajouté à la liste', async () => {
+    await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, variante: 'location', onFerme: () => {} })); });
+    await calmer();
+    await act(async () => { bouton('Voir le détail')!.click(); });
+    await calmer();
+    await act(async () => { (document.querySelector('[data-ajouter-contact-syndic]') as HTMLButtonElement).click(); });
+    const form = document.querySelector('[data-form-contact-syndic]') as HTMLElement;
+    expect([...form.querySelectorAll('label')].map((l) => l.firstChild?.textContent)).toEqual(['Civilité', 'Nom *', 'Prénom', 'Fonction', 'Téléphone', 'E-mail']);
+    // Sans nom : refus, rien n'est envoyé.
+    await act(async () => { bouton('Enregistrer le contact')!.click(); });
+    expect(form.querySelector('[role="alert"]')?.textContent).toBe('Le nom du contact est obligatoire.');
+    expect(ecritures).toEqual([]);
+    const saisir = (i: number, v: string) => { const el = form.querySelectorAll('input')[i] as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
+    await act(async () => { saisir(0, 'Nouvelle'); saisir(1, 'Zoé'); saisir(2, 'Assistante'); saisir(4, 'zoe@exemple.test'); });
+    await act(async () => { bouton('Enregistrer le contact')!.click(); });
+    await calmer();
+    expect(ecritures).toHaveLength(1);
+    expect(ecritures[0]).toContain('POST /api/admin/location');
+    expect(JSON.parse(ecritures[0].slice(ecritures[0].indexOf('{')))).toEqual({ action: 'ajouter-contact-syndic', syndicId: 2,
+      contact: { civilite: null, nom: 'Nouvelle', prenom: 'Zoé', fonction: 'Assistante', telephone: '', email: 'zoe@exemple.test' } });
+    expect([...document.querySelectorAll('[data-carte-contact] strong')].map((x) => x.textContent)).toContain('Mme Zoé NOUVELLE');
+    expect(document.querySelector('.syl-ajoute')?.textContent).toContain('rejoint l’annuaire de ce syndic');
+    expect(document.querySelector('[data-form-contact-syndic]')).toBeNull();
   });
 
   it('la GESTION est inchangée : son bouton « Créer un nouveau syndic » et son encadré à elle', async () => {

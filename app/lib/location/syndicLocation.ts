@@ -57,3 +57,27 @@ export function grouperBiensParAdresse(copros: readonly CoproDuDetail[]): Groupe
         || da.suffixe.localeCompare(db.suffixe, 'fr');
     });
 }
+
+// ── LE DÉTAIL DU SYNDIC : LES CONTACTS DE CETTE ADRESSE EN TÊTE (Arno, 18/10/2026) ─────────────────────────────────────
+
+/**
+ * Les clés d'immeuble de l'adresse du bien : la copropriété proposée et ses adresses secondaires (même immeuble). PUR.
+ */
+export function clesDeLAdresse(coproCle: string, coproprietes: readonly { cle: string; adresses?: readonly { cle: string }[] }[]): Set<string> {
+  const cles = new Set<string>([coproCle]);
+  for (const c of coproprietes) {
+    const toutes = [c.cle, ...(c.adresses ?? []).map((a) => a.cle)];
+    if (toutes.includes(coproCle)) for (const k of toutes) cles.add(k);
+  }
+  return cles;
+}
+
+/**
+ * « Les contacts déjà associés à un bien de CETTE adresse (même immeuble) passent EN TÊTE de liste, avec un repère
+ * distinctif ; les autres suivent. » (Arno) L'ordre de l'annuaire est gardé à l'intérieur de chaque groupe. PUR.
+ */
+export function ordonnerContactsSyndic<T extends { immeubles: readonly string[] }>(contacts: readonly T[], cles: ReadonlySet<string>):
+  { contact: T; associe: boolean }[] {
+  const vus = contacts.map((contact) => ({ contact, associe: contact.immeubles.some((k) => cles.has(k)) }));
+  return [...vus.filter((x) => x.associe), ...vus.filter((x) => !x.associe)];
+}

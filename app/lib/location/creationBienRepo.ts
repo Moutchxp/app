@@ -15,6 +15,7 @@ import type { Issue } from './locationRepo';
 import { manquesClientLocation } from './cartesLocation';
 import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
 import { rattacherSyndicAuBien, refusNouveauxContacts, type SyndicDuBien } from './syndicLocationRepo';
+import { rattacherContactsExistants, refusContactsExistants } from './rattachementProprietairesRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -140,7 +141,11 @@ async function insererLot(q: RequeteTx, proprietaires: { id: number; nom: string
  * en UNE transaction. Refusé si un propriétaire n'existe plus, est archivé ou sorti du portefeuille, ou si le syndic n'est
  * pas un syndic connu de la Gestion.
  */
-export async function creerBienComplet(s: SaisieBien & { contacts?: ContactSaisi[]; syndic?: SyndicDuBien | null }, auteur: Auteur):
+export async function creerBienComplet(s: SaisieBien & {
+  contacts?: ContactSaisi[]; syndic?: SyndicDuBien | null;
+  /** Arno, 18/10/2026 — les cartes « contact du propriétaire » EXISTANTES cochées dans « Qui rattacher à ce bien ? ». */
+  contactsExistants?: number[];
+}, auteur: Auteur):
   Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null }>> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierBienComplet(s);
@@ -156,6 +161,9 @@ export async function creerBienComplet(s: SaisieBien & { contacts?: ContactSaisi
     : null;
   const refusS = syndic === null ? null : refusNouveauxContacts(syndic.nouveauxContacts);
   if (refusS !== null) return { etat: 'refus', motif: refusS };
+  const contactsExistants = Array.isArray(s.contactsExistants) ? s.contactsExistants.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 40) : [];
+  const refusE = await refusContactsExistants(contactsExistants, v.proprietaireIds);
+  if (refusE !== null) return { etat: 'refus', motif: refusE };
   const l = v.logement;
   const vivante = await sqlPersonneVivante('p');
   const portefeuille = await sqlDansPortefeuille('p');
@@ -203,6 +211,12 @@ export async function creerBienComplet(s: SaisieBien & { contacts?: ContactSaisi
   }
   // Le bien existe : les contacts se posent par la porte de la Gestion. Un échec ne défait pas le bien — il est DIT.
   const c = await creerContactsDuBien(cree.logementId, 'proprietaire', contacts, auteur);
+  // Les contacts EXISTANTS cochés : rattachés sur CE bien (la carte d'origine n'est pas touchée).
+  let existants: { ok: true; n: number } | { ok: false; motif: string } = { ok: true, n: 0 };
+  if (contactsExistants.length > 0) {
+    const { rows: cle } = await query<{ cle: string }>('SELECT wippimmo_id AS cle FROM gestion_annuaire_lot WHERE id = $1', [cree.logementId]);
+    existants = await rattacherContactsExistants(cle[0].cle, contactsExistants, v.proprietaireIds, auteur);
+  }
   let syndicRefus: string | null = null;
   if (syndic !== null) {
     const l = v.logement;
@@ -211,7 +225,11 @@ export async function creerBienComplet(s: SaisieBien & { contacts?: ContactSaisi
       .catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
     if (!r.ok) syndicRefus = `Le bien est créé, mais le syndic n’a pas pu être rattaché : ${r.motif}`;
   }
-  return { etat: 'ok', data: { ...cree, contacts: c.ok ? c.n : 0, contactsRefus: c.ok ? null : `Le bien est créé, mais : ${c.motif}`, syndicRefus } };
+  const refus = [c.ok ? null : c.motif, existants.ok ? null : existants.motif].filter((x) => x !== null);
+  return { etat: 'ok', data: {
+    ...cree, contacts: (c.ok ? c.n : 0) + (existants.ok ? existants.n : 0),
+    contactsRefus: refus.length === 0 ? null : `Le bien est créé, mais : ${refus.join(' ')}`, syndicRefus,
+  } };
 }
 
 // ── ③ LA RECHERCHE DES PROPRIÉTAIRES (au-dessus du formulaire du bien) ───────────────────────────────────────────────

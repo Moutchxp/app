@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CSS_PROPOSITIONS_SYNDIC, motOrigine, type SyndicConnuVu } from './PropositionsSyndic';
 import { nomAvecVille, type FicheSyndic as DonneesSyndic } from '../../../../lib/gestion/syndics';
-import { grouperBiensParAdresse } from '../../../../lib/location/syndicLocation';
+import { clesDeLAdresse, grouperBiensParAdresse, ordonnerContactsSyndic, type NouveauContactSyndic } from '../../../../lib/location/syndicLocation';
 
 /**
  * ══ 🔴🔴 MODALE « SYNDIC DE LA COPROPRIÉTÉ » OUVERTE DEPUIS LA TUILE LOCATION (Arno, 17/10/2026) ═══════════════════════
@@ -13,7 +13,8 @@ import { grouperBiensParAdresse } from '../../../../lib/location/syndicLocation'
  * « Sous l'encadré “Un syndic est déjà connu pour cette adresse”, UNE seule ligne de 3 boutons de même hauteur (empilés au
  * téléphone) : “Le rattacher à ce bien” (rouge, principal), “Voir le détail” (blanc), “Non, créer un autre syndic”
  * (blanc). “Voir le détail” déplie DANS la modale toutes les informations déjà connues de ce syndic dans l'annuaire de la
- * Gestion — lecture seule, avec “Ouvrir la fiche syndic ↗”. “Masquer le détail” replie ; les 3 boutons restent. » (Arno) — et lui seul (le bouton en double du détail est retiré).
+ * Gestion — lecture seule. “Masquer le détail” replie ; les 3 boutons restent. » (Arno) — et lui seul (le bouton en double du
+ * détail est retiré). Le lien « Ouvrir la fiche syndic ↗ » est retiré du détail (accord d'Arno, 18/10/2026).
  */
 export function EncadreSyndicConnuLocation({ syndics, onRattacher, onNon, envoi = false }: {
   syndics: readonly SyndicConnuVu[];
@@ -50,7 +51,7 @@ export function EncadreSyndicConnuLocation({ syndics, onRattacher, onNon, envoi 
           {detail ? 'Masquer le détail' : 'Voir le détail'}</button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onNon} disabled={envoi}>Non, créer un autre syndic</button>
       </div>
-      {detail && <DetailSyndicLecture syndicId={courant.syndic.id} />}
+      {detail && <DetailSyndicLecture syndicId={courant.syndic.id} coproCle={courant.copro.cle} />}
     </>
   );
 }
@@ -64,11 +65,20 @@ export const ADRESSES_VISIBLES = 3;
  * “Immeubles et biens gérés (N)” — regroupés PAR ADRESSE, triés commune → voie → numéro, 3 adresses visibles. » (Arno,
  * 17/10/2026). Le repli se fait par le SEUL bouton « Masquer le détail » de la ligne des 3 boutons.
  */
-export function DetailSyndicLecture({ syndicId }: { syndicId: number }) {
+export function DetailSyndicLecture({ syndicId, coproCle = null }: {
+  syndicId: number;
+  /** L'immeuble (clé de copropriété) de l'adresse du bien : ses contacts passent en tête, avec un repère (Arno, 18/10/2026). */
+  coproCle?: string | null;
+}) {
   const [f, setF] = useState<DonneesSyndic | null>(null);
   const [erreur, setErreur] = useState<string | null>(null);
   const zone = useRef<HTMLDivElement | null>(null);
   const [hauteur, setHauteur] = useState<number | null>(null);
+  const [relire, setRelire] = useState(0);
+  const [ajout, setAjout] = useState<NouveauContactSyndic | null>(null);
+  const [motifAjout, setMotifAjout] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const [ajoute, setAjoute] = useState<string | null>(null);
   useEffect(() => {
     let vivant = true;
     void fetch(`/api/admin/gestion/syndics/${syndicId}`, { cache: 'no-store' })
@@ -76,7 +86,7 @@ export function DetailSyndicLecture({ syndicId }: { syndicId: number }) {
       .then((j) => { if (!vivant) return; if (j.etat === 'ok' && j.fiche) setF(j.fiche); else setErreur(j.message ?? 'Lecture impossible.'); })
       .catch(() => { if (vivant) setErreur('Lecture impossible : le serveur n’a pas répondu.'); });
     return () => { vivant = false; };
-  }, [syndicId]);
+  }, [syndicId, relire]);
   const groupes = useMemo(() => (f === null ? [] : grouperBiensParAdresse(f.coproprietes)), [f]);
   const limite = groupes.length > ADRESSES_VISIBLES;
   // La hauteur de la zone = le bas de la 3e adresse (mesuré : une adresse peut porter 1 ou 12 lots).
@@ -92,6 +102,22 @@ export function DetailSyndicLecture({ syndicId }: { syndicId: number }) {
   const adresse = [f.adresse, [f.codePostal, f.ville].filter((x) => x).join(' ')].filter((x) => x).join(', ');
   const telephones = [f.telephone, f.telephone2].filter((x) => x).join(' · ');
   const nbLots = groupes.reduce((n, g) => n + g.lots.length, 0);
+  const contacts = ordonnerContactsSyndic(f.contacts, coproCle === null ? new Set<string>() : clesDeLAdresse(coproCle, f.coproprietes));
+  // « + Ajouter un contact » : il rejoint l'annuaire du syndic de la GESTION (la porte unique `enregistrerSyndic`, côté serveur).
+  const enregistrerAjout = async (c: NouveauContactSyndic): Promise<void> => {
+    if ((c.nom ?? '').trim() === '') { setMotifAjout('Le nom du contact est obligatoire.'); return; }
+    if ((c.email ?? '').trim() === '' && (c.telephone ?? '').trim() === '') { setMotifAjout('Un téléphone ou un e-mail.'); return; }
+    setEnvoi(true);
+    try {
+      const r = await fetch('/api/admin/location', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ajouter-contact-syndic', syndicId: f.id, contact: c }) });
+      const j = await r.json() as { etat?: string; motif?: string; message?: string };
+      if (j.etat !== 'ok') { setMotifAjout(j.motif ?? j.message ?? 'Enregistrement impossible.'); return; }
+      setAjout(null); setMotifAjout(null);
+      setAjoute(`${[c.prenom, (c.nom ?? '').toUpperCase()].filter((x) => (x ?? '').trim() !== '').join(' ')} rejoint l’annuaire de ce syndic (visible dans la Gestion).`);
+      setRelire((x) => x + 1);
+    } catch { setMotifAjout('Enregistrement impossible : le serveur n’a pas répondu.'); } finally { setEnvoi(false); }
+  };
   return (
     <div className="syl-detail" aria-label="Détail du syndic (lecture seule)" data-detail-syndic>
       <section className="syl-bloc" aria-labelledby="syl-t-syndic" data-bloc="syndic">
@@ -104,27 +130,53 @@ export function DetailSyndicLecture({ syndicId }: { syndicId: number }) {
           <div><dt>E-mail</dt><dd>{f.email || rien}</dd></div>
         </dl>
         {f.note ? <p className="syl-note"><span className="syl-etiquette">Notes</span>{f.note}</p> : null}
-        <a className="syl-lien" href={`/admin/location/syndic/${f.id}`} target="_blank" rel="noopener noreferrer">Ouvrir la fiche syndic ↗</a>
       </section>
       <section className="syl-bloc" aria-labelledby="syl-t-contacts" data-bloc="contacts">
         <h4 id="syl-t-contacts" className="syl-bloc-titre">Contacts du syndic ({f.contacts.length})</h4>
-        {f.contacts.length === 0 ? <p className="syl-rien">Aucun contact connu.</p> : (
-          <ul className="syl-cartes">
-            {f.contacts.map((c) => {
-              const tel = c.coordonnees.filter((k) => k.sorte === 'telephone').map((k) => k.valeur).join(' · ');
-              const mel = c.coordonnees.filter((k) => k.sorte === 'email').map((k) => k.valeur).join(' · ');
-              return (
-                <li key={c.id} className="syl-carte" data-carte-contact>
-                  <strong>{[c.civilite, c.prenom, c.nom].filter((x) => x).join(' ') || 'Contact'}</strong>
-                  {c.titre ? <span className="syl-fonction">{c.titre}</span> : null}
-                  {tel ? <span>{tel}</span> : null}
-                  {mel ? <span className="syl-mel">{mel}</span> : null}
-                  {!tel && !mel ? <span className="syl-rien">aucune coordonnée</span> : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        {ajoute !== null && <p className="syl-ajoute" role="status">{ajoute}</p>}
+        <ul className="syl-cartes">
+          {contacts.map(({ contact: c, associe }) => {
+            const tel = c.coordonnees.filter((k) => k.sorte === 'telephone').map((k) => k.valeur).join(' · ');
+            const mel = c.coordonnees.filter((k) => k.sorte === 'email').map((k) => k.valeur).join(' · ');
+            return (
+              <li key={c.id} className={`syl-carte${associe ? ' syl-carte--associe' : ''}`} data-carte-contact data-associe={associe ? 'oui' : undefined}>
+                {associe ? <span className="syl-repere">Déjà associé à cette adresse</span> : null}
+                <strong>{[c.civilite, c.prenom, c.nom].filter((x) => x).join(' ') || 'Contact'}</strong>
+                {c.titre ? <span className="syl-fonction">{c.titre}</span> : null}
+                {tel ? <span>{tel}</span> : null}
+                {mel ? <span className="syl-mel">{mel}</span> : null}
+                {!tel && !mel ? <span className="syl-rien">aucune coordonnée</span> : null}
+              </li>
+            );
+          })}
+          {ajout === null ? (
+            <li className="syl-carte syl-carte--plus">
+              <button type="button" className="syl-plus" onClick={() => { setAjout({ civilite: null, nom: '', prenom: '', fonction: '', telephone: '', email: '' }); setMotifAjout(null); setAjoute(null); }}
+                data-ajouter-contact-syndic>+ Ajouter un contact</button>
+            </li>
+          ) : (
+            <li className="syl-carte syl-carte--form" data-form-contact-syndic>
+              <div className="syl-form">
+                <label>Civilité
+                  <select value={ajout.civilite ?? ''} onChange={(e) => { const v = e.target.value; setAjout((x) => (x === null ? x : { ...x, civilite: v === 'M.' || v === 'Mme' ? v : null })); }}>
+                    <option value="">—</option><option value="M.">M.</option><option value="Mme">Mme</option>
+                  </select></label>
+                {(['nom', 'prenom', 'fonction', 'telephone', 'email'] as const).map((k) => (
+                  <label key={k}>{k === 'nom' ? 'Nom *' : k === 'prenom' ? 'Prénom' : k === 'fonction' ? 'Fonction' : k === 'telephone' ? 'Téléphone' : 'E-mail'}
+                    <input value={ajout[k] ?? ''} inputMode={k === 'telephone' ? 'tel' : k === 'email' ? 'email' : undefined}
+                      placeholder={k === 'fonction' ? 'gestionnaire, comptable…' : undefined}
+                      onChange={(e) => { const v = e.target.value; setAjout((x) => (x === null ? x : { ...x, [k]: v })); }} /></label>
+                ))}
+              </div>
+              {motifAjout !== null && <p className="fsy-alerte" role="alert">{motifAjout}</p>}
+              <div className="syl-form-boutons">
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setAjout(null); setMotifAjout(null); }}>Annuler</button>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrerAjout(ajout); }}>Enregistrer le contact</button>
+              </div>
+              <p className="syl-rien">Il rejoint l’annuaire de ce syndic dans la Gestion.</p>
+            </li>
+          )}
+        </ul>
       </section>
       <section className="syl-bloc" aria-labelledby="syl-t-biens" data-bloc="biens">
         <h4 id="syl-t-biens" className="syl-bloc-titre">Immeubles et biens gérés ({groupes.length})</h4>
@@ -173,11 +225,24 @@ const CSS_SYNDIC_LOCATION = `
 .syl-grille dd{margin:0;overflow-wrap:anywhere}
 .syl-etiquette{display:block;margin-bottom:2px}
 .syl-note{margin:0;white-space:pre-wrap}
-.syl-lien{align-self:flex-start;color:var(--color-svv-syndic-texte);font-weight:700}
 .syl-cartes{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:10px}
 .syl-carte{border:1px solid var(--color-svv-line);border-radius:10px;padding:9px 11px;background:var(--color-svv-field);display:flex;flex-direction:column;gap:2px;font-size:.9rem;min-width:0}
 .syl-carte strong{font-size:.97rem}
 .syl-fonction{color:var(--color-svv-muted)}
+/* Le contact déjà associé à un bien de CETTE adresse : en tête, liseré et étiquette au rose du syndic (Arno, 18/10/2026). */
+.syl-carte--associe{border:2px solid var(--color-svv-syndic-bord);border-left-width:6px}
+.syl-repere{align-self:flex-start;margin-bottom:4px;border-radius:999px;padding:1px 9px;font-size:.72rem;font-weight:800;background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte);border:1px solid var(--color-svv-syndic-bord)}
+.syl-carte--plus{padding:0;border-style:dashed;border-color:var(--color-svv-line-strong);background:var(--color-svv-surface)}
+.syl-plus{width:100%;height:100%;min-height:88px;border:0;background:transparent;font:inherit;font-weight:700;color:var(--color-svv-ink);cursor:pointer;border-radius:10px}
+.syl-plus:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.syl-carte--form{grid-column:1/-1;gap:10px}
+.syl-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(170px,100%),1fr));gap:8px 12px}
+.syl-form label{display:flex;flex-direction:column;gap:3px;font-size:.8rem;font-weight:700;color:var(--color-svv-ink)}
+.syl-form input,.syl-form select{font:inherit;font-weight:400;font-size:.95rem;min-height:40px;padding:6px 9px;border:1px solid var(--color-svv-line-strong);border-radius:8px;background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.syl-form-boutons{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.syl-form-boutons .svv-btn{width:auto}
+.syl-form-boutons .svv-btn-primary{color:var(--color-svv-surface)}
+.syl-ajoute{margin:0;font-size:.88rem;color:var(--color-svv-green-ink);font-weight:700}
 .syl-mel{overflow-wrap:anywhere}
 .syl-biens{display:flex;flex-direction:column;gap:8px}
 .syl-biens--limite{max-height:19rem;overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
