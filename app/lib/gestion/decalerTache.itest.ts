@@ -122,3 +122,44 @@ describe('🔴 tâche confiée à soi-même, décalée : aucun mail', () => {
     expect(ENVOIS_FACTICES).toHaveLength(0);
   });
 });
+
+describe('🔴 LOT GESTION-STATUTS-TACHES — durée seule ; tâche que la session gestion@ se confie', () => {
+  it('changer la DURÉE seule : aucune relance, aucun mail ; l’événement de celui qui a accepté est mis à jour', async () => {
+    const c = await creerTache(lot, saisie({ objet: '_TEST durée seule', invites: [EMMA] }), MOI);
+    if (!c.ok) throw new Error(c.motif);
+    expect((await accepter(c.demandes![0])).ok).toBe(true); // Claire accepte, Emma ne répond pas
+    await synchroniserApresGeste(c.id);
+    const avant = evsDe('c@criterimmo.fr', c.id);
+    expect(avant).toHaveLength(1);
+    const r = await decalerTache(c.id, { jour: '2026-10-21', heure: '14:30', dureeMinutes: 120 }, MOI);
+    if (!r.ok) throw new Error(r.motif);
+    expect(r.demandes).toEqual([]);
+    ENVOIS_FACTICES.length = 0;
+    for (const d of r.demandes ?? []) await envoyerSiBesoin(d);
+    expect(ENVOIS_FACTICES).toHaveLength(0);
+    expect((await lireTache(c.id))!.tache.invites?.map((i) => i.statut)).toEqual(['acceptee', 'en_attente']);
+    await synchroniserApresGeste(c.id);
+    const apres = evsDe('c@criterimmo.fr', c.id) as { id: string; end: { dateTime: string } }[];
+    expect(apres).toHaveLength(1);
+    expect(apres[0].id).toBe((avant[0] as { id: string }).id);
+    expect(apres[0].end.dateTime).toBe('2026-10-21T16:30:00');
+  });
+
+  it('session gestion@ qui confie la tâche à gestion@ : acceptée d’office, aucun jeton, aucun mail, dans son agenda', async () => {
+    const { chargerConfigGestion } = await import('./config');
+    const adresse = (await chargerConfigGestion()).adresseGestion.toLowerCase();
+    const g = Number((await query<{ id: number }>(
+      `INSERT INTO admin_utilisateur (identifiant, mot_de_passe, role, prenom, nom, perm_gestion)
+       VALUES ($1, 'x', 'administrateur', 'Service', 'Gestion', true)
+       ON CONFLICT (identifiant) DO UPDATE SET actif = true RETURNING id::int AS id`, [adresse])).rows[0].id);
+    const c = await creerTache(lot, saisie({ objet: '_TEST gestion pour gestion', confieeA: g }), { id: g, libelle: adresse });
+    if (!c.ok) throw new Error(c.motif);
+    expect((c.demandes ?? []).every((d) => d.jeton === null)).toBe(true);
+    ENVOIS_FACTICES.length = 0;
+    for (const d of c.demandes ?? []) expect(await envoyerSiBesoin(d)).toBeNull();
+    expect(ENVOIS_FACTICES).toHaveLength(0);
+    expect((await lireTache(c.id))!.tache.invites?.map((i) => i.statut)).toEqual(['acceptee']);
+    await synchroniserApresGeste(c.id);
+    expect(evsDe(adresse, c.id)).toHaveLength(1);
+  });
+});

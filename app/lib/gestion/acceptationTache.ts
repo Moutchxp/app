@@ -343,24 +343,61 @@ export function estCommandeePar<T extends TacheFiltrable>(t: T, moi: number | nu
   return demandeur !== null && Number(demandeur) === Number(moi);
 }
 
+/**
+ * ══ 🔴🔴 LOT GESTION-STATUTS-TACHES (Arno, 17/10/2026) — LE STATUT D'UNE TÂCHE, ÉCRIT ICI ET NULLE PART AILLEURS ══════
+ * ARNO : « AUCUN STATUT CONTRADICTOIRE. » Une seule règle pour le badge de la carte, les filtres Toutes / En attente /
+ * Acceptées / Refusées, la pastille « en attente de confirmation », les compteurs, la page pleine et le raccourci :
+ *   - au moins un invité sans réponse                    → « En attente » (jamais dans « Acceptées ») ;
+ *   - tous ont répondu et au moins un a accepté          → « Acceptée »  (jamais dans « En attente ») ;
+ *   - tous ont refusé                                    → « Refusée ».
+ * Une personne sans demande (tâche d'avant l'acceptation) compte comme acceptée. `null` : la tâche n'a ni invité ni
+ * demande — elle n'a pas de badge, et les filtres la comptent comme « Acceptée » (comme avant).
+ * ⚠️ La frise des événements et l'« Historique des tâches » gardent LEUR règle (`tacheValidee` : au moins un a accepté).
+ * PUR.
+ */
+export function statutTache<T extends TacheFiltrable>(t: T): StatutAcceptation | null {
+  if ((t.invites === undefined || t.invites.length === 0) && !t.acceptation) return null;
+  const statuts = personnes(t).map((x) => x.statut);
+  if (statuts.some((x) => x === 'en_attente')) return 'en_attente';
+  if (statuts.some((x) => x === 'acceptee')) return 'acceptee';
+  return 'refusee';
+}
+
+/**
+ * Le BADGE d'une tâche (carte, récapitulatif) : le mot du statut, et « N acceptée(s) sur M » quand elle attend encore
+ * des réponses à plusieurs invités. `null` : pas de badge. PUR.
+ */
+export function badgeTache<T extends TacheFiltrable>(t: T):
+  { statut: StatutAcceptation; texte: string; mot: string; detail: string | null; detailCourt: string | null } | null {
+  const statut = statutTache(t);
+  if (statut === null) return null;
+  const invites = t.invites ?? [];
+  const plusieurs = statut === 'en_attente' && invites.length > 1;
+  const detail = plusieurs ? resumeInvites(invites) : null;
+  /* Sur téléphone, la ligne repliée n'a pas la place : « 1/3 » dit la même chose (acceptées / invités). */
+  const detailCourt = plusieurs ? `${invites.filter((i) => i.statut === 'acceptee').length}/${invites.length}` : null;
+  const mot = BADGE_ACCEPTATION[statut];
+  return { statut, mot, detail, detailCourt, texte: detail === null ? mot : `${mot} · ${detail}` };
+}
+
 /** Les deux filtres, combinables. Une tâche sans demande compte comme « Acceptée » (tâches d'avant le lot). PUR. */
 export function filtrerParAcceptation<T extends TacheFiltrable>(
   taches: readonly T[], qui: FiltreQui, statut: FiltreStatut, moi: number | null,
 ): T[] {
   /* 🔴 LOT GESTION-INVITATIONS-TACHES — « Confiées à moi » : je suis l'un des invités ; « aux collaborateurs » : l'un des
-     invités est quelqu'un d'autre ; un statut : au moins un invité dans ce statut. Une seule personne : comme avant. */
+     invités est quelqu'un d'autre. 🔴 LOT GESTION-STATUTS-TACHES — un statut : LE statut de la tâche (`statutTache`), pour
+     qu'une tâche ne soit jamais à la fois dans « En attente » et dans « Acceptées ». */
   return taches.filter((t) => {
     const p = personnes(t);
     if (qui === 'confiees' && (moi === null || !p.some((x) => x.id !== null && Number(x.id) === Number(moi)))) return false;
     if (qui === 'collaborateurs' && !p.some((x) => x.id !== null && (moi === null || Number(x.id) !== Number(moi)))) return false;
     if (qui === 'commandees' && !estCommandeePar(t, moi)) return false;
-    if (statut !== 'toutes' && !p.some((x) => x.statut === statut)) return false;
+    if (statut !== 'toutes' && (statutTache(t) ?? 'acceptee') !== statut) return false;
     return true;
   });
 }
 
 /** Le compteur « En attente de confirmation » : les tâches dont au moins un invité n'a pas encore répondu. PUR. */
 export function compterEnAttente<T extends TacheFiltrable>(taches: readonly T[]): number {
-  return taches.filter((t) => t.invites !== undefined && t.invites.length > 0
-    ? t.invites.some((i) => i.statut === 'en_attente') : t.acceptation?.statut === 'en_attente').length;
+  return taches.filter((t) => statutTache(t) === 'en_attente').length;
 }

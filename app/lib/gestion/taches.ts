@@ -29,7 +29,7 @@
  */
 import { FUSEAU_AFFICHAGE } from './ecran';
 import { lireClesContacts } from './contactsTache';
-import type { AcceptationTache, InviteTache } from './acceptationTache';
+import { statutTache, type AcceptationTache, type InviteTache } from './acceptationTache';
 import type { AgendaTache } from './agendaTache';
 import type { ContactTache } from './contactsTache';
 
@@ -328,8 +328,8 @@ export function filtrerParPastille<T extends Pick<Tache, 'jour' | 'etat' | 'acce
   if (pastille === null) return [...taches];
   /* 🔴 LOT GESTION-INVITATIONS-TACHES — en attente : au moins un invité n'a pas encore répondu. */
   if (pastille === 'en_attente') {
-    return taches.filter((t) => t.etat === 'a_faire' && (t.invites !== undefined && t.invites.length > 0
-      ? t.invites.some((i) => i.statut === 'en_attente') : t.acceptation?.statut === 'en_attente'));
+    /* 🔴 LOT GESTION-STATUTS-TACHES — la MÊME règle que le badge et les filtres (`statutTache`). */
+    return taches.filter((t) => t.etat === 'a_faire' && statutTache({ confieeA: null, acceptation: t.acceptation, invites: t.invites }) === 'en_attente');
   }
   return taches.filter((t) => couleurTache(t, maintenant) === pastille);
 }

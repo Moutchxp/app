@@ -664,6 +664,13 @@ export async function decalerTache(
       { jour: t.jour, heure: t.heure, ...(dureeChange ? { dureeMinutes: dureeAvant ?? null } : {}) },
       { jour, heure, ...(dureeChange ? { dureeMinutes: dureeApres } : {}) }, auteur, nom);
     // 🔴 LOT TACHES-ACCEPTATION — changer la date ou l'heure relance la demande (décision d'Arno, point 6).
+    // 🔴 LOT GESTION-STATUTS-TACHES (Arno, 17/10/2026) — « un changement de DURÉE seule ne relance pas les invités : on
+    //    met simplement à jour l'événement d'agenda de ceux qui ont accepté, sans mail. »
+    const dateChange = jour !== t.jour || heure !== t.heure;
+    if (!dateChange) {
+      await marquerASynchroniser(q, id);
+      return { ok: true, id, demande: null, ...(plusieurs ? { demandes: [] } : {}) };
+    }
     // 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : la demande de CHAQUE invité est relancée.
     if (plusieurs) {
       /* 🔴 LOT GESTION-DECALER-TACHE — chaque invité (qui avait déjà la tâche) reçoit « Tâche déplacée », ancienne date barrée. */

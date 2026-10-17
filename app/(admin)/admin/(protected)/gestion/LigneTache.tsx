@@ -12,7 +12,7 @@ import { CSS_CONTACTS_TACHE, EncadresContacts } from './ContactsTache';
 /* 🔴 LOT TACHES-LIGNE-CONTACTS — la couleur de famille d'un contact : la source unique du bloc PARTIES. */
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import { agirSurTache, ecouterTaches, lireContactsDuBien, lireDetailTache, type GesteTache } from './tachesClient';
-import { BADGE_ACCEPTATION, mentionMail } from '../../../../lib/gestion/acceptationTache';
+import { badgeTache, mentionMail } from '../../../../lib/gestion/acceptationTache';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — chaque invité, son état, « N acceptées sur M » ; « Changer le destinataire ». */
 import { CSS_INVITES_TACHE, InvitesTache } from './InvitesTache';
 
@@ -137,11 +137,17 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
       <span className="tch-mot">{couleur === null ? (tache.etat === 'faite' ? 'Faite' : 'Annulée') : motCouleurTache(tache, maintenant)}</span>
     </span>
   );
-  /* 🔴 LOT TACHES-ACCEPTATION — LE STATUT D'ACCEPTATION, en badge ; une tâche d'avant le lot n'a pas de badge. */
-  const badge = tache.acceptation && (
-    <span className={`tch-badge tch-badge--${tache.acceptation.statut}`} data-acceptation={tache.acceptation.statut}
-      title={tache.acceptation.statut === 'refusee' && tache.acceptation.motif ? `Motif : ${tache.acceptation.motif}` : undefined}>
-      {BADGE_ACCEPTATION[tache.acceptation.statut]}
+  /* 🔴 LOT TACHES-ACCEPTATION — LE STATUT D'ACCEPTATION, en badge ; une tâche d'avant le lot n'a pas de badge.
+     🔴 LOT GESTION-STATUTS-TACHES — le statut de la TÂCHE (tous ses invités), par la règle unique `badgeTache` : celle
+     des filtres et de la pastille « en attente de confirmation ». */
+  const leBadge = badgeTache(tache);
+  const badge = leBadge !== null && (
+    <span className={`tch-badge tch-badge--${leBadge.statut}`} data-acceptation={leBadge.statut}
+      title={leBadge.statut === 'refusee' && tache.acceptation?.motif ? `Motif : ${tache.acceptation.motif}`
+        : leBadge.detail !== null ? leBadge.texte : undefined}>
+      {leBadge.mot}
+      {leBadge.detail !== null && <span className="tch-badge-detail">· {leBadge.detail}</span>}
+      {leBadge.detailCourt !== null && <span className="tch-badge-court">· {leBadge.detailCourt}</span>}
     </span>
   );
 
@@ -522,6 +528,14 @@ export const CSS_TACHES = `
   border:1px solid var(--color-svv-line-strong);color:var(--color-svv-ink);background:var(--color-svv-field);white-space:nowrap}
 .tch-badge--acceptee{border-color:var(--color-svv-green);color:var(--color-svv-green-ink)}
 .tch-badge--refusee{border-color:var(--color-svv-red);color:var(--color-svv-red)}
+/* LOT GESTION-STATUTS-TACHES : le detail N acceptee(s) sur M ; sur telephone, sa forme courte 1/3 (meme information). */
+.tch-badge-detail,.tch-badge-court{margin-left:.3em}
+.tch-badge-court{display:none}
+/* Sur telephone, la ligne repliee garde le STATUT entier : le titre prend ce qui reste ; la date ne s'efface que si date et statut ne tiennent pas ensemble. */
+@media (max-width:640px){.tch-compacte .tch-badge-detail{display:none}.tch-compacte .tch-badge-court{display:inline}
+  .tch-compacte .tch-l1 > .tch-pastille-mot{flex:0 1 auto;min-width:0;overflow:hidden}
+  .tch-compacte .tch-l1-quand{min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .tch-compacte .tch-l1 > .tch-l1-titre{flex:1 1 0 !important}}
 .tch-mail{font-style:italic}
 .tch-motif{color:var(--color-svv-red)}
 .tch-agenda{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.4rem}

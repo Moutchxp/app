@@ -131,3 +131,44 @@ describe('🔴 LOT FILTRE-COLLABORATEURS — « Confiées aux collaborateurs »'
     expect(ORDRE_FILTRES_QUI.map((f) => MOTS_QUI[f])).toEqual(['Toutes', 'Confiées à moi', 'Confiées aux collaborateurs', 'Commandées par moi']);
   });
 });
+
+describe('🔴 LOT GESTION-STATUTS-TACHES — aucun statut contradictoire (règle unique `statutTache`)', async () => {
+  const { statutTache, badgeTache } = await import('./acceptationTache');
+  const { filtrerParPastille } = await import('./taches');
+  const inv = (...s: (StatutAcceptation | null)[]) => s.map((statut, k) => ({ collaborateurId: k + 2, statut }));
+  const t = (id: number, ...s: (StatutAcceptation | null)[]) => ({
+    id, confieeA: 2, creePar: 1, etat: 'a_faire' as const, jour: '2026-10-21', acceptation: { statut: s[0] ?? 'acceptee', demandeurId: 1 }, invites: inv(...s),
+  });
+  const cas = [
+    t(1, 'acceptee', 'en_attente', 'en_attente'), // le constat d'Arno : un a accepté, d'autres n'ont pas répondu
+    t(2, 'acceptee', 'acceptee', 'refusee'),
+    t(3, 'refusee', 'refusee', 'refusee'),
+    t(4, 'en_attente', 'en_attente', 'en_attente'),
+    t(5, 'refusee', 'en_attente', 'acceptee'),
+    t(6, 'acceptee', null, 'refusee'),
+    { id: 7, confieeA: 2, creePar: 1, etat: 'a_faire' as const, jour: '2026-10-21', acceptation: { statut: 'acceptee' as const, demandeurId: 1 } },
+    { id: 8, confieeA: 2, creePar: 1, etat: 'a_faire' as const, jour: '2026-10-21', acceptation: null },
+  ];
+  it('au moins un sans réponse → En attente ; tous répondu, un accepté → Acceptée ; tous refusé → Refusée', () => {
+    expect(cas.map((x) => statutTache(x))).toEqual(['en_attente', 'acceptee', 'refusee', 'en_attente', 'en_attente', 'acceptee', 'acceptee', null]);
+  });
+  it('badge : « En attente · N acceptée(s) sur M » quand plusieurs invités attendent ; sinon le mot seul', () => {
+    expect(cas.map((x) => badgeTache(x)?.texte ?? null)).toEqual([
+      '⏳ En attente · 1 acceptée sur 3', '✓ Acceptée', '✗ Refusée — à réattribuer', '⏳ En attente · 0 acceptée sur 3',
+      '⏳ En attente · 1 acceptée sur 3', '✓ Acceptée', '✓ Acceptée', null]);
+  });
+  it('🔴 une tâche n’est JAMAIS à la fois dans « En attente » et « Acceptées » (ni dans deux filtres de statut)', () => {
+    const par = (s: 'en_attente' | 'acceptee' | 'refusee') => new Set(filtrerParAcceptation(cas, 'toutes', s, 1).map((x) => x.id));
+    const [a, b, c] = [par('en_attente'), par('acceptee'), par('refusee')];
+    for (const x of cas) expect([a.has(x.id), b.has(x.id), c.has(x.id)].filter(Boolean)).toHaveLength(1);
+    expect([...a]).toEqual([1, 4, 5]);
+    expect([...b]).toEqual([2, 6, 7, 8]);
+    expect([...c]).toEqual([3]);
+  });
+  it('pastille et compteur « en attente de confirmation » = exactement le filtre « En attente », et le badge', () => {
+    const pastille = filtrerParPastille(cas as never[], 'en_attente', new Date('2026-10-17T10:00:00Z')).map((x: { id: number }) => x.id);
+    expect(pastille).toEqual([1, 4, 5]);
+    expect(compterEnAttente(cas)).toBe(3);
+    for (const x of cas) expect(pastille.includes(x.id)).toBe(badgeTache(x)?.statut === 'en_attente');
+  });
+});

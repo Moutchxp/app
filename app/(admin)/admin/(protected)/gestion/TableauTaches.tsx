@@ -91,7 +91,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
           Tâches <span className="gst-compte">{ouvertes.length}</span>
         </h2>
         {/* 🔴 LOT GESTION-TACHES-SANS-BIEN (Arno, 17/10/2026) — création simple, sans bien : la MÊME fenêtre que « + Tâche ». */}
-        <button type="button" className="svv-btn gst-btn tch-btn tch-creer" data-action="creer-tache"
+        <button type="button" className="svv-btn svv-btn-primary gst-btn tch-btn tch-creer" data-action="creer-tache"
           onClick={(e) => { e.stopPropagation(); setCree(null); setCreation(true); }}>
           + Créer une tâche
         </button>
