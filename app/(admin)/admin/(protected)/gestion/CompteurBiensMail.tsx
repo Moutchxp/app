@@ -113,8 +113,9 @@ export function DateEtBiens({ messageId, date }: { messageId: number | null | un
       {date}
       {n !== null && (n > 0 && typeof messageId === 'number'
         ? <CompteurAvecBulle messageId={messageId} mot={motBiensRattaches(n)} />
-        /* 🔴 « aucun bien rattaché » : pas de bulle (Arno). */
-        : <span className="cbm-biens">{motBiensRattaches(n)}</span>)}
+        /* 🔴 « aucun bien rattaché » : pas de bulle (Arno). 🔴 LOT AUCUN-BIEN-EN-ROUGE (17/10/2026) — et en ROUGE, partout
+           et quel que soit le statut du mail (rouge de la charte, comme « À classer ») ; « N biens » garde sa couleur. */
+        : <span className={`cbm-biens${n === 0 ? ' cbm-biens--aucun' : ''}`}>{motBiensRattaches(n)}</span>)}
     </span>
   );
 }
@@ -380,6 +381,8 @@ export const CSS_COMPTEUR_BIENS = `
 .cbm-pile{display:inline-flex;flex-direction:column;align-items:flex-end;gap:1px;flex:0 0 auto;min-width:0;
   text-align:right}
 .cbm-biens{font-size:.7rem;line-height:1.2;color:var(--color-svv-muted);white-space:nowrap}
+/* LOT AUCUN-BIEN-EN-ROUGE — le rouge de la charte (jeton : #a30402 en Clair, #ff6b6b en Sombre, lisibles tous deux). */
+.cbm-biens.cbm-biens--aucun{color:var(--color-svv-red)}
 .cbm-biens--bulle{cursor:help;border-radius:.25rem}
 .cbm-biens--bulle:hover,.cbm-biens--ouverte{color:var(--color-svv-ink);text-decoration:underline dotted;
   text-underline-offset:2px}

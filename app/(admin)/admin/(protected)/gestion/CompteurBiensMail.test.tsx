@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
-import { DateEtBiens, viderMemoireBiensRattaches, viderMemoireBulleBiens } from './CompteurBiensMail';
+import { CSS_COMPTEUR_BIENS, DateEtBiens, viderMemoireBiensRattaches, viderMemoireBulleBiens } from './CompteurBiensMail';
 import { annoncerClassement } from '../../../../lib/gestion/signalClassement';
 
 /**
@@ -57,6 +57,20 @@ describe('🔴 le nombre de biens sous la date', () => {
     const pile = container.querySelector('.cbm-pile') as HTMLElement;
     expect(pile.firstElementChild?.className).toBe('vdb-quand');
     expect(pile.lastElementChild?.classList.contains('cbm-biens')).toBe(true);
+  });
+
+  it('🔴 LOT AUCUN-BIEN-EN-ROUGE — « aucun bien rattaché » en ROUGE (jeton de la charte) ; « N biens » garde sa couleur', async () => {
+    await monter([1, 2, 3]);
+    const compteurs = [...container.querySelectorAll('.cbm-pile > :last-child')] as HTMLElement[];
+    expect(compteurs.map((c) => c.classList.contains('cbm-biens--aucun'))).toEqual([false, false, true]);
+    expect(compteurs[2].textContent).toBe('aucun bien rattaché');
+    // La règle : le rouge de la charte (le même jeton que « À classer », redéfini pour le thème sombre).
+    expect(CSS_COMPTEUR_BIENS).toContain('.cbm-biens.cbm-biens--aucun{color:var(--color-svv-red)}');
+    expect(CSS_COMPTEUR_BIENS).toContain('.cbm-biens{font-size:.7rem;line-height:1.2;color:var(--color-svv-muted);white-space:nowrap}');
+    // Le composant est LE SEUL qui écrit ce texte sous la date : liste, conversation (plein écran compris), historique du bien.
+    for (const f of ['BoiteMail.tsx', 'Conversation.tsx', 'VieDuBien.tsx']) {
+      expect(readFileSync(`app/(admin)/admin/(protected)/gestion/${f}`, 'utf8')).toContain('<DateEtBiens');
+    }
   });
 
   it('⚠️ tant qu’on ne sait pas, rien n’est écrit (jamais un « aucun » provisoire)', async () => {
