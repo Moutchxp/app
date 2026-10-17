@@ -116,33 +116,39 @@ export const CSS_LOCATION_ECRANS = `
 .loc-titre{margin:0;font-size:1.3rem;font-weight:800}
 .loc-sous{margin:4px 0 0;color:var(--color-svv-muted)}
 .loc-actions{display:flex;flex-wrap:wrap;gap:8px}
-.loc-bloc{border:1px solid var(--color-svv-line,#d5d8de);border-radius:14px;padding:14px 16px;background:var(--color-svv-surface,#fff)}
+.loc-bloc{border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px;background:var(--color-svv-surface)}
 .loc-bloc h3{margin:0 0 10px;font-size:1rem}
 .loc-grille{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px 14px}
 .loc-champ{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--color-svv-muted)}
-.loc-champ input,.loc-champ select{min-height:44px;border:1px solid var(--color-svv-line,#d5d8de);border-radius:9px;padding:0 10px;font:inherit;color:var(--color-svv-ink);background:var(--color-svv-surface,#fff)}
+.loc-champ input,.loc-champ select{min-height:44px;border:1px solid var(--color-svv-line);border-radius:9px;padding:0 10px;font:inherit;color:var(--color-svv-ink);background:var(--color-svv-surface)}
 .loc-boutons{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:10px}
 .loc-actions .svv-btn,.loc-boutons .svv-btn,.loc-alerte .svv-btn{width:auto}
-.loc-select{min-height:44px;border:1px solid var(--color-svv-line,#d5d8de);border-radius:9px;padding:0 10px;font:inherit;color:var(--color-svv-ink);background:var(--color-svv-surface,#fff);max-width:100%}
+/* Bouton rouge plein : texte en couleur de SURFACE (convention de la Gestion, cf. .hdb-petit--actif) — blanc en Clair, encre
+   sombre sur le rouge clair du thème Sombre (≈ 5,8:1, contre 2,78:1 pour du blanc). Limité à la tuile Location. */
+.loc-page .svv-btn-primary{color:var(--color-svv-surface)}
+.loc-select{min-height:44px;border:1px solid var(--color-svv-line);border-radius:9px;padding:0 10px;font:inherit;color:var(--color-svv-ink);background:var(--color-svv-surface);max-width:100%}
 .loc-liste{list-style:none;margin:0;padding:0}
-.loc-liste > li{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--color-svv-line,#e3e5ea)}
+.loc-liste > li{display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--color-svv-line)}
 .loc-liste > li:last-child{border-bottom:0}
 .loc-liste a{font-weight:600}
 .loc-muet{color:var(--color-svv-muted);font-size:.88rem}
 .loc-pastille{display:inline-block;border-radius:999px;padding:1px 9px;font-size:.75rem;font-weight:700;background:var(--color-svv-field);color:var(--color-svv-muted)}
-.loc-pastille--vert{background:#e5f4ea;color:#1f7a3a}
-.loc-pastille--violet{background:#f0e9f8;color:#6b3fa0}
+.loc-pastille--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.loc-pastille--violet{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .loc-arbre{list-style:none;margin:0;padding:0}
-.loc-arbre > li{border:1px solid var(--color-svv-line,#e3e5ea);border-radius:10px;padding:10px 12px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:center}
+.loc-arbre > li{border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;margin:0 0 8px;display:flex;flex-wrap:wrap;gap:6px 12px;justify-content:space-between;align-items:center}
 .loc-arbre > li.loc-enfant{margin-left:28px;position:relative}
-.loc-arbre > li.loc-enfant::before{content:"";position:absolute;left:-18px;top:-9px;bottom:50%;width:14px;border-left:2px solid var(--color-svv-line,#d5d8de);border-bottom:2px solid var(--color-svv-line,#d5d8de);border-bottom-left-radius:6px}
-.loc-onglets{display:flex;gap:4px;border-bottom:1px solid var(--color-svv-line,#e3e5ea);margin:0 0 8px;flex-wrap:wrap}
+.loc-arbre > li.loc-enfant::before{content:"";position:absolute;left:-18px;top:-9px;bottom:50%;width:14px;border-left:2px solid var(--color-svv-line);border-bottom:2px solid var(--color-svv-line);border-bottom-left-radius:6px}
+.loc-onglets{display:flex;gap:4px;border-bottom:1px solid var(--color-svv-line);margin:0 0 8px;flex-wrap:wrap}
 .loc-onglets button{border:0;background:transparent;padding:10px 14px;min-height:44px;font:inherit;font-weight:700;color:var(--color-svv-muted);cursor:pointer}
 .loc-onglets button[aria-selected="true"]{color:var(--color-svv-red);border-bottom:3px solid var(--color-svv-red)}
-.loc-recherche{display:flex;gap:8px;align-items:center;border:2px solid var(--color-svv-ink);border-radius:12px;padding:4px 6px 4px 14px;background:var(--color-svv-surface,#fff)}
+.loc-recherche{display:flex;gap:8px;align-items:center;border:2px solid var(--color-svv-ink);border-radius:12px;padding:4px 6px 4px 14px;background:var(--color-svv-surface)}
 .loc-recherche input{flex:1;border:0;min-height:44px;font:inherit;font-size:1rem;background:transparent;color:var(--color-svv-ink);outline:none}
-.loc-alerte{border-radius:10px;padding:10px 12px;background:#e7f0fa;color:#173f6e;font-size:.92rem}
-.loc-alerte--orange{background:#fdf0e1;color:#6a3a00}
+.loc-alerte{border-radius:10px;padding:10px 12px;background:var(--color-svv-blue-soft);color:var(--color-svv-blue);font-size:.92rem}
+.loc-alerte a{color:inherit}
+.loc-alerte--orange{background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
 .loc-cartes{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:12px}
+/* La carte commune de la Gestion se cale sur la largeur de l'ÉCRAN ; dans un bloc de la Location, sur celle de sa colonne. */
+.loc-cartes .cp-carte{width:auto;max-width:100%;min-width:0}
 @media (max-width:640px){ .loc-arbre > li.loc-enfant{margin-left:16px} }
 `;

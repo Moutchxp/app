@@ -142,7 +142,7 @@ function FormulaireLocation({ location, onEnregistrer, onAnnuler }: {
 
 /* Une seule feuille, montée une fois par l'écran qui rend des cartes (jamais une par carte). */
 export const CSS_LOCATION = `
-.loc-a-saisir{color:#8a4b00;font-style:italic}
+.loc-a-saisir{color:var(--color-svv-amber);font-style:italic;font-weight:600}
 .loc-origine{color:var(--color-svv-muted);font-size:.85em}
 .loc-honoraires{white-space:nowrap}
 .loc-geste{white-space:nowrap}

@@ -285,37 +285,38 @@ const CSS_HONORAIRES = `
 .hon-retour{margin:0}
 .hon-theorique{margin:0;padding:10px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-muted);font-size:.92rem}
 .hon-barre{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-.hon-seg{display:inline-flex;border:1px solid var(--color-svv-line,#d5d8de);border-radius:10px;overflow:hidden}
+.hon-seg{display:inline-flex;border:1px solid var(--color-svv-line);border-radius:10px;overflow:hidden}
 .hon-seg button{border:0;background:transparent;padding:0 14px;min-height:44px;font:inherit;font-weight:600;cursor:pointer;color:inherit}
-.hon-seg button+button{border-left:1px solid var(--color-svv-line,#d5d8de)}
-.hon-seg button.on{background:var(--color-svv-red);color:#fff}
-.hon-champ{min-height:44px;border:1px solid var(--color-svv-line,#d5d8de);border-radius:9px;padding:0 10px;font:inherit;background:#fff}
+.hon-seg button+button{border-left:1px solid var(--color-svv-line)}
+.hon-seg button.on{background:var(--color-svv-red);color:var(--color-svv-surface)}
+.hon-champ{min-height:44px;border:1px solid var(--color-svv-line);border-radius:9px;padding:0 10px;font:inherit;background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .hon-annee{width:7rem}
 .hon-barre .svv-btn{width:auto}
 .hon-totaux{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
-.hon-total{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border:1px solid var(--color-svv-line,#d5d8de);border-radius:14px;background:#fff}
-.hon-total--manque{background:#fdf3e6;border-color:#f0d3a8}
+.hon-total{display:flex;flex-direction:column;gap:4px;padding:14px 16px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
+.hon-total--manque{background:var(--color-svv-amber-soft);border-color:var(--color-svv-amber);color:var(--color-svv-amber)}
+.hon-total--manque .hon-total-mot,.hon-total--manque .hon-total-sous{color:var(--color-svv-amber)}
 .hon-total-mot{font-size:.82rem;color:var(--color-svv-muted)}
 .hon-total-valeur{font-size:1.45rem;font-weight:800}
 .hon-total-sous{font-size:.85rem;color:var(--color-svv-muted)}
-.hon-table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--color-svv-line,#d5d8de);border-radius:14px;overflow:hidden;font-size:.93rem}
-.hon-table th,.hon-table td{padding:9px 10px;border-bottom:1px solid var(--color-svv-line,#e3e5ea);text-align:left;vertical-align:top}
+.hon-table{width:100%;border-collapse:collapse;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:14px;overflow:hidden;font-size:.93rem;color:var(--color-svv-ink)}
+.hon-table th,.hon-table td{padding:9px 10px;border-bottom:1px solid var(--color-svv-line);text-align:left;vertical-align:top}
 .hon-table .num{text-align:right;font-variant-numeric:tabular-nums}
 .hon-table tfoot th{background:var(--color-svv-field)}
-.hon-ligne-active td{background:#fbeaea}
+.hon-ligne-active td{background:var(--color-svv-red-soft)}
 .hon-vide{color:var(--color-svv-muted);font-style:italic}
 .hon-num{color:var(--color-svv-muted);font-size:.85em}
-.hon-a-saisir{color:#8a4b00;font-style:italic}
+.hon-a-saisir{color:var(--color-svv-amber);font-style:italic;font-weight:600}
 .hon-indiv{margin-left:8px;font-size:.75rem;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-muted)}
 .hon-note{margin:0;font-size:.85rem;color:var(--color-svv-muted)}
-.hon-reglages{border:1px solid var(--color-svv-line,#d5d8de);border-radius:14px;padding:10px 14px;background:#fff}
+.hon-reglages{border:1px solid var(--color-svv-line);border-radius:14px;padding:10px 14px;background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .hon-reglages summary{cursor:pointer;font-weight:700;min-height:44px;display:flex;align-items:center}
 .hon-reglages-ligne{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:8px 0}
 .hon-reglages-ligne label{display:flex;flex-direction:column;gap:4px;font-size:.85rem;color:var(--color-svv-muted)}
 @media (max-width:640px){
   .hon-table,.hon-table tbody,.hon-table tr,.hon-table td,.hon-table tfoot,.hon-table th{display:block;width:100%}
   .hon-table thead{display:none}
-  .hon-table tr{border-bottom:1px solid var(--color-svv-line,#e3e5ea);padding:6px 0}
+  .hon-table tr{border-bottom:1px solid var(--color-svv-line);padding:6px 0}
   .hon-table td{border:0;padding:3px 10px;text-align:left}
   .hon-table td.num{text-align:left}
   .hon-table td[data-mot]::before{content:attr(data-mot) " : ";color:var(--color-svv-muted);font-size:.85em}
