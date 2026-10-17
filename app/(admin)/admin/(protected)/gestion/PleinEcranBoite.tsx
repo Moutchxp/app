@@ -100,6 +100,7 @@ export function PleinEcranBoite({
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
   onEvenements, evenementsOuverts = null, onSyndics, onTaches, tachesDuJour = 0, onAnnuaire, etatDiscret = null,
+  lienHonoraires = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -181,6 +182,11 @@ export function PleinEcranBoite({
   evenementsOuverts?: number | null;
   /** LOT ANNUAIRE-SYNDICS — ouvre l'écran « Syndics ». Absent ⇒ aucune entrée. */
   onSyndics?: () => void;
+  /**
+   * 🔴 LOT L1 — l'adresse de l'écran « Honoraires de gestion », donnée SEULEMENT aux administrateurs (décision d'Arno).
+   * `null` ⇒ aucune entrée : un collaborateur ne voit rien de plus qu'avant ce lot.
+   */
+  lienHonoraires?: string | null;
   /** 🔴 LOT GESTION-TACHES-PAGE — le raccourci « Tâches » (page pleine), entre « Événements » et « Syndics ». */
   onTaches?: () => void;
   /** Les tâches prévues AUJOURD'HUI, ni faites ni annulées (pastille rouge ; rien à 0). */
@@ -1040,6 +1046,16 @@ export function PleinEcranBoite({
                 <button type="button" className="cm-entree" onClick={() => { onAnnuaire(); setPanneauMobile('contenu'); }}>
                   <span className="cm-nom"><span className="cm-texte">Annuaire</span></span>
                 </button>
+              </li>
+            )}
+            {/* 🔴 LOT L1 — « Honoraires », APRÈS « Annuaire », administrateurs seulement. Une entrée AJOUTÉE : les
+                autres gardent leur ordre et leur place. Un lien (page à part), au même style que ses voisines. */}
+            {lienHonoraires !== null && (
+              <li>
+                <a className="cm-entree" href={lienHonoraires} data-raccourci="honoraires" style={{ textDecoration: 'none' }}
+                  title="Les honoraires de gestion : loyer de départ × taux, par lot, par propriétaire, pour l’agence">
+                  <span className="cm-nom"><span className="cm-texte">Honoraires</span></span>
+                </a>
               </li>
             )}
           </ul>

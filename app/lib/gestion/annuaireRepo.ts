@@ -24,9 +24,12 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { personneVivanteAvec } from './personneVivante';
 import { sqlPersonneVivante } from './personneVivanteSql';
 import {
-  annuaireDisponible, annuaireModifiableDisponible, libelleSourceContactDisponible, rapprochementAnnuaireDisponible,
-  suppressionPersonneDisponible,
+  annuaireDisponible, annuaireModifiableDisponible, honorairesGestionDisponible, libelleSourceContactDisponible,
+  rapprochementAnnuaireDisponible, suppressionPersonneDisponible,
 } from './schema';
+/* 🔴 LOT L1 — le loyer de départ, le taux et les honoraires de chaque location, pour les cartes. */
+import { locationsAffichees } from './honorairesGestionRepo';
+import type { LocationAffichee } from './honorairesGestion';
 /* 🔴 LOT L0 — une fiche créée ici puis retrouvée dans l'export est RAPPROCHÉE, jamais doublée. Règle PURE. */
 import {
   choisirFicheARapprocher, phraseRapprochementNonFait, type CandidateRapprochement,
@@ -75,6 +78,11 @@ export interface ComptesImport {
    */
   rapproches: number;
   /**
+   * 🔴 LOT L1 — lots dont le taux d'honoraires WIPPIMMO (« Tx honos » / « Base honos ») a été écrit ou changé à cette
+   * passe. Compté À PART : ces deux colonnes n'entrent ni dans « mis à jour » ni dans « inchangé » des lots.
+   */
+  tauxHonos: number;
+  /**
    * ══ 🔴🔴 LOT FICHES-ANNUAIRE (étape C) — CE QUE L'IMPORT N'A PAS APPLIQUÉ, ET POURQUOI ═══════════════════════
    *
    * Règle d'Arno : « une valeur modifiée dans l'app devient PRIORITAIRE et n'est plus jamais écrasée par un
@@ -96,7 +104,8 @@ export const COMPTES_VIDES: ComptesImport = {
   lotsCrees: 0, lotsMajs: 0, lotsInchanges: 0,
   locatairesCrees: 0, locatairesMajs: 0, locatairesInchanges: 0,
   occupationsCreees: 0, occupationsMajs: 0, occupationsInchangees: 0,
-  contactsCrees: 0, contactsMajs: 0, contactsRetires: 0, disparus: 0, revenus: 0, rapproches: 0, divergences: [],
+  contactsCrees: 0, contactsMajs: 0, contactsRetires: 0, disparus: 0, revenus: 0, rapproches: 0, tauxHonos: 0,
+  divergences: [],
 };
 
 export type IssueImport =
@@ -140,6 +149,7 @@ export async function appliquerPlan(plan: PlanImport, options: {
 
     const proprietaires = await ecrireProprietaires(q, plan, options.appliquer, c, verrous);
     const idsLots = await ecrireLots(q, plan, proprietaires.parCle, options.appliquer, c);
+    await ecrireTauxHonos(q, plan, options.appliquer, c);
     const idsLocataires = await ecrireLocataires(q, plan, options.appliquer, c, verrous);
     await ecrireOccupations(q, plan, idsLocataires, idsLots, options.appliquer, c);
     await ecrireContacts(q, plan, proprietaires.parId, idsLocataires, options.appliquer, c, verrous);
@@ -434,6 +444,39 @@ async function ecrireLots(
     ids.set(l.wippimmoId, Number(r[0].id));
   }
   return ids;
+}
+
+/**
+ * ══ 🔴 LOT L1 — LE TAUX D'HONORAIRES WIPPIMMO DES LOTS, DANS UNE PASSE À PART ═════════════════════════════════════
+ *
+ * « Tx honos » et « Base honos » vont dans deux colonnes de RÉFÉRENCE (migration 370), jamais saisies ici. Une passe
+ * séparée plutôt qu'un ajout à `ecrireLots`, et c'est voulu (Arno : « la lecture s'ajoute sans changer quoi que ce
+ * soit d'autre à l'import ») : l'empreinte des lots, leurs compteurs, `importe_le` et le rapprochement restent mot pour
+ * mot ceux d'avant. Seules les lignes dont la valeur CHANGE sont écrites (`IS DISTINCT FROM`).
+ *
+ * ⚠️ SANS LA MIGRATION 370 : rien n'est lu ni nommé. Un export sans ces colonnes : `undefined` ⇒ rien n'est écrit
+ * (on n'efface pas un taux connu parce qu'une colonne manque à un export).
+ */
+async function ecrireTauxHonos(q: RequeteTx, plan: PlanImport, appliquer: boolean, c: ComptesImport): Promise<void> {
+  if (!(await honorairesGestionDisponible())) return;
+  const lignes = plan.lots.filter((l) => l.tauxHonos !== undefined || l.baseHonos !== undefined);
+  if (lignes.length === 0) return;
+  const { rows } = await q<{ wippimmo_id: string; taux: string | null; base: string | null }>(
+    'SELECT wippimmo_id, taux_honos_wippimmo::text AS taux, base_honos_wippimmo AS base FROM gestion_annuaire_lot');
+  const existants = new Map(rows.map((r) => [r.wippimmo_id, r]));
+  for (const l of lignes) {
+    const avant = existants.get(l.wippimmoId);
+    const taux = l.tauxHonos ?? null;
+    const base = l.baseHonos ?? null;
+    if (avant !== undefined && (avant.taux === null ? null : Number(avant.taux)) === taux && avant.base === base) continue;
+    c.tauxHonos += 1;
+    if (!appliquer) continue;
+    await q(
+      `UPDATE gestion_annuaire_lot SET taux_honos_wippimmo = $2, base_honos_wippimmo = $3
+        WHERE wippimmo_id = $1
+          AND (taux_honos_wippimmo IS DISTINCT FROM $2::numeric OR base_honos_wippimmo IS DISTINCT FROM $3::text)`,
+      [l.wippimmoId, taux, base]);
+  }
 }
 
 async function ecrireLocataires(
@@ -1054,6 +1097,8 @@ export interface OccupationDuLot {
   encours: boolean;
   adresse: string | null; commune: string | null; codePostal: string | null;
   contacts: ContactAffiche[];
+  /** 🔴 LOT L1 — loyer de départ, taux et honoraires de cette location. Absent sans la migration 370. */
+  location?: LocationAffichee | null;
 }
 
 export interface FicheLot {
@@ -1128,6 +1173,9 @@ export interface LogementDuLocataire {
   /** Combien de mails sont rattachés à ce bien (rattachements CONFIRMÉS), et le dernier. */
   mails: number; dernierEchange: string | null;
   driveDossierId: string | null;
+  /** 🔴 LOT L1 — l'occupation (la location) que cette carte montre, et ses conditions. Absent sans la migration 370. */
+  occupationId?: number;
+  location?: LocationAffichee | null;
 }
 
 export interface FicheLocataire {
@@ -1787,6 +1835,8 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
    * la même réponse.
    */
   const personnes = [...new Set(occ.map((o) => Number(o.locataire_id)))];
+  // 🔴 LOT L1 — les conditions de chaque location, en une lecture (vide sans la migration 370).
+  const locations = await locationsAffichees(occ.map((o) => Number(o.id)));
   const coords = new Map<number, ContactAffiche[]>();
   for (const pid of personnes) coords.set(pid, await contactsDe('locataire', pid));
 
@@ -1840,6 +1890,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
         encours: estLocataireEnPlace(o),
         adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
         contacts: coords.get(Number(o.locataire_id)) ?? [],
+        location: locations.get(Number(o.id)) ?? null,
       })),
       evenementsOuverts: ev[0]?.n ?? 0,
       proprietaires: await personnesDe('proprietaire', idsProprietaires),
@@ -1889,13 +1940,14 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
    * allers-retours de plus se verraient à l'écran.
    */
   const { rows: occ } = await query<{
-    lot_id: string | null; numero: string; adresse: string | null; commune: string | null;
+    occupation_id: string; lot_id: string | null; numero: string; adresse: string | null; commune: string | null;
     code_postal: string | null; nature: string | null; type_bien: string | null; immeuble: string | null;
     entree: string | null; sortie: string | null;
     proprietaire_id: string | null; proprietaire_nom: string | null;
     mails: number; dernier_echange: string | null; drive_id: string | null;
   }>(
-    `SELECT o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero, lo.adresse, lo.commune,
+    `SELECT o.id::text AS occupation_id, o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero,
+            lo.adresse, lo.commune,
             lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             o.entree::text, o.sortie::text,
             pr.id::text AS proprietaire_id, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
@@ -1926,6 +1978,8 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
    * logement en cours, et sa propre fiche ne doit pas disparaître de sa propre fiche.
    */
   const lotsEnCours = occ.filter((o) => estLocataireEnPlace(o) && o.lot_id !== null).map((o) => Number(o.lot_id));
+  // 🔴 LOT L1 — les conditions de chaque location de ce locataire (vide sans la migration 370).
+  const locations = await locationsAffichees(occ.map((o) => Number(o.occupation_id)));
   const idsFoyer = [Number(p.id)];
   if (lotsEnCours.length > 0) {
     const { rows: voisins } = await query<{ locataire_id: string }>(
@@ -1956,6 +2010,8 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
         proprietaireId: o.proprietaire_id === null ? null : Number(o.proprietaire_id),
         proprietaireNom: o.proprietaire_nom,
         mails: o.mails, dernierEchange: o.dernier_echange, driveDossierId: o.drive_id,
+        occupationId: Number(o.occupation_id),
+        location: locations.get(Number(o.occupation_id)) ?? null,
       })),
       personnes: await personnesDe('locataire', idsFoyer),
       modifiable: await annuaireModifiableDisponible(),

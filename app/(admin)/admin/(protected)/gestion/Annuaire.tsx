@@ -45,6 +45,8 @@ import type { ContexteRedactionEcran } from './Redaction';
  */
 /* 🔴🔴 LOT MONGA-2, POINT 4 — le bloc « Événements » de la fiche du bien. */
 import { EvenementsDuBien } from './EvenementsDuBien';
+/* 🔴 LOT L1 — loyer de départ, taux et honoraires de gestion, sous les cartes des locataires. */
+import { CSS_LOCATION, LocationCarte } from './LocationCarte';
 import { CSS_HISTORIQUE_DU_BIEN, HistoriqueDuBien } from './HistoriqueDuBien';
 import { BlocHistoriqueEchanges, useFichePersonne } from './BlocHistoriqueEchanges';
 import { bienDuNouveauMessageLocataire } from '../../../../lib/gestion/bienNouveauMessageLocataire';
@@ -465,6 +467,7 @@ export function Annuaire({
       <style>{CSS_ANNUAIRE}</style>
       <style>{CSS_VIE_DU_BIEN}</style>
       <style>{CSS_CARTES}</style>
+      <style>{CSS_LOCATION}</style>
       {/* 🔴🔴 LOT HISTORIQUE-BIEN-1 — monté comme les autres, à la suite. Il emporte ses dépendances de style
           (miniatures de pièces, picto Drive) : un style qu'un autre bloc monterait « plus haut dans la page »
           serait une dépendance invisible, qui tomberait le jour où ce bloc-là quitte la fiche. */}
@@ -569,11 +572,15 @@ export function Annuaire({
                      */
                     onEtatEvenement={recharger}
                     filtreVie={filtreVie} onFiltreVie={setFiltreVie}
-                    onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })} />
+                    onDepart={(occupationId, sortie) => envoyer({ action: 'depart', occupationId, sortie })}
+                    onConditions={(occupationId, conditions) =>
+                      envoyer({ action: 'conditions-location', occupationId, conditions })} />
                   : <VueLocataire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
                     gestes={gestes} maintenant={refTemps} onOuvrirFil={onOuvrirFil}
                     redaction={redaction} onGesteMail={onGesteMail}
-                    onHistoriqueDuBien={ouvrirVieDuBien} onCreer={creerEtRattacher} />}
+                    onHistoriqueDuBien={ouvrirVieDuBien} onCreer={creerEtRattacher}
+                    onConditions={(occupationId, conditions) =>
+                      envoyer({ action: 'conditions-location', occupationId, conditions })} />}
         </section>
       ) : (
         /**
@@ -1120,8 +1127,10 @@ function BoutonDepart({ nom, occupationId, modifiable, onDepart }: {
 function VueLot({
   f, ouvrir, onHistorique, onEcrire, maintenant, onOuvrirFil, gestes, onCreer, onDepart,
   poserSurVieDuBien, onVieDuBienPosee, filtreVie, onFiltreVie, jetonHistorique, onPoserJeton,
-  evenementVise, onEtatEvenement, redaction = null, onGesteMail,
+  evenementVise, onEtatEvenement, redaction = null, onGesteMail, onConditions,
 }: {
+  /** 🔴 LOT L1 — enregistre le loyer de départ et le taux d'une location. Rend le motif du refus, ou `null`. */
+  onConditions: (occupationId: number, conditions: Record<string, unknown>) => Promise<string | null>;
   f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
   onEcrire?: EcrireDepuisGestionFn;
   /**
@@ -1536,6 +1545,8 @@ function VueLot({
               <LigneFiche libelle="Entré le">
                 {occ.entree === null ? <span className="cp-rien">non renseignée</span> : formaterDateIso(occ.entree)}
               </LigneFiche>
+              {/* 🔴 LOT L1 — loyer de départ, taux et honoraires de cette location (AJOUTÉS, rien n'est retiré). */}
+              <LocationCarte location={occ.location} modifiable={gestes.modifiable} onEnregistrer={onConditions} />
               <LigneFiche libelle="Sa fiche">
                 <button type="button" className="cp-lien" onClick={() => ouvrir('locataire', p.id)}>
                   Ouvrir la fiche du locataire →
@@ -1631,6 +1642,9 @@ function VueLot({
                     {/* 🔴 À LA PLACE DE « Départ : Enregistrer un départ… » (Arno) : la période, déjà connue.
                         Rien n'est recalculé — `o.entree` et `o.sortie` viennent de la même occupation. */}
                     <LigneFiche libelle="Occupation">{periodeOccupation(o.entree, o.sortie)}</LigneFiche>
+                    {/* 🔴 LOT L1 — l'historique des conditions : chaque locataire parti garde son loyer et son taux. */}
+                    <LocationCarte location={o.location} modifiable={gestes.modifiable} onEnregistrer={onConditions}
+                      lecture />
                   </>
                 )} />
             );
@@ -1963,7 +1977,10 @@ function grouperParPeriode(occupations: readonly OccupationDuLot[]): OccupationD
  */
 function VueLocataire({
   f, ouvrir, onHistorique, gestes, maintenant, onOuvrirFil, onHistoriqueDuBien, onCreer, redaction = null, onGesteMail,
+  onConditions,
 }: {
+  /** 🔴 LOT L1 — enregistre le loyer de départ et le taux d'une location. Rend le motif du refus, ou `null`. */
+  onConditions: (occupationId: number, conditions: Record<string, unknown>) => Promise<string | null>;
   f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
   onHistoriqueDuBien: (lotId: number) => void;
@@ -2035,7 +2052,7 @@ function VueLocataire({
           ? <p className="ann-gris">Aucun logement en cours — cette personne a quitté son ou ses logements.</p>
           : <ul className="ann-cartes">{enCours.map((o) => (
             <CarteLogement key={`e-${o.lotId ?? o.numero}-${o.entree ?? ''}`} o={o} ouvrir={ouvrir}
-              onHistoriqueDuBien={onHistoriqueDuBien} />
+              onHistoriqueDuBien={onHistoriqueDuBien} modifiable={gestes.modifiable} onConditions={onConditions} />
           ))}</ul>}
       </section>
 
@@ -2046,7 +2063,8 @@ function VueLocataire({
           </h4>
           <ul className="ann-cartes">{passes.map((o) => (
             <CarteLogement key={`p-${o.lotId ?? o.numero}-${o.entree ?? ''}-${o.sortie ?? ''}`} o={o}
-              ouvrir={ouvrir} onHistoriqueDuBien={onHistoriqueDuBien} />
+              ouvrir={ouvrir} onHistoriqueDuBien={onHistoriqueDuBien} modifiable={gestes.modifiable}
+              onConditions={onConditions} />
           ))}</ul>
         </section>
       )}
@@ -2160,9 +2178,12 @@ function EchangesDuLocataire({ f, lotCle, maintenant, redaction, onGesteMail, on
  * ⚠️ UN LOT « HORS GESTION » N'EST PAS CLIQUABLE, et le DIT : l'occupation le nomme par une clé que l'annuaire des
  * lots ne porte pas. Un lien vers une fiche inexistante est pire qu'une absence de lien.
  */
-function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
+function CarteLogement({ o, ouvrir, onHistoriqueDuBien, modifiable = false, onConditions }: {
   o: LogementDuLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistoriqueDuBien: (lotId: number) => void;
+  /** 🔴 LOT L1 — de quoi saisir le loyer de départ et le taux de cette location. Absent : rien ne s'affiche. */
+  modifiable?: boolean;
+  onConditions?: (occupationId: number, conditions: Record<string, unknown>) => Promise<string | null>;
 }) {
   const tete = (
     <>
@@ -2226,6 +2247,13 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
             </button>
           </>
         )}
+      {/* 🔴 LOT L1 — LA LOCATION : loyer de départ, taux et honoraires de gestion. HORS des boutons de la carte (un
+          formulaire ne vit pas dans un bouton) ; rien ne s'affiche sans la migration 370. */}
+      {onConditions !== undefined && o.location !== undefined && o.location !== null && (
+        <div className="cp-lignes ann-carte-location">
+          <LocationCarte location={o.location} modifiable={modifiable} onEnregistrer={onConditions} lecture={estAncienLocataire(o)} />
+        </div>
+      )}
       {/* 🔴 LOT FICHES-RETOUCHES — MÊME PIED QUE LA CARTE DE BIEN : deux boutons de même largeur, et
           « Historique » au-dessus quand le lot est dans l'annuaire. Deux cartes qui montrent le même objet ne
           peuvent pas se présenter de deux façons — on réapprendrait à lire d'un écran à l'autre. */}

@@ -122,7 +122,9 @@ type Chargement = { etat: 'charge' } | { etat: 'ok'; data: EtatEcran } | { etat:
  * à quelqu'un d'autre. On empile une entrée d'historique quand l'écran CHANGE, on remplace sinon — sans quoi trois
  * clics sur la même étiquette demanderaient trois « Précédent ».
  */
-export function GestionVue({ intro }: {
+export function GestionVue({ intro, administrateur = false }: {
+  /** 🔴 LOT L1 — vrai pour un administrateur : la colonne de la boîte offre alors l'entrée « Honoraires ». */
+  administrateur?: boolean;
   /**
    * LOT 5-GMAIL — la phrase de description du module. En plein écran, l'en-tête de la page est COMPACTÉ sur une
    * ligne : la phrase passe alors dans une info-bulle CLIQUABLE (jamais au survol seul). Elle vient de la page, qui
@@ -1631,6 +1633,8 @@ export function GestionVue({ intro }: {
           onTaches={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'taches' }); }}
           tachesDuJour={tachesDuJour}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
+          /* 🔴 LOT L1 — « Honoraires » (page à part), pour les administrateurs seulement. */
+          lienHonoraires={administrateur ? '/admin/gestion/honoraires' : null}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */
           onRelever={() => void releverMaintenant()} releveEnCours={releveEnCours}

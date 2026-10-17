@@ -26,7 +26,7 @@ export default async function GestionPage() {
   return (
     <section className="gst-page">
       <EnTetePage titre="Gestion" intro={INTRO_GESTION} />
-      {autorise ? <GestionVue intro={INTRO_GESTION} /> : (
+      {autorise ? <GestionVue intro={INTRO_GESTION} administrateur={session?.role === 'administrateur'} /> : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux comptes disposant du droit « Gestion ».
         </div>

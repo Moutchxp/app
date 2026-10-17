@@ -100,6 +100,7 @@
     "gestion:agenda:verifier": "tsx app/scripts/verifier-agenda.ts",
     "gestion:agenda:rattraper": "tsx app/scripts/rattraper-agenda.ts",
     "gestion:annuaire:importer": "tsx app/scripts/importer-annuaire.ts",
+    "gestion:honoraires:reprendre": "tsx app/scripts/reprendre-honoraires.ts",
     "gestion:annuaire:epreuve": "tsx app/scripts/annuaire-epreuve.ts",
     "gestion:drive:construire": "tsx app/scripts/construire-arbre-drive.ts",
     "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",

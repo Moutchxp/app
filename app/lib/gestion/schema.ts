@@ -461,6 +461,15 @@ export function rapprochementAnnuaireDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 MIGRATION 370 (lot L1) — loyer de départ, taux et honoraires de gestion. Sans elle : l'import ne lit pas
+ * « Tx honos » (il ne nomme aucune colonne neuve), les cartes n'affichent pas de ligne « Location », et l'écran des
+ * honoraires dit qu'il n'est pas installé.
+ */
+export function honorairesGestionDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_location_conditions', () => tableExiste('gestion_location_conditions'));
+}
+
+/**
  * LOT DRIVE-1 — la migration 254 est-elle appliquée ? Elle seule porte la MÉMOIRE de l'arborescence Drive, qui est
  * aussi la LISTE BLANCHE du garde-fou.
  *

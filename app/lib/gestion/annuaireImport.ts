@@ -23,6 +23,7 @@ import {
   type ContactAnnuaire,
 } from './annuaire';
 import { dateDeSerie, type FeuilleLue } from './xlsxLecture';
+import { lireBaseWippimmo, lireTauxWippimmo } from './honorairesGestion';
 
 // ── CE QUE LE PLAN CONTIENT ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,13 @@ export interface LotPlan {
   adresseNormalisee: string;
   gestionDebut: string | null;
   gestionFin: string | null;
+  /**
+   * 🔴 LOT L1 — « Tx honos » et « Base honos » de Lots.xlsx : le taux d'honoraires de gestion HT du lot et sa base
+   * (ex. « LCDTA »). Facultatifs : un export sans ces colonnes laisse l'import exactement tel qu'avant. Écrits par une
+   * passe À PART (`ecrireTauxHonos`), qui ne touche ni aux compteurs des lots ni au reste de l'import.
+   */
+  tauxHonos?: number | null;
+  baseHonos?: string | null;
 }
 
 export interface LocatairePlan {
@@ -276,6 +284,8 @@ function lireLots(
   const iCp = colonne(feuille, ['C.P.', 'CP', 'Code postal'], false, 'Lots.xlsx');
   const iDeb = colonne(feuille, ['Déb gest.', 'Début gestion'], false, 'Lots.xlsx');
   const iFin = colonne(feuille, ['Fin gest.', 'Fin gestion'], false, 'Lots.xlsx');
+  const iTx = colonne(feuille, ['Tx honos'], false, 'Lots.xlsx');
+  const iBase = colonne(feuille, ['Base honos'], false, 'Lots.xlsx');
 
   const out: LotPlan[] = [];
   const vus = new Set<string>();
@@ -325,8 +335,30 @@ function lireLots(
       adresseNormalisee: normaliserTexte([adresse, commune].filter((x) => x !== null).join(' ')),
       gestionDebut: date(debut),
       gestionFin: date(cellule(l, iFin)),
+      tauxHonos: lireTauxWippimmo(cellule(l, iTx)),
+      baseHonos: lireBaseWippimmo(cellule(l, iBase)),
     });
   });
+  return out;
+}
+
+/**
+ * 🔴 LOT L1 — LE SEUL TAUX D'HONORAIRES DES LOTS (« Tx honos », « Base honos »), lu par la MÊME règle que l'import.
+ * Sert à la commande de reprise (`gestion:honoraires:reprendre --dossier=…`), qui pose ces deux colonnes SANS relancer
+ * l'import complet (lequel réécrirait aussi les contacts et les fiches). PUR. Lignes sans identifiant ignorées.
+ */
+export function tauxHonosDesLots(feuille: FeuilleLue): { wippimmoId: string; tauxHonos: number | null; baseHonos: string | null }[] {
+  const iId = colonne(feuille, ['Id'], true, 'Lots.xlsx');
+  const iTx = colonne(feuille, ['Tx honos'], true, 'Lots.xlsx');
+  const iBase = colonne(feuille, ['Base honos'], false, 'Lots.xlsx');
+  const vus = new Set<string>();
+  const out: { wippimmoId: string; tauxHonos: number | null; baseHonos: string | null }[] = [];
+  for (const l of feuille.lignes) {
+    const id = cellule(l, iId);
+    if (id === '' || vus.has(id)) continue;
+    vus.add(id);
+    out.push({ wippimmoId: id, tauxHonos: lireTauxWippimmo(cellule(l, iTx)), baseHonos: lireBaseWippimmo(cellule(l, iBase)) });
+  }
   return out;
 }
 

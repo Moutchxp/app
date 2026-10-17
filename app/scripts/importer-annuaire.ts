@@ -118,6 +118,8 @@ export function rendreRapport(plan: PlanImport, c: ComptesImport, o: OptionsImpo
   if (c.revenus > 0) l.push(`REVENUS dans l’export (la mention « absent » est levée) : ${c.revenus}`);
   // 🔴 LOT L0 — une fiche créée dans l'application et retrouvée dans l'export n'est pas doublée : elle est rapprochée.
   if (c.rapproches > 0) l.push(`RAPPROCHÉES (créées dans l’application, retrouvées dans l’export, sans doublon) : ${c.rapproches}`);
+  // 🔴 LOT L1 — le taux d'honoraires WIPPIMMO des lots (« Tx honos »), écrit dans une passe à part.
+  if (c.tauxHonos > 0) l.push(`TAUX D’HONORAIRES WIPPIMMO (« Tx honos ») ${o.appliquer ? 'écrits' : 'à écrire'} : ${c.tauxHonos} lot(s)`);
 
   /**
    * ══ 🔴🔴 LOT FICHES-ANNUAIRE (étape C) — CE QUE L'IMPORT N'A PAS APPLIQUÉ ══════════════════════════════════════
