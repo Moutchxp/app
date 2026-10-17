@@ -11,7 +11,7 @@ import {
   agirSurTache, creerTache, lireCollaborateurs, lireContactsDuBien, lireDetailTache, lireEvenementsDuBien,
   lireEvenementsProposes, type CollaborateurEcran, type DetailTache, type EvenementPropose, type GesteTache, type SaisieEcran,
 } from './tachesClient';
-import { CSS_TACHES } from './LigneTache';
+import { BadgeStatutTache, CSS_TACHES } from './LigneTache';
 import { BADGE_ACCEPTATION, mentionMail, type AcceptationTache } from '../../../../lib/gestion/acceptationTache';
 /* 🔴 LOT GESTION-RECHERCHE-EVENEMENTS — la recherche des événements à rattacher. */
 import { CSS_RECHERCHE_EVENEMENTS, RechercheEvenementsTache } from './RechercheEvenementsTache';
@@ -335,6 +335,13 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
         )}
         {tache !== null && (
           <p className="tchf-creee">Créée le {horodatageLisible(tache.creeLe)} par {tache.creeParLibelle}</p>
+        )}
+        {/* 🔴 LOT GESTION-STATUTS-TACHES (Arno, 17/10/2026) — EN TÊTE : le statut GLOBAL de la tâche, le même badge que la
+            carte (`BadgeStatutTache`, règle `statutTache`), au-dessus de l'état du « Confiée à » et de la liste des invités. */}
+        {tache !== null && (tache.acceptation || (tache.invites ?? []).length > 0) && (
+          <p className="tchf-statut-tache" data-statut-tache>
+            <span className="tchf-statut-tache-mot">Statut de la tâche</span> <BadgeStatutTache tache={tache} />
+          </p>
         )}
         {/* ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE STATUT D'ACCEPTATION, et ce que le demandeur peut faire : renvoyer la
             demande, ou réattribuer (changer « Confiée à » puis enregistrer : une nouvelle demande part). */}
@@ -664,6 +671,8 @@ const CSS_FENETRE = `
 .tchf-ajout-piece{align-self:flex-start}
 .tchf-acceptation{display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid var(--color-svv-line);border-radius:.5rem}
 .tchf-acceptation-ligne{margin:0;font-size:.86rem;color:var(--color-svv-ink)}
+.tchf-statut-tache{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;font-size:.86rem;color:var(--color-svv-ink)}
+.tchf-statut-tache-mot{font-weight:700}
 .tchf-acceptation-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0}
 .tchf-danger{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 .tchf-agenda{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--color-svv-line);border-radius:.5rem}

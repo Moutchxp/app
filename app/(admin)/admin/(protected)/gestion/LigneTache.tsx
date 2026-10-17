@@ -140,16 +140,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   /* 🔴 LOT TACHES-ACCEPTATION — LE STATUT D'ACCEPTATION, en badge ; une tâche d'avant le lot n'a pas de badge.
      🔴 LOT GESTION-STATUTS-TACHES — le statut de la TÂCHE (tous ses invités), par la règle unique `badgeTache` : celle
      des filtres et de la pastille « en attente de confirmation ». */
-  const leBadge = badgeTache(tache);
-  const badge = leBadge !== null && (
-    <span className={`tch-badge tch-badge--${leBadge.statut}`} data-acceptation={leBadge.statut}
-      title={leBadge.statut === 'refusee' && tache.acceptation?.motif ? `Motif : ${tache.acceptation.motif}`
-        : leBadge.detail !== null ? leBadge.texte : undefined}>
-      {leBadge.mot}
-      {leBadge.detail !== null && <span className="tch-badge-detail">· {leBadge.detail}</span>}
-      {leBadge.detailCourt !== null && <span className="tch-badge-court">· {leBadge.detailCourt}</span>}
-    </span>
-  );
+  const badge = <BadgeStatutTache tache={tache} />;
 
   /* L'événement lié : une capsule, sur la carte. */
   const ev = tache.evenement !== null && <span className="tch-ev">{tache.evenement.reference}</span>;
@@ -442,6 +433,26 @@ function ContactsDeLaLigne({ contacts }: { contacts: readonly { nom: string; fam
       </span>
       {contacts.slice(0, n).map((c, i) => un(c, i))}
       {reste > 0 && <span className="tch-ct-plus" data-plus={reste} title={contacts.slice(n).map((c) => prenomNom(c.nom)).join(', ')}>… +{reste}</span>}
+    </span>
+  );
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-STATUTS-TACHES — LE BADGE DU STATUT DE LA TÂCHE, UN SEUL COMPOSANT ════════════════════════════
+ * La carte (ligne repliée et carte dépliée) ET la fenêtre de la tâche le rendent : même règle (`badgeTache`, donc
+ * `statutTache`), même mot, même détail « N acceptée(s) sur M ». Sur téléphone, dans la ligne repliée seulement, le
+ * détail prend sa forme courte « 1/3 » (CSS). `null` : une tâche sans demande n'a pas de badge.
+ */
+export function BadgeStatutTache({ tache }: { tache: Tache }) {
+  const leBadge = badgeTache(tache);
+  if (leBadge === null) return null;
+  return (
+    <span className={`tch-badge tch-badge--${leBadge.statut}`} data-acceptation={leBadge.statut}
+      title={leBadge.statut === 'refusee' && tache.acceptation?.motif ? `Motif : ${tache.acceptation.motif}`
+        : leBadge.detail !== null ? leBadge.texte : undefined}>
+      {leBadge.mot}
+      {leBadge.detail !== null && <span className="tch-badge-detail">· {leBadge.detail}</span>}
+      {leBadge.detailCourt !== null && <span className="tch-badge-court">· {leBadge.detailCourt}</span>}
     </span>
   );
 }

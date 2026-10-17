@@ -230,4 +230,11 @@ const CSS_TABLEAU = `
    variable --tch-rouge-plein), texte blanc : le jeton --color-svv-red passe a #ff6b6b en Sombre, ou le blanc ne se lirait pas. */
 .tch-filtre-btn--actif{background:var(--tch-rouge-plein);color:#ffffff;font-weight:700}
 .tch-filtre-btn:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* LOT GESTION-STATUTS-TACHES : sur telephone, chaque groupe de filtres prend la largeur et ses boutons passent a la
+   ligne dans le cadre, au lieu de depasser de l ecran. Grand ecran : inchange. */
+@media (max-width:640px){
+  .tch-filtres{flex:1 1 100%;min-width:0}
+  .tch-filtre{display:flex;flex-wrap:wrap;width:100%;box-sizing:border-box;border-radius:14px}
+  .tch-filtre-btn{flex:1 1 auto}
+}
 `;

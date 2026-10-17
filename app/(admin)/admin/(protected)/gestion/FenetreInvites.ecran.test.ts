@@ -16,6 +16,21 @@ let avecInvites: boolean;
 let avecEvenements: boolean;
 let reprise: boolean;
 let container: HTMLDivElement;
+const invite = (inviteId: number, libelle: string, statut: string, principal = false) => ({
+  inviteId, collaborateurId: inviteId, libelle, principal, statut, automatique: false, motif: statut === 'refusee' ? 'Congé' : null,
+  reponduLe: null, demandeLe: '2026-10-17T08:00:00Z', mailEtat: 'envoye', dernierRenvoiLe: null,
+});
+const TACHE_3_INVITES = {
+  id: 9, lotId: 10, lotCle: '315', adresseBien: '7 avenue de l’Union, Paris', evenement: null, objet: 'Visite d’entrée',
+  note: null, jour: '2026-10-21', heure: '14:30', rappels: [], etat: 'a_faire', confieeA: 4, confieeALibelle: 'Emma Essai',
+  creeLe: '2026-10-17T08:00:00Z', creeParLibelle: 'Arnaud Jorel', majLe: '2026-10-17T08:00:00Z', faiteLe: null,
+  faiteParLibelle: null, annuleeLe: null, annuleeParLibelle: null, nbContacts: 0,
+  // Le « Confiée à » a accepté, un autre n'a pas répondu : la tâche est EN ATTENTE (le constat d'Arno).
+  acceptation: { statut: 'acceptee', automatique: false, destinataireId: 4, destinataireLibelle: 'Emma Essai', demandeurId: 2,
+    demandeurLibelle: 'Arnaud Jorel', demandeLe: '2026-10-17T08:00:00Z', reponduLe: '2026-10-17T09:00:00Z',
+    reponduParLibelle: 'Emma Essai', motif: null, mailEtat: 'envoye', mailLe: null },
+  invites: [invite(4, 'Emma Essai', 'acceptee', true), invite(5, 'Félix Essai', 'en_attente'), invite(6, 'Gaspard Essai', 'refusee')],
+};
 let root: Root;
 
 beforeEach(() => {
@@ -36,6 +51,7 @@ beforeEach(() => {
       ] });
     }
     if (url.includes('/taches/contacts')) return Response.json({ etat: 'ok', contacts: [] });
+    if (url.endsWith('/taches/9')) return Response.json({ etat: 'ok', tache: TACHE_3_INVITES, traces: [], contacts: [], pieces: [] });
     if (url.includes('/taches/evenements')) {
       return avecEvenements ? Response.json({ etat: 'ok', reprise, evenements: [
         { id: 11, reference: 'GES-2026-000011', objet: 'Fuite (du bien)', duBien: true },
@@ -129,5 +145,20 @@ describe('🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION — l’ancien champ fusionn
     await ouvrir();
     expect(container.querySelector('.tchf-corps')?.textContent).not.toContain('Événement du bien lié');
     expect(container.querySelector('.tchf-evenements')).not.toBeNull();
+  });
+});
+
+describe('🔴 LOT GESTION-STATUTS-TACHES — le statut global en tête de la fenêtre', () => {
+  it('« Statut de la tâche » : le badge de la carte (règle statutTache), AU-DESSUS de l’état du « Confiée à » et des invités', async () => {
+    await act(async () => { root.render(createElement(FenetreTache, { mode: { sorte: 'detail', id: 9 }, onFermer: () => {} })); });
+    await calmer();
+    const statut = container.querySelector('[data-statut-tache]')!;
+    expect(statut.textContent).toBe('Statut de la tâche ⏳ En attente· 1 acceptée sur 3· 1/3');
+    expect(statut.querySelector('[data-acceptation]')?.getAttribute('data-acceptation')).toBe('en_attente');
+    const confiee = container.querySelector('.tchf-acceptation[data-acceptation]')!;
+    const invites = container.querySelector('.tchf-invites')!;
+    expect(confiee.textContent).toContain('✓ Acceptée'); // l'état du « Confiée à », nommé, reste là
+    expect(statut.compareDocumentPosition(confiee) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(statut.compareDocumentPosition(invites) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
