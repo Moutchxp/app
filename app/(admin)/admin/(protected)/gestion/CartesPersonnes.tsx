@@ -656,7 +656,7 @@ export interface FicheAEditer {
   contacts: readonly { id: number; sorte: 'telephone' | 'email'; affichage: string; libelle: string | null }[];
 }
 
-export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie }: {
+export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie, exigence, qualiteEnAvant }: {
   /** `null` en CRÉATION : la même carte, vide. */
   p: FicheAEditer | null;
   onEnregistrer: (champs: ChampsSaisis) => Promise<void>;
@@ -720,6 +720,16 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
    * chaque frappe, pour que l'appelant signale une fiche déjà connue. ABSENT ⇒ rien ne change (cas de la Gestion).
    */
   onSaisie?: (coordonnees: CoordonneeSaisie[]) => void;
+  /**
+   * TUILE LOCATION (17/10/2026) — « champs obligatoires des cartes créées dans la Location : nom + au moins un téléphone OU
+   * un e-mail » (Arno). Remplace la règle de complétude de la CRÉATION. ABSENTE ⇒ la règle de la Gestion, inchangée.
+   */
+  exigence?: (f: { nom: string; coordonnees: readonly CoordonneeSaisie[] }) => Record<string, string>;
+  /**
+   * TUILE LOCATION (17/10/2026) — « Contact du propriétaire / du locataire : champ Qualité mis en avant ». Le champ
+   * Qualité passe juste sous le nom, avec ces exemples. ABSENT ⇒ à sa place habituelle (cas de la Gestion).
+   */
+  qualiteEnAvant?: string;
 }) {
   /**
    * ══ 🔴🔴 LOT FICHE-SAISIE-UNIFORME — LA CIVILITÉ EST UNE LISTE, PLUS UN TEXTE LIBRE ══════════════════════
@@ -796,6 +806,7 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
    */
   const manque = contact !== undefined
     ? manquesDuContact({ nom, coordonnees: saisiesVivantes })
+    : creation !== undefined && exigence !== undefined ? exigence({ nom, coordonnees: saisiesVivantes })
     : creation === undefined ? {} : manquesDeLaFiche({
       civilite, nom, prenom, adresse, codePostal, commune, coordonnees: saisiesVivantes,
     });
@@ -878,16 +889,24 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
         <input className="cp-saisie" value={nom} onChange={(e) => setNom(nomEnSaisie(e.target.value))} required />
         {manqueDe('nom')}
       </label>
+      {qualiteEnAvant !== undefined && (
+        <label className="cp-champ cp-champ--en-avant">
+          <span className="cp-champ-mot">Qualité</span>
+          <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)} placeholder={qualiteEnAvant} />
+        </label>
+      )}
       <label className="cp-champ">
         <span className="cp-champ-mot">Prénom</span>
         <input className="cp-saisie" value={prenom} onChange={(e) => setPrenom(prenomEnSaisie(e.target.value))} />
         {manqueDe('prenom')}
       </label>
-      <label className="cp-champ">
-        <span className="cp-champ-mot">Qualité <span className="cp-facultatif">facultative</span></span>
-        <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)}
-          placeholder="indivision, gérant, représentant…" />
-      </label>
+      {qualiteEnAvant === undefined && (
+        <label className="cp-champ">
+          <span className="cp-champ-mot">Qualité <span className="cp-facultatif">facultative</span></span>
+          <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)}
+            placeholder="indivision, gérant, représentant…" />
+        </label>
+      )}
       {/* ══ 🔴🔴 L'ADRESSE, AVEC LES PROPOSITIONS DE LA BASE ADRESSE NATIONALE ════════════════════════════════
           Un choix remplit les TROIS champs d'un coup — adresse, code postal, commune (en majuscules). La saisie
           libre reste possible partout : adresse étrangère, lieu-dit, BAN muette. Aucun blocage, jamais. */}

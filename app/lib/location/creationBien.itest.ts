@@ -38,12 +38,12 @@ const compter = async (table: string): Promise<number> => Number((await query<{ 
 
 describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => {
   it('⓪ « Propriétaire(s) en gestion ? » : réponse obligatoire ; Oui exige le mandat ; Non enregistré sans mandat', async () => {
-    const carte = { nom: `GESTION${S}` };
+    const carte = { nom: `GESTION${S}`, coordonnees: [{ sorte: 'telephone' as const, valeur: '06 22 33 44 55', libelle: 'Mobile' }] };
     const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire')).rows[0].n);
     expect((await creerProprietaires({ cartes: [carte] }, AUTEUR)).etat).toBe('refus');
     expect((await creerProprietaires({ cartes: [carte], enGestion: true, numeroMandat: '  ' }, AUTEUR)).etat).toBe('refus');
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire')).rows[0].n)).toBe(avant);
-    const non = ok(await creerProprietaires({ cartes: [carte, { nom: `GESTION${S}B` }], enGestion: false, numeroMandat: 'saisi puis abandonné' }, AUTEUR));
+    const non = ok(await creerProprietaires({ cartes: [carte, { nom: `GESTION${S}B`, coordonnees: [{ sorte: 'telephone' as const, valeur: '06 22 33 44 56', libelle: 'Mobile' }] }], enGestion: false, numeroMandat: 'saisi puis abandonné' }, AUTEUR));
     const { rows } = await query<{ en_gestion: boolean | null; mandat: string | null }>(
       'SELECT en_gestion, numero_mandat_gestion AS mandat FROM gestion_annuaire_proprietaire WHERE id = ANY($1::bigint[])', [non.ids]);
     expect(rows).toEqual([{ en_gestion: false, mandat: null }, { en_gestion: false, mandat: null }]);

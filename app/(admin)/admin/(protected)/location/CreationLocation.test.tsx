@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationProprietaires } from './CreationProprietaires';
 import { CreationBien } from './CreationBien';
+import { CreationLocataire } from './CreationLocataire';
 
 /**
  * 🔴 TUILE LOCATION — « Créer un nouveau propriétaire » et « Ajouter un nouveau bien » (Arno, 17/10/2026).
@@ -33,12 +34,59 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++
 const bouton = (texte: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(texte)) as HTMLButtonElement;
 
 describe('🔴 Créer un nouveau propriétaire', () => {
-  it('une carte de contact de la Gestion au départ ; « + Ajouter un contact » en ajoute autant qu’on veut', async () => {
+  const remplir = async (form: Element, nom: string, coord: { tel?: string; email?: string }) => {
+    await act(async () => {
+      const set = (el: HTMLInputElement, v: string) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
+      const nomInput = [...form.querySelectorAll('label.cp-champ')].find((l) => l.querySelector('.cp-champ-mot')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
+      set(nomInput, nom);
+      const v = form.querySelectorAll('.cp-saisie--valeur');
+      if (coord.tel !== undefined) set(v[0] as HTMLInputElement, coord.tel);
+      if (coord.email !== undefined) set(v[1] as HTMLInputElement, coord.email);
+    });
+  };
+
+  it('« + Ajouter… » propose, comme la Gestion : Propriétaire (client) / Contact du propriétaire / Annuler ; étiquettes et Qualité mise en avant', async () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     expect(container.querySelectorAll('.cp-form')).toHaveLength(1);
-    await act(async () => { bouton('+ Ajouter un contact').click(); });
-    await act(async () => { bouton('+ Ajouter un contact').click(); });
-    expect(container.querySelectorAll('.cp-form')).toHaveLength(3);
+    expect([...container.querySelectorAll('[data-badge]')].map((x) => x.getAttribute('data-badge'))).toEqual(['client']);
+    await act(async () => { bouton('+ Ajouter…').click(); });
+    expect([...container.querySelectorAll('[data-choix] button')].map((x) => x.textContent)).toEqual(['Propriétaire (client)', 'Contact du propriétaire', 'Annuler']);
+    expect(container.querySelector('[data-choix] .cp-choix-btn--premier')?.textContent).toBe('Propriétaire (client)');
+    await act(async () => { bouton('Contact du propriétaire').click(); });
+    expect([...container.querySelectorAll('[data-badge]')].map((x) => x.textContent)).toEqual(['Propriétaire', 'Contact du propriétaire']);
+    const contact = container.querySelector('[data-sorte="contact"] .cp-form') as HTMLElement;
+    expect(contact.querySelector('.cp-form-titre')?.textContent).toBe('Nouveau contact du propriétaire');
+    // « Qualité » juste sous le nom, avec les exemples d'Arno.
+    const mots = [...contact.querySelectorAll('.cp-champ-mot')].map((m) => m.textContent?.trim());
+    expect(mots.slice(1, 3)).toEqual(['Nom', 'Qualité']);
+    expect((contact.querySelector('.cp-champ--en-avant input') as HTMLInputElement).placeholder).toBe('conjoint, gestionnaire, notaire, gardien…');
+    // Aucune question « en gestion » ni mandat sur la carte contact : ils sont propres à la page (propriétaires).
+    expect(contact.textContent).not.toMatch(/en gestion|mandat/i);
+  });
+
+  it('obligatoires ALLÉGÉS d’une carte client : le nom et un téléphone suffisent (civilité, prénom, adresse facultatifs)', async () => {
+    await act(async () => { root.render(createElement(CreationProprietaires)); });
+    const form = container.querySelector('.cp-form') as HTMLElement;
+    const enregistrer = () => form.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(enregistrer().disabled).toBe(true);
+    await remplir(form, 'Dupont', { tel: '06 12 34 56 78' });
+    expect(enregistrer().disabled).toBe(false);
+  });
+
+  it('un contact SEUL ne suffit pas : au moins une carte « Propriétaire (client) »', async () => {
+    await act(async () => { root.render(createElement(CreationProprietaires)); });
+    await act(async () => { bouton('+ Ajouter…').click(); });
+    await act(async () => { bouton('Contact du propriétaire').click(); });
+    const contact = container.querySelector('[data-sorte="contact"] .cp-form') as HTMLElement;
+    await remplir(contact, 'Martin', { email: 'martin@exemple.test' });
+    await act(async () => { (contact.querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
+    // La carte client vide est annulée : il ne reste que le contact (validé).
+    await act(async () => { [...(container.querySelector('[data-sorte="client"] .cp-form') as HTMLElement).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Annuler')!.click(); });
+    expect(container.querySelectorAll('[data-recap="contact"]')).toHaveLength(1);
+    await act(async () => { bouton('Non').click(); });
+    await act(async () => { bouton('Ajouter un bien à ce nouveau propriétaire').click(); });
+    expect(container.textContent).toContain('Un contact n’est pas un client : ajoutez au moins une carte « Propriétaire (client) ».');
+    expect(posts).toEqual([]);
   });
 
   it('« Propriétaire(s) en gestion ? » : rien sans réponse ; Oui → mandat puis bouton ; Non → bouton direct, mandat vidé', async () => {
@@ -167,5 +215,19 @@ describe('🔴 Ajouter un nouveau bien', () => {
     await act(async () => { bouton('+ Parking').click(); });
     expect([...container.querySelectorAll('[data-annexes] > li')].map((li) => li.className)).toEqual(['loc-racine', 'loc-enfant', 'loc-enfant']);
     expect(container.textContent).toContain('N° de place');
+  });
+});
+
+describe('🔴 Nouveau locataire : clients et contacts', () => {
+  it('« + Ajouter… » : Locataire (client) / Contact du locataire ; un contact seul est refusé', async () => {
+    await act(async () => { root.render(createElement(CreationLocataire)); });
+    await act(async () => { bouton('+ Ajouter…').click(); });
+    expect([...container.querySelectorAll('[data-choix] button')].map((x) => x.textContent)).toEqual(['Locataire (client)', 'Contact du locataire', 'Annuler']);
+    await act(async () => { bouton('Contact du locataire').click(); });
+    expect((container.querySelector('[data-sorte="contact"] .cp-champ--en-avant input') as HTMLInputElement).placeholder).toBe('garant, conjoint, employeur…');
+    expect(container.querySelector('[data-sorte="client"] [data-badge]')?.className).toContain('cp-role--en_place');
+    await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
+    expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte « Locataire (client) »');
+    expect(posts).toEqual([]);
   });
 });

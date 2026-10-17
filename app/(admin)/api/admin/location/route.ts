@@ -10,12 +10,13 @@ import {
   rattacherAnnexe, type CreationProprietaireBien,
 } from '../../../../lib/location/locationRepo';
 import {
-  biensPourLocataire, creerLocataireSurBien, ficheSyndicLocation, reactiverDansPortefeuille, rechercherPortefeuille,
+  biensPourLocataire, creerLocataireSurBien, creerLocatairesSurBien, ficheSyndicLocation, reactiverDansPortefeuille, rechercherPortefeuille,
   sortirDuPortefeuille, type CreationLocataire, type SujetPortefeuille,
 } from '../../../../lib/location/portefeuilleRepo';
 import {
   creerBienComplet, creerProprietaires, enregistrerEnGestion, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
 } from '../../../../lib/location/creationBienRepo';
+import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -31,7 +32,8 @@ import {
  *       valeurs possibles) · `?proprietairesRecherche=texte` · `?proprietairesIds=1,2` · `?syndics=1`.
  * POST `{ action }` : modifier | archiver | restaurer | separer (une personne) · numero-mandat · modifier-bien ·
  *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · creer-locataire · conditions-location ·
- *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien · complements-bien
+ *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien (avec les contacts du propriétaire) · creer-locataires
+ *       (cartes clients + contacts du locataire) · complements-bien
  *       (formulaire complet).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
  */
@@ -175,6 +177,14 @@ export async function POST(request: Request): Promise<Response> {
           proprietaireIds: Array.isArray(corps.proprietaireIds) ? (corps.proprietaireIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
           logement: (corps.logement ?? {}) as Record<string, unknown>,
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
+          contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
+        }, auteur));
+      case 'creer-locataires':
+        return repondre(await creerLocatairesSurBien({
+          cartes: Array.isArray(corps.cartes) ? (corps.cartes as ContactSaisi[]).slice(0, 12) : [],
+          existants: Array.isArray(corps.existants) ? (corps.existants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
+          contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
+          lotId: identifiant(corps.lotId), entree: typeof corps.entree === 'string' ? corps.entree : null,
         }, auteur));
       case 'sortir':
       case 'reactiver': {

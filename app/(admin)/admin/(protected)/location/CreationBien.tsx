@@ -10,6 +10,9 @@ import {
 } from '../../../../lib/location/bienComplet';
 import { verifierChampsBien, type Categorie } from '../../../../lib/location/locationBien';
 import type { ResultatPortefeuille } from '../../../../lib/location/recherchePortefeuille';
+import type { ChampsSaisis } from '../gestion/CartesPersonnes';
+import { lireContactsEnAttente, oublierContactsEnAttente } from './contactsEnAttente';
+import { BadgeCarte } from './SaisieCartes';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « AJOUTER UN NOUVEAU BIEN » (/admin/location/nouveau-bien), Arno, 17/10/2026 ══════════════════
@@ -77,6 +80,9 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
   const [tente, setTente] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  /** Les CONTACTS DU PROPRIÉTAIRE saisis à l'écran précédent : enregistrés avec le bien (ils se rangent sur lui). */
+  const [contacts, setContacts] = useState<ChampsSaisis[]>([]);
+  useEffect(() => { setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux]);
 
   // Les propriétaires arrivés de « Créer un nouveau propriétaire » : déjà rattachés, modifiables (retirables).
   const initiaux = useLecture<ResultatPortefeuille[]>(proprietairesInitiaux.length > 0 ? `proprietairesIds=${proprietairesInitiaux.join(',')}` : null);
@@ -125,6 +131,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
     const r = await envoyer({
       action: 'creer-bien', proprietaireIds: proprietaires.map((p) => p.id),
       logement: { ...b, famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode },
+      contacts,
       annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
         categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse,
         ...(autreAdresse ? { adresse, codePostal, commune } : {}),
@@ -132,6 +139,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
     });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
+    oublierContactsEnAttente();
     const id = (r.data as { logementId?: number } | undefined)?.logementId;
     window.location.href = id !== undefined ? `/admin/location/bien/${id}` : '/admin/location/proprietaires';
   };
@@ -174,6 +182,20 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
             ))}
           </ul>
         ) : <p className="loc-muet" style={{ margin: 0 }}>Aucun propriétaire rattaché. Cherchez-le ci-dessus, ou <a href="/admin/location/nouveau-proprietaire">créez un nouveau propriétaire</a>.</p>}
+        {contacts.length > 0 && (
+          <div className="loc-sous-section" data-contacts-proprietaire>
+            <h4>Contacts du propriétaire — enregistrés avec le bien</h4>
+            <ul className="loc-puces loc-puces--contacts">
+              {contacts.map((c, i) => (
+                <li key={`${c.nom}-${i}`} className="loc-puce loc-puce--contact">
+                  <BadgeCarte cote="proprietaire" sorte="contact" />
+                  <span>{[(c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' ')}{c.qualite ? <small> · {c.qualite}</small> : null}</span>
+                  <button type="button" aria-label={`Retirer le contact ${c.nom ?? ''}`} onClick={() => setContacts((l) => l.filter((_, j) => j !== i))}>✕</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         {manqueDe('proprietaires')}
       </section>
 

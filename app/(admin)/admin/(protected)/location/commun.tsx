@@ -278,6 +278,10 @@ export const CSS_LOCATION_CREATION = `
 .loc-acces-code{flex:1 1 16rem}
 .loc-annexe-adresse{margin:0 0 12px}
 .loc-annexe-parking{display:flex;flex-direction:column;gap:10px;margin:0 0 14px}
+.loc-puce--contact{background:var(--color-svv-field);color:var(--color-svv-ink);border-color:var(--color-svv-line-strong)}
+.loc-carte-badge{margin:0 0 8px}
+.loc-recap--contact{border-color:var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink)}
+.loc-ample .cp-champ--en-avant .cp-saisie{border-color:var(--color-svv-ink)}
 .loc-recap{display:flex;flex-direction:column;gap:6px;border:2px solid var(--color-svv-green-ink);border-radius:22px;padding:20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .loc-recap strong{font-size:1.15rem}
 .loc-recap .loc-boutons{justify-content:flex-start}

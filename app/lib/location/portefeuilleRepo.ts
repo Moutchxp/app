@@ -8,6 +8,8 @@ import type { FicheSyndic } from '../gestion/syndics';
 import type { Auteur } from '../gestion/gestes';
 import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, type SortiePortefeuille } from './recherchePortefeuille';
 import type { Issue } from './locationRepo';
+import { manquesClientLocation } from './cartesLocation';
+import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE PORTEFEUILLE (refonte de l'accueil, Arno, 17/10/2026). IMPUR (base). ══════════════════════
@@ -309,6 +311,49 @@ export async function biensPourLocataire(filtre: string): Promise<{ id: number; 
     id: Number(r.id), titre: (r.annexe === null ? '' : `${r.annexe} — `) + ([r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`),
     detail: [r.proprietaire, r.loue ? 'déjà loué' : 'libre'].filter((x) => x).join(' · '),
   }));
+}
+
+/**
+ * « Nouveau locataire » par CARTES (Arno, 17/10/2026) : « Locataire (client) » — un ou plusieurs (colocation, couple) —
+ * et « Contact du locataire » (garant, conjoint, employeur…). Au moins UN locataire ; chaque carte client devient une fiche
+ * (création commune de l'annuaire) et une occupation du bien choisi, à la même date d'entrée ; une fiche existante retenue
+ * par « Utiliser cette fiche » est rattachée sans fusion. Les contacts sont posés sur le bien, côté locataire, par la
+ * porte de la Gestion. Tout est VÉRIFIÉ avant la première écriture.
+ */
+export async function creerLocatairesSurBien(o: {
+  cartes: ContactSaisi[]; existants: number[]; contacts: ContactSaisi[]; lotId: number | null; entree: string | null;
+}, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null }>> {
+  if (o.lotId === null) return { etat: 'refus', motif: 'Choisissez le bien loué.' };
+  const cartes = o.cartes.slice(0, 12);
+  const existants = [...new Set(o.existants)].slice(0, 12);
+  if (cartes.length + existants.length === 0) return { etat: 'refus', motif: 'Ajoutez au moins un locataire (client) : les contacts seuls ne suffisent pas.' };
+  for (const [i, c] of cartes.entries()) {
+    const m = Object.values(manquesClientLocation({ nom: c.nom, coordonnees: c.coordonnees }));
+    if (m.length > 0) return { etat: 'refus', motif: `Locataire ${i + 1} : ${m.join(' ')}` };
+  }
+  const refusC = refusContacts(o.contacts);
+  if (refusC !== null) return { etat: 'refus', motif: refusC };
+  const entree = o.entree !== null && /^\d{4}-\d{2}-\d{2}$/.test(o.entree) ? o.entree : null;
+  const { rows: lot } = await query<{ ok: boolean }>(`SELECT (${await sqlBienDuPortefeuille('lo')}) AS ok FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [o.lotId]);
+  if (lot[0] === undefined) return { etat: 'refus', motif: 'Ce bien n’existe plus.' };
+  if (!lot[0].ok) return { etat: 'refus', motif: 'Ce bien n’est pas dans le portefeuille (sorti, fin de gestion ou absent du dernier export).' };
+  const ids: number[] = [];
+  for (const [i, c] of cartes.entries()) {
+    const cree = await creerPersonne('locataire', { ...c, nom: (c.nom ?? '').trim() }, auteur);
+    if (cree.etat !== 'ok') {
+      const motif = cree.etat === 'refus' ? cree.motif : 'l’annuaire n’est pas modifiable';
+      return { etat: 'refus', motif: ids.length === 0 ? `Locataire ${i + 1} : ${motif}` : `${ids.length} fiche(s) créée(s), mais le locataire ${i + 1} a échoué : ${motif}` };
+    }
+    ids.push(cree.data.id);
+  }
+  for (const id of [...ids, ...existants]) {
+    const occ = await ajouterOccupant(o.lotId, id, entree, auteur);
+    if (occ.etat !== 'ok') {
+      return { etat: 'refus', motif: `Les fiches sont créées, mais le rattachement au bien a échoué : ${occ.etat === 'refus' ? occ.motif : 'le bien est introuvable'}` };
+    }
+  }
+  const c = await creerContactsDuBien(o.lotId, 'locataire', o.contacts, auteur);
+  return { etat: 'ok', data: { locataireIds: [...ids, ...existants], contacts: c.ok ? c.n : 0, contactsRefus: c.ok ? null : `Les locataires sont créés, mais : ${c.motif}` } };
 }
 
 /** La fiche d'un syndic, telle que la Gestion la connaît (mêmes données, aucune copie). */

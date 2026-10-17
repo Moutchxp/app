@@ -12,6 +12,8 @@ import type { ChampsBien, Categorie } from './locationBien';
 import { analyserTermePortefeuille, type ResultatPortefeuille } from './recherchePortefeuille';
 import { sqlBienDuPortefeuille, sqlDansPortefeuille } from './portefeuilleRepo';
 import type { Issue } from './locationRepo';
+import { manquesClientLocation } from './cartesLocation';
+import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -66,7 +68,9 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
   const existants = [...new Set((o.existants ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
   if (cartes.length + existants.length === 0) return { etat: 'refus', motif: 'Ajoutez au moins un propriétaire.' };
   for (const [i, c] of cartes.entries()) {
-    if ((c.nom ?? '').trim() === '') return { etat: 'refus', motif: `Carte ${i + 1} : le nom est obligatoire.` };
+    // Obligatoires ALLÉGÉS dans la Location (Arno, 17/10/2026) : le nom, et au moins un téléphone OU un e-mail.
+    const manque = Object.values(manquesClientLocation({ nom: c.nom, coordonnees: c.coordonnees }));
+    if (manque.length > 0) return { etat: 'refus', motif: `Carte ${i + 1} : ${manque.join(' ')}` };
     const v = verifierCoordonnees((c.coordonnees ?? []).filter((x) => x.valeur.trim() !== '') as CoordonneeSaisie[]);
     if (!v.ok) return { etat: 'refus', motif: `Carte ${i + 1} : ${v.motif}` };
   }
@@ -133,15 +137,21 @@ async function insererLot(q: RequeteTx, proprietaires: { id: number; nom: string
  * en UNE transaction. Refusé si un propriétaire n'existe plus, est archivé ou sorti du portefeuille, ou si le syndic n'est
  * pas un syndic connu de la Gestion.
  */
-export async function creerBienComplet(s: SaisieBien, auteur: Auteur): Promise<Issue<{ logementId: number; annexes: number[] }>> {
+export async function creerBienComplet(s: SaisieBien & { contacts?: ContactSaisi[] }, auteur: Auteur):
+  Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null }>> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierBienComplet(s);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
+  // Les CONTACTS DU PROPRIÉTAIRE saisis à la création : vérifiés AVANT toute écriture, posés une fois le bien créé.
+  const contacts = Array.isArray(s.contacts) ? s.contacts.slice(0, 20) : [];
+  const refusC = refusContacts(contacts);
+  if (refusC !== null) return { etat: 'refus', motif: refusC };
   const l = v.logement;
   const vivante = await sqlPersonneVivante('p');
   const portefeuille = await sqlDansPortefeuille('p');
+  let cree: { logementId: number; annexes: number[] };
   try {
-    return await withTransaction(async (q) => {
+    cree = await withTransaction(async (q) => {
       const { rows } = await q<{ id: string; nom: string }>(
         `SELECT p.id::text, p.nom_complet AS nom FROM gestion_annuaire_proprietaire p
           WHERE p.id = ANY($1::bigint[]) AND ${vivante}${portefeuille} FOR UPDATE`, [v.proprietaireIds]);
@@ -175,12 +185,15 @@ export async function creerBienComplet(s: SaisieBien, auteur: Auteur): Promise<I
       }
       await journaliser(q, 'annuaire_lot', logementId, 'location_bien_cree',
         `bien créé dans la Location (formulaire complet) : ${v.famille} + ${annexes.length} annexe(s), propriétaire(s) ${proprietaires.map((p) => p.id).join(', ')}`, auteur);
-      return { etat: 'ok' as const, data: { logementId, annexes } };
+      return { logementId, annexes };
     });
   } catch (e) {
     if (e instanceof Refus) return { etat: 'refus', motif: e.message };
     throw e;
   }
+  // Le bien existe : les contacts se posent par la porte de la Gestion. Un échec ne défait pas le bien — il est DIT.
+  const c = await creerContactsDuBien(cree.logementId, 'proprietaire', contacts, auteur);
+  return { etat: 'ok', data: { ...cree, contacts: c.ok ? c.n : 0, contactsRefus: c.ok ? null : `Le bien est créé, mais : ${c.motif}` } };
 }
 
 // ── ③ LA RECHERCHE DES PROPRIÉTAIRES (au-dessus du formulaire du bien) ───────────────────────────────────────────────
