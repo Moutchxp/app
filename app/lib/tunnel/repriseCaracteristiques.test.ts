@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-  CARACTERISTIQUES_VIDES, CLE_SESSION_REPRISE, ajouterHistoriqueSession, choisirReprise, clesAdresse, lireHistoriqueSession,
+  CARACTERISTIQUES_VIDES, CLE_SESSION_REPRISE, ajouterHistoriqueSession, choisirReprise, clesAdresse, fusionnerReprise, lireHistoriqueSession,
   memeAdresse, normaliserAdresse, phraseReprise, validerCaracteristiques, type EntreeReprise,
 } from './repriseCaracteristiques';
 
@@ -39,6 +39,33 @@ describe('choisirReprise', () => {
   });
   it('tout invalide → rien à reprendre (et donc pas de ligne)', () => {
     expect(choisirReprise([entree(A, { typeBien: 42, surface: 'abc' }, '2026-10-15T09:00:00Z')], A)).toBeNull();
+  });
+});
+
+describe('🔴 changement d’adresse (« Alternatives ») après une reprise : champ par champ', () => {
+  const vides = CARACTERISTIQUES_VIDES;
+  it('A repris, rien touché, B sans historique → tout est VIDÉ, plus de ligne', () => {
+    const f = fusionnerReprise(champsA1, champsA1, null);
+    expect(f.caracteristiques).toEqual(vides);
+    expect(f.repris).toBe(false);
+  });
+  it('A repris, rien touché, B avec historique → les critères de B, ligne mise à jour', () => {
+    const f = fusionnerReprise(champsA1, champsA1, champsB);
+    expect(f.caracteristiques).toEqual(champsB);
+    expect(f.repris).toBe(true);
+  });
+  it('A repris puis surface MODIFIÉE → la surface tapée est CONSERVÉE, les autres champs repris de A sont vidés', () => {
+    const courant = { ...champsA1, surface: '71' };
+    const f = fusionnerReprise(courant, champsA1, null);
+    expect(f.caracteristiques).toEqual({ ...vides, surface: '71' });
+    expect(f.repris).toBe(false); // plus rien de repris : pas de ligne
+    // et le champ reste « touché » : un nouveau changement d'adresse le conserve encore
+    expect(fusionnerReprise(f.caracteristiques, f.posees, champsB).caracteristiques).toEqual({ ...champsB, surface: '71' });
+  });
+  it('champ vide sur l’écran neuf puis TAPÉ par l’internaute → conservé quand la reprise arrive', () => {
+    const f = fusionnerReprise({ ...vides, typeBien: 'Loft' }, vides, champsA1);
+    expect(f.caracteristiques).toEqual({ ...champsA1, typeBien: 'Loft' });
+    expect(f.repris).toBe(true);
   });
 });
 
@@ -98,7 +125,8 @@ describe('câblage de la page', () => {
     expect(page).toContain('cleAdresseBan: cleBanChoisie,');
   });
   it('une saisie n’est jamais écrasée ; la session n’est écrite que pour un non connecté ; ligne seulement si repris', () => {
-    expect(page).toContain('if (!memesCaracteristiques(caracteristiquesRef.current, caracteristiquesPosees.current)) { setReprise(null); return; }');
+    expect(page).toContain('const f = fusionnerReprise(caracteristiquesRef.current, caracteristiquesPosees.current, r?.caracteristiques ?? null);');
+    expect(page).toContain('caracteristiquesPosees.current = f.posees; setReprise(f.repris ? r : null);');
     expect(page).toContain('if (compte === null) { ajouterHistoriqueSession(sessionAppareil(),');
     expect(page).toContain('{reprise !== null && !sontVides(caracteristiques) && ( <p data-reprise-caracteristiques');
   });

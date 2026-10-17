@@ -86,9 +86,33 @@ export function sontVides(c: CaracteristiquesBien): boolean {
     && c.terrasse === null && c.balcon === null && c.jardin === null;
 }
 
-export function memesCaracteristiques(a: CaracteristiquesBien, b: CaracteristiquesBien): boolean {
-  return a.typeBien === b.typeBien && a.surface === b.surface && a.nbPieces === b.nbPieces && a.epoque === b.epoque
-    && a.terrasse === b.terrasse && a.balcon === b.balcon && a.jardin === b.jardin;
+const CHAMPS: readonly (keyof CaracteristiquesBien)[] = ['typeBien', 'surface', 'nbPieces', 'epoque', 'terrasse', 'balcon', 'jardin'];
+
+/**
+ * 🔴 CHANGEMENT D'ADRESSE (« Alternatives ») APRÈS UNE REPRISE — CHAMP PAR CHAMP. Un champ encore égal à ce que la reprise
+ * (ou l'écran neuf) y avait posé est REMPLACÉ par les critères de la nouvelle adresse, ou vidé s'il n'y en a pas ; un
+ * champ que l'internaute a tapé ou modifié est CONSERVÉ. `posees` : ce que la reprise a posé dans chaque champ ; il ne
+ * change que pour les champs remplacés (un champ conservé reste « touché »). `repris` : au moins un champ a reçu une
+ * valeur de la nouvelle reprise (→ la ligne « Caractéristiques reprises… » s'affiche ; sinon elle disparaît). PUR.
+ */
+export function fusionnerReprise(
+  courantes: CaracteristiquesBien, posees: CaracteristiquesBien, nouvelles: CaracteristiquesBien | null,
+): { caracteristiques: CaracteristiquesBien; posees: CaracteristiquesBien; repris: boolean } {
+  const cible = nouvelles ?? CARACTERISTIQUES_VIDES;
+  const caracteristiques = { ...courantes } as Record<keyof CaracteristiquesBien, unknown>;
+  const nouvellesPosees = { ...posees } as Record<keyof CaracteristiquesBien, unknown>;
+  let repris = false;
+  for (const k of CHAMPS) {
+    if (courantes[k] !== posees[k]) continue; // tapé ou modifié par l'internaute : conservé
+    caracteristiques[k] = cible[k];
+    nouvellesPosees[k] = cible[k];
+    if (nouvelles !== null && cible[k] !== CARACTERISTIQUES_VIDES[k]) repris = true;
+  }
+  return {
+    caracteristiques: caracteristiques as unknown as CaracteristiquesBien,
+    posees: nouvellesPosees as unknown as CaracteristiquesBien,
+    repris,
+  };
 }
 
 /** Une demande de certificat passée : ses clés d'adresse, ses caractéristiques, sa date (ISO). */

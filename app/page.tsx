@@ -39,7 +39,7 @@ import {
 // serveur : `mesureClient` ne fait que POSTer au beacon /api/mesure.
 import { mesure } from "./lib/analytics/mesureClient";
 import {
-  TYPES_BIEN, EPOQUES, CARACTERISTIQUES_VIDES, clesAdresse, choisirReprise, validerCaracteristiques, memesCaracteristiques,
+  TYPES_BIEN, EPOQUES, CARACTERISTIQUES_VIDES, clesAdresse, choisirReprise, validerCaracteristiques, fusionnerReprise,
   sontVides, phraseReprise, lireHistoriqueSession, ajouterHistoriqueSession, type CaracteristiquesBien, type Reprise,
 } from "./lib/tunnel/repriseCaracteristiques";
 
@@ -837,13 +837,14 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         r = null; // réseau : champs vides (jamais une reprise devinée)
       }
       if (annule) return;
-      // Une saisie de l'internaute n'est jamais écrasée : on ne remplace que des champs encore tels qu'on les a posés.
-      if (!memesCaracteristiques(caracteristiquesRef.current, caracteristiquesPosees.current)) { setReprise(null); return; }
-      const c = r !== null && !sontVides(r.caracteristiques) ? r.caracteristiques : CARACTERISTIQUES_VIDES;
+      // CHAMP PAR CHAMP : un champ encore tel que la reprise l'a posé prend les critères de cette adresse (ou se vide) ;
+      // un champ tapé ou modifié par l'internaute est conservé (changement d'adresse par « Alternatives »).
+      const f = fusionnerReprise(caracteristiquesRef.current, caracteristiquesPosees.current, r?.caracteristiques ?? null);
+      const c = f.caracteristiques;
       setTypeBien(c.typeBien); setSurface(c.surface); setNbPieces(c.nbPieces); setEpoque(c.epoque);
       setTerrasse(c.terrasse); setBalcon(c.balcon); setJardin(c.jardin);
-      caracteristiquesPosees.current = c;
-      setReprise(c === CARACTERISTIQUES_VIDES ? null : r);
+      caracteristiquesPosees.current = f.posees;
+      setReprise(f.repris ? r : null);
     })();
     return () => { annule = true; };
   }, [cleBanChoisie, adresseChoisie]);
