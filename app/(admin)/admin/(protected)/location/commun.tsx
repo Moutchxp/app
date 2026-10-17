@@ -164,6 +164,22 @@ export const CSS_LOCATION_ECRANS = `
 .loc-cases--accueil .loc-case{min-height:18rem;padding:28px 30px;gap:14px;border-radius:20px}
 .loc-cases--accueil .loc-case-titre{font-size:1.5rem;line-height:1.25}
 .loc-case-ligne{display:block}
+/* Arno (17/10/2026) — LA ZONE DE RÉSULTATS RÉSERVÉE : toujours là, hauteur FIXE (celle d'une zone à un résultat, mesurée
+   101 px au bureau et 128 px au téléphone avant ce lot) ; les 3 cases ne bougent jamais. Trop de résultats : on défile dedans. */
+.loc-zone-resultats{box-sizing:border-box;height:101px;flex:0 0 auto;overflow-y:auto;overscroll-behavior:contain}
+.loc-zone-resultats--vide{border:0;background:transparent;padding:0}
+/* L'EFFET 3D des 3 grosses cases : soulèvement + petit agrandissement + ombre forte et diffuse, ~200 ms ; au survol (souris
+   seulement — rien sur un écran tactile) et au focus clavier. Ombre en couleurs du thème : sombre en Clair ; en Sombre, un
+   halo clair (une ombre noire ne se verrait pas sur le fond le plus sombre du thème). */
+.loc-cases--accueil{--loc-ombre-case:0 22px 44px -12px color-mix(in srgb, var(--color-svv-ink) 38%, transparent),0 8px 16px -8px color-mix(in srgb, var(--color-svv-ink) 22%, transparent)}
+.svv-adm-root[data-theme='dark'] .loc-cases--accueil{--loc-ombre-case:0 22px 48px -10px color-mix(in srgb, var(--color-svv-line-strong-hover) 55%, transparent),0 0 0 1px var(--color-svv-line-strong-hover)}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system'] .loc-cases--accueil{--loc-ombre-case:0 22px 48px -10px color-mix(in srgb, var(--color-svv-line-strong-hover) 55%, transparent),0 0 0 1px var(--color-svv-line-strong-hover)} }
+.loc-cases--accueil .loc-case{transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
+.loc-cases--accueil .loc-case:focus-visible{transform:translateY(-6px) scale(1.02);box-shadow:var(--loc-ombre-case);border-color:var(--color-svv-line-strong-hover)}
+@media (hover:hover) and (pointer:fine){
+  .loc-cases--accueil .loc-case:hover{transform:translateY(-6px) scale(1.02);box-shadow:var(--loc-ombre-case);border-color:var(--color-svv-line-strong-hover)}
+}
+@media (prefers-reduced-motion:reduce){ .loc-cases--accueil .loc-case{transition:none} .loc-cases--accueil .loc-case:hover,.loc-cases--accueil .loc-case:focus-visible{transform:none} }
 .loc-cases--accueil .loc-case-phrase{font-size:1rem;line-height:1.5}
 .loc-bascule{display:inline-flex;border:1px solid var(--color-svv-line-strong);border-radius:10px;overflow:hidden}
 .loc-bascule button{border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:0 14px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}
@@ -174,7 +190,7 @@ export const CSS_LOCATION_ECRANS = `
 .loc-choix{list-style:none;margin:6px 0 0;padding:0;border:1px solid var(--color-svv-line);border-radius:10px;max-height:16rem;overflow:auto}
 .loc-choix button{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 10px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);padding:10px 12px;min-height:44px;font:inherit;cursor:pointer}
 .loc-choix button[aria-pressed="true"]{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700}
-@media (max-width:760px){ .loc-cases{grid-template-columns:1fr} }
+@media (max-width:760px){ .loc-cases{grid-template-columns:1fr} .loc-zone-resultats{height:128px} }
 @media (max-width:640px){ .loc-arbre > li.loc-enfant{margin-left:16px} }
 `;
 

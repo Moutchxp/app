@@ -48,9 +48,11 @@ export function AccueilLocation() {
           aria-label="Chercher un propriétaire, un locataire, un syndic ou un bien du portefeuille" />
       </label>
 
-      {terme.length >= 2 && (
-        <section className="loc-bloc" aria-label="Résultats de la recherche" data-resultats>
-          {recherche.etat.etat !== 'ok' ? <EtatLecture etat={recherche.etat} /> : (() => {
+      {/* Arno (17/10/2026) : l'espace sous le moteur est RÉSERVÉ (la hauteur d'une zone à un résultat) — les 3 cases ne
+          bougent JAMAIS. Recherche vide : zone vide, sans cadre ; sinon le message ou les résultats, qui défilent DEDANS. */}
+      <section className={`loc-zone-resultats${terme.length >= 2 ? ' loc-bloc' : ' loc-zone-resultats--vide'}`}
+        aria-label="Résultats de la recherche" aria-live="polite" data-resultats>
+        {terme.length >= 2 && (recherche.etat.etat !== 'ok' ? <EtatLecture etat={recherche.etat} /> : (() => {
             const r = recherche.etat.data;
             const groupes = GROUPES.filter((g) => liste(r[g]).length > 0);
             if (groupes.length === 0) return <p className="loc-muet">Aucun propriétaire, locataire, syndic ni bien du portefeuille ne correspond à « {terme} ».</p>;
@@ -72,9 +74,8 @@ export function AccueilLocation() {
                 {r.tronque && <p className="loc-muet">D’autres fiches correspondent : précisez la recherche.</p>}
               </div>
             );
-          })()}
-        </section>
-      )}
+          })())}
+      </section>
 
       {/* Arno (17/10/2026) : cases DEUX FOIS plus hautes, titres sur deux lignes — sur l'accueil seulement. */}
       <ul className="loc-cases loc-cases--accueil" aria-label="Espaces de la Location">

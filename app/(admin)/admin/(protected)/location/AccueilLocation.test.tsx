@@ -108,6 +108,10 @@ describe('🔴 /admin/location ne plante plus', () => {
     expect(cases).toEqual(['/admin/location/proprietaires', '/admin/location/locataires', '/admin/location/outils']);
     // Plus d'onglets ni de listes sur l'accueil : ils sont dans les trois écrans.
     expect(container.querySelector('[role="tablist"]')).toBeNull();
+    // La zone de résultats est RÉSERVÉE dès l'ouverture (les cases ne bougent jamais) : vide et sans cadre.
+    const zone = () => container.querySelector('[data-resultats]') as HTMLElement;
+    expect(zone().className).toBe('loc-zone-resultats loc-zone-resultats--vide');
+    expect(zone().textContent).toBe('');
     const champ = container.querySelector('input[type="search"]') as HTMLInputElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(champ, 'essai');
@@ -115,6 +119,7 @@ describe('🔴 /admin/location ne plante plus', () => {
     });
     await act(async () => { await new Promise((r) => setTimeout(r, 260)); });
     await calmer();
+    expect(zone().className).toBe('loc-zone-resultats loc-bloc');
     expect([...container.querySelectorAll('[data-groupe]')].map((g) => g.getAttribute('data-groupe'))).toEqual(['proprietaires', 'syndics', 'biens']);
     expect(container.querySelector('a[href="/admin/location/syndic/5"]')).not.toBeNull();
     expect(container.querySelector('a[href="/admin/location/bien/10"]')).not.toBeNull();
