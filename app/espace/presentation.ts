@@ -67,7 +67,12 @@ export const TITRE_APERCU: Record<DocumentApercu, string> = {
 
 /** Bouton SOUS l'aperçu qui livre le fichier. Le second bouton réutilise `LIB_RETOUR_ESPACE` (déjà défini plus bas
  *  pour « Mon compte », même mot, même geste : revenir à l'espace). */
-export const LIB_TELECHARGER_DOCUMENT = 'Télécharger ce document';
+// LOT ESPACE-PARTAGE-ICONE (Arno, 17/10/2026) : le libellé dit ce que fait déjà le bouton — feuille de partage du téléphone
+// quand il la propose, téléchargement sinon.
+export const LIB_TELECHARGER_DOCUMENT = 'Partager/Télécharger ce document';
+
+/** Texte alternatif du sceau rouge posé après la date d'une analyse qui a un certificat (liste de l'historique). */
+export const ALT_CERTIFICAT_EMIS = 'Certificat émis';
 
 /** États de l'aperçu (aucun détail technique n'est jamais montré à l'internaute). */
 export const MSG_APERCU_CHARGEMENT = 'Chargement du document…';

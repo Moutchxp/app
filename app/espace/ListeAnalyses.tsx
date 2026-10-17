@@ -7,7 +7,9 @@ import type { Verdict } from '../lib/internaute/espace';
 import {
   libelleVerdict, MSG_SANS_CERTIFICAT, LIB_DOCUMENTS,
   DOC_NOMINATIF, DOC_ANONYME, DOC_VISUEL, MSG_NOMINATIF_EN_PREPARATION,
+  ALT_CERTIFICAT_EMIS,
 } from './presentation';
+import { SceauCertifie } from '../components/SceauCertifie';
 
 /**
  * Liste UNIFIÉE de l'espace client : UNE ligne par analyse (la plus récente en haut), le certificat rattaché à sa ligne.
@@ -46,7 +48,16 @@ function EnTete({ ligne, chevron }: { ligne: LigneEspace; chevron?: boolean }) {
   return (
     <>
       <div className="flex w-full items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-svv-muted">{ligne.dateLabel}</span>
+        {/* LOT ESPACE-PARTAGE-ICONE (Arno, 17/10/2026) — analyse avec certificat : le sceau rouge, juste après la date
+            (même icône que l'application, rouge de la charte). `certificatId` est déjà dans les données de la liste. La
+            date ne passe jamais à la ligne (iPhone étroit). Sans certificat : rien ne change. */}
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="whitespace-nowrap text-xs font-semibold text-svv-muted">{ligne.dateLabel}</span>
+          {ligne.certificatId !== null && (
+            <SceauCertifie data-certificat-emis role="img" aria-hidden={false} aria-label={ALT_CERTIFICAT_EMIS}
+              className="h-4 w-auto shrink-0 text-svv-red" />
+          )}
+        </span>
         <span className="flex items-center gap-2">
           <span className="text-xs font-semibold text-svv-muted">{ligne.scoreLabel}</span>
           <span className="svv-pill" style={stylePastille(ligne.verdict)}>{libelleVerdict(ligne.verdict)}</span>

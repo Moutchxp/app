@@ -111,9 +111,10 @@ describe('état « Préparation… » puis bouton actif', () => {
     expect(bouton()?.disabled).toBe(true);
   });
 
-  it('une fois le document prêt : libellé « Télécharger ce document », bouton actif', async () => {
+  it('une fois le document prêt : libellé « Partager/Télécharger ce document », bouton actif', async () => {
     await rendrePret();
     expect(bouton()?.textContent).toBe(LIB_TELECHARGER_DOCUMENT);
+    expect(LIB_TELECHARGER_DOCUMENT).toBe('Partager/Télécharger ce document');
     expect(bouton()?.disabled).toBe(false);
   });
 
