@@ -13,6 +13,7 @@ import {
  * lot, par propriétaire et en total agence, mensuelle et annuelle ». Les locations de l'année viennent de la route ;
  * le CALCUL est celui du module pur `honorairesGestion.ts`, le même que le serveur.
  *
+ * 🔴 ÉCRAN DE LA TUILE LOCATION (correction d'Arno du 17/10/2026 : les écrans de la Location vivent dans /admin/location).
  * 🔴 LES LOYERS ABSENTS NE SONT PAS INVENTÉS : exclus des totaux, comptés, et chaque lot concerné dit « loyer de départ
  * à saisir » avec un lien vers sa fiche. 🔴 MONTANT THÉORIQUE : la phrase le dit en tête.
  * 📱 MOBILE : les tableaux se replient en cartes sous 640 px (exigence transverse), jamais un débordement horizontal.
@@ -30,7 +31,7 @@ interface Reglages {
 
 const MOIS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre',
   'novembre', 'décembre'];
-const lienFiche = (lotId: number): string => `/admin/gestion?ecran=annuaire&fiche=lot-${lotId}`;
+const lienFiche = (lotId: number): string => `/admin/location/bien/${lotId}`;
 const ttcOuTiret = (n: number | null): string => (n === null ? '—' : formaterEuros(n));
 
 export function HonorairesGestion() {
@@ -45,7 +46,7 @@ export function HonorairesGestion() {
     let vivant = true;
     void (async () => {
       try {
-        const res = await fetch(`/api/admin/gestion/honoraires?annee=${annee}`, { cache: 'no-store' });
+        const res = await fetch(`/api/admin/location/honoraires?annee=${annee}`, { cache: 'no-store' });
         if (res.status === 403) { if (vivant) setEtat({ etat: 'erreur', message: 'Écran réservé aux administrateurs.' }); return; }
         const d = await res.json() as Etat & { message?: string };
         if (vivant) setEtat(d.etat === 'ok' || d.etat === 'sans_schema' ? d : { etat: 'erreur', message: d.message ?? 'Lecture impossible.' });
@@ -91,7 +92,7 @@ export function HonorairesGestion() {
   return (
     <div className="hon">
       <style>{CSS_HONORAIRES}</style>
-      <p className="hon-retour"><a href="/admin/gestion">← Gestion</a></p>
+      <p className="hon-retour"><a href="/admin/location">← Location</a></p>
       <p className="hon-theorique">{PHRASE_THEORIQUE}</p>
 
       <div className="hon-barre" role="toolbar" aria-label="Vue et période">
@@ -139,7 +140,7 @@ export function HonorairesGestion() {
               <span className="hon-total-valeur">{resultat.manquantes} location{resultat.manquantes > 1 ? 's' : ''}</span>
               <span className="hon-total-sous">
                 {resultat.manquantes > 0
-                  ? 'exclues des totaux — à compléter sur la carte du locataire (lots marqués ci-dessous)'
+                  ? 'exclues des totaux — à compléter sur la fiche du bien dans la Location (lots marqués ci-dessous)'
                   : 'toutes les locations de la période ont un loyer de départ'}
               </span>
             </div>
@@ -242,7 +243,7 @@ function ReglagesHonoraires({ reglages, onEnregistre }: { reglages: Reglages; on
 
   const envoyer = async (corps: Record<string, unknown>): Promise<void> => {
     try {
-      const res = await fetch('/api/admin/gestion/honoraires', {
+      const res = await fetch('/api/admin/location/honoraires', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
       });
       const d = await res.json() as { etat?: string; motif?: string; message?: string };

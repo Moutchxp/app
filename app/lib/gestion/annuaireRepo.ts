@@ -27,9 +27,6 @@ import {
   annuaireDisponible, annuaireModifiableDisponible, honorairesGestionDisponible, libelleSourceContactDisponible,
   rapprochementAnnuaireDisponible, suppressionPersonneDisponible,
 } from './schema';
-/* 🔴 LOT L1 — le loyer de départ, le taux et les honoraires de chaque location, pour les cartes. */
-import { locationsAffichees } from './honorairesGestionRepo';
-import type { LocationAffichee } from './honorairesGestion';
 /* 🔴 LOT L0 — une fiche créée ici puis retrouvée dans l'export est RAPPROCHÉE, jamais doublée. Règle PURE. */
 import {
   choisirFicheARapprocher, phraseRapprochementNonFait, type CandidateRapprochement,
@@ -1097,8 +1094,6 @@ export interface OccupationDuLot {
   encours: boolean;
   adresse: string | null; commune: string | null; codePostal: string | null;
   contacts: ContactAffiche[];
-  /** 🔴 LOT L1 — loyer de départ, taux et honoraires de cette location. Absent sans la migration 370. */
-  location?: LocationAffichee | null;
 }
 
 export interface FicheLot {
@@ -1173,9 +1168,6 @@ export interface LogementDuLocataire {
   /** Combien de mails sont rattachés à ce bien (rattachements CONFIRMÉS), et le dernier. */
   mails: number; dernierEchange: string | null;
   driveDossierId: string | null;
-  /** 🔴 LOT L1 — l'occupation (la location) que cette carte montre, et ses conditions. Absent sans la migration 370. */
-  occupationId?: number;
-  location?: LocationAffichee | null;
 }
 
 export interface FicheLocataire {
@@ -1835,8 +1827,6 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
    * la même réponse.
    */
   const personnes = [...new Set(occ.map((o) => Number(o.locataire_id)))];
-  // 🔴 LOT L1 — les conditions de chaque location, en une lecture (vide sans la migration 370).
-  const locations = await locationsAffichees(occ.map((o) => Number(o.id)));
   const coords = new Map<number, ContactAffiche[]>();
   for (const pid of personnes) coords.set(pid, await contactsDe('locataire', pid));
 
@@ -1890,7 +1880,6 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
         encours: estLocataireEnPlace(o),
         adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
         contacts: coords.get(Number(o.locataire_id)) ?? [],
-        location: locations.get(Number(o.id)) ?? null,
       })),
       evenementsOuverts: ev[0]?.n ?? 0,
       proprietaires: await personnesDe('proprietaire', idsProprietaires),
@@ -1940,14 +1929,13 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
    * allers-retours de plus se verraient à l'écran.
    */
   const { rows: occ } = await query<{
-    occupation_id: string; lot_id: string | null; numero: string; adresse: string | null; commune: string | null;
+    lot_id: string | null; numero: string; adresse: string | null; commune: string | null;
     code_postal: string | null; nature: string | null; type_bien: string | null; immeuble: string | null;
     entree: string | null; sortie: string | null;
     proprietaire_id: string | null; proprietaire_nom: string | null;
     mails: number; dernier_echange: string | null; drive_id: string | null;
   }>(
-    `SELECT o.id::text AS occupation_id, o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero,
-            lo.adresse, lo.commune,
+    `SELECT o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero, lo.adresse, lo.commune,
             lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             o.entree::text, o.sortie::text,
             pr.id::text AS proprietaire_id, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
@@ -1978,8 +1966,6 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
    * logement en cours, et sa propre fiche ne doit pas disparaître de sa propre fiche.
    */
   const lotsEnCours = occ.filter((o) => estLocataireEnPlace(o) && o.lot_id !== null).map((o) => Number(o.lot_id));
-  // 🔴 LOT L1 — les conditions de chaque location de ce locataire (vide sans la migration 370).
-  const locations = await locationsAffichees(occ.map((o) => Number(o.occupation_id)));
   const idsFoyer = [Number(p.id)];
   if (lotsEnCours.length > 0) {
     const { rows: voisins } = await query<{ locataire_id: string }>(
@@ -2010,8 +1996,6 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
         proprietaireId: o.proprietaire_id === null ? null : Number(o.proprietaire_id),
         proprietaireNom: o.proprietaire_nom,
         mails: o.mails, dernierEchange: o.dernier_echange, driveDossierId: o.drive_id,
-        occupationId: Number(o.occupation_id),
-        location: locations.get(Number(o.occupation_id)) ?? null,
       })),
       personnes: await personnesDe('locataire', idsFoyer),
       modifiable: await annuaireModifiableDisponible(),

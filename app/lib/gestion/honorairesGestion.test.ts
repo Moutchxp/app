@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   assietteMensuelle, calculerHonoraires, formaterEuros, fractionDuMois, honorairesMensuels, joursDansMois, lireBaseWippimmo,
@@ -167,12 +167,19 @@ describe('🔴 gardes du lot L1', () => {
     expect(passe).toContain('UPDATE gestion_annuaire_lot SET taux_honos_wippimmo = $2, base_honos_wippimmo = $3');
     expect(passe).not.toMatch(/lotsMajs|lotsInchanges|absent_le|importe_le/);
   });
-  it('l’écran des honoraires est réservé aux administrateurs (route ET page)', () => {
-    const route = readFileSync('app/(admin)/api/admin/gestion/honoraires/route.ts', 'utf8');
+  it('l’écran des honoraires vit dans la TUILE LOCATION et est réservé aux administrateurs (route ET page)', () => {
+    const route = readFileSync('app/(admin)/api/admin/location/honoraires/route.ts', 'utf8');
     expect(route.match(/exigerAdministrateur\(request\)/g)).toHaveLength(2);
-    const page = readFileSync('app/(admin)/admin/(protected)/gestion/honoraires/page.tsx', 'utf8');
+    const page = readFileSync('app/(admin)/admin/(protected)/location/honoraires/page.tsx', 'utf8');
     expect(page).toContain("session?.role === 'administrateur'");
-    const vue = norm('app/(admin)/admin/(protected)/gestion/GestionVue.tsx');
-    expect(vue).toContain("lienHonoraires={administrateur ? '/admin/gestion/honoraires' : null}");
+  });
+  it('🔴 correction d’Arno (17/10/2026) : la Gestion ne porte plus rien de la Location (écrans revenus à l’état d’avant 606dfbb3)', () => {
+    expect(existsSync('app/(admin)/admin/(protected)/gestion/honoraires')).toBe(false);
+    expect(existsSync('app/(admin)/api/admin/gestion/honoraires')).toBe(false);
+    for (const f of ['Annuaire.tsx', 'GestionVue.tsx', 'PleinEcranBoite.tsx', 'page.tsx']) {
+      const src = readFileSync(`app/(admin)/admin/(protected)/gestion/${f}`, 'utf8');
+      expect(src, f).not.toMatch(/LocationCarte|lienHonoraires|honoraires|conditions-location/i);
+    }
+    expect(readFileSync('app/(admin)/api/admin/gestion/annuaire/route.ts', 'utf8')).not.toContain('conditions-location');
   });
 });

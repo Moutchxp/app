@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Ligne } from './CartesPersonnes';
+import { Ligne } from '../gestion/CartesPersonnes';
 import {
   formaterEuros, formaterTaux, honorairesMensuels, LIBELLE_BASE, LIBELLE_SOURCE_TAUX, MOT_LOYER_A_SAISIR,
   nombrePourSaisie, verifierConditions, type BaseHonoraires, type LocationAffichee,
@@ -11,9 +11,8 @@ import {
  * ══ 🔴🔴 LOT L1 — LA LOCATION SUR LA CARTE DU LOCATAIRE : LOYER DE DÉPART, TAUX, HONORAIRES DE GESTION ═════════════
  *
  * Demande d'Arno (17/10/2026) : « saisir le loyer mensuel de départ et le taux de gestion, les ranger sur la location,
- * les afficher sur la carte du locataire ET sur le bien ». Ce composant est posé SOUS les lignes existantes d'une carte
- * (le `dessous` des cartes de la fiche du bien, la carte « Son logement » de la fiche locataire) : il AJOUTE deux
- * lignes et ne retire rien.
+ * les afficher sur la carte du locataire ET sur le bien ». Correction d'Arno (17/10/2026) : ce composant ne vit QUE dans
+ * les écrans de la tuile Location (fiche du bien, fiche du locataire) — jamais dans la Gestion.
  *
  * 🔴 LOYER ABSENT : on écrit « loyer de départ à saisir », jamais un montant inventé, et aucun honoraire n'est affiché.
  * 🔴 TAUX PRÉ-REMPLI : celui de la conditions en place, sinon le taux proposé (location précédente du lot › taux

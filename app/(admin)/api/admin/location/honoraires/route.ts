@@ -6,11 +6,11 @@ import {
 } from '../../../../../lib/gestion/honorairesGestionRepo';
 
 /**
- * /api/admin/gestion/honoraires — LOT L1 : L'ÉCRAN « HONORAIRES DE GESTION ».
+ * /api/admin/location/honoraires — LOT L1 : L'ÉCRAN « HONORAIRES DE GESTION ».
  *
  * 🔒 RÉSERVÉ AUX ADMINISTRATEURS (décision d'Arno, 17/10/2026, modifiable plus tard) : il montre le chiffre d'affaires
  * théorique de l'agence. `exigerAdministrateur` RELIT le rôle en base à chaque appel. La carte du locataire et la fiche
- * du bien, elles, restent servies par la route de l'annuaire, au droit « Gestion ».
+ * du bien de la Location passent par `/api/admin/location`, au droit « Location ».
  *
  * GET `?annee=AAAA` : les locations ayant couru dans l'année (avec leurs conditions et les propriétaires du lot) et les
  * réglages. Le CALCUL (mois, année, par lot, par propriétaire, agence) est fait par l'écran, avec le module PUR

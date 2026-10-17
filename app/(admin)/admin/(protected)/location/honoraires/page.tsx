@@ -7,8 +7,9 @@ import { HonorairesGestion } from './HonorairesGestion';
  * LOT L1 — « HONORAIRES DE GESTION » : loyer de départ × taux, par lot, par propriétaire et pour l'agence.
  *
  * 🔒 RÉSERVÉ AUX ADMINISTRATEURS (décision d'Arno, 17/10/2026). Ce garde de PAGE lit le rôle du jeton pour ne pas
- * afficher l'écran à un collaborateur ; la VRAIE barrière est la route `/api/admin/gestion/honoraires`, qui relit le
- * rôle en base à chaque appel. `proxy.ts` exige déjà le droit « Gestion » pour tout `/admin/gestion`.
+ * afficher l'écran à un collaborateur ; la VRAIE barrière est la route `/api/admin/location/honoraires`, qui relit le
+ * rôle en base à chaque appel. `proxy.ts` exige déjà le droit « Location » pour tout `/admin/location`.
+ * 🔴 Écran de la TUILE LOCATION (correction d'Arno du 17/10/2026), plus dans la Gestion.
  */
 const INTRO_HONORAIRES =
   'Les honoraires de gestion générés par chaque lot : loyer de départ × taux de gestion. Montant théorique — '

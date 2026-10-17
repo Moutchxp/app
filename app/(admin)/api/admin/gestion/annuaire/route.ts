@@ -13,7 +13,6 @@ import {
   supprimerPersonne,
   modifierPersonne, ordonnerPersonnes, remplacerProprietaireDuLot, separerPersonne,
 } from '../../../../../lib/gestion/annuaireEditionRepo';
-import { enregistrerConditions } from '../../../../../lib/gestion/honorairesGestionRepo';
 
 /**
  * /api/admin/gestion/annuaire — LOT ANNUAIRE-1 : LA SEULE PORTE DE LECTURE DE L'ANNUAIRE.
@@ -200,18 +199,6 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json(
         await creerPersonne(sujet, { ...champs, nom: corps.nom }, auteur), { headers: ENTETES });
     }
-    /**
-     * 🔴 LOT L1 — LES CONDITIONS D'UNE LOCATION (loyer de départ, provisions, taux de gestion HT, base). Même droit que
-     * les autres gestes de l'annuaire (la tuile Gestion) : la carte du locataire est visible et modifiable par tous ceux
-     * qui l'ont (décision d'Arno). Une LIGNE AJOUTÉE, jamais une modification ; journalisée.
-     */
-    if (action === 'conditions-location') {
-      const occupationId = typeof corps.occupationId === 'number' && Number.isSafeInteger(corps.occupationId)
-        && corps.occupationId > 0 ? corps.occupationId : null;
-      if (occupationId === null) return mauvaiseDemande();
-      const conditions = (corps.conditions ?? {}) as Record<string, unknown>;
-      return Response.json(await enregistrerConditions(occupationId, conditions, auteur), { headers: ENTETES });
-    }
     if (action === 'ajouter-proprietaire' || action === 'remplacer-proprietaire'
       || action === 'ajouter-occupant' || action === 'depart') {
       return Response.json(await gesteDeBien(action, corps, auteur), { headers: ENTETES });
@@ -257,10 +244,7 @@ async function gesteDeBien(
   if (action === 'ajouter-occupant') {
     const lotId = nombre(corps.lotId); const lid = nombre(corps.locataireId);
     if (lotId === null || lid === null) return { etat: 'refus', motif: 'Demande incomplète.' };
-    // 🔴 LOT L1 — les conditions de la location, facultatives : écrites dans la même transaction que l'occupant.
-    const conditions = typeof corps.conditions === 'object' && corps.conditions !== null
-      ? corps.conditions as Record<string, unknown> : null;
-    return ajouterOccupant(lotId, lid, date(corps.entree), auteur, conditions);
+    return ajouterOccupant(lotId, lid, date(corps.entree), auteur);
   }
   const occupationId = nombre(corps.occupationId);
   if (occupationId === null) return { etat: 'refus', motif: 'Demande incomplète.' };
