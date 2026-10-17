@@ -16,14 +16,24 @@
 /** Au-delà, le certificat part sans attendre la photo (elle est annexe : hors verdict et hors score). */
 export const DELAI_MAX_ATTENTE_PHOTO_MS = 30_000;
 
+/** Le message affiché à l'internaute PENDANT l'attente (Arno, 17/10/2026), avec l'indicateur d'attente existant. */
+export const MESSAGE_ENVOI_PHOTO = 'Envoi de votre photo… merci de ne pas fermer l’application';
+
 export async function emettreApresPhoto(
   depotPhoto: Promise<unknown> | null,
   emettre: () => Promise<boolean>,
-  delaiMs: number = DELAI_MAX_ATTENTE_PHOTO_MS,
-  attendre: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  options: {
+    delaiMs?: number;
+    attendre?: (ms: number) => Promise<void>;
+    /** `true` quand l'attente commence (un dépôt est en cours), `false` juste avant l'émission : le message s'efface. */
+    signaler?: (enAttente: boolean) => void;
+  } = {},
 ): Promise<boolean> {
+  const { delaiMs = DELAI_MAX_ATTENTE_PHOTO_MS, attendre = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)), signaler } = options;
   if (depotPhoto !== null) {
+    signaler?.(true);
     await Promise.race([depotPhoto.then(() => undefined, () => undefined), attendre(delaiMs)]);
+    signaler?.(false);
   }
   return emettre();
 }

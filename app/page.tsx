@@ -25,7 +25,7 @@ import type { MotifSansResultat } from "./lib/tunnel/motifSansResultat";
 import { MenuBurger } from "./MenuBurger";
 import { orchestrerIllimite, boutonEnvoiActif, LONGUEUR_MIN_MDP } from "./lib/tunnel/choixOffre";
 import { emissionDirecteConnecte, lireIssueIngestion, type IssueIngestion } from "./lib/tunnel/finTunnelConnecte";
-import { emettreApresPhoto } from "./lib/tunnel/photoAvantEmission";
+import { emettreApresPhoto, MESSAGE_ENVOI_PHOTO } from "./lib/tunnel/photoAvantEmission";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 import { getActiveFormattingMask } from "react-international-phone";
@@ -939,6 +939,8 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // 🔴 LOT CERTIFICAT-PHOTO — le dépôt de la photo EN COURS : toute émission l'attend (`emettreApresPhoto`), sinon le
   // certificat (immuable) recopie un `photo_cle` encore vide et part sans photo.
   const depotPhotoRef = useRef<Promise<void> | null>(null);
+  // 🔴 LOT CERTIFICAT-PHOTO (Arno) — pendant cette attente : « Envoi de votre photo… merci de ne pas fermer l'application ».
+  const [envoiPhotoEnCours, setEnvoiPhotoEnCours] = useState(false);
   const deposerPhoto = async (jeton: string, projetId: number, photoDataUrl: string) => {
     try {
       await fetch("/api/internaute/photo", {
@@ -963,7 +965,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // re-déclenchement de /api/certificat (séparation émission/(r)envoi, aucun 2e certificat). `res.ok` non exploité ici.
   // 🔴 LOT CERTIFICAT-PHOTO — l'émission attend la fin du dépôt de la photo (au plus 30 s), pour TOUS les parcours.
   const emettreCertificat = (jeton: string, projetId: number): Promise<boolean> =>
-    emettreApresPhoto(depotPhotoRef.current, () => emettreCertificatMaintenant(jeton, projetId));
+    emettreApresPhoto(depotPhotoRef.current, () => emettreCertificatMaintenant(jeton, projetId), { signaler: setEnvoiPhotoEnCours });
   const emettreCertificatMaintenant = async (jeton: string, projetId: number): Promise<boolean> => {
     try {
       const res = await fetch("/api/certificat", {
@@ -1275,6 +1277,15 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         <p className="mt-2 text-base text-svv-ink">Le document sera envoyé à l&apos;adresse suivante :</p>
         {/* Email de l'internaute — accent rouge (charte, aucun bleu) + centré horizontalement. */}
         <p className="mt-1 text-base font-bold text-svv-red break-words text-center">{email.trim() || "—"}</p>
+        {/* 🔴 LOT CERTIFICAT-PHOTO — tant que la photo part (30 s au plus), avec l'indicateur d'attente existant ; il
+            disparaît dès l'émission. */}
+        {envoiPhotoEnCours && (
+          <div role="status" aria-live="polite" data-envoi-photo
+            className="mt-4 flex items-center gap-3 rounded-xl border border-svv-red bg-svv-field p-3">
+            <span className="h-9 w-9 shrink-0 animate-spin rounded-full border-[3px] border-svv-red border-t-transparent" aria-hidden="true" />
+            <span className="text-base font-bold text-svv-ink">{MESSAGE_ENVOI_PHOTO}</span>
+          </div>
+        )}
 
         {/* 3 suites. Ordre imposé : Plus-value (PRINCIPAL rouge), Qui sommes-nous, Retour accueil. Destinations
             PRÉSERVÉES : plus-value = mesure + écran à venir ; « Qui sommes-nous » = placeholder (aucune route) ;
