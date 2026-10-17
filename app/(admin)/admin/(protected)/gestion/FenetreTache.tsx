@@ -5,7 +5,8 @@ import {
   cleRappel, echeanceLisible, horodatageLisible, iconeType, MENTION_SANS_ACCES_GESTION, verifierSaisie, type ChampTache, jourParisDe, motRappel, phraseTrace, rappelsParDefaut, rappelsProposes,
   type Rappel,
 } from '../../../../lib/gestion/taches';
-import { blocContacts, type ContactSource } from '../../../../lib/gestion/contactsTache';
+import { blocContacts, type ContactSource, type ContactTache } from '../../../../lib/gestion/contactsTache';
+import type { ContactManuel } from '../../../../lib/gestion/taches';
 import {
   agirSurTache, creerTache, lireCollaborateurs, lireContactsDuBien, lireDetailTache, lireEvenementsDuBien,
   lireEvenementsProposes, type CollaborateurEcran, type DetailTache, type EvenementPropose, type GesteTache, type SaisieEcran,
@@ -46,7 +47,8 @@ import { DUREE_DEFAUT_MINUTES, DUREES_PROPOSEES, motDuree } from '../../../../li
  * ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
 export type ModeFenetre =
-  | { sorte: 'creer'; lotId: number; lotCle: string; adresse: string }
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN — `lotId` et `lotCle` à `null` : création SANS bien (bouton « Créer une tâche »). */
+  | { sorte: 'creer'; lotId: number | null; lotCle: string | null; adresse: string }
   | { sorte: 'detail'; id: number };
 
 export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
@@ -135,14 +137,21 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   }, [mode, version]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lotCle = mode.sorte === 'creer' ? mode.lotCle : detail?.tache.lotCle ?? null;
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN — tâche sans bien (création simple, ou tâche déjà créée ainsi). */
+  const sansBien = mode.sorte === 'creer' ? mode.lotId === null : detail !== null && detail.tache.lotId === null;
+  /* Le détail est-il connu ? (en création, tout de suite) — avant, on ne sait pas encore s'il y a un bien. */
+  const pret = mode.sorte === 'creer' || detail !== null;
   useEffect(() => {
-    if (lotCle === null) return;
+    if (!pret) return;
     let annule = false;
-    void lireEvenementsDuBien(lotCle).then((e) => { if (!annule) setEvenements(e); });
-    /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours qu'on peut rattacher (ceux du bien d'abord). */
+    if (lotCle !== null) void lireEvenementsDuBien(lotCle).then((e) => { if (!annule) setEvenements(e); });
+    /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours qu'on peut rattacher (ceux du bien d'abord ; sans bien :
+       tous les événements en cours). */
     void lireEvenementsProposes(lotCle).then((e) => { if (!annule) { setEvProposes(e?.liste ?? null); setRepriseFaite(e?.reprise === true); } });
     return () => { annule = true; };
-  }, [lotCle]);
+  }, [lotCle, pret]);
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN — les contacts SAISIS À LA MAIN, à ajouter à l'enregistrement. */
+  const [nouveauxContacts, setNouveauxContacts] = useState<ContactManuel[]>([]);
 
   const lotId = mode.sorte === 'creer' ? mode.lotId : detail?.tache.lotId ?? null;
   useEffect(() => {
@@ -196,7 +205,9 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setOccupe(true);
     setMessage(null);
     // Les contacts ne voyagent que si la section existe : sans elle, ils ne sont pas touchés.
-    const avecContacts0: SaisieEcran = sources === null ? saisie : { ...saisie, contacts: choisis };
+    /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : les copies gardées (cochées) et les contacts saisis à la main. */
+    const avecContacts0: SaisieEcran = sansBien ? { ...saisie, contacts: choisis, contactsManuels: nouveauxContacts }
+      : sources === null ? saisie : { ...saisie, contacts: choisis };
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — les autres invités ne voyagent que si le serveur sait les recevoir (365). */
     const avecContacts1: SaisieEcran = collab?.invites === true
       ? { ...avecContacts0, invites: (avecContacts0.invites ?? []).filter((id) => id !== avecContacts0.confieeA) }
@@ -221,6 +232,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
       return;
     }
     setMessage({ ok: true, texte: r.message });
+    setNouveauxContacts([]);
     setVersion((v) => v + 1);
   };
 
@@ -291,12 +303,12 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   };
 
   const titre = mode.sorte === 'creer' ? 'Nouvelle tâche' : 'Tâche';
-  const adresse = mode.sorte === 'creer' ? mode.adresse : tache?.adresseBien ?? '';
+  const adresse = sansBien ? 'sans bien' : mode.sorte === 'creer' ? mode.adresse : tache?.adresseBien ?? '';
 
   return (
     <div className="tchf-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
       <style>{CSS_TACHES}{CSS_FENETRE}{CSS_CONTACTS_TACHE}</style>
-      {selecteurDrive && lotId !== null && (
+      {selecteurDrive && (lotId !== null || sansBien) && (
         <SelecteurDriveTache lotId={lotId} onChoisir={choisirPieces} onFermer={() => setSelecteurDrive(false)} />
       )}
       <div className="tchf" role="dialog" aria-modal="true" aria-labelledby="tchf-titre">
@@ -476,15 +488,20 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               })} />
           )}
           {erreurDe('evenements')}
-          {sources !== null && (
+          {sources !== null && !sansBien && (
             <ChoixContacts proposes={proposes} choisis={choisis} onBasculer={basculerContact} desactive={lectureSeule} />
+          )}
+          {/* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien, pas de fiche : les contacts se SAISISSENT À LA MAIN. */}
+          {sansBien && (
+            <ContactsManuels copies={copies} choisis={choisis} onBasculer={basculerContact} nouveaux={nouveauxContacts}
+              onNouveaux={setNouveauxContacts} desactive={lectureSeule} />
           )}
           {erreurDe('contacts')}
 
           {/* ══ 🔴🔴 LOT TACHES-PIECES-DRIVE — PIÈCES JOINTES, entre « Contacts de la tâche » et « Rappels » (Arno).
               Des RÉFÉRENCES au Drive : on ouvre le fichier dans le Drive ; « Retirer » l'enlève de la TÂCHE, jamais
               du Drive. */}
-          {lotId !== null && (
+          {(lotId !== null || sansBien) && (
             <div className="tchf-champ tchf-pieces">
               <span className="tch-etiquette">Pièces jointes</span>
               <ul className="tchf-pieces-liste">
@@ -697,6 +714,67 @@ function ChoixEvenements({ proposes, rattaches, choisis, desactive, onBasculer }
           </div>
         </div>
       ))}
+    </fieldset>
+  );
+}
+
+/**
+ * 🔴 LOT GESTION-TACHES-SANS-BIEN — LES CONTACTS D'UNE TÂCHE SANS BIEN, SAISIS À LA MAIN : nom (obligatoire), rôle,
+ * téléphone, e-mail. Ceux déjà dans la tâche restent cochés (décocher les retire — tracé, jamais effacé).
+ */
+function ContactsManuels({ copies, choisis, onBasculer, nouveaux, onNouveaux, desactive }: {
+  copies: readonly ContactTache[]; choisis: readonly string[]; onBasculer: (cle: string) => void;
+  nouveaux: readonly ContactManuel[]; onNouveaux: (l: ContactManuel[]) => void; desactive: boolean;
+}) {
+  const vide = { nom: '', qualite: '', telephone: '', email: '' };
+  const [f, setF] = useState(vide);
+  const ajouter = () => {
+    if (f.nom.trim() === '') return;
+    onNouveaux([...nouveaux, {
+      nom: f.nom.trim(), qualite: f.qualite.trim() || null, telephone: f.telephone.trim() || null, email: f.email.trim() || null,
+    }]);
+    setF(vide);
+  };
+  return (
+    <fieldset className="tchf-groupe tchf-contacts-manuels" disabled={desactive}>
+      <legend className="tch-etiquette">Contacts de la tâche (saisis à la main)</legend>
+      {copies.length > 0 && (
+        <div className="tchf-rappels">
+          {copies.map((c) => (
+            <label key={c.cle} className="tchf-case">
+              <input type="checkbox" data-contact-manuel={c.cle} checked={choisis.includes(c.cle)} onChange={() => onBasculer(c.cle)} />
+              {c.nom}{c.qualite ? ` · ${c.qualite}` : ''}
+            </label>
+          ))}
+        </div>
+      )}
+      {nouveaux.length > 0 && (
+        <ul className="tchf-pieces-liste">
+          {nouveaux.map((c, i) => (
+            <li key={`${c.nom}-${i}`} className="tchf-piece" data-contact-nouveau={i}>
+              <span>{c.nom}{c.qualite ? ` · ${c.qualite}` : ''}{c.telephone ? ` · ${c.telephone}` : ''}{c.email ? ` · ${c.email}` : ''}</span>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn" onClick={() => onNouveaux(nouveaux.filter((_, j) => j !== i))}>
+                Retirer
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="tchf-rangee">
+        <label className="tchf-champ"><span className="tch-etiquette">Nom</span>
+          <input type="text" data-champ-contact="nom" value={f.nom} maxLength={200} onChange={(e) => setF({ ...f, nom: e.target.value })} /></label>
+        <label className="tchf-champ"><span className="tch-etiquette">Rôle (facultatif)</span>
+          <input type="text" data-champ-contact="qualite" value={f.qualite} maxLength={200} onChange={(e) => setF({ ...f, qualite: e.target.value })} /></label>
+      </div>
+      <div className="tchf-rangee">
+        <label className="tchf-champ"><span className="tch-etiquette">Téléphone (facultatif)</span>
+          <input type="tel" data-champ-contact="telephone" value={f.telephone} maxLength={40} onChange={(e) => setF({ ...f, telephone: e.target.value })} /></label>
+        <label className="tchf-champ"><span className="tch-etiquette">E-mail (facultatif)</span>
+          <input type="email" data-champ-contact="email" value={f.email} maxLength={200} onChange={(e) => setF({ ...f, email: e.target.value })} /></label>
+      </div>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn tch-btn tchf-ajout-piece" disabled={f.nom.trim() === ''} onClick={ajouter}>
+        + Ajouter ce contact
+      </button>
     </fieldset>
   );
 }

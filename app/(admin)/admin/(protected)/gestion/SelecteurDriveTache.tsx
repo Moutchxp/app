@@ -29,7 +29,8 @@ const dateLisible = (iso: string | null): string => {
 };
 
 export function SelecteurDriveTache({ lotId, onChoisir, onFermer }: {
-  lotId: number;
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN — `null` : tâche sans bien, la fenêtre s'ouvre à la racine du Drive. */
+  lotId: number | null;
   onChoisir: (fichiers: FichierChoisi[]) => void;
   onFermer: () => void;
 }) {

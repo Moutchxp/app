@@ -116,6 +116,8 @@ export interface ContenuTache {
   codePostal: string | null;
   commune: string | null;
   pieces: { driveId: string; nom: string; typeMime: string | null; lien: string | null }[];
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN — tâche sans bien : ni lieu, ni adresse dans le titre, ni lien de fiche. */
+  sansBien?: boolean;
 }
 
 /** La ressource « événement » de l'API Agenda, dans la seule forme que l'application écrit. */
@@ -162,8 +164,9 @@ export const COULEUR_EVENEMENT = '11';
  * courte> », « ✓ » devant quand elle est faite. Jamais de n° de lot, jamais de nom de locataire. PUR.
  */
 export const PREFIXE_TITRE = 'Tâche gestion';
-export function titreEvenement(c: Pick<ContenuTache, 'objet' | 'adresse' | 'commune' | 'faite'>): string {
-  const t = `${PREFIXE_TITRE} — ${c.objet.trim()} — ${adresseCourte(c.adresse, c.commune)}`;
+export function titreEvenement(c: Pick<ContenuTache, 'objet' | 'adresse' | 'commune' | 'faite'> & { sansBien?: boolean }): string {
+  /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : « Tâche gestion — <titre> », sans adresse. */
+  const t = c.sansBien === true ? `${PREFIXE_TITRE} — ${c.objet.trim()}` : `${PREFIXE_TITRE} — ${c.objet.trim()} — ${adresseCourte(c.adresse, c.commune)}`;
   return c.faite ? `${PREFIXE_FAITE}${t}` : t;
 }
 
@@ -244,7 +247,7 @@ export function construireEvenement(c: ContenuTache, o: {
 }): EvenementGoogle {
   const avecHeure = c.heure !== null;
   const { reminders, remplaces } = rappelsGoogle(c.rappels, avecHeure);
-  const lien = lienFicheBien(o.siteUrl, c.lotId);
+  const lien = c.sansBien === true ? null : lienFicheBien(o.siteUrl, c.lotId);
   const blocs = [
     c.texte.trim(),
     remplaces.length > 0
@@ -253,7 +256,7 @@ export function construireEvenement(c: ContenuTache, o: {
     lien !== null ? `Fiche du bien : ${lien}${o.lienLocal ? ` ${MENTION_LIEN_LOCAL}` : ''}` : '',
     'Créée depuis l’application Gestion. Pour la modifier, passez par l’application.',
   ].filter((x) => x !== '');
-  const lieu = adresseComplete(c.adresse, c.codePostal, c.commune);
+  const lieu = c.sansBien === true ? null : adresseComplete(c.adresse, c.codePostal, c.commune);
   const duree = c.dureeMinutes ?? DUREE_DEFAUT_MINUTES;
   return {
     summary: titreEvenement(c),

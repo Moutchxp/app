@@ -135,7 +135,7 @@ interface LigneDemandeMail {
   demandeur_libelle: string; demandeur_email: string | null; cree_le: Date; expire_le: Date | null; statut: string;
   repondu_le?: Date | null; repondu_par_libelle?: string | null;
   objet: string; note: string | null; jour: string; heure: string | null; duree_minutes: number | null;
-  adresse: string | null; commune: string | null;
+  adresse: string | null; commune: string | null; lot_id?: number | null;
 }
 
 const iso = (d: Date | string | null | undefined): string | null => {
@@ -150,10 +150,10 @@ async function lireDemande(demandeId: number): Promise<LigneDemandeMail | null> 
             d.destinataire_email, d.demandeur_libelle, u.identifiant AS demandeur_email, d.cree_le, d.expire_le, d.statut,
             d.repondu_le, d.repondu_par_libelle,
             t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
-            t.duree_minutes, l.adresse, l.commune
+            t.duree_minutes, t.lot_id::int AS lot_id, l.adresse, l.commune
        FROM gestion_tache_demande d
        JOIN gestion_tache t ON t.id = d.tache_id
-       JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
        LEFT JOIN admin_utilisateur u ON u.id = d.demandeur_id
       WHERE d.id = $1`, [demandeId]).catch(async () => query<LigneDemandeMail>(
     // Sans la migration 350 (pas de durée).
@@ -161,10 +161,10 @@ async function lireDemande(demandeId: number): Promise<LigneDemandeMail | null> 
             d.destinataire_email, d.demandeur_libelle, u.identifiant AS demandeur_email, d.cree_le, d.expire_le, d.statut,
             d.repondu_le, d.repondu_par_libelle,
             t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
-            NULL::int AS duree_minutes, l.adresse, l.commune
+            NULL::int AS duree_minutes, t.lot_id::int AS lot_id, l.adresse, l.commune
        FROM gestion_tache_demande d
        JOIN gestion_tache t ON t.id = d.tache_id
-       JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
        LEFT JOIN admin_utilisateur u ON u.id = d.demandeur_id
       WHERE d.id = $1`, [demandeId]));
   return rows[0] ?? null;
@@ -256,19 +256,20 @@ export async function messageDeLaDemande(o: {
   const corps = mailTache({
     sorte: o.sorte, destinataire: d.destinataire_libelle, expediteur: d.demandeur_libelle, demandeLe: iso(d.cree_le) ?? '',
     jour: d.jour, heure: d.heure, dureeMinutes: d.duree_minutes === null ? null : Number(d.duree_minutes), titre: d.objet,
-    notes: d.note, adresse: titreLogement(d.adresse, d.commune), contacts, invites, pieces: piecesMail, liens,
+    /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien, la section « Adresse du bien » est omise (`null`). */
+    notes: d.note, adresse: d.lot_id === null ? null : titreLogement(d.adresse, d.commune), contacts, invites, pieces: piecesMail, liens,
     agenda: o.agenda, mentionLiens: locale ? MENTION_LIEN_LOCAL : undefined,
     ...(o.sorte === 'confirmation'
       ? { acceptation: { par: d.repondu_par_libelle ?? d.destinataire_libelle, le: iso(d.repondu_le) ?? maintenant.toISOString() } } : {}),
     piecesExpirentLe: piecesMail.some((p) => !p.jointe && p.lien !== null) ? finLiens.toISOString() : null,
   });
-  const adresseCourte = (d.adresse ?? '').trim() || titreLogement(d.adresse, d.commune);
+  const adresseCourte = d.lot_id === null ? null : (d.adresse ?? '').trim() || titreLogement(d.adresse, d.commune);
   const echeance = echeanceLisible(d.jour, d.heure, maintenant);
   const objet = o.sorte === 'invitation'
     ? objetDemande({ adresseCourte, objet: d.objet, echeance })
     : o.sorte === 'confirmation'
       ? objetConfirmation({ par: d.repondu_par_libelle ?? d.destinataire_libelle, titre: d.objet, jour: d.jour, heure: d.heure })
-      : `${PREFIXE_OBJET_RECAPITULATIF}${adresseCourte} — ${d.objet.trim()} — ${echeance}`;
+      : `${PREFIXE_OBJET_RECAPITULATIF}${adresseCourte === null ? '' : `${adresseCourte} — `}${d.objet.trim()} — ${echeance}`;
   return {
     ok: true,
     m: {

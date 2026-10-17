@@ -107,9 +107,10 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
   /* 🔴 LOT CARTE-CONTACTS-PARTOUT — la fiche d'aujourd'hui (contacts du bien), pour « Mettre à jour » : passée par la fiche
      bien ; lue par la carte elle-même dans le récapitulatif (une fois dépliée), et relue après chaque geste. */
   const [sourcesLues, setSourcesLues] = useState<ContactSource[] | null>(null);
-  const aLireSources = deplie && sourcesRecues === undefined;
+  /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien, aucune fiche à lire (les contacts saisis à la main restent tels quels). */
+  const aLireSources = deplie && sourcesRecues === undefined && tache.lotId !== null;
   useEffect(() => {
-    if (!aLireSources) return;
+    if (!aLireSources || tache.lotId === null) return;
     let annule = false;
     void lireContactsDuBien(tache.lotId).then((c) => { if (!annule) setSourcesLues(c); });
     return () => { annule = true; };
@@ -294,8 +295,9 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
             )}
           </div>
           <div className="tch-bas">
-            {avecAdresse && (onOuvrirBien
-              ? <button type="button" className="tch-lien" onClick={() => onOuvrirBien(tache.lotId)}>{tache.adresseBien}</button>
+            {/* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : aucune adresse, rien de cliquable. */}
+            {avecAdresse && tache.lotId !== null && (onOuvrirBien
+              ? <button type="button" className="tch-lien" onClick={() => onOuvrirBien(tache.lotId as number)}>{tache.adresseBien}</button>
               : <span>{tache.adresseBien}</span>)}
             {ev}{fin !== null && <span className="tch-fin">{fin}</span>}
             {tache.acceptation?.statut === 'en_attente' && mentionMail(tache.acceptation.mailEtat) && (
@@ -378,9 +380,11 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
           et l'agenda. Le compteur « 👤 n contacts » est retiré (demande d'Arno) : les noms le disent. */}
       <div className="tch-l2" onClick={() => onBasculer?.()}>
         <span className="tch-l2-gauche">
-          {onOuvrirBien && avecAdresse
+          {tache.lotId === null
+            ? <span className="tch-l2-adresse tch-l2-sans-bien">Sans bien</span>
+            : onOuvrirBien && avecAdresse
             ? <button type="button" className="tch-lien tch-l2-adresse" data-action="ouvrir-bien"
-                onClick={(e) => { e.stopPropagation(); onOuvrirBien(tache.lotId); }}>{tache.adresseBien}</button>
+                onClick={(e) => { e.stopPropagation(); onOuvrirBien(tache.lotId as number); }}>{tache.adresseBien}</button>
             : <span className="tch-l2-adresse">{tache.adresseBien}</span>}
           {(tache.contactsResume ?? []).length > 0 && <ContactsDeLaLigne contacts={tache.contactsResume ?? []} />}
           {(tache.nbPieces ?? 0) > 0 && (

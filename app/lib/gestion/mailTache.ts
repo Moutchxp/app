@@ -66,7 +66,8 @@ export interface ContenuMailTache {
   dureeMinutes: number | null;
   titre: string;
   notes: string | null;
-  adresse: string;
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN — `null` = tâche sans bien : la section « Adresse du bien » est omise. */
+  adresse: string | null;
   contacts: readonly Pick<ContactSource, 'famille' | 'nom' | 'qualite' | 'organisation' | 'coordonnees'>[];
   /** Tous les invités ACTIFS de la tâche, destinataire compris (le récapitulatif donne leur état). */
   invites: readonly { libelle: string; statut: StatutAcceptation | null; moi: boolean }[];
@@ -179,7 +180,7 @@ function texteMail(c: ContenuMailTache): string {
   l.push('', `DATE DE LA MISSION : ${jourMission(c.jour).toUpperCase()} — ${heureMission(c.heure, c.dureeMinutes)}`);
   section('Mission'); l.push(c.titre.trim());
   if (net(c.notes) !== '') { section('Précisions'); l.push(net(c.notes)); }
-  section('Adresse du bien'); l.push(c.adresse);
+  if (net(c.adresse) !== '') { section('Adresse du bien'); l.push(net(c.adresse)); }
   if (c.contacts.length > 0) {
     section(`Contacts (${c.contacts.length})`);
     for (const k of c.contacts) {
@@ -262,7 +263,7 @@ function htmlMail(c: ContenuMailTache): string {
   // 3. Titre. 4. Notes. 5. Adresse.
   r.push(titreSection('Mission'), bloc(`<div style="font-size:18px;font-weight:bold">${echapper(c.titre.trim())}</div>`));
   if (net(c.notes) !== '') r.push(titreSection('Précisions'), bloc(`<div>${multiligne(net(c.notes))}</div>`));
-  r.push(titreSection('Adresse du bien'), bloc(`<div>${echapper(c.adresse)}</div>`));
+  if (net(c.adresse) !== '') r.push(titreSection('Adresse du bien'), bloc(`<div>${echapper(net(c.adresse))}</div>`));
   // 6. Contacts : 1 contact = 1 bloc.
   if (c.contacts.length > 0) {
     r.push(titreSection(`Contacts (${c.contacts.length})`));

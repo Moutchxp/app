@@ -1,4 +1,5 @@
 import 'server-only';
+import { randomUUID } from 'node:crypto';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { titreLogement } from './annuaireRecherche';
 import type { Auteur } from './gestes';
@@ -6,7 +7,7 @@ import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 import {
   collaborateursPourTache, jourDecale, rappelsParDefaut, rappelsValides, type CollaborateurTache,
-  type ActionTache, type ChampTache, type EtatTache, type PieceAjout, type PieceTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
+  type ActionTache, type ChampTache, type ContactManuel, type EtatTache, type PieceAjout, type PieceTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
 import { acceptationTacheDisponible, agendaTacheDisponible, contactsTacheDisponible, invitesTacheDisponible, piecesTacheDisponible } from './schema';
@@ -76,7 +77,7 @@ async function nomAuteur(q: RequeteTx, auteur: Auteur): Promise<string> {
 }
 
 interface LigneTache {
-  id: number; lot_id: number; lot_cle: string; adresse: string | null; commune: string | null;
+  id: number; lot_id: number | null; lot_cle: string | null; adresse: string | null; commune: string | null;
   evenement_id: number | null; ev_reference: string | null; ev_objet: string | null;
   objet: string; note: string | null; jour: string; heure: string | null; rappels: Rappel[]; etat: EtatTache;
   confiee_a: number | null; confiee_a_libelle: string;
@@ -115,7 +116,7 @@ const SQL_TACHE = `
          t.cree_le, t.cree_par_libelle, t.maj_le, t.faite_le, t.faite_par_libelle, t.annulee_le, t.annulee_par_libelle,
          __NB_CONTACTS__ AS nb_contacts, __NB_PIECES__ AS nb_pieces, t.cree_par::int AS cree_par, __DEMANDE_CHAMPS__
     FROM gestion_tache t
-    JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+    LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
     LEFT JOIN gestion_evenement e ON e.id = t.evenement_id
     __DEMANDE_JOINTURE__`;
 
@@ -188,7 +189,9 @@ async function avecInvites(taches: Tache[]): Promise<Tache[]> {
 
 function versTache(r: LigneTache): Tache {
   return {
-    id: Number(r.id), lotId: Number(r.lot_id), lotCle: r.lot_cle, adresseBien: titreLogement(r.adresse, r.commune),
+    /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : ni clé, ni adresse (jamais « Adresse non renseignée »). */
+    id: Number(r.id), lotId: r.lot_id === null ? null : Number(r.lot_id), lotCle: r.lot_cle ?? null,
+    adresseBien: r.lot_id === null ? '' : titreLogement(r.adresse, r.commune),
     evenement: r.evenement_id === null ? null
       : { id: Number(r.evenement_id), reference: r.ev_reference ?? '', objet: r.ev_objet ?? '' },
     objet: r.objet, note: r.note, jour: r.jour, heure: r.heure, rappels: Array.isArray(r.rappels) ? r.rappels : [],
@@ -371,9 +374,31 @@ async function synchroniserContacts(
 }
 
 /** Les contacts du bien, lus AVANT la transaction (la lecture est longue et n'écrit rien). `null` = ne rien toucher. */
-async function sourcesPour(lotId: number, s: SaisieTache): Promise<ContactSource[] | null> {
+async function sourcesPour(lotId: number | null, s: SaisieTache): Promise<ContactSource[] | null> {
   if (s.contacts === undefined || !(await contactsTacheDisponible())) return null;
-  return contactsDuBienPourTache(lotId);
+  /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien, aucune fiche à lire : seules les copies déjà là (cochées) restent. */
+  return lotId === null ? [] : contactsDuBienPourTache(lotId);
+}
+
+/**
+ * 🔴 LOT GESTION-TACHES-SANS-BIEN — LES CONTACTS SAISIS À LA MAIN (tâche sans bien) : une COPIE datée, comme un contact
+ * de la fiche, rangée en « Tiers indépendant », sous une clé `manuel:…` propre à la tâche. Tracé comme les autres.
+ */
+async function poserContactsManuels(q: RequeteTx, tacheId: number, l: readonly ContactManuel[], auteur: Auteur, nom: string): Promise<void> {
+  if (l.length === 0) return;
+  let rang = Number((await q<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_tache_contact WHERE tache_id = $1`, [tacheId])).rows[0]?.n ?? 0);
+  for (const c of l) {
+    rang += 1;
+    const coordonnees = [
+      ...(c.telephone ? [{ sorte: 'telephone', libelle: null, valeur: c.telephone.replace(/[^\d+]/g, ''), affichage: c.telephone }] : []),
+      ...(c.email ? [{ sorte: 'email', libelle: null, valeur: c.email, affichage: null }] : []),
+    ];
+    await q(
+      `INSERT INTO gestion_tache_contact (tache_id, cle, famille, nom, qualite, coordonnees, rang, ajoute_par_libelle)
+       VALUES ($1, $2, 'independant', $3, $4, $5::jsonb, $6, $7)`,
+      [tacheId, `manuel:${randomUUID()}`, c.nom, c.qualite, JSON.stringify(coordonnees), rang, nom]);
+    await tracer(q, tacheId, 'modification', null, { contactAjoute: c.nom }, auteur, nom);
+  }
 }
 
 /**
@@ -382,8 +407,10 @@ async function sourcesPour(lotId: number, s: SaisieTache): Promise<ContactSource
  */
 export async function actualiserContact(id: number, cle: string, auteur: Auteur): Promise<IssueTache> {
   if (!(await contactsTacheDisponible())) return { ok: false, statut: 503, motif: 'Contacts non installés (migration 347).' };
-  const { rows } = await query<{ lot_id: number }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
+  const { rows } = await query<{ lot_id: number | null }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
   if (rows.length === 0) return INTROUVABLE;
+  /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien, aucune fiche : la copie reste celle saisie. */
+  if (rows[0].lot_id === null) return { ok: false, statut: 409, motif: 'Cette tâche n’a pas de bien : ses contacts restent ceux saisis.' };
   const s = (await contactsDuBienPourTache(Number(rows[0].lot_id))).find((x) => x.cle === cle);
   if (s === undefined) return { ok: false, statut: 409, motif: 'Ce contact n’est plus lié au bien : ses coordonnées restent celles copiées.' };
   return withTransaction(async (q) => {
@@ -440,14 +467,15 @@ const rendreLeRefus = (e: unknown): IssueTache => {
   throw e;
 };
 
+/** 🔴 LOT GESTION-TACHES-SANS-BIEN — `lotId` à `null` : une tâche SANS bien (migration 368). */
 export async function creerTache(
-  lotId: number, s: SaisieTache, auteur: Auteur, pieces: readonly PieceAjout[] = [],
+  lotId: number | null, s: SaisieTache, auteur: Auteur, pieces: readonly PieceAjout[] = [],
 ): Promise<IssueTache> {
   return creerTacheSansRefus(lotId, s, auteur, pieces).catch(rendreLeRefus);
 }
 
 async function creerTacheSansRefus(
-  lotId: number, s: SaisieTache, auteur: Auteur, pieces: readonly PieceAjout[] = [],
+  lotId: number | null, s: SaisieTache, auteur: Auteur, pieces: readonly PieceAjout[] = [],
 ): Promise<IssueTache> {
   const avecPieces = pieces.length > 0 && await piecesTacheDisponible();
   const avecAcceptation = await acceptationTacheDisponible();
@@ -455,8 +483,10 @@ async function creerTacheSansRefus(
   const plusieurs = avecAcceptation && await invitesTacheDisponible();
   const sources = await sourcesPour(lotId, s);
   return withTransaction(async (q) => {
-    const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
-    if (lot.rows.length === 0) return { ok: false, statut: 404, motif: 'Bien introuvable.' };
+    if (lotId !== null) {
+      const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
+      if (lot.rows.length === 0) return { ok: false, statut: 404, motif: 'Bien introuvable.' };
+    }
     const c = await collaborateurValide(q, s.confieeA);
     if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.', champ: 'confieeA' };
     const autres = plusieurs ? await autresInvitesValides(q, s, c) : [];
@@ -478,6 +508,7 @@ async function creerTacheSansRefus(
       objet: s.objet.trim(), jour: s.jour, heure: s.heure, confieeA: c.libelle, evenementId: s.evenementId, rappels,
     }, auteur, nom);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
+    if (lotId === null && await contactsTacheDisponible()) await poserContactsManuels(q, id, s.contactsManuels ?? [], auteur, nom);
     if (avecPieces) await poserPieces(q, id, pieces, auteur, nom);
     /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours choisis ; un refus annule toute la création. */
     if (s.evenements !== undefined && s.evenements.length > 0 && await evenementsTacheDisponible()) {
@@ -521,7 +552,7 @@ async function autresInvitesValides(q: RequeteTx, s: SaisieTache, principal: Col
 }
 
 interface Courante {
-  lot_id: number;
+  lot_id: number | null;
   etat: EtatTache; objet: string; note: string | null; jour: string; heure: string | null; rappels: Rappel[];
   confiee_a: number | null; confiee_a_libelle: string; evenement_id: number | null;
 }
@@ -649,8 +680,9 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
   const plusieurs = avecAcceptation && await invitesTacheDisponible();
   /* 🔴 LOT TACHES-AGENDA — la durée ne se compare (et ne s'écrit) que si la 350 est là ET que l'écran l'a envoyée. */
   const avecDuree = s.dureeMinutes !== undefined && await agendaTacheDisponible();
-  const lot = await query<{ lot_id: number }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
-  const sources = lot.rows.length === 0 ? null : await sourcesPour(Number(lot.rows[0].lot_id), s);
+  const lot = await query<{ lot_id: number | null }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
+  const lotDeLaTache = lot.rows.length === 0 || lot.rows[0].lot_id === null ? null : Number(lot.rows[0].lot_id);
+  const sources = lot.rows.length === 0 ? null : await sourcesPour(lotDeLaTache, s);
   return withTransaction(async (q) => {
     const t = await lirePourGeste(q, id);
     if (t === null) return INTROUVABLE;
@@ -697,6 +729,7 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
     if (invitesChangent) { avant.invites = listeInvites(invitesAvant); apres.invites = listeInvites(invitesVoulus); }
     const nom = await nomAuteur(q, auteur);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
+    if (lotDeLaTache === null && await contactsTacheDisponible()) await poserContactsManuels(q, id, s.contactsManuels ?? [], auteur, nom);
     /* 🔴 LOT GESTION-TACHES-EVENEMENTS — rattacher ou retirer des événements (tracé ligne à ligne par le dépôt). */
     if (s.evenements !== undefined && await evenementsTacheDisponible()) {
       const refus = await alignerEvenements(q, id, s.evenements, auteur, nom);

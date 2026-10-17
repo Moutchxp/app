@@ -139,13 +139,13 @@ export async function tachesDeLEvenement(evenementId: number): Promise<TacheFris
   if (!(await evenementsTacheDisponible())) return [];
   const { rows } = await query<{
     id: number; objet: string; jour: string; heure: string | null; duree_minutes: number | null; etat: TacheFrise['etat'];
-    cree_par_libelle: string; adresse: string | null; commune: string | null; confiee_a_libelle: string;
+    cree_par_libelle: string; adresse: string | null; commune: string | null; confiee_a_libelle: string; lot_id: number | null;
   }>(
     `SELECT t.id::int AS id, t.objet, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
-            t.duree_minutes, t.etat, t.cree_par_libelle, l.adresse, l.commune, t.confiee_a_libelle
+            t.duree_minutes, t.etat, t.cree_par_libelle, t.lot_id::int AS lot_id, l.adresse, l.commune, t.confiee_a_libelle
        FROM gestion_tache_evenement x
        JOIN gestion_tache t ON t.id = x.tache_id
-       JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
       WHERE x.evenement_id = $1 AND x.retire_le IS NULL
       ORDER BY t.jour, t.heure NULLS FIRST, t.id`, [evenementId]);
   if (rows.length === 0) return [];
@@ -177,7 +177,7 @@ export async function tachesDeLEvenement(evenementId: number): Promise<TacheFris
     return {
       id, objet: r.objet, jour: r.jour, heure: r.heure, dureeMinutes: r.duree_minutes === null ? null : Number(r.duree_minutes), etat: r.etat,
       expediteur: dem.rows.find((d) => Number(d.tache_id) === id)?.demandeur ?? r.cree_par_libelle,
-      adresse: titreLogement(r.adresse, r.commune),
+      adresse: r.lot_id === null ? '' : titreLogement(r.adresse, r.commune),
       invites: invites.length > 0 ? invites : [{ libelle: r.confiee_a_libelle, statut: null }],
       contacts: con.rows.filter((c) => Number(c.tache_id) === id && estFamille(c.famille)).map((c) => ({
         nom: c.nom,

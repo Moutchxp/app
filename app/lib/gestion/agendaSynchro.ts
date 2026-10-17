@@ -108,7 +108,7 @@ export async function marquerASynchroniser(q: RequeteTx, tacheId: number): Promi
 
 interface LigneAgenda {
   id: number; etat: EtatTache; objet: string; note: string | null; jour: string; heure: string | null; rappels: Rappel[];
-  duree_minutes: number | null; confiee_a: number | null; confiee_a_libelle: string; cree_par: number | null; lot_id: number;
+  duree_minutes: number | null; confiee_a: number | null; confiee_a_libelle: string; cree_par: number | null; lot_id: number | null;
   google_agenda: string | null; google_evenement_id: string | null; synchro_version: string; synchro_essais: number;
   synchro_etat: SynchroEtat; synchro_erreur: string | null;
   confiee_email: string | null; confiee_actif: boolean | null;
@@ -127,7 +127,7 @@ async function lireLigne(q: RequeteTx, ids: readonly number[]): Promise<LigneAge
               ? `(SELECT d.statut FROM gestion_tache_demande d WHERE d.tache_id = t.id AND d.statut <> 'remplacee' LIMIT 1)`
               : 'NULL::text'} AS acceptation
        FROM gestion_tache t
-       JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
        LEFT JOIN admin_utilisateur u ON u.id = t.confiee_a
       WHERE t.id = ANY($1::bigint[])`, [ids]);
   return rows;
@@ -348,6 +348,7 @@ export async function synchroniserTache(tacheId: number, o: { porte?: PorteAgend
         id: tacheId, objet: r.objet, texte: texteCompletTache(r.note, await contactsDe(tacheId)), jour: r.jour, heure: r.heure,
         dureeMinutes: r.duree_minutes, rappels: Array.isArray(r.rappels) ? r.rappels : [], faite, lotId: Number(r.lot_id),
         adresse: r.adresse, codePostal: r.code_postal, commune: r.commune, pieces: await piecesDe(tacheId),
+        sansBien: r.lot_id === null,
       }, { siteUrl, motRappel, lienLocal });
 
       const echouer = async (motif: string, refs: { agenda: string; id: string } | null, inviteId: number | null): Promise<IssueSynchro> => {

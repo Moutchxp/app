@@ -46,6 +46,9 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
   /** 🔴 LOT PASTILLES-FILTRES — la pastille active (une seule), combinée avec « qui » et « statut » ; `null` = toutes. */
   const [pastille, setPastille] = useState<PastilleFiltre | null>(null);
   const [detail, setDetail] = useState<number | null>(null);
+  /* 🔴 LOT GESTION-TACHES-SANS-BIEN — « Créer une tâche » : la fenêtre de création, SANS bien ; et sa confirmation. */
+  const [creation, setCreation] = useState(false);
+  const [cree, setCree] = useState<string | null>(null);
   /* 🔴 LOT FILTRE-ECRAN-FIXE — la zone de la liste garde la plus grande hauteur atteinte depuis l'ouverture, et la
      position de défilement est notée au clic sur un filtre puis rétablie après le rendu. */
   const { zone: zoneListe, contenu: contenuListe, hauteurMin, changerFiltre } = useZoneStable();
@@ -83,10 +86,15 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
       onClick={(e) => { if (pastille !== null && estClicDansLeVide(e.target, e.currentTarget)) changerFiltre(() => setPastille(null)); }}>
       <style>{CSS_TACHES}{CSS_TABLEAU}</style>
       <div className="tch-tableau-tete">
-        {retour}
+        {retour !== null && <div className="tch-retour">{retour}</div>}
         <h2 className="gst-titre" id="tch-tableau-titre">
           Tâches <span className="gst-compte">{ouvertes.length}</span>
         </h2>
+        {/* 🔴 LOT GESTION-TACHES-SANS-BIEN (Arno, 17/10/2026) — création simple, sans bien : la MÊME fenêtre que « + Tâche ». */}
+        <button type="button" className="svv-btn gst-btn tch-btn tch-creer" data-action="creer-tache"
+          onClick={(e) => { e.stopPropagation(); setCree(null); setCreation(true); }}>
+          + Créer une tâche
+        </button>
         <div className="tch-filtres">
           <div className="tch-filtre" role="group" aria-label="Quelles tâches">
             {ORDRE_FILTRES_QUI.map((f) => (
@@ -107,6 +115,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
         </div>
       </div>
       {/* 🔴 LOT PASTILLES-FILTRES — les pastilles sont des filtres (écran fixe, comme les autres). */}
+      {cree !== null && <p className="tch-message" role="status">{cree}</p>}
       <PastillesFiltres n={n} enAttente={enAttente} active={pastille} onChoisir={(p) => changerFiltre(() => setPastille(p))} />
       <ReglageEnvoi />
       {donnees.tronque && <p className="gst-tronc">La liste est tronquée : toutes les tâches ne sont pas affichées.</p>}
@@ -115,7 +124,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
       {ouvertes.length === 0 && terminees.length === 0 && (qui !== 'toutes' || statut !== 'toutes' || pastille !== null)
         ? <p className="tch-vide tch-vide-filtre" role="status">{MOT_AUCUNE_TACHE_FILTRE}</p>
         : ouvertes.length === 0
-        ? <p className="tch-vide">{qui === 'confiees' ? 'Aucune tâche à faire ne vous est confiée.' : qui === 'collaborateurs' ? 'Aucune tâche à faire confiée à un collaborateur.' : qui === 'commandees' ? 'Aucune tâche commandée par vous.' : 'Aucune tâche à faire.'} Une tâche se crée depuis la fiche d’un bien (« + Tâche »).</p>
+        ? <p className="tch-vide">{qui === 'confiees' ? 'Aucune tâche à faire ne vous est confiée.' : qui === 'collaborateurs' ? 'Aucune tâche à faire confiée à un collaborateur.' : qui === 'commandees' ? 'Aucune tâche commandée par vous.' : 'Aucune tâche à faire.'} Une tâche se crée par « + Créer une tâche », ou depuis la fiche d’un bien (« + Tâche »).</p>
         : (
           <ul className="tch-liste">
             {ouvertes.map((t) => (
@@ -139,6 +148,10 @@ export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
       </div>
       </div>
       {detail !== null && <FenetreTache mode={{ sorte: 'detail', id: detail }} onFermer={() => setDetail(null)} onEcrire={onEcrire} />}
+      {creation && (
+        <FenetreTache mode={{ sorte: 'creer', lotId: null, lotCle: null, adresse: '' }} onFermer={() => setCreation(false)}
+          onEcrire={onEcrire} onCree={(m) => { setCree(m); void charger(); }} />
+      )}
     </section>
   );
 }
@@ -193,6 +206,9 @@ function ReglageEnvoi() {
 
 /* ⚠️ CSS DANS UN GABARIT : jamais d'accent grave dans un commentaire ci-dessous. */
 const CSS_TABLEAU = `
+/* LOT GESTION-TACHES-PAGE — le retour de la page pleine : sur sa ligne, a sa largeur naturelle. */
+.tch-retour{flex:0 0 100%}
+.tch-retour .svv-btn{width:auto}
 .tch-filtres{display:flex;flex-wrap:wrap;gap:8px}
 /* LOT FILTRE-ECRAN-FIXE : la zone ne se retracte pas (hauteur minimale posee par l'ecran) et n'ancre pas le defilement ;
    le message d'un filtre vide est centre dans la zone. */

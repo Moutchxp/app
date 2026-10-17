@@ -41,6 +41,10 @@ export async function GET(request: Request): Promise<Response> {
       const r = await lireDossierTache(jeton.jeton, dossier);
       return r.ok ? json({ etat: 'ok', ...r.valeur }) : json({ etat: 'indisponible', message: r.motif });
     }
+    /* 🔴 LOT GESTION-TACHES-SANS-BIEN — tâche sans bien : la racine du Drive, sans message. */
+    if (url.searchParams.get('bien') === 'aucun') {
+      return json({ etat: 'ok', depart: { id: RACINE_TACHES, nom: 'Drive' }, message: null });
+    }
     if (Number.isInteger(bien) && bien > 0) {
       const depart = await departDuBien(jeton.jeton, bien);
       return json({

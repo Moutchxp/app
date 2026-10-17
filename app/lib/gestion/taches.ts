@@ -106,10 +106,11 @@ export type Rappel =
 /** Une tâche telle que les écrans la lisent. */
 export interface Tache {
   id: number;
-  lotId: number;
-  /** Le numéro WIPPIMMO du bien — sert à relire la fiche, jamais affiché dans l'agenda (décision d'Arno). */
-  lotCle: string;
-  /** « 12 rue des Lilas, Paris » — ce qui se montre sur la ligne. */
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN (migration 368) — `null` = tâche SANS bien. */
+  lotId: number | null;
+  /** Le numéro WIPPIMMO du bien — sert à relire la fiche, jamais affiché dans l'agenda (décision d'Arno). `null` sans bien. */
+  lotCle: string | null;
+  /** « 12 rue des Lilas, Paris » — ce qui se montre sur la ligne. `''` pour une tâche sans bien (rien n'est affiché). */
   adresseBien: string;
   evenement: { id: number; reference: string; objet: string } | null;
   objet: string;
@@ -528,6 +529,26 @@ export interface SaisieTache {
    * pas y toucher. Distinct de `evenementId` (« Événement du bien lié »), qui ne change pas.
    */
   evenements?: number[];
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN — des contacts SAISIS À LA MAIN (tâche sans bien) ; ajoutés à ceux déjà là. */
+  contactsManuels?: ContactManuel[];
+}
+
+/** 🔴 LOT GESTION-TACHES-SANS-BIEN — un contact saisi à la main : nom obligatoire, le reste facultatif. */
+export interface ContactManuel { nom: string; qualite: string | null; telephone: string | null; email: string | null }
+
+/** Les contacts saisis à la main, relus : nom non vide, champs bornés, 20 au plus. PUR. */
+export function lireContactsManuels(brut: unknown): ContactManuel[] | undefined {
+  if (!Array.isArray(brut)) return undefined;
+  const txt = (x: unknown, max: number) => (typeof x === 'string' && x.trim() !== '' ? x.trim().slice(0, max) : null);
+  const out: ContactManuel[] = [];
+  for (const b of brut) {
+    const o = (typeof b === 'object' && b !== null ? b : {}) as Record<string, unknown>;
+    const nom = txt(o.nom, 200);
+    if (nom === null) continue;
+    const email = txt(o.email, 200);
+    out.push({ nom, qualite: txt(o.qualite, 200), telephone: txt(o.telephone, 40), email: email !== null && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) ? email : null });
+  }
+  return out.slice(0, 20);
 }
 
 /** Les invités d'une saisie, dans l'ordre : « Confiée à » d'abord, puis les autres, sans doublon. PUR. */
@@ -590,6 +611,7 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
     pieces: lireIdsDrive(corps.pieces),
     ...('invites' in corps ? { invites: lireIdsInvites(corps.invites) ?? [] } : {}),
     ...('evenements' in corps ? { evenements: lireIdsInvites(corps.evenements) ?? [] } : {}),
+    ...('contactsManuels' in corps ? { contactsManuels: lireContactsManuels(corps.contactsManuels) ?? [] } : {}),
     ...('dureeMinutes' in corps ? { dureeMinutes: heure === null ? null : dureeValide(corps.dureeMinutes) } : {}),
   };
 }

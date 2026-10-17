@@ -25,7 +25,8 @@ const queryMock = vi.fn(async (sql: string, params: unknown[] = []) => {
   if (s.includes('information_schema')) return { rows: [{ n: 1 }] };
   if (s.includes('SELECT envoi_agenda AS a FROM gestion_tache_reglage')) return { rows: [{ a: reglage }] };
   if (s.includes('pg_advisory_xact_lock')) return { rows: [] };
-  if (s.includes('FROM gestion_tache t JOIN gestion_annuaire_lot l')) {
+  // LOT GESTION-TACHES-SANS-BIEN — la jointure sur le bien est facultative (LEFT JOIN) : une tâche peut ne pas en avoir.
+  if (/FROM gestion_tache t (LEFT )?JOIN gestion_annuaire_lot l/.test(s)) {
     const ids = (params[0] as number[]).map(Number);
     return { rows: ids.map((i) => taches.get(i)).filter(Boolean).map((t) => ({ ...t, synchro_version: String(t!.synchro_version) })) };
   }

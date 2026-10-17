@@ -61,7 +61,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // Pas encore appliquées en prod (16/10/2026, après la publication de 4c8cd637 qui a appliqué la 362).
   // 365 : lot GESTION-INVITATIONS-TACHES (17/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
-    '367_gestion_tache_evenement_reprise.sql'];
+    '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -74,7 +74,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 367 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 368 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -84,14 +84,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (368)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (369)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(367\)/);
-    const renumerotee = planifier([...existants, { fichier: '368_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(368\)/);
+    const renumerotee = planifier([...existants, { fichier: '369_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['368_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['369_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -183,5 +183,22 @@ describe('367 (reprise de « Événement du bien lié ») : enveloppée, un seul
     expect(sql[0]).toMatch(/^INSERT INTO gestion_tache_evenement /);
     expect(sql[0]).toContain('NOT EXISTS');
     expect(sql.join('\n')).not.toMatch(/\b(UPDATE|DELETE|TRUNCATE|ALTER|DROP)\b/i);
+  });
+});
+
+describe('368 (tâche sans bien) : enveloppée, lot_id facultatif, aucune ligne touchée', () => {
+  const contenu = lire(MIGRATIONS, '368_gestion_tache_sans_bien.sql');
+  const a = analyserMigration({ fichier: '368_gestion_tache_sans_bien.sql', contenu });
+  it('passe le garde, enveloppée, réversible, ni table ni colonne nouvelle', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.tablesCreees).toEqual([]);
+    expect(a.colonnesAjoutees).toEqual([]);
+  });
+  it('une seule instruction : DROP NOT NULL sur gestion_tache.lot_id ; aucune donnée écrite, la clé étrangère reste', () => {
+    const sql = coeur(contenu);
+    expect(sql).toEqual(['ALTER TABLE gestion_tache ALTER COLUMN lot_id DROP NOT NULL']);
+    expect(contenu).not.toMatch(/\b(UPDATE|INSERT|DELETE|TRUNCATE|DROP CONSTRAINT|DROP TABLE)\b/i);
   });
 });

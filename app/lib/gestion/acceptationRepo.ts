@@ -341,18 +341,19 @@ export type { TacheRecue } from './acceptationTache';
 
 const SQL_RECUES = `
   SELECT t.id::int AS tache_id, t.objet, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
-         t.etat, t.note, l.adresse, l.commune, d.demandeur_libelle, d.statut, d.cree_le, d.repondu_le, d.motif
+         t.etat, t.note, t.lot_id::int AS lot_id, l.adresse, l.commune, d.demandeur_libelle, d.statut, d.cree_le, d.repondu_le, d.motif
     FROM gestion_tache t
-    JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+    LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
     JOIN gestion_tache_demande d ON d.tache_id = t.id AND d.statut <> 'remplacee'`;
 
 type LigneRecue = { tache_id: number; objet: string; jour: string; heure: string | null; etat: string; note: string | null;
   adresse: string | null; commune: string | null; demandeur_libelle: string; statut: StatutAcceptation; cree_le: Date;
-  repondu_le: Date | null; motif: string | null };
+  repondu_le: Date | null; motif: string | null; lot_id?: number | null };
 
 const versRecue = (r: LigneRecue): TacheRecue => ({
   tacheId: Number(r.tache_id), objet: r.objet, jour: r.jour, heure: r.heure, etat: r.etat, note: r.note,
-  adresseBien: titreLogement(r.adresse, r.commune), demandeurLibelle: r.demandeur_libelle, statut: r.statut,
+  /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : aucune adresse (jamais « Adresse non renseignée »). */
+  adresseBien: r.lot_id === null ? '' : titreLogement(r.adresse, r.commune), demandeurLibelle: r.demandeur_libelle, statut: r.statut,
   demandeLe: iso(r.cree_le) ?? '', reponduLe: iso(r.repondu_le), motif: r.motif,
 });
 
@@ -372,10 +373,10 @@ export async function demandeDuJeton(jeton: string, utilisateurId: number | null
   const avecInvites = await invitesTacheDisponible();
   const { rows } = await query<LigneRecue & { destinataire_id: number | null; expire_le: Date | null; utilise_le: Date | null; statut_brut: string; invite_retire: boolean | null }>(
     `SELECT t.id::int AS tache_id, t.objet, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
-            t.etat, t.note, l.adresse, l.commune, d.demandeur_libelle, d.statut, d.statut AS statut_brut, d.cree_le,
+            t.etat, t.note, t.lot_id::int AS lot_id, l.adresse, l.commune, d.demandeur_libelle, d.statut, d.statut AS statut_brut, d.cree_le,
             d.repondu_le, d.motif, d.destinataire_id::int AS destinataire_id, d.expire_le, d.utilise_le,
             ${avecInvites ? '(i.retire_le IS NOT NULL)' : 'false'} AS invite_retire
-       FROM gestion_tache_demande d JOIN gestion_tache t ON t.id = d.tache_id JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       FROM gestion_tache_demande d JOIN gestion_tache t ON t.id = d.tache_id LEFT JOIN gestion_annuaire_lot l ON l.id = t.lot_id
        ${avecInvites ? 'LEFT JOIN gestion_tache_invite i ON i.id = d.invite_id' : ''}
       WHERE d.jeton_empreinte = $1`, [empreinteJeton(jeton)]);
   const r = rows[0];

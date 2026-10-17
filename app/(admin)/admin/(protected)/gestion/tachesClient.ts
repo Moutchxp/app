@@ -89,6 +89,8 @@ export interface SaisieEcran {
   invites?: number[];
   /** 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours rattachés ; absent ⇒ inchangés. */
   evenements?: number[];
+  /** 🔴 LOT GESTION-TACHES-SANS-BIEN — les contacts saisis à la main (tâche sans bien). */
+  contactsManuels?: { nom: string; qualite: string | null; telephone: string | null; email: string | null }[];
 }
 
 export type GesteTache =
@@ -117,7 +119,8 @@ export function agirSurTache(id: number, g: GesteTache): Promise<IssueGeste> {
   return envoyer(`/api/admin/gestion/taches/${id}`, 'PATCH', g);
 }
 
-export function creerTache(lotId: number, s: SaisieEcran): Promise<IssueGeste> {
+/** 🔴 LOT GESTION-TACHES-SANS-BIEN — `lotId` à `null` : une tâche sans bien. */
+export function creerTache(lotId: number | null, s: SaisieEcran): Promise<IssueGeste> {
   return envoyer('/api/admin/gestion/taches', 'POST', { lotId, ...s });
 }
 
@@ -227,8 +230,9 @@ async function lireDrive<T>(parametres: string, extraire: (d: Record<string, unk
 }
 
 /** Le dossier de départ : celui du bien (comme « Dossier Drive ↗ »), ou la racine avec un message. */
-export function lireDepartDrive(lotId: number) {
-  return lireDrive(`bien=${lotId}`, (d) => ({
+export function lireDepartDrive(lotId: number | null) {
+  /* 🔴 LOT GESTION-TACHES-SANS-BIEN — sans bien : la racine du Drive. */
+  return lireDrive(lotId === null ? 'bien=aucun' : `bien=${lotId}`, (d) => ({
     depart: d.depart as { id: string; nom: string }, message: (d.message as string | null) ?? null,
   }));
 }

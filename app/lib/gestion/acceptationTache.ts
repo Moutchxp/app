@@ -156,9 +156,9 @@ export const PREFIXE_OBJET = 'Tâche à accepter — ';
 /** Le Message-ID du mail commence par ceci : c'est la marque que le moteur de rattachement reconnaît. */
 export const PREFIXE_MESSAGE_ID = 'tache-acceptation.';
 
-/** « Tâche à accepter — 7 avenue de l'Union — Visite — mar. 13 oct. · journée ». PUR. */
-export function objetDemande(o: { adresseCourte: string; objet: string; echeance: string }): string {
-  return `${PREFIXE_OBJET}${o.adresseCourte} — ${o.objet.trim()} — ${o.echeance}`;
+/** « Tâche à accepter — 7 avenue de l'Union — Visite — mar. 13 oct. · journée » ; sans bien (`null`) : sans adresse. PUR. */
+export function objetDemande(o: { adresseCourte: string | null; objet: string; echeance: string }): string {
+  return `${PREFIXE_OBJET}${o.adresseCourte === null ? '' : `${o.adresseCourte} — `}${o.objet.trim()} — ${o.echeance}`;
 }
 
 /** Le Message-ID RFC 5322 du mail de demande. PUR. */

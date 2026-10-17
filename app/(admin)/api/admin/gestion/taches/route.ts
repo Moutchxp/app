@@ -55,8 +55,11 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ erreur: 'Les tâches ne sont pas encore installées (migration 346).' }, { status: 503 });
   }
   const corps = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const lotId = Number(corps.lotId);
-  if (!Number.isInteger(lotId) || lotId <= 0) return Response.json({ erreur: 'Bien inconnu.' }, { status: 400 });
+  /* 🔴 LOT GESTION-TACHES-SANS-BIEN (décision d'Arno, 17/10/2026) — `lotId` absent ou `null` : une tâche SANS bien. Une
+     valeur fournie mais illisible reste refusée (jamais une tâche « sans bien » par erreur de saisie). */
+  const sansBien = corps.lotId === null || corps.lotId === undefined;
+  const lotId = sansBien ? null : Number(corps.lotId);
+  if (lotId !== null && (!Number.isInteger(lotId) || lotId <= 0)) return Response.json({ erreur: 'Bien inconnu.' }, { status: 400 });
   const saisie = lireSaisie(corps);
   const refusSaisie = verifierSaisie(saisie);
   if (refusSaisie !== null) return Response.json({ erreur: refusSaisie.message, champ: refusSaisie.champ }, { status: 400 });

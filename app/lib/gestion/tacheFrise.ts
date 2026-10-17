@@ -21,6 +21,7 @@ export interface TacheFrise {
   etat: 'a_faire' | 'faite' | 'annulee';
   /** Le collaborateur qui a envoyé l'invitation (à défaut, le créateur). */
   expediteur: string;
+  /** `''` = tâche sans bien : la ligne « Adresse du bien » est omise de la bulle. */
   adresse: string;
   invites: { libelle: string; statut: StatutAcceptation | null }[];
   contacts: { nom: string; role: string; coordonnees: string[] }[];
@@ -65,8 +66,8 @@ export function bulleTacheFrise(t: TacheFrise): { titre: string; etat: string | 
     { titre: 'Date de la mission', lignes: [{ texte: dateMissionTache(t.jour, t.heure, t.dureeMinutes) }] },
     { titre: 'Envoyé par', lignes: [{ texte: t.expediteur }] },
     { titre: `Invités (${t.invites.length})`, lignes: t.invites.map((i) => ({ texte: i.libelle, discret: i.statut === null ? MOT_STATUT.acceptee : MOT_STATUT[i.statut] })) },
-    { titre: 'Adresse du bien', lignes: [{ texte: t.adresse }] },
   ];
+  if (t.adresse.trim() !== '') parties.push({ titre: 'Adresse du bien', lignes: [{ texte: t.adresse }] });
   if (t.contacts.length > 0) {
     parties.push({ titre: `Contacts (${t.contacts.length})`, lignes: t.contacts.map((c) => ({
       texte: c.nom, discret: [c.role, ...c.coordonnees].filter((x) => x.trim() !== '').join(' · ') || undefined,
