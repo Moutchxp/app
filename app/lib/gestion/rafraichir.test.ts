@@ -158,7 +158,8 @@ describe('les garanties du battement dans l’écran', () => {
    * de fin, et il est unique.
    */
   const debutBattement = vue.indexOf('const empreinte = useRef');
-  const finBattement = vue.indexOf('}, [rafraichirDiscret, gesteEnCours, releveEnCours]);');
+  // LOT GESTION-TITRE-TACHES — `ecran` entre dans les dépendances (pas de battement sur la page Tâches).
+  const finBattement = vue.indexOf('}, [rafraichirDiscret, gesteEnCours, releveEnCours, ecran]);');
   const battement = vue.slice(debutBattement, finBattement);
 
   it('🔴 la minuterie est TOUJOURS annulée — sinon elle survit au démontage et s’empile', () => {

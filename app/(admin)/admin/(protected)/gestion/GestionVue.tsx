@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CarteEvenement, EtatEcran, LigneFile } from '../../../../lib/gestion/fileRepo';
 import {
   depuis, etatVeille, formaterDateFr, libelleEtat, LIBELLE_CLASSER, mentionTroncature, messageErreurHttp,
-  messageEvenementsVide, messageFileVide, messageReleve,
+  messageEvenementsVide, messageFileVide, messageReleve, TITRE_PAGE_TACHES,
 } from '../../../../lib/gestion/ecran';
 import {
   ecrireEtatUrl, ETAT_DEFAUT, ETIQUETTE_ARRIVEE, ETIQUETTE_RECEPTION, lireEtatUrl, memeEtat,
@@ -657,6 +657,11 @@ export function GestionVue({ intro }: {
   const tachesDuJour = compterTachesDuJour(tachesLues, minute);
 
   useEffect(() => {
+    // 🔴 LOT GESTION-TITRE-TACHES — la page Tâches n'affiche plus l'état de la relève : pas de battement ici. Il
+    //   reprend (avec une mesure immédiate) dès qu'on revient sur un autre écran. L'ADRESSE est lue aussi : au premier
+    //   rendu, `ecran` vaut encore le défaut (la boîte) le temps que l'effet de montage la lise — sans quoi une
+    //   ouverture directe de `?ecran=taches` mesurait une fois la relève pour rien.
+    if (ecran === 'taches' || lireEtatUrl(window.location.search).ecran === 'taches') return;
     let vivant = true;
 
     const battre = async (): Promise<void> => {
@@ -722,7 +727,7 @@ export function GestionVue({ intro }: {
       clearInterval(minuterie);
       document.removeEventListener('visibilitychange', surVisibilite);
     };
-  }, [rafraichirDiscret, gesteEnCours, releveEnCours]);
+  }, [rafraichirDiscret, gesteEnCours, releveEnCours, ecran]);
 
   /**
    * LOT 5e — le contexte de rédaction, demandé UNE FOIS au montage. Un échec le laisse à `null` : aucun bouton
@@ -1144,6 +1149,8 @@ export function GestionVue({ intro }: {
   /** 🔴 LOT HISTORIQUE-PERSONNE-SANS-BANDEAU — l'écran d'historique d'une fiche propriétaire ou locataire. */
   const historiquePersonne = ecran === 'historique' && cibleHistorique !== null
     && (cibleHistorique.sorte === 'proprietaire' || cibleHistorique.sorte === 'locataire');
+  /** 🔴 LOT GESTION-TITRE-TACHES — la page Tâches n'a plus le bloc d'en-tête (relève, alertes, copie Drive). */
+  const sansBlocEnTete = ecran === 'taches';
 
   /**
    * ══ 🔴 LOT VEILLE-VIVE — LE BANDEAU JUGE SUR CE QUE LE BATTEMENT A VU ═══════════════════════════════════════════
@@ -1218,6 +1225,20 @@ export function GestionVue({ intro }: {
           ailleurs, la relève et la copie tournent comme avant, et les ALERTES (relève arrêtée, copie arrêtée,
           rattachement en échec) s'affichent toujours, ici compris. Le titre « Gestion » reste. */}
       {historiquePersonne && <style>{'.gst-page > .svv-page-head > .svv-page-sub{display:none}'}</style>}
+      {/* ══ 🔴🔴 LOT GESTION-TITRE-TACHES (accord explicite d'Arno, 17/10/2026, LIMITÉ À LA PAGE TÂCHES) ════════════════
+          Sur `?ecran=taches`, tout le bloc au-dessus du cadre des tâches s'en va : le titre « Gestion » et sa phrase
+          (rendus par la page serveur, d'où la feuille, même patron que l'annuaire), le cadre « Dernière relève… » et
+          ses quatre boutons, les lignes de relève automatique, de rattachement et de copie vers le Drive (alertes
+          comprises). À la place, le titre « Tableau de bord des tâches », mêmes classes que celui de `EnTetePage`.
+          🔴 PARTOUT AILLEURS RIEN NE BOUGE — la boîte, les événements, l'annuaire gardent exactement ce qu'ils
+          avaient. Les mécanismes tournent toujours (relève automatique, copie) : on retire un affichage. Le battement
+          qui ne servait qu'à ce bloc (statut de relève) ne tourne plus sur cette page, et reprend dès qu'on la quitte. */}
+      {ecran === 'taches' && <style>{'.gst-page > .svv-page-head:not(.gst-titre-taches){display:none}'}</style>}
+      {ecran === 'taches' && (
+        <header className="svv-page-head gst-titre-taches">
+          <div className="svv-page-head-ligne"><h1 className="svv-page-title">{TITRE_PAGE_TACHES}</h1></div>
+        </header>
+      )}
       {/* ══ 🔴🔴 RETIRÉ LE 07/10/2026 — LOT ADMIN-PLEINE-LARGEUR ═══════════════════════════════════════════════
           Vivait ici une règle conditionnelle qui levait `.gst-page{max-width:1120px}` POUR LE SEUL écran partagé
           (lot ECRAN-PARTAGE-PLEINE-LARGEUR, 0ae9eb79). Elle était bornée à cet écran parce que l'annuaire et
@@ -1300,6 +1321,7 @@ export function GestionVue({ intro }: {
           conditions, juste plus bas, ne sont pas touchées.
           ⚠️ LES ALERTES NON PLUS : « relève arrêtée », « copie arrêtée », « envoi en échec » s'affichent sur TOUS
           les écrans, celui-ci compris. Masquer une sécurité pour gagner de la place, c'est la retirer. */}
+      {sansBlocEnTete ? null : (<>
       {ecran !== 'boite' && ecran !== 'annuaire' && ecran !== 'partage' && ecran !== 'evenements' && !historiquePersonne && (
       <div className="gst-bandeau gst-bandeau--compact" role="status">
         {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
@@ -1405,6 +1427,7 @@ export function GestionVue({ intro }: {
            et reste dans la colonne de la boîte en plein écran. L'ARRÊT SUBI, lui, crie partout. */
         <p className="gst-veille" role="status">{copie.texte}</p>
       )}
+      </>)}
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
       {/* ══ 🔴 LOT ENVOI-ARRIERE-PLAN — CE QUI N'EST PAS (ENCORE) PARTI ═══════════════════════════════════════
           En TÊTE du module, et pas au fond d'un écran : un mail qui n'est pas parti doit se voir là où l'on

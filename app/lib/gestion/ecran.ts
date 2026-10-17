@@ -502,6 +502,9 @@ export const LIBELLE_CLASSER = 'Classer dans une carte';
  * ⚠️ Elle vit ICI et non dans la page : deux copies de la même phrase divergent au premier mot changé, et c'est
  * toujours celle qu'on lit le moins qui garde l'ancienne version.
  */
+/** 🔴 LOT GESTION-TITRE-TACHES (Arno, 17/10/2026) — le titre de la page Tâches, à la place de « Gestion ». */
+export const TITRE_PAGE_TACHES = 'Tableau de bord des tâches';
+
 export const INTRO_GESTION =
   /**
    * 🔴 LOT STATUT-HORS-GESTION — TEXTE DICTÉ PAR ARNO, MOT POUR MOT (28/09/2026).
