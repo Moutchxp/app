@@ -33,8 +33,13 @@ beforeEach(() => {
     const u = String(url);
     if (u.includes('anciens=1')) return ok({ lignes: [{ id: 9, nom: 'ANCIEN Proprio', biens: 0, numeroMandat: null }], total: 1, page: 0 });
     if (u.includes('q=')) {
-      return ok({ proprietaires: [{ id: 1, titre: 'EXEMPLE Claire', detail: '14 rue de l’Essai' }], locataires: [],
-        syndics: [{ id: 5, titre: 'FONCIA Courbevoie', detail: 'Courbevoie' }], biens: [{ id: 10, titre: '10 rue de l’Essai, PARIS', detail: 'EXEMPLE Claire' }], tronque: false });
+      const l = (id: number, titre: string, o: Record<string, unknown> = {}) => ({ id, titre, telephone: null, email: null, adresse: null, detail: null, ancien: false, ...o });
+      return ok({
+        proprietaires: [l(1, 'EXEMPLE Claire', { telephone: '06 12 34 56 78', email: 'claire@exemple.test', adresse: '14 rue de l’Essai, PARIS' }),
+          l(3, 'ANCIEN Paul', { ancien: true })],
+        locataires: [],
+        syndics: [l(5, 'FONCIA Courbevoie', { telephone: '01 40 00 00 00' })],
+        biens: [l(10, '10 rue de l’Essai, PARIS', { detail: 'EXEMPLE Claire' })], tronque: false });
     }
     if (u.includes('liste=proprietaires')) return ok({ lignes: [{ id: 1, nom: 'EXEMPLE Claire', biens: 2, numeroMandat: null }], total: 1, page: 0 });
     if (u.includes('liste=locataires')) return ok({ lignes: [{ id: 2, nom: 'MODÈLE Jules', enPlace: true, logement: '14 rue', lotId: 10 }], total: 1, page: 0 });
@@ -60,24 +65,17 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++
 const bouton = (texte: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === texte) as HTMLButtonElement;
 
 describe('🔴 /admin/location ne plante plus', () => {
-  it('① (écran Propriétaires et biens) passer de Propriétaires à Biens pendant le chargement : « Chargement… », jamais les propriétaires lus comme des biens', async () => {
+  it('① écran Propriétaires et biens : les 2 gros boutons (effet 3D), sans l’ancien bouton ni le tableau (retraits décidés par Arno)', async () => {
     await act(async () => { root.render(createElement(EcranProprietairesBiens)); });
     await calmer();
-    expect(container.textContent).toContain('EXEMPLE Claire');
-    // Les 2 gros boutons en haut ; l'ancien bouton et les listes restent (rien n'est retiré).
-    expect([...container.querySelectorAll('a.loc-gros-bouton')].map((x) => x.getAttribute('href')))
+    expect([...container.querySelectorAll('.loc-gros-boutons--3d a.loc-gros-bouton')].map((x) => x.getAttribute('href')))
       .toEqual(['/admin/location/nouveau-proprietaire', '/admin/location/nouveau-bien']);
-    expect(container.querySelector('a[href="/admin/location/nouveau"]')).not.toBeNull();
-    expect(container.querySelector('[role="tablist"]')).not.toBeNull();
-    await act(async () => { bouton('Biens').click(); });
-    // La réponse n'est pas encore là : l'onglet Biens est « en chargement », sans erreur.
-    expect(container.textContent).toContain('Chargement…');
-    expect(container.querySelector('a[href="/admin/location/proprietaire/1"]')).toBeNull();
-    await act(async () => { lacherBiens?.(); });
-    await calmer();
-    // ② un bien SANS champ `annexes` et un bien à `annexes: []` s'affichent tous les deux.
-    expect(container.querySelector('a[href="/admin/location/bien/10"]')).not.toBeNull();
-    expect(container.querySelector('a[href="/admin/location/bien/11"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/admin/location/nouveau"]')).toBeNull();
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    expect(container.textContent).not.toContain('EXEMPLE Claire');
+    // Même en-tête que l'accueil (classes d'EnTetePage), puis le même espace réservé que sous le moteur.
+    expect(container.querySelector('.svv-page-head .svv-page-title')?.textContent).toBe('Propriétaires et biens');
+    expect(container.querySelector('[data-espace-accueil]')?.className).toBe('loc-zone-resultats loc-zone-resultats--vide');
   });
 
   it('③ écran Locataires : la liste, et la bascule « Anciens »', async () => {
@@ -98,7 +96,7 @@ describe('🔴 /admin/location ne plante plus', () => {
     expect(container.querySelectorAll('[data-annexe="oui"]')).toHaveLength(0);
   });
 
-  it('④ l’accueil : un moteur en haut, résultats groupés par type ; puis les 3 grosses cases', async () => {
+  it('④ l’accueil : un moteur en haut, UNE LISTE de résultats (une ligne chacun, anciens en bas) ; puis les 3 grosses cases', async () => {
     await act(async () => { root.render(createElement(AccueilLocation)); });
     await calmer();
     const cases = [...container.querySelectorAll('a.loc-case')].map((a) => a.getAttribute('href'));
@@ -119,9 +117,25 @@ describe('🔴 /admin/location ne plante plus', () => {
     });
     await act(async () => { await new Promise((r) => setTimeout(r, 260)); });
     await calmer();
-    expect(zone().className).toBe('loc-zone-resultats loc-bloc');
-    expect([...container.querySelectorAll('[data-groupe]')].map((g) => g.getAttribute('data-groupe'))).toEqual(['proprietaires', 'syndics', 'biens']);
-    expect(container.querySelector('a[href="/admin/location/syndic/5"]')).not.toBeNull();
-    expect(container.querySelector('a[href="/admin/location/bien/10"]')).not.toBeNull();
+    // UNE LISTE UNIQUE : propriétaires, syndics, biens… puis l'ANCIEN tout en bas, grisé et nommé.
+    const lignes = [...container.querySelectorAll('a.loc-res-ligne')];
+    expect(lignes.map((a) => a.getAttribute('href'))).toEqual([
+      '/admin/location/proprietaire/1', '/admin/location/syndic/5', '/admin/location/bien/10', '/admin/location/proprietaire/3']);
+    expect(lignes.map((a) => a.querySelector('.loc-res-type')?.textContent)).toEqual(['Propriétaire', 'Syndic', 'Bien', 'Ancien · Propriétaire']);
+    expect(lignes[0].textContent).toContain('06 12 34 56 78');
+    expect(lignes[0].textContent).toContain('claire@exemple.test');
+    expect(lignes[0].textContent).toContain('14 rue de l’Essai, PARIS');
+    expect(lignes[3].className).toContain('loc-res-ligne--ancien');
+    expect(container.textContent).toContain('Anciens — sortis du portefeuille');
+    // Le panneau s'ancre dans l'espace réservé : les cases restent à leur place, toujours présentes.
+    expect(zone().querySelector('[data-panneau]')).not.toBeNull();
+    expect(container.querySelectorAll('a.loc-case')).toHaveLength(3);
+    // Flèche bas : la première ligne est visée ; Échap : la recherche est vidée, l'espace réservé redevient vide.
+    await act(async () => { champ.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })); });
+    expect(lignes[0].getAttribute('aria-selected')).toBe('true');
+    await act(async () => { champ.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(champ.value).toBe('');
+    expect(zone().querySelector('[data-panneau]')).toBeNull();
+    expect(zone().textContent).toBe('');
   });
 });

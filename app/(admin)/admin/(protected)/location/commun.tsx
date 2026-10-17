@@ -171,15 +171,17 @@ export const CSS_LOCATION_ECRANS = `
 /* L'EFFET 3D des 3 grosses cases : soulèvement + petit agrandissement + ombre forte et diffuse, ~200 ms ; au survol (souris
    seulement — rien sur un écran tactile) et au focus clavier. Ombre en couleurs du thème : sombre en Clair ; en Sombre, un
    halo clair (une ombre noire ne se verrait pas sur le fond le plus sombre du thème). */
-.loc-cases--accueil{--loc-ombre-case:0 22px 44px -12px color-mix(in srgb, var(--color-svv-ink) 38%, transparent),0 8px 16px -8px color-mix(in srgb, var(--color-svv-ink) 22%, transparent)}
-.svv-adm-root[data-theme='dark'] .loc-cases--accueil{--loc-ombre-case:0 22px 48px -10px color-mix(in srgb, var(--color-svv-line-strong-hover) 55%, transparent),0 0 0 1px var(--color-svv-line-strong-hover)}
-@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system'] .loc-cases--accueil{--loc-ombre-case:0 22px 48px -10px color-mix(in srgb, var(--color-svv-line-strong-hover) 55%, transparent),0 0 0 1px var(--color-svv-line-strong-hover)} }
-.loc-cases--accueil .loc-case{transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
-.loc-cases--accueil .loc-case:focus-visible{transform:translateY(-6px) scale(1.02);box-shadow:var(--loc-ombre-case);border-color:var(--color-svv-line-strong-hover)}
+.loc-cases--accueil,.loc-gros-boutons--3d{--loc-ombre-case:0 22px 44px -12px color-mix(in srgb, var(--color-svv-ink) 38%, transparent),0 8px 16px -8px color-mix(in srgb, var(--color-svv-ink) 22%, transparent)}
+.svv-adm-root[data-theme='dark'] .loc-cases--accueil,.svv-adm-root[data-theme='dark'] .loc-gros-boutons--3d{--loc-ombre-case:0 22px 48px -10px color-mix(in srgb, var(--color-svv-line-strong-hover) 55%, transparent),0 0 0 1px var(--color-svv-line-strong-hover)}
+@media (prefers-color-scheme: dark){ .svv-adm-root[data-theme='system'] .loc-cases--accueil,.svv-adm-root[data-theme='system'] .loc-gros-boutons--3d{--loc-ombre-case:0 22px 48px -10px color-mix(in srgb, var(--color-svv-line-strong-hover) 55%, transparent),0 0 0 1px var(--color-svv-line-strong-hover)} }
+/* Le MÊME effet sur les 3 cases de l'accueil ET sur les 2 gros boutons de l'écran ① (Arno, 17/10/2026). */
+.loc-cases--accueil .loc-case,.loc-gros-boutons--3d .loc-gros-bouton{transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease}
+.loc-cases--accueil .loc-case:focus-visible,.loc-gros-boutons--3d .loc-gros-bouton:focus-visible{transform:translateY(-6px) scale(1.02);box-shadow:var(--loc-ombre-case);border-color:var(--color-svv-line-strong-hover)}
 @media (hover:hover) and (pointer:fine){
-  .loc-cases--accueil .loc-case:hover{transform:translateY(-6px) scale(1.02);box-shadow:var(--loc-ombre-case);border-color:var(--color-svv-line-strong-hover)}
+  .loc-cases--accueil .loc-case:hover,.loc-gros-boutons--3d .loc-gros-bouton:hover{transform:translateY(-6px) scale(1.02);box-shadow:var(--loc-ombre-case);border-color:var(--color-svv-line-strong-hover)}
 }
-@media (prefers-reduced-motion:reduce){ .loc-cases--accueil .loc-case{transition:none} .loc-cases--accueil .loc-case:hover,.loc-cases--accueil .loc-case:focus-visible{transform:none} }
+@media (prefers-reduced-motion:reduce){ .loc-cases--accueil .loc-case,.loc-gros-boutons--3d .loc-gros-bouton{transition:none} .loc-cases--accueil .loc-case:hover,.loc-cases--accueil .loc-case:focus-visible,.loc-gros-boutons--3d .loc-gros-bouton:hover,.loc-gros-boutons--3d .loc-gros-bouton:focus-visible{transform:none} }
+.loc-tete-comme-accueil.svv-page-head{margin:0}
 .loc-cases--accueil .loc-case-phrase{font-size:1rem;line-height:1.5}
 .loc-bascule{display:inline-flex;border:1px solid var(--color-svv-line-strong);border-radius:10px;overflow:hidden}
 .loc-bascule button{border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:0 14px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}

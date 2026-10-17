@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
 import { ListeLocation } from './ListesLocation';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
@@ -11,28 +10,28 @@ import type { FicheSyndic } from '../../../../lib/gestion/syndics';
  * Ce qui était sur l'ancien accueil (onglets, listes, boutons) est ICI, déplacé, pas perdu.
  */
 export function EcranProprietairesBiens() {
-  const [onglet, setOnglet] = useState<'proprietaires' | 'biens'>('proprietaires');
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
-      <EnTeteLocation titre="Propriétaires et biens"
-        sous="Créer un propriétaire avec son bien et ses annexes ; « supprimer » = sortir du portefeuille, depuis la fiche (rien n’est effacé)."
-        actions={<a className="svv-btn svv-btn-primary gst-btn" href="/admin/location/nouveau">+ Nouveau propriétaire + bien</a>} />
-      {/* Arno (17/10/2026) : « en haut, 2 GROS BOUTONS côte à côte, chacun la moitié de la largeur (empilés au téléphone) ».
-          Les listes restent dessous : rien n'est retiré (le bouton « + Nouveau propriétaire + bien » non plus). */}
-      <ul className="loc-gros-boutons" aria-label="Créer">
+      <p className="loc-retour"><a href="/admin/location">← Location</a></p>
+      {/* Arno (17/10/2026) : titre → légende, puis légende → 2 gros boutons, EXACTEMENT les espacements de l'accueil (titre →
+          légende, puis moteur de recherche → 3 grosses cases). D'où les MÊMES classes d'en-tête que l'accueil (`svv-page-*`,
+          celles d'`EnTetePage`), puis le MÊME espace réservé que sous le moteur (`loc-zone-resultats`, vide). */}
+      <header className="svv-page-head loc-tete-comme-accueil">
+        <div className="svv-page-head-ligne"><h1 className="svv-page-title">Propriétaires et biens</h1></div>
+        <p className="svv-page-sub">Créer un propriétaire avec son bien et ses annexes ; « supprimer » = sortir du portefeuille, depuis la fiche (rien n’est effacé).</p>
+      </header>
+      <div className="loc-zone-resultats loc-zone-resultats--vide" aria-hidden="true" data-espace-accueil />
+      {/* « 2 GROS BOUTONS côte à côte, chacun la moitié de la largeur (empilés au téléphone) », avec le MÊME effet 3D que les
+          3 cases de l'accueil. Retirés sur décision d'Arno (17/10/2026) : le bouton « + Nouveau propriétaire + bien » (doublon de
+          ces 2 boutons) et le tableau Propriétaires / Biens (onglets, Actifs / Anciens, liste paginée) — les fiches, anciens
+          compris, s'ouvrent par le moteur de recherche de l'accueil. */}
+      <ul className="loc-gros-boutons loc-gros-boutons--3d" aria-label="Créer">
         <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/nouveau-proprietaire" data-gros="proprietaire">
           Créer un nouveau propriétaire<small>Une carte de contact par personne (couple, indivision, SCI…), puis son bien.</small></a></li>
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-bien" data-gros="bien">
           Ajouter un nouveau bien<small>Pour un propriétaire déjà connu : adresse, logement, copropriété, annexes, DPE…</small></a></li>
       </ul>
-      <section className="loc-bloc">
-        <div className="loc-onglets" role="tablist">
-          <button type="button" role="tab" aria-selected={onglet === 'proprietaires'} onClick={() => setOnglet('proprietaires')}>Propriétaires</button>
-          <button type="button" role="tab" aria-selected={onglet === 'biens'} onClick={() => setOnglet('biens')}>Biens</button>
-        </div>
-        <ListeLocation key={onglet} sorte={onglet} />
-      </section>
     </div>
   );
 }

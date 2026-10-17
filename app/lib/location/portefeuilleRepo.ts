@@ -6,7 +6,7 @@ import { ajouterOccupant, creerPersonne } from '../gestion/annuaireEditionRepo';
 import { ficheSyndic } from '../gestion/syndicRepo';
 import type { FicheSyndic } from '../gestion/syndics';
 import type { Auteur } from '../gestion/gestes';
-import { analyserTermePortefeuille, type ResultatsAccueil, type SortiePortefeuille } from './recherchePortefeuille';
+import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, type SortiePortefeuille } from './recherchePortefeuille';
 import type { Issue } from './locationRepo';
 
 /**
@@ -35,17 +35,24 @@ export async function sqlBienDuPortefeuille(alias: string): Promise<string> {
   return `${alias}.gestion_fin IS NULL AND ${alias}.absent_le IS NULL${await sqlDansPortefeuille(alias)}`;
 }
 
-const LIMITE = 8;
+/** Par type de résultat : le panneau prend tout l'écran et défile (retouche d'Arno du 17/10/2026). */
+const LIMITE = 25;
 
 /**
- * LA RECHERCHE DE L'ACCUEIL. Chaque groupe est borné (8) ; `tronque` dit qu'il y en a d'autres.
- * 🔴 L'ADRESSE ne sert QU'AUX BIENS du portefeuille — jamais à trouver une personne ou un syndic.
+ * LA RECHERCHE DE L'ACCUEIL. Chaque type est borné (25) ; `tronque` dit qu'il y en a d'autres.
+ * 🔴 L'ADRESSE ne sert QU'AUX BIENS du portefeuille — jamais à trouver une personne ou un syndic ; l'adresse affichée sur
+ *    une ligne de personne est celle d'un de SES biens du portefeuille, jamais son adresse personnelle.
+ * 🔴 LES ANCIENS (fiches sorties du portefeuille) sont rendus aussi, marqués `ancien` : l'écran les met en bas, grisés.
+ *    Un bien en fin de gestion ou absent du dernier export, lui, n'est pas du portefeuille : il n'apparaît pas.
+ * Rangement dans chaque type : les actifs d'abord, puis la PERTINENCE (le nom commence par le premier mot tapé), puis le nom.
  */
 export async function rechercherPortefeuille(brut: string): Promise<ResultatsAccueil> {
   const t = analyserTermePortefeuille(brut);
   const vide: ResultatsAccueil = { proprietaires: [], locataires: [], syndics: [], biens: [], tronque: false };
   if (t.vide) return vide;
   const coordVivante = await conditionCoordonneeVivante('c');
+  const avecSortie = await sortieDisponible();
+  const ancien = (alias: string): string => (avecSortie ? `(${alias}.sorti_portefeuille_le IS NOT NULL)` : 'false');
   // La condition « une coordonnée de cette personne correspond » : chiffres d'un téléphone, ou morceau d'e-mail.
   const parCoordonnee = (sujet: string, alias: string, n: number): string => {
     const tests: string[] = [];
@@ -56,25 +63,38 @@ export async function rechercherPortefeuille(brut: string): Promise<ResultatsAcc
   };
   const parNom = (colonne: string): string => (t.mots.length === 0 ? 'false'
     : t.mots.map((_, i) => `${colonne} LIKE '%' || ($3::text[])[${i + 1}] || '%'`).join(' AND '));
+  /** 0 = le nom commence par le premier mot tapé (ou trouvé par téléphone / e-mail) ; 1 sinon. */
+  // ⚠️ `0::int` et non `0` : un entier NU dans un ORDER BY est lu comme un NUMÉRO DE COLONNE (« position 0 » refusée).
+  const pertinence = (colonne: string): string => (t.mots.length === 0 ? '0::int' : `CASE WHEN ${colonne} LIKE ($3::text[])[1] || '%' THEN 0 ELSE 1 END`);
+  const coordonnee = (sujet: string, alias: string, sorte: 'telephone' | 'email'): string => `(SELECT c.valeur_brute FROM gestion_annuaire_contact c
+      WHERE c.sujet = '${sujet}' AND c.sujet_id = ${alias}.id AND c.sorte = '${sorte}' AND c.absent_le IS NULL${coordVivante} ORDER BY c.rang, c.id LIMIT 1)`;
+  /** Un bien du portefeuille OU sorti du portefeuille (jamais en fin de gestion ni absent de l'export), sans les annexes. */
+  const bienConnu = (alias: string): string => `${alias}.gestion_fin IS NULL AND ${alias}.absent_le IS NULL
+      AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = ${alias}.id)`;
   const params = [t.chiffres ?? '', t.email ?? '', t.mots];
   // Les trois paramètres sont TOUJOURS cités (une clause neutre) : PostgreSQL refuse un paramètre transmis mais inutilisé.
   const NEUTRE = `(length($1::text) >= 0 AND length($2::text) >= 0 AND cardinality($3::text[]) >= 0)`;
   const vivanteP = await sqlPersonneVivante('p');
-  const portefeuilleP = await sqlDansPortefeuille('p');
+  type Ligne = { id: string; nom: string; telephone: string | null; email: string | null; adresse: string | null; detail: string | null; ancien: boolean };
 
-  const { rows: prop } = await query<{ id: string; nom: string; detail: string | null }>(
-    `SELECT p.id::text, p.nom_complet AS nom,
-            (SELECT nullif(concat_ws(', ', l.adresse, l.commune), '') FROM gestion_annuaire_lot l WHERE l.proprietaire_id = p.id ORDER BY l.id LIMIT 1) AS detail
+  const { rows: prop } = await query<Ligne>(
+    `SELECT p.id::text, p.nom_complet AS nom, ${coordonnee('proprietaire', 'p', 'telephone')} AS telephone,
+            ${coordonnee('proprietaire', 'p', 'email')} AS email, NULL::text AS detail, ${ancien('p')} AS ancien,
+            (SELECT nullif(concat_ws(', ', l.adresse, l.commune), '') FROM gestion_annuaire_lot l
+              WHERE (l.proprietaire_id = p.id OR l.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = p.id AND lp.jusqu_a IS NULL))
+                AND ${bienConnu('l')} ORDER BY ${avecSortie ? 'l.sorti_portefeuille_le IS NOT NULL, ' : ''}l.id LIMIT 1) AS adresse
        FROM gestion_annuaire_proprietaire p
-      WHERE ${NEUTRE} AND ${vivanteP}${portefeuilleP} AND (${parNom('p.nom_normalise')} OR ${parCoordonnee('proprietaire', 'p', 1)})
-      ORDER BY p.nom_normalise LIMIT ${LIMITE + 1}`, params);
-  const { rows: loc } = await query<{ id: string; nom: string; detail: string | null }>(
-    `SELECT p.id::text, p.nom,
+      WHERE ${NEUTRE} AND ${vivanteP} AND (${parNom('p.nom_normalise')} OR ${parCoordonnee('proprietaire', 'p', 1)})
+      ORDER BY ${ancien('p')}, ${pertinence('p.nom_normalise')}, p.nom_normalise, p.id LIMIT ${LIMITE + 1}`, params);
+  const { rows: loc } = await query<Ligne>(
+    `SELECT p.id::text, p.nom, ${coordonnee('locataire', 'p', 'telephone')} AS telephone,
+            ${coordonnee('locataire', 'p', 'email')} AS email, NULL::text AS detail, ${ancien('p')} AS ancien,
             (SELECT nullif(concat_ws(', ', l.adresse, l.commune), '') FROM gestion_annuaire_occupation o JOIN gestion_annuaire_lot l ON l.id = o.lot_id
-              WHERE o.locataire_id = p.id ORDER BY (o.sortie IS NULL) DESC, o.entree DESC NULLS LAST LIMIT 1) AS detail
+              WHERE o.locataire_id = p.id AND l.gestion_fin IS NULL AND l.absent_le IS NULL
+              ORDER BY (o.sortie IS NULL) DESC, o.entree DESC NULLS LAST LIMIT 1) AS adresse
        FROM gestion_annuaire_locataire p
-      WHERE ${NEUTRE} AND ${vivanteP}${portefeuilleP} AND (${parNom('p.nom_normalise')} OR ${parCoordonnee('locataire', 'p', 1)})
-      ORDER BY p.nom_normalise LIMIT ${LIMITE + 1}`, params);
+      WHERE ${NEUTRE} AND ${vivanteP} AND (${parNom('p.nom_normalise')} OR ${parCoordonnee('locataire', 'p', 1)})
+      ORDER BY ${ancien('p')}, ${pertinence('p.nom_normalise')}, p.nom_normalise, p.id LIMIT ${LIMITE + 1}`, params);
   // Les syndics de la Gestion : nom, téléphone (fiche ou contacts), e-mail (fiche ou contacts). Jamais leur adresse.
   const testsSyndic: string[] = [];
   if (t.mots.length > 0) testsSyndic.push(t.mots.map((_, i) => `lower(s.nom) LIKE '%' || ($3::text[])[${i + 1}] || '%'`).join(' AND '));
@@ -89,28 +109,34 @@ export async function rechercherPortefeuille(brut: string): Promise<ResultatsAcc
     testsSyndic.push(`EXISTS (SELECT 1 FROM gestion_syndic_contact ct JOIN gestion_syndic_coordonnee k ON k.contact_id = ct.id
       WHERE ct.syndic_id = s.id AND ct.retire_le IS NULL AND k.retire_le IS NULL AND k.sorte = 'email' AND lower(k.valeur) LIKE '%' || $2 || '%')`);
   }
-  const { rows: syn } = testsSyndic.length === 0 ? { rows: [] as { id: string; nom: string; detail: string | null }[] }
-    : await query<{ id: string; nom: string; detail: string | null }>(
-      `SELECT s.id::text, s.nom, s.ville AS detail FROM gestion_syndic s
+  const { rows: syn } = testsSyndic.length === 0 ? { rows: [] as Ligne[] }
+    : await query<Ligne>(
+      `SELECT s.id::text, s.nom, nullif(coalesce(nullif(s.telephone, ''), s.telephone_2), '') AS telephone, nullif(s.email, '') AS email,
+              NULL::text AS adresse, s.ville AS detail, false AS ancien
+         FROM gestion_syndic s
         WHERE ${NEUTRE} AND s.supprime_le IS NULL AND (${testsSyndic.map((x) => `(${x})`).join(' OR ')})
-        ORDER BY lower(s.nom) LIMIT ${LIMITE + 1}`, params);
-  // Les biens : par leur SEULE adresse, et seulement ceux du portefeuille.
-  const { rows: biens } = t.mots.length === 0 ? { rows: [] as { id: string; adresse: string | null; commune: string | null; proprietaire: string | null }[] }
-    : await query<{ id: string; adresse: string | null; commune: string | null; proprietaire: string | null }>(
-      `SELECT lo.id::text, lo.adresse, lo.commune, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire
+        ORDER BY ${pertinence('lower(s.nom)')}, lower(s.nom), s.id LIMIT ${LIMITE + 1}`, params);
+  // Les biens : par leur SEULE adresse, ceux du portefeuille (et les sortis, marqués anciens).
+  const { rows: biens } = t.mots.length === 0 ? { rows: [] as Ligne[] }
+    : await query<Ligne>(
+      `SELECT lo.id::text, nullif(concat_ws(', ', lo.adresse, lo.commune), '') AS nom, NULL::text AS telephone, NULL::text AS email,
+              nullif(concat_ws(', ', lo.adresse, lo.commune), '') AS adresse, coalesce(pr.nom_complet, lo.proprietaire_texte) AS detail,
+              ${ancien('lo')} AS ancien
          FROM gestion_annuaire_lot lo LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
-        WHERE ${await sqlBienDuPortefeuille('lo')}
-          -- Une annexe porte l'adresse de son logement : elle ne s'affiche pas en double, on la trouve dans l'arbre du logement.
-          AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)
+        WHERE ${bienConnu('lo')}
           AND ${t.mots.map((_, i) => `coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[${i + 1}] || '%'`).join(' AND ')}
-        ORDER BY lo.adresse_normalisee, lo.id LIMIT ${LIMITE + 1}`, [t.mots]);
+        ORDER BY ${ancien('lo')}, lo.adresse_normalisee, lo.id LIMIT ${LIMITE + 1}`, [t.mots]);
 
+  const ligne = (r: Ligne, titreParDefaut: string): LigneRecherche => ({
+    id: Number(r.id), titre: r.nom ?? titreParDefaut, telephone: r.telephone, email: r.email, adresse: r.adresse,
+    detail: r.detail, ancien: r.ancien === true,
+  });
   const borne = <T>(l: T[]): T[] => l.slice(0, LIMITE);
   return {
-    proprietaires: borne(prop).map((r) => ({ id: Number(r.id), titre: r.nom, detail: r.detail })),
-    locataires: borne(loc).map((r) => ({ id: Number(r.id), titre: r.nom, detail: r.detail })),
-    syndics: borne(syn).map((r) => ({ id: Number(r.id), titre: r.nom, detail: r.detail })),
-    biens: borne(biens).map((r) => ({ id: Number(r.id), titre: [r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`, detail: r.proprietaire })),
+    proprietaires: borne(prop).map((r) => ligne(r, `Propriétaire ${r.id}`)),
+    locataires: borne(loc).map((r) => ligne(r, `Locataire ${r.id}`)),
+    syndics: borne(syn).map((r) => ligne(r, `Syndic ${r.id}`)),
+    biens: borne(biens).map((r) => ligne(r, `Bien ${r.id}`)),
     tronque: [prop, loc, syn, biens].some((l) => l.length > LIMITE),
   };
 }

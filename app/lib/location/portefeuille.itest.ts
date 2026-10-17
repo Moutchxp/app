@@ -51,6 +51,11 @@ describe.skipIf(!baseEssai)('🔴 portefeuille de la Location', () => {
 
     const r = async (q: string) => rechercherPortefeuille(q);
     expect((await r(`Lilas${S}`)).biens.map((b) => b.id)).toEqual([logementId]);
+    // Une ligne porte téléphone, e-mail et l'adresse d'un bien DU PORTEFEUILLE (jamais l'adresse personnelle).
+    const ligne = (await r(`EXEMPLE${S}`)).proprietaires[0];
+    expect(ligne).toMatchObject({ id: proprietaireId, telephone: '06 12 34 56 81', email: `claire.${S}@exemple.test`, ancien: false });
+    expect(ligne.adresse).toContain(`14 rue des Lilas${S}`);
+    expect(ligne.adresse).not.toContain('Imaginaire');
     // L'adresse PERSONNELLE du propriétaire, celle du SYNDIC et un bien HORS portefeuille ne répondent pas.
     const imaginaire = await r(`Imaginaire${S}`);
     expect(imaginaire.proprietaires.length + imaginaire.biens.length + imaginaire.syndics.length).toBe(0);
@@ -71,8 +76,9 @@ describe.skipIf(!baseEssai)('🔴 portefeuille de la Location', () => {
     const s = ok(await sortirDuPortefeuille('proprietaire', proprietaireId, AUTEUR));
     expect(s.biens).toBeGreaterThanOrEqual(2); // logement + cave (+ le bien en fin de gestion, encore au portefeuille de la fiche)
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n)).toBe(avant);
-    expect((await rechercherPortefeuille(`EXEMPLE${S}`)).proprietaires).toEqual([]);
-    expect((await rechercherPortefeuille(`Lilas${S}`)).biens).toEqual([]);
+    // Retouche d'Arno (17/10/2026) : les fiches sorties restent TROUVABLES, marquées « Ancien » (en bas, grisées, à l'écran).
+    expect((await rechercherPortefeuille(`EXEMPLE${S}`)).proprietaires.map((p) => ({ id: p.id, ancien: p.ancien }))).toEqual([{ id: proprietaireId, ancien: true }]);
+    expect((await rechercherPortefeuille(`Lilas${S}`)).biens.map((b) => ({ id: b.id, ancien: b.ancien }))).toEqual([{ id: logementId, ancien: true }]);
     expect((await listeProprietaires(0, `EXEMPLE${S}`)).lignes).toEqual([]);
     expect((await listeProprietaires(0, `EXEMPLE${S}`, true)).lignes.map((p) => p.id)).toEqual([proprietaireId]);
     expect((await listeBiens(0, `14 rue des Lilas${S}`, true)).lignes.map((b) => b.id).sort()).toEqual([logementId, caveId].sort());

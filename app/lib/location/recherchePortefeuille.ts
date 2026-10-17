@@ -46,7 +46,36 @@ export const LIBELLE_GROUPE: Record<Groupe, string> = {
 };
 
 export interface ResultatPortefeuille { id: number; titre: string; detail: string | null }
-export type ResultatsAccueil = Record<Groupe, ResultatPortefeuille[]> & { tronque: boolean };
+
+/**
+ * UNE LIGNE DE RÉSULTAT DE L'ACCUEIL (retouche d'Arno du 17/10/2026) : « pastille de type colorée + nom en gras + téléphone
+ * + e-mail + adresse du bien du portefeuille ». `ancien` = fiche sortie du portefeuille : affichée en bas, grisée.
+ * 🔴 `adresse` n'est JAMAIS l'adresse personnelle d'une personne ni celle d'un syndic : c'est celle d'un bien du portefeuille.
+ */
+export interface LigneRecherche {
+  id: number;
+  titre: string;
+  telephone: string | null;
+  email: string | null;
+  adresse: string | null;
+  /** Pour un bien : son ou ses propriétaires. */
+  detail: string | null;
+  ancien: boolean;
+}
+export type ResultatsAccueil = Record<Groupe, LigneRecherche[]> & { tronque: boolean };
+export interface LigneAccueil extends LigneRecherche { groupe: Groupe }
+
+/** Le mot de la pastille de type. */
+export const LIBELLE_TYPE: Record<Groupe, string> = { proprietaires: 'Propriétaire', locataires: 'Locataire', syndics: 'Syndic', biens: 'Bien' };
+
+/**
+ * LA LISTE UNIQUE, DANS L'ORDRE D'ARNO : propriétaires, locataires, syndics, biens (chaque groupe déjà rangé par
+ * pertinence puis nom par le dépôt) ; puis les ANCIENS, dans le même ordre de types, tout en bas. PUR.
+ */
+export function aplatirResultats(r: Partial<ResultatsAccueil> | null | undefined): LigneAccueil[] {
+  const tous = GROUPES.flatMap((groupe) => (Array.isArray(r?.[groupe]) ? r[groupe] : []).map((l) => ({ ...l, groupe })));
+  return [...tous.filter((l) => !l.ancien), ...tous.filter((l) => l.ancien)];
+}
 
 /** Ce qu'une fiche sortie du portefeuille affiche : quand et par qui. `null` = dans le portefeuille. */
 export interface SortiePortefeuille { le: string; par: string | null }
