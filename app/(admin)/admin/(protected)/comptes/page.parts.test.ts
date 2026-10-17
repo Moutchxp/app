@@ -39,7 +39,7 @@ describe('Chip — pastille accessible (ARIA, état par forme)', () => {
 
 const compteCollab = {
   id: 5, identifiant: 'lea@unique.test', prenom: 'Léa', nom: 'M', role: 'collaborateur' as const, actif: true,
-  perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false, gestion: false }, peutModifierPermis: false,
+  perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false, gestion: false, location: false }, peutModifierPermis: false,
   derniere_connexion_a: '2026-07-09T22:31:35.591Z', cree_a: '2026-06-01T09:00:00.000Z', doit_changer_mot_de_passe: false,
 };
 const noop = () => {};
@@ -65,7 +65,8 @@ describe('DetailContenu — identité affichée UNE seule fois, date formatée',
     }));
     // LOT 5-DROITS — 10 et non 9 : le droit d'envoi de Gestion s'ajoute, forcé sur « Oui » et désactivé, exactement comme
     //   les huit tuiles et le sous-droit Permis. Un administrateur a tous les droits, et aucune case sur laquelle cliquer.
-    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(10);
+    // LOCATION (17/10/2026) — 11 : la tuile Location s'ajoute, forcée cochée pour un administrateur.
+    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(11);
     expect((html.match(/disabled/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 });

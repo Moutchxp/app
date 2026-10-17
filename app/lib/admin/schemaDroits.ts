@@ -44,6 +44,15 @@ export function droitEnvoiGestionDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.perm_gestion_envoi', () => colonneExiste('admin_utilisateur', 'perm_gestion_envoi'));
 }
 
+/**
+ * La migration 371 est-elle appliquée ? Elle porte le droit de module « Location » (`perm_location`). Tant qu'elle ne
+ * l'est pas : la colonne est lue comme `false` partout, la tuile n'apparaît qu'aux administrateurs, et la case de l'écran
+ * des comptes n'écrit rien. Aucune connexion n'échoue.
+ */
+export function droitLocationDisponible(): Promise<boolean> {
+  return memoiser('admin_utilisateur.perm_location', () => colonneExiste('admin_utilisateur', 'perm_location'));
+}
+
 const memoire = creerMemoireSonde();
 const memoiser = memoire.memoiser;
 

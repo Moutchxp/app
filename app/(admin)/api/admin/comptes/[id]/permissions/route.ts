@@ -33,6 +33,7 @@ export async function POST(request: Request, ctx: Ctx) {
     banc_test: pb.banc_test === true,
     permis: pb.permis === true, // RATT-EDIT (lot A2) — module « Permis de construire »
     gestion: pb.gestion === true, // GESTION (lot 2) — module « Gestion »
+    location: pb.location === true, // LOCATION (17/10/2026) — module « Location » (migration 371)
   };
 
   /**

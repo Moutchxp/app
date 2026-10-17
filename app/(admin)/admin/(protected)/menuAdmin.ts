@@ -45,6 +45,13 @@ const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
     slug: '/admin/gestion', libelle: 'Gestion', perm: 'gestion', accueil: URL_ACCUEIL_GESTION,
     desc: 'Courrier de gestion locative : file des échanges et événements.',
   },
+  // LOCATION (demande impérative d'Arno, 17/10/2026) — module GARDÉ (perm_location, migration 371). AJOUTÉ EN FIN DE LISTE,
+  //   juste après « Gestion » : aucune tuile existante n'est retirée ni déplacée ; `ordonner` (règle b) appende la nouvelle
+  //   tuile à la fin d'un ordre déjà rangé par l'utilisateur. Même entrée pour la grille de l'accueil et le menu de gauche.
+  {
+    slug: '/admin/location', libelle: 'Location', perm: 'location',
+    desc: 'Prospects, estimations, candidats, baux et dossiers d’entrée.',
+  },
 ];
 
 /** Tuile « Administratif » — réservée au rôle administrateur (pas une permission de module). */

@@ -19,6 +19,9 @@ const ctx = { params: Promise.resolve({ id: '5' }) };
 beforeAll(async () => {
   queryMock.mockResolvedValueOnce({ rows: [{ n: 1 }] });
   await (await import('../../../../../lib/admin/schemaDroits')).droitEnvoiGestionDisponible();
+  // LOCATION — même préchauffage pour la sonde de la migration 371, répondue « absente » : le SQL reste celui d'avant.
+  queryMock.mockResolvedValueOnce({ rows: [{ n: 0 }] });
+  await (await import('../../../../../lib/admin/schemaDroits')).droitLocationDisponible();
 });
 
 beforeEach(() => {

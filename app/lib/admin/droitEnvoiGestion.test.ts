@@ -22,14 +22,14 @@ vi.mock('./motDePasse', () => ({ hacher: (clair: string) => Promise.resolve(`HAS
 import { capaciteEnvoiGestion, etatEnvoiGestion, modifierPermissions, type CompteDB } from './comptes';
 import { oublierSchemaDroits } from './schemaDroits';
 
-const PERMS_VIDE = { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false };
+const PERMS_VIDE = { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false, location: false };
 
 const compte = (o: Partial<CompteDB> = {}): CompteDB => ({
   id: 42, identifiant: 'lea@x.fr', prenom: 'Léa', nom: 'M', mot_de_passe: 'HASH:x',
   role: 'collaborateur', actif: true,
   perm_pilotage: false, perm_cartes_annee: false, perm_statistiques: false, perm_internautes: false,
   perm_curation: false, perm_banc_test: false, perm_permis: false, perm_permis_modif: false,
-  perm_gestion: false, perm_gestion_envoi: null,
+  perm_gestion: false, perm_gestion_envoi: null, perm_location: false,
   doit_changer_mot_de_passe: false, derniere_connexion_a: null, cree_a: '2026-01-01T00:00:00.000Z',
   ...o,
 });

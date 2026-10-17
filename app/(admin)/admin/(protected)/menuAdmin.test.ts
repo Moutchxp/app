@@ -13,7 +13,8 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     expect(slugs).toContain('/admin/audit'); // tuile Audit (Lot 7), administrateur uniquement
     expect(slugs).toContain('/admin/permis'); // tuile Permis de construire (veille S3), administrateur uniquement
     expect(slugs).toContain('/admin/sources'); // tuile Sources de données (fraîcheur lot 1), administrateur uniquement
-    expect(liens).toHaveLength(11); // 6 modules + Administratif + Audit + Permis + Sources de données + Gestion (lot 2)
+    expect(slugs).toContain('/admin/location'); // tuile Location (17/10/2026)
+    expect(liens).toHaveLength(12); // 6 modules + Administratif + Audit + Permis + Sources de données + Gestion (lot 2) + Location
   });
 
   it('collaborateur → uniquement ses permissions, JAMAIS « Administratif » ni « Audit »', () => {
@@ -31,7 +32,8 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
 
   it('collaborateur avec TOUTES les perms → 7 modules dont « Permis de construire » (RATT-EDIT lot A2), mais JAMAIS Administratif/Audit/Sources (rôle, pas permission)', () => {
     const slugs = liensVisibles('collaborateur', permsToutes()).map((l) => l.slug);
-    expect(slugs).toHaveLength(8); // 6 modules historiques + Permis + Gestion (lot 2)
+    expect(slugs).toHaveLength(9); // 6 modules historiques + Permis + Gestion (lot 2) + Location (17/10/2026)
+    expect(slugs[slugs.length - 1]).toBe('/admin/location'); // AJOUTÉE EN FIN : aucune tuile existante n'a bougé
     expect(slugs).toContain('/admin/permis'); // RATT-EDIT — désormais un module GARDÉ, visible avec le droit
     expect(slugs).not.toContain('/admin/comptes');
     expect(slugs).not.toContain('/admin/audit');
@@ -112,13 +114,13 @@ describe('ordonner — GARDE DE SÉCURITÉ RÔLE (règle c) : un ordre stocké n
     expect(slugs(r)).toEqual(['/admin/curation']);
   });
 
-  it('administrateur : les 11 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
-    const visibles = liensVisibles('administrateur', permsToutes()); // 10 tuiles
-    expect(visibles).toHaveLength(11);
+  it('administrateur : les 12 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
+    const visibles = liensVisibles('administrateur', permsToutes()); // 12 tuiles (Location comprise)
+    expect(visibles).toHaveLength(12);
     const r = ordonner(visibles, ['/admin/curation', '/admin/audit']); // ordre partiel
     expect(slugs(r).slice(0, 2)).toEqual(['/admin/curation', '/admin/audit']);
-    expect(r).toHaveLength(11); // aucune tuile perdue (règle b appende le reste)
-    expect(new Set(slugs(r)).size).toBe(11); // aucun doublon
+    expect(r).toHaveLength(12); // aucune tuile perdue (règle b appende le reste)
+    expect(new Set(slugs(r)).size).toBe(12); // aucun doublon
   });
 });
 
@@ -167,5 +169,21 @@ describe('validerOrdreModules — filtre du corps AVANT écriture (jsonb accepte
 
   it('tableau GÉANT (> borne) → null (garde anti-DoS)', () => {
     expect(validerOrdreModules(Array.from({ length: 65 }, () => '/admin/curation'))).toBeNull();
+  });
+});
+
+describe('LOCATION (17/10/2026) — la tuile dédiée, même règle que les autres', () => {
+  it('visible pour le droit Location seul, et pour un administrateur ; elle mène à /admin/location', () => {
+    const collab = liensVisibles('collaborateur', { ...permsAucune(), location: true });
+    expect(collab.map((l) => [l.slug, l.libelle, l.accueil ?? l.slug])).toEqual([['/admin/location', 'Location', '/admin/location']]);
+    expect(liensVisibles('collaborateur', { ...permsAucune(), gestion: true }).map((l) => l.slug)).not.toContain('/admin/location');
+    expect(liensVisibles('administrateur', permsAucune()).map((l) => l.slug)).toContain('/admin/location');
+  });
+  it('les tuiles existantes gardent leur ordre : Location s’ajoute juste après Gestion, avant les tuiles réservées au rôle', () => {
+    const slugs = liensVisibles('administrateur', permsToutes()).map((l) => l.slug);
+    expect(slugs.indexOf('/admin/location')).toBe(slugs.indexOf('/admin/gestion') + 1);
+    expect(slugs.filter((x) => x !== '/admin/location')).toEqual(['/admin/pilotage', '/admin/cartes-annee', '/admin/statistiques',
+      '/admin/internautes', '/admin/curation', '/admin/banc-test', '/admin/permis', '/admin/gestion', '/admin/comptes', '/admin/audit',
+      '/admin/sources']);
   });
 });

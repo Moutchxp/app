@@ -103,6 +103,7 @@ const RACINES: readonly (readonly [string, string])[] = [
   ['Permis de construire', 'app/(admin)/admin/(protected)/permis/page.tsx'],
   ['Sources de données', 'app/(admin)/admin/(protected)/sources/page.tsx'],
   ['Gestion', 'app/(admin)/admin/(protected)/gestion/GestionVue.tsx'],
+  ['Location', 'app/(admin)/admin/(protected)/location/page.tsx'],
   ['Audit', 'app/(admin)/admin/(protected)/audit/page.tsx'],
   ['Administratif — comptes', 'app/(admin)/admin/(protected)/comptes/page.tsx'],
   // 🔴 LOT TACHES-ACCEPTATION — « Mes tâches » (réponse aux demandes d’acceptation), sous la même garde que les autres.
