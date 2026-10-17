@@ -271,6 +271,8 @@ export const CSS_LOCATION_CREATION = `
 .loc-ample .loc-grille{align-items:end;row-gap:30px}
 .loc-ample .loc-champ{position:relative}
 .loc-aide{position:absolute;top:100%;left:0;margin-top:4px;font-size:.82rem;font-weight:400;color:var(--color-svv-muted);white-space:nowrap}
+/* Une aide en phrase (dernière AG) : dans le flux, elle passe à la ligne — jamais de débordement au téléphone. */
+.loc-aide--long{position:static;white-space:normal;margin-top:2px}
 .loc-pleine{grid-column:1 / -1}
 .loc-familles{grid-template-columns:repeat(3,minmax(0,1fr))}
 .loc-familles .loc-gros-bouton{min-height:6.5rem;font-size:1.45rem}

@@ -270,7 +270,7 @@ function ReglagesHonoraires({ reglages, onEnregistre }: { reglages: Reglages; on
         Historique : {(reglages.tva ?? []).map((t) => `${formaterTaux(t.valeur)} depuis le ${t.depuis.split('-').reverse().join('/')}`).join(' · ') || 'aucun'}.</p>
       <form className="hon-reglages-ligne" onSubmit={(e) => { e.preventDefault(); void envoyer({ action: 'tva', valeur: tva, depuis }); }}>
         <label>Nouvelle TVA (%)
-          <input className="hon-champ" inputMode="decimal" value={tva} onChange={(e) => setTva(e.target.value)} placeholder="20" /></label>
+          <input className="hon-champ" inputMode="decimal" value={tva} onChange={(e) => setTva(e.target.value)} placeholder="ex. 20" /></label>
         <label>À compter du
           <input className="hon-champ" type="date" value={depuis} onChange={(e) => setDepuis(e.target.value)} /></label>
         <button type="submit" className="svv-btn svv-btn-outline gst-btn">Ajouter</button>

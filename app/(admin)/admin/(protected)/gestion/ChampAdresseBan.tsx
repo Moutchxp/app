@@ -38,7 +38,9 @@ const MINIMUM_FRAPPE = 3;
 
 export interface ChoixAdresse { voie: string; codePostal: string; commune: string }
 
-export function ChampAdresseBan({ valeur, onChange, onChoisir, verifiee, manque, id }: {
+export function ChampAdresseBan({ valeur, onChange, onChoisir, verifiee, manque, id, exemple = '12 rue de l’Église…' }: {
+  /** Le texte d'exemple (gris). Absent ⇒ celui de la Gestion, inchangé ; la tuile Location passe « ex. … » (Arno, 18/10/2026). */
+  exemple?: string;
   valeur: string;
   /** La frappe libre. L'appelant reste maître du champ — c'est lui qui tient l'état de la fiche. */
   onChange: (v: string) => void;
@@ -150,7 +152,7 @@ export function ChampAdresseBan({ valeur, onChange, onChoisir, verifiee, manque,
         aria-autocomplete="list"
         aria-controls="cab-liste"
         aria-activedescendant={vise >= 0 ? `cab-prop-${vise}` : undefined}
-        placeholder="12 rue de l’Église…"
+        placeholder={exemple}
       />
       {ouvert && (
         <ul className="cab-liste" id="cab-liste" role="listbox">

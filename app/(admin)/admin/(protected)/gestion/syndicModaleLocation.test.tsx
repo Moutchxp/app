@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { FicheSyndic } from './FicheSyndic';
+import { TITRES_CONTACT } from '../../../../lib/gestion/syndics';
 
 /**
  * 🔴 MODALE « SYNDIC DE LA COPROPRIÉTÉ » DU FORMULAIRE DU BIEN (variante « location », Arno 17/10/2026) — et la Gestion
@@ -164,12 +165,21 @@ describe('🔴 modale syndic — variante « location »', () => {
     await act(async () => { (document.querySelector('[data-ajouter-contact-syndic]') as HTMLButtonElement).click(); });
     const form = document.querySelector('[data-form-contact-syndic]') as HTMLElement;
     expect([...form.querySelectorAll('label')].map((l) => l.firstChild?.textContent)).toEqual(['Civilité', 'Nom *', 'Prénom', 'Fonction', 'Téléphone', 'E-mail']);
+    // La FONCTION : la liste de la GESTION (même source, `TITRES_CONTACT`), « Personnalisé… » ouvre un champ libre.
+    const fonction = form.querySelector('[data-fonction]') as HTMLSelectElement;
+    expect([...fonction.options].map((o) => o.textContent)).toEqual(['—', ...TITRES_CONTACT, 'Personnalisé…']);
+    expect(form.querySelector('[data-fonction-libre]')).toBeNull();
     // Sans nom : refus, rien n'est envoyé.
     await act(async () => { bouton('Enregistrer le contact')!.click(); });
     expect(form.querySelector('[role="alert"]')?.textContent).toBe('Le nom du contact est obligatoire.');
     expect(ecritures).toEqual([]);
     const saisir = (i: number, v: string) => { const el = form.querySelectorAll('input')[i] as HTMLInputElement; Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
-    await act(async () => { saisir(0, 'Nouvelle'); saisir(1, 'Zoé'); saisir(2, 'Assistante'); saisir(4, 'zoe@exemple.test'); });
+    const choisir = (v: string) => { Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(fonction, v); fonction.dispatchEvent(new Event('change', { bubbles: true })); };
+    await act(async () => { saisir(0, 'Nouvelle'); saisir(1, 'Zoé'); choisir('Personnalisé'); });
+    const libre = form.querySelector('[data-fonction-libre]') as HTMLInputElement;
+    expect(libre.placeholder).toBe('ex. Directeur d’agence');
+    // Champs : Nom, Prénom, Fonction personnalisée, Téléphone, E-mail.
+    await act(async () => { saisir(2, 'Assistante'); saisir(4, 'zoe@exemple.test'); });
     await act(async () => { bouton('Enregistrer le contact')!.click(); });
     await calmer();
     expect(ecritures).toHaveLength(1);

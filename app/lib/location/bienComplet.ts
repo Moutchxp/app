@@ -100,7 +100,13 @@ export interface AnnexeSaisie extends ChampsBien {
 }
 
 /** Les compléments tels que la fiche du bien les affiche (avec le nom du syndic). */
-export interface ComplementsFiche extends ComplementsBien { syndicNom: string | null }
+export interface ComplementsFiche extends ComplementsBien {
+  syndicNom: string | null;
+  /** Arno, 18/10/2026 — la date de la dernière AG de l'IMMEUBLE du bien (partagée par ses lots, migration 377). */
+  derniereAg?: string | null;
+  /** Faux : pas d'immeuble pour l'AG (parking nu sans immeuble) ou migration 377 absente — le champ est masqué. */
+  agApplicable?: boolean;
+}
 
 export interface SaisieBien {
   proprietaireIds: number[];

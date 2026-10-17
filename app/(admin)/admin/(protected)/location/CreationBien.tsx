@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
+import { useEffect, useRef, useState } from 'react';
+import { API, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
   CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
@@ -13,6 +13,7 @@ import type { ResultatPortefeuille } from '../../../../lib/location/recherchePor
 import { CSS_CARTES, type ChampsSaisis } from '../gestion/CartesPersonnes';
 import { lireContactsEnAttente, oublierContactsEnAttente } from './contactsEnAttente';
 import { CartesDuBloc, CSS_RATTACHEMENT, PanneauQuiRattacher } from './RattachementProprietaires';
+import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type PersonneProprietaire } from '../../../../lib/location/rattachementProprietaires';
 import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
 
@@ -46,7 +47,7 @@ interface Annexe {
 const VIDE = {
   adresse: '', codePostal: '', commune: '', batiment: '', escalier: '', etage: '', porte: '', precisionAcces: '', digicodeCode: '',
   nombrePieces: '', surfaceHabitableM2: '', surfaceCarrezM2: '', surfaceExterieureM2: '', surfaceM2: '',
-  numLotCopro: '', syndicId: '', epoqueConstruction: '', chauffage: '', dpeClasse: '', dpeDate: '', commentaire: '',
+  numLotCopro: '', syndicId: '', epoqueConstruction: '', chauffage: '', dpeClasse: '', dpeDate: '', commentaire: '', derniereAg: '',
 };
 type Champ = keyof typeof VIDE;
 
@@ -106,6 +107,26 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
   }, [initiaux.etat, initiauxPoses]);
 
   useEffect(() => { const t = setTimeout(() => setTerme(texte.trim()), 200); return () => clearTimeout(t); }, [texte]);
+
+  // La DERNIÈRE AG (Arno, 18/10/2026) : partagée par l'immeuble — pré-remplie si elle est déjà connue pour l'adresse saisie,
+  // tant qu'on n'y a pas touché ; la modifier ici met à jour l'immeuble à l'enregistrement.
+  const agTouchee = useRef(false);
+  const [agConnue, setAgConnue] = useState<string | null>(null);
+  useEffect(() => {
+    const adresse = b.adresse.trim();
+    if (adresse.length < 5) { setAgConnue(null); return; }
+    let vivant = true;
+    const t = setTimeout(() => {
+      void fetch(`${API}?agPourAdresse=${encodeURIComponent(adresse)}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: string | null }>)
+        .then((d) => {
+          if (!vivant || d.etat !== 'ok') return;
+          const connue = typeof d.data === 'string' ? d.data : null;
+          setAgConnue(connue);
+          if (!agTouchee.current) setB((x) => ({ ...x, derniereAg: connue ?? '' }));
+        }).catch(() => {});
+    }, 500);
+    return () => { vivant = false; clearTimeout(t); };
+  }, [b.adresse]);
   const recherche = useLecture<ResultatPortefeuille[]>(terme.length >= 2 ? `proprietairesRecherche=${encodeURIComponent(terme)}` : null);
 
   const champ = (k: Champ, mot: React.ReactNode, props: React.InputHTMLAttributes<HTMLInputElement> = {}, aide?: string) => (
@@ -269,7 +290,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
         <div className="loc-grille">
           <label className="loc-champ loc-pleine">
             <span>Adresse <span className="loc-oblig">*</span></span>
-            <ChampAdresseBan valeur={b.adresse} verifiee={adresseVerifiee}
+            <ChampAdresseBan exemple="ex. 12 rue de l’Église" valeur={b.adresse} verifiee={adresseVerifiee}
               onChange={(v) => { setB((x) => ({ ...x, adresse: v })); setAdresseVerifiee(false); }}
               onChoisir={(a) => { setB((x) => ({ ...x, adresse: a.voie, codePostal: a.codePostal, commune: a.commune })); setAdresseVerifiee(true); }} />
           </label>
@@ -282,11 +303,11 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
           <div className="loc-grille" data-ligne-situation>
             {champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
-            {champ('etage', 'Étage', { placeholder: '3, RDC, -1…' })}
+            {champ('etage', 'Étage', { placeholder: 'ex. 3, RDC, -1' })}
             {champ('porte', famille === 'parking' ? 'N° de place' : 'N° de porte')}
             <label className="loc-champ loc-pleine" data-precision>Précision
               <input value={b.precisionAcces} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, precisionAcces: val })); }}
-                placeholder="À droite en sortant de l’ascenseur, deuxième porte à gauche" maxLength={500} /></label>
+                placeholder="ex. À droite en sortant de l’ascenseur, deuxième porte à gauche" maxLength={500} /></label>
           </div>
         </div>
         <div className="loc-sous-section">
@@ -300,7 +321,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
                 onChoix={(v) => { setDigicode(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, digicodeCode: '' })); }} />
               {/* Arno (17/10/2026) : le « Code » À DROITE des boutons, 8 caractères au plus ; actif seulement si Oui, vidé sur Non. */}
               <label className="loc-code-digicode">Code
-                <input value={b.digicodeCode} maxLength={8} placeholder="57B83" disabled={digicode !== true} aria-label="Code du digicode"
+                <input value={b.digicodeCode} maxLength={8} placeholder="ex. 57B83" disabled={digicode !== true} aria-label="Code du digicode"
                   onChange={(e) => { const val = e.target.value.slice(0, 8); setB((x) => ({ ...x, digicodeCode: val })); }} /></label>
             </div>
           </div>
@@ -333,7 +354,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
                   <div className="loc-grille" data-autre-adresse>
                     <label className="loc-champ loc-pleine">
                       <span>Adresse de l’annexe <span className="loc-oblig">*</span></span>
-                      <ChampAdresseBan valeur={a.adresse} verifiee={a.adresseVerifiee}
+                      <ChampAdresseBan exemple="ex. 12 rue de l’Église" valeur={a.adresse} verifiee={a.adresseVerifiee}
                         onChange={(v) => changerAnnexe(i, (x) => ({ ...x, adresse: v, adresseVerifiee: false }))}
                         onChoisir={(ad) => changerAnnexe(i, (x) => ({ ...x, adresse: ad.voie, codePostal: ad.codePostal, commune: ad.commune, adresseVerifiee: true }))} />
                     </label>
@@ -377,6 +398,10 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
           <div className="loc-grille">
             {choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION)}
             {choix('chauffage', 'Chauffage', CHAUFFAGES)}
+            <label className="loc-champ" data-derniere-ag>{LIBELLE_AG}
+              <input type="date" value={b.derniereAg} onChange={(e) => { agTouchee.current = true; const val = e.target.value; setB((x) => ({ ...x, derniereAg: val })); }} />
+              <small className="loc-aide loc-aide--long">{agConnue !== null && b.derniereAg === agConnue
+                ? 'Déjà connue pour cet immeuble : la modifier met à jour tous ses lots.' : 'Assemblée générale de copropriété — partagée par tous les lots de l’immeuble.'}</small></label>
           </div>
           <div className="loc-sous-section">
             <h4>DPE</h4>

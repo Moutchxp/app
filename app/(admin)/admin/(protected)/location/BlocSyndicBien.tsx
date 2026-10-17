@@ -142,7 +142,7 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
                   <label key={k} className="loc-champ">{k === 'prenom' ? 'Prénom' : k === 'nom' ? 'Nom *' : k === 'fonction' ? 'Fonction' : k === 'email' ? 'E-mail' : 'Téléphone'}
                     <input value={ajout[k] ?? ''} list={k === 'fonction' ? 'loc-fonctions-syndic' : undefined}
                       inputMode={k === 'telephone' ? 'tel' : k === 'email' ? 'email' : undefined}
-                      placeholder={k === 'fonction' ? 'gestionnaire, comptable, assistante…' : undefined}
+                      placeholder={k === 'fonction' ? 'ex. gestionnaire, comptable, assistante' : undefined}
                       onChange={(e) => { const v = e.target.value; setAjout((x) => ({ ...(x ?? VIDE_CONTACT), [k]: v })); }} /></label>
                 ))}
                 <datalist id="loc-fonctions-syndic">{FONCTIONS.map((f) => <option key={f} value={f} />)}</datalist>

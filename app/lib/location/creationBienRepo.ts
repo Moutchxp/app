@@ -16,6 +16,8 @@ import { manquesClientLocation } from './cartesLocation';
 import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
 import { rattacherSyndicAuBien, refusNouveauxContacts, type SyndicDuBien } from './syndicLocationRepo';
 import { rattacherContactsExistants, refusContactsExistants } from './rattachementProprietairesRepo';
+import { agDisponible, enregistrerAg, immeubleAgDuLot, lireAg } from './immeubleAgRepo';
+import { immeubleDeLAg, verifierDateAg } from './immeubleAg';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -146,7 +148,7 @@ export async function creerBienComplet(s: SaisieBien & {
   /** Arno, 18/10/2026 — les cartes « contact du propriétaire » EXISTANTES cochées dans « Qui rattacher à ce bien ? ». */
   contactsExistants?: number[];
 }, auteur: Auteur):
-  Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null }>> {
+  Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null }>> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierBienComplet(s);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
@@ -164,6 +166,9 @@ export async function creerBienComplet(s: SaisieBien & {
   const contactsExistants = Array.isArray(s.contactsExistants) ? s.contactsExistants.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 40) : [];
   const refusE = await refusContactsExistants(contactsExistants, v.proprietaireIds);
   if (refusE !== null) return { etat: 'refus', motif: refusE };
+  // La DERNIÈRE AG (Arno, 18/10/2026) : vérifiée avant toute écriture, posée sur l'IMMEUBLE du bien (son adresse) une fois créé.
+  const ag = verifierDateAg((s.logement ?? {}).derniereAg);
+  if (!ag.ok) return { etat: 'refus', motif: ag.motif };
   const l = v.logement;
   const vivante = await sqlPersonneVivante('p');
   const portefeuille = await sqlDansPortefeuille('p');
@@ -217,6 +222,12 @@ export async function creerBienComplet(s: SaisieBien & {
     const { rows: cle } = await query<{ cle: string }>('SELECT wippimmo_id AS cle FROM gestion_annuaire_lot WHERE id = $1', [cree.logementId]);
     existants = await rattacherContactsExistants(cle[0].cle, contactsExistants, v.proprietaireIds, auteur);
   }
+  let agRefus: string | null = null;
+  const immeubleAg = v.famille === 'parking' ? null : immeubleDeLAg({ immeuble: v.logement.adresse, parking: false });
+  if (ag.date !== null && immeubleAg !== null) {
+    const r = await enregistrerAg(immeubleAg, ag.date, cree.logementId, auteur).catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
+    if (!r.ok) agRefus = `Le bien est créé, mais la date de la dernière AG n’a pas été enregistrée : ${r.motif}`;
+  }
   let syndicRefus: string | null = null;
   if (syndic !== null) {
     const l = v.logement;
@@ -228,7 +239,7 @@ export async function creerBienComplet(s: SaisieBien & {
   const refus = [c.ok ? null : c.motif, existants.ok ? null : existants.motif].filter((x) => x !== null);
   return { etat: 'ok', data: {
     ...cree, contacts: (c.ok ? c.n : 0) + (existants.ok ? existants.n : 0),
-    contactsRefus: refus.length === 0 ? null : `Le bien est créé, mais : ${refus.join(' ')}`, syndicRefus,
+    contactsRefus: refus.length === 0 ? null : `Le bien est créé, mais : ${refus.join(' ')}`, syndicRefus, agRefus,
   } };
 }
 
@@ -318,7 +329,9 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_syndic s ON s.id = lo.syndic_id WHERE lo.id = $1`, [id]);
   const r = rows[0];
   if (r === undefined) return null;
+  const immeubleAg = (await agDisponible()) ? await immeubleAgDuLot(id) : null;
   return {
+    derniereAg: immeubleAg === null ? null : await lireAg(immeubleAg.cle), agApplicable: immeubleAg !== null,
     batiment: r.batiment, escalier: r.escalier, typeLogement: r.type_logement as ComplementsBien['typeLogement'],
     nombrePieces: r.nombre_pieces, meuble: r.meuble, surfaceHabitableM2: r.surface_habitable_m2 === null ? null : Number(r.surface_habitable_m2),
     syndicId: r.syndic_id === null ? null : Number(r.syndic_id), syndicNom: r.syndic_nom, epoqueConstruction: r.epoque_construction,
@@ -334,6 +347,10 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
   if (!(await bienCompletDisponible())) return { etat: 'sans_schema' };
   const v = verifierComplements(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
+  // La dernière AG : envoyée seulement par la fiche qui la montre ; vérifiée avant toute écriture.
+  const avecAg = Object.prototype.hasOwnProperty.call(brut, 'derniereAg');
+  const ag = verifierDateAg(brut.derniereAg);
+  if (avecAg && !ag.ok) return { etat: 'refus', motif: ag.motif };
   const c = v.valeurs;
   try {
     return await withTransaction(async (q) => {
@@ -357,6 +374,13 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
       }
       await journaliser(q, 'annuaire_lot', id, 'location_bien_complements', 'informations complémentaires du bien modifiées dans la Location', auteur);
       return { etat: 'ok' as const, data: undefined };
+    }).then(async (issue) => {
+      // La dernière AG se pose sur l'IMMEUBLE (tous ses lots la voient) : après les compléments du bien, hors de leur transaction.
+      if (issue.etat !== 'ok' || !avecAg || !ag.ok) return issue;
+      const immeuble = await immeubleAgDuLot(id);
+      if (immeuble === null) return issue;
+      const r = await enregistrerAg(immeuble, ag.date, id, auteur);
+      return r.ok ? issue : { etat: 'refus' as const, motif: `Informations enregistrées, mais pas la date de la dernière AG : ${r.motif}` };
     });
   } catch (e) {
     if (e instanceof Refus) return { etat: 'refus', motif: e.message };

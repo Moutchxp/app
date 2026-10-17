@@ -24,6 +24,7 @@ beforeEach(() => {
     if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return ok({ ids: [1, 2], logementId: 9 }); }
     if (u.includes('cartesProprietaires=')) return ok([{ id: 1, nom: 'DUPONT Paul', telephone: null, email: null, biens: [] }, { id: 2, nom: 'DUPONT Anne', telephone: null, email: null, biens: [] }]);
     if (u.includes('proprietairesRecherche=')) return ok([{ id: 3, titre: 'MARTIN Léa', detail: '3 rue du Port, PARIS' }]);
+    if (u.includes('agPourAdresse=')) return ok(decodeURIComponent(u).includes('15 rue Carle Hebert') ? '2026-03-12' : null);
     if (u.includes('syndics=1')) return ok([{ id: 5, nom: 'FONCIA', ville: 'Paris' }]);
     if (u.includes('syndicPourAdresse=')) return ok([{ id: 5, nom: 'FONCIA', ville: 'Paris', motif: 'un autre bien du portefeuille à cette adresse' }]);
     if (u.includes('syndic=5')) return ok({ id: 5, nom: 'FONCIA', contacts: [{ id: 51, civilite: 'Mme', prenom: 'Léa', nom: 'GESTION', titre: 'Gestionnaire', coordonnees: [{ id: 1, sorte: 'email', libelle: null, valeur: 'lea@foncia.test' }] }], coproprietes: [] });
@@ -198,7 +199,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
     expect(container.querySelector('[aria-label="Ascenseur"]')).not.toBeNull();
     const code = () => container.querySelector('[data-digicode] input') as HTMLInputElement;
-    expect(code().placeholder).toBe('57B83');
+    expect(code().placeholder).toBe('ex. 57B83');
     expect(code().maxLength).toBe(8);
     expect(code().disabled).toBe(true);
     const digi = (mot: string) => [...container.querySelectorAll('[aria-label="Digicode"] button')].find((x) => x.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
@@ -210,7 +211,33 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(code().value).toBe('');
     expect(code().disabled).toBe(true);
     const precision = container.querySelector('[data-precision] input') as HTMLInputElement;
-    expect(precision.placeholder).toBe('À droite en sortant de l’ascenseur, deuxième porte à gauche');
+    expect(precision.placeholder).toBe('ex. À droite en sortant de l’ascenseur, deuxième porte à gauche');
+  });
+
+  it('DERNIÈRE AG (bloc 6) : pré-remplie si connue pour l’immeuble, envoyée avec le bien ; absente pour un parking nu', async () => {
+    await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1] })); });
+    await calmer();
+    await famille('logement');
+    const ag = () => container.querySelector('[data-derniere-ag] input') as HTMLInputElement | null;
+    expect(ag()?.type).toBe('date');
+    expect(ag()?.closest('.loc-section')?.querySelector('h3')?.textContent).toContain('Caractéristiques complémentaires');
+    expect(ag()?.value).toBe('');
+    const adr = container.querySelector('.cab-enveloppe input') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(adr, '15 rue Carle Hebert'); adr.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 600)); });
+    await calmer();
+    expect(ag()?.value).toBe('2026-03-12');
+    expect(container.querySelector('[data-derniere-ag] .loc-aide')?.textContent).toContain('Déjà connue pour cet immeuble');
+    // Une phrase d'aide : dans le flux (elle passe à la ligne), jamais en `nowrap` absolu qui déborderait au téléphone.
+    expect(container.querySelector('[data-derniere-ag] .loc-aide')?.classList.contains('loc-aide--long')).toBe(true);
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(ag(), '2026-06-30'); ag()!.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { [...container.querySelectorAll('[aria-label="Type de logement"] button')][0].dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await soumettre();
+    await calmer();
+    expect((posts[0]?.logement as Record<string, unknown> | undefined)?.derniereAg).toBe('2026-06-30');
+    // Parking nu : pas de « Caractéristiques complémentaires », donc pas de date d'AG.
+    await famille('parking');
+    expect(ag()).toBeNull();
   });
 
   it('SYNDIC : plus de bandeau en double sous le champ ; la modale s’ouvre d’elle-même UNE fois pour une adresse connue', async () => {

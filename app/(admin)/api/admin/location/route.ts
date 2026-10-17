@@ -19,6 +19,7 @@ import {
 import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo';
 import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
 import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/location/rattachementProprietairesRepo';
+import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -32,7 +33,7 @@ import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/loca
  *       adresse) · `?liste=proprietaires|locataires|biens&page=&filtre=&anciens=1` · `?proprietaire=N` · `?locataire=N` ·
  *       `?lot=N` · `?syndic=N` · `?biensPourLocataire=texte` · `?telephone=&email=` (dédoublonnage à la saisie ; plusieurs
  *       valeurs possibles) · `?proprietairesRecherche=texte` · `?proprietairesIds=1,2` · `?syndics=1` · `?personnesLiees=N` (« Qui
- *       rattacher à ce bien ? ») · `?cartesProprietaires=1,2`.
+ *       rattacher à ce bien ? ») · `?cartesProprietaires=1,2` · `?agPourAdresse=texte` (dernière AG connue de l'immeuble).
  * POST `{ action }` : modifier | archiver | restaurer | separer (une personne) · numero-mandat · modifier-bien ·
  *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · creer-locataire · conditions-location ·
  *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien (avec les contacts du propriétaire) · creer-locataires
@@ -87,6 +88,9 @@ export async function GET(request: Request): Promise<Response> {
     if (p('cartesProprietaires') !== null) {
       const ids = (p('cartesProprietaires') ?? '').split(',').map((x) => identifiant(x.trim())).filter((x): x is number => x !== null);
       return Response.json({ etat: 'ok', data: await cartesDeProprietaires(ids) }, { headers: ENTETES });
+    }
+    if (p('agPourAdresse') !== null) {
+      return Response.json({ etat: 'ok', data: await lireAgPourAdresse((p('agPourAdresse') ?? '').slice(0, 300)) }, { headers: ENTETES });
     }
     if (p('syndics') !== null) return Response.json({ etat: 'ok', data: await syndicsConnus() }, { headers: ENTETES });
     // « Syndic déjà connu pour cette adresse » (fonction de la Gestion) — LECTURE SEULE, jamais de rattachement sans clic.

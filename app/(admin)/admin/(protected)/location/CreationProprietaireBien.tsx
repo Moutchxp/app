@@ -82,8 +82,8 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
                 </select></label>
               {champP('nom', 'Nom *', { autoFocus: true, required: true })}
               {champP('prenom', 'Prénom')}
-              {champP('telephone', 'Téléphone', { inputMode: 'tel', placeholder: '06 12 34 56 78' })}
-              {champP('email', 'E-mail', { inputMode: 'email', placeholder: 'nom@exemple.fr' })}
+              {champP('telephone', 'Téléphone', { inputMode: 'tel', placeholder: 'ex. 06 12 34 56 78' })}
+              {champP('email', 'E-mail', { inputMode: 'email', placeholder: 'ex. nom@exemple.fr' })}
               {champP('adresse', 'Adresse postale')}
               {champP('codePostal', 'Code postal', { inputMode: 'numeric' })}
               {champP('commune', 'Commune')}
@@ -116,7 +116,7 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
           {champL('adresse', 'Adresse *', { required: true })}
           {champL('codePostal', 'Code postal', { inputMode: 'numeric' })}
           {champL('commune', 'Commune')}
-          {champL('etage', 'Étage', { placeholder: '3, RDC, -1…' })}
+          {champL('etage', 'Étage', { placeholder: 'ex. 3, RDC, -1' })}
           {champL('porte', 'N° de porte')}
           {champL('numLotCopro', 'N° de lot de copropriété')}
           {champL('surfaceCarrezM2', 'Surface Carrez (m²)', { inputMode: 'decimal' })}

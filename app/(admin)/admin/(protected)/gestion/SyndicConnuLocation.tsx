@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { CSS_PROPOSITIONS_SYNDIC, motOrigine, type SyndicConnuVu } from './PropositionsSyndic';
-import { nomAvecVille, type FicheSyndic as DonneesSyndic } from '../../../../lib/gestion/syndics';
+import { nomAvecVille, PERSONNALISE, TITRES_CONTACT, valeurDuChoix, type FicheSyndic as DonneesSyndic } from '../../../../lib/gestion/syndics';
 import { clesDeLAdresse, grouperBiensParAdresse, ordonnerContactsSyndic, type NouveauContactSyndic } from '../../../../lib/location/syndicLocation';
 
 /**
@@ -79,6 +79,8 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
   const [motifAjout, setMotifAjout] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const [ajoute, setAjoute] = useState<string | null>(null);
+  /** La FONCTION : la liste de la Gestion (`TITRES_CONTACT`) ; « Personnalisé… » ouvre un champ libre (Arno, 18/10/2026). */
+  const [fonction, setFonction] = useState({ choix: '', libre: '' });
   useEffect(() => {
     let vivant = true;
     void fetch(`/api/admin/gestion/syndics/${syndicId}`, { cache: 'no-store' })
@@ -151,7 +153,7 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
           })}
           {ajout === null ? (
             <li className="syl-carte syl-carte--plus">
-              <button type="button" className="syl-plus" onClick={() => { setAjout({ civilite: null, nom: '', prenom: '', fonction: '', telephone: '', email: '' }); setMotifAjout(null); setAjoute(null); }}
+              <button type="button" className="syl-plus" onClick={() => { setAjout({ civilite: null, nom: '', prenom: '', fonction: '', telephone: '', email: '' }); setFonction({ choix: '', libre: '' }); setMotifAjout(null); setAjoute(null); }}
                 data-ajouter-contact-syndic>+ Ajouter un contact</button>
             </li>
           ) : (
@@ -161,17 +163,30 @@ export function DetailSyndicLecture({ syndicId, coproCle = null }: {
                   <select value={ajout.civilite ?? ''} onChange={(e) => { const v = e.target.value; setAjout((x) => (x === null ? x : { ...x, civilite: v === 'M.' || v === 'Mme' ? v : null })); }}>
                     <option value="">—</option><option value="M.">M.</option><option value="Mme">Mme</option>
                   </select></label>
-                {(['nom', 'prenom', 'fonction', 'telephone', 'email'] as const).map((k) => (
-                  <label key={k}>{k === 'nom' ? 'Nom *' : k === 'prenom' ? 'Prénom' : k === 'fonction' ? 'Fonction' : k === 'telephone' ? 'Téléphone' : 'E-mail'}
-                    <input value={ajout[k] ?? ''} inputMode={k === 'telephone' ? 'tel' : k === 'email' ? 'email' : undefined}
-                      placeholder={k === 'fonction' ? 'gestionnaire, comptable…' : undefined}
+                {(['nom', 'prenom'] as const).map((k) => (
+                  <label key={k}>{k === 'nom' ? 'Nom *' : 'Prénom'}
+                    <input value={ajout[k] ?? ''} onChange={(e) => { const v = e.target.value; setAjout((x) => (x === null ? x : { ...x, [k]: v })); }} /></label>
+                ))}
+                <label>Fonction
+                  <select value={fonction.choix} onChange={(e) => { const v = e.target.value; setFonction((x) => ({ choix: v, libre: v === PERSONNALISE ? x.libre : '' })); }} data-fonction>
+                    <option value="">—</option>
+                    {TITRES_CONTACT.map((t) => <option key={t} value={t}>{t}</option>)}
+                    <option value={PERSONNALISE}>{PERSONNALISE}…</option>
+                  </select></label>
+                {fonction.choix === PERSONNALISE && (
+                  <label>Fonction personnalisée
+                    <input value={fonction.libre} placeholder="ex. Directeur d’agence" onChange={(e) => { const v = e.target.value; setFonction((x) => ({ ...x, libre: v })); }} data-fonction-libre /></label>
+                )}
+                {(['telephone', 'email'] as const).map((k) => (
+                  <label key={k}>{k === 'telephone' ? 'Téléphone' : 'E-mail'}
+                    <input value={ajout[k] ?? ''} inputMode={k === 'telephone' ? 'tel' : 'email'}
                       onChange={(e) => { const v = e.target.value; setAjout((x) => (x === null ? x : { ...x, [k]: v })); }} /></label>
                 ))}
               </div>
               {motifAjout !== null && <p className="fsy-alerte" role="alert">{motifAjout}</p>}
               <div className="syl-form-boutons">
                 <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setAjout(null); setMotifAjout(null); }}>Annuler</button>
-                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrerAjout(ajout); }}>Enregistrer le contact</button>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrerAjout({ ...ajout, fonction: valeurDuChoix(fonction.choix, fonction.libre) }); }}>Enregistrer le contact</button>
               </div>
               <p className="syl-rien">Il rejoint l’annuaire de ce syndic dans la Gestion.</p>
             </li>
@@ -235,10 +250,10 @@ const CSS_SYNDIC_LOCATION = `
 .syl-carte--plus{padding:0;border-style:dashed;border-color:var(--color-svv-line-strong);background:var(--color-svv-surface)}
 .syl-plus{width:100%;height:100%;min-height:88px;border:0;background:transparent;font:inherit;font-weight:700;color:var(--color-svv-ink);cursor:pointer;border-radius:10px}
 .syl-plus:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-.syl-carte--form{grid-column:1/-1;gap:10px}
+.syl-carte--form{grid-column:1/-1;gap:10px;min-width:0}
 .syl-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(170px,100%),1fr));gap:8px 12px}
-.syl-form label{display:flex;flex-direction:column;gap:3px;font-size:.8rem;font-weight:700;color:var(--color-svv-ink)}
-.syl-form input,.syl-form select{font:inherit;font-weight:400;font-size:.95rem;min-height:40px;padding:6px 9px;border:1px solid var(--color-svv-line-strong);border-radius:8px;background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.syl-form label{display:flex;flex-direction:column;gap:3px;min-width:0;font-size:.8rem;font-weight:700;color:var(--color-svv-ink)}
+.syl-form input,.syl-form select{width:100%;min-width:0;box-sizing:border-box;font:inherit;font-weight:400;font-size:.95rem;min-height:40px;padding:6px 9px;border:1px solid var(--color-svv-line-strong);border-radius:8px;background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .syl-form-boutons{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
 .syl-form-boutons .svv-btn{width:auto}
 .syl-form-boutons .svv-btn-primary{color:var(--color-svv-surface)}
