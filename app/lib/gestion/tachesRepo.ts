@@ -21,7 +21,7 @@ import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache 
 import { alignerInvites, invitesDesTaches, personnesInvitees, refusRenvoiPrincipal, type PersonneInvitee } from './invitesRepo';
 import { invitesDeLaSaisie } from './taches';
 /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours rattachés (migration 366). */
-import { alignerEvenements, evenementsDesTaches } from './tacheEvenementsRepo';
+import { alignerEvenements, assurerRattachement, evenementsDesTaches } from './tacheEvenementsRepo';
 import { evenementsTacheDisponible } from './schema';
 
 /**
@@ -484,6 +484,8 @@ async function creerTacheSansRefus(
       const refus = await alignerEvenements(q, id, s.evenements, auteur, nom);
       if (refus !== null) throw new RefusSaisieTache(refus, 'evenements');
     }
+    /* 🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION — l'ancien champ, s'il est encore envoyé, devient aussi un rattachement. */
+    if (s.evenementId !== null && await evenementsTacheDisponible()) await assurerRattachement(q, id, s.evenementId, auteur, nom);
     /* 🔴 LOT TACHES-ACCEPTATION — confiée à soi : acceptée d'office ; à un autre : en attente, et un mail à préparer. */
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : un invité par personne (« Confiée à » d'abord), chacun SA demande. */
     if (plusieurs) {
@@ -699,6 +701,10 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
     if (s.evenements !== undefined && await evenementsTacheDisponible()) {
       const refus = await alignerEvenements(q, id, s.evenements, auteur, nom);
       if (refus !== null) throw new RefusSaisieTache(refus, 'evenements');
+    }
+    /* 🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION — l'ancien champ CHANGÉ vers un événement devient aussi un rattachement. */
+    if (s.evenementId !== null && 'evenementId' in apres && await evenementsTacheDisponible()) {
+      await assurerRattachement(q, id, s.evenementId, auteur, nom);
     }
     await marquerASynchroniser(q, id);
     if (Object.keys(apres).length === 0) return { ok: true, id };

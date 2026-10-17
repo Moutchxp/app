@@ -69,6 +69,8 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   const [evenements, setEvenements] = useState<{ id: number; reference: string; objet: string; ouvert: boolean }[]>([]);
   /** 🔴 LOT GESTION-TACHES-EVENEMENTS — `null` = pas de sélecteur (migration 366 absente, ou lecture impossible). */
   const [evProposes, setEvProposes] = useState<EvenementPropose[] | null>(null);
+  /** 🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION — l'ancien champ est repris (367) : il ne s'affiche plus. */
+  const [repriseFaite, setRepriseFaite] = useState(false);
   const [saisie, setSaisie] = useState<SaisieEcran>(() => ({
     objet: '', jour: jourParisDe(new Date()), heure: null, note: '', confieeA: null, evenementId: null,
     rappels: rappelsParDefaut(false), dureeMinutes: null,
@@ -138,7 +140,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     let annule = false;
     void lireEvenementsDuBien(lotCle).then((e) => { if (!annule) setEvenements(e); });
     /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours qu'on peut rattacher (ceux du bien d'abord). */
-    void lireEvenementsProposes(lotCle).then((e) => { if (!annule) setEvProposes(e); });
+    void lireEvenementsProposes(lotCle).then((e) => { if (!annule) { setEvProposes(e?.liste ?? null); setRepriseFaite(e?.reprise === true); } });
     return () => { annule = true; };
   }, [lotCle]);
 
@@ -427,7 +429,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
           {/* 🔴 LOT GESTION-INVITATIONS-TACHES — « Inviter aussi » : d'autres collaborateurs, chacun SA propre invitation (son
               lien, sa réponse). Seulement quand le serveur sait les recevoir (migration 365). */}
           {collab?.invites === true && (
-            <fieldset className="tchf-champ tchf-invites-choix" disabled={lectureSeule}>
+            <fieldset className="tchf-groupe tchf-invites-choix" disabled={lectureSeule}>
               <legend className="tch-etiquette">Inviter aussi (chacun reçoit sa propre invitation)</legend>
               <div className="tchf-rappels">
                 {collab.liste.filter((c) => c.id !== saisie.confieeA).map((c) => (
@@ -444,7 +446,11 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               {erreurDe('invites')}
             </fieldset>
           )}
-          <label className="tchf-champ">
+          {/* ══ 🔴🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION (accord d'Arno, 17/10/2026) — « Événement du bien lié » est FUSIONNÉ
+              dans le sélecteur multiple ci-dessous : il ne s'affiche plus dès que la reprise (migration 367) est faite —
+              l'événement qu'il portait y est coché d'office. Sa donnée reste en base, et la saisie la renvoie telle quelle.
+              Tant que la reprise n'est pas faite (base sans la 366/367), il reste ici, exactement comme avant. */}
+          {!(evProposes !== null && repriseFaite) && <label className="tchf-champ">
             <span className="tch-etiquette">Événement du bien lié (facultatif)</span>
             <select value={saisie.evenementId ?? ''} disabled={lectureSeule}
               onChange={(e) => setSaisie((s) => ({ ...s, evenementId: e.target.value === '' ? null : Number(e.target.value) }))}>
@@ -457,7 +463,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               )}
             </select>
             {erreurDe('evenementId')}
-          </label>
+          </label>}
           {/* ══ 🔴🔴 LOT GESTION-TACHES-EVENEMENTS — RATTACHER À UN OU PLUSIEURS ÉVÉNEMENTS EN COURS (Arno). Ceux du bien
               d'abord. Décocher retire le rattachement (tracé, jamais effacé). Un rattachement déjà posé à un événement
               clos depuis reste listé, pour pouvoir le retirer. Le champ « Événement du bien lié » au-dessus ne change pas. */}
@@ -613,6 +619,10 @@ const CSS_FENETRE = `
 .tchf-rangee{display:flex;flex-wrap:wrap;gap:8px}
 .tchf-rangee > .tchf-champ{flex:1 1 10rem}
 .tchf-champ{display:flex;flex-direction:column;gap:3px;min-width:0}
+/* LOT GESTION-INVITATIONS / TACHES-EVENEMENTS : les groupes de CASES (inviter aussi, evenements) ne sont PAS des champs de
+   saisie — .tchf-champ input donnerait a chaque case 100 % de large et 44 px de haut. */
+.tchf-groupe{display:flex;flex-direction:column;gap:3px;min-width:0;margin:0;padding:0;border:0}
+.tchf-groupe legend{padding:0;margin-bottom:3px}
 .tch-etiquette{font-size:.78rem;font-weight:600;color:var(--color-svv-muted);margin:0}
 .tchf-champ input,.tchf-champ select,.tchf-champ textarea{min-height:44px;padding:.4rem .5rem;border:1px solid var(--color-svv-line-strong);
   border-radius:.4rem;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;width:100%;box-sizing:border-box}
@@ -671,7 +681,7 @@ function ChoixEvenements({ proposes, rattaches, choisis, desactive, onBasculer }
     { titre: 'Rattachés, clos depuis', liste: clos.map((c) => ({ ...c, mention: ' (clos)' })) },
   ].filter((g) => g.liste.length > 0);
   return (
-    <fieldset className="tchf-champ tchf-evenements" disabled={desactive}>
+    <fieldset className="tchf-groupe tchf-evenements" disabled={desactive}>
       <legend className="tch-etiquette">Rattacher à des événements en cours (plusieurs possibles)</legend>
       {groupes.length === 0 && <p className="tchf-aide">Aucun événement en cours.</p>}
       {groupes.map((g) => (

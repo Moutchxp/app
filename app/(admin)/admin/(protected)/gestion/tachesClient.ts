@@ -171,11 +171,11 @@ export async function lireCollaborateurs(): Promise<{ collaborateurs: Collaborat
  * migration 366 n'est pas là (ou la lecture a échoué) : la fenêtre n'affiche pas le sélecteur.
  */
 export interface EvenementPropose { id: number; reference: string; objet: string; duBien: boolean }
-export async function lireEvenementsProposes(lotCle: string | null): Promise<EvenementPropose[] | null> {
+export async function lireEvenementsProposes(lotCle: string | null): Promise<{ liste: EvenementPropose[]; reprise: boolean } | null> {
   try {
     const res = await fetch(`/api/admin/gestion/taches/evenements${lotCle ? `?bien=${encodeURIComponent(lotCle)}` : ''}`, { cache: 'no-store' });
-    const d = (await res.json()) as { etat?: string; evenements?: EvenementPropose[] };
-    return res.ok && d.etat === 'ok' ? (d.evenements ?? []) : null;
+    const d = (await res.json()) as { etat?: string; evenements?: EvenementPropose[]; reprise?: boolean };
+    return res.ok && d.etat === 'ok' ? { liste: d.evenements ?? [], reprise: d.reprise === true } : null;
   } catch {
     return null;
   }

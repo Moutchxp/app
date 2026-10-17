@@ -11,7 +11,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closePool, query } from '../db/client';
 import { annulerTache, creerTache, lireTache, modifierTache } from './tachesRepo';
-import { evenementsProposes, tachesDeLEvenement } from './tacheEvenementsRepo';
+import { evenementsProposes, repriseAncienLienFaite, tachesDeLEvenement } from './tacheEvenementsRepo';
+import { readFileSync } from 'node:fs';
 import { tacheGrisee } from './tacheFrise';
 import type { SaisieTache } from './taches';
 
@@ -97,5 +98,34 @@ describe('🔴 rattacher à des événements en cours', () => {
     const f = (await tachesDeLEvenement(ev[0])).find((x) => x.id === t)!;
     expect(f.etat).toBe('annulee');
     expect(tacheGrisee(f)).toBe(true);
+  });
+});
+
+describe('🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION — « Événement du bien lié » repris dans les rattachements (367)', () => {
+  it('une tâche avec l’ancien lien seul : la reprise la rattache (point dans la frise, case cochée), la donnée d’origine reste', async () => {
+    const c = await creerTache(lot, saisie({ objet: '_TEST ancien lien' }), MOI);
+    if (!c.ok) throw new Error(c.motif);
+    // L'ancien lien SEUL, tel que les tâches d'avant la 366 le portent (aucune ligne de rattachement).
+    await query(`UPDATE gestion_tache SET evenement_id = $2 WHERE id = $1`, [c.id, ev[1]]);
+    expect(await repriseAncienLienFaite()).toBe(false);
+    await query(readFileSync('db/migrations/367_gestion_tache_evenement_reprise.sql', 'utf8'));
+    expect(await repriseAncienLienFaite()).toBe(true);
+    const t = (await lireTache(c.id))!.tache;
+    expect(t.evenements?.map((e) => e.id)).toEqual([ev[1]]);
+    expect(t.evenement?.id).toBe(ev[1]);
+    expect((await tachesDeLEvenement(ev[1])).map((x) => x.id)).toContain(c.id);
+    // Rejouée : rien de plus (idempotente).
+    await query(readFileSync('db/migrations/367_gestion_tache_evenement_reprise.sql', 'utf8'));
+    expect((await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_tache_evenement WHERE tache_id = $1`, [c.id])).rows[0].n).toBe(1);
+    // Décocher l'événement retire le rattachement ; la reprise reste « faite », l'ancien champ reste en base.
+    expect((await modifierTache(c.id, saisie({ objet: '_TEST ancien lien', evenementId: ev[1], evenements: [] }), MOI)).ok).toBe(true);
+    expect((await lireTache(c.id))!.tache.evenements).toEqual([]);
+    expect(await repriseAncienLienFaite()).toBe(true);
+    expect((await lireTache(c.id))!.tache.evenement?.id).toBe(ev[1]);
+  });
+  it('un appelant qui envoie encore l’ancien champ : l’événement devient aussi un rattachement', async () => {
+    const c = await creerTache(lot, saisie({ objet: '_TEST ancien champ envoyé', evenementId: ev[2] }), MOI);
+    if (!c.ok) throw new Error(c.motif);
+    expect((await lireTache(c.id))!.tache.evenements?.map((e) => e.id)).toEqual([ev[2]]);
   });
 });

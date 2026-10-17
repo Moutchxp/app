@@ -40,6 +40,36 @@ export async function evenementsProposes(cleBien: string | null, limite = 200): 
   return [...tous.filter((e) => e.duBien), ...tous.filter((e) => !e.duBien)];
 }
 
+/**
+ * 🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION — LA REPRISE DE L'ANCIEN CHAMP EST-ELLE FAITE (migration 367) ? Vrai quand
+ * chaque tâche qui porte un « Événement du bien lié » a une ligne de rattachement pour ce couple — active OU retirée
+ * depuis (retirer le rattachement ne fait pas « défaire » la reprise). Tant que ce n'est pas vrai, la fenêtre garde
+ * l'ancien champ (décision d'Arno : il ne disparaît qu'une fois la reprise faite).
+ */
+export async function repriseAncienLienFaite(): Promise<boolean> {
+  if (!(await evenementsTacheDisponible())) return false;
+  const { rows } = await query<{ faite: boolean }>(
+    `SELECT NOT EXISTS (SELECT 1 FROM gestion_tache t
+                         WHERE t.evenement_id IS NOT NULL
+                           AND NOT EXISTS (SELECT 1 FROM gestion_tache_evenement x
+                                            WHERE x.tache_id = t.id AND x.evenement_id = t.evenement_id)) AS faite`);
+  return rows[0]?.faite === true;
+}
+
+/**
+ * Un événement posé par le champ d'avant (`evenementId`, par un appelant qui l'envoie encore) devient AUSSI un
+ * rattachement, s'il n'en est pas déjà un : c'est le sélecteur qui fait foi, et le point de la frise doit suivre.
+ */
+export async function assurerRattachement(q: RequeteTx, tacheId: number, evenementId: number, auteur: Auteur, nom: string): Promise<void> {
+  const deja = await q(`SELECT 1 FROM gestion_tache_evenement WHERE tache_id = $1 AND evenement_id = $2 AND retire_le IS NULL`, [tacheId, evenementId]);
+  if (deja.rows.length > 0) return;
+  const e = (await q<{ reference: string }>(`SELECT reference FROM gestion_evenement WHERE id = $1`, [evenementId])).rows[0];
+  if (e === undefined) return;
+  await q(`INSERT INTO gestion_tache_evenement (tache_id, evenement_id, ajoute_par, ajoute_par_libelle) VALUES ($1, $2, $3, $4)`,
+    [tacheId, evenementId, auteur.id, nom]);
+  await tracer(q, tacheId, null, { evenementRattache: e.reference }, auteur, nom);
+}
+
 /** Les événements rattachés (actifs) de chaque tâche. Une requête pour toute la liste. */
 export async function evenementsDesTaches(ids: readonly number[]): Promise<Map<number, EvenementDeTache[]>> {
   const m = new Map<number, EvenementDeTache[]>();

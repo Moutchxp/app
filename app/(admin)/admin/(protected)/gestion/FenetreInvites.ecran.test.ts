@@ -14,6 +14,7 @@ import { FenetreTache } from './FenetreTache';
 let envois: Record<string, unknown>[];
 let avecInvites: boolean;
 let avecEvenements: boolean;
+let reprise: boolean;
 let container: HTMLDivElement;
 let root: Root;
 
@@ -21,6 +22,7 @@ beforeEach(() => {
   envois = [];
   avecInvites = true;
   avecEvenements = false;
+  reprise = false;
   vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string; body?: string }) => {
     const url = String(u);
     if (init?.method && init.method !== 'GET') {
@@ -35,7 +37,7 @@ beforeEach(() => {
     }
     if (url.includes('/taches/contacts')) return Response.json({ etat: 'ok', contacts: [] });
     if (url.includes('/taches/evenements')) {
-      return avecEvenements ? Response.json({ etat: 'ok', evenements: [
+      return avecEvenements ? Response.json({ etat: 'ok', reprise, evenements: [
         { id: 11, reference: 'GES-2026-000011', objet: 'Fuite (du bien)', duBien: true },
         { id: 12, reference: 'GES-2026-000012', objet: 'Ascenseur', duBien: false },
         { id: 13, reference: 'GES-2026-000013', objet: 'Toiture', duBien: false },
@@ -96,7 +98,7 @@ describe('« Inviter aussi »', () => {
 });
 
 describe('🔴 LOT GESTION-TACHES-EVENEMENTS — rattacher à des événements en cours', () => {
-  it('ceux du bien d’abord ; plusieurs cochés partent avec la tâche ; « Événement du bien lié » est toujours là', async () => {
+  it('ceux du bien d’abord ; plusieurs cochés partent avec la tâche ; reprise pas faite : « Événement du bien lié » reste là', async () => {
     avecEvenements = true;
     await ouvrir();
     const groupes = [...container.querySelectorAll('.tchf-evenements-groupe')].map((g) => g.querySelector('.tchf-aide')?.textContent);
@@ -116,5 +118,14 @@ describe('🔴 LOT GESTION-TACHES-EVENEMENTS — rattacher à des événements e
     await ecrireObjet('Visite technique');
     await enregistrer();
     expect('evenements' in envois[0]).toBe(false);
+  });
+});
+
+describe('🔴 LOT GESTION-TACHES-EVENEMENTS-FUSION — l’ancien champ fusionné dans le sélecteur', () => {
+  it('reprise faite (367) : « Événement du bien lié » ne s’affiche plus ; le sélecteur reste', async () => {
+    avecEvenements = true; reprise = true;
+    await ouvrir();
+    expect(container.querySelector('.tchf-corps')?.textContent).not.toContain('Événement du bien lié');
+    expect(container.querySelector('.tchf-evenements')).not.toBeNull();
   });
 });
