@@ -20,11 +20,11 @@ const LIEN: Record<Groupe, (id: number) => string> = {
 };
 
 export const CASES = [
-  { href: '/admin/location/proprietaires', titre: 'Ajouter / supprimer un propriétaire / bien',
+  { href: '/admin/location/proprietaires', titre: ['Ajouter / supprimer', 'un propriétaire / bien'],
     phrase: 'Créer un propriétaire avec son bien et ses annexes ; les listes des propriétaires et des biens (annexes en arbre), actifs et anciens.' },
-  { href: '/admin/location/locataires', titre: 'Ajouter / supprimer un locataire',
+  { href: '/admin/location/locataires', titre: ['Ajouter / supprimer', 'un locataire'],
     phrase: 'Créer un locataire rattaché à un bien, avec alerte de doublon dès la saisie ; la liste des locataires, actifs et anciens.' },
-  { href: '/admin/location/outils', titre: 'Outils de suivi',
+  { href: '/admin/location/outils', titre: ['Outils', 'de suivi'],
     phrase: 'Les outils de pilotage de la location : honoraires de gestion, et ceux qui viendront.' },
 ] as const;
 
@@ -76,11 +76,12 @@ export function AccueilLocation() {
         </section>
       )}
 
-      <ul className="loc-cases" aria-label="Espaces de la Location">
+      {/* Arno (17/10/2026) : cases DEUX FOIS plus hautes, titres sur deux lignes — sur l'accueil seulement. */}
+      <ul className="loc-cases loc-cases--accueil" aria-label="Espaces de la Location">
         {CASES.map((c) => (
           <li key={c.href}>
             <a className="loc-case" href={c.href} data-case={c.href}>
-              <span className="loc-case-titre">{c.titre}</span>
+              <span className="loc-case-titre">{c.titre.map((l) => <span key={l} className="loc-case-ligne">{l}</span>)}</span>
               <span className="loc-case-phrase">{c.phrase}</span>
             </a>
           </li>

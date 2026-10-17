@@ -14,6 +14,7 @@ import { locationsAffichees } from '../gestion/honorairesGestionRepo';
 import type { LocationAffichee } from '../gestion/honorairesGestion';
 import type { Auteur } from '../gestion/gestes';
 import { sortieDe, sortieDisponible } from './portefeuilleRepo';
+import { complementsDuBien, type ComplementsFiche } from './creationBienRepo';
 import type { SortiePortefeuille } from './recherchePortefeuille';
 import { categorieDuBien, verifierChampsBien, type BienLocation, type Categorie, type ChampsBien } from './locationBien';
 
@@ -254,6 +255,8 @@ export interface FicheBienLocation {
   /** Les autres biens du même propriétaire qu'on peut rattacher comme annexe (ni logement à annexes, ni annexe). */
   rattachables: BienLocation[];
   location372: boolean;
+  /** Les informations complémentaires (migration 374) ; `null` sans elle. */
+  complements: ComplementsFiche | null;
 }
 
 export async function ficheBienLocation(id: number): Promise<Issue<FicheBienLocation>> {
@@ -277,7 +280,7 @@ export async function ficheBienLocation(id: number): Promise<Issue<FicheBienLoca
     data: {
       fiche: f.data, sortie: await sortieDe('bien', id), bien, parent, annexes,
       locations: f.data.occupations.map((o) => ({ occupationId: o.occupationId, location: conditions.get(o.occupationId) ?? null })),
-      rattachables, location372: avec372,
+      rattachables, location372: avec372, complements: await complementsDuBien(id),
     },
   };
 }

@@ -656,7 +656,7 @@ export interface FicheAEditer {
   contacts: readonly { id: number; sorte: 'telephone' | 'email'; affichage: string; libelle: string | null }[];
 }
 
-export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact }: {
+export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie }: {
   /** `null` en CRÉATION : la même carte, vide. */
   p: FicheAEditer | null;
   onEnregistrer: (champs: ChampsSaisis) => Promise<void>;
@@ -715,6 +715,11 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
      */
     empeche?: string | null;
   };
+  /**
+   * TUILE LOCATION (17/10/2026) — « dédoublonnage dès la saisie par e-mail ou téléphone ». Reçoit les coordonnées à
+   * chaque frappe, pour que l'appelant signale une fiche déjà connue. ABSENT ⇒ rien ne change (cas de la Gestion).
+   */
+  onSaisie?: (coordonnees: CoordonneeSaisie[]) => void;
 }) {
   /**
    * ══ 🔴🔴 LOT FICHE-SAISIE-UNIFORME — LA CIVILITÉ EST UNE LISTE, PLUS UN TEXTE LIBRE ══════════════════════
@@ -778,6 +783,10 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
   const saisiesVivantes: CoordonneeSaisie[] = lignes.map((l) => ({
     sorte: sorteDuType(l.type), valeur: l.valeur, libelle: motType(l.type),
   }));
+  const surSaisie = useRef(onSaisie);
+  useEffect(() => { surSaisie.current = onSaisie; }, [onSaisie]);
+  const cleSaisies = JSON.stringify(saisiesVivantes);
+  useEffect(() => { surSaisie.current?.(JSON.parse(cleSaisies) as CoordonneeSaisie[]); }, [cleSaisies]);
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — L'EXIGENCE D'UN CONTACT N'EST PAS CELLE D'UN CLIENT, et c'est la seule
    * ligne où les deux mondes se séparent. Un contact est exigé en création COMME en modification : sa règle ne

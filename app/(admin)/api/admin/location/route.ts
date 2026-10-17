@@ -13,6 +13,9 @@ import {
   biensPourLocataire, creerLocataireSurBien, ficheSyndicLocation, reactiverDansPortefeuille, rechercherPortefeuille,
   sortirDuPortefeuille, type CreationLocataire, type SujetPortefeuille,
 } from '../../../../lib/location/portefeuilleRepo';
+import {
+  creerBienComplet, creerProprietaires, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
+} from '../../../../lib/location/creationBienRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -24,10 +27,12 @@ import {
  *
  * GET : `?q=` recherche de l'accueil (personnes et syndics par nom / téléphone / e-mail ; biens du portefeuille par leur
  *       adresse) · `?liste=proprietaires|locataires|biens&page=&filtre=&anciens=1` · `?proprietaire=N` · `?locataire=N` ·
- *       `?lot=N` · `?syndic=N` · `?biensPourLocataire=texte` · `?telephone=&email=` (dédoublonnage à la saisie).
+ *       `?lot=N` · `?syndic=N` · `?biensPourLocataire=texte` · `?telephone=&email=` (dédoublonnage à la saisie ; plusieurs
+ *       valeurs possibles) · `?proprietairesRecherche=texte` · `?proprietairesIds=1,2` · `?syndics=1`.
  * POST `{ action }` : modifier | archiver | restaurer | separer (une personne) · numero-mandat · modifier-bien ·
  *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · creer-locataire · conditions-location ·
- *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement).
+ *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien · complements-bien
+ *       (formulaire complet).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
  */
 export const runtime = 'nodejs';
@@ -61,10 +66,19 @@ export async function GET(request: Request): Promise<Response> {
     if (p('biensPourLocataire') !== null) {
       return Response.json({ etat: 'ok', data: await biensPourLocataire((p('biensPourLocataire') ?? '').slice(0, 100)) }, { headers: ENTETES });
     }
+    if (p('proprietairesRecherche') !== null) {
+      return Response.json({ etat: 'ok', data: await rechercherProprietaires((p('proprietairesRecherche') ?? '').slice(0, 200)) }, { headers: ENTETES });
+    }
+    if (p('proprietairesIds') !== null) {
+      const ids = (p('proprietairesIds') ?? '').split(',').map((x) => identifiant(x.trim())).filter((x): x is number => x !== null);
+      return Response.json({ etat: 'ok', data: await proprietairesParIds(ids) }, { headers: ENTETES });
+    }
+    if (p('syndics') !== null) return Response.json({ etat: 'ok', data: await syndicsConnus() }, { headers: ENTETES });
     if (p('telephone') !== null || p('email') !== null) {
+      // Plusieurs valeurs possibles (une carte peut porter deux téléphones) ; bornées.
       const doublons = await chercherDoublons([
-        { sorte: 'telephone', valeur: (p('telephone') ?? '').slice(0, 60) },
-        { sorte: 'email', valeur: (p('email') ?? '').slice(0, 200) },
+        ...url.searchParams.getAll('telephone').slice(0, 10).map((v) => ({ sorte: 'telephone' as const, valeur: v.slice(0, 60) })),
+        ...url.searchParams.getAll('email').slice(0, 10).map((v) => ({ sorte: 'email' as const, valeur: v.slice(0, 200) })),
       ]);
       return Response.json({ etat: 'ok', data: doublons }, { headers: ENTETES });
     }
@@ -122,6 +136,9 @@ export async function POST(request: Request): Promise<Response> {
       case 'modifier-bien':
         if (id === null) return incomplet();
         return repondre(await modifierBien(id, (corps.champs ?? {}) as Record<string, unknown>, auteur));
+      case 'complements-bien':
+        if (id === null) return incomplet();
+        return repondre(await modifierComplementsBien(id, (corps.champs ?? {}) as Record<string, unknown>, auteur));
       case 'ajouter-annexe':
         if (id === null) return incomplet();
         return repondre(await ajouterAnnexe(id, (corps.champs ?? {}) as Record<string, unknown>, auteur));
@@ -142,6 +159,18 @@ export async function POST(request: Request): Promise<Response> {
           locataireId: identifiant(corps.locataireId), lotId: identifiant(corps.lotId),
           locataire: (corps.locataire ?? {}) as CreationLocataire['locataire'],
           entree: typeof corps.entree === 'string' ? corps.entree : null,
+        }, auteur));
+      case 'creer-proprietaires':
+        return repondre(await creerProprietaires({
+          cartes: Array.isArray(corps.cartes) ? (corps.cartes as CartesProprietaires['cartes']).slice(0, 12) : [],
+          existants: Array.isArray(corps.existants) ? (corps.existants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
+          numeroMandat: typeof corps.numeroMandat === 'string' ? corps.numeroMandat : null,
+        }, auteur));
+      case 'creer-bien':
+        return repondre(await creerBienComplet({
+          proprietaireIds: Array.isArray(corps.proprietaireIds) ? (corps.proprietaireIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
+          logement: (corps.logement ?? {}) as Record<string, unknown>,
+          annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
         }, auteur));
       case 'sortir':
       case 'reactiver': {

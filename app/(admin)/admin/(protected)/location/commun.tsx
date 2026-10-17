@@ -161,6 +161,10 @@ export const CSS_LOCATION_ECRANS = `
 .loc-case:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .loc-case-titre{font-weight:800;font-size:1.12rem;color:var(--color-svv-ink)}
 .loc-case-phrase{font-size:.9rem;color:var(--color-svv-muted)}
+.loc-cases--accueil .loc-case{min-height:18rem;padding:28px 30px;gap:14px;border-radius:20px}
+.loc-cases--accueil .loc-case-titre{font-size:1.5rem;line-height:1.25}
+.loc-case-ligne{display:block}
+.loc-cases--accueil .loc-case-phrase{font-size:1rem;line-height:1.5}
 .loc-bascule{display:inline-flex;border:1px solid var(--color-svv-line-strong);border-radius:10px;overflow:hidden}
 .loc-bascule button{border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:0 14px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}
 .loc-bascule button + button{border-left:1px solid var(--color-svv-line-strong)}
@@ -172,4 +176,80 @@ export const CSS_LOCATION_ECRANS = `
 .loc-choix button[aria-pressed="true"]{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700}
 @media (max-width:760px){ .loc-cases{grid-template-columns:1fr} }
 @media (max-width:640px){ .loc-arbre > li.loc-enfant{margin-left:16px} }
+`;
+
+/**
+ * ══ LES ÉCRANS DE CRÉATION (Arno, 17/10/2026) — « AÉRÉ, inspiration légèrement playschool mais pro : grosses cases, gros
+ * boutons, gros champs de saisie, coins arrondis, espacements larges, une section = une grande carte. » ══════════════════
+ * Uniquement les variables du thème (Clair / Sombre / Système), comme tout le reste de la tuile. Portée : `.loc-ample`.
+ */
+export const CSS_LOCATION_CREATION = `
+.loc-ample{gap:26px}
+.loc-ample .loc-titre{font-size:1.7rem}
+.loc-ample .loc-sous{font-size:1.02rem}
+.loc-gros-boutons{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.loc-gros-bouton{display:flex;flex-direction:column;justify-content:center;gap:10px;box-sizing:border-box;height:100%;min-height:9.5rem;padding:26px 30px;border-radius:24px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink);text-decoration:none;font-size:1.45rem;font-weight:800;line-height:1.2;cursor:pointer;text-align:left;font-family:inherit;width:100%}
+.loc-gros-bouton:hover{border-color:var(--color-svv-ink)}
+.loc-gros-bouton:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:3px}
+.loc-gros-bouton small{font-size:1rem;font-weight:500;color:var(--color-svv-muted);line-height:1.45}
+.loc-gros-bouton--plein{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
+.loc-gros-bouton--plein small{color:var(--color-svv-surface)}
+.loc-gros-bouton--plein:hover{border-color:var(--color-svv-ink)}
+.loc-gros-bouton:disabled{opacity:.55;cursor:not-allowed}
+.loc-section{border:1px solid var(--color-svv-line);border-radius:26px;padding:28px 30px;background:var(--color-svv-surface);display:flex;flex-direction:column;gap:18px}
+.loc-section > h3{margin:0;font-size:1.35rem;font-weight:800;display:flex;align-items:center;gap:14px;color:var(--color-svv-ink)}
+.loc-num{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:2.4rem;height:2.4rem;border-radius:999px;background:var(--color-svv-field);border:2px solid var(--color-svv-line-strong);font-size:1.1rem;font-weight:800;color:var(--color-svv-ink)}
+.loc-section-phrase{margin:-8px 0 0;color:var(--color-svv-muted);font-size:1rem}
+.loc-sous-section{display:flex;flex-direction:column;gap:14px;padding-top:6px}
+.loc-sous-section > h4{margin:0;font-size:1.08rem;font-weight:700;color:var(--color-svv-ink)}
+.loc-ample .loc-grille{grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:18px 22px}
+.loc-ample .loc-champ{font-size:1rem;gap:8px;color:var(--color-svv-ink);font-weight:600}
+.loc-ample .loc-champ input,.loc-ample .loc-champ select,.loc-ample .loc-champ textarea{min-height:58px;font-size:1.1rem;font-weight:400;border-radius:16px;border:2px solid var(--color-svv-line);padding:0 16px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-family:inherit;box-sizing:border-box;width:100%}
+.loc-ample .loc-champ textarea{padding:14px 16px;min-height:9rem;resize:vertical;line-height:1.5}
+.loc-ample .loc-champ input:focus,.loc-ample .loc-champ select:focus,.loc-ample .loc-champ textarea:focus{border-color:var(--color-svv-ink);outline:none}
+.loc-oblig{color:var(--color-svv-red)}
+.loc-manque{color:var(--color-svv-red);font-size:.95rem;font-weight:600;margin:0}
+.loc-ample .svv-btn{min-height:52px;border-radius:16px;font-size:1.02rem;padding:0 22px}
+.loc-pilules{display:flex;flex-wrap:wrap;gap:10px}
+.loc-pilules button{min-height:54px;padding:0 22px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;font-weight:700;cursor:pointer}
+.loc-pilules button[aria-pressed="true"]{background:var(--color-svv-ink);border-color:var(--color-svv-ink);color:var(--color-svv-surface)}
+.loc-pilules button:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px}
+.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:12px}
+.loc-puce{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:8px 8px 8px 20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-size:1.05rem;font-weight:700;border:2px solid var(--color-svv-green-ink)}
+.loc-puce small{font-weight:500;font-size:.9rem}
+.loc-puce button{width:40px;height:40px;border-radius:999px;border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.1rem;font-weight:800;cursor:pointer}
+.loc-ample .loc-recherche{border-radius:18px;padding:6px 10px 6px 18px}
+.loc-ample .loc-recherche input{min-height:54px;font-size:1.1rem}
+.loc-ample .loc-choix{border-radius:16px}
+.loc-ample .loc-choix button{min-height:58px;font-size:1.05rem;padding:12px 18px}
+.loc-annexes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
+.loc-annexes > li{border:2px solid var(--color-svv-line);border-radius:20px;padding:18px 20px;background:var(--color-svv-field)}
+.loc-annexes > li.loc-racine{background:var(--color-svv-surface);font-weight:700;font-size:1.05rem}
+.loc-annexes > li.loc-enfant{margin-left:34px;position:relative}
+.loc-annexes > li.loc-enfant::before{content:"";position:absolute;left:-24px;top:-16px;bottom:50%;width:18px;border-left:3px solid var(--color-svv-line-strong);border-bottom:3px solid var(--color-svv-line-strong);border-bottom-left-radius:10px}
+.loc-annexes .loc-annexe-tete{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;margin:0 0 12px;font-weight:800;font-size:1.08rem;color:var(--color-svv-ink)}
+.loc-collant{position:sticky;bottom:0;z-index:5;display:flex;flex-wrap:wrap;gap:12px 16px;justify-content:flex-end;align-items:center;padding:16px 18px;margin:0 -2px;border:1px solid var(--color-svv-line);border-radius:22px;background:var(--color-svv-surface)}
+.loc-collant .loc-manques{flex:1 1 16rem;margin:0;color:var(--color-svv-muted);font-size:.98rem}
+.loc-collant .svv-btn{width:auto}
+.loc-collant .svv-btn-primary{min-height:60px;font-size:1.15rem;padding:0 32px}
+.loc-annexe-tete .svv-btn{width:auto}
+.loc-cartes-creation{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(380px,100%),1fr));gap:20px;align-items:start}
+.loc-cartes-creation .cp-carte{width:auto;max-width:100%;min-width:0;border-radius:22px;padding:20px}
+.loc-ample .cp-saisie{min-height:52px;font-size:1.05rem;border-radius:12px}
+.loc-ample .cp-form-titre{font-size:1.15rem}
+.loc-recap{display:flex;flex-direction:column;gap:6px;border:2px solid var(--color-svv-green-ink);border-radius:22px;padding:20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.loc-recap strong{font-size:1.15rem}
+.loc-recap .loc-boutons{justify-content:flex-start}
+.loc-ajouter-carte{display:flex;align-items:center;justify-content:center;min-height:10rem;border:2px dashed var(--color-svv-line-strong);border-radius:22px;background:transparent;color:var(--color-svv-ink);font:inherit;font-size:1.2rem;font-weight:800;cursor:pointer;width:100%}
+.loc-ajouter-carte:hover{border-color:var(--color-svv-ink)}
+@media (max-width:760px){
+  .loc-gros-boutons{grid-template-columns:1fr}
+  .loc-gros-bouton{min-height:7.5rem;font-size:1.25rem;padding:22px}
+  .loc-section{padding:20px 18px;border-radius:22px}
+  .loc-annexes > li.loc-enfant{margin-left:22px}
+  .loc-annexes > li.loc-enfant::before{left:-16px;width:12px}
+  .loc-collant{padding:12px 14px;gap:8px 10px}
+  .loc-collant .loc-manques{flex-basis:100%;font-size:.9rem}
+  .loc-collant .svv-btn-primary{flex:1 1 auto;padding:0 18px}
+}
 `;

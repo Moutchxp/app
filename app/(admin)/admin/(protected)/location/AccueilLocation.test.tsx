@@ -64,6 +64,11 @@ describe('🔴 /admin/location ne plante plus', () => {
     await act(async () => { root.render(createElement(EcranProprietairesBiens)); });
     await calmer();
     expect(container.textContent).toContain('EXEMPLE Claire');
+    // Les 2 gros boutons en haut ; l'ancien bouton et les listes restent (rien n'est retiré).
+    expect([...container.querySelectorAll('a.loc-gros-bouton')].map((x) => x.getAttribute('href')))
+      .toEqual(['/admin/location/nouveau-proprietaire', '/admin/location/nouveau-bien']);
+    expect(container.querySelector('a[href="/admin/location/nouveau"]')).not.toBeNull();
+    expect(container.querySelector('[role="tablist"]')).not.toBeNull();
     await act(async () => { bouton('Biens').click(); });
     // La réponse n'est pas encore là : l'onglet Biens est « en chargement », sans erreur.
     expect(container.textContent).toContain('Chargement…');
@@ -97,6 +102,9 @@ describe('🔴 /admin/location ne plante plus', () => {
     await act(async () => { root.render(createElement(AccueilLocation)); });
     await calmer();
     const cases = [...container.querySelectorAll('a.loc-case')].map((a) => a.getAttribute('href'));
+    // Titres sur deux lignes (Arno, 17/10/2026).
+    expect([...container.querySelectorAll('.loc-cases--accueil .loc-case-titre')].map((t) => [...t.querySelectorAll('.loc-case-ligne')].map((l) => l.textContent)))
+      .toEqual([['Ajouter / supprimer', 'un propriétaire / bien'], ['Ajouter / supprimer', 'un locataire'], ['Outils', 'de suivi']]);
     expect(cases).toEqual(['/admin/location/proprietaires', '/admin/location/locataires', '/admin/location/outils']);
     // Plus d'onglets ni de listes sur l'accueil : ils sont dans les trois écrans.
     expect(container.querySelector('[role="tablist"]')).toBeNull();

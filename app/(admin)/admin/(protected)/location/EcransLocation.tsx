@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
+import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
 import { ListeLocation } from './ListesLocation';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
@@ -15,10 +15,18 @@ export function EcranProprietairesBiens() {
   const [onglet, setOnglet] = useState<'proprietaires' | 'biens'>('proprietaires');
   return (
     <div className="loc-page">
-      <style>{CSS_LOCATION_ECRANS}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
       <EnTeteLocation titre="Propriétaires et biens"
         sous="Créer un propriétaire avec son bien et ses annexes ; « supprimer » = sortir du portefeuille, depuis la fiche (rien n’est effacé)."
         actions={<a className="svv-btn svv-btn-primary gst-btn" href="/admin/location/nouveau">+ Nouveau propriétaire + bien</a>} />
+      {/* Arno (17/10/2026) : « en haut, 2 GROS BOUTONS côte à côte, chacun la moitié de la largeur (empilés au téléphone) ».
+          Les listes restent dessous : rien n'est retiré (le bouton « + Nouveau propriétaire + bien » non plus). */}
+      <ul className="loc-gros-boutons" aria-label="Créer">
+        <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/nouveau-proprietaire" data-gros="proprietaire">
+          Créer un nouveau propriétaire<small>Une carte de contact par personne (couple, indivision, SCI…), puis son bien.</small></a></li>
+        <li><a className="loc-gros-bouton" href="/admin/location/nouveau-bien" data-gros="bien">
+          Ajouter un nouveau bien<small>Pour un propriétaire déjà connu : adresse, logement, copropriété, annexes, DPE…</small></a></li>
+      </ul>
       <section className="loc-bloc">
         <div className="loc-onglets" role="tablist">
           <button type="button" role="tab" aria-selected={onglet === 'proprietaires'} onClick={() => setOnglet('proprietaires')}>Propriétaires</button>

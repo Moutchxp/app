@@ -11,6 +11,9 @@ import {
 import type { FicheBienLocation as Donnees } from '../../../../lib/location/locationRepo';
 import { formaterDateIso, periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
 import { BlocSortie } from './EcransLocation';
+import {
+  CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, LIBELLE_TYPE_LOGEMENT, TYPES_LOGEMENT, type ComplementsFiche, type TypeLogement,
+} from '../../../../lib/location/bienComplet';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LA FICHE DU BIEN (/admin/location/bien/[id]) ═════════════════════════════════════════════
@@ -69,6 +72,9 @@ export function FicheBienLocation({ id }: { id: number }) {
       </section>
 
       <Caracteristiques b={b} modifiable={d.location372} apres={rafraichir} />
+      {d.complements !== null && d.complements !== undefined && b.parentId === null && (
+        <Complements id={b.id} c={d.complements} apres={rafraichir} />
+      )}
 
       <section className="loc-bloc">
         <h3>Propriétaire{liste(f.proprietaires).length > 1 ? 's' : ''}</h3>
@@ -258,6 +264,87 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
         </form>
       )}
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+    </section>
+  );
+}
+
+/**
+ * Les informations complémentaires du bien (migration 374, Arno 17/10/2026) : saisies au formulaire complet, « complétables
+ * plus tard » ici. Tout est facultatif ; le syndic est choisi parmi ceux de la Gestion.
+ */
+function Complements({ id, c, apres }: { id: number; c: ComplementsFiche; apres: () => void }) {
+  const initial = {
+    batiment: c.batiment ?? '', escalier: c.escalier ?? '', typeLogement: c.typeLogement ?? '', nombrePieces: c.nombrePieces === null ? '' : String(c.nombrePieces),
+    meuble: c.meuble === null ? '' : c.meuble ? 'oui' : 'non', surfaceHabitableM2: c.surfaceHabitableM2 === null ? '' : String(c.surfaceHabitableM2).replace('.', ','),
+    syndicId: c.syndicId === null ? '' : String(c.syndicId), epoqueConstruction: c.epoqueConstruction ?? '', chauffage: c.chauffage ?? '',
+    dpeClasse: c.dpeClasse ?? '', dpeDate: c.dpeDate ?? '', commentaire: c.commentaire ?? '',
+  };
+  const [edition, setEdition] = useState(false);
+  const [v, setV] = useState(initial);
+  const [motif, setMotif] = useState<string | null>(null);
+  const syndics = useLecture<{ id: number; nom: string; ville: string | null }[]>(edition ? 'syndics=1' : null);
+  const enregistrer = async (): Promise<void> => {
+    const r = await envoyer({ action: 'complements-bien', id, champs: v });
+    setMotif(r.motif);
+    if (r.motif === null) { setEdition(false); apres(); }
+  };
+  const date = c.dpeDate === null ? null : new Date(`${c.dpeDate}T12:00:00`).toLocaleDateString('fr-FR');
+  const lignes: [string, string | null][] = [
+    ['Type de logement', c.typeLogement === null ? null : LIBELLE_TYPE_LOGEMENT[c.typeLogement as TypeLogement] ?? c.typeLogement],
+    ['Nombre de pièces', c.nombrePieces === null ? null : String(c.nombrePieces)],
+    ['Meublé', c.meuble === null ? null : c.meuble ? 'Meublé' : 'Non meublé'],
+    ['Surface habitable', c.surfaceHabitableM2 === null ? null : `${String(c.surfaceHabitableM2).replace('.', ',')} m²`],
+    ['Bâtiment', c.batiment], ['Escalier', c.escalier], ['Syndic', c.syndicNom],
+    ['Époque de construction', c.epoqueConstruction], ['Chauffage', c.chauffage],
+    ['DPE', c.dpeClasse === null && date === null ? null : [c.dpeClasse === null ? null : `classe ${c.dpeClasse}`, date === null ? null : `du ${date}`].filter((x) => x).join(' ')],
+    ['Commentaire', c.commentaire],
+  ];
+  const champ = (k: keyof typeof initial, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+    <label className="loc-champ">{mot}<input value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} {...props} /></label>
+  );
+  const choix = (k: keyof typeof initial, mot: string, options: readonly (readonly [string, string])[]) => (
+    <label className="loc-champ">{mot}
+      <select value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })}>
+        <option value="">— non renseigné —</option>{options.map(([val, lib]) => <option key={val} value={val}>{lib}</option>)}
+      </select></label>
+  );
+  return (
+    <section className="loc-bloc" data-complements>
+      <h3>Informations complémentaires</h3>
+      {!edition ? (
+        <>
+          <dl className="loc-grille" style={{ margin: 0 }}>
+            {lignes.map(([mot, val]) => (
+              <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{val ?? <span className="loc-muet">non renseigné</span>}</dd></div>
+            ))}
+          </dl>
+          <div className="loc-boutons"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setV(initial); setMotif(null); setEdition(true); }}>Modifier</button></div>
+        </>
+      ) : (
+        <form onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
+          <div className="loc-grille">
+            {choix('typeLogement', 'Type de logement', TYPES_LOGEMENT.map((t) => [t, LIBELLE_TYPE_LOGEMENT[t]] as const))}
+            {champ('nombrePieces', 'Nombre de pièces', { inputMode: 'numeric' })}
+            {choix('meuble', 'Meublé', [['oui', 'Meublé'], ['non', 'Non meublé']])}
+            {champ('surfaceHabitableM2', 'Surface habitable (m²)', { inputMode: 'decimal' })}
+            {champ('batiment', 'Bâtiment')}
+            {champ('escalier', 'Escalier')}
+            {choix('syndicId', 'Syndic (Gestion)', syndics.etat.etat === 'ok' ? liste(syndics.etat.data).map((x) => [String(x.id), x.nom] as const) : [])}
+            {choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION.map((x) => [x, x] as const))}
+            {choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}
+            {choix('dpeClasse', 'Classe DPE', CLASSES_DPE.map((x) => [x, x] as const))}
+            {champ('dpeDate', 'Date du DPE', { type: 'date' })}
+            <label className="loc-champ" style={{ gridColumn: '1 / -1' }}>Commentaire
+              <textarea value={v.commentaire} onChange={(e) => setV({ ...v, commentaire: e.target.value })} maxLength={4000} rows={4}
+                style={{ border: '1px solid var(--color-svv-line)', borderRadius: 9, padding: 10, font: 'inherit', color: 'var(--color-svv-ink)', background: 'var(--color-svv-surface)' }} /></label>
+          </div>
+          {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+          <div className="loc-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEdition(false)}>Annuler</button>
+            <button type="submit" className="svv-btn svv-btn-primary gst-btn">Enregistrer</button>
+          </div>
+        </form>
+      )}
     </section>
   );
 }
