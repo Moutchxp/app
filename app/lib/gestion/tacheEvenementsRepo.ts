@@ -6,7 +6,7 @@ import { evenementsDuBien } from './mongaEtapeRepo';
 import { titreLogement } from './annuaireRecherche';
 import { coordonneesLisibles, estFamille, MOT_FAMILLE } from './contactsTache';
 import { evenementsTacheDisponible, invitesTacheDisponible } from './schema';
-import type { TacheFrise } from './tacheFrise';
+import { tacheValidee, type TacheFrise } from './tacheFrise';
 import type { StatutAcceptation } from './acceptationTache';
 
 /**
@@ -170,6 +170,8 @@ export async function tachesDeLEvenement(evenementId: number): Promise<TacheFris
       `SELECT tache_id::int AS tache_id, nom FROM gestion_tache_piece WHERE tache_id = ANY($1::bigint[]) AND retire_le IS NULL ORDER BY tache_id, id`, [ids])
       .catch(() => ({ rows: [] as { tache_id: number; nom: string }[] })),
   ]);
+  /* 🔴 LOT GESTION-HISTORIQUE-TACHES (accord d'Arno, 17/10/2026) — SEULES LES TÂCHES VALIDÉES vont dans la frise : en
+     attente, refusée par tous ou annulée, elle n'y est pas (cela remplace le point gris). Le rattachement reste en base. */
   return rows.map((r) => {
     const id = Number(r.id);
     const invites = (inv.rows as { tache_id: number; libelle: string; statut: string | null }[]).filter((i) => Number(i.tache_id) === id)
@@ -186,5 +188,5 @@ export async function tachesDeLEvenement(evenementId: number): Promise<TacheFris
       })),
       pieces: pie.rows.filter((p) => Number(p.tache_id) === id).map((p) => p.nom),
     };
-  });
+  }).filter(tacheValidee);
 }

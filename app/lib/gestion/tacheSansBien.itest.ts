@@ -58,7 +58,8 @@ describe('🔴 une tâche sans bien', () => {
     expect(d.tache.evenements?.map((e) => e.id)).toEqual([ev]);
     // Elle est dans la liste de toutes les tâches (page pleine, module), et dans la frise de l'événement, sans adresse.
     expect((await listerTaches(null)).taches.find((x) => x.id === t)).toMatchObject({ lotId: null, adresseBien: '' });
-    expect((await tachesDeLEvenement(ev)).find((x) => x.id === t)?.adresse).toBe('');
+    // En attente : pas encore dans la frise (seules les tâches validées y figurent) ; elle y vient à l'acceptation.
+    expect((await tachesDeLEvenement(ev)).some((x) => x.id === t)).toBe(false);
     expect((await mesTachesRecues(CLAIRE)).find((x) => x.tacheId === t)?.adresseBien).toBe('');
   });
 
@@ -75,6 +76,7 @@ describe('🔴 une tâche sans bien', () => {
     const r = await repondreDemande({ jeton, decision: 'accepter', utilisateur: null, nom: null, identiteParJeton: true });
     expect(r.ok).toBe(true);
     expect(await synchroniserApresGeste(t)).toBe(' Agenda Google à jour.');
+    expect((await tachesDeLEvenement(ev)).find((x) => x.id === t)?.adresse).toBe('');
     const e = [...(faux.agendas.get('c@criterimmo.fr')?.values() ?? [])]
       .find((x) => (x as { extendedProperties?: { private?: Record<string, string> } }).extendedProperties?.private?.svavTacheId === String(t)) as
       { summary: string; location?: string; description: string } | undefined;

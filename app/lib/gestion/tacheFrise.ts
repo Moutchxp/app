@@ -10,6 +10,7 @@
  * PUR : aucune base, aucun réseau. Chargeable dans le navigateur.
  */
 import type { StatutAcceptation } from './acceptationTache';
+import type { Tache } from './taches';
 
 export interface TacheFrise {
   id: number;
@@ -26,6 +27,45 @@ export interface TacheFrise {
   invites: { libelle: string; statut: StatutAcceptation | null }[];
   contacts: { nom: string; role: string; coordonnees: string[] }[];
   pieces: string[];
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-HISTORIQUE-TACHES (Arno, 17/10/2026) — UNE TÂCHE « VALIDÉE » ════════════════════════════════════
+ * « Une tâche est “validée” quand au moins un invité l'a acceptée (une tâche confiée à soi-même sans invitation compte
+ * comme acceptée). Une tâche en attente, refusée par tous ou annulée n'est pas validée. » Un invité SANS demande
+ * (`statut: null`, tâche d'avant l'acceptation) compte comme accepté — même convention que les filtres. Faite = toujours
+ * validée. Seules les tâches validées vont dans la frise des événements et dans l'historique du bien. PUR.
+ */
+export function tacheValidee(t: Pick<TacheFrise, 'etat' | 'invites'>): boolean {
+  if (t.etat === 'annulee') return false;
+  return t.invites.some((i) => i.statut === 'acceptee' || i.statut === null);
+}
+
+/** Les invités qui ont accepté (ou sans demande : acceptée d'avant le lot). PUR. */
+export function invitesAcceptants(t: Pick<TacheFrise, 'invites'>): string[] {
+  return t.invites.filter((i) => i.statut === 'acceptee' || i.statut === null).map((i) => i.libelle);
+}
+
+/** Une tâche de l'écran (`Tache`) mise à la forme de la bulle et de l'historique. PUR. */
+export function versTacheFrise(t: Tache): TacheFrise {
+  const invites = t.invites !== undefined && t.invites.length > 0
+    ? t.invites.map((i) => ({ libelle: i.libelle, statut: i.statut }))
+    : [{ libelle: t.confieeALibelle, statut: t.acceptation?.statut ?? null }];
+  return {
+    id: t.id, objet: t.objet, jour: t.jour, heure: t.heure, dureeMinutes: t.dureeMinutes ?? null, etat: t.etat,
+    expediteur: t.acceptation?.demandeurLibelle || t.creeParLibelle, adresse: t.adresseBien, invites,
+    contacts: (t.contacts ?? []).map((c) => ({
+      nom: c.nom, role: [c.qualite ?? '', c.organisation ?? ''].map((x) => x.trim()).filter((x) => x !== '').join(' · '),
+      coordonnees: c.coordonnees.map((x) => x.affichage ?? x.valeur),
+    })),
+    pieces: (t.pieces ?? []).map((p) => p.nom),
+  };
+}
+
+/** L'historique des tâches d'un bien : les VALIDÉES, de la mission la plus récente à la plus ancienne. PUR. */
+export function historiqueDesTaches(taches: readonly TacheFrise[]): TacheFrise[] {
+  return taches.filter(tacheValidee)
+    .sort((a, b) => (b.jour + (b.heure ?? '')).localeCompare(a.jour + (a.heure ?? '')) || b.id - a.id);
 }
 
 /** Le point est GRIS (historique) quand la tâche est annulée, ou refusée par TOUS ses invités. PUR. */

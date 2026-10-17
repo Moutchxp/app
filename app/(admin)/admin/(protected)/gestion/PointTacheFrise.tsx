@@ -33,13 +33,30 @@ export function PointsTachesFrise({ taches, onOuvrir }: { taches: readonly Tache
 }
 
 function PointTache({ t, onOuvrir }: { t: TacheFrise; onOuvrir: (id: number) => void }) {
+  const grise = tacheGrisee(t);
+  const libelle = `Tâche « ${t.objet} » — ${dateMissionTache(t.jour, t.heure, t.dureeMinutes)}${grise ? ' (historique)' : ''}`;
+  return (
+    <DeclencheurBulleTache t={t} onOuvrir={onOuvrir} libelle={libelle}
+      className={`fav-point-tache${grise ? ' fav-point-tache--gris' : ''}`} donnees={{ 'data-tache-frise': t.id, 'data-grise': grise ? 'oui' : 'non' }}>
+      <span className="fav-sr">{libelle}</span>
+    </DeclencheurBulleTache>
+  );
+}
+
+/**
+ * 🔴 LOT GESTION-HISTORIQUE-TACHES — LE DÉCLENCHEUR DE LA BULLE D'UNE TÂCHE, partagé : le point de la frise ET la ligne
+ * de l'« Historique des tâches » du bien. Survol et focus clavier : la bulle du récapitulatif ; clic : ouvre la tâche.
+ */
+export function DeclencheurBulleTache({ t, onOuvrir, libelle, className, donnees = {}, children }: {
+  t: TacheFrise; onOuvrir: (id: number) => void; libelle: string; className: string;
+  donnees?: Record<string, string | number>; children: React.ReactNode;
+}) {
   const declencheur = useRef<HTMLButtonElement | null>(null);
   const bulle = useRef<HTMLDivElement | null>(null);
   const minuteur = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ouverte, setOuverte] = useState(false);
   const [place, setPlace] = useState<ReturnType<typeof placerBulleBiens> | null>(null);
   const idBulle = `fav-tache-bulle-${t.id}-${useId().replace(/:/g, '')}`;
-  const grise = tacheGrisee(t);
   const contenu = bulleTacheFrise(t);
 
   const annuler = (): void => { if (minuteur.current !== null) { clearTimeout(minuteur.current); minuteur.current = null; } };
@@ -79,7 +96,6 @@ function PointTache({ t, onOuvrir }: { t: TacheFrise; onOuvrir: (id: number) => 
   }, [ouverte, fermer]);
   useEffect(() => () => { annuler(); if (fermerLaBulleOuverte === fermer) fermerLaBulleOuverte = null; }, [fermer]);
 
-  const libelle = `Tâche « ${t.objet} » — ${dateMissionTache(t.jour, t.heure, t.dureeMinutes)}${grise ? ' (historique)' : ''}`;
   const laBulle = (
     <div className="cbm-bulle fav-tache-bulle" id={idBulle} role="tooltip" ref={bulle} data-bulle-tache={t.id}
       style={place === null ? { visibility: 'hidden', left: 0, top: 0 } : { left: place.gauche, top: place.haut, maxHeight: place.hauteurMax }}
@@ -100,18 +116,17 @@ function PointTache({ t, onOuvrir }: { t: TacheFrise; onOuvrir: (id: number) => 
           </ul>
         </div>
       ))}
-      <p className="cbm-bulle-lot fav-tache-aide">Cliquer le point ouvre la tâche.</p>
+      <p className="cbm-bulle-lot fav-tache-aide">Un clic ouvre la tâche.</p>
     </div>
   );
 
   return (
     <>
-      <button type="button" ref={declencheur} data-tache-frise={t.id} data-grise={grise ? 'oui' : 'non'}
-        className={`fav-point-tache${grise ? ' fav-point-tache--gris' : ''}`}
+      <button type="button" ref={declencheur} {...donnees} className={className}
         aria-label={libelle} aria-describedby={ouverte ? idBulle : undefined}
         onMouseEnter={ouvrir} onMouseLeave={fermerBientot} onFocus={ouvrir} onBlur={fermerBientot}
         onClick={() => { fermer(); onOuvrir(t.id); }}>
-        <span className="fav-sr">{libelle}</span>
+        {children}
       </button>
       {ouverte && typeof document !== 'undefined' && createPortal(laBulle, hoteDeLaBulle())}
     </>

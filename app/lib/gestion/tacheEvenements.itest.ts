@@ -13,7 +13,6 @@ import { closePool, query } from '../db/client';
 import { annulerTache, creerTache, lireTache, modifierTache } from './tachesRepo';
 import { evenementsProposes, repriseAncienLienFaite, tachesDeLEvenement } from './tacheEvenementsRepo';
 import { readFileSync } from 'node:fs';
-import { tacheGrisee } from './tacheFrise';
 import type { SaisieTache } from './taches';
 
 const BASE = process.env.DATABASE_URL ?? '';
@@ -93,11 +92,24 @@ describe('🔴 rattacher à des événements en cours', () => {
     expect((await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_tache`)).rows[0].n).toBe(avant);
   });
 
-  it('annulée : le point reste dans la frise, en gris (historique)', async () => {
+  /* 🔴 LOT GESTION-HISTORIQUE-TACHES (accord d'Arno) — remplace la règle du point gris : seules les tâches VALIDÉES. */
+  it('annulée : la tâche disparaît de la frise ; le rattachement reste en base et dans la tâche', async () => {
     expect((await annulerTache(t, MOI)).ok).toBe(true);
-    const f = (await tachesDeLEvenement(ev[0])).find((x) => x.id === t)!;
-    expect(f.etat).toBe('annulee');
-    expect(tacheGrisee(f)).toBe(true);
+    expect((await tachesDeLEvenement(ev[0])).some((x) => x.id === t)).toBe(false);
+    expect((await lireTache(t))!.tache.evenements?.map((e) => e.id)).toEqual([ev[0], ev[2]]);
+  });
+
+  it('confiée à une collègue : en attente → absente de la frise ; acceptée → présente ; refusée par tous → absente', async () => {
+    const c = await creerTache(lot, saisie({ objet: '_TEST invitée', confieeA: 2, evenements: [ev[0]] }), MOI);
+    if (!c.ok) throw new Error(c.motif);
+    expect((await tachesDeLEvenement(ev[0])).some((x) => x.id === c.id)).toBe(false);
+    const { repondreDemande } = await import('./acceptationRepo');
+    expect((await repondreDemande({ jeton: c.demandes![0].jeton!, decision: 'accepter', utilisateur: null, nom: null, identiteParJeton: true })).ok).toBe(true);
+    expect((await tachesDeLEvenement(ev[0])).some((x) => x.id === c.id)).toBe(true);
+    const r = await creerTache(lot, saisie({ objet: '_TEST refusée', confieeA: 2, evenements: [ev[0]] }), MOI);
+    if (!r.ok) throw new Error(r.motif);
+    expect((await repondreDemande({ jeton: r.demandes![0].jeton!, decision: 'refuser', motif: 'non', utilisateur: null, nom: null, identiteParJeton: true })).ok).toBe(true);
+    expect((await tachesDeLEvenement(ev[0])).some((x) => x.id === r.id)).toBe(false);
   });
 });
 

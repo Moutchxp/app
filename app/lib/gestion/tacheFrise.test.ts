@@ -66,3 +66,24 @@ describe('la bulle : le récapitulatif, 1 élément = 1 ligne', () => {
     expect(dateMissionTache('2026-11-01', '09:05', 30)).toBe('Dimanche 1er novembre 2026 · 9 h 05 (30 min)');
   });
 });
+
+describe('🔴 LOT GESTION-HISTORIQUE-TACHES — « validée » : au moins un invité a accepté', async () => {
+  const { tacheValidee, historiqueDesTaches, invitesAcceptants } = await import('./tacheFrise');
+  it('acceptée (ou confiée à soi, sans demande) : oui ; en attente, refusée par tous, annulée : non ; faite : oui', () => {
+    expect(tacheValidee(tache({ invites: [{ libelle: 'A', statut: 'en_attente' }, { libelle: 'B', statut: 'acceptee' }] }))).toBe(true);
+    expect(tacheValidee(tache({ invites: [{ libelle: 'A', statut: null }] }))).toBe(true);
+    expect(tacheValidee(tache({ invites: [{ libelle: 'A', statut: 'en_attente' }] }))).toBe(false);
+    expect(tacheValidee(tache({ invites: [{ libelle: 'A', statut: 'refusee' }, { libelle: 'B', statut: 'refusee' }] }))).toBe(false);
+    expect(tacheValidee(tache({ etat: 'annulee' }))).toBe(false);
+    expect(tacheValidee(tache({ etat: 'faite' }))).toBe(true);
+  });
+  it('l’historique : seulement les validées, de la mission la plus récente à la plus ancienne ; les acceptants', () => {
+    const l = historiqueDesTaches([
+      tache({ id: 1, jour: '2026-09-01' }), tache({ id: 2, jour: '2026-11-03', heure: '09:00' }),
+      tache({ id: 3, jour: '2026-11-03', heure: '15:00' }), tache({ id: 4, jour: '2026-12-01', etat: 'annulee' }),
+      tache({ id: 5, jour: '2026-12-02', invites: [{ libelle: 'X', statut: 'en_attente' }] }),
+    ]);
+    expect(l.map((t) => t.id)).toEqual([3, 2, 1]);
+    expect(invitesAcceptants(tache({}))).toEqual(['Claire']);
+  });
+});
