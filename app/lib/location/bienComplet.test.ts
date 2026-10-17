@@ -1,13 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { manquesDuBien, verifierBienComplet, verifierComplements } from './bienComplet';
+import { familleDeCategorie, manquesDuBien, verifierBienComplet, verifierComplements } from './bienComplet';
 
 describe('🔴 formulaire complet du bien — la règle pure (écran ET serveur)', () => {
-  it('trois obligatoires seulement : un propriétaire, l’adresse, le type de logement', () => {
-    expect(Object.keys(manquesDuBien({ proprietaireIds: [], adresse: ' ', typeLogement: null }))).toEqual(['proprietaires', 'adresse', 'typeLogement']);
-    expect(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', typeLogement: 'studio' })).toEqual({});
+  it('obligatoires : un propriétaire, l’adresse, la FAMILLE, puis le type propre à la famille', () => {
+    expect(Object.keys(manquesDuBien({ proprietaireIds: [], adresse: ' ' }))).toEqual(['proprietaires', 'adresse', 'famille']);
+    expect(Object.keys(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'logement' }))).toEqual(['typeLogement']);
+    expect(Object.keys(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'local' }))).toEqual(['typeLocal']);
+    expect(Object.keys(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'parking' }))).toEqual(['parkingType']);
+    expect(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'logement', typeLogement: 'studio' })).toEqual({});
+    expect(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'local', typeLocal: 'bureaux', annexes: [{ autreAdresse: true, adresse: '' }] }))
+      .toEqual({ 'annexe-0': 'Annexe 1 : l’autre adresse est à renseigner.' });
+  });
+  it('la famille d’un bien existant se DÉDUIT de sa catégorie (rien n’est écrit)', () => {
+    expect([familleDeCategorie('logement'), familleDeCategorie('local'), familleDeCategorie('parking'), familleDeCategorie('box'), familleDeCategorie('cave'), familleDeCategorie(null)])
+      .toEqual(['logement', 'local', 'parking', 'parking', null, null]);
   });
   it('le reste est facultatif, mais refusé s’il est mal formé', () => {
-    const base = { proprietaireIds: [1, 1, 2], logement: { adresse: '1 rue A', typeLogement: 'maison' }, annexes: [] };
+    const base = { proprietaireIds: [1, 1, 2], logement: { adresse: '1 rue A', famille: 'logement', typeLogement: 'maison' }, annexes: [] };
     const v = verifierBienComplet(base);
     expect(v.ok && v.proprietaireIds).toEqual([1, 2]);
     expect(v.ok && v.logement).toMatchObject({ categorie: 'logement', meuble: null, dpeClasse: null, nombrePieces: null });

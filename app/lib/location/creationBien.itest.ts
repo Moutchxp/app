@@ -8,7 +8,10 @@
  *   ③ champs obligatoires : au moins un propriétaire, l'adresse, le type de logement (refus sinon, rien n'est écrit) ;
  *   ④ annexes liées au logement pour toujours, même adresse, mêmes propriétaires ; compléments relus et modifiables.
  *
- * VRAIES fonctions, VRAIE base (schéma copié, vide, migrations 365 à 374). 🔒 REFUSE de tourner ailleurs que sur une base
+ *   ⑥ FAMILLES (Arno, 17/10/2026) : local commercial, parking nu (sans annexe), ascenseur / digicode / précision, annexe
+ *      parking avec ses options, annexe à une AUTRE ADRESSE enregistrée et trouvée par les deux recherches.
+ *
+ * VRAIES fonctions, VRAIE base (schéma copié, vide, migrations 365 à 376). 🔒 REFUSE de tourner ailleurs que sur une base
  * `svav_jetable…` ou `svav_test…`.
  *   DATABASE_URL=postgresql://localhost:5432/svav_jetable_l4 \
  *     npx vitest run --config vitest.integration.config.ts app/lib/location/creationBien.itest.ts
@@ -22,6 +25,7 @@ import { sortirDuPortefeuille } from './portefeuilleRepo';
 import {
   complementsDuBien, creerBienComplet, creerProprietaires, modifierComplementsBien, proprietairesParIds, rechercherProprietaires,
 } from './creationBienRepo';
+import { rechercherPortefeuille } from './portefeuilleRepo';
 
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
@@ -74,7 +78,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     const b = ok(await creerBienComplet({
       proprietaireIds: ids,
       logement: { adresse: `14 rue des Tilleuls${S}`, codePostal: '75011', commune: 'PARIS', batiment: 'B', escalier: '2', etage: '3', porte: 'G',
-        typeLogement: 'appartement', nombrePieces: '3', meuble: false, surfaceHabitableM2: '62,5', surfaceCarrezM2: '60,1',
+        famille: 'logement', typeLogement: 'appartement', nombrePieces: '3', meuble: false, surfaceHabitableM2: '62,5', surfaceCarrezM2: '60,1',
         numLotCopro: '27', syndicId, epoqueConstruction: '1949 – 1974', chauffage: 'Collectif', dpeClasse: 'd', dpeDate: '2025-04-12',
         commentaire: 'Lumineux.' },
       annexes: [{ categorie: 'cave', etage: '-1', porte: '12' }, { categorie: 'parking', numLotCopro: '88', porte: '7' }],
@@ -114,7 +118,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
 
   it('③ champs obligatoires : sans propriétaire, sans adresse ou sans type → refus, rien n’est écrit', async () => {
     const avant = await compter('gestion_annuaire_lot');
-    const logement = { adresse: `1 rue Essai${S}`, typeLogement: 'studio' };
+    const logement = { adresse: `1 rue Essai${S}`, famille: 'logement', typeLogement: 'studio' };
     expect((await creerBienComplet({ proprietaireIds: [], logement, annexes: [] }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, adresse: '  ' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, typeLogement: '' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
@@ -138,5 +142,50 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     expect(await complementsDuBien(logementId)).toMatchObject({ typeLogement: 'duplex', meuble: true, dpeClasse: 'C', commentaire: null, syndicId: null });
     // Le lien annexe → logement ne se défait pas (verrou en base, migration 372).
     await expect(query('DELETE FROM gestion_lot_annexe WHERE parent_id = $1', [logementId])).rejects.toThrow();
+  });
+
+  it('⑥ familles : local commercial, parking nu, accès ; annexe parking et annexe à une autre adresse (trouvée par la recherche)', async () => {
+    // Un LOCAL COMMERCIAL : catégorie « local », type de local ; jamais de type de logement ni de meublé (même envoyés).
+    const local = ok(await creerBienComplet({ proprietaireIds: ids, annexes: [
+      { categorie: 'parking', parkingSituation: 'interieur', parkingType: 'box_double', porte: '12' },
+      { categorie: 'cave', autreAdresse: true, adresse: `9 impasse Lointaine${S}`, codePostal: '92400', commune: 'COURBEVOIE', porte: '3' },
+    ], logement: { adresse: `20 rue Commerce${S}`, famille: 'local', typeLocal: 'commercial', typeLogement: 'studio', meuble: true,
+      nombrePieces: '2', ascenseur: true, digicode: 'oui', digicodeCode: '4589B', precisionAcces: 'Au fond de la cour' } }, AUTEUR));
+    const { rows: l } = await query<{ categorie: string; type_local: string; type_logement: string | null; meuble: boolean | null; ascenseur: boolean; digicode: boolean; digicode_code: string; precision_acces: string }>(
+      'SELECT categorie, type_local, type_logement, meuble, ascenseur, digicode, digicode_code, precision_acces FROM gestion_annuaire_lot WHERE id = $1', [local.logementId]);
+    expect(l[0]).toEqual({ categorie: 'local', type_local: 'commercial', type_logement: null, meuble: null, ascenseur: true, digicode: true,
+      digicode_code: '4589B', precision_acces: 'Au fond de la cour' });
+    const { rows: a } = await query<{ categorie: string; parking_situation: string | null; parking_type: string | null; adresse: string; adresse_autre: boolean }>(
+      'SELECT categorie, parking_situation, parking_type, adresse, adresse_autre FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[]) ORDER BY id', [local.annexes]);
+    expect(a).toEqual([
+      { categorie: 'parking', parking_situation: 'interieur', parking_type: 'box_double', adresse: `20 rue Commerce${S}`, adresse_autre: false },
+      { categorie: 'cave', parking_situation: null, parking_type: null, adresse: `9 impasse Lointaine${S}`, adresse_autre: true },
+    ]);
+    // L'annexe à une autre adresse est une adresse du PORTEFEUILLE : la recherche de l'accueil et celle des propriétaires la trouvent.
+    expect((await rechercherPortefeuille(`Lointaine${S}`)).biens.map((b) => b.id)).toEqual([local.annexes[1]]);
+    expect((await rechercherProprietaires(`Lointaine${S}`)).map((p) => p.id).sort()).toEqual([...ids].sort());
+    // L'annexe à la même adresse, elle, ne s'affiche pas en double (on la trouve dans l'arbre de son local).
+    expect((await rechercherPortefeuille(`Commerce${S}`)).biens.map((b) => b.id)).toEqual([local.logementId]);
+    // La fiche commune relit tout (famille déduite de la catégorie).
+    expect(await complementsDuBien(local.logementId)).toMatchObject({ typeLocal: 'commercial', ascenseur: true, digicode: true, digicodeCode: '4589B' });
+
+    // Un PARKING NU : options du parking, surface ; ni pièces, ni Carrez, ni DPE ; et AUCUNE annexe permise.
+    const refus = await creerBienComplet({ proprietaireIds: ids, annexes: [{ categorie: 'cave' }],
+      logement: { adresse: `1 rue Garage${S}`, famille: 'parking', parkingType: 'place_simple' } }, AUTEUR);
+    expect(refus).toEqual({ etat: 'refus', motif: 'Un parking nu n’a pas d’annexe.' });
+    expect((await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `1 rue Garage${S}`, famille: 'parking' } }, AUTEUR)).etat).toBe('refus');
+    const p = ok(await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: {
+      adresse: `1 rue Garage${S}`, famille: 'parking', parkingSituation: 'exterieur', parkingType: 'place_double', surfaceM2: '12,5',
+      nombrePieces: '3', surfaceCarrezM2: '10', dpeClasse: 'C', ascenseur: false } }, AUTEUR));
+    const { rows: pk } = await query<{ categorie: string; parking_situation: string; parking_type: string; surface_m2: string; nombre_pieces: number | null; surface_carrez_m2: string | null; dpe_classe: string | null; ascenseur: boolean }>(
+      'SELECT categorie, parking_situation, parking_type, surface_m2::text, nombre_pieces, surface_carrez_m2::text, dpe_classe, ascenseur FROM gestion_annuaire_lot WHERE id = $1', [p.logementId]);
+    expect(pk[0]).toEqual({ categorie: 'parking', parking_situation: 'exterieur', parking_type: 'place_double', surface_m2: '12.5',
+      nombre_pieces: null, surface_carrez_m2: null, dpe_classe: null, ascenseur: false });
+    // Un local sans type de local, un logement sans type : refusés.
+    expect((await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `2 rue Commerce${S}`, famille: 'local' } }, AUTEUR)).etat).toBe('refus');
+    expect((await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `2 rue Commerce${S}`, famille: 'logement' } }, AUTEUR)).etat).toBe('refus');
+    // Modifier depuis la fiche commune : digicode retiré ⇒ le code est effacé avec lui.
+    ok(await modifierComplementsBien(local.logementId, { typeLocal: 'bureaux', digicode: 'non', digicodeCode: '4589B', ascenseur: 'oui' }, AUTEUR));
+    expect(await complementsDuBien(local.logementId)).toMatchObject({ typeLocal: 'bureaux', digicode: false, digicodeCode: null, ascenseur: true });
   });
 });

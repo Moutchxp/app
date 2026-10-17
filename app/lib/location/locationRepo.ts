@@ -138,6 +138,7 @@ interface LigneBienSql {
   nature: string | null; type_bien: string | null; categorie: string | null; etage: string | null; porte: string | null;
   num_lot_copro: string | null; surface_carrez_m2: string | null; surface_exterieure_m2: string | null;
   parent_id: string | null; proprietaire: string | null; locataire: string | null; sorti: boolean;
+  adresse_autre?: boolean | null; parking_situation?: string | null; parking_type?: string | null;
 }
 
 const versBien = (r: LigneBienSql): BienLocation => ({
@@ -149,6 +150,9 @@ const versBien = (r: LigneBienSql): BienLocation => ({
   parentId: num(r.parent_id), proprietaire: r.proprietaire, locataireEnPlace: r.locataire,
   creeDansLApplication: r.wippimmo_id.startsWith('app-'),
   sorti: r.sorti,
+  adresseAutre: r.adresse_autre === true,
+  parkingSituation: r.parking_situation ?? null,
+  parkingType: r.parking_type ?? null,
 });
 
 async function lireBiens(where: string, params: unknown[], suffixe = ''): Promise<BienLocation[]> {
@@ -157,6 +161,8 @@ async function lireBiens(where: string, params: unknown[], suffixe = ''): Promis
     `SELECT lo.id::text, lo.wippimmo_id, lo.adresse, lo.code_postal, lo.commune, lo.nature, lo.type_bien,
             ${colonnesBien(avec372)},
             ${(await sortieDisponible()) ? 'lo.sorti_portefeuille_le IS NOT NULL' : 'false'} AS sorti,
+            ${(await colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre')) ? 'lo.adresse_autre, lo.parking_situation, lo.parking_type'
+    : 'NULL::boolean AS adresse_autre, NULL::text AS parking_situation, NULL::text AS parking_type'},
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             (SELECT l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.lot_id = lo.id AND o.sortie IS NULL ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1) AS locataire

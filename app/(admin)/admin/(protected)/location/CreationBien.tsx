@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
-  CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, LIBELLE_TYPE_LOGEMENT, manquesDuBien, TYPES_LOGEMENT, type TypeLogement,
+  CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
+  LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
+  type Famille, type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
 import { verifierChampsBien, type Categorie } from '../../../../lib/location/locationBien';
 import type { ResultatPortefeuille } from '../../../../lib/location/recherchePortefeuille';
@@ -16,29 +18,60 @@ import type { ResultatPortefeuille } from '../../../../lib/location/recherchePor
  * téléphone, e-mail, et adresse postale des biens en gestion de notre portefeuille — aucune autre adresse). Choisir un
  * résultat rattache le bien à ce propriétaire (plusieurs possibles). Si on arrive depuis “Créer un nouveau propriétaire”,
  * les propriétaires sont déjà là, modifiables. »
- * « Formulaire complet, logique ENTONNOIR (du plus général / important au détail), en sections titrées » : 1 Propriétaire(s)
- * · 2 Adresse et situation · 3 Le logement · 4 Copropriété · 5 Annexes · 6 Caractéristiques complémentaires · 7 Commentaires.
- * « Obligatoires : au moins un propriétaire, l'adresse, le type de logement. Bouton “Enregistrer le bien” toujours
- * accessible (en bas et collant). » La règle est celle de `bienComplet.ts`, la même que le serveur.
+ * « Formulaire complet, logique ENTONNOIR (du plus général / important au détail), en sections titrées » : Propriétaire(s)
+ * · Adresse et situation · Le bien · Copropriété · Annexes · Caractéristiques complémentaires · Commentaires.
+ * Bouton « Enregistrer le bien » toujours accessible (en bas et collant). La règle est celle de `bienComplet.ts`, la même
+ * que le serveur.
+ *
+ * ══ FAMILLE DE BIEN (Arno, 17/10/2026) ══════════════════════════════════════════════════════════════════════════════════
+ * En tête du bloc « Le bien » : « Logement » · « Un local » · « Parking nu » — tant qu'aucun n'est choisi, les champs du
+ * bloc ne s'affichent pas. Un parking nu n'a ni annexes ni caractéristiques complémentaires ; les titres et phrases
+ * s'adaptent, l'ordre en entonnoir ne change pas. Ascenseur et digicode pour toutes les familles ; annexes « parking » avec
+ * les options du parking ; chaque annexe « Même adresse » (par défaut) ou « Autre adresse ».
  */
-interface Annexe { cle: number; categorie: Categorie; etage: string; numLotCopro: string; porte: string }
+interface Annexe {
+  cle: number; categorie: Categorie; etage: string; numLotCopro: string; porte: string;
+  parkingSituation: SituationParking | null; parkingType: TypeParking | null;
+  autreAdresse: boolean; adresse: string; codePostal: string; commune: string; adresseVerifiee: boolean;
+}
 
 const VIDE = {
-  adresse: '', codePostal: '', commune: '', batiment: '', escalier: '', etage: '', porte: '',
-  nombrePieces: '', surfaceHabitableM2: '', surfaceCarrezM2: '', surfaceExterieureM2: '',
+  adresse: '', codePostal: '', commune: '', batiment: '', escalier: '', etage: '', porte: '', precisionAcces: '', digicodeCode: '',
+  nombrePieces: '', surfaceHabitableM2: '', surfaceCarrezM2: '', surfaceExterieureM2: '', surfaceM2: '',
   numLotCopro: '', syndicId: '', epoqueConstruction: '', chauffage: '', dpeClasse: '', dpeDate: '', commentaire: '',
 };
 type Champ = keyof typeof VIDE;
 
 const LIBELLE_ANNEXE: Record<string, string> = { cave: 'Cave', parking: 'Parking', box: 'Box', autre: 'Autre annexe' };
+const estParking = (c: Categorie): boolean => c === 'parking' || c === 'box';
+
+/** Un groupe de choix unique en grosses pilules (oui / non, intérieur / extérieur…). Un second clic désélectionne. */
+function Pilules<T extends string>({ etiquette, options, libelle, valeur, onChoix }: {
+  etiquette: string; options: readonly T[]; libelle: Record<T, string>; valeur: T | null; onChoix: (v: T | null) => void;
+}) {
+  return (
+    <div className="loc-pilules" role="group" aria-label={etiquette}>
+      {options.map((o) => <button key={o} type="button" aria-pressed={valeur === o} onClick={() => onChoix(valeur === o ? null : o)}>{libelle[o]}</button>)}
+    </div>
+  );
+}
+const OUI_NON = ['oui', 'non'] as const;
+const LIBELLE_OUI_NON: Record<'oui' | 'non', string> = { oui: 'Oui', non: 'Non' };
+const versOuiNon = (v: boolean | null): 'oui' | 'non' | null => (v === null ? null : v ? 'oui' : 'non');
 
 export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux: number[] }) {
   const [proprietaires, setProprietaires] = useState<ResultatPortefeuille[]>([]);
   const [texte, setTexte] = useState('');
   const [terme, setTerme] = useState('');
   const [b, setB] = useState(VIDE);
+  const [famille, setFamille] = useState<Famille | null>(null);
   const [type, setType] = useState<TypeLogement | null>(null);
+  const [typeLocal, setTypeLocal] = useState<TypeLocal | null>(null);
+  const [parkingSituation, setParkingSituation] = useState<SituationParking | null>(null);
+  const [parkingType, setParkingType] = useState<TypeParking | null>(null);
   const [meuble, setMeuble] = useState<boolean | null>(null);
+  const [ascenseur, setAscenseur] = useState<boolean | null>(null);
+  const [digicode, setDigicode] = useState<boolean | null>(null);
   const [adresseVerifiee, setAdresseVerifiee] = useState(false);
   const [annexes, setAnnexes] = useState<Annexe[]>([]);
   const [tente, setTente] = useState(false);
@@ -59,8 +92,9 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
   const recherche = useLecture<ResultatPortefeuille[]>(terme.length >= 2 ? `proprietairesRecherche=${encodeURIComponent(terme)}` : null);
   const syndics = useLecture<{ id: number; nom: string; ville: string | null }[]>('syndics=1');
 
-  const champ = (k: Champ, mot: React.ReactNode, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
-    <label className="loc-champ">{mot}<input value={b[k]} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, [k]: val })); }} {...props} /></label>
+  const champ = (k: Champ, mot: React.ReactNode, props: React.InputHTMLAttributes<HTMLInputElement> = {}, aide?: string) => (
+    <label className="loc-champ">{mot}<input value={b[k]} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, [k]: val })); }} {...props} />
+      {aide !== undefined && <small className="loc-aide">{aide}</small>}</label>
   );
   const choix = (k: Champ, mot: string, options: readonly string[]) => (
     <label className="loc-champ">{mot}
@@ -68,10 +102,18 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
         <option value="">— non renseigné —</option>{options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select></label>
   );
-  const ajouterAnnexe = (categorie: Categorie): void =>
-    setAnnexes((a) => [...a, { cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '' }]);
+  const changerAnnexe = (i: number, f: (a: Annexe) => Annexe): void => setAnnexes((l) => l.map((x, j) => (j === i ? f(x) : x)));
+  const ajouterAnnexe = (categorie: Categorie): void => setAnnexes((a) => [...a, {
+    cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '', parkingSituation: null, parkingType: null,
+    autreAdresse: false, adresse: '', codePostal: '', commune: '', adresseVerifiee: false,
+  }]);
 
-  const manque = manquesDuBien({ proprietaireIds: proprietaires.map((p) => p.id), adresse: b.adresse, typeLogement: type });
+  const nom = famille === null ? 'bien' : NOM_FAMILLE[famille];
+  const avecAnnexes = famille !== 'parking';
+  const manque = manquesDuBien({
+    proprietaireIds: proprietaires.map((p) => p.id), adresse: b.adresse, famille, typeLogement: type, typeLocal, parkingType,
+    annexes: avecAnnexes ? annexes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse })) : [],
+  });
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
   const enregistrer = async (): Promise<void> => {
@@ -82,8 +124,11 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
     setEnvoi(true);
     const r = await envoyer({
       action: 'creer-bien', proprietaireIds: proprietaires.map((p) => p.id),
-      logement: { ...b, typeLogement: type, meuble },
-      annexes: annexes.map(({ categorie, etage, numLotCopro, porte }) => ({ categorie, etage, numLotCopro, porte })),
+      logement: { ...b, famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode },
+      annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
+        categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse,
+        ...(autreAdresse ? { adresse, codePostal, commune } : {}),
+      })) : [],
     });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
@@ -92,15 +137,18 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
   };
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
+  // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
+  const sections = ['proprietaires', 'adresse', 'bien', 'copro', ...(avecAnnexes ? ['annexes', 'complements'] : []), 'commentaires'];
+  const n = (cle: string): number => sections.indexOf(cle) + 1;
 
   return (
     <form className="loc-page loc-ample" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CHAMP_ADRESSE}</style>
       <EnTeteLocation titre="Ajouter un nouveau bien"
-        sous={<>Obligatoires : au moins un propriétaire, l’adresse, le type de logement <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
+        sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
 
       <section className="loc-section" aria-labelledby="loc-b1">
-        <h3 id="loc-b1"><span className="loc-num">1</span>Propriétaire(s) <span className="loc-oblig">*</span></h3>
+        <h3 id="loc-b1"><span className="loc-num">{n('proprietaires')}</span>Propriétaire(s) <span className="loc-oblig">*</span></h3>
         <label className="loc-recherche" aria-label="Chercher un propriétaire">
           <span aria-hidden="true">🔎</span>
           <input type="search" value={texte} onChange={(e) => setTexte(e.target.value)}
@@ -130,9 +178,9 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
       </section>
 
       <section className="loc-section" aria-labelledby="loc-b2">
-        <h3 id="loc-b2"><span className="loc-num">2</span>Adresse et situation</h3>
+        <h3 id="loc-b2"><span className="loc-num">{n('adresse')}</span>Adresse et situation</h3>
         <div className="loc-grille">
-          <label className="loc-champ" style={{ gridColumn: '1 / -1' }}>
+          <label className="loc-champ loc-pleine">
             <span>Adresse <span className="loc-oblig">*</span></span>
             <ChampAdresseBan valeur={b.adresse} verifiee={adresseVerifiee}
               onChange={(v) => { setB((x) => ({ ...x, adresse: v })); setAdresseVerifiee(false); }}
@@ -144,49 +192,102 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
         {manqueDe('adresse')}
         <div className="loc-sous-section">
           <h4>Situation dans l’immeuble</h4>
-          <div className="loc-grille">
+          <div className="loc-grille" data-ligne-situation>
             {champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
             {champ('etage', 'Étage', { placeholder: '3, RDC, -1…' })}
             {champ('porte', 'N° de porte')}
+            <label className="loc-champ loc-pleine" data-precision>Précision
+              <input value={b.precisionAcces} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, precisionAcces: val })); }}
+                placeholder="À droite en sortant de l’ascenseur, deuxième porte à gauche" maxLength={500} /></label>
+          </div>
+        </div>
+        <div className="loc-sous-section">
+          <h4>Accès</h4>
+          <div className="loc-acces">
+            <div className="loc-acces-bloc"><span className="loc-acces-mot">Ascenseur</span>
+              <Pilules etiquette="Ascenseur" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(ascenseur)}
+                onChoix={(v) => setAscenseur(v === null ? null : v === 'oui')} /></div>
+            <div className="loc-acces-bloc"><span className="loc-acces-mot">Digicode</span>
+              <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digicode)}
+                onChoix={(v) => { setDigicode(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, digicodeCode: '' })); }} /></div>
+            {digicode === true && <div className="loc-grille loc-acces-code">{champ('digicodeCode', 'Code (facultatif)', { maxLength: 40, placeholder: 'ex. 4589B' })}</div>}
           </div>
         </div>
       </section>
 
-      <section className="loc-section" aria-labelledby="loc-b3">
-        <h3 id="loc-b3"><span className="loc-num">3</span>Le logement</h3>
-        <div className="loc-sous-section">
-          <h4>Type de logement <span className="loc-oblig">*</span></h4>
-          <div className="loc-pilules" role="group" aria-label="Type de logement">
-            {TYPES_LOGEMENT.map((t) => (
-              <button key={t} type="button" aria-pressed={type === t} onClick={() => setType(type === t ? null : t)}>{LIBELLE_TYPE_LOGEMENT[t]}</button>
-            ))}
-          </div>
-          {manqueDe('typeLogement')}
+      <section className="loc-section" aria-labelledby="loc-b3" data-bloc-bien>
+        <h3 id="loc-b3"><span className="loc-num">{n('bien')}</span>Le bien <span className="loc-oblig">*</span></h3>
+        <div className="loc-gros-boutons loc-familles" role="group" aria-label="Famille du bien">
+          {FAMILLES.map((f) => (
+            <button key={f} type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={famille === f} data-famille={f}
+              onClick={() => setFamille(f)}>{famille === f ? `✓ ${LIBELLE_FAMILLE[f]}` : LIBELLE_FAMILLE[f]}</button>
+          ))}
         </div>
-        <div className="loc-sous-section">
-          <h4>Meublé ?</h4>
-          <div className="loc-pilules" role="group" aria-label="Meublé ou non">
-            <button type="button" aria-pressed={meuble === true} onClick={() => setMeuble(meuble === true ? null : true)}>Meublé</button>
-            <button type="button" aria-pressed={meuble === false} onClick={() => setMeuble(meuble === false ? null : false)}>Non meublé</button>
+        {manqueDe('famille')}
+        {famille === 'logement' && (
+          <>
+            <div className="loc-sous-section">
+              <h4>Type de logement <span className="loc-oblig">*</span></h4>
+              <Pilules etiquette="Type de logement" options={TYPES_LOGEMENT} libelle={LIBELLE_TYPE_LOGEMENT} valeur={type} onChoix={setType} />
+              {manqueDe('typeLogement')}
+            </div>
+            <div className="loc-sous-section">
+              <h4>Meublé ?</h4>
+              <div className="loc-pilules" role="group" aria-label="Meublé ou non">
+                <button type="button" aria-pressed={meuble === true} onClick={() => setMeuble(meuble === true ? null : true)}>Meublé</button>
+                <button type="button" aria-pressed={meuble === false} onClick={() => setMeuble(meuble === false ? null : false)}>Non meublé</button>
+              </div>
+            </div>
+          </>
+        )}
+        {famille === 'local' && (
+          <div className="loc-sous-section">
+            <h4>Type de local <span className="loc-oblig">*</span></h4>
+            <div className="loc-gros-boutons loc-oui-non" role="group" aria-label="Type de local">
+              {TYPES_LOCAL.map((t) => (
+                <button key={t} type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={typeLocal === t}
+                  onClick={() => setTypeLocal(t)}>{typeLocal === t ? `✓ ${LIBELLE_TYPE_LOCAL[t]}` : LIBELLE_TYPE_LOCAL[t]}</button>
+              ))}
+            </div>
+            {manqueDe('typeLocal')}
           </div>
-        </div>
-        <div className="loc-sous-section">
-          <h4>Pièces et surfaces</h4>
-          <div className="loc-grille">
-            {champ('nombrePieces', 'Nombre de pièces', { inputMode: 'numeric', placeholder: 'ex. 3' })}
-            {champ('surfaceHabitableM2', 'Surface habitable (m²)', { inputMode: 'decimal' })}
-            {champ('surfaceCarrezM2', 'Surface Carrez (m²)', { inputMode: 'decimal' })}
-            {champ('surfaceExterieureM2', 'Surface extérieure — balcon, terrasse, jardin (m²)', { inputMode: 'decimal' })}
+        )}
+        {famille === 'parking' && (
+          <>
+            <div className="loc-sous-section">
+              <h4>Intérieur ou extérieur ?</h4>
+              <Pilules etiquette="Intérieur ou extérieur" options={SITUATIONS_PARKING} libelle={LIBELLE_SITUATION_PARKING} valeur={parkingSituation} onChoix={setParkingSituation} />
+            </div>
+            <div className="loc-sous-section">
+              <h4>Type de parking <span className="loc-oblig">*</span></h4>
+              <Pilules etiquette="Type de parking" options={TYPES_PARKING} libelle={LIBELLE_TYPE_PARKING} valeur={parkingType} onChoix={setParkingType} />
+              {manqueDe('parkingType')}
+            </div>
+            <div className="loc-sous-section">
+              <h4>Surface</h4>
+              <div className="loc-grille">{champ('surfaceM2', 'Surface (m², facultative)', { inputMode: 'decimal' })}</div>
+            </div>
+          </>
+        )}
+        {(famille === 'logement' || famille === 'local') && (
+          <div className="loc-sous-section">
+            <h4>{famille === 'logement' ? 'Pièces et surfaces' : 'Bureaux / pièces et surfaces'}</h4>
+            <div className="loc-grille" data-ligne-surfaces>
+              {champ('nombrePieces', famille === 'logement' ? 'Nombre de pièces' : 'Nombre de bureaux / pièces', { inputMode: 'numeric', placeholder: 'ex. 3' })}
+              {champ('surfaceHabitableM2', famille === 'logement' ? 'Surface habitable (m²)' : 'Surface (m²)', { inputMode: 'decimal' })}
+              {champ('surfaceCarrezM2', 'Surface Carrez (m²)', { inputMode: 'decimal' })}
+              {champ('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' }, 'balcon, terrasse, jardin')}
+            </div>
           </div>
-        </div>
+        )}
       </section>
 
       <section className="loc-section" aria-labelledby="loc-b4">
-        <h3 id="loc-b4"><span className="loc-num">4</span>Copropriété</h3>
+        <h3 id="loc-b4"><span className="loc-num">{n('copro')}</span>Copropriété</h3>
         <div className="loc-grille">
-          {champ('numLotCopro', 'N° de lot au règlement de copropriété')}
-          <label className="loc-champ">Syndic (syndics connus de la Gestion)
+          {champ('numLotCopro', 'N° de lot (règlement de copropriété)')}
+          <label className="loc-champ">Syndic (connu de la Gestion)
             <select value={b.syndicId} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, syndicId: val })); }} disabled={syndics.etat.etat !== 'ok'}>
               <option value="">— non renseigné —</option>
               {syndics.etat.etat === 'ok' && liste(syndics.etat.data).map((s) => (
@@ -196,52 +297,83 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
         </div>
       </section>
 
-      <section className="loc-section" aria-labelledby="loc-b5">
-        <h3 id="loc-b5"><span className="loc-num">5</span>Annexes</h3>
-        <p className="loc-section-phrase">À l’adresse du logement, rattachées à lui pour toujours.</p>
-        <ul className="loc-annexes" data-annexes>
-          <li className="loc-racine">Logement{b.adresse.trim() !== '' ? ` · ${b.adresse}` : ''}</li>
-          {annexes.map((a, i) => (
-            <li key={a.cle} className="loc-enfant" data-annexe={a.categorie}>
-              <p className="loc-annexe-tete">{LIBELLE_ANNEXE[a.categorie] ?? 'Annexe'}
-                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAnnexes((l) => l.filter((_, j) => j !== i))}>Retirer</button></p>
-              <div className="loc-grille">
-                {(['etage', 'numLotCopro', 'porte'] as const).map((k) => (
-                  <label key={k} className="loc-champ">
-                    {k === 'etage' ? 'Étage' : k === 'numLotCopro' ? 'N° de lot' : a.categorie === 'parking' || a.categorie === 'box' ? 'N° de place' : 'N° de porte'}
-                    <input value={a[k]} onChange={(e) => setAnnexes((l) => l.map((x, j) => (j === i ? { ...x, [k]: e.target.value } : x)))} />
-                  </label>
-                ))}
-              </div>
-            </li>
-          ))}
-        </ul>
-        <div className="loc-pilules">
-          <button type="button" onClick={() => ajouterAnnexe('cave')}>+ Cave</button>
-          <button type="button" onClick={() => ajouterAnnexe('parking')}>+ Parking</button>
-          <button type="button" onClick={() => ajouterAnnexe('autre')}>+ Autre</button>
-        </div>
-      </section>
-
-      <section className="loc-section" aria-labelledby="loc-b6">
-        <h3 id="loc-b6"><span className="loc-num">6</span>Caractéristiques complémentaires</h3>
-        <div className="loc-grille">
-          {choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION)}
-          {choix('chauffage', 'Chauffage', CHAUFFAGES)}
-        </div>
-        <div className="loc-sous-section">
-          <h4>DPE</h4>
-          <div className="loc-pilules" role="group" aria-label="Classe DPE">
-            {CLASSES_DPE.map((c) => (
-              <button key={c} type="button" aria-pressed={b.dpeClasse === c} onClick={() => setB((x) => ({ ...x, dpeClasse: x.dpeClasse === c ? '' : c }))}>{c}</button>
+      {avecAnnexes && (
+        <section className="loc-section" aria-labelledby="loc-b5">
+          <h3 id="loc-b5"><span className="loc-num">{n('annexes')}</span>Annexes</h3>
+          <p className="loc-section-phrase">Rattachées au {nom} pour toujours ; à son adresse par défaut, ou à une autre adresse.</p>
+          <ul className="loc-annexes" data-annexes>
+            <li className="loc-racine">{famille === null ? 'Le bien' : `${nom.charAt(0).toUpperCase()}${nom.slice(1)}`}{b.adresse.trim() !== '' ? ` · ${b.adresse}` : ''}</li>
+            {annexes.map((a, i) => (
+              <li key={a.cle} className="loc-enfant" data-annexe={a.categorie}>
+                <p className="loc-annexe-tete">{LIBELLE_ANNEXE[a.categorie] ?? 'Annexe'}
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAnnexes((l) => l.filter((_, j) => j !== i))}>Retirer</button></p>
+                <div className="loc-pilules loc-annexe-adresse" role="group" aria-label="Adresse de l’annexe">
+                  <button type="button" aria-pressed={!a.autreAdresse} onClick={() => changerAnnexe(i, (x) => ({ ...x, autreAdresse: false }))}>Même adresse</button>
+                  <button type="button" aria-pressed={a.autreAdresse} onClick={() => changerAnnexe(i, (x) => ({ ...x, autreAdresse: true }))}>Autre adresse</button>
+                </div>
+                {a.autreAdresse && (
+                  <div className="loc-grille" data-autre-adresse>
+                    <label className="loc-champ loc-pleine">
+                      <span>Adresse de l’annexe <span className="loc-oblig">*</span></span>
+                      <ChampAdresseBan valeur={a.adresse} verifiee={a.adresseVerifiee}
+                        onChange={(v) => changerAnnexe(i, (x) => ({ ...x, adresse: v, adresseVerifiee: false }))}
+                        onChoisir={(ad) => changerAnnexe(i, (x) => ({ ...x, adresse: ad.voie, codePostal: ad.codePostal, commune: ad.commune, adresseVerifiee: true }))} />
+                    </label>
+                    <label className="loc-champ">Code postal<input value={a.codePostal} inputMode="numeric" maxLength={5}
+                      onChange={(e) => { const val = e.target.value; changerAnnexe(i, (x) => ({ ...x, codePostal: val })); }} /></label>
+                    <label className="loc-champ">Commune<input value={a.commune}
+                      onChange={(e) => { const val = e.target.value; changerAnnexe(i, (x) => ({ ...x, commune: val })); }} /></label>
+                  </div>
+                )}
+                {manqueDe(`annexe-${i}`)}
+                {estParking(a.categorie) && (
+                  <div className="loc-annexe-parking">
+                    <Pilules etiquette="Intérieur ou extérieur" options={SITUATIONS_PARKING} libelle={LIBELLE_SITUATION_PARKING} valeur={a.parkingSituation}
+                      onChoix={(v) => changerAnnexe(i, (x) => ({ ...x, parkingSituation: v }))} />
+                    <Pilules etiquette="Type de parking" options={TYPES_PARKING} libelle={LIBELLE_TYPE_PARKING} valeur={a.parkingType}
+                      onChoix={(v) => changerAnnexe(i, (x) => ({ ...x, parkingType: v }))} />
+                  </div>
+                )}
+                <div className="loc-grille">
+                  {(['etage', 'numLotCopro', 'porte'] as const).map((k) => (
+                    <label key={k} className="loc-champ">
+                      {k === 'etage' ? 'Étage' : k === 'numLotCopro' ? 'N° de lot' : estParking(a.categorie) ? 'N° de place' : 'N° de porte'}
+                      <input value={a[k]} onChange={(e) => { const val = e.target.value; changerAnnexe(i, (x) => ({ ...x, [k]: val })); }} />
+                    </label>
+                  ))}
+                </div>
+              </li>
             ))}
+          </ul>
+          <div className="loc-pilules">
+            <button type="button" onClick={() => ajouterAnnexe('cave')}>+ Cave</button>
+            <button type="button" onClick={() => ajouterAnnexe('parking')}>+ Parking</button>
+            <button type="button" onClick={() => ajouterAnnexe('autre')}>+ Autre</button>
           </div>
-          <div className="loc-grille">{champ('dpeDate', 'Date du DPE', { type: 'date' })}</div>
-        </div>
-      </section>
+        </section>
+      )}
+
+      {avecAnnexes && (
+        <section className="loc-section" aria-labelledby="loc-b6">
+          <h3 id="loc-b6"><span className="loc-num">{n('complements')}</span>Caractéristiques complémentaires</h3>
+          <div className="loc-grille">
+            {choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION)}
+            {choix('chauffage', 'Chauffage', CHAUFFAGES)}
+          </div>
+          <div className="loc-sous-section">
+            <h4>DPE</h4>
+            <div className="loc-pilules" role="group" aria-label="Classe DPE">
+              {CLASSES_DPE.map((c) => (
+                <button key={c} type="button" aria-pressed={b.dpeClasse === c} onClick={() => setB((x) => ({ ...x, dpeClasse: x.dpeClasse === c ? '' : c }))}>{c}</button>
+              ))}
+            </div>
+            <div className="loc-grille">{champ('dpeDate', 'Date du DPE', { type: 'date' })}</div>
+          </div>
+        </section>
+      )}
 
       <section className="loc-section" aria-labelledby="loc-b7">
-        <h3 id="loc-b7"><span className="loc-num">7</span>Commentaires</h3>
+        <h3 id="loc-b7"><span className="loc-num">{n('commentaires')}</span>Commentaires</h3>
         <label className="loc-champ">Commentaire libre
           <textarea value={b.commentaire} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, commentaire: val })); }} maxLength={4000} /></label>
       </section>

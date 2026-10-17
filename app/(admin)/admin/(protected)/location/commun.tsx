@@ -264,6 +264,20 @@ export const CSS_LOCATION_CREATION = `
 .loc-cartes-creation .cp-carte{width:auto;max-width:100%;min-width:0;border-radius:22px;padding:20px}
 .loc-ample .cp-saisie{min-height:52px;font-size:1.05rem;border-radius:12px}
 .loc-ample .cp-form-titre{font-size:1.15rem}
+/* Arno (17/10/2026) — les champs d'une même ligne ALIGNÉS au même niveau : libellés courts, et si l'un passe sur deux
+   lignes, les champs restent alignés EN BAS ; l'aide (« balcon, terrasse, jardin ») se pose SOUS le champ sans le décaler. */
+.loc-ample .loc-grille{align-items:end;row-gap:30px}
+.loc-ample .loc-champ{position:relative}
+.loc-aide{position:absolute;top:100%;left:0;margin-top:4px;font-size:.82rem;font-weight:400;color:var(--color-svv-muted);white-space:nowrap}
+.loc-pleine{grid-column:1 / -1}
+.loc-familles{grid-template-columns:repeat(3,minmax(0,1fr))}
+.loc-familles .loc-gros-bouton{min-height:6.5rem;font-size:1.45rem}
+.loc-acces{display:flex;flex-wrap:wrap;gap:16px 36px;align-items:center}
+.loc-acces-bloc{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.loc-acces-mot{font-weight:700;font-size:1.02rem;color:var(--color-svv-ink)}
+.loc-acces-code{flex:1 1 16rem}
+.loc-annexe-adresse{margin:0 0 12px}
+.loc-annexe-parking{display:flex;flex-direction:column;gap:10px;margin:0 0 14px}
 .loc-recap{display:flex;flex-direction:column;gap:6px;border:2px solid var(--color-svv-green-ink);border-radius:22px;padding:20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .loc-recap strong{font-size:1.15rem}
 .loc-recap .loc-boutons{justify-content:flex-start}
@@ -271,6 +285,8 @@ export const CSS_LOCATION_CREATION = `
 .loc-ajouter-carte:hover{border-color:var(--color-svv-ink)}
 @media (max-width:760px){
   .loc-gros-boutons{grid-template-columns:1fr}
+  .loc-familles{grid-template-columns:1fr}
+  .loc-familles .loc-gros-bouton{min-height:5rem}
   .loc-gros-bouton{min-height:7.5rem;font-size:1.25rem;padding:22px}
   .loc-section{padding:20px 18px;border-radius:22px}
   .loc-annexes > li.loc-enfant{margin-left:22px}

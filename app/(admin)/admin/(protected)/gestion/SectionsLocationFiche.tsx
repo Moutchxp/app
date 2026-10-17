@@ -11,7 +11,9 @@ import {
   type BienLocation, type Categorie,
 } from '../../../../lib/location/locationBien';
 import {
-  CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, LIBELLE_TYPE_LOGEMENT, TYPES_LOGEMENT, type ComplementsFiche, type TypeLogement,
+  CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, familleDeCategorie, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
+  LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING, type ComplementsFiche,
+  type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type {
@@ -242,7 +244,8 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
               {d.parent === null && d.location372 && <AjoutAnnexes parentId={b.id} rattachables={[...liste(d.rattachables)]} apres={relire} />}
             </section>
             <Caracteristiques b={b} modifiable={d.location372} apres={relire} />
-            {d.complements !== null && d.complements !== undefined && b.parentId === null && <Complements id={b.id} c={d.complements} apres={relire} />}
+            {d.complements !== null && d.complements !== undefined
+              && <Complements id={b.id} c={d.complements} apres={relire} annexe={b.parentId !== null} categorie={b.categorie} />}
             {d.location372 !== false && occupations.length > 0 && (
               <section className="loc-bloc" data-loyers>
                 <h3>Loyer de départ et taux de gestion</h3>
@@ -271,8 +274,11 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
 }
 
 function LigneArbre({ b, enfant = false, courant, ouvrir }: { b: BienLocation; enfant?: boolean; courant: boolean; ouvrir: Ouvrir }) {
+  const parking = [b.parkingSituation ? LIBELLE_SITUATION_PARKING[b.parkingSituation as SituationParking] : null,
+    b.parkingType ? LIBELLE_TYPE_PARKING[b.parkingType as TypeParking] : null].filter((x) => x).join(' · ');
   const titre = enfant
-    ? `${LIBELLE_CATEGORIE[b.categorie]}${b.porte === null ? '' : ` n° ${b.porte}`}`
+    ? `${LIBELLE_CATEGORIE[b.categorie]}${b.porte === null ? '' : ` n° ${b.porte}`}${parking === '' ? '' : ` (${parking})`}`
+      + (b.adresseAutre ? ` — autre adresse : ${[b.adresse, b.commune].filter((x) => x).join(', ')}` : '')
     : `${LIBELLE_CATEGORIE[b.categorie]} · ${[b.adresse, b.commune].filter((x) => x).join(', ')}`;
   return (
     <li className={enfant ? 'loc-enfant' : undefined} data-annexe={enfant ? 'oui' : undefined}>
@@ -407,12 +413,21 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
 }
 
 /** Les informations complémentaires du bien (migration 374) : saisies au formulaire complet, complétables ici. */
-function Complements({ id, c, apres }: { id: number; c: ComplementsFiche; apres: () => void }) {
+function Complements({ id, c, apres, annexe = false, categorie }: {
+  id: number; c: ComplementsFiche; apres: () => void; annexe?: boolean; categorie: string;
+}) {
+  // La famille se DÉDUIT de la catégorie (migration 376) : elle choisit les champs montrés. Une annexe : parking, accès, commentaire.
+  const famille = familleDeCategorie(categorie);
+  const parking = famille === 'parking' || categorie === 'box';
   const initial = {
     batiment: c.batiment ?? '', escalier: c.escalier ?? '', typeLogement: c.typeLogement ?? '', nombrePieces: c.nombrePieces === null ? '' : String(c.nombrePieces),
     meuble: c.meuble === null ? '' : c.meuble ? 'oui' : 'non', surfaceHabitableM2: c.surfaceHabitableM2 === null ? '' : String(c.surfaceHabitableM2).replace('.', ','),
     syndicId: c.syndicId === null ? '' : String(c.syndicId), epoqueConstruction: c.epoqueConstruction ?? '', chauffage: c.chauffage ?? '',
     dpeClasse: c.dpeClasse ?? '', dpeDate: c.dpeDate ?? '', commentaire: c.commentaire ?? '',
+    typeLocal: c.typeLocal ?? '', parkingSituation: c.parkingSituation ?? '', parkingType: c.parkingType ?? '',
+    surfaceM2: c.surfaceM2 === null ? '' : String(c.surfaceM2).replace('.', ','),
+    ascenseur: c.ascenseur === null ? '' : c.ascenseur ? 'oui' : 'non', digicode: c.digicode === null ? '' : c.digicode ? 'oui' : 'non',
+    digicodeCode: c.digicodeCode ?? '', precisionAcces: c.precisionAcces ?? '',
   };
   const [edition, setEdition] = useState(false);
   const [v, setV] = useState(initial);
@@ -432,7 +447,22 @@ function Complements({ id, c, apres }: { id: number; c: ComplementsFiche; apres:
     if (m === null) { setEdition(false); apres(); }
   };
   const date = c.dpeDate === null ? null : new Date(`${c.dpeDate}T12:00:00`).toLocaleDateString('fr-FR');
-  const lignes: [string, string | null][] = [
+  const ouiNon = (x: boolean | null): string | null => (x === null ? null : x ? 'oui' : 'non');
+  const lignesAcces: [string, string | null][] = [
+    ['Ascenseur', ouiNon(c.ascenseur)],
+    ['Digicode', c.digicode === null ? null : c.digicode ? `oui${c.digicodeCode ? ` · code ${c.digicodeCode}` : ''}` : 'non'],
+    ['Précision d’accès', c.precisionAcces],
+  ];
+  const lignesParking: [string, string | null][] = [
+    ['Intérieur / extérieur', c.parkingSituation === null ? null : LIBELLE_SITUATION_PARKING[c.parkingSituation]],
+    ['Type de parking', c.parkingType === null ? null : LIBELLE_TYPE_PARKING[c.parkingType]],
+  ];
+  const lignesPrincipal: [string, string | null][] = [
+    ['Famille', famille === null ? null : LIBELLE_FAMILLE[famille]],
+    ...(famille === 'local' ? [['Type de local', c.typeLocal === null ? null : LIBELLE_TYPE_LOCAL[c.typeLocal]] as [string, string | null]] : []),
+    ...(parking ? [...lignesParking, ['Surface', c.surfaceM2 === null ? null : `${String(c.surfaceM2).replace('.', ',')} m²`] as [string, string | null]] : []),
+  ];
+  const lignesBrutes: [string, string | null][] = [
     ['Type de logement', c.typeLogement === null ? null : LIBELLE_TYPE_LOGEMENT[c.typeLogement as TypeLogement] ?? c.typeLogement],
     ['Nombre de pièces', c.nombrePieces === null ? null : String(c.nombrePieces)],
     ['Meublé', c.meuble === null ? null : c.meuble ? 'Meublé' : 'Non meublé'],
@@ -442,6 +472,12 @@ function Complements({ id, c, apres }: { id: number; c: ComplementsFiche; apres:
     ['DPE', c.dpeClasse === null && date === null ? null : [c.dpeClasse === null ? null : `classe ${c.dpeClasse}`, date === null ? null : `du ${date}`].filter((x) => x).join(' ')],
     ['Commentaire', c.commentaire],
   ];
+  // Ce qui ne concerne pas la famille n'est pas montré (un parking n'a ni pièces, ni meublé, ni DPE…).
+  const horsParking = new Set(['Type de logement', 'Nombre de pièces', 'Meublé', 'Surface habitable', 'Époque de construction', 'Chauffage', 'DPE']);
+  const lignes: [string, string | null][] = annexe
+    ? [...(parking ? lignesParking : []), ...lignesAcces, ['Commentaire', c.commentaire]]
+    : [...lignesPrincipal, ...lignesBrutes.filter(([mot]) => !(parking && horsParking.has(mot))
+      && !(famille === 'local' && (mot === 'Type de logement' || mot === 'Meublé'))), ...lignesAcces];
   const champ = (k: keyof typeof initial, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="loc-champ">{mot}<input value={v[k]} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, [k]: val })); }} {...props} /></label>
   );
@@ -466,18 +502,30 @@ function Complements({ id, c, apres }: { id: number; c: ComplementsFiche; apres:
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
           <div className="loc-grille">
-            {choix('typeLogement', 'Type de logement', TYPES_LOGEMENT.map((t) => [t, LIBELLE_TYPE_LOGEMENT[t]] as const))}
-            {champ('nombrePieces', 'Nombre de pièces', { inputMode: 'numeric' })}
-            {choix('meuble', 'Meublé', [['oui', 'Meublé'], ['non', 'Non meublé']])}
-            {champ('surfaceHabitableM2', 'Surface habitable (m²)', { inputMode: 'decimal' })}
+            {parking && choix('parkingSituation', 'Intérieur / extérieur', SITUATIONS_PARKING.map((t) => [t, LIBELLE_SITUATION_PARKING[t]] as const))}
+            {parking && choix('parkingType', 'Type de parking', TYPES_PARKING.map((t) => [t, LIBELLE_TYPE_PARKING[t]] as const))}
+            {parking && !annexe && champ('surfaceM2', 'Surface (m²)', { inputMode: 'decimal' })}
+            {!annexe && famille === 'local' && choix('typeLocal', 'Type de local', TYPES_LOCAL.map((t) => [t, LIBELLE_TYPE_LOCAL[t as TypeLocal]] as const))}
+            {choix('ascenseur', 'Ascenseur', [['oui', 'Oui'], ['non', 'Non']])}
+            {choix('digicode', 'Digicode', [['oui', 'Oui'], ['non', 'Non']])}
+            {v.digicode === 'oui' && champ('digicodeCode', 'Code du digicode')}
+            {champ('precisionAcces', 'Précision d’accès')}
+          </div>
+          {!annexe && <div className="loc-grille" style={{ marginTop: 10 }}>
+            {!parking && famille !== 'local' && choix('typeLogement', 'Type de logement', TYPES_LOGEMENT.map((t) => [t, LIBELLE_TYPE_LOGEMENT[t]] as const))}
+            {!parking && champ('nombrePieces', famille === 'local' ? 'Nombre de bureaux / pièces' : 'Nombre de pièces', { inputMode: 'numeric' })}
+            {!parking && famille !== 'local' && choix('meuble', 'Meublé', [['oui', 'Meublé'], ['non', 'Non meublé']])}
+            {!parking && champ('surfaceHabitableM2', famille === 'local' ? 'Surface (m²)' : 'Surface habitable (m²)', { inputMode: 'decimal' })}
             {champ('batiment', 'Bâtiment')}
             {champ('escalier', 'Escalier')}
             {choix('syndicId', 'Syndic (Gestion)', [...(c.syndicId !== null && !syndics.some((s) => s.id === c.syndicId) ? [[String(c.syndicId), c.syndicNom ?? `Syndic ${c.syndicId}`] as const] : []),
               ...syndics.map((x) => [String(x.id), x.nom] as const)])}
-            {choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION.map((x) => [x, x] as const))}
-            {choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}
-            {choix('dpeClasse', 'Classe DPE', CLASSES_DPE.map((x) => [x, x] as const))}
-            {champ('dpeDate', 'Date du DPE', { type: 'date' })}
+            {!parking && choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION.map((x) => [x, x] as const))}
+            {!parking && choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}
+            {!parking && choix('dpeClasse', 'Classe DPE', CLASSES_DPE.map((x) => [x, x] as const))}
+            {!parking && champ('dpeDate', 'Date du DPE', { type: 'date' })}
+          </div>}
+          <div className="loc-grille" style={{ marginTop: 10 }}>
             <label className="loc-champ" style={{ gridColumn: '1 / -1' }}>Commentaire
               <textarea className="slf-texte" value={v.commentaire} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, commentaire: val })); }} maxLength={4000} rows={4} /></label>
           </div>

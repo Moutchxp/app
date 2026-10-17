@@ -68,9 +68,13 @@ export async function rechercherPortefeuille(brut: string): Promise<ResultatsAcc
   const pertinence = (colonne: string): string => (t.mots.length === 0 ? '0::int' : `CASE WHEN ${colonne} LIKE ($3::text[])[1] || '%' THEN 0 ELSE 1 END`);
   const coordonnee = (sujet: string, alias: string, sorte: 'telephone' | 'email'): string => `(SELECT c.valeur_brute FROM gestion_annuaire_contact c
       WHERE c.sujet = '${sujet}' AND c.sujet_id = ${alias}.id AND c.sorte = '${sorte}' AND c.absent_le IS NULL${coordVivante} ORDER BY c.rang, c.id LIMIT 1)`;
-  /** Un bien du portefeuille OU sorti du portefeuille (jamais en fin de gestion ni absent de l'export), sans les annexes. */
+  /**
+   * Un bien du portefeuille OU sorti du portefeuille (jamais en fin de gestion ni absent de l'export), sans les annexes —
+   * SAUF une annexe à une AUTRE ADRESSE (migration 376) : son adresse est une adresse du portefeuille (Arno, 17/10/2026).
+   */
+  const autreAdresse = (await colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre'));
   const bienConnu = (alias: string): string => `${alias}.gestion_fin IS NULL AND ${alias}.absent_le IS NULL
-      AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = ${alias}.id)`;
+      AND (NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = ${alias}.id)${autreAdresse ? ` OR ${alias}.adresse_autre IS TRUE` : ''})`;
   const params = [t.chiffres ?? '', t.email ?? '', t.mots];
   // Les trois paramètres sont TOUJOURS cités (une clause neutre) : PostgreSQL refuse un paramètre transmis mais inutilisé.
   const NEUTRE = `(length($1::text) >= 0 AND length($2::text) >= 0 AND cardinality($3::text[]) >= 0)`;

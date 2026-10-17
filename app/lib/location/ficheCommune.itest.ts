@@ -50,7 +50,7 @@ describe.skipIf(!baseEssai)('🔴 fiche commune : sections « Location »', () =
   it('② les sections lisent la base : annexes, compléments, loyers ; sortie et réactivation depuis la fiche', async () => {
     const b = ok(await creerBienComplet({
       proprietaireIds: [proprietaireId],
-      logement: { adresse: `7 rue Commune${S}`, typeLogement: 'studio', dpeClasse: 'B' },
+      logement: { adresse: `7 rue Commune${S}`, famille: 'logement', typeLogement: 'studio', dpeClasse: 'B' },
       annexes: [{ categorie: 'cave', porte: '4' }],
     }, AUTEUR));
     logementId = b.logementId;

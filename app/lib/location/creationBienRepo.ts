@@ -29,6 +29,11 @@ export function bienCompletDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'type_logement');
 }
 
+/** La migration 376 (famille de bien, parking, accès, annexe à autre adresse) est-elle là ? */
+export function familleDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre');
+}
+
 class Refus extends Error {}
 
 async function journaliser(q: RequeteTx, entite: 'annuaire' | 'annuaire_lot', id: number, action: string, commentaire: string, auteur: Auteur): Promise<void> {
@@ -129,7 +134,7 @@ async function insererLot(q: RequeteTx, proprietaires: { id: number; nom: string
  * pas un syndic connu de la Gestion.
  */
 export async function creerBienComplet(s: SaisieBien, auteur: Auteur): Promise<Issue<{ logementId: number; annexes: number[] }>> {
-  if (!(await bienCompletDisponible())) return { etat: 'sans_schema' };
+  if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierBienComplet(s);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const l = v.logement;
@@ -149,20 +154,27 @@ export async function creerBienComplet(s: SaisieBien, auteur: Auteur): Promise<I
         const { rows: sy } = await q('SELECT 1 FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL', [l.syndicId]);
         if (sy.length === 0) throw new Refus('Ce syndic n’est pas (ou plus) un syndic connu de la Gestion.');
       }
-      const logementId = await insererLot(q, proprietaires, l, 'logement', {
+      // La FAMILLE est la catégorie du bien : logement, local ou parking (migration 376 : aucune colonne de plus).
+      const logementId = await insererLot(q, proprietaires, l, v.famille, {
         batiment: l.batiment, escalier: l.escalier, type_logement: l.typeLogement, nombre_pieces: l.nombrePieces, meuble: l.meuble,
         surface_habitable_m2: l.surfaceHabitableM2, syndic_id: l.syndicId, epoque_construction: l.epoqueConstruction,
         chauffage: l.chauffage, dpe_classe: l.dpeClasse, dpe_date: l.dpeDate, commentaire: l.commentaire,
+        type_local: l.typeLocal, parking_situation: l.parkingSituation, parking_type: l.parkingType, surface_m2: l.surfaceM2,
+        ascenseur: l.ascenseur, digicode: l.digicode, digicode_code: l.digicodeCode, precision_acces: l.precisionAcces,
       }, auteur);
       const annexes: number[] = [];
       for (const a of v.annexes) {
-        const id = await insererLot(q, proprietaires, { ...a, adresse: l.adresse, codePostal: l.codePostal, commune: l.commune },
-          a.categorie ?? 'cave', null, auteur);
+        // « Même adresse » (par défaut) : l'annexe hérite de l'adresse du logement / local. « Autre adresse » : la sienne.
+        const adresse = a.autreAdresse ? { adresse: a.adresse, codePostal: a.codePostal, commune: a.commune }
+          : { adresse: l.adresse, codePostal: l.codePostal, commune: l.commune };
+        const id = await insererLot(q, proprietaires, { ...a, ...adresse }, a.categorie ?? 'cave', {
+          adresse_autre: a.autreAdresse, parking_situation: a.parkingSituation, parking_type: a.parkingType,
+        }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, logementId, auteur.libelle]);
         annexes.push(id);
       }
       await journaliser(q, 'annuaire_lot', logementId, 'location_bien_cree',
-        `bien créé dans la Location (formulaire complet) : logement + ${annexes.length} annexe(s), propriétaire(s) ${proprietaires.map((p) => p.id).join(', ')}`, auteur);
+        `bien créé dans la Location (formulaire complet) : ${v.famille} + ${annexes.length} annexe(s), propriétaire(s) ${proprietaires.map((p) => p.id).join(', ')}`, auteur);
       return { etat: 'ok' as const, data: { logementId, annexes } };
     });
   } catch (e) {
@@ -199,7 +211,8 @@ export async function rechercherProprietaires(brut: string): Promise<ResultatPor
   if (t.mots.length > 0) {
     tests.push(`EXISTS (SELECT 1 FROM gestion_annuaire_lot lo
       WHERE (lo.proprietaire_id = p.id OR lo.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = p.id AND lp.jusqu_a IS NULL))
-        AND ${await sqlBienDuPortefeuille('lo')} AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)
+        AND ${await sqlBienDuPortefeuille('lo')}
+        AND (NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)${(await familleDisponible()) ? ' OR lo.adresse_autre IS TRUE' : ''})
         AND ${t.mots.map((_, i) => `coalesce(lo.adresse_normalisee, '') LIKE '%' || ($3::text[])[${i + 1}] || '%'`).join(' AND ')})`);
   }
   const NEUTRE = `(length($1::text) >= 0 AND length($2::text) >= 0 AND cardinality($3::text[]) >= 0)`;
@@ -240,13 +253,19 @@ export async function syndicsConnus(): Promise<{ id: number; nom: string; ville:
 /** Les champs de la migration 374 d'un bien ; `null` sans la migration. */
 export async function complementsDuBien(id: number): Promise<ComplementsFiche | null> {
   if (!(await bienCompletDisponible())) return null;
+  const avec376 = await familleDisponible();
   const { rows } = await query<{
     batiment: string | null; escalier: string | null; type_logement: string | null; nombre_pieces: number | null; meuble: boolean | null;
     surface_habitable_m2: string | null; syndic_id: string | null; syndic_nom: string | null; epoque_construction: string | null;
     chauffage: string | null; dpe_classe: string | null; dpe_date: string | null; commentaire: string | null;
+    type_local: string | null; parking_situation: string | null; parking_type: string | null; surface_m2: string | null;
+    ascenseur: boolean | null; digicode: boolean | null; digicode_code: string | null; precision_acces: string | null;
   }>(
     `SELECT lo.batiment, lo.escalier, lo.type_logement, lo.nombre_pieces, lo.meuble, lo.surface_habitable_m2::text,
-            lo.syndic_id::text, s.nom AS syndic_nom, lo.epoque_construction, lo.chauffage, lo.dpe_classe, lo.dpe_date::text, lo.commentaire
+            lo.syndic_id::text, s.nom AS syndic_nom, lo.epoque_construction, lo.chauffage, lo.dpe_classe, lo.dpe_date::text, lo.commentaire,
+            ${avec376 ? `lo.type_local, lo.parking_situation, lo.parking_type, lo.surface_m2::text, lo.ascenseur, lo.digicode, lo.digicode_code, lo.precision_acces`
+    : `NULL::text AS type_local, NULL::text AS parking_situation, NULL::text AS parking_type, NULL::text AS surface_m2, NULL::boolean AS ascenseur,
+       NULL::boolean AS digicode, NULL::text AS digicode_code, NULL::text AS precision_acces`}
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_syndic s ON s.id = lo.syndic_id WHERE lo.id = $1`, [id]);
   const r = rows[0];
   if (r === undefined) return null;
@@ -255,6 +274,9 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
     nombrePieces: r.nombre_pieces, meuble: r.meuble, surfaceHabitableM2: r.surface_habitable_m2 === null ? null : Number(r.surface_habitable_m2),
     syndicId: r.syndic_id === null ? null : Number(r.syndic_id), syndicNom: r.syndic_nom, epoqueConstruction: r.epoque_construction,
     chauffage: r.chauffage, dpeClasse: r.dpe_classe, dpeDate: r.dpe_date, commentaire: r.commentaire,
+    typeLocal: r.type_local as ComplementsBien['typeLocal'], parkingSituation: r.parking_situation as ComplementsBien['parkingSituation'],
+    parkingType: r.parking_type as ComplementsBien['parkingType'], surfaceM2: r.surface_m2 === null ? null : Number(r.surface_m2),
+    ascenseur: r.ascenseur, digicode: r.digicode, digicodeCode: r.digicode_code, precisionAcces: r.precision_acces,
   };
 }
 
@@ -278,6 +300,12 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
                 dpe_date = $12::date, commentaire = $13 WHERE id = $1`,
         [id, c.batiment, c.escalier, c.typeLogement, c.nombrePieces, c.meuble, c.surfaceHabitableM2, c.syndicId,
           c.epoqueConstruction, c.chauffage, c.dpeClasse, c.dpeDate, c.commentaire]);
+      if (await familleDisponible()) {
+        await q(
+          `UPDATE gestion_annuaire_lot SET type_local = $2, parking_situation = $3, parking_type = $4, surface_m2 = $5, ascenseur = $6,
+                  digicode = $7, digicode_code = $8, precision_acces = $9 WHERE id = $1`,
+          [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.digicode, c.digicodeCode, c.precisionAcces]);
+      }
       await journaliser(q, 'annuaire_lot', id, 'location_bien_complements', 'informations complémentaires du bien modifiées dans la Location', auteur);
       return { etat: 'ok' as const, data: undefined };
     });
