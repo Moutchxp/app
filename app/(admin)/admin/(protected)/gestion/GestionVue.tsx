@@ -30,6 +30,9 @@ import { CarteVive } from './CarteVive';
 import { TableauBordEvenements } from './TableauBordEvenements';
 /* 🔴🔴 LOT TACHES-1 — le récapitulatif général des tâches, tout en bas de l'écran partagé. */
 import { TableauTaches } from './TableauTaches';
+/* 🔴 LOT GESTION-TACHES-PAGE — la pastille du raccourci « Tâches » : les tâches d'aujourd'hui, ni faites ni annulées. */
+import { ecouterTaches, lireTaches } from './tachesClient';
+import { compterTachesDuJour, type Tache } from '../../../../lib/gestion/taches';
 /* 🔴🔴 LOT …-ET-LIGNE-DE-FILTRES — la ligne de filtres et de tris du plein écran Événements, et son module PUR. */
 import { LigneFiltresEvenements } from './LigneFiltresEvenements';
 import {
@@ -639,6 +642,19 @@ export function GestionVue({ intro }: {
   const [mesureLe, setMesureLe] = useState<string>(() => new Date().toISOString());
   /** Ce que le battement a vu arriver sans pouvoir le montrer. Remis à zéro dès que la liste se recharge. */
   const [courrierNouveau, setCourrierNouveau] = useState(0);
+  /* 🔴 LOT GESTION-TACHES-PAGE — les tâches lues pour la pastille du raccourci « Tâches » (relues après chaque geste sur
+     une tâche) ; le chiffre se recalcule chaque minute (passage de minuit). Sans la migration 346 : aucune pastille. */
+  const [tachesLues, setTachesLues] = useState<Tache[]>([]);
+  const [minute, setMinute] = useState(() => new Date());
+  useEffect(() => {
+    let vivant = true;
+    const lire = () => { void lireTaches(null).then((r) => { if (vivant && r.etat === 'ok') setTachesLues(r.taches); }); };
+    lire();
+    const lacher = ecouterTaches(lire);
+    const t = window.setInterval(() => setMinute(new Date()), 60_000);
+    return () => { vivant = false; lacher(); window.clearInterval(t); };
+  }, []);
+  const tachesDuJour = compterTachesDuJour(tachesLues, minute);
 
   useEffect(() => {
     let vivant = true;
@@ -1405,7 +1421,18 @@ export function GestionVue({ intro }: {
       {/* LOT RATTACHEMENT-2 — L'HISTORIQUE D'UNE CIBLE. Atteint par un clic depuis l'annuaire, depuis une étiquette du
           bandeau « Rattaché à » d'un mail, ou depuis une carte d'événement. Sans cible lisible dans l'adresse, on
           n'affiche pas un écran vide : on revient à l'écran partagé, comme pour toute valeur illisible. */}
-      {ecran === 'syndics' ? (
+      {ecran === 'taches' ? (
+        /* 🔴🔴 LOT GESTION-TACHES-PAGE — LA PAGE PLEINE « TÂCHES » : le MÊME composant que le module de l'écran partagé
+           (filtres, pastilles, « Faites ou annulées »), avec son retour. Rien n'est copié. */
+        <div className="pe pe-taches">
+          <TableauTaches
+            retour={<button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>← Boîte</button>}
+            onOuvrirBien={(lotId) => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte: 'lot', id: lotId } }); }}
+            onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
+              ? (email) => { setEcrireA(email); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }
+              : undefined} />
+        </div>
+      ) : ecran === 'syndics' ? (
         /* 🔴🔴 LOT ANNUAIRE-SYNDICS — L'ÉCRAN « SYNDICS ». Le composant ne sait rien de cet écran : il reçoit son
            retour et le composeur, et la future tuile Location le posera tel quel. */
         <EcranSyndics
@@ -1577,6 +1604,9 @@ export function GestionVue({ intro }: {
           evenementsOuverts={d.evenementsOuverts}
           /* 🔴 LOT ANNUAIRE-SYNDICS — l'entrée « Syndics », juste sous « Événements ». */
           onSyndics={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'syndics' }); }}
+          /* 🔴 LOT GESTION-TACHES-PAGE — « Tâches », entre « Événements » et « Syndics » ; la page pleine du module. */
+          onTaches={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'taches' }); }}
+          tachesDuJour={tachesDuJour}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */

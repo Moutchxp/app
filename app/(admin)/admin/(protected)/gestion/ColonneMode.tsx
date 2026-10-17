@@ -134,6 +134,11 @@ const CSS_COLONNE = `
   padding:.45rem .6rem;text-align:left;font:inherit;font-size:.85rem;color:var(--color-svv-ink);cursor:pointer;
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.6rem}
 .cm-entree:hover{border-color:var(--color-svv-line-strong)}
+/* LOT GESTION-TACHES-PAGE — la pastille du raccourci « Taches » : ronde, rouge de la charte, chiffre en surface — BLANC
+   en Clair ; en Sombre le rouge s'eclaircit et du blanc dessus tomberait a ~2,1:1, la surface sombre y tient ~7,3:1
+   (meme regle que la selection de l'admin, globals.css). */
+.cm-pastille-jour{display:inline-flex;align-items:center;justify-content:center;min-width:1.35rem;height:1.35rem;padding:0 .35rem;
+  box-sizing:border-box;border-radius:999px;background:var(--color-svv-red);color:var(--color-svv-surface);font-size:12px;font-weight:700;line-height:1}
 /* L'enveloppe de « Réception » n'est pas focalisable : c'est l'un de ses trois boutons qui l'est. On montre donc le
    focus SUR L'ENVELOPPE quand il est quelque part dedans — sans quoi la ligne entière paraîtrait inerte au clavier. */
 .cm-entree--recep:focus-within{border-color:var(--color-svv-line-strong)}

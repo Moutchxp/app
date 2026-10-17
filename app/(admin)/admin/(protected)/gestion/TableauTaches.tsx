@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 /* 🔴 LOT FILTRE-ECRAN-FIXE — l'écran ne bouge pas quand on change de filtre. */
 import { estClicDansLeVide, MOT_AUCUNE_TACHE_FILTRE, useZoneStable } from './defilementFige';
 import {
@@ -29,8 +29,10 @@ import { ecouterTaches, lireTaches } from './tachesClient';
  *
  * ⚠️ SANS LA MIGRATION 346, NE REND RIEN. ⚠️ AUCUN IMPORT QUI TIRE `pg`.
  */
-export function TableauTaches({ onOuvrirBien, onEcrire }: {
+export function TableauTaches({ onOuvrirBien, onEcrire, retour = null }: {
   onOuvrirBien: (lotId: number) => void;
+  /** 🔴 LOT GESTION-TACHES-PAGE — sur la page pleine « Tâches » : le bouton de retour, en tête. Absent sur l'écran partagé. */
+  retour?: ReactNode;
   /** 🔴 LOT TACHES-1-BIS — ouvre le composeur « Nouveau message », adresse pré-remplie, sans rien envoyer. */
   onEcrire?: (email: string) => void;
 }) {
@@ -81,6 +83,7 @@ export function TableauTaches({ onOuvrirBien, onEcrire }: {
       onClick={(e) => { if (pastille !== null && estClicDansLeVide(e.target, e.currentTarget)) changerFiltre(() => setPastille(null)); }}>
       <style>{CSS_TACHES}{CSS_TABLEAU}</style>
       <div className="tch-tableau-tete">
+        {retour}
         <h2 className="gst-titre" id="tch-tableau-titre">
           Tâches <span className="gst-compte">{ouvertes.length}</span>
         </h2>

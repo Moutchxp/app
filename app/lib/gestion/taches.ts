@@ -237,6 +237,16 @@ export function ajouterJours(j: string, n: number): string {
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 /**
+ * 🔴 LOT GESTION-TACHES-PAGE — LA PASTILLE DU RACCOURCI « Tâches » : les tâches prévues AUJOURD'HUI (jour civil de
+ * Paris), ni faites ni annulées. Même calcul que la pastille « aujourd'hui » du module (`couleurTache` → `jour`), SANS
+ * demain. PUR.
+ */
+export function compterTachesDuJour(taches: readonly { jour: string; etat: EtatTache }[], maintenant: Date): number {
+  const auj = jourParisDe(maintenant);
+  return taches.filter((t) => t.etat === 'a_faire' && t.jour === auj).length;
+}
+
+/**
  * LA COULEUR D'UNE TÂCHE. `null` pour une tâche faite ou annulée : elle n'est plus « à faire », elle se grise.
  * Voir l'encadré du module. PUR.
  */

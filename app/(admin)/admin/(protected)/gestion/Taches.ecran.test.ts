@@ -220,7 +220,8 @@ describe('🔴 non-régression : rien n’est déplacé', () => {
   const annuaire = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
   it('le récapitulatif général est sous les deux colonnes (la section « Échanges sans événement » est retirée, accord d’Arno)', () => {
     const colonnes = vue.indexOf('<div className="gst-deux">');
-    const tableau = vue.indexOf('<TableauTaches');
+    // 🔴 LOT GESTION-TACHES-PAGE — le DERNIER : le premier est celui de la page pleine « Tâches » (écran à part).
+    const tableau = vue.lastIndexOf('<TableauTaches');
     expect(colonnes).toBeGreaterThan(0);
     expect(tableau).toBeGreaterThan(colonnes);
     expect(vue).not.toContain('<details className="gst-file-echanges">');

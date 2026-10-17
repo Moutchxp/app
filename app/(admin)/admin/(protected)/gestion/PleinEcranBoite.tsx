@@ -99,7 +99,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, onTotalEtiquette, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique, onFicheBien, bienCourant = null,
   versionDonnees = 0, onListeRelue,
-  onEvenements, evenementsOuverts = null, onSyndics, onAnnuaire, etatDiscret = null,
+  onEvenements, evenementsOuverts = null, onSyndics, onTaches, tachesDuJour = 0, onAnnuaire, etatDiscret = null,
   onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
   onClassementChange, onBrouillonsChange, onRetourHistoriqueBien,
 }: {
@@ -181,6 +181,10 @@ export function PleinEcranBoite({
   evenementsOuverts?: number | null;
   /** LOT ANNUAIRE-SYNDICS — ouvre l'écran « Syndics ». Absent ⇒ aucune entrée. */
   onSyndics?: () => void;
+  /** 🔴 LOT GESTION-TACHES-PAGE — le raccourci « Tâches » (page pleine), entre « Événements » et « Syndics ». */
+  onTaches?: () => void;
+  /** Les tâches prévues AUJOURD'HUI, ni faites ni annulées (pastille rouge ; rien à 0). */
+  tachesDuJour?: number;
   onAnnuaire?: () => void;
   /** Les lignes d'état ORDINAIRE, en petit. Une alerte ne passe jamais par ici. */
   etatDiscret?: readonly string[] | null;
@@ -1002,6 +1006,22 @@ export function PleinEcranBoite({
                   title="Les événements en cours, en plein écran">
                   <span className="cm-nom"><span className="cm-texte">Événements</span></span>
                   {evenementsOuverts !== null && <span className="gst-compte">{evenementsOuverts}</span>}
+                </button>
+              </li>
+            )}
+            {/* 🔴 LOT GESTION-TACHES-PAGE (Arno, 17/10/2026) — « Tâches », ENTRE « Événements » et « Syndics », même style ;
+                pastille rouge ronde, chiffre blanc : les tâches d'AUJOURD'HUI ni faites ni annulées ; aucune à 0. */}
+            {onTaches && (
+              <li>
+                <button type="button" className="cm-entree" data-raccourci="taches"
+                  onClick={() => { onTaches(); setPanneauMobile('contenu'); }}
+                  title="Les tâches, en pleine page">
+                  <span className="cm-nom"><span className="cm-texte">Tâches</span></span>
+                  {tachesDuJour > 0 && (
+                    <span className="cm-pastille-jour" data-pastille-taches aria-label={`${tachesDuJour} tâche${tachesDuJour > 1 ? 's' : ''} aujourd’hui`}>
+                      {tachesDuJour}
+                    </span>
+                  )}
                 </button>
               </li>
             )}
