@@ -139,6 +139,8 @@ export interface Tache {
   acceptation?: AcceptationTache | null;
   /** 🔴 LOT GESTION-INVITATIONS-TACHES — les invités ACTIFS (le premier = « Confiée à ») ; absent = sans la migration 365. */
   invites?: InviteTache[];
+  /** 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements rattachés (actifs) ; absent = sans la migration 366. */
+  evenements?: { id: number; reference: string; objet: string; ouvert: boolean }[];
   /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (minutes) ; `null`/absent = 1 h. */
   dureeMinutes?: number | null;
   /** 🔴 LOT TACHES-AGENDA — la mention « Agenda » (dans l'agenda, à resynchroniser, pas d'agenda Google…) ; `null` = rien. */
@@ -511,6 +513,11 @@ export interface SaisieTache {
    * toucher (écran d'avant ce lot). Chacun reçoit sa propre invitation.
    */
   invites?: number[];
+  /**
+   * 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements EN COURS auxquels rattacher la tâche (plusieurs) ; `undefined` = ne
+   * pas y toucher. Distinct de `evenementId` (« Événement du bien lié »), qui ne change pas.
+   */
+  evenements?: number[];
 }
 
 /** Les invités d'une saisie, dans l'ordre : « Confiée à » d'abord, puis les autres, sans doublon. PUR. */
@@ -572,12 +579,13 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
     contacts: lireClesContacts(corps.contacts),
     pieces: lireIdsDrive(corps.pieces),
     ...('invites' in corps ? { invites: lireIdsInvites(corps.invites) ?? [] } : {}),
+    ...('evenements' in corps ? { evenements: lireIdsInvites(corps.evenements) ?? [] } : {}),
     ...('dureeMinutes' in corps ? { dureeMinutes: heure === null ? null : dureeValide(corps.dureeMinutes) } : {}),
   };
 }
 
 /** Les champs de la fenêtre auxquels un refus peut se rattacher (pour l'afficher À CÔTÉ du champ). */
-export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts' | 'pieces' | 'invites';
+export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts' | 'pieces' | 'invites' | 'evenements';
 
 /** Un refus : le message en français, et le champ concerné (`null` = la tâche entière). */
 export interface RefusSaisie { message: string; champ: ChampTache | null }
@@ -618,7 +626,7 @@ export function refusDuServeur(statut: number, corps: { erreur?: unknown; champ?
   const erreur = typeof corps?.erreur === 'string' ? corps.erreur : '';
   if (statut === 401 || erreur === 'ACCES_REVOQUE') return { champ: null, message: MESSAGE_SESSION_EXPIREE };
   if (statut === 403) return { champ: null, message: 'Vous n’avez pas l’accès Gestion : la tâche n’a pas été enregistrée.' };
-  const champs: readonly ChampTache[] = ['objet', 'jour', 'heure', 'note', 'confieeA', 'evenementId', 'contacts', 'pieces', 'invites'];
+  const champs: readonly ChampTache[] = ['objet', 'jour', 'heure', 'note', 'confieeA', 'evenementId', 'contacts', 'pieces', 'invites', 'evenements'];
   const champ = typeof corps?.champ === 'string' && (champs as readonly string[]).includes(corps.champ)
     ? corps.champ as ChampTache : null;
   if (erreur !== '' && erreur !== 'INTERDIT') return { champ, message: erreur };
@@ -733,6 +741,9 @@ export function phraseTrace(t: TraceTache): string {
       if (a.acceptation === 'refusee') return `Refusée ${qui}${typeof a.motif === 'string' ? ` (motif : ${a.motif})` : ''}`;
       /* 🔴 LOT TACHES-PIECES-DRIVE — la pièce ajoutée ou retirée (le fichier du Drive, lui, n'est jamais touché). */
       /* 🔴 LOT GESTION-INVITATIONS-TACHES — les invités : ajouté, retiré, destinataire changé, invitation renvoyée. */
+      /* 🔴 LOT GESTION-TACHES-EVENEMENTS — un événement rattaché ou retiré. */
+      if (typeof a.evenementRattache === 'string') return `Rattachée à l’événement ${a.evenementRattache} ${qui}`;
+      if (typeof a.evenementRetire === 'string') return `Rattachement à l’événement ${a.evenementRetire} retiré ${qui}`;
       if (typeof a.inviteAjoute === 'string') return `Invité ajouté ${qui} (${a.inviteAjoute})`;
       if (typeof a.inviteRetire === 'string') return `Invité retiré ${qui} (${a.inviteRetire})`;
       if (typeof a.destinataireChange === 'string') {

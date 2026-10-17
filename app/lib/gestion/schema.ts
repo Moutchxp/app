@@ -388,6 +388,14 @@ export function invitesTacheDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 LOT GESTION-TACHES-EVENEMENTS — la migration 366 est-elle appliquée ? Elle porte les rattachements d'une tâche à des
+ * événements EN COURS (plusieurs), et le point rouge dans leur frise. Sans elle, rien de cela ne s'affiche.
+ */
+export function evenementsTacheDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_tache_evenement', () => tableExiste('gestion_tache_evenement'));
+}
+
+/**
  * 🔴 LOT TACHES-AGENDA — la migration 350 est-elle appliquée ? Elle porte le réglage « Envoyer les tâches dans
  * l'agenda Google », la durée d'un rendez-vous et le journal des appels à l'agenda. Sans elle, aucune tâche ne part
  * vers l'agenda et les tâches sont exactement celles d'avant ce lot.

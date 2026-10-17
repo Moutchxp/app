@@ -20,6 +20,9 @@ import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache 
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche, chacun sa demande (migration 365). */
 import { alignerInvites, invitesDesTaches, personnesInvitees, refusRenvoiPrincipal, type PersonneInvitee } from './invitesRepo';
 import { invitesDeLaSaisie } from './taches';
+/* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours rattachés (migration 366). */
+import { alignerEvenements, evenementsDesTaches } from './tacheEvenementsRepo';
+import { evenementsTacheDisponible } from './schema';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LE DÉPÔT DES TÂCHES (migration 346) ═══════════════════════════════════════════════════════
@@ -172,9 +175,15 @@ async function avecAgenda(taches: Tache[]): Promise<Tache[]> {
 
 /** 🔴 LOT GESTION-INVITATIONS-TACHES — les invités actifs de chaque tâche (une requête pour toute la liste). */
 async function avecInvites(taches: Tache[]): Promise<Tache[]> {
-  const m = await invitesDesTaches(taches.map((t) => t.id));
-  if (m.size === 0) return taches;
-  return taches.map((t) => ({ ...t, invites: m.get(t.id) ?? [] }));
+  const [m, ev, avecEv] = await Promise.all([
+    invitesDesTaches(taches.map((t) => t.id)), evenementsDesTaches(taches.map((t) => t.id)), evenementsTacheDisponible(),
+  ]);
+  return taches.map((t) => ({
+    ...t,
+    ...(m.size > 0 ? { invites: m.get(t.id) ?? [] } : {}),
+    /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements rattachés (liste vide = aucun ; absent = sans la 366). */
+    ...(avecEv ? { evenements: ev.get(t.id) ?? [] } : {}),
+  }));
 }
 
 function versTache(r: LigneTache): Tache {
@@ -422,7 +431,22 @@ async function evenementExiste(q: RequeteTx, id: number | null): Promise<boolean
 }
 
 /** CRÉER une tâche sur un bien. La saisie a déjà été vérifiée par `erreurSaisie` (route). */
+/** Un refus découvert APRÈS une première écriture : levé pour que la transaction annule tout, puis rendu tel quel. */
+class RefusSaisieTache extends Error {
+  constructor(message: string, readonly champ: ChampTache) { super(message); }
+}
+const rendreLeRefus = (e: unknown): IssueTache => {
+  if (e instanceof RefusSaisieTache) return { ok: false, statut: 400, motif: e.message, champ: e.champ };
+  throw e;
+};
+
 export async function creerTache(
+  lotId: number, s: SaisieTache, auteur: Auteur, pieces: readonly PieceAjout[] = [],
+): Promise<IssueTache> {
+  return creerTacheSansRefus(lotId, s, auteur, pieces).catch(rendreLeRefus);
+}
+
+async function creerTacheSansRefus(
   lotId: number, s: SaisieTache, auteur: Auteur, pieces: readonly PieceAjout[] = [],
 ): Promise<IssueTache> {
   const avecPieces = pieces.length > 0 && await piecesTacheDisponible();
@@ -455,6 +479,11 @@ export async function creerTache(
     }, auteur, nom);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
     if (avecPieces) await poserPieces(q, id, pieces, auteur, nom);
+    /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours choisis ; un refus annule toute la création. */
+    if (s.evenements !== undefined && s.evenements.length > 0 && await evenementsTacheDisponible()) {
+      const refus = await alignerEvenements(q, id, s.evenements, auteur, nom);
+      if (refus !== null) throw new RefusSaisieTache(refus, 'evenements');
+    }
     /* 🔴 LOT TACHES-ACCEPTATION — confiée à soi : acceptée d'office ; à un autre : en attente, et un mail à préparer. */
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : un invité par personne (« Confiée à » d'abord), chacun SA demande. */
     if (plusieurs) {
@@ -610,6 +639,10 @@ export async function decalerTache(
  * modification qui ne change rien n'écrit rien.
  */
 export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur): Promise<IssueTache> {
+  return modifierTacheSansRefus(id, s, auteur).catch(rendreLeRefus);
+}
+
+async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur): Promise<IssueTache> {
   const avecAcceptation = await acceptationTacheDisponible();
   const plusieurs = avecAcceptation && await invitesTacheDisponible();
   /* 🔴 LOT TACHES-AGENDA — la durée ne se compare (et ne s'écrit) que si la 350 est là ET que l'écran l'a envoyée. */
@@ -662,6 +695,11 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
     if (invitesChangent) { avant.invites = listeInvites(invitesAvant); apres.invites = listeInvites(invitesVoulus); }
     const nom = await nomAuteur(q, auteur);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
+    /* 🔴 LOT GESTION-TACHES-EVENEMENTS — rattacher ou retirer des événements (tracé ligne à ligne par le dépôt). */
+    if (s.evenements !== undefined && await evenementsTacheDisponible()) {
+      const refus = await alignerEvenements(q, id, s.evenements, auteur, nom);
+      if (refus !== null) throw new RefusSaisieTache(refus, 'evenements');
+    }
     await marquerASynchroniser(q, id);
     if (Object.keys(apres).length === 0) return { ok: true, id };
     await q(

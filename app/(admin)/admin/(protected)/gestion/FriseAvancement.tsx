@@ -23,6 +23,12 @@ import {
   dateAffichee,
   type CaseFrise, type ElementFrise, type EtapeAAfficher,
 } from '../../../../lib/gestion/frise';
+/* 🔴 LOT GESTION-TACHES-EVENEMENTS — les tâches rattachées : un point rouge à la date de la mission, qui ouvre la tâche. */
+import { insererTachesDansLaLigne } from '../../../../lib/gestion/frise';
+import type { TacheFrise } from '../../../../lib/gestion/tacheFrise';
+import { CSS_POINT_TACHE_FRISE, PointsTachesFrise } from './PointTacheFrise';
+import { FenetreTache } from './FenetreTache';
+import { ecouterTaches } from './tachesClient';
 import {
   cartesDuReservoir, confirmationCarte,
   estRepere, informationsDuReservoir, motEtape, TYPES_INFORMATION, TYPES_RESERVOIR, type TypeEtape,
@@ -96,6 +102,8 @@ import { useBulleSurvol } from './useBulleSurvol';
 interface Reponse {
   etat?: string;
   etapes?: EtapeAAfficher[];
+  /** 🔴 LOT GESTION-TACHES-EVENEMENTS — les tâches rattachées (migration 366) ; absent = aucune. */
+  taches?: TacheFrise[];
   /**
    * 🔴🔴 LOT CLOTURE-REOUVERTURE — `proposerCloture` A QUITTÉ CE CONTRAT. Il portait la ligne « Clôturer cet
    * événement ? », qui fermait le dossier EN UN CLIC ; Arno demande de la retirer, et de ne fermer que par une
@@ -343,6 +351,9 @@ export function FriseAvancement({
   }, [evenementId]);
 
   useEffect(() => { void charger(); }, [charger]);
+  /* 🔴 LOT GESTION-TACHES-EVENEMENTS — la tâche ouverte depuis son point ; tout geste sur une tâche relit la frise. */
+  const [tacheOuverte, setTacheOuverte] = useState<number | null>(null);
+  useEffect(() => ecouterTaches(() => { void charger(); }), [charger]);
 
   /**
    * 🔴 « ÉCHAP OU “FERMER” REFERME LE RÉSERVOIR » (Arno, point 2). Les deux, et c'est le minimum : la souris a
@@ -511,7 +522,8 @@ export function FriseAvancement({
    * et `construireFrise` n'en ajoute aucune : rien n'est doublé, rien n'est remplacé.
    */
   const { majeures, reperes } = construireFrise(etapes, vue.d.ouvertLe ?? null);
-  const ligne = rangerEnLigne(majeures, reperes, aujourdhui);
+  /* 🔴 LOT GESTION-TACHES-EVENEMENTS — les tâches se GLISSENT dans la suite déjà rangée ; rien n'y est déplacé. */
+  const ligne = insererTachesDansLaLigne(rangerEnLigne(majeures, reperes, aujourdhui), vue.d.taches ?? []);
   const plusieursRefs = referencesDeLaFrise(etapes).length > 1;
   const cleOuverture = cleDOuverture(majeures);
   /**
@@ -559,6 +571,10 @@ export function FriseAvancement({
     <section ref={moi} className={`fav${compact ? ' fav--compact' : ''}`}
       aria-label="Avancement de l’événement">
       <style>{CSS_FRISE_AVANCEMENT}</style>
+      {(vue.d.taches ?? []).length > 0 && <style>{CSS_POINT_TACHE_FRISE}</style>}
+      {tacheOuverte !== null && (
+        <FenetreTache mode={{ sorte: 'detail', id: tacheOuverte }} onFermer={() => { setTacheOuverte(null); void charger(); }} />
+      )}
 
       {/* ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — LA PROPOSITION DE CLÔTURE A ÉTÉ RETIRÉE D'ICI ═══════════════════
           Elle disait « Une intervention est signalée réalisée. Clôturer cet événement ? » et fermait le dossier
@@ -602,7 +618,7 @@ export function FriseAvancement({
           <span className="fav-repere" ref={poserLeRepere} hidden aria-hidden="true" />
           {ligne.map((el) => (
             <ElementDeLaFrise
-              key={el.cle} el={el} avecReference={plusieursRefs} occupe={occupe}
+              key={el.cle} el={el} avecReference={plusieursRefs} occupe={occupe} onOuvrirTache={setTacheOuverte}
               cleOuverture={cleOuverture} calerSurUneFois={defilement.calerSurUneFois}
               ouvert={ouvert} epingle={fixe} onOuvrir={setOuvert}
               /* 🔴 POINT 2 — « Le ✎ de la carte en cours d'édition reste visiblement “enfoncé” (état actif)
@@ -909,7 +925,16 @@ function ElementDeLaFrise(p: {
   onPoignee?: (id: number, ev: ReactPointerEvent) => void;
   onModifier?: (e: EtapeAAfficher) => void;
   onCommentaire?: (e: EtapeAAfficher | null, ancre: HTMLElement | null) => void;
+  /** 🔴 LOT GESTION-TACHES-EVENEMENTS — ouvrir la tâche d'un point. */
+  onOuvrirTache?: (id: number) => void;
 }) {
+  if (p.el.sorte === 'taches') {
+    return (
+      <li className="fav-el fav-el--taches">
+        <PointsTachesFrise taches={p.el.taches ?? []} onOuvrir={(id) => p.onOuvrirTache?.(id)} />
+      </li>
+    );
+  }
   if (p.el.sorte === 'plus') {
     return (
       <li className="fav-el fav-el--plus">

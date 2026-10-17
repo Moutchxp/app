@@ -28,6 +28,8 @@ import {
   etatApresCarteSelonLaFrise, motCarteDeBorne, sqlEvenementOuvertParLaFrise,
 } from '../../../../../../../lib/gestion/etatParLaFrise';
 import { query } from '../../../../../../../lib/db/client';
+/* 🔴 LOT GESTION-TACHES-EVENEMENTS — les tâches rattachées à l'événement : un point rouge à la date de leur mission. */
+import { tachesDeLEvenement } from '../../../../../../../lib/gestion/tacheEvenementsRepo';
 
 /**
  * ══ 🔴🔴 LOT MONGA-2, POINT 3 — LA FRISE D'AVANCEMENT D'UN ÉVÉNEMENT ═════════════════════════════════════════════
@@ -90,9 +92,12 @@ export async function GET(
       .filter((d) => proposerPassageEnFiable(d))
       .map((d) => ({ type: d.type, confirmees: d.confirmees }));
 
+    /* Une lecture qui échoue ne prive pas la frise de ses étapes : sans tâches, la frise est celle d'avant. */
+    const taches = await tachesDeLEvenement(evenementId).catch((e) => { console.error('[gestion/frise] tâches illisibles', e); return []; });
     return Response.json({
       etat: 'ok',
       etapes,
+      taches,
       /**
        * ══ 🔴🔴 LOT CLOTURE-REOUVERTURE — `proposerCloture` A ÉTÉ RETIRÉ D'ICI ════════════════════════════════
        *

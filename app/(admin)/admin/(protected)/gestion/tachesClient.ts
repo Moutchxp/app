@@ -87,6 +87,8 @@ export interface SaisieEcran {
   dureeMinutes?: number | null;
   /** 🔴 LOT GESTION-INVITATIONS-TACHES — les AUTRES invités (en plus de « Confiée à ») ; absent ⇒ inchangés. */
   invites?: number[];
+  /** 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements en cours rattachés ; absent ⇒ inchangés. */
+  evenements?: number[];
 }
 
 export type GesteTache =
@@ -159,6 +161,21 @@ export async function lireCollaborateurs(): Promise<{ collaborateurs: Collaborat
     const res = await fetch('/api/admin/gestion/taches/collaborateurs', { cache: 'no-store' });
     const d = (await res.json()) as { etat?: string; collaborateurs?: CollaborateurEcran[]; moi?: number | null; invites?: boolean };
     return res.ok && d.etat === 'ok' ? { collaborateurs: d.collaborateurs ?? [], moi: d.moi ?? null, invites: d.invites === true } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 🔴 LOT GESTION-TACHES-EVENEMENTS — les événements EN COURS qu'on peut rattacher (ceux du bien d'abord). `null` = la
+ * migration 366 n'est pas là (ou la lecture a échoué) : la fenêtre n'affiche pas le sélecteur.
+ */
+export interface EvenementPropose { id: number; reference: string; objet: string; duBien: boolean }
+export async function lireEvenementsProposes(lotCle: string | null): Promise<EvenementPropose[] | null> {
+  try {
+    const res = await fetch(`/api/admin/gestion/taches/evenements${lotCle ? `?bien=${encodeURIComponent(lotCle)}` : ''}`, { cache: 'no-store' });
+    const d = (await res.json()) as { etat?: string; evenements?: EvenementPropose[] };
+    return res.ok && d.etat === 'ok' ? (d.evenements ?? []) : null;
   } catch {
     return null;
   }

@@ -40,6 +40,7 @@
 import {
   estRepere, motEtape, rangEtape, type TypeEtape,
 } from './mongaEtape';
+import type { TacheFrise } from './tacheFrise';
 
 /**
  * Ce que la frise a besoin de savoir d'une étape. STRUCTUREL, et non le type du dépôt : `mongaEtapeRepo` tire
@@ -712,7 +713,7 @@ export function dateAffichee(e: EtapeAAfficher): string | null {
  * refaire ce calcul à chaque redimensionnement, et à le refaire faux sur un écran étroit. Intercalés dans la
  * même suite, ils se placent tout seuls, et le défilement les emmène avec les carrés.
  */
-export type SorteCase = 'carre' | 'points' | 'plus' | 'plus-entre';
+export type SorteCase = 'carre' | 'points' | 'plus' | 'plus-entre' | 'taches';
 
 export interface ElementFrise {
   cle: string;
@@ -739,6 +740,43 @@ export interface ElementFrise {
    * distingue — « Seul le grand carré rouge “+” de fin ajoute en dernière position » (Arno).
    */
   apresId?: number | 'debut';
+  /** 🔴 LOT GESTION-TACHES-EVENEMENTS — pour `taches` : les tâches rattachées dont la mission tombe à cet endroit. */
+  taches?: TacheFrise[];
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-TACHES-EVENEMENTS — LES TÂCHES RATTACHÉES, À LA DATE DE LEUR MISSION. PUR. ══════════════════════
+ *
+ * ARNO : « un petit POINT ROUGE placé à la date de la mission, entre les carrés d'étapes qui l'encadrent, sans décaler ni
+ * modifier les étapes existantes ».
+ *
+ * 🔴 ON N'ENLÈVE NI NE DÉPLACE RIEN : la suite rangée par `rangerEnLigne` reste telle quelle, dans le même ordre ; on y
+ * GLISSE un élément `taches` juste APRÈS le dernier carré daté au plus tard le jour de la mission (avant son « + »
+ * intercalaire), ou avant le premier carré si la mission précède tout. Les tâches qui tombent au même endroit
+ * partagent un seul élément (plusieurs points côte à côte).
+ */
+export function insererTachesDansLaLigne(ligne: readonly ElementFrise[], taches: readonly TacheFrise[]): ElementFrise[] {
+  if (taches.length === 0) return [...ligne];
+  const ordre = [...taches].sort((a, b) => (a.jour + (a.heure ?? '')).localeCompare(b.jour + (b.heure ?? '')) || a.id - b.id);
+  /** Pour chaque tâche : l'indice de l'élément APRÈS lequel elle se pose (-1 = avant le premier carré). */
+  const apres = new Map<number, TacheFrise[]>();
+  const premierCarre = ligne.findIndex((e) => e.sorte === 'carre');
+  for (const t of ordre) {
+    let pos = -1;
+    ligne.forEach((e, i) => {
+      if (e.sorte === 'carre' && e.case !== undefined && e.case.survenuLe.slice(0, 10) <= t.jour) pos = i;
+    });
+    const cle = pos === -1 ? (premierCarre === -1 ? ligne.length - 1 : premierCarre - 1) : pos;
+    apres.set(cle, [...(apres.get(cle) ?? []), t]);
+  }
+  const out: ElementFrise[] = [];
+  const poser = (i: number) => {
+    const l = apres.get(i);
+    if (l !== undefined) out.push({ cle: `taches-${l.map((t) => t.id).join('-')}`, sorte: 'taches', taches: l });
+  };
+  poser(-1);
+  ligne.forEach((e, i) => { out.push(e); poser(i); });
+  return out;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

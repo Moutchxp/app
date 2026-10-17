@@ -13,12 +13,14 @@ import { FenetreTache } from './FenetreTache';
 
 let envois: Record<string, unknown>[];
 let avecInvites: boolean;
+let avecEvenements: boolean;
 let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
   envois = [];
   avecInvites = true;
+  avecEvenements = false;
   vi.stubGlobal('fetch', vi.fn(async (u: unknown, init?: { method?: string; body?: string }) => {
     const url = String(u);
     if (init?.method && init.method !== 'GET') {
@@ -32,6 +34,13 @@ beforeEach(() => {
       ] });
     }
     if (url.includes('/taches/contacts')) return Response.json({ etat: 'ok', contacts: [] });
+    if (url.includes('/taches/evenements')) {
+      return avecEvenements ? Response.json({ etat: 'ok', evenements: [
+        { id: 11, reference: 'GES-2026-000011', objet: 'Fuite (du bien)', duBien: true },
+        { id: 12, reference: 'GES-2026-000012', objet: 'Ascenseur', duBien: false },
+        { id: 13, reference: 'GES-2026-000013', objet: 'Toiture', duBien: false },
+      ] }) : Response.json({ etat: 'sans_schema' });
+    }
     if (url.includes('evenements')) return Response.json({ etat: 'ok', evenements: [] });
     return Response.json({});
   }));
@@ -83,5 +92,29 @@ describe('« Inviter aussi »', () => {
     await enregistrer();
     expect(envois).toHaveLength(1);
     expect('invites' in envois[0]).toBe(false);
+  });
+});
+
+describe('🔴 LOT GESTION-TACHES-EVENEMENTS — rattacher à des événements en cours', () => {
+  it('ceux du bien d’abord ; plusieurs cochés partent avec la tâche ; « Événement du bien lié » est toujours là', async () => {
+    avecEvenements = true;
+    await ouvrir();
+    const groupes = [...container.querySelectorAll('.tchf-evenements-groupe')].map((g) => g.querySelector('.tchf-aide')?.textContent);
+    expect(groupes).toEqual(['Événements de ce bien', 'Autres événements en cours']);
+    expect(container.querySelector('.tchf-corps')?.textContent).toContain('Événement du bien lié (facultatif)');
+    const cases = [...container.querySelectorAll<HTMLInputElement>('[data-evenement-choix]')];
+    expect(cases.map((c) => c.dataset.evenementChoix)).toEqual(['11', '12', '13']);
+    await act(async () => { cases[0].click(); });
+    await act(async () => { cases[2].click(); });
+    await ecrireObjet('Visite technique');
+    await enregistrer();
+    expect(envois[0]).toMatchObject({ evenements: [11, 13] });
+  });
+  it('sans la migration 366 : pas de sélecteur, et aucun champ `evenements` envoyé', async () => {
+    await ouvrir();
+    expect(container.querySelector('.tchf-evenements')).toBeNull();
+    await ecrireObjet('Visite technique');
+    await enregistrer();
+    expect('evenements' in envois[0]).toBe(false);
   });
 });

@@ -36,7 +36,7 @@ vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...(a as [string, unknown[]])),
   withTransaction: async (f: (q: unknown) => unknown) => f((...a: unknown[]) => queryMock(...(a as [string, unknown[]]))),
 }));
-vi.mock('./schema', () => ({ acceptationTacheDisponible: async () => false, invitesTacheDisponible: async () => false, agendaTacheDisponible: async () => false, contactsTacheDisponible: async () => true, tachesDisponibles: async () => true, piecesTacheDisponible: async () => false }));
+vi.mock('./schema', () => ({ acceptationTacheDisponible: async () => false, invitesTacheDisponible: async () => false, evenementsTacheDisponible: async () => false, agendaTacheDisponible: async () => false, contactsTacheDisponible: async () => true, tachesDisponibles: async () => true, piecesTacheDisponible: async () => false }));
 vi.mock('./contactsTacheRepo', () => ({ contactsDuBienPourTache: async () => fiche }));
 vi.mock('./comptesGoogleRepo', () => ({ lireDomainesAutorises: async () => 'criterimmo.fr,sansvisavis.com' }));
 

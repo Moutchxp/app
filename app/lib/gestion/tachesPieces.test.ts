@@ -33,7 +33,7 @@ vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...(a as [string, unknown[]])),
   withTransaction: async (f: (q: unknown) => unknown) => f((...a: unknown[]) => queryMock(...(a as [string, unknown[]]))),
 }));
-vi.mock('./schema', () => ({ acceptationTacheDisponible: async () => false, invitesTacheDisponible: async () => false, agendaTacheDisponible: async () => false, piecesTacheDisponible: async () => true, contactsTacheDisponible: async () => false, tachesDisponibles: async () => true }));
+vi.mock('./schema', () => ({ acceptationTacheDisponible: async () => false, invitesTacheDisponible: async () => false, evenementsTacheDisponible: async () => false, agendaTacheDisponible: async () => false, piecesTacheDisponible: async () => true, contactsTacheDisponible: async () => false, tachesDisponibles: async () => true }));
 
 const { departDuBien, relirePieces, RACINE_TACHES } = await import('./tachesDrive');
 const { ajouterPieces, retirerPiece } = await import('./tachesRepo');
