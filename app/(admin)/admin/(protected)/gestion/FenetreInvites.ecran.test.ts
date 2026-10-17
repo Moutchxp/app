@@ -98,19 +98,21 @@ describe('« Inviter aussi »', () => {
 });
 
 describe('🔴 LOT GESTION-TACHES-EVENEMENTS — rattacher à des événements en cours', () => {
-  it('ceux du bien d’abord ; plusieurs cochés partent avec la tâche ; reprise pas faite : « Événement du bien lié » reste là', async () => {
+  it('tâche d’un bien : ses événements ouverts proposés d’office ; reprise pas faite : « Événement du bien lié » reste là', async () => {
     avecEvenements = true;
     await ouvrir();
-    const groupes = [...container.querySelectorAll('.tchf-evenements-groupe')].map((g) => g.querySelector('.tchf-aide')?.textContent);
-    expect(groupes).toEqual(['Événements de ce bien', 'Autres événements en cours']);
+    const groupes = [...container.querySelectorAll('[data-evenements-du-bien]')].map((g) => g.querySelector('.tchf-aide')?.textContent);
+    expect(groupes).toEqual(['Événements de ce bien']);
     expect(container.querySelector('.tchf-corps')?.textContent).toContain('Événement du bien lié (facultatif)');
+    // 🔴 LOT GESTION-RECHERCHE-EVENEMENTS — la liste de TOUS les événements en cours est remplacée par la recherche.
     const cases = [...container.querySelectorAll<HTMLInputElement>('[data-evenement-choix]')];
-    expect(cases.map((c) => c.dataset.evenementChoix)).toEqual(['11', '12', '13']);
+    expect(cases.map((c) => c.dataset.evenementChoix)).toEqual(['11']);
+    expect(container.querySelector('[data-recherche-evenements]')).not.toBeNull();
     await act(async () => { cases[0].click(); });
-    await act(async () => { cases[2].click(); });
+    expect(container.querySelector('[data-etiquette-evenement="11"]')?.textContent).toContain('GES-2026-000011 — Fuite (du bien)');
     await ecrireObjet('Visite technique');
     await enregistrer();
-    expect(envois[0]).toMatchObject({ evenements: [11, 13] });
+    expect(envois[0]).toMatchObject({ evenements: [11] });
   });
   it('sans la migration 366 : pas de sélecteur, et aucun champ `evenements` envoyé', async () => {
     await ouvrir();

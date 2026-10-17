@@ -184,6 +184,28 @@ export async function lireEvenementsProposes(lotCle: string | null): Promise<{ l
   }
 }
 
+/** 🔴 LOT GESTION-RECHERCHE-EVENEMENTS — une proposition du moteur : un locataire, un propriétaire, ou un bien. */
+export interface PropositionEvenements { sorte: 'locataire' | 'proprietaire' | 'bien'; libelle: string; detail: string | null; lots: number[] }
+export interface GroupeEvenementsOuverts { lotId: number; adresse: string; evenements: { id: number; reference: string; objet: string }[] }
+
+/** Les propositions pour un terme (recherche de l'annuaire). `null` = la lecture a échoué. */
+export async function chercherPropositionsEvenements(q: string): Promise<PropositionEvenements[] | null> {
+  try {
+    const res = await fetch(`/api/admin/gestion/taches/evenements?q=${encodeURIComponent(q)}`, { cache: 'no-store' });
+    const d = (await res.json()) as { etat?: string; propositions?: PropositionEvenements[] };
+    return res.ok && d.etat === 'ok' ? (d.propositions ?? []) : null;
+  } catch { return null; }
+}
+
+/** Les événements OUVERTS de ces biens, regroupés par bien. `null` = la lecture a échoué. */
+export async function lireEvenementsOuvertsDesLots(lots: readonly number[]): Promise<GroupeEvenementsOuverts[] | null> {
+  try {
+    const res = await fetch(`/api/admin/gestion/taches/evenements?lots=${lots.join(',')}`, { cache: 'no-store' });
+    const d = (await res.json()) as { etat?: string; groupes?: GroupeEvenementsOuverts[] };
+    return res.ok && d.etat === 'ok' ? (d.groupes ?? []) : null;
+  } catch { return null; }
+}
+
 /** Les événements du bien, pour le lien facultatif. La même route que le bloc « Événements » de la fiche. */
 export async function lireEvenementsDuBien(lotCle: string): Promise<{ id: number; reference: string; objet: string; ouvert: boolean }[]> {
   try {

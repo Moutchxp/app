@@ -13,6 +13,8 @@ import {
 } from './tachesClient';
 import { CSS_TACHES } from './LigneTache';
 import { BADGE_ACCEPTATION, mentionMail, type AcceptationTache } from '../../../../lib/gestion/acceptationTache';
+/* 🔴 LOT GESTION-RECHERCHE-EVENEMENTS — la recherche des événements à rattacher. */
+import { CSS_RECHERCHE_EVENEMENTS, RechercheEvenementsTache } from './RechercheEvenementsTache';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche : la même liste que la carte. */
 import { CSS_INVITES_TACHE, InvitesTache } from './InvitesTache';
 import { ChoixContacts, ContactsAffiches, CSS_CONTACTS_TACHE, type ContactPropose } from './ContactsTache';
@@ -307,7 +309,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
 
   return (
     <div className="tchf-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
-      <style>{CSS_TACHES}{CSS_FENETRE}{CSS_CONTACTS_TACHE}</style>
+      <style>{CSS_TACHES}{CSS_FENETRE}{CSS_CONTACTS_TACHE}{CSS_RECHERCHE_EVENEMENTS}</style>
       {selecteurDrive && (lotId !== null || sansBien) && (
         <SelecteurDriveTache lotId={lotId} onChoisir={choisirPieces} onFermer={() => setSelecteurDrive(false)} />
       )}
@@ -480,8 +482,10 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
               d'abord. Décocher retire le rattachement (tracé, jamais effacé). Un rattachement déjà posé à un événement
               clos depuis reste listé, pour pouvoir le retirer. Le champ « Événement du bien lié » au-dessus ne change pas. */}
           {evProposes !== null && (
-            <ChoixEvenements proposes={evProposes} rattaches={tache?.evenements ?? []} choisis={saisie.evenements ?? []}
-              desactive={lectureSeule}
+            /* 🔴 LOT GESTION-RECHERCHE-EVENEMENTS — un MOTEUR DE RECHERCHE remplace la liste de tous les événements en
+               cours ; tâche d'un bien : ses événements ouverts restent proposés d'office. */
+            <RechercheEvenementsTache rattaches={tache?.evenements ?? []} choisis={saisie.evenements ?? []}
+              duBien={lotCle === null ? [] : evProposes.filter((e) => e.duBien)} desactive={lectureSeule}
               onBasculer={(id) => setSaisie((s) => {
                 const l = s.evenements ?? [];
                 return { ...s, evenements: l.includes(id) ? l.filter((x) => x !== id) : [...l, id] };
@@ -678,44 +682,6 @@ function phraseAcceptation(a: AcceptationTache): string {
   }
   const mail = mentionMail(a.mailEtat) ?? (a.mailEtat === 'envoye' ? 'mail envoyé' : null);
   return `— demande adressée à ${a.destinataireLibelle} par ${a.demandeurLibelle} le ${horodatageLisible(a.demandeLe)}${mail ? ` (${mail})` : ''}`;
-}
-
-/**
- * 🔴 LOT GESTION-TACHES-EVENEMENTS — LE SÉLECTEUR MULTIPLE DES ÉVÉNEMENTS EN COURS : « Événements de ce bien » d'abord,
- * puis « Autres événements en cours ». Des cases à cocher (tactiles, 36 px), une par événement.
- */
-function ChoixEvenements({ proposes, rattaches, choisis, desactive, onBasculer }: {
-  proposes: readonly EvenementPropose[];
-  rattaches: readonly { id: number; reference: string; objet: string; ouvert: boolean }[];
-  choisis: readonly number[];
-  desactive: boolean;
-  onBasculer: (id: number) => void;
-}) {
-  const clos = rattaches.filter((r) => !proposes.some((p) => p.id === r.id));
-  const groupes: { titre: string; liste: { id: number; reference: string; objet: string; mention?: string }[] }[] = [
-    { titre: 'Événements de ce bien', liste: proposes.filter((p) => p.duBien) },
-    { titre: 'Autres événements en cours', liste: proposes.filter((p) => !p.duBien) },
-    { titre: 'Rattachés, clos depuis', liste: clos.map((c) => ({ ...c, mention: ' (clos)' })) },
-  ].filter((g) => g.liste.length > 0);
-  return (
-    <fieldset className="tchf-groupe tchf-evenements" disabled={desactive}>
-      <legend className="tch-etiquette">Rattacher à des événements en cours (plusieurs possibles)</legend>
-      {groupes.length === 0 && <p className="tchf-aide">Aucun événement en cours.</p>}
-      {groupes.map((g) => (
-        <div key={g.titre} className="tchf-evenements-groupe">
-          <p className="tchf-aide">{g.titre}</p>
-          <div className="tchf-rappels">
-            {g.liste.map((e) => (
-              <label key={e.id} className="tchf-case">
-                <input type="checkbox" data-evenement-choix={e.id} checked={choisis.includes(e.id)} onChange={() => onBasculer(e.id)} />
-                {e.reference} — {e.objet}{e.mention ?? ''}
-              </label>
-            ))}
-          </div>
-        </div>
-      ))}
-    </fieldset>
-  );
 }
 
 /**

@@ -190,3 +190,90 @@ export async function tachesDeLEvenement(evenementId: number): Promise<TacheFris
     };
   }).filter(tacheValidee);
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT GESTION-RECHERCHE-EVENEMENTS (Arno, 17/10/2026) — LE MOTEUR DE RECHERCHE DE « Rattacher à des événements »
+   On tape un nom (locataire, propriétaire), une adresse, un e-mail ou un téléphone : la recherche EXISTANTE de
+   l'annuaire répond (mêmes règles : 2 caractères, tous les mots dans n'importe quel ordre, sans accents ni
+   majuscules). Un clic sur une proposition rend les événements OUVERTS des biens concernés — jamais un clos.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+export interface PropositionEvenements {
+  sorte: 'locataire' | 'proprietaire' | 'bien';
+  libelle: string;
+  /** « propriétaire de 3 biens », « locataire en place », l'e-mail ou le téléphone trouvé… */
+  detail: string | null;
+  /** Les biens dont on montrera les événements ouverts (un locataire : son bien ; un propriétaire : tous les siens). */
+  lots: number[];
+}
+
+/** Les propositions pour un terme ; `[]` sous 2 caractères. Personnes d'abord, puis adresses (biens). */
+export async function propositionsEvenements(brut: string): Promise<PropositionEvenements[]> {
+  const { analyserTerme, titreLogement: titre } = await import('./annuaireRecherche');
+  const { rechercher, rechercherPersonnes } = await import('./annuaireRepo');
+  const t = analyserTerme(brut);
+  if (t.vide) return [];
+  const [p, b] = await Promise.all([rechercherPersonnes(t), rechercher(t)]);
+  const out: PropositionEvenements[] = [];
+  if (p.etat === 'ok') {
+    for (const x of p.data.personnes.slice(0, 12)) {
+      const lots = [...new Set(x.biens.filter((l) => l.lotId !== null && l.fin === null).map((l) => Number(l.lotId)))];
+      const proprietaire = x.sujet === 'proprietaire' || x.roles.includes('proprietaire');
+      const role = proprietaire ? `propriétaire${lots.length > 1 ? ` de ${lots.length} biens` : ''}`
+        : x.roles.includes('locataire') ? 'locataire en place' : 'ancien locataire';
+      out.push({
+        sorte: proprietaire ? 'proprietaire' : 'locataire', libelle: x.nomAffiche,
+        detail: [role, x.raison, x.email, x.mobile].filter((v): v is string => typeof v === 'string' && v.trim() !== '').join(' · '),
+        lots,
+      });
+    }
+  }
+  /* LES BIENS (adresses) : ceux de la recherche de biens, puis ceux que la recherche de PERSONNES a trouvés PAR LEUR
+     ADRESSE (« propriétaire du lot 487 ») — elle accepte tous les mots dans n'importe quel ordre, commune comprise,
+     quand la recherche de biens demande l'adresse dans l'ordre. */
+  const biens: { lotId: number; libelle: string; detail: string | null }[] = [];
+  if (b.etat === 'ok') {
+    for (const l of b.data.lignes) {
+      if (l.lotId === null || l.absent) continue;
+      biens.push({ lotId: Number(l.lotId), libelle: titre(l.adresse, l.commune), detail: l.lotNumero ? `lot ${l.lotNumero}` : null });
+    }
+  }
+  if (p.etat === 'ok') {
+    for (const x of p.data.personnes) {
+      const numero = /\blot (\S+)/.exec(x.raison ?? '')?.[1];
+      const bien = numero === undefined ? undefined : x.biens.find((l) => l.numero === numero && l.lotId !== null);
+      if (bien !== undefined) biens.push({ lotId: Number(bien.lotId), libelle: titre(bien.adresse, bien.commune), detail: `lot ${bien.numero}` });
+    }
+  }
+  const vus = new Set<number>();
+  for (const l of biens) {
+    if (vus.has(l.lotId)) continue;
+    vus.add(l.lotId);
+    out.push({ sorte: 'bien', libelle: l.libelle, detail: l.detail, lots: [l.lotId] });
+    if (vus.size >= 8) break;
+  }
+  return out;
+}
+
+export interface EvenementsDuBienOuverts { lotId: number; adresse: string; evenements: { id: number; reference: string; objet: string }[] }
+
+/** Les événements OUVERTS de chaque bien (d'après la frise), dans l'ordre demandé. Jamais un événement clos. */
+export async function evenementsOuvertsDesLots(lotIds: readonly number[]): Promise<EvenementsDuBienOuverts[]> {
+  const ids = [...new Set(lotIds.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 40);
+  if (ids.length === 0) return [];
+  const { rows } = await query<{ id: number; cle: string; adresse: string | null; commune: string | null }>(
+    `SELECT id::int AS id, wippimmo_id AS cle, adresse, commune FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[])`, [ids]);
+  /* L'intertitre porte le n° de lot : deux biens d'un même propriétaire sont souvent à la MÊME adresse. */
+  const parId = new Map(rows.map((r) => [Number(r.id), r]));
+  const out: EvenementsDuBienOuverts[] = [];
+  for (const id of ids) {
+    const l = parId.get(id);
+    if (l === undefined) continue;
+    const evs = (await evenementsDuBien(l.cle).catch(() => [])).filter((e) => e.ouvert);
+    out.push({
+      lotId: id, adresse: `${titreLogement(l.adresse, l.commune)} — lot ${l.cle}`,
+      evenements: evs.map((e) => ({ id: Number(e.id), reference: e.reference, objet: e.objet })),
+    });
+  }
+  return out;
+}
