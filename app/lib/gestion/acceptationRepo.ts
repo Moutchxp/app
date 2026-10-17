@@ -5,20 +5,19 @@ import { chargerConfigGestion } from './config';
 import { titreLogement } from './annuaireRecherche';
 import type { Auteur } from './gestes';
 import {
-  acceptationInitiale, corpsDemande, erreurMotif, liensDemande, messageIdDemande, objetDemande, verdictLien,
+  acceptationInitiale, erreurMotif, verdictLien,
   type AcceptationTache, type EtatMail, type StatutAcceptation, type TacheRecue, type VerdictLien,
 } from './acceptationTache';
-import { echeanceLisible, horodatageLisible } from './taches';
-import { texteCompletTache, coordonneesLisibles, estFamille, type ContactSource } from './contactsTache';
 import { transportParDefaut, type TransportDemande } from './envoiDemandeTache';
 import { peutRecevoirUneTache } from './taches';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 /* 🔴 LOT TACHES-AGENDA — accepter ou refuser change la place de la tâche dans l'agenda : on le marque dans la transaction. */
 import { marquerASynchroniser } from './agendaSynchroRepo';
-import { adresseApplication, MENTION_LIEN_LOCAL } from './adresseApplication';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche (migration 365) : une demande courante PAR INVITÉ. */
 import { invitesTacheDisponible } from './schema';
+/* 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — le contenu du mail (invitation, récapitulatif), ses pièces jointes. */
+import { messageDeLaDemande, type LecteurPiecesTache } from './mailTacheRepo';
 
 /**
  * ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE DÉPÔT DES DEMANDES D'ACCEPTATION (migration 349) ══════════════════════════════
@@ -131,6 +130,7 @@ export async function poserDemande(q: RequeteTx, o: {
 
 export async function envoyerDemande(
   demandeId: number, jeton: string, transport: TransportDemande | null = null, maintenant: Date = new Date(),
+  lecteur?: LecteurPiecesTache,
 ): Promise<EtatMail> {
   const reglage = await lireReglageTaches();
   const marquer = async (etat: EtatMail, erreur: string | null = null, gmailId: string | null = null) => {
@@ -142,41 +142,60 @@ export async function envoyerDemande(
   if (!reglage.envoiMail) return marquer('desactive');
   // Réglage activé : le transport réel — sauf sous les tests, où il est TOUJOURS factice (`transportParDefaut`).
   const t = transport ?? transportParDefaut();
-
-  const { rows } = await query<{
-    tache_id: number; destinataire_libelle: string; destinataire_email: string | null; demandeur_libelle: string;
-    expire_le: Date; objet: string; jour: string; heure: string | null; note: string | null; adresse: string | null; commune: string | null;
-  }>(
-    `SELECT d.tache_id::int AS tache_id, d.destinataire_libelle, d.destinataire_email, d.demandeur_libelle, d.expire_le,
-            t.objet, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure, t.note, l.adresse, l.commune
-       FROM gestion_tache_demande d JOIN gestion_tache t ON t.id = d.tache_id JOIN gestion_annuaire_lot l ON l.id = t.lot_id
-      WHERE d.id = $1`, [demandeId]);
-  const d = rows[0];
-  if (d === undefined) return 'aucun';
-  if ((d.destinataire_email ?? '').trim() === '') return marquer('echec', 'Le destinataire n’a pas d’adresse.');
-  /* 🔴 LOT AGENDA-TITRE-ET-LIENS — la MÊME adresse de base que l'agenda (jamais un tunnel temporaire ; défaut localhost). */
-  const { base, locale } = adresseApplication();
-
-  const [contacts, pieces] = await Promise.all([contactsDeLaDemande(d.tache_id), piecesDeLaDemande(d.tache_id)]);
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — le mail structuré par sections (`mailTache.ts`), ses pièces jointes ou
+     leurs liens signés ; la MÊME adresse de base que l'agenda (jamais un tunnel temporaire ; défaut localhost). */
   const config = await chargerConfigGestion();
-  const echeance = echeanceLisible(d.jour, d.heure, maintenant);
-  const adresseCourte = (d.adresse ?? '').trim() || titreLogement(d.adresse, d.commune);
-  const liens = liensDemande(base, jeton);
-  const corps = corpsDemande({
-    echeance, adresseBien: titreLogement(d.adresse, d.commune), objet: d.objet, demandeur: d.demandeur_libelle,
-    destinataire: d.destinataire_libelle, texte: texteCompletTache(d.note, contacts), pieces,
-    lienAccepter: liens.accepter, lienRefuser: liens.refuser, expireLe: horodatageLisible(iso(d.expire_le) ?? ''),
-    ...(locale ? { mentionLiens: MENTION_LIEN_LOCAL } : {}),
-  });
-  const de = config.adresseGestion;
-  const r = await t.envoyer({
-    de, deNom: 'Gestion', a: [d.destinataire_email ?? ''], cc: [], cci: [],
-    objet: objetDemande({ adresseCourte, objet: d.objet, echeance }),
-    corps: corps.texte, corpsHtml: corps.html,
-    messageId: messageIdDemande(de.split('@')[1] ?? '', randomBytes(12).toString('hex')),
-  });
+  const r0 = await messageDeLaDemande({ demandeId, sorte: 'invitation', jeton, de: config.adresseGestion, lecteur, maintenant });
+  if (!r0.ok) return r0.motif === 'Demande introuvable.' ? 'aucun' : marquer('echec', r0.motif);
+  const r = await t.envoyer(r0.m.message);
   if (!r.ok) return marquer('echec', r.motif);
   return marquer(r.factice ? 'factice' : 'envoye', null, r.id);
+}
+
+/**
+ * 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — LE RÉCAPITULATIF, après une acceptation : la même structure que
+ * l'invitation, avec l'état connu des autres invités et « Tâche acceptée, ajoutée à votre agenda ».
+ * Il suit le CANAL de l'invitation : réglage d'envoi actif ET invitation réellement partie (ou préparée en essai) —
+ * jamais pour une demande acceptée d'office, ni quand l'invitation elle-même n'est pas partie. Ne lève jamais ; le
+ * résultat est tracé dans l'historique de la tâche.
+ */
+export async function envoyerRecapitulatif(
+  demandeId: number, agenda: 'ajoutee' | 'bientot' | 'sans_agenda', transport: TransportDemande | null = null,
+  lecteur?: LecteurPiecesTache, maintenant: Date = new Date(),
+): Promise<EtatMail | null> {
+  try {
+    const reglage = await lireReglageTaches();
+    if (!reglage.envoiMail) return null;
+    const { rows } = await query<{ tache_id: number; statut: string; automatique: boolean; mail_etat: string; destinataire_id: number | null; destinataire_libelle: string }>(
+      `SELECT tache_id::int AS tache_id, statut, automatique, mail_etat, destinataire_id::int AS destinataire_id, destinataire_libelle
+         FROM gestion_tache_demande WHERE id = $1`, [demandeId]);
+    const d = rows[0];
+    if (d === undefined || d.statut !== 'acceptee' || d.automatique || !['envoye', 'factice'].includes(d.mail_etat)) return null;
+    const config = await chargerConfigGestion();
+    const m = await messageDeLaDemande({
+      demandeId, sorte: 'recapitulatif', agenda, de: config.adresseGestion, lecteur, maintenant, dureeLienJours: reglage.dureeLienJours,
+    });
+    const auteur: Auteur = { id: d.destinataire_id, libelle: d.destinataire_libelle };
+    if (!m.ok) {
+      await tracer(query, Number(d.tache_id), null, { recapitulatif: d.destinataire_libelle, etat: 'echec', erreur: m.motif }, auteur, d.destinataire_libelle);
+      return 'echec';
+    }
+    const r = await (transport ?? transportParDefaut()).envoyer(m.m.message);
+    const etat: EtatMail = !r.ok ? 'echec' : r.factice ? 'factice' : 'envoye';
+    await tracer(query, Number(d.tache_id), null,
+      { recapitulatif: d.destinataire_libelle, etat, ...(r.ok ? {} : { erreur: r.motif }) }, auteur, d.destinataire_libelle);
+    return etat;
+  } catch (e) {
+    console.error('[taches/acceptation] récapitulatif impossible', e);
+    return 'echec';
+  }
+}
+
+/** La place dans l'agenda après une acceptation, d'après la phrase de la synchronisation existante. PUR. */
+export function agendaApresAcceptation(phraseSynchro: string): 'ajoutee' | 'bientot' | 'sans_agenda' {
+  if (phraseSynchro.includes('Agenda Google à jour')) return 'ajoutee';
+  if (phraseSynchro.includes('resynchroniser')) return 'bientot';
+  return 'sans_agenda';
 }
 
 /**
@@ -193,24 +212,6 @@ export async function envoyerSiBesoin(demande: DemandePosee | null | undefined):
       [demande.demandeId, e instanceof Error ? e.message.slice(0, 300) : 'erreur']).catch(() => {});
     return 'echec';
   }
-}
-
-async function contactsDeLaDemande(tacheId: number): Promise<ContactSource[]> {
-  const { rows } = await query<{ cle: string; famille: string; nom: string; qualite: string | null; organisation: string | null;
-    adresse: string | null; coordonnees: unknown }>(
-    `SELECT cle, famille, nom, qualite, organisation, adresse, coordonnees FROM gestion_tache_contact
-      WHERE tache_id = $1 AND retire_le IS NULL ORDER BY rang, id`, [tacheId]).catch(() => ({ rows: [] }));
-  return rows.filter((r) => estFamille(r.famille)).map((r) => ({
-    cle: r.cle, famille: r.famille as ContactSource['famille'], nom: r.nom, qualite: r.qualite, organisation: r.organisation,
-    adresse: r.adresse, coordonnees: coordonneesLisibles(r.coordonnees),
-  }));
-}
-
-async function piecesDeLaDemande(tacheId: number): Promise<{ nom: string; lien: string | null }[]> {
-  const { rows } = await query<{ nom: string; lien: string | null }>(
-    `SELECT nom, lien FROM gestion_tache_piece WHERE tache_id = $1 AND retire_le IS NULL ORDER BY id`, [tacheId])
-    .catch(() => ({ rows: [] }));
-  return rows;
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════

@@ -11,7 +11,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closePool, query } from '../db/client';
 import { creerTache, lireTache, modifierTache } from './tachesRepo';
-import { demandeDuJeton, repondreDemande, type DemandePosee } from './acceptationRepo';
+import { demandeDuJeton, envoyerDemande, envoyerRecapitulatif, repondreDemande, type DemandePosee } from './acceptationRepo';
+import { ouvrirPieceSignee, type LecteurPiecesTache } from './mailTacheRepo';
+import { ENVOIS_FACTICES, transportFactice } from './envoiDemandeTache';
 import { changerDestinataire, renvoyerInvitation } from './invitesRepo';
 import { fauxGoogleDesTests, synchroniserApresGeste } from './agendaSynchroRepo';
 import type { SaisieTache } from './taches';
@@ -191,5 +193,87 @@ describe('🔴 LOT 2 — « Renvoyer l’invitation »', () => {
     expect(await renvoyerInvitation(c.id, gaspard.inviteId, MOI)).toMatchObject({ ok: false, statut: 409 });
     const traces = (await lireTache(c.id))!.traces.map((x) => x.apres);
     expect(traces.filter((a) => (a as { invitationRenvoyee?: string } | null)?.invitationRenvoyee === 'Emma Essai')).toHaveLength(2);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT 3 — LE CONTENU DES MAILS (invitation, récapitulatif), les pièces jointes ou leurs liens signés.
+   Le Drive est remplacé par un lecteur d'essai (aucun appel Google) ; le transport est le transport FACTICE.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+const TAILLES: Record<string, number> = { 'drive-leger-1': 120_000, 'drive-leger-2': 80_000, 'drive-lourd': 14_000_000 };
+const lecteur: LecteurPiecesTache = {
+  async preparer(pieces) {
+    return pieces.map((p) => ({ ...p, tailleOctets: TAILLES[p.driveId] ?? 1000, permis: true, telechargeable: true, motif: null,
+      lire: async () => Buffer.alloc(Math.min(TAILLES[p.driveId] ?? 1000, 200_000), 1) }));
+  },
+  async ouvrir(driveId) {
+    return { ok: true, nom: `${driveId}.pdf`, flux: { corps: null, typeMime: 'application/pdf', statut: 200, intervalle: null, longueur: 3 } };
+  },
+};
+
+describe('🔴 LOT 3 — invitation et récapitulatif, même structure ; pièces jointes ou liens signés', () => {
+  beforeAll(async () => {
+    process.env.GESTION_JETON_CLE ||= 'ab'.repeat(32);
+    await query(`UPDATE gestion_tache_reglage SET envoi_mail_acceptation = true WHERE id = 1`);
+  });
+  afterAll(async () => { await query(`UPDATE gestion_tache_reglage SET envoi_mail_acceptation = false WHERE id = 1`); });
+
+  it('invitation : sections, « Vous êtes 3 invités », pièces légères JOINTES ; récapitulatif après acceptation', async () => {
+    const c = await creerTache(lot, saisie({ invites: [EMMA, GASPARD], note: 'Apporter le plan' }), MOI);
+    if (!c.ok) throw new Error(c.motif);
+    for (const id of ['drive-leger-1', 'drive-leger-2']) {
+      await query(`INSERT INTO gestion_tache_piece (tache_id, drive_fichier_id, nom, type_mime, ajoute_par_libelle) VALUES ($1, $2, $3, 'application/pdf', 'essai')`,
+        [c.id, id, `_TEST ${id}.pdf`]);
+    }
+    const claire = c.demandes!.find((d) => d.destinataireLibelle === 'Claire Test')!;
+    ENVOIS_FACTICES.length = 0;
+    expect(await envoyerDemande(claire.demandeId, claire.jeton!, transportFactice, new Date(), lecteur)).toBe('factice');
+    const m = ENVOIS_FACTICES[0];
+    expect(m.a).toEqual(['c@criterimmo.fr']);
+    expect(m.objet).toMatch(/^Tâche à accepter — /);
+    expect(m.corps).toContain('Service Gestion — CRITERIMMO / Sans Vis-à-Vis');
+    expect(m.corps).toContain('Invitation envoyée par Arno Jorel');
+    expect(m.corps).toContain('DATE DE LA MISSION : MERCREDI 21 OCTOBRE 2026 — 14 h 30 (1 h)');
+    expect(m.corps).toContain('Apporter le plan');
+    expect(m.corps).toContain('Vous êtes 3 invités : Claire Test, Emma Essai, Gaspard Essai.');
+    expect(m.corps).toContain(`/tache/reponse?j=${encodeURIComponent(claire.jeton!)}&d=accepter`);
+    expect(m.pieces?.map((p) => p.nom)).toEqual(['_TEST drive-leger-1.pdf', '_TEST drive-leger-2.pdf']);
+    expect(m.corpsHtml).toContain('font-size:26px');
+
+    expect((await repondreDemande({ jeton: claire.jeton!, decision: 'accepter', utilisateur: null, nom: null, identiteParJeton: true })).ok).toBe(true);
+    const emma = c.demandes!.find((d) => d.destinataireLibelle === 'Emma Essai')!;
+    // Emma n'a jamais reçu de mail (sa demande est « aucun ») : pas de récapitulatif pour elle.
+    ENVOIS_FACTICES.length = 0;
+    expect(await envoyerRecapitulatif(claire.demandeId, 'ajoutee', transportFactice, lecteur)).toBe('factice');
+    const r = ENVOIS_FACTICES[0];
+    expect(r.objet).toMatch(/^Tâche acceptée — /);
+    expect(r.messageId).toMatch(/^<tache-acceptation\./); // la relève ne le rattache jamais à un bien
+    expect(r.corps).toContain('Claire Test (vous) : ✓ Acceptée');
+    expect(r.corps).toContain('Emma Essai : ⏳ En attente');
+    expect(r.corps).toContain('Tâche acceptée, ajoutée à votre agenda.');
+    expect(r.corps).not.toContain('Accepter :');
+    expect(await envoyerRecapitulatif(emma.demandeId, 'ajoutee', transportFactice, lecteur)).toBeNull();
+    const traces = (await lireTache(c.id))!.traces.map((x) => x.apres as Record<string, unknown> | null);
+    expect(traces).toContainEqual({ recapitulatif: 'Claire Test', etat: 'factice' });
+  });
+
+  it('pièce lourde : un LIEN signé (aucune pièce jointe) ; il marche, puis cesse après un renvoi', async () => {
+    const c = await creerTache(lot, saisie({ confieeA: FELIX, invites: [] }), MOI);
+    if (!c.ok) throw new Error(c.motif);
+    await query(`INSERT INTO gestion_tache_piece (tache_id, drive_fichier_id, nom, type_mime, ajoute_par_libelle) VALUES ($1, 'drive-lourd', '_TEST lourd.pdf', 'application/pdf', 'essai')`, [c.id]);
+    const d = c.demandes![0];
+    ENVOIS_FACTICES.length = 0;
+    expect(await envoyerDemande(d.demandeId, d.jeton!, transportFactice, new Date(), lecteur)).toBe('factice');
+    const m = ENVOIS_FACTICES[0];
+    expect(m.pieces ?? []).toHaveLength(0);
+    const lien = /_TEST lourd\.pdf — à télécharger : (\S+)/.exec(m.corps)?.[1] ?? '';
+    expect(lien).toMatch(/\/api\/tache\/piece\?j=/);
+    const j = decodeURIComponent(new URL(lien).searchParams.get('j') ?? '');
+    expect(await ouvrirPieceSignee(j, lecteur)).toMatchObject({ ok: true, nom: 'drive-lourd.pdf' });
+    expect(await ouvrirPieceSignee(`${j.slice(0, -2)}xx`, lecteur)).toMatchObject({ ok: false, statut: 410 });
+    const felix = (await lireTache(c.id))!.tache.invites![0];
+    const { renvoyerInvitation: renvoyer } = await import('./invitesRepo');
+    expect((await renvoyer(c.id, felix.inviteId, MOI)).ok).toBe(true);
+    expect(await ouvrirPieceSignee(j, lecteur)).toMatchObject({ ok: false, statut: 410 });
   });
 });

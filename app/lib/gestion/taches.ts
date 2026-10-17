@@ -739,6 +739,13 @@ export function phraseTrace(t: TraceTache): string {
         return `Destinataire changé ${qui} (${typeof t.avant?.destinataire === 'string' ? `${t.avant.destinataire} → ` : ''}${a.destinataireChange})`;
       }
       if (typeof a.invitationRenvoyee === 'string') return `Invitation renvoyée à ${a.invitationRenvoyee} ${qui}`;
+      /* 🔴 LOT 3 — le récapitulatif envoyé après une acceptation (ou pourquoi il n'est pas parti). */
+      if (typeof a.recapitulatif === 'string') {
+        const quand = `le ${horodatageLisible(t.survenuLe)}`;
+        if (a.etat === 'envoye') return `Récapitulatif envoyé à ${a.recapitulatif} ${quand}`;
+        if (a.etat === 'factice') return `Récapitulatif préparé pour ${a.recapitulatif} ${quand} (essai, rien n’est parti)`;
+        return `Récapitulatif non envoyé à ${a.recapitulatif} ${quand}${typeof a.erreur === 'string' ? ` (${a.erreur})` : ''}`;
+      }
       if (typeof a.pieceAjoutee === 'string') return `Pièce jointe ajoutée ${qui} (${a.pieceAjoutee})`;
       if (typeof a.pieceRetiree === 'string') return `Pièce jointe retirée ${qui} (${a.pieceRetiree})`;
       const champs = Object.keys(t.apres ?? {}).map((k) => MOTS_CHAMPS[k] ?? k);

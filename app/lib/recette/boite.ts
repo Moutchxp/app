@@ -18,6 +18,12 @@ export interface EntreeBoite {
   apercu?: string | null;
   pieces?: string[];
   requete?: string | null; // « POST https://hote/chemin » — sans paramètres ni en-têtes
+  /**
+   * 🔴 LOT GESTION-INVITATIONS-TACHES — le message ENTIER d'un envoi Gmail intercepté, rangé à côté (`<nom>.eml`, même
+   * dossier hors git), pour le relire tel qu'il serait parti (HTML, pièces jointes). Jamais d'en-tête d'autorisation :
+   * c'est le message RFC 822 lui-même, pas la requête.
+   */
+  eml?: string | null;
 }
 
 export function dossierBoite(): string {
@@ -27,7 +33,7 @@ export function dossierBoite(): string {
 let compteur = 0;
 
 /** Dépose une entrée (fichier + ligne de journal). Ne lève jamais : la boîte ne doit pas casser l'écran testé. */
-export function deposerDansBoite(e: Omit<EntreeBoite, 'quand'>): void {
+export function deposerDansBoite(e: Omit<EntreeBoite, 'quand' | 'eml'>, message?: string | null): void {
   const entree: EntreeBoite = { quand: new Date().toISOString(), ...e };
   const resume = [entree.canal, entree.issue, entree.a ? `à ${entree.a}` : null, entree.objet ? `« ${entree.objet} »` : null, entree.requete]
     .filter(Boolean).join(' — ');
@@ -35,6 +41,11 @@ export function deposerDansBoite(e: Omit<EntreeBoite, 'quand'>): void {
   try {
     mkdirSync(dossierBoite(), { recursive: true });
     const nom = `${entree.quand.replace(/[:.]/g, '-')}-${process.pid}-${++compteur}.json`;
+    if (message) {
+      const eml = nom.replace(/\.json$/, '.eml');
+      writeFileSync(path.join(dossierBoite(), eml), message);
+      entree.eml = eml;
+    }
     writeFileSync(path.join(dossierBoite(), nom), JSON.stringify(entree, null, 2));
   } catch (err) {
     console.error('[RECETTE] boîte de test indisponible', (err as Error)?.message);

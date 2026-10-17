@@ -7,7 +7,7 @@
  * fonctions de l'application reçoivent ce `fetch` (`{ fetch }`, paramètres par défaut) : aucune n'y échappe.
  */
 import { randomUUID } from 'node:crypto';
-import { decisionRecette, resumerRfc822 } from './interception';
+import { decisionRecette, decoderRfc822, resumerRfc822 } from './interception';
 import { deposerDansBoite, requeteLisible } from './boite';
 
 const MARQUE = Symbol.for('svav.recette.fetch');
@@ -34,6 +34,17 @@ function resumerEnvoiGmail(corps: string | null): { a: string | null; objet: str
   }
 }
 
+/** Le message RFC 822 entier d'un envoi Gmail (`raw` en JSON, ou le message brut en /upload/). */
+function messageEnvoiGmail(corps: string | null): string | null {
+  if (!corps) return null;
+  try {
+    const j = JSON.parse(corps) as { raw?: string; message?: { raw?: string } };
+    return decoderRfc822(j.raw ?? j.message?.raw ?? null);
+  } catch {
+    return corps;
+  }
+}
+
 /** Enveloppe le `fetch` global (idempotent). Renvoie `true` si le verrou vient d'être posé. */
 export function installerVerrouRecette(): boolean {
   const actuel = globalThis.fetch as typeof fetch & { [MARQUE]?: true };
@@ -46,8 +57,9 @@ export function installerVerrouRecette(): boolean {
     if (d.action === 'laisser') return base(entree, init);
     const requete = requeteLisible(url, methode);
     if (d.canal === 'gmail_envoi') {
-      const { a, objet } = resumerEnvoiGmail(lireCorpsTexte(init));
-      deposerDansBoite({ canal: 'gmail_envoi', issue: 'intercepte', a, objet, requete });
+      const corps = lireCorpsTexte(init);
+      const { a, objet } = resumerEnvoiGmail(corps);
+      deposerDansBoite({ canal: 'gmail_envoi', issue: 'intercepte', a, objet, requete }, messageEnvoiGmail(corps));
     } else {
       deposerDansBoite({ canal: d.canal, issue: d.action === 'simuler' ? 'simule' : 'refuse', requete });
     }

@@ -102,3 +102,16 @@ describe('page publique de réponse — « Refuser »', () => {
     expect(evenementsAgenda).toBe(0);
   });
 });
+
+describe('🔴 LOT GESTION-INVITATIONS-TACHES — l’ancien lien après un changement de destinataire', () => {
+  it('« Cette invitation ne vous est plus destinée », sans rien montrer de la tâche, aucun bouton', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => repondre({
+      tache: null, peutRepondre: false, cause: 'plus_destinee',
+      message: 'Cette invitation ne vous est plus destinée : la tâche a été confiée à quelqu’un d’autre.',
+    })));
+    await ouvrir('accepter');
+    expect(conteneur.querySelector('h1, h2')?.textContent).toContain('Cette invitation ne vous est plus destinée');
+    expect(texte()).not.toContain('Visite');
+    expect(bouton('Confirmer')).toBeUndefined();
+  });
+});

@@ -193,7 +193,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — les autres invités ne voyagent que si le serveur sait les recevoir (365). */
     const avecContacts: SaisieEcran = collab?.invites === true
       ? { ...avecContacts0, invites: (avecContacts0.invites ?? []).filter((id) => id !== avecContacts0.confieeA) }
-      : (({ invites: _i, ...reste }) => reste)(avecContacts0);
+      : Object.fromEntries(Object.entries(avecContacts0).filter(([k]) => k !== 'invites')) as SaisieEcran;
     const envoi: SaisieEcran = mode.sorte === 'creer' && piecesChoisies.length > 0
       ? { ...avecContacts, pieces: piecesChoisies.map((p) => p.id) } : avecContacts;
     const r = mode.sorte === 'creer'

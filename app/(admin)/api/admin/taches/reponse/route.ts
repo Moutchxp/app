@@ -1,7 +1,7 @@
 import 'server-only';
 import { NOM_COOKIE, sessionDepuisPayload, verifierJeton } from '../../../../../lib/admin/session';
 import { acceptationTacheDisponible } from '../../../../../lib/gestion/schema';
-import { compteSelonRegle, repondreDemande } from '../../../../../lib/gestion/acceptationRepo';
+import { agendaApresAcceptation, compteSelonRegle, envoyerRecapitulatif, repondreDemande } from '../../../../../lib/gestion/acceptationRepo';
 /* 🔴 LOT TACHES-AGENDA — acceptée : elle entre dans l'agenda du destinataire ; refusée : elle n'y est pas. */
 import { synchroniserApresGeste } from '../../../../../lib/gestion/agendaSynchroRepo';
 
@@ -43,5 +43,7 @@ export async function POST(request: Request): Promise<Response> {
   });
   if (!r.ok) return json({ erreur: r.message }, r.statut);
   const agenda = await synchroniserApresGeste(r.tacheId);
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — acceptée : le récapitulatif de la mission, par le canal de l'invitation. */
+  if (r.statut === 'acceptee' && r.demandeId !== undefined) await envoyerRecapitulatif(r.demandeId, agendaApresAcceptation(agenda));
   return json({ etat: 'ok', statut: r.statut, message: `${r.message}${agenda}` });
 }

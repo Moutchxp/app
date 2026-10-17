@@ -69,6 +69,12 @@ export function resumerRfc822(raw: string | null | undefined): { a: string | nul
   return { a: [lire('To'), lire('Cc'), lire('Bcc')].filter(Boolean).join(', ') || null, objet: decoderMime(lire('Subject')) };
 }
 
+/** Le message RFC 822 en clair d'un `raw` Gmail (base64url) ; `null` s'il est illisible. PUR. */
+export function decoderRfc822(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try { return Buffer.from(raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'); } catch { return null; }
+}
+
 /** Décode un en-tête MIME encodé (=?UTF-8?B?…?= / =?UTF-8?Q?…?=). PUR. */
 export function decoderMime(v: string | null): string | null {
   if (v === null) return null;

@@ -1,6 +1,6 @@
 import 'server-only';
 import { acceptationTacheDisponible } from '../../../lib/gestion/schema';
-import { demandeDuJeton, repondreDemande } from '../../../lib/gestion/acceptationRepo';
+import { agendaApresAcceptation, demandeDuJeton, envoyerRecapitulatif, repondreDemande } from '../../../lib/gestion/acceptationRepo';
 /* Acceptée : la tâche entre dans l'agenda du destinataire par le chemin EXISTANT (idempotent : jamais de doublon). */
 import { synchroniserApresGeste } from '../../../lib/gestion/agendaSynchroRepo';
 import { echeanceLisible } from '../../../lib/gestion/taches';
@@ -18,7 +18,9 @@ import { echeanceLisible } from '../../../lib/gestion/taches';
  *  · `GET ?j=<jeton>` — LECTURE : titre, date et état de la tâche, et si le lien peut encore agir. N'écrit rien.
  *  · `POST { jeton, decision: 'accepter' | 'refuser', motif? }` — la réponse ; « Refuser » exige un motif (règle 4).
  *    Un jeton faux, expiré, déjà utilisé, remplacé ou une tâche terminée → message clair, RIEN n'est modifié.
- * Aucun mail n'est envoyé par cette route.
+ * 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — une ACCEPTATION envoie à l'invité le RÉCAPITULATIF de la mission (même
+ * structure que l'invitation, « Tâche acceptée, ajoutée à votre agenda »), par le canal de l'invitation ; un refus n'envoie
+ * rien.
  */
 export const runtime = 'nodejs';
 
@@ -59,5 +61,6 @@ export async function POST(request: Request): Promise<Response> {
   });
   if (!r.ok) return json({ ...(await resume(jeton)), erreur: r.message, cause: r.cause ?? null }, r.statut);
   const agenda = await synchroniserApresGeste(r.tacheId);
+  if (r.statut === 'acceptee' && r.demandeId !== undefined) await envoyerRecapitulatif(r.demandeId, agendaApresAcceptation(agenda));
   return json({ ...(await resume(jeton)), etat: 'ok', statut: r.statut, message: r.message, agenda: agenda.trim() });
 }

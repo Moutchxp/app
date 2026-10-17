@@ -4,8 +4,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
  * MODE RECETTE (lot RECETTE-MAC) : activation et refus, ce qui est intercepté, verrou réseau, SMTP. Aucun accès réseau :
  * le `fetch` de base est un faux, la boîte de test est remplacée par un relevé en mémoire.
  */
-const { depots } = vi.hoisted(() => ({ depots: [] as Record<string, unknown>[] }));
-vi.mock('./boite', async (orig) => ({ ...(await orig<typeof import('./boite')>()), deposerDansBoite: (e: Record<string, unknown>) => { depots.push(e); } }));
+const { depots, messagesEntiers } = vi.hoisted(() => ({ depots: [] as Record<string, unknown>[], messagesEntiers: [] as (string | null)[] }));
+vi.mock('./boite', async (orig) => ({ ...(await orig<typeof import('./boite')>()), deposerDansBoite: (e: Record<string, unknown>, m?: string | null) => { depots.push(e); messagesEntiers.push(m ?? null); } }));
 
 import { etatRecette, modeRecette } from './mode';
 import { decisionRecette, resumerRfc822 } from './interception';
@@ -70,7 +70,7 @@ describe('ce qui est intercepté', () => {
 
 describe('le verrou réseau et le SMTP', () => {
   const avant = { fetch: globalThis.fetch, env: { ...process.env } };
-  beforeEach(() => { depots.length = 0; });
+  beforeEach(() => { depots.length = 0; messagesEntiers.length = 0; });
   afterEach(() => { globalThis.fetch = avant.fetch; process.env = { ...avant.env }; });
 
   it('posé : les lectures vont au vrai fetch ; un envoi Gmail NE l’atteint PAS et va dans la boîte de test', async () => {
@@ -86,6 +86,8 @@ describe('le verrou réseau et le SMTP', () => {
     expect(base).toHaveBeenCalledTimes(1); // rien n'est parti
     expect((await r.json()).id).toMatch(/^recette-/);
     expect(depots).toEqual([expect.objectContaining({ canal: 'gmail_envoi', issue: 'intercepte', a: 'locataire@example.invalid', objet: 'Quittance' })]);
+    // 🔴 LOT GESTION-INVITATIONS-TACHES — le message ENTIER est gardé à côté (relu tel qu'il serait parti).
+    expect(messagesEntiers).toEqual(['To: locataire@example.invalid\r\nSubject: Quittance\r\n\r\nx']);
     const d = await fetch('https://www.googleapis.com/drive/v3/files', { method: 'POST', body: '{}' });
     expect(d.status).toBe(403);
     expect(base).toHaveBeenCalledTimes(1);
