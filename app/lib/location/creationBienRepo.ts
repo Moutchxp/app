@@ -286,3 +286,20 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
     throw e;
   }
 }
+
+// ── ⑤ « EN GESTION ? » SUR LA FICHE COMMUNE ────────────────────────────────────────────────────────────────────────
+
+/** Corrige « en gestion : oui / non » d'un propriétaire, depuis la fiche commune ; journalisé. `null` = non renseigné. */
+export async function enregistrerEnGestion(proprietaireId: number, valeur: unknown, auteur: Auteur): Promise<Issue> {
+  if (!(await enGestionDisponible())) return { etat: 'sans_schema' };
+  const v = valeur === true || valeur === false ? valeur : valeur === null ? null : undefined;
+  if (v === undefined) return { etat: 'refus', motif: 'Réponse attendue : oui, non, ou non renseigné.' };
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ avant: boolean | null }>('SELECT en_gestion AS avant FROM gestion_annuaire_proprietaire WHERE id = $1 FOR UPDATE', [proprietaireId]);
+    if (rows[0] === undefined) return { etat: 'inconnu' as const };
+    await q('UPDATE gestion_annuaire_proprietaire SET en_gestion = $2 WHERE id = $1', [proprietaireId, v]);
+    const mot = (x: boolean | null): string => (x === null ? 'non renseigné' : x ? 'oui' : 'non');
+    await journaliser(q, 'annuaire', proprietaireId, 'location_en_gestion', `en gestion : ${mot(rows[0].avant)} → ${mot(v)} (fiche commune)`, auteur);
+    return { etat: 'ok' as const, data: undefined };
+  });
+}

@@ -14,7 +14,7 @@ import {
   sortirDuPortefeuille, type CreationLocataire, type SujetPortefeuille,
 } from '../../../../lib/location/portefeuilleRepo';
 import {
-  creerBienComplet, creerProprietaires, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
+  creerBienComplet, creerProprietaires, enregistrerEnGestion, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
 } from '../../../../lib/location/creationBienRepo';
 
 /**
@@ -136,6 +136,9 @@ export async function POST(request: Request): Promise<Response> {
       case 'modifier-bien':
         if (id === null) return incomplet();
         return repondre(await modifierBien(id, (corps.champs ?? {}) as Record<string, unknown>, auteur));
+      case 'en-gestion':
+        if (id === null) return incomplet();
+        return repondre(await enregistrerEnGestion(id, corps.enGestion, auteur));
       case 'complements-bien':
         if (id === null) return incomplet();
         return repondre(await modifierComplementsBien(id, (corps.champs ?? {}) as Record<string, unknown>, auteur));

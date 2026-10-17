@@ -196,6 +196,8 @@ export interface FicheProprietaireLocation {
   /** Sorti du portefeuille (quand, par qui) ; `null` = dans le portefeuille. */
   sortie: SortiePortefeuille | null;
   numeroMandat: string | null;
+  /** « Propriétaire(s) en gestion ? » (migration 375) : `null` = question jamais posée (ou migration absente). */
+  enGestion: boolean | null;
   /** Ses biens EN ARBRE (logement puis annexes), lus avec les caractéristiques de la Location. */
   biens: BienLocation[];
   location372: boolean;
@@ -211,7 +213,10 @@ export async function ficheProprietaireLocation(id: number): Promise<Issue<Fiche
   const biens = await lireBiens(
     `lo.proprietaire_id = $1 OR lo.id IN (SELECT lot_id FROM gestion_annuaire_lot_proprietaire WHERE proprietaire_id = $1 AND jusqu_a IS NULL)`,
     [id], 'ORDER BY lo.adresse_normalisee NULLS LAST, lo.id');
-  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, biens, location372: avec372 } };
+  const enGestion = (await colonneExisteMemo('gestion_annuaire_proprietaire', 'en_gestion'))
+    ? (await query<{ g: boolean | null }>('SELECT en_gestion AS g FROM gestion_annuaire_proprietaire WHERE id = $1', [id])).rows[0]?.g ?? null
+    : null;
+  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, enGestion, biens, location372: avec372 } };
 }
 
 export interface LocationDuLocataire {

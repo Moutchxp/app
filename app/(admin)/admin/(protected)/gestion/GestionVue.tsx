@@ -2162,7 +2162,8 @@ export function CarteEv({ carte, maintenant }: { carte: CarteEvenement; maintena
   );
 }
 
-const CSS_GESTION = `
+/** Exporté pour la FICHE COMMUNE ouverte depuis la tuile Location (même rendu que dans la Gestion). */
+export const CSS_GESTION = `
 /* ══ LOT ANNUAIRE-BLOC-DEDIE, POINT 1 — LE BLOC ANNUAIRE, ET SA SEPARATION D'AVEC L'ECRAN PARTAGE ══
    Son propre cadre : fond de surface (BLANC en theme Clair, et ce qui en tient lieu en Sombre — un blanc en dur
    y serait illisible), bord net, coins arrondis. Marge franche au-dessus et en dessous, puis un trait discret :

@@ -1,6 +1,7 @@
 import 'server-only';
 import { NOM_COOKIE, sessionDepuisPayload, verifierJeton } from '../admin/session';
 import { capaciteEnvoiGestion, trouverCompteParId } from '../admin/comptes';
+import { requeteDepuisLaLocation } from './contexteLocation';
 
 /**
  * LOT 5e — LA GARDE D'ENVOI : ce compte peut-il écrire AU NOM DE gestion@criterimmo.fr ?
@@ -34,6 +35,9 @@ function lireCookie(request: Request, nom: string): string | null {
 }
 
 export async function peutEnvoyerAuNomDeGestion(request: Request): Promise<boolean> {
+  // 🔴 FICHE COMMUNE OUVERTE DEPUIS LA TUILE LOCATION (Arno, 17/10/2026) : aucun mail ne part, quel que soit le compte.
+  //   Envoi, brouillons (création, modification, suppression) et drapeau `peutEnvoyer` de l'écran passent tous ici.
+  if (requeteDepuisLaLocation(request)) return false;
   const jeton = lireCookie(request, NOM_COOKIE);
   const payload = jeton ? await verifierJeton(jeton) : null;
   if (!payload) return false;

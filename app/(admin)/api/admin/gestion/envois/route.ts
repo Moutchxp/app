@@ -11,6 +11,7 @@ import { ancrageDuMessage } from '../../../../../lib/gestion/envoiReel';
 import { envoyerViaGmail } from '../../../../../lib/gestion/envoiGmail';
 import { depsPiecesEnvoi, piecesDeLEnvoi } from '../../../../../lib/gestion/piecesEnvoiReel';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
+import { refusEnvoiDepuisLocation, requeteDepuisLaLocation } from '../../../../../lib/gestion/contexteLocation';
 import { COMPTE_GESTION, lireIdentifiants, rafraichirJeton } from '../../../../../lib/gestion/google';
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
 import {
@@ -129,6 +130,7 @@ export async function ciblesCoherentes<T extends ReturnType<typeof ciblesDemande
 export async function POST(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
+  if (requeteDepuisLaLocation(request)) return refusEnvoiDepuisLocation(); // fiche ouverte depuis la Location
   if (!await peutEnvoyerAuNomDeGestion(request)) return refusEnvoi();
   if (!await redactionDisponible()) {
     return Response.json({ erreur: 'Mise à jour de la base à appliquer avant d’envoyer.' }, { status: 503 });

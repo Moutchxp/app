@@ -1,5 +1,6 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
+import { refusEnvoiDepuisLocation, requeteDepuisLaLocation } from '../../../../../../../lib/gestion/contexteLocation';
 import {
   ajouterPieceFichier, cocherPiece, inscrirePieceDrive, listerPieces, retirerPiece,
 } from '../../../../../../../lib/gestion/brouillonPieceRepo';
@@ -65,6 +66,8 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
 /** AJOUTE un fichier. Le corps est un `multipart/form-data` — c'est ce qu'un navigateur envoie sans rien inventer. */
 export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
+  // Fiche ouverte depuis la tuile Location : aucune pièce jointe de mail ne s'y prépare (Arno, 17/10/2026).
+  if (!refus && requeteDepuisLaLocation(request)) return refusEnvoiDepuisLocation();
   if (refus) return refus;
   const brouillonId = await brouillonDeLaRequete(ctx);
   if (brouillonId === null) return json({ erreur: 'Brouillon inconnu.' }, 400);
@@ -268,6 +271,8 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
  */
 export async function PATCH(request: Request, ctx: Contexte): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
+  // Fiche ouverte depuis la tuile Location : aucune pièce jointe de mail ne s'y prépare (Arno, 17/10/2026).
+  if (!refus && requeteDepuisLaLocation(request)) return refusEnvoiDepuisLocation();
   if (refus) return refus;
   const brouillonId = await brouillonDeLaRequete(ctx);
   if (brouillonId === null) return json({ erreur: 'Brouillon inconnu.' }, 400);
@@ -302,6 +307,8 @@ export async function PATCH(request: Request, ctx: Contexte): Promise<Response> 
 /** RETIRE une pièce (sans effacer sa ligne). L'identifiant vient de la requête : `?piece=…`. */
 export async function DELETE(request: Request, ctx: Contexte): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
+  // Fiche ouverte depuis la tuile Location : aucune pièce jointe de mail ne s'y prépare (Arno, 17/10/2026).
+  if (!refus && requeteDepuisLaLocation(request)) return refusEnvoiDepuisLocation();
   if (refus) return refus;
   const brouillonId = await brouillonDeLaRequete(ctx);
   if (brouillonId === null) return json({ erreur: 'Brouillon inconnu.' }, 400);

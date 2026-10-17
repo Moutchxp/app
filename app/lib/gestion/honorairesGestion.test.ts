@@ -173,7 +173,14 @@ describe('🔴 gardes du lot L1', () => {
     const page = readFileSync('app/(admin)/admin/(protected)/location/honoraires/page.tsx', 'utf8');
     expect(page).toContain("session?.role === 'administrateur'");
   });
-  it('🔴 correction d’Arno (17/10/2026) : la Gestion ne porte plus rien de la Location (écrans revenus à l’état d’avant 606dfbb3)', () => {
+  /* 🔴 Règle d'Arno du 17/10/2026 (« une seule fiche ») : le loyer de départ et le taux rejoignent la FICHE COMMUNE, dans
+     sa section repliable « Location » (`SectionsLocationFiche.tsx`, route `annuaire/location`). L'ÉCRAN « Honoraires de
+     gestion », lui, reste dans les Outils de suivi de la Location : ni écran, ni route, ni lien d'honoraires dans la
+     Gestion, et le corps des écrans de la Gestion ne s'en charge pas lui-même. */
+  it('🔴 l’écran « Honoraires » reste dans la Location ; la fiche commune porte loyer et taux dans sa seule section repliable', () => {
+    const sections = readFileSync('app/(admin)/admin/(protected)/gestion/SectionsLocationFiche.tsx', 'utf8');
+    expect(sections).toContain('LocationCarte');
+    expect(sections).not.toMatch(/lienHonoraires|\/honoraires/);
     expect(existsSync('app/(admin)/admin/(protected)/gestion/honoraires')).toBe(false);
     expect(existsSync('app/(admin)/api/admin/gestion/honoraires')).toBe(false);
     for (const f of ['Annuaire.tsx', 'GestionVue.tsx', 'PleinEcranBoite.tsx', 'page.tsx']) {

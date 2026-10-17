@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
+import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
 import { ListeLocation } from './ListesLocation';
-import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
 
 /**
@@ -71,49 +70,8 @@ export function EcranOutils({ administrateur }: { administrateur: boolean }) {
   );
 }
 
-/**
- * « SUPPRIMER » = SORTIR DU PORTEFEUILLE, avec confirmation obligatoire ; une fiche sortie affiche quand et par qui, et se
- * réactive. Rien n'est effacé (historique, mails, tâches de la Gestion restent).
- */
-export function BlocSortie({ sujet, id, sortie, apres, explication }: {
-  sujet: 'proprietaire' | 'locataire' | 'bien'; id: number; sortie: SortiePortefeuille | null; apres: () => void; explication: string;
-}) {
-  const [confirmer, setConfirmer] = useState(false);
-  const [motif, setMotif] = useState<string | null>(null);
-  const [envoi, setEnvoi] = useState(false);
-  const agir = async (action: 'sortir' | 'reactiver'): Promise<void> => {
-    setEnvoi(true);
-    const r = await envoyer({ action, sujet, id });
-    setEnvoi(false);
-    setMotif(r.motif);
-    if (r.motif === null) { setConfirmer(false); apres(); }
-  };
-  const date = (iso: string): string => new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  return (
-    <section aria-label="Portefeuille">
-      {sortie !== null ? (
-        <div className="loc-sortie" role="status" data-sortie>
-          <span><strong>Sorti du portefeuille</strong> le {date(sortie.le)}{sortie.par === null ? '' : ` par ${sortie.par}`} — la fiche reste consultable, rien n’a été effacé.</span>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => void agir('reactiver')}>Réactiver</button>
-        </div>
-      ) : !confirmer ? (
-        <div className="loc-boutons" style={{ justifyContent: 'flex-start', marginTop: 0 }}>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setConfirmer(true); setMotif(null); }}>Sortir du portefeuille…</button>
-        </div>
-      ) : (
-        <div className="loc-confirmation" role="alertdialog" aria-label="Confirmer la sortie du portefeuille">
-          <p style={{ margin: '0 0 8px' }}><strong>Sortir du portefeuille ?</strong> {explication}</p>
-          <p className="loc-muet" style={{ margin: '0 0 8px' }}>Rien n’est effacé : la fiche quitte les listes actives et la recherche, reste dans « Anciens » et peut être réactivée. La Gestion garde l’historique, les mails et les tâches.</p>
-          <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setConfirmer(false)}>Annuler</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void agir('sortir')}>Confirmer la sortie</button>
-          </div>
-        </div>
-      )}
-      {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
-    </section>
-  );
-}
+/* « Supprimer » = sortir du portefeuille : `BlocSortie` vit désormais dans la FICHE COMMUNE (`gestion/SectionsLocationFiche`),
+   section repliable « Location » — règle d'Arno du 17/10/2026, une seule fiche dans l'application. */
 
 /** La fiche d'un syndic dans la Location : les données de la Gestion, en lecture (aucune copie). */
 export function FicheSyndicLocationVue({ id }: { id: number }) {

@@ -18,6 +18,7 @@ import type {
  * tout à fait les mêmes gens que la barre de l'accueil et qui se corrigeait séparément. Il n'y en a plus qu'un.
  */
 import { BarreAnnuaire } from './BarreAnnuaire';
+import { SectionLocationBien, SectionLocationLocataire, SectionLocationProprietaire } from './SectionsLocationFiche';
 /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — la moitié « fiche » du calcul des PARTIES, descendue dans un module
    PUR pour que la fenêtre des pièces jointes lise exactement la même, et non une copie. */
 import { categoriesDeLaFiche } from '../../../../lib/gestion/familleDestinataire';
@@ -1028,6 +1029,10 @@ function VueProprietaire({
           automatiques partent de chez nous et ne concernent aucun bien ; ces échanges-ci sont reçus, rattachés à
           un bien, et concernent AUSSI cette personne. Sans la migration 293, le composant ne rend RIEN. */}
       <InterventionsDeLaFiche sorte="proprietaire" id={f.id} onOuvrirFil={onOuvrirFil} />
+
+      {/* 🔴🔴 FICHE COMMUNE (règle d'Arno du 17/10/2026, « une seule fiche ») — ce que la Location avait ajouté, en section
+          repliable, À LA FIN : rien de ce qui précède ne bouge. Voir `SectionsLocationFiche.tsx`. */}
+      <SectionLocationProprietaire proprietaireId={f.id} />
     </>
   );
 }
@@ -1737,6 +1742,10 @@ function VueLot({
           Tout l’historique des échanges →
         </button>
       </p>
+
+      {/* 🔴🔴 FICHE COMMUNE (règle d'Arno du 17/10/2026, « une seule fiche ») — ce que la Location avait ajouté, en section
+          repliable, À LA FIN : rien de ce qui précède ne bouge. Voir `SectionsLocationFiche.tsx`. */}
+      <SectionLocationBien lotId={f.id} ouvrir={ouvrir} />
     </>
   );
 }
@@ -2113,6 +2122,10 @@ function VueLocataire({
       {/* ══ 🔴🔴 LOT CONTACTS-EXTERNES — et ici, le courrier de son avocat, de son garant ou du syndic, avec son
           rôle AU JOUR DU MAIL. Liste distincte des documents automatiques ; sans la 293, rien ne s'affiche. */}
       <InterventionsDeLaFiche sorte="locataire" id={f.id} onOuvrirFil={onOuvrirFil} />
+
+      {/* 🔴🔴 FICHE COMMUNE (règle d'Arno du 17/10/2026, « une seule fiche ») — ce que la Location avait ajouté, en section
+          repliable, À LA FIN : rien de ce qui précède ne bouge. Voir `SectionsLocationFiche.tsx`. */}
+      <SectionLocationLocataire locataireId={f.id} ouvrir={ouvrir} />
     </>
   );
 }

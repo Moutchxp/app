@@ -52,8 +52,12 @@ describe('🔴 gardes de la tuile Location', () => {
     expect(repo).toContain("const app = rows[0].wippimmo_id.startsWith('app-');");
     expect(repo).toContain("${app ? \", adresse = $8, code_postal = $9, commune = $10, adresse_normalisee = $11\" : ''}");
   });
-  it('les écrans de la Location vivent sous /admin/location (et pas dans la Gestion)', () => {
-    for (const f of ['AccueilLocation.tsx', 'FicheBienLocation.tsx', 'FichePersonneLocation.tsx', 'CreationProprietaireBien.tsx']) {
+  // Règle d'Arno du 17/10/2026 (« une seule fiche ») : les FICHES sont celles de la Gestion (`gestion/FicheCommune`), et
+  // `FicheBienLocation` / `FichePersonneLocation` n'existent plus. Les écrans PROPRES à la Location (accueil, listes,
+  // formulaires de création) ne parlent toujours qu'à leur route.
+  it('les écrans propres à la Location vivent sous /admin/location et ne parlent qu’à leur route', () => {
+    for (const f of ['AccueilLocation.tsx', 'EcransLocation.tsx', 'ListesLocation.tsx', 'CreationProprietaireBien.tsx',
+      'CreationProprietaires.tsx', 'CreationBien.tsx', 'CreationLocataire.tsx']) {
       const src = readFileSync(`app/(admin)/admin/(protected)/location/${f}`, 'utf8');
       expect(src, f).not.toMatch(/\/api\/admin\/gestion\b/);
     }

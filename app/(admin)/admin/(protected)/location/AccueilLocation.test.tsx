@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { AccueilLocation } from './AccueilLocation';
 import { EcranLocataires, EcranProprietairesBiens } from './EcransLocation';
-import { FicheBienLocation } from './FicheBienLocation';
+import { SectionLocationBien } from '../gestion/SectionsLocationFiche';
 
 /**
  * 🔴🔴 CORRECTIF DU 17/10/2026 — « Cannot read properties of undefined (reading 'map') » sur /admin/location avec les
@@ -90,8 +90,8 @@ describe('🔴 /admin/location ne plante plus', () => {
     expect(container.textContent).toContain('ANCIEN Proprio');
   });
 
-  it('② la fiche d’un bien sans annexe s’affiche (champ absent)', async () => {
-    await act(async () => { root.render(createElement(FicheBienLocation, { id: 10 })); });
+  it('② (fiche commune, section « Location ») un bien sans annexe s’affiche (champ absent)', async () => {
+    await act(async () => { root.render(createElement(SectionLocationBien, { lotId: 10, ouvrir: () => {} })); });
     await calmer();
     expect(container.textContent).toContain('Le logement et ses annexes');
     expect(container.textContent).toContain('10 rue de l’Essai');
