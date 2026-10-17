@@ -5,7 +5,7 @@ import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 import { collaborateursPourTache, type CollaborateurTache } from './taches';
 import { acceptationInitiale, attenteAvantRenvoi, messageAttenteRenvoi, refusChangementDestinataire, type EtatMail, type InviteTache, type StatutAcceptation } from './acceptationTache';
-import { poserDemande, type DemandePosee, type RaisonDemande } from './acceptationRepo';
+import { poserDemande, type AncienneDate, type DemandePosee, type RaisonDemande } from './acceptationRepo';
 import { marquerASynchroniser } from './agendaSynchroRepo';
 import { invitesTacheDisponible } from './schema';
 
@@ -123,6 +123,8 @@ async function retirerInvite(q: RequeteTx, inviteId: number, nom: string, raison
  */
 export async function alignerInvites(q: RequeteTx, o: {
   tacheId: number; voulus: readonly PersonneInvitee[]; auteur: Auteur; nom: string; relancer: boolean; creation: boolean;
+  /** 🔴 LOT GESTION-DECALER-TACHE — la date d'avant : les invités GARDÉS reçoivent « Tâche déplacée » ; les nouveaux, non. */
+  ancienneDate?: AncienneDate;
 }): Promise<DemandePosee[]> {
   const actifs = await invitesPourGeste(q, o.tacheId);
   const voulus = new Set(o.voulus.map((p) => Number(p.id)));
@@ -140,6 +142,7 @@ export async function alignerInvites(q: RequeteTx, o: {
       if (acceptationInitiale(p.id, o.auteur.id) === 'acceptee' && deja.statut === 'acceptee') continue;
       demandes.push(await poserDemande(q, {
         tacheId: o.tacheId, confieeA: p.id, confieeLibelle: p.libelle, auteur: o.auteur, nom: o.nom, inviteId: deja.inviteId, raison: 'relance',
+        ...(o.ancienneDate ? { ancienneDate: o.ancienneDate } : {}),
       }));
       continue;
     }

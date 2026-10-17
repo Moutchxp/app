@@ -44,10 +44,9 @@ export async function POST(request: Request): Promise<Response> {
   if (!r.ok) return json({ erreur: r.message }, r.statut);
   const agenda = await synchroniserApresGeste(r.tacheId);
   /* 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — acceptée : le récapitulatif de la mission, par le canal de l'invitation. */
-  if (r.statut === 'acceptee' && r.demandeId !== undefined) {
-    await envoyerRecapitulatif(r.demandeId, agendaApresAcceptation(agenda));
-    /* 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — la confirmation à gestion@ et au collaborateur qui a envoyé l'invitation. */
-    await envoyerConfirmationAcceptation(r.demandeId);
-  }
+  if (r.statut === 'acceptee' && r.demandeId !== undefined) await envoyerRecapitulatif(r.demandeId, agendaApresAcceptation(agenda));
+  /* 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION / GESTION-DECALER-TACHE — la confirmation à gestion@ et au collaborateur qui a
+     envoyé l'invitation, à chaque acceptation ET à chaque refus (motif compris). */
+  if (r.demandeId !== undefined) await envoyerConfirmationAcceptation(r.demandeId);
   return json({ etat: 'ok', statut: r.statut, message: `${r.message}${agenda}` });
 }

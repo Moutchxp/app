@@ -6,7 +6,7 @@ import { titreLogement } from './annuaireRecherche';
 import { coordonneesLisibles, estFamille, type ContactSource } from './contactsTache';
 import { echeanceLisible } from './taches';
 import { liensDemande, messageIdDemande, objetDemande, type StatutAcceptation } from './acceptationTache';
-import { mailTache, objetConfirmation, planPieces, PREFIXE_OBJET_RECAPITULATIF, SEUIL_PIECES_OCTETS, type PieceMail, type SorteMailTache } from './mailTache';
+import { mailTache, objetConfirmation, planPieces, PREFIXE_OBJET_DEPLACEMENT, PREFIXE_OBJET_RECAPITULATIF, SEUIL_PIECES_OCTETS, type PieceMail, type SorteMailTache } from './mailTache';
 import { adresseApplication, MENTION_LIEN_LOCAL } from './adresseApplication';
 import { jetonPourSubject } from './driveDelegue';
 import { verdictJoindreFichier } from './driveVerdict';
@@ -133,7 +133,7 @@ export const lecteurPiecesDrive: LecteurPiecesTache = {
 interface LigneDemandeMail {
   id: number; tache_id: number; destinataire_id: number | null; destinataire_libelle: string; destinataire_email: string | null;
   demandeur_libelle: string; demandeur_email: string | null; cree_le: Date; expire_le: Date | null; statut: string;
-  repondu_le?: Date | null; repondu_par_libelle?: string | null;
+  repondu_le?: Date | null; repondu_par_libelle?: string | null; motif?: string | null;
   objet: string; note: string | null; jour: string; heure: string | null; duree_minutes: number | null;
   adresse: string | null; commune: string | null; lot_id?: number | null;
 }
@@ -148,7 +148,7 @@ async function lireDemande(demandeId: number): Promise<LigneDemandeMail | null> 
   const { rows } = await query<LigneDemandeMail>(
     `SELECT d.id::int AS id, d.tache_id::int AS tache_id, d.destinataire_id::int AS destinataire_id, d.destinataire_libelle,
             d.destinataire_email, d.demandeur_libelle, u.identifiant AS demandeur_email, d.cree_le, d.expire_le, d.statut,
-            d.repondu_le, d.repondu_par_libelle,
+            d.repondu_le, d.repondu_par_libelle, d.motif,
             t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
             t.duree_minutes, t.lot_id::int AS lot_id, l.adresse, l.commune
        FROM gestion_tache_demande d
@@ -159,7 +159,7 @@ async function lireDemande(demandeId: number): Promise<LigneDemandeMail | null> 
     // Sans la migration 350 (pas de durée).
     `SELECT d.id::int AS id, d.tache_id::int AS tache_id, d.destinataire_id::int AS destinataire_id, d.destinataire_libelle,
             d.destinataire_email, d.demandeur_libelle, u.identifiant AS demandeur_email, d.cree_le, d.expire_le, d.statut,
-            d.repondu_le, d.repondu_par_libelle,
+            d.repondu_le, d.repondu_par_libelle, d.motif,
             t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
             NULL::int AS duree_minutes, t.lot_id::int AS lot_id, l.adresse, l.commune
        FROM gestion_tache_demande d
@@ -217,6 +217,8 @@ export async function messageDeLaDemande(o: {
   de: string; lecteur?: LecteurPiecesTache; maintenant?: Date; dureeLienJours?: number;
   /** 🔴 Confirmation : les destinataires (gestion@ et le créateur), à la place de l'invité. */
   a?: readonly string[];
+  /** 🔴 LOT GESTION-DECALER-TACHE — invitation après décalage : la date d'avant (mail « Tâche déplacée »). */
+  ancienneDate?: { jour: string; heure: string | null; dureeMinutes: number | null };
 }): Promise<{ ok: true; m: MessageTache } | { ok: false; motif: string }> {
   const d = await lireDemande(o.demandeId);
   if (d === null) return { ok: false, motif: 'Demande introuvable.' };
@@ -261,14 +263,19 @@ export async function messageDeLaDemande(o: {
     agenda: o.agenda, mentionLiens: locale ? MENTION_LIEN_LOCAL : undefined,
     ...(o.sorte === 'confirmation'
       ? { acceptation: { par: d.repondu_par_libelle ?? d.destinataire_libelle, le: iso(d.repondu_le) ?? maintenant.toISOString() } } : {}),
+    /* 🔴 LOT GESTION-DECALER-TACHE — la confirmation d'un REFUS dit « Refusée par … » et le motif. */
+    ...(o.sorte === 'confirmation' && d.statut === 'refusee' ? { refus: { motif: (d.motif ?? '').trim() } } : {}),
+    ...(o.sorte === 'invitation' && o.ancienneDate ? { deplacement: o.ancienneDate } : {}),
     piecesExpirentLe: piecesMail.some((p) => !p.jointe && p.lien !== null) ? finLiens.toISOString() : null,
   });
   const adresseCourte = d.lot_id === null ? null : (d.adresse ?? '').trim() || titreLogement(d.adresse, d.commune);
   const echeance = echeanceLisible(d.jour, d.heure, maintenant);
-  const objet = o.sorte === 'invitation'
+  const objet = o.sorte === 'invitation' && o.ancienneDate
+    ? `${PREFIXE_OBJET_DEPLACEMENT}${adresseCourte === null ? '' : `${adresseCourte} — `}${d.objet.trim()} — ${echeance}`
+    : o.sorte === 'invitation'
     ? objetDemande({ adresseCourte, objet: d.objet, echeance })
     : o.sorte === 'confirmation'
-      ? objetConfirmation({ par: d.repondu_par_libelle ?? d.destinataire_libelle, titre: d.objet, jour: d.jour, heure: d.heure })
+      ? objetConfirmation({ par: d.repondu_par_libelle ?? d.destinataire_libelle, titre: d.objet, jour: d.jour, heure: d.heure, refusee: d.statut === 'refusee' })
       : `${PREFIXE_OBJET_RECAPITULATIF}${adresseCourte === null ? '' : `${adresseCourte} — `}${d.objet.trim()} — ${echeance}`;
   return {
     ok: true,

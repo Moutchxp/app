@@ -759,7 +759,8 @@ export function phraseTrace(t: TraceTache): string {
       /* 🔴 LOT DECALER-DUREE — l'ancienne et la nouvelle durée, quand elle a changé. */
       const d = (x: Record<string, unknown> | null) => dureeLisible((x?.dureeMinutes as number | null | undefined) ?? null);
       const duree = t.apres !== null && 'dureeMinutes' in t.apres ? `, durée ${d(t.avant)} → ${d(t.apres)}` : '';
-      return `Décalée ${qui} (${date(t.avant)} → ${date(t.apres)}${duree})`;
+      /* 🔴 LOT GESTION-DECALER-TACHE (Arno) — « décalée du … au … par … ». */
+      return `Décalée du ${date(t.avant)} au ${date(t.apres)}${duree} ${qui}`;
     }
     case 'modification': {
       /* 🔴 LOT TACHES-1-BIS — un contact ajouté, retiré ou remis à jour a sa propre ligne, et sa propre phrase. */
@@ -785,6 +786,12 @@ export function phraseTrace(t: TraceTache): string {
       /* 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — la confirmation à gestion@ et au créateur. */
       if (typeof a.confirmationAcceptation === 'string') {
         const a2 = Array.isArray(a.a) ? (a.a as string[]).join(', ') : '';
+        if (a.refus === true) {
+          const quand0 = `le ${horodatageLisible(t.survenuLe)}`;
+          if (a.etat === 'envoye') return `Confirmation de refus envoyée à ${a2} ${quand0}`;
+          if (a.etat === 'factice') return `Confirmation de refus préparée pour ${a2} ${quand0} (essai, rien n’est parti)`;
+          return `Confirmation de refus non envoyée ${quand0}${typeof a.erreur === 'string' ? ` (${a.erreur})` : ''}`;
+        }
         const quand = `le ${horodatageLisible(t.survenuLe)}`;
         const sans = a.sansAdresseCreateur === true ? ' — le créateur n’a pas d’adresse' : '';
         if (a.etat === 'envoye') return `Confirmation d’acceptation envoyée à ${a2} ${quand}${sans}`;
@@ -801,6 +808,10 @@ export function phraseTrace(t: TraceTache): string {
       if (typeof a.pieceAjoutee === 'string') return `Pièce jointe ajoutée ${qui} (${a.pieceAjoutee})`;
       if (typeof a.pieceRetiree === 'string') return `Pièce jointe retirée ${qui} (${a.pieceRetiree})`;
       const champs = Object.keys(t.apres ?? {}).map((k) => MOTS_CHAMPS[k] ?? k);
+      /* 🔴 LOT GESTION-DECALER-TACHE — une modification qui change la date ou l'heure dit aussi « décalée du … au … ». */
+      if (t.apres !== null && typeof t.avant?.jour === 'string' && typeof t.apres.jour === 'string' && ('jour' in t.apres || 'heure' in t.apres)) {
+        return `Modifiée ${qui} (${champs.join(', ')}) — décalée du ${date(t.avant)} au ${date(t.apres)}`;
+      }
       return `Modifiée ${qui}${champs.length > 0 ? ` (${champs.join(', ')})` : ''}`;
     }
   }

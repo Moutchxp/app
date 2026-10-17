@@ -74,8 +74,15 @@ export interface ContenuMailTache {
   pieces: readonly PieceMail[];
   /** Invitation : les deux liens publics et leur fin de validité (ISO). */
   liens?: { accepter: string; refuser: string; expireLe: string };
-  /** Confirmation : qui a accepté, et quand (ISO). */
+  /** Confirmation : qui a répondu, et quand (ISO). */
   acceptation?: { par: string; le: string };
+  /** 🔴 LOT GESTION-DECALER-TACHE — confirmation d'un REFUS : le motif (obligatoire au refus). */
+  refus?: { motif: string };
+  /**
+   * 🔴 LOT GESTION-DECALER-TACHE — invitation à un invité qui AVAIT déjà la tâche, après un décalage : la date d'avant.
+   * Le mail dit « Tâche déplacée », l'ancienne date barrée, la nouvelle en évidence. Absent pour un invité NOUVEAU.
+   */
+  deplacement?: { jour: string; heure: string | null; dureeMinutes: number | null };
   /** Récapitulatif : la tâche est-elle dans son agenda ? */
   agenda?: 'ajoutee' | 'bientot' | 'sans_agenda';
   /** « (lien valable sur l'ordinateur où tourne l'application) » quand l'adresse de base est locale. */
@@ -142,22 +149,26 @@ function roleContact(c: ContenuMailTache['contacts'][number]): string {
   return [MOT_FAMILLE[c.famille], net(c.qualite), net(c.organisation)].filter((x) => x !== '').join(' · ');
 }
 
-/** « Acceptée par Claire Test le 17 octobre 2026 à 9 h 05 ». PUR. */
-export function phraseAcceptee(a: { par: string; le: string }): string {
-  return `Acceptée par ${a.par} le ${horodatageMail(a.le)}`;
+/** « Acceptée par Claire Test le 17 octobre 2026 à 9 h 05 » (« Refusée par … » pour un refus). PUR. */
+export function phraseAcceptee(a: { par: string; le: string }, refusee = false): string {
+  return `${refusee ? 'Refusée' : 'Acceptée'} par ${a.par} le ${horodatageMail(a.le)}`;
 }
 
-/** L'objet du mail de confirmation : « Tâche acceptée par X — <titre> — Mercredi 21 octobre 2026 · 14 h 30 ». PUR. */
-export function objetConfirmation(o: { par: string; titre: string; jour: string; heure: string | null }): string {
+/** L'objet du mail de confirmation : « Tâche acceptée (refusée) par X — <titre> — Mercredi 21 octobre 2026 · 14 h 30 ». PUR. */
+export function objetConfirmation(o: { par: string; titre: string; jour: string; heure: string | null; refusee?: boolean }): string {
   const h = o.heure === null ? 'journée' : `${Number(o.heure.split(':')[0])} h ${o.heure.split(':')[1]}`;
-  return `Tâche acceptée par ${o.par} — ${o.titre.trim()} — ${jourMission(o.jour)} · ${h}`;
+  return `Tâche ${o.refusee ? 'refusée' : 'acceptée'} par ${o.par} — ${o.titre.trim()} — ${jourMission(o.jour)} · ${h}`;
 }
+
+/** 🔴 LOT GESTION-DECALER-TACHE — le début de l'objet d'une invitation après décalage. */
+export const PREFIXE_OBJET_DEPLACEMENT = 'Tâche déplacée — ';
 
 /** La salutation, selon la sorte du mail. PUR. */
 function salutation(c: ContenuMailTache): string {
+  if (c.sorte === 'invitation' && c.deplacement) return `Bonjour ${c.destinataire}, la mission suivante a été déplacée. Merci d’accepter ou de refuser la nouvelle date :`;
   if (c.sorte === 'invitation') return `Bonjour ${c.destinataire}, vous êtes invité(e) à une mission :`;
   if (c.sorte === 'recapitulatif') return `Bonjour ${c.destinataire}, voici le récapitulatif de la mission que vous avez acceptée :`;
-  return `Bonjour, ${c.acceptation?.par ?? 'un invité'} a accepté la mission suivante :`;
+  return `Bonjour, ${c.acceptation?.par ?? 'un invité'} a ${c.refus ? 'refusé' : 'accepté'} la mission suivante :`;
 }
 
 /** La phrase de confirmation du récapitulatif. PUR. */
@@ -174,10 +185,20 @@ export function phraseConfirmation(agenda: ContenuMailTache['agenda']): string {
 function texteMail(c: ContenuMailTache): string {
   const l: string[] = [];
   const section = (titre: string) => { l.push('', `— ${titre.toUpperCase()} —`); };
-  if (c.sorte === 'confirmation' && c.acceptation) l.push(`✓ ${phraseAcceptee(c.acceptation).toUpperCase()}`, '');
+  if (c.sorte === 'confirmation' && c.acceptation) {
+    l.push(`${c.refus ? '✗' : '✓'} ${phraseAcceptee(c.acceptation, c.refus !== undefined).toUpperCase()}`);
+    if (c.refus) l.push(`Motif du refus : ${c.refus.motif}`);
+    l.push('');
+  }
+  if (c.sorte === 'invitation' && c.deplacement) l.push('TÂCHE DÉPLACÉE', '');
   l.push(EN_TETE_SERVICE, `Invitation envoyée par ${c.expediteur}`, `Demande du ${horodatageMail(c.demandeLe)}`, '');
   l.push(salutation(c));
-  l.push('', `DATE DE LA MISSION : ${jourMission(c.jour).toUpperCase()} — ${heureMission(c.heure, c.dureeMinutes)}`);
+  if (c.deplacement) {
+    l.push('', `ANCIENNE DATE (annulée) : ${jourMission(c.deplacement.jour)} — ${heureMission(c.deplacement.heure, c.deplacement.dureeMinutes)}`);
+    l.push(`NOUVELLE DATE DE LA MISSION : ${jourMission(c.jour).toUpperCase()} — ${heureMission(c.heure, c.dureeMinutes)}`);
+  } else {
+    l.push('', `DATE DE LA MISSION : ${jourMission(c.jour).toUpperCase()} — ${heureMission(c.heure, c.dureeMinutes)}`);
+  }
   section('Mission'); l.push(c.titre.trim());
   if (net(c.notes) !== '') { section('Précisions'); l.push(net(c.notes)); }
   if (net(c.adresse) !== '') { section('Adresse du bien'); l.push(net(c.adresse)); }
@@ -244,8 +265,16 @@ function htmlMail(c: ContenuMailTache): string {
   const r: string[] = [];
   // Confirmation : « Acceptée par … le … », en tête de tout.
   if (c.sorte === 'confirmation' && c.acceptation) {
-    r.push(`<tr><td style="background:#e8f5e9;border-bottom:1px solid ${LIGNE};border-radius:10px 10px 0 0;padding:14px 24px;${POLICE};font-size:17px;font-weight:bold;color:${VERT}">`
-      + `✓ ${echapper(phraseAcceptee(c.acceptation))}</td></tr>`);
+    const refusee = c.refus !== undefined;
+    r.push(`<tr><td style="background:${refusee ? '#fbeceb' : '#e8f5e9'};border-bottom:1px solid ${LIGNE};border-radius:10px 10px 0 0;padding:14px 24px;${POLICE};font-size:17px;font-weight:bold;color:${refusee ? ROUGE : VERT}">`
+      + `${refusee ? '✗' : '✓'} ${echapper(phraseAcceptee(c.acceptation, refusee))}`
+      + (refusee ? `<div style="margin-top:6px;font-size:15px;font-weight:normal;color:${ENCRE}">Motif du refus : ${echapper(c.refus!.motif)}</div>` : '')
+      + `</td></tr>`);
+  }
+  // 🔴 LOT GESTION-DECALER-TACHE — invitation après décalage : le bandeau « Tâche déplacée ».
+  if (c.sorte === 'invitation' && c.deplacement) {
+    r.push(`<tr><td style="background:#fff4e0;border-bottom:1px solid ${LIGNE};border-radius:10px 10px 0 0;padding:12px 24px;${POLICE};font-size:17px;font-weight:bold;color:#8a5a00">`
+      + `Tâche déplacée</td></tr>`);
   }
   // 1. En-tête.
   r.push(`<tr><td style="padding:20px 24px 14px;border-bottom:3px solid ${ROUGE};${POLICE}">`
@@ -256,7 +285,10 @@ function htmlMail(c: ContenuMailTache): string {
   // 2. La date de la mission, très en évidence.
   r.push(`<tr><td style="padding:14px 24px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`
     + `<td style="background:#fbeceb;border-left:6px solid ${ROUGE};border-radius:8px;padding:14px 16px;${POLICE}">`
-    + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:${ROUGE};font-weight:bold">Date de la mission</div>`
+    + (c.deplacement
+      ? `<div style="font-size:14px;color:${GRIS};margin-bottom:6px">Ancienne date : <s>${echapper(jourMission(c.deplacement.jour))} — ${echapper(heureMission(c.deplacement.heure, c.deplacement.dureeMinutes))}</s></div>`
+        + `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:${ROUGE};font-weight:bold">Nouvelle date de la mission</div>`
+      : `<div style="font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:${ROUGE};font-weight:bold">Date de la mission</div>`)
     + `<div style="font-size:26px;line-height:1.25;font-weight:bold;color:${ENCRE};margin-top:4px">${echapper(jourMission(c.jour))}</div>`
     + `<div style="font-size:20px;font-weight:bold;color:${ENCRE};margin-top:2px">${echapper(heureMission(c.heure, c.dureeMinutes))}</div>`
     + `</td></tr></table></td></tr>`);

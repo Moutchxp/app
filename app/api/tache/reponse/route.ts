@@ -61,10 +61,9 @@ export async function POST(request: Request): Promise<Response> {
   });
   if (!r.ok) return json({ ...(await resume(jeton)), erreur: r.message, cause: r.cause ?? null }, r.statut);
   const agenda = await synchroniserApresGeste(r.tacheId);
-  if (r.statut === 'acceptee' && r.demandeId !== undefined) {
-    await envoyerRecapitulatif(r.demandeId, agendaApresAcceptation(agenda));
-    /* 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — la confirmation à gestion@ et au collaborateur qui a envoyé l'invitation. */
-    await envoyerConfirmationAcceptation(r.demandeId);
-  }
+  if (r.statut === 'acceptee' && r.demandeId !== undefined) await envoyerRecapitulatif(r.demandeId, agendaApresAcceptation(agenda));
+  /* 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION / GESTION-DECALER-TACHE — la confirmation à gestion@ et au collaborateur qui a
+     envoyé l'invitation, à chaque acceptation ET à chaque refus (motif compris). */
+  if (r.demandeId !== undefined) await envoyerConfirmationAcceptation(r.demandeId);
   return json({ ...(await resume(jeton)), etat: 'ok', statut: r.statut, message: r.message, agenda: agenda.trim() });
 }

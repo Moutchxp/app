@@ -157,7 +157,7 @@ describe('🔴 les traces, comme Arno les a écrites', () => {
     expect(phraseTrace({
       action: 'decalage', avant: { jour: '2026-10-15', heure: null }, apres: { jour: '2026-10-17', heure: '10:00' },
       survenuLe: le, auteurLibelle: 'Arno Jorel',
-    })).toBe('Décalée par Arno Jorel le 13/10/2026 à 19:20 (jeu. 15/10/2026 → sam. 17/10/2026 à 10:00)');
+    })).toBe('Décalée du jeu. 15/10/2026 au sam. 17/10/2026 à 10:00 par Arno Jorel le 13/10/2026 à 19:20'); // LOT GESTION-DECALER-TACHE
     expect(phraseTrace({ action: 'annulation', avant: null, apres: null, survenuLe: le, auteurLibelle: 'X' }))
       .toBe('Annulée par X le 13/10/2026 à 19:20');
     expect(phraseTrace({ action: 'modification', avant: {}, apres: { objet: 'a', jour: 'b' }, survenuLe: le, auteurLibelle: 'X' }))

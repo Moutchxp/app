@@ -230,7 +230,7 @@ describe('🔴 LOT DECALER-DUREE — la durée dans « Décaler »', () => {
   it('la trace dit l’ancienne et la nouvelle durée quand elle change', () => {
     expect(phraseTrace({ action: 'decalage', avant: { jour: '2026-10-14', heure: '09:30', dureeMinutes: 90 },
       apres: { jour: '2026-10-15', heure: '09:30', dureeMinutes: 120 }, survenuLe: '2026-10-13T10:00:00Z', auteurLibelle: 'Arnaud Jorel' }))
-      .toBe('Décalée par Arnaud Jorel le 13/10/2026 à 12:00 (mer. 14/10/2026 à 09:30 → jeu. 15/10/2026 à 09:30, durée 1 h 30 → 2 h)');
+      .toBe('Décalée du mer. 14/10/2026 à 09:30 au jeu. 15/10/2026 à 09:30, durée 1 h 30 → 2 h par Arnaud Jorel le 13/10/2026 à 12:00'); // LOT GESTION-DECALER-TACHE
     expect(phraseTrace({ action: 'decalage', avant: { jour: '2026-10-14', heure: null }, apres: { jour: '2026-10-15', heure: null },
       survenuLe: '2026-10-13T10:00:00Z', auteurLibelle: 'A' })).not.toContain('durée');
   });

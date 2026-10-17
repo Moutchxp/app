@@ -534,6 +534,13 @@ async function creerTacheSansRefus(
 
 const vide = (x: string | null): string | null => ((x ?? '').trim() === '' ? null : (x ?? '').trim());
 
+/** 🔴 LOT GESTION-DECALER-TACHE — la durée d'un rendez-vous telle qu'en base (`null` = 1 h, ou sans la migration 350). */
+async function dureeDeLaTache(q: RequeteTx, id: number): Promise<number | null> {
+  if (!(await agendaTacheDisponible())) return null;
+  const d = (await q<{ d: number | null }>(`SELECT duree_minutes AS d FROM gestion_tache WHERE id = $1`, [id])).rows[0]?.d ?? null;
+  return d === null ? null : Number(d);
+}
+
 const REFUS_INVITE: IssueTache = {
   ok: false, statut: 400, champ: 'invites',
   motif: 'Un des invités n’a pas de compte actif avec une adresse de notre Workspace : retirez-le ou choisissez quelqu’un d’autre.',
@@ -635,6 +642,8 @@ export async function decalerTache(
     const t = await lirePourGeste(q, id);
     if (t === null) return INTROUVABLE;
     if (t.etat !== 'a_faire') return DEJA_TERMINEE;
+    /* 🔴 LOT GESTION-DECALER-TACHE — la durée d'AVANT le décalage, pour l'ancienne date du mail « Tâche déplacée ». */
+    const dureeAvantDecalage = await dureeDeLaTache(q, id);
     const jour = 'raccourci' in vers ? jourDecale(t.jour, vers.raccourci, maintenant) : vers.jour;
     const heure = 'raccourci' in vers ? t.heure : vers.heure;
     const dureeAvant = avecDuree
@@ -657,7 +666,11 @@ export async function decalerTache(
     // 🔴 LOT TACHES-ACCEPTATION — changer la date ou l'heure relance la demande (décision d'Arno, point 6).
     // 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : la demande de CHAQUE invité est relancée.
     if (plusieurs) {
-      const demandes = await alignerInvites(q, { tacheId: id, voulus: await personnesInvitees(q, id), auteur, nom, relancer: true, creation: false });
+      /* 🔴 LOT GESTION-DECALER-TACHE — chaque invité (qui avait déjà la tâche) reçoit « Tâche déplacée », ancienne date barrée. */
+      const demandes = await alignerInvites(q, {
+        tacheId: id, voulus: await personnesInvitees(q, id), auteur, nom, relancer: true, creation: false,
+        ancienneDate: { jour: t.jour, heure: t.heure, dureeMinutes: dureeAvantDecalage },
+      });
       await marquerASynchroniser(q, id);
       return { ok: true, id, demande: demandes[0] ?? null, demandes };
     }
@@ -701,6 +714,8 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
       if (autres === null) return REFUS_INVITE;
       invitesVoulus = [{ id: c.id, libelle: c.libelle }, ...autres];
     }
+    /* 🔴 LOT GESTION-DECALER-TACHE — la durée d'AVANT (pour l'ancienne date du mail « Tâche déplacée »). */
+    const dureeAvantModif = await dureeDeLaTache(q, id);
     const rappels = rappelsValides(s.rappels, s.heure !== null);
     const dureeAvant = avecDuree
       ? (await q<{ d: number | null }>(`SELECT duree_minutes AS d FROM gestion_tache WHERE id = $1`, [id])).rows[0]?.d ?? null : null;
@@ -722,6 +737,11 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
         avant[k] = k === 'confieeA' ? t.confiee_a_libelle : ancien[k];
         apres[k] = k === 'confieeA' ? c.libelle : nouveau[k];
       }
+    }
+    /* 🔴 LOT GESTION-DECALER-TACHE — date OU heure changée : la trace garde la date ET l'heure, avant et après, pour dire
+       « décalée du … au … » sans deviner la moitié qui n'a pas bougé. */
+    if ('jour' in apres || 'heure' in apres) {
+      avant.jour = ancien.jour; avant.heure = ancien.heure; apres.jour = nouveau.jour; apres.heure = nouveau.heure;
     }
     const listeInvites = (l: readonly PersonneInvitee[]) => l.map((p) => p.libelle);
     const invitesChangent = plusieurs
@@ -752,8 +772,12 @@ async function modifierTacheSansRefus(id: number, s: SaisieTache, auteur: Auteur
     /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : un invité retiré perd son lien, un nouveau reçoit le sien ; date ou
        heure changée ⇒ CHAQUE invité reçoit une nouvelle demande. */
     if (plusieurs) {
+      /* 🔴 LOT GESTION-DECALER-TACHE — date ou heure changée : les invités GARDÉS reçoivent « Tâche déplacée » ; un invité
+         NOUVEAU (destinataire changé, invité ajouté) reçoit une invitation ordinaire, sans rien de l'ancienne date. */
+      const decalee = 'jour' in apres || 'heure' in apres;
       const demandes = await alignerInvites(q, {
-        tacheId: id, voulus: invitesVoulus, auteur, nom, relancer: 'jour' in apres || 'heure' in apres, creation: false,
+        tacheId: id, voulus: invitesVoulus, auteur, nom, relancer: decalee, creation: false,
+        ...(decalee ? { ancienneDate: { jour: t.jour, heure: t.heure, dureeMinutes: dureeAvantModif } } : {}),
       });
       return { ok: true, id, demande: demandes[0] ?? null, demandes };
     }

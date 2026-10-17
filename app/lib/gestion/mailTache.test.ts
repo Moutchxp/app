@@ -151,3 +151,30 @@ describe('🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — la confirmation (gestion
       .toBe('Tâche acceptée par Claire Test — Visite — Mercredi 21 octobre 2026 · journée');
   });
 });
+
+describe('🔴 LOT GESTION-DECALER-TACHE — « Tâche déplacée » et confirmation de refus', async () => {
+  const { objetConfirmation } = await import('./mailTache');
+  it('invité qui avait déjà la tâche : « Tâche déplacée », ancienne date BARRÉE → nouvelle en évidence, puis le même contenu', () => {
+    const m = mailTache({ ...base, deplacement: { jour: '2026-10-21', heure: '14:30', dureeMinutes: 90 }, jour: '2026-10-23', heure: '09:00', dureeMinutes: 60 });
+    expect(m.texte).toContain('TÂCHE DÉPLACÉE');
+    expect(m.texte).toContain('ANCIENNE DATE (annulée) : Mercredi 21 octobre 2026 — 14 h 30 (1 h 30)');
+    expect(m.texte).toContain('NOUVELLE DATE DE LA MISSION : VENDREDI 23 OCTOBRE 2026 — 9 h 00 (1 h)');
+    expect(m.texte).toContain('la mission suivante a été déplacée');
+    expect(m.html).toContain('<s>Mercredi 21 octobre 2026 — 14 h 30 (1 h 30)</s>');
+    expect(m.html).toMatch(/font-size:26px[^>]*>Vendredi 23 octobre 2026</);
+    expect(m.html).toContain('>Accepter</a>');
+    for (const x of ['Invitation envoyée par Arnaud Jorel', 'Visite d’entrée', 'M. Martin', 'Vous êtes 3 invités', 'plan.pdf']) expect(m.texte).toContain(x);
+  });
+  it('invité nouveau (sans `deplacement`) : aucune mention de l’ancienne date ni du déplacement', () => {
+    const m = mailTache(base);
+    expect(m.texte + m.html).not.toMatch(/déplacée|DÉPLACÉE|ANCIENNE DATE|<s>/);
+  });
+  it('confirmation d’un REFUS : « Refusée par … le … », le motif ; objet « Tâche refusée par … »', () => {
+    const m = mailTache({ ...base, sorte: 'confirmation', liens: undefined, acceptation: { par: 'Emma Essai', le: '2026-10-17T08:00:00Z' }, refus: { motif: 'Indisponible ce jour-là' } });
+    expect(m.texte.split('\n').slice(0, 2)).toEqual(['✗ REFUSÉE PAR EMMA ESSAI LE 17 OCTOBRE 2026 À 10 H 00', 'Motif du refus : Indisponible ce jour-là']);
+    expect(m.texte).toContain('Bonjour, Emma Essai a refusé la mission suivante :');
+    expect(m.html).toContain('Motif du refus : Indisponible ce jour-là');
+    expect(objetConfirmation({ par: 'Emma Essai', titre: 'Visite', jour: '2026-10-21', heure: null, refusee: true }))
+      .toBe('Tâche refusée par Emma Essai — Visite — Mercredi 21 octobre 2026 · journée');
+  });
+});

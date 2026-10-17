@@ -76,7 +76,16 @@ export interface DemandePosee {
   demandeId: number; statut: StatutAcceptation; jeton: string | null;
   /** 🔴 LOT GESTION-INVITATIONS-TACHES — l'invité à qui elle est adressée (migration 365), et son nom. */
   inviteId?: number | null; destinataireLibelle?: string;
+  /**
+   * 🔴 LOT GESTION-DECALER-TACHE — la date d'AVANT, quand la demande est une RELANCE après un décalage (même invité,
+   * nouvelle date) : son mail est alors « Tâche déplacée » (ancienne date barrée → nouvelle). Absente pour une
+   * invitation neuve (nouvel invité) : son mail ne dit rien de l'ancienne date.
+   */
+  ancienneDate?: AncienneDate;
 }
+
+/** 🔴 LOT GESTION-DECALER-TACHE — la date d'une tâche AVANT son décalage. */
+export interface AncienneDate { jour: string; heure: string | null; dureeMinutes: number | null }
 
 /** Pourquoi une demande est posée (colonne `raison`, migration 365). */
 export type RaisonDemande = 'creation' | 'ajout' | 'relance' | 'renvoi' | 'destinataire_change';
@@ -90,7 +99,10 @@ export type RaisonDemande = 'creation' | 'ajout' | 'relance' | 'renvoi' | 'desti
 export async function poserDemande(q: RequeteTx, o: {
   tacheId: number; confieeA: number | null; confieeLibelle: string; auteur: Auteur; nom: string; motifTrace?: string;
   inviteId?: number | null; raison?: RaisonDemande;
+  /** 🔴 LOT GESTION-DECALER-TACHE — la date d'avant, pour une relance après décalage (mail « Tâche déplacée »). */
+  ancienneDate?: AncienneDate;
 }): Promise<DemandePosee> {
+  const deplacement = o.ancienneDate !== undefined ? { ancienneDate: o.ancienneDate } : {};
   const parInvite = o.inviteId !== undefined && o.inviteId !== null;
   if (parInvite) {
     await q(`UPDATE gestion_tache_demande SET statut = 'remplacee', remplacee_le = now()
@@ -111,7 +123,7 @@ export async function poserDemande(q: RequeteTx, o: {
        VALUES ($1, $2, $3, $4, $5, $6, 'acceptee', true, now(), $6${parInvite ? ', $7, $8' : ''}) RETURNING id::int AS id`,
       [o.tacheId, o.confieeA, o.confieeLibelle, email, o.auteur.id, o.nom, ...extra]);
     await tracer(q, o.tacheId, null, { acceptation: 'acceptee', automatique: true }, o.auteur, o.nom);
-    return { demandeId: Number(rows[0].id), statut, jeton: null, inviteId: o.inviteId ?? null, destinataireLibelle: o.confieeLibelle };
+    return { demandeId: Number(rows[0].id), statut, jeton: null, inviteId: o.inviteId ?? null, destinataireLibelle: o.confieeLibelle, ...deplacement };
   }
   const reglage = await lireReglageTaches(q);
   const jeton = randomBytes(32).toString('base64url');
@@ -121,7 +133,7 @@ export async function poserDemande(q: RequeteTx, o: {
      VALUES ($1, $2, $3, $4, $5, $6, 'en_attente', $7, now() + ($8::int * interval '1 day')${parInvite ? ', $9, $10' : ''}) RETURNING id::int AS id`,
     [o.tacheId, o.confieeA, o.confieeLibelle, email, o.auteur.id, o.nom, empreinteJeton(jeton), reglage.dureeLienJours, ...extra]);
   await tracer(q, o.tacheId, null, { demandeAcceptation: o.confieeLibelle, ...(o.motifTrace ? { raison: o.motifTrace } : {}) }, o.auteur, o.nom);
-  return { demandeId: Number(rows[0].id), statut, jeton, inviteId: o.inviteId ?? null, destinataireLibelle: o.confieeLibelle };
+  return { demandeId: Number(rows[0].id), statut, jeton, inviteId: o.inviteId ?? null, destinataireLibelle: o.confieeLibelle, ...deplacement };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -131,6 +143,8 @@ export async function poserDemande(q: RequeteTx, o: {
 export async function envoyerDemande(
   demandeId: number, jeton: string, transport: TransportDemande | null = null, maintenant: Date = new Date(),
   lecteur?: LecteurPiecesTache,
+  /** 🔴 LOT GESTION-DECALER-TACHE — relance après décalage : mail « Tâche déplacée » (ancienne date barrée). */
+  ancienneDate?: AncienneDate,
 ): Promise<EtatMail> {
   const reglage = await lireReglageTaches();
   const marquer = async (etat: EtatMail, erreur: string | null = null, gmailId: string | null = null) => {
@@ -145,7 +159,10 @@ export async function envoyerDemande(
   /* 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — le mail structuré par sections (`mailTache.ts`), ses pièces jointes ou
      leurs liens signés ; la MÊME adresse de base que l'agenda (jamais un tunnel temporaire ; défaut localhost). */
   const config = await chargerConfigGestion();
-  const r0 = await messageDeLaDemande({ demandeId, sorte: 'invitation', jeton, de: config.adresseGestion, lecteur, maintenant });
+  /* 🔴 LOT GESTION-DECALER-TACHE (Arno) — la boîte gestion@ ne reçoit jamais d'invitation : rien ne part vers elle. */
+  const vers = (await query<{ e: string | null }>(`SELECT destinataire_email AS e FROM gestion_tache_demande WHERE id = $1`, [demandeId])).rows[0]?.e ?? '';
+  if (vers.trim().toLowerCase() === config.adresseGestion.trim().toLowerCase()) return marquer('aucun');
+  const r0 = await messageDeLaDemande({ demandeId, sorte: 'invitation', jeton, de: config.adresseGestion, lecteur, maintenant, ancienneDate });
   if (!r0.ok) return r0.motif === 'Demande introuvable.' ? 'aucun' : marquer('echec', r0.motif);
   const r = await t.envoyer(r0.m.message);
   if (!r.ok) return marquer('echec', r.motif);
@@ -212,13 +229,14 @@ export async function envoyerConfirmationAcceptation(
       `SELECT tache_id::int AS tache_id, statut, automatique, destinataire_id::int AS destinataire_id, destinataire_libelle
          FROM gestion_tache_demande WHERE id = $1`, [demandeId]);
     const d = rows[0];
-    if (d === undefined || d.statut !== 'acceptee' || d.automatique) return null;
+    /* 🔴 LOT GESTION-DECALER-TACHE — à chaque ACCEPTATION et à chaque REFUS (jamais pour une acceptation d'office). */
+    if (d === undefined || (d.statut !== 'acceptee' && d.statut !== 'refusee') || d.automatique) return null;
     const config = await chargerConfigGestion();
     const createur = await adresseDuDemandeur(demandeId);
     const { a, sansCreateur } = destinatairesConfirmation(config.adresseGestion, createur?.email ?? null);
     const auteur: Auteur = { id: d.destinataire_id, libelle: d.destinataire_libelle };
     const trace = (etat: EtatMail, erreur?: string) => tracer(query, Number(d.tache_id), null, {
-      confirmationAcceptation: d.destinataire_libelle, a, etat, ...(sansCreateur ? { sansAdresseCreateur: true } : {}),
+      confirmationAcceptation: d.destinataire_libelle, a, etat, ...(d.statut === 'refusee' ? { refus: true } : {}), ...(sansCreateur ? { sansAdresseCreateur: true } : {}),
       ...(erreur ? { erreur } : {}),
     }, auteur, d.destinataire_libelle);
     const m = await messageDeLaDemande({
@@ -235,6 +253,9 @@ export async function envoyerConfirmationAcceptation(
   }
 }
 
+/** 🔴 LOT GESTION-DECALER-TACHE — le même envoi, nommé pour ce qu'il fait : la confirmation d'une RÉPONSE (acceptée ou refusée). */
+export const envoyerConfirmationReponse = envoyerConfirmationAcceptation;
+
 /** La place dans l'agenda après une acceptation, d'après la phrase de la synchronisation existante. PUR. */
 export function agendaApresAcceptation(phraseSynchro: string): 'ajoutee' | 'bientot' | 'sans_agenda' {
   if (phraseSynchro.includes('Agenda Google à jour')) return 'ajoutee';
@@ -249,7 +270,7 @@ export function agendaApresAcceptation(phraseSynchro: string): 'ajoutee' | 'bien
 export async function envoyerSiBesoin(demande: DemandePosee | null | undefined): Promise<EtatMail | null> {
   if (!demande || demande.jeton === null) return null;
   try {
-    return await envoyerDemande(demande.demandeId, demande.jeton);
+    return await envoyerDemande(demande.demandeId, demande.jeton, null, new Date(), undefined, demande.ancienneDate);
   } catch (e) {
     console.error('[taches/acceptation] préparation du mail impossible', e);
     await query(`UPDATE gestion_tache_demande SET mail_etat = 'echec', mail_le = now(), mail_erreur = $2 WHERE id = $1`,
