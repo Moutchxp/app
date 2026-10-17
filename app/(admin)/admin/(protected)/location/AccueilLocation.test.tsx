@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { AccueilLocation } from './AccueilLocation';
+import { EcranLocataires, EcranProprietairesBiens } from './EcransLocation';
 import { FicheBienLocation } from './FicheBienLocation';
 
 /**
@@ -30,6 +31,11 @@ beforeEach(() => {
   lacherBiens = null;
   global.fetch = vi.fn(async (url: string | URL | Request) => {
     const u = String(url);
+    if (u.includes('anciens=1')) return ok({ lignes: [{ id: 9, nom: 'ANCIEN Proprio', biens: 0, numeroMandat: null }], total: 1, page: 0 });
+    if (u.includes('q=')) {
+      return ok({ proprietaires: [{ id: 1, titre: 'EXEMPLE Claire', detail: '14 rue de l’Essai' }], locataires: [],
+        syndics: [{ id: 5, titre: 'FONCIA Courbevoie', detail: 'Courbevoie' }], biens: [{ id: 10, titre: '10 rue de l’Essai, PARIS', detail: 'EXEMPLE Claire' }], tronque: false });
+    }
     if (u.includes('liste=proprietaires')) return ok({ lignes: [{ id: 1, nom: 'EXEMPLE Claire', biens: 2, numeroMandat: null }], total: 1, page: 0 });
     if (u.includes('liste=locataires')) return ok({ lignes: [{ id: 2, nom: 'MODÈLE Jules', enPlace: true, logement: '14 rue', lotId: 10 }], total: 1, page: 0 });
     if (u.includes('liste=biens')) {
@@ -54,8 +60,8 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++
 const bouton = (texte: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === texte) as HTMLButtonElement;
 
 describe('🔴 /admin/location ne plante plus', () => {
-  it('① passer de Propriétaires à Biens pendant le chargement : « Chargement… », jamais les propriétaires lus comme des biens', async () => {
-    await act(async () => { root.render(createElement(AccueilLocation, { administrateur: true })); });
+  it('① (écran Propriétaires et biens) passer de Propriétaires à Biens pendant le chargement : « Chargement… », jamais les propriétaires lus comme des biens', async () => {
+    await act(async () => { root.render(createElement(EcranProprietairesBiens)); });
     await calmer();
     expect(container.textContent).toContain('EXEMPLE Claire');
     await act(async () => { bouton('Biens').click(); });
@@ -67,9 +73,16 @@ describe('🔴 /admin/location ne plante plus', () => {
     // ② un bien SANS champ `annexes` et un bien à `annexes: []` s'affichent tous les deux.
     expect(container.querySelector('a[href="/admin/location/bien/10"]')).not.toBeNull();
     expect(container.querySelector('a[href="/admin/location/bien/11"]')).not.toBeNull();
-    await act(async () => { bouton('Locataires').click(); });
+  });
+
+  it('③ écran Locataires : la liste, et la bascule « Anciens »', async () => {
+    await act(async () => { root.render(createElement(EcranLocataires)); });
     await calmer();
     expect(container.textContent).toContain('MODÈLE Jules');
+    expect(container.querySelector('a[href="/admin/location/nouveau-locataire"]')).not.toBeNull();
+    await act(async () => { bouton('Anciens (sortis du portefeuille)').click(); });
+    await calmer();
+    expect(container.textContent).toContain('ANCIEN Proprio');
   });
 
   it('② la fiche d’un bien sans annexe s’affiche (champ absent)', async () => {
@@ -78,5 +91,24 @@ describe('🔴 /admin/location ne plante plus', () => {
     expect(container.textContent).toContain('Le logement et ses annexes');
     expect(container.textContent).toContain('10 rue de l’Essai');
     expect(container.querySelectorAll('[data-annexe="oui"]')).toHaveLength(0);
+  });
+
+  it('④ l’accueil : un moteur en haut, résultats groupés par type ; puis les 3 grosses cases', async () => {
+    await act(async () => { root.render(createElement(AccueilLocation)); });
+    await calmer();
+    const cases = [...container.querySelectorAll('a.loc-case')].map((a) => a.getAttribute('href'));
+    expect(cases).toEqual(['/admin/location/proprietaires', '/admin/location/locataires', '/admin/location/outils']);
+    // Plus d'onglets ni de listes sur l'accueil : ils sont dans les trois écrans.
+    expect(container.querySelector('[role="tablist"]')).toBeNull();
+    const champ = container.querySelector('input[type="search"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(champ, 'essai');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { await new Promise((r) => setTimeout(r, 260)); });
+    await calmer();
+    expect([...container.querySelectorAll('[data-groupe]')].map((g) => g.getAttribute('data-groupe'))).toEqual(['proprietaires', 'syndics', 'biens']);
+    expect(container.querySelector('a[href="/admin/location/syndic/5"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/admin/location/bien/10"]')).not.toBeNull();
   });
 });

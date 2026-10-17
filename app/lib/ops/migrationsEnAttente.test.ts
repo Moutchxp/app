@@ -61,10 +61,11 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // Pas encore appliquées en prod (16/10/2026, après la publication de 4c8cd637 qui a appliqué la 362).
   // 365 : lot GESTION-INVITATIONS-TACHES (17/10/2026). 369 : lot L0, rapprochement des fiches de l'application (17/10/2026).
   // 370 : lot L1, loyer de départ, taux et honoraires de gestion (17/10/2026). 371 : droit de la tuile Location (17/10/2026).
-  // 372 : fiche du bien, annexes en arbre, N° de mandat (tuile Location, 17/10/2026).
+  // 372 : fiche du bien, annexes en arbre, N° de mandat (tuile Location, 17/10/2026). 373 : sortie du portefeuille.
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
-    '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql'];
+    '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
+    '373_location_sortie_portefeuille.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -77,7 +78,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 372 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 373 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -87,14 +88,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (373)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (374)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(372\)/);
-    const renumerotee = planifier([...existants, { fichier: '373_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(373\)/);
+    const renumerotee = planifier([...existants, { fichier: '374_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['373_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['374_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -276,5 +277,22 @@ describe('372 (tuile Location : bien, annexes, N° de mandat) : enveloppée, ajo
     expect(contenu).not.toMatch(/\b(INSERT INTO|DELETE FROM|TRUNCATE TABLE|DROP TABLE|DROP COLUMN)\b/i);
     expect(contenu).not.toMatch(/^\s*UPDATE\b/im);
     expect(contenu).toContain('BEFORE UPDATE OR DELETE ON gestion_lot_annexe');
+  });
+});
+
+describe('373 (tuile Location : sortie du portefeuille) : enveloppée, colonnes facultatives, aucune ligne touchée', () => {
+  const contenu = lire(MIGRATIONS, '373_location_sortie_portefeuille.sql');
+  const a = analyserMigration({ fichier: '373_location_sortie_portefeuille.sql', contenu });
+  it('passe le garde, enveloppée, réversible ; sorti_portefeuille_le / _par sur propriétaires, locataires, biens', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.tablesCreees).toEqual([]);
+    expect(a.colonnesAjoutees).toEqual(['proprietaire', 'locataire', 'lot'].flatMap((t) => [
+      { table: `gestion_annuaire_${t}`, colonne: 'sorti_portefeuille_le' }, { table: `gestion_annuaire_${t}`, colonne: 'sorti_portefeuille_par' }]));
+  });
+  it('aucune donnée écrite ni supprimée', () => {
+    expect(contenu).not.toMatch(/\b(INSERT INTO|DELETE|TRUNCATE|DROP)\b/i);
+    expect(contenu).not.toMatch(/^\s*UPDATE\b/im);
   });
 });

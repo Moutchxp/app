@@ -10,6 +10,7 @@ import {
 } from '../../../../lib/location/locationBien';
 import type { FicheBienLocation as Donnees } from '../../../../lib/location/locationRepo';
 import { formaterDateIso, periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
+import { BlocSortie } from './EcransLocation';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LA FICHE DU BIEN (/admin/location/bien/[id]) ═════════════════════════════════════════════
@@ -48,6 +49,9 @@ export function FicheBienLocation({ id }: { id: number }) {
           {resumeBien(b) || 'caractéristiques non renseignées'}
           {b.creeDansLApplication ? ' · créé dans la Location' : ` · réf. WIPPIMMO ${f.numero}`}
         </>} />
+
+      <BlocSortie sujet="bien" id={b.id} sortie={d.sortie ?? null} apres={rafraichir}
+        explication={d.parent === null ? 'Le bien sort avec ses annexes.' : 'Cette annexe sort seule ; son lien avec le logement est gardé.'} />
 
       {d.parent !== null && (
         <p className="loc-alerte">Annexe du logement <a href={`/admin/location/bien/${d.parent.id}`}>

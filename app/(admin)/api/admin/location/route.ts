@@ -7,8 +7,12 @@ import { enregistrerConditions } from '../../../../lib/gestion/honorairesGestion
 import {
   ajouterAnnexe, chercherDoublons, creerProprietaireEtBiens, enregistrerMandat, ficheBienLocation,
   ficheLocataireLocation, ficheProprietaireLocation, listeBiens, listeLocataires, listeProprietaires, modifierBien,
-  rattacherAnnexe, rechercherLocation, type CreationProprietaireBien,
+  rattacherAnnexe, type CreationProprietaireBien,
 } from '../../../../lib/location/locationRepo';
+import {
+  biensPourLocataire, creerLocataireSurBien, ficheSyndicLocation, reactiverDansPortefeuille, rechercherPortefeuille,
+  sortirDuPortefeuille, type CreationLocataire, type SujetPortefeuille,
+} from '../../../../lib/location/portefeuilleRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -18,10 +22,12 @@ import {
  * les DONNÉES communes (personnes, biens, annexes, locations) par cette route-ci, avec les MÊMES fonctions du dépôt que
  * la Gestion — une modification d'un côté se voit de l'autre. Le courrier de la Gestion, lui, n'est jamais servi ici.
  *
- * GET : `?q=` recherche unique · `?liste=proprietaires|locataires|biens&page=&filtre=` · `?proprietaire=N` ·
- *       `?locataire=N` · `?lot=N` · `?telephone=&email=` (dédoublonnage à la saisie).
+ * GET : `?q=` recherche de l'accueil (personnes et syndics par nom / téléphone / e-mail ; biens du portefeuille par leur
+ *       adresse) · `?liste=proprietaires|locataires|biens&page=&filtre=&anciens=1` · `?proprietaire=N` · `?locataire=N` ·
+ *       `?lot=N` · `?syndic=N` · `?biensPourLocataire=texte` · `?telephone=&email=` (dédoublonnage à la saisie).
  * POST `{ action }` : modifier | archiver | restaurer | separer (une personne) · numero-mandat · modifier-bien ·
- *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · conditions-location.
+ *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · creer-locataire · conditions-location ·
+ *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
  */
 export const runtime = 'nodejs';
@@ -47,6 +53,14 @@ export async function GET(request: Request): Promise<Response> {
     if (idLoc !== null) return Response.json(await ficheLocataireLocation(idLoc), { headers: ENTETES });
     const idLot = identifiant(p('lot'));
     if (idLot !== null) return Response.json(await ficheBienLocation(idLot), { headers: ENTETES });
+    const idSyndic = identifiant(p('syndic'));
+    if (idSyndic !== null) {
+      const f = await ficheSyndicLocation(idSyndic);
+      return Response.json(f === null ? { etat: 'inconnu' } : { etat: 'ok', data: f }, { headers: ENTETES });
+    }
+    if (p('biensPourLocataire') !== null) {
+      return Response.json({ etat: 'ok', data: await biensPourLocataire((p('biensPourLocataire') ?? '').slice(0, 100)) }, { headers: ENTETES });
+    }
     if (p('telephone') !== null || p('email') !== null) {
       const doublons = await chercherDoublons([
         { sorte: 'telephone', valeur: (p('telephone') ?? '').slice(0, 60) },
@@ -58,13 +72,12 @@ export async function GET(request: Request): Promise<Response> {
     if (liste === 'proprietaires' || liste === 'locataires' || liste === 'biens') {
       const page = Math.max(0, Math.min(1000, Number(p('page') ?? '0') || 0));
       const filtre = (p('filtre') ?? '').slice(0, 100);
-      const data = liste === 'proprietaires' ? await listeProprietaires(page, filtre)
-        : liste === 'locataires' ? await listeLocataires(page, filtre) : await listeBiens(page, filtre);
+      const anciens = p('anciens') === '1';
+      const data = liste === 'proprietaires' ? await listeProprietaires(page, filtre, anciens)
+        : liste === 'locataires' ? await listeLocataires(page, filtre, anciens) : await listeBiens(page, filtre, anciens);
       return Response.json({ etat: 'ok', data }, { headers: ENTETES });
     }
-    const resultats = await rechercherLocation((p('q') ?? '').slice(0, 200));
-    if (resultats === null) return Response.json({ etat: 'sans_schema' }, { headers: ENTETES });
-    return Response.json({ etat: 'ok', data: resultats }, { headers: ENTETES });
+    return Response.json({ etat: 'ok', data: await rechercherPortefeuille((p('q') ?? '').slice(0, 200)) }, { headers: ENTETES });
   } catch (e) {
     console.error('[api/admin/location] lecture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, { status: 503 });
@@ -124,6 +137,18 @@ export async function POST(request: Request): Promise<Response> {
           logement: (corps.logement ?? {}) as Record<string, unknown>,
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
         }, auteur));
+      case 'creer-locataire':
+        return repondre(await creerLocataireSurBien({
+          locataireId: identifiant(corps.locataireId), lotId: identifiant(corps.lotId),
+          locataire: (corps.locataire ?? {}) as CreationLocataire['locataire'],
+          entree: typeof corps.entree === 'string' ? corps.entree : null,
+        }, auteur));
+      case 'sortir':
+      case 'reactiver': {
+        const quoi = corps.sujet === 'proprietaire' || corps.sujet === 'locataire' || corps.sujet === 'bien' ? corps.sujet as SujetPortefeuille : null;
+        if (quoi === null || id === null) return incomplet();
+        return repondre(action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur) : await reactiverDansPortefeuille(quoi, id, auteur));
+      }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);
         if (occ === null) return incomplet();

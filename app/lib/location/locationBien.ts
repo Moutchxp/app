@@ -117,6 +117,8 @@ export interface BienLocation {
   proprietaire: string | null;
   locataireEnPlace: string | null;
   creeDansLApplication: boolean;
+  /** Sorti du portefeuille (migration 373) : reste visible, marqué « sorti ». */
+  sorti?: boolean;
 }
 
 /** Range des biens en arbre : chaque logement suivi de ses annexes ; les annexes dont le logement est absent restent seules. */

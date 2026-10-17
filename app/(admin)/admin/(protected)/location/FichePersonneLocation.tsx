@@ -7,6 +7,7 @@ import { CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, gestesLocati
 import { enArbre, LIBELLE_CATEGORIE, resumeBien } from '../../../../lib/location/locationBien';
 import { periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
 import { estAncienLocataire, estLocataireEnPlace } from '../../../../lib/gestion/historiqueBien';
+import { BlocSortie } from './EcransLocation';
 import type { FicheLocataireLocation, FicheProprietaireLocation } from '../../../../lib/location/locationRepo';
 
 /**
@@ -29,6 +30,9 @@ export function FicheProprietaireLocationVue({ id }: { id: number }) {
       <EnTeteLocation titre={d.fiche.nom} sous={<span className="loc-pastille">Propriétaire</span>}
         actions={<a className="svv-btn svv-btn-primary gst-btn" href={`/admin/location/nouveau?proprietaire=${id}`}>+ Ajouter un bien</a>} />
 
+      <BlocSortie sujet="proprietaire" id={id} sortie={d.sortie ?? null} apres={rafraichir}
+        explication="Le propriétaire sort avec ses biens encore dans le portefeuille (et leurs annexes)." />
+
       {d.location372 && <Mandat proprietaireId={id} valeur={d.numeroMandat} apres={rafraichir} />}
 
       <section className="loc-bloc">
@@ -47,6 +51,7 @@ export function FicheProprietaireLocationVue({ id }: { id: number }) {
                 <span>
                   <a href={`/admin/location/bien/${bien.id}`}>{[bien.adresse, bien.commune].filter((x) => x).join(', ') || `Bien ${bien.numero}`}</a>{' '}
                   <span className="loc-pastille">{LIBELLE_CATEGORIE[bien.categorie]}</span>
+                  {bien.sorti === true && <> <span className="loc-pastille loc-pastille--violet">sorti</span></>}
                   {resumeBien(bien) !== '' && <span className="loc-muet"> · {resumeBien(bien)}</span>}
                 </span>
                 <span className="loc-muet">{bien.locataireEnPlace === null ? 'libre' : `loué à ${bien.locataireEnPlace}`}</span>
@@ -107,6 +112,8 @@ export function FicheLocataireLocationVue({ id }: { id: number }) {
       <style>{CSS_LOCATION_ECRANS}</style><style>{CSS_CARTES}</style><style>{CSS_LOCATION}</style>
       <EnTeteLocation titre={d.fiche.nom}
         sous={<span className={`loc-pastille ${enPlace ? 'loc-pastille--vert' : 'loc-pastille--violet'}`}>{enPlace ? 'Locataire en place' : 'Ancien locataire'}</span>} />
+      <BlocSortie sujet="locataire" id={id} sortie={d.sortie ?? null} apres={rafraichir}
+        explication="Possible seulement quand il n’est plus en place (son départ s’enregistre d’abord)." />
       <section className="loc-bloc">
         <h3>Coordonnées</h3>
         <div className="loc-cartes">

@@ -157,7 +157,7 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
 
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
       <div className="loc-boutons">
-        <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location">Annuler</a>
+        <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/proprietaires">Annuler</a>
         <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi}>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
       </div>
     </form>

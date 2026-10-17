@@ -13,6 +13,8 @@ import { analyserTerme } from '../gestion/annuaireRecherche';
 import { locationsAffichees } from '../gestion/honorairesGestionRepo';
 import type { LocationAffichee } from '../gestion/honorairesGestion';
 import type { Auteur } from '../gestion/gestes';
+import { sortieDe, sortieDisponible } from './portefeuilleRepo';
+import type { SortiePortefeuille } from './recherchePortefeuille';
 import { categorieDuBien, verifierChampsBien, type BienLocation, type Categorie, type ChampsBien } from './locationBien';
 
 /**
@@ -69,12 +71,21 @@ export async function rechercherLocation(brut: string): Promise<ResultatsLocatio
 
 export const TAILLE_PAGE = 50;
 
+/**
+ * 🔴 REFONTE DE L'ACCUEIL (17/10/2026) — « actifs » ou « anciens » (sortis du portefeuille, migration 373). Sans la
+ * migration : tout est actif, et la liste des anciens est vide.
+ */
+async function filtreSortie(alias: string, anciens: boolean): Promise<string> {
+  if (!(await sortieDisponible())) return anciens ? ' AND false' : '';
+  return ` AND ${alias}.sorti_portefeuille_le IS ${anciens ? 'NOT ' : ''}NULL`;
+}
+
 export interface PageListe<T> { lignes: T[]; total: number; page: number }
 export interface LigneProprietaire { id: number; nom: string; biens: number; numeroMandat: string | null }
 export interface LigneLocataire { id: number; nom: string; enPlace: boolean; logement: string | null; lotId: number | null }
 
-export async function listeProprietaires(page: number, filtre = ''): Promise<PageListe<LigneProprietaire>> {
-  const vivante = await sqlPersonneVivante('p');
+export async function listeProprietaires(page: number, filtre = '', anciens = false): Promise<PageListe<LigneProprietaire>> {
+  const vivante = (await sqlPersonneVivante('p')) + await filtreSortie('p', anciens);
   const avecMandat = await locationDisponible();
   const motif = `%${normaliserTexte(filtre)}%`;
   const { rows } = await query<{ id: string; nom: string; biens: number; mandat: string | null; total: number }>(
@@ -91,8 +102,8 @@ export async function listeProprietaires(page: number, filtre = ''): Promise<Pag
   };
 }
 
-export async function listeLocataires(page: number, filtre = ''): Promise<PageListe<LigneLocataire>> {
-  const vivante = await sqlPersonneVivante('p');
+export async function listeLocataires(page: number, filtre = '', anciens = false): Promise<PageListe<LigneLocataire>> {
+  const vivante = (await sqlPersonneVivante('p')) + await filtreSortie('p', anciens);
   const motif = `%${normaliserTexte(filtre)}%`;
   const { rows } = await query<{ id: string; nom: string; en_place: boolean; logement: string | null; lot_id: string | null; total: number }>(
     `SELECT p.id::text, p.nom, o.id IS NOT NULL AS en_place,
@@ -125,7 +136,7 @@ interface LigneBienSql {
   id: string; wippimmo_id: string; adresse: string | null; code_postal: string | null; commune: string | null;
   nature: string | null; type_bien: string | null; categorie: string | null; etage: string | null; porte: string | null;
   num_lot_copro: string | null; surface_carrez_m2: string | null; surface_exterieure_m2: string | null;
-  parent_id: string | null; proprietaire: string | null; locataire: string | null;
+  parent_id: string | null; proprietaire: string | null; locataire: string | null; sorti: boolean;
 }
 
 const versBien = (r: LigneBienSql): BienLocation => ({
@@ -136,6 +147,7 @@ const versBien = (r: LigneBienSql): BienLocation => ({
   surfaceCarrezM2: num(r.surface_carrez_m2), surfaceExterieureM2: num(r.surface_exterieure_m2),
   parentId: num(r.parent_id), proprietaire: r.proprietaire, locataireEnPlace: r.locataire,
   creeDansLApplication: r.wippimmo_id.startsWith('app-'),
+  sorti: r.sorti,
 });
 
 async function lireBiens(where: string, params: unknown[], suffixe = ''): Promise<BienLocation[]> {
@@ -143,6 +155,7 @@ async function lireBiens(where: string, params: unknown[], suffixe = ''): Promis
   const { rows } = await query<LigneBienSql>(
     `SELECT lo.id::text, lo.wippimmo_id, lo.adresse, lo.code_postal, lo.commune, lo.nature, lo.type_bien,
             ${colonnesBien(avec372)},
+            ${(await sortieDisponible()) ? 'lo.sorti_portefeuille_le IS NOT NULL' : 'false'} AS sorti,
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             (SELECT l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.lot_id = lo.id AND o.sortie IS NULL ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1) AS locataire
@@ -154,17 +167,18 @@ async function lireBiens(where: string, params: unknown[], suffixe = ''): Promis
 }
 
 /** Les biens de l'accueil : les logements (et les biens autonomes), chacun avec ses annexes en arbre. */
-export async function listeBiens(page: number, filtre = ''): Promise<PageListe<BienLocation & { annexes: BienLocation[] }>> {
+export async function listeBiens(page: number, filtre = '', anciens = false): Promise<PageListe<BienLocation & { annexes: BienLocation[] }>> {
   const avec372 = await locationDisponible();
   const motif = `%${normaliserTexte(filtre)}%`;
-  const condition = `coalesce(lo.adresse_normalisee, '') LIKE $1
-    ${avec372 ? 'AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)' : ''}`;
+  // Actifs : les logements (et biens autonomes), leurs annexes dessous. Anciens : tous les biens sortis, à plat.
+  const condition = `coalesce(lo.adresse_normalisee, '') LIKE $1${await filtreSortie('lo', anciens)}
+    ${avec372 && !anciens ? 'AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)' : ''}`;
   const { rows: t } = await query<{ n: number }>(
     `SELECT count(*)::int AS n FROM gestion_annuaire_lot lo WHERE ${condition}`, [motif]);
   const tetes = await lireBiens(condition, [motif, page * TAILLE_PAGE],
     `ORDER BY lo.adresse_normalisee NULLS LAST, lo.id LIMIT ${TAILLE_PAGE} OFFSET $2`);
-  const annexes = avec372 && tetes.length > 0
-    ? await lireBiens('lo.id IN (SELECT annexe_id FROM gestion_lot_annexe WHERE parent_id = ANY($1::bigint[]))',
+  const annexes = avec372 && tetes.length > 0 && !anciens
+    ? await lireBiens(`lo.id IN (SELECT annexe_id FROM gestion_lot_annexe WHERE parent_id = ANY($1::bigint[]))${await filtreSortie('lo', false)}`,
       [tetes.map((b) => b.id)], 'ORDER BY lo.id')
     : [];
   return {
@@ -178,6 +192,8 @@ export async function listeBiens(page: number, filtre = ''): Promise<PageListe<B
 
 export interface FicheProprietaireLocation {
   fiche: FicheProprietaire;
+  /** Sorti du portefeuille (quand, par qui) ; `null` = dans le portefeuille. */
+  sortie: SortiePortefeuille | null;
   numeroMandat: string | null;
   /** Ses biens EN ARBRE (logement puis annexes), lus avec les caractéristiques de la Location. */
   biens: BienLocation[];
@@ -194,14 +210,14 @@ export async function ficheProprietaireLocation(id: number): Promise<Issue<Fiche
   const biens = await lireBiens(
     `lo.proprietaire_id = $1 OR lo.id IN (SELECT lot_id FROM gestion_annuaire_lot_proprietaire WHERE proprietaire_id = $1 AND jusqu_a IS NULL)`,
     [id], 'ORDER BY lo.adresse_normalisee NULLS LAST, lo.id');
-  return { etat: 'ok', data: { fiche: f.data, numeroMandat: mandat, biens, location372: avec372 } };
+  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, biens, location372: avec372 } };
 }
 
 export interface LocationDuLocataire {
   occupationId: number; lotId: number | null; adresse: string | null; commune: string | null;
   entree: string | null; sortie: string | null; location: LocationAffichee | null;
 }
-export interface FicheLocataireLocation { fiche: FicheLocataire; locations: LocationDuLocataire[] }
+export interface FicheLocataireLocation { fiche: FicheLocataire; sortie: SortiePortefeuille | null; locations: LocationDuLocataire[] }
 
 export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLocataireLocation>> {
   const f = await ficheLocataire(id);
@@ -215,6 +231,7 @@ export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLoc
     etat: 'ok',
     data: {
       fiche: f.data,
+      sortie: await sortieDe('locataire', id),
       locations: rows.map((r) => ({
         occupationId: Number(r.id), lotId: num(r.lot_id), adresse: r.adresse, commune: r.commune,
         entree: r.entree, sortie: r.sortie, location: conditions.get(Number(r.id)) ?? null,
@@ -225,6 +242,8 @@ export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLoc
 
 export interface FicheBienLocation {
   fiche: FicheLot;
+  /** Sorti du portefeuille (quand, par qui) ; `null` = dans le portefeuille. */
+  sortie: SortiePortefeuille | null;
   bien: BienLocation;
   /** Le logement d'origine quand ce bien est une annexe. */
   parent: BienLocation | null;
@@ -249,14 +268,14 @@ export async function ficheBienLocation(id: number): Promise<Issue<FicheBienLoca
   const conditions = await locationsAffichees(f.data.occupations.map((o) => o.occupationId));
   const rattachables = avec372 && bien.parentId === null && f.data.proprietaireId !== null
     ? await lireBiens(
-      `lo.proprietaire_id = $1 AND lo.id <> $2
+      `lo.proprietaire_id = $1 AND lo.id <> $2${await filtreSortie('lo', false)}
          AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id OR a.parent_id = lo.id)`,
       [f.data.proprietaireId, id], 'ORDER BY lo.adresse_normalisee NULLS LAST, lo.id')
     : [];
   return {
     etat: 'ok',
     data: {
-      fiche: f.data, bien, parent, annexes,
+      fiche: f.data, sortie: await sortieDe('bien', id), bien, parent, annexes,
       locations: f.data.occupations.map((o) => ({ occupationId: o.occupationId, location: conditions.get(o.occupationId) ?? null })),
       rattachables, location372: avec372,
     },

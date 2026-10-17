@@ -132,6 +132,9 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
 ### ❓ NON ÉTABLI — la cause
 
 - Le motif réellement reçu n'a pas été capturé lors des deux occurrences (sortie filtrée sur les seuls titres).
+- **3ᵉ occurrence, 17/10/2026** (lot « refonte de l'accueil Location ») : mêmes 5 tests, suite complète ; vert à la suite
+  complète suivante (1219 fichiers). Motif encore NON capturé (sortie filtrée) — la suite suivante a été lancée avec la
+  sortie entière enregistrée, mais l'échec ne s'est pas reproduit.
 - Hypothèse **résiduelle et NON PROUVÉE** (à ne pas promouvoir en cause) : ces tests dépendent de l'ENVIRONNEMENT
   (« S3_* absents ») ; si la configuration de stockage est visible du processus de test et que le service ne répond
   pas à temps sous la charge de la suite complète, le dépôt s'arrête sur un autre motif.

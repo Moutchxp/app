@@ -150,5 +150,26 @@ export const CSS_LOCATION_ECRANS = `
 .loc-cartes{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:12px}
 /* La carte commune de la Gestion se cale sur la largeur de l'ÉCRAN ; dans un bloc de la Location, sur celle de sa colonne. */
 .loc-cartes .cp-carte{width:auto;max-width:100%;min-width:0}
+.loc-recherche--large{border-width:2px;padding:6px 8px 6px 16px}
+.loc-recherche--large input{font-size:1.08rem;min-height:48px}
+.loc-groupes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px 20px}
+.loc-groupe h3{margin:0 0 4px;font-size:.95rem}
+/* Les 3 grosses cases : le style des tuiles de l'accueil admin (GrilleModules : fond champ, bordure ligne, radius 14), en plus grand. */
+.loc-cases{list-style:none;margin:0;padding:0;display:grid;gap:14px;grid-template-columns:repeat(3,minmax(0,1fr))}
+.loc-case{display:flex;flex-direction:column;gap:8px;height:100%;box-sizing:border-box;min-height:9rem;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:14px;padding:20px 22px;text-decoration:none}
+.loc-case:hover{border-color:var(--color-svv-line-strong-hover)}
+.loc-case:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.loc-case-titre{font-weight:800;font-size:1.12rem;color:var(--color-svv-ink)}
+.loc-case-phrase{font-size:.9rem;color:var(--color-svv-muted)}
+.loc-bascule{display:inline-flex;border:1px solid var(--color-svv-line-strong);border-radius:10px;overflow:hidden}
+.loc-bascule button{border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:0 14px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}
+.loc-bascule button + button{border-left:1px solid var(--color-svv-line-strong)}
+.loc-bascule button[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface)}
+.loc-sortie{border-radius:10px;padding:10px 12px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+.loc-confirmation{border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:12px;background:var(--color-svv-field);color:var(--color-svv-ink)}
+.loc-choix{list-style:none;margin:6px 0 0;padding:0;border:1px solid var(--color-svv-line);border-radius:10px;max-height:16rem;overflow:auto}
+.loc-choix button{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 10px;width:100%;text-align:left;border:0;border-bottom:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);padding:10px 12px;min-height:44px;font:inherit;cursor:pointer}
+.loc-choix button[aria-pressed="true"]{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700}
+@media (max-width:760px){ .loc-cases{grid-template-columns:1fr} }
 @media (max-width:640px){ .loc-arbre > li.loc-enfant{margin-left:16px} }
 `;

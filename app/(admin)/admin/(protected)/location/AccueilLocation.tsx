@@ -1,139 +1,91 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { CSS_LOCATION_ECRANS, EtatLecture, liste as tableau, useLecture } from './commun';
-import { LIBELLE_CATEGORIE, resumeBien, type BienLocation } from '../../../../lib/location/locationBien';
-import type { LigneLocataire, LigneProprietaire, PageListe, ResultatsLocation } from '../../../../lib/location/locationRepo';
+import { CSS_LOCATION_ECRANS, EtatLecture, liste, useLecture } from './commun';
+import { GROUPES, LIBELLE_GROUPE, type Groupe, type ResultatsAccueil } from '../../../../lib/location/recherchePortefeuille';
 
 /**
- * ══ 🔴🔴 TUILE LOCATION — L'ACCUEIL (/admin/location) ════════════════════════════════════════════════════════════════
- * Demande d'Arno (17/10/2026) : « recherche unique (personne, bien, adresse), bouton “Nouveau propriétaire + bien”,
- * listes Propriétaires / Locataires / Biens ». Les DONNÉES sont celles de la Gestion (même annuaire) ; l'écran est ici.
+ * ══ 🔴🔴 TUILE LOCATION — L'ACCUEIL (/admin/location), REFONTE DU 17/10/2026 ═══════════════════════════════════════
+ * Demande d'Arno : « EN HAUT : un seul moteur de recherche, sur toute la largeur » (propriétaires, locataires, syndics
+ * par nom / téléphone / e-mail ; adresse des seuls biens du portefeuille), résultats instantanés groupés par type ;
+ * « EN DESSOUS : 3 GROSSES CASES » — propriétaires / biens, locataires, outils de suivi.
+ * 🔴 Les onglets, les listes et les boutons de l'ancien accueil ne sont pas perdus : ils sont DÉPLACÉS dans ces trois
+ * écrans (accord d'Arno pour ce déplacement) — `ListesLocation.tsx`, « + Nouveau propriétaire + bien », « Honoraires ».
  */
-type Onglet = 'proprietaires' | 'locataires' | 'biens';
+const LIEN: Record<Groupe, (id: number) => string> = {
+  proprietaires: (id) => `/admin/location/proprietaire/${id}`,
+  locataires: (id) => `/admin/location/locataire/${id}`,
+  syndics: (id) => `/admin/location/syndic/${id}`,
+  biens: (id) => `/admin/location/bien/${id}`,
+};
 
-export function AccueilLocation({ administrateur }: { administrateur: boolean }) {
+export const CASES = [
+  { href: '/admin/location/proprietaires', titre: 'Ajouter / supprimer un propriétaire / bien',
+    phrase: 'Créer un propriétaire avec son bien et ses annexes ; les listes des propriétaires et des biens (annexes en arbre), actifs et anciens.' },
+  { href: '/admin/location/locataires', titre: 'Ajouter / supprimer un locataire',
+    phrase: 'Créer un locataire rattaché à un bien, avec alerte de doublon dès la saisie ; la liste des locataires, actifs et anciens.' },
+  { href: '/admin/location/outils', titre: 'Outils de suivi',
+    phrase: 'Les outils de pilotage de la location : honoraires de gestion, et ceux qui viendront.' },
+] as const;
+
+export function AccueilLocation() {
   const [texte, setTexte] = useState('');
   const [terme, setTerme] = useState('');
-  const [onglet, setOnglet] = useState<Onglet>('proprietaires');
-  const [page, setPage] = useState(0);
-
-  // La recherche part 300 ms après la dernière frappe : un appel par intention, pas par touche.
+  // Instantané pendant la frappe : la recherche part 200 ms après la dernière touche (un appel par intention).
   useEffect(() => {
-    const t = setTimeout(() => setTerme(texte.trim()), 300);
+    const t = setTimeout(() => setTerme(texte.trim()), 200);
     return () => clearTimeout(t);
   }, [texte]);
-
-  const recherche = useLecture<ResultatsLocation>(terme.length >= 2 ? `q=${encodeURIComponent(terme)}` : null);
-  const liste = useLecture<PageListe<LigneProprietaire | LigneLocataire | (BienLocation & { annexes: BienLocation[] })>>(
-    `liste=${onglet}&page=${page}`);
+  const recherche = useLecture<ResultatsAccueil>(terme.length >= 2 ? `q=${encodeURIComponent(terme)}` : null);
 
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS}</style>
-      <div className="loc-actions">
-        <a className="svv-btn svv-btn-primary gst-btn" href="/admin/location/nouveau" data-geste="nouveau">+ Nouveau propriétaire + bien</a>
-        {administrateur && <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/honoraires">Honoraires de gestion</a>}
-      </div>
-
-      <label className="loc-recherche">
+      <label className="loc-recherche loc-recherche--large">
         <span aria-hidden="true">🔎</span>
-        <input value={texte} onChange={(e) => setTexte(e.target.value)} autoFocus
-          placeholder="Chercher : nom, téléphone, e-mail, adresse, n° de lot…" aria-label="Chercher une personne ou un bien" />
+        <input value={texte} onChange={(e) => setTexte(e.target.value)} autoFocus type="search"
+          placeholder="Propriétaire, locataire, syndic (nom, téléphone, e-mail) ou adresse d’un bien du portefeuille"
+          aria-label="Chercher un propriétaire, un locataire, un syndic ou un bien du portefeuille" />
       </label>
 
       {terme.length >= 2 && (
-        <section className="loc-bloc" aria-label="Résultats de la recherche">
-          <h3>Résultats pour « {terme} »</h3>
+        <section className="loc-bloc" aria-label="Résultats de la recherche" data-resultats>
           {recherche.etat.etat !== 'ok' ? <EtatLecture etat={recherche.etat} /> : (() => {
             const r = recherche.etat.data;
-            if (tableau(r.personnes).length === 0 && tableau(r.biens).length === 0) return <p className="loc-muet">Aucune personne ni aucun bien ne correspond.</p>;
+            const groupes = GROUPES.filter((g) => liste(r[g]).length > 0);
+            if (groupes.length === 0) return <p className="loc-muet">Aucun propriétaire, locataire, syndic ni bien du portefeuille ne correspond à « {terme} ».</p>;
             return (
-              <ul className="loc-liste">
-                {tableau(r.personnes).map((p) => (
-                  <li key={`${p.sujet}-${p.id}`}>
-                    <span>
-                      <a href={`/admin/location/${p.sujet}/${p.id}`}>{p.nomAffiche}</a>{' '}
-                      {tableau(p.roles).map((x) => (
-                        <span key={x} className={`loc-pastille${x === 'locataire' ? ' loc-pastille--vert' : x === 'ancien_locataire' ? ' loc-pastille--violet' : ''}`}>
-                          {x === 'proprietaire' ? 'propriétaire' : x === 'locataire' ? 'locataire' : 'ancien locataire'}
-                        </span>
+              <div className="loc-groupes">
+                {groupes.map((g) => (
+                  <div key={g} className="loc-groupe" data-groupe={g}>
+                    <h3>{LIBELLE_GROUPE[g]} <span className="loc-pastille">{liste(r[g]).length}</span></h3>
+                    <ul className="loc-liste">
+                      {liste(r[g]).map((x) => (
+                        <li key={x.id}>
+                          <a href={LIEN[g](x.id)}>{x.titre}</a>
+                          {x.detail !== null && <span className="loc-muet">{x.detail}</span>}
+                        </li>
                       ))}
-                    </span>
-                    <span className="loc-muet">{[p.mobile, p.email].filter((x) => x).join(' · ')}</span>
-                  </li>
+                    </ul>
+                  </div>
                 ))}
-                {tableau(r.biens).map((b) => (
-                  <li key={`b-${b.id}`}>
-                    <a href={`/admin/location/bien/${b.id}`}>{[b.adresse, b.commune].filter((x) => x).join(', ') || `Bien ${b.numero}`}</a>
-                    <span className="loc-muet">{b.proprietaire ?? ''}</span>
-                  </li>
-                ))}
-              </ul>
+                {r.tronque && <p className="loc-muet">D’autres fiches correspondent : précisez la recherche.</p>}
+              </div>
             );
           })()}
         </section>
       )}
 
-      <section className="loc-bloc">
-        <div className="loc-onglets" role="tablist">
-          {(['proprietaires', 'locataires', 'biens'] as const).map((o) => (
-            <button key={o} type="button" role="tab" aria-selected={onglet === o} onClick={() => { setOnglet(o); setPage(0); }}>
-              {o === 'proprietaires' ? 'Propriétaires' : o === 'locataires' ? 'Locataires' : 'Biens'}
-            </button>
-          ))}
-        </div>
-        {liste.etat.etat !== 'ok' ? <EtatLecture etat={liste.etat} /> : (
-          <>
-            <p className="loc-muet">{liste.etat.data.total} au total{liste.etat.data.total > 50 ? ` — page ${page + 1}` : ''}</p>
-            <ul className={onglet === 'biens' ? 'loc-arbre' : 'loc-liste'}>
-              {onglet === 'proprietaires' && (tableau(liste.etat.data.lignes) as LigneProprietaire[]).map((p) => (
-                <li key={p.id}>
-                  <a href={`/admin/location/proprietaire/${p.id}`}>{p.nom}</a>
-                  <span className="loc-muet">
-                    {p.biens} bien{p.biens > 1 ? 's' : ''}{p.numeroMandat === null ? '' : ` · mandat ${p.numeroMandat}`}
-                  </span>
-                </li>
-              ))}
-              {onglet === 'locataires' && (tableau(liste.etat.data.lignes) as LigneLocataire[]).map((l) => (
-                <li key={l.id}>
-                  <span>
-                    <a href={`/admin/location/locataire/${l.id}`}>{l.nom}</a>{' '}
-                    <span className={`loc-pastille${l.enPlace ? ' loc-pastille--vert' : ' loc-pastille--violet'}`}>{l.enPlace ? 'en place' : 'ancien'}</span>
-                  </span>
-                  <span className="loc-muet">{l.logement ?? ''}</span>
-                </li>
-              ))}
-              {onglet === 'biens' && (tableau(liste.etat.data.lignes) as (BienLocation & { annexes?: BienLocation[] })[]).flatMap((b) => [
-                <LigneBien key={b.id} b={b} />,
-                ...tableau(b.annexes).map((a) => <LigneBien key={a.id} b={a} enfant />),
-              ])}
-            </ul>
-            <div className="loc-boutons">
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={page === 0} onClick={() => setPage((x) => x - 1)}>← Précédents</button>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={(page + 1) * 50 >= liste.etat.data.total}
-                onClick={() => setPage((x) => x + 1)}>Suivants →</button>
-            </div>
-          </>
-        )}
-      </section>
-      <p className="loc-muet">Données communes avec la Gestion : une correction faite ici se voit là-bas, et inversement.</p>
+      <ul className="loc-cases" aria-label="Espaces de la Location">
+        {CASES.map((c) => (
+          <li key={c.href}>
+            <a className="loc-case" href={c.href} data-case={c.href}>
+              <span className="loc-case-titre">{c.titre}</span>
+              <span className="loc-case-phrase">{c.phrase}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
     </div>
-  );
-}
-
-function LigneBien({ b, enfant = false }: { b: BienLocation; enfant?: boolean }) {
-  const resume = resumeBien(b);
-  return (
-    <li className={enfant ? 'loc-enfant' : undefined}>
-      <span>
-        <a href={`/admin/location/bien/${b.id}`}>
-          {enfant ? `${LIBELLE_CATEGORIE[b.categorie]}${b.porte === null ? '' : ` n° ${b.porte}`}` : [b.adresse, b.commune].filter((x) => x).join(', ') || `Bien ${b.numero}`}
-        </a>{' '}
-        <span className="loc-pastille">{LIBELLE_CATEGORIE[b.categorie]}</span>
-        {resume !== '' && <span className="loc-muet"> · {resume}</span>}
-      </span>
-      <span className="loc-muet">{b.proprietaire ?? ''}{b.locataireEnPlace === null ? '' : ` · loué à ${b.locataireEnPlace}`}</span>
-    </li>
   );
 }
