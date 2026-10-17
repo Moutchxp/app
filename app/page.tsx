@@ -25,6 +25,7 @@ import type { MotifSansResultat } from "./lib/tunnel/motifSansResultat";
 import { MenuBurger } from "./MenuBurger";
 import { orchestrerIllimite, boutonEnvoiActif, LONGUEUR_MIN_MDP } from "./lib/tunnel/choixOffre";
 import { emissionDirecteConnecte, lireIssueIngestion, type IssueIngestion } from "./lib/tunnel/finTunnelConnecte";
+import { emettreApresPhoto } from "./lib/tunnel/photoAvantEmission";
 import { PhoneInput } from "react-international-phone";
 import "react-international-phone/style.css";
 import { getActiveFormattingMask } from "react-international-phone";
@@ -935,6 +936,9 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
 
   // Dépôt de la photo (Option B) : POST fire-and-forget vers /api/internaute/photo (route ANNEXE). Ne renvoie rien
   // d'exploité, n'attend rien, ne lève jamais. Voir le commentaire à l'appel dans `soumettre`.
+  // 🔴 LOT CERTIFICAT-PHOTO — le dépôt de la photo EN COURS : toute émission l'attend (`emettreApresPhoto`), sinon le
+  // certificat (immuable) recopie un `photo_cle` encore vide et part sans photo.
+  const depotPhotoRef = useRef<Promise<void> | null>(null);
   const deposerPhoto = async (jeton: string, projetId: number, photoDataUrl: string) => {
     try {
       await fetch("/api/internaute/photo", {
@@ -957,7 +961,10 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   // changement d'écran (setConfirme) ni par une fermeture d'onglet → JAMAIS le bug fire-and-forget d'origine. Le serveur
   // va au bout (PDF + envoi). Filet « PDF pour tous » : un acheminement resté ≠ 'envoye' est renvoyé au prochain
   // re-déclenchement de /api/certificat (séparation émission/(r)envoi, aucun 2e certificat). `res.ok` non exploité ici.
-  const emettreCertificat = async (jeton: string, projetId: number): Promise<boolean> => {
+  // 🔴 LOT CERTIFICAT-PHOTO — l'émission attend la fin du dépôt de la photo (au plus 30 s), pour TOUS les parcours.
+  const emettreCertificat = (jeton: string, projetId: number): Promise<boolean> =>
+    emettreApresPhoto(depotPhotoRef.current, () => emettreCertificatMaintenant(jeton, projetId));
+  const emettreCertificatMaintenant = async (jeton: string, projetId: number): Promise<boolean> => {
     try {
       const res = await fetch("/api/certificat", {
         method: "POST",
@@ -1004,7 +1011,7 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         // aucun message, aucun setState de chargement. Échec (réseau/stockage/jeton/IDOR) → ignoré ; le projet reste
         // sans photo_cle. La photo ne vit qu'en mémoire front : reprise/rechargement la perdent (accepté).
         // Dépôt via le jeton d'ÉMISSION (sub = projetId), toujours présent → photo déposée e-mail NEUF comme CONNU.
-        if (jetonEmi && projetId !== null && photo) void deposerPhoto(jetonEmi, projetId, photo);
+        if (jetonEmi && projetId !== null && photo) depotPhotoRef.current = deposerPhoto(jetonEmi, projetId, photo);
       } else {
         setErreurEnvoi("Vos coordonnées n'ont pas pu être enregistrées. Le certificat reste disponible.");
       }
@@ -1056,7 +1063,11 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
     // Le wording de succès reste honnête (« sera envoyé », futur).
     setConfirme(true);
     if (jetonEmission && projetIdA !== null) void emettreCertificat(jetonEmission, projetIdA);
-    else if (!jetonEmission && jetonEmissionB && projetIdB !== null) void emettreCertificat(jetonEmissionB, projetIdB);
+    else if (!jetonEmission && jetonEmissionB && projetIdB !== null) {
+      // 🔴 LOT CERTIFICAT-PHOTO — projet créé en B (rien posté en A) : sa photo n'était jamais déposée.
+      if (photo) depotPhotoRef.current = deposerPhoto(jetonEmissionB, projetIdB, photo);
+      void emettreCertificat(jetonEmissionB, projetIdB);
+    }
   };
 
   // D1 — chemin « TEST ILLIMITÉ » : crée le compte (route Commit B `/api/internaute/auth/creer`) AVANT l'émission, sans
