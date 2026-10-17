@@ -85,6 +85,8 @@ export interface SaisieEcran {
   pieces?: string[];
   /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (minutes) ; `null` = 1 h. */
   dureeMinutes?: number | null;
+  /** 🔴 LOT GESTION-INVITATIONS-TACHES — les AUTRES invités (en plus de « Confiée à ») ; absent ⇒ inchangés. */
+  invites?: number[];
 }
 
 export type GesteTache =
@@ -102,7 +104,9 @@ export type GesteTache =
   | { geste: 'ajouterPieces'; pieces: string[] }
   | { geste: 'retirerPiece'; driveId: string }
   /** 🔴 LOT TACHES-AGENDA — « Réessayer » l'envoi vers l'agenda Google. */
-  | { geste: 'reessayerAgenda' };
+  | { geste: 'reessayerAgenda' }
+  /** 🔴 LOT GESTION-INVITATIONS-TACHES — un autre destinataire pour un invité en attente ; l'ancien lien cesse d'agir. */
+  | { geste: 'changerDestinataire'; inviteId: number; collaborateurId: number };
 
 /** LA porte des gestes sur une tâche existante. */
 export function agirSurTache(id: number, g: GesteTache): Promise<IssueGeste> {
@@ -148,11 +152,11 @@ export async function lireDetailTache(id: number): Promise<DetailTache | null> {
 /** Une personne de la liste « Confiée à ». `accesGestion` faux ⇒ mention « sans accès Gestion » (règle du 13/10/2026). */
 export interface CollaborateurEcran { id: number; libelle: string; accesGestion?: boolean }
 
-export async function lireCollaborateurs(): Promise<{ collaborateurs: CollaborateurEcran[]; moi: number | null } | null> {
+export async function lireCollaborateurs(): Promise<{ collaborateurs: CollaborateurEcran[]; moi: number | null; invites?: boolean } | null> {
   try {
     const res = await fetch('/api/admin/gestion/taches/collaborateurs', { cache: 'no-store' });
-    const d = (await res.json()) as { etat?: string; collaborateurs?: CollaborateurEcran[]; moi?: number | null };
-    return res.ok && d.etat === 'ok' ? { collaborateurs: d.collaborateurs ?? [], moi: d.moi ?? null } : null;
+    const d = (await res.json()) as { etat?: string; collaborateurs?: CollaborateurEcran[]; moi?: number | null; invites?: boolean };
+    return res.ok && d.etat === 'ok' ? { collaborateurs: d.collaborateurs ?? [], moi: d.moi ?? null, invites: d.invites === true } : null;
   } catch {
     return null;
   }

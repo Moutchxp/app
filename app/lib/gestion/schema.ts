@@ -378,6 +378,16 @@ export function acceptationTacheDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 LOT GESTION-INVITATIONS-TACHES — la migration 365 est-elle appliquée ? Elle porte les INVITÉS d'une tâche (plusieurs
+ * collaborateurs, chacun sa demande, son lien et son événement d'agenda). Sans elle, une tâche a une seule personne,
+ * exactement comme avant ce lot.
+ */
+export function invitesTacheDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_tache_invite', async () =>
+    (await tableExiste('gestion_tache_invite')) && (await colonneExiste('gestion_tache_demande', 'invite_id')));
+}
+
+/**
  * 🔴 LOT TACHES-AGENDA — la migration 350 est-elle appliquée ? Elle porte le réglage « Envoyer les tâches dans
  * l'agenda Google », la durée d'un rendez-vous et le journal des appels à l'agenda. Sans elle, aucune tâche ne part
  * vers l'agenda et les tâches sont exactement celles d'avant ce lot.

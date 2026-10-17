@@ -19,3 +19,17 @@ export async function envoyerSiAutorise(request: Request, demande: DemandePosee 
   if (!(await peutEnvoyerAuNomDeGestion(request))) return 'sans_droit';
   return envoyerSiBesoin(demande);
 }
+
+/**
+ * 🔴 LOT GESTION-INVITATIONS-TACHES — PLUSIEURS INVITÉS : un mail par demande en attente (chacune son lien). Rend, pour
+ * chacune, le nom du destinataire et l'état de son mail ; le droit d'envoi n'est relu qu'une fois.
+ */
+export async function envoyerAuxInvites(request: Request, demandes: readonly DemandePosee[] | null | undefined):
+  Promise<{ destinataire: string; etat: EtatMailRoute }[]> {
+  const enAttente = (demandes ?? []).filter((d) => d.jeton !== null);
+  if (enAttente.length === 0) return [];
+  if (!(await peutEnvoyerAuNomDeGestion(request))) return enAttente.map((d) => ({ destinataire: d.destinataireLibelle ?? '', etat: 'sans_droit' as const }));
+  const out: { destinataire: string; etat: EtatMailRoute }[] = [];
+  for (const d of enAttente) out.push({ destinataire: d.destinataireLibelle ?? '', etat: (await envoyerSiBesoin(d)) ?? 'aucun' });
+  return out;
+}

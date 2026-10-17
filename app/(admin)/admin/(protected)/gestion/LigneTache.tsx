@@ -13,6 +13,8 @@ import { CSS_CONTACTS_TACHE, EncadresContacts } from './ContactsTache';
 import { tonDuGroupe } from '../../../../lib/gestion/historiqueBien';
 import { agirSurTache, ecouterTaches, lireContactsDuBien, lireDetailTache, type GesteTache } from './tachesClient';
 import { BADGE_ACCEPTATION, mentionMail } from '../../../../lib/gestion/acceptationTache';
+/* 🔴 LOT GESTION-INVITATIONS-TACHES — chaque invité, son état, « N acceptées sur M » ; « Changer le destinataire ». */
+import { CSS_INVITES_TACHE, InvitesTache } from './InvitesTache';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — UNE TÂCHE SUR UNE LIGNE, LA MÊME PARTOUT ═══════════════════════════════════════════════
@@ -253,6 +255,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
         {/* 🔴 LOT CARTE-CONTACTS-PARTOUT — la carte porte la feuille de ses encadrés de contact (liseré de famille, liens) :
             dans le récapitulatif, personne d'autre ne la montait, et les contacts y perdaient leur couleur. */}
         <style>{CSS_CONTACTS_TACHE}</style>
+        {(tache.invites ?? []).length > 0 && <style>{CSS_INVITES_TACHE}</style>}
         {/* ① TITRE — bandeau d'en-tête. 🔴 LOT TACHES-LIGNES-COMPACTES : dans une liste, un clic sur le bandeau REPLIE
             la carte (« ✏ Modifier » ouvre la fenêtre, en pied) ; une carte seule garde l'ouverture de la fenêtre. */}
         {/* 🔴 LOT CARTE-REPLI-BANDEAU (Arno, 13/10/2026) — un clic N'IMPORTE OÙ sur le bandeau (titre, flèche, marges) replie
@@ -302,6 +305,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
               <span className="tch-motif">Refusée par {tache.acceptation.reponduParLibelle ?? tache.acceptation.destinataireLibelle} : {tache.acceptation.motif}</span>
             )}
           </div>
+          <InvitesTache tache={tache} terminee={terminee} occupe={occupe} agir={agir} />
         </div>
         {/* ③ NOTES (+ pièces jointes) — absent si rien à dire. */}
         {(note !== '' || pieces.length > 0) && (
@@ -384,7 +388,7 @@ export function LigneTache({ tache, maintenant, avecAdresse = false, onOuvrirBie
           )}
         </span>
         <span className="tch-l2-droite">
-          <span className="tch-confiee">→ {tache.confieeALibelle}</span>
+          <span className="tch-confiee">→ {tache.confieeALibelle}{(tache.invites ?? []).length > 1 ? ` +${(tache.invites ?? []).length - 1}` : ''}</span>
           {agenda && <span className={`tch-agenda tch-agenda--${agenda.etat}`} data-agenda={agenda.etat}>{MOT_AGENDA_COURT[agenda.etat]}</span>}
         </span>
       </div>

@@ -11,8 +11,8 @@ import { piecesTacheDisponible } from '../../../../../lib/gestion/schema';
 import type { PieceAjout } from '../../../../../lib/gestion/taches';
 /* 🔴 LOT TACHES-ACCEPTATION — après la création, le mail de demande (envoi réel seulement si le réglage l'autorise). */
 // AUDIT POINT 9 : le mail de demande part au nom de gestion@ → seulement avec le droit d'envoi (cf. acceptationAutorisee.ts).
-import { envoyerSiAutorise } from '../../../../../lib/gestion/acceptationAutorisee';
-import { mentionMail } from '../../../../../lib/gestion/acceptationTache';
+import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../../lib/gestion/acceptationAutorisee';
+import { mentionMail, phraseInvitations } from '../../../../../lib/gestion/acceptationTache';
 /* 🔴 LOT TACHES-AGENDA — après la création : l'agenda (réglage actif seulement) ; la lecture relance la reprise automatique. */
 import { declencherReprise, synchroniserApresGeste } from '../../../../../lib/gestion/agendaSynchroRepo';
 
@@ -70,6 +70,15 @@ export async function POST(request: Request): Promise<Response> {
   }
   const issue = await creerTache(lotId, saisie, await auteurDeLaRequete(request), pieces);
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités (migration 365) : un mail par invité en attente. */
+  if (issue.demandes !== undefined) {
+    const envois = await envoyerAuxInvites(request, issue.demandes);
+    const agenda = await synchroniserApresGeste(issue.id);
+    return Response.json({
+      etat: 'ok', id: issue.id,
+      message: `${envois.length > 0 ? 'Tâche créée, en attente d’acceptation.' : 'Tâche créée.'}${phraseInvitations(envois)}${agenda}`,
+    });
+  }
   const mail = await envoyerSiAutorise(request, issue.demande);
   const agenda = await synchroniserApresGeste(issue.id);
   const enAttente = issue.demande?.statut === 'en_attente';

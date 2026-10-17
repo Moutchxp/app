@@ -9,7 +9,7 @@ import {
   type ActionTache, type ChampTache, type EtatTache, type PieceAjout, type PieceTache, type RaccourciDecalage, type Rappel, type SaisieTache, type Tache, type TraceTache,
 } from './taches';
 /* 🔴 LOT TACHES-1-BIS — les contacts du bien, copiés dans la tâche (migration 347). */
-import { acceptationTacheDisponible, agendaTacheDisponible, contactsTacheDisponible, piecesTacheDisponible } from './schema';
+import { acceptationTacheDisponible, agendaTacheDisponible, contactsTacheDisponible, invitesTacheDisponible, piecesTacheDisponible } from './schema';
 /* 🔴 LOT TACHES-AGENDA — chaque geste réussi demande la synchronisation de l'agenda, dans SA transaction (migration 350). */
 import { complementsAgenda, marquerASynchroniser } from './agendaSynchroRepo';
 /* 🔴 LOT TACHES-ACCEPTATION — la demande d'acceptation, posée dans la transaction du geste qui la provoque. */
@@ -17,6 +17,9 @@ import { poserDemande, versAcceptation, type DemandePosee } from './acceptationR
 import { acceptationInitiale } from './acceptationTache';
 import { contactsDuBienPourTache } from './contactsTacheRepo';
 import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache } from './contactsTache';
+/* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche, chacun sa demande (migration 365). */
+import { alignerInvites, invitesDesTaches, personnesInvitees, type PersonneInvitee } from './invitesRepo';
+import { invitesDeLaSaisie } from './taches';
 
 /**
  * ══ 🔴🔴 LOT TACHES-1 — LE DÉPÔT DES TÂCHES (migration 346) ═══════════════════════════════════════════════════════
@@ -92,7 +95,10 @@ const sqlTache = (avecContacts: boolean, avecPieces = false, avecDemande = false
      d.demandeur_libelle AS dem_demandeur_libelle, d.cree_le AS dem_cree_le, d.repondu_le AS dem_repondu_le,
      d.repondu_par_libelle AS dem_repondu_par_libelle, d.motif AS dem_motif, d.mail_etat AS dem_mail_etat, d.mail_le AS dem_mail_le`
   : 'NULL::text AS dem_statut').replace('__DEMANDE_JOINTURE__', avecDemande
-  ? "LEFT JOIN gestion_tache_demande d ON d.tache_id = t.id AND d.statut <> 'remplacee'" : '').replace('__NB_CONTACTS__', avecContacts
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs demandes courantes possibles (une par invité) : la ligne montre celle
+     de la personne « Confiée à » (les autres invités sont lus à part, `invitesDesTaches`). */
+  ? `LEFT JOIN LATERAL (SELECT d0.* FROM gestion_tache_demande d0 WHERE d0.tache_id = t.id AND d0.statut <> 'remplacee'
+       ORDER BY (d0.destinataire_id IS NOT DISTINCT FROM t.confiee_a) DESC, d0.id DESC LIMIT 1) d ON true` : '').replace('__NB_CONTACTS__', avecContacts
   ? '(SELECT count(*)::int FROM gestion_tache_contact c WHERE c.tache_id = t.id AND c.retire_le IS NULL)'
   : '0').replace('__NB_PIECES__', avecPieces
   ? '(SELECT count(*)::int FROM gestion_tache_piece p WHERE p.tache_id = t.id AND p.retire_le IS NULL)'
@@ -164,6 +170,13 @@ async function avecAgenda(taches: Tache[]): Promise<Tache[]> {
   });
 }
 
+/** 🔴 LOT GESTION-INVITATIONS-TACHES — les invités actifs de chaque tâche (une requête pour toute la liste). */
+async function avecInvites(taches: Tache[]): Promise<Tache[]> {
+  const m = await invitesDesTaches(taches.map((t) => t.id));
+  if (m.size === 0) return taches;
+  return taches.map((t) => ({ ...t, invites: m.get(t.id) ?? [] }));
+}
+
 function versTache(r: LigneTache): Tache {
   return {
     id: Number(r.id), lotId: Number(r.lot_id), lotCle: r.lot_cle, adresseBien: titreLogement(r.adresse, r.commune),
@@ -207,7 +220,7 @@ export async function listerTaches(lotId: number | null): Promise<{ taches: Tach
         ORDER BY coalesce(t.faite_le, t.annulee_le, t.maj_le) DESC, t.id DESC LIMIT ${TERMINEES_MAX}`, [lotId]),
   ]);
   const tronque = o.rows.length > OUVERTES_MAX;
-  const taches = await avecContactsResume(await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache)));
+  const taches = await avecInvites(await avecContactsResume(await avecAgenda([...o.rows.slice(0, OUVERTES_MAX), ...t.rows].map(versTache))));
   // 🔴 LOT FICHE-CARTE-TACHE — sur la fiche d'UN bien, chaque carte montre ses contacts et ses pièces sans clic de plus.
   return { taches: lotId === null ? taches : await avecContactsEtPieces(taches), tronque };
 }
@@ -221,7 +234,7 @@ export async function lireTache(id: number): Promise<{ tache: Tache; traces: Tra
     `SELECT action, avant, apres, survenu_le, auteur_libelle FROM gestion_tache_action
       WHERE tache_id = $1 ORDER BY survenu_le, id`, [id]);
   return {
-    tache: (await avecAgenda([versTache(rows[0])]))[0],
+    tache: (await avecInvites(await avecAgenda([versTache(rows[0])])))[0],
     traces: tr.rows.map((r) => ({
       action: r.action, avant: r.avant, apres: r.apres, survenuLe: iso(r.survenu_le) ?? '', auteurLibelle: r.auteur_libelle,
     })),
@@ -380,7 +393,7 @@ export async function actualiserContact(id: number, cle: string, auteur: Auteur)
   });
 }
 
-export type IssueTache = { ok: true; id: number; demande?: DemandePosee | null }
+export type IssueTache = { ok: true; id: number; demande?: DemandePosee | null; demandes?: DemandePosee[] }
   /** `champ` : le champ de la fenêtre à qui le refus se rattache (affiché À CÔTÉ de lui), quand il y en a un. */
   | { ok: false; statut: number; motif: string; champ?: ChampTache };
 
@@ -415,12 +428,15 @@ export async function creerTache(
   const avecPieces = pieces.length > 0 && await piecesTacheDisponible();
   const avecAcceptation = await acceptationTacheDisponible();
   const avecDuree = await agendaTacheDisponible();
+  const plusieurs = avecAcceptation && await invitesTacheDisponible();
   const sources = await sourcesPour(lotId, s);
   return withTransaction(async (q) => {
     const lot = await q(`SELECT 1 FROM gestion_annuaire_lot WHERE id = $1`, [lotId]);
     if (lot.rows.length === 0) return { ok: false, statut: 404, motif: 'Bien introuvable.' };
     const c = await collaborateurValide(q, s.confieeA);
     if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.', champ: 'confieeA' };
+    const autres = plusieurs ? await autresInvitesValides(q, s, c) : [];
+    if (autres === null) return REFUS_INVITE;
     if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.', champ: 'evenementId' };
     const nom = await nomAuteur(q, auteur);
     const rappels = rappelsValides(s.rappels, s.heure !== null);
@@ -440,6 +456,14 @@ export async function creerTache(
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
     if (avecPieces) await poserPieces(q, id, pieces, auteur, nom);
     /* 🔴 LOT TACHES-ACCEPTATION — confiée à soi : acceptée d'office ; à un autre : en attente, et un mail à préparer. */
+    /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : un invité par personne (« Confiée à » d'abord), chacun SA demande. */
+    if (plusieurs) {
+      const demandes = await alignerInvites(q, {
+        tacheId: id, voulus: [{ id: c.id, libelle: c.libelle }, ...autres], auteur, nom, relancer: false, creation: true,
+      });
+      await marquerASynchroniser(q, id);
+      return { ok: true, id, demande: demandes[0] ?? null, demandes };
+    }
     const demande = avecAcceptation ? await poserDemande(q, { tacheId: id, confieeA: c.id, confieeLibelle: c.libelle, auteur, nom }) : null;
     await marquerASynchroniser(q, id);
     return { ok: true, id, demande };
@@ -447,6 +471,23 @@ export async function creerTache(
 }
 
 const vide = (x: string | null): string | null => ((x ?? '').trim() === '' ? null : (x ?? '').trim());
+
+const REFUS_INVITE: IssueTache = {
+  ok: false, statut: 400, champ: 'invites',
+  motif: 'Un des invités n’a pas de compte actif avec une adresse de notre Workspace : retirez-le ou choisissez quelqu’un d’autre.',
+};
+
+/** Les AUTRES invités de la saisie (hors « Confiée à »), relus en base et passés à LA règle. `null` = un refusé. */
+async function autresInvitesValides(q: RequeteTx, s: SaisieTache, principal: Collaborateur): Promise<PersonneInvitee[] | null> {
+  const out: PersonneInvitee[] = [];
+  for (const id of invitesDeLaSaisie({ confieeA: principal.id, invites: s.invites })) {
+    if (Number(id) === Number(principal.id)) continue;
+    const c = await collaborateurValide(q, id);
+    if (c === null) return null;
+    out.push({ id: c.id, libelle: c.libelle });
+  }
+  return out;
+}
 
 interface Courante {
   lot_id: number;
@@ -524,6 +565,7 @@ export async function decalerTache(
   maintenant: Date = new Date(),
 ): Promise<IssueTache> {
   const avecAcceptation = await acceptationTacheDisponible();
+  const plusieurs = avecAcceptation && await invitesTacheDisponible();
   const avecDuree = !('raccourci' in vers) && vers.dureeMinutes !== undefined && await agendaTacheDisponible();
   const relancerDemande = (q: RequeteTx, tid: number, confieeA: number | null, libelle: string, a: Auteur, nom: string) =>
     (avecAcceptation ? relancer(q, tid, confieeA, libelle, a, nom) : Promise.resolve(null));
@@ -551,6 +593,12 @@ export async function decalerTache(
       { jour: t.jour, heure: t.heure, ...(dureeChange ? { dureeMinutes: dureeAvant ?? null } : {}) },
       { jour, heure, ...(dureeChange ? { dureeMinutes: dureeApres } : {}) }, auteur, nom);
     // 🔴 LOT TACHES-ACCEPTATION — changer la date ou l'heure relance la demande (décision d'Arno, point 6).
+    // 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : la demande de CHAQUE invité est relancée.
+    if (plusieurs) {
+      const demandes = await alignerInvites(q, { tacheId: id, voulus: await personnesInvitees(q, id), auteur, nom, relancer: true, creation: false });
+      await marquerASynchroniser(q, id);
+      return { ok: true, id, demande: demandes[0] ?? null, demandes };
+    }
     const demande = await relancerDemande(q, id, t.confiee_a === null ? null : Number(t.confiee_a), t.confiee_a_libelle, auteur, nom);
     await marquerASynchroniser(q, id);
     return { ok: true, id, demande };
@@ -563,6 +611,7 @@ export async function decalerTache(
  */
 export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur): Promise<IssueTache> {
   const avecAcceptation = await acceptationTacheDisponible();
+  const plusieurs = avecAcceptation && await invitesTacheDisponible();
   /* 🔴 LOT TACHES-AGENDA — la durée ne se compare (et ne s'écrit) que si la 350 est là ET que l'écran l'a envoyée. */
   const avecDuree = s.dureeMinutes !== undefined && await agendaTacheDisponible();
   const lot = await query<{ lot_id: number }>(`SELECT lot_id::int AS lot_id FROM gestion_tache WHERE id = $1`, [id]);
@@ -574,6 +623,17 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
     const c = await collaborateurValide(q, s.confieeA);
     if (c === null) return { ok: false, statut: 400, motif: 'Cette personne n’a pas de compte actif avec une adresse de notre Workspace.', champ: 'confieeA' };
     if (!await evenementExiste(q, s.evenementId)) return { ok: false, statut: 400, motif: 'Événement introuvable.', champ: 'evenementId' };
+    /* 🔴 LOT GESTION-INVITATIONS-TACHES — les invités voulus : « Confiée à » puis les autres. Un écran qui n'envoie pas la
+       liste (`invites` absent) garde les autres invités actuels. */
+    const invitesAvant = plusieurs ? await personnesInvitees(q, id) : [];
+    let invitesVoulus: PersonneInvitee[] = [];
+    if (plusieurs) {
+      const autres = s.invites === undefined
+        ? invitesAvant.filter((p) => Number(p.id) !== Number(c.id) && Number(p.id) !== Number(t.confiee_a))
+        : await autresInvitesValides(q, s, c);
+      if (autres === null) return REFUS_INVITE;
+      invitesVoulus = [{ id: c.id, libelle: c.libelle }, ...autres];
+    }
     const rappels = rappelsValides(s.rappels, s.heure !== null);
     const dureeAvant = avecDuree
       ? (await q<{ d: number | null }>(`SELECT duree_minutes AS d FROM gestion_tache WHERE id = $1`, [id])).rows[0]?.d ?? null : null;
@@ -596,6 +656,10 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
         apres[k] = k === 'confieeA' ? c.libelle : nouveau[k];
       }
     }
+    const listeInvites = (l: readonly PersonneInvitee[]) => l.map((p) => p.libelle);
+    const invitesChangent = plusieurs
+      && JSON.stringify(invitesAvant.map((p) => Number(p.id)).sort()) !== JSON.stringify(invitesVoulus.map((p) => Number(p.id)).sort());
+    if (invitesChangent) { avant.invites = listeInvites(invitesAvant); apres.invites = listeInvites(invitesVoulus); }
     const nom = await nomAuteur(q, auteur);
     if (sources !== null) await synchroniserContacts(q, id, s.contacts ?? [], sources, auteur, nom);
     await marquerASynchroniser(q, id);
@@ -608,6 +672,14 @@ export async function modifierTache(id: number, s: SaisieTache, auteur: Auteur):
     if ('dureeMinutes' in apres) await q(`UPDATE gestion_tache SET duree_minutes = $2 WHERE id = $1`, [id, apres.dureeMinutes]);
     await tracer(q, id, 'modification', avant, apres, auteur, nom);
     /* 🔴 LOT TACHES-ACCEPTATION — date, heure ou personne changée ⇒ nouvelle demande ; le reste ne change pas le statut. */
+    /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : un invité retiré perd son lien, un nouveau reçoit le sien ; date ou
+       heure changée ⇒ CHAQUE invité reçoit une nouvelle demande. */
+    if (plusieurs) {
+      const demandes = await alignerInvites(q, {
+        tacheId: id, voulus: invitesVoulus, auteur, nom, relancer: 'jour' in apres || 'heure' in apres, creation: false,
+      });
+      return { ok: true, id, demande: demandes[0] ?? null, demandes };
+    }
     const relance = 'jour' in apres || 'heure' in apres || 'confieeA' in apres;
     const demande = avecAcceptation && relance ? await relancer(q, id, c.id, c.libelle, auteur, nom) : null;
     return { ok: true, id, demande };
@@ -640,7 +712,15 @@ export async function renvoyerDemande(id: number, auteur: Auteur): Promise<Issue
     if (acceptationInitiale(t.confiee_a, auteur.id) === 'acceptee') {
       return { ok: false, statut: 409, motif: 'Cette tâche vous est confiée : il n’y a pas de demande à renvoyer.' };
     }
-    const demande = await poserDemande(q, { tacheId: id, confieeA: t.confiee_a, confieeLibelle: t.confiee_a_libelle, auteur, nom, motifTrace: 'renvoi' });
+    /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : la demande de l'invité « Confiée à » (les autres ne bougent pas). */
+    const principal = (await invitesTacheDisponible())
+      ? (await q<{ id: number }>(`SELECT id::int AS id FROM gestion_tache_invite
+          WHERE tache_id = $1 AND retire_le IS NULL AND collaborateur_id IS NOT DISTINCT FROM $2::bigint LIMIT 1`, [id, t.confiee_a])).rows[0]?.id ?? null
+      : null;
+    const demande = await poserDemande(q, {
+      tacheId: id, confieeA: t.confiee_a, confieeLibelle: t.confiee_a_libelle, auteur, nom, motifTrace: 'renvoi',
+      ...(principal !== null ? { inviteId: Number(principal), raison: 'renvoi' as const } : {}),
+    });
     return { ok: true, id, demande };
   });
 }

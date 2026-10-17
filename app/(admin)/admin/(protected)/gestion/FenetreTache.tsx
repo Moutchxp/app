@@ -8,10 +8,12 @@ import {
 import { blocContacts, type ContactSource } from '../../../../lib/gestion/contactsTache';
 import {
   agirSurTache, creerTache, lireCollaborateurs, lireContactsDuBien, lireDetailTache, lireEvenementsDuBien,
-  type CollaborateurEcran, type DetailTache, type SaisieEcran,
+  type CollaborateurEcran, type DetailTache, type GesteTache, type SaisieEcran,
 } from './tachesClient';
 import { CSS_TACHES } from './LigneTache';
 import { BADGE_ACCEPTATION, mentionMail, type AcceptationTache } from '../../../../lib/gestion/acceptationTache';
+/* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche : la même liste que la carte. */
+import { CSS_INVITES_TACHE, InvitesTache } from './InvitesTache';
 import { ChoixContacts, ContactsAffiches, CSS_CONTACTS_TACHE, type ContactPropose } from './ContactsTache';
 /* 🔴 LOT TACHES-PIECES-DRIVE — le sélecteur Drive en LECTURE SEULE des tâches. */
 import { SelecteurDriveTache, type FichierChoisi } from './SelecteurDriveTache';
@@ -55,7 +57,8 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
   /** 🔴 Une tâche vient d'être CRÉÉE : la fenêtre se ferme, et l'appelant AFFICHE la confirmation (jamais en silence). */
   onCree?: (confirmation: string) => void;
 }) {
-  const [collab, setCollab] = useState<{ liste: CollaborateurEcran[]; moi: number | null } | null>(null);
+  /** `invites` : la migration 365 est là — la fenêtre propose « Inviter aussi » (plusieurs invités par tâche). */
+  const [collab, setCollab] = useState<{ liste: CollaborateurEcran[]; moi: number | null; invites?: boolean } | null>(null);
   const [detail, setDetail] = useState<DetailTache | null>(null);
   /** 🔴 LOT TACHES-1-BIS — les contacts du bien (fiche d'aujourd'hui) ; `null` ⇒ section absente. */
   const [sources, setSources] = useState<ContactSource[] | null>(null);
@@ -93,7 +96,7 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     void (async () => {
       const c = await lireCollaborateurs();
       if (annule) return;
-      setCollab(c === null ? { liste: [], moi: null } : { liste: c.collaborateurs, moi: c.moi });
+      setCollab(c === null ? { liste: [], moi: null } : { liste: c.collaborateurs, moi: c.moi, invites: c.invites === true });
       if (mode.sorte === 'creer' && c !== null) {
         // MOI PAR DÉFAUT — si j'ai un compte avec l'accès Gestion ; sinon le premier de la liste.
         const moi = c.collaborateurs.find((x) => x.id === c.moi)?.id ?? c.collaborateurs[0]?.id ?? null;
@@ -116,6 +119,8 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
           objet: t.objet, jour: t.jour, heure: t.heure, note: t.note ?? '', confieeA: t.confieeA,
           evenementId: t.evenement?.id ?? null, rappels: t.rappels,
           ...(t.dureeMinutes !== undefined ? { dureeMinutes: t.dureeMinutes } : {}),
+          ...(t.invites !== undefined
+            ? { invites: t.invites.filter((i) => !i.principal && i.collaborateurId !== null).map((i) => Number(i.collaborateurId)) } : {}),
         });
         setChoisis(d.contacts.map((c) => c.cle));
       }
@@ -184,7 +189,11 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setOccupe(true);
     setMessage(null);
     // Les contacts ne voyagent que si la section existe : sans elle, ils ne sont pas touchés.
-    const avecContacts: SaisieEcran = sources === null ? saisie : { ...saisie, contacts: choisis };
+    const avecContacts0: SaisieEcran = sources === null ? saisie : { ...saisie, contacts: choisis };
+    /* 🔴 LOT GESTION-INVITATIONS-TACHES — les autres invités ne voyagent que si le serveur sait les recevoir (365). */
+    const avecContacts: SaisieEcran = collab?.invites === true
+      ? { ...avecContacts0, invites: (avecContacts0.invites ?? []).filter((id) => id !== avecContacts0.confieeA) }
+      : (({ invites: _i, ...reste }) => reste)(avecContacts0);
     const envoi: SaisieEcran = mode.sorte === 'creer' && piecesChoisies.length > 0
       ? { ...avecContacts, pieces: piecesChoisies.map((p) => p.id) } : avecContacts;
     const r = mode.sorte === 'creer'
@@ -234,6 +243,17 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
     setOccupe(true);
     setMessage(null);
     const r = await agirSurTache(mode.id, { geste: 'renvoyerDemande' });
+    setOccupe(false);
+    setMessage(r.ok ? { ok: true, texte: r.message } : { ok: false, texte: r.message, champ: r.champ ?? null });
+    if (r.ok) setVersion((v) => v + 1);
+  };
+
+  /** 🔴 LOT GESTION-INVITATIONS-TACHES — un geste sur un invité (changer le destinataire…), puis relecture. */
+  const agirInvite = async (g: GesteTache) => {
+    if (mode.sorte !== 'detail') return;
+    setOccupe(true);
+    setMessage(null);
+    const r = await agirSurTache(mode.id, g);
     setOccupe(false);
     setMessage(r.ok ? { ok: true, texte: r.message } : { ok: false, texte: r.message, champ: r.champ ?? null });
     if (r.ok) setVersion((v) => v + 1);
@@ -314,6 +334,14 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
           </div>
         )}
 
+        {/* 🔴 LOT GESTION-INVITATIONS-TACHES — chaque invité, son état, « N acceptées sur M ». */}
+        {tache !== null && (tache.invites ?? []).length > 0 && (
+          <div className="tchf-acceptation tchf-invites">
+            <style>{CSS_INVITES_TACHE}</style>
+            <InvitesTache tache={tache} terminee={terminee} occupe={occupe} agir={agirInvite} />
+          </div>
+        )}
+
         {/* 🔴 LOT TACHES-AGENDA — l'état « Agenda » de la tâche ; un échec se dit, avec « Réessayer ». */}
         {tache?.agenda && (
           <div className={`tchf-agenda tch-agenda--${tache.agenda.etat}`} data-agenda={tache.agenda.etat}>
@@ -387,6 +415,26 @@ export function FenetreTache({ mode, onFermer, onEcrire, onCree }: {
             </select>
             {erreurDe('confieeA')}
           </label>
+          {/* 🔴 LOT GESTION-INVITATIONS-TACHES — « Inviter aussi » : d'autres collaborateurs, chacun SA propre invitation (son
+              lien, sa réponse). Seulement quand le serveur sait les recevoir (migration 365). */}
+          {collab?.invites === true && (
+            <fieldset className="tchf-champ tchf-invites-choix" disabled={lectureSeule}>
+              <legend className="tch-etiquette">Inviter aussi (chacun reçoit sa propre invitation)</legend>
+              <div className="tchf-rappels">
+                {collab.liste.filter((c) => c.id !== saisie.confieeA).map((c) => (
+                  <label key={c.id} className="tchf-case">
+                    <input type="checkbox" data-invite-choix={c.id} checked={(saisie.invites ?? []).includes(c.id)}
+                      onChange={() => setSaisie((s) => {
+                        const l = s.invites ?? [];
+                        return { ...s, invites: l.includes(c.id) ? l.filter((x) => x !== c.id) : [...l, c.id] };
+                      })} />
+                    {c.libelle}{c.id === collab.moi ? ' (moi)' : ''}
+                  </label>
+                ))}
+              </div>
+              {erreurDe('invites')}
+            </fieldset>
+          )}
           <label className="tchf-champ">
             <span className="tch-etiquette">Événement du bien lié (facultatif)</span>
             <select value={saisie.evenementId ?? ''} disabled={lectureSeule}

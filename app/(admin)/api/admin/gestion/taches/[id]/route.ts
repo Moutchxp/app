@@ -11,8 +11,10 @@ import {
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
 import { relirePieces } from '../../../../../../lib/gestion/tachesDrive';
 // AUDIT POINT 9 : le mail de demande part au nom de gestion@ → seulement avec le droit d'envoi (cf. acceptationAutorisee.ts).
-import { envoyerSiAutorise } from '../../../../../../lib/gestion/acceptationAutorisee';
-import { mentionMail } from '../../../../../../lib/gestion/acceptationTache';
+import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../../../lib/gestion/acceptationAutorisee';
+import { mentionMail, phraseInvitations } from '../../../../../../lib/gestion/acceptationTache';
+/* 🔴 LOT GESTION-INVITATIONS-TACHES — « Changer le destinataire » d'un invité (migration 365). */
+import { changerDestinataire } from '../../../../../../lib/gestion/invitesRepo';
 /* 🔴 LOT TACHES-AGENDA — après chaque geste : l'agenda (réglage actif seulement) ; « Réessayer » le relance. */
 import { reessayerSynchro, phraseSynchro, synchroniserApresGeste } from '../../../../../../lib/gestion/agendaSynchroRepo';
 
@@ -35,6 +37,8 @@ import { reessayerSynchro, phraseSynchro, synchroniserApresGeste } from '../../.
  * le refuse de toute façon — migration 346).
  *
  *    · `reessayerAgenda` (LOT TACHES-AGENDA) → « Réessayer » l'envoi vers l'agenda Google, tout de suite.
+ *    · `changerDestinataire` + `inviteId` + `collaborateurId` (LOT GESTION-INVITATIONS-TACHES) → l'invité en attente
+ *      laisse sa place : son lien cesse d'agir (« Cette invitation ne vous est plus destinée »), le nouveau reçoit la sienne.
  * 🔴 LOT TACHES-AGENDA — après chaque geste réussi, l'agenda est synchronisé (réglage actif seulement) ; un échec de
  * Google n'annule jamais le geste, il se dit (« Agenda : à resynchroniser »).
  * 🔒 `exigerCompteActif(…, 'gestion')`. Runtime Node (driver pg).
@@ -74,6 +78,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const corps = (await request.json().catch(() => ({}))) as Record<string, unknown>;
   const geste = String(corps.geste ?? '');
   const auteur = await auteurDeLaRequete(request);
+
+  const entier = (x: unknown): number | null => { const n = Number(x); return Number.isInteger(n) && n > 0 ? n : null; };
+  if (geste === 'changerDestinataire') {
+    const inviteId = entier(corps.inviteId);
+    const collaborateurId = entier(corps.collaborateurId);
+    if (inviteId === null) return Response.json({ erreur: 'Invité inconnu.' }, { status: 400 });
+    if (collaborateurId === null) return Response.json({ erreur: 'Choisissez le nouveau destinataire.' }, { status: 400 });
+    const r = await changerDestinataire(id, inviteId, collaborateurId, auteur);
+    if (!r.ok) return Response.json({ erreur: r.motif }, { status: r.statut });
+    const envois = await envoyerAuxInvites(request, r.demandes);
+    const agenda = await synchroniserApresGeste(r.id);
+    return Response.json({ etat: 'ok', id: r.id, message: `${r.message}${phraseInvitations(envois)}${agenda}` });
+  }
 
   let issue: IssueTache;
   if (geste === 'faite') issue = await marquerFaite(id, auteur);
@@ -135,6 +152,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!issue.ok) return Response.json({ erreur: issue.motif, champ: issue.champ ?? null }, { status: issue.statut });
   /* 🔴 LOT TACHES-ACCEPTATION — un geste qui a posé une demande en attente (renvoi, date/heure/personne changée) :
      son mail, préparé (et envoyé seulement si le réglage l'autorise). */
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités (migration 365) : un mail par invité en attente. */
+  if (issue.demandes !== undefined) {
+    const envois = await envoyerAuxInvites(request, issue.demandes);
+    const agenda = await synchroniserApresGeste(issue.id);
+    return Response.json({ etat: 'ok', id: issue.id, message: `${MESSAGES[geste]}${phraseInvitations(envois)}${agenda}` });
+  }
   const mail = await envoyerSiAutorise(request, issue.demande);
   const suite = issue.demande?.statut === 'en_attente'
     ? ` Nouvelle demande d’acceptation${mail && mentionMail(mail) ? ` — ${mentionMail(mail)}` : mail === 'envoye' ? ' envoyée par mail' : ''}.` : '';

@@ -35,7 +35,7 @@ beforeEach(() => { appels = []; ENVOIS_FACTICES.length = 0; envoiActive = false;
 describe('🔴 la demande', () => {
   it('confiée à moi : acceptée d’office, aucun jeton', async () => {
     const d = await poserDemande(q as never, { tacheId: 7, confieeA: 2, confieeLibelle: 'Arnaud Jorel', auteur: ARNO, nom: 'Arnaud Jorel' });
-    expect(d).toEqual({ demandeId: 41, statut: 'acceptee', jeton: null });
+    expect(d).toEqual({ demandeId: 41, statut: 'acceptee', jeton: null, inviteId: null, destinataireLibelle: 'Arnaud Jorel' });
     expect(appels.find((a) => a.sql.includes('INSERT INTO gestion_tache_demande'))?.sql).toContain("'acceptee', true");
   });
   it('confiée à un autre : en attente ; l’ancienne demande est remplacée ; le jeton n’est stocké qu’en empreinte', async () => {

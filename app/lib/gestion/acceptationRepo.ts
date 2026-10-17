@@ -17,6 +17,8 @@ import { lireDomaines } from './googleCollaborateur';
 /* 🔴 LOT TACHES-AGENDA — accepter ou refuser change la place de la tâche dans l'agenda : on le marque dans la transaction. */
 import { marquerASynchroniser } from './agendaSynchroRepo';
 import { adresseApplication, MENTION_LIEN_LOCAL } from './adresseApplication';
+/* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche (migration 365) : une demande courante PAR INVITÉ. */
+import { invitesTacheDisponible } from './schema';
 
 /**
  * ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE DÉPÔT DES DEMANDES D'ACCEPTATION (migration 349) ══════════════════════════════
@@ -71,38 +73,56 @@ async function tracer(q: RequeteTx, tacheId: number, avant: unknown, apres: unkn
     [tacheId, avant === null ? null : JSON.stringify(avant), JSON.stringify(apres), auteur.id, nom]);
 }
 
-export interface DemandePosee { demandeId: number; statut: StatutAcceptation; jeton: string | null }
+export interface DemandePosee {
+  demandeId: number; statut: StatutAcceptation; jeton: string | null;
+  /** 🔴 LOT GESTION-INVITATIONS-TACHES — l'invité à qui elle est adressée (migration 365), et son nom. */
+  inviteId?: number | null; destinataireLibelle?: string;
+}
+
+/** Pourquoi une demande est posée (colonne `raison`, migration 365). */
+export type RaisonDemande = 'creation' | 'ajout' | 'relance' | 'renvoi' | 'destinataire_change';
 
 /**
  * POSE la demande COURANTE d'une tâche, en remplaçant la précédente. Confiée à soi-même ⇒ « Acceptée » d'office ;
  * sinon « En attente », avec un jeton neuf (rendu en clair UNE fois, pour le mail).
+ * 🔴 LOT GESTION-INVITATIONS-TACHES — avec `inviteId` (migration 365), la demande est celle de CET invité : seule SA
+ * demande précédente est remplacée, celles des autres invités ne bougent pas.
  */
 export async function poserDemande(q: RequeteTx, o: {
   tacheId: number; confieeA: number | null; confieeLibelle: string; auteur: Auteur; nom: string; motifTrace?: string;
+  inviteId?: number | null; raison?: RaisonDemande;
 }): Promise<DemandePosee> {
-  await q(`UPDATE gestion_tache_demande SET statut = 'remplacee', remplacee_le = now()
-            WHERE tache_id = $1 AND statut <> 'remplacee'`, [o.tacheId]);
+  const parInvite = o.inviteId !== undefined && o.inviteId !== null;
+  if (parInvite) {
+    await q(`UPDATE gestion_tache_demande SET statut = 'remplacee', remplacee_le = now()
+              WHERE invite_id = $1 AND statut <> 'remplacee'`, [o.inviteId]);
+  } else {
+    await q(`UPDATE gestion_tache_demande SET statut = 'remplacee', remplacee_le = now()
+              WHERE tache_id = $1 AND statut <> 'remplacee'`, [o.tacheId]);
+  }
+  const colonnes = parInvite ? ', invite_id, raison' : '';
+  const extra = parInvite ? [o.inviteId, o.raison ?? null] : [];
   const statut = acceptationInitiale(o.confieeA, o.auteur.id);
   const email = o.confieeA === null ? null
     : (await q<{ e: string }>(`SELECT identifiant AS e FROM admin_utilisateur WHERE id = $1`, [o.confieeA])).rows[0]?.e ?? null;
   if (statut === 'acceptee') {
     const { rows } = await q<{ id: number }>(
       `INSERT INTO gestion_tache_demande (tache_id, destinataire_id, destinataire_libelle, destinataire_email, demandeur_id,
-         demandeur_libelle, statut, automatique, repondu_le, repondu_par_libelle)
-       VALUES ($1, $2, $3, $4, $5, $6, 'acceptee', true, now(), $6) RETURNING id::int AS id`,
-      [o.tacheId, o.confieeA, o.confieeLibelle, email, o.auteur.id, o.nom]);
+         demandeur_libelle, statut, automatique, repondu_le, repondu_par_libelle${colonnes})
+       VALUES ($1, $2, $3, $4, $5, $6, 'acceptee', true, now(), $6${parInvite ? ', $7, $8' : ''}) RETURNING id::int AS id`,
+      [o.tacheId, o.confieeA, o.confieeLibelle, email, o.auteur.id, o.nom, ...extra]);
     await tracer(q, o.tacheId, null, { acceptation: 'acceptee', automatique: true }, o.auteur, o.nom);
-    return { demandeId: Number(rows[0].id), statut, jeton: null };
+    return { demandeId: Number(rows[0].id), statut, jeton: null, inviteId: o.inviteId ?? null, destinataireLibelle: o.confieeLibelle };
   }
   const reglage = await lireReglageTaches(q);
   const jeton = randomBytes(32).toString('base64url');
   const { rows } = await q<{ id: number }>(
     `INSERT INTO gestion_tache_demande (tache_id, destinataire_id, destinataire_libelle, destinataire_email, demandeur_id,
-       demandeur_libelle, statut, jeton_empreinte, expire_le)
-     VALUES ($1, $2, $3, $4, $5, $6, 'en_attente', $7, now() + ($8::int * interval '1 day')) RETURNING id::int AS id`,
-    [o.tacheId, o.confieeA, o.confieeLibelle, email, o.auteur.id, o.nom, empreinteJeton(jeton), reglage.dureeLienJours]);
+       demandeur_libelle, statut, jeton_empreinte, expire_le${colonnes})
+     VALUES ($1, $2, $3, $4, $5, $6, 'en_attente', $7, now() + ($8::int * interval '1 day')${parInvite ? ', $9, $10' : ''}) RETURNING id::int AS id`,
+    [o.tacheId, o.confieeA, o.confieeLibelle, email, o.auteur.id, o.nom, empreinteJeton(jeton), reglage.dureeLienJours, ...extra]);
   await tracer(q, o.tacheId, null, { demandeAcceptation: o.confieeLibelle, ...(o.motifTrace ? { raison: o.motifTrace } : {}) }, o.auteur, o.nom);
-  return { demandeId: Number(rows[0].id), statut, jeton };
+  return { demandeId: Number(rows[0].id), statut, jeton, inviteId: o.inviteId ?? null, destinataireLibelle: o.confieeLibelle };
 }
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -198,12 +218,12 @@ async function piecesDeLaDemande(tacheId: number): Promise<{ nom: string; lien: 
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
 export type IssueReponse =
-  | { ok: true; statut: StatutAcceptation; message: string; tacheId?: number }
+  | { ok: true; statut: StatutAcceptation; message: string; tacheId?: number; demandeId?: number }
   | { ok: false; statut: number; message: string; cause?: Exclude<VerdictLien, { ok: true }>['cause'] };
 
 interface LigneDemande {
   id: number; tache_id: number; statut: string; destinataire_id: number | null; destinataire_libelle: string | null;
-  expire_le: Date | null; utilise_le: Date | null; tache_etat: string;
+  expire_le: Date | null; utilise_le: Date | null; tache_etat: string; invite_retire?: boolean | null;
 }
 
 /**
@@ -223,14 +243,22 @@ export async function repondreDemande(o: {
     const e = erreurMotif(o.motif);
     if (e !== null) return { ok: false, statut: 400, message: e };
   }
+  const avecInvites = await invitesTacheDisponible();
   return withTransaction(async (q) => {
     const parJeton = (o.jeton ?? '').trim() !== '';
+    /* 🔴 LOT GESTION-INVITATIONS-TACHES — sans jeton (« Mes tâches »), une tâche peut avoir PLUSIEURS demandes courantes
+       (une par invité) : on prend celle de la personne connectée, jamais celle d'un autre invité. */
     const { rows } = await q<LigneDemande>(
       `SELECT d.id::int AS id, d.tache_id::int AS tache_id, d.statut, d.destinataire_id::int AS destinataire_id,
-              d.destinataire_libelle, d.expire_le, d.utilise_le, t.etat AS tache_etat
+              d.destinataire_libelle, d.expire_le, d.utilise_le, t.etat AS tache_etat,
+              ${avecInvites ? '(i.retire_le IS NOT NULL)' : 'false'} AS invite_retire
          FROM gestion_tache_demande d JOIN gestion_tache t ON t.id = d.tache_id
-        WHERE ${parJeton ? 'd.jeton_empreinte = $1' : "d.tache_id = $1 AND d.statut <> 'remplacee'"}
-        FOR UPDATE OF d`, [parJeton ? empreinteJeton(o.jeton ?? '') : o.tacheId ?? 0]);
+         ${avecInvites ? 'LEFT JOIN gestion_tache_invite i ON i.id = d.invite_id' : ''}
+        WHERE ${parJeton ? 'd.jeton_empreinte = $1'
+          : `d.tache_id = $1 AND d.statut <> 'remplacee'${avecInvites ? ' AND d.destinataire_id IS NOT DISTINCT FROM $2::bigint' : ''}`}
+        FOR UPDATE OF d`,
+      parJeton ? [empreinteJeton(o.jeton ?? '')]
+        : avecInvites ? [o.tacheId ?? 0, o.utilisateur?.id ?? null] : [o.tacheId ?? 0]);
     const d = rows[0] ?? null;
     // Par le lien seul (sans connexion) : la personne qui répond EST le destinataire désigné par le jeton.
     const parLien = parJeton && o.identiteParJeton === true;
@@ -241,7 +269,7 @@ export async function repondreDemande(o: {
     const v: VerdictLien = verdictLien(
       d === null ? null : {
         statut: d.statut, destinataireId: d.destinataire_id,
-        expireLe: parJeton ? iso(d.expire_le) : null, utiliseLe: iso(d.utilise_le),
+        expireLe: parJeton ? iso(d.expire_le) : null, utiliseLe: iso(d.utilise_le), inviteRetire: d.invite_retire === true,
       },
       d?.tache_etat ?? null, utilisateur.id, o.maintenant ?? new Date());
     if (!v.ok) return { ok: false, statut: v.cause === 'autre_personne' ? 403 : 409, message: v.message, cause: v.cause };
@@ -254,7 +282,7 @@ export async function repondreDemande(o: {
       { acceptation: statut, ...(motif ? { motif } : {}), ...(parLien ? { canal: 'lien du mail' } : {}) }, utilisateur, nom);
     await marquerASynchroniser(q, Number(d!.tache_id));
     return {
-      ok: true, statut, tacheId: Number(d!.tache_id),
+      ok: true, statut, tacheId: Number(d!.tache_id), demandeId: Number(d!.id),
       message: statut === 'acceptee' ? 'Tâche acceptée. Merci !' : 'Refus enregistré : la personne qui vous l’a confiée va la réattribuer.',
     };
   });
@@ -296,18 +324,23 @@ export async function mesTachesRecues(utilisateurId: number): Promise<TacheRecue
  * publique du lien, sans connexion) : le verdict est rendu pour le destinataire désigné par le jeton.
  */
 export async function demandeDuJeton(jeton: string, utilisateurId: number | null | 'destinataire'): Promise<{ tache: TacheRecue | null; verdict: VerdictLien }> {
-  const { rows } = await query<LigneRecue & { destinataire_id: number | null; expire_le: Date | null; utilise_le: Date | null; statut_brut: string }>(
+  const avecInvites = await invitesTacheDisponible();
+  const { rows } = await query<LigneRecue & { destinataire_id: number | null; expire_le: Date | null; utilise_le: Date | null; statut_brut: string; invite_retire: boolean | null }>(
     `SELECT t.id::int AS tache_id, t.objet, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
             t.etat, t.note, l.adresse, l.commune, d.demandeur_libelle, d.statut, d.statut AS statut_brut, d.cree_le,
-            d.repondu_le, d.motif, d.destinataire_id::int AS destinataire_id, d.expire_le, d.utilise_le
+            d.repondu_le, d.motif, d.destinataire_id::int AS destinataire_id, d.expire_le, d.utilise_le,
+            ${avecInvites ? '(i.retire_le IS NOT NULL)' : 'false'} AS invite_retire
        FROM gestion_tache_demande d JOIN gestion_tache t ON t.id = d.tache_id JOIN gestion_annuaire_lot l ON l.id = t.lot_id
+       ${avecInvites ? 'LEFT JOIN gestion_tache_invite i ON i.id = d.invite_id' : ''}
       WHERE d.jeton_empreinte = $1`, [empreinteJeton(jeton)]);
   const r = rows[0];
   const verdict = verdictLien(r === undefined ? null : {
     statut: r.statut_brut, destinataireId: r.destinataire_id, expireLe: iso(r.expire_le), utiliseLe: iso(r.utilise_le),
+    inviteRetire: r.invite_retire === true,
   }, r?.etat ?? null, utilisateurId === 'destinataire' ? (r?.destinataire_id ?? null) : utilisateurId, new Date());
-  // Une autre personne ne voit RIEN de la tâche : seulement le refus.
-  return { tache: r === undefined || (!verdict.ok && verdict.cause === 'autre_personne') ? null : versRecue(r), verdict };
+  // Une autre personne — ou un ancien invité dont la place a été donnée — ne voit RIEN de la tâche : seulement le refus.
+  const cache = !verdict.ok && (verdict.cause === 'autre_personne' || verdict.cause === 'plus_destinee');
+  return { tache: r === undefined || cache ? null : versRecue(r), verdict };
 }
 
 /** La demande courante d'une tâche, pour les écrans de Gestion. */

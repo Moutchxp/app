@@ -38,6 +38,64 @@ export interface AcceptationTache {
   mailLe: string | null;
 }
 
+/**
+ * ══ 🔴🔴 LOT GESTION-INVITATIONS-TACHES (17/10/2026) — LES INVITÉS D'UNE TÂCHE (migration 365) ══════════════════════
+ * Une tâche peut inviter PLUSIEURS collaborateurs. Chacun a sa propre demande : son lien, son jeton à usage unique, sa
+ * réponse (en attente / acceptée / refusée avec motif). La personne « Confiée à » est le PREMIER invité (`principal`).
+ */
+export interface InviteTache {
+  inviteId: number;
+  collaborateurId: number | null;
+  libelle: string;
+  principal: boolean;
+  /** `null` = pas de demande (tâche d'avant l'acceptation). */
+  statut: StatutAcceptation | null;
+  automatique: boolean;
+  motif: string | null;
+  reponduLe: string | null;
+  demandeLe: string | null;
+  mailEtat: EtatMail;
+  /** Le dernier « Renvoyer l'invitation » à cet invité (délai de 2 minutes entre deux renvois). */
+  dernierRenvoiLe: string | null;
+}
+
+/** « 1 acceptée sur 3 », « 2 acceptées sur 3 ». PUR. */
+export function resumeInvites(invites: readonly Pick<InviteTache, 'statut'>[]): string {
+  const n = invites.filter((i) => i.statut === 'acceptee').length;
+  return `${n} acceptée${n > 1 ? 's' : ''} sur ${invites.length}`;
+}
+
+/** Le délai minimal entre deux renvois de l'invitation au même invité (Arno : 2 minutes). */
+export const DELAI_RENVOI_MS = 2 * 60_000;
+
+/** Combien de secondes attendre avant de pouvoir renvoyer (0 = tout de suite). PUR. */
+export function attenteAvantRenvoi(dernierRenvoiLe: string | null, maintenant: Date): number {
+  if (dernierRenvoiLe === null) return 0;
+  const reste = new Date(dernierRenvoiLe).getTime() + DELAI_RENVOI_MS - maintenant.getTime();
+  return reste > 0 ? Math.ceil(reste / 1000) : 0;
+}
+
+/** « Patientez encore 1 min 20 s avant de renvoyer l'invitation à X. » PUR. */
+export function messageAttenteRenvoi(secondes: number, libelle: string): string {
+  const m = Math.floor(secondes / 60);
+  const s = secondes % 60;
+  const duree = m > 0 ? `${m} min${s > 0 ? ` ${s} s` : ''}` : `${s} s`;
+  return `L’invitation à ${libelle} vient d’être renvoyée : patientez encore ${duree} avant un nouveau renvoi.`;
+}
+
+/**
+ * « Changer le destinataire » est permis sur un invité EN ATTENTE (ou qui a REFUSÉ : la tâche est « à réattribuer »).
+ * Jamais sur un invité qui a ACCEPTÉ : on le retire de la liste des invités (« Modifier »), on ne lui substitue personne
+ * en silence. `null` = permis, sinon le message. PUR.
+ */
+export function refusChangementDestinataire(statut: StatutAcceptation | null): string | null {
+  if (statut === 'acceptee') {
+    return 'Cette personne a déjà accepté : on ne change pas son destinataire. Pour la retirer, décochez-la dans « Modifier » '
+      + '(la tâche quitte alors son agenda), puis invitez quelqu’un d’autre.';
+  }
+  return null;
+}
+
 /** Une tâche telle que la page « Mes tâches » la montre à son destinataire. */
 export interface TacheRecue {
   tacheId: number; objet: string; jour: string; heure: string | null; etat: string; adresseBien: string; note: string | null;
@@ -63,6 +121,17 @@ export function mentionMail(etat: EtatMail | 'sans_droit'): string | null {
     case 'factice': return 'mail préparé (essai, rien n’est parti)';
     default: return null;
   }
+}
+
+/**
+ * 🔴 LOT GESTION-INVITATIONS-TACHES — ce que la route dit des invitations parties après un geste : « Invitations : A
+ * (envoyée par mail), B (mail non envoyé (échec de l’envoi)). » ; `''` si aucune. PUR.
+ */
+export function phraseInvitations(envois: readonly { destinataire: string; etat: EtatMail | 'sans_droit' }[]): string {
+  if (envois.length === 0) return '';
+  const un = (e: { destinataire: string; etat: EtatMail | 'sans_droit' }) =>
+    `${e.destinataire} (${e.etat === 'envoye' ? 'envoyée par mail' : mentionMail(e.etat) ?? 'préparée'})`;
+  return ` ${envois.length > 1 ? 'Invitations' : 'Invitation'} : ${envois.map(un).join(', ')}.`;
 }
 
 /** 1. Acceptée d'office quand on se la confie à soi-même ; sinon en attente. PUR. */
@@ -189,24 +258,35 @@ export function liensDemande(base: string, jeton: string): { accepter: string; r
 
 export type VerdictLien =
   | { ok: true }
-  | { ok: false; cause: 'inconnu' | 'expire' | 'deja_utilise' | 'remplace' | 'autre_personne' | 'tache_terminee'; message: string };
+  | { ok: false; cause: 'inconnu' | 'expire' | 'deja_utilise' | 'remplace' | 'autre_personne' | 'tache_terminee' | 'plus_destinee'; message: string };
 
 export const MESSAGES_LIEN: Record<Exclude<VerdictLien, { ok: true }>['cause'], string> = {
   inconnu: 'Ce lien n’est pas valable. Vérifiez que vous l’avez copié en entier.',
   expire: 'Ce lien a expiré. Demandez à la personne qui vous a confié la tâche de renvoyer la demande.',
   deja_utilise: 'Ce lien a déjà servi : votre réponse a été enregistrée.',
-  remplace: 'Cette demande a été remplacée par une plus récente (date, heure ou personne changée) : utilisez le dernier mail reçu.',
+  remplace: 'Cette demande a été remplacée par une plus récente (invitation renvoyée, date ou heure changée) : utilisez le dernier mail reçu.',
   autre_personne: 'Ce lien est destiné à une autre personne : connectez-vous avec le compte à qui la tâche est confiée.',
   tache_terminee: 'Cette tâche est déjà faite ou annulée : il n’y a plus rien à accepter.',
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES — l'invité a été remplacé par un autre destinataire, ou retiré de la tâche. */
+  plus_destinee: 'Cette invitation ne vous est plus destinée : la tâche a été confiée à quelqu’un d’autre.',
 };
 
-/** Le lien peut-il agir, pour CETTE personne, MAINTENANT ? PUR. */
+/** Le titre de la page publique quand le lien ne peut plus agir. PUR. */
+export function titreLienRefuse(cause: string | null): string {
+  return cause === 'plus_destinee' ? 'Cette invitation ne vous est plus destinée' : 'Ce lien ne peut plus servir';
+}
+
+/**
+ * Le lien peut-il agir, pour CETTE personne, MAINTENANT ? `inviteRetire` (migration 365) : l'invité de cette demande a
+ * été retiré ou remplacé par un autre destinataire — le lien ne lui est plus destiné. PUR.
+ */
 export function verdictLien(
-  d: { statut: string; destinataireId: number | null; expireLe: string | null; utiliseLe: string | null } | null,
+  d: { statut: string; destinataireId: number | null; expireLe: string | null; utiliseLe: string | null; inviteRetire?: boolean } | null,
   tacheEtat: string | null, utilisateurId: number | null, maintenant: Date,
 ): VerdictLien {
   const non = (cause: Exclude<VerdictLien, { ok: true }>['cause']): VerdictLien => ({ ok: false, cause, message: MESSAGES_LIEN[cause] });
   if (d === null) return non('inconnu');
+  if (d.inviteRetire === true) return non('plus_destinee');
   if (d.statut === 'remplacee') return non('remplace');
   if (d.utiliseLe !== null || d.statut !== 'en_attente') return non('deja_utilise');
   if (utilisateurId === null || d.destinataireId === null || Number(d.destinataireId) !== Number(utilisateurId)) return non('autre_personne');
@@ -244,6 +324,16 @@ interface TacheFiltrable {
   confieeA: number | null;
   creePar?: number | null;
   acceptation?: Pick<AcceptationTache, 'statut' | 'demandeurId'> | null;
+  /** 🔴 LOT GESTION-INVITATIONS-TACHES — les invités ACTIFS ; absent = une seule personne (« Confiée à »). */
+  invites?: readonly Pick<InviteTache, 'collaborateurId' | 'statut'>[];
+}
+
+/** Les personnes d'une tâche et leur statut : ses invités, sinon la seule personne « Confiée à ». PUR. */
+function personnes<T extends TacheFiltrable>(t: T): { id: number | null; statut: StatutAcceptation }[] {
+  if (t.invites !== undefined && t.invites.length > 0) {
+    return t.invites.map((i) => ({ id: i.collaborateurId, statut: i.statut ?? 'acceptee' }));
+  }
+  return [{ id: t.confieeA, statut: t.acceptation?.statut ?? 'acceptee' }];
 }
 
 /** « Commandée par moi » : j'en suis le DEMANDEUR (celui qui l'a confiée), sinon son créateur. PUR. */
@@ -257,16 +347,20 @@ export function estCommandeePar<T extends TacheFiltrable>(t: T, moi: number | nu
 export function filtrerParAcceptation<T extends TacheFiltrable>(
   taches: readonly T[], qui: FiltreQui, statut: FiltreStatut, moi: number | null,
 ): T[] {
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES — « Confiées à moi » : je suis l'un des invités ; « aux collaborateurs » : l'un des
+     invités est quelqu'un d'autre ; un statut : au moins un invité dans ce statut. Une seule personne : comme avant. */
   return taches.filter((t) => {
-    if (qui === 'confiees' && (moi === null || t.confieeA === null || Number(t.confieeA) !== Number(moi))) return false;
-    if (qui === 'collaborateurs' && (t.confieeA === null || (moi !== null && Number(t.confieeA) === Number(moi)))) return false;
+    const p = personnes(t);
+    if (qui === 'confiees' && (moi === null || !p.some((x) => x.id !== null && Number(x.id) === Number(moi)))) return false;
+    if (qui === 'collaborateurs' && !p.some((x) => x.id !== null && (moi === null || Number(x.id) !== Number(moi)))) return false;
     if (qui === 'commandees' && !estCommandeePar(t, moi)) return false;
-    if (statut !== 'toutes' && (t.acceptation?.statut ?? 'acceptee') !== statut) return false;
+    if (statut !== 'toutes' && !p.some((x) => x.statut === statut)) return false;
     return true;
   });
 }
 
-/** Le compteur « En attente de confirmation ». PUR. */
+/** Le compteur « En attente de confirmation » : les tâches dont au moins un invité n'a pas encore répondu. PUR. */
 export function compterEnAttente<T extends TacheFiltrable>(taches: readonly T[]): number {
-  return taches.filter((t) => t.acceptation?.statut === 'en_attente').length;
+  return taches.filter((t) => t.invites !== undefined && t.invites.length > 0
+    ? t.invites.some((i) => i.statut === 'en_attente') : t.acceptation?.statut === 'en_attente').length;
 }

@@ -53,7 +53,7 @@ vi.mock('../../../lib/db/client', () => ({
     return suite;
   },
 }));
-vi.mock('../../../lib/gestion/schema', () => ({ acceptationTacheDisponible: async () => true }));
+vi.mock('../../../lib/gestion/schema', () => ({ acceptationTacheDisponible: async () => true, invitesTacheDisponible: async () => false }));
 // Agenda SIMULÉ : le chemin existant est « marquer à synchroniser » dans la transaction, puis synchroniser après le geste.
 vi.mock('../../../lib/gestion/agendaSynchroRepo', () => ({
   marquerASynchroniser: async () => {},

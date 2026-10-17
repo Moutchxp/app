@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+/* 🔴 LOT GESTION-INVITATIONS-TACHES — « Cette invitation ne vous est plus destinée » (destinataire changé). Module PUR. */
+import { titreLienRefuse } from "../../lib/gestion/acceptationTache";
 
 /**
  * Réponse à une tâche confiée, par le lien du mail (lot GESTION-ACCEPTATION, 16/10/2026). Sans connexion.
@@ -9,6 +11,8 @@ import { useEffect, useRef, useState } from "react";
  *    enregistre → « Tâche acceptée ».
  *  - « Refuser » : le motif est demandé (obligatoire, règle 4), puis « Tâche refusée ».
  *  - Lien faux, expiré, remplacé, tâche terminée : message clair, rien n'est modifié.
+ *  - Invité remplacé par un autre destinataire (lot GESTION-INVITATIONS-TACHES) : « Cette invitation ne vous est plus
+ *    destinée », sans rien montrer de la tâche.
  *  - Lien déjà utilisé (double clic, second clic plus tard) : la réponse déjà enregistrée est affichée, rien ne change.
  */
 
@@ -131,7 +135,7 @@ export function ReponseTache({ jeton, decision }: { jeton: string; decision: "ac
   }
   if (ecran.sorte === "refus_lien") {
     return (
-      <Bloc titre="Ce lien ne peut plus servir" couleur="neutre">
+      <Bloc titre={titreLienRefuse(ecran.r.cause)} couleur="neutre">
         <p role="alert" className="mb-4 text-svv-ink">{ecran.r.message}</p>
         <Tache r={ecran.r} />
         <p className="mt-4 text-sm text-svv-muted">Rien n’a été modifié.</p>

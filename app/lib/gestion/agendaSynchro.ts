@@ -5,7 +5,7 @@
  * Aucun de ses imports ne porte `server-only`.
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { acceptationTacheDisponible, agendaTacheDisponible } from './schema';
+import { acceptationTacheDisponible, agendaTacheDisponible, invitesTacheDisponible } from './schema';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 import { coordonneesLisibles, estFamille, texteCompletTache, type ContactSource } from './contactsTache';
@@ -90,11 +90,14 @@ export function porteParDefaut(env: Record<string, string | undefined> = process
  */
 export async function marquerASynchroniser(q: RequeteTx, tacheId: number): Promise<void> {
   if (!(await agendaTacheDisponible())) return;
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365, les événements vivent sur les INVITÉS (un par agenda). */
+  const evenementInvite = (await invitesTacheDisponible())
+    ? ' OR EXISTS (SELECT 1 FROM gestion_tache_invite i WHERE i.tache_id = gestion_tache.id AND i.google_evenement_id IS NOT NULL)' : '';
   await q(
     `UPDATE gestion_tache SET synchro_version = synchro_version + 1, synchro_essais = 0, synchro_prochain_essai = NULL,
             synchro_erreur = CASE WHEN synchro_etat = 'echec' THEN synchro_erreur ELSE NULL END,
             synchro_etat = CASE
-              WHEN (SELECT envoi_agenda FROM gestion_tache_reglage WHERE id = 1) OR google_evenement_id IS NOT NULL
+              WHEN (SELECT envoi_agenda FROM gestion_tache_reglage WHERE id = 1) OR google_evenement_id IS NOT NULL${evenementInvite}
               THEN 'a_envoyer' ELSE synchro_etat END
       WHERE id = $1`, [tacheId]);
 }
@@ -140,6 +143,64 @@ function place(r: LigneAgenda, domaines: readonly string[]): PlaceVoulue {
 
 const domainesWorkspace = async () => lireDomaines(await lireDomainesAutorises());
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT GESTION-INVITATIONS-TACHES — UN ÉVÉNEMENT PAR INVITÉ QUI A ACCEPTÉ (migration 365)
+   Chaque invité porte SON événement (`gestion_tache_invite.google_*`). Un invité retiré ou remplacé est relu tant qu'il
+   garde un événement : c'est ainsi que son agenda est nettoyé.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+interface LigneInviteAgenda {
+  id: number; tache_id: number; collaborateur_id: number | null; libelle: string; retire: boolean; principal: boolean;
+  email: string | null; actif: boolean | null; statut: string | null; google_agenda: string | null; google_evenement_id: string | null;
+}
+
+async function lireInvitesAgenda(q: RequeteTx, ids: readonly number[]): Promise<LigneInviteAgenda[]> {
+  const { rows } = await q<LigneInviteAgenda>(
+    `SELECT i.id::int AS id, i.tache_id::int AS tache_id, i.collaborateur_id::int AS collaborateur_id, i.libelle,
+            (i.retire_le IS NOT NULL) AS retire, (i.collaborateur_id IS NOT DISTINCT FROM t.confiee_a) AS principal,
+            u.identifiant AS email, u.actif,
+            (SELECT d.statut FROM gestion_tache_demande d WHERE d.invite_id = i.id AND d.statut <> 'remplacee' LIMIT 1) AS statut,
+            i.google_agenda, i.google_evenement_id
+       FROM gestion_tache_invite i
+       JOIN gestion_tache t ON t.id = i.tache_id
+       LEFT JOIN admin_utilisateur u ON u.id = i.collaborateur_id
+      WHERE i.tache_id = ANY($1::bigint[]) AND (i.retire_le IS NULL OR i.google_evenement_id IS NOT NULL)
+      ORDER BY i.tache_id, (i.retire_le IS NOT NULL) DESC, i.rang, i.id`, [ids]);
+  return rows;
+}
+
+function placeInvite(r: LigneAgenda, i: LigneInviteAgenda, domaines: readonly string[]): PlaceVoulue {
+  if (i.retire) return { sorte: 'absent', raison: 'sans_personne' };
+  const a = i.statut;
+  return placeVoulue({
+    etat: r.etat, confieeA: i.collaborateur_id, confieeEmail: i.email, confieeActif: i.actif === true,
+    creePar: r.cree_par, acceptation: a === 'en_attente' || a === 'acceptee' || a === 'refusee' ? a : null,
+  }, domaines);
+}
+
+/**
+ * La mention « Agenda » d'une tâche à plusieurs invités : DANS l'agenda dès qu'un invité l'y a (« … de A, B ») ; sinon
+ * la place de la personne « Confiée à ». PUR.
+ */
+function placeEtNoms(r: LigneAgenda, invites: readonly LigneInviteAgenda[], domaines: readonly string[]):
+  { place: PlaceVoulue; noms: string; evenementId: string | null } {
+  const actifs = invites.filter((i) => !i.retire);
+  const presents = actifs.filter((i) => placeInvite(r, i, domaines).sorte === 'present');
+  const avecEvenement = presents.filter((i) => i.google_evenement_id !== null);
+  if (presents.length > 0) {
+    return {
+      place: placeInvite(r, presents[0], domaines), noms: (avecEvenement.length > 0 ? avecEvenement : presents).map((i) => i.libelle).join(', '),
+      evenementId: avecEvenement[0]?.google_evenement_id ?? null,
+    };
+  }
+  const principal = actifs.find((i) => i.principal) ?? actifs[0];
+  return {
+    place: principal === undefined ? { sorte: 'absent', raison: 'sans_personne' } : placeInvite(r, principal, domaines),
+    noms: principal?.libelle ?? r.confiee_a_libelle,
+    evenementId: invites.find((i) => i.google_evenement_id !== null)?.google_evenement_id ?? null,
+  };
+}
+
 /**
  * LA DURÉE ET L'ÉTAT « AGENDA » DE CHAQUE TÂCHE, pour les listes et le détail. Une seule requête pour toute la liste.
  * Sans la migration 350 : une carte vide (aucune mention, aucune durée).
@@ -147,11 +208,14 @@ const domainesWorkspace = async () => lireDomaines(await lireDomainesAutorises()
 export async function complementsAgenda(ids: readonly number[]): Promise<Map<number, { agenda: AgendaTache | null; agendaCarte: AgendaTache; dureeMinutes: number | null }>> {
   const m = new Map<number, { agenda: AgendaTache | null; agendaCarte: AgendaTache; dureeMinutes: number | null }>();
   if (ids.length === 0 || !(await agendaTacheDisponible())) return m;
-  const [reglage, domaines, lignes] = await Promise.all([lireReglageAgenda(), domainesWorkspace(), lireLigne(query, ids)]);
+  const [reglage, domaines, lignes, avecInvites] = await Promise.all([lireReglageAgenda(), domainesWorkspace(), lireLigne(query, ids), invitesTacheDisponible()]);
+  const invites = avecInvites ? await lireInvitesAgenda(query, ids) : [];
   for (const r of lignes) {
+    const lesInvites = invites.filter((i) => Number(i.tache_id) === Number(r.id));
+    const pi = avecInvites && lesInvites.length > 0 ? placeEtNoms(r, lesInvites, domaines) : null;
     const e = {
-      reglageActif: reglage, synchroEtat: r.synchro_etat, erreur: r.synchro_erreur, evenementId: r.google_evenement_id,
-      place: place(r, domaines), confieeLibelle: r.confiee_a_libelle,
+      reglageActif: reglage, synchroEtat: r.synchro_etat, erreur: r.synchro_erreur, evenementId: pi ? pi.evenementId : r.google_evenement_id,
+      place: pi ? pi.place : place(r, domaines), confieeLibelle: pi ? pi.noms : r.confiee_a_libelle,
     };
     m.set(Number(r.id), {
       dureeMinutes: r.duree_minutes === null ? null : Number(r.duree_minutes),
@@ -203,6 +267,63 @@ export type IssueSynchro =
   | { etat: 'ok'; place: PlaceVoulue }
   | { etat: 'echec'; motif: string };
 
+/**
+ * LA RÉCONCILIATION D'UN AGENDA : où la tâche EST (`actuel`) contre où elle DOIT être (`voulu`).
+ *   ① elle est dans un agenda où elle ne doit plus être → suppression ;
+ *   ② elle doit être dans un agenda → modification de NOTRE événement s'il y est, sinon reprise d'un événement déjà créé
+ *      pour cette tâche (réponse de Google perdue : jamais de doublon), sinon création.
+ * Rend la nouvelle référence, ou l'échec et la référence à garder. Chaque appel est consigné au journal.
+ */
+async function reconcilier(
+  porte: PorteAgenda, tacheId: number, voulu: PlaceVoulue, depart: { agenda: string; id: string } | null,
+  ev: (faite: boolean) => Promise<ReturnType<typeof construireEvenement>>,
+): Promise<{ ok: true; actuel: { agenda: string; id: string } | null } | { ok: false; motif: string; actuel: { agenda: string; id: string } | null }> {
+  let actuel = depart;
+  // ① RETIRER de l'agenda où elle ne doit plus être.
+  if (actuel !== null && (voulu.sorte === 'absent' || voulu.agenda !== actuel.agenda.toLowerCase())) {
+    const s = await porte.supprimer(actuel.agenda, actuel.id, tacheId);
+    await journal(tacheId, 'suppression', actuel.agenda, actuel.id, s);
+    if (!s.ok && s.sorte === 'echec') return { ok: false, motif: s.motif, actuel };
+    // ok, déjà absent, ou ÉTRANGER (refus_garde : on n'y a pas touché) → on oublie la référence.
+    actuel = null;
+  }
+  // ② POSER dans l'agenda où elle doit être.
+  if (voulu.sorte === 'present') {
+    const e = await ev(voulu.faite);
+    if (actuel !== null) {
+      const m = await porte.modifier(actuel.agenda, actuel.id, tacheId, e);
+      await journal(tacheId, 'modification', actuel.agenda, actuel.id, m);
+      if (!m.ok && m.sorte === 'echec') return { ok: false, motif: m.motif, actuel };
+      if (!m.ok) actuel = null; // disparu dans Google, ou étranger : on recrée le nôtre
+    }
+    if (actuel === null) {
+      // Idempotence : un événement déjà créé pour cette tâche (réponse de Google perdue) est REPRIS, pas doublé.
+      const c = await porte.chercher(voulu.agenda, tacheId);
+      await journal(tacheId, 'recherche', voulu.agenda, null, c, c.ok ? `${c.ids.length} trouvé(s)` : null);
+      if (!c.ok) return { ok: false, motif: c.sorte === 'echec' ? c.motif : 'Recherche impossible dans l’agenda.', actuel };
+      for (const id of c.ids) {
+        if (actuel === null) {
+          const m = await porte.modifier(voulu.agenda, id, tacheId, e);
+          await journal(tacheId, 'modification', voulu.agenda, id, m);
+          if (!m.ok && m.sorte === 'echec') return { ok: false, motif: m.motif, actuel };
+          if (m.ok) actuel = { agenda: voulu.agenda, id };
+        } else {
+          // Un DOUBLON de NOTRE événement (même marque, même tâche) : retiré.
+          const s = await porte.supprimer(voulu.agenda, id, tacheId);
+          await journal(tacheId, 'suppression', voulu.agenda, id, s, 'doublon');
+        }
+      }
+      if (actuel === null) {
+        const n = await porte.creer(voulu.agenda, tacheId, e);
+        await journal(tacheId, 'creation', voulu.agenda, n.ok ? n.id : null, n);
+        if (!n.ok) return { ok: false, motif: n.sorte === 'echec' ? n.motif : 'Création refusée.', actuel };
+        actuel = { agenda: voulu.agenda, id: n.id };
+      }
+    }
+  }
+  return { ok: true, actuel };
+}
+
 /** Le verrou d'une tâche pendant sa synchronisation : deux gestes rapprochés ne créent jamais deux événements. */
 const CLE_VERROU = 350_350;
 
@@ -222,68 +343,73 @@ export async function synchroniserTache(tacheId: number, o: { porte?: PorteAgend
       await q(`SELECT pg_advisory_xact_lock($1, $2)`, [CLE_VERROU, tacheId]);
       const r = (await lireLigne(q, [tacheId]))[0];
       if (r === undefined) return { etat: 'introuvable' } as const;
-      const voulu = place(r, await domainesWorkspace());
-      let actuel: { agenda: string; id: string } | null =
-        r.google_agenda && r.google_evenement_id ? { agenda: r.google_agenda, id: r.google_evenement_id } : null;
-      const avaitUnEvenement = actuel !== null;
+      const domaines = await domainesWorkspace();
+      const ev = async (faite: boolean) => construireEvenement({
+        id: tacheId, objet: r.objet, texte: texteCompletTache(r.note, await contactsDe(tacheId)), jour: r.jour, heure: r.heure,
+        dureeMinutes: r.duree_minutes, rappels: Array.isArray(r.rappels) ? r.rappels : [], faite, lotId: Number(r.lot_id),
+        adresse: r.adresse, codePostal: r.code_postal, commune: r.commune, pieces: await piecesDe(tacheId),
+      }, { siteUrl, motRappel, lienLocal });
 
-      const echouer = async (motif: string): Promise<IssueSynchro> => {
+      const echouer = async (motif: string, refs: { agenda: string; id: string } | null, inviteId: number | null): Promise<IssueSynchro> => {
         const essais = Number(r.synchro_essais ?? 0) + 1;
-        await q(
-          `UPDATE gestion_tache SET synchro_etat = 'echec', synchro_erreur = $2, synchro_le = now(), synchro_essais = $3,
-                  synchro_prochain_essai = now() + ($4::bigint * interval '1 millisecond'),
-                  google_agenda = $5, google_evenement_id = $6
-            WHERE id = $1`, [tacheId, motif.slice(0, 500), essais, delaiProchainEssaiMs(essais - 1), actuel?.agenda ?? null, actuel?.id ?? null]);
+        if (inviteId === null) {
+          await q(
+            `UPDATE gestion_tache SET synchro_etat = 'echec', synchro_erreur = $2, synchro_le = now(), synchro_essais = $3,
+                    synchro_prochain_essai = now() + ($4::bigint * interval '1 millisecond'),
+                    google_agenda = $5, google_evenement_id = $6
+              WHERE id = $1`, [tacheId, motif.slice(0, 500), essais, delaiProchainEssaiMs(essais - 1), refs?.agenda ?? null, refs?.id ?? null]);
+        } else {
+          await q(`UPDATE gestion_tache_invite SET google_agenda = $2, google_evenement_id = $3 WHERE id = $1`,
+            [inviteId, refs?.agenda ?? null, refs?.id ?? null]);
+          await q(
+            `UPDATE gestion_tache SET synchro_etat = 'echec', synchro_erreur = $2, synchro_le = now(), synchro_essais = $3,
+                    synchro_prochain_essai = now() + ($4::bigint * interval '1 millisecond')
+              WHERE id = $1`, [tacheId, motif.slice(0, 500), essais, delaiProchainEssaiMs(essais - 1)]);
+        }
         return { etat: 'echec', motif };
       };
 
-      // ① RETIRER de l'agenda où elle ne doit plus être.
-      if (actuel !== null && (voulu.sorte === 'absent' || voulu.agenda !== actuel.agenda.toLowerCase())) {
-        const s = await porte.supprimer(actuel.agenda, actuel.id, tacheId);
-        await journal(tacheId, 'suppression', actuel.agenda, actuel.id, s);
-        if (!s.ok && s.sorte === 'echec') return echouer(s.motif);
-        // ok, déjà absent, ou ÉTRANGER (refus_garde : on n'y a pas touché) → on oublie la référence.
-        actuel = null;
-      }
-
-      // ② POSER dans l'agenda où elle doit être.
-      if (voulu.sorte === 'present') {
-        const ev = construireEvenement({
-          id: tacheId, objet: r.objet, texte: texteCompletTache(r.note, await contactsDe(tacheId)), jour: r.jour, heure: r.heure,
-          dureeMinutes: r.duree_minutes, rappels: Array.isArray(r.rappels) ? r.rappels : [], faite: voulu.faite, lotId: Number(r.lot_id),
-          adresse: r.adresse, codePostal: r.code_postal, commune: r.commune, pieces: await piecesDe(tacheId),
-        }, { siteUrl, motRappel, lienLocal });
-        if (actuel !== null) {
-          const m = await porte.modifier(actuel.agenda, actuel.id, tacheId, ev);
-          await journal(tacheId, 'modification', actuel.agenda, actuel.id, m);
-          if (!m.ok && m.sorte === 'echec') return echouer(m.motif);
-          if (!m.ok) actuel = null; // disparu dans Google, ou étranger : on recrée le nôtre
-        }
-        if (actuel === null) {
-          // Idempotence : un événement déjà créé pour cette tâche (réponse de Google perdue) est REPRIS, pas doublé.
-          const c = await porte.chercher(voulu.agenda, tacheId);
-          await journal(tacheId, 'recherche', voulu.agenda, null, c, c.ok ? `${c.ids.length} trouvé(s)` : null);
-          if (!c.ok) return echouer(c.sorte === 'echec' ? c.motif : 'Recherche impossible dans l’agenda.');
-          for (const id of c.ids) {
-            if (actuel === null) {
-              const m = await porte.modifier(voulu.agenda, id, tacheId, ev);
-              await journal(tacheId, 'modification', voulu.agenda, id, m);
-              if (!m.ok && m.sorte === 'echec') return echouer(m.motif);
-              if (m.ok) actuel = { agenda: voulu.agenda, id };
-            } else {
-              // Un DOUBLON de NOTRE événement (même marque, même tâche) : retiré.
-              const s = await porte.supprimer(voulu.agenda, id, tacheId);
-              await journal(tacheId, 'suppression', voulu.agenda, id, s, 'doublon');
+      /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : UN événement par invité qui a accepté, dans SON agenda ; les
+         invités retirés ou remplacés (et ceux qui n'ont plus à l'avoir) sont retirés de leur agenda. */
+      if (await invitesTacheDisponible()) {
+        const invites = await lireInvitesAgenda(q, [tacheId]);
+        if (invites.length > 0) {
+          let present: PlaceVoulue | null = null;
+          let avaitUnEvenement = false;
+          /* Les colonnes de la TÂCHE gardent un repère lisible : l'événement de la personne « Confiée à » si elle l'a, sinon
+             celui du premier invité qui l'a. La synchronisation à plusieurs invités ne les relit jamais. */
+          let repere: { agenda: string; id: string; principal: boolean } | null = null;
+          for (const i of invites) {
+            const voulu = placeInvite(r, i, domaines);
+            const actuel = i.google_agenda && i.google_evenement_id ? { agenda: i.google_agenda, id: i.google_evenement_id } : null;
+            if (actuel !== null) avaitUnEvenement = true;
+            const res = await reconcilier(porte, tacheId, voulu, actuel, ev);
+            if (!res.ok) return echouer(res.motif, res.actuel, Number(i.id));
+            await q(`UPDATE gestion_tache_invite SET google_agenda = $2, google_evenement_id = $3 WHERE id = $1`,
+              [Number(i.id), res.actuel?.agenda ?? null, res.actuel?.id ?? null]);
+            if (voulu.sorte === 'present' && present === null) present = voulu;
+            if (res.actuel !== null && !i.retire && (repere === null || (!repere.principal && i.principal))) {
+              repere = { ...res.actuel, principal: i.principal };
             }
           }
-          if (actuel === null) {
-            const n = await porte.creer(voulu.agenda, tacheId, ev);
-            await journal(tacheId, 'creation', voulu.agenda, n.ok ? n.id : null, n);
-            if (!n.ok) return echouer(n.sorte === 'echec' ? n.motif : 'Création refusée.');
-            actuel = { agenda: voulu.agenda, id: n.id };
-          }
+          const final: SynchroEtat = present !== null ? 'envoyee' : avaitUnEvenement ? 'retiree' : r.synchro_etat === 'retiree' ? 'retiree' : 'non_demandee';
+          await q(
+            `UPDATE gestion_tache SET synchro_le = now(), synchro_erreur = NULL, synchro_essais = 0, synchro_prochain_essai = NULL,
+                    google_agenda = $4, google_evenement_id = $5,
+                    synchro_etat = CASE WHEN synchro_version = $2::bigint THEN $3 ELSE 'a_envoyer' END
+              WHERE id = $1`, [tacheId, r.synchro_version, final, repere?.agenda ?? null, repere?.id ?? null]);
+          const principal = invites.find((i) => !i.retire && i.principal) ?? invites.find((i) => !i.retire);
+          return { etat: 'ok', place: present ?? (principal ? placeInvite(r, principal, domaines) : { sorte: 'absent', raison: 'sans_personne' }) };
         }
       }
+
+      const voulu = place(r, domaines);
+      const actuelTache: { agenda: string; id: string } | null =
+        r.google_agenda && r.google_evenement_id ? { agenda: r.google_agenda, id: r.google_evenement_id } : null;
+      const avaitUnEvenement = actuelTache !== null;
+      const res = await reconcilier(porte, tacheId, voulu, actuelTache, ev);
+      if (!res.ok) return echouer(res.motif, res.actuel, null);
+      const actuel = res.actuel;
 
       // ③ L'ÉTAT. Un geste survenu PENDANT la synchronisation (version changée) la laisse « à envoyer ».
       const final: SynchroEtat = voulu.sorte === 'present' ? 'envoyee' : avaitUnEvenement ? 'retiree' : r.synchro_etat === 'retiree' ? 'retiree' : 'non_demandee';
@@ -350,19 +476,24 @@ export async function rattraperAgenda(o: { appliquer: boolean; porte?: PorteAgen
   Promise<{ evenements: EvenementRattrapage[]; modifies: number; echecs: string[] }> {
   if (!(await agendaTacheDisponible())) return { evenements: [], modifies: 0, echecs: ['Agenda non installé (migration 350).'] };
   const porte = o.porte ?? porteParDefaut();
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365, les références vivent sur les invités (un événement par agenda). */
+  const avecInvites = await invitesTacheDisponible();
   const { rows: agendas } = await query<{ a: string }>(
     `SELECT DISTINCT lower(a) AS a FROM (
        SELECT google_agenda AS a FROM gestion_tache WHERE google_agenda IS NOT NULL
+       ${avecInvites ? 'UNION SELECT google_agenda FROM gestion_tache_invite WHERE google_agenda IS NOT NULL' : ''}
        UNION SELECT agenda FROM gestion_tache_agenda_appel) x ORDER BY 1`);
   const { rows: refs } = await query<{ id: number; ev: string }>(
-    `SELECT id::int AS id, google_evenement_id AS ev FROM gestion_tache WHERE google_evenement_id IS NOT NULL`);
-  const rattachees = new Map(refs.map((r) => [Number(r.id), r.ev]));
+    `SELECT id::int AS id, google_evenement_id AS ev FROM gestion_tache WHERE google_evenement_id IS NOT NULL${avecInvites
+      ? ' UNION SELECT tache_id::int, google_evenement_id FROM gestion_tache_invite WHERE google_evenement_id IS NOT NULL' : ''}`);
+  const rattachees = new Map<number, Set<string>>();
+  for (const r of refs) rattachees.set(Number(r.id), (rattachees.get(Number(r.id)) ?? new Set()).add(r.ev));
   const evenements: EvenementRattrapage[] = [];
   const echecs: string[] = [];
   for (const { a } of agendas) {
     const l = await porte.listerNotres(a);
     if (!l.ok) { echecs.push(`${a} : ${'motif' in l ? l.motif : l.sorte}`); continue; }
-    for (const e of l.evenements) evenements.push({ agenda: a, ...e, rattache: rattachees.get(e.tacheId) === e.id });
+    for (const e of l.evenements) evenements.push({ agenda: a, ...e, rattache: rattachees.get(e.tacheId)?.has(e.id) === true });
   }
   let modifies = 0;
   if (o.appliquer) {

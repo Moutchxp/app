@@ -29,7 +29,7 @@
  */
 import { FUSEAU_AFFICHAGE } from './ecran';
 import { lireClesContacts } from './contactsTache';
-import type { AcceptationTache } from './acceptationTache';
+import type { AcceptationTache, InviteTache } from './acceptationTache';
 import type { AgendaTache } from './agendaTache';
 import type { ContactTache } from './contactsTache';
 
@@ -137,6 +137,8 @@ export interface Tache {
   creePar?: number | null;
   /** 🔴 LOT TACHES-ACCEPTATION — la demande d'acceptation COURANTE ; `null`/absent ⇒ tâche d'avant le lot. */
   acceptation?: AcceptationTache | null;
+  /** 🔴 LOT GESTION-INVITATIONS-TACHES — les invités ACTIFS (le premier = « Confiée à ») ; absent = sans la migration 365. */
+  invites?: InviteTache[];
   /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous (minutes) ; `null`/absent = 1 h. */
   dureeMinutes?: number | null;
   /** 🔴 LOT TACHES-AGENDA — la mention « Agenda » (dans l'agenda, à resynchroniser, pas d'agenda Google…) ; `null` = rien. */
@@ -307,11 +309,15 @@ export function phraseEnAttenteBien(n: number): string {
  */
 export type PastilleFiltre = CouleurTache | 'en_attente';
 
-export function filtrerParPastille<T extends Pick<Tache, 'jour' | 'etat' | 'acceptation'>>(
+export function filtrerParPastille<T extends Pick<Tache, 'jour' | 'etat' | 'acceptation'> & { invites?: Tache['invites'] }>(
   taches: readonly T[], pastille: PastilleFiltre | null, maintenant: Date,
 ): T[] {
   if (pastille === null) return [...taches];
-  if (pastille === 'en_attente') return taches.filter((t) => t.etat === 'a_faire' && t.acceptation?.statut === 'en_attente');
+  /* 🔴 LOT GESTION-INVITATIONS-TACHES — en attente : au moins un invité n'a pas encore répondu. */
+  if (pastille === 'en_attente') {
+    return taches.filter((t) => t.etat === 'a_faire' && (t.invites !== undefined && t.invites.length > 0
+      ? t.invites.some((i) => i.statut === 'en_attente') : t.acceptation?.statut === 'en_attente'));
+  }
   return taches.filter((t) => couleurTache(t, maintenant) === pastille);
 }
 
@@ -500,6 +506,32 @@ export interface SaisieTache {
   pieces?: string[];
   /** 🔴 LOT TACHES-AGENDA — la durée d'un rendez-vous, en minutes ; `null` = 1 h ; `undefined` = ne pas y toucher. */
   dureeMinutes?: number | null;
+  /**
+   * 🔴 LOT GESTION-INVITATIONS-TACHES — les AUTRES invités (comptes), en plus de « Confiée à » ; `undefined` = ne pas y
+   * toucher (écran d'avant ce lot). Chacun reçoit sa propre invitation.
+   */
+  invites?: number[];
+}
+
+/** Les invités d'une saisie, dans l'ordre : « Confiée à » d'abord, puis les autres, sans doublon. PUR. */
+export function invitesDeLaSaisie(s: Pick<SaisieTache, 'confieeA' | 'invites'>): number[] {
+  const out: number[] = [];
+  for (const id of [s.confieeA, ...(s.invites ?? [])]) {
+    if (id === null || id === undefined || !Number.isInteger(Number(id)) || Number(id) <= 0) continue;
+    if (!out.includes(Number(id))) out.push(Number(id));
+  }
+  return out;
+}
+
+/** Les identifiants d'invités venus du navigateur : entiers positifs, sans doublon, 20 au plus. PUR. */
+export function lireIdsInvites(brut: unknown): number[] | undefined {
+  if (!Array.isArray(brut)) return undefined;
+  const out: number[] = [];
+  for (const x of brut) {
+    const n = Number(x);
+    if (Number.isInteger(n) && n > 0 && !out.includes(n)) out.push(n);
+  }
+  return out.slice(0, 20);
 }
 
 /** 🔴 LOT DECALER-DUREE — « 1 h », « 1 h 30 », « 45 min » ; `null` = 1 h (la durée par défaut). PUR. */
@@ -539,12 +571,13 @@ export function lireSaisie(corps: Record<string, unknown>): SaisieTache {
     rappels: rappelsValides(corps.rappels, heure !== null),
     contacts: lireClesContacts(corps.contacts),
     pieces: lireIdsDrive(corps.pieces),
+    ...('invites' in corps ? { invites: lireIdsInvites(corps.invites) ?? [] } : {}),
     ...('dureeMinutes' in corps ? { dureeMinutes: heure === null ? null : dureeValide(corps.dureeMinutes) } : {}),
   };
 }
 
 /** Les champs de la fenêtre auxquels un refus peut se rattacher (pour l'afficher À CÔTÉ du champ). */
-export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts' | 'pieces';
+export type ChampTache = 'objet' | 'jour' | 'heure' | 'note' | 'confieeA' | 'evenementId' | 'contacts' | 'pieces' | 'invites';
 
 /** Un refus : le message en français, et le champ concerné (`null` = la tâche entière). */
 export interface RefusSaisie { message: string; champ: ChampTache | null }
@@ -585,7 +618,7 @@ export function refusDuServeur(statut: number, corps: { erreur?: unknown; champ?
   const erreur = typeof corps?.erreur === 'string' ? corps.erreur : '';
   if (statut === 401 || erreur === 'ACCES_REVOQUE') return { champ: null, message: MESSAGE_SESSION_EXPIREE };
   if (statut === 403) return { champ: null, message: 'Vous n’avez pas l’accès Gestion : la tâche n’a pas été enregistrée.' };
-  const champs: readonly ChampTache[] = ['objet', 'jour', 'heure', 'note', 'confieeA', 'evenementId', 'contacts', 'pieces'];
+  const champs: readonly ChampTache[] = ['objet', 'jour', 'heure', 'note', 'confieeA', 'evenementId', 'contacts', 'pieces', 'invites'];
   const champ = typeof corps?.champ === 'string' && (champs as readonly string[]).includes(corps.champ)
     ? corps.champ as ChampTache : null;
   if (erreur !== '' && erreur !== 'INTERDIT') return { champ, message: erreur };
@@ -667,7 +700,7 @@ export interface TraceTache {
 
 const MOTS_CHAMPS: Record<string, string> = {
   objet: 'objet', jour: 'date', heure: 'heure', note: 'note', confieeA: 'personne', evenementId: 'événement',
-  rappels: 'rappels', dureeMinutes: 'durée',
+  rappels: 'rappels', dureeMinutes: 'durée', invites: 'invités',
 };
 
 /**
@@ -699,6 +732,13 @@ export function phraseTrace(t: TraceTache): string {
       if (a.acceptation === 'acceptee') return a.automatique === true ? `Acceptée d’office ${qui}` : `Acceptée ${qui}`;
       if (a.acceptation === 'refusee') return `Refusée ${qui}${typeof a.motif === 'string' ? ` (motif : ${a.motif})` : ''}`;
       /* 🔴 LOT TACHES-PIECES-DRIVE — la pièce ajoutée ou retirée (le fichier du Drive, lui, n'est jamais touché). */
+      /* 🔴 LOT GESTION-INVITATIONS-TACHES — les invités : ajouté, retiré, destinataire changé, invitation renvoyée. */
+      if (typeof a.inviteAjoute === 'string') return `Invité ajouté ${qui} (${a.inviteAjoute})`;
+      if (typeof a.inviteRetire === 'string') return `Invité retiré ${qui} (${a.inviteRetire})`;
+      if (typeof a.destinataireChange === 'string') {
+        return `Destinataire changé ${qui} (${typeof t.avant?.destinataire === 'string' ? `${t.avant.destinataire} → ` : ''}${a.destinataireChange})`;
+      }
+      if (typeof a.invitationRenvoyee === 'string') return `Invitation renvoyée à ${a.invitationRenvoyee} ${qui}`;
       if (typeof a.pieceAjoutee === 'string') return `Pièce jointe ajoutée ${qui} (${a.pieceAjoutee})`;
       if (typeof a.pieceRetiree === 'string') return `Pièce jointe retirée ${qui} (${a.pieceRetiree})`;
       const champs = Object.keys(t.apres ?? {}).map((k) => MOTS_CHAMPS[k] ?? k);

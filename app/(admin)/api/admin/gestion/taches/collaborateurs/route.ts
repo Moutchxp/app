@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
-import { tachesDisponibles } from '../../../../../../lib/gestion/schema';
+import { invitesTacheDisponible, tachesDisponibles } from '../../../../../../lib/gestion/schema';
 import { listerCollaborateurs } from '../../../../../../lib/gestion/tachesRepo';
 
 /**
@@ -12,6 +12,8 @@ import { listerCollaborateurs } from '../../../../../../lib/gestion/tachesRepo';
  * `accesGestion`, pour la mention « (sans accès Gestion — verra la tâche dans son agenda) ». Les noms seulement —
  * aucune adresse ne sort d'ici. ⚠️ CONSULTER cette liste exige toujours l'accès Gestion (garde ci-dessous).
  *
+ * 🔴 LOT GESTION-INVITATIONS-TACHES — `invites` : la migration 365 est-elle là (plusieurs invités par tâche) ? Sans elle,
+ * la fenêtre ne propose pas « Inviter aussi ».
  * 🔒 `exigerCompteActif(…, 'gestion')`. Runtime Node (driver pg).
  */
 export const runtime = 'nodejs';
@@ -23,6 +25,6 @@ export async function GET(request: Request): Promise<Response> {
   const auteur = await auteurDeLaRequete(request);
   const moi = auteur.id === null ? null : Number(auteur.id);
   return Response.json(
-    { etat: 'ok', collaborateurs: await listerCollaborateurs(moi), moi },
+    { etat: 'ok', collaborateurs: await listerCollaborateurs(moi), moi, invites: await invitesTacheDisponible() },
     { headers: { 'Cache-Control': 'private, no-store' } });
 }

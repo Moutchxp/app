@@ -54,12 +54,13 @@ describe('ce que le code lit et écrit existe bien', () => {
   });
 });
 
-describe('rangement : 362 appliquée en prod, 363 (invitations) et 364 (résidence du compte) partent à la prochaine mise à jour, 361 reste en attente', () => {
+describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence du compte) et 365 (invités des tâches) partent à la prochaine mise à jour, 361 reste en attente', () => {
   const dossier = path.join(process.cwd(), MIGRATIONS);
   const existants = readdirSync(dossier).filter((n) => n.endsWith('.sql')).map((n) => ({ fichier: n, contenu: readFileSync(path.join(dossier, n), 'utf8') }));
   const ECARTEES = ['148_mention_sources_graphiques.sql', '212_permis_emprise_numero.sql', '216_permis_cerfa_ia.sql', '262_gestion_piece_classement.sql'];
   // Pas encore appliquées en prod (16/10/2026, après la publication de 4c8cd637 qui a appliqué la 362).
-  const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql'];
+  // 365 : lot GESTION-INVITATIONS-TACHES (17/10/2026).
+  const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -72,7 +73,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations) et 364 (résiden
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 et 364 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363, 364 et 365 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -82,14 +83,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations) et 364 (résiden
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (365)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (366)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(364\)/);
-    const renumerotee = planifier([...existants, { fichier: '365_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(365\)/);
+    const renumerotee = planifier([...existants, { fichier: '366_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['365_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['366_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -116,6 +117,34 @@ describe('364 (adresse de résidence sur le compte) : additive, enveloppée, san
     for (const s of ['tunnel_bien_analyse', 'tunnel_adresse_saisie', 'espace_client']) {
       expect(contenu).toContain(`'${s}'`);
       expect(code).toContain(`'${s}'`);
+    }
+  });
+});
+
+describe('365 (invités des tâches) : enveloppée, sans refus, une table neuve et deux colonnes, reprise sans perte', () => {
+  const contenu = lire(MIGRATIONS, '365_gestion_tache_invite.sql');
+  const a = analyserMigration({ fichier: '365_gestion_tache_invite.sql', contenu });
+  it('passe le garde, enveloppée, réversible', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.tablesCreees).toEqual(['gestion_tache_invite']);
+    expect(a.colonnesAjoutees).toEqual([
+      { table: 'gestion_tache_demande', colonne: 'invite_id' },
+      { table: 'gestion_tache_demande', colonne: 'raison' },
+    ]);
+  });
+  it('aucune suppression de ligne ; la table des invités refuse la suppression (déclencheurs de la 346)', () => {
+    const sql = coeur(contenu).join('\n');
+    expect(sql).not.toMatch(/\b(DELETE|TRUNCATE)\b(?! ON)/i);
+    expect(sql).toContain('CREATE TRIGGER gestion_tache_invite_no_delete BEFORE DELETE ON gestion_tache_invite');
+    expect(sql).not.toMatch(/UPDATE gestion_tache SET/i);
+  });
+  it('les raisons acceptées sont celles que le code écrit', () => {
+    const code = readFileSync(path.join(process.cwd(), 'app/lib/gestion/acceptationRepo.ts'), 'utf8');
+    for (const r of ['creation', 'ajout', 'relance', 'renvoi', 'destinataire_change']) {
+      expect(contenu).toContain(`'${r}'`);
+      expect(code).toContain(`'${r}'`);
     }
   });
 });
