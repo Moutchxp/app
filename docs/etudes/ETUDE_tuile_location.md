@@ -7,7 +7,9 @@
 > INDÉPENDANTS qui n'ont reçu que la proposition — gestionnaire locatif (D1), agent de terrain (D2), compteur de
 > clics (D3), architecte des données (D4) ; révision v2 (E).
 > **Maquettes** : `.captures/location-etude/index.html` (statiques, données inventées).
-> ⚠️ **Recherche web refusée dans cette session** (WebSearch et WebFetch bloqués par les permissions). B1, B2 et B3
+> ✅ **Mise à jour du 17/10/2026** : trois points juridiques vérifiés sur sources web (honoraires, cumul caution +
+> assurance loyers impayés, DPE) — marqués « vérifié 17/10/2026 » ; voir §11.
+> ⚠️ **Recherche web refusée dans la session d'étude** (WebSearch et WebFetch bloqués par les permissions). B1, B2 et B3
 > reposent sur les connaissances des agents ; **toute référence juridique ou chiffre est marqué « à vérifier »** et
 > devra être confirmé sur Légifrance / service-public.fr / ANIL / CNIL avant d'être codé en contrôle bloquant
 > (liste au §11). La reconnaissance du code (A) et la critique données (D4), elles, sont vérifiées dans le dépôt
@@ -49,9 +51,12 @@ prélèvement au 5, compte des honoraires, virement…) sont pré-remplis et ré
 et honoraires sont calculés (modifiables).
 
 **Sécurité juridique au bon moment.** Rien ne bloque pendant la saisie. Au moment de « Signer et mettre en place »,
-l'outil vérifie : mandat signé, diagnostics à jour, DPE autorisé (G interdit depuis 2025), dépôt et honoraires sous
-les plafonds, loyer sous le plafond de l'encadrement parisien, pas de GLI avec une caution (sauf étudiant ou
-apprenti), identité complète des signataires.
+l'outil vérifie : mandat signé, diagnostics à jour, DPE autorisé (G interdit depuis le 01/01/2025, F à partir de
+2028 — *vérifié 17/10/2026*), dépôt et honoraires sous les plafonds (12,10 €/m² + 3,03 €/m² pour l'état des lieux à
+Paris depuis le 01/01/2026 — *vérifié 17/10/2026*), loyer sous le plafond de l'encadrement parisien, pas de caution
+personne physique avec une assurance loyers impayés sauf locataire étudiant ou apprenti (*vérifié 17/10/2026*),
+identité complète des signataires. Plafonds d'honoraires et dates d'interdiction DPE sont des **réglages datés**,
+jamais écrits dans le code : ils évoluent.
 
 **Rien n'est perdu.** Tout se fait par AJOUT ; l'historique des mails (173 894 rattachements) ne bouge pas.
 
@@ -141,10 +146,10 @@ prévu au lot 0 (§9) ; rien n'a été modifié.
 |---|---|---|
 | Loi Hoguet (1970) + décret 1972 | Mandat écrit préalable à toute action ; registre des mandats à numérotation continue, sans blanc, conservé 10 ans ; numéro reporté sur l'exemplaire du mandant ; fonds via compte couvert par la garantie financière ; rétractation 14 j si signé hors établissement | Mandat obligatoire pour signer un bail ; registre en ajout seul avec compteur continu ; délai de rétractation calculé ; dépôt « conservé par l'agence » = compte mandant |
 | Loi 1989 / ALUR / ELAN | Bail type ; durée 3 ans (bailleur personne physique), 6 ans (personne morale), 1 an meublé, 9 mois étudiant, 1-10 mois mobilité ; préavis locataire 1 mois en zone tendue (tout Paris) | Fin prévue et date limite de congé calculées ; types de bail fermés |
-| Honoraires | Locataire : visite + dossier + bail ≤ 12 €/m² (zone très tendue, Paris), 10, 8 ; état des lieux ≤ 3 €/m² ; part locataire ≤ part bailleur ; rien d'encaissé avant signature | Deux lignes d'honoraires calculées sur la surface habitable, contrôlées chacune |
+| Honoraires | **Vérifié 17/10/2026** — plafonds imputables au locataire pour les baux signés depuis le 01/01/2026 (arrêté de fin 2025, après un gel depuis 2014) : visite + dossier + bail ≤ **12,10 €/m²** (zone très tendue, dont Paris), **10,09 €/m²** (zone tendue), **8,07 €/m²** (reste du territoire) ; état des lieux d'entrée ≤ **3,03 €/m²**. *À vérifier* : part locataire ≤ part bailleur ; rien d'encaissé avant signature | Deux lignes d'honoraires calculées sur la surface habitable, contrôlées chacune ; plafonds = **réglage daté** (zone, valeur, date d'effet), le bail lit la valeur en vigueur à sa date de signature ; jamais en dur |
 | Dépôt de garantie | ≤ 1 mois HC (vide), 2 mois (meublé), 0 (mobilité) ; restitution 1 mois (EDL conforme) / 2 mois ; pénalité 10 % du loyer par mois de retard | DG pré-calculé ; échéance de restitution suivie dans l'accueil |
-| GLI / Visale / caution | GLI + caution personne physique interdites ensemble (sauf étudiant / apprenti) ; Visale est une **caution** (Action Logement) ; acte de caution distinct (montant max., durée, mention de la caution, art. 2297 C. civ.) | Objet « caution » à part ; alerte d'incompatibilité au choix, blocage à la signature |
-| Diagnostics, DPE | DDT annexé ; DPE G non décent depuis le 01/01/2025, F en 2028, E en 2034 ; gel des loyers F/G ; ERP < 6 mois ; électricité/gaz si > 15 ans | Tableau de diagnostics par lot, validité calculée, blocage à la signature |
+| GLI / Visale / caution | **Vérifié 17/10/2026** — cumul caution personne physique + assurance loyers impayés **interdit, sauf locataire étudiant ou apprenti** ; *à vérifier* : Visale est une **caution** (Action Logement) ; acte de caution distinct (montant max., durée, mention de la caution, art. 2297 C. civ.) | Objet « caution » à part ; alerte d'incompatibilité au choix, blocage à la signature ; **le contrôle prévoit l'exception** : il lit la qualité du locataire (étudiant / apprenti, champ du bail) et ne bloque pas dans ce cas |
+| Diagnostics, DPE | **Vérifié 17/10/2026** — classe **G interdite à la location (nouveau bail ou renouvellement) depuis le 01/01/2025** ; **F à partir de 2028**. *À vérifier* : E en 2034 ; gel des loyers F/G ; DDT annexé ; ERP < 6 mois ; électricité/gaz si > 15 ans | Tableau de diagnostics par lot, validité calculée, blocage à la signature ; **dates d'interdiction par classe = réglage daté** (classe, date d'effet), jamais en dur |
 | Assurance habitation | Attestation à l'entrée puis chaque année | Échéance par bail, relance en tâche Gestion |
 | IRL, charges, EDL | Révision annuelle (prescription 1 an, pas de rétroactivité, interdite F/G) ; régularisation annuelle des charges ; EDL contradictoire | v1 : WIPPIMMO reste maître de la révision et des charges (§5.0) ; l'outil stocke indice de base et date anniversaire |
 | Dossier candidat | Pièces limitées par le décret 2015-1437 ; interdits : n° de sécurité sociale, relevés bancaires, RIB avant signature, photo… | Aucune catégorie de pièce interdite ; v1 : pas de pièces de candidat stockées |
@@ -281,7 +286,8 @@ anti-DELETE étendu) ; les nouvelles tables portent le préfixe `gestion_` (mêm
 
 ### 4.5 Bail [Arno + cadre tranché, revu par D1-B1/B4/B5/B7 et D4-B3/B6/B7]
 
-- `gestion_bail` : type (vide | meublé | étudiant | mobilité | Code civil — personne morale ou résidence secondaire |
+- `gestion_bail` : qualité du locataire étudiant ou apprenti (oui/non — lue par le contrôle caution + assurance loyers
+  impayés, *vérifié 17/10/2026*) ; type (vide | meublé | étudiant | mobilité | Code civil — personne morale ou résidence secondaire |
   stationnement Code civil), date de signature, date d'effet (= date d'entrée, une seule date), fin prévue
   **calculée** (type + nature du bailleur), date limite du congé du bailleur, statut **stocké** limité à brouillon |
   signé | annulé (« en cours » et « terminé » sont **dérivés** des dates), `origine` (app | reprise), mentions
@@ -327,7 +333,7 @@ anti-DELETE étendu) ; les nouvelles tables portent le préfixe `gestion_` (mêm
 | Entretien à prévoir : Chaudière / Ramonage / Autres | Cases + texte | repris du bail précédent du lot |
 | Honoraires locataire : compte bancaire agence / gestion | Choix (libellés de la fiche conservés) | réglage agence |
 | Honoraires propriétaire : compte bancaire agence / gestion | Choix | réglage agence |
-| Sommes dues à l'entrée : prorata loyer, prorata provisions/charges, dépôt de garantie, honoraires agence | **Calculées** (prorata au jour exact du mois, sans arrondi intermédiaire ; honoraires = barème × surface habitable, en deux lignes) et **modifiables** : deux colonnes par somme, `_calcule` (toujours recalculé) et `_saisi` (si modifié) ; affiché = saisi sinon calculé ; marque « modifié » | calculé |
+| Sommes dues à l'entrée : prorata loyer, prorata provisions/charges, dépôt de garantie, honoraires agence | **Calculées** (prorata au jour exact du mois, sans arrondi intermédiaire ; honoraires = barème × surface habitable, en deux lignes, plafonnés par le **réglage daté** en vigueur à la date de signature — 12,10 €/m² et 3,03 €/m² à Paris au 01/01/2026, *vérifié 17/10/2026*) et **modifiables** : deux colonnes par somme, `_calcule` (toujours recalculé) et `_saisi` (si modifié) ; affiché = saisi sinon calculé ; marque « modifié » | calculé |
 | Mode de règlement : Chèque / Virement / Autres | Choix | réglage agence |
 | Commentaires | Texte | — |
 | — | [proposé, D1-C6] Remise : clés, badges, index des compteurs, attestation d'assurance reçue | — |
@@ -476,8 +482,8 @@ Légende : **R** = retenue ; **P** = retenue en partie ; **X** = rejetée (avec 
 | B7 | Garant = rôle au lieu d'acte de caution | Bloquante | **R** — `gestion_caution` (montant, durée, colocataire garanti, résiliation pour l'avenir) |
 | I1 | Durée du bail selon le bailleur, congé du bailleur | Importante | **R** — fin prévue et date limite calculées |
 | I2 | IRL absent | Importante | **P** — indice de base, trimestre, date anniversaire stockés ; le calcul reste dans WIPPIMMO en v1 |
-| I3 | Honoraires : deux plafonds ; comptes ; rien avant signature | Importante | **R** — deux lignes contrôlées ; « compte agence / compte gestion » gardés comme libellés de la fiche [Arno], avec leur sens (honoraires / mandant) écrit dans l'aide |
-| I4 | Autres diagnostics, DPE avant 07/2021 invalide, 9 m² | Importante | **R** — `gestion_lot_diagnostic`, blocage à la signature |
+| I3 | Honoraires : deux plafonds ; comptes ; rien avant signature | Importante | **R** — deux lignes contrôlées contre les plafonds du **réglage daté** (12,10 / 10,09 / 8,07 €/m² et 3,03 €/m² au 01/01/2026, *vérifié 17/10/2026*) ; « compte agence / compte gestion » gardés comme libellés de la fiche [Arno], avec leur sens (honoraires / mandant) écrit dans l'aide |
+| I4 | Autres diagnostics, DPE avant 07/2021 invalide, 9 m² | Importante | **R** — `gestion_lot_diagnostic`, blocage à la signature ; G interdit depuis le 01/01/2025, F à partir de 2028 (*vérifié 17/10/2026*), dates en **réglage daté** |
 | I5 | Baux hors loi 1989 (personne morale, résidence secondaire) | Importante | **R** — types Code civil |
 | I6 | Dissocier exige un avenant ; vente séparée ; TVA parking | Importante | **R** — avenant dans le geste ; motif « vente séparée » ; TVA facultative sur le bail de stationnement |
 | I7 | Assurance habitation annuelle, PNO | Importante | **R** — échéance + tâche Gestion automatique ; case PNO |
@@ -615,7 +621,7 @@ Volume : environ 1 400 lignes à reprendre — faible ; le risque n'est pas le v
 | **L6** | **375** | `gestion_bail`, `gestion_bail_lot` (exclusion), `gestion_bail_partie`, `gestion_caution`, `gestion_bail_loyer` ; occupation = projection ; reprise proposée des baux | Le bail |
 | **L7** | **376** | `gestion_bail_entree` (calculé / saisi), réglages agence, PDF de la fiche, alignement du prorata sur WIPPIMMO | La fiche papier numérique |
 | **L8** | **377** | `gestion_conge`, `gestion_etat_des_lieux`, `gestion_restitution_dg`, échéances d'assurance ; « Clore et relouer », « Louer séparément » (avenant) | Sortie et changement de locataire |
-| **L9** | **378** | Contrôles à la signature ; anonymisation des candidats ; journal des purges ; recomptage des clics sur l'écran réel (critère 42 / 50) | Conformité et réception |
+| **L9** | **378** | Contrôles à la signature (plafonds d'honoraires et dates d'interdiction DPE lus dans des réglages datés : valeur + date d'effet, modifiables sans code) ; anonymisation des candidats ; journal des purges ; recomptage des clics sur l'écran réel (critère 42 / 50) | Conformité et réception |
 
 Chaque lot : une modification logique, un commit ; suite complète `npm test` verte ; itests nommés uniquement ;
 preuve curl pour les composants client ; captures avant/après dans `.captures/`.
@@ -644,14 +650,23 @@ preuve curl pour les composants client ; captures avant/après dans `.captures/`
 
 ## 11. Sources à vérifier avant de coder un contrôle
 
-La session n'a pas pu ouvrir de page web. À confirmer en priorité (B1) : plafonds d'honoraires (décret 2014-890) et
-liste des zones ; plafonds et délais du dépôt de garantie (L89 art. 22) ; incompatibilité GLI / caution (art. 22-1) et
-conditions Visale ; calendrier de décence énergétique et validité des DPE ; décret 2015-1437 (pièces) ; référentiel CNIL
-« gestion locative » (numéro de délibération) ; durée de conservation du registre des mandats (décret 72-678) ;
-encadrement des loyers à Paris (arrêté en vigueur, échéance du 25/11/2026) ; délai du commandement de payer (loi
-2023-668). Logiciels (B2) : modèles annexe / bail multi-lots de Rentila, Buildium, Ublo, Crypto ; avis réels Capterra /
-Appvizer ; documentation WIPPIMMO sur l'indivision et les garants. Ergonomie (B3) : sources NN/g, Baymard, GOV.UK
-citées dans le rapport B3.
+**Vérifié le 17/10/2026** (sources web consultées par Claude, reportées par Arno) :
+- **Plafonds d'honoraires imputables au locataire**, baux signés depuis le 01/01/2026 (arrêté de fin 2025, après un
+  gel depuis 2014) : zone très tendue **12,10 €/m²** ; zone tendue **10,09 €/m²** ; reste du territoire **8,07 €/m²** ;
+  état des lieux d'entrée **3,03 €/m²**. Ils remplacent les 12 et 3 €/m² de la première version. → **Réglage daté**
+  (zone, valeur, date d'effet), modifiable sans code, jamais écrit en dur : ces plafonds évoluent désormais.
+- **Cumul caution personne physique + assurance loyers impayés** : interdit, **sauf locataire étudiant ou apprenti**.
+  → Le contrôle lit la qualité du locataire et prévoit l'exception.
+- **DPE** : classe **G interdite à la location** (nouveau bail ou renouvellement) **depuis le 01/01/2025** ; **F à partir
+  de 2028**. → **Réglage daté** (classe, date d'effet), jamais dans le code.
+
+**Encore à vérifier** (la session d'étude n'a pas pu ouvrir de page web) : part locataire ≤ part bailleur et liste des
+communes par zone ; plafonds et délais du dépôt de garantie (L89 art. 22) ; conditions Visale ; classe E en 2034, gel
+des loyers F/G et validité des DPE ; décret 2015-1437 (pièces) ; référentiel CNIL « gestion locative » (numéro de
+délibération) ; durée de conservation du registre des mandats (décret 72-678) ; encadrement des loyers à Paris (arrêté
+en vigueur, échéance du 25/11/2026) ; délai du commandement de payer (loi 2023-668). Logiciels (B2) : modèles annexe /
+bail multi-lots de Rentila, Buildium, Ublo, Crypto ; avis réels Capterra / Appvizer ; documentation WIPPIMMO sur
+l'indivision et les garants. Ergonomie (B3) : sources NN/g, Baymard, GOV.UK citées dans le rapport B3.
 
 ---
 
@@ -671,8 +686,8 @@ citées dans le rapport B3.
    - **Oui** : plus pratique pour comparer les dossiers, mais l'outil devra détruire les dossiers des candidats non
      retenus au bout de 3 mois, et cela ajoute un lot.
 4. **Vos honoraires de location : appliquez-vous toujours le plafond légal, ou un barème à vous ?** Le dossier d'entrée
-   les calcule tout seul : il faut savoir s'il prend le maximum autorisé (12 €/m² + 3 €/m² pour l'état des lieux à
-   Paris) ou votre propre grille, et qui paie quoi entre locataire et propriétaire.
+   les calcule tout seul : il faut savoir s'il prend le maximum autorisé (12,10 €/m² + 3,03 €/m² pour l'état des
+   lieux à Paris, depuis le 01/01/2026) ou votre propre grille, et qui paie quoi entre locataire et propriétaire.
 5. **Signature électronique des mandats et des baux sur le téléphone, dès le départ ?**
    - **Oui** : l'agent fait signer chez le propriétaire ou en visite, sans revenir au bureau ; abonnement à un service
      de signature (quelques dizaines d'euros par mois) et un lot de plus.
