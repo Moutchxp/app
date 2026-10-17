@@ -3,7 +3,8 @@ import { familleDeCategorie, manquesDuBien, verifierBienComplet, verifierComplem
 
 describe('🔴 formulaire complet du bien — la règle pure (écran ET serveur)', () => {
   it('obligatoires : un propriétaire, l’adresse, la FAMILLE, puis le type propre à la famille', () => {
-    expect(Object.keys(manquesDuBien({ proprietaireIds: [], adresse: ' ' }))).toEqual(['proprietaires', 'adresse', 'famille']);
+    // L'ordre est celui du formulaire (Arno, 17/10/2026) : propriétaire(s), le bien, puis l'adresse.
+    expect(Object.keys(manquesDuBien({ proprietaireIds: [], adresse: ' ' }))).toEqual(['proprietaires', 'famille', 'adresse']);
     expect(Object.keys(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'logement' }))).toEqual(['typeLogement']);
     expect(Object.keys(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'local' }))).toEqual(['typeLocal']);
     expect(Object.keys(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'parking' }))).toEqual(['parkingType']);

@@ -73,7 +73,10 @@ import { ancienDuMemeNom, motProposeReintegration, reintegrerAvecSaisie } from '
 type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
 export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null,
-  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null }: {
+  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false }: {
+  /** TUILE LOCATION (17/10/2026) — le « + » du formulaire du bien ouvre directement « Créer un nouveau syndic ». Absent ⇒
+   *  la fiche commence par la recherche, comme dans la Gestion. */
+  departCreation?: boolean;
   /** LOT COPRO-PLUSIEURS-ADRESSES — l'adresse PROPRE du bien quand elle est une adresse SECONDAIRE de la copropriété
    *  (`immeubleDepart` est alors l'adresse principale) : c'est elle que le bloc 1 affiche. */
   adresseBien?: ImmeubleSaisi | null;
@@ -95,7 +98,7 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
   ancienSyndicId?: number | null;
 }) {
   const [syndicId, setSyndicId] = useState<number | null>(idInitial);
-  const [mode, setMode] = useState<Mode>(idInitial === null ? 'recherche' : 'chargement');
+  const [mode, setMode] = useState<Mode>(idInitial === null ? (departCreation ? 'edition' : 'recherche') : 'chargement');
   const [fiche, setFiche] = useState<Fiche | null>(null);
   const [form, setForm] = useState<SyndicForm>(() => formulaireVide(immeubleDepart, lotDepart));
   /** Le formulaire tel qu'il était à l'ouverture : ce qui permet de dire « des modifications sont en cours ». */

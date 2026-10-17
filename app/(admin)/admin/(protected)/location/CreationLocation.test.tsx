@@ -25,6 +25,8 @@ beforeEach(() => {
     if (u.includes('proprietairesIds=')) return ok([{ id: 1, titre: 'DUPONT Paul', detail: null }, { id: 2, titre: 'DUPONT Anne', detail: null }]);
     if (u.includes('proprietairesRecherche=')) return ok([{ id: 3, titre: 'MARTIN Léa', detail: '3 rue du Port, PARIS' }]);
     if (u.includes('syndics=1')) return ok([{ id: 5, nom: 'FONCIA', ville: 'Paris' }]);
+    if (u.includes('syndicPourAdresse=')) return ok([{ id: 5, nom: 'FONCIA', ville: 'Paris', motif: 'un autre bien du portefeuille à cette adresse' }]);
+    if (u.includes('syndic=5')) return ok({ id: 5, nom: 'FONCIA', contacts: [{ id: 51, civilite: 'Mme', prenom: 'Léa', nom: 'GESTION', titre: 'Gestionnaire', coordonnees: [{ id: 1, sorte: 'email', libelle: null, valeur: 'lea@foncia.test' }] }], coproprietes: [] });
     return ok([]);
   }) as unknown as typeof fetch;
 });
@@ -129,9 +131,12 @@ describe('🔴 Ajouter un nouveau bien', () => {
     await calmer();
     expect([...container.querySelectorAll('[data-proprietaires] .loc-puce')].map((x) => x.textContent?.replace('✕', '').trim())).toEqual(['DUPONT Paul', 'DUPONT Anne']);
     expect([...container.querySelectorAll('.loc-section > h3')].map((h) => h.textContent?.replace(/^\d/, '').replace('*', '').trim()))
-      .toEqual(['Propriétaire(s)', 'Adresse et situation', 'Le bien', 'Copropriété', 'Annexes', 'Caractéristiques complémentaires', 'Commentaires']);
+      .toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Annexes', 'Caractéristiques complémentaires', 'Commentaires']);
     expect(container.querySelector('[data-collant] button[type="submit"]')?.textContent).toBe('Enregistrer le bien');
-    expect(container.querySelector('option[value="5"]')?.textContent).toContain('FONCIA');
+    // Syndic : libellé, loupe et « + » (désactivés tant que l'adresse n'est pas saisie).
+    expect(container.querySelector('[data-syndic] .loc-syndic-mot')?.textContent).toBe('Syndic');
+    expect((container.querySelector('[data-loupe]') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('[data-creer-syndic]') as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('obligatoires : sans adresse ni type, « Enregistrer le bien » dit ce qui manque et n’envoie rien', async () => {
@@ -140,7 +145,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
     await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
     expect(container.textContent).toContain('Choisissez au moins un propriétaire.');
     expect(container.textContent).toContain('L’adresse du bien est obligatoire.');
-    expect(container.textContent).toContain('Choisissez la famille du bien : Logement, Un local ou Parking nu.');
+    expect(container.textContent).toContain('Choisissez la famille du bien : Logement, Local ou Parking nu.');
     expect(posts).toEqual([]);
   });
 
@@ -151,7 +156,8 @@ describe('🔴 Ajouter un nouveau bien', () => {
   it('FAMILLE : rien du bloc « Le bien » tant qu’aucune n’est choisie ; chaque famille montre ses champs', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
     const bloc = () => container.querySelector('[data-bloc-bien]') as HTMLElement;
-    expect([...bloc().querySelectorAll('[data-famille]')].map((x) => x.textContent)).toEqual(['Logement', 'Un local', 'Parking nu']);
+    expect([...bloc().querySelectorAll('[data-famille]')].map((x) => x.textContent)).toEqual(['Logement', 'Local', 'Parking nu']);
+    expect(bloc().querySelector('.loc-gros-boutons--3d')).not.toBeNull();
     expect(bloc().querySelector('input')).toBeNull();
     // Logement : type, meublé, pièces et surfaces (aide SOUS le champ extérieur).
     await famille('logement');
@@ -170,7 +176,9 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(bloc().textContent).toContain('Intérieur');
     expect([...bloc().querySelectorAll('[aria-label="Type de parking"] button')].map((x) => x.textContent)).toEqual(['Place simple', 'Place double', 'Box simple', 'Box double']);
     expect(bloc().textContent).not.toMatch(/Nombre de pièces|Meublé|Carrez/);
-    expect(titres()).toEqual(['Propriétaire(s)', 'Adresse et situation', 'Le bien', 'Copropriété', 'Commentaires']);
+    expect(titres()).toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Commentaires']);
+    // « N° de porte » devient « N° de place » dans la situation d'un parking nu.
+    expect([...container.querySelectorAll('[data-ligne-situation] .loc-champ')].map((l) => l.firstChild?.textContent)).toContain('N° de place');
     expect([...container.querySelectorAll('.loc-num')].map((x) => x.textContent)).toEqual(['1', '2', '3', '4', '5']);
   });
 
@@ -183,15 +191,45 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(posts).toEqual([]);
   });
 
-  it('ACCÈS : ascenseur et digicode oui / non, « Code » seulement si digicode ; « Précision » sous la ligne Bâtiment…', async () => {
+  it('ACCÈS : le « Code » à droite des boutons du digicode — 8 caractères au plus, actif sur Oui, vidé sur Non ; « Précision »', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
     expect(container.querySelector('[aria-label="Ascenseur"]')).not.toBeNull();
-    expect(container.textContent).not.toContain('Code (facultatif)');
-    await act(async () => { (container.querySelector('[aria-label="Digicode"] button') as HTMLButtonElement).click(); });
-    expect(container.textContent).toContain('Code (facultatif)');
+    const code = () => container.querySelector('[data-digicode] input') as HTMLInputElement;
+    expect(code().placeholder).toBe('57B83');
+    expect(code().maxLength).toBe(8);
+    expect(code().disabled).toBe(true);
+    const digi = (mot: string) => [...container.querySelectorAll('[aria-label="Digicode"] button')].find((x) => x.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
+    await act(async () => { digi('Oui').click(); });
+    expect(code().disabled).toBe(false);
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(code(), '57B83XYZ99'); code().dispatchEvent(new Event('input', { bubbles: true })); });
+    expect(code().value).toBe('57B83XYZ');
+    await act(async () => { digi('Non').click(); });
+    expect(code().value).toBe('');
+    expect(code().disabled).toBe(true);
     const precision = container.querySelector('[data-precision] input') as HTMLInputElement;
     expect(precision.placeholder).toBe('À droite en sortant de l’ascenseur, deuxième porte à gauche');
-    expect(container.querySelector('[data-ligne-situation] > [data-precision]')?.className).toContain('loc-pleine');
+  });
+
+  it('SYNDIC : « déjà connu pour cette adresse » proposé, rattaché au CLIC ; ses contacts ; « + Ajouter un contact »', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    const adr = container.querySelector('.cab-enveloppe input') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(adr, '14 rue des Lilas'); adr.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { vi.advanceTimersByTime(700); });
+    await calmer();
+    vi.useRealTimers();
+    expect(container.querySelector('[data-suggestions-syndic]')?.textContent).toContain('Syndic déjà connu pour cette adresse : FONCIA');
+    // Rien n'est rattaché sans clic.
+    expect(container.querySelector('[data-syndic-choisi]')).toBeNull();
+    await act(async () => { bouton('Rattacher').click(); });
+    await calmer();
+    expect(container.querySelector('[data-syndic-choisi]')?.textContent).toContain('FONCIA');
+    expect(container.querySelector('[data-syndic-choisi]')?.textContent).toContain('Mme Léa GESTION');
+    expect((container.querySelector('[data-loupe]') as HTMLButtonElement).disabled).toBe(false);
+    await act(async () => { bouton('+ Ajouter un contact').click(); });
+    expect(container.querySelector('[data-ajout-contact-syndic]')).not.toBeNull();
+    await act(async () => { bouton('Ajouter ce contact').click(); });
+    expect(container.textContent).toContain('Le nom du contact est obligatoire.');
   });
 
   it('ANNEXES : un parking a les options du parking nu ; « Autre adresse » fait apparaître une adresse', async () => {

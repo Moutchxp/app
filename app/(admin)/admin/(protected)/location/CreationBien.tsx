@@ -13,6 +13,7 @@ import type { ResultatPortefeuille } from '../../../../lib/location/recherchePor
 import type { ChampsSaisis } from '../gestion/CartesPersonnes';
 import { lireContactsEnAttente, oublierContactsEnAttente } from './contactsEnAttente';
 import { BadgeCarte } from './SaisieCartes';
+import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « AJOUTER UN NOUVEAU BIEN » (/admin/location/nouveau-bien), Arno, 17/10/2026 ══════════════════
@@ -82,6 +83,8 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
   const [envoi, setEnvoi] = useState(false);
   /** Les CONTACTS DU PROPRIÉTAIRE saisis à l'écran précédent : enregistrés avec le bien (ils se rangent sur lui). */
   const [contacts, setContacts] = useState<ChampsSaisis[]>([]);
+  /** Le SYNDIC choisi (loupe, suggestion « déjà connu pour cette adresse », ou créé dans la modale de la Gestion). */
+  const [syndic, setSyndic] = useState<SyndicChoisi | null>(null);
   useEffect(() => { setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux]);
 
   // Les propriétaires arrivés de « Créer un nouveau propriétaire » : déjà rattachés, modifiables (retirables).
@@ -96,7 +99,6 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
 
   useEffect(() => { const t = setTimeout(() => setTerme(texte.trim()), 200); return () => clearTimeout(t); }, [texte]);
   const recherche = useLecture<ResultatPortefeuille[]>(terme.length >= 2 ? `proprietairesRecherche=${encodeURIComponent(terme)}` : null);
-  const syndics = useLecture<{ id: number; nom: string; ville: string | null }[]>('syndics=1');
 
   const champ = (k: Champ, mot: React.ReactNode, props: React.InputHTMLAttributes<HTMLInputElement> = {}, aide?: string) => (
     <label className="loc-champ">{mot}<input value={b[k]} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, [k]: val })); }} {...props} />
@@ -130,7 +132,8 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
     setEnvoi(true);
     const r = await envoyer({
       action: 'creer-bien', proprietaireIds: proprietaires.map((p) => p.id),
-      logement: { ...b, famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode },
+      logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode },
+      syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
       contacts,
       annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
         categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse,
@@ -146,7 +149,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
-  const sections = ['proprietaires', 'adresse', 'bien', 'copro', ...(avecAnnexes ? ['annexes', 'complements'] : []), 'commentaires'];
+  const sections = ['proprietaires', 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes', 'complements'] : []), 'commentaires'];
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
   return (
@@ -199,48 +202,9 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
         {manqueDe('proprietaires')}
       </section>
 
-      <section className="loc-section" aria-labelledby="loc-b2">
-        <h3 id="loc-b2"><span className="loc-num">{n('adresse')}</span>Adresse et situation</h3>
-        <div className="loc-grille">
-          <label className="loc-champ loc-pleine">
-            <span>Adresse <span className="loc-oblig">*</span></span>
-            <ChampAdresseBan valeur={b.adresse} verifiee={adresseVerifiee}
-              onChange={(v) => { setB((x) => ({ ...x, adresse: v })); setAdresseVerifiee(false); }}
-              onChoisir={(a) => { setB((x) => ({ ...x, adresse: a.voie, codePostal: a.codePostal, commune: a.commune })); setAdresseVerifiee(true); }} />
-          </label>
-          {champ('codePostal', 'Code postal', { inputMode: 'numeric', maxLength: 5 })}
-          {champ('commune', 'Commune')}
-        </div>
-        {manqueDe('adresse')}
-        <div className="loc-sous-section">
-          <h4>Situation dans l’immeuble</h4>
-          <div className="loc-grille" data-ligne-situation>
-            {champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
-            {champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
-            {champ('etage', 'Étage', { placeholder: '3, RDC, -1…' })}
-            {champ('porte', 'N° de porte')}
-            <label className="loc-champ loc-pleine" data-precision>Précision
-              <input value={b.precisionAcces} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, precisionAcces: val })); }}
-                placeholder="À droite en sortant de l’ascenseur, deuxième porte à gauche" maxLength={500} /></label>
-          </div>
-        </div>
-        <div className="loc-sous-section">
-          <h4>Accès</h4>
-          <div className="loc-acces">
-            <div className="loc-acces-bloc"><span className="loc-acces-mot">Ascenseur</span>
-              <Pilules etiquette="Ascenseur" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(ascenseur)}
-                onChoix={(v) => setAscenseur(v === null ? null : v === 'oui')} /></div>
-            <div className="loc-acces-bloc"><span className="loc-acces-mot">Digicode</span>
-              <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digicode)}
-                onChoix={(v) => { setDigicode(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, digicodeCode: '' })); }} /></div>
-            {digicode === true && <div className="loc-grille loc-acces-code">{champ('digicodeCode', 'Code (facultatif)', { maxLength: 40, placeholder: 'ex. 4589B' })}</div>}
-          </div>
-        </div>
-      </section>
-
       <section className="loc-section" aria-labelledby="loc-b3" data-bloc-bien>
         <h3 id="loc-b3"><span className="loc-num">{n('bien')}</span>Le bien <span className="loc-oblig">*</span></h3>
-        <div className="loc-gros-boutons loc-familles" role="group" aria-label="Famille du bien">
+        <div className="loc-gros-boutons loc-gros-boutons--3d loc-familles" role="group" aria-label="Famille du bien">
           {FAMILLES.map((f) => (
             <button key={f} type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={famille === f} data-famille={f}
               onClick={() => setFamille(f)}>{famille === f ? `✓ ${LIBELLE_FAMILLE[f]}` : LIBELLE_FAMILLE[f]}</button>
@@ -305,17 +269,54 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
         )}
       </section>
 
+      <section className="loc-section" aria-labelledby="loc-b2">
+        <h3 id="loc-b2"><span className="loc-num">{n('adresse')}</span>Adresse et situation</h3>
+        <div className="loc-grille">
+          <label className="loc-champ loc-pleine">
+            <span>Adresse <span className="loc-oblig">*</span></span>
+            <ChampAdresseBan valeur={b.adresse} verifiee={adresseVerifiee}
+              onChange={(v) => { setB((x) => ({ ...x, adresse: v })); setAdresseVerifiee(false); }}
+              onChoisir={(a) => { setB((x) => ({ ...x, adresse: a.voie, codePostal: a.codePostal, commune: a.commune })); setAdresseVerifiee(true); }} />
+          </label>
+          {champ('codePostal', 'Code postal', { inputMode: 'numeric', maxLength: 5 })}
+          {champ('commune', 'Commune')}
+        </div>
+        {manqueDe('adresse')}
+        <div className="loc-sous-section">
+          <h4>Situation dans l’immeuble</h4>
+          <div className="loc-grille" data-ligne-situation>
+            {champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
+            {champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
+            {champ('etage', 'Étage', { placeholder: '3, RDC, -1…' })}
+            {champ('porte', famille === 'parking' ? 'N° de place' : 'N° de porte')}
+            <label className="loc-champ loc-pleine" data-precision>Précision
+              <input value={b.precisionAcces} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, precisionAcces: val })); }}
+                placeholder="À droite en sortant de l’ascenseur, deuxième porte à gauche" maxLength={500} /></label>
+          </div>
+        </div>
+        <div className="loc-sous-section">
+          <h4>Accès</h4>
+          <div className="loc-acces">
+            <div className="loc-acces-bloc"><span className="loc-acces-mot">Ascenseur</span>
+              <Pilules etiquette="Ascenseur" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(ascenseur)}
+                onChoix={(v) => setAscenseur(v === null ? null : v === 'oui')} /></div>
+            <div className="loc-acces-bloc" data-digicode><span className="loc-acces-mot">Digicode</span>
+              <Pilules etiquette="Digicode" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(digicode)}
+                onChoix={(v) => { setDigicode(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, digicodeCode: '' })); }} />
+              {/* Arno (17/10/2026) : le « Code » À DROITE des boutons, 8 caractères au plus ; actif seulement si Oui, vidé sur Non. */}
+              <label className="loc-code-digicode">Code
+                <input value={b.digicodeCode} maxLength={8} placeholder="57B83" disabled={digicode !== true} aria-label="Code du digicode"
+                  onChange={(e) => { const val = e.target.value.slice(0, 8); setB((x) => ({ ...x, digicodeCode: val })); }} /></label>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="loc-section" aria-labelledby="loc-b4">
         <h3 id="loc-b4"><span className="loc-num">{n('copro')}</span>Copropriété</h3>
         <div className="loc-grille">
           {champ('numLotCopro', 'N° de lot (règlement de copropriété)')}
-          <label className="loc-champ">Syndic (connu de la Gestion)
-            <select value={b.syndicId} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, syndicId: val })); }} disabled={syndics.etat.etat !== 'ok'}>
-              <option value="">— non renseigné —</option>
-              {syndics.etat.etat === 'ok' && liste(syndics.etat.data).map((s) => (
-                <option key={s.id} value={String(s.id)}>{s.nom}{s.ville ? ` — ${s.ville}` : ''}</option>
-              ))}
-            </select></label>
+          <BlocSyndic adresse={{ libelle: b.adresse, codePostal: b.codePostal, commune: b.commune }} choisi={syndic} onChoisi={setSyndic} />
         </div>
       </section>
 

@@ -10,7 +10,7 @@
  * même vérification que la fiche du bien : une seule règle par champ.
  *
  * ══ FAMILLE DE BIEN (Arno, 17/10/2026) ══════════════════════════════════════════════════════════════════════════════════
- * « Logement » · « Un local » (Local commercial / Bureaux) · « Parking nu » (Intérieur / Extérieur ; Place simple · Place
+ * « Logement » · « Local » (Local commercial / Bureaux) · « Parking nu » (Intérieur / Extérieur ; Place simple · Place
  * double · Box simple · Box double). Obligatoires PAR FAMILLE : le type de logement, le type de local, le type de parking.
  * Un parking nu n'a ni pièces, ni meublé, ni Carrez, ni annexes, ni caractéristiques complémentaires (époque, chauffage,
  * DPE). La famille n'a pas de colonne : elle EST la catégorie (logement / local / parking) — migration 376.
@@ -32,7 +32,7 @@ export const CLASSES_DPE = ['A', 'B', 'C', 'D', 'E', 'F', 'G'] as const;
 export const FAMILLES = ['logement', 'local', 'parking'] as const;
 export type Famille = (typeof FAMILLES)[number];
 /** Le mot du gros bouton. */
-export const LIBELLE_FAMILLE: Record<Famille, string> = { logement: 'Logement', local: 'Un local', parking: 'Parking nu' };
+export const LIBELLE_FAMILLE: Record<Famille, string> = { logement: 'Logement', local: 'Local', parking: 'Parking nu' };
 /** Le nom de la chose, pour adapter les titres et les phrases (« Le local », « à l'adresse du parking »…). */
 export const NOM_FAMILLE: Record<Famille, string> = { logement: 'logement', local: 'local', parking: 'parking' };
 
@@ -122,12 +122,13 @@ export function manquesDuBien(s: {
 }): Record<string, string> {
   const m: Record<string, string> = {};
   const famille = dans(FAMILLES, s.famille);
+  // L'ORDRE est celui du formulaire (Arno, 17/10/2026) : propriétaire(s), le bien (famille, type), puis l'adresse.
   if (s.proprietaireIds.length === 0) m.proprietaires = 'Choisissez au moins un propriétaire.';
-  if (vide(s.adresse)) m.adresse = `L’adresse du ${famille === null ? 'bien' : NOM_FAMILLE[famille]} est obligatoire.`;
-  if (famille === null) m.famille = 'Choisissez la famille du bien : Logement, Un local ou Parking nu.';
+  if (famille === null) m.famille = 'Choisissez la famille du bien : Logement, Local ou Parking nu.';
   else if (famille === 'logement' && vide(s.typeLogement)) m.typeLogement = 'Le type de logement est obligatoire.';
   else if (famille === 'local' && vide(s.typeLocal)) m.typeLocal = 'Choisissez : Local commercial ou Bureaux.';
   else if (famille === 'parking' && vide(s.parkingType)) m.parkingType = 'Choisissez : Place simple, Place double, Box simple ou Box double.';
+  if (vide(s.adresse)) m.adresse = `L’adresse du ${famille === null ? 'bien' : NOM_FAMILLE[famille]} est obligatoire.`;
   (s.annexes ?? []).forEach((a, i) => {
     if (ouiNon(a.autreAdresse) === true && vide(a.adresse)) m[`annexe-${i}`] = `Annexe ${i + 1} : l’autre adresse est à renseigner.`;
   });
@@ -171,6 +172,10 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
     surface = n;
   }
   const digicode = ouiNon(l.digicode);
+  // Le code du digicode : 8 caractères au plus (Arno, 17/10/2026), et seulement si digicode = oui.
+  if (digicode === true && typeof l.digicodeCode === 'string' && l.digicodeCode.trim().length > 8) {
+    return { ok: false, motif: 'Le code du digicode fait 8 caractères au plus.' };
+  }
   return {
     ok: true,
     valeurs: {
@@ -180,7 +185,7 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
       dpeClasse: dpe === null ? null : dpe.toUpperCase(), dpeDate, commentaire: texte(l.commentaire, 4000),
       typeLocal: dans(TYPES_LOCAL, l.typeLocal), parkingSituation: dans(SITUATIONS_PARKING, l.parkingSituation),
       parkingType: dans(TYPES_PARKING, l.parkingType), surfaceM2: surface,
-      ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? texte(l.digicodeCode, 40) : null,
+      ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? texte(l.digicodeCode, 8) : null,
       precisionAcces: texte(l.precisionAcces, 500),
     },
   };

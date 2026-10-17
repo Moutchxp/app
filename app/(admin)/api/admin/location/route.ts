@@ -17,6 +17,7 @@ import {
   creerBienComplet, creerProprietaires, enregistrerEnGestion, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
 } from '../../../../lib/location/creationBienRepo';
 import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo';
+import { syndicsPourAdresse, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -76,6 +77,12 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ etat: 'ok', data: await proprietairesParIds(ids) }, { headers: ENTETES });
     }
     if (p('syndics') !== null) return Response.json({ etat: 'ok', data: await syndicsConnus() }, { headers: ENTETES });
+    // « Syndic déjà connu pour cette adresse » (fonction de la Gestion) — LECTURE SEULE, jamais de rattachement sans clic.
+    if (p('syndicPourAdresse') !== null) {
+      return Response.json({ etat: 'ok', data: await syndicsPourAdresse({
+        libelle: (p('syndicPourAdresse') ?? '').slice(0, 300), codePostal: (p('cp') ?? '').slice(0, 10), commune: (p('commune') ?? '').slice(0, 120),
+      }) }, { headers: ENTETES });
+    }
     if (p('telephone') !== null || p('email') !== null) {
       // Plusieurs valeurs possibles (une carte peut porter deux téléphones) ; bornées.
       const doublons = await chercherDoublons([
@@ -178,6 +185,7 @@ export async function POST(request: Request): Promise<Response> {
           logement: (corps.logement ?? {}) as Record<string, unknown>,
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
           contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
+          syndic: corps.syndic !== null && typeof corps.syndic === 'object' ? corps.syndic as SyndicDuBien : null,
         }, auteur));
       case 'creer-locataires':
         return repondre(await creerLocatairesSurBien({

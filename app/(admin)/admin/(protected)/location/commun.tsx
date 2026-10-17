@@ -187,6 +187,7 @@ export const CSS_LOCATION_ECRANS = `
 .loc-bascule button{border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:0 14px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}
 .loc-bascule button + button{border-left:1px solid var(--color-svv-line-strong)}
 .loc-bascule button[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface)}
+.loc-bascule button[aria-pressed="true"]::before{content:"✓ "}
 .loc-sortie{border-radius:10px;padding:10px 12px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
 .loc-confirmation{border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:12px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 .loc-choix{list-style:none;margin:6px 0 0;padding:0;border:1px solid var(--color-svv-line);border-radius:10px;max-height:16rem;overflow:auto}
@@ -216,7 +217,7 @@ export const CSS_LOCATION_CREATION = `
 .loc-gros-bouton:disabled{opacity:.55;cursor:not-allowed}
 .loc-gros-bouton--centre{align-items:center;text-align:center}
 .loc-oui-non .loc-gros-bouton{min-height:7rem;font-size:1.6rem}
-.loc-gros-bouton[aria-pressed="true"]{background:var(--color-svv-ink);border-color:var(--color-svv-ink);color:var(--color-svv-surface);box-shadow:0 0 0 4px var(--color-svv-line-strong)}
+.loc-gros-bouton[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface);box-shadow:0 0 0 4px var(--color-svv-red-soft)}
 /* Le « Enregistrer » des cartes de contact (composant de la Gestion, inchangé là-bas) : ICI un vrai bouton, même taille
    que « Annuler », couleur du bouton principal du thème (Arno, 17/10/2026). */
 .loc-ample .cp-form-boutons{flex-wrap:nowrap}
@@ -239,7 +240,8 @@ export const CSS_LOCATION_CREATION = `
 .loc-ample .svv-btn{min-height:52px;border-radius:16px;font-size:1.02rem;padding:0 22px}
 .loc-pilules{display:flex;flex-wrap:wrap;gap:10px}
 .loc-pilules button{min-height:54px;padding:0 22px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;font-weight:700;cursor:pointer}
-.loc-pilules button[aria-pressed="true"]{background:var(--color-svv-ink);border-color:var(--color-svv-ink);color:var(--color-svv-surface)}
+.loc-pilules button[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
+.loc-pilules button[aria-pressed="true"]::before{content:"✓ "}
 .loc-pilules button:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px}
 .loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:12px}
 .loc-puce{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:8px 8px 8px 20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-size:1.05rem;font-weight:700;border:2px solid var(--color-svv-green-ink)}
@@ -282,6 +284,28 @@ export const CSS_LOCATION_CREATION = `
 .loc-carte-badge{margin:0 0 8px}
 .loc-recap--contact{border-color:var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink)}
 .loc-ample .cp-champ--en-avant .cp-saisie{border-color:var(--color-svv-ink)}
+/* Arno (17/10/2026) — LE SYNDIC DU BIEN : libellé, loupe, « + » rouge cerclé de rouge ; suggestions ; contacts du cabinet. */
+.loc-syndic{display:flex;flex-direction:column;gap:12px}
+.loc-syndic-tete{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.loc-syndic-mot{font-weight:700;font-size:1rem;color:var(--color-svv-ink)}
+.loc-picto{display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.6rem;font-weight:800;line-height:1;cursor:pointer}
+.loc-picto--plus{border-color:var(--color-svv-red);color:var(--color-svv-red)}
+.loc-picto:disabled{opacity:.45;cursor:not-allowed}
+.loc-picto:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px}
+.loc-syndic-suggestions{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.loc-syndic-suggestions li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 14px}
+.loc-syndic-suggestions .svv-btn{width:auto}
+.loc-syndic-choisi{display:flex;flex-direction:column;gap:10px;border:2px solid var(--color-svv-line);border-radius:18px;padding:16px 18px;background:var(--color-svv-field)}
+.loc-syndic-nom{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:0;font-size:1.08rem}
+.loc-syndic-nom .svv-btn{width:auto}
+.loc-syndic-contacts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.loc-syndic-contacts label{display:flex;gap:10px;align-items:flex-start;cursor:pointer;color:var(--color-svv-ink)}
+.loc-syndic-contacts input{width:20px;height:20px;margin-top:2px;accent-color:var(--color-svv-red)}
+.loc-ajouter-contact-syndic{align-self:flex-start;border:2px dashed var(--color-svv-line-strong);border-radius:14px;background:transparent;color:var(--color-svv-ink);font:inherit;font-weight:800;padding:10px 16px;min-height:46px;cursor:pointer}
+.loc-syndic-ajout{display:flex;flex-direction:column;gap:12px;border-top:1px solid var(--color-svv-line);padding-top:12px}
+.loc-code-digicode{display:inline-flex;align-items:center;gap:10px;font-weight:700;color:var(--color-svv-ink)}
+.loc-code-digicode input{width:9rem;min-height:54px;font-size:1.1rem;border-radius:16px;border:2px solid var(--color-svv-line);padding:0 14px;background:var(--color-svv-surface);color:var(--color-svv-ink);font-family:inherit;box-sizing:border-box}
+.loc-code-digicode input:disabled{background:var(--color-svv-field);color:var(--color-svv-muted);cursor:not-allowed}
 .loc-recap{display:flex;flex-direction:column;gap:6px;border:2px solid var(--color-svv-green-ink);border-radius:22px;padding:20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .loc-recap strong{font-size:1.15rem}
 .loc-recap .loc-boutons{justify-content:flex-start}
