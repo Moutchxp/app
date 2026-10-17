@@ -65,3 +65,50 @@ describe('degraderPhoto — master JPEG, orientation appliquée, EXIF/GPS retir�
     expect(mp.height).toBe(80);
   });
 });
+
+/**
+ * 🔴 LOT CERTIFICAT-PHOTO (Arno, 17/10/2026) — deux photos de 4 Ko en production (certificats 474 et 475). Le dépôt ne
+ * doit JAMAIS fabriquer une miniature ni une image vide : une photo du téléphone ressort au côté long 1600 px, avec ses
+ * détails. Et une vue de NUIT, presque uniforme, pèse naturellement quelques Ko une fois recompressée (mesuré ici).
+ */
+describe('🔴 la photo déposée n’est ni une miniature ni une image vide', () => {
+  const scene = (w: number, h: number, lum: number, bruit: number) => {
+    const px = Buffer.alloc(w * h * 3);
+    let x = 12345;
+    for (let i = 0; i < px.length; i++) {
+      x = (x * 1103515245 + 12345) & 0x7fffffff; // pseudo-aléa déterministe
+      px[i] = Math.max(0, Math.min(255, lum + Math.round(((x % 1000) / 1000 - 0.5) * bruit)));
+    }
+    return sharp(px, { raw: { width: w, height: h, channels: 3 } }).jpeg({ quality: 92 }).toBuffer();
+  };
+  /* Une vue de jour : façades (blocs), ciel (dégradé), détails fins (rayures) — ce qui survit à la réduction. */
+  const vueDeJour = (w: number, h: number) => {
+    const px = Buffer.alloc(w * h * 3);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 3;
+      const facade = (Math.floor(x / 64) + Math.floor(y / 48)) % 3;
+      px[i] = y < h / 3 ? 120 + Math.floor((80 * y) / h) : 60 + facade * 50 + ((x >> 2) % 2) * 25;
+      px[i + 1] = y < h / 3 ? 160 : 70 + facade * 40 + ((y >> 2) % 2) * 25;
+      px[i + 2] = y < h / 3 ? 220 : 50 + facade * 30;
+    }
+    return sharp(px, { raw: { width: w, height: h, channels: 3 } }).jpeg({ quality: 92 }).toBuffer();
+  };
+  it('photo de jour d’un iPhone (4032 × 3024) : 1600 × 1200, détails conservés, bien plus que 4 Ko', async () => {
+    const out = await degraderPhoto(await vueDeJour(4032, 3024));
+    const m = await sharp(out).metadata();
+    const s = await sharp(out).stats();
+    expect([m.width, m.height]).toEqual([1600, 1200]);
+    expect(s.channels[0].stdev).toBeGreaterThan(20); // pas une image vide (uniforme)
+    expect(out.byteLength).toBeGreaterThan(20_000);
+  });
+  it('photo déjà petite (1280 × 720) : jamais agrandie, jamais réduite en miniature', async () => {
+    const m = await sharp(await degraderPhoto(await vueDeJour(1280, 720))).metadata();
+    expect([m.width, m.height]).toEqual([1280, 720]);
+  });
+  it('vue de NUIT presque noire (1920 × 1440) : pleine taille, mais quelques Ko seulement — c’est normal', async () => {
+    const out = await degraderPhoto(await scene(1920, 1440, 4, 6));
+    const m = await sharp(out).metadata();
+    expect([m.width, m.height]).toEqual([1600, 1200]);
+    expect(out.byteLength).toBeLessThan(40_000);
+  });
+});
