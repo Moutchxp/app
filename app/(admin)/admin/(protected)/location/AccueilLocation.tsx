@@ -167,7 +167,7 @@ const CSS_RESULTATS = `
 .loc-res-type{justify-self:start;border-radius:999px;padding:3px 10px;font-size:.74rem;font-weight:800;text-transform:uppercase;letter-spacing:.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;box-sizing:border-box}
 .loc-res-type--proprietaires{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 .loc-res-type--locataires{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
-.loc-res-type--syndics{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+.loc-res-type--syndics{background:var(--color-svv-syndic-fond);color:var(--color-svv-syndic-texte);border:1px solid var(--color-svv-syndic-bord)} /* rose du syndic de la Gestion (Arno, 17/10) */
 .loc-res-type--biens{background:var(--color-svv-field);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
 .loc-res-type--ancien{background:var(--color-svv-field);color:var(--color-svv-muted);border:1px dashed var(--color-svv-line-strong)}
 .loc-res-nom{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:800;min-width:0}

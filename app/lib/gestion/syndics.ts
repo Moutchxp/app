@@ -106,6 +106,8 @@ export interface ContactImmeubleLu {
 /** Un lot d'une copropriété, tel que l'écran le montre avant de confirmer. */
 export interface LotDeCopropriete {
   id: number; numero: string; adresse: string | null; commune: string | null;
+  /** TUILE LOCATION (17/10/2026) — le type du lot (nature / type WIPPIMMO), lu pour le détail en lecture seule. Facultatif. */
+  type?: string | null;
   /** LOT SYNDIC-BLOC-PORTEFEUILLE — ses propriétaires (« M. JULLIEN »), et la clé de tri du premier (son nom). */
   proprietaires?: string[]; triProprietaire?: string;
 }

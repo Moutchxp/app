@@ -295,7 +295,9 @@ export const CSS_LOCATION_CREATION = `
 .loc-syndic-suggestions{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
 .loc-syndic-suggestions li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 14px}
 .loc-syndic-suggestions .svv-btn{width:auto}
-.loc-syndic-choisi{display:flex;flex-direction:column;gap:10px;border:2px solid var(--color-svv-line);border-radius:18px;padding:16px 18px;background:var(--color-svv-field)}
+/* Le syndic choisi : le ROSE du syndic de la Gestion (mêmes variables, Clair comme Sombre) — plus aucun bleu (Arno). */
+.loc-syndic-choisi{display:flex;flex-direction:column;gap:10px;border:2px solid var(--color-svv-syndic-bord);border-radius:18px;padding:16px 18px;background:var(--color-svv-syndic-fond);color:var(--color-svv-ink)}
+.loc-syndic-nom strong{color:var(--color-svv-syndic-texte)}
 .loc-syndic-nom{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:0;font-size:1.08rem}
 .loc-syndic-nom .svv-btn{width:auto}
 .loc-syndic-contacts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}

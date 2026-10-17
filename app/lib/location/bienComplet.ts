@@ -18,7 +18,7 @@
 import { verifierChampsBien, type ChampsBien } from './locationBien';
 import { lireNombre } from '../gestion/honorairesGestion';
 
-export const TYPES_LOGEMENT = ['appartement', 'studio', 'maison', 'duplex', 'loft', 'chambre', 'autre'] as const;
+export const TYPES_LOGEMENT = ['appartement', 'chambre', 'studio', 'duplex', 'loft', 'maison', 'autre'] as const; // ordre d'Arno (17/10/2026)
 export type TypeLogement = (typeof TYPES_LOGEMENT)[number];
 export const LIBELLE_TYPE_LOGEMENT: Record<TypeLogement, string> = {
   appartement: 'Appartement', studio: 'Studio', maison: 'Maison', duplex: 'Duplex', loft: 'Loft', chambre: 'Chambre', autre: 'Autre',

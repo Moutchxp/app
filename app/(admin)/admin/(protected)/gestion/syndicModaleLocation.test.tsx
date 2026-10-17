@@ -25,14 +25,16 @@ const FICHE = {
 let hote: HTMLDivElement;
 let racine: Root;
 let ecritures: string[];
+let fiche: unknown = FICHE;
 beforeEach(() => {
   hote = document.createElement('div'); document.body.appendChild(hote); racine = createRoot(hote);
   ecritures = [];
+  fiche = FICHE;
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
     if (init?.method !== undefined && init.method !== 'GET') { ecritures.push(`${init.method} ${u}`); return reponse({ ok: true }); }
     if (u.includes('/syndics/connus')) return reponse({ etat: 'ok', syndics: [CONNU] });
-    if (u.includes('/syndics/2')) return reponse({ etat: 'ok', fiche: FICHE });
+    if (u.includes('/syndics/2')) return reponse({ etat: 'ok', fiche });
     if (u.includes('/syndics/immeubles')) return reponse({ etat: 'ok', disponible: true, immeubles: [] });
     return reponse({ etat: 'ok', syndics: [], comparables: [], contacts: [] });
   }));
@@ -59,8 +61,9 @@ describe('🔴 modale syndic — variante « location »', () => {
       expect(detail.textContent, t).toContain(t);
     }
     expect(detail.querySelector('a')?.getAttribute('href')).toBe('/admin/location/syndic/2');
-    // Les 3 boutons restent accessibles, détail ouvert ; « Masquer le détail » replie.
-    expect(bouton('Masquer le détail')).toBeDefined();
+    // Les 3 boutons restent accessibles, détail ouvert ; UN SEUL « Masquer le détail » (celui de la ligne des 3 boutons).
+    expect([...document.querySelectorAll('button')].filter((b) => b.textContent?.trim() === 'Masquer le détail')).toHaveLength(1);
+    expect(detail.querySelector('button')).toBeNull();
     expect(document.querySelectorAll('[data-trois-boutons] button')).toHaveLength(3);
     await act(async () => { bouton('Le rattacher à ce bien')!.click(); });
     expect(choisis).toEqual([{ id: 2, nom: 'TEST ARNAUD', ville: 'Asnieres Sur Seine' }]);
@@ -75,6 +78,55 @@ describe('🔴 modale syndic — variante « location »', () => {
     await calmer();
     expect(document.querySelector('#fsy-titre')?.textContent).toBe('Créer un syndic');
     expect(document.body.textContent).toContain('Nom du cabinet');
+  });
+
+  it('DÉTAIL : 3 blocs titrés et encadrés ; biens PAR ADRESSE triés commune → voie → numéro ; zone limitée à 3 adresses', async () => {
+    const lot = (id: number, numero: string, adresse: string, commune: string, extra = {}) => ({ id, numero, adresse, commune, ...extra });
+    const copro = (id: number, libelle: string, codePostal: string, commune: string, lots: unknown[]) => ({ id, cle: libelle.toLowerCase(), libelle, codePostal, commune, debut: '2026-01-01', lots });
+    fiche = { ...FICHE, note: null, contacts: [...FICHE.contacts, { id: 22, civilite: null, prenom: null, nom: 'COMPTA', titre: 'Comptable', tousImmeubles: false, immeubles: [],
+      coordonnees: [{ id: 2, sorte: 'telephone', libelle: null, valeur: '0611223344' }] }],
+      coproprietes: [
+        copro(5, '155 avenue Paul Vaillant Couturier', '94250', 'Gentilly', [lot(9, '58', '155 avenue Paul Vaillant Couturier', 'Gentilly')]),
+        copro(3, '15 rue Carle Hebert', '92400', 'Courbevoie', [lot(8, '406', '15 rue Carle Hebert', 'Courbevoie', { type: 'Appartement', proprietaires: ['M. JULLIEN'] }), lot(7, '219', '15 rue Carle Hebert', 'Courbevoie')]),
+        copro(4, '25 rue Edith Cavell', '92400', 'Courbevoie', [lot(10, '3', '25 rue Edith Cavell', 'Courbevoie')]),
+        copro(6, '2 rue Carle Hebert', '92400', 'Courbevoie', []),
+      ] };
+    await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, variante: 'location', onFerme: () => {} })); });
+    await calmer();
+    await act(async () => { bouton('Voir le détail')!.click(); });
+    await calmer();
+    const detail = document.querySelector('[data-detail-syndic]') as HTMLElement;
+    expect([...detail.querySelectorAll('[data-bloc]')].map((b) => b.querySelector('h4')?.textContent))
+      .toEqual(['Syndic', 'Contacts du syndic (2)', 'Immeubles et biens gérés (4)']);
+    const blocSyndic = detail.querySelector('[data-bloc="syndic"]') as HTMLElement;
+    expect(blocSyndic.querySelector('.syl-nom')?.textContent).toBe('TEST ARNAUD');
+    expect(blocSyndic.querySelector('a')?.textContent).toBe('Ouvrir la fiche syndic ↗');
+    expect(blocSyndic.textContent).not.toContain('Notes');
+    expect(detail.querySelectorAll('[data-carte-contact]')).toHaveLength(2);
+    expect(detail.querySelector('[data-carte-contact]:last-child')?.textContent).toBe('COMPTAComptable0611223344');
+    const adresses = [...detail.querySelectorAll('[data-groupe-adresse] .syl-adresse strong')].map((x) => x.textContent);
+    expect(adresses).toEqual(['2 rue Carle Hebert', '15 rue Carle Hebert', '25 rue Edith Cavell', '155 avenue Paul Vaillant Couturier']);
+    const lots = [...detail.querySelectorAll('[data-groupe-adresse]')[1].querySelectorAll('[data-lot]')].map((x) => x.textContent);
+    expect(lots).toEqual(['lot 219', 'lot 406AppartementM. JULLIEN']);
+    // Plus de 3 adresses : zone limitée, défilement interne (la hauteur exacte se mesure au bas de la 3e adresse).
+    expect(detail.querySelector('[data-zone-biens]')?.classList.contains('syl-biens--limite')).toBe(true);
+    expect(detail.querySelector('[data-indice-defilement]')?.textContent).toBe('↓ Faire défiler : 1 autre adresse');
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css.replace(/\s+/g, '')).toContain('.syl-biens--limite{max-height:19rem;overflow-y:auto');
+  });
+
+  it('3 adresses ou moins : aucune limite ; et AUCUN bleu pour le syndic (rose de la Gestion)', async () => {
+    await act(async () => { racine.render(createElement(FicheSyndic, { syndicId: null, immeubleDepart: IMMEUBLE, variante: 'location', onFerme: () => {} })); });
+    await calmer();
+    await act(async () => { bouton('Voir le détail')!.click(); });
+    await calmer();
+    expect(document.querySelector('[data-zone-biens]')?.classList.contains('syl-biens--limite')).toBe(false);
+    expect(document.querySelector('[data-indice-defilement]')).toBeNull();
+    const css = [...document.querySelectorAll('style')].map((x) => x.textContent).join('');
+    const regles = css.split('}').filter((r) => /\.syl-|\.psy-bandeau--connu/.test(r));
+    expect(regles.filter((r) => /blue/i.test(r))).toEqual([]);
+    expect(css).toContain('.syl-bloc-titre{');
+    expect(regles.join('}')).toContain('var(--color-svv-syndic-fond)');
   });
 
   it('la GESTION est inchangée : son bouton « Créer un nouveau syndic » et son encadré à elle', async () => {

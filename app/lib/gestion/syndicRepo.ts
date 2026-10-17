@@ -87,10 +87,13 @@ async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
   const { rows } = await query<{
     id: string; numero: string; immeuble: string | null; adresse: string | null; commune: string | null; code_postal: string | null;
     proprietaires: Array<{ affiche: string; tri: string }> | null;
+    /** TUILE LOCATION (17/10/2026) — le type du lot (catégorie saisie, sinon nature / type WIPPIMMO), pour le détail en lecture. */
+    type: string | null;
   }>(
     /* LOT SYNDIC-BLOC-PORTEFEUILLE — les PROPRIÉTAIRES de chaque lot (« M. JULLIEN ») : le propriétaire de l'import puis
        les copropriétaires ajoutés à la main (lien en cours), cartes non supprimées. LECTURE SEULE. */
     `SELECT lo.id::text, lo.wippimmo_id AS numero, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
+            nullif(concat_ws(' · ', lo.nature, lo.type_bien), '') AS type,
             (SELECT json_agg(json_build_object('affiche', t.affiche, 'tri', t.tri) ORDER BY t.r, t.id)
                FROM (SELECT 0 AS r, p.id, btrim(coalesce(p.civilite, '') || ' ' || upper(coalesce(nullif(btrim(p.nom), ''), p.nom_complet, ''))) AS affiche,
                             lower(coalesce(nullif(btrim(p.nom), ''), p.nom_complet, '')) AS tri
@@ -116,7 +119,7 @@ async function lotsParImmeuble(): Promise<Map<string, GroupeImmeuble>> {
     if (g.commune === null && (r.commune ?? '').trim() !== '') g.commune = communeLisible(r.commune);
     const proprios = r.proprietaires ?? [];
     g.lots.push({
-      id: Number(r.id), numero: r.numero, adresse: r.adresse, commune: r.commune,
+      id: Number(r.id), numero: r.numero, adresse: r.adresse, commune: r.commune, type: r.type,
       proprietaires: proprios.map((x) => x.affiche), triProprietaire: proprios[0] ? normaliserTexte(proprios[0].tri) : undefined,
     });
     m.set(cle, g);

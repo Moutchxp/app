@@ -162,6 +162,9 @@ describe('🔴 Ajouter un nouveau bien', () => {
     // Logement : type, meublé, pièces et surfaces (aide SOUS le champ extérieur).
     await famille('logement');
     expect(bloc().textContent).toContain('Type de logement');
+    // Ordre des types voulu par Arno (17/10/2026).
+    expect([...bloc().querySelectorAll('[aria-label="Type de logement"] button')].map((x) => x.textContent))
+      .toEqual(['Appartement', 'Chambre', 'Studio', 'Duplex', 'Loft', 'Maison', 'Autre']);
     expect(bloc().textContent).toContain('Meublé ?');
     expect(bloc().textContent).toContain('Nombre de pièces');
     expect(bloc().querySelector('.loc-aide')?.textContent).toBe('balcon, terrasse, jardin');
