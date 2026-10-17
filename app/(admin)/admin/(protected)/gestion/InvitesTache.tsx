@@ -9,7 +9,7 @@ import { lireCollaborateurs, type CollaborateurEcran, type GesteTache } from './
  * ══ 🔴🔴 LOT GESTION-INVITATIONS-TACHES (17/10/2026) — LES INVITÉS D'UNE TÂCHE, LES MÊMES PARTOUT ═══════════════════
  *
  * Arno : « La carte de la tâche affiche chaque invité avec son état, et un résumé “N acceptées sur M” » ; « Changer le
- * destinataire » sur un invité encore en attente. Rendu par la CARTE (`LigneTache`) et par la FENÊTRE (`FenetreTache`) :
+ * destinataire » et « Renvoyer l'invitation » sur un invité encore en attente. Rendu par la CARTE (`LigneTache`) et par la FENÊTRE (`FenetreTache`) :
  * une seule liste, un seul geste, partout.
  *
  * Un invité qui a ACCEPTÉ ne change pas de destinataire : la ligne dit comment le retirer (« Modifier », décocher).
@@ -58,6 +58,13 @@ export function InvitesTache({ tache, terminee, occupe, agir }: {
               <button type="button" className="tch-lien tch-invite-action" disabled={occupe} data-action="changer-destinataire"
                 onClick={() => void ouvrirChangement(i.inviteId)}>
                 Changer le destinataire
+              </button>
+            )}
+            {/* 🔴 LOT 2 — « Renvoyer l'invitation » : un nouveau lien, l'ancien cesse d'agir (2 minutes au moins entre deux). */}
+            {!terminee && i.statut === 'en_attente' && changer !== i.inviteId && (
+              <button type="button" className="tch-lien tch-invite-action" disabled={occupe} data-action="renvoyer-invitation"
+                onClick={() => void agir({ geste: 'renvoyerInvitation', inviteId: i.inviteId })}>
+                Renvoyer l’invitation
               </button>
             )}
             {!terminee && i.statut === 'acceptee' && !i.automatique && (

@@ -18,7 +18,7 @@ import { acceptationInitiale } from './acceptationTache';
 import { contactsDuBienPourTache } from './contactsTacheRepo';
 import { coordonneesLisibles, estFamille, type ContactSource, type ContactTache } from './contactsTache';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche, chacun sa demande (migration 365). */
-import { alignerInvites, invitesDesTaches, personnesInvitees, type PersonneInvitee } from './invitesRepo';
+import { alignerInvites, invitesDesTaches, personnesInvitees, refusRenvoiPrincipal, type PersonneInvitee } from './invitesRepo';
 import { invitesDeLaSaisie } from './taches';
 
 /**
@@ -712,8 +712,12 @@ export async function renvoyerDemande(id: number, auteur: Auteur): Promise<Issue
     if (acceptationInitiale(t.confiee_a, auteur.id) === 'acceptee') {
       return { ok: false, statut: 409, motif: 'Cette tâche vous est confiée : il n’y a pas de demande à renvoyer.' };
     }
-    /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : la demande de l'invité « Confiée à » (les autres ne bougent pas). */
-    const principal = (await invitesTacheDisponible())
+    /* 🔴 LOT GESTION-INVITATIONS-TACHES — avec la 365 : la demande de l'invité « Confiée à » (les autres ne bougent pas),
+       et au moins 2 minutes entre deux renvois au même invité. */
+    const avecInvites = await invitesTacheDisponible();
+    const tropTot = avecInvites ? await refusRenvoiPrincipal(q, id) : null;
+    if (tropTot !== null) return { ok: false, ...tropTot };
+    const principal = avecInvites
       ? (await q<{ id: number }>(`SELECT id::int AS id FROM gestion_tache_invite
           WHERE tache_id = $1 AND retire_le IS NULL AND collaborateur_id IS NOT DISTINCT FROM $2::bigint LIMIT 1`, [id, t.confiee_a])).rows[0]?.id ?? null
       : null;

@@ -4,7 +4,7 @@ import type { Auteur } from './gestes';
 import { lireDomainesAutorises } from './comptesGoogleRepo';
 import { lireDomaines } from './googleCollaborateur';
 import { collaborateursPourTache, type CollaborateurTache } from './taches';
-import { acceptationInitiale, refusChangementDestinataire, type EtatMail, type InviteTache, type StatutAcceptation } from './acceptationTache';
+import { acceptationInitiale, attenteAvantRenvoi, messageAttenteRenvoi, refusChangementDestinataire, type EtatMail, type InviteTache, type StatutAcceptation } from './acceptationTache';
 import { poserDemande, type DemandePosee, type RaisonDemande } from './acceptationRepo';
 import { marquerASynchroniser } from './agendaSynchroRepo';
 import { invitesTacheDisponible } from './schema';
@@ -214,4 +214,53 @@ export async function changerDestinataire(tacheId: number, inviteId: number, nou
     await marquerASynchroniser(q, tacheId);
     return { ok: true, id: tacheId, demandes: [demande], message: `Destinataire changé : ${ancien.libelle} → ${c.libelle}.` };
   });
+}
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT 2 — « RENVOYER L'INVITATION » à un invité en attente
+   Un nouveau lien ; l'ancien cesse aussitôt d'agir. Au moins 2 minutes entre deux renvois au même invité.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Le refus de renvoi, lu AVANT toute écriture (`null` = permis). */
+function refusRenvoi(i: InviteTache, maintenant: Date): { statut: number; motif: string } | null {
+  if (i.statut !== 'en_attente') {
+    return { statut: 409, motif: i.statut === 'acceptee'
+      ? `${i.libelle} a déjà accepté : il n’y a pas d’invitation à renvoyer.`
+      : `${i.libelle} a refusé : changez le destinataire, ou modifiez la tâche, plutôt que de renvoyer.` };
+  }
+  const attente = attenteAvantRenvoi(i.dernierRenvoiLe, maintenant);
+  return attente > 0 ? { statut: 429, motif: messageAttenteRenvoi(attente, i.libelle) } : null;
+}
+
+export async function renvoyerInvitation(tacheId: number, inviteId: number, auteur: Auteur, maintenant: Date = new Date()): Promise<IssueInvite> {
+  if (!(await invitesTacheDisponible())) return { ok: false, statut: 503, motif: 'Invités non installés (migration 365).' };
+  return withTransaction(async (q) => {
+    const t = (await q<{ etat: string }>(`SELECT etat FROM gestion_tache WHERE id = $1 FOR UPDATE`, [tacheId])).rows[0];
+    if (t === undefined) return { ok: false, statut: 404, motif: 'Tâche introuvable.' };
+    if (t.etat !== 'a_faire') return { ok: false, statut: 409, motif: 'Cette tâche n’est plus à faire.' };
+    const i = (await invitesPourGeste(q, tacheId)).find((x) => x.inviteId === Number(inviteId));
+    if (i === undefined) return { ok: false, statut: 409, motif: 'Cet invité n’est plus dans la tâche (remplacé ou retiré).' };
+    const refus = refusRenvoi(i, maintenant);
+    if (refus !== null) return { ok: false, ...refus };
+    const nom = await nomAuteur(q, auteur);
+    await tracer(q, tacheId, null, { invitationRenvoyee: i.libelle }, auteur, nom);
+    const demande = await poserDemande(q, {
+      tacheId, confieeA: i.collaborateurId, confieeLibelle: i.libelle, auteur, nom, motifTrace: 'renvoi', inviteId: i.inviteId, raison: 'renvoi',
+    });
+    return { ok: true, id: tacheId, demandes: [demande], message: `Invitation renvoyée à ${i.libelle}.` };
+  });
+}
+
+/** Le dernier renvoi à l'invité « Confiée à » (pour le bouton d'avant, « Renvoyer la demande »). */
+export async function refusRenvoiPrincipal(q: RequeteTx, tacheId: number, maintenant: Date = new Date()): Promise<{ statut: number; motif: string } | null> {
+  const i = (await invitesPourGeste(q, tacheId)).find((x) => x.principal);
+  if (i === undefined || i.statut !== 'en_attente') return null;
+  const attente = attenteAvantRenvoi(i.dernierRenvoiLe, maintenant);
+  return attente > 0 ? { statut: 429, motif: messageAttenteRenvoi(attente, i.libelle) } : null;
+}
+
+/** L'erreur RÉELLE d'un mail qui n'est pas parti (colonne `mail_erreur` de la demande). */
+export async function erreurMailDemande(demandeId: number): Promise<string | null> {
+  const { rows } = await query<{ e: string | null }>(`SELECT mail_erreur AS e FROM gestion_tache_demande WHERE id = $1`, [demandeId]);
+  return rows[0]?.e ?? null;
 }

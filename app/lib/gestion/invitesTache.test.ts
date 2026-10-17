@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  compterEnAttente, filtrerParAcceptation, phraseInvitations, refusChangementDestinataire, resumeInvites, titreLienRefuse,
+  attenteAvantRenvoi, DELAI_RENVOI_MS, messageAttenteRenvoi, compterEnAttente, filtrerParAcceptation, phraseInvitations, refusChangementDestinataire, resumeInvites, titreLienRefuse,
   verdictLien, type InviteTache,
 } from './acceptationTache';
 import { filtrerParPastille, invitesDeLaSaisie, lireIdsInvites, lireSaisie, phraseTrace } from './taches';
@@ -92,5 +92,20 @@ describe('les traces et la phrase du geste', () => {
     expect(phraseInvitations([{ destinataire: 'Claire', etat: 'envoye' }, { destinataire: 'Emma', etat: 'echec' }]))
       .toBe(' Invitations : Claire (envoyée par mail), Emma (mail non envoyé (échec de l’envoi)).');
     expect(phraseInvitations([])).toBe('');
+  });
+});
+
+describe('🔴 LOT 2 — le délai entre deux renvois au même invité', () => {
+  it('2 minutes : avant, le temps qui reste (arrondi à la seconde au-dessus) ; après, 0', () => {
+    const t0 = new Date('2026-10-17T10:00:00Z');
+    expect(DELAI_RENVOI_MS).toBe(120_000);
+    expect(attenteAvantRenvoi(null, t0)).toBe(0);
+    expect(attenteAvantRenvoi('2026-10-17T10:00:00Z', t0)).toBe(120);
+    expect(attenteAvantRenvoi('2026-10-17T09:59:00.500Z', t0)).toBe(61);
+    expect(attenteAvantRenvoi('2026-10-17T09:58:00Z', t0)).toBe(0);
+  });
+  it('le message dit à qui, et combien de temps', () => {
+    expect(messageAttenteRenvoi(80, 'Emma')).toBe('L’invitation à Emma vient d’être renvoyée : patientez encore 1 min 20 s avant un nouveau renvoi.');
+    expect(messageAttenteRenvoi(45, 'Emma')).toContain('patientez encore 45 s');
   });
 });

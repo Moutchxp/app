@@ -106,7 +106,9 @@ export type GesteTache =
   /** 🔴 LOT TACHES-AGENDA — « Réessayer » l'envoi vers l'agenda Google. */
   | { geste: 'reessayerAgenda' }
   /** 🔴 LOT GESTION-INVITATIONS-TACHES — un autre destinataire pour un invité en attente ; l'ancien lien cesse d'agir. */
-  | { geste: 'changerDestinataire'; inviteId: number; collaborateurId: number };
+  | { geste: 'changerDestinataire'; inviteId: number; collaborateurId: number }
+  /** 🔴 LOT GESTION-INVITATIONS-TACHES (lot 2) — un nouveau lien pour cet invité en attente ; l'ancien cesse d'agir. */
+  | { geste: 'renvoyerInvitation'; inviteId: number };
 
 /** LA porte des gestes sur une tâche existante. */
 export function agirSurTache(id: number, g: GesteTache): Promise<IssueGeste> {

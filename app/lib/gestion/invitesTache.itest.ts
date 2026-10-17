@@ -12,7 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closePool, query } from '../db/client';
 import { creerTache, lireTache, modifierTache } from './tachesRepo';
 import { demandeDuJeton, repondreDemande, type DemandePosee } from './acceptationRepo';
-import { changerDestinataire } from './invitesRepo';
+import { changerDestinataire, renvoyerInvitation } from './invitesRepo';
 import { fauxGoogleDesTests, synchroniserApresGeste } from './agendaSynchroRepo';
 import type { SaisieTache } from './taches';
 
@@ -155,5 +155,41 @@ describe('🔴 trois invités, chacun son lien, sa réponse, son agenda', () => 
     expect(de('c@criterimmo.fr')).toHaveLength(1);
     expect((await demandeDuJeton(jetons.gaspard, 'destinataire')).verdict).toMatchObject({ ok: false, cause: 'plus_destinee' });
     expect((await lireTache(tacheId))!.tache.invites?.map((i) => i.libelle)).toEqual(['Claire Test', 'Emma Essai']);
+  });
+});
+
+describe('🔴 LOT 2 — « Renvoyer l’invitation »', () => {
+  it('nouveau lien, l’ancien inutilisable ; 2 minutes au moins entre deux renvois au même invité ; jamais sur un accepté', async () => {
+    const c = await creerTache(lot, saisie({ confieeA: EMMA, invites: [GASPARD] }), MOI);
+    if (!c.ok) throw new Error(c.motif);
+    const premier = jetonDe(c.demandes, 'Emma Essai');
+    const emma = (await lireTache(c.id))!.tache.invites!.find((i) => i.libelle === 'Emma Essai')!;
+
+    const r1 = await renvoyerInvitation(c.id, emma.inviteId, MOI);
+    if (!r1.ok) throw new Error(r1.motif);
+    expect(r1.message).toBe('Invitation renvoyée à Emma Essai.');
+    const second = r1.demandes[0].jeton!;
+    expect(second).not.toBe(premier);
+    expect((await demandeDuJeton(premier, 'destinataire')).verdict).toMatchObject({ ok: false, cause: 'remplace' });
+    expect((await repondreDemande({ jeton: premier, decision: 'accepter', utilisateur: null, nom: null, identiteParJeton: true })).ok).toBe(false);
+    expect((await demandeDuJeton(second, 'destinataire')).verdict.ok).toBe(true);
+
+    // Tout de suite après : refusé, avec le temps qui reste ; RIEN n'a changé (le second lien marche toujours).
+    const tot = await renvoyerInvitation(c.id, emma.inviteId, MOI);
+    expect(tot).toMatchObject({ ok: false, statut: 429 });
+    expect(tot.ok ? '' : tot.motif).toMatch(/patientez encore/);
+    expect((await demandeDuJeton(second, 'destinataire')).verdict.ok).toBe(true);
+    // 2 minutes plus tard : permis.
+    const r2 = await renvoyerInvitation(c.id, emma.inviteId, MOI, new Date(Date.now() + 2 * 60_000 + 1000));
+    expect(r2.ok).toBe(true);
+    expect((await demandeDuJeton(second, 'destinataire')).verdict).toMatchObject({ ok: false, cause: 'remplace' });
+
+    // L'autre invité n'a pas bougé ; un invité qui a accepté ne se renvoie pas.
+    const g = jetonDe(c.demandes, 'Gaspard Essai');
+    expect((await repondreDemande({ jeton: g, decision: 'accepter', utilisateur: null, nom: null, identiteParJeton: true })).ok).toBe(true);
+    const gaspard = (await lireTache(c.id))!.tache.invites!.find((i) => i.libelle === 'Gaspard Essai')!;
+    expect(await renvoyerInvitation(c.id, gaspard.inviteId, MOI)).toMatchObject({ ok: false, statut: 409 });
+    const traces = (await lireTache(c.id))!.traces.map((x) => x.apres);
+    expect(traces.filter((a) => (a as { invitationRenvoyee?: string } | null)?.invitationRenvoyee === 'Emma Essai')).toHaveLength(2);
   });
 });

@@ -93,3 +93,19 @@ describe('les invités, leur état, le résumé', () => {
     expect(container.querySelector('.tch-invites')).toBeNull();
   });
 });
+
+describe('🔴 LOT 2 — « Renvoyer l’invitation »', () => {
+  it('sur chaque invité en attente seulement ; le geste part avec l’invité', async () => {
+    await rendre(tache([
+      invite({ inviteId: 21, collaborateurId: 2, libelle: 'Claire', principal: true, statut: 'acceptee' }),
+      invite({ inviteId: 22, collaborateurId: 4, libelle: 'Emma', statut: 'en_attente' }),
+      invite({ inviteId: 23, collaborateurId: 5, libelle: 'Félix', statut: 'refusee', motif: 'non' }),
+    ]));
+    expect(ligne(21).querySelector('[data-action="renvoyer-invitation"]')).toBeNull();
+    expect(ligne(23).querySelector('[data-action="renvoyer-invitation"]')).toBeNull();
+    const b = ligne(22).querySelector('[data-action="renvoyer-invitation"]') as HTMLButtonElement;
+    expect(b.textContent).toBe('Renvoyer l’invitation');
+    await act(async () => { b.click(); });
+    expect(gestes).toEqual([{ geste: 'renvoyerInvitation', inviteId: 22 }]);
+  });
+});

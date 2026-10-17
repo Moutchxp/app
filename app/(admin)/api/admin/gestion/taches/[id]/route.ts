@@ -14,7 +14,7 @@ import { relirePieces } from '../../../../../../lib/gestion/tachesDrive';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../../../lib/gestion/acceptationAutorisee';
 import { mentionMail, phraseInvitations } from '../../../../../../lib/gestion/acceptationTache';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — « Changer le destinataire » d'un invité (migration 365). */
-import { changerDestinataire } from '../../../../../../lib/gestion/invitesRepo';
+import { changerDestinataire, erreurMailDemande, renvoyerInvitation } from '../../../../../../lib/gestion/invitesRepo';
 /* 🔴 LOT TACHES-AGENDA — après chaque geste : l'agenda (réglage actif seulement) ; « Réessayer » le relance. */
 import { reessayerSynchro, phraseSynchro, synchroniserApresGeste } from '../../../../../../lib/gestion/agendaSynchroRepo';
 
@@ -39,6 +39,8 @@ import { reessayerSynchro, phraseSynchro, synchroniserApresGeste } from '../../.
  *    · `reessayerAgenda` (LOT TACHES-AGENDA) → « Réessayer » l'envoi vers l'agenda Google, tout de suite.
  *    · `changerDestinataire` + `inviteId` + `collaborateurId` (LOT GESTION-INVITATIONS-TACHES) → l'invité en attente
  *      laisse sa place : son lien cesse d'agir (« Cette invitation ne vous est plus destinée »), le nouveau reçoit la sienne.
+ *    · `renvoyerInvitation` + `inviteId` (LOT 2) → un nouveau lien pour cet invité en attente, l'ancien cesse d'agir ;
+ *      « Invitation renvoyée à … » ou l'erreur RÉELLE du mail ; au moins 2 minutes entre deux renvois au même invité.
  * 🔴 LOT TACHES-AGENDA — après chaque geste réussi, l'agenda est synchronisé (réglage actif seulement) ; un échec de
  * Google n'annule jamais le geste, il se dit (« Agenda : à resynchroniser »).
  * 🔒 `exigerCompteActif(…, 'gestion')`. Runtime Node (driver pg).
@@ -90,6 +92,24 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const envois = await envoyerAuxInvites(request, r.demandes);
     const agenda = await synchroniserApresGeste(r.id);
     return Response.json({ etat: 'ok', id: r.id, message: `${r.message}${phraseInvitations(envois)}${agenda}` });
+  }
+
+  if (geste === 'renvoyerInvitation') {
+    const inviteId = entier(corps.inviteId);
+    if (inviteId === null) return Response.json({ erreur: 'Invité inconnu.' }, { status: 400 });
+    const r = await renvoyerInvitation(id, inviteId, auteur);
+    if (!r.ok) return Response.json({ erreur: r.motif }, { status: r.statut });
+    const [envoi] = await envoyerAuxInvites(request, r.demandes);
+    const agenda = await synchroniserApresGeste(r.id);
+    const nouveauLien = ' Un nouveau lien a été créé ; l’ancien ne fonctionne plus.';
+    const qui = envoi?.destinataire ?? '';
+    if (envoi === undefined || envoi.etat === 'envoye') return Response.json({ etat: 'ok', id: r.id, message: `${r.message}${agenda}` });
+    if (envoi.etat === 'factice') return Response.json({ etat: 'ok', id: r.id, message: `${r.message} (essai : rien n’est parti).${agenda}` });
+    // 🔴 L'ERREUR RÉELLE : le lien est renouvelé, mais le mail n'est pas parti — on le dit, avec sa cause.
+    const cause = envoi.etat === 'echec'
+      ? (await erreurMailDemande(r.demandes[0].demandeId)) ?? 'échec de l’envoi'
+      : mentionMail(envoi.etat) ?? envoi.etat;
+    return Response.json({ erreur: `L’invitation à ${qui} n’est pas partie : ${cause.trim().replace(/\.$/, '')}.${nouveauLien}` }, { status: 502 });
   }
 
   let issue: IssueTache;
