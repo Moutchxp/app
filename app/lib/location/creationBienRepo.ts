@@ -44,6 +44,12 @@ export interface CartesProprietaires {
   /** Des fiches EXISTANTES retenues par « Utiliser cette fiche » (jamais fusionnées, seulement rattachées au futur bien). */
   existants?: number[];
   numeroMandat?: string | null;
+  /** « Propriétaire(s) en gestion ? » (Arno, 17/10/2026) : obligatoire ; Oui exige le N° de mandat, Non n'en garde aucun. */
+  enGestion?: boolean | null;
+}
+
+export function enGestionDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_annuaire_proprietaire', 'en_gestion');
 }
 
 /**
@@ -65,7 +71,11 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
       `SELECT count(*)::int AS n FROM gestion_annuaire_proprietaire p WHERE p.id = ANY($1::bigint[]) AND ${vivante}${await sqlDansPortefeuille('p')}`, [existants]);
     if ((rows[0]?.n ?? 0) !== existants.length) return { etat: 'refus', motif: 'Une fiche retenue n’existe plus, est archivée ou est sortie du portefeuille.' };
   }
-  const mandat = typeof o.numeroMandat === 'string' && o.numeroMandat.trim() !== '' ? o.numeroMandat.trim().slice(0, 80) : null;
+  if (typeof o.enGestion !== 'boolean') return { etat: 'refus', motif: 'Répondez à « Propriétaire(s) en gestion ? » (Oui ou Non).' };
+  if (!(await enGestionDisponible())) return { etat: 'sans_schema' };
+  // « Non » : aucun N° de mandat n'est gardé, même s'il avait été saisi avant de changer d'avis.
+  const mandat = o.enGestion && typeof o.numeroMandat === 'string' && o.numeroMandat.trim() !== '' ? o.numeroMandat.trim().slice(0, 80) : null;
+  if (o.enGestion && mandat === null) return { etat: 'refus', motif: 'Propriétaire en gestion : le N° de mandat de gestion est à renseigner.' };
   const ids: number[] = [];
   for (const [i, c] of cartes.entries()) {
     const cree = await creerPersonne('proprietaire', { ...c, nom: (c.nom ?? '').trim() }, auteur);
@@ -75,10 +85,15 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
     }
     ids.push(cree.data.id);
   }
-  if (mandat !== null && ids.length > 0) {
+  if (ids.length > 0) {
+    const enGestion = o.enGestion;
     await withTransaction(async (q) => {
-      await q('UPDATE gestion_annuaire_proprietaire SET numero_mandat_gestion = $2 WHERE id = ANY($1::bigint[])', [ids, mandat]);
-      for (const id of ids) await journaliser(q, 'annuaire', id, 'location_mandat_gestion', `N° de mandat de gestion « ${mandat} » saisi à la création (tuile Location)`, auteur);
+      await q('UPDATE gestion_annuaire_proprietaire SET en_gestion = $2, numero_mandat_gestion = coalesce($3, numero_mandat_gestion) WHERE id = ANY($1::bigint[])',
+        [ids, enGestion, mandat]);
+      for (const id of ids) {
+        await journaliser(q, 'annuaire', id, 'location_en_gestion',
+          `en gestion : ${enGestion ? 'oui' : 'non'}${mandat === null ? '' : `, N° de mandat de gestion « ${mandat} »`} — saisi à la création (tuile Location)`, auteur);
+      }
     });
   }
   return { etat: 'ok', data: { ids: [...ids, ...existants] } };

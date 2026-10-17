@@ -196,6 +196,15 @@ export const CSS_LOCATION_CREATION = `
 .loc-gros-bouton--plein small{color:var(--color-svv-surface)}
 .loc-gros-bouton--plein:hover{border-color:var(--color-svv-ink)}
 .loc-gros-bouton:disabled{opacity:.55;cursor:not-allowed}
+.loc-gros-bouton--centre{align-items:center;text-align:center}
+.loc-oui-non .loc-gros-bouton{min-height:7rem;font-size:1.6rem}
+.loc-gros-bouton[aria-pressed="true"]{background:var(--color-svv-ink);border-color:var(--color-svv-ink);color:var(--color-svv-surface);box-shadow:0 0 0 4px var(--color-svv-line-strong)}
+/* Le « Enregistrer » des cartes de contact (composant de la Gestion, inchangé là-bas) : ICI un vrai bouton, même taille
+   que « Annuler », couleur du bouton principal du thème (Arno, 17/10/2026). */
+.loc-ample .cp-form-boutons{flex-wrap:nowrap}
+.loc-ample .cp-form-boutons .cp-bouton{flex:1 1 0;width:auto;min-height:52px;border-radius:14px}
+.loc-ample .cp-form-boutons button[type="submit"]{background:var(--color-svv-red);border:1px solid var(--color-svv-red);color:var(--color-svv-surface)}
+.loc-ample .cp-form-boutons button[type="submit"]:disabled{background:var(--color-svv-field);border-color:var(--color-svv-line);color:var(--color-svv-muted)}
 .loc-section{border:1px solid var(--color-svv-line);border-radius:26px;padding:28px 30px;background:var(--color-svv-surface);display:flex;flex-direction:column;gap:18px}
 .loc-section > h3{margin:0;font-size:1.35rem;font-weight:800;display:flex;align-items:center;gap:14px;color:var(--color-svv-ink)}
 .loc-num{display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;width:2.4rem;height:2.4rem;border-radius:999px;background:var(--color-svv-field);border:2px solid var(--color-svv-line-strong);font-size:1.1rem;font-weight:800;color:var(--color-svv-ink)}

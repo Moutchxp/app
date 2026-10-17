@@ -165,6 +165,7 @@ export async function POST(request: Request): Promise<Response> {
           cartes: Array.isArray(corps.cartes) ? (corps.cartes as CartesProprietaires['cartes']).slice(0, 12) : [],
           existants: Array.isArray(corps.existants) ? (corps.existants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
           numeroMandat: typeof corps.numeroMandat === 'string' ? corps.numeroMandat : null,
+          enGestion: typeof corps.enGestion === 'boolean' ? corps.enGestion : null,
         }, auteur));
       case 'creer-bien':
         return repondre(await creerBienComplet({

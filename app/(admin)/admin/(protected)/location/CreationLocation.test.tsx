@@ -39,7 +39,35 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     await act(async () => { bouton('+ Ajouter un contact').click(); });
     await act(async () => { bouton('+ Ajouter un contact').click(); });
     expect(container.querySelectorAll('.cp-form')).toHaveLength(3);
-    expect(container.textContent).toContain('N° de mandat de gestion');
+  });
+
+  it('« Propriétaire(s) en gestion ? » : rien sans réponse ; Oui → mandat puis bouton ; Non → bouton direct, mandat vidé', async () => {
+    await act(async () => { root.render(createElement(CreationProprietaires)); });
+    const mandat = () => container.querySelector('[data-mandat] input') as HTMLInputElement | null;
+    const gros = () => container.querySelector('[data-continuer]');
+    // Pas de choix : ni mandat, ni gros bouton.
+    expect(container.querySelector('[data-question-gestion]')).not.toBeNull();
+    expect(mandat()).toBeNull();
+    expect(gros()).toBeNull();
+    // Oui : le champ mandat ; le gros bouton seulement une fois le mandat rempli.
+    await act(async () => { bouton('Oui').click(); });
+    expect(bouton('✓ Oui').getAttribute('aria-pressed')).toBe('true');
+    expect(mandat()).not.toBeNull();
+    expect(gros()).toBeNull();
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(mandat(), 'MG 2026-041');
+      mandat()!.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(gros()).not.toBeNull();
+    expect(gros()?.className).toContain('loc-gros-bouton--centre');
+    // Non : plus de champ mandat, le gros bouton tout de suite ; repasser à Oui montre un mandat VIDÉ.
+    await act(async () => { bouton('Non').click(); });
+    expect(mandat()).toBeNull();
+    expect(gros()).not.toBeNull();
+    await act(async () => { bouton('Oui').click(); });
+    expect(mandat()?.value).toBe('');
+    expect(gros()).toBeNull();
+    await act(async () => { bouton('Non').click(); });
     // Le gros bouton refuse tant qu'aucune carte n'est enregistrée, et le dit — rien n'est envoyé.
     await act(async () => { bouton('Ajouter un bien à ce nouveau propriétaire').click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte');

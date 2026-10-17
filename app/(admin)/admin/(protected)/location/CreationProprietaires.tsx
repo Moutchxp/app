@@ -39,6 +39,8 @@ export function CreationProprietaires() {
   const [cartes, setCartes] = useState<Carte[]>([nouvelleCarte(1)]);
   const [existants, setExistants] = useState<{ id: number; nom: string }[]>([]);
   const [mandat, setMandat] = useState('');
+  /** « Propriétaire(s) en gestion ? » — `null` tant qu'on n'a pas répondu (ni mandat, ni gros bouton). */
+  const [enGestion, setEnGestion] = useState<boolean | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
   const minuteurs = useRef(new Map<number, ReturnType<typeof setTimeout>>());
@@ -77,7 +79,7 @@ export function CreationProprietaires() {
     if (empeche !== null) { setMotif(empeche); return; }
     setEnvoi(true);
     const r = await envoyer({
-      action: 'creer-proprietaires', numeroMandat: mandat,
+      action: 'creer-proprietaires', numeroMandat: enGestion ? mandat : '', enGestion,
       cartes: validees.map((c) => c.champs), existants: existants.map((x) => x.id),
     });
     setEnvoi(false);
@@ -152,20 +154,36 @@ export function CreationProprietaires() {
         </div>
       </section>
 
-      <section className="loc-section" aria-labelledby="loc-p2">
-        <h3 id="loc-p2"><span className="loc-num">2</span>Mandat de gestion</h3>
-        <div className="loc-grille">
-          <label className="loc-champ">N° de mandat de gestion (facultatif, texte libre)
-            <input value={mandat} onChange={(e) => setMandat(e.target.value)} placeholder="ex. MG 2026-041" maxLength={80} /></label>
+      {/* Arno (17/10/2026) : « Propriétaire(s) en gestion ? » — Oui / Non, deux gros boutons ; on peut changer d'avis.
+          Oui ⇒ le N° de mandat, puis (rempli) le gros bouton ; Non ⇒ le gros bouton tout de suite, mandat vidé. */}
+      <section className="loc-section" aria-labelledby="loc-p2" data-question-gestion>
+        <h3 id="loc-p2"><span className="loc-num">2</span>Propriétaire(s) en gestion ?</h3>
+        <div className="loc-gros-boutons loc-oui-non" role="group" aria-label="Propriétaire(s) en gestion ?">
+          <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={enGestion === true}
+            onClick={() => { setEnGestion(true); setMotif(null); }}>{enGestion === true ? '✓ Oui' : 'Oui'}</button>
+          <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={enGestion === false}
+            onClick={() => { setEnGestion(false); setMandat(''); setMotif(null); }}>{enGestion === false ? '✓ Non' : 'Non'}</button>
         </div>
       </section>
 
+      {enGestion === true && (
+        <section className="loc-section" aria-labelledby="loc-p3" data-mandat>
+          <h3 id="loc-p3"><span className="loc-num">3</span>Mandat de gestion</h3>
+          <div className="loc-grille">
+            <label className="loc-champ">N° de mandat de gestion (texte libre)
+              <input value={mandat} onChange={(e) => setMandat(e.target.value)} placeholder="ex. MG 2026-041" maxLength={80} autoFocus /></label>
+          </div>
+        </section>
+      )}
+
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
-      <button type="button" className="loc-gros-bouton loc-gros-bouton--plein" disabled={envoi} onClick={() => void continuer()}
+      {(enGestion === false || (enGestion === true && mandat.trim() !== '')) && (
+      <button type="button" className="loc-gros-bouton loc-gros-bouton--plein loc-gros-bouton--centre" disabled={envoi} onClick={() => void continuer()}
         title={empeche ?? undefined} data-continuer>
         {envoi ? 'Enregistrement…' : 'Ajouter un bien à ce nouveau propriétaire'}
         <small>{empeche ?? `Enregistre ${validees.length + existants.length > 1 ? `les ${validees.length + existants.length} propriétaires` : 'le propriétaire'}, puis ouvre le formulaire du bien avec ${validees.length + existants.length > 1 ? 'eux' : 'lui'} déjà rattaché${validees.length + existants.length > 1 ? 's' : ''}.`}</small>
       </button>
+      )}
       <p className="loc-boutons" style={{ justifyContent: 'flex-start' }}><a href="/admin/location/proprietaires">Annuler et revenir aux propriétaires</a></p>
     </div>
   );

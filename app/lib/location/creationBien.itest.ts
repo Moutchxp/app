@@ -33,13 +33,27 @@ const ok = <T>(i: { etat: string; data?: T }): T => { if (i.etat !== 'ok') throw
 const compter = async (table: string): Promise<number> => Number((await query<{ n: string }>(`SELECT count(*)::text AS n FROM ${table}`)).rows[0].n);
 
 describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => {
+  it('⓪ « Propriétaire(s) en gestion ? » : réponse obligatoire ; Oui exige le mandat ; Non enregistré sans mandat', async () => {
+    const carte = { nom: `GESTION${S}` };
+    const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire')).rows[0].n);
+    expect((await creerProprietaires({ cartes: [carte] }, AUTEUR)).etat).toBe('refus');
+    expect((await creerProprietaires({ cartes: [carte], enGestion: true, numeroMandat: '  ' }, AUTEUR)).etat).toBe('refus');
+    expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire')).rows[0].n)).toBe(avant);
+    const non = ok(await creerProprietaires({ cartes: [carte, { nom: `GESTION${S}B` }], enGestion: false, numeroMandat: 'saisi puis abandonné' }, AUTEUR));
+    const { rows } = await query<{ en_gestion: boolean | null; mandat: string | null }>(
+      'SELECT en_gestion, numero_mandat_gestion AS mandat FROM gestion_annuaire_proprietaire WHERE id = ANY($1::bigint[])', [non.ids]);
+    expect(rows).toEqual([{ en_gestion: false, mandat: null }, { en_gestion: false, mandat: null }]);
+    const journal = await query<{ commentaire: string }>(`SELECT commentaire FROM gestion_journal WHERE entite = 'annuaire' AND entite_id = $1 AND action = 'location_en_gestion'`, [non.ids[0]]);
+    expect(journal.rows[0]?.commentaire).toMatch(/^en gestion : non/);
+  });
+
   let ids: number[] = [];
   let logementId = 0;
   let syndicId = 0;
 
   it('① deux cartes → deux fiches, N° de mandat sur chacune → un bien rattaché aux deux, vu par la Gestion', async () => {
     const r = ok(await creerProprietaires({
-      numeroMandat: `MG-${S}`,
+      numeroMandat: `MG-${S}`, enGestion: true,
       cartes: [
         { civilite: 'M.', nom: `DUPONT${S}`, prenom: 'Paul', adresse: `5 rue Perso${S}`, codePostal: '75011', commune: 'PARIS',
           coordonnees: [{ sorte: 'telephone', valeur: '06 12 34 56 91', libelle: 'Mobile' }, { sorte: 'email', valeur: `paul.${S}@exemple.test`, libelle: 'E-mail' }] },
@@ -51,6 +65,8 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     expect(ids).toHaveLength(2);
     const { rows: m } = await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire WHERE id = ANY($1::bigint[]) AND numero_mandat_gestion = $2', [ids, `MG-${S}`]);
     expect(Number(m[0].n)).toBe(2);
+    const { rows: eg } = await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire WHERE id = ANY($1::bigint[]) AND en_gestion', [ids]);
+    expect(Number(eg[0].n)).toBe(2);
     expect((await proprietairesParIds(ids)).map((p) => p.id)).toEqual(ids);
 
     const { rows: sy } = await query<{ id: string }>(`INSERT INTO gestion_syndic (nom, cree_par_libelle) VALUES ($1, 'itest') RETURNING id::text`, [`SYNDIC${S}`]);
@@ -103,7 +119,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, adresse: '  ' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, typeLogement: '' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, dpeClasse: 'H' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
-    expect((await creerProprietaires({ cartes: [{ nom: '' }] }, AUTEUR)).etat).toBe('refus');
+    expect((await creerProprietaires({ cartes: [{ nom: '' }], enGestion: false }, AUTEUR)).etat).toBe('refus');
     expect(await compter('gestion_annuaire_lot')).toBe(avant);
   });
 
