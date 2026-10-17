@@ -14,7 +14,8 @@ import { locationsAffichees } from '../gestion/honorairesGestionRepo';
 import type { LocationAffichee } from '../gestion/honorairesGestion';
 import type { Auteur } from '../gestion/gestes';
 import { sortieDe, sortieDisponible } from './portefeuilleRepo';
-import { complementsDuBien, type ComplementsFiche } from './creationBienRepo';
+import { annexeNomPnoDisponible, complementsDuBien, type ComplementsFiche } from './creationBienRepo';
+import { refusNomAnnexe } from './bienComplet';
 import type { SortiePortefeuille } from './recherchePortefeuille';
 import { categorieDuBien, verifierChampsBien, type BienLocation, type Categorie, type ChampsBien } from './locationBien';
 
@@ -139,6 +140,7 @@ interface LigneBienSql {
   num_lot_copro: string | null; surface_carrez_m2: string | null; surface_exterieure_m2: string | null;
   parent_id: string | null; proprietaire: string | null; locataire: string | null; sorti: boolean;
   adresse_autre?: boolean | null; parking_situation?: string | null; parking_type?: string | null;
+  nom_annexe?: string | null;
 }
 
 const versBien = (r: LigneBienSql): BienLocation => ({
@@ -153,6 +155,7 @@ const versBien = (r: LigneBienSql): BienLocation => ({
   adresseAutre: r.adresse_autre === true,
   parkingSituation: r.parking_situation ?? null,
   parkingType: r.parking_type ?? null,
+  nomAnnexe: r.nom_annexe ?? null,
 });
 
 async function lireBiens(where: string, params: unknown[], suffixe = ''): Promise<BienLocation[]> {
@@ -163,6 +166,7 @@ async function lireBiens(where: string, params: unknown[], suffixe = ''): Promis
             ${(await sortieDisponible()) ? 'lo.sorti_portefeuille_le IS NOT NULL' : 'false'} AS sorti,
             ${(await colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre')) ? 'lo.adresse_autre, lo.parking_situation, lo.parking_type'
     : 'NULL::boolean AS adresse_autre, NULL::text AS parking_situation, NULL::text AS parking_type'},
+            ${(await annexeNomPnoDisponible()) ? 'lo.nom_annexe' : 'NULL::text AS nom_annexe'},
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             (SELECT l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.lot_id = lo.id AND o.sortie IS NULL ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1) AS locataire
@@ -362,6 +366,11 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
   const v = verifierChampsBien(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const c = v.valeurs;
+  // Le NOM d'une annexe « Autre » (migration 378) : envoyé par la fiche qui le montre ; obligatoire pour elle.
+  const avecNom = Object.prototype.hasOwnProperty.call(brut, 'nomAnnexe') && (await annexeNomPnoDisponible());
+  const refusNom = avecNom ? refusNomAnnexe(c.categorie, brut.nomAnnexe) : null;
+  if (refusNom !== null) return { etat: 'refus', motif: refusNom.charAt(0).toUpperCase() + refusNom.slice(1) };
+  const nomAnnexe = c.categorie === 'autre' && typeof brut.nomAnnexe === 'string' ? brut.nomAnnexe.trim().slice(0, 80) : null;
   return withTransaction(async (q) => {
     const { rows } = await q<{ wippimmo_id: string; avant: string }>(
       `SELECT wippimmo_id, concat_ws(' | ', categorie, etage, porte, num_lot_copro, surface_carrez_m2, surface_exterieure_m2,
@@ -375,6 +384,7 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
         WHERE id = $1`,
       [lotId, c.categorie, c.etage, c.porte, c.numLotCopro, c.surfaceCarrezM2, c.surfaceExterieureM2,
         ...(app ? [c.adresse, c.codePostal, c.commune, normaliserTexte([c.adresse, c.commune].filter((x) => x !== null).join(' '))] : [])]);
+    if (avecNom) await q('UPDATE gestion_annuaire_lot SET nom_annexe = $2 WHERE id = $1', [lotId, nomAnnexe]);
     await journaliser(q, 'annuaire_lot', lotId, 'location_bien_modifie', rows[0].avant, null,
       'caractéristiques du bien modifiées dans la Location', auteur);
     return { etat: 'ok' as const, data: undefined };
@@ -415,6 +425,10 @@ export async function ajouterAnnexe(parentId: number, brut: Record<string, unkno
   const v = verifierChampsBien(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const categorie: Categorie = v.valeurs.categorie !== null && v.valeurs.categorie !== 'logement' ? v.valeurs.categorie : 'cave';
+  // Une annexe « Autre » porte un nom (Arno, 18/10/2026) — obligatoire dès que la migration 378 est là.
+  const avecNom = await annexeNomPnoDisponible();
+  const refusNom = avecNom ? refusNomAnnexe(categorie, brut.nomAnnexe) : null;
+  if (refusNom !== null) return { etat: 'refus', motif: refusNom.charAt(0).toUpperCase() + refusNom.slice(1) };
   try {
     return await withTransaction(async (q) => {
       const { rows } = await q<{ proprietaire_id: string | null; adresse: string | null; code_postal: string | null; commune: string | null }>(
@@ -427,6 +441,7 @@ export async function ajouterAnnexe(parentId: number, brut: Record<string, unkno
         champs: { ...v.valeurs, adresse: parent.adresse, codePostal: parent.code_postal, commune: parent.commune },
       });
       await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, parentId, auteur.libelle]);
+      if (avecNom && categorie === 'autre') await q('UPDATE gestion_annuaire_lot SET nom_annexe = $2 WHERE id = $1', [id, String(brut.nomAnnexe).trim().slice(0, 80)]);
       await journaliser(q, 'annuaire_lot', parentId, 'location_annexe_ajoutee', null, `annexe ${id} (${categorie})`,
         'annexe créée sous ce logement, dans la Location', auteur);
       return { etat: 'ok' as const, data: { id } };

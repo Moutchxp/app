@@ -273,6 +273,12 @@ export const CSS_LOCATION_CREATION = `
 .loc-aide{position:absolute;top:100%;left:0;margin-top:4px;font-size:.82rem;font-weight:400;color:var(--color-svv-muted);white-space:nowrap}
 /* Une aide en phrase (dernière AG) : dans le flux, elle passe à la ligne — jamais de débordement au téléphone. */
 .loc-aide--long{position:static;white-space:normal;margin-top:2px}
+/* Bloc 6 : DPE et assurance PNO côte à côte au bureau, l'un sous l'autre au téléphone (Arno, 18/10/2026). */
+.loc-duo{display:grid;grid-template-columns:1fr;gap:22px 36px;align-items:start}
+@media (min-width:900px){ .loc-duo{grid-template-columns:repeat(2,minmax(0,1fr))} }
+/* Le rappel des propriétaires rattachés d'office (création propriétaire → bien dans la continuité). */
+.loc-rappel-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;color:var(--color-svv-ink)}
+.loc-rappel-liste li{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .loc-pleine{grid-column:1 / -1}
 .loc-familles{grid-template-columns:repeat(3,minmax(0,1fr))}
 .loc-familles .loc-gros-bouton{min-height:6.5rem;font-size:1.45rem}

@@ -15,6 +15,7 @@ import {
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING, type ComplementsFiche,
   type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
+import { titreAnnexe } from '../../../../lib/location/bienComplet';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type {
@@ -278,7 +279,7 @@ function LigneArbre({ b, enfant = false, courant, ouvrir }: { b: BienLocation; e
   const parking = [b.parkingSituation ? LIBELLE_SITUATION_PARKING[b.parkingSituation as SituationParking] : null,
     b.parkingType ? LIBELLE_TYPE_PARKING[b.parkingType as TypeParking] : null].filter((x) => x).join(' · ');
   const titre = enfant
-    ? `${LIBELLE_CATEGORIE[b.categorie]}${b.porte === null ? '' : ` n° ${b.porte}`}${parking === '' ? '' : ` (${parking})`}`
+    ? `${titreAnnexe(b, LIBELLE_CATEGORIE[b.categorie])}${b.porte === null ? '' : ` n° ${b.porte}`}${parking === '' ? '' : ` (${parking})`}`
       + (b.adresseAutre ? ` — autre adresse : ${[b.adresse, b.commune].filter((x) => x).join(', ')}` : '')
     : `${LIBELLE_CATEGORIE[b.categorie]} · ${[b.adresse, b.commune].filter((x) => x).join(', ')}`;
   return (
@@ -294,13 +295,13 @@ function LigneArbre({ b, enfant = false, courant, ouvrir }: { b: BienLocation; e
 
 function AjoutAnnexes({ parentId, rattachables, apres }: { parentId: number; rattachables: BienLocation[]; apres: () => void }) {
   const [categorie, setCategorie] = useState<Categorie | null>(null);
-  const [champs, setChamps] = useState({ etage: '', numLotCopro: '', porte: '' });
+  const [champs, setChamps] = useState({ etage: '', numLotCopro: '', porte: '', nomAnnexe: '' });
   const [choisi, setChoisi] = useState('');
   const [motif, setMotif] = useState<string | null>(null);
   const ajouter = async (): Promise<void> => {
     const m = await envoyer({ action: 'ajouter-annexe', id: parentId, champs: { ...champs, categorie } });
     setMotif(m);
-    if (m === null) { setCategorie(null); setChamps({ etage: '', numLotCopro: '', porte: '' }); apres(); }
+    if (m === null) { setCategorie(null); setChamps({ etage: '', numLotCopro: '', porte: '', nomAnnexe: '' }); apres(); }
   };
   const rattacher = async (): Promise<void> => {
     const m = await envoyer({ action: 'rattacher-annexe', id: parentId, annexeId: Number(choisi) });
@@ -319,6 +320,11 @@ function AjoutAnnexes({ parentId, rattachables, apres }: { parentId: number; rat
       {categorie !== null && (
         <form className="loc-bloc" style={{ marginTop: 10 }} onSubmit={(e) => { e.preventDefault(); void ajouter(); }}>
           <div className="loc-grille">
+            {categorie === 'autre' && (
+              <label className="loc-champ loc-pleine" data-nom-annexe>Nom de l’annexe <span className="loc-oblig">*</span>
+                <input value={champs.nomAnnexe} maxLength={80} placeholder="ex. Cellier, Grenier, Local vélo" autoFocus
+                  onChange={(e) => setChamps({ ...champs, nomAnnexe: e.target.value })} /></label>
+            )}
             <label className="loc-champ">Catégorie
               <select value={categorie} onChange={(e) => setCategorie(e.target.value as Categorie)}>
                 {CATEGORIES_ANNEXE.map((c) => <option key={c} value={c}>{LIBELLE_CATEGORIE[c]}</option>)}
@@ -326,7 +332,7 @@ function AjoutAnnexes({ parentId, rattachables, apres }: { parentId: number; rat
             <label className="loc-champ">Étage<input value={champs.etage} onChange={(e) => setChamps({ ...champs, etage: e.target.value })} placeholder="ex. -1" /></label>
             <label className="loc-champ">N° de lot de copropriété<input value={champs.numLotCopro} onChange={(e) => setChamps({ ...champs, numLotCopro: e.target.value })} /></label>
             <label className="loc-champ">{categorie === 'parking' || categorie === 'box' ? 'N° de place' : 'N° de porte'}
-              <input autoFocus value={champs.porte} onChange={(e) => setChamps({ ...champs, porte: e.target.value })} /></label>
+              <input autoFocus={categorie !== 'autre'} value={champs.porte} onChange={(e) => setChamps({ ...champs, porte: e.target.value })} /></label>
           </div>
           <div className="loc-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setCategorie(null)}>Annuler</button>
@@ -356,7 +362,7 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
     categorie: b.categorie as string, etage: b.etage ?? '', porte: b.porte ?? '', numLotCopro: b.numLotCopro ?? '',
     surfaceCarrezM2: b.surfaceCarrezM2 === null ? '' : String(b.surfaceCarrezM2).replace('.', ','),
     surfaceExterieureM2: b.surfaceExterieureM2 === null ? '' : String(b.surfaceExterieureM2).replace('.', ','),
-    adresse: b.adresse ?? '', codePostal: b.codePostal ?? '', commune: b.commune ?? '',
+    adresse: b.adresse ?? '', codePostal: b.codePostal ?? '', commune: b.commune ?? '', nomAnnexe: b.nomAnnexe ?? '',
   };
   const [edition, setEdition] = useState(false);
   const [v, setV] = useState(initial);
@@ -377,7 +383,8 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
       {!edition ? (
         <>
           <dl className="loc-grille" style={{ margin: 0 }}>
-            {[['Catégorie', LIBELLE_CATEGORIE[b.categorie]], ['Étage', libelleEtage(b.etage)], ['N° de porte / place', b.porte],
+            {[...(b.categorie === 'autre' ? [['Nom de l’annexe', b.nomAnnexe ?? null]] : []),
+              ['Catégorie', LIBELLE_CATEGORIE[b.categorie]], ['Étage', libelleEtage(b.etage)], ['N° de porte / place', b.porte],
               ['N° de lot de copropriété', b.numLotCopro],
               ['Surface Carrez', b.surfaceCarrezM2 === null ? null : `${String(b.surfaceCarrezM2).replace('.', ',')} m²`],
               ['Surface extérieure', b.surfaceExterieureM2 === null ? null : `${String(b.surfaceExterieureM2).replace('.', ',')} m²`]]
@@ -394,6 +401,7 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
               <select value={v.categorie} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, categorie: val })); }}>
                 {CATEGORIES.map((c) => <option key={c} value={c}>{LIBELLE_CATEGORIE[c]}</option>)}
               </select></label>
+            {v.categorie === 'autre' && champ('nomAnnexe', 'Nom de l’annexe *', { placeholder: 'ex. Cellier, Grenier, Local vélo', maxLength: 80 })}
             {champ('etage', 'Étage', { placeholder: 'ex. 3, RDC, -1' })}
             {champ('porte', 'N° de porte / de place')}
             {champ('numLotCopro', 'N° de lot de copropriété')}
@@ -429,6 +437,7 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
     surfaceM2: c.surfaceM2 === null ? '' : String(c.surfaceM2).replace('.', ','),
     ascenseur: c.ascenseur === null ? '' : c.ascenseur ? 'oui' : 'non', digicode: c.digicode === null ? '' : c.digicode ? 'oui' : 'non',
     digicodeCode: c.digicodeCode ?? '', precisionAcces: c.precisionAcces ?? '', derniereAg: c.derniereAg ?? '',
+    assurancePno: c.assurancePno === undefined || c.assurancePno === null ? '' : c.assurancePno ? 'oui' : 'non', pnoDateAnniversaire: c.pnoDateAnniversaire ?? '',
   };
   // La dernière AG (Arno, 18/10/2026) : celle de l'IMMEUBLE du bien, partagée par ses lots ; masquée sans immeuble (parking nu).
   const avecAg = !annexe && c.agApplicable === true;
@@ -445,8 +454,10 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
     return () => { vivant = false; };
   }, [edition]);
   const enregistrer = async (): Promise<void> => {
-    const { derniereAg, ...reste } = v;
-    const m = await envoyer({ action: 'complements-bien', id, champs: avecAg ? { ...reste, derniereAg } : reste });
+    const { derniereAg, assurancePno, pnoDateAnniversaire, ...reste } = v;
+    // L'assurance PNO (Arno, 18/10/2026) : sur le bien (pas sur une annexe) ; Non (ou non renseigné) vide la date.
+    const pno = annexe ? {} : { assurancePno, pnoDateAnniversaire: assurancePno === 'oui' ? pnoDateAnniversaire : '' };
+    const m = await envoyer({ action: 'complements-bien', id, champs: { ...(avecAg ? { ...reste, derniereAg } : reste), ...pno } });
     setMotif(m);
     if (m === null) { setEdition(false); apres(); }
   };
@@ -475,6 +486,8 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
     ['Époque de construction', c.epoqueConstruction], ['Chauffage', c.chauffage],
     ['DPE', c.dpeClasse === null && date === null ? null : [c.dpeClasse === null ? null : `classe ${c.dpeClasse}`, date === null ? null : `du ${date}`].filter((x) => x).join(' ')],
     ...(avecAg ? [[LIBELLE_AG, c.derniereAg ? new Date(`${c.derniereAg}T12:00:00`).toLocaleDateString('fr-FR') : null] as [string, string | null]] : []),
+    ['Assurance PNO', c.assurancePno === undefined || c.assurancePno === null ? null : c.assurancePno
+      ? `oui${c.pnoDateAnniversaire ? ` · date anniversaire le ${new Date(`${c.pnoDateAnniversaire}T12:00:00`).toLocaleDateString('fr-FR')}` : ''}` : 'non'],
     ['Commentaire', c.commentaire],
   ];
   // Ce qui ne concerne pas la famille n'est pas montré (un parking n'a ni pièces, ni meublé, ni DPE…).
@@ -529,6 +542,8 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
             {!parking && choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}
             {!parking && choix('dpeClasse', 'Classe DPE', CLASSES_DPE.map((x) => [x, x] as const))}
             {!parking && champ('dpeDate', 'Date du DPE', { type: 'date' })}
+            {choix('assurancePno', 'Assurance PNO', [['oui', 'Oui'], ['non', 'Non']])}
+            {v.assurancePno === 'oui' && <span data-pno-date>{champ('pnoDateAnniversaire', 'Date anniversaire (PNO)', { type: 'date' })}</span>}
             {avecAg && <label className="loc-champ" data-derniere-ag>{LIBELLE_AG}
               <input type="date" value={v.derniereAg} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, derniereAg: val })); }} />
               <small className="loc-muet">Partagée par tous les lots de l’immeuble : la modifier ici la met à jour pour eux.</small></label>}

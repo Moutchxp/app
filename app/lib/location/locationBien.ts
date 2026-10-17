@@ -124,6 +124,8 @@ export interface BienLocation {
   /** Parking (nu ou annexe) : intérieur / extérieur ; place simple / double, box simple / double (migration 376). */
   parkingSituation?: string | null;
   parkingType?: string | null;
+  /** Le nom d'une annexe « Autre » (Cellier, Grenier, Local vélo) : son titre (migration 378). */
+  nomAnnexe?: string | null;
 }
 
 /** Range des biens en arbre : chaque logement suivi de ses annexes ; les annexes dont le logement est absent restent seules. */

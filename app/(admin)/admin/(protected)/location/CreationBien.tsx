@@ -14,6 +14,8 @@ import { CSS_CARTES, type ChampsSaisis } from '../gestion/CartesPersonnes';
 import { lireContactsEnAttente, oublierContactsEnAttente } from './contactsEnAttente';
 import { CartesDuBloc, CSS_RATTACHEMENT, PanneauQuiRattacher } from './RattachementProprietaires';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
+import { ChampFleches, CSS_CHAMP_FLECHES } from './ChampFleches';
+import { BadgeCarte } from './SaisieCartes';
 import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type PersonneProprietaire } from '../../../../lib/location/rattachementProprietaires';
 import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
 
@@ -40,6 +42,8 @@ import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
  */
 interface Annexe {
   cle: number; categorie: Categorie; etage: string; numLotCopro: string; porte: string;
+  /** Le nom d'une annexe « Autre » (Cellier, Grenier, Local vélo) — obligatoire pour elle (Arno, 18/10/2026). */
+  nomAnnexe: string;
   parkingSituation: SituationParking | null; parkingType: TypeParking | null;
   autreAdresse: boolean; adresse: string; codePostal: string; commune: string; adresseVerifiee: boolean;
 }
@@ -48,6 +52,7 @@ const VIDE = {
   adresse: '', codePostal: '', commune: '', batiment: '', escalier: '', etage: '', porte: '', precisionAcces: '', digicodeCode: '',
   nombrePieces: '', surfaceHabitableM2: '', surfaceCarrezM2: '', surfaceExterieureM2: '', surfaceM2: '',
   numLotCopro: '', syndicId: '', epoqueConstruction: '', chauffage: '', dpeClasse: '', dpeDate: '', commentaire: '', derniereAg: '',
+  pnoDateAnniversaire: '',
 };
 type Champ = keyof typeof VIDE;
 
@@ -68,7 +73,22 @@ const OUI_NON = ['oui', 'non'] as const;
 const LIBELLE_OUI_NON: Record<'oui' | 'non', string> = { oui: 'Oui', non: 'Non' };
 const versOuiNon = (v: boolean | null): 'oui' | 'non' | null => (v === null ? null : v ? 'oui' : 'non');
 
-export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux: number[] }) {
+/**
+ * ══ « CRÉER UN NOUVEAU PROPRIÉTAIRE » → LE BIEN DANS LA CONTINUITÉ (Arno, 18/10/2026) ══════════════════════════════════
+ * « Afficher JUSTE EN DESSOUS, sur la même page, exactement le même formulaire (mêmes blocs, mêmes composants, aucune
+ * copie), SANS le bloc “Propriétaire(s)” : les propriétaires et contacts qu'on vient de créer sont rattachés d'office (rappel
+ * en lecture seule en tête). Numérotation qui démarre à “Le bien”. Un seul enregistrement final crée les fiches puis le
+ * bien (si le bien échoue, les fiches déjà créées restent et le message le dit). »
+ */
+export interface Continuite {
+  /** Le rappel, en lecture seule : les propriétaires et les contacts saisis à l'écran. */
+  proprietaires: { nom: string }[];
+  contacts: ChampsSaisis[];
+  /** Crée les fiches (une seule fois : un second appel rend les mêmes identifiants), ou rend le motif du refus. */
+  creerFiches: () => Promise<{ ids: number[] } | { motif: string }>;
+}
+
+export function CreationBien({ proprietairesInitiaux, continuite }: { proprietairesInitiaux: number[]; continuite?: Continuite }) {
   const [proprietaires, setProprietaires] = useState<PersonneProprietaire[]>([]);
   /** Les contacts EXISTANTS de la Gestion cochés dans « Qui rattacher à ce bien ? ». */
   const [contactsExistants, setContactsExistants] = useState<ContactProprietaire[]>([]);
@@ -94,7 +114,9 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
   const [contacts, setContacts] = useState<ChampsSaisis[]>([]);
   /** Le SYNDIC choisi (loupe, suggestion « déjà connu pour cette adresse », ou créé dans la modale de la Gestion). */
   const [syndic, setSyndic] = useState<SyndicChoisi | null>(null);
-  useEffect(() => { setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux]);
+  useEffect(() => { if (continuite === undefined) setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux, continuite]);
+  /** L'ASSURANCE PNO (Arno, 18/10/2026) : oui / non / non renseigné ; Non vide la date anniversaire. */
+  const [assurancePno, setAssurancePno] = useState<boolean | null>(null);
 
   // Les propriétaires arrivés de « Créer un nouveau propriétaire » : déjà rattachés, modifiables (retirables).
   const initiaux = useLecture<PersonneProprietaire[]>(proprietairesInitiaux.length > 0 ? `cartesProprietaires=${proprietairesInitiaux.join(',')}` : null);
@@ -141,15 +163,16 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
   );
   const changerAnnexe = (i: number, f: (a: Annexe) => Annexe): void => setAnnexes((l) => l.map((x, j) => (j === i ? f(x) : x)));
   const ajouterAnnexe = (categorie: Categorie): void => setAnnexes((a) => [...a, {
-    cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '', parkingSituation: null, parkingType: null,
+    cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '', nomAnnexe: '', parkingSituation: null, parkingType: null,
     autreAdresse: false, adresse: '', codePostal: '', commune: '', adresseVerifiee: false,
   }]);
 
   const nom = famille === null ? 'bien' : NOM_FAMILLE[famille];
   const avecAnnexes = famille !== 'parking';
+  // En continuité, les propriétaires sont ceux qu'on vient de saisir (au moins un, vérifié par l'écran du dessus).
   const manque = manquesDuBien({
-    proprietaireIds: proprietaires.map((p) => p.id), adresse: b.adresse, famille, typeLogement: type, typeLocal, parkingType,
-    annexes: avecAnnexes ? annexes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse })) : [],
+    proprietaireIds: continuite !== undefined ? [1] : proprietaires.map((p) => p.id), adresse: b.adresse, famille, typeLogement: type, typeLocal, parkingType,
+    annexes: avecAnnexes ? annexes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse, categorie: a.categorie, nomAnnexe: a.nomAnnexe })) : [],
   });
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
@@ -159,18 +182,32 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
     const v = verifierChampsBien(b);
     if (!v.ok) { setMotif(v.motif); return; }
     setEnvoi(true);
+    // Continuité : les fiches d'abord (une seule fois), puis le bien.
+    let proprietaireIds = proprietaires.map((p) => p.id);
+    if (continuite !== undefined) {
+      const f = await continuite.creerFiches();
+      if ('motif' in f) { setEnvoi(false); setMotif(f.motif); return; }
+      proprietaireIds = f.ids;
+    }
     const r = await envoyer({
-      action: 'creer-bien', proprietaireIds: proprietaires.map((p) => p.id), contactsExistants: contactsExistants.map((c) => c.id),
-      logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode },
+      action: 'creer-bien', proprietaireIds, contactsExistants: contactsExistants.map((c) => c.id),
+      logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
+        assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '' },
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
-      contacts,
-      annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
+      contacts: continuite !== undefined ? continuite.contacts : contacts,
+      annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, nomAnnexe, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
         categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse,
+        ...(categorie === 'autre' ? { nomAnnexe } : {}),
         ...(autreAdresse ? { adresse, codePostal, commune } : {}),
       })) : [],
     });
     setEnvoi(false);
-    if (r.motif !== null) { setMotif(r.motif); return; }
+    if (r.motif !== null) {
+      setMotif(continuite !== undefined
+        ? `Les fiches des propriétaires sont créées, mais le bien n’est pas encore enregistré : ${r.motif} Corrigez puis enregistrez à nouveau (les fiches ne seront pas recréées).`
+        : r.motif);
+      return;
+    }
     oublierContactsEnAttente();
     const id = (r.data as { logementId?: number } | undefined)?.logementId;
     window.location.href = id !== undefined ? `/admin/location/bien/${id}` : '/admin/location/proprietaires';
@@ -178,16 +215,30 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
-  const sections = ['proprietaires', 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes', 'complements'] : []), 'commentaires'];
+  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes', 'complements'] : []), 'commentaires'];
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
   return (
     <form className="loc-page loc-ample" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE}</style>
-      <EnTeteLocation titre="Ajouter un nouveau bien"
-        sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES}</style>
+      {continuite === undefined ? (
+        <EnTeteLocation titre="Ajouter un nouveau bien"
+          sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
+      ) : (
+        <section className="loc-section loc-rappel" aria-labelledby="loc-rappel-titre" data-rappel-proprietaires>
+          <h3 id="loc-rappel-titre">Le bien de ce nouveau propriétaire</h3>
+          <p className="loc-section-phrase">Rattachés d’office (lecture seule — à modifier dans les cartes ci-dessus) :</p>
+          <ul className="loc-rappel-liste">
+            {continuite.proprietaires.map((p, i) => <li key={`p${i}`}><BadgeCarte cote="proprietaire" sorte="client" /> <strong>{p.nom}</strong></li>)}
+            {continuite.contacts.map((c, i) => (
+              <li key={`c${i}`}><BadgeCarte cote="proprietaire" sorte="contact" /> <strong>{[(c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' ')}</strong>{c.qualite ? ` · ${c.qualite}` : ''}</li>
+            ))}
+          </ul>
+          <p className="loc-muet" style={{ margin: 0 }}>Obligatoires : l’adresse, la famille du bien et son type <span className="loc-oblig">*</span>. Un seul « Enregistrer le bien » crée les fiches puis le bien.</p>
+        </section>
+      )}
 
-      <section className="loc-section" aria-labelledby="loc-b1">
+      {continuite === undefined && <section className="loc-section" aria-labelledby="loc-b1">
         <h3 id="loc-b1"><span className="loc-num">{n('proprietaires')}</span>Propriétaire(s) <span className="loc-oblig">*</span></h3>
         <label className="loc-recherche" aria-label="Chercher un propriétaire">
           <span aria-hidden="true">🔎</span>
@@ -216,7 +267,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
           onRetirerContact={(id) => setContactsExistants((l) => l.filter((x) => x.id !== id))}
           onRetirerSaisi={(i) => setContacts((l) => l.filter((_, j) => j !== i))} />
         {manqueDe('proprietaires')}
-      </section>
+      </section>}
 
       <section className="loc-section" aria-labelledby="loc-b3" data-bloc-bien>
         <h3 id="loc-b3"><span className="loc-num">{n('bien')}</span>Le bien <span className="loc-oblig">*</span></h3>
@@ -276,7 +327,8 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
           <div className="loc-sous-section">
             <h4>{famille === 'logement' ? 'Pièces et surfaces' : 'Bureaux / pièces et surfaces'}</h4>
             <div className="loc-grille" data-ligne-surfaces>
-              {champ('nombrePieces', famille === 'logement' ? 'Nombre de pièces' : 'Nombre de bureaux / pièces', { inputMode: 'numeric', placeholder: 'ex. 3' })}
+              <ChampFleches sorte="pieces" libelle={famille === 'logement' ? 'Nombre de pièces' : 'Nombre de bureaux / pièces'} placeholder="ex. 3"
+                valeur={b.nombrePieces} onChange={(v) => setB((x) => ({ ...x, nombrePieces: v }))} />
               {champ('surfaceHabitableM2', famille === 'logement' ? 'Surface habitable (m²)' : 'Surface (m²)', { inputMode: 'decimal' })}
               {champ('surfaceCarrezM2', 'Surface Carrez (m²)', { inputMode: 'decimal' })}
               {champ('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' }, 'balcon, terrasse, jardin')}
@@ -303,7 +355,7 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
           <div className="loc-grille" data-ligne-situation>
             {champ('batiment', 'Bâtiment', { placeholder: 'ex. B' })}
             {champ('escalier', 'Escalier', { placeholder: 'ex. 2' })}
-            {champ('etage', 'Étage', { placeholder: 'ex. 3, RDC, -1' })}
+            <ChampFleches sorte="etage" libelle="Étage" placeholder="ex. 3, RDC, -1" valeur={b.etage} onChange={(v) => setB((x) => ({ ...x, etage: v }))} />
             {champ('porte', famille === 'parking' ? 'N° de place' : 'N° de porte')}
             <label className="loc-champ loc-pleine" data-precision>Précision
               <input value={b.precisionAcces} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, precisionAcces: val })); }}
@@ -344,8 +396,17 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
             <li className="loc-racine">{famille === null ? 'Le bien' : `${nom.charAt(0).toUpperCase()}${nom.slice(1)}`}{b.adresse.trim() !== '' ? ` · ${b.adresse}` : ''}</li>
             {annexes.map((a, i) => (
               <li key={a.cle} className="loc-enfant" data-annexe={a.categorie}>
-                <p className="loc-annexe-tete">{LIBELLE_ANNEXE[a.categorie] ?? 'Annexe'}
+                <p className="loc-annexe-tete">{a.categorie === 'autre' && a.nomAnnexe.trim() !== '' ? a.nomAnnexe.trim() : LIBELLE_ANNEXE[a.categorie] ?? 'Annexe'}
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAnnexes((l) => l.filter((_, j) => j !== i))}>Retirer</button></p>
+                {a.categorie === 'autre' && (
+                  <div className="loc-grille">
+                    <label className="loc-champ loc-pleine" data-nom-annexe>
+                      <span>Nom de l’annexe <span className="loc-oblig">*</span></span>
+                      <input value={a.nomAnnexe} maxLength={80} placeholder="ex. Cellier, Grenier, Local vélo"
+                        onChange={(e) => { const val = e.target.value; changerAnnexe(i, (x) => ({ ...x, nomAnnexe: val })); }} /></label>
+                  </div>
+                )}
+                {manqueDe(`annexe-nom-${i}`)}
                 <div className="loc-pilules loc-annexe-adresse" role="group" aria-label="Adresse de l’annexe">
                   <button type="button" aria-pressed={!a.autreAdresse} onClick={() => changerAnnexe(i, (x) => ({ ...x, autreAdresse: false }))}>Même adresse</button>
                   <button type="button" aria-pressed={a.autreAdresse} onClick={() => changerAnnexe(i, (x) => ({ ...x, autreAdresse: true }))}>Autre adresse</button>
@@ -374,9 +435,10 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
                   </div>
                 )}
                 <div className="loc-grille">
-                  {(['etage', 'numLotCopro', 'porte'] as const).map((k) => (
+                  <ChampFleches sorte="etage" libelle="Étage" placeholder="ex. -1" valeur={a.etage} onChange={(v) => changerAnnexe(i, (x) => ({ ...x, etage: v }))} />
+                  {(['numLotCopro', 'porte'] as const).map((k) => (
                     <label key={k} className="loc-champ">
-                      {k === 'etage' ? 'Étage' : k === 'numLotCopro' ? 'N° de lot' : estParking(a.categorie) ? 'N° de place' : 'N° de porte'}
+                      {k === 'numLotCopro' ? 'N° de lot' : estParking(a.categorie) ? 'N° de place' : 'N° de porte'}
                       <input value={a[k]} onChange={(e) => { const val = e.target.value; changerAnnexe(i, (x) => ({ ...x, [k]: val })); }} />
                     </label>
                   ))}
@@ -403,14 +465,23 @@ export function CreationBien({ proprietairesInitiaux }: { proprietairesInitiaux:
               <small className="loc-aide loc-aide--long">{agConnue !== null && b.derniereAg === agConnue
                 ? 'Déjà connue pour cet immeuble : la modifier met à jour tous ses lots.' : 'Assemblée générale de copropriété — partagée par tous les lots de l’immeuble.'}</small></label>
           </div>
-          <div className="loc-sous-section">
-            <h4>DPE</h4>
-            <div className="loc-pilules" role="group" aria-label="Classe DPE">
-              {CLASSES_DPE.map((c) => (
-                <button key={c} type="button" aria-pressed={b.dpeClasse === c} onClick={() => setB((x) => ({ ...x, dpeClasse: x.dpeClasse === c ? '' : c }))}>{c}</button>
-              ))}
+          <div className="loc-duo" data-ligne-dpe-pno>
+            <div className="loc-sous-section">
+              <h4>DPE</h4>
+              <div className="loc-pilules" role="group" aria-label="Classe DPE">
+                {CLASSES_DPE.map((c) => (
+                  <button key={c} type="button" aria-pressed={b.dpeClasse === c} onClick={() => setB((x) => ({ ...x, dpeClasse: x.dpeClasse === c ? '' : c }))}>{c}</button>
+                ))}
+              </div>
+              <div className="loc-grille">{champ('dpeDate', 'Date du DPE', { type: 'date' })}</div>
             </div>
-            <div className="loc-grille">{champ('dpeDate', 'Date du DPE', { type: 'date' })}</div>
+            {/* Arno (18/10/2026) : « Assurance PNO » à droite du DPE (même ligne au bureau) ; Oui ⇒ « Date anniversaire » ; Non la vide. */}
+            <div className="loc-sous-section" data-pno>
+              <h4>Assurance PNO</h4>
+              <Pilules etiquette="Assurance PNO" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(assurancePno)}
+                onChoix={(v) => { setAssurancePno(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, pnoDateAnniversaire: '' })); }} />
+              {assurancePno === true && <div className="loc-grille">{champ('pnoDateAnniversaire', 'Date anniversaire', { type: 'date' })}</div>}
+            </div>
           </div>
         </section>
       )}

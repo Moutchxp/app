@@ -1,11 +1,11 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer } from './commun';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { SaisieCartes, type EtatCartes } from './SaisieCartes';
-import { poserContactsEnAttente } from './contactsEnAttente';
+import { CreationBien } from './CreationBien';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « CRÉER UN NOUVEAU PROPRIÉTAIRE » (/admin/location/nouveau-proprietaire), Arno, 17/10/2026 ══
@@ -19,6 +19,11 @@ import { poserContactsEnAttente } from './contactsEnAttente';
  * 🔴 LA CARTE EST `FormulaireCarte`, le formulaire de création des cartes de la Gestion, exécuté tel quel (mêmes champs,
  * même règle de complétude, même mise en forme). Son « Enregistrer » VALIDE la carte sur cette page ; les fiches ne sont
  * créées en base qu'au gros bouton — une page abandonnée ne laisse aucune fiche orpheline.
+ *
+ * 🔴 Arno, 18/10/2026 — LE BIEN DANS LA CONTINUITÉ : le gros bouton n'enregistre plus rien ; il ouvre JUSTE EN DESSOUS le
+ * formulaire « Ajouter un nouveau bien » lui-même (`CreationBien`, mode `continuite`, sans le bloc « Propriétaire(s) »), et
+ * descend jusqu'à lui en douceur. Son « Enregistrer le bien » crée les fiches (une seule fois, même après un refus du bien)
+ * puis le bien, avec les contacts saisis.
  */
 export function CreationProprietaires() {
   const [etat, setEtat] = useState<EtatCartes>({ clients: [], contacts: [], existants: [], ouvertes: 1 });
@@ -26,8 +31,17 @@ export function CreationProprietaires() {
   /** « Propriétaire(s) en gestion ? » — `null` tant qu'on n'a pas répondu (ni mandat, ni gros bouton). */
   const [enGestion, setEnGestion] = useState<boolean | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
-  const [envoi, setEnvoi] = useState(false);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
+  /** Le formulaire du bien est-il ouvert sous les cartes ? */
+  const [formulaire, setFormulaire] = useState(false);
+  /** Les fiches déjà créées (un refus du bien ne les fait pas recréer). */
+  const idsCrees = useRef<number[] | null>(null);
+  const ancre = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!formulaire || ancre.current === null) return;
+    const doux = typeof window.matchMedia !== 'function' || !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    ancre.current.scrollIntoView?.({ behavior: doux ? 'smooth' : 'auto', block: 'start' });
+  }, [formulaire]);
 
   // Au moins UNE carte « Propriétaire (client) » : les contacts seuls ne suffisent pas (Arno, 17/10/2026).
   const nbProprietaires = etat.clients.length + etat.existants.length;
@@ -36,20 +50,27 @@ export function CreationProprietaires() {
       : 'Remplissez et enregistrez au moins une carte « Propriétaire (client) » (ou utilisez une fiche déjà connue).')
     : etat.ouvertes > 0 ? 'Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.' : null;
 
-  const continuer = async (): Promise<void> => {
+  const continuer = (): void => {
     if (empeche !== null) { setMotif(empeche); return; }
-    setEnvoi(true);
+    if (formulaire) { ancre.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); return; }
+    setFormulaire(true);
+  };
+
+  /** Crée les fiches des cartes, UNE seule fois : appelé par « Enregistrer le bien » du formulaire du dessous. */
+  const creerFiches = async (): Promise<{ ids: number[] } | { motif: string }> => {
+    if (idsCrees.current !== null) return { ids: idsCrees.current };
+    if (empeche !== null) return { motif: empeche };
     const r = await envoyer({
       action: 'creer-proprietaires', numeroMandat: enGestion ? mandat : '', enGestion,
       cartes: etat.clients, existants: etat.existants.map((x) => x.id),
     });
-    setEnvoi(false);
-    if (r.motif !== null) { setMotif(r.motif); return; }
+    if (r.motif !== null) return { motif: r.motif };
     const ids = (r.data as { ids?: number[] } | undefined)?.ids ?? [];
-    // Les contacts suivent jusqu'au bien : ils y seront enregistrés (une carte de contact se range sur un bien).
-    poserContactsEnAttente(ids, etat.contacts);
-    window.location.href = `/admin/location/nouveau-bien?proprietaires=${ids.join(',')}`;
+    idsCrees.current = ids;
+    return { ids };
   };
+  const nomDeCarte = (c: { civilite?: string | null; nom?: string | null; prenom?: string | null }): string =>
+    [c.civilite, (c.nom ?? '').toUpperCase(), c.prenom].filter((x) => (x ?? '') !== '').join(' ');
 
   return (
     <div className="loc-page loc-ample">
@@ -89,11 +110,19 @@ export function CreationProprietaires() {
 
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
       {(enGestion === false || (enGestion === true && mandat.trim() !== '')) && (
-      <button type="button" className="loc-gros-bouton loc-gros-bouton--plein loc-gros-bouton--centre" disabled={envoi} onClick={() => void continuer()}
-        title={empeche ?? undefined} data-continuer>
-        {envoi ? 'Enregistrement…' : 'Ajouter un bien à ce nouveau propriétaire'}
-        <small>{empeche ?? `Enregistre ${nbProprietaires > 1 ? `les ${nbProprietaires} propriétaires` : 'le propriétaire'}, puis ouvre le formulaire du bien avec ${nbProprietaires > 1 ? 'eux' : 'lui'} déjà rattaché${nbProprietaires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` (et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}, enregistré${etat.contacts.length > 1 ? 's' : ''} avec le bien)` : ''}.`}</small>
+      <button type="button" className="loc-gros-bouton loc-gros-bouton--plein loc-gros-bouton--centre" onClick={continuer}
+        title={empeche ?? undefined} data-continuer aria-expanded={formulaire}>
+        {formulaire ? 'Le bien de ce nouveau propriétaire ↓' : 'Ajouter un bien à ce nouveau propriétaire'}
+        <small>{empeche ?? `Ouvre juste en dessous le formulaire du bien, avec ${nbProprietaires > 1 ? `les ${nbProprietaires} propriétaires` : 'le propriétaire'} déjà rattaché${nbProprietaires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''} ; un seul « Enregistrer le bien » crée les fiches puis le bien.`}</small>
       </button>
+      )}
+      {formulaire && (
+        <div ref={ancre} className="loc-suite-bien" data-formulaire-bien>
+          <CreationBien proprietairesInitiaux={[]} continuite={{
+            proprietaires: [...etat.clients.map((c) => ({ nom: nomDeCarte(c) })), ...etat.existants.map((x) => ({ nom: x.nom }))],
+            contacts: etat.contacts, creerFiches,
+          }} />
+        </div>
       )}
       <p className="loc-boutons" style={{ justifyContent: 'flex-start' }}><a href="/admin/location/proprietaires">Annuler et revenir aux propriétaires</a></p>
     </div>

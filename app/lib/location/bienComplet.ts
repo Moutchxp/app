@@ -89,6 +89,11 @@ export interface ComplementsBien {
   digicodeCode: string | null;
   /** « À droite en sortant de l'ascenseur, deuxième porte à gauche ». */
   precisionAcces: string | null;
+  // ── migration 378 (Arno, 18/10/2026) ──
+  /** Assurance PNO (propriétaire non occupant) : oui / non / non renseigné. */
+  assurancePno?: boolean | null;
+  /** Sa date anniversaire (« AAAA-MM-JJ »), seulement si assurance PNO = oui ; lue par la future relance. */
+  pnoDateAnniversaire?: string | null;
 }
 
 /** Une annexe saisie : ses champs, ses options de parking, et « même adresse » / « autre adresse ». */
@@ -97,6 +102,19 @@ export interface AnnexeSaisie extends ChampsBien {
   parkingType: TypeParking | null;
   /** Vrai : l'annexe est à une AUTRE adresse (la sienne) ; faux : elle hérite de celle du logement / local. */
   autreAdresse: boolean;
+  /** Le nom d'une annexe « Autre » (Cellier, Grenier, Local vélo) — obligatoire pour elle, son titre (migration 378). */
+  nomAnnexe: string | null;
+}
+
+/** Le titre d'une annexe : son nom pour une annexe « Autre » qui en a un, sinon le libellé de sa catégorie. PUR. */
+export function titreAnnexe(a: { categorie: string; nomAnnexe?: string | null }, libelleCategorie: string): string {
+  const nom = (a.nomAnnexe ?? '').trim();
+  return a.categorie === 'autre' && nom !== '' ? nom : libelleCategorie;
+}
+
+/** Le nom d'une annexe « Autre » est obligatoire (Arno, 18/10/2026). `null` = valide. PUR. */
+export function refusNomAnnexe(categorie: unknown, nom: unknown): string | null {
+  return categorie === 'autre' && (typeof nom !== 'string' || nom.trim() === '') ? 'le nom de l’annexe « Autre » est obligatoire (ex. Cellier, Grenier, Local vélo).' : null;
 }
 
 /** Les compléments tels que la fiche du bien les affiche (avec le nom du syndic). */
@@ -124,7 +142,7 @@ const vide = (v: unknown): boolean => v === undefined || v === null || (typeof v
 /** Ce qui manque pour enregistrer, champ par champ (les obligatoires, PAR FAMILLE). Vide = enregistrable. */
 export function manquesDuBien(s: {
   proprietaireIds: readonly number[]; adresse: unknown; famille?: unknown; typeLogement?: unknown; typeLocal?: unknown; parkingType?: unknown;
-  annexes?: readonly { autreAdresse?: unknown; adresse?: unknown }[];
+  annexes?: readonly { autreAdresse?: unknown; adresse?: unknown; categorie?: unknown; nomAnnexe?: unknown }[];
 }): Record<string, string> {
   const m: Record<string, string> = {};
   const famille = dans(FAMILLES, s.famille);
@@ -136,6 +154,8 @@ export function manquesDuBien(s: {
   else if (famille === 'parking' && vide(s.parkingType)) m.parkingType = 'Choisissez : Place simple, Place double, Box simple ou Box double.';
   if (vide(s.adresse)) m.adresse = `L’adresse du ${famille === null ? 'bien' : NOM_FAMILLE[famille]} est obligatoire.`;
   (s.annexes ?? []).forEach((a, i) => {
+    const nom = refusNomAnnexe(a.categorie, a.nomAnnexe);
+    if (nom !== null) m[`annexe-nom-${i}`] = `Annexe ${i + 1} : ${nom}`;
     if (ouiNon(a.autreAdresse) === true && vide(a.adresse)) m[`annexe-${i}`] = `Annexe ${i + 1} : l’autre adresse est à renseigner.`;
   });
   return m;
@@ -182,6 +202,10 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
   if (digicode === true && typeof l.digicodeCode === 'string' && l.digicodeCode.trim().length > 8) {
     return { ok: false, motif: 'Le code du digicode fait 8 caractères au plus.' };
   }
+  // L'ASSURANCE PNO (Arno, 18/10/2026) : la date anniversaire seulement si Oui — repasser à Non la vide.
+  const pno = ouiNon(l.assurancePno);
+  const datePno = texte(l.pnoDateAnniversaire, 10);
+  if (pno === true && datePno !== null && !dateValide(datePno)) return { ok: false, motif: 'La date anniversaire de l’assurance PNO n’est pas une date valide.' };
   return {
     ok: true,
     valeurs: {
@@ -193,8 +217,17 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
       parkingType: dans(TYPES_PARKING, l.parkingType), surfaceM2: surface,
       ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? texte(l.digicodeCode, 8) : null,
       precisionAcces: texte(l.precisionAcces, 500),
+      assurancePno: pno, pnoDateAnniversaire: pno === true ? datePno : null,
     },
   };
+}
+
+/** « AAAA-MM-JJ » et une vraie date du calendrier. PUR. */
+function dateValide(t: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
+  if (m === null) return false;
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return d.getUTCMonth() === Number(m[2]) - 1 && d.getUTCDate() === Number(m[3]) && Number(m[1]) >= 1900;
 }
 
 /** Vérifie la saisie complète : les obligatoires (par famille), puis chaque champ facultatif renseigné. */
@@ -205,7 +238,7 @@ export function verifierBienComplet(s: SaisieBien):
   const brutes = Array.isArray(s.annexes) ? s.annexes : [];
   const manque = Object.values(manquesDuBien({
     proprietaireIds: ids, adresse: l.adresse, famille: l.famille, typeLogement: l.typeLogement, typeLocal: l.typeLocal, parkingType: l.parkingType,
-    annexes: brutes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse })),
+    annexes: brutes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse, categorie: a.categorie, nomAnnexe: a.nomAnnexe })),
   }));
   if (manque.length > 0) return { ok: false, motif: manque.join(' ') };
   const famille = dans(FAMILLES, l.famille) as Famille;
@@ -249,6 +282,7 @@ export function verifierBienComplet(s: SaisieBien):
     if (parking && !vide(a.parkingSituation) && dans(SITUATIONS_PARKING, a.parkingSituation) === null) return { ok: false, motif: 'Situation du parking inconnue.' };
     annexes.push({
       ...v.valeurs, autreAdresse: autre,
+      nomAnnexe: v.valeurs.categorie === 'autre' ? texte(a.nomAnnexe, 80) : null,
       parkingSituation: parking ? dans(SITUATIONS_PARKING, a.parkingSituation) : null,
       parkingType: parking ? dans(TYPES_PARKING, a.parkingType) : null,
     });

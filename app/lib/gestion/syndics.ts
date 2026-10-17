@@ -19,7 +19,9 @@ import type { CritereDoublon, DoublonIgnore } from './doublonSyndic';
 export type SorteCoordonnee = 'email' | 'telephone';
 
 /** Les titres proposés ; « Personnalisé » ouvre un champ libre. */
-export const TITRES_CONTACT = ['Responsable de copropriété', 'Service comptabilité'] as const;
+/** Arno, 18/10/2026 : « Gestionnaire de copropriété » et « Comptable » AJOUTÉS en tête — rien n'est retiré ni renommé. Un titre
+ *  déjà saisi librement identique à l'un d'eux s'ouvre désormais sous ce choix (même texte, aucune donnée réécrite). */
+export const TITRES_CONTACT = ['Gestionnaire de copropriété', 'Comptable', 'Responsable de copropriété', 'Service comptabilité'] as const;
 /** Les libellés proposés pour un TÉLÉPHONE ; « Personnalisé » ouvre un champ libre. */
 export const LIBELLES_COORDONNEE = ['Ligne directe', 'Portable', 'Standard'] as const;
 /**

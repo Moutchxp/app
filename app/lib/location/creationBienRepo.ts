@@ -35,6 +35,11 @@ export function bienCompletDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'type_logement');
 }
 
+/** La migration 378 (nom d'une annexe « Autre », assurance PNO et sa date anniversaire) est-elle là ? */
+export function annexeNomPnoDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_annuaire_lot', 'pno_date_anniversaire');
+}
+
 /** La migration 376 (famille de bien, parking, accès, annexe à autre adresse) est-elle là ? */
 export function familleDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre');
@@ -170,6 +175,7 @@ export async function creerBienComplet(s: SaisieBien & {
   const ag = verifierDateAg((s.logement ?? {}).derniereAg);
   if (!ag.ok) return { etat: 'refus', motif: ag.motif };
   const l = v.logement;
+  const avec378 = await annexeNomPnoDisponible();
   const vivante = await sqlPersonneVivante('p');
   const portefeuille = await sqlDansPortefeuille('p');
   let cree: { logementId: number; annexes: number[] };
@@ -194,6 +200,7 @@ export async function creerBienComplet(s: SaisieBien & {
         chauffage: l.chauffage, dpe_classe: l.dpeClasse, dpe_date: l.dpeDate, commentaire: l.commentaire,
         type_local: l.typeLocal, parking_situation: l.parkingSituation, parking_type: l.parkingType, surface_m2: l.surfaceM2,
         ascenseur: l.ascenseur, digicode: l.digicode, digicode_code: l.digicodeCode, precision_acces: l.precisionAcces,
+        ...(avec378 ? { assurance_pno: l.assurancePno ?? null, pno_date_anniversaire: l.assurancePno === true ? l.pnoDateAnniversaire ?? null : null } : {}),
       }, auteur);
       const annexes: number[] = [];
       for (const a of v.annexes) {
@@ -202,6 +209,7 @@ export async function creerBienComplet(s: SaisieBien & {
           : { adresse: l.adresse, codePostal: l.codePostal, commune: l.commune };
         const id = await insererLot(q, proprietaires, { ...a, ...adresse }, a.categorie ?? 'cave', {
           adresse_autre: a.autreAdresse, parking_situation: a.parkingSituation, parking_type: a.parkingType,
+          ...(avec378 ? { nom_annexe: a.nomAnnexe } : {}),
         }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, logementId, auteur.libelle]);
         annexes.push(id);
@@ -314,18 +322,21 @@ export async function syndicsConnus(): Promise<{ id: number; nom: string; ville:
 export async function complementsDuBien(id: number): Promise<ComplementsFiche | null> {
   if (!(await bienCompletDisponible())) return null;
   const avec376 = await familleDisponible();
+  const avec378 = await annexeNomPnoDisponible();
   const { rows } = await query<{
     batiment: string | null; escalier: string | null; type_logement: string | null; nombre_pieces: number | null; meuble: boolean | null;
     surface_habitable_m2: string | null; syndic_id: string | null; syndic_nom: string | null; epoque_construction: string | null;
     chauffage: string | null; dpe_classe: string | null; dpe_date: string | null; commentaire: string | null;
     type_local: string | null; parking_situation: string | null; parking_type: string | null; surface_m2: string | null;
     ascenseur: boolean | null; digicode: boolean | null; digicode_code: string | null; precision_acces: string | null;
+    assurance_pno: boolean | null; pno_date_anniversaire: string | null;
   }>(
     `SELECT lo.batiment, lo.escalier, lo.type_logement, lo.nombre_pieces, lo.meuble, lo.surface_habitable_m2::text,
             lo.syndic_id::text, s.nom AS syndic_nom, lo.epoque_construction, lo.chauffage, lo.dpe_classe, lo.dpe_date::text, lo.commentaire,
             ${avec376 ? `lo.type_local, lo.parking_situation, lo.parking_type, lo.surface_m2::text, lo.ascenseur, lo.digicode, lo.digicode_code, lo.precision_acces`
     : `NULL::text AS type_local, NULL::text AS parking_situation, NULL::text AS parking_type, NULL::text AS surface_m2, NULL::boolean AS ascenseur,
-       NULL::boolean AS digicode, NULL::text AS digicode_code, NULL::text AS precision_acces`}
+       NULL::boolean AS digicode, NULL::text AS digicode_code, NULL::text AS precision_acces`},
+            ${avec378 ? 'lo.assurance_pno, lo.pno_date_anniversaire::text' : 'NULL::boolean AS assurance_pno, NULL::text AS pno_date_anniversaire'}
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_syndic s ON s.id = lo.syndic_id WHERE lo.id = $1`, [id]);
   const r = rows[0];
   if (r === undefined) return null;
@@ -339,6 +350,7 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
     typeLocal: r.type_local as ComplementsBien['typeLocal'], parkingSituation: r.parking_situation as ComplementsBien['parkingSituation'],
     parkingType: r.parking_type as ComplementsBien['parkingType'], surfaceM2: r.surface_m2 === null ? null : Number(r.surface_m2),
     ascenseur: r.ascenseur, digicode: r.digicode, digicodeCode: r.digicode_code, precisionAcces: r.precision_acces,
+    assurancePno: r.assurance_pno, pnoDateAnniversaire: r.pno_date_anniversaire,
   };
 }
 
@@ -371,6 +383,11 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
           `UPDATE gestion_annuaire_lot SET type_local = $2, parking_situation = $3, parking_type = $4, surface_m2 = $5, ascenseur = $6,
                   digicode = $7, digicode_code = $8, precision_acces = $9 WHERE id = $1`,
           [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.digicode, c.digicodeCode, c.precisionAcces]);
+      }
+      // L'assurance PNO (migration 378) : envoyée par la fiche qui la montre ; Non (ou non renseigné) vide la date.
+      if (Object.prototype.hasOwnProperty.call(brut, 'assurancePno') && (await annexeNomPnoDisponible())) {
+        await q('UPDATE gestion_annuaire_lot SET assurance_pno = $2, pno_date_anniversaire = $3::date WHERE id = $1',
+          [id, c.assurancePno ?? null, c.assurancePno === true ? c.pnoDateAnniversaire ?? null : null]);
       }
       await journaliser(q, 'annuaire_lot', id, 'location_bien_complements', 'informations complémentaires du bien modifiées dans la Location', auteur);
       return { etat: 'ok' as const, data: undefined };

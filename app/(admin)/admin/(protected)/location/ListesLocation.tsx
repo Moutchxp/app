@@ -1,5 +1,6 @@
 'use client';
 
+import { titreAnnexe } from '../../../../lib/location/bienComplet';
 import { useState } from 'react';
 import { EtatLecture, liste, useLecture } from './commun';
 import { LIBELLE_CATEGORIE, resumeBien, type BienLocation } from '../../../../lib/location/locationBien';
@@ -67,7 +68,7 @@ export function LigneBien({ b, enfant = false }: { b: BienLocation; enfant?: boo
     <li className={enfant ? 'loc-enfant' : undefined}>
       <span>
         <a href={`/admin/location/bien/${b.id}`}>
-          {enfant ? `${LIBELLE_CATEGORIE[b.categorie]}${b.porte === null ? '' : ` n° ${b.porte}`}` : [b.adresse, b.commune].filter((x) => x).join(', ') || `Bien ${b.numero}`}
+          {enfant ? `${titreAnnexe(b, LIBELLE_CATEGORIE[b.categorie])}${b.porte === null ? '' : ` n° ${b.porte}`}` : [b.adresse, b.commune].filter((x) => x).join(', ') || `Bien ${b.numero}`}
         </a>{' '}
         <span className="loc-pastille">{LIBELLE_CATEGORIE[b.categorie]}</span>
         {b.sorti === true && <> <span className="loc-pastille loc-pastille--violet">sorti</span></>}
