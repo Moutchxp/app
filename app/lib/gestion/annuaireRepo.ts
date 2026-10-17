@@ -23,7 +23,14 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 // 🔴 LOT SUPPRIMER-CARTE — une fiche supprimée ne s'affiche NULLE PART. Le fragment est écrit une seule fois.
 import { personneVivanteAvec } from './personneVivante';
 import { sqlPersonneVivante } from './personneVivanteSql';
-import { annuaireDisponible, annuaireModifiableDisponible, libelleSourceContactDisponible, suppressionPersonneDisponible } from './schema';
+import {
+  annuaireDisponible, annuaireModifiableDisponible, libelleSourceContactDisponible, rapprochementAnnuaireDisponible,
+  suppressionPersonneDisponible,
+} from './schema';
+/* 🔴 LOT L0 — une fiche créée ici puis retrouvée dans l'export est RAPPROCHÉE, jamais doublée. Règle PURE. */
+import {
+  choisirFicheARapprocher, phraseRapprochementNonFait, type CandidateRapprochement,
+} from './rapprochementImport';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 // LOT FICHES-RETOUCHES — un numero affiche par l'app est groupe par deux chiffres.
 import { decortiquerNumero, formaterTelephone } from './telephoneAffichage';
@@ -63,6 +70,11 @@ export interface ComptesImport {
   contactsRetires: number;
   disparus: number; revenus: number;
   /**
+   * 🔴 LOT L0 — fiches (personnes ou baux) créées dans l'application et RETROUVÉES dans l'export à cette passe :
+   * rapprochées sous leur clé « app-… », au lieu d'un doublon. Comptées aussi dans les « mis à jour ».
+   */
+  rapproches: number;
+  /**
    * ══ 🔴🔴 LOT FICHES-ANNUAIRE (étape C) — CE QUE L'IMPORT N'A PAS APPLIQUÉ, ET POURQUOI ═══════════════════════
    *
    * Règle d'Arno : « une valeur modifiée dans l'app devient PRIORITAIRE et n'est plus jamais écrasée par un
@@ -84,7 +96,7 @@ export const COMPTES_VIDES: ComptesImport = {
   lotsCrees: 0, lotsMajs: 0, lotsInchanges: 0,
   locatairesCrees: 0, locatairesMajs: 0, locatairesInchanges: 0,
   occupationsCreees: 0, occupationsMajs: 0, occupationsInchangees: 0,
-  contactsCrees: 0, contactsMajs: 0, contactsRetires: 0, disparus: 0, revenus: 0, divergences: [],
+  contactsCrees: 0, contactsMajs: 0, contactsRetires: 0, disparus: 0, revenus: 0, rapproches: 0, divergences: [],
 };
 
 export type IssueImport =
@@ -255,6 +267,7 @@ async function cloreLaPasse(
         `annuaire WIPPIMMO importé : ${c.proprietairesCrees + c.proprietairesMajs} propriétaire(s), `
         + `${c.lotsCrees + c.lotsMajs} lot(s), ${c.occupationsCreees + c.occupationsMajs} bail/baux touchés ; `
         + `${plan.rejets.length} rejet(s), ${plan.homonymes.length} homonyme(s), ${c.disparus} disparu(s)`
+        + (c.rapproches === 0 ? '' : `, ${c.rapproches} fiche(s) de l’application rapprochée(s)`)
         /**
          * 🔴 LES DIVERGENCES SONT DANS LE JOURNAL, ET PAS SEULEMENT DANS LE RAPPORT DE LA COMMANDE. Un rapport
          * affiché dans un terminal disparaît avec le terminal ; le journal, lui, répond encore dans six mois à
@@ -283,8 +296,11 @@ async function ecrireProprietaires(
             adresse_normalisee, relation_depuis::text, absent_le::text
        FROM gestion_annuaire_proprietaire`);
   const existants = new Map(rows.map((r) => [r.wippimmo_id, r]));
+  const lignesParId = new Map(rows.map((r) => [r.id, r]));
   const parId = new Map<string, number>();
   const parCle = new Map<string, number>();
+  // 🔴 LOT L0 — les fiches créées ici, pour les reconnaître dans l'export au lieu d'en créer un doublon.
+  const application = await lireFichesApplication(q, 'proprietaire');
 
   // Les noms portés par PLUSIEURS bailleurs, comptés ici même : ils n'entreront jamais dans l'index par nom.
   const combien = new Map<string, number>();
@@ -300,7 +316,30 @@ async function ecrireProprietaires(
     'code_postal', 'adresse_normalisee', 'relation_depuis'] as const;
 
   for (const p of plan.proprietaires) {
-    const avant = existants.get(p.wippimmoId);
+    let avant = existants.get(p.wippimmoId);
+    /**
+     * 🔴 LOT L0 — PAS SOUS SA CLÉ D'EXPORT ? Peut-être une fiche créée ici : déjà rapprochée (`cle_import`), ou à
+     * rapprocher maintenant si elle concorde sans ambiguïté (même nom ET une coordonnée commune, une seule fiche).
+     */
+    let rapprochee = false;
+    let nouveauRapprochement = false;
+    if (avant === undefined) {
+      const deja = application.parCleImport.get(p.wippimmoId);
+      const choix = deja !== undefined ? null : choisirFicheARapprocher(
+        application.candidates, { nomNormalise: p.nomNormalise, valeurs: p.contacts.map((x) => x.valeur) });
+      const id = deja ?? (choix?.etat === 'unique' ? choix.id : undefined);
+      if (id !== undefined && lignesParId.has(id)) {
+        avant = lignesParId.get(id);
+        rapprochee = true;
+        if (deja === undefined) {
+          nouveauRapprochement = true;
+          c.rapproches += 1;
+          application.candidates = application.candidates.filter((x) => x.id !== id);
+        }
+      } else if (choix !== null && (choix.etat === 'ambigu' || choix.etat === 'possible')) {
+        c.divergences.push(phraseRapprochementNonFait(p.nomComplet, choix));
+      }
+    }
     const apres: Empreinte = {
       civilite: p.civilite, nom: p.nom, prenom: p.prenom, nom_complet: p.nomComplet,
       nom_normalise: p.nomNormalise, adresse: p.adresse, commune: p.commune, code_postal: p.codePostal,
@@ -328,10 +367,17 @@ async function ecrireProprietaires(
     }
 
     if (avant === undefined) c.proprietairesCrees += 1;
-    else if (memeEmpreinte(comparable, avant)) { c.proprietairesInchanges += 1; retenir(p, Number(avant.id)); continue; }
-    else { c.proprietairesMajs += 1; if (avant.absent_le !== null) c.revenus += 1; }
+    else if (!nouveauRapprochement && memeEmpreinte(comparable, avant)) {
+      c.proprietairesInchanges += 1; retenir(p, Number(avant.id)); continue;
+    } else { c.proprietairesMajs += 1; if (avant.absent_le !== null) c.revenus += 1; }
 
     if (!appliquer) { if (avant !== undefined) retenir(p, Number(avant.id)); continue; }
+    if (rapprochee && avant !== undefined) {
+      await ecrireFicheRapprochee(q, 'gestion_annuaire_proprietaire', Number(avant.id), COLONNES, verrouilles, apres,
+        p.wippimmoId, { relation_depuis: '::date' });
+      retenir(p, Number(avant.id));
+      continue;
+    }
     const { set } = setSansVerrous(COLONNES, verrouilles);
     const { rows: r } = await q<{ id: string }>(
       `INSERT INTO gestion_annuaire_proprietaire
@@ -398,12 +444,34 @@ async function ecrireLocataires(
             adresse_normalisee, absent_le::text
        FROM gestion_annuaire_locataire`);
   const existants = new Map(rows.map((r) => [r.cle_personne, r]));
+  const lignesParId = new Map(rows.map((r) => [r.id, r]));
   const ids = new Map<string, number>();
   const COLONNES = ['wippimmo_id', 'nom', 'nom_normalise', 'adresse', 'commune', 'code_postal',
     'adresse_normalisee'] as const;
+  // 🔴 LOT L0 — même règle que pour les propriétaires.
+  const application = await lireFichesApplication(q, 'locataire');
 
   for (const p of plan.locataires) {
-    const avant = existants.get(p.clePersonne);
+    let avant = existants.get(p.clePersonne);
+    let rapprochee = false;
+    let nouveauRapprochement = false;
+    if (avant === undefined) {
+      const deja = application.parCleImport.get(p.clePersonne);
+      const choix = deja !== undefined ? null : choisirFicheARapprocher(
+        application.candidates, { nomNormalise: p.nomNormalise, valeurs: p.contacts.map((x) => x.valeur) });
+      const id = deja ?? (choix?.etat === 'unique' ? choix.id : undefined);
+      if (id !== undefined && lignesParId.has(id)) {
+        avant = lignesParId.get(id);
+        rapprochee = true;
+        if (deja === undefined) {
+          nouveauRapprochement = true;
+          c.rapproches += 1;
+          application.candidates = application.candidates.filter((x) => x.id !== id);
+        }
+      } else if (choix !== null && (choix.etat === 'ambigu' || choix.etat === 'possible')) {
+        c.divergences.push(phraseRapprochementNonFait(p.nom, choix));
+      }
+    }
     const apres: Empreinte = {
       wippimmo_id: p.wippimmoId, nom: p.nom, nom_normalise: p.nomNormalise, adresse: p.adresse,
       commune: p.commune, code_postal: p.codePostal, adresse_normalisee: p.adresseNormalisee, absent_le: null,
@@ -412,6 +480,8 @@ async function ecrireLocataires(
     const verrouilles = new Set(COLONNES.filter(
       (col) => avant !== undefined && verrous.has(CLE_VERROU('locataire', avant.id as string, col))));
     const comparable: Empreinte = { ...apres };
+    // Une fiche rapprochée garde sa clé « app-… » : l'identifiant WIPPIMMO n'entre pas dans la comparaison.
+    if (rapprochee) delete comparable.wippimmo_id;
     for (const col of verrouilles) {
       delete comparable[col];
       if (avant !== undefined && (avant[col] ?? '') !== (apres[col] ?? '')) {
@@ -420,10 +490,17 @@ async function ecrireLocataires(
     }
 
     if (avant === undefined) c.locatairesCrees += 1;
-    else if (memeEmpreinte(comparable, avant)) { c.locatairesInchanges += 1; ids.set(p.clePersonne, Number(avant.id)); continue; }
-    else { c.locatairesMajs += 1; if (avant.absent_le !== null) c.revenus += 1; }
+    else if (!nouveauRapprochement && memeEmpreinte(comparable, avant)) {
+      c.locatairesInchanges += 1; ids.set(p.clePersonne, Number(avant.id)); continue;
+    } else { c.locatairesMajs += 1; if (avant.absent_le !== null) c.revenus += 1; }
 
     if (!appliquer) { if (avant !== undefined) ids.set(p.clePersonne, Number(avant.id)); continue; }
+    if (rapprochee && avant !== undefined) {
+      await ecrireFicheRapprochee(q, 'gestion_annuaire_locataire', Number(avant.id), COLONNES, verrouilles, apres,
+        p.clePersonne);
+      ids.set(p.clePersonne, Number(avant.id));
+      continue;
+    }
     const { set } = setSansVerrous(COLONNES, verrouilles);
     const { rows: r } = await q<{ id: string }>(
       `INSERT INTO gestion_annuaire_locataire
@@ -442,16 +519,66 @@ async function ecrireOccupations(
   q: RequeteTx, plan: PlanImport, idsLocataires: ReadonlyMap<string, number>,
   idsLots: ReadonlyMap<string, number>, appliquer: boolean, c: ComptesImport,
 ): Promise<void> {
-  const { rows } = await q<{ wippimmo_id: string } & Empreinte>(
-    `SELECT wippimmo_id, locataire_id::text, lot_id::text, lot_wippimmo_id, entree::text, sortie::text,
-            absent_le::text
+  const rapprochement = await rapprochementAnnuaireDisponible();
+  const { rows } = await q<{ wippimmo_id: string; cle_import: string | null } & Empreinte>(
+    `SELECT id::text, wippimmo_id, locataire_id::text, lot_id::text, lot_wippimmo_id, entree::text, sortie::text,
+            absent_le::text, ${rapprochement ? 'cle_import' : 'NULL::text AS cle_import'}
        FROM gestion_annuaire_occupation`);
   const existants = new Map(rows.map((r) => [r.wippimmo_id, r]));
+  /**
+   * 🔴 LOT L0 — LES BAUX SAISIS ICI (`ajouterOccupant`, clé « app-… »). Déjà rapprochés : par leur clé d'export.
+   * À rapprocher : par (locataire, lot) — le locataire étant lui-même résolu, rapproché compris. Une seule
+   * occupation de l'application sur ce couple, ou rien : deux candidates, c'est à un humain de trancher.
+   */
+  const occParCleImport = new Map(rows.filter((r) => r.cle_import !== null).map((r) => [r.cle_import as string, r]));
+  const occCandidates = new Map<string, (typeof rows)[number][]>();
+  if (rapprochement) {
+    for (const r of rows) {
+      if (r.cle_import !== null || !r.wippimmo_id.startsWith('app-')) continue;
+      const k = `${r.locataire_id}|${r.lot_id}`;
+      occCandidates.set(k, [...(occCandidates.get(k) ?? []), r]);
+    }
+  }
 
   for (const o of plan.occupations) {
     const locataireId = idsLocataires.get(o.clePersonne) ?? null;
     const lotId = idsLots.get(o.lotWippimmoId) ?? null;
-    const avant = existants.get(o.wippimmoId);
+    let avant = existants.get(o.wippimmoId);
+    if (avant === undefined && rapprochement) {
+      const deja = occParCleImport.get(o.wippimmoId);
+      const k = `${locataireId}|${lotId}`;
+      const liste = deja !== undefined || locataireId === null || lotId === null ? [] : occCandidates.get(k) ?? [];
+      const cible = deja ?? (liste.length === 1 ? liste[0] : undefined);
+      if (liste.length > 1) {
+        c.divergences.push(`bail WIPPIMMO ${o.wippimmoId} — plusieurs baux saisis dans l’application pour ce `
+          + 'locataire et ce bien : bail créé depuis l’export, rapprochement à décider à la main.');
+      }
+      if (cible !== undefined) {
+        const nouveau = deja === undefined;
+        if (nouveau) { c.rapproches += 1; occCandidates.delete(k); }
+        /**
+         * ⚠️ CE QUI A ÉTÉ SAISI ICI EST PRIORITAIRE : l'export ne fait que COMPLÉTER une date vide (une sortie que
+         * WIPPIMMO connaît, une entrée jamais saisie). Une date saisie qui diffère est DITE, jamais écrasée.
+         */
+        for (const [col, wip] of [['entree', o.entree], ['sortie', o.sortie]] as const) {
+          const app = cible[col];
+          if (app !== null && wip !== null && app !== wip) {
+            c.divergences.push(phraseDivergence(`bail WIPPIMMO ${o.wippimmoId}`, col, wip, app));
+          }
+        }
+        const complete = (cible.entree === null && o.entree !== null) || (cible.sortie === null && o.sortie !== null);
+        if (!nouveau && !complete) { c.occupationsInchangees += 1; continue; }
+        c.occupationsMajs += 1;
+        if (!appliquer) continue;
+        await q(
+          `UPDATE gestion_annuaire_occupation
+              SET entree = coalesce(entree, $2::date), sortie = coalesce(sortie, $3::date), cle_import = $4,
+                  rapproche_le = coalesce(rapproche_le, now()), importe_le = now()
+            WHERE id = $1`,
+          [Number(cible.id), o.entree, o.sortie, o.wippimmoId]);
+        continue;
+      }
+    }
     const apres: Empreinte = {
       locataire_id: locataireId === null ? null : String(locataireId),
       lot_id: lotId === null ? null : String(lotId),
@@ -611,7 +738,16 @@ export async function ecrireContacts(
  *
  * ⚠️ ON NE MARQUE QUE CE QUI N'ÉTAIT PAS DÉJÀ MARQUÉ : sans ce `AND absent_le IS NULL`, chaque import repousserait
  * la date et l'on perdrait le DEPUIS QUAND — la seule information qui rende la mention utile.
+ *
+ * ══ 🔴🔴 LOT L0 (17/10/2026) — UNE FICHE CRÉÉE DANS L'APPLICATION N'EST JAMAIS « ABSENTE DE L'EXPORT » ══════════
+ * « Absente » veut dire « WIPPIMMO la connaissait et ne l'exporte plus ». Une fiche née ici (clé « app-… » :
+ * `creerPersonne`, `separerPersonne`, `ajouterOccupant`) n'a jamais été dans l'export : la marquer disait faux, et la
+ * retirait des listes qui ne prennent que les fiches présentes (Drive, contenu de l'annuaire, Monga…). Le défaut
+ * touchait 6 propriétaires créés à la main depuis l'import du 28/09/2026. Ce garde ne demande aucune migration.
+ * Une fiche ISSUE de WIPPIMMO qui disparaît de l'export garde exactement le comportement d'avant.
  */
+const PAS_UNE_FICHE_DE_L_APPLICATION = `NOT (wippimmo_id LIKE 'app-%')`;
+
 async function marquerDisparus(
   q: RequeteTx, plan: PlanImport, appliquer: boolean, c: ComptesImport,
 ): Promise<void> {
@@ -623,14 +759,64 @@ async function marquerDisparus(
   ];
   for (const { table, colonne, presents } of cibles) {
     const { rows } = await q<{ n: string }>(
-      `SELECT count(*)::text AS n FROM ${table} WHERE absent_le IS NULL AND NOT (${colonne} = ANY($1::text[]))`,
+      `SELECT count(*)::text AS n FROM ${table}
+        WHERE absent_le IS NULL AND ${PAS_UNE_FICHE_DE_L_APPLICATION} AND NOT (${colonne} = ANY($1::text[]))`,
       [presents]);
     c.disparus += Number(rows[0]?.n ?? 0);
     if (!appliquer) continue;
     await q(
-      `UPDATE ${table} SET absent_le = now() WHERE absent_le IS NULL AND NOT (${colonne} = ANY($1::text[]))`,
+      `UPDATE ${table} SET absent_le = now()
+        WHERE absent_le IS NULL AND ${PAS_UNE_FICHE_DE_L_APPLICATION} AND NOT (${colonne} = ANY($1::text[]))`,
       [presents]);
   }
+}
+
+/**
+ * ══ 🔴🔴 LOT L0 — LES FICHES DE L'APPLICATION, VUES PAR L'IMPORT (migration 369) ══════════════════════════════════
+ * `parCleImport` : celles déjà rapprochées (clé d'export reconnue → id) — l'import les retrouve sous leur clé
+ * « app-… », qui porte leurs mails et ne change jamais. `candidates` : celles qui attendent encore, avec leurs
+ * coordonnées vivantes en forme canonique (la règle de `choisirFicheARapprocher` les compare à l'export).
+ * Sans la migration : tout est vide, et l'import se comporte comme avant.
+ */
+interface FichesApplication { parCleImport: Map<string, string>; candidates: CandidateRapprochement[] }
+
+async function lireFichesApplication(q: RequeteTx, sujet: 'proprietaire' | 'locataire'): Promise<FichesApplication> {
+  if (!(await rapprochementAnnuaireDisponible())) return { parCleImport: new Map(), candidates: [] };
+  const table = sujet === 'proprietaire' ? 'gestion_annuaire_proprietaire' : 'gestion_annuaire_locataire';
+  const { rows } = await q<{ id: string; nom_normalise: string | null; cle_import: string | null; vivante: boolean; valeurs: string[] }>(
+    `SELECT p.id::text, p.nom_normalise, p.cle_import, (${await sqlPersonneVivante('p')}) AS vivante,
+            coalesce(array_agg(c.valeur) FILTER (WHERE c.valeur IS NOT NULL), '{}') AS valeurs
+       FROM ${table} p
+       LEFT JOIN gestion_annuaire_contact c
+         ON c.sujet = $1 AND c.sujet_id = p.id AND c.absent_le IS NULL${await conditionCoordonneeVivante('c')}
+      WHERE p.wippimmo_id LIKE 'app-%'
+      GROUP BY p.id`, [sujet]);
+  return {
+    parCleImport: new Map(rows.filter((r) => r.cle_import !== null).map((r) => [r.cle_import as string, r.id])),
+    candidates: rows.filter((r) => r.cle_import === null && r.vivante)
+      .map((r) => ({ id: r.id, nomNormalise: r.nom_normalise ?? '', valeurs: r.valeurs })),
+  };
+}
+
+/**
+ * Écrit une fiche de l'application RAPPROCHÉE, PAR SON ID — jamais par `ON CONFLICT (wippimmo_id)`, qui créerait
+ * le doublon qu'on évite. Mêmes champs que l'import ordinaire, MOINS les champs verrouillés (saisis ici, donc
+ * prioritaires — une fiche créée à la main l'est intégralement) et MOINS la clé (`wippimmo_id` reste « app-… »).
+ */
+async function ecrireFicheRapprochee(
+  q: RequeteTx, table: string, id: number, colonnes: readonly string[], verrouilles: ReadonlySet<string>,
+  valeurs: Empreinte, cleImport: string, casts: Readonly<Record<string, string>> = {},
+): Promise<void> {
+  const { ecartees } = setSansVerrous(colonnes, verrouilles);
+  const params: (string | number | null)[] = [id, cleImport];
+  const sets = colonnes.filter((col) => !ecartees.includes(col) && col !== 'wippimmo_id').map((col) => {
+    params.push(valeurs[col] ?? null);
+    return `${col} = $${params.length}${casts[col] ?? ''}`;
+  });
+  await q(
+    `UPDATE ${table} SET ${[...sets, 'cle_import = $2', 'rapproche_le = coalesce(rapproche_le, now())',
+      'importe_le = now()'].join(', ')} WHERE id = $1`,
+    params);
 }
 
 // ══ ② LA LECTURE ═══════════════════════════════════════════════════════════════════════════════════════════════════

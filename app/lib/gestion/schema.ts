@@ -452,6 +452,15 @@ export function annuaireModifiableDisponible(): Promise<boolean> {
 }
 
 /**
+ * 🔴 MIGRATION 369 (lot L0) — le RAPPROCHEMENT d'une fiche « app-… » retrouvée dans l'export WIPPIMMO. Sans elle,
+ * l'import ne nomme pas `cle_import` et se comporte comme avant — sauf qu'il ne marque déjà plus absente une fiche
+ * créée dans l'application (ce correctif-là ne demande aucune colonne).
+ */
+export function rapprochementAnnuaireDisponible(): Promise<boolean> {
+  return memoiser('proprietaire.cle_import', () => colonneExiste('gestion_annuaire_proprietaire', 'cle_import'));
+}
+
+/**
  * LOT DRIVE-1 — la migration 254 est-elle appliquée ? Elle seule porte la MÉMOIRE de l'arborescence Drive, qui est
  * aussi la LISTE BLANCHE du garde-fou.
  *

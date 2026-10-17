@@ -116,6 +116,8 @@ export function rendreRapport(plan: PlanImport, c: ComptesImport, o: OptionsImpo
   l.push('');
   l.push(`DISPARUS DU DERNIER EXPORT (marqués, JAMAIS effacés) : ${c.disparus}`);
   if (c.revenus > 0) l.push(`REVENUS dans l’export (la mention « absent » est levée) : ${c.revenus}`);
+  // 🔴 LOT L0 — une fiche créée dans l'application et retrouvée dans l'export n'est pas doublée : elle est rapprochée.
+  if (c.rapproches > 0) l.push(`RAPPROCHÉES (créées dans l’application, retrouvées dans l’export, sans doublon) : ${c.rapproches}`);
 
   /**
    * ══ 🔴🔴 LOT FICHES-ANNUAIRE (étape C) — CE QUE L'IMPORT N'A PAS APPLIQUÉ ══════════════════════════════════════

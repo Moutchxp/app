@@ -59,9 +59,9 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   const existants = readdirSync(dossier).filter((n) => n.endsWith('.sql')).map((n) => ({ fichier: n, contenu: readFileSync(path.join(dossier, n), 'utf8') }));
   const ECARTEES = ['148_mention_sources_graphiques.sql', '212_permis_emprise_numero.sql', '216_permis_cerfa_ia.sql', '262_gestion_piece_classement.sql'];
   // Pas encore appliquées en prod (16/10/2026, après la publication de 4c8cd637 qui a appliqué la 362).
-  // 365 : lot GESTION-INVITATIONS-TACHES (17/10/2026).
+  // 365 : lot GESTION-INVITATIONS-TACHES (17/10/2026). 369 : lot L0, rapprochement des fiches de l'application (17/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
-    '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql'];
+    '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -74,7 +74,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 368 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 369 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -84,14 +84,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (369)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (370)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(368\)/);
-    const renumerotee = planifier([...existants, { fichier: '369_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(369\)/);
+    const renumerotee = planifier([...existants, { fichier: '370_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['369_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['370_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -200,5 +200,22 @@ describe('368 (tâche sans bien) : enveloppée, lot_id facultatif, aucune ligne 
     const sql = coeur(contenu);
     expect(sql).toEqual(['ALTER TABLE gestion_tache ALTER COLUMN lot_id DROP NOT NULL']);
     expect(contenu).not.toMatch(/\b(UPDATE|INSERT|DELETE|TRUNCATE|DROP CONSTRAINT|DROP TABLE)\b/i);
+  });
+});
+
+describe('369 (lot L0, rapprochement des fiches de l’application) : enveloppée, colonnes facultatives, aucune ligne touchée', () => {
+  const contenu = lire(MIGRATIONS, '369_gestion_annuaire_rapprochement.sql');
+  const a = analyserMigration({ fichier: '369_gestion_annuaire_rapprochement.sql', contenu });
+  it('passe le garde, enveloppée, réversible ; cle_import et rapproche_le sur propriétaires, locataires, occupations', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.tablesCreees).toEqual([]);
+    expect(a.colonnesAjoutees).toEqual(['proprietaire', 'locataire', 'occupation'].flatMap((s) => [
+      { table: `gestion_annuaire_${s}`, colonne: 'cle_import' }, { table: `gestion_annuaire_${s}`, colonne: 'rapproche_le' }]));
+  });
+  it('aucune donnée écrite ni supprimée', () => {
+    expect(contenu).not.toMatch(/\b(INSERT|DELETE|TRUNCATE|DROP)\b/i);
+    expect(contenu).not.toMatch(/^\s*UPDATE\b/im);
   });
 });
