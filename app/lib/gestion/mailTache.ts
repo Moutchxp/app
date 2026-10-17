@@ -36,7 +36,12 @@ export const EN_TETE_SERVICE = 'Service Gestion — CRITERIMMO / Sans Vis-à-Vis
  */
 export const SEUIL_PIECES_OCTETS = 10 * 1024 * 1024;
 
-export type SorteMailTache = 'invitation' | 'recapitulatif';
+/**
+ * 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION (17/10/2026) — `confirmation` : le mail qui part à la boîte gestion@ et au
+ * collaborateur qui a envoyé l'invitation quand un invité accepte. Même structure que le récapitulatif, avec en tête
+ * « Acceptée par <prénom nom> le <date heure> ».
+ */
+export type SorteMailTache = 'invitation' | 'recapitulatif' | 'confirmation';
 
 export interface PieceMail {
   nom: string;
@@ -68,6 +73,8 @@ export interface ContenuMailTache {
   pieces: readonly PieceMail[];
   /** Invitation : les deux liens publics et leur fin de validité (ISO). */
   liens?: { accepter: string; refuser: string; expireLe: string };
+  /** Confirmation : qui a accepté, et quand (ISO). */
+  acceptation?: { par: string; le: string };
   /** Récapitulatif : la tâche est-elle dans son agenda ? */
   agenda?: 'ajoutee' | 'bientot' | 'sans_agenda';
   /** « (lien valable sur l'ordinateur où tourne l'application) » quand l'adresse de base est locale. */
@@ -115,9 +122,9 @@ export function tailleLisible(octets: number | null): string {
 }
 
 /** « Vous êtes 3 invités : Claire Test, Emma Essai, Félix Essai. » ; `null` si vous êtes seul. PUR. */
-export function phraseInvites(invites: ContenuMailTache['invites']): string | null {
+export function phraseInvites(invites: ContenuMailTache['invites'], sorte: SorteMailTache = 'invitation'): string | null {
   if (invites.length <= 1) return null;
-  return `Vous êtes ${invites.length} invités : ${invites.map((i) => i.libelle).join(', ')}.`;
+  return `${sorte === 'confirmation' ? `${invites.length} invités` : `Vous êtes ${invites.length} invités`} : ${invites.map((i) => i.libelle).join(', ')}.`;
 }
 
 /** L'état d'un invité, dans le récapitulatif. PUR. */
@@ -134,6 +141,24 @@ function roleContact(c: ContenuMailTache['contacts'][number]): string {
   return [MOT_FAMILLE[c.famille], net(c.qualite), net(c.organisation)].filter((x) => x !== '').join(' · ');
 }
 
+/** « Acceptée par Claire Test le 17 octobre 2026 à 9 h 05 ». PUR. */
+export function phraseAcceptee(a: { par: string; le: string }): string {
+  return `Acceptée par ${a.par} le ${horodatageMail(a.le)}`;
+}
+
+/** L'objet du mail de confirmation : « Tâche acceptée par X — <titre> — Mercredi 21 octobre 2026 · 14 h 30 ». PUR. */
+export function objetConfirmation(o: { par: string; titre: string; jour: string; heure: string | null }): string {
+  const h = o.heure === null ? 'journée' : `${Number(o.heure.split(':')[0])} h ${o.heure.split(':')[1]}`;
+  return `Tâche acceptée par ${o.par} — ${o.titre.trim()} — ${jourMission(o.jour)} · ${h}`;
+}
+
+/** La salutation, selon la sorte du mail. PUR. */
+function salutation(c: ContenuMailTache): string {
+  if (c.sorte === 'invitation') return `Bonjour ${c.destinataire}, vous êtes invité(e) à une mission :`;
+  if (c.sorte === 'recapitulatif') return `Bonjour ${c.destinataire}, voici le récapitulatif de la mission que vous avez acceptée :`;
+  return `Bonjour, ${c.acceptation?.par ?? 'un invité'} a accepté la mission suivante :`;
+}
+
 /** La phrase de confirmation du récapitulatif. PUR. */
 export function phraseConfirmation(agenda: ContenuMailTache['agenda']): string {
   if (agenda === 'ajoutee') return 'Tâche acceptée, ajoutée à votre agenda.';
@@ -148,8 +173,9 @@ export function phraseConfirmation(agenda: ContenuMailTache['agenda']): string {
 function texteMail(c: ContenuMailTache): string {
   const l: string[] = [];
   const section = (titre: string) => { l.push('', `— ${titre.toUpperCase()} —`); };
+  if (c.sorte === 'confirmation' && c.acceptation) l.push(`✓ ${phraseAcceptee(c.acceptation).toUpperCase()}`, '');
   l.push(EN_TETE_SERVICE, `Invitation envoyée par ${c.expediteur}`, `Demande du ${horodatageMail(c.demandeLe)}`, '');
-  l.push(c.sorte === 'invitation' ? `Bonjour ${c.destinataire}, vous êtes invité(e) à une mission :` : `Bonjour ${c.destinataire}, voici le récapitulatif de la mission que vous avez acceptée :`);
+  l.push(salutation(c));
   l.push('', `DATE DE LA MISSION : ${jourMission(c.jour).toUpperCase()} — ${heureMission(c.heure, c.dureeMinutes)}`);
   section('Mission'); l.push(c.titre.trim());
   if (net(c.notes) !== '') { section('Précisions'); l.push(net(c.notes)); }
@@ -161,11 +187,11 @@ function texteMail(c: ContenuMailTache): string {
       for (const x of k.coordonnees) l.push(`${x.libelle ?? (x.sorte === 'telephone' ? 'Téléphone' : 'E-mail')} : ${x.affichage ?? x.valeur}`);
     }
   }
-  const pi = phraseInvites(c.invites);
+  const pi = phraseInvites(c.invites, c.sorte);
   if (pi !== null) {
     section('Invités');
     l.push(pi);
-    if (c.sorte === 'recapitulatif') for (const i of c.invites) l.push(`${i.libelle}${i.moi ? ' (vous)' : ''} : ${etatInvite(i.statut)}`);
+    if (c.sorte !== 'invitation') for (const i of c.invites) l.push(`${i.libelle}${i.moi && c.sorte === 'recapitulatif' ? ' (vous)' : ''} : ${etatInvite(i.statut)}`);
   }
   if (c.pieces.length > 0) {
     section(`Pièces jointes (${c.pieces.length})`);
@@ -215,14 +241,17 @@ function bouton(href: string, mot: string, fond: string): string {
 
 function htmlMail(c: ContenuMailTache): string {
   const r: string[] = [];
+  // Confirmation : « Acceptée par … le … », en tête de tout.
+  if (c.sorte === 'confirmation' && c.acceptation) {
+    r.push(`<tr><td style="background:#e8f5e9;border-bottom:1px solid ${LIGNE};border-radius:10px 10px 0 0;padding:14px 24px;${POLICE};font-size:17px;font-weight:bold;color:${VERT}">`
+      + `✓ ${echapper(phraseAcceptee(c.acceptation))}</td></tr>`);
+  }
   // 1. En-tête.
   r.push(`<tr><td style="padding:20px 24px 14px;border-bottom:3px solid ${ROUGE};${POLICE}">`
     + `<div style="font-size:13px;font-weight:bold;color:${ROUGE};letter-spacing:.02em">${echapper(EN_TETE_SERVICE)}</div>`
     + `<div style="font-size:14px;color:${ENCRE};margin-top:6px">Invitation envoyée par <b>${echapper(c.expediteur)}</b></div>`
     + `<div style="font-size:13px;color:${GRIS};margin-top:2px">Demande du ${echapper(horodatageMail(c.demandeLe))}</div></td></tr>`);
-  r.push(bloc(`<p style="margin:16px 0 0">${echapper(c.sorte === 'invitation'
-    ? `Bonjour ${c.destinataire}, vous êtes invité(e) à une mission :`
-    : `Bonjour ${c.destinataire}, voici le récapitulatif de la mission que vous avez acceptée :`)}</p>`));
+  r.push(bloc(`<p style="margin:16px 0 0">${echapper(salutation(c))}</p>`));
   // 2. La date de la mission, très en évidence.
   r.push(`<tr><td style="padding:14px 24px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>`
     + `<td style="background:#fbeceb;border-left:6px solid ${ROUGE};border-radius:8px;padding:14px 16px;${POLICE}">`
@@ -251,11 +280,11 @@ function htmlMail(c: ContenuMailTache): string {
     }
   }
   // 7. Les autres invités.
-  const pi = phraseInvites(c.invites);
+  const pi = phraseInvites(c.invites, c.sorte);
   if (pi !== null) {
     r.push(titreSection('Invités'), bloc(`<div>${echapper(pi)}</div>`));
-    if (c.sorte === 'recapitulatif') {
-      r.push(bloc(c.invites.map((i) => `<div style="margin-top:2px">${echapper(i.libelle)}${i.moi ? ' (vous)' : ''} : <b>${echapper(etatInvite(i.statut))}</b></div>`).join('')));
+    if (c.sorte !== 'invitation') {
+      r.push(bloc(c.invites.map((i) => `<div style="margin-top:2px">${echapper(i.libelle)}${i.moi && c.sorte === 'recapitulatif' ? ' (vous)' : ''} : <b>${echapper(etatInvite(i.statut))}</b></div>`).join('')));
     }
   }
   // 8. Les pièces jointes.

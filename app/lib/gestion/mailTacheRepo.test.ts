@@ -29,3 +29,14 @@ describe('le lien signé', () => {
     expect(lirePiece(j, avant, {})).toBeNull();
   });
 });
+
+describe('🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — les destinataires', async () => {
+  const { destinatairesConfirmation } = await import('./mailTacheRepo');
+  it('gestion@ et le créateur ; même adresse = un seul envoi ; sans adresse du créateur = gestion@ seule, et on le sait', () => {
+    expect(destinatairesConfirmation('gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'))
+      .toEqual({ a: ['gestion@criterimmo.fr', 'a.jorel@sansvisavis.com'], sansCreateur: false });
+    expect(destinatairesConfirmation('gestion@criterimmo.fr', 'Gestion@Criterimmo.fr'))
+      .toEqual({ a: ['gestion@criterimmo.fr'], sansCreateur: false });
+    expect(destinatairesConfirmation('gestion@criterimmo.fr', null)).toEqual({ a: ['gestion@criterimmo.fr'], sansCreateur: true });
+  });
+});

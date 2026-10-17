@@ -6,7 +6,7 @@ import { titreLogement } from './annuaireRecherche';
 import { coordonneesLisibles, estFamille, type ContactSource } from './contactsTache';
 import { echeanceLisible } from './taches';
 import { liensDemande, messageIdDemande, objetDemande, type StatutAcceptation } from './acceptationTache';
-import { mailTache, planPieces, PREFIXE_OBJET_RECAPITULATIF, SEUIL_PIECES_OCTETS, type PieceMail, type SorteMailTache } from './mailTache';
+import { mailTache, objetConfirmation, planPieces, PREFIXE_OBJET_RECAPITULATIF, SEUIL_PIECES_OCTETS, type PieceMail, type SorteMailTache } from './mailTache';
 import { adresseApplication, MENTION_LIEN_LOCAL } from './adresseApplication';
 import { jetonPourSubject } from './driveDelegue';
 import { verdictJoindreFichier } from './driveVerdict';
@@ -133,6 +133,7 @@ export const lecteurPiecesDrive: LecteurPiecesTache = {
 interface LigneDemandeMail {
   id: number; tache_id: number; destinataire_id: number | null; destinataire_libelle: string; destinataire_email: string | null;
   demandeur_libelle: string; demandeur_email: string | null; cree_le: Date; expire_le: Date | null; statut: string;
+  repondu_le?: Date | null; repondu_par_libelle?: string | null;
   objet: string; note: string | null; jour: string; heure: string | null; duree_minutes: number | null;
   adresse: string | null; commune: string | null;
 }
@@ -147,6 +148,7 @@ async function lireDemande(demandeId: number): Promise<LigneDemandeMail | null> 
   const { rows } = await query<LigneDemandeMail>(
     `SELECT d.id::int AS id, d.tache_id::int AS tache_id, d.destinataire_id::int AS destinataire_id, d.destinataire_libelle,
             d.destinataire_email, d.demandeur_libelle, u.identifiant AS demandeur_email, d.cree_le, d.expire_le, d.statut,
+            d.repondu_le, d.repondu_par_libelle,
             t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
             t.duree_minutes, l.adresse, l.commune
        FROM gestion_tache_demande d
@@ -157,6 +159,7 @@ async function lireDemande(demandeId: number): Promise<LigneDemandeMail | null> 
     // Sans la migration 350 (pas de durée).
     `SELECT d.id::int AS id, d.tache_id::int AS tache_id, d.destinataire_id::int AS destinataire_id, d.destinataire_libelle,
             d.destinataire_email, d.demandeur_libelle, u.identifiant AS demandeur_email, d.cree_le, d.expire_le, d.statut,
+            d.repondu_le, d.repondu_par_libelle,
             t.objet, t.note, to_char(t.jour, 'YYYY-MM-DD') AS jour, to_char(t.heure, 'HH24:MI') AS heure,
             NULL::int AS duree_minutes, l.adresse, l.commune
        FROM gestion_tache_demande d
@@ -212,10 +215,13 @@ export interface MessageTache { message: MessageAEnvoyer; destinataire: string; 
 export async function messageDeLaDemande(o: {
   demandeId: number; sorte: SorteMailTache; jeton?: string | null; agenda?: 'ajoutee' | 'bientot' | 'sans_agenda';
   de: string; lecteur?: LecteurPiecesTache; maintenant?: Date; dureeLienJours?: number;
+  /** 🔴 Confirmation : les destinataires (gestion@ et le créateur), à la place de l'invité. */
+  a?: readonly string[];
 }): Promise<{ ok: true; m: MessageTache } | { ok: false; motif: string }> {
   const d = await lireDemande(o.demandeId);
   if (d === null) return { ok: false, motif: 'Demande introuvable.' };
-  if ((d.destinataire_email ?? '').trim() === '') return { ok: false, motif: 'Le destinataire n’a pas d’adresse.' };
+  const destinataires = o.a ?? [d.destinataire_email ?? ''];
+  if (destinataires.every((x) => x.trim() === '')) return { ok: false, motif: 'Le destinataire n’a pas d’adresse.' };
   const maintenant = o.maintenant ?? new Date();
   const { base, locale } = adresseApplication();
   const [contacts, pieces, invites] = await Promise.all([contactsDe(d.tache_id), piecesDe(d.tache_id), invitesDe(d)]);
@@ -252,20 +258,24 @@ export async function messageDeLaDemande(o: {
     jour: d.jour, heure: d.heure, dureeMinutes: d.duree_minutes === null ? null : Number(d.duree_minutes), titre: d.objet,
     notes: d.note, adresse: titreLogement(d.adresse, d.commune), contacts, invites, pieces: piecesMail, liens,
     agenda: o.agenda, mentionLiens: locale ? MENTION_LIEN_LOCAL : undefined,
+    ...(o.sorte === 'confirmation'
+      ? { acceptation: { par: d.repondu_par_libelle ?? d.destinataire_libelle, le: iso(d.repondu_le) ?? maintenant.toISOString() } } : {}),
     piecesExpirentLe: piecesMail.some((p) => !p.jointe && p.lien !== null) ? finLiens.toISOString() : null,
   });
   const adresseCourte = (d.adresse ?? '').trim() || titreLogement(d.adresse, d.commune);
   const echeance = echeanceLisible(d.jour, d.heure, maintenant);
   const objet = o.sorte === 'invitation'
     ? objetDemande({ adresseCourte, objet: d.objet, echeance })
-    : `${PREFIXE_OBJET_RECAPITULATIF}${adresseCourte} — ${d.objet.trim()} — ${echeance}`;
+    : o.sorte === 'confirmation'
+      ? objetConfirmation({ par: d.repondu_par_libelle ?? d.destinataire_libelle, titre: d.objet, jour: d.jour, heure: d.heure })
+      : `${PREFIXE_OBJET_RECAPITULATIF}${adresseCourte} — ${d.objet.trim()} — ${echeance}`;
   return {
     ok: true,
     m: {
       destinataire: d.destinataire_libelle,
       resumePieces: piecesMail.map((p) => `${p.nom} : ${p.jointe ? 'jointe' : p.lien !== null ? 'lien' : `non jointe (${p.motif ?? ''})`}`),
       message: {
-        de: o.de, deNom: 'Gestion', a: [d.destinataire_email ?? ''], cc: [], cci: [], objet, corps: corps.texte, corpsHtml: corps.html,
+        de: o.de, deNom: 'Gestion', a: destinataires.filter((x) => x.trim() !== ''), cc: [], cci: [], objet, corps: corps.texte, corpsHtml: corps.html,
         // La marque que la relève reconnaît (jamais rattaché à un bien), pour l'invitation comme pour le récapitulatif.
         messageId: messageIdDemande(o.de.split('@')[1] ?? '', randomBytes(12).toString('hex')),
         ...(jointes.length > 0 ? { pieces: jointes } : {}),
@@ -309,4 +319,26 @@ export async function ouvrirPieceSignee(jeton: string, lecteur: LecteurPiecesTac
   const o = await lecteur.ouvrir(r.drive_fichier_id, r.email);
   if (!o.ok) return { ok: false, statut: 403, message: `Cette pièce ne peut pas être téléchargée : ${o.motif}` };
   return { ok: true, flux: o.flux, nom: o.nom };
+}
+
+/**
+ * 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — LES DESTINATAIRES DE LA CONFIRMATION : la boîte gestion@ et l'adresse du
+ * collaborateur qui a envoyé l'invitation (le compte de la session au moment de l'envoi : `demandeur_id`). Une adresse
+ * en double (gestion@ a envoyé lui-même) ne compte qu'une fois. PUR.
+ */
+export function destinatairesConfirmation(gestion: string, createur: string | null): { a: string[]; sansCreateur: boolean } {
+  const a: string[] = [];
+  for (const x of [gestion, createur ?? '']) {
+    const v = x.trim();
+    if (v !== '' && !a.some((y) => y.toLowerCase() === v.toLowerCase())) a.push(v);
+  }
+  return { a, sansCreateur: (createur ?? '').trim() === '' };
+}
+
+/** L'adresse du collaborateur qui a envoyé une demande (son compte). `null` sans compte (accès de secours). */
+export async function adresseDuDemandeur(demandeId: number): Promise<{ email: string | null; libelle: string } | null> {
+  const { rows } = await query<{ email: string | null; libelle: string }>(
+    `SELECT u.identifiant AS email, d.demandeur_libelle AS libelle
+       FROM gestion_tache_demande d LEFT JOIN admin_utilisateur u ON u.id = d.demandeur_id WHERE d.id = $1`, [demandeId]);
+  return rows[0] ?? null;
 }

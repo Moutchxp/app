@@ -739,6 +739,15 @@ export function phraseTrace(t: TraceTache): string {
         return `Destinataire changé ${qui} (${typeof t.avant?.destinataire === 'string' ? `${t.avant.destinataire} → ` : ''}${a.destinataireChange})`;
       }
       if (typeof a.invitationRenvoyee === 'string') return `Invitation renvoyée à ${a.invitationRenvoyee} ${qui}`;
+      /* 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — la confirmation à gestion@ et au créateur. */
+      if (typeof a.confirmationAcceptation === 'string') {
+        const a2 = Array.isArray(a.a) ? (a.a as string[]).join(', ') : '';
+        const quand = `le ${horodatageLisible(t.survenuLe)}`;
+        const sans = a.sansAdresseCreateur === true ? ' — le créateur n’a pas d’adresse' : '';
+        if (a.etat === 'envoye') return `Confirmation d’acceptation envoyée à ${a2} ${quand}${sans}`;
+        if (a.etat === 'factice') return `Confirmation d’acceptation préparée pour ${a2} ${quand} (essai, rien n’est parti)${sans}`;
+        return `Confirmation d’acceptation non envoyée ${quand}${typeof a.erreur === 'string' ? ` (${a.erreur})` : ''}${sans}`;
+      }
       /* 🔴 LOT 3 — le récapitulatif envoyé après une acceptation (ou pourquoi il n'est pas parti). */
       if (typeof a.recapitulatif === 'string') {
         const quand = `le ${horodatageLisible(t.survenuLe)}`;

@@ -17,7 +17,7 @@ import { marquerASynchroniser } from './agendaSynchroRepo';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES — plusieurs invités par tâche (migration 365) : une demande courante PAR INVITÉ. */
 import { invitesTacheDisponible } from './schema';
 /* 🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — le contenu du mail (invitation, récapitulatif), ses pièces jointes. */
-import { messageDeLaDemande, type LecteurPiecesTache } from './mailTacheRepo';
+import { adresseDuDemandeur, destinatairesConfirmation, messageDeLaDemande, type LecteurPiecesTache } from './mailTacheRepo';
 
 /**
  * ══ 🔴🔴 LOT TACHES-ACCEPTATION — LE DÉPÔT DES DEMANDES D'ACCEPTATION (migration 349) ══════════════════════════════
@@ -187,6 +187,50 @@ export async function envoyerRecapitulatif(
     return etat;
   } catch (e) {
     console.error('[taches/acceptation] récapitulatif impossible', e);
+    return 'echec';
+  }
+}
+
+/**
+ * ══ 🔴🔴 LOT GESTION-CONFIRMATION-ACCEPTATION (17/10/2026) — LE MAIL DE CONFIRMATION D'UNE ACCEPTATION ═════════════
+ *
+ * ARNO : « Quand un invité accepte une tâche, un mail de confirmation part à DEUX destinataires : la boîte
+ * gestion@criterimmo.fr, et l'adresse e-mail du collaborateur qui a créé / envoyé l'invitation. Un mail par
+ * acceptation. Pas de doublon : même adresse, un seul envoi. »
+ *
+ * Il part dès qu'un invité ACCEPTE (jamais pour une acceptation d'office, qui n'est pas une réponse), sous le réglage
+ * « Envoyer les demandes d'acceptation par mail » — rien ne part tant qu'il est coupé. Ne lève jamais ; tracé dans
+ * l'historique de la tâche (destinataires, état, et « sans adresse du créateur » le cas échéant).
+ */
+export async function envoyerConfirmationAcceptation(
+  demandeId: number, transport: TransportDemande | null = null, lecteur?: LecteurPiecesTache, maintenant: Date = new Date(),
+): Promise<EtatMail | null> {
+  try {
+    const reglage = await lireReglageTaches();
+    if (!reglage.envoiMail) return null;
+    const { rows } = await query<{ tache_id: number; statut: string; automatique: boolean; destinataire_id: number | null; destinataire_libelle: string }>(
+      `SELECT tache_id::int AS tache_id, statut, automatique, destinataire_id::int AS destinataire_id, destinataire_libelle
+         FROM gestion_tache_demande WHERE id = $1`, [demandeId]);
+    const d = rows[0];
+    if (d === undefined || d.statut !== 'acceptee' || d.automatique) return null;
+    const config = await chargerConfigGestion();
+    const createur = await adresseDuDemandeur(demandeId);
+    const { a, sansCreateur } = destinatairesConfirmation(config.adresseGestion, createur?.email ?? null);
+    const auteur: Auteur = { id: d.destinataire_id, libelle: d.destinataire_libelle };
+    const trace = (etat: EtatMail, erreur?: string) => tracer(query, Number(d.tache_id), null, {
+      confirmationAcceptation: d.destinataire_libelle, a, etat, ...(sansCreateur ? { sansAdresseCreateur: true } : {}),
+      ...(erreur ? { erreur } : {}),
+    }, auteur, d.destinataire_libelle);
+    const m = await messageDeLaDemande({
+      demandeId, sorte: 'confirmation', de: config.adresseGestion, a, lecteur, maintenant, dureeLienJours: reglage.dureeLienJours,
+    });
+    if (!m.ok) { await trace('echec', m.motif); return 'echec'; }
+    const r = await (transport ?? transportParDefaut()).envoyer(m.m.message);
+    const etat: EtatMail = !r.ok ? 'echec' : r.factice ? 'factice' : 'envoye';
+    await trace(etat, r.ok ? undefined : r.motif);
+    return etat;
+  } catch (e) {
+    console.error('[taches/acceptation] confirmation impossible', e);
     return 'echec';
   }
 }

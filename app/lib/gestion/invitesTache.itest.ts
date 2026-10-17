@@ -11,7 +11,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { closePool, query } from '../db/client';
 import { creerTache, lireTache, modifierTache } from './tachesRepo';
-import { demandeDuJeton, envoyerDemande, envoyerRecapitulatif, repondreDemande, type DemandePosee } from './acceptationRepo';
+import { demandeDuJeton, envoyerConfirmationAcceptation, envoyerDemande, envoyerRecapitulatif, repondreDemande, type DemandePosee } from './acceptationRepo';
 import { ouvrirPieceSignee, type LecteurPiecesTache } from './mailTacheRepo';
 import { ENVOIS_FACTICES, transportFactice } from './envoiDemandeTache';
 import { changerDestinataire, renvoyerInvitation } from './invitesRepo';
@@ -253,6 +253,23 @@ describe('🔴 LOT 3 — invitation et récapitulatif, même structure ; pièces
     expect(r.corps).toContain('Tâche acceptée, ajoutée à votre agenda.');
     expect(r.corps).not.toContain('Accepter :');
     expect(await envoyerRecapitulatif(emma.demandeId, 'ajoutee', transportFactice, lecteur)).toBeNull();
+
+    // 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — gestion@ ET le créateur (Arno, a@sansvisavis.com), un seul mail.
+    ENVOIS_FACTICES.length = 0;
+    expect(await envoyerConfirmationAcceptation(claire.demandeId, transportFactice, lecteur)).toBe('factice');
+    expect(ENVOIS_FACTICES).toHaveLength(1);
+    const conf = ENVOIS_FACTICES[0];
+    expect(conf.a).toEqual([expect.stringMatching(/^gestion@/), 'a@sansvisavis.com']);
+    expect(conf.objet).toBe('Tâche acceptée par Claire Test — _TEST invités — Mercredi 21 octobre 2026 · 14 h 30');
+    expect(conf.messageId).toMatch(/^<tache-acceptation\./);
+    expect(conf.corps.split('\n')[0]).toMatch(/^✓ ACCEPTÉE PAR CLAIRE TEST LE /);
+    expect(conf.corps).toContain('Claire Test : ✓ Acceptée');
+    expect(conf.corps).toContain('Emma Essai : ⏳ En attente');
+    expect(conf.pieces?.map((p) => p.nom)).toEqual(['_TEST drive-leger-1.pdf', '_TEST drive-leger-2.pdf']);
+    // Jamais pour une demande non acceptée.
+    expect(await envoyerConfirmationAcceptation(emma.demandeId, transportFactice, lecteur)).toBeNull();
+    const tr2 = (await lireTache(c.id))!.traces.map((x) => x.apres as Record<string, unknown> | null);
+    expect(tr2).toContainEqual(expect.objectContaining({ confirmationAcceptation: 'Claire Test', etat: 'factice' }));
     const traces = (await lireTache(c.id))!.traces.map((x) => x.apres as Record<string, unknown> | null);
     expect(traces).toContainEqual({ recapitulatif: 'Claire Test', etat: 'factice' });
   });

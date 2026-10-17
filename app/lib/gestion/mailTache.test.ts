@@ -126,3 +126,28 @@ describe('les pièces : jointes sous le seuil (total), sinon un lien chacune ; r
       .toEqual([true, false, false]);
   });
 });
+
+describe('🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — la confirmation (gestion@ et le créateur)', () => {
+  const conf = mailTache({ ...base, sorte: 'confirmation', liens: undefined, acceptation: { par: 'Claire Test', le: '2026-10-17T08:12:00Z' },
+    invites: base.invites.map((i) => (i.moi ? { ...i, statut: 'acceptee' as const } : i)) });
+  it('en tête « Acceptée par … le … », puis la même structure que le récapitulatif, états à jour, sans boutons', () => {
+    expect(conf.texte.split('\n')[0]).toBe('✓ ACCEPTÉE PAR CLAIRE TEST LE 17 OCTOBRE 2026 À 10 H 12');
+    expect(conf.html.indexOf('Acceptée par Claire Test le 17 octobre 2026 à 10 h 12')).toBeLessThan(conf.html.indexOf(EN_TETE_SERVICE));
+    for (const x of [EN_TETE_SERVICE, 'Invitation envoyée par Arnaud Jorel', 'DATE DE LA MISSION : MERCREDI 21 OCTOBRE 2026',
+      'Visite d’entrée', 'Sonner deux fois.', '7 avenue de l’Union', '_TEST'.slice(0, 0) + 'M. Martin', '3 invités : Claire Test',
+      'Claire Test : ✓ Acceptée', 'Emma Essai : ✗ Refusée', 'plan.pdf — jointe à ce mail']) {
+      expect(conf.texte, x).toContain(x);
+    }
+    expect(conf.texte).toContain('Bonjour, Claire Test a accepté la mission suivante :');
+    expect(conf.texte).not.toContain('Vous êtes');
+    expect(conf.texte).not.toContain('(vous)');
+    expect(conf.html).not.toContain('>Accepter</a>');
+  });
+  it('l’objet : « Tâche acceptée par <prénom nom> — <titre> — <date de la mission> »', async () => {
+    const { objetConfirmation } = await import('./mailTache');
+    expect(objetConfirmation({ par: 'Claire Test', titre: ' Visite ', jour: '2026-10-21', heure: '14:30' }))
+      .toBe('Tâche acceptée par Claire Test — Visite — Mercredi 21 octobre 2026 · 14 h 30');
+    expect(objetConfirmation({ par: 'Claire Test', titre: 'Visite', jour: '2026-10-21', heure: null }))
+      .toBe('Tâche acceptée par Claire Test — Visite — Mercredi 21 octobre 2026 · journée');
+  });
+});

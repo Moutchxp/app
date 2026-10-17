@@ -1,6 +1,6 @@
 import 'server-only';
 import { acceptationTacheDisponible } from '../../../lib/gestion/schema';
-import { agendaApresAcceptation, demandeDuJeton, envoyerRecapitulatif, repondreDemande } from '../../../lib/gestion/acceptationRepo';
+import { agendaApresAcceptation, demandeDuJeton, envoyerConfirmationAcceptation, envoyerRecapitulatif, repondreDemande } from '../../../lib/gestion/acceptationRepo';
 /* Acceptée : la tâche entre dans l'agenda du destinataire par le chemin EXISTANT (idempotent : jamais de doublon). */
 import { synchroniserApresGeste } from '../../../lib/gestion/agendaSynchroRepo';
 import { echeanceLisible } from '../../../lib/gestion/taches';
@@ -61,6 +61,10 @@ export async function POST(request: Request): Promise<Response> {
   });
   if (!r.ok) return json({ ...(await resume(jeton)), erreur: r.message, cause: r.cause ?? null }, r.statut);
   const agenda = await synchroniserApresGeste(r.tacheId);
-  if (r.statut === 'acceptee' && r.demandeId !== undefined) await envoyerRecapitulatif(r.demandeId, agendaApresAcceptation(agenda));
+  if (r.statut === 'acceptee' && r.demandeId !== undefined) {
+    await envoyerRecapitulatif(r.demandeId, agendaApresAcceptation(agenda));
+    /* 🔴 LOT GESTION-CONFIRMATION-ACCEPTATION — la confirmation à gestion@ et au collaborateur qui a envoyé l'invitation. */
+    await envoyerConfirmationAcceptation(r.demandeId);
+  }
   return json({ ...(await resume(jeton)), etat: 'ok', statut: r.statut, message: r.message, agenda: agenda.trim() });
 }
