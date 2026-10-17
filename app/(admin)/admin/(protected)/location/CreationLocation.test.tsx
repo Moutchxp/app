@@ -210,7 +210,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(precision.placeholder).toBe('À droite en sortant de l’ascenseur, deuxième porte à gauche');
   });
 
-  it('SYNDIC : « déjà connu pour cette adresse » proposé, rattaché au CLIC ; ses contacts ; « + Ajouter un contact »', async () => {
+  it('SYNDIC : plus de bandeau en double sous le champ ; la modale s’ouvre d’elle-même UNE fois pour une adresse connue', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
     const adr = container.querySelector('.cab-enveloppe input') as HTMLInputElement;
@@ -218,18 +218,11 @@ describe('🔴 Ajouter un nouveau bien', () => {
     await act(async () => { vi.advanceTimersByTime(700); });
     await calmer();
     vi.useRealTimers();
-    expect(container.querySelector('[data-suggestions-syndic]')?.textContent).toContain('Syndic déjà connu pour cette adresse : FONCIA');
-    // Rien n'est rattaché sans clic.
+    // Le bandeau « déjà connu — Rattacher » sous le champ n'existe plus ; la modale (portail) est ouverte, rien n'est choisi.
+    expect(container.querySelector('[data-suggestions-syndic]')).toBeNull();
+    expect(document.querySelector('.fsy')).not.toBeNull();
     expect(container.querySelector('[data-syndic-choisi]')).toBeNull();
-    await act(async () => { bouton('Rattacher').click(); });
-    await calmer();
-    expect(container.querySelector('[data-syndic-choisi]')?.textContent).toContain('FONCIA');
-    expect(container.querySelector('[data-syndic-choisi]')?.textContent).toContain('Mme Léa GESTION');
     expect((container.querySelector('[data-loupe]') as HTMLButtonElement).disabled).toBe(false);
-    await act(async () => { bouton('+ Ajouter un contact').click(); });
-    expect(container.querySelector('[data-ajout-contact-syndic]')).not.toBeNull();
-    await act(async () => { bouton('Ajouter ce contact').click(); });
-    expect(container.textContent).toContain('Le nom du contact est obligatoire.');
   });
 
   it('ANNEXES : un parking a les options du parking nu ; « Autre adresse » fait apparaître une adresse', async () => {

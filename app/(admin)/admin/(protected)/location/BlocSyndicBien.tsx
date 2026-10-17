@@ -10,6 +10,8 @@ import type { NouveauContactSyndic, SyndicSuggere } from '../../../../lib/locati
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE SYNDIC DU BIEN (section Copropriété), Arno, 17/10/2026 ═════════════════════════════════════
  *
+ * Retouche d'Arno (17/10/2026) : la suggestion passe par la MODALE seule (variante « location » de `FicheSyndic` : un seul
+ * bouton de création, encadré « déjà connu » à 3 boutons, détail en lecture seule) ; plus de bandeau en double.
  * « Libellé “Syndic”. À côté : une loupe et un “+” rouge cerclé de rouge. Loupe → recherche dans l'annuaire des syndics
  * de la GESTION (mêmes données, aucune copie). Suggestion automatique : si un autre bien du portefeuille à la même adresse a
  * déjà un syndic, “Syndic déjà connu pour cette adresse : NOM — Rattacher” ; jamais de rattachement sans clic. “+” →
@@ -42,8 +44,8 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
   const [ajout, setAjout] = useState<NouveauContactSyndic | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [n, setN] = useState(0);
-  const avant = useRef<number[]>([]);
-  const apresModale = useRef(false);
+  /** Les adresses pour lesquelles la modale s'est déjà ouverte d'elle-même (une seule fois chacune). */
+  const dejaOuverte = useRef(new Set<string>());
   const adressePrete = adresse.libelle.trim().length >= 5;
 
   // La SUGGESTION « déjà connu pour cette adresse », 500 ms après la dernière frappe dans l'adresse. Lecture seule.
@@ -58,13 +60,13 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
     return () => { vivant = false; clearTimeout(t); };
   }, [adresse.libelle, adresse.codePostal, adresse.commune, adressePrete, n]);
 
-  // Après la modale (où l'on a cliqué pour rattacher ou créer) : le syndic NOUVEAU pour cette adresse est choisi — UNE fois,
-  // à la première relecture qui suit la fermeture. Plus tard (adresse modifiée…), rien ne se choisit sans clic.
+  // Arno (17/10/2026) : la suggestion ne passe QUE par la modale — ouverte par la loupe, et AUTOMATIQUEMENT UNE FOIS quand
+  // l'adresse correspond à un immeuble qui a déjà un syndic. Le rattachement, lui, attend toujours un clic dans la modale.
   useEffect(() => {
-    if (!apresModale.current || modale !== null) return;
-    apresModale.current = false;
-    const neufs = suggestions.filter((x) => !avant.current.includes(x.id));
-    if (choisi === null && neufs.length === 1) onChoisi({ id: neufs[0].id, nom: neufs[0].nom, ville: neufs[0].ville, contactsIds: [], nouveauxContacts: [] });
+    const cle = `${adresse.libelle.trim().toLowerCase()}|${adresse.codePostal}|${adresse.commune.trim().toLowerCase()}`;
+    if (suggestions.length === 0 || choisi !== null || modale !== null || dejaOuverte.current.has(cle)) return;
+    dejaOuverte.current.add(cle);
+    setModale('recherche');
   }, [suggestions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Les contacts internes du syndic choisi : la fiche de la Gestion (mêmes données).
@@ -76,14 +78,13 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
     return () => { vivant = false; };
   }, [choisi?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ouvrir = (m: 'recherche' | 'creation'): void => { avant.current = suggestions.map((x) => x.id); setModale(m); };
-  const fermer = (): void => { apresModale.current = true; setModale(null); setN((x) => x + 1); };
+  const ouvrir = (m: 'recherche' | 'creation'): void => { setModale(m); };
+  const fermer = (): void => { setModale(null); setN((x) => x + 1); };
   const valider = (c: NouveauContactSyndic): string | null => {
     if ((c.nom ?? '').trim() === '') return 'Le nom du contact est obligatoire.';
     if ((c.email ?? '').trim() === '' && (c.telephone ?? '').trim() === '') return 'Un téléphone ou un e-mail.';
     return null;
   };
-  const autres = suggestions.filter((x) => x.id !== choisi?.id);
 
   return (
     <div className="loc-pleine loc-syndic" data-syndic>
@@ -98,17 +99,8 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
         {!adressePrete && <span className="loc-muet">Saisissez d’abord l’adresse du bien (section « Adresse et situation »).</span>}
       </div>
 
-      {autres.length > 0 && (
-        <ul className="loc-syndic-suggestions" data-suggestions-syndic>
-          {autres.map((x) => (
-            <li key={x.id} className="loc-alerte">
-              <span>Syndic déjà connu pour cette adresse : <strong>{x.nom}</strong>{x.ville ? ` — ${x.ville}` : ''} <small>({x.motif})</small></span>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => onChoisi({ id: x.id, nom: x.nom, ville: x.ville, contactsIds: [], nouveauxContacts: [] })}>Rattacher</button>
-            </li>
-          ))}
-        </ul>
-      )}
-
+      {/* Le bandeau « déjà connu — Rattacher » sous le champ est RETIRÉ (accord d'Arno, 17/10/2026) : la suggestion passe
+          désormais par la modale seule (encadré « Un syndic est déjà connu pour cette adresse » et ses 3 boutons). */}
       {choisi !== null && (
         <div className="loc-syndic-choisi" data-syndic-choisi>
           <p className="loc-syndic-nom"><strong>{choisi.nom}</strong>{choisi.ville ? <span className="loc-muet"> — {choisi.ville}</span> : null}
@@ -172,7 +164,8 @@ export function BlocSyndic({ adresse, choisi, onChoisi }: {
       )}
 
       {modale !== null && typeof document !== 'undefined' && createPortal(
-        <FicheSyndic syndicId={null} departCreation={modale === 'creation'}
+        <FicheSyndic syndicId={null} departCreation={modale === 'creation'} variante="location"
+          onChoisi={(x) => onChoisi({ id: x.id, nom: x.nom, ville: x.ville, contactsIds: [], nouveauxContacts: [] })}
           immeubleDepart={{ libelle: adresse.libelle.trim(), codePostal: adresse.codePostal, commune: adresse.commune }}
           onFerme={fermer} />,
         document.querySelector('.svv-adm-root') ?? document.body,

@@ -31,6 +31,7 @@ import {
 import {
   BandeauDoublonSyndic, ConfirmationRattachement, EncadreSyndicConnu, PiedDoublonSyndic, rattacherAuBien, useSyndicsConnus,
 } from './PropositionsSyndic';
+import { EncadreSyndicConnuLocation } from './SyndicConnuLocation';
 /* 🔴🔴 LOT FICHE-SYNDIC-UNIQUE-ET-PARTAGEE — la fiche est COMMUNE : ce que touche une modification, et à combien de biens. */
 import {
   biensDeLaCopropriete, biensDuCabinet, motAvertissementPartage, niveauxModifies, type ResumeRattachement,
@@ -73,7 +74,16 @@ import { ancienDuMemeNom, motProposeReintegration, reintegrerAvecSaisie } from '
 type Mode = 'chargement' | 'recherche' | 'edition' | 'erreur';
 
 export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerme, onEcrire, lotDepart = null,
-  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false }: {
+  onRetireDeLaResidence, ancienSyndicId = null, adresseBien = null, departCreation = false, variante = 'gestion', onChoisi }: {
+  /**
+   * TUILE LOCATION (Arno, 17/10/2026) — « location » : modale du formulaire « Ajouter un nouveau bien ». Un seul bouton de
+   * création (pas de « Créer un nouveau syndic » en tête), l'encadré « déjà connu » à 3 boutons avec le détail en lecture
+   * seule, et le CHOIX rendu au formulaire (`onChoisi`) SANS écriture : le bien n'existe pas encore, il sera rattaché à son
+   * enregistrement. Absent (« gestion ») ⇒ la modale de la Gestion, inchangée.
+   */
+  variante?: 'gestion' | 'location';
+  /** Le syndic choisi (rattaché au clic, ou créé) — rendu à l'écran hôte. */
+  onChoisi?: (s: { id: number; nom: string; ville: string | null }) => void;
   /** TUILE LOCATION (17/10/2026) — le « + » du formulaire du bien ouvre directement « Créer un nouveau syndic ». Absent ⇒
    *  la fiche commence par la recherche, comme dans la Gestion. */
   departCreation?: boolean;
@@ -257,6 +267,16 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
    * existante quand il est dans le même immeuble (le serveur la retrouve par l'adresse) — aucune copropriété en double.
    */
   const [confirmation, setConfirmation] = useState<ResumeRattachement | null>(null);
+  /** Variante « location » : le choix est rendu au formulaire du bien, SANS écriture (le bien n'existe pas encore). */
+  const choisirSansEcrire = (s: { id: number; nom: string; ville: string | null }): void => { onChoisi?.(s); onFerme(); };
+  const choisirParId = async (id: number): Promise<void> => {
+    try {
+      const r = await fetch(`/api/admin/gestion/syndics/${id}`, { cache: 'no-store' });
+      const j = (await r.json()) as { etat?: string; fiche?: Fiche };
+      if (j.etat === 'ok' && j.fiche) { choisirSansEcrire({ id, nom: j.fiche.nom, ville: j.fiche.ville }); return; }
+    } catch { /* repli ci-dessous */ }
+    setErreur('Ce syndic n’a pas pu être lu.');
+  };
   const selectionner = async (id: number, coproCle: string | null = null): Promise<void> => {
     if (immeubleDepart === null || immeubleDepart.libelle.trim() === '') return;
     setEnvoi(true); setErreur(null);
@@ -434,6 +454,9 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
       if (Array.isArray(j.avertissement) && j.avertissement.length > 0 && !confirme) { setAvertServeur({ lignes: j.avertissement, f, conflit: ctx.conflit === true }); return; }
       if (!r.ok || j.ok !== true) { setErreur(j.erreur ?? 'Enregistrement impossible.'); return; }
       await rafraichirImmeubles();
+      // Variante « location » : le syndic créé (ou complété) est rendu au formulaire du bien.
+      const idFinal = syndicId ?? (typeof j.id === 'number' ? j.id : null);
+      if (onChoisi !== undefined && idFinal !== null) onChoisi({ id: idFinal, nom: f.nom, ville: f.ville || null });
       onFerme();
     } catch {
       setErreur('Enregistrement impossible : le serveur n’a pas répondu.');
@@ -520,14 +543,17 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
     <div className="fsy-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) annuler(); }}>
       <style>{CSS_FICHE_SYNDIC}</style>
       <style>{CSS_BOUTON_COPIER}</style>
-      <div className="fsy" role="dialog" aria-modal="true" aria-labelledby="fsy-titre" tabIndex={-1} ref={boite}>
+      {/* Variante « location » : texte des boutons rouges en couleur de SURFACE (convention de la tuile Location), lisible sur
+          le rouge clair du thème Sombre. La Gestion garde son style. */}
+      {variante === 'location' && <style>{'.fsy--location .svv-btn-primary{color:var(--color-svv-surface)}'}</style>}
+      <div className={`fsy${variante === 'location' ? ' fsy--location' : ''}`} role="dialog" aria-modal="true" aria-labelledby="fsy-titre" tabIndex={-1} ref={boite}>
         <div className="fsy-tete">
           <h2 className="fsy-titre" id="fsy-titre">{titre}</h2>
           {/* 🔴 LOT SYNDIC-CONTACT-PARTI-ET-BOUTON-CREER-EN-HAUT (accord d'Arno pour ce déplacement) — CE QU'IL Y AVAIT :
               « Créer un nouveau syndic » sous la liste des résultats (hors de vue d'une longue liste). Il est dans la
               ligne de TITRE, fixe, juste à gauche de la croix ; seule la liste défile. Comportement inchangé. */}
           <span className="fsy-tete-actions">
-            {mode === 'recherche' && (
+            {mode === 'recherche' && variante !== 'location' && (
               <button type="button" className="svv-btn svv-btn-primary gst-btn fsy-creer-tete" onClick={creer}>Créer un nouveau syndic</button>
             )}
             <button type="button" className="fsy-croix" aria-label="Annuler et fermer" onClick={annuler}>×</button>
@@ -543,12 +569,15 @@ export function FicheSyndic({ syndicId: idInitial, immeubleDepart = null, onFerm
           {confirmation === null && mode === 'chargement' && <p className="fsy-discret">Chargement…</p>}
           {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 2 : un syndic déjà connu pour cette adresse, AVANT le formulaire. */}
           {confirmation === null && mode === 'recherche' && depuisUnBien && connus === null && <p className="fsy-discret">Recherche des syndics connus pour cette adresse…</p>}
-          {confirmation === null && mode === 'recherche' && connus !== null && connus.length > 0 && !connusEcartes && (
-            <EncadreSyndicConnu syndics={connus} envoi={envoi}
+          {confirmation === null && mode === 'recherche' && connus !== null && connus.length > 0 && !connusEcartes && (variante === 'location'
+            ? <EncadreSyndicConnuLocation syndics={connus} envoi={envoi}
+              onRattacher={(c) => choisirSansEcrire({ id: c.syndic.id, nom: c.syndic.nom, ville: c.syndic.ville })} onNon={creer} />
+            : <EncadreSyndicConnu syndics={connus} envoi={envoi}
               onRattacher={(c) => void selectionner(c.syndic.id, c.copro.cle)} onNon={() => setConnusEcartes(true)} />
           )}
           {confirmation === null && mode === 'recherche' && (connus === null ? !depuisUnBien : (connus.length === 0 || connusEcartes)) && (
-            <Recherche immeubleDepart={immeubleDepart} onRattacher={(id) => void rattacherA(id)} ancienSyndicId={ancienSyndicId} />
+            <Recherche immeubleDepart={immeubleDepart} ancienSyndicId={ancienSyndicId}
+              onRattacher={(id) => void (variante === 'location' ? choisirParId(id) : rattacherA(id))} />
           )}
           {/* 🔴 LOT SYNDIC-ANTI-DOUBLON — PARTIE 1 : pendant la saisie d'un NOUVEAU syndic. */}
           {confirmation === null && creation && (
