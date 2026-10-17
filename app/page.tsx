@@ -38,6 +38,10 @@ import {
 // M2 (LOT 2) — émission analytique CLIENT best-effort (fire-and-forget, jamais bloquant). Aucun import
 // serveur : `mesureClient` ne fait que POSTer au beacon /api/mesure.
 import { mesure } from "./lib/analytics/mesureClient";
+import {
+  TYPES_BIEN, EPOQUES, CARACTERISTIQUES_VIDES, clesAdresse, choisirReprise, validerCaracteristiques, memesCaracteristiques,
+  sontVides, phraseReprise, lireHistoriqueSession, ajouterHistoriqueSession, type CaracteristiquesBien, type Reprise,
+} from "./lib/tunnel/repriseCaracteristiques";
 
 type Etape = "accueil" | "etapes" | "consentement" | "photo" | "localisation" | "orientation" | "infos" | "resultat" | "certificat";
 
@@ -755,13 +759,17 @@ function EcranResultat({
   );
 }
 
-const TYPES_BIEN = ["Maison", "Appartement", "Studio", "Duplex", "Triplex", "Loft"] as const;
+// TYPES_BIEN et EPOQUES : mêmes valeurs qu'avant, désormais lues dans `repriseCaracteristiques` (une seule liste pour
+// l'écran ET la validation des caractéristiques reprises).
 
-const EPOQUES = [
-  "Inconnu", "Avant 1850", "De 1850 à 1913", "De 1914 à 1947",
-  "De 1948 à 1969", "De 1970 à 1980", "De 1981 à 1991", "De 1992 à 2000",
-  "De 2001 à 2010", "De 2011 à 2020", "À partir de 2021",
-] as const;
+/** 🔴 LOT REPRISE-CARACTERISTIQUES — le stockage de la session sur cet appareil ; `null` s'il est inaccessible. */
+function sessionAppareil(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
 
 function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, hauteurSousPlafond, etageInitial, dernierEtage, verdict, score, communeInsee, photo, mode }: {
   onRetour: () => void;
@@ -800,6 +808,45 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
   const [terrasse, setTerrasse] = useState<null | boolean>(null);
   const [balcon, setBalcon] = useState<null | boolean>(null);
   const [jardin, setJardin] = useState<null | boolean>(null);
+  // ══ 🔴 LOT REPRISE-CARACTERISTIQUES (Arno, 17/10/2026) — même adresse : les caractéristiques de la dernière demande ;
+  // autre adresse : champs vides ; A → B → A : celles de A. Clé : identifiant BAN de l'adresse choisie s'il est connu,
+  // sinon son libellé normalisé (jamais les coordonnées). Connecté : son compte (route serveur) ; sinon : la session de
+  // cet appareil. Les champs restent modifiables ; une saisie de l'internaute n'est JAMAIS écrasée.
+  const cleBanChoisie = adressesAlt.find((a) => a.libelle === adresseChoisie)?.cle ?? null;
+  const caracteristiques: CaracteristiquesBien = { typeBien, surface, nbPieces, epoque, terrasse, balcon, jardin };
+  const caracteristiquesRef = useRef<CaracteristiquesBien>(caracteristiques);
+  useEffect(() => { caracteristiquesRef.current = caracteristiques; });
+  const caracteristiquesPosees = useRef<CaracteristiquesBien>(CARACTERISTIQUES_VIDES);
+  const [reprise, setReprise] = useState<Reprise | null>(null);
+  useEffect(() => {
+    let annule = false;
+    const cles = clesAdresse(cleBanChoisie, adresseChoisie);
+    void (async () => {
+      let r: Reprise | null = null;
+      try {
+        const q = new URLSearchParams();
+        if (cles.ban) q.set("ban", cles.ban);
+        if (cles.texte) q.set("adresse", adresseChoisie);
+        const d = await (await fetch(`/api/internaute/caracteristiques?${q}`, { cache: "no-store" })).json();
+        if (d?.connecte === true) {
+          r = d.reprise ? { caracteristiques: validerCaracteristiques(d.reprise.caracteristiques), le: String(d.reprise.le) } : null;
+        } else {
+          r = choisirReprise(lireHistoriqueSession(sessionAppareil()), cles);
+        }
+      } catch {
+        r = null; // réseau : champs vides (jamais une reprise devinée)
+      }
+      if (annule) return;
+      // Une saisie de l'internaute n'est jamais écrasée : on ne remplace que des champs encore tels qu'on les a posés.
+      if (!memesCaracteristiques(caracteristiquesRef.current, caracteristiquesPosees.current)) { setReprise(null); return; }
+      const c = r !== null && !sontVides(r.caracteristiques) ? r.caracteristiques : CARACTERISTIQUES_VIDES;
+      setTypeBien(c.typeBien); setSurface(c.surface); setNbPieces(c.nbPieces); setEpoque(c.epoque);
+      setTerrasse(c.terrasse); setBalcon(c.balcon); setJardin(c.jardin);
+      caracteristiquesPosees.current = c;
+      setReprise(c === CARACTERISTIQUES_VIDES ? null : r);
+    })();
+    return () => { annule = true; };
+  }, [cleBanChoisie, adresseChoisie]);
   const [soumis, setSoumis] = useState(false);
   // Consentement (LOT 2) — GRANULAIRE par finalité, AUCUNE case pré-cochée (consentement = acte positif).
   const [consentements, setConsentements] = useState<Record<CleFinalite, boolean>>({
@@ -914,6 +961,9 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       versionTunnel: 1,
       payload: {
         typeBien, surface, nbPieces, epoque, terrasse, balcon, jardin,
+        // 🔴 LOT REPRISE-CARACTERISTIQUES — identifiant BAN de l'adresse choisie (null s'il n'est pas connu) : la clé
+        // « même adresse » de la reprise des caractéristiques sur le compte.
+        cleAdresseBan: cleBanChoisie,
         // Facultative (décision d'Arno du 16/10/2026) : vide → null, jamais une chaîne vide.
         adresseResidence: bienEstResidence === false ? residenceAdresse.trim() || null : null,
       },
@@ -1161,6 +1211,11 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
         (el as HTMLElement).focus?.();
       }
       return;
+    }
+    // 🔴 LOT REPRISE-CARACTERISTIQUES — non connecté : la demande validée est retenue pour CETTE session sur cet appareil
+    // (le compte d'un connecté garde la sienne côté serveur, dans son projet).
+    if (compte === null) {
+      ajouterHistoriqueSession(sessionAppareil(), { cles: clesAdresse(cleBanChoisie, adresseChoisie), caracteristiques, le: new Date().toISOString() });
     }
     void (async () => {
       await majPrenomNomCompte();
@@ -1501,6 +1556,11 @@ function EcranCertificat({ onRetour, onAccueil, adresseBien, lat, lon, azimut, h
       </div>
 
       <p className="mb-4 text-sm text-svv-muted">Ces informations nous sont nécessaires pour identifier avec certitude le bien analysé et l&apos;établir au nom du demandeur. Le certificat Sans Vis-à-Vis® vous sera envoyé par email.</p>
+
+      {/* 🔴 LOT REPRISE-CARACTERISTIQUES — seulement quand des caractéristiques ont été reprises (jamais sur des champs vides). */}
+      {reprise !== null && !sontVides(caracteristiques) && (
+        <p data-reprise-caracteristiques className="mb-3 text-xs text-svv-muted">{phraseReprise(reprise.le)}</p>
+      )}
 
       {/* BIEN */}
       <div className="rounded-2xl bg-svv-field p-5">

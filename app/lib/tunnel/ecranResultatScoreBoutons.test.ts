@@ -5,7 +5,9 @@ import path from 'node:path';
 // Page de résultat (lot SCORE-BOUTONS, 16/10/2026) : cercle d'attente retiré, rebond final unique du score,
 // « Refaire une analyse » sur les deux verdicts, lien d'accueil aligné à gauche sur la page certifiée.
 const page = readFileSync(path.join(process.cwd(), 'app/page.tsx'), 'utf8').replace(/\s+/g, ' ');
-const ecran = page.slice(page.indexOf('function EcranResultat({'), page.indexOf('const TYPES_BIEN ='));
+// Fin de l'écran de résultat : le début de l'écran suivant (lot REPRISE-CARACTERISTIQUES : `const TYPES_BIEN =` n'est plus
+// dans la page, la liste vient de `repriseCaracteristiques`).
+const ecran = page.slice(page.indexOf('function EcranResultat({'), page.indexOf('function sessionAppareil('));
 const boutons = ecran.slice(ecran.indexOf('{/* 6. BOUTONS'));
 const certifie = boutons.slice(boutons.indexOf('{certifie ? ('), boutons.indexOf(') : ( <> <button type="button" onClick={onRefaireTest}'));
 const visAVis = boutons.slice(boutons.indexOf(') : ( <> <button type="button" onClick={onRefaireTest}'));
