@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   casesParDefaut, dateMaxSortie, dateValide, descriptionLogement, htmlMailSortie, issueSortie, objetMailSortie, phraseIssue,
-  phraseMail, texteMailSortie, verifierCorrection, verifierSortie, type BailLogement, type DonneesMailSortie,
+  messageDateSortie, phraseMail, phraseRestants, texteMailSortie, verifierCorrection, verifierSortie, type BailLogement, type DonneesMailSortie,
 } from './sortieLocataires';
 
 /** SORTIE D'UN OU PLUSIEURS LOCATAIRES (Arno, 19/10/2026) — les règles, sans base. */
@@ -121,5 +121,25 @@ describe('le mail de confirmation', () => {
     expect(descriptionLogement({ type: null, etage: '0', porte: null })).toBe('rez-de-chaussée');
     expect(descriptionLogement({ type: 'Studio', etage: '1', porte: null })).toBe('Studio · 1er étage');
     expect(descriptionLogement({ type: null, etage: null, porte: null })).toBe('Logement');
+  });
+});
+
+describe('la confirmation réduite (écran de sortie)', () => {
+  const sortants = [{ entree: '2022-09-01' }, { entree: null }];
+  it('les trois messages, et null quand la date va', () => {
+    expect(messageDateSortie(sortants, '', JOUR)).toBe('Saisissez la date de sortie');
+    expect(messageDateSortie(sortants, '2022-08-31', JOUR)).toBe('La date ne peut pas précéder l’entrée du 01/09/2022');
+    expect(messageDateSortie(sortants, '2027-10-20', JOUR)).toBe('La date ne peut pas dépasser d’un an la date du jour');
+    expect(messageDateSortie(sortants, '2026-02-30', JOUR)).toBe('Saisissez une date de sortie valide');
+    expect(messageDateSortie(sortants, '2026-10-31', JOUR)).toBeNull();
+  });
+  it('mêmes bornes que le contrôle du serveur (aucune règle affaiblie)', () => {
+    for (const d of ['', '2022-08-31', '2027-10-20', '2026-10-31']) {
+      expect(messageDateSortie([{ entree: '2022-09-01' }], d, JOUR) === null, d).toBe(verifierSortie(BAIL, [11], d, JOUR).ok);
+    }
+  });
+  it('« Il restera N locataire(s) dans le logement » : accord', () => {
+    expect(phraseRestants(1)).toBe('Il restera 1 locataire dans le logement');
+    expect(phraseRestants(2)).toBe('Il restera 2 locataires dans le logement');
   });
 });

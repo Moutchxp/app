@@ -7,7 +7,7 @@ import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
 import {
   casesParDefaut, dateFr, dateMaxSortie, descriptionLogement, phraseIssue, verifierSortie,
-  libelleLotEncart, lignesEncart, type BailLogement, type EncartLogement, type OccupantTrouve, type SortieEnregistree,
+  issueSortie, libelleLotEncart, lignesEncart, messageDateSortie, phraseRestants, type BailLogement, type EncartLogement, type OccupantTrouve, type SortieEnregistree,
 } from '../../../../lib/location/sortieLocataires';
 
 /**
@@ -383,6 +383,12 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
   const phrase = phraseIssue(bail, choix);
   const vacant = phrase.startsWith('Le logement deviendra VACANT');
   const sortants = bail.locataires.filter((l) => choix.includes(l.occupationId));
+  const { restants } = issueSortie(bail, choix);
+  const messageDate = messageDateSortie(sortants, date, jour);
+  const entreeMax = sortants.map((l) => l.entree).filter((e): e is string => e !== null).sort().pop() ?? null;
+  const champDate = useRef<HTMLInputElement | null>(null);
+  // Le champ date prend le focus à l'ouverture du bloc (le sélecteur natif de l'iPhone s'ouvre au toucher).
+  useEffect(() => { if (ouvert) champDate.current?.focus(); }, [ouvert]);
   const basculer = (id: number): void => { setOuvert(false); setMotif(null); setChoix((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id])); };
   const confirmer = async (): Promise<void> => {
     const v = verifierSortie(bail, choix, date, jour);
@@ -408,18 +414,41 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
               {n === 0 ? 'Personne ne sort : le logement reste loué à tous ses locataires.' : phrase}</p>
           )}
           {ouvert && n > 0 && (
-            <div className="loc-confirmation arc-confirmation sor-recap" role="alertdialog" aria-label="Confirmer la sortie" data-recapitulatif>
-              <p style={{ margin: '0 0 6px' }}><strong>{libelleFaireSortir(n)} ?</strong></p>
-              <RecapSortie bail={bail} sortants={sortants} phrase={phrase} vacant={vacant} date={(
-                <label className="loc-champ sor-date">Date de sortie <span aria-hidden="true">*</span>
-                  <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setMotif(null); }} required aria-required="true"
-                    max={dateMaxSortie(jour)} min={bail.entree ?? undefined} data-date-sortie />
-                </label>
-              )} />
+            /* Arno (18/10/2026) : la confirmation RÉDUITE AU MINIMUM — titre, qui sort, la DATE mise en avant, la conséquence,
+               les boutons. Logement, adresse, propriétaire et date d'entrée sont dans l'encart juste en dessous (retirés d'ici
+               avec son accord). « Confirmer » reste désactivé tant que la date ne va pas, et le message dit pourquoi ; le
+               serveur garde ses refus (`verifierSortie`). */
+            <div className="loc-confirmation arc-confirmation sor-confirmer" role="alertdialog" aria-label="Confirmer la sortie" data-recapitulatif>
+              <p className="sor-confirmer-titre"><strong>{libelleFaireSortir(n)} ?</strong></p>
+              <div data-qui-sort>
+                <p className="sor-confirmer-sous">Qui sort</p>
+                <ul className="sor-qui">
+                  {sortants.map((l) => (
+                    <li key={l.occupationId} data-sortant={l.occupationId}>
+                      <strong>{l.nom}</strong>{' '}<small className="loc-muet">{l.entree === null ? 'date d’entrée non renseignée' : `entré(e) le ${dateFr(l.entree)}`}</small>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <label className="sor-date-forte" htmlFor="sor-date-sortie">
+                <span className="sor-date-libelle">Date de sortie *</span>
+                <input id="sor-date-sortie" ref={champDate} type="date" value={date} required aria-required="true"
+                  aria-describedby="sor-date-aide sor-date-message" aria-invalid={messageDate !== null}
+                  onChange={(e) => { setDate(e.target.value); setMotif(null); }}
+                  max={dateMaxSortie(jour)} min={entreeMax ?? undefined} data-date-sortie />
+                <small id="sor-date-aide" className="loc-muet">Obligatoire</small>
+              </label>
+              {messageDate !== null && <p id="sor-date-message" className="cp-refus" role="status" data-message-date>{messageDate}</p>}
+              {vacant ? <p className="sor-issue sor-issue--vacant" data-consequence="vacant">Le logement deviendra VACANT</p> : (
+                <div className="sor-restants" data-consequence="reste">
+                  <p><strong>{phraseRestants(restants.length)}</strong></p>
+                  <ul>{restants.map((nom) => <li key={nom}>{nom}</li>)}</ul>
+                </div>
+              )}
               {motif !== null && <p className="cp-refus" role="alert" data-refus>{motif}</p>}
               <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
                 <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setOuvert(false); setMotif(null); }} disabled={envoi}>Annuler</button>
-                <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void confirmer(); }} disabled={envoi} data-confirmer>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void confirmer(); }} disabled={envoi || messageDate !== null} data-confirmer>
                   {envoi ? 'Enregistrement…' : 'Confirmer la sortie'}</button>
               </div>
             </div>
@@ -586,6 +615,19 @@ export const CSS_SORTIE = `
 .sor-encart-sous{margin:0 0 4px;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
 .sor-encart-lots ul{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:2px}
 .sor-historique{margin-top:6px;min-width:0}
+.sor-confirmer{display:flex;flex-direction:column;gap:12px}
+.sor-confirmer-titre{margin:0;font-size:1.1rem}
+.sor-confirmer-sous{margin:0 0 4px;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
+.sor-qui{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.sor-qui li{min-width:0;overflow-wrap:anywhere}
+.sor-date-forte{display:flex;flex-direction:column;gap:4px;max-width:100%}
+.sor-date-libelle{font-weight:800;color:var(--color-svv-ink)}
+.sor-date-forte input{box-sizing:border-box;width:100%;max-width:22rem;min-height:52px;padding:10px 14px;border:2px solid var(--color-svv-ink);border-radius:12px;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.15rem;font-weight:700}
+.sor-date-forte input:focus-visible{outline:3px solid var(--color-svv-line-strong-hover);outline-offset:2px}
+.sor-date-forte input[aria-invalid="true"]{border-color:var(--color-svv-red)}
+.sor-restants{padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-green);background:color-mix(in srgb, var(--color-svv-green) 12%, transparent);color:var(--color-svv-green-ink)}
+.sor-restants p{margin:0 0 4px}
+.sor-restants ul{margin:0;padding-left:1.1rem}
 .sor-voir{align-self:flex-start;display:inline-flex;align-items:center;font-size:.9rem;color:var(--color-svv-muted)}
 .sor-enregistrees h4{margin:0 0 6px}
 @media (max-width:760px){

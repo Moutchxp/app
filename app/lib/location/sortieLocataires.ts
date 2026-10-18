@@ -336,7 +336,25 @@ export function lignesEncart(e: EncartLogement): LigneEncart[] {
   ajouter('entree', 'Entrée dans les lieux', present(bail.entree) ? dateFr(bail.entree) : null);
   ajouter('loyer', 'Loyer d’origine', bail.loyerHc === null ? null : `${eurosFr(bail.loyerHc)} / mois hors charges`);
   ajouter('provisions', 'Provisions sur charges', bail.provisions === null ? null : `${eurosFr(bail.provisions)} / mois`);
-  ajouter('taux', 'Taux de gestion', bail.taux === null ? null
-    : `${nombreFr(bail.taux)} % HT${bail.base === 'cc' ? ' (sur le loyer charges comprises)' : bail.base === 'hc' ? ' (sur le loyer hors charges)' : ''}`);
+  // Arno (18/10/2026) : le TAUX DE GESTION n'est PAS affiché dans cet encart (écran de sortie). Il reste en base et sur les
+  // écrans qui le montrent (fiche bien / locataire — `LocationCarte`, « Honoraires de gestion »).
   return l.filter((x): x is LigneEncart => x !== null);
 }
+
+// ══ LA CONFIRMATION RÉDUITE de l'écran de sortie (Arno, 18/10/2026) ═════════════════════════════════════════════════
+
+/**
+ * Pourquoi « Confirmer la sortie » est désactivé — `null` quand la date est acceptable. Les MÊMES bornes que
+ * `verifierSortie` (que le serveur applique toujours) : obligatoire, jamais avant l'entrée d'un sortant, au plus un an. PUR.
+ */
+export function messageDateSortie(sortants: readonly Pick<LocataireDuBail, 'entree'>[], date: string, aujourdhui: string): string | null {
+  if (date.trim() === '') return 'Saisissez la date de sortie';
+  if (!dateValide(date)) return 'Saisissez une date de sortie valide';
+  const entree = sortants.map((l) => l.entree).filter((e): e is string => e !== null).sort().pop();
+  if (entree !== undefined && date < entree) return `La date ne peut pas précéder l’entrée du ${dateFr(entree)}`;
+  if (date > dateMaxSortie(aujourdhui)) return 'La date ne peut pas dépasser d’un an la date du jour';
+  return null;
+}
+
+/** « Il restera 1 locataire dans le logement » / « Il restera 2 locataires dans le logement ». PUR. */
+export const phraseRestants = (n: number): string => `Il restera ${n} locataire${n > 1 ? 's' : ''} dans le logement`;

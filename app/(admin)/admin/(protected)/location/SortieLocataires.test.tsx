@@ -205,28 +205,67 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(gros().disabled).toBe(true);
   });
 
-  it('la confirmation exige la date : vide par défaut, refus sans date et avant l’entrée, puis envoi', async () => {
+  it('confirmation RÉDUITE : titre, qui sort (une fiche par ligne), date mise en avant ; ni logement, ni adresse, ni propriétaire, ni entrée', async () => {
+    await rendre(() => ok(BAIL));
+    act(() => gros().click());
+    const bloc = container.querySelector('[data-recapitulatif]')!;
+    expect(bloc.querySelector('.sor-confirmer-titre')?.textContent).toBe('Faire sortir 2 locataires ?');
+    expect([...bloc.querySelectorAll('[data-qui-sort] li')].map((li) => li.textContent)).toEqual([
+      'BERNARD Alice entré(e) le 01/09/2022', 'BERNARD Paul entré(e) le 01/09/2022']);
+    for (const retire of ['Logement', 'Adresse', 'Propriétaire', 'Date d’entrée', 'DUPONT Jean', '4 rue Fictive']) {
+      expect(bloc.textContent, retire).not.toContain(retire);
+    }
+    // Un seul libellé visible pour la date, et le champ a le focus.
+    expect(bloc.querySelectorAll('.sor-date-libelle')).toHaveLength(1);
+    expect(bloc.querySelector('.sor-date-libelle')?.textContent).toBe('Date de sortie *');
+    expect(bloc.textContent).toContain('Obligatoire');
+    expect(document.activeElement).toBe(bloc.querySelector('input[data-date-sortie]'));
+  });
+
+  it('sans date : « Confirmer » désactivé ET le message dit pourquoi ; les trois messages ; valide → envoi', async () => {
     const f = await rendre((u) => (u.includes('bail=') ? ok(BAIL)
       : ok({ date: '2026-10-31', vacant: false, restants: ['BERNARD Paul'] }, { mail: { envoye: true, ignore: false, motif: null } })));
     act(() => cartes()[1].click());
     act(() => gros().click());
-    const recap = container.querySelector('[data-recapitulatif]')!;
-    expect(recap.textContent).toContain('BERNARD Alice');
-    expect(recap.textContent).toContain('Le logement reste loué à : BERNARD Paul');
-    const date = container.querySelector('input[data-date-sortie]') as HTMLInputElement;
-    expect(date.value).toBe('');
-    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
-    expect(container.querySelector('[data-refus]')?.textContent).toBe('La date de sortie est obligatoire.');
-    act(() => saisir(date, '2020-01-01'));
-    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
-    expect(container.querySelector('[data-refus]')?.textContent).toContain('antérieure à la date d’entrée');
+    const confirmer = (): HTMLButtonElement => container.querySelector('button[data-confirmer]') as HTMLButtonElement;
+    const message = (): string | undefined => container.querySelector('[data-message-date]')?.textContent;
+    const date = (): HTMLInputElement => container.querySelector('input[data-date-sortie]') as HTMLInputElement;
+    expect(date().value).toBe('');
+    expect(confirmer().disabled).toBe(true);
+    expect(message()).toBe('Saisissez la date de sortie');
+    act(() => saisir(date(), '2020-01-01'));
+    expect(confirmer().disabled).toBe(true);
+    expect(message()).toBe('La date ne peut pas précéder l’entrée du 01/09/2022');
+    act(() => saisir(date(), '2099-01-01'));
+    expect(confirmer().disabled).toBe(true);
+    expect(message()).toBe('La date ne peut pas dépasser d’un an la date du jour');
     expect(f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toHaveLength(0);
-    act(() => saisir(container.querySelector('input[data-date-sortie]') as HTMLInputElement, '2026-10-31'));
-    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    act(() => saisir(date(), '2026-10-31'));
+    expect(message()).toBeUndefined();
+    expect(confirmer().disabled).toBe(false);
+    await act(async () => { confirmer().click(); });
     const post = f.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
     expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' });
     await act(async () => { await Promise.resolve(); });
     expect(container.querySelector('[data-sortie-faite]')?.textContent).toContain('Le logement reste loué à : BERNARD Paul');
+  });
+
+  it('conséquence : « Le logement deviendra VACANT » si tous sortent ; sinon « Il restera N locataire(s) » (vert), noms dessous', async () => {
+    const TROIS: BailLogement = { ...BAIL, locataires: [...BAIL.locataires, { occupationId: 13, locataireId: 103, nom: 'BERNARD Léo', entree: '2022-09-01' }] };
+    await rendre(() => ok(TROIS));
+    act(() => gros().click());
+    expect(container.querySelector('[data-consequence]')?.textContent).toBe('Le logement deviendra VACANT');
+    expect(container.querySelector('[data-consequence]')?.className).toContain('sor-issue--vacant');
+    act(() => cartes()[2].click());
+    act(() => gros().click());
+    const reste = container.querySelector('[data-consequence="reste"]')!;
+    expect(reste.querySelector('p')?.textContent).toBe('Il restera 1 locataire dans le logement');
+    expect([...reste.querySelectorAll('li')].map((x) => x.textContent)).toEqual(['BERNARD Léo']);
+    act(() => cartes()[1].click());
+    act(() => gros().click());
+    expect(container.querySelector('[data-consequence="reste"] p')?.textContent).toBe('Il restera 2 locataires dans le logement');
+    // La phrase sous le gros bouton rouge, elle, ne change pas de forme.
+    expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement reste loué à : BERNARD Paul, BERNARD Léo');
   });
 
   it('la recherche, au gabarit de l’écran des biens : résultats VERTS avec le mot « occupant »', async () => {
@@ -254,12 +293,12 @@ describe('l’encart « Le logement » et l’historique des échanges (écran d
     await rendre(true);
     const e = container.querySelector('[data-encart-logement]')!;
     const lignes = [...e.querySelectorAll('[data-ligne]')].map((x) => x.getAttribute('data-ligne'));
-    expect(lignes).toEqual(['proprietaire', 'type', 'etage', 'porte', 'copro', 'lot', 'carrez', 'pieces', 'ascenseur', 'syndic', 'entree', 'loyer', 'taux']);
+    expect(lignes).toEqual(['proprietaire', 'type', 'etage', 'porte', 'copro', 'lot', 'carrez', 'pieces', 'ascenseur', 'syndic', 'entree', 'loyer']);
+    expect(e.textContent).not.toContain('Taux de gestion');
     expect(e.textContent).not.toMatch(/non renseigné|—/);
     expect(e.querySelector('[data-ligne="type"] dd')?.textContent).toBe('Appartement T3 · meublé');
     expect(e.querySelector('[data-ligne="carrez"] dd')?.textContent).toBe('41,8 m²');
     expect(e.querySelector('[data-ligne="loyer"] dd')?.textContent).toMatch(/^1\s250,00 € \/ mois hors charges$/);
-    expect(e.querySelector('[data-ligne="taux"] dd')?.textContent).toBe('6 % HT (sur le loyer hors charges)');
     expect(e.querySelector('a[data-lien-proprietaire]')?.getAttribute('href')).toBe('/admin/location/proprietaire/5');
   });
 
@@ -300,5 +339,15 @@ describe('l’encart « Le logement » et l’historique des échanges (écran d
     await rendre(false);
     expect(blocHistorique).not.toHaveBeenCalled();
     expect(container.querySelector('[data-historique-refus]')?.textContent).toContain('droit « Gestion »');
+  });
+});
+
+describe('le taux de gestion reste affiché ailleurs', () => {
+  it('la carte de location de la fiche bien / locataire (`LocationCarte`, rendue par la section « Location ») montre toujours le taux', () => {
+    const carte = readFileSync('app/(admin)/admin/(protected)/gestion/LocationCarte.tsx', 'utf8');
+    expect(carte).toContain('<span data-taux-gestion>');
+    expect(carte).toContain('Taux de gestion (% HT)');
+    const sections = readFileSync('app/(admin)/admin/(protected)/gestion/SectionsLocationFiche.tsx', 'utf8');
+    expect(sections).toMatch(/<LocationCarte location=/);
   });
 });
