@@ -66,7 +66,7 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     // « Qualité » juste sous le nom, avec les exemples d'Arno.
     const mots = [...contact.querySelectorAll('.cp-champ-mot')].map((m) => m.textContent?.trim());
     expect(mots.slice(1, 3)).toEqual(['Nom', 'Qualité']);
-    expect((contact.querySelector('.cp-champ--en-avant input') as HTMLInputElement).placeholder).toBe('conjoint, gestionnaire, notaire, gardien…');
+    expect((contact.querySelector('.cp-champ--en-avant input') as HTMLInputElement).placeholder).toBe('ex. Conjoint, artisan, avocat, voisin…');
     // Aucune question « en gestion » ni mandat sur la carte contact : ils sont propres à la page (propriétaires).
     expect(contact.textContent).not.toMatch(/en gestion|mandat/i);
   });
@@ -340,7 +340,7 @@ describe('🔴 Nouveau locataire : clients et contacts', () => {
     await act(async () => { bouton('+ Ajouter…').click(); });
     expect([...container.querySelectorAll('[data-choix] button')].map((x) => x.textContent)).toEqual(['Locataire (client)', 'Contact du locataire', 'Annuler']);
     await act(async () => { bouton('Contact du locataire').click(); });
-    expect((container.querySelector('[data-sorte="contact"] .cp-champ--en-avant input') as HTMLInputElement).placeholder).toBe('garant, conjoint, employeur…');
+    expect((container.querySelector('[data-sorte="contact"] .cp-champ--en-avant input') as HTMLInputElement).placeholder).toBe('ex. Conjoint, artisan, avocat, voisin…');
     expect(container.querySelector('[data-sorte="client"] [data-badge]')?.className).toContain('cp-role--en_place');
     await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte « Locataire (client) »');

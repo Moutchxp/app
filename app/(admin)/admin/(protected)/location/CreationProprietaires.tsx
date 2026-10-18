@@ -6,6 +6,7 @@ import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { SaisieCartes, type EtatCartes } from './SaisieCartes';
 import { CreationBien } from './CreationBien';
+import { CSS_FETE, FeteOui } from './FeteOui';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « CRÉER UN NOUVEAU PROPRIÉTAIRE » (/admin/location/nouveau-proprietaire), Arno, 17/10/2026 ══
@@ -32,6 +33,8 @@ export function CreationProprietaires() {
   const [transaction, setTransaction] = useState('');
   /** « Propriétaire(s) en gestion ? » — `null` tant qu'on n'a pas répondu (ni mandat, ni gros bouton). */
   const [enGestion, setEnGestion] = useState<boolean | null>(null);
+  /** La fête du « Oui » : relancée (clé) à chaque NOUVEAU passage à Oui. */
+  const [fete, setFete] = useState(0);
   const [motif, setMotif] = useState<string | null>(null);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
   /** Le formulaire du bien est-il ouvert sous les cartes ? */
@@ -76,14 +79,14 @@ export function CreationProprietaires() {
 
   return (
     <div className="loc-page loc-ample">
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_FETE}</style>
       <EnTeteLocation titre="Créer un nouveau propriétaire"
         sous="Une carte par personne (couple, indivision, SCI…) : tous seront propriétaires du même futur bien." />
 
       <section className="loc-section" aria-labelledby="loc-p1">
         <h3 id="loc-p1"><span className="loc-num">1</span>Le ou les propriétaires</h3>
         <p className="loc-section-phrase">« + Ajouter… » : un <strong>propriétaire (client)</strong> ou un <strong>contact du propriétaire</strong> (conjoint,
-          gestionnaire, notaire, gardien…). « Enregistrer » valide la carte sur cette page ; tout est enregistré au gros bouton du bas
+          artisan, avocat, voisin…). « Enregistrer » valide la carte sur cette page ; tout est enregistré au gros bouton du bas
           (les contacts, avec le bien). Un téléphone ou un e-mail déjà connu est signalé : rien n’est jamais fusionné.</p>
         <SaisieCartes cote="proprietaire" onChange={surCartes} />
       </section>
@@ -94,8 +97,12 @@ export function CreationProprietaires() {
       <section className="loc-section" aria-labelledby="loc-p2" data-question-gestion>
         <h3 id="loc-p2"><span className="loc-num">2</span>Propriétaire(s) en gestion ?</h3>
         <div className="loc-gros-boutons loc-oui-non" role="group" aria-label="Propriétaire(s) en gestion ?">
-          <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={enGestion === true}
-            onClick={() => { setEnGestion(true); setTransaction(''); setMotif(null); }}>{enGestion === true ? '✓ Oui' : 'Oui'}</button>
+          {/* Arno (18/10/2026) : la FÊTE du Oui — au passage à Oui seulement, contenue dans le bouton, 3 s, sans son. */}
+          <button type="button" className="loc-gros-bouton loc-gros-bouton--centre fete-hote" aria-pressed={enGestion === true}
+            onClick={() => { if (enGestion !== true) setFete((n) => n + 1); setEnGestion(true); setTransaction(''); setMotif(null); }}>
+            <span className="fete-texte">{enGestion === true ? '✓ Oui' : 'Oui'}</span>
+            {fete > 0 && <FeteOui key={fete} />}
+          </button>
           <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={enGestion === false}
             onClick={() => { setEnGestion(false); setMandat(''); setMotif(null); }}>{enGestion === false ? '✓ Non' : 'Non'}</button>
         </div>

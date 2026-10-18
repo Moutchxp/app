@@ -11,7 +11,7 @@
  *     un e-mail) : c'est l'adresse e-mail qui IDENTIFIE une carte de contact (clé : bien, côté, adresse).
  * Au moins UNE carte client est obligatoire ; les contacts sont facultatifs, en nombre illimité.
  */
-import { manquesDuContact } from '../gestion/ficheContact';
+import { EXEMPLE_QUALITE_CONTACT, manquesDuContact } from '../gestion/ficheContact';
 import type { CoordonneeSaisie } from '../gestion/annuaireEdition';
 
 export type CoteCarte = 'proprietaire' | 'locataire';
@@ -21,10 +21,10 @@ export const MOT_CONTACT: Record<CoteCarte, string> = { proprietaire: 'Contact d
 /** L'étiquette de la carte (capitales, comme les badges de la Gestion). */
 export const BADGE_CLIENT: Record<CoteCarte, string> = { proprietaire: 'Propriétaire', locataire: 'Locataire' };
 export const BADGE_CONTACT: Record<CoteCarte, string> = { proprietaire: 'Contact du propriétaire', locataire: 'Contact du locataire' };
-/** Les exemples de « Qualité », mis en avant sur une carte contact. */
+/** Les exemples de « Qualité », mis en avant sur une carte contact — le texte de la Gestion, des deux côtés (Arno, 18/10/2026). */
 export const EXEMPLES_QUALITE: Record<CoteCarte, string> = {
-  proprietaire: 'conjoint, gestionnaire, notaire, gardien…',
-  locataire: 'garant, conjoint, employeur…',
+  proprietaire: EXEMPLE_QUALITE_CONTACT,
+  locataire: EXEMPLE_QUALITE_CONTACT,
 };
 
 const rempli = (v: string | null | undefined): boolean => (v ?? '').trim() !== '';

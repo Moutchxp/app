@@ -42,6 +42,7 @@ import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/parti
  * E-MAIL sont obligatoires » — Arno). La règle des clients, `manquesDeLaFiche`, n'est pas touchée.
  */
 import {
+  EXEMPLE_QUALITE_CLIENT, EXEMPLE_QUALITE_CONTACT,
   TITRE_CONTACT_MODIFIER, TITRE_CONTACT_NOUVEAU, coordonneesPourLaBase, manquesDuContact,
 } from '../../../../lib/gestion/ficheContact';
 // LOT FICHES-RETOUCHES — la nomenclature (Mobile / Fixe / E-mail) et le formatage des numeros.
@@ -956,7 +957,7 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
         <label className="cp-champ">
           <span className="cp-champ-mot">Qualité <span className="cp-facultatif">facultative</span></span>
           <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)}
-            placeholder="indivision, gérant, représentant…" />
+            placeholder={contact !== undefined ? EXEMPLE_QUALITE_CONTACT : EXEMPLE_QUALITE_CLIENT} />
         </label>
       )}
       {/* ══ 🔴🔴 L'ADRESSE, AVEC LES PROPOSITIONS DE LA BASE ADRESSE NATIONALE ════════════════════════════════
