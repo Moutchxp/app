@@ -10,6 +10,8 @@
  * Ce module ne lit rien et n'écrit rien.
  */
 
+import type { EdlsAffiche } from './edls';
+
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export function dateIsoValide(s: unknown): s is string {
@@ -161,6 +163,8 @@ export interface LignePreavisAccueil {
   dateMax: string;
   /** `null` = non saisie (ou migration 384 absente). */
   etatDesLieuxLe: string | null;
+  /** Arno (19/10/2026) — l'état des lieux de sortie PLANIFIÉ (tâche du module de tâches) ; absent = pas planifié (ou migration 385 absente). */
+  edls?: EdlsAffiche | null;
 }
 
 export type CleTri = 'fin' | 'edl';

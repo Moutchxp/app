@@ -293,6 +293,14 @@ export interface EncartLogement {
   proprietaire: { id: number; nom: string } | null;
   syndic: string | null;
   bail: { entree: string | null; loyerHc: number | null; provisions: number | null; taux: number | null; base: string | null };
+  /**
+   * Arno (19/10/2026) — LES COORDONNÉES (téléphones, e-mails en vigueur) du propriétaire et des locataires du bail, pour le
+   * bloc « Locataires en préavis » de l'accueil et le récapitulatif de l'état des lieux de sortie. Absent : non lues.
+   */
+  coordonnees?: {
+    proprietaire: { telephones: string[]; emails: string[] } | null;
+    locataires: { occupationId: number; locataireId: number; nom: string; telephones: string[]; emails: string[] }[];
+  };
 }
 
 const nombreFr = (n: number): string => n.toLocaleString('fr-FR', { maximumFractionDigits: 2 });

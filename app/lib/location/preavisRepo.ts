@@ -7,6 +7,7 @@ import {
   dureeProposee, enZoneTendue, verifierEtatDesLieux, verifierPreavis, type DureeMois, type LignePreavisAccueil, type ModePreavis,
   type PreavisAffiche, type RegleZoneTendue,
 } from './preavis';
+import { edlsDesOccupations, edlsDisponible } from './edlsRepo';
 
 /**
  * ══ 🔴🔴 LE PRÉAVIS DU LOCATAIRE (Arno, 18/10/2026). IMPUR (base). ═════════════════════════════════════════════════════
@@ -219,8 +220,8 @@ export async function annulerPreavis(d: { preavisId: number }, auteur: Auteur): 
  * Les préavis EN COURS (ouverts, occupation sans sortie), une ligne par préavis : les locataires d'un même bail reçus
  * ensemble avec la même fin (même lot, même entrée, même réception, même date maximale). Sans la migration 383 : aucun.
  */
-export async function preavisEnCours(): Promise<{ disponible: boolean; etatDesLieux: boolean; lignes: LignePreavisAccueil[] }> {
-  if (!(await preavisDisponible())) return { disponible: false, etatDesLieux: false, lignes: [] };
+export async function preavisEnCours(): Promise<{ disponible: boolean; etatDesLieux: boolean; planification: boolean; lignes: LignePreavisAccueil[] }> {
+  if (!(await preavisDisponible())) return { disponible: false, etatDesLieux: false, planification: false, lignes: [] };
   const avecEdl = await etatDesLieuxDisponible();
   const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string; lot_id: string; entree: string | null; recu_le: string;
     date_max: string; adresse: string | null; edl: string | null }>(
@@ -246,7 +247,11 @@ export async function preavisEnCours(): Promise<{ disponible: boolean; etatDesLi
     if (r.edl !== null && (g.etatDesLieuxLe === null || r.edl < g.etatDesLieuxLe)) g.etatDesLieuxLe = r.edl;
     groupes.set(cle, g);
   }
-  return { disponible: true, etatDesLieux: avecEdl, lignes: [...groupes.values()] };
+  // Arno (19/10/2026) — l'EDLS planifié de chaque ligne (migration 385, sondée ; sans elle : aucun).
+  const lignes = [...groupes.values()];
+  const edls = await edlsDesOccupations(lignes.flatMap((l) => l.occupationIds));
+  for (const l of lignes) l.edls = edls.find((x) => x.occupationIds.some((id) => l.occupationIds.includes(id)))?.edls ?? null;
+  return { disponible: true, etatDesLieux: avecEdl, planification: await edlsDisponible(), lignes };
 }
 
 /**

@@ -487,6 +487,21 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
   }
   const { rows: cle } = await query<{ cle: string | null }>(
     `SELECT l.wippimmo_id AS cle FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id WHERE o.id = $1`, [occupationId]);
+  // Arno (19/10/2026) — les coordonnées EN VIGUEUR (ni absentes de l'export, ni archivées) du propriétaire et des locataires.
+  const coordVivante = await conditionCoordonneeVivante('c');
+  const sujets: { sujet: 'proprietaire' | 'locataire'; id: number }[] = [
+    ...(pr[0] === undefined ? [] : [{ sujet: 'proprietaire' as const, id: Number(pr[0].id) }]),
+    ...bail.locataires.map((l) => ({ sujet: 'locataire' as const, id: l.locataireId })),
+  ];
+  const { rows: co2 } = await query<{ sujet: string; sujet_id: string; sorte: string; valeur: string }>(
+    `SELECT c.sujet, c.sujet_id::text, c.sorte, c.valeur_brute AS valeur FROM gestion_annuaire_contact c
+      WHERE ((c.sujet = 'proprietaire' AND c.sujet_id = ANY($1::bigint[])) OR (c.sujet = 'locataire' AND c.sujet_id = ANY($2::bigint[])))
+        AND c.sorte IN ('telephone', 'email') AND c.absent_le IS NULL${coordVivante} ORDER BY c.rang, c.id`,
+    [sujets.filter((x) => x.sujet === 'proprietaire').map((x) => x.id), sujets.filter((x) => x.sujet === 'locataire').map((x) => x.id)]);
+  const coordsDe = (sujet: string, id: number) => {
+    const lignes = co2.filter((r) => r.sujet === sujet && Number(r.sujet_id) === id && texte(r.valeur) !== null);
+    return { telephones: lignes.filter((r) => r.sorte === 'telephone').map((r) => r.valeur), emails: lignes.filter((r) => r.sorte === 'email').map((r) => r.valeur) };
+  };
   return {
     lotId: bail.lotId,
     adresse: texte([lo.adresse, [lo.code_postal, lo.commune].filter((x) => texte(x)).join(' ')].filter((x) => texte(x)).join(', ')),
@@ -505,5 +520,9 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
       taux: nombre(conditions?.taux), base: texte(conditions?.base),
     },
     locataireCle: texte(cle[0]?.cle ?? null), lotCle: lo.wippimmo_id ?? '',
+    coordonnees: {
+      proprietaire: pr[0] === undefined ? null : coordsDe('proprietaire', Number(pr[0].id)),
+      locataires: bail.locataires.map((l) => ({ occupationId: l.occupationId, locataireId: l.locataireId, nom: l.nom, ...coordsDe('locataire', l.locataireId) })),
+    },
   };
 }

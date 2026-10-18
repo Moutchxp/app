@@ -14,6 +14,7 @@ import { lireContenuFichier, ouvrirFluxExportPdf, ouvrirFluxFichier, type FluxDr
 import { fetchDriveLectureSeule } from './driveLectureSeule';
 import { invitesTacheDisponible } from './schema';
 import type { MessageAEnvoyer, PieceAEnvoyer } from './envoiGmail';
+import { objetMailEdls } from '../location/edls';
 
 /**
  * ══ 🔴🔴 LOT GESTION-INVITATIONS-TACHES (lot 3) — CE QUE LE MAIL D'UNE TÂCHE DIT, LU EN BASE ══════════════════════
@@ -270,7 +271,14 @@ export async function messageDeLaDemande(o: {
   });
   const adresseCourte = d.lot_id === null ? null : (d.adresse ?? '').trim() || titreLogement(d.adresse, d.commune);
   const echeance = echeanceLisible(d.jour, d.heure, maintenant);
-  const objet = o.sorte === 'invitation' && o.ancienneDate
+  /* 🔴 Arno (19/10/2026) — UNE TÂCHE D'EDLS (Location) : son objet à elle (« EDL de sortie — adresse — JJ/MM/AAAA
+     HHhMM-HHhMM », « Rendez-vous déplacé — … », « EDLS du JJ/MM accepté par X »). Toute autre tâche : l'objet d'avant. */
+  const objetEdls = objetMailEdls({
+    objetTache: d.objet, sorte: o.sorte, adresseCourte, jour: d.jour, heure: d.heure,
+    dureeMinutes: d.duree_minutes === null ? null : Number(d.duree_minutes), deplace: o.ancienneDate !== undefined,
+    par: d.repondu_par_libelle ?? d.destinataire_libelle, refusee: d.statut === 'refusee',
+  });
+  const objet = objetEdls !== null ? objetEdls : o.sorte === 'invitation' && o.ancienneDate
     ? `${PREFIXE_OBJET_DEPLACEMENT}${adresseCourte === null ? '' : `${adresseCourte} — `}${d.objet.trim()} — ${echeance}`
     : o.sorte === 'invitation'
     ? objetDemande({ adresseCourte, objet: d.objet, echeance })

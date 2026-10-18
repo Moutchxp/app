@@ -579,7 +579,8 @@ export const REFUS_HISTORIQUE_GESTION = 'L’historique des échanges est celui 
  * L'ENCART « LE LOGEMENT » : l'adresse en titre, puis UNIQUEMENT ce que la base connaît (`lignesEncart`) — une information
  * absente n'apparaît pas —, les lots du bail (logement + annexes) et le propriétaire avec le lien vers sa fiche.
  */
-export function EncartDuLogement({ e }: { e: EncartLogement }) {
+/** Arno (19/10/2026) — avec `coordonnees`, l'encart montre AUSSI les téléphones et e-mails (accueil, bloc des préavis). */
+export function EncartDuLogement({ e, coordonnees = false }: { e: EncartLogement; coordonnees?: boolean }) {
   const lignes = lignesEncart(e);
   const lots = Array.isArray(e.lots) ? e.lots : [];
   return (
@@ -598,6 +599,28 @@ export function EncartDuLogement({ e }: { e: EncartLogement }) {
           {lots.map((l) => <li key={l.lotId} data-lot={l.lotId} data-role={l.role}>{libelleLotEncart(l)}</li>)}
         </ul>
       </div>
+      {coordonnees && e.coordonnees && <CoordonneesEncart e={e} />}
+    </div>
+  );
+}
+
+/** Les coordonnées du propriétaire et des locataires — seulement celles qui existent ; liens « tel: » et « mailto: ». */
+function CoordonneesEncart({ e }: { e: EncartLogement }) {
+  const c = e.coordonnees!;
+  const liste = (p: { telephones: string[]; emails: string[] }) => [
+    ...p.telephones.map((t) => <a key={`t${t}`} href={`tel:${t.replace(/\s+/g, '')}`}>{t}</a>),
+    ...p.emails.map((m) => <a key={`m${m}`} href={`mailto:${m}`}>{m}</a>),
+  ];
+  const proprio = e.proprietaire != null && c.proprietaire !== null && (c.proprietaire.telephones.length + c.proprietaire.emails.length) > 0;
+  const locataires = c.locataires.filter((l) => l.telephones.length + l.emails.length > 0);
+  if (!proprio && locataires.length === 0) return null;
+  return (
+    <div className="sor-encart-coords" data-coordonnees>
+      <p className="sor-encart-sous">Coordonnées</p>
+      <ul>
+        {proprio && <li data-coord-proprietaire><strong>{e.proprietaire!.nom}</strong> (propriétaire) {liste(c.proprietaire!)}</li>}
+        {locataires.map((l) => <li key={l.occupationId} data-coord-locataire={l.locataireId}><strong>{l.nom}</strong> (locataire) {liste(l)}</li>)}
+      </ul>
     </div>
   );
 }
@@ -692,6 +715,9 @@ export const CSS_SORTIE = `
 .sor-encart-dl a{color:var(--color-svv-ink);font-weight:700;text-decoration:underline;display:inline-flex;align-items:center;min-height:44px}
 .sor-encart-sous{margin:0 0 4px;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
 .sor-encart-lots ul{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:2px}
+.sor-encart-coords ul{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:4px}
+.sor-encart-coords li{overflow-wrap:anywhere}
+.sor-encart-coords a{display:inline-flex;align-items:center;min-height:44px;margin-left:10px;color:var(--color-svv-ink);text-decoration:underline}
 .sor-historique{margin-top:6px;min-width:0}
 .sor-confirmer{display:flex;flex-direction:column;gap:12px}
 .sor-confirmer-titre{margin:0;font-size:1.1rem}

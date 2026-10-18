@@ -7,7 +7,7 @@ import { BlocPreavisAccueil, CLE_TRI, CSS_PREAVIS_ACCUEIL } from './PreavisAccue
 import { AccueilLocation } from './AccueilLocation';
 import { EcranSortieLocataire } from './SortieLocataires';
 import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
-import type { BailLogement } from '../../../../lib/location/sortieLocataires';
+import type { BailLogement, EncartLogement } from '../../../../lib/location/sortieLocataires';
 import type { LignePreavisAccueil } from '../../../../lib/location/preavis';
 
 /**
@@ -31,6 +31,26 @@ const LIGNES = [
     locataires: [{ occupationId: 31, locataireId: 301, nom: 'ECHU Bob' }] }),
   ligne('C', { dateMax: '2099-11-01', etatDesLieuxLe: '2099-06-01', adresse: 'C rue' }),
 ];
+/** L'encart « Le logement » (tout ce qui existe ; les champs absents valent `null` et ne s'affichent pas). */
+export const ENCART: EncartLogement = {
+  lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement T3', meuble: false, etage: '3', porte: 'G', numLotCopro: null,
+  numeroLot: '100', batiment: 'B', escalier: null, surfaceCarrez: null, surfaceHabitable: null, surface: null, surfaceExterieure: null,
+  nombrePieces: null, ascenseur: true, digicode: true, digicodeCode: '4521A', precisionAcces: 'Code au portail', dpeClasse: null, dpeDate: null,
+  dpeNonSoumis: null, chauffage: null, epoqueConstruction: null,
+  lots: [
+    { lotId: 7, role: 'logement', type: 'Appartement T3', etage: '3', numLotCopro: null, numeroLot: '100', porte: 'G', place: false },
+    { lotId: 8, role: 'annexe', type: 'Parking', etage: '-1', numLotCopro: null, numeroLot: null, porte: '12', place: true },
+  ],
+  proprietaire: { id: 5, nom: 'DUPONT Jean' }, syndic: null,
+  bail: { entree: null, loyerHc: null, provisions: null, taux: null, base: null },
+  coordonnees: {
+    proprietaire: { telephones: ['06 11 22 33 44'], emails: ['jean@exemple.test'] },
+    locataires: [
+      { occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', telephones: ['06 55 66 77 88'], emails: ['alice@exemple.test'] },
+      { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', telephones: [], emails: [] },
+    ],
+  },
+};
 const BAIL: BailLogement = {
   lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement', etage: '3', porte: 'G', proprietaire: 'DUPONT Jean', entree: '2022-09-01',
   locataires: [
@@ -44,7 +64,11 @@ let container: HTMLDivElement;
 let root: Root;
 let lignes: LignePreavisAccueil[];
 let posts: Record<string, unknown>[];
+let planification = false;
+let statutPose: string = 'en_attente';
 beforeEach(() => {
+  planification = false;
+  statutPose = 'en_attente';
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   try { window.localStorage.removeItem(CLE_TRI); } catch { /* sans stockage */ }
   lignes = LIGNES.map((l) => ({ ...l }));
@@ -55,10 +79,27 @@ beforeEach(() => {
       posts.push(corps);
       // La sortie validée : le serveur ne rend plus la ligne (le locataire est sorti).
       if (corps.action === 'sortie-locataires') lignes = lignes.filter((l) => !l.occupationIds.includes(Number(corps.occupationId)));
+      if (String(corps.action).endsWith('-edls')) {
+        // Le serveur relit ensuite la ligne AVEC son EDLS (comme `preavisEnCours`).
+        const noms: Record<number, string> = { 3: 'Arno Test', 4: 'Claire Test' };
+        lignes = lignes.map((l) => {
+          if (JSON.stringify(l.occupationIds) !== JSON.stringify(corps.occupationIds)) return l;
+          const avant = l.edls ?? null;
+          const jour = String(corps.jour ?? avant?.jour ?? '');
+          const [h1, m1] = String(corps.debut ?? avant?.heure ?? '00:00').split(':').map(Number);
+          const [h2, m2] = String(corps.fin ?? '').split(':').map(Number);
+          return { ...l, etatDesLieuxLe: jour, edls: {
+            edlsId: 77, tacheId: 500, jour, heure: String(corps.debut ?? avant?.heure), dureeMinutes: corps.fin ? (h2 * 60 + m2) - (h1 * 60 + m1) : avant?.dureeMinutes ?? 60,
+            confieA: noms[Number(corps.confieA)] ?? '', confieAId: Number(corps.confieA), statut: statutPose as 'en_attente', reponduPar: null, motifRefus: null } };
+        });
+        return ({ ok: true, json: async () => ({ etat: 'ok', data: { edlsId: 77, statut: statutPose, mails: [{ destinataire: 'Claire Test', etat: 'factice' }], agenda: '' } }) }) as unknown as Response;
+      }
       return ({ ok: true, json: async () => ({ etat: 'ok', data: {}, mail: { etat: 'sans_adresse' } }) }) as unknown as Response;
     }
     const s = String(u);
-    if (s.includes('preavisEnCours=1')) return ok({ disponible: true, etatDesLieux: true, lignes });
+    if (s.includes('preavisEnCours=1')) return ok({ disponible: true, etatDesLieux: true, planification, lignes });
+    if (s.includes('encartBail=')) return ok(ENCART);
+    if (s.includes('edlsConfiables=1')) return ok([{ id: 3, libelle: 'Arno Test', accesGestion: true }, { id: 4, libelle: 'Claire Test', accesGestion: true }]);
     if (s.includes('bail=')) return ok(BAIL);
     return ok({ lignes: [], total: 0, page: 0 });
   }) as unknown as typeof fetch;
@@ -239,5 +280,140 @@ describe('la date d’état des lieux est visible sur la fiche et sur l’écran
     await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
     await attendre();
     expect(container.querySelector('[data-carte-preavis="11"] [data-etat-des-lieux]')?.textContent).toBe('État des lieux le 05/11/2099');
+  });
+});
+
+/**
+ * Arno (19/10/2026) — FICHE DÉPLIÉE COMPLÈTE ET « EDLS PLANIFIÉ » (tâche du module de tâches de la Gestion).
+ */
+describe('la ligne dépliée : les informations complètes du logement', () => {
+  it('l’encart de l’écran de sortie (même composant) avec les coordonnées, et les dates du préavis ; les champs absents ne s’affichent pas', async () => {
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    const infos = container.querySelector('[data-ligne-depliee="C"] [data-infos-logement]')!;
+    const encart = infos.querySelector('[data-encart-logement]')!;
+    expect(encart.querySelector('h3')?.textContent).toBe('4 rue Fictive, 92800 Puteaux');
+    for (const cle of ['batiment', 'etage', 'porte', 'acces', 'digicode', 'ascenseur', 'proprietaire']) expect(encart.querySelector(`[data-ligne="${cle}"]`), cle).not.toBeNull();
+    expect(encart.querySelector('[data-ligne="escalier"]')).toBeNull();
+    expect(encart.querySelector('[data-ligne="digicode"] dd')?.textContent).toBe('4521A');
+    expect([...encart.querySelectorAll('[data-lots-du-bail] li')].map((li) => li.textContent)).toEqual(['Appartement T3 · 3e étage · porte G · lot n° 100', 'Parking · sous-sol 1 · place 12']);
+    const coords = encart.querySelector('[data-coordonnees]')!;
+    expect(coords.querySelector('[data-coord-proprietaire]')?.textContent).toContain('06 11 22 33 44');
+    expect(coords.querySelector('[data-coord-locataire="101"]')?.textContent).toContain('alice@exemple.test');
+    expect(coords.querySelector('[data-coord-locataire="102"]')).toBeNull();
+    expect(infos.querySelector('[data-dates-preavis]')?.textContent).toBe('Préavis : recommandé reçu le 01/10/2026 — fin du préavis le 01/11/2099');
+  });
+});
+
+describe('planifier l’état des lieux de sortie (migration 385 appliquée)', () => {
+  const ouvrirPlanif = async () => {
+    planification = true;
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    clic('button[data-planifier-edls]');
+    await attendre();
+  };
+  const champ = (n: string) => container.querySelector(`[data-edls-${n}]`) as HTMLInputElement;
+  const choisir = (el: HTMLSelectElement, v: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, v);
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  it('avant la migration 385 : la saisie à la main de la date reste offerte, avec le message', async () => {
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]');
+    expect(container.querySelector('input[data-date-edl]')).not.toBeNull();
+    expect(container.querySelector('[data-planification-indisponible]')).not.toBeNull();
+  });
+
+  it('fin proposée = début + 1 h (modifiable) ; fin ≤ début refusée ; « Confier à » = la liste Location ET Gestion ET Workspace', async () => {
+    await ouvrirPlanif();
+    act(() => saisir(champ('jour'), '2099-11-05'));
+    act(() => saisir(champ('debut'), '10:00'));
+    expect(champ('fin').value).toBe('11:00');
+    act(() => saisir(champ('fin'), '09:30'));
+    expect(container.querySelector('[data-edls-message]')?.textContent).toBe('L’heure de fin doit être après l’heure de début.');
+    expect((container.querySelector('button[data-valider-edls]') as HTMLButtonElement).disabled).toBe(true);
+    expect([...container.querySelectorAll('select[data-confier-a] option')].map((o) => o.textContent)).toEqual(['Arno Test', 'Claire Test']);
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.some((c) => String(c[0]).includes('edlsConfiables=1'))).toBe(true);
+  });
+
+  it('« Planifier » : la ligne passe AUSSITÔT à « EDLS planifié » — confié à X, en attente de confirmation (bleu)', async () => {
+    await ouvrirPlanif();
+    act(() => saisir(champ('jour'), '2099-11-05'));
+    act(() => saisir(champ('debut'), '10:00'));
+    choisir(container.querySelector('select[data-confier-a]') as HTMLSelectElement, '4');
+    await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
+    expect(posts.at(-1)).toEqual({ action: 'planifier-edls', occupationIds: [11, 12], jour: '2099-11-05', debut: '10:00', fin: '11:00', confieA: 4, commentaire: '' });
+    const ligne = container.querySelector('[data-ligne-preavis="C"]')!;
+    expect(ligne.querySelector('[data-preavis="edls"]')?.textContent).toBe('EDLS planifié');
+    expect(ligne.querySelector('[data-preavis="edls"]')?.className).toBe('pvs-mention pvs-mention--en_preavis');
+    expect(ligne.querySelector('.pva-detail')?.textContent).toContain('EDLS le 05/11/2099 à 10h00 — confié à Claire Test — en attente de confirmation');
+  });
+
+  it('confié à soi : « accepté » d’office (le module de tâches inscrit directement dans l’agenda, sans demande)', async () => {
+    const { acceptationInitiale } = await import('../../../../lib/gestion/acceptationTache');
+    expect(acceptationInitiale(3, 3)).toBe('acceptee');
+    statutPose = 'acceptee';
+    await ouvrirPlanif();
+    act(() => saisir(champ('jour'), '2099-11-05'));
+    act(() => saisir(champ('debut'), '10:00'));
+    await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-ligne-preavis="C"] .pva-detail')?.textContent).toContain('confié à Arno Test — accepté');
+  });
+
+  const EDLS = { edlsId: 77, tacheId: 500, jour: '2099-11-05', heure: '10:00', dureeMinutes: 60, confieA: 'Claire Test', confieAId: 4, statut: 'en_attente' as const, reponduPar: null, motifRefus: null };
+
+  it('« Déplacer » : nouvelle plage → action de déplacement (la tâche repasse « en attente », nouveau mail)', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: EDLS, etatDesLieuxLe: '2099-11-05' } : l));
+    await rendre();
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    clic('button[data-deplacer-edls]');
+    await attendre();
+    expect(champ('jour').value).toBe('2099-11-05');
+    expect(champ('fin').value).toBe('11:00');
+    act(() => saisir(champ('jour'), '2099-11-06'));
+    act(() => saisir(champ('debut'), '14:00'));
+    act(() => saisir(champ('fin'), '15:30'));
+    await act(async () => { (container.querySelector('button[data-valider-edls]') as HTMLButtonElement).click(); });
+    expect(posts.at(-1)).toEqual({ action: 'deplacer-edls', occupationIds: [11, 12], jour: '2099-11-06', debut: '14:00', fin: '15:30', confieA: 4 });
+    expect(container.querySelector('[data-ligne-preavis="C"] .pva-detail')?.textContent).toContain('EDLS le 06/11/2099 à 14h00 — confié à Claire Test — en attente de confirmation');
+    expect(container.querySelector('[data-edls-bilan]')?.textContent).toContain('mail à Claire Test : préparé (essai)');
+  });
+
+  it('refusé : « Refusée par X — à réattribuer » et « Confier à quelqu’un d’autre » (nouveau cycle)', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...EDLS, statut: 'refusee', reponduPar: 'Claire Test' }, etatDesLieuxLe: '2099-11-05' } : l));
+    await rendre();
+    expect(container.querySelector('[data-ligne-preavis="C"] [data-preavis="edls"]')?.textContent).toBe('EDLS à réattribuer');
+    clic('button[data-ouvrir-preavis="C"]');
+    await attendre();
+    expect(container.querySelector('[data-edls-mention]')?.textContent).toBe('Refusée par Claire Test — à réattribuer');
+    clic('button[data-reattribuer-edls]');
+    await attendre();
+    expect([...container.querySelectorAll('[data-formulaire-reattribuer] option')].map((o) => o.textContent)).toEqual(['Arno Test']);
+    await act(async () => { (container.querySelector('button[data-valider-reattribution]') as HTMLButtonElement).click(); });
+    expect(posts.at(-1)).toEqual({ action: 'reattribuer-edls', occupationIds: [11, 12], confieA: 3 });
+    expect(container.querySelector('[data-ligne-preavis="C"] .pva-detail')?.textContent).toContain('confié à Arno Test — en attente de confirmation');
+  });
+
+  it('préavis échu : l’alerte garde la priorité même avec un EDLS planifié', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'B' ? { ...l, edls: { ...EDLS, jour: '2020-01-10' } } : l));
+    await rendre();
+    expect(container.querySelector('[data-ligne-preavis="B"] [data-preavis]')?.textContent).toBe('Préavis échu — sortie à saisir');
+    expect(container.querySelector('[data-ligne-preavis="B"] .pva-detail')?.textContent).toContain('EDLS le 10/01/2020 à 10h00');
+  });
+
+  it('le tri « État des lieux » suit la date de l’EDLS (la même donnée)', async () => {
+    planification = true;
+    lignes = lignes.map((l) => (l.cle === 'C' ? { ...l, edls: { ...EDLS, jour: '2098-01-01' }, etatDesLieuxLe: '2098-01-01' } : l));
+    await rendre();
+    clic('button[data-tri="edl:asc"]');
+    expect(ordre()).toEqual(['C', 'A', 'B']);
   });
 });

@@ -28,6 +28,9 @@ import { verifierOrigine } from '../../../../lib/location/archivage';
 import {
   annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
+import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
+import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
+import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -88,6 +91,10 @@ export async function GET(request: Request): Promise<Response> {
     }
     // Le bloc « Locataires en préavis » de l'accueil (Arno, 18/10/2026) — LECTURE SEULE.
     if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await preavisEnCours() }, { headers: ENTETES });
+    // « Confier à » l'état des lieux de sortie (Arno, 19/10/2026) — LECTURE SEULE : Location ET Gestion ET Workspace.
+    if (p('edlsConfiables') !== null) {
+      return Response.json({ etat: 'ok', data: await confiablesEdls((await auteurDeLaRequete(request)).id) }, { headers: ENTETES });
+    }
     // Le préavis d'un bail (Arno, 18/10/2026) — LECTURE SEULE : durée proposée, locataires, préavis ouverts.
     const idPreavis = identifiant(p('preavisBail'));
     if (idPreavis !== null) {
@@ -351,6 +358,32 @@ export async function POST(request: Request): Promise<Response> {
         const pid = identifiant(corps.preavisId);
         if (pid === null) return incomplet();
         return repondre(await annulerPreavis({ preavisId: pid }, auteur));
+      }
+      case 'planifier-edls':
+      case 'deplacer-edls':
+      case 'reattribuer-edls': {
+        /* 🔴 Arno (19/10/2026) — l'état des lieux de sortie PLANIFIÉ : une tâche du module de tâches de la Gestion. Après
+           l'écriture, EXACTEMENT ce que font les routes des tâches : le mail de demande (canal existant, droit d'envoi au nom
+           de gestion@ relu, mode RECETTE respecté), puis l'agenda Google — un échec de l'un n'annule jamais le geste. */
+        const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        const texte = (x: unknown): string => (typeof x === 'string' ? x.trim() : '');
+        const confieA = identifiant(corps.confieA);
+        const r = action === 'planifier-edls'
+          ? await planifierEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA, commentaire: typeof corps.commentaire === 'string' ? corps.commentaire : null }, auteur)
+          : action === 'deplacer-edls'
+            ? await deplacerEdls({ occupationIds: occs, jour: texte(corps.jour), debut: texte(corps.debut), fin: texte(corps.fin), confieA }, auteur)
+            : await reattribuerEdls({ occupationIds: occs, confieA }, auteur);
+        if (r.etat !== 'ok') return repondre(r);
+        let mails: { destinataire: string; etat: string }[] = [];
+        if (r.demandes !== undefined) mails = await envoyerAuxInvites(request, r.demandes);
+        else {
+          const m = await envoyerSiAutorise(request, r.demande);
+          if (m !== null) mails = [{ destinataire: r.demande?.destinataireLibelle ?? '', etat: m }];
+        }
+        const agenda = await synchroniserApresGeste(r.tacheId);
+        // Le statut de la demande posée (« en attente », ou « acceptée » d'office quand on se la confie) : la ligne change aussitôt.
+        const statut = r.demandes?.[0]?.statut ?? r.demande?.statut ?? null;
+        return repondre({ etat: 'ok', data: { ...r.data, statut, mails, agenda: agenda.trim() } });
       }
       case 'etat-des-lieux': {
         // La date d'état des lieux de sortie prévu (accueil, 18/10/2026) : saisie, modifiée ou effacée, journalisée.

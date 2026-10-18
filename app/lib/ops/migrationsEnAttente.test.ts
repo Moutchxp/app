@@ -72,13 +72,15 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 382 : « Non soumis » au DPE (tuile Location, 18/10/2026).
   // 383 : préavis du locataire et zone tendue (tuiles Location / Gestion, 18/10/2026).
   // 384 : date de l'état des lieux de sortie prévu (accueil Location, 18/10/2026).
+  // 385 : état des lieux de sortie planifié — lien vers la tâche du module de tâches (accueil Location, 19/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
     '373_location_sortie_portefeuille.sql', '374_location_bien_complet.sql',
     '375_location_proprietaire_en_gestion.sql', '376_location_bien_famille.sql', '377_location_immeuble_ag.sql',
     '378_location_annexe_nom_pno.sql', '379_location_entretien_annexe_mandat.sql', '380_location_origine_archivage.sql',
-    '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql', '383_location_preavis.sql', '384_location_etat_des_lieux.sql'];
+    '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql', '383_location_preavis.sql', '384_location_etat_des_lieux.sql',
+    '385_location_edls.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -91,7 +93,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 384 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 385 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -101,14 +103,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (385)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (386)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(384\)/);
-    const renumerotee = planifier([...existants, { fichier: '385_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(385\)/);
+    const renumerotee = planifier([...existants, { fichier: '386_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['385_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['386_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -462,5 +464,24 @@ describe('384 (accueil Location : date de l’état des lieux de sortie prévu) 
     expect(contenu).not.toMatch(/\b(INSERT INTO|DELETE|TRUNCATE|DROP|DEFAULT)\b/i);
     expect(contenu).not.toMatch(/^\s*UPDATE\b/im);
     expect(contenu).not.toMatch(/\bsortie\s*=/);
+  });
+});
+
+describe('385 (accueil Location : EDLS planifié, lien vers la tâche) : enveloppée, une table neuve, aucune ligne existante touchée', () => {
+  const contenu = lire(MIGRATIONS, '385_location_edls.sql');
+  const a = analyserMigration({ fichier: '385_location_edls.sql', contenu });
+  it('passe le garde, enveloppée, réversible ; une table neuve, aucune colonne ajoutée ailleurs, aucune table de tâches en double', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.colonnesAjoutees).toEqual([]);
+    expect(a.tablesCreees).toEqual(['gestion_location_edls']);
+    expect(contenu).toMatch(/REFERENCES gestion_tache\(id\)/);
+  });
+  it('aucune donnée écrite ni supprimée ; le lien est verrouillé en base (ni DELETE, ni TRUNCATE, clôture seule)', () => {
+    expect(contenu).not.toMatch(/INSERT INTO/);
+    expect(contenu).not.toMatch(/^\s*(UPDATE|DELETE)\b/im);
+    expect(contenu).toMatch(/BEFORE UPDATE OR DELETE ON gestion_location_edls/);
+    expect(contenu).toMatch(/BEFORE TRUNCATE ON gestion_location_edls/);
   });
 });
