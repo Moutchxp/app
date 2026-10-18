@@ -74,7 +74,7 @@ describe.skipIf(!baseEssai)('🔴 portefeuille de la Location', () => {
 
   it('② sortie du portefeuille et réactivation : rien n’est effacé, le propriétaire entraîne ses biens', async () => {
     const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n);
-    const s = ok(await sortirDuPortefeuille('proprietaire', proprietaireId, AUTEUR));
+    const s = ok(await sortirDuPortefeuille('proprietaire', proprietaireId, AUTEUR, { origine: { origine: 'litige' } }));
     expect(s.biens).toBeGreaterThanOrEqual(2); // logement + cave (+ le bien en fin de gestion, encore au portefeuille de la fiche)
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n)).toBe(avant);
     // Retouche d'Arno (17/10/2026) : les fiches sorties restent TROUVABLES, marquées « Ancien » (en bas, grisées, à l'écran).
@@ -96,7 +96,7 @@ describe.skipIf(!baseEssai)('🔴 portefeuille de la Location', () => {
     const l = ok(await creerLocataireSurBien({ locataireId: null, locataire: { nom: `MODELE${S}`, email: `jules.${S}@exemple.test` }, lotId: logementId, entree: '2026-03-01' }, AUTEUR));
     // Règle d'Arno du 18/10/2026 (remplace « sortie refusée si locataire en place ») : sans confirmation, refus — même par appel direct.
     expect(await sortirDuPortefeuille('bien', logementId, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
-    expect(await sortirDuPortefeuille('proprietaire', proprietaireId, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
+    expect(await sortirDuPortefeuille('proprietaire', proprietaireId, AUTEUR, { origine: { origine: 'litige' } })).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
     expect(await sortirDuPortefeuille('locataire', l.locataireId, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
     // Rien n'a été écrit par ces refus.
     expect((await query<{ sortie: string | null }>('SELECT sortie::text FROM gestion_annuaire_occupation WHERE locataire_id = $1', [l.locataireId])).rows[0].sortie).toBeNull();

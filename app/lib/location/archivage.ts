@@ -51,8 +51,8 @@ export interface ApercuArchivage {
   sujet: SujetPortefeuille;
   id: number;
   nom: string;
-  /** Déjà sorti du portefeuille : quand, par qui (`null` = actif). */
-  sortie: { le: string; par: string | null } | null;
+  /** Déjà sorti du portefeuille : quand, par qui, et l'origine (propriétaire, migration 380) — `null` = actif. */
+  sortie: { le: string; par: string | null; origine?: string | null } | null;
   /** Les biens et annexes qui sortiront (identifiants). */
   biens: number[];
   partages: BienPartage[];
@@ -102,4 +102,61 @@ export function dateEntree(iso: string | null): string {
 /** « 12 rue X, Paris · lot 315 » — l'adresse et le N° de lot d'un bien. */
 export function libelleBien(b: { adresse: string | null; lot: string | null; lotId: number }): string {
   return [b.adresse ?? `Bien ${b.lotId}`, b.lot === null ? null : `lot ${b.lot}`].filter((x) => x !== null).join(' · ');
+}
+
+// ══ L'ORIGINE DE L'ARCHIVAGE D'UN PROPRIÉTAIRE (Arno, 18/10/2026 — migration 380) ═══════════════════════════════════════
+// « Dernière question avant l'archivage définitif » : un seul choix, une sous-question obligatoire pour la mise en vente,
+// une précision libre facultative. Codes STABLES (ceux de la base) ; les libellés vivent ici.
+
+export const ORIGINES = ['recupere_proprietaire', 'mise_en_vente', 'mecontent', 'deces_succession', 'litige'] as const;
+export type Origine = (typeof ORIGINES)[number];
+export const SOUS_ORIGINES_VENTE = ['notre_agence', 'autre_agence', 'lui_meme', 'indetermine'] as const;
+export type SousOrigine = (typeof SOUS_ORIGINES_VENTE)[number];
+
+export const LIBELLE_ORIGINE: Record<Origine, string> = {
+  recupere_proprietaire: 'Récupéré par le propriétaire / sa famille',
+  mise_en_vente: 'Mise en vente',
+  mecontent: 'Propriétaire mécontent',
+  deces_succession: 'Décès / succession',
+  litige: 'Litige',
+};
+export const LIBELLE_SOUS_ORIGINE: Record<SousOrigine, string> = {
+  notre_agence: 'Par notre agence',
+  autre_agence: 'Par une autre agence',
+  lui_meme: 'Par lui-même',
+  indetermine: 'Indéterminé',
+};
+
+export const QUESTION_ORIGINE = 'Quelle est l’origine de l’archivage de ce propriétaire ?';
+export const MOTIF_ORIGINE_REQUISE = 'Indiquez l’origine de l’archivage de ce propriétaire (et, pour une mise en vente, par qui) : rien n’a été archivé.';
+const PRECISION_MAX = 1000;
+
+export interface OrigineArchivage { origine: Origine; sousOrigine: SousOrigine | null; precision: string | null }
+
+/** Vérifie l'origine envoyée (écran ou appel direct). `null` = incomplète : le serveur refuse l'archivage. */
+export function verifierOrigine(brut: unknown): OrigineArchivage | null {
+  if (brut === null || typeof brut !== 'object') return null;
+  const o = brut as Record<string, unknown>;
+  if (!(ORIGINES as readonly unknown[]).includes(o.origine)) return null;
+  const origine = o.origine as Origine;
+  const sous = (SOUS_ORIGINES_VENTE as readonly unknown[]).includes(o.sousOrigine) ? o.sousOrigine as SousOrigine : null;
+  if ((origine === 'mise_en_vente') !== (sous !== null)) return null;
+  const p = typeof o.precision === 'string' ? o.precision.trim().slice(0, PRECISION_MAX) : '';
+  return { origine, sousOrigine: sous, precision: p === '' ? null : p };
+}
+
+/** « Mise en vente par une autre agence » · « Litige » — le libellé affiché après « Archivé le … par X — ». */
+export function libelleOrigine(o: { origine: string; sousOrigine: string | null }): string {
+  const base = LIBELLE_ORIGINE[o.origine as Origine] ?? o.origine;
+  if (o.origine !== 'mise_en_vente' || o.sousOrigine === null) return base;
+  const suite: Record<SousOrigine, string> = {
+    notre_agence: 'par notre agence', autre_agence: 'par une autre agence', lui_meme: 'par lui-même', indetermine: '(vendeur indéterminé)',
+  };
+  const s = suite[o.sousOrigine as SousOrigine];
+  return s === undefined ? base : `${base} ${s}`;
+}
+
+/** Le bouton final est-il permis ? (un choix ; et, pour la mise en vente, la sous-question répondue) */
+export function originePrete(origine: Origine | null, sous: SousOrigine | null): boolean {
+  return origine !== null && (origine !== 'mise_en_vente' || sous !== null);
 }

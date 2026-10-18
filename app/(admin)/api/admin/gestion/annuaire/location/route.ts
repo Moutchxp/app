@@ -21,7 +21,7 @@ import { detacherAnnexe } from '../../../../../../lib/location/entretienAnnexeRe
  * GET `?proprietaire=N` · `?lot=N` · `?locataire=N` · `?syndics=1` (syndics connus, pour le choix du syndic du bien) ·
  *   `?apercuArchivage=N&sujet=proprietaire|bien|locataire` (ce que la sortie fera : biens, locations en cours à clore…).
  * POST `{ action }` : numero-mandat · en-gestion · modifier-bien · complements-bien · ajouter-annexe · rattacher-annexe ·
- *   conditions-location · sortir (+ `confirmeOccupation`) | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · detacher-annexe (Arno, 18/10/2026 :
+ *   conditions-location · sortir (+ `confirmeOccupation` ; + `origine`, obligatoire pour un propriétaire) | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · detacher-annexe (Arno, 18/10/2026 :
  *   une marque « louable séparément » ; le lien parent n'est jamais touché). `numero-mandat` prend `sorte: 'transaction'`.
  * 🔴 AUCUNE SUPPRESSION ni aucun envoi de mail n'est atteignable d'ici.
  */
@@ -108,7 +108,7 @@ export async function POST(request: Request): Promise<Response> {
       case 'reactiver': {
         const quoi = corps.sujet === 'proprietaire' || corps.sujet === 'locataire' || corps.sujet === 'bien' ? corps.sujet as SujetPortefeuille : null;
         if (quoi === null || id === null) return incomplet();
-        return repondre(corps.action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true })
+        return repondre(corps.action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine })
           : await reactiverDansPortefeuille(quoi, id, auteur));
       }
       default:

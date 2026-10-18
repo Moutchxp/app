@@ -7,7 +7,8 @@ import { createRoot, type Root } from 'react-dom/client';
  * 🔴🔴 « SUPPRIMER UN PROPRIÉTAIRE » (Arno, 18/10/2026) — le VRAI écran, routes simulées : rien ne part, rien n'est écrit.
  *   ① au départ, une ligne de recherche seulement ; la recherche ne demande QUE des propriétaires (pastille rouge) ;
  *   ② clic → la fiche commune (même composant que la Gestion) et, collés en haut, la recherche puis le GROS BOUTON ;
- *   ③ aucun bien occupé → bouton rouge « Archiver le propriétaire et son historique » → confirmation simple → sortie ;
+ *   ③ aucun bien occupé → bouton rouge « Archiver le propriétaire et son historique » → confirmation simple → dernière
+ *      question (origine ; mise en vente → par qui, obligatoire) → « Archiver définitivement », seul clic qui écrit ;
  *   ④ au moins un bien occupé → bouton orange → modale des biens occupés (adresse, lot, locataire, entrée), le bien
  *      partagé dit « PAS archivé » → « Confirmer l'archivage du propriétaire et de ses biens » envoie la confirmation ;
  *   ⑤ archivé → « Réactiver le propriétaire et ses biens ».
@@ -18,6 +19,7 @@ vi.mock('../gestion/FicheCommune', () => ({
       createElement('button', { type: 'button', 'data-ouvrir-bien': true, onClick: () => ouvrir?.({ sorte: 'lot', id: 40 }) }, 'Ouvrir le bien 40')),
 }));
 import { EcranArchivageProprietaire } from './ArchivageProprietaire';
+import { BlocSortie } from '../gestion/SectionsLocationFiche';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -106,17 +108,43 @@ describe('🔴 « Supprimer un propriétaire »', () => {
     expect(container.querySelector('[data-fiche-commune]')?.getAttribute('data-fiche-commune')).toBe('proprietaire-7');
   });
 
-  it('③ aucun bien occupé : bouton ROUGE → confirmation simple → sortie (sans confirmation d’occupation)', async () => {
+  it('③ aucun bien occupé : ROUGE → confirmation simple → DERNIÈRE QUESTION (rien n’est écrit) → « Archiver définitivement »', async () => {
     await ouvrirClaire();
     expect(bouton()?.className).toBe('arc-gros arc-gros--archiver');
     await cliquer(bouton());
     expect(container.querySelector('[data-modale-archivage]')).toBeNull();
     await cliquer(container.querySelector('[data-confirmer-archivage]'));
-    expect(envois).toEqual([{ action: 'sortir', sujet: 'proprietaire', id: 7 }]);
+    // L'étape finale, DANS le même panneau : rien n'est parti.
+    expect(envois).toEqual([]);
+    const q = container.querySelector('[data-question-origine]');
+    expect(q?.textContent).toContain('Quelle est l’origine de l’archivage de ce propriétaire ?');
+    expect([...(q?.querySelectorAll('[data-origine]') ?? [])].map((b) => b.textContent)).toEqual([
+      'Récupéré par le propriétaire / sa famille', 'Mise en vente', 'Propriétaire mécontent', 'Décès / succession', 'Litige']);
+    const final = () => container.querySelector('[data-archiver-definitivement]') as HTMLButtonElement;
+    expect(final().disabled).toBe(true);
+    // Mise en vente : la sous-question est obligatoire.
+    await cliquer(container.querySelector('[data-origine="mise_en_vente"]'));
+    expect(container.querySelectorAll('[data-sous-origine]')).toHaveLength(4);
+    expect(final().disabled).toBe(true);
+    await cliquer(container.querySelector('[data-sous-origine="autre_agence"]'));
+    expect(final().disabled).toBe(false);
+    // Un autre choix efface la sous-question ; un seul choix à la fois.
+    await cliquer(container.querySelector('[data-origine="litige"]'));
+    expect(container.querySelector('[data-sous-question]')).toBeNull();
+    expect([...container.querySelectorAll('[data-origine][aria-checked="true"]')].map((b) => b.getAttribute('data-origine'))).toEqual(['litige']);
+    // « Retour » revient à la confirmation, sans rien écrire.
+    await cliquer([...container.querySelectorAll('button')].find((b) => b.textContent === 'Retour') ?? null);
+    expect(container.querySelector('[data-question-origine]')).toBeNull();
+    expect(envois).toEqual([]);
+    await cliquer(container.querySelector('[data-confirmer-archivage]'));
+    await cliquer(container.querySelector('[data-origine="mise_en_vente"]'));
+    await cliquer(container.querySelector('[data-sous-origine="autre_agence"]'));
+    await cliquer(final());
+    expect(envois).toEqual([{ action: 'sortir', sujet: 'proprietaire', id: 7, origine: { origine: 'mise_en_vente', sousOrigine: 'autre_agence', precision: null } }]);
     expect(container.textContent).toContain('EXEMPLE Claire est archivé');
   });
 
-  it('④ un bien occupé : bouton ORANGE → modale des biens occupés, bien partagé « PAS archivé » → confirmation envoyée', async () => {
+  it('④ un bien occupé : ORANGE → modale des biens occupés → « Confirmer… » → la question DANS LA MÊME MODALE → envoi', async () => {
     reponseApercu = () => apercu({
       occupees: [{ occupationId: 3, lotId: 40, adresse: '14 rue de l’Essai, PARIS', lot: '315', locataireId: 2, locataire: 'MODÈLE Jules', entree: '2024-09-01' }],
       partages: [{ lotId: 50, adresse: '9 rue Partagée, PARIS', lot: null, autres: ['COINDIVIS Marc'], occupe: false }],
@@ -133,21 +161,27 @@ describe('🔴 « Supprimer un propriétaire »', () => {
     expect(occ?.textContent).toContain('entré(e) le 01/09/2024');
     expect(modale?.querySelector('[data-biens-partages]')?.textContent).toContain('n’est PAS archivé');
     expect(modale?.querySelector('[data-biens-partages]')?.textContent).toContain('COINDIVIS Marc');
-    const confirmer = modale?.querySelector('[data-confirmer-archivage]');
-    expect(confirmer?.textContent).toBe('Confirmer l’archivage du propriétaire et de ses biens');
-    // « Annuler » ferme sans rien envoyer.
-    await cliquer([...(modale?.querySelectorAll('button') ?? [])].find((b) => b.textContent === 'Annuler') ?? null);
-    expect(document.querySelector('[data-modale-archivage]')).toBeNull();
+    expect(modale?.querySelector('[data-confirmer-archivage]')?.textContent).toBe('Confirmer l’archivage du propriétaire et de ses biens');
+    await cliquer(modale?.querySelector('[data-confirmer-archivage]') ?? null);
+    // Même modale (une seule), étape finale ; rien n'est parti.
+    expect(document.querySelectorAll('[data-modale-archivage]')).toHaveLength(1);
+    expect(document.querySelector('[data-modale-archivage] [data-question-origine]')).not.toBeNull();
     expect(envois).toEqual([]);
-    await cliquer(bouton());
+    const final = () => document.querySelector('[data-archiver-definitivement]') as HTMLButtonElement;
+    expect(final().disabled).toBe(true);
+    // « Retour » revient à la liste des biens occupés.
+    await cliquer([...document.querySelectorAll('[data-modale-archivage] button')].find((b) => b.textContent === 'Retour') ?? null);
+    expect(document.querySelector('[data-modale-archivage] [data-occupation="3"]')).not.toBeNull();
     await cliquer(document.querySelector('[data-confirmer-archivage]'));
-    expect(envois).toEqual([{ action: 'sortir', sujet: 'proprietaire', id: 7, confirmeOccupation: true }]);
+    await cliquer(document.querySelector('[data-origine="deces_succession"]'));
+    await cliquer(final());
+    expect(envois).toEqual([{ action: 'sortir', sujet: 'proprietaire', id: 7, confirmeOccupation: true, origine: { origine: 'deces_succession', sousOrigine: null, precision: null } }]);
   });
 
   it('⑤ archivé : l’état daté et « Réactiver le propriétaire et ses biens »', async () => {
-    reponseApercu = () => apercu({ sortie: { le: '2026-10-18T10:00:00Z', par: 'Arno' }, biens: [] });
+    reponseApercu = () => apercu({ sortie: { le: '2026-10-18T10:00:00Z', par: 'Arno', origine: 'Mise en vente par une autre agence' }, biens: [] });
     await ouvrirClaire();
-    expect(container.querySelector('[data-archive]')?.textContent).toContain('Archivé le 18/10/2026 par Arno');
+    expect(container.querySelector('[data-archive]')?.textContent).toContain('Archivé le 18/10/2026 par Arno — Mise en vente par une autre agence');
     expect(bouton()?.textContent).toBe('Réactiver le propriétaire et ses biens');
     await cliquer(bouton());
     expect(envois).toEqual([{ action: 'reactiver', sujet: 'proprietaire', id: 7 }]);
@@ -159,5 +193,21 @@ describe('🔴 « Supprimer un propriétaire »', () => {
     await cliquer(container.querySelector('[data-index="0"]'));
     expect(container.querySelector('[data-fiche-commune]')).toBeNull();
     expect(container.textContent).toContain('Droit « Gestion » requis.');
+  });
+
+  it('fiche commune : sortir un propriétaire passe aussi par la dernière question ; l’origine s’affiche une fois archivé', async () => {
+    const apres = vi.fn();
+    await act(async () => { root.render(createElement(BlocSortie, { sujet: 'proprietaire', id: 7, sortie: null, apres, explication: 'Le propriétaire sort avec ses biens.' })); });
+    await cliquer([...container.querySelectorAll('button')].find((b) => b.textContent === 'Sortir du portefeuille…') ?? null);
+    expect(appels.some((u) => u.includes('apercuArchivage=7&sujet=proprietaire'))).toBe(true);
+    await cliquer([...container.querySelectorAll('button')].find((b) => b.textContent === 'Confirmer la sortie') ?? null);
+    expect(envois).toEqual([]);
+    expect(container.querySelector('[data-question-origine]')).not.toBeNull();
+    await cliquer(container.querySelector('[data-origine="recupere_proprietaire"]'));
+    await cliquer(container.querySelector('[data-archiver-definitivement]'));
+    expect(envois).toEqual([{ action: 'sortir', sujet: 'proprietaire', id: 7, origine: { origine: 'recupere_proprietaire', sousOrigine: null, precision: null } }]);
+    expect(apres).toHaveBeenCalled();
+    await act(async () => { root.render(createElement(BlocSortie, { sujet: 'proprietaire', id: 7, sortie: { le: '2026-10-18T10:00:00Z', par: 'Arno', origine: 'Litige' }, apres, explication: '' })); });
+    expect(container.querySelector('[data-origine-archivage]')?.textContent).toContain('Archivé le 18/10/2026 par Arno — Litige');
   });
 });

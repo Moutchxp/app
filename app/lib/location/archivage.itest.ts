@@ -8,7 +8,9 @@
  *   ④ archiver en confirmant : propriétaire, biens et annexes sortis (même instant, même auteur), propriétaire « archivé »
  *      dans la Gestion aussi (archive_le), locations closes à la date du jour, locataire archivé SAUF celui qui loue un
  *      autre bien, bien partagé PAS archivé ; aucune ligne effacée ; journal daté et signé ;
- *   ⑤ réactiver : propriétaire et biens reviennent, la Gestion aussi ; les locations closes restent closes (historique).
+ *   ⑤ réactiver : propriétaire et biens reviennent, la Gestion aussi ; les locations closes restent closes (historique) ;
+ *   ⑥ l'ORIGINE (Arno, 18/10/2026, migration 380) : refus sans origine (rien d'écrit), enregistrée (code, sous-origine,
+ *      précision, date, auteur), affichée sur la fiche archivée, CONSERVÉE après réactivation, table en ajout seul.
  *
  * VRAIES fonctions, VRAIE base (schéma copié, vide). 🔒 REFUSE de tourner ailleurs que sur une base `svav_jetable…` ou
  * `svav_test…`.
@@ -19,8 +21,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { closePool, query } from '../db/client';
 import { ajouterProprietaireAuLot } from '../gestion/annuaireEditionRepo';
 import { creerProprietaireEtBiens, ficheBienLocation } from './locationRepo';
-import { apercuArchivage, creerLocataireSurBien, reactiverDansPortefeuille, rechercherPortefeuille, sortirDuPortefeuille } from './portefeuilleRepo';
-import { etatBouton, MOTIF_OCCUPATION_A_CONFIRMER } from './archivage';
+import { apercuArchivage, creerLocataireSurBien, reactiverDansPortefeuille, rechercherPortefeuille, sortieDe, sortirDuPortefeuille } from './portefeuilleRepo';
+import { etatBouton, MOTIF_OCCUPATION_A_CONFIRMER, MOTIF_ORIGINE_REQUISE } from './archivage';
 
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
@@ -86,7 +88,12 @@ describe.skipIf(!baseEssai)('🔴 archiver un propriétaire (sortie du portefeui
   it('③ sans confirmer l’avertissement : refus, rien n’est écrit', async () => {
     const avant = await Promise.all(TABLES.map(compter));
     const journal = await compter('gestion_journal');
-    expect(await sortirDuPortefeuille('proprietaire', proprio, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
+    const VENTE = { origine: 'mise_en_vente', sousOrigine: 'autre_agence', precision: 'compromis signé' };
+    expect(await sortirDuPortefeuille('proprietaire', proprio, AUTEUR, { origine: VENTE })).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
+    // Sans origine, ou mise en vente sans « par qui » : refus, même confirmé.
+    expect(await sortirDuPortefeuille('proprietaire', proprio, AUTEUR, { confirmeOccupation: true })).toEqual({ etat: 'refus', motif: MOTIF_ORIGINE_REQUISE });
+    expect(await sortirDuPortefeuille('proprietaire', proprio, AUTEUR, { confirmeOccupation: true, origine: { origine: 'mise_en_vente' } })).toEqual({ etat: 'refus', motif: MOTIF_ORIGINE_REQUISE });
+    expect((await query('SELECT 1 FROM gestion_proprietaire_archivage_origine WHERE proprietaire_id = $1', [proprio])).rows).toEqual([]);
     expect(await Promise.all(TABLES.map(compter))).toEqual(avant);
     expect(await compter('gestion_journal')).toBe(journal);
     expect((await query<{ s: boolean }>('SELECT sorti_portefeuille_le IS NOT NULL AS s FROM gestion_annuaire_proprietaire WHERE id = $1', [proprio])).rows[0].s).toBe(false);
@@ -94,7 +101,8 @@ describe.skipIf(!baseEssai)('🔴 archiver un propriétaire (sortie du portefeui
 
   it('④ confirmé : tout sort (même instant), locations closes aujourd’hui, aucune ligne effacée, journal signé', async () => {
     const avant = await Promise.all(TABLES.map(compter));
-    const bilan = ok(await sortirDuPortefeuille('proprietaire', proprio, AUTEUR, { confirmeOccupation: true }));
+    const bilan = ok(await sortirDuPortefeuille('proprietaire', proprio, AUTEUR, { confirmeOccupation: true,
+      origine: { origine: 'mise_en_vente', sousOrigine: 'autre_agence', precision: 'compromis signé' } }));
     expect(bilan).toEqual({ biens: 3, locations: 2, locataires: 1 });
     expect(await Promise.all(TABLES.map(compter))).toEqual(avant);
 
@@ -127,6 +135,14 @@ describe.skipIf(!baseEssai)('🔴 archiver un propriétaire (sortie du portefeui
     expect(j).toHaveLength(1);
     expect(j[0].auteur).toBe('itest archivage');
     expect(j[0].commentaire).toContain('2 location(s) close(s)');
+    expect(j[0].commentaire).toContain('origine : Mise en vente par une autre agence — précision : compromis signé');
+    // L'origine : une ligne, au même instant que la sortie, même auteur ; affichée sur la fiche archivée.
+    const { rows: o } = await query<{ origine: string; sous: string; precision: string; le: string; par: string }>(
+      `SELECT origine, sous_origine AS sous, precision_libre AS precision, archive_le::text AS le, archive_par_libelle AS par
+         FROM gestion_proprietaire_archivage_origine WHERE proprietaire_id = $1`, [proprio]);
+    expect(o).toEqual([{ origine: 'mise_en_vente', sous: 'autre_agence', precision: 'compromis signé', le: p[0].le, par: 'itest archivage' }]);
+    expect(await sortieDe('proprietaire', proprio)).toMatchObject({ par: 'itest archivage', origine: 'Mise en vente par une autre agence (compromis signé)' });
+    expect((await apercuArchivage('proprietaire', proprio))?.sortie?.origine).toBe('Mise en vente par une autre agence (compromis signé)');
     expect(j[0].commentaire).toContain(`bien(s) partagé(s) laissé(s) dans le portefeuille : ${partage}`);
     // Il reste consultable dans « Anciens » : la recherche le rend, marqué.
     expect((await rechercherPortefeuille(`ARCHIVE${S}`, { proprietairesSeuls: true })).proprietaires).toEqual([expect.objectContaining({ id: proprio, ancien: true })]);
@@ -149,5 +165,19 @@ describe.skipIf(!baseEssai)('🔴 archiver un propriétaire (sortie du portefeui
     const a = await apercuArchivage('proprietaire', proprio);
     // Ses locations ont été closes ; le bien partagé, encore loué, n'est pas archivé avec lui : plus rien à clore → bouton rouge.
     expect(a && etatBouton(a)).toBe('archiver');
+  });
+
+  it('⑥ la réactivation garde l’origine dans l’historique ; un nouvel archivage en ajoute une ; la table refuse toute modification', async () => {
+    const { rows: avant } = await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_proprietaire_archivage_origine WHERE proprietaire_id = $1', [proprio]);
+    expect(Number(avant[0].n)).toBe(1);
+    expect(await sortieDe('proprietaire', proprio)).toBeNull(); // réactivé (⑤) : plus « archivé », mais la ligne reste
+    ok(await sortirDuPortefeuille('proprietaire', proprio, AUTEUR, { origine: { origine: 'litige' } }));
+    const { rows } = await query<{ origine: string }>('SELECT origine FROM gestion_proprietaire_archivage_origine WHERE proprietaire_id = $1 ORDER BY id', [proprio]);
+    expect(rows.map((r) => r.origine)).toEqual(['mise_en_vente', 'litige']);
+    expect((await sortieDe('proprietaire', proprio))?.origine).toBe('Litige');
+    await expect(query('UPDATE gestion_proprietaire_archivage_origine SET origine = $2 WHERE proprietaire_id = $1', [proprio, 'mecontent'])).rejects.toThrow();
+    await expect(query('DELETE FROM gestion_proprietaire_archivage_origine WHERE proprietaire_id = $1', [proprio])).rejects.toThrow();
+    ok(await reactiverDansPortefeuille('proprietaire', proprio, AUTEUR));
+    expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_proprietaire_archivage_origine WHERE proprietaire_id = $1', [proprio])).rows[0].n)).toBe(2);
   });
 });

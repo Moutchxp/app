@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  dateEntree, LIBELLE_BOUTON, LIBELLE_CONFIRMER_OCCUPE, libelleBien, phraseArchivage, type ApercuArchivage,
+  dateEntree, LIBELLE_BOUTON, LIBELLE_CONFIRMER_OCCUPE, libelleBien, phraseArchivage, type ApercuArchivage, type OrigineArchivage,
 } from '../../../../lib/location/archivage';
+import { QuestionOrigine } from './QuestionOrigine';
 
 /**
  * ══ 🔴🔴 L'AVERTISSEMENT « AU MOINS UN BIEN EST OCCUPÉ » (Arno, 18/10/2026) ═══════════════════════════════════════════
@@ -16,6 +17,8 @@ import {
  * (propriétaire, bien, locataire). Le contenu vient de l'APERÇU du serveur, le même calcul que l'écriture.
  * La feuille de style est DANS le portail : la modale est posée sur la racine du thème (`.svv-adm-root`), hors du cadre
  * de l'écran.
+ * `demanderOrigine` (un PROPRIÉTAIRE, Arno 18/10/2026) : « Confirmer… » ne fait que passer à la DERNIÈRE QUESTION, dans la
+ * même modale ; seul « Archiver définitivement » appelle `onConfirmer` (avec l'origine). « Retour » revient à la liste.
  */
 const TITRE: Record<ApercuArchivage['sujet'], string> = {
   proprietaire: LIBELLE_BOUTON.alerte,
@@ -28,10 +31,12 @@ const CONFIRMER: Record<ApercuArchivage['sujet'], string> = {
   locataire: 'Confirmer la sortie du locataire',
 };
 
-export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler }: {
-  apercu: ApercuArchivage; envoi: boolean; motif: string | null; onConfirmer: () => void; onAnnuler: () => void;
+export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler, demanderOrigine = false }: {
+  apercu: ApercuArchivage; envoi: boolean; motif: string | null; onConfirmer: (origine?: OrigineArchivage) => void; onAnnuler: () => void;
+  demanderOrigine?: boolean;
 }) {
   const annuler = useRef<HTMLButtonElement | null>(null);
+  const [etape, setEtape] = useState<'liste' | 'origine'>('liste');
   useEffect(() => {
     annuler.current?.focus();
     const touche = (e: KeyboardEvent): void => { if (e.key === 'Escape') onAnnuler(); };
@@ -43,7 +48,13 @@ export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler }
     <div className="arc-voile" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onAnnuler(); }}>
       <style>{CSS_MODALE_ARCHIVAGE}</style>
       <div className="arc-modale" role="dialog" aria-modal="true" aria-labelledby="arc-titre" data-modale-archivage>
-        <h2 id="arc-titre" className="arc-titre">{TITRE[apercu.sujet]}</h2>
+        <h2 id="arc-titre" className={`arc-titre${etape === 'origine' ? ' arc-titre--question' : ''}`}>
+          {etape === 'origine' ? 'Dernière question avant l’archivage définitif' : TITRE[apercu.sujet]}</h2>
+        {etape === 'origine' ? (
+          <div className="arc-corps" data-etape="origine">
+            <QuestionOrigine envoi={envoi} motif={motif} onRetour={() => setEtape('liste')} onArchiver={(o) => onConfirmer(o)} />
+          </div>
+        ) : (<>
         <div className="arc-corps">
           <p className="arc-intro">
             {apercu.occupees.length === 1 ? 'Cette location est en cours ; elle sera close à la date du jour :'
@@ -78,9 +89,11 @@ export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler }
           {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
         </div>
         <div className="arc-pied">
-          <button type="button" className="arc-confirmer" disabled={envoi} onClick={onConfirmer} data-confirmer-archivage>{CONFIRMER[apercu.sujet]}</button>
+          <button type="button" className="arc-confirmer" disabled={envoi} data-confirmer-archivage
+            onClick={() => { if (demanderOrigine) setEtape('origine'); else onConfirmer(); }}>{CONFIRMER[apercu.sujet]}</button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn arc-annuler" ref={annuler} onClick={onAnnuler}>Annuler</button>
         </div>
+        </>)}
       </div>
     </div>,
     // Dans la racine du THÈME (comme les autres portails de l'admin) : posée sur `body`, la modale resterait claire en Sombre.
@@ -93,6 +106,7 @@ export const CSS_MODALE_ARCHIVAGE = `
 .arc-voile{position:fixed;inset:0;z-index:90;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);overflow-y:auto}
 .arc-modale{position:relative;box-sizing:border-box;width:min(720px, 100%);background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:16px;padding:20px;box-shadow:0 12px 40px color-mix(in srgb, var(--color-svv-ink) 28%, transparent);display:flex;flex-direction:column;gap:12px;max-height:min(92vh, calc(100dvh - 32px));overflow:hidden}
 .arc-titre{margin:0;font-size:1.15rem;font-weight:800;line-height:1.3;color:var(--color-svv-urgence-orange-texte);flex:0 0 auto}
+.arc-titre--question{color:var(--color-svv-ink)}
 .arc-corps{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:10px}
 .arc-intro,.arc-phrase{margin:0}
 .arc-phrase{color:var(--color-svv-muted);font-size:.92rem}

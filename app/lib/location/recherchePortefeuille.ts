@@ -78,4 +78,5 @@ export function aplatirResultats(r: Partial<ResultatsAccueil> | null | undefined
 }
 
 /** Ce qu'une fiche sortie du portefeuille affiche : quand et par qui. `null` = dans le portefeuille. */
-export interface SortiePortefeuille { le: string; par: string | null }
+/** La sortie du portefeuille ; `origine` = le libellé de l'origine d'un archivage de propriétaire (migration 380). */
+export interface SortiePortefeuille { le: string; par: string | null; origine?: string | null }

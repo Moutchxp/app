@@ -29,3 +29,25 @@ describe('archivage : le gros bouton suit l’occupation de TOUS les biens', () 
     expect(phraseArchivage('proprietaire')).toContain('sauf s’ils louent un autre bien du portefeuille');
   });
 });
+
+describe('origine de l’archivage (Arno, 18/10/2026)', () => {
+  it('un seul choix parmi cinq codes stables ; la mise en vente exige « par qui » ; précision facultative', async () => {
+    const { verifierOrigine, originePrete, ORIGINES, LIBELLE_ORIGINE } = await import('./archivage');
+    expect(ORIGINES).toEqual(['recupere_proprietaire', 'mise_en_vente', 'mecontent', 'deces_succession', 'litige']);
+    expect(Object.values(LIBELLE_ORIGINE)).toEqual(['Récupéré par le propriétaire / sa famille', 'Mise en vente', 'Propriétaire mécontent', 'Décès / succession', 'Litige']);
+    expect(verifierOrigine(undefined)).toBeNull();
+    expect(verifierOrigine({ origine: 'autre' })).toBeNull();
+    expect(verifierOrigine({ origine: 'mise_en_vente' })).toBeNull();
+    expect(verifierOrigine({ origine: 'litige', sousOrigine: 'notre_agence' })).toBeNull();
+    expect(verifierOrigine({ origine: 'mise_en_vente', sousOrigine: 'autre_agence', precision: '  ' })).toEqual({ origine: 'mise_en_vente', sousOrigine: 'autre_agence', precision: null });
+    expect(verifierOrigine({ origine: 'litige', precision: ' impayés ' })).toEqual({ origine: 'litige', sousOrigine: null, precision: 'impayés' });
+    expect([originePrete(null, null), originePrete('mise_en_vente', null), originePrete('mise_en_vente', 'lui_meme'), originePrete('mecontent', null)]).toEqual([false, false, true, true]);
+  });
+  it('le libellé de la fiche archivée', async () => {
+    const { libelleOrigine } = await import('./archivage');
+    expect(libelleOrigine({ origine: 'mise_en_vente', sousOrigine: 'autre_agence' })).toBe('Mise en vente par une autre agence');
+    expect(libelleOrigine({ origine: 'mise_en_vente', sousOrigine: 'notre_agence' })).toBe('Mise en vente par notre agence');
+    expect(libelleOrigine({ origine: 'mise_en_vente', sousOrigine: 'indetermine' })).toBe('Mise en vente (vendeur indéterminé)');
+    expect(libelleOrigine({ origine: 'deces_succession', sousOrigine: null })).toBe('Décès / succession');
+  });
+});

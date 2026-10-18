@@ -26,12 +26,12 @@ export function EcranProprietairesBiens() {
           3 cases de l'accueil. Retirés sur décision d'Arno (17/10/2026) : le bouton « + Nouveau propriétaire + bien » (doublon de
           ces 2 boutons) et le tableau Propriétaires / Biens (onglets, Actifs / Anciens, liste paginée) — les fiches, anciens
           compris, s'ouvrent par le moteur de recherche de l'accueil. */}
-      {/* Arno (18/10/2026) : TROIS grosses cases — « Supprimer un propriétaire » (blanc, NOUVELLE, en première position), puis
-          les deux cases inchangées. */}
+      {/* Arno (18/10/2026) : TROIS grosses cases — « Supprimer un propriétaire » (NOUVELLE, en première position, SEULE à porter
+          la trame rouge), puis « Créer un nouveau propriétaire » et « Ajouter un nouveau bien », en blanc. Effet 3D sur les trois. */}
       <ul className="loc-gros-boutons loc-gros-boutons--3d loc-gros-boutons--trois" aria-label="Propriétaires et biens">
-        <li><a className="loc-gros-bouton" href="/admin/location/proprietaires/archiver" data-gros="supprimer-proprietaire">
+        <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/proprietaires/archiver" data-gros="supprimer-proprietaire">
           Supprimer un propriétaire<small>Archiver un propriétaire et ses biens : ils sortent du portefeuille, rien n’est effacé, réactivable.</small></a></li>
-        <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/nouveau-proprietaire" data-gros="proprietaire">
+        <li><a className="loc-gros-bouton" href="/admin/location/nouveau-proprietaire" data-gros="proprietaire">
           Créer un nouveau propriétaire<small>Une carte de contact par personne (couple, indivision, SCI…), puis son bien.</small></a></li>
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-bien" data-gros="bien">
           Ajouter un nouveau bien<small>Pour un propriétaire déjà connu : adresse, logement, copropriété, annexes, DPE…</small></a></li>

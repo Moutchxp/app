@@ -21,7 +21,8 @@ import { libelleEntretien } from '../../../../lib/location/entretien';
 import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien } from '../location/EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from '../location/ZoneAuto';
 import { ModaleArchivage } from '../location/ModaleArchivage';
-import { libelleBien, phraseArchivage, type ApercuArchivage } from '../../../../lib/location/archivage';
+import { QuestionOrigine } from '../location/QuestionOrigine';
+import { libelleBien, phraseArchivage, type ApercuArchivage, type OrigineArchivage } from '../../../../lib/location/archivage';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type {
@@ -132,12 +133,14 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
   const [apercu, setApercu] = useState<ApercuArchivage | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
-  const agir = async (action: 'sortir' | 'reactiver', confirmeOccupation = false): Promise<void> => {
+  // Un PROPRIÉTAIRE : la dernière question (origine de l'archivage) avant le seul clic qui écrit (Arno, 18/10/2026).
+  const [etapeOrigine, setEtapeOrigine] = useState(false);
+  const agir = async (action: 'sortir' | 'reactiver', confirmeOccupation = false, origine?: OrigineArchivage): Promise<void> => {
     setEnvoi(true);
-    const m = await envoyer({ action, sujet, id, ...(confirmeOccupation ? { confirmeOccupation: true } : {}) });
+    const m = await envoyer({ action, sujet, id, ...(confirmeOccupation ? { confirmeOccupation: true } : {}), ...(origine === undefined ? {} : { origine }) });
     setEnvoi(false);
     setMotif(m);
-    if (m === null) { setApercu(null); apres(); }
+    if (m === null) { setApercu(null); setEtapeOrigine(false); apres(); }
   };
   const preparer = async (): Promise<void> => {
     setMotif(null);
@@ -152,12 +155,18 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
     <section aria-label="Portefeuille">
       {sortie !== null ? (
         <div className="loc-sortie" role="status" data-sortie>
-          <span><strong>Sorti du portefeuille</strong> le {date(sortie.le)}{sortie.par === null ? '' : ` par ${sortie.par}`} — la fiche reste consultable, rien n’a été effacé.</span>
+          {sujet === 'proprietaire'
+            ? <span data-origine-archivage><strong>Archivé le {date(sortie.le)}{sortie.par === null ? '' : ` par ${sortie.par}`}{sortie.origine ? ` — ${sortie.origine}` : ''}</strong> · sorti du portefeuille, la fiche reste consultable, rien n’a été effacé.</span>
+            : <span><strong>Sorti du portefeuille</strong> le {date(sortie.le)}{sortie.par === null ? '' : ` par ${sortie.par}`} — la fiche reste consultable, rien n’a été effacé.</span>}
           <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => void agir('reactiver')}>Réactiver</button>
         </div>
       ) : apercu === null || occupe ? (
         <div className="loc-boutons" style={{ justifyContent: 'flex-start', marginTop: 0 }}>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => void preparer()}>Sortir du portefeuille…</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => { setEtapeOrigine(false); void preparer(); }}>Sortir du portefeuille…</button>
+        </div>
+      ) : etapeOrigine ? (
+        <div className="loc-confirmation" role="alertdialog" aria-label="Dernière question avant l’archivage définitif" data-etape="origine">
+          <QuestionOrigine envoi={envoi} motif={motif} onRetour={() => { setEtapeOrigine(false); setMotif(null); }} onArchiver={(o) => void agir('sortir', false, o)} />
         </div>
       ) : (
         <div className="loc-confirmation" role="alertdialog" aria-label="Confirmer la sortie du portefeuille">
@@ -168,14 +177,16 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
           <p className="loc-muet" style={{ margin: '0 0 8px' }}>{phraseArchivage(sujet)}</p>
           <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setApercu(null)}>Annuler</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void agir('sortir')}>Confirmer la sortie</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi}
+              onClick={() => { if (sujet === 'proprietaire') setEtapeOrigine(true); else void agir('sortir'); }}>Confirmer la sortie</button>
           </div>
         </div>
       )}
       {occupe && sortie === null && (
-        <ModaleArchivage apercu={apercu} envoi={envoi} motif={motif} onConfirmer={() => void agir('sortir', true)} onAnnuler={() => { setApercu(null); setMotif(null); }} />
+        <ModaleArchivage apercu={apercu} envoi={envoi} motif={motif} demanderOrigine={sujet === 'proprietaire'}
+          onConfirmer={(o) => void agir('sortir', true, o)} onAnnuler={() => { setApercu(null); setMotif(null); }} />
       )}
-      {motif !== null && !occupe && <p className="cp-refus" role="alert">{motif}</p>}
+      {motif !== null && !occupe && !etapeOrigine && <p className="cp-refus" role="alert">{motif}</p>}
     </section>
   );
 }
@@ -187,7 +198,7 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
   const resume = lu.etat === 'ok'
     ? [lu.data.enGestion === null ? null : `en gestion : ${lu.data.enGestion ? 'oui' : 'non'}`, lu.data.numeroMandat === null ? null : `mandat ${lu.data.numeroMandat}`,
       lu.data.numeroMandatTransaction ? `mandat de transaction ${lu.data.numeroMandatTransaction}` : null,
-      lu.data.sortie === null ? null : 'sorti du portefeuille'].filter((x) => x).join(' · ')
+      lu.data.sortie === null ? null : `archivé${lu.data.sortie.origine ? ` — ${lu.data.sortie.origine}` : ''}`].filter((x) => x).join(' · ')
     : '';
   return (
     <Repli titre="Location — gestion, mandat et portefeuille" resume={resume}>

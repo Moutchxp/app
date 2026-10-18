@@ -4,10 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
 import { CSS_MODALE_ARCHIVAGE, ModaleArchivage } from './ModaleArchivage';
+import { QuestionOrigine } from './QuestionOrigine';
 import { FicheCommuneLocation } from '../gestion/FicheCommune';
 import { aplatirResultats, type LigneAccueil, type ResultatsAccueil } from '../../../../lib/location/recherchePortefeuille';
 import {
-  etatBouton, LIBELLE_BOUTON, libelleBien, phraseArchivage, type ApercuArchivage, type EtatBouton,
+  etatBouton, LIBELLE_BOUTON, libelleBien, phraseArchivage, type ApercuArchivage, type EtatBouton, type OrigineArchivage,
 } from '../../../../lib/location/archivage';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 
@@ -23,6 +24,8 @@ import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
  * Le gros bouton suit l'occupation de TOUS ses biens (aperçu du serveur, même calcul que l'écriture) :
  *   · aucune location en cours → ROUGE « Archiver le propriétaire et son historique » → confirmation simple ;
  *   · au moins une → ORANGE d'alerte → modale des biens occupés → « Confirmer l'archivage du propriétaire et de ses biens » ;
+ *   · puis, sur les deux chemins, la DERNIÈRE QUESTION (origine de l'archivage) dans la même étape → « Archiver
+ *     définitivement » — le seul clic qui écrit (Arno, 18/10/2026) ;
  *   · déjà archivé → « Réactiver le propriétaire et ses biens ».
  * ARCHIVER = SORTIR DU PORTEFEUILLE : rien n'est effacé (cf. `sortirDuPortefeuille`).
  */
@@ -140,6 +143,7 @@ type Lecture = ReturnType<typeof useLecture<ApercuArchivage>>['etat'];
 /** Le GROS BOUTON de la fonction, et ce qu'il ouvre (confirmation simple, modale des biens occupés, réactivation). */
 function BoutonArchivage({ etat, apres }: { etat: Lecture; apres: () => void }) {
   const [confirmer, setConfirmer] = useState(false);
+  const [etapeOrigine, setEtapeOrigine] = useState(false);
   const [modale, setModale] = useState(false);
   const [envoi, setEnvoi] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
@@ -151,9 +155,10 @@ function BoutonArchivage({ etat, apres }: { etat: Lecture; apres: () => void }) 
   if (a === null) return <button type="button" className="arc-gros arc-gros--attente" disabled>Chargement…</button>;
   const e: EtatBouton = etatBouton(a);
 
-  const agir = async (action: 'sortir' | 'reactiver', confirmeOccupation = false): Promise<void> => {
+  // 🔴 RIEN N'EST ÉCRIT avant « Archiver définitivement » : c'est le seul geste qui envoie la sortie (avec son origine).
+  const agir = async (action: 'sortir' | 'reactiver', confirmeOccupation = false, origine?: OrigineArchivage): Promise<void> => {
     setEnvoi(true); setMotif(null);
-    const r = await envoyer({ action, sujet: 'proprietaire', id: a.id, ...(confirmeOccupation ? { confirmeOccupation: true } : {}) });
+    const r = await envoyer({ action, sujet: 'proprietaire', id: a.id, ...(confirmeOccupation ? { confirmeOccupation: true } : {}), ...(origine === undefined ? {} : { origine }) });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
     const d = (r.data ?? {}) as { biens?: number; locations?: number; locataires?: number };
@@ -169,14 +174,20 @@ function BoutonArchivage({ etat, apres }: { etat: Lecture; apres: () => void }) 
     <div className="arc-action" data-bouton-archivage={e}>
       {e === 'reactiver' && a.sortie !== null && (
         <p className="loc-sortie arc-etat" role="status" data-archive>
-          <span><strong>Archivé</strong> le {date(a.sortie.le)}{a.sortie.par === null ? '' : ` par ${a.sortie.par}`} — la fiche, ses biens et tout leur historique restent consultables ; rien n’a été effacé.</span>
+          <span><strong>Archivé le {date(a.sortie.le)}{a.sortie.par === null ? '' : ` par ${a.sortie.par}`}{a.sortie.origine ? ` — ${a.sortie.origine}` : ''}</strong>
+            {' '}· la fiche, ses biens et tout leur historique restent consultables ; rien n’a été effacé.</span>
         </p>
       )}
       <button type="button" className={`arc-gros arc-gros--${e}`} disabled={envoi}
-        onClick={() => { setBilan(null); setMotif(null); if (e === 'reactiver') void agir('reactiver'); else if (e === 'alerte') setModale(true); else setConfirmer(true); }}>
+        onClick={() => { setBilan(null); setMotif(null); if (e === 'reactiver') void agir('reactiver'); else if (e === 'alerte') setModale(true); else { setConfirmer(true); setEtapeOrigine(false); } }}>
         {e === 'alerte' && <span aria-hidden="true" className="arc-pictogramme">⚠</span>}{LIBELLE_BOUTON[e]}
       </button>
-      {confirmer && e === 'archiver' && (
+      {confirmer && e === 'archiver' && etapeOrigine && (
+        <div className="loc-confirmation arc-confirmation" role="alertdialog" aria-label="Dernière question avant l’archivage définitif" data-etape="origine">
+          <QuestionOrigine envoi={envoi} motif={motif} onRetour={() => { setEtapeOrigine(false); setMotif(null); }} onArchiver={(o) => void agir('sortir', false, o)} />
+        </div>
+      )}
+      {confirmer && e === 'archiver' && !etapeOrigine && (
         <div className="loc-confirmation arc-confirmation" role="alertdialog" aria-label="Confirmer l’archivage">
           <p style={{ margin: '0 0 6px' }}><strong>Archiver {a.nom} et son historique ?</strong>{' '}
             {a.biens.length === 0 ? 'Aucun bien ne sort avec lui.' : `${a.biens.length} bien(s) et annexe(s) sortent avec lui.`}</p>
@@ -186,14 +197,14 @@ function BoutonArchivage({ etat, apres }: { etat: Lecture; apres: () => void }) 
           <p className="loc-muet" style={{ margin: '0 0 8px' }}>{phraseArchivage('proprietaire')}</p>
           <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setConfirmer(false)}>Annuler</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void agir('sortir')} data-confirmer-archivage>Confirmer l’archivage</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => setEtapeOrigine(true)} data-confirmer-archivage>Confirmer l’archivage</button>
           </div>
         </div>
       )}
       {modale && e === 'alerte' && (
-        <ModaleArchivage apercu={a} envoi={envoi} motif={motif} onConfirmer={() => void agir('sortir', true)} onAnnuler={() => setModale(false)} />
+        <ModaleArchivage apercu={a} envoi={envoi} motif={motif} demanderOrigine onConfirmer={(o) => void agir('sortir', true, o)} onAnnuler={() => { setModale(false); setMotif(null); }} />
       )}
-      {motif !== null && !modale && <p className="cp-refus" role="alert">{motif}</p>}
+      {motif !== null && !modale && !(confirmer && etapeOrigine) && <p className="cp-refus" role="alert">{motif}</p>}
       {bilan !== null && <p className="gst-info arc-bilan" role="status">{bilan}</p>}
     </div>
   );
@@ -206,6 +217,9 @@ function BoutonArchivage({ etat, apres }: { etat: Lecture; apres: () => void }) 
 const CSS_ECRAN_ARCHIVAGE = `
 .arc-cache{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .arc-collant{position:sticky;top:0;z-index:40;display:flex;flex-direction:column;gap:12px;padding:10px 0 12px;background:var(--color-svv-bg);border-bottom:1px solid var(--color-svv-line)}
+/* Une confirmation (ou la dernière question) ouverte : le bandeau ne colle plus — collé et plus haut que l'écran, son bas
+   (le bouton final) deviendrait inatteignable au téléphone. Il recolle dès qu'elle se ferme. */
+.arc-collant:has(.arc-confirmation){position:static}
 .arc-recherche{position:relative}
 .arc-panneau{top:calc(100% + 6px);max-height:min(60vh, 520px);z-index:45}
 .arc-res-ligne{width:100%;border:0;background:transparent;font:inherit;text-align:left;cursor:pointer;border-radius:10px}

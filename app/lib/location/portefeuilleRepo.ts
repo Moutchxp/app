@@ -10,7 +10,7 @@ import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, 
 import type { Issue } from './locationRepo';
 import { manquesClientLocation } from './cartesLocation';
 import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
-import { MOTIF_OCCUPATION_A_CONFIRMER, type ApercuArchivage } from './archivage';
+import { libelleOrigine, MOTIF_OCCUPATION_A_CONFIRMER, MOTIF_ORIGINE_REQUISE, verifierOrigine, type ApercuArchivage } from './archivage';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 
 /**
@@ -169,12 +169,33 @@ const TABLE: Record<SujetPortefeuille, string> = {
   proprietaire: 'gestion_annuaire_proprietaire', locataire: 'gestion_annuaire_locataire', bien: 'gestion_annuaire_lot',
 };
 
-/** La sortie d'une fiche (quand, par qui), ou `null` si elle est dans le portefeuille (ou sans la migration 373). */
+/** La table des origines d'archivage (migration 380) est-elle là ? */
+function origineDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_proprietaire_archivage_origine', 'origine');
+}
+
+/**
+ * L'ORIGINE de l'archivage EN COURS d'un propriétaire (libellé), ou `null` : la ligne dont l'instant est celui de la
+ * sortie. Les archivages passés (avant une réactivation) restent dans la table, mais ne s'affichent plus comme actuels.
+ */
+async function origineDeLArchivage(q: RequeteTx, proprietaireId: number, instant: string): Promise<string | null> {
+  if (!(await origineDisponible())) return null;
+  const { rows } = await q<{ origine: string; sous: string | null; precision: string | null }>(
+    `SELECT origine, sous_origine AS sous, precision_libre AS precision FROM gestion_proprietaire_archivage_origine
+      WHERE proprietaire_id = $1 AND archive_le = $2::timestamptz ORDER BY id DESC LIMIT 1`, [proprietaireId, instant]);
+  const r = rows[0];
+  if (r === undefined) return null;
+  return libelleOrigine({ origine: r.origine, sousOrigine: r.sous }) + (r.precision === null ? '' : ` (${r.precision})`);
+}
+
+/** La sortie d'une fiche (quand, par qui ; l'origine pour un propriétaire), ou `null` si elle est dans le portefeuille. */
 export async function sortieDe(sujet: SujetPortefeuille, id: number): Promise<SortiePortefeuille | null> {
   if (!(await sortieDisponible())) return null;
   const { rows } = await query<{ le: string | null; par: string | null }>(
     `SELECT sorti_portefeuille_le::text AS le, sorti_portefeuille_par AS par FROM ${TABLE[sujet]} WHERE id = $1`, [id]);
-  return rows[0]?.le ? { le: rows[0].le, par: rows[0].par } : null;
+  if (!rows[0]?.le) return null;
+  const origine = sujet === 'proprietaire' ? await origineDeLArchivage((t, p) => query(t, p), id, rows[0].le) : null;
+  return { le: rows[0].le, par: rows[0].par, ...(sujet === 'proprietaire' ? { origine } : {}) };
 }
 
 class Refus extends Error {}
@@ -231,7 +252,8 @@ async function planArchivage(q: RequeteTx, sujet: SujetPortefeuille, id: number)
     `SELECT ${nomSql} AS nom, sorti_portefeuille_le::text AS le, sorti_portefeuille_par AS par FROM ${TABLE[sujet]} WHERE id = $1`, [id]);
   if (s[0] === undefined) return null;
   const apercu: ApercuArchivage = {
-    sujet, id, nom: s[0].nom ?? `Fiche ${id}`, sortie: s[0].le === null ? null : { le: s[0].le, par: s[0].par },
+    sujet, id, nom: s[0].nom ?? `Fiche ${id}`,
+    sortie: s[0].le === null ? null : { le: s[0].le, par: s[0].par, ...(sujet === 'proprietaire' ? { origine: await origineDeLArchivage(q, id, s[0].le) } : {}) },
     biens: [], partages: [], occupees: [], locatairesArchives: [], locatairesGardes: [],
   };
   if (apercu.sortie !== null) return apercu;
@@ -328,9 +350,12 @@ export interface BilanArchivage { biens: number; locations: number; locataires: 
  * Un propriétaire archivé l'est aussi dans la Gestion (`archive_le` : « archivée » sur ses cartes, même donnée).
  */
 export async function sortirDuPortefeuille(
-  sujet: SujetPortefeuille, id: number, auteur: Auteur, options: { confirmeOccupation?: boolean } = {},
+  sujet: SujetPortefeuille, id: number, auteur: Auteur, options: { confirmeOccupation?: boolean; origine?: unknown } = {},
 ): Promise<Issue<BilanArchivage>> {
   if (!(await sortieDisponible())) return { etat: 'sans_schema' };
+  // 🔴 Arno (18/10/2026) : un PROPRIÉTAIRE ne s'archive pas sans son origine — refus avant toute lecture ou écriture.
+  const origine = sujet === 'proprietaire' ? verifierOrigine(options.origine) : null;
+  if (sujet === 'proprietaire' && origine === null) return { etat: 'refus', motif: MOTIF_ORIGINE_REQUISE };
   try {
     return await withTransaction(async (q) => {
       const { rows } = await q<{ sorti: string | null }>(`SELECT sorti_portefeuille_le::text AS sorti FROM ${TABLE[sujet]} WHERE id = $1 FOR UPDATE`, [id]);
@@ -369,12 +394,18 @@ export async function sortirDuPortefeuille(
             `sorti du portefeuille : sa location est close par l’archivage ${sujet === 'bien' ? `du bien ${id}` : `du propriétaire ${id}`} (tuile Location) — rien n’est effacé, réactivable`, auteur);
         }
       }
+      // L'ORIGINE (migration 380) : une ligne en ajout seul, au MÊME instant que la sortie — elle reste après une réactivation.
+      if (origine !== null && await origineDisponible()) {
+        await q(`INSERT INTO gestion_proprietaire_archivage_origine (proprietaire_id, origine, sous_origine, precision_libre, archive_le, archive_par_libelle)
+                  VALUES ($1, $2, $3, $4, $5::timestamptz, $6)`, [id, origine.origine, origine.sousOrigine, origine.precision, maintenant, auteur.libelle]);
+      }
       // 🔴 POINT 7 D'ARNO : un propriétaire archivé depuis la Location est archivé dans la Gestion aussi (même donnée).
       if (sujet === 'proprietaire' && await colonneExisteMemo('gestion_annuaire_proprietaire', 'archive_le')) {
         await q(`UPDATE gestion_annuaire_proprietaire SET archive_le = $3::timestamptz, archive_par_libelle = $2
                   WHERE id = $1 AND archive_le IS NULL`, [id, auteur.libelle, maintenant]);
       }
       const morceaux = [
+        origine !== null ? `origine : ${libelleOrigine(origine)}${origine.precision === null ? '' : ` — précision : ${origine.precision}`}` : null,
         autres.length > 0 ? `avec ${autres.length} bien(s) / annexe(s) : ${autres.join(', ')}` : null,
         plan.partages.length > 0 ? `bien(s) partagé(s) laissé(s) dans le portefeuille : ${plan.partages.map((p) => p.lotId).join(', ')}` : null,
         plan.occupees.length > 0 ? `${plan.occupees.length} location(s) close(s) le ${t[0].aujourdhui} (occupations ${plan.occupees.map((o) => o.occupationId).join(', ')})` : null,

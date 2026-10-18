@@ -39,7 +39,7 @@ import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
  *       limitée aux propriétaires, adresse de leurs biens comprise).
  * POST `{ action }` : modifier | archiver | restaurer | separer (une personne) · numero-mandat · modifier-bien ·
  *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · creer-locataire · conditions-location ·
- *       sortir (+ `confirmeOccupation` si une location est en cours) | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien (avec les contacts du propriétaire) · creer-locataires
+ *       sortir (+ `confirmeOccupation` si une location est en cours ; + `origine` pour un propriétaire, obligatoire) | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien (avec les contacts du propriétaire) · creer-locataires
  *       (cartes clients + contacts du locataire) · complements-bien
  *       (formulaire complet) · ajouter-contact-syndic (annuaire du syndic de la Gestion) · detacher-annexe (marque, lien gardé).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
@@ -238,7 +238,7 @@ export async function POST(request: Request): Promise<Response> {
       case 'reactiver': {
         const quoi = corps.sujet === 'proprietaire' || corps.sujet === 'locataire' || corps.sujet === 'bien' ? corps.sujet as SujetPortefeuille : null;
         if (quoi === null || id === null) return incomplet();
-        return repondre(action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true })
+        return repondre(action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine })
           : await reactiverDansPortefeuille(quoi, id, auteur));
       }
       case 'conditions-location': {

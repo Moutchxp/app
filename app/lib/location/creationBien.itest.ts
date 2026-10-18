@@ -112,7 +112,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     await query(`UPDATE gestion_annuaire_lot SET gestion_fin = DATE '2025-01-01' WHERE id = $1`, [autre.logementId]);
     expect(await r(`Fermee${S}`)).toEqual([]);
     // Un propriétaire sorti du portefeuille n'est plus proposé.
-    ok(await sortirDuPortefeuille('proprietaire', autre.proprietaireId, AUTEUR));
+    ok(await sortirDuPortefeuille('proprietaire', autre.proprietaireId, AUTEUR, { origine: { origine: 'litige' } }));
     expect(await r(`HORS${S}`)).toEqual([]);
   });
 
