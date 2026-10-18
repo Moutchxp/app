@@ -14,9 +14,11 @@ import { locationsAffichees } from '../gestion/honorairesGestionRepo';
 import type { LocationAffichee } from '../gestion/honorairesGestion';
 import type { Auteur } from '../gestion/gestes';
 import { sortieDe, sortieDisponible } from './portefeuilleRepo';
-import { annexeNomPnoDisponible, complementsDuBien, type ComplementsFiche } from './creationBienRepo';
-import { refusNomAnnexe } from './bienComplet';
-import { entretienDisponible } from './entretienAnnexeRepo';
+import { annexeNomPnoDisponible, bienCompletDisponible, complementsDuBien, dpeNonSoumisDisponible, type ComplementsFiche } from './creationBienRepo';
+import { manquesDpeEntretien, refusNomAnnexe, verifierComplements } from './bienComplet';
+import { enregistrerEntretiens, entretienDisponible } from './entretienAnnexeRepo';
+import { verifierEntretiens } from './entretien';
+import { aujourdhuiParis } from './reglagesDpe';
 import { annotationPropre } from './annexeLocation';
 import type { SortiePortefeuille } from './recherchePortefeuille';
 import { categorieDuBien, verifierChampsBien, type BienLocation, type Categorie, type ChampsBien } from './locationBien';
@@ -506,6 +508,20 @@ export async function creerProprietaireEtBiens(o: CreationProprietaireBien, aute
   const logement = verifierChampsBien(o.logement);
   if (!logement.ok) return { etat: 'refus', motif: logement.motif };
   if (logement.valeurs.adresse === null) return { etat: 'refus', motif: 'L’adresse du logement est obligatoire.' };
+  // 🔴 Arno (18/10/2026) : l'ancienne page applique EXACTEMENT les règles du formulaire complet — DPE et « Entretien à
+  //    prévoir » obligatoires pour un logement / local (`manquesDpeEntretien`), vérifiés AVANT toute écriture (la fiche du
+  //    propriétaire comprise).
+  const categorieLogement = logement.valeurs.categorie ?? 'logement';
+  const avecDpe = categorieLogement === 'logement' || categorieLogement === 'local';
+  const manqueDpe = avecDpe ? Object.values(manquesDpeEntretien(o.logement, aujourdhuiParis())) : [];
+  if (manqueDpe.length > 0) return { etat: 'refus', motif: manqueDpe.join(' ') };
+  const dpe = verifierComplements({ dpeClasse: o.logement.dpeClasse, dpeDate: o.logement.dpeDate });
+  if (!dpe.ok) return { etat: 'refus', motif: dpe.motif };
+  const entretien = verifierEntretiens(o.logement.entretienAPrevoir, o.logement.entretiens);
+  if (!entretien.ok) return { etat: 'refus', motif: entretien.motif };
+  const avec374 = avecDpe && await bienCompletDisponible();
+  const avec382 = avecDpe && await dpeNonSoumisDisponible();
+  if (avecDpe && (!avec374 || (dpe.valeurs.dpeNonSoumis === true && !avec382))) return { etat: 'sans_schema' };
   const annexes: ChampsBien[] = [];
   for (const a of o.annexes) {
     const v = verifierChampsBien(a);
@@ -530,7 +546,11 @@ export async function creerProprietaireEtBiens(o: CreationProprietaireBien, aute
   const pid = proprietaireId;
   try {
     return await withTransaction(async (q) => {
-      const logementId = await insererBien(q, { proprietaireId: pid, champs: logement.valeurs, categorie: logement.valeurs.categorie ?? 'logement' });
+      const logementId = await insererBien(q, { proprietaireId: pid, champs: logement.valeurs, categorie: categorieLogement });
+      if (avec374) {
+        await q(`UPDATE gestion_annuaire_lot SET dpe_classe = $2, dpe_date = $3::date${avec382 ? ', dpe_non_soumis = $4' : ''} WHERE id = $1`,
+          [logementId, dpe.valeurs.dpeClasse, dpe.valeurs.dpeDate, ...(avec382 ? [dpe.valeurs.dpeNonSoumis === true ? true : null] : [])]);
+      }
       for (const a of annexes) {
         const id = await insererBien(q, {
           proprietaireId: pid, categorie: a.categorie !== null && a.categorie !== 'logement' ? a.categorie : 'cave',
@@ -547,6 +567,12 @@ export async function creerProprietaireEtBiens(o: CreationProprietaireBien, aute
         `logement + ${annexes.length} annexe(s)`, `bien créé dans la Location pour le propriétaire ${pid}`
         + (mandat === null ? '' : ` (N° de mandat de gestion ${mandat})`), auteur);
       return { etat: 'ok' as const, data: { proprietaireId: pid, logementId } };
+    }).then(async (issue) => {
+      // L'entretien à prévoir, comme au formulaire complet : une fois le bien créé ; un échec ne le défait pas — il est DIT.
+      if (issue.etat !== 'ok' || !avecDpe || entretien.aPrevoir === null || !(await entretienDisponible())) return issue;
+      const e = await enregistrerEntretiens(issue.data.logementId, entretien.aPrevoir, entretien.entretiens, auteur)
+        .catch((x: unknown) => ({ ok: false as const, motif: x instanceof Error ? x.message : 'erreur' }));
+      return e.ok ? issue : { etat: 'refus' as const, motif: `Le bien est créé, mais l’entretien à prévoir n’a pas été enregistré : ${e.motif}` };
     });
   } catch (e) {
     const issue = refusOuErreur(e);

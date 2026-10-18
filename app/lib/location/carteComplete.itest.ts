@@ -21,6 +21,9 @@ import { creerProprietaireEtBiens } from './locationRepo';
 import { creerProprietaires } from './creationBienRepo';
 import { creerLocatairesSurBien } from './portefeuilleRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement — l'ancienne voie aussi. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest carte complète' };
@@ -41,7 +44,7 @@ describe.skipIf(!baseEssai)('🔴 la carte complète, côté serveur', () => {
   it('① la dernière carte complète d’un bien : ni archivée, ni supprimée, ni privée de son téléphone ; l’incomplète s’archive', async () => {
     const b = ok(await creerProprietaireEtBiens({ proprietaireId: null,
       proprietaire: { nom: `COMPLET${S}`, telephone: '06 31 31 31 31', email: `complet.${S}@exemple.test` },
-      logement: { adresse: `7 rue Complete${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [] }, AUTEUR));
+      logement: { ...DPE_ENTRETIEN, adresse: `7 rue Complete${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [] }, AUTEUR));
     complet = b.proprietaireId; lot = b.logementId;
     incomplet = ok(await creerPersonne('proprietaire', { nom: `INCOMPLET${S}`, coordonnees: [mail(`incomplet.${S}@exemple.test`)] }, AUTEUR)).id;
     ok(await ajouterProprietaireAuLot(lot, incomplet, null, AUTEUR));
@@ -69,7 +72,7 @@ describe.skipIf(!baseEssai)('🔴 la carte complète, côté serveur', () => {
   it('③ une fiche ANCIENNE sans carte complète n’est jamais bloquée', async () => {
     const vieux = ok(await creerPersonne('proprietaire', { nom: `ANCIEN${S}`, coordonnees: [tel('06 33 33 33 33')] }, AUTEUR)).id;
     const autre = ok(await creerPersonne('proprietaire', { nom: `ANCIEN2${S}`, coordonnees: [] }, AUTEUR)).id;
-    const b = ok(await creerProprietaireEtBiens({ proprietaireId: vieux, proprietaire: {}, logement: { adresse: `9 rue Ancienne${S}` }, annexes: [] }, AUTEUR));
+    const b = ok(await creerProprietaireEtBiens({ proprietaireId: vieux, proprietaire: {}, logement: { ...DPE_ENTRETIEN, adresse: `9 rue Ancienne${S}` }, annexes: [] }, AUTEUR));
     ok(await ajouterProprietaireAuLot(b.logementId, autre, null, AUTEUR));
     // Complétion jamais bloquée, appauvrissement non plus, archivage d'une carte incomplète possible.
     ok(await modifierPersonne('proprietaire', vieux, { coordonnees: [] }, AUTEUR));

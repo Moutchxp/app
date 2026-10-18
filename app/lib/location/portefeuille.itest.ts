@@ -22,6 +22,9 @@ import {
 } from './portefeuilleRepo';
 import { MOTIF_OCCUPATION_A_CONFIRMER } from './archivage';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement — l'ancienne voie aussi. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest portefeuille' };
@@ -38,11 +41,11 @@ describe.skipIf(!baseEssai)('🔴 portefeuille de la Location', () => {
   it('① la recherche : adresses du portefeuille seulement ; personnes et syndics par nom / téléphone / e-mail', async () => {
     const c = ok(await creerProprietaireEtBiens({ proprietaireId: null,
       proprietaire: { nom: `EXEMPLE${S}`, prenom: 'Claire', telephone: '06 12 34 56 81', email: `claire.${S}@exemple.test`, adresse: `8 rue Imaginaire${S}`, codePostal: '75011', commune: 'Paris' },
-      logement: { adresse: `14 rue des Lilas${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'cave', porte: '12' }] }, AUTEUR));
+      logement: { ...DPE_ENTRETIEN, adresse: `14 rue des Lilas${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'cave', porte: '12' }] }, AUTEUR));
     proprietaireId = c.proprietaireId; logementId = c.logementId;
     caveId = ok(await ficheBienLocation(logementId)).annexes[0].id;
     // Un bien en FIN DE GESTION (hors portefeuille) et un syndic avec une adresse.
-    const fin = ok(await creerProprietaireEtBiens({ proprietaireId, proprietaire: {}, logement: { adresse: `3 rue Ancienne${S}` }, annexes: [] }, AUTEUR));
+    const fin = ok(await creerProprietaireEtBiens({ proprietaireId, proprietaire: {}, logement: { ...DPE_ENTRETIEN, adresse: `3 rue Ancienne${S}` }, annexes: [] }, AUTEUR));
     await query(`UPDATE gestion_annuaire_lot SET gestion_fin = DATE '2025-01-01' WHERE id = $1`, [fin.logementId]);
     const { rows } = await query<{ id: string }>(`INSERT INTO gestion_syndic (nom, adresse, telephone, email, cree_par_libelle)
       VALUES ($1, $2, '01 40 00 00 00', $3, 'itest') RETURNING id::text`, [`FONCIA${S}`, `12 rue du Syndic${S}`, `contact.${S}@foncia.test`]);

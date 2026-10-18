@@ -124,11 +124,15 @@ describe('🔴 assurance PNO (bloc 6) : Oui ⇒ date anniversaire ; Non la vide'
     expect([...ligne.children].map((c) => c.querySelector('h4')?.textContent)).toEqual(['DPE *', 'Assurance PNO']);
     const pno = (mot: string) => [...ligne.querySelectorAll('[aria-label="Assurance PNO"] button')].find((x) => x.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
     const date = () => ligne.querySelector('[data-pno] input[type="date"]') as HTMLInputElement | null;
-    expect(date()).toBeNull();
+    // Arno (18/10/2026) : la date reste À SA PLACE, grisée, tant que la PNO n'est pas « Oui » (l'alignement ne casse pas).
+    expect(date()!.disabled).toBe(true);
+    expect(date()!.closest('[data-pno-date]')?.querySelector('span')?.textContent).toBe('Date anniversaire');
     await act(async () => { pno('Oui').click(); });
+    expect(date()!.disabled).toBe(false);
     await saisir(date()!, '2026-11-15');
     await act(async () => { pno('Non').click(); });
-    expect(date()).toBeNull();
+    expect(date()!.disabled).toBe(true);
+    expect(date()!.value).toBe('');
     await act(async () => { pno('Oui').click(); });
     expect(date()!.value).toBe('');
     await saisir(date()!, '2026-11-15');

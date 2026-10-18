@@ -29,6 +29,9 @@ import {
   listeBiens, listeProprietaires, modifierBien, rattacherAnnexe,
 } from './locationRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement — l'ancienne voie aussi. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest Location' };
@@ -49,7 +52,7 @@ describe.skipIf(!baseEssai)('🔴 tuile Location', () => {
     const r = ok(await creerProprietaireEtBiens({
       proprietaireId: null,
       proprietaire: { civilite: 'Mme', nom: `EXEMPLE${S}`, prenom: 'Claire', telephone: '06 12 34 56 71', email: `claire.${S}@exemple.test`, numeroMandat: 'MG 2026-041' },
-      logement: { adresse: `14 rue des Lilas ${S}`, codePostal: '75011', commune: 'Paris', etage: '3', porte: 'G', numLotCopro: '27', surfaceCarrezM2: '41,8', surfaceExterieureM2: '4' },
+      logement: { ...DPE_ENTRETIEN, adresse: `14 rue des Lilas ${S}`, codePostal: '75011', commune: 'Paris', etage: '3', porte: 'G', numLotCopro: '27', surfaceCarrezM2: '41,8', surfaceExterieureM2: '4' },
       annexes: [{ categorie: 'cave', etage: '-1', numLotCopro: '112', porte: '12' }, { categorie: 'parking', etage: '-2', numLotCopro: '152', porte: '52' }],
     }, AUTEUR));
     proprietaireId = r.proprietaireId;
@@ -70,7 +73,7 @@ describe.skipIf(!baseEssai)('🔴 tuile Location', () => {
     expect(d.some((x) => x.sujet === 'proprietaire' && x.id === proprietaireId)).toBe(true);
     // On crée quand même (personne différente) : deux fiches, aucune fusion.
     ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `EXEMPLE${S}`, prenom: 'Paul', telephone: '06 12 34 56 71' },
-      logement: { adresse: `9 bd Inventé ${S}` }, annexes: [] }, AUTEUR));
+      logement: { ...DPE_ENTRETIEN, adresse: `9 bd Inventé ${S}` }, annexes: [] }, AUTEUR));
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire WHERE nom LIKE $1', [`EXEMPLE${S}`])).rows[0].n)).toBe(2);
   });
 
@@ -82,9 +85,9 @@ describe.skipIf(!baseEssai)('🔴 tuile Location', () => {
     const sousAnnexe = await ajouterAnnexe(cave, { categorie: 'box' }, AUTEUR);
     expect(sousAnnexe.etat).toBe('refus');
     // Un bien du même propriétaire, autonome, se rattache ; celui d'un autre propriétaire, non.
-    const autonome = ok(await creerProprietaireEtBiens({ proprietaireId, proprietaire: {}, logement: { adresse: `Box ${S}`, categorie: 'box' }, annexes: [] }, AUTEUR));
+    const autonome = ok(await creerProprietaireEtBiens({ proprietaireId, proprietaire: {}, logement: { ...DPE_ENTRETIEN, adresse: `Box ${S}`, categorie: 'box' }, annexes: [] }, AUTEUR));
     expect((await rattacherAnnexe(logementId, autonome.logementId, AUTEUR)).etat).toBe('ok');
-    const autre = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `AUTRE${S}` }, logement: { adresse: `Ailleurs ${S}` }, annexes: [] }, AUTEUR));
+    const autre = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `AUTRE${S}` }, logement: { ...DPE_ENTRETIEN, adresse: `Ailleurs ${S}` }, annexes: [] }, AUTEUR));
     const refus = await rattacherAnnexe(logementId, autre.logementId, AUTEUR);
     expect(refus.etat).toBe('refus');
     expect(ok(await ficheBienLocation(logementId)).annexes).toHaveLength(3);
@@ -128,6 +131,39 @@ describe.skipIf(!baseEssai)('🔴 tuile Location', () => {
     ok(await enregistrerConditions(occ, { loyerHc: '1180', provisions: '90', tauxHt: '4,5', base: 'cc' }, AUTEUR));
     const relue = ok(await ficheBienLocation(logementId)).locations.find((l) => l.occupationId === occ)?.location;
     expect(relue?.conditions).toMatchObject({ loyerHc: 1180, provisions: 90, tauxHt: 4.5, base: 'cc' });
+  });
+
+  it('⑨ ancienne page « Nouveau propriétaire + bien » : DPE et entretien obligatoires (refus avant TOUTE écriture, fiche du propriétaire comprise) ; « Non soumis » ; une annexe autonome non concernée', async () => {
+    const compter = async (t: string) => Number((await query<{ n: string }>(`SELECT count(*)::text AS n FROM ${t}`)).rows[0].n);
+    // Un propriétaire À LUI (les comptes des autres cas ne bougent pas).
+    const p9 = ok(await creerPersonne('proprietaire', { nom: `NEUF${S}`, coordonnees: [] }, AUTEUR)).id;
+    const [lots, fiches] = [await compter('gestion_annuaire_lot'), await compter('gestion_annuaire_proprietaire')];
+    const sans = await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `SANSDPE${S}` }, logement: { adresse: `1 rue Sans DPE ${S}` }, annexes: [] }, AUTEUR);
+    expect(sans.etat).toBe('refus');
+    expect(sans.etat === 'refus' && sans.motif).toContain('Choisissez la classe DPE (A à G) ou « Non soumis ».');
+    expect(sans.etat === 'refus' && sans.motif).toContain('Entretien à prévoir : répondez Oui ou Non.');
+    const refus = async (l: Record<string, unknown>) => {
+      const r = await creerProprietaireEtBiens({ proprietaireId: p9, proprietaire: {}, logement: { adresse: `1 rue Sans DPE ${S}`, ...DPE_ENTRETIEN, ...l }, annexes: [] }, AUTEUR);
+      return r.etat === 'refus' ? r.motif : r.etat;
+    };
+    expect(await refus({ dpeDate: '' })).toBe('La date du DPE est obligatoire (sauf « Non soumis »).');
+    expect(await refus({ dpeDate: '2999-01-01' })).toBe('La date du DPE ne peut pas être dans le futur.');
+    expect(await refus({ entretienAPrevoir: true, entretiens: [] })).toContain('cochez ou ajoutez au moins un entretien');
+    expect([await compter('gestion_annuaire_lot'), await compter('gestion_annuaire_proprietaire')]).toEqual([lots, fiches]);
+    // « Non soumis » sans date, entretien « Oui » + chaudière : accepté, écrit comme par le formulaire complet.
+    const ns = ok(await creerProprietaireEtBiens({ proprietaireId: p9, proprietaire: {}, logement: { adresse: `2 rue Non Soumis ${S}`, dpeClasse: 'non_soumis', dpeDate: '',
+      entretienAPrevoir: true, entretiens: [{ sorte: 'chaudiere', dateAnniversaire: '2026-11-02' }] }, annexes: [] }, AUTEUR));
+    const { rows } = await query<{ dpe_classe: string | null; dpe_date: string | null; dpe_non_soumis: boolean | null; entretien_a_prevoir: boolean | null }>(
+      'SELECT dpe_classe, dpe_date::text, dpe_non_soumis, entretien_a_prevoir FROM gestion_annuaire_lot WHERE id = $1', [ns.logementId]);
+    expect(rows[0]).toEqual({ dpe_classe: null, dpe_date: null, dpe_non_soumis: true, entretien_a_prevoir: true });
+    const { rows: e } = await query<{ sorte: string }>('SELECT sorte FROM gestion_lot_entretien WHERE lot_id = $1', [ns.logementId]);
+    expect(e.map((x) => x.sorte)).toEqual(['chaudiere']);
+    // Une classe, comme au formulaire : enregistrée telle quelle.
+    const c = ok(await creerProprietaireEtBiens({ proprietaireId: p9, proprietaire: {}, logement: { adresse: `3 rue Classe ${S}`, ...DPE_ENTRETIEN, dpeClasse: 'g' }, annexes: [] }, AUTEUR));
+    const { rows: g } = await query<{ dpe_classe: string; dpe_date: string }>('SELECT dpe_classe, dpe_date::text FROM gestion_annuaire_lot WHERE id = $1', [c.logementId]);
+    expect(g[0]).toEqual({ dpe_classe: 'G', dpe_date: '2024-03-01' });
+    // Une annexe autonome (box) : pas de DPE demandé.
+    ok(await creerProprietaireEtBiens({ proprietaireId: p9, proprietaire: {}, logement: { adresse: `Box 2 ${S}`, categorie: 'box' }, annexes: [] }, AUTEUR));
   });
 
   it('⑧ listes : le logement porte ses annexes ; le filtre trouve le propriétaire', async () => {

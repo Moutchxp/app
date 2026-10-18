@@ -24,6 +24,9 @@ import { creerProprietaireEtBiens, ficheBienLocation } from './locationRepo';
 import { apercuArchivage, creerLocataireSurBien, reactiverDansPortefeuille, rechercherPortefeuille, sortieDe, sortirDuPortefeuille } from './portefeuilleRepo';
 import { etatBouton, MOTIF_OCCUPATION_A_CONFIRMER, MOTIF_ORIGINE_REQUISE } from './archivage';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement — l'ancienne voie aussi. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest archivage' };
@@ -42,16 +45,16 @@ describe.skipIf(!baseEssai)('🔴 archiver un propriétaire (sortie du portefeui
   it('① la recherche spécialisée : des propriétaires seulement, par nom, téléphone, e-mail ou adresse d’un de leurs biens', async () => {
     const a = ok(await creerProprietaireEtBiens({ proprietaireId: null,
       proprietaire: { nom: `ARCHIVE${S}`, prenom: 'Paul', telephone: '06 70 80 90 11', email: `paul.${S}@exemple.test`, adresse: `1 rue Perso${S}` },
-      logement: { adresse: `21 rue des Tilleuls${S}`, codePostal: '75012', commune: 'Paris' }, annexes: [{ categorie: 'cave', porte: '7' }] }, AUTEUR));
+      logement: { ...DPE_ENTRETIEN, adresse: `21 rue des Tilleuls${S}`, codePostal: '75012', commune: 'Paris' }, annexes: [{ categorie: 'cave', porte: '7' }] }, AUTEUR));
     proprio = a.proprietaireId; loue = a.logementId;
     cave = ok(await ficheBienLocation(loue)).annexes[0].id;
-    libre = ok(await creerProprietaireEtBiens({ proprietaireId: proprio, proprietaire: {}, logement: { adresse: `5 rue Libre${S}` }, annexes: [] }, AUTEUR)).logementId;
+    libre = ok(await creerProprietaireEtBiens({ proprietaireId: proprio, proprietaire: {}, logement: { ...DPE_ENTRETIEN, adresse: `5 rue Libre${S}` }, annexes: [] }, AUTEUR)).logementId;
     // Un bien PARTAGÉ : détenu aussi par un autre propriétaire actif.
-    const b = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `COINDIVIS${S}` }, logement: { adresse: `9 rue Partagee${S}` }, annexes: [] }, AUTEUR));
+    const b = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `COINDIVIS${S}` }, logement: { ...DPE_ENTRETIEN, adresse: `9 rue Partagee${S}` }, annexes: [] }, AUTEUR));
     autreProprio = b.proprietaireId; partage = b.logementId;
     ok(await ajouterProprietaireAuLot(partage, proprio, null, AUTEUR));
     // Un bien d'un TIERS, loué aussi par un des locataires (il loue donc ailleurs).
-    ailleurs = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `TIERS${S}` }, logement: { adresse: `3 rue Ailleurs${S}` }, annexes: [] }, AUTEUR)).logementId;
+    ailleurs = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `TIERS${S}` }, logement: { ...DPE_ENTRETIEN, adresse: `3 rue Ailleurs${S}` }, annexes: [] }, AUTEUR)).logementId;
 
     const r = async (t: string) => rechercherPortefeuille(t, { proprietairesSeuls: true });
     expect((await r(`ARCHIVE${S}`)).proprietaires.map((p) => p.id)).toEqual([proprio]);

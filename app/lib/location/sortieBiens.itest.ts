@@ -26,6 +26,9 @@ import {
 } from './portefeuilleRepo';
 import { MOTIF_BIEN_HORS_SELECTION, MOTIF_OCCUPATION_A_CONFIRMER, MOTIF_ORIGINE_REQUISE, MOTIF_SELECTION_VIDE } from './archivage';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement — l'ancienne voie aussi. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest sortie de biens' };
@@ -45,19 +48,19 @@ describe.skipIf(!baseEssai)('🔴 sortir des biens d’un propriétaire (jamais 
 
   it('① la liste des biens ; refus sans sélection, sans origine, ou avec un bien d’un autre — rien n’est écrit', async () => {
     const a = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `BIENS${S}`, telephone: '06 51 51 51 51', email: `biens.${S}@exemple.test` },
-      logement: { adresse: `1 rue Louee${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'cave', porte: '1' }] }, AUTEUR));
+      logement: { ...DPE_ENTRETIEN, adresse: `1 rue Louee${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'cave', porte: '1' }] }, AUTEUR));
     proprio = a.proprietaireId; loue = a.logementId;
     cave = (await query<{ id: string }>('SELECT annexe_id::text AS id FROM gestion_lot_annexe WHERE parent_id = $1', [loue])).rows[0].id as unknown as number;
     cave = Number(cave);
     parking = ok(await ajouterAnnexe(loue, { categorie: 'parking', porte: '7' }, AUTEUR)).id;
     ok(await detacherAnnexe(parking, true, AUTEUR));
-    libre = ok(await creerProprietaireEtBiens({ proprietaireId: proprio, proprietaire: {}, logement: { adresse: `2 rue Libre${S}` }, annexes: [] }, AUTEUR)).logementId;
+    libre = ok(await creerProprietaireEtBiens({ proprietaireId: proprio, proprietaire: {}, logement: { ...DPE_ENTRETIEN, adresse: `2 rue Libre${S}` }, annexes: [] }, AUTEUR)).logementId;
     const b = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `COPROP${S}`, telephone: '06 52 52 52 52', email: `coprop.${S}@exemple.test` },
-      logement: { adresse: `3 rue Partagee${S}` }, annexes: [] }, AUTEUR));
+      logement: { ...DPE_ENTRETIEN, adresse: `3 rue Partagee${S}` }, annexes: [] }, AUTEUR));
     autre = b.proprietaireId; partage = b.logementId;
     ok(await ajouterProprietaireAuLot(partage, proprio, null, AUTEUR));
     const c = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `TIERS${S}`, telephone: '06 53 53 53 53', email: `tiers.${S}@exemple.test` },
-      logement: { adresse: `4 rue Ailleurs${S}` }, annexes: [] }, AUTEUR));
+      logement: { ...DPE_ENTRETIEN, adresse: `4 rue Ailleurs${S}` }, annexes: [] }, AUTEUR));
     tiers = c.proprietaireId; ailleurs = c.logementId;
     locSeul = ok(await creerLocataireSurBien({ locataireId: null, locataire: { nom: `LSEUL${S}` }, lotId: loue, entree: '2025-01-01' }, AUTEUR)).locataireId;
     locMulti = ok(await creerLocataireSurBien({ locataireId: null, locataire: { nom: `LMULTI${S}` }, lotId: loue, entree: '2025-01-01' }, AUTEUR)).locataireId;

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, phraseMail, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
-  CHAUFFAGES, CLASSES_DPE, DPE_NON_SOUMIS, EPOQUES_CONSTRUCTION, LIBELLE_DPE_NON_SOUMIS, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
+  CHAUFFAGES, DPE_NON_SOUMIS, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
   type Famille, type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
@@ -17,7 +17,8 @@ import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import { ChampFleches, CSS_CHAMP_FLECHES } from './ChampFleches';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, type SaisieEntretien } from './EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from './ZoneAuto';
-import { alertesDpe, aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
+import { aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
+import { BlocDpe, CSS_DPE_PNO } from './BlocDpe';
 import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { BadgeCarte } from './SaisieCartes';
 import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type PersonneProprietaire } from '../../../../lib/location/rattachementProprietaires';
@@ -201,7 +202,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
       setTimeout(() => {
         const premier = document.querySelector('.loc-page .loc-manque');
         // Le bloc entier s'il tient à l'écran ; sinon le message lui-même (jamais caché sous la barre collante au téléphone).
-        const conteneur = premier?.closest('.loc-sous-section, .loc-section') ?? null;
+        const conteneur = premier?.closest('.loc-dpe-pno-bloc, .loc-sous-section, .loc-section') ?? null;
         const bloc = conteneur !== null && conteneur.getBoundingClientRect().height < window.innerHeight * 0.6 ? conteneur : premier;
         const reduit = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (bloc instanceof HTMLElement && typeof bloc.scrollIntoView === 'function') bloc.scrollIntoView({ block: 'center', behavior: reduit ? 'auto' : 'smooth' });
@@ -255,7 +256,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     // noValidate : les refus sont ceux de la règle (`bienComplet.ts`), dits sous chaque champ — jamais la bulle du navigateur
     // (la date du DPE porte `max` = aujourd'hui pour griser le futur dans le sélecteur).
     <form className="loc-page loc-ample" noValidate onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO}</style>
       {continuite === undefined ? (
         <EnTeteLocation titre="Ajouter un nouveau bien"
           sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type ; pour un logement ou un local, le DPE et l’entretien à prévoir <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
@@ -526,34 +527,24 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
               <small className="loc-aide loc-aide--long">{agConnue !== null && b.derniereAg === agConnue
                 ? 'Déjà connue pour cet immeuble : la modifier met à jour tous ses lots.' : 'Assemblée générale de copropriété — partagée par tous les lots de l’immeuble.'}</small></label>
           </div>
-          <div className="loc-duo" data-ligne-dpe-pno>
-            <div className="loc-sous-section" data-dpe>
-              <h4>DPE <span className="loc-oblig">*</span></h4>
-              <div className="loc-pilules" role="group" aria-label="Classe DPE">
-                {CLASSES_DPE.map((c) => (
-                  <button key={c} type="button" aria-pressed={b.dpeClasse === c} onClick={() => setB((x) => ({ ...x, dpeClasse: x.dpeClasse === c ? '' : c }))}>{c}</button>
-                ))}
-                {/* « Non soumis » (bien dispensé de DPE) : pas de date — elle est vidée. */}
-                <button type="button" aria-pressed={dpeNonSoumis} data-dpe-non-soumis
-                  onClick={() => setB((x) => (x.dpeClasse === DPE_NON_SOUMIS ? { ...x, dpeClasse: '' } : { ...x, dpeClasse: DPE_NON_SOUMIS, dpeDate: '' }))}>{LIBELLE_DPE_NON_SOUMIS}</button>
-              </div>
-              {manqueDe('dpe')}
-              <div className="loc-grille">
-                <label className="loc-champ" data-dpe-date><span>Date du DPE{dpeNonSoumis ? ' (sans objet)' : <> <span className="loc-oblig">*</span></>}</span>
-                  <input type="date" value={b.dpeDate} max={aujourdhui} disabled={dpeNonSoumis}
-                    onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, dpeDate: val })); }} /></label>
-              </div>
-              {manqueDe('dpeDate')}
-              {alertesDpe({ classe: b.dpeClasse, date: b.dpeDate, nonSoumis: dpeNonSoumis }, aujourdhui).map((a) => (
-                <p key={a} className="loc-alerte loc-alerte--orange" role="status" data-alerte-dpe>⚠ {a}</p>
-              ))}
-            </div>
-            {/* Arno (18/10/2026) : « Assurance PNO » à droite du DPE (même ligne au bureau) ; Oui ⇒ « Date anniversaire » ; Non la vide. */}
-            <div className="loc-sous-section" data-pno>
+          {/* Arno (18/10/2026) : DPE (gauche) et assurance PNO (droite), deux blocs de même hauteur aux rangées partagées —
+              choix sur une ligne, dates sur la suivante ; la date reste à sa place, grisée, quand elle est sans objet. */}
+          <div className="loc-dpe-pno" data-ligne-dpe-pno>
+            <BlocDpe classe={b.dpeClasse} date={b.dpeDate} aujourdhui={aujourdhui}
+              onClasse={(c) => setB((x) => ({ ...x, dpeClasse: c }))} onDate={(d) => setB((x) => ({ ...x, dpeDate: d }))}
+              manque={(k) => manqueDe(k)} />
+            <div className="loc-dpe-pno-bloc" data-pno>
               <h4>Assurance PNO</h4>
-              <Pilules etiquette="Assurance PNO" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(assurancePno)}
-                onChoix={(v) => { setAssurancePno(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, pnoDateAnniversaire: '' })); }} />
-              {assurancePno === true && <div className="loc-grille">{champ('pnoDateAnniversaire', 'Date anniversaire', { type: 'date' })}</div>}
+              <div className="loc-dpe-pno-choix">
+                <Pilules etiquette="Assurance PNO" options={OUI_NON} libelle={LIBELLE_OUI_NON} valeur={versOuiNon(assurancePno)}
+                  onChoix={(v) => { setAssurancePno(v === null ? null : v === 'oui'); if (v !== 'oui') setB((x) => ({ ...x, pnoDateAnniversaire: '' })); }} />
+              </div>
+              <div className="loc-dpe-pno-date">
+                <label className="loc-champ" data-pno-date><span>Date anniversaire</span>
+                  <input type="date" value={b.pnoDateAnniversaire} disabled={assurancePno !== true}
+                    onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, pnoDateAnniversaire: val })); }} /></label>
+              </div>
+              <div className="loc-dpe-pno-notes" />
             </div>
           </div>
           <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire

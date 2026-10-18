@@ -111,7 +111,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     ok(await creerPersonne('locataire', { nom: `LOCATAIRE${S}`, coordonnees: [] }, AUTEUR));
     expect(await r(`LOCATAIRE${S}`)).toEqual([]);
     // Jamais un bien HORS portefeuille (fin de gestion) : son adresse ne trouve personne.
-    const autre = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `HORS${S}` }, logement: { adresse: `9 rue Fermee${S}` }, annexes: [] }, AUTEUR));
+    const autre = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `HORS${S}` }, logement: { ...DPE_ENTRETIEN, adresse: `9 rue Fermee${S}` }, annexes: [] }, AUTEUR));
     await query(`UPDATE gestion_annuaire_lot SET gestion_fin = DATE '2025-01-01' WHERE id = $1`, [autre.logementId]);
     expect(await r(`Fermee${S}`)).toEqual([]);
     // Un propriétaire sorti du portefeuille n'est plus proposé.
@@ -228,8 +228,10 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     // Un parking nu : ni DPE ni entretien demandés.
     ok(await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `31 rue Diagnostic${S}`, famille: 'parking', parkingType: 'box_simple' } }, AUTEUR));
 
-    // Un bien EXISTANT sans DPE ni entretien (comme un import WIPPIMMO — ici créé par l’ancienne voie, sans ces champs) : la fiche s’enregistre sans eux — jamais bloqué.
-    const vieux = ok(await creerProprietaireEtBiens({ proprietaireId: ids[0], proprietaire: {}, logement: { adresse: `32 rue Ancienne${S}` }, annexes: [] }, AUTEUR));
+    // Un bien EXISTANT sans DPE ni entretien (comme un import WIPPIMMO) : la fiche s’enregistre sans eux — jamais bloqué.
+    const vieux = ok(await creerProprietaireEtBiens({ proprietaireId: ids[0], proprietaire: {}, logement: { ...DPE_ENTRETIEN, adresse: `32 rue Ancienne${S}` }, annexes: [] }, AUTEUR));
+    // Un import WIPPIMMO n'a ni DPE ni entretien : on vide ces champs pour le simuler (base d'essai seulement).
+    await query('UPDATE gestion_annuaire_lot SET dpe_classe = NULL, dpe_date = NULL, entretien_a_prevoir = NULL WHERE id = $1', [vieux.logementId]);
     ok(await modifierComplementsBien(vieux.logementId, { typeLogement: 'studio', dpeClasse: '', dpeDate: '', commentaire: 'Import' }, AUTEUR));
     expect(await complementsDuBien(vieux.logementId)).toMatchObject({ typeLogement: 'studio', dpeClasse: null, dpeNonSoumis: null, commentaire: 'Import' });
   });

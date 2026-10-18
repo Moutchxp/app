@@ -1,7 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { API, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer, phraseMail } from './commun';
+import { API, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer, phraseMail } from './commun';
+import { manquesDpeEntretien } from '../../../../lib/location/bienComplet';
+import { aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
+import { BlocDpe, CSS_DPE_PNO } from './BlocDpe';
+import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, type SaisieEntretien } from './EntretienBien';
 import { CATEGORIES_ANNEXE, LIBELLE_CATEGORIE, verifierChampsBien, type Categorie } from '../../../../lib/location/locationBien';
 import type { Doublon } from '../../../../lib/location/locationRepo';
 
@@ -11,6 +15,9 @@ import type { Doublon } from '../../../../lib/location/locationRepo';
  * ou téléphone), sans fusion automatique ». Une coordonnée déjà connue est SIGNALÉE (« déjà sur la fiche de X ») ; on
  * peut alors « Utiliser cette fiche » — jamais rien n'est fusionné tout seul.
  * `?proprietaire=N` (depuis « + Ajouter un bien » d'une fiche) part directement d'un propriétaire existant.
+ * 🔴 Arno (18/10/2026) : la page n'a plus de lien mais reste ouverte ; elle applique EXACTEMENT les règles du formulaire
+ * complet — DPE (A–G ou « Non soumis », date sauf « Non soumis ») et « Entretien à prévoir » obligatoires, mêmes composants
+ * (`BlocDpe`, `BlocEntretien`), même règle (`manquesDpeEntretien`), la même que le serveur (`creerProprietaireEtBiens`).
  */
 interface Annexe { cle: number; categorie: Categorie; etage: string; numLotCopro: string; porte: string }
 const VIDE_LOGEMENT = { adresse: '', codePostal: '', commune: '', etage: '', porte: '', numLotCopro: '', surfaceCarrezM2: '', surfaceExterieureM2: '' };
@@ -24,6 +31,12 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
   const [motif, setMotif] = useState<string | null>(null);
   const [mailEchec, setMailEchec] = useState<{ phrase: string; cible: string } | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  const [dpe, setDpe] = useState({ classe: '', date: '' });
+  const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
+  const [tente, setTente] = useState(false);
+  const aujourdhui = aujourdhuiParis();
+  const manque = manquesDpeEntretien({ dpeClasse: dpe.classe, dpeDate: dpe.date, entretienAPrevoir: entretien.aPrevoir, entretiens: versEnvoiEntretien(entretien).entretiens }, aujourdhui);
+  const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
   // 🔴 LE DÉDOUBLONNAGE DÈS LA SAISIE : 400 ms après la dernière frappe dans le téléphone ou l'e-mail.
   useEffect(() => {
@@ -52,10 +65,12 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
     if (logement.adresse.trim() === '') { setMotif('L’adresse du logement est obligatoire.'); return; }
     const v = verifierChampsBien(logement);
     if (!v.ok) { setMotif(v.motif); return; }
+    setTente(true);
+    if (Object.keys(manque).length > 0) { setMotif(`Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.`); return; }
     setEnvoi(true);
     const r = await envoyer({
       action: 'creer', proprietaireId: existant?.id ?? null, proprietaire: p,
-      logement: { ...logement, categorie: 'logement' },
+      logement: { ...logement, categorie: 'logement', dpeClasse: dpe.classe, dpeDate: dpe.date, ...versEnvoiEntretien(entretien) },
       annexes: annexes.map(({ categorie, etage, numLotCopro, porte }) => ({ categorie, etage, numLotCopro, porte })),
     });
     setEnvoi(false);
@@ -69,8 +84,8 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
 
   return (
     <form className="loc-page" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS}</style>
-      <EnTeteLocation titre="Nouveau propriétaire + bien" sous="Une seule page : seul le nom du propriétaire et l’adresse du logement sont obligatoires." />
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_ENTRETIEN + CSS_DPE_PNO}</style>
+      <EnTeteLocation titre="Nouveau propriétaire + bien" sous="Une seule page : obligatoires — le nom du propriétaire, l’adresse du logement, le DPE et l’entretien à prévoir." />
 
       <section className="loc-bloc" aria-labelledby="loc-s1">
         <h3 id="loc-s1">1 · Propriétaire</h3>
@@ -157,6 +172,16 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => ajouterAnnexe('parking')}>+ Parking</button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => ajouterAnnexe('autre')}>+ Autre annexe</button>
         </div>
+      </section>
+
+      <section className="loc-bloc" aria-labelledby="loc-s4" data-bloc-dpe-entretien>
+        <h3 id="loc-s4">4 · DPE et entretien</h3>
+        <div className="loc-dpe-pno loc-dpe-pno--seul">
+          <BlocDpe classe={dpe.classe} date={dpe.date} aujourdhui={aujourdhui}
+            onClasse={(c) => setDpe((x) => ({ ...x, classe: c }))} onDate={(d) => setDpe((x) => ({ ...x, date: d }))} manque={(k) => manqueDe(k)} />
+        </div>
+        <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire
+          manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />
       </section>
 
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}

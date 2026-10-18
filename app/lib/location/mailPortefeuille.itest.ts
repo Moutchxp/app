@@ -21,6 +21,9 @@ import { creerProprietaireEtBiens } from './locationRepo';
 import { creerLocataireSurBien, sortirDuPortefeuille } from './portefeuilleRepo';
 import { destinatairesDe, notifierPortefeuille } from './mailPortefeuilleRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement — l'ancienne voie aussi. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const S = `m${Date.now().toString(36)}`;
@@ -56,9 +59,9 @@ describe.skipIf(!baseEssai)('🔴 mails d’entrée / sortie du portefeuille', (
   it('② sortie d’un propriétaire : qui, lots, location close, origine + précision, honoraires ; lot sans loyer exclu ; journal', async () => {
     const a = ok(await creerProprietaireEtBiens({ proprietaireId: null,
       proprietaire: { nom: `MAIL${S}`, telephone: '06 61 61 61 61', email: `mail.${S}@exemple.test`, numeroMandat: 'MG 2026-777' },
-      logement: { adresse: `7 rue du Mail${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'cave', porte: '4' }] }, { id: auteurId, libelle: `auteur.${S}@exemple.test` }));
+      logement: { ...DPE_ENTRETIEN, adresse: `7 rue du Mail${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'cave', porte: '4' }] }, { id: auteurId, libelle: `auteur.${S}@exemple.test` }));
     proprio = a.proprietaireId; loue = a.logementId;
-    vide = ok(await creerProprietaireEtBiens({ proprietaireId: proprio, proprietaire: {}, logement: { adresse: `8 rue Sans Loyer${S}` }, annexes: [] }, { id: null, libelle: 'itest' })).logementId;
+    vide = ok(await creerProprietaireEtBiens({ proprietaireId: proprio, proprietaire: {}, logement: { ...DPE_ENTRETIEN, adresse: `8 rue Sans Loyer${S}` }, annexes: [] }, { id: null, libelle: 'itest' })).logementId;
     const l = ok(await creerLocataireSurBien({ locataireId: null, locataire: { nom: `LOCMAIL${S}` }, lotId: loue, entree: '2025-03-01' }, { id: null, libelle: 'itest' }));
     const { rows: o } = await query<{ id: string }>('SELECT id::text FROM gestion_annuaire_occupation WHERE locataire_id = $1', [l.locataireId]);
     await query(`INSERT INTO gestion_location_conditions (occupation_id, loyer_hc, provisions, taux_gestion_ht, base, origine, saisi_par_libelle)
@@ -95,7 +98,7 @@ describe.skipIf(!baseEssai)('🔴 mails d’entrée / sortie du portefeuille', (
 
   it('③ entrée : mandat de transaction seul (en gestion = Non) → aucun mail ; en gestion = Oui → « Nouveau mandat de gestion »', async () => {
     const b = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `TRANSAC${S}`, telephone: '06 62 62 62 62', email: `t.${S}@exemple.test` },
-      logement: { adresse: `9 rue Transaction${S}` }, annexes: [] }, { id: null, libelle: 'itest' }));
+      logement: { ...DPE_ENTRETIEN, adresse: `9 rue Transaction${S}` }, annexes: [] }, { id: null, libelle: 'itest' }));
     await query('UPDATE gestion_annuaire_proprietaire SET en_gestion = false WHERE id = $1', [b.proprietaireId]);
     const avant = envoyes.length;
     const non = await notifierPortefeuille({ sens: 'entree', proprietaireId: null, lotIds: [b.logementId], origine: null, exigerEnGestion: true },
@@ -123,7 +126,7 @@ describe.skipIf(!baseEssai)('🔴 mails d’entrée / sortie du portefeuille', (
 
   it('⑤ sortie d’une ANNEXE seule (fiche commune) : « Sortie d’annexe — NOM — annexe — logement d’origine », sans valorisation', async () => {
     const c = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `ANNEXE${S}`, telephone: '06 63 63 63 63', email: `an.${S}@exemple.test` },
-      logement: { adresse: `5 rue Annexe${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'parking', porte: '9' }] }, { id: null, libelle: 'itest' }));
+      logement: { ...DPE_ENTRETIEN, adresse: `5 rue Annexe${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'parking', porte: '9' }] }, { id: null, libelle: 'itest' }));
     const { rows } = await query<{ id: string }>('SELECT annexe_id::text AS id FROM gestion_lot_annexe WHERE parent_id = $1', [c.logementId]);
     const parking = Number(rows[0].id);
     const r = ok(await sortirDuPortefeuille('bien', parking, { id: auteurId, libelle: 'x' }));
