@@ -126,6 +126,9 @@ export interface BienLocation {
   parkingType?: string | null;
   /** Le nom d'une annexe « Autre » (Cellier, Grenier, Local vélo) : son titre (migration 378). */
   nomAnnexe?: string | null;
+  /** L'annotation libre d'une annexe, et « Détachée » : louable séparément, lien parent gardé (migration 379). */
+  annotation?: string | null;
+  detachee?: boolean;
 }
 
 /** Range des biens en arbre : chaque logement suivi de ses annexes ; les annexes dont le logement est absent restent seules. */

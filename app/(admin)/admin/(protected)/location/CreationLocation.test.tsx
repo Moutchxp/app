@@ -35,6 +35,10 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restore
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
 const bouton = (texte: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(texte)) as HTMLButtonElement;
+const transaction = async (v: string) => {
+  const el = container.querySelector('[data-mandat-transaction] input') as HTMLInputElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
+};
 
 describe('🔴 Créer un nouveau propriétaire', () => {
   const remplir = async (form: Element, nom: string, coord: { tel?: string; email?: string }) => {
@@ -87,12 +91,13 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     await act(async () => { [...(container.querySelector('[data-sorte="client"] .cp-form') as HTMLElement).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Annuler')!.click(); });
     expect(container.querySelectorAll('[data-recap="contact"]')).toHaveLength(1);
     await act(async () => { bouton('Non').click(); });
+    await transaction('MT 2026-041');
     await act(async () => { bouton('Ajouter un bien à ce nouveau propriétaire').click(); });
     expect(container.textContent).toContain('Un contact n’est pas un client : ajoutez au moins une carte « Propriétaire (client) ».');
     expect(posts).toEqual([]);
   });
 
-  it('« Propriétaire(s) en gestion ? » : rien sans réponse ; Oui → mandat puis bouton ; Non → bouton direct, mandat vidé', async () => {
+  it('« Propriétaire(s) en gestion ? » : rien sans réponse ; Oui → mandat de gestion puis bouton ; Non → mandat de TRANSACTION puis bouton ; changer d’avis vide l’autre', async () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     const mandat = () => container.querySelector('[data-mandat] input') as HTMLInputElement | null;
     const gros = () => container.querySelector('[data-continuer]');
@@ -111,14 +116,24 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     });
     expect(gros()).not.toBeNull();
     expect(gros()?.className).toContain('loc-gros-bouton--centre');
-    // Non : plus de champ mandat, le gros bouton tout de suite ; repasser à Oui montre un mandat VIDÉ.
+    // Non : plus de mandat de gestion ; le bloc « Mandat de transaction locative », et le gros bouton seulement une fois rempli.
     await act(async () => { bouton('Non').click(); });
     expect(mandat()).toBeNull();
+    const mt = () => container.querySelector('[data-mandat-transaction] input') as HTMLInputElement | null;
+    expect(container.querySelector('[data-mandat-transaction] h3')?.textContent).toBe('3Mandat de transaction locative');
+    expect(mt()?.placeholder).toBe('ex. MT 2026-041');
+    expect(container.querySelector('[data-mandat-transaction] label')?.firstChild?.textContent).toBe('N° de mandat de transaction locative (texte libre)');
+    expect(gros()).toBeNull();
+    await transaction('MT 2026-041');
     expect(gros()).not.toBeNull();
+    // Repasser à Oui : le mandat de transaction disparaît (vidé), le mandat de gestion est VIDE ; et inversement.
     await act(async () => { bouton('Oui').click(); });
+    expect(mt()).toBeNull();
     expect(mandat()?.value).toBe('');
     expect(gros()).toBeNull();
     await act(async () => { bouton('Non').click(); });
+    expect(mt()?.value).toBe('');
+    await transaction('MT 2026-041');
     // Le gros bouton refuse tant qu'aucune carte n'est enregistrée, et le dit — rien n'est envoyé.
     await act(async () => { bouton('Ajouter un bien à ce nouveau propriétaire').click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte');

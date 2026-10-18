@@ -138,6 +138,7 @@ describe('🔴 « Créer un nouveau propriétaire » → le bien sur la même pa
     await saisir(form.querySelectorAll('.cp-saisie--valeur')[0] as HTMLInputElement, '06 12 34 56 78');
     await act(async () => { (form.querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
     await act(async () => { bouton('Non').click(); });
+    await saisir(container.querySelector('[data-mandat-transaction] input') as HTMLInputElement, 'MT 2026-041');
   };
 
   it('le formulaire s’ouvre dessous, sans bloc « Propriétaire(s) », numéroté depuis « Le bien » ; un seul enregistrement crée les fiches puis le bien', async () => {
@@ -156,6 +157,7 @@ describe('🔴 « Créer un nouveau propriétaire » → le bien sur la même pa
     await remplirMinimum();
     await soumettre();
     expect(posts.map((p) => p.action)).toEqual(['creer-proprietaires', 'creer-bien']);
+    expect(posts[0]).toMatchObject({ enGestion: false, numeroMandatTransaction: 'MT 2026-041', numeroMandat: '' });
     expect(posts[1]).toMatchObject({ proprietaireIds: [41, 42] });
     expect(window.location.href).toBe('/admin/location/bien/9');
   });

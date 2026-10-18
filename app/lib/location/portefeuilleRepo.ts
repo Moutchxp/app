@@ -172,8 +172,11 @@ async function journaliser(q: RequeteTx, sujet: SujetPortefeuille, id: number, a
 
 /** Les biens touchés par la sortie d'un bien : lui et ses annexes (une annexe suit son logement). */
 async function avecAnnexes(q: RequeteTx, lotId: number): Promise<number[]> {
+  // Une annexe DÉTACHÉE (louable séparément, migration 379) ne suit plus son logement : elle garde son lien, pas son sort.
+  const detachee = (await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le'))
+    ? ' AND NOT EXISTS (SELECT 1 FROM gestion_annuaire_lot d WHERE d.id = a.annexe_id AND d.annexe_detachee_le IS NOT NULL)' : '';
   const { rows } = await q<{ id: string }>(
-    `SELECT annexe_id::text AS id FROM gestion_lot_annexe WHERE parent_id = $1`, [lotId]);
+    `SELECT a.annexe_id::text AS id FROM gestion_lot_annexe a WHERE a.parent_id = $1${detachee}`, [lotId]);
   return [lotId, ...rows.map((r) => Number(r.id))];
 }
 

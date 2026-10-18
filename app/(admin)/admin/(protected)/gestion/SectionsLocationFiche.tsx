@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { CSS_LOCATION, LocationCarte } from './LocationCarte';
-import { CSS_LOCATION_ECRANS } from '../location/commun';
+import { CSS_ANNEXE_CARTE, CSS_LOCATION_ECRANS } from '../location/commun';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { formaterDateIso, periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
 import { estAncienLocataire } from '../../../../lib/gestion/historiqueBien';
@@ -16,6 +16,10 @@ import {
   type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
 import { titreAnnexe } from '../../../../lib/location/bienComplet';
+import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
+import { libelleEntretien } from '../../../../lib/location/entretien';
+import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien } from '../location/EntretienBien';
+import { CSS_ZONE_AUTO, ZoneAuto } from '../location/ZoneAuto';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type {
@@ -80,7 +84,7 @@ function Repli({ titre, resume, children }: { titre: string; resume?: string; ch
   return (
     <details className="slf" data-section-location>
       <summary><span className="slf-titre">{titre}</span>{resume !== undefined && resume !== '' && <span className="slf-resume"> · {resume}</span>}</summary>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION + CSS_SECTIONS}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION + CSS_SECTIONS + CSS_ANNEXE_CARTE + CSS_ENTRETIEN + CSS_ZONE_AUTO}</style>
       <div className="slf-corps loc-page">{children}</div>
     </details>
   );
@@ -145,6 +149,7 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
   const { lu, relire } = useFiche<FicheProprietaireLocation>(`proprietaire=${proprietaireId}`);
   const resume = lu.etat === 'ok'
     ? [lu.data.enGestion === null ? null : `en gestion : ${lu.data.enGestion ? 'oui' : 'non'}`, lu.data.numeroMandat === null ? null : `mandat ${lu.data.numeroMandat}`,
+      lu.data.numeroMandatTransaction ? `mandat de transaction ${lu.data.numeroMandatTransaction}` : null,
       lu.data.sortie === null ? null : 'sorti du portefeuille'].filter((x) => x).join(' · ')
     : '';
   return (
@@ -153,6 +158,8 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
         <>
           <EnGestion proprietaireId={proprietaireId} valeur={d.enGestion} apres={relire} />
           {d.location372 && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandat} apres={relire} />}
+          {d.location372 && d.numeroMandatTransaction !== undefined
+            && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandatTransaction} apres={relire} sorte="transaction" />}
           <BlocSortie sujet="proprietaire" id={proprietaireId} sortie={d.sortie ?? null} apres={relire}
             explication="Le propriétaire sort avec ses biens encore dans le portefeuille (et leurs annexes)." />
           <p className="loc-muet" style={{ margin: 0 }}>
@@ -184,21 +191,21 @@ function EnGestion({ proprietaireId, valeur, apres }: { proprietaireId: number; 
   );
 }
 
-function Mandat({ proprietaireId, valeur, apres }: { proprietaireId: number; valeur: string | null; apres: () => void }) {
+function Mandat({ proprietaireId, valeur, apres, sorte = 'gestion' }: { proprietaireId: number; valeur: string | null; apres: () => void; sorte?: 'gestion' | 'transaction' }) {
   const [texte, setTexte] = useState(valeur ?? '');
   const [motif, setMotif] = useState<string | null>(null);
   const [fait, setFait] = useState(false);
   return (
-    <section className="loc-bloc">
-      <h3>N° de mandat de gestion</h3>
+    <section className="loc-bloc" data-mandat={sorte}>
+      <h3>{sorte === 'transaction' ? 'N° de mandat de transaction locative' : 'N° de mandat de gestion'}</h3>
       <form className="loc-actions" style={{ alignItems: 'flex-end' }} onSubmit={(e) => {
         e.preventDefault();
-        void envoyer({ action: 'numero-mandat', id: proprietaireId, numeroMandat: texte }).then((m) => {
+        void envoyer({ action: 'numero-mandat', id: proprietaireId, numeroMandat: texte, sorte }).then((m) => {
           setMotif(m); setFait(m === null); if (m === null) apres();
         });
       }}>
         <label className="loc-champ" style={{ flex: '1 1 16rem' }}>Texte libre, facultatif — jamais généré ni numéroté par l’outil
-          <input value={texte} onChange={(e) => { setTexte(e.target.value); setFait(false); }} placeholder="ex. MG 2026-041" /></label>
+          <input value={texte} onChange={(e) => { setTexte(e.target.value); setFait(false); }} placeholder={sorte === 'transaction' ? 'ex. MT 2026-041' : 'ex. MG 2026-041'} /></label>
         <button type="submit" className="svv-btn svv-btn-primary gst-btn">Enregistrer</button>
       </form>
       {fait && <p className="loc-muet" role="status">Enregistré.</p>}
@@ -241,7 +248,7 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
               <h3>Le logement et ses annexes</h3>
               <ul className="loc-arbre">
                 <LigneArbre b={logement} courant={logement.id === b.id} ouvrir={ouvrir} />
-                {annexes.map((a) => <LigneArbre key={a.id} b={a} enfant courant={a.id === b.id} ouvrir={ouvrir} />)}
+                {annexes.map((a) => <LigneArbre key={a.id} b={a} enfant courant={a.id === b.id} ouvrir={ouvrir} carte={d.location372 ? relire : undefined} />)}
               </ul>
               {d.parent === null && d.location372 && <AjoutAnnexes parentId={b.id} rattachables={[...liste(d.rattachables)]} apres={relire} />}
             </section>
@@ -275,7 +282,11 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
   );
 }
 
-function LigneArbre({ b, enfant = false, courant, ouvrir }: { b: BienLocation; enfant?: boolean; courant: boolean; ouvrir: Ouvrir }) {
+function LigneArbre({ b, enfant = false, courant, ouvrir, carte }: {
+  b: BienLocation; enfant?: boolean; courant: boolean; ouvrir: Ouvrir;
+  /** Arno, 18/10/2026 — sous le logement, chaque annexe porte sa carte (annotation, Supprimer · Détacher · Fermer). */
+  carte?: () => void;
+}) {
   const parking = [b.parkingSituation ? LIBELLE_SITUATION_PARKING[b.parkingSituation as SituationParking] : null,
     b.parkingType ? LIBELLE_TYPE_PARKING[b.parkingType as TypeParking] : null].filter((x) => x).join(' · ');
   const titre = enfant
@@ -288,8 +299,62 @@ function LigneArbre({ b, enfant = false, courant, ouvrir }: { b: BienLocation; e
         {courant ? <strong>{titre}</strong> : <LienFiche sorte="lot" id={b.id} ouvrir={ouvrir}>{titre}</LienFiche>}
         {resumeBien(b) !== '' && <span className="loc-muet"> · {resumeBien(b)}</span>}
       </span>
-      <span className="loc-muet">{b.locataireEnPlace === null ? 'libre' : `loué à ${b.locataireEnPlace}`}</span>
+      <span className="loc-muet">{b.detachee ? <span className="loc-etiquette-detachee">Détachée</span> : null}{' '}
+        {b.sorti ? 'sorti du portefeuille' : b.locataireEnPlace === null ? 'libre' : `loué à ${b.locataireEnPlace}`}</span>
+      {enfant && carte !== undefined && !b.sorti && <CarteAnnexe b={b} apres={carte} />}
     </li>
+  );
+}
+
+/**
+ * La carte d'une annexe dans la fiche du logement (Arno, 18/10/2026) : « Annotation » (2 lignes, s'agrandit), et « Supprimer »
+ * (après confirmation : l'annexe SORT du portefeuille comme les autres fiches — jamais d'effacement en base), « Détacher » /
+ * « Rattacher » (une marque ; le lien avec le logement est gardé), « Fermer » (une ligne résumée ; un clic la rouvre).
+ */
+function CarteAnnexe({ b, apres }: { b: BienLocation; apres: () => void }) {
+  const [fermee, setFermee] = useState(false);
+  const [aConfirmer, setAConfirmer] = useState(false);
+  const [annotation, setAnnotation] = useState(b.annotation ?? '');
+  const [motif, setMotif] = useState<string | null>(null);
+  const [fait, setFait] = useState(false);
+  const geste = async (corps: Record<string, unknown>): Promise<void> => {
+    const m = await envoyer(corps);
+    setMotif(m);
+    if (m === null) apres();
+  };
+  return (
+    <div className={`loc-carte-annexe${fermee ? ' loc-carte-annexe--fermee' : ''}`} data-carte-annexe={b.id}>
+      <div className="loc-annexe-tete">
+        {fermee
+          ? <button type="button" className="loc-annexe-resume" onClick={() => setFermee(false)} aria-expanded={false} data-resume-annexe>{resumeAnnexe(b)}</button>
+          : <span className="loc-annexe-titre loc-muet">{resumeAnnexe(b)}</span>}
+        <span className="loc-annexe-actions">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAConfirmer(true)}>Supprimer</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void geste({ action: 'detacher-annexe', id: b.id, detacher: !b.detachee })}>
+            {b.detachee ? 'Rattacher' : 'Détacher'}</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFermee((x) => !x)} aria-expanded={!fermee}>{fermee ? 'Ouvrir' : 'Fermer'}</button>
+        </span>
+      </div>
+      {aConfirmer && (
+        <div className="loc-confirmer" role="alert" data-confirmer-suppression>
+          <span>Supprimer cette annexe ? Elle sort du portefeuille (rien n’est effacé : son historique et son lien avec le logement restent).</span>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setAConfirmer(false); void geste({ action: 'sortir', sujet: 'bien', id: b.id }); }}>Oui, supprimer</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAConfirmer(false)}>Non</button>
+        </div>
+      )}
+      {!fermee && (
+        <form className="loc-grille" onSubmit={(e) => { e.preventDefault(); void envoyer({ action: 'modifier-bien', id: b.id, champs: {
+          categorie: b.categorie, etage: b.etage ?? '', porte: b.porte ?? '', numLotCopro: b.numLotCopro ?? '',
+          surfaceCarrezM2: b.surfaceCarrezM2 ?? '', surfaceExterieureM2: b.surfaceExterieureM2 ?? '', annotation,
+        } }).then((m) => { setMotif(m); setFait(m === null); if (m === null) apres(); }); }}>
+          {b.detachee && <p className="loc-muet loc-pleine" style={{ margin: 0 }}>Louable séparément : hors de l’ensemble loué avec le logement, mais rattachée à lui pour toujours.</p>}
+          <ZoneAuto etiquette="Annotation" valeur={annotation} placeholder="ex. Accès par la cour, clé chez le gardien" onChange={(v) => { setAnnotation(v); setFait(false); }} />
+          <div className="loc-boutons loc-pleine"><button type="submit" className="svv-btn svv-btn-primary gst-btn">Enregistrer l’annotation</button></div>
+        </form>
+      )}
+      {fait && <p className="loc-muet" role="status">Enregistré.</p>}
+      {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+    </div>
   );
 }
 
@@ -441,6 +506,9 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
   };
   // La dernière AG (Arno, 18/10/2026) : celle de l'IMMEUBLE du bien, partagée par ses lots ; masquée sans immeuble (parking nu).
   const avecAg = !annexe && c.agApplicable === true;
+  // L'entretien à prévoir (Arno, 18/10/2026, migration 379) : sur le bien, pas sur une annexe ; absent sans la migration.
+  const avecEntretien = !annexe && c.entretiens !== undefined;
+  const [entretien, setEntretien] = useState(() => versSaisieEntretien(c.entretienAPrevoir, c.entretiens));
   const [edition, setEdition] = useState(false);
   const [v, setV] = useState(initial);
   const [motif, setMotif] = useState<string | null>(null);
@@ -457,7 +525,7 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
     const { derniereAg, assurancePno, pnoDateAnniversaire, ...reste } = v;
     // L'assurance PNO (Arno, 18/10/2026) : sur le bien (pas sur une annexe) ; Non (ou non renseigné) vide la date.
     const pno = annexe ? {} : { assurancePno, pnoDateAnniversaire: assurancePno === 'oui' ? pnoDateAnniversaire : '' };
-    const m = await envoyer({ action: 'complements-bien', id, champs: { ...(avecAg ? { ...reste, derniereAg } : reste), ...pno } });
+    const m = await envoyer({ action: 'complements-bien', id, champs: { ...(avecAg ? { ...reste, derniereAg } : reste), ...pno, ...(avecEntretien ? versEnvoiEntretien(entretien) : {}) } });
     setMotif(m);
     if (m === null) { setEdition(false); apres(); }
   };
@@ -488,6 +556,8 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
     ...(avecAg ? [[LIBELLE_AG, c.derniereAg ? new Date(`${c.derniereAg}T12:00:00`).toLocaleDateString('fr-FR') : null] as [string, string | null]] : []),
     ['Assurance PNO', c.assurancePno === undefined || c.assurancePno === null ? null : c.assurancePno
       ? `oui${c.pnoDateAnniversaire ? ` · date anniversaire le ${new Date(`${c.pnoDateAnniversaire}T12:00:00`).toLocaleDateString('fr-FR')}` : ''}` : 'non'],
+    ...(avecEntretien ? [['Entretien à prévoir', c.entretienAPrevoir === null || c.entretienAPrevoir === undefined ? null : !c.entretienAPrevoir ? 'non'
+      : (c.entretiens ?? []).length === 0 ? 'oui' : (c.entretiens ?? []).map((e) => `${libelleEntretien(e)}${e.dateAnniversaire ? ` (le ${new Date(`${e.dateAnniversaire}T12:00:00`).toLocaleDateString('fr-FR')})` : ''}`).join(' · ')] as [string, string | null]] : []),
     ['Commentaire', c.commentaire],
   ];
   // Ce qui ne concerne pas la famille n'est pas montré (un parking n'a ni pièces, ni meublé, ni DPE…).
@@ -515,7 +585,7 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
               <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{val ?? <span className="loc-muet">non renseigné</span>}</dd></div>
             ))}
           </dl>
-          <div className="loc-boutons"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setV(initial); setMotif(null); setEdition(true); }}>Modifier</button></div>
+          <div className="loc-boutons"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setV(initial); setEntretien(versSaisieEntretien(c.entretienAPrevoir, c.entretiens)); setMotif(null); setEdition(true); }}>Modifier</button></div>
         </>
       ) : (
         <form onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
@@ -548,6 +618,7 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
               <input type="date" value={v.derniereAg} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, derniereAg: val })); }} />
               <small className="loc-muet">Partagée par tous les lots de l’immeuble : la modifier ici la met à jour pour eux.</small></label>}
           </div>}
+          {avecEntretien && <div style={{ marginTop: 10 }}><BlocEntretien valeur={entretien} onChange={setEntretien} /></div>}
           <div className="loc-grille" style={{ marginTop: 10 }}>
             <label className="loc-champ" style={{ gridColumn: '1 / -1' }}>Commentaire
               <textarea className="slf-texte" value={v.commentaire} onChange={(e) => { const val = e.target.value; setV((x) => ({ ...x, commentaire: val })); }} maxLength={4000} rows={4} /></label>

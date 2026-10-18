@@ -36,7 +36,7 @@ describe.skipIf(!baseEssai)('🔴 le syndic du bien, par les fonctions de la Ges
   const adresse = `10 rue du Syndic${S}`;
 
   it('① syndic créé (porte de la modale), bien rattaché par son immeuble, contact désigné, nouveau contact dans l’annuaire du syndic', async () => {
-    proprietaireId = ok(await creerProprietaires({ enGestion: false, cartes: [{ nom: `PROPRIO${S}`, coordonnees: [{ sorte: 'telephone', valeur: '06 44 55 66 77', libelle: 'Mobile' }] }] }, AUTEUR)).ids[0];
+    proprietaireId = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [{ nom: `PROPRIO${S}`, coordonnees: [{ sorte: 'telephone', valeur: '06 44 55 66 77', libelle: 'Mobile' }] }] }, AUTEUR)).ids[0];
     const v = validerSyndic({ nom: `CABINET${S}`, adresse: '1 avenue du Cabinet', codePostal: '75008', ville: 'PARIS', telephone: '', telephone2: '',
       email: `cabinet.${S}@exemple.test`, note: '', immeubles: [],
       contacts: [{ id: null, titre: 'Gestionnaire', prenom: 'Léa', nom: `GESTION${S}`, coordonnees: [{ id: null, sorte: 'email', libelle: 'E-mail', valeur: `lea.${S}@exemple.test` }] }] });

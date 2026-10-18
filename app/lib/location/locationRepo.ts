@@ -16,6 +16,8 @@ import type { Auteur } from '../gestion/gestes';
 import { sortieDe, sortieDisponible } from './portefeuilleRepo';
 import { annexeNomPnoDisponible, complementsDuBien, type ComplementsFiche } from './creationBienRepo';
 import { refusNomAnnexe } from './bienComplet';
+import { entretienDisponible } from './entretienAnnexeRepo';
+import { annotationPropre } from './annexeLocation';
 import type { SortiePortefeuille } from './recherchePortefeuille';
 import { categorieDuBien, verifierChampsBien, type BienLocation, type Categorie, type ChampsBien } from './locationBien';
 
@@ -141,6 +143,7 @@ interface LigneBienSql {
   parent_id: string | null; proprietaire: string | null; locataire: string | null; sorti: boolean;
   adresse_autre?: boolean | null; parking_situation?: string | null; parking_type?: string | null;
   nom_annexe?: string | null;
+  annotation?: string | null; detachee?: boolean | null;
 }
 
 const versBien = (r: LigneBienSql): BienLocation => ({
@@ -156,6 +159,8 @@ const versBien = (r: LigneBienSql): BienLocation => ({
   parkingSituation: r.parking_situation ?? null,
   parkingType: r.parking_type ?? null,
   nomAnnexe: r.nom_annexe ?? null,
+  annotation: r.annotation ?? null,
+  detachee: r.detachee === true,
 });
 
 async function lireBiens(where: string, params: unknown[], suffixe = ''): Promise<BienLocation[]> {
@@ -167,6 +172,7 @@ async function lireBiens(where: string, params: unknown[], suffixe = ''): Promis
             ${(await colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre')) ? 'lo.adresse_autre, lo.parking_situation, lo.parking_type'
     : 'NULL::boolean AS adresse_autre, NULL::text AS parking_situation, NULL::text AS parking_type'},
             ${(await annexeNomPnoDisponible()) ? 'lo.nom_annexe' : 'NULL::text AS nom_annexe'},
+            ${(await entretienDisponible()) ? 'lo.annotation, lo.annexe_detachee_le IS NOT NULL AS detachee' : 'NULL::text AS annotation, false AS detachee'},
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             (SELECT l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.lot_id = lo.id AND o.sortie IS NULL ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1) AS locataire
@@ -206,6 +212,8 @@ export interface FicheProprietaireLocation {
   /** Sorti du portefeuille (quand, par qui) ; `null` = dans le portefeuille. */
   sortie: SortiePortefeuille | null;
   numeroMandat: string | null;
+  /** N° de mandat de transaction locative (migration 379) ; `undefined` sans elle. */
+  numeroMandatTransaction?: string | null;
   /** « Propriétaire(s) en gestion ? » (migration 375) : `null` = question jamais posée (ou migration absente). */
   enGestion: boolean | null;
   /** Ses biens EN ARBRE (logement puis annexes), lus avec les caractéristiques de la Location. */
@@ -226,7 +234,10 @@ export async function ficheProprietaireLocation(id: number): Promise<Issue<Fiche
   const enGestion = (await colonneExisteMemo('gestion_annuaire_proprietaire', 'en_gestion'))
     ? (await query<{ g: boolean | null }>('SELECT en_gestion AS g FROM gestion_annuaire_proprietaire WHERE id = $1', [id])).rows[0]?.g ?? null
     : null;
-  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, enGestion, biens, location372: avec372 } };
+  const transaction = (await colonneExisteMemo('gestion_annuaire_proprietaire', 'numero_mandat_transaction'))
+    ? (await query<{ m: string | null }>('SELECT numero_mandat_transaction AS m FROM gestion_annuaire_proprietaire WHERE id = $1', [id])).rows[0]?.m ?? null
+    : undefined;
+  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, numeroMandatTransaction: transaction, enGestion, biens, location372: avec372 } };
 }
 
 export interface LocationDuLocataire {
@@ -341,18 +352,20 @@ async function journaliser(q: RequeteTx, entite: 'annuaire' | 'annuaire_lot', id
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [entite, id, action, avant, apres, commentaire, auteur.id, auteur.libelle]);
 }
 
-/** Le N° de mandat de gestion du propriétaire : texte libre, facultatif — jamais généré, jamais vérifié. */
-export async function enregistrerMandat(proprietaireId: number, brut: unknown, auteur: Auteur): Promise<Issue> {
+/** Le N° de mandat (de gestion, ou de transaction locative — migration 379) : texte libre, facultatif — jamais généré, jamais vérifié. */
+export async function enregistrerMandat(proprietaireId: number, brut: unknown, auteur: Auteur, sorte: 'gestion' | 'transaction' = 'gestion'): Promise<Issue> {
   if (!(await locationDisponible())) return { etat: 'sans_schema' };
+  const colonne = sorte === 'transaction' ? 'numero_mandat_transaction' : 'numero_mandat_gestion';
+  if (sorte === 'transaction' && !(await colonneExisteMemo('gestion_annuaire_proprietaire', colonne))) return { etat: 'sans_schema' };
   const texte = typeof brut === 'string' && brut.trim() !== '' ? brut.trim().slice(0, 80) : null;
   return withTransaction(async (q) => {
     const { rows } = await q<{ m: string | null }>(
-      'SELECT numero_mandat_gestion AS m FROM gestion_annuaire_proprietaire WHERE id = $1 FOR UPDATE', [proprietaireId]);
+      `SELECT ${colonne} AS m FROM gestion_annuaire_proprietaire WHERE id = $1 FOR UPDATE`, [proprietaireId]);
     if (rows[0] === undefined) return { etat: 'inconnu' as const };
     if ((rows[0].m ?? null) === texte) return { etat: 'ok' as const, data: undefined };
-    await q('UPDATE gestion_annuaire_proprietaire SET numero_mandat_gestion = $2 WHERE id = $1', [proprietaireId, texte]);
-    await journaliser(q, 'annuaire', proprietaireId, 'location_numero_mandat', rows[0].m, texte,
-      'N° de mandat de gestion (saisi dans la Location)', auteur);
+    await q(`UPDATE gestion_annuaire_proprietaire SET ${colonne} = $2 WHERE id = $1`, [proprietaireId, texte]);
+    await journaliser(q, 'annuaire', proprietaireId, sorte === 'transaction' ? 'location_numero_mandat_transaction' : 'location_numero_mandat', rows[0].m, texte,
+      sorte === 'transaction' ? 'N° de mandat de transaction locative (saisi dans la Location)' : 'N° de mandat de gestion (saisi dans la Location)', auteur);
     return { etat: 'ok' as const, data: undefined };
   });
 }
@@ -371,6 +384,7 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
   const refusNom = avecNom ? refusNomAnnexe(c.categorie, brut.nomAnnexe) : null;
   if (refusNom !== null) return { etat: 'refus', motif: refusNom.charAt(0).toUpperCase() + refusNom.slice(1) };
   const nomAnnexe = c.categorie === 'autre' && typeof brut.nomAnnexe === 'string' ? brut.nomAnnexe.trim().slice(0, 80) : null;
+  const avecAnnotation = Object.prototype.hasOwnProperty.call(brut, 'annotation') && (await entretienDisponible());
   return withTransaction(async (q) => {
     const { rows } = await q<{ wippimmo_id: string; avant: string }>(
       `SELECT wippimmo_id, concat_ws(' | ', categorie, etage, porte, num_lot_copro, surface_carrez_m2, surface_exterieure_m2,
@@ -385,6 +399,8 @@ export async function modifierBien(lotId: number, brut: Record<string, unknown>,
       [lotId, c.categorie, c.etage, c.porte, c.numLotCopro, c.surfaceCarrezM2, c.surfaceExterieureM2,
         ...(app ? [c.adresse, c.codePostal, c.commune, normaliserTexte([c.adresse, c.commune].filter((x) => x !== null).join(' '))] : [])]);
     if (avecNom) await q('UPDATE gestion_annuaire_lot SET nom_annexe = $2 WHERE id = $1', [lotId, nomAnnexe]);
+    // L'annotation d'une annexe (migration 379) : envoyée par la carte qui la montre.
+    if (avecAnnotation) await q('UPDATE gestion_annuaire_lot SET annotation = $2 WHERE id = $1', [lotId, annotationPropre(brut.annotation)]);
     await journaliser(q, 'annuaire_lot', lotId, 'location_bien_modifie', rows[0].avant, null,
       'caractéristiques du bien modifiées dans la Location', auteur);
     return { etat: 'ok' as const, data: undefined };

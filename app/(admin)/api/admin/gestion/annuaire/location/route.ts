@@ -7,6 +7,7 @@ import {
 } from '../../../../../../lib/location/locationRepo';
 import { reactiverDansPortefeuille, sortirDuPortefeuille, type SujetPortefeuille } from '../../../../../../lib/location/portefeuilleRepo';
 import { enregistrerEnGestion, modifierComplementsBien, syndicsConnus } from '../../../../../../lib/location/creationBienRepo';
+import { detacherAnnexe } from '../../../../../../lib/location/entretienAnnexeRepo';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -19,7 +20,8 @@ import { enregistrerEnGestion, modifierComplementsBien, syndicsConnus } from '..
  *
  * GET `?proprietaire=N` · `?lot=N` · `?locataire=N` · `?syndics=1` (syndics connus, pour le choix du syndic du bien).
  * POST `{ action }` : numero-mandat · en-gestion · modifier-bien · complements-bien · ajouter-annexe · rattacher-annexe ·
- *   conditions-location · sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement).
+ *   conditions-location · sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · detacher-annexe (Arno, 18/10/2026 :
+ *   une marque « louable séparément » ; le lien parent n'est jamais touché). `numero-mandat` prend `sorte: 'transaction'`.
  * 🔴 AUCUNE SUPPRESSION ni aucun envoi de mail n'est atteignable d'ici.
  */
 export const runtime = 'nodejs';
@@ -69,7 +71,10 @@ export async function POST(request: Request): Promise<Response> {
     switch (corps.action) {
       case 'numero-mandat':
         if (id === null) return incomplet();
-        return repondre(await enregistrerMandat(id, corps.numeroMandat, auteur));
+        return repondre(await enregistrerMandat(id, corps.numeroMandat, auteur, corps.sorte === 'transaction' ? 'transaction' : 'gestion'));
+      case 'detacher-annexe':
+        if (id === null) return incomplet();
+        return repondre(await detacherAnnexe(id, corps.detacher === true, auteur));
       case 'en-gestion':
         if (id === null) return incomplet();
         return repondre(await enregistrerEnGestion(id, corps.enGestion, auteur));

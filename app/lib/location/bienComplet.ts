@@ -104,6 +104,9 @@ export interface AnnexeSaisie extends ChampsBien {
   autreAdresse: boolean;
   /** Le nom d'une annexe « Autre » (Cellier, Grenier, Local vélo) — obligatoire pour elle, son titre (migration 378). */
   nomAnnexe: string | null;
+  /** Arno, 18/10/2026 (migration 379) — l'annotation libre de l'annexe, et « Détachée » (louable séparément). */
+  annotation?: string | null;
+  detachee?: boolean;
 }
 
 /** Le titre d'une annexe : son nom pour une annexe « Autre » qui en a un, sinon le libellé de sa catégorie. PUR. */
@@ -124,6 +127,9 @@ export interface ComplementsFiche extends ComplementsBien {
   derniereAg?: string | null;
   /** Faux : pas d'immeuble pour l'AG (parking nu sans immeuble) ou migration 377 absente — le champ est masqué. */
   agApplicable?: boolean;
+  /** Arno, 18/10/2026 — « Entretien à prévoir » et ses entretiens en cours (migration 379) ; absents sans elle. */
+  entretienAPrevoir?: boolean | null;
+  entretiens?: { sorte: 'chaudiere' | 'ramonage' | 'autre'; nom: string | null; dateAnniversaire: string | null }[];
 }
 
 export interface SaisieBien {
@@ -283,6 +289,7 @@ export function verifierBienComplet(s: SaisieBien):
     annexes.push({
       ...v.valeurs, autreAdresse: autre,
       nomAnnexe: v.valeurs.categorie === 'autre' ? texte(a.nomAnnexe, 80) : null,
+      annotation: texte(a.annotation, 2000), detachee: a.detachee === true,
       parkingSituation: parking ? dans(SITUATIONS_PARKING, a.parkingSituation) : null,
       parkingType: parking ? dans(TYPES_PARKING, a.parkingType) : null,
     });

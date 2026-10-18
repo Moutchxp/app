@@ -30,7 +30,7 @@ describe.skipIf(!baseEssai)('🔴 dernière AG : partagée par les lots du même
   const adresse = `15 rue de l’Assemblée${S}`;
 
   it('① posée sur l’immeuble à la création, pré-remplie pour la même adresse, vue par un autre lot du même immeuble', async () => {
-    [proprietaire] = ok(await creerProprietaires({ enGestion: false, cartes: [{ nom: `AG${S}`, coordonnees: [{ sorte: 'telephone', valeur: '06 10 10 10 10', libelle: 'Mobile' }] }] }, AUTEUR)).ids;
+    [proprietaire] = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [{ nom: `AG${S}`, coordonnees: [{ sorte: 'telephone', valeur: '06 10 10 10 10', libelle: 'Mobile' }] }] }, AUTEUR)).ids;
     expect(await lireAgPourAdresse(adresse)).toBeNull();
     const a = ok(await creerBienComplet({ proprietaireIds: [proprietaire], annexes: [],
       logement: { adresse, famille: 'logement', typeLogement: 'appartement', derniereAg: '2026-03-12' } }, AUTEUR));

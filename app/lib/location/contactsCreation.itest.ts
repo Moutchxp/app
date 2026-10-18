@@ -36,8 +36,8 @@ describe.skipIf(!baseEssai)('🔴 clients et contacts à la création', () => {
   let logementId = 0;
 
   it('① propriétaire seul : le nom et un téléphone suffisent ; ni téléphone ni e-mail ⇒ refus', async () => {
-    expect((await creerProprietaires({ cartes: [{ nom: `SANSCOORD${S}` }], enGestion: false }, AUTEUR)).etat).toBe('refus');
-    const r = ok(await creerProprietaires({ cartes: [{ nom: `SEUL${S}`, coordonnees: [tel('06 12 34 56 99')] }], enGestion: false }, AUTEUR));
+    expect((await creerProprietaires({ cartes: [{ nom: `SANSCOORD${S}` }], enGestion: false, numeroMandatTransaction: 'MT itest' }, AUTEUR)).etat).toBe('refus');
+    const r = ok(await creerProprietaires({ cartes: [{ nom: `SEUL${S}`, coordonnees: [tel('06 12 34 56 99')] }], enGestion: false, numeroMandatTransaction: 'MT itest' }, AUTEUR));
     proprietaireId = r.ids[0];
     const { rows } = await query<{ civilite: string | null; prenom: string | null; adresse: string | null }>(
       'SELECT civilite, prenom, adresse FROM gestion_annuaire_proprietaire WHERE id = $1', [proprietaireId]);
@@ -72,7 +72,7 @@ describe.skipIf(!baseEssai)('🔴 clients et contacts à la création', () => {
   });
 
   it('③ contacts seuls refusés ; un contact sans e-mail refusé (avant toute écriture)', async () => {
-    expect((await creerProprietaires({ cartes: [], existants: [], enGestion: false }, AUTEUR)).etat).toBe('refus');
+    expect((await creerProprietaires({ cartes: [], existants: [], enGestion: false, numeroMandatTransaction: 'MT itest' }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: [], annexes: [], logement: { adresse: `4 rue X${S}`, famille: 'logement', typeLogement: 'studio' },
       contacts: [{ nom: 'X', coordonnees: [mail('x@exemple.test')] }] }, AUTEUR)).etat).toBe('refus');
     const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n);

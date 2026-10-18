@@ -28,6 +28,8 @@ import { CreationBien } from './CreationBien';
 export function CreationProprietaires() {
   const [etat, setEtat] = useState<EtatCartes>({ clients: [], contacts: [], existants: [], ouvertes: 1 });
   const [mandat, setMandat] = useState('');
+  /** Arno, 18/10/2026 : Non ⇒ le N° de mandat de TRANSACTION LOCATIVE (même règle que le mandat de gestion). */
+  const [transaction, setTransaction] = useState('');
   /** « Propriétaire(s) en gestion ? » — `null` tant qu'on n'a pas répondu (ni mandat, ni gros bouton). */
   const [enGestion, setEnGestion] = useState<boolean | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
@@ -61,7 +63,7 @@ export function CreationProprietaires() {
     if (idsCrees.current !== null) return { ids: idsCrees.current };
     if (empeche !== null) return { motif: empeche };
     const r = await envoyer({
-      action: 'creer-proprietaires', numeroMandat: enGestion ? mandat : '', enGestion,
+      action: 'creer-proprietaires', numeroMandat: enGestion ? mandat : '', numeroMandatTransaction: enGestion === false ? transaction : '', enGestion,
       cartes: etat.clients, existants: etat.existants.map((x) => x.id),
     });
     if (r.motif !== null) return { motif: r.motif };
@@ -87,12 +89,13 @@ export function CreationProprietaires() {
       </section>
 
       {/* Arno (17/10/2026) : « Propriétaire(s) en gestion ? » — Oui / Non, deux gros boutons ; on peut changer d'avis.
-          Oui ⇒ le N° de mandat, puis (rempli) le gros bouton ; Non ⇒ le gros bouton tout de suite, mandat vidé. */}
+          Oui ⇒ le N° de mandat de gestion, Non ⇒ le N° de mandat de transaction locative (Arno, 18/10/2026) ; le gros bouton
+          n'apparaît qu'une fois le numéro rempli ; changer d'avis vide le champ de l'autre choix. */}
       <section className="loc-section" aria-labelledby="loc-p2" data-question-gestion>
         <h3 id="loc-p2"><span className="loc-num">2</span>Propriétaire(s) en gestion ?</h3>
         <div className="loc-gros-boutons loc-oui-non" role="group" aria-label="Propriétaire(s) en gestion ?">
           <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={enGestion === true}
-            onClick={() => { setEnGestion(true); setMotif(null); }}>{enGestion === true ? '✓ Oui' : 'Oui'}</button>
+            onClick={() => { setEnGestion(true); setTransaction(''); setMotif(null); }}>{enGestion === true ? '✓ Oui' : 'Oui'}</button>
           <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={enGestion === false}
             onClick={() => { setEnGestion(false); setMandat(''); setMotif(null); }}>{enGestion === false ? '✓ Non' : 'Non'}</button>
         </div>
@@ -108,8 +111,18 @@ export function CreationProprietaires() {
         </section>
       )}
 
+      {enGestion === false && (
+        <section className="loc-section" aria-labelledby="loc-p3t" data-mandat-transaction>
+          <h3 id="loc-p3t"><span className="loc-num">3</span>Mandat de transaction locative</h3>
+          <div className="loc-grille">
+            <label className="loc-champ">N° de mandat de transaction locative (texte libre)
+              <input value={transaction} onChange={(e) => setTransaction(e.target.value)} placeholder="ex. MT 2026-041" maxLength={80} autoFocus /></label>
+          </div>
+        </section>
+      )}
+
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
-      {(enGestion === false || (enGestion === true && mandat.trim() !== '')) && (
+      {((enGestion === false && transaction.trim() !== '') || (enGestion === true && mandat.trim() !== '')) && (
       <button type="button" className="loc-gros-bouton loc-gros-bouton--plein loc-gros-bouton--centre" onClick={continuer}
         title={empeche ?? undefined} data-continuer aria-expanded={formulaire}>
         {formulaire ? 'Le bien de ce nouveau propriétaire ↓' : 'Ajouter un bien à ce nouveau propriétaire'}

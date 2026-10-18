@@ -262,6 +262,8 @@ export const CSS_LOCATION_CREATION = `
 .loc-collant .svv-btn{width:auto}
 .loc-collant .svv-btn-primary{min-height:60px;font-size:1.15rem;padding:0 32px}
 .loc-annexe-tete .svv-btn{width:auto}
+/* Bloc 6 : libellés et champs alignés EN HAUT (une légende sous un champ ne décale plus ses voisins). */
+.loc-ample .loc-grille.loc-grille--debut{align-items:start}
 .loc-cartes-creation{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(380px,100%),1fr));gap:20px;align-items:start}
 .loc-cartes-creation .cp-carte{width:auto;max-width:100%;min-width:0;border-radius:22px;padding:20px}
 .loc-ample .cp-saisie{min-height:52px;font-size:1.05rem;border-radius:12px}
@@ -333,4 +335,23 @@ export const CSS_LOCATION_CREATION = `
   .loc-collant .loc-manques{flex-basis:100%;font-size:.9rem}
   .loc-collant .svv-btn-primary{flex:1 1 auto;padding:0 18px}
 }
+`;
+
+/** La carte d'une annexe (formulaire du bien ET fiche commune) : 3 boutons, repli en une ligne, étiquette « Détachée », confirmation. */
+export const CSS_ANNEXE_CARTE = `
+/* La carte d'une annexe (Arno, 18/10/2026) : Supprimer · Détacher / Rattacher · Fermer / Ouvrir ; repliée = une ligne résumée. */
+.loc-annexe-titre{flex:1 1 auto;min-width:0}
+.loc-annexe-actions{display:flex;flex-wrap:wrap;gap:8px}
+.loc-annexe-actions .svv-btn{width:auto;min-height:44px}
+.loc-annexe-resume{flex:1 1 12rem;min-width:0;text-align:left;border:0;background:transparent;padding:6px 0;font:inherit;font-weight:800;color:var(--color-svv-ink);cursor:pointer;overflow-wrap:anywhere}
+.loc-annexe-resume:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px;border-radius:8px}
+.loc-enfant--fermee .loc-annexe-tete{margin-bottom:0}
+.loc-etiquette-detachee{display:inline-flex;align-items:center;border-radius:999px;padding:2px 10px;font-size:.78rem;font-weight:800;text-transform:uppercase;letter-spacing:.03em;background:var(--color-svv-amber-soft);color:var(--color-svv-ink);border:1px solid var(--color-svv-amber)}
+.loc-confirmer{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 12px;padding:10px 12px;border-radius:12px;border:2px solid var(--color-svv-red);background:var(--color-svv-surface);color:var(--color-svv-ink);font-weight:700}
+.loc-confirmer .svv-btn{width:auto}
+.loc-confirmer .svv-btn-primary{color:var(--color-svv-surface)}
+.loc-carte-annexe{display:flex;flex-direction:column;gap:10px;margin:8px 0 4px;padding:12px 14px;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-field);flex:1 1 100%;box-sizing:border-box;min-width:0;max-width:100%}
+.loc-carte-annexe .loc-annexe-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.loc-carte-annexe .svv-btn{width:auto}
+.loc-carte-annexe .loc-boutons .svv-btn-primary{color:var(--color-svv-surface)}
 `;

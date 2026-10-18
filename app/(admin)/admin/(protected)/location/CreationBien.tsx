@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { API, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
+import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
   CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
@@ -15,6 +15,9 @@ import { lireContactsEnAttente, oublierContactsEnAttente } from './contactsEnAtt
 import { CartesDuBloc, CSS_RATTACHEMENT, PanneauQuiRattacher } from './RattachementProprietaires';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import { ChampFleches, CSS_CHAMP_FLECHES } from './ChampFleches';
+import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, type SaisieEntretien } from './EntretienBien';
+import { CSS_ZONE_AUTO, ZoneAuto } from './ZoneAuto';
+import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { BadgeCarte } from './SaisieCartes';
 import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type PersonneProprietaire } from '../../../../lib/location/rattachementProprietaires';
 import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
@@ -44,6 +47,8 @@ interface Annexe {
   cle: number; categorie: Categorie; etage: string; numLotCopro: string; porte: string;
   /** Le nom d'une annexe « Autre » (Cellier, Grenier, Local vélo) — obligatoire pour elle (Arno, 18/10/2026). */
   nomAnnexe: string;
+  /** Arno, 18/10/2026 — l'annotation libre ; « Détachée » (louable séparément) ; carte repliée ; suppression à confirmer. */
+  annotation: string; detachee: boolean; fermee: boolean; aConfirmer: boolean;
   parkingSituation: SituationParking | null; parkingType: TypeParking | null;
   autreAdresse: boolean; adresse: string; codePostal: string; commune: string; adresseVerifiee: boolean;
 }
@@ -117,6 +122,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   useEffect(() => { if (continuite === undefined) setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux, continuite]);
   /** L'ASSURANCE PNO (Arno, 18/10/2026) : oui / non / non renseigné ; Non vide la date anniversaire. */
   const [assurancePno, setAssurancePno] = useState<boolean | null>(null);
+  /** L'ENTRETIEN À PRÉVOIR (Arno, 18/10/2026) : Non vide le tout. */
+  const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
 
   // Les propriétaires arrivés de « Créer un nouveau propriétaire » : déjà rattachés, modifiables (retirables).
   const initiaux = useLecture<PersonneProprietaire[]>(proprietairesInitiaux.length > 0 ? `cartesProprietaires=${proprietairesInitiaux.join(',')}` : null);
@@ -163,7 +170,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   );
   const changerAnnexe = (i: number, f: (a: Annexe) => Annexe): void => setAnnexes((l) => l.map((x, j) => (j === i ? f(x) : x)));
   const ajouterAnnexe = (categorie: Categorie): void => setAnnexes((a) => [...a, {
-    cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '', nomAnnexe: '', parkingSituation: null, parkingType: null,
+    cle: Date.now() + a.length, categorie, etage: '', numLotCopro: '', porte: '', nomAnnexe: '', annotation: '', detachee: false, fermee: false, aConfirmer: false,
+    parkingSituation: null, parkingType: null,
     autreAdresse: false, adresse: '', codePostal: '', commune: '', adresseVerifiee: false,
   }]);
 
@@ -192,11 +200,11 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     const r = await envoyer({
       action: 'creer-bien', proprietaireIds, contactsExistants: contactsExistants.map((c) => c.id),
       logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
-        assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '' },
+        assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)) },
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
       contacts: continuite !== undefined ? continuite.contacts : contacts,
-      annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, nomAnnexe, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
-        categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse,
+      annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, nomAnnexe, annotation, detachee, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
+        categorie, etage, numLotCopro, porte, parkingSituation: s, parkingType: t, autreAdresse, annotation, detachee,
         ...(categorie === 'autre' ? { nomAnnexe } : {}),
         ...(autreAdresse ? { adresse, codePostal, commune } : {}),
       })) : [],
@@ -220,7 +228,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
   return (
     <form className="loc-page loc-ample" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE}</style>
       {continuite === undefined ? (
         <EnTeteLocation titre="Ajouter un nouveau bien"
           sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
@@ -395,9 +403,29 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
           <ul className="loc-annexes" data-annexes>
             <li className="loc-racine">{famille === null ? 'Le bien' : `${nom.charAt(0).toUpperCase()}${nom.slice(1)}`}{b.adresse.trim() !== '' ? ` · ${b.adresse}` : ''}</li>
             {annexes.map((a, i) => (
-              <li key={a.cle} className="loc-enfant" data-annexe={a.categorie}>
-                <p className="loc-annexe-tete">{a.categorie === 'autre' && a.nomAnnexe.trim() !== '' ? a.nomAnnexe.trim() : LIBELLE_ANNEXE[a.categorie] ?? 'Annexe'}
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAnnexes((l) => l.filter((_, j) => j !== i))}>Retirer</button></p>
+              <li key={a.cle} className={`loc-enfant${a.fermee ? ' loc-enfant--fermee' : ''}`} data-annexe={a.categorie} data-fermee={a.fermee ? 'oui' : undefined}>
+                {/* Arno (18/10/2026) : « Retirer » devient Supprimer (après confirmation) · Détacher / Rattacher · Fermer / Ouvrir. */}
+                <div className="loc-annexe-tete">
+                  {a.fermee
+                    ? <button type="button" className="loc-annexe-resume" onClick={() => changerAnnexe(i, (x) => ({ ...x, fermee: false }))} aria-expanded={false} data-resume-annexe>
+                      {resumeAnnexe({ ...a, numLotCopro: a.numLotCopro, porte: a.porte })}</button>
+                    : <span className="loc-annexe-titre">{a.categorie === 'autre' && a.nomAnnexe.trim() !== '' ? a.nomAnnexe.trim() : LIBELLE_ANNEXE[a.categorie] ?? 'Annexe'}</span>}
+                  {a.detachee && <span className="loc-etiquette-detachee">Détachée</span>}
+                  <span className="loc-annexe-actions">
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, aConfirmer: true }))}>Supprimer</button>
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, detachee: !x.detachee }))}>{a.detachee ? 'Rattacher' : 'Détacher'}</button>
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, fermee: !x.fermee }))} aria-expanded={!a.fermee}>{a.fermee ? 'Ouvrir' : 'Fermer'}</button>
+                  </span>
+                </div>
+                {a.aConfirmer && (
+                  <div className="loc-confirmer" role="alert" data-confirmer-suppression>
+                    <span>Supprimer cette annexe du formulaire ?</span>
+                    <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setAnnexes((l) => l.filter((_, j) => j !== i))}>Oui, supprimer</button>
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changerAnnexe(i, (x) => ({ ...x, aConfirmer: false }))}>Non</button>
+                  </div>
+                )}
+                {a.detachee && !a.fermee && <p className="loc-muet" style={{ margin: 0 }}>Louable séparément : elle sort de l’ensemble loué avec le {nom}, mais reste rattachée à lui pour toujours.</p>}
+                {!a.fermee && <>
                 {a.categorie === 'autre' && (
                   <div className="loc-grille">
                     <label className="loc-champ loc-pleine" data-nom-annexe>
@@ -443,6 +471,11 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
                     </label>
                   ))}
                 </div>
+                <div className="loc-grille">
+                  <ZoneAuto etiquette="Annotation" valeur={a.annotation} placeholder="ex. Accès par la cour, clé chez le gardien"
+                    onChange={(v) => changerAnnexe(i, (x) => ({ ...x, annotation: v }))} />
+                </div>
+                </>}
               </li>
             ))}
           </ul>
@@ -457,7 +490,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
       {avecAnnexes && (
         <section className="loc-section" aria-labelledby="loc-b6">
           <h3 id="loc-b6"><span className="loc-num">{n('complements')}</span>Caractéristiques complémentaires</h3>
-          <div className="loc-grille">
+          {/* Arno (18/10/2026) : libellés et champs sur la MÊME ligne (alignés en haut) ; la légende de l'AG reste dessous. */}
+          <div className="loc-grille loc-grille--debut" data-ligne-epoque>
             {choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION)}
             {choix('chauffage', 'Chauffage', CHAUFFAGES)}
             <label className="loc-champ" data-derniere-ag>{LIBELLE_AG}
@@ -483,6 +517,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
               {assurancePno === true && <div className="loc-grille">{champ('pnoDateAnniversaire', 'Date anniversaire', { type: 'date' })}</div>}
             </div>
           </div>
+          <BlocEntretien valeur={entretien} onChange={setEntretien} />
         </section>
       )}
 

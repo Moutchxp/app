@@ -20,6 +20,7 @@ import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo
 import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
 import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/location/rattachementProprietairesRepo';
 import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
+import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -38,7 +39,7 @@ import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
  *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · creer-locataire · conditions-location ·
  *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien (avec les contacts du propriétaire) · creer-locataires
  *       (cartes clients + contacts du locataire) · complements-bien
- *       (formulaire complet) · ajouter-contact-syndic (annuaire du syndic de la Gestion).
+ *       (formulaire complet) · ajouter-contact-syndic (annuaire du syndic de la Gestion) · detacher-annexe (marque, lien gardé).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
  */
 export const runtime = 'nodejs';
@@ -157,7 +158,7 @@ export async function POST(request: Request): Promise<Response> {
       }
       case 'numero-mandat':
         if (id === null) return incomplet();
-        return repondre(await enregistrerMandat(id, corps.numeroMandat, auteur));
+        return repondre(await enregistrerMandat(id, corps.numeroMandat, auteur, corps.sorte === 'transaction' ? 'transaction' : 'gestion'));
       case 'modifier-bien':
         if (id === null) return incomplet();
         return repondre(await modifierBien(id, (corps.champs ?? {}) as Record<string, unknown>, auteur));
@@ -194,7 +195,12 @@ export async function POST(request: Request): Promise<Response> {
           existants: Array.isArray(corps.existants) ? (corps.existants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
           numeroMandat: typeof corps.numeroMandat === 'string' ? corps.numeroMandat : null,
           enGestion: typeof corps.enGestion === 'boolean' ? corps.enGestion : null,
+          numeroMandatTransaction: typeof corps.numeroMandatTransaction === 'string' ? corps.numeroMandatTransaction : null,
         }, auteur));
+      case 'detacher-annexe':
+        // « Détacher » / « Rattacher » une annexe (Arno, 18/10/2026) : une marque ; le lien parent n'est jamais touché.
+        if (id === null) return incomplet();
+        return repondre(await detacherAnnexe(id, corps.detacher === true, auteur));
       case 'creer-bien':
         return repondre(await creerBienComplet({
           proprietaireIds: Array.isArray(corps.proprietaireIds) ? (corps.proprietaireIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],

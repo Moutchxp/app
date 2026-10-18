@@ -18,6 +18,8 @@ import { rattacherSyndicAuBien, refusNouveauxContacts, type SyndicDuBien } from 
 import { rattacherContactsExistants, refusContactsExistants } from './rattachementProprietairesRepo';
 import { agDisponible, enregistrerAg, immeubleAgDuLot, lireAg } from './immeubleAgRepo';
 import { immeubleDeLAg, verifierDateAg } from './immeubleAg';
+import { verifierEntretiens } from './entretien';
+import { enregistrerEntretiens, entretienDisponible, lireEntretiens } from './entretienAnnexeRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -62,6 +64,8 @@ export interface CartesProprietaires {
   numeroMandat?: string | null;
   /** « Propriétaire(s) en gestion ? » (Arno, 17/10/2026) : obligatoire ; Oui exige le N° de mandat, Non n'en garde aucun. */
   enGestion?: boolean | null;
+  /** Arno, 18/10/2026 — Non ⇒ le N° de mandat de TRANSACTION LOCATIVE, exigé (même règle que le mandat de gestion). */
+  numeroMandatTransaction?: string | null;
 }
 
 export function enGestionDisponible(): Promise<boolean> {
@@ -94,6 +98,13 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
   // « Non » : aucun N° de mandat n'est gardé, même s'il avait été saisi avant de changer d'avis.
   const mandat = o.enGestion && typeof o.numeroMandat === 'string' && o.numeroMandat.trim() !== '' ? o.numeroMandat.trim().slice(0, 80) : null;
   if (o.enGestion && mandat === null) return { etat: 'refus', motif: 'Propriétaire en gestion : le N° de mandat de gestion est à renseigner.' };
+  // Non ⇒ le mandat de transaction locative (migration 379), exigé ; Oui n'en garde aucun (changer d'avis vide l'autre).
+  const avecTransaction = await colonneExisteMemo('gestion_annuaire_proprietaire', 'numero_mandat_transaction');
+  const transaction = !o.enGestion && typeof o.numeroMandatTransaction === 'string' && o.numeroMandatTransaction.trim() !== ''
+    ? o.numeroMandatTransaction.trim().slice(0, 80) : null;
+  if (avecTransaction && !o.enGestion && transaction === null) {
+    return { etat: 'refus', motif: 'Propriétaire non en gestion : le N° de mandat de transaction locative est à renseigner.' };
+  }
   const ids: number[] = [];
   for (const [i, c] of cartes.entries()) {
     const cree = await creerPersonne('proprietaire', { ...c, nom: (c.nom ?? '').trim() }, auteur);
@@ -108,9 +119,13 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
     await withTransaction(async (q) => {
       await q('UPDATE gestion_annuaire_proprietaire SET en_gestion = $2, numero_mandat_gestion = coalesce($3, numero_mandat_gestion) WHERE id = ANY($1::bigint[])',
         [ids, enGestion, mandat]);
+      if (avecTransaction && transaction !== null) {
+        await q('UPDATE gestion_annuaire_proprietaire SET numero_mandat_transaction = $2 WHERE id = ANY($1::bigint[])', [ids, transaction]);
+      }
       for (const id of ids) {
         await journaliser(q, 'annuaire', id, 'location_en_gestion',
-          `en gestion : ${enGestion ? 'oui' : 'non'}${mandat === null ? '' : `, N° de mandat de gestion « ${mandat} »`} — saisi à la création (tuile Location)`, auteur);
+          `en gestion : ${enGestion ? 'oui' : 'non'}${mandat === null ? '' : `, N° de mandat de gestion « ${mandat} »`}`
+          + `${transaction === null ? '' : `, N° de mandat de transaction locative « ${transaction} »`} — saisi à la création (tuile Location)`, auteur);
       }
     });
   }
@@ -153,7 +168,7 @@ export async function creerBienComplet(s: SaisieBien & {
   /** Arno, 18/10/2026 — les cartes « contact du propriétaire » EXISTANTES cochées dans « Qui rattacher à ce bien ? ». */
   contactsExistants?: number[];
 }, auteur: Auteur):
-  Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null }>> {
+  Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null }>> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierBienComplet(s);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
@@ -174,8 +189,12 @@ export async function creerBienComplet(s: SaisieBien & {
   // La DERNIÈRE AG (Arno, 18/10/2026) : vérifiée avant toute écriture, posée sur l'IMMEUBLE du bien (son adresse) une fois créé.
   const ag = verifierDateAg((s.logement ?? {}).derniereAg);
   if (!ag.ok) return { etat: 'refus', motif: ag.motif };
+  // L'ENTRETIEN À PRÉVOIR (Arno, 18/10/2026) : vérifié avant toute écriture, enregistré une fois le bien créé.
+  const entretien = verifierEntretiens((s.logement ?? {}).entretienAPrevoir, (s.logement ?? {}).entretiens);
+  if (!entretien.ok) return { etat: 'refus', motif: entretien.motif };
   const l = v.logement;
   const avec378 = await annexeNomPnoDisponible();
+  const avec379 = await entretienDisponible();
   const vivante = await sqlPersonneVivante('p');
   const portefeuille = await sqlDansPortefeuille('p');
   let cree: { logementId: number; annexes: number[] };
@@ -210,6 +229,7 @@ export async function creerBienComplet(s: SaisieBien & {
         const id = await insererLot(q, proprietaires, { ...a, ...adresse }, a.categorie ?? 'cave', {
           adresse_autre: a.autreAdresse, parking_situation: a.parkingSituation, parking_type: a.parkingType,
           ...(avec378 ? { nom_annexe: a.nomAnnexe } : {}),
+          ...(avec379 ? { annotation: a.annotation ?? null, ...(a.detachee === true ? { annexe_detachee_le: new Date().toISOString(), annexe_detachee_par_libelle: auteur.libelle } : {}) } : {}),
         }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, logementId, auteur.libelle]);
         annexes.push(id);
@@ -230,6 +250,12 @@ export async function creerBienComplet(s: SaisieBien & {
     const { rows: cle } = await query<{ cle: string }>('SELECT wippimmo_id AS cle FROM gestion_annuaire_lot WHERE id = $1', [cree.logementId]);
     existants = await rattacherContactsExistants(cle[0].cle, contactsExistants, v.proprietaireIds, auteur);
   }
+  let entretienRefus: string | null = null;
+  if (entretien.aPrevoir !== null && v.famille !== 'parking') {
+    const r = await enregistrerEntretiens(cree.logementId, entretien.aPrevoir, entretien.entretiens, auteur)
+      .catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
+    if (!r.ok) entretienRefus = `Le bien est créé, mais l’entretien à prévoir n’a pas été enregistré : ${r.motif}`;
+  }
   let agRefus: string | null = null;
   const immeubleAg = v.famille === 'parking' ? null : immeubleDeLAg({ immeuble: v.logement.adresse, parking: false });
   if (ag.date !== null && immeubleAg !== null) {
@@ -247,7 +273,7 @@ export async function creerBienComplet(s: SaisieBien & {
   const refus = [c.ok ? null : c.motif, existants.ok ? null : existants.motif].filter((x) => x !== null);
   return { etat: 'ok', data: {
     ...cree, contacts: (c.ok ? c.n : 0) + (existants.ok ? existants.n : 0),
-    contactsRefus: refus.length === 0 ? null : `Le bien est créé, mais : ${refus.join(' ')}`, syndicRefus, agRefus,
+    contactsRefus: refus.length === 0 ? null : `Le bien est créé, mais : ${refus.join(' ')}`, syndicRefus, agRefus, entretienRefus,
   } };
 }
 
@@ -341,7 +367,9 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
   const r = rows[0];
   if (r === undefined) return null;
   const immeubleAg = (await agDisponible()) ? await immeubleAgDuLot(id) : null;
+  const entretiens = await lireEntretiens(id);
   return {
+    ...(entretiens === null ? {} : { entretienAPrevoir: entretiens.aPrevoir, entretiens: entretiens.entretiens }),
     derniereAg: immeubleAg === null ? null : await lireAg(immeubleAg.cle), agApplicable: immeubleAg !== null,
     batiment: r.batiment, escalier: r.escalier, typeLogement: r.type_logement as ComplementsBien['typeLogement'],
     nombrePieces: r.nombre_pieces, meuble: r.meuble, surfaceHabitableM2: r.surface_habitable_m2 === null ? null : Number(r.surface_habitable_m2),
@@ -363,6 +391,10 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
   const avecAg = Object.prototype.hasOwnProperty.call(brut, 'derniereAg');
   const ag = verifierDateAg(brut.derniereAg);
   if (avecAg && !ag.ok) return { etat: 'refus', motif: ag.motif };
+  // L'entretien à prévoir : envoyé seulement par la fiche qui le montre ; vérifié avant toute écriture.
+  const avecEntretien = Object.prototype.hasOwnProperty.call(brut, 'entretienAPrevoir');
+  const entretien = verifierEntretiens(brut.entretienAPrevoir, brut.entretiens);
+  if (avecEntretien && !entretien.ok) return { etat: 'refus', motif: entretien.motif };
   const c = v.valeurs;
   try {
     return await withTransaction(async (q) => {
@@ -393,6 +425,10 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
       return { etat: 'ok' as const, data: undefined };
     }).then(async (issue) => {
       // La dernière AG se pose sur l'IMMEUBLE (tous ses lots la voient) : après les compléments du bien, hors de leur transaction.
+      if (issue.etat === 'ok' && avecEntretien && entretien.ok) {
+        const e = await enregistrerEntretiens(id, entretien.aPrevoir, entretien.entretiens, auteur);
+        if (!e.ok) return { etat: 'refus' as const, motif: `Informations enregistrées, mais pas l’entretien à prévoir : ${e.motif}` };
+      }
       if (issue.etat !== 'ok' || !avecAg || !ag.ok) return issue;
       const immeuble = await immeubleAgDuLot(id);
       if (immeuble === null) return issue;

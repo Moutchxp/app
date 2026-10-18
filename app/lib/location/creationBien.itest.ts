@@ -43,7 +43,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     expect((await creerProprietaires({ cartes: [carte] }, AUTEUR)).etat).toBe('refus');
     expect((await creerProprietaires({ cartes: [carte], enGestion: true, numeroMandat: '  ' }, AUTEUR)).etat).toBe('refus');
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire')).rows[0].n)).toBe(avant);
-    const non = ok(await creerProprietaires({ cartes: [carte, { nom: `GESTION${S}B`, coordonnees: [{ sorte: 'telephone' as const, valeur: '06 22 33 44 56', libelle: 'Mobile' }] }], enGestion: false, numeroMandat: 'saisi puis abandonné' }, AUTEUR));
+    const non = ok(await creerProprietaires({ cartes: [carte, { nom: `GESTION${S}B`, coordonnees: [{ sorte: 'telephone' as const, valeur: '06 22 33 44 56', libelle: 'Mobile' }] }], enGestion: false, numeroMandatTransaction: 'MT itest', numeroMandat: 'saisi puis abandonné' }, AUTEUR));
     const { rows } = await query<{ en_gestion: boolean | null; mandat: string | null }>(
       'SELECT en_gestion, numero_mandat_gestion AS mandat FROM gestion_annuaire_proprietaire WHERE id = ANY($1::bigint[])', [non.ids]);
     expect(rows).toEqual([{ en_gestion: false, mandat: null }, { en_gestion: false, mandat: null }]);
@@ -123,7 +123,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, adresse: '  ' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, typeLogement: '' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, dpeClasse: 'H' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
-    expect((await creerProprietaires({ cartes: [{ nom: '' }], enGestion: false }, AUTEUR)).etat).toBe('refus');
+    expect((await creerProprietaires({ cartes: [{ nom: '' }], enGestion: false, numeroMandatTransaction: 'MT itest' }, AUTEUR)).etat).toBe('refus');
     expect(await compter('gestion_annuaire_lot')).toBe(avant);
   });
 

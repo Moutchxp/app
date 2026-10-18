@@ -44,7 +44,7 @@ describe.skipIf(!baseEssai)('🔴 qui rattacher à ce bien ? — personnes une �
   const emailNotaire = `notaire.${S}@exemple.test`;
 
   it('① le couple et son contact sont proposés (la personne cherchée, la personne liée, le contact)', async () => {
-    [lea, paul] = ok(await creerProprietaires({ enGestion: false, cartes: [
+    [lea, paul] = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [
       { nom: `MARTIN${S}`, prenom: 'Léa', coordonnees: [tel('06 11 11 11 11')] },
       { nom: `MARTIN${S}`, prenom: 'Paul', coordonnees: [mail(`paul.${S}@exemple.test`)] },
     ] }, AUTEUR)).ids;
@@ -83,7 +83,7 @@ describe.skipIf(!baseEssai)('🔴 qui rattacher à ce bien ? — personnes une �
     const b = ok(await creerBienComplet({ proprietaireIds: [lea, paul], annexes: [],
       logement: { adresse: `11 rue Deux${S}`, famille: 'logement', typeLogement: 'studio' } }, AUTEUR));
     expect(await coproprietaires(b.logementId)).toEqual([paul]);
-    const [autre] = ok(await creerProprietaires({ enGestion: false, cartes: [{ nom: `AUTRE${S}`, coordonnees: [tel('06 99 99 99 99')] }] }, AUTEUR)).ids;
+    const [autre] = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [{ nom: `AUTRE${S}`, coordonnees: [tel('06 99 99 99 99')] }] }, AUTEUR)).ids;
     const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n);
     const r = await creerBienComplet({ proprietaireIds: [autre], contactsExistants: [carteNotaire], annexes: [],
       logement: { adresse: `12 rue Refus${S}`, famille: 'logement', typeLogement: 'studio' } }, AUTEUR);
