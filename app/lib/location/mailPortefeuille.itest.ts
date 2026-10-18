@@ -76,7 +76,7 @@ describe.skipIf(!baseEssai)('🔴 mails d’entrée / sortie du portefeuille', (
     expect(m.corps).toContain('Mandat de gestion : MG 2026-777');
     expect(m.corps).toContain(`7 rue du Mail${S}`);
     expect(m.corps).toContain('annexes : Cave n° 4');
-    expect(m.corps).toMatch(new RegExp(`locataire : LOCMAIL${S} — location close le \\d{2}/\\d{2}/\\d{4}`));
+    expect(m.corps).toMatch(new RegExp(`locataire : LOCMAIL${S}\\n  location close le \\d{2}/\\d{2}/\\d{4}`));
     expect(m.corps).toContain('- Mise en vente — Par une autre agence');
     expect(m.corps).toContain('- Précision : « Compromis signé chez Maître X »');
     // 900 + 100 de provisions (base charges comprises) × 6 % = 60 € HT / mois ; TVA 20 % (réglage par défaut).

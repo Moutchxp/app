@@ -44,7 +44,8 @@ describe('mail de sortie / d’entrée du portefeuille', () => {
     expect(t).toContain('Studio · Logement');
     expect(t).toContain('24,5 m²');
     expect(t).toContain('annexes : Cave n° 12');
-    expect(t).toContain('locataire : VABRE Damien — location close le 18/10/2026');
+    // Une fiche locataire = une ligne ; la clôture sur sa propre ligne (Arno, 18/10/2026).
+    expect(t).toContain('  locataire : VABRE Damien\n  location close le 18/10/2026');
     expect(t).toContain('- Mise en vente — Par une autre agence');
     expect(t).toContain('- Précision : « Compromis signé le 10/10 »');
     expect(t).toContain('Fiche du propriétaire : https://exemple.test/admin/location/proprietaire/46');
@@ -73,5 +74,10 @@ describe('mail de sortie / d’entrée du portefeuille', () => {
     const louee = base({ origine: null, annexe: { libelle: 'Parking n° 7 · lot 412', logement: 'lot 173' }, lots: [{ ...base().lots[0], valeur: { loyer: 120, taux: 6, mensuelHT: 7.2 } }] });
     expect(objetMail(louee)).toBe('Sortie d’annexe — CAUCHY Thierry et Joyce — Parking n° 7 · lot 412 — lot 173 — −7,20\u00a0€ HT/mois');
     expect(texteMail(louee)).toContain('VALORISATION');
+  });
+
+  it('plusieurs fiches locataires : une ligne chacune ; une fiche « X et Y » reste telle quelle', () => {
+    const t = texteMail(base({ lots: [{ ...base().lots[0], locataires: ['MARTIN Léa', 'DURAND Paul et Zoé'] }] }));
+    expect(t).toContain('  locataire : MARTIN Léa\n  locataire : DURAND Paul et Zoé\n  location close le 18/10/2026');
   });
 });

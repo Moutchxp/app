@@ -179,8 +179,14 @@ const PHRASE_ANNUAIRE = 'Retrouvez un propriétaire, un locataire ou un ancien l
 
 export function Annuaire({
   fiche, onFiche, onRetour, onEcrire, onHistorique, maintenant, onOuvrirFil, poserSurVie = false,
-  jetonHistorique = null, onPoserJeton, evenementVise = null, redaction = null, onGesteMail,
+  jetonHistorique = null, onPoserJeton, evenementVise = null, redaction = null, onGesteMail, sansEntete = false,
 }: {
+  /**
+   * 🔴 Arno (18/10/2026, accord limité aux ÉCRANS D'ARCHIVAGE de la Location) : sans la barre « ← Retour | Annuaire |
+   * Chercher… » au-dessus d'une fiche — l'écran qui l'accueille a déjà son propre moteur de recherche. Absente (le défaut)
+   * ⇒ la barre reste, dans la Gestion et partout ailleurs.
+   */
+  sansEntete?: boolean;
   fiche: FicheUrl | null;
   onFiche: (f: FicheUrl | null) => void;
   onRetour: () => void;
@@ -510,7 +516,7 @@ export function Annuaire({
             ⚠️ LE « ← Retour » RESTE SUR UNE FICHE, et seulement là : Arno n'autorise son retrait que sur l'état
             « aucune fiche ouverte », où il n'avait plus de liste à rendre. Sur une fiche, il est le chemin de
             retour vers le mail ou la liste d'où l'on vient. */
-        <div className="ann-entete">
+        sansEntete ? null : <div className="ann-entete">
           {/* 🔴🔴 LOT FLECHES-RETOUR — UN SEUL GESTE, CELUI DE TOUT LE MODULE.
               Avant ce lot, ce bouton connaissait deux destinations FIXES : la liste de l'annuaire quand une
               fiche était ouverte, la boîte sinon. Venu d'un mail, il ne rendait donc jamais le mail — constat

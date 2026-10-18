@@ -45,7 +45,7 @@ describe('🔴 aucune fiche propriétaire / locataire / bien en double sous /adm
   it('la fiche commune monte le composant `Annuaire` de la Gestion, sans rédaction ni « Écrire »', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/gestion/FicheCommune.tsx', 'utf8');
     expect(src).toContain("import { Annuaire } from './Annuaire';");
-    expect(src).toMatch(/<Annuaire fiche=\{fiche\} onFiche=\{onFiche\} onRetour=\{onRetour\} redaction=\{null\} \/>/);
+    expect(src).toMatch(/<Annuaire fiche=\{fiche\} onFiche=\{onFiche\} onRetour=\{onRetour\} redaction=\{null\} sansEntete=\{sansBarreAnnuaire\} \/>/);
     expect(src).not.toMatch(/onEcrire=|onOuvrirFil=|onGesteMail=/);
   });
 });

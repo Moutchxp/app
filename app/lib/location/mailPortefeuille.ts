@@ -140,7 +140,11 @@ function detailsLot(l: LotMail, sens: SensMouvement): string[] {
     l.surface === null ? null : `${l.surface.toLocaleString('fr-FR')} m²`,
     l.etage === null ? null : `étage : ${l.etage}`,
     l.annexes.length > 0 ? `annexes : ${l.annexes.join(', ')}` : null,
-    l.locataires.length > 0 ? `${sens === 'sortie' ? 'locataire' : 'locataire en place'} : ${l.locataires.join(', ')}${sens === 'sortie' && l.clotureLe !== null ? ` — location close le ${dateCourte(l.clotureLe)}` : ''}` : 'sans locataire en place',
+    // Arno (18/10/2026) : UNE FICHE LOCATAIRE = UNE LIGNE ; la date de clôture sur sa propre ligne, sous la liste.
+    ...(l.locataires.length > 0
+      ? [...l.locataires.map((n) => `${sens === 'sortie' ? 'locataire' : 'locataire en place'} : ${n}`),
+        ...(sens === 'sortie' && l.clotureLe !== null ? [`location close le ${dateCourte(l.clotureLe)}`] : [])]
+      : ['sans locataire en place']),
   ].filter((x): x is string => x !== null);
 }
 

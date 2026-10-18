@@ -193,9 +193,9 @@ export interface BienASortir {
   autresProprietaires: string[];
 }
 
-export const QUESTION_ORIGINE_BIENS = 'Quelle est l’origine de la sortie de ces biens ?';
+export const QUESTION_ORIGINE_BIENS = 'Quelle est l’origine de la sortie de ce(s) bien(s) ?';
 export const LIBELLE_FINAL_BIENS = 'Sortir définitivement';
-export const LIBELLE_CONFIRMER_BIENS = 'Confirmer la sortie de ces biens';
+export const LIBELLE_CONFIRMER_BIENS = 'Confirmer la sortie de ce(s) bien(s)';
 export const TITRE_ALERTE_BIENS = 'Attention, au moins un bien sélectionné est actuellement occupé par un locataire';
 export const BANDEAU_TOUS_LES_BIENS =
   'Tous les biens de ce propriétaire sont sélectionnés : le propriétaire sortira lui aussi de la gestion et sera archivé';

@@ -148,7 +148,7 @@ export function EcranArchivageProprietaire({ refusFiche, mode = 'proprietaire' }
             <p className="arc-fil"><button type="button" className="arc-lien" onClick={() => ouvrir(null)}>← Revenir à la fiche du propriétaire</button></p>
           )}
           {refusFiche === null
-            ? <FicheCommuneLocation key={`${vue.sorte}-${vue.id}-${version}`} fiche={vue} ouvrir={ouvrir} sansRetour />
+            ? <FicheCommuneLocation key={`${vue.sorte}-${vue.id}-${version}`} fiche={vue} ouvrir={ouvrir} sansRetour sansBarreAnnuaire />
             : <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{refusFiche}</div>}
         </section>
       )}
@@ -252,14 +252,22 @@ function SelectionBiens({ etat, choix, onBascule }: {
                 <strong className="arc-bien-adresse">{libelleBien(b)}</strong>
                 <span className="arc-bien-type loc-muet">{b.nature ?? 'Type non renseigné'}</span>
                 <div className="arc-bien-occupation" data-occupation={b.locataires.length > 0 ? 'loue' : 'vacant'}>
+                  {/* Arno (18/10/2026) : UNE FICHE LOCATAIRE = UNE LIGNE (deux au plus si le nom est long), chacune surlignée ;
+                      la date (entrée ou sortie) sur sa propre ligne, sous la liste. */}
                   {b.locataires.length > 0 ? (<>
-                    <span>Loué à <mark className="arc-surligne arc-surligne--en-place" data-en-place>{b.locataires.join(', ')}</mark></span>
-                    <span className="loc-muet">{dateFr(b.entree) === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(b.entree)}`}</span>
+                    <span>Loué à :</span>
+                    <ul className="arc-noms">
+                      {b.locataires.map((n) => <li key={n}><mark className="arc-surligne arc-surligne--en-place" data-en-place>{n}</mark></li>)}
+                    </ul>
+                    <span className="loc-muet" data-entree-le>{dateFr(b.entree) === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(b.entree)}`}</span>
                   </>) : (<>
                     <span className="arc-vacant" data-vacant>{motVacant(b.famille)}</span>
                     {b.derniersLocataires.length > 0 ? (<>
-                      <span>Dernier locataire : <mark className="arc-surligne arc-surligne--ancien" data-dernier>{b.derniersLocataires.join(', ')}</mark></span>
-                      {dateFr(b.derniereSortie) !== null && <span className="loc-muet" data-sortie-le>Sorti(e) le {dateFr(b.derniereSortie)}</span>}
+                      <span>{b.derniersLocataires.length > 1 ? 'Derniers locataires :' : 'Dernier locataire :'}</span>
+                      <ul className="arc-noms">
+                        {b.derniersLocataires.map((n) => <li key={n}><mark className="arc-surligne arc-surligne--ancien" data-dernier>{n}</mark></li>)}
+                      </ul>
+                      <span className="loc-muet" data-sortie-le>{dateFr(b.derniereSortie) === null ? 'date de sortie inconnue' : `Sorti(e) le ${dateFr(b.derniereSortie)}`}</span>
                     </>) : <span className="loc-muet" data-jamais-loue>Aucun locataire connu</span>}
                   </>)}
                 </div>
@@ -287,7 +295,7 @@ function SelectionBiens({ etat, choix, onBascule }: {
 
 /**
  * Le GROS BOUTON du mode « biens » : « Sortir N bien(s) de la gestion » (grisé sans sélection). Biens occupés ⇒ la même
- * fenêtre d'alerte que l'archivage, limitée à la sélection ; sinon confirmation simple ; puis l'ORIGINE (« …de ces biens »).
+ * fenêtre d'alerte que l'archivage, limitée à la sélection ; sinon confirmation simple ; puis l'ORIGINE (« …de ce(s) bien(s) »).
  * TOUS les biens choisis ⇒ bandeau, et EXACTEMENT le parcours de l'archivage du propriétaire (le serveur bascule aussi).
  * Propriétaire déjà archivé ⇒ l'état archivé et « Réactiver », comme l'autre mode.
  */
@@ -413,7 +421,9 @@ const CSS_ECRAN_ARCHIVAGE = `
 .arc-bien-adresse{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;min-height:2.7em}
 .arc-bien-occupation{display:flex;flex-direction:column;gap:2px}
 .arc-bien-plus{display:flex;flex-direction:column;gap:4px}
-.arc-surligne{border-radius:4px;padding:0 4px;font-weight:700}
+.arc-surligne{border-radius:4px;padding:0 4px;font-weight:700;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.arc-noms{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:3px}
+.arc-noms li{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4;min-width:0}
 .arc-surligne--en-place{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .arc-surligne--ancien{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
 .arc-vacant{color:var(--color-svv-red);font-weight:800}

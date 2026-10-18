@@ -66,12 +66,19 @@ export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler, 
             {apercu.occupees.length === 1 ? 'Cette location est en cours ; elle sera close à la date du jour :'
               : `Ces ${apercu.occupees.length} locations sont en cours ; elles seront closes à la date du jour :`}
           </p>
+          {/* Arno (18/10/2026) : un bloc par BIEN, UNE FICHE LOCATAIRE = UNE LIGNE, avec sa date d'entrée. */}
           <ul className="arc-occupes" data-biens-occupes>
-            {apercu.occupees.map((o) => (
-              <li key={o.occupationId} data-occupation={o.occupationId}>
-                <strong className="arc-bien">{libelleBien(o)}</strong>
-                <span className="arc-loc">{o.locataire}</span>
-                <span className="arc-date">{dateEntree(o.entree)}</span>
+            {[...new Map(apercu.occupees.map((o) => [o.lotId, o])).values()].map((b) => (
+              <li key={b.lotId} data-bien-occupe={b.lotId}>
+                <strong className="arc-bien">{libelleBien(b)}</strong>
+                <ul className="arc-locs">
+                  {apercu.occupees.filter((o) => o.lotId === b.lotId).map((o) => (
+                    <li key={o.occupationId} data-occupation={o.occupationId}>
+                      <span className="arc-loc">{o.locataire}</span>
+                      <span className="arc-date">{dateEntree(o.entree)}</span>
+                    </li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
@@ -119,7 +126,9 @@ export const CSS_MODALE_ARCHIVAGE = `
 .arc-intro,.arc-phrase{margin:0}
 .arc-phrase{color:var(--color-svv-muted);font-size:.92rem}
 .arc-occupes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
-.arc-occupes li{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1.2fr) auto;gap:4px 12px;align-items:baseline;padding:10px 12px;border:1px solid var(--color-svv-line-strong);border-left:4px solid var(--color-svv-urgence-orange);border-radius:10px;background:var(--color-svv-field)}
+.arc-occupes > li{display:flex;flex-direction:column;gap:6px;padding:10px 12px;border:1px solid var(--color-svv-line-strong);border-left:4px solid var(--color-svv-urgence-orange);border-radius:10px;background:var(--color-svv-field)}
+.arc-locs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+.arc-locs li{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;align-items:baseline}
 .arc-bien{min-width:0;overflow-wrap:anywhere}
 .arc-loc{min-width:0;overflow-wrap:anywhere}
 .arc-date{color:var(--color-svv-muted);font-size:.9rem;white-space:nowrap}
@@ -133,7 +142,6 @@ export const CSS_MODALE_ARCHIVAGE = `
 @media (max-width:640px){
   .arc-voile{padding:8px;align-items:flex-end}
   .arc-modale{padding:14px;border-radius:14px}
-  .arc-occupes li{grid-template-columns:1fr}
   .arc-date{white-space:normal}
 }
 `;

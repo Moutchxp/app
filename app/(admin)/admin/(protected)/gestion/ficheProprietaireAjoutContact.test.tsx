@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 
 /**
  * 🔴🔴 FICHE PROPRIÉTAIRE COMMUNE — « + Ajouter un contact » (Arno, 18/10/2026, accord pour la Gestion).
@@ -170,3 +171,25 @@ for (const [ou, monter] of Object.entries(MONTAGES)) {
     });
   });
 }
+
+describe('🔴 la barre « ← Retour | Annuaire | Chercher… » (Arno, 18/10/2026) : retirée des seuls écrans d’archivage', () => {
+  const monter = async (el: ReturnType<typeof createElement>) => { await act(async () => { racine.render(el); }); await calmer(); };
+  it('présente dans la Gestion et sur les fiches ouvertes depuis la Location', async () => {
+    await monter(createElement(Annuaire as never, { fiche: { sorte: 'proprietaire', id: 9 }, onFiche: () => {}, onRetour: () => {} }));
+    expect(hote.querySelector('.ann-entete')).not.toBeNull();
+    expect(hote.querySelector('.ann-retour-haut')?.textContent).toContain('Retour');
+    await monter(createElement(FicheCommuneLocation, { fiche: { sorte: 'proprietaire', id: 9 } }));
+    expect(hote.querySelector('.ann-entete')).not.toBeNull();
+  });
+  it('absente quand l’écran d’archivage la retire (sansBarreAnnuaire) ; la fiche, elle, est là', async () => {
+    await monter(createElement(FicheCommuneLocation, { fiche: { sorte: 'proprietaire', id: 9 }, sansRetour: true, sansBarreAnnuaire: true }));
+    expect(hote.querySelector('.ann-entete')).toBeNull();
+    expect(hote.querySelector('.ann-retour-haut')).toBeNull();
+    expect(hote.querySelector('#ann-coord')).not.toBeNull();
+  });
+  it('l’écran d’archivage (les deux modes) monte la fiche SANS la barre', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/ArchivageProprietaire.tsx', 'utf8');
+    expect(src).toContain('fiche={vue} ouvrir={ouvrir} sansRetour sansBarreAnnuaire />');
+  });
+});
+
