@@ -189,12 +189,14 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     const f = await rendre((u) => (u.includes('encartBail=') ? ok(ENCART) : ok(BAIL)));
     expect(container.querySelector('.loc-retour a')?.getAttribute('href')).toBe('/admin/location/locataires');
     expect(container.querySelector('.loc-retour a')?.textContent).toBe('← Ajouter ou supprimer un locataire');
-    expect(container.querySelector('.arc-biens-titre')?.textContent).toBe('Locataires de ce logement 2');
+    // Arno (19/10/2026) : deux parties, « Le logement » puis « Les locataires » (avec la pastille du nombre).
+    expect([...container.querySelectorAll('[data-selection-locataires] .arc-biens-titre')].map((h) => h.textContent)).toEqual(['Le logement', 'Les locataires 2']);
     const encart = container.querySelector('[data-encart-logement]')!;
     expect(encart.querySelector('h3')?.textContent).toBe('4 rue Fictive, 92800 Puteaux');
     // L'encart est AU-DESSUS des cartes.
     expect(encart.compareDocumentPosition(container.querySelector('.arc-biens-liste')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(cartes().map((b) => [b.getAttribute('aria-pressed'), b.textContent])).toEqual([['true', '✓ Faire sortir'], ['true', '✓ Faire sortir']]);
+    // Arno (19/10/2026) : aucun gros bouton choisi → « Préavis/sortie » (cochées par défaut, comme avant).
+    expect(cartes().map((b) => [b.getAttribute('aria-pressed'), b.textContent])).toEqual([['true', '✓ Préavis/sortie'], ['true', '✓ Préavis/sortie']]);
     expect(container.querySelectorAll('mark.arc-surligne--en-place')).toHaveLength(2);
     expect(container.textContent).toContain('Entré(e) dans les lieux le 01/09/2022');
     expect(container.querySelector('a[data-voir-fiche]')?.getAttribute('href')).toBe('/admin/location/locataire/101');
@@ -536,5 +538,68 @@ describe('Arno (19/10/2026) — les deux boutons de l’écran de sortie : blanc
     const pvs = readFileSync('app/(admin)/admin/(protected)/location/Preavis.tsx', 'utf8');
     expect(pvs).toMatch(/\.pvs-mention\{[^}]*background:var\(--color-svv-blue-soft\);color:var\(--color-svv-blue\)/);
     expect(pvs).toContain('.pvs-mention--echu{background:var(--color-svv-urgence-orange)');
+  });
+});
+
+describe('Arno (19/10/2026) — l’écran de sortie retravaillé', () => {
+  const rendre = async (encart: unknown = ENCART_COORDS): Promise<ReturnType<typeof vi.fn>> => {
+    const f = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(encart)
+      : String(u).includes('preavisBail=') ? ok(PREAVIS) : ok(BAIL)));
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    return f;
+  };
+  const ENCART_COORDS = { ...ENCART, coordonnees: {
+    proprietaire: null,
+    locataires: [
+      { occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', telephones: ['06 11 22 33 44', '01 40 00 00 00'], emails: ['alice@exemple.test', 'alice.pro@exemple.test'],
+        telephonesDetail: [{ valeur: '06 11 22 33 44', libelle: 'Portable' }, { valeur: '01 40 00 00 00', libelle: null }] },
+      { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', telephones: [], emails: [], telephonesDetail: [] },
+    ] } };
+  const cartes = (): HTMLButtonElement[] => [...container.querySelectorAll('button[data-choisir]')] as HTMLButtonElement[];
+
+  it('les deux gros boutons : « Enregistrer un préavis » à GAUCHE (premier), « Faire sortir » à DROITE', async () => {
+    await rendre();
+    const gros = [...container.querySelectorAll('.sor-deux-boutons > *')];
+    expect(gros.map((b) => b.hasAttribute('data-enregistrer-un-preavis') ? 'preavis' : b.hasAttribute('data-faire-sortir') ? 'sortie' : '?')).toEqual(['preavis', 'sortie']);
+  });
+
+  it('l’encart sur trame GRISE, en deux parties : « Le logement » puis « Les locataires » (pastille du nombre)', async () => {
+    await rendre();
+    const cadre = container.querySelector('[data-selection-locataires]')!;
+    expect(cadre.className).toBe('arc-biens sor-cadre');
+    expect([...cadre.querySelectorAll(':scope > .sor-partie')].map((p) => p.getAttribute('data-partie'))).toEqual(['logement', 'locataires']);
+    expect(cadre.querySelector('[data-partie="logement"] [data-encart-logement]')).not.toBeNull();
+    expect(cadre.querySelector('[data-partie="locataires"] .arc-biens-liste')).not.toBeNull();
+    expect(cadre.querySelector('[data-partie="locataires"] .loc-pastille')?.textContent).toBe('2');
+    const css = readFileSync('app/(admin)/admin/(protected)/location/SortieLocataires.tsx', 'utf8');
+    expect(css).toContain('.sor-cadre{background:var(--color-svv-field);border:1px solid var(--color-svv-line)');
+    // Le taux de gestion reste absent de l'encart.
+    expect(cadre.textContent).not.toMatch(/Taux de gestion/);
+  });
+
+  it('chaque carte : tous les téléphones (avec libellé) et e-mails, cliquables, un par ligne ; rien si vide', async () => {
+    await rendre();
+    const alice = container.querySelector('[data-locataire="11"] [data-coordonnees-carte]')!;
+    expect([...alice.querySelectorAll('a')].map((a) => [a.textContent, a.getAttribute('href')])).toEqual([
+      ['Portable : 06 11 22 33 44', 'tel:0611223344'], ['01 40 00 00 00', 'tel:0140000000'],
+      ['alice@exemple.test', 'mailto:alice@exemple.test'], ['alice.pro@exemple.test', 'mailto:alice.pro@exemple.test']]);
+    expect(container.querySelector('[data-locataire="12"] [data-coordonnees-carte]')).toBeNull();
+  });
+
+  it('le bouton de carte suit le gros bouton actif : « Préavis/sortie » → « Appliquer le préavis » → « Faire sortir » ; il n’écrit rien', async () => {
+    const f = await rendre();
+    expect(cartes()[0].textContent).toBe('✓ Préavis/sortie');
+    act(() => (container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).click());
+    expect(cartes()[0].textContent).toBe('✓ Appliquer le préavis');
+    act(() => (container.querySelector('button[data-faire-sortir]') as HTMLButtonElement).click());
+    expect(cartes()[0].textContent).toBe('✓ Faire sortir');
+    expect(cartes()[0].className).toBe('arc-choisir');
+    // Décocher / recocher : la sélection seule, aucun envoi.
+    act(() => cartes()[1].click());
+    expect(cartes()[1].textContent).toBe('Reste dans le logement');
+    act(() => cartes()[1].click());
+    expect(f.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
   });
 });

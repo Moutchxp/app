@@ -18,7 +18,8 @@ import {
   type ApercuArchivage, type BienASortir,
 } from './archivage';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
-import { familleDeCategorie } from './bienComplet';
+import { familleDeCategorie, LIBELLE_TYPE_LOGEMENT, type TypeLogement } from './bienComplet';
+import { etageFr } from './sortieLocataires';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE PORTEFEUILLE (refonte de l'accueil, Arno, 17/10/2026). IMPUR (base). ══════════════════════
@@ -714,22 +715,35 @@ export async function creerLocataireSurBien(o: CreationLocataire, auteur: Auteur
   return { etat: 'ok', data: { locataireId: id } };
 }
 
-/** Les biens du portefeuille proposés au rattachement d'un locataire (filtre sur l'adresse). */
+/**
+ * Les biens du portefeuille proposés au rattachement d'un locataire. Arno (19/10/2026) : par l'ADRESSE OU par le NOM DU
+ * PROPRIÉTAIRE (nom, prénom ; accents et casse ignorés — le texte est normalisé comme toutes les recherches du portefeuille,
+ * `analyserTermePortefeuille`, et comparé aux colonnes normalisées). Chaque mot doit se trouver dans l'adresse OU dans le
+ * nom du propriétaire (« Lilas Dupont » marche). Chaque résultat dit l'adresse, le type de bien, l'étage et le propriétaire.
+ */
 export async function biensPourLocataire(filtre: string): Promise<{ id: number; titre: string; detail: string | null }[]> {
   const t = analyserTermePortefeuille(filtre);
-  const conditionMots = t.mots.map((_, i) => `coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[${i + 1}] || '%'`).join(' AND ');
-  const { rows } = await query<{ id: string; adresse: string | null; commune: string | null; proprietaire: string | null; loue: boolean; annexe: string | null }>(
+  const conditionMots = t.mots.map((_, i) => `(coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[${i + 1}] || '%'
+    OR coalesce(pr.nom_normalise, '') LIKE '%' || ($1::text[])[${i + 1}] || '%')`).join(' AND ');
+  const col = async (c: string): Promise<string> => ((await colonneExisteMemo('gestion_annuaire_lot', c)) ? `lo.${c}::text` : 'NULL::text');
+  const { rows } = await query<{ id: string; adresse: string | null; commune: string | null; proprietaire: string | null; loue: boolean; annexe: string | null;
+    etage: string | null; type_logement: string | null; nature: string | null; type_bien: string | null }>(
     `SELECT lo.id::text, lo.adresse, lo.commune, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             CASE WHEN EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)
                  THEN concat_ws(' ', initcap(coalesce(lo.categorie, 'annexe')), 'n° ' || lo.porte) END AS annexe,
-            EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.lot_id = lo.id AND o.sortie IS NULL) AS loue
+            EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.lot_id = lo.id AND o.sortie IS NULL) AS loue,
+            ${await col('etage')} AS etage, ${await col('type_logement')} AS type_logement, lo.nature, lo.type_bien
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
       WHERE ${await sqlBienDuPortefeuille('lo')} AND ${conditionMots === '' ? 'cardinality($1::text[]) = 0' : conditionMots}
       ORDER BY lo.adresse_normalisee, lo.id LIMIT 20`, [t.mots]);
-  return rows.map((r) => ({
-    id: Number(r.id), titre: (r.annexe === null ? '' : `${r.annexe} — `) + ([r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`),
-    detail: [r.proprietaire, r.loue ? 'déjà loué' : 'libre'].filter((x) => x).join(' · '),
-  }));
+  return rows.map((r) => {
+    const type = r.type_logement ? (LIBELLE_TYPE_LOGEMENT[r.type_logement as TypeLogement] ?? r.type_logement)
+      : ([r.nature, r.type_bien].filter((x) => x && x.trim() !== '').join(' ') || null);
+    return {
+      id: Number(r.id), titre: (r.annexe === null ? '' : `${r.annexe} — `) + ([r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`),
+      detail: [type, etageFr(r.etage), r.proprietaire ? `propriétaire : ${r.proprietaire}` : null, r.loue ? 'déjà loué' : 'libre'].filter((x) => x).join(' · '),
+    };
+  });
 }
 
 /**

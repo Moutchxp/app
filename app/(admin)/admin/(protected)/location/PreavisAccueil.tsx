@@ -379,7 +379,8 @@ export const CSS_PREAVIS_ACCUEIL = `
 .pva-tri{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .pva-tri-libelle{font-size:.85rem;font-weight:700;color:var(--color-svv-muted)}
 .pva-segment{min-height:44px;padding:8px 12px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.9rem;cursor:pointer}
-.pva-segment[aria-pressed="true"]{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink);font-weight:700}
+/* Arno (19/10/2026) — le tri ACTIF en ROUGE (le rouge des gros boutons actifs, texte blanc) ; les autres restent blancs. */
+.pva-segment[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface);border-color:var(--color-svv-red);font-weight:700}
 .pva-liste{list-style:none;margin:0;padding:0;border:1px solid var(--color-svv-line);border-radius:14px;background:var(--color-svv-surface)}
 .pva-item + .pva-item{border-top:1px solid var(--color-svv-line)}
 .pva-ligne{box-sizing:border-box;height:4.75rem;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:8px 12px}

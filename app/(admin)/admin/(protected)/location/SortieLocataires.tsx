@@ -480,17 +480,18 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
             {/* Arno (19/10/2026) — LES DEUX BOUTONS SONT BLANCS à l'ouverture ; celui qu'on choisit passe au ROUGE et ouvre SON
                 bloc (l'autre se ferme, sans rien enregistrer) ; re-cliquer dessus, ou « Annuler », remet tout en blanc.
                 L'état actif se lit aussi sans la couleur : `aria-pressed` et la coche ✓ devant le libellé. */}
+            {/* Arno (19/10/2026) — « Enregistrer un préavis » À GAUCHE (et en premier sur téléphone), « Faire sortir » À DROITE. */}
+            <button type="button" className="arc-gros sor-bascule" aria-pressed={preavisOuvert} disabled={pv === null || !pv.disponible || bail.locataires.length === 0}
+              title={pv !== null && !pv.disponible ? 'Préavis : mise à jour de la base à appliquer (migration 383)' : undefined}
+              onClick={() => { setPreavisOuvert(!preavisOuvert); setOuvert(false); setPreavisFait(null); }} data-enregistrer-un-preavis>
+              {preavisOuvert ? <span className="sor-coche" aria-hidden="true">✓ </span> : null}Enregistrer un préavis
+            </button>
             {gestion ? (
               <button type="button" className="arc-gros sor-bascule" aria-pressed={ouvert && n > 0} disabled={n === 0}
                 onClick={() => { const actif = ouvert && n > 0; setOuvert(!actif); setPreavisOuvert(false); }} data-faire-sortir>
                 {ouvert && n > 0 ? <span className="sor-coche" aria-hidden="true">✓ </span> : null}{libelleFaireSortir(n)}
               </button>
             ) : <p className="arc-gros sor-gestion-seule" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>}
-            <button type="button" className="arc-gros sor-bascule" aria-pressed={preavisOuvert} disabled={pv === null || !pv.disponible || bail.locataires.length === 0}
-              title={pv !== null && !pv.disponible ? 'Préavis : mise à jour de la base à appliquer (migration 383)' : undefined}
-              onClick={() => { setPreavisOuvert(!preavisOuvert); setOuvert(false); setPreavisFait(null); }} data-enregistrer-un-preavis>
-              {preavisOuvert ? <span className="sor-coche" aria-hidden="true">✓ </span> : null}Enregistrer un préavis
-            </button>
           </div>
           {pv !== null && !pv.disponible && <p className="loc-muet" style={{ margin: 0 }} data-preavis-indisponible>Préavis : la mise à jour de la base (migration 383) reste à appliquer.</p>}
           {preavisOuvert && pv !== null && pv.disponible && (
@@ -525,9 +526,14 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
           )}
         </div>
       </div>
-      <section className="arc-biens" aria-label="Locataires de ce logement" data-selection-locataires>
-        <h2 className="arc-biens-titre">Locataires de ce logement <span className="loc-pastille">{bail.locataires.length}</span></h2>
-        {encart.etat.etat === 'ok' ? <EncartDuLogement e={encart.etat.data} /> : <EtatLecture etat={encart.etat} />}
+      {/* Arno (19/10/2026) — L'ENCART SUR TRAME GRISE, EN DEUX PARTIES NETTEMENT SÉPARÉES : « Le logement », « Les locataires ». */}
+      <section className="arc-biens sor-cadre" aria-label="Le logement et ses locataires" data-selection-locataires>
+        <div className="sor-partie" data-partie="logement">
+          <h2 className="arc-biens-titre">Le logement</h2>
+          {encart.etat.etat === 'ok' ? <EncartDuLogement e={encart.etat.data} /> : <EtatLecture etat={encart.etat} />}
+        </div>
+        <div className="sor-partie" data-partie="locataires">
+        <h2 className="arc-biens-titre">Les locataires <span className="loc-pastille">{bail.locataires.length}</span></h2>
         {bail.locataires.length === 0 ? <p className="loc-muet">Plus aucun locataire en place dans ce logement : rien à faire sortir.</p> : (
           <ul className="arc-biens-liste">
             {bail.locataires.map((l) => {
@@ -538,6 +544,8 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
                   <ul className="arc-noms"><li>{preavisDe(l.occupationId) !== null
                     ? <mark className="arc-surligne sor-surligne--preavis" data-en-preavis>{l.nom}</mark>
                     : <mark className="arc-surligne arc-surligne--en-place" data-en-place>{l.nom}</mark>}</li></ul>
+                  {/* Arno (19/10/2026) — TOUS ses téléphones (avec leur libellé) et ses e-mails, cliquables, un par ligne. */}
+                  {encart.etat.etat === 'ok' && <CoordonneesCarte c={encart.etat.data.coordonnees?.locataires.find((x) => x.occupationId === l.occupationId) ?? null} />}
                   <span className="loc-muet" data-entree-le>{l.entree === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(l.entree)}`}</span>
                   {(() => {
                     const p = preavisDe(l.occupationId);
@@ -550,13 +558,14 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
                   })()}
                   <a className="arc-lien sor-voir" href={`/admin/location/locataire/${l.locataireId}`} data-voir-fiche>Voir la fiche</a>
                   <button type="button" className="arc-choisir" aria-pressed={pris} data-choisir={l.occupationId} onClick={() => basculer(l.occupationId)}>
-                    {pris ? '✓ Faire sortir' : 'Reste dans le logement'}
+                    {pris ? `✓ ${libelleBoutonCarte(ouvert && n > 0 ? 'sortie' : preavisOuvert ? 'preavis' : 'aucun')}` : 'Reste dans le logement'}
                   </button>
                 </li>
               );
             })}
           </ul>
         )}
+        </div>
       </section>
       {encart.etat.etat === 'ok' && (
         <section className="arc-biens sor-historique" aria-label="Historique des échanges du logement" data-historique-logement>
@@ -566,6 +575,27 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
         </section>
       )}
     </>
+  );
+}
+
+/**
+ * Arno (19/10/2026) — LE LIBELLÉ DU BOUTON DE CHAQUE CARTE SUIT LE GROS BOUTON ACTIF. Il ne fait que COCHER la carte
+ * (incluse ou non dans l'action) : il n'écrit jamais rien — l'action se confirme toujours par le bloc ouvert en haut.
+ */
+export function libelleBoutonCarte(actif: 'aucun' | 'preavis' | 'sortie'): string {
+  return actif === 'preavis' ? 'Appliquer le préavis' : actif === 'sortie' ? 'Faire sortir' : 'Préavis/sortie';
+}
+
+/** Les coordonnées d'un locataire sur sa carte : chaque téléphone (avec son libellé) et chaque e-mail, un par ligne. */
+function CoordonneesCarte({ c }: { c: { telephonesDetail?: { valeur: string; libelle: string | null }[]; telephones: string[]; emails: string[] } | null }) {
+  if (c === null) return null;
+  const tels = c.telephonesDetail ?? c.telephones.map((valeur) => ({ valeur, libelle: null }));
+  if (tels.length + c.emails.length === 0) return null;
+  return (
+    <ul className="sor-coords-carte" data-coordonnees-carte>
+      {tels.map((t) => <li key={`t${t.valeur}`}><a href={`tel:${t.valeur.replace(/\s+/g, '')}`} data-tel>{t.libelle ? `${t.libelle} : ` : ''}{t.valeur}</a></li>)}
+      {c.emails.map((m) => <li key={`m${m}`}><a href={`mailto:${m}`} data-mail>{m}</a></li>)}
+    </ul>
   );
 }
 
@@ -707,6 +737,12 @@ export const CSS_SORTIE = `
 .sor-choix{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .sor-enregistrees{margin-top:14px}
 .sor-encart{display:flex;flex-direction:column;gap:10px;min-width:0;overflow-wrap:anywhere}
+/* Arno (19/10/2026) — l'encart sur la trame GRISE des cartes de l'application (celle des grosses cases de l'accueil), en deux parties. */
+.sor-cadre{background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:16px;padding:16px;gap:0;min-width:0}
+.sor-partie{display:flex;flex-direction:column;gap:10px;min-width:0}
+.sor-partie + .sor-partie{margin-top:16px;padding-top:16px;border-top:2px solid var(--color-svv-line-strong)}
+.sor-coords-carte{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0;min-width:0}
+.sor-coords-carte a{display:inline-flex;align-items:center;min-height:44px;color:var(--color-svv-ink);text-decoration:underline;overflow-wrap:anywhere}
 .sor-encart-titre{margin:0;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
 .sor-encart-dl{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:8px 18px;margin:0}
 .sor-encart-dl > div{display:flex;flex-direction:column;gap:1px;min-width:0}

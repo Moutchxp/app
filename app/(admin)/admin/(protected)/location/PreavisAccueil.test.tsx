@@ -188,6 +188,14 @@ describe('les tris', () => {
     expect(ordre()).toEqual(['C', 'A', 'B']);
   });
 
+  it('Arno (19/10/2026) : le tri ACTIF en ROUGE (texte blanc, jetons du thème) avec aria-pressed ; les autres blancs', async () => {
+    expect(CSS_PREAVIS_ACCUEIL).toContain('.pva-segment[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface);border-color:var(--color-svv-red)');
+    expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-segment\{[^}]*background:var\(--color-svv-surface\)/);
+    await rendre();
+    clic('button[data-tri="edl:desc"]');
+    expect([...container.querySelectorAll('button.pva-segment')].map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'false', 'true']);
+  });
+
   it('cibles tactiles ≥ 44 px', () => {
     expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-segment\{min-height:44px/);
     expect(CSS_PREAVIS_ACCUEIL).toMatch(/\.pva-ouvrir\{min-height:44px/);

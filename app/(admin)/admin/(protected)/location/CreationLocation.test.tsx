@@ -380,11 +380,25 @@ describe('🔴 Nouveau locataire : aucun <form> dans un <form>', () => {
     const bouton = container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement;
     expect(bouton.textContent).toBe('Enregistrer');
     expect(bouton.form).toBe(page);
-    expect((container.querySelector('input[placeholder="ex. rue des Lilas"]') as HTMLInputElement).form).toBe(page);
+    expect((container.querySelector('input[placeholder="ex. rue des Lilas ou Dupont"]') as HTMLInputElement).form).toBe(page);
     expect((container.querySelector('input[type="date"]') as HTMLInputElement).form).toBe(page);
     // La carte garde SON formulaire, à elle.
     expect(container.querySelector('[data-sorte="client"] form.cp-form')).not.toBeNull();
     await act(async () => { bouton.click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte « Locataire (client) »');
+  });
+});
+
+describe('Arno (19/10/2026) — « Bien loué » : par l’adresse OU le nom du propriétaire', () => {
+  it('libellé et exemple ; chaque résultat montre l’adresse, le type, l’étage et le propriétaire', async () => {
+    const f = global.fetch as ReturnType<typeof vi.fn>;
+    f.mockImplementation(async (url: string | URL | Request) => (String(url).includes('biensPourLocataire=')
+      ? ok([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement T3 · 3e étage · propriétaire : DUPONT Jean · libre' }]) : ok([])));
+    await act(async () => { root.render(createElement(CreationLocataire)); });
+    const champ = container.querySelector('input[data-recherche-bien]') as HTMLInputElement;
+    expect(champ.placeholder).toBe('ex. rue des Lilas ou Dupont');
+    expect(champ.closest('label')?.textContent).toContain('Chercher le bien par son adresse ou le nom du propriétaire (biens du portefeuille)');
+    await act(async () => { await new Promise((r) => { setTimeout(r, 300); }); });
+    expect(container.querySelector('.loc-choix li')?.textContent).toBe('4 rue Fictive, PuteauxAppartement T3 · 3e étage · propriétaire : DUPONT Jean · libre');
   });
 });

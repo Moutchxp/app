@@ -78,8 +78,9 @@ export function CreationLocataire() {
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setBien(null)}>Changer de bien</button></p>
         ) : (
           <>
-            <label className="loc-champ">Chercher le bien par son adresse (biens du portefeuille)
-              <input form={idForm} value={filtreBien} onChange={(e) => setFiltreBien(e.target.value)} placeholder="ex. rue des Lilas" /></label>
+            {/* Arno (19/10/2026) — par l'adresse OU le nom du propriétaire (accents et casse ignorés), en temps réel. */}
+            <label className="loc-champ">Chercher le bien par son adresse ou le nom du propriétaire (biens du portefeuille)
+              <input form={idForm} value={filtreBien} onChange={(e) => setFiltreBien(e.target.value)} placeholder="ex. rue des Lilas ou Dupont" data-recherche-bien /></label>
             {biens.etat.etat === 'ok' && (
               liste(biens.etat.data).length === 0 ? <p className="loc-muet">Aucun bien du portefeuille ne correspond.</p> : (
                 <ul className="loc-choix">

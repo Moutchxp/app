@@ -493,14 +493,16 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
     ...(pr[0] === undefined ? [] : [{ sujet: 'proprietaire' as const, id: Number(pr[0].id) }]),
     ...bail.locataires.map((l) => ({ sujet: 'locataire' as const, id: l.locataireId })),
   ];
-  const { rows: co2 } = await query<{ sujet: string; sujet_id: string; sorte: string; valeur: string }>(
-    `SELECT c.sujet, c.sujet_id::text, c.sorte, c.valeur_brute AS valeur FROM gestion_annuaire_contact c
+  const { rows: co2 } = await query<{ sujet: string; sujet_id: string; sorte: string; valeur: string; libelle: string | null }>(
+    `SELECT c.sujet, c.sujet_id::text, c.sorte, c.valeur_brute AS valeur, nullif(btrim(c.libelle), '') AS libelle FROM gestion_annuaire_contact c
       WHERE ((c.sujet = 'proprietaire' AND c.sujet_id = ANY($1::bigint[])) OR (c.sujet = 'locataire' AND c.sujet_id = ANY($2::bigint[])))
         AND c.sorte IN ('telephone', 'email') AND c.absent_le IS NULL${coordVivante} ORDER BY c.rang, c.id`,
     [sujets.filter((x) => x.sujet === 'proprietaire').map((x) => x.id), sujets.filter((x) => x.sujet === 'locataire').map((x) => x.id)]);
   const coordsDe = (sujet: string, id: number) => {
     const lignes = co2.filter((r) => r.sujet === sujet && Number(r.sujet_id) === id && texte(r.valeur) !== null);
-    return { telephones: lignes.filter((r) => r.sorte === 'telephone').map((r) => r.valeur), emails: lignes.filter((r) => r.sorte === 'email').map((r) => r.valeur) };
+    const tels = lignes.filter((r) => r.sorte === 'telephone');
+    return { telephones: tels.map((r) => r.valeur), emails: lignes.filter((r) => r.sorte === 'email').map((r) => r.valeur),
+      telephonesDetail: tels.map((r) => ({ valeur: r.valeur, libelle: r.libelle ?? null })) };
   };
   return {
     lotId: bail.lotId,

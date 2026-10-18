@@ -299,7 +299,9 @@ export interface EncartLogement {
    */
   coordonnees?: {
     proprietaire: { telephones: string[]; emails: string[] } | null;
-    locataires: { occupationId: number; locataireId: number; nom: string; telephones: string[]; emails: string[] }[];
+    locataires: { occupationId: number; locataireId: number; nom: string; telephones: string[]; emails: string[];
+      /** Chaque téléphone avec son libellé (« Portable », « Fixe »…) quand il existe. */
+      telephonesDetail?: { valeur: string; libelle: string | null }[] }[];
   };
 }
 
