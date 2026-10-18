@@ -23,6 +23,9 @@ import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../lib/location/archivage';
+import {
+  annulerSortie, bauxDuLocataire, corrigerSortie, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
+} from '../../../../lib/location/sortieLocatairesRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -45,6 +48,9 @@ import { verifierOrigine } from '../../../../lib/location/archivage';
  *       (cartes clients + contacts du locataire) · complements-bien
  *       (formulaire complet) · ajouter-contact-syndic (annuaire du syndic de la Gestion) · detacher-annexe (marque, lien gardé) ·
  *       sortir-biens (`proprietaireId`, `lotIds`, `origine` obligatoire, `confirmeOccupation` — tous ses biens ⇒ archivage du propriétaire).
+ * SORTIE D'UN OU PLUSIEURS LOCATAIRES (Arno, 19/10/2026) — GET `?occupants=texte` (les seuls occupants en place) · `?bail=N`
+ *       (le bail d'une occupation) · `?bauxLocataire=N` ; POST `sortie-locataires` (`occupationId`, `sortants`, `date` ; + mail de
+ *       confirmation, jamais bloquant) · `corriger-sortie-locataires` (`occupationIds`, `date`) · `annuler-sortie-locataires` (`occupationIds`).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
  */
 export const runtime = 'nodejs';
@@ -66,6 +72,17 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const idProp = identifiant(p('proprietaire'));
     if (idProp !== null) return Response.json(await ficheProprietaireLocation(idProp), { headers: ENTETES });
+    // Sortie d'un ou plusieurs locataires (Arno, 19/10/2026) — LECTURE SEULE.
+    if (p('occupants') !== null) {
+      return Response.json({ etat: 'ok', data: await rechercherOccupants((p('occupants') ?? '').slice(0, 200)) }, { headers: ENTETES });
+    }
+    const idBail = identifiant(p('bail'));
+    if (idBail !== null) {
+      const b = await lireBail(idBail);
+      return Response.json(b === null ? { etat: 'inconnu' } : { etat: 'ok', data: b }, { headers: ENTETES });
+    }
+    const idBaux = identifiant(p('bauxLocataire'));
+    if (idBaux !== null) return Response.json({ etat: 'ok', data: await bauxDuLocataire(idBaux) }, { headers: ENTETES });
     const idLoc = identifiant(p('locataire'));
     if (idLoc !== null) return Response.json(await ficheLocataireLocation(idLoc), { headers: ENTETES });
     const idLot = identifiant(p('lot'));
@@ -279,6 +296,23 @@ export async function POST(request: Request): Promise<Response> {
         const r = await sortirBiensDuPortefeuille(proprietaire, lots, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine });
         return repondre(await avecMail(r, r.etat !== 'ok' ? null : {
           sens: 'sortie', proprietaireId: proprietaire, lotIds: r.data.lots ?? [], origine: verifierOrigine(corps.origine) }, { auteur, tuile: 'Location' }));
+      }
+      case 'sortie-locataires': {
+        // Arno (19/10/2026) : la sortie d'abord ; le mail ENSUITE, jamais bloquant — un échec est rendu, jamais un faux « envoyé ».
+        const occ = identifiant(corps.occupationId);
+        if (occ === null) return incomplet();
+        const sortants = Array.isArray(corps.sortants) ? (corps.sortants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        const r = await enregistrerSortie({ occupationId: occ, sortants, date: corps.date }, auteur);
+        if (r.etat !== 'ok') return repondre(r);
+        const m = await notifierSortie(r.data, auteur);
+        return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants }, mail: { envoye: m.envoye, ignore: false, motif: m.motif } });
+      }
+      case 'corriger-sortie-locataires':
+      case 'annuler-sortie-locataires': {
+        const ids = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 40) : [];
+        if (ids.length === 0) return incomplet();
+        return repondre(action === 'corriger-sortie-locataires' ? await corrigerSortie({ occupationIds: ids, date: corps.date }, auteur)
+          : await annulerSortie({ occupationIds: ids }, auteur));
       }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);

@@ -68,10 +68,19 @@ export function EcranSupprimerChoix() {
 export function EcranLocataires() {
   return (
     <div className="loc-page">
-      <style>{CSS_LOCATION_ECRANS}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
       <EnTeteLocation titre="Locataires"
         sous="Créer un locataire rattaché à un bien ; « supprimer » = sortir du portefeuille, depuis la fiche (rien n’est effacé)."
         actions={<a className="svv-btn svv-btn-primary gst-btn" href="/admin/location/nouveau-locataire">+ Nouveau locataire</a>} />
+      {/* Arno (19/10/2026) : DEUX GROSSES CARTES, au format exact de « Supprimer un propriétaire ou un bien » (mêmes classes,
+          même effet 3D, « Supprimer » en trame rouge). AJOUTÉES en tête : l'en-tête, « + Nouveau locataire » et la liste
+          restent en place, rien n'est retiré ni déplacé. */}
+      <ul className="loc-gros-boutons loc-gros-boutons--3d" aria-label="Sortie ou arrivée de locataires">
+        <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/locataires/supprimer" data-gros="supprimer-locataires">
+          Supprimer un/des locataire(s)<small>Faire sortir un ou plusieurs locataires d’un logement : sortie partielle ou totale, datée ; rien n’est effacé.</small></a></li>
+        <li><a className="loc-gros-bouton" href="/admin/location/locataires/ajouter" data-gros="ajouter-locataires">
+          Ajouter un/des locataire(s)<small>Faire entrer un ou plusieurs locataires dans un logement (à venir).</small></a></li>
+      </ul>
       <section className="loc-bloc"><ListeLocation sorte="locataires" /></section>
     </div>
   );
