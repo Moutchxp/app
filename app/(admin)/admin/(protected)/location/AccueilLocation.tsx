@@ -154,7 +154,7 @@ export function AccueilLocation() {
  * ROUGE propriétaire, VERT locataire ; BLEU syndic, GRIS bien (Arno). Une ligne au bureau (colonnes tronquées, jamais
  * de chevauchement), deux lignes de texte au téléphone.
  */
-const CSS_RESULTATS = `
+export const CSS_RESULTATS = `
 .loc-vider{flex:0 0 auto;width:40px;height:40px;border:0;border-radius:999px;background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-size:1.3rem;line-height:1;cursor:pointer}
 .loc-zone-resultats{position:relative;overflow:visible}
 .loc-zone-resultats--ouverte{z-index:30}

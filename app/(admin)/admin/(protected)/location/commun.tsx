@@ -207,6 +207,8 @@ export const CSS_LOCATION_CREATION = `
 .loc-ample .loc-titre{font-size:1.7rem}
 .loc-ample .loc-sous{font-size:1.02rem}
 .loc-gros-boutons{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+/* Écran ① (Arno, 18/10/2026) : TROIS grosses cases côte à côte — « Supprimer un propriétaire », « Créer… », « Ajouter un bien ». */
+.loc-gros-boutons--trois{grid-template-columns:repeat(3,minmax(0,1fr))}
 .loc-gros-bouton{display:flex;flex-direction:column;justify-content:center;gap:10px;box-sizing:border-box;height:100%;min-height:9.5rem;padding:26px 30px;border-radius:24px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink);text-decoration:none;font-size:1.45rem;font-weight:800;line-height:1.2;cursor:pointer;text-align:left;font-family:inherit;width:100%}
 .loc-gros-bouton:hover{border-color:var(--color-svv-ink)}
 .loc-gros-bouton:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:3px}

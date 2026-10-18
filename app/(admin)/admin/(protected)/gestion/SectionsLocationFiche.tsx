@@ -20,6 +20,8 @@ import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { libelleEntretien } from '../../../../lib/location/entretien';
 import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien } from '../location/EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from '../location/ZoneAuto';
+import { ModaleArchivage } from '../location/ModaleArchivage';
+import { libelleBien, phraseArchivage, type ApercuArchivage } from '../../../../lib/location/archivage';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
 import type {
@@ -103,20 +105,49 @@ function LienFiche({ sorte, id, ouvrir, children }: { sorte: FicheUrl['sorte']; 
 
 // ══ « SUPPRIMER » = SORTIR DU PORTEFEUILLE (jamais un effacement), réactivable ═════════════════════════════════════════
 
+/**
+ * Ce que la sortie fera (biens, locations en cours, biens partagés…) — l'APERÇU du serveur, le même calcul que l'écriture.
+ * Rend le motif (texte) si la lecture échoue.
+ */
+async function lireApercu(sujet: ApercuArchivage['sujet'], id: number): Promise<ApercuArchivage | string> {
+  try {
+    const res = await fetch(`${API}?apercuArchivage=${id}&sujet=${sujet}`, { cache: 'no-store' });
+    const d = await res.json() as { etat?: string; data?: ApercuArchivage; message?: string };
+    if (d.etat === 'ok' && d.data !== undefined) return d.data;
+    if (d.etat === 'inconnu') return 'Cette fiche n’existe plus.';
+    return d.message ?? 'Lecture impossible.';
+  } catch {
+    return 'Lecture impossible : le serveur n’a pas répondu. Rien n’a été modifié.';
+  }
+}
+
+/**
+ * 🔴 RÈGLE D'ARNO DU 18/10/2026 — elle REMPLACE « sortie refusée si locataire en place » : une location en cours ne
+ * bloque plus ; l'écran montre d'abord l'AVERTISSEMENT (la modale des biens occupés, la même que l'écran « Archiver un
+ * propriétaire »), puis la sortie clôt ces locations à la date du jour. Sans location en cours : la confirmation simple.
+ */
 export function BlocSortie({ sujet, id, sortie, apres, explication }: {
   sujet: 'proprietaire' | 'locataire' | 'bien'; id: number; sortie: SortiePortefeuille | null; apres: () => void; explication: string;
 }) {
-  const [confirmer, setConfirmer] = useState(false);
+  const [apercu, setApercu] = useState<ApercuArchivage | null>(null);
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
-  const agir = async (action: 'sortir' | 'reactiver'): Promise<void> => {
+  const agir = async (action: 'sortir' | 'reactiver', confirmeOccupation = false): Promise<void> => {
     setEnvoi(true);
-    const m = await envoyer({ action, sujet, id });
+    const m = await envoyer({ action, sujet, id, ...(confirmeOccupation ? { confirmeOccupation: true } : {}) });
     setEnvoi(false);
     setMotif(m);
-    if (m === null) { setConfirmer(false); apres(); }
+    if (m === null) { setApercu(null); apres(); }
+  };
+  const preparer = async (): Promise<void> => {
+    setMotif(null);
+    setEnvoi(true);
+    const a = await lireApercu(sujet, id);
+    setEnvoi(false);
+    if (typeof a === 'string') setMotif(a); else setApercu(a);
   };
   const date = (iso: string): string => new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const occupe = apercu !== null && apercu.occupees.length > 0;
   return (
     <section aria-label="Portefeuille">
       {sortie !== null ? (
@@ -124,21 +155,27 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
           <span><strong>Sorti du portefeuille</strong> le {date(sortie.le)}{sortie.par === null ? '' : ` par ${sortie.par}`} — la fiche reste consultable, rien n’a été effacé.</span>
           <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => void agir('reactiver')}>Réactiver</button>
         </div>
-      ) : !confirmer ? (
+      ) : apercu === null || occupe ? (
         <div className="loc-boutons" style={{ justifyContent: 'flex-start', marginTop: 0 }}>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setConfirmer(true); setMotif(null); }}>Sortir du portefeuille…</button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => void preparer()}>Sortir du portefeuille…</button>
         </div>
       ) : (
         <div className="loc-confirmation" role="alertdialog" aria-label="Confirmer la sortie du portefeuille">
           <p style={{ margin: '0 0 8px' }}><strong>Sortir du portefeuille ?</strong> {explication}</p>
-          <p className="loc-muet" style={{ margin: '0 0 8px' }}>Rien n’est effacé : la fiche quitte les listes actives et la recherche de la Location, reste dans « Anciens » et peut être réactivée. L’historique, les mails et les tâches restent.</p>
+          {apercu.partages.length > 0 && (
+            <p className="loc-sortie" style={{ margin: '0 0 8px' }} data-biens-partages>Non archivé{apercu.partages.length > 1 ? 's' : ''}, détenu{apercu.partages.length > 1 ? 's' : ''} aussi par un autre propriétaire actif : {apercu.partages.map((p) => `${libelleBien(p)} (avec ${p.autres.join(', ')})`).join(' ; ')}.</p>
+          )}
+          <p className="loc-muet" style={{ margin: '0 0 8px' }}>{phraseArchivage(sujet)}</p>
           <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setConfirmer(false)}>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setApercu(null)}>Annuler</button>
             <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => void agir('sortir')}>Confirmer la sortie</button>
           </div>
         </div>
       )}
-      {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+      {occupe && sortie === null && (
+        <ModaleArchivage apercu={apercu} envoi={envoi} motif={motif} onConfirmer={() => void agir('sortir', true)} onAnnuler={() => { setApercu(null); setMotif(null); }} />
+      )}
+      {motif !== null && !occupe && <p className="cp-refus" role="alert">{motif}</p>}
     </section>
   );
 }
@@ -161,7 +198,7 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
           {d.location372 && d.numeroMandatTransaction !== undefined
             && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandatTransaction} apres={relire} sorte="transaction" />}
           <BlocSortie sujet="proprietaire" id={proprietaireId} sortie={d.sortie ?? null} apres={relire}
-            explication="Le propriétaire sort avec ses biens encore dans le portefeuille (et leurs annexes)." />
+            explication="Le propriétaire sort avec ses biens encore dans le portefeuille (et leurs annexes) ; un bien qu’un autre propriétaire actif détient aussi reste." />
           <p className="loc-muet" style={{ margin: 0 }}>
             <a href={`/admin/location/nouveau-bien?proprietaires=${proprietaireId}`}>+ Ajouter un bien à ce propriétaire (formulaire de la Location)</a>
           </p>
@@ -317,10 +354,23 @@ function CarteAnnexe({ b, apres }: { b: BienLocation; apres: () => void }) {
   const [annotation, setAnnotation] = useState(b.annotation ?? '');
   const [motif, setMotif] = useState<string | null>(null);
   const [fait, setFait] = useState(false);
+  const [occupee, setOccupee] = useState<ApercuArchivage | null>(null);
+  const [envoi, setEnvoi] = useState(false);
   const geste = async (corps: Record<string, unknown>): Promise<void> => {
+    setEnvoi(true);
     const m = await envoyer(corps);
+    setEnvoi(false);
     setMotif(m);
-    if (m === null) apres();
+    if (m === null) { setOccupee(null); apres(); }
+  };
+  // « Oui, supprimer » : une annexe LOUÉE (un parking, par exemple) passe d'abord par l'avertissement — règle d'Arno du
+  // 18/10/2026, la même que pour un bien ou un propriétaire.
+  const supprimer = async (): Promise<void> => {
+    setAConfirmer(false);
+    const a = await lireApercu('bien', b.id);
+    if (typeof a === 'string') { setMotif(a); return; }
+    if (a.occupees.length > 0) { setOccupee(a); return; }
+    await geste({ action: 'sortir', sujet: 'bien', id: b.id });
   };
   return (
     <div className={`loc-carte-annexe${fermee ? ' loc-carte-annexe--fermee' : ''}`} data-carte-annexe={b.id}>
@@ -338,7 +388,7 @@ function CarteAnnexe({ b, apres }: { b: BienLocation; apres: () => void }) {
       {aConfirmer && (
         <div className="loc-confirmer" role="alert" data-confirmer-suppression>
           <span>Supprimer cette annexe ? Elle sort du portefeuille (rien n’est effacé : son historique et son lien avec le logement restent).</span>
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setAConfirmer(false); void geste({ action: 'sortir', sujet: 'bien', id: b.id }); }}>Oui, supprimer</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => void supprimer()}>Oui, supprimer</button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setAConfirmer(false)}>Non</button>
         </div>
       )}
@@ -352,8 +402,12 @@ function CarteAnnexe({ b, apres }: { b: BienLocation; apres: () => void }) {
           <div className="loc-boutons loc-pleine"><button type="submit" className="svv-btn svv-btn-primary gst-btn">Enregistrer l’annotation</button></div>
         </form>
       )}
+      {occupee !== null && (
+        <ModaleArchivage apercu={occupee} envoi={envoi} motif={motif}
+          onConfirmer={() => void geste({ action: 'sortir', sujet: 'bien', id: b.id, confirmeOccupation: true })} onAnnuler={() => { setOccupee(null); setMotif(null); }} />
+      )}
       {fait && <p className="loc-muet" role="status">Enregistré.</p>}
-      {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+      {motif !== null && occupee === null && <p className="cp-refus" role="alert">{motif}</p>}
     </div>
   );
 }
@@ -671,7 +725,7 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
               )}
             </section>
             <BlocSortie sujet="locataire" id={locataireId} sortie={d.sortie ?? null} apres={relire}
-              explication="Possible seulement quand il n’est plus en place (son départ s’enregistre d’abord)." />
+              explication="S’il a une location en cours, elle est close à la date du jour, après avertissement." />
           </>
         );
       }}</Lecture>

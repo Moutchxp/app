@@ -10,7 +10,7 @@ import {
   rattacherAnnexe, type CreationProprietaireBien,
 } from '../../../../lib/location/locationRepo';
 import {
-  biensPourLocataire, creerLocataireSurBien, creerLocatairesSurBien, ficheSyndicLocation, reactiverDansPortefeuille, rechercherPortefeuille,
+  apercuArchivage, biensPourLocataire, creerLocataireSurBien, creerLocatairesSurBien, ficheSyndicLocation, reactiverDansPortefeuille, rechercherPortefeuille,
   sortirDuPortefeuille, type CreationLocataire, type SujetPortefeuille,
 } from '../../../../lib/location/portefeuilleRepo';
 import {
@@ -34,10 +34,12 @@ import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
  *       adresse) · `?liste=proprietaires|locataires|biens&page=&filtre=&anciens=1` · `?proprietaire=N` · `?locataire=N` ·
  *       `?lot=N` · `?syndic=N` · `?biensPourLocataire=texte` · `?telephone=&email=` (dédoublonnage à la saisie ; plusieurs
  *       valeurs possibles) · `?proprietairesRecherche=texte` · `?proprietairesIds=1,2` · `?syndics=1` · `?personnesLiees=N` (« Qui
- *       rattacher à ce bien ? ») · `?cartesProprietaires=1,2` · `?agPourAdresse=texte` (dernière AG connue de l'immeuble).
+ *       rattacher à ce bien ? ») · `?cartesProprietaires=1,2` · `?agPourAdresse=texte` (dernière AG connue de l'immeuble) ·
+ *       `?apercuArchivage=N&sujet=proprietaire|bien|locataire` (ce que l'archivage fera) · `?proprietairesArchivage=texte` (recherche
+ *       limitée aux propriétaires, adresse de leurs biens comprise).
  * POST `{ action }` : modifier | archiver | restaurer | separer (une personne) · numero-mandat · modifier-bien ·
  *       ajouter-annexe · rattacher-annexe · creer (propriétaire + bien + annexes) · creer-locataire · conditions-location ·
- *       sortir | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien (avec les contacts du propriétaire) · creer-locataires
+ *       sortir (+ `confirmeOccupation` si une location est en cours) | reactiver (SORTIE DU PORTEFEUILLE : jamais un effacement) · creer-proprietaires (cartes) · creer-bien (avec les contacts du propriétaire) · creer-locataires
  *       (cartes clients + contacts du locataire) · complements-bien
  *       (formulaire complet) · ajouter-contact-syndic (annuaire du syndic de la Gestion) · detacher-annexe (marque, lien gardé).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
@@ -69,6 +71,16 @@ export async function GET(request: Request): Promise<Response> {
     if (idSyndic !== null) {
       const f = await ficheSyndicLocation(idSyndic);
       return Response.json(f === null ? { etat: 'inconnu' } : { etat: 'ok', data: f }, { headers: ENTETES });
+    }
+    // « Archiver un propriétaire » (Arno, 18/10/2026) — LECTURE SEULE : ce que l'archivage fera (biens, locations en cours…).
+    const idArch = identifiant(p('apercuArchivage'));
+    if (idArch !== null) {
+      const sujet = p('sujet') === 'locataire' || p('sujet') === 'bien' ? p('sujet') as SujetPortefeuille : 'proprietaire';
+      const a = await apercuArchivage(sujet, idArch);
+      return Response.json(a === null ? { etat: 'inconnu' } : { etat: 'ok', data: a }, { headers: ENTETES });
+    }
+    if (p('proprietairesArchivage') !== null) {
+      return Response.json({ etat: 'ok', data: await rechercherPortefeuille((p('proprietairesArchivage') ?? '').slice(0, 200), { proprietairesSeuls: true }) }, { headers: ENTETES });
     }
     if (p('biensPourLocataire') !== null) {
       return Response.json({ etat: 'ok', data: await biensPourLocataire((p('biensPourLocataire') ?? '').slice(0, 100)) }, { headers: ENTETES });
@@ -226,7 +238,8 @@ export async function POST(request: Request): Promise<Response> {
       case 'reactiver': {
         const quoi = corps.sujet === 'proprietaire' || corps.sujet === 'locataire' || corps.sujet === 'bien' ? corps.sujet as SujetPortefeuille : null;
         if (quoi === null || id === null) return incomplet();
-        return repondre(action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur) : await reactiverDansPortefeuille(quoi, id, auteur));
+        return repondre(action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true })
+          : await reactiverDansPortefeuille(quoi, id, auteur));
       }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);

@@ -21,9 +21,10 @@ let container: HTMLDivElement;
 let root: Root;
 let posts: Record<string, unknown>[];
 let detachee: boolean;
+let annexeLouee = false;
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  posts = []; detachee = false;
+  posts = []; detachee = false; annexeLouee = false;
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     if (init?.method === 'POST') {
@@ -31,6 +32,11 @@ beforeEach(() => {
       posts.push(c);
       if (c.action === 'detacher-annexe') detachee = c.detacher === true;
       return ok({ logementId: 9 });
+    }
+    // Arno (18/10/2026) : « Supprimer » lit d'abord l'aperçu ; une annexe LOUÉE passe par l'avertissement.
+    if (u.includes('apercuArchivage=11')) {
+      return ok({ sujet: 'bien', id: 11, nom: 'Parking', sortie: null, biens: [11], partages: [], locatairesArchives: [], locatairesGardes: [],
+        occupees: annexeLouee ? [{ occupationId: 5, lotId: 11, adresse: '10 rue de l’Essai', lot: '12', locataireId: 3, locataire: 'GARAGE Léa', entree: null }] : [] });
     }
     if (u.includes('cartesProprietaires=')) return ok([{ id: 1, nom: 'DUPONT Paul', telephone: null, email: null, biens: [] }]);
     if (u.includes('proprietaire=7')) {
@@ -176,6 +182,16 @@ describe('🔴 fiche commune : carte d’annexe, entretien, mandat de transactio
     await act(async () => { bouton('Oui, supprimer', carte()).click(); });
     await calmer();
     expect(posts.at(-1)).toEqual({ action: 'sortir', sujet: 'bien', id: 11 });
+    // Une annexe LOUÉE : la modale des biens occupés d'abord (même avertissement que partout), puis la confirmation envoyée.
+    annexeLouee = true;
+    await act(async () => { bouton('Supprimer', carte()).click(); });
+    await act(async () => { bouton('Oui, supprimer', carte()).click(); });
+    await calmer();
+    const modale = document.querySelector('[data-modale-archivage]');
+    expect(modale?.querySelector('[data-occupation="5"]')?.textContent).toContain('GARAGE Léa');
+    await act(async () => { (modale?.querySelector('[data-confirmer-archivage]') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(posts.at(-1)).toEqual({ action: 'sortir', sujet: 'bien', id: 11, confirmeOccupation: true });
   });
 
   it('entretien lu et modifiable ; mandat de transaction visible', async () => {

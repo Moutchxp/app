@@ -19,14 +19,18 @@ export function EcranProprietairesBiens() {
           celles d'`EnTetePage`), puis le MÊME espace réservé que sous le moteur (`loc-zone-resultats`, vide). */}
       <header className="svv-page-head loc-tete-comme-accueil">
         <div className="svv-page-head-ligne"><h1 className="svv-page-title">Propriétaires et biens</h1></div>
-        <p className="svv-page-sub">Créer un propriétaire avec son bien et ses annexes ; « supprimer » = sortir du portefeuille, depuis la fiche (rien n’est effacé).</p>
+        <p className="svv-page-sub">Créer un propriétaire avec son bien et ses annexes ; « supprimer » = sortir du portefeuille (rien n’est effacé).</p>
       </header>
       <div className="loc-zone-resultats loc-zone-resultats--vide" aria-hidden="true" data-espace-accueil />
       {/* « 2 GROS BOUTONS côte à côte, chacun la moitié de la largeur (empilés au téléphone) », avec le MÊME effet 3D que les
           3 cases de l'accueil. Retirés sur décision d'Arno (17/10/2026) : le bouton « + Nouveau propriétaire + bien » (doublon de
           ces 2 boutons) et le tableau Propriétaires / Biens (onglets, Actifs / Anciens, liste paginée) — les fiches, anciens
           compris, s'ouvrent par le moteur de recherche de l'accueil. */}
-      <ul className="loc-gros-boutons loc-gros-boutons--3d" aria-label="Créer">
+      {/* Arno (18/10/2026) : TROIS grosses cases — « Supprimer un propriétaire » (blanc, NOUVELLE, en première position), puis
+          les deux cases inchangées. */}
+      <ul className="loc-gros-boutons loc-gros-boutons--3d loc-gros-boutons--trois" aria-label="Propriétaires et biens">
+        <li><a className="loc-gros-bouton" href="/admin/location/proprietaires/archiver" data-gros="supprimer-proprietaire">
+          Supprimer un propriétaire<small>Archiver un propriétaire et ses biens : ils sortent du portefeuille, rien n’est effacé, réactivable.</small></a></li>
         <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/nouveau-proprietaire" data-gros="proprietaire">
           Créer un nouveau propriétaire<small>Une carte de contact par personne (couple, indivision, SCI…), puis son bien.</small></a></li>
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-bien" data-gros="bien">

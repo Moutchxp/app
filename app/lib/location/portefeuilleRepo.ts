@@ -10,14 +10,17 @@ import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, 
 import type { Issue } from './locationRepo';
 import { manquesClientLocation } from './cartesLocation';
 import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
+import { MOTIF_OCCUPATION_A_CONFIRMER, type ApercuArchivage } from './archivage';
+import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE PORTEFEUILLE (refonte de l'accueil, Arno, 17/10/2026). IMPUR (base). ══════════════════════
  *
  *   · la RECHERCHE de l'accueil : personnes et syndics par nom / téléphone / e-mail ; biens par leur SEULE adresse, et
  *     seulement ceux du portefeuille (en gestion, présents au dernier export, non sortis) ;
- *   · la SORTIE DU PORTEFEUILLE (« Supprimer ») : jamais un effacement — deux colonnes datent et signent la sortie
- *     (migration 373), le journal la garde ; réactivable ; refusée tant qu'un locataire est en place ;
+ *   · la SORTIE DU PORTEFEUILLE (« Supprimer » / « Archiver ») : jamais un effacement — deux colonnes datent et signent
+ *     la sortie (migration 373), le journal la garde ; réactivable ; une location en cours est close après avertissement
+ *     (règle d'Arno du 18/10/2026, qui remplace « refusée tant qu'un locataire est en place ») ;
  *   · la CRÉATION D'UN LOCATAIRE rattaché à un bien.
  * Les données sont celles de la Gestion (mêmes tables, mêmes fonctions de création) ; seuls les écrans sont ici.
  * 🔴 Aucun DELETE dans ce fichier.
@@ -48,7 +51,7 @@ const LIMITE = 25;
  *    Un bien en fin de gestion ou absent du dernier export, lui, n'est pas du portefeuille : il n'apparaît pas.
  * Rangement dans chaque type : les actifs d'abord, puis la PERTINENCE (le nom commence par le premier mot tapé), puis le nom.
  */
-export async function rechercherPortefeuille(brut: string): Promise<ResultatsAccueil> {
+export async function rechercherPortefeuille(brut: string, options: { proprietairesSeuls?: boolean } = {}): Promise<ResultatsAccueil> {
   const t = analyserTermePortefeuille(brut);
   const vide: ResultatsAccueil = { proprietaires: [], locataires: [], syndics: [], biens: [], tronque: false };
   if (t.vide) return vide;
@@ -83,6 +86,18 @@ export async function rechercherPortefeuille(brut: string): Promise<ResultatsAcc
   const vivanteP = await sqlPersonneVivante('p');
   type Ligne = { id: string; nom: string; telephone: string | null; email: string | null; adresse: string | null; detail: string | null; ancien: boolean };
 
+  /**
+   * « Archiver un propriétaire » (Arno, 18/10/2026) : la recherche SPÉCIALISÉE sur les propriétaires trouve aussi un
+   * propriétaire par l'ADRESSE D'UN DE SES BIENS du portefeuille (ou sortis) — jamais par son adresse personnelle.
+   */
+  const parAdresseDeSesBiens = options.proprietairesSeuls !== true || t.mots.length === 0 ? ''
+    : ` OR EXISTS (SELECT 1 FROM gestion_annuaire_lot l
+        WHERE (l.proprietaire_id = p.id OR l.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = p.id AND lp.jusqu_a IS NULL))
+          AND ${bienConnu('l')} AND ${t.mots.map((_, i) => `coalesce(l.adresse_normalisee, '') LIKE '%' || ($3::text[])[${i + 1}] || '%'`).join(' AND ')})`;
+  const ligneDe = (r: Ligne, titreParDefaut: string): LigneRecherche => ({
+    id: Number(r.id), titre: r.nom ?? titreParDefaut, telephone: r.telephone, email: r.email, adresse: r.adresse,
+    detail: r.detail, ancien: r.ancien === true,
+  });
   const { rows: prop } = await query<Ligne>(
     `SELECT p.id::text, p.nom_complet AS nom, ${coordonnee('proprietaire', 'p', 'telephone')} AS telephone,
             ${coordonnee('proprietaire', 'p', 'email')} AS email, NULL::text AS detail, ${ancien('p')} AS ancien,
@@ -90,8 +105,11 @@ export async function rechercherPortefeuille(brut: string): Promise<ResultatsAcc
               WHERE (l.proprietaire_id = p.id OR l.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = p.id AND lp.jusqu_a IS NULL))
                 AND ${bienConnu('l')} ORDER BY ${avecSortie ? 'l.sorti_portefeuille_le IS NOT NULL, ' : ''}l.id LIMIT 1) AS adresse
        FROM gestion_annuaire_proprietaire p
-      WHERE ${NEUTRE} AND ${vivanteP} AND (${parNom('p.nom_normalise')} OR ${parCoordonnee('proprietaire', 'p', 1)})
+      WHERE ${NEUTRE} AND ${vivanteP} AND (${parNom('p.nom_normalise')} OR ${parCoordonnee('proprietaire', 'p', 1)}${parAdresseDeSesBiens})
       ORDER BY ${ancien('p')}, ${pertinence('p.nom_normalise')}, p.nom_normalise, p.id LIMIT ${LIMITE + 1}`, params);
+  if (options.proprietairesSeuls === true) {
+    return { proprietaires: prop.slice(0, LIMITE).map((r) => ligneDe(r, `Propriétaire ${r.id}`)), locataires: [], syndics: [], biens: [], tronque: prop.length > LIMITE };
+  }
   const { rows: loc } = await query<Ligne>(
     `SELECT p.id::text, p.nom, ${coordonnee('locataire', 'p', 'telephone')} AS telephone,
             ${coordonnee('locataire', 'p', 'email')} AS email, NULL::text AS detail, ${ancien('p')} AS ancien,
@@ -133,10 +151,7 @@ export async function rechercherPortefeuille(brut: string): Promise<ResultatsAcc
           AND ${t.mots.map((_, i) => `coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[${i + 1}] || '%'`).join(' AND ')}
         ORDER BY ${ancien('lo')}, lo.adresse_normalisee, lo.id LIMIT ${LIMITE + 1}`, [t.mots]);
 
-  const ligne = (r: Ligne, titreParDefaut: string): LigneRecherche => ({
-    id: Number(r.id), titre: r.nom ?? titreParDefaut, telephone: r.telephone, email: r.email, adresse: r.adresse,
-    detail: r.detail, ancien: r.ancien === true,
-  });
+  const ligne = ligneDe;
   const borne = <T>(l: T[]): T[] => l.slice(0, LIMITE);
   return {
     proprietaires: borne(prop).map((r) => ligne(r, `Propriétaire ${r.id}`)),
@@ -147,7 +162,7 @@ export async function rechercherPortefeuille(brut: string): Promise<ResultatsAcc
   };
 }
 
-// ── LA SORTIE DU PORTEFEUILLE ────────────────────────────────────────────────────────────────────────────────────
+// ── LA SORTIE DU PORTEFEUILLE (= ARCHIVER) ───────────────────────────────────────────────────────────────────────────
 
 export type SujetPortefeuille = 'proprietaire' | 'locataire' | 'bien';
 const TABLE: Record<SujetPortefeuille, string> = {
@@ -164,10 +179,14 @@ export async function sortieDe(sujet: SujetPortefeuille, id: number): Promise<So
 
 class Refus extends Error {}
 
+/**
+ * Une ligne du journal (ajout seul). ⚠️ L'entité « annuaire » couvre propriétaires ET locataires (deux tables, deux suites
+ * d'identifiants) : la SORTE de la fiche est donc écrite dans `valeur_apres`, pour qu'une ligne se relise sans ambiguïté.
+ */
 async function journaliser(q: RequeteTx, sujet: SujetPortefeuille, id: number, action: string, commentaire: string, auteur: Auteur): Promise<void> {
   await q(
-    `INSERT INTO gestion_journal (entite, entite_id, action, commentaire, auteur_id, auteur_libelle) VALUES ($1, $2, $3, $4, $5, $6)`,
-    [sujet === 'bien' ? 'annuaire_lot' : 'annuaire', id, action, commentaire, auteur.id, auteur.libelle]);
+    `INSERT INTO gestion_journal (entite, entite_id, action, valeur_apres, commentaire, auteur_id, auteur_libelle) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [sujet === 'bien' ? 'annuaire_lot' : 'annuaire', id, action, sujet, commentaire, auteur.id, auteur.libelle]);
 }
 
 /** Les biens touchés par la sortie d'un bien : lui et ses annexes (une annexe suit son logement). */
@@ -180,47 +199,191 @@ async function avecAnnexes(q: RequeteTx, lotId: number): Promise<number[]> {
   return [lotId, ...rows.map((r) => Number(r.id))];
 }
 
-/** Le message quand un locataire est en place : ce qu'il faut faire d'abord. */
-export const MOTIF_LOCATAIRE_EN_PLACE =
-  'Un locataire est encore en place : enregistrez d’abord son départ (fiche du locataire ou du bien), puis sortez le bien du portefeuille.';
+/** Les biens d'un propriétaire, par les deux sources de propriété (celle de l'import et les liens EN COURS de la Gestion). */
+const SQL_BIENS_DU_PROPRIETAIRE = `(lo.proprietaire_id = $1
+  OR lo.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = $1 AND lp.jusqu_a IS NULL))`;
+
+/** Un propriétaire ACTIF : ni archivé dans la Gestion, ni sorti du portefeuille, ni supprimé. */
+async function sqlProprietaireActif(alias: string): Promise<string> {
+  const archive = (await colonneExisteMemo('gestion_annuaire_proprietaire', 'archive_le')) ? ` AND ${alias}.archive_le IS NULL` : '';
+  return `${alias}.sorti_portefeuille_le IS NULL${archive} AND ${await sqlPersonneVivante(alias)}`;
+}
+
+/** « Louée » au sens d'Arno : une location EN COURS (pas de date de sortie) sur un bien en gestion, présent à l'export. */
+const SQL_LOCATION_EN_COURS = `o.sortie IS NULL AND lo.gestion_fin IS NULL AND lo.absent_le IS NULL`;
+
+const numeroLot = (wippimmo: string | null): string | null => (wippimmo === null || wippimmo.startsWith('app-') ? null : wippimmo);
 
 /**
- * « SUPPRIMER » = SORTIR DU PORTEFEUILLE. Rien n'est effacé : la fiche est datée et signée, quitte les listes actives et
- * la recherche, reste consultable dans « Anciens », et se réactive.
- *   · un BIEN sort avec ses annexes ; refusé si l'un d'eux a un locataire en place ;
- *   · un PROPRIÉTAIRE sort avec ses biens encore dans le portefeuille ; refusé si l'un d'eux a un locataire en place ;
- *   · un LOCATAIRE ; refusé tant qu'il est en place (son départ s'enregistre d'abord).
+ * LE PLAN D'ARCHIVAGE — ce que la sortie fera, calculé SANS RIEN ÉCRIRE (dans la transaction de l'écriture, ou seul pour
+ * l'aperçu de l'écran : les deux lisent la même chose, l'écran ne peut donc pas annoncer autre chose que ce qui arrive).
+ *   · PROPRIÉTAIRE : ses biens (les deux sources de propriété) encore dans le portefeuille, avec leurs annexes — SAUF un
+ *     bien qu'un autre propriétaire ACTIF détient aussi (il reste, et la modale le dit) ;
+ *   · BIEN : lui et ses annexes (une annexe détachée garde son lien, pas son sort) ;
+ *   · LOCATAIRE : rien d'autre que lui.
+ * Les locations EN COURS de ces biens (ou du locataire) seront closes ; leurs locataires sortent aussi, sauf ceux qui
+ * louent un autre bien du portefeuille.
  */
-export async function sortirDuPortefeuille(sujet: SujetPortefeuille, id: number, auteur: Auteur): Promise<Issue<{ biens: number }>> {
+async function planArchivage(q: RequeteTx, sujet: SujetPortefeuille, id: number): Promise<ApercuArchivage | null> {
+  const nomSql = sujet === 'proprietaire' ? 'nom_complet' : sujet === 'locataire' ? 'nom'
+    : `coalesce(nullif(concat_ws(', ', adresse, commune), ''), 'Bien ' || id)`;
+  const { rows: s } = await q<{ nom: string | null; le: string | null; par: string | null }>(
+    `SELECT ${nomSql} AS nom, sorti_portefeuille_le::text AS le, sorti_portefeuille_par AS par FROM ${TABLE[sujet]} WHERE id = $1`, [id]);
+  if (s[0] === undefined) return null;
+  const apercu: ApercuArchivage = {
+    sujet, id, nom: s[0].nom ?? `Fiche ${id}`, sortie: s[0].le === null ? null : { le: s[0].le, par: s[0].par },
+    biens: [], partages: [], occupees: [], locatairesArchives: [], locatairesGardes: [],
+  };
+  if (apercu.sortie !== null) return apercu;
+
+  let biens: number[] = [];
+  if (sujet === 'bien') {
+    biens = await avecAnnexes(q, id);
+  } else if (sujet === 'proprietaire') {
+    const { rows: tetes } = await q<{ id: string }>(
+      `SELECT lo.id::text FROM gestion_annuaire_lot lo WHERE ${SQL_BIENS_DU_PROPRIETAIRE} AND lo.sorti_portefeuille_le IS NULL ORDER BY lo.id`, [id]);
+    const ids = tetes.map((r) => Number(r.id));
+    const actif = await sqlProprietaireActif('pr');
+    const { rows: partages } = ids.length === 0 ? { rows: [] }
+      : await q<{ id: string; adresse: string | null; numero: string | null; autres: string[]; occupe: boolean }>(
+        `SELECT lo.id::text, nullif(concat_ws(', ', lo.adresse, lo.commune), '') AS adresse, lo.wippimmo_id AS numero,
+                array_agg(DISTINCT pr.nom_complet ORDER BY pr.nom_complet) AS autres,
+                EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.lot_id = lo.id AND ${SQL_LOCATION_EN_COURS}) AS occupe
+           FROM gestion_annuaire_lot lo
+           JOIN gestion_annuaire_proprietaire pr ON (pr.id = lo.proprietaire_id
+             OR pr.id IN (SELECT lp.proprietaire_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL))
+          WHERE lo.id = ANY($1::bigint[]) AND pr.id <> $2 AND ${actif}
+          GROUP BY lo.id ORDER BY lo.id`, [ids, id]);
+    apercu.partages = partages.map((r) => ({
+      lotId: Number(r.id), adresse: r.adresse, lot: numeroLot(r.numero), autres: r.autres, occupe: r.occupe,
+    }));
+    const partagesIds = new Set(apercu.partages.map((p) => p.lotId));
+    for (const t of ids.filter((x) => !partagesIds.has(x))) biens.push(...await avecAnnexes(q, t));
+  }
+  if (biens.length > 0) {
+    // Les annexes déjà sorties (séparément, avant) ne ressortent pas : leur date de sortie reste la leur.
+    const { rows } = await q<{ id: string }>(
+      'SELECT id::text FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[]) AND sorti_portefeuille_le IS NULL', [[...new Set(biens)]]);
+    const restants = new Set(rows.map((r) => Number(r.id)));
+    biens = [...new Set(biens)].filter((b) => restants.has(b));
+  }
+  apercu.biens = biens;
+
+  // Les locations EN COURS qui seront closes.
+  const filtre = sujet === 'locataire' ? 'o.locataire_id = $1' : 'o.lot_id = ANY($1::bigint[])';
+  if (sujet === 'locataire' || biens.length > 0) {
+    const { rows } = await q<{ id: string; lot_id: string; adresse: string | null; numero: string | null; locataire_id: string; locataire: string | null; entree: string | null }>(
+      `SELECT o.id::text, o.lot_id::text, nullif(concat_ws(', ', lo.adresse, lo.commune), '') AS adresse, lo.wippimmo_id AS numero,
+              o.locataire_id::text, lc.nom AS locataire, o.entree::text
+         FROM gestion_annuaire_occupation o
+         JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
+         JOIN gestion_annuaire_locataire lc ON lc.id = o.locataire_id
+        WHERE ${filtre} AND ${SQL_LOCATION_EN_COURS}
+        ORDER BY lo.adresse_normalisee NULLS LAST, lo.id, lc.nom, o.id`, [sujet === 'locataire' ? id : biens]);
+    apercu.occupees = rows.map((r) => ({
+      occupationId: Number(r.id), lotId: Number(r.lot_id), adresse: r.adresse, lot: numeroLot(r.numero),
+      locataireId: Number(r.locataire_id), locataire: r.locataire ?? `Locataire ${r.locataire_id}`, entree: r.entree,
+    }));
+  }
+
+  // Les locataires de ces locations : archivés aussi, SAUF s'ils louent un autre bien du portefeuille.
+  const candidats = [...new Set(apercu.occupees.map((o) => o.locataireId))].filter((l) => !(sujet === 'locataire' && l === id));
+  if (candidats.length > 0) {
+    const { rows } = await q<{ id: string; nom: string | null; sorti: boolean; ailleurs: string | null; loue_ailleurs: boolean }>(
+      `SELECT lc.id::text, lc.nom, (lc.sorti_portefeuille_le IS NOT NULL) AS sorti,
+              (SELECT nullif(concat_ws(', ', lo.adresse, lo.commune), '') FROM gestion_annuaire_occupation o
+                 JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
+                WHERE o.locataire_id = lc.id AND ${SQL_LOCATION_EN_COURS} AND lo.sorti_portefeuille_le IS NULL
+                  AND NOT (o.id = ANY($2::bigint[])) AND NOT (lo.id = ANY($3::bigint[]))
+                ORDER BY o.entree DESC NULLS LAST, o.id LIMIT 1) AS ailleurs,
+              EXISTS (SELECT 1 FROM gestion_annuaire_occupation o JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
+                WHERE o.locataire_id = lc.id AND ${SQL_LOCATION_EN_COURS} AND lo.sorti_portefeuille_le IS NULL
+                  AND NOT (o.id = ANY($2::bigint[])) AND NOT (lo.id = ANY($3::bigint[]))) AS loue_ailleurs
+         FROM gestion_annuaire_locataire lc WHERE lc.id = ANY($1::bigint[]) ORDER BY lc.nom, lc.id`,
+      [candidats, apercu.occupees.map((o) => o.occupationId), biens]);
+    for (const r of rows) {
+      if (r.loue_ailleurs) apercu.locatairesGardes.push({ id: Number(r.id), nom: r.nom ?? `Locataire ${r.id}`, ailleurs: r.ailleurs });
+      else if (!r.sorti) apercu.locatairesArchives.push(Number(r.id));
+    }
+  }
+  return apercu;
+}
+
+/** L'APERÇU, pour l'écran : ce que « Archiver » fera, sans rien écrire. `null` = fiche inconnue (ou sans la migration 373). */
+export async function apercuArchivage(sujet: SujetPortefeuille, id: number): Promise<ApercuArchivage | null> {
+  if (!(await sortieDisponible())) return null;
+  return planArchivage((texte, params) => query(texte, params), sujet, id);
+}
+
+export interface BilanArchivage { biens: number; locations: number; locataires: number }
+
+/**
+ * « SUPPRIMER » / « ARCHIVER » = SORTIR DU PORTEFEUILLE. Rien n'est effacé : chaque fiche est datée et signée (même
+ * instant pour toutes), quitte les listes actives et la recherche, reste consultable dans « Anciens » et se réactive.
+ *
+ * 🔴 RÈGLE D'ARNO DU 18/10/2026, qui REMPLACE « sortie refusée si locataire en place » : une location en cours ne bloque
+ * plus — elle est CLOSE à la date du jour (comme « Enregistrer le départ » de la Gestion), et son locataire sort aussi,
+ * sauf s'il loue un autre bien du portefeuille. Mais seulement APRÈS l'avertissement : sans `confirmeOccupation`, le
+ * serveur refuse (même par appel direct), et l'écran montre d'abord la liste des biens occupés.
+ * Un propriétaire archivé l'est aussi dans la Gestion (`archive_le` : « archivée » sur ses cartes, même donnée).
+ */
+export async function sortirDuPortefeuille(
+  sujet: SujetPortefeuille, id: number, auteur: Auteur, options: { confirmeOccupation?: boolean } = {},
+): Promise<Issue<BilanArchivage>> {
   if (!(await sortieDisponible())) return { etat: 'sans_schema' };
   try {
     return await withTransaction(async (q) => {
       const { rows } = await q<{ sorti: string | null }>(`SELECT sorti_portefeuille_le::text AS sorti FROM ${TABLE[sujet]} WHERE id = $1 FOR UPDATE`, [id]);
       if (rows[0] === undefined) return { etat: 'inconnu' as const };
-      if (rows[0].sorti !== null) return { etat: 'ok' as const, data: { biens: 0 } };
-      let biens: number[] = [];
-      if (sujet === 'locataire') {
-        const { rows: o } = await q('SELECT 1 FROM gestion_annuaire_occupation WHERE locataire_id = $1 AND sortie IS NULL LIMIT 1', [id]);
-        if (o.length > 0) throw new Refus('Ce locataire est encore en place : enregistrez d’abord son départ (fiche du bien ou du locataire), puis sortez-le du portefeuille.');
-      } else {
-        const tetes = sujet === 'bien' ? [id]
-          : (await q<{ id: string }>(`SELECT id::text FROM gestion_annuaire_lot WHERE proprietaire_id = $1 AND sorti_portefeuille_le IS NULL`, [id])).rows.map((r) => Number(r.id));
-        for (const t of tetes) biens.push(...await avecAnnexes(q, t));
-        biens = [...new Set(biens)];
-        if (biens.length > 0) {
-          const { rows: o } = await q('SELECT 1 FROM gestion_annuaire_occupation WHERE lot_id = ANY($1::bigint[]) AND sortie IS NULL LIMIT 1', [biens]);
-          if (o.length > 0) throw new Refus(MOTIF_LOCATAIRE_EN_PLACE);
+      if (rows[0].sorti !== null) return { etat: 'ok' as const, data: { biens: 0, locations: 0, locataires: 0 } };
+      const plan = await planArchivage(q, sujet, id);
+      if (plan === null) return { etat: 'inconnu' as const };
+      // 🔴 AVANT TOUTE ÉCRITURE (un refus rendu après un UPDATE serait quand même validé par la transaction).
+      if (plan.occupees.length > 0 && options.confirmeOccupation !== true) throw new Refus(MOTIF_OCCUPATION_A_CONFIRMER);
+
+      const { rows: t } = await q<{ maintenant: string; aujourdhui: string }>(
+        `SELECT now()::text AS maintenant, ${SQL_AUJOURDHUI_PARIS}::text AS aujourdhui`);
+      const maintenant = t[0].maintenant;
+      await q(`UPDATE ${TABLE[sujet]} SET sorti_portefeuille_le = $3::timestamptz, sorti_portefeuille_par = $2 WHERE id = $1`, [id, auteur.libelle, maintenant]);
+      const autres = plan.biens.filter((b) => !(sujet === 'bien' && b === id));
+      if (autres.length > 0) {
+        await q(`UPDATE gestion_annuaire_lot SET sorti_portefeuille_le = $3::timestamptz, sorti_portefeuille_par = $2
+                  WHERE id = ANY($1::bigint[]) AND sorti_portefeuille_le IS NULL`, [autres, auteur.libelle, maintenant]);
+        for (const b of autres) {
+          await journaliser(q, 'bien', b, 'location_sortie_portefeuille',
+            `sorti du portefeuille avec ${sujet === 'bien' ? `le bien ${id}` : `le propriétaire ${id}`} (tuile Location) — rien n’est effacé, réactivable`, auteur);
         }
       }
-      await q(`UPDATE ${TABLE[sujet]} SET sorti_portefeuille_le = now(), sorti_portefeuille_par = $2 WHERE id = $1`, [id, auteur.libelle]);
-      const autres = biens.filter((b) => !(sujet === 'bien' && b === id));
-      if (autres.length > 0) {
-        await q(`UPDATE gestion_annuaire_lot SET sorti_portefeuille_le = now(), sorti_portefeuille_par = $2
-                  WHERE id = ANY($1::bigint[]) AND sorti_portefeuille_le IS NULL`, [autres, auteur.libelle]);
+      // Les locations en cours : closes à la date du jour (jamais avant l'entrée : la base refuse une sortie antérieure).
+      for (const o of plan.occupees) {
+        await q(`UPDATE gestion_annuaire_occupation SET sortie = greatest(coalesce(entree, $2::date), $2::date) WHERE id = $1 AND sortie IS NULL`,
+          [o.occupationId, t[0].aujourdhui]);
+        await journaliser(q, 'locataire', o.locataireId, 'location_cloture_archivage',
+          `location du bien ${o.lotId} close le ${t[0].aujourdhui} par l’archivage ${sujet === 'locataire' ? 'du locataire' : sujet === 'bien' ? `du bien ${id}` : `du propriétaire ${id}`} (tuile Location) — l’occupation passe dans l’historique`, auteur);
       }
+      if (plan.locatairesArchives.length > 0) {
+        await q(`UPDATE gestion_annuaire_locataire SET sorti_portefeuille_le = $3::timestamptz, sorti_portefeuille_par = $2
+                  WHERE id = ANY($1::bigint[]) AND sorti_portefeuille_le IS NULL`, [plan.locatairesArchives, auteur.libelle, maintenant]);
+        for (const l of plan.locatairesArchives) {
+          await journaliser(q, 'locataire', l, 'location_sortie_portefeuille',
+            `sorti du portefeuille : sa location est close par l’archivage ${sujet === 'bien' ? `du bien ${id}` : `du propriétaire ${id}`} (tuile Location) — rien n’est effacé, réactivable`, auteur);
+        }
+      }
+      // 🔴 POINT 7 D'ARNO : un propriétaire archivé depuis la Location est archivé dans la Gestion aussi (même donnée).
+      if (sujet === 'proprietaire' && await colonneExisteMemo('gestion_annuaire_proprietaire', 'archive_le')) {
+        await q(`UPDATE gestion_annuaire_proprietaire SET archive_le = $3::timestamptz, archive_par_libelle = $2
+                  WHERE id = $1 AND archive_le IS NULL`, [id, auteur.libelle, maintenant]);
+      }
+      const morceaux = [
+        autres.length > 0 ? `avec ${autres.length} bien(s) / annexe(s) : ${autres.join(', ')}` : null,
+        plan.partages.length > 0 ? `bien(s) partagé(s) laissé(s) dans le portefeuille : ${plan.partages.map((p) => p.lotId).join(', ')}` : null,
+        plan.occupees.length > 0 ? `${plan.occupees.length} location(s) close(s) le ${t[0].aujourdhui} (occupations ${plan.occupees.map((o) => o.occupationId).join(', ')})` : null,
+        plan.locatairesArchives.length > 0 ? `locataire(s) archivé(s) : ${plan.locatairesArchives.join(', ')}` : null,
+        plan.locatairesGardes.length > 0 ? `locataire(s) gardé(s), qui louent un autre bien : ${plan.locatairesGardes.map((l) => l.id).join(', ')}` : null,
+      ].filter((x) => x !== null);
       await journaliser(q, sujet, id, 'location_sortie_portefeuille',
-        `sorti du portefeuille (tuile Location)${autres.length > 0 ? ` avec ${autres.length} bien(s) / annexe(s) : ${autres.join(', ')}` : ''} — rien n’est effacé, réactivable`, auteur);
-      return { etat: 'ok' as const, data: { biens: autres.length } };
+        `sorti du portefeuille (tuile Location)${morceaux.length > 0 ? ` — ${morceaux.join(' ; ')}` : ''} — rien n’est effacé, réactivable`, auteur);
+      return { etat: 'ok' as const, data: { biens: autres.length, locations: plan.occupees.length, locataires: plan.locatairesArchives.length } };
     });
   } catch (e) {
     if (e instanceof Refus) return { etat: 'refus', motif: e.message };
@@ -230,7 +393,10 @@ export async function sortirDuPortefeuille(sujet: SujetPortefeuille, id: number,
 
 /**
  * RÉACTIVER : la fiche revient dans le portefeuille. Pour un propriétaire ou un bien, les biens sortis AVEC lui (même
- * instant) reviennent aussi ; un bien sorti séparément, avant, reste sorti.
+ * instant) reviennent aussi ; un bien sorti séparément, avant, reste sorti. Un propriétaire archivé dans la Gestion PAR
+ * cet archivage (même instant) y est restauré ; archivé à la main dans la Gestion, avant, il le reste.
+ * Les locations closes par l'archivage RESTENT closes (ce sont des dates d'historique) ; leurs locataires restent dans
+ * « Anciens » et se réactivent depuis leur fiche.
  */
 export async function reactiverDansPortefeuille(sujet: SujetPortefeuille, id: number, auteur: Auteur): Promise<Issue<{ biens: number }>> {
   if (!(await sortieDisponible())) return { etat: 'sans_schema' };
@@ -242,14 +408,18 @@ export async function reactiverDansPortefeuille(sujet: SujetPortefeuille, id: nu
     await q(`UPDATE ${TABLE[sujet]} SET sorti_portefeuille_le = NULL, sorti_portefeuille_par = NULL WHERE id = $1`, [id]);
     let n = 0;
     if (sujet !== 'locataire') {
-      const lies = sujet === 'bien' ? await avecAnnexes(q, id)
-        : (await q<{ id: string }>('SELECT id::text FROM gestion_annuaire_lot WHERE proprietaire_id = $1', [id])).rows.map((r) => Number(r.id));
-      const lies2 = sujet === 'bien' ? lies.filter((x) => x !== id) : [...new Set((await Promise.all(lies.map((l) => avecAnnexes(q, l)))).flat())];
-      if (lies2.length > 0) {
+      const tetes = sujet === 'bien' ? [id]
+        : (await q<{ id: string }>(`SELECT lo.id::text FROM gestion_annuaire_lot lo WHERE ${SQL_BIENS_DU_PROPRIETAIRE}`, [id])).rows.map((r) => Number(r.id));
+      const lies = [...new Set((await Promise.all(tetes.map((l) => avecAnnexes(q, l)))).flat())].filter((x) => !(sujet === 'bien' && x === id));
+      if (lies.length > 0) {
         const r = await q(`UPDATE gestion_annuaire_lot SET sorti_portefeuille_le = NULL, sorti_portefeuille_par = NULL
-                            WHERE id = ANY($1::bigint[]) AND sorti_portefeuille_le = $2::timestamptz`, [lies2, instant]);
+                            WHERE id = ANY($1::bigint[]) AND sorti_portefeuille_le = $2::timestamptz`, [lies, instant]);
         n = r.rowCount ?? 0;
       }
+    }
+    if (sujet === 'proprietaire' && await colonneExisteMemo('gestion_annuaire_proprietaire', 'archive_le')) {
+      await q(`UPDATE gestion_annuaire_proprietaire SET archive_le = NULL, archive_par_libelle = NULL
+                WHERE id = $1 AND archive_le = $2::timestamptz`, [id, instant]);
     }
     await journaliser(q, sujet, id, 'location_reactivation_portefeuille',
       `réactivé dans le portefeuille (tuile Location)${n > 0 ? ` avec ${n} bien(s) / annexe(s) sortis en même temps` : ''}`, auteur);

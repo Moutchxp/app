@@ -20,7 +20,7 @@ const FICHIERS = (() => {
   parcourir('app/(admin)/admin/(protected)/location');
   return [...l, 'app/(admin)/admin/(protected)/gestion/SectionsLocationFiche.tsx', 'app/(admin)/admin/(protected)/gestion/SyndicConnuLocation.tsx'];
 })();
-const CONSIGNES = [/^Chercher un propriétaire/, /^Propriétaire, locataire, syndic/];
+const CONSIGNES = [/^Chercher un propriétaire/, /^Propriétaire, locataire, syndic/, /^Propriétaire : nom, prénom/];
 
 describe('🔴 tuile Location : les exemples des champs commencent par « ex. »', () => {
   const trouves = FICHIERS.flatMap((f) => [...readFileSync(f, 'utf8').matchAll(/(?:placeholder|exemple)(?:=|: *)(?:\{)?(["'])((?:(?!\1).)*)\1/g)].map((m) => ({ f, t: m[2] })));

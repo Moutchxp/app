@@ -61,21 +61,30 @@ function useContexteLocation(): void {
   }, []);
 }
 
-export function FicheCommuneLocation({ fiche }: { fiche: FicheUrl }) {
+/**
+ * `ouvrir` (facultatif, écran « Archiver un propriétaire », Arno 18/10/2026) : ouvrir une autre fiche DANS LA PAGE au lieu
+ * de naviguer (`null` = revenir) ; `sansRetour` : sans le lien « ← Location », l'écran qui l'accueille a le sien.
+ * Sans ces deux props, rien ne change.
+ */
+export function FicheCommuneLocation({ fiche, ouvrir, sansRetour = false }: {
+  fiche: FicheUrl; ouvrir?: (f: FicheUrl | null) => void; sansRetour?: boolean;
+}) {
   useContexteLocation();
   const router = useRouter();
   const onFiche = useCallback((f: FicheUrl | null) => {
+    if (ouvrir !== undefined) { ouvrir(f); return; }
     router.push(f === null ? '/admin/location' : lienFicheLocation(f));
-  }, [router]);
+  }, [router, ouvrir]);
   const onRetour = useCallback(() => {
+    if (ouvrir !== undefined) { ouvrir(null); return; }
     if (window.history.length > 1) window.history.back();
     else router.push('/admin/location');
-  }, [router]);
+  }, [router, ouvrir]);
   return (
     <div className="gst-vue fco" data-fiche-commune data-contexte="location">
       <style>{CSS_GESTION}</style><style>{CSS_BARRE_PAGES}</style>
       <style>{`.fco-retour{margin:0 0 10px}.fco-note{margin:0 0 12px;font-size:.85rem;color:var(--color-svv-muted)}`}</style>
-      <p className="fco-retour"><a href="/admin/location">← Location</a></p>
+      {!sansRetour && <p className="fco-retour"><a href="/admin/location">← Location</a></p>}
       <p className="fco-note" role="note">Fiche commune avec la Gestion. Depuis la Location, les mails sont en lecture : écrire, répondre ou transférer se fait depuis la Gestion.</p>
       <Annuaire fiche={fiche} onFiche={onFiche} onRetour={onRetour} redaction={null} />
     </div>

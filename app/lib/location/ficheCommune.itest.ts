@@ -61,8 +61,8 @@ describe.skipIf(!baseEssai)('🔴 fiche commune : sections « Location »', () =
     expect(fb.locations.map((x) => x.occupationId)).toHaveLength(1);
     const fl = ok(await ficheLocataireLocation(l.locataireId));
     expect(fl.locations.map((x) => x.lotId)).toEqual([logementId]);
-    // Sortie refusée (locataire en place), puis possible sur le propriétaire… après le départ seulement : on vérifie le refus,
-    // et qu'un bien sans locataire (la cave) sort et revient.
+    // Locataire en place : la sortie demande la confirmation de l'avertissement (règle d'Arno du 18/10/2026) — sans elle,
+    // refus ; et un bien sans locataire (la cave) sort et revient.
     expect((await sortirDuPortefeuille('bien', logementId, AUTEUR)).etat).toBe('refus');
     ok(await sortirDuPortefeuille('bien', b.annexes[0], AUTEUR));
     expect(ok(await ficheBienLocation(b.annexes[0])).sortie?.par).toBe('itest fiche commune');

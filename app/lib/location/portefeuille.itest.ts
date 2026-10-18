@@ -5,7 +5,8 @@
  *      d'un syndic, ni un bien en fin de gestion ou sorti ; personnes et syndics par nom, téléphone, e-mail ;
  *   ② sortie du portefeuille / réactivation : rien n'est effacé ; la fiche quitte la recherche et les listes actives,
  *      passe dans les anciens, se réactive (le propriétaire entraîne ses biens et leurs annexes, aller et retour) ;
- *   ③ refus tant qu'un locataire est en place (bien, propriétaire, locataire), avec un message qui dit quoi faire ;
+ *   ③ un locataire en place ne bloque plus (règle d'Arno du 18/10/2026) : refus SANS la confirmation de l'avertissement,
+ *      puis la location est close à la date du jour (bien, propriétaire, locataire) ;
  *   ④ « Nouveau locataire » rattaché à un bien du portefeuille ; refusé sur un bien sorti.
  *
  * VRAIES fonctions, VRAIE base (schéma copié, vide, migrations 365 à 373). 🔒 REFUSE de tourner ailleurs que sur une base
@@ -15,11 +16,11 @@
  */
 import { afterAll, describe, expect, it } from 'vitest';
 import { closePool, query } from '../db/client';
-import { enregistrerDepart } from '../gestion/annuaireEditionRepo';
 import { creerProprietaireEtBiens, ficheBienLocation, listeBiens, listeProprietaires } from './locationRepo';
 import {
-  biensPourLocataire, creerLocataireSurBien, MOTIF_LOCATAIRE_EN_PLACE, reactiverDansPortefeuille, rechercherPortefeuille, sortirDuPortefeuille,
+  biensPourLocataire, creerLocataireSurBien, reactiverDansPortefeuille, rechercherPortefeuille, sortirDuPortefeuille,
 } from './portefeuilleRepo';
+import { MOTIF_OCCUPATION_A_CONFIRMER } from './archivage';
 
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
@@ -91,17 +92,20 @@ describe.skipIf(!baseEssai)('🔴 portefeuille de la Location', () => {
     expect(ok(await ficheBienLocation(caveId)).sortie).toBeNull();
   });
 
-  it('③ refus tant qu’un locataire est en place, avec le geste à faire ; possible après le départ', async () => {
+  it('③ un locataire en place : refus SANS confirmation de l’avertissement, puis location close à la date du jour', async () => {
     const l = ok(await creerLocataireSurBien({ locataireId: null, locataire: { nom: `MODELE${S}`, email: `jules.${S}@exemple.test` }, lotId: logementId, entree: '2026-03-01' }, AUTEUR));
-    const refusBien = await sortirDuPortefeuille('bien', logementId, AUTEUR);
-    expect(refusBien).toEqual({ etat: 'refus', motif: MOTIF_LOCATAIRE_EN_PLACE });
-    expect((await sortirDuPortefeuille('proprietaire', proprietaireId, AUTEUR)).etat).toBe('refus');
-    const refusLocataire = await sortirDuPortefeuille('locataire', l.locataireId, AUTEUR);
-    expect(refusLocataire.etat).toBe('refus');
-    if (refusLocataire.etat === 'refus') expect(refusLocataire.motif).toMatch(/enregistrez d’abord son départ/);
-    const occ = Number((await query<{ id: string }>('SELECT id::text FROM gestion_annuaire_occupation WHERE locataire_id = $1', [l.locataireId])).rows[0].id);
-    ok(await enregistrerDepart(occ, '2026-09-30', AUTEUR));
-    expect((await sortirDuPortefeuille('locataire', l.locataireId, AUTEUR)).etat).toBe('ok');
+    // Règle d'Arno du 18/10/2026 (remplace « sortie refusée si locataire en place ») : sans confirmation, refus — même par appel direct.
+    expect(await sortirDuPortefeuille('bien', logementId, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
+    expect(await sortirDuPortefeuille('proprietaire', proprietaireId, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
+    expect(await sortirDuPortefeuille('locataire', l.locataireId, AUTEUR)).toEqual({ etat: 'refus', motif: MOTIF_OCCUPATION_A_CONFIRMER });
+    // Rien n'a été écrit par ces refus.
+    expect((await query<{ sortie: string | null }>('SELECT sortie::text FROM gestion_annuaire_occupation WHERE locataire_id = $1', [l.locataireId])).rows[0].sortie).toBeNull();
+    // Confirmé : la location du locataire est close aujourd'hui, et il sort du portefeuille.
+    expect(ok(await sortirDuPortefeuille('locataire', l.locataireId, AUTEUR, { confirmeOccupation: true }))).toMatchObject({ locations: 1 });
+    const { rows: o } = await query<{ sortie: string | null; aujourdhui: string }>(
+      `SELECT sortie::text, (now() AT TIME ZONE 'Europe/Paris')::date::text AS aujourdhui FROM gestion_annuaire_occupation WHERE locataire_id = $1`, [l.locataireId]);
+    expect(o[0].sortie).toBe(o[0].aujourdhui);
+    // Le bien n'est plus loué : il sort sans avertissement.
     expect((await sortirDuPortefeuille('bien', logementId, AUTEUR)).etat).toBe('ok');
     // La cave suit son logement ; le propriétaire, lui, reste dans le portefeuille.
     expect(ok(await ficheBienLocation(caveId)).sortie).not.toBeNull();
