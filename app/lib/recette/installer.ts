@@ -1,7 +1,7 @@
 /**
  * ══ MODE RECETTE — LE VERROU RÉSEAU, POSÉ AU DÉMARRAGE (lot RECETTE-MAC) ══════════════════════════════════════════════
  *
- * `instrumentation.ts` appelle `installerVerrouRecette()` UNE fois, au démarrage du serveur, SEULEMENT si `modeRecette()`
+ * `instrumentation.ts` (runtime Node, via `demarrageNode.ts`) appelle `installerVerrouRecette()` UNE fois, au démarrage du serveur, SEULEMENT si `modeRecette()`
  * est vrai. Le `fetch` global est alors enveloppé : chaque requête sortante passe par `decisionRecette` — les écritures
  * Gmail, Agenda et Drive ne partent pas (cf. `interception.ts`), et sont notées dans la boîte de test. Toutes les
  * fonctions de l'application reçoivent ce `fetch` (`{ fetch }`, paramètres par défaut) : aucune n'y échappe.
