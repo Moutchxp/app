@@ -33,13 +33,16 @@
 
 set -uo pipefail
 
-BASE=/home/ubuntu/sansvisavis
+# SVAV_MAJ_BASE_ESSAI : racine factice pour les tests sur le Mac (app/lib/ops/prodMettreAJourServeur.test.ts) ; jamais
+# posée par l'unité svav-maj, donc toujours /home/ubuntu/sansvisavis en prod.
+BASE=${SVAV_MAJ_BASE_ESSAI:-/home/ubuntu/sansvisavis}
 CURRENT=$BASE/current
 RELEASES=$BASE/releases
 SHARED=$BASE/shared
 DEPOT=$BASE/depot.git
 MAJ=$BASE/maj
-SAUVMAJ=/home/ubuntu/sauvegardes-maj
+SAUVMAJ=${SVAV_MAJ_BASE_ESSAI:+$SVAV_MAJ_BASE_ESSAI/sauvegardes-maj}
+SAUVMAJ=${SAUVMAJ:-/home/ubuntu/sauvegardes-maj}
 CONF=/etc/svav/svav.conf
 UNITES=/etc/systemd/system
 U=ubuntu
@@ -55,17 +58,20 @@ AMORCAGE_JUSQUA=357
 AMORCAGE_ECARTER=148,212,216,262
 
 MODE=${1:-}; SHA=${2:-}; shift 2 2>/dev/null || true
-JOURNAL=""; EMPREINTE_AMORCAGE=""; ACCEPTER_IRREV=""
+JOURNAL=""; EMPREINTE_AMORCAGE=""; ACCEPTER_IRREV=""; ERREUR_ARGS=""
 for a in "$@"; do
   case $a in
     --journal=*) JOURNAL=${a#*=} ;;
     --empreinte-amorcage=*) EMPREINTE_AMORCAGE=${a#*=} ;;
     --accepter-irreversible=*) ACCEPTER_IRREV=${a#*=} ;;
-    *) echo "option inconnue : $a"; exit 2 ;;
+    *) ERREUR_ARGS=${ERREUR_ARGS:-"option inconnue : $a"} ;;
   esac
 done
-[[ $MODE == --essai || $MODE == --appliquer ]] || { echo "usage : serveur.sh --essai|--appliquer <sha40> --journal=…"; exit 2; }
-[[ $SHA =~ ^[0-9a-f]{40}$ ]] || { echo "commit invalide : « $SHA » (40 caractères hexadécimaux attendus)"; exit 2; }
+# 🔴 Arno (18/10/2026) : une erreur d'appel ne sort plus AVANT le journal — elle y est écrite, avec la ligne finale
+#    « ═══ REFUSÉ … ═══ » (plus bas, une fois `refuser` défini), sinon le Mac croit à une connexion perdue. Seul un appel
+#    SANS journal (jamais celui du Mac) sort ici : il n'y a nulle part où écrire.
+[[ $MODE == --essai || $MODE == --appliquer ]] || ERREUR_ARGS=${ERREUR_ARGS:-"usage : serveur.sh --essai|--appliquer <sha40> --journal=…"}
+[[ $SHA =~ ^[0-9a-f]{40}$ ]] || ERREUR_ARGS=${ERREUR_ARGS:-"commit invalide : « $SHA » (40 caractères hexadécimaux attendus)"}
 [[ -n $JOURNAL ]] || { echo "--journal manquant"; exit 2; }
 ESSAI=0; [[ $MODE == --essai ]] && ESSAI=1
 ID=$(basename "$JOURNAL" .log)
@@ -92,10 +98,12 @@ commeU() { runuser -u $U -- env HOME=/home/$U PATH=/usr/bin:/bin:/usr/local/bin 
 avecEnv() { commeU bash -c 'set -a; . ./.env; set +a; exec "$@"' _ "$@"; } # dans le dossier courant, avec son .env
 sqlv()    { commeU bash -c 'set -a; . ./.env; set +a; exec psql "$DATABASE_URL" -X -At -v ON_ERROR_STOP=1 "$@"' _ "$@"; } # idem, psql sur DATABASE_URL (jamais affichée)
 
+FINI=0
 terminer() { # $1 code, $2 résultat lisible
   local code=$1; RESULTAT=$2
   reprendre_minuteries
   printf '\n[%s] ═══ %s ═══ (%d s)\n' "$(heure)" "$RESULTAT" $((SECONDS - T0))
+  FINI=1
   local migs; migs=$(IFS=,; echo "${MIGRATIONS_PASSEES[*]:-aucune}")
   [[ -f $MAJ/historique.tsv ]] || printf 'date\tde\tvers\tmode\tmigrations\tsauvegarde\tresultat\tduree_s\tjournal\n' > "$MAJ/historique.tsv"
   printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date '+%F %T')" "$(basename "${ANCIENNE:-?}")" "${SHA:0:12}" "${MODE#--}" \
@@ -105,6 +113,20 @@ terminer() { # $1 code, $2 résultat lisible
   exit "$code"
 }
 refuser() { ko "$*"; terminer 2 "REFUSÉ (rien n'a été modifié en service)"; }
+
+# 🔴 TOUTE fin du script écrit une ligne finale (Arno, 18/10/2026) : un arrêt imprévu (commande qui tue le script, arrêt
+#    de l'unité, erreur non rattrapée) conclut « ÉCHEC — ARRÊT INATTENDU », pour que « RÉSULTAT INCONNU » côté Mac reste
+#    réservé aux vraies pertes de connexion.
+fin_inattendue() {
+  local c=$1
+  (( FINI )) && return 0
+  ko "le script s'est arrêté avant sa conclusion (code $c)"
+  terminer 1 "ÉCHEC — ARRÊT INATTENDU DU SCRIPT (code $c) : lire le journal, l'état en service est à vérifier"
+}
+trap 'fin_inattendue $?' EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+trap 'exit 129' HUP
 
 reprendre_minuteries() {
   (( PAUSE )) || return 0
@@ -173,12 +195,14 @@ menage_versions() {
 # ── 0. Préconditions ─────────────────────────────────────────────────────────────────────────────────────────────
 printf '══ Mise à jour de la prod — %s — %s ══\n' "$(date '+%F %T')" "${MODE#--}"
 etape "0. Préconditions"
+[[ -z $ERREUR_ARGS ]] || refuser "appel invalide — $ERREUR_ARGS"
 exec 9> "$MAJ/verrou"
 flock -n 9 || refuser "une autre mise à jour tient le verrou $MAJ/verrou"
 [[ $(id -u) == 0 ]] || refuser "doit tourner en root (unité svav-maj)"
 [[ -L $CURRENT ]] || refuser "$CURRENT n'est pas un lien (adoption du lot 3 non faite ?)"
 ANCIENNE=$(readlink -f "$CURRENT"); ok "en service : $ANCIENNE ($(cat "$ANCIENNE/REVISION" 2>/dev/null || echo 'version zéro, sans REVISION'))"
-[[ $ANCIENNE == "$RELEASES/$SHA" ]] && { ok "ce commit est DÉJÀ en service — rien à faire"; terminer 0 "DÉJÀ EN SERVICE"; }
+# Une fin NORMALE, comme les autres : la ligne finale de succès (le Mac affiche « Terminé : déjà en service — rien à faire »).
+[[ $ANCIENNE == "$(readlink -f "$RELEASES/$SHA" 2>/dev/null || echo "$RELEASES/$SHA")" ]] && { ok "ce commit est DÉJÀ en service — rien à faire"; terminer 0 "DÉJÀ EN SERVICE — rien à faire"; }
 [[ $(systemctl is-active svav-sauvegarde.service < /dev/null) != activ* ]] && ok "sauvegarde nocturne pas en cours" || refuser "sauvegarde nocturne en cours : réessayer après sa fin"
 place=$(df -BG --output=avail /home | tail -1 | tr -dc 0-9)
 (( place >= PLACE_MIN_GO )) && ok "place libre : ${place} Go" || refuser "place libre ${place} Go < ${PLACE_MIN_GO} Go"

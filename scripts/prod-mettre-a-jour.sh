@@ -53,7 +53,13 @@ EOF
 # « ═══ REFUSÉ … ═══ », « ═══ ÉCHEC … ═══ »), lue dans le journal effectivement reçu. Une coupure ssh (code ≠ 0) avant
 # cette ligne : on se reconnecte et on reprend le journal là où il s'était arrêté. Toujours pas de ligne finale :
 # « RÉSULTAT INCONNU », code 3 — JAMAIS « réussi » (défaut du 16/10/2026 : coupure à l'étape 7, « Terminé : réussi »).
-suivre() { # $1 = id ; rend 0 (réussi), 2 (refusé), 1 (échec) ou 3 (inconnu)
+# 🔴 Arno (18/10/2026) : « RÉSULTAT INCONNU » est RÉSERVÉ aux vraies pertes de connexion (défaut du 18/10, 15:20 : un commit
+#    déjà en service affichait « connexion perdue »). Toute ligne finale du serveur est une conclusion : « DÉJÀ EN SERVICE »
+#    est un succès (« Terminé : déjà en service — rien à faire ») ; une ligne finale d'un libellé inconnu est dite telle
+#    quelle (code 1, jamais « réussi ») ; un ssh terminé NORMALEMENT sans ligne finale = le serveur s'est arrêté sans
+#    conclure (code 4), pas une connexion perdue.
+DEJA_EN_SERVICE=0
+suivre() { # $1 = id ; rend 0 (réussi ou déjà en service), 2 (refusé), 1 (échec), 3 (connexion perdue) ou 4 (sans conclusion)
   local id=$1 cap essai=0 rc vus finale
   cap=$(mktemp "${TMPDIR:-/tmp}/svav-maj.XXXXXX") || { echo "⛔ fichier temporaire impossible"; return 3; }
   while :; do
@@ -72,10 +78,21 @@ suivre() { # $1 = id ; rend 0 (réussi), 2 (refusé), 1 (échec) ou 3 (inconnu)
   done
   rm -f "$cap"
   case $finale in
+    '') ;;
+    *'DÉJÀ EN SERVICE'*) DEJA_EN_SERVICE=1; return 0 ;;
     *'ESSAI RÉUSSI'*|*'MISE À JOUR RÉUSSIE'*) return 0 ;;
     *'REFUSÉ'*) return 2 ;;
     *'ÉCHEC'*) return 1 ;;
+    *) echo; echo "⛔ ligne finale du serveur d'un libellé inconnu de ce script : $finale"
+       echo "   Elle n'est PAS lue comme un succès : lire le journal ci-dessus."; return 1 ;;
   esac
+  if (( rc == 0 )); then
+    echo
+    echo "⛔ SANS CONCLUSION — la connexion est restée ouverte jusqu'au bout, mais le serveur s'est arrêté sans écrire sa ligne"
+    echo "   finale. NE CONCLUEZ RIEN. Lire la fin du journal (lecture seule) :"
+    echo "     ssh $SERVEUR \"tail -n 40 $MAJ/$id.log; echo; cat $MAJ/$id.code 2>/dev/null || echo 'pas de code de fin'\""
+    return 4
+  fi
   echo
   echo "⛔ RÉSULTAT INCONNU — connexion perdue avant la ligne finale du serveur (dernier code ssh : $rc)."
   echo "   La mise à jour a pu continuer, réussir ou échouer sur le serveur : NE CONCLUEZ RIEN, ne lancez pas --appliquer"
@@ -88,9 +105,11 @@ suivre() { # $1 = id ; rend 0 (réussi), 2 (refusé), 1 (échec) ou 3 (inconnu)
 conclure() { # $1 code de suivre, $2 mode
   echo
   case $1 in
-    0) echo "Terminé : réussi ($2) — ligne finale du serveur reçue." ;;
+    0) if (( DEJA_EN_SERVICE )); then echo "Terminé : déjà en service — rien à faire"
+       else echo "Terminé : réussi ($2) — ligne finale du serveur reçue."; fi ;;
     2) echo "Terminé : REFUSÉ avant toute modification en service (voir le journal ci-dessus)." ;;
     3) echo "Terminé : RÉSULTAT INCONNU — connexion perdue (voir ci-dessus la commande pour lire la fin du journal)." ;;
+    4) echo "Terminé : SANS CONCLUSION — le serveur s'est arrêté sans ligne finale (voir ci-dessus la commande pour lire la fin du journal)." ;;
     *) echo "Terminé : ÉCHEC (code $1) — lire le journal ci-dessus ; la ligne ═══ dit si le retour arrière est fait." ;;
   esac
   return "$1"

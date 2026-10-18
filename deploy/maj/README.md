@@ -82,13 +82,16 @@ La dernière ligne `═══ … ═══` du journal dit dans quel cas on est
 
 | Fin du journal | Situation | Que faire |
 |---|---|---|
+| `DÉJÀ EN SERVICE — rien à faire` (le Mac : « Terminé : déjà en service — rien à faire », code 0) | ce commit tourne déjà : rien n'a été touché | rien |
 | `REFUSÉ (rien n'a été modifié en service)` | le site tourne sur la version d'avant, intacte | lire la ligne ⛔ juste au-dessus, corriger (pousser, attendre la fin de la sauvegarde nocturne, corriger la migration…), relancer l'essai |
 | `ÉCHEC À LA MIGRATION …` | pas de bascule, version d'avant en service ; une migration « enveloppée » est annulée entière, une migration qui gère ses propres transactions peut être à moitié passée | envoyer le journal à Claude avant toute autre chose |
 | `GOLDEN EN ÉCHEC — pas de bascule` | version d'avant en service ; si des migrations sont passées, le journal les nomme (elles restent) | envoyer le journal et `<id>.golden.json` à Claude |
 | `ÉCHEC — RETOUR ARRIÈRE FAIT, ancienne version en service et vérifiée` | la nouvelle version a échoué une vérification ; le site est revenu tout seul et répond | envoyer le journal ; rien d'urgent |
 | `ÉCHEC — RETOUR ARRIÈRE AVEC … PROBLÈME(S)` | **urgent** : le retour lui-même a rencontré un problème | ouvrir le site ; puis « Revenir en arrière à la main » ci-dessous, et prévenir Claude |
+| `ÉCHEC — ARRÊT INATTENDU DU SCRIPT (code …)` | le script serveur a été arrêté en route (unité arrêtée, signal) : il le dit au lieu de se taire | lire le journal ; ouvrir le site ; prévenir Claude |
 | pas de ligne `═══` (Terminal coupé) | la mise à jour continue peut-être | `npm run prod:mettre-a-jour -- --suivre` |
 | « RÉSULTAT INCONNU — connexion perdue » (code 3) | la connexion ssh a été coupée avant la ligne `═══`, et 6 reconnexions automatiques (reprise du journal là où il s'était arrêté) n'ont pas suffi. **Rien n'est conclu** : ne jamais lancer `--appliquer` sur la foi de cet essai | la commande affichée (lecture seule de la fin du journal), ou `--suivre` |
+| « SANS CONCLUSION » (code 4) | la connexion est restée ouverte jusqu'au bout, mais le journal s'arrête sans ligne `═══` (ne devrait plus arriver : toute fin du script serveur écrit sa ligne). **Rien n'est conclu** | la commande affichée (lecture seule de la fin du journal) |
 
 ## Revenir en arrière à la main
 

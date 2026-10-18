@@ -17,6 +17,9 @@ const FINALES = {
   reussi: "[11:28:31] ═══ ESSAI RÉUSSI — rien n'a changé en service (sauvegarde et version préparée gardées) ═══ (93 s)",
   echec: '[11:28:31] ═══ ÉCHEC À LA MIGRATION 363_admin_invitation.sql — pas de bascule, version en service inchangée ═══ (40 s)',
   refus: "[11:28:31] ═══ REFUSÉ (rien n'a été modifié en service) ═══ (5 s)",
+  // Le libellé du 18/10/2026 à 15:20 (avant correction du serveur), puis le libellé actuel : les deux concluent « déjà en service ».
+  dejaAncien: '[15:20:04] ═══ DÉJÀ EN SERVICE ═══ (0 s)',
+  deja: '[15:20:04] ═══ DÉJÀ EN SERVICE — rien à faire ═══ (0 s)',
 };
 const ETAPES = Array.from({ length: 9 }, (_, i) => `[11:27:${String(10 + i).padStart(2, '0')}] == étape ${i + 1} ==`);
 
@@ -90,17 +93,40 @@ describe('prod-mettre-a-jour.sh — la conclusion ne vient que de la ligne final
     expect(r.appels).toBe(4); // 1 lecture + 3 reconnexions (SVAV_MAJ_ESSAIS), puis abandon
   });
 
-  it('sortie SANS ligne finale (ssh terminé normalement) → « RÉSULTAT INCONNU », code 3, sans reconnexion inutile', () => {
+  it('sortie SANS ligne finale mais ssh terminé NORMALEMENT → « SANS CONCLUSION », code 4 — pas « connexion perdue », jamais « réussi »', () => {
+    // Arno (18/10/2026) : « RÉSULTAT INCONNU » est réservé aux vraies pertes de connexion.
     const r = lancer('normal', ETAPES);
-    expect(r.code).toBe(3);
-    expect(r.sortie).toContain('RÉSULTAT INCONNU');
+    expect(r.code).toBe(4);
+    expect(r.sortie).toContain('Terminé : SANS CONCLUSION');
+    expect(r.sortie).toContain(`tail -n 40 /home/ubuntu/sansvisavis/maj/${ID}.log`);
+    expect(r.sortie).not.toContain('RÉSULTAT INCONNU');
     expect(r.sortie).not.toMatch(/Terminé : réussi/);
     expect(r.appels).toBe(1);
   });
 
   it('une ligne ressemblante au milieu du journal ne vaut pas conclusion (format exact exigé)', () => {
     const r = lancer('normal', [...ETAPES, 'echo ═══ ESSAI RÉUSSI ═══ (copié dans un message)']);
-    expect(r.code).toBe(3);
+    expect(r.code).toBe(4);
+    expect(r.sortie).not.toMatch(/Terminé : réussi/);
+  });
+
+  it('DÉJÀ EN SERVICE (le cas du 18/10, 15:20) → « Terminé : déjà en service — rien à faire », code 0, sans « RÉSULTAT INCONNU »', () => {
+    for (const [i, finale] of [FINALES.dejaAncien, FINALES.deja].entries()) {
+      const r = lancer('normal', ['[15:20:02] ▶ 0. Préconditions', '  OK   ce commit est DÉJÀ en service — rien à faire', finale]);
+      expect(r.code).toBe(0);
+      expect(r.sortie).toContain('Terminé : déjà en service — rien à faire');
+      expect(r.sortie).not.toContain('RÉSULTAT INCONNU');
+      expect(r.sortie).not.toContain('connexion perdue');
+      expect(r.appels).toBe(i + 1); // une seule connexion par passage (le compteur du faux ssh se cumule)
+    }
+  });
+
+  it('une ligne finale au libellé inconnu de ce script : dite telle quelle, code 1, jamais « réussi » ni « connexion perdue »', () => {
+    const r = lancer('normal', [...ETAPES, '[11:28:31] ═══ RÉSULTAT NOUVEAU ═══ (3 s)']);
+    expect(r.code).toBe(1);
+    expect(r.sortie).toContain('libellé inconnu de ce script : [11:28:31] ═══ RÉSULTAT NOUVEAU ═══ (3 s)');
+    expect(r.sortie).not.toContain('RÉSULTAT INCONNU');
+    expect(r.sortie).not.toMatch(/Terminé : réussi/);
   });
 
   it('ligne finale d’ÉCHEC → « Terminé : ÉCHEC », code 1 ; ligne de REFUS → code 2', () => {
