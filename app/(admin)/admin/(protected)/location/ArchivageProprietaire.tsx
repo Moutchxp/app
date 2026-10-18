@@ -391,7 +391,7 @@ function BoutonSortieBiens({ proprietaireId, apercuProprietaire, biens, choix, a
  * Le bandeau COLLANT (recherche + gros bouton) reste en haut au défilement ; la fiche passe dessous. Couleurs du thème :
  * rouge de l'agence, orange d'alerte du thème (`--color-svv-urgence-orange`, texte de surface 4,60:1), blanc.
  */
-const CSS_ECRAN_ARCHIVAGE = `
+export const CSS_ECRAN_ARCHIVAGE = `
 .arc-cache{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .arc-collant{position:sticky;top:0;z-index:40;display:flex;flex-direction:column;gap:12px;padding:10px 0 12px;background:var(--color-svv-bg);border-bottom:1px solid var(--color-svv-line)}
 /* Une confirmation (ou la dernière question) ouverte : le bandeau ne colle plus — collé et plus haut que l'écran, son bas

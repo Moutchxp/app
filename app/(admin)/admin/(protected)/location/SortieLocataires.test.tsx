@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
-import { EcranAjouterLocatairesAVenir, EcranSortieRecherche, FormulaireBail } from './SortieLocataires';
+import { EcranAjouterLocatairesAVenir, EcranSortieLocataire, EcranSortieRecherche, FormulaireBail, libelleFaireSortir } from './SortieLocataires';
 import { EcranLocataires } from './EcransLocation';
 import type { BailLogement } from '../../../../lib/location/sortieLocataires';
 
@@ -131,5 +131,88 @@ describe('le bloc « Sortie du logement »', () => {
     const corps = JSON.parse(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body));
     expect(corps).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' });
     expect(apres).toHaveBeenCalledWith('Le logement reste loué à : BERNARD Paul', 'Enregistré, mais mail de confirmation non envoyé : Gmail injoignable.');
+  });
+});
+
+describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie=…)', () => {
+  const rendre = async (reponse: (u: string, init?: RequestInit) => Response): Promise<ReturnType<typeof vi.fn>> => {
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => reponse(String(u), init));
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11 })); });
+    await act(async () => { await Promise.resolve(); });
+    return f;
+  };
+  const gros = (): HTMLButtonElement => container.querySelector('button[data-faire-sortir]') as HTMLButtonElement;
+  const cartes = (): HTMLButtonElement[] => [...container.querySelectorAll('button[data-choisir]')] as HTMLButtonElement[];
+
+  it('accord du libellé', () => {
+    expect(libelleFaireSortir(0)).toBe('Faire sortir 0 locataire');
+    expect(libelleFaireSortir(1)).toBe('Faire sortir 1 locataire');
+    expect(libelleFaireSortir(2)).toBe('Faire sortir 2 locataires');
+  });
+
+  it('retour, titre à pastille, contexte, cartes TOUTES sélectionnées ; ni bloc « Fiche commune », ni fiche', async () => {
+    const f = await rendre(() => ok(BAIL));
+    expect(container.querySelector('.loc-retour a')?.getAttribute('href')).toBe('/admin/location/locataires');
+    expect(container.querySelector('.loc-retour a')?.textContent).toBe('← Ajouter ou supprimer un locataire');
+    expect(container.querySelector('.arc-biens-titre')?.textContent).toBe('Locataires de ce logement 2');
+    const ctx = container.querySelector('[data-contexte]')?.textContent ?? '';
+    for (const x of ['4 rue Fictive', 'Appartement · 3e étage · porte G', 'Cave n° 7', 'DUPONT Jean']) expect(ctx).toContain(x);
+    expect(cartes().map((b) => [b.getAttribute('aria-pressed'), b.textContent])).toEqual([['true', '✓ Faire sortir'], ['true', '✓ Faire sortir']]);
+    expect(container.querySelectorAll('mark.arc-surligne--en-place')).toHaveLength(2);
+    expect(container.textContent).toContain('Entré(e) dans les lieux le 01/09/2022');
+    expect(container.querySelector('a[data-voir-fiche]')?.getAttribute('href')).toBe('/admin/location/locataire/101');
+    expect(gros().textContent).toBe('Faire sortir 2 locataires');
+    expect(gros().className).toBe('arc-gros arc-gros--archiver');
+    expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement deviendra VACANT');
+    expect(container.textContent).not.toContain('Fiche commune avec la Gestion');
+    expect(f.mock.calls.map((c) => String(c[0]))).toEqual(['/api/admin/location?bail=11&v=0']);
+  });
+
+  it('la bascule suit le compteur et la phrase ; à 0, le gros bouton est inactif', async () => {
+    await rendre(() => ok(BAIL));
+    act(() => cartes()[1].click());
+    expect(cartes()[1].textContent).toBe('Reste dans le logement');
+    expect(gros().textContent).toBe('Faire sortir 1 locataire');
+    expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement reste loué à : BERNARD Paul');
+    act(() => cartes()[0].click());
+    expect(gros().textContent).toBe('Faire sortir 0 locataire');
+    expect(gros().disabled).toBe(true);
+  });
+
+  it('la confirmation exige la date : vide par défaut, refus sans date et avant l’entrée, puis envoi', async () => {
+    const f = await rendre((u) => (u.includes('bail=') ? ok(BAIL)
+      : ok({ date: '2026-10-31', vacant: false, restants: ['BERNARD Paul'] }, { mail: { envoye: true, ignore: false, motif: null } })));
+    act(() => cartes()[1].click());
+    act(() => gros().click());
+    const recap = container.querySelector('[data-recapitulatif]')!;
+    expect(recap.textContent).toContain('BERNARD Alice');
+    expect(recap.textContent).toContain('Le logement reste loué à : BERNARD Paul');
+    const date = container.querySelector('input[data-date-sortie]') as HTMLInputElement;
+    expect(date.value).toBe('');
+    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-refus]')?.textContent).toBe('La date de sortie est obligatoire.');
+    act(() => saisir(date, '2020-01-01'));
+    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    expect(container.querySelector('[data-refus]')?.textContent).toContain('antérieure à la date d’entrée');
+    expect(f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toHaveLength(0);
+    act(() => saisir(container.querySelector('input[data-date-sortie]') as HTMLInputElement, '2026-10-31'));
+    await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
+    const post = f.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' });
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('[data-sortie-faite]')?.textContent).toContain('Le logement reste loué à : BERNARD Paul');
+  });
+
+  it('la recherche, au gabarit de l’écran des biens : résultats VERTS avec le mot « occupant »', async () => {
+    vi.useFakeTimers();
+    await rendre((u) => (u.includes('occupants=') ? ok([{ occupationId: 31, locataireId: 301, nom: 'MARTIN Léa', telephone: null, email: null,
+      lotId: 9, adresse: '9 rue Autre', etage: null, porte: null, proprietaire: 'DURAND Paul' }]) : ok(BAIL)));
+    act(() => saisir(container.querySelector('input[data-recherche-occupants]') as HTMLInputElement, 'mar'));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const res = container.querySelector('button[data-occupation="31"]')!;
+    expect(res.querySelector('.loc-res-type--locataires')?.textContent).toBe('occupant');
+    expect(res.textContent).toContain('MARTIN Léa');
   });
 });

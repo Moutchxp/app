@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, useLecture, type EtatMail } from './commun';
+import { CSS_RESULTATS } from './AccueilLocation';
+import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import {
   casesParDefaut, dateFr, dateMaxSortie, descriptionLogement, phraseIssue, verifierSortie,
   type BailLogement, type OccupantTrouve, type SortieEnregistree,
@@ -198,15 +200,7 @@ export function FormulaireBail({ bail, occupationId, apres }: { bail: BailLogeme
     return (
       <div className="sor-recap" data-recapitulatif role="group" aria-label="Récapitulatif de la sortie">
         <h4>Confirmer la sortie</h4>
-        <dl className="sor-dl">
-          <dt>Qui sort</dt><dd>{sortants.map((l) => l.nom).join(', ')}</dd>
-          <dt>Date de sortie</dt><dd>{dateFr(date)}</dd>
-          <dt>Logement</dt><dd>{logement}{bail.annexes.length > 0 ? ` — avec ${bail.annexes.map((a) => a.libelle).join(', ')}` : ''}</dd>
-          <dt>Adresse</dt><dd>{bail.adresse ?? `Bien ${bail.lotId}`}</dd>
-          <dt>Propriétaire</dt><dd>{bail.proprietaire ?? 'non renseigné'}</dd>
-          <dt>Date d’entrée</dt><dd>{dateFr(bail.entree)}</dd>
-          <dt>Après la sortie</dt><dd><strong className={vacant ? 'sor-issue sor-issue--vacant' : 'sor-issue'}>{phrase}</strong></dd>
-        </dl>
+        <RecapSortie bail={bail} sortants={sortants} date={<>{dateFr(date)}</>} phrase={phrase} vacant={vacant} />
         {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
         <div className="loc-boutons">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setEtape('saisie')} disabled={envoi}>Revenir</button>
@@ -239,6 +233,227 @@ export function FormulaireBail({ bail, occupationId, apres }: { bail: BailLogeme
         <button type="submit" className="svv-btn svv-btn-primary gst-btn" data-valider>Valider la sortie</button>
       </div>
     </form>
+  );
+}
+
+/** Le récapitulatif d'une sortie (qui sort, date, logement, adresse, propriétaire, date d'entrée, vacant ou non). */
+function RecapSortie({ bail, sortants, date, phrase, vacant }: {
+  bail: BailLogement; sortants: BailLogement['locataires']; date: React.ReactNode; phrase: string; vacant: boolean;
+}) {
+  return (
+    <dl className="sor-dl">
+      <dt>Qui sort</dt><dd>{sortants.map((l) => l.nom).join(', ')}</dd>
+      <dt>Date de sortie</dt><dd>{date}</dd>
+      <dt>Logement</dt><dd>{descriptionLogement(bail)}{bail.annexes.length > 0 ? ` — avec ${bail.annexes.map((a) => a.libelle).join(', ')}` : ''}</dd>
+      <dt>Adresse</dt><dd>{bail.adresse ?? `Bien ${bail.lotId}`}</dd>
+      <dt>Propriétaire</dt><dd>{bail.proprietaire ?? 'non renseigné'}</dd>
+      <dt>Date d’entrée</dt><dd>{dateFr(bail.entree)}</dd>
+      <dt>Après la sortie</dt><dd><strong className={vacant ? 'sor-issue sor-issue--vacant' : 'sor-issue'}>{phrase}</strong></dd>
+    </dl>
+  );
+}
+
+// ══ L'ÉCRAN DE SORTIE ALIGNÉ SUR « SUPPRIMER UN DES BIENS » (Arno, 18-19/10/2026) ═════════════════════════════════════
+
+/** « Faire sortir 1 locataire » / « Faire sortir 2 locataires ». */
+export const libelleFaireSortir = (n: number): string => `Faire sortir ${n} locataire${n > 1 ? 's' : ''}`;
+
+/**
+ * /admin/location/locataire/[id]?sortie=N — LA MÊME LOGIQUE QUE « Supprimer un des biens d'un propriétaire »
+ * (`EcranArchivageProprietaire`, mode « biens ») : mêmes classes (`arc-*`), même bandeau collant (recherche + gros bouton
+ * rouge à compteur), même grille de cartes à bouton bascule. 🔴 SUR CET ÉCRAN SEULEMENT (accord d'Arno, 18/10/2026) : ni
+ * le bloc « Fiche commune avec la Gestion… » (texte, « Retour », barre « Annuaire »), ni la fiche complète — la fiche
+ * normale (sans `?sortie=`) reste celle de toujours. Écriture, journal, mail, correction et annulation : ceux du commit
+ * ad2568f9, inchangés (`sortie-locataires`).
+ */
+export function EcranSortieLocataire({ occupationInitiale }: { occupationInitiale: number }) {
+  const [occupation, setOccupation] = useState(occupationInitiale);
+  const [texte, setTexte] = useState('');
+  const [etat, setEtat] = useState<{ etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[] }>({ etat: 'vide' });
+  const [version, setVersion] = useState(0);
+  const [bilan, setBilan] = useState<{ phrase: string; mail: string | null } | null>(null);
+  const controleur = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const terme = texte.trim();
+    controleur.current?.abort();
+    if (terme.length < 2) { setEtat({ etat: 'vide' }); return; }
+    const c = new AbortController();
+    controleur.current = c;
+    const t = setTimeout(() => {
+      setEtat({ etat: 'charge' });
+      void (async () => {
+        try {
+          const res = await fetch(`${API}?occupants=${encodeURIComponent(terme)}`, { cache: 'no-store', signal: c.signal });
+          const d = await res.json() as { etat?: string; data?: OccupantTrouve[]; message?: string };
+          if (c.signal.aborted) return;
+          if (d.etat === 'ok' && Array.isArray(d.data)) setEtat({ etat: 'ok', terme, data: d.data });
+          else setEtat({ etat: 'erreur', message: d.message ?? 'Lecture impossible.' });
+        } catch (e) {
+          if ((e as Error)?.name === 'AbortError') return;
+          setEtat({ etat: 'erreur', message: 'Lecture impossible : le serveur n’a pas répondu.' });
+        }
+      })();
+    }, 200);
+    return () => { clearTimeout(t); c.abort(); };
+  }, [texte]);
+  const lu = useLecture<BailLogement>(`bail=${occupation}&v=${version}`);
+  const choisir = (o: OccupantTrouve): void => {
+    setTexte(''); setBilan(null); setOccupation(o.occupationId);
+    // L'adresse suit le logement choisi (un rechargement retombe dessus), sans quitter l'écran.
+    try { window.history.replaceState(null, '', `/admin/location/locataire/${o.locataireId}?sortie=${o.occupationId}`); } catch { /* sans effet */ }
+    window.scrollTo({ top: 0 });
+  };
+  return (
+    <div className="loc-page arc-page" data-ecran-sortie-locataire>
+      <style>{CSS_LOCATION_ECRANS + CSS_RESULTATS + CSS_ECRAN_ARCHIVAGE + CSS_SORTIE}</style>
+      <p className="loc-retour"><a href="/admin/location/locataires">← Ajouter ou supprimer un locataire</a></p>
+      <h1 className="arc-cache">Faire sortir un ou plusieurs locataires</h1>
+      {lu.etat.etat !== 'ok' ? (
+        <>
+          <BarreOccupants texte={texte} setTexte={setTexte} etat={etat} choisir={choisir} />
+          <EtatLecture etat={lu.etat} />
+        </>
+      ) : (
+        <SortieDuBail key={`${occupation}-${version}`} bail={lu.etat.data} occupationId={occupation} bilan={bilan}
+          barre={<BarreOccupants texte={texte} setTexte={setTexte} etat={etat} choisir={choisir} />}
+          apres={(phrase, mail) => { setBilan({ phrase, mail }); setVersion((v) => v + 1); }} />
+      )}
+    </div>
+  );
+}
+
+type EtatRecherche = { etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[] };
+
+/** La barre de recherche des OCCUPANTS, au gabarit de celle de l'écran des biens (panneau sous la barre). */
+function BarreOccupants({ texte, setTexte, etat, choisir }: {
+  texte: string; setTexte: (t: string) => void; etat: EtatRecherche; choisir: (o: OccupantTrouve) => void;
+}) {
+  return (
+    <div className="arc-recherche">
+      <label className="loc-recherche loc-recherche--large">
+        <span aria-hidden="true">🔎</span>
+        <input value={texte} onChange={(e) => setTexte(e.target.value)} type="search" data-recherche-occupants
+          placeholder="Chercher un locataire occupant : nom, prénom, téléphone, e-mail ou adresse du logement"
+          aria-label="Chercher un autre locataire occupant (nom, prénom, téléphone, e-mail ou adresse du logement)"
+          onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setTexte(''); } }} />
+        {texte !== '' && <button type="button" className="loc-vider" aria-label="Vider la recherche" onClick={() => setTexte('')}>×</button>}
+      </label>
+      {etat.etat !== 'vide' && (
+        <div className="loc-panneau arc-panneau" data-panneau>
+          {etat.etat === 'charge' ? <p className="loc-muet loc-panneau-vide" role="status">Recherche…</p>
+            : etat.etat === 'erreur' ? <p className="cp-refus loc-panneau-vide" role="alert">{etat.message}</p>
+              : etat.data.length === 0 ? <p className="loc-muet loc-panneau-vide">Aucun locataire occupant ne correspond à « {etat.terme} ».</p>
+                : (
+                  <ul className="loc-res" role="listbox">
+                    {etat.data.map((o) => (
+                      <li key={o.occupationId} role="presentation">
+                        <button type="button" role="option" aria-selected={false} className="loc-res-ligne arc-res-ligne" data-occupation={o.occupationId} onClick={() => choisir(o)}>
+                          <span className="loc-res-type loc-res-type--locataires" data-statut="occupant">occupant</span>
+                          <strong className="loc-res-nom">{o.nom}</strong>
+                          <span className="loc-res-infos">
+                            <span className="loc-res-tel">{descriptionEtage(o.etage, o.porte)}</span>
+                            <span className="loc-res-mail">{o.proprietaire ? `Propriétaire : ${o.proprietaire}` : ''}</span>
+                            <span className="loc-res-adr">{o.adresse ?? `Bien ${o.lotId}`}</span>
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SortieDuBail({ bail, occupationId, barre, bilan, apres }: {
+  bail: BailLogement; occupationId: number; barre: React.ReactNode; bilan: { phrase: string; mail: string | null } | null;
+  apres: (phrase: string, mail: string | null) => void;
+}) {
+  const [choix, setChoix] = useState<number[]>(() => casesParDefaut(bail));
+  const [ouvert, setOuvert] = useState(false);
+  const [date, setDate] = useState('');
+  const [motif, setMotif] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const jour = aujourdhuiParis();
+  const n = choix.length;
+  const phrase = phraseIssue(bail, choix);
+  const vacant = phrase.startsWith('Le logement deviendra VACANT');
+  const sortants = bail.locataires.filter((l) => choix.includes(l.occupationId));
+  const basculer = (id: number): void => { setOuvert(false); setMotif(null); setChoix((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id])); };
+  const confirmer = async (): Promise<void> => {
+    const v = verifierSortie(bail, choix, date, jour);
+    if (!v.ok) { setMotif(v.motif); return; }
+    setEnvoi(true); setMotif(null);
+    const r = await envoyer({ action: 'sortie-locataires', occupationId, sortants: choix, date });
+    setEnvoi(false);
+    if (r.motif !== null) { setMotif(r.motif); return; }
+    const mail = r.mail as EtatMail | undefined;
+    apres(phrase.replace('deviendra', 'devient'), mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail));
+  };
+  const contexte = [bail.adresse ?? `Bien ${bail.lotId}`, descriptionLogement(bail),
+    bail.annexes.length > 0 ? `annexes du bail : ${bail.annexes.map((a) => a.libelle).join(', ')}` : null,
+    `propriétaire : ${bail.proprietaire ?? 'non renseigné'}`].filter((x) => x !== null).join(' · ');
+  return (
+    <>
+      <div className="arc-collant" data-collant>
+        {barre}
+        <div className="arc-action" data-bouton-sortie-locataires={n}>
+          <button type="button" className="arc-gros arc-gros--archiver" disabled={n === 0 || envoi} onClick={() => { setOuvert(true); setMotif(null); }} data-faire-sortir>
+            {libelleFaireSortir(n)}
+          </button>
+          {bail.locataires.length > 0 && (
+            <p className={vacant && n > 0 ? 'sor-issue sor-issue--vacant' : 'sor-issue'} aria-live="polite" data-issue>
+              {n === 0 ? 'Personne ne sort : le logement reste loué à tous ses locataires.' : phrase}</p>
+          )}
+          {ouvert && n > 0 && (
+            <div className="loc-confirmation arc-confirmation sor-recap" role="alertdialog" aria-label="Confirmer la sortie" data-recapitulatif>
+              <p style={{ margin: '0 0 6px' }}><strong>{libelleFaireSortir(n)} ?</strong></p>
+              <RecapSortie bail={bail} sortants={sortants} phrase={phrase} vacant={vacant} date={(
+                <label className="loc-champ sor-date">Date de sortie <span aria-hidden="true">*</span>
+                  <input type="date" value={date} onChange={(e) => { setDate(e.target.value); setMotif(null); }} required aria-required="true"
+                    max={dateMaxSortie(jour)} min={bail.entree ?? undefined} data-date-sortie />
+                </label>
+              )} />
+              {motif !== null && <p className="cp-refus" role="alert" data-refus>{motif}</p>}
+              <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setOuvert(false); setMotif(null); }} disabled={envoi}>Annuler</button>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void confirmer(); }} disabled={envoi} data-confirmer>
+                  {envoi ? 'Enregistrement…' : 'Confirmer la sortie'}</button>
+              </div>
+            </div>
+          )}
+          {bilan !== null && (
+            <div className="gst-info arc-bilan" role="status" data-sortie-faite>
+              <p style={{ margin: 0 }}><strong>Sortie enregistrée.</strong> {bilan.phrase} — rien n’a été effacé.</p>
+              {bilan.mail !== null ? <p className="cp-refus" role="alert" data-mail-echec>{bilan.mail}</p>
+                : <p className="loc-muet" style={{ margin: 0 }} data-mail-envoye>Mail de confirmation envoyé.</p>}
+            </div>
+          )}
+        </div>
+      </div>
+      <section className="arc-biens" aria-label="Locataires de ce logement" data-selection-locataires>
+        <h2 className="arc-biens-titre">Locataires de ce logement <span className="loc-pastille">{bail.locataires.length}</span></h2>
+        <p className="loc-muet" style={{ margin: 0 }} data-contexte>{contexte}</p>
+        {bail.locataires.length === 0 ? <p className="loc-muet">Plus aucun locataire en place dans ce logement : rien à faire sortir.</p> : (
+          <ul className="arc-biens-liste">
+            {bail.locataires.map((l) => {
+              const pris = choix.includes(l.occupationId);
+              return (
+                <li key={l.occupationId} className={`arc-bien-carte${pris ? ' arc-bien-carte--choisi' : ''}`} data-locataire={l.occupationId}>
+                  <ul className="arc-noms"><li><mark className="arc-surligne arc-surligne--en-place" data-en-place>{l.nom}</mark></li></ul>
+                  <span className="loc-muet" data-entree-le>{l.entree === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(l.entree)}`}</span>
+                  <a className="arc-lien sor-voir" href={`/admin/location/locataire/${l.locataireId}`} data-voir-fiche>Voir la fiche</a>
+                  <button type="button" className="arc-choisir" aria-pressed={pris} data-choisir={l.occupationId} onClick={() => basculer(l.occupationId)}>
+                    {pris ? '✓ Faire sortir' : 'Reste dans le logement'}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </>
   );
 }
 
@@ -323,6 +538,7 @@ export const CSS_SORTIE = `
 .sor-fait p{margin:0 0 4px}
 .sor-choix{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .sor-enregistrees{margin-top:14px}
+.sor-voir{align-self:flex-start;display:inline-flex;align-items:center;font-size:.9rem;color:var(--color-svv-muted)}
 .sor-enregistrees h4{margin:0 0 6px}
 @media (max-width:760px){
   .sor-dl{grid-template-columns:1fr}
