@@ -1432,8 +1432,13 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
 }
 
 export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous, creation,
-  contacts = [], gestesContact, creationContact, teinte = null, sousTitre = null, tonRole }: {
+  contacts = [], gestesContact, creationContact, teinte = null, sousTitre = null, tonRole, sansAjout = false }: {
   titre: string;
+  /**
+   * 🔴 FICHE PROPRIÉTAIRE COMMUNE (Arno, 18/10/2026) — « Sur une fiche archivée, la carte n'apparaît pas. » Vrai ⇒ ni la
+   * tuile d'ajout ni son choix. Absente (le défaut) ⇒ rien ne change pour les autres blocs.
+   */
+  sansAjout?: boolean;
   id: string;
   personnes: readonly PersonneAnnuaire[];
   gestes: GestesCartes;
@@ -1619,6 +1624,7 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
 
             ⚠️ ELLE RESTE EN DERNIER, APRÈS LES CONTACTS (demande d'Arno) : c'est la place d'un geste, et un geste
             se trouve au bout de ce qu'on vient de lire. */}
+        {sansAjout ? null : (<>
         {ajout === 'client' || ajout === 'contact' ? (
           <article className="cp-carte cp-carte--edition">
             {/* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — LE CHOIX « CLIENT » OUVRE **EXACTEMENT** LE FORMULAIRE
@@ -1662,9 +1668,9 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
             title={gestes.modifiable ? undefined : MOTIF_SANS_MIGRATION}
             onClick={() => setAjout(auClic)}>
             {/* 🔴🔴 LOT HISTORIQUE-BIEN-9, POINT 2 — LE MÊME « + » ROUGE CERCLÉ QUE DANS LE BLOC PARTIES
-                (demande d'Arno), là où la fiche d'un bien offre le choix. Ailleurs — fiche d'un propriétaire,
-                fiche d'un locataire —, la tuile garde son « + » et son mot d'avant : il n'y a pas de contact à
-                y créer, et changer son allure aurait annoncé un geste qui n'existe pas sur ces écrans. */}
+                (demande d'Arno), là où la fiche d'un bien offre le choix — et la fiche d'un PROPRIÉTAIRE depuis le
+                18/10/2026 (Arno : « + Ajouter un contact »). Fiche d'un locataire : la tuile garde son « + » et son mot
+                d'avant, il n'y a pas de contact à y créer. */}
             {creationContact === undefined
               ? <span className="cp-ajout-plus" aria-hidden="true">+</span>
               : <span className="cp-ajout-cercle" aria-hidden="true">+</span>}
@@ -1674,6 +1680,7 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
             {!gestes.modifiable && <span className="cp-rien">{MOTIF_SANS_MIGRATION}</span>}
           </button>
         )}
+        </>)}
       </Rangee>
 
       {/* 🔴 LE LIEN DISCRET, SOUS LA RANGÉE (demande d'Arno). Il n'existe que s'il y a quelque chose à montrer :

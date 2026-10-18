@@ -75,6 +75,7 @@ import { ficheAEnvoyer, premierEmail } from '../../../../lib/gestion/ficheContac
 import type { LigneCarte as CarteDeContact } from '../../../../lib/gestion/partieCategorieRepo';
 // 🔴 LOT DOCUMENTS-AUTO-PAR-FICHE — le dossier des documents envoyés par le logiciel de gestion.
 import { DocumentsAutomatiques } from './DocumentsAutomatiques';
+import { MOTIF_SANS_BIEN_EN_GESTION, useContactsDuProprietaire } from './contactsDuProprietaire';
 // 🔴🔴 LOT CONTACTS-EXTERNES — les échanges de cette personne passés par un intermédiaire. Liste DISTINCTE.
 import { InterventionsDeLaFiche } from './InterventionsDeLaFiche';
 // 🔴🔴 LOT HISTORIQUES-UNE-SEULE-REGLE, POINT 6 — `fiche=bien-478` demande la fiche par la CLÉ WIPPIMMO.
@@ -916,6 +917,10 @@ function VueProprietaire({
      « en gestion » auraient fini par diverger — c'est la raison d'être du module, pas un rangement. */
   const enGestion = f.biens.filter(bienEnGestion);
   const anciens = f.biens.filter((b) => !bienEnGestion(b));
+  /* 🔴 FICHE PROPRIÉTAIRE COMMUNE (Arno, 18/10/2026) — les cartes « contact du propriétaire » de ses biens en gestion, et
+     le « Contact du propriétaire » du choix ; une fiche ARCHIVÉE (toutes ses personnes archivées) n'offre pas d'ajout. */
+  const contactsProp = useContactsDuProprietaire(enGestion.map((b) => b.numero), gestes.modifiable);
+  const ficheArchivee = f.personnes.length > 0 && f.personnes.every((p) => p.archive);
   return (
     <>
       {/* ══ 🔴 L'EN-TÊTE DE FICHE — un bandeau sobre : le nom en grand, le rôle en capsule, les actions à droite.
@@ -972,14 +977,26 @@ function VueProprietaire({
 
           ⚠️ « + AJOUTER UN PROPRIÉTAIRE » VEUT DIRE CO-PROPRIÉTAIRE DU MÊME ENSEMBLE DE BIENS : la personne créée
           est rattachée à tous les biens EN GESTION de cette fiche, ce qui est exactement ce que le bloc annonce. */}
+      {/* 🔴🔴 FICHE PROPRIÉTAIRE COMMUNE (Arno, 18/10/2026, accord pour la Gestion) — « + Ajouter un propriétaire » devient
+          « + Ajouter un contact », avec le MÊME petit choix que la fiche du bien (composant `BlocCartes`, aucune copie) :
+          « Propriétaire (client) » = l'ajout d'avant, intact ; « Contact du propriétaire » = une carte de contact rangée
+          sur ses biens en gestion, côté propriétaire — pas un client. Rien d'autre ne bouge dans la fiche. */}
       <BlocCartes titre="Coordonnées" id="ann-coord" personnes={f.personnes} role="Propriétaire"
-        motAjouter="Ajouter un propriétaire" gestes={gestes}
+        motAjouter="Ajouter un propriétaire" gestes={gestes} sansAjout={ficheArchivee}
+        contacts={contactsProp.contacts} gestesContact={contactsProp.gestesContact}
         creation={{
           rappel: enGestion.length === 0
             ? 'Cette fiche n’a aucun bien en gestion : la personne sera créée dans l’annuaire, sans rattachement.'
             : `Sera ajouté comme co-propriétaire sur ${enGestion.length === 1 ? 'le bien'
               : `les ${enGestion.length} biens`} de cette fiche.`,
           onCreer: (champs) => onCreer('proprietaire', enGestion.map((b) => b.id), champs),
+        }}
+        creationContact={{
+          motClient: 'Propriétaire (client)',
+          motContact: LIBELLE_CONTACT_PROPRIETAIRE_COURT,
+          rappel: enGestion.length === 0 ? MOTIF_SANS_BIEN_EN_GESTION
+            : `Rangé comme contact du propriétaire sur ${enGestion.length === 1 ? 'le bien' : `les ${enGestion.length} biens`} en gestion de cette fiche.`,
+          onCreer: contactsProp.creer,
         }} />
 
       <p className="ann-depuis">
