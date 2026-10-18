@@ -13,10 +13,11 @@ import { MOTIF_PREMIERE_CARTE } from '../gestion/carteComplete';
 import { familleAUneCarteComplete } from '../gestion/familleCarteRepo';
 import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
 import {
-  libelleOrigine, MOTIF_BIEN_HORS_SELECTION, MOTIF_OCCUPATION_A_CONFIRMER, MOTIF_ORIGINE_REQUISE, MOTIF_SELECTION_VIDE, verifierOrigine,
+  familleDuBien, libelleOrigine, MOTIF_BIEN_HORS_SELECTION, MOTIF_OCCUPATION_A_CONFIRMER, MOTIF_ORIGINE_REQUISE, MOTIF_SELECTION_VIDE, verifierOrigine,
   type ApercuArchivage, type BienASortir,
 } from './archivage';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
+import { familleDeCategorie } from './bienComplet';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE PORTEFEUILLE (refonte de l'accueil, Arno, 17/10/2026). IMPUR (base). ══════════════════════
@@ -526,13 +527,22 @@ export async function biensPourSortie(proprietaireId: number): Promise<BienASort
   const actif = await sqlProprietaireActif('pr');
   const detachee = (await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le')) ? '(an.annexe_detachee_le IS NOT NULL)' : 'false';
   const { rows } = await q<{ id: string; adresse: string | null; numero: string | null; nature: string | null;
-    annexes: { id: number; categorie: string | null; porte: string | null; detachee: boolean }[] | null; locataires: string[] | null; autres: string[] | null }>(
+    annexes: { id: number; categorie: string | null; porte: string | null; detachee: boolean }[] | null; locataires: string[] | null; autres: string[] | null;
+    entree: string | null; categorie: string | null; derniere_sortie: string | null; derniers: string[] | null; nature_brute: string | null; type_brut: string | null }>(
     `SELECT lo.id::text, nullif(concat_ws(', ', lo.adresse, lo.commune), '') AS adresse, lo.wippimmo_id AS numero, coalesce(lo.nature, lo.type_bien) AS nature,
+            lo.nature AS nature_brute, lo.type_bien AS type_brut,
             (SELECT json_agg(json_build_object('id', an.id, 'categorie', an.categorie, 'porte', an.porte, 'detachee', ${detachee}) ORDER BY an.id)
                FROM gestion_lot_annexe a JOIN gestion_annuaire_lot an ON an.id = a.annexe_id
               WHERE a.parent_id = lo.id AND an.sorti_portefeuille_le IS NULL) AS annexes,
             (SELECT array_agg(lc.nom ORDER BY lc.nom) FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire lc ON lc.id = o.locataire_id
               WHERE o.lot_id = lo.id AND o.sortie IS NULL) AS locataires,
+            (SELECT min(o.entree)::text FROM gestion_annuaire_occupation o WHERE o.lot_id = lo.id AND o.sortie IS NULL) AS entree,
+            ${await colonneExisteMemo('gestion_annuaire_lot', 'categorie') ? 'lo.categorie' : 'NULL::text'} AS categorie,
+            -- La DERNIÈRE location terminée : les occupations dont la sortie est la plus récente (colocataires d'un même bail).
+            (SELECT max(o.sortie)::text FROM gestion_annuaire_occupation o WHERE o.lot_id = lo.id AND o.sortie IS NOT NULL) AS derniere_sortie,
+            (SELECT array_agg(DISTINCT lc.nom) FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire lc ON lc.id = o.locataire_id
+              WHERE o.lot_id = lo.id AND o.sortie IS NOT NULL
+                AND o.sortie = (SELECT max(x.sortie) FROM gestion_annuaire_occupation x WHERE x.lot_id = lo.id AND x.sortie IS NOT NULL)) AS derniers,
             (SELECT array_agg(DISTINCT pr.nom_complet) FROM gestion_annuaire_proprietaire pr
               WHERE pr.id <> $2 AND ${actif} AND (pr.id = lo.proprietaire_id
                 OR pr.id IN (SELECT lp.proprietaire_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = lo.id AND lp.jusqu_a IS NULL))) AS autres
@@ -542,6 +552,8 @@ export async function biensPourSortie(proprietaireId: number): Promise<BienASort
     lotId: Number(r.id), adresse: r.adresse, lot: numeroLot(r.numero), nature: r.nature,
     annexes: (r.annexes ?? []).map((a) => ({ lotId: Number(a.id), libelle: [a.categorie ? a.categorie.charAt(0).toUpperCase() + a.categorie.slice(1) : 'Annexe', a.porte ? `n° ${a.porte}` : null].filter((x) => x !== null).join(' '), detachee: a.detachee })),
     locataires: r.locataires ?? [], autresProprietaires: r.autres ?? [],
+    famille: familleDuBien(familleDeCategorie(r.categorie), r.nature_brute, r.type_brut), entree: r.entree,
+    derniersLocataires: (r.locataires ?? []).length > 0 ? [] : (r.derniers ?? []).sort(), derniereSortie: (r.locataires ?? []).length > 0 ? null : r.derniere_sortie,
   }));
 }
 

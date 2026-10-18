@@ -181,6 +181,14 @@ export interface BienASortir {
   annexes: { lotId: number; libelle: string; detachee: boolean }[];
   /** Les locataires en place (location en cours). */
   locataires: string[];
+  /** Famille du bien (logement / local / parking), pour « Logement vacant », « Local vacant », « Parking vacant ». */
+  famille: 'logement' | 'local' | 'parking' | null;
+  /** Loué : la date d'entrée dans les lieux (la plus ancienne des locataires en place), AAAA-MM-JJ, ou `null`. */
+  entree: string | null;
+  /** Vacant : le ou les locataires de la DERNIÈRE location seulement (pas l'historique) ; vide = aucun locataire connu. */
+  derniersLocataires: string[];
+  /** Vacant : la date de sortie de cette dernière location, si connue. */
+  derniereSortie: string | null;
   /** Les AUTRES propriétaires actifs : le bien sortira pour tous. */
   autresProprietaires: string[];
 }
@@ -210,4 +218,27 @@ export function phraseSortieBiens(): string {
 export function tousChoisis(biens: readonly { lotId: number }[], choisis: Iterable<number>): boolean {
   const c = new Set(choisis);
   return biens.length > 0 && biens.every((b) => c.has(b.lotId));
+}
+
+/** « Logement vacant », « Local vacant », « Parking vacant » (Arno, 18/10/2026). */
+export function motVacant(famille: BienASortir['famille']): string {
+  return famille === 'local' ? 'Local vacant' : famille === 'parking' ? 'Parking vacant' : 'Logement vacant';
+}
+
+/** « 01/09/2024 » — une date AAAA-MM-JJ lisible. */
+export function dateFr(iso: string | null): string | null {
+  const m = iso === null ? null : /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m === null ? null : `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+/**
+ * La famille d'un bien pour « … vacant » : sa catégorie (biens créés dans l'application), sinon déduite de la nature de
+ * l'import WIPPIMMO (« Local commercial » → local ; « Parking », « Garage », « Box » → parking ; le reste → logement).
+ */
+export function familleDuBien(familleCategorie: BienASortir['famille'], nature: string | null, typeBien: string | null): NonNullable<BienASortir['famille']> {
+  if (familleCategorie !== null) return familleCategorie;
+  const t = `${nature ?? ''} ${typeBien ?? ''}`.toLowerCase();
+  if (/local|commerc|bureau|boutique/.test(t)) return 'local';
+  if (/parking|garage|\bbox\b/.test(t)) return 'parking';
+  return 'logement';
 }

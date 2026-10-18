@@ -56,6 +56,11 @@ export interface DonneesMail {
   tva: number;
   /** Le lien absolu vers la fiche commune du propriétaire (ou `null`). */
   lienFiche: string | null;
+  /**
+   * SORTIE D'UNE ANNEXE SEULE (Arno, 18/10/2026) : l'annexe (« Parking n° 7 · lot 412 ») et son logement d'origine — l'objet
+   * devient « Sortie d'annexe — NOM — annexe — logement » ; sans loyer propre, pas de valorisation.
+   */
+  annexe?: { libelle: string; logement: string } | null;
 }
 
 const arrondi2 = (n: number): number => Math.round(n * 100) / 100;
@@ -83,7 +88,16 @@ export function nomDossier(d: Pick<DonneesMail, 'proprietaires'>): string {
 }
 
 /** L'objet du mail. */
+/** Une annexe seule sans loyer propre : on ne valorise rien (aucun bloc d'honoraires). */
+export function sansValorisation(d: DonneesMail): boolean {
+  return d.annexe != null && d.lots.every((l) => l.valeur.loyer === null && l.valeur.mensuelHT === null);
+}
+
 export function objetMail(d: DonneesMail): string {
+  if (d.sens === 'sortie' && d.annexe != null) {
+    const t0 = totaux(d);
+    return `Sortie d’annexe — ${nomDossier(d)} — ${d.annexe.libelle} — ${d.annexe.logement}${sansValorisation(d) ? '' : ` — −${euros(t0.mensuelHT)} HT/mois`}`;
+  }
   const t = totaux(d);
   const montant = `${d.sens === 'sortie' ? '−' : '+'}${euros(t.mensuelHT)} HT/mois`;
   const titre = d.sens === 'sortie' ? 'Sortie de gestion' : d.reactivation ? 'Retour en gestion' : 'Nouveau mandat de gestion';
@@ -150,7 +164,8 @@ export function texteMail(d: DonneesMail): string {
     t.push('', 'ORIGINE', `- ${d.origine.motif}${d.origine.sousMotif ? ` — ${d.origine.sousMotif}` : ''}`);
     if (d.origine.precision) t.push(`- Précision : « ${d.origine.precision} »`);
   }
-  t.push('', 'VALORISATION', ...phraseTotaux(d));
+  if (d.annexe != null) t.push('', `ANNEXE : ${d.annexe.libelle} — logement d’origine : ${d.annexe.logement}`);
+  if (!sansValorisation(d)) t.push('', 'VALORISATION', ...phraseTotaux(d));
   if (d.lienFiche) t.push('', `Fiche du propriétaire : ${d.lienFiche}`);
   return t.join('\n');
 }
@@ -191,13 +206,14 @@ export function htmlMail(d: DonneesMail): string {
     + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${fond}"><tr><td align="center" style="padding:16px 8px">`
     + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden">`
     + `<tr><td style="background:${rouge};padding:16px 20px;color:#ffffff"><div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.9">Sans Vis-à-Vis® · Gestion locative</div>`
-    + `<div style="margin-top:4px;font-size:20px;font-weight:800;line-height:1.25">${echapper(sortie ? 'Sortie de gestion' : d.reactivation ? 'Retour en gestion' : 'Nouveau mandat de gestion')}</div>`
+    + `<div style="margin-top:4px;font-size:20px;font-weight:800;line-height:1.25">${echapper(sortie ? (d.annexe != null ? 'Sortie d’annexe' : 'Sortie de gestion') : d.reactivation ? 'Retour en gestion' : 'Nouveau mandat de gestion')}</div>`
     + `<div style="margin-top:2px;font-size:15px">${echapper(nomDossier(d))} — ${nbLots(d.lots.length)}</div></td></tr>`
     + bloc('Qui', p(`<strong>${echapper(d.auteur.nom)}</strong>${d.auteur.email ? ` · ${echapper(d.auteur.email)}` : ''}`) + petit(`${echapper(dateHeure(d.quand))} — depuis la tuile ${d.tuile}`))
     + bloc(d.proprietaires.length > 1 ? 'Propriétaires' : 'Propriétaire', proprietaires)
     + bloc(d.lots.length > 1 ? `Lots concernés (${d.lots.length})` : 'Lot concerné', lots)
+    + (d.annexe != null ? bloc('Annexe', p(`<strong>${echapper(d.annexe.libelle)}</strong>`) + petit(`Logement d’origine : ${echapper(d.annexe.logement)}`)) : '')
     + origine
-    + bloc('Valorisation', totauxHtml)
+    + (sansValorisation(d) ? '' : bloc('Valorisation', totauxHtml))
     + lien
     + `</table><div style="padding:10px;font-size:12px;color:${gris}">Mail automatique de l’application Sans Vis-à-Vis® — rien n’a été effacé, tout reste consultable et réactivable.</div>`
     + `</td></tr></table></body></html>`;

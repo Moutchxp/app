@@ -8,7 +8,7 @@ import { QuestionOrigine } from './QuestionOrigine';
 import { FicheCommuneLocation } from '../gestion/FicheCommune';
 import { aplatirResultats, type LigneAccueil, type ResultatsAccueil } from '../../../../lib/location/recherchePortefeuille';
 import {
-  BANDEAU_TOUS_LES_BIENS, etatBouton, LIBELLE_BOUTON, LIBELLE_FINAL_BIENS, libelleBien, libelleSortirBiens, phraseArchivage, phraseSortieBiens,
+  BANDEAU_TOUS_LES_BIENS, dateFr, etatBouton, motVacant, LIBELLE_BOUTON, LIBELLE_FINAL_BIENS, libelleBien, libelleSortirBiens, phraseArchivage, phraseSortieBiens,
   QUESTION_ORIGINE_BIENS, tousChoisis, type ApercuArchivage, type BienASortir, type EtatBouton, type OrigineArchivage,
 } from '../../../../lib/location/archivage';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
@@ -248,14 +248,30 @@ function SelectionBiens({ etat, choix, onBascule }: {
             const pris = choix.includes(b.lotId);
             return (
               <li key={b.lotId} className={`arc-bien-carte${pris ? ' arc-bien-carte--choisi' : ''}`} data-bien={b.lotId}>
-                <strong>{libelleBien(b)}</strong>
-                {b.nature !== null && <span className="loc-muet">{b.nature}</span>}
-                <span>{b.locataires.length > 0 ? `Loué à ${b.locataires.join(', ')}` : 'Libre'}</span>
-                {b.annexes.length > 0 && (
-                  <span className="loc-muet">Annexes (sortent avec lui) : {b.annexes.map((a) => `${a.libelle}${a.detachee ? ' (détachée)' : ''}`).join(' · ')}</span>
-                )}
-                {b.autresProprietaires.length > 0 && (
-                  <span className="arc-note-ligne">Autre propriétaire actif : {b.autresProprietaires.join(', ')} — le bien sortira pour tous.</span>
+                {/* Format UNIQUE (Arno, 18/10/2026) : adresse (2 lignes réservées) · type · occupation · compléments · bouton en bas. */}
+                <strong className="arc-bien-adresse">{libelleBien(b)}</strong>
+                <span className="arc-bien-type loc-muet">{b.nature ?? 'Type non renseigné'}</span>
+                <div className="arc-bien-occupation" data-occupation={b.locataires.length > 0 ? 'loue' : 'vacant'}>
+                  {b.locataires.length > 0 ? (<>
+                    <span>Loué à <mark className="arc-surligne arc-surligne--en-place" data-en-place>{b.locataires.join(', ')}</mark></span>
+                    <span className="loc-muet">{dateFr(b.entree) === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(b.entree)}`}</span>
+                  </>) : (<>
+                    <span className="arc-vacant" data-vacant>{motVacant(b.famille)}</span>
+                    {b.derniersLocataires.length > 0 ? (<>
+                      <span>Dernier locataire : <mark className="arc-surligne arc-surligne--ancien" data-dernier>{b.derniersLocataires.join(', ')}</mark></span>
+                      {dateFr(b.derniereSortie) !== null && <span className="loc-muet" data-sortie-le>Sorti(e) le {dateFr(b.derniereSortie)}</span>}
+                    </>) : <span className="loc-muet" data-jamais-loue>Aucun locataire connu</span>}
+                  </>)}
+                </div>
+                {(b.annexes.length > 0 || b.autresProprietaires.length > 0) && (
+                  <div className="arc-bien-plus">
+                    {b.annexes.length > 0 && (
+                      <span className="loc-muet">Annexes (sortent avec lui) : {b.annexes.map((a) => `${a.libelle}${a.detachee ? ' (détachée)' : ''}`).join(' · ')}</span>
+                    )}
+                    {b.autresProprietaires.length > 0 && (
+                      <span className="arc-note-ligne">Autre propriétaire actif : {b.autresProprietaires.join(', ')} — le bien sortira pour tous.</span>
+                    )}
+                  </div>
                 )}
                 <button type="button" className="arc-choisir" aria-pressed={pris} data-choisir={b.lotId} onClick={() => onBascule(b.lotId)}>
                   {pris ? '✓ Sortir de la gestion' : 'Sortir de la gestion'}
@@ -392,7 +408,16 @@ const CSS_ECRAN_ARCHIVAGE = `
 .arc-biens{display:flex;flex-direction:column;gap:10px}
 .arc-biens-titre{margin:0;font-size:1rem;font-weight:800;display:flex;align-items:center;gap:8px}
 .arc-biens-liste{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:12px}
-.arc-bien-carte{display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:14px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);min-width:0;overflow-wrap:anywhere}
+.arc-biens-liste{align-items:stretch}
+.arc-bien-carte{display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:14px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);min-width:0;overflow-wrap:anywhere;height:100%;box-sizing:border-box}
+.arc-bien-adresse{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.35;min-height:2.7em}
+.arc-bien-occupation{display:flex;flex-direction:column;gap:2px}
+.arc-bien-plus{display:flex;flex-direction:column;gap:4px}
+.arc-surligne{border-radius:4px;padding:0 4px;font-weight:700}
+.arc-surligne--en-place{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+.arc-surligne--ancien{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}
+.arc-vacant{color:var(--color-svv-red);font-weight:800}
+.arc-bien-carte .arc-choisir{margin-top:auto}
 .arc-bien-carte--choisi{border-color:var(--color-svv-red);box-shadow:0 0 0 3px var(--color-svv-red-soft)}
 .arc-choisir{margin-top:4px;min-height:44px;padding:8px 14px;border-radius:12px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-weight:800;cursor:pointer}
 .arc-choisir[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}

@@ -120,4 +120,19 @@ describe.skipIf(!baseEssai)('🔴 mails d’entrée / sortie du portefeuille', (
     expect(j[0]).toMatchObject({ etat: 'echec' });
     expect(j[0].commentaire).toContain('non envoyé : Gmail indisponible (essai)');
   });
+
+  it('⑤ sortie d’une ANNEXE seule (fiche commune) : « Sortie d’annexe — NOM — annexe — logement d’origine », sans valorisation', async () => {
+    const c = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `ANNEXE${S}`, telephone: '06 63 63 63 63', email: `an.${S}@exemple.test` },
+      logement: { adresse: `5 rue Annexe${S}`, codePostal: '75011', commune: 'Paris' }, annexes: [{ categorie: 'parking', porte: '9' }] }, { id: null, libelle: 'itest' }));
+    const { rows } = await query<{ id: string }>('SELECT annexe_id::text AS id FROM gestion_lot_annexe WHERE parent_id = $1', [c.logementId]);
+    const parking = Number(rows[0].id);
+    const r = ok(await sortirDuPortefeuille('bien', parking, { id: auteurId, libelle: 'x' }));
+    expect(r.lots).toEqual([parking]);
+    const issue = await notifierPortefeuille({ sens: 'sortie', proprietaireId: null, lotIds: r.lots ?? [], origine: null },
+      { auteur: { id: auteurId, libelle: 'x' }, tuile: 'Gestion' }, { transport: releve });
+    expect(issue.envoye).toBe(true);
+    const m = envoyes[envoyes.length - 1];
+    expect(m.objet).toBe(`Sortie d’annexe — ANNEXE${S} — Parking n° 9 — 5 rue Annexe${S}, Paris`);
+    expect(m.corps).not.toContain('VALORISATION');
+  });
 });

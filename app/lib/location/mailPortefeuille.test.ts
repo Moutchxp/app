@@ -61,4 +61,17 @@ describe('mail de sortie / d’entrée du portefeuille', () => {
     expect(h).not.toContain('<script>x');
     expect(h).toContain('&lt;script&gt;x&lt;/script&gt; &amp; co');
   });
+
+  it('sortie d’une ANNEXE seule : objet « Sortie d’annexe — NOM — annexe — logement d’origine », sans valorisation sans loyer propre', () => {
+    const annexe = base({ origine: null, annexe: { libelle: 'Parking n° 7 · lot 412', logement: '54 avenue Puvis de Chavannes, COURBEVOIE · lot 173' },
+      lots: [{ ...base().lots[1], numero: '412', type: null, famille: null, valeur: { loyer: null, taux: null, mensuelHT: null } }] });
+    expect(objetMail(annexe)).toBe('Sortie d’annexe — CAUCHY Thierry et Joyce — Parking n° 7 · lot 412 — 54 avenue Puvis de Chavannes, COURBEVOIE · lot 173');
+    expect(texteMail(annexe)).toContain('ANNEXE : Parking n° 7 · lot 412 — logement d’origine : 54 avenue Puvis de Chavannes, COURBEVOIE · lot 173');
+    expect(texteMail(annexe)).not.toContain('VALORISATION');
+    expect(htmlMail(annexe)).not.toContain('Honoraires de gestion');
+    // Avec un loyer propre (un parking loué seul), la valorisation reste.
+    const louee = base({ origine: null, annexe: { libelle: 'Parking n° 7 · lot 412', logement: 'lot 173' }, lots: [{ ...base().lots[0], valeur: { loyer: 120, taux: 6, mensuelHT: 7.2 } }] });
+    expect(objetMail(louee)).toBe('Sortie d’annexe — CAUCHY Thierry et Joyce — Parking n° 7 · lot 412 — lot 173 — −7,20\u00a0€ HT/mois');
+    expect(texteMail(louee)).toContain('VALORISATION');
+  });
 });

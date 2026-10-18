@@ -169,8 +169,17 @@ export async function donneesDuMail(ev: EvenementPortefeuille, auteur: { nom: st
   const props: ProprietaireMail[] = pr.map((p) => ({
     nom: p.nom ?? `Propriétaire ${p.id}`, telephone: p.tel, email: p.email, adresse: p.adresse, mandatGestion: p.mg, mandatTransaction: p.mt,
   }));
+  // SORTIE D'UNE ANNEXE SEULE (Arno, 18/10/2026) : une seule tête, qui est l'annexe d'un logement resté hors de la sortie.
+  let annexe: { libelle: string; logement: string } | null = null;
+  if (ev.sens === 'sortie' && tetes.length === 1 && tetes[0].parent !== null) {
+    const { rows: pa } = await query<{ adresse: string | null; numero: string | null }>(
+      `SELECT nullif(concat_ws(', ', adresse, commune), '') AS adresse, wippimmo_id AS numero FROM gestion_annuaire_lot WHERE id = $1`, [Number(tetes[0].parent)]);
+    const logement = pa[0] === undefined ? `bien ${tetes[0].parent}` : [pa[0].adresse ?? `Bien ${tetes[0].parent}`, numeroLot(pa[0].numero) ? `lot ${numeroLot(pa[0].numero)}` : null].filter((x) => x !== null).join(' · ');
+    annexe = { libelle: libelleAnnexe(tetes[0]), logement };
+  }
   const base = adresseApplication().base;
   return {
+    annexe,
     sens: ev.sens, reactivation: ev.reactivation === true, auteur, quand, tuile, proprietaires: props, lots: lotsMail,
     origine: ev.origine === null ? null : {
       motif: LIBELLE_ORIGINE[ev.origine.origine as Origine],

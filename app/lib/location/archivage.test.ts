@@ -51,3 +51,16 @@ describe('origine de l’archivage (Arno, 18/10/2026)', () => {
     expect(libelleOrigine({ origine: 'deces_succession', sousOrigine: null })).toBe('Décès / succession');
   });
 });
+
+describe('cartes des biens : famille et dates (Arno, 18/10/2026)', () => {
+  it('« Logement / Local / Parking vacant » ; la famille déduite de la nature de l’import quand la catégorie manque', async () => {
+    const { familleDuBien, motVacant, dateFr } = await import('./archivage');
+    expect([motVacant('logement'), motVacant('local'), motVacant('parking'), motVacant(null)]).toEqual(['Logement vacant', 'Local vacant', 'Parking vacant', 'Logement vacant']);
+    expect(familleDuBien('parking', 'Appartement', null)).toBe('parking');
+    expect(familleDuBien(null, 'Local commercial', null)).toBe('local');
+    expect(familleDuBien(null, 'Garage', 'Garage')).toBe('parking');
+    expect(familleDuBien(null, 'Box', null)).toBe('parking');
+    expect(familleDuBien(null, 'Appartement meublé', 'Studio')).toBe('logement');
+    expect([dateFr('2026-06-30'), dateFr(null)]).toEqual(['30/06/2026', null]);
+  });
+});

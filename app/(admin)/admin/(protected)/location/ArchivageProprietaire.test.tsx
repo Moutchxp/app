@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 
 /**
  * 🔴🔴 « SUPPRIMER UN PROPRIÉTAIRE » (Arno, 18/10/2026) — le VRAI écran, routes simulées : rien ne part, rien n'est écrit.
@@ -56,8 +57,12 @@ beforeEach(() => {
     if (u.includes('apercuArchivage=')) return ok(reponseApercu());
     if (u.includes('biensPourSortie=')) {
       return ok([
-        { lotId: 40, adresse: '14 rue de l’Essai, PARIS', lot: '315', nature: 'Appartement', annexes: [{ lotId: 41, libelle: 'Cave n° 3', detachee: true }], locataires: ['MODÈLE Jules'], autresProprietaires: [] },
-        { lotId: 50, adresse: '9 rue Partagée, PARIS', lot: null, nature: 'Studio', annexes: [], locataires: [], autresProprietaires: ['COINDIVIS Marc'] },
+        { lotId: 40, adresse: '14 rue de l’Essai, PARIS', lot: '315', nature: 'Appartement', annexes: [{ lotId: 41, libelle: 'Cave n° 3', detachee: true }], locataires: ['MODÈLE Jules'], autresProprietaires: [],
+          famille: 'logement', entree: '2024-09-01', derniersLocataires: [], derniereSortie: null },
+        { lotId: 50, adresse: '9 rue Partagée, PARIS', lot: null, nature: 'Studio', annexes: [], locataires: [], autresProprietaires: ['COINDIVIS Marc'],
+          famille: 'logement', entree: null, derniersLocataires: ['ANCIEN Paul', 'ANCIENNE Zoé'], derniereSortie: '2026-06-30' },
+        { lotId: 60, adresse: '2 rue Neuve, PARIS', lot: '12', nature: null, annexes: [], locataires: [], autresProprietaires: [],
+          famille: 'parking', entree: null, derniersLocataires: [], derniereSortie: null },
       ]);
     }
     if (u.includes('apercuSortieBiens=')) return ok(reponseBiens());
@@ -221,12 +226,12 @@ describe('🔴 « Supprimer un propriétaire »', () => {
     expect(container.querySelector('[data-origine-archivage]')?.textContent).toContain('Archivé le 18/10/2026 par Arno — Litige');
   });
 
-  it('écran intermédiaire : deux gros boutons (3D) — tout le propriétaire (rouge) / un des biens (blanc, mode « biens »)', async () => {
+  it('écran intermédiaire : deux gros boutons (3D), TOUS DEUX rouges — tout le propriétaire / un des biens (mode « biens »)', async () => {
     await act(async () => { root.render(createElement(EcranSupprimerChoix)); });
     const liens = [...container.querySelectorAll('.loc-gros-boutons--3d a.loc-gros-bouton')];
     expect(liens.map((a) => [a.getAttribute('href'), a.firstChild?.textContent, a.classList.contains('loc-gros-bouton--plein')])).toEqual([
       ['/admin/location/proprietaires/archiver', 'Supprimer un propriétaire et tous ses biens', true],
-      ['/admin/location/proprietaires/archiver?mode=biens', 'Supprimer un des biens d’un propriétaire', false],
+      ['/admin/location/proprietaires/archiver?mode=biens', 'Supprimer un des biens d’un propriétaire', true],
     ]);
   });
 
@@ -241,7 +246,7 @@ describe('🔴 « Supprimer un propriétaire »', () => {
 
     it('tous les biens affichés ; « Sortir de la gestion » sélectionne / désélectionne ; le gros bouton compte (grisé à zéro)', async () => {
       await ouvrirBiens();
-      expect([...container.querySelectorAll('[data-bien]')].map((b) => b.getAttribute('data-bien'))).toEqual(['40', '50']);
+      expect([...container.querySelectorAll('[data-bien]')].map((b) => b.getAttribute('data-bien'))).toEqual(['40', '50', '60']);
       expect(container.querySelector('[data-bien="40"]')?.textContent).toContain('Cave n° 3 (détachée)');
       expect(container.querySelector('[data-bien="50"]')?.textContent).toContain('le bien sortira pour tous');
       expect(gros().textContent).toBe('Sortir 0 bien de la gestion');
@@ -255,6 +260,36 @@ describe('🔴 « Supprimer un propriétaire »', () => {
       expect(b.getAttribute('aria-pressed')).toBe('false');
       expect(gros().disabled).toBe(true);
       expect(envois).toEqual([]);
+    });
+
+    it('cartes au format unique : adresse · type · occupation · bouton en bas ; loué en vert + entrée ; vacant en rouge + dernier(s) locataire(s) en violet ; jamais loué', async () => {
+      await ouvrirBiens();
+      for (const id of ['40', '50', '60']) {
+        const c = container.querySelector(`[data-bien="${id}"]`) as HTMLElement;
+        expect([...c.children].map((x) => x.className.split(' ')[0]).filter((x) => x !== 'arc-bien-plus'))
+          .toEqual(['arc-bien-adresse', 'arc-bien-type', 'arc-bien-occupation', 'arc-choisir']);
+        expect(c.lastElementChild?.getAttribute('data-choisir')).toBe(id);
+      }
+      const loue = container.querySelector('[data-bien="40"] .arc-bien-occupation');
+      expect(loue?.querySelector('[data-en-place]')?.textContent).toBe('MODÈLE Jules');
+      expect(loue?.textContent).toContain('Loué à MODÈLE Jules');
+      expect(loue?.textContent).toContain('Entré(e) dans les lieux le 01/09/2024');
+      const vacant = container.querySelector('[data-bien="50"] .arc-bien-occupation');
+      expect(vacant?.querySelector('[data-vacant]')?.textContent).toBe('Logement vacant');
+      expect(vacant?.querySelector('[data-dernier]')?.textContent).toBe('ANCIEN Paul, ANCIENNE Zoé');
+      expect(vacant?.textContent).toContain('Dernier locataire : ANCIEN Paul, ANCIENNE Zoé');
+      expect(vacant?.querySelector('[data-sortie-le]')?.textContent).toBe('Sorti(e) le 30/06/2026');
+      const jamais = container.querySelector('[data-bien="60"] .arc-bien-occupation');
+      expect(jamais?.querySelector('[data-vacant]')?.textContent).toBe('Parking vacant');
+      expect(jamais?.querySelector('[data-jamais-loue]')?.textContent).toBe('Aucun locataire connu');
+      // Hauteur égale et boutons alignés en bas : la règle CSS (mesurée au banc dans un vrai navigateur).
+      const css = readFileSync('app/(admin)/admin/(protected)/location/ArchivageProprietaire.tsx', 'utf8');
+      expect(css).toContain('.arc-biens-liste{align-items:stretch}');
+      expect(css).toContain('height:100%;box-sizing:border-box}');
+      expect(css).toContain('.arc-bien-carte .arc-choisir{margin-top:auto}');
+      expect(css).toContain('-webkit-line-clamp:2');
+      expect(css).toContain('.arc-surligne--en-place{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}');
+      expect(css).toContain('.arc-surligne--ancien{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}');
     });
 
     it('un bien occupé : la fenêtre d’alerte LIMITÉE à la sélection → « Confirmer la sortie de ces biens » → origine « …de ces biens » → envoi', async () => {
@@ -297,7 +332,7 @@ describe('🔴 « Supprimer un propriétaire »', () => {
 
     it('TOUS les biens choisis : bandeau, puis exactement le parcours de l’archivage du propriétaire', async () => {
       await ouvrirBiens();
-      await choisir(40); await choisir(50);
+      await choisir(40); await choisir(50); await choisir(60);
       expect(container.querySelector('[data-tous-les-biens]')?.textContent).toBe('Tous les biens de ce propriétaire sont sélectionnés : le propriétaire sortira lui aussi de la gestion et sera archivé');
       await cliquer(gros());
       expect(appels.some((u) => u.includes('apercuSortieBiens='))).toBe(false);
@@ -307,7 +342,7 @@ describe('🔴 « Supprimer un propriétaire »', () => {
       expect(container.querySelector('[data-archiver-definitivement]')?.textContent).toBe('Archiver définitivement');
       await cliquer(container.querySelector('[data-origine="deces_succession"]'));
       await cliquer(container.querySelector('[data-archiver-definitivement]'));
-      expect(envois).toEqual([{ action: 'sortir-biens', proprietaireId: 7, lotIds: [40, 50], origine: { origine: 'deces_succession', sousOrigine: null, precision: null } }]);
+      expect(envois).toEqual([{ action: 'sortir-biens', proprietaireId: 7, lotIds: [40, 50, 60], origine: { origine: 'deces_succession', sousOrigine: null, precision: null } }]);
     });
   });
 });

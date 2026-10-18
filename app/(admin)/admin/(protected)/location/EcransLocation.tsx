@@ -42,8 +42,8 @@ export function EcranProprietairesBiens() {
 
 /**
  * ══ « SUPPRIMER UN PROPRIÉTAIRE » → L'ÉCRAN INTERMÉDIAIRE (/admin/location/proprietaires/supprimer), Arno 18/10/2026 ══════
- * Deux gros boutons côte à côte (empilés au téléphone), même style et même effet 3D que les autres cases : le propriétaire
- * et tous ses biens (rouge, l'archivage existant, inchangé) ; un des biens d'un propriétaire (blanc, le mode « biens »).
+ * Deux gros boutons côte à côte (empilés au téléphone), même style et même effet 3D que les autres cases, TOUS DEUX en trame
+ * ROUGE (Arno, 18/10/2026) : le propriétaire et tous ses biens (l'archivage existant, inchangé) ; un des biens (mode « biens »).
  */
 export function EcranSupprimerChoix() {
   return (
@@ -58,7 +58,7 @@ export function EcranSupprimerChoix() {
       <ul className="loc-gros-boutons loc-gros-boutons--3d" aria-label="Que supprimer ?">
         <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/proprietaires/archiver" data-gros="supprimer-tout">
           Supprimer un propriétaire et tous ses biens<small>Le propriétaire est archivé avec ses biens et leurs annexes ; les locations en cours sont closes.</small></a></li>
-        <li><a className="loc-gros-bouton" href="/admin/location/proprietaires/archiver?mode=biens" data-gros="supprimer-biens">
+        <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/proprietaires/archiver?mode=biens" data-gros="supprimer-biens">
           Supprimer un des biens d’un propriétaire<small>Choisir un ou plusieurs biens à sortir de la gestion ; le propriétaire reste actif.</small></a></li>
       </ul>
     </div>
