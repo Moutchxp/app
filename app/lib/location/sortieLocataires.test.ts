@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  casesParDefaut, dateMaxSortie, dateValide, descriptionLogement, htmlMailSortie, issueSortie, objetMailSortie, phraseIssue,
+  casesParDefaut, dateMaxSortie, dateMinSortie, dateValide, descriptionLogement, htmlMailSortie, issueSortie, objetMailSortie, phraseIssue,
   messageDateSortie, phraseMail, phraseRestants, texteMailSortie, verifierCorrection, verifierSortie, type BailLogement, type DonneesMailSortie,
 } from './sortieLocataires';
 
@@ -47,20 +47,29 @@ describe('le contrôle de la sortie', () => {
   });
 
   it('refus d’une date antérieure à la date d’entrée', () => {
-    const v = verifierSortie(BAIL, [11], '2022-08-31', JOUR);
+    const recent = { locataires: [{ ...BAIL.locataires[0], entree: '2026-03-01' }] };
+    const v = verifierSortie(recent, [11], '2026-02-28', JOUR);
     expect(v.ok).toBe(false);
-    if (!v.ok) expect(v.motif).toMatch(/antérieure à la date d’entrée de BERNARD Alice \(01\/09\/2022\)/);
+    if (!v.ok) expect(v.motif).toMatch(/antérieure à la date d’entrée de BERNARD Alice \(01\/03\/2026\)/);
   });
 
-  it('refus au-delà d’un an dans le futur ; un an pile est accepté', () => {
+  it('🔴 décision du 18/10/2026 : refus d’une date FUTURE (le futur relève du préavis) ; aujourd’hui est accepté', () => {
+    const v = verifierSortie(BAIL, [11], '2026-10-20', JOUR);
+    expect(v.ok).toBe(false);
+    if (!v.ok) expect(v.motif).toMatch(/futur.*préavis/);
+    expect(verifierSortie(BAIL, [11], JOUR, JOUR).ok).toBe(true);
     expect(dateMaxSortie(JOUR)).toBe('2027-10-19');
-    expect(verifierSortie(BAIL, [11], '2027-10-20', JOUR).ok).toBe(false);
-    expect(verifierSortie(BAIL, [11], '2027-10-19', JOUR).ok).toBe(true);
+  });
+
+  it('refus d’une date de plus d’un an en arrière ; un an pile est accepté', () => {
+    expect(dateMinSortie(JOUR)).toBe('2025-10-19');
+    expect(verifierSortie({ locataires: [{ ...BAIL.locataires[0], entree: null }] }, [11], '2025-10-18', JOUR).ok).toBe(false);
+    expect(verifierSortie({ locataires: [{ ...BAIL.locataires[0], entree: null }] }, [11], '2025-10-19', JOUR).ok).toBe(true);
   });
 
   it('refus sans aucune case cochée, ou d’une case qui n’est pas du bail', () => {
-    expect(verifierSortie(BAIL, [], '2026-10-31', JOUR).ok).toBe(false);
-    expect(verifierSortie(BAIL, [99], '2026-10-31', JOUR).ok).toBe(false);
+    expect(verifierSortie(BAIL, [], '2026-10-15', JOUR).ok).toBe(false);
+    expect(verifierSortie(BAIL, [99], '2026-10-15', JOUR).ok).toBe(false);
   });
 
   it('refus d’une date impossible', () => {
@@ -69,14 +78,15 @@ describe('le contrôle de la sortie', () => {
   });
 
   it('une sortie partielle ou totale bien datée passe', () => {
-    expect(verifierSortie(BAIL, [11], '2026-10-31', JOUR)).toEqual({ ok: true });
+    expect(verifierSortie(BAIL, [11], '2026-10-15', JOUR)).toEqual({ ok: true });
     expect(verifierSortie(BAIL, [11, 12], '2026-10-01', JOUR)).toEqual({ ok: true });
   });
 
   it('la correction garde les mêmes bornes', () => {
     expect(verifierCorrection(['2022-09-01'], '2022-08-01', JOUR).ok).toBe(false);
     expect(verifierCorrection(['2022-09-01'], '', JOUR).ok).toBe(false);
-    expect(verifierCorrection(['2022-09-01', null], '2026-11-30', JOUR).ok).toBe(true);
+    expect(verifierCorrection(['2022-09-01', null], '2026-10-10', JOUR).ok).toBe(true);
+    expect(verifierCorrection(['2022-09-01'], '2026-11-30', JOUR).ok).toBe(false);   // jamais dans le futur
   });
 });
 
@@ -129,12 +139,13 @@ describe('la confirmation réduite (écran de sortie)', () => {
   it('les trois messages, et null quand la date va', () => {
     expect(messageDateSortie(sortants, '', JOUR)).toBe('Saisissez la date de sortie');
     expect(messageDateSortie(sortants, '2022-08-31', JOUR)).toBe('La date ne peut pas précéder l’entrée du 01/09/2022');
-    expect(messageDateSortie(sortants, '2027-10-20', JOUR)).toBe('La date ne peut pas dépasser d’un an la date du jour');
+    expect(messageDateSortie(sortants, '2026-10-20', JOUR)).toBe('La date ne peut pas être dans le futur : enregistrez un préavis');
+    expect(messageDateSortie([{ entree: null }], '2025-10-18', JOUR)).toBe('La date ne peut pas remonter à plus d’un an');
     expect(messageDateSortie(sortants, '2026-02-30', JOUR)).toBe('Saisissez une date de sortie valide');
-    expect(messageDateSortie(sortants, '2026-10-31', JOUR)).toBeNull();
+    expect(messageDateSortie(sortants, '2026-10-15', JOUR)).toBeNull();
   });
   it('mêmes bornes que le contrôle du serveur (aucune règle affaiblie)', () => {
-    for (const d of ['', '2022-08-31', '2027-10-20', '2026-10-31']) {
+    for (const d of ['', '2022-08-31', '2026-10-20', '2026-10-15', JOUR]) {
       expect(messageDateSortie([{ entree: '2022-09-01' }], d, JOUR) === null, d).toBe(verifierSortie(BAIL, [11], d, JOUR).ok);
     }
   });

@@ -1,4 +1,6 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { preavisOuverts } from './preavisRepo';
+import type { PreavisAffiche } from './preavis';
 import { colonneExisteMemo } from './sondeLocation';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
@@ -246,7 +248,11 @@ export interface LocationDuLocataire {
   occupationId: number; lotId: number | null; adresse: string | null; commune: string | null;
   entree: string | null; sortie: string | null; location: LocationAffichee | null;
 }
-export interface FicheLocataireLocation { fiche: FicheLocataire; sortie: SortiePortefeuille | null; locations: LocationDuLocataire[] }
+export interface FicheLocataireLocation {
+  fiche: FicheLocataire; sortie: SortiePortefeuille | null; locations: LocationDuLocataire[];
+  /** Les préavis OUVERTS de ses locations (migration 383 ; vide sans elle), par occupation. */
+  preavis?: { occupationId: number; preavis: PreavisAffiche & { dureeProposee: number | null } }[];
+}
 
 export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLocataireLocation>> {
   const f = await ficheLocataire(id);
@@ -265,6 +271,8 @@ export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLoc
         occupationId: Number(r.id), lotId: num(r.lot_id), adresse: r.adresse, commune: r.commune,
         entree: r.entree, sortie: r.sortie, location: conditions.get(Number(r.id)) ?? null,
       })),
+      preavis: [...(await preavisOuverts(rows.filter((r) => r.sortie === null).map((r) => Number(r.id)))).values()]
+        .map((p) => ({ occupationId: p.occupationId, preavis: p })),
     },
   };
 }
@@ -285,6 +293,8 @@ export interface FicheBienLocation {
   location372: boolean;
   /** Les informations complémentaires (migration 374) ; `null` sans elle. */
   complements: ComplementsFiche | null;
+  /** Les préavis OUVERTS de ses occupants en place (migration 383 ; vide sans elle). */
+  preavis?: { occupationId: number; preavis: PreavisAffiche & { dureeProposee: number | null } }[];
 }
 
 export async function ficheBienLocation(id: number): Promise<Issue<FicheBienLocation>> {
@@ -309,6 +319,8 @@ export async function ficheBienLocation(id: number): Promise<Issue<FicheBienLoca
       fiche: f.data, sortie: await sortieDe('bien', id), bien, parent, annexes,
       locations: f.data.occupations.map((o) => ({ occupationId: o.occupationId, location: conditions.get(o.occupationId) ?? null })),
       rattachables, location372: avec372, complements: await complementsDuBien(id),
+      preavis: [...(await preavisOuverts(f.data.occupations.filter((o) => o.sortie === null).map((o) => o.occupationId))).values()]
+        .map((p) => ({ occupationId: p.occupationId, preavis: p })),
     },
   };
 }

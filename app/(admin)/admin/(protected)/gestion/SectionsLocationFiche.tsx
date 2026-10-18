@@ -22,6 +22,8 @@ import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien }
 import { CSS_ZONE_AUTO, ZoneAuto } from '../location/ZoneAuto';
 import { ModaleArchivage } from '../location/ModaleArchivage';
 import { QuestionOrigine } from '../location/QuestionOrigine';
+import { aujourdhuiParisEcran, CSS_PREAVIS, GestesPreavis, MentionPreavis } from '../location/Preavis';
+import type { PreavisAffiche } from '../../../../lib/location/preavis';
 import { libelleBien, phraseArchivage, type ApercuArchivage, type OrigineArchivage } from '../../../../lib/location/archivage';
 import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import type { SortiePortefeuille } from '../../../../lib/location/recherchePortefeuille';
@@ -91,7 +93,7 @@ function Repli({ titre, resume, children }: { titre: string; resume?: string; ch
   return (
     <details className="slf" data-section-location>
       <summary><span className="slf-titre">{titre}</span>{resume !== undefined && resume !== '' && <span className="slf-resume"> · {resume}</span>}</summary>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION + CSS_SECTIONS + CSS_ANNEXE_CARTE + CSS_ENTRETIEN + CSS_ZONE_AUTO}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION + CSS_SECTIONS + CSS_ANNEXE_CARTE + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_PREAVIS}</style>
       <div className="slf-corps loc-page">{children}</div>
     </details>
   );
@@ -106,6 +108,40 @@ function Lecture<T>({ lu, children }: { lu: Lu<T>; children: (d: T) => React.Rea
 /** Un lien qui ouvre une fiche dans la tuile où l'on est. */
 function LienFiche({ sorte, id, ouvrir, children }: { sorte: FicheUrl['sorte']; id: number; ouvrir: Ouvrir; children: React.ReactNode }) {
   return <button type="button" className="slf-lien" onClick={() => ouvrir(sorte, id)}>{children}</button>;
+}
+
+// ══ LE PRÉAVIS (Arno, 18/10/2026) : statut « en préavis » / « préavis échu », avec « Corriger » / « Annuler » ══════════════
+
+type PreavisDeLaFiche = { occupationId: number; preavis: PreavisAffiche & { dureeProposee: number | null } };
+
+/** Le bloc des préavis OUVERTS d'une fiche : le locataire reste OCCUPANT ; gestes journalisés (mêmes fonctions que la Location). */
+function BlocPreavis({ lignes, apres }: {
+  lignes: { cle: number; libelle: React.ReactNode; entree: string | null; p: PreavisDeLaFiche['preavis'] }[];
+  apres: () => void;
+}) {
+  if (lignes.length === 0) return null;
+  const jour = aujourdhuiParisEcran();
+  return (
+    <section className="loc-bloc" data-preavis-fiche>
+      <h3>Préavis en cours</h3>
+      <ul className="loc-liste">
+        {lignes.map((l) => (
+          <li key={l.cle} style={{ display: 'block' }}>
+            <p style={{ margin: '0 0 6px' }}>{l.libelle} <MentionPreavis p={l.p} jour={jour} /></p>
+            <GestesPreavis p={l.p} entree={l.entree} envoyerGeste={envoyer} apres={apres} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** « en préavis » dans le résumé replié d'une section (visible sans l'ouvrir). PUR. */
+function resumePreavis(liste: readonly PreavisDeLaFiche[] | undefined): string | null {
+  const n = (liste ?? []).length;
+  if (n === 0) return null;
+  const jour = aujourdhuiParisEcran();
+  return (liste ?? []).some((x) => x.preavis.dateMax < jour) ? 'préavis échu — sortie à saisir' : n > 1 ? `${n} locataires en préavis` : 'locataire en préavis';
 }
 
 // ══ « SUPPRIMER » = SORTIR DU PORTEFEUILLE (jamais un effacement), réactivable ═════════════════════════════════════════
@@ -279,6 +315,7 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
     ? [lu.data.parent !== null ? 'annexe' : liste(lu.data.annexes).length > 0 ? `${liste(lu.data.annexes).length} annexe(s)` : null,
       lu.data.complements?.typeLogement ? LIBELLE_TYPE_LOGEMENT[lu.data.complements.typeLogement as TypeLogement] : null,
       lu.data.sortie === null || lu.data.sortie === undefined ? null : 'sorti du portefeuille',
+      resumePreavis(lu.data.preavis),
       // Arno (18/10/2026) : « DPE à renseigner » / « Entretien à renseigner » d'un bien existant — visibles, jamais bloquants.
       // Un import WIPPIMMO n'a pas de catégorie : sa famille se DÉDUIT de sa nature (la règle commune `categorieDuBien`).
       ...(lu.data.parent === null && lu.data.complements ? aRenseignerDuBien(lu.data.complements, familleDeCategorie(categorieDuBien(lu.data.bien))) : [])].filter((x) => x).join(' · ')
@@ -312,6 +349,11 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
               </ul>
               {d.parent === null && d.location372 && <AjoutAnnexes parentId={b.id} rattachables={[...liste(d.rattachables)]} apres={relire} />}
             </section>
+            <BlocPreavis apres={relire} lignes={liste(d.preavis).map((x) => {
+              const o = occupations.find((y) => y.occupationId === x.occupationId);
+              return { cle: x.occupationId, entree: o?.entree ?? null, p: x.preavis,
+                libelle: o === undefined ? <strong>Occupation {x.occupationId}</strong> : <LienFiche sorte="locataire" id={o.locataireId} ouvrir={ouvrir}>{o.nom}</LienFiche> };
+            })} />
             <Caracteristiques b={b} modifiable={d.location372} apres={relire} />
             {d.complements !== null && d.complements !== undefined
               && <Complements id={b.id} c={d.complements} apres={relire} annexe={b.parentId !== null} categorie={b.categorie}
@@ -730,7 +772,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
 export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId: number; ouvrir: Ouvrir }) {
   const { lu, relire } = useFiche<FicheLocataireLocation>(`locataire=${locataireId}`);
   const resume = lu.etat === 'ok'
-    ? [`${liste(lu.data.locations).length} location(s)`, lu.data.sortie === null ? null : 'sorti du portefeuille'].filter((x) => x).join(' · ')
+    ? [`${liste(lu.data.locations).length} location(s)`, lu.data.sortie === null ? null : 'sorti du portefeuille', resumePreavis(lu.data.preavis)].filter((x) => x).join(' · ')
     : '';
   return (
     <Repli titre="Location — loyers, taux et portefeuille" resume={resume}>
@@ -761,6 +803,12 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
                 </ul>
               )}
             </section>
+            <BlocPreavis apres={relire} lignes={liste(d.preavis).map((x) => {
+              const l = liste(d.locations).find((y) => y.occupationId === x.occupationId);
+              return { cle: x.occupationId, entree: l?.entree ?? null, p: x.preavis,
+                libelle: l === undefined || l.lotId === null ? <strong>Location {x.occupationId}</strong>
+                  : <LienFiche sorte="lot" id={l.lotId} ouvrir={ouvrir}>{[l.adresse, l.commune].filter((z) => z).join(', ') || `Bien ${l.lotId}`}</LienFiche> };
+            })} />
             <BlocSortie sujet="locataire" id={locataireId} sortie={d.sortie ?? null} apres={relire}
               explication="S’il a une location en cours, elle est close à la date du jour, après avertissement." />
           </>

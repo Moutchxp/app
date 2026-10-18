@@ -6,7 +6,7 @@
  *     partagent la date d'entrée) ;
  *   · une case par locataire du bail, TOUTES COCHÉES par défaut, décochables (rupture de couple : un seul reste) ;
  *   · une date de sortie OBLIGATOIRE, vide par défaut, une seule pour la sortie validée : jamais avant l'entrée d'un
- *     sortant, jamais plus d'un an dans le futur ;
+ *     sortant, jamais dans le futur (le futur relève du préavis), jamais plus d'un an en arrière (décision du 18/10/2026) ;
  *   · « Le logement deviendra VACANT » si tous sortent (et que personne d'autre n'occupe le lot), sinon « Le logement
  *     reste loué à : … » ;
  *   · les annexes liées au même bail (cave, parking) SUIVENT le logement : l'occupation de l'annexe par un sortant est
@@ -20,6 +20,8 @@
 export interface OccupantTrouve {
   occupationId: number; locataireId: number; nom: string; telephone: string | null; email: string | null;
   lotId: number; adresse: string | null; etage: string | null; porte: string | null; proprietaire: string | null;
+  /** En préavis : la date maximale de sortie (AAAA-MM-JJ) ; `null` sinon (ou sans la migration 383). */
+  preavisDateMax?: string | null;
 }
 
 export interface LocataireDuBail {
@@ -75,6 +77,18 @@ export function dateValide(s: unknown): s is string {
 }
 
 /** La date la plus tardive acceptée : un an après aujourd'hui (AAAA-MM-JJ). PUR. */
+/**
+ * 🔴 DÉCISION D'ARNO DU 18/10/2026 : une date de sortie dans le FUTUR n'est plus possible — la sortie se saisit le jour où
+ * elle est effective, ou après ; le futur relève du PRÉAVIS. Bornes : jamais après aujourd'hui, jamais plus d'un an en
+ * arrière, jamais avant l'entrée. `dateMinSortie` = un an avant aujourd'hui.
+ */
+export function dateMinSortie(aujourdhui: string): string {
+  const d = new Date(`${aujourdhui}T12:00:00Z`);
+  d.setUTCFullYear(d.getUTCFullYear() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Un an après aujourd'hui — sert encore à borner un PRÉAVIS saisi à la main (jamais une sortie). */
 export function dateMaxSortie(aujourdhui: string): string {
   const d = new Date(`${aujourdhui}T12:00:00Z`);
   d.setUTCFullYear(d.getUTCFullYear() + 1);
@@ -116,8 +130,11 @@ export function verifierSortie(
   }
   if (date === null || date === undefined || date === '') return { ok: false, motif: 'La date de sortie est obligatoire.' };
   if (!dateValide(date)) return { ok: false, motif: 'La date de sortie n’est pas une date valide.' };
-  if (date > dateMaxSortie(aujourdhui)) {
-    return { ok: false, motif: `La date de sortie ne peut pas dépasser d’un an la date du jour (au plus tard le ${dateFr(dateMaxSortie(aujourdhui))}).` };
+  if (date > aujourdhui) {
+    return { ok: false, motif: 'La date de sortie ne peut pas être dans le futur : enregistrez plutôt un préavis.' };
+  }
+  if (date < dateMinSortie(aujourdhui)) {
+    return { ok: false, motif: `La date de sortie ne peut pas remonter à plus d’un an (au plus tôt le ${dateFr(dateMinSortie(aujourdhui))}).` };
   }
   for (const o of sortants) {
     const l = parOcc.get(o)!;
@@ -132,7 +149,8 @@ export function verifierSortie(
 export function verifierCorrection(entrees: readonly (string | null)[], date: unknown, aujourdhui: string): VerdictSortie {
   if (date === null || date === undefined || date === '') return { ok: false, motif: 'La nouvelle date de sortie est obligatoire.' };
   if (!dateValide(date)) return { ok: false, motif: 'La date de sortie n’est pas une date valide.' };
-  if (date > dateMaxSortie(aujourdhui)) return { ok: false, motif: 'La date de sortie ne peut pas dépasser d’un an la date du jour.' };
+  if (date > aujourdhui) return { ok: false, motif: 'La date de sortie ne peut pas être dans le futur : enregistrez plutôt un préavis.' };
+  if (date < dateMinSortie(aujourdhui)) return { ok: false, motif: 'La date de sortie ne peut pas remonter à plus d’un an.' };
   const max = entrees.filter((e): e is string => e !== null).sort().pop();
   if (max !== undefined && date < max) return { ok: false, motif: `La date de sortie ne peut pas être antérieure à la date d’entrée (${dateFr(max)}).` };
   return { ok: true };
@@ -352,7 +370,8 @@ export function messageDateSortie(sortants: readonly Pick<LocataireDuBail, 'entr
   if (!dateValide(date)) return 'Saisissez une date de sortie valide';
   const entree = sortants.map((l) => l.entree).filter((e): e is string => e !== null).sort().pop();
   if (entree !== undefined && date < entree) return `La date ne peut pas précéder l’entrée du ${dateFr(entree)}`;
-  if (date > dateMaxSortie(aujourdhui)) return 'La date ne peut pas dépasser d’un an la date du jour';
+  if (date > aujourdhui) return 'La date ne peut pas être dans le futur : enregistrez un préavis';
+  if (date < dateMinSortie(aujourdhui)) return 'La date ne peut pas remonter à plus d’un an';
   return null;
 }
 

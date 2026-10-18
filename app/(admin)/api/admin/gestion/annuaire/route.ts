@@ -1,4 +1,5 @@
 import 'server-only';
+import { enregistrerSortie, notifierSortie } from '../../../../../lib/location/sortieLocatairesRepo';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { analyserTerme } from '../../../../../lib/gestion/annuaireRecherche';
 import {
@@ -9,7 +10,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import type { Auteur } from '../../../../../lib/gestion/gestes';
 import type { RepartitionCoordonnee } from '../../../../../lib/gestion/annuaireEdition';
 import {
-  ajouterOccupant, ajouterProprietaireAuLot, archiverPersonne, creerPersonne, enregistrerDepart,
+  ajouterOccupant, ajouterProprietaireAuLot, archiverPersonne, creerPersonne,
   supprimerPersonne,
   modifierPersonne, ordonnerPersonnes, remplacerProprietaireDuLot, separerPersonne,
 } from '../../../../../lib/gestion/annuaireEditionRepo';
@@ -246,7 +247,13 @@ async function gesteDeBien(
     if (lotId === null || lid === null) return { etat: 'refus', motif: 'Demande incomplète.' };
     return ajouterOccupant(lotId, lid, date(corps.entree), auteur);
   }
+  // 🔴 « UNE SEULE PORTE » (Arno, 18/10/2026) : le départ de la Gestion appelle LA fonction de sortie commune — mêmes
+  //    contrôles (date obligatoire, jamais dans le futur ni plus d'un an en arrière, jamais avant l'entrée, aucune date
+  //    écrasée), mêmes annexes du bail, même journal, même mail (envoyé APRÈS, jamais bloquant).
   const occupationId = nombre(corps.occupationId);
   if (occupationId === null) return { etat: 'refus', motif: 'Demande incomplète.' };
-  return enregistrerDepart(occupationId, date(corps.sortie), auteur);
+  const r = await enregistrerSortie({ occupationId, sortants: [occupationId], date: date(corps.sortie) }, auteur);
+  if (r.etat !== 'ok') return r;
+  const m = await notifierSortie(r.data, auteur);
+  return { etat: 'ok', data: undefined, mail: { envoye: m.envoye, ignore: false, motif: m.motif } };
 }

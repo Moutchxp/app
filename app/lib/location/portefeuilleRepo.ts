@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { ecrireDateSortie } from './dateSortieOccupation';
 import { colonneExisteMemo } from './sondeLocation';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
@@ -415,8 +416,8 @@ export async function sortirDuPortefeuille(
       }
       // Les locations en cours : closes à la date du jour (jamais avant l'entrée : la base refuse une sortie antérieure).
       for (const o of plan.occupees) {
-        await q(`UPDATE gestion_annuaire_occupation SET sortie = greatest(coalesce(entree, $2::date), $2::date) WHERE id = $1 AND sortie IS NULL`,
-          [o.occupationId, t[0].aujourdhui]);
+        // 🔴 La SEULE fonction qui écrit la date de sortie (« une seule porte », Arno 18/10/2026) — mode « clôture d'archivage ».
+        await ecrireDateSortie(q, [o.occupationId], { mode: 'cloturer', date: t[0].aujourdhui });
         await journaliser(q, 'locataire', o.locataireId, 'location_cloture_archivage',
           `location du bien ${o.lotId} close le ${t[0].aujourdhui} par l’archivage ${sujet === 'locataire' ? 'du locataire' : sujet === 'bien' ? `du bien ${id}` : `du propriétaire ${id}`} (tuile Location) — l’occupation passe dans l’historique`, auteur);
       }
@@ -649,7 +650,8 @@ export async function sortirBiensDuPortefeuille(
           + `${a.partages.some((p) => p.lotId === b) ? ' — bien partagé : il sort pour tous ses propriétaires' : ''} — rien n’est effacé, réactivable`, auteur);
       }
       for (const o of a.occupees) {
-        await q(`UPDATE gestion_annuaire_occupation SET sortie = greatest(coalesce(entree, $2::date), $2::date) WHERE id = $1 AND sortie IS NULL`, [o.occupationId, t[0].aujourdhui]);
+        // 🔴 La SEULE fonction qui écrit la date de sortie (« une seule porte », Arno 18/10/2026) — mode « clôture d'archivage ».
+        await ecrireDateSortie(q, [o.occupationId], { mode: 'cloturer', date: t[0].aujourdhui });
         await journaliser(q, 'locataire', o.locataireId, 'location_cloture_archivage',
           `location du bien ${o.lotId} close le ${t[0].aujourdhui} par la sortie de ce bien du portefeuille (tuile Location) — l’occupation passe dans l’historique`, auteur);
       }

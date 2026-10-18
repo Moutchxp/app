@@ -70,13 +70,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 380 : origine de l'archivage d'un propriétaire (tuile Location, 18/10/2026).
   // 381 : origine de la sortie d'un bien (tuile Location, 18/10/2026).
   // 382 : « Non soumis » au DPE (tuile Location, 18/10/2026).
+  // 383 : préavis du locataire et zone tendue (tuiles Location / Gestion, 18/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
     '373_location_sortie_portefeuille.sql', '374_location_bien_complet.sql',
     '375_location_proprietaire_en_gestion.sql', '376_location_bien_famille.sql', '377_location_immeuble_ag.sql',
     '378_location_annexe_nom_pno.sql', '379_location_entretien_annexe_mandat.sql', '380_location_origine_archivage.sql',
-    '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql'];
+    '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql', '383_location_preavis.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -89,7 +90,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 382 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 383 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -99,14 +100,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (383)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (384)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(382\)/);
-    const renumerotee = planifier([...existants, { fichier: '383_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(383\)/);
+    const renumerotee = planifier([...existants, { fichier: '384_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['383_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['384_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -422,5 +423,26 @@ describe('382 (tuile Location : « Non soumis » au DPE) : enveloppée, une colo
     expect(contenu).not.toMatch(/\b(INSERT INTO|DELETE|TRUNCATE|DROP|DEFAULT)\b/i);
     expect(contenu).not.toMatch(/^\s*UPDATE\b/im);
     expect(contenu).not.toMatch(/dpe_classe_chk/);
+  });
+});
+
+describe('383 (tuiles Location / Gestion : préavis du locataire, zone tendue) : enveloppée, deux tables neuves, aucune ligne existante touchée', () => {
+  const contenu = lire(MIGRATIONS, '383_location_preavis.sql');
+  const a = analyserMigration({ fichier: '383_location_preavis.sql', contenu });
+  it('passe le garde, enveloppée, réversible ; deux tables neuves, aucune colonne ajoutée ailleurs', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.colonnesAjoutees).toEqual([]);
+    expect(a.tablesCreees).toEqual(['gestion_zone_tendue', 'gestion_location_preavis']);
+  });
+  it('les seuls INSERT amorcent SA table de zones tendues ; aucune ligne existante modifiée ni supprimée ; préavis verrouillé en base', () => {
+    expect([...contenu.matchAll(/INSERT INTO (\w+)/g)].map((m) => m[1])).toEqual(['gestion_zone_tendue']);
+    expect(contenu).not.toMatch(/^\s*(UPDATE|DELETE)\b/im);
+    expect(contenu).not.toMatch(/\bTRUNCATE\s+\w+\s*;/i);
+    expect(contenu).toMatch(/BEFORE UPDATE OR DELETE ON gestion_location_preavis/);
+    expect(contenu).toMatch(/BEFORE TRUNCATE ON gestion_location_preavis/);
+    // La migration ne s'appuie pas sur une fonction née en 372 : elle s'applique aussi sur une base sans les migrations Location.
+    expect(contenu).not.toMatch(/EXECUTE FUNCTION gestion_ajout_seul_refuser/);
   });
 });

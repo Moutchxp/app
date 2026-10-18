@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { ecrireDateSortie } from './dateSortieOccupation';
 import type { Auteur } from '../gestion/gestes';
 import { chargerConfigGestion } from '../gestion/config';
 import { transportParDefaut, type TransportDemande } from '../gestion/envoiDemandeTache';
@@ -90,11 +91,14 @@ export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[
   const sansAnnexeDoublon = s.annexes ? `AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a
       JOIN gestion_annuaire_occupation o2 ON o2.lot_id = a.parent_id AND o2.locataire_id = o.locataire_id AND o2.sortie IS NULL
       WHERE a.annexe_id = o.lot_id)` : '';
+  // Le préavis (migration 383, sondée) : un locataire en préavis reste OCCUPANT — il figure ici, avec sa date maximale.
+  const avecPreavis = await colonneExisteMemo('gestion_location_preavis', 'date_max');
   const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string; telephone: string | null; email: string | null;
-    lot_id: string; adresse: string | null; etage: string | null; porte: string | null; proprietaire: string | null }>(
+    lot_id: string; adresse: string | null; etage: string | null; porte: string | null; proprietaire: string | null; preavis_date_max: string | null }>(
     `SELECT o.id::text AS occupation_id, l.id::text AS locataire_id, l.nom, ${coordonnee('telephone')} AS telephone, ${coordonnee('email')} AS email,
             lo.id::text AS lot_id, nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS adresse,
-            ${s.etage} AS etage, ${s.porte} AS porte, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire
+            ${s.etage} AS etage, ${s.porte} AS porte, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
+            ${avecPreavis ? `(SELECT p.date_max::text FROM gestion_location_preavis p WHERE p.occupation_id = o.id AND p.remplace_le IS NULL AND p.annule_le IS NULL LIMIT 1)` : 'NULL::text'} AS preavis_date_max
        FROM gestion_annuaire_occupation o
        JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
        JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
@@ -111,6 +115,7 @@ export async function rechercherOccupants(brut: string): Promise<OccupantTrouve[
   return rows.map((r) => ({
     occupationId: Number(r.occupation_id), locataireId: Number(r.locataire_id), nom: r.nom, telephone: r.telephone, email: r.email,
     lotId: Number(r.lot_id), adresse: r.adresse, etage: r.etage, porte: r.porte, proprietaire: r.proprietaire,
+    preavisDateMax: r.preavis_date_max ?? null,
   }));
 }
 
@@ -261,8 +266,8 @@ export async function enregistrerSortie(
     const locIds = new Set(quiSort.map((l) => l.locataireId));
     const annexesOcc = bail.annexes.flatMap((a) => a.occupations.filter((o) => locIds.has(o.locataireId)).map((o) => o.occupationId));
     const ids = [...sortants, ...annexesOcc];
-    const { rowCount } = await q('UPDATE gestion_annuaire_occupation SET sortie = $2::date WHERE id = ANY($1::bigint[]) AND sortie IS NULL', [ids, date]);
-    if (rowCount !== ids.length) throw new Error('sortie : une occupation a changé pendant le geste');
+    const ecrites = await ecrireDateSortie(q, ids, { mode: 'poser', date });
+    if (ecrites !== ids.length) throw new Error('sortie : une occupation a changé pendant le geste');
     const { vacant, restants } = issueSortie(bail, sortants);
     const issue = vacant ? 'le logement devient vacant' : `le logement reste loué à ${restants.join(', ')}`;
     const annexesSuivies = bail.annexes.filter((a) => a.occupations.some((o) => locIds.has(o.locataireId))).map((a) => a.libelle);
@@ -302,7 +307,7 @@ export async function corrigerSortie(demande: { occupationIds: readonly number[]
     if (!v.ok) return { etat: 'refus' as const, motif: v.motif };
     const date = demande.date as string;
     if (date === g.sortie) return { etat: 'refus' as const, motif: 'C’est déjà la date enregistrée.' };
-    await q('UPDATE gestion_annuaire_occupation SET sortie = $2::date WHERE id = ANY($1::bigint[])', [g.lignes.map((l) => l.id), date]);
+    if (await ecrireDateSortie(q, g.lignes.map((l) => l.id), { mode: 'corriger', date }) !== g.lignes.length) throw new Error('correction : une occupation a changé pendant le geste');
     for (const locataire of new Set(g.lignes.map((l) => l.locataire_id))) {
       await journaliser(q, {
         entite: 'annuaire', id: locataire, action: 'location_sortie_corrigee', avant: g.sortie, apres: date,
@@ -318,7 +323,7 @@ export async function annulerSortie(demande: { occupationIds: readonly number[] 
   return withTransaction(async (q) => {
     const g = await groupeSorti(q, demande.occupationIds);
     if (g === null) return { etat: 'refus' as const, motif: 'Cette sortie a changé entre-temps : rechargez la page.' };
-    await q('UPDATE gestion_annuaire_occupation SET sortie = NULL WHERE id = ANY($1::bigint[])', [g.lignes.map((l) => l.id)]);
+    if (await ecrireDateSortie(q, g.lignes.map((l) => l.id), { mode: 'annuler' }) !== g.lignes.length) throw new Error('annulation : une occupation a changé pendant le geste');
     for (const locataire of new Set(g.lignes.map((l) => l.locataire_id))) {
       await journaliser(q, {
         entite: 'annuaire', id: locataire, action: 'location_sortie_annulee', avant: g.sortie, apres: null,

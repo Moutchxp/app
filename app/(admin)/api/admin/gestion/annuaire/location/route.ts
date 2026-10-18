@@ -10,6 +10,7 @@ import { enregistrerEnGestion, modifierComplementsBien, syndicsConnus } from '..
 import { detacherAnnexe } from '../../../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../../../lib/location/archivage';
+import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -100,6 +101,21 @@ export async function POST(request: Request): Promise<Response> {
         const annexe = identifiant(corps.annexeId);
         if (id === null || annexe === null) return incomplet();
         return repondre(await rattacherAnnexe(id, annexe, auteur));
+      }
+      // LE PRÉAVIS depuis la fiche commune (Arno, 18/10/2026) : les MÊMES fonctions que la tuile Location.
+      case 'enregistrer-preavis': {
+        const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        return repondre(await enregistrerPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur));
+      }
+      case 'corriger-preavis': {
+        const pid = identifiant(corps.preavisId);
+        if (pid === null) return incomplet();
+        return repondre(await corrigerPreavis({ preavisId: pid, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur));
+      }
+      case 'annuler-preavis': {
+        const pid = identifiant(corps.preavisId);
+        if (pid === null) return incomplet();
+        return repondre(await annulerPreavis({ preavisId: pid }, auteur));
       }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);

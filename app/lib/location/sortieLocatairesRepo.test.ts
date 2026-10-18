@@ -97,7 +97,7 @@ describe('la recherche : les seuls OCCUPANTS en place à la date du jour', () =>
 
 describe('enregistrerSortie — LIRE (FOR UPDATE) → REFUSER → ÉCRIRE', () => {
   it('sortie PARTIELLE : seul le sortant (et son annexe) est daté ; le bail continue', async () => {
-    const r = await enregistrerSortie({ occupationId: 11, sortants: [11], date: '2026-10-31' }, AUTEUR);
+    const r = await enregistrerSortie({ occupationId: 11, sortants: [11], date: '2026-10-15' }, AUTEUR);
     expect(r.etat).toBe('ok');
     if (r.etat !== 'ok') return;
     expect(r.data.vacant).toBe(false);
@@ -107,7 +107,7 @@ describe('enregistrerSortie — LIRE (FOR UPDATE) → REFUSER → ÉCRIRE', () =
     expect(maj).toHaveLength(1);
     expect(maj[0].sql).toContain('SET sortie = $2::date');
     expect(maj[0].sql).toContain('sortie IS NULL');
-    expect(maj[0].params).toEqual([[11, 21], '2026-10-31']);
+    expect(maj[0].params).toEqual([[11, 21], '2026-10-15']);
     // Les lectures verrouillées PRÉCÈDENT l'écriture.
     const iVerrou = appels.findIndex((a) => a.sql.includes('FOR UPDATE'));
     const iMaj = appels.findIndex((a) => a.sql.startsWith('UPDATE'));
@@ -116,25 +116,25 @@ describe('enregistrerSortie — LIRE (FOR UPDATE) → REFUSER → ÉCRIRE', () =
   });
 
   it('sortie TOTALE : le logement devient vacant', async () => {
-    const r = await enregistrerSortie({ occupationId: 11, sortants: [11, 12], date: '2026-10-31' }, AUTEUR);
+    const r = await enregistrerSortie({ occupationId: 11, sortants: [11, 12], date: '2026-10-15' }, AUTEUR);
     expect(r.etat).toBe('ok');
     if (r.etat === 'ok') { expect(r.data.vacant).toBe(true); expect(r.data.restants).toEqual([]); }
-    expect(ecritures().find((a) => a.sql.startsWith('UPDATE'))!.params).toEqual([[11, 12, 21], '2026-10-31']);
+    expect(ecritures().find((a) => a.sql.startsWith('UPDATE'))!.params).toEqual([[11, 12, 21], '2026-10-15']);
   });
 
   it('RIEN N’EST EFFACÉ : aucun DELETE, une date posée sur les lignes existantes', async () => {
-    await enregistrerSortie({ occupationId: 11, sortants: [11, 12], date: '2026-10-31' }, AUTEUR);
+    await enregistrerSortie({ occupationId: 11, sortants: [11, 12], date: '2026-10-15' }, AUTEUR);
     expect(appels.some((a) => /\bDELETE\b|\bTRUNCATE\b/i.test(a.sql))).toBe(false);
   });
 
   it('JOURNALISÉE : une ligne par sortant et une pour le logement, attribuées à l’auteur', async () => {
-    await enregistrerSortie({ occupationId: 11, sortants: [11, 12], date: '2026-10-31' }, AUTEUR);
+    await enregistrerSortie({ occupationId: 11, sortants: [11, 12], date: '2026-10-15' }, AUTEUR);
     const j = ecritures().filter((a) => a.sql.startsWith('INSERT INTO gestion_journal'));
     expect(j).toHaveLength(3);
     expect(j.map((x) => [x.params[0], x.params[1], x.params[2], x.params[4], x.params[7]])).toEqual([
-      ['annuaire', 101, 'location_sortie_locataire', '2026-10-31', 'arno@exemple.fr'],
-      ['annuaire', 102, 'location_sortie_locataire', '2026-10-31', 'arno@exemple.fr'],
-      ['annuaire_lot', 7, 'location_sortie_locataire', '2026-10-31', 'arno@exemple.fr'],
+      ['annuaire', 101, 'location_sortie_locataire', '2026-10-15', 'arno@exemple.fr'],
+      ['annuaire', 102, 'location_sortie_locataire', '2026-10-15', 'arno@exemple.fr'],
+      ['annuaire_lot', 7, 'location_sortie_locataire', '2026-10-15', 'arno@exemple.fr'],
     ]);
     expect(String(j[2].params[5])).toContain('le logement devient vacant');
   });
@@ -152,7 +152,7 @@ describe('enregistrerSortie — LIRE (FOR UPDATE) → REFUSER → ÉCRIRE', () =
   });
 
   it('occupation inconnue : « inconnu », rien n’est écrit', async () => {
-    expect(await enregistrerSortie({ occupationId: 404, sortants: [404], date: '2026-10-31' }, AUTEUR)).toEqual({ etat: 'inconnu' });
+    expect(await enregistrerSortie({ occupationId: 404, sortants: [404], date: '2026-10-15' }, AUTEUR)).toEqual({ etat: 'inconnu' });
     expect(ecritures()).toHaveLength(0);
   });
 });
@@ -160,30 +160,30 @@ describe('enregistrerSortie — LIRE (FOR UPDATE) → REFUSER → ÉCRIRE', () =
 describe('corriger / annuler une sortie — gestes dédiés, journalisés', () => {
   it('corriger : nouvelle date sur tout le groupe, journal avant → après', async () => {
     groupe = [
-      { id: '11', locataire_id: '101', lot_id: '7', entree: '2022-09-01', sortie: '2026-10-31' },
-      { id: '21', locataire_id: '101', lot_id: '8', entree: '2022-09-01', sortie: '2026-10-31' },
+      { id: '11', locataire_id: '101', lot_id: '7', entree: '2022-09-01', sortie: '2026-10-15' },
+      { id: '21', locataire_id: '101', lot_id: '8', entree: '2022-09-01', sortie: '2026-10-15' },
     ];
-    const r = await corrigerSortie({ occupationIds: [11, 21], date: '2026-11-15' }, AUTEUR);
-    expect(r).toEqual({ etat: 'ok', data: { date: '2026-11-15' } });
-    expect(ecritures().find((a) => a.sql.startsWith('UPDATE'))!.params).toEqual([[11, 21], '2026-11-15']);
+    const r = await corrigerSortie({ occupationIds: [11, 21], date: '2026-10-17' }, AUTEUR);
+    expect(r).toEqual({ etat: 'ok', data: { date: '2026-10-17' } });
+    expect(ecritures().find((a) => a.sql.startsWith('UPDATE'))!.params).toEqual([[11, 21], '2026-10-17']);
     const j = ecritures().find((a) => a.sql.startsWith('INSERT INTO gestion_journal'))!;
-    expect([j.params[2], j.params[3], j.params[4]]).toEqual(['location_sortie_corrigee', '2026-10-31', '2026-11-15']);
+    expect([j.params[2], j.params[3], j.params[4]]).toEqual(['location_sortie_corrigee', '2026-10-15', '2026-10-17']);
   });
 
   it('annuler : la sortie est retirée des lignes (qui restent), le journal garde la date annulée', async () => {
-    groupe = [{ id: '11', locataire_id: '101', lot_id: '7', entree: '2022-09-01', sortie: '2026-10-31' }];
+    groupe = [{ id: '11', locataire_id: '101', lot_id: '7', entree: '2022-09-01', sortie: '2026-10-15' }];
     const r = await annulerSortie({ occupationIds: [11] }, AUTEUR);
-    expect(r).toEqual({ etat: 'ok', data: { annulee: '2026-10-31' } });
+    expect(r).toEqual({ etat: 'ok', data: { annulee: '2026-10-15' } });
     expect(ecritures().find((a) => a.sql.startsWith('UPDATE'))!.sql).toContain('SET sortie = NULL');
     const j = ecritures().find((a) => a.sql.startsWith('INSERT INTO gestion_journal'))!;
-    expect([j.params[2], j.params[3]]).toEqual(['location_sortie_annulee', '2026-10-31']);
+    expect([j.params[2], j.params[3]]).toEqual(['location_sortie_annulee', '2026-10-15']);
     expect(appels.some((a) => /\bDELETE\b/i.test(a.sql))).toBe(false);
   });
 
   it('un groupe incohérent (dates différentes) est refusé sans écriture', async () => {
     groupe = [
-      { id: '11', locataire_id: '101', lot_id: '7', entree: null, sortie: '2026-10-31' },
-      { id: '12', locataire_id: '102', lot_id: '7', entree: null, sortie: '2026-11-01' },
+      { id: '11', locataire_id: '101', lot_id: '7', entree: null, sortie: '2026-10-15' },
+      { id: '12', locataire_id: '102', lot_id: '7', entree: null, sortie: '2026-10-16' },
     ];
     expect((await annulerSortie({ occupationIds: [11, 12] }, AUTEUR)).etat).toBe('refus');
     expect(ecritures()).toHaveLength(0);
@@ -196,7 +196,7 @@ describe('le mail : envoyé après, jamais bloquant, jamais un faux « envoyé �
       lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement', etage: '3', porte: 'G', proprietaire: 'DUPONT Jean', entree: '2022-09-01',
       locataires: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }], annexes: [], autresOccupants: [],
     },
-    date: '2026-10-31', sortants: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }],
+    date: '2026-10-15', sortants: [{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01' }],
     occupationIds: [11], vacant: true, restants: [], annexes: [],
   };
 

@@ -861,33 +861,13 @@ export async function ajouterOccupant(
 /** Le refus des conditions d'une location au geste « Ajouter un occupant » : il défait toute la transaction. */
 class RefusConditions extends Error {}
 
-/**
- * ENREGISTRE UN DÉPART : l'occupation est DATÉE, et passe dans l'historique du bien.
- *
- * 🔴 AUCUNE LIGNE N'EST RETIRÉE. Un locataire parti reste dans l'historique avec ses coordonnées — c'est
- * exactement ce qu'on vient y chercher deux ans plus tard.
+/*
+ * 🔴🔴 « ENREGISTRER UN DÉPART » N'A PLUS SA PROPRE ÉCRITURE (Arno, 18/10/2026 — « une seule porte pour la sortie »).
+ * L'ancien `enregistrerDepart` posait `sortie` sans garde (il écrasait une date existante), sans borne, sans les annexes
+ * du bail et sans mail. Le bouton « Enregistrer un départ… » de la Gestion appelle désormais, par sa route, LA fonction de
+ * sortie commune `enregistrerSortie` (`app/lib/location/sortieLocatairesRepo.ts`) — mêmes contrôles, mêmes annexes, même
+ * journal, même mail que la sortie de la tuile Location. Aucune ligne n'est retirée : une sortie DATE l'occupation.
  */
-export async function enregistrerDepart(
-  occupationId: number, sortie: string | null, auteur: Auteur,
-): Promise<IssueEdition> {
-  if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
-  return withTransaction(async (q) => {
-    const { rows } = await q<{ locataire_id: string; lot_id: string | null; sortie: string | null }>(
-      `SELECT locataire_id::text, lot_id::text, sortie::text FROM gestion_annuaire_occupation
-        WHERE id = $1 FOR UPDATE`, [occupationId]);
-    const o = rows[0];
-    if (o === undefined) return { etat: 'inconnu' as const };
-    await q(
-      `UPDATE gestion_annuaire_occupation SET sortie = coalesce($2::date, ${SQL_AUJOURDHUI_PARIS}) WHERE id = $1`,
-      [occupationId, sortie]);
-    await journaliser(q, {
-      personneId: Number(o.locataire_id), action: 'annuaire_depart',
-      avant: o.sortie, apres: sortie ?? 'aujourd’hui',
-      commentaire: `départ enregistré du lot ${o.lot_id ?? '?'} — l’occupation passe dans l’historique`, auteur,
-    });
-    return { etat: 'ok' as const, data: undefined };
-  });
-}
 
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    ⑦ CE QUE L'IMPORT DOIT SAVOIR

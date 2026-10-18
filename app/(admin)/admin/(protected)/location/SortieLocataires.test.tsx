@@ -45,6 +45,16 @@ const BAIL: BailLogement = {
   annexes: [{ lotId: 8, libelle: 'Cave n° 7', occupations: [{ occupationId: 21, locataireId: 101 }] }], autresOccupants: [],
 };
 
+/** Hier, à Paris : une date de sortie valide quel que soit le jour où la suite tourne (le futur est refusé). */
+const HIER = (() => { const d = new Date(Date.now() - 86_400_000); return d.toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' }); })();
+const HIER_FR = HIER.split('-').reverse().join('/');
+/** La lecture du préavis d'un bail (migration 383 appliquée), sans préavis ouvert. */
+const PREAVIS = { disponible: true, meuble: false, zoneTendue: true, dureeProposee: 1, raison: 'logement vide en zone tendue',
+  locataires: [
+    { occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', entree: '2022-09-01', preavis: null },
+    { occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', entree: '2022-09-01', preavis: null },
+  ] };
+
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
@@ -137,31 +147,32 @@ describe('le bloc « Sortie du logement »', () => {
 
   it('avec une date : récapitulatif, puis confirmation ; un échec du mail est DIT, la sortie reste enregistrée', async () => {
     const apres = vi.fn();
-    global.fetch = vi.fn(async () => ok({ date: '2026-10-31', vacant: false, restants: ['BERNARD Paul'] },
+    global.fetch = vi.fn(async () => ok({ date: HIER, vacant: false, restants: ['BERNARD Paul'] },
       { mail: { envoye: false, ignore: false, motif: 'Gmail injoignable' } }));
     act(() => root.render(createElement(FormulaireBail, { bail: BAIL, occupationId: 11, apres })));
     act(() => (container.querySelectorAll('input[type="checkbox"]')[1] as HTMLInputElement).click());
-    act(() => saisir(container.querySelector('input[data-date-sortie]') as HTMLInputElement, '2026-10-31'));
+    act(() => saisir(container.querySelector('input[data-date-sortie]') as HTMLInputElement, HIER));
     act(() => (container.querySelector('button[data-valider]') as HTMLButtonElement).click());
     const recap = container.querySelector('[data-recapitulatif]')!;
     expect(recap.textContent).toContain('BERNARD Alice');
-    expect(recap.textContent).toContain('31/10/2026');
+    expect(recap.textContent).toContain(HIER_FR);
     expect(recap.textContent).toContain('4 rue Fictive');
     expect(recap.textContent).toContain('DUPONT Jean');
     expect(recap.textContent).toContain('01/09/2022');
     expect(recap.textContent).toContain('Le logement reste loué à : BERNARD Paul');
     await act(async () => { (container.querySelector('button[data-confirmer]') as HTMLButtonElement).click(); });
     const corps = JSON.parse(String((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body));
-    expect(corps).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' });
+    expect(corps).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: HIER });
     expect(apres).toHaveBeenCalledWith('Le logement reste loué à : BERNARD Paul', 'Enregistré, mais mail de confirmation non envoyé : Gmail injoignable.');
   });
 });
 
 describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie=…)', () => {
   const rendre = async (reponse: (u: string, init?: RequestInit) => Response): Promise<ReturnType<typeof vi.fn>> => {
-    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (String(u).includes('encartBail=') ? ok(ENCART) : reponse(String(u), init)));
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (String(u).includes('encartBail=') ? ok(ENCART)
+      : String(u).includes('preavisBail=') ? ok(PREAVIS) : reponse(String(u), init)));
     global.fetch = f as unknown as typeof fetch;
-    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11 })); });
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
     await act(async () => { await Promise.resolve(); });
     return f;
   };
@@ -191,7 +202,7 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(gros().className).toBe('arc-gros arc-gros--archiver');
     expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement deviendra VACANT');
     expect(container.textContent).not.toContain('Fiche commune avec la Gestion');
-    expect(f.mock.calls.map((c) => String(c[0])).sort()).toEqual(['/api/admin/location?bail=11&v=0', '/api/admin/location?encartBail=11']);
+    expect(f.mock.calls.map((c) => String(c[0])).sort()).toEqual(['/api/admin/location?bail=11&v=0', '/api/admin/location?encartBail=11', '/api/admin/location?preavisBail=11&p=0']);
   });
 
   it('la bascule suit le compteur et la phrase ; à 0, le gros bouton est inactif', async () => {
@@ -224,7 +235,7 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
 
   it('sans date : « Confirmer » désactivé ET le message dit pourquoi ; les trois messages ; valide → envoi', async () => {
     const f = await rendre((u) => (u.includes('bail=') ? ok(BAIL)
-      : ok({ date: '2026-10-31', vacant: false, restants: ['BERNARD Paul'] }, { mail: { envoye: true, ignore: false, motif: null } })));
+      : ok({ date: HIER, vacant: false, restants: ['BERNARD Paul'] }, { mail: { envoye: true, ignore: false, motif: null } })));
     act(() => cartes()[1].click());
     act(() => gros().click());
     const confirmer = (): HTMLButtonElement => container.querySelector('button[data-confirmer]') as HTMLButtonElement;
@@ -238,14 +249,14 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(message()).toBe('La date ne peut pas précéder l’entrée du 01/09/2022');
     act(() => saisir(date(), '2099-01-01'));
     expect(confirmer().disabled).toBe(true);
-    expect(message()).toBe('La date ne peut pas dépasser d’un an la date du jour');
+    expect(message()).toBe('La date ne peut pas être dans le futur : enregistrez un préavis');
     expect(f.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toHaveLength(0);
-    act(() => saisir(date(), '2026-10-31'));
+    act(() => saisir(date(), HIER));
     expect(message()).toBeUndefined();
     expect(confirmer().disabled).toBe(false);
     await act(async () => { confirmer().click(); });
     const post = f.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
-    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: '2026-10-31' });
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({ action: 'sortie-locataires', occupationId: 11, sortants: [11], date: HIER });
     await act(async () => { await Promise.resolve(); });
     expect(container.querySelector('[data-sortie-faite]')?.textContent).toContain('Le logement reste loué à : BERNARD Paul');
   });
@@ -283,7 +294,8 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
 
 describe('l’encart « Le logement » et l’historique des échanges (écran de sortie)', () => {
   const rendre = async (gestion: boolean, encart: unknown = ENCART): Promise<void> => {
-    global.fetch = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(encart) : ok(BAIL))) as unknown as typeof fetch;
+    global.fetch = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(encart)
+      : String(u).includes('preavisBail=') ? ok(PREAVIS) : ok(BAIL))) as unknown as typeof fetch;
     blocHistorique.mockClear();
     await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion })); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
@@ -349,5 +361,71 @@ describe('le taux de gestion reste affiché ailleurs', () => {
     expect(carte).toContain('Taux de gestion (% HT)');
     const sections = readFileSync('app/(admin)/admin/(protected)/gestion/SectionsLocationFiche.tsx', 'utf8');
     expect(sections).toMatch(/<LocationCarte location=/);
+  });
+});
+
+describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10/2026)', () => {
+  const rendre = async (gestion: boolean, preavis: unknown = PREAVIS): Promise<ReturnType<typeof vi.fn>> => {
+    const f = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(ENCART)
+      : String(u).includes('preavisBail=') ? ok(preavis) : ok(BAIL)));
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    return f;
+  };
+
+  it('sans le droit Gestion : à la place du gros bouton, « La sortie est validée par un utilisateur de la Gestion » ; le préavis reste possible', async () => {
+    await rendre(false);
+    expect(container.querySelector('button[data-faire-sortir]')).toBeNull();
+    expect(container.querySelector('[data-sortie-gestion-seule]')?.textContent).toBe('La sortie est validée par un utilisateur de la Gestion');
+    expect((container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('« Enregistrer un préavis » : locataires tous cochés, réception obligatoire, durée proposée, date maximale en grand, puis envoi', async () => {
+    const f = await rendre(true);
+    act(() => (container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).click());
+    const form = container.querySelector('[data-formulaire-preavis]')!;
+    expect([...form.querySelectorAll('input[data-case-preavis]')].map((c) => (c as HTMLInputElement).checked)).toEqual([true, true]);
+    expect(form.textContent).toContain('1 mois — proposé (logement vide en zone tendue)');
+    const bouton = (): HTMLButtonElement => form.querySelector('button[data-enregistrer-preavis]') as HTMLButtonElement;
+    expect(bouton().disabled).toBe(true);
+    expect(form.querySelector('[data-message-preavis]')?.textContent).toBe('Saisissez la date de réception du recommandé');
+    act(() => saisir(form.querySelector('input[data-recu-le]') as HTMLInputElement, HIER));
+    const attendu = (() => { const [a, m, j] = HIER.split('-').map(Number); const d = new Date(Date.UTC(a, m, 1));
+      d.setUTCDate(Math.min(j, new Date(Date.UTC(a, m + 1, 0)).getUTCDate())); return d.toISOString().slice(0, 10).split('-').reverse().join('/'); })();
+    expect(form.querySelector('[data-date-max] .pvs-max-valeur')?.textContent).toBe(attendu);
+    expect(bouton().disabled).toBe(false);
+    await act(async () => { bouton().click(); });
+    const post = f.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({
+      action: 'enregistrer-preavis', occupationIds: [11, 12], recuLe: HIER, choix: { mode: 'mois', duree: 1 }, motif: null });
+  });
+
+  it('un locataire EN PRÉAVIS : la mention orange (avec le mot) sur sa carte, et « Corriger » / « Annuler » ; échu → alerte', async () => {
+    const p = { id: 50, occupationId: 11, recuLe: '2026-10-01', dateMax: '2099-11-01', mode: 'mois', dureeMois: 1, motif: null, creePar: 'x', creeLe: '2026-10-01', dureeProposee: 1 };
+    await rendre(true, { ...PREAVIS, locataires: [{ ...PREAVIS.locataires[0], preavis: p }, PREAVIS.locataires[1]] });
+    const carte = container.querySelector('[data-carte-preavis="11"]')!;
+    expect(carte.querySelector('[data-preavis]')?.textContent).toBe('en préavis — sortie au plus tard le 01/11/2099');
+    expect(carte.querySelector('button[data-corriger-preavis]')).not.toBeNull();
+    expect(carte.querySelector('button[data-annuler-preavis]')).not.toBeNull();
+    // Le locataire en préavis reste OCCUPANT : sa carte est là, sélectionnable pour la sortie.
+    expect(container.querySelectorAll('button[data-choisir]')).toHaveLength(2);
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre(true, { ...PREAVIS, locataires: [{ ...PREAVIS.locataires[0], preavis: { ...p, dateMax: '2020-01-01' } }, PREAVIS.locataires[1]] });
+    expect(container.querySelector('[data-carte-preavis="11"] [data-preavis]')?.textContent).toBe('Préavis échu — sortie à saisir (au plus tard le 01/01/2020)');
+    expect(container.querySelector('[data-carte-preavis="11"] [data-preavis]')?.getAttribute('data-preavis')).toBe('echu');
+  });
+
+  it('la recherche des occupants : un locataire en préavis y figure, avec la mention', async () => {
+    vi.useFakeTimers();
+    global.fetch = vi.fn(async () => ok([{ occupationId: 11, locataireId: 101, nom: 'BERNARD Alice', telephone: null, email: null, lotId: 7,
+      adresse: '4 rue Fictive', etage: null, porte: null, proprietaire: null, preavisDateMax: '2099-11-01' }])) as unknown as typeof fetch;
+    act(() => root.render(createElement(EcranSortieRecherche)));
+    act(() => saisir(container.querySelector('input[data-recherche-occupants]') as HTMLInputElement, 'ber'));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const ligne = container.querySelector('a.sor-ligne')!;
+    expect(ligne.querySelector('.sor-occupant')?.textContent).toBe('occupant');
+    expect(ligne.querySelector('[data-preavis]')?.textContent).toBe('en préavis — sortie au plus tard le 01/11/2099');
   });
 });

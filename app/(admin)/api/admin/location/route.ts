@@ -1,5 +1,7 @@
 import 'server-only';
 import { exigerLocation } from '../../../../lib/location/garde';
+import { exigerCompteActif } from '../../../../lib/admin/garde';
+import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix, preavisDuBail } from '../../../../lib/location/preavisRepo';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import type { RepartitionCoordonnee } from '../../../../lib/gestion/annuaireEdition';
 import { archiverPersonne, modifierPersonne, separerPersonne } from '../../../../lib/gestion/annuaireEditionRepo';
@@ -55,6 +57,9 @@ import {
  */
 export const runtime = 'nodejs';
 
+/** Le refus d'une validation de sortie par un compte sans la tuile Gestion (décision d'Arno du 18/10/2026). */
+const MOTIF_SORTIE_GESTION = 'La sortie est validée par un utilisateur de la Gestion.';
+
 const ENTETES = { 'Cache-Control': 'private, no-store' } as const;
 
 function identifiant(brut: unknown): number | null {
@@ -80,6 +85,12 @@ export async function GET(request: Request): Promise<Response> {
     if (idBail !== null) {
       const b = await lireBail(idBail);
       return Response.json(b === null ? { etat: 'inconnu' } : { etat: 'ok', data: b }, { headers: ENTETES });
+    }
+    // Le préavis d'un bail (Arno, 18/10/2026) — LECTURE SEULE : durée proposée, locataires, préavis ouverts.
+    const idPreavis = identifiant(p('preavisBail'));
+    if (idPreavis !== null) {
+      const d = await preavisDuBail(idPreavis);
+      return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
     }
     const idEncart = identifiant(p('encartBail'));
     if (idEncart !== null) {
@@ -303,6 +314,11 @@ export async function POST(request: Request): Promise<Response> {
           sens: 'sortie', proprietaireId: proprietaire, lotIds: r.data.lots ?? [], origine: verifierOrigine(corps.origine) }, { auteur, tuile: 'Location' }));
       }
       case 'sortie-locataires': {
+        // 🔴 DÉCISION D'ARNO DU 18/10/2026 : la sortie OFFICIELLE est validée par un utilisateur de la GESTION — droit RELU EN BASE
+        //    ici (pas seulement masqué à l'écran). Un compte « Location seule » enregistre, corrige ou annule un PRÉAVIS, pas une sortie.
+        if (await exigerCompteActif(request, 'gestion') !== null) {
+          return Response.json({ etat: 'refus', motif: MOTIF_SORTIE_GESTION }, { status: 403, headers: ENTETES });
+        }
         // Arno (19/10/2026) : la sortie d'abord ; le mail ENSUITE, jamais bloquant — un échec est rendu, jamais un faux « envoyé ».
         const occ = identifiant(corps.occupationId);
         if (occ === null) return incomplet();
@@ -318,6 +334,21 @@ export async function POST(request: Request): Promise<Response> {
         if (ids.length === 0) return incomplet();
         return repondre(action === 'corriger-sortie-locataires' ? await corrigerSortie({ occupationIds: ids, date: corps.date }, auteur)
           : await annulerSortie({ occupationIds: ids }, auteur));
+      }
+      // LE PRÉAVIS (Arno, 18/10/2026) : ouvert aux comptes Location — enregistrer, corriger, annuler (journalisés, rien d'effacé).
+      case 'enregistrer-preavis': {
+        const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        return repondre(await enregistrerPreavis({ occupationIds: occs, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur));
+      }
+      case 'corriger-preavis': {
+        const pid = identifiant(corps.preavisId);
+        if (pid === null) return incomplet();
+        return repondre(await corrigerPreavis({ preavisId: pid, recuLe: corps.recuLe, choix: lireChoix(corps.choix), motif: corps.motif }, auteur));
+      }
+      case 'annuler-preavis': {
+        const pid = identifiant(corps.preavisId);
+        if (pid === null) return incomplet();
+        return repondre(await annulerPreavis({ preavisId: pid }, auteur));
       }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);

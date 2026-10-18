@@ -23,7 +23,7 @@ export default async function Page({ params, searchParams }: {
           : sortie !== null ? <EcranSortieLocataire occupationInitiale={sortie} gestion={gestion} />
           : (
             <>
-              <BlocSortieLogement locataireId={id} occupationDemandee={sortie} />
+              <BlocSortieLogement locataireId={id} occupationDemandee={sortie} gestion={gestion} />
               {!gestion ? <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_FICHE_COMMUNE}</div>
                 : <FicheCommuneLocation fiche={{ sorte: 'locataire', id }} />}
             </>

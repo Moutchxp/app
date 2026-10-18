@@ -5,8 +5,10 @@ import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phras
 import { CSS_RESULTATS } from './AccueilLocation';
 import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
+import { CSS_PREAVIS, FormulairePreavis, GestesPreavis, MentionPreavis, aujourdhuiParisEcran } from './Preavis';
+import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
 import {
-  casesParDefaut, dateFr, dateMaxSortie, descriptionLogement, phraseIssue, verifierSortie,
+  casesParDefaut, dateFr, dateMinSortie, descriptionLogement, phraseIssue, verifierSortie,
   issueSortie, libelleLotEncart, lignesEncart, messageDateSortie, phraseRestants, type BailLogement, type EncartLogement, type OccupantTrouve, type SortieEnregistree,
 } from '../../../../lib/location/sortieLocataires';
 
@@ -56,7 +58,7 @@ export function EcranSortieRecherche() {
   const etat = texte.trim().length < 2 ? { etat: 'vide' as const } : etatLu;
   return (
     <div className="loc-page">
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_SORTIE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_SORTIE + CSS_PREAVIS}</style>
       <p className="loc-retour"><a href="/admin/location/locataires">← Locataires</a></p>
       <header className="svv-page-head loc-tete-comme-accueil">
         <div className="svv-page-head-ligne"><h1 className="svv-page-title">Supprimer un/des locataire(s)</h1></div>
@@ -81,6 +83,7 @@ export function EcranSortieRecherche() {
                         <a className="sor-ligne" href={`/admin/location/locataire/${o.locataireId}?sortie=${o.occupationId}`} data-occupation={o.occupationId}>
                           <span className="sor-occupant" data-statut="occupant">occupant</span>
                           <strong className="sor-nom">{o.nom}</strong>
+                          {o.preavisDateMax ? <span className="sor-preavis"><MentionPreavis p={{ dateMax: o.preavisDateMax }} jour={aujourdhuiParisEcran()} /></span> : null}
                           <span className="sor-infos">
                             <span>{o.adresse ?? `Bien ${o.lotId}`}</span>
                             <span>{descriptionEtage(o.etage, o.porte)}</span>
@@ -124,7 +127,7 @@ export function EcranAjouterLocatairesAVenir() {
 
 interface Baux { enPlace: { occupationId: number; adresse: string | null }[]; sorties: SortieEnregistree[] }
 
-export function BlocSortieLogement({ locataireId, occupationDemandee }: { locataireId: number; occupationDemandee: number | null }) {
+export function BlocSortieLogement({ locataireId, occupationDemandee, gestion = true }: { locataireId: number; occupationDemandee: number | null; gestion?: boolean }) {
   const baux = useLecture<Baux>(`bauxLocataire=${locataireId}`);
   const [choisie, setChoisie] = useState<number | null>(occupationDemandee);
   const [resultat, setResultat] = useState<{ phrase: string; mail: string | null } | null>(null);
@@ -136,7 +139,7 @@ export function BlocSortieLogement({ locataireId, occupationDemandee }: { locata
   if (enPlace.length === 0 && d.sorties.length === 0 && resultat === null) return null;
   return (
     <section className="loc-bloc sor-bloc" data-sortie-logement aria-label="Sortie du logement">
-      <style>{CSS_LOCATION_ECRANS + CSS_SORTIE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_SORTIE + CSS_PREAVIS}</style>
       <h3>Sortie du logement</h3>
       {resultat !== null && (
         <div className="sor-fait" role="status" data-sortie-faite>
@@ -155,7 +158,7 @@ export function BlocSortieLogement({ locataireId, occupationDemandee }: { locata
             ))}
           </div>
         ) : (
-          <FormulaireSortie key={occupation} occupationId={occupation}
+          <FormulaireSortie key={occupation} occupationId={occupation} gestion={gestion}
             apres={(phrase, mail) => { setResultat({ phrase, mail }); setChoisie(null); baux.rafraichir(); }} />
         )}
       {d.sorties.length > 0 && <SortiesEnregistrees sorties={d.sorties} apres={() => { setResultat(null); baux.rafraichir(); }} />}
@@ -163,16 +166,16 @@ export function BlocSortieLogement({ locataireId, occupationDemandee }: { locata
   );
 }
 
-function FormulaireSortie({ occupationId, apres }: { occupationId: number; apres: (phrase: string, mail: string | null) => void }) {
+function FormulaireSortie({ occupationId, apres, gestion }: { occupationId: number; apres: (phrase: string, mail: string | null) => void; gestion: boolean }) {
   const lu = useLecture<BailLogement>(`bail=${occupationId}`);
   if (lu.etat.etat !== 'ok') return <EtatLecture etat={lu.etat} />;
-  return <FormulaireBail bail={lu.etat.data} occupationId={occupationId} apres={apres} />;
+  return <FormulaireBail bail={lu.etat.data} occupationId={occupationId} apres={apres} gestion={gestion} />;
 }
 
 /** Aujourd'hui à Paris (AAAA-MM-JJ), côté écran — la transaction refait le contrôle avec la date du serveur. */
 const aujourdhuiParis = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
 
-export function FormulaireBail({ bail, occupationId, apres }: { bail: BailLogement; occupationId: number; apres: (phrase: string, mail: string | null) => void }) {
+export function FormulaireBail({ bail, occupationId, apres, gestion = true }: { bail: BailLogement; occupationId: number; apres: (phrase: string, mail: string | null) => void; gestion?: boolean }) {
   const [coches, setCoches] = useState<number[]>(() => casesParDefaut(bail));
   const [date, setDate] = useState('');
   const [etape, setEtape] = useState<'saisie' | 'confirmation'>('saisie');
@@ -226,13 +229,14 @@ export function FormulaireBail({ bail, occupationId, apres }: { bail: BailLogeme
         ))}
       </fieldset>
       <label className="loc-champ sor-date">Date de sortie <span aria-hidden="true">*</span>
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required aria-required="true" max={dateMaxSortie(jour)}
-          min={bail.entree ?? undefined} data-date-sortie />
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required aria-required="true" max={jour}
+          min={[bail.entree, dateMinSortie(jour)].filter((x): x is string => x !== null).sort().pop()} data-date-sortie />
       </label>
       <p className={vacant ? 'sor-issue sor-issue--vacant' : 'sor-issue'} aria-live="polite" data-issue>{coches.length === 0 ? 'Cochez au moins un locataire qui sort.' : phrase}</p>
       {motif !== null && <p className="cp-refus" role="alert" data-refus>{motif}</p>}
       <div className="loc-boutons">
-        <button type="submit" className="svv-btn svv-btn-primary gst-btn" data-valider>Valider la sortie</button>
+        {gestion ? <button type="submit" className="svv-btn svv-btn-primary gst-btn" data-valider>Valider la sortie</button>
+          : <p className="sor-gestion-seule" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>}
       </div>
     </form>
   );
@@ -308,7 +312,7 @@ export function EcranSortieLocataire({ occupationInitiale, gestion = false }: { 
   };
   return (
     <div className="loc-page arc-page" data-ecran-sortie-locataire>
-      <style>{CSS_LOCATION_ECRANS + CSS_RESULTATS + CSS_ECRAN_ARCHIVAGE + CSS_SORTIE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_RESULTATS + CSS_ECRAN_ARCHIVAGE + CSS_SORTIE + CSS_PREAVIS}</style>
       <p className="loc-retour"><a href="/admin/location/locataires">← Ajouter ou supprimer un locataire</a></p>
       <h1 className="arc-cache">Faire sortir un ou plusieurs locataires</h1>
       {lu.etat.etat !== 'ok' ? (
@@ -352,7 +356,7 @@ function BarreOccupants({ texte, setTexte, etat, choisir }: {
                       <li key={o.occupationId} role="presentation">
                         <button type="button" role="option" aria-selected={false} className="loc-res-ligne arc-res-ligne" data-occupation={o.occupationId} onClick={() => choisir(o)}>
                           <span className="loc-res-type loc-res-type--locataires" data-statut="occupant">occupant</span>
-                          <strong className="loc-res-nom">{o.nom}</strong>
+                          <strong className="loc-res-nom">{o.nom}{o.preavisDateMax ? <>{' '}<MentionPreavis p={{ dateMax: o.preavisDateMax }} jour={aujourdhuiParisEcran()} /></> : null}</strong>
                           <span className="loc-res-infos">
                             <span className="loc-res-tel">{descriptionEtage(o.etage, o.porte)}</span>
                             <span className="loc-res-mail">{o.proprietaire ? `Propriétaire : ${o.proprietaire}` : ''}</span>
@@ -401,14 +405,49 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
     apres(phrase.replace('deviendra', 'devient'), mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail));
   };
   const encart = useLecture<EncartLogement & { locataireCle: string | null; lotCle: string }>(`encartBail=${occupationId}`);
+  const [versionPreavis, setVersionPreavis] = useState(0);
+  const preavis = useLecture<PreavisDuBail>(`preavisBail=${occupationId}&p=${versionPreavis}`);
+  const [preavisOuvert, setPreavisOuvert] = useState(false);
+  const [preavisFait, setPreavisFait] = useState<string | null>(null);
+  const pv = preavis.etat.etat === 'ok' ? preavis.etat.data : null;
+  const preavisDe = (occupation: number) => pv?.locataires.find((l) => l.occupationId === occupation)?.preavis ?? null;
+  const envoyerGeste = async (corps: Record<string, unknown>): Promise<string | null> => (await envoyer(corps)).motif;
+  const relirePreavis = (): void => setVersionPreavis((v) => v + 1);
   return (
     <>
       <div className="arc-collant" data-collant>
         {barre}
         <div className="arc-action" data-bouton-sortie-locataires={n}>
-          <button type="button" className="arc-gros arc-gros--archiver" disabled={n === 0 || envoi} onClick={() => { setOuvert(true); setMotif(null); }} data-faire-sortir>
-            {libelleFaireSortir(n)}
-          </button>
+          <div className="sor-deux-boutons">
+            {/* Décision d'Arno (18/10/2026) : la sortie est VALIDÉE par la Gestion — sans ce droit, un message à la place du bouton. */}
+            {gestion ? (
+              <button type="button" className="arc-gros arc-gros--archiver" disabled={n === 0 || envoi} onClick={() => { setOuvert(true); setMotif(null); setPreavisOuvert(false); }} data-faire-sortir>
+                {libelleFaireSortir(n)}
+              </button>
+            ) : <p className="arc-gros sor-gestion-seule" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>}
+            <button type="button" className="arc-gros arc-gros--reactiver" disabled={pv === null || !pv.disponible || bail.locataires.length === 0}
+              title={pv !== null && !pv.disponible ? 'Préavis : mise à jour de la base à appliquer (migration 383)' : undefined}
+              onClick={() => { setPreavisOuvert(true); setOuvert(false); setPreavisFait(null); }} data-enregistrer-un-preavis>
+              Enregistrer un préavis
+            </button>
+          </div>
+          {pv !== null && !pv.disponible && <p className="loc-muet" style={{ margin: 0 }} data-preavis-indisponible>Préavis : la mise à jour de la base (migration 383) reste à appliquer.</p>}
+          {preavisOuvert && pv !== null && pv.disponible && (
+            <FormulairePreavis
+              locataires={pv.locataires.map((l) => ({ occupationId: l.occupationId, nom: l.nom, entree: l.entree, enPreavis: l.preavis !== null }))}
+              entrees={pv.locataires.map((l) => l.entree)} dureeProposee={pv.dureeProposee} raison={pv.raison}
+              onAnnuler={() => setPreavisOuvert(false)}
+              onEnregistrer={async (saisie) => {
+                const r = await envoyer({ action: 'enregistrer-preavis', occupationIds: saisie.occupationIds, recuLe: saisie.recuLe, choix: saisie.choix, motif: saisie.motif });
+                if (r.motif !== null) return r.motif;
+                const d = r.data as { dateMax?: string } | undefined;
+                setPreavisOuvert(false);
+                setPreavisFait(`Préavis enregistré — sortie au plus tard le ${dateFr(d?.dateMax ?? null)}. Le logement reste occupé jusqu’à la sortie validée.`);
+                relirePreavis();
+                return null;
+              }} />
+          )}
+          {preavisFait !== null && <p className="gst-info arc-bilan" role="status" data-preavis-fait>{preavisFait}</p>}
           {bail.locataires.length > 0 && (
             <p className={vacant && n > 0 ? 'sor-issue sor-issue--vacant' : 'sor-issue'} aria-live="polite" data-issue>
               {n === 0 ? 'Personne ne sort : le logement reste loué à tous ses locataires.' : phrase}</p>
@@ -435,7 +474,7 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
                 <input id="sor-date-sortie" ref={champDate} type="date" value={date} required aria-required="true"
                   aria-describedby="sor-date-aide sor-date-message" aria-invalid={messageDate !== null}
                   onChange={(e) => { setDate(e.target.value); setMotif(null); }}
-                  max={dateMaxSortie(jour)} min={entreeMax ?? undefined} data-date-sortie />
+                  max={jour} min={[entreeMax, dateMinSortie(jour)].filter((x): x is string => x !== null).sort().pop()} data-date-sortie />
                 <small id="sor-date-aide" className="loc-muet">Obligatoire</small>
               </label>
               {messageDate !== null && <p id="sor-date-message" className="cp-refus" role="status" data-message-date>{messageDate}</p>}
@@ -473,6 +512,15 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
                 <li key={l.occupationId} className={`arc-bien-carte${pris ? ' arc-bien-carte--choisi' : ''}`} data-locataire={l.occupationId}>
                   <ul className="arc-noms"><li><mark className="arc-surligne arc-surligne--en-place" data-en-place>{l.nom}</mark></li></ul>
                   <span className="loc-muet" data-entree-le>{l.entree === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(l.entree)}`}</span>
+                  {(() => {
+                    const p = preavisDe(l.occupationId);
+                    return p === null ? null : (
+                      <div className="sor-carte-preavis" data-carte-preavis={l.occupationId}>
+                        <MentionPreavis p={p} jour={aujourdhuiParisEcran()} />
+                        <GestesPreavis p={p} entree={l.entree} envoyerGeste={envoyerGeste} apres={relirePreavis} />
+                      </div>
+                    );
+                  })()}
                   <a className="arc-lien sor-voir" href={`/admin/location/locataire/${l.locataireId}`} data-voir-fiche>Voir la fiche</a>
                   <button type="button" className="arc-choisir" aria-pressed={pris} data-choisir={l.occupationId} onClick={() => basculer(l.occupationId)}>
                     {pris ? '✓ Faire sortir' : 'Reste dans le logement'}
@@ -493,6 +541,9 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
     </>
   );
 }
+
+/** Décision d'Arno (18/10/2026) : la sortie OFFICIELLE est validée par un utilisateur de la Gestion (droit vérifié au serveur). */
+export const MESSAGE_SORTIE_GESTION = 'La sortie est validée par un utilisateur de la Gestion';
 
 /** Sans le droit « Gestion », l'historique (celui de la Gestion) n'est pas lisible — même règle que la fiche commune. */
 export const REFUS_HISTORIQUE_GESTION = 'L’historique des échanges est celui de la Gestion (mails et pièces) : il demande aussi le droit « Gestion ».';
@@ -628,6 +679,10 @@ export const CSS_SORTIE = `
 .sor-restants{padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-green);background:color-mix(in srgb, var(--color-svv-green) 12%, transparent);color:var(--color-svv-green-ink)}
 .sor-restants p{margin:0 0 4px}
 .sor-restants ul{margin:0;padding-left:1.1rem}
+.sor-deux-boutons{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px}
+.sor-gestion-seule{margin:0;cursor:default;background:var(--color-svv-field);color:var(--color-svv-ink);border-color:var(--color-svv-line-strong);font-size:1rem}
+.sor-carte-preavis{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-amber-soft)}
+.sor-preavis{grid-row:3;grid-column:1 / -1}
 .sor-voir{align-self:flex-start;display:inline-flex;align-items:center;font-size:.9rem;color:var(--color-svv-muted)}
 .sor-enregistrees h4{margin:0 0 6px}
 @media (max-width:760px){
