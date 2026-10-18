@@ -72,7 +72,7 @@ describe('🔴 /admin/location ne plante plus', () => {
     const cases = [...container.querySelectorAll('.loc-gros-boutons--3d.loc-gros-boutons--trois a.loc-gros-bouton')];
     expect(cases.map((x) => x.getAttribute('href')))
       .toEqual(['/admin/location/proprietaires/supprimer', '/admin/location/nouveau-proprietaire', '/admin/location/nouveau-bien']);
-    expect(cases.map((x) => x.firstChild?.textContent)).toEqual(['Supprimer un propriétaire', 'Créer un nouveau propriétaire', 'Ajouter un nouveau bien']);
+    expect(cases.map((x) => x.firstChild?.textContent)).toEqual(['Supprimer un propriétaire / un bien', 'Créer un nouveau propriétaire', 'Ajouter un nouveau bien']);
     expect(cases.map((x) => x.classList.contains('loc-gros-bouton--plein'))).toEqual([true, false, false]);
     expect(container.querySelector('a[href="/admin/location/nouveau"]')).toBeNull();
     expect(container.querySelector('[role="tablist"]')).toBeNull();

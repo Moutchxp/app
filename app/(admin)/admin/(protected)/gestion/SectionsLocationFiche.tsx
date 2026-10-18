@@ -67,11 +67,15 @@ function useFiche<T>(parametres: string): { lu: Lu<T>; relire: () => void } {
   return { lu: lu !== null && lu.cle === parametres ? lu.etat : { etat: 'charge' }, relire: useCallback(() => setN((x) => x + 1), []) };
 }
 
+/** Le dernier état de mail rendu par la route (sortie / réactivation, Arno 18/10/2026) — lu juste après `envoyer`. */
+let dernierMail: { envoye: boolean; ignore: boolean; motif: string | null } | undefined;
+
 async function envoyer(corps: Record<string, unknown>): Promise<string | null> {
+  dernierMail = undefined;
   try {
     const res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-    const d = await res.json() as { etat?: string; motif?: string; message?: string };
-    if (d.etat === 'ok') return null;
+    const d = await res.json() as { etat?: string; motif?: string; message?: string; mail?: { envoye: boolean; ignore: boolean; motif: string | null } };
+    if (d.etat === 'ok') { dernierMail = d.mail; return null; }
     if (d.etat === 'sans_schema') return MOTIF_SANS_MIGRATION;
     if (d.etat === 'inconnu') return 'Cette fiche n’existe plus.';
     return d.motif ?? d.message ?? 'Enregistrement refusé.';
@@ -135,11 +139,15 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
   const [envoi, setEnvoi] = useState(false);
   // Un PROPRIÉTAIRE : la dernière question (origine de l'archivage) avant le seul clic qui écrit (Arno, 18/10/2026).
   const [etapeOrigine, setEtapeOrigine] = useState(false);
+  const [mailEchec, setMailEchec] = useState<string | null>(null);
   const agir = async (action: 'sortir' | 'reactiver', confirmeOccupation = false, origine?: OrigineArchivage): Promise<void> => {
     setEnvoi(true);
     const m = await envoyer({ action, sujet, id, ...(confirmeOccupation ? { confirmeOccupation: true } : {}), ...(origine === undefined ? {} : { origine }) });
     setEnvoi(false);
     setMotif(m);
+    // Arno (18/10/2026) : le mail de confirmation ne bloque jamais — mais un échec se DIT.
+    const dm = dernierMail as { envoye: boolean; ignore: boolean; motif: string | null } | undefined;
+    setMailEchec(m === null && dm !== undefined && !dm.envoye && !dm.ignore ? `Enregistré, mais mail de confirmation non envoyé${dm.motif ? ` : ${dm.motif}` : ''}.` : null);
     if (m === null) { setApercu(null); setEtapeOrigine(false); apres(); }
   };
   const preparer = async (): Promise<void> => {
@@ -187,6 +195,7 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
           onConfirmer={(o) => void agir('sortir', true, o)} onAnnuler={() => { setApercu(null); setMotif(null); }} />
       )}
       {motif !== null && !occupe && !etapeOrigine && <p className="cp-refus" role="alert">{motif}</p>}
+      {mailEchec !== null && <p className="loc-alerte loc-alerte--orange" role="alert" data-mail-echec>{mailEchec}</p>}
     </section>
   );
 }

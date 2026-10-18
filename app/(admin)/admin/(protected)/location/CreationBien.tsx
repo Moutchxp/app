@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
+import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, phraseMail, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
   CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
@@ -114,6 +114,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   const [annexes, setAnnexes] = useState<Annexe[]>([]);
   const [tente, setTente] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
+  /** Le bien est enregistré, mais le mail « nouveau mandat » n'est pas parti (Arno, 18/10/2026). */
+  const [mailEchec, setMailEchec] = useState<{ phrase: string; cible: string } | null>(null);
   const [envoi, setEnvoi] = useState(false);
   /** Les CONTACTS DU PROPRIÉTAIRE saisis à l'écran précédent : enregistrés avec le bien (ils se rangent sur lui). */
   const [contacts, setContacts] = useState<ChampsSaisis[]>([]);
@@ -218,7 +220,11 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     }
     oublierContactsEnAttente();
     const id = (r.data as { logementId?: number } | undefined)?.logementId;
-    window.location.href = id !== undefined ? `/admin/location/bien/${id}` : '/admin/location/proprietaires';
+    const cible = id !== undefined ? `/admin/location/bien/${id}` : '/admin/location/proprietaires';
+    // Arno (18/10/2026) : le mail « nouveau mandat » n'est jamais bloquant — mais s'il n'est pas parti, on le DIT avant de partir.
+    const echec = phraseMail(r.mail);
+    if (echec !== null) { setMailEchec({ phrase: echec, cible }); return; }
+    window.location.href = cible;
   };
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
@@ -527,6 +533,12 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
           <textarea value={b.commentaire} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, commentaire: val })); }} maxLength={4000} /></label>
       </section>
 
+      {mailEchec !== null && (
+        <div className="loc-alerte loc-alerte--orange" role="alert" data-mail-echec>
+          <p style={{ margin: '0 0 8px' }}>{mailEchec.phrase}</p>
+          <a className="svv-btn svv-btn-primary gst-btn" href={mailEchec.cible}>Ouvrir la fiche du bien</a>
+        </div>
+      )}
       <div className="loc-collant" data-collant>
         <p className="loc-manques" role="status">
           {motif ?? (Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/\.$/, '')).join(' · ')}.` : 'Tout l’obligatoire est renseigné.')}

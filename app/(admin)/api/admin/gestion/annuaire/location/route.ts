@@ -8,6 +8,8 @@ import {
 import { apercuArchivage, reactiverDansPortefeuille, sortirDuPortefeuille, type SujetPortefeuille } from '../../../../../../lib/location/portefeuilleRepo';
 import { enregistrerEnGestion, modifierComplementsBien, syndicsConnus } from '../../../../../../lib/location/creationBienRepo';
 import { detacherAnnexe } from '../../../../../../lib/location/entretienAnnexeRepo';
+import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
+import { verifierOrigine } from '../../../../../../lib/location/archivage';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -108,8 +110,17 @@ export async function POST(request: Request): Promise<Response> {
       case 'reactiver': {
         const quoi = corps.sujet === 'proprietaire' || corps.sujet === 'locataire' || corps.sujet === 'bien' ? corps.sujet as SujetPortefeuille : null;
         if (quoi === null || id === null) return incomplet();
-        return repondre(corps.action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine })
-          : await reactiverDansPortefeuille(quoi, id, auteur));
+        // Arno (18/10/2026) : un mail de confirmation à chaque sortie / retour d'un propriétaire ou d'un bien (jamais bloquant).
+        const ctx = { auteur, tuile: 'Gestion' as const };
+        if (corps.action === 'sortir') {
+          const r = await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine });
+          return repondre(await avecMail(r, quoi === 'locataire' || r.etat !== 'ok' ? null : {
+            sens: 'sortie', proprietaireId: quoi === 'proprietaire' ? id : null, lotIds: r.data.lots ?? [],
+            origine: quoi === 'proprietaire' ? verifierOrigine(corps.origine) : null }, ctx));
+        }
+        const r = await reactiverDansPortefeuille(quoi, id, auteur);
+        return repondre(await avecMail(r, quoi === 'locataire' || r.etat !== 'ok' ? null : {
+          sens: 'entree', reactivation: true, proprietaireId: quoi === 'proprietaire' ? id : null, lotIds: r.data.lots ?? [], origine: null }, ctx));
       }
       default:
         return incomplet();

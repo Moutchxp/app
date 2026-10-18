@@ -21,6 +21,8 @@ import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, ty
 import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/location/rattachementProprietairesRepo';
 import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
+import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
+import { verifierOrigine } from '../../../../lib/location/archivage';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -200,13 +202,17 @@ export async function POST(request: Request): Promise<Response> {
         if (id === null || annexe === null) return incomplet();
         return repondre(await rattacherAnnexe(id, annexe, auteur));
       }
-      case 'creer':
-        return repondre(await creerProprietaireEtBiens({
+      case 'creer': {
+        const r = await creerProprietaireEtBiens({
           proprietaireId: identifiant(corps.proprietaireId),
           proprietaire: (corps.proprietaire ?? {}) as CreationProprietaireBien['proprietaire'],
           logement: (corps.logement ?? {}) as Record<string, unknown>,
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
-        }, auteur));
+        }, auteur);
+        // Nouveau mandat de gestion : un mail SEULEMENT si un propriétaire est « en gestion = Oui » (Arno, 18/10/2026).
+        return repondre(await avecMail(r, r.etat !== 'ok' ? null : {
+          sens: 'entree', proprietaireId: r.data.proprietaireId, lotIds: [r.data.logementId], origine: null, exigerEnGestion: true, avecAnnexes: true }, { auteur, tuile: 'Location' }));
+      }
       case 'creer-locataire':
         return repondre(await creerLocataireSurBien({
           locataireId: identifiant(corps.locataireId), lotId: identifiant(corps.lotId),
@@ -225,15 +231,19 @@ export async function POST(request: Request): Promise<Response> {
         // « Détacher » / « Rattacher » une annexe (Arno, 18/10/2026) : une marque ; le lien parent n'est jamais touché.
         if (id === null) return incomplet();
         return repondre(await detacherAnnexe(id, corps.detacher === true, auteur));
-      case 'creer-bien':
-        return repondre(await creerBienComplet({
+      case 'creer-bien': {
+        const r = await creerBienComplet({
           proprietaireIds: Array.isArray(corps.proprietaireIds) ? (corps.proprietaireIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
           logement: (corps.logement ?? {}) as Record<string, unknown>,
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
           contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
           syndic: corps.syndic !== null && typeof corps.syndic === 'object' ? corps.syndic as SyndicDuBien : null,
           contactsExistants: Array.isArray(corps.contactsExistants) ? (corps.contactsExistants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 40) : [],
-        }, auteur));
+        }, auteur);
+        // Nouveau mandat de gestion : un mail SEULEMENT si un des propriétaires est « en gestion = Oui » (Arno, 18/10/2026).
+        return repondre(await avecMail(r, r.etat !== 'ok' ? null : {
+          sens: 'entree', proprietaireId: null, lotIds: [r.data.logementId, ...r.data.annexes], origine: null, exigerEnGestion: true }, { auteur, tuile: 'Location' }));
+      }
       case 'ajouter-contact-syndic': {
         const syndicId = identifiant(corps.syndicId);
         if (syndicId === null || corps.contact === null || typeof corps.contact !== 'object') return incomplet();
@@ -250,14 +260,25 @@ export async function POST(request: Request): Promise<Response> {
       case 'reactiver': {
         const quoi = corps.sujet === 'proprietaire' || corps.sujet === 'locataire' || corps.sujet === 'bien' ? corps.sujet as SujetPortefeuille : null;
         if (quoi === null || id === null) return incomplet();
-        return repondre(action === 'sortir' ? await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine })
-          : await reactiverDansPortefeuille(quoi, id, auteur));
+        // Arno (18/10/2026) : un mail de confirmation à chaque sortie / retour d'un propriétaire ou d'un bien (jamais bloquant).
+        const ctx = { auteur, tuile: 'Location' as const };
+        if (action === 'sortir') {
+          const r = await sortirDuPortefeuille(quoi, id, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine });
+          return repondre(await avecMail(r, quoi === 'locataire' || r.etat !== 'ok' ? null : {
+            sens: 'sortie', proprietaireId: quoi === 'proprietaire' ? id : null, lotIds: r.data.lots ?? [],
+            origine: quoi === 'proprietaire' ? verifierOrigine(corps.origine) : null }, ctx));
+        }
+        const r = await reactiverDansPortefeuille(quoi, id, auteur);
+        return repondre(await avecMail(r, quoi === 'locataire' || r.etat !== 'ok' ? null : {
+          sens: 'entree', reactivation: true, proprietaireId: quoi === 'proprietaire' ? id : null, lotIds: r.data.lots ?? [], origine: null }, ctx));
       }
       case 'sortir-biens': {
         const proprietaire = identifiant(corps.proprietaireId);
         if (proprietaire === null) return incomplet();
         const lots = Array.isArray(corps.lotIds) ? (corps.lotIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 200) : [];
-        return repondre(await sortirBiensDuPortefeuille(proprietaire, lots, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine }));
+        const r = await sortirBiensDuPortefeuille(proprietaire, lots, auteur, { confirmeOccupation: corps.confirmeOccupation === true, origine: corps.origine });
+        return repondre(await avecMail(r, r.etat !== 'ok' ? null : {
+          sens: 'sortie', proprietaireId: proprietaire, lotIds: r.data.lots ?? [], origine: verifierOrigine(corps.origine) }, { auteur, tuile: 'Location' }));
       }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);

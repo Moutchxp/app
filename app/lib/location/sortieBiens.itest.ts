@@ -89,7 +89,7 @@ describe.skipIf(!baseEssai)('🔴 sortir des biens d’un propriétaire (jamais 
 
     const lignes = await Promise.all(['gestion_annuaire_lot', 'gestion_annuaire_occupation', 'gestion_lot_annexe'].map(compter));
     expect(ok(await sortirBiensDuPortefeuille(proprio, [loue], AUTEUR, { origine: VENTE, confirmeOccupation: true })))
-      .toEqual({ biens: 3, locations: 2, locataires: 1, proprietaireArchive: false });
+      .toMatchObject({ biens: 3, locations: 2, locataires: 1, proprietaireArchive: false });
     expect(await Promise.all(['gestion_annuaire_lot', 'gestion_annuaire_occupation', 'gestion_lot_annexe'].map(compter))).toEqual(lignes);
     const instant = await sorti('gestion_annuaire_lot', loue);
     expect(instant).not.toBeNull();

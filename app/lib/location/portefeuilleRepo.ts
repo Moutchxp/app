@@ -369,7 +369,8 @@ export async function apercuArchivage(sujet: SujetPortefeuille, id: number): Pro
   return planArchivage((texte, params) => query(texte, params), sujet, id);
 }
 
-export interface BilanArchivage { biens: number; locations: number; locataires: number }
+/** `lots` : les biens réellement sortis (logements et annexes) — pour le mail de confirmation (Arno, 18/10/2026). */
+export interface BilanArchivage { biens: number; locations: number; locataires: number; lots?: number[] }
 
 /**
  * « SUPPRIMER » / « ARCHIVER » = SORTIR DU PORTEFEUILLE. Rien n'est effacé : chaque fiche est datée et signée (même
@@ -446,7 +447,7 @@ export async function sortirDuPortefeuille(
       ].filter((x) => x !== null);
       await journaliser(q, sujet, id, 'location_sortie_portefeuille',
         `sorti du portefeuille (tuile Location)${morceaux.length > 0 ? ` — ${morceaux.join(' ; ')}` : ''} — rien n’est effacé, réactivable`, auteur);
-      return { etat: 'ok' as const, data: { biens: autres.length, locations: plan.occupees.length, locataires: plan.locatairesArchives.length } };
+      return { etat: 'ok' as const, data: { biens: autres.length, locations: plan.occupees.length, locataires: plan.locatairesArchives.length, lots: plan.biens } };
     });
   } catch (e) {
     if (e instanceof Refus) return { etat: 'refus', motif: e.message };
@@ -461,7 +462,7 @@ export async function sortirDuPortefeuille(
  * Les locations closes par l'archivage RESTENT closes (ce sont des dates d'historique) ; leurs locataires restent dans
  * « Anciens » et se réactivent depuis leur fiche.
  */
-export async function reactiverDansPortefeuille(sujet: SujetPortefeuille, id: number, auteur: Auteur): Promise<Issue<{ biens: number }>> {
+export async function reactiverDansPortefeuille(sujet: SujetPortefeuille, id: number, auteur: Auteur): Promise<Issue<{ biens: number; lots?: number[] }>> {
   if (!(await sortieDisponible())) return { etat: 'sans_schema' };
   return withTransaction(async (q) => {
     const { rows } = await q<{ sorti: string | null }>(`SELECT sorti_portefeuille_le::text AS sorti FROM ${TABLE[sujet]} WHERE id = $1 FOR UPDATE`, [id]);
@@ -470,15 +471,17 @@ export async function reactiverDansPortefeuille(sujet: SujetPortefeuille, id: nu
     if (instant === null) return { etat: 'ok' as const, data: { biens: 0 } };
     await q(`UPDATE ${TABLE[sujet]} SET sorti_portefeuille_le = NULL, sorti_portefeuille_par = NULL WHERE id = $1`, [id]);
     let n = 0;
+    let revenus: number[] = sujet === 'bien' ? [id] : [];
     if (sujet !== 'locataire') {
       const tetes = sujet === 'bien' ? [id]
         : (await q<{ id: string }>(`SELECT lo.id::text FROM gestion_annuaire_lot lo WHERE ${SQL_BIENS_DU_PROPRIETAIRE}`, [id])).rows.map((r) => Number(r.id));
       // Toutes les annexes, détachées comprises : seules reviennent celles sorties AU MÊME INSTANT (donc avec lui).
       const lies = [...new Set((await Promise.all(tetes.map((l) => avecToutesAnnexes(q, l)))).flat())].filter((x) => !(sujet === 'bien' && x === id));
       if (lies.length > 0) {
-        const r = await q(`UPDATE gestion_annuaire_lot SET sorti_portefeuille_le = NULL, sorti_portefeuille_par = NULL
-                            WHERE id = ANY($1::bigint[]) AND sorti_portefeuille_le = $2::timestamptz`, [lies, instant]);
+        const r = await q<{ id: string }>(`UPDATE gestion_annuaire_lot SET sorti_portefeuille_le = NULL, sorti_portefeuille_par = NULL
+                            WHERE id = ANY($1::bigint[]) AND sorti_portefeuille_le = $2::timestamptz RETURNING id::text`, [lies, instant]);
         n = r.rowCount ?? 0;
+        revenus = [...revenus, ...r.rows.map((x) => Number(x.id))];
       }
     }
     if (sujet === 'proprietaire' && await colonneExisteMemo('gestion_annuaire_proprietaire', 'archive_le')) {
@@ -487,7 +490,7 @@ export async function reactiverDansPortefeuille(sujet: SujetPortefeuille, id: nu
     }
     await journaliser(q, sujet, id, 'location_reactivation_portefeuille',
       `réactivé dans le portefeuille (tuile Location)${n > 0 ? ` avec ${n} bien(s) / annexe(s) sortis en même temps` : ''}`, auteur);
-    return { etat: 'ok' as const, data: { biens: n } };
+    return { etat: 'ok' as const, data: { biens: n, lots: revenus } };
   });
 }
 
@@ -648,7 +651,7 @@ export async function sortirBiensDuPortefeuille(
       await journaliser(q, 'proprietaire', proprietaireId, 'location_sortie_biens',
         `${choisis.length} bien(s) sorti(s) du portefeuille (${a.biens.join(', ')}) — origine : ${motOrigine}`
         + `${a.occupees.length > 0 ? ` ; ${a.occupees.length} location(s) close(s) le ${t[0].aujourdhui}` : ''} — le propriétaire reste actif`, auteur);
-      return { etat: 'ok' as const, data: { biens: a.biens.length, locations: a.occupees.length, locataires: a.locatairesArchives.length, proprietaireArchive: false } };
+      return { etat: 'ok' as const, data: { biens: a.biens.length, locations: a.occupees.length, locataires: a.locatairesArchives.length, lots: a.biens, proprietaireArchive: false } };
     });
   } catch (e) {
     if (e instanceof Refus) return { etat: 'refus', motif: e.message };

@@ -103,7 +103,8 @@ describe.skipIf(!baseEssai)('🔴 archiver un propriétaire (sortie du portefeui
     const avant = await Promise.all(TABLES.map(compter));
     const bilan = ok(await sortirDuPortefeuille('proprietaire', proprio, AUTEUR, { confirmeOccupation: true,
       origine: { origine: 'mise_en_vente', sousOrigine: 'autre_agence', precision: 'compromis signé' } }));
-    expect(bilan).toEqual({ biens: 3, locations: 2, locataires: 1 });
+    expect(bilan).toMatchObject({ biens: 3, locations: 2, locataires: 1 });
+    expect(bilan.lots?.sort()).toEqual([loue, cave, libre].sort()); // les biens sortis, pour le mail de confirmation
     expect(await Promise.all(TABLES.map(compter))).toEqual(avant);
 
     const { rows: p } = await query<{ le: string; par: string; archive: string | null }>(

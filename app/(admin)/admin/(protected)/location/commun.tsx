@@ -53,11 +53,20 @@ export function useLecture<T>(parametres: string | null): { etat: Chargement<T>;
 export const liste = <T,>(x: readonly T[] | null | undefined): readonly T[] => (Array.isArray(x) ? x : []);
 
 /** Envoie un geste. Rend `null` si c'est enregistré, sinon le motif (jamais une exception). */
-export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown }> {
+/** L'état du mail de confirmation d'un mouvement du portefeuille (Arno, 18/10/2026) — `undefined` quand rien n'est envoyé. */
+export interface EtatMail { envoye: boolean; ignore: boolean; motif: string | null }
+
+/** « Enregistré, mais mail non envoyé : … » — `null` quand il n'y a rien à dire (envoyé, ou rien à envoyer). */
+export function phraseMail(m: EtatMail | undefined): string | null {
+  if (m === undefined || m.ignore || m.envoye) return null;
+  return `Enregistré, mais mail de confirmation non envoyé${m.motif ? ` : ${m.motif}` : ''}.`;
+}
+
+export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail }> {
   try {
     const res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-    const d = await res.json() as { etat?: string; motif?: string; message?: string; data?: unknown };
-    if (d.etat === 'ok') return { motif: null, data: d.data };
+    const d = await res.json() as { etat?: string; motif?: string; message?: string; data?: unknown; mail?: EtatMail };
+    if (d.etat === 'ok') return { motif: null, data: d.data, mail: d.mail };
     if (d.etat === 'sans_schema') return { motif: MOTIF_SANS_MIGRATION };
     if (d.etat === 'inconnu') return { motif: 'Cette fiche n’existe plus.' };
     return { motif: d.motif ?? d.message ?? 'Enregistrement refusé.' };

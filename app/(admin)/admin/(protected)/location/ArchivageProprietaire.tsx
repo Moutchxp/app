@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API, CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
+import { API, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, useLecture } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
 import { CSS_MODALE_ARCHIVAGE, ModaleArchivage } from './ModaleArchivage';
 import { QuestionOrigine } from './QuestionOrigine';
@@ -180,9 +180,10 @@ function BoutonArchivage({ etat, apres }: { etat: Lecture; apres: () => void }) 
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
     const d = (r.data ?? {}) as { biens?: number; locations?: number; locataires?: number };
-    setBilan(action === 'reactiver' ? `${a.nom} est réactivé, avec ses biens archivés en même temps.`
+    const motMail = phraseMail(r.mail) === null ? '' : ` ${phraseMail(r.mail)}`;
+    setBilan((action === 'reactiver' ? `${a.nom} est réactivé, avec ses biens archivés en même temps.`
       : [`${a.nom} est archivé`, d.biens ? `${d.biens} bien(s) / annexe(s)` : null, d.locations ? `${d.locations} location(s) close(s) aujourd’hui` : null,
-        d.locataires ? `${d.locataires} locataire(s) archivé(s)` : null].filter((x) => x !== null).join(' · ') + ' — rien n’a été effacé.');
+        d.locataires ? `${d.locataires} locataire(s) archivé(s)` : null].filter((x) => x !== null).join(' · ') + ' — rien n’a été effacé.') + motMail);
     setConfirmer(false); setModale(false);
     apres();
   };
@@ -317,7 +318,7 @@ function BoutonSortieBiens({ proprietaireId, apercuProprietaire, biens, choix, a
     const d = (r.data ?? {}) as { biens?: number; locations?: number; locataires?: number; proprietaireArchive?: boolean };
     setBilan([d.proprietaireArchive ? 'Le propriétaire et ses biens sont archivés' : `${d.biens ?? 0} bien(s) / annexe(s) sorti(s) de la gestion`,
       d.locations ? `${d.locations} location(s) close(s) aujourd’hui` : null, d.locataires ? `${d.locataires} locataire(s) archivé(s)` : null]
-      .filter((x) => x !== null).join(' · ') + ' — rien n’a été effacé.');
+      .filter((x) => x !== null).join(' · ') + ' — rien n’a été effacé.' + (phraseMail(r.mail) === null ? '' : ` ${phraseMail(r.mail)}`));
     setApercu(null); setEtape(null);
     apres();
   };

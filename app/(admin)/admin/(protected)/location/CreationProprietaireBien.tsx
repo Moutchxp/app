@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { API, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer } from './commun';
+import { API, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer, phraseMail } from './commun';
 import { CATEGORIES_ANNEXE, LIBELLE_CATEGORIE, verifierChampsBien, type Categorie } from '../../../../lib/location/locationBien';
 import type { Doublon } from '../../../../lib/location/locationRepo';
 
@@ -22,6 +22,7 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
   const [annexes, setAnnexes] = useState<Annexe[]>([]);
   const [doublons, setDoublons] = useState<Doublon[]>([]);
   const [motif, setMotif] = useState<string | null>(null);
+  const [mailEchec, setMailEchec] = useState<{ phrase: string; cible: string } | null>(null);
   const [envoi, setEnvoi] = useState(false);
 
   // 🔴 LE DÉDOUBLONNAGE DÈS LA SAISIE : 400 ms après la dernière frappe dans le téléphone ou l'e-mail.
@@ -60,7 +61,10 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
     const data = r.data as { logementId?: number } | undefined;
-    window.location.href = data?.logementId !== undefined ? `/admin/location/bien/${data.logementId}` : '/admin/location';
+    const cible = data?.logementId !== undefined ? `/admin/location/bien/${data.logementId}` : '/admin/location';
+    const echec = phraseMail(r.mail);
+    if (echec !== null) { setMailEchec({ phrase: echec, cible }); return; }
+    window.location.href = cible;
   };
 
   return (
@@ -156,6 +160,9 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
       </section>
 
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+      {mailEchec !== null && (
+        <p className="loc-alerte loc-alerte--orange" role="alert" data-mail-echec>{mailEchec.phrase} <a href={mailEchec.cible}>Ouvrir la fiche du bien</a></p>
+      )}
       <div className="loc-boutons">
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/proprietaires">Annuler</a>
         <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi}>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
