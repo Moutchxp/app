@@ -84,8 +84,9 @@ describe('② fiche locataire — la capsule « Locataire » de chaque carte sui
     expect(cartes).toContain('.cp-role--ancien{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}');
     // Sans teinte donnée, la teinte se déduit du mot, comme avant.
     expect(cartes).toContain('const t = ton ?? tonDuRoleClient(role);');
-    // Seule la fiche locataire donne une teinte explicite.
-    expect(lire('Annuaire.tsx').match(/tonRole=\{/g)).toHaveLength(1);
+    // La fiche locataire donne une teinte explicite ; depuis le 19/10/2026, les occupants de la fiche d'un bien aussi
+    // (bleu « En préavis » / vert « En place »).
+    expect(lire('Annuaire.tsx').match(/tonRole=\{/g)).toHaveLength(2);
   });
 });
 

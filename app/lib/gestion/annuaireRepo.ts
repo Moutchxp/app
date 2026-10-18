@@ -47,6 +47,7 @@ import { estAncienLocataire, estLocataireEnPlace } from './historiqueBien';
    des cartes de borne de la frise. Le cartouche orange et les capsules de la fiche lisent donc la meme regle
    que l'etiquette des mails et que le bloc Evenements. */
 import { sqlEvenementOuvertParLaFrise } from './etatParLaFrise';
+import { locatairesEnPreavis } from '../location/preavisEnCoursRepo';
 
 /**
  * Un instant rendu en ISO-8601 UTC, tel que l'écran l'attend. Même écriture que `carteRepo` et `redactionRepo` :
@@ -1134,6 +1135,11 @@ export interface FicheLot {
    */
   occupants: PersonneAnnuaire[];
   /**
+   * Arno (19/10/2026) — LES OCCUPANTS DE CE BIEN EN PRÉAVIS : identifiant du locataire → date maximale de sortie. Leur
+   * statut passe du vert « en place » au bleu « en préavis ». Absent ou vide : personne (ou migration 383 absente).
+   */
+  preavis?: Record<string, string>;
+  /**
    * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LES CARTES DES ANCIENS LOCATAIRES (occupation close), dans l'ordre de
    * `occupations` : du plus récemment parti au plus ancien. Même forme, même lecture et même composant que
    * `occupants` — c'est la demande d'Arno, et c'est ce qui empêche les deux blocs de diverger.
@@ -1211,6 +1217,8 @@ export interface FicheLocataire {
    * La personne demandée est TOUJOURS dedans, même sans logement en cours (un locataire parti garde sa fiche).
    */
   personnes: PersonneAnnuaire[];
+  /** Arno (19/10/2026) — les personnes de la fiche EN PRÉAVIS (identifiant → date maximale de sortie) ; voir `FicheLot.preavis`. */
+  preavis?: Record<string, string>;
   /** Vrai quand la migration 278 est là. Faux = lecture seule, « Modifier » désactivé avec son motif. */
   modifiable: boolean;
   /** 🔴 LOT SUPPRIMER-CARTE — vrai quand la migration 287 est là. Faux ⇒ « Supprimer » n'est pas offert. */
@@ -1898,6 +1906,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       proprietaires: await personnesDe('proprietaire', idsProprietaires),
       occupants: await personnesDe(
         'locataire', occ.filter(estLocataireEnPlace).map((o) => Number(o.locataire_id))),
+      preavis: await locatairesEnPreavis(occ.filter(estLocataireEnPlace).map((o) => Number(o.locataire_id)), { lotId: id }),
       /**
        * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LES CARTES DES ANCIENS LOCATAIRES, pour de vraies cartes modifiables.
        *
@@ -2011,6 +2020,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
         mails: o.mails, dernierEchange: o.dernier_echange, driveDossierId: o.drive_id,
       })),
       personnes: await personnesDe('locataire', idsFoyer),
+      preavis: await locatairesEnPreavis(idsFoyer),
       modifiable: await annuaireModifiableDisponible(),
       /**
        * 🔴 LOT SUPPRIMER-CARTE — la migration 287 est-elle là ? Faux ⇒ l'entrée « Supprimer » n'est pas offerte

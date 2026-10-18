@@ -81,7 +81,9 @@ export function EcranSortieRecherche() {
                     {etat.data.map((o) => (
                       <li key={o.occupationId}>
                         <a className="sor-ligne" href={`/admin/location/locataire/${o.locataireId}?sortie=${o.occupationId}`} data-occupation={o.occupationId}>
-                          <span className="sor-occupant" data-statut="occupant">occupant</span>
+                          {/* Arno (19/10/2026) — un occupant EN PRÉAVIS passe du vert au BLEU, et le mot le dit. */}
+                          {o.preavisDateMax ? <span className="sor-occupant sor-occupant--preavis" data-statut="en_preavis">en préavis</span>
+                            : <span className="sor-occupant" data-statut="occupant">occupant</span>}
                           <strong className="sor-nom">{o.nom}</strong>
                           {o.preavisDateMax ? <span className="sor-preavis"><MentionPreavis p={{ dateMax: o.preavisDateMax }} jour={aujourdhuiParisEcran()} /></span> : null}
                           <span className="sor-infos">
@@ -475,15 +477,19 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
         <div className="arc-action" data-bouton-sortie-locataires={n}>
           <div className="sor-deux-boutons">
             {/* Décision d'Arno (18/10/2026) : la sortie est VALIDÉE par la Gestion — sans ce droit, un message à la place du bouton. */}
+            {/* Arno (19/10/2026) — LES DEUX BOUTONS SONT BLANCS à l'ouverture ; celui qu'on choisit passe au ROUGE et ouvre SON
+                bloc (l'autre se ferme, sans rien enregistrer) ; re-cliquer dessus, ou « Annuler », remet tout en blanc.
+                L'état actif se lit aussi sans la couleur : `aria-pressed` et la coche ✓ devant le libellé. */}
             {gestion ? (
-              <button type="button" className="arc-gros arc-gros--archiver" disabled={n === 0} onClick={() => { setOuvert(true); setPreavisOuvert(false); }} data-faire-sortir>
-                {libelleFaireSortir(n)}
+              <button type="button" className="arc-gros sor-bascule" aria-pressed={ouvert && n > 0} disabled={n === 0}
+                onClick={() => { const actif = ouvert && n > 0; setOuvert(!actif); setPreavisOuvert(false); }} data-faire-sortir>
+                {ouvert && n > 0 ? <span className="sor-coche" aria-hidden="true">✓ </span> : null}{libelleFaireSortir(n)}
               </button>
             ) : <p className="arc-gros sor-gestion-seule" role="note" data-sortie-gestion-seule>{MESSAGE_SORTIE_GESTION}</p>}
-            <button type="button" className="arc-gros arc-gros--reactiver" disabled={pv === null || !pv.disponible || bail.locataires.length === 0}
+            <button type="button" className="arc-gros sor-bascule" aria-pressed={preavisOuvert} disabled={pv === null || !pv.disponible || bail.locataires.length === 0}
               title={pv !== null && !pv.disponible ? 'Préavis : mise à jour de la base à appliquer (migration 383)' : undefined}
-              onClick={() => { setPreavisOuvert(true); setOuvert(false); setPreavisFait(null); }} data-enregistrer-un-preavis>
-              Enregistrer un préavis
+              onClick={() => { setPreavisOuvert(!preavisOuvert); setOuvert(false); setPreavisFait(null); }} data-enregistrer-un-preavis>
+              {preavisOuvert ? <span className="sor-coche" aria-hidden="true">✓ </span> : null}Enregistrer un préavis
             </button>
           </div>
           {pv !== null && !pv.disponible && <p className="loc-muet" style={{ margin: 0 }} data-preavis-indisponible>Préavis : la mise à jour de la base (migration 383) reste à appliquer.</p>}
@@ -528,7 +534,10 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
               const pris = choix.includes(l.occupationId);
               return (
                 <li key={l.occupationId} className={`arc-bien-carte${pris ? ' arc-bien-carte--choisi' : ''}`} data-locataire={l.occupationId}>
-                  <ul className="arc-noms"><li><mark className="arc-surligne arc-surligne--en-place" data-en-place>{l.nom}</mark></li></ul>
+                  {/* Arno (19/10/2026) — EN PRÉAVIS : le nom passe du surlignage vert au BLEU ; la mention, dessous, le dit en mots. */}
+                  <ul className="arc-noms"><li>{preavisDe(l.occupationId) !== null
+                    ? <mark className="arc-surligne sor-surligne--preavis" data-en-preavis>{l.nom}</mark>
+                    : <mark className="arc-surligne arc-surligne--en-place" data-en-place>{l.nom}</mark>}</li></ul>
                   <span className="loc-muet" data-entree-le>{l.entree === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(l.entree)}`}</span>
                   {(() => {
                     const p = preavisDe(l.occupationId);
@@ -699,7 +708,13 @@ export const CSS_SORTIE = `
 .sor-restants ul{margin:0;padding-left:1.1rem}
 .sor-deux-boutons{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:10px}
 .sor-gestion-seule{margin:0;cursor:default;background:var(--color-svv-field);color:var(--color-svv-ink);border-color:var(--color-svv-line-strong);font-size:1rem}
-.sor-carte-preavis{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-amber-soft)}
+.sor-carte-preavis{display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:10px;background:var(--color-svv-blue-soft)}
+/* Arno (19/10/2026) — LE STATUT « EN PRÉAVIS » EN BLEU TRANSPARENT (paire bleue du thème, Clair ET Sombre), toujours avec le mot. */
+.sor-occupant--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border-color:var(--color-svv-blue)}
+.sor-surligne--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
+/* Arno (19/10/2026) — LES DEUX BOUTONS : BLANCS (bordure et texte foncés) à l'ouverture, ROUGES (texte blanc) une fois choisis. */
+.sor-bascule{background:var(--color-svv-surface);border-color:var(--color-svv-ink);color:var(--color-svv-ink)}
+.sor-bascule[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
 .sor-preavis{grid-row:3;grid-column:1 / -1}
 .sor-voir{align-self:flex-start;display:inline-flex;align-items:center;font-size:.9rem;color:var(--color-svv-muted)}
 .sor-enregistrees h4{margin:0 0 6px}

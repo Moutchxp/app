@@ -165,8 +165,10 @@ export function GestesPreavis({ p, entree, envoyerGeste, apres }: {
 
 /** Orange d'alerte du thème + mot : jamais la couleur seule. */
 export const CSS_PREAVIS = `
-.pvs-mention{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.85rem;font-weight:800;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);border:1px solid var(--color-svv-urgence-orange)}
-.pvs-mention--echu{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface)}
+/* Arno (19/10/2026) — « en préavis » en BLEU TRANSPARENT (paire bleue du thème, Clair ET Sombre) ; « Préavis échu — sortie à
+   saisir » GARDE sa couleur d'alerte (orange plein), distincte, pour rester repérable. Toujours avec le mot. */
+.pvs-mention{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.85rem;font-weight:800;background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border:1px solid var(--color-svv-blue)}
+.pvs-mention--echu{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface);border-color:var(--color-svv-urgence-orange)}
 .pvs-form{display:flex;flex-direction:column;gap:12px}
 .pvs-cases,.pvs-duree{border:1px solid var(--color-svv-line);border-radius:12px;padding:8px 12px;margin:0;display:flex;flex-direction:column;gap:2px}
 .pvs-cases legend,.pvs-duree legend{font-weight:700;padding:0 4px}

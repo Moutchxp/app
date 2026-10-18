@@ -355,7 +355,7 @@ function Coordonnees({ contacts, onEcrire }: {
 type Mode = 'lecture' | 'modifier' | 'separer';
 
 /** 🔴 LOT COULEURS-CARTOUCHES — la teinte d'une capsule de rôle quand l'écran la connaît (statut de la personne). */
-export type TonRoleCarte = 'proprietaire' | 'en_place' | 'ancien';
+export type TonRoleCarte = 'proprietaire' | 'en_place' | 'preavis' | 'ancien';
 
 export function CartePersonne({ p, gestes, role, dessous, deplacer, ton, regles }: {
   p: PersonneAnnuaire;
@@ -1901,6 +1901,9 @@ export const CSS_CARTES = `
    ⚠️ AUCUN ACCENT GRAVE DANS CE BLOC : il fermerait le litteral de gabarit (piege vu plus de dix fois). */
 .cp-role--proprietaire{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
 .cp-role--en_place{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
+/* Arno (19/10/2026) — le locataire EN PREAVIS passe du vert au BLEU TRANSPARENT : la paire bleue du theme (lot 97),
+   definie en Clair ET en Sombre. Le MOT « en preavis » reste ecrit dans le badge. */
+.cp-role--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}
 /* 🔴 LOT COULEURS-CARTOUCHES (Arno, 14/10/2026) — l'ANCIEN locataire en VIOLET : la paire tamisee du theme, celle de la
    capsule du titre de sa fiche et de « ancien locataire » dans la legende de l'historique. Le MOT reste ecrit. */
 .cp-role--ancien{background:var(--color-svv-violet-soft);color:var(--color-svv-violet)}

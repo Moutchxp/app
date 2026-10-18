@@ -115,6 +115,9 @@ describe('les lignes', () => {
     expect(container.querySelector('[data-ligne-preavis="A"] [data-preavis]')?.textContent).toBe('en préavis');
     expect(container.querySelector('[data-ligne-preavis="B"] [data-preavis]')?.textContent).toBe('Préavis échu — sortie à saisir');
     expect(container.querySelector('[data-ligne-preavis="B"] [data-preavis]')?.getAttribute('data-preavis')).toBe('echu');
+    // Arno (19/10/2026) : « en préavis » en BLEU (plus d'orange) ; l'échu garde sa couleur d'alerte.
+    expect(container.querySelector('[data-ligne-preavis="A"] [data-preavis]')?.className).toBe('pvs-mention pvs-mention--en_preavis');
+    expect(container.querySelector('[data-ligne-preavis="B"] [data-preavis]')?.className).toBe('pvs-mention pvs-mention--echu');
   });
 
   it('état vide : « Aucun locataire en préavis »', async () => {

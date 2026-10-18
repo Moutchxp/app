@@ -1544,7 +1544,10 @@ function VueLot({
           d'entrée et liens vers leur fiche » ; et pour l'étape C : « enregistrer un départ (date de sortie →
           historique), enregistrer un nouveau locataire (date d'entrée) ». */}
       <BlocCartes titre={`Locataire${actuels.length > 1 ? 's' : ''} en place`} id="ann-occ" famille="locataire"
-        personnes={f.occupants} role="En place" motAjouter="Ajouter un occupant" gestes={gestes}
+        personnes={f.occupants} motAjouter="Ajouter un occupant" gestes={gestes}
+        /* Arno (19/10/2026) — un occupant EN PRÉAVIS : badge « En préavis », en bleu ; les autres restent « En place », en vert. */
+        role={(p) => (f.preavis?.[String(p.id)] !== undefined ? 'En préavis' : 'En place')}
+        tonRole={(p) => (f.preavis?.[String(p.id)] !== undefined ? 'preavis' : 'en_place')}
         /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — les cartes « CONTACT DU LOCATAIRE », après les clients. */
         contacts={contactsLocataire} gestesContact={gestesContact}
         creation={{
@@ -2028,9 +2031,14 @@ function VueLocataire({
             {/* 🔴 LOT FICHE-LOCATAIRE-CARTOUCHE-ET-SYNDIC (Arno, 14/10/2026) — VERT quand il occupe un logement, VIOLET quand
                 c'est un ancien locataire : les teintes « locataire » et « ancien locataire » de la légende de l'historique.
                 Le statut vient de la règle en place (`estLocataireEnPlace`), et le MOT reste écrit. */}
-            <span className={`ann-role-capsule${enCours.length > 0 ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>
-              {enCours.length > 0 ? 'Locataire en place' : 'Ancien locataire'}
-            </span>
+            {/* Arno (19/10/2026) — EN PRÉAVIS : la capsule passe au BLEU, et le mot le dit. */}
+            {enCours.length > 0 && f.preavis?.[String(f.id)] !== undefined ? (
+              <span className="ann-role-capsule ann-role-capsule--preavis" data-statut="en_preavis">Locataire en préavis</span>
+            ) : (
+              <span className={`ann-role-capsule${enCours.length > 0 ? ' ann-role-capsule--en-place' : ' ann-role-capsule--ancien'}`}>
+                {enCours.length > 0 ? 'Locataire en place' : 'Ancien locataire'}
+              </span>
+            )}
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
           </p>
         </div>
@@ -2038,12 +2046,12 @@ function VueLocataire({
 
       {/* ══ 🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT, EN CARTES — la règle d'Arno, à l'écran ═══════════════════════ */}
       <BlocCartes titre="Coordonnées" id="ann-coord-loc" personnes={f.personnes} famille="locataire" motAjouter="Ajouter un occupant"
-        role={(p) => (p.id === f.id ? 'Locataire' : 'Même logement')} gestes={gestes}
+        role={(p) => `${p.id === f.id ? 'Locataire' : 'Même logement'}${f.preavis?.[String(p.id)] !== undefined ? ' — en préavis' : ''}`} gestes={gestes}
         /* 🔴 LOT COULEURS-CARTOUCHES (Arno, 14/10/2026) — chaque capsule prend la couleur du statut de SA personne, par la
            règle en place : la personne de la fiche suit le titre (vert en place, violet ancien) ; les autres cartes
            sont les occupants EN COURS du même logement (le serveur ne ramène que des occupations sans sortie), donc
            vertes. Les mots ne changent pas. */
-        tonRole={(p) => (p.id !== f.id || enCours.length > 0 ? 'en_place' : 'ancien')}
+        tonRole={(p) => (f.preavis?.[String(p.id)] !== undefined ? 'preavis' : p.id !== f.id || enCours.length > 0 ? 'en_place' : 'ancien')}
         creation={{
           /* ⚠️ ON RATTACHE AU LOGEMENT EN COURS. Sans logement en cours, la personne est créée sans lien : il n'y
              a rien à quoi la rattacher, et inventer un bail serait écrire un fait faux — la phrase le dit. */
@@ -2431,6 +2439,10 @@ export const CSS_ANNUAIRE = `
    (--color-svv-green-ink sur --color-svv-green-soft), definies en Clair ET en Sombre. Aucune couleur en dur. */
 .ann-role-capsule--en-place{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);
   border-color:var(--color-svv-green)}
+/* Arno (19/10/2026) — LA CAPSULE « LOCATAIRE EN PREAVIS », EN BLEU TRANSPARENT : la paire bleue du theme (--color-svv-blue
+   sur --color-svv-blue-soft, Clair ET Sombre, contraste mesure au lot 97). Le mot reste ecrit. Aucune couleur en dur. */
+.ann-role-capsule--preavis{color:var(--color-svv-blue);background:var(--color-svv-blue-soft);
+  border-color:var(--color-svv-blue)}
 /* 🔴 LOT COULEURS-CARTOUCHES — LA CAPSULE « PROPRIETAIRE », EN ROUGE TRANSPARENT. Le rouge « proprietaire » de la legende
    de l'historique (--color-svv-red, texte et bordure) sur son fond tamise (--color-svv-red-soft), definis en Clair ET en
    Sombre : le meme modele que le vert « Locataire en place ». Aucune couleur en dur. */

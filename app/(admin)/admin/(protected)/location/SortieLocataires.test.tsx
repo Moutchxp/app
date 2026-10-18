@@ -199,7 +199,9 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(container.textContent).toContain('Entré(e) dans les lieux le 01/09/2022');
     expect(container.querySelector('a[data-voir-fiche]')?.getAttribute('href')).toBe('/admin/location/locataire/101');
     expect(gros().textContent).toBe('Faire sortir 2 locataires');
-    expect(gros().className).toBe('arc-gros arc-gros--archiver');
+    // Arno (19/10/2026) : BLANC à l'ouverture (rouge seulement une fois choisi).
+    expect(gros().className).toBe('arc-gros sor-bascule');
+    expect(gros().getAttribute('aria-pressed')).toBe('false');
     expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement deviendra VACANT');
     expect(container.textContent).not.toContain('Fiche commune avec la Gestion');
     expect(f.mock.calls.map((c) => String(c[0])).sort()).toEqual(['/api/admin/location?bail=11&v=0', '/api/admin/location?encartBail=11', '/api/admin/location?preavisBail=11&p=0']);
@@ -425,7 +427,114 @@ describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10
     await act(async () => { vi.advanceTimersByTime(250); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     const ligne = container.querySelector('a.sor-ligne')!;
-    expect(ligne.querySelector('.sor-occupant')?.textContent).toBe('occupant');
+    // Arno (19/10/2026) : l'occupant EN PRÉAVIS passe au bleu, avec le mot.
+    expect(ligne.querySelector('.sor-occupant')?.textContent).toBe('en préavis');
+    expect(ligne.querySelector('.sor-occupant')?.className).toBe('sor-occupant sor-occupant--preavis');
     expect(ligne.querySelector('[data-preavis]')?.textContent).toBe('en préavis — sortie au plus tard le 01/11/2099');
+  });
+});
+
+describe('Arno (19/10/2026) — les deux boutons de l’écran de sortie : blancs, puis rouge à la sélection', () => {
+  const rendre = async (preavis: unknown = PREAVIS): Promise<void> => {
+    global.fetch = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(ENCART)
+      : String(u).includes('preavisBail=') ? ok(preavis) : ok(BAIL))) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+  const sortir = (): HTMLButtonElement => container.querySelector('button[data-faire-sortir]') as HTMLButtonElement;
+  const preavis = (): HTMLButtonElement => container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement;
+  const etats = () => [sortir(), preavis()].map((b) => [b.className, b.getAttribute('aria-pressed'), b.textContent]);
+  const blocSortie = () => container.querySelector('[data-recapitulatif]');
+  const blocPreavis = () => container.querySelector('[data-formulaire-preavis]');
+
+  it('à l’ouverture : les DEUX boutons blancs (même gabarit), aucun bloc ouvert', async () => {
+    await rendre();
+    expect(etats()).toEqual([['arc-gros sor-bascule', 'false', 'Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'false', 'Enregistrer un préavis']]);
+    expect(blocSortie()).toBeNull();
+    expect(blocPreavis()).toBeNull();
+  });
+
+  it('un clic : ce bouton passe au rouge (aria-pressed + coche ✓) et ouvre SON bloc ; l’autre reste blanc', async () => {
+    await rendre();
+    act(() => sortir().click());
+    expect(etats()).toEqual([['arc-gros sor-bascule', 'true', '✓ Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'false', 'Enregistrer un préavis']]);
+    expect(blocSortie()).not.toBeNull();
+    expect(blocPreavis()).toBeNull();
+  });
+
+  it('bascule : l’ancien redevient blanc et son bloc se ferme sans rien enregistrer ; le nouveau passe rouge', async () => {
+    await rendre();
+    act(() => sortir().click());
+    act(() => preavis().click());
+    expect(etats()).toEqual([['arc-gros sor-bascule', 'false', 'Faire sortir 2 locataires'], ['arc-gros sor-bascule', 'true', '✓ Enregistrer un préavis']]);
+    expect(blocSortie()).toBeNull();
+    expect(blocPreavis()).not.toBeNull();
+    act(() => sortir().click());
+    expect(blocPreavis()).toBeNull();
+    expect(blocSortie()).not.toBeNull();
+    expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+  });
+
+  it('re-clic sur le bouton actif, ou « Annuler » : tout redevient blanc, bloc fermé', async () => {
+    await rendre();
+    act(() => preavis().click());
+    act(() => preavis().click());
+    expect(etats().map((e) => e[1])).toEqual(['false', 'false']);
+    expect(blocPreavis()).toBeNull();
+    act(() => sortir().click());
+    act(() => ([...container.querySelectorAll('[data-recapitulatif] button')].find((b) => b.textContent === 'Annuler') as HTMLButtonElement).click());
+    expect(etats().map((e) => e[1])).toEqual(['false', 'false']);
+    expect(blocSortie()).toBeNull();
+    act(() => preavis().click());
+    act(() => ([...container.querySelectorAll('[data-formulaire-preavis] button')].find((b) => b.textContent === 'Annuler') as HTMLButtonElement).click());
+    expect(etats().map((e) => e[1])).toEqual(['false', 'false']);
+  });
+
+  it('le compteur et la désactivation à 0 du bouton de sortie sont inchangés', async () => {
+    await rendre();
+    act(() => (container.querySelectorAll('button[data-choisir]')[0] as HTMLButtonElement).click());
+    act(() => (container.querySelectorAll('button[data-choisir]')[1] as HTMLButtonElement).click());
+    expect(sortir().textContent).toBe('Faire sortir 0 locataire');
+    expect(sortir().disabled).toBe(true);
+  });
+
+  it('couleurs : blanc (bordure et texte foncés) puis rouge du thème (texte blanc) — jetons --color-svv-*', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/SortieLocataires.tsx', 'utf8');
+    expect(src).toContain('.sor-bascule{background:var(--color-svv-surface);border-color:var(--color-svv-ink);color:var(--color-svv-ink)}');
+    expect(src).toContain('.sor-bascule[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}');
+  });
+
+  it('cartes « Locataires de ce logement » : en préavis → nom surligné en BLEU avec la mention ; sans préavis → vert ; échu → alerte', async () => {
+    const p = { id: 50, occupationId: 11, recuLe: '2026-10-01', dateMax: '2099-11-01', mode: 'mois', dureeMois: 1, motif: null, creePar: 'x', creeLe: '2026-10-01', dureeProposee: 1 };
+    await rendre({ ...PREAVIS, locataires: [{ ...PREAVIS.locataires[0], preavis: p }, PREAVIS.locataires[1]] });
+    const alice = container.querySelector('[data-locataire="11"]')!;
+    expect(alice.querySelector('mark')?.className).toBe('arc-surligne sor-surligne--preavis');
+    expect(alice.querySelector('[data-preavis]')?.textContent).toBe('en préavis — sortie au plus tard le 01/11/2099');
+    expect(alice.querySelector('[data-preavis]')?.className).toBe('pvs-mention pvs-mention--en_preavis');
+    expect(container.querySelector('[data-locataire="12"] mark')?.className).toBe('arc-surligne arc-surligne--en-place');
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre({ ...PREAVIS, locataires: [{ ...PREAVIS.locataires[0], preavis: { ...p, dateMax: '2020-01-01' } }, PREAVIS.locataires[1]] });
+    expect(container.querySelector('[data-locataire="11"] [data-preavis]')?.className).toBe('pvs-mention pvs-mention--echu');
+  });
+
+  it('recherche des occupants : sans préavis, toujours « occupant » en vert', async () => {
+    vi.useFakeTimers();
+    global.fetch = vi.fn(async () => ok([{ occupationId: 12, locataireId: 102, nom: 'BERNARD Paul', telephone: null, email: null, lotId: 7,
+      adresse: '4 rue Fictive', etage: null, porte: null, proprietaire: null, preavisDateMax: null }])) as unknown as typeof fetch;
+    act(() => root.render(createElement(EcranSortieRecherche)));
+    act(() => saisir(container.querySelector('input[data-recherche-occupants]') as HTMLInputElement, 'ber'));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('.sor-occupant')?.className).toBe('sor-occupant');
+    expect(container.querySelector('.sor-occupant')?.textContent).toBe('occupant');
+  });
+
+  it('le bleu du préavis vient des jetons du thème ; l’échu garde son orange d’alerte', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/SortieLocataires.tsx', 'utf8');
+    expect(src).toContain('.sor-occupant--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border-color:var(--color-svv-blue)}');
+    expect(src).toContain('.sor-surligne--preavis{background:var(--color-svv-blue-soft);color:var(--color-svv-blue)}');
+    const pvs = readFileSync('app/(admin)/admin/(protected)/location/Preavis.tsx', 'utf8');
+    expect(pvs).toMatch(/\.pvs-mention\{[^}]*background:var\(--color-svv-blue-soft\);color:var\(--color-svv-blue\)/);
+    expect(pvs).toContain('.pvs-mention--echu{background:var(--color-svv-urgence-orange)');
   });
 });
