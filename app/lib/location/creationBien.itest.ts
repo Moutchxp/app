@@ -38,7 +38,7 @@ const compter = async (table: string): Promise<number> => Number((await query<{ 
 
 describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => {
   it('⓪ « Propriétaire(s) en gestion ? » : réponse obligatoire ; Oui exige le mandat ; Non enregistré sans mandat', async () => {
-    const carte = { nom: `GESTION${S}`, coordonnees: [{ sorte: 'telephone' as const, valeur: '06 22 33 44 55', libelle: 'Mobile' }] };
+    const carte = { nom: `GESTION${S}`, coordonnees: [{ sorte: 'telephone' as const, valeur: '06 22 33 44 55', libelle: 'Mobile' }, { sorte: 'email' as const, valeur: `gestion.${S}@exemple.test`, libelle: 'E-mail' }] };
     const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_proprietaire')).rows[0].n);
     expect((await creerProprietaires({ cartes: [carte] }, AUTEUR)).etat).toBe('refus');
     expect((await creerProprietaires({ cartes: [carte], enGestion: true, numeroMandat: '  ' }, AUTEUR)).etat).toBe('refus');

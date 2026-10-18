@@ -35,12 +35,12 @@ describe.skipIf(!baseEssai)('🔴 entretien, annexes, mandat de transaction', ()
   let cave = 0;
 
   it('④ mandat de transaction : refusé sans numéro pour « Non », posé sur chaque fiche ; « Oui » n’en garde aucun', async () => {
-    const cartes = [{ nom: `MT${S}A`, coordonnees: [tel('06 40 40 40 40')] }, { nom: `MT${S}B`, coordonnees: [tel('06 41 41 41 41')] }];
+    const cartes = [{ nom: `MT${S}A`, coordonnees: [tel('06 40 40 40 40'), { sorte: 'email' as const, valeur: `mta.${S}@exemple.test`, libelle: 'E-mail' }] }, { nom: `MT${S}B`, coordonnees: [tel('06 41 41 41 41')] }];
     expect(await creerProprietaires({ cartes, enGestion: false }, AUTEUR)).toEqual({ etat: 'refus', motif: 'Propriétaire non en gestion : le N° de mandat de transaction locative est à renseigner.' });
     proprietaires = ok(await creerProprietaires({ cartes, enGestion: false, numeroMandatTransaction: ' MT 2026-041 ', numeroMandat: 'abandonné' }, AUTEUR)).ids;
     const { rows } = await query<{ g: string | null; t: string | null }>('SELECT numero_mandat_gestion AS g, numero_mandat_transaction AS t FROM gestion_annuaire_proprietaire WHERE id = ANY($1::bigint[]) ORDER BY id', [proprietaires]);
     expect(rows).toEqual([{ g: null, t: 'MT 2026-041' }, { g: null, t: 'MT 2026-041' }]);
-    const oui = ok(await creerProprietaires({ cartes: [{ nom: `MT${S}C`, coordonnees: [tel('06 42 42 42 42')] }], enGestion: true, numeroMandat: 'MG 1', numeroMandatTransaction: 'MT ignoré' }, AUTEUR)).ids;
+    const oui = ok(await creerProprietaires({ cartes: [{ nom: `MT${S}C`, coordonnees: [tel('06 42 42 42 42'), { sorte: 'email' as const, valeur: `mtc.${S}@exemple.test`, libelle: 'E-mail' }] }], enGestion: true, numeroMandat: 'MG 1', numeroMandatTransaction: 'MT ignoré' }, AUTEUR)).ids;
     expect((await query<{ t: string | null }>('SELECT numero_mandat_transaction AS t FROM gestion_annuaire_proprietaire WHERE id = $1', [oui[0]])).rows[0].t).toBeNull();
     const f = await ficheProprietaireLocation(proprietaires[0]);
     if (f.etat !== 'ok') throw new Error(f.etat);

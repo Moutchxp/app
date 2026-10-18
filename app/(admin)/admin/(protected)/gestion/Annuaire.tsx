@@ -977,11 +977,13 @@ function VueProprietaire({
 
           ⚠️ « + AJOUTER UN PROPRIÉTAIRE » VEUT DIRE CO-PROPRIÉTAIRE DU MÊME ENSEMBLE DE BIENS : la personne créée
           est rattachée à tous les biens EN GESTION de cette fiche, ce qui est exactement ce que le bloc annonce. */}
+      {/* 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026, accord pour la Gestion) : `famille` sur les quatre blocs de cartes CLIENT
+          (fiche propriétaire, propriétaires et locataires en place d'un bien, fiche locataire) — bandeau, refus, alerte. */}
       {/* 🔴🔴 FICHE PROPRIÉTAIRE COMMUNE (Arno, 18/10/2026, accord pour la Gestion) — « + Ajouter un propriétaire » devient
           « + Ajouter un contact », avec le MÊME petit choix que la fiche du bien (composant `BlocCartes`, aucune copie) :
           « Propriétaire (client) » = l'ajout d'avant, intact ; « Contact du propriétaire » = une carte de contact rangée
           sur ses biens en gestion, côté propriétaire — pas un client. Rien d'autre ne bouge dans la fiche. */}
-      <BlocCartes titre="Coordonnées" id="ann-coord" personnes={f.personnes} role="Propriétaire"
+      <BlocCartes titre="Coordonnées" id="ann-coord" personnes={f.personnes} role="Propriétaire" famille="propriétaire"
         motAjouter="Ajouter un propriétaire" gestes={gestes} sansAjout={ficheArchivee}
         contacts={contactsProp.contacts} gestesContact={contactsProp.gestesContact}
         creation={{
@@ -1508,7 +1510,7 @@ function VueLot({
       </section>
 
       {/* ══ 🔴 LES PROPRIÉTAIRES DU BIEN, EN CARTES — avec « Remplacer » pour une vente ═══════════════════════════ */}
-      <BlocCartes titre={`Propriétaire${f.proprietaires.length > 1 ? 's' : ''}`} id="ann-prop"
+      <BlocCartes titre={`Propriétaire${f.proprietaires.length > 1 ? 's' : ''}`} id="ann-prop" famille="propriétaire"
         personnes={f.proprietaires} role="Propriétaire" motAjouter="Ajouter un propriétaire"
         /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — les cartes « CONTACT DU PROPRIÉTAIRE », après les clients. */
         contacts={contactsProprietaire} gestesContact={gestesContact}
@@ -1535,7 +1537,7 @@ function VueLot({
           Arno : « LOCATAIRE(S) EN PLACE : tous les occupants du même bail […] avec coordonnées complètes, date
           d'entrée et liens vers leur fiche » ; et pour l'étape C : « enregistrer un départ (date de sortie →
           historique), enregistrer un nouveau locataire (date d'entrée) ». */}
-      <BlocCartes titre={`Locataire${actuels.length > 1 ? 's' : ''} en place`} id="ann-occ"
+      <BlocCartes titre={`Locataire${actuels.length > 1 ? 's' : ''} en place`} id="ann-occ" famille="locataire"
         personnes={f.occupants} role="En place" motAjouter="Ajouter un occupant" gestes={gestes}
         /* 🔴🔴 LOT HISTORIQUE-BIEN-7 — les cartes « CONTACT DU LOCATAIRE », après les clients. */
         contacts={contactsLocataire} gestesContact={gestesContact}
@@ -2029,7 +2031,7 @@ function VueLocataire({
       </header>
 
       {/* ══ 🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT, EN CARTES — la règle d'Arno, à l'écran ═══════════════════════ */}
-      <BlocCartes titre="Coordonnées" id="ann-coord-loc" personnes={f.personnes} motAjouter="Ajouter un occupant"
+      <BlocCartes titre="Coordonnées" id="ann-coord-loc" personnes={f.personnes} famille="locataire" motAjouter="Ajouter un occupant"
         role={(p) => (p.id === f.id ? 'Locataire' : 'Même logement')} gestes={gestes}
         /* 🔴 LOT COULEURS-CARTOUCHES (Arno, 14/10/2026) — chaque capsule prend la couleur du statut de SA personne, par la
            règle en place : la personne de la fiche suit le titre (vert en place, violet ancien) ; les autres cartes

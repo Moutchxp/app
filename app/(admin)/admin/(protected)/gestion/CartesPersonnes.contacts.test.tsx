@@ -600,6 +600,10 @@ describe('🔴🔴 la tuile d’ajout : un « + » cerclé, et deux chemins', ()
     const valeurs = [...hote.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
     await act(async () => { poser(valeurs[valeurs.length - 1], 'axa@fictif.test'); });
     await cliquer([...hote.querySelectorAll('button')].find((b) => b.textContent === 'Enregistrer'));
+    // 🔴 Arno (18/10/2026, carte complète) : sans téléphone, la fenêtre d'alerte d'abord ; rien n'est parti.
+    expect(document.querySelector('[data-fenetre-carte]')?.textContent).toContain('Téléphone manquant');
+    expect(creees).toEqual([]);
+    await cliquer([...document.querySelectorAll('[data-fenetre-carte] button')].find((b) => b.textContent === 'Enregistrer quand même'));
     expect(creees).toEqual(['contact:AXA|axa@fictif.test']);
   });
 

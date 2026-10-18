@@ -71,13 +71,51 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     expect(contact.textContent).not.toMatch(/en gestion|mandat/i);
   });
 
-  it('obligatoires ALLÉGÉS d’une carte client : le nom et un téléphone suffisent (civilité, prénom, adresse facultatifs)', async () => {
+  it('PREMIÈRE carte client : le nom, un téléphone ET un e-mail (civilité, prénom, adresse facultatifs) — Arno, 18/10/2026', async () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     const form = container.querySelector('.cp-form') as HTMLElement;
     const enregistrer = () => form.querySelector('button[type="submit"]') as HTMLButtonElement;
     expect(enregistrer().disabled).toBe(true);
     await remplir(form, 'Dupont', { tel: '06 12 34 56 78' });
+    // Le téléphone seul ne suffit plus : le message est sous les champs.
+    expect(enregistrer().disabled).toBe(true);
+    expect(form.textContent).toContain('Première carte client : un e-mail est obligatoire.');
+    await remplir(form, 'Dupont', { tel: '06 12 34 56 78', email: 'dupont@exemple.test' });
     expect(enregistrer().disabled).toBe(false);
+  });
+
+  it('carte client SUIVANTE incomplète → fenêtre des manques (retour / enregistrer quand même) ; retirer la dernière carte complète → refusé', async () => {
+    await act(async () => { root.render(createElement(CreationProprietaires)); });
+    const premiere = container.querySelector('[data-carte="1"] .cp-form') as HTMLElement;
+    await remplir(premiere, 'Dupont', { tel: '06 12 34 56 78', email: 'dupont@exemple.test' });
+    await act(async () => { (premiere.querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
+    expect(container.querySelectorAll('[data-recap="client"]')).toHaveLength(1);
+    await act(async () => { bouton('+ Ajouter…').click(); });
+    await act(async () => { bouton('Propriétaire (client)').click(); });
+    const seconde = container.querySelector('[data-carte="2"] .cp-form') as HTMLElement;
+    // Carte suivante : le nom suffit pour cliquer ; le téléphone et l'e-mail passent par la fenêtre.
+    await remplir(seconde, 'Dupont', { tel: '06 98 76 54 32' });
+    const enregistrer = seconde.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(enregistrer.disabled).toBe(false);
+    await act(async () => { enregistrer.click(); });
+    const fen = () => document.querySelector('[data-fenetre-carte]');
+    expect([...(fen()?.querySelectorAll('li') ?? [])].map((l) => l.textContent)).toEqual(['E-mail manquant']);
+    await act(async () => { [...document.querySelectorAll('[data-fenetre-carte] button')].find((b) => b.textContent === 'Revenir modifier la carte')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(fen()).toBeNull();
+    expect(container.querySelectorAll('[data-recap="client"]')).toHaveLength(1);
+    await act(async () => { enregistrer.click(); });
+    await act(async () => { [...document.querySelectorAll('[data-fenetre-carte] button')].find((b) => b.textContent === 'Enregistrer quand même')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(container.querySelectorAll('[data-recap="client"]')).toHaveLength(2);
+    // La première est la SEULE complète : la retirer est refusé, avec une fenêtre qui dit quoi faire.
+    const retirer = [...(container.querySelector('[data-carte="1"]') as HTMLElement).querySelectorAll('button')].find((b) => b.textContent === 'Retirer cette carte')!;
+    await act(async () => { retirer.click(); });
+    expect(fen()?.textContent).toContain('Suppression impossible');
+    expect(fen()?.textContent).toContain('dernière carte complète');
+    expect(container.querySelectorAll('[data-recap="client"]')).toHaveLength(2);
+    await act(async () => { [...document.querySelectorAll('[data-fenetre-carte] button')].find((b) => b.textContent === 'Compris')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    // La seconde (incomplète) se retire librement.
+    await act(async () => { [...(container.querySelector('[data-carte="2"]') as HTMLElement).querySelectorAll('button')].find((b) => b.textContent === 'Retirer cette carte')!.click(); });
+    expect(container.querySelectorAll('[data-recap="client"]')).toHaveLength(1);
   });
 
   it('un contact SEUL ne suffit pas : au moins une carte « Propriétaire (client) »', async () => {
@@ -87,6 +125,8 @@ describe('🔴 Créer un nouveau propriétaire', () => {
     const contact = container.querySelector('[data-sorte="contact"] .cp-form') as HTMLElement;
     await remplir(contact, 'Martin', { email: 'martin@exemple.test' });
     await act(async () => { (contact.querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
+    // Sans téléphone : la fenêtre d'alerte (Arno, 18/10/2026) — « Enregistrer quand même ».
+    await act(async () => { [...document.querySelectorAll('[data-fenetre-carte] button')].find((b) => b.textContent === 'Enregistrer quand même')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     // La carte client vide est annulée : il ne reste que le contact (validé).
     await act(async () => { [...(container.querySelector('[data-sorte="client"] .cp-form') as HTMLElement).querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Annuler')!.click(); });
     expect(container.querySelectorAll('[data-recap="contact"]')).toHaveLength(1);

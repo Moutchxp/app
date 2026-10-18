@@ -30,7 +30,7 @@ describe.skipIf(!baseEssai)('🔴 fiche commune : sections « Location »', () =
   let logementId = 0;
 
   it('① « en gestion » : oui → non → non renseigné, journalisé ; une valeur hors liste est refusée', async () => {
-    const r = ok(await creerProprietaires({ cartes: [{ nom: `COMMUNE${S}`, coordonnees: [{ sorte: 'telephone' as const, valeur: '06 33 44 55 66', libelle: 'Mobile' }] }], enGestion: true, numeroMandat: `MG-${S}` }, AUTEUR));
+    const r = ok(await creerProprietaires({ cartes: [{ nom: `COMMUNE${S}`, coordonnees: [{ sorte: 'telephone' as const, valeur: '06 33 44 55 66', libelle: 'Mobile' }, { sorte: 'email' as const, valeur: `commune.${S}@exemple.test`, libelle: 'E-mail' }] }], enGestion: true, numeroMandat: `MG-${S}` }, AUTEUR));
     proprietaireId = r.ids[0];
     expect(ok(await ficheProprietaireLocation(proprietaireId))).toMatchObject({ enGestion: true, numeroMandat: `MG-${S}` });
     ok(await enregistrerEnGestion(proprietaireId, false, AUTEUR));

@@ -137,6 +137,8 @@ for (const [ou, monter] of Object.entries(MONTAGES)) {
       const valeurs = [...hote.querySelectorAll('[aria-label="Valeur"]')] as HTMLInputElement[];
       await act(async () => { poser(valeurs[valeurs.length - 1], 'axa@fictif.test'); });
       await cliquer(bouton('Enregistrer'));
+      // Sans téléphone : la fenêtre d'alerte de la carte complète (Arno, 18/10/2026), puis « Enregistrer quand même ».
+      await cliquer([...document.querySelectorAll('[data-fenetre-carte] button')].find((b) => b.textContent === 'Enregistrer quand même'));
       const ranges = posts.filter((p) => p.url === '/api/admin/gestion/historique/parties');
       expect(ranges.map((p) => [p.corps.cible, p.corps.adresse, p.corps.categorie])).toEqual([
         ['lot-501', 'axa@fictif.test', 'proprietaire'], ['lot-502', 'axa@fictif.test', 'proprietaire']]);

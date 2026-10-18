@@ -9,6 +9,8 @@ import type { Auteur } from '../gestion/gestes';
 import { analyserTermePortefeuille, type LigneRecherche, type ResultatsAccueil, type SortiePortefeuille } from './recherchePortefeuille';
 import type { Issue } from './locationRepo';
 import { manquesClientLocation } from './cartesLocation';
+import { MOTIF_PREMIERE_CARTE } from '../gestion/carteComplete';
+import { familleAUneCarteComplete } from '../gestion/familleCarteRepo';
 import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
 import { libelleOrigine, MOTIF_OCCUPATION_A_CONFIRMER, MOTIF_ORIGINE_REQUISE, verifierOrigine, type ApercuArchivage } from './archivage';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
@@ -535,6 +537,8 @@ export async function creerLocatairesSurBien(o: {
     const m = Object.values(manquesClientLocation({ nom: c.nom, coordonnees: c.coordonnees }));
     if (m.length > 0) return { etat: 'refus', motif: `Locataire ${i + 1} : ${m.join(' ')}` };
   }
+  // 🔴 Arno (18/10/2026) : la famille garde au moins UNE carte client complète — une carte saisie, ou une fiche retenue.
+  if (!(await familleAUneCarteComplete('locataire', cartes, existants))) return { etat: 'refus', motif: MOTIF_PREMIERE_CARTE };
   const refusC = refusContacts(o.contacts);
   if (refusC !== null) return { etat: 'refus', motif: refusC };
   const entree = o.entree !== null && /^\d{4}-\d{2}-\d{2}$/.test(o.entree) ? o.entree : null;

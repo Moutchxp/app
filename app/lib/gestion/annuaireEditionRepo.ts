@@ -1,4 +1,6 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { refusFamilleCarte } from './familleCarteRepo';
+import { carteEstComplete } from './carteComplete';
 import { annuaireModifiableDisponible, suppressionPersonneDisponible } from './schema';
 import { nomComplet, normaliserTexte } from './annuaire';
 // 🔴 LOT SUPPRIMER-CARTE — le motif du refus, écrit une fois : l'écran et le serveur disent la MÊME phrase.
@@ -163,6 +165,21 @@ export async function modifierPersonne(
       `SELECT * FROM ${TABLE[sujet]} WHERE id = $1 FOR UPDATE`, [id]);
     const avant = rows[0];
     if (avant === undefined) return { etat: 'inconnu' as const };
+
+    /* 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — une modification qui retirerait le téléphone ou l'e-mail de la DERNIÈRE
+       carte complète de sa famille est refusée, AVANT toute écriture. Une fiche archivée ne compte plus dans sa famille. */
+    if ((avant.archive_le ?? null) === null && (champs.coordonnees !== undefined || champs.nom !== undefined)) {
+      const nomApres = champs.nom !== undefined ? champs.nom : (avant.nom ?? avant.nom_complet ?? '');
+      let coordApres: { sorte: string; valeur: string }[];
+      if (retenues !== null && retenues.ok) coordApres = retenues.retenues.map((c) => ({ sorte: c.sorte, valeur: c.valeur }));
+      else {
+        const { rows: k } = await q<{ sorte: string; valeur: string }>(
+          `SELECT sorte, valeur FROM gestion_annuaire_contact WHERE sujet = $1 AND sujet_id = $2 AND absent_le IS NULL AND archive_le IS NULL`, [sujet, id]);
+        coordApres = k;
+      }
+      const motif = await refusFamilleCarte(q, sujet, id, carteEstComplete({ nom: nomApres, coordonnees: coordApres }), 'modification');
+      if (motif !== null) return { etat: 'refus' as const, motif };
+    }
 
     // ── LES CHAMPS SIMPLES ────────────────────────────────────────────────────────────────────────────────────
     const colonnes: Record<string, string | null> = {};
@@ -347,6 +364,11 @@ export async function archiverPersonne(
      * ⚠️ DANS LA TRANSACTION, ET APRÈS LE `FOR UPDATE` de la fiche : entre la lecture et l'écriture, personne ne
      * peut archiver l'autre propriétaire du même bien sans attendre ce verrou.
      */
+    // 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — archiver la DERNIÈRE carte complète de sa famille est refusé.
+    if (archiver && p.archive_le === null) {
+      const motif = await refusFamilleCarte(q, sujet, id, null, 'suppression');
+      if (motif !== null) return { etat: 'refus' as const, motif };
+    }
     if (archiver && sujet === 'proprietaire') {
       const orphelin = await lotSansProprietaireApres(q, id);
       if (orphelin !== null) {
@@ -422,6 +444,14 @@ export async function supprimerPersonne(
      * maladresse ; celui-ci protège d'un appel direct, d'une fenêtre restée ouverte, et d'un futur écran qui
      * oublierait la règle.
      */
+    // 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — supprimer la DERNIÈRE carte complète (active) de sa famille est refusé.
+    {
+      const { rows: a } = await q<{ actif: boolean }>(`SELECT archive_le IS NULL AS actif FROM ${TABLE[sujet]} WHERE id = $1`, [id]);
+      if (a[0]?.actif === true) {
+        const motif = await refusFamilleCarte(q, sujet, id, null, 'suppression');
+        if (motif !== null) return { etat: 'refus' as const, motif };
+      }
+    }
     if (sujet === 'proprietaire') {
       const orphelin = await lotSansProprietaireApres(q, id);
       if (orphelin !== null) {

@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API, liste } from './commun';
-import { FormulaireCarte, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
+import { FenetreCarte, FormulaireCarte, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
+import { carteEstComplete, manquesAAvertir, MOTIF_DERNIERE_COMPLETE_SUPPRESSION } from '../../../../lib/gestion/carteComplete';
 import type { CoordonneeSaisie } from '../../../../lib/gestion/annuaireEdition';
 import type { Doublon } from '../../../../lib/location/locationRepo';
 import {
@@ -16,10 +17,15 @@ import {
  * (bouton rouge) / “Contact du propriétaire” (bouton blanc) / “Annuler”. » Côté locataire : « Locataire (client) » /
  * « Contact du locataire ». Le choix reprend les classes du petit choix de la Gestion (`cp-carte--choix`, `cp-choix-btn`).
  *   · carte CLIENT : le formulaire de carte de la Gestion, étiquette rouge (propriétaire) ou verte (locataire), obligatoires
- *     ALLÉGÉS (le nom, un téléphone OU un e-mail), dédoublonnage dès la saisie, « Utiliser cette fiche » ;
+ *     ALLÉGÉS (le nom ; la première carte complète — voir plus bas), dédoublonnage dès la saisie, « Utiliser cette fiche » ;
  *   · carte CONTACT : le même formulaire en mode contact (la règle de la Gestion : le nom et un e-mail), étiquette grise,
  *     « Qualité » mise en avant. Un contact n'est pas un client : il ne compte jamais parmi les propriétaires / locataires.
  * « Enregistrer » d'une carte la VALIDE sur la page ; l'écran appelant enregistre le tout.
+ *
+ * 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026, qui remplace « un téléphone OU un e-mail ») : la PREMIÈRE carte client (aucune
+ * autre carte client complète validée, aucune fiche existante retenue) exige le nom, un téléphone ET un e-mail ; les
+ * suivantes (clients et contacts) passent par la fenêtre d'alerte des manques ; « Retirer » la dernière carte complète
+ * alors que d'autres cartes client restent est refusé, avec une fenêtre qui dit quoi faire.
  */
 export type SorteCarte = 'client' | 'contact';
 interface Carte { cle: number; sorte: SorteCarte; champs: ChampsSaisis | null; ouverte: boolean; doublons: Doublon[] }
@@ -51,6 +57,19 @@ export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e
   const [cartes, setCartes] = useState<Carte[]>([{ cle: 1, sorte: 'client', champs: null, ouverte: true, doublons: [] }]);
   const [existants, setExistants] = useState<{ id: number; nom: string }[]>([]);
   const [choix, setChoix] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
+  const completeValidee = (x: Carte): boolean => x.sorte === 'client' && x.champs !== null && !x.ouverte
+    && carteEstComplete({ nom: x.champs.nom, coordonnees: x.champs.coordonnees ?? [] });
+  /** Cette carte client est-elle la PREMIÈRE (aucune autre carte complète ni fiche retenue) ? Alors elle doit être complète. */
+  const estPremiere = (c: Carte): boolean => existants.length === 0 && !cartes.some((x) => x.cle !== c.cle && completeValidee(x));
+  const retirer = (c: Carte): void => {
+    const autresClients = cartes.filter((x) => x.cle !== c.cle && x.sorte === 'client');
+    if (completeValidee(c) && autresClients.length > 0 && !autresClients.some(completeValidee) && existants.length === 0) {
+      setInfo(MOTIF_DERNIERE_COMPLETE_SUPPRESSION);
+      return;
+    }
+    setCartes((l) => l.filter((x) => x.cle !== c.cle));
+  };
   const minuteurs = useRef(new Map<number, ReturnType<typeof setTimeout>>());
 
   useEffect(() => {
@@ -89,6 +108,10 @@ export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e
 
   return (
     <>
+      {info !== null && (
+        <FenetreCarte titre="Suppression impossible" texte={info}
+          boutons={[{ mot: 'Compris', principal: true, onClic: () => setInfo(null) }]} onFermer={() => setInfo(null)} />
+      )}
       {existants.length > 0 && (
         <ul className="loc-puces" aria-label="Fiches déjà connues retenues">
           {existants.map((x) => (
@@ -107,9 +130,11 @@ export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e
                 <p className="loc-carte-badge"><BadgeCarte cote={cote} sorte={c.sorte} /></p>
                 {c.sorte === 'client' ? (
                   <FormulaireCarte p={c.champs === null ? null : ficheDeChamps(c.champs)} refus={null}
-                    creation={{ rappel: cote === 'proprietaire' ? 'Sera propriétaire du futur bien. Obligatoires : le nom, un téléphone ou un e-mail.'
-                      : 'Sera locataire du bien choisi. Obligatoires : le nom, un téléphone ou un e-mail.' }}
-                    exigence={(f) => manquesClientLocation(f)}
+                    creation={{ rappel: `${cote === 'proprietaire' ? 'Sera propriétaire du futur bien.' : 'Sera locataire du bien choisi.'} ${estPremiere(c)
+                      ? 'Obligatoires : le nom, un téléphone ET un e-mail (première carte client).'
+                      : 'Obligatoire : le nom ; un téléphone et un e-mail complètent la carte.'}` }}
+                    exigence={(f) => manquesClientLocation(f, estPremiere(c))}
+                    avertir={estPremiere(c) ? undefined : manquesAAvertir}
                     onSaisie={(k) => surSaisie(c.cle, k)}
                     onEnregistrer={async (champs) => { changer(c.cle, (x) => ({ ...x, champs, ouverte: false })); }}
                     onAnnuler={() => (c.champs === null
@@ -120,6 +145,7 @@ export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e
                     contact={{ titre: `Nouveau ${MOT_CONTACT[cote].toLowerCase()}`,
                       rappel: `Un contact n’est pas un client : il sera rangé comme ${MOT_CONTACT[cote].toLowerCase()} du bien. Obligatoires : le nom et un e-mail.` }}
                     qualiteEnAvant={EXEMPLES_QUALITE[cote]}
+                    avertir={manquesAAvertir}
                     onEnregistrer={async (champs) => { changer(c.cle, (x) => ({ ...x, champs, ouverte: false })); }}
                     onAnnuler={() => (c.champs === null ? setCartes((l) => l.filter((x) => x.cle !== c.cle)) : changer(c.cle, (x) => ({ ...x, ouverte: false })))} />
                 )}
@@ -134,7 +160,7 @@ export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e
                 <span>{(c.champs.coordonnees ?? []).map((k) => k.valeur).join(' · ')}</span>
                 <div className="loc-boutons">
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changer(c.cle, (x) => ({ ...x, ouverte: true }))}>Modifier</button>
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setCartes((l) => l.filter((x) => x.cle !== c.cle))}>Retirer cette carte</button>
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => retirer(c)}>Retirer cette carte</button>
                 </div>
               </div>
             )}

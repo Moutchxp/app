@@ -13,6 +13,8 @@ import { analyserTermePortefeuille, type ResultatPortefeuille } from './recherch
 import { sqlBienDuPortefeuille, sqlDansPortefeuille } from './portefeuilleRepo';
 import type { Issue } from './locationRepo';
 import { manquesClientLocation } from './cartesLocation';
+import { MOTIF_PREMIERE_CARTE } from '../gestion/carteComplete';
+import { familleAUneCarteComplete } from '../gestion/familleCarteRepo';
 import { creerContactsDuBien, refusContacts, type ContactSaisi } from './contactsLocationRepo';
 import { rattacherSyndicAuBien, refusNouveauxContacts, type SyndicDuBien } from './syndicLocationRepo';
 import { rattacherContactsExistants, refusContactsExistants } from './rattachementProprietairesRepo';
@@ -81,7 +83,7 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
   const existants = [...new Set((o.existants ?? []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
   if (cartes.length + existants.length === 0) return { etat: 'refus', motif: 'Ajoutez au moins un propriétaire.' };
   for (const [i, c] of cartes.entries()) {
-    // Obligatoires ALLÉGÉS dans la Location (Arno, 17/10/2026) : le nom, et au moins un téléphone OU un e-mail.
+    // Obligatoires ALLÉGÉS dans la Location : le nom ; la famille doit avoir une carte COMPLÈTE (vérifié juste après).
     const manque = Object.values(manquesClientLocation({ nom: c.nom, coordonnees: c.coordonnees }));
     if (manque.length > 0) return { etat: 'refus', motif: `Carte ${i + 1} : ${manque.join(' ')}` };
     const v = verifierCoordonnees((c.coordonnees ?? []).filter((x) => x.valeur.trim() !== '') as CoordonneeSaisie[]);
@@ -93,6 +95,8 @@ export async function creerProprietaires(o: CartesProprietaires, auteur: Auteur)
       `SELECT count(*)::int AS n FROM gestion_annuaire_proprietaire p WHERE p.id = ANY($1::bigint[]) AND ${vivante}${await sqlDansPortefeuille('p')}`, [existants]);
     if ((rows[0]?.n ?? 0) !== existants.length) return { etat: 'refus', motif: 'Une fiche retenue n’existe plus, est archivée ou est sortie du portefeuille.' };
   }
+  // 🔴 Arno (18/10/2026) : la famille garde au moins UNE carte client complète — une carte saisie, ou une fiche retenue.
+  if (!(await familleAUneCarteComplete('proprietaire', cartes, existants))) return { etat: 'refus', motif: MOTIF_PREMIERE_CARTE };
   if (typeof o.enGestion !== 'boolean') return { etat: 'refus', motif: 'Répondez à « Propriétaire(s) en gestion ? » (Oui ou Non).' };
   if (!(await enGestionDisponible())) return { etat: 'sans_schema' };
   // « Non » : aucun N° de mandat n'est gardé, même s'il avait été saisi avant de changer d'avis.

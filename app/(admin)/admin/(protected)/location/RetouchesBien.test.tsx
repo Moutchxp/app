@@ -136,6 +136,8 @@ describe('🔴 « Créer un nouveau propriétaire » → le bien sur la même pa
     const nom = [...form.querySelectorAll('label.cp-champ')].find((l) => l.querySelector('.cp-champ-mot')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
     await saisir(nom, 'Martin');
     await saisir(form.querySelectorAll('.cp-saisie--valeur')[0] as HTMLInputElement, '06 12 34 56 78');
+    // Première carte client : un téléphone ET un e-mail (Arno, 18/10/2026).
+    await saisir(form.querySelectorAll('.cp-saisie--valeur')[1] as HTMLInputElement, 'martin@exemple.test');
     await act(async () => { (form.querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
     await act(async () => { bouton('Non').click(); });
     await saisir(container.querySelector('[data-mandat-transaction] input') as HTMLInputElement, 'MT 2026-041');

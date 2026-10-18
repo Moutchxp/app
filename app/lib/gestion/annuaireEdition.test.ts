@@ -802,7 +802,8 @@ describe('🔴 la carte d’ajout est la carte « Modifier », vide', () => {
      * d'un client. `manquesDuContact` est une autre fonction, dans le module pur, et c'est ce que la seconde
      * assertion vérifie.
      */
-    expect(src).toContain('creation === undefined ? {} : manquesDeLaFiche({');
+    // 🔴 Arno (18/10/2026, carte complète) : le téléphone et l'e-mail peuvent passer par la fenêtre d'alerte (carte SUIVANTE).
+    expect(src).toContain('creation === undefined ? {} : sansCoordonnees(manquesDeLaFiche({');
     expect(src).toContain('manquesDuContact({ nom, coordonnees: saisiesVivantes })');
   });
 

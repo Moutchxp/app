@@ -34,7 +34,7 @@ describe.skipIf(!baseEssai)('🔴 nom d’annexe, assurance PNO, propriétaire p
   let annexe = 0;
 
   it('① annexe « Autre » : nom obligatoire, gardé, titre de l’annexe ; refus avant toute écriture', async () => {
-    [proprietaire] = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [{ nom: `PNO${S}`, coordonnees: [tel('06 20 20 20 20')] }] }, AUTEUR)).ids;
+    [proprietaire] = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [{ nom: `PNO${S}`, coordonnees: [tel('06 20 20 20 20'), { sorte: 'email' as const, valeur: `pno.${S}@exemple.test`, libelle: 'E-mail' }] }] }, AUTEUR)).ids;
     const avant = await nbLots();
     const sansNom = await creerBienComplet({ proprietaireIds: [proprietaire], logement: { adresse: `5 rue Cellier${S}`, famille: 'logement', typeLogement: 'studio' },
       annexes: [{ categorie: 'autre', nomAnnexe: '  ' }] }, AUTEUR);
@@ -69,7 +69,7 @@ describe.skipIf(!baseEssai)('🔴 nom d’annexe, assurance PNO, propriétaire p
 
   it('③ nouveau propriétaire → bien : les fiches d’abord, puis le bien avec elles et le contact saisi', async () => {
     const ids = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [
-      { nom: `SUITE${S}`, prenom: 'Ana', coordonnees: [tel('06 30 30 30 30')] }, { nom: `SUITE${S}`, prenom: 'Bob', coordonnees: [tel('06 31 31 31 31')] },
+      { nom: `SUITE${S}`, prenom: 'Ana', coordonnees: [tel('06 30 30 30 30'), { sorte: 'email' as const, valeur: `ana.${S}@exemple.test`, libelle: 'E-mail' }] }, { nom: `SUITE${S}`, prenom: 'Bob', coordonnees: [tel('06 31 31 31 31')] },
     ] }, AUTEUR)).ids;
     const b = ok(await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `8 rue Suite${S}`, famille: 'logement', typeLogement: 'appartement' },
       contacts: [{ nom: `NOTAIRE${S}`, qualite: 'notaire', coordonnees: [{ sorte: 'email', valeur: `notaire.${S}@exemple.test`, libelle: 'E-mail' }] }] }, AUTEUR));

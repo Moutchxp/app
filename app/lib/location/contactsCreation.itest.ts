@@ -2,7 +2,7 @@
  * ══ 🔴🔴 TUILE LOCATION — CLIENTS ET CONTACTS À LA CRÉATION (Arno, 17/10/2026), SUR UNE BASE JETABLE ════════════════════
  *
  * « Seuls les PROPRIÉTAIRES et les LOCATAIRES sont des clients ; toutes les autres personnes sont des CONTACTS. »
- *   ① propriétaire seul, obligatoires ALLÉGÉS (le nom et un téléphone suffisent ; sans téléphone ni e-mail : refus) ;
+ *   ① propriétaire seul, obligatoires ALLÉGÉS (le nom ; la première carte complète : téléphone ET e-mail) ;
  *   ② propriétaire + 2 contacts → contacts posés sur le bien, côté propriétaire, par la porte de la Gestion (même table,
  *      même rôle), et NON comptés parmi les propriétaires ; absents de la recherche de l'accueil ;
  *   ③ contacts seuls refusés (propriétaire comme locataire) ; un contact sans e-mail refusé (règle de la Gestion) ;
@@ -35,9 +35,9 @@ describe.skipIf(!baseEssai)('🔴 clients et contacts à la création', () => {
   let proprietaireId = 0;
   let logementId = 0;
 
-  it('① propriétaire seul : le nom et un téléphone suffisent ; ni téléphone ni e-mail ⇒ refus', async () => {
+  it('① propriétaire seul : le nom, un téléphone et un e-mail (première carte, Arno 18/10/2026) ; ni téléphone ni e-mail ⇒ refus', async () => {
     expect((await creerProprietaires({ cartes: [{ nom: `SANSCOORD${S}` }], enGestion: false, numeroMandatTransaction: 'MT itest' }, AUTEUR)).etat).toBe('refus');
-    const r = ok(await creerProprietaires({ cartes: [{ nom: `SEUL${S}`, coordonnees: [tel('06 12 34 56 99')] }], enGestion: false, numeroMandatTransaction: 'MT itest' }, AUTEUR));
+    const r = ok(await creerProprietaires({ cartes: [{ nom: `SEUL${S}`, coordonnees: [tel('06 12 34 56 99'), mail(`seul.${S}@exemple.test`)] }], enGestion: false, numeroMandatTransaction: 'MT itest' }, AUTEUR));
     proprietaireId = r.ids[0];
     const { rows } = await query<{ civilite: string | null; prenom: string | null; adresse: string | null }>(
       'SELECT civilite, prenom, adresse FROM gestion_annuaire_proprietaire WHERE id = $1', [proprietaireId]);
@@ -86,7 +86,7 @@ describe.skipIf(!baseEssai)('🔴 clients et contacts à la création', () => {
 
   it('④ côté locataire : deux locataires (obligatoires allégés) + un contact du locataire, sur le bien choisi', async () => {
     const r = ok(await creerLocatairesSurBien({
-      cartes: [{ nom: `COLOC${S}`, prenom: 'Ana', coordonnees: [mail(`ana.${S}@exemple.test`)] }, { nom: `COLOC${S}`, prenom: 'Ben', coordonnees: [tel('06 11 11 11 11')] }],
+      cartes: [{ nom: `COLOC${S}`, prenom: 'Ana', coordonnees: [tel('06 10 10 10 10'), mail(`ana.${S}@exemple.test`)] }, { nom: `COLOC${S}`, prenom: 'Ben', coordonnees: [tel('06 11 11 11 11')] }],
       existants: [], contacts: [{ nom: `GARANT${S}`, qualite: 'garant', coordonnees: [mail(`garant.${S}@exemple.test`)] }],
       lotId: logementId, entree: '2026-11-01',
     }, AUTEUR));

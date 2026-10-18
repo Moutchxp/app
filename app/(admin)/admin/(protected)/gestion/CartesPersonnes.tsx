@@ -1,6 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  carteEstComplete, ligneDeManques, manquesAAvertir, manquesDeCompletude, titreSansCarteComplete, verdictFamille, type CarteMin,
+} from '../../../../lib/gestion/carteComplete';
 import type { ContactAffiche, PersonneAnnuaire } from '../../../../lib/gestion/annuaireRepo';
 // 🔴 LOT SUPPRIMER-CARTE — la phrase de confirmation, le motif du refus et le mot du lien : tous dans le module
 //   PUR, pour que l'écran et le serveur ne puissent pas dire deux choses différentes.
@@ -352,8 +356,10 @@ type Mode = 'lecture' | 'modifier' | 'separer';
 /** 🔴 LOT COULEURS-CARTOUCHES — la teinte d'une capsule de rôle quand l'écran la connaît (statut de la personne). */
 export type TonRoleCarte = 'proprietaire' | 'en_place' | 'ancien';
 
-export function CartePersonne({ p, gestes, role, dessous, deplacer, ton }: {
+export function CartePersonne({ p, gestes, role, dessous, deplacer, ton, regles }: {
   p: PersonneAnnuaire;
+  /** 🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — l'alerte des manques et le refus d'invariant, à la modification. */
+  regles?: { avertir?: (f: CarteMin) => string[]; bloquer?: (f: CarteMin) => string | null };
   gestes: GestesCartes;
   /** Le mot de la capsule de rôle : « Propriétaire », « En place », « Parti »… */
   role: string;
@@ -395,7 +401,7 @@ export function CartePersonne({ p, gestes, role, dessous, deplacer, ton }: {
   if (mode === 'modifier') {
     return (
       <article className="cp-carte cp-carte--edition">
-        <FormulaireCarte p={p} onAnnuler={fermer} refus={refus}
+        <FormulaireCarte p={p} onAnnuler={fermer} refus={refus} avertir={regles?.avertir} bloquer={regles?.bloquer}
           onEnregistrer={async (champs) => {
             const motif = await gestes.onEnregistrer(p.sujet, p.id, champs);
             if (motif === null) fermer(); else setRefus(motif);
@@ -643,6 +649,19 @@ interface LigneSaisie { cle: string; type: TypeCoordonnee; valeur: string }
  * les porte tous, donc AUCUN APPEL CLIENT NE CHANGE — c'est la condition d'Arno (« les cartes CLIENTS ne
  * changent pas d'un pixel »), tenue par le compilateur et non par une relecture.
  */
+/** Les manques d'une fiche, sans le téléphone ni l'e-mail quand ils passent par la fenêtre d'alerte. */
+function sansCoordonnees(m: Record<string, string>, retirer: boolean): Record<string, string> {
+  if (!retirer) return m;
+  const { telephone: _t, email: _e, ...reste } = m;
+  void _t; void _e;
+  return reste;
+}
+
+/** La carte d'une personne, pour la règle de la carte complète : son nom et ses coordonnées présentes. */
+export function carteDePersonne(p: PersonneAnnuaire): CarteMin {
+  return { nom: p.nom.trim() !== '' ? p.nom : p.nomAffiche, coordonnees: p.contacts.filter((c) => !c.absent).map((c) => ({ sorte: c.sorte, valeur: c.valeur })) };
+}
+
 export interface FicheAEditer {
   civilite: string | null;
   prenom: string | null;
@@ -656,7 +675,20 @@ export interface FicheAEditer {
   contacts: readonly { id: number; sorte: 'telephone' | 'email'; affichage: string; libelle: string | null }[];
 }
 
-export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie, exigence, qualiteEnAvant }: {
+export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie, exigence, qualiteEnAvant, avertir, bloquer, coordonneesFacultatives = false }: {
+  /**
+   * 🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — une carte client SUIVANTE de la fiche commune : les autres obligatoires de la
+   * Gestion restent (civilité, prénom, adresse…), mais le téléphone et l'e-mail passent par la fenêtre d'alerte.
+   */
+  coordonneesFacultatives?: boolean;
+  /**
+   * 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — `avertir` rend les manques (« Téléphone manquant », « E-mail manquant »)
+   * qui ouvrent la FENÊTRE D'ALERTE au clic sur « Enregistrer » (« Revenir modifier la carte » / « Enregistrer quand
+   * même ») ; `bloquer` rend le motif d'un REFUS (la dernière carte complète de la famille perdrait son téléphone ou son
+   * e-mail) : fenêtre d'information, rien n'est enregistré. Absentes ⇒ rien ne change.
+   */
+  avertir?: (f: CarteMin) => string[];
+  bloquer?: (f: CarteMin) => string | null;
   /** `null` en CRÉATION : la même carte, vide. */
   p: FicheAEditer | null;
   onEnregistrer: (champs: ChampsSaisis) => Promise<void>;
@@ -807,9 +839,9 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
   const manque = contact !== undefined
     ? manquesDuContact({ nom, coordonnees: saisiesVivantes })
     : creation !== undefined && exigence !== undefined ? exigence({ nom, coordonnees: saisiesVivantes })
-    : creation === undefined ? {} : manquesDeLaFiche({
+    : creation === undefined ? {} : sansCoordonnees(manquesDeLaFiche({
       civilite, nom, prenom, adresse, codePostal, commune, coordonnees: saisiesVivantes,
-    });
+    }), coordonneesFacultatives);
   /**
    * 🔴🔴 LOT HISTORIQUE-BIEN-8, POINT 3 — `empeche` COMPTE COMME UN MANQUE, et c'est tout ce qu'il fait. Il
    * entre dans la MÊME variable que les champs manquants : le bouton se grise par un seul chemin, et il n'y a
@@ -818,13 +850,21 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
   const empeche = (contact?.empeche ?? '').trim();
   const incomplete = Object.keys(manque).length > 0 || empeche !== '';
 
-  const soumettre = (): void => {
+  const [fenetre, setFenetre] = useState<null | { sorte: 'alerte'; manques: string[] } | { sorte: 'refus'; motif: string }>(null);
+  const soumettre = (forcer = false): void => {
     // 🔴 LE TYPE REDEVIENT `sorte` + `libelle` À L'ENVOI : le serveur n'apprend pas un nouveau vocabulaire.
     const saisies = saisiesVivantes.filter((c) => c.valeur.trim() !== '');
     const verdict = verifierCoordonnees(saisies);
     if (!verdict.ok) { setLocal(verdict.motif); return; }
     if (nom.trim() === '') { setLocal('Le nom ne peut pas être vide.'); return; }
     if (incomplete) { setLocal(null); return; }
+    // 🔴 LA CARTE COMPLÈTE : d'abord le refus (invariant de la famille), puis l'alerte des manques — sauf « quand même ».
+    const carte: CarteMin = { nom, coordonnees: saisies };
+    const refusFamille = bloquer?.(carte) ?? null;
+    if (refusFamille !== null) { setFenetre({ sorte: 'refus', motif: refusFamille }); return; }
+    const manquesAlerte = forcer ? [] : (avertir?.(carte) ?? []);
+    if (manquesAlerte.length > 0) { setFenetre({ sorte: 'alerte', manques: manquesAlerte }); return; }
+    setFenetre(null);
     setLocal(null);
     setEnvoi(true);
     void (async () => {
@@ -852,6 +892,18 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
 
   return (
     <form className="cp-form" onSubmit={(e) => { e.preventDefault(); soumettre(); }}>
+      {fenetre?.sorte === 'alerte' && (
+        <FenetreCarte titre="Carte incomplète" lignes={fenetre.manques}
+          texte="Cette carte n’est pas complète (nom, téléphone et e-mail) :"
+          boutons={[
+            { mot: 'Revenir modifier la carte', onClic: () => setFenetre(null) },
+            { mot: 'Enregistrer quand même', principal: true, onClic: () => { setFenetre(null); soumettre(true); } },
+          ]} onFermer={() => setFenetre(null)} />
+      )}
+      {fenetre?.sorte === 'refus' && (
+        <FenetreCarte titre="Modification impossible" texte={fenetre.motif}
+          boutons={[{ mot: 'Revenir modifier la carte', principal: true, onClic: () => setFenetre(null) }]} onFermer={() => setFenetre(null)} />
+      )}
       <p className="cp-form-titre">
         {contact?.titre ?? (creation === undefined ? 'Modifier la fiche' : 'Nouvelle fiche')}
       </p>
@@ -1321,7 +1373,7 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
      */
     return (
       <article className="cp-carte cp-carte--edition">
-        <FormulaireCarte p={ficheDeContact(c)} onAnnuler={fermer} refus={refus}
+        <FormulaireCarte p={ficheDeContact(c)} onAnnuler={fermer} refus={refus} avertir={manquesAAvertir}
           contact={{ titre: TITRE_CONTACT_MODIFIER }}
           onEnregistrer={async (champs) => {
             const motif = await gestes.onModifier(c.id, champs);
@@ -1432,8 +1484,15 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
 }
 
 export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, dessous, creation,
-  contacts = [], gestesContact, creationContact, teinte = null, sousTitre = null, tonRole, sansAjout = false }: {
+  contacts = [], gestesContact, creationContact, teinte = null, sousTitre = null, tonRole, sansAjout = false, famille }: {
   titre: string;
+  /**
+   * 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — ce bloc est une FAMILLE de cartes client (les propriétaires d'une fiche ou
+   * d'un bien, les locataires d'une location) : bandeau rouge sans carte complète, refus de supprimer / archiver /
+   * appauvrir la dernière carte complète (fenêtre d'information), alerte des manques à l'enregistrement. Absente ⇒ rien
+   * ne change (contacts, anciens locataires…).
+   */
+  famille?: 'propriétaire' | 'locataire';
   /**
    * 🔴 FICHE PROPRIÉTAIRE COMMUNE (Arno, 18/10/2026) — « Sur une fiche archivée, la carte n'apparaît pas. » Vrai ⇒ ni la
    * tuile d'ajout ni son choix. Absente (le défaut) ⇒ rien ne change pour les autres blocs.
@@ -1516,6 +1575,31 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
 }) {
   const vivantes = personnes.filter((p) => !p.archive);
   const archivees = personnes.filter((p) => p.archive);
+  /* 🔴 LA CARTE COMPLÈTE — la famille, telle que l'écran la voit (même règle que le serveur, `carteComplete`). */
+  const membres = vivantes.map((p) => {
+    const carte = carteDePersonne(p);
+    return { id: p.id, nom: p.nomAffiche, complete: carteEstComplete(carte), manques: manquesDeCompletude(carte) };
+  });
+  const [info, setInfo] = useState<string | null>(null);
+  const gestesVus: GestesCartes = famille === undefined ? gestes : {
+    ...gestes,
+    onArchiver: async (sujet, id, archiver) => {
+      const motif = archiver ? verdictFamille(membres, id, null, 'suppression') : null;
+      if (motif !== null) { setInfo(motif); return null; }
+      return gestes.onArchiver(sujet, id, archiver);
+    },
+    onSupprimer: gestes.onSupprimer === undefined ? undefined : async (sujet, id) => {
+      const motif = verdictFamille(membres, id, null, 'suppression');
+      if (motif !== null) { setInfo(motif); return null; }
+      return gestes.onSupprimer?.(sujet, id) ?? null;
+    },
+  };
+  const reglesDe = (p: PersonneAnnuaire): { avertir?: (f: CarteMin) => string[]; bloquer?: (f: CarteMin) => string | null } | undefined => (
+    famille === undefined || p.archive ? undefined : {
+      avertir: manquesAAvertir,
+      bloquer: (f) => verdictFamille(membres, p.id, carteEstComplete(f), 'modification'),
+    });
+  const sansComplete = famille !== undefined && membres.length > 0 && membres.every((m) => !m.complete);
   /**
    * ══ 🔴🔴 LOT SUPPRIMER-CARTE — LES ARCHIVÉES NE SONT PLUS DANS LA RANGÉE ════════════════════════════════
    *
@@ -1571,11 +1655,23 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
       </h4>
       {/* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la période d'occupation, sous le nom de l'ancien locataire. */}
       {sousTitre !== null && <p className="cp-sous-titre">{sousTitre}</p>}
+      {/* 🔴🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — une fiche ancienne sans carte complète n'est jamais bloquée : on le DIT. */}
+      {sansComplete && famille !== undefined && (
+        <div className="cp-bandeau-incomplet" role="alert" data-sans-carte-complete>
+          <strong>{titreSansCarteComplete(famille)}</strong>
+          <ul>{membres.map((m) => <li key={m.id}>{ligneDeManques(m.nom, m.manques)}</li>)}</ul>
+          <span>Complétez au moins une carte : un téléphone et un e-mail.</span>
+        </div>
+      )}
+      {info !== null && (
+        <FenetreCarte titre="Suppression impossible" texte={info}
+          boutons={[{ mot: 'Compris', principal: true, onClic: () => setInfo(null) }]} onFermer={() => setInfo(null)} />
+      )}
       {/* ⚠️ `nb` COMPTE LES CARTES RÉELLEMENT POSÉES : c'est lui qui décide si la piste défile. L'oublier
           aurait laissé une piste de douze cartes se croire à trois, et les flèches de défilement absentes. */}
       <Rangee nb={ordonnees.length + contactsMontres.length}>
         {ordonnees.map((p, i) => (
-          <CartePersonne key={`${p.sujet}-${p.id}`} p={p} gestes={gestes}
+          <CartePersonne key={`${p.sujet}-${p.id}`} p={p} gestes={gestesVus} regles={reglesDe(p)}
             role={typeof role === 'string' ? role : role(p)}
             ton={tonRole?.(p) ?? null}
             dessous={dessous?.(p)}
@@ -1636,6 +1732,10 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
               contact={ajout === 'contact' && creationContact !== undefined
                 ? { titre: TITRE_CONTACT_NOUVEAU, rappel: creationContact.rappel }
                 : undefined}
+              /* 🔴 LA CARTE COMPLÈTE — une carte SUIVANTE : téléphone et e-mail par la fenêtre d'alerte (un contact garde
+                 son e-mail obligatoire, seul le téléphone peut y être « manquant »). */
+              coordonneesFacultatives={famille !== undefined && ajout === 'client'}
+              avertir={famille !== undefined || ajout === 'contact' ? manquesAAvertir : undefined}
               onEnregistrer={async (champs) => {
                 const poser = ajout === 'contact' && creationContact !== undefined
                   ? creationContact.onCreer
@@ -1700,6 +1800,9 @@ export function BlocCartes({ titre, id, personnes, gestes, role, motAjouter, des
 /* ⚠️ AUCUN ACCENT GRAVE DANS CES COMMENTAIRES : ils vivent DANS un litteral gabarit, qu'un seul accent grave
    terminerait — piege consigne DOUZE fois dans ce depot, et douze fois dans un commentaire. */
 export const CSS_CARTES = `
+.cp-bandeau-incomplet{display:flex;flex-direction:column;gap:4px;margin:0 0 10px;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-red-dark)}
+.cp-bandeau-incomplet ul{margin:0;padding-left:1.2rem}
+.cp-bandeau-incomplet span{font-size:.9rem}
 /* ══ LA RANGEE QUI DEFILE ══════════════════════════════════════════════════════════════════════════════════════ */
 .cp-rangee{position:relative;min-width:0}
 /* Le defilement est horizontal, et il s'arrete sur une carte (scroll-snap) : on ne reste jamais a moitie. */
@@ -2030,4 +2133,53 @@ ${CSS_CHAMP_ADRESSE}
 .cp-bloc--violet .ann-bloc-titre::before{background:var(--color-svv-violet)}
 /* La periode d'occupation, sous le nom. Grise et discrete : c'est un reperage, pas un titre. */
 .cp-sous-titre{margin:-.2rem 0 0;font-size:.78rem;color:var(--color-svv-muted)}
+`;
+
+/**
+ * ══ 🔴🔴 LA FENÊTRE DES CARTES (Arno, 18/10/2026) — alerte des manques, ou refus expliqué ═══════════════════════════════
+ *
+ * Une petite fenêtre (portail sur la racine du thème, Clair / Sombre) : un titre, un texte, une liste éventuelle (les
+ * manques, ou ce qui manque à chaque carte), et un ou deux boutons. Échap ou un clic sur le voile ferment.
+ */
+export function FenetreCarte({ titre, texte, lignes = [], boutons, onFermer }: {
+  titre: string; texte?: string; lignes?: readonly string[];
+  boutons: { mot: string; principal?: boolean; onClic: () => void }[]; onFermer: () => void;
+}) {
+  const premier = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    premier.current?.focus();
+    const touche = (e: KeyboardEvent): void => { if (e.key === 'Escape') onFermer(); };
+    window.addEventListener('keydown', touche);
+    return () => window.removeEventListener('keydown', touche);
+  }, [onFermer]);
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <div className="cpf-voile" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
+      <style>{CSS_FENETRE_CARTE}</style>
+      <div className="cpf" role="alertdialog" aria-modal="true" aria-labelledby="cpf-titre" data-fenetre-carte>
+        <h2 id="cpf-titre" className="cpf-titre">{titre}</h2>
+        {texte !== undefined && <p className="cpf-texte">{texte}</p>}
+        {lignes.length > 0 && <ul className="cpf-liste">{lignes.map((l) => <li key={l}>{l}</li>)}</ul>}
+        <div className="cpf-boutons">
+          {boutons.map((b, i) => (
+            <button key={b.mot} type="button" ref={i === 0 ? premier : undefined}
+              className={`svv-btn gst-btn${b.principal ? ' svv-btn-primary cpf-principal' : ' svv-btn-outline'}`} onClick={b.onClic}>{b.mot}</button>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.querySelector('.svv-adm-root') ?? document.body,
+  );
+}
+
+const CSS_FENETRE_CARTE = `
+.cpf-voile{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent)}
+.cpf{box-sizing:border-box;width:min(520px, 100%);background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:14px;padding:18px;box-shadow:0 12px 40px color-mix(in srgb, var(--color-svv-ink) 28%, transparent);display:flex;flex-direction:column;gap:10px}
+.cpf-titre{margin:0;font-size:1.05rem;font-weight:800;color:var(--color-svv-red-dark)}
+.cpf-texte{margin:0;line-height:1.45}
+.cpf-liste{margin:0;padding-left:1.2rem;font-weight:700;color:var(--color-svv-red-dark)}
+.cpf-boutons{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;margin-top:4px}
+.cpf-boutons .svv-btn{min-height:44px}
+.cpf-principal{color:var(--color-svv-surface)}
+@media (max-width:640px){ .cpf-boutons{flex-direction:column-reverse} .cpf-boutons .svv-btn{width:100%} }
 `;
