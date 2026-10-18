@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import {
   dateFrPreavis, dateIsoValide, dateMaxPreavis, mentionCourtePreavis, mentionPreavis, MOTIF_MAX, statutPreavis, verifierPreavis,
   type DureeMois, type ModePreavis, type PreavisAffiche,
@@ -115,6 +115,97 @@ export function FormulairePreavis({
   );
 }
 
+/**
+ * ══ Arno (19/10/2026) — LE BLOC « ENREGISTRER UN PRÉAVIS » COMPACT, de l'ÉCRAN DE SORTIE (?sortie=) ═════════════════════
+ * Trois lignes : « Locataires concernés : » + étiquettes (la sélection des CARTES décide — plus de cases propres au bloc,
+ * avec l'accord d'Arno) ; réception du recommandé, durée en contrôle segmenté (la proposition marquée « proposé »), date
+ * maximale à la main si « À la main », « → sortie au plus tard le … » ; motif sur une ligne, Annuler / Enregistrer. Aucun
+ * texte d'aide permanent : un message n'apparaît que pour un vrai problème, ou si l'on enregistre sans la réception.
+ * Mêmes règles que le serveur (`verifierPreavis`) ; la liste envoyée est celle des cartes sélectionnées (hors préavis ouverts).
+ */
+export function FormulairePreavisCompact({ selection, dureeProposee, raison, onEnregistrer, onAnnuler }: {
+  selection: { occupationId: number; nom: string; entree: string | null; enPreavis: boolean }[];
+  dureeProposee: DureeMois;
+  raison: string;
+  onEnregistrer: (s: SaisiePreavis) => Promise<string | null>;
+  onAnnuler: () => void;
+}) {
+  const jour = aujourdhuiParisEcran();
+  const id = useId();
+  const [recuLe, setRecuLe] = useState('');
+  const [choix, setChoix] = useState<Choix>(String(dureeProposee) as Choix);
+  const [dateManuelle, setDateManuelle] = useState('');
+  const [motif, setMotif] = useState('');
+  const [envoi, setEnvoi] = useState(false);
+  const [tente, setTente] = useState(false);
+  const [refus, setRefus] = useState<string | null>(null);
+  const concernes = selection.filter((l) => !l.enPreavis);
+  const mode: ModePreavis = choix === 'manuelle' ? { mode: 'date_manuelle', dateMax: dateManuelle } : { mode: 'mois', duree: Number(choix) as DureeMois };
+  const verdict = verifierPreavis({ recuLe, choix: mode, motif, entrees: concernes.map((l) => l.entree) }, jour);
+  // Un message « manquant » (réception, date à la main, aucun locataire) n'apparaît qu'après une tentative ; un vrai problème, tout de suite.
+  const manque = concernes.length === 0 ? 'Sélectionnez au moins un locataire (cartes ci-dessous) qui n’est pas déjà en préavis'
+    : recuLe === '' ? (verdict.ok ? null : verdict.motif)
+      : choix === 'manuelle' && dateManuelle === '' ? (verdict.ok ? null : verdict.motif) : null;
+  const probleme = manque === null && !verdict.ok ? verdict.motif : null;
+  const erreur = refus ?? probleme ?? (tente ? manque : null);
+  const dateMax = dateIsoValide(recuLe) && (mode.mode === 'mois' || dateIsoValide(mode.dateMax)) ? dateMaxPreavis(recuLe, mode) : null;
+  const enregistrer = async (): Promise<void> => {
+    setTente(true);
+    if (manque !== null || probleme !== null) return;
+    setEnvoi(true); setRefus(null);
+    const r = await onEnregistrer({ occupationIds: concernes.map((l) => l.occupationId), recuLe, choix: mode, motif: motif.trim() === '' ? null : motif.trim() });
+    setEnvoi(false);
+    if (r !== null) setRefus(r);
+  };
+  const segments: { cle: Choix; mot: string }[] = [
+    { cle: '1', mot: `1 mois${dureeProposee === 1 ? ' (proposé)' : ''}` },
+    { cle: '3', mot: `3 mois${dureeProposee === 3 ? ' (proposé)' : ''}` },
+    { cle: 'manuelle', mot: 'À la main' },
+  ];
+  return (
+    <div className="loc-confirmation pvs-compact" role="group" aria-label="Enregistrer un préavis" data-formulaire-preavis data-compact>
+      <div className="pvs-compact-ligne" data-concernes>
+        <span className="pvs-compact-libelle">Locataires concernés :</span>
+        {selection.length === 0 ? <span className="loc-muet">aucun (sélectionnez une carte)</span> : selection.map((l) => (
+          <span key={l.occupationId} className={`sor-etiquette${l.enPreavis ? ' sor-etiquette--exclue' : ''}`} data-concerne={l.occupationId}>
+            <strong>{l.nom}</strong>{l.enPreavis ? ' · déjà en préavis' : ''}</span>
+        ))}
+      </div>
+      <div className="pvs-compact-ligne">
+        <label className="pvs-compact-champ" htmlFor={`${id}-recu`}>
+          <span className="pvs-compact-libelle">Réception du recommandé *</span>
+          <input id={`${id}-recu`} type="date" value={recuLe} max={jour} onChange={(e) => { setRecuLe(e.target.value); setRefus(null); }} required aria-required="true"
+            aria-describedby={erreur !== null ? `${id}-message` : undefined} aria-invalid={erreur !== null} data-recu-le />
+        </label>
+        <span className="pvs-segments" role="group" aria-label="Durée du préavis" title={`Proposé : ${raison}`}>
+          {segments.map((x) => (
+            <button key={x.cle} type="button" className="pvs-segment" aria-pressed={choix === x.cle} onClick={() => { setChoix(x.cle); setRefus(null); }}
+              data-duree={x.cle === String(dureeProposee) ? 'proposee' : x.cle === 'manuelle' ? 'manuelle' : 'autre'}>{x.mot}</button>
+          ))}
+        </span>
+        {choix === 'manuelle' && (
+          <input type="date" className="pvs-date-manuelle" value={dateManuelle} min={dateIsoValide(recuLe) ? recuLe : undefined}
+            onChange={(e) => { setDateManuelle(e.target.value); setRefus(null); }} aria-label="Date maximale de sortie" data-date-manuelle />
+        )}
+        <span className="pvs-compact-max" data-date-max>→ sortie au plus tard le <strong className="pvs-max-valeur">{dateMax === null ? '—' : dateFrPreavis(dateMax)}</strong></span>
+      </div>
+      <div className="pvs-compact-ligne">
+        <label className="pvs-compact-champ pvs-compact-motif">
+          <span className="pvs-compact-libelle">Motif (facultatif)</span>
+          <input type="text" value={motif} onChange={(e) => setMotif(e.target.value)} maxLength={MOTIF_MAX} placeholder="ex. mutation professionnelle" data-motif />
+        </label>
+        <span className="sor-compact-boutons">
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} disabled={envoi}>Annuler</button>
+          <button type="button" className="svv-btn svv-btn-primary gst-btn sor-confirmer-btn" onClick={() => { void enregistrer(); }} disabled={envoi || probleme !== null} data-enregistrer-preavis>
+            {envoi ? 'Enregistrement…' : 'Enregistrer le préavis'}</button>
+        </span>
+      </div>
+      <p className="loc-muet pvs-compact-raison" data-raison>Durée proposée : {dureeProposee} mois ({raison}).</p>
+      {erreur !== null && <p id={`${id}-message`} className="cp-refus" role="alert" data-message-preavis>{erreur}</p>}
+    </div>
+  );
+}
+
 /** « Corriger le préavis » / « Annuler le préavis » d'un préavis ouvert (gestes journalisés côté serveur). */
 export function GestesPreavis({ p, entree, envoyerGeste, apres }: {
   p: PreavisAffiche & { dureeProposee?: number | null };
@@ -168,6 +259,20 @@ export const CSS_PREAVIS = `
 /* Arno (19/10/2026) — « en préavis » en BLEU TRANSPARENT (paire bleue du thème, Clair ET Sombre) ; « Préavis échu — sortie à
    saisir » GARDE sa couleur d'alerte (orange plein), distincte, pour rester repérable. Toujours avec le mot. */
 .pvs-mention{display:inline-block;border-radius:999px;padding:2px 10px;font-size:.85rem;font-weight:800;background:var(--color-svv-blue-soft);color:var(--color-svv-blue);border:1px solid var(--color-svv-blue)}
+.pvs-compact{display:flex;flex-direction:column;gap:8px;padding:10px 12px}
+.pvs-compact-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
+.pvs-compact-libelle{font-weight:700;color:var(--color-svv-ink)}
+.pvs-compact-champ{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0}
+.pvs-compact-champ input{min-height:44px;box-sizing:border-box;max-width:100%}
+.pvs-compact-motif{flex:1 1 220px}
+.pvs-compact-motif input{flex:1 1 160px;min-width:0}
+.pvs-segments{display:inline-flex;flex-wrap:wrap;gap:4px}
+.pvs-segment{min-height:44px;padding:6px 12px;border-radius:999px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.9rem;cursor:pointer}
+.pvs-segment[aria-pressed="true"]{background:var(--color-svv-ink);color:var(--color-svv-surface);border-color:var(--color-svv-ink);font-weight:700}
+.pvs-compact-max{color:var(--color-svv-blue);font-weight:600}
+.pvs-compact-max .pvs-max-valeur{color:var(--color-svv-blue)}
+.pvs-compact-raison{margin:0;font-size:.82rem}
+@media (max-width:760px){ .pvs-compact-ligne{flex-direction:column;align-items:stretch} .pvs-compact-champ{flex-direction:column;align-items:stretch} }
 .pvs-mention--echu{background:var(--color-svv-urgence-orange);color:var(--color-svv-surface);border-color:var(--color-svv-urgence-orange)}
 .pvs-form{display:flex;flex-direction:column;gap:12px}
 .pvs-cases,.pvs-duree{border:1px solid var(--color-svv-line);border-radius:12px;padding:8px 12px;margin:0;display:flex;flex-direction:column;gap:2px}

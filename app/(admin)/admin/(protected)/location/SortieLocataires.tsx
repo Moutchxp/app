@@ -5,7 +5,7 @@ import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phras
 import { CSS_RESULTATS } from './AccueilLocation';
 import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
 import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
-import { CSS_PREAVIS, FormulairePreavis, GestesPreavis, MentionPreavis, aujourdhuiParisEcran } from './Preavis';
+import { CSS_PREAVIS, FormulairePreavisCompact, GestesPreavis, MentionPreavis, aujourdhuiParisEcran } from './Preavis';
 import type { PreavisDuBail } from '../../../../lib/location/preavisRepo';
 import {
   casesParDefaut, dateFr, dateMinSortie, descriptionLogement, phraseIssue, verifierSortie,
@@ -270,9 +270,11 @@ function RecapSortie({ bail, sortants, date, phrase, vacant }: {
  * dit pourquoi ; le serveur garde ses refus (`verifierSortie`) et vérifie le droit Gestion. UNE seule porte d'écriture :
  * l'action `sortie-locataires` (fonction commune `enregistrerSortie`).
  */
-export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFait }: {
+export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFait, compact = false }: {
   bail: BailLogement; choix: readonly number[]; occupationId: number; onAnnuler: () => void;
   onFait: (phrase: string, mail: string | null) => void;
+  /** Arno (19/10/2026) — la forme COMPACTE, sur deux lignes, de l'ÉCRAN DE SORTIE seulement (l'accueil garde celle-ci). */
+  compact?: boolean;
 }) {
   const [date, setDate] = useState('');
   const [motif, setMotif] = useState<string | null>(null);
@@ -299,6 +301,41 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
     const mail = r.mail as EtatMail | undefined;
     onFait(phrase.replace('deviendra', 'devient'), mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail));
   };
+  if (compact) {
+    /* 🔴 Arno (19/10/2026) — DEUX LIGNES : « Qui sort : » + une étiquette par locataire ; puis la date (focus), la
+       conséquence (UNE seule fois à l'écran), Annuler / Confirmer. Aucun texte d'aide permanent : un message n'apparaît
+       que pour un vrai problème (date avant l'entrée, future, à plus d'un an) — ou si l'on confirme sans date. */
+    const probleme = date.trim() === '' ? null : messageDate;
+    const erreur = motif ?? probleme;
+    return (
+      <div className="loc-confirmation sor-compact" role="alertdialog" aria-label={`${libelleFaireSortir(n)} ?`} data-recapitulatif data-compact>
+        <div className="sor-compact-ligne" data-qui-sort>
+          <span className="sor-compact-libelle">Qui sort :</span>
+          {sortants.map((l) => (
+            <span key={l.occupationId} className="sor-etiquette" data-sortant={l.occupationId}>
+              <strong>{l.nom}</strong>{l.entree === null ? '' : ` · entré le ${dateFr(l.entree)}`}</span>
+          ))}
+        </div>
+        <div className="sor-compact-ligne sor-compact-ligne--actions">
+          <label className="sor-compact-date" htmlFor={`${id}-date`}>
+            <span className="sor-compact-libelle">Date de sortie *</span>
+            <input id={`${id}-date`} ref={champDate} type="date" value={date} required aria-required="true"
+              aria-describedby={erreur !== null ? `${id}-message` : undefined} aria-invalid={erreur !== null}
+              onChange={(e) => { setDate(e.target.value); setMotif(null); }}
+              max={jour} min={[entreeMax, dateMinSortie(jour)].filter((x): x is string => x !== null).sort().pop()} data-date-sortie />
+          </label>
+          {vacant ? <span className="sor-pastille sor-pastille--vacant" data-consequence="vacant">Logement VACANT</span>
+            : <span className="sor-pastille sor-pastille--reste" data-consequence="reste">Reste loué à : {restants.join(', ')}</span>}
+          <span className="sor-compact-boutons">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler} disabled={envoi}>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn sor-confirmer-btn" onClick={() => { void confirmer(); }} disabled={envoi || probleme !== null} data-confirmer>
+              {envoi ? 'Enregistrement…' : 'Confirmer la sortie'}</button>
+          </span>
+        </div>
+        {erreur !== null && <p id={`${id}-message`} className="cp-refus sor-compact-erreur" role="alert" data-message-date>{erreur}</p>}
+      </div>
+    );
+  }
   return (
     <div className="loc-confirmation arc-confirmation sor-confirmer" role="alertdialog" aria-label="Confirmer la sortie" data-recapitulatif>
       <p className="sor-confirmer-titre"><strong>{libelleFaireSortir(n)} ?</strong></p>
@@ -458,8 +495,6 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
   const [choix, setChoix] = useState<number[]>(() => casesParDefaut(bail));
   const [ouvert, setOuvert] = useState(false);
   const n = choix.length;
-  const phrase = phraseIssue(bail, choix);
-  const vacant = phrase.startsWith('Le logement deviendra VACANT');
   const basculer = (id: number): void => { setOuvert(false); setChoix((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id])); };
   const encart = useLecture<EncartLogement & { locataireCle: string | null; lotCle: string }>(`encartBail=${occupationId}`);
   const [versionPreavis, setVersionPreavis] = useState(0);
@@ -495,9 +530,10 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
           </div>
           {pv !== null && !pv.disponible && <p className="loc-muet" style={{ margin: 0 }} data-preavis-indisponible>Préavis : la mise à jour de la base (migration 383) reste à appliquer.</p>}
           {preavisOuvert && pv !== null && pv.disponible && (
-            <FormulairePreavis
-              locataires={pv.locataires.map((l) => ({ occupationId: l.occupationId, nom: l.nom, entree: l.entree, enPreavis: l.preavis !== null }))}
-              entrees={pv.locataires.map((l) => l.entree)} dureeProposee={pv.dureeProposee} raison={pv.raison}
+            /* Arno (19/10/2026) — la forme COMPACTE ; les locataires concernés sont ceux des CARTES sélectionnées. */
+            <FormulairePreavisCompact
+              selection={pv.locataires.filter((l) => choix.includes(l.occupationId)).map((l) => ({ occupationId: l.occupationId, nom: l.nom, entree: l.entree, enPreavis: l.preavis !== null }))}
+              dureeProposee={pv.dureeProposee} raison={pv.raison}
               onAnnuler={() => setPreavisOuvert(false)}
               onEnregistrer={async (saisie) => {
                 const r = await envoyer({ action: 'enregistrer-preavis', occupationIds: saisie.occupationIds, recuLe: saisie.recuLe, choix: saisie.choix, motif: saisie.motif });
@@ -510,12 +546,10 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
               }} />
           )}
           {preavisFait !== null && <p className="gst-info arc-bilan" role="status" data-preavis-fait>{preavisFait}</p>}
-          {bail.locataires.length > 0 && (
-            <p className={vacant && n > 0 ? 'sor-issue sor-issue--vacant' : 'sor-issue'} aria-live="polite" data-issue>
-              {n === 0 ? 'Personne ne sort : le logement reste loué à tous ses locataires.' : phrase}</p>
-          )}
+          {/* Arno (19/10/2026) — le bandeau « VACANT / reste loué » sous les deux gros boutons est RETIRÉ (avec son accord) : la
+              conséquence ne s'affiche plus QU'UNE fois, dans le bloc « Faire sortir » ouvert. */}
           {ouvert && n > 0 && (
-            <ConfirmationSortie bail={bail} choix={choix} occupationId={occupationId} onAnnuler={() => setOuvert(false)} onFait={apres} />
+            <ConfirmationSortie bail={bail} choix={choix} occupationId={occupationId} onAnnuler={() => setOuvert(false)} onFait={apres} compact />
           )}
           {bilan !== null && (
             <div className="gst-info arc-bilan" role="status" data-sortie-faite>
@@ -756,6 +790,22 @@ export const CSS_SORTIE = `
 .sor-encart-coords a{display:inline-flex;align-items:center;min-height:44px;margin-left:10px;color:var(--color-svv-ink);text-decoration:underline}
 .sor-historique{margin-top:6px;min-width:0}
 .sor-confirmer{display:flex;flex-direction:column;gap:12px}
+/* Arno (19/10/2026) — LE BLOC « FAIRE SORTIR » COMPACT (écran de sortie) : deux lignes, fond gris du bloc conservé. */
+.sor-compact{display:flex;flex-direction:column;gap:8px;padding:10px 12px}
+.sor-compact-ligne{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0}
+.sor-compact-libelle{font-weight:700;color:var(--color-svv-ink)}
+.sor-compact-date{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px}
+.sor-compact-date input{min-height:44px;box-sizing:border-box;max-width:100%}
+.sor-compact-boutons{display:inline-flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+.sor-compact-erreur{margin:0}
+.sor-etiquette{display:inline-flex;align-items:center;min-height:32px;padding:2px 10px;border-radius:999px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);color:var(--color-svv-ink);overflow-wrap:anywhere}
+.sor-etiquette--exclue{color:var(--color-svv-muted);border-style:dashed}
+.sor-pastille{display:inline-flex;align-items:center;min-height:32px;padding:2px 10px;border-radius:999px;font-weight:700;overflow-wrap:anywhere}
+.sor-pastille--vacant{background:var(--color-svv-red);color:var(--color-svv-surface)}
+.sor-pastille--reste{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border:1px solid var(--color-svv-green)}
+/* Arno (19/10/2026) — un bouton de confirmation DÉSACTIVÉ reste LISIBLE : fond gris, texte gris foncé, curseur interdit. */
+.sor-compact .sor-confirmer-btn:disabled,.pvs-compact .sor-confirmer-btn:disabled{background:var(--color-svv-field);border-color:var(--color-svv-line-strong);color:var(--color-svv-muted);opacity:1;cursor:not-allowed}
+@media (max-width:760px){ .sor-compact-ligne{flex-direction:column;align-items:stretch} .sor-compact-date{flex-direction:column;align-items:stretch} .sor-compact-boutons{margin-left:0} }
 .sor-confirmer-titre{margin:0;font-size:1.1rem}
 .sor-confirmer-sous{margin:0 0 4px;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
 .sor-qui{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}

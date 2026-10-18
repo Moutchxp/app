@@ -204,37 +204,44 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     // Arno (19/10/2026) : BLANC à l'ouverture (rouge seulement une fois choisi).
     expect(gros().className).toBe('arc-gros sor-bascule');
     expect(gros().getAttribute('aria-pressed')).toBe('false');
-    expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement deviendra VACANT');
+    // Arno (19/10/2026) : plus de bandeau de conséquence sous les deux gros boutons.
+    expect(container.querySelector('[data-issue]')).toBeNull();
     expect(container.textContent).not.toContain('Fiche commune avec la Gestion');
     expect(f.mock.calls.map((c) => String(c[0])).sort()).toEqual(['/api/admin/location?bail=11&v=0', '/api/admin/location?encartBail=11', '/api/admin/location?preavisBail=11&p=0']);
   });
 
-  it('la bascule suit le compteur et la phrase ; à 0, le gros bouton est inactif', async () => {
+  it('la bascule suit le compteur ; la conséquence, dans le bloc ouvert ; à 0, le gros bouton est inactif', async () => {
     await rendre(() => ok(BAIL));
     act(() => cartes()[1].click());
     expect(cartes()[1].textContent).toBe('Reste dans le logement');
     expect(gros().textContent).toBe('Faire sortir 1 locataire');
-    expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement reste loué à : BERNARD Paul');
+    act(() => gros().click());
+    expect(container.querySelector('[data-consequence]')?.textContent).toBe('Reste loué à : BERNARD Paul');
+    act(() => gros().click());
     act(() => cartes()[0].click());
     expect(gros().textContent).toBe('Faire sortir 0 locataire');
     expect(gros().disabled).toBe(true);
   });
 
-  it('confirmation RÉDUITE : titre, qui sort (une fiche par ligne), date mise en avant ; ni logement, ni adresse, ni propriétaire, ni entrée', async () => {
+  it('Arno (19/10/2026) — bloc COMPACT, deux lignes : « Qui sort : » + étiquettes ; date (focus), conséquence, Annuler / Confirmer', async () => {
     await rendre(() => ok(BAIL));
     act(() => gros().click());
     const bloc = container.querySelector('[data-recapitulatif]')!;
-    expect(bloc.querySelector('.sor-confirmer-titre')?.textContent).toBe('Faire sortir 2 locataires ?');
-    expect([...bloc.querySelectorAll('[data-qui-sort] li')].map((li) => li.textContent)).toEqual([
-      'BERNARD Alice entré(e) le 01/09/2022', 'BERNARD Paul entré(e) le 01/09/2022']);
-    for (const retire of ['Logement', 'Adresse', 'Propriétaire', 'Date d’entrée', 'DUPONT Jean', '4 rue Fictive']) {
+    expect(bloc.getAttribute('aria-label')).toBe('Faire sortir 2 locataires ?');
+    const lignes = [...bloc.querySelectorAll(':scope > .sor-compact-ligne')];
+    expect(lignes).toHaveLength(2);
+    expect(lignes[0].querySelector('.sor-compact-libelle')?.textContent).toBe('Qui sort :');
+    expect([...lignes[0].querySelectorAll('.sor-etiquette')].map((x) => x.textContent)).toEqual([
+      'BERNARD Alice · entré le 01/09/2022', 'BERNARD Paul · entré le 01/09/2022']);
+    expect(lignes[1].querySelector('.sor-compact-libelle')?.textContent).toBe('Date de sortie *');
+    expect(lignes[1].querySelector('[data-consequence="vacant"]')?.textContent).toBe('Logement VACANT');
+    expect([...lignes[1].querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Annuler', 'Confirmer la sortie']);
+    for (const retire of ['Logement,', 'Adresse', 'Propriétaire', 'DUPONT Jean', '4 rue Fictive', 'Obligatoire']) {
       expect(bloc.textContent, retire).not.toContain(retire);
     }
-    // Un seul libellé visible pour la date, et le champ a le focus.
-    expect(bloc.querySelectorAll('.sor-date-libelle')).toHaveLength(1);
-    expect(bloc.querySelector('.sor-date-libelle')?.textContent).toBe('Date de sortie *');
-    expect(bloc.textContent).toContain('Obligatoire');
     expect(document.activeElement).toBe(bloc.querySelector('input[data-date-sortie]'));
+    // La conséquence n'est affichée qu'UNE fois à l'écran.
+    expect(container.querySelectorAll('[data-consequence]')).toHaveLength(1);
   });
 
   it('sans date : « Confirmer » désactivé ET le message dit pourquoi ; les trois messages ; valide → envoi', async () => {
@@ -246,8 +253,11 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     const message = (): string | undefined => container.querySelector('[data-message-date]')?.textContent;
     const date = (): HTMLInputElement => container.querySelector('input[data-date-sortie]') as HTMLInputElement;
     expect(date().value).toBe('');
-    expect(confirmer().disabled).toBe(true);
-    expect(message()).toBe('Saisissez la date de sortie');
+    // Arno (19/10/2026) : AUCUN message à l'ouverture ; il apparaît si l'on confirme sans date — et rien ne part.
+    expect(message()).toBeUndefined();
+    await act(async () => { confirmer().click(); });
+    expect(message()).toBe('La date de sortie est obligatoire.');
+    expect(date().getAttribute('aria-describedby')).toBe(container.querySelector('[data-message-date]')?.id);
     act(() => saisir(date(), '2020-01-01'));
     expect(confirmer().disabled).toBe(true);
     expect(message()).toBe('La date ne peut pas précéder l’entrée du 01/09/2022');
@@ -265,22 +275,32 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(container.querySelector('[data-sortie-faite]')?.textContent).toContain('Le logement reste loué à : BERNARD Paul');
   });
 
-  it('conséquence : « Le logement deviendra VACANT » si tous sortent ; sinon « Il restera N locataire(s) » (vert), noms dessous', async () => {
+  it('conséquence (pastille, une seule fois) : « Logement VACANT » en rouge si tous sortent ; sinon « Reste loué à : … » en vert', async () => {
     const TROIS: BailLogement = { ...BAIL, locataires: [...BAIL.locataires, { occupationId: 13, locataireId: 103, nom: 'BERNARD Léo', entree: '2022-09-01' }] };
     await rendre(() => ok(TROIS));
     act(() => gros().click());
-    expect(container.querySelector('[data-consequence]')?.textContent).toBe('Le logement deviendra VACANT');
-    expect(container.querySelector('[data-consequence]')?.className).toContain('sor-issue--vacant');
+    expect(container.querySelector('[data-consequence]')?.textContent).toBe('Logement VACANT');
+    expect(container.querySelector('[data-consequence]')?.className).toBe('sor-pastille sor-pastille--vacant');
     act(() => cartes()[2].click());
     act(() => gros().click());
-    const reste = container.querySelector('[data-consequence="reste"]')!;
-    expect(reste.querySelector('p')?.textContent).toBe('Il restera 1 locataire dans le logement');
-    expect([...reste.querySelectorAll('li')].map((x) => x.textContent)).toEqual(['BERNARD Léo']);
+    expect(container.querySelector('[data-consequence="reste"]')?.textContent).toBe('Reste loué à : BERNARD Léo');
+    expect(container.querySelector('[data-consequence="reste"]')?.className).toBe('sor-pastille sor-pastille--reste');
     act(() => cartes()[1].click());
     act(() => gros().click());
-    expect(container.querySelector('[data-consequence="reste"] p')?.textContent).toBe('Il restera 2 locataires dans le logement');
-    // La phrase sous le gros bouton rouge, elle, ne change pas de forme.
-    expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement reste loué à : BERNARD Paul, BERNARD Léo');
+    expect(container.querySelector('[data-consequence="reste"]')?.textContent).toBe('Reste loué à : BERNARD Paul, BERNARD Léo');
+    expect(container.querySelectorAll('[data-consequence]')).toHaveLength(1);
+  });
+
+  it('bouton désactivé LISIBLE (fond gris, texte gris foncé, curseur interdit) — pour les deux blocs', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/SortieLocataires.tsx', 'utf8');
+    expect(src).toContain('.sor-compact .sor-confirmer-btn:disabled,.pvs-compact .sor-confirmer-btn:disabled{background:var(--color-svv-field);border-color:var(--color-svv-line-strong);color:var(--color-svv-muted);opacity:1;cursor:not-allowed}');
+  });
+
+  it('le serveur refuse toujours une sortie sans date, et un préavis sans réception (mêmes règles, pures)', async () => {
+    const { verifierSortie } = await import('../../../../lib/location/sortieLocataires');
+    const { verifierPreavis } = await import('../../../../lib/location/preavis');
+    expect(verifierSortie(BAIL, [11], '', '2026-10-19').ok).toBe(false);
+    expect(verifierPreavis({ recuLe: '', choix: { mode: 'mois', duree: 1 }, entrees: [] }, '2026-10-19').ok).toBe(false);
   });
 
   it('la recherche, au gabarit de l’écran des biens : résultats VERTS avec le mot « occupant »', async () => {
@@ -389,11 +409,20 @@ describe('le préavis sur l’écran de sortie et dans la recherche (Arno, 18/10
     const f = await rendre(true);
     act(() => (container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).click());
     const form = container.querySelector('[data-formulaire-preavis]')!;
-    expect([...form.querySelectorAll('input[data-case-preavis]')].map((c) => (c as HTMLInputElement).checked)).toEqual([true, true]);
-    expect(form.textContent).toContain('1 mois — proposé (logement vide en zone tendue)');
+    // Arno (19/10/2026) : plus de cases propres au bloc — les CARTES sélectionnées (cochées par défaut) décident.
+    expect(form.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect([...form.querySelectorAll('[data-concernes] .sor-etiquette')].map((x) => x.textContent)).toEqual(['BERNARD Alice', 'BERNARD Paul']);
+    // Durée en contrôle segmenté, la proposition marquée « proposé » et active ; sa raison reste dite.
+    expect([...form.querySelectorAll('.pvs-segment')].map((b) => [b.textContent, b.getAttribute('aria-pressed')])).toEqual([
+      ['1 mois (proposé)', 'true'], ['3 mois', 'false'], ['À la main', 'false']]);
+    expect(form.querySelector('[data-raison]')?.textContent).toBe('Durée proposée : 1 mois (logement vide en zone tendue).');
+    expect(form.querySelector('[data-date-max]')?.textContent).toBe('→ sortie au plus tard le —');
     const bouton = (): HTMLButtonElement => form.querySelector('button[data-enregistrer-preavis]') as HTMLButtonElement;
-    expect(bouton().disabled).toBe(true);
+    // Aucun message à l'ouverture ; il apparaît si l'on enregistre sans la réception — rien ne part.
+    expect(form.querySelector('[data-message-preavis]')).toBeNull();
+    await act(async () => { bouton().click(); });
     expect(form.querySelector('[data-message-preavis]')?.textContent).toBe('Saisissez la date de réception du recommandé');
+    expect(f.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
     act(() => saisir(form.querySelector('input[data-recu-le]') as HTMLInputElement, HIER));
     const attendu = (() => { const [a, m, j] = HIER.split('-').map(Number); const d = new Date(Date.UTC(a, m, 1));
       d.setUTCDate(Math.min(j, new Date(Date.UTC(a, m + 1, 0)).getUTCDate())); return d.toISOString().slice(0, 10).split('-').reverse().join('/'); })();
@@ -601,5 +630,42 @@ describe('Arno (19/10/2026) — l’écran de sortie retravaillé', () => {
     expect(cartes()[1].textContent).toBe('Reste dans le logement');
     act(() => cartes()[1].click());
     expect(f.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+  });
+});
+
+describe('Arno (19/10/2026) — le bloc « Enregistrer un préavis » compact, alimenté par les cartes', () => {
+  const rendre = async (): Promise<ReturnType<typeof vi.fn>> => {
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (init?.method === 'POST' ? ok({ dateMax: '2099-01-01' })
+      : String(u).includes('encartBail=') ? ok(ENCART) : String(u).includes('preavisBail=') ? ok(PREAVIS) : ok(BAIL)));
+    global.fetch = f as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    return f;
+  };
+  const cartes = (): HTMLButtonElement[] => [...container.querySelectorAll('button[data-choisir]')] as HTMLButtonElement[];
+
+  it('décocher une carte la retire des « Locataires concernés » ; la liste envoyée est celle des cartes ; « À la main » sur la même ligne', async () => {
+    const f = await rendre();
+    act(() => (container.querySelector('button[data-enregistrer-un-preavis]') as HTMLButtonElement).click());
+    act(() => cartes()[1].click());
+    const form = container.querySelector('[data-formulaire-preavis]')!;
+    expect([...form.querySelectorAll('[data-concernes] .sor-etiquette')].map((x) => x.textContent)).toEqual(['BERNARD Alice']);
+    const lignes = [...form.querySelectorAll(':scope > .pvs-compact-ligne')];
+    expect(lignes).toHaveLength(3);
+    act(() => (form.querySelector('.pvs-segment[data-duree="manuelle"]') as HTMLButtonElement).click());
+    expect(lignes[1].querySelector('input[data-date-manuelle]')).not.toBeNull();
+    act(() => saisir(form.querySelector('input[data-recu-le]') as HTMLInputElement, HIER));
+    act(() => saisir(form.querySelector('input[data-date-manuelle]') as HTMLInputElement, '2099-01-01'));
+    expect(form.querySelector('[data-date-max]')?.textContent).toBe('→ sortie au plus tard le 01/01/2099');
+    expect((lignes[2].querySelector('input[data-motif]') as HTMLInputElement).type).toBe('text');
+    await act(async () => { (form.querySelector('button[data-enregistrer-preavis]') as HTMLButtonElement).click(); });
+    const post = f.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
+    expect(JSON.parse(String((post[1] as RequestInit).body))).toEqual({
+      action: 'enregistrer-preavis', occupationIds: [11], recuLe: HIER, choix: { mode: 'date_manuelle', dateMax: '2099-01-01' }, motif: null });
+  });
+
+  it('la correction d’un préavis (fiche, cartes) garde son formulaire : seul le bloc de l’écran de sortie est compacté', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/Preavis.tsx', 'utf8');
+    expect(src).toMatch(/<FormulairePreavis entrees=\{\[entree\]\}/);
   });
 });
