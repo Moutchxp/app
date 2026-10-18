@@ -3,7 +3,9 @@ import { ecrireDateSortie } from './dateSortieOccupation';
 import { colonneExisteMemo } from './sondeLocation';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
-import { ajouterOccupant, creerPersonne } from '../gestion/annuaireEditionRepo';
+import { ajouterOccupant, ajouterOccupantDans, creerPersonne } from '../gestion/annuaireEditionRepo';
+import { appliquerPlan, ficheDuBienPourBail, lireFiche, refusSansRegroupement, reintegrerSiComplet } from './regroupementRepo';
+import { planifierBail } from './regroupement';
 import { ficheSyndic } from '../gestion/syndicRepo';
 import type { FicheSyndic } from '../gestion/syndics';
 import type { Auteur } from '../gestion/gestes';
@@ -755,7 +757,9 @@ export async function biensPourLocataire(filtre: string): Promise<{ id: number; 
  */
 export async function creerLocatairesSurBien(o: {
   cartes: ContactSaisi[]; existants: number[]; contacts: ContactSaisi[]; lotId: number | null; entree: string | null;
-}, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null }>> {
+  /** Arno (19/10/2026) — les LOTS LOUÉS cochés (logement et/ou annexes) ; absent : le lot choisi seul, comme avant. */
+  lotIds?: number[];
+}, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null; recap: string[]; reintegrations: string[] }>> {
   if (o.lotId === null) return { etat: 'refus', motif: 'Choisissez le bien loué.' };
   const cartes = o.cartes.slice(0, 12);
   const existants = [...new Set(o.existants)].slice(0, 12);
@@ -772,6 +776,14 @@ export async function creerLocatairesSurBien(o: {
   const { rows: lot } = await query<{ ok: boolean }>(`SELECT (${await sqlBienDuPortefeuille('lo')}) AS ok FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [o.lotId]);
   if (lot[0] === undefined) return { etat: 'refus', motif: 'Ce bien n’existe plus.' };
   if (!lot[0].ok) return { etat: 'refus', motif: 'Ce bien n’est pas dans le portefeuille (sorti, fin de gestion ou absent du dernier export).' };
+  // Arno (19/10/2026) — le plan des lots loués, jugé AVANT toute écriture (relu sous verrou au moment d'écrire).
+  const coches = [...new Set(o.lotIds ?? [o.lotId])];
+  const ficheAvant = await ficheDuBienPourBail(o.lotId);
+  if (ficheAvant === null) return { etat: 'refus', motif: 'Ce bien n’existe plus.' };
+  const planAvant = planifierBail(ficheAvant, coches);
+  if (!planAvant.ok) return { etat: 'refus', motif: planAvant.motif };
+  const sansRegroupement = await refusSansRegroupement(planAvant.plan);
+  if (sansRegroupement !== null) return { etat: 'refus', motif: sansRegroupement };
   const ids: number[] = [];
   for (const [i, c] of cartes.entries()) {
     const cree = await creerPersonne('locataire', { ...c, nom: (c.nom ?? '').trim() }, auteur);
@@ -781,14 +793,29 @@ export async function creerLocatairesSurBien(o: {
     }
     ids.push(cree.data.id);
   }
-  for (const id of [...ids, ...existants]) {
-    const occ = await ajouterOccupant(o.lotId, id, entree, auteur);
-    if (occ.etat !== 'ok') {
-      return { etat: 'refus', motif: `Les fiches sont créées, mais le rattachement au bien a échoué : ${occ.etat === 'refus' ? occ.motif : 'le bien est introuvable'}` };
+  /* 🔴 L'ENTRÉE DES LOCATAIRES SUR LES LOTS COCHÉS, LES FICHES AUTONOMES ET LA RÉINTÉGRATION : UNE SEULE TRANSACTION.
+     LIRE (la fiche, ses lots verrouillés) → REFUSER (le plan a changé : un lot a été loué entre-temps) → ÉCRIRE. */
+  const lotId = o.lotId;
+  const issue = await withTransaction(async (q) => {
+    const fiche = await lireFiche(q, lotId, true);
+    if (fiche === null) return { ok: false as const, motif: 'Ce bien n’existe plus.' };
+    const plan = planifierBail(fiche, coches);
+    if (!plan.ok) return { ok: false as const, motif: plan.motif };
+    for (const id of [...ids, ...existants]) {
+      for (const l of plan.plan.lotsLoues) {
+        if (await ajouterOccupantDans(q, l, id, entree, auteur) === null) return { ok: false as const, motif: 'Un des lots n’existe plus.' };
+      }
     }
+    const recap = await appliquerPlan(q, fiche, plan.plan, auteur);
+    const reintegrations = await reintegrerSiComplet(q, plan.plan.lotsLoues, auteur);
+    return { ok: true as const, recap, reintegrations };
+  });
+  if (!issue.ok) {
+    return { etat: 'refus', motif: ids.length === 0 ? issue.motif : `Les fiches sont créées, mais le rattachement au bien a échoué : ${issue.motif}` };
   }
   const c = await creerContactsDuBien(o.lotId, 'locataire', o.contacts, auteur);
-  return { etat: 'ok', data: { locataireIds: [...ids, ...existants], contacts: c.ok ? c.n : 0, contactsRefus: c.ok ? null : `Les locataires sont créés, mais : ${c.motif}` } };
+  return { etat: 'ok', data: { locataireIds: [...ids, ...existants], contacts: c.ok ? c.n : 0, contactsRefus: c.ok ? null : `Les locataires sont créés, mais : ${c.motif}`,
+    recap: issue.recap, reintegrations: issue.reintegrations } };
 }
 
 /** La fiche d'un syndic, telle que la Gestion la connaît (mêmes données, aucune copie). */

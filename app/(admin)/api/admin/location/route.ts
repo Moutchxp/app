@@ -31,6 +31,8 @@ import {
 import { confiablesEdls, deplacerEdls, planifierEdls, reattribuerEdls } from '../../../../lib/location/edlsRepo';
 import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/acceptationAutorisee';
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
+import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
+import { planifierBail } from '../../../../lib/location/regroupement';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -91,6 +93,12 @@ export async function GET(request: Request): Promise<Response> {
     }
     // Le bloc « Locataires en préavis » de l'accueil (Arno, 18/10/2026) — LECTURE SEULE.
     if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await preavisEnCours() }, { headers: ENTETES });
+    // Les lots d'un bien pour le bail d'un nouveau locataire (Arno, 19/10/2026) — LECTURE SEULE : type, étage, n°, état.
+    const idLotsBail = identifiant(p('lotsBail'));
+    if (idLotsBail !== null) {
+      const f = await ficheDuBienPourBail(idLotsBail);
+      return Response.json(f === null ? { etat: 'inconnu' } : { etat: 'ok', data: f }, { headers: ENTETES });
+    }
     // « Confier à » l'état des lieux de sortie (Arno, 19/10/2026) — LECTURE SEULE : Location ET Gestion ET Workspace.
     if (p('edlsConfiables') !== null) {
       return Response.json({ etat: 'ok', data: await confiablesEdls((await auteurDeLaRequete(request)).id) }, { headers: ENTETES });
@@ -297,7 +305,21 @@ export async function POST(request: Request): Promise<Response> {
           existants: Array.isArray(corps.existants) ? (corps.existants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
           contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
           lotId: identifiant(corps.lotId), entree: typeof corps.entree === 'string' ? corps.entree : null,
+          // Arno (19/10/2026) — les lots loués cochés (logement et/ou annexes).
+          ...(Array.isArray(corps.lotIds) ? { lotIds: (corps.lotIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 30) } : {}),
         }, auteur));
+      case 'apercu-lots': {
+        // Arno (19/10/2026) — LE RÉCAPITULATIF avant validation : ce que le bail fera des lots (LECTURE SEULE, rien n'est écrit).
+        const lot = identifiant(corps.lotId);
+        if (lot === null) return incomplet();
+        const fiche = await ficheDuBienPourBail(lot);
+        if (fiche === null) return repondre({ etat: 'inconnu' });
+        const lots = Array.isArray(corps.lotIds) ? (corps.lotIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 30) : [];
+        const plan = planifierBail(fiche, lots);
+        if (!plan.ok) return repondre({ etat: 'refus', motif: plan.motif });
+        const sans = await refusSansRegroupement(plan.plan);
+        return repondre(sans !== null ? { etat: 'refus', motif: sans } : { etat: 'ok', data: { recap: plan.plan.recap } });
+      }
       case 'sortir':
       case 'reactiver': {
         const quoi = corps.sujet === 'proprietaire' || corps.sujet === 'locataire' || corps.sujet === 'bien' ? corps.sujet as SujetPortefeuille : null;
@@ -335,7 +357,8 @@ export async function POST(request: Request): Promise<Response> {
         const r = await enregistrerSortie({ occupationId: occ, sortants, date: corps.date }, auteur);
         if (r.etat !== 'ok') return repondre(r);
         const m = await notifierSortie(r.data, auteur);
-        return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants }, mail: { envoye: m.envoye, ignore: false, motif: m.motif } });
+        return repondre({ etat: 'ok', data: { date: r.data.date, vacant: r.data.vacant, restants: r.data.restants,
+          ...((r.data.reintegrations ?? []).length > 0 ? { reintegrations: r.data.reintegrations } : {}) }, mail: { envoye: m.envoye, ignore: false, motif: m.motif } });
       }
       case 'corriger-sortie-locataires':
       case 'annuler-sortie-locataires': {

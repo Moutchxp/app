@@ -19,6 +19,7 @@ import { rafraichirPourAdresses, rafraichirPourNoms } from './rafraichirProposit
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 // 🔴 LOT L1 — le loyer de départ et le taux, écrits avec l'occupant quand l'écran les donne.
 import { enregistrerConditions } from './honorairesGestionRepo';
+import { reintegrerSiComplet } from '../location/regroupementRepo';
 
 /**
  * LOT FICHES-ANNUAIRE (étape C) — ÉCRIRE DANS L'ANNUAIRE. IMPUR (base), et le seul module qui écrive.
@@ -831,31 +832,43 @@ export async function ajouterOccupant(
 ): Promise<IssueEdition> {
   if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
   return withTransaction(async (q) => {
-    const { rows: lot } = await q<{ wippimmo_id: string }>(
-      'SELECT wippimmo_id FROM gestion_annuaire_lot WHERE id = $1', [lotId]);
-    if (lot[0] === undefined) return { etat: 'inconnu' as const };
-    const cle = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const { rows: cree } = await q<{ id: string }>(
-      `INSERT INTO gestion_annuaire_occupation
-         (wippimmo_id, locataire_id, lot_id, lot_wippimmo_id, entree)
-       VALUES ($1, $2, $3, $4, $5::date)
-       RETURNING id`,
-      [cle, locataireId, lotId, lot[0].wippimmo_id, entree]);
-    await journaliser(q, {
-      personneId: locataireId, action: 'annuaire_occupant_ajoute',
-      avant: null, apres: `lot ${lotId}${entree === null ? '' : ` depuis le ${entree}`}`,
-      commentaire: `occupant ajouté au lot ${lotId}`, auteur,
-    });
-    if (conditions !== undefined && conditions !== null && cree[0] !== undefined) {
-      const issue = await enregistrerConditions(Number(cree[0].id), conditions, auteur, q);
+    const cree = await ajouterOccupantDans(q, lotId, locataireId, entree, auteur);
+    if (cree === null) return { etat: 'inconnu' as const };
+    if (conditions !== undefined && conditions !== null) {
+      const issue = await enregistrerConditions(cree, conditions, auteur, q);
       // Un refus lève : `withTransaction` défait alors l'occupation ET son journal — ou tout, ou rien.
       if (issue.etat === 'refus') throw new RefusConditions(issue.motif);
     }
+    /* 🔴 Arno (19/10/2026) — à chaque entrée : si TOUS les lots de la fiche d'origine sont désormais loués aux mêmes
+       locataires, ils se réunissent en une seule fiche (réintégration, dans cette transaction). */
+    await reintegrerSiComplet(q, [lotId], auteur);
     return { etat: 'ok' as const, data: undefined };
   }).catch((e: unknown) => {
     if (e instanceof RefusConditions) return { etat: 'refus' as const, motif: e.message };
     throw e;
   });
+}
+
+/**
+ * L'INSERTION d'une occupation, dans la transaction de l'appelant (le geste « Ajouter un occupant », et le bail de la tuile
+ * Location sur plusieurs lots). Journalisée. Rend l'identifiant de l'occupation, `null` si le lot n'existe pas.
+ */
+export async function ajouterOccupantDans(q: RequeteTx, lotId: number, locataireId: number, entree: string | null, auteur: Auteur): Promise<number | null> {
+  const { rows: lot } = await q<{ wippimmo_id: string }>('SELECT wippimmo_id FROM gestion_annuaire_lot WHERE id = $1', [lotId]);
+  if (lot[0] === undefined) return null;
+  const cle = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const { rows: cree } = await q<{ id: string }>(
+    `INSERT INTO gestion_annuaire_occupation
+       (wippimmo_id, locataire_id, lot_id, lot_wippimmo_id, entree)
+     VALUES ($1, $2, $3, $4, $5::date)
+     RETURNING id`,
+    [cle, locataireId, lotId, lot[0].wippimmo_id, entree]);
+  await journaliser(q, {
+    personneId: locataireId, action: 'annuaire_occupant_ajoute',
+    avant: null, apres: `lot ${lotId}${entree === null ? '' : ` depuis le ${entree}`}`,
+    commentaire: `occupant ajouté au lot ${lotId}`, auteur,
+  });
+  return Number(cree[0].id);
 }
 
 /** Le refus des conditions d'une location au geste « Ajouter un occupant » : il défait toute la transaction. */

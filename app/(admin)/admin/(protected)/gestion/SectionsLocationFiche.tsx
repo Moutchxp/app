@@ -341,11 +341,13 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
                 {[d.parent.adresse, d.parent.commune].filter((x) => x).join(', ')}{d.parent.etage === null ? '' : ` — ${libelleEtage(d.parent.etage)}`}
               </LienFiche> : ce lien est gardé pour toujours.</p>
             )}
+            <FichesAutonomes d={d} ouvrir={ouvrir} />
             <section className="loc-bloc" data-arbre>
               <h3>Le logement et ses annexes</h3>
               <ul className="loc-arbre">
                 <LigneArbre b={logement} courant={logement.id === b.id} ouvrir={ouvrir} />
-                {annexes.map((a) => <LigneArbre key={a.id} b={a} enfant courant={a.id === b.id} ouvrir={ouvrir} carte={d.location372 ? relire : undefined} />)}
+                {annexes.map((a) => <LigneArbre key={a.id} b={a} enfant courant={a.id === b.id} ouvrir={ouvrir} carte={d.location372 ? relire : undefined}
+                  ficheAutonome={liste(d.autonomes).find((g) => g.statut === 'active' && g.lotIds.includes(a.id))?.teteId ?? a.id} />)}
               </ul>
               {d.parent === null && d.location372 && <AjoutAnnexes parentId={b.id} rattachables={[...liste(d.rattachables)]} apres={relire} />}
             </section>
@@ -385,8 +387,54 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
   );
 }
 
-function LigneArbre({ b, enfant = false, courant, ouvrir, carte }: {
+/**
+ * Arno (19/10/2026) — LES FICHES AUTONOMES d'un bien (migration 386) : pour un lot qui en fait partie, « Issu de : [bien
+ * d'origine] » et les lots de ce bien autonome ; une fiche réintégrée reste consultable, avec son statut. Pour une fiche
+ * d'origine, les lots RÉINTÉGRÉS : leur historique reste visible depuis ici (lien vers la fiche du lot, qui le porte).
+ */
+function FichesAutonomes({ d, ouvrir }: { d: FicheBienLocation; ouvrir: Ouvrir }) {
+  const toutes = liste(d.autonomes);
+  const siennes = toutes.filter((g) => g.lotIds.includes(d.bien.id));
+  const active = siennes.find((g) => g.statut === 'active') ?? null;
+  const reintegrees = siennes.filter((g) => g.statut === 'reintegree');
+  const deLOrigine = d.parent === null ? toutes.filter((g) => g.origineId === d.bien.id && g.statut === 'reintegree') : [];
+  if (active === null && reintegrees.length === 0 && deLOrigine.length === 0) return null;
+  const date = (iso: string | null): string => (iso === null ? '' : formaterDateIso(iso.slice(0, 10)));
+  return (
+    <section className="loc-bloc" data-fiches-autonomes>
+      {active !== null && (
+        <div data-fiche-autonome-active>
+          <p style={{ margin: 0 }}><strong>Bien autonome</strong> — issu de : <LienFiche sorte="lot" id={active.origineId} ouvrir={ouvrir}>{active.origineTitre}</LienFiche>
+            {' '}<span className="loc-muet">(depuis le {date(active.creeLe)})</span></p>
+          {active.lotIds.length > 1 && (
+            <p style={{ margin: 0 }} data-lots-autonomes>Lots de ce bien : {active.lotIds.map((id, i) => (
+              <span key={id}>{i > 0 ? ' · ' : ''}{id === d.bien.id ? <strong>ce lot</strong> : <LienFiche sorte="lot" id={id} ouvrir={ouvrir}>lot {id}</LienFiche>}</span>))}</p>
+          )}
+        </div>
+      )}
+      {reintegrees.map((g) => (
+        <p key={g.id} className="loc-muet" style={{ margin: 0 }} data-fiche-reintegree={g.id}>
+          Fiche autonome du {date(g.creeLe)} : <strong>réintégrée dans</strong> <LienFiche sorte="lot" id={g.origineId} ouvrir={ouvrir}>{g.origineTitre}</LienFiche> le {date(g.closLe)}.</p>
+      ))}
+      {deLOrigine.length > 0 && (
+        <div data-lots-reintegres>
+          <p style={{ margin: 0 }}><strong>Lots réintégrés</strong> — leur historique reste visible :</p>
+          <ul className="loc-liste">
+            {[...new Set(deLOrigine.flatMap((g) => g.lotIds))].map((id) => {
+              const g = deLOrigine.find((x) => x.lotIds.includes(id))!;
+              return <li key={id}><LienFiche sorte="lot" id={id} ouvrir={ouvrir}>Lot {id} — historique</LienFiche> <span className="loc-muet">réintégré le {date(g.closLe)}</span></li>;
+            })}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LigneArbre({ b, enfant = false, courant, ouvrir, carte, ficheAutonome }: {
   b: BienLocation; enfant?: boolean; courant: boolean; ouvrir: Ouvrir;
+  /** Arno (19/10/2026) — la fiche du bien autonome d'une annexe détachée (le lot qui la présente). */
+  ficheAutonome?: number;
   /** Arno, 18/10/2026 — sous le logement, chaque annexe porte sa carte (annotation, Supprimer · Détacher · Fermer). */
   carte?: () => void;
 }) {
@@ -402,7 +450,10 @@ function LigneArbre({ b, enfant = false, courant, ouvrir, carte }: {
         {courant ? <strong>{titre}</strong> : <LienFiche sorte="lot" id={b.id} ouvrir={ouvrir}>{titre}</LienFiche>}
         {resumeBien(b) !== '' && <span className="loc-muet"> · {resumeBien(b)}</span>}
       </span>
-      <span className="loc-muet">{b.detachee ? <span className="loc-etiquette-detachee">Détachée</span> : null}{' '}
+      {/* Arno (19/10/2026) — sous le logement, l'annexe détachée : « Bien autonome — détaché le JJ/MM/AAAA », avec le lien vers sa fiche. */}
+      <span className="loc-muet">{b.detachee ? (
+        <span className="loc-etiquette-detachee" data-bien-autonome>Bien autonome{b.detacheeLe ? ` — détaché le ${formaterDateIso(b.detacheeLe.slice(0, 10))}` : ''}</span>
+      ) : null}{b.detachee && enfant ? <>{' '}<LienFiche sorte="lot" id={ficheAutonome ?? b.id} ouvrir={ouvrir}>sa fiche</LienFiche></> : null}{' '}
         {b.sorti ? 'sorti du portefeuille' : b.locataireEnPlace === null ? 'libre' : `loué à ${b.locataireEnPlace}`}</span>
       {enfant && carte !== undefined && !b.sorti && <CarteAnnexe b={b} apres={carte} />}
     </li>

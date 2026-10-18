@@ -1,10 +1,55 @@
 'use client';
 
-import { useCallback, useEffect, useId, useState } from 'react';
-import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer, liste, useLecture } from './commun';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
+import { etageFr } from '../../../../lib/location/sortieLocataires';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { SaisieCartes, type EtatCartes } from './SaisieCartes';
+
+/** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
+interface LotLu { id: number; role: 'logement' | 'annexe'; libelle: string; type: string | null; etage: string | null; numeroLot: string | null;
+  porte: string | null; place: boolean; occupants: number[]; noms: string[] }
+
+/**
+ * Arno (19/10/2026) — « LOTS LOUÉS » : une ligne par lot du bien choisi (le logement et chaque annexe), avec type, étage,
+ * n° de lot, n° de porte ou de place et son état écrit en toutes lettres. Tous les lots LIBRES sont cochés d'office ; un
+ * lot loué à quelqu'un d'autre est affiché, non cochable, « loué à X ». Au moins un lot doit être coché.
+ */
+export function LotsLoues({ lotId, coches, onCoches }: { lotId: number; coches: number[] | null; onCoches: (c: number[]) => void }) {
+  const lu = useLecture<{ lots: LotLu[]; sorte: string; origineLibelle: string }>(`lotsBail=${lotId}`);
+  const lots = useMemo(() => (lu.etat.etat === 'ok' && Array.isArray(lu.etat.data.lots) ? lu.etat.data.lots : []), [lu.etat]);
+  // Tous les lots libres cochés par défaut, à la première lecture.
+  useEffect(() => { if (coches === null && lots.length > 0) onCoches(lots.filter((l) => l.occupants.length === 0).map((l) => l.id)); }, [coches, lots, onCoches]);
+  if (lu.etat.etat !== 'ok') return <EtatLecture etat={lu.etat} />;
+  const cases = coches ?? [];
+  return (
+    <fieldset className="loc-lots-loues" data-lots-loues>
+      <legend>Lots loués</legend>
+      <ul>
+        {lots.map((l) => {
+          const libre = l.occupants.length === 0;
+          const details = [l.type, etageFr(l.etage), l.numeroLot ? `lot n° ${l.numeroLot}` : null, l.porte ? `${l.place ? 'place' : 'porte'} n° ${l.porte}` : null]
+            .filter((x) => x !== null && x !== '').join(' · ');
+          return (
+            <li key={l.id} data-lot={l.id} data-role={l.role}>
+              <label className={`loc-lot${libre ? '' : ' loc-lot--pris'}`}>
+                <input type="checkbox" checked={libre && cases.includes(l.id)} disabled={!libre}
+                  onChange={() => onCoches(cases.includes(l.id) ? cases.filter((x) => x !== l.id) : [...cases, l.id])} data-coche-lot={l.id} />
+                <span className="loc-lot-textes">
+                  <strong>{l.libelle.charAt(0).toUpperCase() + l.libelle.slice(1)}</strong>
+                  {details !== '' && <span className="loc-muet">{details}</span>}
+                  <span className={libre ? 'loc-lot-etat' : 'loc-lot-etat loc-lot-etat--pris'} data-etat-lot>{libre ? 'libre' : `loué à ${l.noms.join(', ')}`}</span>
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      {cases.length === 0 && lots.length > 0 && <p className="cp-refus" role="status" data-aucun-lot>Cochez au moins un lot loué.</p>}
+    </fieldset>
+  );
+}
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « NOUVEAU LOCATAIRE » (/admin/location/nouveau-locataire), refonte du 17/10/2026 ═══════════
@@ -32,6 +77,10 @@ export function CreationLocataire() {
   const [entree, setEntree] = useState('');
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  // Arno (19/10/2026) — les LOTS LOUÉS cochés, le récapitulatif avant validation, et l'annonce d'une réintégration.
+  const [coches, setCoches] = useState<number[] | null>(null);
+  const [recap, setRecap] = useState<string[] | null>(null);
+  const [fait, setFait] = useState<{ messages: string[]; lien: string } | null>(null);
   const idForm = useId();
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
 
@@ -47,21 +96,36 @@ export function CreationLocataire() {
     }
     if (etat.ouvertes > 0) { setMotif('Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.'); return; }
     if (bien === null) { setMotif('Choisissez le bien loué.'); return; }
+    if (coches !== null && coches.length === 0) { setMotif('Cochez au moins un lot loué.'); return; }
+    // ① LE RÉCAPITULATIF d'abord : ce que le bail va faire des lots (rien n'est écrit).
+    if (recap === null) {
+      setEnvoi(true);
+      const a = await envoyer({ action: 'apercu-lots', lotId: bien.id, lotIds: coches ?? [bien.id] });
+      setEnvoi(false);
+      if (a.motif !== null) { setMotif(a.motif); return; }
+      setRecap((a.data as { recap?: string[] } | undefined)?.recap ?? []);
+      return;
+    }
+    // ② LA CONFIRMATION : l'entrée des locataires, les fiches autonomes, la réintégration — une seule transaction.
     setEnvoi(true);
     const r = await envoyer({
       action: 'creer-locataires', cartes: etat.clients, existants: etat.existants.map((x) => x.id), contacts: etat.contacts,
-      lotId: bien.id, entree: entree === '' ? null : entree,
+      lotId: bien.id, entree: entree === '' ? null : entree, lotIds: coches ?? [bien.id],
     });
     setEnvoi(false);
-    if (r.motif !== null) { setMotif(r.motif); return; }
-    const ids = (r.data as { locataireIds?: number[] } | undefined)?.locataireIds ?? [];
-    window.location.href = ids[0] !== undefined ? `/admin/location/locataire/${ids[0]}` : '/admin/location/locataires';
+    if (r.motif !== null) { setMotif(r.motif); setRecap(null); return; }
+    const d = r.data as { locataireIds?: number[]; reintegrations?: string[] } | undefined;
+    const ids = d?.locataireIds ?? [];
+    const lien = ids[0] !== undefined ? `/admin/location/locataire/${ids[0]}` : '/admin/location/locataires';
+    // Une réintégration s'ANNONCE à l'écran avant de quitter la page.
+    if ((d?.reintegrations ?? []).length > 0) { setFait({ messages: d?.reintegrations ?? [], lien }); return; }
+    window.location.href = lien;
   };
 
   return (
     <div className="loc-page loc-ample">
       <form id={idForm} hidden onSubmit={(e) => { e.preventDefault(); void enregistrer(); }} data-formulaire-page />
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES}</style>
       <EnTeteLocation titre="Nouveau locataire" sous="Au moins un locataire (client) et le bien loué. Les contacts du locataire sont facultatifs." />
 
       <section className="loc-section" aria-labelledby="loc-l1">
@@ -75,7 +139,7 @@ export function CreationLocataire() {
         <h3 id="loc-l2"><span className="loc-num">2</span>Bien loué</h3>
         {bien !== null ? (
           <p>Bien : <a href={`/admin/location/bien/${bien.id}`}><strong>{bien.titre}</strong></a>{' '}
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setBien(null)}>Changer de bien</button></p>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setBien(null); setCoches(null); setRecap(null); }}>Changer de bien</button></p>
         ) : (
           <>
             {/* Arno (19/10/2026) — par l'adresse OU le nom du propriétaire (accents et casse ignorés), en temps réel. */}
@@ -85,18 +149,35 @@ export function CreationLocataire() {
               liste(biens.etat.data).length === 0 ? <p className="loc-muet">Aucun bien du portefeuille ne correspond.</p> : (
                 <ul className="loc-choix">
                   {liste(biens.etat.data).map((b) => (
-                    <li key={b.id}><button type="button" aria-pressed={false} onClick={() => setBien({ id: b.id, titre: b.titre })}>
+                    <li key={b.id}><button type="button" aria-pressed={false} onClick={() => { setBien({ id: b.id, titre: b.titre }); setCoches(null); setRecap(null); }}>
                       <span>{b.titre}</span><span>{b.detail}</span></button></li>
                   ))}
                 </ul>
               ))}
           </>
         )}
+        {bien !== null && <LotsLoues lotId={bien.id} coches={coches} onCoches={(c) => { setCoches(c); setRecap(null); setMotif(null); }} />}
         <div className="loc-grille">
           <label className="loc-champ">Date d’entrée<input form={idForm} type="date" value={entree} onChange={(e) => setEntree(e.target.value)} /></label>
         </div>
       </section>
 
+      {recap !== null && (
+        <section className="loc-section loc-recap-lots" aria-label="Ce qui va se passer" data-recap-lots>
+          <h3>Avant d’enregistrer : ce qui va se passer</h3>
+          <ul>{recap.map((x) => <li key={x}>{x}</li>)}</ul>
+          <p className="loc-muet" style={{ margin: 0 }}>« Confirmer » enregistre le bail ; « Modifier » revient au choix des lots. Rien n’est effacé.</p>
+          <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRecap(null)} data-modifier-lots>Modifier</button>
+          </div>
+        </section>
+      )}
+      {fait !== null && (
+        <section className="loc-section" role="status" data-reintegration>
+          {fait.messages.map((m) => <p key={m} className="gst-info" style={{ margin: 0 }}>{m}</p>)}
+          <p style={{ margin: 0 }}><a href={fait.lien}>Ouvrir la fiche du locataire</a></p>
+        </section>
+      )}
       {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
       <div className="loc-collant" data-collant>
         <p className="loc-manques" role="status">
@@ -104,8 +185,22 @@ export function CreationLocataire() {
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires">Annuler</a>
-        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi}>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
+        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null}>{envoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
       </div>
     </div>
   );
 }
+
+/** Jetons du thème seulement ; cibles ≥ 44 px ; l'état toujours écrit. */
+const CSS_LOTS_LOUES = `
+.loc-lots-loues{border:1px solid var(--color-svv-line);border-radius:12px;padding:10px 12px;margin:0;min-width:0}
+.loc-lots-loues legend{font-weight:800;padding:0 4px}
+.loc-lots-loues ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.loc-lot{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:6px 4px;cursor:pointer}
+.loc-lot input{width:22px;height:22px;margin-top:2px;flex:0 0 auto}
+.loc-lot--pris{cursor:not-allowed}
+.loc-lot-textes{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+.loc-lot-etat{font-weight:700;color:var(--color-svv-green-ink)}
+.loc-lot-etat--pris{color:var(--color-svv-muted)}
+.loc-recap-lots ul{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:4px}
+`;

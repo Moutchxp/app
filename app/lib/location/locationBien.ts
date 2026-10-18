@@ -129,6 +129,8 @@ export interface BienLocation {
   /** L'annotation libre d'une annexe, et « Détachée » : louable séparément, lien parent gardé (migration 379). */
   annotation?: string | null;
   detachee?: boolean;
+  /** Arno (19/10/2026) — la date du détachement (« Bien autonome — détaché le … »). */
+  detacheeLe?: string | null;
 }
 
 /** Range des biens en arbre : chaque logement suivi de ses annexes ; les annexes dont le logement est absent restent seules. */

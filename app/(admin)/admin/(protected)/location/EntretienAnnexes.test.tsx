@@ -22,7 +22,9 @@ let root: Root;
 let posts: Record<string, unknown>[];
 let detachee: boolean;
 let annexeLouee = false;
+let autonomes: unknown[] | undefined;
 beforeEach(() => {
+  autonomes = undefined;
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   posts = []; detachee = false; annexeLouee = false;
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
@@ -47,11 +49,19 @@ beforeEach(() => {
         fiche: { id: 10, numero: '10', adresse: '10 rue de l’Essai', proprietaires: [], occupants: [], occupations: [], modifiable: true },
         bien: bien(10), parent: null, rattachables: [], locations: [], location372: true,
         annexes: [bien(11, { categorie: 'parking', parentId: 10, parkingSituation: 'interieur', parkingType: 'box_simple', numLotCopro: '12', porte: '4',
-          annotation: 'Clé chez le gardien', detachee })],
+          annotation: 'Clé chez le gardien', detachee, detacheeLe: detachee ? '2026-10-19 10:00:00+02' : null })],
+        autonomes,
         complements: { batiment: null, escalier: null, typeLogement: 'studio', nombrePieces: null, meuble: null, surfaceHabitableM2: null, syndicId: null, syndicNom: null,
           epoqueConstruction: null, chauffage: null, dpeClasse: null, dpeDate: null, commentaire: null, typeLocal: null, parkingSituation: null, parkingType: null,
           surfaceM2: null, ascenseur: null, digicode: null, digicodeCode: null, precisionAcces: null, agApplicable: false,
           entretienAPrevoir: true, entretiens: [{ sorte: 'chaudiere', nom: null, dateAnniversaire: '2026-10-01' }, { sorte: 'autre', nom: 'VMC', dateAnniversaire: null }] },
+      });
+    }
+    if (u.includes('lot=11')) {
+      return ok({
+        fiche: { id: 11, numero: '11', adresse: '10 rue de l’Essai', proprietaires: [], occupants: [], occupations: [], modifiable: true },
+        bien: bien(11, { categorie: 'parking', parentId: 10, detachee: true, detacheeLe: '2026-10-19 10:00:00+02' }), parent: bien(10), rattachables: [], locations: [], location372: true,
+        annexes: [], complements: null, autonomes,
       });
     }
     return ok(null);
@@ -178,7 +188,9 @@ describe('🔴 fiche commune : carte d’annexe, entretien, mandat de transactio
     await calmer();
     expect(posts.at(-1)).toEqual({ action: 'detacher-annexe', id: 11, detacher: true });
     // Relue : toujours SOUS le logement, avec l'étiquette « Détachée ».
-    expect(container.querySelector('[data-annexe="oui"] .loc-etiquette-detachee')?.textContent).toBe('Détachée');
+    // Arno (19/10/2026) : sous le logement, « Bien autonome — détaché le … » et le lien vers sa fiche.
+    expect(container.querySelector('[data-annexe="oui"] .loc-etiquette-detachee')?.textContent).toMatch(/^Bien autonome/);
+    expect([...container.querySelectorAll('[data-annexe="oui"] a, [data-annexe="oui"] button')].some((x) => x.textContent === 'sa fiche')).toBe(true);
     await act(async () => { bouton('Rattacher', carte()).click(); });
     await calmer();
     expect(posts.at(-1)).toEqual({ action: 'detacher-annexe', id: 11, detacher: false });
@@ -221,5 +233,39 @@ describe('🔴 fiche commune : carte d’annexe, entretien, mandat de transactio
     const mt = container.querySelector('[data-mandat="transaction"]') as HTMLElement;
     expect(mt.querySelector('h3')?.textContent).toBe('N° de mandat de transaction locative');
     expect((mt.querySelector('input') as HTMLInputElement).value).toBe('MT 2026-041');
+  });
+});
+
+describe('Arno (19/10/2026) — bien autonome : étiquette sous le logement, « Issu de », réintégrée', () => {
+  const fiche = (o: Record<string, unknown>) => ({ id: 40, origineId: 10, origineTitre: '10 rue de l’Essai, PARIS', teteId: 11, lotIds: [11, 12], motif: 'bail',
+    creeLe: '2026-10-19 10:00:00+02', statut: 'active', closLe: null, ...o });
+
+  it('sous le logement : « Bien autonome — détaché le 19/10/2026 » et le lien vers SA fiche (le lot qui la présente)', async () => {
+    detachee = true;
+    autonomes = [fiche({})];
+    await act(async () => { root.render(createElement(SectionLocationBien, { lotId: 10, ouvrir: () => {} })); });
+    await calmer();
+    const ligne = container.querySelector('[data-annexe="oui"]')!;
+    expect(ligne.querySelector('[data-bien-autonome]')?.textContent).toBe('Bien autonome — détaché le 19/10/2026');
+    expect([...ligne.querySelectorAll('a, button')].some((x) => x.textContent === 'sa fiche')).toBe(true);
+  });
+
+  it('la fiche du bien autonome : « Issu de » et ses lots ; une fiche réintégrée reste consultable avec son statut', async () => {
+    autonomes = [fiche({}), fiche({ id: 30, lotIds: [11], statut: 'reintegree', closLe: '2026-09-01 08:00:00+02', creeLe: '2026-08-01 08:00:00+02' })];
+    await act(async () => { root.render(createElement(SectionLocationBien, { lotId: 11, ouvrir: () => {} })); });
+    await calmer();
+    const bloc = container.querySelector('[data-fiches-autonomes]')!;
+    expect(bloc.querySelector('[data-fiche-autonome-active]')?.textContent).toContain('Bien autonome — issu de : 10 rue de l’Essai, PARIS');
+    expect(bloc.querySelector('[data-lots-autonomes]')?.textContent).toContain('ce lot');
+    expect(bloc.querySelector('[data-fiche-reintegree="30"]')?.textContent).toContain('réintégrée dans 10 rue de l’Essai, PARIS le 01/09/2026');
+  });
+
+  it('la fiche d’origine : les lots RÉINTÉGRÉS et le lien vers leur historique', async () => {
+    autonomes = [fiche({ statut: 'reintegree', closLe: '2026-10-20 08:00:00+02' })];
+    await act(async () => { root.render(createElement(SectionLocationBien, { lotId: 10, ouvrir: () => {} })); });
+    await calmer();
+    const lots = container.querySelector('[data-lots-reintegres]')!;
+    expect(lots.textContent).toContain('Lots réintégrés');
+    expect([...lots.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['Lot 11 — historique réintégré le 20/10/2026', 'Lot 12 — historique réintégré le 20/10/2026']);
   });
 });

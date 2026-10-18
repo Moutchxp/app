@@ -24,6 +24,7 @@ import { aujourdhuiParis } from './reglagesDpe';
 import { annotationPropre } from './annexeLocation';
 import type { SortiePortefeuille } from './recherchePortefeuille';
 import { categorieDuBien, verifierChampsBien, type BienLocation, type Categorie, type ChampsBien } from './locationBien';
+import { fichesAutonomesDuLot, type FicheAutonomeAffichee } from './regroupementRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE DÉPÔT (correction d'Arno du 17/10/2026). IMPUR (base). ══════════════════════════════════
@@ -147,7 +148,7 @@ interface LigneBienSql {
   parent_id: string | null; proprietaire: string | null; locataire: string | null; sorti: boolean;
   adresse_autre?: boolean | null; parking_situation?: string | null; parking_type?: string | null;
   nom_annexe?: string | null;
-  annotation?: string | null; detachee?: boolean | null;
+  annotation?: string | null; detachee?: boolean | null; detachee_le?: string | null;
 }
 
 const versBien = (r: LigneBienSql): BienLocation => ({
@@ -165,6 +166,7 @@ const versBien = (r: LigneBienSql): BienLocation => ({
   nomAnnexe: r.nom_annexe ?? null,
   annotation: r.annotation ?? null,
   detachee: r.detachee === true,
+  detacheeLe: r.detachee_le ?? null,
 });
 
 async function lireBiens(where: string, params: unknown[], suffixe = ''): Promise<BienLocation[]> {
@@ -176,7 +178,7 @@ async function lireBiens(where: string, params: unknown[], suffixe = ''): Promis
             ${(await colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre')) ? 'lo.adresse_autre, lo.parking_situation, lo.parking_type'
     : 'NULL::boolean AS adresse_autre, NULL::text AS parking_situation, NULL::text AS parking_type'},
             ${(await annexeNomPnoDisponible()) ? 'lo.nom_annexe' : 'NULL::text AS nom_annexe'},
-            ${(await entretienDisponible()) ? 'lo.annotation, lo.annexe_detachee_le IS NOT NULL AS detachee' : 'NULL::text AS annotation, false AS detachee'},
+            ${(await entretienDisponible()) ? 'lo.annotation, lo.annexe_detachee_le IS NOT NULL AS detachee, lo.annexe_detachee_le::text AS detachee_le' : 'NULL::text AS annotation, false AS detachee, NULL::text AS detachee_le'},
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire,
             (SELECT l.nom FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
               WHERE o.lot_id = lo.id AND o.sortie IS NULL ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1) AS locataire
@@ -293,6 +295,11 @@ export interface FicheBienLocation {
   location372: boolean;
   /** Les informations complémentaires (migration 374) ; `null` sans elle. */
   complements: ComplementsFiche | null;
+  /**
+   * Arno (19/10/2026) — LES FICHES AUTONOMES (migration 386) qui le concernent : celles dont il fait partie (« Issu de »,
+   * ses lots, « réintégrée ») et, pour une fiche d'origine, celles de ses lots. Vide sans la migration.
+   */
+  autonomes?: FicheAutonomeAffichee[];
   /** Les préavis OUVERTS de ses occupants en place (migration 383 ; vide sans elle). */
   preavis?: { occupationId: number; preavis: PreavisAffiche & { dureeProposee: number | null } }[];
 }
@@ -319,6 +326,7 @@ export async function ficheBienLocation(id: number): Promise<Issue<FicheBienLoca
       fiche: f.data, sortie: await sortieDe('bien', id), bien, parent, annexes,
       locations: f.data.occupations.map((o) => ({ occupationId: o.occupationId, location: conditions.get(o.occupationId) ?? null })),
       rattachables, location372: avec372, complements: await complementsDuBien(id),
+      autonomes: await fichesAutonomesDuLot(id),
       preavis: [...(await preavisOuverts(f.data.occupations.filter((o) => o.sortie === null).map((o) => o.occupationId))).values()]
         .map((p) => ({ occupationId: p.occupationId, preavis: p })),
     },

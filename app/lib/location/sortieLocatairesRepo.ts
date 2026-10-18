@@ -19,6 +19,7 @@ import {
   htmlMailSortie, issueSortie, objetMailSortie, texteMailSortie, verifierCorrection, verifierSortie,
   type BailLogement, type DonneesMailSortie, type EncartLogement, type LocataireDuBail, type LotEncart, type OccupantTrouve, type SortieEnregistree,
 } from './sortieLocataires';
+import { reintegrerSiComplet } from './regroupementRepo';
 
 export type { OccupantTrouve };
 
@@ -46,12 +47,14 @@ export type IssueSortie<T> =
 const LIMITE = 30;
 
 /** Les colonnes et tables facultatives, sondées HORS transaction (règle de `app/lib/gestion/schema.ts`). */
-async function schema(): Promise<{ etage: string; porte: string; categorie: string; typeLogement: string; annexes: boolean }> {
+async function schema(): Promise<{ etage: string; porte: string; categorie: string; typeLogement: string; annexes: boolean; regroupement: boolean }> {
   const col = async (c: string, alias = 'lo'): Promise<string> =>
     ((await colonneExisteMemo('gestion_annuaire_lot', c)) ? `${alias}.${c}::text` : 'NULL::text');
   return {
     etage: await col('etage'), porte: await col('porte'), categorie: await col('categorie'),
     typeLogement: await col('type_logement'), annexes: await colonneExisteMemo('gestion_lot_annexe', 'annexe_id'),
+    // Arno (19/10/2026) — une fiche bien autonome à plusieurs lots (migration 386) : ses lots suivent le bail comme des annexes.
+    regroupement: await colonneExisteMemo('gestion_bien_regroupement', 'lot_ids'),
   };
 }
 
@@ -161,7 +164,8 @@ async function lireBailAvec(q: Lecteur, occupationId: number, s: Awaited<ReturnT
               o.id::text AS occupation_id, o.locataire_id::text
          FROM gestion_lot_annexe a JOIN gestion_annuaire_lot al ON al.id = a.annexe_id
          LEFT JOIN gestion_annuaire_occupation o ON o.lot_id = al.id AND o.sortie IS NULL AND o.locataire_id = ANY($2::bigint[])
-        WHERE a.parent_id = $1 ORDER BY al.id, o.id`,
+        WHERE (a.parent_id = $1${s.regroupement ? ` OR (al.id <> $1 AND al.id IN (SELECT unnest(g.lot_ids) FROM gestion_bien_regroupement g
+                 WHERE g.clos_le IS NULL AND $1 = ANY(g.lot_ids)))` : ''}) ORDER BY al.id, o.id`,
       [lotId, locataires.map((l) => l.locataireId)]);
     const parLot = new Map<number, BailLogement['annexes'][number]>();
     for (const r of an) {
@@ -244,6 +248,8 @@ export interface SortieFaite {
   vacant: boolean;
   restants: string[];
   annexes: string[];
+  /** Arno (19/10/2026) — les réintégrations faites par ce geste (phrases à afficher). */
+  reintegrations?: string[];
 }
 
 /**
@@ -282,7 +288,9 @@ export async function enregistrerSortie(
       entite: 'annuaire_lot', id: bail.lotId, action: 'location_sortie_locataire', avant: null, apres: date,
       commentaire: `sortie de ${quiSort.map((l) => l.nom).join(', ')} le ${date} — ${issue}`, auteur,
     });
-    return { etat: 'ok' as const, data: { bail, date, sortants: quiSort, occupationIds: ids, vacant, restants, annexes: annexesSuivies } };
+    // Arno (19/10/2026) — après chaque écriture d'occupation : la réintégration, si tous les lots d'une fiche d'origine sont loués aux mêmes.
+    const reintegrations = await reintegrerSiComplet(q, [bail.lotId, ...bail.annexes.map((a) => a.lotId)], auteur);
+    return { etat: 'ok' as const, data: { bail, date, sortants: quiSort, occupationIds: ids, vacant, restants, annexes: annexesSuivies, reintegrations } };
   });
 }
 
@@ -314,7 +322,8 @@ export async function corrigerSortie(demande: { occupationIds: readonly number[]
         commentaire: `date de sortie corrigée : ${g.sortie} → ${date} — occupation(s) ${g.lignes.map((l) => l.id).join(', ')}`, auteur,
       });
     }
-    return { etat: 'ok' as const, data: { date } };
+    const reintegrations = await reintegrerSiComplet(q, [...new Set(g.lignes.map((l) => l.lot_id))], auteur);
+    return { etat: 'ok' as const, data: { date, ...(reintegrations.length > 0 ? { reintegrations } : {}) } };
   });
 }
 
@@ -330,7 +339,8 @@ export async function annulerSortie(demande: { occupationIds: readonly number[] 
         commentaire: `sortie du ${g.sortie} annulée — occupation(s) ${g.lignes.map((l) => l.id).join(', ')} de nouveau en cours`, auteur,
       });
     }
-    return { etat: 'ok' as const, data: { annulee: g.sortie } };
+    const reintegrations = await reintegrerSiComplet(q, [...new Set(g.lignes.map((l) => l.lot_id))], auteur);
+    return { etat: 'ok' as const, data: { annulee: g.sortie, ...(reintegrations.length > 0 ? { reintegrations } : {}) } };
   });
 }
 

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToString } from 'react-dom/server';
 import { CreationProprietaires } from './CreationProprietaires';
 import { CreationBien } from './CreationBien';
-import { CreationLocataire } from './CreationLocataire';
+import { CreationLocataire, LotsLoues } from './CreationLocataire';
 
 /**
  * 🔴 TUILE LOCATION — « Créer un nouveau propriétaire » et « Ajouter un nouveau bien » (Arno, 17/10/2026).
@@ -400,5 +400,92 @@ describe('Arno (19/10/2026) — « Bien loué » : par l’adresse OU le nom du 
     expect(champ.closest('label')?.textContent).toContain('Chercher le bien par son adresse ou le nom du propriétaire (biens du portefeuille)');
     await act(async () => { await new Promise((r) => { setTimeout(r, 300); }); });
     expect(container.querySelector('.loc-choix li')?.textContent).toBe('4 rue Fictive, PuteauxAppartement T3 · 3e étage · propriétaire : DUPONT Jean · libre');
+  });
+});
+
+/**
+ * Arno (19/10/2026) — « BIEN LOUÉ » : les LOTS LOUÉS (un par lot, libres cochés d'office, loué à un autre non cochable, au moins
+ * un), le RÉCAPITULATIF avant validation, puis l'annonce d'une réintégration.
+ */
+describe('🔴 Nouveau locataire : choix des lots loués, récapitulatif, réintégration', () => {
+  const FICHE = { origineId: 1, origineLibelle: '4 rue Fictive', teteId: 1, sorte: 'origine', regroupementId: null, lots: [
+    { id: 1, role: 'logement', libelle: 'l’appartement T3', type: 'Appartement T3', etage: '3', numeroLot: '100', porte: 'G', place: false, occupants: [], noms: [] },
+    { id: 3, role: 'annexe', libelle: 'la cave n°3', type: 'cave', etage: '-1', numeroLot: null, porte: '3', place: false, occupants: [], noms: [] },
+    { id: 14, role: 'annexe', libelle: 'le parking n°14', type: 'parking', etage: null, numeroLot: null, porte: '14', place: true, occupants: [9], noms: ['MARTIN Léa'] },
+  ] };
+  beforeEach(() => {
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (init?.method === 'POST') {
+        const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+        posts.push(corps);
+        if (corps.action === 'apercu-lots') return ok({ recap: ['La cave n°3 deviendra un bien autonome, disponible à la location.'] });
+        if (corps.action === 'creer-locataires') return ok({ locataireIds: [7], reintegrations: ['Réintégration : la cave n°3 revient dans la fiche de 4 rue Fictive — tous ses lots sont loués aux mêmes locataires.'] });
+        return ok({});
+      }
+      if (u.includes('lotsBail=')) return ok(FICHE);
+      if (u.includes('biensPourLocataire=')) return ok([{ id: 1, titre: '4 rue Fictive, Puteaux', detail: 'libre' }]);
+      return ok([]);
+    }) as unknown as typeof fetch;
+  });
+
+  it('une ligne par lot, avec type, étage, n° et état ; libres cochés d’office ; loué à un autre non cochable ; au moins un', async () => {
+    let coches: number[] | null = null;
+    function Enveloppe() {
+      const [c, setC] = useState<number[] | null>(null);
+      coches = c;
+      return createElement(LotsLoues, { lotId: 1, coches: c, onCoches: setC });
+    }
+    await act(async () => { root.render(createElement(Enveloppe)); });
+    await calmer();
+    expect(coches).toEqual([1, 3]);
+    const lignes = [...container.querySelectorAll('[data-lots-loues] li')];
+    expect(lignes.map((l) => l.getAttribute('data-role'))).toEqual(['logement', 'annexe', 'annexe']);
+    expect(lignes[0].textContent).toContain('L’appartement T3');
+    expect(lignes[0].textContent).toContain('3e étage');
+    expect(lignes[0].textContent).toContain('lot n° 100');
+    expect(lignes[0].textContent).toContain('porte n° G');
+    expect(lignes[2].textContent).toContain('place n° 14');
+    expect([...container.querySelectorAll('[data-etat-lot]')].map((x) => x.textContent)).toEqual(['libre', 'libre', 'loué à MARTIN Léa']);
+    const cases = [...container.querySelectorAll('input[data-coche-lot]')] as HTMLInputElement[];
+    expect(cases.map((c) => [c.checked, c.disabled])).toEqual([[true, false], [true, false], [false, true]]);
+    act(() => cases[0].click());
+    await calmer();
+    act(() => (container.querySelector('input[data-coche-lot="3"]') as HTMLInputElement).click());
+    await calmer();
+    expect(coches).toEqual([]);
+    expect(container.querySelector('[data-aucun-lot]')?.textContent).toBe('Cochez au moins un lot loué.');
+  });
+
+  it('« Enregistrer » montre d’abord le récapitulatif (rien n’est écrit) ; « Confirmer » envoie les lots cochés ; la réintégration est annoncée', async () => {
+    await act(async () => { root.render(createElement(CreationLocataire)); });
+    await calmer();
+    const form = container.querySelector('[data-sorte="client"] form.cp-form') as HTMLElement;
+    await act(async () => {
+      const set = (el: HTMLInputElement, v: string) => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); };
+      const nomInput = [...form.querySelectorAll('label.cp-champ')].find((l) => l.querySelector('.cp-champ-mot')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
+      set(nomInput, 'BERNARD Alice');
+      const v = form.querySelectorAll('.cp-saisie--valeur');
+      set(v[0] as HTMLInputElement, '06 11 22 33 44');
+      set(v[1] as HTMLInputElement, 'alice@exemple.test');
+    });
+    await act(async () => { (form.querySelector('button[type="submit"]') as HTMLButtonElement).click(); });
+    await calmer();
+    await act(async () => { await new Promise((r) => { setTimeout(r, 300); }); });
+    await calmer();
+    await act(async () => { (container.querySelector('.loc-choix button') as HTMLButtonElement).click(); });
+    await calmer();
+    expect(container.querySelector('[data-lots-loues]')).not.toBeNull();
+    const enregistrer = () => container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement;
+    await act(async () => { enregistrer().click(); });
+    await calmer();
+    expect(posts.map((p) => p.action)).toEqual(['apercu-lots']);
+    expect(posts[0]).toEqual({ action: 'apercu-lots', lotId: 1, lotIds: [1, 3] });
+    expect(container.querySelector('[data-recap-lots]')?.textContent).toContain('La cave n°3 deviendra un bien autonome, disponible à la location.');
+    expect(enregistrer().textContent).toBe('Confirmer');
+    await act(async () => { enregistrer().click(); });
+    await calmer();
+    expect(posts.at(-1)).toMatchObject({ action: 'creer-locataires', lotId: 1, lotIds: [1, 3] });
+    expect(container.querySelector('[data-reintegration]')?.textContent).toContain('Réintégration : la cave n°3 revient dans la fiche de 4 rue Fictive');
   });
 });

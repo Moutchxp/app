@@ -299,7 +299,9 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); return; }
     const mail = r.mail as EtatMail | undefined;
-    onFait(phrase.replace('deviendra', 'devient'), mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail));
+    // Arno (19/10/2026) — une réintégration faite par cette sortie s'annonce avec le bilan.
+    const reintegrations = (r.data as { reintegrations?: string[] } | undefined)?.reintegrations ?? [];
+    onFait(`${phrase.replace('deviendra', 'devient')}${reintegrations.length > 0 ? ` — ${reintegrations.join(' ')}` : ''}`, mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail));
   };
   if (compact) {
     /* 🔴 Arno (19/10/2026) — DEUX LIGNES : « Qui sort : » + une étiquette par locataire ; puis la date (focus), la

@@ -1,4 +1,4 @@
-import { query, withTransaction } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { colonneExisteMemo } from './sondeLocation';
 import { cleEntretien, libelleEntretien, verifierEntretiens, type Entretien } from './entretien';
@@ -18,7 +18,11 @@ export function entretienDisponible(): Promise<boolean> {
 const SANS_379 = 'L’entretien et le détachement des annexes ne sont pas encore installés (migration 379).';
 
 async function journal(lotId: number, action: string, commentaire: string, auteur: Auteur): Promise<void> {
-  await query(`INSERT INTO gestion_journal (entite, entite_id, action, commentaire, auteur_id, auteur_libelle) VALUES ('annuaire_lot', $1, $2, $3, $4, $5)`,
+  await journalDans(query as RequeteTx, lotId, action, commentaire, auteur);
+}
+
+async function journalDans(q: RequeteTx, lotId: number, action: string, commentaire: string, auteur: Auteur): Promise<void> {
+  await q(`INSERT INTO gestion_journal (entite, entite_id, action, commentaire, auteur_id, auteur_libelle) VALUES ('annuaire_lot', $1, $2, $3, $4, $5)`,
     [lotId, action, commentaire, auteur.id, auteur.libelle]);
 }
 
@@ -74,18 +78,74 @@ export async function enregistrerEntretiens(lotId: number, aPrevoirBrut: unknown
 
 /**
  * « Détacher » / « Rattacher » une annexe : la marque `annexe_detachee_le` seulement. Le lien parent reste — elle reste
- * affichée sous son logement, étiquette « Détachée » ; détachée, elle ne sort plus avec lui du portefeuille.
+ * affichée sous son logement, étiquette « Bien autonome — détaché le … » ; détachée, elle ne sort plus avec lui du portefeuille.
+ *
+ * 🔴 Arno (19/10/2026) — UNE SEULE IMPLÉMENTATION DU DÉTACHEMENT : le bouton « Détacher » ET le détachement automatique (un lot
+ * non repris par un bail, un lot loué à d'autres, la réintégration) passent par `detacherAnnexeDans`, dans la transaction de
+ * l'appelant. Avec la migration 386, détacher ouvre aussi la fiche autonome du lot (`gestion_bien_regroupement`) ; rattacher
+ * la CLÔT (jamais effacée). Même effet, quel que soit le chemin.
+ *
+ * 🔌 POINT D'ACCROCHE FUTUR — lot « arborescence automatique » du Drive : à la création d'un bien autonome, son dossier et ses
+ * raccourcis vers 1 Propriétaire / 2 Diagnostics / 3 Photos / 4 Syndic ; à la réintégration, le déplacement de son dossier.
+ * AUCUNE écriture Drive ici aujourd'hui.
  */
 export async function detacherAnnexe(annexeId: number, detacher: boolean, auteur: Auteur): Promise<{ etat: 'ok'; data: undefined } | { etat: 'refus'; motif: string } | { etat: 'inconnu' }> {
   if (!(await entretienDisponible())) return { etat: 'refus', motif: SANS_379 };
-  const { rows } = await query<{ parent: string }>('SELECT parent_id::text AS parent FROM gestion_lot_annexe WHERE annexe_id = $1', [annexeId]);
-  if (rows[0] === undefined) return { etat: 'inconnu' };
-  await query(
+  return withTransaction(async (q) => {
+    const r = await detacherAnnexeDans(q, annexeId, detacher, auteur, { motif: 'detacher' });
+    return r === 'inconnu' ? { etat: 'inconnu' as const } : { etat: 'ok' as const, data: undefined };
+  });
+}
+
+/** Les options du détachement : la raison (fiche autonome), et s'il faut ouvrir / scinder une fiche autonome (migration 386). */
+export interface OptionsDetachement {
+  motif: 'bail' | 'orphelin' | 'autre_locataire' | 'detacher' | 'scission' | 'reintegration';
+  /** Détacher : ouvrir la fiche autonome d'UN lot (défaut) — `false` quand l'appelant pose une fiche à plusieurs lots. */
+  ficheSeule?: boolean;
+  /** Rattacher : les autres lots d'une fiche autonome close gardent chacun leur fiche (défaut) — `false` à la réintégration. */
+  scinder?: boolean;
+}
+
+/** LA porte du détachement, dans la transaction de l'appelant. `'inconnu'` si ce n'est pas une annexe. */
+export async function detacherAnnexeDans(q: RequeteTx, annexeId: number, detacher: boolean, auteur: Auteur, o: OptionsDetachement): Promise<'ok' | 'inconnu'> {
+  const { rows } = await q<{ parent: string }>('SELECT parent_id::text AS parent FROM gestion_lot_annexe WHERE annexe_id = $1', [annexeId]);
+  if (rows[0] === undefined) return 'inconnu';
+  const parent = Number(rows[0].parent);
+  await q(
     `UPDATE gestion_annuaire_lot SET annexe_detachee_le = ${detacher ? 'coalesce(annexe_detachee_le, now())' : 'NULL'},
             annexe_detachee_par_libelle = ${detacher ? 'coalesce(annexe_detachee_par_libelle, $2)' : 'NULL'} WHERE id = $1`,
     detacher ? [annexeId, auteur.libelle] : [annexeId]);
-  const mot = detacher ? 'détachée : louable séparément (son lien avec le logement est gardé)' : 'rattachée : de nouveau dans l’ensemble loué avec le logement';
-  await journal(annexeId, detacher ? 'location_annexe_detachee' : 'location_annexe_rattachee', `annexe ${mot}`, auteur);
-  await journal(Number(rows[0].parent), detacher ? 'location_annexe_detachee' : 'location_annexe_rattachee', `annexe ${annexeId} ${mot}`, auteur);
-  return { etat: 'ok', data: undefined };
+  const mot = detacher ? 'détachée : bien autonome, louable séparément (son lien avec le logement est gardé)'
+    : o.motif === 'reintegration' ? 'réintégrée : de nouveau dans la fiche du logement (mêmes locataires)'
+      : 'rattachée : de nouveau dans l’ensemble loué avec le logement';
+  const action = detacher ? 'location_annexe_detachee' : o.motif === 'reintegration' ? 'location_annexe_reintegree' : 'location_annexe_rattachee';
+  await journalDans(q, annexeId, action, `annexe ${mot}${detacher ? ` — ${o.motif}` : ''}`, auteur);
+  await journalDans(q, parent, action, `annexe ${annexeId} ${mot}`, auteur);
+  if (await regroupementDisponible()) {
+    if (detacher && o.ficheSeule !== false) {
+      const { rows: deja } = await q('SELECT 1 FROM gestion_bien_regroupement WHERE clos_le IS NULL AND $1 = ANY(lot_ids)', [annexeId]);
+      if (deja.length === 0) {
+        await q(`INSERT INTO gestion_bien_regroupement (origine_id, tete_id, lot_ids, motif, cree_par, cree_par_libelle)
+                 VALUES ($1, $2, ARRAY[$2]::bigint[], $3, $4, $5)`, [parent, annexeId, o.motif === 'reintegration' ? 'detacher' : o.motif, auteur.id, auteur.libelle]);
+      }
+    }
+    if (!detacher) {
+      const { rows: ouverts } = await q<{ id: string; lot_ids: string[] }>(
+        'SELECT id::text, lot_ids::text[] AS lot_ids FROM gestion_bien_regroupement WHERE clos_le IS NULL AND $1 = ANY(lot_ids) FOR UPDATE', [annexeId]);
+      for (const g of ouverts) {
+        await q(`UPDATE gestion_bien_regroupement SET clos_le = now(), clos_statut = 'reintegre', clos_par_libelle = $2 WHERE id = $1`, [Number(g.id), auteur.libelle]);
+        // Les autres lots d'une fiche à plusieurs lots, encore détachés, gardent chacun leur fiche autonome.
+        if (o.scinder !== false) {
+          for (const autre of g.lot_ids.map(Number).filter((x) => x !== annexeId)) {
+            await q(`INSERT INTO gestion_bien_regroupement (origine_id, tete_id, lot_ids, motif, cree_par, cree_par_libelle)
+                     VALUES ($1, $2, ARRAY[$2]::bigint[], 'scission', $3, $4)`, [parent, autre, auteur.id, auteur.libelle]);
+          }
+        }
+      }
+    }
+  }
+  return 'ok';
 }
+
+/** Les fiches autonomes (migration 386) sont-elles installées ? */
+export const regroupementDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_bien_regroupement', 'lot_ids');
