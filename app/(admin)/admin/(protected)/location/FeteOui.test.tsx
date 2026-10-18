@@ -13,8 +13,8 @@ import { EXEMPLE_QUALITE_CLIENT, EXEMPLE_QUALITE_CONTACT } from '../../../../lib
  * Retouches d'Arno (18/10/2026) :
  *   ① les exemples du champ « Qualité » — contact : « ex. Conjoint, artisan, avocat, voisin… » ; client : « ex. Conjoint,
  *      indivision, gérant, représentant… » — les mêmes dans la création Location et la fiche commune ;
- *   ② la FÊTE du « Oui » de « Propriétaire(s) en gestion ? » : au passage à Oui seulement, contenue dans le bouton, 3 s,
- *      absente avec « réduire les animations », sans bloquer la suite (le bloc mandat s'affiche tout de suite).
+ *   ② la FÊTE du « Oui » de « Propriétaire(s) en gestion ? » — maquette « A+ » : un canvas DANS le bouton, au passage à Oui
+ *      seulement, 4 s, absente avec « réduire les animations », sans bloquer la suite (le bloc mandat tout de suite).
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,6 +26,8 @@ beforeEach(() => {
   reduit = false;
   window.matchMedia = vi.fn((q: string) => ({ matches: q.includes('reduce') ? reduit : false, media: q, addEventListener: () => {}, removeEventListener: () => {} })) as unknown as typeof window.matchMedia;
   global.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data: [] }) })) as unknown as typeof fetch;
+  // jsdom ne dessine pas : la toile existe, le dessin est éprouvé à part (feteChampagne.test.ts).
+  HTMLCanvasElement.prototype.getContext = (() => null) as unknown as typeof HTMLCanvasElement.prototype.getContext;
 });
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.useRealTimers(); });
 
@@ -53,7 +55,7 @@ describe('① les exemples du champ « Qualité »', () => {
 });
 
 describe('② la fête du « Oui »', () => {
-  it('au passage à Oui : la fête DANS le bouton, le mandat tout de suite ; 3 s puis « ✓ Oui » normal', async () => {
+  it('au passage à Oui : la fête (canvas) DANS le bouton, sous le libellé, le mandat tout de suite ; 4 s puis « ✓ Oui » normal', async () => {
     vi.useFakeTimers();
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     await act(async () => { oui().click(); });
@@ -64,6 +66,10 @@ describe('② la fête du « Oui »', () => {
     expect(document.querySelectorAll('[data-fete]')).toHaveLength(1);
     expect(oui().className).toContain('fete-hote');
     expect(fete?.getAttribute('aria-hidden')).toBe('true');
+    expect(oui().querySelectorAll('canvas')).toHaveLength(1);
+    expect(fete?.querySelector('canvas')).not.toBeNull();
+    expect(document.querySelectorAll('canvas')).toHaveLength(1);
+    expect(DUREE_FETE_MS).toBe(4000);
     expect(container.querySelector('[data-mandat]')).not.toBeNull();
     expect(oui().textContent).toBe('✓ Oui');
     await act(async () => { vi.advanceTimersByTime(DUREE_FETE_MS - 10); });
@@ -95,14 +101,16 @@ describe('② la fête du « Oui »', () => {
     expect(container.querySelector('[data-mandat]')).not.toBeNull();
   });
 
-  it('légère : CSS et SVG seuls, couleurs du thème, aucun son, coupée par la règle « mouvement réduit »', () => {
-    const src = readFileSync('app/(admin)/admin/(protected)/location/FeteOui.tsx', 'utf8');
-    expect(src).not.toMatch(/^import .*(confetti|lottie|canvas|howler)/m);
+  it('légère : canvas sans bibliothèque, aucun son, coupée par « mouvement réduit », dans le bouton et sous le libellé', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/FeteOui.tsx', 'utf8')
+      + readFileSync('app/lib/location/feteChampagne.ts', 'utf8');
+    expect(src).not.toMatch(/^import .*(confetti|lottie|pixi|three|howler|gsap)/m);
     expect(src).not.toMatch(/new Audio|\.play\(/);
-    expect(src).toContain('@media (prefers-reduced-motion: reduce){.fete{display:none}}');
-    expect(src).toContain('var(--color-svv-red)');
-    expect(src).toContain('var(--color-svv-or)');
-    expect(src).toContain('var(--color-svv-blanc)');
+    expect(src).toContain('@media (prefers-reduced-motion: reduce){.fete{display:none}');
     expect(src).toContain('.fete-hote{position:relative;overflow:hidden');
+    expect(src).toContain('.fete{position:absolute;inset:0;z-index:1;overflow:hidden;pointer-events:none');
+    expect(src).toContain('.fete-texte{position:relative;z-index:2');
+    expect(src).toContain('@keyframes feteRebond{0%{transform:scale(.85)}55%{transform:scale(1.12)}100%{transform:scale(1)}}');
+    expect(src).toContain('animation:feteReflet 1.1s');
   });
 });

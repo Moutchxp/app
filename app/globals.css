@@ -47,7 +47,7 @@
   --color-svv-tip-bg: #16202c;               /* fond de l'infobulle .svv-tip (ex-var(--color-svv-ink), texte blanc) */
   --color-svv-amber: #8a5a00;                /* famille AMBRE (avertissement) — texte/accent ; usage étendu en lot 2/3 */
   --color-svv-amber-soft: #fff4e0;           /* fond de pastille ambre (texte = --color-svv-amber) */
-  --color-svv-or: #c9a227;                   /* OR — décor seulement (fête du « Oui » de la tuile Location, Arno 18/10/2026), jamais un texte */
+  --color-svv-or: #d9a441;                   /* OR — décor seulement (fête du « Oui » de la tuile Location, maquette « A+ » d'Arno 18/10/2026), jamais un texte */
   --color-svv-blanc: #ffffff;                /* BLANC PUR, le même en Clair et en Sombre — décor seulement (fête du « Oui ») */
   --color-svv-blue: #1a4d8f;                 /* LOT 39 — famille BLEU (information : « accusé reçu ») ; texte/accent */
   --color-svv-blue-soft: #e3ecfb;            /* LOT 97 — 2e ton de bleu (pastille analyse PARTIELLE) : fond pâle, texte = --color-svv-blue */
@@ -304,7 +304,7 @@
   --color-svv-green-ink: #7ee2a4;
   --color-svv-amber: #f2b23c;
   --color-svv-amber-soft: #382a0e;
-  --color-svv-or: #e3bd4f;                   /* OR, variante SOMBRE (décor seulement) */
+  --color-svv-or: #d9a441;                   /* OR, le même en Sombre : la fête se dessine sur le rouge du bouton */
   --color-svv-blue: #7ab0f5;
   --color-svv-blue-soft: #223247;            /* LOT 97 — 2e ton SOMBRE (pastille PARTIELLE) : fond bleu ardoise, texte = --color-svv-blue (#7ab0f5) ≈ 5,6:1 */
   /* LOT 84 — variantes SOMBRES mesurées (contraste texte/fond ≥ 4,5:1) : note 14,3:1 · à confirmer 7,7:1 · carte sommet 13,8:1 · lien-source 7,2:1. */
@@ -364,7 +364,7 @@
     --color-svv-green-ink: #7ee2a4;
     --color-svv-amber: #f2b23c;
     --color-svv-amber-soft: #382a0e;
-    --color-svv-or: #e3bd4f;                 /* identique au bloc [data-theme='dark'] */
+    --color-svv-or: #d9a441;                 /* identique au bloc [data-theme='dark'] */
     --color-svv-blue: #7ab0f5;
     --color-svv-blue-soft: #223247;            /* LOT 97 — 2e ton SOMBRE (pastille PARTIELLE), identique au bloc [data-theme='dark']. */
     /* LOT 84 — variantes SOMBRES mesurées (≥ 4,5:1), identiques au bloc [data-theme='dark']. */
