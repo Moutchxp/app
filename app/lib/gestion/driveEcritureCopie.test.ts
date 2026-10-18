@@ -37,7 +37,7 @@ const POST = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.strin
 beforeEach(() => { interdit.mockClear(); queryMock.mockClear(); });
 
 describe('🔴 fetchCopieScannes — seules deux formes de requête passent', () => {
-  const f = fetchCopieScannes(interdit as unknown as typeof fetch, PROTEGES);
+  const f = fetchCopieScannes(interdit as unknown as typeof fetch, PROTEGES, new Map([['f-scan-1', 'scan.pdf']]));
 
   it.each(['PATCH', 'PUT', 'DELETE'])('%s sur un identifiant protégé est refusé avant tout envoi', async (m) => {
     await expect(f(`${API}/files/${SCANNES}?supportsAllDrives=true`, { method: m, body: '{"trashed":true}' }))
@@ -62,7 +62,10 @@ describe('🔴 fetchCopieScannes — seules deux formes de requête passent', ()
   it('un /copy dont le corps porte autre chose que parents + étiquettes est refusé', async () => {
     const url = `${API}/files/f-scan-1/copy?supportsAllDrives=true`;
     for (const corps of [
-      { parents: ['cp-1-a'], name: 'renommé' },
+      { parents: ['cp-1-a'], name: 'renommé', appProperties: { svav_source_id: 'f-scan-1' } },
+      { parents: ['cp-1-a'], appProperties: { svav_source_id: 'f-scan-1' } },
+      { name: '', parents: ['cp-1-a'] },
+      { name: 'Copie de scan.pdf', parents: ['cp-1-a'] },
       { parents: ['cp-1-a'], trashed: true },
       { parents: ['cp-1-a'], properties: { x: '1' } },
       { parents: ['cp-1-a'], description: 'x' },
@@ -96,18 +99,43 @@ describe('🔴 fetchCopieScannes — seules deux formes de requête passent', ()
 
   it('ce qui PASSE : un GET de lecture, et un /copy au corps exact', async () => {
     const ok = vi.fn(async () => new Response('{}'));
-    const g = fetchCopieScannes(ok as unknown as typeof fetch, PROTEGES);
+    const g = fetchCopieScannes(ok as unknown as typeof fetch, PROTEGES, new Map([['f-scan-1', 'scan.pdf']]));
     await g(`${API}/files/f-scan-1?supportsAllDrives=true&fields=id`);
     await g(`${API}/files/f-scan-1/copy?supportsAllDrives=true&fields=id`,
-      POST({ parents: ['cp-1-a'], appProperties: { svav_source_id: 'f-scan-1', svav_source_modifie: '2026-10-18' } }));
+      POST({ name: 'scan.pdf', parents: ['cp-1-a'], appProperties: { svav_source_id: 'f-scan-1', svav_source_modifie: '2026-10-18' } }));
     expect(ok).toHaveBeenCalledTimes(2);
   });
 });
 
-describe('🔴 copierDepuisScannes — le verdict d’abord, un seul POST au corps construit ici', () => {
-  const demande = { sourceId: 'f-scan-1', sourceMime: 'application/pdf', sourceChaine: ['br-actifs', SCANNES], destinationId: 'cp-1-a' };
+describe('🔴 correctif du 19/10/2026 — le NOM EXACT est toujours transmis (plus jamais « Copie de … »)', () => {
+  it('un document Google natif se copie TEL QUEL, sous le nom exact de la source (espaces et accents compris)', async () => {
+    const appels: RequestInit[] = [];
+    const nom = 'Mandat de location signé ';
+    const reseau = vi.fn(async (_u: string, init?: RequestInit) => {
+      appels.push(init ?? {});
+      return new Response(JSON.stringify({ id: 'c', name: nom, size: '1', mimeType: 'application/vnd.google-apps.document' }));
+    });
+    const r = await copierDepuisScannes({ sourceId: 'f-scan-1', sourceMime: 'application/vnd.google-apps.document', sourceChaine: ['br-actifs', SCANNES],
+      destinationId: 'cp-1-a', sourceNom: nom }, IDX, CTX, PROTEGES, 'jeton', { fetch: reseau as unknown as typeof fetch, attendre: async () => {} });
+    expect(r.ok).toBe(true);
+    const corps = JSON.parse(String(appels[0].body)) as Record<string, unknown>;
+    expect(corps.name).toBe(nom);
+    // Aucune conversion : ni mimeType demandé, ni rien d'autre que le nom, le parent et les étiquettes.
+    expect(Object.keys(corps).sort()).toEqual(['appProperties', 'name', 'parents']);
+  });
 
-  it('copie permise : exactement UN POST files/<id>/copy, corps { parents, appProperties }', async () => {
+  it('un nom vide n’est jamais envoyé (Google nommerait la copie à sa façon)', async () => {
+    const r = copierDepuisScannes({ ...{ sourceId: 'f-scan-1', sourceMime: 'application/pdf', sourceChaine: ['br-actifs', SCANNES], destinationId: 'cp-1-a' }, sourceNom: '' },
+      IDX, CTX, PROTEGES, 'jeton', { fetch: interdit as unknown as typeof fetch, attendre: async () => {} });
+    await expect(r).resolves.toMatchObject({ ok: false });
+    expect(interdit).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 copierDepuisScannes — le verdict d’abord, un seul POST au corps construit ici', () => {
+  const demande = { sourceId: 'f-scan-1', sourceMime: 'application/pdf', sourceChaine: ['br-actifs', SCANNES], destinationId: 'cp-1-a', sourceNom: 'scan.pdf' };
+
+  it('copie permise : exactement UN POST files/<id>/copy, corps { name EXACT, parents, appProperties }', async () => {
     const appels: { url: string; init?: RequestInit }[] = [];
     const reseau = vi.fn(async (url: string, init?: RequestInit) => {
       appels.push({ url, init });
@@ -120,7 +148,7 @@ describe('🔴 copierDepuisScannes — le verdict d’abord, un seul POST au cor
     expect(appels[0].url).toMatch(/^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/f-scan-1\/copy\?/);
     expect(appels[0].init?.method).toBe('POST');
     expect(JSON.parse(String(appels[0].init?.body))).toEqual({
-      parents: ['cp-1-a'], appProperties: { svav_source_id: 'f-scan-1', svav_source_modifie: '2025-01-01T00:00:00Z' },
+      name: 'scan.pdf', parents: ['cp-1-a'], appProperties: { svav_source_id: 'f-scan-1', svav_source_modifie: '2025-01-01T00:00:00Z' },
     });
     expect(queryMock).not.toHaveBeenCalled();
   });

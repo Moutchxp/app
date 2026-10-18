@@ -246,12 +246,20 @@ export class RequeteCopieRefusee extends Error {
 /**
  * LE `fetch` DE LA COPIE. Il ne laisse passer QUE deux formes de requête, et lève AVANT tout envoi pour le reste :
  *   · un `GET` de l'API de lecture Drive (`files…`) ;
- *   · un `POST {API}/files/<id>/copy?…` dont le corps est EXACTEMENT `{ parents: [<un dossier>], appProperties }`,
- *     `appProperties` ne portant que les étiquettes de suivi, et le parent n'étant pas un identifiant protégé.
+ *   · un `POST {API}/files/<id>/copy?…` dont le corps est EXACTEMENT `{ name, parents: [<un dossier>], appProperties }`,
+ *     `name` étant le NOM EXACT de la source (`nomsAttendus`, lu chez Google), `appProperties` ne portant que les
+ *     étiquettes de suivi, et le parent n'étant pas un identifiant protégé.
  * Tout le reste — PATCH, PUT, DELETE, /permissions, /watch, /emptyTrash, addParents, removeParents, trashed,
- * properties, name, description, starred… — est refusé. Défense en profondeur : le verdict a déjà jugé la requête.
+ * properties, un `name` qui n'est pas celui de la source, description, starred… — est refusé. Défense en profondeur :
+ * le verdict a déjà jugé la requête.
+ *
+ * 🔴 CORRECTIF DU 19/10/2026 — LE NOM EST TOUJOURS TRANSMIS. Sans lui, Google nomme la copie d'un document Google
+ * natif « Copie de … » (arrêt du 18/10, `docs/COPIE_ARCHIVE_ARRET_2026-10-18.md`). Un nom absent est donc refusé, et un
+ * nom différent de celui de la source aussi : ce serait un renommage déguisé.
  */
-export function fetchCopieScannes(base: typeof fetch, proteges: ReadonlySet<string>): typeof fetch {
+export function fetchCopieScannes(
+  base: typeof fetch, proteges: ReadonlySet<string>, nomsAttendus: ReadonlyMap<string, string> = new Map(),
+): typeof fetch {
   return (async (entree: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof entree === 'string' ? entree : entree instanceof URL ? entree.toString() : entree.url;
     const methode = (init?.method ?? 'GET').toUpperCase();
@@ -272,8 +280,12 @@ export function fetchCopieScannes(base: typeof fetch, proteges: ReadonlySet<stri
       throw new RequeteCopieRefusee('corps illisible');
     }
     const cles = Object.keys(corps);
-    if (cles.some((k) => k !== 'parents' && k !== 'appProperties')) {
+    if (cles.some((k) => k !== 'name' && k !== 'parents' && k !== 'appProperties')) {
       throw new RequeteCopieRefusee(`champ refusé dans le corps : ${cles.join(', ')}`);
+    }
+    const attendu = nomsAttendus.get(m[1]);
+    if (typeof corps.name !== 'string' || corps.name === '' || attendu === undefined || corps.name !== attendu) {
+      throw new RequeteCopieRefusee('le nom de la copie doit être EXACTEMENT celui de la source');
     }
     const parents = corps.parents;
     if (!Array.isArray(parents) || parents.length !== 1 || typeof parents[0] !== 'string' || proteges.has(parents[0])) {
@@ -294,12 +306,17 @@ export type IssueCopie =
 
 /**
  * COPIE UN FICHIER de « Documents clients scannés » vers un dossier miroir à nous. La SEULE fonction qui émette
- * `files.copy`. Le corps est construit ICI, jamais reçu de l'appelant : `{ parents: [destination], appProperties }`,
- * le nom de la copie étant celui que Google recopie de l'original (strictement identique).
+ * `files.copy`. Le corps est construit ICI, jamais reçu de l'appelant : `{ name, parents: [destination], appProperties }`.
+ *
+ * 🔴 LE NOM EXACT DE LA SOURCE EST TOUJOURS TRANSMIS (correctif du 19/10/2026) : Google ne recopie pas le nom d'un
+ * document Google natif, il écrit « Copie de … ». Le nom vient du relevé chez Google, tel quel, sans aucun nettoyage.
+ * Un document Google se copie TEL QUEL (même type, aucune conversion) : `files.copy` ne convertit jamais.
  */
 export async function copierDepuisScannes(
   demande: {
     sourceId: string; sourceMime: string; sourceChaine: readonly string[]; destinationId: string;
+    /** Le nom EXACT de la source, lu chez Google. */
+    sourceNom: string;
     sourceModifie?: string;
   },
   index: IndexArbre,
@@ -322,8 +339,8 @@ export async function copierDepuisScannes(
     `${API}/files/${demande.sourceId}/copy?supportsAllDrives=true&fields=id,name,md5Checksum,size,mimeType`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ parents: [demande.destinationId], appProperties: etiquettes }),
-    }, { ...deps, fetch: fetchCopieScannes(deps.fetch, proteges) });
+      body: JSON.stringify({ name: demande.sourceNom, parents: [demande.destinationId], appProperties: etiquettes }),
+    }, { ...deps, fetch: fetchCopieScannes(deps.fetch, proteges, new Map([[demande.sourceId, demande.sourceNom]])) });
   if (!r.ok) return { ok: false, refuse: false, motif: r.motif };
   const id = typeof r.corps.id === 'string' ? r.corps.id : '';
   if (id === '') return { ok: false, refuse: false, motif: 'Drive n’a pas rendu d’identifiant pour cette copie.' };

@@ -50,7 +50,7 @@ export const ASCENSION_MAX = 32;
 /** Les opérations d'écriture Drive. Le garde vaut pour TOUTES, pas seulement pour la création. */
 export type OperationDrive =
   | 'creer_dossier' | 'creer_raccourci' | 'modifier' | 'copier' | 'supprimer' | 'partager' | 'deposer'
-  | 'copier_depuis_scannes';
+  | 'copier_depuis_scannes' | 'corbeille_copie';
 
 /** Un dossier que nous avons créé, tel qu'il est mémorisé. C'est la ligne de `gestion_drive_arbre`. */
 export interface NoeudArbre {
@@ -287,6 +287,52 @@ export function verifierCopieDepuisScannes(
   return verifierDestinationCopie(demande.destinationId, index, ctx);
 }
 
+// ── LA CORBEILLE D'UNE COPIE FAUTIVE (décision d'Arno du 19/10/2026) ───────────────────────────────────────────────
+
+/**
+ * 🔴 LE VERDICT SUR LA MISE À LA CORBEILLE D'UNE COPIE FAUTIVE. PUR. Une opération ÉTROITE, à part, qui ne relâche rien
+ * du reste : la copie de « Documents clients scannés » a laissé deux copies non conformes (arrêt du 18/10/2026), et
+ * Arno a décidé qu'elles partent à la corbeille. Tout doit être vrai :
+ *   ① l'identifiant figure dans la LISTE passée explicitement (aucune corbeille « par motif » ou « par dossier ») ;
+ *   ② c'est un FICHIER (jamais un dossier, jamais un raccourci) ;
+ *   ③ sa chaîne de parents, RELUE CHEZ GOOGLE, passe par le dossier de copie ;
+ *   ④ elle ne passe JAMAIS par « Documents clients scannés » (ni par un dossier qui en porte le nom), ni par
+ *      « 00 Arrivée des mails » ;
+ *   ⑤ ne pas savoir vaut refus : chaîne vide → refus.
+ * La CORBEILLE seulement : la suppression définitive n'existe nulle part dans ce dépôt, et pas davantage ici.
+ */
+export function verifierCorbeilleCopie(
+  demande: {
+    cibleId: string;
+    cibleMime: string;
+    /** Les ancêtres de la cible, du parent direct vers le haut, LUS CHEZ GOOGLE au moment du geste. */
+    chaine: readonly { id: string; nom: string }[];
+  },
+  ctx: { autorises: ReadonlySet<string>; racineCopieId: string; scannesId: string; interdits: ReadonlySet<string> },
+): Verdict {
+  const cible = (demande.cibleId ?? '').trim();
+  if (cible === '' || !ctx.autorises.has(cible)) {
+    return { ok: false, garde: 'autre', motif: `Corbeille refusée : ${cible || '(vide)'} ne figure pas dans la liste autorisée.` };
+  }
+  if (demande.cibleMime === MIME_DOSSIER_GARDE || demande.cibleMime === MIME_RACCOURCI_GARDE) {
+    return { ok: false, garde: 'autre', motif: 'Corbeille refusée : seul un FICHIER part à la corbeille, jamais un dossier ni un raccourci.' };
+  }
+  if (cible === ctx.scannesId || ctx.interdits.has(cible)) {
+    return { ok: false, garde: 'autre', motif: 'Corbeille refusée : élément protégé.' };
+  }
+  if (demande.chaine.length === 0) {
+    return { ok: false, garde: 'autre', motif: 'Corbeille refusée : emplacement inconnu — ne pas savoir vaut refus.' };
+  }
+  for (const m of demande.chaine) {
+    if (m.id === ctx.scannesId || porteLeNomProtege(m.nom) || ctx.interdits.has(m.id)) {
+      return { ok: false, garde: 'autre', motif: `Corbeille refusée : l’élément est sous « ${m.nom} », qui ne perd jamais rien.` };
+    }
+  }
+  if ((ctx.racineCopieId ?? '').trim() === '' || !demande.chaine.some((m) => m.id === ctx.racineCopieId)) {
+    return { ok: false, garde: 'hors_racine', motif: `Corbeille refusée : ${cible} n’est pas sous le dossier de copie.` };
+  }
+  return { ok: true };
+}
 
 /**
  * LE VERDICT SUR LA CRÉATION DE LA RACINE — le seul cas où l'on écrit HORS de l'arborescence, et donc le seul qui
