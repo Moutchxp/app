@@ -30,6 +30,19 @@ function repondre(sql: string, params: unknown[]): { rows: unknown[]; rowCount: 
     return { rows: groupe, rowCount: groupe.length };
   }
   if (s.startsWith('UPDATE gestion_annuaire_occupation')) return { rows: [], rowCount: (params[0] as unknown[]).length };
+  if (s.includes('FROM gestion_annuaire_lot lo WHERE lo.id = ANY($1::bigint[])')) {
+    const base = { adresse: '4 rue Fictive', code_postal: '92800', commune: 'Puteaux', nature: 'Appartement', type_bien: 'Type 3', proprietaire_id: '5',
+      type_local: null, parking_type: null, parking_situation: null, nom_annexe: null, meuble: 'true', num_lot_copro: '27', batiment: null, escalier: null,
+      surface_carrez_m2: '41.8', surface_habitable_m2: null, surface_m2: null, surface_exterieure_m2: null, nombre_pieces: '3', ascenseur: null, digicode: null,
+      digicode_code: null, precision_acces: null, dpe_classe: null, dpe_date: null, dpe_non_soumis: null, chauffage: null, epoque_construction: null, syndic_id: null };
+    return { rows: [
+      { ...base, id: '7', wippimmo_id: '100', categorie: 'logement', type_logement: null, etage: '3', porte: 'G' },
+      { ...base, id: '8', wippimmo_id: 'app-1', categorie: 'cave', type_logement: null, etage: '-1', porte: '7', num_lot_copro: null },
+    ], rowCount: 2 };
+  }
+  if (s.startsWith('SELECT id::text, nom_complet AS nom FROM gestion_annuaire_proprietaire')) return { rows: [{ id: '5', nom: 'DUPONT Jean' }], rowCount: 1 };
+  if (s.includes('FROM gestion_location_conditions c')) return { rows: [{ loyer_hc: '1250', provisions: null, taux: '6', base: 'hc' }], rowCount: 1 };
+  if (s.includes('SELECT l.wippimmo_id AS cle')) return { rows: [{ cle: 'W-101' }], rowCount: 1 };
   return { rows: [], rowCount: 0 };
 }
 
@@ -45,7 +58,7 @@ vi.mock('../gestion/personneVivanteSql', () => ({ sqlPersonneVivante: async () =
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@criterimmo.fr' }) }));
 
 import {
-  annulerSortie, corrigerSortie, enregistrerSortie, notifierSortie, rechercherOccupants, type SortieFaite,
+  annulerSortie, corrigerSortie, encartDuBail, enregistrerSortie, notifierSortie, rechercherOccupants, type SortieFaite,
 } from './sortieLocatairesRepo';
 
 const AUTEUR = { id: null, libelle: 'arno@exemple.fr' };
@@ -213,5 +226,22 @@ describe('le mail : envoyé après, jamais bloquant, jamais un faux « envoyé �
   it('un transport qui LÈVE ne remonte pas d’exception', async () => {
     const transport = { envoyer: vi.fn(async () => { throw new Error('panne réseau'); }) };
     await expect(notifierSortie(FAITE, AUTEUR, { transport: transport as never })).resolves.toMatchObject({ envoye: false, motif: 'panne réseau' });
+  });
+});
+
+describe('encartDuBail — lecture seule', () => {
+  it('le logement PUIS les annexes du bail ; aucune écriture ; une valeur absente vaut null', async () => {
+    const e = await encartDuBail(11);
+    expect(e).not.toBeNull();
+    expect(e!.adresse).toBe('4 rue Fictive, 92800 Puteaux');
+    expect(e!.lots.map((l) => [l.lotId, l.role, l.numeroLot])).toEqual([[7, 'logement', '100'], [8, 'annexe', null]]);
+    expect(e!.lots[1].type).toBe('Cave');
+    expect(e!.meuble).toBe(true);
+    expect(e!.surfaceCarrez).toBe(41.8);
+    expect(e!.ascenseur).toBeNull();
+    expect(e!.proprietaire).toEqual({ id: 5, nom: 'DUPONT Jean' });
+    expect(e!.bail).toEqual({ entree: '2022-09-01', loyerHc: 1250, provisions: null, taux: 6, base: 'hc' });
+    expect([e!.locataireCle, e!.lotCle]).toEqual(['W-101', '100']);
+    expect(ecritures()).toHaveLength(0);
   });
 });

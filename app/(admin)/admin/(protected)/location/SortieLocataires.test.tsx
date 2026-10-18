@@ -5,12 +5,35 @@ import { createRoot, type Root } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
 import { EcranAjouterLocatairesAVenir, EcranSortieLocataire, EcranSortieRecherche, FormulaireBail, libelleFaireSortir } from './SortieLocataires';
 import { EcranLocataires } from './EcransLocation';
-import type { BailLogement } from '../../../../lib/location/sortieLocataires';
+import type { BailLogement, EncartLogement } from '../../../../lib/location/sortieLocataires';
+
+const ENCART: EncartLogement & { locataireCle: string | null; lotCle: string } = {
+  lotId: 7, adresse: '4 rue Fictive, 92800 Puteaux', type: 'Appartement T3', meuble: true, etage: '3', porte: 'G', numLotCopro: '27',
+  numeroLot: '100', batiment: null, escalier: null, surfaceCarrez: 41.8, surfaceHabitable: null, surface: null, surfaceExterieure: null,
+  nombrePieces: 3, ascenseur: true, digicode: null, digicodeCode: null, precisionAcces: null, dpeClasse: null, dpeDate: null, dpeNonSoumis: null,
+  chauffage: null, epoqueConstruction: null,
+  lots: [
+    { lotId: 7, role: 'logement', type: 'Appartement T3', etage: '3', numLotCopro: '27', numeroLot: '100', porte: 'G', place: false },
+    { lotId: 8, role: 'annexe', type: 'Cave', etage: '-1', numLotCopro: null, numeroLot: '101', porte: '7', place: false },
+    { lotId: 9, role: 'annexe', type: 'Parking · intérieur', etage: null, numLotCopro: null, numeroLot: null, porte: '12', place: true },
+  ],
+  proprietaire: { id: 5, nom: 'DUPONT Jean' }, syndic: 'Syndic Exemple',
+  bail: { entree: '2022-09-01', loyerHc: 1250, provisions: null, taux: 6, base: 'hc' },
+  locataireCle: 'W-101', lotCle: '100',
+};
 
 /**
  * SORTIE D'UN OU PLUSIEURS LOCATAIRES (Arno, 19/10/2026) — les VRAIS composants, routes simulées : rien ne part.
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+/** Le composant PARTAGÉ de l'historique, observé : on vérifie que l'écran de sortie le monte tel quel, en lecture seule. */
+const blocHistorique = vi.fn();
+vi.mock('../gestion/BlocHistoriqueEchanges', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../gestion/BlocHistoriqueEchanges')>()),
+  useFichePersonne: () => ({ fiche: { titre: 'BERNARD Alice', sousTitre: null, adresses: ['alice@exemple.test'], occupations: [] }, erreur: null }),
+  BlocHistoriqueEchanges: (p: Record<string, unknown>) => { blocHistorique(p); return createElement('div', { 'data-stub': 'historique-partage' }); },
+}));
 
 const ok = (data: unknown, extra: Record<string, unknown> = {}) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data, ...extra }) }) as unknown as Response;
 const BAIL: BailLogement = {
@@ -136,7 +159,7 @@ describe('le bloc « Sortie du logement »', () => {
 
 describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie=…)', () => {
   const rendre = async (reponse: (u: string, init?: RequestInit) => Response): Promise<ReturnType<typeof vi.fn>> => {
-    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => reponse(String(u), init));
+    const f = vi.fn(async (u: string | URL | Request, init?: RequestInit) => (String(u).includes('encartBail=') ? ok(ENCART) : reponse(String(u), init)));
     global.fetch = f as unknown as typeof fetch;
     await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11 })); });
     await act(async () => { await Promise.resolve(); });
@@ -151,13 +174,15 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(libelleFaireSortir(2)).toBe('Faire sortir 2 locataires');
   });
 
-  it('retour, titre à pastille, contexte, cartes TOUTES sélectionnées ; ni bloc « Fiche commune », ni fiche', async () => {
-    const f = await rendre(() => ok(BAIL));
+  it('retour, titre à pastille, encart, cartes TOUTES sélectionnées ; ni bloc « Fiche commune », ni fiche', async () => {
+    const f = await rendre((u) => (u.includes('encartBail=') ? ok(ENCART) : ok(BAIL)));
     expect(container.querySelector('.loc-retour a')?.getAttribute('href')).toBe('/admin/location/locataires');
     expect(container.querySelector('.loc-retour a')?.textContent).toBe('← Ajouter ou supprimer un locataire');
     expect(container.querySelector('.arc-biens-titre')?.textContent).toBe('Locataires de ce logement 2');
-    const ctx = container.querySelector('[data-contexte]')?.textContent ?? '';
-    for (const x of ['4 rue Fictive', 'Appartement · 3e étage · porte G', 'Cave n° 7', 'DUPONT Jean']) expect(ctx).toContain(x);
+    const encart = container.querySelector('[data-encart-logement]')!;
+    expect(encart.querySelector('h3')?.textContent).toBe('4 rue Fictive, 92800 Puteaux');
+    // L'encart est AU-DESSUS des cartes.
+    expect(encart.compareDocumentPosition(container.querySelector('.arc-biens-liste')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(cartes().map((b) => [b.getAttribute('aria-pressed'), b.textContent])).toEqual([['true', '✓ Faire sortir'], ['true', '✓ Faire sortir']]);
     expect(container.querySelectorAll('mark.arc-surligne--en-place')).toHaveLength(2);
     expect(container.textContent).toContain('Entré(e) dans les lieux le 01/09/2022');
@@ -166,7 +191,7 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     expect(gros().className).toBe('arc-gros arc-gros--archiver');
     expect(container.querySelector('[data-issue]')?.textContent).toBe('Le logement deviendra VACANT');
     expect(container.textContent).not.toContain('Fiche commune avec la Gestion');
-    expect(f.mock.calls.map((c) => String(c[0]))).toEqual(['/api/admin/location?bail=11&v=0']);
+    expect(f.mock.calls.map((c) => String(c[0])).sort()).toEqual(['/api/admin/location?bail=11&v=0', '/api/admin/location?encartBail=11']);
   });
 
   it('la bascule suit le compteur et la phrase ; à 0, le gros bouton est inactif', async () => {
@@ -214,5 +239,66 @@ describe('l’écran de sortie ALIGNÉ sur « Supprimer un des biens » (?sortie
     const res = container.querySelector('button[data-occupation="31"]')!;
     expect(res.querySelector('.loc-res-type--locataires')?.textContent).toBe('occupant');
     expect(res.textContent).toContain('MARTIN Léa');
+  });
+});
+
+describe('l’encart « Le logement » et l’historique des échanges (écran de sortie)', () => {
+  const rendre = async (gestion: boolean, encart: unknown = ENCART): Promise<void> => {
+    global.fetch = vi.fn(async (u: string | URL | Request) => (String(u).includes('encartBail=') ? ok(encart) : ok(BAIL))) as unknown as typeof fetch;
+    blocHistorique.mockClear();
+    await act(async () => { root.render(createElement(EcranSortieLocataire, { occupationInitiale: 11, gestion })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+
+  it('l’encart n’affiche QUE les champs présents (ni « — », ni « non renseigné »)', async () => {
+    await rendre(true);
+    const e = container.querySelector('[data-encart-logement]')!;
+    const lignes = [...e.querySelectorAll('[data-ligne]')].map((x) => x.getAttribute('data-ligne'));
+    expect(lignes).toEqual(['proprietaire', 'type', 'etage', 'porte', 'copro', 'lot', 'carrez', 'pieces', 'ascenseur', 'syndic', 'entree', 'loyer', 'taux']);
+    expect(e.textContent).not.toMatch(/non renseigné|—/);
+    expect(e.querySelector('[data-ligne="type"] dd')?.textContent).toBe('Appartement T3 · meublé');
+    expect(e.querySelector('[data-ligne="carrez"] dd')?.textContent).toBe('41,8 m²');
+    expect(e.querySelector('[data-ligne="loyer"] dd')?.textContent).toMatch(/^1\s250,00 € \/ mois hors charges$/);
+    expect(e.querySelector('[data-ligne="taux"] dd')?.textContent).toBe('6 % HT (sur le loyer hors charges)');
+    expect(e.querySelector('a[data-lien-proprietaire]')?.getAttribute('href')).toBe('/admin/location/proprietaire/5');
+  });
+
+  it('un bien sans aucune information facultative : seuls l’adresse, le propriétaire et le lot', async () => {
+    await rendre(true, { ...ENCART, type: null, meuble: null, etage: null, porte: null, numLotCopro: null, numeroLot: null, surfaceCarrez: null,
+      nombrePieces: null, ascenseur: null, syndic: null, bail: { entree: null, loyerHc: null, provisions: null, taux: null, base: null },
+      lots: [{ lotId: 7, role: 'logement', type: null, etage: null, numLotCopro: null, numeroLot: null, porte: null, place: false }] });
+    const e = container.querySelector('[data-encart-logement]')!;
+    expect([...e.querySelectorAll('[data-ligne]')].map((x) => x.getAttribute('data-ligne'))).toEqual(['proprietaire']);
+    expect([...e.querySelectorAll('[data-lot]')].map((x) => x.textContent)).toEqual(['Logement']);
+  });
+
+  it('il liste TOUS les lots du bail : logement + annexes, avec étage, porte ou place, n° de lot', async () => {
+    await rendre(true);
+    const lots = [...container.querySelectorAll('[data-lots-du-bail] [data-lot]')].map((x) => [x.getAttribute('data-role'), x.textContent]);
+    expect(lots).toEqual([
+      ['logement', 'Appartement T3 · 3e étage · porte G · lot de copro n° 27 · lot n° 100'],
+      ['annexe', 'Cave · sous-sol 1 · porte 7 · lot n° 101'],
+      ['annexe', 'Parking · intérieur · place 12'],
+    ]);
+  });
+
+  it('l’historique est LE composant partagé (périmètre « bien »), en LECTURE SEULE, sous les cartes', async () => {
+    await rendre(true);
+    expect(blocHistorique).toHaveBeenCalled();
+    const p = blocHistorique.mock.calls.at(-1)![0] as Record<string, unknown>;
+    expect(p.sorte).toBe('locataire');
+    expect(p.cle).toBe('W-101');
+    expect(p.perimetre).toEqual({ sorte: 'bien', cle: '100', bienNouveauMessage: null });
+    expect(p.redaction).toBeNull();
+    expect(p.onGesteMail).toBeUndefined();
+    const bloc = container.querySelector('[data-historique-logement]')!;
+    expect(bloc.textContent).toContain('écrire, répondre ou transférer se fait depuis la Gestion');
+    expect(container.querySelector('.arc-biens-liste')!.compareDocumentPosition(bloc) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('sans le droit « Gestion » : pas d’historique, et on le dit', async () => {
+    await rendre(false);
+    expect(blocHistorique).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-historique-refus]')?.textContent).toContain('droit « Gestion »');
   });
 });

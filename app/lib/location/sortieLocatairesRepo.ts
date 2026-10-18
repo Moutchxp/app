@@ -9,10 +9,14 @@ import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
 import { analyserTermePortefeuille } from './recherchePortefeuille';
-import { LIBELLE_TYPE_LOGEMENT, type TypeLogement } from './bienComplet';
+import {
+  LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING,
+  type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
+} from './bienComplet';
+import { LIBELLE_CATEGORIE, type Categorie } from './locationBien';
 import {
   htmlMailSortie, issueSortie, objetMailSortie, texteMailSortie, verifierCorrection, verifierSortie,
-  type BailLogement, type DonneesMailSortie, type LocataireDuBail, type OccupantTrouve, type SortieEnregistree,
+  type BailLogement, type DonneesMailSortie, type EncartLogement, type LocataireDuBail, type LotEncart, type OccupantTrouve, type SortieEnregistree,
 } from './sortieLocataires';
 
 export type { OccupantTrouve };
@@ -408,4 +412,93 @@ export async function notifierSortie(
     console.error('[location] journal du mail de sortie impossible', (e as Error)?.message);
   }
   return issue;
+}
+
+// ══ L'ENCART « LE LOGEMENT » (Arno, 19/10/2026) — LECTURE SEULE ══════════════════════════════════════════════════════
+
+/**
+ * Tout ce que la base connaît du logement d'un bail, de ses lots (logement + annexes du bail) et du bail lui-même. Les
+ * colonnes des migrations Location (372, 374, 376, 378, 382) et les tables 370 (conditions de location) sont SONDÉES hors
+ * transaction : absentes, la valeur est `null` — et l'écran ne l'affiche pas. Ne touche à rien de la logique de sortie :
+ * il relit le bail par `lireBail` (lecture), puis le détail de ses lots.
+ */
+export async function encartDuBail(occupationId: number): Promise<(EncartLogement & { locataireCle: string | null; lotCle: string }) | null> {
+  const bail = await lireBail(occupationId);
+  if (bail === null) return null;
+  const c = async (col: string): Promise<string> =>
+    ((await colonneExisteMemo('gestion_annuaire_lot', col)) ? `lo.${col}::text` : 'NULL::text');
+  const ids = [bail.lotId, ...bail.annexes.map((a) => a.lotId)];
+  const { rows } = await query<Record<string, string | null>>(
+    `SELECT lo.id::text AS id, lo.wippimmo_id, lo.adresse, lo.code_postal, lo.commune, lo.nature, lo.type_bien, lo.proprietaire_id::text AS proprietaire_id,
+            ${await c('categorie')} AS categorie, ${await c('type_logement')} AS type_logement, ${await c('type_local')} AS type_local,
+            ${await c('parking_type')} AS parking_type, ${await c('parking_situation')} AS parking_situation, ${await c('nom_annexe')} AS nom_annexe,
+            ${await c('meuble')} AS meuble, ${await c('etage')} AS etage, ${await c('porte')} AS porte, ${await c('num_lot_copro')} AS num_lot_copro,
+            ${await c('batiment')} AS batiment, ${await c('escalier')} AS escalier,
+            ${await c('surface_carrez_m2')} AS surface_carrez_m2, ${await c('surface_habitable_m2')} AS surface_habitable_m2,
+            ${await c('surface_m2')} AS surface_m2, ${await c('surface_exterieure_m2')} AS surface_exterieure_m2, ${await c('nombre_pieces')} AS nombre_pieces,
+            ${await c('ascenseur')} AS ascenseur, ${await c('digicode')} AS digicode, ${await c('digicode_code')} AS digicode_code,
+            ${await c('precision_acces')} AS precision_acces, ${await c('dpe_classe')} AS dpe_classe, ${await c('dpe_date')} AS dpe_date,
+            ${await c('dpe_non_soumis')} AS dpe_non_soumis, ${await c('chauffage')} AS chauffage, ${await c('epoque_construction')} AS epoque_construction,
+            ${await c('syndic_id')} AS syndic_id
+       FROM gestion_annuaire_lot lo WHERE lo.id = ANY($1::bigint[])`, [ids]);
+  const parId = new Map(rows.map((r) => [Number(r.id), r]));
+  const lo = parId.get(bail.lotId);
+  if (lo === undefined) return null;
+  const texte = (v: string | null | undefined): string | null => (v === null || v === undefined || v.trim() === '' ? null : v);
+  const nombre = (v: string | null | undefined): number | null => (texte(v) === null || Number.isNaN(Number(v)) ? null : Number(v));
+  const booleen = (v: string | null | undefined): boolean | null => (v === 'true' ? true : v === 'false' ? false : null);
+  const numeroLot = (w: string | null): string | null => (w === null || w.startsWith('app-') ? null : w);
+  const typeDuLot = (r: Record<string, string | null>): string | null => {
+    const cat = texte(r.categorie);
+    if (cat === 'logement' && texte(r.type_logement)) return LIBELLE_TYPE_LOGEMENT[r.type_logement as TypeLogement] ?? r.type_logement;
+    if (cat === 'local' && texte(r.type_local)) return LIBELLE_TYPE_LOCAL[r.type_local as TypeLocal] ?? r.type_local;
+    if ((cat === 'parking' || cat === 'box') && (texte(r.parking_type) || texte(r.parking_situation))) {
+      return [LIBELLE_CATEGORIE[cat as Categorie], texte(r.parking_type) ? (LIBELLE_TYPE_PARKING[r.parking_type as TypeParking] ?? r.parking_type) : null,
+        texte(r.parking_situation) ? (LIBELLE_SITUATION_PARKING[r.parking_situation as SituationParking] ?? r.parking_situation)?.toLowerCase() : null]
+        .filter((x) => x).join(' · ');
+    }
+    if (texte(r.nom_annexe)) return r.nom_annexe;
+    if (cat !== null && cat !== 'logement' && (LIBELLE_CATEGORIE as Record<string, string>)[cat]) return (LIBELLE_CATEGORIE as Record<string, string>)[cat];
+    const wip = [texte(r.nature), texte(r.type_bien)].filter((x) => x !== null).join(' ');
+    return wip === '' ? (cat === null ? null : (LIBELLE_CATEGORIE as Record<string, string>)[cat] ?? null) : wip;
+  };
+  const lotEncart = (r: Record<string, string | null>, role: LotEncart['role']): LotEncart => ({
+    lotId: Number(r.id), role, type: typeDuLot(r), etage: texte(r.etage), numLotCopro: texte(r.num_lot_copro),
+    numeroLot: numeroLot(r.wippimmo_id), porte: texte(r.porte), place: r.categorie === 'parking' || r.categorie === 'box',
+  });
+  // Le propriétaire (lien vers sa fiche) et le syndic (nom).
+  const { rows: pr } = lo.proprietaire_id === null ? { rows: [] } : await query<{ id: string; nom: string | null }>(
+    'SELECT id::text, nom_complet AS nom FROM gestion_annuaire_proprietaire WHERE id = $1', [Number(lo.proprietaire_id)]);
+  const { rows: sy } = texte(lo.syndic_id) === null ? { rows: [] }
+    : await query<{ nom: string | null }>('SELECT nom FROM gestion_syndic WHERE id = $1', [Number(lo.syndic_id)]).catch(() => ({ rows: [] }));
+  // Le bail : loyer d'origine et taux de gestion (dernières conditions saisies sur une occupation du bail — migration 370).
+  let conditions: { loyer_hc: string | null; provisions: string | null; taux: string | null; base: string | null } | undefined;
+  if (await colonneExisteMemo('gestion_location_conditions', 'loyer_hc')) {
+    const { rows: co } = await query<{ loyer_hc: string | null; provisions: string | null; taux: string | null; base: string | null }>(
+      `SELECT c.loyer_hc::text, c.provisions::text, c.taux_gestion_ht::text AS taux, c.base::text
+         FROM gestion_location_conditions c WHERE c.occupation_id = ANY($1::bigint[]) ORDER BY c.id DESC LIMIT 1`,
+      [bail.locataires.map((l) => l.occupationId)]);
+    conditions = co[0];
+  }
+  const { rows: cle } = await query<{ cle: string | null }>(
+    `SELECT l.wippimmo_id AS cle FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id WHERE o.id = $1`, [occupationId]);
+  return {
+    lotId: bail.lotId,
+    adresse: texte([lo.adresse, [lo.code_postal, lo.commune].filter((x) => texte(x)).join(' ')].filter((x) => texte(x)).join(', ')),
+    type: typeDuLot(lo), meuble: booleen(lo.meuble), etage: texte(lo.etage), porte: texte(lo.porte), numLotCopro: texte(lo.num_lot_copro),
+    numeroLot: numeroLot(lo.wippimmo_id), batiment: texte(lo.batiment), escalier: texte(lo.escalier),
+    surfaceCarrez: nombre(lo.surface_carrez_m2), surfaceHabitable: nombre(lo.surface_habitable_m2), surface: nombre(lo.surface_m2),
+    surfaceExterieure: nombre(lo.surface_exterieure_m2), nombrePieces: nombre(lo.nombre_pieces),
+    ascenseur: booleen(lo.ascenseur), digicode: booleen(lo.digicode), digicodeCode: texte(lo.digicode_code), precisionAcces: texte(lo.precision_acces),
+    dpeClasse: texte(lo.dpe_classe), dpeDate: texte(lo.dpe_date), dpeNonSoumis: booleen(lo.dpe_non_soumis),
+    chauffage: texte(lo.chauffage), epoqueConstruction: texte(lo.epoque_construction),
+    lots: [lotEncart(lo, 'logement'), ...bail.annexes.map((a) => parId.get(a.lotId)).filter((r): r is Record<string, string | null> => r !== undefined).map((r) => lotEncart(r, 'annexe'))],
+    proprietaire: pr[0] === undefined ? null : { id: Number(pr[0].id), nom: pr[0].nom ?? `Propriétaire ${pr[0].id}` },
+    syndic: texte(sy[0]?.nom ?? null),
+    bail: {
+      entree: bail.entree, loyerHc: nombre(conditions?.loyer_hc), provisions: nombre(conditions?.provisions),
+      taux: nombre(conditions?.taux), base: texte(conditions?.base),
+    },
+    locataireCle: texte(cle[0]?.cle ?? null), lotCle: lo.wippimmo_id ?? '',
+  };
 }

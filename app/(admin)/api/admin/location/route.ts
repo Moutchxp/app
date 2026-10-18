@@ -24,7 +24,7 @@ import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../lib/location/archivage';
 import {
-  annulerSortie, bauxDuLocataire, corrigerSortie, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
+  annulerSortie, bauxDuLocataire, corrigerSortie, encartDuBail, enregistrerSortie, lireBail, notifierSortie, rechercherOccupants,
 } from '../../../../lib/location/sortieLocatairesRepo';
 
 /**
@@ -49,7 +49,7 @@ import {
  *       (formulaire complet) · ajouter-contact-syndic (annuaire du syndic de la Gestion) · detacher-annexe (marque, lien gardé) ·
  *       sortir-biens (`proprietaireId`, `lotIds`, `origine` obligatoire, `confirmeOccupation` — tous ses biens ⇒ archivage du propriétaire).
  * SORTIE D'UN OU PLUSIEURS LOCATAIRES (Arno, 19/10/2026) — GET `?occupants=texte` (les seuls occupants en place) · `?bail=N`
- *       (le bail d'une occupation) · `?bauxLocataire=N` ; POST `sortie-locataires` (`occupationId`, `sortants`, `date` ; + mail de
+ *       (le bail d'une occupation) · `?encartBail=N` (l'encart « Le logement » de l'écran de sortie) · `?bauxLocataire=N` ; POST `sortie-locataires` (`occupationId`, `sortants`, `date` ; + mail de
  *       confirmation, jamais bloquant) · `corriger-sortie-locataires` (`occupationIds`, `date`) · `annuler-sortie-locataires` (`occupationIds`).
  * 🔴 AUCUNE SUPPRESSION n'est atteignable d'ici.
  */
@@ -80,6 +80,11 @@ export async function GET(request: Request): Promise<Response> {
     if (idBail !== null) {
       const b = await lireBail(idBail);
       return Response.json(b === null ? { etat: 'inconnu' } : { etat: 'ok', data: b }, { headers: ENTETES });
+    }
+    const idEncart = identifiant(p('encartBail'));
+    if (idEncart !== null) {
+      const e = await encartDuBail(idEncart);
+      return Response.json(e === null ? { etat: 'inconnu' } : { etat: 'ok', data: e }, { headers: ENTETES });
     }
     const idBaux = identifiant(p('bauxLocataire'));
     if (idBaux !== null) return Response.json({ etat: 'ok', data: await bauxDuLocataire(idBaux) }, { headers: ENTETES });

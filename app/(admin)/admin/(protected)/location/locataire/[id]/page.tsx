@@ -20,7 +20,7 @@ export default async function Page({ params, searchParams }: {
     <section className="gst-page">
       {!autorise ? <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_LOCATION}</div>
         : id === null ? <div className="svv-card">Adresse incomplète : identifiant manquant.</div>
-          : sortie !== null ? <EcranSortieLocataire occupationInitiale={sortie} />
+          : sortie !== null ? <EcranSortieLocataire occupationInitiale={sortie} gestion={gestion} />
           : (
             <>
               <BlocSortieLogement locataireId={id} occupationDemandee={sortie} />

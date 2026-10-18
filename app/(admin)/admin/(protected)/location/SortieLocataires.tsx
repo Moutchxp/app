@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EtatLecture, envoyer, phraseMail, useLecture, type EtatMail } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
 import { CSS_ECRAN_ARCHIVAGE } from './ArchivageProprietaire';
+import { HistoriqueEchangesDuLogementLecture } from '../gestion/HistoriqueEchangesLecture';
 import {
   casesParDefaut, dateFr, dateMaxSortie, descriptionLogement, phraseIssue, verifierSortie,
-  type BailLogement, type OccupantTrouve, type SortieEnregistree,
+  libelleLotEncart, lignesEncart, type BailLogement, type EncartLogement, type OccupantTrouve, type SortieEnregistree,
 } from '../../../../lib/location/sortieLocataires';
 
 /**
@@ -25,12 +26,12 @@ const API = '/api/admin/location';
 /** L'écran de recherche des occupants. */
 export function EcranSortieRecherche() {
   const [texte, setTexte] = useState('');
-  const [etat, setEtat] = useState<{ etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[] }>({ etat: 'vide' });
+  const [etatLu, setEtat] = useState<{ etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[] }>({ etat: 'vide' });
   const controleur = useRef<AbortController | null>(null);
   useEffect(() => {
     const terme = texte.trim();
     controleur.current?.abort();
-    if (terme.length < 2) { setEtat({ etat: 'vide' }); return; }
+    if (terme.length < 2) return;   // l'état « vide » se déduit au rendu (`affiche`)
     const c = new AbortController();
     controleur.current = c;
     const t = setTimeout(() => {
@@ -52,6 +53,7 @@ export function EcranSortieRecherche() {
     return () => { clearTimeout(t); c.abort(); };
   }, [texte]);
 
+  const etat = texte.trim().length < 2 ? { etat: 'vide' as const } : etatLu;
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_SORTIE}</style>
@@ -266,17 +268,18 @@ export const libelleFaireSortir = (n: number): string => `Faire sortir ${n} loca
  * normale (sans `?sortie=`) reste celle de toujours. Écriture, journal, mail, correction et annulation : ceux du commit
  * ad2568f9, inchangés (`sortie-locataires`).
  */
-export function EcranSortieLocataire({ occupationInitiale }: { occupationInitiale: number }) {
+export function EcranSortieLocataire({ occupationInitiale, gestion = false }: { occupationInitiale: number; gestion?: boolean }) {
   const [occupation, setOccupation] = useState(occupationInitiale);
   const [texte, setTexte] = useState('');
-  const [etat, setEtat] = useState<{ etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[] }>({ etat: 'vide' });
+  const [etatLu, setEtat] = useState<{ etat: 'vide' } | { etat: 'charge' } | { etat: 'erreur'; message: string } | { etat: 'ok'; terme: string; data: OccupantTrouve[] }>({ etat: 'vide' });
+  const etat: EtatRecherche = texte.trim().length < 2 ? { etat: 'vide' } : etatLu;
   const [version, setVersion] = useState(0);
   const [bilan, setBilan] = useState<{ phrase: string; mail: string | null } | null>(null);
   const controleur = useRef<AbortController | null>(null);
   useEffect(() => {
     const terme = texte.trim();
     controleur.current?.abort();
-    if (terme.length < 2) { setEtat({ etat: 'vide' }); return; }
+    if (terme.length < 2) return;   // l'état « vide » se déduit au rendu (`affiche`)
     const c = new AbortController();
     controleur.current = c;
     const t = setTimeout(() => {
@@ -314,7 +317,7 @@ export function EcranSortieLocataire({ occupationInitiale }: { occupationInitial
           <EtatLecture etat={lu.etat} />
         </>
       ) : (
-        <SortieDuBail key={`${occupation}-${version}`} bail={lu.etat.data} occupationId={occupation} bilan={bilan}
+        <SortieDuBail key={`${occupation}-${version}`} bail={lu.etat.data} occupationId={occupation} bilan={bilan} gestion={gestion}
           barre={<BarreOccupants texte={texte} setTexte={setTexte} etat={etat} choisir={choisir} />}
           apres={(phrase, mail) => { setBilan({ phrase, mail }); setVersion((v) => v + 1); }} />
       )}
@@ -366,8 +369,8 @@ function BarreOccupants({ texte, setTexte, etat, choisir }: {
   );
 }
 
-function SortieDuBail({ bail, occupationId, barre, bilan, apres }: {
-  bail: BailLogement; occupationId: number; barre: React.ReactNode; bilan: { phrase: string; mail: string | null } | null;
+function SortieDuBail({ bail, occupationId, barre, bilan, apres, gestion }: {
+  bail: BailLogement; occupationId: number; barre: React.ReactNode; bilan: { phrase: string; mail: string | null } | null; gestion: boolean;
   apres: (phrase: string, mail: string | null) => void;
 }) {
   const [choix, setChoix] = useState<number[]>(() => casesParDefaut(bail));
@@ -391,9 +394,7 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres }: {
     const mail = r.mail as EtatMail | undefined;
     apres(phrase.replace('deviendra', 'devient'), mail === undefined ? 'Mail de confirmation : état inconnu (aucune réponse du serveur sur l’envoi).' : phraseMail(mail));
   };
-  const contexte = [bail.adresse ?? `Bien ${bail.lotId}`, descriptionLogement(bail),
-    bail.annexes.length > 0 ? `annexes du bail : ${bail.annexes.map((a) => a.libelle).join(', ')}` : null,
-    `propriétaire : ${bail.proprietaire ?? 'non renseigné'}`].filter((x) => x !== null).join(' · ');
+  const encart = useLecture<EncartLogement & { locataireCle: string | null; lotCle: string }>(`encartBail=${occupationId}`);
   return (
     <>
       <div className="arc-collant" data-collant>
@@ -434,7 +435,7 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres }: {
       </div>
       <section className="arc-biens" aria-label="Locataires de ce logement" data-selection-locataires>
         <h2 className="arc-biens-titre">Locataires de ce logement <span className="loc-pastille">{bail.locataires.length}</span></h2>
-        <p className="loc-muet" style={{ margin: 0 }} data-contexte>{contexte}</p>
+        {encart.etat.etat === 'ok' ? <EncartDuLogement e={encart.etat.data} /> : <EtatLecture etat={encart.etat} />}
         {bail.locataires.length === 0 ? <p className="loc-muet">Plus aucun locataire en place dans ce logement : rien à faire sortir.</p> : (
           <ul className="arc-biens-liste">
             {bail.locataires.map((l) => {
@@ -453,7 +454,44 @@ function SortieDuBail({ bail, occupationId, barre, bilan, apres }: {
           </ul>
         )}
       </section>
+      {encart.etat.etat === 'ok' && (
+        <section className="arc-biens sor-historique" aria-label="Historique des échanges du logement" data-historique-logement>
+          {!gestion ? <p className="svv-card" style={{ color: 'var(--color-svv-muted)', margin: 0 }} data-historique-refus>{REFUS_HISTORIQUE_GESTION}</p>
+            : encart.etat.data.locataireCle === null || encart.etat.data.lotCle === '' ? <p className="loc-muet">Historique des échanges indisponible : ce locataire ou ce logement n’a pas de clé d’annuaire.</p>
+              : <HistoriqueEchangesDuLogementLecture locataireCle={encart.etat.data.locataireCle} lotCle={encart.etat.data.lotCle} nom={bail.locataires[0]?.nom ?? ''} />}
+        </section>
+      )}
     </>
+  );
+}
+
+/** Sans le droit « Gestion », l'historique (celui de la Gestion) n'est pas lisible — même règle que la fiche commune. */
+export const REFUS_HISTORIQUE_GESTION = 'L’historique des échanges est celui de la Gestion (mails et pièces) : il demande aussi le droit « Gestion ».';
+
+/**
+ * L'ENCART « LE LOGEMENT » : l'adresse en titre, puis UNIQUEMENT ce que la base connaît (`lignesEncart`) — une information
+ * absente n'apparaît pas —, les lots du bail (logement + annexes) et le propriétaire avec le lien vers sa fiche.
+ */
+export function EncartDuLogement({ e }: { e: EncartLogement }) {
+  const lignes = lignesEncart(e);
+  const lots = Array.isArray(e.lots) ? e.lots : [];
+  return (
+    <div className="loc-bloc sor-encart" data-encart-logement>
+      <h3 className="sor-encart-titre">{e.adresse ?? `Bien ${e.lotId}`}</h3>
+      {(lignes.length > 0 || (e.proprietaire ?? null) !== null) && (
+        <dl className="sor-encart-dl">
+          {e.proprietaire != null && (<div data-ligne="proprietaire"><dt>Propriétaire</dt>
+            <dd><a href={`/admin/location/proprietaire/${e.proprietaire.id}`} data-lien-proprietaire>{e.proprietaire.nom}</a></dd></div>)}
+          {lignes.map((l) => <div key={l.cle} data-ligne={l.cle}><dt>{l.libelle}</dt><dd>{l.valeur}</dd></div>)}
+        </dl>
+      )}
+      <div className="sor-encart-lots" data-lots-du-bail>
+        <p className="sor-encart-sous">{lots.length > 1 ? `Lots de ce bail (${lots.length})` : 'Lot de ce bail'}</p>
+        <ul>
+          {lots.map((l) => <li key={l.lotId} data-lot={l.lotId} data-role={l.role}>{libelleLotEncart(l)}</li>)}
+        </ul>
+      </div>
+    </div>
   );
 }
 
@@ -538,6 +576,16 @@ export const CSS_SORTIE = `
 .sor-fait p{margin:0 0 4px}
 .sor-choix{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .sor-enregistrees{margin-top:14px}
+.sor-encart{display:flex;flex-direction:column;gap:10px;min-width:0;overflow-wrap:anywhere}
+.sor-encart-titre{margin:0;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
+.sor-encart-dl{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:8px 18px;margin:0}
+.sor-encart-dl > div{display:flex;flex-direction:column;gap:1px;min-width:0}
+.sor-encart-dl dt{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
+.sor-encart-dl dd{margin:0;color:var(--color-svv-ink)}
+.sor-encart-dl a{color:var(--color-svv-ink);font-weight:700;text-decoration:underline;display:inline-flex;align-items:center;min-height:44px}
+.sor-encart-sous{margin:0 0 4px;font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;color:var(--color-svv-muted)}
+.sor-encart-lots ul{margin:0;padding-left:1.1rem;display:flex;flex-direction:column;gap:2px}
+.sor-historique{margin-top:6px;min-width:0}
 .sor-voir{align-self:flex-start;display:inline-flex;align-items:center;font-size:.9rem;color:var(--color-svv-muted)}
 .sor-enregistrees h4{margin:0 0 6px}
 @media (max-width:760px){

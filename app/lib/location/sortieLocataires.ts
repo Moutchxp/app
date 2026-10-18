@@ -227,3 +227,116 @@ export function htmlMailSortie(d: DonneesMailSortie): string {
     + `<div style="padding:10px;font-size:12px;color:${gris}">Mail automatique de l’application Sans Vis-à-Vis® — rien n’a été effacé : les sortants restent dans l’historique du bien.</div>`
     + `</td></tr></table></body></html>`;
 }
+
+// ══ L'ENCART « LE LOGEMENT » de l'écran de sortie (Arno, 19/10/2026) ═════════════════════════════════════════════════
+
+/** Un lot concerné par le bail : le logement, puis ses annexes (cave, parking…). */
+export interface LotEncart {
+  lotId: number;
+  role: 'logement' | 'annexe';
+  /** Type lisible (« Appartement T3 », « Cave », « Parking intérieur »…). */
+  type: string | null;
+  etage: string | null;
+  numLotCopro: string | null;
+  /** N° de lot WIPPIMMO (jamais une clé `app-…`). */
+  numeroLot: string | null;
+  porte: string | null;
+  /** Parking / box : la « porte » est une PLACE. */
+  place: boolean;
+}
+
+/** Tout ce que la base sait d'un logement et de son bail ; `null` = absent (et alors NON affiché). */
+export interface EncartLogement {
+  lotId: number;
+  adresse: string | null;
+  type: string | null;
+  meuble: boolean | null;
+  etage: string | null;
+  porte: string | null;
+  numLotCopro: string | null;
+  numeroLot: string | null;
+  batiment: string | null;
+  escalier: string | null;
+  surfaceCarrez: number | null;
+  surfaceHabitable: number | null;
+  surface: number | null;
+  surfaceExterieure: number | null;
+  nombrePieces: number | null;
+  ascenseur: boolean | null;
+  digicode: boolean | null;
+  digicodeCode: string | null;
+  precisionAcces: string | null;
+  dpeClasse: string | null;
+  dpeDate: string | null;
+  dpeNonSoumis: boolean | null;
+  chauffage: string | null;
+  epoqueConstruction: string | null;
+  lots: LotEncart[];
+  proprietaire: { id: number; nom: string } | null;
+  syndic: string | null;
+  bail: { entree: string | null; loyerHc: number | null; provisions: number | null; taux: number | null; base: string | null };
+}
+
+const nombreFr = (n: number): string => n.toLocaleString('fr-FR', { maximumFractionDigits: 2 });
+const eurosFr = (n: number): string => `${n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
+const present = (s: string | null | undefined): s is string => s !== null && s !== undefined && s.trim() !== '';
+
+/** « 3e étage » / « rez-de-chaussée » / tel que saisi. */
+export function etageFr(etage: string | null): string | null {
+  if (!present(etage)) return null;
+  if (!/^-?\d+$/.test(etage)) return etage;
+  const n = Number(etage);
+  return n === 0 ? 'rez-de-chaussée' : n < 0 ? `sous-sol ${-n}` : n === 1 ? '1er étage' : `${n}e étage`;
+}
+
+/** Une ligne lisible pour un lot du bail, sans aucune information absente. PUR. */
+export function libelleLotEncart(l: LotEncart): string {
+  return [
+    l.type ?? (l.role === 'logement' ? 'Logement' : 'Annexe'),
+    etageFr(l.etage),
+    present(l.porte) ? `${l.place ? 'place' : 'porte'} ${l.porte}` : null,
+    present(l.numLotCopro) ? `lot de copro n° ${l.numLotCopro}` : null,
+    present(l.numeroLot) ? `lot n° ${l.numeroLot}` : null,
+  ].filter((x): x is string => x !== null).join(' · ');
+}
+
+export interface LigneEncart { cle: string; libelle: string; valeur: string }
+
+/**
+ * Les lignes de l'encart, dans l'ordre de lecture — UNIQUEMENT celles dont la valeur est présente en base. Ni « — », ni
+ * « non renseigné » : une information absente n'apparaît pas. (Les lots et le propriétaire, qui portent un lien ou une
+ * liste, sont rendus à part.) PUR.
+ */
+export function lignesEncart(e: EncartLogement): LigneEncart[] {
+  const l: (LigneEncart | null)[] = [];
+  const bail = e.bail ?? { entree: null, loyerHc: null, provisions: null, taux: null, base: null };
+  const ajouter = (cle: string, libelle: string, valeur: string | null): void => { l.push(valeur === null ? null : { cle, libelle, valeur }); };
+  const type = [e.type, e.meuble === true ? 'meublé' : e.meuble === false ? 'nu (non meublé)' : null].filter(present).join(' · ');
+  ajouter('type', 'Type', type === '' ? null : type);
+  ajouter('etage', 'Étage', etageFr(e.etage));
+  ajouter('porte', 'Porte', present(e.porte) ? e.porte : null);
+  ajouter('batiment', 'Bâtiment', present(e.batiment) ? e.batiment : null);
+  ajouter('escalier', 'Escalier', present(e.escalier) ? e.escalier : null);
+  ajouter('copro', 'Lot de copropriété', present(e.numLotCopro) ? `n° ${e.numLotCopro}` : null);
+  ajouter('lot', 'N° de lot', present(e.numeroLot) ? e.numeroLot : null);
+  ajouter('carrez', 'Surface (Carrez)', e.surfaceCarrez === null ? null : `${nombreFr(e.surfaceCarrez)} m²`);
+  ajouter('habitable', 'Surface habitable', e.surfaceHabitable === null ? null : `${nombreFr(e.surfaceHabitable)} m²`);
+  ajouter('surface', 'Surface', e.surface === null ? null : `${nombreFr(e.surface)} m²`);
+  ajouter('exterieure', 'Surface extérieure', e.surfaceExterieure === null ? null : `${nombreFr(e.surfaceExterieure)} m²`);
+  ajouter('pieces', 'Pièces', e.nombrePieces === null ? null : String(e.nombrePieces));
+  ajouter('ascenseur', 'Ascenseur', e.ascenseur === null ? null : e.ascenseur ? 'oui' : 'non');
+  ajouter('digicode', 'Digicode', e.digicode === null ? (present(e.digicodeCode) ? e.digicodeCode : null)
+    : e.digicode ? (present(e.digicodeCode) ? e.digicodeCode : 'oui') : 'non');
+  ajouter('acces', 'Accès', present(e.precisionAcces) ? e.precisionAcces : null);
+  ajouter('dpe', 'DPE', e.dpeNonSoumis === true ? 'non soumis'
+    : present(e.dpeClasse) ? `classe ${e.dpeClasse}${present(e.dpeDate) ? ` (${dateFr(e.dpeDate)})` : ''}` : null);
+  ajouter('chauffage', 'Chauffage', present(e.chauffage) ? e.chauffage : null);
+  ajouter('epoque', 'Construction', present(e.epoqueConstruction) ? e.epoqueConstruction : null);
+  ajouter('syndic', 'Syndic', present(e.syndic) ? e.syndic : null);
+  ajouter('entree', 'Entrée dans les lieux', present(bail.entree) ? dateFr(bail.entree) : null);
+  ajouter('loyer', 'Loyer d’origine', bail.loyerHc === null ? null : `${eurosFr(bail.loyerHc)} / mois hors charges`);
+  ajouter('provisions', 'Provisions sur charges', bail.provisions === null ? null : `${eurosFr(bail.provisions)} / mois`);
+  ajouter('taux', 'Taux de gestion', bail.taux === null ? null
+    : `${nombreFr(bail.taux)} % HT${bail.base === 'cc' ? ' (sur le loyer charges comprises)' : bail.base === 'hc' ? ' (sur le loyer hors charges)' : ''}`);
+  return l.filter((x): x is LigneEncart => x !== null);
+}
