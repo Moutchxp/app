@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, phraseMail, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
-  CHAUFFAGES, CLASSES_DPE, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
+  CHAUFFAGES, CLASSES_DPE, DPE_NON_SOUMIS, EPOQUES_CONSTRUCTION, LIBELLE_DPE_NON_SOUMIS, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
   type Famille, type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
@@ -17,6 +17,7 @@ import { LIBELLE_AG } from '../../../../lib/location/immeubleAg';
 import { ChampFleches, CSS_CHAMP_FLECHES } from './ChampFleches';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, type SaisieEntretien } from './EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from './ZoneAuto';
+import { alertesDpe, aujourdhuiParis } from '../../../../lib/location/reglagesDpe';
 import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { BadgeCarte } from './SaisieCartes';
 import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type PersonneProprietaire } from '../../../../lib/location/rattachementProprietaires';
@@ -179,16 +180,34 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
   const nom = famille === null ? 'bien' : NOM_FAMILLE[famille];
   const avecAnnexes = famille !== 'parking';
+  // Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires pour un logement / local (la règle de `bienComplet.ts`).
+  const aujourdhui = aujourdhuiParis();
+  const dpeNonSoumis = b.dpeClasse === DPE_NON_SOUMIS;
   // En continuité, les propriétaires sont ceux qu'on vient de saisir (au moins un, vérifié par l'écran du dessus).
   const manque = manquesDuBien({
     proprietaireIds: continuite !== undefined ? [1] : proprietaires.map((p) => p.id), adresse: b.adresse, famille, typeLogement: type, typeLocal, parkingType,
+    dpeClasse: b.dpeClasse, dpeDate: b.dpeDate, entretienAPrevoir: entretien.aPrevoir, entretiens: versEnvoiEntretien(entretien).entretiens, aujourdhui,
     annexes: avecAnnexes ? annexes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse, categorie: a.categorie, nomAnnexe: a.nomAnnexe })) : [],
   });
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
   const enregistrer = async (): Promise<void> => {
     setTente(true);
-    if (Object.keys(manque).length > 0) { setMotif(Object.values(manque).join(' ')); return; }
+    if (Object.keys(manque).length > 0) {
+      // La barre collante dit, EN DIRECT, ce qui reste à renseigner (elle se vide au fur et à mesure) ; les messages
+      // apparaissent sous chaque champ manquant.
+      setMotif(null);
+      // « Un message qui dit quoi remplir et défile jusqu'au bloc » (Arno, 18/10/2026) : le premier manque, dans l'ordre du formulaire.
+      setTimeout(() => {
+        const premier = document.querySelector('.loc-page .loc-manque');
+        // Le bloc entier s'il tient à l'écran ; sinon le message lui-même (jamais caché sous la barre collante au téléphone).
+        const conteneur = premier?.closest('.loc-sous-section, .loc-section') ?? null;
+        const bloc = conteneur !== null && conteneur.getBoundingClientRect().height < window.innerHeight * 0.6 ? conteneur : premier;
+        const reduit = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (bloc instanceof HTMLElement && typeof bloc.scrollIntoView === 'function') bloc.scrollIntoView({ block: 'center', behavior: reduit ? 'auto' : 'smooth' });
+      }, 0);
+      return;
+    }
     const v = verifierChampsBien(b);
     if (!v.ok) { setMotif(v.motif); return; }
     setEnvoi(true);
@@ -233,11 +252,13 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
   return (
-    <form className="loc-page loc-ample" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
+    // noValidate : les refus sont ceux de la règle (`bienComplet.ts`), dits sous chaque champ — jamais la bulle du navigateur
+    // (la date du DPE porte `max` = aujourd'hui pour griser le futur dans le sélecteur).
+    <form className="loc-page loc-ample" noValidate onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE}</style>
       {continuite === undefined ? (
         <EnTeteLocation titre="Ajouter un nouveau bien"
-          sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
+          sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type ; pour un logement ou un local, le DPE et l’entretien à prévoir <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
       ) : (
         <section className="loc-section loc-rappel" aria-labelledby="loc-rappel-titre" data-rappel-proprietaires>
           <h3 id="loc-rappel-titre">Le bien de ce nouveau propriétaire</h3>
@@ -248,7 +269,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
               <li key={`c${i}`}><BadgeCarte cote="proprietaire" sorte="contact" /> <strong>{[(c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' ')}</strong>{c.qualite ? ` · ${c.qualite}` : ''}</li>
             ))}
           </ul>
-          <p className="loc-muet" style={{ margin: 0 }}>Obligatoires : l’adresse, la famille du bien et son type <span className="loc-oblig">*</span>. Un seul « Enregistrer le bien » crée les fiches puis le bien.</p>
+          <p className="loc-muet" style={{ margin: 0 }}>Obligatoires : l’adresse, la famille du bien et son type ; pour un logement ou un local, le DPE et l’entretien à prévoir <span className="loc-oblig">*</span>. Un seul « Enregistrer le bien » crée les fiches puis le bien.</p>
         </section>
       )}
 
@@ -506,14 +527,26 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
                 ? 'Déjà connue pour cet immeuble : la modifier met à jour tous ses lots.' : 'Assemblée générale de copropriété — partagée par tous les lots de l’immeuble.'}</small></label>
           </div>
           <div className="loc-duo" data-ligne-dpe-pno>
-            <div className="loc-sous-section">
-              <h4>DPE</h4>
+            <div className="loc-sous-section" data-dpe>
+              <h4>DPE <span className="loc-oblig">*</span></h4>
               <div className="loc-pilules" role="group" aria-label="Classe DPE">
                 {CLASSES_DPE.map((c) => (
                   <button key={c} type="button" aria-pressed={b.dpeClasse === c} onClick={() => setB((x) => ({ ...x, dpeClasse: x.dpeClasse === c ? '' : c }))}>{c}</button>
                 ))}
+                {/* « Non soumis » (bien dispensé de DPE) : pas de date — elle est vidée. */}
+                <button type="button" aria-pressed={dpeNonSoumis} data-dpe-non-soumis
+                  onClick={() => setB((x) => (x.dpeClasse === DPE_NON_SOUMIS ? { ...x, dpeClasse: '' } : { ...x, dpeClasse: DPE_NON_SOUMIS, dpeDate: '' }))}>{LIBELLE_DPE_NON_SOUMIS}</button>
               </div>
-              <div className="loc-grille">{champ('dpeDate', 'Date du DPE', { type: 'date' })}</div>
+              {manqueDe('dpe')}
+              <div className="loc-grille">
+                <label className="loc-champ" data-dpe-date><span>Date du DPE{dpeNonSoumis ? ' (sans objet)' : <> <span className="loc-oblig">*</span></>}</span>
+                  <input type="date" value={b.dpeDate} max={aujourdhui} disabled={dpeNonSoumis}
+                    onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, dpeDate: val })); }} /></label>
+              </div>
+              {manqueDe('dpeDate')}
+              {alertesDpe({ classe: b.dpeClasse, date: b.dpeDate, nonSoumis: dpeNonSoumis }, aujourdhui).map((a) => (
+                <p key={a} className="loc-alerte loc-alerte--orange" role="status" data-alerte-dpe>⚠ {a}</p>
+              ))}
             </div>
             {/* Arno (18/10/2026) : « Assurance PNO » à droite du DPE (même ligne au bureau) ; Oui ⇒ « Date anniversaire » ; Non la vide. */}
             <div className="loc-sous-section" data-pno>
@@ -523,7 +556,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
               {assurancePno === true && <div className="loc-grille">{champ('pnoDateAnniversaire', 'Date anniversaire', { type: 'date' })}</div>}
             </div>
           </div>
-          <BlocEntretien valeur={entretien} onChange={setEntretien} />
+          <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire
+            manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />
         </section>
       )}
 

@@ -19,6 +19,9 @@ import { lireCartesDuBien } from '../gestion/partieCategorieRepo';
 import { complementsDuBien, creerBienComplet, creerProprietaires, modifierComplementsBien } from './creationBienRepo';
 import { ajouterAnnexe, ficheBienLocation, modifierBien } from './locationRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest annexe PNO' };
@@ -36,11 +39,11 @@ describe.skipIf(!baseEssai)('🔴 nom d’annexe, assurance PNO, propriétaire p
   it('① annexe « Autre » : nom obligatoire, gardé, titre de l’annexe ; refus avant toute écriture', async () => {
     [proprietaire] = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [{ nom: `PNO${S}`, coordonnees: [tel('06 20 20 20 20'), { sorte: 'email' as const, valeur: `pno.${S}@exemple.test`, libelle: 'E-mail' }] }] }, AUTEUR)).ids;
     const avant = await nbLots();
-    const sansNom = await creerBienComplet({ proprietaireIds: [proprietaire], logement: { adresse: `5 rue Cellier${S}`, famille: 'logement', typeLogement: 'studio' },
+    const sansNom = await creerBienComplet({ proprietaireIds: [proprietaire], logement: { adresse: `5 rue Cellier${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' },
       annexes: [{ categorie: 'autre', nomAnnexe: '  ' }] }, AUTEUR);
     expect(sansNom.etat).toBe('refus');
     expect(await nbLots()).toBe(avant);
-    const b = ok(await creerBienComplet({ proprietaireIds: [proprietaire], logement: { adresse: `5 rue Cellier${S}`, famille: 'logement', typeLogement: 'studio',
+    const b = ok(await creerBienComplet({ proprietaireIds: [proprietaire], logement: { adresse: `5 rue Cellier${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio',
       assurancePno: true, pnoDateAnniversaire: '2026-11-15' }, annexes: [{ categorie: 'autre', nomAnnexe: 'Cellier', etage: '-1' }, { categorie: 'cave', nomAnnexe: 'ignoré' }] }, AUTEUR));
     logement = b.logementId;
     annexe = b.annexes[0];
@@ -71,7 +74,7 @@ describe.skipIf(!baseEssai)('🔴 nom d’annexe, assurance PNO, propriétaire p
     const ids = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [
       { nom: `SUITE${S}`, prenom: 'Ana', coordonnees: [tel('06 30 30 30 30'), { sorte: 'email' as const, valeur: `ana.${S}@exemple.test`, libelle: 'E-mail' }] }, { nom: `SUITE${S}`, prenom: 'Bob', coordonnees: [tel('06 31 31 31 31')] },
     ] }, AUTEUR)).ids;
-    const b = ok(await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `8 rue Suite${S}`, famille: 'logement', typeLogement: 'appartement' },
+    const b = ok(await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `8 rue Suite${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'appartement' },
       contacts: [{ nom: `NOTAIRE${S}`, qualite: 'notaire', coordonnees: [{ sorte: 'email', valeur: `notaire.${S}@exemple.test`, libelle: 'E-mail' }] }] }, AUTEUR));
     const g = await ficheLot(b.logementId);
     if (g.etat !== 'ok') throw new Error(g.etat);

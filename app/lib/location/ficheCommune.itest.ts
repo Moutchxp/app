@@ -17,6 +17,9 @@ import { creerLocataireSurBien, sortirDuPortefeuille, reactiverDansPortefeuille 
 import { creerBienComplet, creerProprietaires, enregistrerEnGestion } from './creationBienRepo';
 import { ficheBienLocation, ficheLocataireLocation, ficheProprietaireLocation } from './locationRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest fiche commune' };
@@ -50,7 +53,7 @@ describe.skipIf(!baseEssai)('🔴 fiche commune : sections « Location »', () =
   it('② les sections lisent la base : annexes, compléments, loyers ; sortie et réactivation depuis la fiche', async () => {
     const b = ok(await creerBienComplet({
       proprietaireIds: [proprietaireId],
-      logement: { adresse: `7 rue Commune${S}`, famille: 'logement', typeLogement: 'studio', dpeClasse: 'B' },
+      logement: { adresse: `7 rue Commune${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', dpeClasse: 'B' },
       annexes: [{ categorie: 'cave', porte: '4' }],
     }, AUTEUR));
     logementId = b.logementId;

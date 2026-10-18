@@ -21,6 +21,9 @@ import { cleImmeuble, validerSyndic } from '../gestion/syndics';
 import { creerBienComplet, creerProprietaires } from './creationBienRepo';
 import { syndicsPourAdresse } from './syndicLocationRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest syndic' };
@@ -48,7 +51,7 @@ describe.skipIf(!baseEssai)('🔴 le syndic du bien, par les fonctions de la Ges
 
     const b = ok(await creerBienComplet({
       proprietaireIds: [proprietaireId], annexes: [],
-      logement: { adresse, codePostal: '75011', commune: 'PARIS', famille: 'logement', typeLogement: 'studio', syndicId },
+      logement: { adresse, codePostal: '75011', commune: 'PARIS', ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', syndicId },
       syndic: { id: syndicId, contactsIds: [contactId], nouveauxContacts: [{ nom: `COMPTA${S}`, fonction: 'Comptable', email: `compta.${S}@exemple.test` }] },
     }, AUTEUR));
     expect(b.syndicRefus).toBeNull();
@@ -76,10 +79,10 @@ describe.skipIf(!baseEssai)('🔴 le syndic du bien, par les fonctions de la Ges
 
   it('③ digicode : 8 caractères au plus, effacé sur « non » ; parking nu : le N° de place dans `porte`', async () => {
     const base = { proprietaireIds: [proprietaireId], annexes: [] };
-    const trop = await creerBienComplet({ ...base, logement: { adresse: `1 rue Code${S}`, famille: 'logement', typeLogement: 'studio', digicode: 'oui', digicodeCode: '123456789' } }, AUTEUR);
+    const trop = await creerBienComplet({ ...base, logement: { adresse: `1 rue Code${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', digicode: 'oui', digicodeCode: '123456789' } }, AUTEUR);
     expect(trop).toEqual({ etat: 'refus', motif: 'Le code du digicode fait 8 caractères au plus.' });
-    const okCode = ok(await creerBienComplet({ ...base, logement: { adresse: `1 rue Code${S}`, famille: 'logement', typeLogement: 'studio', digicode: 'oui', digicodeCode: '57B83' } }, AUTEUR));
-    const non = ok(await creerBienComplet({ ...base, logement: { adresse: `2 rue Code${S}`, famille: 'logement', typeLogement: 'studio', digicode: 'non', digicodeCode: '57B83' } }, AUTEUR));
+    const okCode = ok(await creerBienComplet({ ...base, logement: { adresse: `1 rue Code${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', digicode: 'oui', digicodeCode: '57B83' } }, AUTEUR));
+    const non = ok(await creerBienComplet({ ...base, logement: { adresse: `2 rue Code${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio', digicode: 'non', digicodeCode: '57B83' } }, AUTEUR));
     const p = ok(await creerBienComplet({ ...base, logement: { adresse: `3 rue Garage${S}`, famille: 'parking', parkingType: 'box_simple', porte: '42' } }, AUTEUR));
     const { rows } = await query<{ id: string; digicode: boolean | null; digicode_code: string | null; porte: string | null }>(
       'SELECT id::text, digicode, digicode_code, porte FROM gestion_annuaire_lot WHERE id = ANY($1::bigint[]) ORDER BY id', [[okCode.logementId, non.logementId, p.logementId]]);

@@ -20,6 +20,9 @@ import { detacherAnnexe, lireEntretiens } from './entretienAnnexeRepo';
 import { enregistrerMandat, ficheBienLocation, ficheProprietaireLocation, modifierBien } from './locationRepo';
 import { sortirDuPortefeuille } from './portefeuilleRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest entretien annexes' };
@@ -51,7 +54,7 @@ describe.skipIf(!baseEssai)('🔴 entretien, annexes, mandat de transaction', ()
   });
 
   it('① entretien à la création, puis Non depuis la fiche : tout est vidé, rien n’est effacé', async () => {
-    const b = ok(await creerBienComplet({ proprietaireIds: proprietaires, logement: { adresse: `4 rue Entretien${S}`, famille: 'logement', typeLogement: 'appartement',
+    const b = ok(await creerBienComplet({ proprietaireIds: proprietaires, logement: { adresse: `4 rue Entretien${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'appartement',
       entretienAPrevoir: true, entretiens: [{ sorte: 'chaudiere', dateAnniversaire: '2026-10-01' }, { sorte: 'ramonage' },
         { sorte: 'autre', nom: 'Climatisation', dateAnniversaire: '2027-05-02' }, { sorte: 'autre', nom: 'VMC' }] },
     annexes: [{ categorie: 'parking', parkingType: 'box_simple', annotation: 'Clé chez le gardien', detachee: true }, { categorie: 'cave', porte: '7' }] }, AUTEUR));

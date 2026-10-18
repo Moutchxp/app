@@ -6,6 +6,7 @@
  * « Obligatoires : au moins un propriétaire, l'adresse, le type de logement. Tout le reste facultatif, complétable plus
  * tard. » (Arno) — `manquesDuBien` dit ce qui manque, champ par champ ; `verifierBienComplet` refuse le reste (une
  * surface qui n'est pas un nombre, une classe DPE hors A–G…).
+ * Arno, 18/10/2026 : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local (`manquesDpeEntretien`).
  * Les champs déjà connus (étage, porte, n° de lot, Carrez, extérieure, adresse) passent par `verifierChampsBien`, la
  * même vérification que la fiche du bien : une seule règle par champ.
  *
@@ -17,6 +18,7 @@
  */
 import { verifierChampsBien, type ChampsBien } from './locationBien';
 import { lireNombre } from '../gestion/honorairesGestion';
+import { aujourdhuiParis, dateDpeFuture } from './reglagesDpe';
 
 export const TYPES_LOGEMENT = ['appartement', 'chambre', 'studio', 'duplex', 'loft', 'maison', 'autre'] as const; // ordre d'Arno (17/10/2026)
 export type TypeLogement = (typeof TYPES_LOGEMENT)[number];
@@ -28,6 +30,9 @@ export const LIBELLE_TYPE_LOGEMENT: Record<TypeLogement, string> = {
 export const EPOQUES_CONSTRUCTION = ['Avant 1949', '1949 – 1974', '1975 – 1996', '1997 – 2011', 'Depuis 2012'] as const;
 export const CHAUFFAGES = ['Individuel gaz', 'Individuel électrique', 'Collectif', 'Pompe à chaleur', 'Réseau urbain', 'Autre'] as const;
 export const CLASSES_DPE = ['A', 'B', 'C', 'D', 'E', 'F', 'G'] as const;
+/** Arno, 18/10/2026 — « Non soumis » : bien dispensé de DPE (migration 382, colonne `dpe_non_soumis`). Valeur du choix envoyé. */
+export const DPE_NON_SOUMIS = 'non_soumis';
+export const LIBELLE_DPE_NON_SOUMIS = 'Non soumis';
 
 export const FAMILLES = ['logement', 'local', 'parking'] as const;
 export type Famille = (typeof FAMILLES)[number];
@@ -77,6 +82,8 @@ export interface ComplementsBien {
   chauffage: string | null;
   dpeClasse: string | null;
   dpeDate: string | null;
+  /** Arno, 18/10/2026 (migration 382) — bien dispensé de DPE : ni classe ni date. */
+  dpeNonSoumis?: boolean | null;
   commentaire: string | null;
   // ── migration 376 ──
   typeLocal: TypeLocal | null;
@@ -145,10 +152,19 @@ const texte = (v: unknown, max: number): string | null => {
 };
 const vide = (v: unknown): boolean => v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
 
-/** Ce qui manque pour enregistrer, champ par champ (les obligatoires, PAR FAMILLE). Vide = enregistrable. */
+/**
+ * Ce qui manque pour enregistrer, champ par champ (les obligatoires, PAR FAMILLE). Vide = enregistrable.
+ * 🔴 Arno (18/10/2026) : pour un LOGEMENT ou un LOCAL, le DPE (classe A–G ou « Non soumis » ; date obligatoire sauf
+ * « Non soumis », jamais dans le futur) et « Entretien à prévoir » (Oui ou Non, rien de présélectionné ; Oui ⇒ au moins un
+ * entretien : Chaudière, Ramonage ou un autre entretien NOMMÉ) sont obligatoires À LA CRÉATION. Un parking nu n'a pas ces
+ * champs. La fiche d'un bien existant n'appelle jamais cette fonction : elle n'est jamais bloquée.
+ */
 export function manquesDuBien(s: {
   proprietaireIds: readonly number[]; adresse: unknown; famille?: unknown; typeLogement?: unknown; typeLocal?: unknown; parkingType?: unknown;
   annexes?: readonly { autreAdresse?: unknown; adresse?: unknown; categorie?: unknown; nomAnnexe?: unknown }[];
+  dpeClasse?: unknown; dpeDate?: unknown; entretienAPrevoir?: unknown; entretiens?: unknown;
+  /** La date civile du jour (« AAAA-MM-JJ ») — la date du DPE ne peut pas la dépasser. Par défaut : aujourd'hui à Paris. */
+  aujourdhui?: string;
 }): Record<string, string> {
   const m: Record<string, string> = {};
   const famille = dans(FAMILLES, s.famille);
@@ -164,7 +180,42 @@ export function manquesDuBien(s: {
     if (nom !== null) m[`annexe-nom-${i}`] = `Annexe ${i + 1} : ${nom}`;
     if (ouiNon(a.autreAdresse) === true && vide(a.adresse)) m[`annexe-${i}`] = `Annexe ${i + 1} : l’autre adresse est à renseigner.`;
   });
+  if (famille === 'logement' || famille === 'local') Object.assign(m, manquesDpeEntretien(s, s.aujourdhui ?? aujourdhuiParis()));
   return m;
+}
+
+/** Le DPE et l'entretien à prévoir d'un logement / local à créer : ce qui manque (même ordre que l'écran). PUR. */
+export function manquesDpeEntretien(s: { dpeClasse?: unknown; dpeDate?: unknown; entretienAPrevoir?: unknown; entretiens?: unknown }, aujourdhui: string): Record<string, string> {
+  const m: Record<string, string> = {};
+  const nonSoumis = s.dpeClasse === DPE_NON_SOUMIS;
+  if (!nonSoumis && dans(CLASSES_DPE, typeof s.dpeClasse === 'string' ? s.dpeClasse.toUpperCase() : s.dpeClasse) === null) {
+    m.dpe = 'Choisissez la classe DPE (A à G) ou « Non soumis ».';
+  }
+  if (!nonSoumis && vide(s.dpeDate)) m.dpeDate = 'La date du DPE est obligatoire (sauf « Non soumis »).';
+  else if (!nonSoumis && dateDpeFuture(String(s.dpeDate).trim(), aujourdhui)) m.dpeDate = 'La date du DPE ne peut pas être dans le futur.';
+  const oui = ouiNon(s.entretienAPrevoir);
+  if (oui === null) m.entretien = 'Entretien à prévoir : répondez Oui ou Non.';
+  else if (oui) {
+    const liste = (Array.isArray(s.entretiens) ? s.entretiens : []) as { sorte?: unknown; nom?: unknown }[];
+    const autres = liste.filter((e) => e?.sorte === 'autre');
+    autres.forEach((e, k) => { if (vide(e.nom)) m[`entretien-autre-${k}`] = `Autre entretien ${k + 1} : donnez-lui un nom (ex. Climatisation, VMC).`; });
+    const valables = liste.filter((e) => e?.sorte === 'chaudiere' || e?.sorte === 'ramonage' || (e?.sorte === 'autre' && !vide(e.nom)));
+    if (valables.length === 0 && autres.length === 0) {
+      m.entretienListe = 'Entretien à prévoir : cochez ou ajoutez au moins un entretien (Chaudière, Ramonage ou un autre entretien nommé).';
+    }
+  }
+  return m;
+}
+
+/** « DPE à renseigner » / « Entretien à renseigner » d'un bien EXISTANT (fiche commune) : affichés, jamais bloquants. PUR. */
+export function aRenseignerDuBien(c: Pick<ComplementsFiche, 'dpeClasse' | 'dpeDate' | 'dpeNonSoumis' | 'entretienAPrevoir' | 'entretiens'>,
+  famille: Famille | null): string[] {
+  if (famille !== 'logement' && famille !== 'local') return [];
+  const r: string[] = [];
+  if (c.dpeNonSoumis !== true && (c.dpeClasse === null || c.dpeDate === null)) r.push('DPE à renseigner');
+  // Sans la migration 379, l'entretien n'existe pas (rien à demander).
+  if (c.entretiens !== undefined && (c.entretienAPrevoir === null || c.entretienAPrevoir === undefined)) r.push('Entretien à renseigner');
+  return r;
 }
 
 /** Vérifie les champs complémentaires (création ET fiche du bien) : chacun facultatif, refusé s'il est mal formé. */
@@ -190,9 +241,11 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
     if (!Number.isInteger(n) || n <= 0) return { ok: false, motif: 'Syndic inconnu.' };
     syndicId = n;
   }
-  const dpe = texte(l.dpeClasse, 1);
+  // « Non soumis » (Arno, 18/10/2026) : ni classe ni date.
+  const dpeNonSoumis = l.dpeClasse === DPE_NON_SOUMIS || l.dpeNonSoumis === true;
+  const dpe = dpeNonSoumis ? null : texte(l.dpeClasse, 1);
   if (dpe !== null && !(CLASSES_DPE as readonly string[]).includes(dpe.toUpperCase())) return { ok: false, motif: 'La classe DPE va de A à G.' };
-  const dpeDate = texte(l.dpeDate, 10);
+  const dpeDate = dpeNonSoumis ? null : texte(l.dpeDate, 10);
   if (dpeDate !== null && !/^\d{4}-\d{2}-\d{2}$/.test(dpeDate)) return { ok: false, motif: 'La date du DPE n’est pas une date valide.' };
   if (!vide(l.typeLocal) && dans(TYPES_LOCAL, l.typeLocal) === null) return { ok: false, motif: 'Type de local inconnu.' };
   if (!vide(l.parkingSituation) && dans(SITUATIONS_PARKING, l.parkingSituation) === null) return { ok: false, motif: 'Situation du parking inconnue.' };
@@ -218,7 +271,7 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
       batiment: texte(l.batiment, 40), escalier: texte(l.escalier, 40), typeLogement: type as TypeLogement | null,
       nombrePieces: pieces, meuble, surfaceHabitableM2: habitable, syndicId,
       epoqueConstruction: texte(l.epoqueConstruction, 40), chauffage: texte(l.chauffage, 60),
-      dpeClasse: dpe === null ? null : dpe.toUpperCase(), dpeDate, commentaire: texte(l.commentaire, 4000),
+      dpeClasse: dpe === null ? null : dpe.toUpperCase(), dpeDate, dpeNonSoumis: dpeNonSoumis ? true : null, commentaire: texte(l.commentaire, 4000),
       typeLocal: dans(TYPES_LOCAL, l.typeLocal), parkingSituation: dans(SITUATIONS_PARKING, l.parkingSituation),
       parkingType: dans(TYPES_PARKING, l.parkingType), surfaceM2: surface,
       ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? texte(l.digicodeCode, 8) : null,
@@ -244,6 +297,7 @@ export function verifierBienComplet(s: SaisieBien):
   const brutes = Array.isArray(s.annexes) ? s.annexes : [];
   const manque = Object.values(manquesDuBien({
     proprietaireIds: ids, adresse: l.adresse, famille: l.famille, typeLogement: l.typeLogement, typeLocal: l.typeLocal, parkingType: l.parkingType,
+    dpeClasse: l.dpeClasse, dpeDate: l.dpeDate, entretienAPrevoir: l.entretienAPrevoir, entretiens: l.entretiens,
     annexes: brutes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse, categorie: a.categorie, nomAnnexe: a.nomAnnexe })),
   }));
   if (manque.length > 0) return { ok: false, motif: manque.join(' ') };
@@ -273,6 +327,7 @@ export function verifierBienComplet(s: SaisieBien):
     chauffage: famille === 'parking' ? null : c.chauffage,
     dpeClasse: famille === 'parking' ? null : c.dpeClasse,
     dpeDate: famille === 'parking' ? null : c.dpeDate,
+    dpeNonSoumis: famille === 'parking' ? null : c.dpeNonSoumis,
   };
 
   const annexes: AnnexeSaisie[] = [];

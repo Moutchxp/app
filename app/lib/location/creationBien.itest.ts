@@ -27,6 +27,9 @@ import {
 } from './creationBienRepo';
 import { rechercherPortefeuille } from './portefeuilleRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest création bien' };
@@ -78,7 +81,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     const b = ok(await creerBienComplet({
       proprietaireIds: ids,
       logement: { adresse: `14 rue des Tilleuls${S}`, codePostal: '75011', commune: 'PARIS', batiment: 'B', escalier: '2', etage: '3', porte: 'G',
-        famille: 'logement', typeLogement: 'appartement', nombrePieces: '3', meuble: false, surfaceHabitableM2: '62,5', surfaceCarrezM2: '60,1',
+        ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'appartement', nombrePieces: '3', meuble: false, surfaceHabitableM2: '62,5', surfaceCarrezM2: '60,1',
         numLotCopro: '27', syndicId, epoqueConstruction: '1949 – 1974', chauffage: 'Collectif', dpeClasse: 'd', dpeDate: '2025-04-12',
         commentaire: 'Lumineux.' },
       annexes: [{ categorie: 'cave', etage: '-1', porte: '12' }, { categorie: 'parking', numLotCopro: '88', porte: '7' }],
@@ -118,7 +121,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
 
   it('③ champs obligatoires : sans propriétaire, sans adresse ou sans type → refus, rien n’est écrit', async () => {
     const avant = await compter('gestion_annuaire_lot');
-    const logement = { adresse: `1 rue Essai${S}`, famille: 'logement', typeLogement: 'studio' };
+    const logement = { adresse: `1 rue Essai${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' };
     expect((await creerBienComplet({ proprietaireIds: [], logement, annexes: [] }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, adresse: '  ' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
     expect((await creerBienComplet({ proprietaireIds: ids, logement: { ...logement, typeLogement: '' }, annexes: [] }, AUTEUR)).etat).toBe('refus');
@@ -149,7 +152,7 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     const local = ok(await creerBienComplet({ proprietaireIds: ids, annexes: [
       { categorie: 'parking', parkingSituation: 'interieur', parkingType: 'box_double', porte: '12' },
       { categorie: 'cave', autreAdresse: true, adresse: `9 impasse Lointaine${S}`, codePostal: '92400', commune: 'COURBEVOIE', porte: '3' },
-    ], logement: { adresse: `20 rue Commerce${S}`, famille: 'local', typeLocal: 'commercial', typeLogement: 'studio', meuble: true,
+    ], logement: { adresse: `20 rue Commerce${S}`, ...DPE_ENTRETIEN, famille: 'local', typeLocal: 'commercial', typeLogement: 'studio', meuble: true,
       nombrePieces: '2', ascenseur: true, digicode: 'oui', digicodeCode: '4589B', precisionAcces: 'Au fond de la cour' } }, AUTEUR));
     const { rows: l } = await query<{ categorie: string; type_local: string; type_logement: string | null; meuble: boolean | null; ascenseur: boolean; digicode: boolean; digicode_code: string; precision_acces: string }>(
       'SELECT categorie, type_local, type_logement, meuble, ascenseur, digicode, digicode_code, precision_acces FROM gestion_annuaire_lot WHERE id = $1', [local.logementId]);
@@ -182,10 +185,52 @@ describe.skipIf(!baseEssai)('🔴 créer un propriétaire puis son bien', () => 
     expect(pk[0]).toEqual({ categorie: 'parking', parking_situation: 'exterieur', parking_type: 'place_double', surface_m2: '12.5',
       nombre_pieces: null, surface_carrez_m2: null, dpe_classe: null, ascenseur: false });
     // Un local sans type de local, un logement sans type : refusés.
-    expect((await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `2 rue Commerce${S}`, famille: 'local' } }, AUTEUR)).etat).toBe('refus');
-    expect((await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `2 rue Commerce${S}`, famille: 'logement' } }, AUTEUR)).etat).toBe('refus');
+    expect((await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `2 rue Commerce${S}`, ...DPE_ENTRETIEN, famille: 'local' } }, AUTEUR)).etat).toBe('refus');
+    expect((await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `2 rue Commerce${S}`, ...DPE_ENTRETIEN, famille: 'logement' } }, AUTEUR)).etat).toBe('refus');
     // Modifier depuis la fiche commune : digicode retiré ⇒ le code est effacé avec lui.
     ok(await modifierComplementsBien(local.logementId, { typeLocal: 'bureaux', digicode: 'non', digicodeCode: '4589B', ascenseur: 'oui' }, AUTEUR));
     expect(await complementsDuBien(local.logementId)).toMatchObject({ typeLocal: 'bureaux', digicode: false, digicodeCode: null, ascenseur: true });
+  });
+
+  it('⑦ DPE et entretien obligatoires à la création (refus serveur, rien n’est écrit) ; « Non soumis » sans date ; parking non concerné ; bien existant jamais bloqué', async () => {
+    const avant = await compter('gestion_annuaire_lot');
+    const sans = { adresse: `30 rue Diagnostic${S}`, famille: 'logement', typeLogement: 'studio' };
+    const r1 = await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: sans }, AUTEUR);
+    expect(r1.etat).toBe('refus');
+    expect(r1.etat === 'refus' && r1.motif).toContain('Choisissez la classe DPE (A à G) ou « Non soumis ».');
+    expect(r1.etat === 'refus' && r1.motif).toContain('Entretien à prévoir : répondez Oui ou Non.');
+    const refus = async (o: Record<string, unknown>) => {
+      const r = await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { ...sans, ...DPE_ENTRETIEN, ...o } }, AUTEUR);
+      return r.etat === 'refus' ? r.motif : `accepté : ${r.etat}`;
+    };
+    expect(await refus({ dpeDate: '' })).toBe('La date du DPE est obligatoire (sauf « Non soumis »).');
+    expect(await refus({ dpeDate: '2999-01-01' })).toBe('La date du DPE ne peut pas être dans le futur.');
+    expect(await refus({ entretienAPrevoir: null })).toBe('Entretien à prévoir : répondez Oui ou Non.');
+    expect(await refus({ entretienAPrevoir: true, entretiens: [] })).toContain('cochez ou ajoutez au moins un entretien');
+    expect(await refus({ famille: 'local', typeLocal: 'bureaux', dpeClasse: '' })).toBe('Choisissez la classe DPE (A à G) ou « Non soumis ».');
+    expect(await compter('gestion_annuaire_lot')).toBe(avant);
+
+    // « Non soumis » sans date : accepté ; écrit dans la colonne de la migration 382, ni classe ni date.
+    const ns = ok(await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { ...sans, dpeClasse: 'non_soumis', dpeDate: '', entretienAPrevoir: true,
+      entretiens: [{ sorte: 'ramonage', dateAnniversaire: '' }] } }, AUTEUR));
+    const { rows: d } = await query<{ dpe_classe: string | null; dpe_date: string | null; dpe_non_soumis: boolean | null }>(
+      'SELECT dpe_classe, dpe_date::text, dpe_non_soumis FROM gestion_annuaire_lot WHERE id = $1', [ns.logementId]);
+    expect(d[0]).toEqual({ dpe_classe: null, dpe_date: null, dpe_non_soumis: true });
+    expect(await complementsDuBien(ns.logementId)).toMatchObject({ dpeClasse: null, dpeDate: null, dpeNonSoumis: true, entretienAPrevoir: true });
+    // La base refuse un « non soumis » qui aurait une classe.
+    await expect(query("UPDATE gestion_annuaire_lot SET dpe_classe = 'C' WHERE id = $1", [ns.logementId])).rejects.toThrow(/dpe_non_soumis_chk/);
+    // Depuis la fiche : passer à une classe efface « non soumis » (une seule vérité), et l'inverse.
+    ok(await modifierComplementsBien(ns.logementId, { dpeClasse: 'C', dpeDate: '2024-01-15' }, AUTEUR));
+    expect(await complementsDuBien(ns.logementId)).toMatchObject({ dpeClasse: 'C', dpeDate: '2024-01-15', dpeNonSoumis: null });
+    ok(await modifierComplementsBien(ns.logementId, { dpeClasse: 'non_soumis', dpeDate: '2024-01-15' }, AUTEUR));
+    expect(await complementsDuBien(ns.logementId)).toMatchObject({ dpeClasse: null, dpeDate: null, dpeNonSoumis: true });
+
+    // Un parking nu : ni DPE ni entretien demandés.
+    ok(await creerBienComplet({ proprietaireIds: ids, annexes: [], logement: { adresse: `31 rue Diagnostic${S}`, famille: 'parking', parkingType: 'box_simple' } }, AUTEUR));
+
+    // Un bien EXISTANT sans DPE ni entretien (comme un import WIPPIMMO — ici créé par l’ancienne voie, sans ces champs) : la fiche s’enregistre sans eux — jamais bloqué.
+    const vieux = ok(await creerProprietaireEtBiens({ proprietaireId: ids[0], proprietaire: {}, logement: { adresse: `32 rue Ancienne${S}` }, annexes: [] }, AUTEUR));
+    ok(await modifierComplementsBien(vieux.logementId, { typeLogement: 'studio', dpeClasse: '', dpeDate: '', commentaire: 'Import' }, AUTEUR));
+    expect(await complementsDuBien(vieux.logementId)).toMatchObject({ typeLogement: 'studio', dpeClasse: null, dpeNonSoumis: null, commentaire: 'Import' });
   });
 });

@@ -16,6 +16,9 @@ import { closePool, query } from '../db/client';
 import { complementsDuBien, creerBienComplet, creerProprietaires, modifierComplementsBien } from './creationBienRepo';
 import { lireAgPourAdresse } from './immeubleAgRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest AG' };
@@ -33,13 +36,13 @@ describe.skipIf(!baseEssai)('🔴 dernière AG : partagée par les lots du même
     [proprietaire] = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [{ nom: `AG${S}`, coordonnees: [{ sorte: 'telephone', valeur: '06 10 10 10 10', libelle: 'Mobile' }, { sorte: 'email' as const, valeur: `ag.${S}@exemple.test`, libelle: 'E-mail' }] }] }, AUTEUR)).ids;
     expect(await lireAgPourAdresse(adresse)).toBeNull();
     const a = ok(await creerBienComplet({ proprietaireIds: [proprietaire], annexes: [],
-      logement: { adresse, famille: 'logement', typeLogement: 'appartement', derniereAg: '2026-03-12' } }, AUTEUR));
+      logement: { adresse, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'appartement', derniereAg: '2026-03-12' } }, AUTEUR));
     expect(a.agRefus).toBeNull();
     lotA = a.logementId;
     expect(await lireAgPourAdresse(adresse)).toBe('2026-03-12');
     expect(await lireAgPourAdresse(adresse.toUpperCase())).toBe('2026-03-12');
     lotB = ok(await creerBienComplet({ proprietaireIds: [proprietaire], annexes: [],
-      logement: { adresse, famille: 'logement', typeLogement: 'studio' } }, AUTEUR)).logementId;
+      logement: { adresse, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' } }, AUTEUR)).logementId;
     expect(await complementsDuBien(lotB)).toMatchObject({ derniereAg: '2026-03-12', agApplicable: true });
     const { rows } = await query<{ n: string }>(`SELECT count(*)::text AS n FROM gestion_journal WHERE entite_id = $1 AND action = 'location_derniere_ag'`, [lotA]);
     expect(rows[0].n).toBe('1');

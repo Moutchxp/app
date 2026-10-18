@@ -20,6 +20,9 @@ import { lireCartesDuBien } from '../gestion/partieCategorieRepo';
 import { creerBienComplet, creerProprietaires } from './creationBienRepo';
 import { creerLocatairesSurBien, rechercherPortefeuille } from './portefeuilleRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest contacts' };
@@ -47,7 +50,7 @@ describe.skipIf(!baseEssai)('🔴 clients et contacts à la création', () => {
   it('② propriétaire + 2 contacts : posés sur le bien côté propriétaire, NON comptés comme propriétaires, absents de la recherche', async () => {
     const b = ok(await creerBienComplet({
       proprietaireIds: [proprietaireId], annexes: [],
-      logement: { adresse: `3 rue Contacts${S}`, famille: 'logement', typeLogement: 'studio' },
+      logement: { adresse: `3 rue Contacts${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' },
       contacts: [
         { nom: `NOTAIRE${S}`, prenom: 'Luc', qualite: 'notaire', coordonnees: [mail(`notaire.${S}@exemple.test`), tel('01 40 00 00 01')] },
         { nom: `GARDIEN${S}`, qualite: 'gardien', coordonnees: [mail(`gardien.${S}@exemple.test`)] },
@@ -73,11 +76,11 @@ describe.skipIf(!baseEssai)('🔴 clients et contacts à la création', () => {
 
   it('③ contacts seuls refusés ; un contact sans e-mail refusé (avant toute écriture)', async () => {
     expect((await creerProprietaires({ cartes: [], existants: [], enGestion: false, numeroMandatTransaction: 'MT itest' }, AUTEUR)).etat).toBe('refus');
-    expect((await creerBienComplet({ proprietaireIds: [], annexes: [], logement: { adresse: `4 rue X${S}`, famille: 'logement', typeLogement: 'studio' },
+    expect((await creerBienComplet({ proprietaireIds: [], annexes: [], logement: { adresse: `4 rue X${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' },
       contacts: [{ nom: 'X', coordonnees: [mail('x@exemple.test')] }] }, AUTEUR)).etat).toBe('refus');
     const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n);
     const sansMail = await creerBienComplet({ proprietaireIds: [proprietaireId], annexes: [],
-      logement: { adresse: `5 rue Y${S}`, famille: 'logement', typeLogement: 'studio' }, contacts: [{ nom: 'SANSMAIL', coordonnees: [tel('06 00 00 00 09')] }] }, AUTEUR);
+      logement: { adresse: `5 rue Y${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' }, contacts: [{ nom: 'SANSMAIL', coordonnees: [tel('06 00 00 00 09')] }] }, AUTEUR);
     expect(sansMail.etat).toBe('refus');
     if (sansMail.etat === 'refus') expect(sansMail.motif).toMatch(/^Contact 1 : .*e-mail/);
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n)).toBe(avant);

@@ -70,6 +70,13 @@ const remplirMinimum = async () => {
   await act(async () => { (container.querySelector('[data-famille="logement"]') as HTMLButtonElement).click(); });
   await act(async () => { [...container.querySelectorAll('[aria-label="Type de logement"] button')][0].dispatchEvent(new MouseEvent('click', { bubbles: true })); });
   await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
+  await remplirDpeEntretien();
+};
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » sont obligatoires pour un logement / local — remplis ici (classe D, date, Non). */
+const remplirDpeEntretien = async () => {
+  await act(async () => { [...container.querySelectorAll('[aria-label="Classe DPE"] button')].find((b) => b.textContent === 'D')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  await saisir(container.querySelector('[data-dpe-date] input') as HTMLInputElement, '2024-03-01');
+  await act(async () => { (container.querySelector('[data-entretien-reponse="non"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
 };
 const soumettre = async () => { await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); }); await calmer(); };
 
@@ -91,7 +98,7 @@ describe('🔴 bloc 6 : la date d’AG alignée ; « Entretien à prévoir »', 
     await remplirMinimum();
     const bloc = () => container.querySelector('[data-entretien-bloc]') as HTMLElement;
     const pil = (mot: string) => [...bloc().querySelectorAll('[aria-label="Entretien à prévoir"] button')].find((b) => b.textContent === mot) as HTMLButtonElement;
-    expect(bloc().querySelector('h4')?.textContent).toBe('Entretien à prévoir');
+    expect(bloc().querySelector('h4')?.textContent).toBe('Entretien à prévoir *');
     expect(bloc().querySelector('[data-entretien]')).toBeNull();
     await act(async () => { pil('Oui').click(); });
     const chaudiere = () => bloc().querySelector('[data-entretien="chaudiere"]') as HTMLElement;

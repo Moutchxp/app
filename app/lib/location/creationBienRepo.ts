@@ -44,6 +44,11 @@ export function annexeNomPnoDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'pno_date_anniversaire');
 }
 
+/** La migration 382 (« Non soumis » au DPE) est-elle là ? */
+export function dpeNonSoumisDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_annuaire_lot', 'dpe_non_soumis');
+}
+
 /** La migration 376 (famille de bien, parking, accès, annexe à autre adresse) est-elle là ? */
 export function familleDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre');
@@ -199,6 +204,9 @@ export async function creerBienComplet(s: SaisieBien & {
   const l = v.logement;
   const avec378 = await annexeNomPnoDisponible();
   const avec379 = await entretienDisponible();
+  // « Non soumis » ne s'écrit que dans la colonne de la migration 382 : sans elle, rien n'est créé (jamais un DPE perdu en silence).
+  const avec382 = await dpeNonSoumisDisponible();
+  if (l.dpeNonSoumis === true && !avec382) return { etat: 'sans_schema' };
   const vivante = await sqlPersonneVivante('p');
   const portefeuille = await sqlDansPortefeuille('p');
   let cree: { logementId: number; annexes: number[] };
@@ -224,6 +232,7 @@ export async function creerBienComplet(s: SaisieBien & {
         type_local: l.typeLocal, parking_situation: l.parkingSituation, parking_type: l.parkingType, surface_m2: l.surfaceM2,
         ascenseur: l.ascenseur, digicode: l.digicode, digicode_code: l.digicodeCode, precision_acces: l.precisionAcces,
         ...(avec378 ? { assurance_pno: l.assurancePno ?? null, pno_date_anniversaire: l.assurancePno === true ? l.pnoDateAnniversaire ?? null : null } : {}),
+        ...(avec382 ? { dpe_non_soumis: l.dpeNonSoumis === true ? true : null } : {}),
       }, auteur);
       const annexes: number[] = [];
       for (const a of v.annexes) {
@@ -353,20 +362,22 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
   if (!(await bienCompletDisponible())) return null;
   const avec376 = await familleDisponible();
   const avec378 = await annexeNomPnoDisponible();
+  const avec382 = await dpeNonSoumisDisponible();
   const { rows } = await query<{
     batiment: string | null; escalier: string | null; type_logement: string | null; nombre_pieces: number | null; meuble: boolean | null;
     surface_habitable_m2: string | null; syndic_id: string | null; syndic_nom: string | null; epoque_construction: string | null;
     chauffage: string | null; dpe_classe: string | null; dpe_date: string | null; commentaire: string | null;
     type_local: string | null; parking_situation: string | null; parking_type: string | null; surface_m2: string | null;
     ascenseur: boolean | null; digicode: boolean | null; digicode_code: string | null; precision_acces: string | null;
-    assurance_pno: boolean | null; pno_date_anniversaire: string | null;
+    assurance_pno: boolean | null; pno_date_anniversaire: string | null; dpe_non_soumis: boolean | null;
   }>(
     `SELECT lo.batiment, lo.escalier, lo.type_logement, lo.nombre_pieces, lo.meuble, lo.surface_habitable_m2::text,
             lo.syndic_id::text, s.nom AS syndic_nom, lo.epoque_construction, lo.chauffage, lo.dpe_classe, lo.dpe_date::text, lo.commentaire,
             ${avec376 ? `lo.type_local, lo.parking_situation, lo.parking_type, lo.surface_m2::text, lo.ascenseur, lo.digicode, lo.digicode_code, lo.precision_acces`
     : `NULL::text AS type_local, NULL::text AS parking_situation, NULL::text AS parking_type, NULL::text AS surface_m2, NULL::boolean AS ascenseur,
        NULL::boolean AS digicode, NULL::text AS digicode_code, NULL::text AS precision_acces`},
-            ${avec378 ? 'lo.assurance_pno, lo.pno_date_anniversaire::text' : 'NULL::boolean AS assurance_pno, NULL::text AS pno_date_anniversaire'}
+            ${avec378 ? 'lo.assurance_pno, lo.pno_date_anniversaire::text' : 'NULL::boolean AS assurance_pno, NULL::text AS pno_date_anniversaire'},
+            ${avec382 ? 'lo.dpe_non_soumis' : 'NULL::boolean AS dpe_non_soumis'}
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_syndic s ON s.id = lo.syndic_id WHERE lo.id = $1`, [id]);
   const r = rows[0];
   if (r === undefined) return null;
@@ -378,7 +389,7 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
     batiment: r.batiment, escalier: r.escalier, typeLogement: r.type_logement as ComplementsBien['typeLogement'],
     nombrePieces: r.nombre_pieces, meuble: r.meuble, surfaceHabitableM2: r.surface_habitable_m2 === null ? null : Number(r.surface_habitable_m2),
     syndicId: r.syndic_id === null ? null : Number(r.syndic_id), syndicNom: r.syndic_nom, epoqueConstruction: r.epoque_construction,
-    chauffage: r.chauffage, dpeClasse: r.dpe_classe, dpeDate: r.dpe_date, commentaire: r.commentaire,
+    chauffage: r.chauffage, dpeClasse: r.dpe_classe, dpeDate: r.dpe_date, dpeNonSoumis: r.dpe_non_soumis, commentaire: r.commentaire,
     typeLocal: r.type_local as ComplementsBien['typeLocal'], parkingSituation: r.parking_situation as ComplementsBien['parkingSituation'],
     parkingType: r.parking_type as ComplementsBien['parkingType'], surfaceM2: r.surface_m2 === null ? null : Number(r.surface_m2),
     ascenseur: r.ascenseur, digicode: r.digicode, digicodeCode: r.digicode_code, precisionAcces: r.precision_acces,
@@ -400,6 +411,8 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
   const entretien = verifierEntretiens(brut.entretienAPrevoir, brut.entretiens);
   if (avecEntretien && !entretien.ok) return { etat: 'refus', motif: entretien.motif };
   const c = v.valeurs;
+  const avec382 = await dpeNonSoumisDisponible();
+  if (c.dpeNonSoumis === true && !avec382) return { etat: 'sans_schema' };
   try {
     return await withTransaction(async (q) => {
       const { rows } = await q('SELECT 1 FROM gestion_annuaire_lot WHERE id = $1 FOR UPDATE', [id]);
@@ -411,9 +424,9 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
       await q(
         `UPDATE gestion_annuaire_lot SET batiment = $2, escalier = $3, type_logement = $4, nombre_pieces = $5, meuble = $6,
                 surface_habitable_m2 = $7, syndic_id = $8, epoque_construction = $9, chauffage = $10, dpe_classe = $11,
-                dpe_date = $12::date, commentaire = $13 WHERE id = $1`,
+                dpe_date = $12::date, commentaire = $13${avec382 ? ', dpe_non_soumis = $14' : ''} WHERE id = $1`,
         [id, c.batiment, c.escalier, c.typeLogement, c.nombrePieces, c.meuble, c.surfaceHabitableM2, c.syndicId,
-          c.epoqueConstruction, c.chauffage, c.dpeClasse, c.dpeDate, c.commentaire]);
+          c.epoqueConstruction, c.chauffage, c.dpeClasse, c.dpeDate, c.commentaire, ...(avec382 ? [c.dpeNonSoumis === true ? true : null] : [])]);
       if (await familleDisponible()) {
         await q(
           `UPDATE gestion_annuaire_lot SET type_local = $2, parking_situation = $3, parking_type = $4, surface_m2 = $5, ascenseur = $6,

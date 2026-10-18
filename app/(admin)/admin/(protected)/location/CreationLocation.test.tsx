@@ -287,6 +287,11 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(container.querySelector('[data-derniere-ag] .loc-aide')?.classList.contains('loc-aide--long')).toBe(true);
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(ag(), '2026-06-30'); ag()!.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { [...container.querySelectorAll('[aria-label="Type de logement"] button')][0].dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    // Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires pour un logement (classe D, date, Non).
+    await act(async () => { [...container.querySelectorAll('[aria-label="Classe DPE"] button')].find((b) => b.textContent === 'D')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const dpeDate = container.querySelector('[data-dpe-date] input') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(dpeDate, '2024-03-01'); dpeDate.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { (container.querySelector('[data-entretien-reponse="non"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await soumettre();
     await calmer();
     expect((posts[0]?.logement as Record<string, unknown> | undefined)?.derniereAg).toBe('2026-06-30');

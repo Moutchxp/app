@@ -22,6 +22,9 @@ import { creerBienComplet, creerProprietaires } from './creationBienRepo';
 import { personnesARattacher } from './rattachementProprietairesRepo';
 import { ajouterContactSyndic } from './syndicLocationRepo';
 
+/** Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires à la création d'un logement / local. */
+const DPE_ENTRETIEN = { dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false };
+
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
 const baseEssai = /^svav_(jetable|test)/.test(NOM_BASE);
 const AUTEUR = { id: null, libelle: 'itest rattachement' };
@@ -49,7 +52,7 @@ describe.skipIf(!baseEssai)('🔴 qui rattacher à ce bien ? — personnes une �
       { nom: `MARTIN${S}`, prenom: 'Paul', coordonnees: [mail(`paul.${S}@exemple.test`)] },
     ] }, AUTEUR)).ids;
     bienCouple = ok(await creerBienComplet({ proprietaireIds: [lea, paul], annexes: [],
-      logement: { adresse: `3 rue du Couple${S}`, famille: 'logement', typeLogement: 'appartement' },
+      logement: { adresse: `3 rue du Couple${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'appartement' },
       contacts: [{ nom: `NOTAIRE${S}`, prenom: 'Luc', qualite: 'notaire', coordonnees: [mail(emailNotaire)] }] }, AUTEUR)).logementId;
     const d = await personnesARattacher(lea);
     expect(d).not.toBeNull();
@@ -65,7 +68,7 @@ describe.skipIf(!baseEssai)('🔴 qui rattacher à ce bien ? — personnes une �
     const fichesAvant = await fiches([lea, paul]);
     const origineAvant = (await lireCartesDuBien(await cle(bienCouple))).find((c) => c.id === carteNotaire);
     const b = ok(await creerBienComplet({ proprietaireIds: [lea], contactsExistants: [carteNotaire], annexes: [],
-      logement: { adresse: `9 rue Seule${S}`, famille: 'logement', typeLogement: 'studio' } }, AUTEUR));
+      logement: { adresse: `9 rue Seule${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' } }, AUTEUR));
     expect(b.contactsRefus).toBeNull();
     expect(b.contacts).toBe(1);
     const { rows } = await query<{ p: string }>('SELECT proprietaire_id::text AS p FROM gestion_annuaire_lot WHERE id = $1', [b.logementId]);
@@ -81,12 +84,12 @@ describe.skipIf(!baseEssai)('🔴 qui rattacher à ce bien ? — personnes une �
 
   it('③ les deux personnes ; un contact étranger à ces propriétaires refusé avant toute écriture', async () => {
     const b = ok(await creerBienComplet({ proprietaireIds: [lea, paul], annexes: [],
-      logement: { adresse: `11 rue Deux${S}`, famille: 'logement', typeLogement: 'studio' } }, AUTEUR));
+      logement: { adresse: `11 rue Deux${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' } }, AUTEUR));
     expect(await coproprietaires(b.logementId)).toEqual([paul]);
     const [autre] = ok(await creerProprietaires({ enGestion: false, numeroMandatTransaction: 'MT itest', cartes: [{ nom: `AUTRE${S}`, coordonnees: [tel('06 99 99 99 99'), mail(`autre.${S}@exemple.test`)] }] }, AUTEUR)).ids;
     const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n);
     const r = await creerBienComplet({ proprietaireIds: [autre], contactsExistants: [carteNotaire], annexes: [],
-      logement: { adresse: `12 rue Refus${S}`, famille: 'logement', typeLogement: 'studio' } }, AUTEUR);
+      logement: { adresse: `12 rue Refus${S}`, ...DPE_ENTRETIEN, famille: 'logement', typeLogement: 'studio' } }, AUTEUR);
     expect(r).toEqual({ etat: 'refus', motif: 'Un contact coché n’est plus rattaché à ces propriétaires dans la Gestion : retirez-le.' });
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n)).toBe(avant);
   });

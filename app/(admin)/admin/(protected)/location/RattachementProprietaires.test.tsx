@@ -83,6 +83,11 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
     await act(async () => { [...container.querySelectorAll('[aria-label="Type de logement"] button')][0].dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     const adr = container.querySelector('.cab-enveloppe input') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(adr, '3 rue du Port'); adr.dispatchEvent(new Event('input', { bubbles: true })); });
+    // Arno (18/10/2026) : DPE et « Entretien à prévoir » obligatoires pour un logement (classe D, date, Non).
+    await act(async () => { [...container.querySelectorAll('[aria-label="Classe DPE"] button')].find((b) => b.textContent === 'D')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    const dpeDate = container.querySelector('[data-dpe-date] input') as HTMLInputElement;
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(dpeDate, '2024-03-01'); dpeDate.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { (container.querySelector('[data-entretien-reponse="non"]') as HTMLButtonElement).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
     await calmer();
     expect(posts).toHaveLength(1);

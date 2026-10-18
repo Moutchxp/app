@@ -7,7 +7,7 @@ import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { formaterDateIso, periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
 import { estAncienLocataire } from '../../../../lib/gestion/historiqueBien';
 import {
-  CATEGORIES, CATEGORIES_ANNEXE, LIBELLE_CATEGORIE, libelleEtage, resumeBien, verifierChampsBien,
+  CATEGORIES, CATEGORIES_ANNEXE, categorieDuBien, LIBELLE_CATEGORIE, libelleEtage, resumeBien, verifierChampsBien,
   type BienLocation, type Categorie,
 } from '../../../../lib/location/locationBien';
 import {
@@ -15,7 +15,7 @@ import {
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING, type ComplementsFiche,
   type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
-import { titreAnnexe } from '../../../../lib/location/bienComplet';
+import { aRenseignerDuBien, DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS, titreAnnexe } from '../../../../lib/location/bienComplet';
 import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { libelleEntretien } from '../../../../lib/location/entretien';
 import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien } from '../location/EntretienBien';
@@ -278,7 +278,10 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
   const resume = lu.etat === 'ok'
     ? [lu.data.parent !== null ? 'annexe' : liste(lu.data.annexes).length > 0 ? `${liste(lu.data.annexes).length} annexe(s)` : null,
       lu.data.complements?.typeLogement ? LIBELLE_TYPE_LOGEMENT[lu.data.complements.typeLogement as TypeLogement] : null,
-      lu.data.sortie === null || lu.data.sortie === undefined ? null : 'sorti du portefeuille'].filter((x) => x).join(' · ')
+      lu.data.sortie === null || lu.data.sortie === undefined ? null : 'sorti du portefeuille',
+      // Arno (18/10/2026) : « DPE à renseigner » / « Entretien à renseigner » d'un bien existant — visibles, jamais bloquants.
+      // Un import WIPPIMMO n'a pas de catégorie : sa famille se DÉDUIT de sa nature (la règle commune `categorieDuBien`).
+      ...(lu.data.parent === null && lu.data.complements ? aRenseignerDuBien(lu.data.complements, familleDeCategorie(categorieDuBien(lu.data.bien))) : [])].filter((x) => x).join(' · ')
     : '';
   return (
     <Repli titre="Location — annexes, caractéristiques, loyer et portefeuille" resume={resume}>
@@ -311,7 +314,8 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
             </section>
             <Caracteristiques b={b} modifiable={d.location372} apres={relire} />
             {d.complements !== null && d.complements !== undefined
-              && <Complements id={b.id} c={d.complements} apres={relire} annexe={b.parentId !== null} categorie={b.categorie} />}
+              && <Complements id={b.id} c={d.complements} apres={relire} annexe={b.parentId !== null} categorie={b.categorie}
+                familleMention={familleDeCategorie(categorieDuBien(b))} />}
             {d.location372 !== false && occupations.length > 0 && (
               <section className="loc-bloc" data-loyers>
                 <h3>Loyer de départ et taux de gestion</h3>
@@ -561,8 +565,10 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
 }
 
 /** Les informations complémentaires du bien (migration 374) : saisies au formulaire complet, complétables ici. */
-function Complements({ id, c, apres, annexe = false, categorie }: {
+function Complements({ id, c, apres, annexe = false, categorie, familleMention = null }: {
   id: number; c: ComplementsFiche; apres: () => void; annexe?: boolean; categorie: string;
+  /** La famille DÉDUITE (nature WIPPIMMO pour un import) — seulement pour les mentions « à renseigner », rien d'autre. */
+  familleMention?: ReturnType<typeof familleDeCategorie>;
 }) {
   // La famille se DÉDUIT de la catégorie (migration 376) : elle choisit les champs montrés. Une annexe : parking, accès, commentaire.
   const famille = familleDeCategorie(categorie);
@@ -571,7 +577,7 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
     batiment: c.batiment ?? '', escalier: c.escalier ?? '', typeLogement: c.typeLogement ?? '', nombrePieces: c.nombrePieces === null ? '' : String(c.nombrePieces),
     meuble: c.meuble === null ? '' : c.meuble ? 'oui' : 'non', surfaceHabitableM2: c.surfaceHabitableM2 === null ? '' : String(c.surfaceHabitableM2).replace('.', ','),
     syndicId: c.syndicId === null ? '' : String(c.syndicId), epoqueConstruction: c.epoqueConstruction ?? '', chauffage: c.chauffage ?? '',
-    dpeClasse: c.dpeClasse ?? '', dpeDate: c.dpeDate ?? '', commentaire: c.commentaire ?? '',
+    dpeClasse: c.dpeNonSoumis === true ? DPE_NON_SOUMIS : c.dpeClasse ?? '', dpeDate: c.dpeDate ?? '', commentaire: c.commentaire ?? '',
     typeLocal: c.typeLocal ?? '', parkingSituation: c.parkingSituation ?? '', parkingType: c.parkingType ?? '',
     surfaceM2: c.surfaceM2 === null ? '' : String(c.surfaceM2).replace('.', ','),
     ascenseur: c.ascenseur === null ? '' : c.ascenseur ? 'oui' : 'non', digicode: c.digicode === null ? '' : c.digicode ? 'oui' : 'non',
@@ -626,7 +632,7 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
     ['Surface habitable', c.surfaceHabitableM2 === null ? null : `${String(c.surfaceHabitableM2).replace('.', ',')} m²`],
     ['Bâtiment', c.batiment], ['Escalier', c.escalier], ['Syndic', c.syndicNom],
     ['Époque de construction', c.epoqueConstruction], ['Chauffage', c.chauffage],
-    ['DPE', c.dpeClasse === null && date === null ? null : [c.dpeClasse === null ? null : `classe ${c.dpeClasse}`, date === null ? null : `du ${date}`].filter((x) => x).join(' ')],
+    ['DPE', c.dpeNonSoumis === true ? 'non soumis (bien dispensé de DPE)' : c.dpeClasse === null && date === null ? null : [c.dpeClasse === null ? null : `classe ${c.dpeClasse}`, date === null ? null : `du ${date}`].filter((x) => x).join(' ')],
     ...(avecAg ? [[LIBELLE_AG, c.derniereAg ? new Date(`${c.derniereAg}T12:00:00`).toLocaleDateString('fr-FR') : null] as [string, string | null]] : []),
     ['Assurance PNO', c.assurancePno === undefined || c.assurancePno === null ? null : c.assurancePno
       ? `oui${c.pnoDateAnniversaire ? ` · date anniversaire le ${new Date(`${c.pnoDateAnniversaire}T12:00:00`).toLocaleDateString('fr-FR')}` : ''}` : 'non'],
@@ -636,6 +642,10 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
   ];
   // Ce qui ne concerne pas la famille n'est pas montré (un parking n'a ni pièces, ni meublé, ni DPE…).
   const horsParking = new Set(['Type de logement', 'Nombre de pièces', 'Meublé', 'Surface habitable', 'Époque de construction', 'Chauffage', 'DPE']);
+  // Les mentions « à renseigner » (Arno, 18/10/2026) : logement / local seulement, jamais sur une annexe ; jamais bloquantes.
+  const aRenseigner = annexe ? [] : aRenseignerDuBien(c, famille ?? familleMention);
+  const mentionDe = (mot: string): string | null => (mot === 'DPE' && aRenseigner.includes('DPE à renseigner') ? 'DPE à renseigner'
+    : mot === 'Entretien à prévoir' && aRenseigner.includes('Entretien à renseigner') ? 'Entretien à renseigner' : null);
   const lignes: [string, string | null][] = annexe
     ? [...(parking ? lignesParking : []), ...lignesAcces, ['Commentaire', c.commentaire]]
     : [...lignesPrincipal, ...lignesBrutes.filter(([mot]) => !(parking && horsParking.has(mot))
@@ -654,10 +664,17 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
       <h3>Informations complémentaires</h3>
       {!edition ? (
         <>
+          {aRenseigner.length > 0 && (
+            <p className="loc-a-renseigner-ligne" data-a-renseigner-bien>{aRenseigner.map((m) => <span key={m} className="loc-a-renseigner">{m}</span>)}</p>
+          )}
           <dl className="loc-grille" style={{ margin: 0 }}>
-            {lignes.map(([mot, val]) => (
-              <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{val ?? <span className="loc-muet">non renseigné</span>}</dd></div>
-            ))}
+            {lignes.map(([mot, val]) => {
+              const mention = val === null ? mentionDe(mot) : null;
+              return (
+                <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                  {val ?? (mention !== null ? <span className="loc-a-renseigner" data-a-renseigner={mot}>{mention}</span> : <span className="loc-muet">non renseigné</span>)}</dd></div>
+              );
+            })}
           </dl>
           <div className="loc-boutons"><button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setV(initial); setEntretien(versSaisieEntretien(c.entretienAPrevoir, c.entretiens)); setMotif(null); setEdition(true); }}>Modifier</button></div>
         </>
@@ -684,8 +701,8 @@ function Complements({ id, c, apres, annexe = false, categorie }: {
               ...syndics.map((x) => [String(x.id), x.nom] as const)])}
             {!parking && choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION.map((x) => [x, x] as const))}
             {!parking && choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}
-            {!parking && choix('dpeClasse', 'Classe DPE', CLASSES_DPE.map((x) => [x, x] as const))}
-            {!parking && champ('dpeDate', 'Date du DPE', { type: 'date' })}
+            {!parking && choix('dpeClasse', 'Classe DPE', [...CLASSES_DPE.map((x) => [x, x] as const), [DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS] as const])}
+            {!parking && champ('dpeDate', 'Date du DPE', { type: 'date', disabled: v.dpeClasse === DPE_NON_SOUMIS })}
             {choix('assurancePno', 'Assurance PNO', [['oui', 'Oui'], ['non', 'Non']])}
             {v.assurancePno === 'oui' && <span data-pno-date>{champ('pnoDateAnniversaire', 'Date anniversaire (PNO)', { type: 'date' })}</span>}
             {avecAg && <label className="loc-champ" data-derniere-ag>{LIBELLE_AG}
@@ -754,6 +771,8 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
 }
 
 const CSS_SECTIONS = `
+.loc-a-renseigner-ligne{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.loc-a-renseigner{display:inline-block;border-radius:999px;padding:2px 10px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);font-weight:700;font-size:.85rem}
 .slf{margin-top:14px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface)}
 .slf > summary{cursor:pointer;list-style:none;padding:12px 14px;min-height:44px;box-sizing:border-box;display:flex;flex-wrap:wrap;align-items:center;gap:4px;color:var(--color-svv-ink)}
 .slf > summary::-webkit-details-marker{display:none}

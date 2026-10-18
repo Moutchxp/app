@@ -41,7 +41,15 @@ export function versEnvoiEntretien(s: SaisieEntretien): { entretienAPrevoir: boo
   };
 }
 
-export function BlocEntretien({ valeur, onChange }: { valeur: SaisieEntretien; onChange: (v: SaisieEntretien) => void }) {
+/**
+ * `obligatoire` (Arno, 18/10/2026) : à la CRÉATION d'un logement / local, le titre porte « * » et `manques` reçoit les
+ * messages (Oui / Non sous les boutons, la liste sous les entretiens, le nom sous chaque « Autre »). La fiche commune ne
+ * passe rien : elle n'est jamais bloquée.
+ */
+export function BlocEntretien({ valeur, onChange, obligatoire = false, manques }: {
+  valeur: SaisieEntretien; onChange: (v: SaisieEntretien) => void; obligatoire?: boolean;
+  manques?: { reponse?: React.ReactNode; liste?: React.ReactNode; autre?: (k: number) => React.ReactNode };
+}) {
   const s = valeur;
   const ligne = (k: 'chaudiere' | 'ramonage', mot: string) => (
     <div className="loc-entretien-ligne" data-entretien={k}>
@@ -53,17 +61,18 @@ export function BlocEntretien({ valeur, onChange }: { valeur: SaisieEntretien; o
   );
   return (
     <div className="loc-sous-section" data-entretien-bloc>
-      <h4>Entretien à prévoir</h4>
+      <h4>Entretien à prévoir{obligatoire && <> <span className="loc-oblig">*</span></>}</h4>
       <div className="loc-pilules" role="group" aria-label="Entretien à prévoir">
         {(['oui', 'non'] as const).map((v) => {
           const actif = s.aPrevoir === (v === 'oui');
           return (
-            <button key={v} type="button" aria-pressed={actif}
+            <button key={v} type="button" aria-pressed={actif} data-entretien-reponse={v}
               onClick={() => onChange(actif ? { ...ENTRETIEN_VIDE } : v === 'oui' ? { ...s, aPrevoir: true } : { ...ENTRETIEN_VIDE, aPrevoir: false })}>
               {v === 'oui' ? 'Oui' : 'Non'}</button>
           );
         })}
       </div>
+      {manques?.reponse}
       {s.aPrevoir === true && (
         <div className="loc-entretiens">
           {ligne('chaudiere', 'Chaudière')}
@@ -77,11 +86,13 @@ export function BlocEntretien({ valeur, onChange }: { valeur: SaisieEntretien; o
                 <input type="date" value={a.date} onChange={(e) => onChange({ ...s, autres: s.autres.map((x, j) => (j === i ? { ...x, date: e.target.value } : x)) })} /></label>
               <button type="button" className="svv-btn svv-btn-outline gst-btn loc-entretien-suppr" aria-label={`Supprimer l’entretien ${a.nom || i + 1}`}
                 onClick={() => onChange({ ...s, autres: s.autres.filter((_, j) => j !== i) })}>Supprimer</button>
+              {manques?.autre?.(i)}
             </div>
           ))}
           <div className="loc-pilules">
             <button type="button" onClick={() => onChange({ ...s, autres: [...s.autres, { cle: Date.now() + s.autres.length, nom: '', date: '' }] })} data-ajouter-entretien>+ Autre entretien</button>
           </div>
+          {manques?.liste}
         </div>
       )}
     </div>
