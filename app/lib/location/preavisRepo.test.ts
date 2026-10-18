@@ -10,11 +10,13 @@ const norme = (s: string): string => s.replace(/\s+/g, ' ');
 let occupations: { id: string; locataire_id: string; entree: string | null; sortie: string | null; nom: string }[] = [];
 let ouverts: { occupation_id: string }[] = [];
 let ligne: Record<string, unknown> | null = null;
+let edl: { id: string; locataire_id: string; sortie: string | null; edl: string | null; recu_le: string | null; date_max: string | null }[] = [];
 
 function repondre(sql: string, params: unknown[]): { rows: unknown[]; rowCount: number } {
   const s = norme(sql);
   appels.push({ sql: s, params });
   if (s.includes('AS j')) return { rows: [{ j: '2026-10-19' }], rowCount: 1 };
+  if (s.includes('AS edl') && s.includes('FOR UPDATE OF o')) return { rows: edl, rowCount: edl.length };
   if (s.includes('FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l') && s.includes('FOR UPDATE')) return { rows: occupations, rowCount: occupations.length };
   if (s.includes('FROM gestion_location_preavis WHERE occupation_id = ANY') && s.includes('FOR UPDATE')) return { rows: ouverts, rowCount: ouverts.length };
   if (s.includes('FROM gestion_location_preavis p WHERE p.id = $1 FOR UPDATE')) return { rows: ligne === null ? [] : [ligne], rowCount: ligne === null ? 0 : 1 };
@@ -32,7 +34,7 @@ vi.mock('../db/client', () => ({
 vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
 vi.mock('./sortieLocatairesRepo', () => ({ lireBail: vi.fn(async () => null) }));
 
-import { annulerPreavis, corrigerPreavis, enregistrerPreavis } from './preavisRepo';
+import { annulerPreavis, corrigerPreavis, enregistrerEtatDesLieux, enregistrerPreavis } from './preavisRepo';
 
 const AUTEUR = { id: 3, libelle: 'arno@exemple.fr' };
 const ecritures = (): Appel[] => appels.filter((a) => /^(UPDATE|INSERT|DELETE)/.test(a.sql));
@@ -117,6 +119,41 @@ describe('corriger / annuler un préavis — rien n’est effacé', () => {
     ligne = { ...OUVERT, annule_le: '2026-10-16' };
     expect((await annulerPreavis({ preavisId: 50 }, AUTEUR)).etat).toBe('refus');
     expect((await corrigerPreavis({ preavisId: 50, recuLe: '2026-10-15', choix: { mode: 'mois', duree: 1 } }, AUTEUR)).etat).toBe('refus');
+    expect(ecritures()).toHaveLength(0);
+  });
+});
+
+describe('la date d’état des lieux de sortie prévu (accueil, Arno 18/10/2026)', () => {
+  const OCC = (id: string, o: Partial<(typeof edl)[number]> = {}) => ({ id, locataire_id: `1${id}`, sortie: null, edl: null, recu_le: '2026-10-01', date_max: '2026-11-01', ...o });
+
+  it('LIRE (FOR UPDATE) → ÉCRIRE sur l’OCCUPATION (jamais la date de sortie) ; chaque occupation au journal', async () => {
+    edl = [OCC('11'), OCC('12', { edl: '2026-11-03' })];
+    expect(await enregistrerEtatDesLieux({ occupationIds: [11, 12], date: '2026-11-05' }, AUTEUR)).toEqual({ etat: 'ok', data: { date: '2026-11-05' } });
+    const maj = ecritures().find((a) => a.sql.startsWith('UPDATE gestion_annuaire_occupation'))!;
+    expect(maj.sql).toContain('SET etat_des_lieux_prevu_le = $2::date');
+    expect(maj.sql).not.toMatch(/\bsortie\s*=/);
+    expect(maj.params).toEqual([[11, 12], '2026-11-05']);
+    expect(appels.findIndex((a) => a.sql.includes('FOR UPDATE OF o'))).toBeLessThan(appels.indexOf(maj));
+    const j = ecritures().filter((a) => a.sql.startsWith('INSERT INTO gestion_journal'));
+    expect(j.map((a) => a.params[1])).toEqual(['location_edl_prevu', 'location_edl_prevu']);
+  });
+
+  it('effacer (date vide) : NULL posé, journalisé « effacé » — rien n’est supprimé', async () => {
+    edl = [OCC('11', { edl: '2026-11-03' })];
+    expect(await enregistrerEtatDesLieux({ occupationIds: [11], date: '' }, AUTEUR)).toEqual({ etat: 'ok', data: { date: null } });
+    expect(ecritures().find((a) => a.sql.startsWith('UPDATE gestion_annuaire_occupation'))!.params).toEqual([[11], null]);
+    expect(ecritures().some((a) => a.sql.startsWith('INSERT INTO gestion_journal') && a.params[1] === 'location_edl_efface')).toBe(true);
+    expect(appels.some((a) => /\bDELETE\b/.test(a.sql))).toBe(false);
+  });
+
+  it('refus AVANT toute écriture : hors bornes, locataire sorti, plus en préavis', async () => {
+    edl = [OCC('11')];
+    expect((await enregistrerEtatDesLieux({ occupationIds: [11], date: '2026-09-30' }, AUTEUR)).etat).toBe('refus');
+    expect((await enregistrerEtatDesLieux({ occupationIds: [11], date: '2027-05-02' }, AUTEUR)).etat).toBe('refus');
+    edl = [OCC('11', { sortie: '2026-10-10' })];
+    expect((await enregistrerEtatDesLieux({ occupationIds: [11], date: '2026-11-05' }, AUTEUR)).etat).toBe('refus');
+    edl = [OCC('11', { recu_le: null, date_max: null })];
+    expect((await enregistrerEtatDesLieux({ occupationIds: [11], date: '2026-11-05' }, AUTEUR)).etat).toBe('refus');
     expect(ecritures()).toHaveLength(0);
   });
 });

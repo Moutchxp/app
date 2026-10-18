@@ -89,6 +89,8 @@ export interface PreavisAffiche {
   motif: string | null;
   creePar: string;
   creeLe: string;
+  /** La date de l'état des lieux de sortie prévu (migration 384) ; `null` / absente = non saisie. */
+  etatDesLieuxLe?: string | null;
 }
 
 /** Le statut d'un préavis ouvert : « en préavis » jusqu'à la date maximale, « échu » au-delà. PUR. */
@@ -101,6 +103,11 @@ export function mentionPreavis(p: Pick<PreavisAffiche, 'dateMax'>, aujourdhui: s
   return statutPreavis(p, aujourdhui) === 'echu'
     ? `Préavis échu — sortie à saisir (au plus tard le ${dateFrPreavis(p.dateMax)})`
     : `en préavis — sortie au plus tard le ${dateFrPreavis(p.dateMax)}`;
+}
+
+/** La mention COURTE (lignes de l'accueil, où la date figure à côté) : « en préavis » ou « Préavis échu — sortie à saisir ». PUR. */
+export function mentionCourtePreavis(p: Pick<PreavisAffiche, 'dateMax'>, aujourdhui: string): string {
+  return statutPreavis(p, aujourdhui) === 'echu' ? 'Préavis échu — sortie à saisir' : 'en préavis';
 }
 
 // ══ LA ZONE TENDUE — une DONNÉE EN BASE (`gestion_zone_tendue`), jamais une constante ══════════════════════════════════
@@ -119,4 +126,65 @@ export function enZoneTendue(lot: { codePostal: string | null; commune: string |
   return regles.some((r) => (r.portee === 'departement'
     ? cp.startsWith(r.code.trim())
     : cp === r.code.trim() && r.commune !== null && sansAccents(r.commune) === sansAccents(lot.commune ?? '')));
+}
+
+// ══ L'ÉTAT DES LIEUX DE SORTIE PRÉVU et LE BLOC « LOCATAIRES EN PRÉAVIS » DE L'ACCUEIL (Arno, 18/10/2026) ═══════════════
+
+export const EDL_MOIS_APRES_FIN = 6;
+
+/**
+ * La date d'état des lieux : facultative (vide = EFFACER), jamais avant la réception du recommandé, jamais plus de 6 mois
+ * après la fin du préavis (sur le groupe : la réception la plus tardive, la fin la plus tardive). PUR.
+ */
+export function verifierEtatDesLieux(date: unknown, groupe: readonly { recuLe: string; dateMax: string }[]): { ok: true; date: string | null } | { ok: false; motif: string } {
+  if (date === null || date === undefined || date === '') return { ok: true, date: null };
+  if (!dateIsoValide(date)) return { ok: false, motif: 'La date d’état des lieux n’est pas une date valide' };
+  const recu = groupe.map((g) => g.recuLe).sort().pop();
+  const fin = groupe.map((g) => g.dateMax).sort().pop();
+  if (recu !== undefined && date < recu) return { ok: false, motif: `L’état des lieux ne peut pas précéder la réception du recommandé (${dateFrPreavis(recu)})` };
+  if (fin !== undefined && date > ajouterMois(fin, EDL_MOIS_APRES_FIN)) {
+    return { ok: false, motif: `L’état des lieux ne peut pas dépasser de plus de ${EDL_MOIS_APRES_FIN} mois la fin du préavis (au plus tard le ${dateFrPreavis(ajouterMois(fin, EDL_MOIS_APRES_FIN))})` };
+  }
+  return { ok: true, date };
+}
+
+/** Une ligne du bloc de l'accueil : UN préavis (les locataires d'un même bail, reçus ensemble, même fin). */
+export interface LignePreavisAccueil {
+  cle: string;
+  lotId: number;
+  adresse: string | null;
+  /** L'occupation de référence (écran de sortie, lecture du bail). */
+  occupationId: number;
+  occupationIds: number[];
+  locataires: { occupationId: number; locataireId: number; nom: string }[];
+  recuLe: string;
+  dateMax: string;
+  /** `null` = non saisie (ou migration 384 absente). */
+  etatDesLieuxLe: string | null;
+}
+
+export type CleTri = 'fin' | 'edl';
+export type SensTri = 'asc' | 'desc';
+export interface TriPreavis { cle: CleTri; sens: SensTri }
+/** Par défaut : la fin de préavis la plus proche d'abord. */
+export const TRI_DEFAUT: TriPreavis = { cle: 'fin', sens: 'asc' };
+
+/** Le tri : par fin de préavis ou par état des lieux, dans un sens ; les lignes SANS état des lieux toujours à la fin. PUR. */
+export function trierPreavis(lignes: readonly LignePreavisAccueil[], tri: TriPreavis): LignePreavisAccueil[] {
+  const val = (l: LignePreavisAccueil): string | null => (tri.cle === 'fin' ? l.dateMax : l.etatDesLieuxLe);
+  return [...lignes].sort((a, b) => {
+    const x = val(a); const y = val(b);
+    if (x === null && y === null) return a.dateMax.localeCompare(b.dateMax) || a.cle.localeCompare(b.cle);
+    if (x === null) return 1;
+    if (y === null) return -1;
+    const c = tri.sens === 'asc' ? x.localeCompare(y) : y.localeCompare(x);
+    return c !== 0 ? c : a.cle.localeCompare(b.cle);
+  });
+}
+
+/** Lit un tri mémorisé (préférence locale) ; tout ce qui n'est pas reconnu rend le tri par défaut. PUR. */
+export function lireTri(brut: string | null): TriPreavis {
+  if (brut === null) return TRI_DEFAUT;
+  const [cle, sens] = brut.split(':');
+  return (cle === 'fin' || cle === 'edl') && (sens === 'asc' || sens === 'desc') ? { cle, sens } : TRI_DEFAUT;
 }

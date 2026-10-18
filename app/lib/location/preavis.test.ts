@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  ajouterMois, dateMaxPreavis, dureeProposee, enZoneTendue, mentionPreavis, statutPreavis, verifierPreavis, type RegleZoneTendue,
+  ajouterMois, dateMaxPreavis, dureeProposee, enZoneTendue, lireTri, mentionCourtePreavis, mentionPreavis, statutPreavis, trierPreavis,
+  TRI_DEFAUT, verifierEtatDesLieux, verifierPreavis, type LignePreavisAccueil, type RegleZoneTendue,
 } from './preavis';
 
 /** LE PRÉAVIS DU LOCATAIRE (Arno, 18/10/2026) — les règles, sans base. */
@@ -71,5 +72,45 @@ describe('la zone tendue : une DONNÉE (règles en base)', () => {
     expect(enZoneTendue({ codePostal: '78000', commune: 'Versailles' }, REGLES)).toBe(false);
     expect(enZoneTendue({ codePostal: null, commune: 'Paris' }, REGLES)).toBe(false);
     expect(enZoneTendue({ codePostal: '75011', commune: 'Paris' }, [])).toBe(false);   // sans règle en base : hors zone
+  });
+});
+
+describe('l’accueil « Locataires en préavis » (Arno, 18/10/2026)', () => {
+  it('mention courte : « en préavis » ; date passée → « Préavis échu — sortie à saisir »', () => {
+    expect(mentionCourtePreavis({ dateMax: '2026-10-19' }, '2026-10-19')).toBe('en préavis');
+    expect(mentionCourtePreavis({ dateMax: '2026-10-18' }, '2026-10-19')).toBe('Préavis échu — sortie à saisir');
+  });
+
+  it('état des lieux : vide = effacer ; jamais avant la réception ; au plus 6 mois après la fin (sur le groupe)', () => {
+    const g = [{ recuLe: '2026-10-01', dateMax: '2026-11-01' }, { recuLe: '2026-10-05', dateMax: '2026-11-05' }];
+    expect(verifierEtatDesLieux('', g)).toEqual({ ok: true, date: null });
+    expect(verifierEtatDesLieux(null, g)).toEqual({ ok: true, date: null });
+    expect(verifierEtatDesLieux('2026-13-01', g).ok).toBe(false);
+    expect(verifierEtatDesLieux('2026-10-04', g).ok).toBe(false);
+    expect(verifierEtatDesLieux('2026-10-05', g)).toEqual({ ok: true, date: '2026-10-05' });
+    expect(verifierEtatDesLieux('2027-05-05', g)).toEqual({ ok: true, date: '2027-05-05' });
+    const trop = verifierEtatDesLieux('2027-05-06', g);
+    expect(trop).toEqual({ ok: false, motif: 'L’état des lieux ne peut pas dépasser de plus de 6 mois la fin du préavis (au plus tard le 05/05/2027)' });
+  });
+
+  const l = (cle: string, dateMax: string, edl: string | null): LignePreavisAccueil => ({
+    cle, lotId: 1, adresse: null, occupationId: 1, occupationIds: [1], locataires: [], recuLe: '2026-01-01', dateMax, etatDesLieuxLe: edl,
+  });
+  const L = [l('a', '2026-12-01', '2026-12-10'), l('b', '2026-11-01', null), l('c', '2027-01-01', '2026-11-20'), l('d', '2026-10-01', null)];
+  const cles = (t: Parameters<typeof trierPreavis>[1]): string[] => trierPreavis(L, t).map((x) => x.cle);
+
+  it('tri par défaut = fin de préavis la plus proche d’abord ; les 4 sens ; sans état des lieux TOUJOURS en dernier', () => {
+    expect(TRI_DEFAUT).toEqual({ cle: 'fin', sens: 'asc' });
+    expect(cles({ cle: 'fin', sens: 'asc' })).toEqual(['d', 'b', 'a', 'c']);
+    expect(cles({ cle: 'fin', sens: 'desc' })).toEqual(['c', 'a', 'b', 'd']);
+    expect(cles({ cle: 'edl', sens: 'asc' })).toEqual(['c', 'a', 'd', 'b']);
+    expect(cles({ cle: 'edl', sens: 'desc' })).toEqual(['a', 'c', 'd', 'b']);
+    expect(L.map((x) => x.cle)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('préférence mémorisée : lue si reconnue, sinon le tri par défaut', () => {
+    expect(lireTri('edl:desc')).toEqual({ cle: 'edl', sens: 'desc' });
+    expect(lireTri(null)).toEqual(TRI_DEFAUT);
+    expect(lireTri('n’importe:quoi')).toEqual(TRI_DEFAUT);
   });
 });

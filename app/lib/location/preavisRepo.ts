@@ -4,7 +4,8 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
 import { lireBail } from './sortieLocatairesRepo';
 import {
-  dureeProposee, enZoneTendue, verifierPreavis, type DureeMois, type ModePreavis, type PreavisAffiche, type RegleZoneTendue,
+  dureeProposee, enZoneTendue, verifierEtatDesLieux, verifierPreavis, type DureeMois, type LignePreavisAccueil, type ModePreavis,
+  type PreavisAffiche, type RegleZoneTendue,
 } from './preavis';
 
 /**
@@ -22,6 +23,8 @@ import {
 export type IssuePreavis<T> = { etat: 'ok'; data: T } | { etat: 'refus'; motif: string } | { etat: 'inconnu' } | { etat: 'sans_schema' };
 
 export const preavisDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_location_preavis', 'date_max');
+/** La date d'état des lieux de sortie prévu (migration 384, sur l'occupation). */
+export const etatDesLieuxDisponible = (): Promise<boolean> => colonneExisteMemo('gestion_annuaire_occupation', 'etat_des_lieux_prevu_le');
 
 type LignePreavis = { id: string; occupation_id: string; recu_le: string; date_max: string; mode: string; duree_mois: number | null;
   duree_proposee_mois: number | null; motif: string | null; cree_par_libelle: string; cree_le: string };
@@ -37,10 +40,11 @@ const versAffiche = (r: LignePreavis): PreavisAffiche & { dureeProposee: number 
 export async function preavisOuverts(occupationIds: readonly number[]): Promise<Map<number, PreavisAffiche & { dureeProposee: number | null }>> {
   const m = new Map<number, PreavisAffiche & { dureeProposee: number | null }>();
   if (occupationIds.length === 0 || !(await preavisDisponible())) return m;
-  const { rows } = await query<LignePreavis>(
-    `SELECT ${CHAMPS} FROM gestion_location_preavis p
+  const edl = (await etatDesLieuxDisponible()) ? 'o.etat_des_lieux_prevu_le::text' : 'NULL::text';
+  const { rows } = await query<LignePreavis & { edl: string | null }>(
+    `SELECT ${CHAMPS}, ${edl} AS edl FROM gestion_location_preavis p JOIN gestion_annuaire_occupation o ON o.id = p.occupation_id
       WHERE p.occupation_id = ANY($1::bigint[]) AND p.remplace_le IS NULL AND p.annule_le IS NULL`, [[...occupationIds]]);
-  for (const r of rows) m.set(Number(r.occupation_id), versAffiche(r));
+  for (const r of rows) m.set(Number(r.occupation_id), { ...versAffiche(r), etatDesLieuxLe: r.edl });
   return m;
 }
 
@@ -206,5 +210,73 @@ export async function annulerPreavis(d: { preavisId: number }, auteur: Auteur): 
         `préavis annulé (sortie au plus tard le ${p.date_max} n’a plus cours) — préavis ${p.id}, occupation ${p.occupation_id} ; la ligne est gardée`, auteur);
     }
     return { etat: 'ok' as const, data: { annule: Number(p.id) } };
+  });
+}
+
+// ══ LE BLOC « LOCATAIRES EN PRÉAVIS » DE L'ACCUEIL (Arno, 18/10/2026) — mêmes données, aucune deuxième implémentation ══════
+
+/**
+ * Les préavis EN COURS (ouverts, occupation sans sortie), une ligne par préavis : les locataires d'un même bail reçus
+ * ensemble avec la même fin (même lot, même entrée, même réception, même date maximale). Sans la migration 383 : aucun.
+ */
+export async function preavisEnCours(): Promise<{ disponible: boolean; etatDesLieux: boolean; lignes: LignePreavisAccueil[] }> {
+  if (!(await preavisDisponible())) return { disponible: false, etatDesLieux: false, lignes: [] };
+  const avecEdl = await etatDesLieuxDisponible();
+  const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string; lot_id: string; entree: string | null; recu_le: string;
+    date_max: string; adresse: string | null; edl: string | null }>(
+    `SELECT p.occupation_id::text, o.locataire_id::text, l.nom, o.lot_id::text, o.entree::text, p.recu_le::text, p.date_max::text,
+            nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS adresse,
+            ${avecEdl ? 'o.etat_des_lieux_prevu_le::text' : 'NULL::text'} AS edl
+       FROM gestion_location_preavis p
+       JOIN gestion_annuaire_occupation o ON o.id = p.occupation_id
+       JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
+       JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
+      WHERE p.remplace_le IS NULL AND p.annule_le IS NULL AND o.sortie IS NULL
+      ORDER BY p.date_max, o.lot_id, l.nom_normalise, o.id`);
+  const groupes = new Map<string, LignePreavisAccueil>();
+  for (const r of rows) {
+    const cle = `${r.lot_id}|${r.entree ?? ''}|${r.recu_le}|${r.date_max}`;
+    const g = groupes.get(cle) ?? {
+      cle, lotId: Number(r.lot_id), adresse: r.adresse, occupationId: Number(r.occupation_id), occupationIds: [], locataires: [],
+      recuLe: r.recu_le, dateMax: r.date_max, etatDesLieuxLe: r.edl,
+    };
+    g.occupationIds.push(Number(r.occupation_id));
+    g.locataires.push({ occupationId: Number(r.occupation_id), locataireId: Number(r.locataire_id), nom: r.nom });
+    // Une date d'état des lieux commune au groupe ; si elles divergent, la plus proche.
+    if (r.edl !== null && (g.etatDesLieuxLe === null || r.edl < g.etatDesLieuxLe)) g.etatDesLieuxLe = r.edl;
+    groupes.set(cle, g);
+  }
+  return { disponible: true, etatDesLieux: avecEdl, lignes: [...groupes.values()] };
+}
+
+/**
+ * LA DATE D'ÉTAT DES LIEUX DE SORTIE PRÉVU : saisie, modifiée ou EFFACÉE (`date` vide) sur les occupations d'un préavis.
+ * LIRE (FOR UPDATE) → REFUSER → ÉCRIRE ; chaque occupation au journal (avant / après, auteur). La date de SORTIE n'est jamais
+ * touchée par ce geste.
+ */
+export async function enregistrerEtatDesLieux(
+  d: { occupationIds: readonly number[]; date: unknown }, auteur: Auteur,
+): Promise<IssuePreavis<{ date: string | null }>> {
+  if (!(await preavisDisponible()) || !(await etatDesLieuxDisponible())) return { etat: 'sans_schema' };
+  const ids = [...new Set(d.occupationIds)];
+  if (ids.length === 0) return { etat: 'refus', motif: 'Demande incomplète.' };
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ id: string; locataire_id: string; sortie: string | null; edl: string | null; recu_le: string | null; date_max: string | null }>(
+      `SELECT o.id::text, o.locataire_id::text, o.sortie::text, o.etat_des_lieux_prevu_le::text AS edl, p.recu_le::text, p.date_max::text
+         FROM gestion_annuaire_occupation o
+         LEFT JOIN gestion_location_preavis p ON p.occupation_id = o.id AND p.remplace_le IS NULL AND p.annule_le IS NULL
+        WHERE o.id = ANY($1::bigint[]) ORDER BY o.id FOR UPDATE OF o`, [ids]);
+    if (rows.length !== ids.length) return { etat: 'inconnu' as const };
+    if (rows.some((r) => r.sortie !== null)) return { etat: 'refus' as const, motif: 'Un des locataires est déjà sorti : l’état des lieux prévu ne se modifie plus ici.' };
+    if (rows.some((r) => r.recu_le === null || r.date_max === null)) return { etat: 'refus' as const, motif: 'Un des locataires n’est plus en préavis : rechargez la page.' };
+    const v = verifierEtatDesLieux(d.date, rows.map((r) => ({ recuLe: r.recu_le as string, dateMax: r.date_max as string })));
+    if (!v.ok) return { etat: 'refus' as const, motif: v.motif };
+    await q('UPDATE gestion_annuaire_occupation SET etat_des_lieux_prevu_le = $2::date WHERE id = ANY($1::bigint[]) AND sortie IS NULL', [ids, v.date]);
+    for (const r of rows) {
+      await journaliser(q, Number(r.locataire_id), v.date === null ? 'location_edl_efface' : 'location_edl_prevu', r.edl, v.date,
+        v.date === null ? `état des lieux de sortie prévu effacé (était le ${r.edl ?? '—'}) — occupation ${r.id}`
+          : `état des lieux de sortie prévu le ${v.date}${r.edl ? ` (au lieu du ${r.edl})` : ''} — occupation ${r.id}`, auteur);
+    }
+    return { etat: 'ok' as const, data: { date: v.date } };
   });
 }

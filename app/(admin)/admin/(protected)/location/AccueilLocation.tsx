@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CSS_LOCATION_ECRANS, EtatLecture, useLecture } from './commun';
 import { aplatirResultats, LIBELLE_TYPE, type Groupe, type LigneAccueil, type ResultatsAccueil } from '../../../../lib/location/recherchePortefeuille';
+import { BlocPreavisAccueil } from './PreavisAccueil';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — L'ACCUEIL (/admin/location), REFONTE DU 17/10/2026 ═══════════════════════════════════════
@@ -37,7 +38,7 @@ export const CASES = [
     phrase: 'Les outils de pilotage de la location : honoraires de gestion, et ceux qui viendront.' },
 ] as const;
 
-export function AccueilLocation() {
+export function AccueilLocation({ gestion = false }: { gestion?: boolean }) {
   const [texte, setTexte] = useState('');
   const [terme, setTerme] = useState('');
   const [actif, setActif] = useState(-1);
@@ -145,6 +146,11 @@ export function AccueilLocation() {
           </li>
         ))}
       </ul>
+
+      {/* Arno (18/10/2026) : le bloc « Locataires en préavis », séparé des cases par EXACTEMENT le même espace que celui qui
+          sépare la barre de recherche des cases — le MÊME espace réservé (mêmes classes), entre les mêmes écarts de page. */}
+      <div className="loc-zone-resultats loc-zone-resultats--vide" aria-hidden="true" data-espace-preavis />
+      <BlocPreavisAccueil gestion={gestion} />
     </div>
   );
 }

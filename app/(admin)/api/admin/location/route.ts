@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerLocation } from '../../../../lib/location/garde';
 import { exigerCompteActif } from '../../../../lib/admin/garde';
-import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix, preavisDuBail } from '../../../../lib/location/preavisRepo';
+import { annulerPreavis, corrigerPreavis, enregistrerEtatDesLieux, enregistrerPreavis, lireChoix, preavisDuBail, preavisEnCours } from '../../../../lib/location/preavisRepo';
 import { auteurDeLaRequete } from '../../../../lib/gestion/auteur';
 import type { RepartitionCoordonnee } from '../../../../lib/gestion/annuaireEdition';
 import { archiverPersonne, modifierPersonne, separerPersonne } from '../../../../lib/gestion/annuaireEditionRepo';
@@ -86,6 +86,8 @@ export async function GET(request: Request): Promise<Response> {
       const b = await lireBail(idBail);
       return Response.json(b === null ? { etat: 'inconnu' } : { etat: 'ok', data: b }, { headers: ENTETES });
     }
+    // Le bloc « Locataires en préavis » de l'accueil (Arno, 18/10/2026) — LECTURE SEULE.
+    if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await preavisEnCours() }, { headers: ENTETES });
     // Le préavis d'un bail (Arno, 18/10/2026) — LECTURE SEULE : durée proposée, locataires, préavis ouverts.
     const idPreavis = identifiant(p('preavisBail'));
     if (idPreavis !== null) {
@@ -349,6 +351,11 @@ export async function POST(request: Request): Promise<Response> {
         const pid = identifiant(corps.preavisId);
         if (pid === null) return incomplet();
         return repondre(await annulerPreavis({ preavisId: pid }, auteur));
+      }
+      case 'etat-des-lieux': {
+        // La date d'état des lieux de sortie prévu (accueil, 18/10/2026) : saisie, modifiée ou effacée, journalisée.
+        const occs = Array.isArray(corps.occupationIds) ? (corps.occupationIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 20) : [];
+        return repondre(await enregistrerEtatDesLieux({ occupationIds: occs, date: corps.date }, auteur));
       }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);

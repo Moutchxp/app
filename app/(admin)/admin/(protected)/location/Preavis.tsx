@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import {
-  dateFrPreavis, dateIsoValide, dateMaxPreavis, mentionPreavis, MOTIF_MAX, statutPreavis, verifierPreavis,
+  dateFrPreavis, dateIsoValide, dateMaxPreavis, mentionCourtePreavis, mentionPreavis, MOTIF_MAX, statutPreavis, verifierPreavis,
   type DureeMois, type ModePreavis, type PreavisAffiche,
 } from '../../../../lib/location/preavis';
 
@@ -18,9 +18,9 @@ import {
 /** Aujourd'hui à Paris (AAAA-MM-JJ), côté écran — le serveur refait le contrôle avec sa date. */
 export const aujourdhuiParisEcran = (): string => new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Paris' });
 
-export function MentionPreavis({ p, jour }: { p: Pick<PreavisAffiche, 'dateMax'>; jour: string }) {
+export function MentionPreavis({ p, jour, court = false }: { p: Pick<PreavisAffiche, 'dateMax'>; jour: string; court?: boolean }) {
   const statut = statutPreavis(p, jour);
-  return <span className={`pvs-mention pvs-mention--${statut}`} data-preavis={statut}>{mentionPreavis(p, jour)}</span>;
+  return <span className={`pvs-mention pvs-mention--${statut}`} data-preavis={statut}>{court ? mentionCourtePreavis(p, jour) : mentionPreavis(p, jour)}</span>;
 }
 
 type Choix = '1' | '3' | 'manuelle';
@@ -140,6 +140,7 @@ export function GestesPreavis({ p, entree, envoyerGeste, apres }: {
   return (
     <div className="pvs-gestes" data-gestes-preavis={p.id}>
       <span className="loc-muet">Reçu le {dateFrPreavis(p.recuLe)}{p.motif ? ` — ${p.motif}` : ''} · saisi par {p.creePar}</span>
+      {p.etatDesLieuxLe ? <span data-etat-des-lieux>État des lieux le {dateFrPreavis(p.etatDesLieuxLe)}</span> : null}
       {mode === 'lecture' ? (
         <span className="pvs-boutons">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setMode('corriger')} data-corriger-preavis>Corriger le préavis</button>

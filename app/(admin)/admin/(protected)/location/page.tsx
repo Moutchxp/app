@@ -11,11 +11,11 @@ const INTRO_LOCATION =
   'L’espace de l’équipe location : propriétaires, biens et annexes, locataires — sur le même fichier que la Gestion.';
 
 export default async function LocationPage() {
-  const { autorise } = await accesLocation();
+  const { autorise, gestion } = await accesLocation();
   return (
     <section className="gst-page">
       <EnTetePage titre="Location" intro={INTRO_LOCATION} />
-      {autorise ? <AccueilLocation /> : (
+      {autorise ? <AccueilLocation gestion={gestion} /> : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>{REFUS_LOCATION}</div>
       )}
     </section>
