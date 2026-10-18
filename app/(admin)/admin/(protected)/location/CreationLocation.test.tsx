@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 import { CreationProprietaires } from './CreationProprietaires';
 import { CreationBien } from './CreationBien';
 import { CreationLocataire } from './CreationLocataire';
@@ -350,5 +351,40 @@ describe('🔴 Nouveau locataire : clients et contacts', () => {
     await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte « Locataire (client) »');
     expect(posts).toEqual([]);
+  });
+});
+
+/**
+ * 🔴 CORRECTIF DU 19/10/2026 — « In HTML, <form> cannot be a descendant of <form> » puis échec d'hydratation sur
+ * /admin/location/nouveau-locataire (CartesPersonnes.tsx:895, la carte dans le formulaire de la page). Le rendu SERVEUR
+ * est celui que le navigateur lit : on y compte la profondeur des <form>.
+ */
+function profondeurMaxForm(html: string): number {
+  let p = 0; let max = 0;
+  for (const m of html.matchAll(/<(\/?)form\b/g)) { p += m[1] === '/' ? -1 : 1; max = Math.max(max, p); }
+  return max;
+}
+
+describe('🔴 Nouveau locataire : aucun <form> dans un <form>', () => {
+  it('le rendu serveur (carte client ouverte d’office) n’imbrique aucun formulaire', () => {
+    const html = renderToString(createElement(CreationLocataire));
+    expect(html).toContain('class="cp-form"');
+    expect(profondeurMaxForm(html)).toBe(1);
+    expect(profondeurMaxForm('<form><div><form></form></div></form>')).toBe(2);
+  });
+
+  it('rien ne change à l’écran : « Enregistrer », la recherche du bien et la date d’entrée restent reliés au formulaire de la page', async () => {
+    await act(async () => { root.render(createElement(CreationLocataire)); });
+    expect(container.querySelectorAll('form form')).toHaveLength(0);
+    const page = container.querySelector('form[data-formulaire-page]') as HTMLFormElement;
+    const bouton = container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement;
+    expect(bouton.textContent).toBe('Enregistrer');
+    expect(bouton.form).toBe(page);
+    expect((container.querySelector('input[placeholder="ex. rue des Lilas"]') as HTMLInputElement).form).toBe(page);
+    expect((container.querySelector('input[type="date"]') as HTMLInputElement).form).toBe(page);
+    // La carte garde SON formulaire, à elle.
+    expect(container.querySelector('[data-sorte="client"] form.cp-form')).not.toBeNull();
+    await act(async () => { bouton.click(); });
+    expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte « Locataire (client) »');
   });
 });

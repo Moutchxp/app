@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useId, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, envoyer, liste, useLecture } from './commun';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
@@ -17,6 +17,12 @@ import { SaisieCartes, type EtatCartes } from './SaisieCartes';
  * « Contact du locataire » (garant, conjoint, employeur…). Au moins UN locataire ; les contacts sont rangés sur le bien,
  * côté locataire, comme « Contact du locataire » de la Gestion. Obligatoires allégés pour un locataire : le nom, un
  * téléphone ou un e-mail.
+ *
+ * ⚠️ PAS DE <form> AUTOUR DES CARTES (correctif du 19/10/2026). Chaque carte (`FormulaireCarte`) est elle-même un <form> ;
+ * un <form> dans un <form> est du HTML invalide : le navigateur jette le formulaire intérieur à la lecture de la page
+ * serveur, et React tombe en erreur d'hydratation. Le formulaire de la PAGE reste, mais VIDE, et se relie par l'attribut
+ * HTML `form` au bouton « Enregistrer » et aux champs de la page : la touche Entrée et le bouton font exactement ce
+ * qu'ils faisaient.
  */
 export function CreationLocataire() {
   const [etat, setEtat] = useState<EtatCartes>({ clients: [], contacts: [], existants: [], ouvertes: 1 });
@@ -26,6 +32,7 @@ export function CreationLocataire() {
   const [entree, setEntree] = useState('');
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  const idForm = useId();
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
 
   useEffect(() => { const t = setTimeout(() => setTerme(filtreBien.trim()), 250); return () => clearTimeout(t); }, [filtreBien]);
@@ -52,7 +59,8 @@ export function CreationLocataire() {
   };
 
   return (
-    <form className="loc-page loc-ample" onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
+    <div className="loc-page loc-ample">
+      <form id={idForm} hidden onSubmit={(e) => { e.preventDefault(); void enregistrer(); }} data-formulaire-page />
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE}</style>
       <EnTeteLocation titre="Nouveau locataire" sous="Au moins un locataire (client) et le bien loué. Les contacts du locataire sont facultatifs." />
 
@@ -71,7 +79,7 @@ export function CreationLocataire() {
         ) : (
           <>
             <label className="loc-champ">Chercher le bien par son adresse (biens du portefeuille)
-              <input value={filtreBien} onChange={(e) => setFiltreBien(e.target.value)} placeholder="ex. rue des Lilas" /></label>
+              <input form={idForm} value={filtreBien} onChange={(e) => setFiltreBien(e.target.value)} placeholder="ex. rue des Lilas" /></label>
             {biens.etat.etat === 'ok' && (
               liste(biens.etat.data).length === 0 ? <p className="loc-muet">Aucun bien du portefeuille ne correspond.</p> : (
                 <ul className="loc-choix">
@@ -84,7 +92,7 @@ export function CreationLocataire() {
           </>
         )}
         <div className="loc-grille">
-          <label className="loc-champ">Date d’entrée<input type="date" value={entree} onChange={(e) => setEntree(e.target.value)} /></label>
+          <label className="loc-champ">Date d’entrée<input form={idForm} type="date" value={entree} onChange={(e) => setEntree(e.target.value)} /></label>
         </div>
       </section>
 
@@ -95,8 +103,8 @@ export function CreationLocataire() {
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires">Annuler</a>
-        <button type="submit" className="svv-btn svv-btn-primary gst-btn" disabled={envoi}>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
+        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi}>{envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
       </div>
-    </form>
+    </div>
   );
 }
