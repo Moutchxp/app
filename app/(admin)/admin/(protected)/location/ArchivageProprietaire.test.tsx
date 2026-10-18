@@ -20,6 +20,7 @@ vi.mock('../gestion/FicheCommune', () => ({
 }));
 import { EcranArchivageProprietaire } from './ArchivageProprietaire';
 import { BlocSortie } from '../gestion/SectionsLocationFiche';
+import { EcranSupprimerChoix } from './EcransLocation';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -34,10 +35,12 @@ let root: Root;
 let appels: string[];
 let envois: Record<string, unknown>[];
 let reponseApercu: () => unknown;
+let reponseBiens: () => unknown;
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   appels = []; envois = [];
   reponseApercu = () => apercu();
+  reponseBiens = () => apercu({ portee: 'biens', biens: [40], lotsChoisis: [40] });
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
@@ -51,6 +54,13 @@ beforeEach(() => {
         locataires: [], syndics: [], biens: [], tronque: false });
     }
     if (u.includes('apercuArchivage=')) return ok(reponseApercu());
+    if (u.includes('biensPourSortie=')) {
+      return ok([
+        { lotId: 40, adresse: '14 rue de l’Essai, PARIS', lot: '315', nature: 'Appartement', annexes: [{ lotId: 41, libelle: 'Cave n° 3', detachee: true }], locataires: ['MODÈLE Jules'], autresProprietaires: [] },
+        { lotId: 50, adresse: '9 rue Partagée, PARIS', lot: null, nature: 'Studio', annexes: [], locataires: [], autresProprietaires: ['COINDIVIS Marc'] },
+      ]);
+    }
+    if (u.includes('apercuSortieBiens=')) return ok(reponseBiens());
     return ok({});
   }) as unknown as typeof fetch;
 });
@@ -209,5 +219,95 @@ describe('🔴 « Supprimer un propriétaire »', () => {
     expect(apres).toHaveBeenCalled();
     await act(async () => { root.render(createElement(BlocSortie, { sujet: 'proprietaire', id: 7, sortie: { le: '2026-10-18T10:00:00Z', par: 'Arno', origine: 'Litige' }, apres, explication: '' })); });
     expect(container.querySelector('[data-origine-archivage]')?.textContent).toContain('Archivé le 18/10/2026 par Arno — Litige');
+  });
+
+  it('écran intermédiaire : deux gros boutons (3D) — tout le propriétaire (rouge) / un des biens (blanc, mode « biens »)', async () => {
+    await act(async () => { root.render(createElement(EcranSupprimerChoix)); });
+    const liens = [...container.querySelectorAll('.loc-gros-boutons--3d a.loc-gros-bouton')];
+    expect(liens.map((a) => [a.getAttribute('href'), a.firstChild?.textContent, a.classList.contains('loc-gros-bouton--plein')])).toEqual([
+      ['/admin/location/proprietaires/archiver', 'Supprimer un propriétaire et tous ses biens', true],
+      ['/admin/location/proprietaires/archiver?mode=biens', 'Supprimer un des biens d’un propriétaire', false],
+    ]);
+  });
+
+  describe('mode « biens »', () => {
+    const ouvrirBiens = async () => {
+      await act(async () => { root.render(createElement(EcranArchivageProprietaire, { refusFiche: null, mode: 'biens' })); });
+      await taper('exemple');
+      await cliquer(container.querySelector('[data-index="0"]'));
+    };
+    const gros = () => container.querySelector('[data-bouton-sortie-biens] .arc-gros') as HTMLButtonElement;
+    const choisir = (id: number) => cliquer(container.querySelector(`[data-choisir="${id}"]`));
+
+    it('tous les biens affichés ; « Sortir de la gestion » sélectionne / désélectionne ; le gros bouton compte (grisé à zéro)', async () => {
+      await ouvrirBiens();
+      expect([...container.querySelectorAll('[data-bien]')].map((b) => b.getAttribute('data-bien'))).toEqual(['40', '50']);
+      expect(container.querySelector('[data-bien="40"]')?.textContent).toContain('Cave n° 3 (détachée)');
+      expect(container.querySelector('[data-bien="50"]')?.textContent).toContain('le bien sortira pour tous');
+      expect(gros().textContent).toBe('Sortir 0 bien de la gestion');
+      expect(gros().disabled).toBe(true);
+      await choisir(40);
+      const b = container.querySelector('[data-choisir="40"]') as HTMLButtonElement;
+      expect([b.getAttribute('aria-pressed'), b.textContent]).toEqual(['true', '✓ Sortir de la gestion']);
+      expect(gros().textContent).toBe('Sortir 1 bien de la gestion');
+      expect(gros().disabled).toBe(false);
+      await choisir(40);
+      expect(b.getAttribute('aria-pressed')).toBe('false');
+      expect(gros().disabled).toBe(true);
+      expect(envois).toEqual([]);
+    });
+
+    it('un bien occupé : la fenêtre d’alerte LIMITÉE à la sélection → « Confirmer la sortie de ces biens » → origine « …de ces biens » → envoi', async () => {
+      reponseBiens = () => apercu({ portee: 'biens', biens: [40, 41], lotsChoisis: [40],
+        occupees: [{ occupationId: 3, lotId: 40, adresse: '14 rue de l’Essai, PARIS', lot: '315', locataireId: 2, locataire: 'MODÈLE Jules', entree: '2024-09-01' }] });
+      await ouvrirBiens();
+      await choisir(40);
+      await cliquer(gros());
+      expect(appels.some((u) => u.includes('apercuSortieBiens=7&lots=40'))).toBe(true);
+      const m = document.querySelector('[data-modale-archivage]');
+      expect(m?.querySelector('#arc-titre')?.textContent).toBe('Attention, au moins un bien sélectionné est actuellement occupé par un locataire');
+      expect([...(m?.querySelectorAll('[data-occupation]') ?? [])].map((x) => x.getAttribute('data-occupation'))).toEqual(['3']);
+      await cliquer([...(m?.querySelectorAll('button') ?? [])].find((x) => x.textContent === 'Confirmer la sortie de ces biens') ?? null);
+      expect(document.querySelector('[data-question-origine]')?.textContent).toContain('Quelle est l’origine de la sortie de ces biens ?');
+      const fin = () => document.querySelector('[data-archiver-definitivement]') as HTMLButtonElement;
+      expect([fin().textContent, fin().disabled]).toEqual(['Sortir définitivement', true]);
+      expect(envois).toEqual([]);
+      await cliquer(document.querySelector('[data-origine="litige"]'));
+      await cliquer(fin());
+      expect(envois).toEqual([{ action: 'sortir-biens', proprietaireId: 7, lotIds: [40], origine: { origine: 'litige', sousOrigine: null, precision: null }, confirmeOccupation: true }]);
+    });
+
+    it('aucun bien occupé : confirmation simple, bien partagé signalé (il sort pour tous), puis origine → envoi', async () => {
+      reponseBiens = () => apercu({ portee: 'biens', biens: [50], lotsChoisis: [50],
+        partages: [{ lotId: 50, adresse: '9 rue Partagée, PARIS', lot: null, autres: ['COINDIVIS Marc'], occupe: false }] });
+      await ouvrirBiens();
+      await choisir(50);
+      await cliquer(gros());
+      expect(document.querySelector('[data-modale-archivage]')).toBeNull();
+      expect(container.querySelector('[data-biens-partages]')?.textContent).toContain('le bien sort pour tous');
+      await cliquer(container.querySelector('[data-confirmer-archivage]'));
+      expect(container.querySelector('[data-question-origine]')?.textContent).toContain('de ces biens');
+      expect(envois).toEqual([]);
+      await cliquer(container.querySelector('[data-origine="mise_en_vente"]'));
+      expect((container.querySelector('[data-archiver-definitivement]') as HTMLButtonElement).disabled).toBe(true);
+      await cliquer(container.querySelector('[data-sous-origine="lui_meme"]'));
+      await cliquer(container.querySelector('[data-archiver-definitivement]'));
+      expect(envois).toEqual([{ action: 'sortir-biens', proprietaireId: 7, lotIds: [50], origine: { origine: 'mise_en_vente', sousOrigine: 'lui_meme', precision: null } }]);
+    });
+
+    it('TOUS les biens choisis : bandeau, puis exactement le parcours de l’archivage du propriétaire', async () => {
+      await ouvrirBiens();
+      await choisir(40); await choisir(50);
+      expect(container.querySelector('[data-tous-les-biens]')?.textContent).toBe('Tous les biens de ce propriétaire sont sélectionnés : le propriétaire sortira lui aussi de la gestion et sera archivé');
+      await cliquer(gros());
+      expect(appels.some((u) => u.includes('apercuSortieBiens='))).toBe(false);
+      expect(container.querySelector('.arc-confirmation')?.textContent).toContain('Archiver EXEMPLE Claire et son historique ?');
+      await cliquer(container.querySelector('[data-confirmer-archivage]'));
+      expect(container.querySelector('[data-question-origine]')?.textContent).toContain('Quelle est l’origine de l’archivage de ce propriétaire ?');
+      expect(container.querySelector('[data-archiver-definitivement]')?.textContent).toBe('Archiver définitivement');
+      await cliquer(container.querySelector('[data-origine="deces_succession"]'));
+      await cliquer(container.querySelector('[data-archiver-definitivement]'));
+      expect(envois).toEqual([{ action: 'sortir-biens', proprietaireId: 7, lotIds: [40, 50], origine: { origine: 'deces_succession', sousOrigine: null, precision: null } }]);
+    });
   });
 });

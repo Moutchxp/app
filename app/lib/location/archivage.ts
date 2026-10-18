@@ -60,6 +60,14 @@ export interface ApercuArchivage {
   /** Les locataires archivés avec (identifiants), hors le sujet lui-même. */
   locatairesArchives: number[];
   locatairesGardes: LocataireGarde[];
+  /**
+   * « Supprimer un des biens d'un propriétaire » (Arno, 18/10/2026) : l'aperçu porte sur les BIENS SÉLECTIONNÉS (`sujet` =
+   * le propriétaire dont la fiche est ouverte, `id` = son identifiant). Les `partages` y sont SIGNALÉS : un bien partagé sort
+   * pour tous ses propriétaires. Absent = l'archivage d'une fiche entière.
+   */
+  portee?: 'biens';
+  /** Les biens choisis (têtes) — en mode « biens » seulement. */
+  lotsChoisis?: number[];
 }
 
 export type EtatBouton = 'archiver' | 'alerte' | 'reactiver';
@@ -159,4 +167,47 @@ export function libelleOrigine(o: { origine: string; sousOrigine: string | null 
 /** Le bouton final est-il permis ? (un choix ; et, pour la mise en vente, la sous-question répondue) */
 export function originePrete(origine: Origine | null, sous: SousOrigine | null): boolean {
   return origine !== null && (origine !== 'mise_en_vente' || sous !== null);
+}
+
+// ══ « SUPPRIMER UN DES BIENS D'UN PROPRIÉTAIRE » (Arno, 18/10/2026 — migration 381) ══════════════════════════════════════
+
+/** Un bien du propriétaire, tel que l'écran de sélection le montre. */
+export interface BienASortir {
+  lotId: number;
+  adresse: string | null;
+  lot: string | null;
+  nature: string | null;
+  /** Ses annexes (détachées comprises) : elles sortent avec lui. */
+  annexes: { lotId: number; libelle: string; detachee: boolean }[];
+  /** Les locataires en place (location en cours). */
+  locataires: string[];
+  /** Les AUTRES propriétaires actifs : le bien sortira pour tous. */
+  autresProprietaires: string[];
+}
+
+export const QUESTION_ORIGINE_BIENS = 'Quelle est l’origine de la sortie de ces biens ?';
+export const LIBELLE_FINAL_BIENS = 'Sortir définitivement';
+export const LIBELLE_CONFIRMER_BIENS = 'Confirmer la sortie de ces biens';
+export const TITRE_ALERTE_BIENS = 'Attention, au moins un bien sélectionné est actuellement occupé par un locataire';
+export const BANDEAU_TOUS_LES_BIENS =
+  'Tous les biens de ce propriétaire sont sélectionnés : le propriétaire sortira lui aussi de la gestion et sera archivé';
+export const MOTIF_SELECTION_VIDE = 'Sélectionnez au moins un bien à sortir de la gestion : rien n’a été modifié.';
+export const MOTIF_BIEN_HORS_SELECTION = 'Un des biens choisis n’est plus un bien actif de ce propriétaire (déjà sorti, ou à un autre propriétaire) : rien n’a été modifié.';
+
+/** « Sortir 2 biens de la gestion » — le gros bouton du mode « biens ». */
+export function libelleSortirBiens(n: number): string {
+  return `Sortir ${n} bien${n > 1 ? 's' : ''} de la gestion`;
+}
+
+/** Ce que la sortie de biens fait, en une phrase. */
+export function phraseSortieBiens(): string {
+  return 'Rien n’est effacé : chaque bien choisi et ses annexes (détachées comprises) quittent les listes actives et la recherche, '
+    + 'restent dans « Anciens » avec tout leur historique et peuvent être réactivés. Les locations en cours sont closes à la date du jour ; '
+    + 'leurs locataires sont archivés aussi, sauf s’ils louent un autre bien du portefeuille.';
+}
+
+/** Tous les biens actifs du propriétaire sont-ils choisis ? Alors c'est l'archivage du propriétaire. */
+export function tousChoisis(biens: readonly { lotId: number }[], choisis: Iterable<number>): boolean {
+  const c = new Set(choisis);
+  return biens.length > 0 && biens.every((b) => c.has(b.lotId));
 }

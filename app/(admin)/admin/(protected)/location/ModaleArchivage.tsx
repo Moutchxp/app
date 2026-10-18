@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  dateEntree, LIBELLE_BOUTON, LIBELLE_CONFIRMER_OCCUPE, libelleBien, phraseArchivage, type ApercuArchivage, type OrigineArchivage,
+  dateEntree, LIBELLE_BOUTON, LIBELLE_CONFIRMER_BIENS, LIBELLE_CONFIRMER_OCCUPE, LIBELLE_FINAL_BIENS, libelleBien, phraseArchivage, phraseSortieBiens,
+  QUESTION_ORIGINE_BIENS, TITRE_ALERTE_BIENS, type ApercuArchivage, type OrigineArchivage,
 } from '../../../../lib/location/archivage';
 import { QuestionOrigine } from './QuestionOrigine';
 
@@ -37,6 +38,10 @@ export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler, 
 }) {
   const annuler = useRef<HTMLButtonElement | null>(null);
   const [etape, setEtape] = useState<'liste' | 'origine'>('liste');
+  /* « Supprimer un des biens » (Arno, 18/10/2026) : mêmes fenêtres, mots de la sortie de biens. */
+  const biens = apercu.portee === 'biens';
+  const titre = biens ? TITRE_ALERTE_BIENS : TITRE[apercu.sujet];
+  const confirmer = biens ? LIBELLE_CONFIRMER_BIENS : CONFIRMER[apercu.sujet];
   useEffect(() => {
     annuler.current?.focus();
     const touche = (e: KeyboardEvent): void => { if (e.key === 'Escape') onAnnuler(); };
@@ -48,11 +53,12 @@ export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler, 
     <div className="arc-voile" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget) onAnnuler(); }}>
       <style>{CSS_MODALE_ARCHIVAGE}</style>
       <div className="arc-modale" role="dialog" aria-modal="true" aria-labelledby="arc-titre" data-modale-archivage>
-        <h2 id="arc-titre" className={`arc-titre${etape === 'origine' ? ' arc-titre--question' : ''}`}>
-          {etape === 'origine' ? 'Dernière question avant l’archivage définitif' : TITRE[apercu.sujet]}</h2>
+        <h2 id="arc-titre" className={`arc-titre${etape === 'origine' ? ' arc-titre--question' : ''}`} data-portee={biens ? 'biens' : 'fiche'}>
+          {etape === 'origine' ? (biens ? 'Dernière question avant la sortie définitive' : 'Dernière question avant l’archivage définitif') : titre}</h2>
         {etape === 'origine' ? (
           <div className="arc-corps" data-etape="origine">
-            <QuestionOrigine envoi={envoi} motif={motif} onRetour={() => setEtape('liste')} onArchiver={(o) => onConfirmer(o)} />
+            <QuestionOrigine envoi={envoi} motif={motif} onRetour={() => setEtape('liste')} onArchiver={(o) => onConfirmer(o)}
+              {...(biens ? { question: QUESTION_ORIGINE_BIENS, libelleFinal: LIBELLE_FINAL_BIENS } : {})} />
           </div>
         ) : (<>
         <div className="arc-corps">
@@ -71,10 +77,12 @@ export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler, 
           </ul>
           {apercu.partages.length > 0 && (
             <div className="arc-note" data-biens-partages>
-              <p><strong>{apercu.partages.length === 1 ? 'Ce bien n’est PAS archivé' : 'Ces biens ne sont PAS archivés'}</strong> : un autre propriétaire actif le{apercu.partages.length === 1 ? '' : 's'} détient aussi.</p>
+              {biens
+                ? <p><strong>{apercu.partages.length === 1 ? 'Ce bien a un autre propriétaire actif' : 'Ces biens ont un autre propriétaire actif'}</strong> : {apercu.partages.length === 1 ? 'il sort' : 'ils sortent'} de la gestion pour tous {apercu.partages.length === 1 ? 'ses' : 'leurs'} propriétaires.</p>
+                : <p><strong>{apercu.partages.length === 1 ? 'Ce bien n’est PAS archivé' : 'Ces biens ne sont PAS archivés'}</strong> : un autre propriétaire actif le{apercu.partages.length === 1 ? '' : 's'} détient aussi.</p>}
               <ul>
                 {apercu.partages.map((p) => (
-                  <li key={p.lotId}>{libelleBien(p)} — avec {p.autres.join(', ')}{p.occupe ? ' (sa location reste ouverte)' : ''}</li>
+                  <li key={p.lotId}>{libelleBien(p)} — avec {p.autres.join(', ')}{!biens && p.occupe ? ' (sa location reste ouverte)' : ''}</li>
                 ))}
               </ul>
             </div>
@@ -85,12 +93,12 @@ export function ModaleArchivage({ apercu, envoi, motif, onConfirmer, onAnnuler, 
               <ul>{apercu.locatairesGardes.map((l) => <li key={l.id}>{l.nom}{l.ailleurs === null ? '' : ` — ${l.ailleurs}`}</li>)}</ul>
             </div>
           )}
-          <p className="arc-phrase">{phraseArchivage(apercu.sujet)}</p>
+          <p className="arc-phrase">{biens ? phraseSortieBiens() : phraseArchivage(apercu.sujet)}</p>
           {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
         </div>
         <div className="arc-pied">
           <button type="button" className="arc-confirmer" disabled={envoi} data-confirmer-archivage
-            onClick={() => { if (demanderOrigine) setEtape('origine'); else onConfirmer(); }}>{CONFIRMER[apercu.sujet]}</button>
+            onClick={() => { if (demanderOrigine) setEtape('origine'); else onConfirmer(); }}>{confirmer}</button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn arc-annuler" ref={annuler} onClick={onAnnuler}>Annuler</button>
         </div>
         </>)}

@@ -29,12 +29,37 @@ export function EcranProprietairesBiens() {
       {/* Arno (18/10/2026) : TROIS grosses cases — « Supprimer un propriétaire » (NOUVELLE, en première position, SEULE à porter
           la trame rouge), puis « Créer un nouveau propriétaire » et « Ajouter un nouveau bien », en blanc. Effet 3D sur les trois. */}
       <ul className="loc-gros-boutons loc-gros-boutons--3d loc-gros-boutons--trois" aria-label="Propriétaires et biens">
-        <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/proprietaires/archiver" data-gros="supprimer-proprietaire">
+        <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/proprietaires/supprimer" data-gros="supprimer-proprietaire">
           Supprimer un propriétaire<small>Archiver un propriétaire et ses biens : ils sortent du portefeuille, rien n’est effacé, réactivable.</small></a></li>
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-proprietaire" data-gros="proprietaire">
           Créer un nouveau propriétaire<small>Une carte de contact par personne (couple, indivision, SCI…), puis son bien.</small></a></li>
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-bien" data-gros="bien">
           Ajouter un nouveau bien<small>Pour un propriétaire déjà connu : adresse, logement, copropriété, annexes, DPE…</small></a></li>
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * ══ « SUPPRIMER UN PROPRIÉTAIRE » → L'ÉCRAN INTERMÉDIAIRE (/admin/location/proprietaires/supprimer), Arno 18/10/2026 ══════
+ * Deux gros boutons côte à côte (empilés au téléphone), même style et même effet 3D que les autres cases : le propriétaire
+ * et tous ses biens (rouge, l'archivage existant, inchangé) ; un des biens d'un propriétaire (blanc, le mode « biens »).
+ */
+export function EcranSupprimerChoix() {
+  return (
+    <div className="loc-page">
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
+      <p className="loc-retour"><a href="/admin/location/proprietaires">← Propriétaires et biens</a></p>
+      <header className="svv-page-head loc-tete-comme-accueil">
+        <div className="svv-page-head-ligne"><h1 className="svv-page-title">Supprimer un propriétaire ou un bien</h1></div>
+        <p className="svv-page-sub">Supprimer = sortir de la gestion (du portefeuille) : rien n’est effacé, tout reste consultable et se réactive.</p>
+      </header>
+      <div className="loc-zone-resultats loc-zone-resultats--vide" aria-hidden="true" data-espace-accueil />
+      <ul className="loc-gros-boutons loc-gros-boutons--3d" aria-label="Que supprimer ?">
+        <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/proprietaires/archiver" data-gros="supprimer-tout">
+          Supprimer un propriétaire et tous ses biens<small>Le propriétaire est archivé avec ses biens et leurs annexes ; les locations en cours sont closes.</small></a></li>
+        <li><a className="loc-gros-bouton" href="/admin/location/proprietaires/archiver?mode=biens" data-gros="supprimer-biens">
+          Supprimer un des biens d’un propriétaire<small>Choisir un ou plusieurs biens à sortir de la gestion ; le propriétaire reste actif.</small></a></li>
       </ul>
     </div>
   );

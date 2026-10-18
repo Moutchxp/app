@@ -1,14 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
+import { API, CSS_LOCATION_ECRANS, EtatLecture, envoyer, useLecture } from './commun';
 import { CSS_RESULTATS } from './AccueilLocation';
 import { CSS_MODALE_ARCHIVAGE, ModaleArchivage } from './ModaleArchivage';
 import { QuestionOrigine } from './QuestionOrigine';
 import { FicheCommuneLocation } from '../gestion/FicheCommune';
 import { aplatirResultats, type LigneAccueil, type ResultatsAccueil } from '../../../../lib/location/recherchePortefeuille';
 import {
-  etatBouton, LIBELLE_BOUTON, libelleBien, phraseArchivage, type ApercuArchivage, type EtatBouton, type OrigineArchivage,
+  BANDEAU_TOUS_LES_BIENS, etatBouton, LIBELLE_BOUTON, LIBELLE_FINAL_BIENS, libelleBien, libelleSortirBiens, phraseArchivage, phraseSortieBiens,
+  QUESTION_ORIGINE_BIENS, tousChoisis, type ApercuArchivage, type BienASortir, type EtatBouton, type OrigineArchivage,
 } from '../../../../lib/location/archivage';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 
@@ -32,7 +33,12 @@ import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 const DELAI_FRAPPE_MS = 200;
 
 /** `refusFiche` : le motif quand le compte n'a pas le droit Gestion (la fiche commune l'exige) ; `null` = fiche permise. */
-export function EcranArchivageProprietaire({ refusFiche }: { refusFiche: string | null }) {
+/**
+ * `mode` (Arno, 18/10/2026) : `'proprietaire'` = « Supprimer un propriétaire et tous ses biens » (l'archivage, inchangé) ;
+ * `'biens'` = « Supprimer un des biens d'un propriétaire » : ses biens actifs listés, chacun avec « Sortir de la gestion »
+ * (sélection), et le gros bouton collant « Sortir N bien(s) de la gestion ».
+ */
+export function EcranArchivageProprietaire({ refusFiche, mode = 'proprietaire' }: { refusFiche: string | null; mode?: 'proprietaire' | 'biens' }) {
   const [texte, setTexte] = useState('');
   const [terme, setTerme] = useState('');
   const [actif, setActif] = useState(-1);
@@ -51,9 +57,12 @@ export function EcranArchivageProprietaire({ refusFiche }: { refusFiche: string 
   useEffect(() => { setActif(-1); }, [terme]);
 
   const apercu = useLecture<ApercuArchivage>(choisi === null ? null : `apercuArchivage=${choisi}&sujet=proprietaire`);
+  const [choix, setChoix] = useState<number[]>([]);
+  const biensLus = useLecture<BienASortir[]>(mode === 'biens' && choisi !== null ? `biensPourSortie=${choisi}&v=${version}` : null);
 
   const choisir = useCallback((id: number): void => {
     setChoisi(id);
+    setChoix([]);
     setVue({ sorte: 'proprietaire', id });
     setTexte(''); setTerme(''); setActif(-1);
     window.scrollTo({ top: 0 });
@@ -78,12 +87,13 @@ export function EcranArchivageProprietaire({ refusFiche }: { refusFiche: string 
     window.scrollTo({ top: 0 });
   }, [choisi, choisir]);
   const apres = useCallback((): void => { apercu.rafraichir(); setVersion((v) => v + 1); }, [apercu]);
+  const titreEcran = mode === 'biens' ? 'Supprimer un des biens d’un propriétaire' : 'Supprimer un propriétaire';
 
   return (
     <div className="loc-page arc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_RESULTATS + CSS_ECRAN_ARCHIVAGE + CSS_MODALE_ARCHIVAGE}</style>
-      <p className="loc-retour"><a href="/admin/location/proprietaires">← Propriétaires et biens</a></p>
-      <h1 className="arc-cache">Supprimer un propriétaire</h1>
+      <p className="loc-retour"><a href="/admin/location/proprietaires/supprimer">← Supprimer un propriétaire ou un bien</a></p>
+      <h1 className="arc-cache">{titreEcran}</h1>
       <div className="arc-collant" data-collant>
         <div className="arc-recherche">
           <label className="loc-recherche loc-recherche--large">
@@ -122,8 +132,16 @@ export function EcranArchivageProprietaire({ refusFiche }: { refusFiche: string 
             </div>
           )}
         </div>
-        {choisi !== null && <BoutonArchivage etat={apercu.etat} apres={apres} />}
+        {choisi !== null && mode === 'proprietaire' && <BoutonArchivage etat={apercu.etat} apres={apres} />}
+        {choisi !== null && mode === 'biens' && (
+          <BoutonSortieBiens proprietaireId={choisi} apercuProprietaire={apercu.etat} biens={biensLus.etat} choix={choix}
+            apres={() => { setChoix([]); apres(); }} />
+        )}
       </div>
+      {choisi !== null && mode === 'biens' && apercu.etat.etat === 'ok' && apercu.etat.data.sortie === null && (
+        <SelectionBiens etat={biensLus.etat} choix={choix}
+          onBascule={(id) => setChoix((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]))} />
+      )}
       {choisi !== null && vue !== null && (
         <section className="arc-fiche" aria-label="Fiche consultée" data-fiche-consultee={vue.sorte}>
           {vue.sorte !== 'proprietaire' && (
@@ -211,6 +229,140 @@ function BoutonArchivage({ etat, apres }: { etat: Lecture; apres: () => void }) 
 }
 
 /**
+ * ══ « SUPPRIMER UN DES BIENS » : LA SÉLECTION (Arno, 18/10/2026) ════════════════════════════════════════════════════════
+ * Tous les biens actifs du propriétaire ; sous chacun, « Sortir de la gestion » qui le SÉLECTIONNE (bascule : rouge avec ✓,
+ * un nouveau clic le retire). Rien n'est écrit ici.
+ */
+function SelectionBiens({ etat, choix, onBascule }: {
+  etat: ReturnType<typeof useLecture<BienASortir[]>>['etat']; choix: number[]; onBascule: (id: number) => void;
+}) {
+  if (etat.etat !== 'ok') return <EtatLecture etat={etat} />;
+  const biens = etat.data;
+  return (
+    <section className="arc-biens" aria-label="Biens de ce propriétaire" data-selection-biens>
+      <h2 className="arc-biens-titre">Biens de ce propriétaire <span className="loc-pastille">{biens.length}</span></h2>
+      {biens.length === 0 ? <p className="loc-muet">Aucun bien actif : rien à sortir de la gestion.</p> : (
+        <ul className="arc-biens-liste">
+          {biens.map((b) => {
+            const pris = choix.includes(b.lotId);
+            return (
+              <li key={b.lotId} className={`arc-bien-carte${pris ? ' arc-bien-carte--choisi' : ''}`} data-bien={b.lotId}>
+                <strong>{libelleBien(b)}</strong>
+                {b.nature !== null && <span className="loc-muet">{b.nature}</span>}
+                <span>{b.locataires.length > 0 ? `Loué à ${b.locataires.join(', ')}` : 'Libre'}</span>
+                {b.annexes.length > 0 && (
+                  <span className="loc-muet">Annexes (sortent avec lui) : {b.annexes.map((a) => `${a.libelle}${a.detachee ? ' (détachée)' : ''}`).join(' · ')}</span>
+                )}
+                {b.autresProprietaires.length > 0 && (
+                  <span className="arc-note-ligne">Autre propriétaire actif : {b.autresProprietaires.join(', ')} — le bien sortira pour tous.</span>
+                )}
+                <button type="button" className="arc-choisir" aria-pressed={pris} data-choisir={b.lotId} onClick={() => onBascule(b.lotId)}>
+                  {pris ? '✓ Sortir de la gestion' : 'Sortir de la gestion'}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Le GROS BOUTON du mode « biens » : « Sortir N bien(s) de la gestion » (grisé sans sélection). Biens occupés ⇒ la même
+ * fenêtre d'alerte que l'archivage, limitée à la sélection ; sinon confirmation simple ; puis l'ORIGINE (« …de ces biens »).
+ * TOUS les biens choisis ⇒ bandeau, et EXACTEMENT le parcours de l'archivage du propriétaire (le serveur bascule aussi).
+ * Propriétaire déjà archivé ⇒ l'état archivé et « Réactiver », comme l'autre mode.
+ */
+function BoutonSortieBiens({ proprietaireId, apercuProprietaire, biens, choix, apres }: {
+  proprietaireId: number; apercuProprietaire: Lecture; biens: ReturnType<typeof useLecture<BienASortir[]>>['etat']; choix: number[]; apres: () => void;
+}) {
+  const [apercu, setApercu] = useState<ApercuArchivage | null>(null);
+  const [etape, setEtape] = useState<'confirmer' | 'origine' | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  const [motif, setMotif] = useState<string | null>(null);
+  const [bilan, setBilan] = useState<string | null>(null);
+  const cleChoix = choix.slice().sort((a, b) => a - b).join(',');
+  useEffect(() => { setApercu(null); setEtape(null); setMotif(null); }, [cleChoix]);
+  if (apercuProprietaire.etat === 'ok' && apercuProprietaire.data.sortie !== null) return <BoutonArchivage etat={apercuProprietaire} apres={apres} />;
+  const liste = biens.etat === 'ok' ? biens.data : [];
+  const tous = tousChoisis(liste, choix);
+  const n = choix.length;
+
+  const ouvrir = async (): Promise<void> => {
+    setBilan(null); setMotif(null);
+    if (tous) {
+      if (apercuProprietaire.etat !== 'ok') return;
+      setApercu(apercuProprietaire.data);
+      setEtape(apercuProprietaire.data.occupees.length > 0 ? null : 'confirmer');
+      return;
+    }
+    setEnvoi(true);
+    try {
+      const res = await fetch(`${API}?apercuSortieBiens=${proprietaireId}&lots=${choix.join(',')}`, { cache: 'no-store' });
+      const d = await res.json() as { etat?: string; data?: ApercuArchivage; motif?: string; message?: string };
+      if (d.etat === 'ok' && d.data !== undefined) { setApercu(d.data); setEtape(d.data.occupees.length > 0 ? null : 'confirmer'); }
+      else setMotif(d.motif ?? d.message ?? 'Lecture impossible.');
+    } catch {
+      setMotif('Lecture impossible : le serveur n’a pas répondu. Rien n’a été modifié.');
+    }
+    setEnvoi(false);
+  };
+  // 🔴 RIEN N'EST ÉCRIT avant « Sortir définitivement » (ou « Archiver définitivement » quand tous les biens sont choisis).
+  const sortir = async (origine: OrigineArchivage, confirmeOccupation: boolean): Promise<void> => {
+    setEnvoi(true); setMotif(null);
+    const r = await envoyer({ action: 'sortir-biens', proprietaireId, lotIds: choix, origine, ...(confirmeOccupation ? { confirmeOccupation: true } : {}) });
+    setEnvoi(false);
+    if (r.motif !== null) { setMotif(r.motif); return; }
+    const d = (r.data ?? {}) as { biens?: number; locations?: number; locataires?: number; proprietaireArchive?: boolean };
+    setBilan([d.proprietaireArchive ? 'Le propriétaire et ses biens sont archivés' : `${d.biens ?? 0} bien(s) / annexe(s) sorti(s) de la gestion`,
+      d.locations ? `${d.locations} location(s) close(s) aujourd’hui` : null, d.locataires ? `${d.locataires} locataire(s) archivé(s)` : null]
+      .filter((x) => x !== null).join(' · ') + ' — rien n’a été effacé.');
+    setApercu(null); setEtape(null);
+    apres();
+  };
+  const occupe = apercu !== null && apercu.occupees.length > 0;
+  const motsBiens = apercu?.portee === 'biens';
+  return (
+    <div className="arc-action" data-bouton-sortie-biens={n}>
+      {tous && <p className="arc-bandeau-tous" role="alert" data-tous-les-biens>{BANDEAU_TOUS_LES_BIENS}</p>}
+      <button type="button" className="arc-gros arc-gros--archiver" disabled={n === 0 || envoi} onClick={() => void ouvrir()}>
+        {libelleSortirBiens(n)}
+      </button>
+      {apercu !== null && !occupe && etape === 'confirmer' && (
+        <div className="loc-confirmation arc-confirmation" role="alertdialog" aria-label="Confirmer la sortie">
+          <p style={{ margin: '0 0 6px' }}><strong>{motsBiens ? `${libelleSortirBiens(n)} ?` : `Archiver ${apercu.nom} et son historique ?`}</strong>{' '}
+            {motsBiens ? `${apercu.biens.length} bien(s) et annexe(s) sortent.` : `${apercu.biens.length} bien(s) et annexe(s) sortent avec lui.`}</p>
+          {apercu.partages.length > 0 && (
+            <p className="arc-note-ligne" data-biens-partages>{motsBiens
+              ? `Autre propriétaire actif, le bien sort pour tous : ${apercu.partages.map((p) => `${libelleBien(p)} (avec ${p.autres.join(', ')})`).join(' ; ')}.`
+              : `Non archivé${apercu.partages.length > 1 ? 's' : ''}, détenu${apercu.partages.length > 1 ? 's' : ''} aussi par un autre propriétaire actif : ${apercu.partages.map((p) => `${libelleBien(p)} (avec ${p.autres.join(', ')})`).join(' ; ')}.`}</p>
+          )}
+          <p className="loc-muet" style={{ margin: '0 0 8px' }}>{motsBiens ? phraseSortieBiens() : phraseArchivage('proprietaire')}</p>
+          <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setApercu(null); setEtape(null); }}>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => setEtape('origine')} data-confirmer-archivage>
+              {motsBiens ? 'Confirmer la sortie' : 'Confirmer l’archivage'}</button>
+          </div>
+        </div>
+      )}
+      {apercu !== null && !occupe && etape === 'origine' && (
+        <div className="loc-confirmation arc-confirmation" role="alertdialog" aria-label="Dernière question" data-etape="origine">
+          <QuestionOrigine envoi={envoi} motif={motif} onRetour={() => { setEtape('confirmer'); setMotif(null); }} onArchiver={(o) => void sortir(o, false)}
+            {...(motsBiens ? { question: QUESTION_ORIGINE_BIENS, libelleFinal: LIBELLE_FINAL_BIENS } : {})} />
+        </div>
+      )}
+      {apercu !== null && occupe && (
+        <ModaleArchivage apercu={apercu} envoi={envoi} motif={motif} demanderOrigine
+          onConfirmer={(o) => { if (o !== undefined) void sortir(o, true); }} onAnnuler={() => { setApercu(null); setMotif(null); }} />
+      )}
+      {motif !== null && apercu === null && <p className="cp-refus" role="alert">{motif}</p>}
+      {bilan !== null && <p className="gst-info arc-bilan" role="status">{bilan}</p>}
+    </div>
+  );
+}
+
+/**
  * Le bandeau COLLANT (recherche + gros bouton) reste en haut au défilement ; la fiche passe dessous. Couleurs du thème :
  * rouge de l'agence, orange d'alerte du thème (`--color-svv-urgence-orange`, texte de surface 4,60:1), blanc.
  */
@@ -235,6 +387,14 @@ const CSS_ECRAN_ARCHIVAGE = `
 .arc-confirmation{margin:0}
 .arc-note-ligne{margin:0 0 6px;padding:8px 10px;border-radius:8px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
 .arc-bilan{margin:0}
+.arc-bandeau-tous{margin:0;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-urgence-orange);background:var(--color-svv-amber-soft);color:var(--color-svv-amber);font-weight:700}
+.arc-biens{display:flex;flex-direction:column;gap:10px}
+.arc-biens-titre{margin:0;font-size:1rem;font-weight:800;display:flex;align-items:center;gap:8px}
+.arc-biens-liste{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,280px),1fr));gap:12px}
+.arc-bien-carte{display:flex;flex-direction:column;gap:6px;padding:14px;border-radius:14px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);min-width:0;overflow-wrap:anywhere}
+.arc-bien-carte--choisi{border-color:var(--color-svv-red);box-shadow:0 0 0 3px var(--color-svv-red-soft)}
+.arc-choisir{margin-top:4px;min-height:44px;padding:8px 14px;border-radius:12px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-weight:800;cursor:pointer}
+.arc-choisir[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
 .arc-fiche{display:flex;flex-direction:column;gap:8px;min-width:0}
 .arc-fil{margin:0}
 .arc-lien{border:0;background:none;padding:6px 0;font:inherit;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer;min-height:44px}

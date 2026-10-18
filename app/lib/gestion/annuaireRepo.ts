@@ -32,6 +32,7 @@ import {
   choisirFicheARapprocher, phraseRapprochementNonFait, type CandidateRapprochement,
 } from './rapprochementImport';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
+import { colonneExisteMemo } from '../location/sondeLocation';
 // LOT FICHES-RETOUCHES — un numero affiche par l'app est groupe par deux chiffres.
 import { decortiquerNumero, formaterTelephone } from './telephoneAffichage';
 import type { ContactAnnuaire } from './annuaire';
@@ -998,6 +999,17 @@ export interface LigneResultat {
  * 🔴 ON N'INVENTE JAMAIS UNE DONNÉE ABSENTE. `surfaceM2` vaut `null`, et l'écran écrit « non renseignée » — ce
  * qui est un fait, et non un vide qu'on lirait comme un oubli d'affichage.
  */
+/**
+ * 🔴 TUILE LOCATION (Arno, 18/10/2026) — un bien SORTI DU PORTEFEUILLE (archivé depuis la Location) s'affiche « Ancien » dans
+ * la Gestion aussi : sa date de sortie tient lieu de fin de gestion À L'AFFICHAGE (fiche propriétaire, fiche du bien,
+ * barre de l'annuaire). `gestion_fin` lui-même n'est jamais écrit (l'import WIPPIMMO le possède) ; sans la migration 373,
+ * rien ne change.
+ */
+async function sqlFinAffichee(alias: string): Promise<string> {
+  return (await colonneExisteMemo('gestion_annuaire_lot', 'sorti_portefeuille_le'))
+    ? `coalesce(${alias}.gestion_fin, (${alias}.sorti_portefeuille_le AT TIME ZONE 'Europe/Paris')::date)` : `${alias}.gestion_fin`;
+}
+
 export interface BienDuProprietaire {
   id: number;
   numero: string;
@@ -1689,6 +1701,7 @@ async function dossierDriveDe(sorte: 'proprietaire' | 'bien', cle: string | null
  * renseignée », qui est la vérité.
  */
 async function biensDuProprietaire(proprietaireId: number): Promise<BienDuProprietaire[]> {
+  const finAffichee = await sqlFinAffichee('lo');
   const { rows } = await query<{
     id: string; wippimmo_id: string; adresse: string | null; commune: string | null; code_postal: string | null;
     nature: string | null; type_bien: string | null; gestion_debut: string | null; gestion_fin: string | null;
@@ -1697,7 +1710,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     mails: number; dernier_echange: string | null; evenements: number; drive_id: string | null;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
-            lo.gestion_debut::text, lo.gestion_fin::text,
+            lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin,
             oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
             coalesce(ma.n, 0)::int AS mails,
             ${INSTANT('ma.dernier')} AS dernier_echange,
@@ -1751,7 +1764,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
        LEFT JOIN gestion_drive_arbre dr
               ON dr.sorte = 'bien' AND dr.cle = lo.wippimmo_id AND dr.absent_le IS NULL
       WHERE lo.proprietaire_id = $1
-      ORDER BY (lo.gestion_fin IS NOT NULL), lo.commune NULLS LAST, lo.adresse NULLS LAST, lo.wippimmo_id`,
+      ORDER BY ((${finAffichee}) IS NOT NULL), lo.commune NULLS LAST, lo.adresse NULLS LAST, lo.wippimmo_id`,
     [proprietaireId]);
 
   return rows.map((l) => ({
@@ -1800,7 +1813,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
     proprietaire_cle: string | null; proprietaire_nom: string;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.nature, lo.type_bien, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
-            lo.gestion_debut::text, lo.gestion_fin::text, lo.absent_le::text,
+            lo.gestion_debut::text, (${await sqlFinAffichee('lo')})::text AS gestion_fin, lo.absent_le::text,
             pr.id::text AS proprietaire_id, pr.wippimmo_id AS proprietaire_cle,
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom
        FROM gestion_annuaire_lot lo
@@ -2238,6 +2251,7 @@ async function assemblerPersonnes(
   // ── ② LES BIENS LIÉS : ceux d'un propriétaire, ceux qu'un locataire occupe ou a occupés ───────────────────────
   const biens = new Map<string, BienLie[]>();
   if (idsP.length > 0 || idsL.length > 0) {
+    const finAffichee = await sqlFinAffichee('lo');
     const { rows } = await query<{
       cle: string; lot_id: string; numero: string; adresse: string | null; commune: string | null;
       fin: string | null;
@@ -2246,12 +2260,12 @@ async function assemblerPersonnes(
          EN GESTION d'un proprietaire, et la regle est celle de la fiche (bienEnGestion). Meme requete, meme
          ligne, aucune lecture de plus. */
       `SELECT 'proprietaire|' || lo.proprietaire_id::text AS cle, lo.id::text AS lot_id,
-              lo.wippimmo_id AS numero, lo.adresse, lo.commune, lo.gestion_fin::text AS fin
+              lo.wippimmo_id AS numero, lo.adresse, lo.commune, (${finAffichee})::text AS fin
          FROM gestion_annuaire_lot lo
         WHERE lo.proprietaire_id = ANY($1::bigint[])
         UNION ALL
        SELECT DISTINCT 'locataire|' || o.locataire_id::text, lo.id::text, lo.wippimmo_id, lo.adresse, lo.commune,
-              lo.gestion_fin::text
+              (${finAffichee})::text
          FROM gestion_annuaire_occupation o
          JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
         WHERE o.locataire_id = ANY($2::bigint[])

@@ -17,8 +17,10 @@ import {
  * n'est archivé avant ce clic final. »
  * Elle se pose DANS l'étape qui précède (le panneau de confirmation, ou la même modale) : jamais une seconde fenêtre.
  */
-export function QuestionOrigine({ envoi, motif, onRetour, onArchiver }: {
+export function QuestionOrigine({ envoi, motif, onRetour, onArchiver, question = QUESTION_ORIGINE, libelleFinal = 'Archiver définitivement' }: {
   envoi: boolean; motif: string | null; onRetour: () => void; onArchiver: (o: OrigineArchivage) => void;
+  /** La question et le bouton final : ceux du propriétaire par défaut ; ceux de la sortie de biens au besoin (Arno, 18/10/2026). */
+  question?: string; libelleFinal?: string;
 }) {
   const [origine, setOrigine] = useState<Origine | null>(null);
   const [sous, setSous] = useState<SousOrigine | null>(null);
@@ -27,7 +29,7 @@ export function QuestionOrigine({ envoi, motif, onRetour, onArchiver }: {
   return (
     <div className="qo" data-question-origine>
       <style>{CSS_QUESTION_ORIGINE + CSS_ZONE_AUTO}</style>
-      <p className="qo-question" id="qo-question">{QUESTION_ORIGINE}</p>
+      <p className="qo-question" id="qo-question">{question}</p>
       <div className="qo-liste" role="radiogroup" aria-labelledby="qo-question">
         {ORIGINES.map((o) => (
           <div key={o} className="qo-ligne">
@@ -57,7 +59,7 @@ export function QuestionOrigine({ envoi, motif, onRetour, onArchiver }: {
         <button type="button" className="svv-btn svv-btn-outline gst-btn qo-retour" onClick={onRetour} disabled={envoi}>Retour</button>
         <button type="button" className="qo-final" disabled={!pret || envoi} data-archiver-definitivement
           onClick={() => { if (pret && origine !== null) onArchiver({ origine, sousOrigine: origine === 'mise_en_vente' ? sous : null, precision: precision.trim() === '' ? null : precision.trim() }); }}>
-          Archiver définitivement
+          {libelleFinal}
         </button>
       </div>
     </div>

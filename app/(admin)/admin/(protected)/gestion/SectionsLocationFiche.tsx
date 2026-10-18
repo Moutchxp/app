@@ -157,7 +157,7 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
         <div className="loc-sortie" role="status" data-sortie>
           {sujet === 'proprietaire'
             ? <span data-origine-archivage><strong>Archivé le {date(sortie.le)}{sortie.par === null ? '' : ` par ${sortie.par}`}{sortie.origine ? ` — ${sortie.origine}` : ''}</strong> · sorti du portefeuille, la fiche reste consultable, rien n’a été effacé.</span>
-            : <span><strong>Sorti du portefeuille</strong> le {date(sortie.le)}{sortie.par === null ? '' : ` par ${sortie.par}`} — la fiche reste consultable, rien n’a été effacé.</span>}
+            : <span data-origine-sortie><strong>Sorti du portefeuille</strong> le {date(sortie.le)}{sortie.par === null ? '' : ` par ${sortie.par}`}{sortie.origine ? ` — ${sortie.origine}` : ''} — la fiche reste consultable, rien n’a été effacé.</span>}
           <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => void agir('reactiver')}>Réactiver</button>
         </div>
       ) : apercu === null || occupe ? (

@@ -71,7 +71,7 @@ describe('🔴 /admin/location ne plante plus', () => {
     // Arno (18/10/2026) : « Supprimer un propriétaire » EN PREMIER et SEUL en rouge, puis « Créer… » et « Ajouter un nouveau bien » en blanc.
     const cases = [...container.querySelectorAll('.loc-gros-boutons--3d.loc-gros-boutons--trois a.loc-gros-bouton')];
     expect(cases.map((x) => x.getAttribute('href')))
-      .toEqual(['/admin/location/proprietaires/archiver', '/admin/location/nouveau-proprietaire', '/admin/location/nouveau-bien']);
+      .toEqual(['/admin/location/proprietaires/supprimer', '/admin/location/nouveau-proprietaire', '/admin/location/nouveau-bien']);
     expect(cases.map((x) => x.firstChild?.textContent)).toEqual(['Supprimer un propriétaire', 'Créer un nouveau propriétaire', 'Ajouter un nouveau bien']);
     expect(cases.map((x) => x.classList.contains('loc-gros-bouton--plein'))).toEqual([true, false, false]);
     expect(container.querySelector('a[href="/admin/location/nouveau"]')).toBeNull();
