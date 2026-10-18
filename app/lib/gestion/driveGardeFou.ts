@@ -8,6 +8,13 @@
  * modifie, ne renomme, ne déplace, ne supprime, ne partage, ne copie et ne dépose RIEN dans ce qui existait avant
  * lui — « Documents clients scannés » au premier chef, et pas davantage le reste de « GESTION LOCATIVE ».
  *
+ * 🔴 UNE SEULE EXCEPTION, DÉCISION D'ARNO DU 18/10/2026 : la COPIE (`files.copy`) d'un FICHIER de « Documents
+ * clients scannés », listé au manifeste, vers un dossier que nous avons créé SOUS le dossier de copie (« Import
+ * Documents clients scannés – copie du … », lui-même sous notre racine). C'est l'opération `copier_depuis_scannes`,
+ * jugée par `verifierCopieDepuisScannes` — une fonction À PART, qui ne relâche rien de `verifierEcriture`. Tout le
+ * reste sur « Documents clients scannés » reste interdit : écrire, renommer, déplacer, supprimer, corbeille,
+ * partager, raccourci, métadonnées, copie VERS lui.
+ *
  * 🔴 DEUX GARDES, ET IL FAUT LES DEUX. Ils ne protègent pas de la même chose :
  *
  *   ① SOUS LA RACINE. Le parent doit être la racine « Base de données locative », ou l'un de ses descendants.
@@ -42,7 +49,8 @@ export const ASCENSION_MAX = 32;
 
 /** Les opérations d'écriture Drive. Le garde vaut pour TOUTES, pas seulement pour la création. */
 export type OperationDrive =
-  | 'creer_dossier' | 'creer_raccourci' | 'modifier' | 'copier' | 'supprimer' | 'partager' | 'deposer';
+  | 'creer_dossier' | 'creer_raccourci' | 'modifier' | 'copier' | 'supprimer' | 'partager' | 'deposer'
+  | 'copier_depuis_scannes';
 
 /** Un dossier que nous avons créé, tel qu'il est mémorisé. C'est la ligne de `gestion_drive_arbre`. */
 export interface NoeudArbre {
@@ -185,6 +193,100 @@ export function verifierEcriture(
 
   return { ok: true };
 }
+
+// ── LA COPIE DEPUIS « Documents clients scannés » (décision d'Arno du 18/10/2026) ───────────────────────────────────
+
+/** Le nom protégé, normalisé comme le compare `driveLectureFichier` : un dossier de CE nom est l'original, jamais une copie. */
+export const NOM_SCANNES = 'Documents clients scannés';
+/** Recopiés de `drive.ts` : ce module reste PUR et sans dépendance. */
+const MIME_DOSSIER_GARDE = 'application/vnd.google-apps.folder';
+const MIME_RACCOURCI_GARDE = 'application/vnd.google-apps.shortcut';
+const normaliserNomProtege = (s: string): string =>
+  s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+export const porteLeNomProtege = (nom: string): boolean =>
+  normaliserNomProtege(nom) === normaliserNomProtege(NOM_SCANNES);
+
+export interface ContexteCopieScannes {
+  /** L'identifiant de « Documents clients scannés », LU CHEZ GOOGLE au moment de la passe — jamais écrit en dur. */
+  scannesId: string;
+  /** Le dossier de copie (« Import Documents clients scannés – copie du … »), créé par nous sous la racine. */
+  racineCopieId: string;
+  /** Les FICHIERS du manifeste validé. Rien d'autre ne se copie. */
+  manifeste: ReadonlySet<string>;
+  /** Des dossiers qui ne reçoivent JAMAIS de copie, même sous notre racine (« 00 Arrivée des mails »). */
+  destinationsInterdites?: ReadonlySet<string>;
+}
+
+/**
+ * LE DOSSIER DE DESTINATION EST-IL SOUS LE DOSSIER DE COPIE, dans notre liste blanche, sans rien de protégé sur le
+ * chemin ? Sert à la copie ET à la création des dossiers miroirs. PUR.
+ */
+export function verifierDestinationCopie(destinationId: string, index: IndexArbre, ctx: ContexteCopieScannes): Verdict {
+  const dest = (destinationId ?? '').trim();
+  const racineCopie = index.get((ctx.racineCopieId ?? '').trim());
+  if (racineCopie === undefined) {
+    return { ok: false, garde: 'hors_liste_blanche', motif: 'Copie refusée : le dossier de copie n’est pas un dossier que nous avons créé.' };
+  }
+  if (porteLeNomProtege(racineCopie.nom)) {
+    return {
+      ok: false, garde: 'autre',
+      motif: `Copie refusée : le dossier de copie porte le nom exact « ${NOM_SCANNES} » — l’application le prendrait `
+        + 'pour l’original protégé.',
+    };
+  }
+  const noeud = index.get(dest);
+  if (noeud === undefined) {
+    return { ok: false, garde: 'hors_liste_blanche', motif: `Copie refusée (liste blanche) : la destination ${dest} n’a pas été créée par nous.` };
+  }
+  if (noeud.sorte === 'raccourci') {
+    return { ok: false, garde: 'hors_liste_blanche', motif: 'Copie refusée : un raccourci ne peut pas recevoir de copie.' };
+  }
+  const chemin = ascensionVersRacine(dest, index);
+  if (chemin === null) {
+    return { ok: false, garde: 'hors_racine', motif: `Copie refusée (hors racine) : ${dest} n’est pas sous « ${RACINE_NOM} ».` };
+  }
+  if (!chemin.some((m) => m.driveId === racineCopie.driveId)) {
+    return { ok: false, garde: 'autre', motif: `Copie refusée : ${dest} n’est pas sous le dossier de copie « ${racineCopie.nom} ».` };
+  }
+  for (const m of chemin) {
+    if (m.driveId === ctx.scannesId || porteLeNomProtege(m.nom) || (ctx.destinationsInterdites?.has(m.driveId) ?? false)) {
+      return { ok: false, garde: 'autre', motif: `Copie refusée : la destination passe par « ${m.nom} », qui ne reçoit rien.` };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * LE VERDICT SUR UNE COPIE DEPUIS « Documents clients scannés ». PUR. Tout doit être vrai :
+ *   ① la source est un FICHIER du manifeste (ni dossier, ni raccourci, ni la racine protégée) ;
+ *   ② sa chaîne de parents, relue chez Google, passe par « Documents clients scannés » ;
+ *   ③ la destination est un dossier miroir à nous, STRICTEMENT sous le dossier de copie (`verifierDestinationCopie`).
+ */
+export function verifierCopieDepuisScannes(
+  demande: { sourceId: string; sourceMime: string; sourceChaine: readonly string[]; destinationId: string },
+  index: IndexArbre,
+  ctx: ContexteCopieScannes,
+): Verdict {
+  const source = (demande.sourceId ?? '').trim();
+  if ((ctx.scannesId ?? '').trim() === '') {
+    return { ok: false, garde: 'autre', motif: 'Copie refusée : « Documents clients scannés » n’a pas été localisé.' };
+  }
+  if (source === '' || source === ctx.scannesId || !ctx.manifeste.has(source)) {
+    return { ok: false, garde: 'autre', motif: `Copie refusée : ${source || '(vide)'} ne figure pas au manifeste validé.` };
+  }
+  if (demande.sourceMime === MIME_DOSSIER_GARDE || demande.sourceMime === MIME_RACCOURCI_GARDE) {
+    return { ok: false, garde: 'autre', motif: 'Copie refusée : seul un FICHIER se copie ; un dossier se recrée.' };
+  }
+  if (!demande.sourceChaine.includes(ctx.scannesId)) {
+    return { ok: false, garde: 'autre', motif: `Copie refusée : ${source} n’est pas dans « ${NOM_SCANNES} ».` };
+  }
+  // Un fichier va dans un dossier miroir, jamais à même le dossier de copie (qui ne contient que les branches).
+  if ((demande.destinationId ?? '').trim() === (ctx.racineCopieId ?? '').trim()) {
+    return { ok: false, garde: 'autre', motif: 'Copie refusée : un fichier se copie dans un dossier miroir, pas à même le dossier de copie.' };
+  }
+  return verifierDestinationCopie(demande.destinationId, index, ctx);
+}
+
 
 /**
  * LE VERDICT SUR LA CRÉATION DE LA RACINE — le seul cas où l'on écrit HORS de l'arborescence, et donc le seul qui

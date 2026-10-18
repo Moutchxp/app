@@ -7,8 +7,10 @@
  * il suffit de lire ce fichier pour savoir ce que le programme peut toucher. Un test statique
  * (`driveGardeFou.test.ts`) compte les verbes HTTP d'écriture et les appels au garde, et échoue s'ils divergent.
  *
- * 🔴 CE MODULE NE SAIT FAIRE QUE TROIS CHOSES : créer un dossier, créer un raccourci, créer la racine. Il ne sait
- * ni renommer, ni déplacer, ni supprimer, ni partager, ni copier, ni déposer un fichier — ces fonctions ne sont pas
+ * 🔴 CE MODULE NE SAIT FAIRE QUE CINQ CHOSES : créer un dossier, créer un raccourci, créer la racine — et, depuis la
+ * décision d'Arno du 18/10/2026, créer un dossier MIROIR sous le dossier de copie et COPIER un fichier de
+ * « Documents clients scannés » dans ce miroir (`copierDepuisScannes`, la SEULE fonction qui émette `files.copy`).
+ * Il ne sait ni renommer, ni déplacer, ni supprimer, ni partager, ni déposer un fichier — ces fonctions ne sont pas
  * écrites, donc elles ne peuvent pas être appelées par erreur. Le garde-fou les connaît quand même (`OperationDrive`)
  * parce que le jour où l'une d'elles s'écrira, elle devra passer par lui.
  *
@@ -24,8 +26,8 @@
 import { query } from '../db/client';
 import { MIME_DOSSIER, MIME_RACCOURCI } from './drive';
 import {
-  nettoyerNom, verifierCreationRacine, verifierEcriture,
-  type IndexArbre, type OperationDrive, type Verdict,
+  nettoyerNom, porteLeNomProtege, verifierCopieDepuisScannes, verifierCreationRacine, verifierDestinationCopie,
+  verifierEcriture, type ContexteCopieScannes, type IndexArbre, type OperationDrive, type Verdict,
 } from './driveGardeFou';
 
 const API = 'https://www.googleapis.com/drive/v3';
@@ -221,6 +223,153 @@ export async function dossierExisteEncore(
     { method: 'GET', headers: { Authorization: `Bearer ${jeton}` } }, deps);
   if (!r.ok) return { existe: false, motif: r.motif };
   return { existe: r.corps.trashed !== true, nom: typeof r.corps.name === 'string' ? r.corps.name : undefined };
+}
+
+// ── LA COPIE DEPUIS « Documents clients scannés » (décision d'Arno du 18/10/2026) ───────────────────────────────────
+
+/** Les étiquettes de suivi posées SUR LA COPIE à sa création — jamais sur l'original. */
+export interface EtiquettesCopie {
+  /** L'identifiant de l'élément de « Documents clients scannés » dont c'est la copie. */
+  svav_source_id: string;
+  /** Sa date de modification au moment de la copie : deux versions d'un même fichier coexistent sans s'écraser. */
+  svav_source_modifie?: string;
+}
+const CLES_ETIQUETTES = new Set(['svav_source_id', 'svav_source_modifie']);
+
+export class RequeteCopieRefusee extends Error {
+  constructor(motif: string) {
+    super(`Copie depuis « Documents clients scannés » : ${motif}`);
+    this.name = 'RequeteCopieRefusee';
+  }
+}
+
+/**
+ * LE `fetch` DE LA COPIE. Il ne laisse passer QUE deux formes de requête, et lève AVANT tout envoi pour le reste :
+ *   · un `GET` de l'API de lecture Drive (`files…`) ;
+ *   · un `POST {API}/files/<id>/copy?…` dont le corps est EXACTEMENT `{ parents: [<un dossier>], appProperties }`,
+ *     `appProperties` ne portant que les étiquettes de suivi, et le parent n'étant pas un identifiant protégé.
+ * Tout le reste — PATCH, PUT, DELETE, /permissions, /watch, /emptyTrash, addParents, removeParents, trashed,
+ * properties, name, description, starred… — est refusé. Défense en profondeur : le verdict a déjà jugé la requête.
+ */
+export function fetchCopieScannes(base: typeof fetch, proteges: ReadonlySet<string>): typeof fetch {
+  return (async (entree: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof entree === 'string' ? entree : entree instanceof URL ? entree.toString() : entree.url;
+    const methode = (init?.method ?? 'GET').toUpperCase();
+    if (/[?&](addParents|removeParents)=/.test(url)) throw new RequeteCopieRefusee('déplacement refusé');
+    if (methode === 'GET') {
+      if (!url.startsWith(`${API}/files`) || /\/(permissions|watch|emptyTrash|revisions|comments)(\/|\?|$)/.test(url)) {
+        throw new RequeteCopieRefusee(`lecture hors de l’API des fichiers refusée : ${url.slice(0, 120)}`);
+      }
+      return base(entree, init);
+    }
+    if (methode !== 'POST') throw new RequeteCopieRefusee(`méthode ${methode} refusée`);
+    const m = /^https:\/\/www\.googleapis\.com\/drive\/v3\/files\/([A-Za-z0-9_-]+)\/copy\?[^/]*$/.exec(url);
+    if (m === null) throw new RequeteCopieRefusee(`POST hors copie refusé : ${url.slice(0, 120)}`);
+    let corps: Record<string, unknown>;
+    try {
+      corps = JSON.parse(String(init?.body ?? '')) as Record<string, unknown>;
+    } catch {
+      throw new RequeteCopieRefusee('corps illisible');
+    }
+    const cles = Object.keys(corps);
+    if (cles.some((k) => k !== 'parents' && k !== 'appProperties')) {
+      throw new RequeteCopieRefusee(`champ refusé dans le corps : ${cles.join(', ')}`);
+    }
+    const parents = corps.parents;
+    if (!Array.isArray(parents) || parents.length !== 1 || typeof parents[0] !== 'string' || proteges.has(parents[0])) {
+      throw new RequeteCopieRefusee('un seul parent, jamais protégé');
+    }
+    const etiquettes = (corps.appProperties ?? {}) as Record<string, unknown>;
+    if (typeof etiquettes !== 'object' || Object.keys(etiquettes).some((k) => !CLES_ETIQUETTES.has(k))) {
+      throw new RequeteCopieRefusee('étiquette non permise');
+    }
+    return base(entree, init);
+  }) as typeof fetch;
+}
+
+export type IssueCopie =
+  | { ok: true; id: string; nom: string; md5: string | null; taille: string | null; mime: string }
+  | { ok: false; refuse: true; motif: string }
+  | { ok: false; refuse: false; motif: string };
+
+/**
+ * COPIE UN FICHIER de « Documents clients scannés » vers un dossier miroir à nous. La SEULE fonction qui émette
+ * `files.copy`. Le corps est construit ICI, jamais reçu de l'appelant : `{ parents: [destination], appProperties }`,
+ * le nom de la copie étant celui que Google recopie de l'original (strictement identique).
+ */
+export async function copierDepuisScannes(
+  demande: {
+    sourceId: string; sourceMime: string; sourceChaine: readonly string[]; destinationId: string;
+    sourceModifie?: string;
+  },
+  index: IndexArbre,
+  ctx: ContexteCopieScannes,
+  proteges: ReadonlySet<string>,
+  jeton: string,
+  deps: DepsDrive,
+): Promise<IssueCopie> {
+  const verdict = verifierCopieDepuisScannes(demande, index, ctx);
+  if (!verdict.ok) {
+    await journaliserRefus(
+      { operation: 'copier_depuis_scannes', parentDriveId: demande.destinationId, cibleDriveId: demande.sourceId },
+      verdict);
+    return { ok: false, refuse: true, motif: verdict.motif };
+  }
+  const etiquettes: EtiquettesCopie = { svav_source_id: demande.sourceId };
+  if (demande.sourceModifie !== undefined) etiquettes.svav_source_modifie = demande.sourceModifie;
+
+  const r = await appeler(
+    `${API}/files/${demande.sourceId}/copy?supportsAllDrives=true&fields=id,name,md5Checksum,size,mimeType`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parents: [demande.destinationId], appProperties: etiquettes }),
+    }, { ...deps, fetch: fetchCopieScannes(deps.fetch, proteges) });
+  if (!r.ok) return { ok: false, refuse: false, motif: r.motif };
+  const id = typeof r.corps.id === 'string' ? r.corps.id : '';
+  if (id === '') return { ok: false, refuse: false, motif: 'Drive n’a pas rendu d’identifiant pour cette copie.' };
+  const texte = (v: unknown): string | null => (typeof v === 'string' ? v : null);
+  return {
+    ok: true, id, nom: texte(r.corps.name) ?? '', md5: texte(r.corps.md5Checksum), taille: texte(r.corps.size),
+    mime: texte(r.corps.mimeType) ?? '',
+  };
+}
+
+/**
+ * CRÉE UN DOSSIER MIROIR sous le dossier de copie, avec le nom EXACT de l'original (aucun nettoyage : « strictement
+ * identique » — un espace final compris) et l'étiquette `svav_source_id`. Le parent doit être un dossier à nous,
+ * SOUS le dossier de copie. Le nom exact « Documents clients scannés » est refusé : l'application le prendrait pour
+ * l'original protégé.
+ */
+export async function creerDossierDeCopie(
+  demande: { parentDriveId: string; nom: string; sourceId: string },
+  index: IndexArbre,
+  ctx: ContexteCopieScannes,
+  jeton: string,
+  deps: DepsDrive,
+): Promise<IssueCreation> {
+  const nom = demande.nom;
+  // eslint-disable-next-line no-control-regex
+  const nomRefuse = nom.trim() === '' || /[\u0000-\u001f\u007f]/.test(nom) || porteLeNomProtege(nom);
+  const ecriture = verifierEcriture({ operation: 'creer_dossier', parentDriveId: demande.parentDriveId }, index);
+  const verdict: Verdict = !ecriture.ok ? ecriture
+    : nomRefuse ? { ok: false, garde: 'autre', motif: `Nom de dossier miroir refusé : « ${nom} ».` }
+      : verifierDestinationCopie(demande.parentDriveId, index, ctx);
+  if (!verdict.ok) {
+    await journaliserRefus({ operation: 'creer_dossier', parentDriveId: demande.parentDriveId, nom }, verdict);
+    return { ok: false, refuse: true, motif: verdict.motif };
+  }
+  const r = await appeler(`${API}/files?supportsAllDrives=true&fields=id,name`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: nom, mimeType: MIME_DOSSIER, parents: [demande.parentDriveId],
+      appProperties: { svav_source_id: demande.sourceId },
+    }),
+  }, deps);
+  if (!r.ok) return { ok: false, refuse: false, motif: r.motif };
+  const id = typeof r.corps.id === 'string' ? r.corps.id : '';
+  if (id === '') return { ok: false, refuse: false, motif: 'Drive n’a pas rendu d’identifiant pour ce dossier.' };
+  return { ok: true, id, nom };
 }
 
 /** La pause entre deux écritures, à appeler par la boucle de construction. */
