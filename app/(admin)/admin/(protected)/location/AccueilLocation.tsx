@@ -32,7 +32,7 @@ export const CASES = [
   { href: '/admin/location/proprietaires', titre: ['Ajouter / supprimer', 'un propriétaire / bien'],
     phrase: 'Créer un nouveau propriétaire avec son bien et ses annexes, ou ajouter un bien à un propriétaire déjà connu.' },
   { href: '/admin/location/locataires', titre: ['Ajouter / supprimer', 'un locataire'],
-    phrase: 'Créer un locataire rattaché à un bien, avec alerte de doublon dès la saisie ; la liste des locataires, actifs et anciens.' },
+    phrase: 'Faire entrer ou sortir un ou plusieurs locataires d’un logement.' },
   { href: '/admin/location/outils', titre: ['Outils', 'de suivi'],
     phrase: 'Les outils de pilotage de la location : honoraires de gestion, et ceux qui viendront.' },
 ] as const;

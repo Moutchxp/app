@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { AccueilLocation } from './AccueilLocation';
+import { AccueilLocation, CASES } from './AccueilLocation';
 import { EcranLocataires, EcranProprietairesBiens } from './EcransLocation';
 import { ListeLocation } from './ListesLocation';
 import { SectionLocationBien } from '../gestion/SectionsLocationFiche';
@@ -81,6 +81,11 @@ describe('🔴 /admin/location ne plante plus', () => {
     // Même en-tête que l'accueil (classes d'EnTetePage), puis le même espace réservé que sous le moteur.
     expect(container.querySelector('.svv-page-head .svv-page-title')?.textContent).toBe('Propriétaires et biens');
     expect(container.querySelector('[data-espace-accueil]')?.className).toBe('loc-zone-resultats loc-zone-resultats--vide');
+  });
+
+  it('la 2ᵉ case de l’accueil (locataires) : son texte, son titre et son lien (Arno, 19/10/2026)', () => {
+    expect(CASES[1]).toEqual({ href: '/admin/location/locataires', titre: ['Ajouter / supprimer', 'un locataire'],
+      phrase: 'Faire entrer ou sortir un ou plusieurs locataires d’un logement.' });
   });
 
   it('③ la liste des locataires (composant gardé, retiré de l’écran ② le 18/10) : la liste, et la bascule « Anciens »', async () => {
