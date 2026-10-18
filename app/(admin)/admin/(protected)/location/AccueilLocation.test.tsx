@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { AccueilLocation } from './AccueilLocation';
 import { EcranLocataires, EcranProprietairesBiens } from './EcransLocation';
+import { ListeLocation } from './ListesLocation';
 import { SectionLocationBien } from '../gestion/SectionsLocationFiche';
 
 /**
@@ -82,14 +83,25 @@ describe('🔴 /admin/location ne plante plus', () => {
     expect(container.querySelector('[data-espace-accueil]')?.className).toBe('loc-zone-resultats loc-zone-resultats--vide');
   });
 
-  it('③ écran Locataires : la liste, et la bascule « Anciens »', async () => {
-    await act(async () => { root.render(createElement(EcranLocataires)); });
+  it('③ la liste des locataires (composant gardé, retiré de l’écran ② le 18/10) : la liste, et la bascule « Anciens »', async () => {
+    await act(async () => { root.render(createElement(ListeLocation, { sorte: 'locataires' })); });
     await calmer();
     expect(container.textContent).toContain('MODÈLE Jules');
-    expect(container.querySelector('a[href="/admin/location/nouveau-locataire"]')).not.toBeNull();
     await act(async () => { bouton('Anciens (sortis du portefeuille)').click(); });
     await calmer();
     expect(container.textContent).toContain('ANCIEN Proprio');
+  });
+
+  it('③ écran « Ajouter ou supprimer un locataire » épuré (Arno, 18/10/2026) : ni liste, ni « + Nouveau locataire »', async () => {
+    await act(async () => { root.render(createElement(EcranLocataires)); });
+    await calmer();
+    expect(container.querySelector('.svv-page-head .svv-page-title')?.textContent).toBe('Ajouter ou supprimer un locataire');
+    expect(container.querySelector('[data-espace-accueil]')?.className).toBe('loc-zone-resultats loc-zone-resultats--vide');
+    expect(container.textContent).not.toContain('MODÈLE Jules');
+    expect(container.textContent).not.toContain('Anciens (sortis du portefeuille)');
+    expect(container.textContent).not.toContain('+ Nouveau locataire');
+    expect(container.querySelectorAll('.loc-gros-boutons--3d a.loc-gros-bouton')).toHaveLength(2);
+    expect(container.querySelector('.loc-gros-boutons')?.nextElementSibling).toBeNull();
   });
 
   it('② (fiche commune, section « Location ») un bien sans annexe s’affiche (champ absent)', async () => {

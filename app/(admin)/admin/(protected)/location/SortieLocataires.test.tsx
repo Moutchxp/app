@@ -33,19 +33,24 @@ const saisir = (el: HTMLInputElement, valeur: string): void => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 };
 
-describe('la page « Locataires » : deux grosses cartes, rien de retiré', () => {
-  it('les deux cartes au format de « Supprimer un propriétaire », et l’existant reste en place', () => {
+describe('la page « Ajouter ou supprimer un locataire » : deux grosses cartes, rien en dessous', () => {
+  it('les deux cartes au format de « Supprimer un propriétaire » ; « Ajouter » mène au formulaire existant ; aucune lecture', () => {
     global.fetch = vi.fn(async () => ok({ lignes: [], total: 0, page: 0 }));
     act(() => root.render(createElement(EcranLocataires)));
     const cartes = [...container.querySelectorAll('.loc-gros-boutons--3d a.loc-gros-bouton')];
-    expect(cartes.map((a) => [a.getAttribute('href'), a.firstChild?.textContent, a.classList.contains('loc-gros-bouton--plein')])).toEqual([
-      ['/admin/location/locataires/supprimer', 'Supprimer un/des locataire(s)', true],
-      ['/admin/location/locataires/ajouter', 'Ajouter un/des locataire(s)', false],
+    expect(cartes.map((a) => [a.getAttribute('href'), a.firstChild?.textContent, a.classList.contains('loc-gros-bouton--plein'), a.querySelector('small')?.textContent])).toEqual([
+      ['/admin/location/locataires/supprimer', 'Supprimer un/des locataire(s)', true, 'Faire sortir un ou plusieurs locataires d’un logement : sortie partielle ou totale, datée ; rien n’est effacé.'],
+      ['/admin/location/nouveau-locataire', 'Ajouter un/des locataire(s)', false, 'Faire entrer un ou plusieurs locataires dans un logement.'],
     ]);
-    expect(container.querySelector('a[href="/admin/location/nouveau-locataire"]')?.textContent).toBe('+ Nouveau locataire');
+    expect(container.querySelector('.svv-page-sub')?.textContent).toBe('Supprimer = sortir du logement : rien n’est effacé, tout reste consultable.');
+    expect(container.querySelector('.loc-retour a')?.getAttribute('href')).toBe('/admin/location');
+    // Ni liste, ni bouton « + Nouveau locataire », ni lien vers la page « à venir » (gardée dans le code).
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(container.textContent).not.toContain('+ Nouveau locataire');
+    expect(container.querySelector('a[href="/admin/location/locataires/ajouter"]')).toBeNull();
   });
 
-  it('« Ajouter » : une page « à venir », sans formulaire d’entrée', () => {
+  it('la page « à venir » reste dans le code : sans formulaire d’entrée', () => {
     act(() => root.render(createElement(EcranAjouterLocatairesAVenir)));
     expect(container.textContent).toContain('À venir');
     expect(container.querySelector('form, input')).toBeNull();

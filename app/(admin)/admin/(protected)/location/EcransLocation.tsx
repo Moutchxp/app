@@ -1,7 +1,6 @@
 'use client';
 
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, liste, useLecture } from './commun';
-import { ListeLocation } from './ListesLocation';
 import type { FicheSyndic } from '../../../../lib/gestion/syndics';
 
 /**
@@ -65,23 +64,34 @@ export function EcranSupprimerChoix() {
   );
 }
 
+/**
+ * ══ ② « AJOUTER OU SUPPRIMER UN LOCATAIRE » (/admin/location/locataires), Arno 18-19/10/2026 ══════════════════════════════
+ * La MISE EN PAGE EXACTE de « Supprimer un propriétaire ou un bien » (`EcranSupprimerChoix`) : lien retour, titre,
+ * sous-titre, le même espace réservé, puis les DEUX GROSSES CARTES côte à côte (empilées au téléphone), même composant,
+ * même effet 3D — « Supprimer » en trame rouge, « Ajouter » en blanc — et RIEN en dessous.
+ * 🔴 RETIRÉS DE CET ÉCRAN, sur demande explicite d'Arno (18/10/2026), et de lui seul : la liste des locataires (onglets
+ * « Actifs » / « Anciens », compteur, lignes) et le bouton « + Nouveau locataire ». Rien n'est perdu : les fiches, anciennes
+ * comprises, s'ouvrent par le moteur de recherche de l'accueil ; le formulaire de création s'ouvre par la carte « Ajouter ».
+ * Le code de la liste (`ListesLocation.tsx`) et ses routes de données restent en place.
+ */
 export function EcranLocataires() {
   return (
     <div className="loc-page">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION}</style>
-      <EnTeteLocation titre="Locataires"
-        sous="Créer un locataire rattaché à un bien ; « supprimer » = sortir du portefeuille, depuis la fiche (rien n’est effacé)."
-        actions={<a className="svv-btn svv-btn-primary gst-btn" href="/admin/location/nouveau-locataire">+ Nouveau locataire</a>} />
-      {/* Arno (19/10/2026) : DEUX GROSSES CARTES, au format exact de « Supprimer un propriétaire ou un bien » (mêmes classes,
-          même effet 3D, « Supprimer » en trame rouge). AJOUTÉES en tête : l'en-tête, « + Nouveau locataire » et la liste
-          restent en place, rien n'est retiré ni déplacé. */}
-      <ul className="loc-gros-boutons loc-gros-boutons--3d" aria-label="Sortie ou arrivée de locataires">
+      <p className="loc-retour"><a href="/admin/location">← Location</a></p>
+      <header className="svv-page-head loc-tete-comme-accueil">
+        <div className="svv-page-head-ligne"><h1 className="svv-page-title">Ajouter ou supprimer un locataire</h1></div>
+        <p className="svv-page-sub">Supprimer = sortir du logement : rien n’est effacé, tout reste consultable.</p>
+      </header>
+      <div className="loc-zone-resultats loc-zone-resultats--vide" aria-hidden="true" data-espace-accueil />
+      <ul className="loc-gros-boutons loc-gros-boutons--3d" aria-label="Ajouter ou supprimer un locataire">
         <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/locataires/supprimer" data-gros="supprimer-locataires">
           Supprimer un/des locataire(s)<small>Faire sortir un ou plusieurs locataires d’un logement : sortie partielle ou totale, datée ; rien n’est effacé.</small></a></li>
-        <li><a className="loc-gros-bouton" href="/admin/location/locataires/ajouter" data-gros="ajouter-locataires">
-          Ajouter un/des locataire(s)<small>Faire entrer un ou plusieurs locataires dans un logement (à venir).</small></a></li>
+        {/* Arno (18/10/2026) : « Ajouter » mène au formulaire de création EXISTANT (l'ancien « + Nouveau locataire ») ; la page
+            « à venir » (/admin/location/locataires/ajouter) reste dans le code, sans lien vers elle. */}
+        <li><a className="loc-gros-bouton" href="/admin/location/nouveau-locataire" data-gros="ajouter-locataires">
+          Ajouter un/des locataire(s)<small>Faire entrer un ou plusieurs locataires dans un logement.</small></a></li>
       </ul>
-      <section className="loc-bloc"><ListeLocation sorte="locataires" /></section>
     </div>
   );
 }
