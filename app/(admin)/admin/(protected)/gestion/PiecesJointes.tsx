@@ -821,6 +821,6 @@ span.pj-refusee-gmail{color:var(--color-svv-muted);text-decoration:none;font-sty
 @media (prefers-reduced-motion:reduce){
   .pj-bouton,.pj-action,.pj-apercu{transition:none}
 }
-/* ⚠️ LE STYLE DE LA FENÊTRE DRIVE N'EST PLUS AJOUTÉ ICI : la fenêtre porte le sien, dans son propre <style>. Le
+/* ⚠️ LE STYLE DE LA FENÊTRE DRIVE N'EST PLUS AJOUTÉ ICI : la fenêtre porte le sien, dans sa propre balise style. Le
    panneau en ligne, lui, n'existe plus — ses règles partaient avec lui. */
 `;
