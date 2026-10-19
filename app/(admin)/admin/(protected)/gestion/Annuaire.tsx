@@ -91,6 +91,7 @@ import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 import { pastillesBien } from '../../../../lib/gestion/pastillesBien';
 import { boutonDossierProprietaire } from '../../../../lib/gestion/rangementDossiersCopies';
+import { boutonDossierBien, LIBELLE_DOSSIER_DU_LOT } from '../../../../lib/gestion/racinesProprietaires';
 // LOT ANNUAIRE-SYNDICS — le bouton syndic des cartes de bien, et le composeur qu'il peut ouvrir.
 import { BoutonSyndic, EcrireDepuisGestion, PastilleConflitParcelle } from './BoutonSyndic';
 import { BandeauSyndicConnuDuBien } from './PropositionsSyndic';
@@ -693,8 +694,6 @@ function DateOuRien({ iso, sinon }: { iso: string | null; sinon: string }) {
   return iso === null ? <span className="ann-inconnu">{sinon}</span> : <>{formaterDateIso(iso)}</>;
 }
 
-const DRIVE_DOSSIER = 'https://drive.google.com/drive/folders/';
-
 /**
  * ══ 🔴🔴 LOT FICHES-RETOUCHES-2 — LE CARTOUCHE « ÉVÉNEMENT EN COURS » ═════════════════════════════════════════
  *
@@ -883,16 +882,22 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
               Fiche du locataire →
             </button>
           )}
-          {b.driveDossierId !== null ? (
-            <a className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"
-              href={`${DRIVE_DOSSIER}${b.driveDossierId}`} target="_blank" rel="noreferrer">
-              Dossier Drive du lot ↗
-            </a>
-          ) : (
-            /* ⚠️ L'ABSENCE SE DIT, à la place du bouton : un dossier pas encore construit n'est pas une panne,
-               et un bouton grisé sans motif enverrait chercher pourquoi il ne marche pas. */
-            <span className="ann-inconnu ann-carte-sans">dossier Drive non construit</span>
-          )}
+          {/* 🔴🔴 BOUTON DRIVE D'UN BIEN (Arno, 19/10/2026) : le dossier du bien, à défaut celui du propriétaire, à défaut la
+              racine « Base de données locative » — jamais l'ancienne arborescence. Repli d'affichage (boutonDossierBien). */}
+          {(() => {
+            const d = boutonDossierBien(b.driveDossierId === null ? null : { id: b.driveDossierId, source: b.driveDossierSource ?? 'bien' },
+              b.racineDriveId ?? null, LIBELLE_DOSSIER_DU_LOT);
+            return d !== null ? (
+              <a className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"
+                href={d.href} target="_blank" rel="noreferrer" data-source={d.source}>
+                {d.libelle}
+              </a>
+            ) : (
+              /* ⚠️ L'ABSENCE SE DIT, à la place du bouton : un dossier pas encore construit n'est pas une panne,
+                 et un bouton grisé sans motif enverrait chercher pourquoi il ne marche pas. */
+              <span className="ann-inconnu ann-carte-sans">dossier Drive non construit</span>
+            );
+          })()}
         </span>
       </span>
       <RefWippimmo numero={b.numero} />
@@ -1459,10 +1464,15 @@ function VueLot({
           <RefWippimmo numero={f.numero} />
         </div>
         <div className="ann-tete-actions">
-          {f.driveDossierId !== null && (
-            <a className="svv-btn svv-btn-outline gst-btn" href={`${DRIVE_DOSSIER}${f.driveDossierId}`}
-              target="_blank" rel="noreferrer">Dossier Drive ↗</a>
-          )}
+          {/* 🔴🔴 Arno, 19/10/2026 : le dossier du bien, à défaut celui du propriétaire, à défaut la racine (boutonDossierBien). */}
+          {(() => {
+            const d = boutonDossierBien(f.driveDossierId === null ? null : { id: f.driveDossierId, source: f.driveDossierSource ?? 'bien' },
+              f.racineDriveId ?? null, 'Dossier Drive ↗');
+            return d === null ? null : (
+              <a className="svv-btn svv-btn-outline gst-btn" href={d.href}
+                target="_blank" rel="noreferrer" data-source={d.source}>{d.libelle}</a>
+            );
+          })()}
           {/* 🔴🔴 LOT TACHES-1 — « + Tâche », À CÔTÉ de « Dossier Drive ↗ » (Arno), sans rien déplacer ni retirer.
               Ne rend rien tant que la migration 346 n'est pas appliquée. */}
           <BoutonTache lotId={Number(f.id)} lotCle={f.numero} adresse={titreLogement(f.adresse, f.commune)}
@@ -2296,14 +2306,18 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
               Fiche du propriétaire →
             </button>
           )}
-          {o.driveDossierId !== null ? (
-            <a className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"
-              href={`${DRIVE_DOSSIER}${o.driveDossierId}`} target="_blank" rel="noreferrer">
-              Dossier Drive du lot ↗
-            </a>
-          ) : (
-            <span className="ann-inconnu ann-carte-sans">dossier Drive non construit</span>
-          )}
+          {(() => {
+            const d = boutonDossierBien(o.driveDossierId === null ? null : { id: o.driveDossierId, source: o.driveDossierSource ?? 'bien' },
+              o.racineDriveId ?? null, LIBELLE_DOSSIER_DU_LOT);
+            return d !== null ? (
+              <a className="svv-btn svv-btn-outline gst-btn ann-carte-bouton"
+                href={d.href} target="_blank" rel="noreferrer" data-source={d.source}>
+                {d.libelle}
+              </a>
+            ) : (
+              <span className="ann-inconnu ann-carte-sans">dossier Drive non construit</span>
+            );
+          })()}
         </span>
       </span>
       <RefWippimmo numero={o.numero} />

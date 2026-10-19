@@ -5,6 +5,7 @@ import {
   etatControle, lienDossierDrive, lienFiche, peutValiderTousLesSurs, SECTIONS, sectionsDuRapprochement, TAILLE_CONTROLE,
   type CleSection, type Decision, type FicheCourte, type Geste, type LigneRapprochement, type PlanLotSuivant,
 } from '../../../../../lib/gestion/rapprochementDossiers';
+import { biensAMontrer, type DecisionBien, type GesteBien, type LigneBien } from '../../../../../lib/gestion/racinesProprietaires';
 import { formatParis } from '../../../../../lib/temps/paris';
 
 /**
@@ -16,9 +17,12 @@ import { formatParis } from '../../../../../lib/temps/paris';
 
 export const API_RAPPROCHEMENT = '/api/admin/gestion/rapprochement-dossiers';
 
+/** La section « Biens » (migration 388, Arno 19/10/2026) : absente tant que la migration n'est pas appliquée. */
+export type DonneesBiens = { etat: 'sans_schema' } | { etat: 'vide' } | { etat: 'ok'; calcul: string; lignes: LigneBien[] };
+
 export type Donnees =
   | { etat: 'chargement' } | { etat: 'erreur' } | { etat: 'sans_schema' } | { etat: 'vide' }
-  | { etat: 'ok'; calcul: string; lignes: LigneRapprochement[]; plan: PlanLotSuivant };
+  | { etat: 'ok'; calcul: string; lignes: LigneRapprochement[]; plan: PlanLotSuivant; biens?: DonneesBiens };
 
 /** Ce que dit la décision qui fait foi, en clair. PUR. */
 export function libelleDecision(d: Decision | null, nbDecisions = 1): string {
@@ -27,6 +31,14 @@ export function libelleDecision(d: Decision | null, nbDecisions = 1): string {
   const quoi = d.geste === 'valider' ? `Validé${d.enMasse ? ' (avec tous les SÛRS)' : ''}`
     : d.geste === 'corriger' ? `Corrigé → ${d.fiche?.nom ?? 'fiche'}` : 'Aucun rattachement';
   return `${quoi} — ${d.decidePar}, ${quand}${nbDecisions > 1 ? ` · ${nbDecisions} décisions, la dernière fait foi` : ''}`;
+}
+
+/** Ce que dit la décision qui fait foi sur un bien, en clair. PUR. */
+export function libelleDecisionBien(d: DecisionBien | null, nbDecisions = 1): string {
+  if (d === null) return 'À décider — sans réponse, le bouton du bien ouvrira le dossier du propriétaire';
+  const quand = d.decideLe === '' ? '' : `, ${FORMAT_DATE.format(new Date(d.decideLe))}`;
+  const quoi = d.geste === 'valider' ? 'Validé' : d.geste === 'corriger' ? `Corrigé → ${d.dossierNom ?? 'dossier'}` : 'Aucun rattachement';
+  return `${quoi} — ${d.decidePar}${quand}${nbDecisions > 1 ? ` · ${nbDecisions} décisions, la dernière fait foi` : ''}`;
 }
 
 /** Le compteur d'une section : lignes, et combien sont décidées. PUR. */
@@ -149,6 +161,73 @@ export function LigneDossier({ l, occupe, onDecider, chercher }: PropsLigne) {
   );
 }
 
+export function LigneDuBien({ l, occupe, onDeciderBien }: {
+  l: LigneBien; occupe: boolean; onDeciderBien: (l: LigneBien, geste: GesteBien, dossier: string | null) => void;
+}) {
+  const [correction, setCorrection] = useState(false);
+  const geste = l.decision?.geste ?? null;
+  return (
+    <li className="rpd-ligne" data-decide={l.decision ? 'oui' : 'non'} data-bien={l.id}>
+      <div className="rpd-corps">
+        <div>
+          <strong>{l.adresse}</strong> <span className="rpd-meta">lot {l.wippimmo}</span>
+          <span className="rpd-pastille">{NIVEAU[l.niveau]}</span>
+        </div>
+        <div className="rpd-meta">Propriétaire : <a href={lienFiche(l.proprietaire.id)}>{l.proprietaire.nom}</a></div>
+        <div className="rpd-raison">
+          {l.dossierId !== null ? <>Dossier proposé : <a href={lienDossierDrive(l.dossierId)} target="_blank" rel="noreferrer">{l.dossierNom}</a> — </> : <>Aucun dossier proposé — </>}
+          {l.raison}
+        </div>
+        <div className="rpd-decision" data-decide={l.decision ? 'oui' : 'non'}>{libelleDecisionBien(l.decision, l.nbDecisions)}</div>
+      </div>
+      <div className="rpd-gestes">
+        <button type="button" className={`rpd-btn${geste === 'valider' ? ' rpd-btn-actif' : ''}`} disabled={occupe || l.dossierId === null}
+          onClick={() => onDeciderBien(l, 'valider', null)}>Valider</button>
+        <button type="button" className={`rpd-btn${geste === 'corriger' || correction ? ' rpd-btn-actif' : ''}`} disabled={occupe}
+          onClick={() => setCorrection((c) => !c)}>Corriger</button>
+        <button type="button" className={`rpd-btn${geste === 'aucun' ? ' rpd-btn-actif' : ''}`} disabled={occupe}
+          onClick={() => onDeciderBien(l, 'aucun', null)}>Aucun rattachement</button>
+      </div>
+      {correction ? (
+        <div className="rpd-recherche">
+          {l.candidats.filter((c) => c.id !== l.dossierId).map((c) => (
+            <button key={c.id} type="button" className="rpd-btn rpd-resultat" disabled={occupe}
+              onClick={() => { setCorrection(false); onDeciderBien(l, 'corriger', c.id); }}>{c.nom}</button>
+          ))}
+        </div>
+      ) : null}
+    </li>
+  );
+}
+
+/**
+ * LA SECTION « BIENS » (Arno, 19/10/2026) : pour un propriétaire à plusieurs dossiers copiés, le dossier de chacun de ses
+ * biens. Les SÛRS valent validés et ne sont pas montrés ; ici, les PROBABLES et les AMBIGUS, avec les mêmes gestes.
+ */
+export function SectionBiens({ biens, occupe, onDeciderBien }: {
+  biens: DonneesBiens | undefined; occupe: boolean; onDeciderBien: (l: LigneBien, geste: GesteBien, dossier: string | null) => void;
+}) {
+  if (biens === undefined || biens.etat === 'sans_schema') {
+    return <div className="rpd-section"><p className="rpd-aide" data-section="biens">Biens : la migration 388 n’est pas encore appliquée.</p></div>;
+  }
+  if (biens.etat === 'vide') return <div className="rpd-section"><p className="rpd-aide" data-section="biens">Biens : aucun calcul chargé.</p></div>;
+  const montres = biensAMontrer(biens.lignes);
+  const surs = biens.lignes.length - montres.length;
+  const decides = montres.filter((l) => l.decision !== null).length;
+  return (
+    <details className="rpd-section" data-section="biens" open>
+      <summary>Biens <span className="rpd-compteur" data-compteur="biens">{montres.length}{decides > 0 ? ` · ${decides} décidé${decides > 1 ? 's' : ''}` : ''}</span></summary>
+      <p className="rpd-aide">
+        Propriétaires à plusieurs dossiers copiés : le dossier de chacun de leurs biens. {surs} SÛR{surs > 1 ? 'S' : ''} valent validés et ne sont
+        pas montrés. Sans réponse ou « Aucun rattachement » : le bouton du bien ouvrira le dossier du propriétaire.
+      </p>
+      <ul className="rpd-lignes" style={{ listStyle: 'none', margin: 0 }}>
+        {montres.map((l) => <LigneDuBien key={l.id} l={l} occupe={occupe} onDeciderBien={onDeciderBien} />)}
+      </ul>
+    </details>
+  );
+}
+
 export function PlanDuLot({ plan }: { plan: PlanLotSuivant }) {
   const actifs = plan.deplacements.filter((d) => d.vers === 'Actifs').length;
   return (
@@ -166,9 +245,10 @@ export function PlanDuLot({ plan }: { plan: PlanLotSuivant }) {
   );
 }
 
-export function VueRapprochement({ donnees, occupe, message, onDecider, onValiderSurs, chercher }: {
+export function VueRapprochement({ donnees, occupe, message, onDecider, onValiderSurs, chercher, onDeciderBien = () => undefined }: {
   donnees: Donnees; occupe: boolean; message: string | null;
   onDecider: PropsLigne['onDecider']; onValiderSurs: () => void; chercher: PropsLigne['chercher'];
+  onDeciderBien?: (l: LigneBien, geste: GesteBien, dossier: string | null) => void;
 }) {
   if (donnees.etat === 'chargement') return <div className="svv-card">Chargement…</div>;
   if (donnees.etat === 'erreur') return <div className="svv-card">Lecture impossible. Réessayer dans un instant.</div>;
@@ -197,6 +277,7 @@ export function VueRapprochement({ donnees, occupe, message, onDecider, onValide
           </ul>
         </details>
       ))}
+      <SectionBiens biens={donnees.biens} occupe={occupe} onDeciderBien={onDeciderBien} />
       <PlanDuLot plan={donnees.plan} />
     </div>
   );
@@ -211,7 +292,7 @@ export function RapprochementDossiers() {
   useEffect(() => {
     let vivant = true;
     fetch(API_RAPPROCHEMENT, { cache: 'no-store' })
-      .then((r) => r.json() as Promise<{ etat: string; data?: { calcul: string; lignes: LigneRapprochement[]; plan: PlanLotSuivant } }>)
+      .then((r) => r.json() as Promise<{ etat: string; data?: { calcul: string; lignes: LigneRapprochement[]; plan: PlanLotSuivant; biens?: DonneesBiens } }>)
       .then((j) => {
         if (!vivant) return;
         if (j.etat === 'ok' && j.data) setDonnees({ etat: 'ok', ...j.data });
@@ -242,6 +323,7 @@ export function RapprochementDossiers() {
   return (
     <VueRapprochement donnees={donnees} occupe={occupe} message={message} chercher={chercher}
       onDecider={(l, geste, fiche) => { void envoyer({ action: 'decider', propositionId: l.id, geste, proprietaireId: fiche }); }}
-      onValiderSurs={() => { void envoyer({ action: 'valider-surs' }); }} />
+      onValiderSurs={() => { void envoyer({ action: 'valider-surs' }); }}
+      onDeciderBien={(l, geste, dossier) => { void envoyer({ action: 'decider-bien', propositionId: l.id, geste, dossierId: dossier }); }} />
   );
 }

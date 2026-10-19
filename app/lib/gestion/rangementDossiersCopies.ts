@@ -165,7 +165,7 @@ export function idsProteges(ctx: ContexteRangement): Set<string> {
   return new Set([ctx.racineId, ctx.scannesId, ctx.arriveeId, ctx.racineCopieId, ...Object.values(ctx.destinations)].filter((x) => x !== ''));
 }
 
-function cheminInterdit(chaine: readonly Maillon[], ctx: ContexteRangement): string | null {
+export function cheminInterdit(chaine: readonly Maillon[], ctx: ContexteRangement): string | null {
   for (const m of chaine) {
     if (m.id === ctx.scannesId || porteLeNomProtege(m.nom)) return `il est sous « ${m.nom} », qui ne perd ni ne reçoit jamais rien`;
     if (m.id === ctx.arriveeId) return `il est sous « ${m.nom} »`;

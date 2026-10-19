@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { compteurSection, CSS_RAPPROCHEMENT, libelleDecision, RapprochementDossiers, VueRapprochement, type Donnees } from './RapprochementDossiers';
+import { compteurSection, CSS_RAPPROCHEMENT, libelleDecision, libelleDecisionBien, RapprochementDossiers, VueRapprochement, type Donnees } from './RapprochementDossiers';
+import type { LigneBien } from '../../../../../lib/gestion/racinesProprietaires';
 import { planDuLotSuivant, TAILLE_CONTROLE, type LigneRapprochement } from '../../../../../lib/gestion/rapprochementDossiers';
 
 /**
@@ -50,7 +51,9 @@ describe('les sections et leurs compteurs', () => {
     expect(compteur('sans_correspondant')).toBe('1');
     expect(compteur('clients_sans_dossier')).toBe('1');
     expect(compteur('surs')).toBe('1');
-    expect(container.querySelectorAll('[data-section]').length).toBe(8);
+    // 8 sections de dossiers + la section « Biens » (migration 388), qui dit ici que la migration manque.
+    expect(container.querySelectorAll('[data-section]').length).toBe(9);
+    expect(container.querySelector('[data-section="biens"]')?.textContent).toMatch(/migration 388 n’est pas encore appliquée/);
   });
   it('une ligne : le dossier copié s’ouvre dans le Drive, la fiche proposée dans l’application, la raison en clair', () => {
     monter(donnees(0));
@@ -107,6 +110,44 @@ describe('les gestes envoient la décision, et l’écran la relit', () => {
     const apres = container.querySelector(`[data-proposition="${id}"] .rpd-decision`)!;
     expect(apres.textContent).toMatch(/^Validé — Arno, 19\/10\/2026/);
     expect(container.querySelector('[data-compteur="controle"]')?.textContent).toBe('1/20 validés');
+  });
+});
+
+function bien(p: Partial<LigneBien> = {}): LigneBien {
+  n += 1;
+  return {
+    id: n, lotId: 900 + n, wippimmo: String(300 + n), adresse: `${n} rue Exemple, VILLE`, proprietaire: { id: 77, nom: 'FICHE A' },
+    niveau: 'PROBABLE', dossierId: `dos-${n}`, dossierNom: `Dossier ${n}`, raison: 'locataire actuel DUPONT · autre piste : « Dossier B » (voie « exemple »)',
+    candidats: [{ id: `dos-${n}`, nom: `Dossier ${n}` }, { id: 'dos-b', nom: 'Dossier B' }], decision: null, nbDecisions: 0, ...p,
+  };
+}
+
+describe('la section « Biens » (Arno, 19/10/2026) : les PROBABLES et les AMBIGUS, mêmes gestes ; les SÛRS ne sont pas montrés', () => {
+  it('montre 2 biens sur 3 (le SÛR est compté dans l’aide), avec Valider / Corriger / Aucun rattachement', () => {
+    const d = { ...donnees(0), biens: { etat: 'ok' as const, calcul: '2026-10-19-biens', lignes: [bien(), bien({ niveau: 'SUR' }), bien({ niveau: 'AMBIGU', dossierId: null, dossierNom: null })] } };
+    const onDeciderBien = vi.fn();
+    act(() => { root.render(createElement(VueRapprochement, { donnees: d, occupe: false, message: null, onDecider: vi.fn(), onValiderSurs: vi.fn(), chercher: async () => [], onDeciderBien })); });
+    const s = container.querySelector('[data-section="biens"]')!;
+    expect(s.querySelector('[data-compteur="biens"]')?.textContent).toBe('2');
+    expect(s.textContent).toMatch(/1 SÛR valent validés/);
+    const lignes = [...s.querySelectorAll('[data-bien]')];
+    expect(lignes).toHaveLength(2);
+    const [probable, ambigu] = lignes;
+    expect([...probable.querySelectorAll('.rpd-gestes button')].map((b) => b.textContent)).toEqual(['Valider', 'Corriger', 'Aucun rattachement']);
+    expect(probable.querySelector('a[target="_blank"]')?.getAttribute('href')).toMatch(/^https:\/\/drive\.google\.com\/drive\/folders\/dos-/);
+    expect((ambigu.querySelector('.rpd-gestes button') as HTMLButtonElement).disabled).toBe(true);
+    act(() => { (probable.querySelectorAll('.rpd-gestes button')[1] as HTMLButtonElement).click(); });
+    const choix = [...probable.querySelectorAll('.rpd-recherche button')];
+    expect(choix.map((b) => b.textContent)).toEqual(['Dossier B']);
+    act(() => { (choix[0] as HTMLButtonElement).click(); });
+    expect(onDeciderBien).toHaveBeenCalledWith(expect.objectContaining({ id: Number(probable.getAttribute('data-bien')) }), 'corriger', 'dos-b');
+    act(() => { (ambigu.querySelectorAll('.rpd-gestes button')[2] as HTMLButtonElement).click(); });
+    expect(onDeciderBien).toHaveBeenLastCalledWith(expect.objectContaining({ niveau: 'AMBIGU' }), 'aucun', null);
+  });
+  it('libellé de décision d’un bien : sans réponse, il dit le repli ; corrigé, il nomme le dossier', () => {
+    expect(libelleDecisionBien(null)).toMatch(/ouvrira le dossier du propriétaire/);
+    expect(libelleDecisionBien({ geste: 'corriger', dossierId: 'dos-b', dossierNom: 'Dossier B', decideLe: '2026-10-19T08:30:00Z', decidePar: 'Arno' }))
+      .toMatch(/^Corrigé → Dossier B — Arno, 19\/10\/2026/);
   });
 });
 

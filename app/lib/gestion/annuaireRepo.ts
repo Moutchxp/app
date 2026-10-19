@@ -33,6 +33,7 @@ import {
 } from './rapprochementImport';
 import { conditionCoordonneeVivante } from './coordonneeVivante';
 import { colonneExisteMemo } from '../location/sondeLocation';
+import { dossierDuBien, type SourceDossierBien } from './racinesProprietaires';
 // LOT FICHES-RETOUCHES — un numero affiche par l'app est groupe par deux chiffres.
 import { decortiquerNumero, formaterTelephone } from './telephoneAffichage';
 import type { ContactAnnuaire } from './annuaire';
@@ -1028,8 +1029,13 @@ export interface BienDuProprietaire {
   mails: number;
   dernierEchange: string | null;
   evenementsOuverts: number;
-  /** L'identifiant du dossier Drive du bien, quand l'arbre le connaît. */
+  /**
+   * Le dossier Drive qu'ouvre le bien (Arno, 19/10/2026) : son dossier attitré, à défaut celui de son propriétaire — jamais
+   * un dossier de l'ancienne arborescence. `null` : le bouton se replie sur `racineDriveId` (voir `boutonDossierBien`).
+   */
   driveDossierId: string | null;
+  driveDossierSource?: SourceDossierBien | null;
+  racineDriveId?: string | null;
 }
 
 export interface FicheProprietaire {
@@ -1120,8 +1126,14 @@ export interface FicheLot {
   debut: string | null; fin: string | null; absent: boolean;
   /** 🔴 TOUJOURS `null` : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
   surfaceM2: number | null;
-  /** L'identifiant du dossier Drive DU LOT, lu dans l'arbre (365/365 au 29/09/2026). */
+  /**
+   * Le dossier Drive qu'ouvre le bien (Arno, 19/10/2026) : son dossier attitré (migration 388), à défaut celui de son
+   * propriétaire — jamais un dossier de l'ancienne arborescence (avant : « 2 Biens immobiliers », lu dans l'arbre). `null` :
+   * le bouton se replie sur `racineDriveId`. Les autres lecteurs (tâches, rédaction) partent de ce même dossier.
+   */
   driveDossierId: string | null;
+  driveDossierSource?: SourceDossierBien | null;
+  racineDriveId?: string | null;
   proprietaireId: number | null;
   /** LOT RATTACHEMENT-2 — la clé WIPPIMMO du propriétaire. Ajoutée, comme `FicheProprietaire.cle` et pour la même raison. */
   proprietaireCle: string | null;
@@ -1190,7 +1202,10 @@ export interface LogementDuLocataire {
   proprietaireId: number | null; proprietaireNom: string | null;
   /** Combien de mails sont rattachés à ce bien (rattachements CONFIRMÉS), et le dernier. */
   mails: number; dernierEchange: string | null;
+  /** Comme `BienDuProprietaire.driveDossierId` (Arno, 19/10/2026). */
   driveDossierId: string | null;
+  driveDossierSource?: SourceDossierBien | null;
+  racineDriveId?: string | null;
 }
 
 export interface FicheLocataire {
@@ -1699,17 +1714,32 @@ async function racineDrive(): Promise<string | null> {
   }
 }
 
-async function dossierDriveDe(sorte: 'proprietaire' | 'bien', cle: string | null): Promise<string | null> {
-  if (cle === null || cle.trim() === '') return null;
-  try {
-    const { rows } = await query<{ drive_id: string }>(
-      `SELECT drive_id FROM gestion_drive_arbre
-        WHERE sorte = $1 AND cle = $2 AND absent_le IS NULL LIMIT 1`, [sorte, cle]);
-    return rows[0]?.drive_id ?? null;
-  } catch {
-    // L'arbre peut ne pas exister (migration non appliquée) : la fiche s'affiche quand même, sans le lien.
-    return null;
-  }
+/**
+ * ══ 🔴🔴 RACINE PROPRIÉTAIRE, BOUTON DRIVE DES BIENS (Arno, 19/10/2026) ═══════════════════════════════════════════
+ *
+ * Le dossier d'un BIEN : son dossier attitré (gestion_annuaire_lot.drive_dossier_id, migration 388) ; à défaut celui de
+ * son propriétaire (le dossier copié, ou la racine du propriétaire s'il en a plusieurs). Repli d'AFFICHAGE, dans le code :
+ * rien n'est enregistré ; sans l'un ni l'autre, le bouton ouvre la racine « Base de données locative » (racinesProprietaires).
+ *
+ * 🔴 « AUCUN BOUTON DE BIEN NE POINTE PLUS VERS L'ANCIENNE ARBORESCENCE » : un dossier mémorisé dans gestion_drive_arbre
+ * est un dossier de l'ancienne arborescence (la table ne contient QUE sa construction : CHECK cree_par = 'construction') ;
+ * il ne compte pas. Avant ce lot, le bouton lisait « 2 Biens immobiliers » dans cette table (365 biens sur 365).
+ * Sans la migration 388, la colonne du bien n'est pas nommée (le repli sur le propriétaire suffit).
+ * AUCUN ACCENT GRAVE dans le fragment rendu : il vit dans un littéral gabarit.
+ */
+async function sqlDossiersDuBien(lo: string): Promise<string> {
+  const colonne = await colonneExisteMemo('gestion_annuaire_lot', 'drive_dossier_id');
+  const horsAncienne = (x: string) => `NOT EXISTS (SELECT 1 FROM gestion_drive_arbre arb WHERE arb.drive_id = ${x})`;
+  return `${colonne ? `CASE WHEN ${lo}.drive_dossier_id IS NOT NULL AND ${horsAncienne(`${lo}.drive_dossier_id`)} THEN ${lo}.drive_dossier_id END` : 'NULL::text'} AS dossier_bien,
+            (SELECT pa.drive_dossier_id FROM gestion_annuaire_proprietaire pa
+              WHERE pa.id = ${lo}.proprietaire_id AND pa.drive_dossier_id IS NOT NULL AND ${horsAncienne('pa.drive_dossier_id')}) AS dossier_proprietaire`;
+}
+
+/** Ce que les écrans reçoivent pour le bouton Drive d'un bien (voir `boutonDossierBien`). */
+function champsDossierDuBien(l: { dossier_bien?: string | null; dossier_proprietaire?: string | null }, racine: string | null):
+  { driveDossierId: string | null; driveDossierSource: SourceDossierBien | null; racineDriveId: string | null } {
+  const r = dossierDuBien(l.dossier_bien ?? null, l.dossier_proprietaire ?? null, racine === null ? new Set() : new Set([racine]));
+  return { driveDossierId: r?.id ?? null, driveDossierSource: r?.source ?? null, racineDriveId: racine };
 }
 
 /**
@@ -1737,7 +1767,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     nature: string | null; type_bien: string | null; gestion_debut: string | null; gestion_fin: string | null;
     immeuble: string | null;
     locataire: string | null; locataire_id: string | null; locataire_depuis: string | null;
-    mails: number; dernier_echange: string | null; evenements: number; drive_id: string | null;
+    mails: number; dernier_echange: string | null; evenements: number; dossier_bien?: string | null; dossier_proprietaire?: string | null;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin,
@@ -1745,7 +1775,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
             coalesce(ma.n, 0)::int AS mails,
             ${INSTANT('ma.dernier')} AS dernier_echange,
             coalesce(ev.n, 0)::int AS evenements,
-            dr.drive_id
+            ${await sqlDossiersDuBien('lo')}
        FROM gestion_annuaire_lot lo
        LEFT JOIN LATERAL (
          SELECT l.nom, o.locataire_id, o.entree FROM gestion_annuaire_occupation o
@@ -1791,12 +1821,11 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
           WHERE ${sqlEvenementOuvertParLaFrise('e')} AND r2.cible_sorte = 'lot' AND r2.cible_cle = lo.wippimmo_id
             AND r2.statut = 'confirme'
        ) ev ON true
-       LEFT JOIN gestion_drive_arbre dr
-              ON dr.sorte = 'bien' AND dr.cle = lo.wippimmo_id AND dr.absent_le IS NULL
       WHERE lo.proprietaire_id = $1
       ORDER BY ((${finAffichee}) IS NOT NULL), lo.commune NULLS LAST, lo.adresse NULLS LAST, lo.wippimmo_id`,
     [proprietaireId]);
 
+  const racine = await racineDrive();
   return rows.map((l) => ({
     id: Number(l.id), numero: l.wippimmo_id,
     adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
@@ -1806,7 +1835,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     locataire: l.locataire, locataireId: l.locataire_id === null ? null : Number(l.locataire_id),
     locataireDepuis: l.locataire_depuis,
     mails: l.mails, dernierEchange: l.dernier_echange, evenementsOuverts: l.evenements,
-    driveDossierId: l.drive_id,
+    ...champsDossierDuBien(l, racine),
   }));
 }
 
@@ -1840,12 +1869,13 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
     id: string; wippimmo_id: string; nature: string | null; type_bien: string | null; immeuble: string | null;
     adresse: string | null; commune: string | null; code_postal: string | null; gestion_debut: string | null;
     gestion_fin: string | null; absent_le: string | null; proprietaire_id: string | null;
-    proprietaire_cle: string | null; proprietaire_nom: string;
+    proprietaire_cle: string | null; proprietaire_nom: string; dossier_bien?: string | null; dossier_proprietaire?: string | null;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.nature, lo.type_bien, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
             lo.gestion_debut::text, (${await sqlFinAffichee('lo')})::text AS gestion_fin, lo.absent_le::text,
             pr.id::text AS proprietaire_id, pr.wippimmo_id AS proprietaire_cle,
-            coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom
+            coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
+            ${await sqlDossiersDuBien('lo')}
        FROM gestion_annuaire_lot lo
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
       WHERE lo.id = $1`, [id]);
@@ -1908,7 +1938,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
       debut: l.gestion_debut, fin: l.gestion_fin, absent: l.absent_le !== null,
       surfaceM2: null,
-      driveDossierId: await dossierDriveDe('bien', l.wippimmo_id),
+      ...champsDossierDuBien(l, await racineDrive()),
       proprietaireId: l.proprietaire_id === null ? null : Number(l.proprietaire_id),
       proprietaireCle: l.proprietaire_cle,
       proprietaireNom: l.proprietaire_nom,
@@ -1977,7 +2007,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
     code_postal: string | null; nature: string | null; type_bien: string | null; immeuble: string | null;
     entree: string | null; sortie: string | null;
     proprietaire_id: string | null; proprietaire_nom: string | null;
-    mails: number; dernier_echange: string | null; drive_id: string | null;
+    mails: number; dernier_echange: string | null; dossier_bien?: string | null; dossier_proprietaire?: string | null;
   }>(
     `SELECT o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero, lo.adresse, lo.commune,
             lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
@@ -1985,7 +2015,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
             pr.id::text AS proprietaire_id, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
             coalesce(ma.n, 0)::int AS mails,
             ${INSTANT('ma.dernier')} AS dernier_echange,
-            dr.drive_id
+            ${await sqlDossiersDuBien('lo')}
        FROM gestion_annuaire_occupation o
        LEFT JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
@@ -1996,8 +2026,6 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
           WHERE r.cible_sorte = 'lot' AND r.cible_cle = lo.wippimmo_id AND r.statut = 'confirme'
             AND r.sorti_le IS NULL -- 339 : un mail sorti du suivi ne compte plus pour ce bien
        ) ma ON true
-       LEFT JOIN gestion_drive_arbre dr
-              ON dr.sorte = 'bien' AND dr.cle = lo.wippimmo_id AND dr.absent_le IS NULL
       WHERE o.locataire_id = $1
       ORDER BY (o.sortie IS NULL) DESC, o.entree DESC NULLS LAST, o.id DESC`, [id]);
 
@@ -2017,6 +2045,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
         WHERE lot_id = ANY($1::bigint[]) AND sortie IS NULL`, [lotsEnCours]);
     idsFoyer.push(...voisins.map((v) => Number(v.locataire_id)));
   }
+  const racineLogements = occ.length === 0 ? null : await racineDrive();
 
   return {
     etat: 'ok',
@@ -2039,7 +2068,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
         entree: o.entree, sortie: o.sortie, encours: estLocataireEnPlace(o), horsGestion: o.lot_id === null,
         proprietaireId: o.proprietaire_id === null ? null : Number(o.proprietaire_id),
         proprietaireNom: o.proprietaire_nom,
-        mails: o.mails, dernierEchange: o.dernier_echange, driveDossierId: o.drive_id,
+        mails: o.mails, dernierEchange: o.dernier_echange, ...champsDossierDuBien(o, racineLogements),
       })),
       personnes: await personnesDe('locataire', idsFoyer),
       preavis: await locatairesEnPreavis(idsFoyer),

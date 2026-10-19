@@ -16,11 +16,16 @@ vi.mock('../../../../../lib/gestion/rapprochementDossiersRepo', () => ({
   validerTousLesSurs: (...a: unknown[]) => masse(...(a as [])),
   chercherFiches: (...a: unknown[]) => chercher(...(a as [])),
 }));
+const deciderBien = vi.fn(async () => ({ ok: true }));
+vi.mock('../../../../../lib/gestion/rapprochementBiensRepo', () => ({
+  lireRapprochementBiens: async () => ({ etat: 'ok', calcul: '2026-10-19-biens', lignes: [] }),
+  deciderRapprochementBien: (...a: unknown[]) => deciderBien(...(a as [])),
+}));
 const { GET, POST } = await import('./route');
 const URL_API = 'http://localhost/api/admin/gestion/rapprochement-dossiers';
 const poster = (corps: unknown) => POST(new Request(URL_API, { method: 'POST', body: JSON.stringify(corps) }));
 
-beforeEach(() => { admin = true; decider.mockClear(); masse.mockClear(); });
+beforeEach(() => { admin = true; decider.mockClear(); masse.mockClear(); deciderBien.mockClear(); });
 
 describe('rapprochement des dossiers clients — la route', () => {
   it('un non-administrateur est refusé (403), en lecture comme en écriture, sans toucher au dépôt', async () => {
@@ -31,7 +36,8 @@ describe('rapprochement des dossiers clients — la route', () => {
   });
   it('GET : les lignes et le plan du lot suivant ; GET ?q= : la recherche de fiche', async () => {
     const j = await (await GET(new Request(URL_API))).json();
-    expect(j).toEqual({ etat: 'ok', data: { calcul: '2026-10-19', lignes: [], plan: expect.objectContaining({ deplacements: [], nonDecides: 0 }) } });
+    expect(j).toEqual({ etat: 'ok', data: { calcul: '2026-10-19', lignes: [], plan: expect.objectContaining({ deplacements: [], nonDecides: 0 }),
+      biens: { etat: 'ok', calcul: '2026-10-19-biens', lignes: [] } } });
     expect(await (await GET(new Request(`${URL_API}?q=fic`))).json()).toEqual({ etat: 'ok', data: [{ id: 9, nom: 'FICHE', detail: null }] });
   });
   it('POST decider : transmet la proposition, le geste, la fiche et l’auteur ; un geste inconnu est refusé', async () => {
@@ -43,5 +49,15 @@ describe('rapprochement des dossiers clients — la route', () => {
     const r = await poster({ action: 'valider-surs' });
     expect(r.status).toBe(409);
     expect((await r.json()).motif).toMatch(/3 validé\(s\) sur 20/);
+  });
+  it('POST decider-bien (section « Biens », 388) : transmet la proposition, le geste, le dossier et l’auteur ; un geste inconnu est refusé', async () => {
+    expect((await poster({ action: 'decider-bien', propositionId: 8, geste: 'corriger', dossierId: '1AbcdefghijKLMNOP' })).status).toBe(200);
+    expect(deciderBien).toHaveBeenCalledWith(8, 'corriger', '1AbcdefghijKLMNOP', { id: 1, libelle: 'Arno' });
+    expect((await poster({ action: 'decider-bien', propositionId: 8, geste: 'aucun' })).status).toBe(200);
+    expect(deciderBien).toHaveBeenLastCalledWith(8, 'aucun', null, { id: 1, libelle: 'Arno' });
+    expect((await poster({ action: 'decider-bien', propositionId: 8, geste: 'effacer' })).status).toBe(400);
+    admin = false;
+    expect((await poster({ action: 'decider-bien', propositionId: 8, geste: 'valider' })).status).toBe(403);
+    expect(deciderBien).toHaveBeenCalledTimes(2);
   });
 });
