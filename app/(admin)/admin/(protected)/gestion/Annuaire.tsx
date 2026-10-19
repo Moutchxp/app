@@ -90,6 +90,7 @@ import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 // LOT FICHES-RETOUCHES — la nomenclature des coordonnées, partagée par tous les écrans de l'annuaire.
 import { lienAppel, lignesParType } from '../../../../lib/gestion/telephoneAffichage';
 import { pastillesBien } from '../../../../lib/gestion/pastillesBien';
+import { boutonDossierProprietaire } from '../../../../lib/gestion/rangementDossiersCopies';
 // LOT ANNUAIRE-SYNDICS — le bouton syndic des cartes de bien, et le composeur qu'il peut ouvrir.
 import { BoutonSyndic, EcrireDepuisGestion, PastilleConflitParcelle } from './BoutonSyndic';
 import { BandeauSyndicConnuDuBien } from './PropositionsSyndic';
@@ -966,10 +967,16 @@ function VueProprietaire({
           </p>
         </div>
         <div className="ann-tete-actions">
-          {f.driveDossierId !== null && (
-            <a className="svv-btn svv-btn-outline gst-btn" href={`${DRIVE_DOSSIER}${f.driveDossierId}`}
-              target="_blank" rel="noreferrer">Dossier Drive ↗</a>
-          )}
+          {/* 🔴🔴 RANGEMENT DES DOSSIERS COPIÉS (Arno, 19/10/2026, point 4) — le dossier ATTITRÉ de la fiche ; sans dossier
+              attitré, la RACINE « Base de données locative », pour naviguer à la main, et le libellé le dit. La racine
+              n'est jamais enregistrée comme dossier de la fiche : c'est un repli d'affichage. */}
+          {(() => {
+            const b = boutonDossierProprietaire(f.driveDossierId, f.racineDriveId ?? null);
+            return b === null ? null : (
+              <a className="svv-btn svv-btn-outline gst-btn" href={b.href} target="_blank" rel="noreferrer"
+                data-attitre={b.attitre ? 'oui' : 'non'}>{b.libelle}</a>
+            );
+          })()}
         </div>
       </header>
 

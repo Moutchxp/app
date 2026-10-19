@@ -161,7 +161,7 @@ export interface PlanLotSuivant {
   repointages: { proprietaireId: number; nom: string; de: string | null; vers: string; propositionId: number }[];
   /** L'ancien dossier de la fiche repointée, sous le verrou de l'étape 1 bis §6 (jamais de suppression définitive). */
   corbeille: { proprietaireId: number; nom: string; ancienDossierId: string }[];
-  /** Décision 6 : laissés tels quels. */
+  /** Décision 6 : laissés où ils sont (mais repointés s'ils sont validés, point 1 du 19/10). */
   laissesEnPlace: { propositionId: number; nomDossier: string }[];
   dossiersTest: readonly string[];
   nonDecides: number;
@@ -176,9 +176,13 @@ export function planDuLotSuivant(lignes: readonly LigneRapprochement[]): PlanLot
   const parFiche = new Map<number, { fiche: FicheCourte; lignes: LigneRapprochement[] }>();
   for (const l of dossiers) {
     if (l.decision === null) plan.nonDecides += 1;
-    if (l.venduEnGestion) { plan.laissesEnPlace.push({ propositionId: l.id, nomDossier: l.nomDossier ?? '' }); continue; }
-    plan.deplacements.push({ propositionId: l.id, copieDossierId: l.copieDossierId as string, nomDossier: l.nomDossier ?? '',
-      vers: l.branche === BRANCHE_ACTIVE ? 'Actifs' : 'Inactifs', decide: l.decision !== null });
+    // Décision 6 du 18/10, redite au point 3 du 19/10 : un « vendu / perdu mais en gestion » reste où il est. Mais s'il est
+    // validé, sa fiche le reçoit comme dossier attitré (point 1 du 19/10 : toute proposition validée ou corrigée).
+    if (l.venduEnGestion) plan.laissesEnPlace.push({ propositionId: l.id, nomDossier: l.nomDossier ?? '' });
+    else {
+      plan.deplacements.push({ propositionId: l.id, copieDossierId: l.copieDossierId as string, nomDossier: l.nomDossier ?? '',
+        vers: l.branche === BRANCHE_ACTIVE ? 'Actifs' : 'Inactifs', decide: l.decision !== null });
+    }
     const f = ficheRetenue(l);
     if (f === null) continue;
     const g = parFiche.get(f.id) ?? { fiche: f, lignes: [] };

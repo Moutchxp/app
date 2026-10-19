@@ -91,12 +91,15 @@ describe('le plan du lot suivant (rien n’est exécuté)', () => {
     expect(plan.nonDecides).toBe(1);
     expect(plan.dossiersTest.join(' ')).toMatch(/_TEST CLAUDE.*_TEST COPIE/);
   });
-  it('décision 6 : un « vendu / perdu mais en gestion » est laissé en place, même validé', () => {
+  it('décision 6 : un « vendu / perdu mais en gestion » est laissé en place ; validé, sa fiche le reçoit quand même (point 1 du 19/10)', () => {
     const v = ligne({ venduEnGestion: true, branche: '3 perdus' });
     const plan = planDuLotSuivant([{ ...v, decision: valide(v) }]);
     expect(plan.deplacements).toEqual([]);
-    expect(plan.repointages).toEqual([]);
     expect(plan.laissesEnPlace.map((x) => x.propositionId)).toEqual([v.id]);
+    expect(plan.repointages.map((r) => [r.proprietaireId, r.vers])).toEqual([[v.fiche!.id, v.copieDossierId]]);
+    expect(plan.corbeille.map((c) => c.ancienDossierId)).toEqual([v.fiche!.dossierActuelId]);
+    const libre = ligne({ venduEnGestion: true, branche: '2 vendus' });
+    expect(planDuLotSuivant([libre]).repointages).toEqual([]);
   });
   it('décision 7 : plusieurs dossiers validés pour une fiche → UN repointage, vers le principal ; une seule corbeille', () => {
     const fiche = { id: 5, nom: 'MULTI', dossierActuelId: 'ancien-5' };

@@ -32,6 +32,10 @@ function repondre(sqlBrut: string, p: unknown[]): { rows: unknown[]; rowCount: n
   if (s.startsWith('SELECT id::text, nom_complet AS nom, drive_dossier_id FROM gestion_annuaire_proprietaire')) {
     return r((p[0] as number[]).filter((id) => fiches.has(id)).map((id) => ({ id: String(id), nom: fiches.get(id), drive_dossier_id: `ancien-${id}` })));
   }
+  if (s.startsWith('SELECT s.proprietaire_id::text, lc.nom, bool_or(o.sortie IS NULL) AS en_place')) {
+    const L: Record<number, { nom: string; en_place: boolean }[]> = { 1: [{ nom: 'Dupont Jean', en_place: false }], 2: [{ nom: 'DUPONT', en_place: false }, { nom: 'dupont marie', en_place: true }] };
+    return r((p[0] as number[]).flatMap((id) => (L[id] ?? []).map((x) => ({ proprietaire_id: String(id), ...x }))));
+  }
   if (s.startsWith('SELECT sorte, proprietaire_id::text FROM gestion_rapprochement_proposition WHERE id = $1 FOR UPDATE')) {
     const x = props.find((y) => y.id === p[0]);
     return r(x ? [{ sorte: x.sorte, proprietaire_id: x.proprietaire_id === null ? null : String(x.proprietaire_id) }] : []);
@@ -114,6 +118,17 @@ describe('« Valider tous les SÛRS »', () => {
     expect(decs.at(-1)).toEqual(expect.objectContaining({ proposition_id: 21, geste: 'valider', proprietaire_id: 2, en_masse: true }));
     expect(decs.some((d) => d.proposition_id === 22)).toBe(false);
     expect(await validerTousLesSurs(ARNO)).toEqual({ ok: false, motif: expect.stringMatching(/Aucun SÛR/) });
+  });
+});
+
+describe('point 7 : la raison dit « ancien locataire » ou « locataire actuel »', () => {
+  it('d’après les occupations des lots de la fiche proposée ; un locataire de ce nom en place l’emporte', async () => {
+    const l = await lireRapprochement();
+    if (l.etat !== 'ok') throw new Error('lecture');
+    expect(l.lignes.find((x) => x.id === 1)?.raison).toBe('même nom + ancien locataire DUPONT');
+    expect(l.lignes.find((x) => x.id === 21)?.raison).toBe('même nom + locataire actuel DUPONT');
+    expect(l.lignes.find((x) => x.id === 23)?.raison).toBe('même nom + locataire DUPONT connu');
+    expect(ecritures).toEqual([]);
   });
 });
 

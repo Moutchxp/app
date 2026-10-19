@@ -5,6 +5,7 @@ import {
   peutValiderTousLesSurs, sursAValider, verifierGeste,
   type Decision, type FicheCourte, type Geste, type LigneRapprochement, type Niveau,
 } from './rapprochementDossiers';
+import { preciserRaisonLocataire } from './rangementDossiersCopies';
 
 /**
  * ══ 🔴🔴 RAPPROCHEMENT DES DOSSIERS CLIENTS — LE DÉPÔT (Arno, 19/10/2026) ════════════════════════════════════════════════
@@ -43,6 +44,28 @@ async function fiches(ids: readonly number[]): Promise<Map<number, FicheCourte>>
   return new Map(rows.map((r) => [Number(r.id), { id: Number(r.id), nom: r.nom, dossierActuelId: r.drive_dossier_id }]));
 }
 
+/**
+ * Point 7 (Arno, 19/10/2026) : les locataires des lots de chaque fiche, et s'ils sont EN PLACE (règle unique : aucune date de
+ * sortie), pour écrire « ancien locataire X » ou « locataire actuel X » au lieu de « locataire X connu ». Mêmes lots que le
+ * calcul : ceux dont la fiche est propriétaire, et ceux dont elle est copropriétaire.
+ */
+async function locatairesDesFiches(ids: readonly number[]): Promise<Map<number, { nom: string; enPlace: boolean }[]>> {
+  const out = new Map<number, { nom: string; enPlace: boolean }[]>();
+  if (ids.length === 0) return out;
+  const { rows } = await query<{ proprietaire_id: string; nom: string; en_place: boolean }>(
+    `SELECT s.proprietaire_id::text, lc.nom, bool_or(o.sortie IS NULL) AS en_place
+       FROM (SELECT id AS lot_id, proprietaire_id FROM gestion_annuaire_lot WHERE proprietaire_id = ANY($1::bigint[])
+             UNION SELECT lot_id, proprietaire_id FROM gestion_annuaire_lot_proprietaire WHERE proprietaire_id = ANY($1::bigint[])) s
+       JOIN gestion_annuaire_occupation o ON o.lot_id = s.lot_id
+       JOIN gestion_annuaire_locataire lc ON lc.id = o.locataire_id
+      GROUP BY s.proprietaire_id, lc.id, lc.nom`, [[...new Set(ids)]]);
+  for (const r of rows) {
+    const id = Number(r.proprietaire_id);
+    out.set(id, [...(out.get(id) ?? []), { nom: r.nom ?? '', enPlace: r.en_place }]);
+  }
+  return out;
+}
+
 /** Les propositions du DERNIER calcul, chacune avec sa décision qui fait foi (la plus récente). */
 export async function lireRapprochement(): Promise<Lecture> {
   if (!(await disponible())) return { etat: 'sans_schema' };
@@ -65,6 +88,9 @@ export async function lireRapprochement(): Promise<Lecture> {
   const F = await fiches(ids);
   const fiche = (id: string | null): FicheCourte | null => (id === null ? null : F.get(Number(id)) ?? { id: Number(id), nom: `fiche ${id}`, dossierActuelId: null });
   const D = new Map(decs.map((d) => [d.proposition_id, d]));
+  const avecLocataire = props.filter((p) => p.proprietaire_id !== null && /locataire \S+ connu/.test(p.raison)).map((p) => Number(p.proprietaire_id));
+  const L = await locatairesDesFiches(avecLocataire);
+  const raison = (p: LigneProposition): string => (p.proprietaire_id === null ? p.raison : preciserRaisonLocataire(p.raison, L.get(Number(p.proprietaire_id)) ?? []));
   return {
     etat: 'ok', calcul,
     lignes: props.map((p) => {
@@ -73,7 +99,7 @@ export async function lireRapprochement(): Promise<Lecture> {
         : { id: Number(d.id), geste: d.geste, fiche: fiche(d.proprietaire_id), enMasse: d.en_masse, decideLe: d.decide_le, decidePar: d.decide_par_libelle };
       return {
         id: Number(p.id), sorte: p.sorte, copieDossierId: p.copie_dossier_id, nomDossier: p.nom_dossier, branche: p.branche,
-        nbFichiers: p.nb_fichiers, niveau: p.niveau, raison: p.raison, fiche: fiche(p.proprietaire_id),
+        nbFichiers: p.nb_fichiers, niveau: p.niveau, raison: raison(p), fiche: fiche(p.proprietaire_id),
         candidats: (p.candidats ?? []).map((x) => fiche(x)).filter((x): x is FicheCourte => x !== null),
         controleOeil: p.controle_oeil, venduEnGestion: p.vendu_en_gestion, groupePlusieurs: p.groupe_plusieurs, principal: p.principal,
         dernierFichierLe: p.dernier_fichier_le, decision, nbDecisions: d?.n ?? 0,

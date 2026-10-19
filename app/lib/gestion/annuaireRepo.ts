@@ -1044,8 +1044,13 @@ export interface FicheProprietaire {
   adresse: string | null; commune: string | null; codePostal: string | null;
   relationDepuis: string | null; absent: boolean;
   contacts: ContactAffiche[];
-  /** L'identifiant du dossier Drive du PROPRIÉTAIRE, quand l'arbre le connaît (307/307 au 29/09/2026). */
+  /**
+   * Le DOSSIER ATTITRÉ du propriétaire (`gestion_annuaire_proprietaire.drive_dossier_id`) : l'ancien dossier construit depuis
+   * WIPPIMMO, ou son dossier copié de « Documents clients scannés » une fois repointé (19/10/2026).
+   */
   driveDossierId: string | null;
+  /** La racine « Base de données locative » : ce qu'ouvre le bouton quand la fiche n'a pas de dossier attitré (point 4). */
+  racineDriveId?: string | null;
   lots: { id: number; numero: string; adresse: string | null; commune: string | null; nature: string | null;
     typeBien: string | null; debut: string | null; locataire: string | null; locataireId: number | null }[];
   /**
@@ -1619,8 +1624,9 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
   const { rows } = await query<{
     id: string; wippimmo_id: string; nom_complet: string; civilite: string | null; adresse: string | null;
     commune: string | null; code_postal: string | null; relation_depuis: string | null; absent_le: string | null;
+    drive_dossier_id: string | null;
   }>(`SELECT id, wippimmo_id, nom_complet, civilite, adresse, commune, code_postal, relation_depuis::text,
-             absent_le::text
+             absent_le::text, drive_dossier_id
         FROM gestion_annuaire_proprietaire pe
        WHERE id = $1 AND ${await sqlPersonneVivante('pe')}`, [id]);
   const p = rows[0];
@@ -1649,7 +1655,12 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
       commune: p.commune,
       codePostal: p.code_postal, relationDepuis: p.relation_depuis, absent: p.absent_le !== null,
       contacts: await contactsDe('proprietaire', Number(p.id)),
-      driveDossierId: await dossierDriveDe('proprietaire', p.wippimmo_id),
+      /* 🔴🔴 RANGEMENT DES DOSSIERS COPIÉS (Arno, 19/10/2026) — LE DOSSIER ATTITRÉ est `drive_dossier_id`, celui que le
+         repointage fait passer au dossier copié. On lisait l'ancienne arborescence mémorisée (le même identifiant pour les
+         307 fiches jusqu'ici) : après le repointage, elle aurait ouvert l'ancien dossier, mis à la corbeille. */
+      driveDossierId: p.drive_dossier_id ?? null,
+      // Point 4 : sans dossier attitré, le bouton ouvre la racine (repli d'AFFICHAGE, jamais enregistré sur la fiche).
+      racineDriveId: await racineDrive(),
       lots: lots.map((l) => ({
         id: Number(l.id), numero: l.wippimmo_id, adresse: l.adresse, commune: l.commune, nature: l.nature,
         typeBien: l.type_bien, debut: l.gestion_debut, locataire: l.locataire,
@@ -1677,6 +1688,17 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
  * ⚠️ UNE ABSENCE N'EST PAS UNE PANNE : un dossier pas encore construit rend `null`, et l'écran n'affiche
  * simplement pas le lien. Inventer une adresse Drive enverrait sur une page d'erreur de Google.
  */
+/** La racine « Base de données locative », telle que l'arbre la mémorise ; `null` si l'arbre n'existe pas. */
+async function racineDrive(): Promise<string | null> {
+  try {
+    const { rows } = await query<{ drive_id: string }>(
+      `SELECT drive_id FROM gestion_drive_arbre WHERE sorte = 'racine' AND absent_le IS NULL ORDER BY drive_id LIMIT 1`);
+    return rows[0]?.drive_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function dossierDriveDe(sorte: 'proprietaire' | 'bien', cle: string | null): Promise<string | null> {
   if (cle === null || cle.trim() === '') return null;
   try {
