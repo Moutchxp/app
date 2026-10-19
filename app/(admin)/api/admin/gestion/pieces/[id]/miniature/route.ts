@@ -12,6 +12,7 @@ import { deposerMiniatureGestion, recuperer } from '../../../../../../../lib/sto
 // 🔴 LOT PJ-APRES-VIDAGE — « lire les octets d'une pièce » s'écrit UNE fois, et tout le monde l'appelle.
 import { lireOctetsPiece } from '../../../../../../../lib/gestion/octetsPiece';
 import { depsOctetsPiece, lirePiecesALire } from '../../../../../../../lib/gestion/octetsPieceCablage';
+import { cacheMiniatures } from '../../../../../../../lib/gestion/cacheMiniatures';
 
 /**
  * /api/admin/gestion/pieces/[id]/miniature (lot 5-PJ-A) — LA VIGNETTE D'UNE PIÈCE JOINTE.
@@ -84,11 +85,22 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     // ── ① DÉJÀ FABRIQUÉE : on sert le fichier dérivé, sans rien décoder ──
     if (etat.etat === 'ok' && etat.cleMiniature !== null) {
       try {
-        return servir(await recuperer(etat.cleMiniature));
+        const v = await recuperer(etat.cleMiniature);
+        cacheMiniatures.oublier(id);
+        return servir(v);
       } catch {
-        // La vignette a disparu du stockage : on ne ment pas, on la refait ci-dessous plutôt que de rendre une erreur.
+        // La vignette a disparu du stockage, ou le stockage ne répond pas : on la refait ci-dessous plutôt que de rendre
+        // une erreur.
       }
     }
+    /**
+     * 🔴 RÉGRESSION DU 15/10/2026 (Arno, 19/10) — LE STOCKAGE ÉTEINT. La bascule a arrêté le MinIO du Mac : la vignette
+     * déposée ne se relisait plus, et la refaire depuis la copie Drive finissait en 503 au moment du DÉPÔT (voir ③). Une
+     * vignette refaite sans pouvoir être déposée est gardée ICI, en mémoire seulement (`cacheMiniatures`) : l'affichage
+     * suivant ne relit pas le Drive.
+     */
+    const enMemoire = cacheMiniatures.lire(id);
+    if (enMemoire !== null) return servir(enMemoire);
     // ── ② ÉCHEC DÉJÀ CONSTATÉ : on ne retente pas. L'écran affiche son icône de type. ──
     if (etat.etat === 'echec') return refus('Pas de vignette pour cette pièce.', 404);
 
@@ -121,10 +133,20 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
       if (issue.motif !== MOTIF_MINIATURE_NAVIGATEUR) await memoriserEchecMiniature(id, issue.motif);
       return refus('Pas de vignette pour cette pièce.', 404);
     }
-    const depot = await deposerMiniatureGestion(issue.octets, id);
-    // Un dépôt impossible (stockage non configuré) n'empêche PAS de servir la vignette qu'on vient de fabriquer : on
-    //   ne la retiendra simplement pas. Mieux vaut une image affichée et refaite demain qu'une carte vide aujourd'hui.
-    if (depot.depose) await memoriserMiniature(id, depot.cle);
+    /**
+     * Un dépôt impossible n'empêche PAS de servir la vignette qu'on vient de fabriquer — ni « stockage non configuré »,
+     * ni, depuis le 19/10/2026, un stockage qui ne RÉPOND PAS : le dépôt LEVAIT alors une erreur, la route rendait 503 et
+     * l'écran retombait sur l'étiquette de type, alors que l'image était faite. On ne la retient simplement pas en base ;
+     * on la garde en mémoire. Mieux vaut une image affichée et refaite demain qu'une carte vide aujourd'hui.
+     */
+    let depot: Awaited<ReturnType<typeof deposerMiniatureGestion>>;
+    try {
+      depot = await deposerMiniatureGestion(issue.octets, id);
+    } catch (e) {
+      depot = { depose: false, motif: e instanceof Error ? e.message : String(e) };
+    }
+    if (depot.depose) { await memoriserMiniature(id, depot.cle); cacheMiniatures.oublier(id); }
+    else cacheMiniatures.garder(id, issue.octets);
     return servir(issue.octets);
   } catch (e) {
     console.error('[gestion/miniature] fabrication impossible', e);
