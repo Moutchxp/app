@@ -157,11 +157,11 @@ describe('étape A — le déplacement d’un dossier copié', () => {
 
 describe('étape D — la corbeille', () => {
   const ANCIEN = id('ancien1'); const ESSAI = id('essai1');
-  const base = { ...ctx, liste: new Map<string, 'ancien' | 'essai'>([[ANCIEN, 'ancien'], [ESSAI, 'essai']]), citesParUneFiche: new Set<string>(), sortesMemorisees: new Map([[ANCIEN, 'proprietaire']]) };
+  const base = { ...ctx, liste: new Map<string, 'ancien' | 'essai'>([[ANCIEN, 'ancien'], [ESSAI, 'essai']]), citesParUneFiche: new Set<string>(), sortesMemorisees: new Map([[ANCIEN, 'proprietaire']]), planCalculeLe: '2026-10-19T11:37:00Z' };
   const chaineAncien = [{ id: id('props'), nom: '1 Propriétaires' }, { id: RACINE, nom: 'Base de données locative' }, { id: DRIVE, nom: 'Drive' }];
   const ancien = (p: Partial<ElementLu> = {}): ElementLu => ({ id: ANCIEN, name: 'NOM', mimeType: DOSSIER, parents: [id('props')], ...p });
   const essai = (p: Partial<ElementLu> = {}): ElementLu => ({ id: ESSAI, name: '_TEST CLAUDE arbre à supprimer par Arno', mimeType: DOSSIER, parents: [RACINE], ...p });
-  const vide = { fichiers: 0, copies: 0, copiesOfficielles: 0 };
+  const vide = { fichiers: 0, copies: 0, copiesOfficielles: 0, dernierChangement: '2026-10-19T08:00:00Z' as string | null };
   it('un ancien dossier propriétaire, sans fichier, plus cité par aucune fiche → accepté ; déjà à la corbeille → reprise', () => {
     expect(verifierCorbeilleDossier(ancien(), chaineAncien, vide, base)).toEqual({ ok: true, deja: false });
     expect(verifierCorbeilleDossier(ancien({ trashed: true }), chaineAncien, vide, base)).toEqual({ ok: true, deja: true });
@@ -180,10 +180,19 @@ describe('étape D — la corbeille', () => {
     }
     expect(verifierCorbeilleDossier(ancien({ id: RACINE }), chaineAncien, vide, { ...base, liste: new Map([[RACINE, 'ancien']]) }).ok).toBe(false);
   });
-  it('dossier d’essai : à même la racine, nom « _TEST CLAUDE … » ou « _TEST COPIE » ; ses fichiers et copies d’essai partent, jamais une copie officielle', () => {
-    expect(verifierCorbeilleDossier(essai(), [{ id: RACINE, nom: 'Base de données locative' }], { fichiers: 12, copies: 8, copiesOfficielles: 0 }, base)).toEqual({ ok: true, deja: false });
+  it('🔴 Arno, 19/10 : JAMAIS un dossier qui contient un fichier (ancien comme essai), JAMAIS un dossier modifié après le calcul du plan', () => {
+    const r = [{ id: RACINE, nom: 'Base de données locative' }];
+    expect(verifierCorbeilleDossier(ancien(), chaineAncien, { ...vide, fichiers: 1 }, base)).toEqual({ ok: false, motif: expect.stringMatching(/1 fichier\(s\) : rien ne part/) });
+    expect(verifierCorbeilleDossier(essai(), r, { ...vide, fichiers: 35, copies: 8 }, base)).toEqual({ ok: false, motif: expect.stringMatching(/35 fichier/) });
+    expect(verifierCorbeilleDossier(ancien(), chaineAncien, { ...vide, dernierChangement: '2026-10-19T11:37:01Z' }, base)).toEqual({ ok: false, motif: expect.stringMatching(/après le calcul du plan/) });
+    expect(verifierCorbeilleDossier(essai(), r, { ...vide, dernierChangement: '2026-10-19T13:00:00Z' }, base).ok).toBe(false);
+    expect(verifierCorbeilleDossier(ancien(), chaineAncien, { ...vide, dernierChangement: '2026-10-19T11:37:00Z' }, base).ok).toBe(true);
+    expect(verifierCorbeilleDossier(ancien(), chaineAncien, vide, { ...base, planCalculeLe: 'inconnu' })).toEqual({ ok: false, motif: expect.stringMatching(/ne pas savoir vaut refus/) });
+  });
+  it('dossier d’essai : à même la racine, nom « _TEST CLAUDE … » ou « _TEST COPIE » ; vide de tout fichier, jamais une copie officielle', () => {
+    expect(verifierCorbeilleDossier(essai(), [{ id: RACINE, nom: 'Base de données locative' }], { fichiers: 0, copies: 0, copiesOfficielles: 0, dernierChangement: null }, base)).toEqual({ ok: true, deja: false });
     expect(verifierCorbeilleDossier(essai({ name: '_TEST COPIE' }), [{ id: RACINE, nom: 'Base de données locative' }], vide, base).ok).toBe(true);
-    expect(verifierCorbeilleDossier(essai(), [{ id: RACINE, nom: 'Base de données locative' }], { fichiers: 1, copies: 1, copiesOfficielles: 1 }, base)).toEqual({ ok: false, motif: expect.stringMatching(/officielle/) });
+    expect(verifierCorbeilleDossier(essai(), [{ id: RACINE, nom: 'Base de données locative' }], { fichiers: 0, copies: 1, copiesOfficielles: 1, dernierChangement: null }, base)).toEqual({ ok: false, motif: expect.stringMatching(/officielle/) });
     expect(verifierCorbeilleDossier(essai({ name: 'Vrai dossier' }), [{ id: RACINE, nom: 'Base de données locative' }], vide, base)).toEqual({ ok: false, motif: expect.stringMatching(/pas un dossier d’essai/) });
     expect(verifierCorbeilleDossier(essai({ parents: [id('props')] }), chaineAncien, vide, base)).toEqual({ ok: false, motif: expect.stringMatching(/pas à même la racine/) });
   });

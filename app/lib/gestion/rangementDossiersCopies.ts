@@ -222,17 +222,22 @@ export const estDossierDEssai = (nom: string): boolean => /^_TEST CLAUDE\b/.test
  *   ③ sa chaîne relue est sous la racine, hors de « Documents clients scannés », de « 00 Arrivée des mails », du dossier
  *      d'import et des conteneurs ; ce n'est rien de protégé ;
  *   ④ AUCUNE fiche (serveur ou recette) ne le cite encore comme dossier ;
- *   ⑤ « ancien » : un dossier propriétaire de l'ancienne arborescence (sorte mémorisée `proprietaire`), SANS AUCUN fichier
- *      dans son sous-arbre relu ; « essai » : un « _TEST CLAUDE … » ou « _TEST COPIE » posé à même la racine ;
- *   ⑥ déjà à la corbeille → reprise, rien à faire.
+ *   ⑤ « ancien » : un dossier propriétaire de l'ancienne arborescence (sorte mémorisée `proprietaire`) ; « essai » : un
+ *      « _TEST CLAUDE … » ou « _TEST COPIE » posé à même la racine ;
+ *   ⑥ 🔴 (Arno, 19/10/2026) JAMAIS un dossier qui contient au moins UN FICHIER, à n'importe quelle profondeur — ancien comme
+ *      essai (un raccourci n'est pas un fichier) ; JAMAIS un dossier dont le sous-arbre (lui compris) a été créé ou modifié
+ *      APRÈS le calcul du plan : quelqu'un y a travaillé depuis, la liste ne le savait pas ;
+ *   ⑦ déjà à la corbeille → reprise, rien à faire.
  */
 export function verifierCorbeilleDossier(
   d: ElementLu, chaine: readonly Maillon[],
-  sousArbre: { fichiers: number; copies: number; copiesOfficielles: number },
+  sousArbre: { fichiers: number; copies: number; copiesOfficielles: number; dernierChangement: string | null },
   ctx: ContexteRangement & {
     liste: ReadonlyMap<string, 'ancien' | 'essai'>;
     citesParUneFiche: ReadonlySet<string>;
     sortesMemorisees: ReadonlyMap<string, string>;
+    /** L'instant du calcul du plan (ISO) : tout changement plus récent dans le sous-arbre vaut refus. */
+    planCalculeLe: string;
   },
 ): VerdictRangement {
   const sorte = ctx.liste.get(d.id);
@@ -242,6 +247,11 @@ export function verifierCorbeilleDossier(
   if (d.appProperties?.[ETIQUETTE_COPIE] !== undefined) return refus(`${d.id} est un dossier COPIÉ : jamais à la corbeille`);
   if (ctx.citesParUneFiche.has(d.id)) return refus(`${d.id} est encore le dossier d’une fiche`);
   if (d.trashed === true) return { ok: true, deja: true };
+  if (sousArbre.fichiers > 0) return refus(`${d.id} contient ${sousArbre.fichiers} fichier(s) : rien ne part à la corbeille avec un fichier`);
+  if (!Number.isFinite(Date.parse(ctx.planCalculeLe))) return refus('instant du calcul du plan inconnu — ne pas savoir vaut refus');
+  if (sousArbre.dernierChangement !== null && Date.parse(sousArbre.dernierChangement) > Date.parse(ctx.planCalculeLe)) {
+    return refus(`${d.id} a été modifié le ${sousArbre.dernierChangement}, après le calcul du plan (${ctx.planCalculeLe})`);
+  }
   if (sousArbre.copiesOfficielles > 0) return refus(`${d.id} contient ${sousArbre.copiesOfficielles} copie(s) officielle(s) de « Documents clients scannés »`);
   if (sorte === 'ancien' && sousArbre.copies > 0) return refus(`${d.id} contient ${sousArbre.copies} élément(s) copié(s)`);
   const parents = d.parents ?? [];
@@ -251,7 +261,6 @@ export function verifierCorbeilleDossier(
   for (const m of chaine) if (m.id === ctx.racineCopieId || Object.values(ctx.destinations).includes(m.id)) return refus(`${d.id} est sous « ${m.nom} »`);
   if (sorte === 'ancien') {
     if (ctx.sortesMemorisees.get(d.id) !== 'proprietaire') return refus(`${d.id} n’est pas un dossier propriétaire de l’ancienne arborescence`);
-    if (sousArbre.fichiers > 0) return refus(`${d.id} contient ${sousArbre.fichiers} fichier(s) : rien ne part à la corbeille avec un fichier`);
   } else {
     if (!estDossierDEssai(d.name)) return refus(`« ${d.name} » n’est pas un dossier d’essai`);
     if (parents[0] !== ctx.racineId) return refus(`« ${d.name} » n’est pas à même la racine`);
