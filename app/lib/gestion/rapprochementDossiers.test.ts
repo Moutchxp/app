@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  etatControle, peutValiderTousLesSurs, planDuLotSuivant, sectionDe, sectionsDuRapprochement, sursAValider, verifierGeste,
+  etatControle, fichesDiscordantes, peutValiderTousLesSurs, planDuLotSuivant, sectionDe, sectionsDuRapprochement, sursAValider, verifierGeste,
   TAILLE_CONTROLE, type Decision, type LigneRapprochement,
 } from './rapprochementDossiers';
 
@@ -106,5 +106,13 @@ describe('le plan du lot suivant (rien n’est exécuté)', () => {
     expect(plan.repointages).toEqual([{ proprietaireId: 5, nom: 'MULTI', de: 'ancien-5', vers: y.copieDossierId, propositionId: y.id }]);
     expect(plan.corbeille).toEqual([{ proprietaireId: 5, nom: 'MULTI', ancienDossierId: 'ancien-5' }]);
     expect(plan.deplacements.map((d) => d.vers)).toEqual(['Inactifs', 'Actifs']);
+  });
+});
+
+describe('un calcul ne se charge que dans une base où ses fiches désignent les mêmes personnes', () => {
+  it('même id, même n° WIPPIMMO → concordant ; id absent ou n° différent → discordant, avec le détail', () => {
+    const lu = new Map([[1, '100'], [2, '200']]);
+    expect(fichesDiscordantes({ 1: '100', 2: '200' }, lu)).toEqual([]);
+    expect(fichesDiscordantes({ 1: '100', 2: '201', 3: '300' }, lu)).toEqual(['fiche 2 : WIPPIMMO 201 au calcul, 200 dans cette base', 'fiche 3 absente de cette base']);
   });
 });

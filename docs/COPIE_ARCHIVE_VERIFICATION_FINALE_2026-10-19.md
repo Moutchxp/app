@@ -15,6 +15,8 @@ La copie s'est terminée le 19/10/2026 à 06:00 (heure de Paris) : `TERMINÉ`, 2
 |---|---|---|---|---|
 | début du lot | 2026-10-19T07:04:40Z | 36 705 | `83d72376764b440def326317be7ea4ea685b008ce5cefa35b361d9d4ffc45adb` | IDENTIQUE |
 | fin du lot | 2026-10-19T07:15:53Z | 36 705 | `83d72376764b440def326317be7ea4ea685b008ce5cefa35b361d9d4ffc45adb` | IDENTIQUE |
+| début de l'étape 2 (calcul serveur) | 2026-10-19T07:44:59Z | 36 705 | `83d72376764b440def326317be7ea4ea685b008ce5cefa35b361d9d4ffc45adb` | IDENTIQUE |
+| fin de l'étape 2 | 2026-10-19T07:50:38Z | 36 705 | `83d72376764b440def326317be7ea4ea685b008ce5cefa35b361d9d4ffc45adb` | IDENTIQUE |
 
 b = `e38ed7a94c1662953c3f4a277ff6c4869f6071214ea327f2f2a4a27647e17129`, aussi identique à celle de la fin de la copie.
 
@@ -42,14 +44,35 @@ La liste des écarts (`ecarts.txt`) est vide.
 
 ## 2. Rapprochement à jour
 
-**Base utilisée : celle du Mac**, lue en transaction READ ONLY. La lecture de la base du serveur était autorisée (décision 3),
-mais la connexion SSH à `svav-prod` a été **refusée par le mode de permission de cette session** (aucune commande lancée sur le
-serveur). Ce qui en dépend :
-- le Mac n'est plus la production depuis le 15/10/2026. Les fiches créées ou modifiées sur le serveur depuis ne sont donc
-  **pas** dans ce calcul ;
-- les **identifiants de fiche** des propositions sont ceux du Mac. Ceux d'avant la bascule du 15/10 sont les mêmes sur le
-  serveur (la base y a été copiée), pas forcément les suivants ;
-- **avant de charger les propositions sur le serveur**, il faut refaire ce calcul sur sa base (§5).
+**Base utilisée : celle du SERVEUR** (`svav-prod`, où vit la Gestion depuis le 15/10/2026).
+
+> **Mise à jour du 19/10/2026, 2e étape.** Le premier calcul avait été fait sur la base du Mac : la connexion SSH était
+> refusée par le mode de cette session. Il est **refait** sur une extraction de la base du serveur.
+
+**L'extraction.** Arno l'a lancée lui-même, dans le Terminal, le 19/10/2026 à 09:39:44, avec le script
+`.captures/verification-finale/extraire-serveur.sh`. Les fichiers sont dans `.captures/verification-finale/serveur/2026-10-19_093944/`.
+- **Lecture seule** : session `default_transaction_read_only`, transaction `READ ONLY`, `COPY … TO STDOUT` ; rien n'a été
+  écrit sur le serveur.
+- **Tables lues** : 6 — fiches propriétaires, lots, locataires, occupations, copropriétés de lot, arborescence Drive
+  mémorisée.
+- **0 erreur.** Le serveur a 381 migrations inscrites ; la base du Mac n'a pas ce registre, ce sont donc bien deux bases
+  distinctes.
+
+**Constat : l'annuaire du serveur est identique, octet pour octet, à celui du Mac** sur les 6 tables. Ce sont 313 fiches,
+365 lots, 510 locataires, 535 occupations, 17 copropriétés et 3 720 dossiers mémorisés. Aucune fiche n'a été créée, modifiée
+ni archivée sur le serveur depuis la bascule du 15/10.
+
+**Les propositions portent les identifiants de fiche du serveur.** Le fichier de calcul contient une table « identifiant →
+n° WIPPIMMO » des 307 fiches citées.
+
+**Identifiants dans la base de recette du Mac : les mêmes.** Les 307 fiches citées et les 313 fiches de l'annuaire ont le même
+identifiant, le même n° WIPPIMMO, le même nom et le même dossier Drive. Rien n'est donc à traduire.
+
+Pour que ce soit **toujours** vérifié, et pas seulement aujourd'hui : le chargeur (`app/scripts/gestion-rapprochement-charger.ts`)
+compare, **avant toute écriture**, chaque fiche du calcul à la base visée (même identifiant, même n° WIPPIMMO). Une seule
+fiche discordante **refuse tout le chargement**, avec le détail (`fichesDiscordantes`, testé). L'essai à blanc fait ce
+contrôle : 307 / 307 fiches concordantes en développement et en recette. Si un jour les bases divergent, on recalcule sur la
+base où l'écran sera utilisé ; on ne traduit jamais un identifiant à la main.
 
 Règles : **exactement** celles de l'étape 1 bis (`docs/COPIE_ARCHIVE_ETAPE1BIS_RAPPROCHEMENT_2026-10-18.md` §2). Le script
 de l'étape 1 bis est exécuté tel quel, sur :
@@ -59,9 +82,29 @@ de l'étape 1 bis est exécuté tel quel, sur :
 Chaque dossier d'archive est ensuite traduit en son **dossier copié**, grâce à la correspondance mémorisée par la copie
 (`etat.json`) : **363 / 363 traduits**, aucun manquant.
 
-L'annuaire du Mac n'a pas changé depuis le 18/10 : propriétaires, locataires, occupations, copropriétés et arborescence sont
-identiques octet pour octet à l'export du 18/10. Le résultat est donc **identique à l'étape 1 bis : 0 différence** de niveau ou
-de fiche sur les 363 dossiers.
+L'annuaire n'a pas changé depuis le 18/10 : il est identique octet pour octet à l'export de l'étape 1 bis. Le résultat est donc
+**identique à l'étape 1 bis : 0 différence** de niveau ou de fiche sur les 363 dossiers.
+
+### 2.1 Comparaison des compteurs : calcul du serveur et calcul du Mac
+
+| Section de l'écran | Calcul Mac | Calcul serveur | Écart |
+|---|---|---|---|
+| a. Contrôle à l'œil | 20 | 20 | 0 (mêmes 20 dossiers : tirage à graine fixe) |
+| b. Vendus / perdus mais en gestion | 7 | 7 | 0 |
+| c. Plusieurs dossiers pour un propriétaire | 5 propriétaires / 11 dossiers | 5 / 11 | 0 |
+| d. Probables | 67 | 67 | 0 |
+| d. Ambigus | 11 | 11 | 0 |
+| e. Dossiers sans correspondant | 46 | 46 | 0 |
+| e. Clients WIPPIMMO sans dossier | 20 | 20 | 0 |
+| Autres SÛRS | 201 | 201 | 0 |
+| **Propositions** | **383** | **383** | **0, champ pour champ** |
+
+**La seule différence relevée n'en était pas une.** Au premier essai, 47 propositions différaient par le **locataire cité en
+exemple** dans la raison (« même nom + locataire NOM connu »). Leur niveau, leur fiche et leur section étaient identiques.
+- **La cause** : quand plusieurs locataires d'une fiche concordent, le script de l'étape 1 bis les parcourt dans un ensemble
+  Python, dont l'ordre change à chaque lancement.
+- **Le correctif** : l'exemple cité est désormais le premier locataire par identifiant. Les deux calculs sont alors identiques
+  sur tous les champs, et un second lancement donne le même résultat.
 
 | Branche | SÛR | PROBABLE | AMBIGU | AUCUN | Total |
 |---|---|---|---|---|---|
@@ -151,19 +194,43 @@ n'est pas encore appliquée », et rien ne tombe.
   - « Corriger » fonctionne sur un AMBIGU, ainsi que la recherche ;
   - après l'annulation, la table **n'existe pas**.
 
-**Commandes** (depuis `app/`) :
+**Commandes** (le fichier de calcul est `propositions-2026-10-19-serveur.json`, calcul « 2026-10-19-serveur ») :
 ```
-# développement
+cd /Users/macbookprom4arnaud/sansvisavis/app
 export $(grep -E '^DATABASE_URL=' .env | xargs)
+# migration 387 : développement, puis recette
 psql "$DATABASE_URL" -X -1 -v ON_ERROR_STOP=1 -f db/migrations/387_gestion_rapprochement_dossiers.sql
-# recette
 psql "${DATABASE_URL%/*}/svav_recette" -X -1 -v ON_ERROR_STOP=1 -f db/migrations/387_gestion_rapprochement_dossiers.sql
-# puis charger le calcul (développement) — un essai à blanc d'abord
-npx tsx app/scripts/gestion-rapprochement-charger.ts .captures/verification-finale/propositions-2026-10-19.json --essai
-npx tsx app/scripts/gestion-rapprochement-charger.ts .captures/verification-finale/propositions-2026-10-19.json
+# essai à blanc (concordance des fiches + comptes, rien n'est écrit), puis chargement réel — développement
+npx tsx app/scripts/gestion-rapprochement-charger.ts .captures/verification-finale/propositions-2026-10-19-serveur.json --essai
+npx tsx app/scripts/gestion-rapprochement-charger.ts .captures/verification-finale/propositions-2026-10-19-serveur.json
 ```
-Sur le serveur, la migration passe par la mise à jour ordinaire. Le chargement y attend un calcul refait sur sa propre base
-(§2).
+
+### 3.5 Comment les décisions atteindront la base du SERVEUR (lot suivant ; rien n'est exécuté dans ce lot)
+
+Les décisions se prennent sur l'écran du **Mac**, en développement (`http://localhost:3000/admin/gestion/rapprochement-dossiers`).
+La migration 387 n'est pas encore sur le serveur, et le repointage ne doit pas dépendre d'un écran de production à moitié
+déployé. Elles atteindront le serveur ainsi :
+
+1. **Export des décisions** (Mac, lecture seule) : un fichier par décision qui fait foi. Il contient la proposition, le
+   geste, l'identifiant de fiche, son n° WIPPIMMO, le dossier copié retenu (le principal pour une fiche à plusieurs
+   dossiers) et le dossier actuel de la fiche vu au calcul. Le fichier est rangé dans `.captures/`.
+2. **Script de repointage sur le serveur**, lancé par Arno lui-même dans le Terminal (`ssh svav-prod`), comme l'extraction.
+   Il agit en **une transaction**.
+   - **Contrôles d'abord**, pour chaque ligne : la fiche existe, avec le même identifiant et le même n° WIPPIMMO, et son
+     `drive_dossier_id` vaut encore le dossier vu au calcul.
+   - **Une seule discordance annule tout**, sans aucune écriture.
+   - **Ensuite seulement**, l'écriture : `drive_dossier_id` reçoit le dossier copié ; l'ancien dossier et ses descendants
+     sont marqués `absent_le` dans `gestion_drive_arbre`, jamais effacés ; chaque fiche est journalisée.
+   - **Il produit** un compte rendu ligne par ligne et la liste des fiches repointées.
+3. **Le bouton « dossier » des fiches et des cartes de bien** (`ficheRattachementRepo`, `dossierDuBienRepo`) lit
+   `drive_dossier_id`. Il ouvre donc le dossier copié dès le repointage. Le code qui visait le « En attente » de l'ancien
+   dossier se repointe dans le même lot (étape 1 bis §4b).
+4. **Les gestes Drive** (déplacements vers Actifs / Inactifs, corbeille de l'ancienne arborescence et des dossiers d'essai)
+   partent du Mac avec le compte de gestion, comme la copie. Ils passent par la porte verrouillée de l'étape 1 bis §6, qui
+   **relit le serveur** avant chaque corbeille : la fiche doit déjà être repointée.
+5. **Traçabilité** : la migration 387 rejoint le serveur par la mise à jour ordinaire. On y verse alors les propositions et les
+   décisions (même chargeur, même contrôle de concordance), pour que la trace vive aussi en production.
 
 ## 4. Plan du lot suivant (rien n'est exécuté)
 
@@ -198,11 +265,11 @@ Décision 1 (plus aucun dépôt dans « Documents clients scannés ») : le gard
 
 ## 5. Ce qui reste à faire
 
-- Appliquer la migration 387 (développement, recette, puis serveur) et charger le calcul.
-- **Pour le serveur** : autoriser la lecture de sa base (une commande `ssh svav-prod` en lecture seule, que cette session n'a
-  pas pu lancer), pour refaire le calcul avec ses identifiants avant d'y charger les propositions.
+- Appliquer la migration 387 (développement, recette) et charger le calcul du serveur (§3.4).
+- Prendre les décisions à l'écran ; au lot suivant, les porter sur le serveur (§3.5).
 
 ---
 
 *Sources : `.captures/verification-finale/{verifier.ts, journal.log, verification.json, ecarts.txt, rapprocher2.py,
-bilan2.json, propositions-2026-10-19.json, rapprochement-nominatif.csv, parcours-annule.ts}`.*
+bilan2.json, propositions-2026-10-19.json, rapprochement-nominatif.csv, parcours-annule.ts, extraire-serveur.sh,
+serveur/2026-10-19_093944/, propositions-2026-10-19-serveur.json, rapprochement-nominatif-serveur.csv, bilan2-serveur.json}`.*

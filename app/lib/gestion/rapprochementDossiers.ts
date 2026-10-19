@@ -135,6 +135,21 @@ export function ficheRetenue(l: LigneRapprochement): FicheCourte | null {
   return l.decision.fiche;
 }
 
+/**
+ * Les identifiants de fiche d'un calcul ne valent QUE pour la base où il a été fait (le serveur, depuis le 15/10/2026).
+ * Avant de charger un calcul dans une autre base, chaque fiche citée doit y porter le MÊME numéro WIPPIMMO : sinon le
+ * chargement est refusé en entier (une proposition rattachée à la mauvaise personne ne se rattrape pas à l'œil). PUR.
+ */
+export function fichesDiscordantes(attendu: Readonly<Record<string, string>>, lu: ReadonlyMap<number, string>): string[] {
+  const out: string[] = [];
+  for (const [id, wippimmo] of Object.entries(attendu)) {
+    const ici = lu.get(Number(id));
+    if (ici === undefined) out.push(`fiche ${id} absente de cette base`);
+    else if (ici !== wippimmo) out.push(`fiche ${id} : WIPPIMMO ${wippimmo} au calcul, ${ici} dans cette base`);
+  }
+  return out;
+}
+
 // ── LE PLAN DU LOT SUIVANT (rien n'est exécuté) ──────────────────────────────────────────────────────────────────────
 
 export const DOSSIERS_TEST_A_LA_CORBEILLE = ['_TEST CLAUDE (les 8 dossiers « _TEST CLAUDE … à supprimer par Arno »)', '_TEST COPIE'] as const;
