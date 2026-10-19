@@ -206,3 +206,47 @@ export function deciderAdoption(
   if (!j.ok) return { action: 'arreter', motif: `copie ${siennes[0].id} de ${source.id} NON conforme (${j.detail}) — jamais adoptée` };
   return { action: 'adopter', id: siennes[0].id };
 }
+
+// ══ LE CONTRÔLE D'EMPREINTE : CE QUI ARRÊTE, CE QUI SE JOURNALISE (option B — Arno, 19/10/2026) ══════════════════════
+
+/** Un élément de « Documents clients scannés » tel que le relevé le lit. */
+export interface ElementReleve {
+  id: string; name: string; mimeType: string; modifiedTime: string;
+  md5Checksum?: string; size?: string; headRevisionId?: string; version?: string;
+  /** Les parents, du plus proche au plus lointain (le relevé les reconstitue). */
+  chaine?: readonly string[]; parents?: readonly string[];
+  chemin?: string;
+}
+
+export const CHAMPS_BLOQUANTS = ['name', 'parents', 'modifiedTime', 'md5Checksum', 'size', 'headRevisionId'] as const;
+
+export interface EcartBloquant { id: string; chemin: string; nature: 'ajoute' | 'disparu' | 'modifie'; champs: string[] }
+export interface VersionSeule { id: string; chemin: string; dossier: boolean; avant: string | null; apres: string | null }
+
+/**
+ * 🔴 OPTION B (décision d'Arno du 19/10/2026, après le 2e arrêt — `docs/COPIE_ARCHIVE_ARRET2_2026-10-19.md`).
+ *   · ARRÊT si un élément est AJOUTÉ, DISPARAÎT, ou change de nom, de parents, de modifiedTime, de md5, de taille ou de
+ *     révision (`headRevisionId`) : tout ce qui touche le contenu ou la place d'un élément.
+ *   · Un changement de `version` SEUL (aucun autre champ), sur un fichier ou un dossier, est JOURNALISÉ, sans arrêter :
+ *     Google fait avancer ce compteur sans rien changer au contenu (108 cas la nuit du 18 au 19/10, 0 lié à la copie).
+ * PUR.
+ */
+export function ecartsBloquants(avant: readonly ElementReleve[], apres: readonly ElementReleve[]): { bloquants: EcartBloquant[]; versionsSeules: VersionSeule[] } {
+  const A = new Map(avant.map((e) => [e.id, e]));
+  const B = new Map(apres.map((e) => [e.id, e]));
+  const parents = (e: ElementReleve): string => JSON.stringify(e.parents ?? e.chaine?.slice(0, 1) ?? []);
+  const valeur = (e: ElementReleve, c: (typeof CHAMPS_BLOQUANTS)[number]): string => (c === 'parents' ? parents(e) : String(e[c] ?? ''));
+  const bloquants: EcartBloquant[] = [];
+  const versionsSeules: VersionSeule[] = [];
+  for (const [id, b] of B) {
+    const a = A.get(id);
+    if (a === undefined) { bloquants.push({ id, chemin: b.chemin ?? '', nature: 'ajoute', champs: [] }); continue; }
+    const champs = CHAMPS_BLOQUANTS.filter((c) => valeur(a, c) !== valeur(b, c));
+    if (champs.length > 0) { bloquants.push({ id, chemin: b.chemin ?? '', nature: 'modifie', champs: [...champs, ...((a.version ?? '') !== (b.version ?? '') ? ['version'] : [])] }); continue; }
+    if ((a.version ?? '') !== (b.version ?? '')) {
+      versionsSeules.push({ id, chemin: b.chemin ?? '', dossier: b.mimeType === 'application/vnd.google-apps.folder', avant: a.version ?? null, apres: b.version ?? null });
+    }
+  }
+  for (const [id, a] of A) if (!B.has(id)) bloquants.push({ id, chemin: a.chemin ?? '', nature: 'disparu', champs: [] });
+  return { bloquants, versionsSeules };
+}

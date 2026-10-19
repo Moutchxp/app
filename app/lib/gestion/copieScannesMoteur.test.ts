@@ -183,3 +183,49 @@ describe('🔴 la corbeille d’une copie fautive : étroite, sur liste, sous le
     expect(verifierCorbeilleCopie({ ...ok, cibleId: 'scannes' }, { ...CTX, autorises: new Set(['scannes']) }).ok).toBe(false);
   });
 });
+
+describe('🔴 option B (19/10/2026) — un compteur « version » seul est journalisé, jamais bloquant ; le contenu arrête toujours', async () => {
+  const { ecartsBloquants } = await import('./copieScannesMoteur');
+  const { readFileSync } = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  type E = { id: string; name: string; mimeType: string; modifiedTime: string; version?: string; md5Checksum?: string; size?: string; headRevisionId?: string; parents: string[]; chemin: string };
+  const nuit = JSON.parse(readFileSync('app/lib/gestion/copieRelevesNuit20261019.fixture.json', 'utf8')) as { depart: E[]; controle: E[] };
+  // L'ancien critère : l'empreinte (b) inclut la version — elle change, la copie s'arrêtait.
+  const empreinteB = (els: E[]) => createHash('sha256').update(els.map((e) => `${e.id}|${e.modifiedTime}|${e.md5Checksum ?? ''}|${e.version ?? ''}|${e.headRevisionId ?? ''}`).sort().join('\n')).digest('hex');
+  const empreinteA = (els: E[]) => createHash('sha256').update(els.map((e) => `${e.id}|${e.modifiedTime}|${e.md5Checksum ?? ''}`).sort().join('\n')).digest('hex');
+
+  it('les relevés RÉELS de la nuit (anonymisés) : l’ancien critère arrête, le nouveau journalise les 108 « VERSION SEULE » sans arrêter', () => {
+    expect(nuit.depart).toHaveLength(200);
+    expect(empreinteB(nuit.depart)).not.toBe(empreinteB(nuit.controle));   // ancien critère : ARRÊT
+    expect(empreinteA(nuit.depart)).toBe(empreinteA(nuit.controle));       // (a) identique, comme cette nuit
+    const r = ecartsBloquants(nuit.depart, nuit.controle);
+    expect(r.bloquants).toEqual([]);                                        // nouveau critère : PAS d'arrêt
+    expect(r.versionsSeules).toHaveLength(108);
+    expect(r.versionsSeules.filter((v) => v.dossier)).toHaveLength(76);
+    expect(r.versionsSeules.filter((v) => !v.dossier)).toHaveLength(32);
+    expect(r.versionsSeules.every((v) => Number(v.apres) === Number(v.avant) + 1)).toBe(true);
+  });
+
+  const base: E = { id: 'f1', name: 'scan.pdf', mimeType: 'application/pdf', modifiedTime: '2026-01-01T00:00:00Z', version: '3',
+    md5Checksum: 'aaa', size: '100', headRevisionId: 'r1', parents: ['d1'], chemin: '/d1/scan.pdf' };
+  it.each([
+    ['md5', { md5Checksum: 'bbb' }, 'md5Checksum'],
+    ['date de modification', { modifiedTime: '2026-10-19T00:00:00Z' }, 'modifiedTime'],
+    ['nom', { name: 'scan (1).pdf' }, 'name'],
+    ['parent', { parents: ['d2'] }, 'parents'],
+    ['taille', { size: '101' }, 'size'],
+    ['révision', { headRevisionId: 'r2' }, 'headRevisionId'],
+  ])('un %s qui change ARRÊTE toujours (même avec la version)', (_cas, ecart, champ) => {
+    const r = ecartsBloquants([base], [{ ...base, ...ecart, version: '4' }]);
+    expect(r.bloquants).toEqual([{ id: 'f1', chemin: '/d1/scan.pdf', nature: 'modifie', champs: [champ, 'version'] }]);
+    expect(r.versionsSeules).toEqual([]);
+  });
+
+  it('un élément ajouté ou disparu ARRÊTE ; une version seule (fichier ou dossier) se journalise', () => {
+    expect(ecartsBloquants([base], [base, { ...base, id: 'f2' }]).bloquants).toEqual([{ id: 'f2', chemin: '/d1/scan.pdf', nature: 'ajoute', champs: [] }]);
+    expect(ecartsBloquants([base], []).bloquants).toEqual([{ id: 'f1', chemin: '/d1/scan.pdf', nature: 'disparu', champs: [] }]);
+    const dossier = { ...base, id: 'd1', mimeType: 'application/vnd.google-apps.folder', md5Checksum: undefined, size: undefined, headRevisionId: undefined };
+    expect(ecartsBloquants([base, dossier], [{ ...base, version: '4' }, { ...dossier, version: '9' }])).toEqual({ bloquants: [], versionsSeules: [
+      { id: 'f1', chemin: '/d1/scan.pdf', dossier: false, avant: '3', apres: '4' }, { id: 'd1', chemin: '/d1/scan.pdf', dossier: true, avant: '3', apres: '9' }] });
+  });
+});
