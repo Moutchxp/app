@@ -4,6 +4,8 @@ import { EnTetePage } from '../_composants/EnTetePage';
 import { INTRO_GESTION } from '../../../../lib/gestion/ecran';
 import { GestionVue } from './GestionVue';
 
+const URL_RAPPROCHEMENT_DOSSIERS = '/admin/gestion/rapprochement-dossiers';
+
 /**
  * Module « GESTION » (gestion locative) — LOT 2 : la coquille de l'écran à deux côtés.
  *
@@ -25,7 +27,12 @@ export default async function GestionPage() {
   //   prendre toute la place, et une largeur inline ne se laisse pas surcharger par une feuille de style.
   return (
     <section className="gst-page">
-      <EnTetePage titre="Gestion" intro={INTRO_GESTION} />
+      <EnTetePage titre="Gestion" intro={INTRO_GESTION} actions={autorise && session?.role === 'administrateur' ? (
+        // Arno, 19/10/2026 — l'écran de validation du rapprochement des dossiers clients, réservé à l'administrateur.
+        <a href={URL_RAPPROCHEMENT_DOSSIERS} className="svv-btn svv-btn-outline" style={{ width: 'auto', minHeight: 44, padding: '.55rem .9rem', fontSize: '.92rem' }}>
+          Rapprochement des dossiers clients
+        </a>
+      ) : undefined} />
       {autorise ? <GestionVue intro={INTRO_GESTION} /> : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux comptes disposant du droit « Gestion ».

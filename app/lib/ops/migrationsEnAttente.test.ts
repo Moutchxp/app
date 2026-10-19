@@ -74,6 +74,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 384 : date de l'état des lieux de sortie prévu (accueil Location, 18/10/2026).
   // 385 : état des lieux de sortie planifié — lien vers la tâche du module de tâches (accueil Location, 19/10/2026).
   // 386 : fiche bien = lots loués ensemble — regroupement, lot orphelin en bien autonome, réintégration (19/10/2026).
+  // 387 : rapprochement des dossiers clients copiés — propositions et décisions (tuile Gestion, 19/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -81,7 +82,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '375_location_proprietaire_en_gestion.sql', '376_location_bien_famille.sql', '377_location_immeuble_ag.sql',
     '378_location_annexe_nom_pno.sql', '379_location_entretien_annexe_mandat.sql', '380_location_origine_archivage.sql',
     '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql', '383_location_preavis.sql', '384_location_etat_des_lieux.sql',
-    '385_location_edls.sql', '386_location_regroupement.sql'];
+    '385_location_edls.sql', '386_location_regroupement.sql', '387_gestion_rapprochement_dossiers.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -94,7 +95,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 386 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 387 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -104,14 +105,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (387)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (388)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(386\)/);
-    const renumerotee = planifier([...existants, { fichier: '387_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(387\)/);
+    const renumerotee = planifier([...existants, { fichier: '388_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['387_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['388_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -503,5 +504,26 @@ describe('386 (Location : fiche bien = lots loués ensemble) : enveloppée, une 
     expect(contenu).not.toMatch(/ALTER TABLE gestion_lot_annexe|ON gestion_lot_annexe/);
     expect(contenu).toMatch(/BEFORE UPDATE OR DELETE ON gestion_bien_regroupement/);
     expect(contenu).toMatch(/BEFORE TRUNCATE ON gestion_bien_regroupement/);
+  });
+});
+
+describe('387 (Gestion : rapprochement des dossiers clients) : enveloppée, deux tables neuves en ajout seul, rien d’autre', () => {
+  const contenu = lire(MIGRATIONS, '387_gestion_rapprochement_dossiers.sql');
+  const a = analyserMigration({ fichier: '387_gestion_rapprochement_dossiers.sql', contenu });
+  it('passe le garde, enveloppée, réversible ; deux tables neuves, aucune colonne ajoutée ailleurs', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.colonnesAjoutees).toEqual([]);
+    expect([...a.tablesCreees].sort()).toEqual(['gestion_rapprochement_decision', 'gestion_rapprochement_proposition']);
+  });
+  it('aucune donnée écrite ; aucune autre table touchée ; verrou en base (ajout seul) sur les deux tables', () => {
+    expect(contenu).not.toMatch(/INSERT INTO/);
+    expect(contenu).not.toMatch(/^\s*(UPDATE|DELETE)\b/im);
+    expect(contenu).not.toMatch(/ALTER TABLE/);
+    for (const t of ['gestion_rapprochement_proposition', 'gestion_rapprochement_decision']) {
+      expect(contenu).toMatch(new RegExp(`BEFORE UPDATE OR DELETE ON ${t}\\b`));
+      expect(contenu).toMatch(new RegExp(`BEFORE TRUNCATE ON ${t}\\b`));
+    }
   });
 });
