@@ -626,7 +626,7 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
             {[...(b.categorie === 'autre' ? [['Nom de l’annexe', b.nomAnnexe ?? null]] : []),
               ['Catégorie', LIBELLE_CATEGORIE[b.categorie]], ['Étage', libelleEtage(b.etage)], ['N° de porte / place', b.porte],
               ['N° de lot de copropriété', b.numLotCopro],
-              ['Surface Carrez', b.surfaceCarrezM2 === null ? null : `${String(b.surfaceCarrezM2).replace('.', ',')} m²`],
+              ['Surface Carrez/Boutin m²', b.surfaceCarrezM2 === null ? null : `${String(b.surfaceCarrezM2).replace('.', ',')} m²`],
               ['Surface extérieure', b.surfaceExterieureM2 === null ? null : `${String(b.surfaceExterieureM2).replace('.', ',')} m²`]]
               .map(([mot, val]) => (
                 <div key={mot}><dt className="loc-muet">{mot}</dt><dd style={{ margin: 0 }}>{val ?? <span className="loc-muet">non renseigné</span>}</dd></div>
@@ -645,7 +645,7 @@ function Caracteristiques({ b, modifiable, apres }: { b: BienLocation; modifiabl
             {champ('etage', 'Étage', { placeholder: 'ex. 3, RDC, -1' })}
             {champ('porte', 'N° de porte / de place')}
             {champ('numLotCopro', 'N° de lot de copropriété')}
-            {champ('surfaceCarrezM2', 'Surface Carrez (m²)', { inputMode: 'decimal' })}
+            {champ('surfaceCarrezM2', 'Surface Carrez/Boutin m²', { inputMode: 'decimal' })}
             {champ('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' })}
             {b.creeDansLApplication && <>{champ('adresse', 'Adresse')}{champ('codePostal', 'Code postal', { inputMode: 'numeric' })}{champ('commune', 'Commune')}</>}
           </div>
@@ -923,7 +923,11 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
       {saisie === null ? (
         <>
           <dl className="loc-cond-lecture">
-            {c.lignes.map((x) => <div key={x.mot} style={{ display: 'contents' }}><dt>{x.mot}</dt><dd>{x.valeur}</dd></div>)}
+            {c.lignes.map((x, i) => (
+              <div key={`${i}-${x.mot}`} style={{ display: 'contents' }}>
+                <dt>{x.mot}</dt><dd>{x.valeur}{x.detail !== undefined && <small className="loc-cond-detail"> — {x.detail}</small>}</dd>
+              </div>
+            ))}
           </dl>
           {modifiable && l !== undefined && (
             <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
@@ -933,7 +937,9 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
         </>
       ) : (
         <>
-          <BlocConditionsEntree valeur={saisie} onChange={(v) => { setSaisie(v); setMotif(null); }} manque={manqueDe} />
+          {/* Les honoraires propriétaire : ceux CALCULÉS À L'ENTRÉE, relus (jamais recalculés après coup). */}
+          <BlocConditionsEntree valeur={saisie} onChange={(v) => { setSaisie(v); setMotif(null); }} manque={manqueDe}
+            honoraires={{ calcul: c.honoraires ?? null, lienBien: null }} />
           {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
           <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
             <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrer(); }} data-enregistrer-conditions>
@@ -950,6 +956,7 @@ const CSS_SECTIONS = `
 .loc-cond-bail{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-top:1px solid var(--color-svv-line)}
 .loc-cond-bail:first-of-type{border-top:0;padding-top:0}
 .loc-cond-bail .slf-lien{display:inline-flex;align-items:center;min-height:44px}
+.loc-cond-detail{color:var(--color-svv-muted)}
 .loc-a-renseigner-ligne{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
 .loc-a-renseigner{display:inline-block;border-radius:999px;padding:2px 10px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);font-weight:700;font-size:.85rem}
 .slf{margin-top:14px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface)}

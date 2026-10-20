@@ -25,6 +25,7 @@ import { etageFr } from './sortieLocataires';
 
 import { verifierConditions, type ConditionsEntree } from './conditionsEntree';
 import { conditionsEntreeDisponible, enregistrerConditionsEntreeDans } from './conditionsEntreeRepo';
+import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
 import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens } from './entretienAnnexeRepo';
 /**
@@ -807,6 +808,9 @@ export async function creerLocatairesSurBien(o: {
   if (!planAvant.ok) return { etat: 'refus', motif: planAvant.motif };
   const sansRegroupement = await refusSansRegroupement(planAvant.plan);
   if (sansRegroupement !== null) return { etat: 'refus', motif: sansRegroupement };
+  // Les HONORAIRES PROPRIÉTAIRE (migration 392) : calculés ICI (surface du bien, zone, barème à la date d'entrée), jamais
+  // repris de l'écran ; enregistrés avec les conditions, comme trace.
+  const honoraires = conditions !== null ? await calculHonorairesDuBien(o.lotId, entree) : null;
   const ids: number[] = [];
   for (const [i, c] of cartes.entries()) {
     const cree = await creerPersonne('locataire', { ...c, nom: (c.nom ?? '').trim() }, auteur);
@@ -833,7 +837,7 @@ export async function creerLocatairesSurBien(o: {
       }
     }
     // Une entrée = UN jeu de conditions, porté par toutes les occupations qu'elle vient de créer (migration 391).
-    if (conditions !== null) await enregistrerConditionsEntreeDans(q, occupations, lotId, conditions, auteur);
+    if (conditions !== null) await enregistrerConditionsEntreeDans(q, occupations, lotId, conditions, honoraires, auteur);
     const recap = await appliquerPlan(q, fiche, plan.plan, auteur);
     const reintegrations = await reintegrerSiComplet(q, plan.plan.lotsLoues, auteur);
     return { ok: true as const, recap, reintegrations };

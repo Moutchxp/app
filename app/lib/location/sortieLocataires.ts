@@ -347,7 +347,7 @@ export function lignesEncart(e: EncartLogement): LigneEncart[] {
   ajouter('escalier', 'Escalier', present(e.escalier) ? e.escalier : null);
   ajouter('copro', 'Lot de copropriété', present(e.numLotCopro) ? `n° ${e.numLotCopro}` : null);
   ajouter('lot', 'N° de lot', present(e.numeroLot) ? e.numeroLot : null);
-  ajouter('carrez', 'Surface (Carrez)', e.surfaceCarrez === null ? null : `${nombreFr(e.surfaceCarrez)} m²`);
+  ajouter('carrez', 'Surface Carrez/Boutin m²', e.surfaceCarrez === null ? null : `${nombreFr(e.surfaceCarrez)} m²`);
   ajouter('habitable', 'Surface habitable', e.surfaceHabitable === null ? null : `${nombreFr(e.surfaceHabitable)} m²`);
   ajouter('surface', 'Surface', e.surface === null ? null : `${nombreFr(e.surface)} m²`);
   ajouter('exterieure', 'Surface extérieure', e.surfaceExterieure === null ? null : `${nombreFr(e.surfaceExterieure)} m²`);

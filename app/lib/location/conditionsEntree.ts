@@ -6,7 +6,7 @@
  * porté par le BAIL créé (les occupations de cette entrée) — migration 391.
  *
  *   1. Dépôt de garantie : conservé par l'agence / reversé au bailleur ;
- *   2. Prélèvement : Oui (au 5 / au 10) / Non ;
+ *   2. Prélèvement : Oui (au 1er / au 5 / au 10 / au 15) / Non ;
  *   3. Garanties : garant personne physique Oui / Non ; assurance loyers impayés GLI (laquelle) / Visale / Autre (laquelle) / Aucune ;
  *   4. Entretien à prévoir : c'est la donnée DU BIEN (« Entretien à prévoir » de l'écran Nouveau bien, `entretien.ts`) —
  *      même composant, même donnée, aucun doublon : elle n'est PAS dans ce module ;
@@ -17,13 +17,17 @@
  * Les choix 1, 2, 3, 5 et 7 sont OBLIGATOIRES (la règle est la même à l'écran et au serveur) ; montants et commentaire non.
  */
 
+import { eurosAffiches, lignesHonoraires, totalDesHonoraires, type CalculHonoraires } from './honorairesProprietaire';
+
 export const DEPOTS = ['agence', 'bailleur'] as const;
 export type Depot = typeof DEPOTS[number];
 export const LIBELLE_DEPOT: Record<Depot, string> = { agence: 'Conservé par l’agence', bailleur: 'Reversé au bailleur' };
 
-export const JOURS_PRELEVEMENT = ['5', '10'] as const;
+/** Arno (20/10/2026, retouche) : au 1er, au 5, au 10, au 15 (migration 392). */
+export const JOURS_PRELEVEMENT = ['1', '5', '10', '15'] as const;
 export type JourPrelevement = typeof JOURS_PRELEVEMENT[number];
-export const LIBELLE_JOUR: Record<JourPrelevement, string> = { 5: 'au 5', 10: 'au 10' };
+export const LIBELLE_JOUR: Record<JourPrelevement, string> = { 1: 'au 1er', 5: 'au 5', 10: 'au 10', 15: 'au 15' };
+export type JourNumero = 1 | 5 | 10 | 15;
 
 export const ASSURANCES = ['gli', 'visale', 'autre', 'aucune'] as const;
 export type Assurance = typeof ASSURANCES[number];
@@ -75,14 +79,16 @@ export interface ConditionsEntreeLues {
   /** Plus d'une ligne pour ce bail : elles ont été modifiées. */
   modifiees: boolean;
   /** L'encart, prêt à lire. */
-  lignes: { mot: string; valeur: string }[];
+  lignes: { mot: string; valeur: string; detail?: string }[];
+  /** Les honoraires propriétaire calculés à l'entrée, avec le barème et la surface utilisés (migration 392). */
+  honoraires: CalculHonoraires | null;
 }
 
 /** Les conditions vérifiées, telles qu'elles s'enregistrent et se relisent (montants en CENTIMES, entiers exacts). */
 export interface ConditionsEntree {
   depot: Depot;
   prelevement: boolean;
-  jour: 5 | 10 | null;
+  jour: JourNumero | null;
   garant: boolean;
   assurance: Assurance;
   assurancePrecision: string | null;
@@ -169,7 +175,7 @@ export function manquesConditions(b: Record<string, unknown>): Record<string, st
   const prel = ouiNon(b.prelevement);
   if (prel === null) m.prelevement = 'Prélèvement : répondez Oui ou Non.';
   else if (prel && dans(JOURS_PRELEVEMENT, b.jour === null || b.jour === undefined ? b.jour : String(b.jour)) === null) {
-    m.jour = 'Prélèvement : au 5 ou au 10 ?';
+    m.jour = 'Prélèvement : au 1er, au 5, au 10 ou au 15 ?';
   }
   if (ouiNon(b.garant) === null) m.garant = 'Garant personne physique : répondez Oui ou Non.';
   const assurance = dans(ASSURANCES, b.assurance);
@@ -199,7 +205,7 @@ export function verifierConditions(brut: unknown): { ok: true; valeurs: Conditio
   const assurance = dans(ASSURANCES, b.assurance) as Assurance;
   const reglement = dans(REGLEMENTS, b.reglement) as Reglement;
   return { ok: true, valeurs: {
-    depot: dans(DEPOTS, b.depot) as Depot, prelevement, jour: prelevement ? Number(b.jour) as 5 | 10 : null,
+    depot: dans(DEPOTS, b.depot) as Depot, prelevement, jour: prelevement ? Number(b.jour) as JourNumero : null,
     garant: ouiNon(b.garant) as boolean, assurance, assurancePrecision: A_PRECISER.includes(assurance) ? texte(b.assurancePrecision, 120) : null,
     honorairesLocataire: dans(COMPTES, b.honorairesLocataire) as Compte, honorairesProprietaire: dans(COMPTES, b.honorairesProprietaire) as Compte,
     sommes: { prorataLoyer: enCentimes(sommes.prorataLoyer) ?? null, prorataCharges: enCentimes(sommes.prorataCharges) ?? null,
@@ -209,8 +215,8 @@ export function verifierConditions(brut: unknown): { ok: true; valeurs: Conditio
   } };
 }
 
-/** Les lignes de l'encart « Conditions d'entrée » (lecture), dans l'ordre de la fiche papier. PUR. */
-export function lignesConditions(c: ConditionsEntree): { mot: string; valeur: string }[] {
+/** Les lignes de l'encart « Conditions d'entrée » (lecture), dans l'ordre de la fiche papier ; les honoraires propriétaire après les sommes. PUR. */
+export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonoraires | null = null): { mot: string; valeur: string; detail?: string }[] {
   const saisies = SOMMES.map((k) => c.sommes[k]).filter((x): x is number => x !== null);
   const total = saisies.length === 0 ? null : saisies.reduce((t, x) => t + x, 0);
   return [
@@ -222,6 +228,11 @@ export function lignesConditions(c: ConditionsEntree): { mot: string; valeur: st
     { mot: 'Honoraires du propriétaire', valeur: LIBELLE_COMPTE[c.honorairesProprietaire] },
     ...SOMMES.filter((k) => c.sommes[k] !== null).map((k) => ({ mot: LIBELLE_SOMME[k], valeur: formaterCentimes(c.sommes[k] as number) })),
     ...(total === null ? [] : [{ mot: 'Total dû à l’entrée', valeur: formaterCentimes(total) }]),
+    ...(honoraires === null ? [] : honoraires.etat === 'ok' ? lignesHonoraires(honoraires) : [{ mot: 'Honoraires propriétaire', valeur: honoraires.motif }]),
+    ...((): { mot: string; valeur: string }[] => {
+      const t = totalDesHonoraires(c.sommes.honorairesAgence, honoraires);
+      return t === null ? [] : [{ mot: 'Total des honoraires', valeur: eurosAffiches(t) }];
+    })(),
     { mot: 'Mode de règlement', valeur: `${LIBELLE_REGLEMENT[c.reglement]}${c.reglementPrecision ? ` — ${c.reglementPrecision}` : ''}` },
     ...(c.commentaire === null ? [] : [{ mot: 'Commentaires', valeur: c.commentaire }]),
   ];

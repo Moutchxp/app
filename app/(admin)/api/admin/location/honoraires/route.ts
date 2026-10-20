@@ -4,6 +4,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
   ajouterTva, enregistrerReglages, lireLocationsPourHonoraires, lireReglages,
 } from '../../../../../lib/gestion/honorairesGestionRepo';
+import { ajouterBareme, baremesDisponibles, lireBaremes } from '../../../../../lib/location/honorairesProprietaireRepo';
 
 /**
  * /api/admin/location/honoraires — LOT L1 : L'ÉCRAN « HONORAIRES DE GESTION ».
@@ -16,6 +17,9 @@ import {
  * réglages. Le CALCUL (mois, année, par lot, par propriétaire, agence) est fait par l'écran, avec le module PUR
  * `honorairesGestion.ts` : la même règle que le serveur, sans aller-retour à chaque bascule.
  * POST `{ action: 'reglages', tauxDefautHt, baseDefaut }` ou `{ action: 'tva', valeur, depuis }` : journalisés.
+ * Arno (20/10/2026) — le BARÈME DATÉ des honoraires de location (€ TTC/m², migration 392) : lu avec les réglages (`baremes`,
+ * `baremesDisponibles`) ; POST `{ action: 'bareme', depuis, tresTendue, tendue, autre, etatDesLieux, source }` l'AJOUTE
+ * (les anciens restent), journalisé.
  */
 export const runtime = 'nodejs';
 
@@ -29,7 +33,8 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const locations = await lireLocationsPourHonoraires(`${annee}-01-01`, `${annee}-12-31`);
     if (locations === null) return Response.json({ etat: 'sans_schema' }, { headers: ENTETES });
-    return Response.json({ etat: 'ok', annee, locations, reglages: await lireReglages() }, { headers: ENTETES });
+    return Response.json({ etat: 'ok', annee, locations, reglages: await lireReglages(),
+      baremes: await lireBaremes(), baremesDisponibles: await baremesDisponibles() }, { headers: ENTETES });
   } catch (e) {
     console.error('[api/admin/gestion/honoraires] lecture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, { status: 503 });
@@ -51,6 +56,9 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json(
         await enregistrerReglages({ tauxDefautHt: corps.tauxDefautHt, baseDefaut: corps.baseDefaut }, auteur),
         { headers: ENTETES });
+    }
+    if (corps.action === 'bareme') {
+      return Response.json(await ajouterBareme(corps, auteur), { headers: ENTETES });
     }
     if (corps.action === 'tva') {
       return Response.json(await ajouterTva({ valeur: corps.valeur, depuis: corps.depuis }, auteur), { headers: ENTETES });

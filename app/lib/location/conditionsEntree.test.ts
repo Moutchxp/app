@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONDITIONS_VIDES, enCentimes, formaterCentimes, lignesConditions, manquesConditions, totalCentimes, verifierConditions,
+  CONDITIONS_VIDES, enCentimes, LIBELLE_JOUR, formaterCentimes, lignesConditions, manquesConditions, totalCentimes, verifierConditions,
   versEnvoiConditions, versSaisieConditions, type SaisieConditions,
 } from './conditionsEntree';
 
@@ -17,8 +17,14 @@ describe('🔴 conditions d’entrée — choix obligatoires', () => {
     expect(manquesConditions(versEnvoiConditions(COMPLET))).toEqual({});
   });
 
-  it('prélèvement Oui : « au 5 » ou « au 10 » exigé ; Non : le jour est vidé à l’envoi', () => {
-    expect(manquesConditions(versEnvoiConditions({ ...COMPLET, prelevement: true }))).toEqual({ jour: 'Prélèvement : au 5 ou au 10 ?' });
+  it('prélèvement Oui : « au 1er », « au 5 », « au 10 » ou « au 15 » exigé ; Non : le jour est vidé à l’envoi', () => {
+    expect(manquesConditions(versEnvoiConditions({ ...COMPLET, prelevement: true }))).toEqual({ jour: 'Prélèvement : au 1er, au 5, au 10 ou au 15 ?' });
+    for (const j of ['1', '5', '10', '15'] as const) {
+      const v = verifierConditions(versEnvoiConditions({ ...COMPLET, prelevement: true, jour: j }));
+      expect(v.ok && v.valeurs.jour).toBe(Number(j));
+    }
+    expect(verifierConditions({ ...versEnvoiConditions(COMPLET), prelevement: true, jour: '20' }).ok).toBe(false);
+    expect(LIBELLE_JOUR).toEqual({ 1: 'au 1er', 5: 'au 5', 10: 'au 10', 15: 'au 15' });
     expect(manquesConditions(versEnvoiConditions({ ...COMPLET, prelevement: true, jour: '10' }))).toEqual({});
     expect(versEnvoiConditions({ ...COMPLET, prelevement: false, jour: '5' }).jour).toBeNull();
     const v = verifierConditions(versEnvoiConditions({ ...COMPLET, prelevement: true, jour: '5' }));

@@ -373,7 +373,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
               <ChampFleches sorte="pieces" libelle={famille === 'logement' ? 'Nombre de pièces' : 'Nombre de bureaux / pièces'} placeholder="ex. 3"
                 valeur={b.nombrePieces} onChange={(v) => setB((x) => ({ ...x, nombrePieces: v }))} />
               {champ('surfaceHabitableM2', famille === 'logement' ? 'Surface habitable (m²)' : 'Surface (m²)', { inputMode: 'decimal' })}
-              {champ('surfaceCarrezM2', 'Surface Carrez (m²)', { inputMode: 'decimal' })}
+              {champ('surfaceCarrezM2', 'Surface Carrez/Boutin m²', { inputMode: 'decimal' })}
               {champ('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' }, 'balcon, terrasse, jardin')}
             </div>
           </div>

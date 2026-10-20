@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, useLecture } from './commun';
 import { etageFr } from '../../../../lib/location/sortieLocataires';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
@@ -11,6 +11,8 @@ import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versS
 import { CONDITIONS_VIDES, manquesConditions, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import { familleDeCategorie, manquesEntretien } from '../../../../lib/location/bienComplet';
 import type { FicheBienLocation } from '../../../../lib/location/locationRepo';
+import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocation';
+import type { CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
 interface LotLu { id: number; role: 'logement' | 'annexe'; libelle: string; type: string | null; etage: string | null; numeroLot: string | null;
@@ -118,6 +120,19 @@ export function CreationLocataire() {
     ...(avecEntretien ? manquesEntretien({ entretienAPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens }) : {}),
   } : {};
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
+  // Arno (20/10/2026) — LES GARANTS : les contacts « Garant » validés au bloc 1. S'il y en a, « Garant personne physique » passe
+  // d'office à Oui (à chaque NOUVEAU garant ; on peut toujours répondre Non) ; « Ajouter un garant » ouvre une carte contact.
+  const garants = etat.contacts.filter((c) => estGarant(c.qualite)).map((c) => [(c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' '));
+  const nbGarants = useRef(0);
+  useEffect(() => {
+    if (garants.length > nbGarants.current) setConditions((c) => (c.garant === true ? c : { ...c, garant: true }));
+    nbGarants.current = garants.length;
+  }, [garants.length]);
+  const [demandeGarant, setDemandeGarant] = useState({ n: 0, qualite: QUALITE_GARANT });
+  // Arno (20/10/2026) — LES HONORAIRES PROPRIÉTAIRE du bien loué, à la date d'entrée : calculés par le serveur (barème daté,
+  // zone, surface Carrez/Boutin de la fiche du bien), relus quand le bien ou la date change.
+  const hono = useLecture<CalculHonoraires>(avecConditions && bien !== null
+    ? `honorairesProprietaire=${bien.id}${/^\d{4}-\d{2}-\d{2}$/.test(entree) ? `&entree=${entree}` : ''}` : null);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
 
   useEffect(() => { const t = setTimeout(() => setTerme(filtreBien.trim()), 250); return () => clearTimeout(t); }, [filtreBien]);
@@ -182,7 +197,7 @@ export function CreationLocataire() {
         <h3 id="loc-l1"><span className="loc-num">1</span>Le ou les locataires</h3>
         <p className="loc-section-phrase">« + Ajouter… » : un <strong>locataire (client)</strong> ou un <strong>contact du locataire</strong> (conjoint,
           artisan, avocat, voisin…). « Enregistrer » valide la carte ; tout est enregistré en bas de page. Rien n’est jamais fusionné.</p>
-        <SaisieCartes cote="locataire" onChange={surCartes} />
+        <SaisieCartes cote="locataire" onChange={surCartes} demandeContact={demandeGarant} />
       </section>
 
       <section className="loc-section" aria-labelledby="loc-l2">
@@ -221,6 +236,9 @@ export function CreationLocataire() {
           <>
             <p className="loc-section-phrase">La fiche « Nouveau dossier » : enregistrée sur le bail créé. Les choix marqués <span className="loc-oblig">*</span> sont obligatoires ; montants et commentaire facultatifs.</p>
             <BlocConditionsEntree valeur={conditions} onChange={(v) => { setConditions(v); setMotif(null); }} manque={manqueDe}
+              garants={{ noms: garants, onAjouter: () => setDemandeGarant((d) => ({ ...d, n: d.n + 1 })) }}
+              honoraires={{ calcul: bien === null ? null : hono.etat.etat === 'ok' ? hono.etat.data : null,
+                charge: bien !== null && hono.etat.etat === 'charge', lienBien: bien === null ? null : `/admin/location/bien/${bien.id}` }}
               entretien={avecEntretien ? (
                 <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire
                   manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />

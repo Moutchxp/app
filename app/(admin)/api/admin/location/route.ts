@@ -34,6 +34,7 @@ import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRep
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
 import { planifierBail } from '../../../../lib/location/regroupement';
 import { conditionsEntreeDisponible } from '../../../../lib/location/conditionsEntreeRepo';
+import { calculHonorairesDuBien } from '../../../../lib/location/honorairesProprietaireRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -96,6 +97,12 @@ export async function GET(request: Request): Promise<Response> {
     if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await preavisEnCours() }, { headers: ENTETES });
     // Arno (20/10/2026) — le bloc « Conditions d'entrée » : la migration 391 est-elle là ? (sinon l'écran le dit, et crée comme avant)
     if (p('conditionsEntreeDisponible') !== null) return Response.json({ etat: 'ok', data: await conditionsEntreeDisponible() }, { headers: ENTETES });
+    // Arno (20/10/2026) — les HONORAIRES PROPRIÉTAIRE du bien loué à la date d'entrée (barème daté, zone, surface) — LECTURE SEULE.
+    const idHono = identifiant(p('honorairesProprietaire'));
+    if (idHono !== null) {
+      const h = await calculHonorairesDuBien(idHono, p('entree'));
+      return Response.json(h === null ? { etat: 'inconnu' } : { etat: 'ok', data: h }, { headers: ENTETES });
+    }
     // Les lots d'un bien pour le bail d'un nouveau locataire (Arno, 19/10/2026) — LECTURE SEULE : type, étage, n°, état.
     const idLotsBail = identifiant(p('lotsBail'));
     if (idLotsBail !== null) {

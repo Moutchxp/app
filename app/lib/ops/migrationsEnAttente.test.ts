@@ -79,6 +79,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 389 : identifiants de l'arborescence Drive validée N3 → N10 (tuile Gestion, 19/10/2026).
   // 390 : « Bien en gestion ? » propre à chaque bien (tuile Location, 20/10/2026).
   // 391 : conditions d'entrée d'un bail, écran « Nouveau locataire » (tuile Location, 20/10/2026).
+  // 392 : jours de prélèvement 1/5/10/15, honoraires propriétaire (barèmes datés, zone très tendue) (tuile Location, 20/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -88,7 +89,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql', '383_location_preavis.sql', '384_location_etat_des_lieux.sql',
     '385_location_edls.sql', '386_location_regroupement.sql', '387_gestion_rapprochement_dossiers.sql',
     '388_gestion_dossier_attitre_bien.sql', '389_gestion_drive_noeud.sql', '390_location_bien_en_gestion.sql',
-    '391_location_conditions_entree.sql'];
+    '391_location_conditions_entree.sql', '392_location_honoraires_proprietaire.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -101,7 +102,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 391 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 392 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -111,14 +112,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (392)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (393)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(391\)/);
-    const renumerotee = planifier([...existants, { fichier: '392_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(392\)/);
+    const renumerotee = planifier([...existants, { fichier: '393_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['392_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['393_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -611,5 +612,29 @@ describe('391 (Location : conditions d’entrée d’un bail) : une table neuve 
     for (const c of ['prorata_loyer_centimes', 'prorata_charges_centimes', 'depot_garantie_centimes', 'honoraires_agence_centimes']) {
       expect(contenu).toMatch(new RegExp(`${c}\\s+bigint`));
     }
+  });
+});
+
+describe('392 (Location : jours 1/5/10/15, honoraires propriétaire, barèmes datés, zone très tendue) : ajout seul', () => {
+  const contenu = lire(MIGRATIONS, '392_location_honoraires_proprietaire.sql');
+  const a = analyserMigration({ fichier: '392_location_honoraires_proprietaire.sql', contenu });
+  it('passe le garde, enveloppée, réversible ; une table neuve (barèmes), des colonnes facultatives', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect([...a.tablesCreees]).toEqual(['gestion_bareme_honoraires_location']);
+  });
+  it('les jours deviennent 1, 5, 10, 15 (ajout de valeurs) ; barèmes en ajout seul, amorce du 01/01/2026 aux tarifs officiels', () => {
+    expect(contenu).toMatch(/CHECK \(prelevement_jour IN \(1, 5, 10, 15\)\)/);
+    expect(contenu).toMatch(/BEFORE UPDATE OR DELETE ON gestion_bareme_honoraires_location\b/);
+    expect(contenu).toMatch(/BEFORE TRUNCATE ON gestion_bareme_honoraires_location\b/);
+    expect(contenu).toMatch(/SELECT DATE '2026-01-01', 12\.10, 10\.09, 8\.07, 3\.03,/);
+    expect(contenu).not.toMatch(/^\s*DELETE\b/im);
+  });
+  it('« très tendue » : une colonne sur la table des zones, amorcée sur 75/92/93/94 « à vérifier », sautée sans la table 383', () => {
+    expect(contenu).toMatch(/ALTER TABLE IF EXISTS gestion_zone_tendue ADD COLUMN IF NOT EXISTS tres_tendue boolean NOT NULL DEFAULT false;/);
+    expect(contenu).toMatch(/IF to_regclass\('gestion_zone_tendue'\) IS NOT NULL THEN/);
+    expect(contenu).toMatch(/code IN \('75', '92', '93', '94'\)/);
+    expect(contenu).toMatch(/à vérifier/);
   });
 });

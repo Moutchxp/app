@@ -5,6 +5,7 @@ import {
   calculerHonoraires, formaterEuros, formaterTaux, LIBELLE_BASE, MOT_LOYER_A_SAISIR, nombrePourSaisie,
   PHRASE_THEORIQUE, tvaEnVigueur, type BaseHonoraires, type LocationPourHonoraires, type ResultatHonoraires,
 } from '../../../../../lib/gestion/honorairesGestion';
+import { baremeEnVigueur, tarifAffiche, lireDecimal, ZERO, type Bareme } from '../../../../../lib/location/honorairesProprietaire';
 
 /**
  * ══ 🔴🔴 LOT L1 — L'ÉCRAN « HONORAIRES DE GESTION » (administrateurs) ═════════════════════════════════════════════
@@ -23,7 +24,7 @@ type Etat =
   | { etat: 'charge' }
   | { etat: 'erreur'; message: string }
   | { etat: 'sans_schema' }
-  | { etat: 'ok'; annee: number; locations: LocationPourHonoraires[]; reglages: Reglages };
+  | { etat: 'ok'; annee: number; locations: LocationPourHonoraires[]; reglages: Reglages; baremes?: Bareme[]; baremesDisponibles?: boolean };
 interface Reglages {
   tauxDefautHt: number; baseDefaut: BaseHonoraires;
   tva: { valeur: number; depuis: string; saisiLe: string; saisiPar: string }[];
@@ -225,6 +226,7 @@ export function HonorairesGestion() {
           )}
 
           <ReglagesHonoraires reglages={etat.reglages} onEnregistre={() => setRafraichi((n) => n + 1)} />
+          <BaremesLocation baremes={etat.baremes ?? []} disponible={etat.baremesDisponibles === true} onEnregistre={() => setRafraichi((n) => n + 1)} />
         </>
       )}
     </div>
@@ -275,6 +277,56 @@ function ReglagesHonoraires({ reglages, onEnregistre }: { reglages: Reglages; on
           <input className="hon-champ" type="date" value={depuis} onChange={(e) => setDepuis(e.target.value)} /></label>
         <button type="submit" className="svv-btn svv-btn-outline gst-btn">Ajouter</button>
       </form>
+      {message !== null && <p className="hon-note" role="status">{message}</p>}
+    </details>
+  );
+}
+
+/**
+ * Arno (20/10/2026) — LE BARÈME DATÉ des honoraires de location à la charge du bailleur (€ TTC/m², migration 392) : celui
+ * en vigueur, l'historique, et « Ajouter » un nouveau barème avec sa date d'effet. Les anciens ne sont JAMAIS écrasés : un
+ * bail prend le barème en vigueur à sa date d'entrée.
+ */
+function BaremesLocation({ baremes, disponible, onEnregistre }: { baremes: Bareme[]; disponible: boolean; onEnregistre: () => void }) {
+  const [f, setF] = useState({ depuis: '', tresTendue: '', tendue: '', autre: '', etatDesLieux: '', source: '' });
+  const [message, setMessage] = useState<string | null>(null);
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  const enVigueur = baremeEnVigueur(baremes, aujourdhui);
+  const t = (x: string): string => tarifAffiche(lireDecimal(x) ?? ZERO);
+  const resume = (b: Bareme): string => `très tendue ${t(b.tresTendue)} · tendue ${t(b.tendue)} · autres ${t(b.autre)} · état des lieux ${t(b.etatDesLieux)}`;
+  const envoyer = async (): Promise<void> => {
+    try {
+      const res = await fetch('/api/admin/location/honoraires', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'bareme', ...f }) });
+      const d = await res.json() as { etat?: string; motif?: string; message?: string };
+      if (d.etat === 'ok') { setMessage('Barème ajouté.'); setF({ depuis: '', tresTendue: '', tendue: '', autre: '', etatDesLieux: '', source: '' }); onEnregistre(); return; }
+      setMessage(d.etat === 'sans_schema' ? 'Mise à jour de la base à appliquer (migration 392).' : d.motif ?? d.message ?? 'Enregistrement refusé.');
+    } catch {
+      setMessage('Enregistrement impossible : le serveur n’a pas répondu.');
+    }
+  };
+  const champ = (k: keyof typeof f, mot: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+    <label>{mot}<input className="hon-champ" value={f[k]} onChange={(e) => { const v = e.target.value; setF((x) => ({ ...x, [k]: v })); }} {...props} /></label>
+  );
+  return (
+    <details className="hon-reglages" data-baremes-location>
+      <summary>Barème des honoraires de location (propriétaire, € TTC/m²)</summary>
+      {!disponible ? <p className="hon-note">Mise à jour de la base à appliquer (migration 392).</p> : (
+        <>
+          <p className="hon-note">En vigueur aujourd’hui : <strong>{enVigueur === null ? 'aucun' : `${resume(enVigueur)} (depuis le ${enVigueur.depuis.split('-').reverse().join('/')})`}</strong>.</p>
+          <ul className="hon-note" style={{ margin: 0 }}>
+            {baremes.map((b) => <li key={b.id}>Depuis le {b.depuis.split('-').reverse().join('/')} : {resume(b)} — {b.source}</li>)}
+          </ul>
+          <form className="hon-reglages-ligne" onSubmit={(e) => { e.preventDefault(); void envoyer(); }}>
+            {champ('depuis', 'À compter du', { type: 'date' })}
+            {champ('tresTendue', 'Zone très tendue', { inputMode: 'decimal', placeholder: 'ex. 12,10' })}
+            {champ('tendue', 'Zone tendue', { inputMode: 'decimal', placeholder: 'ex. 10,09' })}
+            {champ('autre', 'Autres zones', { inputMode: 'decimal', placeholder: 'ex. 8,07' })}
+            {champ('etatDesLieux', 'État des lieux', { inputMode: 'decimal', placeholder: 'ex. 3,03' })}
+            {champ('source', 'Source (arrêté, décret…)')}
+            <button type="submit" className="svv-btn svv-btn-outline gst-btn">Ajouter</button>
+          </form>
+        </>
+      )}
       {message !== null && <p className="hon-note" role="status">{message}</p>}
     </details>
   );

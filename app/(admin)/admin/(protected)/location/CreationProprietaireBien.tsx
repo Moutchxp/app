@@ -138,7 +138,7 @@ export function CreationProprietaireBien({ proprietaireInitial }: { proprietaire
           {champL('etage', 'Étage', { placeholder: 'ex. 3, RDC, -1' })}
           {champL('porte', 'N° de porte')}
           {champL('numLotCopro', 'N° de lot de copropriété')}
-          {champL('surfaceCarrezM2', 'Surface Carrez (m²)', { inputMode: 'decimal' })}
+          {champL('surfaceCarrezM2', 'Surface Carrez/Boutin m²', { inputMode: 'decimal' })}
           {champL('surfaceExterieureM2', 'Surface extérieure (m²)', { inputMode: 'decimal' })}
         </div>
       </section>

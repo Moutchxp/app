@@ -252,7 +252,10 @@ export const CSS_LOCATION_CREATION = `
 .loc-pilules{display:flex;flex-wrap:wrap;gap:10px}
 .loc-pilules button{min-height:54px;padding:0 22px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;font-weight:700;cursor:pointer}
 .loc-pilules button[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
-.loc-pilules button[aria-pressed="true"]::before{content:"✓ "}
+/* Arno (20/10/2026) : la place de la coche est RÉSERVÉE dans tout bouton à choix — la sélection ne fait plus passer le
+   bouton à la ligne ; la coche n'apparaît (visible) que sur le choix retenu. */
+.loc-pilules button[aria-pressed]::before{content:"✓ ";visibility:hidden}
+.loc-pilules button[aria-pressed="true"]::before{visibility:visible}
 .loc-pilules button:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px}
 .loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:12px}
 .loc-puce{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:8px 8px 8px 20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-size:1.05rem;font-weight:700;border:2px solid var(--color-svv-green-ink)}
@@ -303,6 +306,8 @@ export const CSS_LOCATION_CREATION = `
 .loc-carte-badge{margin:0 0 8px}
 .loc-recap--contact{border-color:var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink)}
 .loc-ample .cp-champ--en-avant .cp-saisie{border-color:var(--color-svv-ink)}
+[data-qualite-menu]{gap:.35rem}
+.cp-aide-qualite{font-size:.8rem;color:var(--color-svv-muted)}
 /* Arno (17/10/2026) — LE SYNDIC DU BIEN : libellé, loupe, « + » rouge cerclé de rouge ; suggestions ; contacts du cabinet. */
 .loc-syndic{display:flex;flex-direction:column;gap:12px}
 .loc-syndic-tete{display:flex;flex-wrap:wrap;align-items:center;gap:12px}

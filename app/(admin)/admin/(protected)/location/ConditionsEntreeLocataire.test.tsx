@@ -5,6 +5,9 @@ import { readFileSync } from 'node:fs';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationLocataire } from './CreationLocataire';
 import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
+import { FormulaireCarte } from '../gestion/CartesPersonnes';
+import { CSS_LOCATION_CREATION } from './commun';
+import { QUALITES_CONTACT } from '../../../../lib/location/cartesLocation';
 
 /**
  * 🔴 Arno (20/10/2026) — « Nouveau locataire », bloc 3 « Conditions d'entrée » (fiche papier « Nouveau dossier ») :
@@ -24,9 +27,13 @@ let posts: Record<string, unknown>[];
 let disponible: boolean;
 let categorie: string;
 let entretienDuBien: { entretienAPrevoir: boolean | null; entretiens: unknown[] };
+/** Le calcul des honoraires propriétaire rendu par le serveur (simulé). */
+let calcul: unknown;
+const CALCUL_OK = { etat: 'ok', surface: '41.8', zone: 'tres_tendue', date: '2026-11-01', dateSupposee: false, baremeId: 1, baremeDepuis: '2026-01-01',
+  source: 'Arrêté du 17/07/2025', tarifZone: '12.1', tarifEdl: '3.03', visiteBail: '505.78', etatDesLieux: '126.654', total: '632.434' };
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  posts = []; disponible = true; categorie = 'logement'; entretienDuBien = { entretienAPrevoir: null, entretiens: [] };
+  posts = []; disponible = true; categorie = 'logement'; entretienDuBien = { entretienAPrevoir: null, entretiens: [] }; calcul = CALCUL_OK;
   Element.prototype.scrollIntoView = function scrollIntoView() {};
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = decodeURIComponent(String(url));
@@ -36,6 +43,7 @@ beforeEach(() => {
       return ok(corps.action === 'apercu-lots' ? { recap: ['Le logement est loué.'] } : { locataireIds: [50], reintegrations: [] });
     }
     if (u.includes('conditionsEntreeDisponible')) return ok(disponible);
+    if (u.includes('honorairesProprietaire=7')) return ok(calcul);
     if (u.includes('biensPourLocataire=')) return ok([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'libre' }]);
     if (u.includes('lotsBail=7')) return ok({ lots: [{ id: 7, role: 'logement', libelle: 'logement', type: null, etage: null, numeroLot: null, porte: null, place: false, occupants: [], noms: [] }], sorte: 'simple', origineLibelle: '' });
     if (u.includes('lot=7')) return ok({ bien: { id: 7, categorie }, complements: { ...entretienDuBien } });
@@ -92,7 +100,7 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     const sections = [...container.querySelectorAll('.loc-section > h3')].map((h) => h.textContent);
     expect(sections.slice(0, 3)).toEqual(['1Le ou les locataires', '2Bien loué', '3Conditions d’entrée']);
     expect([...container.querySelectorAll('.loc-cond-bloc')].map((b) => b.getAttribute('data-cond')))
-      .toEqual(['depot', 'prelevement', 'garanties', 'entretien', 'honoraires', 'sommes', 'reglement', 'commentaire']);
+      .toEqual(['depot', 'prelevement', 'garanties', 'entretien', 'honoraires', 'sommes', 'honoraires-proprietaire', 'reglement', 'commentaire']);
     expect([...container.querySelectorAll('[aria-label="Assurance loyers impayés"] button')].map((b) => b.textContent)).toEqual(['GLI', 'Visale', 'Autre', 'Aucune']);
     expect(container.querySelector('[aria-label="Dépôt de garantie"]')?.className).toBe('loc-pilules');
     // Le même composant de boutons que « Nouveau bien » (aucune copie).
@@ -113,15 +121,15 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
   });
 
-  it('sous-choix « au 5 / au 10 » : seulement après Oui, exigé ; Non le retire', async () => {
+  it('sous-choix « au 1er / au 5 / au 10 / au 15 » : seulement après Oui, exigé ; Non le retire', async () => {
     await preparer();
     expect(container.querySelector('[data-cond-jour]')).toBeNull();
     await clic(pilule('Prélèvement', 'Oui'));
-    expect([...container.querySelectorAll('[aria-label="Jour du prélèvement"] button')].map((b) => b.textContent)).toEqual(['au 5', 'au 10']);
-    expect(barre()).toContain('Prélèvement : au 5 ou au 10');
+    expect([...container.querySelectorAll('[aria-label="Jour du prélèvement"] button')].map((b) => b.textContent)).toEqual(['au 1er', 'au 5', 'au 10', 'au 15']);
+    expect(barre()).toContain('Prélèvement : au 1er, au 5, au 10 ou au 15');
     await clic(pilule('Prélèvement', 'Non'));
     expect(container.querySelector('[data-cond-jour]')).toBeNull();
-    expect(barre()).not.toContain('au 5 ou au 10');
+    expect(barre()).not.toContain('au 10 ou au 15');
   });
 
   it('« préciser » : GLI et Autre ouvrent un champ obligatoire ; changer de choix le referme', async () => {
@@ -257,5 +265,134 @@ describe('🔴 fiche du locataire — encart « Conditions d’entrée »', () =
     act(() => { root.unmount(); }); root = createRoot(container);
     await rendre(FICHE({ conditionsEntree: [], conditionsEntreeDisponible: false }));
     expect(container.querySelector('[data-encart-conditions-entree]')?.textContent).toContain('migration 391');
+  });
+});
+
+describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réservée, honoraires propriétaire', () => {
+  const champ = (sel: string) => container.querySelector(sel) as HTMLInputElement;
+
+  it('DÉPÔT : le montant s’ouvre sous le choix ; JUMEAU de « Dépôt de garantie (€) » des sommes dues (une seule donnée)', async () => {
+    await preparer();
+    expect(container.querySelector('[data-depot-montant]')).toBeNull();
+    await clic(pilule('Dépôt de garantie', 'Conservé par l’agence'));
+    expect(container.querySelector('[data-depot-montant]')?.firstChild?.textContent).toBe('Montant du dépôt de garantie (€)');
+    await saisir(champ('[data-depot-montant] input'), '1 180');
+    expect(champ('[data-somme="depotGarantie"] input').value).toBe('1 180');
+    await saisir(champ('[data-somme="depotGarantie"] input'), '1 250,50');
+    expect(champ('[data-depot-montant] input').value).toBe('1 250,50');
+    await clic(pilule('Dépôt de garantie', 'Reversé au bailleur'));
+    expect(champ('[data-depot-montant] input').value).toBe('1 250,50');
+  });
+
+  it('GARANT : un contact « Garant » du bloc 1 coche « Oui » d’office et s’affiche (NOM Prénom) ; Non reste possible', async () => {
+    await preparer();
+    await clic([...container.querySelectorAll('button')].find((b) => b.textContent === '+ Ajouter…')!);
+    await clic([...container.querySelectorAll('[data-choix] button')].find((b) => b.textContent === 'Contact du locataire')!);
+    const form = container.querySelector('[data-sorte="contact"] .cp-form') as HTMLElement;
+    const mot = (m: string) => [...form.querySelectorAll('label.cp-champ')].find((l) => l.querySelector('.cp-champ-mot')?.textContent === m)?.querySelector('input') as HTMLInputElement;
+    await saisir(mot('Nom'), 'Garantfictif');
+    await saisir(mot('Prénom'), 'Paul');
+    const menu = form.querySelector('[data-qualite-menu] select') as HTMLSelectElement;
+    await act(async () => { menu.value = 'Garant'; menu.dispatchEvent(new Event('change', { bubbles: true })); });
+    const v = form.querySelectorAll('.cp-saisie--valeur');
+    await saisir(v[0] as HTMLInputElement, '06 98 76 54 32');
+    await saisir(v[1] as HTMLInputElement, 'garant@exemple.test');
+    expect(pilule('Garant personne physique', 'Oui').getAttribute('aria-pressed')).toBe('false');
+    await clic(form.querySelector('button[type="submit"]')!);
+    expect(pilule('Garant personne physique', 'Oui').getAttribute('aria-pressed')).toBe('true');
+    expect([...container.querySelectorAll('[data-garants] li')].map((l) => l.textContent)).toEqual(['GARANTFICTIF Paul']);
+    expect(container.querySelector('[data-ajouter-garant]')).toBeNull();
+    await clic(pilule('Garant personne physique', 'Non'));
+    expect(pilule('Garant personne physique', 'Non').getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('« Oui » sans garant connu : « Ajouter un garant » ouvre la carte « Contact du locataire », qualité « Garant » déjà choisie', async () => {
+    await preparer();
+    expect(container.querySelector('[data-ajouter-garant]')).toBeNull();
+    await clic(pilule('Garant personne physique', 'Oui'));
+    await clic(container.querySelector('[data-ajouter-garant]')!);
+    await calmer();
+    const cartes = container.querySelectorAll('[data-sorte="contact"] .cp-form');
+    expect(cartes).toHaveLength(1);
+    expect((cartes[0].querySelector('[data-qualite-menu] select') as HTMLSelectElement).value).toBe('Garant');
+    expect(cartes[0].querySelectorAll('.cp-saisie--valeur')).toHaveLength(2);
+  });
+
+  it('QUALITÉ : menu « Garant » d’abord … « Personnalisé » (texte libre) ; une ancienne qualité libre reste telle quelle', async () => {
+    const rendreCarte = async (qualite: string | null) => {
+      await act(async () => {
+        root.render(createElement(FormulaireCarte, {
+          p: qualite === null ? null : { civilite: null, prenom: null, nom: 'X', qualite, adresse: null, codePostal: null, commune: null, note: null, contacts: [] },
+          refus: null, onEnregistrer: async () => {}, onAnnuler: () => {}, contact: { titre: 'Nouveau contact du locataire', rappel: '' },
+          qualiteEnAvant: 'ex. Garant, conjoint, artisan, avocat, voisin… ou « Personnalisé »', qualitesProposees: QUALITES_CONTACT,
+        }));
+      });
+    };
+    await rendreCarte(null);
+    const menu = () => container.querySelector('[data-qualite-menu] select') as HTMLSelectElement;
+    expect([...menu().options].map((o) => o.textContent)).toEqual(['— choisir —', 'Garant', 'Conjoint', 'Artisan', 'Avocat', 'Voisin', 'Personnalisé']);
+    expect(container.querySelector('.cp-aide-qualite')?.textContent?.startsWith('ex. Garant')).toBe(true);
+    expect(container.querySelector('[data-qualite-perso]')).toBeNull();
+    await act(async () => { menu().value = 'personnalise'; menu().dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(container.querySelector('[data-qualite-perso]')).not.toBeNull();
+    // Une qualité déjà saisie hors de la liste : « Personnalisé », le texte tel quel (aucune perte).
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await rendreCarte('Employeur');
+    expect(menu().value).toBe('personnalise');
+    expect((container.querySelector('[data-qualite-perso]') as HTMLInputElement).value).toBe('Employeur');
+    act(() => { root.unmount(); }); root = createRoot(container);
+    await rendreCarte('garant');
+    expect(menu().value).toBe('Garant');
+  });
+
+  it('BOUTONS SUR UNE LIGNE : la place de la coche est réservée dans TOUT bouton à choix (visible seulement sur le choix)', async () => {
+    expect(CSS_LOCATION_CREATION).toContain('.loc-pilules button[aria-pressed]::before{content:"✓ ";visibility:hidden}');
+    expect(CSS_LOCATION_CREATION).toContain('.loc-pilules button[aria-pressed="true"]::before{visibility:visible}');
+    await preparer();
+    // Chaque bouton à choix porte aria-pressed (donc la place réservée), sélectionné ou non.
+    const choix = [...container.querySelectorAll('[data-conditions-entree] .loc-pilules button')];
+    expect(choix.length).toBeGreaterThan(15);
+    expect(choix.filter((b) => !b.hasAttribute('aria-pressed') && !b.hasAttribute('data-ajouter-entretien'))).toEqual([]);
+  });
+
+  it('HONORAIRES PROPRIÉTAIRE : les lignes calculées, la zone et le tarif utilisés ; « Total des honoraires » = agence + propriétaire', async () => {
+    await preparer();
+    const bloc = container.querySelector('[data-cond="honoraires-proprietaire"]') as HTMLElement;
+    expect([...bloc.querySelectorAll('dt')].map((x) => x.firstChild?.textContent)).toEqual(['Visite, dossier, rédaction du bail', 'État des lieux d’entrée', 'Total honoraires propriétaire']);
+    expect([...bloc.querySelectorAll('dd')].map((x) => x.textContent?.replace(/\s/g, ' '))).toEqual(['505,78 €', '126,65 €', '632,43 €']);
+    expect(bloc.querySelector('dt small')?.textContent?.replace(/\s/g, ' ')).toBe('41,8 m² × 12,10 €/m² (zone très tendue)');
+    expect(bloc.querySelector('[data-zone-tarif]')?.textContent?.replace(/\s/g, ' ')).toContain('Zone : zone très tendue — tarif 12,10 €/m², état des lieux 3,03 €/m² ; barème du 01/01/2026');
+    const total = () => container.querySelector('[data-total-honoraires] strong')?.textContent?.replace(/\s/g, ' ');
+    expect(total()).toBe('632,43 €');
+    await saisir(container.querySelector('[data-somme="honorairesAgence"] input') as HTMLInputElement, '450');
+    expect(total()).toBe('1 082,43 €');
+  });
+
+  it('le calcul est demandé pour le bien ET la date d’entrée (barème de cette date)', async () => {
+    await preparer();
+    await saisir(container.querySelector('input[type="date"][form]') as HTMLInputElement, '2026-11-01');
+    await calmer();
+    const urls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.map((c) => decodeURIComponent(String(c[0])));
+    expect(urls.some((u) => u.includes('honorairesProprietaire=7&entree=2026-11-01'))).toBe(true);
+  });
+
+  it('SURFACE MANQUANTE : le dit, avec le lien vers la fiche du bien ; aucun calcul inventé', async () => {
+    calcul = { etat: 'surface_manquante', zone: 'autre', date: '2026-10-20', dateSupposee: true, motif: 'Surface Carrez/Boutin manquante dans la fiche du bien' };
+    await preparer();
+    const m = container.querySelector('[data-surface-manquante]') as HTMLElement;
+    expect(m.textContent).toBe('Surface Carrez/Boutin manquante dans la fiche du bien. Ouvrir la fiche du bien');
+    expect(m.querySelector('a')?.getAttribute('href')).toBe('/admin/location/bien/7');
+    expect(container.querySelector('[data-cond="honoraires-proprietaire"] dd')).toBeNull();
+    expect(container.querySelector('[data-total-honoraires] strong')?.textContent).toBe('—');
+  });
+
+  it('« Surface Carrez » devient « Surface Carrez/Boutin m² » partout (fiche, Nouveau bien, cartes) — la donnée ne change pas', () => {
+    const lire = (f: string) => readFileSync(f, 'utf8');
+    for (const f of ['app/(admin)/admin/(protected)/location/CreationBien.tsx', 'app/(admin)/admin/(protected)/location/CreationProprietaireBien.tsx',
+      'app/(admin)/admin/(protected)/gestion/SectionsLocationFiche.tsx', 'app/lib/location/sortieLocataires.ts']) {
+      expect(lire(f), f).toContain('Surface Carrez/Boutin m²');
+      expect(lire(f), f).not.toMatch(/'Surface Carrez \(m²\)'|'Surface Carrez'|'Surface \(Carrez\)'/);
+    }
+    expect(lire('app/lib/location/locationBien.ts')).toContain('`Carrez/Boutin ${m2(b.surfaceCarrezM2)}`');
   });
 });

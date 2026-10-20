@@ -59,7 +59,7 @@ export function verifierChampsBien(brut: Record<string, unknown>): { ok: true; v
     if (n === null || n < 0 || n > 100_000) return `La surface ${mot} doit être un nombre de m² (ex. 41,8).`;
     return n;
   };
-  const carrez = surface(brut.surfaceCarrezM2, 'Carrez');
+  const carrez = surface(brut.surfaceCarrezM2, 'Carrez/Boutin');
   if (typeof carrez === 'string') return { ok: false, motif: carrez };
   const ext = surface(brut.surfaceExterieureM2, 'extérieure');
   if (typeof ext === 'string') return { ok: false, motif: ext };
@@ -98,7 +98,7 @@ export function resumeBien(b: {
     libelleEtage(b.etage),
     b.porte === null ? null : `${b.categorie === 'parking' || b.categorie === 'box' ? 'place' : 'porte'} ${b.porte}`,
     b.numLotCopro === null ? null : `lot de copro n° ${b.numLotCopro}`,
-    b.surfaceCarrezM2 === null ? null : `Carrez ${m2(b.surfaceCarrezM2)}`,
+    b.surfaceCarrezM2 === null ? null : `Carrez/Boutin ${m2(b.surfaceCarrezM2)}`,
     b.surfaceExterieureM2 === null ? null : `ext. ${m2(b.surfaceExterieureM2)}`,
   ].filter((x) => x !== null).join(' · ');
 }

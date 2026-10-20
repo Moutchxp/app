@@ -38,7 +38,10 @@ describe('① les exemples du champ « Qualité »', () => {
   it('les textes d’Arno, les mêmes des deux côtés', () => {
     expect(EXEMPLE_QUALITE_CONTACT).toBe('ex. Conjoint, artisan, avocat, voisin…');
     expect(EXEMPLE_QUALITE_CLIENT).toBe('ex. Conjoint, indivision, gérant, représentant…');
-    expect(EXEMPLES_QUALITE).toEqual({ proprietaire: EXEMPLE_QUALITE_CONTACT, locataire: EXEMPLE_QUALITE_CONTACT });
+    // Arno (20/10/2026) : dans la Location, la Qualité d'un contact est un MENU ; son aide commence par « Garant » (la Gestion
+    // garde l'exemple ci-dessus).
+    expect(EXEMPLES_QUALITE).toEqual({ proprietaire: 'ex. Garant, conjoint, artisan, avocat, voisin… ou « Personnalisé »',
+      locataire: 'ex. Garant, conjoint, artisan, avocat, voisin… ou « Personnalisé »' });
   });
   it('fiche commune : carte client et carte de contact (même formulaire que la création)', async () => {
     const qualite = () => ([...container.querySelectorAll('.cp-champ')].find((l) => (l.textContent ?? '').startsWith('Qualité'))?.querySelector('input') as HTMLInputElement).placeholder;

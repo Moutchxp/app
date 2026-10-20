@@ -22,10 +22,30 @@ export const MOT_CONTACT: Record<CoteCarte, string> = { proprietaire: 'Contact d
 export const BADGE_CLIENT: Record<CoteCarte, string> = { proprietaire: 'Propriétaire', locataire: 'Locataire' };
 export const BADGE_CONTACT: Record<CoteCarte, string> = { proprietaire: 'Contact du propriétaire', locataire: 'Contact du locataire' };
 /** Les exemples de « Qualité », mis en avant sur une carte contact — le texte de la Gestion, des deux côtés (Arno, 18/10/2026). */
+/**
+ * Arno (20/10/2026) — dans la tuile Location, la « Qualité » d'un contact est un MENU : « Garant » d'abord, puis Conjoint,
+ * Artisan, Avocat, Voisin, et « Personnalisé » (texte libre). L'aide commence par « Garant ». (La Gestion garde sa saisie
+ * libre et son exemple, `EXEMPLE_QUALITE_CONTACT`.)
+ */
+export const QUALITES_CONTACT = ['Garant', 'Conjoint', 'Artisan', 'Avocat', 'Voisin'] as const;
+export const QUALITE_GARANT = 'Garant';
+const AIDE_QUALITE_LOCATION = 'ex. Garant, conjoint, artisan, avocat, voisin… ou « Personnalisé »';
 export const EXEMPLES_QUALITE: Record<CoteCarte, string> = {
-  proprietaire: EXEMPLE_QUALITE_CONTACT,
-  locataire: EXEMPLE_QUALITE_CONTACT,
+  proprietaire: AIDE_QUALITE_LOCATION,
+  locataire: AIDE_QUALITE_LOCATION,
 };
+
+/** La qualité « Garant » (casse, accents et blancs ignorés) : un garant du locataire. PUR. */
+export function estGarant(qualite: string | null | undefined): boolean {
+  return (qualite ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase() === 'garant';
+}
+
+/** La position du menu pour une qualité déjà saisie : une des qualités proposées, « Personnalisé » (texte libre), ou vide. */
+export function choixQualite(qualite: string | null | undefined): string {
+  const q = (qualite ?? '').trim();
+  if (q === '') return '';
+  return QUALITES_CONTACT.find((x) => x.toLowerCase() === q.toLowerCase()) ?? 'personnalise';
+}
 
 const rempli = (v: string | null | undefined): boolean => (v ?? '').trim() !== '';
 

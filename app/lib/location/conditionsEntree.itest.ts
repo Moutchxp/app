@@ -10,8 +10,9 @@
  *
  * VRAIES fonctions, VRAIE base : schéma de `svav_recette` copié, vide, SANS la table de la migration 391.
  * 🔒 REFUSE de tourner ailleurs que sur une base `svav_jetable…` ou `svav_test…` (elle y applique la migration 391).
+ *   (sans la table de la 391, que la recette a déjà : l'épreuve rejoue « avant », puis 391, puis 392)
  *   createdb svav_jetable_conditions && pg_dump -s -O -x -T mns_lidar_brut -T mnt_lidar_brut -T rge_alti \
- *     -T analyse_sans_lidar svav_recette | psql -q -d svav_jetable_conditions
+ *     -T analyse_sans_lidar -T gestion_location_conditions_entree svav_recette | psql -q -d svav_jetable_conditions
  *   DATABASE_URL=postgresql://localhost:5432/svav_jetable_conditions \
  *     npx vitest run --config vitest.integration.config.ts app/lib/location/conditionsEntree.itest.ts
  */
@@ -23,6 +24,7 @@ import { creerBienComplet, creerProprietaires } from './creationBienRepo';
 import { creerLocatairesSurBien } from './portefeuilleRepo';
 import { ficheLocataireLocation } from './locationRepo';
 import { modifierConditionsEntree } from './conditionsEntreeRepo';
+import { ajouterBareme, calculHonorairesDuBien } from './honorairesProprietaireRepo';
 import { oublierSchemaLocation } from './sondeLocation';
 
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
@@ -46,14 +48,19 @@ const tableLa = async (): Promise<boolean> => (await query<{ t: string | null }>
 describe.skipIf(!baseEssai)('🔴 conditions d’entrée — enregistrées sur le bail, avant et après la migration 391', () => {
   let logement = 0;
   let cave = 0;
+  let proprietaire = 0;
 
   it('⓪ la base d’essai n’a pas encore la table ; un bien (logement + cave) dans le portefeuille', async () => {
     expect(await tableLa()).toBe(false);
     oublierSchemaLocation();
     const proprio = ok(await creerProprietaires({ cartes: [carte(`PROPRIO${S}`, 1)], enGestion: true, numeroMandat: `MG-${S}` }, AUTEUR)).ids[0];
     const b = ok(await creerBienComplet({ proprietaireIds: [proprio], annexes: [{ categorie: 'cave', etage: '-1' }],
-      logement: { adresse: `9 rue Entree${S}`, famille: 'logement', typeLogement: 'appartement', dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false } }, AUTEUR));
+      logement: { adresse: `9 rue Entree${S}`, codePostal: '75011', commune: 'PARIS', surfaceCarrezM2: '41,8', famille: 'logement', typeLogement: 'appartement',
+        dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false } }, AUTEUR));
     logement = b.logementId; cave = b.annexes[0];
+    proprietaire = proprio;
+    // La table des zones (383) : la règle « Paris » de l'amorce, telle qu'en recette (le schéma copié est vide).
+    await query(`INSERT INTO gestion_zone_tendue (portee, code, libelle, source) VALUES ('departement', '75', 'Paris', 'itest')`);
   });
 
   it('① AVANT : avec des conditions → refus, RIEN d’écrit ; sans → le locataire se crée comme avant ; la fiche le dit', async () => {
@@ -73,7 +80,15 @@ describe.skipIf(!baseEssai)('🔴 conditions d’entrée — enregistrées sur l
 
   it('② la migration 391, puis UNE entrée = UN jeu de conditions sur ses occupations ; journal ; entretien posé sur le bien', async () => {
     await query(readFileSync(path.join(process.cwd(), 'db/migrations/391_location_conditions_entree.sql'), 'utf8'));
+    // 391 seule : les conditions ne s'enregistrent pas encore (il faut aussi la 392) — refus, rien d'écrit.
     oublierSchemaLocation();
+    expect((await creerLocatairesSurBien({ cartes: [carte(`ENTRE${S}`, 6)], existants: [], contacts: [], lotId: logement, entree: '2026-11-01',
+      lotIds: [logement, cave], conditions: CONDITIONS }, AUTEUR)).etat).toBe('sans_schema');
+    await query(readFileSync(path.join(process.cwd(), 'db/migrations/392_location_honoraires_proprietaire.sql'), 'utf8'));
+    oublierSchemaLocation();
+    // L'amorce « très tendue » a été posée sur la règle de Paris, « à vérifier ».
+    expect((await query<{ t: boolean; s: string }>(`SELECT tres_tendue AS t, tres_tendue_source AS s FROM gestion_zone_tendue WHERE code = '75'`)).rows[0])
+      .toEqual({ t: true, s: 'Zone très tendue (décret n° 2014-890, honoraires de location) — amorce, à vérifier' });
     expect(await tableLa()).toBe(true);
     const r = ok(await creerLocatairesSurBien({ cartes: [carte(`UN${S}`, 3), carte(`DEUX${S}`, 4)], existants: [], contacts: [], lotId: logement,
       entree: '2026-11-01', lotIds: [logement, cave], conditions: CONDITIONS,
@@ -87,7 +102,12 @@ describe.skipIf(!baseEssai)('🔴 conditions d’entrée — enregistrées sur l
     expect(rows[0]).toMatchObject({ lot_id: String(logement), depot_garantie: 'bailleur', prelevement: true, prelevement_jour: 10, garant_physique: false,
       assurance_loyers: 'gli', assurance_precision: 'Assureur fictif', honoraires_locataire: 'agence', honoraires_proprietaire: 'gestion',
       prorata_loyer_centimes: '41226', prorata_charges_centimes: null, depot_garantie_centimes: '118000', honoraires_agence_centimes: '10',
-      mode_reglement: 'autre', mode_reglement_precision: 'espèces', commentaire: 'clés remises', saisi_par_libelle: AUTEUR.libelle });
+      mode_reglement: 'autre', mode_reglement_precision: 'espèces', commentaire: 'clés remises', saisi_par_libelle: AUTEUR.libelle,
+      // La TRACE des honoraires propriétaire : 41,8 m² × 12,10 (très tendue) + 41,8 × 3,03, au barème du 01/01/2026, exacts.
+      hono_surface_m2: '41.8', hono_zone: 'tres_tendue', hono_tarif_zone_m2: '12.1', hono_tarif_edl_m2: '3.03',
+      hono_visite_bail: '505.78', hono_etat_des_lieux: '126.654', hono_total_proprietaire: '632.434', hono_motif: null });
+    const { rows: bar } = await query<{ id: string; depuis: string }>('SELECT id::text, depuis::text FROM gestion_bareme_honoraires_location');
+    expect(bar).toEqual([{ id: String(rows[0].hono_bareme_id), depuis: '2026-01-01' }]);
     const { rows: j } = await query<{ entite_id: string; commentaire: string }>(
       `SELECT entite_id::text, commentaire FROM gestion_journal WHERE entite = 'annuaire' AND action = 'location_conditions_entree' ORDER BY entite_id`);
     expect(j.map((x) => Number(x.entite_id)).sort()).toEqual([...r.locataireIds].sort());
@@ -108,7 +128,9 @@ describe.skipIf(!baseEssai)('🔴 conditions d’entrée — enregistrées sur l
     ok(await modifierConditionsEntree(Number(occ[1].id), { ...CONDITIONS, prelevement: false, jour: null }, AUTEUR));
     expect(await compter('gestion_location_conditions_entree')).toBe(2);
     const apres = ok(await ficheLocataireLocation(r.locataireIds[0]));
-    expect(apres.conditionsEntree?.[0]).toMatchObject({ modifiees: true, conditions: { prelevement: false, jour: null } });
+    expect(apres.conditionsEntree?.[0]).toMatchObject({ modifiees: true, conditions: { prelevement: false, jour: null },
+      honoraires: { etat: 'ok', total: '632.434', zone: 'tres_tendue' } });
+    expect(apres.conditionsEntree?.[0].lignes.find((l) => l.mot === 'Total des honoraires')?.valeur.replace(/\s/g, ' ')).toBe('632,53 €');
     await expect(query('UPDATE gestion_location_conditions_entree SET commentaire = NULL')).rejects.toThrow(/ajout seul/);
     await expect(query('DELETE FROM gestion_location_conditions_entree')).rejects.toThrow(/ajout seul/);
     expect((await modifierConditionsEntree(Number(occ[0].id), { ...CONDITIONS, depot: null }, AUTEUR)).etat).toBe('refus');
@@ -120,5 +142,25 @@ describe.skipIf(!baseEssai)('🔴 conditions d’entrée — enregistrées sur l
       lotIds: [logement], conditions: { ...CONDITIONS, assurance: 'autre', assurancePrecision: '' } }, AUTEUR);
     expect(r).toEqual({ etat: 'refus', motif: 'Autre assurance : précisez laquelle.' });
     expect([await compter('gestion_annuaire_locataire'), await compter('gestion_annuaire_occupation'), await compter('gestion_location_conditions_entree')]).toEqual(avant);
+  });
+
+  it('⑤ barème PAR DATE : avant 2026 → pas de calcul (dit, enregistré) ; un barème 2027 ajouté (les anciens restent) sert en 2027 ; jour « au 15 »', async () => {
+    const bien = async (n: number) => ok(await creerBienComplet({ proprietaireIds: [proprietaire], annexes: [], logement: {
+      adresse: `${n} rue Bareme${S}`, codePostal: '69001', commune: 'LYON', surfaceCarrezM2: '50', famille: 'logement', typeLogement: 'studio',
+      dpeClasse: 'D', dpeDate: '2024-03-01', entretienAPrevoir: false } }, AUTEUR)).logementId;
+    const ancien = await bien(1);
+    const r1 = ok(await creerLocatairesSurBien({ cartes: [carte(`AVANT2026${S}`, 7)], existants: [], contacts: [], lotId: ancien, entree: '2025-06-01',
+      lotIds: [ancien], conditions: { ...CONDITIONS, jour: '15' } }, AUTEUR));
+    const f1 = ok(await ficheLocataireLocation(r1.locataireIds[0]));
+    expect(f1.conditionsEntree?.[0]).toMatchObject({ conditions: { jour: 15 }, honoraires: { etat: 'sans_bareme', motif: 'Aucun barème d’honoraires en vigueur au 01/06/2025' } });
+
+    ok(await ajouterBareme({ depuis: '2027-01-01', tresTendue: '12,50', tendue: '10,40', autre: '8,30', etatDesLieux: '3,10', source: 'barème d’essai' }, AUTEUR));
+    expect(await compter('gestion_bareme_honoraires_location')).toBe(2);
+    await expect(query('UPDATE gestion_bareme_honoraires_location SET autre_m2 = 0')).rejects.toThrow(/ajout seul/);
+    const nouveau = await bien(2);
+    expect(await calculHonorairesDuBien(nouveau, '2026-12-31')).toMatchObject({ etat: 'ok', zone: 'autre', tarifZone: '8.07', total: '555' });
+    expect(await calculHonorairesDuBien(nouveau, '2027-02-01')).toMatchObject({ etat: 'ok', zone: 'autre', tarifZone: '8.3', visiteBail: '415', etatDesLieux: '155', total: '570' });
+    const { rows: j } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_journal WHERE action = 'honoraires_location_bareme'`);
+    expect(j[0].n).toBe(1);
   });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   carteEstComplete, ligneDeManques, manquesAAvertir, manquesDeCompletude, titreSansCarteComplete, verdictFamille, type CarteMin,
@@ -676,7 +676,7 @@ export interface FicheAEditer {
   contacts: readonly { id: number; sorte: 'telephone' | 'email'; affichage: string; libelle: string | null }[];
 }
 
-export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie, exigence, qualiteEnAvant, avertir, bloquer, coordonneesFacultatives = false }: {
+export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie, exigence, qualiteEnAvant, qualitesProposees, avertir, bloquer, coordonneesFacultatives = false }: {
   /**
    * 🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — une carte client SUIVANTE de la fiche commune : les autres obligatoires de la
    * Gestion restent (civilité, prénom, adresse…), mais le téléphone et l'e-mail passent par la fenêtre d'alerte.
@@ -763,6 +763,12 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
    * Qualité passe juste sous le nom, avec ces exemples. ABSENT ⇒ à sa place habituelle (cas de la Gestion).
    */
   qualiteEnAvant?: string;
+  /**
+   * TUILE LOCATION (Arno, 20/10/2026) — avec `qualiteEnAvant`, la Qualité devient un MENU de ces qualités (« Garant »
+   * d'abord), plus « Personnalisé » qui ouvre un champ libre. Une qualité déjà saisie hors de la liste s'ouvre en
+   * « Personnalisé », telle quelle (aucune perte). ABSENT ⇒ saisie libre, comme avant (la Gestion).
+   */
+  qualitesProposees?: readonly string[];
 }) {
   /**
    * ══ 🔴🔴 LOT FICHE-SAISIE-UNIFORME — LA CIVILITÉ EST UNE LISTE, PLUS UN TEXTE LIBRE ══════════════════════
@@ -777,6 +783,9 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
   const [prenom, setPrenom] = useState(prenomFormate(p?.prenom));
   const [nom, setNom] = useState(nomFormate(p?.nom));
   const [qualite, setQualite] = useState(p?.qualite ?? '');
+  const idQualite = useId();
+  const proposee = (q: string): string | undefined => qualitesProposees?.find((x) => x.toLowerCase() === q.trim().toLowerCase());
+  const [qualitePerso, setQualitePerso] = useState(() => (p?.qualite ?? '').trim() !== '' && proposee(p?.qualite ?? '') === undefined);
   const [adresse, setAdresse] = useState(p?.adresse ?? '');
   const [codePostal, setCodePostal] = useState(codePostalFormate(p?.codePostal));
   const [commune, setCommune] = useState(communeFormatee(p?.commune));
@@ -942,11 +951,31 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
         <input className="cp-saisie" value={nom} onChange={(e) => setNom(nomEnSaisie(e.target.value))} required />
         {manqueDe('nom')}
       </label>
-      {qualiteEnAvant !== undefined && (
+      {qualiteEnAvant !== undefined && qualitesProposees === undefined && (
         <label className="cp-champ cp-champ--en-avant">
           <span className="cp-champ-mot">Qualité</span>
           <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)} placeholder={qualiteEnAvant} />
         </label>
+      )}
+      {qualiteEnAvant !== undefined && qualitesProposees !== undefined && (
+        <div className="cp-champ cp-champ--en-avant" data-qualite-menu>
+          <label className="cp-champ-mot" htmlFor={`${idQualite}-menu`}>Qualité</label>
+          <select id={`${idQualite}-menu`} className="cp-saisie" value={qualitePerso ? 'personnalise' : (proposee(qualite) ?? '')}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'personnalise') { setQualitePerso(true); if (proposee(qualite) !== undefined) setQualite(''); return; }
+              setQualitePerso(false); setQualite(v);
+            }}>
+            <option value="">— choisir —</option>
+            {qualitesProposees.map((q) => <option key={q} value={q}>{q}</option>)}
+            <option value="personnalise">Personnalisé</option>
+          </select>
+          {qualitePerso && (
+            <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)} aria-label="Qualité personnalisée"
+              placeholder="Écrivez la qualité (ex. Employeur, Notaire)" data-qualite-perso />
+          )}
+          <small className="cp-aide-qualite">{qualiteEnAvant}</small>
+        </div>
       )}
       <label className="cp-champ">
         <span className="cp-champ-mot">Prénom</span>

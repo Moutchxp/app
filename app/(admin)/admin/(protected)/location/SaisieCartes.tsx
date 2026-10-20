@@ -7,7 +7,7 @@ import { carteEstComplete, manquesAAvertir, MOTIF_DERNIERE_COMPLETE_SUPPRESSION 
 import type { CoordonneeSaisie } from '../../../../lib/gestion/annuaireEdition';
 import type { Doublon } from '../../../../lib/location/locationRepo';
 import {
-  BADGE_CLIENT, BADGE_CONTACT, EXEMPLES_QUALITE, manquesClientLocation, MOT_CLIENT, MOT_CONTACT, type CoteCarte,
+  BADGE_CLIENT, BADGE_CONTACT, EXEMPLES_QUALITE, manquesClientLocation, MOT_CLIENT, MOT_CONTACT, QUALITES_CONTACT, type CoteCarte,
 } from '../../../../lib/location/cartesLocation';
 
 /**
@@ -28,7 +28,11 @@ import {
  * alors que d'autres cartes client restent est refusé, avec une fenêtre qui dit quoi faire.
  */
 export type SorteCarte = 'client' | 'contact';
-interface Carte { cle: number; sorte: SorteCarte; champs: ChampsSaisis | null; ouverte: boolean; doublons: Doublon[] }
+interface Carte {
+  cle: number; sorte: SorteCarte; champs: ChampsSaisis | null; ouverte: boolean; doublons: Doublon[];
+  /** Ce qui pré-remplit une carte NEUVE (ex. qualité « Garant » — Arno, 20/10/2026) : pas encore une saisie validée. */
+  modele?: ChampsSaisis;
+}
 export interface EtatCartes {
   clients: ChampsSaisis[];
   contacts: ChampsSaisis[];
@@ -53,7 +57,14 @@ export function BadgeCarte({ cote, sorte }: { cote: CoteCarte; sorte: SorteCarte
   return <span className={`cp-role cp-role--${ton}`} data-badge={sorte}>{sorte === 'contact' ? BADGE_CONTACT[cote] : BADGE_CLIENT[cote]}</span>;
 }
 
-export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e: EtatCartes) => void }) {
+export function SaisieCartes({ cote, onChange, demandeContact }: {
+  cote: CoteCarte; onChange: (e: EtatCartes) => void;
+  /**
+   * Arno (20/10/2026) — « Ajouter un garant » : chaque nouvelle valeur de `n` ouvre une carte « Contact du … » avec cette
+   * qualité déjà choisie, et la page y descend.
+   */
+  demandeContact?: { n: number; qualite: string };
+}) {
   const [cartes, setCartes] = useState<Carte[]>([{ cle: 1, sorte: 'client', champs: null, ouverte: true, doublons: [] }]);
   const [existants, setExistants] = useState<{ id: number; nom: string }[]>([]);
   const [choix, setChoix] = useState(false);
@@ -71,6 +82,24 @@ export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e
     setCartes((l) => l.filter((x) => x.cle !== c.cle));
   };
   const minuteurs = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  const demandeVue = useRef(0);
+  useEffect(() => {
+    if (demandeContact === undefined || demandeContact.n === demandeVue.current) return;
+    demandeVue.current = demandeContact.n;
+    const qualite = demandeContact.qualite;
+    let cle = 0;
+    setCartes((l) => {
+      cle = Math.max(0, ...l.map((x) => x.cle)) + 1;
+      return [...l, { cle, sorte: 'contact', champs: null, ouverte: true, doublons: [], // Les deux lignes vides d'une carte neuve (téléphone, e-mail), comme une création ordinaire.
+        modele: { nom: '', qualite, coordonnees: [{ sorte: 'telephone', valeur: '', libelle: 'Mobile' }, { sorte: 'email', valeur: '', libelle: 'E-mail' }] } }];
+    });
+    setChoix(false);
+    setTimeout(() => {
+      const el = document.querySelector(`[data-cle-carte="${cle}"]`);
+      const reduit = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (el instanceof HTMLElement && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center', behavior: reduit ? 'auto' : 'smooth' });
+    }, 0);
+  }, [demandeContact]);
 
   useEffect(() => {
     onChange({
@@ -124,7 +153,7 @@ export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e
       )}
       <div className="loc-cartes-creation">
         {cartes.map((c, i) => (
-          <div key={c.cle} data-carte={i + 1} data-sorte={c.sorte}>
+          <div key={c.cle} data-carte={i + 1} data-sorte={c.sorte} data-cle-carte={c.cle}>
             {c.ouverte ? (
               <div className="cp-carte">
                 <p className="loc-carte-badge"><BadgeCarte cote={cote} sorte={c.sorte} /></p>
@@ -141,10 +170,10 @@ export function SaisieCartes({ cote, onChange }: { cote: CoteCarte; onChange: (e
                       ? setCartes((l) => (l.length > 1 ? l.filter((x) => x.cle !== c.cle) : l))
                       : changer(c.cle, (x) => ({ ...x, ouverte: false })))} />
                 ) : (
-                  <FormulaireCarte p={c.champs === null ? null : ficheDeChamps(c.champs)} refus={null}
+                  <FormulaireCarte p={c.champs !== null ? ficheDeChamps(c.champs) : c.modele !== undefined ? ficheDeChamps(c.modele) : null} refus={null}
                     contact={{ titre: `Nouveau ${MOT_CONTACT[cote].toLowerCase()}`,
                       rappel: `Un contact n’est pas un client : il sera rangé comme ${MOT_CONTACT[cote].toLowerCase()} du bien. Obligatoires : le nom et un e-mail.` }}
-                    qualiteEnAvant={EXEMPLES_QUALITE[cote]}
+                    qualiteEnAvant={EXEMPLES_QUALITE[cote]} qualitesProposees={QUALITES_CONTACT}
                     avertir={manquesAAvertir}
                     onEnregistrer={async (champs) => { changer(c.cle, (x) => ({ ...x, champs, ouverte: false })); }}
                     onAnnuler={() => (c.champs === null ? setCartes((l) => l.filter((x) => x.cle !== c.cle)) : changer(c.cle, (x) => ({ ...x, ouverte: false })))} />
