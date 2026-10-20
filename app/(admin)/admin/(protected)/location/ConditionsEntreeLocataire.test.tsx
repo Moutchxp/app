@@ -71,7 +71,7 @@ const pilule = (groupe: string, mot: string) => [...container.querySelectorAll(`
 const barre = () => container.querySelector('[data-collant] .loc-manques')?.textContent ?? '';
 const soumettre = async () => { await clic(container.querySelector('[data-collant] button[type="submit"]')!); await calmer(); };
 
-/** Un locataire (carte complète enregistrée) et le bien 7 choisi : il ne reste que le bloc 3. */
+/** Un locataire (carte complète enregistrée), le bien 7 choisi et la date d'entrée (obligatoire, Arno 20/10/2026) : il ne reste que le bloc 3. */
 const preparer = async () => {
   await act(async () => { root.render(createElement(CreationLocataire)); });
   await calmer();
@@ -85,6 +85,8 @@ const preparer = async () => {
   await saisir(container.querySelector('input[data-recherche-bien]') as HTMLInputElement, 'Fictive');
   await calmer();
   await clic(container.querySelector('.loc-choix button')!);
+  await calmer();
+  await saisir(container.querySelector('input[data-date-entree]') as HTMLInputElement, '2026-11-01');
   await calmer();
 };
 /** Tous les choix obligatoires du bloc 3 (l'entretien du bien compris). */
@@ -148,7 +150,20 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     await calmer();
     await clic(container.querySelector('.loc-choix button')!);
     await calmer();
+    // 🔴 Arno (20/10/2026) : la DATE D'ENTRÉE est obligatoire aussi (le dossier Drive du bail la porte).
+    expect(barre()).toBe('Reste à renseigner : la date d’entrée dans les lieux.');
+    expect(bouton().disabled).toBe(true);
+    const date = container.querySelector('input[data-date-entree]') as HTMLInputElement;
+    expect(date.required).toBe(true);
+    expect(date.closest('label')?.querySelector('.loc-oblig')?.textContent).toBe('*');
+    await saisir(date, '2026-11-01');
+    await calmer();
     expect(bouton().disabled).toBe(false);
+    // Vidée : de nouveau inactif.
+    await saisir(date, '');
+    expect(bouton().disabled).toBe(true);
+    await soumettre();
+    expect(posts).toEqual([]);
   });
 
   it('DRIVE en échec : le locataire est enregistré, l’écran le dit et renvoie à « Créer le dossier » de la fiche', async () => {

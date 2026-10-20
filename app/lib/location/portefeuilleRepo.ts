@@ -804,6 +804,8 @@ export async function creerLocatairesSurBien(o: {
 export async function creerLocatairesSurBienAvec(o: Parameters<typeof creerLocatairesSurBien>[0], auteur: Auteur, depsDrive?: DepsBrancheBail):
   ReturnType<typeof creerLocatairesSurBien> {
   if (o.lotId === null) return { etat: 'refus', motif: 'Choisissez le bien loué.' };
+  // Arno (20/10/2026) : la date d'entrée est obligatoire — le dossier Drive du bail porte la date (« BAIL 01/09/2024 MARTIN »).
+  if (o.entree === null || !/^\d{4}-\d{2}-\d{2}$/.test(o.entree)) return { etat: 'refus', motif: 'Indiquez la date d’entrée dans les lieux.' };
   const cartes = o.cartes.slice(0, 12);
   const existants = [...new Set(o.existants)].slice(0, 12);
   if (cartes.length + existants.length === 0) return { etat: 'refus', motif: 'Ajoutez au moins un locataire (client) : les contacts seuls ne suffisent pas.' };

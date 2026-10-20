@@ -42,8 +42,8 @@ afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restore
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
 /**
- * Arno (20/10/2026) — « Enregistrer » est INACTIF tant qu'aucun bien n'est choisi : pour éprouver ce que dit l'écran au clic,
- * on choisit d'abord un bien (le lot 1, libre).
+ * Arno (20/10/2026) — « Enregistrer » est INACTIF tant qu'aucun bien n'est choisi ni la date d'entrée saisie : pour éprouver
+ * ce que dit l'écran au clic, on choisit d'abord un bien (le lot 1, libre) et la date.
  */
 const choisirUnBien = async () => {
   const avant = global.fetch;
@@ -58,6 +58,12 @@ const choisirUnBien = async () => {
   await act(async () => { await new Promise((r) => { setTimeout(r, 300); }); });
   await calmer();
   await act(async () => { (container.querySelector('.loc-choix button') as HTMLButtonElement).click(); });
+  await calmer();
+  await saisirDate('2026-11-01');
+};
+const saisirDate = async (v: string) => {
+  const d = container.querySelector('input[data-date-entree]') as HTMLInputElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(d, v); d.dispatchEvent(new Event('input', { bubbles: true })); });
   await calmer();
 };
 const bouton = (texte: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(texte)) as HTMLButtonElement;
@@ -517,6 +523,7 @@ describe('🔴 Nouveau locataire : choix des lots loués, récapitulatif, réint
     await calmer();
     await act(async () => { (container.querySelector('.loc-choix button') as HTMLButtonElement).click(); });
     await calmer();
+    await saisirDate('2026-11-01');
     expect(container.querySelector('[data-lots-loues]')).not.toBeNull();
     const enregistrer = () => container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement;
     await act(async () => { enregistrer().click(); });

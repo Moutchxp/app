@@ -1,16 +1,17 @@
 /**
  * ══ 🔴🔴 NOUVEAU LOCATAIRE — LA BRANCHE « BAIL » DU DRIVE (Arno, 20/10/2026, migration 394), SUR UNE COPIE DE LA RECETTE ═════
  *
- *   ① BIEN OBLIGATOIRE : sans bien, aucun enregistrement ;
- *   ② CRÉATION COMPLÈTE au nouveau locataire : N7 « BAIL MARTIN » sous « 6 Locataires » › N8 → N10, chaque dossier enregistré
- *      dans `gestion_drive_noeud`, rattaché au bail (`bail_id`) ; ③ IDEMPOTENCE (rejouée : aucune création) ;
- *   ④ DEUX COLOCATAIRES (« BAIL YOUENOU – TALHOUARN ») ; ⑤ DOUBLON DE NOM (l'année d'entrée s'ajoute) ;
- *   ⑥ « AJOUTER UN OCCUPANT » RENOMME le N7 de CE bail (et rien d'autre) ;
+ *   ① BIEN ET DATE D'ENTRÉE OBLIGATOIRES : sans eux, aucun enregistrement ;
+ *   ② CRÉATION COMPLÈTE au nouveau locataire : N7 « BAIL 01/11/2026 MARTIN » sous « 6 Locataires » › N8 → N10, chaque dossier
+ *      enregistré dans `gestion_drive_noeud`, rattaché au bail (`bail_id`) ; ③ IDEMPOTENCE (rejouée : aucune création) ;
+ *   ④ DEUX COLOCATAIRES (« BAIL 01/11/2026 YOUENOU – TALHOUARN ») ; ⑤ DOUBLON EXACT pour un autre bail : « (2) » ;
+ *   ⑥ « AJOUTER UN OCCUPANT » RENOMME le N7 de CE bail en gardant la date (et rien d'autre) ; une DATE D'ENTRÉE CHANGÉE le
+ *      renomme avec la nouvelle date ; ⑥ bis LA SORTIE D'UN LOCATAIRE ne déplace RIEN sur le Drive (Arno, 20/10/2026) ;
  *   ⑦ DRIVE EN ÉCHEC (l'interception de la recette : écriture refusée 403) : le locataire reste enregistré, la fiche dit « à
  *      créer » ; « Créer le dossier » relance et réussit ;
  *   ⑧ 🔴 « DOCUMENTS CLIENTS SCANNÉS » : aucune écriture sous ce dossier, zéro appel d'écriture ;
  *   ⑨ PARENTS MANQUANTS (propriétaire sans dossier) : N3 → N6 d'abord, selon le modèle ;
- *   ⑩ L'ESSAI « ESSAI BAIL DRIVE », rejoué : la liste des dossiers créés.
+ *   ⑩ un essai « ESSAI BAIL DRIVE », rejoué sur un lot libre : la liste des dossiers créés.
  *
  * 🔒 LE DRIVE EST UN FAUX, EN MÉMOIRE (aucun appel réseau : le `fetch` global REFUSE tout appel Google pendant l'épreuve) ;
  *    il est amorcé avec les dossiers du registre de la recette, et il enregistre chaque appel (méthode, adresse, corps).
@@ -29,6 +30,7 @@ import { oublierSchema } from '../gestion/schema';
 import { ajouterOccupant } from '../gestion/annuaireEditionRepo';
 import { decisionRecette } from '../recette/interception';
 import { creerLocatairesSurBienAvec } from './portefeuilleRepo';
+import { enregistrerSortie } from './sortieLocatairesRepo';
 import { creerBrancheBail, renommerBrancheBail, type DepsBrancheBail } from './brancheBailDriveRepo';
 import { dossierDuBailDuLocataire, resumeBailDuLocataire } from './resumeBailRepo';
 import { oublierSchemaLocation } from './sondeLocation';
@@ -104,10 +106,11 @@ const un = async <T extends Record<string, unknown>>(sql: string, p: unknown[] =
 const carte = (nom: string, prenom: string, n: number) => ({ nom, prenom, coordonnees: [
   { sorte: 'telephone' as const, valeur: `06 41 51 62 ${String(n).padStart(2, '0')}`, libelle: 'Mobile' },
   { sorte: 'email' as const, valeur: `${nom.toLowerCase().replace(/\s+/g, '.')}.${n}.${S}@exemple.test`, libelle: 'E-mail' }] });
+const DATE = '01/11/2026';
 const oublier = (): void => { oublierSchemaLocation(); oublierSchema(); };
 type Issue = Awaited<ReturnType<typeof creerLocatairesSurBienAvec>>;
-const creer = async (lotId: number | null, cartes: ReturnType<typeof carte>[]): Promise<Issue> =>
-  creerLocatairesSurBienAvec({ cartes, existants: [], contacts: [], lotId, entree: ENTREE }, AUTEUR, DEPS);
+const creer = async (lotId: number | null, cartes: ReturnType<typeof carte>[], entree: string | null = ENTREE): Promise<Issue> =>
+  creerLocatairesSurBienAvec({ cartes, existants: [], contacts: [], lotId, entree }, AUTEUR, DEPS);
 const bailDe = async (locataireId: number): Promise<number> =>
   Number((await un<{ b: string }>('SELECT bail_id::text AS b FROM gestion_annuaire_occupation WHERE locataire_id = $1 ORDER BY id DESC LIMIT 1', [locataireId])).b);
 const idsDe = (i: Issue): number[] => { if (i.etat !== 'ok') throw new Error(JSON.stringify(i)); return (i.data as { locataireIds: number[] }).locataireIds; };
@@ -146,33 +149,36 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 394 — la branche « BAIL » cr
     expect(dossiers.size).toBeGreaterThan(10000);
   });
 
-  it('① BIEN OBLIGATOIRE : sans bien, refusé, rien n’est écrit ni sur la base ni sur le Drive', async () => {
+  it('① BIEN ET DATE D’ENTRÉE OBLIGATOIRES : sans eux, refusé, rien n’est écrit ni sur la base ni sur le Drive', async () => {
     appels = [];
+    const avant = (await un<{ n: number }>('SELECT count(*)::int AS n FROM gestion_annuaire_locataire')).n;
     expect(await creer(null, [carte('SANSBIEN', 'Paul', 1)])).toEqual({ etat: 'refus', motif: 'Choisissez le bien loué.' });
+    expect(await creer(6, [carte('SANSDATE', 'Paul', 1)], null)).toEqual({ etat: 'refus', motif: 'Indiquez la date d’entrée dans les lieux.' });
+    expect((await un<{ n: number }>('SELECT count(*)::int AS n FROM gestion_annuaire_locataire')).n).toBe(avant);
     expect(appels).toEqual([]);
   });
 
   let martin = 0;
   let bailMartin = 0;
   let n7Martin = '';
-  it('② CRÉATION COMPLÈTE : « BAIL MARTIN » sous « 6 Locataires » du lot 6, N8 → N10 selon le modèle, chaque dossier rattaché au bail', async () => {
+  it('② CRÉATION COMPLÈTE : « BAIL 01/11/2026 MARTIN » sous « 6 Locataires » du lot 6, N8 → N10 selon le modèle, chaque dossier rattaché au bail', async () => {
     appels = [];
     const avant = new Map(dossiers);
     const i = await creer(6, [carte('Martin', 'Paul', 2)]);
     martin = idsDe(i)[0];
     bailMartin = await bailDe(martin);
-    expect(arbre(avant)).toEqual(MODELE_BAIL('BAIL MARTIN'));
+    expect(arbre(avant)).toEqual(MODELE_BAIL(`BAIL ${DATE} MARTIN`));
     // Sous LE « 6 Locataires » du bien (r:6:6), étiqueté de sa clé.
     const n6 = (await un<{ d: string }>(`SELECT drive_id AS d FROM gestion_drive_noeud WHERE cle = 'r:6:6'`)).d;
-    expect(creations()[0].corps).toMatchObject({ name: 'BAIL MARTIN', parents: [n6], appProperties: { svav_arbo: `bl:${bailMartin}` }, mimeType: 'application/vnd.google-apps.folder' });
+    expect(creations()[0].corps).toMatchObject({ name: `BAIL ${DATE} MARTIN`, parents: [n6], appProperties: { svav_arbo: `bl:${bailMartin}` }, mimeType: 'application/vnd.google-apps.folder' });
     const drive = driveDe(i) as { ok: boolean; driveId: string; nom: string };
-    expect(drive).toMatchObject({ ok: true, nom: 'BAIL MARTIN' });
+    expect(drive).toMatchObject({ ok: true, nom: `BAIL ${DATE} MARTIN` });
     n7Martin = drive.driveId;
     // Le registre : 11 dossiers, tous de CE bail, au bon niveau.
     const { rows } = await query<{ cle: string; sorte: string; niveau: number; nom: string; bail: string; lot: string }>(
       `SELECT cle, sorte, niveau, nom_a_la_creation AS nom, bail_id::text AS bail, lot_id::text AS lot FROM gestion_drive_noeud WHERE bail_id = $1 ORDER BY id`, [bailMartin]);
     expect(rows.map((r) => `${r.niveau} ${r.sorte} ${r.nom}`)).toEqual([
-      '7 bail BAIL MARTIN', '8 piece_bail 1 Papiers d’identité', '8 piece_bail 2 Profil financier', '8 piece_bail 3 Garants', '8 piece_bail 4 GLI',
+      `7 bail BAIL ${DATE} MARTIN`, '8 piece_bail 1 Papiers d’identité', '8 piece_bail 2 Profil financier', '8 piece_bail 3 Garants', '8 piece_bail 4 GLI',
       '8 piece_bail 5 Assurances', '9 sous_piece_bail Assurance habitation', '10 annee 2026', '8 piece_bail 6 Entretien', '9 sous_piece_bail Chaudière', '10 annee 2026']);
     expect(rows.every((r) => r.lot === '6')).toBe(true);
     // Aucune autre écriture que des créations.
@@ -190,25 +196,26 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 394 — la branche « BAIL » cr
     expect((await un<{ n: number }>('SELECT count(*)::int AS n FROM gestion_drive_noeud WHERE bail_id = $1', [bailMartin])).n).toBe(11);
   });
 
-  it('④ DEUX COLOCATAIRES (lot 42, qui a déjà d’anciens baux) : « BAIL YOUENOU – TALHOUARN », dans l’ordre de saisie', async () => {
+  it('④ DEUX COLOCATAIRES (lot 42, qui a déjà d’anciens baux) : « BAIL 01/11/2026 YOUENOU – TALHOUARN », dans l’ordre de saisie', async () => {
     appels = [];
     const avant = new Map(dossiers);
     const i = await creer(42, [carte('Youenou', 'Anne', 3), carte('Talhouarn', 'Yann', 4)]);
-    expect(driveDe(i)).toMatchObject({ ok: true, nom: 'BAIL YOUENOU – TALHOUARN' });
-    expect(arbre(avant)).toEqual(MODELE_BAIL('BAIL YOUENOU – TALHOUARN'));
+    expect(driveDe(i)).toMatchObject({ ok: true, nom: `BAIL ${DATE} YOUENOU – TALHOUARN` });
+    expect(arbre(avant)).toEqual(MODELE_BAIL(`BAIL ${DATE} YOUENOU – TALHOUARN`));
   });
 
-  it('⑤ DOUBLON DE NOM : un « Bail Durand » déjà dans ce « 6 Locataires » (lot 80) → « BAIL DURAND 2026 »', async () => {
+  it('⑤ DOUBLON : un ancien « Bail Durand » ne gêne pas (la date distingue) ; le même nom EXACT pour un autre bail → « (2) » (lot 80)', async () => {
     const n6 = (await un<{ d: string }>(`SELECT drive_id AS d FROM gestion_drive_noeud WHERE cle = 'r:80:6'`)).d;
     dossiers.set('ANCIEN-DURAND', { id: 'ANCIEN-DURAND', name: 'Bail Durand', parents: [n6] });
+    dossiers.set('AUTRE-DURAND', { id: 'AUTRE-DURAND', name: `BAIL ${DATE} DURAND`, parents: [n6] });
     appels = [];
     const i = await creer(80, [carte('Durand', 'Léa', 5)]);
-    expect(driveDe(i)).toMatchObject({ ok: true, nom: 'BAIL DURAND 2026' });
-    expect(creations()[0].corps?.name).toBe('BAIL DURAND 2026');
-    expect(dossiers.get('ANCIEN-DURAND')?.name).toBe('Bail Durand');
+    expect(driveDe(i)).toMatchObject({ ok: true, nom: `BAIL ${DATE} DURAND (2)` });
+    expect(creations()[0].corps?.name).toBe(`BAIL ${DATE} DURAND (2)`);
+    expect([dossiers.get('ANCIEN-DURAND')?.name, dossiers.get('AUTRE-DURAND')?.name]).toEqual(['Bail Durand', `BAIL ${DATE} DURAND`]);
   });
 
-  it('⑥ « AJOUTER UN OCCUPANT » : le N7 de CE bail est renommé « BAIL MARTIN – OCCUPANT » ; un seul renommage, rien d’autre', async () => {
+  it('⑥ « AJOUTER UN OCCUPANT » : le N7 de CE bail est renommé « BAIL 01/11/2026 MARTIN – OCCUPANT » (date gardée) ; un seul renommage', async () => {
     const autre = idsDe(await creer(28, [carte('Occupant', 'Zoé', 6)]))[0];
     appels = [];
     const avantNoms = new Map([...dossiers].map(([k, d]) => [k, d.name]));
@@ -216,12 +223,40 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 394 — la branche « BAIL » cr
     expect(await bailDe(autre)).toBe(bailMartin);
     const patchs = ecritures();
     expect(patchs.map((a) => `${a.methode} ${new URL(a.url).pathname.split('/').pop()} ${JSON.stringify(a.corps)}`))
-      .toEqual([`PATCH ${n7Martin} {"name":"BAIL MARTIN – OCCUPANT"}`]);
+      .toEqual([`PATCH ${n7Martin} {"name":"BAIL ${DATE} MARTIN – OCCUPANT"}`]);
     expect([...dossiers].filter(([k, d]) => avantNoms.get(k) !== d.name).map(([k]) => k)).toEqual([n7Martin]);
     // Rejoué : le nom est déjà le bon, aucun appel d'écriture.
     appels = [];
-    expect(await renommerBrancheBail(bailMartin, DEPS)).toEqual({ ok: true, nom: 'BAIL MARTIN – OCCUPANT' });
+    expect(await renommerBrancheBail(bailMartin, DEPS)).toEqual({ ok: true, nom: `BAIL ${DATE} MARTIN – OCCUPANT` });
     expect(ecritures()).toEqual([]);
+  });
+
+  it('⑥ DATE D’ENTRÉE CHANGÉE : un occupant entré plus tôt avance la date du bail → le N7 prend la NOUVELLE date', async () => {
+    const tot = idsDe(await creer(12, [carte('Tot', 'Eli', 11)]))[0];
+    appels = [];
+    expect((await ajouterOccupant(6, tot, '2026-10-15', AUTEUR, null, DEPS)).etat).toBe('ok');
+    expect((await un<{ e: string }>('SELECT entree::text AS e FROM gestion_bail WHERE id = $1', [bailMartin])).e).toBe('2026-10-15');
+    expect(ecritures().map((a) => `${a.methode} ${new URL(a.url).pathname.split('/').pop()} ${JSON.stringify(a.corps)}`))
+      .toEqual([`PATCH ${n7Martin} {"name":"BAIL 15/10/2026 MARTIN – OCCUPANT – TOT"}`]);
+  });
+
+  it('⑥ bis 🔴 LA SORTIE D’UN LOCATAIRE ne déplace RIEN : aucun appel Drive, la branche du bail reste sous « 6 Locataires »', async () => {
+    // Un bail entré le 15/01/2026 (lot 62), sa branche créée ; puis son locataire sort le 20/10/2026.
+    const sortant = idsDe(await creer(62, [carte('Sortant', 'Max', 12)], '2026-01-15'))[0];
+    const bail = await bailDe(sortant);
+    const lire = async () => (await query<{ cle: string; p: string; b: string }>('SELECT cle, parent_drive_id AS p, branche AS b FROM gestion_drive_noeud WHERE bail_id = $1 ORDER BY cle', [bail])).rows;
+    const avant = await lire();
+    expect(avant.find((x) => x.cle === `bl:${bail}`)).toMatchObject({ b: 'Actifs', p: (await un<{ d: string }>(`SELECT drive_id AS d FROM gestion_drive_noeud WHERE cle = 'r:62:6'`)).d });
+    const parentsAvant = new Map([...dossiers].map(([k, d]) => [k, d.parents.join(',')]));
+    const nomsAvant = new Map([...dossiers].map(([k, d]) => [k, d.name]));
+    const occ = Number((await un<{ o: string }>('SELECT id::text AS o FROM gestion_annuaire_occupation WHERE locataire_id = $1 AND bail_id = $2', [sortant, bail])).o);
+    appels = [];
+    const r = await enregistrerSortie({ occupationId: occ, sortants: [occ], date: '2026-10-20' }, AUTEUR);
+    expect(r).toMatchObject({ etat: 'ok' });
+    expect((await un<{ s: string | null }>('SELECT sortie::text AS s FROM gestion_bail WHERE id = $1', [bail])).s).toBe('2026-10-20');
+    expect(appels).toEqual([]);   // et le `fetch` global refuse tout appel Google : aucun n'est parti
+    expect(await lire()).toEqual(avant);
+    expect([...dossiers].filter(([k, d]) => parentsAvant.get(k) !== d.parents.join(',') || nomsAvant.get(k) !== d.name)).toEqual([]);
   });
 
   it('⑦ DRIVE EN ÉCHEC (interception de la recette, 403) : le locataire reste enregistré, « à créer » ; « Créer le dossier » relance et réussit', async () => {
@@ -232,7 +267,7 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 394 — la branche « BAIL » cr
     const loc = idsDe(i)[0];
     expect(driveDe(i)).toMatchObject({ ok: false });
     // L'interception : UNE écriture tentée (le N7), refusée — rien d'autre n'est parti.
-    expect(ecritures().map((a) => `${a.methode} ${a.refuse ? 'refusée' : 'passée'} ${a.corps?.name}`)).toEqual(['POST refusée BAIL ECHEC']);
+    expect(ecritures().map((a) => `${a.methode} ${a.refuse ? 'refusée' : 'passée'} ${a.corps?.name}`)).toEqual([`POST refusée BAIL ${DATE} ECHEC`]);
     const bail = await bailDe(loc);
     expect((await un<{ n: number }>('SELECT count(*)::int AS n FROM gestion_annuaire_occupation WHERE locataire_id = $1', [loc])).n).toBe(1);
     expect((await un<{ n: number }>('SELECT count(*)::int AS n FROM gestion_drive_noeud WHERE bail_id = $1', [bail])).n).toBe(0);
@@ -242,8 +277,8 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 394 — la branche « BAIL » cr
     appels = [];
     const avant = new Map(dossiers);
     const r = await creerBrancheBail(bail, AUTEUR.libelle, DEPS);
-    expect(r).toMatchObject({ ok: true, nom: 'BAIL ECHEC' });
-    expect(arbre(avant)).toEqual(MODELE_BAIL('BAIL ECHEC'));
+    expect(r).toMatchObject({ ok: true, nom: `BAIL ${DATE} ECHEC` });
+    expect(arbre(avant)).toEqual(MODELE_BAIL(`BAIL ${DATE} ECHEC`));
     expect((await resumeBailDuLocataire(loc)).drive).toMatchObject({ etat: 'cree' });
   });
 
@@ -274,24 +309,24 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 394 — la branche « BAIL » cr
     appels = [];
     const avant = new Map(dossiers);
     const i = await creer(436, [carte('Neuf', 'Ida', 9)]);
-    expect(driveDe(i)).toMatchObject({ ok: true, nom: 'BAIL NEUF' });
+    expect(driveDe(i)).toMatchObject({ ok: true, nom: `BAIL ${DATE} NEUF` });
     const a = arbre(avant);
     expect(a[0]).toMatch(/ ← Actifs$/);
     expect(a.slice(1, 3).map((x) => x.replace(/^.* ← /, '← '))).toEqual([`← ${a[0].split(' ← ')[0]}`, `← ${a[1].split(' ← ')[0]}`]);
     const n5 = a[2].split(' ← ')[0];
     expect(a.slice(3, 13)).toEqual([`0 En attente ← ${n5}`, `1 Propriétaire ← ${n5}`, 'PNO ← 1 Propriétaire', '2026 ← PNO', 'Taxe foncière ← 1 Propriétaire',
       '2026 ← Taxe foncière', `2 Diagnostics ← ${n5}`, `3 Photos ← ${n5}`, `4 Syndic ← ${n5}`, `5 Travaux ← ${n5}`]);
-    expect(a.slice(13)).toEqual([`6 Locataires ← ${n5}`, ...MODELE_BAIL('BAIL NEUF')]);
+    expect(a.slice(13)).toEqual([`6 Locataires ← ${n5}`, ...MODELE_BAIL(`BAIL ${DATE} NEUF`)]);
     noter('⑨ dossiers créés (lot 436, propriétaire sans dossier) :', a);
   });
 
-  it('⑩ L’ESSAI « ESSAI BAIL DRIVE », rejoué sur le lot 21 : la liste des dossiers créés', async () => {
+  it('⑩ un essai « ESSAI BAIL DRIVE », rejoué sur un lot libre (lot 58) : la liste des dossiers créés', async () => {
     appels = [];
     const avant = new Map(dossiers);
-    const i = await creer(21, [carte('ESSAI BAIL DRIVE', 'Locataire', 10)]);
-    expect(driveDe(i)).toMatchObject({ ok: true, nom: 'BAIL ESSAI BAIL DRIVE' });
-    expect(arbre(avant)).toEqual(MODELE_BAIL('BAIL ESSAI BAIL DRIVE'));
-    noter('⑩ dossiers créés (lot 21, « ESSAI BAIL DRIVE ») :', arbre(avant));
+    const i = await creer(58, [carte('ESSAI BAIL DRIVE', 'Locataire', 10)]);
+    expect(driveDe(i)).toMatchObject({ ok: true, nom: `BAIL ${DATE} ESSAI BAIL DRIVE` });
+    expect(arbre(avant)).toEqual(MODELE_BAIL(`BAIL ${DATE} ESSAI BAIL DRIVE`));
+    noter('⑩ dossiers créés (lot 58, « ESSAI BAIL DRIVE ») :', arbre(avant));
   });
 
   it('🔴 sur toute l’épreuve : ni suppression, ni corbeille, ni déplacement, ni copie', () => {

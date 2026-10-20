@@ -29,6 +29,9 @@ export interface DepsBrancheBail { fetch: typeof fetch; jeton: () => Promise<Eta
 const DEPS_PAR_DEFAUT: DepsBrancheBail = { fetch: (...a) => fetch(...a), jeton: jetonAccesGestion };
 export type IssueBrancheBail = { ok: true; driveId: string; nom: string; crees: { cle: string; nom: string; driveId: string }[] } | { ok: false; motif: string };
 
+/** Arno (20/10/2026) : le dossier porte la date d'entrée — sans elle, il ne peut pas être nommé. */
+export const MOTIF_SANS_DATE = 'La date d’entrée dans les lieux du bail manque : le dossier Drive du bail ne peut pas être nommé.';
+
 export function brancheBailDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_drive_noeud', 'bail_id');
 }
@@ -109,6 +112,7 @@ export async function creerBrancheBail(bailId: number, auteur: string, deps: Dep
   const { rows: b } = await query<{ lot_id: string; entree: string | null }>('SELECT lot_id::text, entree::text FROM gestion_bail WHERE id = $1', [bailId]);
   if (b[0] === undefined) return { ok: false, motif: 'Ce bail n’existe plus.' };
   const lotId = Number(b[0].lot_id);
+  if (b[0].entree === null) return { ok: false, motif: MOTIF_SANS_DATE };
   // Le bien du Drive : le N5 du lot (son dossier attitré, ou celui dont il est la tête) ; sa tête porte les clés du bien.
   const { rows: n5 } = await query<{ cle: string; lot_id: string; parent: string; branche: string }>(
     `SELECT n.cle, n.lot_id::text, n.parent_drive_id AS parent, n.branche FROM gestion_drive_noeud n
@@ -149,8 +153,8 @@ export async function creerBrancheBail(bailId: number, auteur: string, deps: Dep
   const n6 = existants.get(cleLocatairesDuBien(teteId));
   const voisins = n6 === undefined ? [] : await enfants(deps, jeton, n6);
   if (voisins === null) return { ok: false, motif: 'Le dossier « 6 Locataires » du bien n’a pas pu être lu sur le Drive.' };
-  const anneeEntree = entree === null ? annee : Number(entree.slice(0, 4));
-  const nomN7 = nomDossierBail(await nomsDuBail(bailId), voisins.filter((v) => v.cle !== `bl:${bailId}`).map((v) => v.nom), anneeEntree);
+  const nomN7 = nomDossierBail(await nomsDuBail(bailId), entree, voisins.filter((v) => v.cle !== `bl:${bailId}`).map((v) => v.nom));
+  if (nomN7 === null) return { ok: false, motif: MOTIF_SANS_DATE };
   const plan = planBrancheBail({
     bailId, annee, entree, nomN7, proprietaire: { id: proprietaireId, nom: l.proprietaire_nom ?? `Propriétaire ${proprietaireId}` },
     bien: { teteId, nom: nomBienArbo(lotArbo, []) }, adresse: { cle: cleN4, nom: nomN4 }, n2: n2[0]?.d ?? null, existants,
@@ -205,8 +209,9 @@ export async function renommerBrancheBail(bailId: number, deps: DepsBrancheBail 
   const voisins = rows[0] === undefined ? [] : await enfants(deps, jeton, rows[0].parent);
   if (voisins === null) return { ok: false, motif: 'Le dossier « 6 Locataires » n’a pas pu être lu sur le Drive.' };
   const actuel = voisins.find((v) => v.id === d.driveId);
-  const annee = rows[0]?.entree ? Number(rows[0].entree.slice(0, 4)) : null;
-  const nom = nomDossierBail(await nomsDuBail(bailId), voisins.filter((v) => v.id !== d.driveId).map((v) => v.nom), annee);
+  // Le nom entier est recalculé : un occupant de plus garde la date ; une date d'entrée changée renomme avec la nouvelle.
+  const nom = nomDossierBail(await nomsDuBail(bailId), rows[0]?.entree ?? null, voisins.filter((v) => v.id !== d.driveId).map((v) => v.nom));
+  if (nom === null) return { ok: true, nom: null };
   if (actuel !== undefined && actuel.nom === nom) return { ok: true, nom };
   if (porteLeNomProtege(nom)) return { ok: false, motif: `Nom refusé : « ${nom} ».` };
   const refus = await refusDeCreer(deps, jeton, d.driveId);

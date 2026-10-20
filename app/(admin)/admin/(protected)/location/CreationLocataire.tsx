@@ -213,6 +213,7 @@ export function CreationLocataire() {
   const biens = useLecture<{ id: number; titre: string; detail: string | null; loue?: boolean }[]>(`biensPourLocataire=${encodeURIComponent(terme)}`);
 
   const nbLocataires = etat.clients.length + etat.existants.length;
+  const dateEntreeSaisie = /^\d{4}-\d{2}-\d{2}$/.test(entree);
   const enregistrer = async (): Promise<void> => {
     if (nbLocataires === 0) {
       setMotif(etat.contacts.length > 0 ? 'Un contact n’est pas un client : ajoutez au moins une carte « Locataire (client) ».'
@@ -221,6 +222,7 @@ export function CreationLocataire() {
     }
     if (etat.ouvertes > 0) { setMotif('Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.'); return; }
     if (bien === null) { setMotif('Choisissez le bien loué.'); return; }
+    if (!dateEntreeSaisie) { setMotif('Indiquez la date d’entrée dans les lieux.'); return; }
     if (coches !== null && coches.length === 0) { setMotif('Cochez au moins un lot loué.'); return; }
     if (garantSansLocataire) { setMotif('Un garant doit garantir au moins un locataire : cochez-le sous « Garantit : ».'); return; }
     // Bloc 3 : tant qu'un choix manque, rien n'est envoyé ; le message est sous le champ et la page y descend.
@@ -311,7 +313,9 @@ export function CreationLocataire() {
         )}
         {bien !== null && <LotsLoues lotId={bien.id} coches={coches} onCoches={(c) => { setCoches(c); setRecap(null); setMotif(null); }} />}
         <div className="loc-grille">
-          <label className="loc-champ">Date d’entrée<input form={idForm} type="date" value={entree} onChange={(e) => setEntree(e.target.value)} /></label>
+          {/* Arno (20/10/2026) : la date d'entrée est OBLIGATOIRE — le dossier Drive du bail porte la date (« BAIL 01/09/2024 MARTIN »). */}
+          <label className="loc-champ"><span>Date d’entrée <span className="loc-oblig">*</span></span><input form={idForm} type="date" value={entree} required
+            onChange={(e) => { setEntree(e.target.value); setMotif(null); }} data-date-entree /></label>
         </div>
       </section>
 
@@ -361,12 +365,14 @@ export function CreationLocataire() {
       <div className="loc-collant" data-collant>
         <p className="loc-manques" role="status">
           {nbLocataires === 0 ? 'Reste à renseigner : au moins un locataire (client).' : bien === null ? 'Reste à choisir : le bien loué.'
+            : !dateEntreeSaisie ? 'Reste à renseigner : la date d’entrée dans les lieux.'
             : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires">Annuler</a>
-        {/* Arno (20/10/2026) : un locataire ne s'enregistre pas sans bien du portefeuille — « Enregistrer » reste inactif sans lui. */}
-        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null} data-enregistrer-locataire>{envoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
+        {/* Arno (20/10/2026) : un locataire ne s'enregistre pas sans bien du portefeuille NI sans date d'entrée — « Enregistrer »
+            reste inactif sans eux. */}
+        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie} data-enregistrer-locataire>{envoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
       </div>
     </div>
   );

@@ -95,10 +95,10 @@ describe.skipIf(!baseEssai)('🔴 la carte complète, côté serveur', () => {
     const ids = ok(await creerProprietaires({ ...base, cartes: [
       { nom: `AVEC${S}`, coordonnees: [tel('06 36 36 36 36'), mail(`avec.${S}@exemple.test`)] }, { nom: `SECOND${S}`, coordonnees: [] }] }, AUTEUR)).ids;
     expect(ids).toHaveLength(2);
-    expect(await creerLocatairesSurBien({ cartes: [{ nom: `LOCSANS${S}`, coordonnees: [mail(`locsans.${S}@exemple.test`)] }], existants: [], contacts: [], lotId: lot, entree: null }, AUTEUR))
+    expect(await creerLocatairesSurBien({ cartes: [{ nom: `LOCSANS${S}`, coordonnees: [mail(`locsans.${S}@exemple.test`)] }], existants: [], contacts: [], lotId: lot, entree: '2026-11-01' }, AUTEUR))
       .toEqual({ etat: 'refus', motif: MOTIF_PREMIERE_CARTE });
     // Une fiche existante COMPLÈTE retenue suffit à la famille.
     const existant = ok(await creerPersonne('locataire', { nom: `EXIST${S}`, coordonnees: [tel('06 37 37 37 37'), mail(`exist.${S}@exemple.test`)] }, AUTEUR)).id;
-    expect((await creerLocatairesSurBien({ cartes: [{ nom: `LOCSANS2${S}`, coordonnees: [] }], existants: [existant], contacts: [], lotId: lot, entree: null }, AUTEUR)).etat).toBe('ok');
+    expect((await creerLocatairesSurBien({ cartes: [{ nom: `LOCSANS2${S}`, coordonnees: [] }], existants: [existant], contacts: [], lotId: lot, entree: '2026-11-01' }, AUTEUR)).etat).toBe('ok');
   });
 });

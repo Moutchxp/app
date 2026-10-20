@@ -84,7 +84,7 @@ describe.skipIf(!baseEssai)('🔴 clients et contacts à la création', () => {
     expect(sansMail.etat).toBe('refus');
     if (sansMail.etat === 'refus') expect(sansMail.motif).toMatch(/^Contact 1 : .*e-mail/);
     expect(Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_annuaire_lot')).rows[0].n)).toBe(avant);
-    expect((await creerLocatairesSurBien({ cartes: [], existants: [], contacts: [{ nom: 'G', coordonnees: [mail('g@exemple.test')] }], lotId: logementId, entree: null }, AUTEUR)).etat).toBe('refus');
+    expect((await creerLocatairesSurBien({ cartes: [], existants: [], contacts: [{ nom: 'G', coordonnees: [mail('g@exemple.test')] }], lotId: logementId, entree: '2026-11-01' }, AUTEUR)).etat).toBe('refus');
   });
 
   it('④ côté locataire : deux locataires (obligatoires allégés) + un contact du locataire, sur le bien choisi', async () => {

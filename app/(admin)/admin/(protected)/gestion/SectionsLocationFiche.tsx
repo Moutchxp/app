@@ -5,7 +5,7 @@ import { CSS_LOCATION, LocationCarte } from './LocationCarte';
 import { CSS_ANNEXE_CARTE, CSS_LOCATION_ECRANS } from '../location/commun';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { formaterDateIso, periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
-import { estAncienLocataire } from '../../../../lib/gestion/historiqueBien';
+import { estAncienLocataire, parEntreeLaPlusRecente } from '../../../../lib/gestion/historiqueBien';
 import {
   CATEGORIES, CATEGORIES_ANNEXE, categorieDuBien, LIBELLE_CATEGORIE, libelleEtage, resumeBien, verifierChampsBien,
   type BienLocation, type Categorie,
@@ -337,7 +337,8 @@ export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: 
           if (m === null) relire();
           return m;
         };
-        const occupations = liste(f.occupations);
+        // Arno (20/10/2026) : les baux du bien du plus récent au plus ancien, selon la date d'entrée.
+        const occupations = [...liste(f.occupations)].sort(parEntreeLaPlusRecente);
         return (
           <>
             {d.parent !== null && (
@@ -843,7 +844,8 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
               <h3>Ses locations — loyer de départ et taux de gestion</h3>
               {liste(d.locations).length === 0 ? <p className="loc-muet">Aucune location connue.</p> : (
                 <ul className="loc-liste">
-                  {liste(d.locations).map((l) => (
+                  {/* Arno (20/10/2026) : ses locations du plus récent au plus ancien, selon la date d'entrée. */}
+                  {[...liste(d.locations)].sort(parEntreeLaPlusRecente).map((l) => (
                     <li key={l.occupationId} style={{ display: 'block' }}>
                       <p style={{ margin: '0 0 6px' }}>
                         {l.lotId === null ? <strong>Lot hors gestion</strong>

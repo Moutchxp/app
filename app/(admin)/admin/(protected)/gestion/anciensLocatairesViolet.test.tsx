@@ -7,7 +7,7 @@ import { BlocCartes } from './CartesPersonnes';
 import type { GestesCartes, GestesCarteContact } from './CartesPersonnes';
 import type { LigneCarte } from '../../../../lib/gestion/partieCategorieRepo';
 import type { PersonneAnnuaire } from '../../../../lib/gestion/annuaireRepo';
-import { estAncienLocataire, estLocataireEnPlace, parDepartLePlusRecent, tonDuGroupe }
+import { estAncienLocataire, estLocataireEnPlace, parDepartLePlusRecent, parEntreeLaPlusRecente, tonDuGroupe }
   from '../../../../lib/gestion/historiqueBien';
 import { categorieDuGroupe, coteDeLaCategorie } from '../../../../lib/gestion/partieCategorie';
 import { categoriesDeLaFiche } from '../../../../lib/gestion/familleDestinataire';
@@ -374,15 +374,20 @@ describe('🔴🔴 ⑤ une seule règle ancien/actuel', () => {
     expect(coteDeLaCategorie('independant')).toBeNull();
   });
 
-  /** 🔴 « DU PLUS RÉCENT AU PLUS ANCIEN » (Arno) — le MÊME comparateur que l'onglet de l'encart Parties. */
-  it('🔴 les rangées sont ordonnées du départ le plus récent au plus ancien', () => {
+  /**
+   * 🔴 « DU PLUS RÉCENT AU PLUS ANCIEN » (Arno) — le MÊME comparateur que l'onglet de l'encart Parties. Depuis le
+   * 20/10/2026 (Arno) : SELON LA DATE D'ENTRÉE, comme toutes les listes de baux.
+   */
+  it('🔴 les rangées sont ordonnées de l’entrée la plus récente à la plus ancienne', () => {
     const a = { sortie: '2024-09-25', entree: '2022-09-01', nom: 'HIRSCH' };
     const b = { sortie: '2021-06-30', entree: '2019-01-01', nom: 'MARTIN' };
     const sansDate = { sortie: null, entree: null, nom: 'INCONNU' };
-    expect([b, sansDate, a].sort(parDepartLePlusRecent).map((x) => x.nom))
+    expect([b, sansDate, a].sort(parEntreeLaPlusRecente).map((x) => x.nom))
       .toEqual(['HIRSCH', 'MARTIN', 'INCONNU']);
+    // L'ordre d'avant (départ) reste disponible, il n'est plus employé par la fiche.
+    expect([b, sansDate, a].sort(parDepartLePlusRecent).map((x) => x.nom)).toEqual(['HIRSCH', 'MARTIN', 'INCONNU']);
     /* 🔴 ET LA FICHE L'EMPLOIE, plutôt que de retrier à sa façon. */
-    expect(ANNUAIRE).toContain('const anciens = [...passes].sort((a, b) => parDepartLePlusRecent(');
+    expect(ANNUAIRE).toContain('const anciens = [...passes].sort((a, b) => parEntreeLaPlusRecente(');
   });
 });
 

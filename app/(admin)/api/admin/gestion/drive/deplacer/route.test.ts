@@ -43,6 +43,8 @@ const marquerMock = vi.fn();
 const registreDeplaceMock = vi.fn();
 const indexParentMock = vi.fn();
 const indexVusMock = vi.fn();
+/** 🔴🔴 Arno (20/10/2026) — la sorte de chaque dossier au registre de l'arborescence (`gestion_drive_noeud`). */
+const sortesMock = vi.fn();
 
 vi.mock('../../../../../../lib/admin/garde', () => ({
   exigerCompteActif: (...a: unknown[]) => gardeMock(...a),
@@ -91,6 +93,9 @@ vi.mock('../../../../../../lib/gestion/driveMouvementRepo', () => ({
 vi.mock('../../../../../../lib/gestion/driveRepo', () => ({
   deplacerCopieAuRegistre: (...a: unknown[]) => registreDeplaceMock(...a),
 }));
+vi.mock('../../../../../../lib/gestion/regleActifsInactifsRepo', () => ({
+  sortesAuRegistre: (...a: unknown[]) => sortesMock(...a),
+}));
 vi.mock('../../../../../../lib/gestion/empreinteDriveRepo', () => ({
   noterParentDeplace: (...a: unknown[]) => indexParentMock(...a),
   noterFichiersVus: (...a: unknown[]) => indexVusMock(...a),
@@ -119,6 +124,25 @@ const ARBRE: Record<string, { nom: string; parentId: string | null; dossier: boo
   base: { nom: 'Base de données locative', parentId: 'drive', dossier: true },
   travaux: { nom: 'Travaux', parentId: 'base', dossier: true },
   bail: { nom: 'bail.pdf', parentId: 'base', dossier: false },
+  // L'arborescence (Arno, 19-20/10/2026) : Actifs › DUPONT › adresse › bien › « 6 Locataires » › BAIL › pièces ; Inactifs › DUPONT › adresse.
+  actifs: { nom: 'Actifs', parentId: 'base', dossier: true },
+  inactifs: { nom: 'Inactifs', parentId: 'base', dossier: true },
+  p3: { nom: 'DUPONT Jean', parentId: 'actifs', dossier: true },
+  n4: { nom: '1 rue X, 75001 Paris', parentId: 'p3', dossier: true },
+  n5: { nom: 'Appartement T2 (lot 12)', parentId: 'n4', dossier: true },
+  photos: { nom: '3 Photos', parentId: 'n5', dossier: true },
+  locs: { nom: '6 Locataires', parentId: 'n5', dossier: true },
+  bailM: { nom: 'BAIL 01/09/2024 MARTIN', parentId: 'locs', dossier: true },
+  pieceM: { nom: '1 Papiers d’identité', parentId: 'bailM', dossier: true },
+  p3i: { nom: 'DUPONT Jean', parentId: 'inactifs', dossier: true },
+  n4i: { nom: '1 rue X, 75001 Paris', parentId: 'p3i', dossier: true },
+  n5b: { nom: 'Studio (lot 13)', parentId: 'n4', dossier: true },
+  locsB: { nom: '6 Locataires', parentId: 'n5b', dossier: true },
+};
+/** Le registre de l'arborescence (la sorte de chaque dossier posé par l'application). */
+const REGISTRE: Record<string, string> = {
+  p3: 'proprietaire', n4: 'adresse', n5: 'bien', photos: 'rubrique', locs: 'rubrique', bailM: 'bail', pieceM: 'piece_bail',
+  p3i: 'proprietaire', n4i: 'adresse', n5b: 'bien', locsB: 'rubrique',
 };
 
 const MIME_DOSSIER = 'application/vnd.google-apps.folder';
@@ -156,6 +180,7 @@ beforeEach(() => {
   registreDeplaceMock.mockResolvedValue(0);
   indexParentMock.mockResolvedValue(0);
   indexVusMock.mockResolvedValue(0);
+  sortesMock.mockImplementation(async (ids: string[]) => new Map(ids.filter((i) => REGISTRE[i] !== undefined).map((i) => [i, REGISTRE[i]])));
   protegesMock.mockResolvedValue({
     proteges: new Set(['interdit']),
     protegesEtAncetres: new Set(['interdit', 'drive', 'racine']),
@@ -754,5 +779,69 @@ describe('🔴🔴 le reflet d’un déplacement', () => {
     expect(deplacerMock).not.toHaveBeenCalled();
     expect(registreDeplaceMock).not.toHaveBeenCalled();
     expect(indexParentMock).not.toHaveBeenCalled();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LA RÈGLE ACTIFS / INACTIFS (Arno, 20/10/2026) — un bail ne quitte jamais « 6 Locataires » ; seuls un bien ou
+   un propriétaire, ENTIERS, passent dans « Inactifs ». Par appel direct, refus AVANT toute écriture Google.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴🔴 règle Actifs / Inactifs — appel DIRECT à la route', () => {
+  const deplacer = async (id: string, cible: string) => (await (await POST(demande({ action: 'deplacer', cible, elements: [{ id }] }))).json()) as
+    { faits: unknown[]; refuses: { motif: string }[] };
+
+  it.each([
+    ['vers « Inactifs »', 'inactifs'],
+    ['vers l’adresse du propriétaire dans « Inactifs »', 'n4i'],
+    ['vers le « 6 Locataires » d’un autre bien', 'locsB'],
+    ['vers le dossier du bien', 'n5'],
+  ])('un dossier BAIL ne se déplace pas (%s) : refusé, rien n’est parti chez Google', async (_mot, cible) => {
+    const d = await deplacer('bailM', cible);
+    expect(d.faits).toHaveLength(0);
+    expect(d.refuses[0].motif).toContain('ne quitte jamais le dossier « 6 Locataires »');
+    expect(deplacerMock).not.toHaveBeenCalled();
+    expect(inscrireMock).not.toHaveBeenCalled();
+  });
+
+  it('une pièce du bail (« 1 Papiers d’identité ») ne quitte pas son bail', async () => {
+    const d = await deplacer('pieceM', 'n4i');
+    expect(d.refuses[0].motif).toContain('6 Locataires');
+    expect(deplacerMock).not.toHaveBeenCalled();
+  });
+
+  it('un BIEN entier passe dans « Inactifs » (son dossier N5, qui emporte tout son contenu, baux compris)', async () => {
+    const d = await deplacer('n5', 'n4i');
+    expect(d.refuses).toEqual([]);
+    expect(deplacerMock).toHaveBeenCalledTimes(1);
+    expect(deplacerMock.mock.calls[0][1]).toEqual({ id: 'n5', parentOrigine: 'n4', parentCible: 'n4i' });
+  });
+
+  it('un PROPRIÉTAIRE entier passe dans « Inactifs » (son dossier N3)', async () => {
+    const d = await deplacer('p3', 'inactifs');
+    expect(d.refuses).toEqual([]);
+    expect(deplacerMock.mock.calls[0][1]).toEqual({ id: 'p3', parentOrigine: 'actifs', parentCible: 'inactifs' });
+  });
+
+  it('une rubrique seule (« 3 Photos ») ou une adresse seule ne passent pas dans « Inactifs »', async () => {
+    expect((await deplacer('photos', 'n4i')).refuses[0].motif).toContain('Seuls un bien ou un propriétaire passent dans « Inactifs »');
+    expect((await deplacer('n4', 'p3i')).refuses[0].motif).toContain('Seuls un bien ou un propriétaire');
+    expect(deplacerMock).not.toHaveBeenCalled();
+  });
+
+  it('ce qui n’est pas de l’arborescence se range comme avant : un fichier vers « Inactifs », un dossier hors registre', async () => {
+    expect((await deplacer('bail', 'n4i')).refuses).toEqual([]);
+    expect((await deplacer('travaux', 'n4i')).refuses).toEqual([]);
+    expect(deplacerMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('registre illisible : un DOSSIER ne se déplace pas (ne pas savoir vaut interdit) ; un fichier, si', async () => {
+    sortesMock.mockResolvedValue(null);
+    expect((await deplacer('n5', 'n4i')).refuses[0].motif).toContain('registre de l’arborescence n’a pas pu être lu');
+    expect((await deplacer('bail', 'n4i')).refuses).toEqual([]);
+  });
+
+  it('une COPIE n’est pas concernée (elle ne retire rien de son dossier) : le registre n’est même pas consulté', async () => {
+    await POST(demande({ action: 'copier', cible: 'n4i', elements: [{ id: 'bail' }] }));
+    expect(sortesMock.mock.calls.every((c) => (c[0] as string[]).length === 0)).toBe(true);
   });
 });

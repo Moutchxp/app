@@ -2042,7 +2042,7 @@ export function locatairesEnPlace(cartes: readonly CarteLocataireBien[]): CarteL
  */
 export function anciensLocataires(cartes: readonly CarteLocataireBien[]): CarteLocataireBien[] {
   return cartes.filter((c) => !c.enPlace)
-    .sort((a, b) => parDepartLePlusRecent(
+    .sort((a, b) => parEntreeLaPlusRecente(
       { sortie: a.jusqua, entree: a.depuis, nom: a.libelle },
       { sortie: b.jusqua, entree: b.depuis, nom: b.libelle }));
 }
@@ -2059,6 +2059,24 @@ export function anciensLocataires(cartes: readonly CarteLocataireBien[]): CarteL
  * qui change d'un affichage à l'autre.
  * ⚠️ UNE DATE INCONNUE PASSE EN DERNIER, jamais en tête : on ne met pas en avant ce qu'on ne sait pas situer.
  */
+/**
+ * 🔴 Arno (20/10/2026) — PARTOUT OÙ L'APPLICATION LISTE LES BAUX d'un bien ou d'un locataire : du plus récent au plus
+ * ancien, SELON LA DATE D'ENTRÉE. À entrée égale, le départ le plus récent d'abord, puis le nom. Une date inconnue passe
+ * en dernier, jamais en tête. PUR.
+ */
+export function parEntreeLaPlusRecente(
+  a: { entree: string | null; sortie?: string | null; nom?: string },
+  b: { entree: string | null; sortie?: string | null; nom?: string },
+): number {
+  const rang = (x: string | null | undefined): number => {
+    const t = Date.parse(`${(x ?? '').slice(0, 10)}T00:00:00Z`);
+    return Number.isNaN(t) ? -Infinity : t;
+  };
+  const ecart = (u: number, v: number): number => (u === v ? 0 : u > v ? -1 : 1);
+  return ecart(rang(a.entree), rang(b.entree)) || ecart(rang(a.sortie), rang(b.sortie)) || (a.nom ?? '').localeCompare(b.nom ?? '', 'fr');
+}
+
+/** L'ordre d'AVANT le 20/10/2026 (départ le plus récent d'abord) ; les listes de baux suivent désormais `parEntreeLaPlusRecente`. */
 export function parDepartLePlusRecent(
   a: { sortie: string | null; entree: string | null; nom: string },
   b: { sortie: string | null; entree: string | null; nom: string },

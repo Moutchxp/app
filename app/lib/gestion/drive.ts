@@ -660,6 +660,25 @@ export const PAGES_MAX_CONTENU = 25;
  */
 export const TAILLE_PAGE_CONTENU = 1000;
 
+/**
+ * 🔴 Arno (20/10/2026) — LES DOSSIERS DE BAIL DU PLUS RÉCENT AU PLUS ANCIEN, selon la date d'entrée que porte leur nom
+ * (« BAIL 01/09/2024 MARTIN », et l'ancien « Bail 01/09/2022 – DUPONT Jean »). Sur le Drive, aucun préfixe ni numéro :
+ * l'ordre du Drive est un réglage de chaque utilisateur ; c'est la liste de L'APPLICATION qui les range. Les dossiers de
+ * bail viennent en tête des dossiers ; les autres dossiers, puis les fichiers, gardent leur ordre. PUR.
+ */
+export function dateEntreeDuDossierBail(nom: string): string | null {
+  const m = /^\s*bail\s+(\d{2})\/(\d{2})\/(\d{4})\b/i.exec(nom);
+  return m === null ? null : `${m[3]}-${m[2]}-${m[1]}`;
+}
+export function ordonnerBauxDuContenu<T extends { nom: string; dossier: boolean }>(fichiers: readonly T[]): T[] {
+  const baux = fichiers.filter((f) => f.dossier && dateEntreeDuDossierBail(f.nom) !== null);
+  if (baux.length === 0) return [...fichiers];
+  const tries = baux.map((f, i) => ({ f, i, d: dateEntreeDuDossierBail(f.nom)! }))
+    .sort((a, b) => (a.d === b.d ? a.i - b.i : a.d < b.d ? 1 : -1)).map((x) => x.f);
+  const pris = new Set(baux);
+  return [...tries, ...fichiers.filter((f) => !pris.has(f))];
+}
+
 export async function listerContenu(
   accessToken: string, o: { parentId: string; driveId?: string | null; pageSize?: number; pagesMax?: number },
   deps: DepsGoogle,
@@ -682,10 +701,10 @@ export async function listerContenu(
     const j = await res.json().catch(() => ({}));
     fichiers.push(...versFichiers(j));
     jeton = (j as { nextPageToken?: string }).nextPageToken ?? null;
-    if (jeton === null) return { ok: true, valeur: { fichiers, tronque: false } };
+    if (jeton === null) return { ok: true, valeur: { fichiers: ordonnerBauxDuContenu(fichiers), tronque: false } };
   }
   // On s'est arrêté sur la borne alors que Google en avait encore : on le DIT.
-  return { ok: true, valeur: { fichiers, tronque: jeton !== null } };
+  return { ok: true, valeur: { fichiers: ordonnerBauxDuContenu(fichiers), tronque: jeton !== null } };
 }
 
 /**

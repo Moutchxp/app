@@ -54,7 +54,7 @@ import { BlocHistoriqueEchanges, useFichePersonne } from './BlocHistoriqueEchang
 import { bienDuNouveauMessageLocataire } from '../../../../lib/gestion/bienNouveauMessageLocataire';
 /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — L'UNIQUE RÈGLE « ancien locataire ou locataire actuel », et l'ordre des
    anciens. La fiche ne les réécrit pas : elle les appelle, comme le dépôt et comme l'encart Parties. */
-import { estAncienLocataire, estLocataireEnPlace, parDepartLePlusRecent,
+import { estAncienLocataire, estLocataireEnPlace, parEntreeLaPlusRecente,
   type CarteLocataireBien, type CategoriePartie, type ClientDuBien, type OccupationPeriode,
   type PeriodePartie } from '../../../../lib/gestion/historiqueBien';
 /**
@@ -1225,14 +1225,15 @@ function VueLot({
   /**
    * 🔴🔴 LOT ANCIENS-LOCATAIRES-VIOLET — « UNE RANGÉE PAR ANCIEN LOCATAIRE […] DU PLUS RÉCENT AU PLUS ANCIEN »
    * (Arno). L'ordre vient du MÊME comparateur que l'onglet « Anciens locataires (N) » de l'encart Parties
-   * (`parDepartLePlusRecent`) : les deux listes nomment les mêmes personnes, elles ne peuvent pas les ranger
+   * (`parEntreeLaPlusRecente`, Arno 20/10/2026 — avant : `parDepartLePlusRecent`) : les deux listes nomment les mêmes personnes, elles ne peuvent pas les ranger
    * autrement l'une que l'autre.
    *
    * ⚠️ UNE RANGÉE PAR **OCCUPATION**, et non par personne : une même personne qui a occupé deux fois le logement
    * a deux séjours, et c'est le séjour qu'on vient lire. Sa CARTE, elle, est unique (le dépôt dédoublonne) — elle
    * paraît donc identique dans les deux rangées, avec ses contacts, ce qui est exact.
    */
-  const anciens = [...passes].sort((a, b) => parDepartLePlusRecent(
+  // Arno (20/10/2026) : les baux du plus récent au plus ancien, SELON LA DATE D'ENTRÉE.
+  const anciens = [...passes].sort((a, b) => parEntreeLaPlusRecente(
     { sortie: a.sortie, entree: a.entree, nom: a.nom },
     { sortie: b.sortie, entree: b.entree, nom: b.nom }));
   /**
@@ -2021,8 +2022,9 @@ function VueLocataire({
 }) {
   /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — LA RÈGLE UNIQUE, ici aussi : « ancien » se décide au MÊME endroit que
      la couleur d'un mail, la capsule d'une pièce jointe et le bloc de la fiche du bien. */
-  const enCours = f.logements.filter(estLocataireEnPlace);
-  const passes = f.logements.filter(estAncienLocataire);
+  // Arno (20/10/2026) : ses baux du plus récent au plus ancien, selon la date d'entrée.
+  const enCours = f.logements.filter(estLocataireEnPlace).sort(parEntreeLaPlusRecente);
+  const passes = f.logements.filter(estAncienLocataire).sort(parEntreeLaPlusRecente);
   /** Le logement dont on montre les échanges : celui qu'il occupe. Le plus récent s'il en occupe plusieurs. */
   const logementDesMails = enCours[0] ?? null;
   return (

@@ -1,5 +1,5 @@
 import { nettoyerNom } from '../gestion/driveGardeFou';
-import { normaliser, PIECES_BAIL, RUBRIQUES_N6, SOUS_PIECES_BAIL, SOUS_PROPRIETAIRE } from '../gestion/arborescenceDrive';
+import { dateFr, PIECES_BAIL, RUBRIQUES_N6, SOUS_PIECES_BAIL, SOUS_PROPRIETAIRE } from '../gestion/arborescenceDrive';
 
 /**
  * ══ 🔴🔴 NOUVEAU LOCATAIRE — LA BRANCHE « BAIL » DU DRIVE (Arno, 20/10/2026). PUR. ════════════════════════════════════════════
@@ -9,9 +9,11 @@ import { normaliser, PIECES_BAIL, RUBRIQUES_N6, SOUS_PIECES_BAIL, SOUS_PROPRIETA
  * habitation » / « Chaudière » › N10 l'année en cours. À l'enregistrement d'un nouveau locataire, la branche N7 → N10 de SON
  * bail est créée (mêmes noms, même modèle) ; les parents manquants (N3 → N6) d'abord, selon le même modèle.
  *
- * LE NOM DU N7 (règle d'Arno) : « BAIL » + les NOMS DE FAMILLE des colocataires du bail seulement (jamais garants ni
- * contacts), en majuscules, dans l'ordre de saisie, séparés par « – » ; si ce nom existe déjà dans ce « 6 Locataires »,
- * l'année d'entrée est ajoutée (« BAIL MARTIN 2026 »).
+ * LE NOM DU N7 (règle d'Arno, 20/10/2026) : « BAIL » + la DATE D'ENTRÉE dans les lieux (jj/mm/aaaa) + les NOMS DE FAMILLE des
+ * colocataires du bail seulement (jamais garants ni contacts), en majuscules, dans l'ordre de saisie, séparés par « – » :
+ * « BAIL 01/09/2024 MARTIN », « BAIL 26/10/2024 YOUENOU – TALHOUARN ». La date suffit à distinguer les baux ; si, cas
+ * extrême, un dossier de ce nom exact existe déjà pour UN AUTRE bail dans ce « 6 Locataires », « (2) » est ajouté (puis
+ * « (3) »… pour rester unique). Sans date d'entrée, le dossier ne peut pas être nommé : la date est obligatoire.
  *
  * L'IDEMPOTENCE : chaque dossier porte une CLÉ (étiquette `svav_arbo`, enregistrée dans `gestion_drive_noeud`) ; un dossier
  * dont la clé est déjà connue n'est jamais recréé. Clés de la branche : `bl:<bail>` (N7), `bl:<bail>:<k>` (N8),
@@ -19,16 +21,23 @@ import { normaliser, PIECES_BAIL, RUBRIQUES_N6, SOUS_PIECES_BAIL, SOUS_PROPRIETA
  */
 export const SEPARATEUR_NOMS = ' – ';
 
-/** « BAIL MARTIN », « BAIL YOUENOU – TALHOUARN » ; l'année d'entrée s'ajoute si un dossier voisin porte déjà ce nom. PUR. */
-export function nomDossierBail(nomsFamille: readonly string[], voisins: readonly string[], anneeEntree: number | null): string {
+/**
+ * « BAIL 01/09/2024 MARTIN » ; `autres` = les noms des AUTRES dossiers du « 6 Locataires » (jamais celui de ce bail).
+ * `null` : pas de date d'entrée — le dossier ne peut pas être nommé. PUR.
+ */
+export function nomDossierBail(nomsFamille: readonly string[], entree: string | null, autres: readonly string[]): string | null {
+  const date = dateFr(entree);
+  if (date === '') return null;
   const noms: string[] = [];
   for (const n of nomsFamille) {
     const m = n.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
     if (m !== '' && !noms.includes(m)) noms.push(m);
   }
-  const base = nettoyerNom(`BAIL ${noms.join(SEPARATEUR_NOMS) || 'LOCATAIRE'}`);
-  const pris = new Set(voisins.map(normaliser));
-  return pris.has(normaliser(base)) && anneeEntree !== null ? nettoyerNom(`${base} ${anneeEntree}`) : base;
+  const base = nettoyerNom(`BAIL ${date} ${noms.join(SEPARATEUR_NOMS) || 'LOCATAIRE'}`);
+  const exact = (x: string) => x.trim().replace(/\s+/g, ' ').toLocaleUpperCase('fr-FR');
+  const pris = new Set(autres.map(exact));
+  if (!pris.has(exact(base))) return base;
+  for (let k = 2; ; k += 1) { const n = nettoyerNom(`${base} (${k})`); if (!pris.has(exact(n))) return n; }
 }
 
 export type SorteNoeudBail = 'proprietaire' | 'adresse' | 'bien' | 'rubrique' | 'sous_rubrique' | 'annee' | 'bail' | 'piece_bail' | 'sous_piece_bail';

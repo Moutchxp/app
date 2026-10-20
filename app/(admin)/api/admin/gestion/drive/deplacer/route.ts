@@ -32,6 +32,10 @@ import { journalMouvementDriveDisponible } from '../../../../../../lib/gestion/s
  * route reste `deplacerVers`/`copierFichier`, dans `driveMouvement.ts` et sous son test statique.
  */
 import { deplacerCopieAuRegistre } from '../../../../../../lib/gestion/driveRepo';
+// 🔴🔴 Arno (20/10/2026) — LA RÈGLE ACTIFS / INACTIFS : un bail ne quitte jamais « 6 Locataires » ; seuls un bien ou un
+//   propriétaire, entiers, passent dans « Inactifs ».
+import { dansInactifs, refusActifsInactifs } from '../../../../../../lib/gestion/regleActifsInactifs';
+import { sortesAuRegistre } from '../../../../../../lib/gestion/regleActifsInactifsRepo';
 import { noterParentDeplace } from '../../../../../../lib/gestion/empreinteDriveRepo';
 
 /**
@@ -324,6 +328,12 @@ async function mouvoir(
   await mapConcurrenceBornee(parents, MOUVEMENTS_SIMULTANES, async (parentId) => {
     chaines.set(parentId, await chaineDuDossierMemo(jeton.compteGoogle, jeton.jeton, parentId, deps));
   });
+  /* 🔴🔴 LA RÈGLE ACTIFS / INACTIFS (Arno, 20/10/2026) : la sorte, au registre de l'arborescence, de chaque DOSSIER à
+     déplacer. Une copie ne retire rien de son dossier : elle n'est pas concernée. */
+  const dossiersADeplacer = action === 'deplacer'
+    ? metas.filter((m) => m.meta.ok && m.meta.valeur.typeMime === 'application/vnd.google-apps.folder').map((m) => m.id) : [];
+  const sortes = await sortesAuRegistre(dossiersADeplacer);
+  const cibleDansInactifs = dansInactifs(chaineCible);
   chrono.top('securite');
 
   /* ── ④ LE VERDICT, ÉLÉMENT PAR ÉLÉMENT. PUR, donc gratuit — et c'est bien pour cela qu'il n'y a aucune raison
@@ -355,6 +365,14 @@ async function mouvoir(
       { index, proteges: proteges.proteges, protegesEtAncetres: proteges.protegesEtAncetres },
     );
     if (!v.ok) { refuses.push({ id: m.id, nom, motif: v.motif }); continue; }
+    if (dossiersADeplacer.includes(m.id)) {
+      if (sortes === null) {
+        refuses.push({ id: m.id, nom, motif: 'Le registre de l’arborescence n’a pas pu être lu : par précaution, ce dossier ne se déplace pas maintenant.' });
+        continue;
+      }
+      const r = refusActifsInactifs({ sorte: sortes.get(m.id) ?? null, cibleDansInactifs });
+      if (r !== null) { refuses.push({ id: m.id, nom, motif: r }); continue; }
+    }
     /* 🔴 LE NOM CHOISI VOYAGE AVEC L'ÉLÉMENT, pas avec la demande : chaque vignette a le sien. */
     const demande = elements.find((e) => e.id.trim() === m.id);
     pretes.push({
