@@ -56,18 +56,20 @@ const colonne = (c: string) => [...container.querySelectorAll(`[data-colonne="${
 const groupes = () => [...container.querySelectorAll('[data-groupe]')].map((g) => (g as HTMLElement).dataset.groupe);
 
 describe('🔴 fiche locataire — encart du bail', () => {
-  it('RÉSUMÉ : « Le bail » à gauche, « Ce qu’il paie » à droite, avec les liens', async () => {
+  it('RÉSUMÉ : « Le bail » à gauche (sans bien loué ni propriétaire : ils sont dans « Son logement »), « Ce qu’il paie » à droite', async () => {
     await rendre(SAISI);
-    expect(colonne('bail')).toEqual(['Bien loué', 'Propriétaire', 'Date d’entrée', 'Colocataire', 'Garant']);
+    expect(colonne('bail')).toEqual(['Date d’entrée', 'Colocataire', 'Garant']);
+    expect(container.querySelector('[data-rb="bien"]')).toBeNull();
+    expect(container.querySelector('[data-rb="proprietaires"]')).toBeNull();
     expect(colonne('paie')).toEqual(['Loyer principal', 'Provision pour charges', 'Total charges comprises', 'Dépôt de garantie', 'Prélèvement']);
-    expect([dd('bien'), dd('proprietaires'), dd('entree'), dd('colocataires'), dd('garants')])
-      .toEqual(['15 rue Carle Hebert, COURBEVOIE', 'JULLIEN - GARRIDO Cédric', '01/11/2026', 'ESSAI RATTACHEMENT Locataire Deux', 'ESSAI Garant — garantit Un, Deux']);
+    expect([dd('entree'), dd('colocataires'), dd('garants')])
+      .toEqual(['01/11/2026', 'ESSAI RATTACHEMENT Locataire Deux', 'ESSAI Garant — garantit Un, Deux']);
     expect([dd('loyer-principal'), dd('provisions'), dd('total-cc'), dd('depot'), dd('prelevement')])
       .toEqual(['1 200,00 €', '130,00 €', '1 330,00 € / mois', '1 200,00 € — conservé par l’agence', 'oui, au 5']);
-    for (const b of [...container.querySelectorAll('[data-rb="bien"] button, [data-rb="proprietaires"] button, [data-rb="colocataires"] button')] as HTMLButtonElement[]) {
+    for (const b of [...container.querySelectorAll('[data-rb="colocataires"] button')] as HTMLButtonElement[]) {
       await act(async () => { b.click(); });
     }
-    expect(ouverts).toEqual([['lot', 7], ['proprietaire', 146], ['locataire', 523]]);
+    expect(ouverts).toEqual([['locataire', 523]]);
   });
 
   it('DÉTAIL replié par défaut, dépliable (bouton ou clic sur l’encart) ; groupes et champs ; bulle ⓘ des proratas', async () => {
@@ -100,8 +102,8 @@ describe('🔴 fiche locataire — encart du bail', () => {
 
   it('IMPORT WIPPIMMO (502) : le bien, le propriétaire et la date d’entrée importés ; le reste « non renseigné » — jamais inventé', async () => {
     await rendre(WIPPIMMO);
-    expect([dd('bien'), dd('entree'), dd('colocataires'), dd('garants'), dd('loyer-principal'), dd('depot'), dd('prelevement')])
-      .toEqual(['25 rue Edith Cavell, COURBEVOIE', '26/10/2024', 'aucun', 'aucun', 'non renseigné', 'non renseigné', 'non renseigné']);
+    expect([dd('entree'), dd('colocataires'), dd('garants'), dd('loyer-principal'), dd('depot'), dd('prelevement')])
+      .toEqual(['26/10/2024', 'aucun', 'aucun', 'non renseigné', 'non renseigné', 'non renseigné']);
     for (const g of ['sommes', 'honoraires', 'garanties', 'entretiens']) expect(container.querySelector(`[data-rb-vide="${g}"]`)?.textContent, g).toBe('non renseigné');
     expect(dd('saisie')).toBe('aucune condition d’entrée enregistrée');
   });

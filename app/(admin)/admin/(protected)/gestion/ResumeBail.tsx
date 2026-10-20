@@ -19,7 +19,7 @@ import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
  * ══ 🔴🔴 FICHE LOCATAIRE — L'ENCART DU BAIL : RÉSUMÉ + DÉTAIL DÉPLIABLE (Arno, 20/10/2026) ══════════════════════════════════════
  *
  * Même modèle que l'encart de la fiche bien (`ResumeBien.tsx`) : juste sous le titre, au-dessus de « Coordonnées ».
- *   · RÉSUMÉ (deux colonnes dès 768 px) — « Le bail » : bien loué, propriétaire, date d'entrée, colocataires, garants (et qui
+ *   · RÉSUMÉ (deux colonnes dès 768 px) — « Le bail » : date d'entrée, colocataires, garants (et qui
  *     ils garantissent) · « Ce qu'il paie » : loyer principal, provision, total CC, dépôt de garantie, prélèvement ;
  *   · DÉTAIL replié (« Voir le détail du bail ⌄ ») : sommes dues à l'entrée (proratas avec la bulle ⓘ du calcul, honoraires
  *     agence), honoraires (comptes, honoraires propriétaire avec tarif, surface, barème daté, total), garanties et règlement,
@@ -109,10 +109,7 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
             <h4 className="rb-titre">{b.enCours ? 'Le bail' : <>Le bail <span className="rb-termine" data-bail-termine>· bail terminé le {b.termineLe ? formaterDateIso(b.termineLe) : '—'}</span></>}</h4>
             <div className="rb-colonnes">
               <dl className="ann-champs rb-colonne" data-colonne="bail" aria-label="Le bail">
-                <dt>Bien loué</dt>
-                <dd data-rb="bien">{b.bien === null ? rien() : <Liens sorte="lot" items={[{ id: b.bien.id, nom: b.bien.adresse }]} ouvrir={ouvrir} />}</dd>
-                <dt>Propriétaire{b.proprietaires.length > 1 ? 's' : ''}</dt>
-                <dd data-rb="proprietaires">{b.proprietaires.length === 0 ? rien() : <Liens sorte="proprietaire" items={b.proprietaires} ouvrir={ouvrir} />}</dd>
+                {/* Arno (20/10/2026) : « Bien loué » et « Propriétaire » retirés de l'encart — ils restent dans la carte « Son logement ». */}
                 <dt>Date d’entrée</dt>
                 <dd data-rb="entree">{b.entree === null ? rien('non renseignée') : formaterDateIso(b.entree)}</dd>
                 <dt>Colocataire{b.colocataires.length > 1 ? 's' : ''}</dt>
@@ -208,8 +205,9 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
 const CSS_RESUME_BAIL = `
 .rb-termine{font-weight:700;text-transform:none;letter-spacing:0;color:var(--color-svv-muted)}
 .rb-liens{display:flex;flex-wrap:wrap;gap:0 12px}
-/* La cible reste de 44 px, le texte calé en haut : il tombe en face de son intitulé. */
-.rb-liens .rb-lien{border:0;background:none;padding:0;font:inherit;display:inline-flex;align-items:flex-start;min-height:44px}
+/* La cible reste de 44 px, mais déborde sur les marges (−12 px en haut et en bas) : la ligne garde la hauteur d'une ligne de
+   texte, en face de son intitulé, sans trou sous elle. */
+.rb-liens .rb-lien{border:0;background:none;padding:0;font:inherit;display:inline-flex;align-items:center;min-height:44px;margin:-12px 0}
 .rb-a-rattacher{color:var(--color-svv-amber);font-weight:700}
 .rb-gestes{grid-column:1/-1;min-width:0;cursor:auto}
 `;
