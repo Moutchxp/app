@@ -37,7 +37,8 @@ const oui = () => container.querySelector('[data-question-gestion] button') as H
 describe('① les exemples du champ « Qualité »', () => {
   it('les textes d’Arno, les mêmes des deux côtés', () => {
     expect(EXEMPLE_QUALITE_CONTACT).toBe('ex. Conjoint, artisan, avocat, voisin…');
-    expect(EXEMPLE_QUALITE_CLIENT).toBe('ex. Conjoint, indivision, gérant, représentant…');
+    // Arno (20/10/2026) : « copropriétaire », jamais « indivision », dans l'interface.
+    expect(EXEMPLE_QUALITE_CLIENT).toBe('ex. Conjoint, copropriétaire, gérant, représentant…');
     // Arno (20/10/2026) : dans la Location, la Qualité d'un contact est un MENU ; son aide commence par « Garant » (la Gestion
     // garde l'exemple ci-dessus).
     expect(EXEMPLES_QUALITE).toEqual({ proprietaire: 'ex. Garant, conjoint, artisan, avocat, voisin… ou « Personnalisé »',

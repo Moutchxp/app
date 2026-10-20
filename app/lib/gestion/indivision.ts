@@ -32,8 +32,12 @@ export function sqlCoproprietairesActifs(lo: string, moi: string, vivante: strin
              WHERE lp.lot_id = ${lo}.id AND lp.proprietaire_id = px.id AND ${sqlLienEnCours('lp')})))`;
 }
 
-/** La mention, ou `null` : rien quand il n'y a aucun autre copropriétaire actif. */
+/**
+ * La mention, ou `null` : rien quand il n'y a aucun autre copropriétaire actif.
+ * 🔴 Arno (20/10/2026) : dans l'interface, on ne dit jamais « indivision » — on dit « Copropriétaire : X » (un seul) ou
+ * « Copropriétaires : X, Y » (plusieurs). Les noms internes (fichier, fonctions, colonnes) ne changent pas.
+ */
 export function motIndivision(autres: readonly string[] | null | undefined): string | null {
   const l = (autres ?? []).filter((x) => x.trim() !== '');
-  return l.length === 0 ? null : `en indivision avec ${l.join(', ')}`;
+  return l.length === 0 ? null : `${l.length === 1 ? 'Copropriétaire' : 'Copropriétaires'} : ${l.join(', ')}`;
 }

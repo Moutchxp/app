@@ -80,7 +80,7 @@ export function CreationProprietaires() {
     <div className="loc-page loc-ample">
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_FETE}</style>
       <EnTeteLocation titre="Créer un nouveau propriétaire"
-        sous="Une carte par personne (couple, indivision, SCI…) : tous seront propriétaires du même futur bien." />
+        sous="Une carte par personne (couple, copropriétaires, SCI…) : tous seront propriétaires du même futur bien." />
 
       <section className="loc-section" aria-labelledby="loc-p1">
         <h3 id="loc-p1"><span className="loc-num">1</span>Le ou les propriétaires</h3>

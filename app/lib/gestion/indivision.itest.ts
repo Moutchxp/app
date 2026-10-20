@@ -56,9 +56,9 @@ describe.skipIf(!baseEssai)('🔴 « en indivision avec » : les autres copropri
     await lier(second, autre, null, null);               // un autre copropriétaire, sur un autre bien
     const m = await mentions(moi);
     expect(m.get(seul)).toBeNull();
-    expect(m.get(partage)).toBe(`en indivision avec ACTIF ${S}`);
-    expect(m.get(second)).toBe(`en indivision avec AUTRE ${S}`);
+    expect(m.get(partage)).toBe(`Copropriétaire : ACTIF ${S}`);
+    expect(m.get(second)).toBe(`Copropriétaire : AUTRE ${S}`);
     // Vu de l'autre côté : le copropriétaire actif voit le bien partagé, avec le titulaire — jamais lui-même.
-    expect((await mentions(actif)).get(partage)).toBe(`en indivision avec MOI ${S}`);
+    expect((await mentions(actif)).get(partage)).toBe(`Copropriétaire : MOI ${S}`);
   });
 });

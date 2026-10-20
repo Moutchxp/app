@@ -31,7 +31,7 @@ export function EcranProprietairesBiens() {
         <li><a className="loc-gros-bouton loc-gros-bouton--plein" href="/admin/location/proprietaires/supprimer" data-gros="supprimer-proprietaire">
           Supprimer un propriétaire / un bien<small>Archiver un propriétaire et tous ses biens, ou sortir un ou plusieurs de ses biens de la gestion : rien n’est effacé, réactivable.</small></a></li>
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-proprietaire" data-gros="proprietaire">
-          Créer un nouveau propriétaire<small>Une carte de contact par personne (couple, indivision, SCI…), puis son bien.</small></a></li>
+          Créer un nouveau propriétaire<small>Une carte de contact par personne (couple, copropriétaires, SCI…), puis son bien.</small></a></li>
         <li><a className="loc-gros-bouton" href="/admin/location/nouveau-bien" data-gros="bien">
           Ajouter un nouveau bien<small>Pour un propriétaire déjà connu : adresse, logement, copropriété, annexes, DPE…</small></a></li>
       </ul>

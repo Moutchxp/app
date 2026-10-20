@@ -11,8 +11,10 @@ describe('motIndivision', () => {
     expect(motIndivision(undefined)).toBeNull();
     expect(motIndivision(['  '])).toBeNull();
   });
-  it('des copropriétaires → la mention ne cite qu’eux', () => {
-    expect(motIndivision(['DUPONT Jean', 'MARTIN Léa'])).toBe('en indivision avec DUPONT Jean, MARTIN Léa');
+  it('des copropriétaires → la mention ne cite qu’eux, au singulier ou au pluriel ; jamais le mot « indivision »', () => {
+    expect(motIndivision(['DUPONT Jean'])).toBe('Copropriétaire : DUPONT Jean');
+    expect(motIndivision(['DUPONT Jean', 'MARTIN Léa'])).toBe('Copropriétaires : DUPONT Jean, MARTIN Léa');
+    expect(motIndivision(['DUPONT Jean', 'MARTIN Léa'])).not.toMatch(/indivis/i);
   });
 });
 

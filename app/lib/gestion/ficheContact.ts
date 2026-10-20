@@ -39,7 +39,7 @@ import { libellePropre, notePropre, texteOuRien } from './annuaireEdition';
  * LES EXEMPLES DU CHAMP « QUALITÉ » (texte gris), les mêmes partout où la carte s'affiche — création Location et fiche
  * commune Gestion / Location (Arno, 18/10/2026).
  */
-export const EXEMPLE_QUALITE_CLIENT = 'ex. Conjoint, indivision, gérant, représentant…';
+export const EXEMPLE_QUALITE_CLIENT = 'ex. Conjoint, copropriétaire, gérant, représentant…';
 export const EXEMPLE_QUALITE_CONTACT = 'ex. Conjoint, artisan, avocat, voisin…';
 
 export const TITRE_CONTACT_NOUVEAU = 'Nouveau contact';

@@ -69,7 +69,7 @@ export function HonorairesGestion() {
   const exporter = useCallback(() => {
     if (resultat === null) return;
     const lignes: string[][] = vue === 'proprietaire'
-      ? [['Propriétaire', 'Lots', 'Indivision', 'HT', 'TTC'],
+      ? [['Propriétaire', 'Lots', 'Copropriétaires', 'HT', 'TTC'],
         ...resultat.parProprietaire.map((p) => [p.nom, String(p.lots), p.indivision ? 'oui' : 'non',
           String(p.ht), p.ttc === null ? '' : String(p.ttc)])]
       : vue === 'agence'
@@ -189,7 +189,7 @@ export function HonorairesGestion() {
                   {resultat.parProprietaire.length === 0 && <tr><td colSpan={4} className="hon-vide">Aucun propriétaire sur la période.</td></tr>}
                   {resultat.parProprietaire.map((p) => (
                     <tr key={p.id}>
-                      <td data-mot="Propriétaire">{p.nom}{p.indivision && <span className="hon-indiv">indivision</span>}</td>
+                      <td data-mot="Propriétaire">{p.nom}{p.indivision && <span className="hon-indiv">copropriétaires</span>}</td>
                       <td data-mot="Lots" className="num">{p.lots}</td>
                       <td data-mot="HT" className="num">{formaterEuros(p.ht)}</td>
                       <td data-mot="TTC" className="num">{ttcOuTiret(p.ttc)}</td>
@@ -197,8 +197,8 @@ export function HonorairesGestion() {
                   ))}
                 </tbody>
               </table>
-              <p className="hon-note">Un lot en indivision compte entier sur la fiche de chacun de ses propriétaires, marqué
-                « indivision », jamais réparti au jugé ; le total agence ne le compte qu’une fois.</p>
+              <p className="hon-note">Un lot à plusieurs copropriétaires compte entier sur la fiche de chacun d’eux, marqué
+                « copropriétaires », jamais réparti au jugé ; le total agence ne le compte qu’une fois.</p>
             </>
           )}
 
