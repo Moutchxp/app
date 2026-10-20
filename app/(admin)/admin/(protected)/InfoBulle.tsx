@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
 
 /**
  * Info-bulle « i » accessible — composant PARTAGÉ de l'admin (repris À L'IDENTIQUE de la page
@@ -10,10 +10,36 @@ import { useState, useEffect, useRef } from 'react';
  * Le CSS associé (classes `svv-pil-ib-*` + badge `svv-pil-statut--vive`) est exporté dans
  * INFOBULLE_CSS et DOIT être injecté UNE fois par page (dans un `<style>`).
  */
-export function InfoBulle({ libelle, texte, cible }: { libelle: string; texte?: string; cible: string }) {
+export function InfoBulle({ libelle, texte, cible, etiquette, contenu, dansLEcran = false }: {
+  libelle: string; texte?: string; cible: string;
+  /** Le libellé accessible complet du picto (par défaut « Aide : {libelle} »). — tuile Location, 20/10/2026 */
+  etiquette?: string;
+  /** Un contenu riche (plusieurs lignes) au lieu du texte. */
+  contenu?: ReactNode;
+  /** La bulle est décalée pour ne JAMAIS sortir de l'écran (téléphone). Absent : placement d'origine, inchangé. */
+  dansLEcran?: boolean;
+}) {
   const [ouvert, setOuvert] = useState(false);
   const conteneur = useRef<HTMLSpanElement>(null);
+  const [decalage, setDecalage] = useState(0);
   const bulleId = `svv-ib-${cible}`;
+
+  /**
+   * Le maintien dans l'écran (tuile Location, 20/10/2026) : le décalage est calculé AVANT l'ouverture, depuis la place du picto
+   * et la largeur la plus grande que la bulle peut prendre (min(280 px, écran − 40 px)), marge de 8 px. La bulle ne déborde
+   * donc jamais, même un instant (au téléphone, un débordement d'une image suffit à élargir la page).
+   */
+  const ouvrirOuFermer = (): void => {
+    if (!ouvert && dansLEcran && conteneur.current !== null && typeof document !== 'undefined') {
+      const largeur = document.documentElement.clientWidth || window.innerWidth;
+      const gauche = conteneur.current.getBoundingClientRect().left;
+      const bulleMax = Math.min(280, largeur - 40);
+      let dx = Math.min(0, (largeur - 8) - (gauche + bulleMax));
+      if (gauche + dx < 8) dx = 8 - gauche;
+      setDecalage(dx);
+    }
+    setOuvert((v) => !v);
+  };
 
   useEffect(() => {
     if (!ouvert) return;
@@ -31,23 +57,24 @@ export function InfoBulle({ libelle, texte, cible }: { libelle: string; texte?: 
     };
   }, [ouvert]);
 
-  if (!texte) return null;
+  if (!texte && contenu === undefined) return null;
 
   return (
     <span className="svv-pil-ib" ref={conteneur}>
       <button
         type="button"
         className="svv-pil-ib-btn"
-        aria-label={`Aide : ${libelle}`}
+        aria-label={etiquette ?? `Aide : ${libelle}`}
         aria-expanded={ouvert}
         aria-controls={bulleId}
-        onClick={() => setOuvert((v) => !v)}
+        onClick={ouvrirOuFermer}
       >
         <span className="svv-pil-ib-pastille" aria-hidden="true">i</span>
       </button>
       {ouvert && (
-        <span className="svv-pil-ib-bulle" id={bulleId} role="tooltip">
-          <span className="svv-pil-ib-texte">{texte}</span>
+        <span className="svv-pil-ib-bulle" id={bulleId} role="tooltip"
+          style={dansLEcran ? { left: `${decalage}px`, boxSizing: 'border-box' } : undefined}>
+          <span className="svv-pil-ib-texte">{contenu ?? texte}</span>
           <button
             type="button"
             className="svv-pil-ib-fermer"

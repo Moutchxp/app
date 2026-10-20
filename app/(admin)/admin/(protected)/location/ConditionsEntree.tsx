@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useId, type ReactNode } from 'react';
+import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import {
   ASSURANCES, COMPTES, DEPOTS, formaterCentimes, JOURS_PRELEVEMENT, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR,
@@ -77,9 +78,24 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         </small>
       );
     }
-    const a = auto[k];
-    return <small className="loc-aide-prorata" data-prorata-formule={k}>{a === null ? 'Renseignez la date d’entrée et le loyer mensuel' : formuleProrata(a.montant, a.p)}</small>;
+    // Arno (20/10/2026) : la FORMULE n'est plus sous le champ — elle est dans la bulle « Détail du calcul » (ⓘ à droite de
+    // l'intitulé). Sous le champ ne reste que ce qui demande une action : la date ou le loyer à renseigner.
+    return auto[k] === null ? <small className="loc-aide-prorata" data-prorata-manque={k}>Renseignez la date d’entrée et le loyer mensuel</small> : null;
   };
+  /** Le détail du calcul d'un prorata, pour sa bulle : montant mensuel, jours (avec les dates), résultat, et la valeur calculée si saisie à la main. */
+  const detailProrata = (k: 'prorataLoyer' | 'prorataCharges'): ReactNode => {
+    const a = auto[k];
+    if (a === null) return <span className="loc-bulle-calcul" data-detail-calcul={k}><span>Pas encore de calcul : renseignez la date d’entrée et le loyer mensuel.</span></span>;
+    return (
+      <span className="loc-bulle-calcul" data-detail-calcul={k}>
+        <span>Montant mensuel : <strong>{formaterCentimes(a.montant)}</strong></span>
+        <span>Jours d’occupation : <strong>{a.p.jours}</strong> sur <strong>{a.p.joursDuMois}</strong> jours du mois (du {a.p.du} au {a.p.au})</span>
+        <span>{formuleProrata(a.montant, a.p)} = <strong>{formaterCentimes(a.p.centimes)}</strong> (arrondi au centime)</span>
+        {s.prorataManuel[k] && <span data-valeur-calculee>Modifié à la main : la valeur calculée serait <strong>{formaterCentimes(a.p.centimes)}</strong>.</span>}
+      </span>
+    );
+  };
+  const idChamps = useId();
   const maj = (p: Partial<SaisieConditions>): void => onChange({ ...s, ...p });
   const total = totalCentimes(s.sommes);
   const illisible = SOMMES.some((k) => s.sommes[k].trim() !== '') && total === null;
@@ -180,16 +196,26 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
 
       <div className="loc-cond-bloc" data-cond="sommes">
         <h4>Sommes dues à l’entrée</h4>
-        <div className="loc-grille">
-          {SOMMES.map((k) => (
-            <label key={k} className="loc-champ" data-somme={k}>{LIBELLE_SOMME[k]} (€)
-              <input value={s.sommes[k]} inputMode="decimal" placeholder={k === 'prorataLoyer' || k === 'prorataCharges' ? 'calculé' : 'ex. 1 180,50'}
-                onChange={(e) => maj(k === 'prorataLoyer' || k === 'prorataCharges'
-                  ? { sommes: { ...s.sommes, [k]: e.target.value }, prorataManuel: { ...s.prorataManuel, [k]: true } }
-                  : { sommes: { ...s.sommes, [k]: e.target.value } })} />
-              {(k === 'prorataLoyer' || k === 'prorataCharges') && dateEntree !== undefined && sousProrata(k)}
-              {manque(`somme-${k}`)}</label>
-          ))}
+        <div className="loc-grille loc-grille-sommes">
+          {SOMMES.map((k) => {
+            const calcule = (k === 'prorataLoyer' || k === 'prorataCharges') && dateEntree !== undefined;
+            const id = `${idChamps}-${k}`;
+            return (
+              // Trois rangées partagées par les quatre champs (intitulé · case · sous le champ) : intitulés sur la même
+              // ligne et cases à la même hauteur sur ordinateur, quel que soit ce qui s'écrit dessous.
+              <div key={k} className="loc-champ loc-champ-somme" data-somme={k}>
+                <span className="loc-champ-tete">
+                  <label htmlFor={id}>{LIBELLE_SOMME[k]} (€)</label>
+                  {calcule && <InfoBulle libelle={LIBELLE_SOMME[k]} etiquette="Détail du calcul" cible={`${idChamps}-${k}-detail`} contenu={detailProrata(k)} dansLEcran />}
+                </span>
+                <input id={id} value={s.sommes[k]} inputMode="decimal" placeholder={k === 'prorataLoyer' || k === 'prorataCharges' ? 'calculé' : 'ex. 1 180,50'}
+                  onChange={(e) => maj(k === 'prorataLoyer' || k === 'prorataCharges'
+                    ? { sommes: { ...s.sommes, [k]: e.target.value }, prorataManuel: { ...s.prorataManuel, [k]: true } }
+                    : { sommes: { ...s.sommes, [k]: e.target.value } })} />
+                <span className="loc-champ-pied">{calcule && sousProrata(k)}{manque(`somme-${k}`)}</span>
+              </div>
+            );
+          })}
         </div>
         <p className="loc-cond-total" aria-live="polite" data-total>
           <span>Total</span>
@@ -228,6 +254,7 @@ export interface ProprieteHonoraires { calcul: CalculHonoraires | null; charge?:
  * (locataire, des sommes dues) + total honoraires propriétaire. Surface manquante : on le dit, avec le lien vers la fiche.
  */
 function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: number | null | undefined }) {
+  const idHono = useId();
   // Une réponse inattendue se lit comme « pas de calcul » (jamais un écran qui tombe).
   const c = h.calcul != null && ['ok', 'surface_manquante', 'sans_bareme'].includes((h.calcul as { etat?: string }).etat ?? '') ? h.calcul : null;
   const total = totalDesHonoraires(agence === undefined ? null : agence, c);
@@ -245,9 +272,17 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
             ) : (
               <>
                 <dl className="loc-cond-calcul">
-                  {lignesHonoraires(c).map((l) => (
+                  {lignesHonoraires(c).map((l, i) => (
                     <div key={l.mot} className={l.detail === undefined ? 'loc-cond-calcul-total' : undefined}>
-                      <dt>{l.mot}{l.detail !== undefined && <small>{l.detail}</small>}</dt><dd>{l.valeur}</dd>
+                      <dt>
+                        <span className="loc-champ-tete">{l.mot}
+                          {/* Arno (20/10/2026) : la formule passe dans la bulle « Détail du calcul ». */}
+                          {l.detail !== undefined && (
+                            <InfoBulle libelle={l.mot} etiquette="Détail du calcul" cible={`${idHono}-${i}`} dansLEcran
+                              contenu={<span className="loc-bulle-calcul" data-detail-calcul={l.mot}><span>{l.detail}</span><span>= <strong>{l.valeur}</strong></span></span>} />
+                          )}
+                        </span>
+                      </dt><dd>{l.valeur}</dd>
                     </div>
                   ))}
                 </dl>
@@ -266,7 +301,17 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
 }
 
 /** Les encadrés : les jetons du thème seulement, le même dessin que les blocs DPE / PNO de « Nouveau bien ». */
-export const CSS_CONDITIONS = `
+export const CSS_CONDITIONS = INFOBULLE_CSS + `
+.loc-champ-tete{display:inline-flex;align-items:center;gap:10px;min-width:0}
+.loc-champ-tete .svv-pil-ib-btn{margin:-11px -11px -11px 0}
+.loc-bulle-calcul{display:flex;flex-direction:column;gap:4px}
+.loc-bulle-calcul > span{display:block}
+.loc-champ-pied{display:flex;flex-direction:column;gap:4px;min-width:0}
+.loc-champ-pied:empty{display:none}
+/* Les quatre « Sommes dues » : rangées partagées (sous-grille) — intitulés alignés, cases à la même hauteur. */
+.loc-grille-sommes{grid-auto-rows:auto}
+.loc-grille-sommes > .loc-champ-somme{display:grid;grid-row:span 3;grid-template-rows:subgrid;align-content:start;row-gap:8px}
+.loc-grille-sommes > .loc-champ-somme > .loc-champ-tete{align-self:end}
 .loc-cond{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
 @media (min-width:900px){ .loc-cond{grid-template-columns:repeat(2,minmax(0,1fr))} .loc-cond-bloc--large,.loc-cond-bloc[data-cond="sommes"],.loc-cond-bloc[data-cond="entretien"],.loc-cond-bloc[data-cond="honoraires-proprietaire"],.loc-cond-total--general{grid-column:1 / -1} }
 .loc-cond-bloc{display:flex;flex-direction:column;gap:12px;min-width:0;border:2px solid var(--color-svv-line);border-radius:20px;padding:18px 20px;background:var(--color-svv-field);box-sizing:border-box}

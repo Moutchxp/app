@@ -368,9 +368,12 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
   it('HONORAIRES PROPRIÉTAIRE : les lignes calculées, la zone et le tarif utilisés ; « Total des honoraires » = agence + propriétaire', async () => {
     await preparer();
     const bloc = container.querySelector('[data-cond="honoraires-proprietaire"]') as HTMLElement;
-    expect([...bloc.querySelectorAll('dt')].map((x) => x.firstChild?.textContent)).toEqual(['Visite, dossier, rédaction du bail', 'État des lieux d’entrée', 'Total honoraires propriétaire']);
+    expect([...bloc.querySelectorAll('dt')].map((x) => x.querySelector('.loc-champ-tete')?.firstChild?.textContent)).toEqual(['Visite, dossier, rédaction du bail', 'État des lieux d’entrée', 'Total honoraires propriétaire']);
     expect([...bloc.querySelectorAll('dd')].map((x) => x.textContent?.replace(/\s/g, ' '))).toEqual(['505,78 €', '126,65 €', '632,43 €']);
-    expect(bloc.querySelector('dt small')?.textContent?.replace(/\s/g, ' ')).toBe('41,8 m² × 12,10 €/m² (zone très tendue)');
+    // La formule est dans la bulle « Détail du calcul » (Arno, 20/10/2026), plus sous la ligne.
+    expect(bloc.querySelector('dt small')).toBeNull();
+    await clic(bloc.querySelector('dt .svv-pil-ib-btn')!);
+    expect(bloc.querySelector('[data-detail-calcul]')?.textContent?.replace(/\s/g, ' ')).toBe('41,8 m² × 12,10 €/m² (zone très tendue)= 505,78 €');
     expect(bloc.querySelector('[data-zone-tarif]')?.textContent?.replace(/\s/g, ' ')).toContain('Zone : zone très tendue — tarif 12,10 €/m², état des lieux 3,03 €/m² ; barème du 01/01/2026');
     const total = () => container.querySelector('[data-total-honoraires] strong')?.textContent?.replace(/\s/g, ' ');
     expect(total()).toBe('632,43 €');
@@ -486,6 +489,14 @@ describe('🔴 retouches — biens libres d’abord, loyer mensuel, bandeau de m
 describe('🔴 retouches — confirmation de retrait, ordre du contact, prorata calculé', () => {
   const somme = (k: string) => container.querySelector(`[data-somme="${k}"] input`) as HTMLInputElement;
   const sous = (k: string) => container.querySelector(`[data-somme="${k}"] .loc-aide-prorata`)?.textContent?.replace(/\s/g, ' ');
+  /** Ouvre la bulle « Détail du calcul » du champ, rend son texte, puis la referme (nouveau clic sur le picto). */
+  const detail = async (k: string): Promise<string | undefined> => {
+    const picto = container.querySelector(`[data-somme="${k}"] .svv-pil-ib-btn`) as HTMLButtonElement;
+    await clic(picto);
+    const t = container.querySelector(`[data-detail-calcul="${k}"]`)?.textContent?.replace(/\s/g, ' ');
+    await clic(picto);
+    return t;
+  };
   const dateEntree = () => container.querySelector('input[type="date"][form]') as HTMLInputElement;
   const loyerMensuel = async (principal: string, provisions: string) => {
     await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, principal);
@@ -531,8 +542,9 @@ describe('🔴 retouches — confirmation de retrait, ordre du contact, prorata 
     await saisir(dateEntree(), '2026-10-20');
     await loyerMensuel('1 240', '180');
     expect([somme('prorataLoyer').value, somme('prorataCharges').value]).toEqual(['480,00', '69,68']);
-    expect(sous('prorataLoyer')).toBe('1 240,00 € × 12/31 jours (du 20/10 au 31/10)');
-    expect(sous('prorataCharges')).toBe('180,00 € × 12/31 jours (du 20/10 au 31/10)');
+    expect(sous('prorataLoyer')).toBeUndefined();
+    expect(await detail('prorataLoyer')).toContain('1 240,00 € × 12/31 jours (du 20/10 au 31/10) = 480,00 €');
+    expect(await detail('prorataCharges')).toContain('180,00 € × 12/31 jours (du 20/10 au 31/10) = 69,68 €');
     expect(container.querySelector('[data-total] strong')?.textContent?.replace(/\s/g, ' ')).toBe('549,68 €');
   });
 
@@ -547,7 +559,7 @@ describe('🔴 retouches — confirmation de retrait, ordre du contact, prorata 
     ] as const) {
       await saisir(dateEntree(), date);
       expect([somme('prorataLoyer').value, somme('prorataCharges').value], date).toEqual([loyer, charges]);
-      expect(sous('prorataLoyer'), date).toContain(formule);
+      expect(await detail('prorataLoyer'), date).toContain(formule);
     }
     await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1 550');
     expect(somme('prorataLoyer').value).toBe('50,00');
@@ -566,7 +578,8 @@ describe('🔴 retouches — confirmation de retrait, ordre du contact, prorata 
     expect(recalculer.textContent).toBe('recalculer');
     await clic(recalculer);
     expect(somme('prorataLoyer').value).toBe('1240,00');
-    expect(sous('prorataLoyer')).toBe('1 240,00 € × 30/30 jours (du 01/11 au 30/11)');
+    expect(sous('prorataLoyer')).toBeUndefined();
+    expect(await detail('prorataLoyer')).toContain('1 240,00 € × 30/30 jours (du 01/11 au 30/11) = 1 240,00 €');
   });
 
   it('champ mère manquant : le prorata se vide et le dit ; envoyé avec le reste (les montants tels qu’affichés)', async () => {
@@ -584,5 +597,99 @@ describe('🔴 retouches — confirmation de retrait, ordre du contact, prorata 
     await soumettre();
     expect((posts.find((p) => p.action === 'creer-locataires')?.conditions as { sommes: Record<string, string> }).sommes)
       .toMatchObject({ prorataLoyer: '480,00', prorataCharges: '' });
+  });
+});
+
+describe('🔴 pré-remplissage validé par défaut, validation unique par « Enregistrer », détail du calcul en bulle', () => {
+  const somme = (k: string) => container.querySelector(`[data-somme="${k}"] input`) as HTMLInputElement;
+  const picto = (k: string) => container.querySelector(`[data-somme="${k}"] .svv-pil-ib-btn`) as HTMLButtonElement;
+  const bulle = (k: string) => container.querySelector(`[data-somme="${k}"] [role="tooltip"]`);
+  const remplir = async () => {
+    await saisir(container.querySelector('input[type="date"][form]') as HTMLInputElement, '2026-10-28');
+    await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1 200');
+    await saisir(container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement, '130');
+  };
+
+  it('EXEMPLE : 28/10, 1 200 € et 130 € → 4/31 jours, 154,84 € et 16,77 €', async () => {
+    await preparer();
+    await remplir();
+    expect([somme('prorataLoyer').value, somme('prorataCharges').value]).toEqual(['154,84', '16,77']);
+  });
+
+  it('la BULLE : picto ⓘ à droite de l’intitulé (« Détail du calcul », 44 px), montant, jours et dates, résultat ; fermée par le picto, un clic dehors, Échap', async () => {
+    await preparer();
+    await remplir();
+    const p = picto('prorataLoyer');
+    expect(p.getAttribute('aria-label')).toBe('Détail du calcul');
+    expect(p.closest('.loc-champ-tete')?.querySelector('label')?.textContent).toBe('Prorata loyer (€)');
+    expect(bulle('prorataLoyer')).toBeNull();
+    // Le picto ouvre, le picto referme.
+    await clic(p);
+    expect(p.getAttribute('aria-expanded')).toBe('true');
+    expect([...bulle('prorataLoyer')!.querySelectorAll('[data-detail-calcul] > span')].map((x) => x.textContent?.replace(/\s/g, ' '))).toEqual([
+      'Montant mensuel : 1 200,00 €',
+      'Jours d’occupation : 4 sur 31 jours du mois (du 28/10 au 31/10)',
+      '1 200,00 € × 4/31 jours (du 28/10 au 31/10) = 154,84 € (arrondi au centime)',
+    ]);
+    await clic(p);
+    expect(bulle('prorataLoyer')).toBeNull();
+    // Un clic hors de la bulle.
+    await clic(picto('prorataCharges'));
+    expect(bulle('prorataCharges')?.textContent?.replace(/\s/g, ' ')).toContain('130,00 € × 4/31 jours (du 28/10 au 31/10) = 16,77 €');
+    await act(async () => { document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); });
+    expect(bulle('prorataCharges')).toBeNull();
+    // Échap.
+    await clic(picto('prorataCharges'));
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(bulle('prorataCharges')).toBeNull();
+    // La formule n'est plus sous les champs ; la bulle est maintenue dans l'écran ; cible ≥ 44 px.
+    expect(container.querySelector('[data-cond="sommes"] [data-prorata-formule]')).toBeNull();
+    expect(readFileSync('app/(admin)/admin/(protected)/InfoBulle.tsx', 'utf8')).toContain('min-width:44px;min-height:44px');
+  });
+
+  it('modifié à la main : la bulle donne aussi la valeur CALCULÉE pour comparaison ; « modifié à la main · recalculer » reste sous le champ', async () => {
+    await preparer();
+    await remplir();
+    await saisir(somme('prorataLoyer'), '150');
+    expect(container.querySelector('[data-somme="prorataLoyer"] .loc-aide-prorata')?.textContent?.replace(/\s/g, ' ')).toBe('modifié à la main · recalculer');
+    await clic(picto('prorataLoyer'));
+    expect(bulle('prorataLoyer')?.querySelector('[data-valeur-calculee]')?.textContent?.replace(/\s/g, ' ')).toBe('Modifié à la main : la valeur calculée serait 154,84 €.');
+  });
+
+  it('PRÉ-REMPLI = VALIDÉ : modifié SANS confirmation, la nouvelle valeur part au seul clic « Enregistrer » ; rien n’est écrit avant', async () => {
+    loyerConnu = { principal: 120000, provisions: 13000, entree: '2023-09-01' };
+    await preparer();
+    await saisir(container.querySelector('input[type="date"][form]') as HTMLInputElement, '2026-10-28');
+    // Pré-remplis (loyer, proratas, garant d'office, entretien du bien…) : aucun « valider », « OK », case ou état « à valider ».
+    expect(container.querySelector('[data-bloc-conditions]')?.textContent).not.toMatch(/à valider|Valider|\bOK\b/);
+    expect(container.querySelectorAll('[data-bloc-conditions] input[type="checkbox"]:not([data-entretien] input)').length).toBe(0);
+    await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1 250');
+    await saisir(somme('depotGarantie'), '1 250');
+    await toutRepondre();
+    // Rien n'est écrit tant qu'on n'a pas cliqué « Enregistrer » (seules des LECTURES sont parties).
+    expect(posts).toEqual([]);
+    await soumettre();
+    expect(posts.map((p) => p.action)).toEqual(['apercu-lots']);
+    await soumettre();
+    const creer = posts.find((p) => p.action === 'creer-locataires')!;
+    expect(creer).toMatchObject({ loyer: { principal: '1 250', provisions: '130' } });
+    expect((creer.conditions as { sommes: Record<string, string> }).sommes).toMatchObject({ prorataLoyer: '161,29', prorataCharges: '16,77', depotGarantie: '1 250' });
+  });
+
+  it('« Enregistrer » : en bas à droite, dans la barre fixe (collante) — la seule validation définitive', async () => {
+    await preparer();
+    const barreFixe = container.querySelector('[data-collant]') as HTMLElement;
+    const boutons = [...barreFixe.querySelectorAll('a, button')];
+    expect(boutons.at(-1)?.textContent).toBe('Enregistrer');
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.loc-collant{position:sticky;bottom:0;');
+    expect(css).toContain('justify-content:flex-end');
+  });
+
+  it('les quatre « Sommes dues » partagent leurs rangées (intitulés alignés, cases à la même hauteur)', async () => {
+    await preparer();
+    expect(container.querySelectorAll('.loc-grille-sommes > .loc-champ-somme')).toHaveLength(4);
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.loc-grille-sommes > .loc-champ-somme{display:grid;grid-row:span 3;grid-template-rows:subgrid');
   });
 });
