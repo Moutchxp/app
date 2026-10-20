@@ -12,6 +12,7 @@ import { BoutonDriveBandeau } from './BoutonDriveBandeau';
 import { HeureParis } from './HeureParis';
 import { Sidebar } from './Sidebar';
 import { RevocationWatcher } from './RevocationWatcher';
+import { RoueParametresLocation } from './location/ParametresLocation';
 
 /**
  * Coquille de l'admin (T1). Défense en profondeur : même si le proxy garde déjà
@@ -75,7 +76,12 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
                 Changer mon mot de passe
               </a>
             )}
-            <BoutonDeconnexion />
+            {/* Arno (21/10/2026) — la roue crantée « Paramètres Location », SOUS « Déconnexion » : elle ne s'affiche que sur
+                l'accueil du module Location et pour un administrateur (ailleurs, la colonne ne porte que « Déconnexion »). */}
+            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '.35rem' }}>
+              <BoutonDeconnexion />
+              <RoueParametresLocation administrateur={session.role === 'administrateur'} />
+            </span>
           </span>
         </div>
         <main className="svv-adm-main">{children}</main>
