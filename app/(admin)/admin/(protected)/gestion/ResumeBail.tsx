@@ -21,9 +21,11 @@ import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
  * Même modèle que l'encart de la fiche bien (`ResumeBien.tsx`) : juste sous le titre, au-dessus de « Coordonnées ».
  *   · RÉSUMÉ (deux colonnes dès 768 px) — « Le bail » : date d'entrée, colocataires, garants (et qui
  *     ils garantissent) · « Ce qu'il paie » : loyer principal, provision, total CC, dépôt de garantie, prélèvement ;
- *   · DÉTAIL replié (« Voir le détail du bail ⌄ ») : sommes dues à l'entrée (proratas avec la bulle ⓘ du calcul, honoraires
- *     agence), honoraires (comptes, honoraires propriétaire avec tarif, surface, barème daté, total), garanties et règlement,
- *     le reste du bail (lots loués, contacts du locataire, commentaire, saisie), entretiens du bien ;
+ *   · sous elles, au RÉSUMÉ aussi : « Garanties et règlement » et « Entretiens » (deux colonnes) ; les montants « à l'entrée
+ *     dans les lieux le … » (petite ligne grise) ;
+ *   · DÉTAIL replié (« Voir le détail du bail ⌄ », absent s'il n'y a rien à déplier) : sommes dues à l'entrée (proratas avec la
+ *     bulle ⓘ du calcul, honoraires agence), honoraires (comptes, honoraires propriétaire avec tarif, surface, barème daté,
+ *     total), le reste du bail (lots loués, contacts du locataire, commentaire, saisie) ;
  *   · les GESTES de l'ancien encart « Conditions d'entrée » (Modifier, Calculer les honoraires avec la surface actuelle),
  *     fusionné ici (décision d'Arno) — l'encart lui-même ne porte aucun champ de saisie.
  * Lu à la source (`resumeBailRepo.ts`, par bail_id) : le bail en cours, sinon le dernier (« bail terminé le … »).
@@ -32,11 +34,19 @@ const API = '/api/admin/gestion/annuaire/location';
 const rien = (mot = 'non renseigné'): ReactNode => <span className="ann-inconnu">{mot}</span>;
 const ouiNon = (v: boolean | null | undefined): ReactNode => (v === true ? 'oui' : v === false ? 'non' : rien());
 
+/** Un groupe ; vide, il tient sur UNE ligne : son titre et « non renseigné » (Arno, 20/10/2026), sans espace vide dessous. */
 function Groupe({ titre, cle, vide, children }: { titre: string; cle: string; vide: boolean; children: ReactNode }) {
+  if (vide) {
+    return (
+      <section className="rb-groupe rb-groupe--vide" data-groupe={cle}>
+        <h4 className="rb-titre rb-titre--ligne">{titre}</h4> <span className="rb-vide" data-rb-vide={cle}>{rien()}</span>
+      </section>
+    );
+  }
   return (
     <section className="rb-groupe" data-groupe={cle}>
       <h4 className="rb-titre">{titre}</h4>
-      {vide ? <p className="rb-vide" data-rb-vide={cle}>{rien()}</p> : <dl className="ann-champs">{children}</dl>}
+      <dl className="ann-champs">{children}</dl>
     </section>
   );
 }
@@ -72,6 +82,7 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
   const loyer = r.loyer;
   const total = loyer === null || (loyer.principal === null && loyer.provisions === null) ? null : (loyer.principal ?? 0) + (loyer.provisions ?? 0);
   const surClic = (e: React.MouseEvent<HTMLDivElement>): void => {
+    if (c === null && r.conditions === null && b.lots.length === 0 && r.contacts.length === 0) return; // rien à déplier
     if ((e.target as HTMLElement).closest('a, button, input, select, textarea, [role="tooltip"]') !== null) return;
     if (typeof window.getSelection === 'function' && (window.getSelection()?.toString() ?? '') !== '') return;
     setDeplie((v) => !v);
@@ -99,6 +110,8 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
     : r.entretiens.liste.length > 0 ? `oui — ${r.entretiens.liste.map((e) => `${libelleEntretien({ sorte: e.sorte as 'chaudiere' | 'ramonage' | 'autre', nom: e.nom })}${e.dateAnniversaire ? ` (${formaterDateIso(e.dateAnniversaire)})` : ''}`).join(' · ')}`
       : r.entretiens.aPrevoir === true ? 'oui' : null;
   const sienne = b.occupationId === null ? undefined : { occupationId: b.occupationId, lotId: b.bien?.id ?? null, entree: b.entree };
+  // Arno (20/10/2026) : le bouton du détail n'existe que s'il reste quelque chose à déplier.
+  const detailVide = c === null && r.conditions === null && b.lots.length === 0 && r.contacts.length === 0;
 
   return (
     <section className="ann-bloc" data-encart-bail>
@@ -119,6 +132,10 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
                   <span key={g.carteId} data-rb-garant={g.carteId}>{g.nom} <span className={g.locataires.length === 0 ? 'rb-a-rattacher' : 'rb-note'}>— {g.mot}</span></span>
                 ))}</dd>
               </dl>
+              {/* Arno (20/10/2026) : les montants « au jour de l'entrée dans les lieux » — dits en petite ligne grise, les titres de
+                  colonne n'étant pas affichés. */}
+              <div className="rb-colonne-paie">
+              <p className="rb-legende" data-legende-paie>Ce qu’il paie · à l’entrée dans les lieux{b.entree === null ? '' : ` le ${formaterDateIso(b.entree)}`}</p>
               <dl className="ann-champs rb-colonne" data-colonne="paie" aria-label="Ce qu'il paie">
                 <dt>Loyer principal</dt><dd data-rb="loyer-principal">{somme(loyer?.principal)}</dd>
                 <dt>Provision pour charges</dt><dd data-rb="provisions">{somme(loyer?.provisions)}</dd>
@@ -128,12 +145,30 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
                 <dt>Prélèvement</dt>
                 <dd data-rb="prelevement">{c === null ? rien() : c.prelevement ? `oui, ${LIBELLE_JOUR[String(c.jour) as JourPrelevement] ?? `le ${c.jour}`}` : 'non'}</dd>
               </dl>
+              </div>
             </div>
-            <button type="button" className="rb-bascule" aria-expanded={deplie} aria-controls={idDetail} data-bascule-detail
-              onClick={() => setDeplie((v) => !v)}>{deplie ? 'Masquer le détail ⌃' : 'Voir le détail du bail ⌄'}</button>
+            {/* Arno (20/10/2026) : « Garanties et règlement » et « Entretiens » sont au RÉSUMÉ, sous les deux colonnes, en deux colonnes. */}
+            <div className="rb-colonnes rb-colonnes--bas">
+              <Groupe titre="Garanties et règlement" cle="garanties" vide={c === null}>
+                {c !== null && (
+                  <>
+                    <dt>Garant personne physique</dt><dd data-rb="garant-physique">{ouiNon(c.garant)}</dd>
+                    <dt>Assurance loyers impayés</dt><dd data-rb="assurance">{LIBELLE_ASSURANCE[c.assurance]}{c.assurancePrecision ? ` — ${c.assurancePrecision}` : ''}</dd>
+                    <dt>Mode de règlement</dt><dd data-rb="reglement">{LIBELLE_REGLEMENT[c.reglement]}{c.reglementPrecision ? ` — ${c.reglementPrecision}` : ''}</dd>
+                  </>
+                )}
+              </Groupe>
+              <Groupe titre="Entretiens" cle="entretiens" vide={entretiens === null}>
+                <dt>Entretiens à prévoir</dt><dd data-rb="entretiens">{entretiens}</dd>
+              </Groupe>
+            </div>
+            {!detailVide && (
+              <button type="button" className="rb-bascule" aria-expanded={deplie} aria-controls={idDetail} data-bascule-detail
+                onClick={() => setDeplie((v) => !v)}>{deplie ? 'Masquer le détail ⌃' : 'Voir le détail du bail ⌄'}</button>
+            )}
           </section>
 
-          <div className="rb-detail" id={idDetail} data-detail-bail aria-hidden={!deplie} inert={!deplie}>
+          {!detailVide && <div className="rb-detail" id={idDetail} data-detail-bail aria-hidden={!deplie} inert={!deplie}>
             <div className="rb-detail-dedans">
               <Groupe titre="Sommes dues à l’entrée" cle="sommes" vide={c === null}>
                 {c !== null && (
@@ -165,15 +200,6 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
                   </>
                 )}
               </Groupe>
-              <Groupe titre="Garanties et règlement" cle="garanties" vide={c === null}>
-                {c !== null && (
-                  <>
-                    <dt>Garant personne physique</dt><dd data-rb="garant-physique">{ouiNon(c.garant)}</dd>
-                    <dt>Assurance loyers impayés</dt><dd data-rb="assurance">{LIBELLE_ASSURANCE[c.assurance]}{c.assurancePrecision ? ` — ${c.assurancePrecision}` : ''}</dd>
-                    <dt>Mode de règlement</dt><dd data-rb="reglement">{LIBELLE_REGLEMENT[c.reglement]}{c.reglementPrecision ? ` — ${c.reglementPrecision}` : ''}</dd>
-                  </>
-                )}
-              </Groupe>
               <Groupe titre="Le bail en détail" cle="bail-detail" vide={false}>
                 <dt>Lots loués</dt>
                 <dd data-rb="lots" className="rb-liste">{b.lots.length === 0 ? rien() : b.lots.map((l) => <span key={l.id}>{l.libelle}</span>)}</dd>
@@ -186,16 +212,13 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
                 <dt>Conditions saisies</dt>
                 <dd data-rb="saisie">{r.conditions === null ? rien('aucune condition d’entrée enregistrée') : `${r.conditions.modifiees ? 'modifiées' : 'saisies'} le ${formaterDateIso(r.conditions.saisiLe.slice(0, 10))} par ${r.conditions.saisiPar}`}</dd>
               </Groupe>
-              <Groupe titre="Entretiens" cle="entretiens" vide={entretiens === null}>
-                <dt>Entretiens à prévoir</dt><dd data-rb="entretiens">{entretiens}</dd>
-              </Groupe>
               {r.conditions !== null && (
                 <div className="rb-gestes" data-gestes-conditions>
                   <GestesConditionsBail c={r.conditions} l={sienne} modifiable={f.modifiable} apres={relire} />
                 </div>
               )}
             </div>
-          </div>
+          </div>}
         </div>
       </div>
     </section>
@@ -210,4 +233,9 @@ const CSS_RESUME_BAIL = `
 .rb-liens .rb-lien{border:0;background:none;padding:0;font:inherit;display:inline-flex;align-items:center;min-height:44px;margin:-12px 0}
 .rb-a-rattacher{color:var(--color-svv-amber);font-weight:700}
 .rb-gestes{grid-column:1/-1;min-width:0;cursor:auto}
+.rb-colonne-paie{min-width:0}
+.rb-legende{margin:0 0 4px;font-size:.8rem;color:var(--color-svv-muted)}
+.rb-colonnes--bas{margin-top:10px;gap:10px 24px}
+.rb-groupe--vide{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px}
+.rb-titre--ligne{margin:0}
 `;

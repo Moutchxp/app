@@ -79,7 +79,10 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect([enc.dataset.deplie, bouton.textContent, container.querySelector('[data-detail-bail]')?.hasAttribute('inert')]).toEqual(['non', 'Voir le détail du bail ⌄', true]);
     await act(async () => { (container.querySelector('[data-rb="entree"]') as HTMLElement).click(); });
     expect([enc.dataset.deplie, bouton.textContent]).toEqual(['oui', 'Masquer le détail ⌃']);
-    expect(groupes()).toEqual(['bail', 'sommes', 'honoraires', 'garanties', 'bail-detail', 'entretiens']);
+    expect(groupes()).toEqual(['bail', 'garanties', 'entretiens', 'sommes', 'honoraires', 'bail-detail']);
+    // « Garanties et règlement » et « Entretiens » sont au résumé (hors du détail dépliable).
+    const detail = container.querySelector('[data-detail-bail]')!;
+    expect(detail.querySelector('[data-groupe="garanties"], [data-groupe="entretiens"]')).toBeNull();
     expect([dd('prorata-loyer'), dd('prorata-charges'), dd('honoraires-agence'), dd('total-du')].map((x) => x?.replace(/ i$/, '').trim()))
       .toEqual(['1 200,00 €', '130,00 €', '450,00 €', '2 980,00 €']);
     expect(container.querySelectorAll('[data-rb="prorata-loyer"] [aria-label="Détail du calcul"], [data-rb="prorata-loyer"] button').length).toBeGreaterThan(0);
@@ -105,6 +108,9 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect([dd('entree'), dd('colocataires'), dd('garants'), dd('loyer-principal'), dd('depot'), dd('prelevement')])
       .toEqual(['26/10/2024', 'aucun', 'aucun', 'non renseigné', 'non renseigné', 'non renseigné']);
     for (const g of ['sommes', 'honoraires', 'garanties', 'entretiens']) expect(container.querySelector(`[data-rb-vide="${g}"]`)?.textContent, g).toBe('non renseigné');
+    // Un groupe vide tient sur une ligne : son titre puis « non renseigné », dans le même bloc, sans liste dessous.
+    const g = container.querySelector('[data-groupe="garanties"]')!;
+    expect([g.className, g.querySelector('h4')?.textContent, g.querySelector('dl')]).toEqual(['rb-groupe rb-groupe--vide', 'Garanties et règlement', null]);
     expect(dd('saisie')).toBe('aucune condition d’entrée enregistrée');
   });
 
@@ -135,5 +141,27 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect(i).toBeLessThan(annuaire.indexOf('<BlocCartes titre="Coordonnées" id="ann-coord-loc"'));
     const repo = readFileSync('app/lib/location/resumeBailRepo.ts', 'utf8');
     expect(repo).not.toMatch(/INSERT INTO|UPDATE gestion|DELETE FROM/);
+  });
+});
+
+describe('🔴 résumé : garanties et entretiens au résumé, montants « à l’entrée dans les lieux »', () => {
+  it('la colonne « Ce qu’il paie » dit « à l’entrée dans les lieux le … » (sans date : sans « le »)', async () => {
+    await rendre(SAISI);
+    expect(container.querySelector('[data-legende-paie]')?.textContent).toBe('Ce qu’il paie · à l’entrée dans les lieux le 01/11/2026');
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre({ ...SAISI, bail: { ...SAISI.bail!, entree: null } });
+    expect(container.querySelector('[data-legende-paie]')?.textContent).toBe('Ce qu’il paie · à l’entrée dans les lieux');
+  });
+  it('garanties (gauche) et entretiens (droite) sous les deux colonnes, dans le résumé ; mise en page des colonnes', async () => {
+    await rendre(SAISI);
+    const resume = container.querySelector('[data-groupe="bail"]')!;
+    const bas = resume.querySelector('.rb-colonnes--bas')!;
+    expect([...bas.children].map((e) => (e as HTMLElement).dataset.groupe)).toEqual(['garanties', 'entretiens']);
+    expect([...resume.children].map((e) => e.className)).toEqual(['rb-titre', 'rb-colonnes', 'rb-colonnes rb-colonnes--bas', 'rb-bascule']);
+  });
+  it('rien à déplier : pas de bouton, pas de détail', async () => {
+    await rendre({ ...WIPPIMMO, bail: { ...WIPPIMMO.bail!, lots: [] } });
+    expect(container.querySelector('[data-bascule-detail]')).toBeNull();
+    expect(container.querySelector('[data-detail-bail]')).toBeNull();
   });
 });
