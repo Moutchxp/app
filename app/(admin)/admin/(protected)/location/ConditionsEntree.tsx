@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, type InputHTMLAttributes, type ReactNode } from 'react';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import {
@@ -11,6 +11,46 @@ import {
 import {
   eurosAffiches, LIBELLE_ZONE, lignesHonoraires, tarifAffiche, lireDecimal, totalDesHonoraires, ZERO, type CalculHonoraires,
 } from '../../../../lib/location/honorairesProprietaire';
+
+/** La plus petite taille de police d'un intitulé (Arno, 20/10/2026) : en dessous, on le signale plutôt que de réduire encore. */
+export const POLICE_MIN_INTITULE_PX = 13;
+
+/**
+ * UN INTITULÉ SUR UNE SEULE LIGNE (Arno, 20/10/2026) : jamais de retour à la ligne, jamais « … ». S'il ne tient pas à la largeur
+ * de sa case, sa police est réduite JUSTE ce qu'il faut (par demi-pixel), sans descendre sous 13 px ; s'il ne tient toujours
+ * pas, `data-trop-long="oui"` le signale (vérifié aux largeurs 360 → 1440 px). Recalculé quand la case change de largeur.
+ */
+function Intitule({ htmlFor, children }: { htmlFor: string; children: string }) {
+  const ref = useRef<HTMLLabelElement>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    const ajuster = (): void => {
+      el.style.fontSize = '';
+      let px = parseFloat(getComputedStyle(el).fontSize) || 16;
+      while (el.scrollWidth > el.clientWidth + 0.5 && px > POLICE_MIN_INTITULE_PX) {
+        px = Math.max(POLICE_MIN_INTITULE_PX, px - 0.5);
+        el.style.fontSize = `${px}px`;
+      }
+      if (el.scrollWidth > el.clientWidth + 0.5) el.dataset.tropLong = 'oui'; else delete el.dataset.tropLong;
+    };
+    ajuster();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(ajuster) : null;
+    ro?.observe(el.parentElement ?? el);
+    return () => ro?.disconnect();
+  }, [children]);
+  return <label ref={ref} htmlFor={htmlFor} className="loc-intitule">{children}<span className="loc-invisible"> en euros</span></label>;
+}
+
+/** Une case de montant avec « € » en suffixe, À L'INTÉRIEUR, à droite : gris, non sélectionnable, sans gêner la saisie. */
+function CaseEuros(props: InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <span className="loc-case-euros">
+      <input inputMode="decimal" {...props} />
+      <span className="loc-suffixe-euros" aria-hidden="true">€</span>
+    </span>
+  );
+}
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE BLOC « CONDITIONS D'ENTRÉE » (Arno, 20/10/2026) ═══════════════════════════════════════════════
@@ -106,9 +146,11 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         <Pilules etiquette="Dépôt de garantie" options={DEPOTS} libelle={LIBELLE_DEPOT} valeur={s.depot} onChoix={(v) => maj({ depot: v })} />
         {/* JUMEAU de « Dépôt de garantie (€) » des sommes dues : la MÊME donnée (`sommes.depotGarantie`). */}
         {s.depot !== null && (
-          <label className="loc-champ" data-depot-montant>Montant du dépôt de garantie (€)
-            <input value={s.sommes.depotGarantie} inputMode="decimal" placeholder="ex. 1 180"
-              onChange={(e) => maj({ sommes: { ...s.sommes, depotGarantie: e.target.value } })} /></label>
+          <div className="loc-champ" data-depot-montant>
+            <span className="loc-champ-tete"><Intitule htmlFor={`${idChamps}-depot`}>Montant du dépôt de garantie</Intitule></span>
+            <CaseEuros id={`${idChamps}-depot`} value={s.sommes.depotGarantie} placeholder="ex. 1 180"
+              onChange={(e) => maj({ sommes: { ...s.sommes, depotGarantie: e.target.value } })} />
+          </div>
         )}
         {manque('depot')}
       </div>
@@ -178,14 +220,18 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         <h4>Loyer mensuel</h4>
         {loyer?.indisponible === true && <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} data-loyer-sans-migration>Mise à jour de la base à appliquer (migration 370) : le loyer mensuel ne sera pas enregistré.</p>}
         <div className="loc-grille">
-          <label className="loc-champ" data-loyer="principal">Loyer principal (€)
-            <input value={s.loyer.principal} inputMode="decimal" placeholder="ex. 1 180" disabled={loyer?.indisponible === true}
+          <div className="loc-champ" data-loyer="principal">
+            <span className="loc-champ-tete"><Intitule htmlFor={`${idChamps}-loyer`}>Loyer principal</Intitule></span>
+            <CaseEuros id={`${idChamps}-loyer`} value={s.loyer.principal} placeholder="ex. 1 180" disabled={loyer?.indisponible === true}
               onChange={(e) => maj({ loyer: { ...s.loyer, principal: e.target.value } })} />
-            {manque('loyer-principal')}</label>
-          <label className="loc-champ" data-loyer="provisions">Provision pour charges (€)
-            <input value={s.loyer.provisions} inputMode="decimal" placeholder="ex. 90" disabled={loyer?.indisponible === true}
+            {manque('loyer-principal')}
+          </div>
+          <div className="loc-champ" data-loyer="provisions">
+            <span className="loc-champ-tete"><Intitule htmlFor={`${idChamps}-provisions`}>Provision pour charges</Intitule></span>
+            <CaseEuros id={`${idChamps}-provisions`} value={s.loyer.provisions} placeholder="ex. 90" disabled={loyer?.indisponible === true}
               onChange={(e) => maj({ loyer: { ...s.loyer, provisions: e.target.value } })} />
-            {manque('loyer-provisions')}</label>
+            {manque('loyer-provisions')}
+          </div>
         </div>
         {loyer?.note ? <p className="loc-muet" style={{ margin: 0 }} data-loyer-note>{loyer.note}</p> : null}
         <p className="loc-cond-total" aria-live="polite" data-total-loyer>
@@ -205,10 +251,10 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
               // ligne et cases à la même hauteur sur ordinateur, quel que soit ce qui s'écrit dessous.
               <div key={k} className="loc-champ loc-champ-somme" data-somme={k}>
                 <span className="loc-champ-tete">
-                  <label htmlFor={id}>{LIBELLE_SOMME[k]} (€)</label>
+                  <Intitule htmlFor={id}>{LIBELLE_SOMME[k]}</Intitule>
                   {calcule && <InfoBulle libelle={LIBELLE_SOMME[k]} etiquette="Détail du calcul" cible={`${idChamps}-${k}-detail`} contenu={detailProrata(k)} dansLEcran />}
                 </span>
-                <input id={id} value={s.sommes[k]} inputMode="decimal" placeholder={k === 'prorataLoyer' || k === 'prorataCharges' ? 'calculé' : 'ex. 1 180,50'}
+                <CaseEuros id={id} value={s.sommes[k]} placeholder={k === 'prorataLoyer' || k === 'prorataCharges' ? 'calculé' : 'ex. 1 180,50'}
                   onChange={(e) => maj(k === 'prorataLoyer' || k === 'prorataCharges'
                     ? { sommes: { ...s.sommes, [k]: e.target.value }, prorataManuel: { ...s.prorataManuel, [k]: true } }
                     : { sommes: { ...s.sommes, [k]: e.target.value } })} />
@@ -302,14 +348,26 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
 
 /** Les encadrés : les jetons du thème seulement, le même dessin que les blocs DPE / PNO de « Nouveau bien ». */
 export const CSS_CONDITIONS = INFOBULLE_CSS + `
-.loc-champ-tete{display:inline-flex;align-items:center;gap:10px;min-width:0}
-.loc-champ-tete .svv-pil-ib-btn{margin:-11px -11px -11px 0}
+.loc-champ-tete{display:flex;align-items:center;gap:6px;min-width:0;max-width:100%}
+/* L'intitulé : une seule ligne, jamais coupé ; sa police s'ajuste (composant Intitule). Le picto le suit, aligné au milieu du texte. */
+.loc-intitule{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:clip;line-height:1.3}
+.loc-champ-tete .svv-pil-ib{flex:0 0 auto}
+.loc-champ-tete .svv-pil-ib-btn{margin:-11px -11px -11px -8px}
+.loc-invisible{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+/* « € » en suffixe dans la case : gris, non sélectionnable, ne prend jamais le clic (la saisie passe dessous). */
+.loc-case-euros{position:relative;display:block;min-width:0}
+.loc-case-euros input{width:100%;box-sizing:border-box;padding-right:2.2em}
+.loc-suffixe-euros{position:absolute;right:.9em;top:50%;transform:translateY(-50%);color:var(--color-svv-muted);pointer-events:none;user-select:none;-webkit-user-select:none;font-weight:600}
 .loc-bulle-calcul{display:flex;flex-direction:column;gap:4px}
 .loc-bulle-calcul > span{display:block}
 .loc-champ-pied{display:flex;flex-direction:column;gap:4px;min-width:0}
 .loc-champ-pied:empty{display:none}
 /* Les quatre « Sommes dues » : rangées partagées (sous-grille) — intitulés alignés, cases à la même hauteur. */
 .loc-grille-sommes{grid-auto-rows:auto}
+/* Paliers fixes (jamais 3 + 1) : 1 colonne au téléphone, 2 en tablette, les 4 sur une rangée dès 960 px. */
+.loc-cond-bloc .loc-grille.loc-grille-sommes{grid-template-columns:minmax(0,1fr)}
+@media (min-width:560px){ .loc-cond-bloc .loc-grille.loc-grille-sommes{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (min-width:960px){ .loc-cond-bloc .loc-grille.loc-grille-sommes{grid-template-columns:repeat(4,minmax(0,1fr))} }
 .loc-grille-sommes > .loc-champ-somme{display:grid;grid-row:span 3;grid-template-rows:subgrid;align-content:start;row-gap:8px}
 .loc-grille-sommes > .loc-champ-somme > .loc-champ-tete{align-self:end}
 .loc-cond{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}

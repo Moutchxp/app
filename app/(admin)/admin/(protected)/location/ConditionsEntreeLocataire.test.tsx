@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationLocataire } from './CreationLocataire';
+import { POLICE_MIN_INTITULE_PX } from './ConditionsEntree';
 import { CreationProprietaires } from './CreationProprietaires';
 import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
 import { FormulaireCarte } from '../gestion/CartesPersonnes';
@@ -285,7 +286,7 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
     await preparer();
     expect(container.querySelector('[data-depot-montant]')).toBeNull();
     await clic(pilule('Dépôt de garantie', 'Conservé par l’agence'));
-    expect(container.querySelector('[data-depot-montant]')?.firstChild?.textContent).toBe('Montant du dépôt de garantie (€)');
+    expect(container.querySelector('[data-depot-montant] .loc-intitule')?.firstChild?.textContent).toBe('Montant du dépôt de garantie');
     await saisir(champ('[data-depot-montant] input'), '1 180');
     expect(champ('[data-somme="depotGarantie"] input').value).toBe('1 180');
     await saisir(champ('[data-somme="depotGarantie"] input'), '1 250,50');
@@ -621,7 +622,7 @@ describe('🔴 pré-remplissage validé par défaut, validation unique par « En
     await remplir();
     const p = picto('prorataLoyer');
     expect(p.getAttribute('aria-label')).toBe('Détail du calcul');
-    expect(p.closest('.loc-champ-tete')?.querySelector('label')?.textContent).toBe('Prorata loyer (€)');
+    expect(p.closest('.loc-champ-tete')?.querySelector('label')?.firstChild?.textContent).toBe('Prorata loyer');
     expect(bulle('prorataLoyer')).toBeNull();
     // Le picto ouvre, le picto referme.
     await clic(p);
@@ -691,5 +692,41 @@ describe('🔴 pré-remplissage validé par défaut, validation unique par « En
     expect(container.querySelectorAll('.loc-grille-sommes > .loc-champ-somme')).toHaveLength(4);
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('.loc-grille-sommes > .loc-champ-somme{display:grid;grid-row:span 3;grid-template-rows:subgrid');
+  });
+});
+
+describe('🔴 intitulés et picto sur une ligne, « € » en suffixe dans la case', () => {
+  it('aucun intitulé de l’écran ne finit par « (€) » ; chaque case de montant porte « € » en suffixe, gris, non sélectionnable', async () => {
+    await preparer();
+    await clic(pilule('Dépôt de garantie', 'Conservé par l’agence'));
+    expect(container.querySelector('[data-bloc-conditions]')?.textContent).not.toContain('(€)');
+    const intitules = [...container.querySelectorAll('[data-bloc-conditions] .loc-intitule')].map((l) => l.firstChild?.textContent);
+    expect(intitules).toEqual(['Montant du dépôt de garantie', 'Loyer principal', 'Provision pour charges',
+      'Prorata loyer', 'Prorata provisions / charges', 'Dépôt de garantie', 'Honoraires agence']);
+    const cases = [...container.querySelectorAll('[data-bloc-conditions] .loc-case-euros')];
+    expect(cases).toHaveLength(7);
+    for (const c of cases) {
+      expect(c.querySelector('input')).not.toBeNull();
+      const suffixe = c.querySelector('.loc-suffixe-euros')!;
+      expect(suffixe.textContent).toBe('€');
+      expect(suffixe.getAttribute('aria-hidden')).toBe('true');
+    }
+    // L'exemple ne change pas ; la saisie se fait comme avant (le suffixe ne prend pas le clic).
+    expect((container.querySelector('[data-somme="depotGarantie"] input') as HTMLInputElement).placeholder).toBe('ex. 1 180,50');
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.loc-suffixe-euros{position:absolute;right:.9em;top:50%;transform:translateY(-50%);color:var(--color-svv-muted);pointer-events:none;user-select:none');
+    // Le lecteur d'écran entend toujours l'unité.
+    expect(container.querySelector('[data-somme="prorataLoyer"] label')?.textContent).toBe('Prorata loyer en euros');
+  });
+
+  it('UNE seule ligne : pas de retour à la ligne, pas de « … » ; police réduite jusqu’à 13 px au plus bas ; picto sur la même ligne', async () => {
+    await preparer();
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.loc-intitule{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:clip');
+    expect(css).toContain('.loc-champ-tete{display:flex;align-items:center;');
+    expect(POLICE_MIN_INTITULE_PX).toBe(13);
+    // Le picto suit l'intitulé, dans la même tête.
+    const tete = container.querySelector('[data-somme="prorataCharges"] .loc-champ-tete')!;
+    expect([...tete.children].map((e) => e.className)).toEqual(['loc-intitule', 'svv-pil-ib']);
   });
 });
