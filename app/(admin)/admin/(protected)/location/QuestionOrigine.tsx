@@ -83,7 +83,9 @@ export const CSS_QUESTION_ORIGINE = `
 .qo-pilules{display:flex;flex-wrap:wrap;gap:8px}
 .qo-pilule{min-height:44px;padding:8px 16px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink);font:inherit;font-weight:700;cursor:pointer}
 .qo-pilule[aria-checked="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
-.qo-pilule[aria-checked="true"]::before{content:"✓ "}
+.qo-pilule[aria-checked]::before{content:"✓ ";visibility:hidden}
+.qo-pilule[aria-checked="true"]::before{visibility:visible}
+.qo-pilule[aria-checked]::after{content:" ✓";visibility:hidden}
 .qo-pied{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
 .qo-retour{min-height:44px}
 .qo-final{flex:1 1 16rem;box-sizing:border-box;min-height:56px;padding:14px 18px;border-radius:14px;border:2px solid var(--color-svv-red);background:var(--color-svv-red);color:var(--color-svv-surface);font:inherit;font-size:1.08rem;font-weight:800;cursor:pointer}

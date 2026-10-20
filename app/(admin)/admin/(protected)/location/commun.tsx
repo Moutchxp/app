@@ -196,7 +196,12 @@ export const CSS_LOCATION_ECRANS = `
 .loc-bascule button{border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);padding:0 14px;min-height:44px;font:inherit;font-weight:600;cursor:pointer}
 .loc-bascule button + button{border-left:1px solid var(--color-svv-line-strong)}
 .loc-bascule button[aria-pressed="true"]{background:var(--color-svv-red);color:var(--color-svv-surface)}
-.loc-bascule button[aria-pressed="true"]::before{content:"✓ "}
+/* Arno (21/10/2026) — TEXTE CENTRÉ, même sur deux lignes (un long libellé au téléphone) : la coche est
+   posée EN ABSOLU dans une marge intérieure SYMÉTRIQUE (même place à gauche et à droite) ; visible au choix, la largeur ne
+   change pas au clic. */
+.loc-bascule button[aria-pressed]{position:relative;padding:0 calc(14px + 1em)}
+.loc-bascule button[aria-pressed]::before{content:"✓";position:absolute;left:14px;top:50%;transform:translateY(-50%);visibility:hidden}
+.loc-bascule button[aria-pressed="true"]::before{visibility:visible}
 .loc-sortie{border-radius:10px;padding:10px 12px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
 .loc-confirmation{border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:12px;background:var(--color-svv-field);color:var(--color-svv-ink)}
 .loc-choix{list-style:none;margin:6px 0 0;padding:0;border:1px solid var(--color-svv-line);border-radius:10px;max-height:16rem;overflow:auto}
@@ -254,8 +259,11 @@ export const CSS_LOCATION_CREATION = `
 .loc-pilules button[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
 /* Arno (20/10/2026) : la place de la coche est RÉSERVÉE dans tout bouton à choix — la sélection ne fait plus passer le
    bouton à la ligne ; la coche n'apparaît (visible) que sur le choix retenu. */
-.loc-pilules button[aria-pressed]::before{content:"✓ ";visibility:hidden}
+.loc-pilules button[aria-pressed]::before{content:"✓ ";visibility:hidden}
 .loc-pilules button[aria-pressed="true"]::before{visibility:visible}
+/* Arno (21/10/2026) — LE TEXTE CENTRÉ, sélectionné ou non : la place de la coche est réservée À GAUCHE (visible au choix)
+   ET la même place À DROITE (toujours invisible). Écarts gauche et droit égaux ; aucune largeur ne change au clic. */
+.loc-pilules button[aria-pressed]::after{content:" ✓";visibility:hidden}
 .loc-pilules button:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px}
 .loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:12px}
 .loc-puce{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:8px 8px 8px 20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-size:1.05rem;font-weight:700;border:2px solid var(--color-svv-green-ink)}

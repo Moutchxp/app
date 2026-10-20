@@ -8,7 +8,7 @@ import { POLICE_MIN_INTITULE_PX } from './ConditionsEntree';
 import { CreationProprietaires } from './CreationProprietaires';
 import { ResumeBailFiche } from '../gestion/ResumeBail';
 import { FormulaireCarte } from '../gestion/CartesPersonnes';
-import { CSS_LOCATION_CREATION } from './commun';
+import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS } from './commun';
 import { QUALITES_CONTACT } from '../../../../lib/location/cartesLocation';
 
 /**
@@ -442,9 +442,24 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
     expect(menu().value).toBe('Garant');
   });
 
+  it('🔴 Arno (21/10/2026) — TEXTE CENTRÉ dans tous les boutons de choix (pilules, bascules, sous-motifs) : coche à gauche, même place réservée à droite', () => {
+    const origine = readFileSync('app/(admin)/admin/(protected)/location/QuestionOrigine.tsx', 'utf8');
+    for (const [css, sel] of [[CSS_LOCATION_CREATION, '.loc-pilules button[aria-pressed]'], [origine, '.qo-pilule[aria-checked]']] as const) {
+      expect(css).toContain(`${sel}::before{content:"✓\u00a0";visibility:hidden}`);
+      expect(css).toContain(`${sel}::after{content:"\u00a0✓";visibility:hidden}`);
+    }
+    expect(CSS_LOCATION_ECRANS).toContain('.loc-bascule button[aria-pressed="true"]::before{visibility:visible}');
+    // La bascule : la coche en absolu, dans une marge symétrique (le texte reste centré même sur deux lignes).
+    expect(CSS_LOCATION_ECRANS).toContain('.loc-bascule button[aria-pressed]{position:relative;padding:0 calc(14px + 1em)}');
+    expect(CSS_LOCATION_ECRANS).toContain('.loc-bascule button[aria-pressed]::before{content:"✓";position:absolute;left:14px;');
+    expect(origine).toContain('.qo-pilule[aria-checked="true"]::before{visibility:visible}');
+  });
+
   it('BOUTONS SUR UNE LIGNE : la place de la coche est réservée dans TOUT bouton à choix (visible seulement sur le choix)', async () => {
-    expect(CSS_LOCATION_CREATION).toContain('.loc-pilules button[aria-pressed]::before{content:"✓ ";visibility:hidden}');
+    expect(CSS_LOCATION_CREATION).toContain('.loc-pilules button[aria-pressed]::before{content:"✓\u00a0";visibility:hidden}');
     expect(CSS_LOCATION_CREATION).toContain('.loc-pilules button[aria-pressed="true"]::before{visibility:visible}');
+    // Arno (21/10/2026) — TEXTE CENTRÉ : la même place, toujours invisible, à DROITE (écarts gauche et droit égaux).
+    expect(CSS_LOCATION_CREATION).toContain('.loc-pilules button[aria-pressed]::after{content:"\u00a0✓";visibility:hidden}');
     await preparer();
     // Chaque bouton à choix porte aria-pressed (donc la place réservée), sélectionné ou non.
     const choix = [...container.querySelectorAll('[data-conditions-entree] .loc-pilules button')];
