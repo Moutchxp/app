@@ -228,14 +228,26 @@ describe('la migration 253', () => {
 describe('le garde de l’épreuve jetable', () => {
   const src = readFileSync('app/scripts/annuaire-epreuve.ts', 'utf8');
 
+  const helper = readFileSync('app/scripts/baseJetable.ts', 'utf8');
+
   it('le nom de base autorisé est unique, et le garde compare la base RÉELLE', () => {
-    expect(src).toContain("export const BASE_JETABLE = 'gestion_jetable'");
+    expect(helper).toContain("export const BASE_JETABLE = 'gestion_jetable'");
+    expect(src).toContain("from './baseJetable'");
     expect(src).toContain('SELECT current_database()');
     expect(src).toContain('base !== BASE_JETABLE');
   });
 
-  it('il refuse AVANT de vider quoi que ce soit', () => {
-    expect(src.indexOf('base !== BASE_JETABLE')).toBeLessThan(src.indexOf('TRUNCATE'));
+  it('🔴 Arno (20/10/2026, 393) : le garde passe AVANT de recréer la base ; aucune table n’est jamais vidée', () => {
+    expect(src.indexOf('gardeBaseJetable(process.env.DATABASE_URL)')).toBeLessThan(src.indexOf('recreerBaseJetable('));
+    // Le seul TRUNCATE / DELETE de l'épreuve est la PREUVE du verrou (dans un try, attendu refusé) — jamais un vidage.
+    expect(src).not.toMatch(/await query\(`TRUNCATE gestion_annuaire_contact/);
+    const ecritures = [...src.matchAll(/query\(\s*[`'](TRUNCATE|DELETE FROM) /g)];
+    expect(ecritures.length).toBeGreaterThan(0);
+    for (const m of ecritures) expect(src.slice(Math.max(0, (m.index ?? 0) - 30), m.index)).toMatch(/try \{\s*(await )?$/);
+    // La base supprimée et recréée est la CONSTANTE, jamais une valeur lue.
+    expect(helper).toContain('DROP DATABASE IF EXISTS ${BASE_JETABLE} WITH (FORCE)');
+    expect(helper).toContain('CREATE DATABASE ${BASE_JETABLE}');
+    expect(helper).not.toMatch(/DROP DATABASE IF EXISTS \$\{(?!BASE_JETABLE)/);
   });
 
   it('aucune option ne le contourne', () => {

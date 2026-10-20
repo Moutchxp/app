@@ -7,16 +7,18 @@
  * `ON CONFLICT` qui met à jour au lieu de doubler, un trigger append-only qui tient — ne se mesure que sur une VRAIE
  * base. Cette commande la fabrique, l'éprouve, et n'a aucun autre usage.
  *
- * 🔴 ELLE REFUSE DE S'EXÉCUTER AILLEURS QUE SUR `gestion_jetable`. Elle EFFACE le contenu de l'annuaire entre deux
- * épreuves : lancée par mégarde sur la base de travail, elle détruirait l'annuaire réel. Le garde est la PREMIÈRE
- * chose qu'elle fait, avant toute lecture, et il ne se contourne par aucune option.
+ * 🔴 ELLE REFUSE DE S'EXÉCUTER AILLEURS QUE SUR `gestion_jetable`. Le garde est la PREMIÈRE chose qu'elle fait, avant
+ * toute commande, et il ne se contourne par aucune option.
+ *
+ * 🔴🔴 ARNO (20/10/2026, option B de la 393) : ELLE NE VIDE PLUS AUCUNE TABLE. Depuis la 393, l'annuaire refuse DELETE et
+ * TRUNCATE sans exception : l'épreuve repart d'une base `gestion_jetable` NEUVE (supprimée, recréée, schéma copié en
+ * lecture seule, migrations listées rejouées — `baseJetable.ts`) et la SUPPRIME ENTIÈRE à la fin. Avec la 393, elle
+ * vérifie aussi que le verrou tient (⑩).
  *
  * COMMENT LA LANCER :
- *   psql -d postgres -c 'CREATE DATABASE gestion_jetable'
- *   psql -d gestion_jetable -f <le socle gestion_journal de la migration 228>
- *   psql -d gestion_jetable -v ON_ERROR_STOP=1 -f db/migrations/253_gestion_annuaire.sql
  *   DATABASE_URL=postgresql://localhost:5432/gestion_jetable \
- *     npm run gestion:annuaire:epreuve -- --dossier=/Users/macbookprom4arnaud/Downloads
+ *     npm run gestion:annuaire:epreuve -- --dossier=/Users/macbookprom4arnaud/Downloads \
+ *       [--schema-de=svav_recette] [--migration=db/migrations/393_location_bail_rattachements.sql] [--garder-base]
  *
  * 🔒 ELLE N'IMPRIME AUCUNE DONNÉE PERSONNELLE. Les fichiers importés contiennent les coordonnées de 800 personnes ;
  * la sortie ne porte que des COMPTES et des verdicts. Aucun nom, aucun numéro, aucune adresse.
@@ -29,9 +31,9 @@ import { appliquerPlan } from '../lib/gestion/annuaireRepo';
 import { analyserTerme } from '../lib/gestion/annuaireRecherche';
 import { rechercher, ficheLot, ficheProprietaire, ficheLocataire } from '../lib/gestion/annuaireRepo';
 import { dossierParDefaut, lireOptions, lireSources } from './importer-annuaire';
+import { BASE_JETABLE, gardeBaseJetable, optionsBaseJetable, recreerBaseJetable, supprimerBaseJetable } from './baseJetable';
 
-/** Le SEUL nom de base sur lequel cette commande accepte de travailler. */
-export const BASE_JETABLE = 'gestion_jetable';
+export { BASE_JETABLE };
 
 let echecs = 0;
 function verifier(quoi: string, condition: boolean, detail = ''): void {
@@ -45,22 +47,33 @@ async function compte(table: string, ou = 'true'): Promise<number> {
   return Number(rows[0].n);
 }
 
+/** Le garde, AVANT toute commande : la base visée par DATABASE_URL doit être la base jetable. */
+let baseCreee = false;
 async function principal(): Promise<void> {
+  const garde = gardeBaseJetable(process.env.DATABASE_URL);
+  if (garde !== null) {
+    console.error(`\n❌ REFUS : cette épreuve recrée et supprime sa base. ${garde}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  // Une base NEUVE : l'épreuve doit partir d'un état connu, sinon ses comptes ne veulent rien dire. Jamais de vidage de table.
+  const ob = optionsBaseJetable(process.argv.slice(2));
+  baseCreee = !ob.garder;
+  const fait = recreerBaseJetable(process.env.DATABASE_URL as string, ob);
   const { rows } = await query<{ base: string }>('SELECT current_database() AS base');
   const base = rows[0].base;
   if (base !== BASE_JETABLE) {
-    console.error(`\n❌ REFUS : cette épreuve EFFACE l'annuaire. Base visée « ${base} », attendue « ${BASE_JETABLE} ».`);
-    console.error(`   Relancer avec DATABASE_URL=postgresql://localhost:5432/${BASE_JETABLE}\n`);
+    console.error(`\n❌ REFUS : base visée « ${base} », attendue « ${BASE_JETABLE} ».\n`);
     process.exitCode = 1;
     return;
   }
 
   const o = lireOptions(process.argv.slice(2), dossierParDefaut());
-  console.log(`\n╔══ ÉPREUVE DE L'ANNUAIRE sur « ${base} » — dossier ${o.dossier}\n`);
-
-  // Table rase : l'épreuve doit partir d'un état connu, sinon ses comptes ne veulent rien dire.
-  await query(`TRUNCATE gestion_annuaire_contact, gestion_annuaire_occupation, gestion_annuaire_locataire,
-                        gestion_annuaire_lot, gestion_annuaire_proprietaire RESTART IDENTITY CASCADE`);
+  console.log(`\n╔══ ÉPREUVE DE L'ANNUAIRE sur « ${base} » — dossier ${o.dossier}`);
+  for (const f of fait) console.log(`║  ${f}`);
+  console.log('');
+  verifier('la base neuve est VIDE (aucune table vidée : elle vient d’être créée)', await compte('gestion_annuaire_proprietaire') === 0
+    && await compte('gestion_annuaire_lot') === 0 && await compte('gestion_annuaire_occupation') === 0);
 
   const sources = lireSources(o.dossier);
   const plan = construirePlan(sources);
@@ -235,12 +248,38 @@ async function principal(): Promise<void> {
   } catch { refuseSuppression = true; }
   verifier('PostgreSQL refuse d’effacer une passe', refuseSuppression);
 
+  // ── ⑩ LE VERROU DE LA 393 : NI DELETE NI TRUNCATE, SANS EXCEPTION (même ici) ─────────────────────────────────────
+  const { rows: v } = await query<{ ok: boolean }>(`SELECT to_regclass('gestion_bail') IS NOT NULL AS ok`);
+  if (v[0].ok) {
+    console.log('\n⑩ le verrou de la 393 tient, même sur la base jetable');
+    for (const t of ['gestion_annuaire_proprietaire', 'gestion_annuaire_lot', 'gestion_annuaire_occupation', 'gestion_annuaire_locataire',
+      'gestion_annuaire_contact', 'gestion_bail']) {
+      let del = false;
+      try { await query(`DELETE FROM ${t} WHERE id = (SELECT min(id) FROM ${t})`); } catch { del = true; }
+      let tr = false;
+      try { await query(`TRUNCATE ${t} CASCADE`); } catch { tr = true; }
+      verifier(`${t} : DELETE et TRUNCATE refusés`, del && tr);
+    }
+    // (Une occupation « lot hors gestion » — sans bien — n'a pas de bail : il n'y a pas de bien à louer.)
+    verifier('chaque occupation importée sur un bien a son bail (la 393 le pose par déclencheur)',
+      await compte('gestion_annuaire_occupation', 'lot_id IS NOT NULL AND bail_id IS NULL') === 0,
+      `${await compte('gestion_bail')} baux pour ${await compte('gestion_annuaire_occupation', 'lot_id IS NOT NULL')} occupations`);
+  } else {
+    console.log('\n⑩ (migration 393 absente de cette base : verrou non éprouvé — relancer avec --migration=db/migrations/393_location_bail_rattachements.sql)');
+  }
+
   console.log(`\n╚══ ${echecs === 0 ? 'TOUT EST VERT' : `${echecs} ÉCHEC(S)`}\n`);
   if (echecs > 0) process.exitCode = 1;
 }
 
-void principal().then(closePool, async (e: unknown) => {
+/** À la fin, quoi qu'il arrive : la base jetable est SUPPRIMÉE ENTIÈRE (sauf `--garder-base`). */
+async function finir(): Promise<void> {
+  await closePool();
+  if (baseCreee) { supprimerBaseJetable(process.env.DATABASE_URL as string); console.log(`Base « ${BASE_JETABLE} » supprimée entière.\n`); }
+}
+
+void principal().then(finir, async (e: unknown) => {
   console.error(e);
   process.exitCode = 1;
-  await closePool();
+  await finir();
 });

@@ -25,8 +25,9 @@
  * 🔴 ET IL JOUE LES TROIS ESSAIS D'INTRUSION DE LA MIGRATION 293 (C-12 à C-14). La leçon de la 291 : le verbe
  * d'une contrainte se lit juste, et seule la tentative RÉELLE montre qu'il ne tient pas.
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { query, closePool } from '../db/client';
+import { ouvrirEssaiAnnule, type EssaiAnnule } from '../db/essaiAnnule';
 import {
   adressesDesFiches, contexteEtape2, enregistrerContactExterne, interventionsDeLaFiche,
   interventionsDesMessages, lireContactExterne, memoireDuFil, personnesDesBiens, poserInterventions,
@@ -110,7 +111,15 @@ const bien = (cle: string) => ({ cle, libelle: `Bien fictif ${cle}` });
 const personne = (sorte: 'proprietaire' | 'locataire', cle: string, libelle: string): PersonneClassee =>
   ({ sorte, cle, libelle });
 
+/**
+ * 🔴🔴 Arno (20/10/2026, option B de la migration 393) — L'ESSAI DANS UNE TRANSACTION ANNULÉE. L'annuaire refuse désormais
+ * DELETE et TRUNCATE sans exception : l'essai ne nettoie plus, il ne laisse rien. Tout court dans UNE transaction annulée à
+ * la fin (`essaiAnnule.ts`), chaque scénario entre un point de reprise et son retour.
+ */
+let essai: EssaiAnnule | null = null;
+
 beforeAll(async () => {
+  essai = await ouvrirEssaiAnnule();
   // ── LE PROPRIÉTAIRE, SES DEUX LOTS, SES DEUX LOCATAIRES ───────────────────────────────────────────────────────
   const { rows: pr } = await query<{ id: string }>(
     `INSERT INTO gestion_annuaire_proprietaire (wippimmo_id, nom, nom_complet, nom_normalise, civilite)
@@ -157,18 +166,19 @@ beforeAll(async () => {
     [`${LOT_A}-occ-occupant`, idOccupant, idLotA, LOT_A]);
 
   // ── LES ADRESSES CONNUES DES FICHES : celle du propriétaire, celle de CHAQUE locataire (sortant compris) ──────
+  // Posé s'il manque (une base d'essai garde les contacts d'avant ce montage : plus jamais de DELETE sur l'annuaire).
   const poserContact = async (sujet: string, sujetId: number, valeur: string): Promise<void> => {
     await query(
       `INSERT INTO gestion_annuaire_contact (sujet, sujet_id, sorte, valeur, valeur_brute, rang, origine)
-       VALUES ($1, $2, 'email', $3, $3, 0, 'import')`, [sujet, sujetId, valeur]);
+       SELECT $1, $2, 'email', $3, $3, 0, 'import'
+        WHERE NOT EXISTS (SELECT 1 FROM gestion_annuaire_contact WHERE sujet = $1 AND sujet_id = $2 AND valeur = $3)`, [sujet, sujetId, valeur]);
   };
-  await query("DELETE FROM gestion_annuaire_contact WHERE valeur LIKE '%@exemple.test'");
   await poserContact('proprietaire', idProp, 'proprio@exemple.test');
   await poserContact('locataire', idOccupant, 'occupant@exemple.test');
   await poserContact('locataire', idSortant, 'sortant@exemple.test');
 });
 
-afterAll(async () => { await closePool(); });
+afterAll(async () => { await essai?.annuler(); await closePool(); });
 
 /**
  * Chaque scénario part d'une base propre : on ne veut pas qu'un essai en explique un autre.
@@ -179,6 +189,9 @@ afterAll(async () => { await closePool(); });
  * module, lui, ne supprime JAMAIS un rattachement.
  */
 beforeEach(async () => {
+  // Le point de reprise du scénario ; ces effacements du courrier (base d'essai, verrou 339 levé pour elle) sont DANS la
+  // transaction annulée : ils isolent le scénario des données d'avant, et rien n'est jamais effacé pour de bon.
+  await essai?.point();
   await query('DELETE FROM gestion_rattachement');
   await query('DELETE FROM gestion_message_exception_personne');
   await query('DELETE FROM gestion_message_exception_bien');
@@ -187,6 +200,8 @@ beforeEach(async () => {
   await query('DELETE FROM gestion_fil_periode_bien');
   await query('DELETE FROM gestion_fil_periode');
 });
+
+afterEach(async () => { await essai?.revenir(); });
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    🔴🔴 C-1 — L'EXPÉDITEUR CONNU N'OUVRE AUCUNE ÉTAPE ; L'INCONNU L'OUVRE

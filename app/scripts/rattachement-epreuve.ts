@@ -12,17 +12,15 @@
  * verdict quand il échoue au lieu de jeter, et la passe suivante rattrape ; l'historique d'une cible rend une frise,
  * un compteur, des interlocuteurs et des propositions qui s'accordent entre eux.
  *
- * 🔴 ELLE REFUSE DE S'EXÉCUTER AILLEURS QUE SUR `gestion_jetable`. Elle EFFACE le courrier et l'annuaire entre deux
- * épreuves : lancée par mégarde sur la base de travail, elle détruirait 56 805 mails. Le garde est la PREMIÈRE chose
- * qu'elle fait, avant toute lecture, et aucune option ne le contourne.
+ * 🔴 ELLE REFUSE DE S'EXÉCUTER AILLEURS QUE SUR `gestion_jetable`. Le garde est la PREMIÈRE chose qu'elle fait, avant toute
+ * commande, et aucune option ne le contourne.
  *
- * COMMENT FABRIQUER LA BASE ET LANCER L'ÉPREUVE :
- *   psql -d postgres -c 'DROP DATABASE IF EXISTS gestion_jetable'
- *   psql -d postgres -c 'CREATE DATABASE gestion_jetable'
- *   pg_dump --schema-only --no-owner --no-privileges sansvisavis | psql -q -d gestion_jetable
- *   psql -v ON_ERROR_STOP=1 -d gestion_jetable -f db/migrations/257_gestion_rattachement.sql
- *   psql -v ON_ERROR_STOP=1 -d gestion_jetable -f db/migrations/258_gestion_suite_releve.sql
- *   DATABASE_URL=postgresql://localhost:5432/gestion_jetable npm run gestion:rattachement:epreuve
+ * 🔴🔴 ARNO (20/10/2026, option B de la 393) : ELLE NE VIDE PLUS AUCUNE TABLE (l'annuaire refuse DELETE et TRUNCATE sans
+ * exception) : elle repart d'une base `gestion_jetable` NEUVE et la SUPPRIME ENTIÈRE à la fin (`baseJetable.ts`).
+ *
+ * COMMENT LA LANCER :
+ *   DATABASE_URL=postgresql://localhost:5432/gestion_jetable npm run gestion:rattachement:epreuve \
+ *     [-- --schema-de=svav_recette] [--migration=<fichier>] [--garder-base]
  *
  * 🔒 ELLE N'ÉCRIT QUE DES DONNÉES INVENTÉES : adresses en @fictif.fr, clés de lot « J-… », et aucun nom réel.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -42,8 +40,9 @@ import {
   enteteHistorique, etendreCible, interlocuteursHistorique, pageHistorique, propositionsHistorique,
 } from '../lib/gestion/historiqueRepo';
 
-/** Le SEUL nom de base sur lequel cette épreuve accepte de travailler. */
-export const BASE_JETABLE = 'gestion_jetable';
+import { BASE_JETABLE, gardeBaseJetable, optionsBaseJetable, recreerBaseJetable, supprimerBaseJetable } from './baseJetable';
+
+export { BASE_JETABLE };
 
 const AUTEUR = { id: null, libelle: 'épreuve automatique' };
 
@@ -99,11 +98,7 @@ async function semer(): Promise<{ messages: number[]; pieces: number[]; repereJo
   const { rows: repere } = await query<{ n: string | null }>('SELECT max(id)::text AS n FROM gestion_journal');
   const repereJournal = Number(repere[0]?.n ?? 0);
 
-  await query(`TRUNCATE gestion_rattachement, gestion_rattachement_examen, gestion_message_adresse,
-                        gestion_piece, gestion_message, gestion_fil,
-                        gestion_annuaire_contact, gestion_annuaire_occupation, gestion_annuaire_locataire,
-                        gestion_annuaire_lot, gestion_annuaire_proprietaire
-               RESTART IDENTITY CASCADE`);
+  // (Plus de vidage : la base vient d'être créée NEUVE — Arno, 20/10/2026, option B de la 393.)
 
   // ── L'ANNUAIRE : un bailleur, deux lots, deux locataires en place, un locataire parti ────────────────────────
   const { rows: prop } = await query<{ id: string }>(
@@ -233,7 +228,17 @@ async function passe(appliquer: boolean): Promise<ComptesPasse> {
   return c;
 }
 
+let baseCreee = false;
 async function principal(): Promise<void> {
+  const garde = gardeBaseJetable(process.env.DATABASE_URL);
+  if (garde !== null) {
+    console.error(`\n❌ REFUS : cette épreuve recrée et supprime sa base. ${garde}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const ob = optionsBaseJetable(process.argv.slice(2));
+  baseCreee = !ob.garder;
+  for (const f of recreerBaseJetable(process.env.DATABASE_URL as string, ob)) console.log(`║  ${f}`);
   const { rows } = await query<{ base: string }>('SELECT current_database() AS base');
   const base = rows[0].base;
   if (base !== BASE_JETABLE) {
@@ -636,8 +641,14 @@ async function principal(): Promise<void> {
   }
 }
 
-void principal().then(closePool, async (e: unknown) => {
+/** À la fin, quoi qu'il arrive : la base jetable est SUPPRIMÉE ENTIÈRE (sauf `--garder-base`). */
+async function finir(): Promise<void> {
+  await closePool();
+  if (baseCreee) { supprimerBaseJetable(process.env.DATABASE_URL as string); console.log(`Base « ${BASE_JETABLE} » supprimée entière.\n`); }
+}
+
+void principal().then(finir, async (e: unknown) => {
   console.error(e);
   process.exitCode = 1;
-  await closePool();
+  await finir();
 });
