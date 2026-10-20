@@ -140,10 +140,12 @@ describe('🔴 l’encart du bien : résumé toujours visible, détail dépliabl
   it('PARKING : ni « Meublé » ni « Pièces », ni DPE ; une seule surface ; « N° de place »', async () => {
     await rendre({ ...LOUE, caracteristiques: { ...LOUE.caracteristiques, familleCle: 'parking', famille: 'Parking', type: 'Box double · Extérieur', surfaceM2: 14,
       annexes: [], annexesDetail: [] } } as ResumeBien);
-    expect(lignes('caracteristiques')).toEqual(['Adresse', 'Immeuble', 'Type', 'Étage', 'Surface']);
-    expect([dd('type'), dd('surface-parking')]).toEqual(['Parking · Box double · Extérieur', '14 m²']);
+    expect(lignes('caracteristiques')).toEqual(['Adresse', 'Immeuble', 'Type', 'Étage', 'N° de place', 'Surface']);
+    expect([dd('type'), dd('porte'), dd('surface-parking')]).toEqual(['Parking · Box double · Extérieur', '21', '14 m²']);
     expect(groupes()).toEqual(['caracteristiques', 'situation', 'copropriete', 'commentaire']);
-    expect(lignes('situation')).toContain('N° de place');
+    // Le n° de place est au résumé : il n'est plus répété dans le détail (une seule ligne par information).
+    expect(lignes('situation')).not.toContain('N° de place');
+    expect(container.querySelectorAll('[data-rb="porte"]')).toHaveLength(1);
   });
 
   it('LOCAL : « Bureaux / pièces », « Surface », pas de ligne propre au parking', async () => {
@@ -160,5 +162,35 @@ describe('🔴 l’encart du bien : résumé toujours visible, détail dépliabl
     expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('/api/admin/gestion/annuaire/location?resume=7');
     const repo = readFileSync('app/lib/location/resumeBienRepo.ts', 'utf8');
     expect(repo).not.toMatch(/INSERT INTO|UPDATE gestion|DELETE FROM/);
+  });
+});
+
+/** 🔴 Arno (20/10/2026) — Caractéristiques sur DEUX colonnes (≥ 768 px) : « Le bien » à gauche, « Surfaces et bâti » à droite. */
+describe('🔴 caractéristiques : répartition des deux colonnes, par famille', () => {
+  const colonne = (c: string) => [...container.querySelectorAll(`[data-colonne="${c}"] dt`)].map((d) => d.textContent);
+  it('LOGEMENT : gauche Adresse → Étage ; droite surfaces, annexes, époque, chauffage', async () => {
+    await rendre(LOUE);
+    expect(colonne('bien')).toEqual(['Adresse', 'Immeuble', 'Type', 'Meublé', 'Pièces', 'Étage']);
+    expect(colonne('surfaces')).toEqual(['Surface habitable', 'Surface Carrez/Boutin', 'Surface extérieure', 'Annexes', 'Époque de construction', 'Chauffage']);
+  });
+  it('LOCAL : « Bureaux / pièces » à gauche, « Surface » à droite', async () => {
+    await rendre({ ...LOUE, caracteristiques: { ...LOUE.caracteristiques, familleCle: 'local', famille: 'Local', type: 'Bureaux' } } as ResumeBien);
+    expect(colonne('bien')).toEqual(['Adresse', 'Immeuble', 'Type', 'Meublé', 'Bureaux / pièces', 'Étage']);
+    expect(colonne('surfaces')).toEqual(['Surface', 'Surface Carrez/Boutin', 'Surface extérieure', 'Annexes', 'Époque de construction', 'Chauffage']);
+  });
+  it('PARKING : Type, Étage, N° de place à gauche ; Surface à droite', async () => {
+    await rendre({ ...LOUE, caracteristiques: { ...LOUE.caracteristiques, familleCle: 'parking', famille: 'Parking', type: 'Box double', annexes: [], annexesDetail: [] } } as ResumeBien);
+    expect(colonne('bien')).toEqual(['Adresse', 'Immeuble', 'Type', 'Étage', 'N° de place']);
+    expect(colonne('surfaces')).toEqual(['Surface']);
+  });
+  it('le titre reste au-dessus des deux colonnes, sans sous-titre visible ; le bouton dessous ; deux colonnes égales dès 768 px', async () => {
+    await rendre(LOUE);
+    const resume = container.querySelector('[data-groupe="caracteristiques"]')!;
+    expect([...resume.children].map((e) => e.className)).toEqual(['rb-titre', 'rb-colonnes', 'rb-bascule']);
+    expect(resume.querySelectorAll('h4, h5')).toHaveLength(1);
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('@media (min-width:768px){\n  .rb-colonnes,.rb-detail-dedans{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}');
+    expect(css).toContain('.rb .ann-champs{grid-template-columns:max-content minmax(0,1fr)}');
+    expect(css).toContain('.rb .ann-champs dt{white-space:nowrap}');
   });
 });

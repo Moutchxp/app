@@ -78,7 +78,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
   };
 
   // Un groupe du détail est vide quand AUCUNE de ses informations n'est connue.
-  const situationVide = s === undefined || [s.batiment, s.escalier, s.porte, s.precisionAcces, s.ascenseur, s.digicode].every((x) => x === null || x === '');
+  const situationVide = s === undefined || [s.batiment, s.escalier, parking ? null : s.porte, s.precisionAcces, s.ascenseur, s.digicode].every((x) => x === null || x === '');
   const coproVide = co === undefined || (co.numLotCopro === null && co.syndic === null && co.derniereAg === null);
   const entretiens = g === undefined ? null : g.entretienAPrevoir === false ? 'non'
     : g.entretiens.length > 0 ? `oui — ${g.entretiens.map((e) => `${libelleEntretien({ sorte: e.sorte as 'chaudiere' | 'ramonage' | 'autre', nom: e.nom })}${e.dateAnniversaire ? ` (${formaterDateIso(e.dateAnniversaire)})` : ''}`).join(' · ')}`
@@ -90,47 +90,55 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
       <style>{CSS_RESUME_BIEN}</style>
       <section className="rb-groupe rb-resume" data-groupe="caracteristiques">
         <h4 className="rb-titre">Caractéristiques</h4>
-        <dl className="ann-champs">
-          <dt>Adresse</dt>
-          <dd data-rb="adresse">{titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '))}</dd>
-          {f.immeuble && <><dt>Immeuble</dt><dd data-rb="immeuble">{f.immeuble}</dd></>}
-          <dt>Type</dt>
-          <dd data-rb="type">{lr.type ?? rien()}</dd>
-          {lr.meuble !== undefined && <><dt>Meublé</dt><dd data-rb="meuble">{ouiNon(lr.meuble)}</dd></>}
-          {lr.pieces !== undefined && <><dt>{lr.famille === 'local' ? 'Bureaux / pièces' : 'Pièces'}</dt><dd data-rb="pieces">{lr.pieces ?? rien('non renseignées')}</dd></>}
-          <dt>Étage</dt>
-          <dd data-rb="etage">{etage ?? rien()}</dd>
-          {lr.surfaces.map((x) => (
-            <span key={x.cle} style={{ display: 'contents' }}><dt>{x.mot}</dt><dd data-rb={x.cle}>{x.m2 === null ? rien('non renseignée') : m2(x.m2)}</dd></span>
-          ))}
-          {!parking && c !== undefined && (
-            <>
-              <dt>Annexes</dt>
-              <dd data-rb="annexes" className="rb-liste">{annexes.length === 0 ? rien('aucune') : annexes.map((a) => {
-                const det = [a.detail.split(' · ').slice(1).join(' · ') || null, a.etage ? libelleEtage(a.etage) : null, a.adresse ? `adresse : ${a.adresse}` : null]
-                  .filter((x): x is string => x !== null && x !== '');
-                return (
-                  <span key={a.id} data-rb-annexe={a.id}>
-                    <strong>{a.titre}</strong>{a.detachee ? ' (détachée)' : ''}{det.length > 0 ? ` — ${det.join(' · ')}` : ''}
-                    {a.annotation ? <span className="rb-note"> · {a.annotation}</span> : null}
-                  </span>
-                );
-              })}</dd>
-            </>
-          )}
-          {lr.avecComplements && c !== undefined && (
-            <>
-              <dt>Époque de construction</dt><dd data-rb="epoque">{c.epoqueConstruction ?? rien()}</dd>
-              <dt>Chauffage</dt><dd data-rb="chauffage">{c.chauffage ?? rien()}</dd>
-            </>
-          )}
-          {f.proprietaireId === null && (
-            <>
-              <dt>Propriétaire</dt>
-              <dd><span className="ann-inconnu">{f.proprietaireNom || 'non rattaché'} — nom porté par plusieurs fiches WIPPIMMO, non tranché</span></dd>
-            </>
-          )}
-        </dl>
+        {/* Arno (20/10/2026) : deux colonnes côte à côte à partir de 768 px — « Le bien » à gauche, « Surfaces et bâti » à droite
+            (sans sous-titre visible) ; au téléphone, une seule colonne, la gauche puis la droite. */}
+        <div className="rb-colonnes">
+          <dl className="ann-champs rb-colonne" data-colonne="bien" aria-label="Le bien">
+            <dt>Adresse</dt>
+            <dd data-rb="adresse">{titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '))}</dd>
+            {f.immeuble && <><dt>Immeuble</dt><dd data-rb="immeuble">{f.immeuble}</dd></>}
+            <dt>Type</dt>
+            <dd data-rb="type">{lr.type ?? rien()}</dd>
+            {lr.meuble !== undefined && <><dt>Meublé</dt><dd data-rb="meuble">{ouiNon(lr.meuble)}</dd></>}
+            {lr.pieces !== undefined && <><dt>{lr.famille === 'local' ? 'Bureaux / pièces' : 'Pièces'}</dt><dd data-rb="pieces">{lr.pieces ?? rien('non renseignées')}</dd></>}
+            <dt>Étage</dt>
+            <dd data-rb="etage">{etage ?? rien()}</dd>
+            {/* Parking : le n° de place dans le résumé (Arno, 20/10/2026) — il quitte alors le détail (une seule ligne par information). */}
+            {parking && <><dt>N° de place</dt><dd data-rb="porte">{s?.porte ?? rien()}</dd></>}
+            {f.proprietaireId === null && (
+              <>
+                <dt>Propriétaire</dt>
+                <dd><span className="ann-inconnu">{f.proprietaireNom || 'non rattaché'} — nom porté par plusieurs fiches WIPPIMMO, non tranché</span></dd>
+              </>
+            )}
+          </dl>
+          <dl className="ann-champs rb-colonne" data-colonne="surfaces" aria-label="Surfaces et bâti">
+            {lr.surfaces.map((x) => (
+              <span key={x.cle} style={{ display: 'contents' }}><dt>{x.mot}</dt><dd data-rb={x.cle}>{x.m2 === null ? rien('non renseignée') : m2(x.m2)}</dd></span>
+            ))}
+            {!parking && c !== undefined && (
+              <>
+                <dt>Annexes</dt>
+                <dd data-rb="annexes" className="rb-liste">{annexes.length === 0 ? rien('aucune') : annexes.map((a) => {
+                  const det = [a.detail.split(' · ').slice(1).join(' · ') || null, a.etage ? libelleEtage(a.etage) : null, a.adresse ? `adresse : ${a.adresse}` : null]
+                    .filter((x): x is string => x !== null && x !== '');
+                  return (
+                    <span key={a.id} data-rb-annexe={a.id}>
+                      <strong>{a.titre}</strong>{a.detachee ? ' (détachée)' : ''}{det.length > 0 ? ` — ${det.join(' · ')}` : ''}
+                      {a.annotation ? <span className="rb-note"> · {a.annotation}</span> : null}
+                    </span>
+                  );
+                })}</dd>
+              </>
+            )}
+            {lr.avecComplements && c !== undefined && (
+              <>
+                <dt>Époque de construction</dt><dd data-rb="epoque">{c.epoqueConstruction ?? rien()}</dd>
+                <dt>Chauffage</dt><dd data-rb="chauffage">{c.chauffage ?? rien()}</dd>
+              </>
+            )}
+          </dl>
+        </div>
         {r !== null && (
           <button type="button" className="rb-bascule" aria-expanded={deplie} aria-controls={idDetail} data-bascule-detail
             onClick={() => setDeplie((v) => !v)}>{deplie ? 'Masquer le détail ⌃' : 'Voir le détail du bien ⌄'}</button>
@@ -143,7 +151,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
             <Groupe titre="Situation et accès" cle="situation" vide={situationVide}>
               <dt>Bâtiment</dt><dd data-rb="batiment">{s?.batiment ?? rien()}</dd>
               <dt>Escalier</dt><dd data-rb="escalier">{s?.escalier ?? rien()}</dd>
-              <dt>{parking ? 'N° de place' : 'N° de porte'}</dt><dd data-rb="porte">{s?.porte ?? rien()}</dd>
+              {!parking && <><dt>N° de porte</dt><dd data-rb="porte">{s?.porte ?? rien()}</dd></>}
               <dt>Précision</dt><dd data-rb="precision">{s?.precisionAcces ?? rien('non renseignée')}</dd>
               <dt>Ascenseur</dt><dd data-rb="ascenseur">{ouiNon(s?.ascenseur)}</dd>
               <dt>Digicode</dt>
@@ -187,9 +195,17 @@ export const CSS_RESUME_BIEN = `
 /* Le dépli en douceur : la hauteur passe de rien à son contenu (grille 0fr → 1fr), sans la mesurer. */
 .rb-detail{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .28s ease,opacity .28s ease}
 .rb--deplie .rb-detail{grid-template-rows:1fr;opacity:1}
-.rb-detail-dedans{overflow:hidden;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);gap:12px}
+.rb-detail-dedans{overflow:hidden;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);gap:12px 24px}
 .rb--deplie .rb-detail-dedans{padding-top:10px;border-top:1px solid var(--color-svv-line)}
-@media (min-width:760px){ .rb-detail-dedans{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start} }
+/* Deux colonnes de même largeur, alignées en haut, à partir de 768 px — le résumé ET le détail, sur la même grille (même
+   écart), pour que leurs colonnes tombent l'une sous l'autre. Au téléphone : une colonne, la gauche puis la droite. */
+.rb-colonnes{display:grid;grid-template-columns:minmax(0,1fr);gap:0 24px;align-items:start}
+@media (min-width:768px){
+  .rb-colonnes,.rb-detail-dedans{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}
+  /* Dans chaque colonne, les intitulés ont tous la largeur du plus long, sur UNE ligne ; les valeurs commencent au même endroit. */
+  .rb .ann-champs{grid-template-columns:max-content minmax(0,1fr)}
+  .rb .ann-champs dt{white-space:nowrap}
+}
 @media (prefers-reduced-motion: reduce){ .rb-detail{transition:none} }
 .rb-vide{margin:0}
 .rb-note{color:var(--color-svv-muted);font-size:.85rem}
