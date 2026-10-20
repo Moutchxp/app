@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import { FOND_PLAN_IGN } from "../lib/carte/fondsDePlan";
 
 // Corrige les chemins d'icônes Leaflet cassés en bundler (client uniquement).
 delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
@@ -68,9 +69,10 @@ export default function Carte({ center, photoPos, onMoveEnd, onMapReady }: Carte
         zoom={18}
         style={{ height: "100%", width: "100%", borderRadius: 8 }}
       >
+        {/* Plan IGN v2 (fondsDePlan.ts) : le fond de toutes les cartes, attribution IGN obligatoire. */}
         <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="© OpenStreetMap"
+          url={FOND_PLAN_IGN.url}
+          attribution={FOND_PLAN_IGN.attribution}
         />
 
         {photoPos && (

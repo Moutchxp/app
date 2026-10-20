@@ -19,6 +19,7 @@ describe('FaisceauMini — démontage propre', () => {
   });
   it('affichage inchangé : même zoom fixe, mêmes tuiles, même recalage immédiat', () => {
     expect(src).toContain('map.invalidateSize();');
-    expect(src).toContain('L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, crossOrigin: true, })');
+    // Arno (20/10/2026) : le fond est le Plan IGN v2 (fondsDePlan.ts) — même zoom, même crossOrigin, attribution IGN en plus.
+    expect(src).toContain('L.tileLayer(FOND_PLAN_IGN.url, { maxZoom: 19, attribution: FOND_PLAN_IGN.attribution, crossOrigin: true, })');
   });
 });

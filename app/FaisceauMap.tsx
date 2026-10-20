@@ -19,8 +19,8 @@ const SEUIL_AXE_PX = 4;            // course min avant de figer l'axe dominant d
 // Chaque fond s'arrête à son dernier niveau FOURNI (maxNativeZoom) ; au-delà, ses tuiles sont AGRANDIES (sur-zoom) au lieu
 // d'en demander d'inexistantes. Ici les boutons « + » plafonnent déjà la vue à 19 (inchangé) : réglage préventif, aligné.
 const TUILES = {
-  map: { ...FONDS_DE_PLAN.map, attribution: "© OpenStreetMap" },
-  satellite: { ...FONDS_DE_PLAN.satellite, attribution: "© Esri" },
+  map: FONDS_DE_PLAN.map,
+  satellite: FONDS_DE_PLAN.satellite,
 } as const;
 type MapMode = keyof typeof TUILES;
 
@@ -151,7 +151,8 @@ export default function FaisceauMap({ lat, lon, azimutDeg, azimutInitial = null,
         zoom: z,
         zoomSnap: 0,
         zoomControl: false,
-        attributionControl: false,
+        // Plan IGN : l'attribution est obligatoire — le petit cartouche de crédits s'affiche (fondsDePlan.ts).
+        attributionControl: true,
         dragging: false,
         touchZoom: false,
         scrollWheelZoom: false,

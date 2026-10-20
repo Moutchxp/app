@@ -15,6 +15,7 @@
 import { useEffect, useRef } from "react";
 import "leaflet/dist/leaflet.css";
 import { destination } from "./lib/geodesieAffichage";
+import { FOND_PLAN_IGN } from "./lib/carte/fondsDePlan";
 
 const RAYON_M = 180; // longueur dessinée du faisceau (cosmétique, rogné)
 const RAYON_CONE_M = 160;
@@ -70,7 +71,8 @@ export default function FaisceauMini({ lat, lon, azimutDeg, couleur }: FaisceauM
         zoom,
         zoomSnap: 0,
         zoomControl: false,
-        attributionControl: false,
+        // Plan IGN : l'attribution est obligatoire — le petit cartouche de crédits s'affiche (fondsDePlan.ts).
+        attributionControl: true,
         dragging: false,
         touchZoom: false,
         scrollWheelZoom: false,
@@ -80,9 +82,10 @@ export default function FaisceauMini({ lat, lon, azimutDeg, couleur }: FaisceauM
       });
       mapRef.current = map;
 
-      // PLAN (dessin) — mêmes tuiles OSM que la carte de localisation.
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      // PLAN (dessin) — le même fond que la carte de localisation : Plan IGN v2 (fondsDePlan.ts).
+      L.tileLayer(FOND_PLAN_IGN.url, {
         maxZoom: 19,
+        attribution: FOND_PLAN_IGN.attribution,
         crossOrigin: true,
       }).addTo(map);
 

@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FONDS_DE_PLAN, ZOOM_MAX_CARTE } from './fondsDePlan';
+import { ATTRIBUTION_IGN, FONDS_DE_PLAN, FOND_PLAN_IGN, ZOOM_MAX_CARTE } from './fondsDePlan';
 
 describe('carte de localisation — la carte reste affichée à tous les zooms', () => {
-  it('chaque fond déclare le dernier niveau qu’il FOURNIT réellement (OSM et Esri : 19)', () => {
+  it('chaque fond déclare le dernier niveau qu’il FOURNIT réellement (Plan IGN et Esri : 19)', () => {
     expect(FONDS_DE_PLAN.map.zoomMaxFourni).toBe(19);
     expect(FONDS_DE_PLAN.satellite.zoomMaxFourni).toBe(19);
   });
@@ -18,7 +18,7 @@ describe('carte de localisation — la carte reste affichée à tous les zooms',
     const src = readFileSync(join(process.cwd(), 'app/MapContent.tsx'), 'utf8').replace(/\s+/g, ' ');
     expect(src).toContain('const fond = FONDS_DE_PLAN[mapMode];');
     expect(src).toContain('L.tileLayer(fond.url, { maxNativeZoom: fond.zoomMaxFourni,');
-    expect(src).toContain('maxZoom: ZOOM_MAX_CARTE, })');
+    expect(src).toContain('maxZoom: ZOOM_MAX_CARTE, attribution: fond.attribution,');
     expect(src).not.toMatch(/tile\.openstreetmap\.org|arcgisonline/); // les URL ne vivent plus qu'à un seul endroit
   });
 });
@@ -33,5 +33,33 @@ describe('carte du faisceau — mêmes fonds, même sur-zoom, zoom des boutons i
   it('les boutons « + » / « − » gardent leurs bornes (19 et 3) : comportement inchangé', () => {
     expect(src).toContain('appliquerVue(Math.min(19, (mapRef.current?.getZoom() ?? 0) + 1))');
     expect(src).toContain('appliquerVue(Math.max(3, (mapRef.current?.getZoom() ?? 0) - 1))');
+  });
+});
+
+/**
+ * 🔴 Arno (20/10/2026) — LE FOND « PLAN » EST LE PLAN IGN V2 (data.geopf.fr, WMTS, sans clé), PARTOUT ; plus aucune tuile
+ * OpenStreetMap (403 sans Referer depuis `Referrer-Policy: same-origin`, gardé tel quel) ; attribution IGN sur chaque carte.
+ */
+describe('fond Plan IGN — une seule URL, toutes les cartes, attribution obligatoire', () => {
+  it('le Plan IGN v2 de la Géoplateforme, en WebMercator (PM), comme les cartes de certificat', () => {
+    expect(FONDS_DE_PLAN.map).toBe(FOND_PLAN_IGN);
+    expect(FOND_PLAN_IGN.url).toMatch(/^https:\/\/data\.geopf\.fr\/wmts\?/);
+    for (const p of ['LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2', 'TILEMATRIXSET=PM', 'TILEMATRIX={z}', 'TILEROW={y}', 'TILECOL={x}', 'STYLE=normal']) {
+      expect(FOND_PLAN_IGN.url).toContain(p);
+    }
+    expect(readFileSync(join(process.cwd(), 'app/lib/carte/orientationCarte.ts'), 'utf8')).toContain("const LAYER = 'GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2';");
+    expect(ATTRIBUTION_IGN).toContain('IGN');
+  });
+  const CARTES = ['app/MapContent.tsx', 'app/FaisceauMap.tsx', 'app/FaisceauMini.tsx', 'app/origine/Carte.tsx',
+    'app/(admin)/admin/(protected)/curation/CurationCarte.tsx', 'app/(admin)/admin/(protected)/statistiques/CarteCommunes.tsx'];
+  it.each(CARTES)('%s : aucune tuile OpenStreetMap ; le fond vient de fondsDePlan.ts ; l’attribution est posée', (f) => {
+    const src = readFileSync(join(process.cwd(), f), 'utf8');
+    expect(src).not.toMatch(/tile\.openstreetmap\.org/);
+    expect(src).toMatch(/FOND_PLAN_IGN|FONDS_DE_PLAN/);
+    expect(src).toMatch(/attribution[:=]\s*\{?\s*(FOND_PLAN_IGN\.attribution|fond\.attribution|t0?\.attribution)/);
+    expect(src).not.toMatch(/attributionControl:\s*false/);
+  });
+  it('la Referrer-Policy de l’admin n’est PAS assouplie (same-origin)', () => {
+    expect(readFileSync(join(process.cwd(), 'app/lib/admin/entetesSecurite.ts'), 'utf8')).toContain("{ key: 'Referrer-Policy', value: 'same-origin' }");
   });
 });

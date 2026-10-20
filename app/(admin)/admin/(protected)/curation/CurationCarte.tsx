@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { estCarteModifiee, modeFooter } from './curationEdition';
+import { FOND_PLAN_IGN } from '../../../../lib/carte/fondsDePlan';
 import { contenuBulleBatiment, doitCreerAuDoubleClic, htmlDetailDossiers, type DossierParcelle } from './bulleBatiment';
 import { LegendeParcelles } from './LegendeParcelles';
 import { EnTetePage } from '../_composants/EnTetePage';
@@ -668,9 +669,10 @@ export default function CurationCarte() {
       [48.856, 2.352],
       12,
     );
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // Plan IGN v2 (fondsDePlan.ts) : les tuiles OpenStreetMap sont refusées (403) sans Referer — voir l'encadré du module.
+    L.tileLayer(FOND_PLAN_IGN.url, {
       maxZoom: 19,
-      attribution: '© OpenStreetMap',
+      attribution: FOND_PLAN_IGN.attribution,
     }).addTo(map);
     mapRef.current = map;
     // Ordre d'empilement : le FOND vit dans un pane DÉDIÉ sous l'overlayPane (zIndex 350 < 400) → il reste

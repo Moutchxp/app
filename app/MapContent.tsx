@@ -170,6 +170,7 @@ export default function MapContent({
     tileLayer.current = L.tileLayer(fond.url, {
       maxNativeZoom: fond.zoomMaxFourni, // au-delà : tuiles de ce niveau AGRANDIES, jamais de tuile inexistante
       maxZoom: ZOOM_MAX_CARTE,
+      attribution: fond.attribution, // Plan IGN : attribution obligatoire (fondsDePlan.ts)
     }).addTo(leafletMap.current);
   }, [mapMode]);
 

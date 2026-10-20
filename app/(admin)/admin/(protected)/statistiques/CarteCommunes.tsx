@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, type MutableRefObject } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import type { Map as LeafletMap } from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { FOND_PLAN_IGN } from '../../../../lib/carte/fondsDePlan';
 import { bulleRayon, formatNombre, couleurDominant, LIBELLE_VERDICT, type CommuneGeo } from './affichage';
 
 /**
@@ -65,7 +66,8 @@ export default function CarteCommunes({ communes, selection, onSelect, reducedMo
         scrollWheelZoom
         aria-label="Carte des communes où des analyses ont abouti — bulles colorées par verdict dominant (anonymisé k)"
       >
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="© OpenStreetMap" />
+        {/* Plan IGN v2 (fondsDePlan.ts) : attribution IGN obligatoire. */}
+        <TileLayer url={FOND_PLAN_IGN.url} attribution={FOND_PLAN_IGN.attribution} />
         {communes.map((c) => {
           const actif = selection.includes(c.commune_insee);
           const couleur = couleurDominant(c.dominant); // dominant déjà k-safe ; null → gris clair neutre
