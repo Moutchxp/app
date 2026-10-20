@@ -216,6 +216,25 @@ export const CSS_LOCATION_ECRANS = `
  * boutons, gros champs de saisie, coins arrondis, espacements larges, une section = une grande carte. » ══════════════════
  * Uniquement les variables du thème (Clair / Sombre / Système), comme tout le reste de la tuile. Portée : `.loc-ample`.
  */
+/**
+ * Les boutons de choix en pilule (`Pilules`, `.loc-pilules`) : leur seule feuille de style, partagée par les écrans de la
+ * Location (dans `CSS_LOCATION_CREATION`) et par la fiche locataire de la Gestion (formulaire « Modifier » des conditions
+ * d'entrée — Arno, 21/10/2026), sans le reste des règles de création.
+ */
+export const CSS_PILULES = `
+.loc-pilules{display:flex;flex-wrap:wrap;gap:10px}
+.loc-pilules button{min-height:54px;padding:0 22px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;font-weight:700;cursor:pointer}
+.loc-pilules button[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
+/* Arno (20/10/2026) : la place de la coche est RÉSERVÉE dans tout bouton à choix — la sélection ne fait plus passer le
+   bouton à la ligne ; la coche n'apparaît (visible) que sur le choix retenu. */
+.loc-pilules button[aria-pressed]::before{content:"✓ ";visibility:hidden}
+.loc-pilules button[aria-pressed="true"]::before{visibility:visible}
+/* Arno (21/10/2026) — LE TEXTE CENTRÉ, sélectionné ou non : la place de la coche est réservée À GAUCHE (visible au choix)
+   ET la même place À DROITE (toujours invisible). Écarts gauche et droit égaux ; aucune largeur ne change au clic. */
+.loc-pilules button[aria-pressed]::after{content:" ✓";visibility:hidden}
+.loc-pilules button:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px}
+`;
+
 export const CSS_LOCATION_CREATION = `
 .loc-ample{gap:26px}
 .loc-ample .loc-titre{font-size:1.7rem}
@@ -254,18 +273,7 @@ export const CSS_LOCATION_CREATION = `
 .loc-oblig{color:var(--color-svv-red)}
 .loc-manque{color:var(--color-svv-red);font-size:.95rem;font-weight:600;margin:0}
 .loc-ample .svv-btn{min-height:52px;border-radius:16px;font-size:1.02rem;padding:0 22px}
-.loc-pilules{display:flex;flex-wrap:wrap;gap:10px}
-.loc-pilules button{min-height:54px;padding:0 22px;border-radius:999px;border:2px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.05rem;font-weight:700;cursor:pointer}
-.loc-pilules button[aria-pressed="true"]{background:var(--color-svv-red);border-color:var(--color-svv-red);color:var(--color-svv-surface)}
-/* Arno (20/10/2026) : la place de la coche est RÉSERVÉE dans tout bouton à choix — la sélection ne fait plus passer le
-   bouton à la ligne ; la coche n'apparaît (visible) que sur le choix retenu. */
-.loc-pilules button[aria-pressed]::before{content:"✓ ";visibility:hidden}
-.loc-pilules button[aria-pressed="true"]::before{visibility:visible}
-/* Arno (21/10/2026) — LE TEXTE CENTRÉ, sélectionné ou non : la place de la coche est réservée À GAUCHE (visible au choix)
-   ET la même place À DROITE (toujours invisible). Écarts gauche et droit égaux ; aucune largeur ne change au clic. */
-.loc-pilules button[aria-pressed]::after{content:" ✓";visibility:hidden}
-.loc-pilules button:focus-visible{outline:3px solid var(--color-svv-red);outline-offset:2px}
-.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:12px}
+${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:12px}
 .loc-puce{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:8px 8px 8px 20px;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-size:1.05rem;font-weight:700;border:2px solid var(--color-svv-green-ink)}
 .loc-puce small{font-weight:500;font-size:.9rem}
 .loc-puce button{width:40px;height:40px;border-radius:999px;border:0;background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:1.1rem;font-weight:800;cursor:pointer}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  heureCourteParis, infobulleHeureParis, msAvantProchaineMinute,
+  infobulleHeureParis, jourHeureParis, msAvantProchaineMinute,
 } from '../../../lib/admin/heureParis';
 
 /**
@@ -76,7 +76,8 @@ export function HeureParis() {
    * ⚠️ `aria-label` EN PLUS DU `title` : un lecteur d'écran annoncerait « 10:58 » sans dire de quoi il s'agit, et
    * `title` n'est pas annoncé de façon fiable. La phrase complète lève les deux ambiguïtés.
    */
-  const court = heureCourteParis(instant);
+  // Arno (21/10/2026) : « mer. 21 oct. · 01:05 » — le jour et la date avant l'heure.
+  const court = jourHeureParis(instant);
   const complet = infobulleHeureParis(instant);
   return (
     <time className="svv-adm-heure" dateTime={instant.toISOString()} title={complet} aria-label={complet}>

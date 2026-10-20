@@ -234,3 +234,15 @@ describe('🔴🔴 ④ la place des deux, dans le bandeau', () => {
     expect(bloc.match(/#[0-9a-fA-F]{3,8}|rgba?\(/g) ?? []).toEqual([]);
   });
 });
+
+describe('Arno (21/10/2026) — « mer. 21 oct. · 01:05 » dans le bandeau', () => {
+  it('jour en 3 lettres, numéro du jour, mois abrégé, puis l’heure de Paris', async () => {
+    const { jourHeureParis } = await import('./heureParis');
+    expect(jourHeureParis(new Date('2026-10-20T23:05:00Z'))).toBe('mer. 21 oct. · 01:05');
+    expect(jourHeureParis(new Date('2026-05-01T10:00:00Z'))).toBe('ven. 1 mai · 12:00');
+    expect(jourHeureParis(new Date('2026-09-07T10:00:00Z'))).toBe('lun. 7 sept. · 12:00');
+    // Passage à l'heure d'hiver : l'heure et la date restent celles de Paris.
+    expect(jourHeureParis(new Date('2026-10-25T01:00:00Z'))).toBe('dim. 25 oct. · 02:00');
+    expect(readFileSync('app/(admin)/admin/(protected)/HeureParis.tsx', 'utf8')).toContain('const court = jourHeureParis(instant);');
+  });
+});

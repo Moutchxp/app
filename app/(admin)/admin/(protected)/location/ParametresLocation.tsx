@@ -42,7 +42,7 @@ export function RoueParametresLocation({ administrateur }: { administrateur: boo
     <>
       <style>{CSS_PARAMETRES}</style>
       <button type="button" className="plo-roue" aria-label="Paramètres Location" title="Paramètres Location" onClick={() => setOuvert(true)} data-roue-parametres>
-        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
           <path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 .05-.94 7.07 7.07 0 0 0-.05-.94l2.03-1.58a.48.48 0 0 0 .12-.62l-1.92-3.32a.48.48 0 0 0-.59-.21l-2.39.96a7 7 0 0 0-1.62-.94l-.36-2.54A.48.48 0 0 0 13.93 2h-3.86a.48.48 0 0 0-.48.41l-.36 2.54a7 7 0 0 0-1.62.94l-2.39-.96a.48.48 0 0 0-.59.21L2.71 8.46a.48.48 0 0 0 .12.62l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.48.48 0 0 0-.12.62l1.92 3.32c.12.22.38.3.59.21l2.39-.96c.5.38 1.04.7 1.62.94l.36 2.54c.04.24.24.41.48.41h3.86c.24 0 .44-.17.48-.41l.36-2.54a7 7 0 0 0 1.62-.94l2.39.96c.22.09.47 0 .59-.21l1.92-3.32a.48.48 0 0 0-.12-.62l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7Z" />
         </svg>
       </button>
@@ -243,8 +243,10 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
 
 /** Jetons du thème ; cibles ≥ 44 px ; plein écran au téléphone ; boutons en bas à droite. */
 export const CSS_PARAMETRES = `
-.plo-roue{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid var(--color-svv-line);border-radius:10px;background:transparent;color:var(--color-svv-ink);cursor:pointer}
-.plo-roue:hover{background:var(--color-svv-field)}
+/* Arno (21/10/2026) : sur la ligne du bandeau, juste à droite de l'heure, SANS CADRE plus haut que les autres éléments —
+   la cible reste de 44 px ; la marge négative l'empêche de rehausser la barre. */
+.plo-roue{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;margin:-8px -6px;border:0;border-radius:10px;background:transparent;color:var(--color-svv-muted);cursor:pointer;flex:0 0 auto}
+.plo-roue:hover{color:var(--color-svv-ink);background:var(--color-svv-surface)}
 .plo-roue:focus-visible{outline:3px solid var(--color-svv-line-strong-hover);outline-offset:2px}
 .plo-voile{position:fixed;inset:0;z-index:80;background:color-mix(in srgb, var(--color-svv-ink) 45%, transparent);display:flex;align-items:center;justify-content:center;padding:24px}
 .plo-fenetre{background:var(--color-svv-surface);color:var(--color-svv-ink);border-radius:18px;width:min(780px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;box-shadow:0 30px 60px -20px color-mix(in srgb, var(--color-svv-ink) 45%, transparent);overflow:hidden;text-align:left;font-weight:400}

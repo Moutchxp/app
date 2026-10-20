@@ -71,17 +71,16 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
                 l'instant de la requête serait fausse une seconde plus tard, et différente de celle que le
                 navigateur calculerait. Voir l'encadré de `HeureParis`. */}
             <HeureParis />
+            {/* Arno (21/10/2026) — UNE SEULE LIGNE, dans cet ordre : la date et l'heure, la roue crantée « Paramètres Location »
+                (juste à droite de l'heure ; administrateurs, accueil Location seulement), « Changer mon mot de passe »,
+                « Déconnexion ». */}
+            <RoueParametresLocation administrateur={session.role === 'administrateur'} />
             {!secours && (
               <a href="/admin/compte/mot-de-passe" style={{ color: 'var(--color-svv-ink)', fontWeight: 600 }}>
                 Changer mon mot de passe
               </a>
             )}
-            {/* Arno (21/10/2026) — la roue crantée « Paramètres Location », SOUS « Déconnexion » : elle ne s'affiche que sur
-                l'accueil du module Location et pour un administrateur (ailleurs, la colonne ne porte que « Déconnexion »). */}
-            <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '.35rem' }}>
-              <BoutonDeconnexion />
-              <RoueParametresLocation administrateur={session.role === 'administrateur'} />
-            </span>
+            <BoutonDeconnexion />
           </span>
         </div>
         <main className="svv-adm-main">{children}</main>

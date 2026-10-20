@@ -52,7 +52,7 @@ describe('🔴 la roue crantée « Paramètres Location »', () => {
     await act(async () => { root.render(createElement(RoueParametresLocation, { administrateur: true })); });
     const roue = container.querySelector('[data-roue-parametres]');
     expect(roue?.getAttribute('aria-label')).toBe('Paramètres Location');
-    expect(container.querySelector('style')?.textContent).toMatch(/\.plo-roue\{[^}]*width:44px;height:44px/);
+    expect(container.querySelector('style')?.textContent).toMatch(/\.plo-roue\{[^}]*width:44px;height:44px;margin:-8px -6px;border:0/);
     await act(async () => { root.render(createElement(RoueParametresLocation, { administrateur: false })); });
     expect(container.querySelector('[data-roue-parametres]')).toBeNull();
     chemin = '/admin/location/locataires';
@@ -60,9 +60,16 @@ describe('🔴 la roue crantée « Paramètres Location »', () => {
     expect(container.querySelector('[data-roue-parametres]')).toBeNull();
   });
 
-  it('la roue est posée dans la barre du haut, SOUS « Déconnexion », avec le rôle de la session', () => {
+  it('Arno (21/10/2026) — la roue est sur la ligne du bandeau, JUSTE À DROITE DE L’HEURE, avant « Changer mon mot de passe » et « Déconnexion »', () => {
     const src = readFileSync('app/(admin)/admin/(protected)/layout.tsx', 'utf8');
-    expect(src).toMatch(/flexDirection: 'column'[\s\S]*<BoutonDeconnexion \/>\s*<RoueParametresLocation administrateur=\{session\.role === 'administrateur'\} \/>/);
+    const i = (m: string) => src.indexOf(m);
+    expect(i('<HeureParis />')).toBeGreaterThan(0);
+    expect(i("<RoueParametresLocation administrateur={session.role === 'administrateur'} />")).toBeGreaterThan(i('<HeureParis />'));
+    const iRoue = i('<RoueParametresLocation');
+    const iMdp = src.indexOf('Changer mon mot de passe', iRoue);
+    expect(iMdp).toBeGreaterThan(iRoue);
+    expect(src.indexOf('<BoutonDeconnexion />', iMdp)).toBeGreaterThan(iMdp);
+    expect(src).not.toContain("flexDirection: 'column'");
   });
 
   it('la modale : deux onglets ; Enregistrer / Annuler en bas', async () => {

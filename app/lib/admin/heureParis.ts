@@ -66,3 +66,14 @@ export function msAvantProchaineMinute(maintenant: Date): number {
   const reste = 60_000 - (maintenant.getTime() % 60_000);
   return Math.max(PLANCHER_PROCHAINE_MINUTE_MS, reste);
 }
+
+/**
+ * Arno (21/10/2026) — LA DATE ET L'HEURE DU BANDEAU : « mer. 21 oct. · 01:05 » (jour en 3 lettres, numéro du jour, mois
+ * abrégé, puis l'heure), en français, heure de Paris. Les morceaux viennent d'`Intl` (jamais une table maison des mois),
+ * assemblés à la main pour que le format ne dépende pas de l'ordre que choisit le navigateur. PUR.
+ */
+export function jourHeureParis(maintenant: Date): string {
+  const p = new Intl.DateTimeFormat('fr-FR', { timeZone: FUSEAU_PARIS, weekday: 'short', day: 'numeric', month: 'short' }).formatToParts(maintenant);
+  const morceau = (t: Intl.DateTimeFormatPartTypes): string => p.find((x) => x.type === t)?.value ?? '';
+  return `${morceau('weekday')} ${morceau('day')} ${morceau('month')} · ${heureCourteParis(maintenant)}`;
+}

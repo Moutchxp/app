@@ -8,7 +8,7 @@ import { POLICE_MIN_INTITULE_PX } from './ConditionsEntree';
 import { CreationProprietaires } from './CreationProprietaires';
 import { ResumeBailFiche } from '../gestion/ResumeBail';
 import { FormulaireCarte } from '../gestion/CartesPersonnes';
-import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS } from './commun';
+import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, CSS_PILULES } from './commun';
 import { QUALITES_CONTACT } from '../../../../lib/location/cartesLocation';
 
 /**
@@ -453,6 +453,9 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
     expect(CSS_LOCATION_ECRANS).toContain('.loc-bascule button[aria-pressed]{position:relative;padding:0 calc(14px + 1em)}');
     expect(CSS_LOCATION_ECRANS).toContain('.loc-bascule button[aria-pressed]::before{content:"✓";position:absolute;left:14px;');
     expect(origine).toContain('.qo-pilule[aria-checked="true"]::before{visibility:visible}');
+    // Arno (21/10/2026) — la fiche locataire de la GESTION charge aussi la feuille des pilules (formulaire « Modifier »).
+    expect(readFileSync('app/(admin)/admin/(protected)/gestion/SectionsLocationFiche.tsx', 'utf8')).toContain('<style>{CSS_LOCATION_ECRANS + CSS_PILULES + CSS_CONDITIONS + CSS_SECTIONS}</style>');
+    expect(CSS_LOCATION_CREATION).toContain(CSS_PILULES);
   });
 
   it('BOUTONS SUR UNE LIGNE : la place de la coche est réservée dans TOUT bouton à choix (visible seulement sur le choix)', async () => {
