@@ -77,6 +77,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 387 : rapprochement des dossiers clients copiés — propositions et décisions (tuile Gestion, 19/10/2026).
   // 388 : dossier attitré d'un bien et rapprochement des biens (tuile Gestion, 19/10/2026).
   // 389 : identifiants de l'arborescence Drive validée N3 → N10 (tuile Gestion, 19/10/2026).
+  // 390 : « Bien en gestion ? » propre à chaque bien (tuile Location, 20/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -85,7 +86,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '378_location_annexe_nom_pno.sql', '379_location_entretien_annexe_mandat.sql', '380_location_origine_archivage.sql',
     '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql', '383_location_preavis.sql', '384_location_etat_des_lieux.sql',
     '385_location_edls.sql', '386_location_regroupement.sql', '387_gestion_rapprochement_dossiers.sql',
-    '388_gestion_dossier_attitre_bien.sql', '389_gestion_drive_noeud.sql'];
+    '388_gestion_dossier_attitre_bien.sql', '389_gestion_drive_noeud.sql', '390_location_bien_en_gestion.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -98,7 +99,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 389 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 390 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -108,14 +109,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (390)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (391)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(389\)/);
-    const renumerotee = planifier([...existants, { fichier: '390_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(390\)/);
+    const renumerotee = planifier([...existants, { fichier: '391_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['390_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['391_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -570,5 +571,22 @@ describe('389 (Gestion : identifiants de l’arborescence Drive validée) : une 
     expect(contenu).toMatch(/BEFORE TRUNCATE ON gestion_drive_noeud\b/);
     expect(contenu).toMatch(/cle text NOT NULL CONSTRAINT gestion_drive_noeud_cle_uq UNIQUE/);
     expect(contenu).toMatch(/drive_id text NOT NULL CONSTRAINT gestion_drive_noeud_drive_id_uq UNIQUE/);
+  });
+});
+
+describe('390 (Location : « Bien en gestion ? » propre à chaque bien) : une colonne sur le lot, « en gestion » par défaut', () => {
+  const contenu = lire(MIGRATIONS, '390_location_bien_en_gestion.sql');
+  const a = analyserMigration({ fichier: '390_location_bien_en_gestion.sql', contenu });
+  it('passe le garde, enveloppée, réversible ; la seule colonne ajoutée est gestion_annuaire_lot.en_gestion', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect(a.irreversible).toBe(false);
+    expect(a.colonnesAjoutees).toEqual([{ table: 'gestion_annuaire_lot', colonne: 'en_gestion' }]);
+    expect(a.tablesCreees).toEqual([]);
+  });
+  it('les biens existants restent « en gestion » (valeur par défaut true, jamais nulle) ; aucune donnée réécrite', () => {
+    expect(contenu).toMatch(/ADD COLUMN IF NOT EXISTS en_gestion boolean NOT NULL DEFAULT true;/);
+    expect(contenu).not.toMatch(/INSERT INTO/);
+    expect(contenu).not.toMatch(/^\s*(UPDATE|DELETE)\b/im);
   });
 });

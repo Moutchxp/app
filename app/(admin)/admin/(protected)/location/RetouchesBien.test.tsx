@@ -11,6 +11,12 @@ import { CreationProprietaires } from './CreationProprietaires';
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** « Bien en gestion ? » (Arno, 20/10/2026) : obligatoire ; ces épreuves portent sur autre chose, on y répond Oui d'emblée. */
+const repondreEnGestion = async () => {
+  const oui = document.querySelector('[data-question-gestion="bien"] button');
+  if (oui !== null) await act(async () => { oui.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+};
+
 const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) }) as unknown as Response;
 const refus = (motif: string) => ({ ok: true, status: 200, json: async () => ({ etat: 'refus', motif }) }) as unknown as Response;
 let container: HTMLDivElement;
@@ -60,6 +66,7 @@ const soumettre = async () => { await act(async () => { (container.querySelector
 describe('🔴 annexe « Autre » : son nom, obligatoire, en tête de la carte et en titre', () => {
   it('sans nom : refusé, rien n’est envoyé ; avec nom : titre de l’annexe et envoyé', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1] })); });
+    await repondreEnGestion();
     await calmer();
     await remplirMinimum();
     await act(async () => { bouton('+ Autre').click(); });
@@ -80,6 +87,7 @@ describe('🔴 annexe « Autre » : son nom, obligatoire, en tête de la carte e
 describe('🔴 flèches ▲ ▼ : étage de −5 à 60 (0 = RDC), pièces à partir de 1', () => {
   it('étage du bien et d’une annexe ; texte libre conservé ; pièces jamais sous 1', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await famille('logement');
     const etage = () => container.querySelector('[data-ligne-situation] [data-champ-fleches="etage"]') as HTMLElement;
     const val = () => (etage().querySelector('input') as HTMLInputElement).value;
@@ -118,6 +126,7 @@ describe('🔴 flèches ▲ ▼ : étage de −5 à 60 (0 = RDC), pièces à par
 describe('🔴 assurance PNO (bloc 6) : Oui ⇒ date anniversaire ; Non la vide', () => {
   it('à droite du DPE ; Oui + date envoyés ; Non vide la date', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1] })); });
+    await repondreEnGestion();
     await calmer();
     await remplirMinimum();
     const ligne = container.querySelector('[data-ligne-dpe-pno]') as HTMLElement;

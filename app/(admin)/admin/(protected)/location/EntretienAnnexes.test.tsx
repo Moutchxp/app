@@ -11,6 +11,12 @@ import { SectionLocationBien, SectionLocationProprietaire } from '../gestion/Sec
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** « Bien en gestion ? » (Arno, 20/10/2026) : obligatoire ; ces épreuves portent sur autre chose, on y répond Oui d'emblée. */
+const repondreEnGestion = async () => {
+  const oui = document.querySelector('[data-question-gestion="bien"] button');
+  if (oui !== null) await act(async () => { oui.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+};
+
 const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) }) as unknown as Response;
 const bien = (id: number, o: Record<string, unknown> = {}) => ({
   id, numero: String(id), adresse: '10 rue de l’Essai', codePostal: '75011', commune: 'PARIS', nature: null, typeBien: null,
@@ -93,6 +99,7 @@ const soumettre = async () => { await act(async () => { (container.querySelector
 describe('🔴 bloc 6 : la date d’AG alignée ; « Entretien à prévoir »', () => {
   it('AG dans la même grille qu’Époque et Chauffage, alignée EN HAUT (la légende ne décale rien)', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1] })); });
+    await repondreEnGestion();
     await calmer();
     await remplirMinimum();
     const ligne = container.querySelector('[data-ligne-epoque]') as HTMLElement;
@@ -104,6 +111,7 @@ describe('🔴 bloc 6 : la date d’AG alignée ; « Entretien à prévoir »', 
 
   it('Oui : chaudière + date, ramonage, deux autres (un supprimé) ; envoyés ; Non vide le tout', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1] })); });
+    await repondreEnGestion();
     await calmer();
     await remplirMinimum();
     const bloc = () => container.querySelector('[data-entretien-bloc]') as HTMLElement;
@@ -138,6 +146,7 @@ describe('🔴 bloc 6 : la date d’AG alignée ; « Entretien à prévoir »', 
 describe('🔴 annexes du formulaire : annotation ; Supprimer (confirmé) · Détacher / Rattacher · Fermer / Ouvrir', () => {
   it('annotation (2 lignes, s’agrandit) envoyée ; Fermer ⇒ ligne résumée ; Détacher ⇒ « Détachée » envoyé ; Supprimer après confirmation', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1] })); });
+    await repondreEnGestion();
     await calmer();
     await remplirMinimum();
     await act(async () => { bouton('+ Parking').click(); });

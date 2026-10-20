@@ -49,6 +49,11 @@ export function dpeNonSoumisDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'dpe_non_soumis');
 }
 
+/** La migration 390 (« Bien en gestion ? », propre à chaque bien) est-elle là ? */
+export function bienEnGestionDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_annuaire_lot', 'en_gestion');
+}
+
 /** La migration 376 (famille de bien, parking, accès, annexe à autre adresse) est-elle là ? */
 export function familleDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'adresse_autre');
@@ -207,6 +212,11 @@ export async function creerBienComplet(s: SaisieBien & {
   // « Non soumis » ne s'écrit que dans la colonne de la migration 382 : sans elle, rien n'est créé (jamais un DPE perdu en silence).
   const avec382 = await dpeNonSoumisDisponible();
   if (l.dpeNonSoumis === true && !avec382) return { etat: 'sans_schema' };
+  // « Bien en gestion ? » (migration 390) : sans la colonne, « Non » n'est jamais perdu en silence — rien n'est créé.
+  // « Oui » est la valeur par défaut de la colonne : sans elle, le bien est créé comme avant.
+  const avec390 = await bienEnGestionDisponible();
+  if (!v.enGestion && !avec390) return { etat: 'sans_schema' };
+  const statut = avec390 ? { en_gestion: v.enGestion } : {};
   const vivante = await sqlPersonneVivante('p');
   const portefeuille = await sqlDansPortefeuille('p');
   let cree: { logementId: number; annexes: number[] };
@@ -233,6 +243,7 @@ export async function creerBienComplet(s: SaisieBien & {
         ascenseur: l.ascenseur, digicode: l.digicode, digicode_code: l.digicodeCode, precision_acces: l.precisionAcces,
         ...(avec378 ? { assurance_pno: l.assurancePno ?? null, pno_date_anniversaire: l.assurancePno === true ? l.pnoDateAnniversaire ?? null : null } : {}),
         ...(avec382 ? { dpe_non_soumis: l.dpeNonSoumis === true ? true : null } : {}),
+        ...statut,
       }, auteur);
       const annexes: number[] = [];
       for (const a of v.annexes) {
@@ -242,13 +253,16 @@ export async function creerBienComplet(s: SaisieBien & {
         const id = await insererLot(q, proprietaires, { ...a, ...adresse }, a.categorie ?? 'cave', {
           adresse_autre: a.autreAdresse, parking_situation: a.parkingSituation, parking_type: a.parkingType,
           ...(avec378 ? { nom_annexe: a.nomAnnexe } : {}),
+          // Une annexe suit le statut de son logement / local : elle est louée et gérée avec lui.
+          ...statut,
           ...(avec379 ? { annotation: a.annotation ?? null, ...(a.detachee === true ? { annexe_detachee_le: new Date().toISOString(), annexe_detachee_par_libelle: auteur.libelle } : {}) } : {}),
         }, auteur);
         await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [id, logementId, auteur.libelle]);
         annexes.push(id);
       }
       await journaliser(q, 'annuaire_lot', logementId, 'location_bien_cree',
-        `bien créé dans la Location (formulaire complet) : ${v.famille} + ${annexes.length} annexe(s), propriétaire(s) ${proprietaires.map((p) => p.id).join(', ')}`, auteur);
+        `bien créé dans la Location (formulaire complet) : ${v.famille} + ${annexes.length} annexe(s), propriétaire(s) ${proprietaires.map((p) => p.id).join(', ')}`
+        + `${avec390 ? `, bien en gestion : ${v.enGestion ? 'oui' : 'non'}` : ''}`, auteur);
       return { logementId, annexes };
     });
   } catch (e) {

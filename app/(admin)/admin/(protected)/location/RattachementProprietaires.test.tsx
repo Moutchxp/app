@@ -10,6 +10,12 @@ import { CreationBien } from './CreationBien';
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** « Bien en gestion ? » (Arno, 20/10/2026) : obligatoire ; ces épreuves portent sur autre chose, on y répond Oui d'emblée. */
+const repondreEnGestion = async () => {
+  const oui = document.querySelector('[data-question-gestion="bien"] button');
+  if (oui !== null) await act(async () => { oui.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+};
+
 const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) }) as unknown as Response;
 const LEA = { id: 3, nom: 'MARTIN Léa', telephone: '+33611111111', email: 'lea@exemple.test', biens: ['3 rue du Port, PARIS'] };
 const PAUL = { id: 4, nom: 'MARTIN Paul', telephone: '+33622222222', email: null, biens: ['3 rue du Port, PARIS'] };
@@ -52,6 +58,7 @@ const nomsCartes = (sel: string) => [...container.querySelectorAll(`${sel} .cp-n
 describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () => {
   it('un couple : le panneau s’ouvre sous la recherche (pas de modale), 2 groupes, SEULE la personne cherchée cochée → une seule rattachée', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await chercherEtChoisir('MARTIN Léa');
     const panneau = container.querySelector('[data-qui-rattacher]') as HTMLElement;
     expect(panneau.closest('.loc-section')?.querySelector('h3')?.textContent).toContain('Propriétaire(s)');
@@ -72,6 +79,7 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
 
   it('les deux personnes + le contact existant ; envoyés à l’enregistrement (personnes cochées seules propriétaires, contact rattaché)', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await chercherEtChoisir('MARTIN Léa');
     await cocher('[data-coche-proprietaire="4"]');
     await cocher('[data-coche-contact="70"]');
@@ -96,6 +104,7 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
 
   it('cartes en LECTURE SEULE (aucun champ, aucun crayon) avec « Modifier dans la fiche ↗ » ; la croix retire du bien seulement, sans écrire', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await chercherEtChoisir('MARTIN Léa');
     await cocher('[data-coche-contact="70"]');
     await act(async () => { bouton('Rattacher la sélection')!.click(); });
@@ -116,6 +125,7 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
 
   it('jamais de doublon : une 2e recherche montre les déjà rattachés cochés et grisés, et n’ajoute que le nouveau', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await chercherEtChoisir('MARTIN Léa');
     await cocher('[data-coche-contact="70"]');
     await act(async () => { bouton('Rattacher la sélection')!.click(); });
@@ -134,6 +144,7 @@ describe('🔴 bloc 1 « Propriétaire(s) » : qui rattacher à ce bien ?', () =
 
   it('au moins une personne propriétaire cochée pour valider ; « Annuler » ferme sans rien rattacher', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await chercherEtChoisir('MARTIN Léa');
     await cocher('[data-coche-proprietaire="3"]');
     await cocher('[data-coche-contact="70"]');

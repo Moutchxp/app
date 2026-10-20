@@ -14,6 +14,12 @@ import { SectionLocationBien } from '../gestion/SectionsLocationFiche';
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** « Bien en gestion ? » (Arno, 20/10/2026) : obligatoire ; ces épreuves portent sur autre chose, on y répond Oui d'emblée. */
+const repondreEnGestion = async () => {
+  const oui = document.querySelector('[data-question-gestion="bien"] button');
+  if (oui !== null) await act(async () => { oui.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+};
+
 const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) }) as unknown as Response;
 const bienFiche = (id: number, o: Record<string, unknown> = {}) => ({
   id, numero: String(id), adresse: '10 rue de l’Essai', codePostal: '75011', commune: 'PARIS', nature: null, typeBien: null,
@@ -87,6 +93,7 @@ const logementMinimal = async (f: 'logement' | 'local' = 'logement') => {
 const rendre = async (props: Parameters<typeof CreationBien>[0] = { proprietairesInitiaux: [1] }) => {
   await act(async () => { root.render(createElement(CreationBien, props)); });
   await calmer();
+  await repondreEnGestion();
 };
 
 describe('🔴 « Ajouter un nouveau bien » : DPE et entretien obligatoires (logement, local)', () => {

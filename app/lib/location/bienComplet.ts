@@ -143,6 +143,11 @@ export interface SaisieBien {
   proprietaireIds: number[];
   logement: Record<string, unknown>;
   annexes: Record<string, unknown>[];
+  /**
+   * « Bien en gestion ? » (Arno, 20/10/2026) : Oui / Non, OBLIGATOIRE dès qu'il est envoyé (l'écran l'envoie toujours,
+   * `null` tant qu'on n'a pas répondu). Absent (appel d'avant ce lot) : le bien est « en gestion », la valeur par défaut.
+   */
+  enGestion?: unknown;
 }
 
 const texte = (v: unknown, max: number): string | null => {
@@ -165,6 +170,8 @@ export function manquesDuBien(s: {
   dpeClasse?: unknown; dpeDate?: unknown; entretienAPrevoir?: unknown; entretiens?: unknown;
   /** La date civile du jour (« AAAA-MM-JJ ») — la date du DPE ne peut pas la dépasser. Par défaut : aujourd'hui à Paris. */
   aujourdhui?: string;
+  /** « Bien en gestion ? » — absent : la question n'est pas posée ; posé, Oui ou Non est exigé (Arno, 20/10/2026). */
+  enGestion?: unknown;
 }): Record<string, string> {
   const m: Record<string, string> = {};
   const famille = dans(FAMILLES, s.famille);
@@ -181,6 +188,8 @@ export function manquesDuBien(s: {
     if (ouiNon(a.autreAdresse) === true && vide(a.adresse)) m[`annexe-${i}`] = `Annexe ${i + 1} : l’autre adresse est à renseigner.`;
   });
   if (famille === 'logement' || famille === 'local') Object.assign(m, manquesDpeEntretien(s, s.aujourdhui ?? aujourdhuiParis()));
+  // Le dernier bloc du formulaire (Arno, 20/10/2026), donc le dernier manque.
+  if ('enGestion' in s && typeof s.enGestion !== 'boolean') m.enGestion = 'Bien en gestion ? : répondez Oui ou Non.';
   return m;
 }
 
@@ -291,7 +300,7 @@ function dateValide(t: string): boolean {
 
 /** Vérifie la saisie complète : les obligatoires (par famille), puis chaque champ facultatif renseigné. */
 export function verifierBienComplet(s: SaisieBien):
-  { ok: true; proprietaireIds: number[]; famille: Famille; logement: ChampsBienComplet; annexes: AnnexeSaisie[] } | { ok: false; motif: string } {
+  { ok: true; proprietaireIds: number[]; famille: Famille; logement: ChampsBienComplet; annexes: AnnexeSaisie[]; enGestion: boolean } | { ok: false; motif: string } {
   const ids = [...new Set((Array.isArray(s.proprietaireIds) ? s.proprietaireIds : []).map(Number).filter((n) => Number.isInteger(n) && n > 0))];
   const l = s.logement ?? {};
   const brutes = Array.isArray(s.annexes) ? s.annexes : [];
@@ -299,6 +308,7 @@ export function verifierBienComplet(s: SaisieBien):
     proprietaireIds: ids, adresse: l.adresse, famille: l.famille, typeLogement: l.typeLogement, typeLocal: l.typeLocal, parkingType: l.parkingType,
     dpeClasse: l.dpeClasse, dpeDate: l.dpeDate, entretienAPrevoir: l.entretienAPrevoir, entretiens: l.entretiens,
     annexes: brutes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse, categorie: a.categorie, nomAnnexe: a.nomAnnexe })),
+    ...(s.enGestion !== undefined ? { enGestion: s.enGestion } : {}),
   }));
   if (manque.length > 0) return { ok: false, motif: manque.join(' ') };
   const famille = dans(FAMILLES, l.famille) as Famille;
@@ -349,5 +359,5 @@ export function verifierBienComplet(s: SaisieBien):
       parkingType: parking ? dans(TYPES_PARKING, a.parkingType) : null,
     });
   }
-  return { ok: true, proprietaireIds: ids, famille, annexes, logement };
+  return { ok: true, proprietaireIds: ids, famille, annexes, logement, enGestion: s.enGestion !== false };
 }

@@ -6,7 +6,8 @@ import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { SaisieCartes, type EtatCartes } from './SaisieCartes';
 import { CreationBien } from './CreationBien';
-import { CSS_FETE, FeteOui } from './FeteOui';
+import { CSS_FETE } from './FeteOui';
+import { QuestionEnGestion } from './QuestionEnGestion';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « CRÉER UN NOUVEAU PROPRIÉTAIRE » (/admin/location/nouveau-proprietaire), Arno, 17/10/2026 ══
@@ -33,8 +34,6 @@ export function CreationProprietaires() {
   const [transaction, setTransaction] = useState('');
   /** « Propriétaire(s) en gestion ? » — `null` tant qu'on n'a pas répondu (ni mandat, ni gros bouton). */
   const [enGestion, setEnGestion] = useState<boolean | null>(null);
-  /** La fête du « Oui » : relancée (clé) à chaque NOUVEAU passage à Oui. */
-  const [fete, setFete] = useState(0);
   const [motif, setMotif] = useState<string | null>(null);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
   /** Le formulaire du bien est-il ouvert sous les cartes ? */
@@ -93,20 +92,10 @@ export function CreationProprietaires() {
 
       {/* Arno (17/10/2026) : « Propriétaire(s) en gestion ? » — Oui / Non, deux gros boutons ; on peut changer d'avis.
           Oui ⇒ le N° de mandat de gestion, Non ⇒ le N° de mandat de transaction locative (Arno, 18/10/2026) ; le gros bouton
-          n'apparaît qu'une fois le numéro rempli ; changer d'avis vide le champ de l'autre choix. */}
-      <section className="loc-section" aria-labelledby="loc-p2" data-question-gestion>
-        <h3 id="loc-p2"><span className="loc-num">2</span>Propriétaire(s) en gestion ?</h3>
-        <div className="loc-gros-boutons loc-oui-non" role="group" aria-label="Propriétaire(s) en gestion ?">
-          {/* Arno (18/10/2026) : la FÊTE du Oui — au passage à Oui seulement, contenue dans le bouton, 3 s, sans son. */}
-          <button type="button" className="loc-gros-bouton loc-gros-bouton--centre fete-hote" aria-pressed={enGestion === true}
-            onClick={() => { if (enGestion !== true) setFete((n) => n + 1); setEnGestion(true); setTransaction(''); setMotif(null); }}>
-            <span className="fete-texte">{enGestion === true ? '✓ Oui' : 'Oui'}</span>
-            {fete > 0 && <FeteOui key={fete} />}
-          </button>
-          <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={enGestion === false}
-            onClick={() => { setEnGestion(false); setMandat(''); setMotif(null); }}>{enGestion === false ? '✓ Non' : 'Non'}</button>
-        </div>
-      </section>
+          n'apparaît qu'une fois le numéro rempli ; changer d'avis vide le champ de l'autre choix. Le bloc est
+          `QuestionEnGestion`, le même que « Bien en gestion ? » de l'écran « Nouveau bien » (Arno, 20/10/2026). */}
+      <QuestionEnGestion id="loc-p2" numero={2} titre="Propriétaire(s) en gestion ?" sorte="proprietaires" valeur={enGestion}
+        onChoix={(oui) => { setEnGestion(oui); if (oui) setTransaction(''); else setMandat(''); setMotif(null); }} />
 
       {enGestion === true && (
         <section className="loc-section" aria-labelledby="loc-p3" data-mandat>
@@ -140,7 +129,7 @@ export function CreationProprietaires() {
         <div ref={ancre} className="loc-suite-bien" data-formulaire-bien>
           <CreationBien proprietairesInitiaux={[]} continuite={{
             proprietaires: [...etat.clients.map((c) => ({ nom: nomDeCarte(c) })), ...etat.existants.map((x) => ({ nom: x.nom }))],
-            contacts: etat.contacts, creerFiches,
+            contacts: etat.contacts, creerFiches, enGestion,
           }} />
         </div>
       )}

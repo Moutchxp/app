@@ -13,6 +13,12 @@ import { CreationLocataire, LotsLoues } from './CreationLocataire';
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+/** « Bien en gestion ? » (Arno, 20/10/2026) : obligatoire ; ces épreuves portent sur autre chose, on y répond Oui d'emblée. */
+const repondreEnGestion = async () => {
+  const oui = document.querySelector('[data-question-gestion="bien"] button');
+  if (oui !== null) await act(async () => { oui.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+};
+
 const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) }) as unknown as Response;
 let container: HTMLDivElement;
 let root: Root;
@@ -183,12 +189,13 @@ describe('🔴 Créer un nouveau propriétaire', () => {
 });
 
 describe('🔴 Ajouter un nouveau bien', () => {
-  it('les propriétaires arrivés de la création sont déjà là ; 7 sections en entonnoir ; bouton collant', async () => {
+  it('les propriétaires arrivés de la création sont déjà là ; 8 sections en entonnoir (dont « Bien en gestion ? ») ; bouton collant', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1, 2] })); });
+    await repondreEnGestion();
     await calmer();
     expect([...container.querySelectorAll('[data-proprietaires] [data-carte-proprietaire] .cp-nom')].map((x) => x.textContent)).toEqual(['DUPONT Paul', 'DUPONT Anne']);
     expect([...container.querySelectorAll('.loc-section > h3')].map((h) => h.textContent?.replace(/^\d/, '').replace('*', '').trim()))
-      .toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Annexes', 'Caractéristiques complémentaires', 'Commentaires']);
+      .toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Annexes', 'Caractéristiques complémentaires', 'Commentaires', 'Bien en gestion ?']);
     expect(container.querySelector('[data-collant] button[type="submit"]')?.textContent).toBe('Enregistrer le bien');
     // Syndic : libellé, loupe et « + » (désactivés tant que l'adresse n'est pas saisie).
     expect(container.querySelector('[data-syndic] .loc-syndic-mot')?.textContent).toBe('Syndic');
@@ -198,6 +205,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
 
   it('obligatoires : sans adresse ni type, « Enregistrer le bien » dit ce qui manque et n’envoie rien', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await calmer();
     await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
     expect(container.textContent).toContain('Choisissez au moins un propriétaire.');
@@ -212,6 +220,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
 
   it('FAMILLE : rien du bloc « Le bien » tant qu’aucune n’est choisie ; chaque famille montre ses champs', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     const bloc = () => container.querySelector('[data-bloc-bien]') as HTMLElement;
     expect([...bloc().querySelectorAll('[data-famille]')].map((x) => x.textContent)).toEqual(['Logement', 'Local', 'Parking nu']);
     expect(bloc().querySelector('.loc-gros-boutons--3d')).not.toBeNull();
@@ -236,14 +245,15 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(bloc().textContent).toContain('Intérieur');
     expect([...bloc().querySelectorAll('[aria-label="Type de parking"] button')].map((x) => x.textContent)).toEqual(['Place simple', 'Place double', 'Box simple', 'Box double']);
     expect(bloc().textContent).not.toMatch(/Nombre de pièces|Meublé|Carrez/);
-    expect(titres()).toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Commentaires']);
+    expect(titres()).toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Commentaires', 'Bien en gestion ?']);
     // « N° de porte » devient « N° de place » dans la situation d'un parking nu.
     expect([...container.querySelectorAll('[data-ligne-situation] .loc-champ')].map((l) => l.firstChild?.textContent)).toContain('N° de place');
-    expect([...container.querySelectorAll('.loc-num')].map((x) => x.textContent)).toEqual(['1', '2', '3', '4', '5']);
+    expect([...container.querySelectorAll('.loc-num')].map((x) => x.textContent)).toEqual(['1', '2', '3', '4', '5', '6']);
   });
 
   it('obligatoires PAR FAMILLE : type de local, type de parking', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await famille('local'); await soumettre();
     expect(container.textContent).toContain('Choisissez : Local commercial ou Bureaux.');
     await famille('parking'); await soumettre();
@@ -253,6 +263,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
 
   it('ACCÈS : le « Code » à droite des boutons du digicode — 8 caractères au plus, actif sur Oui, vidé sur Non ; « Précision »', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     expect(container.querySelector('[aria-label="Ascenseur"]')).not.toBeNull();
     const code = () => container.querySelector('[data-digicode] input') as HTMLInputElement;
     expect(code().placeholder).toBe('ex. 57B83');
@@ -272,6 +283,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
 
   it('DERNIÈRE AG (bloc 6) : pré-remplie si connue pour l’immeuble, envoyée avec le bien ; absente pour un parking nu', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [1] })); });
+    await repondreEnGestion();
     await calmer();
     await famille('logement');
     const ag = () => container.querySelector('[data-derniere-ag] input') as HTMLInputElement | null;
@@ -304,6 +316,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
   it('SYNDIC : plus de bandeau en double sous le champ ; la modale s’ouvre d’elle-même UNE fois pour une adresse connue', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     const adr = container.querySelector('.cab-enveloppe input') as HTMLInputElement;
     await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(adr, '14 rue des Lilas'); adr.dispatchEvent(new Event('input', { bubbles: true })); });
     await act(async () => { vi.advanceTimersByTime(700); });
@@ -318,6 +331,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
 
   it('ANNEXES : un parking a les options du parking nu ; « Autre adresse » fait apparaître une adresse', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await famille('logement');
     await act(async () => { bouton('+ Parking').click(); });
     const annexe = () => container.querySelector('[data-annexes] > li.loc-enfant') as HTMLElement;
@@ -332,6 +346,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
 
   it('« + Cave » / « + Parking » : les annexes s’affichent SOUS le logement', async () => {
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
+    await repondreEnGestion();
     await famille('logement');
     await act(async () => { bouton('+ Cave').click(); });
     await act(async () => { bouton('+ Parking').click(); });

@@ -737,6 +737,14 @@ function CartoucheEvenement({ nb, onOuvrir }: { nb: number; onOuvrir: () => void
  * numéro, jamais le texte affiché ; aucun lien ne la visait ; seul un test lisait le mot « lot » dans la source.
  * Le logiciel s'écrit WIPPIMMO dans tout le module : c'est cette graphie qui est affichée.
  */
+/**
+ * « Hors gestion » (Arno, 20/10/2026) : le bien a répondu Non à « Bien en gestion ? » (migration 390). Le MOT porte
+ * l'information, la couleur ambre ne fait que la redire. Une étiquette, rien d'autre : aucun comportement n'en dépend.
+ */
+export function EtiquetteHorsGestion() {
+  return <span className="ann-etiq ann-etiq--hors-gestion" data-hors-gestion>Hors gestion</span>;
+}
+
 function RefWippimmo({ numero }: { numero: string }) {
   return <span className="ann-carte-ref">Réf. Wippimmo {numero}</span>;
 }
@@ -791,6 +799,8 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
                 🔴 LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — la pastille « lot N » a QUITTÉ l'en-tête (accord d'Arno) :
                 la référence est écrite en bas de la carte, petite et grise (« Réf. Wippimmo N »). */}
             {pastillesBien(b).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
+            {/* Arno (20/10/2026) : « Bien en gestion ? » = Non → « Hors gestion » (le mot + la couleur), rien d'autre. */}
+            {b.horsGestion === true && <EtiquetteHorsGestion />}
           </span>
         </span>
       </button>
@@ -1459,6 +1469,7 @@ function VueLot({
           <p className="ann-tete-sous">
             <span className="ann-role-capsule">Bien</span>
             {pastillesBien(f).map((m, i) => <span key={`${i}-${m}`} className="ann-etiq">{m}</span>)}
+            {f.horsGestion === true && <EtiquetteHorsGestion />}
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
           </p>
           <RefWippimmo numero={f.numero} />
@@ -2401,6 +2412,8 @@ export const CSS_ANNUAIRE = `
 .ann-etiq--passe{opacity:.85}
 /* « absent du dernier export » : le MOT porte l'information ; la bordure ne fait que la redire. */
 .ann-etiq--absent{border-color:var(--color-svv-red);color:var(--color-svv-ink)}
+/* « Hors gestion » (migration 390) : le MOT porte l'information ; l'ambre ne fait que la redire. */
+.ann-etiq--hors-gestion{background:var(--color-svv-amber-soft);border-color:var(--color-svv-amber);color:var(--color-svv-amber)}
 .ann-fiche{display:flex;flex-direction:column;gap:.5rem;min-width:0}
 .ann-retour{align-self:flex-start}
 /* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════

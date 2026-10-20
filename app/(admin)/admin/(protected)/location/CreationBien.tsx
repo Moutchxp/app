@@ -23,6 +23,8 @@ import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { BadgeCarte } from './SaisieCartes';
 import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type PersonneProprietaire } from '../../../../lib/location/rattachementProprietaires';
 import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
+import { CSS_FETE } from './FeteOui';
+import { QuestionEnGestion } from './QuestionEnGestion';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « AJOUTER UN NOUVEAU BIEN » (/admin/location/nouveau-bien), Arno, 17/10/2026 ══════════════════
@@ -44,6 +46,13 @@ import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
  * bloc ne s'affichent pas. Un parking nu n'a ni annexes ni caractéristiques complémentaires ; les titres et phrases
  * s'adaptent, l'ordre en entonnoir ne change pas. Ascenseur et digicode pour toutes les familles ; annexes « parking » avec
  * les options du parking ; chaque annexe « Même adresse » (par défaut) ou « Autre adresse ».
+ *
+ * ══ « BIEN EN GESTION ? » (Arno, 20/10/2026) ════════════════════════════════════════════════════════════════════════════
+ * « Ce bien n'est pas forcément en gestion : chaque bien doit porter son propre statut. » Dernier bloc, après
+ * « Commentaires » : le MÊME bloc que « Propriétaire(s) en gestion ? » (`QuestionEnGestion`), réponse OBLIGATOIRE (elle
+ * entre dans « Reste à renseigner » et bloque « Enregistrer le bien »). Le statut est porté par le BIEN (migration 390). En
+ * continuité de « Créer un nouveau propriétaire », la question n'est pas reposée : le bien prend la réponse donnée pour
+ * ses propriétaires juste au-dessus.
  */
 interface Annexe {
   cle: number; categorie: Categorie; etage: string; numLotCopro: string; porte: string;
@@ -93,6 +102,8 @@ export interface Continuite {
   contacts: ChampsSaisis[];
   /** Crée les fiches (une seule fois : un second appel rend les mêmes identifiants), ou rend le motif du refus. */
   creerFiches: () => Promise<{ ids: number[] } | { motif: string }>;
+  /** « Propriétaire(s) en gestion ? » de l'écran du dessus : le statut du bien créé avec eux (Arno, 20/10/2026). */
+  enGestion?: boolean | null;
 }
 
 export function CreationBien({ proprietairesInitiaux, continuite }: { proprietairesInitiaux: number[]; continuite?: Continuite }) {
@@ -128,6 +139,12 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   const [assurancePno, setAssurancePno] = useState<boolean | null>(null);
   /** L'ENTRETIEN À PRÉVOIR (Arno, 18/10/2026) : Non vide le tout. */
   const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
+  /**
+   * « BIEN EN GESTION ? » (Arno, 20/10/2026) : `null` tant qu'on n'a pas répondu. En continuité, la question n'est pas
+   * posée : la réponse du dessus (toujours donnée avant que ce formulaire s'ouvre), sinon rien (« en gestion » par défaut).
+   */
+  const [enGestionSaisi, setEnGestion] = useState<boolean | null>(null);
+  const enGestion: boolean | null | undefined = continuite !== undefined ? continuite.enGestion ?? undefined : enGestionSaisi;
 
   // Les propriétaires arrivés de « Créer un nouveau propriétaire » : déjà rattachés, modifiables (retirables).
   const initiaux = useLecture<PersonneProprietaire[]>(proprietairesInitiaux.length > 0 ? `cartesProprietaires=${proprietairesInitiaux.join(',')}` : null);
@@ -189,6 +206,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     proprietaireIds: continuite !== undefined ? [1] : proprietaires.map((p) => p.id), adresse: b.adresse, famille, typeLogement: type, typeLocal, parkingType,
     dpeClasse: b.dpeClasse, dpeDate: b.dpeDate, entretienAPrevoir: entretien.aPrevoir, entretiens: versEnvoiEntretien(entretien).entretiens, aujourdhui,
     annexes: avecAnnexes ? annexes.map((a) => ({ autreAdresse: a.autreAdresse, adresse: a.adresse, categorie: a.categorie, nomAnnexe: a.nomAnnexe })) : [],
+    ...(enGestion !== undefined ? { enGestion } : {}),
   });
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
@@ -220,7 +238,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
       proprietaireIds = f.ids;
     }
     const r = await envoyer({
-      action: 'creer-bien', proprietaireIds, contactsExistants: contactsExistants.map((c) => c.id),
+      action: 'creer-bien', proprietaireIds, contactsExistants: contactsExistants.map((c) => c.id), enGestion,
       logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
         assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)) },
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
@@ -249,17 +267,18 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
-  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes', 'complements'] : []), 'commentaires'];
+  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes', 'complements'] : []), 'commentaires',
+    ...(continuite !== undefined ? [] : ['gestion'])];
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
   return (
     // noValidate : les refus sont ceux de la règle (`bienComplet.ts`), dits sous chaque champ — jamais la bulle du navigateur
     // (la date du DPE porte `max` = aujourd'hui pour griser le futur dans le sélecteur).
     <form className="loc-page loc-ample" noValidate onSubmit={(e) => { e.preventDefault(); void enregistrer(); }}>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_RATTACHEMENT + CSS_CHAMP_ADRESSE + CSS_CHAMP_FLECHES + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_ANNEXE_CARTE + CSS_DPE_PNO + CSS_FETE}</style>
       {continuite === undefined ? (
         <EnTeteLocation titre="Ajouter un nouveau bien"
-          sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type ; pour un logement ou un local, le DPE et l’entretien à prévoir <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
+          sous={<>Obligatoires : au moins un propriétaire, l’adresse, la famille du bien et son type ; pour un logement ou un local, le DPE et l’entretien à prévoir ; et si le bien est en gestion <span className="loc-oblig">*</span>. Tout le reste se complète plus tard.</>} />
       ) : (
         <section className="loc-section loc-rappel" aria-labelledby="loc-rappel-titre" data-rappel-proprietaires>
           <h3 id="loc-rappel-titre">Le bien de ce nouveau propriétaire</h3>
@@ -557,6 +576,11 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
         <label className="loc-champ">Commentaire libre
           <textarea value={b.commentaire} onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, commentaire: val })); }} maxLength={4000} /></label>
       </section>
+
+      {continuite === undefined && (
+        <QuestionEnGestion id="loc-b8" numero={n('gestion')} titre="Bien en gestion ?" sorte="bien" obligatoire valeur={enGestionSaisi}
+          onChoix={setEnGestion}>{manqueDe('enGestion')}</QuestionEnGestion>
+      )}
 
       {mailEchec !== null && (
         <div className="loc-alerte loc-alerte--orange" role="alert" data-mail-echec>

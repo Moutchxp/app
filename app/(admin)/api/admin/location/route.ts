@@ -289,6 +289,8 @@ export async function POST(request: Request): Promise<Response> {
           contacts: Array.isArray(corps.contacts) ? (corps.contacts as ContactSaisi[]).slice(0, 20) : [],
           syndic: corps.syndic !== null && typeof corps.syndic === 'object' ? corps.syndic as SyndicDuBien : null,
           contactsExistants: Array.isArray(corps.contactsExistants) ? (corps.contactsExistants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 40) : [],
+          // « Bien en gestion ? » (Arno, 20/10/2026) : envoyé par l'écran, Oui / Non exigé ; absent = « en gestion ».
+          enGestion: corps.enGestion,
         }, auteur);
         // Nouveau mandat de gestion : un mail SEULEMENT si un des propriétaires est « en gestion = Oui » (Arno, 18/10/2026).
         return repondre(await avecMail(r, r.etat !== 'ok' ? null : {

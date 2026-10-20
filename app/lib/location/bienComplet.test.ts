@@ -98,3 +98,27 @@ describe('🔴 DPE et « Entretien à prévoir » obligatoires à la création d
     expect(aRenseignerDuBien({ ...vide, entretiens: undefined }, 'logement')).toEqual(['DPE à renseigner']);
   });
 });
+
+describe('🔴 « Bien en gestion ? » (Arno, 20/10/2026) — réponse obligatoire, portée par le bien', () => {
+  const PARKING = { proprietaireIds: [1], adresse: '1 rue A', famille: 'parking', parkingType: 'box_simple' };
+  it('posée sans réponse : un manque, le DERNIER (ordre du formulaire) ; Oui ou Non : plus rien', () => {
+    expect(manquesDuBien({ ...PARKING, enGestion: null })).toEqual({ enGestion: 'Bien en gestion ? : répondez Oui ou Non.' });
+    expect(Object.keys(manquesDuBien({ proprietaireIds: [], adresse: '', enGestion: null })).at(-1)).toBe('enGestion');
+    expect(manquesDuBien({ ...PARKING, enGestion: 'oui' })).toEqual({ enGestion: 'Bien en gestion ? : répondez Oui ou Non.' });
+    expect(manquesDuBien({ ...PARKING, enGestion: true })).toEqual({});
+    expect(manquesDuBien({ ...PARKING, enGestion: false })).toEqual({});
+  });
+  it('non posée (appel d’avant ce lot) : aucun manque, le bien est « en gestion » par défaut', () => {
+    expect(manquesDuBien(PARKING)).toEqual({});
+    const sans = verifierBienComplet({ proprietaireIds: [1], annexes: [], logement: { adresse: '1 rue A', famille: 'parking', parkingType: 'box_simple' } });
+    expect(sans.ok && sans.enGestion).toBe(true);
+  });
+  it('le serveur applique la même règle : null refusé, Non gardé, Oui gardé', () => {
+    const base = { proprietaireIds: [1], annexes: [], logement: { adresse: '1 rue A', famille: 'parking', parkingType: 'box_simple' } };
+    expect(verifierBienComplet({ ...base, enGestion: null })).toEqual({ ok: false, motif: 'Bien en gestion ? : répondez Oui ou Non.' });
+    const non = verifierBienComplet({ ...base, enGestion: false });
+    expect(non.ok && non.enGestion).toBe(false);
+    const oui = verifierBienComplet({ ...base, enGestion: true });
+    expect(oui.ok && oui.enGestion).toBe(true);
+  });
+});

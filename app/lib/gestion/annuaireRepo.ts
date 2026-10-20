@@ -1036,6 +1036,11 @@ export interface BienDuProprietaire {
   driveDossierId: string | null;
   driveDossierSource?: SourceDossierBien | null;
   racineDriveId?: string | null;
+  /**
+   * « Bien en gestion ? » = Non (migration 390, Arno, 20/10/2026) : l'étiquette « Hors gestion » de la carte, et RIEN
+   * d'autre — ce n'est pas `fin` (la sortie de gestion), et aucun rangement ni comportement n'en dépend.
+   */
+  horsGestion?: boolean;
 }
 
 export interface FicheProprietaire {
@@ -1124,6 +1129,8 @@ export interface FicheLot {
   id: number; numero: string; nature: string | null; typeBien: string | null; immeuble: string | null;
   adresse: string | null; commune: string | null; codePostal: string | null;
   debut: string | null; fin: string | null; absent: boolean;
+  /** « Bien en gestion ? » = Non (migration 390) : l'étiquette « Hors gestion » de l'en-tête, rien d'autre. */
+  horsGestion?: boolean;
   /** 🔴 TOUJOURS `null` : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
   surfaceM2: number | null;
   /**
@@ -1760,6 +1767,11 @@ function champsDossierDuBien(l: { dossier_bien?: string | null; dossier_propriet
  * On ne devine pas depuis le type de bien — « Type 2 » ne dit pas des mètres carrés. L'écran écrit « non
  * renseignée », qui est la vérité.
  */
+/** « Bien en gestion ? » = Non (migration 390) ; sans la colonne, aucun bien n'est hors gestion (la requête ne la nomme pas). */
+async function sqlHorsGestion(alias: string): Promise<string> {
+  return (await colonneExisteMemo('gestion_annuaire_lot', 'en_gestion')) ? `NOT ${alias}.en_gestion` : 'false';
+}
+
 async function biensDuProprietaire(proprietaireId: number): Promise<BienDuProprietaire[]> {
   const finAffichee = await sqlFinAffichee('lo');
   const { rows } = await query<{
@@ -1768,9 +1780,10 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     immeuble: string | null;
     locataire: string | null; locataire_id: string | null; locataire_depuis: string | null;
     mails: number; dernier_echange: string | null; evenements: number; dossier_bien?: string | null; dossier_proprietaire?: string | null;
+    hors_gestion: boolean;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
-            lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin,
+            lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin, ${await sqlHorsGestion('lo')} AS hors_gestion,
             oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
             coalesce(ma.n, 0)::int AS mails,
             ${INSTANT('ma.dernier')} AS dernier_echange,
@@ -1836,6 +1849,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     locataireDepuis: l.locataire_depuis,
     mails: l.mails, dernierEchange: l.dernier_echange, evenementsOuverts: l.evenements,
     ...champsDossierDuBien(l, racine),
+    horsGestion: l.hors_gestion === true,
   }));
 }
 
@@ -1870,9 +1884,11 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
     adresse: string | null; commune: string | null; code_postal: string | null; gestion_debut: string | null;
     gestion_fin: string | null; absent_le: string | null; proprietaire_id: string | null;
     proprietaire_cle: string | null; proprietaire_nom: string; dossier_bien?: string | null; dossier_proprietaire?: string | null;
+    hors_gestion: boolean;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.nature, lo.type_bien, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
             lo.gestion_debut::text, (${await sqlFinAffichee('lo')})::text AS gestion_fin, lo.absent_le::text,
+            ${await sqlHorsGestion('lo')} AS hors_gestion,
             pr.id::text AS proprietaire_id, pr.wippimmo_id AS proprietaire_cle,
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
             ${await sqlDossiersDuBien('lo')}
@@ -1936,7 +1952,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
     data: {
       id: Number(l.id), numero: l.wippimmo_id, nature: l.nature, typeBien: l.type_bien, immeuble: l.immeuble,
       adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
-      debut: l.gestion_debut, fin: l.gestion_fin, absent: l.absent_le !== null,
+      debut: l.gestion_debut, fin: l.gestion_fin, absent: l.absent_le !== null, horsGestion: l.hors_gestion === true,
       surfaceM2: null,
       ...champsDossierDuBien(l, await racineDrive()),
       proprietaireId: l.proprietaire_id === null ? null : Number(l.proprietaire_id),
