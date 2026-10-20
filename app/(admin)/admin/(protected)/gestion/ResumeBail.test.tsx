@@ -58,7 +58,7 @@ const groupes = () => [...container.querySelectorAll('[data-groupe]')].map((g) =
 describe('🔴 fiche locataire — encart du bail', () => {
   it('RÉSUMÉ : « Le bail » à gauche (sans bien loué ni propriétaire : ils sont dans « Son logement »), « Ce qu’il paie » à droite', async () => {
     await rendre(SAISI);
-    expect(colonne('bail')).toEqual(['Date d’entrée', 'Colocataire', 'Garant', 'Garanties et règlement', 'Entretiens']);
+    expect(colonne('bail')).toEqual(['Date d’entrée', 'Colocataire', 'Garant', 'Garanties', 'Entretiens']);
     expect(container.querySelector('[data-rb="bien"]')).toBeNull();
     expect(container.querySelector('[data-rb="proprietaires"]')).toBeNull();
     expect(colonne('paie')).toEqual(['Loyer principal', 'Provision pour charges', 'Total charges comprises', 'Dépôt de garantie', 'Prélèvement']);
@@ -80,7 +80,7 @@ describe('🔴 fiche locataire — encart du bail', () => {
     await act(async () => { (container.querySelector('[data-rb="entree"]') as HTMLElement).click(); });
     expect([enc.dataset.deplie, bouton.textContent]).toEqual(['oui', 'Masquer le détail ⌃']);
     expect(groupes()).toEqual(['bail', 'sommes', 'honoraires', 'bail-detail']);
-    // « Garanties et règlement » et « Entretiens » sont des lignes de la colonne « Le bail » (hors du détail dépliable).
+    // « Garanties » et « Entretiens » sont des lignes de la colonne « Le bail » (hors du détail dépliable).
     const detail = container.querySelector('[data-detail-bail]')!;
     expect(detail.querySelector('[data-rb="garanties"], [data-rb="entretiens"]')).toBeNull();
     expect([dd('prorata-loyer'), dd('prorata-charges'), dd('honoraires-agence'), dd('total-du')].map((x) => x?.replace(/ i$/, '').trim()))
@@ -89,8 +89,10 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect([dd('compte-locataire'), dd('compte-proprietaire'), dd('total-honoraires')]).toEqual(['Compte bancaire agence', 'Compte bancaire gestion', '1 385,03 €']);
     expect(dd('honoraires-proprietaire')).toContain('61,8 m² × 12,10 €/m² (zone très tendue)');
     expect(dd('honoraires-proprietaire')).toContain('barème du 01/01/2026, à la date du 01/11/2026');
-    expect([dd('garant-physique'), dd('assurance'), dd('reglement')])
-      .toEqual(['Garant personne physique : oui', 'Assurance loyers impayés : GLI — Assureur ESSAI', 'Mode de règlement : Virement']);
+    expect([dd('garant-physique'), dd('assurance')]).toEqual(['Garant personne physique : oui', 'Assurance loyers impayés : GLI — Assureur ESSAI']);
+    // Le mode de règlement n'est plus affiché sur la fiche locataire (ni résumé ni détail) — décision d'Arno du 20/10/2026.
+    expect(container.querySelector('[data-rb="reglement"]')).toBeNull();
+    expect(container.querySelector('[data-encart-bail]')?.textContent).not.toMatch(/Mode de règlement|Virement/);
     expect(dd('lots')).toBe('15 rue Carle Hebert, COURBEVOIE15 rue Carle Hebert, COURBEVOIE — cave n° 4');
     expect(dd('contacts')).toBe('ESSAI Conjoint (Conjoint) — contact de Un');
     expect(container.querySelector('[data-rb="commentaire"]')?.textContent).toBe('Première ligne.\nDeuxième ligne.');
@@ -157,11 +159,11 @@ describe('🔴 résumé : garanties et entretiens dans la colonne du bail, monta
     expect([...resume.children].map((e) => e.className)).toEqual(['rb-titre', 'rb-colonnes', 'rb-bascule']);
     const dts = [...container.querySelectorAll('[data-colonne="bail"] dt')];
     // Les mêmes intitulés que « Date d'entrée » : un <dt> de la même liste, sans titre gras à part.
-    expect(dts.map((d) => d.tagName + ':' + d.textContent)).toEqual(['DT:Date d’entrée', 'DT:Colocataire', 'DT:Garant', 'DT:Garanties et règlement', 'DT:Entretiens']);
+    expect(dts.map((d) => d.tagName + ':' + d.textContent)).toEqual(['DT:Date d’entrée', 'DT:Colocataire', 'DT:Garant', 'DT:Garanties', 'DT:Entretiens']);
     expect(resume.querySelectorAll('h4')).toHaveLength(1);
     // Un élément par ligne sous la valeur.
     expect(container.querySelector('[data-rb="garanties"]')?.className).toBe('rb-liste');
-    expect(container.querySelectorAll('[data-rb="garanties"] > span')).toHaveLength(3);
+    expect(container.querySelectorAll('[data-rb="garanties"] > span')).toHaveLength(2);
   });
   it('entretiens : « aucun à prévoir » quand la réponse est non', async () => {
     await rendre({ ...SAISI, entretiens: { aPrevoir: false, liste: [] } });

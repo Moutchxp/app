@@ -5,7 +5,7 @@ import { formaterDateIso } from '../../../../lib/gestion/annuaireRecherche';
 import type { FicheLocataire } from '../../../../lib/gestion/annuaireRepo';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import {
-  formaterCentimes, formuleProrata, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR, LIBELLE_REGLEMENT, prorataEntree,
+  formaterCentimes, formuleProrata, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR, prorataEntree,
   type JourPrelevement,
 } from '../../../../lib/location/conditionsEntree';
 import { eurosAffiches, lireDecimal, LIBELLE_ZONE, tarifAffiche, totalDesHonoraires, ZERO } from '../../../../lib/location/honorairesProprietaire';
@@ -21,7 +21,8 @@ import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
  * Même modèle que l'encart de la fiche bien (`ResumeBien.tsx`) : juste sous le titre, au-dessus de « Coordonnées ».
  *   · RÉSUMÉ (deux colonnes dès 768 px) — « Le bail » : date d'entrée, colocataires, garants (et qui
  *     ils garantissent) · « Ce qu'il paie » : loyer principal, provision, total CC, dépôt de garantie, prélèvement ;
- *   · dans la colonne « Le bail », deux lignes ordinaires « Garanties et règlement » et « Entretiens » (un élément par ligne) ;
+ *   · dans la colonne « Le bail », deux lignes ordinaires « Garanties » et « Entretiens » (un élément par ligne ; le mode de
+ *     règlement n'est plus affiché sur la fiche locataire — décision d'Arno) ;
  *     les montants « à l'entrée dans les lieux le … » (petite ligne grise) ;
  *   · DÉTAIL replié (« Voir le détail du bail ⌄ », absent s'il n'y a rien à déplier) : sommes dues à l'entrée (proratas avec la
  *     bulle ⓘ du calcul, honoraires agence), honoraires (comptes, honoraires propriétaire avec tarif, surface, barème daté,
@@ -129,12 +130,13 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
                   <span key={g.carteId} data-rb-garant={g.carteId}>{g.nom} <span className={g.locataires.length === 0 ? 'rb-a-rattacher' : 'rb-note'}>— {g.mot}</span></span>
                 ))}</dd>
                 {/* Arno (20/10/2026) : garanties et entretiens = deux lignes ORDINAIRES de la colonne « Le bail », un élément par ligne. */}
-                <dt>Garanties et règlement</dt>
+                {/* Arno (20/10/2026) : « Garanties » — le mode de règlement n'est plus affiché sur la fiche locataire (la donnée reste en
+                    base et dans « Nouveau locataire »). */}
+                <dt>Garanties</dt>
                 <dd data-rb="garanties" className="rb-liste">{c === null ? rien() : (
                   <>
                     <span data-rb="garant-physique">Garant personne physique : {ouiNon(c.garant)}</span>
                     <span data-rb="assurance">Assurance loyers impayés : {LIBELLE_ASSURANCE[c.assurance]}{c.assurancePrecision ? ` — ${c.assurancePrecision}` : ''}</span>
-                    <span data-rb="reglement">Mode de règlement : {LIBELLE_REGLEMENT[c.reglement]}{c.reglementPrecision ? ` — ${c.reglementPrecision}` : ''}</span>
                   </>
                 )}</dd>
                 <dt>Entretiens</dt>
