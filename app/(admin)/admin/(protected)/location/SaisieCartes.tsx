@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API, liste } from './commun';
+import { API, CSS_ANNEXE_CARTE, liste } from './commun';
 import { FenetreCarte, FormulaireCarte, type ChampsSaisis, type FicheAEditer } from '../gestion/CartesPersonnes';
 import { carteEstComplete, manquesAAvertir, MOTIF_DERNIERE_COMPLETE_SUPPRESSION } from '../../../../lib/gestion/carteComplete';
 import type { CoordonneeSaisie } from '../../../../lib/gestion/annuaireEdition';
@@ -57,18 +57,26 @@ export function BadgeCarte({ cote, sorte }: { cote: CoteCarte; sorte: SorteCarte
   return <span className={`cp-role cp-role--${ton}`} data-badge={sorte}>{sorte === 'contact' ? BADGE_CONTACT[cote] : BADGE_CLIENT[cote]}</span>;
 }
 
-export function SaisieCartes({ cote, onChange, demandeContact }: {
+export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait = false }: {
   cote: CoteCarte; onChange: (e: EtatCartes) => void;
   /**
    * Arno (20/10/2026) — « Ajouter un garant » : chaque nouvelle valeur de `n` ouvre une carte « Contact du … » avec cette
    * qualité déjà choisie, et la page y descend.
    */
   demandeContact?: { n: number; qualite: string };
+  /**
+   * Arno (20/10/2026, écran « Nouveau locataire ») : « Retirer » une carte ajoutée demande CONFIRMATION (« Retirer cette carte ?
+   * Ce qui y est saisi sera perdu. » — Retirer / Annuler), avec la confirmation en ligne de la tuile (`.loc-confirmer`, celle de
+   * « Supprimer » une annexe). Absent : « Retirer » agit comme avant (écran « Créer un nouveau propriétaire »).
+   */
+  confirmerRetrait?: boolean;
 }) {
   const [cartes, setCartes] = useState<Carte[]>([{ cle: 1, sorte: 'client', champs: null, ouverte: true, doublons: [] }]);
   const [existants, setExistants] = useState<{ id: number; nom: string }[]>([]);
   const [choix, setChoix] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
+  /** La carte dont le retrait attend confirmation. */
+  const [aRetirer, setARetirer] = useState<number | null>(null);
   const completeValidee = (x: Carte): boolean => x.sorte === 'client' && x.champs !== null && !x.ouverte
     && carteEstComplete({ nom: x.champs.nom, coordonnees: x.champs.coordonnees ?? [] });
   /** Cette carte client est-elle la PREMIÈRE (aucune autre carte complète ni fiche retenue) ? Alors elle doit être complète. */
@@ -173,7 +181,7 @@ export function SaisieCartes({ cote, onChange, demandeContact }: {
                   <FormulaireCarte p={c.champs !== null ? ficheDeChamps(c.champs) : c.modele !== undefined ? ficheDeChamps(c.modele) : null} refus={null}
                     contact={{ titre: `Nouveau ${MOT_CONTACT[cote].toLowerCase()}`,
                       rappel: `Un contact n’est pas un client : il sera rangé comme ${MOT_CONTACT[cote].toLowerCase()} du bien. Obligatoires : le nom et un e-mail.` }}
-                    qualiteEnAvant={EXEMPLES_QUALITE[cote]} qualitesProposees={QUALITES_CONTACT}
+                    qualiteEnAvant={EXEMPLES_QUALITE[cote]} qualitesProposees={QUALITES_CONTACT} qualiteApresPrenom={cote === 'locataire'}
                     avertir={manquesAAvertir}
                     onEnregistrer={async (champs) => { changer(c.cle, (x) => ({ ...x, champs, ouverte: false })); }}
                     onAnnuler={() => (c.champs === null ? setCartes((l) => l.filter((x) => x.cle !== c.cle)) : changer(c.cle, (x) => ({ ...x, ouverte: false })))} />
@@ -189,8 +197,16 @@ export function SaisieCartes({ cote, onChange, demandeContact }: {
                 <span>{(c.champs.coordonnees ?? []).map((k) => k.valeur).join(' · ')}</span>
                 <div className="loc-boutons">
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changer(c.cle, (x) => ({ ...x, ouverte: true }))}>Modifier</button>
-                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => retirer(c)}>Retirer cette carte</button>
+                  <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => (confirmerRetrait ? setARetirer(c.cle) : retirer(c))}>Retirer cette carte</button>
                 </div>
+                {confirmerRetrait && aRetirer === c.cle && (
+                  <div className="loc-confirmer" role="alert" data-confirmer-retrait>
+                    <style>{CSS_ANNEXE_CARTE}</style>
+                    <span>Retirer cette carte ? Ce qui y est saisi sera perdu.</span>
+                    <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setARetirer(null); retirer(c); }}>Retirer</button>
+                    <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setARetirer(null)}>Annuler</button>
+                  </div>
+                )}
               </div>
             )}
             {c.sorte === 'client' && c.doublons.length > 0 && (

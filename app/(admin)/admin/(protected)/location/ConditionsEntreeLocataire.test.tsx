@@ -4,6 +4,7 @@ import { act, createElement } from 'react';
 import { readFileSync } from 'node:fs';
 import { createRoot, type Root } from 'react-dom/client';
 import { CreationLocataire } from './CreationLocataire';
+import { CreationProprietaires } from './CreationProprietaires';
 import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
 import { FormulaireCarte } from '../gestion/CartesPersonnes';
 import { CSS_LOCATION_CREATION } from './commun';
@@ -479,5 +480,109 @@ describe('🔴 retouches — biens libres d’abord, loyer mensuel, bandeau de m
     await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1000');
     await clic(container.querySelector('[data-enregistrer-conditions]')!);
     expect(posts.at(-1)).toMatchObject({ action: 'conditions-entree', occupationId: 11, conditions: { loyer: { principal: '1000', provisions: '90,50' } } });
+  });
+});
+
+describe('🔴 retouches — confirmation de retrait, ordre du contact, prorata calculé', () => {
+  const somme = (k: string) => container.querySelector(`[data-somme="${k}"] input`) as HTMLInputElement;
+  const sous = (k: string) => container.querySelector(`[data-somme="${k}"] .loc-aide-prorata`)?.textContent?.replace(/\s/g, ' ');
+  const dateEntree = () => container.querySelector('input[type="date"][form]') as HTMLInputElement;
+  const loyerMensuel = async (principal: string, provisions: string) => {
+    await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, principal);
+    await saisir(container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement, provisions);
+  };
+
+  it('« Retirer cette carte » demande CONFIRMATION (Retirer / Annuler) ; rien n’est retiré sans elle', async () => {
+    await preparer();
+    const carte = () => container.querySelector('[data-recap="client"]');
+    await clic([...carte()!.querySelectorAll('button')].find((b) => b.textContent === 'Retirer cette carte')!);
+    const c = container.querySelector('[data-confirmer-retrait]')!;
+    expect(c.className).toBe('loc-confirmer');
+    expect(c.querySelector('span')?.textContent).toBe('Retirer cette carte ? Ce qui y est saisi sera perdu.');
+    expect([...c.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Retirer', 'Annuler']);
+    await clic([...c.querySelectorAll('button')].find((b) => b.textContent === 'Annuler')!);
+    expect(container.querySelector('[data-confirmer-retrait]')).toBeNull();
+    expect(carte()).not.toBeNull();
+    await clic([...carte()!.querySelectorAll('button')].find((b) => b.textContent === 'Retirer cette carte')!);
+    await clic([...container.querySelectorAll('[data-confirmer-retrait] button')].find((b) => b.textContent === 'Retirer')!);
+    expect(carte()).toBeNull();
+  });
+
+  it('l’écran « Créer un nouveau propriétaire » n’est pas touché : « Retirer » y agit comme avant', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/location/CreationProprietaires.tsx', 'utf8');
+    expect(src).toContain('<SaisieCartes cote="proprietaire" onChange={surCartes} />');
+    expect(CreationProprietaires).toBeTypeOf('function');
+  });
+
+  it('carte « Contact du locataire » : Civilité, Nom, Prénom, PUIS Qualité (le menu), puis Adresse — comme la carte Locataire', async () => {
+    await preparer();
+    await clic([...container.querySelectorAll('button')].find((b) => b.textContent === '+ Ajouter…')!);
+    await clic([...container.querySelectorAll('[data-choix] button')].find((b) => b.textContent === 'Contact du locataire')!);
+    const form = container.querySelector('[data-sorte="contact"] .cp-form') as HTMLElement;
+    const mots = [...form.querySelectorAll('.cp-champ-mot')].map((m) => m.textContent?.trim());
+    expect(mots.slice(0, 5)).toEqual(['Civilité', 'Nom', 'Prénom', 'Qualité', 'Adresse']);
+    expect(form.querySelector('[data-qualite-menu] select')).not.toBeNull();
+  });
+
+  it('PRORATA : 20/10/2026, 1 240 € et 180 € → 480,00 et 69,68 (12/31 jours) ; formule en clair ; le total se recalcule', async () => {
+    await preparer();
+    expect(sous('prorataLoyer')).toBe('Renseignez la date d’entrée et le loyer mensuel');
+    expect(somme('prorataLoyer').value).toBe('');
+    await saisir(dateEntree(), '2026-10-20');
+    await loyerMensuel('1 240', '180');
+    expect([somme('prorataLoyer').value, somme('prorataCharges').value]).toEqual(['480,00', '69,68']);
+    expect(sous('prorataLoyer')).toBe('1 240,00 € × 12/31 jours (du 20/10 au 31/10)');
+    expect(sous('prorataCharges')).toBe('180,00 € × 12/31 jours (du 20/10 au 31/10)');
+    expect(container.querySelector('[data-total] strong')?.textContent?.replace(/\s/g, ' ')).toBe('549,68 €');
+  });
+
+  it('recalcul IMMÉDIAT quand la date ou un montant change : 01/11 (mois entier), 15/02/2027 (14/28), 15/02/2028 (15/29), 31/10 (1/31)', async () => {
+    await preparer();
+    await loyerMensuel('1 240', '180');
+    for (const [date, loyer, charges, formule] of [
+      ['2026-11-01', '1240,00', '180,00', '× 30/30 jours (du 01/11 au 30/11)'],
+      ['2027-02-15', '620,00', '90,00', '× 14/28 jours (du 15/02 au 28/02)'],
+      ['2028-02-15', '641,38', '93,10', '× 15/29 jours (du 15/02 au 29/02)'],
+      ['2026-10-31', '40,00', '5,81', '× 1/31 jours (du 31/10 au 31/10)'],
+    ] as const) {
+      await saisir(dateEntree(), date);
+      expect([somme('prorataLoyer').value, somme('prorataCharges').value], date).toEqual([loyer, charges]);
+      expect(sous('prorataLoyer'), date).toContain(formule);
+    }
+    await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1 550');
+    expect(somme('prorataLoyer').value).toBe('50,00');
+  });
+
+  it('modifié À LA MAIN : la valeur est gardée malgré les changements, « modifié à la main · recalculer » remet le calcul', async () => {
+    await preparer();
+    await saisir(dateEntree(), '2026-10-20');
+    await loyerMensuel('1 240', '180');
+    await saisir(somme('prorataLoyer'), '500');
+    expect(sous('prorataLoyer')).toBe('modifié à la main · recalculer');
+    await saisir(dateEntree(), '2026-11-01');
+    expect(somme('prorataLoyer').value).toBe('500');
+    expect(somme('prorataCharges').value).toBe('180,00');
+    const recalculer = container.querySelector('[data-recalculer="prorataLoyer"]') as HTMLButtonElement;
+    expect(recalculer.textContent).toBe('recalculer');
+    await clic(recalculer);
+    expect(somme('prorataLoyer').value).toBe('1240,00');
+    expect(sous('prorataLoyer')).toBe('1 240,00 € × 30/30 jours (du 01/11 au 30/11)');
+  });
+
+  it('champ mère manquant : le prorata se vide et le dit ; envoyé avec le reste (les montants tels qu’affichés)', async () => {
+    await preparer();
+    await saisir(dateEntree(), '2026-10-20');
+    await loyerMensuel('1 240', '');
+    expect(somme('prorataLoyer').value).toBe('480,00');
+    expect(somme('prorataCharges').value).toBe('');
+    expect(sous('prorataCharges')).toBe('Renseignez la date d’entrée et le loyer mensuel');
+    await saisir(dateEntree(), '');
+    expect(somme('prorataLoyer').value).toBe('');
+    await saisir(dateEntree(), '2026-10-20');
+    await toutRepondre();
+    await soumettre();
+    await soumettre();
+    expect((posts.find((p) => p.action === 'creer-locataires')?.conditions as { sommes: Record<string, string> }).sommes)
+      .toMatchObject({ prorataLoyer: '480,00', prorataCharges: '' });
   });
 });

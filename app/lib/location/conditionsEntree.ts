@@ -69,6 +69,11 @@ export interface SaisieConditions {
    * `gestion_location_conditions.loyer_hc` / `provisions`) — la MÊME donnée que la carte « Location » de la fiche, pas une copie.
    */
   loyer: { principal: string; provisions: string };
+  /**
+   * Arno (20/10/2026) — les deux PRORATAS se calculent seuls (loyer mensuel × jours d'occupation ÷ jours du mois) TANT QU'on
+   * ne les a pas modifiés à la main ; modifiés, ils gardent leur valeur (« recalculer » remet le calcul). État d'écran seulement.
+   */
+  prorataManuel: { prorataLoyer: boolean; prorataCharges: boolean };
 }
 
 /** Le loyer mensuel relu (centimes exacts), ou rien. */
@@ -80,7 +85,40 @@ export const CONDITIONS_VIDES: SaisieConditions = {
   sommes: { prorataLoyer: '', prorataCharges: '', depotGarantie: '', honorairesAgence: '' },
   reglement: null, reglementPrecision: '', commentaire: '',
   loyer: { principal: '', provisions: '' },
+  prorataManuel: { prorataLoyer: false, prorataCharges: false },
 };
+
+// ── LE PRORATA DU MOIS D'ENTRÉE (Arno, 20/10/2026) ───────────────────────────────────────────────────────────────────
+
+/** Le prorata d'un montant mensuel pour le mois d'entrée, et ce qu'il faut pour l'écrire en clair. */
+export interface Prorata { centimes: number; jours: number; joursDuMois: number; du: string; au: string }
+
+/**
+ * Jours d'occupation = du jour d'entrée INCLUS au dernier jour du mois inclus (jours du mois − jour d'entrée + 1) ; jours du
+ * mois = le nombre RÉEL (28, 29 les années bissextiles, 30, 31). Prorata = montant × jours ÷ jours du mois, en entiers exacts,
+ * ARRONDI AU CENTIME LE PLUS PROCHE (demi supérieur) à la FIN seulement. `null` si la date ou le montant manque. PUR.
+ */
+export function prorataEntree(montantCentimes: number | null | undefined, dateEntree: string | null | undefined): Prorata | null {
+  if (montantCentimes === null || montantCentimes === undefined) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateEntree ?? '');
+  if (m === null) return null;
+  const [annee, mois, jour] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const joursDuMois = new Date(Date.UTC(annee, mois, 0)).getUTCDate();
+  if (mois < 1 || mois > 12 || jour < 1 || jour > joursDuMois) return null;
+  const jours = joursDuMois - jour + 1;
+  const numerateur = montantCentimes * jours;
+  const centimes = Math.floor((2 * numerateur + joursDuMois) / (2 * joursDuMois));
+  const mm = String(mois).padStart(2, '0');
+  return { centimes, jours, joursDuMois, du: `${String(jour).padStart(2, '0')}/${mm}`, au: `${joursDuMois}/${mm}` };
+}
+
+/** Des centimes → la saisie à deux décimales (« 480,00 », « 69,68 »). PUR. */
+export const montantDeuxDecimales = (c: number): string => `${Math.trunc(c / 100)},${String(c % 100).padStart(2, '0')}`;
+
+/** La formule en clair : « 1 240,00 € × 12/31 jours (du 20/10 au 31/10) ». PUR. */
+export function formuleProrata(montantCentimes: number, p: Prorata): string {
+  return `${formaterCentimes(montantCentimes)} × ${p.jours}/${p.joursDuMois} jours (du ${p.du} au ${p.au})`;
+}
 
 /** Le total du loyer charges comprises / mois, en centimes ; `null` si rien n'est saisi ou si un montant est illisible. */
 export function totalLoyerCentimes(l: { principal: unknown; provisions: unknown }): number | null {
@@ -190,6 +228,8 @@ export function versSaisieConditions(c: ConditionsEntree, loyer: LoyerMensuel | 
       depotGarantie: montant(c.sommes.depotGarantie), honorairesAgence: montant(c.sommes.honorairesAgence) },
     reglement: c.reglement, reglementPrecision: c.reglementPrecision ?? '', commentaire: c.commentaire ?? '',
     loyer: { principal: montant(loyer?.principal ?? null), provisions: montant(loyer?.provisions ?? null) },
+    // Des proratas déjà enregistrés restent tels quels (« recalculer » remet le calcul).
+    prorataManuel: { prorataLoyer: c.sommes.prorataLoyer !== null, prorataCharges: c.sommes.prorataCharges !== null },
   };
 }
 

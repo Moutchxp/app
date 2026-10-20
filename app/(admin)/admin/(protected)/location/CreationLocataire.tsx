@@ -218,7 +218,7 @@ export function CreationLocataire() {
         <h3 id="loc-l1"><span className="loc-num">1</span>Le ou les locataires</h3>
         <p className="loc-section-phrase">« + Ajouter… » : un <strong>locataire (client)</strong> ou un <strong>contact du locataire</strong> (conjoint,
           artisan, avocat, voisin…). « Enregistrer » valide la carte ; tout est enregistré en bas de page. Rien n’est jamais fusionné.</p>
-        <SaisieCartes cote="locataire" onChange={surCartes} demandeContact={demandeGarant} />
+        <SaisieCartes cote="locataire" onChange={surCartes} demandeContact={demandeGarant} confirmerRetrait />
       </section>
 
       <section className="loc-section" aria-labelledby="loc-l2">
@@ -263,6 +263,7 @@ export function CreationLocataire() {
             <BlocConditionsEntree valeur={conditions} onChange={(v) => { setConditions(v); setMotif(null); }} manque={manqueDe}
               garants={{ noms: garants, onAjouter: () => setDemandeGarant((d) => ({ ...d, n: d.n + 1 })) }}
               loyer={{ note: bien !== null && loyerDuBien?.id === bien.id ? loyerDuBien.note : null, indisponible: schema !== null && !avecLoyer }}
+              dateEntree={entree}
               honoraires={{ calcul: bien === null ? null : hono.etat.etat === 'ok' ? hono.etat.data : null,
                 charge: bien !== null && hono.etat.etat === 'charge', lienBien: bien === null ? null : `/admin/location/bien/${bien.id}` }}
               entretien={avecEntretien ? (

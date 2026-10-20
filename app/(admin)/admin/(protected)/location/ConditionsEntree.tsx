@@ -1,10 +1,11 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import {
   ASSURANCES, COMPTES, DEPOTS, formaterCentimes, JOURS_PRELEVEMENT, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR,
-  LIBELLE_REGLEMENT, LIBELLE_SOMME, REGLEMENTS, SOMMES, enCentimes, totalCentimes, totalLoyerCentimes, type SaisieConditions,
+  LIBELLE_REGLEMENT, LIBELLE_SOMME, REGLEMENTS, SOMMES, enCentimes, formuleProrata, montantDeuxDecimales, prorataEntree, totalCentimes,
+  totalLoyerCentimes, type SaisieConditions,
 } from '../../../../lib/location/conditionsEntree';
 import {
   eurosAffiches, LIBELLE_ZONE, lignesHonoraires, tarifAffiche, lireDecimal, totalDesHonoraires, ZERO, type CalculHonoraires,
@@ -23,7 +24,7 @@ import {
  * « Garant personne physique », ou « Ajouter un garant » ; l'encadré « HONORAIRES PROPRIÉTAIRE » calculé (surface du bien ×
  * barème daté de la zone) et le « Total des honoraires » dessous.
  */
-export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer }: {
+export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer, dateEntree }: {
   valeur: SaisieConditions;
   onChange: (v: SaisieConditions) => void;
   /** Le message « ce qui manque » d'un champ (vide tant qu'on n'a pas tenté d'enregistrer). */
@@ -42,8 +43,43 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
    * `indisponible` : la base n'a pas la migration 370 — les champs restent visibles, désactivés, et le bandeau le dit.
    */
   loyer?: { note?: string | null; indisponible?: boolean };
+  /** La date d'entrée dans les lieux (bloc 2), « AAAA-MM-JJ » : la base des deux proratas calculés. */
+  dateEntree?: string | null;
 }) {
   const s = valeur;
+  // ══ LES PRORATAS (Arno, 20/10/2026) : loyer principal / provision × jours d'occupation ÷ jours du mois d'entrée, recalculés
+  //    tant qu'on ne les a pas modifiés à la main. Arrondis au centime à la fin seulement (`prorataEntree`).
+  const meres = { prorataLoyer: s.loyer.principal, prorataCharges: s.loyer.provisions } as const;
+  const calcul = (k: 'prorataLoyer' | 'prorataCharges') => {
+    const c = enCentimes(meres[k]);
+    const montant = c === undefined ? null : c;
+    const p = prorataEntree(montant, dateEntree);
+    return p === null || montant === null ? null : { p, montant };
+  };
+  const auto = { prorataLoyer: calcul('prorataLoyer'), prorataCharges: calcul('prorataCharges') };
+  const valeurAuto = (k: 'prorataLoyer' | 'prorataCharges'): string => { const a = auto[k]; return a === null ? '' : montantDeuxDecimales(a.p.centimes); };
+  const cibleLoyer = valeurAuto('prorataLoyer');
+  const cibleCharges = valeurAuto('prorataCharges');
+  useEffect(() => {
+    if (dateEntree === undefined) return; // l'écran hôte ne fournit pas de date : les proratas restent des saisies libres
+    const maj2 = { ...s.sommes };
+    let change = false;
+    if (!s.prorataManuel.prorataLoyer && s.sommes.prorataLoyer !== cibleLoyer) { maj2.prorataLoyer = cibleLoyer; change = true; }
+    if (!s.prorataManuel.prorataCharges && s.sommes.prorataCharges !== cibleCharges) { maj2.prorataCharges = cibleCharges; change = true; }
+    if (change) onChange({ ...s, sommes: maj2 });
+  }, [cibleLoyer, cibleCharges, s, onChange, dateEntree]);
+  const sousProrata = (k: 'prorataLoyer' | 'prorataCharges'): ReactNode => {
+    if (s.prorataManuel[k]) {
+      return (
+        <small className="loc-aide-prorata" data-prorata-manuel={k}>modifié à la main ·{' '}
+          <button type="button" className="loc-lien-recalculer" data-recalculer={k}
+            onClick={() => onChange({ ...s, prorataManuel: { ...s.prorataManuel, [k]: false }, sommes: { ...s.sommes, [k]: valeurAuto(k) } })}>recalculer</button>
+        </small>
+      );
+    }
+    const a = auto[k];
+    return <small className="loc-aide-prorata" data-prorata-formule={k}>{a === null ? 'Renseignez la date d’entrée et le loyer mensuel' : formuleProrata(a.montant, a.p)}</small>;
+  };
   const maj = (p: Partial<SaisieConditions>): void => onChange({ ...s, ...p });
   const total = totalCentimes(s.sommes);
   const illisible = SOMMES.some((k) => s.sommes[k].trim() !== '') && total === null;
@@ -147,8 +183,11 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
         <div className="loc-grille">
           {SOMMES.map((k) => (
             <label key={k} className="loc-champ" data-somme={k}>{LIBELLE_SOMME[k]} (€)
-              <input value={s.sommes[k]} inputMode="decimal" placeholder="ex. 1 180,50"
-                onChange={(e) => maj({ sommes: { ...s.sommes, [k]: e.target.value } })} />
+              <input value={s.sommes[k]} inputMode="decimal" placeholder={k === 'prorataLoyer' || k === 'prorataCharges' ? 'calculé' : 'ex. 1 180,50'}
+                onChange={(e) => maj(k === 'prorataLoyer' || k === 'prorataCharges'
+                  ? { sommes: { ...s.sommes, [k]: e.target.value }, prorataManuel: { ...s.prorataManuel, [k]: true } }
+                  : { sommes: { ...s.sommes, [k]: e.target.value } })} />
+              {(k === 'prorataLoyer' || k === 'prorataCharges') && dateEntree !== undefined && sousProrata(k)}
               {manque(`somme-${k}`)}</label>
           ))}
         </div>
@@ -239,6 +278,8 @@ export const CSS_CONDITIONS = `
 .loc-cond-bloc .loc-champ input,.loc-cond-bloc .loc-champ textarea{min-height:48px;box-sizing:border-box}
 .loc-cond-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:0;padding-top:12px;border-top:2px solid var(--color-svv-line);font-size:1.08rem;color:var(--color-svv-ink)}
 .loc-cond-total strong{white-space:nowrap}
+.loc-aide-prorata{font-size:.85rem;font-weight:400;color:var(--color-svv-muted);display:flex;flex-wrap:wrap;align-items:center;gap:4px}
+.loc-lien-recalculer{border:0;background:none;padding:0 4px;min-height:44px;font:inherit;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer}
 .loc-cond-total--general{border:2px solid var(--color-svv-line);border-radius:20px;padding:14px 20px;background:var(--color-svv-surface)}
 .loc-cond-garants{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;font-weight:700;color:var(--color-svv-ink)}
 .loc-cond-garants li::before{content:"Garant : ";font-weight:400;color:var(--color-svv-muted)}

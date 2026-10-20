@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONDITIONS_VIDES, enCentimes, eurosExacts, LIBELLE_JOUR, totalLoyerCentimes, formaterCentimes, lignesConditions, manquesConditions, totalCentimes, verifierConditions,
+  CONDITIONS_VIDES, enCentimes, eurosExacts, formuleProrata, LIBELLE_JOUR, montantDeuxDecimales, prorataEntree, totalLoyerCentimes, formaterCentimes, lignesConditions, manquesConditions, totalCentimes, verifierConditions,
   versEnvoiConditions, versSaisieConditions, type SaisieConditions,
 } from './conditionsEntree';
 
@@ -100,5 +100,34 @@ describe('🔴 loyer mensuel à l’entrée (Arno, 20/10/2026) — facultatif, a
     expect(lignesConditions(v.valeurs, null, { principal: 98000, provisions: 9050 }).filter((l) => ['Loyer principal', 'Provision pour charges', 'Total loyer charges comprises / mois'].includes(l.mot))
       .map((l) => `${l.mot} : ${l.valeur}`.replace(/\s/g, ' '))).toEqual(['Loyer principal : 980,00 €', 'Provision pour charges : 90,50 €', 'Total loyer charges comprises / mois : 1 070,50 €']);
     expect(versSaisieConditions(v.valeurs, { principal: 98000, provisions: 9050 }).loyer).toEqual({ principal: '980', provisions: '90,50' });
+  });
+});
+
+describe('🔴 prorata du mois d’entrée (Arno, 20/10/2026) — jour d’entrée inclus, jours réels du mois, arrondi au centime à la fin', () => {
+  it('entrée 20/10/2026, loyer 1 240 €, charges 180 € → 12/31 jours → 480,00 € et 69,68 €', () => {
+    expect(prorataEntree(124000, '2026-10-20')).toEqual({ centimes: 48000, jours: 12, joursDuMois: 31, du: '20/10', au: '31/10' });
+    expect(prorataEntree(18000, '2026-10-20')).toEqual({ centimes: 6968, jours: 12, joursDuMois: 31, du: '20/10', au: '31/10' });
+    expect(montantDeuxDecimales(6968)).toBe('69,68');
+    expect(formuleProrata(124000, prorataEntree(124000, '2026-10-20')!).replace(/\s/g, ' ')).toBe('1 240,00 € × 12/31 jours (du 20/10 au 31/10)');
+  });
+  it('01/11/2026 → 30/30 (mois entier) ; 15/02/2027 → 14/28 ; 15/02/2028 (bissextile) → 15/29 ; 31/10/2026 → 1/31', () => {
+    expect(prorataEntree(124000, '2026-11-01')).toMatchObject({ centimes: 124000, jours: 30, joursDuMois: 30 });
+    expect(prorataEntree(124000, '2027-02-15')).toMatchObject({ centimes: 62000, jours: 14, joursDuMois: 28 });
+    expect(prorataEntree(124000, '2028-02-15')).toMatchObject({ centimes: 64138, jours: 15, joursDuMois: 29 }); // 641,379… → 641,38
+    expect(prorataEntree(124000, '2026-10-31')).toMatchObject({ centimes: 4000, jours: 1, joursDuMois: 31, du: '31/10', au: '31/10' });
+  });
+  it('arrondi au centime le plus proche, à la FIN seulement (demi supérieur) ; jamais de flottant', () => {
+    // 1,00 € × 1/31 = 3,2258… centimes → 3 centimes.
+    expect(prorataEntree(100, '2026-10-31')!.centimes).toBe(3);
+    expect(prorataEntree(1550, '2026-10-31')!.centimes).toBe(50); // 15,50 € / 31 = 0,50 € exact
+    expect(prorataEntree(1551, '2026-10-31')!.centimes).toBe(50); // 50,03… → 50
+    expect(prorataEntree(1566, '2026-10-31')!.centimes).toBe(51); // 50,516… → 51 (le plus proche)
+    expect(prorataEntree(31, '2026-10-16')!.centimes).toBe(16); // 31 × 16/31 = 16 exact
+  });
+  it('date ou montant manquant (ou date impossible) : pas de prorata', () => {
+    expect(prorataEntree(null, '2026-10-20')).toBeNull();
+    expect(prorataEntree(124000, '')).toBeNull();
+    expect(prorataEntree(124000, null)).toBeNull();
+    expect(prorataEntree(124000, '2027-02-30')).toBeNull();
   });
 });

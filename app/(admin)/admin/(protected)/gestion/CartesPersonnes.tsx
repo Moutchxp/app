@@ -676,7 +676,7 @@ export interface FicheAEditer {
   contacts: readonly { id: number; sorte: 'telephone' | 'email'; affichage: string; libelle: string | null }[];
 }
 
-export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie, exigence, qualiteEnAvant, qualitesProposees, avertir, bloquer, coordonneesFacultatives = false }: {
+export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, contact, onSaisie, exigence, qualiteEnAvant, qualitesProposees, qualiteApresPrenom = false, avertir, bloquer, coordonneesFacultatives = false }: {
   /**
    * 🔴 LA CARTE COMPLÈTE (Arno, 18/10/2026) — une carte client SUIVANTE de la fiche commune : les autres obligatoires de la
    * Gestion restent (civilité, prénom, adresse…), mais le téléphone et l'e-mail passent par la fenêtre d'alerte.
@@ -769,6 +769,8 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
    * « Personnalisé », telle quelle (aucune perte). ABSENT ⇒ saisie libre, comme avant (la Gestion).
    */
   qualitesProposees?: readonly string[];
+  /** Avec `qualiteEnAvant` : la Qualité APRÈS le Prénom (« Contact du locataire », Arno 20/10/2026) ; sinon juste sous le Nom. */
+  qualiteApresPrenom?: boolean;
 }) {
   /**
    * ══ 🔴🔴 LOT FICHE-SAISIE-UNIFORME — LA CIVILITÉ EST UNE LISTE, PLUS UN TEXTE LIBRE ══════════════════════
@@ -900,6 +902,37 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
     ? null
     : <span className="cp-manque">{manque[champ]}</span>);
 
+  /** La Qualité « mise en avant » (tuile Location) : saisie libre, ou le MENU (« Garant » d'abord … « Personnalisé »). */
+  const champQualiteEnAvant = (
+    <>
+      {qualiteEnAvant !== undefined && qualitesProposees === undefined && (
+        <label className="cp-champ cp-champ--en-avant">
+          <span className="cp-champ-mot">Qualité</span>
+          <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)} placeholder={qualiteEnAvant} />
+        </label>
+      )}
+      {qualiteEnAvant !== undefined && qualitesProposees !== undefined && (
+        <div className="cp-champ cp-champ--en-avant" data-qualite-menu>
+          <label className="cp-champ-mot" htmlFor={`${idQualite}-menu`}>Qualité</label>
+          <select id={`${idQualite}-menu`} className="cp-saisie" value={qualitePerso ? 'personnalise' : (proposee(qualite) ?? '')}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'personnalise') { setQualitePerso(true); if (proposee(qualite) !== undefined) setQualite(''); return; }
+              setQualitePerso(false); setQualite(v);
+            }}>
+            <option value="">— choisir —</option>
+            {qualitesProposees.map((q) => <option key={q} value={q}>{q}</option>)}
+            <option value="personnalise">Personnalisé</option>
+          </select>
+          {qualitePerso && (
+            <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)} aria-label="Qualité personnalisée"
+              placeholder="Écrivez la qualité (ex. Employeur, Notaire)" data-qualite-perso />
+          )}
+          <small className="cp-aide-qualite">{qualiteEnAvant}</small>
+        </div>
+      )}
+    </>
+  );
   return (
     <form className="cp-form" onSubmit={(e) => { e.preventDefault(); soumettre(); }}>
       {fenetre?.sorte === 'alerte' && (
@@ -951,37 +984,14 @@ export function FormulaireCarte({ p, onEnregistrer, onAnnuler, refus, creation, 
         <input className="cp-saisie" value={nom} onChange={(e) => setNom(nomEnSaisie(e.target.value))} required />
         {manqueDe('nom')}
       </label>
-      {qualiteEnAvant !== undefined && qualitesProposees === undefined && (
-        <label className="cp-champ cp-champ--en-avant">
-          <span className="cp-champ-mot">Qualité</span>
-          <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)} placeholder={qualiteEnAvant} />
-        </label>
-      )}
-      {qualiteEnAvant !== undefined && qualitesProposees !== undefined && (
-        <div className="cp-champ cp-champ--en-avant" data-qualite-menu>
-          <label className="cp-champ-mot" htmlFor={`${idQualite}-menu`}>Qualité</label>
-          <select id={`${idQualite}-menu`} className="cp-saisie" value={qualitePerso ? 'personnalise' : (proposee(qualite) ?? '')}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === 'personnalise') { setQualitePerso(true); if (proposee(qualite) !== undefined) setQualite(''); return; }
-              setQualitePerso(false); setQualite(v);
-            }}>
-            <option value="">— choisir —</option>
-            {qualitesProposees.map((q) => <option key={q} value={q}>{q}</option>)}
-            <option value="personnalise">Personnalisé</option>
-          </select>
-          {qualitePerso && (
-            <input className="cp-saisie" value={qualite} onChange={(e) => setQualite(e.target.value)} aria-label="Qualité personnalisée"
-              placeholder="Écrivez la qualité (ex. Employeur, Notaire)" data-qualite-perso />
-          )}
-          <small className="cp-aide-qualite">{qualiteEnAvant}</small>
-        </div>
-      )}
+      {!qualiteApresPrenom && champQualiteEnAvant}
       <label className="cp-champ">
         <span className="cp-champ-mot">Prénom</span>
         <input className="cp-saisie" value={prenom} onChange={(e) => setPrenom(prenomEnSaisie(e.target.value))} />
         {manqueDe('prenom')}
       </label>
+      {/* Arno (20/10/2026) — « Contact du locataire » : Civilité, Nom, Prénom, PUIS Qualité, comme la carte Locataire. */}
+      {qualiteApresPrenom && champQualiteEnAvant}
       {qualiteEnAvant === undefined && (
         <label className="cp-champ">
           <span className="cp-champ-mot">Qualité <span className="cp-facultatif">facultative</span></span>

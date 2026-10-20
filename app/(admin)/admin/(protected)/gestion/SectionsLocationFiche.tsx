@@ -939,7 +939,7 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
         <>
           {/* Les honoraires propriétaire : ceux CALCULÉS À L'ENTRÉE, relus (jamais recalculés après coup). */}
           <BlocConditionsEntree valeur={saisie} onChange={(v) => { setSaisie(v); setMotif(null); }} manque={manqueDe}
-            honoraires={{ calcul: c.honoraires ?? null, lienBien: null }} />
+            honoraires={{ calcul: c.honoraires ?? null, lienBien: null }} dateEntree={l?.entree ?? null} />
           {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
           <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
             <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrer(); }} data-enregistrer-conditions>
