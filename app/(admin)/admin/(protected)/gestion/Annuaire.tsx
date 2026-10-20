@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
 import { motIndivision } from '../../../../lib/gestion/indivision';
 import { ResumeBienFiche } from './ResumeBien';
+import { ResumeBailFiche } from './ResumeBail';
 import {
   formaterDateIso, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
@@ -2049,6 +2050,11 @@ function VueLocataire({
           </p>
         </div>
       </header>
+
+      {/* 🔴🔴 Arno (20/10/2026) — L'ENCART DU BAIL, juste sous le titre et au-dessus de « Coordonnées » : le résumé du bail (en
+          cours, sinon le dernier) et son détail dépliable, lus à la source ; les « Conditions d'entrée » et « Garants et
+          contacts » de la section Location y ont fusionné (`ResumeBail.tsx`). */}
+      <ResumeBailFiche f={f} ouvrir={ouvrir} />
 
       {/* ══ 🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT, EN CARTES — la règle d'Arno, à l'écran ═══════════════════════ */}
       <BlocCartes titre="Coordonnées" id="ann-coord-loc" personnes={f.personnes} famille="locataire" motAjouter="Ajouter un occupant"

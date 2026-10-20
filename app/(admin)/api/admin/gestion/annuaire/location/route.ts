@@ -10,6 +10,7 @@ import { enregistrerEnGestion, modifierComplementsBien, syndicsConnus } from '..
 import { detacherAnnexe } from '../../../../../../lib/location/entretienAnnexeRepo';
 import { modifierConditionsEntree } from '../../../../../../lib/location/conditionsEntreeRepo';
 import { resumeDuBien } from '../../../../../../lib/location/resumeBienRepo';
+import { resumeBailDuLocataire } from '../../../../../../lib/location/resumeBailRepo';
 import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../../../lib/location/archivage';
 import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
@@ -54,6 +55,9 @@ export async function GET(request: Request): Promise<Response> {
       const d = await resumeDuBien(r);
       return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
     }
+    // Arno (20/10/2026) — le RÉSUMÉ DU BAIL de la fiche locataire (lecture seule, à la source par bail_id).
+    const rb = identifiant(url.searchParams.get('resumeBail'));
+    if (rb !== null) return Response.json({ etat: 'ok', data: await resumeBailDuLocataire(rb) }, { headers: ENTETES });
     const l = identifiant(url.searchParams.get('lot'));
     if (l !== null) return Response.json(await ficheBienLocation(l), { headers: ENTETES });
     const t = identifiant(url.searchParams.get('locataire'));

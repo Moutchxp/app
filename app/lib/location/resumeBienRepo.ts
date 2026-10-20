@@ -176,7 +176,7 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
  * Les propriétaires du bien : le titulaire, et les copropriétaires dont le lien est EN COURS et la fiche ni archivée ni
  * supprimée (la règle de la mention « Copropriétaire(s) », `indivision.ts`) ; avec leurs n° de mandat (gestion, transaction).
  */
-async function proprietairesDuBien(lotId: number): Promise<{ id: number; nom: string; titulaire: boolean; mandatGestion: string | null; mandatTransaction: string | null }[]> {
+export async function proprietairesDuBien(lotId: number): Promise<{ id: number; nom: string; titulaire: boolean; mandatGestion: string | null; mandatTransaction: string | null }[]> {
   const col = async (c: string): Promise<string> => ((await colonneExisteMemo('gestion_annuaire_proprietaire', c)) ? `p.${c}` : 'NULL::text');
   const liens = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'jusqu_a');
   const { rows } = await query<{ id: string; nom: string | null; titulaire: boolean; mg: string | null; mt: string | null }>(

@@ -6,7 +6,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { CreationLocataire } from './CreationLocataire';
 import { POLICE_MIN_INTITULE_PX } from './ConditionsEntree';
 import { CreationProprietaires } from './CreationProprietaires';
-import { SectionLocationLocataire } from '../gestion/SectionsLocationFiche';
+import { ResumeBailFiche } from '../gestion/ResumeBail';
 import { FormulaireCarte } from '../gestion/CartesPersonnes';
 import { CSS_LOCATION_CREATION } from './commun';
 import { QUALITES_CONTACT } from '../../../../lib/location/cartesLocation';
@@ -215,46 +215,51 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
   });
 });
 
-describe('🔴 fiche du locataire — encart « Conditions d’entrée »', () => {
+/**
+ * 🔴 Arno (20/10/2026) — l'ancien encart « Conditions d'entrée » de la section Location a FUSIONNÉ dans l'encart du bail, en tête
+ * de la fiche locataire (`ResumeBail.tsx`) : les mêmes informations (une fois), les mêmes gestes (« Modifier »).
+ */
+const BAIL = { bailId: 8, enCours: true, termineLe: null, entree: '2026-10-20', bien: { id: 7, adresse: '4 rue Fictive, PUTEAUX' }, lots: [{ id: 7, libelle: '4 rue Fictive, PUTEAUX' }],
+  proprietaires: [], colocataires: [], occupationIds: [11, 12], occupationId: 11 };
+const txt = (sel: string): string | undefined => container.querySelector(sel)?.textContent?.replace(/\s/g, ' ');
+const rendreBail = async (conditions: unknown, loyer: unknown = null) => {
+  global.fetch = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
+    if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return ok(null); }
+    return ok({ bail: BAIL, loyer, conditions, garants: [], contacts: [], entretiens: null });
+  }) as unknown as typeof fetch;
+  await act(async () => { root.render(createElement(ResumeBailFiche, { f: { id: 101, modifiable: true } as never, ouvrir: () => {} })); });
+  await calmer();
+  await clic(container.querySelector('[data-bascule-detail]')!);
+};
+
+describe('🔴 fiche du locataire — les conditions d’entrée, dans l’encart du bail', () => {
   const LUES = {
-    bailCle: 'bail-x', occupationIds: [11, 12], saisiLe: '2026-10-20 10:00:00+02', saisiPar: 'arno@exemple.fr', modifiees: false,
+    bailCle: 'bail-x', occupationIds: [11, 12], saisiLe: '2026-10-20 10:00:00+02', saisiPar: 'arno@exemple.fr', modifiees: false, honoraires: null,
     conditions: { depot: 'agence', prelevement: true, jour: 5, garant: true, assurance: 'gli', assurancePrecision: 'Assureur fictif',
       honorairesLocataire: 'agence', honorairesProprietaire: 'agence', sommes: { prorataLoyer: 41226, prorataCharges: null, depotGarantie: 118000, honorairesAgence: null },
       reglement: 'virement', reglementPrecision: null, commentaire: null },
-    lignes: [{ mot: 'Dépôt de garantie', valeur: 'Conservé par l’agence' }, { mot: 'Prélèvement', valeur: 'Oui, au 5' }, { mot: 'Total dû à l’entrée', valeur: '1 592,26 €' }],
-  };
-  const FICHE = (o: Record<string, unknown> = {}) => ({
-    fiche: { modifiable: true }, sortie: null, preavis: [],
-    locations: [{ occupationId: 11, lotId: 7, adresse: '4 rue Fictive', commune: 'PUTEAUX', entree: '2026-10-20', sortie: null, location: null }],
-    conditionsEntree: [LUES], conditionsEntreeDisponible: true, ...o,
-  });
-  const rendre = async (fiche: unknown) => {
-    global.fetch = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return ok(null); }
-      return ok(fiche);
-    }) as unknown as typeof fetch;
-    await act(async () => { root.render(createElement(SectionLocationLocataire, { locataireId: 101, ouvrir: () => {} })); });
-    await calmer();
+    lignes: [],
   };
 
-  it('en LECTURE : une par bail, son logement, qui et quand ; le total', async () => {
-    await rendre(FICHE());
-    const e = container.querySelector('[data-encart-conditions-entree]')!;
-    expect(e.querySelector('h3')?.textContent).toBe('Conditions d’entrée');
+  it('en LECTURE : dépôt, prélèvement, sommes, total, qui et quand — une seule fois chacun', async () => {
+    await rendreBail(LUES);
+    const e = container.querySelector('[data-encart-bail]')!;
+    expect(container.querySelector('[data-encart-conditions-entree]')).toBeNull();
+    expect(txt('[data-rb="depot"]')).toBe('1 180,00 € — conservé par l’agence');
+    expect(txt('[data-rb="prelevement"]')).toBe('oui, au 5');
+    expect(txt('[data-rb="total-du"]')).toBe('1 592,26 €');
+    expect(e.querySelector('[data-rb="saisie"]')?.textContent).toBe('saisies le 20/10/2026 par arno@exemple.fr');
+    expect(e.querySelector('[data-rb="assurance"]')?.textContent).toBe('GLI — Assureur fictif');
     expect(e.querySelectorAll('[data-conditions-bail]')).toHaveLength(1);
-    expect(e.textContent).toContain('4 rue Fictive, PUTEAUX');
-    expect(e.textContent).toContain('saisies le 20/10/2026 par arno@exemple.fr');
-    expect([...e.querySelectorAll('dt')].map((x) => x.textContent)).toEqual(['Dépôt de garantie', 'Prélèvement', 'Total dû à l’entrée']);
   });
 
   it('« Modifier » : le MÊME formulaire, pré-rempli ; Enregistrer envoie « conditions-entree » pour ce bail', async () => {
-    await rendre(FICHE());
+    await rendreBail(LUES);
     await clic(container.querySelector('[data-modifier-conditions]')!);
     expect(container.querySelector('[data-conditions-entree]')).not.toBeNull();
     expect(pilule('Jour du prélèvement', 'au 5').getAttribute('aria-pressed')).toBe('true');
     expect((container.querySelector('[data-cond-precision="assurance"] input') as HTMLInputElement).value).toBe('Assureur fictif');
     expect((container.querySelector('[data-somme="prorataLoyer"] input') as HTMLInputElement).value).toBe('412,26');
-    // L'entretien est sur la fiche du bien, pas ici.
     expect(container.querySelector('[data-cond="entretien"]')).toBeNull();
     await clic(pilule('Prélèvement', 'Non'));
     await clic(container.querySelector('[data-enregistrer-conditions]')!);
@@ -262,7 +267,7 @@ describe('🔴 fiche du locataire — encart « Conditions d’entrée »', () =
   });
 
   it('un choix vidé : refusé à l’écran, rien n’est envoyé', async () => {
-    await rendre(FICHE());
+    await rendreBail(LUES);
     await clic(container.querySelector('[data-modifier-conditions]')!);
     await clic(pilule('Dépôt de garantie', 'Conservé par l’agence'));
     await clic(container.querySelector('[data-enregistrer-conditions]')!);
@@ -270,12 +275,10 @@ describe('🔴 fiche du locataire — encart « Conditions d’entrée »', () =
     expect(container.querySelector('[data-cond="depot"] .loc-manque')).not.toBeNull();
   });
 
-  it('aucun bail saisi, ou base sans la migration : l’encart le dit', async () => {
-    await rendre(FICHE({ conditionsEntree: [] }));
-    expect(container.querySelector('[data-encart-conditions-entree]')?.textContent).toContain('Aucune condition d’entrée enregistrée');
-    act(() => { root.unmount(); }); root = createRoot(container);
-    await rendre(FICHE({ conditionsEntree: [], conditionsEntreeDisponible: false }));
-    expect(container.querySelector('[data-encart-conditions-entree]')?.textContent).toContain('migration 391');
+  it('aucune condition saisie : l’encart le dit, sans geste « Modifier »', async () => {
+    await rendreBail(null);
+    expect(container.querySelector('[data-rb="saisie"]')?.textContent).toBe('aucune condition d’entrée enregistrée');
+    expect(container.querySelector('[data-modifier-conditions]')).toBeNull();
   });
 });
 
@@ -465,20 +468,12 @@ describe('🔴 retouches — biens libres d’abord, loyer mensuel, bandeau de m
   });
 
   it('FICHE : le loyer du bail s’affiche dans l’encart et se rouvre dans « Modifier »', async () => {
-    global.fetch = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
-      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return ok(null); }
-      return ok({ fiche: { modifiable: true }, sortie: null, preavis: [], conditionsEntreeDisponible: true,
-        locations: [{ occupationId: 11, lotId: 7, adresse: '4 rue Fictive', commune: 'PUTEAUX', entree: '2026-10-20', sortie: null, location: null }],
-        conditionsEntree: [{ bailCle: 'b', occupationIds: [11], saisiLe: '2026-10-20 10:00:00+02', saisiPar: 'x', modifiees: false, honoraires: null,
-          loyer: { principal: 98000, provisions: 9050 },
-          conditions: { depot: 'agence', prelevement: false, jour: null, garant: false, assurance: 'aucune', assurancePrecision: null, honorairesLocataire: 'agence',
-            honorairesProprietaire: 'agence', sommes: { prorataLoyer: null, prorataCharges: null, depotGarantie: null, honorairesAgence: null },
-            reglement: 'cheque', reglementPrecision: null, commentaire: null },
-          lignes: [{ mot: 'Loyer principal', valeur: '980,00 €' }, { mot: 'Provision pour charges', valeur: '90,50 €' }, { mot: 'Total loyer charges comprises / mois', valeur: '1 070,50 €' }] }] });
-    }) as unknown as typeof fetch;
-    await act(async () => { root.render(createElement(SectionLocationLocataire, { locataireId: 101, ouvrir: () => {} })); });
-    await calmer();
-    expect([...container.querySelectorAll('[data-encart-conditions-entree] dt')].map((x) => x.textContent)).toEqual(['Loyer principal', 'Provision pour charges', 'Total loyer charges comprises / mois']);
+    await rendreBail({ bailCle: 'b', occupationIds: [11], saisiLe: '2026-10-20 10:00:00+02', saisiPar: 'x', modifiees: false, honoraires: null,
+      loyer: { principal: 98000, provisions: 9050 },
+      conditions: { depot: 'agence', prelevement: false, jour: null, garant: false, assurance: 'aucune', assurancePrecision: null, honorairesLocataire: 'agence',
+        honorairesProprietaire: 'agence', sommes: { prorataLoyer: null, prorataCharges: null, depotGarantie: null, honorairesAgence: null },
+        reglement: 'cheque', reglementPrecision: null, commentaire: null }, lignes: [] }, { principal: 98000, provisions: 9050 });
+    expect([txt('[data-rb="loyer-principal"]'), txt('[data-rb="provisions"]'), txt('[data-rb="total-cc"]')]).toEqual(['980,00 €', '90,50 €', '1 070,50 € / mois']);
     await clic(container.querySelector('[data-modifier-conditions]')!);
     expect((container.querySelector('[data-loyer="principal"] input') as HTMLInputElement).value).toBe('980');
     await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1000');

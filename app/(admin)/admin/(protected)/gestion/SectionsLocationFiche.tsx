@@ -26,7 +26,6 @@ import {
   manquesConditions, versEnvoiConditions, versSaisieConditions, type ConditionsEntreeLues, type SaisieConditions,
 } from '../../../../lib/location/conditionsEntree';
 import { QuestionOrigine } from '../location/QuestionOrigine';
-import type { ContactRattache } from '../../../../lib/location/rattachements';
 import { aujourdhuiParisEcran, CSS_PREAVIS, GestesPreavis, MentionPreavis } from '../location/Preavis';
 import type { PreavisAffiche } from '../../../../lib/location/preavis';
 import { libelleBien, phraseArchivage, type ApercuArchivage, type OrigineArchivage } from '../../../../lib/location/archivage';
@@ -859,8 +858,8 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
                 </ul>
               )}
             </section>
-            <EncartConditionsEntree d={d} modifiable={d.fiche.modifiable} apres={relire} ouvrir={ouvrir} />
-            <GarantsEtContacts contacts={d.contactsRattaches ?? null} />
+            {/* Arno (20/10/2026) : « Conditions d'entrée » et « Garants et contacts » ont fusionné dans l'encart du bail, en tête
+                de la fiche (`ResumeBail.tsx`) — une seule fois chaque information. */}
             <BlocPreavis apres={relire} lignes={liste(d.preavis).map((x) => {
               const l = liste(d.locations).find((y) => y.occupationId === x.occupationId);
               return { cle: x.occupationId, entree: l?.entree ?? null, p: x.preavis,
@@ -877,26 +876,18 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
 }
 
 /**
- * ══ L'ENCART « CONDITIONS D'ENTRÉE » (Arno, 20/10/2026) ═════════════════════════════════════════════════════════════════
- * Une par bail (une entrée = un jeu de conditions, migration 391), en LECTURE ; « Modifier » ouvre LE MÊME formulaire que
- * le bloc 3 de « Nouveau locataire » (`BlocConditionsEntree`) et AJOUTE une ligne (la précédente reste lisible).
- * L'entretien à prévoir n'y est pas : c'est la donnée du bien, sur sa fiche.
+ * ══ LES GESTES DES CONDITIONS D'ENTRÉE D'UN BAIL (Arno, 20/10/2026) ══════════════════════════════════════════════════════════
+ * L'ancien encart « Conditions d'entrée » de la fiche locataire a FUSIONNÉ dans l'encart du bail (`ResumeBail.tsx`, décision
+ * d'Arno) : sa lecture y est, une seule fois. Ses gestes restent, ici, rendus par l'encart : « Modifier » ouvre LE MÊME
+ * formulaire que le bloc 3 de « Nouveau locataire » (`BlocConditionsEntree`) et AJOUTE une ligne ; « Calculer les honoraires
+ * avec la surface actuelle » (faille 8) montre le résultat, écrit seulement par « Enregistrer ».
  */
-function EncartConditionsEntree({ d, modifiable, apres, ouvrir }: { d: FicheLocataireLocation; modifiable: boolean; apres: () => void; ouvrir: Ouvrir }) {
-  const baux = liste(d.conditionsEntree);
-  return (
-    <section className="loc-bloc" data-encart-conditions-entree>
-      <h3>Conditions d’entrée</h3>
-      {d.conditionsEntreeDisponible === false
-        ? <p className="loc-muet" style={{ margin: 0 }}>Mise à jour de la base à appliquer (migration 391) : les conditions d’entrée ne sont pas encore disponibles.</p>
-        : baux.length === 0
-          ? <p className="loc-muet" style={{ margin: 0 }}>Aucune condition d’entrée enregistrée (elles se saisissent à l’entrée, depuis « Nouveau locataire »).</p>
-          : baux.map((c) => <ConditionsDuBail key={c.bailCle} c={c} d={d} modifiable={modifiable} apres={apres} ouvrir={ouvrir} />)}
-    </section>
-  );
-}
-
-function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEntreeLues; d: FicheLocataireLocation; modifiable: boolean; apres: () => void; ouvrir: Ouvrir }) {
+export function GestesConditionsBail({ c, l, modifiable, apres }: {
+  c: ConditionsEntreeLues;
+  /** L'occupation qui porte le geste, son bien et sa date d'entrée. */
+  l: { occupationId: number; lotId: number | null; entree: string | null } | undefined;
+  modifiable: boolean; apres: () => void;
+}) {
   const [saisie, setSaisie] = useState<SaisieConditions | null>(null);
   const [tente, setTente] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
@@ -908,8 +899,6 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
   const [recalculMotif, setRecalculMotif] = useState<string | null>(null);
   const surfaceConnue = c.surfaceActuelle !== null && c.surfaceActuelle !== undefined && Number(c.surfaceActuelle) > 0;
   const proposerRecalcul = c.honoraires?.etat === 'surface_manquante' && surfaceConnue;
-  // Le bail se présente par son logement : la première location de la fiche qui en fait partie.
-  const l = liste(d.locations).find((x) => c.occupationIds.includes(x.occupationId));
   const manque = saisie === null ? {} : manquesConditions(versEnvoiConditions(saisie));
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
   const enregistrer = async (): Promise<void> => {
@@ -936,20 +925,9 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
   };
   return (
     <div className="loc-cond-bail" data-conditions-bail={c.bailCle}>
-      <p style={{ margin: 0 }}>
-        {l === undefined || l.lotId === null ? <strong>Bail</strong>
-          : <LienFiche sorte="lot" id={l.lotId} ouvrir={ouvrir}>{[l.adresse, l.commune].filter((x) => x).join(', ') || `Bien ${l.lotId}`}</LienFiche>}{' '}
-        <span className="loc-muet">— {c.modifiees ? 'modifiées' : 'saisies'} le {formaterDateIso(c.saisiLe.slice(0, 10))} par {c.saisiPar}</span>
-      </p>
+      <style>{CSS_LOCATION_ECRANS + CSS_CONDITIONS + CSS_SECTIONS}</style>
       {saisie === null ? (
         <>
-          <dl className="loc-cond-lecture">
-            {c.lignes.map((x, i) => (
-              <div key={`${i}-${x.mot}`} style={{ display: 'contents' }}>
-                <dt>{x.mot}</dt><dd>{x.valeur}{x.detail !== undefined && <small className="loc-cond-detail"> — {x.detail}</small>}</dd>
-              </div>
-            ))}
-          </dl>
           {modifiable && l !== undefined && (
             <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSaisie(versSaisieConditions(c.conditions, c.loyer ?? null))} data-modifier-conditions>Modifier</button>
@@ -980,29 +958,6 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
         </>
       )}
     </div>
-  );
-}
-
-/**
- * Arno (20/10/2026, 393) — LES GARANTS ET CONTACTS DU LOCATAIRE, sous ses locations : un garant dit qui il garantit (une
- * colocation : tous les colocataires garantis), un contact dit de qui il est le contact. Lecture seule ; rien sans la 393.
- */
-function GarantsEtContacts({ contacts }: { contacts: ContactRattache[] | null }) {
-  if (contacts === null) return null;
-  return (
-    <section className="loc-bloc" data-garants-contacts>
-      <h3>Garants et contacts</h3>
-      {contacts.length === 0 ? <p className="loc-muet" style={{ margin: 0 }}>Aucun garant ni contact rattaché à ce locataire.</p> : (
-        <ul className="loc-liste">
-          {contacts.map((x) => (
-            <li key={x.carteId} data-contact-rattache={x.carteId} style={{ display: 'block' }}>
-              <strong>{x.nom}</strong>{x.qualite ? <span className="loc-muet"> · {x.qualite}</span> : null}
-              <span className="loc-muet"> — {x.mot}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }
 
