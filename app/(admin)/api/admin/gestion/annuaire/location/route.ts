@@ -10,7 +10,8 @@ import { enregistrerEnGestion, modifierComplementsBien, syndicsConnus } from '..
 import { detacherAnnexe } from '../../../../../../lib/location/entretienAnnexeRepo';
 import { modifierConditionsEntree } from '../../../../../../lib/location/conditionsEntreeRepo';
 import { resumeDuBien } from '../../../../../../lib/location/resumeBienRepo';
-import { resumeBailDuLocataire } from '../../../../../../lib/location/resumeBailRepo';
+import { dossierDuBailDuLocataire, resumeBailDuLocataire } from '../../../../../../lib/location/resumeBailRepo';
+import { creerBrancheBail } from '../../../../../../lib/location/brancheBailDriveRepo';
 import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../../../lib/location/archivage';
 import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
@@ -56,6 +57,9 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
     }
     // Arno (20/10/2026) — le RÉSUMÉ DU BAIL de la fiche locataire (lecture seule, à la source par bail_id).
+    // Arno (20/10/2026, 394) — le dossier Drive du bail d'un locataire, pour le bouton de l'en-tête de sa fiche.
+    const db = identifiant(url.searchParams.get('dossierBail'));
+    if (db !== null) return Response.json({ etat: 'ok', data: await dossierDuBailDuLocataire(db) }, { headers: ENTETES });
     const rb = identifiant(url.searchParams.get('resumeBail'));
     if (rb !== null) return Response.json({ etat: 'ok', data: await resumeBailDuLocataire(rb) }, { headers: ENTETES });
     const l = identifiant(url.searchParams.get('lot'));
@@ -130,6 +134,13 @@ export async function POST(request: Request): Promise<Response> {
         return repondre(await annulerPreavis({ preavisId: pid }, auteur));
       }
       // Arno (20/10/2026) — « Conditions d'entrée » : « Modifier » ajoute une ligne au bail (migration 391, ajout seul).
+      // Arno (20/10/2026, 394) — « Créer le dossier » : la branche « BAIL » du Drive, rejouée (idempotente).
+      case 'creer-dossier-bail': {
+        const bailId = identifiant(corps.bailId);
+        if (bailId === null) return incomplet();
+        const r = await creerBrancheBail(bailId, auteur.libelle);
+        return repondre(r.ok ? { etat: 'ok', data: { driveId: r.driveId, nom: r.nom } } : { etat: 'refus', motif: r.motif });
+      }
       case 'conditions-entree': {
         const occ = identifiant(corps.occupationId);
         if (occ === null) return incomplet();

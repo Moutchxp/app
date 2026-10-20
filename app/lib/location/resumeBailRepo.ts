@@ -8,6 +8,7 @@ import { loyerDesOccupations } from './loyerEntreeRepo';
 import { contactsRattachesDuLocataire } from './rattachementsRepo';
 import type { ContactRattache } from './rattachements';
 import { proprietairesDuBien } from './resumeBienRepo';
+import { brancheBailDisponible, dossierDuBail } from './brancheBailDriveRepo';
 import { colonneExisteMemo } from './sondeLocation';
 
 /**
@@ -44,6 +45,8 @@ export interface ResumeBail {
   garants: ContactRattache[];
   contacts: ContactRattache[];
   entretiens: { aPrevoir: boolean | null; liste: { sorte: string; nom: string | null; dateAnniversaire: string | null }[] } | null;
+  /** Arno (20/10/2026, 394) — le dossier Drive du bail (N7) : créé, ou à créer ; absent sans la migration 394. */
+  drive?: { etat: 'cree'; driveId: string } | { etat: 'a_creer' };
 }
 
 export async function resumeBailDuLocataire(locataireId: number): Promise<ResumeBail> {
@@ -102,7 +105,24 @@ export async function resumeBailDuLocataire(locataireId: number): Promise<Resume
     garants: rattaches.filter((c) => c.garant),
     contacts: rattaches.filter((c) => !c.garant),
     entretiens: comp === null ? null : { aPrevoir: comp.entretienAPrevoir ?? null, liste: comp.entretiens ?? [] },
+    ...(await etatDriveDuBail(choisie.bail_id === null ? null : Number(choisie.bail_id))),
   };
+}
+
+/** L'état du dossier Drive d'un bail (394) : `{}` sans la migration ou sans bail. */
+async function etatDriveDuBail(bailId: number | null): Promise<{ drive?: ResumeBail['drive'] }> {
+  if (bailId === null || !(await brancheBailDisponible())) return {};
+  const d = await dossierDuBail(bailId);
+  return { drive: d === null ? { etat: 'a_creer' } : { etat: 'cree', driveId: d.driveId } };
+}
+
+/** Le dossier Drive du bail montré sur la fiche d'un locataire (le bail en cours, sinon le dernier) — pour son en-tête. */
+export async function dossierDuBailDuLocataire(locataireId: number): Promise<{ driveId: string } | null> {
+  if (!(await bailDisponible()) || !(await brancheBailDisponible())) return null;
+  const { rows } = await query<{ id: string; entree: string | null; sortie: string | null; bail_id: string | null }>(
+    `SELECT id::text, entree::text, sortie::text, bail_id::text FROM gestion_annuaire_occupation WHERE locataire_id = $1 AND lot_id IS NOT NULL`, [locataireId]);
+  const o = choisirOccupation(rows);
+  return o?.bail_id == null ? null : dossierDuBail(Number(o.bail_id));
 }
 
 async function colonne(c: string): Promise<string> {

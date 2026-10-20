@@ -27,6 +27,7 @@ import { verifierConditions, type ConditionsEntree } from './conditionsEntree';
 import { conditionsEntreeDisponible, enregistrerConditionsEntreeDans } from './conditionsEntreeRepo';
 import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
 import { bailDisponible, creerBailDans, garantsDisponibles } from './bailRepo';
+import { brancheBailDisponible, creerBrancheBail, type DepsBrancheBail } from './brancheBailDriveRepo';
 import { verifierRattachements, type RattachementContact } from './rattachements';
 import { ecrireRattachements } from './rattachementsRepo';
 import { ecrireLoyerDans, loyerDeLaSaisie } from './loyerEntreeRepo';
@@ -793,7 +794,15 @@ export async function creerLocatairesSurBien(o: {
    */
   rattachements?: unknown;
 }, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null; recap: string[]; reintegrations: string[];
-  entretienRefus: string | null; bailId?: number | null; rattaches?: number; dateBaremeSupposee?: boolean }>> {
+  entretienRefus: string | null; bailId?: number | null; rattaches?: number; dateBaremeSupposee?: boolean;
+  /** Arno (20/10/2026, 394) : la branche « BAIL » du Drive — créée (son dossier), ou à créer (le motif) ; absente sans la 394. */
+  drive?: { ok: true; driveId: string; nom: string } | { ok: false; motif: string } }>> {
+  return creerLocatairesSurBienAvec(o, auteur);
+}
+
+/** La même création, le Drive INJECTÉ (épreuves sans réseau). */
+export async function creerLocatairesSurBienAvec(o: Parameters<typeof creerLocatairesSurBien>[0], auteur: Auteur, depsDrive?: DepsBrancheBail):
+  ReturnType<typeof creerLocatairesSurBien> {
   if (o.lotId === null) return { etat: 'refus', motif: 'Choisissez le bien loué.' };
   const cartes = o.cartes.slice(0, 12);
   const existants = [...new Set(o.existants)].slice(0, 12);
@@ -899,6 +908,15 @@ export async function creerLocatairesSurBien(o: {
     rattaches = await ecrireRattachements(issue.bailId, c.carteIds.map((carteId, i) => ({ carteId, r: rattachements[i] })).filter((x) => x.r !== undefined),
       [...ids, ...existants], auteur).catch((e: unknown) => { rattachementsRefus = e instanceof Error ? e.message : 'erreur'; return 0; });
   }
+  /* Arno (20/10/2026, 394) — LA BRANCHE « BAIL » DU DRIVE, une fois l'enregistrement en base réussi : « BAIL <NOMS> » › pièces ›
+     sous-pièces › année, sous « 6 Locataires » du bien (parents manquants d'abord). Jamais bloquant : un échec laisse le
+     locataire enregistré, et la fiche propose « Créer le dossier ». */
+  let drive: { ok: true; driveId: string; nom: string } | { ok: false; motif: string } | undefined;
+  if (issue.bailId !== null && await brancheBailDisponible()) {
+    const r = await creerBrancheBail(issue.bailId, auteur.libelle, depsDrive)
+      .catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
+    drive = r.ok ? { ok: true, driveId: r.driveId, nom: r.nom } : { ok: false, motif: r.motif };
+  }
   // L'entretien est la donnée du BIEN : la même écriture que sa fiche (journalisée seulement si elle change). Jamais bloquant.
   let entretienRefus: string | null = null;
   if (o.entretien !== undefined) {
@@ -911,7 +929,8 @@ export async function creerLocatairesSurBien(o: {
       : rattachementsRefus !== null ? `Les contacts sont créés, mais leur rattachement aux locataires a échoué (à rattacher à la main) : ${rattachementsRefus}` : null,
     recap: issue.recap, reintegrations: issue.reintegrations, entretienRefus, bailId: issue.bailId, rattaches,
     // Arno (20/10/2026, faille 7) : sans date d'entrée, le barème du jour a servi — l'écran le dit (jamais bloquant).
-    dateBaremeSupposee: honoraires !== null && honoraires.dateSupposee } };
+    dateBaremeSupposee: honoraires !== null && honoraires.dateSupposee,
+    ...(drive !== undefined ? { drive } : {}) } };
 }
 
 /** La fiche d'un syndic, telle que la Gestion la connaît (mêmes données, aucune copie). */

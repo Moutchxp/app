@@ -256,12 +256,14 @@ export function CreationLocataire() {
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); setRecap(null); return; }
     const d = r.data as { locataireIds?: number[]; reintegrations?: string[]; entretienRefus?: string | null; contactsRefus?: string | null;
-      dateBaremeSupposee?: boolean } | undefined;
+      dateBaremeSupposee?: boolean; drive?: { ok: boolean; motif?: string } } | undefined;
     const ids = d?.locataireIds ?? [];
     const lien = ids[0] !== undefined ? `/admin/location/locataire/${ids[0]}` : '/admin/location/locataires';
     // Une réintégration s'ANNONCE à l'écran avant de quitter la page.
     const annonces = [...(d?.reintegrations ?? []), ...(d?.entretienRefus ? [d.entretienRefus] : []), ...(d?.contactsRefus ? [d.contactsRefus] : []),
-      ...(d?.dateBaremeSupposee === true ? [AVERTISSEMENT_DATE] : [])];
+      ...(d?.dateBaremeSupposee === true ? [AVERTISSEMENT_DATE] : []),
+      // Arno (20/10/2026, 394) : le Drive a échoué — le locataire est enregistré, son dossier reste à créer (bouton sur sa fiche).
+      ...(d?.drive?.ok === false ? [`Le locataire est enregistré, mais le dossier Drive du bail n’a pas été créé : ${d.drive.motif ?? 'erreur'} « Créer le dossier » sur sa fiche le relance.`] : [])];
     if (annonces.length > 0) { setFait({ messages: annonces, lien }); return; }
     window.location.href = lien;
   };
@@ -363,7 +365,8 @@ export function CreationLocataire() {
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires">Annuler</a>
-        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null}>{envoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
+        {/* Arno (20/10/2026) : un locataire ne s'enregistre pas sans bien du portefeuille — « Enregistrer » reste inactif sans lui. */}
+        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null} data-enregistrer-locataire>{envoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
       </div>
     </div>
   );

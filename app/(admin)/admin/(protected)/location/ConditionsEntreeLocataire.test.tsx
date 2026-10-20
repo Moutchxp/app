@@ -127,6 +127,48 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
   });
 
+  it('🔴 BIEN OBLIGATOIRE (Arno, 20/10/2026) : sans bien choisi, « Enregistrer » est inactif et « Reste à choisir » le dit', async () => {
+    await act(async () => { root.render(createElement(CreationLocataire)); });
+    await calmer();
+    const bouton = () => container.querySelector('[data-enregistrer-locataire]') as HTMLButtonElement;
+    expect(bouton().disabled).toBe(true);
+    const form = container.querySelector('[data-sorte="client"] .cp-form') as HTMLElement;
+    const nom = [...form.querySelectorAll('label.cp-champ')].find((l) => l.querySelector('.cp-champ-mot')?.textContent === 'Nom')?.querySelector('input') as HTMLInputElement;
+    await saisir(nom, 'FICTIF');
+    const v = form.querySelectorAll('.cp-saisie--valeur');
+    await saisir(v[0] as HTMLInputElement, '06 12 34 56 78');
+    await saisir(v[1] as HTMLInputElement, 'fictif@exemple.test');
+    await clic(form.querySelector('button[type="submit"]')!);
+    await calmer();
+    expect(barre()).toBe('Reste à choisir : le bien loué.');
+    expect(bouton().disabled).toBe(true);
+    await soumettre();
+    expect(posts).toEqual([]);
+    await saisir(container.querySelector('input[data-recherche-bien]') as HTMLInputElement, 'Fictive');
+    await calmer();
+    await clic(container.querySelector('.loc-choix button')!);
+    await calmer();
+    expect(bouton().disabled).toBe(false);
+  });
+
+  it('DRIVE en échec : le locataire est enregistré, l’écran le dit et renvoie à « Créer le dossier » de la fiche', async () => {
+    await preparer();
+    await toutRepondre();
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+        posts.push(corps);
+        if (corps.action !== 'apercu-lots') return ok({ locataireIds: [50], reintegrations: [], drive: { ok: false, motif: 'Drive indisponible (403).' } });
+      }
+      return (avant as (u: unknown, i?: RequestInit) => Promise<Response>)(url, init);
+    }) as unknown as typeof fetch;
+    await soumettre();
+    if (container.querySelector('[data-collant] button[type="submit"]')?.textContent === 'Confirmer') await soumettre();
+    expect(container.querySelector('[data-reintegration]')?.textContent)
+      .toContain('Le locataire est enregistré, mais le dossier Drive du bail n’a pas été créé : Drive indisponible (403). « Créer le dossier » sur sa fiche le relance.');
+  });
+
   it('sous-choix « au 1er / au 5 / au 10 / au 15 » : seulement après Oui, exigé ; Non le retire', async () => {
     await preparer();
     expect(container.querySelector('[data-cond-jour]')).toBeNull();

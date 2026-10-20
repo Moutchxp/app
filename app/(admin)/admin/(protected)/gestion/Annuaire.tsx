@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
 import { motIndivision } from '../../../../lib/gestion/indivision';
 import { ResumeBienFiche } from './ResumeBien';
-import { ResumeBailFiche } from './ResumeBail';
+import { BoutonDossierBailEntete, ResumeBailFiche } from './ResumeBail';
 import {
   formaterDateIso, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
@@ -2049,6 +2049,8 @@ function VueLocataire({
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
           </p>
         </div>
+        {/* Arno (20/10/2026, 394) : le bouton Drive de la fiche locataire ouvre le dossier de SON BAIL (« BAIL <NOMS> »). */}
+        <div className="ann-tete-actions"><BoutonDossierBailEntete locataireId={f.id} /></div>
       </header>
 
       {/* 🔴🔴 Arno (20/10/2026) — L'ENCART DU BAIL, juste sous le titre et au-dessus de « Coordonnées » : le résumé du bail (en

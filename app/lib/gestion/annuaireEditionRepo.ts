@@ -1,4 +1,5 @@
 import { bailDisponible, bailEnCoursDuLotDans } from '../location/bailRepo';
+import { renommerBrancheBail, type DepsBrancheBail } from '../location/brancheBailDriveRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { refusFamilleCarte } from './familleCarteRepo';
 import { carteEstComplete } from './carteComplete';
@@ -830,12 +831,16 @@ export async function creerPersonne(
 export async function ajouterOccupant(
   lotId: number, locataireId: number, entree: string | null, auteur: Auteur,
   conditions?: Record<string, unknown> | null,
+  /** Le Drive, injecté pour les épreuves (par défaut : le vrai, via le jeton de gestion). */
+  depsDrive?: DepsBrancheBail,
 ): Promise<IssueEdition> {
   if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
   // Arno (20/10/2026, 393) : « Ajouter un occupant » rattache le nouvel occupant au BAIL EN COURS du lot (s'il y en a un).
   const avecBail = await bailDisponible();
-  return withTransaction(async (q) => {
+  let bailRejoint: number | null = null;
+  const issue = await withTransaction(async (q) => {
     const bail = avecBail ? await bailEnCoursDuLotDans(q, lotId) : null;
+    bailRejoint = bail;
     const cree = await ajouterOccupantDans(q, lotId, locataireId, entree, auteur, bail);
     if (cree === null) return { etat: 'inconnu' as const };
     if (conditions !== undefined && conditions !== null) {
@@ -851,6 +856,11 @@ export async function ajouterOccupant(
     if (e instanceof RefusConditions) return { etat: 'refus' as const, motif: e.message };
     throw e;
   });
+  /* Arno (20/10/2026, 394) : le dossier Drive de CE bail (« BAIL MARTIN ») prend le nom du nouvel occupant. Après la
+     transaction, jamais bloquant : un échec du Drive ne défait pas l'entrée de l'occupant. */
+  const rejoint: number | null = bailRejoint;
+  if (issue.etat === 'ok' && rejoint !== null) await renommerBrancheBail(rejoint, depsDrive).catch(() => undefined);
+  return issue;
 }
 
 /**

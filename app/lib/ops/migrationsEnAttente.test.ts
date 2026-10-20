@@ -81,6 +81,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 391 : conditions d'entrée d'un bail, écran « Nouveau locataire » (tuile Location, 20/10/2026).
   // 392 : jours de prélèvement 1/5/10/15, honoraires propriétaire (barèmes datés, zone très tendue) (tuile Location, 20/10/2026).
   // 393 : le bail devient une fiche ; garants et contacts rattachés ; verrou ni DELETE ni TRUNCATE (Location / Gestion, 20/10/2026).
+  // 394 : la branche « BAIL » du Drive rattachée au bail (bail_id sur gestion_drive_noeud) (Location, 20/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -90,7 +91,8 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql', '383_location_preavis.sql', '384_location_etat_des_lieux.sql',
     '385_location_edls.sql', '386_location_regroupement.sql', '387_gestion_rapprochement_dossiers.sql',
     '388_gestion_dossier_attitre_bien.sql', '389_gestion_drive_noeud.sql', '390_location_bien_en_gestion.sql',
-    '391_location_conditions_entree.sql', '392_location_honoraires_proprietaire.sql', '393_location_bail_rattachements.sql'];
+    '391_location_conditions_entree.sql', '392_location_honoraires_proprietaire.sql', '393_location_bail_rattachements.sql',
+    '394_location_bail_drive.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -103,7 +105,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 393 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 394 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -113,14 +115,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (394)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (395)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(393\)/);
-    const renumerotee = planifier([...existants, { fichier: '394_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(394\)/);
+    const renumerotee = planifier([...existants, { fichier: '395_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['394_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['395_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -663,5 +665,21 @@ describe('393 (Location / Gestion : le bail, les garants et contacts rattachés,
     expect(contenu).toMatch(/BEFORE TRUNCATE ON %I FOR EACH STATEMENT/);
     expect(contenu).not.toMatch(/gestion_jetable|svav_test/);
     expect(contenu).toMatch(/REFERENCES gestion_annuaire_locataire\(id\) ON DELETE RESTRICT/);
+  });
+});
+
+describe('394 (Location : la branche « BAIL » du Drive rattachée au bail) : une seule migration, non appliquée', () => {
+  const contenu = lire(MIGRATIONS, '394_location_bail_drive.sql');
+  const a = analyserMigration({ fichier: '394_location_bail_drive.sql', contenu });
+  it('passe le garde, enveloppée ; aucune table neuve, une colonne facultative vers le bail', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect([...a.tablesCreees]).toEqual([]);
+    expect(contenu).toMatch(/ALTER TABLE gestion_drive_noeud ADD COLUMN IF NOT EXISTS bail_id bigint REFERENCES gestion_bail\(id\)/);
+  });
+  it('aucune ligne supprimée ni modifiée ; le verrou de la 389 couvre aussi bail_id', () => {
+    expect(contenu).not.toMatch(/^\s*(DELETE|TRUNCATE|UPDATE)\b/im);
+    expect(contenu).not.toMatch(/DROP (COLUMN|TABLE|TRIGGER)/i);
+    expect(contenu).toMatch(/NEW\.bail_id\)\s+IS DISTINCT FROM/);
   });
 });

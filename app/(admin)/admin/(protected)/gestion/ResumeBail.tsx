@@ -117,7 +117,10 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
         <div className={`rb${deplie ? ' rb--deplie' : ''}`} data-resume-bail data-deplie={deplie ? 'oui' : 'non'} onClick={surClic}>
           <style>{CSS_RESUME_BIEN + INFOBULLE_CSS + CSS_RESUME_BAIL}</style>
           <section className="rb-groupe rb-resume" data-groupe="bail">
-            <h4 className="rb-titre">{b.enCours ? 'Le bail' : <>Le bail <span className="rb-termine" data-bail-termine>· bail terminé le {b.termineLe ? formaterDateIso(b.termineLe) : '—'}</span></>}</h4>
+            <div className="rb-tete-bail">
+              <h4 className="rb-titre">{b.enCours ? 'Le bail' : <>Le bail <span className="rb-termine" data-bail-termine>· bail terminé le {b.termineLe ? formaterDateIso(b.termineLe) : '—'}</span></>}</h4>
+              <DossierDriveBail drive={r.drive} bailId={b.bailId} apres={relire} />
+            </div>
             <div className="rb-colonnes">
               <dl className="ann-champs rb-colonne" data-colonne="bail" aria-label="Le bail">
                 {/* Arno (20/10/2026) : « Bien loué » et « Propriétaire » retirés de l'encart — ils restent dans la carte « Son logement ». */}
@@ -225,7 +228,56 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
   );
 }
 
+/**
+ * Arno (20/10/2026, 394) — LE DOSSIER DRIVE DU BAIL (N7 « BAIL <NOMS> ») : « Dossier Drive du bail ↗ » l'ouvre ; s'il n'a pas
+ * pu être créé (le Drive a échoué à l'enregistrement), « Dossier Drive du bail à créer » et « Créer le dossier » relance la
+ * création (idempotente). Rien sans la migration 394.
+ */
+function DossierDriveBail({ drive, bailId, apres }: { drive: ResumeBail['drive']; bailId: number | null; apres: () => void }) {
+  const [envoi, setEnvoi] = useState(false);
+  const [motif, setMotif] = useState<string | null>(null);
+  if (drive === undefined || bailId === null) return null;
+  if (drive.etat === 'cree') {
+    return <a className="svv-btn svv-btn-outline gst-btn rb-drive" href={`https://drive.google.com/drive/folders/${drive.driveId}`} target="_blank" rel="noreferrer" data-dossier-bail>Dossier Drive du bail ↗</a>;
+  }
+  const creer = async (): Promise<void> => {
+    setEnvoi(true); setMotif(null);
+    try {
+      const res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'creer-dossier-bail', bailId }) });
+      const d = await res.json() as { etat?: string; motif?: string };
+      if (d.etat === 'ok') apres(); else setMotif(d.motif ?? 'La création a échoué.');
+    } catch { setMotif('La création a échoué : le serveur n’a pas répondu.'); }
+    setEnvoi(false);
+  };
+  return (
+    <span className="rb-drive-a-creer" data-dossier-bail-a-creer>
+      <span className="rb-a-rattacher">Dossier Drive du bail à créer</span>
+      <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={envoi} onClick={() => { void creer(); }} data-creer-dossier-bail>
+        {envoi ? 'Création…' : 'Créer le dossier'}</button>
+      {motif !== null && <span className="cp-refus" role="alert">{motif}</span>}
+    </span>
+  );
+}
+
+/** Le bouton de l'EN-TÊTE de la fiche locataire : il ouvre le dossier Drive de son bail (rien tant qu'il n'existe pas). */
+export function BoutonDossierBailEntete({ locataireId }: { locataireId: number }) {
+  const [driveId, setDriveId] = useState<string | null>(null);
+  useEffect(() => {
+    let vivant = true;
+    void fetch(`${API}?dossierBail=${locataireId}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: { driveId?: string } | null }>)
+      .then((d) => { if (vivant && d.etat === 'ok' && typeof d.data?.driveId === 'string') setDriveId(d.data.driveId); }).catch(() => {});
+    return () => { vivant = false; };
+  }, [locataireId]);
+  if (driveId === null) return null;
+  return <a className="svv-btn svv-btn-outline gst-btn" href={`https://drive.google.com/drive/folders/${driveId}`} target="_blank" rel="noreferrer" data-dossier-bail-entete>Dossier Drive du bail ↗</a>;
+}
+
 const CSS_RESUME_BAIL = `
+.rb-tete-bail{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.rb-drive-a-creer{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px 10px;cursor:auto}
+.rb-drive{cursor:pointer}
+/* Le bouton garde sa largeur naturelle, à droite du titre (et sous lui sur un téléphone). */
+.rb-tete-bail .gst-btn{width:auto;flex:0 0 auto;text-decoration:none}
 .rb-termine{font-weight:700;text-transform:none;letter-spacing:0;color:var(--color-svv-muted)}
 .rb-liens{display:flex;flex-wrap:wrap;gap:0 12px}
 /* La cible reste de 44 px, mais déborde sur les marges (−12 px en haut et en bas) : la ligne garde la hauteur d'une ligne de

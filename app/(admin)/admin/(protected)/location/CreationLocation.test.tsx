@@ -41,6 +41,25 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); }); };
+/**
+ * Arno (20/10/2026) — « Enregistrer » est INACTIF tant qu'aucun bien n'est choisi : pour éprouver ce que dit l'écran au clic,
+ * on choisit d'abord un bien (le lot 1, libre).
+ */
+const choisirUnBien = async () => {
+  const avant = global.fetch;
+  global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+    const u = String(url);
+    if (u.includes('biensPourLocataire=')) return ok([{ id: 1, titre: '4 rue Fictive, Puteaux', detail: 'libre' }]);
+    if (u.includes('lotsBail=')) return ok({ lots: [{ id: 1, role: 'logement', libelle: 'logement', type: null, etage: null, numeroLot: null, porte: null, place: false, occupants: [], noms: [] }], sorte: 'simple', origineLibelle: '' });
+    return (avant as (u: unknown, i?: RequestInit) => Promise<Response>)(url, init);
+  }) as unknown as typeof fetch;
+  const champ = container.querySelector('input[data-recherche-bien]') as HTMLInputElement;
+  await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(champ, 'Fictive'); champ.dispatchEvent(new Event('input', { bubbles: true })); });
+  await act(async () => { await new Promise((r) => { setTimeout(r, 300); }); });
+  await calmer();
+  await act(async () => { (container.querySelector('.loc-choix button') as HTMLButtonElement).click(); });
+  await calmer();
+};
 const bouton = (texte: string) => [...container.querySelectorAll('button')].find((b) => b.textContent?.trim().startsWith(texte)) as HTMLButtonElement;
 const transaction = async (v: string) => {
   const el = container.querySelector('[data-mandat-transaction] input') as HTMLInputElement;
@@ -366,6 +385,7 @@ describe('🔴 Nouveau locataire : clients et contacts', () => {
     await act(async () => { bouton('Contact du locataire').click(); });
     expect(container.querySelector('[data-sorte="contact"] .cp-champ--en-avant select option:nth-child(2)')?.textContent).toBe('Garant');
     expect(container.querySelector('[data-sorte="client"] [data-badge]')?.className).toContain('cp-role--en_place');
+    await choisirUnBien();
     await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte « Locataire (client) »');
     expect(posts).toEqual([]);
@@ -402,6 +422,10 @@ describe('🔴 Nouveau locataire : aucun <form> dans un <form>', () => {
     expect((container.querySelector('input[type="date"]') as HTMLInputElement).form).toBe(page);
     // La carte garde SON formulaire, à elle.
     expect(container.querySelector('[data-sorte="client"] form.cp-form')).not.toBeNull();
+    // Sans bien, « Enregistrer » est inactif ; une fois le bien choisi, le clic dit ce qui manque.
+    expect(bouton.disabled).toBe(true);
+    await choisirUnBien();
+    expect(bouton.disabled).toBe(false);
     await act(async () => { bouton.click(); });
     expect(container.textContent).toContain('Remplissez et enregistrez au moins une carte « Locataire (client) »');
   });

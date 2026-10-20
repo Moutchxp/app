@@ -156,7 +156,9 @@ describe('🔴 résumé : garanties et entretiens dans la colonne du bail, monta
   it('garanties et entretiens : deux lignes ordinaires de la colonne « Le bail », après « Garant » ; plus rien en pleine largeur sous les colonnes', async () => {
     await rendre(SAISI);
     const resume = container.querySelector('[data-groupe="bail"]')!;
-    expect([...resume.children].map((e) => e.className)).toEqual(['rb-titre', 'rb-colonnes', 'rb-bascule']);
+    expect([...resume.children].map((e) => e.className)).toEqual(['rb-tete-bail', 'rb-colonnes', 'rb-bascule']);
+    // Le titre et le bouton du dossier Drive du bail (394) partagent la tête.
+    expect(resume.querySelector('.rb-tete-bail > .rb-titre')?.textContent).toBe('Le bail');
     const dts = [...container.querySelectorAll('[data-colonne="bail"] dt')];
     // Les mêmes intitulés que « Date d'entrée » : un <dt> de la même liste, sans titre gras à part.
     expect(dts.map((d) => d.tagName + ':' + d.textContent)).toEqual(['DT:Date d’entrée', 'DT:Colocataire', 'DT:Garant', 'DT:Garanties', 'DT:Entretiens']);
@@ -173,5 +175,50 @@ describe('🔴 résumé : garanties et entretiens dans la colonne du bail, monta
     await rendre({ ...WIPPIMMO, bail: { ...WIPPIMMO.bail!, lots: [] } });
     expect(container.querySelector('[data-bascule-detail]')).toBeNull();
     expect(container.querySelector('[data-detail-bail]')).toBeNull();
+  });
+});
+
+/** 🔴 Arno (20/10/2026) — le dossier Drive du bail (branche « BAIL » créée au nouveau locataire). */
+describe('fiche locataire — dossier Drive du bail', () => {
+  it('créé : le bouton de l’encart ouvre le dossier N7', async () => {
+    await rendre({ ...SAISI, drive: { etat: 'cree', driveId: 'N7abc' } });
+    const a = container.querySelector('[data-dossier-bail]') as HTMLAnchorElement;
+    expect(a.textContent).toBe('Dossier Drive du bail ↗');
+    expect(a.getAttribute('href')).toBe('https://drive.google.com/drive/folders/N7abc');
+    expect(container.querySelector('[data-dossier-bail-a-creer]')).toBeNull();
+  });
+
+  it('à créer (le Drive a échoué) : « Dossier Drive du bail à créer » + « Créer le dossier » relance la création pour CE bail, puis relit', async () => {
+    let lectures = 0;
+    const posts: unknown[] = [];
+    global.fetch = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return ok({ driveId: 'N7neuf', nom: 'BAIL MARTIN' }); }
+      lectures += 1;
+      return ok(lectures === 1 ? { ...SAISI, drive: { etat: 'a_creer' } } : { ...SAISI, drive: { etat: 'cree', driveId: 'N7neuf' } });
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(ResumeBailFiche, { f: { id: 522, modifiable: true } as never, ouvrir: () => {} })); });
+    await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
+    expect(container.querySelector('[data-dossier-bail-a-creer]')?.textContent).toContain('Dossier Drive du bail à créer');
+    await act(async () => { (container.querySelector('[data-creer-dossier-bail]') as HTMLButtonElement).click(); });
+    await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    expect(posts).toEqual([{ action: 'creer-dossier-bail', bailId: 8 }]);
+    expect(container.querySelector('[data-dossier-bail]')?.getAttribute('href')).toBe('https://drive.google.com/drive/folders/N7neuf');
+  });
+
+  it('refus du serveur : le motif s’affiche, le bouton reste', async () => {
+    global.fetch = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => init?.method === 'POST'
+      ? ({ ok: false, status: 409, json: async () => ({ etat: 'refus', motif: 'Drive indisponible (403).' }) }) as unknown as Response
+      : ok({ ...SAISI, drive: { etat: 'a_creer' } })) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(ResumeBailFiche, { f: { id: 522, modifiable: true } as never, ouvrir: () => {} })); });
+    await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
+    await act(async () => { (container.querySelector('[data-creer-dossier-bail]') as HTMLButtonElement).click(); });
+    await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    expect(container.querySelector('[data-dossier-bail-a-creer] [role="alert"]')?.textContent).toBe('Drive indisponible (403).');
+    expect(container.querySelector('[data-creer-dossier-bail]')).not.toBeNull();
+  });
+
+  it('base sans la migration 394 (drive absent) : rien ne s’affiche', async () => {
+    await rendre(SAISI);
+    expect(container.querySelector('[data-dossier-bail], [data-dossier-bail-a-creer]')).toBeNull();
   });
 });
