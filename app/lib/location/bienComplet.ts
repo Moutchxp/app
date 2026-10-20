@@ -137,6 +137,11 @@ export interface ComplementsFiche extends ComplementsBien {
   /** Arno, 18/10/2026 — « Entretien à prévoir » et ses entretiens en cours (migration 379) ; absents sans elle. */
   entretienAPrevoir?: boolean | null;
   entretiens?: { sorte: 'chaudiere' | 'ramonage' | 'autre'; nom: string | null; dateAnniversaire: string | null }[];
+  /**
+   * Arno (21/10/2026, migration 396) — le digicode affiché est celui de l'IMMEUBLE de l'adresse : la mention « Commun à tous
+   * les biens du … (N biens) » et sa source (`bien` : l'ancienne valeur du bien, l'immeuble n'en a pas encore). Absent sans la 396.
+   */
+  digicodeImmeuble?: { mention: string | null; source: 'immeuble' | 'bien' | null };
 }
 
 export interface SaisieBien {

@@ -20,6 +20,7 @@ import {
   type ImmeubleSaisi, type SorteCoordonnee, type SyndicForm, type SyndicResume,
 } from '../../../../lib/gestion/syndics';
 import { rafraichirImmeubles, useImmeublesSyndics } from './useImmeublesSyndics';
+import { DigicodeImmeuble } from './DigicodeImmeuble';
 import type { EcrireDepuisGestionFn } from '../../../../lib/gestion/mailSyndic';
 import { chercherAdresses } from './adressesSyndic';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
@@ -2639,6 +2640,9 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
                 )}
                 {ouvert && (
                   <div className="fsy-copro-contacts">
+                    {/* Arno (21/10/2026, 396) — le DIGICODE de l'immeuble, par adresse postale : porté par l'immeuble, pas par le syndic. */}
+                    <DigicodeImmeuble voie={im.libelle} codePostal={c?.codePostal ?? im.codePostal ?? null} commune={c?.commune ?? im.commune ?? null} />
+                    {(im.adresses ?? []).map((a) => <DigicodeImmeuble key={a.libelle} voie={a.libelle} codePostal={a.codePostal ?? null} commune={a.commune ?? null} />)}
                     {suivent.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun contact pour cet immeuble.</p>}
                     {suivent.map((x) => (
                       <div key={x.cle} className="fsy-contact-coord">

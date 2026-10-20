@@ -51,6 +51,8 @@ export interface ResumeBien {
   situation?: {
     batiment: string | null; escalier: string | null; etage: string | null; porte: string | null; precisionAcces: string | null;
     ascenseur: boolean | null; digicode: boolean | null; digicodeCode: string | null;
+    /** Arno (21/10/2026, 396) — le digicode est celui de l'immeuble : sa mention, et `bien` si c'est encore l'ancienne valeur du bien. */
+    digicodeMention?: string | null; digicodeSource?: 'immeuble' | 'bien' | null;
   };
   /** Copropriété : n° de lot, syndic (lien vers sa fiche), dernière AG de l'immeuble (sans objet sans immeuble). */
   copropriete?: { numLotCopro: string | null; syndic: { id: number; nom: string } | null; derniereAg: string | null; agApplicable: boolean };
@@ -142,6 +144,7 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
     situation: {
       batiment: c?.batiment ?? null, escalier: c?.escalier ?? null, etage: bien.etage, porte: bien.porte, precisionAcces: c?.precisionAcces ?? null,
       ascenseur: c?.ascenseur ?? null, digicode: c?.digicode ?? null, digicodeCode: c?.digicodeCode ?? null,
+      ...(c?.digicodeImmeuble === undefined ? {} : { digicodeMention: c.digicodeImmeuble.mention, digicodeSource: c.digicodeImmeuble.source }),
     },
     copropriete: {
       numLotCopro: bien.numLotCopro,

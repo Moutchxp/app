@@ -156,7 +156,9 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
               <dt>Ascenseur</dt><dd data-rb="ascenseur">{ouiNon(s?.ascenseur)}</dd>
               <dt>Digicode</dt>
               {/* Le code en clair : outil interne (Arno, 20/10/2026). */}
-              <dd data-rb="digicode">{s?.digicode === true ? <>oui — code {s.digicodeCode ? <strong>{s.digicodeCode}</strong> : rien()}</> : ouiNon(s?.digicode)}</dd>
+              <dd data-rb="digicode">{s?.digicode === true ? <>oui — code {s.digicodeCode ? <strong>{s.digicodeCode}</strong> : rien()}</> : ouiNon(s?.digicode)}
+                {/* Arno (21/10/2026, 396) : le digicode est celui de l'IMMEUBLE — la mention le dit. */}
+                {s?.digicodeMention ? <span className="rb-note" data-rb="digicode-immeuble"> · {s.digicodeMention}{s.digicodeSource === 'bien' ? ' — ancien code de ce bien, l’immeuble n’en a pas encore' : ''}</span> : null}</dd>
             </Groupe>
             <Groupe titre="Copropriété" cle="copropriete" vide={coproVide}>
               <dt>N° de lot</dt><dd data-rb="lot-copro">{co?.numLotCopro ?? rien()}</dd>

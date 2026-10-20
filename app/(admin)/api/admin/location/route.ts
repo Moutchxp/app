@@ -22,6 +22,7 @@ import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo
 import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
 import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/location/rattachementProprietairesRepo';
 import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
+import { lireDigicodeAdresse } from '../../../../lib/location/digicodeImmeubleRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../lib/location/archivage';
@@ -181,6 +182,11 @@ export async function GET(request: Request): Promise<Response> {
     if (p('cartesProprietaires') !== null) {
       const ids = (p('cartesProprietaires') ?? '').split(',').map((x) => identifiant(x.trim())).filter((x): x is number => x !== null);
       return Response.json({ etat: 'ok', data: await cartesDeProprietaires(ids) }, { headers: ENTETES });
+    }
+    // Arno (21/10/2026, 396) — le digicode de l'IMMEUBLE d'une adresse (« Nouveau bien ») : valeur, mention ; `null` sans la 396.
+    if (p('digicodePourAdresse') !== null) {
+      const lu = await lireDigicodeAdresse({ voie: (p('digicodePourAdresse') ?? '').slice(0, 300), codePostal: (p('cp') ?? '').slice(0, 10) || null, commune: (p('commune') ?? '').slice(0, 120) || null });
+      return Response.json({ etat: 'ok', data: lu }, { headers: ENTETES });
     }
     if (p('agPourAdresse') !== null) {
       return Response.json({ etat: 'ok', data: await lireAgPourAdresse((p('agPourAdresse') ?? '').slice(0, 300)) }, { headers: ENTETES });

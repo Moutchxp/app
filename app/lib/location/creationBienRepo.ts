@@ -22,6 +22,7 @@ import { agDisponible, enregistrerAg, immeubleAgDuLot, lireAg } from './immeuble
 import { immeubleDeLAg, verifierDateAg } from './immeubleAg';
 import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens, entretienDisponible, lireEntretiens } from './entretienAnnexeRepo';
+import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeDuLot } from './digicodeImmeubleRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -212,6 +213,8 @@ export async function creerBienComplet(s: SaisieBien & {
   // « Non soumis » ne s'écrit que dans la colonne de la migration 382 : sans elle, rien n'est créé (jamais un DPE perdu en silence).
   const avec382 = await dpeNonSoumisDisponible();
   if (l.dpeNonSoumis === true && !avec382) return { etat: 'sans_schema' };
+  // Arno (21/10/2026, 396) : le digicode se pose sur l'IMMEUBLE de l'adresse (sans la 396 : sur le bien, comme avant).
+  const surImmeuble = await digicodeImmeubleDisponible();
   // « Bien en gestion ? » (migration 390) : sans la colonne, « Non » n'est jamais perdu en silence — rien n'est créé.
   // « Oui » est la valeur par défaut de la colonne : sans elle, le bien est créé comme avant.
   const avec390 = await bienEnGestionDisponible();
@@ -240,11 +243,17 @@ export async function creerBienComplet(s: SaisieBien & {
         surface_habitable_m2: l.surfaceHabitableM2, syndic_id: l.syndicId, epoque_construction: l.epoqueConstruction,
         chauffage: l.chauffage, dpe_classe: l.dpeClasse, dpe_date: l.dpeDate, commentaire: l.commentaire,
         type_local: l.typeLocal, parking_situation: l.parkingSituation, parking_type: l.parkingType, surface_m2: l.surfaceM2,
-        ascenseur: l.ascenseur, digicode: l.digicode, digicode_code: l.digicodeCode, precision_acces: l.precisionAcces,
+        // Arno (21/10/2026, 396) : avec l'immeuble, le digicode n'est PAS copié sur le bien (posé sur l'immeuble juste après).
+        ascenseur: l.ascenseur, digicode: surImmeuble ? null : l.digicode, digicode_code: surImmeuble ? null : l.digicodeCode, precision_acces: l.precisionAcces,
         ...(avec378 ? { assurance_pno: l.assurancePno ?? null, pno_date_anniversaire: l.assurancePno === true ? l.pnoDateAnniversaire ?? null : null } : {}),
         ...(avec382 ? { dpe_non_soumis: l.dpeNonSoumis === true ? true : null } : {}),
         ...statut,
       }, auteur);
+      if (surImmeuble && (l.digicode !== null || (l.digicodeCode ?? '').trim() !== '')) {
+        const d = await enregistrerDigicodeDans(q, { voie: l.adresse, codePostal: l.codePostal, commune: l.commune },
+          { digicode: l.digicode, code: l.digicodeCode }, auteur, 'nouveau_bien', logementId);
+        if (!d.ok) throw new Refus(d.motif);
+      }
       const annexes: number[] = [];
       for (const a of v.annexes) {
         // « Même adresse » (par défaut) : l'annexe hérite de l'adresse du logement / local. « Autre adresse » : la sienne.
@@ -397,7 +406,10 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
   if (r === undefined) return null;
   const immeubleAg = (await agDisponible()) ? await immeubleAgDuLot(id) : null;
   const entretiens = await lireEntretiens(id);
+  // Arno (21/10/2026, 396) — le digicode est celui de l'IMMEUBLE de l'adresse (l'ancienne valeur du bien, tant qu'il n'en a pas).
+  const digi = await lireDigicodeDuLot(id);
   return {
+    ...(digi === null ? {} : { digicodeImmeuble: { mention: digi.mention, source: digi.source } }),
     ...(entretiens === null ? {} : { entretienAPrevoir: entretiens.aPrevoir, entretiens: entretiens.entretiens }),
     derniereAg: immeubleAg === null ? null : await lireAg(immeubleAg.cle), agApplicable: immeubleAg !== null,
     batiment: r.batiment, escalier: r.escalier, typeLogement: r.type_logement as ComplementsBien['typeLogement'],
@@ -406,7 +418,8 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
     chauffage: r.chauffage, dpeClasse: r.dpe_classe, dpeDate: r.dpe_date, dpeNonSoumis: r.dpe_non_soumis, commentaire: r.commentaire,
     typeLocal: r.type_local as ComplementsBien['typeLocal'], parkingSituation: r.parking_situation as ComplementsBien['parkingSituation'],
     parkingType: r.parking_type as ComplementsBien['parkingType'], surfaceM2: r.surface_m2 === null ? null : Number(r.surface_m2),
-    ascenseur: r.ascenseur, digicode: r.digicode, digicodeCode: r.digicode_code, precisionAcces: r.precision_acces,
+    ascenseur: r.ascenseur, digicode: digi === null ? r.digicode : digi.digicode, digicodeCode: digi === null ? r.digicode_code : digi.code,
+    precisionAcces: r.precision_acces,
     assurancePno: r.assurance_pno, pnoDateAnniversaire: r.pno_date_anniversaire,
   };
 }
@@ -442,10 +455,25 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
         [id, c.batiment, c.escalier, c.typeLogement, c.nombrePieces, c.meuble, c.surfaceHabitableM2, c.syndicId,
           c.epoqueConstruction, c.chauffage, c.dpeClasse, c.dpeDate, c.commentaire, ...(avec382 ? [c.dpeNonSoumis === true ? true : null] : [])]);
       if (await familleDisponible()) {
-        await q(
-          `UPDATE gestion_annuaire_lot SET type_local = $2, parking_situation = $3, parking_type = $4, surface_m2 = $5, ascenseur = $6,
-                  digicode = $7, digicode_code = $8, precision_acces = $9 WHERE id = $1`,
-          [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.digicode, c.digicodeCode, c.precisionAcces]);
+        // Arno (21/10/2026, 396) : avec l'immeuble, le digicode s'écrit SUR L'IMMEUBLE de l'adresse (jamais une copie sur le bien) —
+        // seulement s'il a changé par rapport à ce que la fiche montrait ; sans la 396, sur le bien, comme avant.
+        const surImmeuble = await digicodeImmeubleDisponible();
+        await q(surImmeuble
+          ? `UPDATE gestion_annuaire_lot SET type_local = $2, parking_situation = $3, parking_type = $4, surface_m2 = $5, ascenseur = $6,
+                    precision_acces = $7 WHERE id = $1`
+          : `UPDATE gestion_annuaire_lot SET type_local = $2, parking_situation = $3, parking_type = $4, surface_m2 = $5, ascenseur = $6,
+                    digicode = $7, digicode_code = $8, precision_acces = $9 WHERE id = $1`,
+        surImmeuble
+          ? [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.precisionAcces]
+          : [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.digicode, c.digicodeCode, c.precisionAcces]);
+        if (surImmeuble) {
+          const actuel = await lireDigicodeDuLot(id);
+          const adresse = await adresseDuLot(id);
+          if (actuel !== null && adresse !== null && (actuel.digicode !== c.digicode || (actuel.code ?? null) !== (c.digicodeCode ?? null))) {
+            const r = await enregistrerDigicodeDans(q, adresse, { digicode: c.digicode, code: c.digicodeCode }, auteur, 'fiche_bien', id);
+            if (!r.ok) throw new Refus(r.motif);
+          }
+        }
       }
       // L'assurance PNO (migration 378) : envoyée par la fiche qui la montre ; Non (ou non renseigné) vide la date.
       if (Object.prototype.hasOwnProperty.call(brut, 'assurancePno') && (await annexeNomPnoDisponible())) {

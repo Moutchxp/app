@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { CSS_LOCATION, LocationCarte } from './LocationCarte';
-import { CSS_ANNEXE_CARTE, CSS_LOCATION_ECRANS } from '../location/commun';
+import { CSS_ANNEXE_CARTE, CSS_LOCATION_ECRANS, CSS_PILULES } from '../location/commun';
 import { MOTIF_SANS_MIGRATION } from '../../../../lib/gestion/annuaireEdition';
 import { formaterDateIso, periodeOccupation } from '../../../../lib/gestion/annuaireRecherche';
 import { estAncienLocataire, parEntreeLaPlusRecente } from '../../../../lib/gestion/historiqueBien';
@@ -711,7 +711,8 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
   const ouiNon = (x: boolean | null): string | null => (x === null ? null : x ? 'oui' : 'non');
   const lignesAcces: [string, string | null][] = [
     ['Ascenseur', ouiNon(c.ascenseur)],
-    ['Digicode', c.digicode === null ? null : c.digicode ? `oui${c.digicodeCode ? ` · code ${c.digicodeCode}` : ''}` : 'non'],
+    // Arno (21/10/2026, 396) : le digicode de l'IMMEUBLE — la mention dit qu'il est commun à tous les biens de l'adresse.
+    ['Digicode', c.digicode === null ? null : `${c.digicode ? `oui${c.digicodeCode ? ` · code ${c.digicodeCode}` : ''}` : 'non'}${c.digicodeImmeuble?.mention ? ` — ${c.digicodeImmeuble.mention}${c.digicodeImmeuble.source === 'bien' ? ' (ancien code de ce bien : l’immeuble n’en a pas encore)' : ''}` : ''}`],
     ['Précision d’accès', c.precisionAcces],
   ];
   const lignesParking: [string, string | null][] = [
@@ -786,6 +787,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
             {choix('ascenseur', 'Ascenseur', [['oui', 'Oui'], ['non', 'Non']])}
             {choix('digicode', 'Digicode', [['oui', 'Oui'], ['non', 'Non']])}
             {v.digicode === 'oui' && champ('digicodeCode', 'Code du digicode')}
+            {c.digicodeImmeuble?.mention && <p className="loc-muet" style={{ margin: 0, gridColumn: '1 / -1' }} data-digicode-immeuble>Digicode : {c.digicodeImmeuble.mention}. Le modifier ici le modifie pour tous ces biens.</p>}
             {champ('precisionAcces', 'Précision d’accès')}
           </div>
           {!annexe && <div className="loc-grille" style={{ marginTop: 10 }}>
@@ -927,7 +929,8 @@ export function GestesConditionsBail({ c, l, modifiable, apres }: {
   };
   return (
     <div className="loc-cond-bail" data-conditions-bail={c.bailCle}>
-      <style>{CSS_LOCATION_ECRANS + CSS_CONDITIONS + CSS_SECTIONS}</style>
+      {/* Arno (21/10/2026) : la feuille des pilules aussi — les boutons du formulaire « Modifier » sont centrés comme ailleurs. */}
+      <style>{CSS_LOCATION_ECRANS + CSS_PILULES + CSS_CONDITIONS + CSS_SECTIONS}</style>
       {saisie === null ? (
         <>
           {modifiable && l !== undefined && (

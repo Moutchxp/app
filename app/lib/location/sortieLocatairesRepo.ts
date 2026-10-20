@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { lireDigicodeDuLot } from './digicodeImmeubleRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { ecrireDateSortie } from './dateSortieOccupation';
 import type { Auteur } from '../gestion/gestes';
@@ -468,6 +469,7 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
   const parId = new Map(rows.map((r) => [Number(r.id), r]));
   const lo = parId.get(bail.lotId);
   if (lo === undefined) return null;
+  const digi = await lireDigicodeDuLot(bail.lotId);
   const texte = (v: string | null | undefined): string | null => (v === null || v === undefined || v.trim() === '' ? null : v);
   const nombre = (v: string | null | undefined): number | null => (texte(v) === null || Number.isNaN(Number(v)) ? null : Number(v));
   const booleen = (v: string | null | undefined): boolean | null => (v === 'true' ? true : v === 'false' ? false : null);
@@ -533,7 +535,9 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
     numeroLot: numeroLot(lo.wippimmo_id), batiment: texte(lo.batiment), escalier: texte(lo.escalier),
     surfaceCarrez: nombre(lo.surface_carrez_m2), surfaceHabitable: nombre(lo.surface_habitable_m2), surface: nombre(lo.surface_m2),
     surfaceExterieure: nombre(lo.surface_exterieure_m2), nombrePieces: nombre(lo.nombre_pieces),
-    ascenseur: booleen(lo.ascenseur), digicode: booleen(lo.digicode), digicodeCode: texte(lo.digicode_code), precisionAcces: texte(lo.precision_acces),
+    // Arno (21/10/2026, 396) : le digicode de l'IMMEUBLE de l'adresse (sans la 396 : celui du bien, comme avant).
+    ...(digi === null ? { digicode: booleen(lo.digicode), digicodeCode: texte(lo.digicode_code) } : { digicode: digi.digicode, digicodeCode: texte(digi.code) }),
+    ascenseur: booleen(lo.ascenseur), precisionAcces: texte(lo.precision_acces),
     dpeClasse: texte(lo.dpe_classe), dpeDate: texte(lo.dpe_date), dpeNonSoumis: booleen(lo.dpe_non_soumis),
     chauffage: texte(lo.chauffage), epoqueConstruction: texte(lo.epoque_construction),
     lots: [lotEncart(lo, 'logement'), ...bail.annexes.map((a) => parId.get(a.lotId)).filter((r): r is Record<string, string | null> => r !== undefined).map((r) => lotEncart(r, 'annexe'))],

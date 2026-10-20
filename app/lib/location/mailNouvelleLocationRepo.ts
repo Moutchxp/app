@@ -12,6 +12,7 @@ import { conditionsParOccupation } from './conditionsEntreeRepo';
 import { loyerDesOccupations } from './loyerEntreeRepo';
 import { dossierDuBail } from './brancheBailDriveRepo';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
+import { lireDigicodeDuLot } from './digicodeImmeubleRepo';
 import { lireGarantsDuBail } from '../gestion/partieCategorieRepo';
 import { libelleEntretien } from './entretien';
 import { LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, type TypeLocal, type TypeLogement, type TypeParking } from './bienComplet';
@@ -150,6 +151,7 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
        FROM gestion_annuaire_lot lo WHERE lo.id = ANY($1::bigint[]) ORDER BY (lo.id = $2) DESC, lo.id`, [lotIds.map(Number), Number(principalId)]);
   const principal = lotsSql.find((l) => l.id === principalId);
   const complements = await complementsDuBien(Number(principalId)).catch(() => null);
+  const digis = new Map(await Promise.all(lotsSql.map(async (r) => [r.id, await lireDigicodeDuLot(Number(r.id)).catch(() => null)] as const)));
   const adresseBien = { voie: principal?.adresse ?? null, codePostal: principal?.code_postal ?? null, commune: principal?.commune ?? null };
   const lots = lotsSql.map((r) => {
     const estPrincipal = r.id === principalId;
@@ -159,7 +161,10 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
       // Une annexe « même adresse » (adresse_autre = non) prend celle du logement ; sinon la sienne, si elle en a une.
       voie: !estPrincipal && r.adresse_autre === false ? null : r.adresse, codePostal: r.code_postal, commune: r.commune,
       porte: r.porte, numLotCopro: r.num_lot_copro, batiment: r.batiment, escalier: r.escalier, etage: r.etage,
-      precisionAcces: r.precision_acces, ascenseur: r.ascenseur, digicode: r.digicode, digicodeCode: r.digicode_code,
+      precisionAcces: r.precision_acces, ascenseur: r.ascenseur,
+      // Arno (21/10/2026, 396) : le digicode est celui de l'IMMEUBLE de l'adresse (sans la 396 : celui du bien).
+      digicode: digis.get(r.id) === undefined || digis.get(r.id) === null ? r.digicode : digis.get(r.id)!.digicode,
+      digicodeCode: digis.get(r.id) === undefined || digis.get(r.id) === null ? r.digicode_code : digis.get(r.id)!.code,
       surfaceHabitable: r.surface_habitable_m2, surfaceCarrez: r.surface_carrez_m2, surfaceExterieure: r.surface_exterieure_m2, surface: r.surface_m2,
       construction: r.epoque_construction, chauffage: r.chauffage, dpeClasse: r.dpe_classe, dpeDate: r.dpe_date, dpeNonSoumis: r.dpe_non_soumis,
       syndic: estPrincipal ? complements?.syndicNom ?? null : null, derniereAg: estPrincipal ? complements?.derniereAg ?? null : null,
