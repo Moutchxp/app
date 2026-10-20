@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR). */
 import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
+import { ResumeBienFiche } from './ResumeBien';
 import {
   formaterDateIso, periodeOccupation, titreLogement,
 } from '../../../../lib/gestion/annuaireRecherche';
@@ -1508,38 +1509,12 @@ function VueLot({
           Jamais de rattachement automatique ; « Ignorer » est mémorisé pour ce bien. */}
       <BandeauSyndicConnuDuBien lotId={f.id} />
 
+      {/* 🔴🔴 Arno (20/10/2026) — L'ENCART RÉSUMÉ COMPLET : les lignes d'avant (Adresse, Immeuble, Type, Surface, Propriétaire
+          non tranché, En gestion), aux mêmes mots, plus les informations saisies en Location, lues à leur source, en trois
+          groupes (Caractéristiques · Gestion · Location en cours). Un affichage : aucun champ de saisie. */}
       <section className="ann-bloc">
         <div className="ann-personne">
-          <dl className="ann-champs">
-            <dt>Adresse</dt>
-            <dd>{titreLogement(f.adresse, [f.codePostal, f.commune].filter((x) => x).join(' '))}</dd>
-            {f.immeuble && <><dt>Immeuble</dt><dd>{f.immeuble}</dd></>}
-            <dt>Type</dt>
-            <dd>
-              {[f.nature, f.typeBien].filter((x) => x).join(' · ') || <span className="ann-inconnu">non renseigné</span>}
-            </dd>
-            <dt>Surface</dt>
-            {/* 🔴 AUCUNE COLONNE DE SURFACE n'existe dans le schéma : on le DIT, on ne devine pas depuis le type. */}
-            <dd>{f.surfaceM2 === null ? <span className="ann-inconnu">non renseignée</span> : `${f.surfaceM2} m²`}</dd>
-            {/* 🔴 LE PROPRIÉTAIRE N'EST PLUS DÉTAILLÉ ICI : il a sa CARTE, juste en dessous, avec son crayon et
-                toutes ses coordonnées alignées. Répéter ses numéros dans l'en-tête donnerait deux endroits à
-                corriger, dont un seul modifiable — la meilleure façon d'en laisser un se périmer. */}
-            {f.proprietaireId === null && (
-              <>
-                <dt>Propriétaire</dt>
-                <dd>
-                  <span className="ann-inconnu">
-                    {f.proprietaireNom || 'non rattaché'} — nom porté par plusieurs fiches WIPPIMMO, non tranché
-                  </span>
-                </dd>
-              </>
-            )}
-            <dt>En gestion</dt>
-            <dd>
-              {f.debut ? <>depuis le {formaterDateIso(f.debut)}</> : <span className="ann-inconnu">date non renseignée</span>}
-              {f.fin && <> · <strong>fin de gestion le {formaterDateIso(f.fin)}</strong></>}
-            </dd>
-          </dl>
+          <ResumeBienFiche f={f} ouvrir={ouvrir} />
         </div>
       </section>
 

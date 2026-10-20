@@ -9,6 +9,7 @@ import { apercuArchivage, reactiverDansPortefeuille, sortirDuPortefeuille, type 
 import { enregistrerEnGestion, modifierComplementsBien, syndicsConnus } from '../../../../../../lib/location/creationBienRepo';
 import { detacherAnnexe } from '../../../../../../lib/location/entretienAnnexeRepo';
 import { modifierConditionsEntree } from '../../../../../../lib/location/conditionsEntreeRepo';
+import { resumeDuBien } from '../../../../../../lib/location/resumeBienRepo';
 import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../../../lib/location/archivage';
 import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
@@ -47,6 +48,12 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const p = identifiant(url.searchParams.get('proprietaire'));
     if (p !== null) return Response.json(await ficheProprietaireLocation(p), { headers: ENTETES });
+    // Arno (20/10/2026) — le RÉSUMÉ COMPLET de la fiche bien : les informations de la Location, lues à leur source (lecture seule).
+    const r = identifiant(url.searchParams.get('resume'));
+    if (r !== null) {
+      const d = await resumeDuBien(r);
+      return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
+    }
     const l = identifiant(url.searchParams.get('lot'));
     if (l !== null) return Response.json(await ficheBienLocation(l), { headers: ENTETES });
     const t = identifiant(url.searchParams.get('locataire'));

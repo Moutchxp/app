@@ -63,6 +63,9 @@ describe('les écrans lisent la règle, et la ligne SURFACE a quitté le corps d
     expect(src).not.toMatch(/ann-fait-mot">Surface</);
   });
   it('la fiche du bien garde sa ligne « Surface » (aucun accord pour celle-là)', () => {
-    expect(src).toContain('<dt>Surface</dt>');
+    // Arno (20/10/2026) : l'encart résumé de la fiche du bien vit dans ResumeBien.tsx, que la fiche rend ; la ligne y reste.
+    const resume = readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/ResumeBien.tsx'), 'utf8');
+    expect(src).toContain('<ResumeBienFiche f={f} ouvrir={ouvrir} />');
+    expect(resume).toContain('<dt>Surface</dt>');
   });
 });
