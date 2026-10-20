@@ -24,6 +24,10 @@ import {
 } from './annuaire';
 import { dateDeSerie, type FeuilleLue } from './xlsxLecture';
 import { lireBaseWippimmo, lireTauxWippimmo } from './honorairesGestion';
+import { decortiquerNumero } from './telephoneAffichage';
+
+/** Le numéro seul, sans annotation ni second numéro (lot ANNOTATIONS-TEL) : ce que `valeur` doit porter. */
+const numeroSeul = (brut: string): string => decortiquerNumero(brut).numero;
 
 // ── CE QUE LE PLAN CONTIENT ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -262,7 +266,7 @@ function lireBailleurs(feuille: FeuilleLue, rejets: Rejet[]): ProprietairePlan[]
         { sorte: 'telephone', texte: cellule(l, iTel), colonne: 'Télécoms' },
         { sorte: 'telephone', texte: cellule(l, iMob), colonne: 'Mobile' },
         { sorte: 'email', texte: cellule(l, iMail), colonne: 'Email' },
-      ]),
+      ], numeroSeul),
     });
   });
   return out;
@@ -397,7 +401,7 @@ function lireLocataires(feuille: FeuilleLue, idsLots: ReadonlySet<string>, rejet
     const contacts = contactsDeCellules([
       { sorte: 'telephone', texte: cellule(l, iMob), colonne: 'Mobile' },
       { sorte: 'email', texte: cellule(l, iMail), colonne: 'Email' },
-    ]);
+    ], numeroSeul);
     const normalise = normaliserTexte(nom);
     const cle = clePersonne(normalise, contacts, id);
     const adresse = ouNull(cellule(l, iAdr));

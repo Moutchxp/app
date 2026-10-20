@@ -223,6 +223,14 @@ export interface ContactAnnuaire {
  */
 export function contactsDeCellules(
   cellules: { sorte: 'telephone' | 'email'; texte: string | null | undefined; colonne?: string }[],
+  /**
+   * 🔴 IMPORT WIPPIMMO DU 20/10/2026 — LE NUMÉRO DÉBARRASSÉ DE CE QUI L'ENTOURE (« (M) », « (M.Moreau) », « ? », un second
+   * numéro « 06… - 07… »). Sans lui, la normalisation échouait et le repli COLLAIT les chiffres (« 06475826610784541294 ») :
+   * l'import ne reconnaissait plus le numéro que la migration 279 avait mis en E.164, et en créait un doublon mal écrit
+   * (16 lignes le 20/10/2026). Passé par l'appelant (`decortiquerNumero`) pour ne pas faire dépendre ce module de
+   * l'affichage. `valeurBrute` reste la cellule telle quelle : le second numéro et l'annotation s'y lisent toujours.
+   */
+  nettoyerTelephone?: (brut: string) => string,
 ): ContactAnnuaire[] {
   const out: ContactAnnuaire[] = [];
   const vus = new Set<string>();
@@ -237,9 +245,10 @@ export function contactsDeCellules(
      */
     const plusieurs = valeurs.length > 1;
     valeurs.forEach((brut, i) => {
+      const net = sorte === 'telephone' && nettoyerTelephone !== undefined ? nettoyerTelephone(brut) : brut;
       const valeur = sorte === 'email'
         ? normaliserEmail(brut)
-        : normaliserTelephone(brut) ?? repliTelephone(brut);
+        : normaliserTelephone(brut) ?? normaliserTelephone(net) ?? repliTelephone(net);
       if (valeur === null) return;
       const cle = `${sorte}:${valeur}`;
       if (vus.has(cle)) return;            // « 0667698249 ; 0667698249 » ne fait qu'une ligne

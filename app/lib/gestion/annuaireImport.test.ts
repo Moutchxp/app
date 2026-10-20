@@ -229,3 +229,33 @@ describe('le résumé, lisible par quelqu’un qui n’a pas écrit le code', ()
     expect(l).toContain('rejets : 0');
   });
 });
+
+describe('🔴 ⑦ un numéro annoté ou doublé se lit comme le numéro seul (import WIPPIMMO du 20/10/2026)', () => {
+  // Fictifs, mais aux formes MESURÉES dans l'export : « (M) », « (nom) », « ? », « M » nu, deux numéros séparés par « - ».
+  const tel = (mobile: string) => construirePlan({
+    bailleurs: feuille(['Id', 'Nom prop.', 'Prénom prop.', 'Mobile'], [['1', 'DUPONT', 'Jean', mobile]]),
+    lots: feuille(['Id', 'Propriétaire'], [['100', 'DUPONT Jean']]),
+    locataires: feuille(['Id', 'Locataire', 'Lot', 'Mobile'], [['500', 'BERNARD Alice', '100', mobile]]),
+  });
+  it.each([
+    ['06 99 99 12 34 (M)', '+33699991234'],
+    ['0699991234 (M.Fictif)', '+33699991234'],
+    ['?+33 6 99 99 12 34', '+33699991234'],
+    ['06 99 99 12 34 M', '+33699991234'],
+    ['06 99 99 12 34 - 07 88 88 56 78', '+33699991234'],
+    ['0699991234 - 0699991234', '+33699991234'],
+    ['+351 999 111 222 - +351 999 333 444', '+351999111222'],
+  ])('« %s » → %s, la cellule restant intacte dans valeurBrute', (brut, attendu) => {
+    const p = tel(brut);
+    for (const contacts of [p.proprietaires[0].contacts, p.locataires[0].contacts]) {
+      expect(contacts).toEqual([expect.objectContaining({ sorte: 'telephone', valeur: attendu, valeurBrute: brut })]);
+    }
+  });
+  it('jamais de chiffres collés : aucun numéro de plus de 15 chiffres', () => {
+    const p = tel('06 99 99 12 34 - 07 88 88 56 78');
+    expect(p.proprietaires[0].contacts[0].valeur.replace(/\D/g, '').length).toBeLessThanOrEqual(15);
+  });
+  it('un texte qui n’est pas un numéro n’est toujours pas pris pour un numéro', () => {
+    expect(tel('poste 42').proprietaires[0].contacts).toEqual([]);
+  });
+});
