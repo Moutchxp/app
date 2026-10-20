@@ -249,7 +249,7 @@ describe('🔴 fiche du locataire — les conditions d’entrée, dans l’encar
     expect(txt('[data-rb="prelevement"]')).toBe('oui, au 5');
     expect(txt('[data-rb="total-du"]')).toBe('1 592,26 €');
     expect(e.querySelector('[data-rb="saisie"]')?.textContent).toBe('saisies le 20/10/2026 par arno@exemple.fr');
-    expect(e.querySelector('[data-rb="assurance"]')?.textContent).toBe('GLI — Assureur fictif');
+    expect(e.querySelector('[data-rb="assurance"]')?.textContent).toBe('Assurance loyers impayés : GLI — Assureur fictif');
     expect(e.querySelectorAll('[data-conditions-bail]')).toHaveLength(1);
   });
 

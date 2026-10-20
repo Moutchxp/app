@@ -58,7 +58,7 @@ const groupes = () => [...container.querySelectorAll('[data-groupe]')].map((g) =
 describe('🔴 fiche locataire — encart du bail', () => {
   it('RÉSUMÉ : « Le bail » à gauche (sans bien loué ni propriétaire : ils sont dans « Son logement »), « Ce qu’il paie » à droite', async () => {
     await rendre(SAISI);
-    expect(colonne('bail')).toEqual(['Date d’entrée', 'Colocataire', 'Garant']);
+    expect(colonne('bail')).toEqual(['Date d’entrée', 'Colocataire', 'Garant', 'Garanties et règlement', 'Entretiens']);
     expect(container.querySelector('[data-rb="bien"]')).toBeNull();
     expect(container.querySelector('[data-rb="proprietaires"]')).toBeNull();
     expect(colonne('paie')).toEqual(['Loyer principal', 'Provision pour charges', 'Total charges comprises', 'Dépôt de garantie', 'Prélèvement']);
@@ -79,21 +79,22 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect([enc.dataset.deplie, bouton.textContent, container.querySelector('[data-detail-bail]')?.hasAttribute('inert')]).toEqual(['non', 'Voir le détail du bail ⌄', true]);
     await act(async () => { (container.querySelector('[data-rb="entree"]') as HTMLElement).click(); });
     expect([enc.dataset.deplie, bouton.textContent]).toEqual(['oui', 'Masquer le détail ⌃']);
-    expect(groupes()).toEqual(['bail', 'garanties', 'entretiens', 'sommes', 'honoraires', 'bail-detail']);
-    // « Garanties et règlement » et « Entretiens » sont au résumé (hors du détail dépliable).
+    expect(groupes()).toEqual(['bail', 'sommes', 'honoraires', 'bail-detail']);
+    // « Garanties et règlement » et « Entretiens » sont des lignes de la colonne « Le bail » (hors du détail dépliable).
     const detail = container.querySelector('[data-detail-bail]')!;
-    expect(detail.querySelector('[data-groupe="garanties"], [data-groupe="entretiens"]')).toBeNull();
+    expect(detail.querySelector('[data-rb="garanties"], [data-rb="entretiens"]')).toBeNull();
     expect([dd('prorata-loyer'), dd('prorata-charges'), dd('honoraires-agence'), dd('total-du')].map((x) => x?.replace(/ i$/, '').trim()))
       .toEqual(['1 200,00 €', '130,00 €', '450,00 €', '2 980,00 €']);
     expect(container.querySelectorAll('[data-rb="prorata-loyer"] [aria-label="Détail du calcul"], [data-rb="prorata-loyer"] button').length).toBeGreaterThan(0);
     expect([dd('compte-locataire'), dd('compte-proprietaire'), dd('total-honoraires')]).toEqual(['Compte bancaire agence', 'Compte bancaire gestion', '1 385,03 €']);
     expect(dd('honoraires-proprietaire')).toContain('61,8 m² × 12,10 €/m² (zone très tendue)');
     expect(dd('honoraires-proprietaire')).toContain('barème du 01/01/2026, à la date du 01/11/2026');
-    expect([dd('garant-physique'), dd('assurance'), dd('reglement')]).toEqual(['oui', 'GLI — Assureur ESSAI', 'Virement']);
+    expect([dd('garant-physique'), dd('assurance'), dd('reglement')])
+      .toEqual(['Garant personne physique : oui', 'Assurance loyers impayés : GLI — Assureur ESSAI', 'Mode de règlement : Virement']);
     expect(dd('lots')).toBe('15 rue Carle Hebert, COURBEVOIE15 rue Carle Hebert, COURBEVOIE — cave n° 4');
     expect(dd('contacts')).toBe('ESSAI Conjoint (Conjoint) — contact de Un');
     expect(container.querySelector('[data-rb="commentaire"]')?.textContent).toBe('Première ligne.\nDeuxième ligne.');
-    expect(dd('entretiens')).toBe('oui — Chaudière (15/01/2027)');
+    expect([...container.querySelectorAll('[data-rb="entretiens"] [data-rb-entretien]')].map((e) => e.textContent)).toEqual(['Chaudière (15/01/2027)']);
     expect(container.querySelector('[data-modifier-conditions]')).not.toBeNull();
   });
 
@@ -107,10 +108,8 @@ describe('🔴 fiche locataire — encart du bail', () => {
     await rendre(WIPPIMMO);
     expect([dd('entree'), dd('colocataires'), dd('garants'), dd('loyer-principal'), dd('depot'), dd('prelevement')])
       .toEqual(['26/10/2024', 'aucun', 'aucun', 'non renseigné', 'non renseigné', 'non renseigné']);
-    for (const g of ['sommes', 'honoraires', 'garanties', 'entretiens']) expect(container.querySelector(`[data-rb-vide="${g}"]`)?.textContent, g).toBe('non renseigné');
-    // Un groupe vide tient sur une ligne : son titre puis « non renseigné », dans le même bloc, sans liste dessous.
-    const g = container.querySelector('[data-groupe="garanties"]')!;
-    expect([g.className, g.querySelector('h4')?.textContent, g.querySelector('dl')]).toEqual(['rb-groupe rb-groupe--vide', 'Garanties et règlement', null]);
+    for (const g of ['sommes', 'honoraires']) expect(container.querySelector(`[data-rb-vide="${g}"]`)?.textContent, g).toBe('non renseigné');
+    expect([dd('garanties'), dd('entretiens')]).toEqual(['non renseigné', 'non renseigné']);
     expect(dd('saisie')).toBe('aucune condition d’entrée enregistrée');
   });
 
@@ -144,7 +143,7 @@ describe('🔴 fiche locataire — encart du bail', () => {
   });
 });
 
-describe('🔴 résumé : garanties et entretiens au résumé, montants « à l’entrée dans les lieux »', () => {
+describe('🔴 résumé : garanties et entretiens dans la colonne du bail, montants « à l’entrée dans les lieux »', () => {
   it('la colonne « Ce qu’il paie » dit « à l’entrée dans les lieux le … » (sans date : sans « le »)', async () => {
     await rendre(SAISI);
     expect(container.querySelector('[data-legende-paie]')?.textContent).toBe('Ce qu’il paie · à l’entrée dans les lieux le 01/11/2026');
@@ -152,12 +151,21 @@ describe('🔴 résumé : garanties et entretiens au résumé, montants « à l�
     await rendre({ ...SAISI, bail: { ...SAISI.bail!, entree: null } });
     expect(container.querySelector('[data-legende-paie]')?.textContent).toBe('Ce qu’il paie · à l’entrée dans les lieux');
   });
-  it('garanties (gauche) et entretiens (droite) sous les deux colonnes, dans le résumé ; mise en page des colonnes', async () => {
+  it('garanties et entretiens : deux lignes ordinaires de la colonne « Le bail », après « Garant » ; plus rien en pleine largeur sous les colonnes', async () => {
     await rendre(SAISI);
     const resume = container.querySelector('[data-groupe="bail"]')!;
-    const bas = resume.querySelector('.rb-colonnes--bas')!;
-    expect([...bas.children].map((e) => (e as HTMLElement).dataset.groupe)).toEqual(['garanties', 'entretiens']);
-    expect([...resume.children].map((e) => e.className)).toEqual(['rb-titre', 'rb-colonnes', 'rb-colonnes rb-colonnes--bas', 'rb-bascule']);
+    expect([...resume.children].map((e) => e.className)).toEqual(['rb-titre', 'rb-colonnes', 'rb-bascule']);
+    const dts = [...container.querySelectorAll('[data-colonne="bail"] dt')];
+    // Les mêmes intitulés que « Date d'entrée » : un <dt> de la même liste, sans titre gras à part.
+    expect(dts.map((d) => d.tagName + ':' + d.textContent)).toEqual(['DT:Date d’entrée', 'DT:Colocataire', 'DT:Garant', 'DT:Garanties et règlement', 'DT:Entretiens']);
+    expect(resume.querySelectorAll('h4')).toHaveLength(1);
+    // Un élément par ligne sous la valeur.
+    expect(container.querySelector('[data-rb="garanties"]')?.className).toBe('rb-liste');
+    expect(container.querySelectorAll('[data-rb="garanties"] > span')).toHaveLength(3);
+  });
+  it('entretiens : « aucun à prévoir » quand la réponse est non', async () => {
+    await rendre({ ...SAISI, entretiens: { aPrevoir: false, liste: [] } });
+    expect(dd('entretiens')).toBe('aucun à prévoir');
   });
   it('rien à déplier : pas de bouton, pas de détail', async () => {
     await rendre({ ...WIPPIMMO, bail: { ...WIPPIMMO.bail!, lots: [] } });
