@@ -2,10 +2,12 @@ import { randomBytes } from 'node:crypto';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { colonneExisteMemo } from './sondeLocation';
-import { lignesConditions, verifierConditions, type ConditionsEntree, type ConditionsEntreeLues, type JourNumero } from './conditionsEntree';
+import { enCentimes, lignesConditions, verifierConditions, type ConditionsEntree, type ConditionsEntreeLues, type JourNumero } from './conditionsEntree';
 import { MOTIF_SURFACE_MANQUANTE, type CalculHonoraires, type ZoneHonoraires } from './honorairesProprietaire';
 export type { ConditionsEntreeLues } from './conditionsEntree';
 import type { Issue } from './locationRepo';
+import { ecrireLoyerDans, loyerDeLaSaisie, loyerDesOccupations } from './loyerEntreeRepo';
+import { honorairesGestionDisponible } from '../gestion/schema';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LES « CONDITIONS D'ENTRÉE » D'UN BAIL (Arno, 20/10/2026). IMPUR (base). ══════════════════════
@@ -24,6 +26,19 @@ import type { Issue } from './locationRepo';
 /** Les conditions d'entrée s'enregistrent-elles ? Il faut la table (391) ET la trace des honoraires et les jours 1 / 15 (392). */
 export function conditionsEntreeDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_location_conditions_entree', 'hono_total_proprietaire');
+}
+
+/**
+ * Arno (20/10/2026) — « au lieu de masquer tout le bloc 3, afficher le bloc avec un bandeau “Mise à jour de la base à
+ * appliquer (migration NNN)” et désactiver seulement l'enregistrement des parties concernées » : ce qui manque, partie par
+ * partie. `conditions` = 391 ET 392 ; `loyer` = 370 (le loyer de départ). L'entretien (379) a sa propre sonde, inchangée.
+ */
+export async function schemaConditionsEntree(): Promise<{ conditions: boolean; loyer: boolean; manquantes: string[] }> {
+  const avec391 = await colonneExisteMemo('gestion_location_conditions_entree', 'bail_cle');
+  const avec392 = await conditionsEntreeDisponible();
+  const loyer = await honorairesGestionDisponible();
+  const manquantes = [...(avec391 ? [] : ['391']), ...(avec392 ? [] : ['392']), ...(loyer ? [] : ['370'])];
+  return { conditions: avec392, loyer, manquantes };
 }
 
 interface LigneSql {
@@ -132,9 +147,11 @@ export async function conditionsParOccupation(occupationIds: readonly number[]):
   for (const r of rows) {
     const conditions = versConditions(r);
     const honoraires = versHonoraires(r);
+    // Le loyer mensuel : le loyer de départ (migration 370) des occupations de ce bail — la donnée de la carte « Location ».
+    const loyer = await loyerDesOccupations(r.occupation_ids.map(Number));
     const lues: ConditionsEntreeLues = {
       bailCle: r.bail_cle, occupationIds: r.occupation_ids.map(Number), conditions, saisiLe: r.saisi_le, saisiPar: r.saisi_par_libelle,
-      modifiees: r.n > 1, lignes: lignesConditions(conditions, honoraires), honoraires,
+      modifiees: r.n > 1, lignes: lignesConditions(conditions, honoraires, loyer), honoraires, loyer,
     };
     for (const id of lues.occupationIds) if (occupationIds.includes(id)) sortie.set(id, lues);
   }
@@ -149,6 +166,11 @@ export async function modifierConditionsEntree(occupationId: number, brut: unkno
   if (!(await conditionsEntreeDisponible())) return { etat: 'sans_schema' };
   const v = verifierConditions(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
+  // Le loyer mensuel (facultatif) : réécrit sur la location seulement s'il a CHANGÉ (même fonction que la carte « Location »).
+  const loyerBrut = brut !== null && typeof brut === 'object' ? (brut as Record<string, unknown>).loyer : undefined;
+  const loyer = loyerBrut === undefined ? undefined : loyerDeLaSaisie(loyerBrut);
+  if (loyer === null) return { etat: 'refus', motif: 'Loyer mensuel : un montant en euros, au centime (ex. 1 180,50).' };
+  const avecLoyer = loyer !== undefined && (await honorairesGestionDisponible());
   return withTransaction(async (q): Promise<Issue> => {
     const { rows } = await q<LigneSql>(
       `SELECT ${SELECT_LIGNE} FROM gestion_location_conditions_entree c
@@ -157,6 +179,22 @@ export async function modifierConditionsEntree(occupationId: number, brut: unkno
     const r = rows[0];
     if (r === undefined) return { etat: 'refus', motif: 'Ce bail n’a pas de conditions d’entrée enregistrées.' };
     await ecrire(q, r.bail_cle, r.occupation_ids.map(Number), Number(r.lot_id), v.valeurs, versHonoraires(r), 'location_conditions_entree_modifiees', auteur);
+    if (avecLoyer && loyer !== undefined) {
+      const ids = r.occupation_ids.map(Number);
+      // L'occupation qui porte déjà le loyer ; sinon celle du logement du bail (la première, comme à l'entrée).
+      const { rows: porteuse } = await q<{ id: string; lot_id: string; loyer: string | null; provisions: string | null }>(
+        `SELECT o.id::text, o.lot_id::text, c.loyer_hc::text AS loyer, c.provisions::text AS provisions
+           FROM gestion_annuaire_occupation o
+           LEFT JOIN LATERAL (SELECT x.id, x.loyer_hc, x.provisions FROM gestion_location_conditions x WHERE x.occupation_id = o.id ORDER BY x.id DESC LIMIT 1) c ON true
+          WHERE o.id = ANY($1::bigint[])
+          ORDER BY (c.loyer_hc IS NOT NULL OR c.provisions IS NOT NULL) DESC, (o.lot_id = $2) DESC, array_position($1::bigint[], o.id) LIMIT 1`,
+        [ids, Number(r.lot_id)]);
+      const p = porteuse[0];
+      const avant = p === undefined ? null : { principal: enCentimes(p.loyer) ?? null, provisions: enCentimes(p.provisions) ?? null };
+      const change = avant === null ? (loyer.principal !== null || loyer.provisions !== null)
+        : avant.principal !== loyer.principal || avant.provisions !== loyer.provisions;
+      if (p !== undefined && change) await ecrireLoyerDans(q, Number(p.id), Number(p.lot_id), loyer, auteur, true);
+    }
     return { etat: 'ok', data: undefined };
   });
 }

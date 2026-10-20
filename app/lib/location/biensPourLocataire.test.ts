@@ -27,7 +27,19 @@ describe('biensPourLocataire — adresse OU nom du propriétaire', () => {
     expect(q.params).toEqual([['dupont']]);
     expect(q.sql).toContain("(coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[1] || '%' OR coalesce(pr.nom_normalise, '') LIKE '%' || ($1::text[])[1] || '%')");
     expect(q.sql).toContain('lo.gestion_fin IS NULL AND lo.absent_le IS NULL');
-    expect(r).toEqual([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement T3 · 3e étage · propriétaire : DUPONT Jean · libre' }]);
+    // Arno (20/10/2026) : l'état est rendu À PART (l'écran l'écrit et le colore), plus dans le détail.
+    expect(r).toEqual([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement T3 · 3e étage · propriétaire : DUPONT Jean', loue: false }]);
+  });
+
+  it('Arno (20/10/2026) : les biens LIBRES d’abord, puis les loués ; dans chaque groupe, l’adresse — avec ou sans recherche', async () => {
+    for (const terme of ['', 'Dupont']) {
+      appels.length = 0;
+      await biensPourLocataire(terme);
+      const q = appels.find((a) => a.sql.includes('FROM gestion_annuaire_lot lo'))!;
+      expect(q.sql).toContain('ORDER BY loue, lo.adresse_normalisee, lo.id LIMIT 20');
+    }
+    lignes = [{ ...lignes[0], loue: true }];
+    expect((await biensPourLocataire(''))[0].loue).toBe(true);
   });
 
   it('plusieurs mots : chacun dans l’adresse OU le propriétaire (« Lilas Dupont »)', async () => {

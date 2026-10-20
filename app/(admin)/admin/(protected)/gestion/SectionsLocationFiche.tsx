@@ -931,7 +931,7 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
           </dl>
           {modifiable && l !== undefined && (
             <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSaisie(versSaisieConditions(c.conditions))} data-modifier-conditions>Modifier</button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSaisie(versSaisieConditions(c.conditions, c.loyer ?? null))} data-modifier-conditions>Modifier</button>
             </div>
           )}
         </>

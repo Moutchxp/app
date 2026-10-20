@@ -8,7 +8,7 @@ import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { SaisieCartes, type EtatCartes } from './SaisieCartes';
 import { BlocConditionsEntree, CSS_CONDITIONS } from './ConditionsEntree';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
-import { CONDITIONS_VIDES, manquesConditions, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
+import { CONDITIONS_VIDES, manquesConditions, montantSaisi, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
 import { familleDeCategorie, manquesEntretien } from '../../../../lib/location/bienComplet';
 import type { FicheBienLocation } from '../../../../lib/location/locationRepo';
 import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocation';
@@ -101,8 +101,12 @@ export function CreationLocataire() {
   const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
   const [entretienDuBien, setEntretienDuBien] = useState<number | null>(null);
   const [tente, setTente] = useState(false);
-  const dispo = useLecture<boolean>('conditionsEntreeDisponible');
-  const avecConditions = dispo.etat.etat === 'ok' && dispo.etat.data === true;
+  // Arno (20/10/2026) — partie par partie, ce que la base sait enregistrer : le bloc est TOUJOURS montré ; ce qui manque est dit
+  // par un bandeau (« migration NNN ») et seule l'écriture de la partie concernée est désactivée.
+  const lu = useLecture<{ conditions: boolean; loyer: boolean; manquantes: string[] }>('schemaConditionsEntree');
+  const schema = lu.etat.etat === 'ok' && lu.etat.data !== null && typeof lu.etat.data === 'object' && !Array.isArray(lu.etat.data) ? lu.etat.data : null;
+  const avecConditions = schema?.conditions === true;
+  const avecLoyer = schema?.loyer === true;
   const ficheBien = useLecture<FicheBienLocation>(bien !== null ? `lot=${bien.id}` : null);
   const lueBien = ficheBien.etat.etat === 'ok' && bien !== null && ficheBien.etat.data.bien?.id === bien.id ? ficheBien.etat.data : null;
   const famille = lueBien === null ? null : familleDeCategorie(lueBien.bien.categorie);
@@ -115,10 +119,26 @@ export function CreationLocataire() {
     setEntretien(versSaisieEntretien(lueBien.complements?.entretienAPrevoir ?? null, lueBien.complements?.entretiens));
   }, [lueBien, entretienDuBien]);
   const envoiEntretien = versEnvoiEntretien(entretien);
-  const manque: Record<string, string> = avecConditions ? {
-    ...manquesConditions(versEnvoiConditions(conditions)),
+  // Ce qui manque, seulement pour ce qui s'ENREGISTRE : les choix (391/392), le loyer (370 : son format), l'entretien du bien (379).
+  const manquesBloc = manquesConditions(versEnvoiConditions(conditions));
+  const manque: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(manquesBloc).filter(([k]) => (k.startsWith('loyer-') ? avecLoyer : avecConditions))),
     ...(avecEntretien ? manquesEntretien({ entretienAPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens }) : {}),
-  } : {};
+  };
+  // Le LOYER DE DÉPART déjà connu pour le bien (migration 370) : pré-remplit le « Loyer mensuel », une fois par bien, s'il est vide.
+  const loyerConnu = useLecture<{ principal: number | null; provisions: number | null; entree: string | null } | null>(avecLoyer && bien !== null ? `loyerDuBien=${bien.id}` : null);
+  const [loyerDuBien, setLoyerDuBien] = useState<{ id: number; note: string | null } | null>(null);
+  useEffect(() => {
+    if (bien === null || loyerConnu.etat.etat !== 'ok' || loyerDuBien?.id === bien.id) return;
+    const l = loyerConnu.etat.data;
+    const connu = l !== null && typeof l === 'object' && !Array.isArray(l) && (l.principal !== null || l.provisions !== null) ? l : null;
+    setLoyerDuBien({ id: bien.id, note: connu === null ? null
+      : `Pré-rempli avec le loyer de départ de la location précédente${connu.entree ? ` (entrée le ${connu.entree.split('-').reverse().join('/')})` : ''} — modifiable.` });
+    if (connu !== null) {
+      setConditions((c) => (c.loyer.principal.trim() !== '' || c.loyer.provisions.trim() !== '' ? c
+        : { ...c, loyer: { principal: montantSaisi(connu.principal), provisions: montantSaisi(connu.provisions) } }));
+    }
+  }, [bien, loyerConnu.etat, loyerDuBien]);
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
   // Arno (20/10/2026) — LES GARANTS : les contacts « Garant » validés au bloc 1. S'il y en a, « Garant personne physique » passe
   // d'office à Oui (à chaque NOUVEAU garant ; on peut toujours répondre Non) ; « Ajouter un garant » ouvre une carte contact.
@@ -131,12 +151,12 @@ export function CreationLocataire() {
   const [demandeGarant, setDemandeGarant] = useState({ n: 0, qualite: QUALITE_GARANT });
   // Arno (20/10/2026) — LES HONORAIRES PROPRIÉTAIRE du bien loué, à la date d'entrée : calculés par le serveur (barème daté,
   // zone, surface Carrez/Boutin de la fiche du bien), relus quand le bien ou la date change.
-  const hono = useLecture<CalculHonoraires>(avecConditions && bien !== null
+  const hono = useLecture<CalculHonoraires>(bien !== null
     ? `honorairesProprietaire=${bien.id}${/^\d{4}-\d{2}-\d{2}$/.test(entree) ? `&entree=${entree}` : ''}` : null);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
 
   useEffect(() => { const t = setTimeout(() => setTerme(filtreBien.trim()), 250); return () => clearTimeout(t); }, [filtreBien]);
-  const biens = useLecture<{ id: number; titre: string; detail: string | null }[]>(`biensPourLocataire=${encodeURIComponent(terme)}`);
+  const biens = useLecture<{ id: number; titre: string; detail: string | null; loue?: boolean }[]>(`biensPourLocataire=${encodeURIComponent(terme)}`);
 
   const nbLocataires = etat.clients.length + etat.existants.length;
   const enregistrer = async (): Promise<void> => {
@@ -174,7 +194,8 @@ export function CreationLocataire() {
       action: 'creer-locataires', cartes: etat.clients, existants: etat.existants.map((x) => x.id), contacts: etat.contacts,
       lotId: bien.id, entree: entree === '' ? null : entree, lotIds: coches ?? [bien.id],
       ...(avecConditions ? { conditions: versEnvoiConditions(conditions) } : {}),
-      ...(avecConditions && avecEntretien ? { entretien: { aPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens } } : {}),
+      ...(avecLoyer ? { loyer: { ...conditions.loyer } } : {}),
+      ...(avecEntretien ? { entretien: { aPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens } } : {}),
     });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); setRecap(null); return; }
@@ -215,7 +236,9 @@ export function CreationLocataire() {
                 <ul className="loc-choix">
                   {liste(biens.etat.data).map((b) => (
                     <li key={b.id}><button type="button" aria-pressed={false} onClick={() => { setBien({ id: b.id, titre: b.titre }); setCoches(null); setRecap(null); }}>
-                      <span>{b.titre}</span><span>{b.detail}</span></button></li>
+                      <span>{b.titre}</span><span>{b.detail}</span>
+                      {/* Arno (20/10/2026) : le MOT et la couleur (vert « Libre », rouge « déjà loué ») — jamais la couleur seule. */}
+                      {b.loue !== undefined && <span className={`loc-etat-bien loc-etat-bien--${b.loue ? 'loue' : 'libre'}`} data-etat-bien={b.loue ? 'loue' : 'libre'}>{b.loue ? 'déjà loué' : 'Libre'}</span>}</button></li>
                   ))}
                 </ul>
               ))}
@@ -229,14 +252,17 @@ export function CreationLocataire() {
 
       <section className="loc-section" aria-labelledby="loc-l3" data-bloc-conditions>
         <h3 id="loc-l3"><span className="loc-num">3</span>Conditions d’entrée</h3>
-        {dispo.etat.etat !== 'ok' ? <EtatLecture etat={dispo.etat} /> : !avecConditions ? (
-          <p className="loc-muet" style={{ margin: 0 }} data-conditions-sans-migration>
-            Mise à jour de la base à appliquer (migration 391) : les conditions d’entrée ne peuvent pas encore être enregistrées. Le locataire se crée comme avant.</p>
-        ) : (
+        {lu.etat.etat !== 'ok' ? <EtatLecture etat={lu.etat} /> : (
           <>
+            {schema !== null && !avecConditions && (
+              <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} role="status" data-conditions-sans-migration>
+                Mise à jour de la base à appliquer (migration {schema.manquantes.filter((m) => m !== '370').join(' et ')}) : les choix de ce bloc
+                ne seront pas enregistrés (ni exigés). Le locataire et l’entretien du bien s’enregistrent comme d’habitude.</p>
+            )}
             <p className="loc-section-phrase">La fiche « Nouveau dossier » : enregistrée sur le bail créé. Les choix marqués <span className="loc-oblig">*</span> sont obligatoires ; montants et commentaire facultatifs.</p>
             <BlocConditionsEntree valeur={conditions} onChange={(v) => { setConditions(v); setMotif(null); }} manque={manqueDe}
               garants={{ noms: garants, onAjouter: () => setDemandeGarant((d) => ({ ...d, n: d.n + 1 })) }}
+              loyer={{ note: bien !== null && loyerDuBien?.id === bien.id ? loyerDuBien.note : null, indisponible: schema !== null && !avecLoyer }}
               honoraires={{ calcul: bien === null ? null : hono.etat.etat === 'ok' ? hono.etat.data : null,
                 charge: bien !== null && hono.etat.etat === 'charge', lienBien: bien === null ? null : `/admin/location/bien/${bien.id}` }}
               entretien={avecEntretien ? (
@@ -289,5 +315,8 @@ const CSS_LOTS_LOUES = `
 .loc-lot-textes{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
 .loc-lot-etat{font-weight:700;color:var(--color-svv-green-ink)}
 .loc-lot-etat--pris{color:var(--color-svv-muted)}
+.loc-etat-bien{font-weight:800}
+.loc-etat-bien--libre{color:var(--color-svv-green-ink)}
+.loc-etat-bien--loue{color:var(--color-svv-red)}
 .loc-recap-lots ul{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:4px}
 `;

@@ -64,14 +64,36 @@ export interface SaisieConditions {
   reglement: Reglement | null;
   reglementPrecision: string;
   commentaire: string;
+  /**
+   * Arno (20/10/2026) — le LOYER MENSUEL à l'entrée (facultatif) : c'est le « loyer de départ » de la location (migration 370,
+   * `gestion_location_conditions.loyer_hc` / `provisions`) — la MÊME donnée que la carte « Location » de la fiche, pas une copie.
+   */
+  loyer: { principal: string; provisions: string };
 }
+
+/** Le loyer mensuel relu (centimes exacts), ou rien. */
+export interface LoyerMensuel { principal: number | null; provisions: number | null }
 
 export const CONDITIONS_VIDES: SaisieConditions = {
   depot: null, prelevement: null, jour: null, garant: null, assurance: null, assurancePrecision: '',
   honorairesLocataire: null, honorairesProprietaire: null,
   sommes: { prorataLoyer: '', prorataCharges: '', depotGarantie: '', honorairesAgence: '' },
   reglement: null, reglementPrecision: '', commentaire: '',
+  loyer: { principal: '', provisions: '' },
 };
+
+/** Le total du loyer charges comprises / mois, en centimes ; `null` si rien n'est saisi ou si un montant est illisible. */
+export function totalLoyerCentimes(l: { principal: unknown; provisions: unknown }): number | null {
+  const a = enCentimes(l.principal);
+  const b = enCentimes(l.provisions);
+  if (a === undefined || b === undefined || (a === null && b === null)) return null;
+  return (a ?? 0) + (b ?? 0);
+}
+
+/** Des centimes → le texte exact d'un montant en euros (« 1180.50 »), pour les colonnes `numeric`. */
+export function eurosExacts(c: number): string {
+  return `${Math.trunc(c / 100)}.${String(c % 100).padStart(2, '0')}`;
+}
 
 /** Les conditions d'entrée relues, avec qui les a saisies et quand. */
 export interface ConditionsEntreeLues {
@@ -82,6 +104,8 @@ export interface ConditionsEntreeLues {
   lignes: { mot: string; valeur: string; detail?: string }[];
   /** Les honoraires propriétaire calculés à l'entrée, avec le barème et la surface utilisés (migration 392). */
   honoraires: CalculHonoraires | null;
+  /** Le loyer mensuel du bail : le loyer de départ (migration 370) de ses occupations ; `null` s'il n'est pas connu. */
+  loyer?: LoyerMensuel | null;
 }
 
 /** Les conditions vérifiées, telles qu'elles s'enregistrent et se relisent (montants en CENTIMES, entiers exacts). */
@@ -148,13 +172,16 @@ export function versEnvoiConditions(s: SaisieConditions): Record<string, unknown
     assurance: s.assurance, assurancePrecision: s.assurance !== null && A_PRECISER.includes(s.assurance) ? s.assurancePrecision : '',
     honorairesLocataire: s.honorairesLocataire, honorairesProprietaire: s.honorairesProprietaire,
     sommes: { ...s.sommes }, reglement: s.reglement, reglementPrecision: s.reglement === 'autre' ? s.reglementPrecision : '',
-    commentaire: s.commentaire,
+    commentaire: s.commentaire, loyer: { ...s.loyer },
   };
 }
 
+/** Des centimes → la saisie (« 1180 », « 1180,50 »). PUR. */
+export const montantSaisi = (x: number | null): string => (x === null ? '' : `${Math.trunc(x / 100)}${x % 100 === 0 ? '' : `,${String(x % 100).padStart(2, '0')}`}`);
+
 /** Les conditions relues → la saisie (« Modifier » de la fiche). PUR. */
-export function versSaisieConditions(c: ConditionsEntree): SaisieConditions {
-  const montant = (x: number | null): string => (x === null ? '' : `${Math.trunc(x / 100)}${x % 100 === 0 ? '' : `,${String(x % 100).padStart(2, '0')}`}`);
+export function versSaisieConditions(c: ConditionsEntree, loyer: LoyerMensuel | null = null): SaisieConditions {
+  const montant = montantSaisi;
   return {
     depot: c.depot, prelevement: c.prelevement, jour: c.jour === null ? null : String(c.jour) as JourPrelevement, garant: c.garant,
     assurance: c.assurance, assurancePrecision: c.assurancePrecision ?? '',
@@ -162,6 +189,7 @@ export function versSaisieConditions(c: ConditionsEntree): SaisieConditions {
     sommes: { prorataLoyer: montant(c.sommes.prorataLoyer), prorataCharges: montant(c.sommes.prorataCharges),
       depotGarantie: montant(c.sommes.depotGarantie), honorairesAgence: montant(c.sommes.honorairesAgence) },
     reglement: c.reglement, reglementPrecision: c.reglementPrecision ?? '', commentaire: c.commentaire ?? '',
+    loyer: { principal: montant(loyer?.principal ?? null), provisions: montant(loyer?.provisions ?? null) },
   };
 }
 
@@ -185,6 +213,10 @@ export function manquesConditions(b: Record<string, unknown>): Record<string, st
   }
   if (dans(COMPTES, b.honorairesLocataire) === null) m.honorairesLocataire = 'Honoraires du locataire : compte agence ou compte gestion ?';
   if (dans(COMPTES, b.honorairesProprietaire) === null) m.honorairesProprietaire = 'Honoraires du propriétaire : compte agence ou compte gestion ?';
+  // Le loyer mensuel : facultatif, mais jamais mal écrit (ni arrondi, ni ignoré). Avant les sommes dues, comme à l'écran.
+  const loyer = (b.loyer !== null && typeof b.loyer === 'object' ? b.loyer : {}) as Record<string, unknown>;
+  if (enCentimes(loyer.principal) === undefined) m['loyer-principal'] = 'Loyer principal : un montant en euros, au centime (ex. 1 180,50).';
+  if (enCentimes(loyer.provisions) === undefined) m['loyer-provisions'] = 'Provision pour charges : un montant en euros, au centime (ex. 90).';
   const sommes = (b.sommes !== null && typeof b.sommes === 'object' ? b.sommes : {}) as Record<string, unknown>;
   for (const k of SOMMES) {
     if (enCentimes(sommes[k]) === undefined) m[`somme-${k}`] = `${LIBELLE_SOMME[k]} : un montant en euros, au centime (ex. 1 180,50).`;
@@ -216,7 +248,7 @@ export function verifierConditions(brut: unknown): { ok: true; valeurs: Conditio
 }
 
 /** Les lignes de l'encart « Conditions d'entrée » (lecture), dans l'ordre de la fiche papier ; les honoraires propriétaire après les sommes. PUR. */
-export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonoraires | null = null): { mot: string; valeur: string; detail?: string }[] {
+export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonoraires | null = null, loyer: LoyerMensuel | null = null): { mot: string; valeur: string; detail?: string }[] {
   const saisies = SOMMES.map((k) => c.sommes[k]).filter((x): x is number => x !== null);
   const total = saisies.length === 0 ? null : saisies.reduce((t, x) => t + x, 0);
   return [
@@ -226,6 +258,11 @@ export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonorair
     { mot: 'Assurance loyers impayés', valeur: `${LIBELLE_ASSURANCE[c.assurance]}${c.assurancePrecision ? ` — ${c.assurancePrecision}` : ''}` },
     { mot: 'Honoraires du locataire', valeur: LIBELLE_COMPTE[c.honorairesLocataire] },
     { mot: 'Honoraires du propriétaire', valeur: LIBELLE_COMPTE[c.honorairesProprietaire] },
+    ...(loyer === null ? [] : [
+      ...(loyer.principal === null ? [] : [{ mot: 'Loyer principal', valeur: formaterCentimes(loyer.principal) }]),
+      ...(loyer.provisions === null ? [] : [{ mot: 'Provision pour charges', valeur: formaterCentimes(loyer.provisions) }]),
+      ...(loyer.principal === null && loyer.provisions === null ? [] : [{ mot: 'Total loyer charges comprises / mois', valeur: formaterCentimes((loyer.principal ?? 0) + (loyer.provisions ?? 0)) }]),
+    ]),
     ...SOMMES.filter((k) => c.sommes[k] !== null).map((k) => ({ mot: LIBELLE_SOMME[k], valeur: formaterCentimes(c.sommes[k] as number) })),
     ...(total === null ? [] : [{ mot: 'Total dû à l’entrée', valeur: formaterCentimes(total) }]),
     ...(honoraires === null ? [] : honoraires.etat === 'ok' ? lignesHonoraires(honoraires) : [{ mot: 'Honoraires propriétaire', valeur: honoraires.motif }]),

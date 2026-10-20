@@ -92,7 +92,14 @@ describe.skipIf(!baseEssai)('🔴 conditions d’entrée — enregistrées sur l
     expect(await tableLa()).toBe(true);
     const r = ok(await creerLocatairesSurBien({ cartes: [carte(`UN${S}`, 3), carte(`DEUX${S}`, 4)], existants: [], contacts: [], lotId: logement,
       entree: '2026-11-01', lotIds: [logement, cave], conditions: CONDITIONS,
-      entretien: { aPrevoir: true, entretiens: [{ sorte: 'chaudiere', dateAnniversaire: '2026-12-01' }] } }, AUTEUR));
+      entretien: { aPrevoir: true, entretiens: [{ sorte: 'chaudiere', dateAnniversaire: '2026-12-01' }] },
+      loyer: { principal: '1 180,10', provisions: '90' } }, AUTEUR));
+    // LE LOYER MENSUEL (Arno, 20/10/2026) : le loyer de départ (370), sur UNE occupation — le logement, au premier locataire.
+    const { rows: loy } = await query<{ occupation_id: string; loyer_hc: string; provisions: string; lot_id: string; locataire_id: string }>(
+      `SELECT c.occupation_id::text, c.loyer_hc::text, c.provisions::text, o.lot_id::text, o.locataire_id::text
+         FROM gestion_location_conditions c JOIN gestion_annuaire_occupation o ON o.id = c.occupation_id
+        WHERE o.locataire_id = ANY($1::bigint[])`, [r.locataireIds]);
+    expect(loy).toEqual([{ occupation_id: loy[0]?.occupation_id, loyer_hc: '1180.1', provisions: '90', lot_id: String(logement), locataire_id: String(r.locataireIds[0]) }]);
     expect(r.entretienRefus).toBeNull();
     const { rows: occ } = await query<{ id: string }>('SELECT id::text FROM gestion_annuaire_occupation WHERE locataire_id = ANY($1::bigint[]) ORDER BY id', [r.locataireIds]);
     expect(occ).toHaveLength(4);
@@ -125,7 +132,16 @@ describe.skipIf(!baseEssai)('🔴 conditions d’entrée — enregistrées sur l
     }
 
     // ③ « Modifier » : une ligne de plus, la plus récente fait foi ; le verrou refuse toute réécriture.
-    ok(await modifierConditionsEntree(Number(occ[1].id), { ...CONDITIONS, prelevement: false, jour: null }, AUTEUR));
+    // Le loyer relu dans l'encart (même donnée que la carte « Location »).
+    const avant = ok(await ficheLocataireLocation(r.locataireIds[1]));
+    expect(avant.conditionsEntree?.[0].loyer).toEqual({ principal: 118010, provisions: 9000 });
+    expect(avant.conditionsEntree?.[0].lignes.find((l) => l.mot === 'Total loyer charges comprises / mois')?.valeur.replace(/\s/g, ' ')).toBe('1 270,10 €');
+    ok(await modifierConditionsEntree(Number(occ[1].id), { ...CONDITIONS, prelevement: false, jour: null, loyer: { principal: '1 200', provisions: '90' } }, AUTEUR));
+    // Un loyer CHANGÉ : une ligne de plus sur la MÊME occupation (jamais une seconde occupation porteuse).
+    const { rows: loy2 } = await query<{ occupation_id: string; loyer_hc: string }>(
+      `SELECT occupation_id::text, loyer_hc::text FROM gestion_location_conditions WHERE occupation_id = ANY($1::bigint[]) ORDER BY id`, [occ.map((o) => Number(o.id))]);
+    expect(loy2.map((x) => x.loyer_hc)).toEqual(['1180.1', '1200']);
+    expect(new Set(loy2.map((x) => x.occupation_id)).size).toBe(1);
     expect(await compter('gestion_location_conditions_entree')).toBe(2);
     const apres = ok(await ficheLocataireLocation(r.locataireIds[0]));
     expect(apres.conditionsEntree?.[0]).toMatchObject({ modifiees: true, conditions: { prelevement: false, jour: null },

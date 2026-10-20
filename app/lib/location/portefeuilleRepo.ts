@@ -26,6 +26,9 @@ import { etageFr } from './sortieLocataires';
 import { verifierConditions, type ConditionsEntree } from './conditionsEntree';
 import { conditionsEntreeDisponible, enregistrerConditionsEntreeDans } from './conditionsEntreeRepo';
 import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
+import { ecrireLoyerDans, loyerDeLaSaisie } from './loyerEntreeRepo';
+import type { LoyerMensuel } from './conditionsEntree';
+import { honorairesGestionDisponible } from '../gestion/schema';
 import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens } from './entretienAnnexeRepo';
 /**
@@ -728,7 +731,11 @@ export async function creerLocataireSurBien(o: CreationLocataire, auteur: Auteur
  * `analyserTermePortefeuille`, et comparé aux colonnes normalisées). Chaque mot doit se trouver dans l'adresse OU dans le
  * nom du propriétaire (« Lilas Dupont » marche). Chaque résultat dit l'adresse, le type de bien, l'étage et le propriétaire.
  */
-export async function biensPourLocataire(filtre: string): Promise<{ id: number; titre: string; detail: string | null }[]> {
+/**
+ * Arno (20/10/2026) — les biens LIBRES d'abord, puis les biens déjà loués ; dans chaque groupe, l'ordre de l'adresse. L'état
+ * (`loue`) est rendu À PART : l'écran l'écrit (« Libre » / « déjà loué ») et le colore — jamais la couleur seule.
+ */
+export async function biensPourLocataire(filtre: string): Promise<{ id: number; titre: string; detail: string | null; loue: boolean }[]> {
   const t = analyserTermePortefeuille(filtre);
   const conditionMots = t.mots.map((_, i) => `(coalesce(lo.adresse_normalisee, '') LIKE '%' || ($1::text[])[${i + 1}] || '%'
     OR coalesce(pr.nom_normalise, '') LIKE '%' || ($1::text[])[${i + 1}] || '%')`).join(' AND ');
@@ -742,13 +749,14 @@ export async function biensPourLocataire(filtre: string): Promise<{ id: number; 
             ${await col('etage')} AS etage, ${await col('type_logement')} AS type_logement, lo.nature, lo.type_bien
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
       WHERE ${await sqlBienDuPortefeuille('lo')} AND ${conditionMots === '' ? 'cardinality($1::text[]) = 0' : conditionMots}
-      ORDER BY lo.adresse_normalisee, lo.id LIMIT 20`, [t.mots]);
+      ORDER BY loue, lo.adresse_normalisee, lo.id LIMIT 20`, [t.mots]);
   return rows.map((r) => {
     const type = r.type_logement ? (LIBELLE_TYPE_LOGEMENT[r.type_logement as TypeLogement] ?? r.type_logement)
       : ([r.nature, r.type_bien].filter((x) => x && x.trim() !== '').join(' ') || null);
     return {
       id: Number(r.id), titre: (r.annexe === null ? '' : `${r.annexe} — `) + ([r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`),
-      detail: [type, etageFr(r.etage), r.proprietaire ? `propriétaire : ${r.proprietaire}` : null, r.loue ? 'déjà loué' : 'libre'].filter((x) => x).join(' · '),
+      detail: [type, etageFr(r.etage), r.proprietaire ? `propriétaire : ${r.proprietaire}` : null].filter((x) => x).join(' · ') || null,
+      loue: r.loue,
     };
   });
 }
@@ -771,6 +779,11 @@ export async function creerLocatairesSurBien(o: {
   conditions?: unknown;
   /** L'ENTRETIEN À PRÉVOIR du bien (la donnée du BIEN, `entretien.ts`) : posé sur le bien loué, comme sa fiche le ferait. */
   entretien?: { aPrevoir: unknown; entretiens: unknown };
+  /**
+   * Arno (20/10/2026) — le LOYER MENSUEL à l'entrée : le loyer de départ (migration 370), écrit par `enregistrerConditions` sur
+   * l'occupation du logement au premier locataire (les autres occupations du bail sont couvertes). Facultatif.
+   */
+  loyer?: unknown;
 }, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null; recap: string[]; reintegrations: string[]; entretienRefus: string | null }>> {
   if (o.lotId === null) return { etat: 'refus', motif: 'Choisissez le bien loué.' };
   const cartes = o.cartes.slice(0, 12);
@@ -795,6 +808,13 @@ export async function creerLocatairesSurBien(o: {
   if (o.entretien !== undefined) {
     const e = verifierEntretiens(o.entretien.aPrevoir, o.entretien.entretiens);
     if (!e.ok) return { etat: 'refus', motif: e.motif };
+  }
+  let loyer: LoyerMensuel | null = null;
+  if (o.loyer !== undefined) {
+    loyer = loyerDeLaSaisie(o.loyer);
+    if (loyer === null) return { etat: 'refus', motif: 'Loyer mensuel : un montant en euros, au centime (ex. 1 180,50).' };
+    if (loyer.principal === null && loyer.provisions === null) loyer = null;
+    else if (!(await honorairesGestionDisponible())) return { etat: 'sans_schema' };
   }
   const entree = o.entree !== null && /^\d{4}-\d{2}-\d{2}$/.test(o.entree) ? o.entree : null;
   const { rows: lot } = await query<{ ok: boolean }>(`SELECT (${await sqlBienDuPortefeuille('lo')}) AS ok FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [o.lotId]);
@@ -829,13 +849,18 @@ export async function creerLocatairesSurBien(o: {
     const plan = planifierBail(fiche, coches);
     if (!plan.ok) return { ok: false as const, motif: plan.motif };
     const occupations: number[] = [];
+    // L'occupation qui portera le loyer : le logement (le bien choisi, sinon le premier lot loué), au premier locataire.
+    const lotDuLoyer = plan.plan.lotsLoues.includes(lotId) ? lotId : plan.plan.lotsLoues[0];
+    let occupationDuLoyer: number | null = null;
     for (const id of [...ids, ...existants]) {
       for (const l of plan.plan.lotsLoues) {
         const occ = await ajouterOccupantDans(q, l, id, entree, auteur);
         if (occ === null) return { ok: false as const, motif: 'Un des lots n’existe plus.' };
         occupations.push(occ);
+        if (occupationDuLoyer === null && l === lotDuLoyer) occupationDuLoyer = occ;
       }
     }
+    if (loyer !== null && occupationDuLoyer !== null) await ecrireLoyerDans(q, occupationDuLoyer, lotDuLoyer, loyer, auteur);
     // Une entrée = UN jeu de conditions, porté par toutes les occupations qu'elle vient de créer (migration 391).
     if (conditions !== null) await enregistrerConditionsEntreeDans(q, occupations, lotId, conditions, honoraires, auteur);
     const recap = await appliquerPlan(q, fiche, plan.plan, auteur);

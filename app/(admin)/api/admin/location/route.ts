@@ -33,7 +33,8 @@ import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/ac
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
 import { planifierBail } from '../../../../lib/location/regroupement';
-import { conditionsEntreeDisponible } from '../../../../lib/location/conditionsEntreeRepo';
+import { conditionsEntreeDisponible, schemaConditionsEntree } from '../../../../lib/location/conditionsEntreeRepo';
+import { loyerConnuDuBien } from '../../../../lib/location/loyerEntreeRepo';
 import { calculHonorairesDuBien } from '../../../../lib/location/honorairesProprietaireRepo';
 
 /**
@@ -97,6 +98,11 @@ export async function GET(request: Request): Promise<Response> {
     if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await preavisEnCours() }, { headers: ENTETES });
     // Arno (20/10/2026) — le bloc « Conditions d'entrée » : la migration 391 est-elle là ? (sinon l'écran le dit, et crée comme avant)
     if (p('conditionsEntreeDisponible') !== null) return Response.json({ etat: 'ok', data: await conditionsEntreeDisponible() }, { headers: ENTETES });
+    // Arno (20/10/2026) — partie par partie, ce que la base permet d'enregistrer (bandeau « migration NNN » de l'écran).
+    if (p('schemaConditionsEntree') !== null) return Response.json({ etat: 'ok', data: await schemaConditionsEntree() }, { headers: ENTETES });
+    // Le loyer de départ déjà connu pour ce bien (migration 370), pour pré-remplir le « Loyer mensuel » — LECTURE SEULE.
+    const idLoyer = identifiant(p('loyerDuBien'));
+    if (idLoyer !== null) return Response.json({ etat: 'ok', data: await loyerConnuDuBien(idLoyer) }, { headers: ENTETES });
     // Arno (20/10/2026) — les HONORAIRES PROPRIÉTAIRE du bien loué à la date d'entrée (barème daté, zone, surface) — LECTURE SEULE.
     const idHono = identifiant(p('honorairesProprietaire'));
     if (idHono !== null) {
@@ -321,6 +327,8 @@ export async function POST(request: Request): Promise<Response> {
           ...(Array.isArray(corps.lotIds) ? { lotIds: (corps.lotIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 30) } : {}),
           // Arno (20/10/2026) — bloc 3 « Conditions d'entrée » et l'entretien à prévoir du bien (envoyés seulement s'ils sont posés).
           ...(corps.conditions !== undefined && corps.conditions !== null ? { conditions: corps.conditions } : {}),
+          // Arno (20/10/2026) — le loyer mensuel à l'entrée (loyer de départ, migration 370).
+          ...(corps.loyer !== undefined && corps.loyer !== null ? { loyer: corps.loyer } : {}),
           ...(corps.entretien !== null && typeof corps.entretien === 'object'
             ? { entretien: { aPrevoir: (corps.entretien as Record<string, unknown>).aPrevoir, entretiens: (corps.entretien as Record<string, unknown>).entretiens } } : {}),
         }, auteur));

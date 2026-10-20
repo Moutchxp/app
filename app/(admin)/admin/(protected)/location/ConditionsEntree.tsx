@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 import {
   ASSURANCES, COMPTES, DEPOTS, formaterCentimes, JOURS_PRELEVEMENT, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR,
-  LIBELLE_REGLEMENT, LIBELLE_SOMME, REGLEMENTS, SOMMES, enCentimes, totalCentimes, type SaisieConditions,
+  LIBELLE_REGLEMENT, LIBELLE_SOMME, REGLEMENTS, SOMMES, enCentimes, totalCentimes, totalLoyerCentimes, type SaisieConditions,
 } from '../../../../lib/location/conditionsEntree';
 import {
   eurosAffiches, LIBELLE_ZONE, lignesHonoraires, tarifAffiche, lireDecimal, totalDesHonoraires, ZERO, type CalculHonoraires,
@@ -23,7 +23,7 @@ import {
  * « Garant personne physique », ou « Ajouter un garant » ; l'encadré « HONORAIRES PROPRIÉTAIRE » calculé (surface du bien ×
  * barème daté de la zone) et le « Total des honoraires » dessous.
  */
-export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires }: {
+export function BlocConditionsEntree({ valeur, onChange, manque, entretien, garants, honoraires, loyer }: {
   valeur: SaisieConditions;
   onChange: (v: SaisieConditions) => void;
   /** Le message « ce qui manque » d'un champ (vide tant qu'on n'a pas tenté d'enregistrer). */
@@ -37,6 +37,11 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
    * fiche du bien (surface manquante). Absent : l'encadré n'est pas montré.
    */
   honoraires?: ProprieteHonoraires;
+  /**
+   * Arno (20/10/2026) — le LOYER MENSUEL (loyer de départ, migration 370) : `note` dit d'où vient un pré-remplissage ;
+   * `indisponible` : la base n'a pas la migration 370 — les champs restent visibles, désactivés, et le bandeau le dit.
+   */
+  loyer?: { note?: string | null; indisponible?: boolean };
 }) {
   const s = valeur;
   const maj = (p: Partial<SaisieConditions>): void => onChange({ ...s, ...p });
@@ -115,6 +120,26 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
             onChoix={(v) => maj({ honorairesProprietaire: v })} />
         </div>
         {manque('honorairesProprietaire')}
+      </div>
+
+      <div className="loc-cond-bloc" data-cond="loyer">
+        <h4>Loyer mensuel</h4>
+        {loyer?.indisponible === true && <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} data-loyer-sans-migration>Mise à jour de la base à appliquer (migration 370) : le loyer mensuel ne sera pas enregistré.</p>}
+        <div className="loc-grille">
+          <label className="loc-champ" data-loyer="principal">Loyer principal (€)
+            <input value={s.loyer.principal} inputMode="decimal" placeholder="ex. 1 180" disabled={loyer?.indisponible === true}
+              onChange={(e) => maj({ loyer: { ...s.loyer, principal: e.target.value } })} />
+            {manque('loyer-principal')}</label>
+          <label className="loc-champ" data-loyer="provisions">Provision pour charges (€)
+            <input value={s.loyer.provisions} inputMode="decimal" placeholder="ex. 90" disabled={loyer?.indisponible === true}
+              onChange={(e) => maj({ loyer: { ...s.loyer, provisions: e.target.value } })} />
+            {manque('loyer-provisions')}</label>
+        </div>
+        {loyer?.note ? <p className="loc-muet" style={{ margin: 0 }} data-loyer-note>{loyer.note}</p> : null}
+        <p className="loc-cond-total" aria-live="polite" data-total-loyer>
+          <span>Total loyer charges comprises / mois</span>
+          <strong>{((t) => (t === null ? ((s.loyer.principal.trim() !== '' || s.loyer.provisions.trim() !== '') ? 'montant illisible' : '—') : formaterCentimes(t)))(totalLoyerCentimes(s.loyer))}</strong>
+        </p>
       </div>
 
       <div className="loc-cond-bloc" data-cond="sommes">

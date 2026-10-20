@@ -29,11 +29,14 @@ let categorie: string;
 let entretienDuBien: { entretienAPrevoir: boolean | null; entretiens: unknown[] };
 /** Le calcul des honoraires propriétaire rendu par le serveur (simulé). */
 let calcul: unknown;
+/** La migration 370 (loyer de départ) est-elle là ? Et le loyer de départ déjà connu pour le bien. */
+let loyerDisponible: boolean;
+let loyerConnu: unknown;
 const CALCUL_OK = { etat: 'ok', surface: '41.8', zone: 'tres_tendue', date: '2026-11-01', dateSupposee: false, baremeId: 1, baremeDepuis: '2026-01-01',
   source: 'Arrêté du 17/07/2025', tarifZone: '12.1', tarifEdl: '3.03', visiteBail: '505.78', etatDesLieux: '126.654', total: '632.434' };
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  posts = []; disponible = true; categorie = 'logement'; entretienDuBien = { entretienAPrevoir: null, entretiens: [] }; calcul = CALCUL_OK;
+  posts = []; disponible = true; categorie = 'logement'; entretienDuBien = { entretienAPrevoir: null, entretiens: [] }; calcul = CALCUL_OK; loyerDisponible = true; loyerConnu = null;
   Element.prototype.scrollIntoView = function scrollIntoView() {};
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = decodeURIComponent(String(url));
@@ -42,9 +45,10 @@ beforeEach(() => {
       posts.push(corps);
       return ok(corps.action === 'apercu-lots' ? { recap: ['Le logement est loué.'] } : { locataireIds: [50], reintegrations: [] });
     }
-    if (u.includes('conditionsEntreeDisponible')) return ok(disponible);
+    if (u.includes('schemaConditionsEntree')) return ok({ conditions: disponible, loyer: loyerDisponible, manquantes: [...(disponible ? [] : ['391', '392']), ...(loyerDisponible ? [] : ['370'])] });
+    if (u.includes('loyerDuBien=7')) return ok(loyerConnu);
     if (u.includes('honorairesProprietaire=7')) return ok(calcul);
-    if (u.includes('biensPourLocataire=')) return ok([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'libre' }]);
+    if (u.includes('biensPourLocataire=')) return ok([{ id: 7, titre: '4 rue Fictive, Puteaux', detail: 'Appartement', loue: false }]);
     if (u.includes('lotsBail=7')) return ok({ lots: [{ id: 7, role: 'logement', libelle: 'logement', type: null, etage: null, numeroLot: null, porte: null, place: false, occupants: [], noms: [] }], sorte: 'simple', origineLibelle: '' });
     if (u.includes('lot=7')) return ok({ bien: { id: 7, categorie }, complements: { ...entretienDuBien } });
     return ok([]);
@@ -100,7 +104,7 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     const sections = [...container.querySelectorAll('.loc-section > h3')].map((h) => h.textContent);
     expect(sections.slice(0, 3)).toEqual(['1Le ou les locataires', '2Bien loué', '3Conditions d’entrée']);
     expect([...container.querySelectorAll('.loc-cond-bloc')].map((b) => b.getAttribute('data-cond')))
-      .toEqual(['depot', 'prelevement', 'garanties', 'entretien', 'honoraires', 'sommes', 'honoraires-proprietaire', 'reglement', 'commentaire']);
+      .toEqual(['depot', 'prelevement', 'garanties', 'entretien', 'honoraires', 'loyer', 'sommes', 'honoraires-proprietaire', 'reglement', 'commentaire']);
     expect([...container.querySelectorAll('[aria-label="Assurance loyers impayés"] button')].map((b) => b.textContent)).toEqual(['GLI', 'Visale', 'Autre', 'Aucune']);
     expect(container.querySelector('[aria-label="Dépôt de garantie"]')?.className).toBe('loc-pilules');
     // Le même composant de boutons que « Nouveau bien » (aucune copie).
@@ -191,16 +195,21 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
     expect(barre()).not.toContain('Entretien');
   });
 
-  it('SANS la migration 391 : le bloc le dit ; le locataire se crée comme avant (ni conditions ni entretien envoyés)', async () => {
+  it('SANS les migrations 391-392 : le bloc reste affiché avec un bandeau ; seuls ses choix ne sont ni exigés ni envoyés', async () => {
     disponible = false;
     await preparer();
-    expect(container.querySelector('[data-conditions-sans-migration]')?.textContent).toContain('migration 391');
+    expect(container.querySelector('[data-conditions-entree]')).not.toBeNull();
+    expect(container.querySelector('[data-conditions-sans-migration]')?.textContent).toContain('Mise à jour de la base à appliquer (migration 391 et 392)');
+    // L'entretien du bien (379) et le loyer (370) restent enregistrés : ils ne dépendent pas de ces migrations.
+    expect(barre()).toBe('Reste à renseigner : Entretien à prévoir : répondez Oui ou Non.');
+    await clic(container.querySelector('[data-entretien-reponse="non"]')!);
+    await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '980');
     expect(barre()).toBe('1 locataire, prêt à enregistrer.');
     await soumettre();
     await soumettre();
     const creer = posts.find((p) => p.action === 'creer-locataires')!;
     expect(creer).not.toHaveProperty('conditions');
-    expect(creer).not.toHaveProperty('entretien');
+    expect(creer).toMatchObject({ entretien: { aPrevoir: false }, loyer: { principal: '980', provisions: '' } });
   });
 });
 
@@ -394,5 +403,81 @@ describe('🔴 retouches du 20/10/2026 — dépôt, jours, garants, coche réser
       expect(lire(f), f).not.toMatch(/'Surface Carrez \(m²\)'|'Surface Carrez'|'Surface \(Carrez\)'/);
     }
     expect(lire('app/lib/location/locationBien.ts')).toContain('`Carrez/Boutin ${m2(b.surfaceCarrezM2)}`');
+  });
+});
+
+describe('🔴 retouches — biens libres d’abord, loyer mensuel, bandeau de migration', () => {
+  it('« Bien loué » : « Libre » en vert, « déjà loué » en rouge — le MOT toujours écrit ; l’ordre du serveur (libres d’abord) est gardé', async () => {
+    (global.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string | URL | Request) => (String(url).includes('biensPourLocataire=')
+      ? ok([{ id: 7, titre: '4 rue Fictive', detail: 'Appartement', loue: false }, { id: 8, titre: '1 rue Autre', detail: 'Studio', loue: true }]) : ok([])));
+    await act(async () => { root.render(createElement(CreationLocataire)); });
+    await calmer();
+    const etats = [...container.querySelectorAll('.loc-choix [data-etat-bien]')];
+    expect(etats.map((e) => [e.textContent, e.className])).toEqual([
+      ['Libre', 'loc-etat-bien loc-etat-bien--libre'], ['déjà loué', 'loc-etat-bien loc-etat-bien--loue']]);
+    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
+    expect(css).toContain('.loc-etat-bien--libre{color:var(--color-svv-green-ink)}');
+    expect(css).toContain('.loc-etat-bien--loue{color:var(--color-svv-red)}');
+  });
+
+  it('LOYER MENSUEL : juste avant « Sommes dues » ; total charges comprises au centime exact ; montant illisible signalé', async () => {
+    await preparer();
+    const ordre = [...container.querySelectorAll('.loc-cond-bloc')].map((b) => b.getAttribute('data-cond'));
+    expect(ordre.indexOf('loyer')).toBe(ordre.indexOf('sommes') - 1);
+    const total = () => container.querySelector('[data-total-loyer] strong')?.textContent?.replace(/\s/g, ' ');
+    expect(total()).toBe('—');
+    await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1 180,10');
+    await saisir(container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement, '0,2');
+    expect(total()).toBe('1 180,30 €');
+    await saisir(container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement, '9,999');
+    expect(total()).toBe('montant illisible');
+    expect(barre()).toContain('Provision pour charges : un montant en euros, au centime');
+  });
+
+  it('PRÉ-REMPLI avec le loyer de départ déjà connu du bien (et dit d’où il vient) ; modifiable ; envoyé avec le bail', async () => {
+    loyerConnu = { principal: 98000, provisions: 9050, entree: '2023-09-01' };
+    await preparer();
+    expect((container.querySelector('[data-loyer="principal"] input') as HTMLInputElement).value).toBe('980');
+    expect((container.querySelector('[data-loyer="provisions"] input') as HTMLInputElement).value).toBe('90,50');
+    expect(container.querySelector('[data-loyer-note]')?.textContent).toBe('Pré-rempli avec le loyer de départ de la location précédente (entrée le 01/09/2023) — modifiable.');
+    expect(container.querySelector('[data-total-loyer] strong')?.textContent?.replace(/\s/g, ' ')).toBe('1 070,50 €');
+    await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1 000');
+    await toutRepondre();
+    await soumettre();
+    await soumettre();
+    expect(posts.find((p) => p.action === 'creer-locataires')).toMatchObject({ loyer: { principal: '1 000', provisions: '90,50' } });
+  });
+
+  it('SANS la migration 370 : l’encadré « Loyer mensuel » reste, champs désactivés, bandeau « migration 370 » ; rien n’est envoyé pour lui', async () => {
+    loyerDisponible = false;
+    await preparer();
+    expect(container.querySelector('[data-loyer-sans-migration]')?.textContent).toBe('Mise à jour de la base à appliquer (migration 370) : le loyer mensuel ne sera pas enregistré.');
+    expect((container.querySelector('[data-loyer="principal"] input') as HTMLInputElement).disabled).toBe(true);
+    await toutRepondre();
+    await soumettre();
+    await soumettre();
+    expect(posts.find((p) => p.action === 'creer-locataires')).not.toHaveProperty('loyer');
+  });
+
+  it('FICHE : le loyer du bail s’affiche dans l’encart et se rouvre dans « Modifier »', async () => {
+    global.fetch = vi.fn(async (_u: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return ok(null); }
+      return ok({ fiche: { modifiable: true }, sortie: null, preavis: [], conditionsEntreeDisponible: true,
+        locations: [{ occupationId: 11, lotId: 7, adresse: '4 rue Fictive', commune: 'PUTEAUX', entree: '2026-10-20', sortie: null, location: null }],
+        conditionsEntree: [{ bailCle: 'b', occupationIds: [11], saisiLe: '2026-10-20 10:00:00+02', saisiPar: 'x', modifiees: false, honoraires: null,
+          loyer: { principal: 98000, provisions: 9050 },
+          conditions: { depot: 'agence', prelevement: false, jour: null, garant: false, assurance: 'aucune', assurancePrecision: null, honorairesLocataire: 'agence',
+            honorairesProprietaire: 'agence', sommes: { prorataLoyer: null, prorataCharges: null, depotGarantie: null, honorairesAgence: null },
+            reglement: 'cheque', reglementPrecision: null, commentaire: null },
+          lignes: [{ mot: 'Loyer principal', valeur: '980,00 €' }, { mot: 'Provision pour charges', valeur: '90,50 €' }, { mot: 'Total loyer charges comprises / mois', valeur: '1 070,50 €' }] }] });
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(SectionLocationLocataire, { locataireId: 101, ouvrir: () => {} })); });
+    await calmer();
+    expect([...container.querySelectorAll('[data-encart-conditions-entree] dt')].map((x) => x.textContent)).toEqual(['Loyer principal', 'Provision pour charges', 'Total loyer charges comprises / mois']);
+    await clic(container.querySelector('[data-modifier-conditions]')!);
+    expect((container.querySelector('[data-loyer="principal"] input') as HTMLInputElement).value).toBe('980');
+    await saisir(container.querySelector('[data-loyer="principal"] input') as HTMLInputElement, '1000');
+    await clic(container.querySelector('[data-enregistrer-conditions]')!);
+    expect(posts.at(-1)).toMatchObject({ action: 'conditions-entree', occupationId: 11, conditions: { loyer: { principal: '1000', provisions: '90,50' } } });
   });
 });

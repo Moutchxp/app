@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONDITIONS_VIDES, enCentimes, LIBELLE_JOUR, formaterCentimes, lignesConditions, manquesConditions, totalCentimes, verifierConditions,
+  CONDITIONS_VIDES, enCentimes, eurosExacts, LIBELLE_JOUR, totalLoyerCentimes, formaterCentimes, lignesConditions, manquesConditions, totalCentimes, verifierConditions,
   versEnvoiConditions, versSaisieConditions, type SaisieConditions,
 } from './conditionsEntree';
 
@@ -80,5 +80,25 @@ describe('🔴 relecture : encart et « Modifier »', () => {
     const s = versSaisieConditions(v.valeurs);
     expect(s.sommes).toEqual({ prorataLoyer: '412,26', prorataCharges: '', depotGarantie: '1180', honorairesAgence: '' });
     expect(verifierConditions(versEnvoiConditions(s))).toEqual(v);
+  });
+});
+
+describe('🔴 loyer mensuel à l’entrée (Arno, 20/10/2026) — facultatif, au centime exact', () => {
+  it('total charges comprises : la somme exacte ; un seul des deux suffit ; rien → pas de total ; illisible → pas de total', () => {
+    expect(totalLoyerCentimes({ principal: '1 180,10', provisions: '0,2' })).toBe(118030);
+    expect(totalLoyerCentimes({ principal: '980', provisions: '' })).toBe(98000);
+    expect(totalLoyerCentimes({ principal: '', provisions: '' })).toBeNull();
+    expect(totalLoyerCentimes({ principal: '980', provisions: '9,999' })).toBeNull();
+    expect(eurosExacts(118030)).toBe('1180.30');
+  });
+  it('facultatif, mais jamais mal écrit : un manque par champ illisible ; les lignes de l’encart (loyer, provisions, total)', () => {
+    expect(manquesConditions(versEnvoiConditions({ ...COMPLET, loyer: { principal: 'abc', provisions: '1,234' } }))).toEqual({
+      'loyer-principal': 'Loyer principal : un montant en euros, au centime (ex. 1 180,50).',
+      'loyer-provisions': 'Provision pour charges : un montant en euros, au centime (ex. 90).' });
+    const v = verifierConditions(versEnvoiConditions(COMPLET));
+    if (!v.ok) throw new Error(v.motif);
+    expect(lignesConditions(v.valeurs, null, { principal: 98000, provisions: 9050 }).filter((l) => ['Loyer principal', 'Provision pour charges', 'Total loyer charges comprises / mois'].includes(l.mot))
+      .map((l) => `${l.mot} : ${l.valeur}`.replace(/\s/g, ' '))).toEqual(['Loyer principal : 980,00 €', 'Provision pour charges : 90,50 €', 'Total loyer charges comprises / mois : 1 070,50 €']);
+    expect(versSaisieConditions(v.valeurs, { principal: 98000, provisions: 9050 }).loyer).toEqual({ principal: '980', provisions: '90,50' });
   });
 });
