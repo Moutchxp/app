@@ -25,6 +25,8 @@ import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type P
 import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
 import { CSS_FETE } from './FeteOui';
 import { QuestionEnGestion } from './QuestionEnGestion';
+import { LignesMandat } from './LignesMandat';
+import type { Mandat, SorteMandat } from '../../../../lib/location/mandatBien';
 import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 
 /**
@@ -117,6 +119,11 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   const [motif, setMotif] = useState<string | null>(null);
   /** Le bien est enregistré, mais le mail « nouveau mandat » n'est pas parti (Arno, 18/10/2026). */
   const [mailEchec, setMailEchec] = useState<{ phrase: string; cible: string } | null>(null);
+  /* Arno (21/10/2026, 397) — LE MANDAT selon « Bien en gestion ? » : les deux lignes gardées en mémoire, pré-remplies depuis la
+     fiche des propriétaires choisis (tant qu'on n'y a pas touché) ; seul le mandat du choix final part avec le bien. */
+  const [mandats, setMandats] = useState<Record<SorteMandat, Mandat>>({ gestion: { numero: null, signeLe: null }, transaction: { numero: null, signeLe: null } });
+  const mandatTouche = useRef<Record<SorteMandat, boolean>>({ gestion: false, transaction: false });
+  const [notesMandat, setNotesMandat] = useState<Partial<Record<SorteMandat, string | null>>>({});
   const [envoi, setEnvoi] = useState(false);
   /** Les CONTACTS DU PROPRIÉTAIRE saisis à l'écran précédent : enregistrés avec le bien (ils se rangent sur lui). */
   const [contacts, setContacts] = useState<ChampsSaisis[]>([]);
@@ -188,6 +195,27 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     }, 500);
     return () => { vivant = false; clearTimeout(t); };
   }, [b.adresse, b.codePostal, b.commune]);
+  const idsProprietaires = proprietaires.map((p) => p.id).join(',');
+  useEffect(() => {
+    if (idsProprietaires === '' || continuite !== undefined) return;
+    let vivant = true;
+    void fetch(`${API}?mandatsProprietaires=${idsProprietaires}`, { cache: 'no-store' })
+      .then((r) => r.json() as Promise<{ etat?: string; data?: { nom: string; gestion: Mandat; transaction: Mandat }[] }>)
+      .then((d) => {
+        if (!vivant || d.etat !== 'ok' || !Array.isArray(d.data)) return;
+        const notes: Partial<Record<SorteMandat, string | null>> = {};
+        const suivants: Partial<Record<SorteMandat, Mandat>> = {};
+        for (const sorte of ['gestion', 'transaction'] as const) {
+          const connu = d.data.find((p) => p[sorte].numero !== null || p[sorte].signeLe !== null);
+          if (connu === undefined || mandatTouche.current[sorte]) continue;
+          suivants[sorte] = connu[sorte];
+          notes[sorte] = `Pré-rempli avec le ${sorte === 'gestion' ? 'mandat de gestion' : 'mandat de transaction locative'} existant de ${connu.nom} — modifiable.`;
+        }
+        setMandats((m) => ({ ...m, ...suivants }));
+        setNotesMandat(notes);
+      }).catch(() => {});
+    return () => { vivant = false; };
+  }, [idsProprietaires, continuite]);
   const recherche = useLecture<ResultatPortefeuille[]>(terme.length >= 2 ? `proprietairesRecherche=${encodeURIComponent(terme)}` : null);
 
   const champ = (k: Champ, mot: React.ReactNode, props: React.InputHTMLAttributes<HTMLInputElement> = {}, aide?: string) => (
@@ -250,6 +278,12 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     }
     const r = await envoyer({
       action: 'creer-bien', proprietaireIds, contactsExistants: contactsExistants.map((c) => c.id), enGestion,
+      // Seul le mandat du choix FINAL (Oui → gestion, Non → transaction locative) ; rien s'il n'est pas saisi.
+      ...(continuite === undefined && enGestionSaisi !== null ? (() => {
+        const sorte: SorteMandat = enGestionSaisi ? 'gestion' : 'transaction';
+        const m = mandats[sorte];
+        return (m.numero ?? '').trim() !== '' || m.signeLe !== null ? { mandat: { sorte, numero: (m.numero ?? '').trim(), signeLe: m.signeLe ?? '' } } : {};
+      })() : {}),
       logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
         assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)) },
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
@@ -271,7 +305,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     const id = (r.data as { logementId?: number } | undefined)?.logementId;
     const cible = id !== undefined ? `/admin/location/bien/${id}` : '/admin/location/proprietaires';
     // Arno (18/10/2026) : le mail « nouveau mandat » n'est jamais bloquant — mais s'il n'est pas parti, on le DIT avant de partir.
-    const echec = phraseMail(r.mail);
+    const echec = [phraseMail(r.mail), (r.data as { mandatRefus?: string | null } | undefined)?.mandatRefus ?? null].filter((x) => x !== null).join(' ') || null;
     if (echec !== null) { setMailEchec({ phrase: echec, cible }); return; }
     window.location.href = cible;
   };
@@ -591,7 +625,9 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
       {continuite === undefined && (
         <QuestionEnGestion id="loc-b8" numero={n('gestion')} titre="Bien en gestion ?" sorte="bien" obligatoire valeur={enGestionSaisi}
-          onChoix={setEnGestion}>{manqueDe('enGestion')}</QuestionEnGestion>
+          onChoix={setEnGestion}>{manqueDe('enGestion')}
+          <LignesMandat enGestion={enGestionSaisi} mandats={mandats} notes={notesMandat}
+            onChange={(sorte, m) => { mandatTouche.current[sorte] = true; setMandats((x) => ({ ...x, [sorte]: m })); }} /></QuestionEnGestion>
       )}
 
       {mailEchec !== null && (

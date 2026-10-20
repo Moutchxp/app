@@ -36,7 +36,7 @@
  *   npm run gestion:drive:copier-pieces -- --limite=20 --appliquer
  *
  * 🔴 LA COMMANDE DE LA NUIT — EN AJOUT (`>>`), JAMAIS EN ÉCRASEMENT (`>`) :
- *   nohup caffeinate -i npm run gestion:drive:copier-pieces -- --appliquer >> ~/Desktop/copie-pieces.log 2>&1 &
+ *   mkdir -p .captures/copier-pieces-drive && nohup caffeinate -i npm run gestion:drive:copier-pieces -- --appliquer >> .captures/copier-pieces-drive/copie-pieces.log 2>&1 &
  *
  * MESURÉ LE 26/09/2026, ET C'EST POURQUOI LE DOUBLE CHEVRON EST ÉCRIT ICI EN TOUTES LETTRES : la relance du soir
  * était écrite avec un seul `>`. Elle a donc effacé le journal de la passe précédente — celle qui venait de

@@ -257,8 +257,9 @@ describe('🔴 les commandes ne connaissent aucun dossier préexistant', () => {
   it('le rapport de tri n’écrit RIEN : ni Drive, ni base, ni MinIO', () => {
     expect(rapport).not.toMatch(/method:\s*'(POST|PATCH|PUT|DELETE)'/);
     expect(rapport).not.toMatch(/\b(INSERT|UPDATE|DELETE)\s+(INTO|FROM)?\s*gestion_/i);
-    // Il n'écrit que sur le Bureau, hors du dépôt.
-    expect(rapport).toContain("join(homedir(), 'Desktop', 'rapport-tri-pieces')");
+    // Il n'écrit que dans `.captures/` (hors git) — jamais sur le Bureau (Arno, 21/10/2026).
+    expect(rapport).toContain("export const SORTIE_DEFAUT = dossierRapports('rapport-tri-pieces');");
+    expect(rapport).not.toContain("'Desktop'");
   });
 
   it('la commande d’empreinte est en LECTURE seule', () => {

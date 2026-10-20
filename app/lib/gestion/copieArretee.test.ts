@@ -112,8 +112,10 @@ describe('ce que le bandeau dit — et surtout quand il se TAIT', () => {
 
   it('🔴 la commande de reprise écrit en AJOUT, jamais en écrasement', () => {
     // C'est l'écrasement qui a coûté les onze motifs de la passe n° 4.
-    expect(COMMANDE_REPRISE).toContain('>> ~/Desktop/copie-pieces.log');
-    expect(COMMANDE_REPRISE).not.toMatch(/[^>]> ~\/Desktop/);
+    expect(COMMANDE_REPRISE).toContain('>> .captures/copier-pieces-drive/copie-pieces.log');
+    expect(COMMANDE_REPRISE).not.toMatch(/[^>]> \.captures/);
+    // Arno (21/10/2026) : jamais sur le Bureau.
+    expect(COMMANDE_REPRISE).not.toContain('Desktop');
   });
 });
 

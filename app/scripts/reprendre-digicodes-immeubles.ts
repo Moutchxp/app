@@ -7,17 +7,17 @@
  * et l'ancien code de chaque bien reste lisible. Rien n'est supprimé : les colonnes des biens restent telles quelles.
  *
  *   DATABASE_URL=postgresql://localhost:5432/svav_recette npx tsx app/scripts/reprendre-digicodes-immeubles.ts [--reel] [--rapport=chemin]
- * Rapport : ~/Desktop/rapport-reprise-digicodes.txt par défaut (ou `--rapport=`).
+ * Rapport : .captures/reprendre-digicodes-immeubles/rapport-<date>.txt par défaut ; `--rapport=` fichier ou dossier.
  */
 import { writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { closePool } from '../lib/db/client';
 import { executerRepriseDigicodes, texteRapportReprise } from '../lib/location/digicodeImmeubleRepo';
+import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
 
 const REEL = process.argv.includes('--reel');
-const RAPPORT = process.argv.find((a) => a.startsWith('--rapport='))?.slice('--rapport='.length)
-  ?? join(homedir(), 'Desktop', `rapport-reprise-digicodes${REEL ? '-reel' : ''}.txt`);
+// Arno (21/10/2026) : jamais sur le Bureau — `.captures/reprendre-digicodes-immeubles/rapport-<date>.txt` ; `--rapport=` peut
+// désigner un fichier ou un DOSSIER (le fichier est alors créé dedans).
+const RAPPORT = cheminRapport({ nomScript: 'reprendre-digicodes-immeubles', demande: optionLigne(process.argv, 'rapport'), prefixe: REEL ? 'rapport-reel' : 'rapport' });
 
 async function main(): Promise<void> {
   const base = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '(inconnue)';

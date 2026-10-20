@@ -18,10 +18,9 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { query } from '../lib/db/client';
 import { normaliser } from '../lib/gestion/propositionsBien';
+import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    LES DONNÉES BRUTES
@@ -723,8 +722,9 @@ async function main(): Promise<void> {
   W('Voir `audit-monga-references.csv`.');
   W();
 
-  const bureau = join(homedir(), 'Desktop');
-  writeFileSync(join(bureau, 'audit-monga.md'), `${L.join('\n')}\n`, 'utf8');
+  // Arno (21/10/2026) : jamais sur le Bureau — `.captures/audit-monga/` (ou le dossier `--rapport=`).
+  const fichierMd = cheminRapport({ nomScript: 'audit-monga', demande: optionLigne(process.argv, 'rapport'), prefixe: 'audit-monga', extension: 'md' });
+  writeFileSync(fichierMd, `${L.join('\n')}\n`, 'utf8');
 
   /* ── Le CSV ──────────────────────────────────────────────────────────────────────────────────────────────── */
   const C: string[] = [];
@@ -748,7 +748,7 @@ async function main(): Promise<void> {
       csvChamp(i.mails[0]?.filId ?? null), csvChamp(i.mails[0]?.id ?? null),
     ].join(';'));
   }
-  writeFileSync(join(bureau, 'audit-monga-references.csv'), `${C.join('\n')}\n`, 'utf8');
+  writeFileSync(fichierMd.replace(/\.md$/, '-references.csv'), `${C.join('\n')}\n`, 'utf8');
 
   /* ── Le verdict, au terminal ─────────────────────────────────────────────────────────────────────────────── */
   console.log(`\nAUDIT MONGA — ${n} mails, ${interventions.length} références, ${lots.length} lots actifs.`);
@@ -756,7 +756,7 @@ async function main(): Promise<void> {
   console.log(`  mails sans référence : ${sansRef.length} · plusieurs références : ${mailsPlusieursRefs}`);
   console.log(`  déjà sur un événement : ${avecEvenement.length} · événements en base : `
     + `${(await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_evenement')).rows[0].n}`);
-  console.log(`\nÉcrits : ~/Desktop/audit-monga.md et ~/Desktop/audit-monga-references.csv\n`);
+  console.log(`\nÉcrits : ${fichierMd} et ${fichierMd.replace(/\.md$/, '-references.csv')}\n`);
   process.exit(0);
 }
 

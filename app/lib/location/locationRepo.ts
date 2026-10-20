@@ -1,4 +1,5 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { dateMandatDisponible, mandatsDesProprietaires } from './mandatBienRepo';
 import { contactsRattachesDuLocataire } from './rattachementsRepo';
 import type { ContactRattache } from './rattachements';
 import { preavisOuverts } from './preavisRepo';
@@ -225,6 +226,9 @@ export interface FicheProprietaireLocation {
   numeroMandatTransaction?: string | null;
   /** « Propriétaire(s) en gestion ? » (migration 375) : `null` = question jamais posée (ou migration absente). */
   enGestion: boolean | null;
+  /** Arno (21/10/2026, 397) — les dates de signature des mandats (`undefined` sans la migration). */
+  mandatGestionSigneLe?: string | null;
+  mandatTransactionSigneLe?: string | null;
   /** Ses biens EN ARBRE (logement puis annexes), lus avec les caractéristiques de la Location. */
   biens: BienLocation[];
   location372: boolean;
@@ -246,7 +250,10 @@ export async function ficheProprietaireLocation(id: number): Promise<Issue<Fiche
   const transaction = (await colonneExisteMemo('gestion_annuaire_proprietaire', 'numero_mandat_transaction'))
     ? (await query<{ m: string | null }>('SELECT numero_mandat_transaction AS m FROM gestion_annuaire_proprietaire WHERE id = $1', [id])).rows[0]?.m ?? null
     : undefined;
-  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, numeroMandatTransaction: transaction, enGestion, biens, location372: avec372 } };
+  const dates = (await mandatsDesProprietaires([id]))[0];
+  const avecDates = await dateMandatDisponible();
+  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, numeroMandatTransaction: transaction, enGestion, biens, location372: avec372,
+    ...(avecDates ? { mandatGestionSigneLe: dates?.gestion.signeLe ?? null, mandatTransactionSigneLe: dates?.transaction.signeLe ?? null } : {}) } };
 }
 
 export interface LocationDuLocataire {

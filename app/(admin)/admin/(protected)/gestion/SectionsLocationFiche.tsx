@@ -247,6 +247,8 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
   const resume = lu.etat === 'ok'
     ? [lu.data.enGestion === null ? null : `en gestion : ${lu.data.enGestion ? 'oui' : 'non'}`, lu.data.numeroMandat === null ? null : `mandat ${lu.data.numeroMandat}`,
       lu.data.numeroMandatTransaction ? `mandat de transaction ${lu.data.numeroMandatTransaction}` : null,
+      lu.data.mandatGestionSigneLe ? `mandat de gestion signé le ${lu.data.mandatGestionSigneLe.split('-').reverse().join('/')}` : null,
+      lu.data.mandatTransactionSigneLe ? `mandat de transaction signé le ${lu.data.mandatTransactionSigneLe.split('-').reverse().join('/')}` : null,
       lu.data.sortie === null ? null : `archivé${lu.data.sortie.origine ? ` — ${lu.data.sortie.origine}` : ''}`].filter((x) => x).join(' · ')
     : '';
   return (
@@ -254,9 +256,9 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
       <Lecture lu={lu}>{(d) => (
         <>
           <EnGestion proprietaireId={proprietaireId} valeur={d.enGestion} apres={relire} />
-          {d.location372 && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandat} apres={relire} />}
+          {d.location372 && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandat} apres={relire} signeLe={d.mandatGestionSigneLe} />}
           {d.location372 && d.numeroMandatTransaction !== undefined
-            && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandatTransaction} apres={relire} sorte="transaction" />}
+            && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandatTransaction} apres={relire} sorte="transaction" signeLe={d.mandatTransactionSigneLe} />}
           <BlocSortie sujet="proprietaire" id={proprietaireId} sortie={d.sortie ?? null} apres={relire}
             explication="Le propriétaire sort avec ses biens encore dans le portefeuille (et leurs annexes) ; un bien qu’un autre propriétaire actif détient aussi reste." />
           <p className="loc-muet" style={{ margin: 0 }}>
@@ -288,13 +290,16 @@ function EnGestion({ proprietaireId, valeur, apres }: { proprietaireId: number; 
   );
 }
 
-function Mandat({ proprietaireId, valeur, apres, sorte = 'gestion' }: { proprietaireId: number; valeur: string | null; apres: () => void; sorte?: 'gestion' | 'transaction' }) {
+function Mandat({ proprietaireId, valeur, apres, sorte = 'gestion', signeLe }: { proprietaireId: number; valeur: string | null; apres: () => void; sorte?: 'gestion' | 'transaction';
+  /** Arno (21/10/2026, 397) — la date de signature, saisie à « Nouveau bien » (affichée). */
+  signeLe?: string | null }) {
   const [texte, setTexte] = useState(valeur ?? '');
   const [motif, setMotif] = useState<string | null>(null);
   const [fait, setFait] = useState(false);
   return (
     <section className="loc-bloc" data-mandat={sorte}>
       <h3>{sorte === 'transaction' ? 'N° de mandat de transaction locative' : 'N° de mandat de gestion'}</h3>
+      {signeLe ? <p className="loc-muet" style={{ margin: 0 }} data-mandat-signe={sorte}>Signé le {signeLe.split('-').reverse().join('/')}</p> : null}
       <form className="loc-actions" style={{ alignItems: 'flex-end' }} onSubmit={(e) => {
         e.preventDefault();
         void envoyer({ action: 'numero-mandat', id: proprietaireId, numeroMandat: texte, sorte }).then((m) => {

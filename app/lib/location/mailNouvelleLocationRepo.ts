@@ -13,6 +13,8 @@ import { loyerDesOccupations } from './loyerEntreeRepo';
 import { dossierDuBail } from './brancheBailDriveRepo';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { lireDigicodeDuLot } from './digicodeImmeubleRepo';
+import { mandatsDesProprietaires } from './mandatBienRepo';
+import { libelleMandat, sorteDuBien } from './mandatBien';
 import { lireGarantsDuBail } from '../gestion/partieCategorieRepo';
 import { libelleEntretien } from './entretien';
 import { LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, type TypeLocal, type TypeLogement, type TypeParking } from './bienComplet';
@@ -217,6 +219,13 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
       return { nom: nomAffiche(proprietaires[i]), dejaEnGestion: (h?.autres ?? 0) > 0 || ancienBail, depuis: dates[0] ?? null };
     }),
     biensEnGestion: total[0]?.n ?? 0, mandats: pr.map((p) => p.mandat ?? ''),
+    // Arno (21/10/2026, 397) : le mandat DU BIEN — gestion ou transaction locative selon « Bien en gestion ? », n° et date.
+    mandatLibelles: await (async () => {
+      const g = (await colonneExisteMemo('gestion_annuaire_lot', 'en_gestion'))
+        ? (await query<{ g: boolean }>('SELECT en_gestion AS g FROM gestion_annuaire_lot WHERE id = $1', [Number(principalId)])).rows[0]?.g ?? true : true;
+      const sorte = sorteDuBien(g) ?? 'gestion';
+      return (await mandatsDesProprietaires(pr.map((p) => Number(p.id)))).map((p) => libelleMandat(sorte, p[sorte])).filter((x): x is string => x !== null);
+    })(),
   });
 
   // ── Les locataires du bail (dans l'ordre de saisie) et leurs garants — AUCUN autre contact.

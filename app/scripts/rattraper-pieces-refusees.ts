@@ -63,21 +63,21 @@ import {
   MOTIF_PROGRAMME, MOTIF_SIGNATURE,
 } from '../lib/gestion/pieceSecurite';
 import { writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
 
 const P = '[pieces:rattraper-refusees]';
 
 /**
  * ══ 🔴🔴 LE JOURNAL, DEMANDÉ PAR ARNO — « avec un journal (récupérées, refusées, échecs, et pourquoi) » ══════════
  *
- * Tout ce que la commande dit à l'écran est AUSSI écrit dans un fichier du Bureau. Deux sorties, une seule source :
+ * Tout ce que la commande dit à l'écran est AUSSI écrit dans un fichier (`.captures/rattraper-pieces-refusees/`, jamais le Bureau). Deux sorties, une seule source :
  * un journal reconstitué à la fin aurait fini par ne plus dire ce que l'écran avait dit.
  */
 const JOURNAL: string[] = [];
 const dire = (ligne: string): void => { console.log(ligne); JOURNAL.push(ligne); };
 function ecrireJournal(nom: string): void {
-  const dest = join(homedir(), 'Desktop', nom);
+  // Arno (21/10/2026) : jamais sur le Bureau — `.captures/rattraper-pieces-refusees/` ; `--rapport=` (fichier ou dossier) au besoin.
+  const dest = cheminRapport({ nomScript: 'rattraper-pieces-refusees', demande: optionLigne(process.argv, 'rapport'), prefixe: nom.replace(/\.txt$/, '') });
   writeFileSync(dest, `${JOURNAL.join('\n')}\n`, 'utf8');
   console.log(`${P} journal → ${dest}`);
 }

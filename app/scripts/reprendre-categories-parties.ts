@@ -11,7 +11,7 @@
  *   npx tsx --env-file=.env app/scripts/reprendre-categories-parties.ts              # simule
  *   npx tsx --env-file=.env app/scripts/reprendre-categories-parties.ts --appliquer
  *
- * Journal : ~/Desktop/journal-reprise-categories.txt  (et  …-applique.txt  en écriture)
+ * Journal : .captures/reprendre-categories-parties/journal-reprise-categories-<date>.txt  (et  …-applique-<date>.txt  en écriture)
  *
  * ═══ 🔴 CE QUE LA RÈGLE À TROIS ÉTAGES DONNE, ET CE QUE CE SCRIPT DOIT RETROUVER ═══════════════════════════════════
  *
@@ -44,12 +44,12 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { query } from '../lib/db/client';
 import { contactCarteDisponible, partieCategorieDisponible } from '../lib/gestion/schema';
 import { categorieParDefaut, coteDeLaCategorie, LIBELLE_CARTE_AUTO } from '../lib/gestion/partieCategorie';
 import type { Categorie, Cote } from '../lib/gestion/partieCategorie';
+import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
 
 const APPLIQUER = process.argv.includes('--appliquer');
 /** Au plus tant d'exemples par section : un rapport de mille lignes ne se lit pas. */
@@ -218,8 +218,10 @@ function ecart(nom: string, mesure: number, attendu: number): void {
  * historique. Dix instantanés empilés ne se lisent pas, et seul le dernier dit la vérité du moment.
  */
 function journal(): void {
-  const chemin = join(homedir(), 'Desktop',
-    APPLIQUER ? 'journal-reprise-categories-applique.txt' : 'journal-reprise-categories.txt');
+  // Arno (21/10/2026) : jamais sur le Bureau — `.captures/reprendre-categories-parties/`, un fichier daté par passe (une passe
+  // appliquée n'efface donc jamais le compte rendu d'une autre) ; `--rapport=` (fichier ou dossier) au besoin.
+  const chemin = cheminRapport({ nomScript: 'reprendre-categories-parties', demande: optionLigne(process.argv, 'rapport'),
+    prefixe: APPLIQUER ? 'journal-reprise-categories-applique' : 'journal-reprise-categories' });
   try {
     mkdirSync(dirname(chemin), { recursive: true });
     const texte = `${lignes.join('\n')}\n`;

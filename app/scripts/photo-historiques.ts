@@ -37,8 +37,6 @@
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { query } from '../lib/db/client';
 import { ficheRattachementDuFil } from '../lib/gestion/ficheRattachementRepo';
 import { liensDuFil } from '../lib/gestion/rattachementRepo';
@@ -46,6 +44,7 @@ import { biensDuMail } from '../lib/gestion/ficheRattachement';
 import { enteteHistorique, etendreCible, pageHistorique } from '../lib/gestion/historiqueRepo';
 import { FILTRES_VIDES } from '../lib/gestion/historique';
 import { cibleLot, cibleProprietaire } from '../lib/gestion/rattachement';
+import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
 
 const VERBES = ['INSERT ', 'UPDATE ', 'DELETE ', 'TRUNCATE', 'ALTER ', 'CREATE ', 'DROP ', 'COMMIT'];
 
@@ -98,7 +97,8 @@ async function main(): Promise<void> {
     console.error('Usage : photo-historiques.ts <avant|apres|…>');
     process.exit(1);
   }
-  const chemin = join(homedir(), 'Desktop', `photo-historiques-${nom}.txt`);
+  // Arno (21/10/2026) : jamais sur le Bureau — `.captures/photo-historiques/` (ou `--rapport=`, fichier ou dossier).
+  const chemin = cheminRapport({ nomScript: 'photo-historiques', demande: optionLigne(process.argv, 'rapport'), prefixe: `photo-historiques-${nom}` });
   const debut = Date.now();
   const sorties: string[] = [];
   const temps: Record<string, number> = {};

@@ -78,7 +78,10 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
   it('le MÊME bloc que « Propriétaire(s) en gestion ? » : même composant, mêmes classes, même structure', async () => {
     await act(async () => { root.render(createElement(CreationProprietaires)); });
     const proprietaires = container.querySelector('[data-question-gestion="proprietaires"]') as HTMLElement;
-    const rendu = (s: Element) => s.outerHTML.replace(/ (id|aria-labelledby|aria-label|data-question-gestion)="[^"]*"/g, '')
+    // Arno (21/10/2026, 397) : sous les boutons du BIEN, les lignes du mandat (gestion / transaction) — un ajout de ce bloc seul,
+    // éprouvé à part (`MandatBienEnGestion.test.tsx`) ; la QUESTION reste le même composant.
+    const sansMandat = (s: Element): Element => { const c = s.cloneNode(true) as Element; c.querySelector('.lmd-bloc')?.remove(); return c; };
+    const rendu = (s0: Element) => sansMandat(s0).outerHTML.replace(/ (id|aria-labelledby|aria-label|data-question-gestion)="[^"]*"/g, '')
       .replace(/Propriétaire\(s\) en gestion \?|Bien en gestion \?/g, 'TITRE').replace(/<span class="loc-num">\d<\/span>/, '')
       .replace(/ <span class="loc-oblig">\*<\/span>/, '');
     const avant = rendu(proprietaires);

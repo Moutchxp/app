@@ -132,12 +132,16 @@ export interface HistoriqueProprietaire { nom: string; dejaEnGestion: boolean; d
  *     (« · nouveau copropriétaire : … »).
  * Singulier ou pluriel selon le NOMBRE de propriétaires actifs. PUR.
  */
-export function statutProprietaires(o: { proprietaires: readonly HistoriqueProprietaire[]; biensEnGestion: number; mandats: readonly string[] }): StatutProprietaires {
+export function statutProprietaires(o: { proprietaires: readonly HistoriqueProprietaire[]; biensEnGestion: number; mandats: readonly string[];
+  /** Arno (21/10/2026, 397) — les lignes du mandat DU BIEN (« Mandat de gestion n° …, signé le … »), quand on les connaît. */
+  mandatLibelles?: readonly string[] }): StatutProprietaires {
   const n = o.proprietaires.length;
   const pluriel = n > 1;
   const deja = o.proprietaires.some((p) => p.dejaEnGestion);
   const mandats = [...new Set(o.mandats.filter(present).map((m) => m.trim()))];
-  const mandat = mandats.length === 0 ? null : `Mandat de gestion n° ${mandats.join(' · n° ')}`;
+  const libelles = [...new Set((o.mandatLibelles ?? []).filter(present))];
+  const mandat = o.mandatLibelles !== undefined ? (libelles.length === 0 ? null : libelles.join(' · '))
+    : mandats.length === 0 ? null : `Mandat de gestion n° ${mandats.join(' · n° ')}`;
   const noms = (l: readonly HistoriqueProprietaire[]): string => {
     const t = l.map((p) => p.nom);
     return t.length <= 1 ? (t[0] ?? '') : `${t.slice(0, -1).join(', ')} et ${t[t.length - 1]}`;

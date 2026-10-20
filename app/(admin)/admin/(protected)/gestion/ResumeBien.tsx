@@ -166,6 +166,13 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
               <dd data-rb="syndic">{co?.syndic == null ? rien() : <a className="rb-lien" href={`/admin/location/syndic/${co.syndic.id}`}>{co.syndic.nom}</a>}</dd>
               {(lr.avecComplements || co?.agApplicable === true) && <><dt>Dernière AG</dt><dd data-rb="derniere-ag">{co?.derniereAg ? formaterDateIso(co.derniereAg) : rien('non renseignée')}</dd></>}
             </Groupe>
+            {/* Arno (21/10/2026, 397) — le mandat (gestion ou transaction locative, selon « Bien en gestion ? ») : seulement s'il est connu. */}
+            {r.mandat ? (
+              <Groupe titre="Mandat" cle="mandat" vide={false}>
+                <dt>{r.mandat.sorte === 'gestion' ? 'Mandat de gestion' : 'Mandat de transaction locative'}</dt>
+                <dd data-rb="mandat" className="rb-liste">{r.mandat.lignes.map((l) => <span key={l}>{l.replace(/^Mandat de (gestion|transaction locative) ?/, '').replace(/^, /, '') || l}</span>)}</dd>
+              </Groupe>
+            ) : null}
             {!parking && (
               <Groupe titre="DPE et entretiens" cle="dpe" vide={dpeVide}>
                 <dt>DPE</dt>

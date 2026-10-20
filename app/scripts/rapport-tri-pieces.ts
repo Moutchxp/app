@@ -11,22 +11,23 @@
  *
  * Usage :
  *   npm run gestion:tri:rapport
- *   npm run gestion:tri:rapport -- --sortie=/Users/…/Desktop/rapport-tri-pieces
+ *   npm run gestion:tri:rapport -- --sortie=<dossier>   (par défaut : .captures/rapport-tri-pieces/)
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
 import { estPointEntree } from '../lib/scripts/pointEntree';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { homedir } from 'node:os';
 import { annuaireDisponible } from '../lib/gestion/schema';
 import { cheminDestination, trierPieces, type Decision } from '../lib/gestion/triPieces';
 import {
   ADRESSE_AGENCE_DEFAUT, chargerContexteTri, type PieceAvecTaille,
 } from '../lib/gestion/triPiecesRepo';
+import { dossierRapports } from '../lib/ops/rapportScript';
 
 const P = '[gestion:tri:rapport]';
-export const SORTIE_DEFAUT = join(homedir(), 'Desktop', 'rapport-tri-pieces');
+// Arno (21/10/2026) : jamais sur le Bureau — le dossier du script sous `.captures/` du projet (`--sortie=` au besoin).
+export const SORTIE_DEFAUT = dossierRapports('rapport-tri-pieces');
 
 /** Débit de copie supposé pour l'estimation du lot 2. SUPPOSÉ, pas mesuré — le rapport le dit. */
 export const DEBIT_SUPPOSE_MO_S = 2.5;

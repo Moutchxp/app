@@ -84,6 +84,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 394 : la branche « BAIL » du Drive rattachée au bail (bail_id sur gestion_drive_noeud) (Location, 20/10/2026).
   // 395 : le mail « Nouvelle location » (destinataires, journal des envois) et les versions des barèmes (Location, 21/10/2026).
   // 396 : le digicode porté par l'immeuble (adresse normalisée), son journal (Location / Gestion, 21/10/2026).
+  // 397 : la date de signature des mandats de gestion et de transaction (fiche propriétaire) (Location, 21/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -94,7 +95,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '385_location_edls.sql', '386_location_regroupement.sql', '387_gestion_rapprochement_dossiers.sql',
     '388_gestion_dossier_attitre_bien.sql', '389_gestion_drive_noeud.sql', '390_location_bien_en_gestion.sql',
     '391_location_conditions_entree.sql', '392_location_honoraires_proprietaire.sql', '393_location_bail_rattachements.sql',
-    '394_location_bail_drive.sql', '395_location_mail_nouvelle_location.sql', '396_gestion_immeuble_digicode.sql'];
+    '394_location_bail_drive.sql', '395_location_mail_nouvelle_location.sql', '396_gestion_immeuble_digicode.sql', '397_location_mandat_date_signature.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -107,7 +108,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 396 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 397 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -117,14 +118,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (397)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (398)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(396\)/);
-    const renumerotee = planifier([...existants, { fichier: '397_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(397\)/);
+    const renumerotee = planifier([...existants, { fichier: '398_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['397_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['398_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -719,5 +720,19 @@ describe('396 (le digicode porté par l’immeuble) : une seule migration, non a
     expect(contenu).not.toMatch(/^\s*(DELETE|TRUNCATE|UPDATE)\b/im);
     expect(contenu).not.toMatch(/DROP (COLUMN|TABLE)/i);
     expect(contenu).not.toMatch(/REFERENCES gestion_(syndic|copropriete)/);
+  });
+});
+
+describe('397 (la date de signature des mandats) : une seule migration, non appliquée', () => {
+  const contenu = lire(MIGRATIONS, '397_location_mandat_date_signature.sql');
+  const a = analyserMigration({ fichier: '397_location_mandat_date_signature.sql', contenu });
+  it('passe le garde, enveloppée ; aucune table neuve ; deux colonnes facultatives sur la fiche propriétaire ; rien de supprimé ni modifié', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect([...a.tablesCreees]).toEqual([]);
+    expect(contenu).toMatch(/ADD COLUMN IF NOT EXISTS mandat_gestion_signe_le date/);
+    expect(contenu).toMatch(/ADD COLUMN IF NOT EXISTS mandat_transaction_signe_le date/);
+    expect(contenu).not.toMatch(/^\s*(DELETE|TRUNCATE|UPDATE)\b/im);
+    expect(contenu).not.toMatch(/DROP /i);
   });
 });

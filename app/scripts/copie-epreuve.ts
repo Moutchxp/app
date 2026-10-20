@@ -121,7 +121,7 @@ async function principal(): Promise<void> {
     motifs.length > 0 && e.texte.includes(motifCourtCopie(motifs[0])), motifCourtCopie(motifs[0] ?? {
       pieceId: null, etape: '—', codeHttp: null, motif: '—', survenuLe: '',
     }));
-  verifier('elle donne la commande de reprise, en AJOUT', (e.aide ?? '').includes('>> ~/Desktop/copie-pieces.log'));
+  verifier('elle donne la commande de reprise, en AJOUT', (e.aide ?? '').includes('>> .captures/copier-pieces-drive/copie-pieces.log'));
 
   // ── ⑤ LE BANDEAU SE TAIT QUAND IL LE DOIT ──────────────────────────────────────────────────────────────────
   console.log('\n⑤ 🔴 et il se TAIT quand il le doit');

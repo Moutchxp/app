@@ -22,6 +22,8 @@ import { agDisponible, enregistrerAg, immeubleAgDuLot, lireAg } from './immeuble
 import { immeubleDeLAg, verifierDateAg } from './immeubleAg';
 import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens, entretienDisponible, lireEntretiens } from './entretienAnnexeRepo';
+import { verifierMandat, sorteDuBien } from './mandatBien';
+import { enregistrerMandatDans } from './mandatBienRepo';
 import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeDuLot } from './digicodeImmeubleRepo';
 
 /**
@@ -182,8 +184,11 @@ export async function creerBienComplet(s: SaisieBien & {
   contacts?: ContactSaisi[]; syndic?: SyndicDuBien | null;
   /** Arno, 18/10/2026 — les cartes « contact du propriétaire » EXISTANTES cochées dans « Qui rattacher à ce bien ? ». */
   contactsExistants?: number[];
+  /** Arno (21/10/2026, 397) — le mandat du choix FINAL de « Bien en gestion ? » (n°, date de signature), facultatif. */
+  mandat?: unknown;
 }, auteur: Auteur):
-  Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null }>> {
+  Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null;
+    mandatRefus?: string | null }>> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierBienComplet(s);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
@@ -201,6 +206,11 @@ export async function creerBienComplet(s: SaisieBien & {
   const contactsExistants = Array.isArray(s.contactsExistants) ? s.contactsExistants.map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 40) : [];
   const refusE = await refusContactsExistants(contactsExistants, v.proprietaireIds);
   if (refusE !== null) return { etat: 'refus', motif: refusE };
+  // Arno (21/10/2026, 397) — le MANDAT (facultatif), vérifié avant toute écriture ; sa sorte doit être celle du choix final.
+  const vm = verifierMandat(s.mandat);
+  if (!vm.ok) return { etat: 'refus', motif: vm.motif };
+  const mandat = vm.mandat !== null && vm.mandat.sorte === sorteDuBien(typeof s.enGestion === 'boolean' ? s.enGestion : true) ? vm.mandat : null;
+  let mandatRefus: string | null = null;
   // La DERNIÈRE AG (Arno, 18/10/2026) : vérifiée avant toute écriture, posée sur l'IMMEUBLE du bien (son adresse) une fois créé.
   const ag = verifierDateAg((s.logement ?? {}).derniereAg);
   if (!ag.ok) return { etat: 'refus', motif: ag.motif };
@@ -254,6 +264,8 @@ export async function creerBienComplet(s: SaisieBien & {
           { digicode: l.digicode, code: l.digicodeCode }, auteur, 'nouveau_bien', logementId);
         if (!d.ok) throw new Refus(d.motif);
       }
+      // Le mandat, sur la fiche de chaque propriétaire du bien (les champs existants), dans la même transaction que le bien.
+      if (mandat !== null) mandatRefus = await enregistrerMandatDans(q, v.proprietaireIds, mandat, logementId, auteur);
       const annexes: number[] = [];
       for (const a of v.annexes) {
         // « Même adresse » (par défaut) : l'annexe hérite de l'adresse du logement / local. « Autre adresse » : la sienne.
@@ -309,7 +321,7 @@ export async function creerBienComplet(s: SaisieBien & {
   const refus = [c.ok ? null : c.motif, existants.ok ? null : existants.motif].filter((x) => x !== null);
   return { etat: 'ok', data: {
     ...cree, contacts: (c.ok ? c.n : 0) + (existants.ok ? existants.n : 0),
-    contactsRefus: refus.length === 0 ? null : `Le bien est créé, mais : ${refus.join(' ')}`, syndicRefus, agRefus, entretienRefus,
+    contactsRefus: refus.length === 0 ? null : `Le bien est créé, mais : ${refus.join(' ')}`, syndicRefus, agRefus, entretienRefus, mandatRefus,
   } };
 }
 

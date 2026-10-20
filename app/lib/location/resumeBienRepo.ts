@@ -1,4 +1,6 @@
 import { query } from '../db/client';
+import { mandatsDesProprietaires } from './mandatBienRepo';
+import { libelleMandat, sorteDuBien, type SorteMandat } from './mandatBien';
 import { contactsRattachesDuBien } from './rattachementsRepo';
 import type { ContactRattache } from './rattachements';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
@@ -62,6 +64,11 @@ export interface ResumeBien {
   commentaire?: string | null;
   /** Les propriétaires du bien (le titulaire et les copropriétaires actifs) et leurs mandats. */
   proprietaires?: { id: number; nom: string; titulaire: boolean; mandatGestion: string | null; mandatTransaction: string | null }[];
+  /**
+   * Arno (21/10/2026, 397) — le MANDAT du bien : celui de ses propriétaires dont la sorte suit « Bien en gestion ? » (Oui →
+   * gestion, Non → transaction locative), n° et date de signature ; une ligne par mandat distinct. `null` : rien de connu.
+   */
+  mandat?: { sorte: SorteMandat; lignes: string[] } | null;
   gestion: {
     /** « Bien en gestion ? » (migration 390) ; `null` sans elle. */
     enGestionBien: boolean | null;
@@ -119,6 +126,9 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
 
   const contacts = await contactsRattachesDuBien(lotId);
   const proprietaires = await proprietairesDuBien(lotId);
+  const sorteMandat = sorteDuBien(enGestionBien ?? true);
+  const lignesMandat = sorteMandat === null ? [] : [...new Set((await mandatsDesProprietaires(proprietaires.map((p) => p.id)))
+    .map((p) => libelleMandat(sorteMandat, p[sorteMandat])).filter((x): x is string => x !== null))];
   const familleCle = famille;
   return {
     caracteristiques: {
@@ -157,6 +167,7 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
     },
     commentaire: c?.commentaire ?? null,
     proprietaires,
+    mandat: sorteMandat === null || lignesMandat.length === 0 ? null : { sorte: sorteMandat, lignes: lignesMandat },
     gestion: {
       enGestionBien, zone,
       bareme: b === null ? null : { depuis: b.depuis, tarifZone: b[champ], tarifEdl: b.etatDesLieux },

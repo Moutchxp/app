@@ -39,10 +39,9 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { readFileSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import { query } from '../lib/db/client';
 import { sqlJourParis } from '../lib/temps/paris';
+import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
 
 /**
  * 🔒 LE GARDE DE LECTURE SEULE. Il lit SON PROPRE SOURCE et refuse de démarrer si un verbe d'écriture SQL y
@@ -75,9 +74,9 @@ function GARDE_LECTURE_SEULE(): void {
   }
 }
 
-const BUREAU = join(homedir(), 'Desktop');
-const FICHIER_MD = join(BUREAU, 'compte-rendu-historique-biens.md');
-const FICHIER_CSV = join(BUREAU, 'compte-rendu-historique-biens-ecarts.csv');
+// Arno (21/10/2026) : jamais sur le Bureau — `.captures/audit-historique-biens/` (ou le dossier `--rapport=`).
+const FICHIER_MD = cheminRapport({ nomScript: 'audit-historique-biens', demande: optionLigne(process.argv, 'rapport'), prefixe: 'compte-rendu-historique-biens', extension: 'md' });
+const FICHIER_CSV = FICHIER_MD.replace(/\.md$/, '-ecarts.csv');
 
 /** Combien d'exemples cliquables on donne par catégorie. Un rapport de mille lignes ne se lit pas. */
 const EXEMPLES = 15;

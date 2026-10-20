@@ -67,7 +67,7 @@ export const MUET: EtatCopie = { niveau: 'muet', texte: '', aide: null };
 
 /** La commande qui reprend la copie là où elle s'est arrêtée. Écrite UNE fois, ici. */
 export const COMMANDE_REPRISE =
-  'nohup caffeinate -i npm run gestion:drive:copier-pieces -- --appliquer >> ~/Desktop/copie-pieces.log 2>&1 &';
+  'mkdir -p .captures/copier-pieces-drive && nohup caffeinate -i npm run gestion:drive:copier-pieces -- --appliquer >> .captures/copier-pieces-drive/copie-pieces.log 2>&1 &';
 
 /**
  * LA PASSE S'EST-ELLE ARRÊTÉE SUR DES ÉCHECS ? PUR.

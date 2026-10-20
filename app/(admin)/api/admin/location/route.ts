@@ -23,6 +23,7 @@ import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, ty
 import { cartesDeProprietaires, personnesARattacher } from '../../../../lib/location/rattachementProprietairesRepo';
 import { lireAgPourAdresse } from '../../../../lib/location/immeubleAgRepo';
 import { lireDigicodeAdresse } from '../../../../lib/location/digicodeImmeubleRepo';
+import { mandatsDesProprietaires } from '../../../../lib/location/mandatBienRepo';
 import { detacherAnnexe } from '../../../../lib/location/entretienAnnexeRepo';
 import { avecMail } from '../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../lib/location/archivage';
@@ -184,6 +185,11 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ etat: 'ok', data: await cartesDeProprietaires(ids) }, { headers: ENTETES });
     }
     // Arno (21/10/2026, 396) — le digicode de l'IMMEUBLE d'une adresse (« Nouveau bien ») : valeur, mention ; `null` sans la 396.
+    // Arno (21/10/2026, 397) — les mandats (n°, date de signature) des propriétaires choisis : le pré-remplissage de « Nouveau bien ».
+    if (p('mandatsProprietaires') !== null) {
+      const ids = (p('mandatsProprietaires') ?? '').split(',').map(identifiant).filter((x): x is number => x !== null).slice(0, 12);
+      return Response.json({ etat: 'ok', data: await mandatsDesProprietaires(ids) }, { headers: ENTETES });
+    }
     if (p('digicodePourAdresse') !== null) {
       const lu = await lireDigicodeAdresse({ voie: (p('digicodePourAdresse') ?? '').slice(0, 300), codePostal: (p('cp') ?? '').slice(0, 10) || null, commune: (p('commune') ?? '').slice(0, 120) || null });
       return Response.json({ etat: 'ok', data: lu }, { headers: ENTETES });
@@ -313,6 +319,8 @@ export async function POST(request: Request): Promise<Response> {
           contactsExistants: Array.isArray(corps.contactsExistants) ? (corps.contactsExistants as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 40) : [],
           // « Bien en gestion ? » (Arno, 20/10/2026) : envoyé par l'écran, Oui / Non exigé ; absent = « en gestion ».
           enGestion: corps.enGestion,
+          // Arno (21/10/2026, 397) — le mandat du choix final (gestion ou transaction locative), facultatif.
+          ...(corps.mandat !== undefined ? { mandat: corps.mandat } : {}),
         }, auteur);
         // Nouveau mandat de gestion : un mail SEULEMENT si un des propriétaires est « en gestion = Oui » (Arno, 18/10/2026).
         return repondre(await avecMail(r, r.etat !== 'ok' ? null : {

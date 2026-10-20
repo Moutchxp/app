@@ -11,12 +11,11 @@
  *
  * 🔴 LECTURE SEULE. Ce script n'écrit rien en base, jamais — pas même avec un drapeau.
  *
- *   npm run gestion:documents:adresses            → écrit ~/Desktop/adresses-inconnues-documents.csv
+ *   npm run gestion:documents:adresses            → écrit .captures/adresses-inconnues-documents/adresses-inconnues-documents-<date>.csv
+ *   (Arno, 21/10/2026 : plus jamais sur le Bureau ; `--vers` / `--rapport=` peut désigner un fichier ou un dossier)
  *   npm run gestion:documents:adresses -- --vers <chemin>
  */
 import { writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
 import {
   chargerAnnuaireFiches, documentsARanger, NOS_ADRESSES,
 } from '../lib/gestion/documentsAutoRepo';
@@ -25,6 +24,7 @@ import {
   type FicheDestinataire,
 } from '../lib/gestion/documentsAuto';
 import { closePool } from '../lib/db/client';
+import { cheminRapport, optionLigne } from '../lib/ops/rapportScript';
 
 /**
  * ══ LE RÔLE PROBABLE — UNE LECTURE, PAS UN VERDICT ═════════════════════════════════════════════════════════════
@@ -66,9 +66,10 @@ function role(l: Ligne): string {
 
 async function main(): Promise<void> {
   const i = process.argv.indexOf('--vers');
-  const sortie = i >= 0 && process.argv[i + 1] !== undefined
-    ? process.argv[i + 1]
-    : join(homedir(), 'Desktop', 'adresses-inconnues-documents.csv');
+  // Arno (21/10/2026) : jamais sur le Bureau — `.captures/adresses-inconnues-documents/` par défaut ; `--vers` (ou `--rapport=`)
+  // peut désigner un fichier ou un DOSSIER (le fichier est alors créé dedans).
+  const sortie = cheminRapport({ nomScript: 'adresses-inconnues-documents', prefixe: 'adresses-inconnues-documents', extension: 'csv',
+    demande: i >= 0 && process.argv[i + 1] !== undefined ? process.argv[i + 1] : optionLigne(process.argv, 'rapport') });
 
   const annuaire = await chargerAnnuaireFiches();
   const indexNoms = indexerNoms(annuaire);
