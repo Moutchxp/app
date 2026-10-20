@@ -16,8 +16,8 @@ function repondre(sql: string, params: unknown[]): { rows: unknown[]; rowCount: 
   appels.push({ sql: norme(sql), params });
   const s = norme(sql);
   if (s.includes('AS j')) return { rows: [{ j: '2026-10-19' }], rowCount: 1 };
-  if (s.startsWith('SELECT o.lot_id::text, o.entree::text FROM gestion_annuaire_occupation o WHERE o.id = $1')) {
-    return params[0] === 404 ? { rows: [], rowCount: 0 } : { rows: [{ lot_id: '7', entree: '2022-09-01' }], rowCount: 1 };
+  if (s.startsWith('SELECT o.lot_id::text, o.entree::text') && s.includes('FROM gestion_annuaire_occupation o WHERE o.id = $1')) {
+    return params[0] === 404 ? { rows: [], rowCount: 0 } : { rows: [{ lot_id: '7', entree: '2022-09-01', bail_id: null }], rowCount: 1 };
   }
   if (s.includes('FROM gestion_annuaire_lot lo LEFT JOIN gestion_annuaire_proprietaire pr')) {
     return { rows: [{ adresse: '4 rue Fictive, 92800 Puteaux', type_logement: null, nature: 'Appartement', etage: '3', porte: 'G', proprietaire: 'DUPONT Jean' }], rowCount: 1 };
@@ -52,7 +52,8 @@ vi.mock('../db/client', () => ({
   withTransaction: async (fn: (q: (sql: string, params?: unknown[]) => Promise<unknown>) => Promise<unknown>) =>
     fn((sql, params) => query(sql, params ?? [])),
 }));
-vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async () => true }));
+// Arno (20/10/2026) : ces essais éprouvent la règle d'AVANT la 393 (« lot + date ») ; le bail-fiche est éprouvé en base (bailRattachements.itest).
+vi.mock('./sondeLocation', () => ({ colonneExisteMemo: async (_t: string, c: string) => c !== 'bail_id' }));
 vi.mock('../gestion/coordonneeVivante', () => ({ conditionCoordonneeVivante: async () => '' }));
 vi.mock('../gestion/personneVivanteSql', () => ({ sqlPersonneVivante: async () => 'true' }));
 vi.mock('../gestion/config', () => ({ chargerConfigGestion: async () => ({ adresseGestion: 'gestion@criterimmo.fr' }) }));

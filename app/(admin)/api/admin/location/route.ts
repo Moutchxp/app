@@ -329,6 +329,8 @@ export async function POST(request: Request): Promise<Response> {
           ...(corps.conditions !== undefined && corps.conditions !== null ? { conditions: corps.conditions } : {}),
           // Arno (20/10/2026) — le loyer mensuel à l'entrée (loyer de départ, migration 370).
           ...(corps.loyer !== undefined && corps.loyer !== null ? { loyer: corps.loyer } : {}),
+          // Arno (20/10/2026, 393) — à qui se rattache chaque contact (« Garantit : », « Contact de : »).
+          ...(Array.isArray(corps.rattachements) ? { rattachements: (corps.rattachements as unknown[]).slice(0, 20) } : {}),
           ...(corps.entretien !== null && typeof corps.entretien === 'object'
             ? { entretien: { aPrevoir: (corps.entretien as Record<string, unknown>).aPrevoir, entretiens: (corps.entretien as Record<string, unknown>).entretiens } } : {}),
         }, auteur));

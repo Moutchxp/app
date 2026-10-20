@@ -8,6 +8,7 @@ import { messageIdDemande } from '../gestion/acceptationTache';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
+import { bailDisponible } from './bailRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { analyserTermePortefeuille } from './recherchePortefeuille';
 import {
@@ -132,8 +133,11 @@ type Lecteur = RequeteTx | typeof query;
  */
 async function lireBailAvec(q: Lecteur, occupationId: number, s: Awaited<ReturnType<typeof schema>>, verrou: boolean): Promise<BailLogement | null> {
   const pourMaj = verrou ? ' FOR UPDATE OF o' : '';
-  const { rows: base } = await (q as typeof query)<{ lot_id: string; entree: string | null }>(
-    `SELECT o.lot_id::text, o.entree::text FROM gestion_annuaire_occupation o WHERE o.id = $1 AND o.lot_id IS NOT NULL${pourMaj}`, [occupationId]);
+  // Arno (20/10/2026, 393) : le bail se lit par bail_id ; sans la 393, par « même lot + même date d'entrée ».
+  const avecBail = await bailDisponible();
+  const { rows: base } = await (q as typeof query)<{ lot_id: string; entree: string | null; bail_id: string | null }>(
+    `SELECT o.lot_id::text, o.entree::text, ${avecBail ? 'o.bail_id::text' : 'NULL::text'} AS bail_id
+       FROM gestion_annuaire_occupation o WHERE o.id = $1 AND o.lot_id IS NOT NULL${pourMaj}`, [occupationId]);
   if (base[0] === undefined) return null;
   const lotId = Number(base[0].lot_id);
   const { rows: lot } = await (q as typeof query)<{ adresse: string | null; type_logement: string | null; nature: string | null; etage: string | null;
@@ -144,16 +148,18 @@ async function lireBailAvec(q: Lecteur, occupationId: number, s: Awaited<ReturnT
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id WHERE lo.id = $1`, [lotId]);
   if (lot[0] === undefined) return null;
   // Toutes les occupations EN PLACE (sortie non enregistrée) du lot — verrouillées : personne ne les change pendant le geste.
-  const { rows: occ } = await (q as typeof query)<{ id: string; locataire_id: string; nom: string; entree: string | null }>(
-    `SELECT o.id::text, o.locataire_id::text, l.nom, o.entree::text
+  const { rows: occ } = await (q as typeof query)<{ id: string; locataire_id: string; nom: string; entree: string | null; bail_id: string | null }>(
+    `SELECT o.id::text, o.locataire_id::text, l.nom, o.entree::text, ${avecBail ? 'o.bail_id::text' : 'NULL::text'} AS bail_id
        FROM gestion_annuaire_occupation o JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
       WHERE o.lot_id = $1 AND o.sortie IS NULL ORDER BY l.nom_normalise, o.id${pourMaj}`, [lotId]);
   const entree = base[0].entree;
-  const duBail = occ.filter((o) => o.entree === entree);
+  const bailId = base[0].bail_id;
+  const duMemeBail = (o: { entree: string | null; bail_id: string | null }): boolean => (bailId !== null ? o.bail_id === bailId : o.entree === entree);
+  const duBail = occ.filter(duMemeBail);
   const locataires: LocataireDuBail[] = duBail.map((o) => ({
     occupationId: Number(o.id), locataireId: Number(o.locataire_id), nom: o.nom, entree: o.entree,
   }));
-  const autresOccupants = [...new Set(occ.filter((o) => o.entree !== entree).map((o) => o.nom))];
+  const autresOccupants = [...new Set(occ.filter((o) => !duMemeBail(o)).map((o) => o.nom))];
   let annexes: BailLogement['annexes'] = [];
   if (s.annexes && locataires.length > 0) {
     const { rows: an } = await (q as typeof query)<{ lot_id: string; libelle: string; occupation_id: string | null; locataire_id: string | null }>(
@@ -201,16 +207,19 @@ export async function bauxDuLocataire(locataireId: number): Promise<{ enPlace: {
        FROM gestion_annuaire_occupation o JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
       WHERE o.locataire_id = $1 AND o.sortie IS NULL ${sansAnnexe} ORDER BY o.entree DESC NULLS LAST, o.id`, [locataireId]);
   // Les sorties : ses occupations datées (logement), groupées avec les co-sortants du même bail à la même date et leurs annexes.
+  // Arno (20/10/2026, 393) : le bail est une fiche — « même bail » se lit par bail_id ; sans la 393, par « lot + date ».
+  const avecBail = await bailDisponible();
+  const memeBail = (x: string): string => (avecBail ? `${x}.bail_id = o.bail_id` : `(${x}.lot_id = o.lot_id AND ${x}.entree IS NOT DISTINCT FROM o.entree)`);
   const { rows: sorties } = await query<{ lot_id: string; adresse: string | null; sortie: string; entree: string | null; ids: string[]; noms: string[] }>(
     `SELECT o.lot_id::text, nullif(concat_ws(', ', lo.adresse, lo.commune), '') AS adresse, o.sortie::text, o.entree::text,
             array(SELECT x.id::text FROM gestion_annuaire_occupation x
-                   WHERE x.sortie = o.sortie AND ((x.lot_id = o.lot_id AND x.entree IS NOT DISTINCT FROM o.entree)
+                   WHERE x.sortie = o.sortie AND (${memeBail('x')}
                      ${s.annexes ? `OR (x.lot_id IN (SELECT a.annexe_id FROM gestion_lot_annexe a WHERE a.parent_id = o.lot_id)
                          AND x.locataire_id IN (SELECT y.locataire_id FROM gestion_annuaire_occupation y
                            WHERE y.lot_id = o.lot_id AND y.sortie = o.sortie AND y.entree IS NOT DISTINCT FROM o.entree))` : ''})
                    ORDER BY x.id) AS ids,
             array(SELECT l.nom FROM gestion_annuaire_occupation x JOIN gestion_annuaire_locataire l ON l.id = x.locataire_id
-                   WHERE x.lot_id = o.lot_id AND x.sortie = o.sortie AND x.entree IS NOT DISTINCT FROM o.entree ORDER BY l.nom_normalise) AS noms
+                   WHERE x.lot_id = o.lot_id AND x.sortie = o.sortie AND ${memeBail('x')} ORDER BY l.nom_normalise) AS noms
        FROM gestion_annuaire_occupation o JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
       WHERE o.locataire_id = $1 AND o.sortie IS NOT NULL ${sansAnnexe}
       ORDER BY o.sortie DESC, o.id DESC LIMIT 10`, [locataireId]);
@@ -491,7 +500,10 @@ export async function encartDuBail(occupationId: number): Promise<(EncartLogemen
   if (await colonneExisteMemo('gestion_location_conditions', 'loyer_hc')) {
     const { rows: co } = await query<{ loyer_hc: string | null; provisions: string | null; taux: string | null; base: string | null }>(
       `SELECT c.loyer_hc::text, c.provisions::text, c.taux_gestion_ht::text AS taux, c.base::text
-         FROM gestion_location_conditions c WHERE c.occupation_id = ANY($1::bigint[]) ORDER BY c.id DESC LIMIT 1`,
+         FROM gestion_location_conditions c
+        WHERE c.occupation_id = ANY($1::bigint[])${(await bailDisponible())
+          ? ' OR c.bail_id IN (SELECT o.bail_id FROM gestion_annuaire_occupation o WHERE o.id = ANY($1::bigint[]))' : ''}
+        ORDER BY c.id DESC LIMIT 1`,
       [bail.locataires.map((l) => l.occupationId)]);
     conditions = co[0];
   }

@@ -102,6 +102,7 @@
     "gestion:annuaire:importer": "tsx app/scripts/importer-annuaire.ts",
     "gestion:honoraires:reprendre": "tsx app/scripts/reprendre-honoraires.ts",
     "gestion:annuaire:epreuve": "tsx app/scripts/annuaire-epreuve.ts",
+    "gestion:rattachements:reprise": "tsx app/scripts/rattacher-contacts-baux.ts",
     "gestion:drive:construire": "tsx app/scripts/construire-arbre-drive.ts",
     "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",
     "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts",

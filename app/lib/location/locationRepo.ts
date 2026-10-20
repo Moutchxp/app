@@ -1,4 +1,6 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { contactsRattachesDuLocataire } from './rattachementsRepo';
+import type { ContactRattache } from './rattachements';
 import { preavisOuverts } from './preavisRepo';
 import type { PreavisAffiche } from './preavis';
 import { colonneExisteMemo } from './sondeLocation';
@@ -261,6 +263,8 @@ export interface FicheLocataireLocation {
    */
   conditionsEntree?: ConditionsEntreeLues[];
   conditionsEntreeDisponible?: boolean;
+  /** Arno (20/10/2026, 393) — ses garants et contacts rattachés ; `null` sans la migration (rien ne s'affiche). */
+  contactsRattaches?: ContactRattache[] | null;
 }
 
 export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLocataireLocation>> {
@@ -283,6 +287,7 @@ export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLoc
       preavis: [...(await preavisOuverts(rows.filter((r) => r.sortie === null).map((r) => Number(r.id)))).values()]
         .map((p) => ({ occupationId: p.occupationId, preavis: p })),
       conditionsEntree: [...new Map([...(await conditionsParOccupation(rows.map((r) => Number(r.id)))).values()].map((c) => [c.bailCle, c])).values()],
+      contactsRattaches: await contactsRattachesDuLocataire(id),
       conditionsEntreeDisponible: await conditionsEntreeDisponible(),
     },
   };

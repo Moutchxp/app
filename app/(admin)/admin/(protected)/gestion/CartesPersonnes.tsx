@@ -1433,6 +1433,11 @@ export function CarteContact({ c, gestes }: { c: CarteDeContact; gestes: GestesC
             {/* 🔴 LE BADGE DE CONTACT, ET JAMAIS CELUI D'UN CLIENT : `roleDeContactPermis` le tient. */}
             <span className="cp-role cp-role--contact">{badgeSur}</span>
           </p>
+          {/* Arno (20/10/2026, 393) : à qui la carte est rattachée ; « à rattacher à un locataire » sinon — rien ne disparaît. */}
+          {c.rattachement !== undefined && (
+            <p className={`cp-rattachement${c.rattachement === 'à rattacher à un locataire' ? ' cp-rattachement--a-faire' : ''}`} data-rattachement-carte>
+              {c.rattachement}</p>
+          )}
         </div>
         <div className="cp-tete-actions">
           <button type="button" className="cp-icone" disabled={!gestes.modifiable}
@@ -1893,6 +1898,9 @@ export const CSS_CARTES = `
    orange d'une capsule : ce qui attend un geste se signale pareil partout dans ce module. */
 .cp-carte--a-verifier{border-color:var(--color-svv-amber);border-left-color:var(--color-svv-amber);
   background:var(--color-svv-amber-soft)}
+/* Arno (20/10/2026, 393) : le rattachement d'une carte contact du locataire ; « a rattacher » en ambre (le mot le dit aussi). */
+.cp-carte--contact .cp-rattachement{margin:4px 0 0;font-size:13px;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.cp-carte--contact .cp-rattachement--a-faire{color:var(--color-svv-amber);font-weight:700}
 /* LE BADGE DE CONTACT : le meme gabarit que .cp-role, un ton qui le distingue d'un client sans crier. */
 .cp-role--contact{background:var(--color-svv-surface-raised);color:var(--color-svv-ink);
   border:1px solid var(--color-svv-line-strong)}

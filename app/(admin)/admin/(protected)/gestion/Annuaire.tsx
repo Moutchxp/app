@@ -803,6 +803,10 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
             {/* Arno (20/10/2026) : « Bien en gestion ? » = Non → « Hors gestion » (le mot + la couleur), rien d'autre. */}
             {b.horsGestion === true && <EtiquetteHorsGestion />}
           </span>
+          {/* Arno (20/10/2026, faille 6) : un bien en indivision, sur la fiche de chaque copropriétaire. */}
+          {(b.indivisionAvec?.length ?? 0) > 0 && (
+            <span className="ann-carte-sous" data-indivision>en indivision avec {b.indivisionAvec!.join(', ')}</span>
+          )}
         </span>
       </button>
       {/* LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — sous l'en-tête : « ⚠ Conflit possible … » (s'il y a lieu). */}

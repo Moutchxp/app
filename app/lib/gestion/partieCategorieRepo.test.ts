@@ -408,7 +408,8 @@ describe('⑤ les requêtes, par fragments sémantiques', () => {
   it('⚠️ les cartes vérifiées viennent en tête', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     await lireCartesDuBien('155');
-    expect(sqls()[0]).toContain('ORDER BY cote, (verifie_le IS NULL)');
+    // (Arno, 20/10/2026, 393 : une sonde de schéma passe désormais avant la lecture — on lit LA requête des cartes.)
+    expect(sqls().find((x) => x.includes('FROM gestion_contact_carte'))).toContain('ORDER BY cote, (verifie_le IS NULL)');
   });
 });
 

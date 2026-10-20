@@ -66,6 +66,10 @@ export function LocationCarte({ location, modifiable, onEnregistrer, lecture = f
               {formaterEuros(c.loyerHc)} HC{c.provisions === null ? '' : ` + ${formaterEuros(c.provisions)} de provisions`}
             </span>
           )}
+        {/* Arno (20/10/2026, 393) : le loyer est porté par le BAIL — une colocation le partage, il n'est ni ressaisi ni compté deux fois. */}
+        {(location.partageAvec?.length ?? 0) > 0 && (
+          <span className="loc-origine" data-loyer-partage> (loyer du bail, partagé avec {location.partageAvec!.join(', ')})</span>
+        )}
       </Ligne>
       <Ligne libelle="Gestion">
         <span data-taux-gestion>

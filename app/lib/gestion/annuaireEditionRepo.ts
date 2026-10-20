@@ -1,3 +1,4 @@
+import { bailDisponible, bailEnCoursDuLotDans } from '../location/bailRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { refusFamilleCarte } from './familleCarteRepo';
 import { carteEstComplete } from './carteComplete';
@@ -831,8 +832,11 @@ export async function ajouterOccupant(
   conditions?: Record<string, unknown> | null,
 ): Promise<IssueEdition> {
   if (!await annuaireModifiableDisponible()) return { etat: 'sans_schema' };
+  // Arno (20/10/2026, 393) : « Ajouter un occupant » rattache le nouvel occupant au BAIL EN COURS du lot (s'il y en a un).
+  const avecBail = await bailDisponible();
   return withTransaction(async (q) => {
-    const cree = await ajouterOccupantDans(q, lotId, locataireId, entree, auteur);
+    const bail = avecBail ? await bailEnCoursDuLotDans(q, lotId) : null;
+    const cree = await ajouterOccupantDans(q, lotId, locataireId, entree, auteur, bail);
     if (cree === null) return { etat: 'inconnu' as const };
     if (conditions !== undefined && conditions !== null) {
       const issue = await enregistrerConditions(cree, conditions, auteur, q);
@@ -853,16 +857,18 @@ export async function ajouterOccupant(
  * L'INSERTION d'une occupation, dans la transaction de l'appelant (le geste « Ajouter un occupant », et le bail de la tuile
  * Location sur plusieurs lots). Journalisée. Rend l'identifiant de l'occupation, `null` si le lot n'existe pas.
  */
-export async function ajouterOccupantDans(q: RequeteTx, lotId: number, locataireId: number, entree: string | null, auteur: Auteur): Promise<number | null> {
+export async function ajouterOccupantDans(q: RequeteTx, lotId: number, locataireId: number, entree: string | null, auteur: Auteur,
+  /** Le BAIL à rejoindre (migration 393) ; absent : la base le choisit (bail en cours du même bien à la même date, ou neuf). */
+  bailId: number | null = null): Promise<number | null> {
   const { rows: lot } = await q<{ wippimmo_id: string }>('SELECT wippimmo_id FROM gestion_annuaire_lot WHERE id = $1', [lotId]);
   if (lot[0] === undefined) return null;
   const cle = `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const { rows: cree } = await q<{ id: string }>(
     `INSERT INTO gestion_annuaire_occupation
-       (wippimmo_id, locataire_id, lot_id, lot_wippimmo_id, entree)
-     VALUES ($1, $2, $3, $4, $5::date)
+       (wippimmo_id, locataire_id, lot_id, lot_wippimmo_id, entree${bailId !== null ? ', bail_id' : ''})
+     VALUES ($1, $2, $3, $4, $5::date${bailId !== null ? ', $6' : ''})
      RETURNING id`,
-    [cle, locataireId, lotId, lot[0].wippimmo_id, entree]);
+    [cle, locataireId, lotId, lot[0].wippimmo_id, entree, ...(bailId !== null ? [bailId] : [])]);
   await journaliser(q, {
     personneId: locataireId, action: 'annuaire_occupant_ajoute',
     avant: null, apres: `lot ${lotId}${entree === null ? '' : ` depuis le ${entree}`}`,

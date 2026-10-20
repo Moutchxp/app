@@ -144,6 +144,10 @@ export interface ConditionsEntreeLues {
   honoraires: CalculHonoraires | null;
   /** Le loyer mensuel du bail : le loyer de départ (migration 370) de ses occupations ; `null` s'il n'est pas connu. */
   loyer?: LoyerMensuel | null;
+  /** Le bail (migration 393) ; `null` avant elle. */
+  bailId?: number | null;
+  /** La surface Carrez/Boutin du bien AUJOURD'HUI (texte exact), pour proposer de refaire des honoraires calculés sans surface. */
+  surfaceActuelle?: string | null;
 }
 
 /** Les conditions vérifiées, telles qu'elles s'enregistrent et se relisent (montants en CENTIMES, entiers exacts). */

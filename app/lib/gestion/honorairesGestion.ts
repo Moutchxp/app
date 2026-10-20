@@ -43,6 +43,11 @@ export interface LocationAffichee {
   baseProposee: BaseHonoraires;
   /** La TVA sur honoraires en vigueur aujourd'hui (réglage daté), en %. `null` si aucun réglage n'existe. */
   tvaPct: number | null;
+  /**
+   * Arno (20/10/2026, migration 393) — le loyer est celui du BAIL : les autres locataires du bail qui le partagent (vide : seul,
+   * ou base sans la 393). La carte l'écrit « loyer du bail, partagé avec X ».
+   */
+  partageAvec?: string[];
 }
 
 export const LIBELLE_BASE: Record<BaseHonoraires, string> = {
@@ -174,6 +179,8 @@ export interface LocationPourHonoraires {
   entree: string | null;
   sortie: string | null;
   conditions: { loyerHc: number | null; provisions: number | null; tauxHt: number; base: BaseHonoraires } | null;
+  /** Le bail de l'occupation (migration 393) ; absent sans elle (le bail se reconnaît alors par « lot + date d'entrée »). */
+  bailId?: number | null;
   /** Les propriétaires du lot aujourd'hui (vue unique : liens en cours, sinon celui de l'import). */
   proprietaires: { id: number; nom: string }[];
 }
@@ -225,9 +232,11 @@ export function calculerHonoraires(
    * d'entrée du bail. Le loyer se saisit sur UNE carte : les autres occupations du même lot, à la même date d'entrée,
    * sans loyer, sont COUVERTES — ni comptées une seconde fois, ni dites « à saisir » dans les totaux.
    */
+  // Arno (20/10/2026, 393) : le bail est une fiche — sa clé est son identifiant ; sans la 393, « lot + date d'entrée ».
+  const cleDuBail = (l: LocationPourHonoraires): string => (l.bailId != null ? `bail:${l.bailId}` : `${l.lotId}|${l.entree ?? ''}`);
   const bauxAvecLoyer = new Set(locations
     .filter((l) => l.conditions !== null && l.conditions.loyerHc !== null)
-    .map((l) => `${l.lotId}|${l.entree ?? ''}`));
+    .map(cleDuBail));
 
   for (const loc of locations) {
     let ht = 0;
@@ -245,7 +254,7 @@ export function calculerHonoraires(
     }
     if (!presente) continue;
     const sansLoyer = loc.conditions === null || loc.conditions.loyerHc === null;
-    if (sansLoyer && bauxAvecLoyer.has(`${loc.lotId}|${loc.entree ?? ''}`)) continue;
+    if (sansLoyer && bauxAvecLoyer.has(cleDuBail(loc))) continue;
     presentes.add(loc.occupationId);
     if (sansLoyer) manquantesSet.add(loc.occupationId);
 

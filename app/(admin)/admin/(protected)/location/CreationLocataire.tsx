@@ -5,7 +5,7 @@ import { CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture
 import { etageFr } from '../../../../lib/location/sortieLocataires';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
-import { SaisieCartes, type EtatCartes } from './SaisieCartes';
+import { nomDeCarte, SaisieCartes, type EtatCartes } from './SaisieCartes';
 import { BlocConditionsEntree, CSS_CONDITIONS } from './ConditionsEntree';
 import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
 import { CONDITIONS_VIDES, manquesConditions, montantSaisi, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
@@ -103,7 +103,7 @@ export function CreationLocataire() {
   const [tente, setTente] = useState(false);
   // Arno (20/10/2026) — partie par partie, ce que la base sait enregistrer : le bloc est TOUJOURS montré ; ce qui manque est dit
   // par un bandeau (« migration NNN ») et seule l'écriture de la partie concernée est désactivée.
-  const lu = useLecture<{ conditions: boolean; loyer: boolean; manquantes: string[] }>('schemaConditionsEntree');
+  const lu = useLecture<{ conditions: boolean; loyer: boolean; rattachements?: boolean; manquantes: string[] }>('schemaConditionsEntree');
   const schema = lu.etat.etat === 'ok' && lu.etat.data !== null && typeof lu.etat.data === 'object' && !Array.isArray(lu.etat.data) ? lu.etat.data : null;
   const avecConditions = schema?.conditions === true;
   const avecLoyer = schema?.loyer === true;
@@ -154,6 +154,60 @@ export function CreationLocataire() {
   const hono = useLecture<CalculHonoraires>(bien !== null
     ? `honorairesProprietaire=${bien.id}${/^\d{4}-\d{2}-\d{2}$/.test(entree) ? `&entree=${entree}` : ''}` : null);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
+  /* Arno (20/10/2026, 393) — GARANTS ET CONTACTS RATTACHÉS. Les locataires de l'écran (cartes validées puis fiches retenues, l'ordre
+     du serveur) ; chaque contact validé dit à qui il se rattache : un garant « Garantit : » (tous cochés par défaut), un autre
+     contact « Contact de : » (le premier par défaut). Un seul locataire : d'office, rien à choisir. */
+  const avecRattachements = schema?.rattachements === true;
+  const locatairesEcran = [
+    ...etat.clients.map((c, i) => ({ cle: `c${etat.clesClients?.[i] ?? i}`, nom: nomDeCarte(c) })),
+    ...etat.existants.map((x) => ({ cle: `e${x.id}`, nom: x.nom })),
+  ];
+  const [liens, setLiens] = useState<Record<number, { garantit?: string[]; locataire?: string }>>({});
+  const garantitDe = (cle: number): string[] => (liens[cle]?.garantit ?? locatairesEcran.map((l) => l.cle)).filter((k) => locatairesEcran.some((l) => l.cle === k));
+  const contactDe = (cle: number): string | null => {
+    const k = liens[cle]?.locataire;
+    return k !== undefined && locatairesEcran.some((l) => l.cle === k) ? k : (locatairesEcran[0]?.cle ?? null);
+  };
+  const sousContact = (cle: number, champs: { qualite?: string | null }): React.ReactNode => {
+    if (!avecRattachements || locatairesEcran.length === 0) return null;
+    if (locatairesEcran.length === 1) {
+      return <span className="loc-muet" data-rattachement="auto">{estGarant(champs.qualite) ? 'Garantit' : 'Contact de'} : {locatairesEcran[0].nom}</span>;
+    }
+    if (estGarant(champs.qualite)) {
+      const coches = garantitDe(cle);
+      return (
+        <fieldset className="loc-garantit" data-garantit={cle}>
+          <legend>Garantit :</legend>
+          {locatairesEcran.map((l) => (
+            <label key={l.cle} className="loc-garantit-choix">
+              <input type="checkbox" checked={coches.includes(l.cle)} data-garantit-locataire={l.cle}
+                onChange={() => setLiens((x) => ({ ...x, [cle]: { ...x[cle], garantit: coches.includes(l.cle) ? coches.filter((k) => k !== l.cle) : [...coches, l.cle] } }))} />
+              <span>{l.nom}</span>
+            </label>
+          ))}
+          {coches.length === 0 && <span className="loc-manque" role="alert">Cochez au moins un locataire garanti.</span>}
+        </fieldset>
+      );
+    }
+    return (
+      <label className="loc-champ loc-contact-de" data-contact-de={cle}>Contact de :
+        <select value={contactDe(cle) ?? ''} onChange={(e) => setLiens((x) => ({ ...x, [cle]: { ...x[cle], locataire: e.target.value } }))}>
+          {locatairesEcran.map((l) => <option key={l.cle} value={l.cle}>{l.nom}</option>)}
+        </select>
+      </label>
+    );
+  };
+  const rattachementsAEnvoyer = (): { garantit?: number[]; locataire?: number | null }[] => etat.contacts.map((c, i) => {
+    const cle = etat.clesContacts?.[i] ?? -1;
+    const rang = (k: string | null): number => locatairesEcran.findIndex((l) => l.cle === k);
+    if (estGarant(c.qualite)) return { garantit: garantitDe(cle).map(rang).filter((x) => x >= 0) };
+    const r = rang(contactDe(cle));
+    return { locataire: r >= 0 ? r : null };
+  });
+  const garantSansLocataire = avecRattachements && locatairesEcran.length > 1
+    && etat.contacts.some((c, i) => estGarant(c.qualite) && garantitDe(etat.clesContacts?.[i] ?? -1).length === 0);
+  // Arno (20/10/2026, faille 7) : sans date d'entrée, le barème du JOUR sert au calcul des honoraires — dit, jamais bloquant.
+  const AVERTISSEMENT_DATE = 'Sans date d’entrée, le barème du jour a été utilisé.';
 
   useEffect(() => { const t = setTimeout(() => setTerme(filtreBien.trim()), 250); return () => clearTimeout(t); }, [filtreBien]);
   const biens = useLecture<{ id: number; titre: string; detail: string | null; loue?: boolean }[]>(`biensPourLocataire=${encodeURIComponent(terme)}`);
@@ -168,6 +222,7 @@ export function CreationLocataire() {
     if (etat.ouvertes > 0) { setMotif('Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.'); return; }
     if (bien === null) { setMotif('Choisissez le bien loué.'); return; }
     if (coches !== null && coches.length === 0) { setMotif('Cochez au moins un lot loué.'); return; }
+    if (garantSansLocataire) { setMotif('Un garant doit garantir au moins un locataire : cochez-le sous « Garantit : ».'); return; }
     // Bloc 3 : tant qu'un choix manque, rien n'est envoyé ; le message est sous le champ et la page y descend.
     if (Object.keys(manque).length > 0) {
       setTente(true); setMotif(null);
@@ -196,14 +251,17 @@ export function CreationLocataire() {
       ...(avecConditions ? { conditions: versEnvoiConditions(conditions) } : {}),
       ...(avecLoyer ? { loyer: { ...conditions.loyer } } : {}),
       ...(avecEntretien ? { entretien: { aPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens } } : {}),
+      ...(avecRattachements && etat.contacts.length > 0 ? { rattachements: rattachementsAEnvoyer() } : {}),
     });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); setRecap(null); return; }
-    const d = r.data as { locataireIds?: number[]; reintegrations?: string[]; entretienRefus?: string | null } | undefined;
+    const d = r.data as { locataireIds?: number[]; reintegrations?: string[]; entretienRefus?: string | null; contactsRefus?: string | null;
+      dateBaremeSupposee?: boolean } | undefined;
     const ids = d?.locataireIds ?? [];
     const lien = ids[0] !== undefined ? `/admin/location/locataire/${ids[0]}` : '/admin/location/locataires';
     // Une réintégration s'ANNONCE à l'écran avant de quitter la page.
-    const annonces = [...(d?.reintegrations ?? []), ...(d?.entretienRefus ? [d.entretienRefus] : [])];
+    const annonces = [...(d?.reintegrations ?? []), ...(d?.entretienRefus ? [d.entretienRefus] : []), ...(d?.contactsRefus ? [d.contactsRefus] : []),
+      ...(d?.dateBaremeSupposee === true ? [AVERTISSEMENT_DATE] : [])];
     if (annonces.length > 0) { setFait({ messages: annonces, lien }); return; }
     window.location.href = lien;
   };
@@ -218,7 +276,12 @@ export function CreationLocataire() {
         <h3 id="loc-l1"><span className="loc-num">1</span>Le ou les locataires</h3>
         <p className="loc-section-phrase">« + Ajouter… » : un <strong>locataire (client)</strong> ou un <strong>contact du locataire</strong> (conjoint,
           artisan, avocat, voisin…). « Enregistrer » valide la carte ; tout est enregistré en bas de page. Rien n’est jamais fusionné.</p>
-        <SaisieCartes cote="locataire" onChange={surCartes} demandeContact={demandeGarant} confirmerRetrait />
+        {schema !== null && !avecRattachements && etat.contacts.length > 0 && (
+          <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} role="status" data-rattachements-sans-migration>
+            Mise à jour de la base à appliquer (migration 393) : les contacts seront enregistrés sur le bien comme d’habitude, sans être
+            rattachés à un locataire.</p>
+        )}
+        <SaisieCartes cote="locataire" onChange={surCartes} demandeContact={demandeGarant} confirmerRetrait sousContact={sousContact} />
       </section>
 
       <section className="loc-section" aria-labelledby="loc-l2">
@@ -256,7 +319,7 @@ export function CreationLocataire() {
           <>
             {schema !== null && !avecConditions && (
               <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} role="status" data-conditions-sans-migration>
-                Mise à jour de la base à appliquer (migration {schema.manquantes.filter((m) => m !== '370').join(' et ')}) : les choix de ce bloc
+                Mise à jour de la base à appliquer (migration {schema.manquantes.filter((m) => m !== '370' && m !== '393').join(' et ')}) : les choix de ce bloc
                 ne seront pas enregistrés (ni exigés). Le locataire et l’entretien du bien s’enregistrent comme d’habitude.</p>
             )}
             <p className="loc-section-phrase">La fiche « Nouveau dossier » : enregistrée sur le bail créé. Les choix marqués <span className="loc-oblig">*</span> sont obligatoires ; montants et commentaire facultatifs.</p>
@@ -279,6 +342,7 @@ export function CreationLocataire() {
         <section className="loc-section loc-recap-lots" aria-label="Ce qui va se passer" data-recap-lots>
           <h3>Avant d’enregistrer : ce qui va se passer</h3>
           <ul>{recap.map((x) => <li key={x}>{x}</li>)}</ul>
+          {avecConditions && entree === '' && <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} role="status" data-avertissement-date>{AVERTISSEMENT_DATE}</p>}
           <p className="loc-muet" style={{ margin: 0 }}>« Confirmer » enregistre le bail ; « Modifier » revient au choix des lots. Rien n’est effacé.</p>
           <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setRecap(null)} data-modifier-lots>Modifier</button>
@@ -320,4 +384,9 @@ const CSS_LOTS_LOUES = `
 .loc-etat-bien--libre{color:var(--color-svv-green-ink)}
 .loc-etat-bien--loue{color:var(--color-svv-red)}
 .loc-recap-lots ul{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:4px}
+.loc-garantit{border:0;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;min-width:0}
+.loc-garantit legend{font-weight:700;padding:0;float:left;margin-right:6px}
+.loc-garantit-choix{display:inline-flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;overflow-wrap:anywhere}
+.loc-garantit-choix input{width:22px;height:22px;flex:0 0 auto}
+.loc-contact-de select{min-height:44px}
 `;

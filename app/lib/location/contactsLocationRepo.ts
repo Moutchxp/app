@@ -34,14 +34,16 @@ export function refusContacts(contacts: readonly ContactSaisi[]): string | null 
 
 /** Enregistre les contacts sur le bien, côté propriétaire ou locataire. Rend le nombre posé, ou le motif du refus. */
 export async function creerContactsDuBien(lotId: number, cote: CoteCarte, contacts: readonly ContactSaisi[], auteur: Auteur):
-  Promise<{ ok: true; n: number } | { ok: false; motif: string }> {
-  if (contacts.length === 0) return { ok: true, n: 0 };
+  Promise<{ ok: true; n: number; carteIds: (number | null)[] } | { ok: false; motif: string }> {
+  if (contacts.length === 0) return { ok: true, n: 0, carteIds: [] };
   const refus = refusContacts(contacts);
   if (refus !== null) return { ok: false, motif: refus };
   const { rows } = await query<{ cle: string }>('SELECT wippimmo_id AS cle FROM gestion_annuaire_lot WHERE id = $1', [lotId]);
   const lotCle = rows[0]?.cle;
   if (lotCle === undefined) return { ok: false, motif: 'Ce bien n’existe plus.' };
   let n = 0;
+  // Arno (20/10/2026, 393) : l'identifiant de chaque carte posée (même ordre que les contacts), pour la rattacher au locataire.
+  const carteIds: (number | null)[] = [];
   for (const [i, c] of contacts.entries()) {
     const fiche = ficheAEnvoyer({ ...c, nom: c.nom ?? '' });
     const adresse = premierEmail(fiche.coordonnees);
@@ -56,7 +58,8 @@ export async function creerContactsDuBien(lotId: number, cote: CoteCarte, contac
       },
     });
     if (!carte.ok) return { ok: false, motif: `Contact ${i + 1} : ${carte.motif}` };
+    carteIds.push(carte.id);
     n += 1;
   }
-  return { ok: true, n };
+  return { ok: true, n, carteIds };
 }

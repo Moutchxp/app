@@ -1,4 +1,6 @@
-import { query, withTransaction } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
+import { garantsDisponibles } from '../location/bailRepo';
+import { motRattachement } from '../location/rattachements';
 import {
   contactAncienLocataireDisponible, contactCarteDisponible, ficheContactCarteDisponible,
   noteContactCarteDisponible, partieCategorieDisponible,
@@ -138,6 +140,11 @@ export interface LigneCarte {
   commune: string | null;
   /** Les téléphones et e-mails, DANS L'ORDRE AFFICHÉ. Vide = la carte n'en porte pas (ou la 306 n'est pas là). */
   coordonnees: readonly CoordonneeDeCarte[];
+  /**
+   * Arno (20/10/2026, migration 393) — une carte « contact du locataire » dit à QUI elle est rattachée : « garantit X, Y »,
+   * « contact de X », ou « à rattacher à un locataire ». Absente sans la 393 et pour les autres côtés (rien ne change).
+   */
+  rattachement?: string;
 }
 
 /**
@@ -316,9 +323,10 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
   /* 🔴 LOT ANCIENS-LOCATAIRES-VIOLET — la 318. Sans elle, `locataireId` vaut `null` partout et la fiche ne
      propose pas d'ajouter un contact à un ancien locataire : une sonde voyage avec sa donnée. */
   const avecAncien = await contactAncienLocataireDisponible();
+  const avecRattachements = await garantsDisponibles();
   const { rows } = await query<{
     id: string; lot_cle: string; cote: string; adresse: string; nom: string | null; telephone: string | null;
-    locataire_id: string | null;
+    locataire_id: string | null; garantis?: string[] | null; locataire_nom?: string | null;
     origine: string; verifie_le: string | null; verifie_par: string | null; cree_le: string; cree_par: string;
     note: string | null; civilite: string | null; prenom: string | null; qualite: string | null;
     adresse_postale: string | null; code_postal: string | null; commune: string | null; coordonnees: unknown;
@@ -334,7 +342,12 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
             ${avecFiche ? 'adresse_postale' : 'NULL::text'} AS adresse_postale,
             ${avecFiche ? 'code_postal' : 'NULL::text'} AS code_postal,
             ${avecFiche ? 'commune' : 'NULL::text'} AS commune,
-            ${avecFiche ? 'coordonnees' : 'NULL::jsonb'} AS coordonnees
+            ${avecFiche ? 'coordonnees' : 'NULL::jsonb'} AS coordonnees${avecRattachements ? `,
+            (SELECT array_agg(x.nom ORDER BY x.id) FROM (SELECT DISTINCT l.id, trim(concat_ws(' ', l.nom, l.prenom)) AS nom
+               FROM gestion_bail_garant g JOIN gestion_annuaire_locataire l ON l.id = g.locataire_id
+              WHERE g.carte_id = gestion_contact_carte.id AND g.retire_le IS NULL) x) AS garantis,
+            (SELECT trim(concat_ws(' ', l.nom, l.prenom)) FROM gestion_annuaire_locataire l
+              WHERE l.id = gestion_contact_carte.locataire_id) AS locataire_nom` : ''}
        FROM gestion_contact_carte
       WHERE retire_le IS NULL AND lot_cle = $1
       ORDER BY cote, (verifie_le IS NULL), coalesce(nom, adresse), id`, [lot]);
@@ -350,6 +363,10 @@ export async function lireCartesDuBien(lotCle: string): Promise<LigneCarte[]> {
     /* 🔴 LE `jsonb` PASSE PAR LE MODULE PUR : une ligne illisible est IGNORÉE, jamais devinée (voir
        `coordonneesDeLaCarte`). Deviner la sorte d'une ligne rangerait un numéro parmi les e-mails. */
     coordonnees: coordonneesDeLaCarte(r.coordonnees),
+    ...(avecRattachements && r.cote === 'locataire' ? { rattachement: motRattachement({
+      garant: (r.garantis ?? []).length > 0,
+      locataires: (r.garantis ?? []).length > 0 ? r.garantis ?? [] : r.locataire_nom ? [r.locataire_nom] : [],
+    }) } : {}),
   }));
 }
 
@@ -1322,4 +1339,57 @@ export async function adressesIndependantes(adresses: readonly string[]): Promis
     `SELECT DISTINCT adresse, categorie FROM gestion_partie_categorie
       WHERE retire_le IS NULL AND lot_cle IS NULL AND adresse = ANY($1::text[])`, [voulues]);
   return new Set(rows.filter((r) => !sertALAutomatisation(r.categorie) && r.categorie === 'independant').map((r) => r.adresse));
+}
+
+/**
+ * ══ 🔴🔴 LES RATTACHEMENTS DES CARTES « CONTACT DU LOCATAIRE » (Arno, 20/10/2026, migration 393) ═══════════════════════════
+ * Le SQL des cartes reste ICI (le seul fichier qui nomme leur table) ; `location/rattachementsRepo.ts` et le script de reprise
+ * passent par ces trois fonctions. Appelées seulement quand la 393 est là (sondé par l'appelant).
+ */
+
+/** Rattache une carte « contact du locataire » encore LIBRE à son locataire ; jamais par-dessus le rattachement d'un autre. */
+export async function poserLocataireDeCarteDans(q: RequeteTx, carteId: number, locataireId: number): Promise<boolean> {
+  if (!(await contactCarteDisponible())) return false;
+  const { rowCount } = await q(
+    `UPDATE gestion_contact_carte SET locataire_id = $2
+      WHERE id = $1 AND locataire_id IS NULL AND cote = 'locataire' AND retire_le IS NULL`, [carteId, locataireId]);
+  return (rowCount ?? 0) > 0;
+}
+
+export interface CarteRattacheeLue {
+  id: string; nom: string | null; prenom: string | null; qualite: string | null; adresse: string;
+  loc_id: string | null; loc_nom: string | null; garanties: { id: string; nom: string; bail: string }[] | null;
+}
+
+const NOM_LOC = `trim(concat_ws(' ', l.nom, l.prenom))`;
+
+/** Les cartes côté locataire d'un BIEN, ou celles d'un LOCATAIRE (contact ou garant), avec leurs rattachements. */
+export async function lireCartesRattachees(filtre: { lotId: number } | { locataireId: number }): Promise<CarteRattacheeLue[]> {
+  if (!(await contactCarteDisponible())) return [];
+  const parBien = 'lotId' in filtre;
+  const { rows } = await query<CarteRattacheeLue>(
+    `SELECT c.id::text, c.nom, c.prenom, c.qualite, c.adresse, c.locataire_id::text AS loc_id,
+            (SELECT ${NOM_LOC} FROM gestion_annuaire_locataire l WHERE l.id = c.locataire_id) AS loc_nom,
+            (SELECT json_agg(json_build_object('id', g.locataire_id::text, 'nom', ${NOM_LOC}, 'bail', g.bail_id::text) ORDER BY g.bail_id, g.locataire_id)
+               FROM gestion_bail_garant g JOIN gestion_annuaire_locataire l ON l.id = g.locataire_id
+              WHERE g.carte_id = c.id AND g.retire_le IS NULL) AS garanties
+       FROM gestion_contact_carte c
+      WHERE c.retire_le IS NULL AND ${parBien
+        ? `c.lot_id = $1 AND c.cote = 'locataire'`
+        : `c.cote IN ('locataire', 'ancien_locataire')
+           AND (c.locataire_id = $1 OR EXISTS (SELECT 1 FROM gestion_bail_garant g WHERE g.carte_id = c.id AND g.locataire_id = $1 AND g.retire_le IS NULL))`}
+      ORDER BY c.id`, [parBien ? filtre.lotId : filtre.locataireId]);
+  return rows;
+}
+
+/** La reprise : les cartes côté locataire, vivantes, sans aucun rattachement (ni locataire, ni garantie en cours). */
+export async function cartesLocataireSansRattachement(): Promise<{ id: number; lotId: number | null; numero: string | null; qualite: string | null }[]> {
+  if (!(await contactCarteDisponible())) return [];
+  const { rows } = await query<{ id: string; lot_id: string | null; numero: string | null; qualite: string | null }>(
+    `SELECT c.id::text, c.lot_id::text, lo.wippimmo_id AS numero, c.qualite
+       FROM gestion_contact_carte c LEFT JOIN gestion_annuaire_lot lo ON lo.id = c.lot_id
+      WHERE c.cote = 'locataire' AND c.retire_le IS NULL AND c.locataire_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM gestion_bail_garant g WHERE g.carte_id = c.id AND g.retire_le IS NULL)
+      ORDER BY c.id`);
+  return rows.map((r) => ({ id: Number(r.id), lotId: r.lot_id === null ? null : Number(r.lot_id), numero: r.numero, qualite: r.qualite }));
 }

@@ -154,6 +154,20 @@ export function ResumeBienFiche({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheU
               <dd data-rb="entree">{l.entree === null ? rien('non renseignée') : formaterDateIso(l.entree)}</dd>
             </>
           )}
+          {/* Arno (20/10/2026, 393) : les garants et contacts côté locataire, sous le bail — chacun dit à qui il est rattaché ; une
+              carte sans rattachement reste là, « à rattacher à un locataire ». */}
+          {l.contacts !== undefined && l.contacts.length > 0 && (
+            <>
+              <dt>Garants et contacts</dt>
+              <dd data-rb="contacts" className="rb-contacts">
+                {l.contacts.map((x) => (
+                  <span key={x.carteId} className="rb-contact" data-rb-contact={x.carteId}>
+                    {x.nom}{x.qualite ? ` (${x.qualite})` : ''} — <span className={x.locataires.length === 0 ? 'rb-a-rattacher' : 'rb-note'}>{x.mot}</span>
+                  </span>
+                ))}
+              </dd>
+            </>
+          )}
           <dt>{l.statut === 'loue' ? 'Loyer' : 'Loyer de départ'}</dt>
           <dd data-rb="loyer">{l.loyer === null || totalLoyer === null ? rien() : (
             <>{l.loyer.principal === null ? rien() : formaterCentimes(l.loyer.principal)} + {l.loyer.provisions === null ? rien('provision non renseignée') : formaterCentimes(l.loyer.provisions)}
@@ -185,6 +199,9 @@ export const CSS_RESUME_BIEN = `
 .rb-groupe--repli > summary::before{content:"▸";margin-right:8px;color:var(--color-svv-muted)}
 .rb-groupe--repli[open] > summary::before{content:"▾"}
 .rb-note{color:var(--color-svv-muted);font-size:.85rem}
+.rb-contacts{display:flex;flex-direction:column;gap:4px}
+.rb-contact{overflow-wrap:anywhere}
+.rb-a-rattacher{color:var(--color-svv-amber);font-weight:700}
 .rb-statut{font-weight:800}
 .rb-statut--libre{color:var(--color-svv-green-ink)}
 .rb-statut--loue{color:var(--color-svv-red)}

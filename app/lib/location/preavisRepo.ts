@@ -1,6 +1,7 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
+import { bailDisponible } from './bailRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { lireBail } from './sortieLocatairesRepo';
 import {
@@ -223,9 +224,12 @@ export async function annulerPreavis(d: { preavisId: number }, auteur: Auteur): 
 export async function preavisEnCours(): Promise<{ disponible: boolean; etatDesLieux: boolean; planification: boolean; lignes: LignePreavisAccueil[] }> {
   if (!(await preavisDisponible())) return { disponible: false, etatDesLieux: false, planification: false, lignes: [] };
   const avecEdl = await etatDesLieuxDisponible();
+  // Arno (20/10/2026, 393) : « même bail » se lit par bail_id ; sans la 393, par « même lot + même date d'entrée ».
+  const avecBail = await bailDisponible();
   const { rows } = await query<{ occupation_id: string; locataire_id: string; nom: string; lot_id: string; entree: string | null; recu_le: string;
-    date_max: string; adresse: string | null; edl: string | null }>(
+    date_max: string; adresse: string | null; edl: string | null; bail_id: string | null }>(
     `SELECT p.occupation_id::text, o.locataire_id::text, l.nom, o.lot_id::text, o.entree::text, p.recu_le::text, p.date_max::text,
+            ${avecBail ? 'o.bail_id::text' : 'NULL::text'} AS bail_id,
             nullif(concat_ws(', ', lo.adresse, nullif(concat_ws(' ', lo.code_postal, lo.commune), '')), '') AS adresse,
             ${avecEdl ? 'o.etat_des_lieux_prevu_le::text' : 'NULL::text'} AS edl
        FROM gestion_location_preavis p
@@ -236,7 +240,7 @@ export async function preavisEnCours(): Promise<{ disponible: boolean; etatDesLi
       ORDER BY p.date_max, o.lot_id, l.nom_normalise, o.id`);
   const groupes = new Map<string, LignePreavisAccueil>();
   for (const r of rows) {
-    const cle = `${r.lot_id}|${r.entree ?? ''}|${r.recu_le}|${r.date_max}`;
+    const cle = `${r.bail_id !== null ? `bail:${r.bail_id}` : `${r.lot_id}|${r.entree ?? ''}`}|${r.recu_le}|${r.date_max}`;
     const g = groupes.get(cle) ?? {
       cle, lotId: Number(r.lot_id), adresse: r.adresse, occupationId: Number(r.occupation_id), occupationIds: [], locataires: [],
       recuLe: r.recu_le, dateMax: r.date_max, etatDesLieuxLe: r.edl,

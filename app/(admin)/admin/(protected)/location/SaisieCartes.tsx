@@ -40,6 +40,9 @@ export interface EtatCartes {
   existants: { id: number; nom: string }[];
   /** Le nombre de cartes encore ouvertes (non validées). */
   ouvertes: number;
+  /** Arno (20/10/2026, 393) : la clé de chaque carte client / contact validée (même ordre que `clients` / `contacts`). */
+  clesClients?: number[];
+  clesContacts?: number[];
 }
 
 function ficheDeChamps(c: ChampsSaisis): FicheAEditer {
@@ -49,7 +52,7 @@ function ficheDeChamps(c: ChampsSaisis): FicheAEditer {
     contacts: (c.coordonnees ?? []).map((k, i) => ({ id: i + 1, sorte: k.sorte, affichage: k.valeur, libelle: k.libelle })),
   };
 }
-const nomDeCarte = (c: ChampsSaisis): string => [c.civilite, (c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' ');
+export const nomDeCarte = (c: ChampsSaisis): string => [c.civilite, (c.nom ?? '').toUpperCase(), c.prenom].filter((x) => x).join(' ');
 
 /** L'étiquette de la carte, avec les teintes des cartes de la Gestion (`cp-role--…`). */
 export function BadgeCarte({ cote, sorte }: { cote: CoteCarte; sorte: SorteCarte }) {
@@ -57,7 +60,7 @@ export function BadgeCarte({ cote, sorte }: { cote: CoteCarte; sorte: SorteCarte
   return <span className={`cp-role cp-role--${ton}`} data-badge={sorte}>{sorte === 'contact' ? BADGE_CONTACT[cote] : BADGE_CLIENT[cote]}</span>;
 }
 
-export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait = false }: {
+export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait = false, sousContact }: {
   cote: CoteCarte; onChange: (e: EtatCartes) => void;
   /**
    * Arno (20/10/2026) — « Ajouter un garant » : chaque nouvelle valeur de `n` ouvre une carte « Contact du … » avec cette
@@ -70,6 +73,8 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
    * « Supprimer » une annexe). Absent : « Retirer » agit comme avant (écran « Créer un nouveau propriétaire »).
    */
   confirmerRetrait?: boolean;
+  /** Arno (20/10/2026, 393) : sous une carte contact validée, son rattachement (« Garantit : », « Contact de : »). */
+  sousContact?: (cle: number, champs: ChampsSaisis) => React.ReactNode;
 }) {
   const [cartes, setCartes] = useState<Carte[]>([{ cle: 1, sorte: 'client', champs: null, ouverte: true, doublons: [] }]);
   const [existants, setExistants] = useState<{ id: number; nom: string }[]>([]);
@@ -110,10 +115,11 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
   }, [demandeContact]);
 
   useEffect(() => {
+    const clients = cartes.filter((c) => c.sorte === 'client' && c.champs !== null && !c.ouverte);
+    const contacts = cartes.filter((c) => c.sorte === 'contact' && c.champs !== null && !c.ouverte);
     onChange({
-      clients: cartes.filter((c) => c.sorte === 'client' && c.champs !== null && !c.ouverte).map((c) => c.champs as ChampsSaisis),
-      contacts: cartes.filter((c) => c.sorte === 'contact' && c.champs !== null && !c.ouverte).map((c) => c.champs as ChampsSaisis),
-      existants, ouvertes: cartes.filter((c) => c.ouverte).length,
+      clients: clients.map((c) => c.champs as ChampsSaisis), contacts: contacts.map((c) => c.champs as ChampsSaisis),
+      existants, ouvertes: cartes.filter((c) => c.ouverte).length, clesClients: clients.map((c) => c.cle), clesContacts: contacts.map((c) => c.cle),
     });
   }, [cartes, existants, onChange]);
 
@@ -195,6 +201,7 @@ export function SaisieCartes({ cote, onChange, demandeContact, confirmerRetrait 
                 {c.sorte === 'client' && (c.champs.adresse || c.champs.commune)
                   ? <span>{[c.champs.adresse, [c.champs.codePostal, c.champs.commune].filter((x) => x).join(' ')].filter((x) => x).join(', ')}</span> : null}
                 <span>{(c.champs.coordonnees ?? []).map((k) => k.valeur).join(' · ')}</span>
+                {c.sorte === 'contact' && sousContact !== undefined ? sousContact(c.cle, c.champs) : null}
                 <div className="loc-boutons">
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => changer(c.cle, (x) => ({ ...x, ouverte: true }))}>Modifier</button>
                   <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => (confirmerRetrait ? setARetirer(c.cle) : retirer(c))}>Retirer cette carte</button>

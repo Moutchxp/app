@@ -26,6 +26,9 @@ import { etageFr } from './sortieLocataires';
 import { verifierConditions, type ConditionsEntree } from './conditionsEntree';
 import { conditionsEntreeDisponible, enregistrerConditionsEntreeDans } from './conditionsEntreeRepo';
 import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
+import { bailDisponible, creerBailDans, garantsDisponibles } from './bailRepo';
+import { verifierRattachements, type RattachementContact } from './rattachements';
+import { ecrireRattachements } from './rattachementsRepo';
 import { ecrireLoyerDans, loyerDeLaSaisie } from './loyerEntreeRepo';
 import type { LoyerMensuel } from './conditionsEntree';
 import { honorairesGestionDisponible } from '../gestion/schema';
@@ -784,7 +787,13 @@ export async function creerLocatairesSurBien(o: {
    * l'occupation du logement au premier locataire (les autres occupations du bail sont couvertes). Facultatif.
    */
   loyer?: unknown;
-}, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null; recap: string[]; reintegrations: string[]; entretienRefus: string | null }>> {
+  /**
+   * Arno (20/10/2026, migration 393) — à qui se rattache chaque contact (même ordre que `contacts`) : `garantit` (rangs des
+   * locataires garantis) pour un garant, `locataire` (rang) pour un autre contact. Un seul locataire : d'office.
+   */
+  rattachements?: unknown;
+}, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null; recap: string[]; reintegrations: string[];
+  entretienRefus: string | null; bailId?: number | null; rattaches?: number; dateBaremeSupposee?: boolean }>> {
   if (o.lotId === null) return { etat: 'refus', motif: 'Choisissez le bien loué.' };
   const cartes = o.cartes.slice(0, 12);
   const existants = [...new Set(o.existants)].slice(0, 12);
@@ -797,6 +806,14 @@ export async function creerLocatairesSurBien(o: {
   if (!(await familleAUneCarteComplete('locataire', cartes, existants))) return { etat: 'refus', motif: MOTIF_PREMIERE_CARTE };
   const refusC = refusContacts(o.contacts);
   if (refusC !== null) return { etat: 'refus', motif: refusC };
+  // Les rattachements des contacts, jugés avant toute écriture (sans la 393 : rien à rattacher, comme avant).
+  const avecRattachements = await garantsDisponibles();
+  let rattachements: RattachementContact[] = [];
+  if (avecRattachements) {
+    const r = verifierRattachements(o.rattachements, o.contacts, cartes.length + existants.length);
+    if (!r.ok) return { etat: 'refus', motif: r.motif };
+    rattachements = r.valeurs;
+  }
   // Les conditions d'entrée et l'entretien : jugés AVANT la première écriture (une fiche créée ne reste jamais orpheline d'un refus).
   let conditions: ConditionsEntree | null = null;
   if (o.conditions !== undefined) {
@@ -843,6 +860,7 @@ export async function creerLocatairesSurBien(o: {
   /* 🔴 L'ENTRÉE DES LOCATAIRES SUR LES LOTS COCHÉS, LES FICHES AUTONOMES ET LA RÉINTÉGRATION : UNE SEULE TRANSACTION.
      LIRE (la fiche, ses lots verrouillés) → REFUSER (le plan a changé : un lot a été loué entre-temps) → ÉCRIRE. */
   const lotId = o.lotId;
+  const avecBail = await bailDisponible();
   const issue = await withTransaction(async (q) => {
     const fiche = await lireFiche(q, lotId, true);
     if (fiche === null) return { ok: false as const, motif: 'Ce bien n’existe plus.' };
@@ -852,9 +870,11 @@ export async function creerLocatairesSurBien(o: {
     // L'occupation qui portera le loyer : le logement (le bien choisi, sinon le premier lot loué), au premier locataire.
     const lotDuLoyer = plan.plan.lotsLoues.includes(lotId) ? lotId : plan.plan.lotsLoues[0];
     let occupationDuLoyer: number | null = null;
+    // Arno (20/10/2026, 393) : LE BAIL, une fiche — créé ici, sur le bien loué ; chaque occupation de cette entrée le rejoint.
+    const bailId = avecBail ? await creerBailDans(q, lotDuLoyer, entree) : null;
     for (const id of [...ids, ...existants]) {
       for (const l of plan.plan.lotsLoues) {
-        const occ = await ajouterOccupantDans(q, l, id, entree, auteur);
+        const occ = await ajouterOccupantDans(q, l, id, entree, auteur, bailId);
         if (occ === null) return { ok: false as const, motif: 'Un des lots n’existe plus.' };
         occupations.push(occ);
         if (occupationDuLoyer === null && l === lotDuLoyer) occupationDuLoyer = occ;
@@ -862,15 +882,23 @@ export async function creerLocatairesSurBien(o: {
     }
     if (loyer !== null && occupationDuLoyer !== null) await ecrireLoyerDans(q, occupationDuLoyer, lotDuLoyer, loyer, auteur);
     // Une entrée = UN jeu de conditions, porté par toutes les occupations qu'elle vient de créer (migration 391).
-    if (conditions !== null) await enregistrerConditionsEntreeDans(q, occupations, lotId, conditions, honoraires, auteur);
+    if (conditions !== null) await enregistrerConditionsEntreeDans(q, occupations, lotId, conditions, honoraires, auteur, bailId);
     const recap = await appliquerPlan(q, fiche, plan.plan, auteur);
     const reintegrations = await reintegrerSiComplet(q, plan.plan.lotsLoues, auteur);
-    return { ok: true as const, recap, reintegrations };
+    return { ok: true as const, recap, reintegrations, bailId };
   });
   if (!issue.ok) {
     return { etat: 'refus', motif: ids.length === 0 ? issue.motif : `Les fiches sont créées, mais le rattachement au bien a échoué : ${issue.motif}` };
   }
   const c = await creerContactsDuBien(o.lotId, 'locataire', o.contacts, auteur);
+  // Les garants et contacts rattachés au bail / aux locataires (393). Un échec ne défait rien : la carte reste visible côté bien,
+  // « à rattacher à un locataire ».
+  let rattaches = 0;
+  let rattachementsRefus: string | null = null;
+  if (c.ok && avecRattachements && issue.bailId !== null) {
+    rattaches = await ecrireRattachements(issue.bailId, c.carteIds.map((carteId, i) => ({ carteId, r: rattachements[i] })).filter((x) => x.r !== undefined),
+      [...ids, ...existants], auteur).catch((e: unknown) => { rattachementsRefus = e instanceof Error ? e.message : 'erreur'; return 0; });
+  }
   // L'entretien est la donnée du BIEN : la même écriture que sa fiche (journalisée seulement si elle change). Jamais bloquant.
   let entretienRefus: string | null = null;
   if (o.entretien !== undefined) {
@@ -878,8 +906,12 @@ export async function creerLocatairesSurBien(o: {
       .catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
     if (!r.ok) entretienRefus = `Le locataire est créé, mais l’entretien à prévoir du bien n’a pas été enregistré : ${r.motif}`;
   }
-  return { etat: 'ok', data: { locataireIds: [...ids, ...existants], contacts: c.ok ? c.n : 0, contactsRefus: c.ok ? null : `Les locataires sont créés, mais : ${c.motif}`,
-    recap: issue.recap, reintegrations: issue.reintegrations, entretienRefus } };
+  return { etat: 'ok', data: { locataireIds: [...ids, ...existants], contacts: c.ok ? c.n : 0,
+    contactsRefus: !c.ok ? `Les locataires sont créés, mais : ${c.motif}`
+      : rattachementsRefus !== null ? `Les contacts sont créés, mais leur rattachement aux locataires a échoué (à rattacher à la main) : ${rattachementsRefus}` : null,
+    recap: issue.recap, reintegrations: issue.reintegrations, entretienRefus, bailId: issue.bailId, rattaches,
+    // Arno (20/10/2026, faille 7) : sans date d'entrée, le barème du jour a servi — l'écran le dit (jamais bloquant).
+    dateBaremeSupposee: honoraires !== null && honoraires.dateSupposee } };
 }
 
 /** La fiche d'un syndic, telle que la Gestion la connaît (mêmes données, aucune copie). */

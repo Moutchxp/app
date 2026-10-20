@@ -26,6 +26,7 @@ import {
   manquesConditions, versEnvoiConditions, versSaisieConditions, type ConditionsEntreeLues, type SaisieConditions,
 } from '../../../../lib/location/conditionsEntree';
 import { QuestionOrigine } from '../location/QuestionOrigine';
+import type { ContactRattache } from '../../../../lib/location/rattachements';
 import { aujourdhuiParisEcran, CSS_PREAVIS, GestesPreavis, MentionPreavis } from '../location/Preavis';
 import type { PreavisAffiche } from '../../../../lib/location/preavis';
 import { libelleBien, phraseArchivage, type ApercuArchivage, type OrigineArchivage } from '../../../../lib/location/archivage';
@@ -859,6 +860,7 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
               )}
             </section>
             <EncartConditionsEntree d={d} modifiable={d.fiche.modifiable} apres={relire} ouvrir={ouvrir} />
+            <GarantsEtContacts contacts={d.contactsRattaches ?? null} />
             <BlocPreavis apres={relire} lignes={liste(d.preavis).map((x) => {
               const l = liste(d.locations).find((y) => y.occupationId === x.occupationId);
               return { cle: x.occupationId, entree: l?.entree ?? null, p: x.preavis,
@@ -899,6 +901,13 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
   const [tente, setTente] = useState(false);
   const [motif, setMotif] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  /* Arno (20/10/2026, faille 8) — des honoraires enregistrés SANS surface, et la surface Carrez/Boutin du bien connue depuis :
+     « Calculer les honoraires avec la surface actuelle » (barème de la date d'entrée) montre le résultat ; seul « Enregistrer »
+     l'écrit. Rien n'est jamais recalculé automatiquement. */
+  const [recalcul, setRecalcul] = useState<CalculHonoraires | null>(null);
+  const [recalculMotif, setRecalculMotif] = useState<string | null>(null);
+  const surfaceConnue = c.surfaceActuelle !== null && c.surfaceActuelle !== undefined && Number(c.surfaceActuelle) > 0;
+  const proposerRecalcul = c.honoraires?.etat === 'surface_manquante' && surfaceConnue;
   // Le bail se présente par son logement : la première location de la fiche qui en fait partie.
   const l = liste(d.locations).find((x) => c.occupationIds.includes(x.occupationId));
   const manque = saisie === null ? {} : manquesConditions(versEnvoiConditions(saisie));
@@ -908,10 +917,22 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
     setTente(true);
     if (Object.keys(manque).length > 0) { setMotif(`Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`); return; }
     setEnvoi(true);
-    const m = await envoyer({ action: 'conditions-entree', occupationId: l.occupationId, conditions: versEnvoiConditions(saisie) });
+    const m = await envoyer({ action: 'conditions-entree', occupationId: l.occupationId, conditions: versEnvoiConditions(saisie),
+      ...(recalcul !== null ? { recalculerHonoraires: true } : {}) });
     setEnvoi(false);
     if (m !== null) { setMotif(m); return; }
-    setSaisie(null); setTente(false); setMotif(null); apres();
+    setSaisie(null); setTente(false); setMotif(null); setRecalcul(null); apres();
+  };
+  const calculer = async (): Promise<void> => {
+    if (l === undefined || l.lotId === null) return;
+    setRecalculMotif(null);
+    const date = l.entree !== null && /^\d{4}-\d{2}-\d{2}$/.test(l.entree) ? `&entree=${l.entree}` : '';
+    const r = await fetch(`/api/admin/location?honorairesProprietaire=${l.lotId}${date}`, { cache: 'no-store' })
+      .then((x) => x.json() as Promise<{ etat?: string; data?: CalculHonoraires }>).catch(() => null);
+    if (r === null || r.etat !== 'ok' || r.data === undefined) { setRecalculMotif('Le calcul n’a pas pu être fait : réessayez.'); return; }
+    if (r.data.etat !== 'ok') { setRecalculMotif(`${r.data.motif} : rien n’est recalculé.`); return; }
+    setRecalcul(r.data);
+    setSaisie(versSaisieConditions(c.conditions, c.loyer ?? null));
   };
   return (
     <div className="loc-cond-bail" data-conditions-bail={c.bailCle}>
@@ -932,25 +953,61 @@ function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEn
           {modifiable && l !== undefined && (
             <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSaisie(versSaisieConditions(c.conditions, c.loyer ?? null))} data-modifier-conditions>Modifier</button>
+              {proposerRecalcul && l.lotId !== null && (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { void calculer(); }} data-recalculer-honoraires>
+                  Calculer les honoraires avec la surface actuelle</button>
+              )}
             </div>
           )}
+          {recalculMotif !== null && <p className="cp-refus" role="alert">{recalculMotif}</p>}
         </>
       ) : (
         <>
           {/* Les honoraires propriétaire : ceux CALCULÉS À L'ENTRÉE, relus (jamais recalculés après coup). */}
+          {recalcul !== null && (
+            <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} role="status" data-recalcul-apercu>
+              Honoraires recalculés avec la surface actuelle ({recalcul.etat === 'ok' ? `${recalcul.surface.replace('.', ',')} m²` : ''}) au barème
+              du {formaterDateIso(recalcul.date)} : rien n’est enregistré tant que vous n’avez pas cliqué « Enregistrer ».</p>
+          )}
           <BlocConditionsEntree valeur={saisie} onChange={(v) => { setSaisie(v); setMotif(null); }} manque={manqueDe}
-            honoraires={{ calcul: c.honoraires ?? null, lienBien: null }} dateEntree={l?.entree ?? null} />
+            honoraires={{ calcul: recalcul ?? c.honoraires ?? null, lienBien: null }} dateEntree={l?.entree ?? null} />
           {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
           <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
             <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrer(); }} data-enregistrer-conditions>
               {envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setSaisie(null); setTente(false); setMotif(null); }}>Annuler</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setSaisie(null); setTente(false); setMotif(null); setRecalcul(null); }}>Annuler</button>
           </div>
         </>
       )}
     </div>
   );
 }
+
+/**
+ * Arno (20/10/2026, 393) — LES GARANTS ET CONTACTS DU LOCATAIRE, sous ses locations : un garant dit qui il garantit (une
+ * colocation : tous les colocataires garantis), un contact dit de qui il est le contact. Lecture seule ; rien sans la 393.
+ */
+function GarantsEtContacts({ contacts }: { contacts: ContactRattache[] | null }) {
+  if (contacts === null) return null;
+  return (
+    <section className="loc-bloc" data-garants-contacts>
+      <h3>Garants et contacts</h3>
+      {contacts.length === 0 ? <p className="loc-muet" style={{ margin: 0 }}>Aucun garant ni contact rattaché à ce locataire.</p> : (
+        <ul className="loc-liste">
+          {contacts.map((x) => (
+            <li key={x.carteId} data-contact-rattache={x.carteId} style={{ display: 'block' }}>
+              <strong>{x.nom}</strong>{x.qualite ? <span className="loc-muet"> · {x.qualite}</span> : null}
+              <span className="loc-muet"> — {x.mot}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Le calcul des honoraires propriétaire, tel que les conditions d'entrée le portent. */
+type CalculHonoraires = NonNullable<ConditionsEntreeLues['honoraires']>;
 
 const CSS_SECTIONS = `
 .loc-cond-bail{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-top:1px solid var(--color-svv-line)}

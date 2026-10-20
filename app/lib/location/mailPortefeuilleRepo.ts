@@ -8,6 +8,7 @@ import { messageIdDemande } from '../gestion/acceptationTache';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { honorairesMensuels, tvaEnVigueur, type BaseHonoraires } from '../gestion/honorairesGestion';
 import { lireReglages } from '../gestion/honorairesGestionRepo';
+import { bailDisponible, sqlConditionsDe } from './bailRepo';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
 import { familleDeCategorie, LIBELLE_FAMILLE, LIBELLE_TYPE_LOGEMENT, type TypeLogement } from './bienComplet';
@@ -108,11 +109,14 @@ export async function donneesDuMail(ev: EvenementPortefeuille, auteur: { nom: st
       .filter((x) => x !== null).join(' ');
 
   // Les locations : sortie = celles closes aujourd'hui par le geste ; entrée = celles en cours.
-  const { rows: occ } = await query<{ lot_id: string; locataire: string; sortie: string | null; loyer_hc: string | null; provisions: string | null; taux: string | null; base: BaseHonoraires | null }>(
-    `SELECT o.lot_id::text, l.nom AS locataire, o.sortie::text, c.loyer_hc::text, c.provisions::text, c.taux_gestion_ht::text AS taux, c.base
+  // Arno (20/10/2026, 393) : le loyer est celui du BAIL — compté UNE fois par bail (`cle`), jamais une fois par colocataire.
+  const avecBail = await bailDisponible();
+  const { rows: occ } = await query<{ lot_id: string; locataire: string; sortie: string | null; loyer_hc: string | null; provisions: string | null; taux: string | null; base: BaseHonoraires | null; cle: string }>(
+    `SELECT o.lot_id::text, l.nom AS locataire, o.sortie::text, c.loyer_hc::text, c.provisions::text, c.taux_gestion_ht::text AS taux, c.base,
+            ${avecBail ? "coalesce('b' || o.bail_id::text, 'o' || o.id::text)" : "'o' || o.id::text"} AS cle
        FROM gestion_annuaire_occupation o
        JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
-       LEFT JOIN LATERAL (SELECT * FROM gestion_location_conditions x WHERE x.occupation_id = o.id ORDER BY x.id DESC LIMIT 1) c ON true
+       LEFT JOIN LATERAL (SELECT * FROM gestion_location_conditions x WHERE ${sqlConditionsDe('x', 'o', avecBail)} ORDER BY x.id DESC LIMIT 1) c ON true
       WHERE o.lot_id = ANY($1::bigint[]) AND ${ev.sens === 'sortie' ? `o.sortie = ${SQL_AUJOURDHUI_PARIS}` : 'o.sortie IS NULL'}
       ORDER BY o.id`, [ids]).catch(() => ({ rows: [] }));
   const reglages = await lireReglages().catch(() => ({ tauxDefautHt: 0, baseDefaut: 'cc' as BaseHonoraires, tva: [] }));
@@ -124,7 +128,8 @@ export async function donneesDuMail(ev: EvenementPortefeuille, auteur: { nom: st
     const sesOcc = occ.filter((o) => groupe.includes(o.lot_id));
     // Valorisation : par location de ce lot (et de ses annexes), loyer de départ × taux — les règles de l'écran Honoraires.
     let loyer: number | null = null; let taux: number | null = null; let mensuel: number | null = null; let complet = sesOcc.length > 0;
-    for (const o of sesOcc) {
+    const parBail = [...new Map(sesOcc.map((o) => [o.cle, o])).values()];
+    for (const o of parBail) {
       const base: BaseHonoraires = o.base ?? reglages.baseDefaut;
       const tauxHt = num(o.taux);
       const assietteLoyer = num(o.loyer_hc);

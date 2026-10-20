@@ -80,6 +80,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 390 : « Bien en gestion ? » propre à chaque bien (tuile Location, 20/10/2026).
   // 391 : conditions d'entrée d'un bail, écran « Nouveau locataire » (tuile Location, 20/10/2026).
   // 392 : jours de prélèvement 1/5/10/15, honoraires propriétaire (barèmes datés, zone très tendue) (tuile Location, 20/10/2026).
+  // 393 : le bail devient une fiche ; garants et contacts rattachés ; verrou ni DELETE ni TRUNCATE (Location / Gestion, 20/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -89,7 +90,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '381_location_origine_sortie_bien.sql', '382_location_dpe_non_soumis.sql', '383_location_preavis.sql', '384_location_etat_des_lieux.sql',
     '385_location_edls.sql', '386_location_regroupement.sql', '387_gestion_rapprochement_dossiers.sql',
     '388_gestion_dossier_attitre_bien.sql', '389_gestion_drive_noeud.sql', '390_location_bien_en_gestion.sql',
-    '391_location_conditions_entree.sql', '392_location_honoraires_proprietaire.sql'];
+    '391_location_conditions_entree.sql', '392_location_honoraires_proprietaire.sql', '393_location_bail_rattachements.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -102,7 +103,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 392 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 393 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -112,14 +113,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (393)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (394)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(392\)/);
-    const renumerotee = planifier([...existants, { fichier: '393_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(393\)/);
+    const renumerotee = planifier([...existants, { fichier: '394_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['393_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['394_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -636,5 +637,31 @@ describe('392 (Location : jours 1/5/10/15, honoraires propriétaire, barèmes da
     expect(contenu).toMatch(/IF to_regclass\('gestion_zone_tendue'\) IS NOT NULL THEN/);
     expect(contenu).toMatch(/code IN \('75', '92', '93', '94'\)/);
     expect(contenu).toMatch(/à vérifier/);
+  });
+});
+
+describe('393 (Location / Gestion : le bail, les garants et contacts rattachés, le verrou) : une seule migration, non appliquée', () => {
+  const contenu = lire(MIGRATIONS, '393_location_bail_rattachements.sql');
+  const a = analyserMigration({ fichier: '393_location_bail_rattachements.sql', contenu });
+  it('passe le garde, enveloppée ; deux tables neuves (le bail, les garants)', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect([...a.tablesCreees].sort()).toEqual(['gestion_bail', 'gestion_bail_garant']);
+  });
+  it('aucune ligne supprimée ; pas de table temporaire (marche aussi lancée telle quelle, psql -f) ; anciennes colonnes gardées, dites obsolètes', () => {
+    expect(contenu).not.toMatch(/^\s*(DELETE|TRUNCATE)\b/im);
+    expect(contenu).not.toMatch(/TEMP(ORARY)? TABLE/i);
+    expect(contenu).not.toMatch(/DROP COLUMN/i);
+    expect(contenu).toMatch(/COMMENT ON COLUMN gestion_location_conditions\.occupation_id IS '[^']*OBSOLÈTE/i);
+    expect(contenu).toMatch(/COMMENT ON COLUMN gestion_contact_carte\.lot_cle IS '[^']*OBSOLÈTE/i);
+  });
+  it('🔴 le verrou : ni DELETE (par instruction) ni TRUNCATE, sur les treize tables, sans exemption de base jetable ; CASCADE → RESTRICT', () => {
+    for (const t of ['gestion_annuaire_proprietaire', 'gestion_annuaire_lot', 'gestion_annuaire_lot_proprietaire', 'gestion_bail', 'gestion_annuaire_occupation',
+      'gestion_annuaire_locataire', 'gestion_annuaire_contact', 'gestion_contact_carte', 'gestion_bail_garant', 'gestion_location_conditions_entree',
+      'gestion_location_conditions', 'gestion_lot_entretien', 'gestion_lot_annexe']) expect(contenu).toContain(`'${t}'`);
+    expect(contenu).toMatch(/BEFORE DELETE ON %I FOR EACH STATEMENT/);
+    expect(contenu).toMatch(/BEFORE TRUNCATE ON %I FOR EACH STATEMENT/);
+    expect(contenu).not.toMatch(/gestion_jetable|svav_test/);
+    expect(contenu).toMatch(/REFERENCES gestion_annuaire_locataire\(id\) ON DELETE RESTRICT/);
   });
 });

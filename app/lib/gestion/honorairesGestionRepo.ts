@@ -7,6 +7,7 @@ import {
   type BaseHonoraires, type ConditionsLocation, type LocationAffichee, type LocationPourHonoraires,
 } from './honorairesGestion';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
+import { bailDisponible, sqlConditionsDe } from '../location/bailRepo';
 
 /**
  * ══ 🔴🔴 LOT L1 — LE DÉPÔT DES HONORAIRES DE GESTION. IMPUR (base). ════════════════════════════════════════════════
@@ -56,31 +57,36 @@ export async function locationsAffichees(occupationIds: readonly number[]): Prom
   const out = new Map<number, LocationAffichee>();
   if (occupationIds.length === 0 || !(await honorairesGestionDisponible())) return out;
   const reglages = await lireReglages();
+  // Arno (20/10/2026, 393) : le loyer de départ est celui du BAIL — lu par le bail, partagé par ses colocataires.
+  const avecBail = await bailDisponible();
   const { rows } = await query<{
     occupation_id: string; loyer_hc: string | null; provisions: string | null; taux_gestion_ht: string | null;
     base: BaseHonoraires | null; origine: 'saisie' | 'reprise' | null; saisi_le: string | null;
     saisi_par_libelle: string | null; versions: number; taux_wippimmo: string | null; taux_precedent: string | null;
-    aujourdhui: string;
+    aujourdhui: string; partage: string[] | null;
   }>(
     `SELECT o.id::text AS occupation_id, c.loyer_hc::text, c.provisions::text, c.taux_gestion_ht::text, c.base,
             c.origine, c.saisi_le::text, c.saisi_par_libelle,
-            (SELECT count(*)::int FROM gestion_location_conditions x WHERE x.occupation_id = o.id) AS versions,
+            (SELECT count(*)::int FROM gestion_location_conditions x WHERE ${sqlConditionsDe('x', 'o', avecBail)}) AS versions,
+            ${avecBail ? `(SELECT array_agg(DISTINCT l3.nom ORDER BY l3.nom) FROM gestion_annuaire_occupation o3
+                             JOIN gestion_annuaire_locataire l3 ON l3.id = o3.locataire_id
+                            WHERE o3.bail_id = o.bail_id AND o3.locataire_id <> o.locataire_id)` : 'NULL::text[]'} AS partage,
             lo.taux_honos_wippimmo::text AS taux_wippimmo,
             pr.taux_gestion_ht::text AS taux_precedent,
             (${SQL_AUJOURDHUI_PARIS})::text AS aujourdhui
        FROM gestion_annuaire_occupation o
        LEFT JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
        LEFT JOIN LATERAL (
-         SELECT * FROM gestion_location_conditions x WHERE x.occupation_id = o.id ORDER BY x.id DESC LIMIT 1
+         SELECT * FROM gestion_location_conditions x WHERE ${sqlConditionsDe('x', 'o', avecBail)} ORDER BY x.id DESC LIMIT 1
        ) c ON true
        LEFT JOIN LATERAL (
          SELECT y.taux_gestion_ht
            FROM gestion_annuaire_occupation o2
            JOIN LATERAL (
              SELECT z.taux_gestion_ht FROM gestion_location_conditions z
-              WHERE z.occupation_id = o2.id ORDER BY z.id DESC LIMIT 1
+              WHERE ${sqlConditionsDe('z', 'o2', avecBail)} ORDER BY z.id DESC LIMIT 1
            ) y ON true
-          WHERE o2.lot_id = o.lot_id AND o2.id <> o.id
+          WHERE o2.lot_id = o.lot_id AND o2.id <> o.id${avecBail ? ' AND o2.bail_id IS DISTINCT FROM o.bail_id' : ''}
             AND (o.entree IS NULL OR o2.entree IS NULL OR o2.entree <= o.entree)
           ORDER BY o2.entree DESC NULLS LAST, o2.id DESC
           LIMIT 1
@@ -102,6 +108,7 @@ export async function locationsAffichees(occupationIds: readonly number[]): Prom
       }),
       baseProposee: reglages.baseDefaut,
       tvaPct: tvaEnVigueur(reglages.tva, r.aujourdhui),
+      partageAvec: r.partage ?? [],
     });
   }
   return out;
@@ -124,19 +131,24 @@ export async function enregistrerConditions(
   const verdict = verifierConditions(brut);
   if (!verdict.ok) return { etat: 'refus', motif: verdict.motif };
   const v = verdict.valeurs;
+  const avecBail = await bailDisponible();
   const faire = async (t: RequeteTx): Promise<IssueConditions> => {
-    const { rows } = await t<{ locataire_id: string; lot_id: string | null }>(
-      'SELECT locataire_id::text, lot_id::text FROM gestion_annuaire_occupation WHERE id = $1', [occupationId]);
+    const { rows } = await t<{ locataire_id: string; lot_id: string | null; bail_id: string | null }>(
+      `SELECT locataire_id::text, lot_id::text, ${avecBail ? 'bail_id::text' : 'NULL::text'} AS bail_id
+         FROM gestion_annuaire_occupation WHERE id = $1`, [occupationId]);
     const o = rows[0];
     if (o === undefined) return { etat: 'inconnu' };
+    // Arno (20/10/2026, 393) : le loyer est porté par le BAIL — une seule donnée pour tous ses occupants. Une occupation
+    // sans bien (hors gestion) garde l'ancienne règle (sa propre ligne).
+    const bailId = o.bail_id === null ? null : Number(o.bail_id);
     const { rows: avant } = await t<{ loyer_hc: string | null; provisions: string | null; taux: string; base: string }>(
       `SELECT loyer_hc::text, provisions::text, taux_gestion_ht::text AS taux, base FROM gestion_location_conditions
-        WHERE occupation_id = $1 ORDER BY id DESC LIMIT 1`, [occupationId]);
+        WHERE ${bailId !== null ? 'bail_id = $1' : 'occupation_id = $1'} ORDER BY id DESC LIMIT 1`, [bailId ?? occupationId]);
     await t(
       `INSERT INTO gestion_location_conditions
-         (occupation_id, loyer_hc, provisions, taux_gestion_ht, base, origine, saisi_par, saisi_par_libelle)
+         (${bailId !== null ? 'bail_id' : 'occupation_id'}, loyer_hc, provisions, taux_gestion_ht, base, origine, saisi_par, saisi_par_libelle)
        VALUES ($1, $2, $3, $4, $5, 'saisie', $6, $7)`,
-      [occupationId, v.loyerHc, v.provisions, v.tauxHt, v.base, auteur.id, auteur.libelle]);
+      [bailId ?? occupationId, v.loyerHc, v.provisions, v.tauxHt, v.base, auteur.id, auteur.libelle]);
     const decrire = (x: { loyer_hc: string | null; provisions: string | null; taux: string; base: string }): string =>
       `loyer ${x.loyer_hc ?? 'à saisir'} HC + provisions ${x.provisions ?? '—'} · taux ${x.taux} % HT · base ${x.base}`;
     await t(
@@ -162,19 +174,28 @@ export async function enregistrerConditions(
  */
 export async function lireLocationsPourHonoraires(debut: string, fin: string): Promise<LocationPourHonoraires[] | null> {
   if (!(await honorairesGestionDisponible())) return null;
+  /* Arno (20/10/2026, 393) — LE LOYER DU BAIL N'EST JAMAIS COMPTÉ DEUX FOIS : une seule occupation du bail le PORTE (celle qui
+     court le plus longtemps : en place d'abord, puis la sortie la plus tardive, puis la plus ancienne) ; les autres sont
+     couvertes par la clé du bail (`calculerHonoraires`). */
+  const avecBail = await bailDisponible();
+  const porteuse = avecBail
+    ? ` AND (o.bail_id IS NULL OR o.id = (SELECT o4.id FROM gestion_annuaire_occupation o4 WHERE o4.bail_id = o.bail_id
+          ORDER BY (o4.sortie IS NULL) DESC, o4.sortie DESC NULLS LAST, o4.id LIMIT 1))`
+    : '';
   const { rows } = await query<{
     occupation_id: string; lot_id: string; lot_numero: string; adresse: string | null; commune: string | null;
     nature: string | null; type_bien: string | null; locataire: string; entree: string | null; sortie: string | null;
-    loyer_hc: string | null; provisions: string | null; taux_gestion_ht: string | null; base: BaseHonoraires | null;
+    loyer_hc: string | null; provisions: string | null; taux_gestion_ht: string | null; base: BaseHonoraires | null; bail_id: string | null;
   }>(
     `SELECT o.id::text AS occupation_id, lo.id::text AS lot_id, lo.wippimmo_id AS lot_numero, lo.adresse, lo.commune,
             lo.nature, lo.type_bien, l.nom AS locataire, o.entree::text, o.sortie::text,
-            c.loyer_hc::text, c.provisions::text, c.taux_gestion_ht::text, c.base
+            c.loyer_hc::text, c.provisions::text, c.taux_gestion_ht::text, c.base,
+            ${avecBail ? 'o.bail_id::text' : 'NULL::text'} AS bail_id
        FROM gestion_annuaire_occupation o
        JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
        JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
        LEFT JOIN LATERAL (
-         SELECT * FROM gestion_location_conditions x WHERE x.occupation_id = o.id ORDER BY x.id DESC LIMIT 1
+         SELECT * FROM gestion_location_conditions x WHERE ${sqlConditionsDe('x', 'o', avecBail)}${porteuse} ORDER BY x.id DESC LIMIT 1
        ) c ON true
       WHERE (o.entree IS NULL OR o.entree <= $2::date)
         AND (o.sortie IS NULL OR o.sortie >= $1::date)`, [debut, fin]);
@@ -212,6 +233,7 @@ export async function lireLocationsPourHonoraires(debut: string, fin: string): P
     conditions: r.taux_gestion_ht === null || r.base === null ? null : {
       loyerHc: num(r.loyer_hc), provisions: num(r.provisions), tauxHt: Number(r.taux_gestion_ht), base: r.base,
     },
+    bailId: r.bail_id === null ? null : Number(r.bail_id),
     proprietaires: proprietaires.get(r.lot_id) ?? [],
   }));
 }
@@ -300,13 +322,17 @@ export async function reprendreTauxWippimmo(o: {
         [t.wippimmoId, t.tauxHonos, t.baseHonos]);
       tauxLots += r.rowCount ?? 0;
     }
-    const { rows } = await q<{ id: string; deja: boolean; taux: string | null; base: string | null }>(
+    // Arno (20/10/2026, 393) : une reprise PAR BAIL (sa première occupation en place), écrite sur le bail.
+    const avecBail = await bailDisponible();
+    const { rows } = await q<{ id: string; deja: boolean; taux: string | null; base: string | null; bail_id: string | null }>(
       `SELECT o.id::text,
-              EXISTS (SELECT 1 FROM gestion_location_conditions c WHERE c.occupation_id = o.id) AS deja,
-              lo.taux_honos_wippimmo::text AS taux, lo.base_honos_wippimmo AS base
+              EXISTS (SELECT 1 FROM gestion_location_conditions c WHERE ${sqlConditionsDe('c', 'o', avecBail)}) AS deja,
+              lo.taux_honos_wippimmo::text AS taux, lo.base_honos_wippimmo AS base,
+              ${avecBail ? 'o.bail_id::text' : 'NULL::text'} AS bail_id
          FROM gestion_annuaire_occupation o
          JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
         WHERE o.sortie IS NULL
+          ${avecBail ? 'AND (o.bail_id IS NULL OR o.id = (SELECT min(o2.id) FROM gestion_annuaire_occupation o2 WHERE o2.bail_id = o.bail_id AND o2.sortie IS NULL))' : ''}
         ORDER BY o.id`);
     const reglages = await lireReglages(q);
     const c: ComptesReprise = { tauxLots, enCours: rows.length, dejaPourvues: 0, reprises: 0, sansTauxWippimmo: 0 };
@@ -317,8 +343,8 @@ export async function reprendreTauxWippimmo(o: {
       const base: BaseHonoraires = r.base === null ? reglages.baseDefaut : r.base.includes('C') ? 'cc' : 'hc';
       await q(
         `INSERT INTO gestion_location_conditions
-           (occupation_id, loyer_hc, provisions, taux_gestion_ht, base, origine, saisi_par_libelle)
-         VALUES ($1, NULL, NULL, $2, $3, 'reprise', $4)`, [Number(r.id), r.taux, base, o.auteur]);
+           (${r.bail_id !== null ? 'bail_id' : 'occupation_id'}, loyer_hc, provisions, taux_gestion_ht, base, origine, saisi_par_libelle)
+         VALUES ($1, NULL, NULL, $2, $3, 'reprise', $4)`, [Number(r.bail_id ?? r.id), r.taux, base, o.auteur]);
       c.reprises += 1;
     }
     if (c.reprises > 0 || c.tauxLots > 0) {

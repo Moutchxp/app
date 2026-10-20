@@ -1025,6 +1025,11 @@ export interface BienDuProprietaire {
   /** `null` = en gestion. Une date = le bien est SORTI de gestion : il va dans « Anciens biens ». */
   fin: string | null;
   locataire: string | null; locataireId: number | null; locataireDepuis: string | null;
+  /**
+   * Arno (20/10/2026, faille 6) — INDIVISION : les AUTRES propriétaires du bien (le titulaire et les liens en cours de
+   * `gestion_annuaire_lot_proprietaire`). Vide = seul propriétaire. Absent = lecture d'avant.
+   */
+  indivisionAvec?: string[];
   /** Combien de mails sont rattachés à ce bien (rattachements confirmés), et le plus récent. */
   mails: number;
   dernierEchange: string | null;
@@ -1774,16 +1779,23 @@ async function sqlHorsGestion(alias: string): Promise<string> {
 
 async function biensDuProprietaire(proprietaireId: number): Promise<BienDuProprietaire[]> {
   const finAffichee = await sqlFinAffichee('lo');
+  /* Arno (20/10/2026, faille 6) : un bien en INDIVISION apparaît sur la fiche de CHAQUE copropriétaire — le titulaire
+     (`proprietaire_id`) et les liens EN COURS de `gestion_annuaire_lot_proprietaire` (sans fin, ou fin à venir). Sondé. */
+  const avecIndivision = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'jusqu_a');
   const { rows } = await query<{
     id: string; wippimmo_id: string; adresse: string | null; commune: string | null; code_postal: string | null;
     nature: string | null; type_bien: string | null; gestion_debut: string | null; gestion_fin: string | null;
     immeuble: string | null;
     locataire: string | null; locataire_id: string | null; locataire_depuis: string | null;
     mails: number; dernier_echange: string | null; evenements: number; dossier_bien?: string | null; dossier_proprietaire?: string | null;
-    hors_gestion: boolean;
+    hors_gestion: boolean; indivision: string[] | null;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin, ${await sqlHorsGestion('lo')} AS hors_gestion,
+            ${avecIndivision ? `(SELECT array_agg(DISTINCT px.nom_complet ORDER BY px.nom_complet) FROM gestion_annuaire_proprietaire px
+               WHERE px.id <> $1 AND px.nom_complet IS NOT NULL
+                 AND (px.id = lo.proprietaire_id OR px.id IN (SELECT lp.proprietaire_id FROM gestion_annuaire_lot_proprietaire lp
+                       WHERE lp.lot_id = lo.id AND (lp.jusqu_a IS NULL OR lp.jusqu_a >= ${SQL_JOUR_INDIVISION}))))` : 'NULL::text[]'} AS indivision,
             oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
             coalesce(ma.n, 0)::int AS mails,
             ${INSTANT('ma.dernier')} AS dernier_echange,
@@ -1834,7 +1846,9 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
           WHERE ${sqlEvenementOuvertParLaFrise('e')} AND r2.cible_sorte = 'lot' AND r2.cible_cle = lo.wippimmo_id
             AND r2.statut = 'confirme'
        ) ev ON true
-      WHERE lo.proprietaire_id = $1
+      WHERE lo.proprietaire_id = $1${avecIndivision ? `
+         OR EXISTS (SELECT 1 FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = lo.id AND lp.proprietaire_id = $1
+                     AND (lp.jusqu_a IS NULL OR lp.jusqu_a >= ${SQL_JOUR_INDIVISION}))` : ''}
       ORDER BY ((${finAffichee}) IS NOT NULL), lo.commune NULLS LAST, lo.adresse NULLS LAST, lo.wippimmo_id`,
     [proprietaireId]);
 
@@ -1850,8 +1864,12 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     mails: l.mails, dernierEchange: l.dernier_echange, evenementsOuverts: l.evenements,
     ...champsDossierDuBien(l, racine),
     horsGestion: l.hors_gestion === true,
+    indivisionAvec: l.indivision ?? [],
   }));
 }
+
+/** Le jour civil à Paris, pour borner un lien d'indivision (la fin est une date, incluse). */
+const SQL_JOUR_INDIVISION = `(now() AT TIME ZONE 'Europe/Paris')::date`;
 
 /**
  * ══ 🔴 LOT MODALE-RATTACHER-PROPRE — LA FICHE D'UN LOT PAR SA CLÉ WIPPIMMO ═══════════════════════════════════

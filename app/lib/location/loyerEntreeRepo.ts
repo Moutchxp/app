@@ -4,6 +4,7 @@ import { honorairesGestionDisponible } from '../gestion/schema';
 import { enregistrerConditions, lireReglages } from '../gestion/honorairesGestionRepo';
 import { proposerTaux } from '../gestion/honorairesGestion';
 import { enCentimes, eurosExacts, type LoyerMensuel } from './conditionsEntree';
+import { bailDisponible, sqlConditionsDe } from './bailRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE LOYER MENSUEL À L'ENTRÉE (Arno, 20/10/2026). IMPUR (base). ════════════════════════════════════
@@ -22,10 +23,11 @@ import { enCentimes, eurosExacts, type LoyerMensuel } from './conditionsEntree';
 /** Le loyer de départ déjà connu pour ce bien (la location la plus récente du lot qui en a un), pour pré-remplir. */
 export async function loyerConnuDuBien(lotId: number): Promise<(LoyerMensuel & { entree: string | null }) | null> {
   if (!(await honorairesGestionDisponible())) return null;
+  const avecBail = await bailDisponible();
   const { rows } = await query<{ loyer: string | null; provisions: string | null; entree: string | null }>(
     `SELECT c.loyer_hc::text AS loyer, c.provisions::text AS provisions, o.entree::text AS entree
        FROM gestion_annuaire_occupation o
-       JOIN LATERAL (SELECT x.loyer_hc, x.provisions FROM gestion_location_conditions x WHERE x.occupation_id = o.id ORDER BY x.id DESC LIMIT 1) c ON true
+       JOIN LATERAL (SELECT x.loyer_hc, x.provisions FROM gestion_location_conditions x WHERE ${sqlConditionsDe('x', 'o', avecBail)} ORDER BY x.id DESC LIMIT 1) c ON true
       WHERE o.lot_id = $1 AND c.loyer_hc IS NOT NULL
       ORDER BY o.entree DESC NULLS LAST, o.id DESC LIMIT 1`, [lotId]);
   const r = rows[0];
@@ -36,9 +38,12 @@ export async function loyerConnuDuBien(lotId: number): Promise<(LoyerMensuel & {
 /** Le loyer mensuel d'un bail (ses occupations) : la ligne de conditions la plus récente qui porte un loyer. */
 export async function loyerDesOccupations(occupationIds: readonly number[]): Promise<LoyerMensuel | null> {
   if (occupationIds.length === 0 || !(await honorairesGestionDisponible())) return null;
+  const avecBail = await bailDisponible();
   const { rows } = await query<{ loyer: string | null; provisions: string | null }>(
     `SELECT x.loyer_hc::text AS loyer, x.provisions::text AS provisions FROM gestion_location_conditions x
-      WHERE x.occupation_id = ANY($1::bigint[]) AND (x.loyer_hc IS NOT NULL OR x.provisions IS NOT NULL)
+      WHERE (x.occupation_id = ANY($1::bigint[])${avecBail
+        ? ' OR x.bail_id IN (SELECT o.bail_id FROM gestion_annuaire_occupation o WHERE o.id = ANY($1::bigint[]))' : ''})
+        AND (x.loyer_hc IS NOT NULL OR x.provisions IS NOT NULL)
       ORDER BY x.id DESC LIMIT 1`, [[...occupationIds]]);
   const r = rows[0];
   return r === undefined ? null : { principal: enCentimes(r.loyer) ?? null, provisions: enCentimes(r.provisions) ?? null };
@@ -47,13 +52,15 @@ export async function loyerDesOccupations(occupationIds: readonly number[]): Pro
 /** Le taux et la base que la carte « Location » proposerait pour ce lot (la même règle, `proposerTaux`). */
 async function tauxEtBaseProposes(q: RequeteTx, lotId: number, occupationId: number): Promise<{ taux: number; base: 'cc' | 'hc' }> {
   const reglages = await lireReglages(q);
+  const avecBail = await bailDisponible();
   const { rows } = await q<{ precedent: string | null; wippimmo: string | null; actuel: string | null; base_actuelle: string | null }>(
     `SELECT (SELECT y.taux_gestion_ht::text FROM gestion_annuaire_occupation o2
-               JOIN LATERAL (SELECT z.taux_gestion_ht FROM gestion_location_conditions z WHERE z.occupation_id = o2.id ORDER BY z.id DESC LIMIT 1) y ON true
-              WHERE o2.lot_id = $1 AND o2.id <> $2 ORDER BY o2.entree DESC NULLS LAST, o2.id DESC LIMIT 1) AS precedent,
+               JOIN LATERAL (SELECT z.taux_gestion_ht FROM gestion_location_conditions z WHERE ${sqlConditionsDe('z', 'o2', avecBail)} ORDER BY z.id DESC LIMIT 1) y ON true
+              WHERE o2.lot_id = $1 AND o2.id <> $2${avecBail ? ' AND o2.bail_id IS DISTINCT FROM (SELECT bail_id FROM gestion_annuaire_occupation WHERE id = $2)' : ''}
+              ORDER BY o2.entree DESC NULLS LAST, o2.id DESC LIMIT 1) AS precedent,
             (SELECT taux_honos_wippimmo::text FROM gestion_annuaire_lot WHERE id = $1) AS wippimmo,
-            (SELECT taux_gestion_ht::text FROM gestion_location_conditions WHERE occupation_id = $2 ORDER BY id DESC LIMIT 1) AS actuel,
-            (SELECT base FROM gestion_location_conditions WHERE occupation_id = $2 ORDER BY id DESC LIMIT 1) AS base_actuelle`, [lotId, occupationId]);
+            (SELECT x.taux_gestion_ht::text FROM gestion_location_conditions x, gestion_annuaire_occupation o WHERE o.id = $2 AND ${sqlConditionsDe('x', 'o', avecBail)} ORDER BY x.id DESC LIMIT 1) AS actuel,
+            (SELECT x.base FROM gestion_location_conditions x, gestion_annuaire_occupation o WHERE o.id = $2 AND ${sqlConditionsDe('x', 'o', avecBail)} ORDER BY x.id DESC LIMIT 1) AS base_actuelle`, [lotId, occupationId]);
   const r = rows[0];
   // Une location qui a déjà ses conditions garde son taux et sa base ; sinon, ce que la carte propose.
   if (r?.actuel != null) return { taux: Number(r.actuel), base: r.base_actuelle === 'hc' ? 'hc' : 'cc' };

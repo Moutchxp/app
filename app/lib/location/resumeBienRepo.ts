@@ -1,4 +1,6 @@
 import { query } from '../db/client';
+import { contactsRattachesDuBien } from './rattachementsRepo';
+import type { ContactRattache } from './rattachements';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { colonneExisteMemo } from './sondeLocation';
 import { familleDeCategorie, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, titreAnnexe,
@@ -52,6 +54,8 @@ export interface ResumeBien {
     loyerSource: 'bail' | 'depart' | null;
     depot: { mode: 'agence' | 'bailleur'; montantCentimes: number | null } | null;
     prelevement: { actif: boolean; jour: number | null } | null;
+    /** Arno (20/10/2026, 393) — les garants et contacts côté locataire, et leur rattachement ; absent sans la migration. */
+    contacts?: ContactRattache[];
   };
 }
 
@@ -87,6 +91,7 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
     for (const r of rows) prenoms.set(Number(r.id), r.prenom);
   }
 
+  const contacts = await contactsRattachesDuBien(lotId);
   return {
     caracteristiques: {
       famille: famille === null ? (bien.categorie ? LIBELLE_CATEGORIE[bien.categorie] : null) : LIBELLE_FAMILLE[famille],
@@ -109,6 +114,7 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
       loyerSource: loyerBail !== null ? 'bail' : loyerDepart !== null ? 'depart' : null,
       depot: conditions === null ? null : { mode: conditions.conditions.depot, montantCentimes: conditions.conditions.sommes.depotGarantie },
       prelevement: conditions === null ? null : { actif: conditions.conditions.prelevement, jour: conditions.conditions.jour },
+      ...(contacts === null ? {} : { contacts }),
     },
   };
 }
