@@ -8,9 +8,10 @@ import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
 import type { ResumeBien } from '../../../../lib/location/resumeBienRepo';
 
 /**
- * 🔴 Arno (20/10/2026) — FICHE BIEN : l'encart résumé complet. Chaque information de la Location est affichée (lue à sa
- * source, par la lecture `resume`), « non renseignée » si absente ; statut Libre / Déjà loué et locataires (liens) justes ;
- * les lignes d'avant restent ; une colonne et des groupes repliables au téléphone, deux colonnes sur ordinateur.
+ * 🔴 Arno (20/10/2026) — FICHE BIEN : l'encart = un RÉSUMÉ toujours visible (Caractéristiques, une ligne par information,
+ * la Location d'abord puis l'import WIPPIMMO) et un DÉTAIL replié par défaut (Situation et accès · Copropriété · DPE et
+ * entretiens · Commentaire), dépliable par l'encart ou par « Voir le détail du bien ⌄ ». « Gestion » et « Location en cours »
+ * sont retirés de l'encart (décision d'Arno). Aucune ligne en double.
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const ok = (data: unknown) => ({ ok: true, status: 200, json: async () => ({ etat: 'ok', data }) }) as unknown as Response;
@@ -46,167 +47,118 @@ const LIBRE_VIDE: ResumeBien = {
 
 let container: HTMLDivElement;
 let root: Root;
-let large: boolean;
-let ouverts: [string, number][];
-beforeEach(() => {
-  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  large = false; ouverts = [];
-  window.matchMedia = vi.fn(() => ({ matches: large, addEventListener: () => {}, removeEventListener: () => {} })) as unknown as typeof window.matchMedia;
-});
+beforeEach(() => { container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container); });
 afterEach(() => { act(() => root.unmount()); container.remove(); vi.restoreAllMocks(); });
 
-const rendre = async (resume: unknown) => {
+const rendre = async (resume: unknown, fiche: FicheLot = FICHE) => {
   global.fetch = vi.fn(async () => ok(resume)) as unknown as typeof fetch;
-  await act(async () => { root.render(createElement(ResumeBienFiche, { f: FICHE, ouvrir: (s: string, id: number) => { ouverts.push([s, id]); } })); });
+  await act(async () => { root.render(createElement(ResumeBienFiche, { f: fiche, ouvrir: () => {} })); });
   await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
 };
 const dd = (k: string) => container.querySelector(`[data-rb="${k}"]`)?.textContent?.replace(/\s/g, ' ');
 const lignes = (groupe: string) => [...container.querySelectorAll(`[data-groupe="${groupe}"] dt`)].map((d) => d.textContent);
+const groupes = () => [...container.querySelectorAll('[data-groupe]')].map((g) => (g as HTMLElement).dataset.groupe);
+const toutesLesLignes = () => [...container.querySelectorAll('dt')].map((d) => d.textContent);
+const encart = () => container.querySelector('[data-resume-bien]') as HTMLElement;
 
-describe('🔴 fiche bien — encart résumé complet', () => {
-  it('sept groupes ; les lignes d’avant restent (Adresse, Immeuble, Type, Surface, En gestion) ; chaque information de la Location affichée', async () => {
-    large = true;
+describe('🔴 l’encart du bien : résumé toujours visible, détail dépliable, sans doublons', () => {
+  it('« Gestion » et « Location en cours » sont retirés ; plus de zone, loyer, locataire, dépôt, prélèvement, mandat, PNO dans l’encart', async () => {
     await rendre(LOUE);
-    expect([...container.querySelectorAll('[data-groupe]')].map((g) => (g as HTMLElement).dataset.groupe))
-      .toEqual(['caracteristiques', 'situation', 'copropriete', 'gestion', 'dpe', 'location', 'commentaire']);
-    expect(lignes('caracteristiques')).toEqual(['Adresse', 'Immeuble', 'Type', 'Famille et type', 'Meublé', 'Pièces', 'Étage', 'Surface', 'Annexes',
-      'Type de logement', 'Surface habitable', 'Surface Carrez/Boutin', 'Surface extérieure', 'Époque de construction', 'Chauffage', 'Détail des annexes']);
-    expect(lignes('gestion')).toEqual(['En gestion', 'Bien en gestion', 'Zone et honoraires', 'Propriétaires', 'Assurance PNO']);
-    expect(lignes('dpe')).toEqual(['DPE', 'Entretien à prévoir', 'Entretiens à prévoir']);
-    expect(lignes('location')).toEqual(['Statut', 'Locataires', 'Date d’entrée', 'Loyer', 'Dépôt de garantie', 'Prélèvement']);
-    expect(dd('type')).toBe('Logement · Appartement');
-    expect(dd('meuble')).toBe('non');
-    expect(dd('pieces')).toBe('3');
-    expect(dd('etage')).toBe('étage 2 · porte 21 · bâtiment B · lot de copropriété n° 12');
-    // La surface saisie en Location (Carrez/Boutin d'abord) — plus « non renseignée ».
-    expect(dd('surface')).toBe('Carrez/Boutin 61,8 m² · habitable 64,2 m²');
-    expect(dd('annexes')).toBe('Cave n° 4 · Parking n° 12 (détachée)');
-    expect(dd('en-gestion')).toBe('oui');
-    expect(dd('zone')).toBe('zone très tendue — 12,10 €/m² (visite, dossier, bail), 3,03 €/m² (état des lieux) · barème du 01/01/2026');
-    expect(dd('entretiens')).toBe('Chaudière (15/01/2027)');
-    expect(container.textContent).toContain('depuis le 01/03/2019');
+    expect(groupes()).toEqual(['caracteristiques', 'situation', 'copropriete', 'dpe', 'commentaire']);
+    expect(toutesLesLignes()).not.toEqual(expect.arrayContaining(['En gestion']));
+    for (const mot of ['En gestion', 'Bien en gestion', 'Zone et honoraires', 'Propriétaires', 'Assurance PNO', 'Statut', 'Locataires', 'Date d’entrée', 'Loyer',
+      'Dépôt de garantie', 'Prélèvement', 'Garants et contacts']) expect(toutesLesLignes(), mot).not.toContain(mot);
+    expect(container.textContent).not.toMatch(/Déjà loué|zone très tendue|MG-0146|1 200,00/);
   });
 
-  it('LOUÉ : « Déjà loué » en rouge (le mot), locataires en liens vers leur fiche, entrée, loyer + provision = total CC, dépôt, prélèvement', async () => {
+  it('RÉSUMÉ (logement) : une seule ligne par information, dans l’ordre ; aucune ligne en double dans tout l’encart', async () => {
     await rendre(LOUE);
-    const statut = container.querySelector('[data-rb="statut"] span')!;
-    expect([statut.textContent, statut.className]).toEqual(['Déjà loué', 'rb-statut rb-statut--loue']);
-    const liens = [...container.querySelectorAll('[data-rb="locataires"] button')];
-    expect(liens.map((b) => b.textContent)).toEqual(['ESSAI RATTACHEMENT Locataire Un', 'ESSAI RATTACHEMENT Locataire Deux']);
-    await act(async () => { (liens[1] as HTMLButtonElement).click(); });
-    expect(ouverts).toEqual([['locataire', 523]]);
-    expect(dd('entree')).toBe('01/11/2026');
-    expect(dd('loyer')).toBe('1 200,00 € + 130,00 € = 1 330,00 € charges comprises / mois');
-    expect(dd('depot')).toBe('1 200,00 € — conservé par l’agence');
-    expect(dd('prelevement')).toBe('oui, au 5');
+    expect(lignes('caracteristiques')).toEqual(['Adresse', 'Immeuble', 'Type', 'Meublé', 'Pièces', 'Étage', 'Surface habitable', 'Surface Carrez/Boutin',
+      'Surface extérieure', 'Annexes', 'Époque de construction', 'Chauffage']);
+    const toutes = toutesLesLignes();
+    expect(new Set(toutes).size).toBe(toutes.length);
+    expect([dd('type'), dd('meuble'), dd('pieces'), dd('etage'), dd('surface-habitable'), dd('surface-carrez'), dd('surface-exterieure'), dd('epoque'), dd('chauffage')])
+      .toEqual(['Logement · Appartement', 'non', '3', '2e étage', '64,2 m²', '61,8 m²', 'non renseignée', '1949 – 1974', 'Collectif']);
+    expect(dd('annexes')).toBe('Cave — lot 40 · porte 4 · sous-sol 1 · Accès par la courParking (détachée) — Intérieur · Place simple · place 12 · sous-sol 2 · adresse : 3 rue Voisine, 92400 COURBEVOIE');
+  });
+
+  it('DÉTAIL : replié par défaut ; un clic sur l’encart ou sur « Voir le détail du bien ⌄ » le déplie, « Masquer le détail ⌃ » le replie', async () => {
+    await rendre(LOUE);
+    const bouton = container.querySelector('[data-bascule-detail]') as HTMLButtonElement;
+    const detail = container.querySelector('[data-detail-bien]') as HTMLElement;
+    expect([encart().dataset.deplie, bouton.textContent, bouton.getAttribute('aria-expanded'), detail.getAttribute('aria-hidden'), detail.hasAttribute('inert')])
+      .toEqual(['non', 'Voir le détail du bien ⌄', 'false', 'true', true]);
+    await act(async () => { bouton.click(); });
+    expect([encart().dataset.deplie, bouton.textContent, detail.getAttribute('aria-hidden'), detail.hasAttribute('inert')]).toEqual(['oui', 'Masquer le détail ⌃', 'false', false]);
+    await act(async () => { bouton.click(); });
+    expect(encart().dataset.deplie).toBe('non');
+    // Un clic sur l'encart lui-même (hors lien / bouton) déplie aussi.
+    await act(async () => { (container.querySelector('[data-rb="type"]') as HTMLElement).click(); });
+    expect(encart().dataset.deplie).toBe('oui');
+    // Le lien du syndic garde son geste : il ne replie pas l'encart.
+    await act(async () => { (container.querySelector('[data-rb="syndic"] a') as HTMLElement).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })); });
+    expect(encart().dataset.deplie).toBe('oui');
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
-    expect(css).toContain('.rb-statut--loue{color:var(--color-svv-red)}');
-    expect(css).toContain('.rb-statut--libre{color:var(--color-svv-green-ink)}');
-    expect(css).toContain('.rb-lien{border:0;background:none;padding:0;min-height:44px');
+    expect(css).toContain('.rb-detail{display:grid;grid-template-rows:0fr;opacity:0;transition:grid-template-rows .28s ease');
+    expect(css).toContain('@media (prefers-reduced-motion: reduce){ .rb-detail{transition:none} }');
+    expect(css).toContain('.rb-bascule{display:inline-flex;align-items:center;min-height:44px');
   });
 
-  it('LIBRE et rien de saisi : « Libre » en vert ; chaque information absente « non renseignée » ; le loyer de départ', async () => {
-    await rendre(LIBRE_VIDE);
-    const statut = container.querySelector('[data-rb="statut"] span')!;
-    expect([statut.textContent, statut.className]).toEqual(['Libre', 'rb-statut rb-statut--libre']);
-    expect(container.querySelector('[data-rb="locataires"]')).toBeNull();
-    expect([dd('type'), dd('meuble'), dd('pieces'), dd('etage'), dd('surface'), dd('annexes'), dd('en-gestion'), dd('entretiens'), dd('loyer')])
-      .toEqual(['non renseigné', 'non renseigné', 'non renseignées', 'non renseigné', 'non renseignée', 'aucune', 'non renseigné', 'non renseigné', 'non renseigné']);
-    expect(dd('zone')).toBe('autre zone — aucun barème en vigueur');
-    expect(lignes('location')).toEqual(['Statut', 'Loyer de départ']);
-    // Libre avec un loyer de départ connu (la dernière location du bien).
-    act(() => root.unmount()); root = createRoot(container);
-    await rendre({ ...LIBRE_VIDE, location: { ...LIBRE_VIDE.location, loyer: { principal: 98000, provisions: 9050 }, loyerSource: 'depart' } });
-    expect(dd('loyer')).toBe('980,00 € + 90,50 € = 1 070,50 € charges comprises / mois · dernière location du bien');
-  });
-
-  it('TÉLÉPHONE : groupes repliables, « Caractéristiques » ouvert par défaut ; ORDINATEUR : sections toujours ouvertes, deux colonnes', async () => {
+  it('DÉTAIL (logement) : situation et accès (sans « Étage », il est au résumé), copropriété, DPE, UNE ligne « Entretiens à prévoir », commentaire entier', async () => {
     await rendre(LOUE);
-    const details = [...container.querySelectorAll('details.rb-groupe')] as HTMLDetailsElement[];
-    expect(details.map((d) => [d.dataset.groupe, d.open])).toEqual([['caracteristiques', true], ['situation', false], ['copropriete', false],
-      ['gestion', false], ['dpe', false], ['location', false], ['commentaire', false]]);
+    expect(lignes('situation')).toEqual(['Bâtiment', 'Escalier', 'N° de porte', 'Précision', 'Ascenseur', 'Digicode']);
+    expect(lignes('copropriete')).toEqual(['N° de lot', 'Syndic', 'Dernière AG']);
+    expect(lignes('dpe')).toEqual(['DPE', 'Entretiens à prévoir']);
+    expect([dd('digicode'), dd('syndic'), dd('dpe'), dd('entretiens')]).toEqual(['oui — code 57B83', 'CABINET SYNDIC ESSAI', 'classe D — du 01/03/2024', 'oui — Chaudière (15/01/2027)']);
+    expect(container.querySelector('[data-rb="syndic"] a')?.getAttribute('href')).toBe('/admin/location/syndic/31');
+    expect(container.querySelector('[data-rb="commentaire"]')?.textContent).toBe('Première ligne.\nDeuxième ligne.');
+  });
+
+  it('un groupe du détail entièrement vide garde son titre et dit « non renseigné »', async () => {
+    await rendre({ ...LOUE, situation: { batiment: null, escalier: null, etage: null, porte: null, precisionAcces: null, ascenseur: null, digicode: null, digicodeCode: null },
+      copropriete: { numLotCopro: null, syndic: null, derniereAg: null, agApplicable: false }, commentaire: null,
+      dpe: { classe: null, nonSoumis: false, date: null, assurancePno: null, pnoDateAnniversaire: null },
+      gestion: { ...LOUE.gestion, entretienAPrevoir: null, entretiens: [] } } as ResumeBien);
+    for (const gr of ['situation', 'copropriete', 'dpe', 'commentaire']) {
+      expect(container.querySelector(`[data-groupe="${gr}"] h4`)?.textContent, gr).not.toBe('');
+      expect(container.querySelector(`[data-rb-vide="${gr}"]`)?.textContent, gr).toBe('non renseigné');
+    }
+  });
+
+  it('LOT 176 (import WIPPIMMO, sans champs Location) : Type « Logement · Appartement », meublé oui, 2 pièces — la valeur de repli, une seule', async () => {
+    const lot176 = { ...FICHE, id: 176, nature: 'Appartement meublé', typeBien: 'Type 2' } as unknown as FicheLot;
+    await rendre({ ...LIBRE_VIDE, caracteristiques: { ...LIBRE_VIDE.caracteristiques, familleCle: null, annexesDetail: [] } } as ResumeBien, lot176);
+    expect([dd('type'), dd('meuble'), dd('pieces')]).toEqual(['Logement · Appartement', 'oui', '2']);
+    expect(lignes('caracteristiques').filter((l) => l === 'Type')).toHaveLength(1);
+    // Avant la lecture (ou si elle échoue) : les valeurs de l'import, seules.
     act(() => root.unmount()); root = createRoot(container);
-    large = true;
-    await rendre(LOUE);
-    expect(container.querySelectorAll('details')).toHaveLength(0);
-    expect(container.querySelectorAll('section.rb-groupe')).toHaveLength(7);
-    const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
-    expect(css).toContain('@media (min-width:760px){ .rb{grid-template-columns:repeat(2,minmax(0,1fr))');
-    expect(css).toContain('.rb-groupe--repli > summary{cursor:pointer;min-height:44px');
+    await rendre(null, lot176);
+    expect([dd('type'), dd('meuble'), dd('pieces')]).toEqual(['Logement · Appartement', 'oui', '2']);
+    expect(container.querySelector('[data-detail-bien]')).toBeNull();
   });
 
-  it('lecture absente ou en échec : les lignes d’avant s’affichent seules, comme avant (rien ne disparaît)', async () => {
-    await rendre(null);
-    expect(lignes('caracteristiques')).toEqual(['Adresse', 'Immeuble', 'Type', 'Surface']);
-    expect(lignes('gestion')).toEqual(['En gestion']);
-    expect(container.querySelector('[data-groupe="situation"]')).toBeNull();
-    expect(container.querySelector('[data-groupe="location"]')).toBeNull();
-    expect(dd('surface')).toBe('non renseignée');
+  it('PARKING : ni « Meublé » ni « Pièces », ni DPE ; une seule surface ; « N° de place »', async () => {
+    await rendre({ ...LOUE, caracteristiques: { ...LOUE.caracteristiques, familleCle: 'parking', famille: 'Parking', type: 'Box double · Extérieur', surfaceM2: 14,
+      annexes: [], annexesDetail: [] } } as ResumeBien);
+    expect(lignes('caracteristiques')).toEqual(['Adresse', 'Immeuble', 'Type', 'Étage', 'Surface']);
+    expect([dd('type'), dd('surface-parking')]).toEqual(['Parking · Box double · Extérieur', '14 m²']);
+    expect(groupes()).toEqual(['caracteristiques', 'situation', 'copropriete', 'commentaire']);
+    expect(lignes('situation')).toContain('N° de place');
   });
 
-  it('AUCUN champ de saisie : un affichage ; lu à la source par la route de la fiche commune (lecture seule)', async () => {
+  it('LOCAL : « Bureaux / pièces », « Surface », pas de ligne propre au parking', async () => {
+    await rendre({ ...LOUE, caracteristiques: { ...LOUE.caracteristiques, familleCle: 'local', famille: 'Local', type: 'Bureaux' } } as ResumeBien);
+    expect(lignes('caracteristiques')).toEqual(['Adresse', 'Immeuble', 'Type', 'Meublé', 'Bureaux / pièces', 'Étage', 'Surface', 'Surface Carrez/Boutin',
+      'Surface extérieure', 'Annexes', 'Époque de construction', 'Chauffage']);
+    expect(dd('type')).toBe('Local · Bureaux');
+    expect(container.querySelector('[data-rb="surface-parking"]')).toBeNull();
+  });
+
+  it('AUCUN champ de saisie ; lu à la source par la route de la fiche commune (lecture seule)', async () => {
     await rendre(LOUE);
     expect(container.querySelectorAll('[data-resume-bien] input, [data-resume-bien] select, [data-resume-bien] textarea')).toHaveLength(0);
     expect((global.fetch as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe('/api/admin/gestion/annuaire/location?resume=7');
-    const route = readFileSync('app/(admin)/api/admin/gestion/annuaire/location/route.ts', 'utf8');
-    expect(route).toContain("const r = identifiant(url.searchParams.get('resume'));");
     const repo = readFileSync('app/lib/location/resumeBienRepo.ts', 'utf8');
     expect(repo).not.toMatch(/INSERT INTO|UPDATE gestion|DELETE FROM/);
-  });
-});
-
-/**
- * 🔴 Arno (20/10/2026) — « TOUS LES CHAMPS DE NOUVEAU BIEN », PAR FAMILLE : chaque champ de l'écran apparaît pour sa famille,
- * jamais pour une autre (pas de « type de parking » sur un logement) ; un champ vide « non renseigné ».
- */
-describe('🔴 tous les champs de « Nouveau bien », pour chaque famille', () => {
-  const VALEURS = (k: string) => dd(k);
-  it('LOGEMENT : type, meublé, pièces, trois surfaces, époque, chauffage, situation, accès, copropriété, gestion, DPE, entretiens, commentaire', async () => {
-    large = true;
-    await rendre(LOUE);
-    expect([VALEURS('type-logement'), VALEURS('meuble'), VALEURS('pieces'), VALEURS('surface-habitable'), VALEURS('surface-carrez'), VALEURS('surface-exterieure')])
-      .toEqual(['Appartement', 'non', '3', '64,2 m²', '61,8 m²', 'non renseignée']);
-    expect([VALEURS('epoque'), VALEURS('chauffage')]).toEqual(['1949 – 1974', 'Collectif']);
-    expect([VALEURS('batiment'), VALEURS('escalier'), VALEURS('etage-seul'), VALEURS('porte'), VALEURS('precision'), VALEURS('ascenseur'), VALEURS('digicode')])
-      .toEqual(['B', '2', '2', '21', 'À droite en sortant de l’ascenseur', 'oui', 'oui — code 57B83']);
-    expect([VALEURS('lot-copro'), VALEURS('syndic'), VALEURS('derniere-ag')]).toEqual(['12', 'CABINET SYNDIC ESSAI', '15/06/2026']);
-    expect(container.querySelector('[data-rb="syndic"] a')?.getAttribute('href')).toBe('/admin/location/syndic/31');
-    expect(VALEURS('proprietaires')).toBe('JULLIEN - GARRIDO Cédric · mandat de gestion MG-0146ESSAI COPROPRIÉTAIRE · copropriétaire · mandat de gestion non renseigné · mandat de transaction MT-77');
-    expect(VALEURS('pno')).toBe('oui — date anniversaire 01/12/2026');
-    expect([VALEURS('dpe'), VALEURS('entretien-a-prevoir'), VALEURS('entretiens')]).toEqual(['classe D — du 01/03/2024', 'oui', 'Chaudière (15/01/2027)']);
-    expect(VALEURS('annexes-detail')).toContain('Parking (détachée) — Intérieur · Place simple · place 12 · étage -2 · adresse : 3 rue Voisine, 92400 COURBEVOIE');
-    // Le commentaire en entier, avec ses retours à la ligne (pre-wrap).
-    const com = container.querySelector('[data-rb="commentaire"]')!;
-    expect(com.textContent).toBe('Première ligne.\nDeuxième ligne.');
-    expect(com.className).toBe('rb-commentaire');
-    // Aucun champ d'une autre famille.
-    for (const k of ['type-local', 'parking-situation', 'parking-type', 'surface-parking']) expect(container.querySelector(`[data-rb="${k}"]`), k).toBeNull();
-  });
-
-  it('LOCAL : type de local, surfaces, époque, chauffage, DPE — pas de type de logement ni de parking ; vide = « non renseigné »', async () => {
-    large = true;
-    await rendre({ ...LOUE, caracteristiques: { ...LOUE.caracteristiques, familleCle: 'local', typeLogement: null, typeLocal: 'Bureaux', surfaceHabitableM2: 80,
-      surfaceCarrezM2: null, epoqueConstruction: null, chauffage: null, annexesDetail: [] },
-    situation: { batiment: null, escalier: null, etage: null, porte: null, precisionAcces: null, ascenseur: null, digicode: false, digicodeCode: null },
-    dpe: { classe: 'non_soumis', nonSoumis: true, date: null, assurancePno: null, pnoDateAnniversaire: null }, commentaire: null } as ResumeBien);
-    expect([VALEURS('type-local'), VALEURS('surface-habitable'), VALEURS('surface-carrez'), VALEURS('epoque'), VALEURS('chauffage')])
-      .toEqual(['Bureaux', '80 m²', 'non renseignée', 'non renseigné', 'non renseigné']);
-    expect(container.querySelector('[data-rb="surface-habitable"]')?.previousElementSibling?.textContent).toBe('Surface (m²)');
-    expect([VALEURS('batiment'), VALEURS('precision'), VALEURS('ascenseur'), VALEURS('digicode'), VALEURS('dpe'), VALEURS('pno'), VALEURS('commentaire')])
-      .toEqual(['non renseigné', 'non renseignée', 'non renseigné', 'non', 'Non soumis', 'non renseignée', 'non renseigné']);
-    for (const k of ['type-logement', 'parking-situation', 'parking-type', 'surface-parking']) expect(container.querySelector(`[data-rb="${k}"]`), k).toBeNull();
-  });
-
-  it('PARKING NU : intérieur / extérieur, type, surface, n° de place — ni pièces détaillées, ni DPE, ni PNO, ni époque', async () => {
-    large = true;
-    await rendre({ ...LOUE, caracteristiques: { ...LOUE.caracteristiques, familleCle: 'parking', typeLogement: null, parkingSituation: 'Extérieur',
-      parkingType: 'Box double', surfaceM2: null, annexes: [], annexesDetail: [] },
-    copropriete: { numLotCopro: null, syndic: null, derniereAg: null, agApplicable: false } } as ResumeBien);
-    expect([VALEURS('parking-situation'), VALEURS('parking-type'), VALEURS('surface-parking'), VALEURS('lot-copro'), VALEURS('syndic')])
-      .toEqual(['Extérieur', 'Box double', 'non renseignée', 'non renseigné', 'non renseigné']);
-    expect(container.querySelector('[data-rb="porte"]')?.previousElementSibling?.textContent).toBe('N° de place');
-    for (const k of ['type-logement', 'type-local', 'surface-habitable', 'surface-carrez', 'epoque', 'chauffage', 'dpe', 'pno', 'derniere-ag', 'annexes-detail']) {
-      expect(container.querySelector(`[data-rb="${k}"]`), k).toBeNull();
-    }
   });
 });

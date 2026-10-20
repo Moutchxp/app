@@ -62,10 +62,12 @@ describe('les écrans lisent la règle, et la ligne SURFACE a quitté le corps d
   it('plus de fait « Surface » dans les cartes (ann-fait-mot) — ce qu\'il disait avant : « Surface : non renseignée »', () => {
     expect(src).not.toMatch(/ann-fait-mot">Surface</);
   });
-  it('la fiche du bien garde sa ligne « Surface » (aucun accord pour celle-là)', () => {
-    // Arno (20/10/2026) : l'encart résumé de la fiche du bien vit dans ResumeBien.tsx, que la fiche rend ; la ligne y reste.
+  it('la fiche du bien garde ses lignes de surface (fusionnées : une par surface, accord d’Arno du 20/10/2026)', () => {
+    // L'encart résumé de la fiche du bien vit dans ResumeBien.tsx ; ses surfaces viennent de `resumeBienLignes.ts`.
     const resume = readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/ResumeBien.tsx'), 'utf8');
+    const lignes = readFileSync(join(__dirname, '../location/resumeBienLignes.ts'), 'utf8');
     expect(src).toContain('<ResumeBienFiche f={f} ouvrir={ouvrir} />');
-    expect(resume).toContain('<dt>Surface</dt>');
+    expect(resume).toContain('{lr.surfaces.map((x) => (');
+    expect(lignes).toContain("mot: 'Surface'");
   });
 });
