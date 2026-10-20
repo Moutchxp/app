@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 /* 🔴🔴 LOT ANNUAIRE-BLOC-DEDIE, POINT 3 — « en gestion », écrit une seule fois (module PUR). */
 import { bienEnGestion } from '../../../../lib/gestion/bienEnGestion';
+import { motIndivision } from '../../../../lib/gestion/indivision';
 import { ResumeBienFiche } from './ResumeBien';
 import {
   formaterDateIso, periodeOccupation, titreLogement,
@@ -803,10 +804,8 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
             {/* Arno (20/10/2026) : « Bien en gestion ? » = Non → « Hors gestion » (le mot + la couleur), rien d'autre. */}
             {b.horsGestion === true && <EtiquetteHorsGestion />}
           </span>
-          {/* Arno (20/10/2026, faille 6) : un bien en indivision, sur la fiche de chaque copropriétaire. */}
-          {(b.indivisionAvec?.length ?? 0) > 0 && (
-            <span className="ann-carte-sous" data-indivision>en indivision avec {b.indivisionAvec!.join(', ')}</span>
-          )}
+          {/* Arno (20/10/2026, faille 6) : un bien en indivision — seuls ses AUTRES copropriétaires actifs (`indivision.ts`). */}
+          {motIndivision(b.indivisionAvec) !== null && <span className="ann-carte-sous" data-indivision>{motIndivision(b.indivisionAvec)}</span>}
         </span>
       </button>
       {/* LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — sous l'en-tête : « ⚠ Conflit possible … » (s'il y a lieu). */}

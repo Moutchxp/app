@@ -203,10 +203,11 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 393 — le bail, les garants et 
     expect((await un<{ t: string }>(`SELECT confdeltype AS t FROM pg_constraint WHERE conname = 'gestion_annuaire_occupation_locataire_id_fkey'`)).t).toBe('r');
   });
 
-  it('⑤ l’indivision se voit chez chaque copropriétaire (le bien 7 et ses liens en cours)', async () => {
+  it('⑤ l’indivision se voit chez chaque copropriétaire ACTIF (le bien 7 : fiches archivées → rien)', async () => {
     const p = ok(await ficheProprietaire(146));
+    // Le bien 7 n'a que des liens vers des fiches ARCHIVÉES : aucune mention (correctif du 20/10/2026, `indivision.ts`).
     const b7 = p.biens.find((b) => b.id === 7);
-    expect(b7?.indivisionAvec?.length).toBeGreaterThan(0);
+    expect(b7?.indivisionAvec ?? []).toEqual([]);
     await query(`INSERT INTO gestion_annuaire_lot_proprietaire (lot_id, proprietaire_id, rang, depuis, cree_par_libelle) VALUES ($1, $2, 2, '2026-01-01', 'itest')`,
       [lot.A, 146]);
     const avec = ok(await ficheProprietaire(146)).biens.find((b) => b.id === lot.A);

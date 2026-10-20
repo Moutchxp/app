@@ -21,6 +21,7 @@
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
 // 🔴 LOT SUPPRIMER-CARTE — une fiche supprimée ne s'affiche NULLE PART. Le fragment est écrit une seule fois.
+import { SQL_JOUR_PARIS, sqlCoproprietairesActifs } from './indivision';
 import { personneVivanteAvec } from './personneVivante';
 import { sqlPersonneVivante } from './personneVivanteSql';
 import {
@@ -1780,7 +1781,8 @@ async function sqlHorsGestion(alias: string): Promise<string> {
 async function biensDuProprietaire(proprietaireId: number): Promise<BienDuProprietaire[]> {
   const finAffichee = await sqlFinAffichee('lo');
   /* Arno (20/10/2026, faille 6) : un bien en INDIVISION apparaît sur la fiche de CHAQUE copropriétaire — le titulaire
-     (`proprietaire_id`) et les liens EN COURS de `gestion_annuaire_lot_proprietaire` (sans fin, ou fin à venir). Sondé. */
+     (`proprietaire_id`) et les liens EN COURS de `gestion_annuaire_lot_proprietaire` (sans fin, ou fin à venir). Sondé.
+     La MENTION « en indivision avec » ne cite que les autres copropriétaires ACTIFS de CE bien (`indivision.ts`). */
   const avecIndivision = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'jusqu_a');
   const { rows } = await query<{
     id: string; wippimmo_id: string; adresse: string | null; commune: string | null; code_postal: string | null;
@@ -1792,10 +1794,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin, ${await sqlHorsGestion('lo')} AS hors_gestion,
-            ${avecIndivision ? `(SELECT array_agg(DISTINCT px.nom_complet ORDER BY px.nom_complet) FROM gestion_annuaire_proprietaire px
-               WHERE px.id <> $1 AND px.nom_complet IS NOT NULL
-                 AND (px.id = lo.proprietaire_id OR px.id IN (SELECT lp.proprietaire_id FROM gestion_annuaire_lot_proprietaire lp
-                       WHERE lp.lot_id = lo.id AND (lp.jusqu_a IS NULL OR lp.jusqu_a >= ${SQL_JOUR_INDIVISION}))))` : 'NULL::text[]'} AS indivision,
+            ${avecIndivision ? sqlCoproprietairesActifs('lo', '$1', await sqlPersonneVivante('px')) : 'NULL::text[]'} AS indivision,
             oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
             coalesce(ma.n, 0)::int AS mails,
             ${INSTANT('ma.dernier')} AS dernier_echange,
@@ -1869,7 +1868,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
 }
 
 /** Le jour civil à Paris, pour borner un lien d'indivision (la fin est une date, incluse). */
-const SQL_JOUR_INDIVISION = `(now() AT TIME ZONE 'Europe/Paris')::date`;
+const SQL_JOUR_INDIVISION = SQL_JOUR_PARIS;
 
 /**
  * ══ 🔴 LOT MODALE-RATTACHER-PROPRE — LA FICHE D'UN LOT PAR SA CLÉ WIPPIMMO ═══════════════════════════════════
