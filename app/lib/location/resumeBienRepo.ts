@@ -6,6 +6,9 @@ import { colonneExisteMemo } from './sondeLocation';
 import { familleDeCategorie, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL, LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, titreAnnexe,
   type SituationParking, type TypeLocal, type TypeLogement, type TypeParking } from './bienComplet';
 import { LIBELLE_CATEGORIE } from './locationBien';
+import { resumeAnnexe } from './annexeLocation';
+import { sqlLienEnCours } from '../gestion/indivision';
+import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { ficheBienLocation } from './locationRepo';
 import { conditionsParOccupation } from './conditionsEntreeRepo';
 import { loyerConnuDuBien, loyerDesOccupations } from './loyerEntreeRepo';
@@ -35,7 +38,28 @@ export interface ResumeBien {
     etage: string | null; porte: string | null; batiment: string | null; escalier: string | null; numLotCopro: string | null;
     surfaceHabitableM2: number | null; surfaceCarrezM2: number | null; surfaceExterieureM2: number | null; surfaceM2: number | null;
     annexes: { id: number; libelle: string; detachee: boolean }[];
+    /**
+     * Arno (20/10/2026, « tous les champs de Nouveau bien ») — la famille (clé), le détail de chaque type, l'époque de
+     * construction et le chauffage, et le détail de chaque annexe (situation, type, étage, lot, porte/place, adresse, annotation).
+     */
+    familleCle?: 'logement' | 'local' | 'parking' | null;
+    typeLogement?: string | null; typeLocal?: string | null; parkingSituation?: string | null; parkingType?: string | null;
+    epoqueConstruction?: string | null; chauffage?: string | null;
+    annexesDetail?: { id: number; titre: string; detail: string; etage: string | null; adresse: string | null; annotation: string | null; detachee: boolean }[];
   };
+  /** Adresse et situation (les champs de « Nouveau bien ») ; absent avant ce lot. */
+  situation?: {
+    batiment: string | null; escalier: string | null; etage: string | null; porte: string | null; precisionAcces: string | null;
+    ascenseur: boolean | null; digicode: boolean | null; digicodeCode: string | null;
+  };
+  /** Copropriété : n° de lot, syndic (lien vers sa fiche), dernière AG de l'immeuble (sans objet sans immeuble). */
+  copropriete?: { numLotCopro: string | null; syndic: { id: number; nom: string } | null; derniereAg: string | null; agApplicable: boolean };
+  /** DPE et assurance PNO. */
+  dpe?: { classe: string | null; nonSoumis: boolean; date: string | null; assurancePno: boolean | null; pnoDateAnniversaire: string | null };
+  /** Le commentaire libre, tel que saisi (retours à la ligne compris). */
+  commentaire?: string | null;
+  /** Les propriétaires du bien (le titulaire et les copropriétaires actifs) et leurs mandats. */
+  proprietaires?: { id: number; nom: string; titulaire: boolean; mandatGestion: string | null; mandatTransaction: string | null }[];
   gestion: {
     /** « Bien en gestion ? » (migration 390) ; `null` sans elle. */
     enGestionBien: boolean | null;
@@ -92,6 +116,8 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
   }
 
   const contacts = await contactsRattachesDuBien(lotId);
+  const proprietaires = await proprietairesDuBien(lotId);
+  const familleCle = famille;
   return {
     caracteristiques: {
       famille: famille === null ? (bien.categorie ? LIBELLE_CATEGORIE[bien.categorie] : null) : LIBELLE_FAMILLE[famille],
@@ -100,7 +126,34 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
       surfaceHabitableM2: c?.surfaceHabitableM2 ?? null, surfaceCarrezM2: bien.surfaceCarrezM2, surfaceExterieureM2: bien.surfaceExterieureM2,
       surfaceM2: c?.surfaceM2 ?? null,
       annexes: annexes.map((a) => ({ id: a.id, libelle: `${titreAnnexe(a, LIBELLE_CATEGORIE[a.categorie])}${a.porte === null ? '' : ` n° ${a.porte}`}`, detachee: a.detachee === true })),
+      familleCle,
+      typeLogement: c?.typeLogement ? LIBELLE_TYPE_LOGEMENT[c.typeLogement as TypeLogement] ?? c.typeLogement : null,
+      typeLocal: c?.typeLocal ? LIBELLE_TYPE_LOCAL[c.typeLocal as TypeLocal] ?? c.typeLocal : null,
+      parkingSituation: c?.parkingSituation ? LIBELLE_SITUATION_PARKING[c.parkingSituation as SituationParking] ?? c.parkingSituation : null,
+      parkingType: c?.parkingType ? LIBELLE_TYPE_PARKING[c.parkingType as TypeParking] ?? c.parkingType : null,
+      epoqueConstruction: c?.epoqueConstruction ?? null, chauffage: c?.chauffage ?? null,
+      annexesDetail: annexes.map((a) => ({
+        id: a.id, titre: titreAnnexe(a, LIBELLE_CATEGORIE[a.categorie]),
+        detail: resumeAnnexe({ categorie: a.categorie, nomAnnexe: a.nomAnnexe, parkingSituation: a.parkingSituation, parkingType: a.parkingType, numLotCopro: a.numLotCopro, porte: a.porte }),
+        etage: a.etage, adresse: a.adresseAutre ? [a.adresse, [a.codePostal, a.commune].filter((x) => x).join(' ')].filter((x) => x).join(', ') || null : null,
+        annotation: a.annotation ?? null, detachee: a.detachee === true,
+      })),
     },
+    situation: {
+      batiment: c?.batiment ?? null, escalier: c?.escalier ?? null, etage: bien.etage, porte: bien.porte, precisionAcces: c?.precisionAcces ?? null,
+      ascenseur: c?.ascenseur ?? null, digicode: c?.digicode ?? null, digicodeCode: c?.digicodeCode ?? null,
+    },
+    copropriete: {
+      numLotCopro: bien.numLotCopro,
+      syndic: c?.syndicId != null ? { id: c.syndicId, nom: c.syndicNom ?? `Syndic ${c.syndicId}` } : null,
+      derniereAg: c?.derniereAg ?? null, agApplicable: c?.agApplicable === true,
+    },
+    dpe: {
+      classe: c?.dpeClasse ?? null, nonSoumis: c?.dpeNonSoumis === true, date: c?.dpeDate ?? null,
+      assurancePno: c?.assurancePno ?? null, pnoDateAnniversaire: c?.pnoDateAnniversaire ?? null,
+    },
+    commentaire: c?.commentaire ?? null,
+    proprietaires,
     gestion: {
       enGestionBien, zone,
       bareme: b === null ? null : { depuis: b.depuis, tarifZone: b[champ], tarifEdl: b.etatDesLieux },
@@ -117,4 +170,22 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
       ...(contacts === null ? {} : { contacts }),
     },
   };
+}
+
+/**
+ * Les propriétaires du bien : le titulaire, et les copropriétaires dont le lien est EN COURS et la fiche ni archivée ni
+ * supprimée (la règle de la mention « Copropriétaire(s) », `indivision.ts`) ; avec leurs n° de mandat (gestion, transaction).
+ */
+async function proprietairesDuBien(lotId: number): Promise<{ id: number; nom: string; titulaire: boolean; mandatGestion: string | null; mandatTransaction: string | null }[]> {
+  const col = async (c: string): Promise<string> => ((await colonneExisteMemo('gestion_annuaire_proprietaire', c)) ? `p.${c}` : 'NULL::text');
+  const liens = await colonneExisteMemo('gestion_annuaire_lot_proprietaire', 'jusqu_a');
+  const { rows } = await query<{ id: string; nom: string | null; titulaire: boolean; mg: string | null; mt: string | null }>(
+    `SELECT p.id::text, coalesce(p.nom_complet, p.nom) AS nom, (p.id = lo.proprietaire_id) AS titulaire,
+            ${await col('numero_mandat_gestion')} AS mg, ${await col('numero_mandat_transaction')} AS mt
+       FROM gestion_annuaire_lot lo JOIN gestion_annuaire_proprietaire p
+         ON p.id = lo.proprietaire_id${liens ? ` OR (p.archive_le IS NULL AND ${await sqlPersonneVivante('p')} AND EXISTS (
+              SELECT 1 FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = lo.id AND lp.proprietaire_id = p.id AND ${sqlLienEnCours('lp')}))` : ''}
+      WHERE lo.id = $1
+      ORDER BY (p.id = lo.proprietaire_id) DESC, coalesce(p.nom_complet, p.nom)`, [lotId]);
+  return rows.map((r) => ({ id: Number(r.id), nom: r.nom ?? `Propriétaire ${r.id}`, titulaire: r.titulaire, mandatGestion: r.mg, mandatTransaction: r.mt }));
 }

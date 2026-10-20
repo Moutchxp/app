@@ -8,6 +8,7 @@ import { formaterCentimes, LIBELLE_DEPOT, LIBELLE_JOUR, type JourPrelevement } f
 import { lireDecimal, tarifAffiche, ZERO, type ZoneHonoraires } from '../../../../lib/location/honorairesProprietaire';
 import { libelleEntretien } from '../../../../lib/location/entretien';
 import type { ResumeBien } from '../../../../lib/location/resumeBienRepo';
+import { DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS } from '../../../../lib/location/bienComplet';
 
 /**
  * ══ 🔴🔴 FICHE BIEN — L'ENCART RÉSUMÉ COMPLET (Arno, 20/10/2026) ═════════════════════════════════════════════════════════════
@@ -16,6 +17,11 @@ import type { ResumeBien } from '../../../../lib/location/resumeBienRepo';
  * Une information absente s'affiche “non renseignée”. LUES À LEUR SOURCE, sans copie. Rien de ce qui est affiché aujourd'hui
  * ne disparaît. Une colonne sur téléphone, deux sur ordinateur ; groupes repliables seulement sur téléphone,
  * “Caractéristiques” ouvert par défaut. Aucun champ de saisie : c'est un affichage. »
+ *
+ * 🔴 Arno (20/10/2026, suite) — « TOUTES les informations saisissables dans “Nouveau bien”, pour les trois familles » : groupes
+ * Caractéristiques · Situation et accès · Copropriété · Gestion · DPE et entretiens · Location en cours · Commentaire. Seuls les
+ * champs qui ont un sens pour la famille du bien (pas de « type de parking » sur un logement) ; un champ vide « non renseigné » ;
+ * le commentaire en entier, retours à la ligne compris ; le code du digicode en clair (outil interne).
  *
  * Les lignes d'avant (Adresse, Immeuble, Type, Surface, Propriétaire non tranché, En gestion) restent, aux mêmes mots ; la
  * « Surface », qui n'avait pas de source, lit maintenant les surfaces saisies en Location. Le reste vient de la lecture
@@ -81,6 +87,13 @@ export function ResumeBienFiche({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheU
     c.surfaceExterieureM2 !== null ? `extérieure ${m2(c.surfaceExterieureM2)}` : null,
     c.surfaceM2 !== null ? `${m2(c.surfaceM2)}` : null,
   ].filter((x): x is string => x !== null);
+  // La famille du bien décide des champs affichés ; un lot WIPPIMMO sans famille se lit comme un logement.
+  const fam = c?.familleCle ?? (c !== undefined ? 'logement' : null);
+  const habite = fam === 'logement' || fam === 'local';
+  const surfaceOu = (v: number | null | undefined): ReactNode => (v === null || v === undefined ? rien('non renseignée') : m2(v));
+  const s2 = r?.situation;
+  const co = r?.copropriete;
+  const d = r?.dpe;
   const situation = c === undefined ? [] : [
     c.etage !== null && c.etage !== '' ? `étage ${c.etage}` : null, c.porte ? `porte ${c.porte}` : null,
     c.batiment ? `bâtiment ${c.batiment}` : null, c.escalier ? `escalier ${c.escalier}` : null, c.numLotCopro ? `lot de copropriété n° ${c.numLotCopro}` : null,
@@ -104,6 +117,39 @@ export function ResumeBienFiche({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheU
         {/* Arno (20/10/2026) : la surface saisie en Location (Carrez/Boutin, habitable, extérieure) — « non renseignée » sinon. */}
         <dd data-rb="surface">{surfaces.length > 0 ? surfaces.join(' · ') : f.surfaceM2 !== null ? `${f.surfaceM2} m²` : <span className="ann-inconnu">non renseignée</span>}</dd>
         {c !== undefined && <><dt>Annexes</dt><dd data-rb="annexes">{c.annexes.length > 0 ? c.annexes.map((a) => `${a.libelle}${a.detachee ? ' (détachée)' : ''}`).join(' · ') : rien('aucune')}</dd></>}
+        {/* Arno (20/10/2026) : chaque champ de « Nouveau bien », selon la famille du bien. */}
+        {fam === 'logement' && c !== undefined && <><dt>Type de logement</dt><dd data-rb="type-logement">{c.typeLogement ?? rien()}</dd></>}
+        {fam === 'local' && c !== undefined && <><dt>Type de local</dt><dd data-rb="type-local">{c.typeLocal ?? rien()}</dd></>}
+        {fam === 'parking' && c !== undefined && (
+          <>
+            <dt>Intérieur ou extérieur</dt><dd data-rb="parking-situation">{c.parkingSituation ?? rien()}</dd>
+            <dt>Type de parking</dt><dd data-rb="parking-type">{c.parkingType ?? rien()}</dd>
+          </>
+        )}
+        {habite && c !== undefined && (
+          <>
+            <dt>{fam === 'local' ? 'Surface (m²)' : 'Surface habitable'}</dt><dd data-rb="surface-habitable">{surfaceOu(c.surfaceHabitableM2)}</dd>
+            <dt>Surface Carrez/Boutin</dt><dd data-rb="surface-carrez">{surfaceOu(c.surfaceCarrezM2)}</dd>
+            <dt>Surface extérieure</dt><dd data-rb="surface-exterieure">{surfaceOu(c.surfaceExterieureM2)}</dd>
+            <dt>Époque de construction</dt><dd data-rb="epoque">{c.epoqueConstruction ?? rien()}</dd>
+            <dt>Chauffage</dt><dd data-rb="chauffage">{c.chauffage ?? rien()}</dd>
+          </>
+        )}
+        {fam === 'parking' && c !== undefined && <><dt>Surface du parking</dt><dd data-rb="surface-parking">{surfaceOu(c.surfaceM2)}</dd></>}
+        {fam !== 'parking' && (c?.annexesDetail?.length ?? 0) > 0 && (
+          <>
+            <dt>Détail des annexes</dt>
+            <dd data-rb="annexes-detail" className="rb-liste">
+              {c!.annexesDetail!.map((a) => (
+                <span key={a.id} data-rb-annexe={a.id}>
+                  <strong>{a.titre}</strong>{a.detachee ? ' (détachée)' : ''} — {[a.detail.split(' · ').slice(1).join(' · ') || null, a.etage ? `étage ${a.etage}` : null,
+                    a.adresse ? `adresse : ${a.adresse}` : 'même adresse'].filter((x) => x).join(' · ')}
+                  {a.annotation ? <span className="rb-note"> · {a.annotation}</span> : null}
+                </span>
+              ))}
+            </dd>
+          </>
+        )}
         {f.proprietaireId === null && (
           <>
             <dt>Propriétaire</dt>
@@ -111,6 +157,29 @@ export function ResumeBienFiche({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheU
           </>
         )}
       </Groupe>
+
+      {s2 !== undefined && (
+        <Groupe titre="Situation et accès" large={large} ouvert={false} cle="situation">
+          <dt>Bâtiment</dt><dd data-rb="batiment">{s2.batiment ?? rien()}</dd>
+          <dt>Escalier</dt><dd data-rb="escalier">{s2.escalier ?? rien()}</dd>
+          <dt>Étage</dt><dd data-rb="etage-seul">{s2.etage !== null && s2.etage !== '' ? s2.etage : rien()}</dd>
+          <dt>{fam === 'parking' ? 'N° de place' : 'N° de porte'}</dt><dd data-rb="porte">{s2.porte ?? rien()}</dd>
+          <dt>Précision</dt><dd data-rb="precision">{s2.precisionAcces ?? rien('non renseignée')}</dd>
+          <dt>Ascenseur</dt><dd data-rb="ascenseur">{ouiNon(s2.ascenseur)}</dd>
+          <dt>Digicode</dt>
+          {/* Le code en clair : outil interne (Arno, 20/10/2026). */}
+          <dd data-rb="digicode">{s2.digicode === true ? <>oui — code {s2.digicodeCode ? <strong>{s2.digicodeCode}</strong> : rien()}</> : ouiNon(s2.digicode)}</dd>
+        </Groupe>
+      )}
+
+      {co !== undefined && (
+        <Groupe titre="Copropriété" large={large} ouvert={false} cle="copropriete">
+          <dt>N° de lot</dt><dd data-rb="lot-copro">{co.numLotCopro ?? rien()}</dd>
+          <dt>Syndic</dt>
+          <dd data-rb="syndic">{co.syndic === null ? rien() : <a className="rb-lien rb-lien--a" href={`/admin/location/syndic/${co.syndic.id}`}>{co.syndic.nom}</a>}</dd>
+          {(habite || co.agApplicable) && <><dt>Dernière AG</dt><dd data-rb="derniere-ag">{co.derniereAg ? formaterDateIso(co.derniereAg) : rien('non renseignée')}</dd></>}
+        </Groupe>
+      )}
 
       <Groupe titre="Gestion" large={large} ouvert={false} cle="gestion">
         <dt>En gestion</dt>
@@ -128,15 +197,54 @@ export function ResumeBienFiche({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheU
             )}</dd>
           </>
         )}
-        {g !== undefined && (
+        {r?.proprietaires !== undefined && (
           <>
-            <dt>Entretiens à prévoir</dt>
-            <dd data-rb="entretiens">{g.entretienAPrevoir === false ? 'aucun' : g.entretiens.length > 0
-              ? g.entretiens.map((e) => `${libelleEntretien({ sorte: e.sorte as 'chaudiere' | 'ramonage' | 'autre', nom: e.nom })}${e.dateAnniversaire ? ` (${formaterDateIso(e.dateAnniversaire)})` : ''}`).join(' · ')
-              : rien()}</dd>
+            <dt>Propriétaire{r.proprietaires.length > 1 ? 's' : ''}</dt>
+            <dd data-rb="proprietaires" className="rb-liste">
+              {r.proprietaires.length === 0 ? rien() : r.proprietaires.map((p) => (
+                <span key={p.id} data-rb-proprietaire={p.id}>
+                  <button type="button" className="rb-lien" onClick={() => ouvrir('proprietaire', p.id)}>{p.nom}</button>
+                  {!p.titulaire && <span className="rb-note"> · copropriétaire</span>}
+                  <span className="rb-note"> · mandat de gestion {p.mandatGestion ?? 'non renseigné'}{p.mandatTransaction ? ` · mandat de transaction ${p.mandatTransaction}` : ''}</span>
+                </span>
+              ))}
+            </dd>
+          </>
+        )}
+        {habite && d !== undefined && (
+          <>
+            <dt>Assurance PNO</dt>
+            <dd data-rb="pno">{d.assurancePno === true ? <>oui{d.pnoDateAnniversaire ? ` — date anniversaire ${formaterDateIso(d.pnoDateAnniversaire)}` : ''}</> : ouiNon(d.assurancePno, true)}</dd>
           </>
         )}
       </Groupe>
+
+      {g !== undefined && fam !== 'parking' && (
+        <Groupe titre="DPE et entretiens" large={large} ouvert={false} cle="dpe">
+          {d !== undefined && (
+            <>
+              <dt>DPE</dt>
+              <dd data-rb="dpe">{d.nonSoumis || d.classe === DPE_NON_SOUMIS ? LIBELLE_DPE_NON_SOUMIS : d.classe
+                ? <>classe <strong>{d.classe}</strong>{d.date ? ` — du ${formaterDateIso(d.date)}` : <> — {rien('date non renseignée')}</>}</> : rien()}</dd>
+            </>
+          )}
+          <dt>Entretien à prévoir</dt>
+          <dd data-rb="entretien-a-prevoir">{ouiNon(g.entretienAPrevoir)}</dd>
+          <dt>Entretiens à prévoir</dt>
+          <dd data-rb="entretiens">{g.entretienAPrevoir === false ? 'aucun' : g.entretiens.length > 0
+            ? g.entretiens.map((e) => `${libelleEntretien({ sorte: e.sorte as 'chaudiere' | 'ramonage' | 'autre', nom: e.nom })}${e.dateAnniversaire ? ` (${formaterDateIso(e.dateAnniversaire)})` : ''}`).join(' · ')
+            : rien()}</dd>
+        </Groupe>
+      )}
+      {g !== undefined && fam === 'parking' && (
+        // Un parking nu n'a ni DPE ni entretien : la ligne d'avant reste, dans « Gestion » où elle était.
+        <Groupe titre="DPE et entretiens" large={large} ouvert={false} cle="dpe">
+          <dt>Entretiens à prévoir</dt>
+          <dd data-rb="entretiens">{g.entretienAPrevoir === false ? 'aucun' : g.entretiens.length > 0
+            ? g.entretiens.map((e) => `${libelleEntretien({ sorte: e.sorte as 'chaudiere' | 'ramonage' | 'autre', nom: e.nom })}${e.dateAnniversaire ? ` (${formaterDateIso(e.dateAnniversaire)})` : ''}`).join(' · ')
+            : rien()}</dd>
+        </Groupe>
+      )}
 
       {l !== undefined && (
         <Groupe titre="Location en cours" large={large} ouvert={false} cle="location">
@@ -184,6 +292,14 @@ export function ResumeBienFiche({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheU
           )}
         </Groupe>
       )}
+
+      {r !== null && r.commentaire !== undefined && (
+        <Groupe titre="Commentaire" large={large} ouvert={false} cle="commentaire">
+          <dt>Commentaire libre</dt>
+          {/* En entier, avec ses retours à la ligne. */}
+          <dd data-rb="commentaire" className="rb-commentaire">{r.commentaire ?? rien()}</dd>
+        </Groupe>
+      )}
     </div>
   );
 }
@@ -206,5 +322,8 @@ export const CSS_RESUME_BIEN = `
 .rb-statut--libre{color:var(--color-svv-green-ink)}
 .rb-statut--loue{color:var(--color-svv-red)}
 .rb-liens{display:flex;flex-wrap:wrap;gap:4px 12px}
+.rb-liste{display:flex;flex-direction:column;gap:4px;min-width:0;overflow-wrap:anywhere}
+.rb-commentaire{white-space:pre-wrap;overflow-wrap:anywhere}
+.rb-lien--a{display:inline-flex;align-items:center}
 .rb-lien{border:0;background:none;padding:0;min-height:44px;font:inherit;font-weight:600;color:var(--color-svv-ink);text-decoration:underline;cursor:pointer;text-align:left}
 `;
