@@ -56,6 +56,12 @@ export async function ajouterBareme(brut: Record<string, unknown>, auteur: Auteu
   const v = verifierBareme(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
   const b = v.valeurs;
+  // Arno (21/10/2026, 395) : une nouvelle version n'est jamais antérieure à la précédente (même règle que les Paramètres
+  // Location, et le verrou en base une fois la 395 appliquée).
+  const precedente = (await lireBaremes()).map((x) => x.depuis).sort().pop();
+  if (precedente !== undefined && b.depuis < precedente) {
+    return { etat: 'refus', motif: `La date d’effet ne peut pas être antérieure à celle de la version précédente (${precedente.split('-').reverse().join('/')}).` };
+  }
   return withTransaction(async (q): Promise<Issue> => {
     await q(
       `INSERT INTO gestion_bareme_honoraires_location (depuis, tres_tendue_m2, tendue_m2, autre_m2, etat_des_lieux_m2, source, saisi_par_libelle)

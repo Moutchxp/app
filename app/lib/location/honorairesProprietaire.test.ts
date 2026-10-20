@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   baremeEnVigueur, calculerHonorairesProprietaire, eurosAffiches, lignesHonoraires, lireDecimal, MOTIF_SURFACE_MANQUANTE, texteExact,
-  totalDesHonoraires, verifierBareme, zoneDuBien, type Bareme, type RegleZone,
+  totalDesHonoraires, verifierBareme, zoneDuBien, refusVersionBareme, type Bareme, type RegleZone, type VersionBareme,
 } from './honorairesProprietaire';
 
 /** Arno (20/10/2026) — « Honoraires propriétaire » : surface Carrez/Boutin × barème DATÉ de la zone. La règle pure. */
@@ -90,5 +90,32 @@ describe('🔴 un nouveau barème (administrateur)', () => {
     expect(verifierBareme({ tresTendue: '12', tendue: '10', autre: '8', etatDesLieux: '3', source: 'x' })).toEqual({ ok: false, motif: 'La date d’effet est obligatoire (JJ/MM/AAAA).' });
     expect(verifierBareme({ depuis: '2027-01-01', tresTendue: 'douze', tendue: '10', autre: '8', etatDesLieux: '3', source: 'x' }).ok).toBe(false);
     expect(verifierBareme({ depuis: '2027-01-01', tresTendue: '12', tendue: '10', autre: '8', etatDesLieux: '3', source: '' }).ok).toBe(false);
+  });
+});
+
+/** 🔴 Arno (21/10/2026, 395) — LES VERSIONS DU BARÈME : jamais antérieure à la précédente ; utilisée = figée ; future inutilisée = corrigeable. */
+describe('refusVersionBareme — la règle des versions', () => {
+  const V = (id: number, depuis: string, baux: number): VersionBareme => ({ id, depuis, tresTendue: '12.1', tendue: '10.09', autre: '8.07', etatDesLieux: '3.03', source: 's',
+    saisiLe: '2026-01-01', saisiPar: 'x', corrigeLe: null, corrigePar: null, baux });
+  const versions = [V(1, '2026-01-01', 4), V(2, '2026-12-01', 0)];
+  it('une NOUVELLE version : aujourd’hui ou après la plus récente ; jamais antérieure', () => {
+    expect(refusVersionBareme({ depuis: '2026-12-01', versions, aujourdhui: '2026-10-21' })).toBeNull();
+    expect(refusVersionBareme({ depuis: '2027-01-01', versions, aujourdhui: '2026-10-21' })).toBeNull();
+    expect(refusVersionBareme({ depuis: '2026-10-21', versions, aujourdhui: '2026-10-21' }))
+      .toBe('La date « Applicable à partir du » ne peut pas être antérieure à celle de la version précédente (01/12/2026).');
+  });
+  it('une version UTILISÉE par un bail ne se corrige pas', () => {
+    expect(refusVersionBareme({ depuis: '2027-01-01', versions, aujourdhui: '2026-10-21', corrigee: versions[0] }))
+      .toBe('Cette version est utilisée par 4 baux : elle ne se modifie pas. Enregistrez une nouvelle version.');
+  });
+  it('une version déjà EN VIGUEUR (même sans bail) ne se corrige pas', () => {
+    expect(refusVersionBareme({ depuis: '2027-01-01', versions: [V(1, '2026-01-01', 0)], aujourdhui: '2026-10-21', corrigee: V(1, '2026-01-01', 0) }))
+      .toMatch(/^Seule une version future se corrige : celle-ci s’applique depuis le 01\/01\/2026/);
+  });
+  it('une version FUTURE jamais utilisée se corrige, reste future, et pas avant la précédente', () => {
+    expect(refusVersionBareme({ depuis: '2026-11-15', versions, aujourdhui: '2026-10-21', corrigee: versions[1] })).toBeNull();
+    expect(refusVersionBareme({ depuis: '2026-10-21', versions, aujourdhui: '2026-10-21', corrigee: versions[1] })).toBe('Une version corrigée reste future : choisissez une date après le 21/10/2026.');
+    expect(refusVersionBareme({ depuis: '2026-11-15', versions: [V(1, '2026-01-01', 0), V(3, '2026-12-01', 0), V(4, '2027-01-01', 0)], aujourdhui: '2026-10-21', corrigee: V(4, '2027-01-01', 0) }))
+      .toBe('La date « Applicable à partir du » ne peut pas être antérieure à celle de la version précédente (01/12/2026).');
   });
 });

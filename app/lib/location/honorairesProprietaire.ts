@@ -160,6 +160,34 @@ export function verifierBareme(b: Record<string, unknown>): { ok: true; valeurs:
   return { ok: true, valeurs: { depuis, tresTendue: valeurs.tresTendue, tendue: valeurs.tendue, autre: valeurs.autre, etatDesLieux: valeurs.etatDesLieux, source } };
 }
 
+/**
+ * ══ LES VERSIONS DU BARÈME (Arno, 21/10/2026, migration 395) ══════════════════════════════════════════════════════════════
+ * 🔴 RÈGLE ABSOLUE : un changement de tarif ne modifie JAMAIS une version existante ; « Enregistrer » crée une NOUVELLE version
+ * datée (« Applicable à partir du »), jamais antérieure à la version précédente. Une version déjà utilisée par au moins un bail
+ * ne se modifie ni ne se supprime ; une version FUTURE encore jamais utilisée peut être corrigée. Le même verrou est en base.
+ */
+export interface VersionBareme extends Bareme {
+  saisiLe: string; saisiPar: string; corrigeLe: string | null; corrigePar: string | null;
+  /** Le nombre de baux dont les honoraires enregistrés utilisent cette version. */
+  baux: number;
+}
+
+/** Le refus d'une nouvelle version (ou d'une correction, `corrigee`), ou `null`. `aujourdhui` : « AAAA-MM-JJ » à Paris. PUR. */
+export function refusVersionBareme(o: { depuis: string; versions: readonly VersionBareme[]; aujourdhui: string; corrigee?: VersionBareme }): string | null {
+  const c = o.corrigee;
+  if (c !== undefined) {
+    if (c.baux > 0) return `Cette version est utilisée par ${c.baux} ${c.baux > 1 ? 'baux' : 'bail'} : elle ne se modifie pas. Enregistrez une nouvelle version.`;
+    if (c.depuis <= o.aujourdhui) return `Seule une version future se corrige : celle-ci s’applique depuis le ${dateFr(c.depuis)}. Enregistrez une nouvelle version.`;
+    if (o.depuis <= o.aujourdhui) return `Une version corrigée reste future : choisissez une date après le ${dateFr(o.aujourdhui)}.`;
+  }
+  const precedentes = o.versions.filter((v) => (c === undefined ? true : v.id < c.id && v.id !== c.id)).map((v) => v.depuis).sort();
+  const precedente = precedentes[precedentes.length - 1];
+  if (precedente !== undefined && o.depuis < precedente) {
+    return `La date « Applicable à partir du » ne peut pas être antérieure à celle de la version précédente (${dateFr(precedente)}).`;
+  }
+  return null;
+}
+
 /** Les lignes de l'encadré (et de l'encart de la fiche). PUR. */
 export function lignesHonoraires(c: CalculHonoraires): { mot: string; valeur: string; detail?: string }[] {
   if (c.etat !== 'ok') return [];
