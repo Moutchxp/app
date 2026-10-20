@@ -6,6 +6,11 @@ import { etageFr } from '../../../../lib/location/sortieLocataires';
 import { CSS_CARTES } from '../gestion/CartesPersonnes';
 import { CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import { SaisieCartes, type EtatCartes } from './SaisieCartes';
+import { BlocConditionsEntree, CSS_CONDITIONS } from './ConditionsEntree';
+import { BlocEntretien, CSS_ENTRETIEN, ENTRETIEN_VIDE, versEnvoiEntretien, versSaisieEntretien, type SaisieEntretien } from './EntretienBien';
+import { CONDITIONS_VIDES, manquesConditions, versEnvoiConditions, type SaisieConditions } from '../../../../lib/location/conditionsEntree';
+import { familleDeCategorie, manquesEntretien } from '../../../../lib/location/bienComplet';
+import type { FicheBienLocation } from '../../../../lib/location/locationRepo';
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
 interface LotLu { id: number; role: 'logement' | 'annexe'; libelle: string; type: string | null; etage: string | null; numeroLot: string | null;
@@ -68,6 +73,13 @@ export function LotsLoues({ lotId, coches, onCoches }: { lotId: number; coches: 
  * serveur, et React tombe en erreur d'hydratation. Le formulaire de la PAGE reste, mais VIDE, et se relie par l'attribut
  * HTML `form` au bouton « Enregistrer » et aux champs de la page : la touche Entrée et le bouton font exactement ce
  * qu'ils faisaient.
+ *
+ * ══ BLOC 3 « CONDITIONS D'ENTRÉE » (Arno, 20/10/2026) ═══════════════════════════════════════════════════════════════════
+ * La fiche papier « Nouveau dossier » : dépôt de garantie, prélèvement, garanties, entretien à prévoir, honoraires, sommes
+ * dues, mode de règlement, commentaires (`ConditionsEntree.tsx`). Les choix sont OBLIGATOIRES (« Reste à renseigner »,
+ * « Enregistrer » bloqué) ; montants et commentaire non. Enregistrées sur le BAIL créé (migration 391). L'ENTRETIEN À
+ * PRÉVOIR est la donnée DU BIEN (même composant, même donnée que « Nouveau bien ») : pré-rempli depuis le bien, posé sur
+ * lui ; un parking ou une cave n'en a pas. Sans la migration 391, le bloc le dit et le locataire se crée comme avant.
  */
 export function CreationLocataire() {
   const [etat, setEtat] = useState<EtatCartes>({ clients: [], contacts: [], existants: [], ouvertes: 1 });
@@ -82,6 +94,30 @@ export function CreationLocataire() {
   const [recap, setRecap] = useState<string[] | null>(null);
   const [fait, setFait] = useState<{ messages: string[]; lien: string } | null>(null);
   const idForm = useId();
+  // Bloc 3 — les conditions d'entrée et l'entretien du bien ; `tente` : les messages sous chaque champ après un essai.
+  const [conditions, setConditions] = useState<SaisieConditions>(CONDITIONS_VIDES);
+  const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
+  const [entretienDuBien, setEntretienDuBien] = useState<number | null>(null);
+  const [tente, setTente] = useState(false);
+  const dispo = useLecture<boolean>('conditionsEntreeDisponible');
+  const avecConditions = dispo.etat.etat === 'ok' && dispo.etat.data === true;
+  const ficheBien = useLecture<FicheBienLocation>(bien !== null ? `lot=${bien.id}` : null);
+  const lueBien = ficheBien.etat.etat === 'ok' && bien !== null && ficheBien.etat.data.bien?.id === bien.id ? ficheBien.etat.data : null;
+  const famille = lueBien === null ? null : familleDeCategorie(lueBien.bien.categorie);
+  // L'entretien n'existe que pour un logement / local, et avec la migration 379 (sinon `entretiens` est absent).
+  const avecEntretien = lueBien !== null && (famille === 'logement' || famille === 'local') && Array.isArray(lueBien.complements?.entretiens);
+  // Pré-rempli UNE fois par bien choisi, avec ce que le bien sait déjà (la même donnée que sa fiche).
+  useEffect(() => {
+    if (lueBien === null || entretienDuBien === lueBien.bien.id) return;
+    setEntretienDuBien(lueBien.bien.id);
+    setEntretien(versSaisieEntretien(lueBien.complements?.entretienAPrevoir ?? null, lueBien.complements?.entretiens));
+  }, [lueBien, entretienDuBien]);
+  const envoiEntretien = versEnvoiEntretien(entretien);
+  const manque: Record<string, string> = avecConditions ? {
+    ...manquesConditions(versEnvoiConditions(conditions)),
+    ...(avecEntretien ? manquesEntretien({ entretienAPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens }) : {}),
+  } : {};
+  const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
   const surCartes = useCallback((e: EtatCartes) => { setEtat(e); setMotif(null); }, []);
 
   useEffect(() => { const t = setTimeout(() => setTerme(filtreBien.trim()), 250); return () => clearTimeout(t); }, [filtreBien]);
@@ -97,6 +133,17 @@ export function CreationLocataire() {
     if (etat.ouvertes > 0) { setMotif('Une carte est encore ouverte : enregistrez-la (ou annulez-la) avant de continuer.'); return; }
     if (bien === null) { setMotif('Choisissez le bien loué.'); return; }
     if (coches !== null && coches.length === 0) { setMotif('Cochez au moins un lot loué.'); return; }
+    // Bloc 3 : tant qu'un choix manque, rien n'est envoyé ; le message est sous le champ et la page y descend.
+    if (Object.keys(manque).length > 0) {
+      setTente(true); setMotif(null);
+      setTimeout(() => {
+        const premier = document.querySelector('[data-conditions-entree] .loc-manque');
+        const bloc = premier?.closest('.loc-cond-bloc') ?? premier;
+        const reduit = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (bloc instanceof HTMLElement && typeof bloc.scrollIntoView === 'function') bloc.scrollIntoView({ block: 'center', behavior: reduit ? 'auto' : 'smooth' });
+      }, 0);
+      return;
+    }
     // ① LE RÉCAPITULATIF d'abord : ce que le bail va faire des lots (rien n'est écrit).
     if (recap === null) {
       setEnvoi(true);
@@ -111,21 +158,24 @@ export function CreationLocataire() {
     const r = await envoyer({
       action: 'creer-locataires', cartes: etat.clients, existants: etat.existants.map((x) => x.id), contacts: etat.contacts,
       lotId: bien.id, entree: entree === '' ? null : entree, lotIds: coches ?? [bien.id],
+      ...(avecConditions ? { conditions: versEnvoiConditions(conditions) } : {}),
+      ...(avecConditions && avecEntretien ? { entretien: { aPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens } } : {}),
     });
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); setRecap(null); return; }
-    const d = r.data as { locataireIds?: number[]; reintegrations?: string[] } | undefined;
+    const d = r.data as { locataireIds?: number[]; reintegrations?: string[]; entretienRefus?: string | null } | undefined;
     const ids = d?.locataireIds ?? [];
     const lien = ids[0] !== undefined ? `/admin/location/locataire/${ids[0]}` : '/admin/location/locataires';
     // Une réintégration s'ANNONCE à l'écran avant de quitter la page.
-    if ((d?.reintegrations ?? []).length > 0) { setFait({ messages: d?.reintegrations ?? [], lien }); return; }
+    const annonces = [...(d?.reintegrations ?? []), ...(d?.entretienRefus ? [d.entretienRefus] : [])];
+    if (annonces.length > 0) { setFait({ messages: annonces, lien }); return; }
     window.location.href = lien;
   };
 
   return (
     <div className="loc-page loc-ample">
       <form id={idForm} hidden onSubmit={(e) => { e.preventDefault(); void enregistrer(); }} data-formulaire-page />
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES + CSS_CONDITIONS + CSS_ENTRETIEN}</style>
       <EnTeteLocation titre="Nouveau locataire" sous="Au moins un locataire (client) et le bien loué. Les contacts du locataire sont facultatifs." />
 
       <section className="loc-section" aria-labelledby="loc-l1">
@@ -162,6 +212,24 @@ export function CreationLocataire() {
         </div>
       </section>
 
+      <section className="loc-section" aria-labelledby="loc-l3" data-bloc-conditions>
+        <h3 id="loc-l3"><span className="loc-num">3</span>Conditions d’entrée</h3>
+        {dispo.etat.etat !== 'ok' ? <EtatLecture etat={dispo.etat} /> : !avecConditions ? (
+          <p className="loc-muet" style={{ margin: 0 }} data-conditions-sans-migration>
+            Mise à jour de la base à appliquer (migration 391) : les conditions d’entrée ne peuvent pas encore être enregistrées. Le locataire se crée comme avant.</p>
+        ) : (
+          <>
+            <p className="loc-section-phrase">La fiche « Nouveau dossier » : enregistrée sur le bail créé. Les choix marqués <span className="loc-oblig">*</span> sont obligatoires ; montants et commentaire facultatifs.</p>
+            <BlocConditionsEntree valeur={conditions} onChange={(v) => { setConditions(v); setMotif(null); }} manque={manqueDe}
+              entretien={avecEntretien ? (
+                <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire
+                  manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />
+              ) : undefined} />
+            {avecEntretien && <p className="loc-muet" style={{ margin: 0 }} data-entretien-du-bien>« Entretien à prévoir » est celui du bien : le modifier ici le modifie sur sa fiche.</p>}
+          </>
+        )}
+      </section>
+
       {recap !== null && (
         <section className="loc-section loc-recap-lots" aria-label="Ce qui va se passer" data-recap-lots>
           <h3>Avant d’enregistrer : ce qui va se passer</h3>
@@ -182,6 +250,7 @@ export function CreationLocataire() {
       <div className="loc-collant" data-collant>
         <p className="loc-manques" role="status">
           {nbLocataires === 0 ? 'Reste à renseigner : au moins un locataire (client).' : bien === null ? 'Reste à choisir : le bien loué.'
+            : Object.keys(manque).length > 0 ? `Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires">Annuler</a>

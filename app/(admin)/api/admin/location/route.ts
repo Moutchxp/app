@@ -33,6 +33,7 @@ import { envoyerAuxInvites, envoyerSiAutorise } from '../../../../lib/gestion/ac
 import { synchroniserApresGeste } from '../../../../lib/gestion/agendaSynchroRepo';
 import { ficheDuBienPourBail, refusSansRegroupement } from '../../../../lib/location/regroupementRepo';
 import { planifierBail } from '../../../../lib/location/regroupement';
+import { conditionsEntreeDisponible } from '../../../../lib/location/conditionsEntreeRepo';
 
 /**
  * /api/admin/location — LA PORTE DE LA TUILE LOCATION (correction d'Arno du 17/10/2026).
@@ -93,6 +94,8 @@ export async function GET(request: Request): Promise<Response> {
     }
     // Le bloc « Locataires en préavis » de l'accueil (Arno, 18/10/2026) — LECTURE SEULE.
     if (p('preavisEnCours') !== null) return Response.json({ etat: 'ok', data: await preavisEnCours() }, { headers: ENTETES });
+    // Arno (20/10/2026) — le bloc « Conditions d'entrée » : la migration 391 est-elle là ? (sinon l'écran le dit, et crée comme avant)
+    if (p('conditionsEntreeDisponible') !== null) return Response.json({ etat: 'ok', data: await conditionsEntreeDisponible() }, { headers: ENTETES });
     // Les lots d'un bien pour le bail d'un nouveau locataire (Arno, 19/10/2026) — LECTURE SEULE : type, étage, n°, état.
     const idLotsBail = identifiant(p('lotsBail'));
     if (idLotsBail !== null) {
@@ -309,6 +312,10 @@ export async function POST(request: Request): Promise<Response> {
           lotId: identifiant(corps.lotId), entree: typeof corps.entree === 'string' ? corps.entree : null,
           // Arno (19/10/2026) — les lots loués cochés (logement et/ou annexes).
           ...(Array.isArray(corps.lotIds) ? { lotIds: (corps.lotIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 30) } : {}),
+          // Arno (20/10/2026) — bloc 3 « Conditions d'entrée » et l'entretien à prévoir du bien (envoyés seulement s'ils sont posés).
+          ...(corps.conditions !== undefined && corps.conditions !== null ? { conditions: corps.conditions } : {}),
+          ...(corps.entretien !== null && typeof corps.entretien === 'object'
+            ? { entretien: { aPrevoir: (corps.entretien as Record<string, unknown>).aPrevoir, entretiens: (corps.entretien as Record<string, unknown>).entretiens } } : {}),
         }, auteur));
       case 'apercu-lots': {
         // Arno (19/10/2026) — LE RÉCAPITULATIF avant validation : ce que le bail fera des lots (LECTURE SEULE, rien n'est écrit).

@@ -21,6 +21,10 @@ import { libelleEntretien } from '../../../../lib/location/entretien';
 import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien } from '../location/EntretienBien';
 import { CSS_ZONE_AUTO, ZoneAuto } from '../location/ZoneAuto';
 import { ModaleArchivage } from '../location/ModaleArchivage';
+import { BlocConditionsEntree, CSS_CONDITIONS } from '../location/ConditionsEntree';
+import {
+  manquesConditions, versEnvoiConditions, versSaisieConditions, type ConditionsEntreeLues, type SaisieConditions,
+} from '../../../../lib/location/conditionsEntree';
 import { QuestionOrigine } from '../location/QuestionOrigine';
 import { aujourdhuiParisEcran, CSS_PREAVIS, GestesPreavis, MentionPreavis } from '../location/Preavis';
 import type { PreavisAffiche } from '../../../../lib/location/preavis';
@@ -93,7 +97,7 @@ function Repli({ titre, resume, children }: { titre: string; resume?: string; ch
   return (
     <details className="slf" data-section-location>
       <summary><span className="slf-titre">{titre}</span>{resume !== undefined && resume !== '' && <span className="slf-resume"> · {resume}</span>}</summary>
-      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION + CSS_SECTIONS + CSS_ANNEXE_CARTE + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_PREAVIS}</style>
+      <style>{CSS_LOCATION_ECRANS + CSS_LOCATION + CSS_SECTIONS + CSS_ANNEXE_CARTE + CSS_ENTRETIEN + CSS_ZONE_AUTO + CSS_PREAVIS + CSS_CONDITIONS}</style>
       <div className="slf-corps loc-page">{children}</div>
     </details>
   );
@@ -854,6 +858,7 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
                 </ul>
               )}
             </section>
+            <EncartConditionsEntree d={d} modifiable={d.fiche.modifiable} apres={relire} ouvrir={ouvrir} />
             <BlocPreavis apres={relire} lignes={liste(d.preavis).map((x) => {
               const l = liste(d.locations).find((y) => y.occupationId === x.occupationId);
               return { cle: x.occupationId, entree: l?.entree ?? null, p: x.preavis,
@@ -869,7 +874,82 @@ export function SectionLocationLocataire({ locataireId, ouvrir }: { locataireId:
   );
 }
 
+/**
+ * ══ L'ENCART « CONDITIONS D'ENTRÉE » (Arno, 20/10/2026) ═════════════════════════════════════════════════════════════════
+ * Une par bail (une entrée = un jeu de conditions, migration 391), en LECTURE ; « Modifier » ouvre LE MÊME formulaire que
+ * le bloc 3 de « Nouveau locataire » (`BlocConditionsEntree`) et AJOUTE une ligne (la précédente reste lisible).
+ * L'entretien à prévoir n'y est pas : c'est la donnée du bien, sur sa fiche.
+ */
+function EncartConditionsEntree({ d, modifiable, apres, ouvrir }: { d: FicheLocataireLocation; modifiable: boolean; apres: () => void; ouvrir: Ouvrir }) {
+  const baux = liste(d.conditionsEntree);
+  return (
+    <section className="loc-bloc" data-encart-conditions-entree>
+      <h3>Conditions d’entrée</h3>
+      {d.conditionsEntreeDisponible === false
+        ? <p className="loc-muet" style={{ margin: 0 }}>Mise à jour de la base à appliquer (migration 391) : les conditions d’entrée ne sont pas encore disponibles.</p>
+        : baux.length === 0
+          ? <p className="loc-muet" style={{ margin: 0 }}>Aucune condition d’entrée enregistrée (elles se saisissent à l’entrée, depuis « Nouveau locataire »).</p>
+          : baux.map((c) => <ConditionsDuBail key={c.bailCle} c={c} d={d} modifiable={modifiable} apres={apres} ouvrir={ouvrir} />)}
+    </section>
+  );
+}
+
+function ConditionsDuBail({ c, d, modifiable, apres, ouvrir }: { c: ConditionsEntreeLues; d: FicheLocataireLocation; modifiable: boolean; apres: () => void; ouvrir: Ouvrir }) {
+  const [saisie, setSaisie] = useState<SaisieConditions | null>(null);
+  const [tente, setTente] = useState(false);
+  const [motif, setMotif] = useState<string | null>(null);
+  const [envoi, setEnvoi] = useState(false);
+  // Le bail se présente par son logement : la première location de la fiche qui en fait partie.
+  const l = liste(d.locations).find((x) => c.occupationIds.includes(x.occupationId));
+  const manque = saisie === null ? {} : manquesConditions(versEnvoiConditions(saisie));
+  const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
+  const enregistrer = async (): Promise<void> => {
+    if (saisie === null || l === undefined) return;
+    setTente(true);
+    if (Object.keys(manque).length > 0) { setMotif(`Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`); return; }
+    setEnvoi(true);
+    const m = await envoyer({ action: 'conditions-entree', occupationId: l.occupationId, conditions: versEnvoiConditions(saisie) });
+    setEnvoi(false);
+    if (m !== null) { setMotif(m); return; }
+    setSaisie(null); setTente(false); setMotif(null); apres();
+  };
+  return (
+    <div className="loc-cond-bail" data-conditions-bail={c.bailCle}>
+      <p style={{ margin: 0 }}>
+        {l === undefined || l.lotId === null ? <strong>Bail</strong>
+          : <LienFiche sorte="lot" id={l.lotId} ouvrir={ouvrir}>{[l.adresse, l.commune].filter((x) => x).join(', ') || `Bien ${l.lotId}`}</LienFiche>}{' '}
+        <span className="loc-muet">— {c.modifiees ? 'modifiées' : 'saisies'} le {formaterDateIso(c.saisiLe.slice(0, 10))} par {c.saisiPar}</span>
+      </p>
+      {saisie === null ? (
+        <>
+          <dl className="loc-cond-lecture">
+            {c.lignes.map((x) => <div key={x.mot} style={{ display: 'contents' }}><dt>{x.mot}</dt><dd>{x.valeur}</dd></div>)}
+          </dl>
+          {modifiable && l !== undefined && (
+            <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSaisie(versSaisieConditions(c.conditions))} data-modifier-conditions>Modifier</button>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <BlocConditionsEntree valeur={saisie} onChange={(v) => { setSaisie(v); setMotif(null); }} manque={manqueDe} />
+          {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+          <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={envoi} onClick={() => { void enregistrer(); }} data-enregistrer-conditions>
+              {envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { setSaisie(null); setTente(false); setMotif(null); }}>Annuler</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 const CSS_SECTIONS = `
+.loc-cond-bail{display:flex;flex-direction:column;gap:8px;padding:12px 0;border-top:1px solid var(--color-svv-line)}
+.loc-cond-bail:first-of-type{border-top:0;padding-top:0}
+.loc-cond-bail .slf-lien{display:inline-flex;align-items:center;min-height:44px}
 .loc-a-renseigner-ligne{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
 .loc-a-renseigner{display:inline-block;border-radius:999px;padding:2px 10px;background:var(--color-svv-amber-soft);color:var(--color-svv-amber);font-weight:700;font-size:.85rem}
 .slf{margin-top:14px;border:1px solid var(--color-svv-line);border-radius:12px;background:var(--color-svv-surface)}

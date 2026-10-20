@@ -25,6 +25,7 @@ import { annotationPropre } from './annexeLocation';
 import type { SortiePortefeuille } from './recherchePortefeuille';
 import { categorieDuBien, verifierChampsBien, type BienLocation, type Categorie, type ChampsBien } from './locationBien';
 import { fichesAutonomesDuLot, type FicheAutonomeAffichee } from './regroupementRepo';
+import { conditionsEntreeDisponible, conditionsParOccupation, type ConditionsEntreeLues } from './conditionsEntreeRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE DÉPÔT (correction d'Arno du 17/10/2026). IMPUR (base). ══════════════════════════════════
@@ -254,6 +255,12 @@ export interface FicheLocataireLocation {
   fiche: FicheLocataire; sortie: SortiePortefeuille | null; locations: LocationDuLocataire[];
   /** Les préavis OUVERTS de ses locations (migration 383 ; vide sans elle), par occupation. */
   preavis?: { occupationId: number; preavis: PreavisAffiche & { dureeProposee: number | null } }[];
+  /**
+   * Arno (20/10/2026) — les CONDITIONS D'ENTRÉE de ses baux (migration 391), une par bail (une entrée = un jeu) ;
+   * `conditionsEntreeDisponible` = false sans la migration (l'encart le dit, rien d'autre ne change).
+   */
+  conditionsEntree?: ConditionsEntreeLues[];
+  conditionsEntreeDisponible?: boolean;
 }
 
 export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLocataireLocation>> {
@@ -275,6 +282,8 @@ export async function ficheLocataireLocation(id: number): Promise<Issue<FicheLoc
       })),
       preavis: [...(await preavisOuverts(rows.filter((r) => r.sortie === null).map((r) => Number(r.id)))).values()]
         .map((p) => ({ occupationId: p.occupationId, preavis: p })),
+      conditionsEntree: [...new Map([...(await conditionsParOccupation(rows.map((r) => Number(r.id)))).values()].map((c) => [c.bailCle, c])).values()],
+      conditionsEntreeDisponible: await conditionsEntreeDisponible(),
     },
   };
 }

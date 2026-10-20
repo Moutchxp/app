@@ -202,6 +202,15 @@ export function manquesDpeEntretien(s: { dpeClasse?: unknown; dpeDate?: unknown;
   }
   if (!nonSoumis && vide(s.dpeDate)) m.dpeDate = 'La date du DPE est obligatoire (sauf « Non soumis »).';
   else if (!nonSoumis && dateDpeFuture(String(s.dpeDate).trim(), aujourdhui)) m.dpeDate = 'La date du DPE ne peut pas être dans le futur.';
+  return Object.assign(m, manquesEntretien(s));
+}
+
+/**
+ * « Entretien à prévoir » d'un logement / local : ce qui manque (Oui / Non, puis au moins un entretien nommé). PUR.
+ * La même règle pour « Nouveau bien » et pour le bloc « Conditions d'entrée » de « Nouveau locataire » (Arno, 20/10/2026).
+ */
+export function manquesEntretien(s: { entretienAPrevoir?: unknown; entretiens?: unknown }): Record<string, string> {
+  const m: Record<string, string> = {};
   const oui = ouiNon(s.entretienAPrevoir);
   if (oui === null) m.entretien = 'Entretien à prévoir : répondez Oui ou Non.';
   else if (oui) {

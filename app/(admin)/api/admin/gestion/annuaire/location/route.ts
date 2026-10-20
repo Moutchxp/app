@@ -8,6 +8,7 @@ import {
 import { apercuArchivage, reactiverDansPortefeuille, sortirDuPortefeuille, type SujetPortefeuille } from '../../../../../../lib/location/portefeuilleRepo';
 import { enregistrerEnGestion, modifierComplementsBien, syndicsConnus } from '../../../../../../lib/location/creationBienRepo';
 import { detacherAnnexe } from '../../../../../../lib/location/entretienAnnexeRepo';
+import { modifierConditionsEntree } from '../../../../../../lib/location/conditionsEntreeRepo';
 import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../../../lib/location/archivage';
 import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
@@ -116,6 +117,12 @@ export async function POST(request: Request): Promise<Response> {
         const pid = identifiant(corps.preavisId);
         if (pid === null) return incomplet();
         return repondre(await annulerPreavis({ preavisId: pid }, auteur));
+      }
+      // Arno (20/10/2026) — « Conditions d'entrée » : « Modifier » ajoute une ligne au bail (migration 391, ajout seul).
+      case 'conditions-entree': {
+        const occ = identifiant(corps.occupationId);
+        if (occ === null) return incomplet();
+        return repondre(await modifierConditionsEntree(occ, corps.conditions, auteur));
       }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);

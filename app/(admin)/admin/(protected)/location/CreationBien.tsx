@@ -25,6 +25,7 @@ import { ajouterContacts, ajouterProprietaires, type ContactProprietaire, type P
 import { BlocSyndic, type SyndicChoisi } from './BlocSyndicBien';
 import { CSS_FETE } from './FeteOui';
 import { QuestionEnGestion } from './QuestionEnGestion';
+import { LIBELLE_OUI_NON, OUI_NON, Pilules, versOuiNon } from './Pilules';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — « AJOUTER UN NOUVEAU BIEN » (/admin/location/nouveau-bien), Arno, 17/10/2026 ══════════════════
@@ -75,19 +76,6 @@ type Champ = keyof typeof VIDE;
 const LIBELLE_ANNEXE: Record<string, string> = { cave: 'Cave', parking: 'Parking', box: 'Box', autre: 'Autre annexe' };
 const estParking = (c: Categorie): boolean => c === 'parking' || c === 'box';
 
-/** Un groupe de choix unique en grosses pilules (oui / non, intérieur / extérieur…). Un second clic désélectionne. */
-function Pilules<T extends string>({ etiquette, options, libelle, valeur, onChoix }: {
-  etiquette: string; options: readonly T[]; libelle: Record<T, string>; valeur: T | null; onChoix: (v: T | null) => void;
-}) {
-  return (
-    <div className="loc-pilules" role="group" aria-label={etiquette}>
-      {options.map((o) => <button key={o} type="button" aria-pressed={valeur === o} onClick={() => onChoix(valeur === o ? null : o)}>{libelle[o]}</button>)}
-    </div>
-  );
-}
-const OUI_NON = ['oui', 'non'] as const;
-const LIBELLE_OUI_NON: Record<'oui' | 'non', string> = { oui: 'Oui', non: 'Non' };
-const versOuiNon = (v: boolean | null): 'oui' | 'non' | null => (v === null ? null : v ? 'oui' : 'non');
 
 /**
  * ══ « CRÉER UN NOUVEAU PROPRIÉTAIRE » → LE BIEN DANS LA CONTINUITÉ (Arno, 18/10/2026) ══════════════════════════════════

@@ -23,6 +23,10 @@ import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
 import { familleDeCategorie, LIBELLE_TYPE_LOGEMENT, type TypeLogement } from './bienComplet';
 import { etageFr } from './sortieLocataires';
 
+import { verifierConditions, type ConditionsEntree } from './conditionsEntree';
+import { conditionsEntreeDisponible, enregistrerConditionsEntreeDans } from './conditionsEntreeRepo';
+import { verifierEntretiens } from './entretien';
+import { enregistrerEntretiens } from './entretienAnnexeRepo';
 /**
  * ══ 🔴🔴 TUILE LOCATION — LE PORTEFEUILLE (refonte de l'accueil, Arno, 17/10/2026). IMPUR (base). ══════════════════════
  *
@@ -759,7 +763,14 @@ export async function creerLocatairesSurBien(o: {
   cartes: ContactSaisi[]; existants: number[]; contacts: ContactSaisi[]; lotId: number | null; entree: string | null;
   /** Arno (19/10/2026) — les LOTS LOUÉS cochés (logement et/ou annexes) ; absent : le lot choisi seul, comme avant. */
   lotIds?: number[];
-}, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null; recap: string[]; reintegrations: string[] }>> {
+  /**
+   * Arno (20/10/2026) — les CONDITIONS D'ENTRÉE du bail (bloc 3, migration 391) : vérifiées avant toute écriture, écrites
+   * dans la transaction qui crée les occupations. Absentes (écran d'avant, ou base sans la migration) : comme avant.
+   */
+  conditions?: unknown;
+  /** L'ENTRETIEN À PRÉVOIR du bien (la donnée du BIEN, `entretien.ts`) : posé sur le bien loué, comme sa fiche le ferait. */
+  entretien?: { aPrevoir: unknown; entretiens: unknown };
+}, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null; recap: string[]; reintegrations: string[]; entretienRefus: string | null }>> {
   if (o.lotId === null) return { etat: 'refus', motif: 'Choisissez le bien loué.' };
   const cartes = o.cartes.slice(0, 12);
   const existants = [...new Set(o.existants)].slice(0, 12);
@@ -772,6 +783,18 @@ export async function creerLocatairesSurBien(o: {
   if (!(await familleAUneCarteComplete('locataire', cartes, existants))) return { etat: 'refus', motif: MOTIF_PREMIERE_CARTE };
   const refusC = refusContacts(o.contacts);
   if (refusC !== null) return { etat: 'refus', motif: refusC };
+  // Les conditions d'entrée et l'entretien : jugés AVANT la première écriture (une fiche créée ne reste jamais orpheline d'un refus).
+  let conditions: ConditionsEntree | null = null;
+  if (o.conditions !== undefined) {
+    if (!(await conditionsEntreeDisponible())) return { etat: 'sans_schema' };
+    const v = verifierConditions(o.conditions);
+    if (!v.ok) return { etat: 'refus', motif: v.motif };
+    conditions = v.valeurs;
+  }
+  if (o.entretien !== undefined) {
+    const e = verifierEntretiens(o.entretien.aPrevoir, o.entretien.entretiens);
+    if (!e.ok) return { etat: 'refus', motif: e.motif };
+  }
   const entree = o.entree !== null && /^\d{4}-\d{2}-\d{2}$/.test(o.entree) ? o.entree : null;
   const { rows: lot } = await query<{ ok: boolean }>(`SELECT (${await sqlBienDuPortefeuille('lo')}) AS ok FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [o.lotId]);
   if (lot[0] === undefined) return { etat: 'refus', motif: 'Ce bien n’existe plus.' };
@@ -801,11 +824,16 @@ export async function creerLocatairesSurBien(o: {
     if (fiche === null) return { ok: false as const, motif: 'Ce bien n’existe plus.' };
     const plan = planifierBail(fiche, coches);
     if (!plan.ok) return { ok: false as const, motif: plan.motif };
+    const occupations: number[] = [];
     for (const id of [...ids, ...existants]) {
       for (const l of plan.plan.lotsLoues) {
-        if (await ajouterOccupantDans(q, l, id, entree, auteur) === null) return { ok: false as const, motif: 'Un des lots n’existe plus.' };
+        const occ = await ajouterOccupantDans(q, l, id, entree, auteur);
+        if (occ === null) return { ok: false as const, motif: 'Un des lots n’existe plus.' };
+        occupations.push(occ);
       }
     }
+    // Une entrée = UN jeu de conditions, porté par toutes les occupations qu'elle vient de créer (migration 391).
+    if (conditions !== null) await enregistrerConditionsEntreeDans(q, occupations, lotId, conditions, auteur);
     const recap = await appliquerPlan(q, fiche, plan.plan, auteur);
     const reintegrations = await reintegrerSiComplet(q, plan.plan.lotsLoues, auteur);
     return { ok: true as const, recap, reintegrations };
@@ -814,8 +842,15 @@ export async function creerLocatairesSurBien(o: {
     return { etat: 'refus', motif: ids.length === 0 ? issue.motif : `Les fiches sont créées, mais le rattachement au bien a échoué : ${issue.motif}` };
   }
   const c = await creerContactsDuBien(o.lotId, 'locataire', o.contacts, auteur);
+  // L'entretien est la donnée du BIEN : la même écriture que sa fiche (journalisée seulement si elle change). Jamais bloquant.
+  let entretienRefus: string | null = null;
+  if (o.entretien !== undefined) {
+    const r = await enregistrerEntretiens(o.lotId, o.entretien.aPrevoir, o.entretien.entretiens, auteur)
+      .catch((e: unknown) => ({ ok: false as const, motif: e instanceof Error ? e.message : 'erreur' }));
+    if (!r.ok) entretienRefus = `Le locataire est créé, mais l’entretien à prévoir du bien n’a pas été enregistré : ${r.motif}`;
+  }
   return { etat: 'ok', data: { locataireIds: [...ids, ...existants], contacts: c.ok ? c.n : 0, contactsRefus: c.ok ? null : `Les locataires sont créés, mais : ${c.motif}`,
-    recap: issue.recap, reintegrations: issue.reintegrations } };
+    recap: issue.recap, reintegrations: issue.reintegrations, entretienRefus } };
 }
 
 /** La fiche d'un syndic, telle que la Gestion la connaît (mêmes données, aucune copie). */
