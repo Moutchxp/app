@@ -184,6 +184,32 @@ describe('🔴 « Nouveau locataire » — bloc 3 « Conditions d’entrée »',
       .toContain('Le locataire est enregistré, mais le dossier Drive du bail n’a pas été créé : Drive indisponible (403). « Créer le dossier » sur sa fiche le relance.');
   });
 
+  it('🔴 Arno (21/10/2026) — APRÈS « Enregistrer » (bail créé) : l’écran reste et montre le GROS bouton « Envoi ADHOC & MONGA » ; rien n’est envoyé', async () => {
+    await preparer();
+    await toutRepondre();
+    const avant = global.fetch;
+    const appels: string[] = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      appels.push(`${init?.method ?? 'GET'} ${String(url)}`);
+      if (init?.method === 'POST') {
+        const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+        if (corps.action === 'creer-locataires') { posts.push(corps); return ok({ locataireIds: [50], reintegrations: [], bailId: 536, drive: { ok: true } }); }
+      }
+      return (avant as (u: unknown, i?: RequestInit) => Promise<Response>)(url, init);
+    }) as unknown as typeof fetch;
+    await soumettre();
+    if (container.querySelector('[data-collant] button[type="submit"]')?.textContent === 'Confirmer') await soumettre();
+    expect(window.location.href).toBe('');
+    const bloc = container.querySelector('[data-apres-enregistrer]');
+    expect(bloc).not.toBeNull();
+    const bouton = bloc?.querySelector('[data-ouvrir-envoi]') as HTMLButtonElement;
+    expect(bouton.textContent).toBe('Envoi ADHOC & MONGA');
+    expect(bouton.className).toBe('eam-gros');
+    expect(container.querySelector('[data-envoi-adhoc="536"]')).not.toBeNull();
+    expect(container.querySelector('[data-reintegration] a')?.getAttribute('href')).toBe('/admin/location/locataire/50');
+    expect(appels.filter((a) => a.includes('nouvelle-location'))).toEqual([]);
+  });
+
   it('sous-choix « au 1er / au 5 / au 10 / au 15 » : seulement après Oui, exigé ; Non le retire', async () => {
     await preparer();
     expect(container.querySelector('[data-cond-jour]')).toBeNull();

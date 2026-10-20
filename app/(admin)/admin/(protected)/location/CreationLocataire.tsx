@@ -13,6 +13,7 @@ import { familleDeCategorie, manquesEntretien } from '../../../../lib/location/b
 import type { FicheBienLocation } from '../../../../lib/location/locationRepo';
 import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocation';
 import type { CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
+import { EnvoiAdhocMonga } from './EnvoiAdhocMonga';
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
 interface LotLu { id: number; role: 'logement' | 'annexe'; libelle: string; type: string | null; etage: string | null; numeroLot: string | null;
@@ -94,7 +95,7 @@ export function CreationLocataire() {
   // Arno (19/10/2026) — les LOTS LOUÉS cochés, le récapitulatif avant validation, et l'annonce d'une réintégration.
   const [coches, setCoches] = useState<number[] | null>(null);
   const [recap, setRecap] = useState<string[] | null>(null);
-  const [fait, setFait] = useState<{ messages: string[]; lien: string } | null>(null);
+  const [fait, setFait] = useState<{ messages: string[]; lien: string; bailId?: number | null } | null>(null);
   const idForm = useId();
   // Bloc 3 — les conditions d'entrée et l'entretien du bien ; `tente` : les messages sous chaque champ après un essai.
   const [conditions, setConditions] = useState<SaisieConditions>(CONDITIONS_VIDES);
@@ -258,7 +259,7 @@ export function CreationLocataire() {
     setEnvoi(false);
     if (r.motif !== null) { setMotif(r.motif); setRecap(null); return; }
     const d = r.data as { locataireIds?: number[]; reintegrations?: string[]; entretienRefus?: string | null; contactsRefus?: string | null;
-      dateBaremeSupposee?: boolean; drive?: { ok: boolean; motif?: string } } | undefined;
+      dateBaremeSupposee?: boolean; drive?: { ok: boolean; motif?: string }; bailId?: number | null } | undefined;
     const ids = d?.locataireIds ?? [];
     const lien = ids[0] !== undefined ? `/admin/location/locataire/${ids[0]}` : '/admin/location/locataires';
     // Une réintégration s'ANNONCE à l'écran avant de quitter la page.
@@ -266,7 +267,11 @@ export function CreationLocataire() {
       ...(d?.dateBaremeSupposee === true ? [AVERTISSEMENT_DATE] : []),
       // Arno (20/10/2026, 394) : le Drive a échoué — le locataire est enregistré, son dossier reste à créer (bouton sur sa fiche).
       ...(d?.drive?.ok === false ? [`Le locataire est enregistré, mais le dossier Drive du bail n’a pas été créé : ${d.drive.motif ?? 'erreur'} « Créer le dossier » sur sa fiche le relance.`] : [])];
-    if (annonces.length > 0) { setFait({ messages: annonces, lien }); return; }
+    /* Arno (21/10/2026) — après « Enregistrer » (bail créé, bien rattaché), l'écran RESTE et affiche le gros bouton « Envoi ADHOC
+       & MONGA » ; le lien vers la fiche du locataire est dessous. Sans bail (base d'avant la 393), le départ vers la fiche est
+       celui de toujours. */
+    const bailId = typeof d?.bailId === 'number' ? d.bailId : null;
+    if (annonces.length > 0 || bailId !== null) { setFait({ messages: annonces, lien, bailId }); return; }
     window.location.href = lien;
   };
 
@@ -358,6 +363,12 @@ export function CreationLocataire() {
       {fait !== null && (
         <section className="loc-section" role="status" data-reintegration>
           {fait.messages.map((m) => <p key={m} className="gst-info" style={{ margin: 0 }}>{m}</p>)}
+          {fait.bailId !== undefined && fait.bailId !== null && (
+            <div className="loc-apres-enregistrer" data-apres-enregistrer>
+              <p style={{ margin: 0 }}><strong>Le locataire et son bail sont enregistrés.</strong> Envoyez le dossier à ADHOC &amp; MONGA :</p>
+              <EnvoiAdhocMonga bailId={fait.bailId} />
+            </div>
+          )}
           <p style={{ margin: 0 }}><a href={fait.lien}>Ouvrir la fiche du locataire</a></p>
         </section>
       )}
@@ -398,4 +409,5 @@ const CSS_LOTS_LOUES = `
 .loc-garantit-choix{display:inline-flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;overflow-wrap:anywhere}
 .loc-garantit-choix input{width:22px;height:22px;flex:0 0 auto}
 .loc-contact-de select{min-height:44px}
+.loc-apres-enregistrer{display:flex;flex-direction:column;gap:10px;padding:14px;border:1.5px solid var(--color-svv-line-strong);border-radius:14px}
 `;

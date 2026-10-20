@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Modèle mail nouveau locataire</title>
+<style>
+:root{--bord:#9b1c1c;--bord-l:#fbeaea;--ink:#1d2433;--mut:#6b7280;--line:#e5e7eb;--bg:#f3f4f6;--vert:#2f7d4f;--vert-l:#e8f4ec;--bleu:#2f5bb5;--bleu-l:#e9effb;--ambre:#b7791f;--ambre-l:#fdf3e1}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);font-family:-apple-system,"Helvetica Neue",Inter,Arial,sans-serif;color:var(--ink);padding:24px 16px 60px}
+.tabs{max-width:680px;margin:0 auto 18px;display:flex;gap:8px;flex-wrap:wrap}
+.tabs button{flex:1;min-width:150px;min-height:48px;border:1.5px solid var(--line);background:#fff;border-radius:14px;font:600 15px inherit;font-family:inherit;color:var(--ink);cursor:pointer}
+.tabs button.on{background:var(--bord);border-color:var(--bord);color:#fff;box-shadow:0 6px 16px rgba(155,28,28,.25)}
+.meta{max-width:680px;margin:0 auto 10px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 16px;font-size:13.5px;line-height:1.7}
+.meta b{display:inline-block;width:62px;color:var(--mut);font-weight:600}
+.mail{max-width:680px;margin:0 auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.06),0 10px 30px rgba(0,0,0,.05)}
+.top{background:var(--ink);color:#fff;padding:22px 28px}
+.top .marque{font-size:13px;letter-spacing:.4px;opacity:.75}
+.top .marque span{color:#f2a3a3;font-weight:700}
+.top h1{font-size:24px;line-height:1.25;margin-top:8px;font-weight:700}
+.top .sous{margin-top:6px;font-size:15px;opacity:.85}
+.corps{padding:24px 28px 8px}
+.intro{font-size:15.5px;line-height:1.6;margin-bottom:18px}
+.statut{display:flex;align-items:center;gap:14px;border-radius:16px;padding:16px 18px;margin-bottom:22px}
+.statut.nouveau{background:var(--vert-l);border:1.5px solid #b9dcc6}
+.statut.client{background:var(--bleu-l);border:1.5px solid #c3d3f2}
+.pastille{font-size:12.5px;font-weight:800;letter-spacing:.6px;padding:7px 12px;border-radius:999px;color:#fff;white-space:nowrap}
+.nouveau .pastille{background:var(--vert)} .client .pastille{background:var(--bleu)}
+.statut p{font-size:14.5px;line-height:1.45}
+.statut p b{font-size:16px}
+.bloc{border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:16px}
+.titre{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;margin-bottom:14px}
+.titre::before{content:"";width:4px;height:18px;border-radius:2px;background:var(--bord)}
+.titre .nb{color:var(--mut);font-weight:700}
+.nom{font-size:17px;font-weight:700;margin-bottom:10px}
+.nom small{font-size:12px;font-weight:700;color:var(--bord);background:var(--bord-l);padding:3px 8px;border-radius:6px;margin-left:8px;vertical-align:2px;letter-spacing:.4px}
+.grille{display:grid;grid-template-columns:150px 1fr;gap:7px 14px;font-size:14.5px;line-height:1.45}
+.grille dt{color:var(--mut);font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;padding-top:2px}
+.grille a{color:var(--bord)}
+.deux{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.sous-carte{background:#fafafa;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.sous-carte .nom{font-size:15.5px;margin-bottom:6px}
+.sous-carte p{font-size:13.5px;line-height:1.55;color:#374151}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.chip{font-size:13px;font-weight:600;background:#f3f4f6;border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+.loyer{background:var(--bord-l);border:1.5px solid #efc4c4;border-radius:16px;padding:16px 20px;margin-bottom:12px}
+.loyer .lignes{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:15px}
+.loyer .total{border-top:1.5px solid #e9b8b8;margin-top:8px;padding-top:8px;font-weight:800;font-size:18px;color:var(--bord)}
+.chiffres{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.chiffre{border:1px solid var(--line);border-radius:14px;padding:14px;text-align:center}
+.chiffre .v{font-size:20px;font-weight:800;color:var(--bord)}
+.chiffre .l{font-size:11.5px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:var(--mut);margin-top:4px}
+.btn{display:block;text-align:center;background:var(--bord);color:#fff;text-decoration:none;font-weight:700;font-size:15.5px;padding:15px;border-radius:14px;margin:6px 0 18px}
+.pj{display:flex;align-items:center;gap:14px;border:1.5px dashed #d1d5db;border-radius:14px;padding:14px 16px;margin-bottom:16px}
+.pj .ic{width:44px;height:52px;border-radius:8px;background:var(--bord);color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center}
+.pj b{font-size:14.5px} .pj p{font-size:13px;color:var(--mut);margin-top:3px}
+.dest{border-radius:16px;padding:18px 20px;margin-bottom:16px}
+.dest.compta{background:var(--bleu-l);border:1.5px solid #c3d3f2} .dest.compta .titre::before{background:var(--bleu)}
+.dest.monga{background:var(--ambre-l);border:1.5px solid #f0d6a8} .dest.monga .titre::before{background:var(--ambre)}
+.note{font-size:13.5px;color:#374151;background:#fafafa;border-radius:12px;padding:12px 14px;margin-bottom:16px;line-height:1.5}
+.pied{border-top:1px solid var(--line);padding:18px 28px 24px;font-size:13.5px;color:var(--mut);line-height:1.6}
+.pied b{color:var(--ink)}
+.cache{display:none}
+.gli{display:flex;align-items:center;gap:14px;border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.gli b{display:block;font-size:16px;letter-spacing:.3px}
+.gli span{font-size:13.5px}
+.gli-ic{width:36px;height:36px;flex-shrink:0;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:#fff}
+.gli.non{background:#fdecec;border:2px solid #d64545;color:#8f1d1d} .gli.non .gli-ic{background:#d64545}
+.gli.oui{background:var(--vert-l);border:2px solid var(--vert);color:#1f5a37} .gli.oui .gli-ic{background:var(--vert)}
+.statut .pastille{text-align:center;line-height:1.25;border-radius:12px;padding:8px 12px;flex-shrink:0}
+.alerte{display:flex;flex-direction:column;gap:3px;background:var(--ambre-l);border:1.5px solid #e8b65c;border-radius:12px;padding:12px 16px;margin-bottom:16px;font-size:13.5px;color:#7a4e0a}
+.alerte b{font-size:15px;color:#8a4b00;letter-spacing:.2px}
+.ok{background:var(--vert-l);border-color:#b9dcc6;color:var(--vert)} .ok b{color:var(--vert)}
+.groupe{border-left:4px solid var(--line);padding-left:14px;margin-bottom:18px}
+.groupe.autre{border-left-color:#e8b65c}
+.groupe .adr{font-size:15.5px;font-weight:700;margin:0 0 12px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.groupe .nb{font-size:12px;font-weight:700;color:var(--mut);background:#f3f4f6;border-radius:999px;padding:3px 10px}
+.groupe.autre .nb{color:#8a4b00;background:var(--ambre-l)}
+.adr{font-size:16px;font-weight:600;margin:-4px 0 14px}
+.principal{background:#fafafa;border:1.5px solid #d9dce1;border-radius:14px;padding:18px 20px}
+.principal .nom{font-size:17px;margin-bottom:12px}
+.grille.annexe{grid-template-columns:90px 1fr;font-size:14px}
+.loc{border-color:#b9dcc6}
+.loc .titre::before{background:var(--vert)}
+.loc .contact{background:var(--vert-l);border-color:#b9dcc6}
+.loc .garant{background:#fff;border-style:dashed}
+.loc .nom small{color:var(--vert);background:#fff;border:1px solid #b9dcc6}
+.contact{background:#fafafa;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px}
+.contact .nom{font-size:15.5px;margin-bottom:8px}
+@media (max-width:560px){.corps{padding:20px 18px 6px}.top{padding:20px 18px}.grille{grid-template-columns:1fr;gap:2px}.grille dd{margin-bottom:8px}.deux,.chiffres{grid-template-columns:1fr}.pied{padding:16px 18px 20px}}
+</style></head><body>
+
+
+<!-- ============ MODÈLE 1 ============ -->
+<div id="m1">
+<div class="meta"><b>De</b> gestion@criterimmo.fr<br><b>À</b> Cabinet comptable · MONGA<br><b>Objet</b> Nouvelle location · NOUVEAUX PROPRIÉTAIRES · 12 rue Victor Hugo, Courbevoie · MARTIN · 01/11/2026</div>
+<div class="mail">
+ <div class="top"><div class="marque"><span>Sans Vis-à-Vis®</span> · Gestion locative</div><h1>Nouvelle location</h1><div class="sous">12 rue Victor Hugo, 92400 Courbevoie · entrée le 1er novembre 2026</div></div>
+ <div class="corps">
+  <p class="intro">Bonjour,<br>Un bien en gestion vient d'être loué. Vous trouverez ci-dessous le dossier complet.</p>
+  <div class="statut nouveau"><span class="pastille">NOUVEAUX<br>PROPRIÉTAIRES</span><p><b>Premier bien confié en gestion par M. et Mme DUPONT</b><br>Mandat n° G-2026-041 signé le 15/10/2026</p></div>
+
+  <div class="bloc"><div class="titre">Propriétaire <span class="nb">2</span></div>
+   <div class="contact"><div class="nom">M. DUPONT Jean <small>PROPRIÉTAIRE</small></div>
+    <dl class="grille">
+     <dt>Qualité</dt><dd>Particulier</dd>
+     <dt>Adresse</dt><dd>8 avenue Foch, 75116 Paris</dd>
+     <dt>Mobile</dt><dd>06 12 34 56 78</dd>
+     <dt>Téléphone fixe</dt><dd>01 45 67 89 10</dd>
+     <dt>E-mail</dt><dd>jean.dupont@exemple.fr</dd>
+     <dt>E-mail</dt><dd>j.dupont@cabinet-dupont.fr</dd>
+     <dt>Note</dt><dd>Préfère être joint le matin</dd>
+    </dl></div>
+   <div class="contact"><div class="nom">Mme DUPONT Claire <small>COPROPRIÉTAIRE</small></div>
+    <dl class="grille">
+     <dt>Qualité</dt><dd>Épouse</dd>
+     <dt>Adresse</dt><dd>8 avenue Foch, 75116 Paris</dd>
+     <dt>Mobile</dt><dd>06 98 76 54 32</dd>
+     <dt>E-mail</dt><dd>claire.dupont@exemple.fr</dd>
+    </dl></div>
+  </div>
+
+  <div class="bloc"><div class="titre">Le bien loué</div>
+   <div class="alerte"><b>⚠ ATTENTION · lots à 2 adresses différentes</b><span>12 rue Victor Hugo (2 lots) · 14 rue Victor Hugo (1 lot)</span></div>
+   <div class="groupe"><div class="adr">📍 12 rue Victor Hugo, 92400 Courbevoie <span class="nb">2 lots</span></div>
+   <div class="principal"><div class="nom">Lot principal · Appartement 3 pièces <small>NON MEUBLÉ</small></div>
+    <dl class="grille">
+     <dt>N° affiché</dt><dd>Porte gauche</dd>
+     <dt>N° de lot</dt><dd>47</dd>
+     <dt>Bâtiment</dt><dd>B</dd>
+     <dt>Escalier</dt><dd>2</dd>
+     <dt>Étage</dt><dd>3ᵉ</dd>
+     <dt>Précision</dt><dd>À droite en sortant de l'ascenseur</dd>
+     <dt>Ascenseur</dt><dd>Oui</dd>
+     <dt>Digicode</dt><dd><b>57B83</b></dd>
+     <dt>Pièces</dt><dd>3</dd>
+     <dt>Surface habitable</dt><dd>64,2 m²</dd>
+     <dt>Surface Carrez</dt><dd>61,8 m²</dd>
+     <dt>Surface extérieure</dt><dd>8 m² · balcon</dd>
+     <dt>Construction</dt><dd>1970-1980</dd>
+     <dt>Chauffage</dt><dd>Individuel gaz</dd>
+     <dt>DPE</dt><dd>Classe D, du 12/03/2024</dd>
+     <dt>Syndic</dt><dd>FONCIA Courbevoie, 01 23 45 67 89</dd>
+     <dt>Dernière AG</dt><dd>12/06/2026</dd>
+     <dt>Assurance PNO</dt><dd>AXA · échéance au 1er janvier</dd>
+     <dt>Entretiens</dt><dd>Chaudière · dernier entretien le 15/09/2026</dd>
+    </dl></div>
+   <div class="deux" style="margin-top:12px">
+    <div class="sous-carte"><div class="nom">Cave</div>
+     <dl class="grille annexe"><dt>N° affiché</dt><dd>12</dd><dt>N° de lot</dt><dd>112</dd><dt>Niveau</dt><dd>Sous-sol</dd></dl></div>
+   </div></div>
+   <div class="groupe autre"><div class="adr">📍 14 rue Victor Hugo, 92400 Courbevoie <span class="nb">1 lot · autre adresse</span></div>
+   <div class="deux">
+    <div class="sous-carte"><div class="nom">Parking · box simple</div>
+     <dl class="grille annexe"><dt>N° affiché</dt><dd>34</dd><dt>N° de lot</dt><dd>134</dd><dt>Niveau</dt><dd>−1</dd></dl></div>
+   </div></div>
+  </div>
+
+  <div class="bloc loc"><div class="titre">Locataires <span class="nb">2</span></div>
+   <div class="gli non"><span class="gli-ic">✕</span><div><b>PAS D'ASSURANCE LOYERS IMPAYÉS</b><span>Ce bail n'est pas couvert par une GLI · garantie : caution de M. MARTIN Henri</span></div></div>
+   <div class="contact"><div class="nom">Mme MARTIN Sophie <small>LOCATAIRE</small></div>
+    <dl class="grille">
+     <dt>Qualité</dt><dd>Salariée</dd>
+     <dt>Adresse</dt><dd>12 rue Victor Hugo, 92400 Courbevoie</dd>
+     <dt>Mobile</dt><dd>06 11 22 33 44</dd>
+     <dt>E-mail</dt><dd>sophie.martin@exemple.fr</dd>
+    </dl></div>
+   <div class="contact"><div class="nom">M. MARTIN Paul <small>COLOCATAIRE</small></div>
+    <dl class="grille">
+     <dt>Qualité</dt><dd>Salarié</dd>
+     <dt>Adresse</dt><dd>12 rue Victor Hugo, 92400 Courbevoie</dd>
+     <dt>Mobile</dt><dd>06 55 66 77 88</dd>
+     <dt>Mobile</dt><dd>07 12 34 56 78</dd>
+     <dt>E-mail</dt><dd>paul.martin@exemple.fr</dd>
+    </dl></div>
+   <div class="contact garant"><div class="nom">M. MARTIN Henri <small>GARANT</small></div>
+    <dl class="grille">
+     <dt>Garantit</dt><dd>Mme MARTIN Sophie · M. MARTIN Paul</dd>
+     <dt>Qualité</dt><dd>Père</dd>
+     <dt>Adresse</dt><dd>4 rue des Lilas, 69003 Lyon</dd>
+     <dt>Mobile</dt><dd>06 44 33 22 11</dd>
+     <dt>E-mail</dt><dd>henri.martin@exemple.fr</dd>
+    </dl></div>
+   </div>
+
+  <div class="bloc"><div class="titre">Le bail</div>
+   <div class="loyer"><div class="lignes"><span>Loyer principal</span><span>1 240,00 €</span><span>Provision pour charges</span><span>180,00 €</span></div><div class="lignes total"><span>Total charges comprises</span><span>1 420,00 €</span></div></div>
+   <dl class="grille">
+    <dt>Entrée</dt><dd>1er novembre 2026</dd>
+    <dt>Prélèvement</dt><dd>Le 5 de chaque mois</dd>
+    <dt>Proratas d'entrée</dt><dd>Loyer 1 240,00 € · charges 180,00 € (mois entier)</dd>
+    <dt>Dépôt de garantie</dt><dd>1 240,00 € · conservé par l'agence</dd>
+    <dt>Honoraires locataire</dt><dd>776,82 €</dd>
+    <dt>Honoraires propriétaire</dt><dd>935,03 € · 61,8 m² × (12,10 € + 3,03 €) · barème du 01/01/2026, zone très tendue</dd>
+   </dl></div>
+
+  <a class="btn" href="#">Ouvrir le dossier Drive du bail</a>
+ </div>
+ <div class="pied">Pour toute question, répondez simplement à ce mail.<br><b>L'équipe gestion</b> · Sans Vis-à-Vis® · SARL CRITERIMMO<br>gestion@criterimmo.fr</div>
+</div></div>
+
+</body></html>

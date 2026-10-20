@@ -63,7 +63,7 @@ export function dedoublonner(liste: readonly (string | null | undefined)[]): str
 }
 
 /** L'e-mail du compte de l'auteur (identifiant de connexion), ou `null` (voie de secours). */
-async function emailDeLAuteur(auteur: Auteur): Promise<{ email: string | null; nom: string }> {
+export async function emailDeLAuteur(auteur: Auteur): Promise<{ email: string | null; nom: string }> {
   if (auteur.id !== null) {
     const { rows } = await query<{ identifiant: string; prenom: string | null; nom: string | null }>(
       'SELECT identifiant, prenom, nom FROM admin_utilisateur WHERE id = $1', [auteur.id]);

@@ -1382,6 +1382,28 @@ export async function lireCartesRattachees(filtre: { lotId: number } | { locatai
   return rows;
 }
 
+/** Un GARANT d'un bail : sa carte (toutes ses coordonnées) et les locataires qu'il garantit, dans l'ordre de pose. */
+export interface GarantDuBailLu {
+  civilite: string | null; nom: string | null; prenom: string | null; qualite: string | null; adresse_postale: string | null;
+  code_postal: string | null; commune: string | null; adresse: string | null; telephone: string | null; coordonnees: unknown; note: string | null;
+  garantis: string[];
+}
+
+/**
+ * Arno (21/10/2026) — les GARANTS d'un bail (393), pour le mail « Nouvelle location » : la carte vivante et ses garanties en
+ * cours. Lecture seule ; ici parce que ce dépôt est le seul à nommer la table des cartes. Vide sans les migrations.
+ */
+export async function lireGarantsDuBail(bailId: number): Promise<GarantDuBailLu[]> {
+  if (!(await contactCarteDisponible()) || !(await garantsDisponibles())) return [];
+  const { rows } = await query<GarantDuBailLu>(
+    `SELECT c.civilite, c.nom, c.prenom, c.qualite, c.adresse_postale, c.code_postal, c.commune, c.adresse, c.telephone, c.coordonnees, c.note,
+            array_agg(g.locataire_id::text ORDER BY g.id) AS garantis
+       FROM gestion_bail_garant g JOIN gestion_contact_carte c ON c.id = g.carte_id
+      WHERE g.bail_id = $1 AND g.retire_le IS NULL AND c.retire_le IS NULL
+      GROUP BY c.id ORDER BY min(g.id)`, [bailId]);
+  return rows;
+}
+
 /** La reprise : les cartes côté locataire, vivantes, sans aucun rattachement (ni locataire, ni garantie en cours). */
 export async function cartesLocataireSansRattachement(): Promise<{ id: number; lotId: number | null; numero: string | null; qualite: string | null }[]> {
   if (!(await contactCarteDisponible())) return [];
