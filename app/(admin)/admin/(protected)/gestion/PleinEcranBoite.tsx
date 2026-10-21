@@ -1073,7 +1073,7 @@ export function PleinEcranBoite({
               Détails relève
             </button>
             <div id="cm-details-relevé" role="status" hidden={!detailsOuverts}>
-              {etatDiscret.map((l) => <p key={l} className="cm-etat-ligne">{l}</p>)}
+              {etatDiscret.map((l, i) => <p key={`${i}-${l}`} className="cm-etat-ligne">{l}</p>)}
             </div>
           </div>
         )}

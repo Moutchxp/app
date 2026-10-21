@@ -2210,7 +2210,7 @@ export function FenetreCarte({ titre, texte, lignes = [], boutons, onFermer }: {
       <div className="cpf" role="alertdialog" aria-modal="true" aria-labelledby="cpf-titre" data-fenetre-carte>
         <h2 id="cpf-titre" className="cpf-titre">{titre}</h2>
         {texte !== undefined && <p className="cpf-texte">{texte}</p>}
-        {lignes.length > 0 && <ul className="cpf-liste">{lignes.map((l) => <li key={l}>{l}</li>)}</ul>}
+        {lignes.length > 0 && <ul className="cpf-liste">{lignes.map((l, i) => <li key={`${i}-${l}`}>{l}</li>)}</ul>}
         <div className="cpf-boutons">
           {boutons.map((b, i) => (
             <button key={b.mot} type="button" ref={i === 0 ? premier : undefined}

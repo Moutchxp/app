@@ -594,8 +594,8 @@ export function LigneVie({
               d'avant ce lot — c'est le cas de l'immense majorité du courrier. */}
           {(l.interventions ?? []).length > 0 && (
             <span className="vdb-via">
-              {(l.interventions ?? []).map((x) => (
-                <span key={`${x.sorte}-${x.libelle}`} className="vdb-via-qui">
+              {(l.interventions ?? []).map((x, i) => (
+                <span key={`${i}-${x.sorte}-${x.libelle}`} className="vdb-via-qui">
                   pour {x.libelle} <span className="vdb-via-role">({motRoleInstantane(x.role).toLowerCase()})</span>
                   {x.via !== null && <> · <span className="vdb-via-contact">{x.via}</span></>}
                 </span>
@@ -615,8 +615,8 @@ export function LigneVie({
             */}
           {adressesTrouvees.length > 0 && (
             <span className="vdb-adresses">
-              {adressesTrouvees.map((x) => (
-                <span key={`${x.role}-${x.adresse}`} className="vdb-adresse">
+              {adressesTrouvees.map((x, i) => (
+                <span key={`${i}-${x.role}-${x.adresse}`} className="vdb-adresse">
                   <span className="vdb-adresse-role">{x.mot}</span>
                   <span className="vdb-adresse-mot">
                     {surligner.length === 0

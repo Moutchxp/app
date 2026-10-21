@@ -170,7 +170,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
             {r.mandat ? (
               <Groupe titre="Mandat" cle="mandat" vide={false}>
                 <dt>{r.mandat.sorte === 'gestion' ? 'Mandat de gestion' : 'Mandat de transaction locative'}</dt>
-                <dd data-rb="mandat" className="rb-liste">{r.mandat.lignes.map((l) => <span key={l}>{l.replace(/^Mandat de (gestion|transaction locative) ?/, '').replace(/^, /, '') || l}</span>)}</dd>
+                <dd data-rb="mandat" className="rb-liste">{r.mandat.lignes.map((l, i) => <span key={`${i}-${l}`}>{l.replace(/^Mandat de (gestion|transaction locative) ?/, '').replace(/^, /, '') || l}</span>)}</dd>
               </Groupe>
             ) : null}
             {!parking && (

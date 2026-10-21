@@ -155,11 +155,11 @@ export function FriseDuBien({
           style={{ ['--frs-n' as string]: String(mois.length) } as React.CSSProperties}>
 
           {/* ══ ④ LE FOND ORANGE DES ÉVÉNEMENTS — SOUS les traits, pour ne rien cacher ═══════════════════════ */}
-          {bandeaux.map((b) => {
+          {bandeaux.map((b, i) => {
             const p = bornesSurLaFrise(b.du, b.au, mois);
             if (p === null) return null;
             return (
-              <span key={`${b.du}-${b.titre}`} className="frs-evt" title={b.titre}
+              <span key={`${i}-${b.du}-${b.titre}`} className="frs-evt" title={b.titre}
                 style={{ left: `calc(${p.de} / var(--frs-n) * 100%)`,
                   width: `calc(${Math.max(0.02, p.a - p.de)} / var(--frs-n) * 100%)` }} />
             );
@@ -194,11 +194,11 @@ export function FriseDuBien({
           })}
 
           {/* ══ ③ LES REPÈRES D'ENTRÉE ET DE SORTIE, SUR TOUTE LA HAUTEUR DE LA PARTIE HAUTE ════════════════ */}
-          {reperes.map((r) => {
+          {reperes.map((r, i) => {
             const x = positionSurLaFrise(r.quand, mois);
             if (x === null) return null;
             return (
-              <span key={`${r.sorte}-${r.quand}-${r.libelle}`}
+              <span key={`${i}-${r.sorte}-${r.quand}-${r.libelle}`}
                 className={`frs-repere frs-repere--${r.sorte}`}
                 style={{ left: `calc(${x} / var(--frs-n) * 100%)` }}
                 title={motRepere(r)}>

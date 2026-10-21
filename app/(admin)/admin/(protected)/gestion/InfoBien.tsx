@@ -430,8 +430,8 @@ export function InfoBien({ cle, titre, surLaLigne, lignes: lignesFournies, aide 
           Voir l'encadré de `lignes`. */}
       {lignesFournies !== undefined && (
         <dl className="ifb-liste">
-          {lignesFournies.map((l) => (
-            <div className="ifb-ligne" key={`${l.libelle}-${l.valeur}`}>
+          {lignesFournies.map((l, i) => (
+            <div className="ifb-ligne" key={`${i}-${l.libelle}`}>
               <dt className="ifb-libelle">{l.libelle}</dt>
               <dd className="ifb-valeur">{l.valeur}</dd>
             </div>
@@ -442,8 +442,8 @@ export function InfoBien({ cle, titre, surLaLigne, lignes: lignesFournies, aide 
       {lignesFournies === undefined && fiche !== null && (
         <>
           <dl className="ifb-liste">
-            {horsLigne.map((l) => (
-              <div className="ifb-ligne" key={`${l.libelle}-${l.valeur}`}>
+            {horsLigne.map((l, i) => (
+              <div className="ifb-ligne" key={`${i}-${l.libelle}`}>
                 <dt className="ifb-libelle">{l.libelle}</dt>
                 <dd className="ifb-valeur">{l.valeur}</dd>
               </div>

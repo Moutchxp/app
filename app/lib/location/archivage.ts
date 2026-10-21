@@ -171,6 +171,9 @@ export function originePrete(origine: Origine | null, sous: SousOrigine | null):
 
 // ══ « SUPPRIMER UN DES BIENS D'UN PROPRIÉTAIRE » (Arno, 18/10/2026 — migration 381) ══════════════════════════════════════
 
+/** Un locataire montré par son nom, et identifié par sa fiche (la clé d'une liste n'est jamais un nom). */
+export interface LocataireNomme { id: number; nom: string }
+
 /** Un bien du propriétaire, tel que l'écran de sélection le montre. */
 export interface BienASortir {
   lotId: number;
@@ -179,14 +182,14 @@ export interface BienASortir {
   nature: string | null;
   /** Ses annexes (détachées comprises) : elles sortent avec lui. */
   annexes: { lotId: number; libelle: string; detachee: boolean }[];
-  /** Les locataires en place (location en cours). */
-  locataires: string[];
+  /** Les locataires en place (location en cours) — `id` = la fiche du locataire : deux homonymes restent deux (Arno, 21/10/2026). */
+  locataires: LocataireNomme[];
   /** Famille du bien (logement / local / parking), pour « Logement vacant », « Local vacant », « Parking vacant ». */
   famille: 'logement' | 'local' | 'parking' | null;
   /** Loué : la date d'entrée dans les lieux (la plus ancienne des locataires en place), AAAA-MM-JJ, ou `null`. */
   entree: string | null;
   /** Vacant : le ou les locataires de la DERNIÈRE location seulement (pas l'historique) ; vide = aucun locataire connu. */
-  derniersLocataires: string[];
+  derniersLocataires: LocataireNomme[];
   /** Vacant : la date de sortie de cette dernière location, si connue. */
   derniereSortie: string | null;
   /** Les AUTRES propriétaires actifs : le bien sortira pour tous. */

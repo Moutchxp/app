@@ -57,14 +57,14 @@ beforeEach(() => {
     if (u.includes('apercuArchivage=')) return ok(reponseApercu());
     if (u.includes('biensPourSortie=')) {
       return ok([
-        { lotId: 40, adresse: '14 rue de l’Essai, PARIS', lot: '315', nature: 'Appartement', annexes: [{ lotId: 41, libelle: 'Cave n° 3', detachee: true }], locataires: ['MODÈLE Jules', 'DURAND Paul et Zoé'], autresProprietaires: [],
+        { lotId: 40, adresse: '14 rue de l’Essai, PARIS', lot: '315', nature: 'Appartement', annexes: [{ lotId: 41, libelle: 'Cave n° 3', detachee: true }], locataires: [{ id: 401, nom: 'MODÈLE Jules' }, { id: 402, nom: 'DURAND Paul et Zoé' }], autresProprietaires: [],
           famille: 'logement', entree: '2024-09-01', derniersLocataires: [], derniereSortie: null },
         { lotId: 50, adresse: '9 rue Partagée, PARIS', lot: null, nature: 'Studio', annexes: [], locataires: [], autresProprietaires: ['COINDIVIS Marc'],
-          famille: 'logement', entree: null, derniersLocataires: ['ANCIEN Paul', 'ANCIENNE Zoé'], derniereSortie: '2026-06-30' },
+          famille: 'logement', entree: null, derniersLocataires: [{ id: 501, nom: 'ANCIEN Paul' }, { id: 502, nom: 'ANCIENNE Zoé' }], derniereSortie: '2026-06-30' },
         { lotId: 60, adresse: '2 rue Neuve, PARIS', lot: '12', nature: null, annexes: [], locataires: [], autresProprietaires: [],
           famille: 'parking', entree: null, derniersLocataires: [], derniereSortie: null },
         { lotId: 70, adresse: '3 rue Vide, PARIS', lot: '13', nature: 'Local commercial', annexes: [], locataires: [], autresProprietaires: [],
-          famille: 'local', entree: null, derniersLocataires: ['ANCIEN SARL'], derniereSortie: null },
+          famille: 'local', entree: null, derniersLocataires: [{ id: 701, nom: 'ANCIEN SARL' }], derniereSortie: null },
       ]);
     }
     if (u.includes('apercuSortieBiens=')) return ok(reponseBiens());
@@ -245,6 +245,28 @@ describe('🔴 « Supprimer un propriétaire »', () => {
     };
     const gros = () => container.querySelector('[data-bouton-sortie-biens] .arc-gros') as HTMLButtonElement;
     const choisir = (id: number) => cliquer(container.querySelector(`[data-choisir="${id}"]`));
+
+    it('🔴 Arno (21/10/2026) — deux colocataires HOMONYMES (deux fiches) : les deux s’affichent, et React ne signale aucune clé en double', async () => {
+      const homonymes = [{ id: 811, nom: 'ESSAI RATTACHEMENT' }, { id: 812, nom: 'ESSAI RATTACHEMENT' }];
+      const fetchAvant = global.fetch;
+      global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        if (String(url).includes('biensPourSortie=')) {
+          return ok([
+            { lotId: 40, adresse: '14 rue de l’Essai, PARIS', lot: '315', nature: 'Appartement', annexes: [], locataires: homonymes, autresProprietaires: [],
+              famille: 'logement', entree: '2024-09-01', derniersLocataires: [], derniereSortie: null },
+            { lotId: 50, adresse: '9 rue Partagée, PARIS', lot: null, nature: 'Studio', annexes: [], locataires: [], autresProprietaires: [],
+              famille: 'logement', entree: null, derniersLocataires: homonymes, derniereSortie: '2026-06-30' },
+          ]);
+        }
+        return (fetchAvant as (u: string | URL | Request, i?: RequestInit) => Promise<Response>)(url, init);
+      }) as unknown as typeof fetch;
+      const erreurs = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await ouvrirBiens();
+      expect([...container.querySelectorAll('[data-bien="40"] [data-en-place]')].map((m) => m.textContent)).toEqual(['ESSAI RATTACHEMENT', 'ESSAI RATTACHEMENT']);
+      expect([...container.querySelectorAll('[data-bien="50"] [data-dernier]')].map((m) => m.textContent)).toEqual(['ESSAI RATTACHEMENT', 'ESSAI RATTACHEMENT']);
+      expect(erreurs.mock.calls.map((c) => String(c[0])).filter((m) => /same key|unique "key"/i.test(m))).toEqual([]);
+      erreurs.mockRestore();
+    });
 
     it('tous les biens affichés ; « Sortir de la gestion » sélectionne / désélectionne ; le gros bouton compte (grisé à zéro)', async () => {
       await ouvrirBiens();

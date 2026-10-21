@@ -103,12 +103,12 @@ export function DeclencheurBulleTache({ t, onOuvrir, libelle, className, donnees
       <style>{CSS_COMPTEUR_BIENS}</style>
       <p className="cbm-bulle-titre">Tâche · {contenu.titre}</p>
       {contenu.etat !== null && <p className="cbm-bulle-mot">{contenu.etat}</p>}
-      {contenu.parties.map((p) => (
-        <div key={p.titre} className="fav-tache-partie">
+      {contenu.parties.map((p, j) => (
+        <div key={`${j}-${p.titre}`} className="fav-tache-partie">
           <p className="cbm-bulle-lot fav-tache-partie-titre">{p.titre}</p>
           <ul className="cbm-bulle-liste">
             {p.lignes.map((l, i) => (
-              <li key={`${p.titre}-${i}`} className="cbm-bulle-ligne">
+              <li key={`${j}-${i}`} className="cbm-bulle-ligne">
                 <span className="cbm-bulle-bien">{l.texte}</span>
                 {l.discret !== undefined && <span className="cbm-bulle-lot">{l.discret}</span>}
               </li>

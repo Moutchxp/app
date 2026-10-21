@@ -1447,7 +1447,7 @@ export function EncartRattachement({
               par un AUTRE mail de la conversation. Il suit la position, en direct (la liste est redemandée au serveur). */}
           {demandeInterne.choix !== null && (
           <ul className="ert-interne-liste ert-interne-verite">
-            {phrasesDetachement(messageId, demandeInterne.biens).map((ph) => <li key={ph}>{ph}</li>)}
+            {phrasesDetachement(messageId, demandeInterne.biens).map((ph, i) => <li key={`${i}-${ph}`}>{ph}</li>)}
           </ul>
           )}
           {demandeInterne.biens.length > 0 && (

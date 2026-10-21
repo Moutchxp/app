@@ -70,7 +70,7 @@ describe.skipIf(!baseEssai)('🔴 sortir des biens d’un propriétaire (jamais 
     expect(liste?.map((x) => x.lotId).sort()).toEqual([loue, libre, partage].sort());
     const l = liste?.find((x) => x.lotId === loue);
     expect(l?.annexes.map((x) => [x.lotId, x.detachee]).sort()).toEqual([[cave, false], [parking, true]].sort());
-    expect(l?.locataires.sort()).toEqual([`LMULTI${S}`, `LSEUL${S}`].sort());
+    expect(l?.locataires.map((x) => x.nom).sort()).toEqual([`LMULTI${S}`, `LSEUL${S}`].sort());
     expect(liste?.find((x) => x.lotId === partage)?.autresProprietaires).toEqual([`COPROP${S}`]);
 
     const avant = await compter('gestion_journal');

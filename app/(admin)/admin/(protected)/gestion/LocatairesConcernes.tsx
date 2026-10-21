@@ -132,8 +132,8 @@ export function PartiesConcernees({
       {titreBloc}
       <p className="lce-groupe lce-groupe--rouge">Propriétaire</p>
       <ul className="lce-liste">
-        {(proprietaires.length === 0 ? ['Propriétaire du bien'] : proprietaires).map((nom) => (
-          <li key={nom}>
+        {(proprietaires.length === 0 ? ['Propriétaire du bien'] : proprietaires).map((nom, i) => (
+          <li key={`${i}-${nom}`}>
             <label className="lce-case lce-case--rouge lce-case--fixe">
               <input type="checkbox" checked disabled aria-describedby="lce-toujours" />
               <span className="lce-puce lce-puce--rouge">{nom}</span>
@@ -235,7 +235,7 @@ export function PartiesEnLecture({ proprietaires, personnes, enCours = false }: 
         <>
           <p className="lce-groupe lce-groupe--rouge">Propriétaire</p>
           <p className="lce-puces">{proprietaires.length === 0 ? <span className="lce-vide">non renseigné</span>
-            : proprietaires.map((n) => <span key={n} className="lce-puce lce-puce--rouge">{n}</span>)}</p>
+            : proprietaires.map((n, i) => <span key={`${i}-${n}`} className="lce-puce lce-puce--rouge">{n}</span>)}</p>
           <p className="lce-groupe lce-groupe--vert">Locataires et autres personnes</p>
           <p className="lce-puces"><PucesConcernes concernes={personnes} /></p>
         </>

@@ -769,7 +769,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
       {!edition ? (
         <>
           {aRenseigner.length > 0 && (
-            <p className="loc-a-renseigner-ligne" data-a-renseigner-bien>{aRenseigner.map((m) => <span key={m} className="loc-a-renseigner">{m}</span>)}</p>
+            <p className="loc-a-renseigner-ligne" data-a-renseigner-bien>{aRenseigner.map((m, i) => <span key={`${i}-${m}`} className="loc-a-renseigner">{m}</span>)}</p>
           )}
           <dl className="loc-grille" style={{ margin: 0 }}>
             {lignes.map(([mot, val]) => {

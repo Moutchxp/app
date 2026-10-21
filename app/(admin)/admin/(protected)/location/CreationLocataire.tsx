@@ -352,7 +352,7 @@ export function CreationLocataire() {
       {recap !== null && (
         <section className="loc-section loc-recap-lots" aria-label="Ce qui va se passer" data-recap-lots>
           <h3>Avant d’enregistrer : ce qui va se passer</h3>
-          <ul>{recap.map((x) => <li key={x}>{x}</li>)}</ul>
+          <ul>{recap.map((x, i) => <li key={`${i}-${x}`}>{x}</li>)}</ul>
           {avecConditions && entree === '' && <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} role="status" data-avertissement-date>{AVERTISSEMENT_DATE}</p>}
           <p className="loc-muet" style={{ margin: 0 }}>« Confirmer » enregistre le bail ; « Modifier » revient au choix des lots. Rien n’est effacé.</p>
           <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
@@ -362,7 +362,7 @@ export function CreationLocataire() {
       )}
       {fait !== null && (
         <section className="loc-section" role="status" data-reintegration>
-          {fait.messages.map((m) => <p key={m} className="gst-info" style={{ margin: 0 }}>{m}</p>)}
+          {fait.messages.map((m, i) => <p key={`${i}-${m}`} className="gst-info" style={{ margin: 0 }}>{m}</p>)}
           {fait.bailId !== undefined && fait.bailId !== null && (
             <div className="loc-apres-enregistrer" data-apres-enregistrer>
               <p style={{ margin: 0 }}><strong>Le locataire et son bail sont enregistrés.</strong> Envoyez le dossier à ADHOC &amp; MONGA :</p>

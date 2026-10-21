@@ -257,7 +257,8 @@ function SelectionBiens({ etat, choix, onBascule }: {
                   {b.locataires.length > 0 ? (<>
                     <span>Loué à :</span>
                     <ul className="arc-noms">
-                      {b.locataires.map((n) => <li key={n}><mark className="arc-surligne arc-surligne--en-place" data-en-place>{n}</mark></li>)}
+                      {/* La clé = la fiche du locataire, jamais son nom (deux homonymes restent deux — Arno, 21/10/2026). */}
+                      {b.locataires.map((l) => <li key={l.id}><mark className="arc-surligne arc-surligne--en-place" data-en-place>{l.nom}</mark></li>)}
                     </ul>
                     <span className="loc-muet" data-entree-le>{dateFr(b.entree) === null ? 'Date d’entrée non renseignée' : `Entré(e) dans les lieux le ${dateFr(b.entree)}`}</span>
                   </>) : (<>
@@ -265,7 +266,7 @@ function SelectionBiens({ etat, choix, onBascule }: {
                     {b.derniersLocataires.length > 0 ? (<>
                       <span>{b.derniersLocataires.length > 1 ? 'Derniers locataires :' : 'Dernier locataire :'}</span>
                       <ul className="arc-noms">
-                        {b.derniersLocataires.map((n) => <li key={n}><mark className="arc-surligne arc-surligne--ancien" data-dernier>{n}</mark></li>)}
+                        {b.derniersLocataires.map((l) => <li key={l.id}><mark className="arc-surligne arc-surligne--ancien" data-dernier>{l.nom}</mark></li>)}
                       </ul>
                       <span className="loc-muet" data-sortie-le>{dateFr(b.derniereSortie) === null ? 'date de sortie inconnue' : `Sorti(e) le ${dateFr(b.derniereSortie)}`}</span>
                     </>) : <span className="loc-muet" data-jamais-loue>Aucun locataire connu</span>}

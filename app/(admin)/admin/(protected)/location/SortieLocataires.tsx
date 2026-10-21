@@ -363,7 +363,7 @@ export function ConfirmationSortie({ bail, choix, occupationId, onAnnuler, onFai
       {vacant ? <p className="sor-issue sor-issue--vacant" data-consequence="vacant">Le logement deviendra VACANT</p> : (
         <div className="sor-restants" data-consequence="reste">
           <p><strong>{phraseRestants(restants.length)}</strong></p>
-          <ul>{restants.map((nom) => <li key={nom}>{nom}</li>)}</ul>
+          <ul>{restants.map((nom, i) => <li key={`${i}-${nom}`}>{nom}</li>)}</ul>
         </div>
       )}
       {motif !== null && <p className="cp-refus" role="alert" data-refus>{motif}</p>}

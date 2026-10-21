@@ -80,7 +80,7 @@ export function ModaleAvantApres({ titre, gestes, suffixeApres, phrase, compleme
             </section>
           );
         })}
-        {complements.map((t) => <p key={t} className="maa-complement">{t}</p>)}
+        {complements.map((t, i) => <p key={`${i}-${t}`} className="maa-complement">{t}</p>)}
         <p className="maa-phrase">{phrase}</p>
         <div className="maa-boutons">
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFermer}>Fermer</button>

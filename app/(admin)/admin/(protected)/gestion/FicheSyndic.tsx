@@ -1424,13 +1424,13 @@ function Edition({ form, setForm, fiche, syndicId, onEcrire, connus, suppression
       {a.changements.length > 0 && (
         <div className="fsy-alerte">
           Changement de syndic à la validation :
-          <ul>{a.changements.map((x) => <li key={x.immeuble}>{x.immeuble} — aujourd’hui {x.ancien} (le lien passera en historique)</li>)}</ul>
+          <ul>{a.changements.map((x, i) => <li key={`${i}-${x.immeuble}`}>{x.immeuble} — aujourd’hui {x.ancien} (le lien passera en historique)</li>)}</ul>
         </div>
       )}
       {retirees.length > 0 && (
         <div className="fsy-alerte">
           Copropriétés retirées à la validation (le lien passe en historique, rien n’est effacé) :
-          <ul>{retirees.map((l) => <li key={l}>{l}</li>)}</ul>
+          <ul>{retirees.map((l, i) => <li key={`${i}-${l}`}>{l}</li>)}</ul>
         </div>
       )}
       </section>
@@ -2285,7 +2285,7 @@ function ContactOuvert({ c, onEcrire, onFermer, onModifier, onSupprimer, confirm
           <p className="fsy-parti-question">{questionParti.question}</p>
           <p className="fsy-parti-annonce">{questionParti.annonce}</p>
           {questionParti.coproprietes.length > 0 && (
-            <ul className="fsy-parti-copros">{questionParti.coproprietes.map((a) => <li key={a}>{a}</li>)}</ul>
+            <ul className="fsy-parti-copros">{questionParti.coproprietes.map((a, i) => <li key={`${i}-${a}`}>{a}</li>)}</ul>
           )}
           <div className="fsy-confirmer fsy-confirmer--contact">
             <button type="button" className="svv-btn svv-btn-outline gst-btn fsy-mini-btn" onClick={() => setDepart(false)}>Annuler</button>
@@ -2642,7 +2642,7 @@ function EditionCopros({ immeubles, connus, syndicId, onChange, contacts, onCont
                   <div className="fsy-copro-contacts">
                     {/* Arno (21/10/2026, 396) — le DIGICODE de l'immeuble, par adresse postale : porté par l'immeuble, pas par le syndic. */}
                     <DigicodeImmeuble voie={im.libelle} codePostal={c?.codePostal ?? im.codePostal ?? null} commune={c?.commune ?? im.commune ?? null} />
-                    {(im.adresses ?? []).map((a) => <DigicodeImmeuble key={a.libelle} voie={a.libelle} codePostal={a.codePostal ?? null} commune={a.commune ?? null} />)}
+                    {(im.adresses ?? []).map((a, i) => <DigicodeImmeuble key={`${i}-${a.libelle}`} voie={a.libelle} codePostal={a.codePostal ?? null} commune={a.commune ?? null} />)}
                     {suivent.length === 0 && <p className="fsy-discret fsy-sans-marge">Aucun contact pour cet immeuble.</p>}
                     {suivent.map((x) => (
                       <div key={x.cle} className="fsy-contact-coord">
