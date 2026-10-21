@@ -19,6 +19,8 @@
  * WIPPIMMO ni en base). Leurs pastilles sont prêtes et ne s'affichent donc jamais — c'est la règle ②.
  */
 
+import { LIBELLE_CATEGORIE, type Categorie } from '../location/locationBien';
+
 export interface DonneesPastilles {
   nature: string | null;
   typeBien: string | null;
@@ -27,6 +29,21 @@ export interface DonneesPastilles {
   etage?: number | null;
   /** Vrai quand le bien est au dernier étage : la pastille le dit, à la place du numéro. */
   dernierEtage?: boolean | null;
+  /**
+   * Arno (21/10/2026) — un bien CRÉÉ DANS LA LOCATION n'a ni nature ni type WIPPIMMO : sa catégorie (logement, cave, parking,
+   * box, local, autre), son nombre de pièces et son étage SAISIS (« 4 », « -2 », « RDC ») donnent alors les pastilles —
+   * sans quoi un logement et sa cave, à la même adresse, se lisaient comme deux fois le même bien. Absents : rien ne change.
+   */
+  categorie?: string | null;
+  nombrePieces?: number | null;
+  etageSaisi?: string | null;
+}
+
+/** L'étage saisi dans la Location (« 4 », « -2 », « RDC », « rez-de-chaussée ») → nombre ; autre chose → `null`. PUR. */
+export function etageDeLaSaisie(t: string | null | undefined): number | null {
+  const x = (t ?? '').trim().toLowerCase();
+  if (/^(rdc|rez[- ]de[- ]chauss[ée]e)$/.test(x)) return 0;
+  return /^-?\d{1,3}$/.test(x) ? Number(x) : null;
 }
 
 /** « Type 2 », « type 3 », « T4 » → 2, 3, 4. Autre chose → `null`. PUR. */
@@ -78,10 +95,18 @@ export function pastillesBien(d: DonneesPastilles): string[] {
   if (type !== '' && (pieces === null || estAnnexe(d))) out.push(type);
   // ② les pièces, jamais pour une annexe.
   if (pieces !== null && !estAnnexe(d)) out.push(motPieces(pieces));
+  // Un bien de la Location (sans nature ni type WIPPIMMO) : sa catégorie, puis ses pièces (jamais pour une annexe).
+  if (nature === '' && type === '' && d.categorie) {
+    const cat = d.categorie as Categorie;
+    out.push(LIBELLE_CATEGORIE[cat] ?? d.categorie);
+    if (cat === 'logement' || cat === 'local') {
+      if (typeof d.nombrePieces === 'number' && Number.isInteger(d.nombrePieces) && d.nombrePieces > 0) out.push(motPieces(d.nombrePieces));
+    }
+  }
   // ③ la surface, seulement si elle est connue et positive.
   if (typeof d.surfaceM2 === 'number' && Number.isFinite(d.surfaceM2) && d.surfaceM2 > 0) out.push(motSurface(d.surfaceM2));
   // ④ l'étage.
-  const etage = motEtage(d.etage, d.dernierEtage);
+  const etage = motEtage(d.etage ?? etageDeLaSaisie(d.etageSaisi), d.dernierEtage);
   if (etage !== null) out.push(etage);
   return out;
 }

@@ -23,7 +23,7 @@ vi.mock('../../../../lib/admin/schemaDroits', async (orig) => ({ ...(await orig<
 vi.mock('../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 5, libelle: 'collaborateur@exemple.test' }) }));
 const creerBienComplet = vi.fn();
 vi.mock('../../../../lib/location/creationBienRepo', async (orig) => ({
-  ...(await orig<object>()), creerBienComplet: (...a: unknown[]) => creerBienComplet(...a),
+  ...(await orig<object>()), creerBienVerifie: (...a: unknown[]) => creerBienComplet(...a),
 }));
 
 // Le mail « nouveau mandat » (après une création réussie) : hors sujet ici — rendu tel quel, rien ne part.

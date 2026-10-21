@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ModaleIssue } from './ModaleIssue';
 import { explicationEchec, type CauseEchec } from '../../../../lib/location/issueEnregistrement';
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, journaliserEchecPage, liste, phraseMail, useLecture } from './commun';
@@ -130,11 +130,18 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   /* Arno (21/10/2026) — PLUS AUCUN ÉCHEC SILENCIEUX : l'issue de « Enregistrer le bien » s'ouvre en MODALE (succès : résumé et
      gestes suivants ; échec : quoi, pourquoi, quoi faire). `enCours` interdit le double clic (avant même le rendu suivant) ;
      `enregistre` : le bien est créé — le bouton ne le recrée jamais. */
-  const [issue, setIssue] = useState<{ sorte: 'succes'; cible: string; notes: string[] } | { sorte: 'erreur'; cause: CauseEchec; motif: string | null } | null>(null);
+  const [issue, setIssue] = useState<{ sorte: 'succes'; cible: string; notes: string[] } | { sorte: 'erreur'; cause: CauseEchec; motif: string | null }
+    | { sorte: 'selection' } | { sorte: 'doublon'; motif: string; lotId: number } | null>(null);
+  /* Arno (21/10/2026) — GARDE-FOU « SÉLECTION EN ATTENTE » : le panneau « Qui rattacher à ce bien ? » confie ici son geste
+     « Rattacher la sélection » tant que des cases cochées n'ont pas été rattachées ; « Rattacher et enregistrer » l'emploie,
+     puis enregistre dès que les cartes sont posées. */
+  const selectionEnAttente = useRef<(() => boolean) | null>(null);
+  const surEnAttente = useCallback((f: (() => boolean) | null) => { selectionEnAttente.current = f; }, []);
+  const [enregistrerApresRattachement, setEnregistrerApresRattachement] = useState(false);
   const [enregistre, setEnregistre] = useState<string | null>(null);
   const enCours = useRef(false);
   /** Le contrôle de la PAGE qui bloque l'envoi : dit au journal du serveur (best effort, jamais bloquant). */
-  const journalEchec = (cause: CauseEchec, raison: string): void => {
+  const journalEchec = (cause: CauseEchec | 'selection', raison: string): void => {
     journaliserEchecPage({ ecran: 'nouveau-bien', pour: 'creer-bien', cause, raison });
   };
   /** Les CONTACTS DU PROPRIÉTAIRE saisis à l'écran précédent : enregistrés avec le bien (ils se rangent sur lui). */
@@ -264,8 +271,14 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   });
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
 
-  const enregistrer = async (): Promise<void> => {
+  const enregistrer = async (options: { confirmeDoublon?: boolean } = {}): Promise<void> => {
     if (enCours.current || enregistre !== null) return;
+    // Une sélection cochée mais pas rattachée : jamais d'enregistrement silencieux sans elle (Arno, 21/10/2026).
+    if (enChoix !== null && selectionEnAttente.current !== null) {
+      setIssue({ sorte: 'selection' });
+      journalEchec('selection', 'Propriétaire sélectionné sans « Rattacher la sélection ».');
+      return;
+    }
     setTente(true);
     if (Object.keys(manque).length > 0) {
       // Arno (21/10/2026) : jamais de silence — la modale dit ce qui manque ; la page garde ses messages et descend au premier.
@@ -299,6 +312,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     }
     const r = await envoyer({
       action: 'creer-bien', proprietaireIds, contactsExistants: contactsExistants.map((c) => c.id), enGestion,
+      ...(options.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
       // Seul le mandat du choix FINAL (Oui → gestion, Non → transaction locative) ; rien s'il n'est pas saisi.
       ...(continuite === undefined && enGestionSaisi !== null ? (() => {
         const sorte: SorteMandat = enGestionSaisi ? 'gestion' : 'transaction';
@@ -318,6 +332,12 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     });
     enCours.current = false;
     setEnvoi(false);
+    // Arno (21/10/2026) — ANTI-DOUBLON : « Ce bien semble déjà exister » (rien n'est créé) ; « Créer quand même » repasse.
+    if (r.etat === 'doublon') {
+      const d = r.data as { lotId?: number } | undefined;
+      setIssue({ sorte: 'doublon', motif: r.motif ?? 'Un bien pareil existe déjà pour ce propriétaire.', lotId: Number(d?.lotId) });
+      return;
+    }
     if (r.motif !== null) {
       const dit = continuite !== undefined
         ? `Les fiches des propriétaires sont créées, mais le bien n’est pas encore enregistré : ${r.motif} Corrigez puis enregistrez à nouveau (les fiches ne seront pas recréées).`
@@ -336,6 +356,13 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     // Arno (21/10/2026) : le succès s'ouvre en modale (résumé, « Voir la fiche du bien », « Créer un autre bien », « Fermer »).
     setIssue({ sorte: 'succes', cible, notes: echec === null ? [] : [echec] });
   };
+  // « Rattacher et enregistrer » : dès que la sélection est posée (panneau refermé, cartes ajoutées), l'enregistrement repart.
+  useEffect(() => {
+    if (!enregistrerApresRattachement || enChoix !== null) return;
+    setEnregistrerApresRattachement(false);
+    void enregistrer();
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- relancé UNE fois, quand le panneau s'est refermé sur les cartes posées
+  }, [enregistrerApresRattachement, enChoix, proprietaires]);
   const nomsProprietaires = (continuite !== undefined ? continuite.proprietaires.map((p) => p.nom) : proprietaires.map((p) => p.nom)).filter((x) => x).join(', ');
   const adresseComplete = [b.adresse, [b.codePostal, b.commune].filter((x) => x).join(' ')].filter((x) => x.trim() !== '').join(', ');
 
@@ -386,6 +413,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
           ))}
         {enChoix !== null && (
           <PanneauQuiRattacher key={enChoix} proprietaireId={enChoix} dejaProprietaires={proprietaires.map((p) => p.id)} dejaContacts={contactsExistants}
+            onEnAttente={surEnAttente}
             onAnnuler={() => setEnChoix(null)}
             onValider={(ps, cs) => { setProprietaires((l) => ajouterProprietaires(l, ps)); setContactsExistants((l) => ajouterContacts(l, cs)); setEnChoix(null); }} />
         )}
@@ -700,6 +728,28 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
           actions={[
             { libelle: 'Voir la fiche du bien', href: issue.cible, principal: true, repere: 'voir-fiche-bien' },
             { libelle: 'Créer un autre bien', href: '/admin/location/nouveau-bien', repere: 'creer-autre' },
+            { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
+          ]} />
+      ) : issue.sorte === 'selection' ? (
+        <ModaleIssue sorte="erreur" titre="Sélection non rattachée" onFermer={() => setIssue(null)}
+          echec={{ quoi: 'Le bien n’a pas été enregistré.', pourquoi: 'Vous avez sélectionné un propriétaire sans cliquer sur « Rattacher la sélection ».',
+            faire: '« Rattacher et enregistrer » rattache la sélection au bien, puis l’enregistre. Ou fermez pour vérifier la sélection.',
+            conserve: 'Rien n’a été enregistré. Votre saisie est conservée.' }}
+          actions={[
+            // « Fermer » d'abord : le focus ne tombe jamais sur un geste qui écrit (une touche Entrée n'enregistre rien).
+            { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
+            { libelle: 'Rattacher et enregistrer', principal: true, repere: 'rattacher-et-enregistrer', onClick: () => {
+              setIssue(null);
+              const f = selectionEnAttente.current;
+              if (f !== null && f()) setEnregistrerApresRattachement(true);
+            } },
+          ]} />
+      ) : issue.sorte === 'doublon' ? (
+        <ModaleIssue sorte="attention" titre="Ce bien semble déjà exister" onFermer={() => setIssue(null)}
+          notes={[issue.motif, 'Rien n’a été créé. Vérifiez le bien existant, ou créez-le quand même s’il s’agit bien d’un autre bien.']}
+          actions={[
+            { libelle: 'Voir le bien existant', href: `/admin/location/bien/${issue.lotId}`, principal: true, repere: 'voir-bien-existant' },
+            { libelle: 'Créer quand même', repere: 'creer-quand-meme', onClick: () => { setIssue(null); void enregistrer({ confirmeDoublon: true }); } },
             { libelle: 'Fermer', onClick: () => setIssue(null), repere: 'fermer-issue' },
           ]} />
       ) : (

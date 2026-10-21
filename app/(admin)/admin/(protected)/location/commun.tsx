@@ -68,7 +68,7 @@ export function phraseMail(m: EtatMail | undefined): string | null {
  * saisie, base, technique — `issueEnregistrement.ts`), et un 401 / 403 de la garde (`{ erreur: 'ACCES_REVOQUE' }`, sans `motif`)
  * n'est plus lu « Enregistrement refusé. » mais dit le droit manquant ou la session expirée. Une réponse réussie : inchangée.
  */
-export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail; cause?: CauseEchec }> {
+export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail; cause?: CauseEchec; etat?: string }> {
   let res: Response;
   try {
     res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
@@ -87,7 +87,8 @@ export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: 
   if (cause === 'droit') return { motif: MOTIF_DROIT, cause };
   if (d.etat === 'sans_schema') return { motif: MOTIF_SANS_MIGRATION, cause };
   if (d.etat === 'inconnu') return { motif: 'Cette fiche n’existe plus.', cause };
-  return { motif: d.motif ?? d.message ?? 'Enregistrement refusé.', cause };
+  // Un refus garde son état et ses données (ex. `doublon` : le bien existant — Arno, 21/10/2026).
+  return { motif: d.motif ?? d.message ?? 'Enregistrement refusé.', cause, etat: d.etat, data: d.data };
 }
 
 /**

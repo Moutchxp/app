@@ -3,6 +3,7 @@ import { colonneExisteMemo } from './sondeLocation';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { normaliserTexte } from '../gestion/annuaire';
+import { estDoublon, phraseDoublon, type BienComparable } from './doublonBien';
 import { verifierCoordonnees, type CoordonneeSaisie } from '../gestion/annuaireEdition';
 import { creerPersonne, type ChampsPersonne } from '../gestion/annuaireEditionRepo';
 import type { Auteur } from '../gestion/gestes';
@@ -73,6 +74,23 @@ export function familleDisponible(): Promise<boolean> {
 }
 
 class Refus extends Error {}
+
+/** Arno (21/10/2026) — « Ce bien semble déjà exister » : l'avertissement anti-doublon (jamais bloquant : « Créer quand même »). */
+export type IssueDoublon = { etat: 'doublon'; motif: string; data: { lotId: number; adresse: string | null; commune: string | null; etage: string | null; porte: string | null } };
+class DoublonTrouve extends Error { constructor(readonly bien: BienComparable & { id: number }) { super('doublon'); } }
+
+/** Un bien EN PORTEFEUILLE d'un de ces propriétaires (titulaire, ou lien de copropriété en cours) qui serait le même (`estDoublon`). */
+export async function bienExistantPareil(q: RequeteTx, proprietaireIds: number[], nouveau: BienComparable): Promise<(BienComparable & { id: number }) | null> {
+  const sortie = (await colonneExisteMemo('gestion_annuaire_lot', 'sorti_portefeuille_le')) ? ' AND lo.sorti_portefeuille_le IS NULL' : '';
+  const { rows } = await q<{ id: string; adresse: string | null; commune: string | null; etage: string | null; porte: string | null; categorie: string | null }>(
+    `SELECT lo.id::text, lo.adresse, lo.commune, lo.etage, lo.porte, lo.categorie FROM gestion_annuaire_lot lo
+      WHERE (lo.proprietaire_id = ANY($1::bigint[])
+             OR lo.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = ANY($1::bigint[]) AND lp.jusqu_a IS NULL))
+        AND lo.gestion_fin IS NULL${sortie}
+      ORDER BY lo.id`, [proprietaireIds]);
+  const r = rows.find((x) => estDoublon(nouveau, x));
+  return r === undefined ? null : { ...r, id: Number(r.id) };
+}
 
 async function journaliser(q: RequeteTx, entite: 'annuaire' | 'annuaire_lot', id: number, action: string, commentaire: string, auteur: Auteur): Promise<void> {
   await q(`INSERT INTO gestion_journal (entite, entite_id, action, commentaire, auteur_id, auteur_libelle) VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -190,15 +208,38 @@ async function insererLot(q: RequeteTx, proprietaires: { id: number; nom: string
  * en UNE transaction. Refusé si un propriétaire n'existe plus, est archivé ou sorti du portefeuille, ou si le syndic n'est
  * pas un syndic connu de la Gestion.
  */
-export async function creerBienComplet(s: SaisieBien & {
+type SaisieBienComplete = SaisieBien & {
+  contacts?: ContactSaisi[]; syndic?: SyndicDuBien | null; contactsExistants?: number[]; mandat?: unknown; confirmeDoublon?: boolean;
+};
+type IssueBien = Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null;
+  mandatRefus?: string | null }>;
+
+/** La création telle qu'avant (sans l'avertissement anti-doublon) : le contrat de toujours, pour tout appelant existant. */
+export async function creerBienComplet(s: SaisieBienComplete, auteur: Auteur): Promise<IssueBien> {
+  const r = await creerBienInterne({ ...s, confirmeDoublon: true }, auteur);
+  return r.etat === 'doublon' ? { etat: 'refus', motif: r.motif } : r;
+}
+
+/**
+ * Arno (21/10/2026) — « NOUVEAU BIEN » AVEC L'ANTI-DOUBLON : si un bien du même propriétaire existe déjà à la même adresse
+ * (normalisée), même étage, même n° de porte, rien n'est créé et l'issue `doublon` le dit (« Ce bien semble déjà exister ») ;
+ * `confirmeDoublon` (« Créer quand même ») passe. La route de l'écran appelle CELLE-CI.
+ */
+export function creerBienVerifie(s: SaisieBienComplete, auteur: Auteur): Promise<IssueBien | IssueDoublon> {
+  return creerBienInterne(s, auteur);
+}
+
+async function creerBienInterne(s: SaisieBien & {
   contacts?: ContactSaisi[]; syndic?: SyndicDuBien | null;
   /** Arno, 18/10/2026 — les cartes « contact du propriétaire » EXISTANTES cochées dans « Qui rattacher à ce bien ? ». */
   contactsExistants?: number[];
   /** Arno (21/10/2026, 397) — le mandat du choix FINAL de « Bien en gestion ? » (n°, date de signature), facultatif. */
   mandat?: unknown;
+  /** Arno (21/10/2026) — « Créer quand même » : l'avertissement « Ce bien semble déjà exister » a été vu et passé. */
+  confirmeDoublon?: boolean;
 }, auteur: Auteur):
   Promise<Issue<{ logementId: number; annexes: number[]; contacts: number; contactsRefus: string | null; syndicRefus: string | null; agRefus: string | null; entretienRefus: string | null;
-    mandatRefus?: string | null }>> {
+    mandatRefus?: string | null }> | IssueDoublon> {
   if (!(await bienCompletDisponible()) || !(await familleDisponible())) return { etat: 'sans_schema' };
   const v = verifierBienComplet(s);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
@@ -259,6 +300,12 @@ export async function creerBienComplet(s: SaisieBien & {
       if (proprietaires.length !== v.proprietaireIds.length) {
         throw new Refus('Un propriétaire choisi n’existe plus, est archivé ou est sorti du portefeuille : retirez-le ou réactivez-le.');
       }
+      /* 🔴 ANTI-DOUBLON (Arno, 21/10/2026) — APRÈS le verrou des propriétaires (FOR UPDATE ci-dessus) : deux envois simultanés pour
+         le même propriétaire passent l'un après l'autre, et le second voit le bien du premier. « Créer quand même » le saute. */
+      if (s.confirmeDoublon !== true) {
+        const existant = await bienExistantPareil(q, v.proprietaireIds, { adresse: l.adresse, commune: l.commune, etage: l.etage, porte: l.porte, categorie: v.famille });
+        if (existant !== null) throw new DoublonTrouve(existant);
+      }
       if (l.syndicId !== null) {
         const { rows: sy } = await q('SELECT 1 FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL', [l.syndicId]);
         if (sy.length === 0) throw new Refus('Ce syndic n’est pas (ou plus) un syndic connu de la Gestion.');
@@ -311,6 +358,9 @@ export async function creerBienComplet(s: SaisieBien & {
     });
   } catch (e) {
     if (e instanceof Refus) return { etat: 'refus', motif: e.message };
+    if (e instanceof DoublonTrouve) {
+      return { etat: 'doublon', motif: phraseDoublon(e.bien), data: { lotId: e.bien.id, adresse: e.bien.adresse, commune: e.bien.commune, etage: e.bien.etage, porte: e.bien.porte } };
+    }
     throw e;
   }
   // Le bien existe : les contacts se posent par la porte de la Gestion. Un échec ne défait pas le bien — il est DIT.

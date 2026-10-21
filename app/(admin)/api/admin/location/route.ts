@@ -16,7 +16,7 @@ import {
   sortirDuPortefeuille, type CreationLocataire, type SujetPortefeuille,
 } from '../../../../lib/location/portefeuilleRepo';
 import {
-  creerBienComplet, creerProprietaires, enregistrerEnGestion, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
+  creerBienVerifie, creerProprietaires, enregistrerEnGestion, modifierComplementsBien, proprietairesParIds, rechercherProprietaires, syndicsConnus, type CartesProprietaires,
 } from '../../../../lib/location/creationBienRepo';
 import type { ContactSaisi } from '../../../../lib/location/contactsLocationRepo';
 import { ajouterContactSyndic, syndicsPourAdresse, type NouveauContactSyndic, type SyndicDuBien } from '../../../../lib/location/syndicLocationRepo';
@@ -279,7 +279,7 @@ export async function POST(request: Request): Promise<Response> {
     // Une création refusée (métier, base, inconnue) : une ligne au journal du serveur.
     const etat = x !== null && typeof x === 'object' ? (x as { etat?: unknown }).etat : undefined;
     if (estCreation(action) && etat !== 'ok') {
-      journaliserEchec(auteur.libelle, action, corps.ecran, etat === 'sans_schema' ? 'base' : 'saisie', String((x as { motif?: unknown }).motif ?? etat ?? '—'));
+      journaliserEchec(auteur.libelle, action, corps.ecran, etat === 'sans_schema' ? 'base' : etat === 'doublon' ? 'doublon' : 'saisie', String((x as { motif?: unknown }).motif ?? etat ?? '—'));
     }
     return Response.json(x, { headers: ENTETES });
   };
@@ -351,7 +351,7 @@ export async function POST(request: Request): Promise<Response> {
         if (id === null) return incomplet();
         return repondre(await detacherAnnexe(id, corps.detacher === true, auteur));
       case 'creer-bien': {
-        const r = await creerBienComplet({
+        const r = await creerBienVerifie({
           proprietaireIds: Array.isArray(corps.proprietaireIds) ? (corps.proprietaireIds as unknown[]).map(identifiant).filter((x): x is number => x !== null).slice(0, 12) : [],
           logement: (corps.logement ?? {}) as Record<string, unknown>,
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
@@ -362,6 +362,8 @@ export async function POST(request: Request): Promise<Response> {
           enGestion: corps.enGestion,
           // Arno (21/10/2026, 397) — le mandat du choix final (gestion ou transaction locative), facultatif.
           ...(corps.mandat !== undefined ? { mandat: corps.mandat } : {}),
+          // Arno (21/10/2026) — « Créer quand même » après l'avertissement « Ce bien semble déjà exister ».
+          ...(corps.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
         }, auteur);
         // Nouveau mandat de gestion : un mail SEULEMENT si un des propriétaires est « en gestion = Oui » (Arno, 18/10/2026).
         return repondre(await avecMail(r, r.etat !== 'ok' ? null : {

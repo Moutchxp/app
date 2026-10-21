@@ -1047,6 +1047,19 @@ export interface BienDuProprietaire {
    * d'autre — ce n'est pas `fin` (la sortie de gestion), et aucun rangement ni comportement n'en dépend.
    */
   horsGestion?: boolean;
+  /**
+   * Arno (21/10/2026) — un bien CRÉÉ DANS LA LOCATION : sa catégorie, ses pièces, son étage saisis (pastilles), et son LIEN
+   * D'ANNEXE — la carte d'une cave dit « Annexe du logement … », celle du logement « Annexes : Cave ». Sans quoi le logement et
+   * sa cave, à la même adresse, se lisaient comme deux fois le même bien (fiche CHALAH, 21/10/2026). Absents : lecture d'avant.
+   */
+  categorie?: string | null;
+  nombrePieces?: number | null;
+  etageSaisi?: string | null;
+  annexeDe?: { id: number; adresse: string | null; categorie: string | null } | null;
+  annexes?: string[];
+  /** Le n° de porte / de place et le n° de lot de copropriété (372) : ce qui décrit une annexe rangée sous son bien. */
+  porte?: string | null;
+  numLotCopro?: string | null;
 }
 
 export interface FicheProprietaire {
@@ -1780,6 +1793,11 @@ async function sqlHorsGestion(alias: string): Promise<string> {
 
 async function biensDuProprietaire(proprietaireId: number): Promise<BienDuProprietaire[]> {
   const finAffichee = await sqlFinAffichee('lo');
+  // Arno (21/10/2026) — la catégorie / les pièces / l'étage saisis (372-374) et le lien d'annexe (372) : sondés.
+  const avecCategorie = await colonneExisteMemo('gestion_annuaire_lot', 'categorie');
+  const avecPieces = await colonneExisteMemo('gestion_annuaire_lot', 'nombre_pieces');
+  const avecAnnexes = await colonneExisteMemo('gestion_lot_annexe', 'annexe_id');
+  const avecLotCopro = await colonneExisteMemo('gestion_annuaire_lot', 'num_lot_copro');
   /* Arno (20/10/2026, faille 6) : un bien en INDIVISION apparaît sur la fiche de CHAQUE copropriétaire — le titulaire
      (`proprietaire_id`) et les liens EN COURS de `gestion_annuaire_lot_proprietaire` (sans fin, ou fin à venir). Sondé.
      La MENTION « en indivision avec » ne cite que les autres copropriétaires ACTIFS de CE bien (`indivision.ts`). */
@@ -1791,8 +1809,17 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     locataire: string | null; locataire_id: string | null; locataire_depuis: string | null;
     mails: number; dernier_echange: string | null; evenements: number; dossier_bien?: string | null; dossier_proprietaire?: string | null;
     hors_gestion: boolean; indivision: string[] | null;
+    categorie: string | null; nombre_pieces: number | null; etage_saisi: string | null; porte_saisie: string | null; num_lot_copro: string | null;
+    annexe_de: string | null; annexe_de_adresse: string | null; annexe_de_categorie: string | null; annexes: string[] | null;
   }>(
-    `SELECT lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
+    `SELECT ${avecCategorie ? 'lo.categorie, lo.etage AS etage_saisi' : 'NULL::text AS categorie, NULL::text AS etage_saisi'},
+            ${avecPieces ? 'lo.nombre_pieces' : 'NULL::int AS nombre_pieces'},
+            ${avecLotCopro ? 'lo.porte AS porte_saisie, lo.num_lot_copro' : 'NULL::text AS porte_saisie, NULL::text AS num_lot_copro'},
+            ${avecAnnexes ? `pa.id::text AS annexe_de, pa.adresse AS annexe_de_adresse, ${avecCategorie ? 'pa.categorie' : 'NULL::text'} AS annexe_de_categorie,
+            (SELECT array_agg(${avecCategorie ? "coalesce(af.categorie, 'annexe')" : "'annexe'"} ORDER BY af.id) FROM gestion_lot_annexe ax
+               JOIN gestion_annuaire_lot af ON af.id = ax.annexe_id WHERE ax.parent_id = lo.id) AS annexes`
+              : 'NULL::text AS annexe_de, NULL::text AS annexe_de_adresse, NULL::text AS annexe_de_categorie, NULL::text[] AS annexes'},
+            lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin, ${await sqlHorsGestion('lo')} AS hors_gestion,
             ${avecIndivision ? sqlCoproprietairesActifs('lo', '$1', await sqlPersonneVivante('px')) : 'NULL::text[]'} AS indivision,
             oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
@@ -1800,7 +1827,11 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
             ${INSTANT('ma.dernier')} AS dernier_echange,
             coalesce(ev.n, 0)::int AS evenements,
             ${await sqlDossiersDuBien('lo')}
-       FROM gestion_annuaire_lot lo
+       FROM gestion_annuaire_lot lo${avecAnnexes ? `
+       LEFT JOIN LATERAL (
+         SELECT p2.id, p2.adresse${avecCategorie ? ', p2.categorie' : ''} FROM gestion_lot_annexe a2 JOIN gestion_annuaire_lot p2 ON p2.id = a2.parent_id
+          WHERE a2.annexe_id = lo.id ORDER BY a2.id DESC LIMIT 1
+       ) pa ON true` : ''}
        LEFT JOIN LATERAL (
          SELECT l.nom, o.locataire_id, o.entree FROM gestion_annuaire_occupation o
            JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
@@ -1864,6 +1895,10 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     ...champsDossierDuBien(l, racine),
     horsGestion: l.hors_gestion === true,
     indivisionAvec: l.indivision ?? [],
+    categorie: l.categorie, nombrePieces: l.nombre_pieces === null ? null : Number(l.nombre_pieces), etageSaisi: l.etage_saisi,
+    annexeDe: l.annexe_de === null ? null : { id: Number(l.annexe_de), adresse: l.annexe_de_adresse, categorie: l.annexe_de_categorie },
+    annexes: l.annexes ?? [],
+    porte: l.porte_saisie, numLotCopro: l.num_lot_copro,
   }));
 }
 

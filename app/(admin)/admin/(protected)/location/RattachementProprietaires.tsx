@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { EtatLecture, useLecture } from './commun';
 import { Ligne } from '../gestion/CartesPersonnes';
 import type { ChampsSaisis } from '../gestion/CartesPersonnes';
@@ -22,12 +22,17 @@ import {
 
 const coordonnees = (telephone: string | null, email: string | null): string => [telephone, email].filter((x) => (x ?? '') !== '').join(' · ');
 
-export function PanneauQuiRattacher({ proprietaireId, dejaProprietaires, dejaContacts, onValider, onAnnuler }: {
+export function PanneauQuiRattacher({ proprietaireId, dejaProprietaires, dejaContacts, onValider, onAnnuler, onEnAttente }: {
   proprietaireId: number;
   dejaProprietaires: readonly number[];
   dejaContacts: readonly ContactProprietaire[];
   onValider: (proprietaires: PersonneProprietaire[], contacts: ContactProprietaire[]) => void;
   onAnnuler: () => void;
+  /**
+   * Arno (21/10/2026) — une SÉLECTION EN ATTENTE (cochée, pas encore rattachée) : l'écran reçoit le geste « Rattacher la
+   * sélection » (vrai s'il a pu rattacher) pour que « Enregistrer le bien » ne passe jamais en silence ; `null` sinon.
+   */
+  onEnAttente?: (rattacher: (() => boolean) | null) => void;
 }) {
   const lecture = useLecture<PersonnesARattacher>(`personnesLiees=${proprietaireId}`);
   const [sel, setSel] = useState<Selection | null>(null);
@@ -36,6 +41,26 @@ export function PanneauQuiRattacher({ proprietaireId, dejaProprietaires, dejaCon
   useEffect(() => { if (data !== null) setSel(selectionParDefaut(data)); }, [data]);
   const contactDeja = (c: ContactProprietaire): boolean =>
     dejaContacts.some((x) => x.id === c.id || x.email.trim().toLowerCase() === c.email.trim().toLowerCase());
+  // Ce qui serait rattaché par « Rattacher la sélection » (hors ce qui l'est déjà) ; et le geste lui-même.
+  const enAttente = data !== null && sel !== null
+    && (data.proprietaires.some((p) => sel.proprietaires.includes(p.id) && !dejaProprietaires.includes(p.id))
+      || data.contacts.some((c) => sel.contacts.includes(c.id) && !contactDeja(c)));
+  const rattacher = (): boolean => {
+    if (data === null || sel === null) return false;
+    // « Au moins une personne propriétaire cochée » — celles déjà rattachées au bien comptent (cochées d'office).
+    const m = refusSelection({ ...sel, proprietaires: data.proprietaires.filter((p) => dejaProprietaires.includes(p.id) || sel.proprietaires.includes(p.id)).map((p) => p.id) });
+    if (m !== null) { setMotif(m); return false; }
+    onValider(data.proprietaires.filter((p) => sel.proprietaires.includes(p.id) && !dejaProprietaires.includes(p.id)),
+      data.contacts.filter((c) => sel.contacts.includes(c.id) && !contactDeja(c)));
+    return true;
+  };
+  const geste = useRef(rattacher);
+  geste.current = rattacher;
+  useEffect(() => {
+    if (onEnAttente === undefined) return;
+    onEnAttente(enAttente ? () => geste.current() : null);
+    return () => onEnAttente(null);
+  }, [enAttente, onEnAttente]);
   const basculer = (k: keyof Selection, id: number, oui: boolean): void => {
     setMotif(null);
     setSel((s) => (s === null ? s : { ...s, [k]: oui ? [...s[k], id] : s[k].filter((x) => x !== id) }));
@@ -87,15 +112,12 @@ export function PanneauQuiRattacher({ proprietaireId, dejaProprietaires, dejaCon
             )}
           </div>
           {motif !== null && <p className="loc-manque" role="alert">{motif}</p>}
+          {/* Arno (21/10/2026) : tant qu'une sélection attend, le bouton est MIS EN ÉVIDENCE et la phrase le dit. */}
+          {enAttente && <p className="loc-qui-attente-texte" role="status" data-selection-en-attente>Sélection en attente : cliquez sur « Rattacher la sélection » pour l’ajouter au bien.</p>}
           <div className="loc-boutons loc-qui-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onAnnuler}>Annuler</button>
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => {
-              // « Au moins une personne propriétaire cochée » — celles déjà rattachées au bien comptent (cochées d'office).
-              const m = refusSelection({ ...sel, proprietaires: data.proprietaires.filter((p) => dejaProprietaires.includes(p.id) || sel.proprietaires.includes(p.id)).map((p) => p.id) });
-              if (m !== null) { setMotif(m); return; }
-              onValider(data.proprietaires.filter((p) => sel.proprietaires.includes(p.id) && !dejaProprietaires.includes(p.id)),
-                data.contacts.filter((c) => sel.contacts.includes(c.id) && !contactDeja(c)));
-            }}>Rattacher la sélection</button>
+            <button type="button" className={`svv-btn svv-btn-primary gst-btn${enAttente ? ' loc-qui-attente' : ''}`} data-rattacher-selection
+              onClick={() => { rattacher(); }}>Rattacher la sélection</button>
           </div>
         </>
       )}
@@ -188,6 +210,11 @@ export function CartesDuBloc({ proprietaires, contacts, saisis, onRetirerProprie
 }
 
 export const CSS_RATTACHEMENT = `
+/* Arno (21/10/2026) : une selection en attente met « Rattacher la selection » en evidence (anneau + leger battement). */
+.loc-qui-attente{box-shadow:0 0 0 4px color-mix(in srgb, var(--color-svv-red) 35%, transparent);animation:loc-qui-battement 1.6s ease-in-out infinite}
+@keyframes loc-qui-battement{0%,100%{box-shadow:0 0 0 4px color-mix(in srgb, var(--color-svv-red) 35%, transparent)}50%{box-shadow:0 0 0 8px color-mix(in srgb, var(--color-svv-red) 12%, transparent)}}
+@media (prefers-reduced-motion:reduce){.loc-qui-attente{animation:none}}
+.loc-qui-attente-texte{margin:0;font-weight:700;color:var(--color-svv-red)}
 /* Les biens d'un propriétaire dans sa carte : un par ligne, un léger espacement entre deux (Arno, 21/10/2026). */
 .loc-biens-carte{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.4rem;flex:1 1 100%;min-width:0}
 .loc-biens-carte>li{margin:0;padding:0;line-height:1.35}
