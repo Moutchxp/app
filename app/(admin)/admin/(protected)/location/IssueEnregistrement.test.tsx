@@ -195,6 +195,14 @@ describe('🔴 « Nouveau locataire » — succès, échec, récapitulatif', () 
     expect(window.location.href).toBe('');
   });
 
+  it('🔴 Arno (21/10/2026) — un RATTACHEMENT AUTOMATIQUE (annexe louée au même locataire) est signalé dans la modale de succès', async () => {
+    reponseCreation = async () => ok({ locataireIds: [50], reintegrations: ['Rattachement automatique : la cave n°56 revient sous 25 Rue Henri Barbusse — même locataire.'], bailId: 536 });
+    await preparer();
+    await act(async () => { enregistrer().click(); }); await calmer();
+    await act(async () => { enregistrer().click(); }); await calmer();
+    expect([...modale()!.querySelectorAll('[data-note]')].map((n) => n.textContent)).toEqual(['Rattachement automatique : la cave n°56 revient sous 25 Rue Henri Barbusse — même locataire.']);
+  });
+
   it('« Envoi ADHOC & MONGA » depuis la modale : ferme la modale et ouvre la fenêtre d’envoi du bail créé', async () => {
     await preparer();
     await act(async () => { enregistrer().click(); }); await calmer();

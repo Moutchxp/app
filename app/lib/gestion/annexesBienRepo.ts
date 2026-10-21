@@ -1,4 +1,5 @@
-import { query } from '../db/client';
+import { query, type RequeteTx } from '../db/client';
+import { refusRattachementAnnexe } from '../location/regroupementRepo';
 import { colonneExisteMemo } from '../location/sondeLocation';
 import { estLotAnnexe, typeDuLot, type AnnexeAffichee, type CandidatRattachement } from './annexesBien';
 
@@ -21,6 +22,11 @@ export interface AnnexesDuLot {
   detachee: boolean;
   /** Le lot peut-il être rattaché (annexe détachée, ou lot de type annexe sans bien principal) ? Et à quels biens. */
   candidats: CandidatRattachement[] | null;
+  /**
+   * Arno (21/10/2026) — une annexe DÉTACHÉE louée à un AUTRE locataire que son lot principal : la raison du refus (le lien
+   * « Rattacher à son lot principal » reste visible, inactif) ; `null` : vacante ou mêmes locataires.
+   */
+  rattachementRefus: string | null;
 }
 
 const COLONNES_ANNEXE = (a: string, avecCategorie: boolean, avecLot: boolean): string =>
@@ -52,7 +58,9 @@ export async function annexesDuLot(lotId: number): Promise<AnnexesDuLot | null> 
   const p = parents[0];
   const principal = p === undefined ? null : { id: Number(p.id), adresse: p.adresse, commune: p.commune, categorie: p.categorie };
   let candidats: CandidatRattachement[] | null = null;
+  let rattachementRefus: string | null = null;
   if (principal !== null && l.detachee) {
+    rattachementRefus = await refusRattachementAnnexe(query as unknown as RequeteTx, lotId);
     candidats = [{ id: principal.id, adresse: principal.adresse, commune: principal.commune, categorie: principal.categorie, origine: true }];
   } else if (principal === null && estLotAnnexe(versAnnexe(l)) && l.proprietaire_id !== null) {
     const { rows: c } = await query<{ id: string; adresse: string | null; commune: string | null; categorie: string | null; nature: string | null; type_bien: string | null }>(
@@ -64,7 +72,7 @@ export async function annexesDuLot(lotId: number): Promise<AnnexesDuLot | null> 
     candidats = c.filter((x) => !estLotAnnexe({ categorie: x.categorie, nature: x.nature, typeBien: x.type_bien }))
       .map((x) => ({ id: Number(x.id), adresse: x.adresse, commune: x.commune, categorie: x.categorie, origine: false }));
   }
-  return { lotId, typeLot: typeDuLot(versAnnexe(l), 'Bien'), annexes: annexes.map(versAnnexe), principal, detachee: l.detachee, candidats };
+  return { lotId, typeLot: typeDuLot(versAnnexe(l), 'Bien'), annexes: annexes.map(versAnnexe), principal, detachee: l.detachee, candidats, rattachementRefus };
 }
 
 /** Une ligne de l'Historique : un détachement, un rattachement ou une réintégration d'annexe, sur CE bien. */

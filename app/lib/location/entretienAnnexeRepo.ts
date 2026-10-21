@@ -92,6 +92,13 @@ export async function enregistrerEntretiens(lotId: number, aPrevoirBrut: unknown
 export async function detacherAnnexe(annexeId: number, detacher: boolean, auteur: Auteur): Promise<{ etat: 'ok'; data: undefined } | { etat: 'refus'; motif: string } | { etat: 'inconnu' }> {
   if (!(await entretienDisponible())) return { etat: 'refus', motif: SANS_379 };
   return withTransaction(async (q) => {
+    /* Arno (21/10/2026) — RATTACHER à son lot principal : seulement si l'annexe est VACANTE, ou louée aux MÊMES locataires que lui.
+       Relu sous verrou, AVANT toute écriture ; sinon le refus dit qui loue quoi. (Import tardif : regroupementRepo importe ce module.) */
+    if (!detacher) {
+      const { refusRattachementAnnexe } = await import('./regroupementRepo');
+      const refus = await refusRattachementAnnexe(q, annexeId, true);
+      if (refus !== null) return { etat: 'refus' as const, motif: refus };
+    }
     const r = await detacherAnnexeDans(q, annexeId, detacher, auteur, { motif: 'detacher' });
     return r === 'inconnu' ? { etat: 'inconnu' as const } : { etat: 'ok' as const, data: undefined };
   });
@@ -99,7 +106,7 @@ export async function detacherAnnexe(annexeId: number, detacher: boolean, auteur
 
 /** Les options du détachement : la raison (fiche autonome), et s'il faut ouvrir / scinder une fiche autonome (migration 386). */
 export interface OptionsDetachement {
-  motif: 'bail' | 'orphelin' | 'autre_locataire' | 'detacher' | 'scission' | 'reintegration';
+  motif: 'bail' | 'orphelin' | 'autre_locataire' | 'detacher' | 'scission' | 'reintegration' | 'automatique';
   /** Détacher : ouvrir la fiche autonome d'UN lot (défaut) — `false` quand l'appelant pose une fiche à plusieurs lots. */
   ficheSeule?: boolean;
   /** Rattacher : les autres lots d'une fiche autonome close gardent chacun leur fiche (défaut) — `false` à la réintégration. */
@@ -115,9 +122,11 @@ export async function detacherAnnexeDans(q: RequeteTx, annexeId: number, detache
     `UPDATE gestion_annuaire_lot SET annexe_detachee_le = ${detacher ? 'coalesce(annexe_detachee_le, now())' : 'NULL'},
             annexe_detachee_par_libelle = ${detacher ? 'coalesce(annexe_detachee_par_libelle, $2)' : 'NULL'} WHERE id = $1`,
     detacher ? [annexeId, auteur.libelle] : [annexeId]);
+  // Arno (21/10/2026) : un rattachement SANS CLIC se dit « Rattachement automatique : même locataire » (Historique des deux biens).
   const mot = detacher ? 'détachée : bien autonome, louable séparément (son lien avec le logement est gardé)'
-    : o.motif === 'reintegration' ? 'réintégrée : de nouveau dans la fiche du logement (mêmes locataires)'
-      : 'rattachée : de nouveau dans l’ensemble loué avec le logement';
+    : o.motif === 'reintegration' ? 'réintégrée — rattachement automatique : même locataire (de nouveau dans la fiche du logement)'
+      : o.motif === 'automatique' ? 'rattachée — rattachement automatique : même locataire'
+        : 'rattachée : de nouveau dans l’ensemble loué avec le logement';
   const action = detacher ? 'location_annexe_detachee' : o.motif === 'reintegration' ? 'location_annexe_reintegree' : 'location_annexe_rattachee';
   // Arno (21/10/2026) : « quel lot, quel bien » — le bien principal est nommé côté annexe aussi.
   await journalDans(q, annexeId, action, `annexe ${mot} (bien principal ${parent})${detacher ? ` — ${o.motif}` : ''}`, auteur);

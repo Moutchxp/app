@@ -138,3 +138,28 @@ export function libelleLot(o: { categorie: string | null; nature: string | null;
   const article = /^[aeiouyéèêh]/i.test(nom) ? 'l’' : FEMININS.has(premier) ? 'la ' : 'le ';
   return `${article}${nom}${o.porte ? ` n°${o.porte}` : ''}`;
 }
+
+/**
+ * ══ 🔴 RATTACHER UNE ANNEXE DÉTACHÉE À SON LOT PRINCIPAL (Arno, 21/10/2026). PUR. ════════════════════════════════════════════════
+ * « Autorisé si l'annexe est VACANTE ; autorisé si elle est louée AU MÊME LOCATAIRE que le lot principal (mêmes locataires sur les
+ * baux en cours) ; refusé si elle est louée à un autre locataire. » `null` = autorisé ; sinon la raison, dite telle quelle.
+ */
+export function refusRattachement(annexe: { occupants: readonly number[]; noms: readonly string[] },
+  principal: { occupants: readonly number[]; noms: readonly string[]; mot: string }): string | null {
+  if (annexe.occupants.length === 0) return null;
+  const cle = (x: readonly number[]): string => [...x].sort((a, b) => a - b).join(',');
+  if (principal.occupants.length > 0 && cle(annexe.occupants) === cle(principal.occupants)) return null;
+  const qui = (n: readonly string[]): string => n.join(', ');
+  return `Rattachement impossible : cette annexe est louée à ${qui(annexe.noms)}, ${principal.occupants.length === 0
+    ? `${principal.mot} n’est pas loué` : `${principal.mot} à ${qui(principal.noms)}`}.`;
+}
+
+/**
+ * LE RATTACHEMENT AUTOMATIQUE (Arno, 21/10/2026) : parmi les annexes DÉTACHÉES d'un lot principal, celles louées EXACTEMENT aux
+ * mêmes locataires que lui (et louées : jamais deux vacants) — elles se rattachent sans clic. PUR.
+ */
+export function annexesARattacher(principal: Pick<LotDeFiche, 'occupants'>, annexes: readonly (Pick<LotDeFiche, 'id' | 'occupants'> & { detachee: boolean })[]): number[] {
+  if (principal.occupants.length === 0) return [];
+  const cle = (x: readonly number[]): string => [...x].sort((a, b) => a - b).join(',');
+  return annexes.filter((a) => a.detachee && a.occupants.length > 0 && cle(a.occupants) === cle(principal.occupants)).map((a) => a.id);
+}

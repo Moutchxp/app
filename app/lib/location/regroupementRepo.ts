@@ -2,7 +2,7 @@ import { query, type RequeteTx } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { colonneExisteMemo } from './sondeLocation';
 import { detacherAnnexeDans, regroupementDisponible } from './entretienAnnexeRepo';
-import { doitReintegrer, libelleLot, type FicheBien, type LotDeFiche, type PlanBail } from './regroupement';
+import { annexesARattacher, doitReintegrer, libelleLot, refusRattachement, type FicheBien, type LotDeFiche, type PlanBail } from './regroupement';
 
 /**
  * ══ 🔴🔴 UNE FICHE BIEN = LES LOTS LOUÉS ENSEMBLE — LE DÉPÔT (Arno, 17 et 19/10/2026) ═════════════════════════════════
@@ -165,7 +165,19 @@ export async function reintegrerSiComplet(q: RequeteTx, lotIds: readonly number[
     if (an.length === 0) continue;
     const ids = [origineId, ...an.map((r) => Number(r.id))];
     const lots = await lireLots(q, ids, (id) => (id === origineId ? 'logement' : 'annexe'), true);
-    if (!doitReintegrer(lots, an.some((r) => r.d))) continue;
+    if (!doitReintegrer(lots, an.some((r) => r.d))) {
+      /* Arno (21/10/2026) — LE RATTACHEMENT AUTOMATIQUE, annexe par annexe : une annexe DÉTACHÉE louée exactement aux mêmes
+         locataires que son lot principal y revient, même si une autre annexe reste louée à part (la réintégration complète,
+         ci-dessous, reste celle de toujours). Les autres lots d'une fiche autonome gardent chacun la leur (`scinder`). */
+      const principal = lots.find((l) => l.id === origineId);
+      const ids = principal === undefined ? [] : annexesARattacher(principal, an.map((r) => ({ id: Number(r.id), detachee: r.d, occupants: lots.find((l) => l.id === Number(r.id))?.occupants ?? [] })));
+      for (const id of ids) await detacherAnnexeDans(q, id, false, auteur, { motif: 'automatique' });
+      const libelles = lots.filter((l) => ids.includes(l.id)).map((l) => l.libelle);
+      if (libelles.length > 0) {
+        messages.push(`Rattachement automatique : ${libelles.join(', ')} ${libelles.length > 1 ? 'reviennent' : 'revient'} sous ${await titreDe(q, origineId)} — même locataire.`);
+      }
+      continue;
+    }
     for (const r of an.filter((x) => x.d)) {
       await detacherAnnexeDans(q, Number(r.id), false, auteur, { motif: 'reintegration', scinder: false });
     }
@@ -173,6 +185,18 @@ export async function reintegrerSiComplet(q: RequeteTx, lotIds: readonly number[
     messages.push(`Réintégration : ${detaches.join(', ')} ${detaches.length > 1 ? 'reviennent' : 'revient'} dans la fiche de ${await titreDe(q, origineId)} — tous ses lots sont loués aux mêmes locataires.`);
   }
   return messages;
+}
+
+/**
+ * Arno (21/10/2026) — « Rattacher à son lot principal » une annexe DÉTACHÉE : le motif du REFUS (louée à un autre locataire que
+ * son lot principal), ou `null` (vacante, ou mêmes locataires). Lu pour griser le lien ; relu sous verrou au moment du geste.
+ */
+export async function refusRattachementAnnexe(q: Lecteur, annexeId: number, verrou = false): Promise<string | null> {
+  const { rows } = await q<{ p: string }>('SELECT parent_id::text AS p FROM gestion_lot_annexe WHERE annexe_id = $1', [annexeId]);
+  if (rows[0] === undefined) return null;
+  const parentId = Number(rows[0].p);
+  const [p, a] = await lireLots(q, [parentId, annexeId], (id) => (id === parentId ? 'logement' : 'annexe'), verrou);
+  return refusRattachement(a, { occupants: p.occupants, noms: p.noms, mot: p.libelle });
 }
 
 /** Les fiches autonomes d'un lot (ouverte et closes), pour sa fiche : « Issu de », ses lots, « réintégrée dans … ». */

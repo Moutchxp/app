@@ -20,6 +20,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { refusRattachementAnnexe } from '../location/regroupementRepo';
 // 🔴 LOT SUPPRIMER-CARTE — une fiche supprimée ne s'affiche NULLE PART. Le fragment est écrit une seule fois.
 import { SQL_JOUR_PARIS, sqlCoproprietairesActifs } from './indivision';
 import { personneVivanteAvec } from './personneVivante';
@@ -1067,6 +1068,8 @@ export interface BienDuProprietaire {
   detachee?: boolean;
   detacheeLe?: string | null;
   titulaireId?: number | null;
+  /** Annexe détachée louée à un AUTRE locataire que son lot principal : la raison (« Rattacher » inactif). `null` : possible. */
+  rattachementRefus?: string | null;
 }
 
 export interface FicheProprietaire {
@@ -1893,7 +1896,13 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     [proprietaireId]);
 
   const racine = await racineDrive();
+  // Arno (21/10/2026) — le rattachement d'une annexe détachée à son lot principal est-il possible (vacante / même locataire) ?
+  const refus = new Map<string, string | null>();
+  for (const l of rows.filter((x) => x.detachee_le !== null && x.annexe_de !== null)) {
+    refus.set(l.id, await refusRattachementAnnexe(query as unknown as RequeteTx, Number(l.id)).catch(() => null));
+  }
   return rows.map((l) => ({
+    rattachementRefus: refus.get(l.id) ?? null,
     id: Number(l.id), numero: l.wippimmo_id,
     adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
     nature: l.nature, typeBien: l.type_bien, immeuble: l.immeuble,

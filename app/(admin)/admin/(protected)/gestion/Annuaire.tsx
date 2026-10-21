@@ -24,7 +24,7 @@ import type {
 import { BarreAnnuaire } from './BarreAnnuaire';
 import { SectionLocationBien, SectionLocationLocataire, SectionLocationProprietaire } from './SectionsLocationFiche';
 import { EnvoiAdhocMonga, useBauxEnCoursDesBiens, type BailEnCoursDuBien } from '../location/EnvoiAdhocMonga';
-import { AnnexesDeLaFiche, CasesAnnexes, RattacherABien } from './AnnexesDuBien';
+import { AnnexesDeLaFiche, CartoucheAnnexeDetachee, CasesAnnexes, RattacherABien } from './AnnexesDuBien';
 import { estLotAnnexe, motCompteur, typeDuLot, type AnnexeAffichee, type CandidatRattachement } from '../../../../lib/gestion/annexesBien';
 /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — la moitié « fiche » du calcul des PARTIES, descendue dans un module
    PUR pour que la fenêtre des pièces jointes lise exactement la même, et non une copie. */
@@ -843,12 +843,18 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
           {motIndivision(b.indivisionAvec) !== null && <span className="ann-carte-sous" data-indivision>{motIndivision(b.indivisionAvec)}</span>}
           {/* Arno (21/10/2026) — LE LIEN D'ANNEXE, écrit : un logement et sa cave, à la même adresse, ne se lisent plus comme deux
               fois le même bien (fiche CHALAH). Rien n'est retiré ni déplacé : chaque lot garde sa carte. */}
-          {annexesRangees.length === 0 && (() => { const m = motAnnexe(b); return m === null ? null : <span className="ann-carte-sous ann-carte-annexe" data-lien-annexe>{m}</span>; })()}
+          {annexesRangees.length === 0 && !(b.detachee === true && b.annexeDe) && (() => { const m = motAnnexe(b); return m === null ? null : <span className="ann-carte-sous ann-carte-annexe" data-lien-annexe>{m}</span>; })()}
           {/* Arno (21/10/2026) — le COMPTEUR des lots liés, lisible d'un coup d'œil : « Logement · 2 annexes ». */}
           {(() => { const c = motCompteur(typeDuLot(b, 'Bien'), annexesRangees.length); return c === null ? null : <span className="ann-carte-sous ann-carte-compteur" data-compteur-annexes>{c}</span>; })()}
         </span>
       </button>
       {/* LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — sous l'en-tête : « ⚠ Conflit possible … » (s'il y a lieu). */}
+      {/* Arno (21/10/2026) — une annexe DÉTACHÉE : le cartouche ambre 🔗 sous le titre ; le lot principal mène à sa fiche. */}
+      {b.detachee === true && b.annexeDe && (
+        <span className="ann-carte-cartouche">
+          <CartoucheAnnexeDetachee principal={{ ...b.annexeDe, commune: b.commune }} onOuvrir={(id) => ouvrir('lot', id)} />
+        </span>
+      )}
       <PastilleConflitParcelle immeuble={b.immeuble} />
       {/* 🔴 JUSTE AU-DESSUS DES FAITS de la carte (là où était la ligne SURFACE), sur toute la largeur. */}
       <CartoucheEvenement nb={b.evenementsOuverts} onOuvrir={() => onEvenements(b.id)} />
@@ -937,7 +943,7 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
         {/* Un bien AUTONOME de type annexe : « Rattacher à un bien » (redevient une case sous le bien choisi). */}
         {candidatsRattachement !== null && (
           <span className="ann-carte-annexes" data-carte-autonome>
-            <RattacherABien lotId={b.id} typeLot={typeDuLot(b)} candidats={candidatsRattachement} onApres={() => onRecharger?.()} />
+            <RattacherABien lotId={b.id} typeLot={typeDuLot(b)} candidats={candidatsRattachement} onApres={() => onRecharger?.()} refus={b.rattachementRefus ?? null} />
           </span>
         )}
         <button type="button" className="svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large"
@@ -1595,6 +1601,8 @@ function VueLot({
           la page sur la « vie du bien » filtrée sur les échanges qui portent un événement ouvert. */}
       <CartoucheEvenement nb={f.evenementsOuverts}
         onOuvrir={() => { onFiltreVie('evenement'); ancreVie.current?.scrollIntoView({ block: 'start' }); }} />
+      {/* Arno (21/10/2026) — une annexe DÉTACHÉE : son cartouche ambre 🔗, sous le titre de sa fiche (après la bande « Événement en cours » quand elle est là). */}
+      <span className="ann-fiche-cartouche"><AnnexesDeLaFiche lotId={Number(f.id)} bien={{ adresse: f.adresse, commune: f.commune }} onOuvrir={(id) => ouvrir('lot', id)} partie="cartouche" /></span>
       {/* 🔴🔴 LOT TACHES-1 — SOUS L'EN-TÊTE, le récapitulatif des tâches DE CE BIEN, au code couleur commun. Posé
           APRÈS la bande orange « Événement en cours », qui garde sa place juste sous l'en-tête (épreuve
           `marquesApresReouverture.test.ts`). Aucune tâche ouverte ⇒ il ne rend rien, et seul le bouton se voit. */}
@@ -1618,7 +1626,7 @@ function VueLot({
       </section>
       {/* Arno (21/10/2026) — LES ANNEXES DU BIEN, en cases sous ses informations (compteur, « Détacher ») ; un bien autonome de
           type annexe : « Rattacher à un bien ». Rien s'il n'y a rien à dire. */}
-      <AnnexesDeLaFiche lotId={Number(f.id)} bien={{ adresse: f.adresse, commune: f.commune }} onOuvrir={(id) => ouvrir('lot', id)} />
+      <AnnexesDeLaFiche lotId={Number(f.id)} bien={{ adresse: f.adresse, commune: f.commune }} onOuvrir={(id) => ouvrir('lot', id)} partie="reste" />
 
       {/* ══ 🔴 LES PROPRIÉTAIRES DU BIEN, EN CARTES — avec « Remplacer » pour une vente ═══════════════════════════ */}
       <BlocCartes titre={`Propriétaire${f.proprietaires.length > 1 ? 's' : ''}`} id="ann-prop" famille="propriétaire"
@@ -2817,6 +2825,9 @@ export const CSS_ANNUAIRE = `
 /* Arno (21/10/2026) : les annexes en cases sous leur bien principal (composant AnnexesDuBien) ; le compteur en tete de carte. */
 .ann-carte-annexes{display:flex;flex-direction:column;gap:.25rem;padding:0 0 4px;min-width:0}
 .ann-carte-annexes:empty{display:none}
+.ann-carte-cartouche{display:block;padding:8px 14px 0}
+.ann-fiche-cartouche{display:block;margin:0 0 10px}
+.ann-fiche-cartouche:empty{display:none}
 .ann-carte-sous.ann-carte-compteur{font-size:.8rem;font-weight:800;color:var(--color-svv-ink);line-height:1.3}
 .ann-carte-sous.ann-carte-annexe{font-size:.78rem;font-weight:400;color:var(--color-svv-muted);line-height:1.3;overflow-wrap:anywhere}
 /* L'absence de dossier Drive se DIT, a la place du bouton, et reste centree sur la meme ligne de base. */

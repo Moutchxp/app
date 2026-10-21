@@ -83,8 +83,10 @@ export function CasesAnnexes({ annexes, bien, typePrincipal, onOuvrir, onApres }
 }
 
 /** « Rattacher à un bien » : les biens principaux proposés ; une annexe détachée ne revient qu'à son bien d'origine. */
-export function RattacherABien({ lotId, typeLot, candidats, onApres }: {
+export function RattacherABien({ lotId, typeLot, candidats, onApres, refus = null }: {
   lotId: number; typeLot: string; candidats: CandidatRattachement[]; onApres: () => void;
+  /** Arno (21/10/2026) — rattachement impossible (annexe louée à un autre locataire) : le lien reste visible, INACTIF, avec la raison. */
+  refus?: string | null;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const [choix, setChoix] = useState<number | null>(null);
@@ -102,8 +104,11 @@ export function RattacherABien({ lotId, typeLot, candidats, onApres }: {
   return (
     <span className="anx-rattacher" data-rattacher-a-un-bien={lotId}>
       <style>{CSS_ANNEXES_DU_BIEN}</style>
-      <button type="button" className="anx-lien" onClick={() => { setMotif(null); setChoix(candidats.length === 1 ? candidats[0].id : null); setOuvert(true); }}
-        data-ouvrir-rattacher>Rattacher à un bien</button>
+      {/* Arno (21/10/2026) — une annexe détachée n'a qu'une cible, son lot d'origine : « Rattacher à son lot principal ». */}
+      <button type="button" className="anx-lien" disabled={refus !== null} aria-describedby={refus !== null ? `anx-refus-${lotId}` : undefined}
+        onClick={() => { setMotif(null); setChoix(candidats.length === 1 ? candidats[0].id : null); setOuvert(true); }}
+        data-ouvrir-rattacher>{candidats.some((c) => c.origine) ? 'Rattacher à son lot principal' : 'Rattacher à un bien'}</button>
+      {refus !== null && <span className="anx-refus-lien" id={`anx-refus-${lotId}`} data-rattachement-refus>{refus}</span>}
       {ouvert && (
         <ModaleIssue sorte="attention" titre={`Rattacher ${typeLot.toLowerCase() === 'autre' ? 'cette annexe' : `ce lot (${typeLot.toLowerCase()})`} à un bien`}
           onFermer={() => { if (!envoi) setOuvert(false); }}
@@ -133,17 +138,41 @@ export function RattacherABien({ lotId, typeLot, candidats, onApres }: {
   );
 }
 
+/**
+ * Arno (21/10/2026) — LE CARTOUCHE D'UNE ANNEXE DÉTACHÉE : « 🔗 Annexe détachée du logement <adresse> — bien à part entière »,
+ * fond ambre clair, bordure ambre, pleine largeur, sous le titre ; le lot principal est un lien vers sa fiche.
+ */
+export function CartoucheAnnexeDetachee({ principal, onOuvrir }: {
+  principal: { id: number; adresse: string | null; commune?: string | null; categorie: string | null };
+  onOuvrir: (lotId: number) => void;
+}) {
+  const type = typeDuLot({ categorie: principal.categorie, nature: null, typeBien: null }, 'bien').toLowerCase();
+  const nom = [principal.adresse, principal.commune].filter((x) => x).join(', ') || `n° ${principal.id}`;
+  return (
+    <span className="anx-cartouche" data-cartouche-detachee>
+      <style>{CSS_ANNEXES_DU_BIEN}</style>
+      <span aria-hidden="true" className="anx-cartouche-picto">🔗</span>
+      <span>Annexe détachée du {type}{' '}
+        <button type="button" className="anx-cartouche-lien" onClick={() => onOuvrir(principal.id)} data-ouvrir-principal={principal.id}>{nom}</button>
+        {' '}— bien à part entière</span>
+    </span>
+  );
+}
+
 interface AnnexesLues {
   lotId: number; typeLot: string; annexes: AnnexeAffichee[]; detachee: boolean; candidats: CandidatRattachement[] | null;
   principal: { id: number; adresse: string | null; commune: string | null; categorie: string | null } | null;
+  rattachementRefus?: string | null;
 }
 
 /**
  * Les annexes d'un bien LUES par sa fiche (fiche du bien, carte « Son logement » du locataire) : le compteur, les cases, et
  * « Rattacher à un bien » pour un lot autonome de type annexe. Rien s'il n'y a rien à dire.
  */
-export function AnnexesDeLaFiche({ lotId, bien, onOuvrir }: {
+export function AnnexesDeLaFiche({ lotId, bien, onOuvrir, partie = 'tout' }: {
   lotId: number; bien: { adresse: string | null; commune: string | null }; onOuvrir: (lotId: number) => void;
+  /** `cartouche` : seulement le cartouche d'une annexe détachée (sous le titre de la fiche) ; `reste` : tout sauf lui. */
+  partie?: 'tout' | 'cartouche' | 'reste';
 }) {
   const [lu, setLu] = useState<AnnexesLues | null>(null);
   const [tour, setTour] = useState(0);
@@ -157,6 +186,8 @@ export function AnnexesDeLaFiche({ lotId, bien, onOuvrir }: {
   }, [lotId, tour]);
   const relire = useCallback(() => setTour((t) => t + 1), []);
   if (lu === null) return null;
+  const cartouche = lu.detachee && lu.principal !== null ? <CartoucheAnnexeDetachee principal={lu.principal} onOuvrir={onOuvrir} /> : null;
+  if (partie === 'cartouche') return cartouche;
   const typePrincipal = lu.typeLot;
   const compteur = motCompteur(typePrincipal, lu.annexes.length);
   if (lu.annexes.length === 0 && lu.candidats === null) return null;
@@ -165,10 +196,10 @@ export function AnnexesDeLaFiche({ lotId, bien, onOuvrir }: {
       <style>{CSS_ANNEXES_DU_BIEN}</style>
       {compteur !== null && <p className="anx-compteur" data-compteur-annexes>{compteur}</p>}
       <CasesAnnexes annexes={lu.annexes} bien={bien} typePrincipal={typePrincipal} onOuvrir={onOuvrir} onApres={relire} />
+      {partie === 'tout' && cartouche}
       {lu.candidats !== null && (
         <p className="anx-autonome" data-bien-autonome>
-          {lu.detachee && lu.principal !== null ? <>Annexe détachée — bien à part entière (d’origine : {[lu.principal.adresse, lu.principal.commune].filter((x) => x).join(', ') || `bien ${lu.principal.id}`}). </> : null}
-          <RattacherABien lotId={lotId} typeLot={typePrincipal} candidats={lu.candidats} onApres={relire} />
+          <RattacherABien lotId={lotId} typeLot={typePrincipal} candidats={lu.candidats} onApres={relire} refus={lu.rattachementRefus ?? null} />
         </p>
       )}
     </div>
@@ -245,6 +276,14 @@ export const CSS_ANNEXES_DU_BIEN = `
 .anx-autonome{margin:0;font-size:.8rem;color:var(--color-svv-muted);display:flex;flex-wrap:wrap;align-items:center;gap:4px;overflow-wrap:anywhere}
 .anx-lien{border:0;background:none;padding:0 2px;min-height:44px;font:inherit;font-size:.78rem;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer}
 .anx-lien:hover{color:var(--color-svv-red)}
+.anx-lien:disabled{color:var(--color-svv-muted);cursor:not-allowed;text-decoration:line-through}
+.anx-refus-lien{display:block;width:100%;font-size:.78rem;font-weight:600;color:var(--color-svv-amber);overflow-wrap:anywhere}
+/* Le cartouche d une annexe detachee : ambre clair, bordure ambre, pleine largeur, picto de lien. */
+.anx-cartouche{display:flex;align-items:flex-start;gap:8px;margin:0;padding:8px 12px;box-sizing:border-box;width:100%;border:1px solid var(--color-svv-amber);
+  border-radius:10px;background:var(--color-svv-amber-soft);color:var(--color-svv-ink);font-size:.82rem;line-height:1.4;overflow-wrap:anywhere}
+.anx-cartouche-picto{flex:0 0 auto}
+.anx-cartouche-lien{border:0;background:none;padding:0;font:inherit;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer;text-align:left;overflow-wrap:anywhere}
+.anx-cartouche-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .anx-choix{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .anx-choix legend{font-weight:800;font-size:.85rem;margin-bottom:4px}
 .anx-choix-ligne{display:flex;align-items:center;gap:10px;min-height:44px;padding:4px 8px;border:1px solid var(--color-svv-line);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}

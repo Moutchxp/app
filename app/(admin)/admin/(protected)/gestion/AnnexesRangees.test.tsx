@@ -114,19 +114,38 @@ describe('🔴 détacher, puis rattacher', () => {
     expect(lectures).toBe(avant + 1);
   });
 
-  it('l’annexe DÉTACHÉE : sa propre carte, avec son type, COMPTÉE comme un bien ; « Rattacher à un bien » ne propose que son bien d’origine', async () => {
+  it('l’annexe DÉTACHÉE : sa propre carte, avec son type, COMPTÉE comme un bien ; « Rattacher à son lot principal » ne propose que son bien d’origine', async () => {
     biens = [WIPPIMMO, LOGEMENT, { ...CAVE, detachee: true, detacheeLe: '2026-10-21 18:00:00+02' }];
     await monter();
     expect(compte()).toBe('3');
     expect(carte(436).querySelector('[data-case-annexe]')).toBeNull();
     const cave = carte(437);
     expect([...cave.querySelectorAll('.ann-carte-sous .ann-etiq')].map((e) => e.textContent)).toEqual(['Cave', 'Étage -2']);
-    expect(cave.querySelector('[data-lien-annexe]')?.textContent).toBe('Annexe détachée du logement 25 Rue Henri Barbusse — bien à part entière');
+    // Le cartouche ambre 🔗 (Arno, 21/10/2026) remplace la phrase discrète ; le lot principal est un lien vers sa fiche.
+    expect(cave.querySelector('[data-lien-annexe]')).toBeNull();
+    const cartouche = cave.querySelector('[data-cartouche-detachee]') as HTMLElement;
+    expect(cartouche.querySelector('.anx-cartouche-picto')?.textContent).toBe('🔗');
+    expect(cartouche.querySelector(':scope > span:last-child')?.textContent).toBe('Annexe détachée du logement 25 Rue Henri Barbusse, GENNEVILLIERS — bien à part entière');
+    await clic(cartouche.querySelector('[data-ouvrir-principal="436"]')!);
+    expect(ouvertes).toEqual([{ sorte: 'lot', id: 436 }]);
+    expect(cave.querySelector('[data-ouvrir-rattacher]')?.textContent).toBe('Rattacher à son lot principal');
     await clic(cave.querySelector('[data-ouvrir-rattacher]')!);
     const choix = [...document.querySelectorAll('[data-choix-rattacher] [data-candidat]')].map((x) => x.getAttribute('data-candidat'));
     expect(choix).toEqual(['436']);
     await clic(document.querySelector('[data-confirmer-rattacher]')!);
     expect(posts).toEqual([{ action: 'detacher-annexe', id: 437, detacher: false }]);
+  });
+
+  it('louée à un AUTRE locataire : « Rattacher à son lot principal » reste visible, INACTIF, avec la raison', async () => {
+    biens = [WIPPIMMO, LOGEMENT, { ...CAVE, detachee: true, rattachementRefus: 'Rattachement impossible : cette annexe est louée à MARTIN Léa, le logement à DUPONT Jean.' }];
+    await monter();
+    const lien = carte(437).querySelector('[data-ouvrir-rattacher]') as HTMLButtonElement;
+    expect(lien.textContent).toBe('Rattacher à son lot principal');
+    expect(lien.disabled).toBe(true);
+    expect(carte(437).querySelector('[data-rattachement-refus]')?.textContent).toBe('Rattachement impossible : cette annexe est louée à MARTIN Léa, le logement à DUPONT Jean.');
+    await clic(lien);
+    expect(document.querySelector('[data-modale-issue]')).toBeNull();
+    expect(posts).toEqual([]);
   });
 
   it('un lot de type annexe JAMAIS lié (ex. parking WIPPIMMO) : « Rattacher à un bien » propose les biens principaux du même propriétaire → `rattacher-annexe`', async () => {

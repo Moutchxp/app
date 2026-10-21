@@ -164,3 +164,53 @@ describe('« Détacher » existant = le même effet que le détachement automati
     expect(repo).toContain("POINT D'ACCROCHE FUTUR");
   });
 });
+
+/**
+ * 🔴 Arno (21/10/2026) — ANNEXE DÉTACHÉE ET SON LOT PRINCIPAL : rattachement à la main (vacante ou même locataire ; refusé si louée à
+ * un autre locataire), et RATTACHEMENT AUTOMATIQUE annexe par annexe dès qu'elle est louée au même locataire que son lot principal.
+ */
+describe('le rattachement d’une annexe détachée à son lot principal', () => {
+  const detacher = (id: number) => { lots.find((l) => l.id === id)!.detache = '2026-10-19T10:00:00Z'; };
+  it('À L’ENREGISTREMENT D’UN BAIL : la cave louée au même locataire que le logement revient seule (le parking, loué à un autre, reste à part) ; journalisé sur les deux biens', async () => {
+    detacher(3); detacher(14);
+    lignes = [{ id: 40, origine: 1, tete: 3, lots: [3], motif: 'detacher', clos: null, statut: null }, { id: 41, origine: 1, tete: 14, lots: [14], motif: 'detacher', clos: null, statut: null }];
+    occs = [{ id: 1, lot: 1, loc: 5, sortie: null }, { id: 2, lot: 14, loc: 9, sortie: null }];
+    const messages = await bail(3, [3], [5]);
+    expect(messages).toEqual(['Rattachement automatique : la cave n°3 revient sous Bien 1 — même locataire.']);
+    expect(lots.find((l) => l.id === 3)!.detache).toBeNull();
+    expect(lots.find((l) => l.id === 14)!.detache).not.toBeNull();
+    expect(journal.filter((j) => j.action === 'location_annexe_rattachee').map((j) => j.id).sort((a, b) => a - b)).toEqual([1, 3]);
+    // La fiche autonome de la cave est close « réintégrée » ; celle du parking reste ouverte. Rien n'est effacé.
+    expect(lignes.find((g) => g.id === 40)).toMatchObject({ statut: 'reintegre' });
+    expect(lignes.find((g) => g.id === 41)?.clos).toBeNull();
+    expect(deletes).toEqual([]);
+    expect([...annexes]).toEqual([[3, 1], [14, 1]]);
+  });
+
+  it('à la main : VACANTE → rattachée ; MÊME LOCATAIRE → rattachée', async () => {
+    detacher(3);
+    occs = [{ id: 1, lot: 1, loc: 5, sortie: null }];
+    expect(await detacherAnnexe(3, false, AUTEUR)).toEqual({ etat: 'ok', data: undefined });
+    expect(lots.find((l) => l.id === 3)!.detache).toBeNull();
+    detacher(3);
+    occs.push({ id: 2, lot: 3, loc: 5, sortie: null });
+    expect(await detacherAnnexe(3, false, AUTEUR)).toEqual({ etat: 'ok', data: undefined });
+    expect(lots.find((l) => l.id === 3)!.detache).toBeNull();
+  });
+
+  it('à la main : louée à un AUTRE locataire → REFUSÉ par le serveur, avec qui loue quoi ; rien n’est écrit', async () => {
+    detacher(3);
+    occs = [{ id: 1, lot: 1, loc: 5, sortie: null }, { id: 2, lot: 3, loc: 9, sortie: null }];
+    journal = [];
+    expect(await detacherAnnexe(3, false, AUTEUR)).toEqual({ etat: 'refus', motif: 'Rattachement impossible : cette annexe est louée à MARTIN Léa, le logement à DUPONT Jean.' });
+    expect(lots.find((l) => l.id === 3)!.detache).not.toBeNull();
+    expect(journal).toEqual([]);
+    occs = [{ id: 2, lot: 3, loc: 9, sortie: null }];
+    expect(await detacherAnnexe(3, false, AUTEUR)).toEqual({ etat: 'refus', motif: 'Rattachement impossible : cette annexe est louée à MARTIN Léa, le logement n’est pas loué.' });
+  });
+
+  it('DÉTACHER reste toujours possible (aucune condition)', async () => {
+    occs = [{ id: 1, lot: 1, loc: 5, sortie: null }, { id: 2, lot: 3, loc: 9, sortie: null }];
+    expect(await detacherAnnexe(3, true, AUTEUR)).toEqual({ etat: 'ok', data: undefined });
+  });
+});

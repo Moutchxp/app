@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { doitReintegrer, libelleLot, planifierBail, type FicheBien, type LotDeFiche } from './regroupement';
+import { annexesARattacher, doitReintegrer, libelleLot, planifierBail, refusRattachement, type FicheBien, type LotDeFiche } from './regroupement';
 
 /** Une fiche bien = les lots loués ensemble (Arno, 17 et 19/10/2026) — le module pur. */
 const lot = (id: number, role: 'logement' | 'annexe', libelle: string, occupants: number[] = [], noms: string[] = []): LotDeFiche =>
@@ -86,5 +86,19 @@ describe('le libellé d’un lot, avec son article', () => {
     expect(libelleLot({ categorie: 'cave', nature: null, typeBien: null, porte: '3', role: 'annexe' })).toBe('la cave n°3');
     expect(libelleLot({ categorie: 'parking', nature: null, typeBien: null, porte: '14', role: 'annexe' })).toBe('le parking n°14');
     expect(libelleLot({ categorie: null, nature: 'Appartement', typeBien: 'T3', porte: null, role: 'logement' })).toBe('l’appartement T3');
+  });
+});
+
+describe('🔴 Arno (21/10/2026) — refusRattachement / annexesARattacher (PURS)', () => {
+  const P = { occupants: [5, 6], noms: ['DUPONT Jean', 'DUPONT Marie'], mot: 'le logement' };
+  it('vacante ou mêmes locataires (ordre indifférent) : autorisé ; sinon la raison', () => {
+    expect(refusRattachement({ occupants: [], noms: [] }, P)).toBeNull();
+    expect(refusRattachement({ occupants: [6, 5], noms: [] }, P)).toBeNull();
+    expect(refusRattachement({ occupants: [9], noms: ['MARTIN Léa'] }, P)).toBe('Rattachement impossible : cette annexe est louée à MARTIN Léa, le logement à DUPONT Jean, DUPONT Marie.');
+    expect(refusRattachement({ occupants: [5], noms: ['DUPONT Jean'] }, P)).toMatch(/^Rattachement impossible/);
+  });
+  it('automatique : seulement les annexes DÉTACHÉES louées exactement aux mêmes locataires (jamais deux vacants)', () => {
+    expect(annexesARattacher({ occupants: [5] }, [{ id: 3, occupants: [5], detachee: true }, { id: 14, occupants: [9], detachee: true }, { id: 7, occupants: [5], detachee: false }])).toEqual([3]);
+    expect(annexesARattacher({ occupants: [] }, [{ id: 3, occupants: [], detachee: true }])).toEqual([]);
   });
 });
