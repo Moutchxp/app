@@ -146,7 +146,7 @@ export async function POST(request: Request): Promise<Response> {
         if (occ === null) return incomplet();
         // Arno (20/10/2026, faille 8) : « Calculer les honoraires avec la surface actuelle » — refait au barème de la date d'entrée,
         // écrit seulement par cet « Enregistrer ».
-        return repondre(await modifierConditionsEntree(occ, corps.conditions, auteur, corps.recalculerHonoraires === true));
+        return repondre(await modifierConditionsEntree(occ, corps.conditions, auteur, corps.recalculerHonoraires === true, corps.remplacerSaisie === true));
       }
       case 'conditions-location': {
         const occ = identifiant(corps.occupationId);

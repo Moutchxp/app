@@ -12,7 +12,7 @@
  *    nulle part. Les données viennent de la base (`mailNouvelleLocationRepo.ts`) : rien n'est saisi en plus.
  */
 import { LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
-import { eurosAffiches, LIBELLE_ZONE, lireDecimal, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
+import { eurosAffiches, LIBELLE_ZONE, lireDecimal, MENTION_SAISI_MAIN, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
 
 // ── LES COULEURS DU MODÈLE ────────────────────────────────────────────────────────────────────────────────────────────────
 /** Arno (21/10/2026) — l'introduction et la formule de fin du mail. */
@@ -346,6 +346,9 @@ export function lignesBailMail(entree: string, c: ConditionsEntree | null, h: Ca
     const tarif = (t: string): string => tarifAffiche(lireDecimal(t) ?? ZERO).replace('/m²', '');
     l.push({ mot: 'Honoraires propriétaire',
       valeur: `${eurosAffiches(lireDecimal(h.total) ?? ZERO)} · ${h.surface.replace('.', ',')} m² × (${tarif(h.tarifZone)} + ${tarif(h.tarifEdl)}) · barème du ${dateCourte(h.baremeDepuis)}, ${LIBELLE_ZONE[h.zone]} · ${compteProprio}` });
+  } else if (h !== null && h.etat === 'saisi') {
+    // Arno (21/10/2026, 402) : un montant saisi à la main — dit comme tel, sans barème.
+    l.push({ mot: 'Honoraires propriétaire', valeur: `${eurosAffiches(lireDecimal(h.total) ?? ZERO)} (${MENTION_SAISI_MAIN}) · ${compteProprio}` });
   } else {
     l.push({ mot: 'Honoraires propriétaire', valeur: compteProprio.charAt(0).toUpperCase() + compteProprio.slice(1) });
   }

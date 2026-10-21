@@ -12,7 +12,7 @@ import { CONDITIONS_VIDES, manquesConditions, montantSaisi, versEnvoiConditions,
 import { familleDeCategorie, manquesEntretien } from '../../../../lib/location/bienComplet';
 import type { FicheBienLocation } from '../../../../lib/location/locationRepo';
 import { estGarant, QUALITE_GARANT } from '../../../../lib/location/cartesLocation';
-import type { CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
+import { MOTIF_MONTANT_SAISI, montantHonorairesSaisi, type CalculHonoraires } from '../../../../lib/location/honorairesProprietaire';
 import { EnvoiAdhocMonga } from './EnvoiAdhocMonga';
 
 /** Une ligne de lot, telle que la route `lotsBail` la rend (le module `regroupement`). */
@@ -126,7 +126,15 @@ export function CreationLocataire() {
   const envoiEntretien = versEnvoiEntretien(entretien);
   // Ce qui manque, seulement pour ce qui s'ENREGISTRE : les choix (391/392), le loyer (370 : son format), l'entretien du bien (379).
   const manquesBloc = manquesConditions(versEnvoiConditions(conditions));
+  /* Arno (21/10/2026, 402) — LE MONTANT DES HONORAIRES PROPRIÉTAIRE : toujours saisissable ; pré-rempli par le calcul tant qu'il
+     n'a pas été modifié à la main ; modifié → envoyé tel quel (« saisi à la main »), jamais recalculé ensuite. */
+  const [honoSaisie, setHonoSaisie] = useState<{ valeur: string; manuel: boolean }>({ valeur: '', manuel: false });
+  const montantHono = honoSaisie.manuel ? montantHonorairesSaisi(honoSaisie.valeur) : null;
+  const manqueHono: Record<string, string> = !avecConditions || !honoSaisie.manuel ? {}
+    : montantHono === false ? { honorairesProprietaireMontant: MOTIF_MONTANT_SAISI }
+      : montantHono === null ? { honorairesProprietaireMontant: 'Honoraires propriétaire : saisissez le montant, ou « recalculer ».' } : {};
   const manque: Record<string, string> = {
+    ...manqueHono,
     ...Object.fromEntries(Object.entries(manquesBloc).filter(([k]) => (k.startsWith('loyer-') ? avecLoyer : avecConditions))),
     ...(avecEntretien ? manquesEntretien({ entretienAPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens }) : {}),
   };
@@ -257,6 +265,7 @@ export function CreationLocataire() {
       lotId: bien.id, entree: entree === '' ? null : entree, lotIds: coches ?? [bien.id],
       ...(avecConditions ? { conditions: versEnvoiConditions(conditions) } : {}),
       ...(avecLoyer ? { loyer: { ...conditions.loyer } } : {}),
+      ...(avecConditions && typeof montantHono === 'string' ? { honorairesSaisis: honoSaisie.valeur } : {}),
       ...(avecEntretien ? { entretien: { aPrevoir: envoiEntretien.entretienAPrevoir, entretiens: envoiEntretien.entretiens } } : {}),
       ...(avecRattachements && etat.contacts.length > 0 ? { rattachements: rattachementsAEnvoyer() } : {}),
     });
@@ -344,7 +353,8 @@ export function CreationLocataire() {
               loyer={{ note: bien !== null && loyerDuBien?.id === bien.id ? loyerDuBien.note : null, indisponible: schema !== null && !avecLoyer }}
               dateEntree={entree}
               honoraires={{ calcul: bien === null ? null : hono.etat.etat === 'ok' ? hono.etat.data : null,
-                charge: bien !== null && hono.etat.etat === 'charge', lienBien: bien === null ? null : `/admin/location/bien/${bien.id}` }}
+                charge: bien !== null && hono.etat.etat === 'charge', lienBien: bien === null ? null : `/admin/location/bien/${bien.id}`,
+                saisie: { ...honoSaisie, onChange: setHonoSaisie, erreur: manqueDe('honorairesProprietaireMontant') } }}
               entretien={avecEntretien ? (
                 <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire
                   manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />

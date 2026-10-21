@@ -8,7 +8,7 @@ import {
   formaterCentimes, formuleProrata, LIBELLE_ASSURANCE, LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_JOUR, prorataEntree,
   type JourPrelevement,
 } from '../../../../lib/location/conditionsEntree';
-import { eurosAffiches, lireDecimal, LIBELLE_ZONE, tarifAffiche, totalDesHonoraires, ZERO } from '../../../../lib/location/honorairesProprietaire';
+import { eurosAffiches, lireDecimal, LIBELLE_ZONE, MENTION_SAISI_MAIN, tarifAffiche, totalDesHonoraires, ZERO } from '../../../../lib/location/honorairesProprietaire';
 import { libelleEntretien } from '../../../../lib/location/entretien';
 import type { ResumeBail } from '../../../../lib/location/resumeBailRepo';
 import { CSS_RESUME_BIEN } from './ResumeBien';
@@ -193,7 +193,10 @@ export function ResumeBailFiche({ f, ouvrir }: { f: FicheLocataire; ouvrir: (s: 
                     <dt>Honoraires du locataire</dt><dd data-rb="compte-locataire">{LIBELLE_COMPTE[c.honorairesLocataire]}</dd>
                     <dt>Honoraires du propriétaire</dt><dd data-rb="compte-proprietaire">{LIBELLE_COMPTE[c.honorairesProprietaire]}</dd>
                     <dt>Honoraires propriétaire</dt>
-                    <dd data-rb="honoraires-proprietaire">{h === null ? rien() : h.etat !== 'ok' ? <span className="ann-inconnu">{h.motif}</span> : (
+                    <dd data-rb="honoraires-proprietaire">{h === null ? rien() : h.etat === 'saisi' ? (
+                      /* Arno (21/10/2026, 402) : un montant saisi à la main — dit comme tel, sans barème. */
+                      <span data-rb="honoraires-saisis"><strong>{eurosAffiches(lireDecimal(h.total) ?? ZERO)}</strong> <span className="rb-note">({MENTION_SAISI_MAIN})</span></span>
+                    ) : h.etat !== 'ok' ? <span className="ann-inconnu">{h.motif}</span> : (
                       <span className="rb-liste">
                         <span>Visite, dossier, rédaction du bail : <strong>{eurosAffiches(lireDecimal(h.visiteBail) ?? ZERO)}</strong>
                           <span className="rb-note"> — {h.surface.replace('.', ',')} m² × {tarifAffiche(lireDecimal(h.tarifZone) ?? ZERO)} ({LIBELLE_ZONE[h.zone]})</span></span>

@@ -311,7 +311,7 @@ export function lignesConditions(c: ConditionsEntree, honoraires: CalculHonorair
     ]),
     ...SOMMES.filter((k) => c.sommes[k] !== null).map((k) => ({ mot: LIBELLE_SOMME[k], valeur: formaterCentimes(c.sommes[k] as number) })),
     ...(total === null ? [] : [{ mot: 'Total dû à l’entrée', valeur: formaterCentimes(total) }]),
-    ...(honoraires === null ? [] : honoraires.etat === 'ok' ? lignesHonoraires(honoraires) : [{ mot: 'Honoraires propriétaire', valeur: honoraires.motif }]),
+    ...(honoraires === null ? [] : honoraires.etat === 'ok' || honoraires.etat === 'saisi' ? lignesHonoraires(honoraires) : [{ mot: 'Honoraires propriétaire', valeur: honoraires.motif }]),
     ...((): { mot: string; valeur: string }[] => {
       const t = totalDesHonoraires(c.sommes.honorairesAgence, honoraires);
       return t === null ? [] : [{ mot: 'Total des honoraires', valeur: eurosAffiches(t) }];

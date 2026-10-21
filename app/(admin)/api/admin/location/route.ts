@@ -345,6 +345,8 @@ export async function POST(request: Request): Promise<Response> {
           ...(corps.conditions !== undefined && corps.conditions !== null ? { conditions: corps.conditions } : {}),
           // Arno (20/10/2026) — le loyer mensuel à l'entrée (loyer de départ, migration 370).
           ...(corps.loyer !== undefined && corps.loyer !== null ? { loyer: corps.loyer } : {}),
+          // Arno (21/10/2026, 402) — le montant des honoraires propriétaire SAISI À LA MAIN (absent : le calcul, comme avant).
+          ...(corps.honorairesSaisis !== undefined && corps.honorairesSaisis !== null ? { honorairesSaisis: corps.honorairesSaisis } : {}),
           // Arno (20/10/2026, 393) — à qui se rattache chaque contact (« Garantit : », « Contact de : »).
           ...(Array.isArray(corps.rattachements) ? { rattachements: (corps.rattachements as unknown[]).slice(0, 20) } : {}),
           ...(corps.entretien !== null && typeof corps.entretien === 'object'

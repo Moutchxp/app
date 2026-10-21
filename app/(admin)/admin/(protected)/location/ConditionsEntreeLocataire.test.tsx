@@ -800,7 +800,9 @@ describe('🔴 intitulés et picto sur une ligne, « € » en suffixe dans la c
     expect(intitules).toEqual(['Montant du dépôt de garantie', 'Loyer principal', 'Provision pour charges',
       'Prorata loyer', 'Prorata provisions / charges', 'Dépôt de garantie', 'Honoraires agence']);
     const cases = [...container.querySelectorAll('[data-bloc-conditions] .loc-case-euros')];
-    expect(cases).toHaveLength(7);
+    // Arno (21/10/2026, 402) : + le « Montant des honoraires propriétaire (€ TTC) », toujours présent (même dessin).
+    expect(cases).toHaveLength(8);
+    expect(cases.filter((c) => c.closest('[data-hono-montant]') !== null)).toHaveLength(1);
     for (const c of cases) {
       expect(c.querySelector('input')).not.toBeNull();
       const suffixe = c.querySelector('.loc-suffixe-euros')!;

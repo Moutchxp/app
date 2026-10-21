@@ -9,7 +9,8 @@ import {
   totalLoyerCentimes, type SaisieConditions,
 } from '../../../../lib/location/conditionsEntree';
 import {
-  eurosAffiches, LIBELLE_ZONE, lignesHonoraires, tarifAffiche, lireDecimal, totalDesHonoraires, ZERO, type CalculHonoraires,
+  eurosAffiches, LIBELLE_ZONE, lignesHonoraires, MENTION_SAISI_MAIN, montantHonorairesSaisi, montantPourChamp, tarifAffiche, lireDecimal,
+  totalDesHonoraires, ZERO, type CalculHonoraires,
 } from '../../../../lib/location/honorairesProprietaire';
 
 /** La plus petite taille de police d'un intitulé (Arno, 20/10/2026) : en dessous, on le signale plutôt que de réduire encore. */
@@ -301,21 +302,77 @@ export function BlocConditionsEntree({ valeur, onChange, manque, entretien, gara
   );
 }
 
-export interface ProprieteHonoraires { calcul: CalculHonoraires | null; charge?: boolean; lienBien: string | null }
+export interface ProprieteHonoraires {
+  calcul: CalculHonoraires | null; charge?: boolean; lienBien: string | null;
+  /**
+   * Arno (21/10/2026, 402) — « Nouveau locataire » seulement : le MONTANT des honoraires propriétaire (€ TTC), TOUJOURS présent ;
+   * pré-rempli avec le calcul tant qu'il n'a pas été modifié à la main (`manuel`). Absent (fiche du locataire) : lecture seule.
+   */
+  saisie?: SaisieHonoraires;
+}
+
+/** Le montant saisi et s'il a été modifié à la main ; `erreur` : le message sous le champ (montant illisible ou vide). */
+export interface SaisieHonoraires { valeur: string; manuel: boolean; onChange: (v: { valeur: string; manuel: boolean }) => void; erreur?: ReactNode }
+
+/** La mention sous un champ vide sans surface (Arno, 21/10/2026). */
+export const MENTION_SURFACE_INCONNUE = 'Surface inconnue : saisissez le montant';
 
 /**
- * L'encadré « HONORAIRES PROPRIÉTAIRE » (calculé, en lecture) et, dessous, le « Total des honoraires » = honoraires agence
- * (locataire, des sommes dues) + total honoraires propriétaire. Surface manquante : on le dit, avec le lien vers la fiche.
+ * L'encadré « HONORAIRES PROPRIÉTAIRE » et, dessous, le « Total des honoraires » = honoraires agence (locataire, des sommes
+ * dues) + total honoraires propriétaire. Surface manquante : on le dit, avec le lien vers la fiche.
+ * Arno (21/10/2026, 402) — avec `saisie` (« Nouveau locataire ») : le champ « Montant des honoraires propriétaire (€ TTC) »,
+ * toujours là ; pré-rempli par le calcul (bulle ⓘ), librement modifiable ; modifié → « saisi à la main · recalculer ».
  */
 function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: number | null | undefined }) {
   const idHono = useId();
   // Une réponse inattendue se lit comme « pas de calcul » (jamais un écran qui tombe).
-  const c = h.calcul != null && ['ok', 'surface_manquante', 'sans_bareme'].includes((h.calcul as { etat?: string }).etat ?? '') ? h.calcul : null;
-  const total = totalDesHonoraires(agence === undefined ? null : agence, c);
+  const c = h.calcul != null && ['ok', 'surface_manquante', 'sans_bareme', 'saisi'].includes((h.calcul as { etat?: string }).etat ?? '') ? h.calcul : null;
+  const sa = h.saisie;
+  const manuel = sa !== undefined && sa.manuel;
+  // Le pré-remplissage : le calcul, tant que le champ n'a pas été modifié à la main (et il suit le calcul s'il change).
+  const cible = c !== null && c.etat === 'ok' ? montantPourChamp(c) : '';
+  useEffect(() => {
+    if (sa === undefined || sa.manuel || h.charge === true || sa.valeur === cible) return;
+    sa.onChange({ valeur: cible, manuel: false });
+  }, [sa, cible, h.charge]);
+  // Le total : le montant saisi à la main s'il l'est, sinon le calcul (exact).
+  const saisi = manuel ? montantHonorairesSaisi(sa.valeur) : null;
+  const pourTotal: CalculHonoraires | null = manuel
+    ? (typeof saisi === 'string' ? { etat: 'saisi', zone: 'autre', date: '', dateSupposee: false, total: saisi } : null)
+    : c;
+  const total = totalDesHonoraires(agence === undefined ? null : agence, pourTotal);
+  const idChamp = `${idHono}-montant`;
+  const detail = c !== null && c.etat === 'ok' ? lignesHonoraires(c) : [];
   return (
     <>
       <div className="loc-cond-bloc" data-cond="honoraires-proprietaire" aria-live="polite">
         <h4>Honoraires propriétaire</h4>
+        {sa !== undefined && (
+          <div className="loc-champ loc-hono-champ" data-hono-montant>
+            <span className="loc-champ-tete">
+              <label htmlFor={idChamp} className="loc-hono-libelle">Montant des honoraires propriétaire (€ TTC)</label>
+              {!manuel && detail.length > 0 && (
+                <InfoBulle libelle="Montant des honoraires propriétaire" etiquette="Détail du calcul" cible={`${idHono}-bulle`} dansLEcran
+                  contenu={<span className="loc-bulle-calcul" data-detail-calcul="montant">{detail.map((l) => (
+                    <span key={l.mot}>{l.mot} : {l.detail !== undefined ? `${l.detail} = ` : ''}<strong>{l.valeur}</strong></span>))}</span>} />
+              )}
+            </span>
+            <CaseEuros id={idChamp} value={sa.valeur} placeholder={manuel ? '' : 'ex. 935,03'} data-hono-saisie
+              onChange={(e) => {
+                const v = e.target.value;
+                // Vidé alors qu'aucun calcul n'existe : rien de « saisi » (le champ redevient simplement vide).
+                sa.onChange({ valeur: v, manuel: !(v.trim() === '' && cible === '') });
+              }} />
+            <span className="loc-hono-mention" data-hono-mention>
+              {manuel ? (
+                <>{MENTION_SAISI_MAIN}{cible !== '' && <>{' · '}<button type="button" className="loc-lien-recalculer" data-hono-recalculer
+                  onClick={() => sa.onChange({ valeur: cible, manuel: false })}>recalculer</button></>}</>
+              ) : h.charge !== true && c !== null && c.etat === 'surface_manquante' ? MENTION_SURFACE_INCONNUE
+                : h.charge !== true && c !== null && c.etat === 'ok' ? 'calculé avec la surface du bien — modifiable' : null}
+            </span>
+            {sa.erreur}
+          </div>
+        )}
         {h.charge === true ? <p className="loc-muet" style={{ margin: 0 }}>Calcul…</p>
           : c === null ? <p className="loc-muet" style={{ margin: 0 }}>Choisissez le bien loué : le calcul part de sa surface Carrez/Boutin.</p>
             : c.etat === 'surface_manquante' ? (
@@ -323,7 +380,12 @@ function EncadreHonoraires({ h, agence }: { h: ProprieteHonoraires; agence: numb
                 {c.motif}.{h.lienBien !== null && <>{' '}<a href={h.lienBien}>Ouvrir la fiche du bien</a></>}</p>
             ) : c.etat === 'sans_bareme' ? (
               <p className="loc-alerte loc-alerte--orange" style={{ margin: 0 }} data-sans-bareme>{c.motif}.</p>
-            ) : (
+            ) : c.etat === 'saisi' ? (
+              /* Arno (21/10/2026, 402) : un montant saisi à la main (relu) — dit comme tel, sans barème. */
+              <dl className="loc-cond-calcul" data-hono-saisi>
+                {lignesHonoraires(c).map((l) => <div key={l.mot} className="loc-cond-calcul-total"><dt>{l.mot}</dt><dd>{l.valeur}</dd></div>)}
+              </dl>
+            ) : manuel ? null : (
               <>
                 <dl className="loc-cond-calcul">
                   {lignesHonoraires(c).map((l, i) => (
@@ -367,6 +429,11 @@ export const CSS_CONDITIONS = INFOBULLE_CSS + `
 .loc-case-euros input{width:100%;box-sizing:border-box;padding-right:2.2em}
 .loc-suffixe-euros{position:absolute;right:.9em;top:50%;transform:translateY(-50%);color:var(--color-svv-muted);pointer-events:none;user-select:none;-webkit-user-select:none;font-weight:600}
 .loc-bulle-calcul{display:flex;flex-direction:column;gap:4px}
+/* Le montant des honoraires propriétaire (Arno, 21/10/2026) : une case de la largeur des autres montants, la mention dessous. */
+.loc-hono-champ{max-width:22rem;min-width:0}
+.loc-hono-libelle{font-weight:700;color:var(--color-svv-ink);min-width:0;overflow-wrap:anywhere}
+.loc-hono-mention{font-size:.85rem;font-weight:400;color:var(--color-svv-muted);display:flex;flex-wrap:wrap;align-items:center;gap:0 4px;min-height:1.2em}
+.loc-hono-mention:empty{display:none}
 .loc-bulle-calcul > span{display:block}
 .loc-champ-pied{display:flex;flex-direction:column;gap:4px;min-width:0}
 .loc-champ-pied:empty{display:none}

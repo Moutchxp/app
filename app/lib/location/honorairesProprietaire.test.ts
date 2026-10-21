@@ -119,3 +119,54 @@ describe('refusVersionBareme — la règle des versions', () => {
       .toBe('La date « Applicable à partir du » ne peut pas être antérieure à celle de la version précédente (01/12/2026).');
   });
 });
+
+/** 🔴 Arno (21/10/2026, 402) — LE MONTANT SAISI À LA MAIN : exact, au centime au plus ; dit « saisi à la main » ; compté au total. */
+describe('honoraires propriétaire saisis à la main', () => {
+  it('montantHonorairesSaisi : euros au centime au plus → texte EXACT ; vide → null ; illisible → false', async () => {
+    const { montantHonorairesSaisi } = await import('./honorairesProprietaire');
+    expect(montantHonorairesSaisi('935,03')).toBe('935.03');
+    expect(montantHonorairesSaisi('1 200')).toBe('1200');
+    expect(montantHonorairesSaisi('935.03 €')).toBe('935.03');
+    expect(montantHonorairesSaisi('0')).toBe('0');
+    expect(montantHonorairesSaisi('')).toBeNull();
+    expect(montantHonorairesSaisi('   ')).toBeNull();
+    expect(montantHonorairesSaisi(undefined)).toBeNull();
+    expect(montantHonorairesSaisi('935,034')).toBe(false);
+    expect(montantHonorairesSaisi('abc')).toBe(false);
+    expect(montantHonorairesSaisi('-5')).toBe(false);
+  });
+  it('montantPourChamp : le calcul pré-rempli au centime (affichage seulement) ; rien sans montant', async () => {
+    const { montantPourChamp } = await import('./honorairesProprietaire');
+    const ok = calculerHonorairesProprietaire({ surface: '61.8', zone: 'tres_tendue', baremes: [{ id: 1, depuis: '2026-01-01', tresTendue: '12.1', tendue: '10.09', autre: '8.07', etatDesLieux: '3.03', source: 's' }], date: '2026-11-01', dateSupposee: false });
+    expect(ok.etat === 'ok' ? ok.total : null).toBe('935.034');
+    expect(montantPourChamp(ok)).toBe('935,03');
+    expect(montantPourChamp({ etat: 'saisi', zone: 'autre', date: '2026-11-01', dateSupposee: false, total: '1200' })).toBe('1200,00');
+    expect(montantPourChamp(null)).toBe('');
+    expect(montantPourChamp({ etat: 'surface_manquante', zone: 'autre', date: '2026-11-01', dateSupposee: false, motif: MOTIF_SURFACE_MANQUANTE })).toBe('');
+  });
+  it('lignesHonoraires : « 935,03 € (saisi à la main) », sans surface ni barème ; total des honoraires = agence + saisi', () => {
+    const s = { etat: 'saisi' as const, zone: 'autre' as const, date: '2026-11-01', dateSupposee: false, total: '935.03' };
+    expect(lignesHonoraires(s)).toEqual([{ mot: 'Total honoraires propriétaire', valeur: '935,03 € (saisi à la main)' }]);
+    expect(eurosAffiches(totalDesHonoraires(10000, s)!)).toBe('1\u202f035,03 €');
+  });
+});
+
+describe('honorairesAEnregistrer — à l’enregistrement du locataire (Arno, 21/10/2026, 402)', () => {
+  const OK = calculerHonorairesProprietaire({ surface: '61.8', zone: 'tres_tendue', baremes: [{ id: 1, depuis: '2026-01-01', tresTendue: '12.1', tendue: '10.09', autre: '8.07', etatDesLieux: '3.03', source: 's' }], date: '2026-11-01', dateSupposee: false });
+  it('rien de saisi (absent ou vide) : le calcul, inchangé', async () => {
+    const { honorairesAEnregistrer } = await import('./honorairesProprietaire');
+    expect(honorairesAEnregistrer(OK, undefined, '2026-11-01', '2026-10-21')).toEqual({ ok: true, honoraires: OK, saisi: false });
+    expect(honorairesAEnregistrer(OK, '  ', '2026-11-01', '2026-10-21')).toEqual({ ok: true, honoraires: OK, saisi: false });
+  });
+  it('saisi : remplace le calcul (zone et date du calcul), montant EXACT ; sans calcul : zone « autre », date d’entrée', async () => {
+    const { honorairesAEnregistrer } = await import('./honorairesProprietaire');
+    expect(honorairesAEnregistrer(OK, '1 000,5', '2026-11-01', '2026-10-21')).toEqual({ ok: true, saisi: true,
+      honoraires: { etat: 'saisi', zone: 'tres_tendue', date: '2026-11-01', dateSupposee: false, total: '1000.5' } });
+    expect(honorairesAEnregistrer(null, '935,03', '2026-11-01', '2026-10-21')).toEqual({ ok: true, saisi: true,
+      honoraires: { etat: 'saisi', zone: 'autre', date: '2026-11-01', dateSupposee: false, total: '935.03' } });
+  });
+  it('illisible : refus dit', async () => {
+    const { honorairesAEnregistrer, MOTIF_MONTANT_SAISI } = await import('./honorairesProprietaire');
+    expect(honorairesAEnregistrer(OK, '12,345', '2026-11-01', '2026-10-21')).toEqual({ ok: false, motif: MOTIF_MONTANT_SAISI });
+  });
+});

@@ -24,7 +24,8 @@ import { familleDeCategorie, LIBELLE_TYPE_LOGEMENT, type TypeLogement } from './
 import { etageFr } from './sortieLocataires';
 
 import { verifierConditions, type ConditionsEntree } from './conditionsEntree';
-import { conditionsEntreeDisponible, enregistrerConditionsEntreeDans } from './conditionsEntreeRepo';
+import { conditionsEntreeDisponible, enregistrerConditionsEntreeDans, honorairesSaisisDisponible, MOTIF_SANS_402 } from './conditionsEntreeRepo';
+import { honorairesAEnregistrer } from './honorairesProprietaire';
 import { calculHonorairesDuBien } from './honorairesProprietaireRepo';
 import { bailDisponible, creerBailDans, garantsDisponibles } from './bailRepo';
 import { brancheBailDisponible, creerBrancheBail, type DepsBrancheBail } from './brancheBailDriveRepo';
@@ -796,6 +797,11 @@ export async function creerLocatairesSurBien(o: {
    * locataires garantis) pour un garant, `locataire` (rang) pour un autre contact. Un seul locataire : d'office.
    */
   rattachements?: unknown;
+  /**
+   * Arno (21/10/2026, migration 402) — le montant des HONORAIRES PROPRIÉTAIRE SAISI À LA MAIN (€ TTC) : enregistré tel quel, marqué
+   * « saisi à la main », sans version de barème, jamais recalculé. Absent : le calcul (surface × barème), comme avant.
+   */
+  honorairesSaisis?: unknown;
 }, auteur: Auteur): Promise<Issue<{ locataireIds: number[]; contacts: number; contactsRefus: string | null; recap: string[]; reintegrations: string[];
   entretienRefus: string | null; bailId?: number | null; rattaches?: number; dateBaremeSupposee?: boolean;
   /** Arno (20/10/2026, 394) : la branche « BAIL » du Drive — créée (son dossier), ou à créer (le motif) ; absente sans la 394. */
@@ -861,7 +867,14 @@ export async function creerLocatairesSurBienAvec(o: Parameters<typeof creerLocat
   if (sansRegroupement !== null) return { etat: 'refus', motif: sansRegroupement };
   // Les HONORAIRES PROPRIÉTAIRE (migration 392) : calculés ICI (surface du bien, zone, barème à la date d'entrée), jamais
   // repris de l'écran ; enregistrés avec les conditions, comme trace.
-  const honoraires = conditions !== null ? await calculHonorairesDuBien(o.lotId, entree) : null;
+  let honoraires = conditions !== null ? await calculHonorairesDuBien(o.lotId, entree) : null;
+  // Arno (21/10/2026, 402) : un montant SAISI À LA MAIN remplace le calcul (règle pure `honorairesAEnregistrer`) ; sans la 402, refusé.
+  if (conditions !== null) {
+    const h = honorairesAEnregistrer(honoraires, o.honorairesSaisis, entree, new Date().toISOString().slice(0, 10));
+    if (!h.ok) return { etat: 'refus', motif: h.motif };
+    if (h.saisi && !(await honorairesSaisisDisponible())) return { etat: 'refus', motif: MOTIF_SANS_402 };
+    honoraires = h.honoraires;
+  }
   const ids: number[] = [];
   for (const [i, c] of cartes.entries()) {
     const cree = await creerPersonne('locataire', { ...c, nom: (c.nom ?? '').trim() }, auteur);

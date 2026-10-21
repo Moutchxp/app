@@ -298,3 +298,17 @@ describe('🔴 les destinataires d’un envoi', () => {
       .toBe('Envoyé le 21/10/2026 à 14:32 par Arnaud Jorel à a@b.fr, c@d.fr');
   });
 });
+
+
+/** 🔴 Arno (21/10/2026, 402) — le mail dit le montant SAISI À LA MAIN comme tel ; le calcul garde surface × tarifs · barème. */
+describe('mail « Nouvelle location » — honoraires propriétaire calculés ou saisis à la main', () => {
+  const ligne = (h: CalculHonoraires | null) => lignesBailMail('2026-11-01', CONDITIONS, h).find((l) => l.mot === 'Honoraires propriétaire')?.valeur;
+  it('calculés : « 935,03 € · 61,8 m² × (…) · barème du … »', () => {
+    expect(ligne(HONO)).toMatch(/^935,03 € · 61,8 m² × \(12,10 € \+ 3,03 €\) · barème du /);
+  });
+  it('saisis à la main : « 935,03 € (saisi à la main) » et le compte, sans barème ni surface', () => {
+    const v = ligne({ etat: 'saisi', zone: 'tres_tendue', date: '2026-11-01', dateSupposee: false, total: '935.03' });
+    expect(v).toBe('935,03 € (saisi à la main) · compte bancaire gestion');
+    expect(v).not.toMatch(/barème|m²/);
+  });
+});

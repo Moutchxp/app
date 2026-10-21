@@ -922,7 +922,10 @@ export function GestesConditionsBail({ c, l, modifiable, apres }: {
   const [recalcul, setRecalcul] = useState<CalculHonoraires | null>(null);
   const [recalculMotif, setRecalculMotif] = useState<string | null>(null);
   const surfaceConnue = c.surfaceActuelle !== null && c.surfaceActuelle !== undefined && Number(c.surfaceActuelle) > 0;
-  const proposerRecalcul = c.honoraires?.etat === 'surface_manquante' && surfaceConnue;
+  // Arno (21/10/2026, 402) : un montant SAISI À LA MAIN peut aussi être remplacé par le calcul — mais seulement après confirmation.
+  const saisiMain = c.honoraires?.etat === 'saisi';
+  const proposerRecalcul = (c.honoraires?.etat === 'surface_manquante' || saisiMain) && surfaceConnue;
+  const [confirmerRemplacement, setConfirmerRemplacement] = useState(false);
   const manque = saisie === null ? {} : manquesConditions(versEnvoiConditions(saisie));
   const manqueDe = (k: string): React.ReactNode => (tente && manque[k] !== undefined ? <p className="loc-manque" role="alert">{manque[k]}</p> : null);
   const enregistrer = async (): Promise<void> => {
@@ -931,7 +934,7 @@ export function GestesConditionsBail({ c, l, modifiable, apres }: {
     if (Object.keys(manque).length > 0) { setMotif(`Reste à renseigner : ${Object.values(manque).map((m) => m.replace(/[.?]$/, '')).join(' · ')}.`); return; }
     setEnvoi(true);
     const m = await envoyer({ action: 'conditions-entree', occupationId: l.occupationId, conditions: versEnvoiConditions(saisie),
-      ...(recalcul !== null ? { recalculerHonoraires: true } : {}) });
+      ...(recalcul !== null ? { recalculerHonoraires: true, ...(saisiMain ? { remplacerSaisie: true } : {}) } : {}) });
     setEnvoi(false);
     if (m !== null) { setMotif(m); return; }
     setSaisie(null); setTente(false); setMotif(null); setRecalcul(null); apres();
@@ -943,7 +946,8 @@ export function GestesConditionsBail({ c, l, modifiable, apres }: {
     const r = await fetch(`/api/admin/location?honorairesProprietaire=${l.lotId}${date}`, { cache: 'no-store' })
       .then((x) => x.json() as Promise<{ etat?: string; data?: CalculHonoraires }>).catch(() => null);
     if (r === null || r.etat !== 'ok' || r.data === undefined) { setRecalculMotif('Le calcul n’a pas pu être fait : réessayez.'); return; }
-    if (r.data.etat !== 'ok') { setRecalculMotif(`${r.data.motif} : rien n’est recalculé.`); return; }
+    if (r.data.etat === 'surface_manquante' || r.data.etat === 'sans_bareme') { setRecalculMotif(`${r.data.motif} : rien n’est recalculé.`); return; }
+    if (r.data.etat !== 'ok') { setRecalculMotif('Le calcul n’a pas pu être fait : réessayez.'); return; }
     setRecalcul(r.data);
     setSaisie(versSaisieConditions(c.conditions, c.loyer ?? null));
   };
@@ -957,9 +961,21 @@ export function GestesConditionsBail({ c, l, modifiable, apres }: {
             <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
               <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setSaisie(versSaisieConditions(c.conditions, c.loyer ?? null))} data-modifier-conditions>Modifier</button>
               {proposerRecalcul && l.lotId !== null && (
-                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => { void calculer(); }} data-recalculer-honoraires>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" data-recalculer-honoraires
+                  onClick={() => { if (saisiMain) setConfirmerRemplacement(true); else void calculer(); }}>
                   Calculer les honoraires avec la surface actuelle</button>
               )}
+            </div>
+          )}
+          {/* 🔴 Un montant saisi à la main ne se remplace JAMAIS sans confirmation (le serveur l'exige aussi). */}
+          {confirmerRemplacement && (
+            <div className="loc-alerte loc-alerte--orange" role="alertdialog" aria-label="Remplacer le montant saisi à la main" data-confirmer-remplacement>
+              <p style={{ margin: 0 }}>Les honoraires propriétaire de ce bail ont été <strong>saisis à la main</strong>. Les remplacer par le calcul (surface actuelle,
+                barème de la date d’entrée) ? Rien n’est enregistré avant « Enregistrer ».</p>
+              <div className="loc-boutons" style={{ justifyContent: 'flex-start' }}>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setConfirmerRemplacement(false)} data-garder-saisie>Garder le montant saisi</button>
+                <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { setConfirmerRemplacement(false); void calculer(); }} data-remplacer-saisie>Calculer quand même</button>
+              </div>
             </div>
           )}
           {recalculMotif !== null && <p className="cp-refus" role="alert">{recalculMotif}</p>}

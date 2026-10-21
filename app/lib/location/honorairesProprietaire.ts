@@ -109,7 +109,48 @@ export type CalculHonoraires =
   | { etat: 'ok'; surface: string; zone: ZoneHonoraires; date: string; dateSupposee: boolean; baremeId: number; baremeDepuis: string; source: string;
       tarifZone: string; tarifEdl: string; visiteBail: string; etatDesLieux: string; total: string }
   | { etat: 'surface_manquante'; zone: ZoneHonoraires; date: string; dateSupposee: boolean; motif: string }
-  | { etat: 'sans_bareme'; zone: ZoneHonoraires; date: string; dateSupposee: boolean; motif: string };
+  | { etat: 'sans_bareme'; zone: ZoneHonoraires; date: string; dateSupposee: boolean; motif: string }
+  /** Arno (21/10/2026, migration 402) : le montant SAISI À LA MAIN (€ TTC, exact) — aucune version de barème, jamais recalculé. */
+  | { etat: 'saisi'; zone: ZoneHonoraires; date: string; dateSupposee: boolean; total: string };
+
+/** La mention d'un montant saisi à la main (écran, encart, mail). */
+export const MENTION_SAISI_MAIN = 'saisi à la main';
+
+/**
+ * LE MONTANT SAISI À LA MAIN (Arno, 21/10/2026) : euros, au centime au plus (« 935,03 », « 935.03 », « 1 200 ») → texte EXACT ;
+ * `null` si vide ; `false` si illisible (lettres, plus de deux décimales, négatif). PUR.
+ */
+export function montantHonorairesSaisi(brut: unknown): string | null | false {
+  if (brut === null || brut === undefined) return null;
+  const texte = typeof brut === 'string' ? brut.replace(/[\s\u00a0\u202f€]/g, '') : brut;
+  if (texte === '') return null;
+  const d = lireDecimal(texte);
+  if (d === null || d.echelle > 2) return false;
+  return texteExact(d);
+}
+
+/** Le refus d'un montant saisi illisible. */
+export const MOTIF_MONTANT_SAISI = 'Honoraires propriétaire : un montant en euros, au centime au plus (ex. 935,03).';
+
+/**
+ * À L'ENREGISTREMENT (Arno, 21/10/2026) : le montant SAISI À LA MAIN, s'il y en a un, remplace le calcul — zone et date restent
+ * celles du calcul (à défaut : « autre », la date d'entrée, ou le jour). Absent ou vide : le calcul, inchangé. PUR.
+ */
+export function honorairesAEnregistrer(calcul: CalculHonoraires | null, saisiBrut: unknown, entree: string | null, aujourdhui: string):
+  { ok: true; honoraires: CalculHonoraires | null; saisi: boolean } | { ok: false; motif: string } {
+  if (saisiBrut === undefined) return { ok: true, honoraires: calcul, saisi: false };
+  const montant = montantHonorairesSaisi(saisiBrut);
+  if (montant === false) return { ok: false, motif: MOTIF_MONTANT_SAISI };
+  if (montant === null) return { ok: true, honoraires: calcul, saisi: false };
+  const base = calcul ?? { zone: 'autre' as const, date: entree ?? aujourdhui, dateSupposee: entree === null };
+  return { ok: true, saisi: true, honoraires: { etat: 'saisi', zone: base.zone, date: base.date, dateSupposee: base.dateSupposee, total: montant } };
+}
+
+/** Le montant d'un calcul, prêt à pré-remplir un champ (« 935,03 », au centime, sans séparateur) ; `''` sans montant. PUR. */
+export function montantPourChamp(c: CalculHonoraires | null): string {
+  if (c === null || (c.etat !== 'ok' && c.etat !== 'saisi')) return '';
+  return eurosAffiches(lireDecimal(c.total) ?? ZERO).replace(/[\s\u00a0\u202f€]/g, '');
+}
 
 export const MOTIF_SURFACE_MANQUANTE = 'Surface Carrez/Boutin manquante dans la fiche du bien';
 
@@ -139,7 +180,7 @@ export function calculerHonorairesProprietaire(o: {
 
 /** « Total des honoraires » = honoraires agence (locataire, en centimes, facultatifs) + total honoraires propriétaire. */
 export function totalDesHonoraires(honorairesAgenceCentimes: number | null, calcul: CalculHonoraires | null): Decimal | null {
-  const proprio = calcul !== null && calcul.etat === 'ok' ? lireDecimal(calcul.total) : null;
+  const proprio = calcul !== null && (calcul.etat === 'ok' || calcul.etat === 'saisi') ? lireDecimal(calcul.total) : null;
   if (honorairesAgenceCentimes === null && proprio === null) return null;
   return plus(honorairesAgenceCentimes === null ? ZERO : deCentimes(honorairesAgenceCentimes), proprio ?? ZERO);
 }
@@ -190,6 +231,8 @@ export function refusVersionBareme(o: { depuis: string; versions: readonly Versi
 
 /** Les lignes de l'encadré (et de l'encart de la fiche). PUR. */
 export function lignesHonoraires(c: CalculHonoraires): { mot: string; valeur: string; detail?: string }[] {
+  // Saisi à la main : le total seul, dit comme tel (ni surface, ni barème).
+  if (c.etat === 'saisi') return [{ mot: 'Total honoraires propriétaire', valeur: `${eurosAffiches(lireDecimal(c.total) ?? ZERO)} (${MENTION_SAISI_MAIN})` }];
   if (c.etat !== 'ok') return [];
   const s = c.surface.replace('.', ',');
   return [
