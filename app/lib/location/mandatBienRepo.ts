@@ -38,7 +38,8 @@ export async function mandatsDesProprietaires(ids: readonly number[]): Promise<M
  * seulement ce qui est saisi et différent ; journalisé (avant / après) sur la fiche. Rend un avertissement si la date n'a pas pu
  * l'être (migration 397 absente), sinon `null`.
  */
-export async function enregistrerMandatDans(q: RequeteTx, proprietaireIds: readonly number[], m: SaisieMandat, lotId: number, auteur: Auteur): Promise<string | null> {
+export async function enregistrerMandatDans(q: RequeteTx, proprietaireIds: readonly number[], m: SaisieMandat, lotId: number, auteur: Auteur,
+  contexte = `à la création du bien ${lotId} (« Nouveau bien »)`): Promise<string | null> {
   const c = COLONNES[m.sorte];
   const avecDate = await dateMandatDisponible();
   if (!(await colonneExisteMemo('gestion_annuaire_proprietaire', c.numero))) return `${LIBELLE_MANDAT[m.sorte]} non enregistré : la mise à jour de la base manque.`;
@@ -56,7 +57,7 @@ export async function enregistrerMandatDans(q: RequeteTx, proprietaireIds: reado
              VALUES ('annuaire', $1, $2, $3, $4, $5, $6, $7)`,
       [id, m.sorte === 'gestion' ? 'location_numero_mandat' : 'location_numero_mandat_transaction',
         [avant.n, avant.d].filter((x) => x).join(' · ') || null, [numero, signeLe].filter((x) => x).join(' · ') || null,
-        `${LIBELLE_MANDAT[m.sorte]} saisi à la création du bien ${lotId} (« Nouveau bien »)`, auteur.id, auteur.libelle]);
+        `${LIBELLE_MANDAT[m.sorte]} saisi ${contexte}`, auteur.id, auteur.libelle]);
   }
   return m.signeLe !== null && !avecDate ? `${LIBELLE_MANDAT[m.sorte]} : n° enregistré, mais pas la date de signature (mise à jour de la base à appliquer, migration 397).` : null;
 }

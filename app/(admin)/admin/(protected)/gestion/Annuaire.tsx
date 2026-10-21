@@ -25,6 +25,7 @@ import { BarreAnnuaire } from './BarreAnnuaire';
 import { SectionLocationBien, SectionLocationLocataire, SectionLocationProprietaire } from './SectionsLocationFiche';
 import { EnvoiAdhocMonga, useBauxEnCoursDesBiens, type BailEnCoursDuBien } from '../location/EnvoiAdhocMonga';
 import { AnnexesDeLaFiche, CartoucheAnnexeDetachee, CasesAnnexes, RattacherABien } from './AnnexesDuBien';
+import { StatutDuBien } from './StatutDuBien';
 import { estLotAnnexe, motCompteur, typeDuLot, type AnnexeAffichee, type CandidatRattachement } from '../../../../lib/gestion/annexesBien';
 /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — la moitié « fiche » du calcul des PARTIES, descendue dans un module
    PUR pour que la fenêtre des pièces jointes lise exactement la même, et non une copie. */
@@ -1603,6 +1604,8 @@ function VueLot({
         onOuvrir={() => { onFiltreVie('evenement'); ancreVie.current?.scrollIntoView({ block: 'start' }); }} />
       {/* Arno (21/10/2026) — une annexe DÉTACHÉE : son cartouche ambre 🔗, sous le titre de sa fiche (après la bande « Événement en cours » quand elle est là). */}
       <span className="ann-fiche-cartouche"><AnnexesDeLaFiche lotId={Number(f.id)} bien={{ adresse: f.adresse, commune: f.commune }} onOuvrir={(id) => ouvrir('lot', id)} partie="cartouche" /></span>
+      {/* Arno (21/10/2026, 403) — LE STATUT DU BIEN (en gestion · ancienne gestion · location seule) et ses gestes, avec confirmation. */}
+      <StatutDuBien lotId={Number(f.id)} modifiable={gestes.modifiable} onChange={onEtatEvenement} onOuvrir={(id) => ouvrir('lot', id)} />
       {/* 🔴🔴 LOT TACHES-1 — SOUS L'EN-TÊTE, le récapitulatif des tâches DE CE BIEN, au code couleur commun. Posé
           APRÈS la bande orange « Événement en cours », qui garde sa place juste sous l'en-tête (épreuve
           `marquesApresReouverture.test.ts`). Aucune tâche ouverte ⇒ il ne rend rien, et seul le bouton se voit. */}

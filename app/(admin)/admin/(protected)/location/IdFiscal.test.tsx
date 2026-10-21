@@ -51,7 +51,7 @@ const parkingComplet = async () => {
   await clic(container.querySelector('[data-famille="parking"]')!);
   await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
   await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '3 rue du Port');
-  await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'Oui')!);
+  await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'En gestion')!);
 };
 
 describe('🔴 « ID fiscal du bien » — l’écran « Nouveau bien »', () => {

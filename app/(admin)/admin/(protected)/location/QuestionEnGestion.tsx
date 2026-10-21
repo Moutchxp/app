@@ -15,7 +15,7 @@ import { FeteOui } from './FeteOui';
  * joue au seul PASSAGE à Oui, dans le bouton. Le style vient de l'écran hôte (`CSS_LOCATION_CREATION` + `CSS_FETE`).
  * Ce que le choix entraîne ailleurs (vider un mandat, effacer un refus) reste à l'écran hôte, par `onChoix`.
  */
-export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, obligatoire = false, children }: {
+export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, obligatoire = false, libelles = { oui: 'Oui', non: 'Non' }, children }: {
   /** L'identifiant du titre (`aria-labelledby`). */
   id: string;
   numero: number;
@@ -26,6 +26,11 @@ export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, o
   sorte: 'proprietaires' | 'bien';
   /** L'astérisque des champs obligatoires, après le titre. */
   obligatoire?: boolean;
+  /**
+   * Les mots des deux boutons (Oui / Non par défaut). Arno (21/10/2026, 403) : « Nouveau bien » dit « En gestion » / « Location
+   * seule » — le statut du bien. Même composant, même rendu, même fête sur le premier.
+   */
+  libelles?: { oui: string; non: string };
   /** Sous les boutons : le message « ce qui manque » de l'écran hôte. */
   children?: ReactNode;
 }) {
@@ -38,11 +43,11 @@ export function QuestionEnGestion({ id, numero, titre, valeur, onChoix, sorte, o
         {/* Arno (18/10/2026) : la FÊTE du Oui — au passage à Oui seulement, contenue dans le bouton, 3 s, sans son. */}
         <button type="button" className="loc-gros-bouton loc-gros-bouton--centre fete-hote" aria-pressed={valeur === true}
           onClick={() => { if (valeur !== true) setFete((n) => n + 1); onChoix(true); }}>
-          <span className="fete-texte">{valeur === true ? '✓ Oui' : 'Oui'}</span>
+          <span className="fete-texte">{valeur === true ? `✓ ${libelles.oui}` : libelles.oui}</span>
           {fete > 0 && <FeteOui key={fete} />}
         </button>
         <button type="button" className="loc-gros-bouton loc-gros-bouton--centre" aria-pressed={valeur === false}
-          onClick={() => onChoix(false)}>{valeur === false ? '✓ Non' : 'Non'}</button>
+          onClick={() => onChoix(false)}>{valeur === false ? `✓ ${libelles.non}` : libelles.non}</button>
       </div>
       {children}
     </section>

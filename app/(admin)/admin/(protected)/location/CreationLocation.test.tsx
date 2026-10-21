@@ -223,7 +223,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
     await calmer();
     expect([...container.querySelectorAll('[data-proprietaires] [data-carte-proprietaire] .cp-nom')].map((x) => x.textContent)).toEqual(['DUPONT Paul', 'DUPONT Anne']);
     expect([...container.querySelectorAll('.loc-section > h3')].map((h) => h.textContent?.replace(/^\d/, '').replace('*', '').trim()))
-      .toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété & ID fiscal', 'Annexes', 'Caractéristiques complémentaires', 'Commentaires', 'Bien en gestion ?']);
+      .toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété & ID fiscal', 'Annexes', 'Caractéristiques complémentaires', 'Commentaires', 'Statut du bien']);
     expect(container.querySelector('[data-collant] button[type="submit"]')?.textContent).toBe('Enregistrer le bien');
     // Syndic : libellé, loupe et « + » (désactivés tant que l'adresse n'est pas saisie).
     expect(container.querySelector('[data-syndic] .loc-syndic-mot')?.textContent).toBe('Syndic');
@@ -274,7 +274,7 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(bloc().textContent).toContain('Intérieur');
     expect([...bloc().querySelectorAll('[aria-label="Type de parking"] button')].map((x) => x.textContent)).toEqual(['Place simple', 'Place double', 'Box simple', 'Box double']);
     expect(bloc().textContent).not.toMatch(/Nombre de pièces|Meublé|Carrez/);
-    expect(titres()).toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété & ID fiscal', 'Caractéristiques complémentaires', 'Commentaires', 'Bien en gestion ?']);
+    expect(titres()).toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété & ID fiscal', 'Caractéristiques complémentaires', 'Commentaires', 'Statut du bien']);
     expect(container.querySelector('[data-charges-copro]')).not.toBeNull();
     expect(container.querySelector('[data-ligne-dpe-pno], [data-entretien-bloc]')).toBeNull();
     // « N° de porte » devient « N° de place » dans la situation d'un parking nu.

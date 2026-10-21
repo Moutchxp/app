@@ -14,7 +14,7 @@
  *     npx vitest run --config vitest.integration.config.ts app/lib/location/mailPortefeuille.itest.ts
  */
 import { afterAll, describe, expect, it } from 'vitest';
-import { closePool, query } from '../db/client';
+import { closePool, query, withTransaction } from '../db/client';
 import type { MessageAEnvoyer } from '../gestion/envoiGmail';
 import type { TransportDemande } from '../gestion/envoiDemandeTache';
 import { creerProprietaireEtBiens } from './locationRepo';
@@ -39,6 +39,21 @@ async function compte(identifiant: string, o: { role?: string; gestion?: boolean
      VALUES ($1, 'x', $2, $3, 'Essai', $4, $5, $6) RETURNING id::text`,
     [identifiant, o.role ?? 'collaborateur', o.actif ?? true, identifiant.split('@')[0], o.gestion ?? false, o.location ?? false]);
   return Number(rows[0].id);
+}
+
+/** Pose le statut du BIEN : avec la 403, par une transition journalisée (la base refuse tout autre chemin) ; sans elle, « Bien en gestion ? ». */
+async function poserStatut(lotId: number, statut: 'en_gestion' | 'location_seule'): Promise<void> {
+  const { rows } = await query<{ c: boolean }>(`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'gestion_annuaire_lot' AND column_name = 'statut_bien') AS c`);
+  if (rows[0]?.c !== true) {
+    await query('UPDATE gestion_annuaire_lot SET en_gestion = $2 WHERE id = $1', [lotId, statut === 'en_gestion']);
+    return;
+  }
+  await withTransaction(async (q) => {
+    const { rows: r } = await q<{ s: string }>('SELECT statut_bien AS s FROM gestion_annuaire_lot WHERE id = $1 FOR UPDATE', [lotId]);
+    if (r[0]?.s === statut) return;
+    await q(`INSERT INTO gestion_bien_statut_transition (lot_id, avant, apres, effet_le, source, auteur_libelle) VALUES ($1, $2, $3, current_date, 'geste', 'itest')`, [lotId, r[0]?.s, statut]);
+    await q('UPDATE gestion_annuaire_lot SET statut_bien = $2 WHERE id = $1', [lotId, statut]);
+  });
 }
 
 describe.skipIf(!baseEssai)('🔴 mails d’entrée / sortie du portefeuille', () => {
@@ -96,16 +111,16 @@ describe.skipIf(!baseEssai)('🔴 mails d’entrée / sortie du portefeuille', (
     expect(vide).toBeGreaterThan(0);
   });
 
-  it('③ entrée : mandat de transaction seul (en gestion = Non) → aucun mail ; en gestion = Oui → « Nouveau mandat de gestion »', async () => {
+  it('③ entrée : bien en location seule → aucun mail ; bien en gestion → « Nouveau mandat de gestion » (statut du BIEN, 403)', async () => {
     const b = ok(await creerProprietaireEtBiens({ proprietaireId: null, proprietaire: { nom: `TRANSAC${S}`, telephone: '06 62 62 62 62', email: `t.${S}@exemple.test` },
       logement: { ...DPE_ENTRETIEN, adresse: `9 rue Transaction${S}` }, annexes: [] }, { id: null, libelle: 'itest' }));
-    await query('UPDATE gestion_annuaire_proprietaire SET en_gestion = false WHERE id = $1', [b.proprietaireId]);
+    await poserStatut(b.logementId, 'location_seule');
     const avant = envoyes.length;
     const non = await notifierPortefeuille({ sens: 'entree', proprietaireId: null, lotIds: [b.logementId], origine: null, exigerEnGestion: true },
       { auteur: { id: auteurId, libelle: 'x' }, tuile: 'Location' }, { transport: releve });
     expect(non).toMatchObject({ envoye: false, ignore: true });
     expect(envoyes.length).toBe(avant);
-    await query('UPDATE gestion_annuaire_proprietaire SET en_gestion = true WHERE id = $1', [b.proprietaireId]);
+    await poserStatut(b.logementId, 'en_gestion');
     const oui = await notifierPortefeuille({ sens: 'entree', proprietaireId: null, lotIds: [b.logementId], origine: null, exigerEnGestion: true },
       { auteur: { id: auteurId, libelle: 'x' }, tuile: 'Gestion' }, { transport: releve });
     expect(oui.envoye).toBe(true);

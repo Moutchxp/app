@@ -1,3 +1,4 @@
+import { sqlStatutBien, statutBienDisponible } from '../gestion/statutBienRepo';
 import { randomBytes } from 'node:crypto';
 import { query } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
@@ -209,7 +210,9 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
   const enGestion = (await colonneExisteMemo('gestion_annuaire_lot', 'en_gestion')) ? ' AND lo.en_gestion IS NOT FALSE' : '';
   const sortie = (await colonneExisteMemo('gestion_annuaire_lot', 'sorti_portefeuille_le')) ? ' AND lo.sorti_portefeuille_le IS NULL' : '';
   const biensDe = (p: string): string => `(lo.proprietaire_id = ${p} OR lo.id IN (SELECT lp.lot_id FROM gestion_annuaire_lot_proprietaire lp WHERE lp.proprietaire_id = ${p} AND lp.jusqu_a IS NULL))`;
-  const enPortefeuille = `${enGestion}${sortie} AND (lo.gestion_fin IS NULL OR lo.gestion_fin > ${SQL_AUJOURDHUI_PARIS})
+  // Arno (21/10/2026, 403) : avec le statut du bien, « en gestion » = statut « en gestion » (sa seule vérité) ; sans lui, comme avant.
+  const enPortefeuille = `${(await statutBienDisponible()) ? ` AND lo.statut_bien = 'en_gestion'`
+    : `${enGestion}${sortie} AND (lo.gestion_fin IS NULL OR lo.gestion_fin > ${SQL_AUJOURDHUI_PARIS})`}
     AND NOT EXISTS (SELECT 1 FROM gestion_lot_annexe a WHERE a.annexe_id = lo.id)`;
   const { rows: hist } = pr.length === 0 ? { rows: [] } : await query<{ id: string; autres: number; debut: string | null }>(
     `SELECT p.id::text,
@@ -231,8 +234,9 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
     biensEnGestion: total[0]?.n ?? 0, mandats: pr.map((p) => p.mandat ?? ''),
     // Arno (21/10/2026, 397) : le mandat DU BIEN — gestion ou transaction locative selon « Bien en gestion ? », n° et date.
     mandatLibelles: await (async () => {
-      const g = (await colonneExisteMemo('gestion_annuaire_lot', 'en_gestion'))
-        ? (await query<{ g: boolean }>('SELECT en_gestion AS g FROM gestion_annuaire_lot WHERE id = $1', [Number(principalId)])).rows[0]?.g ?? true : true;
+      // Arno (21/10/2026, 403) : lu sur le STATUT du bien (location seule → transaction ; sinon gestion).
+      const g = (await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [Number(principalId)]))
+        .rows[0]?.s !== 'location_seule';
       const sorte = sorteDuBien(g) ?? 'gestion';
       return (await mandatsDesProprietaires(pr.map((p) => Number(p.id)))).map((p) => libelleMandat(sorte, p[sorte])).filter((x): x is string => x !== null);
     })(),

@@ -45,7 +45,7 @@ const saisir = async (el: HTMLInputElement, v: string) => {
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
 };
 const bloc = () => container.querySelector('[data-question-gestion="bien"]') as HTMLElement | null;
-const bouton = (mot: 'Oui' | 'Non') => [...(bloc()?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
+const bouton = (mot: 'En gestion' | 'Location seule') => [...(bloc()?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
 const barre = () => container.querySelector('[data-collant] .loc-manques')?.textContent ?? '';
 const soumettre = async () => {
   await act(async () => { (container.querySelector('[data-collant] button[type="submit"]') as HTMLButtonElement).click(); });
@@ -70,9 +70,9 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
     const sections = [...container.querySelectorAll('form > .loc-section')];
     expect(sections.at(-1)).toBe(bloc());
     expect(sections.at(-2)?.querySelector('h3')?.textContent).toBe('7Commentaires');
-    expect(bloc()?.querySelector('h3')?.textContent).toBe('8Bien en gestion ? *');
+    expect(bloc()?.querySelector('h3')?.textContent).toBe('8Statut du bien *');
     expect(bloc()?.querySelector('h3 .loc-oblig')).not.toBeNull();
-    expect([bouton('Oui'), bouton('Non')].map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false']);
+    expect([bouton('En gestion'), bouton('Location seule')].map((b) => b.getAttribute('aria-pressed'))).toEqual(['false', 'false']);
   });
 
   it('le MÊME bloc que « Propriétaire(s) en gestion ? » : même composant, mêmes classes, même structure', async () => {
@@ -82,14 +82,16 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
     // éprouvé à part (`MandatBienEnGestion.test.tsx`) ; la QUESTION reste le même composant.
     const sansMandat = (s: Element): Element => { const c = s.cloneNode(true) as Element; c.querySelector('.lmd-bloc')?.remove(); return c; };
     const rendu = (s0: Element) => sansMandat(s0).outerHTML.replace(/ (id|aria-labelledby|aria-label|data-question-gestion)="[^"]*"/g, '')
-      .replace(/Propriétaire\(s\) en gestion \?|Bien en gestion \?/g, 'TITRE').replace(/<span class="loc-num">\d<\/span>/, '')
-      .replace(/ <span class="loc-oblig">\*<\/span>/, '');
+      .replace(/Propriétaire\(s\) en gestion \?|Statut du bien/g, 'TITRE').replace(/<span class="loc-num">\d<\/span>/, '')
+      .replace(/ <span class="loc-oblig">\*<\/span>/, '')
+      // Arno (21/10/2026, 403) : seuls les MOTS des boutons diffèrent (« En gestion » / « Location seule ») — même composant.
+      .replace('>En gestion<', '>Oui<').replace('>Location seule<', '>Non<');
     const avant = rendu(proprietaires);
     await act(async () => { root.render(createElement(CreationBien, { proprietairesInitiaux: [] })); });
     await calmer();
     expect(rendu(bloc()!)).toBe(avant);
-    expect(bouton('Oui').className).toBe('loc-gros-bouton loc-gros-bouton--centre fete-hote');
-    expect(bouton('Non').className).toBe('loc-gros-bouton loc-gros-bouton--centre');
+    expect(bouton('En gestion').className).toBe('loc-gros-bouton loc-gros-bouton--centre fete-hote');
+    expect(bouton('Location seule').className).toBe('loc-gros-bouton loc-gros-bouton--centre');
     expect(bloc()?.querySelector('.loc-gros-boutons')?.className).toBe('loc-gros-boutons loc-oui-non');
     // Aucune copie divergente : les deux écrans montent `QuestionEnGestion`, aucun n'écrit ses propres boutons Oui / Non.
     for (const f of ['CreationBien.tsx', 'CreationProprietaires.tsx']) {
@@ -103,14 +105,14 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
   it('la fête du « Oui » : dans le bouton Oui, au seul passage à Oui (pas sur Non), relancée à chaque nouveau passage', async () => {
     await rendreBien();
     expect(bloc()?.querySelector('[data-fete]')).toBeNull();
-    await clic(bouton('Non'));
+    await clic(bouton('Location seule'));
     expect(bloc()?.querySelector('[data-fete]')).toBeNull();
-    await clic(bouton('Oui'));
+    await clic(bouton('En gestion'));
     const fete = bloc()?.querySelector('[data-fete]');
     expect(fete).not.toBeNull();
-    expect(bouton('Oui').contains(fete!)).toBe(true);
-    expect(bouton('Oui').getAttribute('aria-pressed')).toBe('true');
-    expect(bouton('Oui').querySelector('.fete-texte')?.textContent).toBe('✓ Oui');
+    expect(bouton('En gestion').contains(fete!)).toBe(true);
+    expect(bouton('En gestion').getAttribute('aria-pressed')).toBe('true');
+    expect(bouton('En gestion').querySelector('.fete-texte')?.textContent).toBe('✓ En gestion');
     // Le style de la fête est chargé par l'écran (sinon la toile déborderait du bouton).
     expect([...container.querySelectorAll('style')].some((s) => s.textContent?.includes('.fete-hote{position:relative;overflow:hidden'))).toBe(true);
   });
@@ -118,12 +120,12 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
   it('OBLIGATOIRE : dans « Reste à renseigner », rien n’est envoyé, le message est sous le bloc et la page y défile', async () => {
     await rendreBien();
     await parkingComplet();
-    expect(barre()).toBe('Reste à renseigner : Bien en gestion ? : répondez Oui ou Non.');
+    expect(barre()).toBe('Reste à renseigner : Statut du bien : choisissez « En gestion » ou « Location seule ».');
     await soumettre();
     expect(posts).toEqual([]);
-    expect(bloc()?.querySelector('.loc-manque')?.textContent).toBe('Bien en gestion ? : répondez Oui ou Non.');
+    expect(bloc()?.querySelector('.loc-manque')?.textContent).toBe('Statut du bien : choisissez « En gestion » ou « Location seule ».');
     expect(defile.at(-1)).toBe(bloc());
-    await clic(bouton('Non'));
+    await clic(bouton('Location seule'));
     expect(barre()).toBe('Tout l’obligatoire est renseigné.');
     expect(bloc()?.querySelector('.loc-manque')).toBeNull();
   });
@@ -131,7 +133,7 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
   it('enregistré AVEC le bien : Non → enGestion false ; on peut changer d’avis → true', async () => {
     await rendreBien();
     await parkingComplet();
-    await clic(bouton('Non'));
+    await clic(bouton('Location seule'));
     await soumettre();
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ action: 'creer-bien', proprietaireIds: [1], enGestion: false });
@@ -143,9 +145,9 @@ describe('🔴 « Bien en gestion ? » — le bloc de l’écran « Nouveau bien
     act(() => { root.unmount(); }); root = createRoot(container); document.body.querySelectorAll('[data-modale-issue]').forEach((m) => m.closest('.mis-voile')?.remove());
     await rendreBien();
     await parkingComplet();
-    await clic(bouton('Non'));
-    await clic(bouton('Oui'));
-    expect(bouton('Non').getAttribute('aria-pressed')).toBe('false');
+    await clic(bouton('Location seule'));
+    await clic(bouton('En gestion'));
+    expect(bouton('Location seule').getAttribute('aria-pressed')).toBe('false');
     await soumettre();
     expect(posts.at(-1)).toMatchObject({ action: 'creer-bien', enGestion: true });
   });

@@ -1,3 +1,4 @@
+import { sqlStatutBien } from '../gestion/statutBienRepo';
 import { query } from '../db/client';
 import { mandatsDesProprietaires } from './mandatBienRepo';
 import { libelleMandat, sorteDuBien, type SorteMandat } from './mandatBien';
@@ -108,9 +109,9 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
       : c?.parkingType ? [LIBELLE_TYPE_PARKING[c.parkingType as TypeParking], c.parkingSituation ? LIBELLE_SITUATION_PARKING[c.parkingSituation as SituationParking] : null].filter((x) => x).join(' · ')
         : null;
 
-  const enGestionBien = (await colonneExisteMemo('gestion_annuaire_lot', 'en_gestion'))
-    ? (await query<{ g: boolean }>('SELECT en_gestion AS g FROM gestion_annuaire_lot WHERE id = $1', [lotId])).rows[0]?.g ?? null
-    : null;
+  // Arno (21/10/2026, 403) : lu sur le STATUT du bien — location seule → mandat de transaction ; en / ancienne gestion → de gestion.
+  const statutBien = (await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [lotId])).rows[0]?.s ?? null;
+  const enGestionBien = statutBien === null ? null : statutBien !== 'location_seule';
   const { rows: jour } = await query<{ j: string }>(`SELECT ${SQL_AUJOURDHUI_PARIS}::text AS j`);
   const zone = zoneDuBien({ codePostal: bien.codePostal, commune: bien.commune }, await reglesZones());
   const b = baremeEnVigueur(await lireBaremes(), jour[0].j);

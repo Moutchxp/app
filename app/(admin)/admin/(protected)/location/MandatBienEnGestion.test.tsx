@@ -32,7 +32,7 @@ const saisir = async (el: HTMLInputElement, v: string) => {
   await act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(el, v); el.dispatchEvent(new Event('input', { bubbles: true })); });
 };
 const bloc = () => container.querySelector('[data-question-gestion="bien"]') as HTMLElement;
-const bouton = (mot: 'Oui' | 'Non') => [...bloc().querySelectorAll('.loc-oui-non button')].find((b) => b.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
+const bouton = (mot: 'En gestion' | 'Location seule') => [...bloc().querySelectorAll('.loc-oui-non button')].find((b) => b.textContent?.replace('✓ ', '') === mot) as HTMLButtonElement;
 const ligne = (s: 'gestion' | 'transaction') => bloc().querySelector(`[data-mandat-ligne="${s}"]`) as HTMLElement;
 const ouvertes = () => (['gestion', 'transaction'] as const).filter((s) => ligne(s).getAttribute('data-ouverte') === 'oui');
 const champ = (s: 'gestion' | 'transaction', k: 'numero' | 'date') => bloc().querySelector(`[data-mandat-${k}="${s}"]`) as HTMLInputElement;
@@ -53,12 +53,12 @@ describe('🔴 « Bien en gestion ? » → la ligne du mandat', () => {
   it('fermées tant qu’on n’a pas répondu ; Oui ouvre « Mandat de gestion », Non « Mandat de transaction locative », juste sous les boutons', async () => {
     await rendre();
     expect(ouvertes()).toEqual([]);
-    await clic(bouton('Oui'));
+    await clic(bouton('En gestion'));
     expect(ouvertes()).toEqual(['gestion']);
     expect(ligne('gestion').querySelector('legend')?.textContent).toBe('Mandat de gestion (facultatif)');
-    expect(ligne('gestion').compareDocumentPosition(bouton('Oui')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(ligne('gestion').compareDocumentPosition(bouton('En gestion')) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     expect([...ligne('gestion').querySelectorAll('label')].map((l) => l.firstChild?.textContent)).toEqual(['N° de mandat', 'Date de signature']);
-    await clic(bouton('Non'));
+    await clic(bouton('Location seule'));
     expect(ouvertes()).toEqual(['transaction']);
     expect(ligne('transaction').querySelector('legend')?.textContent).toBe('Mandat de transaction locative (facultatif)');
     // L'animation de dépliement des encarts (et aucune si l'on a demandé moins d'animations).
@@ -70,21 +70,21 @@ describe('🔴 « Bien en gestion ? » → la ligne du mandat', () => {
 
   it('BASCULE : la saisie de la ligne refermée est gardée ; seul le mandat du CHOIX FINAL est envoyé', async () => {
     await rendre();
-    await clic(bouton('Oui'));
+    await clic(bouton('En gestion'));
     await saisir(champ('gestion', 'numero'), 'MG-41');
     await saisir(champ('gestion', 'date'), '2026-10-15');
-    await clic(bouton('Non'));
+    await clic(bouton('Location seule'));
     await saisir(champ('transaction', 'numero'), 'MT-7');
-    await clic(bouton('Oui'));
+    await clic(bouton('En gestion'));
     expect([champ('gestion', 'numero').value, champ('gestion', 'date').value, champ('transaction', 'numero').value]).toEqual(['MG-41', '2026-10-15', 'MT-7']);
     await soumettre();
     expect(posts[0]).toMatchObject({ action: 'creer-bien', enGestion: true, mandat: { sorte: 'gestion', numero: 'MG-41', signeLe: '2026-10-15' } });
     // Le même scénario, choix final « Non » : sur un formulaire neuf (le bien enregistré ne se recrée jamais — Arno, 21/10/2026).
     act(() => { root.unmount(); }); root = createRoot(container); document.body.querySelectorAll('[data-modale-issue]').forEach((m) => m.closest('.mis-voile')?.remove());
     await rendre();
-    await clic(bouton('Oui'));
+    await clic(bouton('En gestion'));
     await saisir(champ('gestion', 'numero'), 'MG-41');
-    await clic(bouton('Non'));
+    await clic(bouton('Location seule'));
     await saisir(champ('transaction', 'numero'), 'MT-7');
     await soumettre();
     expect(posts.at(-1)).toMatchObject({ action: 'creer-bien', enGestion: false, mandat: { sorte: 'transaction', numero: 'MT-7', signeLe: '' } });
@@ -92,7 +92,7 @@ describe('🔴 « Bien en gestion ? » → la ligne du mandat', () => {
 
   it('FACULTATIF : jamais dans « Reste à renseigner », l’enregistrement part sans mandat (aucune clé « mandat »)', async () => {
     await rendre();
-    await clic(bouton('Oui'));
+    await clic(bouton('En gestion'));
     expect(barre()).toBe('Tout l’obligatoire est renseigné.');
     expect(barre()).not.toMatch(/mandat/i);
     await soumettre();
@@ -103,7 +103,7 @@ describe('🔴 « Bien en gestion ? » → la ligne du mandat', () => {
   it('PRÉ-REMPLI depuis le mandat existant du propriétaire (modifiable), pour chaque sorte', async () => {
     mandatsConnus = [{ id: 1, nom: 'DUPONT Paul', gestion: { numero: 'MG-2019-3', signeLe: '2019-03-01' }, transaction: { numero: null, signeLe: null } }];
     await rendre();
-    await clic(bouton('Oui'));
+    await clic(bouton('En gestion'));
     expect([champ('gestion', 'numero').value, champ('gestion', 'date').value]).toEqual(['MG-2019-3', '2019-03-01']);
     expect(bloc().querySelector('[data-mandat-note="gestion"]')?.textContent).toBe('Pré-rempli avec le mandat de gestion existant de DUPONT Paul — modifiable.');
     expect(champ('transaction', 'numero').value).toBe('');

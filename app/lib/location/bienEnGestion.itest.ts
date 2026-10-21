@@ -92,7 +92,7 @@ describe.skipIf(!baseEssai)('🔴 « Bien en gestion ? » — enregistré sur le
     const oui = ok(await creerBienComplet({ proprietaireIds: [proprietaire], annexes: [], logement: parking(`5 rue Apres${S}`), enGestion: true }, AUTEUR));
     expect((await query<{ g: boolean }>('SELECT en_gestion AS g FROM gestion_annuaire_lot WHERE id = $1', [oui.logementId])).rows[0].g).toBe(true);
     expect((await creerBienComplet({ proprietaireIds: [proprietaire], annexes: [], logement: parking(`6 rue Apres${S}`), enGestion: null }, AUTEUR)))
-      .toEqual({ etat: 'refus', motif: 'Bien en gestion ? : répondez Oui ou Non.' });
+      .toEqual({ etat: 'refus', motif: 'Statut du bien : choisissez « En gestion » ou « Location seule ».' });
 
     // La carte du bien (fiche propriétaire, Gestion ET Location) et l'en-tête de la fiche du bien.
     const f = ok(await ficheProprietaire(proprietaire));

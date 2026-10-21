@@ -102,9 +102,9 @@ describe('🔴 DPE et « Entretien à prévoir » obligatoires à la création d
 describe('🔴 « Bien en gestion ? » (Arno, 20/10/2026) — réponse obligatoire, portée par le bien', () => {
   const PARKING = { proprietaireIds: [1], adresse: '1 rue A', famille: 'parking', parkingType: 'box_simple' };
   it('posée sans réponse : un manque, le DERNIER (ordre du formulaire) ; Oui ou Non : plus rien', () => {
-    expect(manquesDuBien({ ...PARKING, enGestion: null })).toEqual({ enGestion: 'Bien en gestion ? : répondez Oui ou Non.' });
+    expect(manquesDuBien({ ...PARKING, enGestion: null })).toEqual({ enGestion: 'Statut du bien : choisissez « En gestion » ou « Location seule ».' });
     expect(Object.keys(manquesDuBien({ proprietaireIds: [], adresse: '', enGestion: null })).at(-1)).toBe('enGestion');
-    expect(manquesDuBien({ ...PARKING, enGestion: 'oui' })).toEqual({ enGestion: 'Bien en gestion ? : répondez Oui ou Non.' });
+    expect(manquesDuBien({ ...PARKING, enGestion: 'oui' })).toEqual({ enGestion: 'Statut du bien : choisissez « En gestion » ou « Location seule ».' });
     expect(manquesDuBien({ ...PARKING, enGestion: true })).toEqual({});
     expect(manquesDuBien({ ...PARKING, enGestion: false })).toEqual({});
   });
@@ -115,7 +115,7 @@ describe('🔴 « Bien en gestion ? » (Arno, 20/10/2026) — réponse obligatoi
   });
   it('le serveur applique la même règle : null refusé, Non gardé, Oui gardé', () => {
     const base = { proprietaireIds: [1], annexes: [], logement: { adresse: '1 rue A', famille: 'parking', parkingType: 'box_simple' } };
-    expect(verifierBienComplet({ ...base, enGestion: null })).toEqual({ ok: false, motif: 'Bien en gestion ? : répondez Oui ou Non.' });
+    expect(verifierBienComplet({ ...base, enGestion: null })).toEqual({ ok: false, motif: 'Statut du bien : choisissez « En gestion » ou « Location seule ».' });
     const non = verifierBienComplet({ ...base, enGestion: false });
     expect(non.ok && non.enGestion).toBe(false);
     const oui = verifierBienComplet({ ...base, enGestion: true });

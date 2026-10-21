@@ -19,6 +19,7 @@
  * compare aux mêmes lignes en base, et compte — sans un seul INSERT.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+import { sqlStatutBien } from './statutBienRepo';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { refusRattachementAnnexe } from '../location/regroupementRepo';
 // 🔴 LOT SUPPRIMER-CARTE — une fiche supprimée ne s'affiche NULLE PART. Le fragment est écrit une seule fois.
@@ -1796,9 +1797,9 @@ function champsDossierDuBien(l: { dossier_bien?: string | null; dossier_propriet
  * On ne devine pas depuis le type de bien — « Type 2 » ne dit pas des mètres carrés. L'écran écrit « non
  * renseignée », qui est la vérité.
  */
-/** « Bien en gestion ? » = Non (migration 390) ; sans la colonne, aucun bien n'est hors gestion (la requête ne la nomme pas). */
+/** Le bien est en LOCATION SEULE (statut du bien, migration 403 ; sans elle « Bien en gestion ? » = Non, migration 390). */
 async function sqlHorsGestion(alias: string): Promise<string> {
-  return (await colonneExisteMemo('gestion_annuaire_lot', 'en_gestion')) ? `NOT ${alias}.en_gestion` : 'false';
+  return `(${await sqlStatutBien(alias)} = 'location_seule')`;
 }
 
 async function biensDuProprietaire(proprietaireId: number): Promise<BienDuProprietaire[]> {

@@ -48,7 +48,7 @@ const parkingComplet = async () => {
   await clic(container.querySelector('[data-famille="parking"]')!);
   await clic(container.querySelectorAll('[aria-label="Type de parking"] button')[0]);
   await saisir(container.querySelector('.cab-enveloppe input') as HTMLInputElement, '25 Rue Henri Barbusse');
-  await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'Oui')!);
+  await clic([...container.querySelectorAll('[data-question-gestion="bien"] button')].find((b) => b.textContent?.replace('✓ ', '') === 'En gestion')!);
 };
 const chercherChalah = async () => {
   await saisir(container.querySelector('.loc-recherche input') as HTMLInputElement, 'chalah');

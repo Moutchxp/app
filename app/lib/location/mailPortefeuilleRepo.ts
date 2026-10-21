@@ -10,6 +10,7 @@ import { honorairesMensuels, tvaEnVigueur, type BaseHonoraires } from '../gestio
 import { lireReglages } from '../gestion/honorairesGestionRepo';
 import { bailDisponible, sqlConditionsDe } from './bailRepo';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
+import { sqlStatutBien } from '../gestion/statutBienRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { familleDeCategorie, LIBELLE_FAMILLE, LIBELLE_TYPE_LOGEMENT, type TypeLogement } from './bienComplet';
 import { LIBELLE_ORIGINE, LIBELLE_SOUS_ORIGINE, type OrigineArchivage, type Origine, type SousOrigine } from './archivage';
@@ -41,7 +42,7 @@ export interface EvenementPortefeuille {
   /** Les biens touchés (logements ET annexes). */
   lotIds: readonly number[];
   origine: OrigineArchivage | null;
-  /** Entrée par création : n'envoyer que si un des propriétaires est « en gestion = Oui ». */
+  /** Entrée par création : n'envoyer que si un des biens est « en gestion » (statut du bien, migration 403). */
   exigerEnGestion?: boolean;
   /** Ajouter les annexes des biens donnés (création : seul le logement est connu de l'appelant). */
   avecAnnexes?: boolean;
@@ -219,13 +220,12 @@ export async function notifierPortefeuille(
   let issue: IssueMail = { envoye: false, motif: null, destinataires: [], objet: null };
   try {
     if (ev.exigerEnGestion === true) {
-      const ids = ev.proprietaireId !== null ? [ev.proprietaireId] : [];
+      // Arno (21/10/2026, 403) : le « nouveau mandat » se décide sur le STATUT DU BIEN (au moins un bien « en gestion »), jamais
+      // sur la colonne du propriétaire.
+      const statut = await sqlStatutBien('lo');
       const { rows } = await query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM gestion_annuaire_proprietaire p
-          WHERE p.en_gestion IS TRUE AND (p.id = ANY($1::bigint[]) OR p.id IN (
-            SELECT proprietaire_id FROM gestion_annuaire_lot WHERE id = ANY($2::bigint[])
-            UNION SELECT proprietaire_id FROM gestion_annuaire_lot_proprietaire WHERE lot_id = ANY($2::bigint[]) AND jusqu_a IS NULL))`,
-        [ids, [...ev.lotIds]]).catch(() => ({ rows: [{ n: 0 }] }));
+        `SELECT count(*)::int AS n FROM gestion_annuaire_lot lo WHERE lo.id = ANY($1::bigint[]) AND ${statut} = 'en_gestion'`,
+        [[...ev.lotIds]]).catch(() => ({ rows: [{ n: 0 }] }));
       if ((rows[0]?.n ?? 0) === 0) return { ...issue, ignore: true };
     }
     if (ev.avecAnnexes === true && ev.lotIds.length > 0) {

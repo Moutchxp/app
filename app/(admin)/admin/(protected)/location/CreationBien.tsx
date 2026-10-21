@@ -701,7 +701,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
       </section>
 
       {continuite === undefined && (
-        <QuestionEnGestion id="loc-b8" numero={n('gestion')} titre="Bien en gestion ?" sorte="bien" obligatoire valeur={enGestionSaisi}
+        <QuestionEnGestion id="loc-b8" numero={n('gestion')} titre="Statut du bien" sorte="bien" obligatoire valeur={enGestionSaisi}
+          libelles={{ oui: 'En gestion', non: 'Location seule' }}
           onChoix={setEnGestion}>{manqueDe('enGestion')}
           <LignesMandat enGestion={enGestionSaisi} mandats={mandats} notes={notesMandat}
             onChange={(sorte, m) => { mandatTouche.current[sorte] = true; setMandats((x) => ({ ...x, [sorte]: m })); }} /></QuestionEnGestion>

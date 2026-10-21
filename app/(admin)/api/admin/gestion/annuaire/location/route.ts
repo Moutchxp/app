@@ -15,6 +15,8 @@ import { creerBrancheBail } from '../../../../../../lib/location/brancheBailDriv
 import { avecMail } from '../../../../../../lib/location/mailPortefeuilleRepo';
 import { verifierOrigine } from '../../../../../../lib/location/archivage';
 import { annulerPreavis, corrigerPreavis, enregistrerPreavis, lireChoix } from '../../../../../../lib/location/preavisRepo';
+import { changerStatutBien, lireStatutBien, transitionsDuBien } from '../../../../../../lib/gestion/statutBienRepo';
+import { requeteDepuisLaLocation } from '../../../../../../lib/gestion/contexteLocation';
 
 /**
  * /api/admin/gestion/annuaire/location — CE QUE LA TUILE LOCATION AVAIT AJOUTÉ AUX FICHES, SUR LA FICHE COMMUNE.
@@ -50,6 +52,14 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const p = identifiant(url.searchParams.get('proprietaire'));
     if (p !== null) return Response.json(await ficheProprietaireLocation(p), { headers: ENTETES });
+    // Arno (21/10/2026, 403) — LE STATUT DU BIEN (en gestion / ancienne gestion / location seule), ses gestes, son journal.
+    const st = identifiant(url.searchParams.get('statut'));
+    if (st !== null) {
+      const d = await lireStatutBien(st);
+      return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
+    }
+    const tr = identifiant(url.searchParams.get('transitions'));
+    if (tr !== null) return Response.json({ etat: 'ok', data: await transitionsDuBien(tr) }, { headers: ENTETES });
     // Arno (20/10/2026) — le RÉSUMÉ COMPLET de la fiche bien : les informations de la Location, lues à leur source (lecture seule).
     const r = identifiant(url.searchParams.get('resume'));
     if (r !== null) {
@@ -117,6 +127,18 @@ export async function POST(request: Request): Promise<Response> {
         const annexe = identifiant(corps.annexeId);
         if (id === null || annexe === null) return incomplet();
         return repondre(await rattacherAnnexe(id, annexe, auteur));
+      }
+      // Arno (21/10/2026, 403) — UNE TRANSITION DE STATUT du bien (date d'effet, motif et mandat facultatifs). Le mail de portefeuille
+      // suit le statut : sortie de gestion → mail de sortie ; passage / retour en gestion → mail d'entrée (jamais bloquant).
+      case 'statut-bien': {
+        if (id === null) return incomplet();
+        const r = await changerStatutBien(id, { vers: corps.vers, effetLe: corps.effetLe, motif: corps.motif, mandat: corps.mandat }, auteur);
+        if (r.etat !== 'ok') return repondre(r);
+        const { avant, apres, lots } = r.data;
+        const ev = avant === 'en_gestion'
+          ? { sens: 'sortie' as const, proprietaireId: null, lotIds: lots, origine: null }
+          : apres === 'en_gestion' ? { sens: 'entree' as const, reactivation: avant === 'ancienne_gestion', proprietaireId: null, lotIds: lots, origine: null } : null;
+        return repondre(await avecMail(r, ev, { auteur, tuile: requeteDepuisLaLocation(request) ? 'Location' : 'Gestion' }));
       }
       // LE PRÉAVIS depuis la fiche commune (Arno, 18/10/2026) : les MÊMES fonctions que la tuile Location.
       case 'enregistrer-preavis': {

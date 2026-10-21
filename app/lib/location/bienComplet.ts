@@ -220,7 +220,7 @@ export function manquesDuBien(s: {
   });
   if (famille === 'logement' || famille === 'local') Object.assign(m, manquesDpeEntretien(s, s.aujourdhui ?? aujourdhuiParis()));
   // Le dernier bloc du formulaire (Arno, 20/10/2026), donc le dernier manque.
-  if ('enGestion' in s && typeof s.enGestion !== 'boolean') m.enGestion = 'Bien en gestion ? : répondez Oui ou Non.';
+  if ('enGestion' in s && typeof s.enGestion !== 'boolean') m.enGestion = 'Statut du bien : choisissez « En gestion » ou « Location seule ».';
   return m;
 }
 
