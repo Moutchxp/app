@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { FORMAT_ADRESSE, verifierDestinataires, type DestinatairePropose } from '../../../../lib/location/mailNouvelleLocation';
+import { FORMAT_ADRESSE, htmlNouvelleLocation, verifierDestinataires, type DestinatairePropose, type DonneesNouvelleLocation } from '../../../../lib/location/mailNouvelleLocation';
 
 /**
  * ══ 🔴🔴 LOCATION — LE BOUTON « ENVOI ADHOC & MONGA » ET SA FENÊTRE DE CONFIRMATION (Arno, 21/10/2026) ══════════════════════
@@ -20,6 +20,8 @@ export interface EnvoiLu { quand: string; par: string; destinataires: string[]; 
 interface Apercu {
   bailId: number; objet: string; html: string; texte: string; expediteur: string;
   destinataires: DestinatairePropose[]; dernierEnvoi: EnvoiLu | null; envoiPossible: boolean;
+  /** Les données du mail et le nom de la personne connectée : l'aperçu se refait en direct avec le message d'accompagnement. */
+  donnees?: DonneesNouvelleLocation; auteurNom?: string;
 }
 type Ligne = DestinatairePropose & { cle: number };
 
@@ -44,12 +46,22 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
   const [motif, setMotif] = useState<string | null>(null);
   const [succes, setSucces] = useState<string | null>(null);
   const [dernier, setDernier] = useState<EnvoiLu | null>(dernierEnvoi);
+  /** Arno (21/10/2026) — le message d'accompagnement (facultatif, sans limite) : repris dans le mail et dans le journal. */
+  const [message, setMessage] = useState('');
+  const zoneMessage = useRef<HTMLTextAreaElement | null>(null);
+  // La zone s'agrandit avec le texte (jamais de barre de défilement interne).
+  useEffect(() => {
+    const z = zoneMessage.current;
+    if (z === null) return;
+    z.style.height = 'auto';
+    z.style.height = `${z.scrollHeight + 2}px`;
+  }, [message, apercu]);
   const titre = useId();
   const premier = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { setDernier(dernierEnvoi); }, [dernierEnvoi]);
 
   const ouvrir = async (): Promise<void> => {
-    setOuvert(true); setApercu(null); setLecture(null); setEnvoi('repos'); setMotif(null); setSucces(null);
+    setOuvert(true); setApercu(null); setLecture(null); setEnvoi('repos'); setMotif(null); setSucces(null); setMessage('');
     try {
       const r = await fetch(`${API}?bail=${bailId}`, { headers: { Accept: 'application/json' } });
       const d = await r.json() as { etat?: string; data?: Apercu; message?: string; motif?: string };
@@ -82,7 +94,8 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
     if (!v.ok) { setMotif(v.motif); return; }
     setEnvoi('envoi'); setMotif(null);
     try {
-      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bailId, destinataires: v.liste }) });
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bailId, destinataires: v.liste, ...(message.trim() === '' ? {} : { message }) }) });
       const d = await r.json() as { etat?: string; motif?: string; data?: { n: number; envoi: EnvoiLu } };
       if (d.etat === 'ok' && d.data !== undefined) {
         setDernier(d.data.envoi);
@@ -125,6 +138,11 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
                     <dt>De</dt><dd>{apercu.expediteur}</dd>
                     <dt>Objet</dt><dd data-objet-mail>{apercu.objet}</dd>
                   </dl>
+                  <label className="eam-message" data-message-accompagnement>
+                    <span>Message d’accompagnement <span className="eam-muet">(facultatif)</span></span>
+                    <textarea ref={zoneMessage} rows={3} value={message} onChange={(e) => { setMessage(e.target.value); setMotif(null); }}
+                      placeholder="ex. Bonjour Laura, le bail démarre le 1er novembre — ce message apparaît dans le mail, juste après l’introduction." data-message />
+                  </label>
                   <section aria-label="Destinataires" className="eam-dest" data-destinataires>
                     <h3>Destinataires <span className="eam-muet">({lignes.length})</span></h3>
                     <p className="eam-muet eam-petit">Les changements ne valent que pour cet envoi : la liste par défaut ne change pas.</p>
@@ -147,7 +165,9 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
                   </section>
                   <section aria-label="Aperçu du mail" className="eam-apercu">
                     <h3>Aperçu du mail</h3>
-                    <iframe title="Aperçu du mail Nouvelle location" srcDoc={apercu.html} sandbox="" data-apercu-mail />
+                    <iframe title="Aperçu du mail Nouvelle location" sandbox="" data-apercu-mail
+                      srcDoc={apercu.donnees === undefined || message.trim() === '' ? apercu.html
+                        : htmlNouvelleLocation({ ...apercu.donnees, message: { auteur: apercu.auteurNom ?? '', texte: message } })} />
                   </section>
                 </>
               )}
@@ -219,6 +239,8 @@ export const CSS_ENVOI = `
 .eam-entete{display:grid;grid-template-columns:4.5rem 1fr;gap:4px 10px;margin:0}
 .eam-entete dt{font-weight:800;color:var(--color-svv-muted)}
 .eam-entete dd{margin:0;overflow-wrap:anywhere}
+.eam-message{display:flex;flex-direction:column;gap:6px;font-weight:700}
+.eam-message textarea{min-height:88px;resize:none;overflow:hidden;box-sizing:border-box;border:1px solid var(--color-svv-line-strong);border-radius:10px;padding:10px 12px;font:inherit;font-weight:400;font-size:.95rem;line-height:1.45;color:var(--color-svv-ink);background:var(--color-svv-surface);white-space:pre-wrap}
 .eam-dest h3,.eam-apercu h3{margin:0 0 6px;font-size:1rem}
 .eam-dest ol{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:8px}
 .eam-dest li{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 44px;gap:8px;align-items:end;padding:10px;border:1px solid var(--color-svv-line);border-radius:12px}

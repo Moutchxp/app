@@ -480,9 +480,10 @@ définitive avant de figer les couleurs dans le code.
 
 ### 🔴🔴 INTERDIT — RIEN NE S'ÉCRIT SUR LE BUREAU
 
-> **Les captures et fichiers de vérification de Claude Code vont UNIQUEMENT dans
-> `/Users/macbookprom4arnaud/sansvisavis/app/.captures/<nom-du-lot>/`. Jamais sur le Bureau, jamais dans
-> Documents, jamais dans Téléchargements.**
+> **PLUS AUCUN FICHIER SUR LE BUREAU. Tout va dans `/Users/macbookprom4arnaud/sansvisavis/app/.captures/` :
+> les captures et fichiers de vérification de Claude Code dans `.captures/<nom-du-lot>/`, les rapports et journaux des
+> scripts dans `.captures/<nom-du-script>/`, les sauvegardes de base dans `.captures/sauvegardes/`. Jamais sur le Bureau,
+> jamais dans Documents, jamais dans Téléchargements.**
 
 - **Décision d'Arno du 08/10/2026**, lot RANGEMENT-BUREAU-CAPTURES. `.captures/` est dans `.gitignore` : ces
   fichiers ne sont pas du code et ne sont jamais committés.
@@ -496,11 +497,15 @@ définitive avant de figer les couleurs dans le code.
 - **ON NE PRÉ-AUTORISE PAS NON PLUS LE GESTE.** `mkdir ~/Desktop/…` était entré dans l'`allow` de
   `.claude/settings.local.json`, ce qui rendait l'écriture sur le Bureau silencieuse ; ces lignes sont passées
   en `deny`. Une permission accordée une fois ne se relit jamais.
-- **Les captures de plus de 14 jours se suppriment**, et seulement dans `.captures/`.
-- ⚠️ **CE QUE CETTE RÈGLE NE COUVRE PAS** : les rapports, journaux et **sauvegardes de base avant migration**
-  que les scripts `app/scripts/*.ts` écrivent dans `~/Desktop` (dont `adresses-inconnues-documents.csv`, qu'Arno
-  a explicitement demandé là le 01/10/2026). Ce ne sont pas des captures : un filet de sécurité enterré dans un
-  dossier « Captures » est un filet perdu. Ne pas les déplacer sans l'accord d'Arno.
+- **Les captures de plus de 14 jours se suppriment**, et seulement dans `.captures/` — 🔴 **JAMAIS `.captures/sauvegardes/`**
+  ni les rapports des scripts : une sauvegarde de base est un filet de sécurité, elle ne s'efface qu'avec l'accord d'Arno.
+- 🔴 **LES SCRIPTS AUSSI (décision d'Arno du 21/10/2026, qui remplace l'exception d'avant).** Par défaut, un script
+  `app/scripts/*.ts` écrit son rapport dans `.captures/<nom-du-script>/rapport-<date>.txt` (helper
+  `app/lib/ops/rapportScript.ts` : `cheminRapport`) ; `--rapport=` peut désigner un fichier ou un DOSSIER (le fichier est
+  créé dedans). Les sauvegardes de base avant écriture vont dans `.captures/sauvegardes/`, datées (une passe n'écrase
+  jamais celle d'une autre). La liste des adresses inconnues (`adresses-inconnues-documents.csv`, demandée sur le Bureau
+  le 01/10/2026) va désormais dans `.captures/adresses-inconnues-documents/`. Un garde
+  (`app/lib/ops/rapportScript.test.ts`) refuse tout script qui nomme encore le Bureau.
 
 ### 🔴🔴 INTERDIT — JAMAIS `npm run test:integration` EN ENTIER
 

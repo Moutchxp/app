@@ -273,6 +273,9 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
 
 // ── LE JOURNAL ET L'ENVOI ────────────────────────────────────────────────────────────────────────────────────────────────
 
+/** Une borne de sûreté seulement (le message est « sans limite » à l'écran) : 100 000 caractères. */
+export const MESSAGE_MAX = 100_000;
+
 export interface EnvoiJournalise { quand: string; par: string; destinataires: string[]; objet: string; mention: string }
 
 /** Le dernier envoi RÉUSSI pour ce bail (`null` : jamais envoyé, ou sans la migration 395). */
@@ -289,6 +292,8 @@ export async function dernierEnvoi(bailId: number): Promise<EnvoiJournalise | nu
 
 export interface ApercuNouvelleLocation {
   bailId: number; objet: string; html: string; texte: string; expediteur: string;
+  /** Les données du mail (pour l'aperçu en direct du message d'accompagnement) et le nom de la personne connectée. */
+  donnees: DonneesNouvelleLocation; auteurNom: string;
   /** Proposés pour CET envoi : la copie personnelle en tête, puis la liste configurée. */
   destinataires: DestinatairePropose[];
   dernierEnvoi: EnvoiJournalise | null;
@@ -303,6 +308,7 @@ export async function apercuNouvelleLocation(bailId: number, auteur: Auteur): Pr
   const session = await emailDeLAuteur(auteur);
   return {
     bailId, objet: objetNouvelleLocation(d), html: htmlNouvelleLocation(d), texte: texteNouvelleLocation(d), expediteur: d.expediteur,
+    donnees: d, auteurNom: session.nom,
     destinataires: listeProposee(await lireDestinatairesDefaut(), session), dernierEnvoi: await dernierEnvoi(bailId),
     envoiPossible: await mailNouvelleLocationDisponible(),
   };
@@ -316,12 +322,14 @@ export type IssueEnvoiNouvelleLocation =
   | { etat: 'inconnu' };
 
 async function journaliser(o: { bailId: number; auteur: Auteur; nom: string; email: string | null; liste: Destinataire[]; expediteur: string;
-  objet: string; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null }): Promise<string | null> {
+  objet: string; statut: 'envoye' | 'echec'; erreur: string | null; messageId: string | null; message: string | null }): Promise<string | null> {
   try {
+    // Arno (21/10/2026, 398) : le message d'accompagnement, dans le journal — avec sa colonne seulement (sans la 398 : comme avant).
+    const avecMessage = await colonneExisteMemo('gestion_location_mail_envoi', 'message');
     const { rows } = await query<{ quand: string }>(
-      `INSERT INTO gestion_location_mail_envoi (bail_id, auteur_id, auteur_libelle, auteur_email, destinataires, expediteur, objet, statut, erreur, message_id)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10) RETURNING envoye_le::text AS quand`,
-      [o.bailId, o.auteur.id, o.nom, o.email, JSON.stringify(o.liste), o.expediteur, o.objet, o.statut, o.erreur, o.messageId]);
+      `INSERT INTO gestion_location_mail_envoi (bail_id, auteur_id, auteur_libelle, auteur_email, destinataires, expediteur, objet, statut, erreur, message_id${avecMessage ? ', message' : ''})
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10${avecMessage ? ', $11' : ''}) RETURNING envoye_le::text AS quand`,
+      [o.bailId, o.auteur.id, o.nom, o.email, JSON.stringify(o.liste), o.expediteur, o.objet, o.statut, o.erreur, o.messageId, ...(avecMessage ? [o.message] : [])]);
     return rows[0]?.quand ?? null;
   } catch (e) {
     console.error('[location] journal du mail « nouvelle location » impossible', (e as Error)?.message);
@@ -334,16 +342,20 @@ async function journaliser(o: { bailId: number; auteur: Auteur; nom: string; ema
  * configuration n'est pas touchée). Une seule tentative ; le résultat (réussi ou non) est journalisé. Ne lève jamais.
  */
 export async function envoyerNouvelleLocation(bailId: number, brut: unknown, auteur: Auteur,
-  deps: { transport?: TransportDemande } = {}): Promise<IssueEnvoiNouvelleLocation> {
+  deps: { transport?: TransportDemande } = {}, messageBrut: unknown = null): Promise<IssueEnvoiNouvelleLocation> {
   if (!(await mailNouvelleLocationDisponible())) return { etat: 'sans_schema' };
   const v = verifierDestinataires(brut);
   if (!v.ok) return { etat: 'refus', motif: v.motif };
+  // Arno (21/10/2026) — le message d'accompagnement (facultatif, sans limite pratique) : vide = aucun encart.
+  const message = typeof messageBrut === 'string' && messageBrut.trim() !== '' ? messageBrut.replace(/\r\n?/g, '\n') : null;
+  if (message !== null && message.length > MESSAGE_MAX) return { etat: 'refus', motif: `Le message d’accompagnement dépasse ${MESSAGE_MAX.toLocaleString('fr-FR')} caractères.` };
   const session = await emailDeLAuteur(auteur);
   let objet = 'Nouvelle location';
   let expediteur = 'gestion@criterimmo.fr';
   try {
-    const d = await donneesNouvelleLocation(bailId);
-    if (d === null) return { etat: 'inconnu' };
+    const lu = await donneesNouvelleLocation(bailId);
+    if (lu === null) return { etat: 'inconnu' };
+    const d: DonneesNouvelleLocation = { ...lu, message: message === null ? null : { auteur: session.nom, texte: message } };
     objet = objetNouvelleLocation(d);
     expediteur = d.expediteur;
     const domaine = expediteur.split('@')[1] ?? 'criterimmo.fr';
@@ -353,17 +365,17 @@ export async function envoyerNouvelleLocation(bailId: number, brut: unknown, aut
       corps: texteNouvelleLocation(d), corpsHtml: htmlNouvelleLocation(d), messageId,
     });
     if (!r.ok) {
-      await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'echec', erreur: r.motif, messageId: null });
+      await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'echec', erreur: r.motif, messageId: null, message });
       return { etat: 'echec', motif: r.motif };
     }
-    const quand = (await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'envoye', erreur: null, messageId }))
+    const quand = (await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'envoye', erreur: null, messageId, message }))
       ?? new Date().toISOString();
     const destinataires = v.liste.map((x) => x.adresse);
     return { etat: 'ok', data: { n: destinataires.length, envoi: { quand, par: session.nom, destinataires, objet, mention: mentionEnvoi({ quand, par: session.nom, destinataires }) } } };
   } catch (e) {
     const motif = (e as Error)?.message || 'erreur inattendue';
     console.error('[location] mail « nouvelle location » non envoyé', motif);
-    await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'echec', erreur: motif, messageId: null });
+    await journaliser({ bailId, auteur, nom: session.nom, email: session.email, liste: v.liste, expediteur, objet, statut: 'echec', erreur: motif, messageId: null, message });
     return { etat: 'echec', motif };
   }
 }

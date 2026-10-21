@@ -58,6 +58,8 @@ body{background:var(--bg);font-family:-apple-system,"Helvetica Neue",Inter,Arial
 .pied{border-top:1px solid var(--line);padding:18px 28px 24px;font-size:13.5px;color:var(--mut);line-height:1.6}
 .pied b{color:var(--ink)}
 .cache{display:none}
+.message{background:#fafafa;border-left:4px solid var(--line);border-radius:0 12px 12px 0;padding:14px 16px;margin:0 0 18px;font-size:14.5px;line-height:1.55}
+.message b{display:block;font-size:13px;letter-spacing:.4px;color:var(--mut);margin-bottom:4px}
 .gli{display:flex;align-items:center;gap:14px;border-radius:14px;padding:14px 16px;margin-bottom:14px}
 .gli b{display:block;font-size:16px;letter-spacing:.3px}
 .gli span{font-size:13.5px}
@@ -94,7 +96,9 @@ body{background:var(--bg);font-family:-apple-system,"Helvetica Neue",Inter,Arial
 <div class="mail">
  <div class="top"><div class="marque"><span>Sans Vis-à-Vis®</span> · Gestion locative</div><h1>Nouvelle location</h1><div class="sous">12 rue Victor Hugo, 92400 Courbevoie · entrée le 1er novembre 2026</div></div>
  <div class="corps">
-  <p class="intro">Bonjour,<br>Un bien en gestion vient d'être loué. Vous trouverez ci-dessous le dossier complet.</p>
+  <p class="intro">Bonjour,<br>Nous avons le plaisir de vous informer qu'un bien que nous gérons vient d'être loué. Vous trouverez ci-dessous le dossier complet pour l'enregistrer de votre côté. N'hésitez pas à revenir vers nous si une information vous manque.</p>
+  <!-- Message d'accompagnement (facultatif) : saisi dans la fenêtre « Envoi ADHOC & MONGA » ; absent s'il est vide. -->
+  <div class="message"><b>Message de Arnaud Jorel</b>Bonjour Laura,<br>le bail démarre le 1er novembre ; le dépôt de garantie a été encaissé par l'agence.<br>Belle journée !</div>
   <div class="statut nouveau"><span class="pastille">NOUVEAUX<br>PROPRIÉTAIRES</span><p><b>Premier bien confié en gestion par M. et Mme DUPONT</b><br>Mandat n° G-2026-041 signé le 15/10/2026</p></div>
 
   <div class="bloc"><div class="titre">Propriétaire <span class="nb">2</span></div>
@@ -192,6 +196,7 @@ body{background:var(--bg);font-family:-apple-system,"Helvetica Neue",Inter,Arial
    </dl></div>
 
   <a class="btn" href="#">Ouvrir le dossier Drive du bail</a>
+  <p class="intro">Merci et belle journée,<br>L'équipe gestion</p>
  </div>
  <div class="pied">Pour toute question, répondez simplement à ce mail.<br><b>L'équipe gestion</b> · Sans Vis-à-Vis® · SARL CRITERIMMO<br>gestion@criterimmo.fr</div>
 </div></div>

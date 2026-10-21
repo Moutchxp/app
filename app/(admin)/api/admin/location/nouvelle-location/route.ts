@@ -9,7 +9,7 @@ import { apercuNouvelleLocation, bauxEnCoursDuLocataire, envoyerNouvelleLocation
  *   GET `?bail=N`      : l'APERÇU de la fenêtre de confirmation (objet, HTML, texte, destinataires proposés — la copie de la
  *                        personne connectée en tête, puis la liste configurée — et le dernier envoi). Lecture seule.
  *   GET `?locataire=N` : les baux EN COURS du locataire, avec leur dernier envoi (le bouton de sa fiche).
- *   POST `{ bailId, destinataires }` : ENVOIE à la liste confirmée (modifiée pour cet envoi seulement : la configuration n'est
+ *   POST `{ bailId, destinataires, message? }` : ENVOIE (avec le message d'accompagnement facultatif) à la liste confirmée (modifiée pour cet envoi seulement : la configuration n'est
  *                        pas touchée), journalise. 🔴 C'est le SEUL chemin qui envoie : rien ne part sans « Envoyer ».
  */
 export const runtime = 'nodejs';
@@ -52,7 +52,7 @@ export async function POST(request: Request): Promise<Response> {
   const bail = identifiant(corps.bailId);
   if (bail === null) return Response.json({ etat: 'refus', motif: 'Demande incomplète : le bail manque.' }, { status: 400, headers: ENTETES });
   try {
-    return Response.json(await envoyerNouvelleLocation(bail, corps.destinataires, await auteurDeLaRequete(request)), { headers: ENTETES });
+    return Response.json(await envoyerNouvelleLocation(bail, corps.destinataires, await auteurDeLaRequete(request), {}, corps.message ?? null), { headers: ENTETES });
   } catch (e) {
     console.error('[api/admin/location/nouvelle-location] envoi impossible', e);
     return Response.json({ etat: 'echec', motif: 'la base n’a pas répondu.' }, { status: 503, headers: ENTETES });

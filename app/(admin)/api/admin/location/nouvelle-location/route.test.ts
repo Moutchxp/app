@@ -47,7 +47,10 @@ describe('/api/admin/location/nouvelle-location', () => {
     const liste = [{ adresse: 'laura@monga.io', libelle: 'MONGA' }];
     const r = await POST(new Request('http://x', { method: 'POST', body: JSON.stringify({ bailId: 536, destinataires: liste }) }));
     expect(await r.json()).toEqual({ etat: 'ok', data: { n: 4 } });
-    expect(envoyer).toHaveBeenCalledWith(536, liste, { id: 2, libelle: 'a.jorel@sansvisavis.com' });
+    expect(envoyer).toHaveBeenCalledWith(536, liste, { id: 2, libelle: 'a.jorel@sansvisavis.com' }, {}, null);
+    // Arno (21/10/2026) — le message d'accompagnement est transmis tel quel.
+    await POST(new Request('http://x', { method: 'POST', body: JSON.stringify({ bailId: 536, destinataires: liste, message: 'Bonjour\nà tous' }) }));
+    expect(envoyer).toHaveBeenLastCalledWith(536, liste, { id: 2, libelle: 'a.jorel@sansvisavis.com' }, {}, 'Bonjour\nà tous');
   });
 
   it('POST sans bail ou illisible : refus, rien n’est envoyé', async () => {

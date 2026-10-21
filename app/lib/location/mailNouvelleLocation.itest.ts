@@ -94,6 +94,8 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 395 — le mail « Nouvelle loca
     expect((await un<{ t: string | null }>(`SELECT to_regclass('gestion_location_mail_envoi')::text AS t`)).t).toBeNull();
     const avant = await un<{ n: number }>('SELECT count(*)::int AS n FROM gestion_bareme_honoraires_location');
     await query(readFileSync(path.join(process.cwd(), 'db/migrations/395_location_mail_nouvelle_location.sql'), 'utf8'));
+    // Arno (21/10/2026) — la 398 : le message d'accompagnement dans le journal d'envoi.
+    await query(readFileSync(path.join(process.cwd(), 'db/migrations/398_location_mail_message.sql'), 'utf8'));
     oublier();
     expect(await lireDestinatairesDefaut()).toEqual([
       { adresse: 'gestion@criterimmo.fr', libelle: 'Service gestion (copie de confirmation)' },
@@ -294,7 +296,9 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 395 — le mail « Nouvelle loca
         return r.ok ? { ok: true, id: r.gmailMessageId, factice: false } : { ok: false, motif: r.motif };
       },
     };
-    const r = await envoyerNouvelleLocation(bail, a.destinataires.map(({ adresse, libelle }) => ({ adresse, libelle })), AUTEUR, { transport: RECETTE });
+    // Arno (21/10/2026) — avec un MESSAGE D'ACCOMPAGNEMENT (retours à la ligne, et un <b> qui doit rester du texte).
+    const message = 'Bonjour à toutes et à tous,\nvoici le dossier du bail d’essai.\nCe <b>texte</b> ne doit pas être interprété.';
+    const r = await envoyerNouvelleLocation(bail, a.destinataires.map(({ adresse, libelle }) => ({ adresse, libelle })), AUTEUR, { transport: RECETTE }, message);
     expect(r.etat).toBe('ok');
     expect(interceptions).toHaveLength(1);
     expect(interceptions[0]).toMatchObject({ action: 'simuler', canal: 'gmail_envoi' });
@@ -304,9 +308,18 @@ describe.skipIf(!baseEssai)('🔴🔴 migration 395 — le mail « Nouvelle loca
     expect(eml).toMatch(/^From: .*gestion@criterimmo\.fr/m);
     expect(eml).toMatch(/^To: .*a\.jorel@sansvisavis\.com/m);
     expect(eml).toContain('text/html');
-    const { rows } = await query<{ statut: string; auteur_libelle: string; message_id: string | null }>(
-      'SELECT statut, auteur_libelle, message_id FROM gestion_location_mail_envoi WHERE bail_id = $1', [bail]);
-    expect(rows).toEqual([{ statut: 'envoye', auteur_libelle: 'Arnaud Jorel', message_id: expect.stringMatching(/^<.+@criterimmo\.fr>$/) }]);
+    const { rows } = await query<{ statut: string; auteur_libelle: string; message_id: string | null; message: string | null }>(
+      'SELECT statut, auteur_libelle, message_id, message FROM gestion_location_mail_envoi WHERE bail_id = $1', [bail]);
+    expect(rows).toEqual([{ statut: 'envoye', auteur_libelle: 'Arnaud Jorel', message_id: expect.stringMatching(/^<.+@criterimmo\.fr>$/), message }]);
+    // Le message, dans le mail capturé (HTML et texte, encodés en base64 dans le RFC 822).
+    const parties = [...eml.matchAll(/Content-Transfer-Encoding: base64\r?\n\r?\n([A-Za-z0-9+/=\r\n]+)/g)].map((m) => Buffer.from(m[1].replace(/\s/g, ''), 'base64').toString('utf8'));
+    const html = parties.find((x) => x.includes('<!doctype html>')) ?? '';
+    const texte = parties.find((x) => !x.includes('<!doctype html>')) ?? '';
+    ecrire('mail-intercepte-essai-message.html', html);
+    expect(html).toContain('Message de Arnaud Jorel');
+    expect(html).toContain('voici le dossier du bail d’essai.<br>Ce &lt;b&gt;texte&lt;/b&gt;');
+    expect(html).not.toMatch(/background\s*:/i);
+    expect(texte).toContain('── Message de Arnaud Jorel ──');
     expect(eml).toContain(`Message-ID: ${rows[0].message_id}`);
   });
 });

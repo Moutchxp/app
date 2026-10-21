@@ -59,14 +59,15 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+
+
 import { query } from '../lib/db/client';
 import { changerStatut } from '../lib/gestion/rattachementRepo';
 import { lireInterneDesMessages } from '../lib/gestion/interneMessageRepo';
 import { lireInterne } from '../lib/gestion/interneRepo';
 import { interneDuMail } from '../lib/gestion/interneDuMail';
 import { estDocumentEnvoye } from '../lib/gestion/documentsAuto';
+import { cheminRapport } from '../lib/ops/rapportScript';
 
 /** L'auteur du geste, nommé : le journal doit pouvoir se relire dans six mois. */
 const AUTEUR = {
@@ -211,7 +212,9 @@ async function principal(): Promise<void> {
       + ` WHERE id = ${Number(l.id)};`);
   }
   lignes.push('');
-  const dest = join(homedir(), 'Desktop', 'sauvegarde-avant-reparation-14-mails.sql');
+  // Arno (21/10/2026) : plus rien sur le Bureau — la sauvegarde va dans `.captures/sauvegardes/`, datée (une passe n'écrase jamais
+  // la sauvegarde d'une autre).
+  const dest = cheminRapport({ nomScript: 'sauvegardes', prefixe: 'sauvegarde-avant-reparation-14-mails', extension: 'sql' });
   writeFileSync(dest, lignes.join('\n'), 'utf8');
   process.stdout.write(`\n  sauvegarde ........................... ${dest}\n`);
 

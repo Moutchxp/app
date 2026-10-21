@@ -158,6 +158,38 @@ describe('🔴 la fenêtre de confirmation « Envoi ADHOC & MONGA »', () => {
   });
 });
 
+describe('🔴 Arno (21/10/2026) — le message d’accompagnement', () => {
+  const D = { bailId: 536, entree: '2026-11-01', bien: { voie: '4 rue Fictive', codePostal: '92800', commune: 'Puteaux' },
+    statut: { sorte: 'nouveau', pastille: ['NOUVEAU', 'PROPRIÉTAIRE'], objet: 'NOUVEAU PROPRIÉTAIRE', phrase: 'Premier bien', mandat: null },
+    proprietaires: [], lots: [], gli: { etat: 'inconnue', titre: 'ASSURANCE LOYERS IMPAYÉS NON RENSEIGNÉE', detail: null }, locataires: [], garants: [],
+    bail: { loyer: null, lignes: [] }, driveUrl: null, expediteur: 'gestion@criterimmo.fr' };
+  it('au-dessus des destinataires ; l’aperçu le montre en direct ; envoyé avec les destinataires ; vide : rien n’est envoyé de plus', async () => {
+    const avant = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'GET') {
+        const r = await (avant as (u: unknown, i?: RequestInit) => Promise<Response>)(url, init);
+        const d = await r.json() as { data: Record<string, unknown> };
+        return json({ ...d, data: { ...d.data, donnees: D, auteurNom: 'Arnaud Jorel' } });
+      }
+      return (avant as (u: unknown, i?: RequestInit) => Promise<Response>)(url, init);
+    }) as unknown as typeof fetch;
+    reponsesEnvoi = [{ etat: 'ok', data: { n: 4, envoi: { quand: '2026-10-21T12:32:00Z', par: 'Arnaud Jorel', destinataires: [], objet: 'o', mention: 'Envoyé' } } }];
+    await ouvrir();
+    const zone = container.querySelector('textarea[data-message]') as HTMLTextAreaElement;
+    expect(zone).not.toBeNull();
+    expect(container.querySelector('[data-message-accompagnement]')?.textContent).toContain('Message d’accompagnement (facultatif)');
+    expect(zone.compareDocumentPosition(container.querySelector('[data-destinataires]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(zone.hasAttribute('maxlength')).toBe(false);
+    const texte = 'Bonjour,\nle bail démarre le 1er.\n<b>merci</b>';
+    await act(async () => { Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(zone, texte); zone.dispatchEvent(new Event('input', { bubbles: true })); });
+    const apercu = container.querySelector('iframe[data-apercu-mail]')?.getAttribute('srcdoc') ?? '';
+    expect(apercu).toContain('Message de Arnaud Jorel');
+    expect(apercu).toContain('Bonjour,<br>le bail démarre le 1er.<br>&lt;b&gt;merci&lt;/b&gt;');
+    await clic(container.querySelector('[data-envoyer]'));
+    expect(posts()[0].corps).toMatchObject({ bailId: 536, message: texte });
+  });
+});
+
 describe('la fiche locataire : un bouton par bail EN COURS, « Renvoyer » et la mention après un envoi', () => {
   it('deux baux en cours : deux boutons ; celui déjà envoyé dit « Renvoyer à ADHOC & MONGA » et « Envoyé le … »', async () => {
     await act(async () => { root.render(createElement(BlocEnvoiFicheLocataire, { locataireId: 524 })); });

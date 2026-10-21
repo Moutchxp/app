@@ -15,6 +15,10 @@ import { LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree
 import { eurosAffiches, LIBELLE_ZONE, lireDecimal, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
 
 // ── LES COULEURS DU MODÈLE ────────────────────────────────────────────────────────────────────────────────────────────────
+/** Arno (21/10/2026) — l'introduction et la formule de fin du mail. */
+export const INTRODUCTION = ['Bonjour,', 'Nous avons le plaisir de vous informer qu’un bien que nous gérons vient d’être loué. Vous trouverez ci-dessous le dossier complet pour l’enregistrer de votre côté. N’hésitez pas à revenir vers nous si une information vous manque.'];
+export const SIGNATURE = ['Merci et belle journée,', 'L’équipe gestion'];
+
 const C = {
   bord: '#9b1c1c', bordL: '#fbeaea', ink: '#1d2433', mut: '#6b7280', line: '#e5e7eb', bg: '#f3f4f6', vert: '#2f7d4f', vertL: '#e8f4ec',
   bleu: '#2f5bb5', bleuL: '#e9effb', ambre: '#b7791f', ambreL: '#fdf3e1', gris: '#fafafa',
@@ -57,6 +61,8 @@ export interface StatutProprietaires {
   mandat: string | null;
 }
 
+export interface MessageAccompagnement { auteur: string; texte: string }
+
 export interface DonneesNouvelleLocation {
   bailId: number;
   /** « AAAA-MM-JJ ». */
@@ -70,6 +76,8 @@ export interface DonneesNouvelleLocation {
   locataires: PersonneMail[];
   garants: GarantMail[];
   bail: { loyer: { principal: number | null; provisions: number | null } | null; lignes: LigneMail[] };
+  /** Arno (21/10/2026) — le message d'accompagnement saisi dans la fenêtre de confirmation ; absent ou vide : aucun encart. */
+  message?: MessageAccompagnement | null;
   /** Le dossier N7 du bail sur le Drive ; `null` : pas encore créé. */
   driveUrl: string | null;
   expediteur: string;
@@ -404,63 +412,79 @@ function lignesPersonne(p: PersonneMail, avant: { mot: string; html: string }[] 
   ];
 }
 
-const petiteEtiquette = (texte: string, couleur: string, fond: string, bord?: string): string =>
-  `<span style="display:inline-block;font-size:12px;font-weight:700;color:${couleur};background:${fond};${bord ? `border:1px solid ${bord};` : ''}padding:3px 8px;border-radius:6px;margin-left:8px;letter-spacing:.4px;vertical-align:2px;">${echapper(texte)}</span>`;
+/**
+ * 🔴 COMPATIBLE GMAIL (Arno, 21/10/2026) : Gmail efface la couleur de fond d'un <div> (et le raccourci `background:`). TOUTE
+ * couleur de fond est donc portée par une CASE DE TABLEAU, deux fois : l'attribut `bgcolor` et `background-color` ; jamais
+ * par un <div> ni un <span>. Un texte blanc n'existe que dans une case qui porte elle-même son fond.
+ */
+export function caseColoree(fond: string, style: string, contenu: string, attributs = ''): string {
+  return `<td bgcolor="${fond}"${attributs === '' ? '' : ` ${attributs}`} style="background-color:${fond};${style}">${contenu}</td>`;
+}
+
+/** Une petite pastille (« PROPRIÉTAIRE », « MEUBLÉ », « 2 lots ») : une case colorée dans son propre tableau. */
+function pastille(texte: string, couleur: string, fond: string, bord?: string, arrondi = '6px'): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;"><tr>${caseColoree(fond,
+    `${bord ? `border:1px solid ${bord};` : ''}border-radius:${arrondi};padding:3px 8px;font-size:12px;font-weight:700;letter-spacing:.4px;color:${couleur};white-space:nowrap;font-family:${POLICE};`,
+    echapper(texte))}</tr></table>`;
+}
+
+/** Un titre suivi d'une pastille, sur une ligne (deux cases : aucun <span> coloré). */
+function titreAvecPastille(titreHtml: string, styleTitre: string, pastilleHtml: string | null, marge = '0 0 8px'): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:${marge};"><tr><td valign="middle" style="${styleTitre}font-family:${POLICE};">${titreHtml}</td>${pastilleHtml === null ? '' : `<td valign="middle" style="padding-left:8px;">${pastilleHtml}</td>`}</tr></table>`;
+}
 
 function carte(o: { nom: string; etiquette: string; contenu: string; fond: string; bord: string; pointille?: boolean; couleurEtiquette: string; fondEtiquette: string; bordEtiquette?: string }): string {
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 10px;"><tr><td style="background:${o.fond};border:1px ${o.pointille ? 'dashed' : 'solid'} ${o.bord};border-radius:12px;padding:14px 16px;">
-<div style="font-size:15.5px;font-weight:700;margin:0 0 8px;color:${C.ink};font-family:${POLICE};">${echapper(o.nom)}${petiteEtiquette(o.etiquette, o.couleurEtiquette, o.fondEtiquette, o.bordEtiquette)}</div>
-${o.contenu}</td></tr></table>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 10px;"><tr>${caseColoree(o.fond, `border:1px ${o.pointille ? 'dashed' : 'solid'} ${o.bord};border-radius:12px;padding:14px 16px;`,
+    `\n${titreAvecPastille(echapper(o.nom), `font-size:15.5px;font-weight:700;color:${C.ink};`, pastille(o.etiquette, o.couleurEtiquette, o.fondEtiquette, o.bordEtiquette))}\n${o.contenu}`)}</tr></table>`;
 }
 
 function bloc(titre: string, nb: number | null, contenu: string, couleur: string = C.bord, bordure: string = C.line): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 16px;"><tr><td style="border:1px solid ${bordure};border-radius:16px;padding:18px 20px;">
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 14px;"><tr><td width="4" style="width:4px;background:${couleur};border-radius:2px;font-size:0;line-height:0;">&nbsp;</td><td style="padding-left:10px;font-size:13px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:${C.ink};font-family:${POLICE};">${echapper(titre)}${nb === null ? '' : ` <span style="color:${C.mut};font-weight:700;">${nb}</span>`}</td></tr></table>
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 14px;"><tr>${caseColoree(couleur, 'width:4px;border-radius:2px;font-size:0;line-height:0;', '&nbsp;', 'width="4"')}<td style="padding-left:10px;font-size:13px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:${C.ink};font-family:${POLICE};">${echapper(titre)}${nb === null ? '' : ` <span style="color:${C.mut};font-weight:700;">${nb}</span>`}</td></tr></table>
 ${contenu}</td></tr></table>`;
 }
 
 function htmlStatut(s: StatutProprietaires): string {
   const vert = s.sorte === 'nouveau';
   const fond = vert ? C.vertL : C.bleuL; const bord = vert ? '#b9dcc6' : '#c3d3f2'; const pastille = vert ? C.vert : C.bleu;
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 22px;"><tr><td style="background:${fond};border:1.5px solid ${bord};border-radius:16px;padding:16px 18px;">
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 22px;"><tr>${caseColoree(fond, `border:1.5px solid ${bord};border-radius:16px;padding:16px 18px;`, `
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="middle" style="background:${pastille};color:#ffffff;border-radius:12px;padding:8px 12px;text-align:center;font-size:12.5px;font-weight:800;letter-spacing:.6px;line-height:1.25;white-space:nowrap;font-family:${POLICE};">${echapper(s.pastille[0])}<br>${echapper(s.pastille[1])}</td>
+${caseColoree(pastille, `color:#ffffff;border-radius:12px;padding:8px 12px;text-align:center;font-size:12.5px;font-weight:800;letter-spacing:.6px;line-height:1.25;white-space:nowrap;font-family:${POLICE};`, `${echapper(s.pastille[0])}<br>${echapper(s.pastille[1])}`, 'valign="middle" align="center"')}
 <td valign="middle" style="padding-left:14px;font-size:14.5px;line-height:1.45;color:${C.ink};font-family:${POLICE};"><b style="font-size:16px;">${echapper(s.phrase)}</b>${s.mandat === null ? '' : `<br>${echapper(s.mandat)}`}</td>
-</tr></table></td></tr></table>`;
+</tr></table>`)}</tr></table>`;
 }
 
 function htmlGli(g: BandeauGli): string {
   const st = g.etat === 'oui' ? { fond: C.vertL, bord: C.vert, texte: '#1f5a37', ic: C.vert, signe: '✓' }
     : g.etat === 'non' ? { fond: '#fdecec', bord: '#d64545', texte: '#8f1d1d', ic: '#d64545', signe: '✕' }
       : { fond: C.ambreL, bord: '#e8b65c', texte: '#7a4e0a', ic: C.ambre, signe: '!' };
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 14px;"><tr><td style="background:${st.fond};border:2px solid ${st.bord};border-radius:14px;padding:14px 16px;">
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 14px;"><tr>${caseColoree(st.fond, `border:2px solid ${st.bord};border-radius:14px;padding:14px 16px;`, `
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="middle" width="36" style="width:36px;height:36px;background:${st.ic};border-radius:18px;color:#ffffff;text-align:center;font-size:18px;font-weight:800;line-height:36px;font-family:${POLICE};">${st.signe}</td>
-<td valign="middle" style="padding-left:14px;color:${st.texte};font-family:${POLICE};"><b style="display:block;font-size:16px;letter-spacing:.3px;">${echapper(g.titre)}</b>${g.detail === null ? '' : `<span style="font-size:13.5px;">${echapper(g.detail)}</span>`}</td>
-</tr></table></td></tr></table>`;
+<td valign="middle" width="36" style="width:36px;"><table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;"><tr>${caseColoree(st.ic, `width:36px;height:36px;border-radius:18px;color:#ffffff;text-align:center;font-size:18px;font-weight:800;line-height:36px;font-family:${POLICE};`, st.signe, 'valign="middle" align="center" width="36" height="36"')}</tr></table></td>
+<td valign="middle" style="padding-left:14px;color:${st.texte};font-family:${POLICE};"><b style="font-size:16px;letter-spacing:.3px;">${echapper(g.titre)}</b>${g.detail === null ? '' : `<br><span style="font-size:13.5px;color:${st.texte};">${echapper(g.detail)}</span>`}</td>
+</tr></table>`)}</tr></table>`;
 }
 
 function htmlLot(l: LotMail): string {
   if (l.principal) {
-    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 12px;"><tr><td style="background:${C.gris};border:1.5px solid #d9dce1;border-radius:14px;padding:18px 20px;">
-<div style="font-size:17px;font-weight:700;margin:0 0 12px;color:${C.ink};font-family:${POLICE};">${echapper(l.titre)}${l.etiquette === null ? '' : petiteEtiquette(l.etiquette, C.bord, C.bordL)}</div>
-${grille(lignesGrille(l.lignes))}</td></tr></table>`;
+    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 12px;"><tr>${caseColoree(C.gris, 'border:1.5px solid #d9dce1;border-radius:14px;padding:18px 20px;',
+      `\n${titreAvecPastille(echapper(l.titre), `font-size:17px;font-weight:700;color:${C.ink};`, l.etiquette === null ? null : pastille(l.etiquette, C.bord, C.bordL), '0 0 12px')}\n${grille(lignesGrille(l.lignes))}`)}</tr></table>`;
   }
-  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 10px;"><tr><td style="background:${C.gris};border:1px solid ${C.line};border-radius:12px;padding:14px 16px;">
-<div style="font-size:15.5px;font-weight:700;margin:0 0 6px;color:${C.ink};font-family:${POLICE};">${echapper(l.titre)}</div>
-${grille(lignesGrille(l.lignes), 110)}</td></tr></table>`;
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 10px;"><tr>${caseColoree(C.gris, `border:1px solid ${C.line};border-radius:12px;padding:14px 16px;`,
+    `\n${titreAvecPastille(echapper(l.titre), `font-size:15.5px;font-weight:700;color:${C.ink};`, null, '0 0 6px')}\n${grille(lignesGrille(l.lignes), 110)}`)}</tr></table>`;
 }
 
 function htmlBien(lots: readonly LotMail[]): string {
   const groupes = grouperParAdresse(lots);
   const b = bandeauAdresses(groupes);
-  const bandeau = b.ok
-    ? `<div style="background:${C.vertL};border:1.5px solid #b9dcc6;border-radius:12px;padding:12px 16px;margin:0 0 16px;font-size:15px;font-weight:700;color:${C.vert};font-family:${POLICE};">${echapper(b.titre)}</div>`
-    : `<div style="background:${C.ambreL};border:1.5px solid #e8b65c;border-radius:12px;padding:12px 16px;margin:0 0 16px;font-size:13.5px;color:#7a4e0a;font-family:${POLICE};"><b style="display:block;font-size:15px;color:#8a4b00;letter-spacing:.2px;">${echapper(b.titre)}</b>${b.detail === null ? '' : echapper(b.detail)}</div>`;
+  const bandeau = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 16px;"><tr>${b.ok
+    ? caseColoree(C.vertL, `border:1.5px solid #b9dcc6;border-radius:12px;padding:12px 16px;font-size:15px;font-weight:700;color:${C.vert};font-family:${POLICE};`, echapper(b.titre))
+    : caseColoree(C.ambreL, `border:1.5px solid #e8b65c;border-radius:12px;padding:12px 16px;font-size:13.5px;color:#7a4e0a;font-family:${POLICE};`,
+      `<b style="font-size:15px;color:#8a4b00;letter-spacing:.2px;">${echapper(b.titre)}</b>${b.detail === null ? '' : `<br>${echapper(b.detail)}`}`)}</tr></table>`;
   const html = groupes.map((g) => {
-    const etiquette = `<span style="display:inline-block;font-size:12px;font-weight:700;color:${g.autre ? '#8a4b00' : C.mut};background:${g.autre ? C.ambreL : C.bg};border-radius:999px;padding:3px 10px;margin-left:8px;">${nbLots(g.lots.length)}${g.autre ? ' · autre adresse' : ''}</span>`;
+    const etiquette = pastille(`${nbLots(g.lots.length)}${g.autre ? ' · autre adresse' : ''}`, g.autre ? '#8a4b00' : C.mut, g.autre ? C.ambreL : C.bg, undefined, '999px');
     return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;margin:0 0 18px;"><tr><td style="border-left:4px solid ${g.autre ? '#e8b65c' : C.line};padding-left:14px;">
-<div style="font-size:15.5px;font-weight:700;margin:0 0 12px;color:${C.ink};font-family:${POLICE};">📍 ${echapper(g.adresse)}${etiquette}</div>
+${titreAvecPastille(`📍 ${echapper(g.adresse)}`, `font-size:15.5px;font-weight:700;color:${C.ink};`, etiquette, '0 0 12px')}
 ${g.lots.map(htmlLot).join('\n')}</td></tr></table>`;
   }).join('\n');
   return bloc('Le bien loué', null, bandeau + html);
@@ -471,10 +495,10 @@ function htmlBail(d: DonneesNouvelleLocation): string {
   let loyer = '';
   if (l !== null && (l.principal !== null || l.provisions !== null)) {
     const ligne = (mot: string, v: string, total = false) => `<tr><td style="padding:3px 0;font-size:${total ? '18px' : '15px'};${total ? `font-weight:800;color:${C.bord};` : `color:${C.ink};`}font-family:${POLICE};">${mot}</td><td align="right" style="padding:3px 0;font-size:${total ? '18px' : '15px'};${total ? `font-weight:800;color:${C.bord};` : `color:${C.ink};`}white-space:nowrap;font-family:${POLICE};">${v}</td></tr>`;
-    loyer = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 12px;"><tr><td style="background:${C.bordL};border:1.5px solid #efc4c4;border-radius:16px;padding:16px 20px;">
+    loyer = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 12px;"><tr>${caseColoree(C.bordL, 'border:1.5px solid #efc4c4;border-radius:16px;padding:16px 20px;', `
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${l.principal === null ? '' : ligne('Loyer principal', euros(l.principal))}${l.provisions === null ? '' : ligne('Provision pour charges', euros(l.provisions))}</table>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1.5px solid #e9b8b8;margin-top:8px;">${ligne('Total charges comprises', euros((l.principal ?? 0) + (l.provisions ?? 0)), true)}</table>
-</td></tr></table>`;
+`)}</tr></table>`;
   }
   return bloc('Le bail', null, loyer + grille(lignesGrille(d.bail.lignes)));
 }
@@ -499,33 +523,48 @@ export function htmlNouvelleLocation(d: DonneesNouvelleLocation): string {
     })),
   ].join('\n'), C.vert, '#b9dcc6');
   const bouton = d.driveUrl !== null
-    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 18px;"><tr><td align="center" style="background:${C.bord};border-radius:14px;"><a href="${echapper(d.driveUrl)}" style="display:block;padding:15px;color:#ffffff;text-decoration:none;font-weight:700;font-size:15.5px;font-family:${POLICE};">Ouvrir le dossier Drive du bail</a></td></tr></table>`
-    : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 18px;"><tr><td align="center" style="background:${C.bg};border:1.5px dashed #d1d5db;border-radius:14px;padding:15px;color:${C.mut};font-weight:700;font-size:15.5px;font-family:${POLICE};">Dossier Drive en cours de création</td></tr></table>`;
+    ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 18px;"><tr>${caseColoree(C.bord, `border-radius:14px;padding:15px;color:#ffffff;font-weight:700;font-size:15.5px;font-family:${POLICE};`,
+      `<a href="${echapper(d.driveUrl)}" style="color:#ffffff;text-decoration:none;font-weight:700;font-size:15.5px;font-family:${POLICE};">Ouvrir le dossier Drive du bail</a>`, 'align="center"')}</tr></table>`
+    : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 18px;"><tr>${caseColoree(C.bg, `border:1.5px dashed #d1d5db;border-radius:14px;padding:15px;color:${C.mut};font-weight:700;font-size:15.5px;font-family:${POLICE};`, 'Dossier Drive en cours de création', 'align="center"')}</tr></table>`;
   return `<!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light">
 <title>${echapper(objetNouvelleLocation(d))}</title>
 <style>@media only screen and (max-width:560px){.corps{padding:20px 16px 6px !important}.haut{padding:20px 16px !important}.pied{padding:16px 16px 20px !important}.g-l,.g-v{display:block !important;width:auto !important}.g-l{padding:6px 0 0 !important}}</style>
 </head>
-<body style="margin:0;padding:0;background:${C.bg};">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${C.bg};"><tr><td align="center" style="padding:24px 8px 40px;">
-<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;background:#ffffff;border-radius:20px;border-collapse:separate;overflow:hidden;">
-<tr><td class="haut" style="background:${C.ink};color:#ffffff;padding:22px 28px;border-radius:20px 20px 0 0;font-family:${POLICE};">
+<body bgcolor="${C.bg}" style="margin:0;padding:0;background-color:${C.bg};">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${C.bg}" style="background-color:${C.bg};"><tr>${caseColoree(C.bg, 'padding:24px 8px 40px;', `
+<table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" bgcolor="#ffffff" style="width:100%;max-width:640px;background-color:#ffffff;border-radius:20px;border-collapse:separate;overflow:hidden;">
+<tr>${caseColoree(C.ink, `color:#ffffff;padding:22px 28px;border-radius:20px 20px 0 0;font-family:${POLICE};`, `
 <div style="font-size:13px;letter-spacing:.4px;color:#c9ccd3;"><span style="color:#f2a3a3;font-weight:700;">Sans Vis-à-Vis®</span> · Gestion locative</div>
 <div style="font-size:24px;line-height:1.25;margin-top:8px;font-weight:700;color:#ffffff;">Nouvelle location</div>
 <div style="margin-top:6px;font-size:15px;color:#e3e5ea;">${echapper(adresse)}${d.entree ? ` · entrée le ${echapper(dateEnLettres(d.entree))}` : ''}</div>
-</td></tr>
+`, 'class="haut"')}</tr>
 <tr><td class="corps" style="word-break:break-word;overflow-wrap:anywhere;padding:24px 28px 8px;font-family:${POLICE};color:${C.ink};">
-<p style="font-size:15.5px;line-height:1.6;margin:0 0 18px;">Bonjour,<br>Un bien en gestion vient d’être loué. Vous trouverez ci-dessous le dossier complet.</p>
+<p style="font-size:15.5px;line-height:1.6;margin:0 0 18px;">${INTRODUCTION.map(echapper).join('<br>')}</p>
+${htmlMessage(d.message ?? null)}
 ${htmlStatut(d.statut)}
 ${proprietaires}
 ${htmlBien(d.lots)}
 ${locataires}
 ${htmlBail(d)}
 ${bouton}
+<p style="font-size:15.5px;line-height:1.6;margin:0 0 18px;">${SIGNATURE.map(echapper).join('<br>')}</p>
 </td></tr>
 <tr><td class="pied" style="border-top:1px solid ${C.line};padding:18px 28px 24px;font-size:13.5px;color:${C.mut};line-height:1.6;font-family:${POLICE};">Pour toute question, répondez simplement à ce mail.<br><b style="color:${C.ink};">L’équipe gestion</b> · Sans Vis-à-Vis® · SARL CRITERIMMO<br>${lienMail(d.expediteur)}</td></tr>
-</table></td></tr></table>
+</table>`, 'align="center"')}</tr></table>
 </body></html>`;
+}
+
+/**
+ * Arno (21/10/2026) — LE MESSAGE D'ACCOMPAGNEMENT (facultatif) : juste après l'introduction, avant la pastille de statut, dans
+ * un encart gris clair à trait vertical gauche, « Message de <Prénom Nom> ». Texte ÉCHAPPÉ (aucun HTML interprété), retours à la
+ * ligne conservés. Vide : aucun encart.
+ */
+function htmlMessage(m: MessageAccompagnement | null): string {
+  if (m === null || m.texte.trim() === '') return '';
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:separate;margin:0 0 18px;"><tr>${caseColoree(C.line, 'width:4px;font-size:0;line-height:0;', '&nbsp;', 'width="4"')}${caseColoree(C.gris,
+    `padding:14px 16px;font-size:14.5px;line-height:1.55;color:${C.ink};font-family:${POLICE};`,
+    `<b style="font-size:13px;letter-spacing:.4px;color:${C.mut};">${echapper(`Message de ${m.auteur}`)}</b><br>${echapper(m.texte.replace(/\r\n?/g, '\n')).replace(/\n/g, '<br>')}`)}</tr></table>`;
 }
 
 // ── LE TEXTE BRUT ────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -548,7 +587,8 @@ export function texteNouvelleLocation(d: DonneesNouvelleLocation): string {
   const l: string[] = [];
   const titre = (t: string) => { l.push('', `━━ ${t.toLocaleUpperCase('fr-FR')} ━━`); };
   l.push('Sans Vis-à-Vis® · Gestion locative', 'NOUVELLE LOCATION', `${adresseAffichee(d.bien)}${d.entree ? ` · entrée le ${dateEnLettres(d.entree)}` : ''}`, '',
-    'Bonjour,', 'Un bien en gestion vient d’être loué. Vous trouverez ci-dessous le dossier complet.', '',
+    ...INTRODUCTION, '',
+    ...(d.message && d.message.texte.trim() !== '' ? [`── Message de ${d.message.auteur} ──`, ...d.message.texte.replace(/\r\n?/g, '\n').split('\n'), ''] : []),
     `[${d.statut.pastille.join(' ')}] ${d.statut.phrase}`);
   if (d.statut.mandat !== null) l.push(d.statut.mandat);
   if (d.proprietaires.length > 0) {
@@ -579,7 +619,7 @@ export function texteNouvelleLocation(d: DonneesNouvelleLocation): string {
     l.push(`Total charges comprises : ${euros((loyer.principal ?? 0) + (loyer.provisions ?? 0))}`);
   }
   for (const x of d.bail.lignes) l.push(`${x.mot} : ${x.valeur}`);
-  l.push('', d.driveUrl !== null ? `Ouvrir le dossier Drive du bail : ${d.driveUrl}` : 'Dossier Drive en cours de création', '',
+  l.push('', d.driveUrl !== null ? `Ouvrir le dossier Drive du bail : ${d.driveUrl}` : 'Dossier Drive en cours de création', '', ...SIGNATURE, '',
     'Pour toute question, répondez simplement à ce mail.', 'L’équipe gestion · Sans Vis-à-Vis® · SARL CRITERIMMO', d.expediteur);
   return l.join('\n');
 }

@@ -182,7 +182,7 @@ describe('🔴 le mail complet : blocs, ordre, personnes, garant, compatibilité
   it('le GARANT : carte en pointillés, « Garantit : » en PREMIÈRE ligne', () => {
     const g = html.slice(html.indexOf('border:1px dashed'));
     expect(g).toContain('GARANT');
-    expect(html).toMatch(/border:1px dashed[^>]*>\s*<div[^>]*>M\. MARTIN Henri/);
+    expect(html).toMatch(/border:1px dashed[^>]*>[\s\S]{0,700}?M\. MARTIN Henri/);
     expect(g.indexOf('Garantit')).toBeLessThan(g.indexOf('henri@exemple.test'));
     expect(g).toContain('Mme MARTIN Sophie · M. MARTIN Paul');
   });

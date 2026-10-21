@@ -37,13 +37,13 @@ describe('cheminRapport', () => {
 });
 
 describe('🔴 garde : aucun script n’écrit un RAPPORT sur le Bureau', () => {
-  it('seule la SAUVEGARDE de base avant réparation (un filet de sécurité, pas un rapport) y reste', () => {
+  it('AUCUN script n’écrit sur le Bureau — la sauvegarde avant réparation va dans `.captures/sauvegardes/` (Arno, 21/10/2026)', () => {
     const scripts = readdirSync('app/scripts').filter((f) => f.endsWith('.ts') && !/\.(test|itest)\.ts$/.test(f));
     const fautifs = scripts.filter((f) => {
       const src = readFileSync(join('app/scripts', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
       return /'Desktop'|~\/Desktop/.test(src);
     });
-    expect(fautifs).toEqual(['reparer-mails-contraires-aux-regles.ts']);
-    expect(readFileSync('app/scripts/reparer-mails-contraires-aux-regles.ts', 'utf8')).toContain("'sauvegarde-avant-reparation-14-mails.sql'");
+    expect(fautifs).toEqual([]);
+    expect(readFileSync('app/scripts/reparer-mails-contraires-aux-regles.ts', 'utf8')).toContain("cheminRapport({ nomScript: 'sauvegardes', prefixe: 'sauvegarde-avant-reparation-14-mails', extension: 'sql' })");
   });
 });
