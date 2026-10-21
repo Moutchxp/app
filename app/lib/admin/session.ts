@@ -98,6 +98,33 @@ export async function signerJeton(session: SessionAdmin): Promise<string> {
 }
 
 /**
+ * 🔴 Arno (21/10/2026) — « une permission ajoutée ou retirée s'applique IMMÉDIATEMENT, sans reconnexion ». Réémet le jeton
+ * d'une session DÉJÀ vérifiée avec le rôle et les droits ACTUELS (relus en base par le proxy) ; tout le reste est conservé à
+ * l'identique : compte (`sub`), `jti` (même session au journal), `iat` et SURTOUT `exp` — la session ne vit jamais plus
+ * longtemps qu'à sa connexion. La capacité « modifier un permis » suit le rôle (administrateur → vraie). Le menu, les tuiles
+ * et les pages qui lisent le cookie voient ainsi les mêmes droits que les gardes.
+ */
+export async function reemettreJeton(payload: JWTPayload, role: RoleAdmin, perms: Perms): Promise<string> {
+  const { iat, exp, jti, sub } = payload;
+  // Les claims « métier » du jeton (identifiant, doitChanger, emp, ver, peutModifierPermis…) passent telles quelles ; les claims
+  // standard sont reposées ci-dessous (jti, iat, exp, sub), les autres (nbf, iss, aud — jamais posées par `signerJeton`) écartées.
+  const claims = Object.fromEntries(Object.entries(payload).filter(([k]) => !['iat', 'exp', 'jti', 'sub', 'nbf', 'iss', 'aud'].includes(k)));
+  const jwt = new SignJWT({ ...claims, role, perms, ...(role === 'administrateur' ? { peutModifierPermis: true } : {}) })
+    .setProtectedHeader({ alg: 'HS256' });
+  if (typeof jti === 'string') jwt.setJti(jti);
+  if (typeof iat === 'number') jwt.setIssuedAt(iat); else jwt.setIssuedAt();
+  if (typeof exp === 'number') jwt.setExpirationTime(exp); else jwt.setExpirationTime('8h');
+  if (typeof sub === 'string' && sub !== '') jwt.setSubject(sub);
+  return jwt.sign(cleSignature());
+}
+
+/** Le rôle et les droits d'un jeton diffèrent-ils de ceux-ci ? (Seul cas où le proxy réémet le jeton.) PUR. */
+export function droitsDifferents(payload: JWTPayload, role: RoleAdmin, perms: Perms): boolean {
+  const s = sessionDepuisPayload(payload);
+  return s.role !== role || MODULES.some((m) => s.perms[m] !== perms[m]) || (role === 'collaborateur' && payload.role !== 'collaborateur');
+}
+
+/**
  * Vérifie un jeton de session admin.
  * Retourne le payload si valide, `null` en cas d'erreur (signature invalide, expiration, etc.).
  */

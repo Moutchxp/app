@@ -1,9 +1,10 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-// Points 4-5 (15/10/2026) : le proxy relit le compte en base. Ici la base est simulée ; par défaut le compte est un
-// administrateur actif aux droits complets, sans version de session (migration 356 non appliquée) — les droits EFFECTIFS
-// sont alors ceux du jeton, et tous les cas historiques ci-dessous gardent leur sens.
+// Points 4-5 (15/10/2026) : le proxy relit le compte en base. Ici la base est simulée. 🔴 Arno (21/10/2026) : la BASE fait foi
+// (droits et rôle actuels) ; par défaut, la base simulée est le MIROIR du compte du jeton envoyé (mêmes rôle et droits, actif,
+// sans version de session) — tous les cas historiques ci-dessous gardent leur sens. Un test qui impose une base
+// (`mockResolvedValue`) la garde.
 const { lireEtatCompte } = vi.hoisted(() => ({ lireEtatCompte: vi.fn() }));
 vi.mock('./etatSession', async () => {
   const vrai = await vi.importActual<typeof import('./etatSession')>('./etatSession');
@@ -11,18 +12,25 @@ vi.mock('./etatSession', async () => {
 });
 
 import { proxy } from '../../../proxy';
-import { signerJeton, permsToutes, permsAucune, NOM_COOKIE, type SessionAdmin } from './session';
+import { signerJeton, permsToutes, permsAucune, NOM_COOKIE, sessionDepuisPayload as sessionDepuisPayloadReel, type SessionAdmin } from './session';
 
 const SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
 
+const miroir = new Map<number, unknown>();
 beforeEach(() => {
   process.env.ADMIN_SESSION_SECRET = SECRET;
-  lireEtatCompte.mockReset().mockResolvedValue({ actif: true, role: 'administrateur', perms: permsToutes(), empreinteMdp: 'emp-actuelle', versionSession: null });
+  miroir.clear();
+  lireEtatCompte.mockReset().mockImplementation(async (id: number) => miroir.get(id)
+    ?? { actif: true, role: 'administrateur', perms: permsToutes(), empreinteMdp: 'emp-actuelle', versionSession: null });
 });
 
 async function requete(pathname: string, session: SessionAdmin | null): Promise<NextRequest> {
   const headers = new Headers();
   if (session) {
+    if (session.sub !== null) {
+      miroir.set(session.sub, { actif: true, role: session.role, perms: session.role === 'administrateur' ? permsToutes() : session.perms,
+        empreinteMdp: session.empreinteMdp ?? 'emp-actuelle', versionSession: null });
+    }
     const jeton = await signerJeton(session);
     headers.set('cookie', `${NOM_COOKIE}=${jeton}`);
   }
@@ -497,5 +505,80 @@ describe('proxy — contrôle d’origine des requêtes qui modifient (point 6)'
 
   it('client hors navigateur (ni Origin ni Sec-Fetch-Site : script, curl) → non concerné, la session décide', async () => {
     expect((await proxy(await ecriture('/api/admin/comptes', {}))).status).not.toBe(403);
+  });
+});
+
+// ══ 🔴 Arno (21/10/2026) — UNE PERMISSION AJOUTÉE OU RETIRÉE S'APPLIQUE IMMÉDIATEMENT, SANS RECONNEXION ════════════════════════
+// Constat en production : « Location » et « Gestion » cochées et enregistrées pour un collaborateur, la tuile restait fermée —
+// le jeton (8 h) portait les droits de la connexion, et le proxy prenait jeton ∩ base (un ajout attendait la reconnexion) ;
+// le menu et les tuiles de l'accueil lisaient le jeton seul. Désormais la BASE fait foi, et le jeton est réémis.
+describe('proxy — permissions appliquées immédiatement, sans reconnexion (21/10/2026)', () => {
+  const { verifierJeton, sessionDepuisPayload } = { verifierJeton: async (j: string) => (await import('./session')).verifierJeton(j), sessionDepuisPayload: (p: Record<string, unknown>) => sessionDepuisPayloadReel(p) };
+  const base = (perms: Record<string, boolean>, role = 'collaborateur') => ({ actif: true, role, perms: { ...permsAucune(), ...perms }, empreinteMdp: 'emp-actuelle', versionSession: null });
+  const jetonDe = (res: Response, entete: 'set-cookie' | 'x-middleware-request-cookie'): string | null => {
+    const brut = res.headers.get(entete) ?? '';
+    const m = new RegExp(`${NOM_COOKIE}=([^;,\\s]+)`).exec(brut);
+    return m === null || m[1] === '' ? null : m[1];
+  };
+  const pjb = collab(); // la session ouverte AVANT la coche : aucun droit
+
+  it('AJOUT : « Location » + « Gestion » cochées en base → /admin/location et /api/admin/location passent, sans reconnexion', async () => {
+    lireEtatCompte.mockResolvedValue(base({ location: true, gestion: true }));
+    const page = await proxy(await requete('/admin/location', pjb));
+    expect(page.status).not.toBe(307);
+    expect(page.headers.get('location')).toBeNull();
+    expect((await proxy(await requete('/api/admin/location?liste=biens', pjb))).status).not.toBe(403);
+    expect((await proxy(await requete('/admin/gestion', pjb))).headers.get('location')).toBeNull();
+  });
+
+  it('AJOUT : le jeton est RÉÉMIS (même compte, même session, même expiration) — transmis à la page ET au navigateur ; la tuile apparaît au prochain chargement', async () => {
+    const avant = await signerJeton(pjb);
+    const pAvant = (await verifierJeton(avant))!;
+    lireEtatCompte.mockResolvedValue(base({ location: true, gestion: true }));
+    const res = await proxy(new NextRequest(new URL('http://local/admin'), { headers: new Headers({ cookie: `${NOM_COOKIE}=${avant}` }) }));
+    const navigateur = jetonDe(res, 'set-cookie');
+    const page = jetonDe(res, 'x-middleware-request-cookie');
+    expect(navigateur).not.toBeNull();
+    expect(page).toBe(navigateur);
+    const p = (await verifierJeton(navigateur!))!;
+    expect([p.sub, p.jti, p.exp, p.iat]).toEqual([pAvant.sub, pAvant.jti, pAvant.exp, pAvant.iat]);
+    const s = sessionDepuisPayload(p as Record<string, unknown>);
+    expect(s.perms).toEqual({ ...permsAucune(), location: true, gestion: true });
+    // Ce que l'accueil et le menu calculent à partir du cookie : la tuile « Location » est là.
+    const { liensVisibles } = await import('../../(admin)/admin/(protected)/menuAdmin');
+    expect(liensVisibles(s.role, s.perms).map((l) => l.slug)).toEqual(expect.arrayContaining(['/admin/location', '/admin/gestion']));
+    expect(liensVisibles(sessionDepuisPayload(pAvant as Record<string, unknown>).role, sessionDepuisPayload(pAvant as Record<string, unknown>).perms).map((l) => l.slug))
+      .not.toContain('/admin/location');
+  });
+
+  it('RETRAIT : « Location » décochée en base, jeton qui la porte encore → URL directe refusée (page et API) ET menu sans la tuile', async () => {
+    const avec = collab({ ...permsAucune(), location: true, gestion: true });
+    lireEtatCompte.mockResolvedValue(base({ gestion: true }));
+    const page = await proxy(await requete('/admin/location', avec));
+    expect(page.headers.get('location')).toMatch(/\/admin$/);
+    expect((await proxy(await requete('/api/admin/location', avec))).status).toBe(403);
+    const p = (await verifierJeton(jetonDe(page, 'set-cookie')!))!;
+    const s = sessionDepuisPayload(p as Record<string, unknown>);
+    expect(s.perms).toEqual({ ...permsAucune(), gestion: true });
+    const { liensVisibles } = await import('../../(admin)/admin/(protected)/menuAdmin');
+    expect(liensVisibles(s.role, s.perms).map((l) => l.slug)).not.toContain('/admin/location');
+  });
+
+  it('ADMINISTRATEUR non affecté : partout, et aucun jeton réémis tant que rien ne change', async () => {
+    lireEtatCompte.mockResolvedValue(base({}, 'administrateur'));
+    for (const chemin of ['/admin/location', '/admin/comptes', '/api/admin/comptes', '/admin/gestion']) {
+      const res = await proxy(await requete(chemin, admin()));
+      expect(res.status, chemin).not.toBe(403);
+      expect(res.headers.get('location'), chemin).toBeNull();
+      expect(jetonDe(res, 'set-cookie'), chemin).toBeNull();
+    }
+  });
+
+  it('RIEN NE CHANGE : collaborateur dont la base dit la même chose que le jeton → pas de jeton réémis', async () => {
+    const meme = collab({ ...permsAucune(), location: true });
+    lireEtatCompte.mockResolvedValue(base({ location: true }));
+    const res = await proxy(await requete('/admin/location', meme));
+    expect(res.headers.get('location')).toBeNull();
+    expect(jetonDe(res, 'set-cookie')).toBeNull();
   });
 });

@@ -17,8 +17,11 @@ import { permsAucune, permsToutes, MODULES, type Perms, type RoleAdmin, type Ses
  *  · le jeton porte la VERSION de session (`ver`) : la déconnexion et la désactivation l'incrémentent (colonne
  *    `session_version`, migration 356 NON appliquée ; tant qu'elle manque, ce contrôle est sauté — repli sûr, les deux
  *    précédents restent actifs) ;
- *  · droits EFFECTIFS = droits du jeton ∩ droits en base, rôle administrateur seulement s'il l'est dans les deux : un
- *    retrait s'applique à la requête suivante ; un ajout attend la prochaine connexion (comme avant).
+ *  · 🔴 Arno (21/10/2026) : droits et rôle EFFECTIFS = ceux de la BASE, relus à chaque requête — un ajout comme un retrait
+ *    s'appliquent à la requête suivante, sans reconnexion. (Avant : droits du jeton ∩ droits en base — un retrait valait tout
+ *    de suite, mais un AJOUT attendait la prochaine connexion, jusqu'à 8 h : la tuile cochée restait fermée.) Le proxy
+ *    réémet alors le jeton avec ces droits (`reemettreJeton`), pour que le menu, les tuiles et les pages qui lisent le
+ *    cookie voient les mêmes droits dès cette requête.
  * Un jeton émis avant ce lot (sans `emp`) reste accepté jusqu'à son expiration, mais subit les contrôles en base.
  */
 
@@ -77,9 +80,11 @@ export function verdictSession(payload: Record<string, unknown>, session: Sessio
     const ver = typeof payload.ver === 'number' && Number.isFinite(payload.ver) ? payload.ver : 0;
     if (ver !== etat.versionSession) return { valide: false, motif: 'session_revoquee' };
   }
-  const role: RoleAdmin = session.role === 'administrateur' && etat.role === 'administrateur' ? 'administrateur' : 'collaborateur';
+  // 🔴 Arno (21/10/2026) : la BASE fait foi (rôle et droits actuels) — un ajout s'applique sans reconnexion, un retrait aussi.
+  void session;
+  const role: RoleAdmin = etat.role === 'administrateur' ? 'administrateur' : 'collaborateur';
   const perms = permsAucune();
-  for (const m of MODULES) perms[m] = role === 'administrateur' || (session.perms[m] && etat.perms[m]);
+  for (const m of MODULES) perms[m] = role === 'administrateur' || etat.perms[m];
   return { valide: true, role, perms };
 }
 

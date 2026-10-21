@@ -40,14 +40,21 @@ describe('verdictSession (pur)', () => {
     expect(verdictSession({ emp: 'E1', ver: 5 }, collab(), etat({ versionSession: null })).valide).toBe(true); // migration 356 absente
   });
 
-  it('droits EFFECTIFS = jeton ∩ base ; administrateur seulement si les DEUX le disent', () => {
+  it('🔴 Arno (21/10/2026) — droits et rôle EFFECTIFS = ceux de la BASE : un retrait ET un ajout valent tout de suite, sans reconnexion', () => {
     const v = verdictSession({}, collab({ ...permsAucune(), curation: true, gestion: true }), etat({ perms: { ...permsAucune(), curation: true } }));
     expect(v.valide && v.perms).toEqual({ ...permsAucune(), curation: true }); // gestion retirée en base → retirée tout de suite
-    const ajout = verdictSession({}, collab(), etat({ perms: permsToutes() }));
-    expect(ajout.valide && ajout.perms.pilotage).toBe(false); // un ajout attend la prochaine connexion
+    const ajout = verdictSession({}, collab(), etat({ perms: { ...permsAucune(), curation: true, location: true, gestion: true } }));
+    expect(ajout.valide && ajout.perms).toEqual({ ...permsAucune(), curation: true, location: true, gestion: true }); // ajout : tout de suite
+    // Jeton administrateur, compte collaborateur en base → collaborateur (jamais plus que la base).
     const admin: SessionAdmin = { ...collab(permsToutes()), role: 'administrateur' };
-    expect(verdictSession({}, admin, etat()).valide && verdictSession({}, admin, etat())).toMatchObject({ role: 'collaborateur' });
+    expect(verdictSession({}, admin, etat())).toEqual({ valide: true, role: 'collaborateur', perms: { ...permsAucune(), curation: true } });
+    // Administrateur en base : toutes permissions (promotion comprise) ; un administrateur n'est jamais affecté.
     expect(verdictSession({}, admin, etat({ role: 'administrateur', perms: permsToutes() }))).toEqual({ valide: true, role: 'administrateur', perms: permsToutes() });
+    expect(verdictSession({}, collab(), etat({ role: 'administrateur', perms: permsAucune() }))).toEqual({ valide: true, role: 'administrateur', perms: permsToutes() });
+    // Les refus d'avant ne changent pas : inactif, mot de passe changé, session révoquée.
+    expect(verdictSession({}, collab(), etat({ actif: false }))).toEqual({ valide: false, motif: 'compte_inactif' });
+    expect(verdictSession({ emp: 'E0' }, collab(), etat())).toEqual({ valide: false, motif: 'mot_de_passe_change' });
+    expect(verdictSession({ ver: 1 }, collab(), etat({ versionSession: 2 }))).toEqual({ valide: false, motif: 'session_revoquee' });
   });
 });
 

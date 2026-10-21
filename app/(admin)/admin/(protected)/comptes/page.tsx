@@ -286,9 +286,10 @@ export function DetailContenu({
         <p className="cpt-note">Un administrateur a toutes les permissions et ne peut être ni rétrogradé ni désactivé depuis l’interface (accès serveur requis).</p>
       )}
 
-      <p className="cpt-note">
-        Un changement de permission prend effet <strong>immédiatement</strong> sur les écritures ; l’accès aux pages
-        et le menu se mettent à jour à la prochaine connexion de l’intéressé (au plus 8 h).
+      {/* Arno (21/10/2026) : la base fait foi à chaque requête (proxy) — plus d'attente de la prochaine connexion. */}
+      <p className="cpt-note" data-note-effet>
+        <strong>Prend effet immédiatement</strong> : écritures, accès aux pages et menu, sans reconnexion de l’intéressé
+        (au prochain chargement de page).
       </p>
       {msg && <p className="cpt-note" role="status">{msg}</p>}
 

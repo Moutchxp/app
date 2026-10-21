@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { NOM_COOKIE, verifierJeton, sessionDepuisPayload, type Module } from './app/lib/admin/session';
+import { droitsDifferents, NOM_COOKIE, optionsCookie, reemettreJeton, verifierJeton, sessionDepuisPayload, type Module } from './app/lib/admin/session';
 import { lireEtatCompte, verdictSession, type EtatCompte } from './app/lib/admin/etatSession';
 import { origineAutorisee } from './app/lib/admin/controleOrigine';
 
@@ -200,6 +200,33 @@ export async function proxy(request: NextRequest) {
   }
   session = { ...session, role: verdict.role, perms: verdict.perms };
 
+  // ═══ DROITS ACTUELS, SANS RECONNEXION (Arno, 21/10/2026) ═══
+  // Le rôle et les droits viennent de la BASE (verdictSession). S'ils diffèrent de ceux du jeton (permission ajoutée ou retirée,
+  // promotion), le jeton est RÉÉMIS avec les droits actuels — même compte, même session (jti), même expiration : il est
+  // transmis à la page de CETTE requête (menu, tuiles et pages qui lisent le cookie) et renvoyé au navigateur.
+  let jetonFrais: string | null = null;
+  if (droitsDifferents(payload, verdict.role, verdict.perms)) {
+    try {
+      jetonFrais = await reemettreJeton(payload, verdict.role, verdict.perms);
+    } catch {
+      jetonFrais = null; // jamais bloquant : les gardes ci-dessous décident déjà avec les droits de la base
+    }
+  }
+  const avecJeton = <T extends NextResponse>(res: T): T => {
+    if (jetonFrais !== null) {
+      const reste = typeof payload.exp === 'number' ? Math.max(0, payload.exp - Math.floor(Date.now() / 1000)) : undefined;
+      res.cookies.set(NOM_COOKIE, jetonFrais, { ...optionsCookie(process.env.NODE_ENV === 'production'), ...(reste === undefined ? {} : { maxAge: reste }) });
+    }
+    return res;
+  };
+  const suivre = (): NextResponse => {
+    if (jetonFrais === null) return NextResponse.next();
+    const entetes = new Headers(request.headers);
+    const autres = (request.headers.get('cookie') ?? '').split(';').map((x) => x.trim()).filter((x) => x !== '' && !x.startsWith(`${NOM_COOKIE}=`));
+    entetes.set('cookie', [...autres, `${NOM_COOKIE}=${jetonFrais}`].join('; '));
+    return avecJeton(NextResponse.next({ request: { headers: entetes } }));
+  };
+
   // ═══ ENFORCEMENT PREMIÈRE CONNEXION (M3-4 Lot B) ═══
   // TANT QUE doitChanger : tout l'admin est bloqué SAUF la page/route de changement (whitelist EXACTE ci-dessus ;
   // la déconnexion est déjà passée en whitelist publique). Placé EN AMONT de la table chemin→permission ET du défaut
@@ -208,9 +235,9 @@ export async function proxy(request: NextRequest) {
   // `doitChanger=false` forcé (session.ts) → jamais concerné.
   if (session.doitChanger && !CHEMINS_CHANGEMENT_MDP.has(pathname)) {
     if (estApi) {
-      return NextResponse.json({ erreur: 'CHANGEMENT_REQUIS' }, { status: 403 });
+      return avecJeton(NextResponse.json({ erreur: 'CHANGEMENT_REQUIS' }, { status: 403 }));
     }
-    return NextResponse.redirect(new URL('/admin/compte/mot-de-passe', request.url), 302);
+    return avecJeton(NextResponse.redirect(new URL('/admin/compte/mot-de-passe', request.url), 302));
   }
 
   // ═══ SURFACES RÉSERVÉES AU RÔLE administrateur EN DUR ═══
@@ -219,9 +246,9 @@ export async function proxy(request: NextRequest) {
   // `session.role === 'administrateur'` → autorisée. Collaborateur → 403 (API) / redirection accueil (page).
   if ((estAdministratif(pathname) || estAudit(pathname)) && session.role !== 'administrateur') {
     if (estApi) {
-      return new NextResponse(null, { status: 403 });
+      return avecJeton(new NextResponse(null, { status: 403 }));
     }
-    return NextResponse.redirect(new URL('/admin', request.url));
+    return avecJeton(NextResponse.redirect(new URL('/admin', request.url)));
   }
 
   const requise = permissionRequise(pathname);
@@ -231,11 +258,11 @@ export async function proxy(request: NextRequest) {
   if (requise !== null) {
     if (!session.perms[requise]) {
       if (estApi) {
-        return new NextResponse(null, { status: 403 });
+        return avecJeton(new NextResponse(null, { status: 403 }));
       }
-      return NextResponse.redirect(new URL('/admin', request.url));
+      return avecJeton(NextResponse.redirect(new URL('/admin', request.url)));
     }
-    return NextResponse.next();
+    return suivre();
   }
 
   // ═══ DÉFAUT FAIL-CLOSED (durcissement — remplace l'ancien fail-open `return null`) ═══
@@ -245,10 +272,10 @@ export async function proxy(request: NextRequest) {
   // Tout le reste (route/page inconnue — typiquement un futur endpoint ajouté SANS déclaration) → REFUSÉ. Ferme
   // le foot-gun : une route non listée n'est plus accessible à un collaborateur du seul fait qu'il est authentifié.
   // Les gardes internes (garde.ts) restent en place en aval : défense en profondeur, deux barrières indépendantes.
-  if (session.role === 'administrateur') return NextResponse.next();
-  if (CHEMINS_AUTHENTIFIE_SEUL.has(pathname)) return NextResponse.next();
+  if (session.role === 'administrateur') return suivre();
+  if (CHEMINS_AUTHENTIFIE_SEUL.has(pathname)) return suivre();
   if (estApi) {
-    return new NextResponse(null, { status: 403 });
+    return avecJeton(new NextResponse(null, { status: 403 }));
   }
-  return NextResponse.redirect(new URL('/admin', request.url));
+  return avecJeton(NextResponse.redirect(new URL('/admin', request.url)));
 }
