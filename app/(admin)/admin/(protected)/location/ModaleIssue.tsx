@@ -24,7 +24,7 @@ export interface ActionIssue {
   repere?: string;
 }
 
-export function ModaleIssue({ sorte, titre, lignes = [], echec, notes = [], actions, onFermer }: {
+export function ModaleIssue({ sorte, titre, lignes = [], echec, notes = [], actions, onFermer, children }: {
   sorte: 'succes' | 'erreur' | 'attention';
   titre: string;
   /** Le résumé (succès) : [libellé, valeur]. */
@@ -35,6 +35,8 @@ export function ModaleIssue({ sorte, titre, lignes = [], echec, notes = [], acti
   notes?: string[];
   actions: ActionIssue[];
   onFermer: () => void;
+  /** Un contenu propre à la modale (ex. la liste des biens de « Rattacher à un bien »), avant les boutons. */
+  children?: ReactNode;
 }) {
   const idTitre = useId();
   const boite = useRef<HTMLDivElement | null>(null);
@@ -67,6 +69,7 @@ export function ModaleIssue({ sorte, titre, lignes = [], echec, notes = [], acti
           </dl>
         )}
         {notes.map((n, i) => <p key={`${i}-${n}`} className="mis-note" data-note>{n}</p>)}
+        {children}
         <div className="mis-actions">
           {actions.map((a) => (a.href !== undefined
             ? <a key={a.libelle} href={a.href} className={`svv-btn ${a.principal ? 'svv-btn-primary' : 'svv-btn-outline'} gst-btn mis-action`} {...(a.repere ? { [`data-${a.repere}`]: '' } : {})}>{a.libelle}</a>

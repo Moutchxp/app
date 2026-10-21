@@ -119,7 +119,8 @@ export async function detacherAnnexeDans(q: RequeteTx, annexeId: number, detache
     : o.motif === 'reintegration' ? 'réintégrée : de nouveau dans la fiche du logement (mêmes locataires)'
       : 'rattachée : de nouveau dans l’ensemble loué avec le logement';
   const action = detacher ? 'location_annexe_detachee' : o.motif === 'reintegration' ? 'location_annexe_reintegree' : 'location_annexe_rattachee';
-  await journalDans(q, annexeId, action, `annexe ${mot}${detacher ? ` — ${o.motif}` : ''}`, auteur);
+  // Arno (21/10/2026) : « quel lot, quel bien » — le bien principal est nommé côté annexe aussi.
+  await journalDans(q, annexeId, action, `annexe ${mot} (bien principal ${parent})${detacher ? ` — ${o.motif}` : ''}`, auteur);
   await journalDans(q, parent, action, `annexe ${annexeId} ${mot}`, auteur);
   if (await regroupementDisponible()) {
     if (detacher && o.ficheSeule !== false) {

@@ -24,6 +24,8 @@ import type {
 import { BarreAnnuaire } from './BarreAnnuaire';
 import { SectionLocationBien, SectionLocationLocataire, SectionLocationProprietaire } from './SectionsLocationFiche';
 import { EnvoiAdhocMonga, useBauxEnCoursDesBiens, type BailEnCoursDuBien } from '../location/EnvoiAdhocMonga';
+import { AnnexesDeLaFiche, CasesAnnexes, RattacherABien } from './AnnexesDuBien';
+import { estLotAnnexe, motCompteur, typeDuLot, type AnnexeAffichee, type CandidatRattachement } from '../../../../lib/gestion/annexesBien';
 /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — la moitié « fiche » du calcul des PARTIES, descendue dans un module
    PUR pour que la fenêtre des pièces jointes lise exactement la même, et non une copie. */
 import { categoriesDeLaFiche } from '../../../../lib/gestion/familleDestinataire';
@@ -557,7 +559,7 @@ export function Annuaire({
           {detail === null || detail.etat === 'charge' ? <p className="gst-info" role="status">Chargement…</p>
             : detail.etat === 'erreur' ? <p className="gst-erreur" role="status">{detail.message}</p>
               : detail.etat === 'proprietaire'
-                ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique}
+                ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} onRecharger={recharger}
                   gestes={gestes} onCreer={creerEtRattacher} onHistoriqueDuBien={ouvrirVieDuBien}
                   onEvenements={ouvrirEvenements} onOuvrirFil={onOuvrirFil} />
                 : detail.etat === 'lot'
@@ -750,9 +752,18 @@ export function EtiquetteHorsGestion() {
   return <span className="ann-etiq ann-etiq--hors-gestion" data-hors-gestion>Hors gestion</span>;
 }
 
+/** Une annexe de la fiche (un bien de la liste) en case. PUR. */
+function versAnnexeAffichee(a: BienDuProprietaire): AnnexeAffichee {
+  return { id: a.id, categorie: a.categorie ?? null, etage: a.etageSaisi ?? null, nature: a.nature, typeBien: a.typeBien, porte: a.porte ?? null,
+    numLotCopro: a.numLotCopro ?? null, adresse: a.adresse, commune: a.commune };
+}
+
 /** « Annexe du logement 25 Rue Henri Barbusse » ; « Annexes : Cave, Parking » ; `null` sans lien. PUR (Arno, 21/10/2026). */
-export function motAnnexe(b: Pick<BienDuProprietaire, 'annexeDe' | 'annexes'>): string | null {
+export function motAnnexe(b: Pick<BienDuProprietaire, 'annexeDe' | 'annexes' | 'detachee'>): string | null {
   const cat = (c: string | null | undefined): string => (c ? (LIBELLE_CATEGORIE[c as Categorie] ?? c) : 'Annexe');
+  if (b.annexeDe && (b as { detachee?: boolean }).detachee === true) {
+    return `Annexe détachée du ${b.annexeDe.categorie ? cat(b.annexeDe.categorie).toLowerCase() : 'bien'}${b.annexeDe.adresse ? ` ${b.annexeDe.adresse}` : ` n° ${b.annexeDe.id}`} — bien à part entière`;
+  }
   if (b.annexeDe) return `Annexe du ${b.annexeDe.categorie ? cat(b.annexeDe.categorie).toLowerCase() : 'bien'}${b.annexeDe.adresse ? ` ${b.annexeDe.adresse}` : ` n° ${b.annexeDe.id}`}`;
   const liste = (b.annexes ?? []).map(cat);
   return liste.length === 0 ? null : `${liste.length > 1 ? 'Annexes' : 'Annexe'} : ${liste.join(', ')}`;
@@ -777,13 +788,19 @@ function RefWippimmo({ numero }: { numero: string }) {
  * pastille de l'en-tête, qui n'apparaît que lorsqu'elle est connue (`pastillesBien`). Mesuré le 10/10/2026 : aucune
  * colonne de surface n'existe encore. On ne la déduit pas du type (« Type 2 » ne dit pas des mètres carrés).
  */
-function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexesRangees = [] }: {
+function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexesRangees = [], candidatsRattachement = null, onRecharger }: {
   b: BienDuProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   /**
    * Arno (21/10/2026) — SES ANNEXES (cave, parking…) présentes sur la même fiche : rangées DANS la carte du bien principal, avec
    * leur type, au lieu d'une carte à part (un logement et sa cave ne se lisent plus comme deux fois le même bien).
    */
   annexesRangees?: BienDuProprietaire[];
+  /**
+   * Arno (21/10/2026) — un bien AUTONOME de type annexe (détaché, ou jamais lié) : les biens principaux auxquels « Rattacher à un
+   * bien » peut le ranger ; `null` : pas d'action. `onRecharger` relit la fiche après un détachement / rattachement.
+   */
+  candidatsRattachement?: CandidatRattachement[] | null;
+  onRecharger?: () => void;
   /** Arno (21/10/2026) — le bail en cours du bien : le bouton discret « Envoyer à ADHOC & MONGA » (absent : pas de bouton). */
   envoi?: BailEnCoursDuBien;
   /** Ouvre la « vie du bien » de ce lot, filtrée sur les échanges qui portent un événement ouvert. */
@@ -827,6 +844,8 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
           {/* Arno (21/10/2026) — LE LIEN D'ANNEXE, écrit : un logement et sa cave, à la même adresse, ne se lisent plus comme deux
               fois le même bien (fiche CHALAH). Rien n'est retiré ni déplacé : chaque lot garde sa carte. */}
           {annexesRangees.length === 0 && (() => { const m = motAnnexe(b); return m === null ? null : <span className="ann-carte-sous ann-carte-annexe" data-lien-annexe>{m}</span>; })()}
+          {/* Arno (21/10/2026) — le COMPTEUR des lots liés, lisible d'un coup d'œil : « Logement · 2 annexes ». */}
+          {(() => { const c = motCompteur(typeDuLot(b, 'Bien'), annexesRangees.length); return c === null ? null : <span className="ann-carte-sous ann-carte-compteur" data-compteur-annexes>{c}</span>; })()}
         </span>
       </button>
       {/* LOT COPRO-PARCELLE-ALERTE-UNIQUE-ET-CONFLIT-SYNDICS — sous l'en-tête : « ⚠ Conflit possible … » (s'il y a lieu). */}
@@ -906,22 +925,20 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
           ⚠️ LE PIED SORT DU BOUTON DE LA CARTE, et c'est structurel : un bouton dans un bouton est du HTML
           invalide et injouable au clavier. */}
       <span className="ann-carte-pied">
-        {/* Arno (21/10/2026) — LES ANNEXES DU BIEN, rangées sous lui : type, étage, n° de porte / de place, n° de lot ; un clic ouvre
+        {/* Arno (21/10/2026) — LES ANNEXES EN CASES, sous les informations du bien, au-dessus de « Historique » : une case pleine
+            largeur par annexe (type en gras, N°, lot, niveau, adresse si elle diffère), « Détacher » dans chaque case ; un clic ouvre
             la fiche de l'annexe. Elles ne comptent pas comme des biens en gestion à part. */}
         {annexesRangees.length > 0 && (
-          <div className="ann-carte-annexes" data-annexes-rangees>
-            <span className="ann-fait-mot">{annexesRangees.length > 1 ? 'Annexes' : 'Annexe'}</span>
-            <ul>
-              {annexesRangees.map((a) => (
-                <li key={a.id}>
-                  <button type="button" className="ann-annexe-rangee" onClick={() => ouvrir('lot', a.id)} data-annexe-rangee={a.id}>
-                    {[...pastillesBien(a), a.porte ? `${a.categorie === 'parking' || a.categorie === 'box' ? 'place' : 'n°'} ${a.porte}` : null,
-                      a.numLotCopro ? `lot ${a.numLotCopro}` : null].filter((x): x is string => x !== null && x !== '').join(' · ')}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <span className="ann-carte-annexes" data-annexes-rangees>
+            <CasesAnnexes annexes={annexesRangees.map(versAnnexeAffichee)} bien={{ adresse: b.adresse, commune: b.commune }}
+              typePrincipal={typeDuLot(b, 'Bien')} onOuvrir={(id) => ouvrir('lot', id)} onApres={() => onRecharger?.()} />
+          </span>
+        )}
+        {/* Un bien AUTONOME de type annexe : « Rattacher à un bien » (redevient une case sous le bien choisi). */}
+        {candidatsRattachement !== null && (
+          <span className="ann-carte-annexes" data-carte-autonome>
+            <RattacherABien lotId={b.id} typeLot={typeDuLot(b)} candidats={candidatsRattachement} onApres={() => onRecharger?.()} />
+          </span>
         )}
         <button type="button" className="svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large"
           onClick={() => onHistoriqueDuBien(b.id)}>
@@ -965,8 +982,10 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
 }
 
 function VueProprietaire({
-  f, ouvrir, onHistorique, gestes, onCreer, onHistoriqueDuBien, onEvenements, onOuvrirFil,
+  f, ouvrir, onHistorique, gestes, onCreer, onHistoriqueDuBien, onEvenements, onOuvrirFil, onRecharger,
 }: {
+  /** Relit la fiche (après un détachement / rattachement d'annexe — Arno, 21/10/2026). */
+  onRecharger?: () => void;
   f: FicheProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
   onHistorique?: (cible: Cible) => void;
   /**
@@ -989,7 +1008,19 @@ function VueProprietaire({
   /* Arno (21/10/2026) — une ANNEXE dont le bien principal est sur cette fiche se range SOUS lui : ni carte à part, ni compte
      dans le nombre des biens gérés. Une annexe dont le bien principal n'est pas sur la fiche garde sa carte (avec son lien écrit). */
   const surLaFiche = new Set(f.biens.map((b) => b.id));
-  const rangee = (b: BienDuProprietaire): boolean => b.annexeDe != null && surLaFiche.has(b.annexeDe.id) && b.annexeDe.id !== b.id;
+  // Une annexe DÉTACHÉE est un bien à part entière (Arno, 21/10/2026) : sa propre carte, comptée comme un bien.
+  const rangee = (b: BienDuProprietaire): boolean => b.annexeDe != null && b.detachee !== true && surLaFiche.has(b.annexeDe.id) && b.annexeDe.id !== b.id;
+  /** « Rattacher à un bien » : une annexe détachée → son bien d'origine ; un lot de type annexe jamais lié → les biens principaux
+      en gestion du même titulaire (qui ne sont pas eux-mêmes des annexes). `null` : pas d'action sur cette carte. */
+  const candidatsDe = (b: BienDuProprietaire): CandidatRattachement[] | null => {
+    if (b.annexeDe != null) {
+      return b.detachee === true ? [{ id: b.annexeDe.id, adresse: b.annexeDe.adresse, commune: f.biens.find((x) => x.id === b.annexeDe?.id)?.commune ?? null, categorie: b.annexeDe.categorie, origine: true }] : null;
+    }
+    if (!estLotAnnexe({ categorie: b.categorie ?? null, nature: b.nature, typeBien: b.typeBien })) return null;
+    return f.biens.filter((x) => x.id !== b.id && x.annexeDe == null && x.fin === null && x.titulaireId != null && x.titulaireId === b.titulaireId
+      && !estLotAnnexe({ categorie: x.categorie ?? null, nature: x.nature, typeBien: x.typeBien }))
+      .map((x) => ({ id: x.id, adresse: x.adresse, commune: x.commune, categorie: x.categorie ?? null, origine: false }));
+  };
   const annexesDe = (id: number): BienDuProprietaire[] => f.biens.filter((x) => rangee(x) && x.annexeDe?.id === id);
   const enGestion = f.biens.filter(bienEnGestion).filter((b) => !rangee(b));
   // ⚠️ Les GESTES qui portent sur « tous les biens en gestion de la fiche » (ajouter un co-propriétaire) gardent la liste
@@ -1103,6 +1134,7 @@ function VueProprietaire({
         {enGestion.length === 0 ? <p className="ann-gris">Aucun bien en gestion.</p> : (
           <ul className="ann-cartes">
             {enGestion.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir} annexesRangees={annexesDe(b.id)}
+              candidatsRattachement={candidatsDe(b)} onRecharger={onRecharger}
               onHistoriqueDuBien={onHistoriqueDuBien} onEvenements={onEvenements} envoi={bauxEnCours[String(b.id)]} />)}
           </ul>
         )}
@@ -1119,7 +1151,7 @@ function VueProprietaire({
           </button>
           {anciensOuverts && (
             <ul className="ann-cartes">
-              {anciens.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir} annexesRangees={annexesDe(b.id)}
+              {anciens.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir} annexesRangees={annexesDe(b.id)} onRecharger={onRecharger}
                 onHistoriqueDuBien={onHistoriqueDuBien} onEvenements={onEvenements} />)}
             </ul>
           )}
@@ -1584,6 +1616,9 @@ function VueLot({
           <ResumeBienFiche f={f} ouvrir={ouvrir} />
         </div>
       </section>
+      {/* Arno (21/10/2026) — LES ANNEXES DU BIEN, en cases sous ses informations (compteur, « Détacher ») ; un bien autonome de
+          type annexe : « Rattacher à un bien ». Rien s'il n'y a rien à dire. */}
+      <AnnexesDeLaFiche lotId={Number(f.id)} bien={{ adresse: f.adresse, commune: f.commune }} onOuvrir={(id) => ouvrir('lot', id)} />
 
       {/* ══ 🔴 LES PROPRIÉTAIRES DU BIEN, EN CARTES — avec « Remplacer » pour une vente ═══════════════════════════ */}
       <BlocCartes titre={`Propriétaire${f.proprietaires.length > 1 ? 's' : ''}`} id="ann-prop" famille="propriétaire"
@@ -2354,6 +2389,12 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
           « Historique » au-dessus quand le lot est dans l'annuaire. Deux cartes qui montrent le même objet ne
           peuvent pas se présenter de deux façons — on réapprendrait à lire d'un écran à l'autre. */}
       <span className="ann-carte-pied">
+        {/* Arno (21/10/2026) — les annexes du logement, en cases, au-dessus de « Historique » (le même composant que partout). */}
+        {o.lotId !== null && (
+          <span className="ann-carte-annexes" data-annexes-logement>
+            <AnnexesDeLaFiche lotId={o.lotId} bien={{ adresse: o.adresse, commune: o.commune }} onOuvrir={(id) => ouvrir('lot', id)} />
+          </span>
+        )}
         {o.lotId !== null && (
           <button type="button" className="svv-btn svv-btn-outline gst-btn ann-carte-bouton ann-carte-bouton--large"
             onClick={() => onHistoriqueDuBien(o.lotId as number)}>
@@ -2773,13 +2814,11 @@ export const CSS_ANNUAIRE = `
 .ann-carte-bas .ann-carte-ref{padding:0;margin:0;flex:0 0 auto}
 .ann-carte-bas .eam--discret{flex:0 1 auto;min-width:0}
 .ann-tete-envoi{display:block;margin-top:.1rem}
-/* Arno (21/10/2026) : les annexes rangees sous leur bien principal (type, etage, porte, lot) ; un clic ouvre leur fiche. */
+/* Arno (21/10/2026) : les annexes en cases sous leur bien principal (composant AnnexesDuBien) ; le compteur en tete de carte. */
 .ann-carte-annexes{display:flex;flex-direction:column;gap:.25rem;padding:0 0 4px;min-width:0}
-.ann-carte-annexes ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.25rem}
-.ann-annexe-rangee{display:block;width:100%;text-align:left;min-height:36px;padding:.35rem .6rem;box-sizing:border-box;font:inherit;font-size:.8rem;
-  color:var(--color-svv-ink);background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:8px;cursor:pointer;overflow-wrap:anywhere}
-.ann-annexe-rangee:hover{border-color:var(--color-svv-line-strong)}
-.ann-annexe-rangee:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.ann-carte-annexes:empty{display:none}
+.ann-carte-sous.ann-carte-compteur{font-size:.8rem;font-weight:800;color:var(--color-svv-ink);line-height:1.3}
+.ann-carte-sous.ann-carte-annexe{font-size:.78rem;font-weight:400;color:var(--color-svv-muted);line-height:1.3;overflow-wrap:anywhere}
 /* L'absence de dossier Drive se DIT, a la place du bouton, et reste centree sur la meme ligne de base. */
 .ann-carte-sans{display:inline-flex;align-items:center;justify-content:center;text-align:center;
   min-height:36px;font-size:.76rem}

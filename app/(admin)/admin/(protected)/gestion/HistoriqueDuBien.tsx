@@ -3,6 +3,7 @@
 /* 🔴 LOT GESTION-HISTORIQUE-TACHES — la ligne repliable des tâches validées du bien. */
 import { HistoriqueTaches } from './HistoriqueTaches';
 import { HistoriqueEnvoisLocation } from './HistoriqueEnvoisLocation';
+import { HistoriqueAnnexes } from './AnnexesDuBien';
 import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — l'écran reste fixe au changement de classement (même geste que les tâches). */
@@ -3011,6 +3012,8 @@ export function HistoriqueDuBien({
           {personne === null && lotId !== null && <HistoriqueTaches lotId={lotId} />}
           {/* Arno (21/10/2026) — les envois « Nouvelle location » (ADHOC & MONGA) de ce bien : une bande repliable, sous les tâches. */}
           {personne === null && lotId !== null && <HistoriqueEnvoisLocation lotId={lotId} />}
+          {/* Arno (21/10/2026) — les détachements / rattachements d'annexes de ce bien (journalisés sur les deux biens). */}
+          {personne === null && lotId !== null && <HistoriqueAnnexes lotId={lotId} />}
 
           {/* ══ 🔴🔴 LE MESSAGE D'APRÈS-DÉPÔT, ET SON « ANNULER » ═══════════════════════════════════════════════
               Arno : « après le dépôt, petit message “Fanny Rosky → Locataire” avec “Annuler” quelques secondes. »

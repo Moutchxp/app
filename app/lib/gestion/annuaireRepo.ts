@@ -1060,6 +1060,13 @@ export interface BienDuProprietaire {
   /** Le n° de porte / de place et le n° de lot de copropriété (372) : ce qui décrit une annexe rangée sous son bien. */
   porte?: string | null;
   numLotCopro?: string | null;
+  /**
+   * Arno (21/10/2026) — une annexe DÉTACHÉE (`annexe_detachee_le`, migration 379) : bien à part entière, avec sa carte, comptée
+   * comme un bien ; son lien d'origine reste (table en ajout seul). Et le titulaire du lot (rattacher : même propriétaire).
+   */
+  detachee?: boolean;
+  detacheeLe?: string | null;
+  titulaireId?: number | null;
 }
 
 export interface FicheProprietaire {
@@ -1798,6 +1805,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
   const avecPieces = await colonneExisteMemo('gestion_annuaire_lot', 'nombre_pieces');
   const avecAnnexes = await colonneExisteMemo('gestion_lot_annexe', 'annexe_id');
   const avecLotCopro = await colonneExisteMemo('gestion_annuaire_lot', 'num_lot_copro');
+  const avecDetachement = await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le');
   /* Arno (20/10/2026, faille 6) : un bien en INDIVISION apparaît sur la fiche de CHAQUE copropriétaire — le titulaire
      (`proprietaire_id`) et les liens EN COURS de `gestion_annuaire_lot_proprietaire` (sans fin, ou fin à venir). Sondé.
      La MENTION « en indivision avec » ne cite que les autres copropriétaires ACTIFS de CE bien (`indivision.ts`). */
@@ -1810,11 +1818,13 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     mails: number; dernier_echange: string | null; evenements: number; dossier_bien?: string | null; dossier_proprietaire?: string | null;
     hors_gestion: boolean; indivision: string[] | null;
     categorie: string | null; nombre_pieces: number | null; etage_saisi: string | null; porte_saisie: string | null; num_lot_copro: string | null;
+    detachee_le: string | null; titulaire_id: string | null;
     annexe_de: string | null; annexe_de_adresse: string | null; annexe_de_categorie: string | null; annexes: string[] | null;
   }>(
     `SELECT ${avecCategorie ? 'lo.categorie, lo.etage AS etage_saisi' : 'NULL::text AS categorie, NULL::text AS etage_saisi'},
             ${avecPieces ? 'lo.nombre_pieces' : 'NULL::int AS nombre_pieces'},
             ${avecLotCopro ? 'lo.porte AS porte_saisie, lo.num_lot_copro' : 'NULL::text AS porte_saisie, NULL::text AS num_lot_copro'},
+            ${avecDetachement ? 'lo.annexe_detachee_le::text AS detachee_le' : 'NULL::text AS detachee_le'}, lo.proprietaire_id::text AS titulaire_id,
             ${avecAnnexes ? `pa.id::text AS annexe_de, pa.adresse AS annexe_de_adresse, ${avecCategorie ? 'pa.categorie' : 'NULL::text'} AS annexe_de_categorie,
             (SELECT array_agg(${avecCategorie ? "coalesce(af.categorie, 'annexe')" : "'annexe'"} ORDER BY af.id) FROM gestion_lot_annexe ax
                JOIN gestion_annuaire_lot af ON af.id = ax.annexe_id WHERE ax.parent_id = lo.id) AS annexes`
@@ -1899,6 +1909,7 @@ async function biensDuProprietaire(proprietaireId: number): Promise<BienDuPropri
     annexeDe: l.annexe_de === null ? null : { id: Number(l.annexe_de), adresse: l.annexe_de_adresse, categorie: l.annexe_de_categorie },
     annexes: l.annexes ?? [],
     porte: l.porte_saisie, numLotCopro: l.num_lot_copro,
+    detachee: l.detachee_le !== null, detacheeLe: l.detachee_le, titulaireId: l.titulaire_id === null ? null : Number(l.titulaire_id),
   }));
 }
 

@@ -524,6 +524,9 @@ export async function rattacherAnnexe(parentId: number, annexeId: number, auteur
       await q('INSERT INTO gestion_lot_annexe (annexe_id, parent_id, pose_par_libelle) VALUES ($1, $2, $3)', [annexeId, parentId, auteur.libelle]);
       await journaliser(q, 'annuaire_lot', parentId, 'location_annexe_rattachee', null, `annexe ${annexeId}`,
         'bien existant rattaché comme annexe de ce logement, dans la Location', auteur);
+      // Arno (21/10/2026) : journalisé sur les DEUX biens (qui, quand, quel lot, quel bien) — l'annexe le dit aussi.
+      await journaliser(q, 'annuaire_lot', annexeId, 'location_annexe_rattachee', null, `bien principal ${parentId}`,
+        'rattaché comme annexe de ce bien principal', auteur);
       return { etat: 'ok' as const, data: undefined };
     });
   } catch (e) { return refusOuErreur(e); }
