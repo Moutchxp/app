@@ -85,6 +85,14 @@ export const CSS_DPE_PNO = `
   /* Le DPE seul (ancienne page « Nouveau propriétaire + bien ») : une colonne. */
   .loc-dpe-pno.loc-dpe-pno--seul{grid-template-columns:minmax(0,44rem)}
 }
+/* « Paiement des charges » (Arno, 21/10/2026) : un petit encadré, même style que DPE / PNO, à la largeur de son contenu ; ses
+   pastilles passent à la ligne s'il le faut — jamais hors de l'encadré. */
+.loc-charges{display:flex;margin-top:18px;min-width:0}
+.loc-charges-bloc{display:flex;flex-direction:column;gap:10px;min-width:0;max-width:100%;box-sizing:border-box;
+  border:2px solid var(--color-svv-line);border-radius:20px;padding:18px 20px;background:var(--color-svv-field)}
+.loc-charges-bloc > h4{margin:0;font-size:1.08rem;font-weight:700;color:var(--color-svv-ink)}
+.loc-charges-mention{color:var(--color-svv-muted);font-size:.9rem;line-height:1.4}
+@media (max-width:600px){ .loc-charges-bloc{padding:16px 12px;width:100%} }
 /* Bureau étroit : DPE plus large que PNO, encadrés un peu resserrés (les pastilles gardent leur taille). */
 @media (min-width:900px) and (max-width:1099px){
   .loc-dpe-pno{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}

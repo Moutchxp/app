@@ -15,7 +15,7 @@ import {
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING, type ComplementsFiche,
   type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
-import { aRenseignerDuBien, DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS, titreAnnexe } from '../../../../lib/location/bienComplet';
+import { aRenseignerDuBien, CHARGES_COPRO, DPE_NON_SOUMIS, LIBELLE_CHARGES_COPRO, LIBELLE_DPE_NON_SOUMIS, PAYEES_PAR, titreAnnexe } from '../../../../lib/location/bienComplet';
 import { resumeAnnexe } from '../../../../lib/location/annexeLocation';
 import { libelleEntretien } from '../../../../lib/location/entretien';
 import { BlocEntretien, CSS_ENTRETIEN, versEnvoiEntretien, versSaisieEntretien } from '../location/EntretienBien';
@@ -686,11 +686,14 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     ascenseur: c.ascenseur === null ? '' : c.ascenseur ? 'oui' : 'non', digicode: c.digicode === null ? '' : c.digicode ? 'oui' : 'non',
     digicodeCode: c.digicodeCode ?? '', precisionAcces: c.precisionAcces ?? '', derniereAg: c.derniereAg ?? '',
     assurancePno: c.assurancePno === undefined || c.assurancePno === null ? '' : c.assurancePno ? 'oui' : 'non', pnoDateAnniversaire: c.pnoDateAnniversaire ?? '',
+    chargesCopro: c.chargesCopro ?? '',
   };
   // La dernière AG (Arno, 18/10/2026) : celle de l'IMMEUBLE du bien, partagée par ses lots ; masquée sans immeuble (parking nu).
   const avecAg = !annexe && c.agApplicable === true;
   // L'entretien à prévoir (Arno, 18/10/2026, migration 379) : sur le bien, pas sur une annexe ; absent sans la migration.
   const avecEntretien = !annexe && c.entretiens !== undefined;
+  // « Paiement des charges » (Arno, 21/10/2026, migration 400) : sur le bien, pas une annexe ; absent sans la migration.
+  const avecCharges = !annexe && c.chargesCopro !== undefined;
   const [entretien, setEntretien] = useState(() => versSaisieEntretien(c.entretienAPrevoir, c.entretiens));
   const [edition, setEdition] = useState(false);
   const [v, setV] = useState(initial);
@@ -705,10 +708,12 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     return () => { vivant = false; };
   }, [edition]);
   const enregistrer = async (): Promise<void> => {
-    const { derniereAg, assurancePno, pnoDateAnniversaire, ...reste } = v;
+    const { derniereAg, assurancePno, pnoDateAnniversaire, chargesCopro, ...reste } = v;
     // L'assurance PNO (Arno, 18/10/2026) : sur le bien (pas sur une annexe) ; Non (ou non renseigné) vide la date.
     const pno = annexe ? {} : { assurancePno, pnoDateAnniversaire: assurancePno === 'oui' ? pnoDateAnniversaire : '' };
-    const m = await envoyer({ action: 'complements-bien', id, champs: { ...(avecAg ? { ...reste, derniereAg } : reste), ...pno, ...(avecEntretien ? versEnvoiEntretien(entretien) : {}) } });
+    // « Paiement des charges » (Arno, 21/10/2026, migration 400) : sur le bien (pas une annexe), seulement si la fiche le montre.
+    const charges = avecCharges ? { chargesCopro } : {};
+    const m = await envoyer({ action: 'complements-bien', id, champs: { ...(avecAg ? { ...reste, derniereAg } : reste), ...pno, ...charges, ...(avecEntretien ? versEnvoiEntretien(entretien) : {}) } });
     setMotif(m);
     if (m === null) { setEdition(false); apres(); }
   };
@@ -735,6 +740,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     ['Meublé', c.meuble === null ? null : c.meuble ? 'Meublé' : 'Non meublé'],
     ['Surface habitable', c.surfaceHabitableM2 === null ? null : `${String(c.surfaceHabitableM2).replace('.', ',')} m²`],
     ['Bâtiment', c.batiment], ['Escalier', c.escalier], ['Syndic', c.syndicNom],
+    ...(avecCharges ? [['Charges de copropriété', c.chargesCopro ? PAYEES_PAR[c.chargesCopro] : null] as [string, string | null]] : []),
     ['Époque de construction', c.epoqueConstruction], ['Chauffage', c.chauffage],
     ['DPE', c.dpeNonSoumis === true ? 'non soumis (bien dispensé de DPE)' : c.dpeClasse === null && date === null ? null : [c.dpeClasse === null ? null : `classe ${c.dpeClasse}`, date === null ? null : `du ${date}`].filter((x) => x).join(' ')],
     ...(avecAg ? [[LIBELLE_AG, c.derniereAg ? new Date(`${c.derniereAg}T12:00:00`).toLocaleDateString('fr-FR') : null] as [string, string | null]] : []),
@@ -804,6 +810,7 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
             {champ('escalier', 'Escalier')}
             {choix('syndicId', 'Syndic (Gestion)', [...(c.syndicId !== null && !syndics.some((s) => s.id === c.syndicId) ? [[String(c.syndicId), c.syndicNom ?? `Syndic ${c.syndicId}`] as const] : []),
               ...syndics.map((x) => [String(x.id), x.nom] as const)])}
+            {avecCharges && choix('chargesCopro', 'Paiement des charges', CHARGES_COPRO.map((x) => [x, LIBELLE_CHARGES_COPRO[x]] as const))}
             {!parking && choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION.map((x) => [x, x] as const))}
             {!parking && choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}
             {!parking && choix('dpeClasse', 'Classe DPE', [...CLASSES_DPE.map((x) => [x, x] as const), [DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS] as const])}

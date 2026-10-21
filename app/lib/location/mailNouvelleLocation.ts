@@ -243,6 +243,8 @@ export interface LotSource {
   assurancePno: boolean | null; pnoAnniversaire: string | null;
   entretiens: string[];
   annotation: string | null; commentaire: string | null;
+  /** Arno (21/10/2026, migration 400) — qui règle les charges de copropriété au syndic (lot principal) ; absent = non renseigné. */
+  chargesCopro?: 'proprietaire' | 'agence' | null;
 }
 
 const m2 = (s: string | null): string | null => (present(s) ? `${s.replace('.', ',')} m²` : null);
@@ -287,6 +289,9 @@ export function lignesDuLot(l: LotSource): LigneMail[] {
     present(l.chauffage) ? { mot: 'Chauffage', valeur: l.chauffage.trim() } : null,
     dpe === null ? null : { mot: 'DPE', valeur: dpe },
     present(l.syndic) ? { mot: 'Syndic', valeur: l.syndic.trim() } : null,
+    // Arno (21/10/2026) : EN GRAS, juste après le syndic — information importante pour la comptabilité ; absente si non renseignée.
+    l.chargesCopro === 'proprietaire' || l.chargesCopro === 'agence'
+      ? { mot: 'Charges copro', valeur: l.chargesCopro === 'proprietaire' ? 'Payées par le propriétaire' : 'Payées par l’agence', fort: true } : null,
     present(l.derniereAg) ? { mot: 'Dernière AG', valeur: dateCourte(l.derniereAg) || l.derniereAg } : null,
     pno === null ? null : { mot: 'Assurance PNO', valeur: pno },
     l.entretiens.length === 0 ? null : { mot: 'Entretiens', valeur: l.entretiens.join(' · ') },

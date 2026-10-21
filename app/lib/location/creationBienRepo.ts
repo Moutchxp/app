@@ -47,6 +47,11 @@ export function annexeNomPnoDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'pno_date_anniversaire');
 }
 
+/** La migration 400 (« Paiement des charges » de copropriété : propriétaire / agence) est-elle là ? */
+export function chargesCoproDisponible(): Promise<boolean> {
+  return colonneExisteMemo('gestion_annuaire_lot', 'charges_copro');
+}
+
 /** La migration 382 (« Non soumis » au DPE) est-elle là ? */
 export function dpeNonSoumisDisponible(): Promise<boolean> {
   return colonneExisteMemo('gestion_annuaire_lot', 'dpe_non_soumis');
@@ -223,6 +228,9 @@ export async function creerBienComplet(s: SaisieBien & {
   // « Non soumis » ne s'écrit que dans la colonne de la migration 382 : sans elle, rien n'est créé (jamais un DPE perdu en silence).
   const avec382 = await dpeNonSoumisDisponible();
   if (l.dpeNonSoumis === true && !avec382) return { etat: 'sans_schema' };
+  // « Paiement des charges » (Arno, 21/10/2026, migration 400) : sans la colonne, un choix n'est jamais perdu en silence.
+  const avec400 = await chargesCoproDisponible();
+  if ((l.chargesCopro ?? null) !== null && !avec400) return { etat: 'sans_schema' };
   // Arno (21/10/2026, 396) : le digicode se pose sur l'IMMEUBLE de l'adresse (sans la 396 : sur le bien, comme avant).
   const surImmeuble = await digicodeImmeubleDisponible();
   // « Bien en gestion ? » (migration 390) : sans la colonne, « Non » n'est jamais perdu en silence — rien n'est créé.
@@ -257,6 +265,7 @@ export async function creerBienComplet(s: SaisieBien & {
         ascenseur: l.ascenseur, digicode: surImmeuble ? null : l.digicode, digicode_code: surImmeuble ? null : l.digicodeCode, precision_acces: l.precisionAcces,
         ...(avec378 ? { assurance_pno: l.assurancePno ?? null, pno_date_anniversaire: l.assurancePno === true ? l.pnoDateAnniversaire ?? null : null } : {}),
         ...(avec382 ? { dpe_non_soumis: l.dpeNonSoumis === true ? true : null } : {}),
+        ...(avec400 ? { charges_copro: l.chargesCopro ?? null } : {}),
         ...statut,
       }, auteur);
       if (surImmeuble && (l.digicode !== null || (l.digicodeCode ?? '').trim() !== '')) {
@@ -403,13 +412,14 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
   const avec376 = await familleDisponible();
   const avec378 = await annexeNomPnoDisponible();
   const avec382 = await dpeNonSoumisDisponible();
+  const avec400 = await chargesCoproDisponible();
   const { rows } = await query<{
     batiment: string | null; escalier: string | null; type_logement: string | null; nombre_pieces: number | null; meuble: boolean | null;
     surface_habitable_m2: string | null; syndic_id: string | null; syndic_nom: string | null; epoque_construction: string | null;
     chauffage: string | null; dpe_classe: string | null; dpe_date: string | null; commentaire: string | null;
     type_local: string | null; parking_situation: string | null; parking_type: string | null; surface_m2: string | null;
     ascenseur: boolean | null; digicode: boolean | null; digicode_code: string | null; precision_acces: string | null;
-    assurance_pno: boolean | null; pno_date_anniversaire: string | null; dpe_non_soumis: boolean | null;
+    assurance_pno: boolean | null; pno_date_anniversaire: string | null; dpe_non_soumis: boolean | null; charges_copro: string | null;
   }>(
     `SELECT lo.batiment, lo.escalier, lo.type_logement, lo.nombre_pieces, lo.meuble, lo.surface_habitable_m2::text,
             lo.syndic_id::text, s.nom AS syndic_nom, lo.epoque_construction, lo.chauffage, lo.dpe_classe, lo.dpe_date::text, lo.commentaire,
@@ -417,7 +427,8 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
     : `NULL::text AS type_local, NULL::text AS parking_situation, NULL::text AS parking_type, NULL::text AS surface_m2, NULL::boolean AS ascenseur,
        NULL::boolean AS digicode, NULL::text AS digicode_code, NULL::text AS precision_acces`},
             ${avec378 ? 'lo.assurance_pno, lo.pno_date_anniversaire::text' : 'NULL::boolean AS assurance_pno, NULL::text AS pno_date_anniversaire'},
-            ${avec382 ? 'lo.dpe_non_soumis' : 'NULL::boolean AS dpe_non_soumis'}
+            ${avec382 ? 'lo.dpe_non_soumis' : 'NULL::boolean AS dpe_non_soumis'},
+            ${avec400 ? 'lo.charges_copro' : 'NULL::text AS charges_copro'}
        FROM gestion_annuaire_lot lo LEFT JOIN gestion_syndic s ON s.id = lo.syndic_id WHERE lo.id = $1`, [id]);
   const r = rows[0];
   if (r === undefined) return null;
@@ -438,6 +449,8 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
     ascenseur: r.ascenseur, digicode: digi === null ? r.digicode : digi.digicode, digicodeCode: digi === null ? r.digicode_code : digi.code,
     precisionAcces: r.precision_acces,
     assurancePno: r.assurance_pno, pnoDateAnniversaire: r.pno_date_anniversaire,
+    // Arno (21/10/2026, 400) : absent sans la migration (la fiche ne propose alors pas le choix).
+    ...(avec400 ? { chargesCopro: r.charges_copro === 'proprietaire' || r.charges_copro === 'agence' ? r.charges_copro : null } : {}),
   };
 }
 
@@ -457,6 +470,10 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
   const c = v.valeurs;
   const avec382 = await dpeNonSoumisDisponible();
   if (c.dpeNonSoumis === true && !avec382) return { etat: 'sans_schema' };
+  // « Paiement des charges » (migration 400) : envoyé seulement par la fiche qui le montre ; jamais perdu en silence.
+  const avecCharges = Object.prototype.hasOwnProperty.call(brut, 'chargesCopro');
+  const avec400 = await chargesCoproDisponible();
+  if (avecCharges && (c.chargesCopro ?? null) !== null && !avec400) return { etat: 'sans_schema' };
   try {
     return await withTransaction(async (q) => {
       const { rows } = await q('SELECT 1 FROM gestion_annuaire_lot WHERE id = $1 FOR UPDATE', [id]);
@@ -496,6 +513,7 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
           }
         }
       }
+      if (avecCharges && avec400) await q('UPDATE gestion_annuaire_lot SET charges_copro = $2 WHERE id = $1', [id, c.chargesCopro ?? null]);
       // L'assurance PNO (migration 378) : envoyée par la fiche qui la montre ; Non (ou non renseigné) vide la date.
       if (Object.prototype.hasOwnProperty.call(brut, 'assurancePno') && (await annexeNomPnoDisponible())) {
         await q('UPDATE gestion_annuaire_lot SET assurance_pno = $2, pno_date_anniversaire = $3::date WHERE id = $1',

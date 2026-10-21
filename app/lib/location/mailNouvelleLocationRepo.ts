@@ -178,6 +178,8 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
       surfaceHabitable: r.surface_habitable_m2, surfaceCarrez: r.surface_carrez_m2, surfaceExterieure: r.surface_exterieure_m2, surface: r.surface_m2,
       construction: r.epoque_construction, chauffage: r.chauffage, dpeClasse: r.dpe_classe, dpeDate: r.dpe_date, dpeNonSoumis: r.dpe_non_soumis,
       syndic: estPrincipal ? complements?.syndicNom ?? null : null, derniereAg: estPrincipal ? complements?.derniereAg ?? null : null,
+      // Arno (21/10/2026, 400) : « Paiement des charges » du bien loué (lot principal seulement).
+      chargesCopro: estPrincipal ? complements?.chargesCopro ?? null : null,
       assurancePno: r.assurance_pno, pnoAnniversaire: r.pno_date_anniversaire,
       entretiens: estPrincipal && complements?.entretienAPrevoir === true
         ? (complements.entretiens ?? []).map((e) => `${libelleEntretien(e)}${e.dateAnniversaire ? ` · date anniversaire le ${e.dateAnniversaire.split('-').reverse().join('/')}` : ''}`) : [],

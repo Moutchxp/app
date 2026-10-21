@@ -114,6 +114,17 @@ describe('🔴 l’encart du bien : résumé toujours visible, détail dépliabl
     expect(container.querySelector('[data-rb="commentaire"]')?.textContent).toBe('Première ligne.\nDeuxième ligne.');
   });
 
+  it('🔴 Arno (21/10/2026, 400) — « Charges de copropriété » sous le syndic : payées par le propriétaire / l’agence, « non renseigné » si vide ; rien sans la migration', async () => {
+    for (const [valeur, attendu] of [['proprietaire', 'payées par le propriétaire'], ['agence', 'payées par l’agence'], [null, 'non renseigné']] as const) {
+      act(() => root.unmount()); root = createRoot(container);
+      await rendre({ ...LOUE, copropriete: { ...LOUE.copropriete!, chargesCopro: valeur } });
+      expect(lignes('copropriete')).toEqual(['N° de lot', 'Syndic', 'Charges de copropriété', 'Dernière AG']);
+      expect(dd('charges-copro')).toBe(attendu);
+    }
+    act(() => root.unmount()); root = createRoot(container);
+    await rendre(LOUE);
+    expect(lignes('copropriete')).toEqual(['N° de lot', 'Syndic', 'Dernière AG']);
+  });
   it('un groupe du détail entièrement vide garde son titre et dit « non renseigné »', async () => {
     await rendre({ ...LOUE, situation: { batiment: null, escalier: null, etage: null, porte: null, precisionAcces: null, ascenseur: null, digicode: null, digicodeCode: null },
       copropriete: { numLotCopro: null, syndic: null, derniereAg: null, agApplicable: false }, commentaire: null,

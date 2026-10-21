@@ -177,6 +177,26 @@ describe('🔴 le bien loué : même adresse / adresses différentes, lots regro
     expect(l.lignes.find((x) => x.mot === 'Digicode')?.fort).toBe(true);
     expect(htmlNouvelleLocation(donnees({ lots: [l] }))).toContain('<b>57B83</b>');
   });
+  it('🔴 Arno (21/10/2026, 400) — « Charges copro » EN GRAS, juste après « Syndic » ; absente si non renseignée (HTML et texte brut)', () => {
+    for (const [valeur, attendu] of [['proprietaire', 'Payées par le propriétaire'], ['agence', 'Payées par l’agence']] as const) {
+      const l = lotDuMail({ ...VIDE, syndic: 'FONCIA', derniereAg: '2026-06-12', chargesCopro: valeur }, ADR);
+      const mots = l.lignes.map((x) => x.mot);
+      expect(mots.indexOf('Charges copro')).toBe(mots.indexOf('Syndic') + 1);
+      expect(l.lignes.find((x) => x.mot === 'Charges copro')).toEqual({ mot: 'Charges copro', valeur: attendu, fort: true });
+      const d = donnees({ lots: [l] });
+      expect(htmlNouvelleLocation(d)).toContain(`<b>${attendu.replace('’', '’')}</b>`);
+      expect(texteNouvelleLocation(d)).toContain(`Charges copro : ${attendu}`);
+    }
+    // Sans syndic, la ligne reste là (toujours après l'emplacement du syndic).
+    expect(lotDuMail({ ...VIDE, chargesCopro: 'agence' }, ADR).lignes.map((x) => x.mot)).toContain('Charges copro');
+    // Non renseigné (null ou absent) : aucune ligne, ni dans le HTML ni dans le texte brut.
+    for (const vide of [{ chargesCopro: null }, {}]) {
+      const l = lotDuMail({ ...VIDE, syndic: 'FONCIA', ...vide }, ADR);
+      expect(l.lignes.map((x) => x.mot)).not.toContain('Charges copro');
+      expect(htmlNouvelleLocation(donnees({ lots: [l] }))).not.toContain('Charges copro');
+      expect(texteNouvelleLocation(donnees({ lots: [l] }))).not.toContain('Charges copro');
+    }
+  });
   it('une annexe : type, N° affiché ET N° de lot chacun sur sa ligne, niveau', () => {
     const cave = lotDuMail({ ...VIDE, id: 2, principal: false, categorie: 'cave', typeLibelle: null, nombrePieces: null, meuble: null, porte: '12', numLotCopro: '112', etage: '-1' }, ADR);
     expect(cave.titre).toBe('Cave');

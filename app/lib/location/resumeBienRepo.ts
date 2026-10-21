@@ -57,7 +57,11 @@ export interface ResumeBien {
     digicodeMention?: string | null; digicodeSource?: 'immeuble' | 'bien' | null;
   };
   /** Copropriété : n° de lot, syndic (lien vers sa fiche), dernière AG de l'immeuble (sans objet sans immeuble). */
-  copropriete?: { numLotCopro: string | null; syndic: { id: number; nom: string } | null; derniereAg: string | null; agApplicable: boolean };
+  copropriete?: {
+    numLotCopro: string | null; syndic: { id: number; nom: string } | null; derniereAg: string | null; agApplicable: boolean;
+    /** Arno (21/10/2026, migration 400) — qui règle les charges au syndic ; absent sans la migration, `null` = non renseigné. */
+    chargesCopro?: 'proprietaire' | 'agence' | null;
+  };
   /** DPE et assurance PNO. */
   dpe?: { classe: string | null; nonSoumis: boolean; date: string | null; assurancePno: boolean | null; pnoDateAnniversaire: string | null };
   /** Le commentaire libre, tel que saisi (retours à la ligne compris). */
@@ -160,6 +164,7 @@ export async function resumeDuBien(lotId: number): Promise<ResumeBien | null> {
       numLotCopro: bien.numLotCopro,
       syndic: c?.syndicId != null ? { id: c.syndicId, nom: c.syndicNom ?? `Syndic ${c.syndicId}` } : null,
       derniereAg: c?.derniereAg ?? null, agApplicable: c?.agApplicable === true,
+      ...(c?.chargesCopro === undefined ? {} : { chargesCopro: c.chargesCopro }),
     },
     dpe: {
       classe: c?.dpeClasse ?? null, nonSoumis: c?.dpeNonSoumis === true, date: c?.dpeDate ?? null,

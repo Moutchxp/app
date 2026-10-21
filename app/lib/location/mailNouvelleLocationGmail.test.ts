@@ -58,6 +58,20 @@ describe('🔴 BANDEAU GARANTIE dans Gmail (Arno, 21/10/2026) : les cinq cas gar
   });
 });
 
+describe('🔴 « Charges copro » dans Gmail (Arno, 21/10/2026) : une rangée de la grille du lot principal, valeur en gras', () => {
+  it('dans une case de tableau (libellé / valeur), juste après « Syndic », en gras ; rien de coloré sur un <div>', () => {
+    const lot = lotDuMail({ ...LOT, syndic: 'FONCIA', chargesCopro: 'proprietaire' }, ADR);
+    const html = htmlNouvelleLocation(donnees({ lots: [lot] }));
+    const doc = gmail(html);
+    const libelles = [...doc.querySelectorAll('td.g-l')].map((t) => t.textContent);
+    expect(libelles.indexOf('Charges copro')).toBe(libelles.indexOf('Syndic') + 1);
+    const td = [...doc.querySelectorAll('td.g-l')].find((t) => t.textContent === 'Charges copro')!;
+    expect(td.closest('tr')?.querySelector('td.g-v b')?.textContent).toBe('Payées par le propriétaire');
+    expect(td.closest('td[bgcolor="#fafafa"]')).not.toBeNull();
+    expect(html).not.toMatch(/background\s*:/i);
+  });
+});
+
 describe('🔴 rendu Gmail : aucune zone colorée perdue', () => {
   it('jamais une couleur de fond sur un <div>, un <span>, un <p>, un <b> ou un <a> ; jamais le raccourci « background: »', () => {
     for (const d of [donnees(), donnees({ gli: bandeauGli(null, []), statut: statutProprietaires({ proprietaires: [{ nom: 'A', dejaEnGestion: true, depuis: '2020-01-01' }], biensEnGestion: 2, mandats: [] }) })]) {

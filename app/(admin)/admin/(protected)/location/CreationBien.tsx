@@ -4,9 +4,9 @@ import { useEffect, useRef, useState } from 'react';
 import { API, CSS_ANNEXE_CARTE, CSS_LOCATION_CREATION, CSS_LOCATION_ECRANS, EnTeteLocation, EtatLecture, envoyer, liste, phraseMail, useLecture } from './commun';
 import { ChampAdresseBan, CSS_CHAMP_ADRESSE } from '../gestion/ChampAdresseBan';
 import {
-  CHAUFFAGES, DPE_NON_SOUMIS, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
+  CHARGES_COPRO, CHAUFFAGES, DPE_NON_SOUMIS, EPOQUES_CONSTRUCTION, FAMILLES, LIBELLE_FAMILLE, LIBELLE_SITUATION_PARKING, LIBELLE_TYPE_LOCAL,
   LIBELLE_TYPE_LOGEMENT, LIBELLE_TYPE_PARKING, manquesDuBien, NOM_FAMILLE, SITUATIONS_PARKING, TYPES_LOCAL, TYPES_LOGEMENT, TYPES_PARKING,
-  type Famille, type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
+  LIBELLE_CHARGES_COPRO, type ChargesCopro, type Famille, type SituationParking, type TypeLocal, type TypeLogement, type TypeParking,
 } from '../../../../lib/location/bienComplet';
 import { verifierChampsBien, type Categorie } from '../../../../lib/location/locationBien';
 import type { ResultatPortefeuille } from '../../../../lib/location/recherchePortefeuille';
@@ -132,6 +132,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   useEffect(() => { if (continuite === undefined) setContacts(lireContactsEnAttente(proprietairesInitiaux)); }, [proprietairesInitiaux, continuite]);
   /** L'ASSURANCE PNO (Arno, 18/10/2026) : oui / non / non renseigné ; Non vide la date anniversaire. */
   const [assurancePno, setAssurancePno] = useState<boolean | null>(null);
+  /** « PAIEMENT DES CHARGES » (Arno, 21/10/2026, migration 400) : Propriétaire / Agence / non renseigné — FACULTATIF. */
+  const [chargesCopro, setChargesCopro] = useState<ChargesCopro | null>(null);
   /** L'ENTRETIEN À PRÉVOIR (Arno, 18/10/2026) : Non vide le tout. */
   const [entretien, setEntretien] = useState<SaisieEntretien>(ENTRETIEN_VIDE);
   /**
@@ -286,7 +288,8 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
         return (m.numero ?? '').trim() !== '' || m.signeLe !== null ? { mandat: { sorte, numero: (m.numero ?? '').trim(), signeLe: m.signeLe ?? '' } } : {};
       })() : {}),
       logement: { ...b, syndicId: syndic === null ? '' : String(syndic.id), famille, typeLogement: type, typeLocal, parkingSituation, parkingType, meuble, ascenseur, digicode,
-        assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)) },
+        assurancePno, pnoDateAnniversaire: assurancePno === true ? b.pnoDateAnniversaire : '', ...(famille === 'parking' ? {} : versEnvoiEntretien(entretien)),
+        ...(chargesCopro === null ? {} : { chargesCopro }) },
       syndic: syndic === null ? null : { id: syndic.id, contactsIds: syndic.contactsIds, nouveauxContacts: syndic.nouveauxContacts },
       contacts: continuite !== undefined ? continuite.contacts : contacts,
       annexes: avecAnnexes ? annexes.map(({ categorie, etage, numLotCopro, porte, nomAnnexe, annotation, detachee, parkingSituation: s, parkingType: t, autreAdresse, adresse, codePostal, commune }) => ({
@@ -313,7 +316,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
 
   const resultats = recherche.etat.etat === 'ok' ? liste(recherche.etat.data).filter((r) => !proprietaires.some((p) => p.id === r.id)) : [];
   // La numérotation suit les sections AFFICHÉES (un parking nu n'a ni annexes ni caractéristiques complémentaires).
-  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes', 'complements'] : []), 'commentaires',
+  const sections = [...(continuite !== undefined ? [] : ['proprietaires']), 'bien', 'adresse', 'copro', ...(avecAnnexes ? ['annexes'] : []), 'complements', 'commentaires',
     ...(continuite !== undefined ? [] : ['gestion'])];
   const n = (cle: string): number => sections.indexOf(cle) + 1;
 
@@ -581,9 +584,10 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
         </section>
       )}
 
-      {avecAnnexes && (
-        <section className="loc-section" aria-labelledby="loc-b6">
+      {/* Arno (21/10/2026) : le bloc 6 existe aussi pour un parking nu — il n'y porte que « Paiement des charges ». */}
+      <section className="loc-section" aria-labelledby="loc-b6">
           <h3 id="loc-b6"><span className="loc-num">{n('complements')}</span>Caractéristiques complémentaires</h3>
+          {avecAnnexes && <>
           {/* Arno (18/10/2026) : libellés et champs sur la MÊME ligne (alignés en haut) ; la légende de l'AG reste dessous. */}
           <div className="loc-grille loc-grille--debut" data-ligne-epoque>
             {choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION)}
@@ -615,8 +619,17 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
           </div>
           <BlocEntretien valeur={entretien} onChange={setEntretien} obligatoire
             manques={{ reponse: manqueDe('entretien'), liste: manqueDe('entretienListe'), autre: (k) => manqueDe(`entretien-autre-${k}`) }} />
+          </>}
+          {/* « PAIEMENT DES CHARGES » (Arno, 21/10/2026) : petit encadré, même style que DPE / Assurance PNO ; FACULTATIF (ne bloque
+              pas « Enregistrer le bien », absent de « Reste à renseigner ») ; pour les trois familles. */}
+          <div className="loc-charges" data-charges-copro>
+            <div className="loc-charges-bloc">
+              <h4>Paiement des charges</h4>
+              <Pilules etiquette="Paiement des charges" options={CHARGES_COPRO} libelle={LIBELLE_CHARGES_COPRO} valeur={chargesCopro} onChoix={setChargesCopro} />
+              <small className="loc-charges-mention">Qui règle les charges de copropriété au syndic</small>
+            </div>
+          </div>
         </section>
-      )}
 
       <section className="loc-section" aria-labelledby="loc-b7">
         <h3 id="loc-b7"><span className="loc-num">{n('commentaires')}</span>Commentaires</h3>

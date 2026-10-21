@@ -34,6 +34,13 @@ export const CLASSES_DPE = ['A', 'B', 'C', 'D', 'E', 'F', 'G'] as const;
 export const DPE_NON_SOUMIS = 'non_soumis';
 export const LIBELLE_DPE_NON_SOUMIS = 'Non soumis';
 
+/** « Paiement des charges » de copropriété (Arno, 21/10/2026, migration 400) : qui les règle au syndic. FACULTATIF. */
+export const CHARGES_COPRO = ['proprietaire', 'agence'] as const;
+export type ChargesCopro = typeof CHARGES_COPRO[number];
+export const LIBELLE_CHARGES_COPRO: Record<ChargesCopro, string> = { proprietaire: 'Propriétaire', agence: 'Agence' };
+/** « payées par le propriétaire » / « payées par l'agence » (encart du bien, mail). PUR. */
+export const PAYEES_PAR: Record<ChargesCopro, string> = { proprietaire: 'payées par le propriétaire', agence: 'payées par l’agence' };
+
 export const FAMILLES = ['logement', 'local', 'parking'] as const;
 export type Famille = (typeof FAMILLES)[number];
 /** Le mot du gros bouton. */
@@ -101,6 +108,9 @@ export interface ComplementsBien {
   assurancePno?: boolean | null;
   /** Sa date anniversaire (« AAAA-MM-JJ »), seulement si assurance PNO = oui ; lue par la future relance. */
   pnoDateAnniversaire?: string | null;
+  // ── migration 400 (Arno, 21/10/2026) ──
+  /** Qui règle les charges de copropriété au syndic : propriétaire / agence ; `null` = non renseigné (facultatif). */
+  chargesCopro?: ChargesCopro | null;
 }
 
 /** Une annexe saisie : ses champs, ses options de parking, et « même adresse » / « autre adresse ». */
@@ -285,6 +295,8 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
     return { ok: false, motif: 'Le code du digicode fait 8 caractères au plus.' };
   }
   // L'ASSURANCE PNO (Arno, 18/10/2026) : la date anniversaire seulement si Oui — repasser à Non la vide.
+  // « Paiement des charges » (Arno, 21/10/2026) : Propriétaire / Agence / vide ; toute autre valeur est refusée.
+  if (!vide(l.chargesCopro) && dans(CHARGES_COPRO, l.chargesCopro) === null) return { ok: false, motif: 'Paiement des charges : Propriétaire ou Agence.' };
   const pno = ouiNon(l.assurancePno);
   const datePno = texte(l.pnoDateAnniversaire, 10);
   if (pno === true && datePno !== null && !dateValide(datePno)) return { ok: false, motif: 'La date anniversaire de l’assurance PNO n’est pas une date valide.' };
@@ -300,6 +312,7 @@ export function verifierComplements(l: Record<string, unknown>): { ok: true; val
       ascenseur: ouiNon(l.ascenseur), digicode, digicodeCode: digicode === true ? texte(l.digicodeCode, 8) : null,
       precisionAcces: texte(l.precisionAcces, 500),
       assurancePno: pno, pnoDateAnniversaire: pno === true ? datePno : null,
+      chargesCopro: dans(CHARGES_COPRO, l.chargesCopro),
     },
   };
 }

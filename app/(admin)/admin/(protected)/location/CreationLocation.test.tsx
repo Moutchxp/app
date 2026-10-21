@@ -268,15 +268,18 @@ describe('🔴 Ajouter un nouveau bien', () => {
     expect(bloc().textContent).toContain('Nombre de bureaux / pièces');
     expect(bloc().textContent).not.toContain('Meublé ?');
     expect(bloc().textContent).not.toContain('Type de logement');
-    // Parking nu : Intérieur / Extérieur, les 4 types ; ni pièces, ni meublé, ni Carrez ; ni Annexes, ni complémentaires.
+    // Parking nu : Intérieur / Extérieur, les 4 types ; ni pièces, ni meublé, ni Carrez ; ni Annexes. Arno (21/10/2026) : le bloc
+    // « Caractéristiques complémentaires » existe désormais pour lui, avec le SEUL encadré « Paiement des charges » (ni DPE, ni PNO, ni entretien).
     await famille('parking');
     expect(bloc().textContent).toContain('Intérieur');
     expect([...bloc().querySelectorAll('[aria-label="Type de parking"] button')].map((x) => x.textContent)).toEqual(['Place simple', 'Place double', 'Box simple', 'Box double']);
     expect(bloc().textContent).not.toMatch(/Nombre de pièces|Meublé|Carrez/);
-    expect(titres()).toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Commentaires', 'Bien en gestion ?']);
+    expect(titres()).toEqual(['Propriétaire(s)', 'Le bien', 'Adresse et situation', 'Copropriété', 'Caractéristiques complémentaires', 'Commentaires', 'Bien en gestion ?']);
+    expect(container.querySelector('[data-charges-copro]')).not.toBeNull();
+    expect(container.querySelector('[data-ligne-dpe-pno], [data-entretien-bloc]')).toBeNull();
     // « N° de porte » devient « N° de place » dans la situation d'un parking nu.
     expect([...container.querySelectorAll('[data-ligne-situation] .loc-champ')].map((l) => l.firstChild?.textContent)).toContain('N° de place');
-    expect([...container.querySelectorAll('.loc-num')].map((x) => x.textContent)).toEqual(['1', '2', '3', '4', '5', '6']);
+    expect([...container.querySelectorAll('.loc-num')].map((x) => x.textContent)).toEqual(['1', '2', '3', '4', '5', '6', '7']);
   });
 
   it('obligatoires PAR FAMILLE : type de local, type de parking', async () => {

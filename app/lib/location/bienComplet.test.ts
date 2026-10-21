@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aRenseignerDuBien, DPE_NON_SOUMIS, familleDeCategorie, manquesDuBien, verifierBienComplet, verifierComplements } from './bienComplet';
+import { aRenseignerDuBien, DPE_NON_SOUMIS, familleDeCategorie, manquesDuBien, TYPES_LOCAL, verifierBienComplet, verifierComplements } from './bienComplet';
 import { alertesDpe, aujourdhuiParis, interdictionEnVigueur } from './reglagesDpe';
 
 /** Le DPE et l'entretien d'un logement / local complets (Arno, 18/10/2026 : obligatoires à la création). */
@@ -120,5 +120,25 @@ describe('🔴 « Bien en gestion ? » (Arno, 20/10/2026) — réponse obligatoi
     expect(non.ok && non.enGestion).toBe(false);
     const oui = verifierBienComplet({ ...base, enGestion: true });
     expect(oui.ok && oui.enGestion).toBe(true);
+  });
+});
+
+describe('🔴 « Paiement des charges » (Arno, 21/10/2026, migration 400) : facultatif, Propriétaire / Agence', () => {
+  it('relu tel quel ; vide = non renseigné ; toute autre valeur refusée ; jamais dans « Reste à renseigner »', () => {
+    const v = (x: unknown) => verifierComplements({ chargesCopro: x });
+    expect(v('proprietaire')).toMatchObject({ ok: true, valeurs: { chargesCopro: 'proprietaire' } });
+    expect(v('agence')).toMatchObject({ ok: true, valeurs: { chargesCopro: 'agence' } });
+    for (const x of [undefined, null, '', '  ']) expect(v(x)).toMatchObject({ ok: true, valeurs: { chargesCopro: null } });
+    expect(v('syndic')).toEqual({ ok: false, motif: 'Paiement des charges : Propriétaire ou Agence.' });
+    expect(Object.keys(manquesDuBien({ proprietaireIds: [1], adresse: '1 rue A', famille: 'parking', parkingType: 'box_simple' }))).toEqual([]);
+  });
+  it('enregistré avec le bien pour les trois familles (création)', () => {
+    for (const famille of ['logement', 'local', 'parking'] as const) {
+      const propre = famille === 'logement' ? { typeLogement: 'studio' } : famille === 'local' ? { typeLocal: TYPES_LOCAL[0] } : { parkingType: 'box_simple' };
+      const r = verifierBienComplet({ proprietaireIds: [1], annexes: [], logement: { adresse: '1 rue A', famille, ...propre,
+        ...(famille === 'parking' ? {} : { dpeClasse: 'C', dpeDate: '2024-01-01', entretienAPrevoir: false }), chargesCopro: 'agence' } });
+      if (!r.ok) throw new Error(`${famille} : ${r.motif}`);
+      expect(r.logement.chargesCopro, famille).toBe('agence');
+    }
   });
 });

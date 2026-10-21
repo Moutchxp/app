@@ -6,7 +6,7 @@ import type { FicheLot } from '../../../../lib/gestion/annuaireRepo';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
 import { libelleEntretien } from '../../../../lib/location/entretien';
 import type { ResumeBien } from '../../../../lib/location/resumeBienRepo';
-import { DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS } from '../../../../lib/location/bienComplet';
+import { DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS, PAYEES_PAR } from '../../../../lib/location/bienComplet';
 import { libelleEtage } from '../../../../lib/location/locationBien';
 import { lignesResume } from '../../../../lib/location/resumeBienLignes';
 
@@ -79,7 +79,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
 
   // Un groupe du détail est vide quand AUCUNE de ses informations n'est connue.
   const situationVide = s === undefined || [s.batiment, s.escalier, parking ? null : s.porte, s.precisionAcces, s.ascenseur, s.digicode].every((x) => x === null || x === '');
-  const coproVide = co === undefined || (co.numLotCopro === null && co.syndic === null && co.derniereAg === null);
+  const coproVide = co === undefined || (co.numLotCopro === null && co.syndic === null && co.derniereAg === null && (co.chargesCopro ?? null) === null);
   const entretiens = g === undefined ? null : g.entretienAPrevoir === false ? 'non'
     : g.entretiens.length > 0 ? `oui — ${g.entretiens.map((e) => `${libelleEntretien({ sorte: e.sorte as 'chaudiere' | 'ramonage' | 'autre', nom: e.nom })}${e.dateAnniversaire ? ` (${formaterDateIso(e.dateAnniversaire)})` : ''}`).join(' · ')}`
       : g.entretienAPrevoir === true ? 'oui' : null;
@@ -164,6 +164,9 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
               <dt>N° de lot</dt><dd data-rb="lot-copro">{co?.numLotCopro ?? rien()}</dd>
               <dt>Syndic</dt>
               <dd data-rb="syndic">{co?.syndic == null ? rien() : <a className="rb-lien" href={`/admin/location/syndic/${co.syndic.id}`}>{co.syndic.nom}</a>}</dd>
+              {/* Arno (21/10/2026, 400) — « Paiement des charges » : qui règle les charges de copropriété au syndic (sous le syndic). */}
+              {co?.chargesCopro !== undefined && <><dt>Charges de copropriété</dt>
+                <dd data-rb="charges-copro">{co.chargesCopro === null ? rien() : PAYEES_PAR[co.chargesCopro]}</dd></>}
               {(lr.avecComplements || co?.agApplicable === true) && <><dt>Dernière AG</dt><dd data-rb="derniere-ag">{co?.derniereAg ? formaterDateIso(co.derniereAg) : rien('non renseignée')}</dd></>}
             </Groupe>
             {/* Arno (21/10/2026, 397) — le mandat (gestion ou transaction locative, selon « Bien en gestion ? ») : seulement s'il est connu. */}
