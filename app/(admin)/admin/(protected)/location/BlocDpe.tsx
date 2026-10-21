@@ -13,7 +13,9 @@ import { alertesDpe } from '../../../../lib/location/reglagesDpe';
  * MISE EN PAGE (Arno) : le bloc a QUATRE rangées — titre · choix · date · alertes. Posé dans `.loc-dpe-pno` à côté du bloc
  * « Assurance PNO » (mêmes quatre rangées), les deux partagent la MÊME grille (`subgrid`) : les choix sont sur une ligne,
  * les dates sur la ligne suivante, et les blocs ont la même hauteur ; les alertes du DPE vont dans la 4e rangée, sous les
- * dates, sans rien désaligner. Au bureau, les 8 choix tiennent sur UNE ligne ; au téléphone ils peuvent passer sur deux.
+ * dates, sans rien désaligner.
+ * Arno (21/10/2026, débordement constaté en production) : les lettres A à G sont des pastilles compactes de MÊME largeur, sur une
+ * ligne ; « Non soumis » les suit s'il y a la place, sinon passe à la ligne suivante — jamais coupé, jamais hors de l'encadré.
  */
 export function BlocDpe({ classe, date, onClasse, onDate, aujourdhui, manque }: {
   classe: string; date: string; onClasse: (c: string) => void; onDate: (d: string) => void; aujourdhui: string;
@@ -27,7 +29,7 @@ export function BlocDpe({ classe, date, onClasse, onDate, aujourdhui, manque }: 
       <div className="loc-dpe-pno-choix">
         <div className="loc-pilules loc-pilules--dpe" role="group" aria-label="Classe DPE">
           {CLASSES_DPE.map((c) => (
-            <button key={c} type="button" aria-pressed={classe === c} onClick={() => onClasse(classe === c ? '' : c)}>{c}</button>
+            <button key={c} type="button" className="loc-dpe-lettre" aria-pressed={classe === c} onClick={() => onClasse(classe === c ? '' : c)}>{c}</button>
           ))}
           {/* « Non soumis » (bien dispensé de DPE), dans le prolongement des lettres : la date est vidée et grisée. */}
           <button type="button" aria-pressed={nonSoumis} data-dpe-non-soumis
@@ -60,28 +62,33 @@ export const CSS_DPE_PNO = `
 .loc-dpe-pno-notes .loc-alerte{margin:0}
 .loc-dpe-pno.loc-dpe-pno--seul{margin-bottom:16px}
 .loc-dpe-pno-bloc input:disabled{background:var(--color-svv-field);color:var(--color-svv-muted);cursor:not-allowed}
-/* Les choix du DPE : pastilles un peu plus compactes (même style), « Non soumis » dans le prolongement des lettres. */
-.loc-pilules--dpe{gap:8px}
-.loc-pilules--dpe button{padding:0 13px;min-width:46px;white-space:nowrap;flex-shrink:0}
-/* Au téléphone : les 8 choix sur DEUX lignes au plus (pastilles et marges un peu resserrées, même style). */
+/* Les choix du DPE (Arno, 21/10/2026) : les lettres A à G = pastilles compactes de MÊME largeur, lettre seule centrée ; la coche
+   du choix retenu est posée AU-DESSUS de la lettre, en petit, hors du flux (la largeur ne change jamais au clic). « Non soumis » garde la pastille
+   ordinaire et passe à la ligne s'il manque de place : le retour à la ligne est TOUJOURS permis — rien ne sort de l'encadré. */
+.loc-pilules--dpe{gap:8px;flex-wrap:wrap}
+.loc-pilules--dpe button{flex:0 0 auto;white-space:nowrap;max-width:100%}
+.loc-pilules--dpe button.loc-dpe-lettre{position:relative;width:3.25rem;min-width:44px;padding:0;text-align:center}
+.loc-pilules--dpe button.loc-dpe-lettre::before{position:absolute;left:50%;top:5px;transform:translateX(-50%);content:"✓";font-size:.62em;line-height:1}
+.loc-pilules--dpe button.loc-dpe-lettre::after{content:none}
+.loc-pilules--dpe button[data-dpe-non-soumis]{padding:0 16px}
+/* Au téléphone : les sept lettres tiennent sur une ligne (cibles de 44 px, encadré et marges resserrés). */
 @media (max-width:600px){
-  .loc-dpe-pno-bloc{padding:16px 12px}
-  .loc-pilules--dpe{gap:6px}
-  .loc-pilules--dpe button{padding:0 10px;min-width:40px;font-size:1rem}
+  .loc-dpe-pno-bloc{padding:16px 10px}
+  .loc-pilules--dpe{gap:3px}
+  .loc-pilules--dpe button{font-size:1rem}
+  .loc-pilules--dpe button.loc-dpe-lettre{width:44px}
 }
 @media (min-width:900px){
   .loc-dpe-pno{grid-template-columns:minmax(0,3fr) minmax(0,2fr);grid-template-rows:auto auto auto auto;column-gap:24px;row-gap:0}
   .loc-dpe-pno-bloc{grid-row:span 4;grid-template-rows:subgrid;row-gap:14px}
   .loc-dpe-pno-notes:empty{display:flex}
-  .loc-pilules--dpe{flex-wrap:nowrap}
   /* Le DPE seul (ancienne page « Nouveau propriétaire + bien ») : une colonne. */
   .loc-dpe-pno.loc-dpe-pno--seul{grid-template-columns:minmax(0,44rem)}
 }
-/* Bureau étroit : les 8 choix restent sur une ligne, pastilles un peu plus serrées (jamais écrasées : flex-shrink:0). */
+/* Bureau étroit : DPE plus large que PNO, encadrés un peu resserrés (les pastilles gardent leur taille). */
 @media (min-width:900px) and (max-width:1099px){
   .loc-dpe-pno{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
   .loc-dpe-pno-bloc{padding:18px 16px}
-  .loc-pilules--dpe{gap:5px}
-  .loc-pilules--dpe button{padding:0 9px;min-width:40px}
+  .loc-pilules--dpe{gap:6px}
 }
 `;

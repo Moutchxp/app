@@ -8,7 +8,7 @@ import { CSS_DPE_PNO } from './BlocDpe';
 
 /**
  * 🔴 Arno (18/10/2026) — bloc « Caractéristiques complémentaires » : DPE (gauche) et assurance PNO (droite), deux blocs de
- * même hauteur aux rangées PARTAGÉES (titre · choix · date · alertes) ; les 8 choix du DPE sur une ligne au bureau ; les
+ * même hauteur aux rangées PARTAGÉES (titre · choix · date · alertes) ; les lettres du DPE sur une ligne, « Non soumis » à la suite ou à la ligne ; les
  * deux dates sur la même ligne, grisées à leur place quand elles sont sans objet ; les alertes sous les dates. L'ancienne page
  * « Nouveau propriétaire + bien » applique les mêmes règles obligatoires. Les VRAIS composants ; la géométrie réelle (hauteurs,
  * alignements au pixel) est mesurée dans Chrome par le banc de captures — ici, la structure et les règles CSS qui la portent.
@@ -61,15 +61,23 @@ describe('🔴 DPE et assurance PNO : deux blocs, rangées partagées', () => {
     expect([...container.querySelectorAll('[data-ligne-epoque] > label')].map((l) => l.firstChild?.textContent)).toEqual(['Époque de construction', 'Chauffage', 'Date de la dernière AG']);
   });
 
-  it('les 8 choix du DPE dans UNE rangée de pastilles (« Non soumis » dans le prolongement), sans retour à la ligne au bureau', async () => {
+  it('🔴 Arno (21/10/2026, débordement constaté en production) : lettres A à G compactes de même largeur ; « Non soumis » à la suite ou à la ligne, jamais hors de l’encadré', async () => {
     await ouvrir();
     const groupe = container.querySelector('[data-dpe] .loc-dpe-pno-choix [aria-label="Classe DPE"]') as HTMLElement;
-    expect([...groupe.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'Non soumis']);
+    const boutons = [...groupe.querySelectorAll('button')];
+    expect(boutons.map((b) => b.textContent)).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'Non soumis']);
     expect(groupe.classList.contains('loc-pilules--dpe')).toBe(true);
-    const bureau = CSS_DPE_PNO.slice(CSS_DPE_PNO.indexOf('@media (min-width:900px)'));
-    expect(bureau).toContain('.loc-pilules--dpe{flex-wrap:nowrap}');
-    // Au téléphone (hors media), les pastilles peuvent passer à la ligne : aucune règle nowrap avant le media.
-    expect(CSS_DPE_PNO.slice(0, CSS_DPE_PNO.indexOf('@media (min-width:900px)'))).not.toContain('flex-wrap:nowrap');
+    // Les lettres : une classe commune (même largeur, lettre seule centrée, coche hors du flux) ; « Non soumis » : la pastille ordinaire.
+    expect(boutons.slice(0, 7).every((b) => b.classList.contains('loc-dpe-lettre'))).toBe(true);
+    expect(boutons[7].classList.contains('loc-dpe-lettre')).toBe(false);
+    expect(CSS_DPE_PNO).toContain('.loc-pilules--dpe button.loc-dpe-lettre{position:relative;width:3.25rem;min-width:44px;padding:0;text-align:center}');
+    expect(CSS_DPE_PNO).toContain('.loc-pilules--dpe button.loc-dpe-lettre::before{position:absolute;');
+    expect(CSS_DPE_PNO).toContain('.loc-pilules--dpe button.loc-dpe-lettre::after{content:none}');
+    // Le retour à la ligne est TOUJOURS permis (la cause du débordement : `nowrap` au bureau) ; aucune pastille plus large que l'encadré.
+    expect(CSS_DPE_PNO).toContain('.loc-pilules--dpe{gap:8px;flex-wrap:wrap}');
+    expect(CSS_DPE_PNO).not.toMatch(/flex-wrap:\s*nowrap/);
+    expect(CSS_DPE_PNO).toContain('.loc-pilules--dpe button{flex:0 0 auto;white-space:nowrap;max-width:100%}');
+    // La géométrie réelle (aucun bouton hors de son encadré, 390 à 1440 px, clair et sombre) est mesurée dans Chrome par le banc.
   });
 
   it('les deux dates sur la MÊME rangée (la 3e) ; même hauteur des blocs par la grille partagée (subgrid, 4 rangées)', async () => {
