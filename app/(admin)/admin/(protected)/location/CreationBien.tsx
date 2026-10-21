@@ -175,18 +175,19 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
   /* Arno (21/10/2026, 396) — LE DIGICODE EST CELUI DE L'IMMEUBLE de l'adresse : connu, il pré-remplit le champ (tant qu'on n'y a
      pas touché), et la mention « Commun à tous les biens du … (N biens) » s'affiche ; le modifier ici le modifie pour l'immeuble. */
   const digicodeTouche = useRef(false);
-  const [digicodeImmeuble, setDigicodeImmeuble] = useState<{ mention: string | null; source: string | null } | null>(null);
+  const [digicodeImmeuble, setDigicodeImmeuble] = useState<{ mention: string | null; source: string | null; portee?: string } | null>(null);
   useEffect(() => {
     const voie = b.adresse.trim();
     if (voie.length < 5) { setDigicodeImmeuble(null); return; }
     let vivant = true;
     const t = setTimeout(() => {
-      const q = `digicodePourAdresse=${encodeURIComponent(voie)}&cp=${encodeURIComponent(b.codePostal.trim())}&commune=${encodeURIComponent(b.commune.trim())}`;
-      void fetch(`${API}?${q}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: { digicode: boolean | null; code: string | null; source: string | null; mention: string | null } | null }>)
+      // Arno (21/10/2026, 399) : le code du BÂTIMENT saisi (le code général de l'adresse sans bâtiment, ou si le bâtiment n'en a pas).
+      const q = `digicodePourAdresse=${encodeURIComponent(voie)}&cp=${encodeURIComponent(b.codePostal.trim())}&commune=${encodeURIComponent(b.commune.trim())}&batiment=${encodeURIComponent(b.batiment.trim())}`;
+      void fetch(`${API}?${q}`, { cache: 'no-store' }).then((r) => r.json() as Promise<{ etat?: string; data?: { digicode: boolean | null; code: string | null; source: string | null; mention: string | null; portee?: string } | null }>)
         .then((d) => {
           if (!vivant || d.etat !== 'ok' || d.data === null || d.data === undefined) { if (vivant) setDigicodeImmeuble(null); return; }
           const lu = d.data;
-          setDigicodeImmeuble({ mention: lu.mention, source: lu.source });
+          setDigicodeImmeuble({ mention: lu.mention, source: lu.source, portee: lu.portee });
           if (!digicodeTouche.current && lu.source === 'immeuble') {
             setDigicode(lu.digicode);
             setB((x) => ({ ...x, digicodeCode: lu.code ?? '' }));
@@ -194,7 +195,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
         }).catch(() => {});
     }, 500);
     return () => { vivant = false; clearTimeout(t); };
-  }, [b.adresse, b.codePostal, b.commune]);
+  }, [b.adresse, b.codePostal, b.commune, b.batiment]);
   const idsProprietaires = proprietaires.map((p) => p.id).join(',');
   useEffect(() => {
     if (idsProprietaires === '' || continuite !== undefined) return;
@@ -475,7 +476,7 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
               <label className="loc-code-digicode">Code
                 <input value={b.digicodeCode} maxLength={8} placeholder="ex. 57B83" disabled={digicode !== true} aria-label="Code du digicode"
                   onChange={(e) => { digicodeTouche.current = true; const val = e.target.value.slice(0, 8); setB((x) => ({ ...x, digicodeCode: val })); }} /></label>
-              {digicodeImmeuble?.mention && <small className="loc-aide loc-aide--long" data-digicode-immeuble>{digicodeImmeuble.mention}{digicodeImmeuble.source === 'immeuble' ? ' — code de l’immeuble, pré-rempli' : ''}.</small>}
+              {digicodeImmeuble?.mention && <small className="loc-aide loc-aide--long" data-digicode-immeuble>{digicodeImmeuble.mention}{digicodeImmeuble.source === 'immeuble' ? (digicodeImmeuble.portee === 'batiment' ? ' — code du bâtiment, pré-rempli' : ' — pré-rempli') : ''}.</small>}
             </div>
           </div>
         </div>

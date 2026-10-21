@@ -24,7 +24,7 @@ import { verifierEntretiens } from './entretien';
 import { enregistrerEntretiens, entretienDisponible, lireEntretiens } from './entretienAnnexeRepo';
 import { verifierMandat, sorteDuBien } from './mandatBien';
 import { enregistrerMandatDans } from './mandatBienRepo';
-import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeDuLot } from './digicodeImmeubleRepo';
+import { adresseDuLot, digicodeImmeubleDisponible, enregistrerDigicodeDans, lireDigicodeAdresse, lireDigicodeDuLot } from './digicodeImmeubleRepo';
 
 /**
  * ══ 🔴🔴 TUILE LOCATION — CRÉER UN PROPRIÉTAIRE (CARTES) PUIS SON BIEN (FORMULAIRE COMPLET). IMPUR (base). ══════════════
@@ -260,9 +260,14 @@ export async function creerBienComplet(s: SaisieBien & {
         ...statut,
       }, auteur);
       if (surImmeuble && (l.digicode !== null || (l.digicodeCode ?? '').trim() !== '')) {
-        const d = await enregistrerDigicodeDans(q, { voie: l.adresse, codePostal: l.codePostal, commune: l.commune },
-          { digicode: l.digicode, code: l.digicodeCode }, auteur, 'nouveau_bien', logementId);
-        if (!d.ok) throw new Refus(d.motif);
+        // Arno (21/10/2026, 399) : le code du BÂTIMENT du bien (le code général sans bâtiment). Écrit seulement s'il diffère de ce
+        // que ce bâtiment lit déjà : le code général pré-rempli et laissé tel quel n'est jamais copié sur le bâtiment.
+        const adresse = { voie: l.adresse, codePostal: l.codePostal, commune: l.commune };
+        const lu = await lireDigicodeAdresse(adresse, l.batiment, q);
+        if (lu === null || lu.digicode !== l.digicode || (lu.code ?? null) !== ((l.digicodeCode ?? '').trim() || null)) {
+          const d = await enregistrerDigicodeDans(q, adresse, { digicode: l.digicode, code: l.digicodeCode }, auteur, 'nouveau_bien', logementId, l.batiment);
+          if (!d.ok) throw new Refus(d.motif);
+        }
       }
       // Le mandat, sur la fiche de chaque propriétaire du bien (les champs existants), dans la même transaction que le bien.
       if (mandat !== null) mandatRefus = await enregistrerMandatDans(q, v.proprietaireIds, mandat, logementId, auteur);
@@ -421,7 +426,7 @@ export async function complementsDuBien(id: number): Promise<ComplementsFiche | 
   // Arno (21/10/2026, 396) — le digicode est celui de l'IMMEUBLE de l'adresse (l'ancienne valeur du bien, tant qu'il n'en a pas).
   const digi = await lireDigicodeDuLot(id);
   return {
-    ...(digi === null ? {} : { digicodeImmeuble: { mention: digi.mention, source: digi.source } }),
+    ...(digi === null ? {} : { digicodeImmeuble: { mention: digi.mention, source: digi.source, portee: digi.portee, batiment: digi.batiment } }),
     ...(entretiens === null ? {} : { entretienAPrevoir: entretiens.aPrevoir, entretiens: entretiens.entretiens }),
     derniereAg: immeubleAg === null ? null : await lireAg(immeubleAg.cle), agApplicable: immeubleAg !== null,
     batiment: r.batiment, escalier: r.escalier, typeLogement: r.type_logement as ComplementsBien['typeLogement'],
@@ -456,6 +461,9 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
     return await withTransaction(async (q) => {
       const { rows } = await q('SELECT 1 FROM gestion_annuaire_lot WHERE id = $1 FOR UPDATE', [id]);
       if (rows.length === 0) return { etat: 'inconnu' as const };
+      // Arno (21/10/2026, 399) : le digicode que la fiche MONTRAIT (avant que le bâtiment ne change) — seul un écart à cette
+      // valeur est une saisie ; un bâtiment changé avec le digicode laissé tel quel ne recopie jamais l'ancien code ailleurs.
+      const montre = await lireDigicodeDuLot(id, q);
       if (c.syndicId !== null) {
         const { rows: sy } = await q('SELECT 1 FROM gestion_syndic WHERE id = $1 AND supprime_le IS NULL', [c.syndicId]);
         if (sy.length === 0) throw new Refus('Ce syndic n’est pas (ou plus) un syndic connu de la Gestion.');
@@ -479,10 +487,11 @@ export async function modifierComplementsBien(id: number, brut: Record<string, u
           ? [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.precisionAcces]
           : [id, c.typeLocal, c.parkingSituation, c.parkingType, c.surfaceM2, c.ascenseur, c.digicode, c.digicodeCode, c.precisionAcces]);
         if (surImmeuble) {
-          const actuel = await lireDigicodeDuLot(id);
+          // Arno (21/10/2026, 399) : écrit sur le BÂTIMENT du bien (le code général s'il n'en a pas) — seulement si la valeur
+          // diffère de ce que la fiche montrait.
           const adresse = await adresseDuLot(id);
-          if (actuel !== null && adresse !== null && (actuel.digicode !== c.digicode || (actuel.code ?? null) !== (c.digicodeCode ?? null))) {
-            const r = await enregistrerDigicodeDans(q, adresse, { digicode: c.digicode, code: c.digicodeCode }, auteur, 'fiche_bien', id);
+          if (montre !== null && adresse !== null && (montre.digicode !== c.digicode || (montre.code ?? null) !== (c.digicodeCode ?? null))) {
+            const r = await enregistrerDigicodeDans(q, adresse, { digicode: c.digicode, code: c.digicodeCode }, auteur, 'fiche_bien', id, c.batiment);
             if (!r.ok) throw new Refus(r.motif);
           }
         }

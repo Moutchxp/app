@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
-import { enregistrerDigicode, journalDigicode, lireDigicodeAdresse } from '../../../../../../lib/location/digicodeImmeubleRepo';
+import { enregistrerDigicode, journalDigicode, lireDigicodesAdresse } from '../../../../../../lib/location/digicodeImmeubleRepo';
 
 /**
  * /api/admin/gestion/immeubles/digicode — LE DIGICODE DE L'IMMEUBLE, depuis la fiche immeuble / syndic (rose) (Arno, 21/10/2026,
@@ -9,6 +9,8 @@ import { enregistrerDigicode, journalDigicode, lireDigicodeAdresse } from '../..
  * syndic : changer de syndic ne change rien au digicode.
  *   GET  `?voie=&cp=&commune=` : la valeur, la mention « Commun à tous les biens du … (N biens) », le journal.
  *   POST `{ voie, cp, commune, digicode, code }` : écrit sur l'immeuble (créé s'il n'existe pas), journalisé « fiche_syndic ».
+ * Arno (21/10/2026, 399) — UN CODE PAR BÂTIMENT : le GET rend aussi `batiments` (une ligne par bâtiment connu) et `parBatiment` ;
+ * le POST accepte `batiment` (absent ou vide : le code général de l'adresse).
  */
 export const runtime = 'nodejs';
 
@@ -21,9 +23,9 @@ export async function GET(request: Request): Promise<Response> {
   const u = new URL(request.url).searchParams;
   const adresse = { voie: texte(u.get('voie'), 300), codePostal: texte(u.get('cp'), 10), commune: texte(u.get('commune'), 120) };
   try {
-    const lu = await lireDigicodeAdresse(adresse);
+    const lu = await lireDigicodesAdresse(adresse);
     if (lu === null) return Response.json({ etat: 'sans_schema' }, { headers: ENTETES });
-    return Response.json({ etat: 'ok', data: { ...lu, journal: await journalDigicode(adresse) } }, { headers: ENTETES });
+    return Response.json({ etat: 'ok', data: { ...lu.general, batiments: lu.batiments, parBatiment: lu.parBatiment, journal: await journalDigicode(adresse) } }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/immeubles/digicode] lecture impossible', e);
     return Response.json({ etat: 'erreur', message: 'Lecture impossible : la base n’a pas répondu.' }, { status: 503, headers: ENTETES });
@@ -41,7 +43,7 @@ export async function POST(request: Request): Promise<Response> {
   }
   try {
     const r = await enregistrerDigicode({ voie: texte(corps.voie, 300), codePostal: texte(corps.cp, 10), commune: texte(corps.commune, 120) },
-      { digicode: corps.digicode, code: corps.code }, await auteurDeLaRequete(request), 'fiche_syndic');
+      { digicode: corps.digicode, code: corps.code }, await auteurDeLaRequete(request), 'fiche_syndic', null, texte(corps.batiment, 60));
     return Response.json(r.ok ? { etat: 'ok', data: { change: r.change } } : { etat: 'refus', motif: r.motif }, { headers: ENTETES });
   } catch (e) {
     console.error('[gestion/immeubles/digicode] écriture impossible', e);

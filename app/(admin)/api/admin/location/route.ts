@@ -191,7 +191,9 @@ export async function GET(request: Request): Promise<Response> {
       return Response.json({ etat: 'ok', data: await mandatsDesProprietaires(ids) }, { headers: ENTETES });
     }
     if (p('digicodePourAdresse') !== null) {
-      const lu = await lireDigicodeAdresse({ voie: (p('digicodePourAdresse') ?? '').slice(0, 300), codePostal: (p('cp') ?? '').slice(0, 10) || null, commune: (p('commune') ?? '').slice(0, 120) || null });
+      // Arno (21/10/2026, 399) : pour le BÂTIMENT saisi (le code général sans bâtiment).
+      const lu = await lireDigicodeAdresse({ voie: (p('digicodePourAdresse') ?? '').slice(0, 300), codePostal: (p('cp') ?? '').slice(0, 10) || null, commune: (p('commune') ?? '').slice(0, 120) || null },
+        (p('batiment') ?? '').slice(0, 60) || null);
       return Response.json({ etat: 'ok', data: lu }, { headers: ENTETES });
     }
     if (p('agPourAdresse') !== null) {

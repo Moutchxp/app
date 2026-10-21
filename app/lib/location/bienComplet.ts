@@ -141,7 +141,7 @@ export interface ComplementsFiche extends ComplementsBien {
    * Arno (21/10/2026, migration 396) — le digicode affiché est celui de l'IMMEUBLE de l'adresse : la mention « Commun à tous
    * les biens du … (N biens) » et sa source (`bien` : l'ancienne valeur du bien, l'immeuble n'en a pas encore). Absent sans la 396.
    */
-  digicodeImmeuble?: { mention: string | null; source: 'immeuble' | 'bien' | null };
+  digicodeImmeuble?: { mention: string | null; source: 'immeuble' | 'bien' | null; portee?: 'batiment' | 'general'; batiment?: string | null };
 }
 
 export interface SaisieBien {

@@ -25,6 +25,54 @@ export function mentionDigicode(a: AdresseImmeuble, nbBiens: number): string {
   return `Commun à tous les biens du ${adresseAffichee(a)} (${nbBiens} bien${nbBiens > 1 ? 's' : ''})`;
 }
 
+// ── UN DIGICODE PAR BÂTIMENT (Arno, 21/10/2026, migration 399) ──────────────────────────────────────────────────────────────
+//
+// « Une même adresse postale peut avoir un digicode DIFFÉRENT par bâtiment (A, B…). Clé : adresse normalisée + bâtiment
+// normalisé (casse, espaces, « Bât. B » = « B » = « bâtiment b »). Bâtiment vide = “code général” de l'adresse. Un bien lit le
+// code de SON bâtiment ; si ce bâtiment n'a pas de code, ou si le bien n'a pas de bâtiment, il lit le code général de l'adresse,
+// avec la mention “code général de l'adresse”. »
+
+const sansMotBatiment = (s: string): string =>
+  s.replace(/^\s*(b[aâ]timents?|b[aâ]t|bt)(?=$|[\s.:\-_/,]|\d)[\s.:\-_/,]*/i, '').trim();
+
+/** La clé d'un bâtiment : « Bât. B » = « B » = « bâtiment b » → « b » ; vide (ou « Bâtiment » seul) → '' = le code général. PUR. */
+export function cleBatiment(brut: string | null | undefined): string {
+  const t = (brut ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[.,;:_/\-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return sansMotBatiment(t).replace(/\s+/g, ' ').trim();
+}
+
+/** Le bâtiment tel qu'on l'affiche après « bâtiment » : « Bât. B » → « B », « bâtiment b » → « B », « Les Tilleuls » tel quel. PUR. */
+export function libelleBatiment(brut: string | null | undefined): string | null {
+  const t = sansMotBatiment((brut ?? '').replace(/\s+/g, ' ').trim());
+  if (t === '') return null;
+  return t.length <= 3 ? t.toUpperCase() : t;
+}
+
+const biens = (n: number): string => (n === 0 ? 'aucun bien' : n === 1 ? '1 bien' : `${n} biens`);
+
+/**
+ * La mention sous le champ « Digicode » (Arno) : « Commun aux N biens du bâtiment B, <adresse> », ou « … de l'adresse » pour le
+ * code général ; avec un seul bien (ou aucun), la phrase reste juste. PUR.
+ */
+export function mentionDigicodeBatiment(a: AdresseImmeuble, batiment: string | null, nbBiens: number): string {
+  const adresse = adresseAffichee(a);
+  const ou = batiment === null ? `de l’adresse ${adresse}` : `du bâtiment ${batiment}, ${adresse}`;
+  return nbBiens > 1 ? `Commun aux ${nbBiens} biens ${ou}` : `Code ${batiment === null ? 'général' : 'propre'} ${ou} (${biens(nbBiens)})`;
+}
+
+/**
+ * Mail « Nouvelle location » (Arno, 21/10/2026) : « le code du bâtiment du lot principal, et celui de chaque annexe SI SON
+ * BÂTIMENT DIFFÈRE ». Même immeuble (adresse normalisée ; une annexe « même adresse » a celle du logement) et même bâtiment
+ * normalisé → le code n'est pas répété sur l'annexe. PUR.
+ */
+export function memeBatimentQue(annexe: AdresseImmeuble & { batiment: string | null }, principal: AdresseImmeuble & { batiment: string | null }): boolean {
+  const adresse = (annexe.voie ?? '').trim() === '' ? principal : annexe;
+  return cleImmeubleAdresse(adresse) === cleImmeubleAdresse(principal) && cleBatiment(annexe.batiment) === cleBatiment(principal.batiment);
+}
+
+/** La mention d'un bien qui lit le CODE GÉNÉRAL alors qu'il a un bâtiment (sans code propre). PUR. */
+export const MENTION_CODE_GENERAL = 'code général de l’adresse';
+
 const texteCode = (v: unknown): string | null => (typeof v === 'string' && v.trim() !== '' ? v.trim() : null);
 const ouiNon = (v: unknown): boolean | null => (v === true || v === 'oui' ? true : v === false || v === 'non' ? false : null);
 

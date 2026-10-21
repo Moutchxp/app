@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { cleImmeubleAdresse, libelleValeur, mentionDigicode, planReprise, verifierDigicode, type LotAReprendre } from './digicodeImmeuble';
+import {
+  cleBatiment, cleImmeubleAdresse, libelleBatiment, libelleValeur, memeBatimentQue, mentionDigicode, mentionDigicodeBatiment, planReprise, verifierDigicode,
+  type LotAReprendre,
+} from './digicodeImmeuble';
 
 /** 🔴 Arno (21/10/2026, 396) — le digicode porté par l'IMMEUBLE, identifié par son adresse postale normalisée. */
 describe('l’immeuble d’une adresse : la clé normalisée', () => {
@@ -50,5 +53,37 @@ describe('🔴 la reprise des digicodes déjà saisis sur des biens', () => {
     expect(planReprise([L(1, '12 rue A', false, null), L(2, '12 rue A', false, null)]).aReprendre[0].valeur).toEqual({ digicode: false, code: null });
     expect(planReprise([L(1, '12 rue A', true, null), L(2, '12 rue A', false, null)]).aArbitrer).toHaveLength(1);
     expect(planReprise([L(9, '', true, '1')]).sansAdresse).toEqual([9]);
+  });
+});
+
+describe('🔴 UN DIGICODE PAR BÂTIMENT (Arno, 21/10/2026, migration 399)', () => {
+  it('« Bât. B » = « B » = « bâtiment b » : une seule clé ; vide (ou « Bâtiment » seul) = le code général', () => {
+    for (const x of ['Bât. B', 'B', 'bâtiment b', ' BAT  B ', 'Bât.B', 'Bâtiment  B', 'bat-b', 'Bâtiments B']) expect(cleBatiment(x)).toBe('b');
+    for (const x of ['', '   ', null, undefined, 'Bâtiment', 'bât.']) expect(cleBatiment(x)).toBe('');
+    expect(cleBatiment('Bâtiment A1')).toBe('a1');
+    expect(cleBatiment('Les Tilleuls')).toBe('les tilleuls');
+    expect(cleBatiment('Bateau')).toBe('bateau');
+    expect(cleBatiment('A')).not.toBe(cleBatiment('B'));
+  });
+  it('le libellé affiché : « Bât. B » → « B », « bâtiment b » → « B », un nom long tel quel', () => {
+    expect(libelleBatiment('Bât. B')).toBe('B');
+    expect(libelleBatiment('bâtiment b')).toBe('B');
+    expect(libelleBatiment('Les Tilleuls')).toBe('Les Tilleuls');
+    expect(libelleBatiment('  ')).toBeNull();
+  });
+  it('la mention : « Commun aux N biens du bâtiment B, <adresse> » ; « … de l’adresse … » pour le code général', () => {
+    const a = { voie: '12 rue Victor Hugo', codePostal: '92400', commune: 'Courbevoie' };
+    expect(mentionDigicodeBatiment(a, 'B', 3)).toBe('Commun aux 3 biens du bâtiment B, 12 rue Victor Hugo, 92400 Courbevoie');
+    expect(mentionDigicodeBatiment(a, null, 2)).toBe('Commun aux 2 biens de l’adresse 12 rue Victor Hugo, 92400 Courbevoie');
+    expect(mentionDigicodeBatiment(a, 'C', 1)).toBe('Code propre du bâtiment C, 12 rue Victor Hugo, 92400 Courbevoie (1 bien)');
+    expect(mentionDigicodeBatiment(a, null, 0)).toBe('Code général de l’adresse 12 rue Victor Hugo, 92400 Courbevoie (aucun bien)');
+  });
+  it('mail : l’annexe ne répète le code que si son bâtiment (ou son adresse) diffère du logement', () => {
+    const logement = { voie: '12 rue Victor Hugo', codePostal: '92400', commune: 'Courbevoie', batiment: 'Bât. B' };
+    expect(memeBatimentQue({ voie: null, codePostal: '92400', commune: 'Courbevoie', batiment: 'b' }, logement)).toBe(true);
+    expect(memeBatimentQue({ voie: '12 r Victor Hugo', codePostal: '92400', commune: 'COURBEVOIE', batiment: 'bâtiment B' }, logement)).toBe(true);
+    expect(memeBatimentQue({ voie: null, codePostal: '92400', commune: 'Courbevoie', batiment: 'A' }, logement)).toBe(false);
+    expect(memeBatimentQue({ voie: null, codePostal: '92400', commune: 'Courbevoie', batiment: null }, logement)).toBe(false);
+    expect(memeBatimentQue({ voie: '14 rue Victor Hugo', codePostal: '92400', commune: 'Courbevoie', batiment: 'B' }, logement)).toBe(false);
   });
 });

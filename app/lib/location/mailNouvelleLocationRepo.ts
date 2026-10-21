@@ -13,6 +13,7 @@ import { loyerDesOccupations } from './loyerEntreeRepo';
 import { dossierDuBail } from './brancheBailDriveRepo';
 import { emailDeLAuteur } from './mailPortefeuilleRepo';
 import { lireDigicodeDuLot } from './digicodeImmeubleRepo';
+import { memeBatimentQue } from './digicodeImmeuble';
 import { mandatsDesProprietaires } from './mandatBienRepo';
 import { libelleMandat, sorteDuBien } from './mandatBien';
 import { lireGarantsDuBail } from '../gestion/partieCategorieRepo';
@@ -155,6 +156,9 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
   const complements = await complementsDuBien(Number(principalId)).catch(() => null);
   const digis = new Map(await Promise.all(lotsSql.map(async (r) => [r.id, await lireDigicodeDuLot(Number(r.id)).catch(() => null)] as const)));
   const adresseBien = { voie: principal?.adresse ?? null, codePostal: principal?.code_postal ?? null, commune: principal?.commune ?? null };
+  const repeteLePrincipal = (r: LotSql): boolean => r.id !== principalId && principal !== undefined && memeBatimentQue(
+    { voie: r.adresse_autre === false ? null : r.adresse, codePostal: r.code_postal, commune: r.commune, batiment: r.batiment },
+    { voie: principal.adresse, codePostal: principal.code_postal, commune: principal.commune, batiment: principal.batiment });
   const lots = lotsSql.map((r) => {
     const estPrincipal = r.id === principalId;
     const source: LotSource = {
@@ -164,9 +168,13 @@ export async function donneesNouvelleLocation(bailId: number): Promise<DonneesNo
       voie: !estPrincipal && r.adresse_autre === false ? null : r.adresse, codePostal: r.code_postal, commune: r.commune,
       porte: r.porte, numLotCopro: r.num_lot_copro, batiment: r.batiment, escalier: r.escalier, etage: r.etage,
       precisionAcces: r.precision_acces, ascenseur: r.ascenseur,
-      // Arno (21/10/2026, 396) : le digicode est celui de l'IMMEUBLE de l'adresse (sans la 396 : celui du bien).
-      digicode: digis.get(r.id) === undefined || digis.get(r.id) === null ? r.digicode : digis.get(r.id)!.digicode,
-      digicodeCode: digis.get(r.id) === undefined || digis.get(r.id) === null ? r.digicode_code : digis.get(r.id)!.code,
+      // Arno (21/10/2026, 396) : le digicode est celui de l'IMMEUBLE de l'adresse (sans la 396 : celui du bien) ; 399 : celui
+      // du BÂTIMENT du lot (le code général sans bâtiment, ou si le bâtiment n'en a pas). Une annexe ne le répète que si son
+      // bâtiment diffère de celui du logement.
+      ...(repeteLePrincipal(r) ? { digicode: null, digicodeCode: null } : {
+        digicode: digis.get(r.id) === undefined || digis.get(r.id) === null ? r.digicode : digis.get(r.id)!.digicode,
+        digicodeCode: digis.get(r.id) === undefined || digis.get(r.id) === null ? r.digicode_code : digis.get(r.id)!.code,
+      }),
       surfaceHabitable: r.surface_habitable_m2, surfaceCarrez: r.surface_carrez_m2, surfaceExterieure: r.surface_exterieure_m2, surface: r.surface_m2,
       construction: r.epoque_construction, chauffage: r.chauffage, dpeClasse: r.dpe_classe, dpeDate: r.dpe_date, dpeNonSoumis: r.dpe_non_soumis,
       syndic: estPrincipal ? complements?.syndicNom ?? null : null, derniereAg: estPrincipal ? complements?.derniereAg ?? null : null,
