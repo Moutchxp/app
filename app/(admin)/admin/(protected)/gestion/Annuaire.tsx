@@ -22,6 +22,7 @@ import type {
  */
 import { BarreAnnuaire } from './BarreAnnuaire';
 import { SectionLocationBien, SectionLocationLocataire, SectionLocationProprietaire } from './SectionsLocationFiche';
+import { EnvoiAdhocMonga, useBauxEnCoursDesBiens, type BailEnCoursDuBien } from '../location/EnvoiAdhocMonga';
 /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — la moitié « fiche » du calcul des PARTIES, descendue dans un module
    PUR pour que la fenêtre des pièces jointes lise exactement la même, et non une copie. */
 import { categoriesDeLaFiche } from '../../../../lib/gestion/familleDestinataire';
@@ -767,8 +768,10 @@ function RefWippimmo({ numero }: { numero: string }) {
  * pastille de l'en-tête, qui n'apparaît que lorsqu'elle est connue (`pastillesBien`). Mesuré le 10/10/2026 : aucune
  * colonne de surface n'existe encore. On ne la déduit pas du type (« Type 2 » ne dit pas des mètres carrés).
  */
-function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
+function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi }: {
   b: BienDuProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
+  /** Arno (21/10/2026) — le bail en cours du bien : le bouton discret « Envoyer à ADHOC & MONGA » (absent : pas de bouton). */
+  envoi?: BailEnCoursDuBien;
   /** Ouvre la « vie du bien » de ce lot, filtrée sur les échanges qui portent un événement ouvert. */
   onEvenements: (lotId: number) => void;
   /**
@@ -915,7 +918,14 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements }: {
           })()}
         </span>
       </span>
-      <RefWippimmo numero={b.numero} />
+      {/* Arno (21/10/2026) — tout en bas, À GAUCHE, sur la ligne de la réf. WIPPIMMO (qui reste à droite) : le bouton discret
+          « Envoyer à ADHOC & MONGA », seulement si le bien a un bail en cours. Sans lui, la réf. reste seule, comme avant. */}
+      {envoi !== undefined ? (
+        <span className="ann-carte-bas" data-carte-bas>
+          <EnvoiAdhocMonga bailId={envoi.bailId} dernierEnvoi={envoi.dernierEnvoi} variante="discret" />
+          <RefWippimmo numero={b.numero} />
+        </span>
+      ) : <RefWippimmo numero={b.numero} />}
     </li>
   );
 }
@@ -944,6 +954,8 @@ function VueProprietaire({
      « en gestion » auraient fini par diverger — c'est la raison d'être du module, pas un rangement. */
   const enGestion = f.biens.filter(bienEnGestion);
   const anciens = f.biens.filter((b) => !bienEnGestion(b));
+  // Arno (21/10/2026) — le bail en cours de chaque bien en gestion (une lecture) : le bouton discret de sa carte.
+  const bauxEnCours = useBauxEnCoursDesBiens(enGestion.map((b) => Number(b.id)));
   /* 🔴 FICHE PROPRIÉTAIRE COMMUNE (Arno, 18/10/2026) — les cartes « contact du propriétaire » de ses biens en gestion, et
      le « Contact du propriétaire » du choix ; une fiche ARCHIVÉE (toutes ses personnes archivées) n'offre pas d'ajout. */
   const contactsProp = useContactsDuProprietaire(enGestion.map((b) => b.numero), gestes.modifiable);
@@ -1049,7 +1061,7 @@ function VueProprietaire({
         {enGestion.length === 0 ? <p className="ann-gris">Aucun bien en gestion.</p> : (
           <ul className="ann-cartes">
             {enGestion.map((b) => <CarteBien key={b.id} b={b} ouvrir={ouvrir}
-              onHistoriqueDuBien={onHistoriqueDuBien} onEvenements={onEvenements} />)}
+              onHistoriqueDuBien={onHistoriqueDuBien} onEvenements={onEvenements} envoi={bauxEnCours[String(b.id)]} />)}
           </ul>
         )}
       </section>
@@ -1456,6 +1468,8 @@ function VueLot({
    */
   const [signalEvenement, setSignalEvenement] = useState(0);
   const ancreVie = useRef<HTMLDivElement | null>(null);
+  // Arno (21/10/2026) — le bail en cours du bien : le bouton discret « Envoyer à ADHOC & MONGA » de l'en-tête.
+  const bailEnCours = useBauxEnCoursDesBiens([Number(f.id)])[String(Number(f.id))];
   /**
    * ⚠️ LA CLÉ DE `VieDuBien` PORTE LE FILTRE : c'est ce qui fait repartir le composant sur le filtre voulu quand
    * on clique un cartouche. Sans elle, l'état interne de `VieDuBien` garderait le filtre d'avant — et le clic
@@ -1479,6 +1493,12 @@ function VueLot({
             {f.absent && <span className="ann-etiq ann-etiq--absent">absent du dernier export</span>}
           </p>
           <RefWippimmo numero={f.numero} />
+          {/* Arno (21/10/2026) — le même bouton discret que la carte du bien : seulement si le bien a un bail en cours. */}
+          {bailEnCours !== undefined && (
+            <span className="ann-tete-envoi" data-envoi-fiche-bien>
+              <EnvoiAdhocMonga bailId={bailEnCours.bailId} dernierEnvoi={bailEnCours.dernierEnvoi} variante="discret" />
+            </span>
+          )}
         </div>
         <div className="ann-tete-actions">
           {/* 🔴🔴 Arno, 19/10/2026 : le dossier du bien, à défaut celui du propriétaire, à défaut la racine (boutonDossierBien). */}
@@ -2706,6 +2726,11 @@ export const CSS_ANNUAIRE = `
 /* LOT FICHE-SYNDIC-COORDONNEES-ET-ENTETE — la reference WIPPIMMO, en bas, petite et grise. */
 .ann-carte-ref{display:block;padding:0 14px 8px;margin-top:-6px;font-size:.7rem;color:var(--color-svv-muted);text-align:right}
 .ann-tete-mots .ann-carte-ref{padding:0;margin:.25rem 0 0;text-align:left}
+/* Arno (21/10/2026) : en bas de la carte, le bouton discret ADHOC et MONGA a GAUCHE, la reference a DROITE, sur une ligne. */
+.ann-carte-bas{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:0 14px 4px;margin-top:-6px;min-width:0}
+.ann-carte-bas .ann-carte-ref{padding:0;margin:0;flex:0 0 auto}
+.ann-carte-bas .eam--discret{flex:0 1 auto;min-width:0}
+.ann-tete-envoi{display:block;margin-top:.1rem}
 /* L'absence de dossier Drive se DIT, a la place du bouton, et reste centree sur la meme ligne de base. */
 .ann-carte-sans{display:inline-flex;align-items:center;justify-content:center;text-align:center;
   min-height:36px;font-size:.76rem}

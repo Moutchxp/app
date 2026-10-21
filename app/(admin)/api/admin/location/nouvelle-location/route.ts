@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerLocation } from '../../../../../lib/location/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
-import { apercuNouvelleLocation, bauxEnCoursDuLocataire, envoyerNouvelleLocation } from '../../../../../lib/location/mailNouvelleLocationRepo';
+import { apercuNouvelleLocation, bauxEnCoursDesLots, bauxEnCoursDuLocataire, envoyerNouvelleLocation } from '../../../../../lib/location/mailNouvelleLocationRepo';
 
 /**
  * /api/admin/location/nouvelle-location — LE MAIL « NOUVELLE LOCATION » (ENVOI ADHOC & MONGA) (Arno, 21/10/2026).
@@ -9,6 +9,8 @@ import { apercuNouvelleLocation, bauxEnCoursDuLocataire, envoyerNouvelleLocation
  *   GET `?bail=N`      : l'APERÇU de la fenêtre de confirmation (objet, HTML, texte, destinataires proposés — la copie de la
  *                        personne connectée en tête, puis la liste configurée — et le dernier envoi). Lecture seule.
  *   GET `?locataire=N` : les baux EN COURS du locataire, avec leur dernier envoi (le bouton de sa fiche).
+ *   GET `?lots=1,2,3`  : le bail EN COURS de chaque bien (absent : pas de bail en cours), avec son dernier envoi — le bouton
+ *                        discret des cartes de bien et de la fiche du bien (Arno, 21/10/2026).
  *   POST `{ bailId, destinataires, message? }` : ENVOIE (avec le message d'accompagnement facultatif) à la liste confirmée (modifiée pour cet envoi seulement : la configuration n'est
  *                        pas touchée), journalise. 🔴 C'est le SEUL chemin qui envoie : rien ne part sans « Envoyer ».
  */
@@ -28,6 +30,11 @@ export async function GET(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   const url = new URL(request.url);
   try {
+    const lots = url.searchParams.get('lots');
+    if (lots !== null) {
+      const ids = lots.split(',').map(identifiant).filter((x): x is number => x !== null);
+      return Response.json({ etat: 'ok', data: await bauxEnCoursDesLots(ids) }, { headers: ENTETES });
+    }
     const locataire = identifiant(url.searchParams.get('locataire'));
     if (locataire !== null) return Response.json({ etat: 'ok', data: await bauxEnCoursDuLocataire(locataire) }, { headers: ENTETES });
     const bail = identifiant(url.searchParams.get('bail'));

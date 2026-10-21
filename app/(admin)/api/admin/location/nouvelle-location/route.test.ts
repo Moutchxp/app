@@ -7,9 +7,10 @@ vi.mock('../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async (
 const apercu = vi.fn();
 const envoyer = vi.fn();
 const baux = vi.fn();
+const bauxLots = vi.fn();
 vi.mock('../../../../../lib/location/mailNouvelleLocationRepo', () => ({
   apercuNouvelleLocation: (...a: unknown[]) => apercu(...a), envoyerNouvelleLocation: (...a: unknown[]) => envoyer(...a),
-  bauxEnCoursDuLocataire: (...a: unknown[]) => baux(...a),
+  bauxEnCoursDuLocataire: (...a: unknown[]) => baux(...a), bauxEnCoursDesLots: (...a: unknown[]) => bauxLots(...a),
 }));
 const { GET, POST } = await import('./route');
 
@@ -20,6 +21,16 @@ describe('/api/admin/location/nouvelle-location', () => {
     apercu.mockReset().mockResolvedValue({ bailId: 536, objet: 'o' });
     envoyer.mockReset().mockResolvedValue({ etat: 'ok', data: { n: 4 } });
     baux.mockReset().mockResolvedValue([]);
+    bauxLots.mockReset().mockResolvedValue({ 7: { bailId: 536, entree: '2026-11-01', dernierEnvoi: null } });
+  });
+
+  it('🔴 Arno (21/10/2026) — GET ?lots= : le bail en cours de chaque bien (identifiants filtrés) — AUCUN envoi', async () => {
+    const r = await GET(new Request('http://x/api/admin/location/nouvelle-location?lots=7,abc,8,-1'));
+    expect(await r.json()).toEqual({ etat: 'ok', data: { 7: { bailId: 536, entree: '2026-11-01', dernierEnvoi: null } } });
+    expect(bauxLots).toHaveBeenCalledWith([7, 8]);
+    expect(envoyer).not.toHaveBeenCalled();
+    garde.mockResolvedValue({ refus: new Response(null, { status: 403 }) });
+    expect((await GET(new Request('http://x/api/admin/location/nouvelle-location?lots=7'))).status).toBe(403);
   });
 
   it('sans le droit Location : refus, rien n’est lu ni envoyé', async () => {

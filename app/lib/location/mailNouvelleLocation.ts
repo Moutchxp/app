@@ -688,3 +688,16 @@ export function mentionEnvoi(e: { quand: string; par: string; destinataires: rea
   const f = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', ...o }).format(d);
   return `Envoyé le ${f({ day: '2-digit', month: '2-digit', year: 'numeric' })} à ${f({ hour: '2-digit', minute: '2-digit' })} par ${e.par} à ${e.destinataires.join(', ')}`;
 }
+
+/** Arno (21/10/2026) — la ligne d'un envoi dans l'Historique du bien. PUR. */
+export function libelleEnvoiHistorique(e: { n: number; par: string }): string {
+  return `Mail Nouvelle location envoyé à ${e.n} destinataire${e.n > 1 ? 's' : ''} par ${e.par}`;
+}
+
+/** « 21/10/2026 à 14:32 » (heure de Paris). PUR. */
+export function dateHeureEnvoi(quand: string): string {
+  const d = new Date(quand);
+  if (Number.isNaN(d.getTime())) return quand;
+  const f = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', ...o }).format(d);
+  return `${f({ day: '2-digit', month: '2-digit', year: 'numeric' })} à ${f({ hour: '2-digit', minute: '2-digit' })}`;
+}

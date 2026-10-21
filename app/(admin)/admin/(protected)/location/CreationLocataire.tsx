@@ -95,7 +95,11 @@ export function CreationLocataire() {
   // Arno (19/10/2026) — les LOTS LOUÉS cochés, le récapitulatif avant validation, et l'annonce d'une réintégration.
   const [coches, setCoches] = useState<number[] | null>(null);
   const [recap, setRecap] = useState<string[] | null>(null);
-  const [fait, setFait] = useState<{ messages: string[]; lien: string; bailId?: number | null } | null>(null);
+  const [fait, setFait] = useState<{ messages: string[]; lien: string; bailId?: number | null; ouvrirEnvoi?: boolean } | null>(null);
+  /* Arno (21/10/2026) — « Enregistrer et envoyer à ADHOC & MONGA » : le MÊME enregistrement que « Enregistrer » (récapitulatif
+     puis confirmation compris), puis la fenêtre d'envoi s'ouvre pour le bail créé. Le dernier bouton cliqué décide. */
+  const envoyerApres = useRef(false);
+  const [intentionEnvoi, setIntentionEnvoi] = useState(false);
   const idForm = useId();
   // Bloc 3 — les conditions d'entrée et l'entretien du bien ; `tente` : les messages sous chaque champ après un essai.
   const [conditions, setConditions] = useState<SaisieConditions>(CONDITIONS_VIDES);
@@ -271,13 +275,14 @@ export function CreationLocataire() {
        & MONGA » ; le lien vers la fiche du locataire est dessous. Sans bail (base d'avant la 393), le départ vers la fiche est
        celui de toujours. */
     const bailId = typeof d?.bailId === 'number' ? d.bailId : null;
-    if (annonces.length > 0 || bailId !== null) { setFait({ messages: annonces, lien, bailId }); return; }
+    // « Enregistrer et envoyer » : la fenêtre ne s'ouvre qu'ICI, après un enregistrement réussi et pour un bail créé.
+    if (annonces.length > 0 || bailId !== null) { setFait({ messages: annonces, lien, bailId, ouvrirEnvoi: envoyerApres.current && bailId !== null }); return; }
     window.location.href = lien;
   };
 
   return (
     <div className="loc-page loc-ample">
-      <form id={idForm} hidden onSubmit={(e) => { e.preventDefault(); void enregistrer(); }} data-formulaire-page />
+      <form id={idForm} hidden onSubmit={(e) => { e.preventDefault(); envoyerApres.current = false; setIntentionEnvoi(false); void enregistrer(); }} data-formulaire-page />
       <style>{CSS_LOCATION_ECRANS + CSS_LOCATION_CREATION + CSS_CARTES + CSS_CHAMP_ADRESSE + CSS_LOTS_LOUES + CSS_CONDITIONS + CSS_ENTRETIEN}</style>
       <EnTeteLocation titre="Nouveau locataire" sous="Au moins un locataire (client) et le bien loué. Les contacts du locataire sont facultatifs." />
 
@@ -366,7 +371,7 @@ export function CreationLocataire() {
           {fait.bailId !== undefined && fait.bailId !== null && (
             <div className="loc-apres-enregistrer" data-apres-enregistrer>
               <p style={{ margin: 0 }}><strong>Le locataire et son bail sont enregistrés.</strong> Envoyez le dossier à ADHOC &amp; MONGA :</p>
-              <EnvoiAdhocMonga bailId={fait.bailId} />
+              <EnvoiAdhocMonga bailId={fait.bailId} ouvrirAuMontage={fait.ouvrirEnvoi === true} />
             </div>
           )}
           <p style={{ margin: 0 }}><a href={fait.lien}>Ouvrir la fiche du locataire</a></p>
@@ -381,9 +386,14 @@ export function CreationLocataire() {
             : `${nbLocataires} locataire${nbLocataires > 1 ? 's' : ''}${etat.contacts.length > 0 ? ` et ${etat.contacts.length} contact${etat.contacts.length > 1 ? 's' : ''}` : ''}, prêt${nbLocataires + etat.contacts.length > 1 ? 's' : ''} à enregistrer.`}
         </p>
         <a className="svv-btn svv-btn-outline gst-btn" href="/admin/location/locataires">Annuler</a>
+        {/* Arno (21/10/2026) — à côté d'« Enregistrer », mêmes conditions d'activation : enregistre de la même façon, puis ouvre la
+            fenêtre d'envoi du bail créé (jamais en cas d'échec ; rien ne part sans « Envoyer » dans la fenêtre). */}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn loc-enregistrer-envoyer" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie}
+          onClick={() => { envoyerApres.current = true; setIntentionEnvoi(true); void enregistrer(); }} data-enregistrer-envoyer>
+          {envoi && intentionEnvoi ? 'Enregistrement…' : recap === null ? 'Enregistrer et envoyer à ADHOC & MONGA' : 'Confirmer et envoyer à ADHOC & MONGA'}</button>
         {/* Arno (20/10/2026) : un locataire ne s'enregistre pas sans bien du portefeuille NI sans date d'entrée — « Enregistrer »
             reste inactif sans eux. */}
-        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie} data-enregistrer-locataire>{envoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
+        <button type="submit" form={idForm} className="svv-btn svv-btn-primary gst-btn" disabled={envoi || fait !== null || bien === null || !dateEntreeSaisie} data-enregistrer-locataire>{envoi && !intentionEnvoi ? 'Enregistrement…' : recap === null ? 'Enregistrer' : 'Confirmer'}</button>
       </div>
     </div>
   );
@@ -409,5 +419,7 @@ const CSS_LOTS_LOUES = `
 .loc-garantit-choix{display:inline-flex;align-items:center;gap:8px;min-height:44px;cursor:pointer;overflow-wrap:anywhere}
 .loc-garantit-choix input{width:22px;height:22px;flex:0 0 auto}
 .loc-contact-de select{min-height:44px}
+.loc-collant .loc-enregistrer-envoyer{width:auto;white-space:normal;text-align:center}
+@media (max-width:760px){ .loc-collant .loc-enregistrer-envoyer{flex:1 1 100%;order:3} }
 .loc-apres-enregistrer{display:flex;flex-direction:column;gap:10px;padding:14px;border:1.5px solid var(--color-svv-line-strong);border-radius:14px}
 `;

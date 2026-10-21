@@ -403,3 +403,48 @@ export async function bauxEnCoursDuLocataire(locataireId: number): Promise<{ bai
   }
   return sortie;
 }
+
+/**
+ * Arno (21/10/2026) — le BAIL EN COURS de chaque bien demandé (carte du bien dans la fiche propriétaire de la Gestion, fiche du
+ * bien), avec son dernier envoi : le bouton discret « Envoyer à ADHOC & MONGA ». Un bien sans bail en cours est absent du
+ * résultat (pas de bouton). Le bail d'un bien : celui posé sur lui, ou celui d'une occupation en cours sur lui (ses annexes) ;
+ * plusieurs : le plus récent. Lecture seule.
+ */
+export async function bauxEnCoursDesLots(lotIds: readonly number[]): Promise<Record<string, { bailId: number; entree: string | null; dernierEnvoi: EnvoiJournalise | null }>> {
+  const ids = [...new Set(lotIds)].filter((x) => Number.isSafeInteger(x) && x > 0).slice(0, 200);
+  if (ids.length === 0 || !(await colonneExisteMemo('gestion_annuaire_occupation', 'bail_id'))) return {};
+  const { rows } = await query<{ lot: string; id: string; entree: string | null }>(
+    `SELECT DISTINCT ON (x.lot) x.lot::text AS lot, g.id::text, g.entree::text
+       FROM (SELECT g.id AS bail, g.lot_id AS lot FROM gestion_bail g WHERE g.sortie IS NULL AND g.lot_id = ANY($1::bigint[])
+             UNION
+             SELECT o.bail_id, o.lot_id FROM gestion_annuaire_occupation o
+              WHERE o.bail_id IS NOT NULL AND o.sortie IS NULL AND o.lot_id = ANY($1::bigint[])) x
+       JOIN gestion_bail g ON g.id = x.bail AND g.sortie IS NULL
+      ORDER BY x.lot, g.entree DESC NULLS LAST, g.id DESC`, [ids]);
+  const sortie: Record<string, { bailId: number; entree: string | null; dernierEnvoi: EnvoiJournalise | null }> = {};
+  for (const r of rows) sortie[r.lot] = { bailId: Number(r.id), entree: r.entree, dernierEnvoi: await dernierEnvoi(Number(r.id)) };
+  return sortie;
+}
+
+/** Un envoi réussi du mail « Nouvelle location », tel que l'Historique du bien le montre. */
+export interface EnvoiDuBien { id: number; bailId: number; quand: string; par: string; n: number; message: string | null }
+
+/**
+ * Arno (21/10/2026) — LES ENVOIS « NOUVELLE LOCATION » D'UN BIEN, pour son Historique : chaque envoi RÉUSSI d'un bail posé sur ce
+ * bien (ou dont une occupation l'a loué), du plus récent au plus ancien, avec le message d'accompagnement s'il y en a un
+ * (migration 398). Sans le journal (395) : aucun. Lecture seule.
+ */
+export async function envoisDuBien(lotId: number): Promise<EnvoiDuBien[]> {
+  if (!(await mailNouvelleLocationDisponible())) return [];
+  const avecMessage = await colonneExisteMemo('gestion_location_mail_envoi', 'message');
+  const avecOccupations = await colonneExisteMemo('gestion_annuaire_occupation', 'bail_id');
+  const { rows } = await query<{ id: string; bail_id: string; quand: string; par: string; n: number; message: string | null }>(
+    `SELECT e.id::text, e.bail_id::text, e.envoye_le::text AS quand, e.auteur_libelle AS par,
+            CASE WHEN jsonb_typeof(e.destinataires) = 'array' THEN jsonb_array_length(e.destinataires) ELSE 0 END AS n,
+            ${avecMessage ? 'e.message' : 'NULL::text AS message'}
+       FROM gestion_location_mail_envoi e JOIN gestion_bail g ON g.id = e.bail_id
+      WHERE e.statut = 'envoye' AND (g.lot_id = $1${avecOccupations
+        ? ' OR g.id IN (SELECT o.bail_id FROM gestion_annuaire_occupation o WHERE o.lot_id = $1 AND o.bail_id IS NOT NULL)' : ''})
+      ORDER BY e.envoye_le DESC, e.id DESC LIMIT 200`, [lotId]);
+  return rows.map((r) => ({ id: Number(r.id), bailId: Number(r.bail_id), quand: r.quand, par: r.par, n: Number(r.n), message: r.message }));
+}

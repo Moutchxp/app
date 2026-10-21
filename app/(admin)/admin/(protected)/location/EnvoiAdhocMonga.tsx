@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { FORMAT_ADRESSE, htmlNouvelleLocation, verifierDestinataires, type DestinatairePropose, type DonneesNouvelleLocation } from '../../../../lib/location/mailNouvelleLocation';
 
 /**
@@ -15,6 +16,9 @@ import { FORMAT_ADRESSE, htmlNouvelleLocation, verifierDestinataires, type Desti
  */
 
 const API = '/api/admin/location/nouvelle-location';
+
+/** Le signal d'un envoi réussi (l'Historique du bien se relit) : `detail` = l'identifiant du bail. */
+export const EVENEMENT_ENVOI_LOCATION = 'svav:envoi-nouvelle-location';
 
 export interface EnvoiLu { quand: string; par: string; destinataires: string[]; objet: string; mention: string }
 interface Apercu {
@@ -37,7 +41,21 @@ export function erreurLigne(l: readonly { adresse: string }[], i: number): strin
   return null;
 }
 
-export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: number; dernierEnvoi?: EnvoiLu | null }) {
+/** La date d'un envoi pour l'info-bulle du bouton discret (« Envoyé le 21/10/2026 à 14:32 par … »). PUR. */
+export function infoBulleEnvoi(e: EnvoiLu | null): string | undefined {
+  return e === null ? undefined : e.mention;
+}
+
+export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null, ouvrirAuMontage = false, variante = 'gros' }: {
+  bailId: number; dernierEnvoi?: EnvoiLu | null;
+  /** Arno (21/10/2026) — « Enregistrer et envoyer à ADHOC & MONGA » : la fenêtre s'ouvre d'elle-même, une fois, au montage. */
+  ouvrirAuMontage?: boolean;
+  /**
+   * Arno (21/10/2026) — `discret` : le petit bouton des cartes de bien et de la fiche du bien (« Envoyer à ADHOC & MONGA », ou
+   * « Renvoyer… » avec la date de l'envoi en info-bulle). La fenêtre est la même.
+   */
+  variante?: 'gros' | 'discret';
+}) {
   const [ouvert, setOuvert] = useState(false);
   const [apercu, setApercu] = useState<Apercu | null>(null);
   const [lecture, setLecture] = useState<string | null>(null);
@@ -60,7 +78,7 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
   const premier = useRef<HTMLButtonElement | null>(null);
   useEffect(() => { setDernier(dernierEnvoi); }, [dernierEnvoi]);
 
-  const ouvrir = async (): Promise<void> => {
+  const ouvrir = useCallback(async (): Promise<void> => {
     setOuvert(true); setApercu(null); setLecture(null); setEnvoi('repos'); setMotif(null); setSucces(null); setMessage('');
     try {
       const r = await fetch(`${API}?bail=${bailId}`, { headers: { Accept: 'application/json' } });
@@ -72,7 +90,14 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
     } catch {
       setLecture('Lecture impossible : le serveur n’a pas répondu.');
     }
-  };
+  }, [bailId]);
+  // « Enregistrer et envoyer » : la fenêtre s'ouvre d'elle-même, UNE fois (jamais un envoi : seul « Envoyer » envoie).
+  const dejaOuvert = useRef(false);
+  useEffect(() => {
+    if (!ouvrirAuMontage || dejaOuvert.current) return;
+    dejaOuvert.current = true;
+    void ouvrir();
+  }, [ouvrirAuMontage, ouvrir]);
   const fermer = useCallback(() => { if (envoi !== 'envoi') setOuvert(false); }, [envoi]);
   useEffect(() => {
     if (!ouvert) return;
@@ -99,6 +124,7 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
       const d = await r.json() as { etat?: string; motif?: string; data?: { n: number; envoi: EnvoiLu } };
       if (d.etat === 'ok' && d.data !== undefined) {
         setDernier(d.data.envoi);
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(EVENEMENT_ENVOI_LOCATION, { detail: bailId }));
         setSucces(`Mail envoyé à ${d.data.n} destinataire${d.data.n > 1 ? 's' : ''}.`);
         setEnvoi('repos'); setOuvert(false);
         return;
@@ -112,15 +138,27 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
   };
 
   return (
-    <div className="eam" data-envoi-adhoc={bailId}>
+    <div className={variante === 'discret' ? 'eam eam--discret' : 'eam'} data-envoi-adhoc={bailId} data-variante={variante}>
       <style>{CSS_ENVOI}</style>
-      <button type="button" className="eam-gros" onClick={() => { void ouvrir(); }} data-ouvrir-envoi>
-        {dernier === null ? 'Envoi ADHOC & MONGA' : 'Renvoyer à ADHOC & MONGA'}
-      </button>
-      {succes !== null && <p className="eam-ok" role="status" data-envoi-ok>{succes}</p>}
-      {dernier !== null && <p className="eam-mention" data-mention-envoi>{dernier.mention}</p>}
+      {variante === 'discret' ? (
+        <>
+          <button type="button" className="eam-discret" onClick={() => { void ouvrir(); }} title={infoBulleEnvoi(dernier)} data-ouvrir-envoi>
+            {dernier === null ? 'Envoyer à ADHOC & MONGA' : 'Renvoyer à ADHOC & MONGA'}
+          </button>
+          {/* La réussite est dite au lecteur d'écran ; à l'œil, le bouton devient « Renvoyer… » (date en info-bulle). */}
+          {succes !== null && <span className="eam-invisible" role="status" data-envoi-ok>{succes}</span>}
+        </>
+      ) : (
+        <>
+          <button type="button" className="eam-gros" onClick={() => { void ouvrir(); }} data-ouvrir-envoi>
+            {dernier === null ? 'Envoi ADHOC & MONGA' : 'Renvoyer à ADHOC & MONGA'}
+          </button>
+          {succes !== null && <p className="eam-ok" role="status" data-envoi-ok>{succes}</p>}
+          {dernier !== null && <p className="eam-mention" data-mention-envoi>{dernier.mention}</p>}
+        </>
+      )}
 
-      {ouvert && (
+      {ouvert && (() => { const fenetre = (
         <div className="eam-voile" onMouseDown={(e) => { if (e.target === e.currentTarget) fermer(); }}>
           <div className="eam-fenetre" role="dialog" aria-modal="true" aria-labelledby={titre} data-fenetre-envoi>
             <header className="eam-tete">
@@ -184,7 +222,10 @@ export function EnvoiAdhocMonga({ bailId, dernierEnvoi = null }: { bailId: numbe
             </footer>
           </div>
         </div>
-      )}
+      );
+      // La variante discrète vit dans une carte qui se soulève au survol (transform) et rogne ce qui dépasse : la fenêtre est
+      // rendue dans <body>, sinon elle serait coupée. La variante d'origine reste à sa place.
+      return variante === 'discret' && typeof document !== 'undefined' ? createPortal(fenetre, document.body) : fenetre; })()}
     </div>
   );
 }
@@ -216,11 +257,42 @@ export function BlocEnvoiFicheLocataire({ locataireId }: { locataireId: number }
   );
 }
 
+/** Le bail en cours d'un bien (route `?lots=`), avec son dernier envoi. */
+export interface BailEnCoursDuBien { bailId: number; entree: string | null; dernierEnvoi: EnvoiLu | null }
+
+/**
+ * Arno (21/10/2026) — LE BAIL EN COURS DE CHAQUE BIEN (une seule lecture pour toute la liste) : la carte du bien (fiche
+ * propriétaire de la Gestion) et la fiche du bien n'affichent le bouton discret que s'il y en a un. Une lecture refusée (compte
+ * sans le droit « Location ») ou en échec : aucun bouton, rien d'autre ne change.
+ */
+export function useBauxEnCoursDesBiens(lotIds: readonly number[]): Record<string, BailEnCoursDuBien> {
+  const cle = [...new Set(lotIds.filter((x) => Number.isSafeInteger(x) && x > 0))].sort((a, b) => a - b).join(',');
+  const [baux, setBaux] = useState<Record<string, BailEnCoursDuBien>>({});
+  useEffect(() => {
+    if (cle === '') { setBaux({}); return; }
+    let vivant = true;
+    fetch(`${API}?lots=${cle}`, { headers: { Accept: 'application/json' } })
+      .then((r) => r.json())
+      .then((d: { etat?: string; data?: unknown }) => {
+        if (vivant) setBaux(d.etat === 'ok' && d.data !== null && typeof d.data === 'object' && !Array.isArray(d.data) ? d.data as Record<string, BailEnCoursDuBien> : {});
+      })
+      .catch(() => { if (vivant) setBaux({}); });
+    return () => { vivant = false; };
+  }, [cle]);
+  return baux;
+}
+
 /** Jetons du thème ; bordeaux = la couleur de marque (`--color-svv-red`) ; cibles ≥ 44 px ; plein écran au téléphone. */
 export const CSS_ENVOI = `
 .eam{display:flex;flex-direction:column;gap:6px;min-width:0}
 .eam-gros{appearance:none;border:0;border-radius:14px;background:var(--color-svv-red);color:var(--color-svv-blanc);font:inherit;font-weight:800;font-size:1.05rem;letter-spacing:.01em;padding:14px 22px;min-height:52px;cursor:pointer;box-shadow:0 6px 16px -6px color-mix(in srgb, var(--color-svv-red) 55%, transparent);align-self:flex-start}
 .eam-gros:hover{background:var(--color-svv-red-dark)}
+/* Le bouton DISCRET (cartes de bien, fiche du bien — Arno, 21/10/2026) : un lien-bouton petit, souligné, cible ≥ 44 px. */
+.eam--discret{display:inline-flex;flex-direction:row;align-items:center;gap:0;min-width:0}
+.eam-discret{appearance:none;border:0;background:none;padding:0 2px;min-height:44px;font:inherit;font-size:.74rem;font-weight:700;color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:2px;cursor:pointer;text-align:left;overflow-wrap:anywhere}
+.eam-discret:hover{color:var(--color-svv-red)}
+.eam-discret:focus-visible{outline:3px solid var(--color-svv-line-strong-hover);outline-offset:2px;border-radius:4px}
+.eam-invisible{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .eam-gros:focus-visible,.eam-envoyer:focus-visible{outline:3px solid var(--color-svv-line-strong-hover);outline-offset:2px}
 .eam-fiche{display:flex;flex-direction:column;gap:14px;margin-bottom:14px}
 .eam-fiche-bail + .eam-fiche-bail{border-top:1px solid var(--color-svv-line);padding-top:14px}
@@ -261,6 +333,7 @@ export const CSS_ENVOI = `
 .eam-envoyer:disabled{opacity:.5;cursor:not-allowed}
 @media (max-width:640px){
   .eam-gros{align-self:stretch;width:100%}
+  .eam-discret{width:auto}
   .eam-voile{padding:0;align-items:stretch}
   .eam-fenetre{width:100%;max-height:none;height:100%;border-radius:0}
   .eam-dest li{grid-template-columns:minmax(0,1fr) 44px}
