@@ -5,6 +5,7 @@ import { HistoriqueTaches } from './HistoriqueTaches';
 import { HistoriqueEnvoisLocation } from './HistoriqueEnvoisLocation';
 import { HistoriqueAnnexes } from './AnnexesDuBien';
 import { HistoriqueStatut } from './StatutDuBien';
+import { HistoriqueEncart } from './EditionEncart';
 import { fermerQuandLaPagePerdLeFocus } from './fermetureMenu';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 /* 🔴 LOT HISTORIQUE-PERSONNE-CLASSEMENT — l'écran reste fixe au changement de classement (même geste que les tâches). */
@@ -3016,6 +3017,7 @@ export function HistoriqueDuBien({
           {/* Arno (21/10/2026) — les détachements / rattachements d'annexes de ce bien (journalisés sur les deux biens). */}
           {personne === null && lotId !== null && <HistoriqueAnnexes lotId={lotId} />}
           {personne === null && lotId !== null && <HistoriqueStatut lotId={lotId} />}
+          {personne === null && lotId !== null && <HistoriqueEncart lotId={lotId} />}
 
           {/* ══ 🔴🔴 LE MESSAGE D'APRÈS-DÉPÔT, ET SON « ANNULER » ═══════════════════════════════════════════════
               Arno : « après le dépôt, petit message “Fanny Rosky → Locataire” avec “Annuler” quelques secondes. »

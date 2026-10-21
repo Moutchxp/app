@@ -1,5 +1,6 @@
 'use client';
 
+import { annoncerBienModifie, useRelectureBien } from './EditionEncart';
 import { mentionEnGestionProprietaire, type ComptesStatuts } from '../../../../lib/gestion/statutBien';
 import { useCallback, useEffect, useState } from 'react';
 import { CSS_LOCATION, LocationCarte } from './LocationCarte';
@@ -314,7 +315,11 @@ function Mandat({ proprietaireId, valeur, apres, sorte = 'gestion', signeLe }: {
 // ══ ② LE BIEN : portefeuille · annexes en arbre · caractéristiques · compléments · loyer de départ et taux ═══════════
 
 export function SectionLocationBien({ lotId, ouvrir }: { lotId: number; ouvrir: Ouvrir }) {
-  const { lu, relire } = useFiche<FicheBienLocation>(`lot=${lotId}`);
+  const { lu, relire: relireSeul } = useFiche<FicheBienLocation>(`lot=${lotId}`);
+  /* Arno (21/10/2026) — UNE SEULE source avec l'encart du bien : chaque enregistrement d'ici prévient la page (l'encart se relit),
+     et cette section se relit quand l'encart (ou un autre bloc) enregistre, ou au retour sur l'onglet. */
+  useRelectureBien(lotId, relireSeul);
+  const relire = (): void => { relireSeul(); annoncerBienModifie(lotId); };
   const resume = lu.etat === 'ok'
     ? [lu.data.parent !== null ? 'annexe' : liste(lu.data.annexes).length > 0 ? `${liste(lu.data.annexes).length} annexe(s)` : null,
       lu.data.complements?.typeLogement ? LIBELLE_TYPE_LOGEMENT[lu.data.complements.typeLogement as TypeLogement] : null,

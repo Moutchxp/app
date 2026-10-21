@@ -209,7 +209,9 @@ describe('🔴 caractéristiques : répartition des deux colonnes, par famille',
   it('le titre reste au-dessus des deux colonnes, sans sous-titre visible ; le bouton dessous ; deux colonnes égales dès 768 px', async () => {
     await rendre(LOUE);
     const resume = container.querySelector('[data-groupe="caracteristiques"]')!;
-    expect([...resume.children].map((e) => e.className)).toEqual(['rb-titre', 'rb-colonnes', 'rb-bascule']);
+    // 21/10/2026 : le titre partage sa ligne avec le bouton « Modifier » (en-tête `.eden-tete`), toujours au-dessus des colonnes.
+    expect([...resume.children].map((e) => e.className)).toEqual(['eden-tete', 'rb-colonnes', 'rb-bascule']);
+    expect(resume.querySelector('.eden-tete > h4.rb-titre')?.textContent).toBe('Caractéristiques');
     expect(resume.querySelectorAll('h4, h5')).toHaveLength(1);
     const css = [...container.querySelectorAll('style')].map((x) => x.textContent).join('');
     expect(css).toContain('@media (min-width:768px){\n  .rb-colonnes,.rb-detail-dedans{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}');

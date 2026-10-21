@@ -66,7 +66,7 @@ describe('les écrans lisent la règle, et la ligne SURFACE a quitté le corps d
     // L'encart résumé de la fiche du bien vit dans ResumeBien.tsx ; ses surfaces viennent de `resumeBienLignes.ts`.
     const resume = readFileSync(join(__dirname, '../../(admin)/admin/(protected)/gestion/ResumeBien.tsx'), 'utf8');
     const lignes = readFileSync(join(__dirname, '../location/resumeBienLignes.ts'), 'utf8');
-    expect(src).toContain('<ResumeBienFiche f={f} ouvrir={ouvrir} />');
+    expect(src).toContain('<ResumeBienFiche f={f} ouvrir={ouvrir} modifiable={gestes.modifiable} />');
     expect(resume).toContain('{lr.surfaces.map((x) => (');
     expect(lignes).toContain("mot: 'Surface'");
   });

@@ -9,6 +9,8 @@ import type { ResumeBien } from '../../../../lib/location/resumeBienRepo';
 import { DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS, PAYEES_PAR } from '../../../../lib/location/bienComplet';
 import { libelleEtage } from '../../../../lib/location/locationBien';
 import { lignesResume } from '../../../../lib/location/resumeBienLignes';
+import type { GroupeEncart } from '../../../../lib/location/encartBien';
+import { BoutonsEdition, CSS_EDITION_ENCART, FormulaireEncart, useEditionEncart, useRelectureBien } from './EditionEncart';
 
 /**
  * ══ 🔴🔴 FICHE BIEN — L'ENCART : UN RÉSUMÉ TOUJOURS VISIBLE, UN DÉTAIL DÉPLIABLE (Arno, 20/10/2026) ═══════════════════════════
@@ -21,32 +23,49 @@ import { lignesResume } from '../../../../lib/location/resumeBienLignes';
  * 🔴 Les groupes « Gestion » et « Location en cours » sont RETIRÉS de l'encart (décision d'Arno du 20/10/2026), sans être
  *    déplacés. Un groupe du détail entièrement vide garde son titre et dit « non renseigné ».
  * Lu à la source (`resumeBienRepo.ts`) ; tant que la lecture n'est pas arrivée — ou si elle échoue — les lignes tirées de la
- * fiche (adresse, immeuble, type, pièces, surface) s'affichent seules. Aucun champ de saisie.
+ * fiche (adresse, immeuble, type, pièces, surface) s'affichent seules. Arno (21/10/2026) : chaque groupe se modifie sur place
+ * (« Modifier », `EditionEncart.tsx`) — sinon, aucun champ de saisie.
  */
 const API = '/api/admin/gestion/annuaire/location';
 
+// Arno (21/10/2026) : l'encart se modifie aussi sur place, groupe par groupe (`EditionEncart.tsx`).
 const rien = (mot = 'non renseigné'): ReactNode => <span className="ann-inconnu">{mot}</span>;
 const m2 = (n: number): string => `${String(n).replace('.', ',')} m²`;
 const ouiNon = (v: boolean | null | undefined, feminin = false): ReactNode => (v === true ? 'oui' : v === false ? 'non' : rien(feminin ? 'non renseignée' : 'non renseigné'));
 
-/** Un groupe du détail ; entièrement vide, il garde son titre et dit « non renseigné ». */
-function Groupe({ titre, cle, vide, children }: { titre: string; cle: string; vide: boolean; children: ReactNode }) {
+/**
+ * Un groupe du détail ; entièrement vide, il garde son titre et dit « non renseigné ». Arno (21/10/2026) : son « Modifier » en haut à
+ * droite (`actions`) ; en modification, ses champs de saisie (`edition`) à la place de l'affichage.
+ */
+function Groupe({ titre, cle, vide, children, actions, edition }: { titre: string; cle: string; vide: boolean; children: ReactNode; actions?: ReactNode; edition?: ReactNode }) {
   return (
     <section className="rb-groupe" data-groupe={cle}>
-      <h4 className="rb-titre">{titre}</h4>
-      {vide ? <p className="rb-vide" data-rb-vide={cle}>{rien()}</p> : <dl className="ann-champs">{children}</dl>}
+      <div className="eden-tete"><h4 className="rb-titre">{titre}</h4>{actions}</div>
+      {edition ?? (vide ? <p className="rb-vide" data-rb-vide={cle}>{rien()}</p> : <dl className="ann-champs">{children}</dl>)}
     </section>
   );
 }
 
 // `ouvrir` reste dans la signature (appelants inchangés) : depuis le retrait de « Location en cours », l'encart n'ouvre plus de fiche.
-export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void }) {
+export function ResumeBienFiche({ f, modifiable = false }: { f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void;
+  /** Arno (21/10/2026) — l'encart modifiable sur place (le droit d'écrire la fiche). */
+  modifiable?: boolean }) {
   const [r, setR] = useState<ResumeBien | null>(null);
   const [deplie, setDeplie] = useState(false);
   const idDetail = useId();
+  // Arno (21/10/2026) — la relecture : à chaque modification du bien dans la page, et au retour sur l'onglet (une seule source).
+  const [relu, setRelu] = useState(0);
+  const ed = useEditionEncart(f.id, () => setRelu((x) => x + 1));
+  useRelectureBien(f.id, () => { if (ed.groupe === null) setRelu((x) => x + 1); });
+  const adresseSyndic = { libelle: f.adresse ?? '', codePostal: f.codePostal ?? '', commune: f.commune ?? '' };
+  const actions = (g: GroupeEncart): ReactNode => (modifiable && r !== null ? <BoutonsEdition ed={ed} g={g} /> : undefined);
+  // Les valeurs de l'import seul (sans la Location) : dites dans le formulaire quand le champ de Location est vide.
+  const imp = lignesResume({ nature: f.nature, typeBien: f.typeBien, surfaceM2: f.surfaceM2 }, undefined);
+  const importe = { type: imp.type, meuble: imp.meuble, pieces: imp.pieces, surface: imp.surfaces[0]?.m2 ?? null };
+  const edition = (g: GroupeEncart): ReactNode => (ed.groupe === g ? <FormulaireEncart ed={ed} g={g} adresse={adresseSyndic} importe={importe} /> : undefined);
   useEffect(() => {
     let vivant = true;
-    setR(null);
+    if (relu === 0) setR(null);
     void (async () => {
       try {
         const res = await fetch(`${API}?resume=${f.id}`, { cache: 'no-store' });
@@ -55,7 +74,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
       } catch { /* la lecture a échoué : les lignes de la fiche restent seules */ }
     })();
     return () => { vivant = false; };
-  }, [f.id]);
+  }, [f.id, relu]);
 
   const c = r?.caracteristiques;
   const lr = lignesResume({ nature: f.nature, typeBien: f.typeBien, surfaceM2: f.surfaceM2 }, c === undefined ? undefined : {
@@ -72,6 +91,8 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
   /** Un clic sur l'encart déplie ou replie — sauf sur un lien ou un bouton (qui gardent leur geste) ou une sélection de texte. */
   const surClic = (e: React.MouseEvent<HTMLDivElement>): void => {
     if (r === null) return;
+    // Arno (21/10/2026) : un clic DANS le formulaire de modification ou dans une de ses modales garde son geste, comme un champ.
+    if ((e.target as HTMLElement).closest('[data-formulaire-encart], [role="dialog"], [role="alertdialog"]') !== null) return;
     if ((e.target as HTMLElement).closest('a, button, input, select, textarea') !== null) return;
     if (typeof window.getSelection === 'function' && (window.getSelection()?.toString() ?? '') !== '') return;
     setDeplie((v) => !v);
@@ -87,9 +108,11 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
 
   return (
     <div className={`rb${deplie ? ' rb--deplie' : ''}`} data-resume-bien data-deplie={deplie ? 'oui' : 'non'} onClick={surClic}>
-      <style>{CSS_RESUME_BIEN}</style>
+      <style>{CSS_RESUME_BIEN + CSS_EDITION_ENCART}</style>
+      {ed.modales}
       <section className="rb-groupe rb-resume" data-groupe="caracteristiques">
-        <h4 className="rb-titre">Caractéristiques</h4>
+        <div className="eden-tete"><h4 className="rb-titre">Caractéristiques</h4>{actions('caracteristiques')}</div>
+        {ed.groupe === 'caracteristiques' ? edition('caracteristiques') : <>
         {/* Arno (20/10/2026) : deux colonnes côte à côte à partir de 768 px — « Le bien » à gauche, « Surfaces et bâti » à droite
             (sans sous-titre visible) ; au téléphone, une seule colonne, la gauche puis la droite. */}
         <div className="rb-colonnes">
@@ -139,6 +162,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
             )}
           </dl>
         </div>
+        </>}
         {r !== null && (
           <button type="button" className="rb-bascule" aria-expanded={deplie} aria-controls={idDetail} data-bascule-detail
             onClick={() => setDeplie((v) => !v)}>{deplie ? 'Masquer le détail ⌃' : 'Voir le détail du bien ⌄'}</button>
@@ -148,7 +172,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
       {r !== null && (
         <div className="rb-detail" id={idDetail} data-detail-bien aria-hidden={!deplie} inert={!deplie}>
           <div className="rb-detail-dedans">
-            <Groupe titre="Situation et accès" cle="situation" vide={situationVide}>
+            <Groupe titre="Situation et accès" cle="situation" vide={situationVide} actions={actions('situation')} edition={edition('situation')}>
               <dt>Bâtiment</dt><dd data-rb="batiment">{s?.batiment ?? rien()}</dd>
               <dt>Escalier</dt><dd data-rb="escalier">{s?.escalier ?? rien()}</dd>
               {!parking && <><dt>N° de porte</dt><dd data-rb="porte">{s?.porte ?? rien()}</dd></>}
@@ -160,7 +184,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
                 {/* Arno (21/10/2026, 396) : le digicode est celui de l'IMMEUBLE — la mention le dit. */}
                 {s?.digicodeMention ? <span className="rb-note" data-rb="digicode-immeuble"> · {s.digicodeMention}{s.digicodeSource === 'bien' ? ' — ancien code de ce bien, l’immeuble n’en a pas encore' : ''}</span> : null}</dd>
             </Groupe>
-            <Groupe titre="Copropriété" cle="copropriete" vide={coproVide}>
+            <Groupe titre="Copropriété" cle="copropriete" vide={coproVide} actions={actions('copropriete')} edition={edition('copropriete')}>
               <dt>N° de lot</dt><dd data-rb="lot-copro">{co?.numLotCopro ?? rien()}</dd>
               {/* Arno (21/10/2026, 401) — l'ID fiscal du bien, à côté du N° de lot (jamais pour une annexe : la ligne n'est alors pas fournie). */}
               {c?.idFiscal !== undefined && <><dt>ID fiscal</dt><dd data-rb="id-fiscal">{c.idFiscal ?? rien()}</dd></>}
@@ -179,7 +203,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
               </Groupe>
             ) : null}
             {!parking && (
-              <Groupe titre="DPE et entretiens" cle="dpe" vide={dpeVide}>
+              <Groupe titre="DPE et entretiens" cle="dpe" vide={dpeVide} actions={actions('dpe')} edition={edition('dpe')}>
                 <dt>DPE</dt>
                 <dd data-rb="dpe">{d !== undefined && (d.nonSoumis || d.classe === DPE_NON_SOUMIS) ? LIBELLE_DPE_NON_SOUMIS : d?.classe
                   ? <>classe <strong>{d.classe}</strong>{d.date ? ` — du ${formaterDateIso(d.date)}` : <> — {rien('date non renseignée')}</>}</> : rien()}</dd>
@@ -187,7 +211,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
                 <dd data-rb="entretiens">{entretiens ?? rien()}</dd>
               </Groupe>
             )}
-            <Groupe titre="Commentaire" cle="commentaire" vide={!r.commentaire}>
+            <Groupe titre="Commentaire" cle="commentaire" vide={!r.commentaire} actions={actions('commentaire')} edition={edition('commentaire')}>
               <dt>Commentaire libre</dt>
               {/* En entier, avec ses retours à la ligne. */}
               <dd data-rb="commentaire" className="rb-commentaire">{r.commentaire}</dd>

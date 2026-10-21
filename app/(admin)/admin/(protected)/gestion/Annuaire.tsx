@@ -1668,7 +1668,7 @@ function VueLot({
           groupes (Caractéristiques · Gestion · Location en cours). Un affichage : aucun champ de saisie. */}
       <section className="ann-bloc">
         <div className="ann-personne">
-          <ResumeBienFiche f={f} ouvrir={ouvrir} />
+          <ResumeBienFiche f={f} ouvrir={ouvrir} modifiable={gestes.modifiable} />
         </div>
       </section>
       {/* Arno (21/10/2026) — LES ANNEXES DU BIEN, en cases sous ses informations (compteur, « Détacher ») ; un bien autonome de
