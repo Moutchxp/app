@@ -20,6 +20,7 @@ describe('FaisceauMini — démontage propre', () => {
   it('affichage inchangé : même zoom fixe, mêmes tuiles, même recalage immédiat', () => {
     expect(src).toContain('map.invalidateSize();');
     // Arno (20/10/2026) : le fond est le Plan IGN v2 (fondsDePlan.ts) — même zoom, même crossOrigin, attribution IGN en plus.
-    expect(src).toContain('L.tileLayer(FOND_PLAN_IGN.url, { maxZoom: 19, attribution: FOND_PLAN_IGN.attribution, crossOrigin: true, })');
+    // Arno (22/10/2026) : le Plan IGN s'arrête à son dernier niveau détaillé (maxNativeZoom), agrandi au-delà ; zoom maximal inchangé.
+    expect(src).toContain('L.tileLayer(FOND_PLAN_IGN.url, { maxNativeZoom: FOND_PLAN_IGN.zoomMaxFourni, // dernier niveau détaillé du Plan IGN : agrandi au-delà (fondsDePlan.ts) maxZoom: 19, attribution: FOND_PLAN_IGN.attribution, crossOrigin: true, })');
   });
 });

@@ -14,6 +14,7 @@ type MapSelectorProps = {
   mode: ModeOrigine; // mode de saisie de l'origine (semi_auto | manuel)
   onModeChange: (m: ModeOrigine) => void;
   zoomAncreCentre?: boolean; // banc : zoom ancré centre (point immobile) — forwardé à MapContent ; défaut = public inchangé
+  zoomDepart?: number; // zoom d'arrivée — forwardé à MapContent ; défaut = 19 (l'écran du point GPS passe 18)
 };
 
 // Chargé CÔTÉ CLIENT UNIQUEMENT (Leaflet accède à `window`). `ssr: false` → rendu identique (rien) au SSR ET

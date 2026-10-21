@@ -73,6 +73,8 @@ export default function Carte({ center, photoPos, onMoveEnd, onMapReady }: Carte
         <TileLayer
           url={FOND_PLAN_IGN.url}
           attribution={FOND_PLAN_IGN.attribution}
+          maxNativeZoom={FOND_PLAN_IGN.zoomMaxFourni}
+          maxZoom={18}
         />
 
         {photoPos && (

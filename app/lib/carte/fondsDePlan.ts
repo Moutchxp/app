@@ -19,7 +19,22 @@ export const URL_PLAN_IGN = 'https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=Get
   + '&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&STYLE=normal&TILEMATRIXSET=PM&FORMAT=image/png'
   + '&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}';
 export const ATTRIBUTION_IGN = '© <a href="https://www.ign.fr/" target="_blank" rel="noopener noreferrer">IGN</a> — Plan IGN v2';
-export const FOND_PLAN_IGN = { url: URL_PLAN_IGN, zoomMaxFourni: 19, attribution: ATTRIBUTION_IGN } as const;
+/**
+ * ══ 🔴 LE DERNIER NIVEAU DÉTAILLÉ DU PLAN IGN V2 = 18 (mesuré le 22/10/2026, Arno) ═══════════════════════════════════════
+ * Le WMTS sert jusqu'au niveau 19, mais le 19 est une AUTRE carte : bâtiments et numéros de parcelle, sans le nom de la plupart
+ * des rues ni les espaces verts (mesure sur 8 rue Denfert-Rochereau, Asnières : au 19, plus de « Rue Denfert-Rochereau » ni de
+ * square en vert ; au 18, noms de rue, jardins, numéros, sens de circulation) ; le 20 n'existe pas (404). Le fond s'arrête donc
+ * au 18 (`maxNativeZoom`) : au-delà, Leaflet AGRANDIT les tuiles du 18 au lieu de charger le 19 → tous les détails à tous les
+ * zooms. Chaque carte garde son zoom maximal (`maxZoom`).
+ */
+export const ZOOM_DETAILLE_PLAN_IGN = 18;
+export const FOND_PLAN_IGN = { url: URL_PLAN_IGN, zoomMaxFourni: ZOOM_DETAILLE_PLAN_IGN, attribution: ATTRIBUTION_IGN } as const;
+
+/**
+ * Zoom d'arrivée de l'écran « (Point GPS) Déplacez le curseur sur votre fenêtre » (Arno, 22/10/2026) : le niveau qui montre tous
+ * les détails du Plan IGN tout en permettant de viser une fenêtre. Les autres cartes gardent leur zoom d'arrivée.
+ */
+export const ZOOM_ARRIVEE_POINT_GPS = 18;
 
 export const FONDS_DE_PLAN = {
   map: FOND_PLAN_IGN,

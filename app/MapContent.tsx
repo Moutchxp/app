@@ -26,6 +26,7 @@ type MapContentProps = {
   mode: ModeOrigine; // mode de saisie de l'origine (semi_auto | manuel)
   onModeChange: (m: ModeOrigine) => void;
   zoomAncreCentre?: boolean; // ancre pincement/molette/double-clic sur le CENTRE (point immobile au zoom) ; défaut = comportement Leaflet (pointeur)
+  zoomDepart?: number; // zoom d'arrivée (Arno, 22/10/2026 : 18 sur l'écran du point GPS, `ZOOM_ARRIVEE_POINT_GPS`) ; défaut = 19, inchangé
 };
 
 export default function MapContent({
@@ -38,6 +39,7 @@ export default function MapContent({
   mode,
   onModeChange,
   zoomAncreCentre,
+  zoomDepart = 19,
 }: MapContentProps) {
   // Toujours pointer sur la DERNIÈRE prop onPositionChange : le handler moveend est branché une
   // seule fois (effet deps []) ; sans cette ref il appellerait le onPositionChange du MONTAGE,
@@ -86,7 +88,7 @@ export default function MapContent({
       : {};
     leafletMap.current = L.map(mapRef.current, {
       center: [latitude, longitude],
-      zoom: 19,
+      zoom: zoomDepart,
       zoomControl: true,
       ...zoomOpts,
     });

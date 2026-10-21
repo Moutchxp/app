@@ -84,6 +84,7 @@ export default function FaisceauMini({ lat, lon, azimutDeg, couleur }: FaisceauM
 
       // PLAN (dessin) — le même fond que la carte de localisation : Plan IGN v2 (fondsDePlan.ts).
       L.tileLayer(FOND_PLAN_IGN.url, {
+        maxNativeZoom: FOND_PLAN_IGN.zoomMaxFourni, // dernier niveau détaillé du Plan IGN : agrandi au-delà (fondsDePlan.ts)
         maxZoom: 19,
         attribution: FOND_PLAN_IGN.attribution,
         crossOrigin: true,

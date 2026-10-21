@@ -67,7 +67,7 @@ export default function CarteCommunes({ communes, selection, onSelect, reducedMo
         aria-label="Carte des communes où des analyses ont abouti — bulles colorées par verdict dominant (anonymisé k)"
       >
         {/* Plan IGN v2 (fondsDePlan.ts) : attribution IGN obligatoire. */}
-        <TileLayer url={FOND_PLAN_IGN.url} attribution={FOND_PLAN_IGN.attribution} />
+        <TileLayer url={FOND_PLAN_IGN.url} attribution={FOND_PLAN_IGN.attribution} maxNativeZoom={FOND_PLAN_IGN.zoomMaxFourni} maxZoom={ZOOM_MAX} />
         {communes.map((c) => {
           const actif = selection.includes(c.commune_insee);
           const couleur = couleurDominant(c.dominant); // dominant déjà k-safe ; null → gris clair neutre

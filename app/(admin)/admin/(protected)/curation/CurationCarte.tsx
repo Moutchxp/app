@@ -671,6 +671,7 @@ export default function CurationCarte() {
     );
     // Plan IGN v2 (fondsDePlan.ts) : les tuiles OpenStreetMap sont refusées (403) sans Referer — voir l'encadré du module.
     L.tileLayer(FOND_PLAN_IGN.url, {
+      maxNativeZoom: FOND_PLAN_IGN.zoomMaxFourni, // dernier niveau détaillé du Plan IGN : agrandi au-delà (fondsDePlan.ts)
       maxZoom: 19,
       attribution: FOND_PLAN_IGN.attribution,
     }).addTo(map);

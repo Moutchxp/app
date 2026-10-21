@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, type CSSProperties } from "react";
 import MapSelector from "./MapSelector";
+import { ZOOM_ARRIVEE_POINT_GPS } from "./lib/carte/fondsDePlan";
 import { AdresseAutocomplete } from "./components/AdresseAutocomplete";
 import dynamic from "next/dynamic";
 import { useOrigineValidation } from "./lib/useOrigineValidation";
@@ -3496,6 +3497,7 @@ export default function Home() {
           pointSnappe={mode === "manuel" ? null : (origine.resultat?.pointSnappeWgs84 ?? null)}
           mode={mode}
           onModeChange={(x) => { setMode(x); setPointRepris(false); origine.evaluer(position.latitude, position.longitude, x); }}
+          zoomDepart={ZOOM_ARRIVEE_POINT_GPS}
         />
       ) : (
         // Placeholder neutre, même hauteur que la carte → pas de flash Paris ni de saut de layout.
