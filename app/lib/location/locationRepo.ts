@@ -1,3 +1,4 @@
+import type { ComptesStatuts } from '../gestion/statutBien';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { dateMandatDisponible, mandatsDesProprietaires } from './mandatBienRepo';
 import { contactsRattachesDuLocataire } from './rattachementsRepo';
@@ -226,6 +227,8 @@ export interface FicheProprietaireLocation {
   numeroMandatTransaction?: string | null;
   /** « Propriétaire(s) en gestion ? » (migration 375) : `null` = question jamais posée (ou migration absente). */
   enGestion: boolean | null;
+  /** Arno (21/10/2026) — ses biens par STATUT (annexes rattachées exclues) : la mention calculée « En gestion : oui (N biens) »… */
+  statutsBiens: ComptesStatuts;
   /** Arno (21/10/2026, 397) — les dates de signature des mandats (`undefined` sans la migration). */
   mandatGestionSigneLe?: string | null;
   mandatTransactionSigneLe?: string | null;
@@ -252,7 +255,12 @@ export async function ficheProprietaireLocation(id: number): Promise<Issue<Fiche
     : undefined;
   const dates = (await mandatsDesProprietaires([id]))[0];
   const avecDates = await dateMandatDisponible();
-  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, numeroMandatTransaction: transaction, enGestion, biens, location372: avec372,
+  const statutsBiens: ComptesStatuts = { en_gestion: 0, location_seule: 0, ancienne_gestion: 0 };
+  for (const b of f.data.biens) {
+    if (b.annexeDe != null && b.detachee !== true) continue;   // une annexe rattachée suit son bien : elle ne compte pas à part
+    statutsBiens[b.statut ?? (b.fin === null ? 'en_gestion' : 'ancienne_gestion')] += 1;
+  }
+  return { etat: 'ok', data: { fiche: f.data, sortie: await sortieDe('proprietaire', id), numeroMandat: mandat, numeroMandatTransaction: transaction, enGestion, statutsBiens, biens, location372: avec372,
     ...(avecDates ? { mandatGestionSigneLe: dates?.gestion.signeLe ?? null, mandatTransactionSigneLe: dates?.transaction.signeLe ?? null } : {}) } };
 }
 

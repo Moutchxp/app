@@ -86,7 +86,7 @@ describe('🔴 fiche locataire — encart du bail', () => {
     expect([dd('prorata-loyer'), dd('prorata-charges'), dd('honoraires-agence'), dd('total-du')].map((x) => x?.replace(/ i$/, '').trim()))
       .toEqual(['1 200,00 €', '130,00 €', '450,00 €', '2 980,00 €']);
     expect(container.querySelectorAll('[data-rb="prorata-loyer"] [aria-label="Détail du calcul"], [data-rb="prorata-loyer"] button').length).toBeGreaterThan(0);
-    expect([dd('compte-locataire'), dd('compte-proprietaire'), dd('total-honoraires')]).toEqual(['Compte bancaire agence', 'Compte bancaire gestion', '1 385,03 €']);
+    expect([dd('compte-locataire'), dd('compte-proprietaire'), dd('total-honoraires')]).toEqual(['Compte bancaire transaction', 'Compte bancaire gestion', '1 385,03 €']);
     expect(dd('honoraires-proprietaire')).toContain('61,8 m² × 12,10 €/m² (zone très tendue)');
     expect(dd('honoraires-proprietaire')).toContain('barème du 01/01/2026, à la date du 01/11/2026');
     expect([dd('garant-physique'), dd('assurance')]).toEqual(['Garant personne physique : oui', 'Assurance loyers impayés : GLI — Assureur ESSAI']);

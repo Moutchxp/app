@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mentionEnGestionProprietaire,
   aujourdhuiParis, gestesPour, LIBELLE_STATUT, mandatPropose, motifTransition, phraseTransition, proprietaireEnGestion, refusTransition,
   statutDeduit, TEINTE_STATUT, verifierDateEffet, type StatutBien,
 } from './statutBien';
@@ -76,5 +77,16 @@ describe('🔴 statut du bien — date d’effet, motif, reprise', () => {
     expect(phraseTransition('en_gestion', 'location_seule', '2026-10-20', 'mandat résilié'))
       .toBe('Sortie de gestion : En gestion → Location seule, au 20/10/2026 — mandat résilié');
     expect(phraseTransition('ancienne_gestion', 'en_gestion', '2026-10-21', null)).toBe('Reprendre en gestion : Ancienne gestion → En gestion, au 21/10/2026');
+  });
+});
+
+describe('🔴 la mention CALCULÉE de la fiche propriétaire (Arno, 21/10/2026 — remplace la bascule « en gestion »)', () => {
+  it('« En gestion : oui (N biens) » ; « Non : location seule (N biens) » ; « Non : ancienne gestion » ; « Non : aucun bien »', () => {
+    expect(mentionEnGestionProprietaire({ en_gestion: 2, location_seule: 0, ancienne_gestion: 0 })).toBe('En gestion : oui (2 biens)');
+    expect(mentionEnGestionProprietaire({ en_gestion: 1, location_seule: 1, ancienne_gestion: 3 })).toBe('En gestion : oui (1 bien) · 1 en location seule · 3 en ancienne gestion');
+    expect(mentionEnGestionProprietaire({ en_gestion: 0, location_seule: 1, ancienne_gestion: 0 })).toBe('Non : location seule (1 bien)');
+    expect(mentionEnGestionProprietaire({ en_gestion: 0, location_seule: 2, ancienne_gestion: 1 })).toBe('Non : location seule (2 biens) · 1 en ancienne gestion');
+    expect(mentionEnGestionProprietaire({ en_gestion: 0, location_seule: 0, ancienne_gestion: 3 })).toBe('Non : ancienne gestion (3 biens)');
+    expect(mentionEnGestionProprietaire({ en_gestion: 0, location_seule: 0, ancienne_gestion: 0 })).toBe('Non : aucun bien');
   });
 });

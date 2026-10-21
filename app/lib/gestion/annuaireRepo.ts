@@ -1307,6 +1307,8 @@ export interface FicheLocataire {
   personnes: PersonneAnnuaire[];
   /** Arno (19/10/2026) — les personnes de la fiche EN PRÉAVIS (identifiant → date maximale de sortie) ; voir `FicheLot.preavis`. */
   preavis?: Record<string, string>;
+  /** Arno (21/10/2026) — vue de la Gestion : toutes ses occupations EN COURS sont sur des biens en location seule (fiche dans la Location). */
+  locationSeuleSeulement?: boolean;
   /** Vrai quand la migration 278 est là. Faux = lecture seule, « Modifier » désactivé avec son motif. */
   modifiable: boolean;
   /** 🔴 LOT SUPPRIMER-CARTE — vrai quand la migration 287 est là. Faux ⇒ « Supprimer » n'est pas offert. */
@@ -2122,7 +2124,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
   };
 }
 
-export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLocataire>> {
+export async function ficheLocataire(id: number, vue: VueAnnuaire = {}): Promise<IssueLecture<FicheLocataire>> {
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
   const { rows } = await query<{
     id: string; nom: string; adresse: string | null; commune: string | null; code_postal: string | null;
@@ -2139,14 +2141,15 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
    * `biensDuProprietaire`, et pour la même raison : un locataire a une à trois occupations, et trois
    * allers-retours de plus se verraient à l'écran.
    */
-  const { rows: occ } = await query<{
+  const { rows: occTous } = await query<{
     lot_id: string | null; numero: string; adresse: string | null; commune: string | null;
     code_postal: string | null; nature: string | null; type_bien: string | null; immeuble: string | null;
     entree: string | null; sortie: string | null;
     proprietaire_id: string | null; proprietaire_nom: string | null;
-    mails: number; dernier_echange: string | null; dossier_bien?: string | null; dossier_proprietaire?: string | null;
+    mails: number; dernier_echange: string | null; dossier_bien?: string | null; dossier_proprietaire?: string | null; statut: string | null;
   }>(
     `SELECT o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero, lo.adresse, lo.commune,
+            CASE WHEN lo.id IS NULL THEN NULL ELSE ${await sqlStatutBien('lo')} END AS statut,
             lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             o.entree::text, o.sortie::text,
             pr.id::text AS proprietaire_id, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
@@ -2165,6 +2168,11 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
        ) ma ON true
       WHERE o.locataire_id = $1
       ORDER BY (o.sortie IS NULL) DESC, o.entree DESC NULLS LAST, o.id DESC`, [id]);
+  /* Arno (21/10/2026) — vue de la GESTION : les occupations sur des biens en LOCATION SEULE ne s'y montrent pas (elles sont dans
+     la Location). Un locataire dont TOUTES les occupations en cours sont en location seule y est signalé comme tel. */
+  const enCoursToutes = occTous.filter((o) => estLocataireEnPlace(o));
+  const locationSeuleSeulement = vue.horsLocationSeule === true && enCoursToutes.length > 0 && enCoursToutes.every((o) => o.statut === 'location_seule');
+  const occ = vue.horsLocationSeule === true ? occTous.filter((o) => o.statut !== 'location_seule') : occTous;
 
   /**
    * ══ 🔴🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT — LA RÈGLE D'ARNO ═════════════════════════════════════════════
@@ -2209,6 +2217,7 @@ export async function ficheLocataire(id: number): Promise<IssueLecture<FicheLoca
       })),
       personnes: await personnesDe('locataire', idsFoyer),
       preavis: await locatairesEnPreavis(idsFoyer),
+      ...(locationSeuleSeulement ? { locationSeuleSeulement: true } : {}),
       modifiable: await annuaireModifiableDisponible(),
       /**
        * 🔴 LOT SUPPRIMER-CARTE — la migration 287 est-elle là ? Faux ⇒ l'entrée « Supprimer » n'est pas offerte
@@ -2333,10 +2342,11 @@ export async function rechercherPersonnes(
   const filtreProprio = horsLS ? `
         AND (NOT EXISTS (SELECT 1 FROM gestion_annuaire_lot lo3 WHERE lo3.proprietaire_id = pr.id)
           OR EXISTS (SELECT 1 FROM gestion_annuaire_lot lo3 WHERE lo3.proprietaire_id = pr.id AND ${pasLS3}))` : '';
+  // Arno (21/10/2026, 3b) : un locataire dont TOUTES les occupations EN COURS sont en location seule n'apparaît pas dans la Gestion.
   const filtreLocataire = horsLS ? `
-        AND (NOT EXISTS (SELECT 1 FROM gestion_annuaire_occupation o3 WHERE o3.locataire_id = lc.id)
-          OR EXISTS (SELECT 1 FROM gestion_annuaire_occupation o3 JOIN gestion_annuaire_lot lo3 ON lo3.id = o3.lot_id
-                      WHERE o3.locataire_id = lc.id AND ${pasLS3}))` : '';
+        AND (NOT EXISTS (SELECT 1 FROM gestion_annuaire_occupation o3 WHERE o3.locataire_id = lc.id AND o3.sortie IS NULL)
+          OR EXISTS (SELECT 1 FROM gestion_annuaire_occupation o3 LEFT JOIN gestion_annuaire_lot lo3 ON lo3.id = o3.lot_id
+                      WHERE o3.locataire_id = lc.id AND o3.sortie IS NULL AND (lo3.id IS NULL OR ${pasLS3})))` : '';
   const chiffres = t.chiffres === null ? null : `%${t.chiffres}`;
   const mots = t.mots.length > 0 ? t.mots : [t.texte];
   const params = [mots, t.telephone, chiffres, t.email, t.numeroLot];

@@ -2200,6 +2200,14 @@ function VueLocataire({
         {/* Arno (20/10/2026, 394) : le bouton Drive de la fiche locataire ouvre le dossier de SON BAIL (« BAIL <NOMS> »). */}
         <div className="ann-tete-actions"><BoutonDossierBailEntete locataireId={f.id} /></div>
       </header>
+      {/* Arno (21/10/2026, 3b) — dans la GESTION, un locataire dont toutes les occupations en cours sont en location seule : il est
+          dans la Location (ses occupations en location seule ne s'affichent pas ici). */}
+      {f.locationSeuleSeulement === true && (
+        <p className="ann-gris" data-locataire-location-seule>
+          Ce locataire n’occupe que des biens en location seule : sa fiche est dans la Location →{' '}
+          <a href={`/admin/location/locataire/${f.id}`}>voir dans la Location</a>
+        </p>
+      )}
 
       {/* 🔴🔴 Arno (20/10/2026) — L'ENCART DU BAIL, juste sous le titre et au-dessus de « Coordonnées » : le résumé du bail (en
           cours, sinon le dernier) et son détail dépliable, lus à la source ; les « Conditions d'entrée » et « Garants et

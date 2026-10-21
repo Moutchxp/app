@@ -19,7 +19,7 @@ import { creerBienComplet, creerProprietaires } from '../location/creationBienRe
 import { clientsEtBiens } from '../location/clientsBiensRepo';
 import { bauxEnCoursDesLots, bauxEnCoursDuLocataire, envoyerNouvelleLocation, MOTIF_ENVOI_HORS_GESTION } from '../location/mailNouvelleLocationRepo';
 import { analyserTerme } from './annuaireRecherche';
-import { ficheProprietaire, rechercherPersonnes } from './annuaireRepo';
+import { ficheLocataire, ficheProprietaire, rechercherPersonnes } from './annuaireRepo';
 import { changerStatutBien } from './statutBienRepo';
 
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
@@ -110,5 +110,32 @@ describe.skipIf(!baseEssai)('🔴🔴 les vues selon le statut du bien (403)', (
     expect(envoi).toMatchObject({ etat: expect.stringMatching(/refus|sans_schema/) });
     if (envoi.etat === 'refus') expect(envoi.motif).toBe(MOTIF_ENVOI_HORS_GESTION);
     expect(await bauxEnCoursDuLocataire(0)).toEqual([]);
+  });
+
+  it('⑤ LOCATAIRES (réponse 3b) : tout en location seule → absent de la Gestion ; mixte → seules ses occupations hors location seule', async () => {
+    if (!avec403) return;
+    const locataire = async (nom: string) => Number((await query<{ id: string }>(
+      `INSERT INTO gestion_annuaire_locataire (cle_personne, wippimmo_id, nom, nom_normalise) VALUES ($1, $1, $2, lower($2)) RETURNING id::text`,
+      [`app-${nom}`, nom])).rows[0].id);
+    const occuper = async (loc: number, lot: number) => query(
+      `INSERT INTO gestion_annuaire_occupation (wippimmo_id, locataire_id, lot_id, lot_wippimmo_id, entree)
+       SELECT $1, $2, lo.id, lo.wippimmo_id, '2026-01-01' FROM gestion_annuaire_lot lo WHERE lo.id = $3`, [`app-occ-${loc}-${lot}`, loc, lot]);
+    const seul = await locataire(`LOCSEUL${S}`);
+    await occuper(seul, locationSeule);
+    const mixte = await locataire(`LOCMIXTE${S}`);
+    await occuper(mixte, locationSeule);
+    await occuper(mixte, enGestion);
+    // La recherche de la Gestion ne trouve pas le locataire « tout en location seule » ; la Location (sans la vue), si.
+    expect(ok(await rechercherPersonnes(analyserTerme(`LOCSEUL${S}`), { horsLocationSeule: true })).personnes).toEqual([]);
+    expect(ok(await rechercherPersonnes(analyserTerme(`LOCSEUL${S}`))).personnes.map((p) => p.id)).toEqual([seul]);
+    expect(ok(await rechercherPersonnes(analyserTerme(`LOCMIXTE${S}`), { horsLocationSeule: true })).personnes.map((p) => p.id)).toEqual([mixte]);
+    // Sa fiche dans la Gestion : seulement l'occupation hors location seule ; celle « tout en location seule » est signalée.
+    const fm = ok(await ficheLocataire(mixte, { horsLocationSeule: true }));
+    expect(fm.occupations.map((o) => o.lotId)).toEqual([enGestion]);
+    expect(fm.locationSeuleSeulement).toBeUndefined();
+    expect(ok(await ficheLocataire(mixte)).occupations.map((o) => o.lotId).sort()).toEqual([enGestion, locationSeule].sort());
+    const fs = ok(await ficheLocataire(seul, { horsLocationSeule: true }));
+    expect(fs.occupations).toEqual([]);
+    expect(fs.locationSeuleSeulement).toBe(true);
   });
 });

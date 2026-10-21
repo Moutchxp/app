@@ -97,7 +97,7 @@ const toutRepondre = async () => {
   await clic(pilule('Garant personne physique', 'Non'));
   await clic(pilule('Assurance loyers impayés', 'Visale'));
   await clic(container.querySelector('[data-entretien-reponse="non"]')!);
-  await clic(pilule('Honoraires du locataire', 'Compte bancaire agence'));
+  await clic(pilule('Honoraires du locataire', 'Compte bancaire transaction'));
   await clic(pilule('Honoraires du propriétaire', 'Compte bancaire gestion'));
   await clic(pilule('Mode de règlement', 'Chèque'));
 };

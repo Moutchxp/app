@@ -84,7 +84,7 @@ export async function GET(request: Request): Promise<Response> {
     if (cleLot !== '') return Response.json(await ficheLotParCle(cleLot), { headers: ENTETES });
 
     const idLocataire = identifiant(url.searchParams.get('locataire'));
-    if (idLocataire !== null) return Response.json(await ficheLocataire(idLocataire), { headers: ENTETES });
+    if (idLocataire !== null) return Response.json(await ficheLocataire(idLocataire, vue), { headers: ENTETES });
 
     const emails = url.searchParams.get('emails');
     if (emails !== null) {

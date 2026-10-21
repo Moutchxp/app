@@ -11,7 +11,7 @@
  * 🔴 Toute information absente n'est PAS affichée (jamais « non renseigné »), sauf le bandeau GLI. Le mot « client » n'apparaît
  *    nulle part. Les données viennent de la base (`mailNouvelleLocationRepo.ts`) : rien n'est saisi en plus.
  */
-import { LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
+import { LIBELLE_COMPTE_MAIL as LIBELLE_COMPTE, LIBELLE_DEPOT, LIBELLE_REGLEMENT, type ConditionsEntree } from './conditionsEntree';
 import { eurosAffiches, LIBELLE_ZONE, lireDecimal, MENTION_SAISI_MAIN, tarifAffiche, ZERO, type CalculHonoraires } from './honorairesProprietaire';
 
 // ── LES COULEURS DU MODÈLE ────────────────────────────────────────────────────────────────────────────────────────────────

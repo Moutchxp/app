@@ -1,5 +1,6 @@
 'use client';
 
+import { mentionEnGestionProprietaire, type ComptesStatuts } from '../../../../lib/gestion/statutBien';
 import { useCallback, useEffect, useState } from 'react';
 import { CSS_LOCATION, LocationCarte } from './LocationCarte';
 import { CSS_ANNEXE_CARTE, CSS_LOCATION_ECRANS, CSS_PILULES } from '../location/commun';
@@ -245,7 +246,7 @@ export function BlocSortie({ sujet, id, sortie, apres, explication }: {
 export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId: number }) {
   const { lu, relire } = useFiche<FicheProprietaireLocation>(`proprietaire=${proprietaireId}`);
   const resume = lu.etat === 'ok'
-    ? [lu.data.enGestion === null ? null : `en gestion : ${lu.data.enGestion ? 'oui' : 'non'}`, lu.data.numeroMandat === null ? null : `mandat ${lu.data.numeroMandat}`,
+    ? [lu.data.statutsBiens ? mentionEnGestionProprietaire(lu.data.statutsBiens) : null, lu.data.numeroMandat === null ? null : `mandat ${lu.data.numeroMandat}`,
       lu.data.numeroMandatTransaction ? `mandat de transaction ${lu.data.numeroMandatTransaction}` : null,
       lu.data.mandatGestionSigneLe ? `mandat de gestion signé le ${lu.data.mandatGestionSigneLe.split('-').reverse().join('/')}` : null,
       lu.data.mandatTransactionSigneLe ? `mandat de transaction signé le ${lu.data.mandatTransactionSigneLe.split('-').reverse().join('/')}` : null,
@@ -255,7 +256,9 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
     <Repli titre="Location — gestion, mandat et portefeuille" resume={resume}>
       <Lecture lu={lu}>{(d) => (
         <>
-          <EnGestion proprietaireId={proprietaireId} valeur={d.enGestion} apres={relire} />
+          {/* Arno (21/10/2026) — la bascule « en gestion » (une colonne plus lue) est remplacée par la mention CALCULÉE sur les
+              statuts de ses biens, en lecture seule (accord d'Arno pour ce retrait ; la colonne reste en base). */}
+          <EnGestionCalcule comptes={d.statutsBiens} />
           {d.location372 && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandat} apres={relire} signeLe={d.mandatGestionSigneLe} />}
           {d.location372 && d.numeroMandatTransaction !== undefined
             && <Mandat proprietaireId={proprietaireId} valeur={d.numeroMandatTransaction} apres={relire} sorte="transaction" signeLe={d.mandatTransactionSigneLe} />}
@@ -270,22 +273,14 @@ export function SectionLocationProprietaire({ proprietaireId }: { proprietaireId
   );
 }
 
-function EnGestion({ proprietaireId, valeur, apres }: { proprietaireId: number; valeur: boolean | null; apres: () => void }) {
-  const [motif, setMotif] = useState<string | null>(null);
-  const poser = async (v: boolean | null): Promise<void> => {
-    const m = await envoyer({ action: 'en-gestion', id: proprietaireId, enGestion: v });
-    setMotif(m);
-    if (m === null) apres();
-  };
+/** « En gestion : oui (N biens) » — calculé sur les statuts de ses biens, en lecture seule. */
+function EnGestionCalcule({ comptes }: { comptes: ComptesStatuts | undefined }) {
+  if (comptes === undefined) return null;
   return (
-    <section className="loc-bloc">
+    <section className="loc-bloc" data-en-gestion-calcule>
       <h3>Propriétaire en gestion ?</h3>
-      <div className="loc-bascule" role="group" aria-label="Propriétaire en gestion ?">
-        <button type="button" aria-pressed={valeur === true} onClick={() => void poser(true)}>Oui</button>
-        <button type="button" aria-pressed={valeur === false} onClick={() => void poser(false)}>Non</button>
-        <button type="button" aria-pressed={valeur === null} onClick={() => void poser(null)}>Non renseigné</button>
-      </div>
-      {motif !== null && <p className="cp-refus" role="alert">{motif}</p>}
+      <p style={{ margin: 0 }}>{mentionEnGestionProprietaire(comptes)}</p>
+      <p className="loc-muet" style={{ margin: '4px 0 0' }}>Calculé sur le statut de ses biens (il se change bien par bien, sur la fiche du bien).</p>
     </section>
   );
 }

@@ -39,15 +39,22 @@ export function causeDeLaReponse(o: { statut: number | null; etat?: string; erre
 
 /** QUOI, POURQUOI, QUOI FAIRE — en français simple. `motif` : la raison précise (serveur ou contrôle de la page). PUR. */
 export function explicationEchec(ecran: EcranCreation, cause: CauseEchec, motif: string | null): ExplicationEchec {
+  return explicationEchecDe(QUOI[ecran], BOUTON[ecran], cause, motif);
+}
+
+/**
+ * Arno (21/10/2026) — LA MÊME EXPLICATION pour TOUT enregistrement de la tuile Location : `quoi` (« L'annexe n'a pas été
+ * détachée. ») et le bouton à recliquer (« le bouton »). PUR.
+ */
+export function explicationEchecDe(quoi: string, bouton: string, cause: CauseEchec, motif: string | null): ExplicationEchec {
   const conserve = 'Rien n’a été enregistré. Votre saisie est conservée : vous pouvez réessayer.';
-  const quoi = QUOI[ecran];
   switch (cause) {
     case 'champs':
       return { quoi, pourquoi: motif ?? 'Des informations obligatoires manquent.', conserve,
-        faire: `Complétez ce qui manque (c’est signalé en rouge sous chaque champ), puis cliquez à nouveau sur ${BOUTON[ecran]}.` };
+        faire: `Complétez ce qui manque (c’est signalé en rouge sous chaque champ), puis cliquez à nouveau sur ${bouton}.` };
     case 'saisie':
       return { quoi, pourquoi: motif ?? 'Une information saisie a été refusée.', conserve,
-        faire: `Corrigez ce point, puis cliquez à nouveau sur ${BOUTON[ecran]}.` };
+        faire: `Corrigez ce point, puis cliquez à nouveau sur ${bouton}.` };
     case 'droit':
       return { quoi, pourquoi: MOTIF_DROIT, conserve,
         faire: 'Rechargez la page et reconnectez-vous. Si le refus persiste, demandez à un administrateur d’activer le droit « Location » sur votre compte.' };

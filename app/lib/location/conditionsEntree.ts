@@ -10,7 +10,7 @@
  *   3. Garanties : garant personne physique Oui / Non ; assurance loyers impayés GLI (laquelle) / Visale / Autre (laquelle) / Aucune ;
  *   4. Entretien à prévoir : c'est la donnée DU BIEN (« Entretien à prévoir » de l'écran Nouveau bien, `entretien.ts`) —
  *      même composant, même donnée, aucun doublon : elle n'est PAS dans ce module ;
- *   5. Honoraires : locataire et propriétaire, chacun « Compte bancaire agence » / « Compte bancaire gestion » ;
+ *   5. Honoraires : locataire et propriétaire, chacun « Compte bancaire transaction » (valeur « agence ») / « Compte bancaire gestion » ;
  *   6. Sommes dues à l'entrée (facultatives, en €, au centime) et leur TOTAL, calculé ;
  *   7. Mode de règlement : Chèque / Virement / Autre (lequel) ;
  *   8. Commentaires (facultatif).
@@ -39,7 +39,10 @@ export const AVEC_PRECISION: readonly Assurance[] = ['gli', 'visale', 'autre'];
 
 export const COMPTES = ['agence', 'gestion'] as const;
 export type Compte = typeof COMPTES[number];
-export const LIBELLE_COMPTE: Record<Compte, string> = { agence: 'Compte bancaire agence', gestion: 'Compte bancaire gestion' };
+// Arno (21/10/2026) : le libellé AFFICHÉ de « agence » est « Compte bancaire transaction » ; la valeur enregistrée (« agence ») ne change pas.
+export const LIBELLE_COMPTE: Record<Compte, string> = { agence: 'Compte bancaire transaction', gestion: 'Compte bancaire gestion' };
+/** Le mot du mail « Nouvelle location » (envoyé à des tiers) : inchangé — seul l'affichage des écrans est renommé (Arno, 21/10/2026). */
+export const LIBELLE_COMPTE_MAIL: Record<Compte, string> = { agence: 'Compte bancaire agence', gestion: 'Compte bancaire gestion' };
 
 export const REGLEMENTS = ['cheque', 'virement', 'autre'] as const;
 export type Reglement = typeof REGLEMENTS[number];

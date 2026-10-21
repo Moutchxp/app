@@ -114,6 +114,25 @@ export function statutDeduit(enGestion: boolean | null, fin: string | null, sort
   return 'en_gestion';
 }
 
+/** Combien de biens d'un propriétaire, par statut (ses annexes rattachées ne comptent pas : elles suivent leur bien). */
+export type ComptesStatuts = Record<StatutBien, number>;
+
+const biens = (n: number): string => `${n} bien${n > 1 ? 's' : ''}`;
+
+/**
+ * Arno (21/10/2026) — LA MENTION, CALCULÉE et en lecture seule, de la fiche propriétaire (elle remplace la bascule « en gestion »
+ * qui écrivait une colonne plus lue) : « En gestion : oui (2 biens) · 1 en location seule » ; « Non : location seule (1 bien) » ;
+ * « Non : ancienne gestion (3 biens) » ; « Non : aucun bien ». PUR.
+ */
+export function mentionEnGestionProprietaire(c: ComptesStatuts): string {
+  const autres = (sauf: StatutBien): string => (['en_gestion', 'location_seule', 'ancienne_gestion'] as const)
+    .filter((s) => s !== sauf && c[s] > 0).map((s) => ` · ${c[s]} en ${LIBELLE_STATUT[s].toLowerCase()}`).join('');
+  if (c.en_gestion > 0) return `En gestion : oui (${biens(c.en_gestion)})${autres('en_gestion')}`;
+  if (c.location_seule > 0) return `Non : location seule (${biens(c.location_seule)})${autres('location_seule')}`;
+  if (c.ancienne_gestion > 0) return `Non : ancienne gestion (${biens(c.ancienne_gestion)})`;
+  return 'Non : aucun bien';
+}
+
 /** Le propriétaire est « en gestion » s'il a AU MOINS un bien en gestion. */
 export const proprietaireEnGestion = (statuts: readonly StatutBien[]): boolean => statuts.includes('en_gestion');
 

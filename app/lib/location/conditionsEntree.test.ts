@@ -77,7 +77,7 @@ describe('🔴 relecture : encart et « Modifier »', () => {
     if (!v.ok) throw new Error(v.motif);
     expect(lignesConditions(v.valeurs).map((l) => `${l.mot} : ${l.valeur}`.replace(/\s/g, ' '))).toEqual([
       'Dépôt de garantie : Conservé par l’agence', 'Prélèvement : Oui, au 10', 'Garant personne physique : Oui',
-      'Assurance loyers impayés : GLI — Assureur X', 'Honoraires du locataire : Compte bancaire agence',
+      'Assurance loyers impayés : GLI — Assureur X', 'Honoraires du locataire : Compte bancaire transaction',
       'Honoraires du propriétaire : Compte bancaire gestion', 'Prorata loyer : 412,26 €', 'Dépôt de garantie : 1 180,00 €',
       'Total dû à l’entrée : 1 592,26 €', 'Mode de règlement : Virement', 'Commentaires : clés remises',
     ]);
@@ -133,5 +133,14 @@ describe('🔴 prorata du mois d’entrée (Arno, 20/10/2026) — jour d’entr�
     expect(prorataEntree(124000, '')).toBeNull();
     expect(prorataEntree(124000, null)).toBeNull();
     expect(prorataEntree(124000, '2027-02-30')).toBeNull();
+  });
+});
+
+describe('🔴 Arno (21/10/2026) — « Compte bancaire transaction » : le libellé affiché ; la valeur enregistrée ne change pas', () => {
+  it('« agence » s’affiche « Compte bancaire transaction » ; le mail « Nouvelle location » garde son mot', async () => {
+    const m = await import('./conditionsEntree');
+    expect(m.COMPTES).toEqual(['agence', 'gestion']);
+    expect(m.LIBELLE_COMPTE).toEqual({ agence: 'Compte bancaire transaction', gestion: 'Compte bancaire gestion' });
+    expect(m.LIBELLE_COMPTE_MAIL.agence).toBe('Compte bancaire agence');
   });
 });
