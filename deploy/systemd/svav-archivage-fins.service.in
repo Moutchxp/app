@@ -1,0 +1,30 @@
+# GABARIT — les marqueurs entre arobases sont remplacés par installer.sh à partir de svav.conf. Ne pas copier tel quel.
+#
+# Arno (21/10/2026, migration 405) : l'ARCHIVAGE AUTOMATIQUE DES FINS DE GESTION, une passe par jour (svav-archivage-fins.timer).
+# Un bien en « Gestion terminée » est archivé à sa date de fin + le délai réglé (24 mois par défaut), s'il y est toujours ; son
+# dossier Drive passe dans « Inactifs ». Idempotent, journalisé. Installé par installer.sh, JAMAIS activé par lui : à activer
+# après l'application de la migration 405 (geste manuel, voir README.md). Codes : 0 = propre ; 2 = archivé mais un dossier Drive
+# reste à déplacer (visible dans systemctl --failed, la fiche dit « Déplacer maintenant ») ; 1 = échec.
+[Unit]
+Description=Sans Vis-à-Vis — archivage automatique des fins de gestion (une passe ; déclenchée par svav-archivage-fins.timer)
+Documentation=file:@APP_DIR@/deploy/systemd/README.md
+Wants=network-online.target
+After=network-online.target postgresql.service
+OnFailure=svav-alerte@%n.service
+
+[Service]
+Type=oneshot
+User=@SVAV_USER@
+Group=@SVAV_GROUP@
+WorkingDirectory=@APP_DIR@
+Environment=TZ=Europe/Paris
+Environment=PATH=@PATH@
+ExecStart=@NODE@ @APP_DIR@/node_modules/tsx/dist/cli.mjs @APP_DIR@/app/scripts/archiver-fins-gestion.ts --reel
+KillMode=mixed
+TimeoutStartSec=1h
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=svav-archivage-fins
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full

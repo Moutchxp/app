@@ -25,7 +25,7 @@ import { BarreAnnuaire } from './BarreAnnuaire';
 import { SectionLocationBien, SectionLocationLocataire, SectionLocationProprietaire } from './SectionsLocationFiche';
 import { EnvoiAdhocMonga, useBauxEnCoursDesBiens, type BailEnCoursDuBien } from '../location/EnvoiAdhocMonga';
 import { AnnexesDeLaFiche, CartoucheAnnexeDetachee, CasesAnnexes, RattacherABien } from './AnnexesDuBien';
-import { CSS_PASTILLE_STATUT, PastilleStatut, StatutDuBien } from './StatutDuBien';
+import { BandeauGestionTerminee, CSS_PASTILLE_STATUT, enGestionTerminee, PastilleStatut, StatutDuBien } from './StatutDuBien';
 import { estLotAnnexe, motCompteur, typeDuLot, type AnnexeAffichee, type CandidatRattachement } from '../../../../lib/gestion/annexesBien';
 /* 🔴🔴 LOT PJ-STATUT-ENVOI-FAMILLES — la moitié « fiche » du calcul des PARTIES, descendue dans un module
    PUR pour que la fenêtre des pièces jointes lise exactement la même, et non une copie. */
@@ -818,6 +818,8 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
 }) {
   return (
     <li className={`ann-carte${b.fin !== null ? ' ann-carte--ancien' : ''}`}>
+      {/* Arno (21/10/2026, 405) — « Gestion terminée » : le bandeau gris EN TÊTE de la carte. */}
+      {enGestionTerminee(b) && <BandeauGestionTerminee fin={b.finStatut} />}
       {/* ══ 🔴🔴 RÉÉCRIT LE 30/09/2026 — LOT FICHES-RETOUCHES-2 ═══════════════════════════════════════════════
           L'INVARIANT D'AVANT DISAIT : « LA CARTE ENTIÈRE EST LE BOUTON » — l'en-tête ET les faits vivaient dans un
           seul `<button>`. Le cartouche « Événement en cours » doit se poser JUSTE AU-DESSUS de la ligne SURFACE,
@@ -841,7 +843,7 @@ function CarteBien({ b, ouvrir, onHistoriqueDuBien, onEvenements, envoi, annexes
             {/* Arno (20/10/2026) : « Bien en gestion ? » = Non → « Hors gestion » (le mot + la couleur), rien d'autre.
                 Arno (21/10/2026, 403) : avec le STATUT du bien, sa pastille (bleu location seule, gris ancienne gestion) dit la même
                 chose, en mieux ; un bien en gestion n'en porte pas (sa section le dit). Sans statut : l'étiquette d'avant. */}
-            {b.statut !== undefined ? (b.statut !== 'en_gestion' && <PastilleStatut statut={b.statut} petite />)
+            {b.statut !== undefined ? (b.statut !== 'en_gestion' && <PastilleStatut statut={b.statut} petite archive={(b.archiveLe ?? null) !== null} />)
               : b.horsGestion === true && <EtiquetteHorsGestion />}
           </span>
           {/* Arno (20/10/2026, faille 6) : un bien en indivision — seuls ses AUTRES copropriétaires actifs (`indivision.ts`). */}
@@ -1631,15 +1633,19 @@ function VueLot({
           })()}
           {/* 🔴🔴 LOT TACHES-1 — « + Tâche », À CÔTÉ de « Dossier Drive ↗ » (Arno), sans rien déplacer ni retirer.
               Ne rend rien tant que la migration 346 n'est pas appliquée. */}
+          {/* Arno (21/10/2026, 405) — un bien qui n'est plus en gestion active (gestion terminée, archivé) : plus de nouvelle tâche. */}
+          {f.statut !== 'ancienne_gestion' && (
           <BoutonTache lotId={Number(f.id)} lotCle={f.numero} adresse={titreLogement(f.adresse, f.commune)}
             onEcrire={onEcrire === undefined ? undefined : (email) => onEcrire(email, { lotId: f.id })} />
+          )}
         </div>
       </header>
-
       {/* 🔴 LOT FICHES-RETOUCHES-2 — LE MÊME CARTOUCHE EN TÊTE DE LA FICHE DU BIEN, comme demandé. Un clic pose
           la page sur la « vie du bien » filtrée sur les échanges qui portent un événement ouvert. */}
       <CartoucheEvenement nb={f.evenementsOuverts}
         onOuvrir={() => { onFiltreVie('evenement'); ancreVie.current?.scrollIntoView({ block: 'start' }); }} />
+      {/* Arno (21/10/2026, 405) — « Gestion terminée » : le bandeau gris en tête de la fiche (juste après la bande d'événement). */}
+      {enGestionTerminee(f) && <><style>{CSS_PASTILLE_STATUT}</style><BandeauGestionTerminee fin={f.finStatut} /></>}
       {/* Arno (21/10/2026) — une annexe DÉTACHÉE : son cartouche ambre 🔗, sous le titre de sa fiche (après la bande « Événement en cours » quand elle est là). */}
       <span className="ann-fiche-cartouche"><AnnexesDeLaFiche lotId={Number(f.id)} bien={{ adresse: f.adresse, commune: f.commune }} onOuvrir={(id) => ouvrir('lot', id)} partie="cartouche" /></span>
       {/* Arno (21/10/2026, 403) — LE STATUT DU BIEN (en gestion · ancienne gestion · location seule) et ses gestes, avec confirmation. */}
@@ -2382,6 +2388,8 @@ function CarteLogement({ o, ouvrir, onHistoriqueDuBien }: {
 }) {
   const tete = (
     <>
+      {/* Arno (21/10/2026, 405) — le logement d'un bien en « Gestion terminée » : le même bandeau gris. */}
+      {enGestionTerminee(o) && <><style>{CSS_PASTILLE_STATUT}</style><BandeauGestionTerminee fin={o.finStatut} /></>}
       <span className="ann-carte-tete">
         <span className="ann-carte-titre">
           {o.lotId === null ? `Lot n° ${o.numero}` : titreLogement(o.adresse, o.commune)}

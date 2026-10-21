@@ -21,6 +21,7 @@ import { creerBienComplet, creerProprietaires } from '../location/creationBienRe
 import { biensARanger, creerDossierDuBien, deplacerDossierDuBien, dossiersDuProprietaire, etatDriveDuBien, type DepsArbre } from './arbreStatutDriveRepo';
 import { CLE_RACINE_LOCATION_SEULE, NOM_RACINE_LOCATION_SEULE } from './arbreStatutDrive';
 import { changerStatutBien } from './statutBienRepo';
+import { archiverBien } from './finGestionRepo';
 import { ranger } from '../../scripts/ranger-dossiers-statut';
 
 const NOM_BASE = (process.env.DATABASE_URL ?? '').split('/').pop()?.split('?')[0] ?? '';
@@ -165,8 +166,12 @@ describe.skipIf(!baseEssai)('🔴🔴 le dossier Drive d’un bien selon son sta
     expect(await noeud(`l:${ls}:2026-10-01`)).toMatchObject({ arbre: 'locative', branche: 'Actifs' });
     expect(await noeud(`r:${ls}:3`)).toMatchObject({ arbre: 'locative', branche: 'Actifs' });
     expect(ecritures.slice(ecrit).filter((e) => e.startsWith('PATCH'))).toEqual([`PATCH files/${n5.d}?add=${apres.p}&remove=${n5.p}`]);
-    // Ancienne gestion → « Inactifs » ; puis location seule (retour à l'arbre « location seule », N4 d'origine repris).
+    // Ancienne gestion (405) : « Gestion terminée » — le dossier RESTE à sa place ; ARCHIVÉE (fin + 2 ans) → « Inactifs » ;
+    // puis location seule (retour à l'arbre « location seule », N4 d'origine repris).
     ok(await transition(ls, 'ancienne_gestion'));
+    expect(await deplacerDossierDuBien(ls, 'itest', deps)).toMatchObject({ ok: true, geste: 'deja' });
+    expect(await noeud(`b:${ls}`)).toMatchObject({ arbre: 'locative', branche: 'Actifs' });
+    expect(await archiverBien(ls, new Date('2028-10-21T10:00:00Z'), AUTEUR)).toMatchObject({ archive: true });
     expect(await deplacerDossierDuBien(ls, 'itest', deps)).toMatchObject({ ok: true, geste: 'deplace' });
     expect(await noeud(`b:${ls}`)).toMatchObject({ arbre: 'locative', branche: 'Inactifs' });
     expect(await noeud(`p:${pid}:I`)).toMatchObject({ p: n2.Inactifs });

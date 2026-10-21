@@ -12,7 +12,7 @@ describe('gabarits systemd — arrêt propre', () => {
   it('tout script lancé DIRECTEMENT par tsx a KillMode=mixed (SIGTERM au seul processus principal)', () => {
     const tsxDirect = gabarits.filter((g) => directive(g.texte, 'ExecStart').some((e) => e.startsWith('@NODE@ ') && e.includes('tsx/dist/cli.mjs')));
     expect(tsxDirect.map((g) => g.nom).sort()).toEqual([
-      'svav-analytics-maintenance.service.in', 'svav-drive-empreintes.service.in', 'svav-gestion-continu.service.in', 'svav-veille.service.in',
+      'svav-analytics-maintenance.service.in', 'svav-archivage-fins.service.in', 'svav-drive-empreintes.service.in', 'svav-gestion-continu.service.in', 'svav-veille.service.in',
     ]);
     for (const g of tsxDirect) expect(directive(g.texte, 'KillMode'), g.nom).toEqual(['mixed']);
   });

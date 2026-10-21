@@ -8,7 +8,8 @@ import {
   refusEcritureArbre, type ArbreDrive, type BienARanger, type CreationNoeud, type EtatDossierBien, type MaillonArbre, type PlaceDrive, type RacinesArbres,
 } from './arbreStatutDrive';
 import { estStatutBien, type StatutBien } from './statutBien';
-import { sqlStatutBien } from './statutBienRepo';
+import { sqlArchiveBien, sqlStatutBien } from './statutBienRepo';
+import { dossiersAnnuelsActifs } from './finGestion';
 import { jetonAccesGestion, type EtatGoogle } from './jetonAcces';
 import { colonneExisteMemo } from '../location/sondeLocation';
 
@@ -81,9 +82,19 @@ async function n5DuBien(teteId: number): Promise<N5Inscrit | null> {
   return { cle: r.cle, driveId: r.d, parent: r.p, place: { arbre: r.arbre as ArbreDrive, branche: (r.branche as PlaceDrive['branche']) ?? null }, teteId: Number(r.lot) };
 }
 
-async function statutDuLot(lotId: number): Promise<StatutBien | null> {
-  const { rows } = await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [lotId]);
-  return estStatutBien(rows[0]?.s) ? rows[0].s as StatutBien : null;
+/** Le statut ACTUEL d'un bien, et s'il est archivé (405). */
+async function etatDuLot(lotId: number): Promise<{ statut: StatutBien; archive: boolean } | null> {
+  const { rows } = await query<{ s: string; a: string | null }>(
+    `SELECT ${await sqlStatutBien('lo')} AS s, (${await sqlArchiveBien('lo')})::text AS a FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [lotId]);
+  return estStatutBien(rows[0]?.s) ? { statut: rows[0].s as StatutBien, archive: rows[0].a !== null } : null;
+}
+
+/** Une clé de registre LIBRE : la clé de base, ou « base:2 », « base:3 »… si elle est déjà prise ailleurs (N3 déplacé entier). */
+async function cleLibre(base: string): Promise<string> {
+  const { rows } = await query<{ cle: string }>('SELECT cle FROM gestion_drive_noeud WHERE cle = $1 OR cle LIKE $2', [base, `${base}:%`]);
+  const prises = new Set(rows.map((r) => r.cle));
+  if (!prises.has(base)) return base;
+  for (let k = 2; ; k += 1) if (!prises.has(`${base}:${k}`)) return `${base}:${k}`;
 }
 
 export interface EtatDriveDuBien { etat: EtatDossierBien; n5DriveId: string | null; attendu: PlaceDrive; libelleAttendu: string; libelleActuel: string | null }
@@ -92,11 +103,12 @@ export interface EtatDriveDuBien { etat: EtatDossierBien; n5DriveId: string | nu
 export async function etatDriveDuBien(lotId: number): Promise<EtatDriveDuBien | null> {
   if (!(await arbreDisponible())) return null;
   const tete = await teteDuLot(lotId);
-  const statut = await statutDuLot(tete);
-  if (statut === null) return null;
+  const e = await etatDuLot(tete);
+  if (e === null) return null;
   const n5 = await n5DuBien(tete);
-  const attendu = placeDuStatut(statut);
-  return { etat: etatDossierBien(statut, n5?.place ?? null), n5DriveId: n5?.driveId ?? null, attendu, libelleAttendu: libellePlace(attendu),
+  // « Gestion terminée » : la place attendue est celle où le dossier EST déjà (il ne bouge pas).
+  const attendu = e.statut === 'ancienne_gestion' && !e.archive && n5 !== null && n5.place.arbre === 'locative' ? n5.place : placeDuStatut(e.statut, e.archive);
+  return { etat: etatDossierBien(e.statut, n5?.place ?? null, e.archive), n5DriveId: n5?.driveId ?? null, attendu, libelleAttendu: libellePlace(attendu),
     libelleActuel: n5 === null ? null : libellePlace(n5.place) };
 }
 
@@ -181,19 +193,24 @@ async function lotArbo(teteId: number): Promise<(LotArbo & { proprietaireNom: st
 }
 
 /** Le plan des dossiers manquants (N3 → N6) d'un bien à une place, et ce qui est déjà inscrit. */
-async function planPour(l: LotArbo & { proprietaireNom: string }, place: PlaceDrive, parentN3: string | null, annee: number) {
+async function planPour(l: LotArbo & { proprietaireNom: string }, place: PlaceDrive, parentN3: string | null, annee: number, annuels = true) {
   const pid = l.proprietaireId as number;
   const nomN4 = nomAdresse(l, null);
+  // Le N3 de cette place : celui du registre (même déplacé entier, sa clé reste) ; sinon une clé LIBRE (405).
+  const { rows: n3 } = await query<{ cle: string }>(
+    `SELECT cle FROM gestion_drive_noeud WHERE sorte = 'proprietaire' AND proprietaire_id = $1 AND arbre = $2 AND branche IS NOT DISTINCT FROM $3
+      ORDER BY id LIMIT 1`, [pid, place.arbre, place.branche]);
+  const n3Cle = n3[0]?.cle ?? await cleLibre(cleN3(pid, place));
   const { rows: n4 } = await query<{ cle: string }>(
     `SELECT cle FROM gestion_drive_noeud WHERE sorte = 'adresse' AND proprietaire_id = $1 AND arbre = $2 AND branche IS NOT DISTINCT FROM $3
         AND lower(nom_a_la_creation) = lower($4) ORDER BY id LIMIT 1`, [pid, place.arbre, place.branche, nomN4]);
-  const adresse = { cle: n4[0]?.cle ?? cleN4(pid, place, nomN4), nom: nomN4 };
+  const adresse = { cle: n4[0]?.cle ?? await cleLibre(cleN4(pid, place, nomN4)), nom: nomN4 };
   const t = l.id;
   const { rows: ex } = await query<{ cle: string; d: string }>(
     `SELECT cle, drive_id AS d FROM gestion_drive_noeud WHERE cle = ANY($1::text[]) OR cle LIKE $2 OR cle LIKE $3 OR cle LIKE $4`,
-    [[cleN3(pid, place), adresse.cle, `b:${t}`], `r:${t}:%`, `pr:${t}:%`, `y:pr:${t}:%`]);
+    [[n3Cle, adresse.cle, `b:${t}`], `r:${t}:%`, `pr:${t}:%`, `y:pr:${t}:%`]);
   const existants = new Map(ex.map((x) => [x.cle, x.d]));
-  return { plan: planDossierBien({ place, annee, proprietaire: { id: pid, nom: l.proprietaireNom }, adresse, bien: { teteId: t, nom: nomBienArbo(l, []) }, parentN3, existants }), existants, adresse };
+  return { plan: planDossierBien({ place, annee, proprietaire: { id: pid, nom: l.proprietaireNom }, adresse, bien: { teteId: t, nom: nomBienArbo(l, []) }, parentN3, existants, n3Cle, annuels }), existants, adresse };
 }
 
 /** Exécute un plan de créations : garde sur chaque parent existant, reprise d'un dossier déjà étiqueté, inscription. */
@@ -241,18 +258,18 @@ export async function creerDossierDuBien(lotId: number, auteur: string, deps: De
   const tete = await teteDuLot(lotId);
   const n5 = await n5DuBien(tete);
   if (n5 !== null) return deplacerDossierDuBien(lotId, auteur, deps);
-  const statut = await statutDuLot(tete);
-  if (statut === null) return { ok: false, motif: 'Ce bien n’existe pas.' };
+  const etat = await etatDuLot(tete);
+  if (etat === null) return { ok: false, motif: 'Ce bien n’existe pas.' };
   const l = await lotArbo(tete);
   if (l === null) return { ok: false, motif: 'Le bien n’a pas de propriétaire : son dossier Drive ne peut pas être placé.' };
-  const place = placeDuStatut(statut);
+  const place = placeDuStatut(etat.statut, etat.archive);
   const jeton = await jetonOk(deps);
   if (typeof jeton !== 'string') return { ok: false, motif: jeton.motif };
   const r = await racinesConnues();
   const parentN3 = await parentN3Pour(deps, jeton, place, r, auteur);
   if (parentN3 !== null && typeof parentN3 === 'object') return { ok: false, motif: parentN3.motif };
   const racines = { locative: r.locative, locationSeule: place.arbre === 'location_seule' ? parentN3 : r.locationSeule };
-  const { plan, existants } = await planPour(l, place, parentN3, (deps.maintenant?.() ?? new Date()).getFullYear());
+  const { plan, existants } = await planPour(l, place, parentN3, (deps.maintenant?.() ?? new Date()).getFullYear(), dossiersAnnuelsActifs(etat.statut));
   if (!plan.ok) return { ok: false, motif: plan.motif };
   const x = await executer(deps, jeton, plan.creations, existants, place, l.proprietaireId as number, racines, auteur);
   if (!x.ok) return x;
@@ -276,10 +293,11 @@ export async function deplacerDossierDuBien(lotId: number, auteur: string, deps:
   const tete = await teteDuLot(lotId);
   const n5 = await n5DuBien(tete);
   if (n5 === null) return creerDossierDuBien(lotId, auteur, deps);
-  const statut = await statutDuLot(tete);
-  if (statut === null) return { ok: false, motif: 'Ce bien n’existe pas.' };
-  const place = placeDuStatut(statut);
-  if (memePlace(n5.place, place)) return { ok: true, driveId: n5.driveId, geste: 'deja', place, crees: [] };
+  const etat = await etatDuLot(tete);
+  if (etat === null) return { ok: false, motif: 'Ce bien n’existe pas.' };
+  // « Gestion terminée » : le dossier RESTE à sa place (405) ; archivé : « Inactifs ».
+  if (etatDossierBien(etat.statut, n5.place, etat.archive).etat === 'ok') return { ok: true, driveId: n5.driveId, geste: 'deja', place: n5.place, crees: [] };
+  const place = placeDuStatut(etat.statut, etat.archive);
   const l = await lotArbo(n5.teteId);
   if (l === null) return { ok: false, motif: 'Le bien n’a pas de propriétaire : son dossier Drive ne peut pas être placé.' };
   const jeton = await jetonOk(deps);
@@ -291,7 +309,12 @@ export async function deplacerDossierDuBien(lotId: number, auteur: string, deps:
   // 🔴 La SOURCE aussi passe le garde : le N5 inscrit est dans un des deux arbres, jamais sous « Documents clients scannés ».
   const refusSource = await refusPour(deps, jeton, n5.driveId, racines);
   if (refusSource !== null) return { ok: false, motif: refusSource };
-  const { plan, existants, adresse } = await planPour({ ...l, id: n5.teteId }, place, parentN3, (deps.maintenant?.() ?? new Date()).getFullYear());
+  // Archivé : si TOUS les biens du propriétaire dans « Actifs » sont archivés, le PROPRIÉTAIRE ENTIER passe en « Inactifs ».
+  if (place.arbre === 'locative' && place.branche === 'Inactifs' && r.n2.Inactifs !== null) {
+    const entier = await proprietaireEntierVersInactifs(deps, jeton, n5, l.proprietaireId as number, r.n2.Inactifs, racines, auteur);
+    if (entier !== null) return entier;
+  }
+  const { plan, existants, adresse } = await planPour({ ...l, id: n5.teteId }, place, parentN3, (deps.maintenant?.() ?? new Date()).getFullYear(), dossiersAnnuelsActifs(etat.statut));
   if (!plan.ok) return { ok: false, motif: plan.motif };
   // Seuls les N3 / N4 manquants : le N5 et son contenu VOYAGENT, ils ne se recréent pas.
   const x = await executer(deps, jeton, plan.creations.filter((c) => c.niveau <= 4), existants, place, l.proprietaireId as number, racines, auteur);
@@ -313,6 +336,38 @@ export async function deplacerDossierDuBien(lotId: number, auteur: string, deps:
 }
 
 /**
+ * Arno (21/10/2026, 405 — « règle existante ») : quand le bien archivé est le DERNIER bien actif de son propriétaire dans « Actifs »,
+ * c'est le N3 ENTIER du propriétaire qui passe dans « Inactifs » (avec ses adresses, ses biens et tout leur contenu). `null` : la
+ * règle ne s'applique pas (autres biens actifs, N3 déjà présent dans « Inactifs », N5 hors de ce N3) — le N5 voyage seul.
+ */
+async function proprietaireEntierVersInactifs(deps: DepsArbre, jeton: string, n5: N5Inscrit, proprietaireId: number, n2Inactifs: string,
+  racines: RacinesArbres, auteur: string): Promise<IssueDossierBien | null> {
+  const { rows: n3s } = await query<{ d: string; p: string; branche: string | null }>(
+    `SELECT drive_id AS d, parent_drive_id AS p, branche FROM gestion_drive_noeud WHERE sorte = 'proprietaire' AND proprietaire_id = $1 AND arbre = 'locative'`, [proprietaireId]);
+  const actif = n3s.filter((x) => x.branche === 'Actifs');
+  if (actif.length !== 1 || n3s.some((x) => x.branche === 'Inactifs')) return null;
+  const n3 = actif[0];
+  const { rows: n4 } = await query<{ p: string }>('SELECT parent_drive_id AS p FROM gestion_drive_noeud WHERE drive_id = $1', [n5.parent]);
+  if (n4[0]?.p !== n3.d) return null;
+  const { rows: autres } = await query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM gestion_drive_noeud x LEFT JOIN gestion_annuaire_lot lo ON lo.id = x.lot_id
+      WHERE x.sorte = 'bien' AND x.proprietaire_id = $1 AND x.arbre = 'locative' AND x.branche = 'Actifs' AND x.drive_id <> $2
+        AND NOT (lo.statut_bien = 'ancienne_gestion' AND lo.statut_archive_le IS NOT NULL)`, [proprietaireId, n5.driveId]);
+  if ((autres[0]?.n ?? 1) > 0) return null;
+  const refus = await refusPour(deps, jeton, n2Inactifs, racines) ?? await refusPour(deps, jeton, n3.d, racines);
+  if (refus !== null) return { ok: false, motif: refus };
+  const m = await deplacerVers(jeton, { id: n3.d, parentOrigine: n3.p, parentCible: n2Inactifs }, { fetch: deps.fetch });
+  if (!m.ok) return { ok: false, motif: m.motif };
+  await query(`UPDATE gestion_drive_noeud SET parent_drive_id = $2, branche = 'Inactifs' WHERE drive_id = $1`, [n3.d, n2Inactifs]);
+  await query(`UPDATE gestion_drive_noeud SET branche = 'Inactifs' WHERE proprietaire_id = $1 AND arbre = 'locative' AND branche = 'Actifs'`, [proprietaireId]);
+  await query(`INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_libelle)
+               VALUES ('annuaire_lot', $1, 'drive_dossier_deplace', $2, $3, $4, $5)`,
+    [n5.teteId, 'Base de données locative › Actifs', 'Base de données locative › Inactifs', `dernier bien actif archivé : le dossier ENTIER du propriétaire passe dans « Inactifs » (${n3.d})`, auteur])
+    .catch(() => undefined);
+  return { ok: true, driveId: n5.driveId, geste: 'deplace', place: { arbre: 'locative', branche: 'Inactifs' }, crees: [] };
+}
+
+/**
  * LE RANGEMENT (script `ranger-dossiers-statut`) : chaque bien (hors annexe rattachée, qui suit son bien principal), son statut,
  * et la place de son N5 au registre. LECTURE SEULE. Sans la 404, tout le registre est dans l'arbre locatif (sa seule réalité).
  */
@@ -321,8 +376,9 @@ export async function biensARanger(): Promise<BienARanger[]> {
   const avec404 = await arbreDisponible();
   const avecDossier = await colonneExisteMemo('gestion_annuaire_lot', 'drive_dossier_id');
   const avecDetache = await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le');
-  const { rows } = await query<{ id: string; adresse: string | null; commune: string | null; statut: string; d: string | null; arbre: string | null; branche: string | null }>(
-    `SELECT lo.id::text, lo.adresse, lo.commune, ${statut} AS statut, n.drive_id AS d, ${avec404 ? 'n.arbre' : "CASE WHEN n.drive_id IS NULL THEN NULL ELSE 'locative' END"} AS arbre, n.branche
+  const archive = await sqlArchiveBien('lo');
+  const { rows } = await query<{ id: string; adresse: string | null; commune: string | null; statut: string; d: string | null; arbre: string | null; branche: string | null; a: string | null }>(
+    `SELECT lo.id::text, lo.adresse, lo.commune, ${statut} AS statut, (${archive})::text AS a, n.drive_id AS d, ${avec404 ? 'n.arbre' : "CASE WHEN n.drive_id IS NULL THEN NULL ELSE 'locative' END"} AS arbre, n.branche
        FROM gestion_annuaire_lot lo
        LEFT JOIN LATERAL (SELECT x.drive_id, ${avec404 ? 'x.arbre' : 'NULL::text AS arbre'}, x.branche FROM gestion_drive_noeud x
                            WHERE x.sorte = 'bien' AND (x.lot_id = lo.id${avecDossier ? ' OR x.drive_id = lo.drive_dossier_id' : ''})
@@ -331,6 +387,7 @@ export async function biensARanger(): Promise<BienARanger[]> {
       ORDER BY lo.id`);
   return rows.filter((r) => estStatutBien(r.statut)).map((r) => ({
     lotId: Number(r.id), statut: r.statut as StatutBien, titre: [r.adresse, r.commune].filter((x) => x).join(', ') || `Bien ${r.id}`,
+    archive: r.a !== null,
     n5DriveId: r.d, n5: r.d === null ? null : { arbre: (r.arbre ?? 'locative') as ArbreDrive, branche: (r.branche as PlaceDrive['branche']) ?? null },
   }));
 }

@@ -34,6 +34,11 @@ export async function sqlStatutBien(alias: string): Promise<string> {
   return `(CASE WHEN ${enGestion} THEN 'location_seule' WHEN ${alias}.gestion_fin IS NOT NULL${sorti} THEN 'ancienne_gestion' ELSE 'en_gestion' END)`;
 }
 
+/** Arno (21/10/2026, 405) — l'instant de l'ARCHIVAGE d'un bien en ancienne gestion (`NULL` sans la 405 : rien n'est archivé). */
+export async function sqlArchiveBien(alias: string): Promise<string> {
+  return (await colonneExisteMemo('gestion_annuaire_lot', 'statut_archive_le')) ? `${alias}.statut_archive_le` : 'NULL::timestamptz';
+}
+
 export interface TransitionLue {
   id: number; avant: StatutBien | null; apres: StatutBien; effetLe: string; source: string; viaLotId: number | null;
   motif: string | null; mandat: string | null; par: string; quand: string;
@@ -48,6 +53,8 @@ export interface LectureStatut {
   /** Annexe RATTACHÉE : son bien principal, dont elle suit le statut (aucun geste sur elle). */
   suitLot: { id: number; adresse: string | null; commune: string | null } | null;
   gestes: GesteStatut[];
+  /** Arno (21/10/2026, 405) — l'archivage d'une ancienne gestion (`null` : « Gestion terminée », ou autre statut). */
+  archiveLe?: string | null;
 }
 
 export async function lireStatutBien(lotId: number): Promise<LectureStatut | null> {
@@ -56,10 +63,11 @@ export async function lireStatutBien(lotId: number): Promise<LectureStatut | nul
   const avecDetache = await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le');
   const enGestion = (await colonneExisteMemo('gestion_annuaire_lot', 'en_gestion')) ? 'lo.en_gestion' : 'NULL::boolean';
   const sorti = (await colonneExisteMemo('gestion_annuaire_lot', 'sorti_portefeuille_le')) ? 'lo.sorti_portefeuille_le::text' : 'NULL::text';
-  const { rows } = await query<{ statut: string | null; depuis: string | null; en_gestion: boolean | null; fin: string | null; sorti: string | null;
+  const archive = await sqlArchiveBien('lo');
+  const { rows } = await query<{ statut: string | null; depuis: string | null; en_gestion: boolean | null; fin: string | null; sorti: string | null; archive: string | null;
     principal_id: string | null; principal_adresse: string | null; principal_commune: string | null }>(
     `SELECT ${disponible ? 'lo.statut_bien' : 'NULL::text'} AS statut, ${disponible ? 'lo.statut_bien_depuis::text' : 'NULL::text'} AS depuis,
-            ${enGestion} AS en_gestion, lo.gestion_fin::text AS fin, ${sorti} AS sorti,
+            ${enGestion} AS en_gestion, lo.gestion_fin::text AS fin, ${sorti} AS sorti, (${archive})::text AS archive,
             ${avecAnnexe ? `pa.id::text` : 'NULL::text'} AS principal_id, ${avecAnnexe ? 'pa.adresse' : 'NULL::text'} AS principal_adresse,
             ${avecAnnexe ? 'pa.commune' : 'NULL::text'} AS principal_commune
        FROM gestion_annuaire_lot lo
@@ -70,7 +78,7 @@ export async function lireStatutBien(lotId: number): Promise<LectureStatut | nul
   if (r === undefined) return null;
   const statut: StatutBien = estStatutBien(r.statut) ? r.statut : statutDeduit(r.en_gestion, r.fin, r.sorti);
   const suitLot = r.principal_id === null ? null : { id: Number(r.principal_id), adresse: r.principal_adresse, commune: r.principal_commune };
-  return { disponible, lotId, statut, depuis: r.depuis, suitLot, gestes: disponible && suitLot === null ? gestesPour(statut) : [] };
+  return { disponible, lotId, statut, depuis: r.depuis, suitLot, gestes: disponible && suitLot === null ? gestesPour(statut) : [], archiveLe: r.archive };
 }
 
 /** Le journal des transitions de CE bien, du plus récent (l'Historique). Vide sans la 403. */
@@ -80,10 +88,19 @@ export async function transitionsDuBien(lotId: number): Promise<TransitionLue[]>
     motif: string | null; mandat: string | null; auteur_libelle: string; survenu_le: string }>(
     `SELECT id::text, avant, apres, effet_le::text, source, via_lot_id::text, motif, mandat, auteur_libelle, survenu_le::text
        FROM gestion_bien_statut_transition WHERE lot_id = $1 ORDER BY survenu_le DESC, id DESC LIMIT 200`, [lotId]);
-  return rows.filter((t) => estStatutBien(t.apres)).map((t) => ({
+  const lignes: TransitionLue[] = rows.filter((t) => estStatutBien(t.apres)).map((t) => ({
     id: Number(t.id), avant: estStatutBien(t.avant) ? t.avant : null, apres: t.apres as StatutBien, effetLe: t.effet_le, source: t.source,
     viaLotId: t.via_lot_id === null ? null : Number(t.via_lot_id), motif: t.motif, mandat: t.mandat, par: t.auteur_libelle, quand: t.survenu_le,
   }));
+  // Arno (21/10/2026, 405) — l'ARCHIVAGE automatique (une marque, pas un changement de statut) : sa ligne dans l'Historique.
+  const { rows: a } = await query<{ id: string; quand: string; jour: string; commentaire: string | null; par: string | null }>(
+    `SELECT id::text, survenu_le::text AS quand, (survenu_le AT TIME ZONE 'Europe/Paris')::date::text AS jour, commentaire, auteur_libelle AS par
+       FROM gestion_journal WHERE entite = 'annuaire_lot' AND entite_id = $1 AND action = 'statut_bien_archive'`, [lotId]);
+  for (const x of a) {
+    lignes.push({ id: -Number(x.id), avant: 'ancienne_gestion', apres: 'ancienne_gestion', effetLe: x.jour, source: 'archivage', viaLotId: null,
+      motif: x.commentaire, mandat: null, par: x.par ?? '—', quand: x.quand });
+  }
+  return lignes.sort((x, y) => (x.quand < y.quand ? 1 : x.quand > y.quand ? -1 : y.id - x.id));
 }
 
 class Refus extends Error {}
@@ -126,6 +143,7 @@ export async function changerStatutBien(lotId: number, s: SaisieTransition, aute
   if (!m.ok) return { etat: 'refus', motif: m.motif };
   const avecAnnexe = await colonneExisteMemo('gestion_lot_annexe', 'annexe_id');
   const avecDetache = await colonneExisteMemo('gestion_annuaire_lot', 'annexe_detachee_le');
+  const avec405 = await colonneExisteMemo('gestion_annuaire_lot', 'statut_archive_le');
   try {
     return await withTransaction(async (q) => {
       const { rows } = await q<{ statut: string; principal: string | null }>(
@@ -147,7 +165,8 @@ export async function changerStatutBien(lotId: number, s: SaisieTransition, aute
                VALUES ($1, $2, $3, $4::date, 'geste', $5, $6, $7, $8)`,
         [lotId, avant, vers, date.date, motif, libelleMandat === null ? null : `${propose === 'gestion' ? 'Mandat de gestion' : 'Mandat de transaction locative'} ${libelleMandat}`,
           auteur.id, auteur.libelle]);
-      await q('UPDATE gestion_annuaire_lot SET statut_bien = $2, statut_bien_depuis = $3::date WHERE id = $1', [lotId, vers, date.date]);
+      // 405 : un statut neuf repart SANS archivage (reprise après archivage ; une nouvelle fin de gestion relance le délai).
+      await q(`UPDATE gestion_annuaire_lot SET statut_bien = $2, statut_bien_depuis = $3::date${avec405 ? ', statut_archive_le = NULL' : ''} WHERE id = $1`, [lotId, vers, date.date]);
       // Les annexes rattachées ont suivi (déclencheur de la 403) : leurs lignes « annexe » de CETTE transaction.
       const { rows: suivies } = await q<{ id: string }>(
         `SELECT lot_id::text AS id FROM gestion_bien_statut_transition WHERE via_lot_id = $1 AND source = 'annexe' AND survenu_le = now() ORDER BY lot_id`, [lotId]);

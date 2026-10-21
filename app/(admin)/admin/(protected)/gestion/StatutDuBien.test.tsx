@@ -40,7 +40,7 @@ beforeEach(() => {
     if (u.includes('?statut=')) {
       const disponible = lu.disponible ?? true;
       const suitLot = lu.suitLot ?? null;
-      return reponse({ etat: 'ok', data: { disponible, lotId: 10, statut: lu.statut, depuis: '2026-09-01', suitLot,
+      return reponse({ etat: 'ok', data: { disponible, lotId: 10, statut: lu.statut, depuis: '2026-09-01', suitLot, archiveLe: (lu as Record<string, unknown>).archiveLe,
         gestes: disponible && suitLot === null ? gestesPour(lu.statut) : [] } });
     }
     if (u.includes('?driveBien=')) return reponse({ etat: 'ok', data: drive });
@@ -202,5 +202,19 @@ describe('🔴 le statut du bien sur sa fiche', () => {
     await clic(document.querySelector('[data-destination="ancienne_gestion"]'));
     await clic(bouton('statut-confirmer'));
     expect(hote.querySelector('.sdb-notes')?.textContent).toContain('Statut enregistré, mais le dossier Drive n’a pas été déplacé : RECETTE — écriture dans le Drive non effectuée.');
+  });
+
+  it('🔴 405 — ancienne gestion : « Gestion terminée » tant qu’elle n’est pas archivée ; archivée : « Ancienne gestion · archivé le … » ; mêmes gestes', async () => {
+    lu = { statut: 'ancienne_gestion' };
+    (lu as Record<string, unknown>).archiveLe = null;
+    await monter();
+    expect(hote.querySelector('.sdb-ligne [data-statut-bien]')?.textContent).toBe('Gestion terminée');
+    expect(gestes()).toEqual(['Reprendre en gestion', 'Remettre en location seule']);
+    act(() => racine.unmount()); racine = createRoot(hote);
+    (lu as Record<string, unknown>).archiveLe = '2028-10-21 05:15:00+02';
+    await monter();
+    expect(hote.querySelector('.sdb-ligne [data-statut-bien]')?.textContent).toBe('Ancienne gestion');
+    expect(hote.querySelector('.sdb-ligne')?.textContent).toContain('· archivé le 21/10/2028');
+    expect(gestes()).toEqual(['Reprendre en gestion', 'Remettre en location seule']);
   });
 });

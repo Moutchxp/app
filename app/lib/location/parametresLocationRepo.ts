@@ -1,3 +1,4 @@
+import { delaiArchivageMois } from '../gestion/finGestionRepo';
 import { query, withTransaction } from '../db/client';
 import type { Auteur } from '../gestion/gestes';
 import { SQL_AUJOURDHUI_PARIS } from '../temps/paris';
@@ -29,6 +30,8 @@ export function versionsBaremesDisponibles(): Promise<boolean> {
 }
 
 export interface ParametresLocation {
+  /** Arno (21/10/2026, 405) — « Archivage des fins de gestion » : le délai en mois (défaut 24) ; `disponible` : la 405 est là. */
+  archivage: { mois: number; disponible: boolean };
   destinataires: Destinataire[];
   /** La dernière modification de la liste (qui, quand) ; `null` : l'amorce de la migration. */
   destinatairesSaisis: { le: string; par: string } | null;
@@ -64,6 +67,7 @@ export async function lireParametresLocation(): Promise<ParametresLocation> {
   }
   const { rows: j } = await query<{ jour: string }>(`SELECT ${SQL_AUJOURDHUI_PARIS}::text AS jour`);
   return {
+    archivage: { mois: await delaiArchivageMois(), disponible: await colonneExisteMemo('gestion_location_reglage', 'valeur_entiere') },
     destinataires: await lireDestinatairesDefaut(), destinatairesSaisis: saisis, versions: await lireVersionsBaremes(),
     aujourdhui: j[0]?.jour ?? new Date().toISOString().slice(0, 10), manquantes: avec395 ? [] : ['395'],
   };

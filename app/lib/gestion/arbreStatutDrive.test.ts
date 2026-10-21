@@ -6,16 +6,16 @@ import {
 
 /** 🔴 Arno (21/10/2026, 403-404) — le dossier d'un bien dans l'arbre de son statut : places, plan, garde-fous, rangement. PUR. */
 describe('🔴 la place du dossier selon le statut', () => {
-  it('en gestion → locative › Actifs ; ancienne → locative › Inactifs ; location seule → l’arbre « location seule », sans branche', () => {
+  it('en gestion → locative › Actifs ; ancienne ARCHIVÉE → locative › Inactifs (405) ; location seule → l’arbre « location seule »', () => {
     expect(placeDuStatut('en_gestion')).toEqual({ arbre: 'locative', branche: 'Actifs' });
-    expect(placeDuStatut('ancienne_gestion')).toEqual({ arbre: 'locative', branche: 'Inactifs' });
+    expect(placeDuStatut('ancienne_gestion', true)).toEqual({ arbre: 'locative', branche: 'Inactifs' });
     expect(placeDuStatut('location_seule')).toEqual({ arbre: 'location_seule', branche: null });
-    expect(['en_gestion', 'ancienne_gestion', 'location_seule'].map((s) => libellePlace(placeDuStatut(s as never))))
+    expect(['en_gestion', 'ancienne_gestion', 'location_seule'].map((s) => libellePlace(placeDuStatut(s as never, true))))
       .toEqual(['Base de données locative › Actifs', 'Base de données locative › Inactifs', 'Base de données location seule']);
   });
 
   it('un propriétaire aux statuts mêlés a UN N3 par place (clés distinctes) ; les clés d’origine A / I sont gardées', () => {
-    expect(['en_gestion', 'ancienne_gestion', 'location_seule'].map((s) => lettrePlace(placeDuStatut(s as never)))).toEqual(['A', 'I', 'L']);
+    expect(['en_gestion', 'ancienne_gestion', 'location_seule'].map((s) => lettrePlace(placeDuStatut(s as never, true)))).toEqual(['A', 'I', 'L']);
     expect(cleN3(49, placeDuStatut('en_gestion'))).toBe('p:49:A');
     expect(cleN3(49, placeDuStatut('location_seule'))).toBe('p:49:L');
     const a = cleN4(49, placeDuStatut('en_gestion'), '25 Rue Henri Barbusse, 92230 Gennevilliers');
@@ -84,13 +84,15 @@ describe('🔴 l’état du dossier et le plan de rangement', () => {
     expect(etatDossierBien('location_seule', null)).toEqual({ etat: 'a_creer' });
     expect(etatDossierBien('location_seule', { arbre: 'locative', branche: 'Actifs' }))
       .toEqual({ etat: 'a_deplacer', depuis: { arbre: 'locative', branche: 'Actifs' }, vers: { arbre: 'location_seule', branche: null } });
-    expect(etatDossierBien('ancienne_gestion', { arbre: 'locative', branche: 'Actifs' })).toMatchObject({ etat: 'a_deplacer', vers: { branche: 'Inactifs' } });
+    expect(etatDossierBien('ancienne_gestion', { arbre: 'locative', branche: 'Actifs' }, true)).toMatchObject({ etat: 'a_deplacer', vers: { branche: 'Inactifs' } });
+    // 405 : « Gestion terminée » (pas encore archivée) — le dossier reste à sa place.
+    expect(etatDossierBien('ancienne_gestion', { arbre: 'locative', branche: 'Actifs' })).toEqual({ etat: 'ok' });
   });
 
   it('le rangement : déplacements des N5 mal placés, biens sans dossier listés, les autres comptés', () => {
     const b = (lotId: number, statut: BienARanger['statut'], n5: BienARanger['n5']): BienARanger => ({ lotId, statut, n5, n5DriveId: n5 === null ? null : `N5-${lotId}`, titre: `bien ${lotId}` });
     const p = planRangement([b(1, 'en_gestion', { arbre: 'locative', branche: 'Actifs' }), b(2, 'location_seule', { arbre: 'locative', branche: 'Actifs' }),
-      b(3, 'ancienne_gestion', { arbre: 'location_seule', branche: null }), b(4, 'location_seule', null)]);
+      { ...b(3, 'ancienne_gestion', { arbre: 'location_seule', branche: null }), archive: true }, b(4, 'location_seule', null)]);
     expect(p.enPlace).toBe(1);
     expect(p.deplacements.map((d) => [d.lotId, d.n5DriveId, libellePlace(d.vers)])).toEqual([[2, 'N5-2', 'Base de données location seule'], [3, 'N5-3', 'Base de données locative › Inactifs']]);
     expect(p.sansDossier.map((x) => x.lotId)).toEqual([4]);

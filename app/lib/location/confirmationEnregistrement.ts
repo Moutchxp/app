@@ -69,6 +69,7 @@ const LIBELLES: Record<string, Libelle> = {
   'corriger-bareme': L('Barème corrigé', 'La correction du barème n’a pas été enregistrée.'),
   tva: L('Taux de TVA enregistré', 'Le taux de TVA n’a pas été enregistré.'),
   destinataires: L('Destinataires enregistrés', 'Les destinataires n’ont pas été enregistrés.'),
+  'archivage-delai': L('Délai d’archivage enregistré', 'Le délai d’archivage n’a pas été enregistré.'),
 };
 
 const SUJET: Record<string, string> = { proprietaire: 'Propriétaire', locataire: 'Locataire', bien: 'Bien' };

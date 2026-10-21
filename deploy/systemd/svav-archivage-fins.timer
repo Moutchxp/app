@@ -1,0 +1,13 @@
+# Arno (21/10/2026, migration 405) : une passe par jour à 05 h 15, APRÈS la sauvegarde de 03 h 30 et la maintenance de 04 h 30,
+# heure du SERVEUR (réglé sur Europe/Paris). Persistent=true : une passe manquée (serveur éteint) est rattrapée au démarrage.
+# Installé par installer.sh, jamais activé par lui.
+[Unit]
+Description=Sans Vis-à-Vis — archivage automatique des fins de gestion chaque jour à 05 h 15
+
+[Timer]
+OnCalendar=*-*-* 05:15:00
+Persistent=true
+Unit=svav-archivage-fins.service
+
+[Install]
+WantedBy=timers.target

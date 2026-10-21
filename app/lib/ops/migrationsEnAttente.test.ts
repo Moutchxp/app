@@ -92,6 +92,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
   // 402 : honoraires propriétaire saisis à la main (marque « saisi à la main ») (Location, 21/10/2026).
   // 403 : le statut du bien — en gestion / ancienne gestion / location seule — et le journal de ses transitions (Gestion / Location, 21/10/2026).
   // 404 : l'arbre « Base de données location seule » du Drive (arbre de chaque nœud, racine inscrite) (Gestion / Location, 21/10/2026).
+  // 405 : la fin de gestion en deux temps — marque d'archivage, réglages datés de la Location (délai d'archivage) (Gestion, 21/10/2026).
   const A_VENIR = ['363_admin_invitation.sql', '364_internaute_residence.sql', '365_gestion_tache_invite.sql', '366_gestion_tache_evenement.sql',
     '367_gestion_tache_evenement_reprise.sql', '368_gestion_tache_sans_bien.sql', '369_gestion_annuaire_rapprochement.sql',
     '370_gestion_honoraires_gestion.sql', '371_location_droit.sql', '372_location_biens_annexes.sql',
@@ -105,7 +106,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     '394_location_bail_drive.sql', '395_location_mail_nouvelle_location.sql', '396_gestion_immeuble_digicode.sql', '397_location_mandat_date_signature.sql', '398_location_mail_message.sql',
     '399_gestion_immeuble_digicode_batiment.sql', '400_location_charges_copro.sql',
     '401_location_id_fiscal.sql', '402_location_honoraires_saisis.sql', '403_gestion_statut_bien.sql',
-    '404_gestion_drive_arbre_location_seule.sql'];
+    '404_gestion_drive_arbre_location_seule.sql', '405_gestion_fin_de_gestion_archivage.sql'];
   const registre = existants.filter((f) => !A_VENIR.includes(f.fichier)).map((f) => ({
     fichier: f.fichier, sha256: analyserMigration(f).sha256, origine: ECARTEES.includes(f.fichier) ? 'ecartee' : 'amorcage',
   }));
@@ -118,7 +119,7 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(existsSync(path.join(process.cwd(), MIGRATIONS, '361_permis_emprise_numero_reveil.sql'))).toBe(false);
   });
 
-  it('363 à 404 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
+  it('363 à 405 sont les seules nouvelles, sans refus ; 362 appliquée : 216 n’est plus rappelée, 212 et 262 le restent', () => {
     const plan = planifier(existants, registre);
     expect(plan.refus).toEqual([]);
     expect(plan.nouvelles.map((n) => n.fichier)).toEqual(A_VENIR);
@@ -128,14 +129,14 @@ describe('rangement : 362 appliquée en prod, 363 (invitations), 364 (résidence
     expect(avert).toMatch(/262_gestion_piece_classement\.sql : écartée/);
   });
 
-  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (405)', () => {
+  it('la 361 déplacée telle quelle serait REFUSÉE (sous la dernière appliquée) : elle devra prendre un numéro au-dessus (406)', () => {
     const apresMaj = inscrire(A_VENIR);
     const contenu361 = lire(ATTENTE, '361_permis_emprise_numero_reveil.sql');
     const telleQuelle = planifier([...existants, { fichier: '361_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
-    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(404\)/);
-    const renumerotee = planifier([...existants, { fichier: '405_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
+    expect(telleQuelle.refus.join('\n')).toMatch(/361_permis_emprise_numero_reveil\.sql : numérotée sous la dernière migration appliquée \(405\)/);
+    const renumerotee = planifier([...existants, { fichier: '406_permis_emprise_numero_reveil.sql', contenu: contenu361 }], apresMaj);
     expect(renumerotee.refus).toEqual([]);
-    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['405_permis_emprise_numero_reveil.sql']);
+    expect(renumerotee.nouvelles.map((n) => n.fichier)).toEqual(['406_permis_emprise_numero_reveil.sql']);
   });
 });
 
@@ -861,5 +862,24 @@ describe('404 (l’arbre « Base de données location seule » du Drive) : une s
     expect(contenu).not.toMatch(/DROP (TABLE|COLUMN|FUNCTION)/i);
     // Le verrou du registre garde tout, sauf le parent, la branche et l'arbre (un déplacement garde l'identifiant).
     expect(contenu).toMatch(/seuls le parent, la branche et l''arbre changent/);
+  });
+});
+
+describe('405 (fin de gestion en deux temps, archivage automatique) : une seule migration, non appliquée, rejouable', () => {
+  const contenu = lire(MIGRATIONS, '405_gestion_fin_de_gestion_archivage.sql');
+  const a = analyserMigration({ fichier: '405_gestion_fin_de_gestion_archivage.sql', contenu });
+  it('passe le garde, enveloppée ; la marque d’archivage (vide) ; les réglages en ajout seul ; aucune ligne modifiée ni supprimée', () => {
+    expect(a.refus).toEqual([]);
+    expect(a.mode).toBe('enveloppee');
+    expect([...a.tablesCreees]).toEqual(['gestion_location_reglage']);
+    expect(contenu).toMatch(/ADD COLUMN IF NOT EXISTS statut_archive_le timestamptz;/);
+    expect(contenu).toMatch(/CHECK \(statut_archive_le IS NULL OR statut_bien = 'ancienne_gestion'\)/);
+    expect(contenu).toMatch(/BEFORE UPDATE OR DELETE ON gestion_location_reglage\s+FOR EACH ROW EXECUTE FUNCTION gestion_ajout_seul_refuser\(\)/);
+    // Hors des corps de déclencheurs (qui écrivent au fil des gestes futurs), la migration n'écrit AUCUNE ligne.
+    expect(contenu.replace(/\$\$[\s\S]*?\$\$/g, '')).not.toMatch(/^\s*(DELETE|TRUNCATE|UPDATE|INSERT)\b/im);
+    expect(contenu).not.toMatch(/DROP (TABLE|COLUMN|FUNCTION)/i);
+    // Un statut neuf repart sans archivage ; les annexes rattachées suivent l'archivage.
+    expect(contenu).toContain('NEW.statut_archive_le := NULL;');
+    expect(contenu).toContain('statut_archive_le = NEW.statut_archive_le WHERE id = a.id');
   });
 });

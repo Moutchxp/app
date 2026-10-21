@@ -7,6 +7,8 @@ import { porteLeNomProtege } from '../gestion/driveGardeFou';
 import { jetonAccesGestion, type EtatGoogle } from '../gestion/jetonAcces';
 import { renommerFichierDrive } from '../gestion/renommageDrive';
 import { colonneExisteMemo } from './sondeLocation';
+import { dossiersAnnuelsActifs } from '../gestion/finGestion';
+import { sqlStatutBien } from '../gestion/statutBienRepo';
 import { cleLocatairesDuBien, nomDossierBail, planBrancheBail, type CreationBail } from './brancheBailDrive';
 
 /**
@@ -158,6 +160,8 @@ export async function creerBrancheBail(bailId: number, auteur: string, deps: Dep
   const plan = planBrancheBail({
     bailId, annee, entree, nomN7, proprietaire: { id: proprietaireId, nom: l.proprietaire_nom ?? `Propriétaire ${proprietaireId}` },
     bien: { teteId, nom: nomBienArbo(lotArbo, []) }, adresse: { cle: cleN4, nom: nomN4 }, n2: n2[0]?.d ?? null, existants,
+    // Arno (21/10/2026, 405) : plus de dossiers annuels pour un bien en ancienne gestion (dès la date de fin).
+    annuels: dossiersAnnuelsActifs((await query<{ s: string }>(`SELECT ${await sqlStatutBien('lo')} AS s FROM gestion_annuaire_lot lo WHERE lo.id = $1`, [teteId])).rows[0]?.s as never),
   });
   if (!plan.ok) return { ok: false, motif: plan.motif };
 

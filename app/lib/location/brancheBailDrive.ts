@@ -58,6 +58,8 @@ export interface EntreePlanBail {
   n2: string | null;
   /** Les dossiers DÉJÀ enregistrés, par clé (N3 → N10) : ils ne sont jamais recréés. */
   existants: ReadonlyMap<string, string>;
+  /** Arno (21/10/2026, 405) : les dossiers ANNUELS (N8 / N10 de l'année) — pas pour un bien en ancienne gestion. Défaut : oui. */
+  annuels?: boolean;
 }
 
 /**
@@ -97,7 +99,7 @@ export function planBrancheBail(e: EntreePlanBail): { ok: true; creations: Creat
         poser({ cle: `r:${t}:${i}`, sorte: 'rubrique', niveau: 6, nom, lotId: t, ...sans, parentCle: cleN5 });
         if (i === 1) SOUS_PROPRIETAIRE.forEach((s, k) => {
           poser({ cle: `pr:${t}:${k}`, sorte: 'sous_rubrique', niveau: 7, nom: s, lotId: t, ...sans, parentCle: `r:${t}:1` });
-          poser({ cle: `y:pr:${t}:${k}:${e.annee}`, sorte: 'annee', niveau: 8, nom: String(e.annee), lotId: t, ...sans, annee: e.annee, parentCle: `pr:${t}:${k}` });
+          if (e.annuels !== false) poser({ cle: `y:pr:${t}:${k}:${e.annee}`, sorte: 'annee', niveau: 8, nom: String(e.annee), lotId: t, ...sans, annee: e.annee, parentCle: `pr:${t}:${k}` });
         });
       });
     }
@@ -113,7 +115,7 @@ export function planBrancheBail(e: EntreePlanBail): { ok: true; creations: Creat
     const s9 = SOUS_PIECES_BAIL[k];
     if (s9 === undefined) return;
     poser({ cle: `${b}:${k}:s`, sorte: 'sous_piece_bail', niveau: 9, nom: s9, ...duBail, parentCle: `${b}:${k}` });
-    poser({ cle: `y:${b}:${k}:s:${e.annee}`, sorte: 'annee', niveau: 10, nom: String(e.annee), ...duBail, annee: e.annee, parentCle: `${b}:${k}:s` });
+    if (e.annuels !== false) poser({ cle: `y:${b}:${k}:s:${e.annee}`, sorte: 'annee', niveau: 10, nom: String(e.annee), ...duBail, annee: e.annee, parentCle: `${b}:${k}:s` });
   });
   return { ok: true, creations: out };
 }

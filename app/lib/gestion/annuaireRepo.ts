@@ -19,7 +19,7 @@
  * compare aux mêmes lignes en base, et compte — sans un seul INSERT.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-import { sqlStatutBien, statutBienDisponible } from './statutBienRepo';
+import { sqlArchiveBien, sqlStatutBien, statutBienDisponible } from './statutBienRepo';
 import { dossiersDuProprietaire } from './arbreStatutDriveRepo';
 import type { StatutBien } from './statutBien';
 import { query, withTransaction, type RequeteTx } from '../db/client';
@@ -1028,7 +1028,8 @@ async function sqlFinAffichee(alias: string): Promise<string> {
  * prennent JAMAIS : un bien qui n'est plus en gestion reste proposé pour ses mails.
  */
 async function sqlPasLocationSeule(alias: string): Promise<string> {
-  return `(${await sqlStatutBien(alias)} <> 'location_seule')`;
+  /* Arno (21/10/2026, 405) : un bien en ancienne gestion ARCHIVÉE disparaît aussi de la Gestion (la « Gestion terminée » y reste). */
+  return `(${await sqlStatutBien(alias)} <> 'location_seule' AND ${await sqlArchiveBien(alias)} IS NULL)`;
 }
 
 /** Les options d'une lecture de l'annuaire : `horsLocationSeule` = vue de la GESTION (les biens en location seule écartés). */
@@ -1092,6 +1093,8 @@ export interface BienDuProprietaire {
   rattachementRefus?: string | null;
   /** Arno (21/10/2026, 403) — le STATUT du bien (en gestion / ancienne gestion / location seule) : la pastille, les rangements. */
   statut?: StatutBien;
+  /** Arno (21/10/2026, 405) — la date d'effet du statut (la date de FIN d'une ancienne gestion) et son archivage. */
+  finStatut?: string | null; archiveLe?: string | null;
 }
 
 export interface FicheProprietaire {
@@ -1192,6 +1195,8 @@ export interface FicheLot {
   debut: string | null; fin: string | null; absent: boolean;
   /** « Bien en gestion ? » = Non (migration 390) : l'étiquette « Hors gestion » de l'en-tête, rien d'autre. */
   horsGestion?: boolean;
+  /** Arno (21/10/2026, 403-405) — le statut du bien, sa date d'effet (la date de FIN pour une ancienne gestion) et son archivage. */
+  statut?: StatutBien; finStatut?: string | null; archiveLe?: string | null;
   /** 🔴 TOUJOURS `null` : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
   surfaceM2: number | null;
   /**
@@ -1267,6 +1272,8 @@ export interface LogementDuLocataire {
   /** 🔴 TOUJOURS `null` : aucune colonne de surface n'existe. L'écran écrit « non renseignée ». */
   surfaceM2: number | null;
   entree: string | null; sortie: string | null; encours: boolean; horsGestion: boolean;
+  /** Arno (21/10/2026, 403-405) — le statut du bien, sa date d'effet (la date de FIN pour une ancienne gestion) et son archivage. */
+  statut?: StatutBien; finStatut?: string | null; archiveLe?: string | null;
   proprietaireId: number | null; proprietaireNom: string | null;
   /** Combien de mails sont rattachés à ce bien (rattachements CONFIRMÉS), et le dernier. */
   mails: number; dernierEchange: string | null;
@@ -1845,7 +1852,7 @@ async function compterLocationSeule(proprietaireId: number): Promise<number> {
       WHERE (lo.proprietaire_id = $1${avecIndivision ? `
          OR EXISTS (SELECT 1 FROM gestion_annuaire_lot_proprietaire lp WHERE lp.lot_id = lo.id AND lp.proprietaire_id = $1
                      AND (lp.jusqu_a IS NULL OR lp.jusqu_a >= ${SQL_JOUR_INDIVISION}))` : ''})
-        AND NOT ${await sqlPasLocationSeule('lo')}`, [proprietaireId]);
+        AND ${await sqlStatutBien('lo')} = 'location_seule'`, [proprietaireId]);
   return rows[0]?.n ?? 0;
 }
 
@@ -1868,7 +1875,7 @@ async function biensDuProprietaire(proprietaireId: number, vue: VueAnnuaire = {}
     immeuble: string | null;
     locataire: string | null; locataire_id: string | null; locataire_depuis: string | null;
     mails: number; dernier_echange: string | null; evenements: number; dossier_bien?: string | null; dossier_proprietaire?: string | null;
-    hors_gestion: boolean; indivision: string[] | null; statut: string;
+    hors_gestion: boolean; indivision: string[] | null; statut: string; fin_statut: string | null; archive: string | null;
     categorie: string | null; nombre_pieces: number | null; etage_saisi: string | null; porte_saisie: string | null; num_lot_copro: string | null;
     detachee_le: string | null; titulaire_id: string | null;
     annexe_de: string | null; annexe_de_adresse: string | null; annexe_de_categorie: string | null; annexes: string[] | null;
@@ -1884,6 +1891,7 @@ async function biensDuProprietaire(proprietaireId: number, vue: VueAnnuaire = {}
             lo.id, lo.wippimmo_id, lo.adresse, lo.commune, lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             lo.gestion_debut::text, (${finAffichee})::text AS gestion_fin, ${await sqlHorsGestion('lo')} AS hors_gestion,
             ${await sqlStatutBien('lo')} AS statut,
+            ${(await statutBienDisponible()) ? 'lo.statut_bien_depuis::text' : 'NULL::text'} AS fin_statut, (${await sqlArchiveBien('lo')})::text AS archive,
             ${avecIndivision ? sqlCoproprietairesActifs('lo', '$1', await sqlPersonneVivante('px')) : 'NULL::text[]'} AS indivision,
             oc.nom AS locataire, oc.locataire_id::text AS locataire_id, en.entree::text AS locataire_depuis,
             coalesce(ma.n, 0)::int AS mails,
@@ -1969,7 +1977,7 @@ async function biensDuProprietaire(proprietaireId: number, vue: VueAnnuaire = {}
     annexes: l.annexes ?? [],
     porte: l.porte_saisie, numLotCopro: l.num_lot_copro,
     detachee: l.detachee_le !== null, detacheeLe: l.detachee_le, titulaireId: l.titulaire_id === null ? null : Number(l.titulaire_id),
-    statut: l.statut as StatutBien,
+    statut: l.statut as StatutBien, finStatut: l.fin_statut, archiveLe: l.archive,
   }));
 }
 
@@ -2007,11 +2015,12 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
     adresse: string | null; commune: string | null; code_postal: string | null; gestion_debut: string | null;
     gestion_fin: string | null; absent_le: string | null; proprietaire_id: string | null;
     proprietaire_cle: string | null; proprietaire_nom: string; dossier_bien?: string | null; dossier_proprietaire?: string | null;
-    hors_gestion: boolean;
+    hors_gestion: boolean; statut: string; fin_statut: string | null; archive: string | null;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.nature, lo.type_bien, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
             lo.gestion_debut::text, (${await sqlFinAffichee('lo')})::text AS gestion_fin, lo.absent_le::text,
-            ${await sqlHorsGestion('lo')} AS hors_gestion,
+            ${await sqlHorsGestion('lo')} AS hors_gestion, ${await sqlStatutBien('lo')} AS statut,
+            ${(await statutBienDisponible()) ? 'lo.statut_bien_depuis::text' : 'NULL::text'} AS fin_statut, (${await sqlArchiveBien('lo')})::text AS archive,
             pr.id::text AS proprietaire_id, pr.wippimmo_id AS proprietaire_cle,
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
             ${await sqlDossiersDuBien('lo')}
@@ -2076,6 +2085,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       id: Number(l.id), numero: l.wippimmo_id, nature: l.nature, typeBien: l.type_bien, immeuble: l.immeuble,
       adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
       debut: l.gestion_debut, fin: l.gestion_fin, absent: l.absent_le !== null, horsGestion: l.hors_gestion === true,
+      statut: l.statut as StatutBien, finStatut: l.fin_statut, archiveLe: l.archive,
       surfaceM2: null,
       ...champsDossierDuBien(l, await racineDrive()),
       proprietaireId: l.proprietaire_id === null ? null : Number(l.proprietaire_id),
@@ -2147,9 +2157,12 @@ export async function ficheLocataire(id: number, vue: VueAnnuaire = {}): Promise
     entree: string | null; sortie: string | null;
     proprietaire_id: string | null; proprietaire_nom: string | null;
     mails: number; dernier_echange: string | null; dossier_bien?: string | null; dossier_proprietaire?: string | null; statut: string | null;
+    archive: string | null; fin_statut: string | null;
   }>(
     `SELECT o.lot_id::text, coalesce(lo.wippimmo_id, o.lot_wippimmo_id) AS numero, lo.adresse, lo.commune,
             CASE WHEN lo.id IS NULL THEN NULL ELSE ${await sqlStatutBien('lo')} END AS statut,
+            (${await sqlArchiveBien('lo')})::text AS archive,
+            ${(await statutBienDisponible()) ? 'lo.statut_bien_depuis::text' : 'NULL::text'} AS fin_statut,
             lo.code_postal, lo.nature, lo.type_bien, lo.immeuble,
             o.entree::text, o.sortie::text,
             pr.id::text AS proprietaire_id, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
@@ -2171,8 +2184,10 @@ export async function ficheLocataire(id: number, vue: VueAnnuaire = {}): Promise
   /* Arno (21/10/2026) — vue de la GESTION : les occupations sur des biens en LOCATION SEULE ne s'y montrent pas (elles sont dans
      la Location). Un locataire dont TOUTES les occupations en cours sont en location seule y est signalé comme tel. */
   const enCoursToutes = occTous.filter((o) => estLocataireEnPlace(o));
-  const locationSeuleSeulement = vue.horsLocationSeule === true && enCoursToutes.length > 0 && enCoursToutes.every((o) => o.statut === 'location_seule');
-  const occ = vue.horsLocationSeule === true ? occTous.filter((o) => o.statut !== 'location_seule') : occTous;
+  // 405 : une occupation sur un bien ARCHIVÉ n'est plus de la Gestion non plus.
+  const horsGestion = (o: { statut: string | null; archive: string | null }): boolean => o.statut === 'location_seule' || o.archive !== null;
+  const locationSeuleSeulement = vue.horsLocationSeule === true && enCoursToutes.length > 0 && enCoursToutes.every(horsGestion);
+  const occ = vue.horsLocationSeule === true ? occTous.filter((o) => !horsGestion(o)) : occTous;
 
   /**
    * ══ 🔴🔴 TOUS LES OCCUPANTS DU MÊME LOGEMENT — LA RÈGLE D'ARNO ═════════════════════════════════════════════
@@ -2211,6 +2226,7 @@ export async function ficheLocataire(id: number, vue: VueAnnuaire = {}): Promise
         numero: o.numero, adresse: o.adresse, commune: o.commune, codePostal: o.code_postal,
         nature: o.nature, typeBien: o.type_bien, immeuble: o.immeuble, surfaceM2: null,
         entree: o.entree, sortie: o.sortie, encours: estLocataireEnPlace(o), horsGestion: o.lot_id === null,
+        ...(o.statut !== null ? { statut: o.statut as StatutBien, finStatut: o.fin_statut, archiveLe: o.archive } : {}),
         proprietaireId: o.proprietaire_id === null ? null : Number(o.proprietaire_id),
         proprietaireNom: o.proprietaire_nom,
         mails: o.mails, dernierEchange: o.dernier_echange, ...champsDossierDuBien(o, racineLogements),

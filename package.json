@@ -105,6 +105,7 @@
     "gestion:rattachements:reprise": "tsx app/scripts/rattacher-contacts-baux.ts",
     "gestion:drive:construire": "tsx app/scripts/construire-arbre-drive.ts",
     "gestion:drive:ranger-statuts": "tsx app/scripts/ranger-dossiers-statut.ts",
+    "gestion:archiver-fins": "tsx app/scripts/archiver-fins-gestion.ts",
     "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",
     "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts",
     "gestion:drive:copier-pieces": "tsx app/scripts/copier-pieces-drive.ts",

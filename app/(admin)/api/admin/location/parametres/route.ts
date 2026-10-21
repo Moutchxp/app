@@ -1,4 +1,5 @@
 import 'server-only';
+import { enregistrerDelaiArchivage } from '../../../../../lib/gestion/finGestionRepo';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
@@ -40,6 +41,8 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ etat: 'refus', motif: 'Demande illisible.' }, { status: 400, headers: ENTETES });
   }
   try {
+    // Arno (21/10/2026, 405) — « Archivage des fins de gestion » : le délai en mois (vaut pour les biens pas encore archivés).
+    if (corps.action === 'archivage-delai') return Response.json(await enregistrerDelaiArchivage(corps.mois, auteur), { headers: ENTETES });
     if (corps.action === 'destinataires') return Response.json(await enregistrerDestinataires(corps.liste, auteur), { headers: ENTETES });
     if (corps.action === 'bareme') return Response.json(await ajouterVersionBareme(corps, auteur), { headers: ENTETES });
     if (corps.action === 'corriger-bareme') {

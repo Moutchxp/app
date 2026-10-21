@@ -6,6 +6,7 @@ import {
   aujourdhuiParis, LIBELLE_DESTINATION, LIBELLE_STATUT, mandatPropose, TEINTE_STATUT, type GesteStatut, type StatutBien,
 } from '../../../../lib/gestion/statutBien';
 import { LIBELLE_MANDAT, type Mandat } from '../../../../lib/location/mandatBien';
+import { texteBandeauGestionTerminee } from '../../../../lib/gestion/finGestion';
 
 /**
  * ══ 🔴🔴 LE STATUT DU BIEN SUR SA FICHE — EN GESTION · ANCIENNE GESTION · LOCATION SEULE (Arno, 21/10/2026, migration 403) ══════
@@ -20,6 +21,7 @@ import { LIBELLE_MANDAT, type Mandat } from '../../../../lib/location/mandatBien
 const API = '/api/admin/gestion/annuaire/location';
 
 interface LectureStatut {
+  archiveLe?: string | null;
   disponible: boolean;
   lotId: number;
   statut: StatutBien;
@@ -31,13 +33,26 @@ interface LectureStatut {
 const dateFr = (iso: string): string => iso.slice(0, 10).split('-').reverse().join('/');
 
 /**
+ * Arno (21/10/2026, 405) — LE BANDEAU GRIS d'un bien en « Gestion terminée », en tête de sa carte et de sa fiche :
+ * « Gestion terminée le jj/mm/aaaa — plus en gestion active ».
+ */
+export function BandeauGestionTerminee({ fin }: { fin: string | null | undefined }) {
+  return <p className="sdb-bandeau-fin" role="note" data-gestion-terminee>{texteBandeauGestionTerminee(fin ?? null)}</p>;
+}
+
+/** Un bien en « Gestion terminée » (ancienne gestion pas encore archivée) ? */
+export const enGestionTerminee = (b: { statut?: StatutBien; archiveLe?: string | null }): boolean => b.statut === 'ancienne_gestion' && (b.archiveLe ?? null) === null;
+
+/**
  * La pastille du statut : vert (en gestion), bleu (location seule), gris (ancienne gestion). Son style (`CSS_PASTILLE_STATUT`) est posé
  * UNE fois par l'écran hôte — jamais un <style> par pastille.
  */
-export function PastilleStatut({ statut, petite = false }: { statut: StatutBien; petite?: boolean }) {
+export function PastilleStatut({ statut, petite = false, archive }: { statut: StatutBien; petite?: boolean;
+  /** Ancienne gestion : `false` = pas encore archivée → « Gestion terminée » (405) ; sinon « Ancienne gestion ». */
+  archive?: boolean }) {
   return (
     <span className={`sdb-pastille sdb-pastille--${TEINTE_STATUT[statut]}${petite ? ' sdb-pastille--petite' : ''}`} data-statut-bien={statut}>
-      {LIBELLE_STATUT[statut]}
+      {statut === 'ancienne_gestion' && archive === false ? 'Gestion terminée' : LIBELLE_STATUT[statut]}
     </span>
   );
 }
@@ -70,8 +85,9 @@ export function StatutDuBien({ lotId, modifiable, onChange, onOuvrir }: {
       <style>{CSS_PASTILLE_STATUT + CSS_STATUT_DU_BIEN}</style>
       <div className="sdb-ligne">
         <span className="sdb-mot">Statut du bien</span>
-        <PastilleStatut statut={lu.statut} />
+        <PastilleStatut statut={lu.statut} archive={lu.archiveLe === undefined ? undefined : lu.archiveLe !== null} />
         {lu.depuis !== null && <span className="sdb-depuis">depuis le {dateFr(lu.depuis)}</span>}
+        {lu.statut === 'ancienne_gestion' && lu.archiveLe && <span className="sdb-depuis">· archivé le {dateFr(lu.archiveLe)}</span>}
       </div>
       {lu.suitLot !== null && (
         <p className="sdb-suit" data-statut-suit={lu.suitLot.id}>
@@ -251,7 +267,7 @@ export function HistoriqueStatut({ lotId }: { lotId: number }) {
     return () => { vivant = false; };
   }, [lotId]);
   if (lignes === null || lignes.length === 0) return null;
-  const SOURCE: Record<string, string> = { reprise: 'reprise', creation: 'création', geste: '', annexe: 'suit son bien principal', auto: 'automatique' };
+  const SOURCE: Record<string, string> = { reprise: 'reprise', creation: 'création', geste: '', annexe: 'suit son bien principal', auto: 'automatique', archivage: 'archivage automatique' };
   return (
     <section className="hdb-groupe hdb-groupe--bande" data-historique-statut>
       <style>{CSS_PASTILLE_STATUT + CSS_STATUT_DU_BIEN}</style>
@@ -267,7 +283,9 @@ export function HistoriqueStatut({ lotId }: { lotId: number }) {
           {lignes.map((l) => (
             <li key={l.id} data-transition-statut={l.id}>
               <span className="sdb-histo-date">au {dateFr(l.effetLe)}</span>
-              <span>{l.avant !== null && <><PastilleStatut statut={l.avant} petite /> → </>}<PastilleStatut statut={l.apres} petite /></span>
+              {l.source === 'archivage'
+                ? <span><PastilleStatut statut="ancienne_gestion" petite archive={false} /> → <PastilleStatut statut="ancienne_gestion" petite archive /></span>
+                : <span>{l.avant !== null && <><PastilleStatut statut={l.avant} petite /> → </>}<PastilleStatut statut={l.apres} petite /></span>}
               {SOURCE[l.source] ? <span className="sdb-muet">{SOURCE[l.source]}{l.viaLotId !== null ? ` (bien ${l.viaLotId})` : ''}</span> : null}
               {l.motif && <span className="sdb-muet">{l.motif}</span>}
               {l.mandat && <span className="sdb-muet">{l.mandat}</span>}
@@ -282,6 +300,7 @@ export function HistoriqueStatut({ lotId }: { lotId: number }) {
 
 /** AUCUN ACCENT GRAVE DANS CE LITTERAL. Jetons du theme seulement. */
 export const CSS_PASTILLE_STATUT = `
+.sdb-bandeau-fin{margin:0 0 8px;padding:8px 12px;border-radius:10px;background:var(--color-svv-field);color:var(--color-svv-muted);border:1px solid var(--color-svv-line-strong);font-weight:700;overflow-wrap:anywhere}
 .sdb-pastille{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 10px;font-weight:800;font-size:.82rem;line-height:1.3;border:1px solid transparent;white-space:nowrap}
 .sdb-pastille--petite{padding:1px 8px;font-size:.74rem}
 .sdb-pastille--vert{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink)}

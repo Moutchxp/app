@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), back: vi.fn() }) }));
 import { Annuaire } from './Annuaire';
@@ -91,5 +92,30 @@ describe('🔴 la fiche propriétaire selon le statut des biens', () => {
     expect(hote.querySelector('section[aria-labelledby="ann-biens"] li.ann-carte')?.textContent).toContain('En gestion depuis');
     const repli = [...hote.querySelectorAll('button.ann-repli')].find((b) => b.textContent?.includes('Anciens biens'))!;
     expect(repli.querySelector('.gst-compte')?.textContent).toBe('1');
+  });
+
+  it('🔴 405 — « Gestion terminée » : bandeau gris en tête de carte, pastille « Gestion terminée », hors « Biens en gestion » ; archivé : pastille « Ancienne gestion »', async () => {
+    fiche = { biens: [bien(1, { statut: 'en_gestion' }), bien(3, { statut: 'ancienne_gestion', fin: '2026-10-21', finStatut: '2026-10-21', archiveLe: null }),
+      bien(4, { statut: 'ancienne_gestion', fin: '2024-01-10', finStatut: '2024-01-10', archiveLe: '2026-01-10 05:15:00+01' })] };
+    await monter();
+    expect(refs('section[aria-labelledby="ann-biens"]')).toEqual(['Réf. Wippimmo 1']);
+    expect(hote.querySelector('section[aria-labelledby="ann-biens"] .gst-compte')?.textContent).toBe('1');
+    const repli = [...hote.querySelectorAll('button.ann-repli')].find((b) => b.textContent?.includes('Anciens biens'))!;
+    await act(async () => { (repli as HTMLElement).click(); });
+    await calmer();
+    const carte = (n: number) => [...hote.querySelectorAll('li.ann-carte')].find((c) => c.querySelector('.ann-carte-ref')?.textContent === `Réf. Wippimmo ${n}`)!;
+    expect(carte(3).firstElementChild?.getAttribute('data-gestion-terminee')).not.toBeNull();
+    expect(carte(3).querySelector('[data-gestion-terminee]')?.textContent).toBe('Gestion terminée le 21/10/2026 — plus en gestion active');
+    expect(carte(3).querySelector('[data-statut-bien]')?.textContent).toBe('Gestion terminée');
+    expect(carte(4).querySelector('[data-gestion-terminee]')).toBeNull();
+    expect(carte(4).querySelector('[data-statut-bien]')?.textContent).toBe('Ancienne gestion');
+    expect(carte(1).querySelector('[data-gestion-terminee]')).toBeNull();
+  });
+
+  it('🔴 405 — fiche du bien : bandeau en tête (après la bande d’événement), plus de « + Tâche » pour un bien qui n’est plus en gestion active', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/Annuaire.tsx', 'utf8');
+    expect(src).toMatch(/\{f\.statut !== 'ancienne_gestion' && \(\s*<BoutonTache lotId=\{Number\(f\.id\)\}/);
+    expect(src).toMatch(/<CartoucheEvenement nb=\{f\.evenementsOuverts\}[\s\S]{0,400}\{enGestionTerminee\(f\) && <><style>\{CSS_PASTILLE_STATUT\}<\/style><BandeauGestionTerminee fin=\{f\.finStatut\} \/><\/>\}/);
+    expect(src).toMatch(/\{enGestionTerminee\(o\) && <><style>\{CSS_PASTILLE_STATUT\}<\/style><BandeauGestionTerminee fin=\{o\.finStatut\} \/><\/>\}/);
   });
 });

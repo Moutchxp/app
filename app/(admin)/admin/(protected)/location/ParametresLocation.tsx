@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { DELAI_MAX_MOIS, DELAI_MIN_MOIS, dureeMois, verifierDelai } from '../../../../lib/gestion/finGestion';
 import { usePathname } from 'next/navigation';
 import { verifierDestinataires, type Destinataire } from '../../../../lib/location/mailNouvelleLocation';
 import { refusVersionBareme, type VersionBareme } from '../../../../lib/location/honorairesProprietaire';
@@ -23,10 +24,11 @@ const API = '/api/admin/location/parametres';
 export const ACCUEIL_LOCATION = '/admin/location';
 
 interface Parametres {
+  archivage?: { mois: number; disponible: boolean };
   destinataires: Destinataire[]; destinatairesSaisis: { le: string; par: string } | null;
   versions: VersionBareme[]; aujourdhui: string; manquantes: string[];
 }
-type Onglet = 'destinataires' | 'baremes';
+type Onglet = 'destinataires' | 'baremes' | 'archivage';
 interface SaisieBareme { depuis: string; tresTendue: string; tendue: string; autre: string; etatDesLieux: string; source: string }
 
 const dateFr = (iso: string | null | undefined): string => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
@@ -63,6 +65,8 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
   const [motif, setMotif] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [envoi, setEnvoi] = useState(false);
+  /** Arno (21/10/2026, 405) — le délai d'archivage saisi (mois). */
+  const [delai, setDelai] = useState('24');
   const fermerRef = useRef<HTMLButtonElement | null>(null);
 
   const depuisVersion = (v: VersionBareme | undefined, jour: string): SaisieBareme => ({
@@ -75,6 +79,7 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
       if (!vivant) return;
       if (d.etat !== 'ok' || d.data === undefined) { setLecture(d.message ?? 'Lecture impossible.'); return; }
       setLu(d.data);
+      if (d.data.archivage) setDelai(String(d.data.archivage.mois));
       setListe(d.data.destinataires.map((x) => ({ ...x, cle: ++compteur })));
       // Pré-rempli avec les valeurs de la version EN VIGUEUR aujourd'hui (la plus récente qui a commencé), à la date du jour.
       const enVigueur = d.data.versions.find((v) => v.depuis <= d.data!.aujourdhui) ?? d.data.versions[0];
@@ -114,6 +119,12 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
     }
   };
   const enregistrer = async (): Promise<void> => {
+    if (onglet === 'archivage') {
+      const v = verifierDelai(delai);
+      if (!v.ok) { setMotif(v.motif); return; }
+      await poster({ action: 'archivage-delai', mois: v.mois }, `Délai d’archivage enregistré : ${dureeMois(v.mois)} après la fin de gestion.`);
+      return;
+    }
     if (onglet === 'destinataires') {
       const v = verifierDestinataires(liste.map((x) => ({ adresse: x.adresse, libelle: x.libelle })));
       if (!v.ok) { setMotif(v.motif); return; }
@@ -146,7 +157,7 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
           <button ref={fermerRef} type="button" className="plo-x" aria-label="Fermer" onClick={fermer}>×</button>
         </header>
         <div className="plo-onglets" role="tablist" aria-label="Paramètres">
-          {([['destinataires', 'Destinataires du mail'], ['baremes', 'Barèmes d’honoraires']] as const).map(([k, mot]) => (
+          {([['destinataires', 'Destinataires du mail'], ['baremes', 'Barèmes d’honoraires'], ['archivage', 'Archivage des fins de gestion']] as const).map(([k, mot]) => (
             <button key={k} type="button" role="tab" aria-selected={onglet === k} className="plo-onglet" data-onglet={k}
               onClick={() => { setOnglet(k); setMotif(null); setInfo(null); }}>{mot}</button>
           ))}
@@ -156,7 +167,16 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
             <>
               {lu.manquantes.length > 0 && <p className="plo-alerte" role="status" data-parametres-sans-migration>Mise à jour de la base à appliquer (migration {lu.manquantes.join(', ')}) :
                 la configuration se lit, mais rien ne s’enregistre tant qu’elle n’est pas appliquée.</p>}
-              {onglet === 'destinataires' ? (
+              {onglet === 'archivage' ? (
+                <section data-onglet-archivage>
+                  <label className="plo-champ" data-champ-archivage>Archivage des fins de gestion (mois après la date de fin)
+                    <input type="number" min={DELAI_MIN_MOIS} max={DELAI_MAX_MOIS} step={1} inputMode="numeric" value={delai}
+                      onChange={(e) => { setDelai(e.target.value); setMotif(null); setInfo(null); }} data-delai-archivage /></label>
+                  <p className="plo-muet plo-petit-texte">Un bien en « Gestion terminée » est archivé automatiquement à sa date de fin + ce délai (par défaut 24 mois) :
+                    il quitte la Gestion et son dossier Drive passe dans « Inactifs ». Un changement vaut pour les biens PAS ENCORE archivés, jamais pour ceux qui le sont.</p>
+                  {lu.archivage?.disponible === false && <p className="plo-alerte" role="status">Mise à jour de la base à appliquer (migration 405) : le délai ne s’enregistre pas encore.</p>}
+                </section>
+              ) : onglet === 'destinataires' ? (
                 <section data-onglet-destinataires>
                   <p className="plo-note">Les destinataires du mail « Nouvelle location » (bouton « Envoi ADHOC &amp; MONGA »), dans l’ordre d’envoi.
                     <strong> La personne qui envoie reçoit toujours une copie, automatiquement</strong> : inutile de l’ajouter ici.</p>
@@ -232,7 +252,7 @@ export function ModaleParametresLocation({ onFermer }: { onFermer: () => void })
           <div className="plo-boutons">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={fermer} disabled={envoi} data-annuler-parametres>Annuler</button>
             <button type="button" className="svv-btn svv-btn-primary gst-btn" onClick={() => { void enregistrer(); }}
-              disabled={envoi || lu === null || lu.manquantes.length > 0 || (onglet === 'baremes' && refusBareme !== null)} data-enregistrer-parametres>
+              disabled={envoi || lu === null || (onglet === 'archivage' ? lu.archivage?.disponible !== true : lu.manquantes.length > 0) || (onglet === 'baremes' && refusBareme !== null)} data-enregistrer-parametres>
               {envoi ? 'Enregistrement…' : 'Enregistrer'}</button>
           </div>
         </footer>

@@ -31,6 +31,7 @@ beforeEach(() => {
     return json({ etat: 'ok', data: {
       destinataires: [{ adresse: 'gestion@criterimmo.fr', libelle: 'Service gestion (copie de confirmation)' }, { adresse: 'gestion.criterimmo@gmail.com', libelle: 'ADHOC' }, { adresse: 'laura@monga.io', libelle: 'MONGA' }],
       destinatairesSaisis: { le: '2026-10-21T10:00:00+02', par: 'migration 395' }, versions, aujourdhui: '2026-10-21', manquantes: [],
+      archivage: { mois: 24, disponible: true },
     } });
   }) as unknown as typeof fetch;
 });
@@ -72,10 +73,10 @@ describe('🔴 la roue crantée « Paramètres Location »', () => {
     expect(src).not.toContain("flexDirection: 'column'");
   });
 
-  it('la modale : deux onglets ; Enregistrer / Annuler en bas', async () => {
+  it('la modale : ses onglets (dont « Archivage des fins de gestion », 405) ; Enregistrer / Annuler en bas', async () => {
     await ouvrir();
     expect(container.querySelector('[data-modale-parametres]')?.getAttribute('role')).toBe('dialog');
-    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Destinataires du mail', 'Barèmes d’honoraires']);
+    expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Destinataires du mail', 'Barèmes d’honoraires', 'Archivage des fins de gestion']);
     expect([...container.querySelectorAll('.plo-boutons button')].map((b) => b.textContent)).toEqual(['Annuler', 'Enregistrer']);
     await clic(container.querySelector('[data-annuler-parametres]'));
     expect(container.querySelector('[data-modale-parametres]')).toBeNull();
@@ -143,5 +144,24 @@ describe('🔴 onglet « Barèmes d’honoraires » : versions datées', () => {
     await saisir(container.querySelector('[data-champ-bareme="depuis"] input'), '2026-12-15');
     await clic(container.querySelector('[data-enregistrer-parametres]'));
     expect(posts).toEqual([{ action: 'corriger-bareme', id: 2, depuis: '2026-12-15', tresTendue: '12,50', tendue: '10,09', autre: '8,07', etatDesLieux: '3,03', source: 'Arrêté' }]);
+  });
+});
+
+describe('🔴 onglet « Archivage des fins de gestion » (Arno, 21/10/2026, 405)', () => {
+  it('le délai (24 mois par défaut), contrôlé, enregistré ; il vaut pour les biens pas encore archivés', async () => {
+    await ouvrir();
+    await clic(container.querySelector('[data-onglet="archivage"]'));
+    expect(container.querySelector('[data-onglet="archivage"]')?.textContent).toBe('Archivage des fins de gestion');
+    const champ = container.querySelector('[data-delai-archivage]') as HTMLInputElement;
+    expect(champ.value).toBe('24');
+    expect(container.querySelector('[data-onglet-archivage]')?.textContent).toContain('Un changement vaut pour les biens PAS ENCORE archivés, jamais pour ceux qui le sont.');
+    await saisir(champ, '0');
+    await clic(container.querySelector('[data-enregistrer-parametres]'));
+    expect(posts).toEqual([]);
+    expect(container.querySelector('[data-motif-parametres]')?.textContent).toBe('Le délai d’archivage est un nombre entier de mois, entre 1 et 240.');
+    await saisir(champ, '18');
+    await clic(container.querySelector('[data-enregistrer-parametres]'));
+    expect(posts).toEqual([{ action: 'archivage-delai', mois: 18 }]);
+    expect(container.querySelector('[data-info-parametres]')?.textContent).toBe('Délai d’archivage enregistré : 18 mois après la fin de gestion.');
   });
 });

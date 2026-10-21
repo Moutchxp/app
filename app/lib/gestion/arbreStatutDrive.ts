@@ -26,10 +26,13 @@ export const CLE_RACINE_LOCATION_SEULE = 'rls:location_seule';
 /** La PLACE d'un dossier : son arbre, et sa branche dans l'arbre locatif. */
 export interface PlaceDrive { arbre: ArbreDrive; branche: 'Actifs' | 'Inactifs' | null }
 
-/** Où doit être le dossier d'un bien de ce statut. PUR. */
-export function placeDuStatut(s: StatutBien): PlaceDrive {
+/**
+ * Où doit être le dossier d'un bien de ce statut. Arno (21/10/2026, 405) : une ancienne gestion NON archivée (« Gestion terminée »)
+ * garde son dossier où il est — dans l'arbre locatif (un dossier neuf irait dans « Actifs ») ; seule l'ARCHIVÉE va dans « Inactifs ». PUR.
+ */
+export function placeDuStatut(s: StatutBien, archive = false): PlaceDrive {
   if (s === 'location_seule') return { arbre: 'location_seule', branche: null };
-  return { arbre: 'locative', branche: s === 'en_gestion' ? 'Actifs' : 'Inactifs' };
+  return { arbre: 'locative', branche: s === 'en_gestion' || !archive ? 'Actifs' : 'Inactifs' };
 }
 
 export const memePlace = (a: PlaceDrive, b: PlaceDrive): boolean => a.arbre === b.arbre && (a.branche ?? null) === (b.branche ?? null);
@@ -64,6 +67,10 @@ export interface EntreePlanBien {
   parentN3: string | null;
   /** Les dossiers DÉJÀ inscrits, par clé : jamais recréés. */
   existants: ReadonlyMap<string, string>;
+  /** La clé du N3 de cette place, quand elle n'est pas la clé de base (N3 déplacé entier, clé reprise ailleurs — 405). */
+  n3Cle?: string;
+  /** Les dossiers ANNUELS (l'année sous « PNO » / « Taxe foncière ») : pas pour un bien en ancienne gestion (405). Défaut : oui. */
+  annuels?: boolean;
 }
 
 /**
@@ -74,7 +81,7 @@ export interface EntreePlanBien {
 export function planDossierBien(e: EntreePlanBien): { ok: true; creations: CreationNoeud[] } | { ok: false; motif: string } {
   const out: CreationNoeud[] = [];
   const t = e.bien.teteId;
-  const n3 = cleN3(e.proprietaire.id, e.place);
+  const n3 = e.n3Cle ?? cleN3(e.proprietaire.id, e.place);
   const parentDe = (cle: string): CreationNoeud['parent'] => {
     const d = e.existants.get(cle);
     return d !== undefined ? { driveId: d } : { cle };
@@ -93,7 +100,7 @@ export function planDossierBien(e: EntreePlanBien): { ok: true; creations: Creat
     poser({ cle: `r:${t}:${i}`, sorte: 'rubrique', niveau: 6, nom, lotId: t, annee: null }, parentDe(`b:${t}`));
     if (i === 1) SOUS_PROPRIETAIRE.forEach((s, k) => {
       poser({ cle: `pr:${t}:${k}`, sorte: 'sous_rubrique', niveau: 7, nom: s, lotId: t, annee: null }, parentDe(`r:${t}:1`));
-      poser({ cle: `y:pr:${t}:${k}:${e.annee}`, sorte: 'annee', niveau: 8, nom: String(e.annee), lotId: t, annee: e.annee }, parentDe(`pr:${t}:${k}`));
+      if (e.annuels !== false) poser({ cle: `y:pr:${t}:${k}:${e.annee}`, sorte: 'annee', niveau: 8, nom: String(e.annee), lotId: t, annee: e.annee }, parentDe(`pr:${t}:${k}`));
     });
   });
   return { ok: true, creations: out };
@@ -126,19 +133,21 @@ export function refusEcritureArbre(chaine: readonly MaillonArbre[], racines: Rac
 
 /** L'ÉTAT du dossier Drive d'un bien, comparé à son statut. PUR. */
 export type EtatDossierBien = { etat: 'ok' } | { etat: 'a_creer' } | { etat: 'a_deplacer'; depuis: PlaceDrive; vers: PlaceDrive };
-export function etatDossierBien(statut: StatutBien, n5: PlaceDrive | null): EtatDossierBien {
-  const vers = placeDuStatut(statut);
+export function etatDossierBien(statut: StatutBien, n5: PlaceDrive | null, archive = false): EtatDossierBien {
+  const vers = placeDuStatut(statut, archive);
   if (n5 === null) return { etat: 'a_creer' };
+  // « Gestion terminée » : le dossier RESTE à sa place, dans l'arbre locatif (Actifs ou déjà Inactifs) — jamais ramené.
+  if (statut === 'ancienne_gestion' && !archive && n5.arbre === 'locative') return { etat: 'ok' };
   return memePlace(n5, vers) ? { etat: 'ok' } : { etat: 'a_deplacer', depuis: n5, vers };
 }
 
 /** LE PLAN DU RANGEMENT (script) : les biens dont le N5 inscrit n'est pas à la place de leur statut. PUR. */
-export interface BienARanger { lotId: number; statut: StatutBien; n5: PlaceDrive | null; n5DriveId: string | null; titre: string }
+export interface BienARanger { lotId: number; statut: StatutBien; n5: PlaceDrive | null; n5DriveId: string | null; titre: string; archive?: boolean }
 export interface LigneRangement { lotId: number; titre: string; n5DriveId: string; depuis: PlaceDrive; vers: PlaceDrive }
 export function planRangement(biens: readonly BienARanger[]): { deplacements: LigneRangement[]; sansDossier: BienARanger[]; enPlace: number } {
   const deplacements: LigneRangement[] = []; const sansDossier: BienARanger[] = []; let enPlace = 0;
   for (const b of biens) {
-    const e = etatDossierBien(b.statut, b.n5);
+    const e = etatDossierBien(b.statut, b.n5, b.archive === true);
     if (e.etat === 'ok') enPlace += 1;
     else if (e.etat === 'a_creer' || b.n5DriveId === null) sansDossier.push(b);
     else deplacements.push({ lotId: b.lotId, titre: b.titre, n5DriveId: b.n5DriveId, depuis: e.depuis, vers: e.vers });

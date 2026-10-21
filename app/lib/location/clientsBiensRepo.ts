@@ -2,7 +2,7 @@ import { query } from '../db/client';
 import { conditionCoordonneeVivante } from '../gestion/coordonneeVivante';
 import { sqlPersonneVivante } from '../gestion/personneVivanteSql';
 import { estStatutBien, type StatutBien } from '../gestion/statutBien';
-import { sqlStatutBien } from '../gestion/statutBienRepo';
+import { sqlArchiveBien, sqlStatutBien } from '../gestion/statutBienRepo';
 import { colonneExisteMemo } from './sondeLocation';
 import { analyserTermePortefeuille } from './recherchePortefeuille';
 
@@ -27,6 +27,8 @@ export interface BienDuClient {
   statut: StatutBien;
   /** Combien d'annexes rattachées le suivent. */
   annexes: number;
+  /** Arno (21/10/2026, 405) — ancienne gestion ARCHIVÉE (sinon « Gestion terminée »). */
+  archive?: boolean;
 }
 
 export interface ClientEtBiens {
@@ -79,8 +81,10 @@ export async function clientsEtBiens(brut: string, filtre: FiltreStatut, page = 
   const ids = rows.map((r) => Number(r.id));
   const biens = new Map<number, BienDuClient[]>();
   if (ids.length > 0) {
-    const { rows: b } = await query<{ pid: string; id: string; adresse: string | null; commune: string | null; categorie: string | null; statut: string; annexes: number }>(
+    const archive = await sqlArchiveBien('lo');
+    const { rows: b } = await query<{ pid: string; id: string; adresse: string | null; commune: string | null; categorie: string | null; statut: string; annexes: number; a: boolean }>(
       `SELECT x.pid::text, lo.id::text, lo.adresse, lo.commune, ${avecCategorie ? 'lo.categorie' : 'NULL::text AS categorie'}, ${statut} AS statut,
+              (${archive} IS NOT NULL) AS a,
               ${avecAnnexe ? `(SELECT count(*)::int FROM gestion_lot_annexe ax JOIN gestion_annuaire_lot an ON an.id = ax.annexe_id
                  WHERE ax.parent_id = lo.id${avecDetache ? ' AND an.annexe_detachee_le IS NULL' : ''})` : '0'} AS annexes
          FROM unnest($1::bigint[]) AS x(pid) JOIN gestion_annuaire_lot lo ON ${sesBiens('x.pid')}
@@ -91,7 +95,7 @@ export async function clientsEtBiens(brut: string, filtre: FiltreStatut, page = 
       if (!estStatutBien(r.statut)) continue;
       const liste = biens.get(Number(r.pid)) ?? [];
       if (!liste.some((x) => x.id === Number(r.id))) {
-        liste.push({ id: Number(r.id), adresse: r.adresse, commune: r.commune, categorie: r.categorie, statut: r.statut, annexes: Number(r.annexes) });
+        liste.push({ id: Number(r.id), adresse: r.adresse, commune: r.commune, categorie: r.categorie, statut: r.statut, annexes: Number(r.annexes), archive: r.a === true });
       }
       biens.set(Number(r.pid), liste);
     }

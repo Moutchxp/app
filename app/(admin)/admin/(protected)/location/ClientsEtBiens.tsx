@@ -64,7 +64,7 @@ export function ClientsEtBiens() {
                     <ul className="cb-biens">
                       {c.biens.map((b) => (
                         <li key={b.id} data-bien-client={b.id}>
-                          <PastilleStatut statut={b.statut} petite />
+                          <PastilleStatut statut={b.statut} petite archive={b.archive} />
                           <a href={`/admin/location/bien/${b.id}`}>{[b.adresse, b.commune].filter((x) => x).join(', ') || `Bien ${b.id}`}</a>
                           {b.categorie !== null && <span className="loc-muet">{b.categorie}</span>}
                           {b.annexes > 0 && <span className="loc-muet">+ {b.annexes} annexe{b.annexes > 1 ? 's' : ''}</span>}

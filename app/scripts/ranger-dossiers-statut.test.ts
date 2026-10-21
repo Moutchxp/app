@@ -9,7 +9,7 @@ import type { BienARanger } from '../lib/gestion/arbreStatutDrive';
  */
 const b = (lotId: number, statut: BienARanger['statut'], n5: BienARanger['n5']): BienARanger => ({ lotId, statut, n5, n5DriveId: n5 === null ? null : `N5-${lotId}`, titre: `${lotId} rue Fictive` });
 const BIENS = [b(1, 'en_gestion', { arbre: 'locative', branche: 'Actifs' }), b(2, 'location_seule', { arbre: 'locative', branche: 'Actifs' }),
-  b(3, 'ancienne_gestion', { arbre: 'locative', branche: 'Actifs' }), b(4, 'location_seule', null)];
+  { ...b(3, 'ancienne_gestion', { arbre: 'locative', branche: 'Actifs' }), archive: true }, b(4, 'location_seule', null)];   // archivée (405)
 
 describe('🔴 ranger-dossiers-statut', () => {
   it('À BLANC : aucun déplacement demandé ; le rapport dit tout (compte, déplacements à faire, biens sans dossier)', async () => {
