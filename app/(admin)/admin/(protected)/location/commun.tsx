@@ -68,21 +68,23 @@ export function phraseMail(m: EtatMail | undefined): string | null {
  * saisie, base, technique — `issueEnregistrement.ts`), et un 401 / 403 de la garde (`{ erreur: 'ACCES_REVOQUE' }`, sans `motif`)
  * n'est plus lu « Enregistrement refusé. » mais dit le droit manquant ou la session expirée. Une réponse réussie : inchangée.
  */
-export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail; cause?: CauseEchec; etat?: string }> {
+export async function envoyer(corps: Record<string, unknown>): Promise<{ motif: string | null; data?: unknown; mail?: EtatMail; cause?: CauseEchec; etat?: string;
+  /** Arno (21/10/2026, 404) — le dossier Drive créé après l'enregistrement (absent : rien tenté). */
+  drive?: { ok: boolean; motif: string | null } }> {
   let res: Response;
   try {
     res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
   } catch {
     return { motif: 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.', cause: 'technique' };
   }
-  let d: { etat?: string; motif?: string; message?: string; data?: unknown; mail?: EtatMail; erreur?: string };
+  let d: { etat?: string; motif?: string; message?: string; data?: unknown; mail?: EtatMail; erreur?: string; drive?: { ok: boolean; motif: string | null } };
   try {
     d = await res.json() as typeof d;
   } catch {
     const cause = causeDeLaReponse({ statut: res.status });
     return { motif: cause === 'droit' ? MOTIF_DROIT : 'Enregistrement impossible : le serveur n’a pas répondu. Rien n’a été modifié.', cause: cause === 'saisie' ? 'technique' : cause };
   }
-  if (d.etat === 'ok') return { motif: null, data: d.data, mail: d.mail };
+  if (d.etat === 'ok') return { motif: null, data: d.data, mail: d.mail, ...(d.drive !== undefined ? { drive: d.drive } : {}) };
   const cause = causeDeLaReponse({ statut: res.status, etat: d.etat, erreur: d.erreur });
   if (cause === 'droit') return { motif: MOTIF_DROIT, cause };
   if (d.etat === 'sans_schema') return { motif: MOTIF_SANS_MIGRATION, cause };

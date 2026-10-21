@@ -144,6 +144,19 @@ describe('🔴 « Nouveau bien » — jamais de silence', () => {
   });
 });
 
+describe('🔴 404 — « Nouveau bien » : le dossier Drive', () => {
+  it('créé : aucune note ; refusé par le Drive : le bien est enregistré, la note dit « Dossier Drive à créer » et quoi faire', async () => {
+    reponseCreation = async () => new Response(JSON.stringify({ etat: 'ok', data: { logementId: 9 }, drive: { ok: false, motif: 'RECETTE — écriture dans le Drive non effectuée' } }),
+      { headers: { 'Content-Type': 'application/json' } });
+    await rendreBien();
+    await parkingComplet();
+    await soumettre();
+    expect(modale()?.getAttribute('data-modale-issue')).toBe('succes');
+    expect([...modale()!.querySelectorAll('[data-note]')].map((n) => n.textContent)).toEqual([
+      'Dossier Drive à créer : RECETTE — écriture dans le Drive non effectuée. Ouvrez la fiche du bien et cliquez « Créer le dossier ».']);
+  });
+});
+
 describe('🔴 « Nouveau locataire » — succès, échec, récapitulatif', () => {
   beforeEach(() => {
     global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {

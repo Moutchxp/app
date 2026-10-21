@@ -22,21 +22,28 @@ let repondre: Record<string, unknown>;
 let hote: HTMLDivElement;
 let racine: Root;
 let changes: number;
+let drive: Record<string, unknown> | null;
 beforeEach(() => {
   // La racine du thème : la modale s'y rend (portail).
   const adm = document.createElement('div'); adm.className = 'svv-adm-root'; document.body.appendChild(adm);
-  hote = document.createElement('div'); document.body.appendChild(hote); racine = createRoot(hote); posts = []; changes = 0;
+  hote = document.createElement('div'); document.body.appendChild(hote); racine = createRoot(hote); posts = []; changes = 0; drive = null;
   lu = { statut: 'en_gestion' };
   repondre = { etat: 'ok', data: { avant: 'en_gestion', apres: 'location_seule', lots: [10, 11], avertissement: null }, mail: { envoye: true, ignore: false, motif: null } };
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
-    if (init?.method === 'POST') { posts.push(JSON.parse(String(init.body)) as Record<string, unknown>); return reponse(repondre); }
+    if (init?.method === 'POST') {
+      const corps = JSON.parse(String(init.body)) as Record<string, unknown>;
+      posts.push(corps);
+      if (corps.action === 'dossier-drive-bien') { drive = { ...drive, etat: { etat: 'ok' } }; return reponse({ etat: 'ok', data: { driveId: 'N5', geste: 'cree' } }); }
+      return reponse(repondre);
+    }
     if (u.includes('?statut=')) {
       const disponible = lu.disponible ?? true;
       const suitLot = lu.suitLot ?? null;
       return reponse({ etat: 'ok', data: { disponible, lotId: 10, statut: lu.statut, depuis: '2026-09-01', suitLot,
         gestes: disponible && suitLot === null ? gestesPour(lu.statut) : [] } });
     }
+    if (u.includes('?driveBien=')) return reponse({ etat: 'ok', data: drive });
     if (u.includes('?transitions=')) {
       return reponse({ etat: 'ok', data: [
         { id: 2, avant: 'en_gestion', apres: 'location_seule', effetLe: '2026-10-20', source: 'geste', viaLotId: null, motif: 'mandat résilié', mandat: null, par: 'Arno', quand: '2026-10-21 10:00:00+02' },
@@ -165,5 +172,35 @@ describe('🔴 le statut du bien sur sa fiche', () => {
     expect(annuaire).toMatch(/<StatutDuBien lotId=\{Number\(f\.id\)\} modifiable=\{gestes\.modifiable\}/);
     const histo = readFileSync('app/(admin)/admin/(protected)/gestion/HistoriqueDuBien.tsx', 'utf8');
     expect(histo).toMatch(/<HistoriqueStatut lotId=\{lotId\} \/>/);
+  });
+
+  it('🔴 404 — le dossier Drive : « à créer » + « Créer le dossier » ; « à déplacer » + « Déplacer maintenant » ; à sa place : dit sobrement', async () => {
+    drive = { etat: { etat: 'a_creer' }, libelleAttendu: 'Base de données location seule', libelleActuel: null };
+    await monter();
+    expect(hote.querySelector('[data-drive-etat="a_creer"]')?.textContent).toContain('Dossier Drive à créer — dans « Base de données location seule »');
+    await clic(hote.querySelector('[data-drive-geste="creer"]'));
+    expect(posts.at(-1)).toEqual({ action: 'dossier-drive-bien', id: 10, geste: 'creer' });
+    expect(hote.querySelector('[data-drive-etat="ok"]')?.textContent).toBe('Dossier Drive : Base de données location seule');
+    act(() => racine.unmount()); racine = createRoot(hote);
+    drive = { etat: { etat: 'a_deplacer' }, libelleAttendu: 'Base de données location seule', libelleActuel: 'Base de données locative › Actifs' };
+    await monter();
+    expect(hote.querySelector('[data-drive-etat="a_deplacer"]')?.textContent).toContain('de « Base de données locative › Actifs » vers « Base de données location seule »');
+    await clic(hote.querySelector('[data-drive-geste="deplacer"]'));
+    expect(posts.at(-1)).toEqual({ action: 'dossier-drive-bien', id: 10, geste: 'deplacer' });
+    // Sans le droit d'écrire : l'état est dit, sans bouton.
+    act(() => racine.unmount()); racine = createRoot(hote);
+    drive = { etat: { etat: 'a_deplacer' }, libelleAttendu: 'X', libelleActuel: 'Y' };
+    await monter(false);
+    expect(hote.querySelector('[data-drive-etat="a_deplacer"]')).not.toBeNull();
+    expect(hote.querySelector('[data-drive-geste]')).toBeNull();
+  });
+
+  it('🔴 404 — une transition dont le déplacement Drive échoue : le statut est enregistré, la note le dit', async () => {
+    repondre = { ...repondre, drive: { ok: false, motif: 'RECETTE — écriture dans le Drive non effectuée' } };
+    await monter();
+    await clic(hote.querySelector('[data-geste-statut="sortie-de-gestion"]'));
+    await clic(document.querySelector('[data-destination="ancienne_gestion"]'));
+    await clic(bouton('statut-confirmer'));
+    expect(hote.querySelector('.sdb-notes')?.textContent).toContain('Statut enregistré, mais le dossier Drive n’a pas été déplacé : RECETTE — écriture dans le Drive non effectuée.');
   });
 });

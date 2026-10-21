@@ -53,6 +53,8 @@ export function StatutDuBien({ lotId, modifiable, onChange, onOuvrir }: {
   const [lu, setLu] = useState<LectureStatut | null>(null);
   const [geste, setGeste] = useState<GesteStatut | null>(null);
   const [note, setNote] = useState<string[]>([]);
+  // Arno (21/10/2026, 404) — relire l'état du dossier Drive après une transition (le bloc le relit à chaque changement de clé).
+  const [cleDrive, setCleDrive] = useState(0);
   const lire = useCallback(() => {
     let vivant = true;
     fetch(`${API}?statut=${lotId}`, { headers: { Accept: 'application/json' }, cache: 'no-store' })
@@ -87,10 +89,11 @@ export function StatutDuBien({ lotId, modifiable, onChange, onOuvrir }: {
           ))}
         </div>
       )}
+      {lu.suitLot === null && <DossierDriveDuBien key={cleDrive} lotId={lotId} modifiable={modifiable} />}
       {note.length > 0 && <div className="sdb-notes" role="status">{note.map((n) => <p key={n}>{n}</p>)}</div>}
       {geste !== null && (
         <ConfirmerTransition lotId={lotId} depuis={lu.statut} geste={geste} onFermer={() => setGeste(null)}
-          onFait={(notes) => { setGeste(null); setNote(notes); lire(); onChange?.(); }} />
+          onFait={(notes) => { setGeste(null); setNote(notes); lire(); setCleDrive((k) => k + 1); onChange?.(); }} />
       )}
     </section>
   );
@@ -119,13 +122,14 @@ function ConfirmerTransition({ lotId, depuis, geste, onFermer, onFait }: {
           mandat: sorteMandat === null || (mandat.numero === null && mandat.signeLe === null) ? null : { sorte: sorteMandat, ...mandat } }),
       });
       const d = await res.json() as { etat?: string; motif?: string; message?: string; data?: { lots?: number[]; avertissement?: string | null };
-        mail?: { envoye: boolean; ignore: boolean; motif: string | null } };
+        mail?: { envoye: boolean; ignore: boolean; motif: string | null }; drive?: { ok: boolean; motif: string | null } };
       if (d.etat === 'ok') {
         const notes = [`✓ ${geste.libelle} : le bien est désormais « ${LIBELLE_STATUT[vers]} » (au ${dateFr(effetLe)}).`];
         const annexes = (d.data?.lots?.length ?? 1) - 1;
         if (annexes > 0) notes.push(`${annexes === 1 ? 'Son annexe rattachée a suivi.' : `Ses ${annexes} annexes rattachées ont suivi.`}`);
         if (d.data?.avertissement) notes.push(d.data.avertissement);
         if (d.mail && !d.mail.ignore && !d.mail.envoye) notes.push(`Statut enregistré, mais le mail de portefeuille n’est pas parti : ${d.mail.motif ?? 'raison inconnue'}.`);
+        if (d.drive && !d.drive.ok) notes.push(`Statut enregistré, mais le dossier Drive n’a pas été déplacé : ${d.drive.motif ?? 'le Drive n’a pas répondu'}. « Déplacer maintenant » le rejoue.`);
         onFait(notes);
         return;
       }
@@ -175,6 +179,61 @@ function ConfirmerTransition({ lotId, depuis, geste, onFermer, onFait }: {
         {refus !== null && <p className="sdb-refus" role="alert" data-refus-statut>{refus}</p>}
       </div>
     </ModaleIssue>
+  );
+}
+
+interface EtatDrive {
+  etat: { etat: 'ok' } | { etat: 'a_creer' } | { etat: 'a_deplacer' };
+  libelleAttendu: string;
+  libelleActuel: string | null;
+}
+
+/**
+ * Arno (21/10/2026, 404) — LE DOSSIER DRIVE DU BIEN, selon son statut : à sa place (dit sobrement), « Dossier Drive à créer » +
+ * « Créer le dossier », ou « Dossier Drive à déplacer » + « Déplacer maintenant » (gestes rejoués, idempotents). Rien sans la 404.
+ */
+export function DossierDriveDuBien({ lotId, modifiable }: { lotId: number; modifiable: boolean }) {
+  const [lu, setLu] = useState<EtatDrive | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const [refus, setRefus] = useState<string | null>(null);
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let vivant = true;
+    fetch(`${API}?driveBien=${lotId}`, { headers: { Accept: 'application/json' }, cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d: { etat?: string; data?: EtatDrive | null }) => { if (vivant) setLu(d.etat === 'ok' && d.data ? d.data : null); })
+      .catch(() => { if (vivant) setLu(null); });
+    return () => { vivant = false; };
+  }, [lotId, n]);
+  if (lu === null) return null;
+  const geste = async (quoi: 'creer' | 'deplacer'): Promise<void> => {
+    if (enCours) return;
+    setEnCours(true); setRefus(null);
+    try {
+      const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'dossier-drive-bien', id: lotId, geste: quoi }) });
+      const d = await r.json() as { etat?: string; motif?: string; message?: string };
+      if (d.etat !== 'ok') setRefus(d.motif ?? d.message ?? 'Le Drive a refusé.');
+      setN((x) => x + 1);
+    } catch {
+      setRefus('Le serveur n’a pas répondu.');
+    } finally {
+      setEnCours(false);
+    }
+  };
+  const e = lu.etat.etat;
+  return (
+    <div className={`sdb-drive sdb-drive--${e}`} data-drive-etat={e}>
+      {e === 'ok' ? <span className="sdb-muet">Dossier Drive : {lu.libelleAttendu}</span> : (
+        <span><strong>{e === 'a_creer' ? 'Dossier Drive à créer' : 'Dossier Drive à déplacer'}</strong>
+          <span className="sdb-muet"> — {e === 'a_creer' ? `dans « ${lu.libelleAttendu} »` : `de « ${lu.libelleActuel ?? '?'} » vers « ${lu.libelleAttendu} »`}</span></span>
+      )}
+      {e !== 'ok' && modifiable && (
+        <button type="button" className="svv-btn svv-btn-outline gst-btn sdb-geste" disabled={enCours} data-drive-geste={e === 'a_creer' ? 'creer' : 'deplacer'}
+          onClick={() => { void geste(e === 'a_creer' ? 'creer' : 'deplacer'); }}>
+          {enCours ? 'En cours…' : e === 'a_creer' ? 'Créer le dossier' : 'Déplacer maintenant'}</button>
+      )}
+      {refus !== null && <p className="sdb-refus" role="alert" data-drive-refus>{refus}</p>}
+    </div>
   );
 }
 
@@ -255,6 +314,9 @@ export const CSS_STATUT_DU_BIEN = `
 .sdb-champ input,.sdb-champ textarea{font:inherit;font-weight:400;min-height:44px;box-sizing:border-box;width:100%;padding:8px 10px;border-radius:10px;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-field);color:var(--color-svv-ink)}
 .sdb-rappel{color:var(--color-svv-muted);font-size:.9rem}
 .sdb-refus{padding:8px 10px;border-radius:10px;border:1px solid var(--color-svv-red);background:var(--color-svv-red-soft);color:var(--color-svv-ink);font-weight:700}
+.sdb-drive{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;min-width:0;overflow-wrap:anywhere}
+.sdb-drive--a_creer,.sdb-drive--a_deplacer{padding:8px 10px;border-radius:10px;border:1px solid var(--color-svv-amber);background:var(--color-svv-amber-soft);color:var(--color-svv-ink)}
+.sdb-drive .sdb-refus{flex-basis:100%;margin:0}
 .sdb-histo{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
 .sdb-histo li{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;overflow-wrap:anywhere}
 .sdb-histo-date{font-weight:700}

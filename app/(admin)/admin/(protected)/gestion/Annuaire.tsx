@@ -1101,6 +1101,11 @@ function VueProprietaire({
                 data-attitre={b.attitre ? 'oui' : 'non'}>{b.libelle}</a>
             );
           })()}
+          {/* Arno (21/10/2026, 404) — un propriétaire aux statuts MÊLÉS a un dossier par arbre : la fiche propose chacun. */}
+          {(f.dossiersArbres?.length ?? 0) > 1 && f.dossiersArbres!.map((d) => (
+            <a key={d.driveId} className="svv-btn svv-btn-outline gst-btn" href={`https://drive.google.com/drive/folders/${encodeURIComponent(d.driveId)}`}
+              target="_blank" rel="noreferrer" data-dossier-arbre={d.libelle}>Dossier Drive — {d.libelle} ↗</a>
+          ))}
         </div>
       </header>
 

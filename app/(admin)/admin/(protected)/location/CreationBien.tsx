@@ -353,8 +353,12 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
     // Arno (18/10/2026) : le mail « nouveau mandat » n'est jamais bloquant — mais s'il n'est pas parti, on le DIT (modale et page).
     const echec = [phraseMail(r.mail), (r.data as { mandatRefus?: string | null } | undefined)?.mandatRefus ?? null].filter((x) => x !== null).join(' ') || null;
     if (echec !== null) setMailEchec({ phrase: echec, cible });
+    // Arno (21/10/2026, 404) : le dossier Drive du bien n'est jamais bloquant — s'il n'a pas pu être créé, on le DIT (la fiche
+    // propose « Créer le dossier »).
+    const drive = r.drive !== undefined && !r.drive.ok
+      ? `Dossier Drive à créer : ${r.drive.motif ?? 'le Drive n’a pas répondu'}. Ouvrez la fiche du bien et cliquez « Créer le dossier ».` : null;
     // Arno (21/10/2026) : le succès s'ouvre en modale (résumé, « Voir la fiche du bien », « Créer un autre bien », « Fermer »).
-    setIssue({ sorte: 'succes', cible, notes: echec === null ? [] : [echec] });
+    setIssue({ sorte: 'succes', cible, notes: [echec, drive].filter((x): x is string => x !== null) });
   };
   // « Rattacher et enregistrer » : dès que la sélection est posée (panneau refermé, cartes ajoutées), l'enregistrement repart.
   useEffect(() => {

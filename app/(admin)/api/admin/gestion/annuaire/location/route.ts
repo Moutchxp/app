@@ -1,4 +1,5 @@
 import 'server-only';
+import { arbreDisponible, creerDossierDuBien, deplacerDossierDuBien, etatDriveDuBien } from '../../../../../../lib/gestion/arbreStatutDriveRepo';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { enregistrerConditions } from '../../../../../../lib/gestion/honorairesGestionRepo';
@@ -58,6 +59,9 @@ export async function GET(request: Request): Promise<Response> {
       const d = await lireStatutBien(st);
       return Response.json(d === null ? { etat: 'inconnu' } : { etat: 'ok', data: d }, { headers: ENTETES });
     }
+    // Arno (21/10/2026, 404) — l'état du dossier Drive du bien (à sa place, à créer, à déplacer) ; `null` sans la 404.
+    const db5 = identifiant(url.searchParams.get('driveBien'));
+    if (db5 !== null) return Response.json({ etat: 'ok', data: await etatDriveDuBien(db5) }, { headers: ENTETES });
     const tr = identifiant(url.searchParams.get('transitions'));
     if (tr !== null) return Response.json({ etat: 'ok', data: await transitionsDuBien(tr) }, { headers: ENTETES });
     // Arno (20/10/2026) — le RÉSUMÉ COMPLET de la fiche bien : les informations de la Location, lues à leur source (lecture seule).
@@ -138,7 +142,18 @@ export async function POST(request: Request): Promise<Response> {
         const ev = avant === 'en_gestion'
           ? { sens: 'sortie' as const, proprietaireId: null, lotIds: lots, origine: null }
           : apres === 'en_gestion' ? { sens: 'entree' as const, reactivation: avant === 'ancienne_gestion', proprietaireId: null, lotIds: lots, origine: null } : null;
-        return repondre(await avecMail(r, ev, { auteur, tuile: requeteDepuisLaLocation(request) ? 'Location' : 'Gestion' }));
+        const avecMailEnvoye = await avecMail(r, ev, { auteur, tuile: requeteDepuisLaLocation(request) ? 'Location' : 'Gestion' });
+        // Arno (21/10/2026, 404) — le dossier Drive du bien DÉPLACÉ entier vers l'arbre du nouveau statut ; un échec n'annule rien
+        // (le statut reste enregistré) : la fiche dit « Dossier Drive à déplacer » et « Déplacer maintenant » rejoue.
+        if (!(await arbreDisponible().catch(() => false))) return repondre(avecMailEnvoye);
+        const d = await deplacerDossierDuBien(lots[0], auteur.libelle).catch((e: unknown) => ({ ok: false as const, motif: (e as Error)?.message ?? 'Le Drive n’a pas répondu.' }));
+        return repondre({ ...avecMailEnvoye, drive: d.ok ? { ok: true, motif: null } : { ok: false, motif: d.motif } });
+      }
+      // Arno (21/10/2026, 404) — « Créer le dossier » / « Déplacer maintenant » : rejoue la création ou le déplacement (idempotents).
+      case 'dossier-drive-bien': {
+        if (id === null) return incomplet();
+        const d = corps.geste === 'deplacer' ? await deplacerDossierDuBien(id, auteur.libelle) : await creerDossierDuBien(id, auteur.libelle);
+        return repondre(d.ok ? { etat: 'ok', data: { driveId: d.driveId, geste: d.geste } } : { etat: 'refus', motif: d.motif });
       }
       // LE PRÉAVIS depuis la fiche commune (Arno, 18/10/2026) : les MÊMES fonctions que la tuile Location.
       case 'enregistrer-preavis': {

@@ -20,6 +20,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { sqlStatutBien, statutBienDisponible } from './statutBienRepo';
+import { dossiersDuProprietaire } from './arbreStatutDriveRepo';
 import type { StatutBien } from './statutBien';
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { refusRattachementAnnexe } from '../location/regroupementRepo';
@@ -1126,6 +1127,11 @@ export interface FicheProprietaire {
    */
   biensLocationSeule?: number;
   /**
+   * Arno (21/10/2026, 404) — ses dossiers Drive N3, un par arbre / branche (« Base de données locative › Actifs », « … › Inactifs »,
+   * « Base de données location seule ») : un propriétaire aux statuts mêlés en a plusieurs, la fiche propose chacun. Vide sans la 404.
+   */
+  dossiersArbres?: { driveId: string; libelle: string }[];
+  /**
    * 🔴 LOT FICHES-ANNUAIRE (étape C) — LES CARTES DU BLOC « COORDONNÉES », DANS L'ORDRE.
    *
    * Le ou les propriétaires du même ensemble de biens. Sans la migration 278, elle porte EXACTEMENT une personne,
@@ -1745,6 +1751,7 @@ export async function ficheProprietaire(id: number, vue: VueAnnuaire = {}): Prom
       })),
       biens: await biensDuProprietaire(Number(p.id), vue),
       ...(vue.horsLocationSeule === true ? { biensLocationSeule: await compterLocationSeule(Number(p.id)) } : {}),
+      dossiersArbres: (await dossiersDuProprietaire(Number(p.id)).catch(() => [])).map((d) => ({ driveId: d.driveId, libelle: d.libelle })),
       personnes: await coproprietairesDe(Number(p.id)),
       modifiable: await annuaireModifiableDisponible(),
       /**

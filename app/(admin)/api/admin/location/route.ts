@@ -1,4 +1,5 @@
 import 'server-only';
+import { arbreDisponible, creerDossierDuBien } from '../../../../lib/gestion/arbreStatutDriveRepo';
 import { clientsEtBiens, lireFiltreStatut } from '../../../../lib/location/clientsBiensRepo';
 import { exigerLocation } from '../../../../lib/location/garde';
 import { exigerCompteActif } from '../../../../lib/admin/garde';
@@ -80,6 +81,21 @@ function identifiant(brut: unknown): number | null {
   if (!/^[1-9]\d{0,15}$/.test(s)) return null;
   const n = Number(s);
   return Number.isSafeInteger(n) ? n : null;
+}
+
+/**
+ * Arno (21/10/2026, 404) — APRÈS un « Nouveau bien » réussi : son dossier Drive, dans l'arbre de son statut. Jamais bloquant : un
+ * échec est rendu dans `drive` (la fiche dit alors « Dossier Drive à créer ») ; sans la 404, rien n'est tenté ni dit.
+ */
+async function avecDossierDrive<T extends { etat: string }>(issue: T, lotId: number | null, auteur: string): Promise<T & { drive?: { ok: boolean; motif: string | null } }> {
+  if (issue.etat !== 'ok' || lotId === null || !(await arbreDisponible().catch(() => false))) return issue;
+  try {
+    const d = await creerDossierDuBien(lotId, auteur);
+    return { ...issue, drive: d.ok ? { ok: true, motif: null } : { ok: false, motif: d.motif } };
+  } catch (e) {
+    console.error('[location] dossier Drive du bien non créé', (e as Error)?.message);
+    return { ...issue, drive: { ok: false, motif: 'Le Drive n’a pas répondu.' } };
+  }
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -336,8 +352,10 @@ export async function POST(request: Request): Promise<Response> {
           annexes: Array.isArray(corps.annexes) ? (corps.annexes as Record<string, unknown>[]).slice(0, 20) : [],
         }, auteur);
         // Nouveau mandat de gestion : un mail SEULEMENT si un propriétaire est « en gestion = Oui » (Arno, 18/10/2026).
-        return repondre(await avecMail(r, r.etat !== 'ok' ? null : {
-          sens: 'entree', proprietaireId: r.data.proprietaireId, lotIds: [r.data.logementId], origine: null, exigerEnGestion: true, avecAnnexes: true }, { auteur, tuile: 'Location' }));
+        // Arno (21/10/2026, 404) : le dossier Drive du bien, créé dans l'arbre de son statut, APRÈS l'enregistrement.
+        return repondre(await avecDossierDrive(await avecMail(r, r.etat !== 'ok' ? null : {
+          sens: 'entree', proprietaireId: r.data.proprietaireId, lotIds: [r.data.logementId], origine: null, exigerEnGestion: true, avecAnnexes: true }, { auteur, tuile: 'Location' }),
+          r.etat === 'ok' ? r.data.logementId : null, auteur.libelle));
       }
       case 'creer-locataire':
         return repondre(await creerLocataireSurBien({
@@ -373,8 +391,10 @@ export async function POST(request: Request): Promise<Response> {
           ...(corps.confirmeDoublon === true ? { confirmeDoublon: true } : {}),
         }, auteur);
         // Nouveau mandat de gestion : un mail SEULEMENT si un des propriétaires est « en gestion = Oui » (Arno, 18/10/2026).
-        return repondre(await avecMail(r, r.etat !== 'ok' ? null : {
-          sens: 'entree', proprietaireId: null, lotIds: [r.data.logementId, ...r.data.annexes], origine: null, exigerEnGestion: true }, { auteur, tuile: 'Location' }));
+        // Arno (21/10/2026, 404) : le dossier Drive du bien, créé dans l'arbre de son statut, APRÈS l'enregistrement.
+        return repondre(await avecDossierDrive(await avecMail(r, r.etat !== 'ok' ? null : {
+          sens: 'entree', proprietaireId: null, lotIds: [r.data.logementId, ...r.data.annexes], origine: null, exigerEnGestion: true }, { auteur, tuile: 'Location' }),
+          r.etat === 'ok' ? r.data.logementId : null, auteur.libelle));
       }
       case 'ajouter-contact-syndic': {
         const syndicId = identifiant(corps.syndicId);
