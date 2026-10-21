@@ -439,21 +439,6 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
             </div>
           </div>
         )}
-        {/* « ID FISCAL DU BIEN » (Arno, 21/10/2026, migration 401) : le BIEN principal des trois familles (jamais une annexe) ;
-            FACULTATIF ; espaces retirés à l'enregistrement ; avertissement discret, non bloquant, s'il ne compte pas 12 chiffres. */}
-        {famille !== null && (
-          <div className="loc-sous-section" data-id-fiscal>
-            <h4>ID fiscal du bien</h4>
-            <div className="loc-grille">
-              <label className="loc-champ" style={{ maxWidth: '22rem' }}>Identifiant fiscal
-                <input value={b.idFiscal} inputMode="numeric" maxLength={60} placeholder="ex. 921234567890" aria-describedby="loc-id-fiscal-aide"
-                  onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, idFiscal: val })); }} />
-                <small className="loc-aide loc-aide--long" id="loc-id-fiscal-aide">Sur l’avis de taxe foncière</small>
-                {idFiscalInhabituel(b.idFiscal) && <small className="loc-aide loc-aide--long loc-aide--avert" role="status" data-id-fiscal-avert>{AVERTISSEMENT_ID_FISCAL}</small>}
-              </label>
-            </div>
-          </div>
-        )}
       </section>
 
       <section className="loc-section" aria-labelledby="loc-b2">
@@ -501,9 +486,19 @@ export function CreationBien({ proprietairesInitiaux, continuite }: { proprietai
       </section>
 
       <section className="loc-section" aria-labelledby="loc-b4">
-        <h3 id="loc-b4"><span className="loc-num">{n('copro')}</span>Copropriété</h3>
-        <div className="loc-grille">
+        <h3 id="loc-b4"><span className="loc-num">{n('copro')}</span>Copropriété &amp; ID fiscal</h3>
+        {/* Arno (21/10/2026) : le N° de lot et l'« ID FISCAL DU BIEN » (migration 401) côte à côte, même largeur, libellés alignés en
+            haut ; le syndic dessous ; au téléphone, l'un sous l'autre. L'ID fiscal : le BIEN principal des trois familles (jamais
+            une annexe), visible dès l'ouverture ; FACULTATIF ; espaces retirés à l'enregistrement ; avertissement discret, non
+            bloquant, s'il ne compte pas 12 chiffres. */}
+        <div className="loc-grille loc-grille--debut loc-grille--copro" data-ligne-copro>
           {champ('numLotCopro', 'N° de lot (règlement de copropriété)')}
+          <label className="loc-champ" data-id-fiscal>ID fiscal du bien
+            <input value={b.idFiscal} inputMode="numeric" maxLength={60} placeholder="ex. 921234567890" aria-describedby="loc-id-fiscal-aide"
+              onChange={(e) => { const val = e.target.value; setB((x) => ({ ...x, idFiscal: val })); }} />
+            <small className="loc-aide loc-aide--long" id="loc-id-fiscal-aide">Sur l’avis de taxe foncière</small>
+            {idFiscalInhabituel(b.idFiscal) && <small className="loc-aide loc-aide--long loc-aide--avert" role="status" data-id-fiscal-avert>{AVERTISSEMENT_ID_FISCAL}</small>}
+          </label>
           <BlocSyndic adresse={{ libelle: b.adresse, codePostal: b.codePostal, commune: b.commune }} choisi={syndic} onChoisi={setSyndic} />
         </div>
       </section>

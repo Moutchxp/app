@@ -173,7 +173,7 @@ describe('🔴 « Créer un nouveau propriétaire » → le bien sur la même pa
     expect(f).not.toBeNull();
     expect(f.textContent).not.toContain('Chercher un propriétaire');
     expect([...f.querySelectorAll('.loc-section > h3')].map((h) => h.textContent?.replace('*', '').trim()))
-      .toEqual(['Le bien de ce nouveau propriétaire', '1Le bien', '2Adresse et situation', '3Copropriété', '4Annexes', '5Caractéristiques complémentaires', '6Commentaires']);
+      .toEqual(['Le bien de ce nouveau propriétaire', '1Le bien', '2Adresse et situation', '3Copropriété & ID fiscal', '4Annexes', '5Caractéristiques complémentaires', '6Commentaires']);
     expect(f.querySelector('[data-rappel-proprietaires]')?.textContent).toContain('MARTIN');
     expect(f.querySelector('[data-rappel-proprietaires] input')).toBeNull();
     await remplirMinimum();

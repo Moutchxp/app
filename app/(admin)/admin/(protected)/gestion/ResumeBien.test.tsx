@@ -125,13 +125,13 @@ describe('🔴 l’encart du bien : résumé toujours visible, détail dépliabl
     await rendre(LOUE);
     expect(lignes('copropriete')).toEqual(['N° de lot', 'Syndic', 'Dernière AG']);
   });
-  it('🔴 Arno (21/10/2026, 401) — « ID fiscal » dans « Caractéristiques » (« non renseigné » si vide) ; absent pour une annexe ou sans la migration', async () => {
+  it('🔴 Arno (21/10/2026, 401) — « ID fiscal » dans « Copropriété », à côté du N° de lot (« non renseigné » si vide) ; absent pour une annexe ou sans la migration', async () => {
     for (const [valeur, attendu] of [['921234567890', '921234567890'], [null, 'non renseigné']] as const) {
       act(() => root.unmount()); root = createRoot(container);
       await rendre({ ...LOUE, caracteristiques: { ...LOUE.caracteristiques, idFiscal: valeur } });
-      expect(container.querySelector('[data-groupe="caracteristiques"] [data-rb="id-fiscal"]')?.textContent).toBe(attendu);
-      const mots = [...container.querySelectorAll('[data-colonne="bien"] dt')].map((d) => d.textContent);
-      expect(mots.indexOf('ID fiscal')).toBe(mots.indexOf('Étage') + 1);
+      expect(container.querySelector('[data-groupe="copropriete"] [data-rb="id-fiscal"]')?.textContent).toBe(attendu);
+      expect(container.querySelector('[data-groupe="caracteristiques"] [data-rb="id-fiscal"]')).toBeNull();
+      expect(lignes('copropriete')).toEqual(['N° de lot', 'ID fiscal', 'Syndic', 'Dernière AG']);
     }
     act(() => root.unmount()); root = createRoot(container);
     await rendre(LOUE); // annexe (le dépôt ne fournit pas la ligne) ou migration absente

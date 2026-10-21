@@ -6,7 +6,8 @@ import { CreationBien } from './CreationBien';
 import { SectionLocationBien } from '../gestion/SectionsLocationFiche';
 
 /**
- * 🔴 Arno (21/10/2026, migration 401) — « Nouveau bien », bloc « Le bien » : le champ « ID FISCAL DU BIEN » (avis de taxe foncière),
+ * 🔴 Arno (21/10/2026, migration 401) — « Nouveau bien », bloc « Copropriété & ID fiscal » (déplacé du bloc « Le bien » le même
+ * jour) : à DROITE du « N° de lot », même ligne, visible dès l'ouverture ; le champ « ID FISCAL DU BIEN » (avis de taxe foncière),
  * pour le bien principal des TROIS familles, JAMAIS sur une carte d'annexe. FACULTATIF (ne bloque pas « Enregistrer le bien »,
  * absent de « Reste à renseigner ») ; espaces retirés à l'enregistrement ; avertissement discret, non bloquant, s'il ne compte
  * pas 12 chiffres ; mention « Sur l'avis de taxe foncière ». Modifiable depuis la fiche du bien (jamais d'une annexe).
@@ -54,14 +55,24 @@ const parkingComplet = async () => {
 };
 
 describe('🔴 « ID fiscal du bien » — l’écran « Nouveau bien »', () => {
-  it('dans le bloc « Le bien », pour les TROIS familles : libellé, mention « Sur l’avis de taxe foncière », aucun avertissement à vide', async () => {
+  it('bloc « Copropriété & ID fiscal », à droite du N° de lot, le syndic dessous ; visible dès l’ouverture et pour les TROIS familles', async () => {
     await rendre();
-    expect(bloc()).toBeNull(); // rien tant qu'aucune famille n'est choisie (comme tout le bloc)
+    const verifier = (f: string) => {
+      expect(bloc(), f).not.toBeNull();
+      expect(bloc()?.closest('[data-bloc-bien]'), f).toBeNull();
+      expect(bloc()?.closest('section')?.querySelector('h3')?.textContent, f).toMatch(/Copropriété & ID fiscal$/);
+      const ligne = bloc()?.closest('[data-ligne-copro]') as HTMLElement;
+      expect(ligne.classList.contains('loc-grille--copro'), f).toBe(true);
+      const enfants = [...ligne.children];
+      expect(enfants[0].textContent, f).toMatch(/^N° de lot \(règlement de copropriété\)/);
+      expect(enfants[1], f).toBe(bloc());
+      expect(enfants.indexOf(ligne.querySelector('[data-syndic]')!), f).toBe(2);
+      expect(bloc()?.firstChild?.textContent).toBe('ID fiscal du bien');
+    };
+    verifier('aucune famille'); // dès l'ouverture, comme le N° de lot
     for (const f of ['logement', 'local', 'parking']) {
       await clic(container.querySelector(`[data-famille="${f}"]`)!);
-      expect(bloc(), f).not.toBeNull();
-      expect(bloc()?.closest('[data-bloc-bien]'), f).not.toBeNull();
-      expect(bloc()?.querySelector('h4')?.textContent).toBe('ID fiscal du bien');
+      verifier(f);
       expect(bloc()?.querySelector('#loc-id-fiscal-aide')?.textContent).toBe('Sur l’avis de taxe foncière');
       expect(champId().placeholder).toMatch(/^ex\. /);
       expect(avert()).toBeNull();
@@ -136,6 +147,8 @@ describe('🔴 « ID fiscal du bien » — la fiche du bien (modifiable), jamais
     await calmer();
     const comp = container.querySelector('[data-complements]') as HTMLElement;
     expect(ligne(comp, 'ID fiscal')).toBe('921234567890');
+    const mots = [...comp.querySelectorAll('dt')].map((d) => d.textContent);
+    expect(mots.indexOf('ID fiscal')).toBe(mots.indexOf('Syndic') - 1); // avec la copropriété (Arno, 21/10/2026)
     await act(async () => { bouton(comp, 'Modifier').click(); });
     const champ = comp.querySelector('[data-id-fiscal] input') as HTMLInputElement;
     expect(champ.value).toBe('921234567890');

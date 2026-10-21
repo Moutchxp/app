@@ -733,7 +733,6 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
   ];
   const lignesPrincipal: [string, string | null][] = [
     ['Famille', famille === null ? null : LIBELLE_FAMILLE[famille]],
-    ...(avecIdFiscal ? [['ID fiscal', c.idFiscal ?? null] as [string, string | null]] : []),
     ...(famille === 'local' ? [['Type de local', c.typeLocal === null ? null : LIBELLE_TYPE_LOCAL[c.typeLocal]] as [string, string | null]] : []),
     ...(parking ? [...lignesParking, ['Surface', c.surfaceM2 === null ? null : `${String(c.surfaceM2).replace('.', ',')} m²`] as [string, string | null]] : []),
   ];
@@ -742,7 +741,10 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
     ['Nombre de pièces', c.nombrePieces === null ? null : String(c.nombrePieces)],
     ['Meublé', c.meuble === null ? null : c.meuble ? 'Meublé' : 'Non meublé'],
     ['Surface habitable', c.surfaceHabitableM2 === null ? null : `${String(c.surfaceHabitableM2).replace('.', ',')} m²`],
-    ['Bâtiment', c.batiment], ['Escalier', c.escalier], ['Syndic', c.syndicNom],
+    ['Bâtiment', c.batiment], ['Escalier', c.escalier],
+    // Arno (21/10/2026, 401) : l'ID fiscal avec la copropriété (syndic, charges), comme au bloc « Copropriété & ID fiscal ».
+    ...(avecIdFiscal ? [['ID fiscal', c.idFiscal ?? null] as [string, string | null]] : []),
+    ['Syndic', c.syndicNom],
     ...(avecCharges ? [['Charges de copropriété', c.chargesCopro ? PAYEES_PAR[c.chargesCopro] : null] as [string, string | null]] : []),
     ['Époque de construction', c.epoqueConstruction], ['Chauffage', c.chauffage],
     ['DPE', c.dpeNonSoumis === true ? 'non soumis (bien dispensé de DPE)' : c.dpeClasse === null && date === null ? null : [c.dpeClasse === null ? null : `classe ${c.dpeClasse}`, date === null ? null : `du ${date}`].filter((x) => x).join(' ')],
@@ -811,12 +813,12 @@ function Complements({ id, c, apres, annexe = false, categorie, familleMention =
             {!parking && champ('surfaceHabitableM2', famille === 'local' ? 'Surface (m²)' : 'Surface habitable (m²)', { inputMode: 'decimal' })}
             {champ('batiment', 'Bâtiment')}
             {champ('escalier', 'Escalier')}
-            {choix('syndicId', 'Syndic (Gestion)', [...(c.syndicId !== null && !syndics.some((s) => s.id === c.syndicId) ? [[String(c.syndicId), c.syndicNom ?? `Syndic ${c.syndicId}`] as const] : []),
-              ...syndics.map((x) => [String(x.id), x.nom] as const)])}
-            {avecCharges && choix('chargesCopro', 'Paiement des charges', CHARGES_COPRO.map((x) => [x, LIBELLE_CHARGES_COPRO[x]] as const))}
             {avecIdFiscal && <span data-id-fiscal>{champ('idFiscal', 'ID fiscal du bien', { inputMode: 'numeric', maxLength: 60, placeholder: 'ex. 921234567890' })}
               <small className="loc-muet">Sur l’avis de taxe foncière</small>
               {idFiscalInhabituel(v.idFiscal) && <small className="loc-muet" role="status" style={{ display: 'block', color: 'var(--color-svv-amber)', fontWeight: 600 }} data-id-fiscal-avert>{AVERTISSEMENT_ID_FISCAL}</small>}</span>}
+            {choix('syndicId', 'Syndic (Gestion)', [...(c.syndicId !== null && !syndics.some((s) => s.id === c.syndicId) ? [[String(c.syndicId), c.syndicNom ?? `Syndic ${c.syndicId}`] as const] : []),
+              ...syndics.map((x) => [String(x.id), x.nom] as const)])}
+            {avecCharges && choix('chargesCopro', 'Paiement des charges', CHARGES_COPRO.map((x) => [x, LIBELLE_CHARGES_COPRO[x]] as const))}
             {!parking && choix('epoqueConstruction', 'Époque de construction', EPOQUES_CONSTRUCTION.map((x) => [x, x] as const))}
             {!parking && choix('chauffage', 'Chauffage', CHAUFFAGES.map((x) => [x, x] as const))}
             {!parking && choix('dpeClasse', 'Classe DPE', [...CLASSES_DPE.map((x) => [x, x] as const), [DPE_NON_SOUMIS, LIBELLE_DPE_NON_SOUMIS] as const])}

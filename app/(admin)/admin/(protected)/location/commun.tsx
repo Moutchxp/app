@@ -294,6 +294,8 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 .loc-annexe-tete .svv-btn{width:auto}
 /* Bloc 6 : libellés et champs alignés EN HAUT (une légende sous un champ ne décale plus ses voisins). */
 .loc-ample .loc-grille.loc-grille--debut{align-items:start}
+/* Bloc 4 (Arno, 21/10/2026) : N° de lot et ID fiscal côte à côte, même largeur ; le syndic (pleine largeur) dessous. */
+.loc-ample .loc-grille.loc-grille--copro{grid-template-columns:repeat(2,minmax(0,1fr))}
 .loc-cartes-creation{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(380px,100%),1fr));gap:20px;align-items:start}
 .loc-cartes-creation .cp-carte{width:auto;max-width:100%;min-width:0;border-radius:22px;padding:20px}
 .loc-ample .cp-saisie{min-height:52px;font-size:1.05rem;border-radius:12px}
@@ -358,6 +360,7 @@ ${CSS_PILULES}.loc-puces{list-style:none;margin:0;padding:0;display:flex;flex-wr
 @media (max-width:760px){
   .loc-gros-boutons{grid-template-columns:1fr}
   .loc-familles{grid-template-columns:1fr}
+  .loc-ample .loc-grille.loc-grille--copro{grid-template-columns:1fr}
   .loc-familles .loc-gros-bouton{min-height:5rem}
   .loc-gros-bouton{min-height:7.5rem;font-size:1.25rem;padding:22px}
   .loc-section{padding:20px 18px;border-radius:22px}

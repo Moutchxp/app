@@ -79,7 +79,7 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
 
   // Un groupe du détail est vide quand AUCUNE de ses informations n'est connue.
   const situationVide = s === undefined || [s.batiment, s.escalier, parking ? null : s.porte, s.precisionAcces, s.ascenseur, s.digicode].every((x) => x === null || x === '');
-  const coproVide = co === undefined || (co.numLotCopro === null && co.syndic === null && co.derniereAg === null && (co.chargesCopro ?? null) === null);
+  const coproVide = co === undefined || (co.numLotCopro === null && co.syndic === null && co.derniereAg === null && (co.chargesCopro ?? null) === null && (c?.idFiscal ?? null) === null);
   const entretiens = g === undefined ? null : g.entretienAPrevoir === false ? 'non'
     : g.entretiens.length > 0 ? `oui — ${g.entretiens.map((e) => `${libelleEntretien({ sorte: e.sorte as 'chaudiere' | 'ramonage' | 'autre', nom: e.nom })}${e.dateAnniversaire ? ` (${formaterDateIso(e.dateAnniversaire)})` : ''}`).join(' · ')}`
       : g.entretienAPrevoir === true ? 'oui' : null;
@@ -103,8 +103,6 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
             {lr.pieces !== undefined && <><dt>{lr.famille === 'local' ? 'Bureaux / pièces' : 'Pièces'}</dt><dd data-rb="pieces">{lr.pieces ?? rien('non renseignées')}</dd></>}
             <dt>Étage</dt>
             <dd data-rb="etage">{etage ?? rien()}</dd>
-            {/* Arno (21/10/2026, 401) — l'ID fiscal du bien (jamais pour une annexe : la ligne n'est alors pas fournie). */}
-            {c?.idFiscal !== undefined && <><dt>ID fiscal</dt><dd data-rb="id-fiscal">{c.idFiscal ?? rien()}</dd></>}
             {/* Parking : le n° de place dans le résumé (Arno, 20/10/2026) — il quitte alors le détail (une seule ligne par information). */}
             {parking && <><dt>N° de place</dt><dd data-rb="porte">{s?.porte ?? rien()}</dd></>}
             {f.proprietaireId === null && (
@@ -164,6 +162,8 @@ export function ResumeBienFiche({ f }: { f: FicheLot; ouvrir: (s: FicheUrl['sort
             </Groupe>
             <Groupe titre="Copropriété" cle="copropriete" vide={coproVide}>
               <dt>N° de lot</dt><dd data-rb="lot-copro">{co?.numLotCopro ?? rien()}</dd>
+              {/* Arno (21/10/2026, 401) — l'ID fiscal du bien, à côté du N° de lot (jamais pour une annexe : la ligne n'est alors pas fournie). */}
+              {c?.idFiscal !== undefined && <><dt>ID fiscal</dt><dd data-rb="id-fiscal">{c.idFiscal ?? rien()}</dd></>}
               <dt>Syndic</dt>
               <dd data-rb="syndic">{co?.syndic == null ? rien() : <a className="rb-lien" href={`/admin/location/syndic/${co.syndic.id}`}>{co.syndic.nom}</a>}</dd>
               {/* Arno (21/10/2026, 400) — « Paiement des charges » : qui règle les charges de copropriété au syndic (sous le syndic). */}
